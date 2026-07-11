@@ -1,0 +1,342 @@
+/* ========================================
+   CPQ Platform - Ant Design Vue Dark Theme Overrides
+   Selector specificity: #app .ant-* (no !important)
+   ======================================== */
+
+/* 表格 */
+#app .ant-table {
+  background: var(--cpq-bg-secondary);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-table-thead > tr > th {
+  background: var(--cpq-bg-tertiary);
+  color: var(--cpq-text-secondary);
+  border-bottom: 1px solid var(--cpq-border-primary);
+}
+
+#app .ant-table-tbody > tr > td {
+  background: var(--cpq-bg-secondary);
+  color: var(--cpq-text-primary);
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+#app .ant-table-tbody > tr:hover > td {
+  background: var(--cpq-bg-tertiary);
+}
+
+#app .ant-table-placeholder > td {
+  background: var(--cpq-bg-secondary);
+}
+
+/* 分页 */
+#app .ant-pagination-item {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-primary);
+}
+
+#app .ant-pagination-item a {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-pagination-item-active {
+  background: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+}
+
+#app .ant-pagination-item-active a {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-pagination-prev .ant-pagination-item-link,
+#app .ant-pagination-next .ant-pagination-item-link {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-primary);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-pagination-disabled .ant-pagination-item-link {
+  color: var(--cpq-text-disabled);
+}
+
+/* 输入框 */
+#app .ant-input,
+#app .ant-input-number,
+#app .ant-select-selector {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-light);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-input-number-input {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-input-number-handler-wrap {
+  background: var(--cpq-border-secondary);
+  border-left: 1px solid var(--cpq-border-primary);
+}
+
+#app .ant-input-number-handler-up-inner,
+#app .ant-input-number-handler-down-inner {
+  color: var(--cpq-text-secondary);
+}
+
+/* 输入框聚焦 */
+#app .ant-input:focus,
+#app .ant-input-focused,
+#app .ant-input-number-focused,
+#app .ant-select-focused .ant-select-selector {
+  border-color: var(--cpq-accent-primary);
+  box-shadow: 0 0 0 2px rgba(0, 245, 212, 0.15);
+}
+
+/* 按钮 */
+#app .ant-btn-default {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-primary);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-btn-default:hover {
+  border-color: var(--cpq-accent-primary-light);
+  color: var(--cpq-accent-primary-light);
+  background: var(--cpq-bg-secondary);
+}
+
+#app .ant-btn {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-btn-primary {
+  background: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+}
+
+#app .ant-btn-primary:hover {
+  background: var(--cpq-accent-primary-light);
+  border-color: var(--cpq-accent-primary-light);
+}
+
+/* 标签 */
+#app .ant-tag {
+  border-color: var(--cpq-border-primary);
+}
+
+/* Tabs */
+#app .ant-tabs-card .ant-tabs-tab {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-primary);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-tabs-card .ant-tabs-tab-active {
+  background: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+}
+
+#app .ant-tabs-tab {
+  color: var(--cpq-text-secondary);
+}
+
+#app .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: var(--cpq-accent-primary-light);
+}
+
+#app .ant-tabs-ink-bar {
+  background: var(--cpq-accent-primary-light);
+}
+
+/* Modal */
+#app .ant-modal-content {
+  background: rgba(16, 18, 23, 0.85);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  color: var(--cpq-text-primary);
+  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8),
+              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+#app .ant-modal-header {
+  background: transparent;
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+#app .ant-modal-title {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-modal-close-x {
+  color: var(--cpq-text-secondary);
+}
+
+/* Upload */
+#app .ant-upload {
+  background: var(--cpq-bg-secondary);
+  border-color: var(--cpq-border-primary);
+}
+
+#app .ant-upload-drag {
+  background: var(--cpq-bg-secondary);
+  border-color: var(--cpq-border-primary);
+}
+
+#app .ant-upload-drag:hover {
+  border-color: var(--cpq-accent-primary-light);
+}
+
+#app .ant-upload-text {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-upload-hint {
+  color: var(--cpq-text-muted);
+}
+
+/* Descriptions */
+#app .ant-descriptions-item-label {
+  color: var(--cpq-text-secondary);
+  background: var(--cpq-bg-tertiary);
+}
+
+#app .ant-descriptions-item-content {
+  color: var(--cpq-text-primary);
+}
+
+/* Card */
+#app .ant-card {
+  background: var(--cpq-bg-secondary);
+  border-color: var(--cpq-border-primary);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-card-head {
+  border-bottom: 1px solid var(--cpq-border-secondary);
+  color: var(--cpq-text-primary);
+}
+
+/* Collapse */
+#app .ant-collapse {
+  background: transparent;
+  border: none;
+}
+
+#app .ant-collapse-header {
+  color: var(--cpq-text-muted);
+}
+
+#app .ant-collapse-content {
+  background: transparent;
+  border-top: 1px solid var(--cpq-border-secondary);
+}
+
+#app .ant-collapse-content-box {
+  color: var(--cpq-text-primary);
+}
+
+/* Spin */
+#app .ant-spin-text {
+  color: var(--cpq-text-secondary);
+}
+
+/* Result */
+#app .ant-result-title {
+  color: var(--cpq-text-primary);
+}
+
+/* Menu */
+#app .ant-menu-dark {
+  background: transparent;
+}
+
+/* Space */
+#app .ant-space-item {
+  color: var(--cpq-text-primary);
+}
+
+/* Tooltip */
+#app .ant-tooltip-inner {
+  background: var(--cpq-bg-tertiary);
+  color: var(--cpq-text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  border: 1px solid var(--cpq-border-primary);
+  box-shadow: var(--cpq-shadow-md);
+}
+
+#app .ant-tooltip-arrow-content {
+  background: var(--cpq-bg-tertiary);
+}
+
+/* Select dropdown */
+#app .ant-select-dropdown {
+  background: var(--cpq-bg-tertiary);
+}
+
+#app .ant-select-item {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-select-item-option-active {
+  background: var(--cpq-bg-secondary);
+}
+
+#app .ant-select-item-option-selected {
+  background: var(--cpq-accent-primary);
+}
+
+/* Drawer */
+#app .ant-drawer .ant-drawer-content-wrapper,
+#app .ant-drawer .ant-drawer-content {
+  background: rgba(16, 18, 23, 0.85);
+  backdrop-filter: blur(20px) saturate(1.6);
+  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+}
+
+#app .ant-drawer-header {
+  background: transparent;
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+#app .ant-drawer-title {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-drawer-close {
+  color: var(--cpq-text-secondary);
+}
+
+#app .ant-drawer-body {
+  background: transparent;
+  color: var(--cpq-text-primary);
+}
+
+/* Form */
+#app .ant-form-item-label > label {
+  color: var(--cpq-text-secondary);
+}
+
+/* Divider */
+#app .ant-divider {
+  border-top-color: var(--cpq-border-secondary);
+}
+
+#app .ant-divider-inner-text {
+  color: var(--cpq-text-muted);
+}
+
+/* Checkbox */
+#app .ant-checkbox-wrapper {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-checkbox-inner {
+  background: var(--cpq-bg-tertiary);
+  border-color: var(--cpq-border-light);
+}
+
+#app .ant-checkbox-checked .ant-checkbox-inner {
+  background: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+}

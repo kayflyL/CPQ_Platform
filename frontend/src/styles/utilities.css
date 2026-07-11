@@ -1,0 +1,34 @@
+/* ========================================
+   CPQ Platform - Micro-interaction Utilities
+   ======================================== */
+
+/* 动效：hover 上浮 + 边框发光（交互元素） */
+.action-card,
+.kpi-card,
+.stat-card,
+.kp-card,
+.ant-card,
+.ant-btn {
+  transition: all var(--cpq-transition-fast);
+}
+
+.action-card:hover,
+.kpi-card:hover,
+.stat-card:hover,
+.kp-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--cpq-accent-primary) !important;
+}
+
+/* 按钮 hover */
+#app .ant-btn-default:hover {
+  transform: translateY(-1px);
+  border-color: var(--cpq-accent-primary) !important;
+  color: var(--cpq-accent-primary) !important;
+  box-shadow: 0 0 16px rgba(0, 245, 212, 0.3);
+}
+
+#app .ant-btn-primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 20px rgba(0, 245, 212, 0.5);
+}

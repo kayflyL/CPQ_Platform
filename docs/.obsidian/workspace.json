@@ -1,0 +1,272 @@
+{
+  "main": {
+    "id": "8660b124ab527e28",
+    "type": "split",
+    "children": [
+      {
+        "id": "27e6f2799cf3e754",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e8510019c85597f8",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "业务流程图.canvas",
+                "viewState": {
+                  "x": 690.0642350581676,
+                  "y": 1632.2869566725847,
+                  "zoom": -1.6666666666666665
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "业务流程图"
+            }
+          },
+          {
+            "id": "45e6d17aa007769f",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "各功能模块/报价工作台.canvas",
+                "viewState": {
+                  "x": 0,
+                  "y": 0,
+                  "zoom": 0
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "报价工作台"
+            }
+          },
+          {
+            "id": "30c5c5f267a5118f",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "业务流程图.canvas",
+                "viewState": {
+                  "x": 3041.959994086385,
+                  "y": 1182.63939007779,
+                  "zoom": -1.7885169261051164
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "业务流程图"
+            }
+          },
+          {
+            "id": "e1797c2361c60301",
+            "type": "leaf",
+            "state": {
+              "type": "canvas",
+              "state": {
+                "file": "各功能模块/报价工作台.canvas",
+                "viewState": {
+                  "x": 450.42365663025737,
+                  "y": -114.18650805903974,
+                  "zoom": -1
+                }
+              },
+              "icon": "lucide-layout-dashboard",
+              "title": "报价工作台"
+            }
+          }
+        ],
+        "currentTab": 3
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "e76ab6643c816552",
+    "type": "split",
+    "children": [
+      {
+        "id": "42c25eec26016e7a",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "a6f0726d52efe513",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "9dfb47d85be954ff",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "7a213ea9af8c3960",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 267.5
+  },
+  "right": {
+    "id": "53d344d27c944a53",
+    "type": "split",
+    "children": [
+      {
+        "id": "9be1113d7c42f488",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "70bb6a098685917c",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "3，版本路线图.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "3，版本路线图 的反向链接列表"
+            }
+          },
+          {
+            "id": "500803ccaf8ac072",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "3，版本路线图.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "3，版本路线图 的出链列表"
+            }
+          },
+          {
+            "id": "72c745a0436435ca",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "a62eb09f8dfd9e62",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "404525ea61e6be3c",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "3，版本路线图.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "3，版本路线图 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "e1797c2361c60301",
+  "lastOpenFiles": [
+    "业务流程图.canvas",
+    "各功能模块/报价工作台.canvas",
+    "API 路由.md",
+    "System_Architecture.md",
+    "README.md",
+    "Frontend_Style_Guide.md",
+    "Design_Principles.md",
+    "Component_Inventory.md",
+    "Deployment.md",
+    "CHANGELOG.md",
+    "各功能模块/导出模板.md",
+    "各功能模块",
+    "数据库.md",
+    "Template_Editor_Redesign.md",
+    "Page_Map.canvas",
+    "业务流程图.backup.canvas",
+    "界面设计/规则配置.canvas",
+    "界面设计",
+    "Lessons_Learned.md",
+    "Project_Vision.md",
+    "Developer_Guide.md",
+    "Database_Design.md",
+    "_UI_UX_Design.md",
+    "Development_Roadmap.md",
+    "AI_Roadmap.md",
+    "API_Design.md",
+    "开发约束.md",
+    "第一代-BUG问题一览.md"
+  ]
+}

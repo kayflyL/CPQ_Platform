@@ -1,0 +1,217 @@
+{
+  "main": {
+    "id": "683790ca54bbba26",
+    "type": "split",
+    "children": [
+      {
+        "id": "c3a107f8b1fdf0b7",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "49ede2bba1275776",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "docs/System_Architecture.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "System_Architecture"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "f6581e76732907e4",
+    "type": "split",
+    "children": [
+      {
+        "id": "49aad1b4619e57fc",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6952410603f3d04e",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "386d16d7b3a4f2da",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "e379a05a624e87be",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "16b47b14dfeedf49",
+    "type": "split",
+    "children": [
+      {
+        "id": "a24b9e1370369e92",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "539f41064e89b9f9",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "docs/Frontend_Style_Guide.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Frontend_Style_Guide 的反向链接列表"
+            }
+          },
+          {
+            "id": "71b2248e67b42948",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "docs/Frontend_Style_Guide.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Frontend_Style_Guide 的出链列表"
+            }
+          },
+          {
+            "id": "3b86b36c88d7b1e3",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "bc0caf8306b179ef",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "e1b94ab96eea08cc",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "docs/Frontend_Style_Guide.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Frontend_Style_Guide 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "daily-notes:打开/创建今天的日记": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false
+    }
+  },
+  "active": "49ede2bba1275776",
+  "lastOpenFiles": [
+    "docs/Pricing_Engine.md",
+    "docs/Frontend_Style_Guide.md",
+    "docs/System_Architecture.md",
+    "docs/Frontend_Style_Guide.md.tmp.28716.0d15b8cc3fe1",
+    "docs/Frontend_Style_Guide.md.tmp.28716.a7a457610964",
+    "CLAUDE.md",
+    "docs/Excel_Parsing.md",
+    "docs/Engineering_Guide.md",
+    "docs/Design_Principles.md",
+    "docs/Component_Inventory.md",
+    "docs/CHANGELOG.md",
+    "docs/API 路由.md",
+    "docs/业务流程图.canvas",
+    "docs/Engineering_Guide.md.tmp.33412.5f6541f0c6e3",
+    "docs/Engineering_Guide.md.tmp.33412.46036e3ecb54",
+    "docs/Pricing_Engine.md.tmp.33412.15955807c45f",
+    "CLAUDE.md.tmp.32072.c4574f46524d",
+    "docs/System_Architecture.md.tmp.33412.cdc2d43bef8c",
+    "CLAUDE.md.tmp.33412.745ff3320a33",
+    "backend/app/main.py.tmp.32072.4b29cc5359b8",
+    "docs/Frontend_Style_Guide.md.tmp.33412.62fb33993770",
+    "docs/README.md",
+    "docs/业务流程.md",
+    "docs/数据库.md",
+    "frontend/node_modules/glob-parent/CHANGELOG.md",
+    "frontend/node_modules/hasown/CHANGELOG.md",
+    "frontend/node_modules/isarray/README.md",
+    "TEST_GUIDE.md"
+  ]
+}

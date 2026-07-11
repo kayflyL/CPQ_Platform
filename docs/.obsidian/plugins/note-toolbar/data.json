@@ -1,0 +1,159 @@
+{
+  "debugEnabled": false,
+  "defaultToolbar": "dcfdbe8e-f493-4499-a451-f91e50a6e875",
+  "editorMenuAsToolbar": false,
+  "editorMenuToolbar": null,
+  "emptyViewToolbar": null,
+  "export": {
+    "includeIcons": true,
+    "replaceVars": true,
+    "useDataEls": true,
+    "useIds": true
+  },
+  "folderMappings": [],
+  "icon": "circle-ellipsis",
+  "keepPropsState": false,
+  "lockCallouts": false,
+  "obsidianUiVisibility": {},
+  "onboarding": {
+    "startup-help-view": true,
+    "startup-help-welcome": true,
+    "default-dcfdbe8e-f493-4499-a451-f91e50a6e875": true
+  },
+  "ribbonAction": "toolbar",
+  "ribbonToolbar": null,
+  "rules": [],
+  "scriptingEnabled": false,
+  "showEditInFabMenu": false,
+  "showLaunchpad": false,
+  "showToolbarIn": {
+    "audio": false,
+    "bases": false,
+    "canvas": false,
+    "image": false,
+    "kanban": false,
+    "pdf": false,
+    "video": false
+  },
+  "showToolbarInFileMenu": false,
+  "showToolbarInOther": "",
+  "showWhatsNew": true,
+  "textToolbar": null,
+  "textToolbarOnKeyboard": true,
+  "toolbarProp": "notetoolbar",
+  "toolbars": [
+    {
+      "uuid": "dcfdbe8e-f493-4499-a451-f91e50a6e875",
+      "commandPosition": "float",
+      "customClasses": "",
+      "defaultItem": null,
+      "defaultStyles": [
+        "border",
+        "even",
+        "sticky"
+      ],
+      "hasCommand": false,
+      "items": [
+        {
+          "uuid": "df1fed62-6343-4036-8dcf-161a42acb55e",
+          "hasCommand": false,
+          "icon": "table",
+          "inGallery": false,
+          "label": "",
+          "link": "",
+          "linkAttr": {
+            "commandCheck": true,
+            "commandId": "editor:insert-table",
+            "focus": "editor",
+            "hasVars": false,
+            "type": "command"
+          },
+          "plugin": "",
+          "tooltip": "插入表格",
+          "visibility": {
+            "desktop": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "mobile": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "tablet": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "viewMode": "all"
+          }
+        },
+        {
+          "uuid": "bbb29127-161e-4ed9-8c01-c14d925490f2",
+          "hasCommand": false,
+          "icon": "code-square",
+          "inGallery": false,
+          "label": "",
+          "link": "",
+          "linkAttr": {
+            "commandCheck": true,
+            "commandId": "editor:insert-codeblock",
+            "focus": "editor",
+            "hasVars": false,
+            "type": "command"
+          },
+          "plugin": "",
+          "tooltip": "插入代码块（Code Block）",
+          "visibility": {
+            "desktop": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "mobile": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "tablet": {
+              "components": [
+                "icon",
+                "label"
+              ]
+            },
+            "viewMode": "all"
+          }
+        }
+      ],
+      "mobileStyles": [],
+      "name": "New toolbar",
+      "position": {
+        "desktop": {
+          "allViews": {
+            "position": "props"
+          }
+        },
+        "mobile": {
+          "allViews": {
+            "position": "props"
+          }
+        },
+        "tablet": {
+          "allViews": {
+            "position": "props"
+          }
+        }
+      },
+      "updated": "2026-06-30T13:05:28.904Z"
+    }
+  ],
+  "version": 20260428.1,
+  "webviewerToolbar": null,
+  "whatsnew_version": "0"
+}

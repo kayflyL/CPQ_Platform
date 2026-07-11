@@ -1,0 +1,42 @@
+/* ========================================
+   CPQ Platform - Global Reset
+   ======================================== */
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--cpq-bg-primary);
+  color: var(--cpq-text-primary);
+  font-family: var(--cpq-font-family);
+  font-size: var(--cpq-font-size-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  height: 100%;
+}
+
+/* 滚动条样式 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--cpq-bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--cpq-border-secondary);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--cpq-border-primary);
+}

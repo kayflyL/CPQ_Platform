@@ -1,0 +1,111 @@
+/* ========================================
+   CPQ Platform - Design Tokens
+   Theme: Cyberpunk Dark (near-black + cyan accent)
+   Namespace: --cpq-*
+   ======================================== */
+
+:root {
+  /* 背景色 — 接近纯黑 */
+  --cpq-bg-primary: #08090B;
+  --cpq-bg-secondary: #101217;
+  --cpq-bg-tertiary: #171a21;
+  --cpq-bg-sidebar: #08090B;
+  --cpq-bg-sidebar-header: #101217;
+  
+  /* 文字色 — 浅灰白 */
+  --cpq-text-primary: #E8ECEF;
+  --cpq-text-secondary: #9BA1AA;
+  --cpq-text-muted: #6E7582;
+  --cpq-text-disabled: #3D424D;
+  
+  /* 边框色 — 半透明白/青 */
+  --cpq-border-primary: rgba(255, 255, 255, 0.10);
+  --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+  --cpq-border-light: rgba(255, 255, 255, 0.15);
+  
+  /* 强调色 — 亮青色 */
+  --cpq-accent-primary: #00F5D4;
+  --cpq-accent-primary-light: #00F5D4;
+  --cpq-accent-success: #00F5D4;
+  --cpq-accent-warning: #F4D28A;
+  --cpq-accent-danger: #ff4d4f;
+  
+  /* 背景层级 — 卡片/面板 */
+  --cpq-bg-card: #1e1e1e;
+  --cpq-bg-elevated: #252525;
+  --cpq-bg-input: #2a2a2a;
+  --cpq-bg-selected: #1a3a1a;
+  --cpq-bg-highlight: #fffbe6;
+  --cpq-bg-dark: #1a1a1a;
+  
+  /* 边框层级 */
+  --cpq-border-dark: #303030;
+  
+  /* 功能色 */
+  --cpq-color-success: #52c41a;
+  --cpq-color-warning: #faad14;
+  --cpq-color-info: #1890ff;
+  --cpq-color-purple: #a855f7;
+  --cpq-color-purple-dark: #722ed1;
+  --cpq-color-orange: #fa8c16;
+  --cpq-color-gold: #d4a853;
+  
+  /* 文字色补充 */
+  --cpq-text-light: #e0e0e0;
+  --cpq-text-inverse: #1f1f1f;
+  --cpq-text-tertiary: #999;
+  --cpq-text-quaternary: #666;
+  --cpq-text-quinary: #555;
+  
+  /* 阴影 — 深黑外投影 */
+  --cpq-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.6);
+  --cpq-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.7);
+  --cpq-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.85);
+  
+  /* 字体 */
+  --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --cpq-font-size-sm: 12px;
+  --cpq-font-size-base: 14px;
+  --cpq-font-size-lg: 16px;
+  
+  /* 动效 */
+  --cpq-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  --cpq-transition-fast: 0.2s var(--cpq-ease-out-expo);
+  --cpq-transition-normal: 0.3s var(--cpq-ease-out-expo);
+  --cpq-transition-slow: 0.5s var(--cpq-ease-out-expo);
+
+  /* === 半透明叠加色（替换组件中的硬编码 rgba）=== */
+  /* 白色半透明 — 边框/分隔线/微背景 */
+  --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
+  --cpq-overlay-w4: rgba(255, 255, 255, 0.04);
+  --cpq-overlay-w5: rgba(255, 255, 255, 0.05);
+  --cpq-overlay-w6: rgba(255, 255, 255, 0.06);
+  --cpq-overlay-w8: rgba(255, 255, 255, 0.08);
+  --cpq-overlay-w10: rgba(255, 255, 255, 0.10);
+  --cpq-overlay-w15: rgba(255, 255, 255, 0.15);
+  --cpq-overlay-w20: rgba(255, 255, 255, 0.20);
+
+  /* 黑色半透明 — 遮罩/凹陷/阴影叠加 */
+  --cpq-overlay-b15: rgba(0, 0, 0, 0.15);
+  --cpq-overlay-b20: rgba(0, 0, 0, 0.20);
+  --cpq-overlay-b30: rgba(0, 0, 0, 0.30);
+  --cpq-overlay-b40: rgba(0, 0, 0, 0.40);
+  --cpq-overlay-b85: rgba(8, 9, 11, 0.85);
+
+  /* 青色半透明 — 强调/高亮/光晕 */
+  --cpq-overlay-a4: rgba(0, 245, 212, 0.04);
+  --cpq-overlay-a5: rgba(0, 245, 212, 0.05);
+  --cpq-overlay-a8: rgba(0, 245, 212, 0.08);
+  --cpq-overlay-a10: rgba(0, 245, 212, 0.10);
+  --cpq-overlay-a15: rgba(0, 245, 212, 0.15);
+  --cpq-overlay-a20: rgba(0, 245, 212, 0.20);
+  --cpq-overlay-a30: rgba(0, 245, 212, 0.30);
+  --cpq-overlay-a40: rgba(0, 245, 212, 0.40);
+
+  /* 功能色半透明 */
+  --cpq-overlay-danger10: rgba(255, 77, 79, 0.10);
+  --cpq-overlay-danger15: rgba(255, 77, 79, 0.15);
+  --cpq-overlay-success15: rgba(82, 196, 26, 0.15);
+  --cpq-overlay-info20: rgba(24, 144, 255, 0.20);
+  --cpq-overlay-warn30: rgba(244, 210, 138, 0.30);
+}
