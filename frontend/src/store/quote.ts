@@ -46,6 +46,10 @@ export interface L6MatchedRecord {
   psu?: string
   motherboard?: string
   price?: number
+  base_price?: number
+  front_panel_price?: number
+  rear_panel_price?: number
+  psu_price?: number
   note?: string
   date?: string
   match_score?: number
@@ -56,22 +60,9 @@ export interface L6MatchedRecord {
 }
 
 export interface WarrantyInfo {
-  detected: boolean
   years: number | null
   rate: number
   description?: string
-}
-
-export interface L6Meta {
-  model_name?: string
-  chassis_form?: string
-  drive_bays?: string
-  psu?: string
-  motherboard?: string
-  backplane_desc?: string
-  gpu_expansion?: string
-  power_cord?: string
-  rail_kit?: string
 }
 
 export interface ConfigData {
@@ -86,7 +77,14 @@ export interface ConfigData {
     grand_total: number
   }
   l6_matched_record?: L6MatchedRecord | null
-  l6_meta?: L6Meta  // Excel 解析出的原始需求
+  l6_bom_config?: {  // L6 BOM 配置数据
+    base_template?: any
+    front_panel_parts?: any[]
+    rear_panel_parts?: any[]
+    psu_parts?: any[]
+  }
+  l6_custom_price?: number  // 自定义价格
+  l6_profit_margin?: number  // 利润率
   warranty_info?: {
     l6: WarrantyInfo
     kp: WarrantyInfo
@@ -105,12 +103,38 @@ export const useQuoteStore = defineStore('quote', () => {
   // 每个配置的数量（报价单维度）
   const configQuantities = ref<Record<string, number>>({})
   
+  // 每个配置选择的部件类型（用于生成描述）
+  const configSelectedParts = ref<Record<string, string[]>>({})
+  
   // 质保费率（每个配置独立）
   const warrantyRates = ref<Record<string, { l6: number; kp: number }>>({})
   
   // 财务常量（用户可在线调整）
   const taxRate = ref(0.13) // 增值税率（默认 13%）
   const exchangeRate = ref(7.0) // 美元汇率（默认 7.0）
+
+  // 从系统配置加载财务常量默认值
+  const loadFinancialDefaults = async () => {
+    try {
+      const [taxRes, exchangeRes] = await Promise.all([
+        fetch('/api/system-config/tax_rate'),
+        fetch('/api/system-config/usd_to_rmb')
+      ])
+      if (taxRes.ok) {
+        const taxData = await taxRes.json()
+        taxRate.value = taxData.value ?? 0.13
+      }
+      if (exchangeRes.ok) {
+        const exchangeData = await exchangeRes.json()
+        exchangeRate.value = exchangeData.value ?? 7.0
+      }
+    } catch (e) {
+      console.warn('Failed to load financial defaults:', e)
+    }
+  }
+
+  // 初始化时加载默认值
+  loadFinancialDefaults()
 
   // ... Getters (Totals) ---
   const l6Total = computed(() => {
@@ -144,6 +168,9 @@ export const useQuoteStore = defineStore('quote', () => {
     
     Object.values(configs.value).forEach(cfg => {
       cfg.items.forEach(item => {
+        // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
+        if (item.category === 'L6' || item.category === '整机') return
+        
         // 成本 = base_price（底价，不含任何加成）
         const itemCost = item.base_price * item.qty
         // 销售价 = final_price * qty
@@ -151,6 +178,10 @@ export const useQuoteStore = defineStore('quote', () => {
         totalCost += itemCost
         totalSales += itemSales
       })
+      // L6 只有一个机箱，始终使用 l6_custom_price
+      totalCost += cfg.l6_custom_price || 0
+      const margin = cfg.l6_profit_margin || 0
+      totalSales += (cfg.l6_custom_price || 0) * (1 + margin / 100)
     })
 
     if (totalSales === 0) return 0
@@ -189,6 +220,17 @@ export const useQuoteStore = defineStore('quote', () => {
         return item
       })
 
+      // 迁移：旧报价单中 L6/整机 项的 base_price 求和写入 l6_custom_price
+      // 注意：不从 items 中移除 L6 项，因为左侧栏配置单需要展示这些数据
+      // 计算逻辑在循环中会 continue 跳过 L6 项，只使用 l6_custom_price
+      let l6CustomPrice = Number((cfgData as any).l6_custom_price) || 0
+      if (l6CustomPrice === 0) {
+        const l6Items = processedItems.filter(i => i.category === 'L6' || i.category === '整机')
+        if (l6Items.length > 0) {
+          l6CustomPrice = l6Items.reduce((sum, i) => sum + i.base_price * i.qty, 0)
+        }
+      }
+
       newConfigs[cfgName] = {
         name: cfgName,
         description: (cfgData as any).description || '',
@@ -196,10 +238,11 @@ export const useQuoteStore = defineStore('quote', () => {
         items: processedItems,
         summary: (cfgData as any).summary || { l6_total: 0, kp_total: 0, grand_total: 0 },
         l6_matched_record: (cfgData as any).l6_matched_record || null,
-        l6_meta: (cfgData as any).l6_meta || {},  // Excel 解析出的原始需求
+        l6_custom_price: l6CustomPrice,
+        l6_profit_margin: (cfgData as any).l6_profit_margin || 10,
         warranty_info: (cfgData as any).warranty_info || {
-          l6: { detected: false, years: null, rate: 0 },
-          kp: { detected: false, years: null, rate: 0 }
+          l6: { years: null, rate: 0 },
+          kp: { years: null, rate: 0 }
         }
       }
       
@@ -259,6 +302,32 @@ export const useQuoteStore = defineStore('quote', () => {
     const cfg = configs.value[cfgName]
     if (cfg?.warranty_info) {
       cfg.warranty_info.kp.years = years
+    }
+  }
+
+  // 设置 L6 自定义价格（四步配置的结果）
+  function setL6CustomPrice(cfgName: string, price: number, margin: number = 10) {
+    const cfg = configs.value[cfgName]
+    if (cfg) {
+      cfg.l6_custom_price = price
+      cfg.l6_profit_margin = margin
+      recalculateAll()
+    }
+  }
+
+  // 设置 L6 匹配记录（卡片显示用）
+  function setL6MatchedRecord(cfgName: string, record: any) {
+    const cfg = configs.value[cfgName]
+    if (cfg) {
+      cfg.l6_matched_record = record
+    }
+  }
+
+  // 设置 L6 BOM 配置
+  function setL6BomConfig(cfgName: string, bomConfig: any) {
+    const cfg = configs.value[cfgName]
+    if (cfg) {
+      cfg.l6_bom_config = bomConfig
     }
   }
 
@@ -335,11 +404,11 @@ export const useQuoteStore = defineStore('quote', () => {
       const lineSales = unitSales * qty
       const lineCost = base * qty
 
+      // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
+      if (item.category === 'L6' || item.category === '整机') continue
+
       const partName = (item.part_name || '').toLowerCase()
-      if (item.category === 'L6' || item.category === '整机') {
-        l6Cost += lineCost
-        l6Sales += lineSales
-      } else if (partName.includes('质保') || partName.includes('warranty')) {
+      if (partName.includes('质保') || partName.includes('warranty')) {
         warrantyCost += lineCost
         warrantySales += lineSales
       } else {
@@ -347,6 +416,11 @@ export const useQuoteStore = defineStore('quote', () => {
         kpSales += lineSales
       }
     }
+
+    // L6 只有一个机箱，价格由 l6_custom_price 统一管理
+    l6Cost = cfg.l6_custom_price || 0
+    const l6Margin = cfg.l6_profit_margin || 0
+    l6Sales = l6Cost * (1 + l6Margin / 100)
 
     // 加上手动质保费用
     const warrantyL6 = calcWarrantyFeeL6(cfgName)
@@ -357,9 +431,23 @@ export const useQuoteStore = defineStore('quote', () => {
     const totalCost = l6Cost + kpCost + totalWarranty
     const totalSales = l6Sales + kpSales + totalWarrantySales
     const profit = totalSales - totalCost
-    const marginPct = totalSales > 0 ? (profit / totalSales) * 100 : 0
+    const marginPct = totalCost > 0 ? (profit / totalCost) * 100 : 0
 
     return { l6Cost, kpCost, warrantyCost: totalWarranty, l6Sales, kpSales, warrantySales: totalWarrantySales, totalCost, totalSales, profit, marginPct }
+  }
+
+  // 为每个配置创建 computed 的财务数据（确保响应式追踪）
+  const configTotalsMap = computed(() => {
+    const result: Record<string, any> = {}
+    for (const cfgName of Object.keys(configs.value)) {
+      result[cfgName] = calcConfigTotals(cfgName)
+    }
+    return result
+  })
+
+  // 获取指定配置的财务数据
+  function getConfigTotals(cfgName: string) {
+    return configTotalsMap.value[cfgName] || { l6Cost: 0, kpCost: 0, warrantyCost: 0, l6Sales: 0, kpSales: 0, warrantySales: 0, totalCost: 0, totalSales: 0, profit: 0, marginPct: 0 }
   }
 
   function recalculateAll() {
@@ -369,6 +457,9 @@ export const useQuoteStore = defineStore('quote', () => {
       let warrantySum = 0
 
       for (const item of cfg.items) {
+        // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
+        if (item.category === 'L6' || item.category === '整机') continue
+
         let unitPrice = item.base_price
         
         // Currency conversion for USD items (with tax)
@@ -384,17 +475,22 @@ export const useQuoteStore = defineStore('quote', () => {
 
         item.final_price = Math.round(unitPrice * 100) / 100
         const lineTotal = item.final_price * item.qty
-
-        // 分类统计：L6 / 质保 / KP
-        const partName = (item.part_name || '').toLowerCase()
-        if (item.category === 'L6' || item.category === '整机') {
-          l6Sum += lineTotal
-        } else if (partName.includes('质保') || partName.includes('warranty')) {
-          warrantySum += lineTotal
-        } else {
-          kpSum += lineTotal
-        }
+        kpSum += lineTotal
       }
+      
+      // L6 只有一个机箱，始终使用 l6_custom_price
+      l6Sum = cfg.l6_custom_price || 0
+
+      // 根据用户填写的年限和费率自动计算维保价格
+      // 公式：维保价格 = 硬件总价 × 费率 × 年限
+      const l6WarrantyPrice = cfg.warranty_info?.l6?.years && cfg.warranty_info?.l6?.rate
+        ? l6Sum * cfg.warranty_info.l6.rate * cfg.warranty_info.l6.years
+        : 0
+      const kpWarrantyPrice = cfg.warranty_info?.kp?.years && cfg.warranty_info?.kp?.rate
+        ? kpSum * cfg.warranty_info.kp.rate * cfg.warranty_info.kp.years
+        : 0
+      warrantySum = l6WarrantyPrice + kpWarrantyPrice
+
       cfg.summary.l6_total = Math.round(l6Sum * 100) / 100
       cfg.summary.kp_total = Math.round(kpSum * 100) / 100
       cfg.summary.warranty_total = Math.round(warrantySum * 100) / 100
@@ -427,7 +523,8 @@ export const useQuoteStore = defineStore('quote', () => {
           ),
           config_server_models: Object.fromEntries(
             Object.entries(configs.value).map(([name, cfg]) => [name, cfg.server_model || ''])
-          )
+          ),
+          config_selected_parts: configSelectedParts.value
         }
 
         const result = await quotationApi.updateDetails(quotationId, payload)
@@ -489,7 +586,7 @@ export const useQuoteStore = defineStore('quote', () => {
   }
 
   return {
-    opportunityInfo, configs, configQuantities, warrantyRates, taxRate, exchangeRate,
+    opportunityInfo, configs, configQuantities, configSelectedParts, warrantyRates, taxRate, exchangeRate,
     l6Total, kpTotal, grandTotal, marginPercent,
     loadData, updateItem,
     setWarrantyRateL6, setWarrantyRateKP,
@@ -498,7 +595,8 @@ export const useQuoteStore = defineStore('quote', () => {
     setWarrantyDescription,
     getWarrantyRateL6Pct, getWarrantyRateKPPct,
     calcWarrantyFeeL6, calcWarrantyFeeKP,
-    calcConfigTotals,
+    calcConfigTotals, getConfigTotals,
+    setL6CustomPrice, setL6MatchedRecord, setL6BomConfig,
     recalculateAll, saveProject, doExport
   }
 })

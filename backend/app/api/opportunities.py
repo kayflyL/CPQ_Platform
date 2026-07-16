@@ -40,11 +40,15 @@ class CreateOpportunityRequest(BaseModel):
 class UpdateOpportunityRequest(BaseModel):
     opportunity_name: Optional[str] = None
     customer_name: Optional[str] = None
-    total_qty: Optional[int] = None
+    purchase_qty: Optional[int] = None
     platform_type: Optional[str] = None
     chassis_form: Optional[str] = None
     sales_person: Optional[str] = None
     fae: Optional[str] = None
+    quotation_person: Optional[str] = None
+    
+    class Config:
+        extra = "allow"  # Allow dynamic fields from field system
 
 
 @router.post("/")
@@ -99,24 +103,11 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
 
 @router.put("/{opportunity_id}")
 def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest):
-    """Update opportunity basic info"""
+    """Update opportunity basic info (supports dynamic fields)"""
     repo = OpportunityRepository()
     try:
-        updates = {}
-        if req.opportunity_name is not None:
-            updates['opportunity_name'] = req.opportunity_name
-        if req.customer_name is not None:
-            updates['customer_name'] = req.customer_name
-        if req.total_qty is not None:
-            updates['total_qty'] = req.total_qty
-        if req.platform_type is not None:
-            updates['platform_type'] = req.platform_type
-        if req.chassis_form is not None:
-            updates['chassis_form'] = req.chassis_form
-        if req.sales_person is not None:
-            updates['sales_person'] = req.sales_person
-        if req.fae is not None:
-            updates['fae'] = req.fae
+        # Extract all fields from request (including dynamic ones)
+        updates = req.dict(exclude_unset=True)
         
         if not updates:
             return {"status": "success", "message": "No fields to update"}

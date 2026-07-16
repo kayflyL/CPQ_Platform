@@ -10,7 +10,6 @@ import type {
   TemplateEditorState
 } from '@/types/template'
 import { parseExcelTemplate } from '@/utils/excel-generator'
-import { exportTemplateApi } from '@/api'
 import { useParseTemplateStore } from './parseTemplate'
 
 export const useTemplateStore = defineStore('template', () => {
@@ -28,15 +27,20 @@ export const useTemplateStore = defineStore('template', () => {
   // 加载业务字段定义
   async function loadBusinessFields() {
     try {
-      const fields = await exportTemplateApi.getFields()
-      businessFields.value = fields.map((f: any) => ({
+      // 从规则API获取业务字段定义
+      const response = await fetch('/api/rules/business-fields');
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      const data = await response.json();
+      businessFields.value = data.fields.map((f: any) => ({
         key: f.key,
         label: f.label,
         category: f.category as 'opportunity' | 'item' | 'l6' | 'kp' | 'system',
         source: 'system' as const
-      }))
+      }));
     } catch (e) {
-      console.error('Failed to load business fields:', e)
+      console.error('Failed to load business fields:', e);
     }
   }
 

@@ -84,7 +84,7 @@ class FileStorage:
         config_count = opportunity_info.get('config_count', 0) or 0
         
         # 台数
-        total_qty = opportunity_info.get('total_qty', 0) or 0
+        total_qty = opportunity_info.get('purchase_qty', 0) or 0
         
         folder_name = f"{time_str}_{sales}_{chassis}_{platform}_{config_count}配置_{total_qty}台"
         return folder_name

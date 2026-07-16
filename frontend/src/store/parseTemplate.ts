@@ -60,8 +60,7 @@ export const useParseTemplateStore = defineStore('parseTemplate', () => {
       description: '',
       createdAt: Date.now(),
       staticBindings: [],
-      dynamicRegions: [],
-      kpCategoryMappings: []
+      dynamicRegions: []
     }
     currentTemplate.value = newTemplate
     return newTemplate
@@ -160,15 +159,6 @@ export const useParseTemplateStore = defineStore('parseTemplate', () => {
             note: 'I'
           }
         }
-      ],
-      kpCategoryMappings: [
-        { id: 'kpm1', keyword: 'CPU', category: 'CPU' },
-        { id: 'kpm2', keyword: 'Memory', category: '内存' },
-        { id: 'kpm3', keyword: 'HDD', category: '硬盘' },
-        { id: 'kpm4', keyword: 'SSD', category: '硬盘' },
-        { id: 'kpm5', keyword: 'Raid', category: 'RAID卡' },
-        { id: 'kpm6', keyword: 'Network', category: '网卡' },
-        { id: 'kpm7', keyword: 'NIC', category: '网卡' }
       ]
     }
     templates.value = [defaultTemplate]

@@ -353,6 +353,7 @@ import {
 } from '@ant-design/icons-vue'
 import { uploadQuotationToProject } from '@/api/quote'
 import { projectApi, quotationApi } from '@/api'
+import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 
@@ -384,16 +385,8 @@ const renameTargetId = ref<string | null>(null)
 const editingField = ref<string | null>(null)
 const editValue = ref('')
 
-const infoFields = [
-  { key: 'opportunity_name', label: '商机名称', editable: true },
-  { key: 'customer_name', label: '客户名称', editable: true },
-  { key: 'total_qty', label: '台数', editable: true, type: 'number' },
-  { key: 'platform_type', label: '平台类型', editable: true },
-  { key: 'chassis_form', label: '机箱形态', editable: true },
-  { key: 'sales_person', label: '业务/销售', editable: true },
-  { key: 'fae', label: 'FAE', editable: true },
-  { key: 'opportunity_id', label: '商机ID', editable: false },
-]
+// 从 API 加载字段定义
+const infoFields = ref<Array<{ key: string; label: string; editable: boolean; type?: string }>>([])
 
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
@@ -535,18 +528,7 @@ const loadProject = async () => {
     const configCount = activeQuotations.reduce((sum: number, q: any) => sum + (q.config_count || 0), 0)
     
     opportunity.value = {
-      opportunity_id: meta.opportunity_id,
-      folder_name: meta.folder_name || '',
-      opportunity_name: meta.opportunity_name,
-      customer_name: meta.customer_name,
-      sales_person: meta.sales_person || '',
-      fae: meta.fae || '',
-      total_qty: meta.total_qty || 0,
-      platform_type: meta.platform_type || '',
-      chassis_form: meta.chassis_form || '',
-      status: meta.status || 'active',
-      created_at: meta.created_at || '',
-      updated_at: meta.updated_at || '',
+      ...meta,  // 展开所有字段（包括 extra_fields 中的动态字段）
       quotation_count: quotationCount,
       config_count: configCount,
     }
@@ -571,7 +553,7 @@ const cancelEdit = () => {
 }
 
 const saveField = async (field: string) => {
-  const fieldDef = infoFields.find(f => f.key === field)
+  const fieldDef = infoFields.value.find(f => f.key === field)
   let saveValue = editValue.value
   if ((fieldDef as any)?.type === 'number') {
     saveValue = editValue.value != null ? Number(editValue.value) : 0
@@ -734,7 +716,37 @@ const handleUploadToProject = async (options: any) => {
   }
 }
 
+// 加载字段定义
+const loadInfoFields = async () => {
+  try {
+    const fields = await getFieldsByPage('opportunity_detail')
+    infoFields.value = fields
+      .filter((f: any) => f.enabled)
+      .map((f: any) => ({
+        key: f.key,
+        label: f.label,
+        editable: f.permission !== 'readonly',
+        type: f.type === 'number' ? 'number' : undefined
+      }))
+  } catch (err) {
+    console.error('加载字段定义失败:', err)
+    // 使用默认字段作为 fallback
+    infoFields.value = [
+      { key: 'opportunity_name', label: '商机名称', editable: true },
+      { key: 'customer_name', label: '客户名称', editable: true },
+      { key: 'purchase_qty', label: '采购数量', editable: true, type: 'number' },
+      { key: 'sales_person', label: '业务/销售', editable: true },
+      { key: 'fae', label: 'FAE', editable: true },
+      { key: 'quotation_person', label: '报价人', editable: true },
+      { key: 'delivery_region', label: '交付地区', editable: true },
+      { key: 'delivery_cycle', label: '交付周期', editable: true },
+      { key: 'warranty_years', label: '维保年限', editable: true },
+    ]
+  }
+}
+
 onMounted(() => {
+  loadInfoFields()
   loadProject()
   loadDeletedQuotations()
 })
@@ -829,7 +841,7 @@ onMounted(() => {
   margin-bottom: 24px;
   overflow: hidden;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
 }
 
 .info-status-bar {

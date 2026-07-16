@@ -8,10 +8,19 @@ class Settings(BaseSettings):
     APP_VERSION: str = "0.1.11"
     DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
 
-    # Database Configuration
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./data/cpq_platform.db")
+    # PostgreSQL Configuration
+    POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
+    POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
+    POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "961216")
+    POSTGRES_DB: str = os.getenv("POSTGRES_DB", "cpq_platform")
 
-    # Data path (DBs, Configs, Projects)
+    # Database URL (auto-constructed from components)
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}?client_encoding=UTF8"
+
+    # Data path (DBs, Configs, Projects) - kept for backward compatibility
     DATA_PATH: str = os.getenv("DATA_PATH", r"D:\Quotation_Automation")
 
     # CORS Configuration

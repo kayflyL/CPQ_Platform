@@ -97,7 +97,7 @@
             <span class="separator">·</span>
             <span>{{ opportunity.platform_type || '—' }} {{ opportunity.chassis_form || '' }}</span>
             <span class="separator">·</span>
-            <span>{{ opportunity.total_qty || 0 }}台</span>
+            <span>{{ opportunity.purchase_qty || 0 }}台</span>
             <span class="separator">·</span>
             <span>{{ opportunity.config_count || 0 }}配置</span>
             <span class="separator">·</span>

@@ -13,7 +13,7 @@ class L6Repository:
 
     def get_all_records(self, search: str = "",
                         page: int = 1, page_size: int = 50) -> Tuple[List[dict], int]:
-        base = "SELECT rowid as id, * FROM l6_records"
+        base = "SELECT id, * FROM l6.l6_records"
         params: dict = {}
         conditions = []
         if search:
@@ -24,7 +24,7 @@ class L6Repository:
         base += " ORDER BY sort_order ASC, update_date DESC"
 
         # Count
-        count_sql = "SELECT COUNT(*) FROM l6_records"
+        count_sql = "SELECT COUNT(*) FROM l6.l6_records"
         if conditions:
             count_sql += " WHERE " + " AND ".join(conditions)
         with l6_engine.connect() as conn:
@@ -37,16 +37,6 @@ class L6Repository:
         with l6_engine.connect() as conn:
             rows = conn.execute(text(base), params).mappings().all()
         return [dict(r) for r in rows], total
-
-    def get_all_for_matching(self) -> List[dict]:
-        """Get all L6 records for the 5-dimension matching engine."""
-        q = """
-            SELECT chassis, model, motherboard, backplane, drive_bays, psu, price, update_date, note
-            FROM l6_records ORDER BY update_date DESC
-        """
-        with l6_engine.connect() as conn:
-            rows = conn.execute(text(q)).mappings().all()
-        return [dict(r) for r in rows]
 
     def update_record(self, record_id: int, updates: dict) -> bool:
         fields = []
@@ -62,7 +52,7 @@ class L6Repository:
         fields.append("update_date = :ud")
         values["ud"] = datetime.now().strftime("%Y-%m-%d")
         values["rid"] = record_id
-        q = f"UPDATE l6_records SET {', '.join(fields)} WHERE rowid = :rid"
+        q = f"UPDATE l6.l6_records SET {', '.join(fields)} WHERE id = :rid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), values)
         return True
@@ -75,7 +65,7 @@ class L6Repository:
     }
 
     def insert_record(self, data: dict) -> int:
-        """插入L6记录，返回新记录的rowid"""
+        """插入L6记录，返回新记录的id"""
         # Filter to whitelisted columns only (prevent SQL injection via column names)
         safe_data = {k: v for k, v in data.items() if k in self._ALLOWED_COLS}
         if not safe_data:
@@ -83,14 +73,14 @@ class L6Repository:
         cols = list(safe_data.keys())
         placeholders = ", ".join([f":{k}" for k in cols])
         columns = ", ".join(cols)
-        q = f"INSERT INTO l6_records ({columns}) VALUES ({placeholders})"
+        q = f"INSERT INTO l6.l6_records ({columns}) VALUES ({placeholders})"
         with l6_engine.begin() as conn:
             result = conn.execute(text(q), safe_data)
-            return result.lastrowid
+            return result.inserted_primary_key[0]
 
     def get_grouped_by_model(self, search: str = "") -> List[dict]:
         """按机型(model)聚合所有L6记录，返回分组数据"""
-        base = "SELECT rowid as id, * FROM l6_records"
+        base = "SELECT id, * FROM l6.l6_records"
         params: dict = {}
         conditions = []
         if search:
@@ -137,14 +127,14 @@ class L6Repository:
 
     def update_sort_order(self, record_id: int, sort_order: int) -> bool:
         """更新单条记录的排序值"""
-        q = "UPDATE l6_records SET sort_order = :sort_order WHERE rowid = :rid"
+        q = "UPDATE l6.l6_records SET sort_order = :sort_order WHERE id = :rid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), {"sort_order": sort_order, "rid": record_id})
         return True
 
     def batch_update_sort_order(self, items: List[dict]) -> bool:
         """批量更新排序（每个 item 需要 id 和 sort_order）"""
-        q = "UPDATE l6_records SET sort_order = :sort_order WHERE rowid = :rid"
+        q = "UPDATE l6.l6_records SET sort_order = :sort_order WHERE id = :rid"
         with l6_engine.begin() as conn:
             for item in items:
                 conn.execute(text(q), {
@@ -155,7 +145,7 @@ class L6Repository:
 
     def delete_record(self, record_id: int) -> bool:
         """删除单条L6记录"""
-        q = "DELETE FROM l6_records WHERE rowid = :rid"
+        q = "DELETE FROM l6.l6_records WHERE id = :rid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), {"rid": record_id})
         return True
@@ -164,7 +154,7 @@ class L6Repository:
         """获取指定L6记录的价格历史"""
         q = """
             SELECT id, l6_record_id as record_id, price, note, created_at
-            FROM l6_price_history
+            FROM l6.l6_price_history
             WHERE l6_record_id = :rid
             ORDER BY created_at DESC
             LIMIT :lim
@@ -176,7 +166,7 @@ class L6Repository:
     def save_history_snapshot(self, record_id: int, price: float, note: str = "") -> bool:
         """保存L6记录的价格快照到历史表"""
         q = """
-            INSERT INTO l6_price_history (l6_record_id, price, note, created_at)
+            INSERT INTO l6.l6_price_history (l6_record_id, price, note, created_at)
             VALUES (:rid, :price, :note, :ts)
         """
         with l6_history_engine.begin() as conn:

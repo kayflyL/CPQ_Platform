@@ -24,7 +24,7 @@ class TestQuoteServiceInit:
             assert service.l6_repo is not None
             assert service.project_repo is not None
             assert service.rules_repo is not None
-            assert service.export_template_repo is not None
+
             assert service.engine is not None
 
 

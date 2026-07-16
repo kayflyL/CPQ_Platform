@@ -4,7 +4,7 @@ from typing import List, Optional
 from sqlalchemy import delete
 from sqlalchemy.orm import Session
 from app.models.opportunity import Opportunity
-from app.models.base import Opp_SessionLocal
+from app.models.base import Opportunity_SessionLocal
 
 
 class OpportunityRepository:
@@ -14,7 +14,7 @@ class OpportunityRepository:
     @property
     def session(self) -> Session:
         if self._session is None:
-            self._session = Opp_SessionLocal()
+            self._session = Opportunity_SessionLocal()
         return self._session
 
     def list_opportunities(self, include_deleted: bool = False,
@@ -113,7 +113,7 @@ class OpportunityRepository:
         result['quotations'] = [q.to_dict() for q in quotations]
         result['items'] = all_items
         result['l6_price'] = total_l6_price
-        result['total_qty'] = total_qty
+        result['purchase_qty'] = total_qty
         result['config_count'] = total_configs
         
         return result
@@ -137,7 +137,7 @@ class OpportunityRepository:
                 customer_name=info.get("customer_name", ""),
                 sales_person=info.get("sales_person", ""),
                 fae=info.get("fae", ""),
-                total_qty=info.get("total_qty", 0),
+                purchase_qty=info.get("purchase_qty", 0),
                 platform_type=info.get("platform_type", ""),
                 chassis_form=info.get("chassis_form", ""),
                 created_at=now,
@@ -148,23 +148,39 @@ class OpportunityRepository:
         self.session.commit()
         return True
 
-    # Whitelist of fields that can be updated via update_meta (protects sensitive fields)
-    _META_ALLOWED_FIELDS = {
-        "opportunity_name", "customer_name", "sales_person", "fae",
-        "model_name", "platform_type", "chassis_form", "total_qty",
-        "date", "folder_name", "config_count", "config_descriptions",
-        "config_quantities", "config_server_models",
+    # Core fields that are actual DB columns (not in extra_fields JSON)
+    _CORE_COLUMNS = {
+        "opportunity_id", "folder_name", "opportunity_name", "customer_name",
+        "sales_person", "fae", "quotation_person", "platform_type", "chassis_form",
+        "purchase_qty", "created_at", "updated_at", "status", "extra_fields", "tenant_id",
     }
 
     def update_meta(self, opportunity_id: str, updates: dict) -> bool:
+        import json
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id
         ).first()
         if not opp:
             return False
+        
+        # Load existing extra_fields
+        extra = {}
+        if opp.extra_fields:
+            try:
+                extra = json.loads(opp.extra_fields)
+            except (json.JSONDecodeError, TypeError):
+                extra = {}
+        
         for key, val in updates.items():
-            if key in self._META_ALLOWED_FIELDS:
+            if key in self._CORE_COLUMNS:
+                # Core column: set directly
                 setattr(opp, key, val)
+            else:
+                # Dynamic field: write to extra_fields JSON
+                extra[key] = val
+        
+        # Save extra_fields back
+        opp.extra_fields = json.dumps(extra, ensure_ascii=False) if extra else None
         opp.updated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         self.session.commit()
         return True

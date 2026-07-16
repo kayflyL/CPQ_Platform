@@ -7,8 +7,9 @@ from .base import Base
 
 class L6Record(Base):
     __tablename__ = "l6_records"
+    __table_args__ = {"schema": "l6"}
 
-    id: Mapped[int] = mapped_column("rowid", Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     chassis: Mapped[Optional[str]] = mapped_column(String, default=None)
     model: Mapped[Optional[str]] = mapped_column(String, default=None)
     motherboard: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -43,8 +44,9 @@ class L6Record(Base):
 
 
 class L6PriceHistory(Base):
-    """L6 price/note change history — stored in l6_history.db"""
+    """L6 price/note change history — stored in l6_history schema"""
     __tablename__ = "l6_price_history"
+    __table_args__ = {"schema": "l6_history"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     l6_record_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)

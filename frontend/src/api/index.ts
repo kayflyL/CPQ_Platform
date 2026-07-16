@@ -32,11 +32,12 @@ export const projectApi = {
   update: async (projectId: string, data: { 
     project_name?: string
     customer_name?: string
-    total_qty?: number
+    purchase_qty?: number
     platform_type?: string
     chassis_form?: string
     sales_person?: string
     fae?: string
+    quotation_person?: string
   }) => {
     const response = await api.put(`/opportunities/${projectId}`, data)
     return response.data
@@ -122,8 +123,8 @@ export const projectApi = {
 // Quotation API
 export const quotationApi = {
   getByOpportunity: async (opportunityId: string) => {
-    const response = await api.get(`/quotations/opportunity/${opportunityId}`)
-    return response.data
+    const response = await api.get('/quotations', { params: { opportunity_id: opportunityId } })
+    return response.data.quotations || []
   },
   
   list: async (opportunityId: string, params?: { include_deleted?: boolean }) => {
@@ -204,43 +205,8 @@ export async function getExportCategories() {
   return response.data
 }
 
-// Export Template API
-export const exportTemplateApi = {
-  list: async () => {
-    const response = await api.get('/export-templates/')
-    return response.data
-  },
+// Export Template API (removed - template config system deleted)
 
-  getFields: async () => {
-    const response = await api.get('/export-templates/fields')
-    return response.data
-  },
-
-  getById: async (id: number) => {
-    const response = await api.get(`/export-templates/${id}`)
-    return response.data
-  },
-
-  create: async (displayName: string) => {
-    const response = await api.post('/export-templates', { display_name: displayName })
-    return response.data
-  },
-
-  update: async (id: number, data: any) => {
-    const response = await api.put(`/export-templates/${id}`, data)
-    return response.data
-  },
-
-  delete: async (id: number) => {
-    const response = await api.delete(`/export-templates/${id}`)
-    return response.data
-  },
-
-  setDefault: async (id: number) => {
-    const response = await api.post(`/export-templates/${id}/set-default`)
-    return response.data
-  }
-}
 
 // Aliases for store/quote.ts compatibility
 export const saveProject = projectApi.save

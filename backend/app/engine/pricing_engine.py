@@ -26,7 +26,8 @@ from app.repository.kp_repo import KPRepository
 from app.repository.l6_repo import L6Repository
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.rules_repo import RulesRepository
-from app.repository.export_template_repo import ExportTemplateRepository
+from app.repository.univer_template_repo import UniverTemplateRepo
+from app.engine.excel_parser import ExcelParser
 
 
 # === Safe arithmetic evaluator (replaces eval() for Excel formulas) ===
@@ -101,7 +102,7 @@ class PricingEngine:
 
     def __init__(self, kp_repo: KPRepository, l6_repo: L6Repository,
                  opportunity_repo: OpportunityRepository, rules_repo: RulesRepository = None,
-                 export_template_repo: ExportTemplateRepository = None,
+                 export_template_repo: UniverTemplateRepo = None,
                  quotation_repo=None, business_field_repo=None):
         self.kp_repo = kp_repo
         self.l6_repo = l6_repo
@@ -110,6 +111,12 @@ class PricingEngine:
         self.export_template_repo = export_template_repo
         self._quotation_repo = quotation_repo
         self._business_field_repo = business_field_repo
+        
+        # Initialize ExcelParser if rules_repo is available
+        self._excel_parser = ExcelParser(rules_repo) if rules_repo else None
+
+        # Load rules from DB (with hardcoded fallbacks)
+        self._load_rules()
 
     def _get_quotation_repo(self):
         """Lazy-init QuotationRepository (avoids per-call instantiation)."""
@@ -124,10 +131,6 @@ class PricingEngine:
             from app.repository.business_field_repo import BusinessFieldRepository
             self._business_field_repo = BusinessFieldRepository()
         return self._business_field_repo
-
-        
-        # Load rules from DB (with hardcoded fallbacks)
-        self._load_rules()
     
     def _load_rules(self):
         """Load configurable rules from rules.db, with hardcoded fallbacks."""
@@ -155,22 +158,7 @@ class PricingEngine:
             'cable': 'Cable', 'wire': 'Cable',
             'rail': 'Rail'
         }
-        self._mb_mappings = [
-            ("KH50000", "Polaris MB"),
-            ("KH30000", "Orion MB"),
-            ("KH20000", "Orion MB"),
-            ("AMD", "TTY TG658V3"),
-            ("EPYC", "TTY TG658V3"),
-            ("INTEL", "TTY TG658V3"),
-            ("XEON", "TTY TG658V3"),
-        ]
-        self._l6_match_dims = ["chassis", "model", "drive_bays", "psu", "motherboard"]
-        self._l6_fallback_dims = ["chassis", "model", "drive_bays"]
         self._price_diff_threshold = 0.01
-        # Fuzzy/degrade matching rules (defaults)
-        self._allow_chassis_fuzzy = False
-        self._chassis_fuzzy_rules = []  # [{"from": "2U", "to": "2.5U"}, ...]
-        self._allow_motherboard_fallback = False
         
         if not self.rules_repo:
             return
@@ -190,55 +178,163 @@ class PricingEngine:
                 self._kp_cat_map = {m['keyword']: m['category'] for m in kp_mappings}
                 # Store raw mappings for heatmap preview
                 self._kp_cat_mappings_raw = kp_mappings
-            
-            mb_mappings = self.rules_repo.get_motherboard_mappings()
-            if mb_mappings:
-                self._mb_mappings = [(m['cpu_feature'], m['motherboard_model']) for m in mb_mappings]
-            
-            l6_dims_rule = self.rules_repo.get_matching_rule("l6_match_dimensions")
-            if l6_dims_rule:
-                self._l6_match_dims = json.loads(l6_dims_rule['rule_value'])
-            
-            l6_fb_rule = self.rules_repo.get_matching_rule("l6_fallback_dimensions")
-            if l6_fb_rule:
-                self._l6_fallback_dims = json.loads(l6_fb_rule['rule_value'])
-            
-            threshold_rule = self.rules_repo.get_matching_rule("price_diff_threshold")
-            if threshold_rule:
-                self._price_diff_threshold = float(threshold_rule['rule_value'])
-            
-            # Load fuzzy/degrade rules
-            chassis_fuzzy_flag = self.rules_repo.get_matching_rule("allow_chassis_fuzzy")
-            if chassis_fuzzy_flag:
-                self._allow_chassis_fuzzy = chassis_fuzzy_flag['rule_value'].lower() == 'true'
-            
-            chassis_fuzzy_rules = self.rules_repo.get_matching_rule("chassis_fuzzy_rules")
-            if chassis_fuzzy_rules:
-                self._chassis_fuzzy_rules = json.loads(chassis_fuzzy_rules['rule_value'])
-            
-            mb_fallback_flag = self.rules_repo.get_matching_rule("allow_motherboard_fallback")
-            if mb_fallback_flag:
-                self._allow_motherboard_fallback = mb_fallback_flag['rule_value'].lower() == 'true'
         except Exception as e:
             print(f"⚠️ Failed to load rules from DB, using defaults: {e}")
 
     # ==================== 1. Excel Parsing (pure algorithm) ====================
 
     def parse_file(self, sheet_dict: dict) -> tuple:
-        """Parse uploaded Excel into configs + first_meta."""
+        """Parse uploaded Excel into configs + first_meta.
+        
+        Uses ExcelParser if available (new rule-driven approach),
+        falls back to legacy _extract_meta + _parse_items otherwise.
+        """
         configs = {}
         first_meta = None
+        
         for sheet_name, df in sheet_dict.items():
             if '原始需求' in sheet_name or 'Reference' in sheet_name or df.empty:
                 continue
-            meta = self._extract_meta(df)
-            items = self._parse_items(df)
+            
+            # Try new ExcelParser first
+            if self._excel_parser:
+                try:
+                    parse_result = self._excel_parser.parse(df, return_trace=False)
+                    meta = self._convert_parser_meta(parse_result["static_fields"])
+                    items = self._convert_parser_items(parse_result["dynamic_regions"])
+                except Exception as e:
+                    print(f"⚠️ ExcelParser failed for sheet '{sheet_name}': {e}, falling back to legacy")
+                    meta = self._extract_meta(df)
+                    items = self._parse_items(df)
+            else:
+                # Legacy approach
+                meta = self._extract_meta(df)
+                items = self._parse_items(df)
+            
             if items.empty:
                 continue
+            
             configs[sheet_name] = {'meta': meta, 'items': items}
             if first_meta is None:
                 first_meta = meta
+        
         return configs, first_meta
+    
+    def _convert_parser_meta(self, static_fields: dict) -> dict:
+        """Convert ExcelParser static_fields to legacy meta format."""
+        meta = {}
+        
+        # Map field keys to legacy meta keys
+        field_mapping = {
+            "project_name": "opportunity_name",
+            "model_name": "model_name",
+            "fae": "fae",
+            "quotation_date": "date",
+            "description": "l6_desc"
+        }
+        
+        for parser_key, meta_key in field_mapping.items():
+            if parser_key in static_fields:
+                value = static_fields[parser_key]["value"]
+                meta[meta_key] = value
+                
+                # Special handling for model_name (extract qty from parentheses)
+                if parser_key == "model_name" and value:
+                    m = re.search(r'\((\d+)', value)
+                    if m:
+                        meta['model_qty'] = m.group(1)
+                        meta['model_name'] = value.split('(')[0].strip()
+        
+        return meta
+    
+    def _convert_parser_items(self, dynamic_regions: dict) -> pd.DataFrame:
+        """Convert ExcelParser dynamic_regions to legacy items DataFrame format."""
+        items = []
+        
+        # L6 region
+        if "L6" in dynamic_regions:
+            for item in dynamic_regions["L6"]:
+                catalogue = item.get("l6_chassis", "")
+                description = item.get("spec", "")
+                qty = 1
+                if "qty" in item:
+                    try:
+                        qty = int(float(item["qty"]))
+                    except:
+                        qty = 1
+                
+                if not catalogue or catalogue.lower() in ['nan', 'none', '', 'catalogue']:
+                    continue
+                
+                items.append({
+                    'category': 'L6',
+                    'part_name': catalogue,
+                    'spec': description,
+                    'qty': qty,
+                    'confirmed_price': None,
+                    'currency': 'RMB'
+                })
+        
+        # KP region
+        if "KP" in dynamic_regions:
+            for item in dynamic_regions["KP"]:
+                catalogue = item.get("kp_category", "")
+                model = item.get("kp_model", "")
+                qty = 1
+                if "qty" in item:
+                    try:
+                        qty = int(float(item["qty"]))
+                    except:
+                        qty = 1
+                
+                price = None
+                if "kp_price" in item:
+                    try:
+                        price = float(item["kp_price"])
+                    except:
+                        pass
+                
+                if not catalogue or catalogue.lower() in ['nan', 'none', '', 'catalogue']:
+                    continue
+                
+                # Determine if USD
+                is_usd = False
+                if 'cpu' in catalogue.lower() or 'processor' in catalogue.lower():
+                    if 'usd' in model.lower() or '$' in model:
+                        is_usd = True
+                
+                items.append({
+                    'category': 'Key Parts',
+                    'part_name': catalogue,
+                    'spec': model,
+                    'qty': qty,
+                    'confirmed_price': price,
+                    'currency': 'USD' if is_usd else 'RMB'
+                })
+        
+        # Warranty region
+        if "Warranty" in dynamic_regions:
+            for item in dynamic_regions["Warranty"]:
+                warranty_type = item.get("part_name", "")
+                description = item.get("description", "")
+                
+                if not description or description.lower() in ['nan', 'none', '']:
+                    continue
+                
+                # Extract warranty years — let user fill in manually
+                years = None
+                
+                items.append({
+                    'category': 'Warranty',
+                    'part_name': warranty_type,
+                    'spec': description,
+                    'qty': 1,
+                    'confirmed_price': None,
+                    'currency': 'RMB',
+                    'warranty_years': years
+                })
+        
+        return pd.DataFrame(items) if items else pd.DataFrame()
 
     def preview_parse(self, df: pd.DataFrame, max_row: int = 15, max_col: int = 15, kp_mappings: list = None) -> dict:
         """Parse a single sheet for heatmap preview. Returns grid data + cell marks + meta."""
@@ -414,90 +510,6 @@ class PricingEngine:
         date_val = find_keyword_value('Date') or find_keyword_value('日期')
         if date_val:
             meta['date'] = date_val
-        
-        # Track missing fields for frontend warnings
-        meta_warnings = []
-        
-        # L6 matching dimensions - scan body rows for spec keywords
-        spec_text = meta.get('l6_desc', '')
-        if not spec_text:
-            meta_warnings.append('PRODUCT_SPEC')
-        
-        m = re.search(r'(\d+(?:\.\d+)?)\s*[Uu]\b', spec_text)
-        if m:
-            meta['chassis_form'] = m.group(1) + 'U'
-        elif spec_text:
-            meta_warnings.append('CHASSIS_FORM')
-        
-        if re.search(r'switch', spec_text, re.IGNORECASE):
-            meta['l6_model_type'] = 'Switch机型'
-        elif spec_text:
-            # Don't hardcode default model type — leave empty if not detected
-            meta_warnings.append('MODEL_TYPE')
-        
-        # Drive bays - scan for Backplane keyword in body
-        for r in range(4, len(df)):
-            col_d = str(df.iloc[r, 3]).strip() if pd.notna(df.iloc[r, 3]) else ''
-            if 'backplane' in col_d.lower():
-                spec_bp = str(df.iloc[r, 4]).strip() if pd.notna(df.iloc[r, 4]) else ''
-                m = re.match(r'^(\d+)\*', spec_bp)
-                if m:
-                    meta['drive_bays'] = m.group(1)
-                meta['backplane_desc'] = spec_bp
-                if return_cell_marks:
-                    cell_marks.append({'row': r, 'col': 3, 'value': col_d, 'type': 'meta', 'target': 'drive_bays'})
-                break
-        else:
-            if spec_text:
-                meta_warnings.append('DRIVE_BAYS')
-        
-        # PSU - scan for Power Supply keyword in body
-        for r in range(4, len(df)):
-            col_d = str(df.iloc[r, 3]).strip() if pd.notna(df.iloc[r, 3]) else ''
-            if 'power supply' in col_d.lower():
-                spec_psu = str(df.iloc[r, 4]).strip() if pd.notna(df.iloc[r, 4]) else ''
-                psu_base = None
-                psu_qty = None
-                m = re.match(r'(\d+W)', spec_psu)
-                if m:
-                    psu_base = m.group(1)
-                try:
-                    qty_val = df.iloc[r, 5]
-                    if pd.notna(qty_val):
-                        psu_qty = int(float(qty_val))
-                except:
-                    pass
-                if psu_base and psu_qty:
-                    meta['psu'] = f"{psu_base} * {psu_qty}"
-                if return_cell_marks:
-                    cell_marks.append({'row': r, 'col': 3, 'value': col_d, 'type': 'meta', 'target': 'psu'})
-                break
-        else:
-            if spec_text:
-                meta_warnings.append('PSU')
-        
-        # Motherboard - scan for CPU keyword, then match against mb_mappings
-        cpu_spec = ''
-        for r in range(4, len(df)):
-            col_d = str(df.iloc[r, 3]).strip() if pd.notna(df.iloc[r, 3]) else ''
-            if col_d.lower() == 'cpu':
-                cpu_spec = str(df.iloc[r, 4]).strip() if pd.notna(df.iloc[r, 4]) else ''
-                if return_cell_marks:
-                    cell_marks.append({'row': r, 'col': 3, 'value': col_d, 'type': 'meta', 'target': 'motherboard'})
-                break
-        
-        if cpu_spec:
-            cpu_upper = cpu_spec.upper()
-            for feature, mb_model in self._mb_mappings:
-                if feature.upper() in cpu_upper:
-                    meta['motherboard'] = mb_model
-                    break
-        elif spec_text:
-            meta_warnings.append('MOTHERBOARD')
-        
-        # Store warnings in meta for frontend display
-        if meta_warnings:
-            meta['warnings'] = meta_warnings
         
         # Fallback: try hardcoded positions if nothing found
         if 'opportunity_name' not in meta:
@@ -743,11 +755,8 @@ class PricingEngine:
                     if not description or description.lower() in ['nan', 'none', '']:
                         continue
                     
-                    # Extract warranty years from description
+                    # Extract warranty years from description — let user fill in manually
                     years = None
-                    m = re.search(r'质保(\d+)年', description)
-                    if m:
-                        years = int(m.group(1))
                     
                     items.append({
                         'category': 'Warranty',
@@ -821,312 +830,6 @@ class PricingEngine:
                 items[col] = items[col].fillna(0)
 
         return items
-
-    def match_l6_total(self, meta: dict) -> tuple:
-        """Match L6 price using configurable dimensions via l6_repo."
-        Returns (price, matched_record) tuple.
-        matched_record includes match_score, matched_dims, total_dims, match_type.
-        """
-        l6_records = self.l6_repo.get_all_for_matching()
-        if not l6_records:
-            return None, None
-
-        l6_df = pd.DataFrame(l6_records)
-
-        # Build dimension values from meta
-        dim_values = {
-            'chassis': str(meta.get('chassis_form', '')).strip(),
-            'model': str(meta.get('l6_model_type', '')).strip(),
-            'drive_bays': str(meta.get('drive_bays', '')).strip(),
-            'psu': str(meta.get('psu', '')).strip(),
-            'motherboard': str(meta.get('motherboard', '')).strip(),
-        }
-
-        total_dims = len(self._l6_match_dims)
-
-        def _match_dim(candidates_df, dim, val):
-            """Match a single dimension with fuzzy/degrade support.
-            Returns (filtered_df, matched: bool, is_fuzzy: bool, skipped: bool).
-            skipped=True means the dimension was not evaluated (val was empty)."""
-            if not val:
-                return candidates_df, True, False, True
-            # Exact match
-            mask = candidates_df[dim].str.strip() == val
-            if mask.any():
-                return candidates_df[mask], True, False, False
-            # Chassis fuzzy match
-            if dim == 'chassis' and self._allow_chassis_fuzzy and self._chassis_fuzzy_rules:
-                for rule in self._chassis_fuzzy_rules:
-                    if val == rule.get('from', ''):
-                        fuzzy_val = rule.get('to', '')
-                        mask = candidates_df[dim].str.strip() == fuzzy_val
-                        if mask.any():
-                            return candidates_df[mask], True, True, False
-            # Motherboard degrade match: allow other known motherboards
-            if dim == 'motherboard' and self._allow_motherboard_fallback and self._mb_mappings:
-                for cpu_feat, mb_model in self._mb_mappings:
-                    if mb_model == val:
-                        alt_mask = candidates_df[dim].str.strip().isin(
-                            [m for _, m in self._mb_mappings if m != val]
-                        )
-                        if alt_mask.any():
-                            return candidates_df[alt_mask], True, True, False
-                        break
-            return candidates_df.iloc[0:0], False, False, False
-
-        # Try full match using configured dimensions
-        candidates = l6_df.copy()
-        matched_count = 0
-        evaluated_dims = 0
-        fuzzy_used = False
-        for dim in self._l6_match_dims:
-            val = dim_values.get(dim, '')
-            candidates, matched, is_fuzzy, skipped = _match_dim(candidates, dim, val)
-            if skipped:
-                continue
-            evaluated_dims += 1
-            if matched:
-                matched_count += 1
-                if is_fuzzy:
-                    fuzzy_used = True
-            else:
-                candidates = candidates.iloc[0:0]
-            if candidates.empty:
-                break
-
-        if not candidates.empty and evaluated_dims > 0:
-            matched = candidates.iloc[0].to_dict()
-            match_score = int((matched_count / evaluated_dims) * 100)
-            matched['match_score'] = match_score
-            matched['matched_dims'] = matched_count
-            matched['total_dims'] = evaluated_dims
-            if fuzzy_used:
-                matched['match_type'] = f'模糊匹配({matched_count}/{evaluated_dims})'
-            elif matched_count == evaluated_dims:
-                matched['match_type'] = '精确匹配'
-            else:
-                matched['match_type'] = f'部分匹配({matched_count}/{evaluated_dims})'
-            # 确保 update_date 字段存在
-            if 'update_date' not in matched:
-                matched['update_date'] = matched.get('date', '')
-            return float(matched['price']), matched
-
-        # Fallback: try configured fallback dimensions
-        candidates = l6_df.copy()
-        fallback_matched = 0
-        fallback_evaluated = 0
-        for dim in self._l6_fallback_dims:
-            val = dim_values.get(dim, '')
-            candidates, matched, _, skipped = _match_dim(candidates, dim, val)
-            if skipped:
-                continue
-            fallback_evaluated += 1
-            if matched:
-                fallback_matched += 1
-            else:
-                candidates = candidates.iloc[0:0]
-            if candidates.empty:
-                break
-
-        if candidates.empty:
-            # 未匹配：返回最佳部分匹配记录（用于前端展示）
-            best = self._find_best_partial_match(l6_df, dim_values)
-            if best:
-                return None, best
-            return None, None
-
-        matched = candidates.iloc[0].to_dict()
-        score_base = fallback_evaluated if fallback_evaluated > 0 else total_dims
-        match_score = int((fallback_matched / score_base) * 100) if score_base > 0 else 80
-        matched['match_score'] = match_score
-        matched['matched_dims'] = fallback_matched
-        matched['total_dims'] = score_base
-        matched['match_type'] = '降级匹配'
-        return float(matched['price']), matched
-
-    def _find_best_partial_match(self, l6_df: pd.DataFrame, dim_values: dict) -> dict:
-        """Find the record with the most matching dimensions, for display when no full match.
-        Returns top 3 candidates as a dict with 'best' and 'candidates' keys."""
-        total_dims = len(self._l6_match_dims)
-        scored_records = []
-
-        for _, row in l6_df.iterrows():
-            score = 0
-            for dim in self._l6_match_dims:
-                val = dim_values.get(dim, '')
-                if val and str(row.get(dim, '')).strip() == val:
-                    score += 1
-            if score > 0:
-                record = row.to_dict()
-                record['match_score'] = int((score / total_dims) * 100) if total_dims > 0 else 0
-                record['matched_dims'] = score
-                record['total_dims'] = total_dims
-                record['match_type'] = '未匹配'
-                scored_records.append(record)
-
-        if not scored_records:
-            return None
-
-        # Sort by score descending, take top 3
-        scored_records.sort(key=lambda x: x['match_score'], reverse=True)
-        top_candidates = scored_records[:3]
-
-        # Return structure: best record + all candidates
-        result = top_candidates[0].copy()
-        result['candidates'] = top_candidates
-        return result
-
-    def preview_l6_match(self, dim_values: dict) -> dict:
-        """Preview L6 matching process step by step."
-        dim_values: {chassis, model, drive_bays, psu, motherboard}
-        Returns: {steps: [...], final_match: {...} or None}
-        """
-        l6_records = self.l6_repo.get_all_for_matching()
-        if not l6_records:
-            return {"steps": [], "final_match": None, "error": "L6价格库为空"}
-
-        l6_df = pd.DataFrame(l6_records)
-        steps = []
-        
-        # Normalize dim_values
-        normalized = {
-            'chassis': str(dim_values.get('chassis', '')).strip(),
-            'model': str(dim_values.get('model', '')).strip(),
-            'drive_bays': str(dim_values.get('drive_bays', '')).strip(),
-            'psu': str(dim_values.get('psu', '')).strip(),
-            'motherboard': str(dim_values.get('motherboard', '')).strip(),
-        }
-
-        # Step 1: Full match on all provided dimensions
-        candidates = l6_df.copy()
-        filter_desc_parts = []
-        evaluated_count = 0
-        matched_count = 0
-        for dim in self._l6_match_dims:
-            val = normalized.get(dim, '')
-            if not val:
-                continue
-            evaluated_count += 1
-            mask = candidates[dim].str.strip() == val
-            if mask.any():
-                candidates = candidates[mask]
-                matched_count += 1
-                filter_desc_parts.append(f"{dim}={val}")
-            else:
-                candidates = candidates.iloc[0:0]
-                filter_desc_parts.append(f"{dim}={val} (无匹配)")
-            if candidates.empty:
-                break
-
-        steps.append({
-            "step": 1,
-            "description": f"精确匹配({matched_count}/{evaluated_count}维)" if evaluated_count > 0 else "无条件",
-            "filter_desc": " + ".join(filter_desc_parts) if filter_desc_parts else "无条件",
-            "candidates": candidates.to_dict('records') if not candidates.empty else [],
-            "matched": not candidates.empty
-        })
-
-        if not candidates.empty:
-            matched = candidates.iloc[0].to_dict()
-            return {"steps": steps, "final_match": matched}
-
-        # Step 2: Motherboard fallback (if enabled) — use _mb_mappings like match_l6_total
-        if self._allow_motherboard_fallback and normalized.get('motherboard') and self._mb_mappings:
-            mb_val = normalized['motherboard']
-            # Check if this is a known motherboard and find alternatives
-            alt_motherboards = [m for _, m in self._mb_mappings if m != mb_val]
-            if alt_motherboards:
-                candidates = l6_df.copy()
-                filter_desc_parts = []
-
-                for dim in self._l6_match_dims:
-                    val = normalized.get(dim, '')
-                    if dim == 'motherboard':
-                        # Use alternative motherboards from mappings
-                        mask = candidates[dim].str.strip().isin(alt_motherboards)
-                        if mask.any():
-                            candidates = candidates[mask]
-                            filter_desc_parts.append(f"motherboard=任意已知主板(降级)")
-                        else:
-                            candidates = candidates.iloc[0:0]
-                            filter_desc_parts.append(f"motherboard=无匹配")
-                    elif val:
-                        mask = candidates[dim].str.strip() == val
-                        if mask.any():
-                            candidates = candidates[mask]
-                            filter_desc_parts.append(f"{dim}={val}")
-                        else:
-                            candidates = candidates.iloc[0:0]
-                            filter_desc_parts.append(f"{dim}={val} (无匹配)")
-                    if candidates.empty:
-                        break
-
-                steps.append({
-                    "step": len(steps) + 1,
-                    "description": f"主板降级匹配 (原值: {mb_val})",
-                    "filter_desc": " + ".join(filter_desc_parts),
-                    "candidates": candidates.to_dict('records') if not candidates.empty else [],
-                    "matched": not candidates.empty
-                })
-
-                if not candidates.empty:
-                    matched = candidates.iloc[0].to_dict()
-                    return {"steps": steps, "final_match": matched}
-
-        # Step 3: Chassis fuzzy match (if enabled)
-        if self._allow_chassis_fuzzy and normalized.get('chassis'):
-            chassis_val = normalized['chassis']
-            # Find fuzzy rule
-            fuzzy_rule = None
-            for rule in self._chassis_fuzzy_rules:
-                if rule.get('from') == chassis_val:
-                    fuzzy_rule = rule
-                    break
-            
-            if fuzzy_rule:
-                candidates = l6_df.copy()
-                filter_desc_parts = []
-                
-                for dim in self._l6_match_dims:
-                    val = normalized.get(dim, '')
-                    if dim == 'chassis':
-                        val = fuzzy_rule['to']
-                    if val:
-                        mask = candidates[dim].str.strip() == val
-                        if mask.any():
-                            candidates = candidates[mask]
-                            if dim == 'chassis':
-                                filter_desc_parts.append(f"chassis={fuzzy_rule['to']} (模糊至{chassis_val})")
-                            else:
-                                filter_desc_parts.append(f"{dim}={val}")
-                        else:
-                            candidates = candidates.iloc[0:0]
-                            filter_desc_parts.append(f"{dim}={val} (无匹配?")
-                    if candidates.empty:
-                        break
-
-                steps.append({
-                    "step": 3,
-                    "description": f"机箱模糊匹配 ({chassis_val} →{fuzzy_rule['to']})",
-                    "filter_desc": " + ".join(filter_desc_parts),
-                    "candidates": candidates.to_dict('records') if not candidates.empty else [],
-                    "matched": not candidates.empty
-                })
-
-                if not candidates.empty:
-                    matched = candidates.iloc[0].to_dict()
-                    return {"steps": steps, "final_match": matched}
-
-        # Step 4: No match
-        steps.append({
-            "step": len(steps) + 1,
-            "description": "报错：找不到匹配的L6价格",
-            "filter_desc": "",
-            "candidates": [],
-            "matched": False
-        })
-
-        return {"steps": steps, "final_match": None}
 
     # ==================== 3. KP Sync & History (via Repository) ====================
 
@@ -1296,21 +999,9 @@ class PricingEngine:
             # Get all active quotations for this opportunity
             quotations = q_repo.get_by_opportunity(opportunity_id)
             
-            meta = {
-                'opportunity_id': project_dict.get('opportunity_id', ''),
-                'folder_name': project_dict.get('folder_name', ''),
-                'opportunity_name': project_dict.get('opportunity_name', ''),
-                'customer_name': project_dict.get('customer_name', ''),
-                'sales_person': project_dict.get('sales_person', ''),
-                'fae': project_dict.get('fae', ''),
-                'platform_type': project_dict.get('platform_type', ''),
-                'chassis_form': project_dict.get('chassis_form', ''),
-                'total_qty': project_dict.get('total_qty', 0),
-                'status': project_dict.get('status', 'active'),
-                'created_at': project_dict.get('created_at', ''),
-                'updated_at': project_dict.get('updated_at', ''),
-                'date': '',
-            }
+            # Start with all fields from project_dict (includes expanded extra_fields)
+            meta = dict(project_dict)
+            meta['date'] = ''
             
             # Enrich meta from the latest quotation
             if quotations:
@@ -1354,10 +1045,18 @@ class PricingEngine:
     # ==================== 5. Excel Export (template-driven) ====================
 
     def _load_config(self) -> dict:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {"tax_rate": 0.13, "usd_to_rmb": 7.0, "profit_margin": 0.1, "warranty_fee_rate": 0.02}
+        """Load config from system_config DB table (single source of truth)."""
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            return {
+                "tax_rate": repo.get_value("tax_rate", 0.13),
+                "usd_to_rmb": repo.get_value("usd_to_rmb", 7.0),
+                "profit_margin": repo.get_value("profit_margin", 0.1),
+                "warranty_fee_rate": repo.get_value("warranty_fee_rate", 0.02),
+            }
+        finally:
+            repo.close()
 
     def _resolve_font(self, font_dict: dict) -> Font:
         """Convert font dict from template JSON to openpyxl Font."""
@@ -1956,21 +1655,20 @@ class PricingEngine:
     def _build_config_summary(self, config_dfs: dict, meta: dict, binding: dict) -> list:
         """Build one summary row per config for cover sheet.
         
-        Generates: seq, model_name, description (from template), unit_price, quantity, total_price.
+        Generates: seq, model_name, description (from selectedParts), unit_price, quantity, total_price.
         unit_price = L6 final_price sum + KP final_price sum + Warranty final_price sum
         quantity = from meta.config_quantities[cfg_name], fallback to meta.total_qty
         """
         import pandas as pd
         
-        # Description template: e.g. "{kp_list}" or "{l6_list} + {kp_list}"
-        desc_template = binding.get('descriptionTemplate', '{kp_list}')
-        separator = binding.get('descriptionSeparator', ',')
+        # 从 binding 读取 selectedParts（用户选择的部件类型）
+        selected_parts = binding.get('selectedParts')
         
         # Per-config quantities
         config_quantities = meta.get('config_quantities') or {}
         default_qty = meta.get('total_qty', 0) or 0
         
-        # Per-config descriptions (from Workspace)
+        # Per-config user notes (from Workspace manual input)
         config_descriptions = meta.get('config_descriptions') or {}
         
         summaries = []
@@ -1987,10 +1685,9 @@ class PricingEngine:
             # Quantity for this config
             quantity = config_quantities.get(cfg_name, default_qty)
             
-            # Description: prefer user input from Workspace, fallback to template
-            description = config_descriptions.get(cfg_name, '')
-            if not description:
-                description = self._render_description_template(desc_template, df, separator)
+            # Description: always dynamically generated from selectedParts (CPU/GPU etc.)
+            cfg_items = df.to_dict('records')
+            description = self._build_description_from_parts(cfg_items, selected_parts)
             
             # Model name: extract from L6 data (first L6 item's model_name or spec)
             model_name = ''
@@ -2008,7 +1705,8 @@ class PricingEngine:
                 'model_name': model_name,
                 'server_model': server_model,
                 'desc': description,
-                'description': description,  # alias
+                'description': description,  # alias - always dynamic (CPU/GPU parts)
+                'config_note': config_note,  # user manual input from Workspace
                 'unit_price': round(unit_price, 2),
                 'qty': quantity,
                 'quantity': quantity,  # alias
@@ -2017,38 +1715,65 @@ class PricingEngine:
         
         return summaries
     
-    def _render_description_template(self, template: str, df, separator: str) -> str:
-        """Render description template like '{kp_list}' or '{l6_list} + {kp_list}'.
+    def _build_description_from_parts(self, cfg_items: list, selected_parts: list = None) -> str:
+        """Build description from config items, filtered by selected part types.
         
-        Each list expands to: 'part_name × qty' entries joined by separator.
+        Args:
+            cfg_items: List of config item dicts with part_name, qty, category
+            selected_parts: List of part type keywords to include (e.g., ['cpu', 'memory'])
+                           If None or empty, include all items
+        
+        Returns:
+            Comma-separated description like "CPU Model × 2, Memory Model × 4"
         """
-        import pandas as pd
-        
-        if not isinstance(df, pd.DataFrame) or df.empty:
+        if not cfg_items:
             return ''
         
-        def build_list(category: str) -> str:
-            subset = df[df['category'] == category]
-            if subset.empty:
-                return ''
+        # 部件类型关键词映射
+        type_keywords = {
+            'cpu': ['cpu', 'processor', '处理器', 'epyc', 'xeon'],
+            'memory': ['memory', 'ram', '内存', 'ddr', 'dimm'],
+            'hdd': ['hdd', '硬盘', 'disk', 'storage', 'hdd'],
+            'ssd': ['ssd', '固态', 'nvme', 'm.2'],
+            'gpu': ['gpu', '显卡', 'graphics', 'nvidia', 'amd', 'rtx', 'quadro'],
+            'nic': ['nic', '网卡', 'network', 'ethernet', 'ib ', 'infiniband'],
+            'raid': ['raid', 'raid card'],
+            'psu': ['psu', '电源', 'power supply'],
+            'front_backplane': ['front backplane', '前背板'],
+            'rear_backplane': ['rear backplane', '后背板'],
+        }
+        
+        # 如果没有选择部件类型，显示所有项
+        if not selected_parts:
             parts = []
-            for _, row in subset.iterrows():
-                name = row.get('part_name', '') or ''
-                qty = row.get('qty', 0) or 0
-                if name:
-                    parts.append(f"{name} × {qty}")
-            return separator.join(parts)
+            for item in cfg_items:
+                part_name = item.get('part_name', '') or ''
+                qty = item.get('qty', 0) or 0
+                if part_name and qty > 0:
+                    parts.append(f"{part_name} × {qty}")
+            return ', '.join(parts)
         
-        # Replace template variables
-        result = template
-        result = result.replace('{l6_list}', build_list('L6'))
-        result = result.replace('{kp_list}', build_list('Key Parts'))
-        result = result.replace('{warranty_list}', build_list('Warranty'))
-        result = result.replace('{all_list}', build_list('L6') + separator + build_list('Key Parts') + separator + build_list('Warranty'))
+        # 按选择的部件类型过滤
+        filtered_items = []
+        for item in cfg_items:
+            part_name = (item.get('part_name', '') or '').lower()
+            
+            # 检查是否匹配任何选中的部件类型
+            for part_type in selected_parts:
+                keywords = type_keywords.get(part_type, [part_type])
+                if any(kw in part_name for kw in keywords):
+                    filtered_items.append(item)
+                    break
         
-        # Clean up empty separators
-        result = result.strip(separator).strip()
-        return result
+        # 生成描述
+        parts = []
+        for item in filtered_items:
+            part_name = item.get('part_name', '') or ''
+            qty = item.get('qty', 0) or 0
+            if part_name and qty > 0:
+                parts.append(f"{part_name} × {qty}")
+        
+        return ', '.join(parts)
 
 
     def _build_export_description(self, items_df: pd.DataFrame, template_override: str = None) -> str:
@@ -2057,17 +1782,9 @@ class PricingEngine:
         Loop syntax: [${category_model}*${category_qty}; separator]
         Example: [${disk_model}*${disk_qty}; ] expands to all disk items
         """
-        # Get template: override > rules DB > hardcoded default
+        # Get template: use default or override
         default_template = "${cpu_model}*${cpu_qty}, ${memory_model}*${memory_qty}, [${disk_model}*${disk_qty}; ]"
         template = template_override or default_template
-        
-        if not template_override and self.rules_repo:
-            try:
-                rule = self.rules_repo.get_matching_rule("export_description_template")
-                if rule and rule.get('rule_value'):
-                    template = rule['rule_value']
-            except Exception:
-                pass
         
         # Extract components grouped by category
         categories = self._extract_categories(items_df)

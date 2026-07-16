@@ -7,8 +7,9 @@ from .base import Base
 
 class KPRecord(Base):
     __tablename__ = "kp_records"
+    __table_args__ = {"schema": "kp"}
 
-    id: Mapped[int] = mapped_column("rowid", Integer, primary_key=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     category: Mapped[Optional[str]] = mapped_column(String, default=None)
     model: Mapped[Optional[str]] = mapped_column(String, default=None)
     price: Mapped[Optional[float]] = mapped_column(Float, default=None)

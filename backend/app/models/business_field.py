@@ -1,12 +1,13 @@
-"""Business fields configuration model — stored in kp_data.db"""
+"""Business fields configuration model — stored in rules.db"""
 from typing import Optional
 from sqlalchemy import Integer, String, Boolean, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from .base import Base, kp_engine
+from .base import Base, rules_engine
 
 
 class BusinessField(Base):
     __tablename__ = "business_fields"
+    __table_args__ = {"schema": "rules"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
@@ -33,6 +34,13 @@ class BusinessField(Base):
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     created_by: Mapped[str] = mapped_column(String, default='system')
     updated_by: Mapped[str] = mapped_column(String, default='system')
+    
+    # Field unification: 标注该字段用在哪些页面
+    used_in_pages: Mapped[Optional[str]] = mapped_column(Text, default='[]')  # JSON: ["opportunity_detail","export_template","workbench"]
+    
+    # Multi-tenant + dynamic storage routing
+    tenant_id: Mapped[str] = mapped_column(String, default='default')
+    is_core_field: Mapped[bool] = mapped_column(Boolean, default=False)  # True=独立列, False=extra_fields JSON
 
     def to_dict(self) -> dict:
         return {
@@ -57,4 +65,7 @@ class BusinessField(Base):
             "updated_at": self.updated_at,
             "created_by": self.created_by,
             "updated_by": self.updated_by,
+            "used_in_pages": self.used_in_pages or "[]",
+            "tenant_id": self.tenant_id or "default",
+            "is_core_field": self.is_core_field or False,
         }

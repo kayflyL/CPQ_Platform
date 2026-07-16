@@ -1,4 +1,5 @@
 import logging
+import json
 
 logger = logging.getLogger(__name__)
 from datetime import datetime
@@ -15,15 +16,13 @@ router = APIRouter(
 
 @router.get("/metadata-fields")
 def list_metadata_fields():
-    """返回可用的元数据字段列表"""
-    return {
-        "fields": [
-            "opportunity_name", "model_name", "customer_name",
-            "sales_person", "fae", "date", "total_qty",
-            "platform_type", "chassis_form", "company",
-            "l6_spec", "description", "model_qty"
-        ]
-    }
+    """返回可用的元数据字段列表（从 BusinessField 表动态查询）"""
+    repo = BusinessFieldRepository()
+    try:
+        fields = repo.list_enabled()
+        return {"fields": [f["key"] for f in fields]}
+    finally:
+        repo.close()
 
 # ================== KP (Key Parts) APIs ==================
 
@@ -147,13 +146,13 @@ def list_l6(page: int = 1, page_size: int = 20, search: str = ""):
 
 @router.post("/l6/update")
 def update_l6(data: dict):
-    record_id = data.get("id") or data.get("rowid")
+    record_id = data.get("id")
     if not record_id:
         raise HTTPException(status_code=400, detail="Missing record ID")
 
     repo = L6Repository()
     try:
-        updates = {k: v for k, v in data.items() if k not in ("id", "rowid")}
+        updates = {k: v for k, v in data.items() if k != "id"}
         repo.update_record(int(record_id), updates)
         
         # 如果更新了价格，写入历史快照
@@ -274,10 +273,83 @@ from app.repository.business_field_repo import BusinessFieldRepository
 
 @router.get("/business-fields")
 def list_business_fields():
-    """列出所有业务字段（含禁用）"""
+    """列出所有业务字段（含禁用），包括静态字段和动态字段，并标注使用位置"""
     repo = BusinessFieldRepository()
     try:
-        return repo.list_all()
+        fields = repo.list_all()
+        
+        # 扫描使用位置
+        from sqlalchemy import inspect, text
+        from app.models.base import Opportunity_SessionLocal, Rules_SessionLocal
+        from app.models.univer_template import UniverTemplate
+        
+        # 1. 获取 opportunities 表字段
+        opp_session = Opportunity_SessionLocal()
+        try:
+            inspector = inspect(opp_session.bind)
+            opp_cols = {col['name'] for col in inspector.get_columns('opportunities', schema='opportunities')}
+            
+            # 2. 获取 quotations 表字段
+            quote_cols = {col['name'] for col in inspector.get_columns('quotations', schema='opportunities')}
+            
+            # 3. 扫描 export_templates.bindings
+            template_rows = opp_session.query(UniverTemplate).all()
+            template_fields = set()
+            for template in template_rows:
+                try:
+                    data = json.loads(template.template_json)
+                    # 遍历所有 sheet 的 bindings
+                    for sheet_key, sheet_data in data.items():
+                        if isinstance(sheet_data, dict) and 'bindings' in sheet_data:
+                            for binding in sheet_data['bindings']:
+                                if 'fieldKey' in binding:
+                                    template_fields.add(binding['fieldKey'])
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        finally:
+            opp_session.close()
+        
+        # 为每个字段计算使用位置
+        for field in fields:
+            key = field.get('key', '')
+            locations = []
+            if key in opp_cols:
+                locations.append('商机线索')
+            if key in quote_cols:
+                locations.append('工作台')
+            if key in template_fields:
+                locations.append('导出模板')
+            field['used_in'] = locations
+        
+        # 添加动态字段（dynamic_source_fields 在 rules schema）
+        from app.models.dynamic_source_field import DynamicSourceField
+        rules_session = Rules_SessionLocal()
+        try:
+            dynamic_fields = rules_session.query(DynamicSourceField).order_by(
+                DynamicSourceField.source_key, DynamicSourceField.sort_order
+            ).all()
+            
+            for df in dynamic_fields:
+                source_key = df.source_key
+                field_key = df.field_key
+                field_label = df.field_label
+                enabled = df.enabled
+                # 构造与静态字段相同的格式
+                fields.append({
+                    "key": f"{source_key}.{field_key}",
+                    "label": field_label,
+                    "category": "dynamic",
+                    "group_name": source_key,
+                    "source": "dynamic",
+                    "scope": "all",
+                    "enabled": bool(enabled),
+                    "description": f"动态字段: {source_key}.{field_key}",
+                    "used_in": ['导出模板'] if f"{source_key}.{field_key}" in template_fields else [],
+                })
+        finally:
+            rules_session.close()
+        
+        return fields
     finally:
         repo.close()
 

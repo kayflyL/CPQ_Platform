@@ -41,37 +41,15 @@ const routes = [
         path: '/base-pricing',
         name: 'BasePricing',
         component: () => import('@/views/admin/BasePricing.vue'),
-        meta: { title: 'KP价格库' }
+        meta: { title: '配件' }
       },
       {
-        path: '/l6-pricing',
-        name: 'L6Pricing',
-        component: () => import('@/views/admin/L6Pricing.vue'),
-        meta: { title: 'L6整机价格库' }
+        path: '/servers',
+        name: 'Servers',
+        component: () => import('@/views/L6Pricing.vue'),
+        meta: { title: '服务器' }
       },
-      // 旧版规则管理（已废弃，保留路由以防外部链接）
-      {
-        path: '/rules',
-        redirect: '/parse-template'
-      },
-      {
-        path: '/export-templates',
-        name: 'ExportTemplates',
-        component: () => import('@/views/template/TemplateList.vue'),
-        meta: { title: '导出模板' }
-      },
-      {
-        path: '/export-templates/:id/edit',
-        name: 'ExportTemplateEdit',
-        component: () => import('@/views/TemplateEditor.vue'),
-        meta: { title: '编辑模板' }
-      },
-      {
-        path: '/parse-template',
-        name: 'ParseTemplateEditor',
-        component: () => import('@/views/ParseTemplateEditor.vue'),
-        meta: { title: '解析模板配置' }
-      },
+
       {
         path: '/excel-parser',
         name: 'ExcelParser',
@@ -89,6 +67,20 @@ const routes = [
         name: 'SystemSettings',
         component: () => import('@/views/admin/SystemSettings.vue'),
         meta: { title: '系统设置' }
+      },
+
+      // Univer 导出模板（新系统）
+      {
+        path: '/univer-templates',
+        name: 'UniverTemplateList',
+        component: () => import('@/views/univer/UniverTemplateList.vue'),
+        meta: { title: '导出模板' }
+      },
+      {
+        path: '/univer-templates/:id/edit',
+        name: 'UniverTemplateEdit',
+        component: () => import('@/views/univer/UniverTemplateEditor.vue'),
+        meta: { title: '编辑模板' }
       }
     ]
   }

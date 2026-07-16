@@ -1,4 +1,5 @@
 """Quotation model — one opportunity can have multiple quotations"""
+import json
 from typing import Optional
 from sqlalchemy import Integer, String, Float, Text, JSON
 from sqlalchemy.orm import Mapped, mapped_column
@@ -7,6 +8,7 @@ from .base import Base
 
 class Quotation(Base):
     __tablename__ = "quotations"
+    __table_args__ = {"schema": "opportunities"}
 
     quotation_id: Mapped[str] = mapped_column(String, primary_key=True)
     opportunity_id: Mapped[str] = mapped_column(String, index=True)
@@ -29,9 +31,15 @@ class Quotation(Base):
     # 计算字段
     total_price: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
     profit_margin: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
+    
+    # 动态扩展字段（JSON 存储）
+    extra_fields: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    
+    # 多租户预留
+    tenant_id: Mapped[Optional[str]] = mapped_column(String, default="default")
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "quotation_id": self.quotation_id,
             "opportunity_id": self.opportunity_id,
             "version": self.version or "v1",
@@ -50,3 +58,13 @@ class Quotation(Base):
             "total_price": self.total_price or 0.0,
             "profit_margin": self.profit_margin or 0.0,
         }
+        
+        # 展开 extra_fields 到顶层
+        if self.extra_fields:
+            try:
+                extra = json.loads(self.extra_fields)
+                result.update(extra)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        return result

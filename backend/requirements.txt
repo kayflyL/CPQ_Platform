@@ -7,6 +7,7 @@ pandas>=2.0.0
 openpyxl>=3.1.0
 python-multipart
 pymysql
+psycopg2-binary>=2.9.9
 alembic
 pytest>=7.4.0
 pytest-cov>=4.1.0

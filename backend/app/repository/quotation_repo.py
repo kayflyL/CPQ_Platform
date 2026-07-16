@@ -1,15 +1,16 @@
 """Quotation repository — manages quotation CRUD operations"""
+import json
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.models.quotation import Quotation
 from app.models.opportunity_item import OpportunityItem
-from app.models.base import Opp_SessionLocal
+from app.models.base import Opportunity_SessionLocal
 from datetime import datetime
 
 
 class QuotationRepository:
     def __init__(self):
-        self.db: Session = Opp_SessionLocal()
+        self.db: Session = Opportunity_SessionLocal()
 
     def close(self):
         if self.db:
@@ -77,16 +78,38 @@ class QuotationRepository:
             Quotation.status == "active"
         ).order_by(Quotation.version.desc()).all()
 
+    # Core fields that are actual DB columns (not in extra_fields JSON)
+    _CORE_COLUMNS = {
+        "quotation_id", "opportunity_id", "version", "quotation_name", "file_path",
+        "l6_price", "total_qty", "config_count", "created_at", "updated_at", "status",
+        "quotation_date", "config_quantities", "config_descriptions", "config_server_models",
+        "total_price", "profit_margin", "extra_fields", "tenant_id",
+    }
+
     def update(self, quotation_id: str, **kwargs) -> Optional[Quotation]:
-        """Update quotation fields"""
+        """Update quotation fields. Core fields go to columns, others to extra_fields JSON."""
         quotation = self.get_by_id(quotation_id)
         if not quotation:
             return None
         
-        for key, value in kwargs.items():
-            if hasattr(quotation, key):
-                setattr(quotation, key, value)
+        # Load existing extra_fields
+        extra = {}
+        if quotation.extra_fields:
+            try:
+                extra = json.loads(quotation.extra_fields)
+            except (json.JSONDecodeError, TypeError):
+                extra = {}
         
+        for key, value in kwargs.items():
+            if key in self._CORE_COLUMNS:
+                # Core column: set directly
+                setattr(quotation, key, value)
+            else:
+                # Dynamic field: write to extra_fields JSON
+                extra[key] = value
+        
+        # Save extra_fields back
+        quotation.extra_fields = json.dumps(extra, ensure_ascii=False) if extra else None
         quotation.updated_at = datetime.now().isoformat()
         self.db.commit()
         self.db.refresh(quotation)
@@ -116,8 +139,15 @@ class QuotationRepository:
         self.db.commit()
         return True
 
+    # Core fields for items that are actual DB columns
+    _ITEM_CORE_COLUMNS = {
+        "item_id", "quotation_id", "config_name", "category", "part_name",
+        "spec", "qty", "confirmed_price", "base_price", "final_price",
+        "profit_margin", "extra_fields", "tenant_id",
+    }
+
     def save_items(self, quotation_id: str, items: List[dict]) -> int:
-        """Save configuration items for a quotation"""
+        """Save configuration items for a quotation. Supports dynamic fields via extra_fields."""
         # Delete existing items
         self.db.query(OpportunityItem).filter(
             OpportunityItem.quotation_id == quotation_id
@@ -125,17 +155,27 @@ class QuotationRepository:
         
         # Insert new items
         for item_data in items:
+            # Separate core and dynamic fields
+            extra = {}
+            core_kwargs = {}
+            for key, value in item_data.items():
+                if key in self._ITEM_CORE_COLUMNS:
+                    core_kwargs[key] = value
+                else:
+                    extra[key] = value
+            
             item = OpportunityItem(
-                quotation_id=quotation_id,
-                config_name=item_data.get("config_name", ""),
-                category=item_data.get("category", ""),
-                part_name=item_data.get("part_name", ""),
-                spec=item_data.get("spec", ""),
-                qty=item_data.get("qty", 0),
-                confirmed_price=item_data.get("confirmed_price", 0.0),
-                base_price=item_data.get("base_price", 0.0),
-                final_price=item_data.get("final_price", 0.0),
-                profit_margin=item_data.get("profit_margin", 0.0)
+                quotation_id=core_kwargs.get("quotation_id", quotation_id),
+                config_name=core_kwargs.get("config_name", ""),
+                category=core_kwargs.get("category", ""),
+                part_name=core_kwargs.get("part_name", ""),
+                spec=core_kwargs.get("spec", ""),
+                qty=core_kwargs.get("qty", 0),
+                confirmed_price=core_kwargs.get("confirmed_price", 0.0),
+                base_price=core_kwargs.get("base_price", 0.0),
+                final_price=core_kwargs.get("final_price", 0.0),
+                profit_margin=core_kwargs.get("profit_margin", 0.0),
+                extra_fields=json.dumps(extra, ensure_ascii=False) if extra else None,
             )
             self.db.add(item)
         
@@ -187,44 +227,4 @@ class QuotationRepository:
             OpportunityItem.quotation_id == quotation_id
         ).all()
 
-    def save_items(self, quotation_id: str, items: list) -> None:
-        """Replace all items for a quotation (delete + insert)."""
-        # Delete existing items
-        self.db.query(OpportunityItem).filter(
-            OpportunityItem.quotation_id == quotation_id
-        ).delete()
-        # Insert new items
-        for item_data in items:
-            if isinstance(item_data, dict):
-                item = OpportunityItem(quotation_id=quotation_id, **{
-                    k: v for k, v in item_data.items()
-                    if hasattr(OpportunityItem, k) and k != 'id'
-                })
-                self.db.add(item)
-        self.db.commit()
 
-    def delete(self, quotation_id: str) -> bool:
-        """Soft delete a quotation."""
-        quo = self.db.query(Quotation).filter(
-            Quotation.quotation_id == quotation_id
-        ).first()
-        if quo:
-            quo.status = "deleted"
-            self.db.commit()
-            return True
-        return False
-
-    def restore(self, quotation_id: str) -> bool:
-        """Restore a soft-deleted quotation."""
-        quo = self.db.query(Quotation).filter(
-            Quotation.quotation_id == quotation_id
-        ).first()
-        if quo:
-            quo.status = "active"
-            self.db.commit()
-            return True
-        return False
-
-    def close(self):
-        if self.db:
-            self.db.close()

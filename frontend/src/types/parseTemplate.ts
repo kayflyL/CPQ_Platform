@@ -16,9 +16,6 @@ export interface ParseTemplate {
   
   /** 动态区域配置（关键词定位） */
   dynamicRegions: DynamicRegion[]
-  
-  /** KP分类映射 */
-  kpCategoryMappings: KpCategoryMapping[]
 }
 
 /** 动态区域配置 */
@@ -41,13 +38,6 @@ export interface DynamicRegion {
   
   /** 解析时的列映射：字段名 → 列字母 */
   fieldMapping: Record<string, string>
-}
-
-/** KP分类映射 */
-export interface KpCategoryMapping {
-  id: string
-  keyword: string
-  category: string
 }
 
 /** 解析结果 */

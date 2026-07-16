@@ -83,6 +83,8 @@ export interface CellBinding {
   descriptionTemplate?: string
   /** 描述分隔符（仅 config_summary 时生效），默认 "," */
   descriptionSeparator?: string
+  /** 部件筛选（仅 config_summary 时生效），逗号分隔的部件名称模式 */
+  partFilter?: string
 }
 
 /** 业务字段定义 */

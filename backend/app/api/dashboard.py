@@ -4,7 +4,7 @@ from fastapi import APIRouter
 from sqlalchemy import func, cast, Date
 from app.models.opportunity import Opportunity
 from app.models.quotation import Quotation
-from app.models.base import Opp_SessionLocal
+from app.models.base import Opportunity_SessionLocal
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -19,7 +19,7 @@ def get_week_start() -> str:
 @router.get("/stats")
 def get_dashboard_stats():
     """Get dashboard statistics: total opportunities, total configs, this week's new opportunities/configs."""
-    session = Opp_SessionLocal()
+    session = Opportunity_SessionLocal()
     try:
         week_start = get_week_start()
         
@@ -58,7 +58,7 @@ def get_dashboard_stats():
 @router.get("/trend")
 def get_dashboard_trend(days: int = 30):
     """Get daily opportunity/config creation trend for the last N days."""
-    session = Opp_SessionLocal()
+    session = Opportunity_SessionLocal()
     try:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
         

@@ -1,12 +1,13 @@
-"""Field usage statistics model — stored in kp_data.db"""
+"""Field usage statistics model — stored in rules.db"""
 from typing import Optional
 from sqlalchemy import Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
-from .base import Base, kp_engine
+from .base import Base, rules_engine
 
 
 class FieldUsageStats(Base):
     __tablename__ = "field_usage_stats"
+    __table_args__ = {"schema": "rules"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     field_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)

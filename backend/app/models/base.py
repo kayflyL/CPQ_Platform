@@ -1,46 +1,56 @@
 """
-Multi-database engine/session factory.
+PostgreSQL multi-schema engine/session factory.
 
-Per the architecture:
-- Each DB has its own engine + sessionmaker
-- This satisfies the "independent databases, never mixed" principle
+Architecture:
+- Single PostgreSQL database with 6 schemas (kp, l6, opportunities, rules, l6_history, public)
+- Each schema has its own session factory for logical isolation
+- Satisfies the "independent databases, never mixed" principle via schema separation
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
-import os
 from app.core.config import get_settings
 
-DATA_DIR = os.path.join(get_settings().DATA_PATH, "Reference")
 
-# ---- KP Database ----
-KP_DB_PATH = os.path.join(DATA_DIR, "kp_data.db")
-KP_URL = f"sqlite:///{KP_DB_PATH}"
-kp_engine = create_engine(KP_URL, connect_args={"check_same_thread": False})
+# Single PostgreSQL engine with connection pooling
+settings = get_settings()
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=20,
+    max_overflow=0,
+    pool_pre_ping=True,
+    echo=settings.DEBUG,
+    connect_args={
+        "client_encoding": "UTF8",
+    }
+)
+
+
+# ---- Schema-specific session factories ----
+# Each schema gets its own sessionmaker bound to a schema-translated engine
+
+# ---- KP Schema (Key Parts) ----
+kp_engine = engine.execution_options(schema_translate_map={None: "kp"})
 KP_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=kp_engine)
 
-# ---- L6 Database ----
-L6_DB_PATH = os.path.join(DATA_DIR, "l6_data.db")
-L6_URL = f"sqlite:///{L6_DB_PATH}"
-l6_engine = create_engine(L6_URL, connect_args={"check_same_thread": False})
+# ---- L6 Schema ----
+l6_engine = engine.execution_options(schema_translate_map={None: "l6"})
 L6_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=l6_engine)
 
-# ---- Opportunities Database (商机线索) ----
-OPP_DB_PATH = os.path.join(DATA_DIR, "opportunities.db")
-OPP_URL = f"sqlite:///{OPP_DB_PATH}"
-opp_engine = create_engine(OPP_URL, connect_args={"check_same_thread": False})
-Opp_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=opp_engine)
+# ---- Opportunities Schema (商机线索) ----
+opp_engine = engine.execution_options(schema_translate_map={None: "opportunities"})
+Opportunity_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=opp_engine)
 
-# ---- Rules Database (configurable business logic) ----
-RULES_DB_PATH = os.path.join(DATA_DIR, "rules.db")
-RULES_URL = f"sqlite:///{RULES_DB_PATH}"
-rules_engine = create_engine(RULES_URL, connect_args={"check_same_thread": False})
+# ---- Rules Schema (configurable business logic) ----
+rules_engine = engine.execution_options(schema_translate_map={None: "rules"})
 Rules_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=rules_engine)
 
-# ---- L6 History Database (price/note change logs) ----
-L6_HISTORY_DB_PATH = os.path.join(DATA_DIR, "l6_history.db")
-L6_HISTORY_URL = f"sqlite:///{L6_HISTORY_DB_PATH}"
-l6_history_engine = create_engine(L6_HISTORY_URL, connect_args={"check_same_thread": False})
+# ---- L6 History Schema (price/note change logs) ----
+l6_history_engine = engine.execution_options(schema_translate_map={None: "l6_history"})
 L6History_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=l6_history_engine)
+
+# ---- Public Schema (comments, etc.) ----
+public_engine = engine.execution_options(schema_translate_map={None: "public"})
+Public_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=public_engine)
 
 
 class Base(DeclarativeBase):

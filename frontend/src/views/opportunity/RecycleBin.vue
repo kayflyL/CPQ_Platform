@@ -102,7 +102,7 @@ const projectColumns = [
   { title: '商机名称', dataIndex: 'project_name', width: 180 },
   { title: '平台', dataIndex: 'platform_type', width: 80 },
   { title: '机箱', dataIndex: 'chassis_form', width: 70 },
-  { title: '台数', dataIndex: 'total_qty', width: 70 },
+  { title: '采购数量', dataIndex: 'purchase_qty', width: 70 },
   { title: '配置数', dataIndex: 'config_count', width: 70 },
   { title: '删除时间', dataIndex: 'updated_at', width: 160 },
   { title: '操作', dataIndex: 'action', width: 180, fixed: 'right' }

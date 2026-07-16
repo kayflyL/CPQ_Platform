@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from typing import Optional
 from sqlalchemy.orm import Session
-from ..models.base import KP_SessionLocal, kp_engine
+from ..models.base import Rules_SessionLocal, rules_engine
 from ..models.business_field import BusinessField
 from ..models.field_reference import FieldReference
 from ..models.field_audit_log import FieldAuditLog
@@ -13,7 +13,7 @@ from ..models.field_usage_stats import FieldUsageStats
 
 class BusinessFieldRepository:
     def __init__(self):
-        self.session: Session = KP_SessionLocal()
+        self.session: Session = Rules_SessionLocal()
 
     # ==================== Basic CRUD ====================
 

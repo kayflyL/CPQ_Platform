@@ -28,34 +28,6 @@ def get_cpu_list():
         repo.close()
 
 
-# ========== L6 Price List ==========
-
-@router.get("/l6/list")
-def get_l6_list():
-    """获取所有L6价格记录（用于匹配规则Demo）"""
-    from app.repository.l6_repo import L6Repository
-    repo = L6Repository()
-    try:
-        records = repo.get_all_for_matching()
-        return {"records": records, "total": len(records)}
-    finally:
-        repo.close()
-
-
-@router.post("/l6/preview-match")
-def preview_l6_match(data: dict):
-    """Preview L6 matching process step by step.
-    data: {chassis, model, drive_bays, psu, motherboard}
-    """
-    from app.engine.pricing_engine import PricingEngine
-    engine = PricingEngine()
-    try:
-        result = engine.preview_l6_match(data)
-        return result
-    finally:
-        engine.close()
-
-
 # ========== L6 Region Config ==========
 
 @router.get("/l6-region-config")
@@ -199,95 +171,6 @@ def delete_kp_category_mapping(mapping_id: int):
     return {"status": "success"}
 
 
-# ========== Motherboard Mappings ==========
-
-@router.get("/motherboard-mappings")
-def get_motherboard_mappings():
-    """Get all motherboard mappings."""
-    return {"mappings": rules_repo.get_motherboard_mappings()}
-
-
-@router.put("/motherboard-mappings")
-def bulk_update_motherboard_mappings(data: list[dict]):
-    """Bulk update all motherboard mappings."""
-    return rules_repo.bulk_update_motherboard_mappings(data)
-
-
-@router.put("/motherboard-mappings/{mapping_id}")
-def update_motherboard_mapping(mapping_id: int, data: dict):
-    """Update a motherboard mapping."""
-    success = rules_repo.update_motherboard_mapping(mapping_id, data)
-    if not success:
-        raise HTTPException(status_code=404, detail="Mapping not found")
-    return {"status": "success"}
-
-
-@router.post("/motherboard-mappings")
-def add_motherboard_mapping(data: dict):
-    """Add a new motherboard mapping."""
-    mapping_id = rules_repo.add_motherboard_mapping(data)
-    return {"id": mapping_id, "status": "success"}
-
-
-@router.delete("/motherboard-mappings/{mapping_id}")
-def delete_motherboard_mapping(mapping_id: int):
-    """Delete a motherboard mapping."""
-    success = rules_repo.delete_motherboard_mapping(mapping_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Mapping not found")
-    return {"status": "success"}
-
-
-# ========== Matching Rules ==========
-
-@router.get("/matching-rules")
-def get_matching_rules():
-    """Get all matching rules."""
-    return {"rules": rules_repo.get_matching_rules()}
-
-
-@router.put("/matching-rules")
-def bulk_update_matching_rules(data: list[dict]):
-    """Bulk update all matching rules."""
-    return rules_repo.bulk_update_matching_rules(data)
-
-
-@router.get("/matching-rules/{rule_name}")
-def get_matching_rule(rule_name: str):
-    """Get a specific matching rule by name."""
-    rule = rules_repo.get_matching_rule(rule_name)
-    if not rule:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    return rule
-
-
-@router.put("/matching-rules/{rule_name}")
-def update_matching_rule(rule_name: str, data: dict):
-    """Update a matching rule value."""
-    rule_value = data.get("rule_value")
-    if rule_value is None:
-        raise HTTPException(status_code=400, detail="rule_value is required")
-    success = rules_repo.update_matching_rule(rule_name, rule_value)
-    if not success:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    return {"status": "success"}
-
-
-@router.post("/matching-rules")
-def add_matching_rule(data: dict):
-    """Add a new matching rule."""
-    rule_id = rules_repo.add_matching_rule(data)
-    return {"id": rule_id, "status": "success"}
-
-
-@router.delete("/matching-rules/{rule_id}")
-def delete_matching_rule(rule_id: int):
-    """Delete a matching rule."""
-    success = rules_repo.delete_matching_rule(rule_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    return {"status": "success"}
-
 
 # ========== Initialize Default Rules ==========
 
@@ -339,50 +222,6 @@ def initialize_default_rules():
     for mapping in default_kp_mappings:
         rules_repo.add_kp_category_mapping(mapping)
     
-    # Default Motherboard Mappings
-    default_mb_mappings = [
-        {"cpu_feature": "KH50000", "motherboard_model": "Polaris MB", "priority": 1},
-        {"cpu_feature": "KH30000", "motherboard_model": "Orion MB", "priority": 1},
-        {"cpu_feature": "KH20000", "motherboard_model": "Orion MB", "priority": 2},
-        {"cpu_feature": "AMD", "motherboard_model": "TTY TG658V3", "priority": 1},
-        {"cpu_feature": "EPYC", "motherboard_model": "TTY TG658V3", "priority": 2},
-        {"cpu_feature": "INTEL", "motherboard_model": "TTY TG658V3", "priority": 3},
-        {"cpu_feature": "XEON", "motherboard_model": "TTY TG658V3", "priority": 4},
-    ]
-    for mapping in default_mb_mappings:
-        rules_repo.add_motherboard_mapping(mapping)
-    
-    # Default Matching Rules
-    default_rules = [
-        {
-            "rule_name": "l6_match_dimensions",
-            "rule_value": '["chassis", "model", "drive_bays", "psu", "motherboard"]',
-            "description": "L6 匹配维度优先级（JSON 数组）"
-        },
-        {
-            "rule_name": "l6_fallback_dimensions",
-            "rule_value": '["chassis", "model", "drive_bays"]',
-            "description": "L6 降级匹配维度（5维匹配失败时使用）"
-        },
-        {
-            "rule_name": "allow_motherboard_fallback",
-            "rule_value": "true",
-            "description": "是否允许主板降级匹配（Polaris → Orion）"
-        },
-        {
-            "rule_name": "allow_chassis_fuzzy",
-            "rule_value": "true",
-            "description": "是否允许机箱模糊匹配（4U → 4.5U）"
-        },
-        {
-            "rule_name": "chassis_fuzzy_rules",
-            "rule_value": '[{"from": "2U", "to": "2.5U"}, {"from": "4U", "to": "4.5U"}, {"from": "1U", "to": "2U"}]',
-            "description": "机箱模糊匹配规则（JSON数组）"
-        },
-    ]
-    for rule in default_rules:
-        rules_repo.add_matching_rule(rule)
-    
     return {"status": "success", "message": "Default rules initialized"}
 
 
@@ -424,3 +263,135 @@ def update_export_categories(data: dict):
     if not success:
         raise HTTPException(status_code=500, detail="Failed to update categories")
     return {"status": "success"}
+
+
+# ========== Parse Regions (Excel Parser) ==========
+
+@router.get("/parse-regions")
+def get_parse_regions():
+    """获取所有解析区域配置"""
+    regions = rules_repo.get_parse_regions()
+    return {"regions": regions}
+
+
+@router.post("/parse-regions")
+def save_parse_regions(data: dict):
+    """批量保存解析区域（替换所有）"""
+    regions = data.get("regions", [])
+    result = rules_repo.save_parse_regions(regions)
+    return result
+
+
+@router.put("/parse-regions/{region_id}")
+def update_parse_region(region_id: int, data: dict):
+    """更新单个解析区域"""
+    success = rules_repo.update_parse_region(region_id, data)
+    if not success:
+        raise HTTPException(status_code=404, detail="Region not found")
+    return {"status": "success"}
+
+
+@router.delete("/parse-regions/{region_id}")
+def delete_parse_region(region_id: int):
+    """删除解析区域"""
+    success = rules_repo.delete_parse_region(region_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Region not found")
+    return {"status": "success"}
+
+
+# ========== Parse Field Rules (Excel Parser) ==========
+
+@router.get("/parse-field-rules")
+def get_parse_field_rules():
+    """获取所有字段解析规则"""
+    rules = rules_repo.get_parse_field_rules()
+    return {"rules": rules}
+
+
+@router.post("/parse-field-rules")
+def save_parse_field_rules(data: dict):
+    """批量保存字段规则（替换所有）"""
+    rules = data.get("rules", [])
+    result = rules_repo.save_parse_field_rules(rules)
+    return result
+
+
+@router.put("/parse-field-rules/{rule_id}")
+def update_parse_field_rule(rule_id: int, data: dict):
+    """更新单个字段规则"""
+    success = rules_repo.update_parse_field_rule(rule_id, data)
+    if not success:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "success"}
+
+
+@router.delete("/parse-field-rules/{rule_id}")
+def delete_parse_field_rule(rule_id: int):
+    """删除字段规则"""
+    success = rules_repo.delete_parse_field_rule(rule_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    return {"status": "success"}
+
+
+# ========== Excel Parser Preview (White-box) ==========
+
+@router.post("/excel-parser-preview")
+async def excel_parser_preview(
+    file: UploadFile = File(...),
+    sheet_name: str = Form(None)
+):
+    """使用新 ExcelParser 引擎预览解析（带溯源信息）
+    
+    返回白盒化解析结果：
+    - static_fields: 静态字段及溯源
+    - dynamic_regions: 动态区域数据及溯源
+    - trace: 解析过程追踪
+    - region_bounds: 区域定位结果
+    """
+    from app.engine.excel_parser import ExcelParser
+    import pandas as pd
+    import io
+    
+    # Read Excel file
+    contents = await file.read()
+    try:
+        xl = pd.ExcelFile(io.BytesIO(contents))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"无法解析 Excel 文件: {str(e)}")
+    
+    # Find target sheet
+    if sheet_name and sheet_name in xl.sheet_names:
+        target_sheet = sheet_name
+    else:
+        # Find first valid sheet (skip 原始需求/Reference)
+        target_sheet = None
+        for sn in xl.sheet_names:
+            if '原始需求' not in sn and 'Reference' not in sn:
+                target_sheet = sn
+                break
+    
+    if not target_sheet:
+        raise HTTPException(status_code=400, detail="未找到有效的报价 Sheet")
+    
+    df = xl.parse(target_sheet, header=None)
+    if df.empty:
+        raise HTTPException(status_code=400, detail="Sheet 为空")
+    
+    # Use ExcelParser
+    parser = ExcelParser(rules_repo)
+    try:
+        # Parse with trace
+        parse_result = parser.parse(df, return_trace=True)
+        
+        # Also generate heatmap preview
+        preview_result = parser.preview_parse(df, max_row=50, max_col=20)
+        
+        return {
+            "sheet_name": target_sheet,
+            "parse_result": parse_result,
+            "preview": preview_result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"解析失败: {str(e)}")

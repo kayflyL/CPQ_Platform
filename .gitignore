@@ -52,3 +52,12 @@ logs/
 # Build
 frontend/dist/
 backend/dist/
+
+# Tooling artifacts
+graphify-out/
+.hermes/
+.hermes-tmp.*
+
+# Stray Windows redirect targets
+nul
+**/nul

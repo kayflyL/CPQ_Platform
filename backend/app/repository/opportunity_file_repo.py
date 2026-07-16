@@ -1,7 +1,7 @@
 """Opportunity file repository - handles file tracking database operations"""
 from sqlalchemy.orm import Session
 from app.models.opportunity_file import OpportunityFile
-from app.models.base import Opp_SessionLocal
+from app.models.base import Opportunity_SessionLocal
 from typing import List, Optional
 from datetime import datetime
 
@@ -15,7 +15,7 @@ class OpportunityFileRepository:
     @property
     def session(self) -> Session:
         if self._session is None:
-            self._session = Opp_SessionLocal()
+            self._session = Opportunity_SessionLocal()
         return self._session
     
     def close(self):

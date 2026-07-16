@@ -5,16 +5,16 @@ This module now re-exports for imports that still reference it.
 """
 from app.models.base import (
     Base, kp_engine, l6_engine, opp_engine,
-    KP_SessionLocal, L6_SessionLocal, Opp_SessionLocal,
+    KP_SessionLocal, L6_SessionLocal, Opportunity_SessionLocal,
 )
 from app.core.config import get_settings
 
 settings = get_settings()
 
 # Backward-compatible get_db — raises to prevent accidental misuse.
-# APIs should use explicit Repository sessions (Opp_SessionLocal, etc.)
+# APIs should use explicit Repository sessions (Opportunity_SessionLocal, etc.)
 def get_db():
     raise NotImplementedError(
         "get_db() is deprecated. Use explicit Repository sessions "
-        "(e.g., Opp_SessionLocal) instead to avoid connecting to the wrong database."
+        "(e.g., Opportunity_SessionLocal) instead to avoid connecting to the wrong database."
     )

@@ -8,6 +8,7 @@ from .base import Base
 class OpportunityFile(Base):
     """Tracks files associated with opportunities (uploads and exports)"""
     __tablename__ = "opportunity_files"
+    __table_args__ = {"schema": "opportunities"}
 
     file_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     opportunity_id: Mapped[str] = mapped_column(String, index=True)

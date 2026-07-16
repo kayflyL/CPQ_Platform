@@ -25,7 +25,10 @@ from app.api import rules
 from app.api import comments
 from app.api import dashboard
 from app.api import quotations
-from app.api import export_templates
+from app.api import univer_templates
+from app.api import l6_chassis
+from app.api import fields as fields_api
+from app.api import system_config as system_config_api
 from app.core.startup import init_rules_db
 
 settings = get_settings()
@@ -68,7 +71,10 @@ app.include_router(rules.router)
 app.include_router(comments.router)
 app.include_router(dashboard.router)
 app.include_router(quotations.router)
-app.include_router(export_templates.router)
+app.include_router(univer_templates.router)
+app.include_router(l6_chassis.router)
+app.include_router(fields_api.router)
+app.include_router(system_config_api.router)
 
 @app.get("/")
 def root():

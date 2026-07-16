@@ -22,7 +22,6 @@ def mock_kp_repo():
 def mock_l6_repo():
     """Mock L6Repository."""
     repo = MagicMock()
-    repo.get_all_for_matching.return_value = []
     return repo
 
 
@@ -40,10 +39,6 @@ def mock_rules_repo():
     return repo
 
 
-@pytest.fixture
-def mock_export_template_repo():
-    """Mock ExportTemplateRepository."""
-    return MagicMock()
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@
 Repository for rules database operations.
 """
 from sqlalchemy.orm import Session
-from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MotherboardMapping, MatchingRule
+from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule
 from app.models.base import Rules_SessionLocal
 import json
 
@@ -161,73 +161,6 @@ class RulesRepository:
             session.commit()
             return True
     
-    # ========== Motherboard Mappings ==========
-    
-    def get_motherboard_mappings(self) -> list[dict]:
-        """Get all motherboard mappings."""
-        with self.session_factory() as session:
-            mappings = session.query(MotherboardMapping).order_by(MotherboardMapping.priority).all()
-            return [
-                {
-                    "id": m.id,
-                    "cpu_feature": m.cpu_feature,
-                    "motherboard_model": m.motherboard_model,
-                    "priority": m.priority
-                }
-                for m in mappings
-            ]
-    
-    def update_motherboard_mapping(self, mapping_id: int, data: dict) -> bool:
-        """Update a motherboard mapping."""
-        with self.session_factory() as session:
-            mapping = session.query(MotherboardMapping).filter_by(id=mapping_id).first()
-            if not mapping:
-                return False
-            for key, value in data.items():
-                if hasattr(mapping, key):
-                    setattr(mapping, key, value)
-            session.commit()
-            return True
-    
-    # ========== Matching Rules ==========
-    
-    def get_matching_rules(self) -> list[dict]:
-        """Get all matching rules."""
-        with self.session_factory() as session:
-            rules = session.query(MatchingRule).all()
-            return [
-                {
-                    "id": r.id,
-                    "rule_name": r.rule_name,
-                    "rule_value": r.rule_value,
-                    "description": r.description
-                }
-                for r in rules
-            ]
-    
-    def get_matching_rule(self, rule_name: str) -> dict | None:
-        """Get a specific matching rule by name."""
-        with self.session_factory() as session:
-            rule = session.query(MatchingRule).filter_by(rule_name=rule_name).first()
-            if not rule:
-                return None
-            return {
-                "id": rule.id,
-                "rule_name": rule.rule_name,
-                "rule_value": rule.rule_value,
-                "description": rule.description
-            }
-    
-    def update_matching_rule(self, rule_name: str, rule_value: str) -> bool:
-        """Update a matching rule value."""
-        with self.session_factory() as session:
-            rule = session.query(MatchingRule).filter_by(rule_name=rule_name).first()
-            if not rule:
-                return False
-            rule.rule_value = rule_value
-            session.commit()
-            return True
-    
     # ========== Bulk Operations ==========
     
     def add_kp_category_mapping(self, data: dict) -> int:
@@ -237,22 +170,6 @@ class RulesRepository:
             session.add(mapping)
             session.commit()
             return mapping.id
-    
-    def add_motherboard_mapping(self, data: dict) -> int:
-        """Add a new motherboard mapping."""
-        with self.session_factory() as session:
-            mapping = MotherboardMapping(**data)
-            session.add(mapping)
-            session.commit()
-            return mapping.id
-    
-    def add_matching_rule(self, data: dict) -> int:
-        """Add a new matching rule."""
-        with self.session_factory() as session:
-            rule = MatchingRule(**data)
-            session.add(rule)
-            session.commit()
-            return rule.id
     
     def bulk_update_kp_category_mappings(self, mappings: list[dict]) -> dict:
         """Bulk update KP category mappings."""
@@ -284,66 +201,6 @@ class RulesRepository:
             session.commit()
             return {"status": "success", "count": len(mappings)}
     
-    def bulk_update_motherboard_mappings(self, mappings: list[dict]) -> dict:
-        """Bulk update motherboard mappings."""
-        with self.session_factory() as session:
-            existing = session.query(MotherboardMapping).all()
-            existing_ids = {m.id for m in existing}
-            incoming_ids = {m.get('id') for m in mappings if m.get('id')}
-            
-            for mapping in existing:
-                if mapping.id not in incoming_ids:
-                    session.delete(mapping)
-            
-            for data in mappings:
-                mapping_id = data.get('id')
-                if mapping_id and mapping_id in existing_ids:
-                    mapping = session.query(MotherboardMapping).filter_by(id=mapping_id).first()
-                    if mapping:
-                        for key in ['cpu_feature', 'motherboard_model', 'priority']:
-                            if key in data:
-                                setattr(mapping, key, data[key])
-                else:
-                    new_mapping = MotherboardMapping(
-                        cpu_feature=data.get('cpu_feature', ''),
-                        motherboard_model=data.get('motherboard_model', ''),
-                        priority=data.get('priority', 1)
-                    )
-                    session.add(new_mapping)
-            
-            session.commit()
-            return {"status": "success", "count": len(mappings)}
-    
-    def bulk_update_matching_rules(self, rules: list[dict]) -> dict:
-        """Bulk update matching rules."""
-        with self.session_factory() as session:
-            existing = session.query(MatchingRule).all()
-            existing_ids = {r.id for r in existing}
-            incoming_ids = {r.get('id') for r in rules if r.get('id')}
-            
-            for rule in existing:
-                if rule.id not in incoming_ids:
-                    session.delete(rule)
-            
-            for data in rules:
-                rule_id = data.get('id')
-                if rule_id and rule_id in existing_ids:
-                    rule = session.query(MatchingRule).filter_by(id=rule_id).first()
-                    if rule:
-                        for key in ['rule_name', 'rule_value', 'description']:
-                            if key in data:
-                                setattr(rule, key, data[key])
-                else:
-                    new_rule = MatchingRule(
-                        rule_name=data.get('rule_name', ''),
-                        rule_value=data.get('rule_value', ''),
-                        description=data.get('description', '')
-                    )
-                    session.add(new_rule)
-            
-            session.commit()
-            return {"status": "success", "count": len(rules)}
-    
     def delete_kp_category_mapping(self, mapping_id: int) -> bool:
         """Delete a KP category mapping."""
         with self.session_factory() as session:
@@ -351,26 +208,6 @@ class RulesRepository:
             if not mapping:
                 return False
             session.delete(mapping)
-            session.commit()
-            return True
-    
-    def delete_motherboard_mapping(self, mapping_id: int) -> bool:
-        """Delete a motherboard mapping."""
-        with self.session_factory() as session:
-            mapping = session.query(MotherboardMapping).filter_by(id=mapping_id).first()
-            if not mapping:
-                return False
-            session.delete(mapping)
-            session.commit()
-            return True
-    
-    def delete_matching_rule(self, rule_id: int) -> bool:
-        """Delete a matching rule."""
-        with self.session_factory() as session:
-            rule = session.query(MatchingRule).filter_by(id=rule_id).first()
-            if not rule:
-                return False
-            session.delete(rule)
             session.commit()
             return True
     
@@ -435,6 +272,19 @@ class RulesRepository:
             session.commit()
             return True
 
+    # ========== Type Keywords ==========
+    
+    def get_type_keywords(self) -> dict:
+        """Get type keywords mapping from matching rules."""
+        with self.session_factory() as session:
+            rule = session.query(MatchingRule).filter_by(rule_name="type_keywords").first()
+            if not rule:
+                return {}
+            try:
+                return json.loads(rule.rule_value)
+            except:
+                return {}
+
     # ========== Export Categories ==========
     
     def get_export_categories(self) -> list:
@@ -468,5 +318,164 @@ class RulesRepository:
                     description="Custom export categories"
                 )
                 session.add(new_rule)
+            session.commit()
+            return True
+
+    # ========== Parse Regions ==========
+
+    def get_parse_regions(self) -> list[dict]:
+        """Get all parse regions ordered by sort_order."""
+        with self.session_factory() as session:
+            regions = session.query(ParseRegion).order_by(ParseRegion.sort_order).all()
+            return [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "start_keywords": r.start_keywords or "",
+                    "end_keywords": r.end_keywords or "",
+                    "skip_header_rows": r.skip_header_rows,
+                    "sort_order": r.sort_order
+                }
+                for r in regions
+            ]
+
+    def save_parse_regions(self, regions: list[dict]) -> dict:
+        """Bulk save parse regions (replace all)."""
+        with self.session_factory() as session:
+            session.query(ParseRegion).delete()
+            for i, data in enumerate(regions):
+                region = ParseRegion(
+                    name=data.get("name", ""),
+                    start_keywords=data.get("start_keywords", ""),
+                    end_keywords=data.get("end_keywords", ""),
+                    skip_header_rows=data.get("skip_header_rows", 0),
+                    sort_order=data.get("sort_order", i)
+                )
+                session.add(region)
+            session.commit()
+            return {"status": "success", "count": len(regions)}
+
+    def add_parse_region(self, data: dict) -> int:
+        """Add a single parse region."""
+        with self.session_factory() as session:
+            region = ParseRegion(
+                name=data.get("name", ""),
+                start_keywords=data.get("start_keywords", ""),
+                end_keywords=data.get("end_keywords", ""),
+                skip_header_rows=data.get("skip_header_rows", 0),
+                sort_order=data.get("sort_order", 0)
+            )
+            session.add(region)
+            session.commit()
+            return region.id
+
+    def update_parse_region(self, region_id: int, data: dict) -> bool:
+        """Update a parse region by ID."""
+        with self.session_factory() as session:
+            region = session.query(ParseRegion).filter_by(id=region_id).first()
+            if not region:
+                return False
+            for key in ["name", "start_keywords", "end_keywords", "skip_header_rows", "sort_order"]:
+                if key in data:
+                    setattr(region, key, data[key])
+            session.commit()
+            return True
+
+    def delete_parse_region(self, region_id: int) -> bool:
+        """Delete a parse region by ID."""
+        with self.session_factory() as session:
+            region = session.query(ParseRegion).filter_by(id=region_id).first()
+            if not region:
+                return False
+            session.delete(region)
+            session.commit()
+            return True
+
+    # ========== Parse Field Rules ==========
+
+    def get_parse_field_rules(self) -> list[dict]:
+        """Get all parse field rules ordered by sort_order."""
+        with self.session_factory() as session:
+            rules = session.query(ParseFieldRule).order_by(ParseFieldRule.sort_order).all()
+            return [
+                {
+                    "id": r.id,
+                    "field_key": r.field_key,
+                    "region": r.region,
+                    "source_type": r.source_type,
+                    "source_config": json.loads(r.source_config) if r.source_config else {},
+                    "fallback_config": json.loads(r.fallback_config) if r.fallback_config else None,
+                    "enabled": bool(r.enabled),
+                    "sort_order": r.sort_order
+                }
+                for r in rules
+            ]
+
+    def save_parse_field_rules(self, rules: list[dict]) -> dict:
+        """Bulk save parse field rules (replace all)."""
+        with self.session_factory() as session:
+            session.query(ParseFieldRule).delete()
+            for i, data in enumerate(rules):
+                sc = data.get("source_config", {})
+                fc = data.get("fallback_config")
+                rule = ParseFieldRule(
+                    field_key=data.get("field_key", ""),
+                    region=data.get("region", ""),
+                    source_type=data.get("source_type", "column"),
+                    source_config=json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc,
+                    fallback_config=json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
+                    enabled=1 if data.get("enabled", True) else 0,
+                    sort_order=data.get("sort_order", i)
+                )
+                session.add(rule)
+            session.commit()
+            return {"status": "success", "count": len(rules)}
+
+    def add_parse_field_rule(self, data: dict) -> int:
+        """Add a single parse field rule."""
+        with self.session_factory() as session:
+            sc = data.get("source_config", {})
+            fc = data.get("fallback_config")
+            rule = ParseFieldRule(
+                field_key=data.get("field_key", ""),
+                region=data.get("region", ""),
+                source_type=data.get("source_type", "column"),
+                source_config=json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc,
+                fallback_config=json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
+                enabled=1 if data.get("enabled", True) else 0,
+                sort_order=data.get("sort_order", 0)
+            )
+            session.add(rule)
+            session.commit()
+            return rule.id
+
+    def update_parse_field_rule(self, rule_id: int, data: dict) -> bool:
+        """Update a parse field rule by ID."""
+        with self.session_factory() as session:
+            rule = session.query(ParseFieldRule).filter_by(id=rule_id).first()
+            if not rule:
+                return False
+            for key in ["field_key", "region", "source_type", "enabled", "sort_order"]:
+                if key in data:
+                    if key == "enabled":
+                        setattr(rule, key, 1 if data[key] else 0)
+                    else:
+                        setattr(rule, key, data[key])
+            if "source_config" in data:
+                sc = data["source_config"]
+                rule.source_config = json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc
+            if "fallback_config" in data:
+                fc = data["fallback_config"]
+                rule.fallback_config = json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None)
+            session.commit()
+            return True
+
+    def delete_parse_field_rule(self, rule_id: int) -> bool:
+        """Delete a parse field rule by ID."""
+        with self.session_factory() as session:
+            rule = session.query(ParseFieldRule).filter_by(id=rule_id).first()
+            if not rule:
+                return False
+            session.delete(rule)
             session.commit()
             return True

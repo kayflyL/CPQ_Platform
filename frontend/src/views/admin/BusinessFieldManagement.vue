@@ -134,15 +134,17 @@
                   <a-select-option value="hidden">隐藏</a-select-option>
                 </a-select>
               </template>
-              <template v-if="column.key === 'usage_count'">
-                <span :class="{ 'low-usage': getUsageCount(record.key) === 0 }">
-                  {{ getUsageCount(record.key) }}
-                </span>
+              <template v-if="column.key === 'used_in'">
+                <a-space :size="4" wrap>
+                  <a-tag v-for="loc in (record.used_in || [])" :key="loc" color="blue" size="small">
+                    {{ loc }}
+                  </a-tag>
+                  <span v-if="!record.used_in || record.used_in.length === 0" style="color: #999;">-</span>
+                </a-space>
               </template>
               <template v-if="column.key === 'action'">
                 <a-space>
                   <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
-                  <a-button type="link" size="small" @click="showHistory(record)">历史</a-button>
                   <a-popconfirm
                     title="确定删除该字段？"
                     ok-text="确定"
@@ -194,9 +196,10 @@
             <a-form-item label="分类" required>
               <a-select v-model:value="editField.category" placeholder="选择分类" :disabled="isEditing">
                 <a-select-option value="opportunity">商机</a-select-option>
-                <a-select-option value="item">配置</a-select-option>
-                <a-select-option value="l6">L6 价格库</a-select-option>
-                <a-select-option value="kp">KP 价格库</a-select-option>
+                <a-select-option value="item">配置项</a-select-option>
+                <a-select-option value="config">配置</a-select-option>
+                <a-select-option value="l6">机箱</a-select-option>
+                <a-select-option value="kp">配件</a-select-option>
                 <a-select-option value="system">系统</a-select-option>
               </a-select>
             </a-form-item>
@@ -335,41 +338,6 @@
       </a-form>
     </a-modal>
 
-    <!-- History Modal -->
-    <a-modal
-      v-model:open="historyModalVisible"
-      :title="`变更历史 - ${historyFieldKey}`"
-      :footer="null"
-      width="600px"
-    >
-      <a-timeline style="margin-top: 16px; max-height: 400px; overflow-y: auto;">
-        <a-timeline-item 
-          v-for="log in historyLogs" 
-          :key="log.id"
-          :color="log.action === 'create' ? 'green' : log.action === 'delete' ? 'red' : 'blue'"
-        >
-          <div class="history-item">
-            <div class="history-header">
-              <a-tag :color="log.action === 'create' ? 'green' : log.action === 'delete' ? 'red' : 'blue'">
-                {{ log.action === 'create' ? '创建' : log.action === 'delete' ? '删除' : '更新' }}
-              </a-tag>
-              <span class="history-operator">{{ log.operator }}</span>
-              <span class="history-time">{{ formatTime(log.operated_at) }}</span>
-            </div>
-            <div v-if="log.changes" class="history-changes">
-              <div v-for="(change, field) in parseChanges(log.changes)" :key="field" class="change-item">
-                <span class="change-field">{{ field }}:</span>
-                <span class="change-old">{{ change.old || '(空)' }}</span>
-                <span class="change-arrow">→</span>
-                <span class="change-new">{{ change.new || '(空)' }}</span>
-              </div>
-            </div>
-          </div>
-        </a-timeline-item>
-      </a-timeline>
-      <a-empty v-if="historyLogs.length === 0" description="暂无变更记录" />
-    </a-modal>
-
     <!-- Import Modal -->
     <a-modal
       v-model:open="importModalVisible"
@@ -451,13 +419,13 @@ interface BusinessField {
 }
 
 const fields = ref<BusinessField[]>([])
-const usageStats = ref<Record<string, { usage_count: number; last_used_at: string | null }>>({})
 const activeFilter = ref<string | null>(null)
 const searchText = ref('')
 const selectedFields = ref<string[]>([])
 const expandedObjects = ref<Record<string, boolean>>({
   opportunity: true,
   item: false,
+  config: false,
   l6: false,
   kp: false,
   system: false,
@@ -466,10 +434,6 @@ const expandedObjects = ref<Record<string, boolean>>({
 const addModalVisible = ref(false)
 const addLoading = ref(false)
 const isEditing = ref(false)
-
-const historyModalVisible = ref(false)
-const historyFieldKey = ref('')
-const historyLogs = ref<any[]>([])
 
 const importModalVisible = ref(false)
 const importLoading = ref(false)
@@ -507,18 +471,20 @@ const columns = [
   { title: '描述', key: 'description', width: 180, ellipsis: true },
   { title: '类型', key: 'display_type', width: 100 },
   { title: '权限', key: 'permission', width: 90 },
-  { title: '使用次数', key: 'usage_count', width: 90 },
-  { title: '操作', key: 'action', width: 160, fixed: 'right' as const },
+  { title: '使用位置', key: 'used_in', width: 200 },
+  { title: '操作', key: 'action', width: 120, fixed: 'right' as const },
 ]
 
 // Object tree structure
 const objectTree = computed(() => {
   const objects = [
     { key: 'opportunity', label: '商机', count: 0, groups: [] as any[] },
-    { key: 'item', label: '配置', count: 0, groups: [] as any[] },
-    { key: 'l6', label: 'L6 价格库', count: 0, groups: [] as any[] },
-    { key: 'kp', label: 'KP 价格库', count: 0, groups: [] as any[] },
+    { key: 'item', label: '配置项', count: 0, groups: [] as any[] },
+    { key: 'config', label: '配置', count: 0, groups: [] as any[] },
+    { key: 'l6', label: '机箱', count: 0, groups: [] as any[] },
+    { key: 'kp', label: '配件', count: 0, groups: [] as any[] },
     { key: 'system', label: '系统', count: 0, groups: [] as any[] },
+    { key: 'dynamic', label: '动态字段', count: 0, groups: [] as any[] },
   ]
 
   const groupMap: Record<string, Record<string, number>> = {}
@@ -579,10 +545,6 @@ const currentGroupLabel = computed(() => {
   return group
 })
 
-function getUsageCount(key: string): number {
-  return usageStats.value[key]?.usage_count || 0
-}
-
 function toggleObject(key: string) {
   expandedObjects.value[key] = !expandedObjects.value[key]
 }
@@ -602,15 +564,6 @@ async function loadFields() {
     fields.value = res.data
   } catch (e) {
     message.error('加载字段列表失败')
-  }
-}
-
-async function loadUsageStats() {
-  try {
-    const res = await axios.get('/api/admin/business-fields-usage-stats')
-    usageStats.value = res.data.stats || {}
-  } catch (e) {
-    // Stats may not exist yet, ignore
   }
 }
 
@@ -816,36 +769,6 @@ async function handleSave() {
   }
 }
 
-async function showHistory(record: BusinessField) {
-  historyFieldKey.value = record.key
-  historyModalVisible.value = true
-  try {
-    const res = await axios.get(`${API_BASE}/${record.key}/history`)
-    historyLogs.value = res.data.history || []
-  } catch (e) {
-    message.error('加载历史记录失败')
-    historyLogs.value = []
-  }
-}
-
-function parseChanges(changesStr: string): Record<string, { old: string; new: string }> {
-  try {
-    return JSON.parse(changesStr)
-  } catch {
-    return {}
-  }
-}
-
-function formatTime(isoStr: string): string {
-  if (!isoStr) return ''
-  try {
-    const d = new Date(isoStr)
-    return d.toLocaleString('zh-CN')
-  } catch {
-    return isoStr
-  }
-}
-
 function showImport() {
   importData.value = ''
   importMode.value = 'skip'
@@ -905,7 +828,6 @@ async function copyExport() {
 
 onMounted(() => {
   loadFields()
-  loadUsageStats()
 })
 </script>
 
@@ -1065,65 +987,6 @@ onMounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 180px;
-}
-
-.low-usage {
-  color: var(--cpq-text-secondary, #666);
-  font-style: italic;
-}
-
-/* History */
-.history-item {
-  margin-bottom: 4px;
-}
-
-.history-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-
-.history-operator {
-  font-size: 12px;
-  color: var(--cpq-text-secondary, #999);
-}
-
-.history-time {
-  font-size: 11px;
-  color: var(--cpq-text-secondary, #666);
-  margin-left: auto;
-}
-
-.history-changes {
-  background: var(--cpq-overlay-w4);
-  border-radius: 4px;
-  padding: 8px;
-  margin-top: 4px;
-}
-
-.change-item {
-  font-size: 12px;
-  margin-bottom: 2px;
-}
-
-.change-field {
-  color: var(--cpq-text-secondary, #999);
-  margin-right: 4px;
-}
-
-.change-old {
-  color: #ff6b6b;
-  text-decoration: line-through;
-}
-
-.change-arrow {
-  color: var(--cpq-text-secondary, #666);
-  margin: 0 4px;
-}
-
-.change-new {
-  color: #51cf66;
 }
 
 /* Form hints */

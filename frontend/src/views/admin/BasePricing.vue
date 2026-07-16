@@ -2,7 +2,7 @@
   <div class="base-pricing-page">
     <!-- =================== Page Header =================== -->
     <div class="page-header">
-      <h2>🔧 KP价格库</h2>
+      <h2>🔧 配件</h2>
       <a-radio-group v-model:value="viewMode" button-style="solid" size="small">
         <a-radio-button value="card">
           <template #icon><AppstoreOutlined /></template>

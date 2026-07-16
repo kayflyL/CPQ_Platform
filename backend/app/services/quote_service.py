@@ -11,10 +11,9 @@ logger = logging.getLogger(__name__)
 
 from app.engine.pricing_engine import PricingEngine
 from app.repository.kp_repo import KPRepository
-from app.repository.l6_repo import L6Repository
+from app.repository.l6_chassis_repo import L6ChassisRepository
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.rules_repo import RulesRepository
-from app.repository.export_template_repo import ExportTemplateRepository
 from app.core.config import get_settings
 
 _settings = get_settings()
@@ -25,21 +24,28 @@ CONFIG_PATH = DATA_DIR / "config.json"
 class QuoteService:
     def __init__(self):
         self.kp_repo = KPRepository()
-        self.l6_repo = L6Repository()
+        self.l6_repo = L6ChassisRepository()
         self.opportunity_repo = OpportunityRepository()
         self.rules_repo = RulesRepository()
-        self.export_template_repo = ExportTemplateRepository()
         self.engine = PricingEngine(
             self.kp_repo, self.l6_repo, self.opportunity_repo,
-            self.rules_repo, self.export_template_repo
+            self.rules_repo
         )
         self.config = self._load_config()
 
     def _load_config(self) -> dict:
-        if os.path.exists(CONFIG_PATH):
-            with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-                return json.load(f)
-        return {"tax_rate": 0.13, "usd_to_rmb": 7.0, "profit_margin": 0.1, "warranty_fee_rate": 0.02}
+        """Load config from system_config DB table (single source of truth)."""
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            return {
+                "tax_rate": repo.get_value("tax_rate", 0.13),
+                "usd_to_rmb": repo.get_value("usd_to_rmb", 7.0),
+                "profit_margin": repo.get_value("profit_margin", 0.1),
+                "warranty_fee_rate": repo.get_value("warranty_fee_rate", 0.02),
+            }
+        finally:
+            repo.close()
 
     def process_upload(self, file_content: bytes, filename: str) -> dict:
         """Process uploaded Excel: parse 鈫?enrich 鈫?L6 match 鈫?return JSON for frontend."""
@@ -59,20 +65,6 @@ class QuoteService:
                 items_df = cfg_data['items']
                 enriched_df = self.engine.enrich_config(items_df, cfg_data.get('meta'))
 
-                # L6 5-dimension matching
-                l6_price, l6_matched_record = self.engine.match_l6_total(cfg_data.get('meta', {}))
-
-                # Assign L6 price to first L6 row, mark rest as included
-                l6_mask = enriched_df['category'] == 'L6'
-                if l6_mask.any() and l6_price is not None:
-                    l6_indices = enriched_df[l6_mask].index
-                    first_l6_idx = l6_indices[0]
-                    enriched_df.at[first_l6_idx, 'base_price'] = l6_price
-                    enriched_df.at[first_l6_idx, 'match_status'] = f"鉁?L6鏁存満宸插尮閰?[楼{l6_price}]"
-                    # 鍏朵綑 L6 瀛愰」鏍囪涓哄凡鍖呭惈
-                    for idx in l6_indices[1:]:
-                        enriched_df.at[idx, 'match_status'] = "✅ 已包含在整机价格中"
-
                 # Default profit_margin to config value
                 default_margin = self.config.get('profit_margin', 0.1) * 100
                 enriched_df['profit_margin'] = enriched_df['profit_margin'].apply(
@@ -85,12 +77,11 @@ class QuoteService:
                 items_list = []
                 l6_total = 0
                 kp_total = 0
-                warranty_total = 0
-                
-                # 质保信息解析 — 优先从 Warranty 类别项中获取
+
+                # 质保信息结构（前端需要，后端不再处理）
                 warranty_info = {
-                    "l6": {"detected": False, "years": None, "rate": 0.02, "description": ""},
-                    "kp": {"detected": False, "years": None, "rate": 0.02, "description": ""}
+                    "l6": {"years": None, "rate": 0.02, "description": ""},
+                    "kp": {"years": None, "rate": 0.02, "description": ""}
                 }
                 
                 for _, row in enriched_df.iterrows():
@@ -121,35 +112,8 @@ class QuoteService:
                     spec = str(item.get('spec', ''))
                     line_total = item['final_price'] * item['qty']
                     
-                    # 处理 Warranty 类别项（从 _parse_items 中解析出的质保行）
-                    if cat == 'Warranty':
-                        # 提取质保年限
-                        years = item.get('warranty_years')
-                        if years is None:
-                            years_match = re.search(r'质保(\d+)年', spec)
-                            years = int(years_match.group(1)) if years_match else None
-                        
-                        # 根据 part_name 判断是 L6 还是 KP 质保
-                        if 'l6' in part_name:
-                            warranty_info["l6"]["detected"] = True
-                            warranty_info["l6"]["years"] = years
-                            warranty_info["l6"]["rate"] = 0
-                            warranty_info["l6"]["description"] = spec
-                        elif 'kp' in part_name or 'key part' in part_name:
-                            warranty_info["kp"]["detected"] = True
-                            warranty_info["kp"]["years"] = years
-                            warranty_info["kp"]["rate"] = 0
-                            warranty_info["kp"]["description"] = spec
-                        else:
-                            # 未明确分类的质保，默认算作 L6
-                            if not warranty_info["l6"]["detected"]:
-                                warranty_info["l6"]["detected"] = True
-                                warranty_info["l6"]["years"] = years
-                                warranty_info["l6"]["rate"] = 0
-                                warranty_info["l6"]["description"] = spec
-                        
-                        warranty_total += line_total
-                    elif cat == 'L6':
+                    # 分类统计
+                    if cat == 'L6':
                         l6_total += line_total
                     else:
                         kp_total += line_total
@@ -159,11 +123,9 @@ class QuoteService:
                     "summary": {
                         "l6_total": round(l6_total, 2),
                         "kp_total": round(kp_total, 2),
-                        "warranty_total": round(warranty_total, 2),
-                        "grand_total": round(l6_total + kp_total + warranty_total, 2)
+                        "warranty_total": 0,  # 维保价格由前端计算
+                        "grand_total": round(l6_total + kp_total, 2)
                     },
-                    "l6_matched_record": l6_matched_record,
-                    "l6_meta": cfg_data.get('meta', {}),  # Excel 解析出的原始需求
                     "warranty_info": warranty_info
                 }
 

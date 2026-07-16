@@ -19,6 +19,8 @@ class QuotationCreate(BaseModel):
 
 
 class QuotationUpdate(BaseModel):
+    model_config = {"extra": "allow"}  # 支持动态字段
+    
     l6_price: Optional[float] = None
     total_qty: Optional[int] = None
     config_count: Optional[int] = None
@@ -33,8 +35,8 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
     repo = QuotationRepository()
     try:
         from app.models.quotation import Quotation
-        from app.models.base import Opp_SessionLocal
-        session = Opp_SessionLocal()
+        from app.models.base import Opportunity_SessionLocal
+        session = Opportunity_SessionLocal()
         try:
             query = session.query(Quotation)
             if opportunity_id:
@@ -111,10 +113,7 @@ def get_quotation(quotation_id: str, reparse: bool = False):
                         parsed = svc.process_upload(file_content, os.path.basename(file_path))
                         if parsed.get("status") != "error":
                             for cfg_name, cfg_data in parsed.get("configs", {}).items():
-                                per_cfg_l6[cfg_name] = {
-                                    "l6_meta": cfg_data.get("l6_meta", {}),
-                                    "l6_matched_record": cfg_data.get("l6_matched_record"),
-                                }
+                                per_cfg_l6[cfg_name] = {}
                 except Exception as e:
                     logger.warning("per-config L6 rebuild failed: %s", e)
                 finally:
@@ -124,38 +123,10 @@ def get_quotation(quotation_id: str, reparse: bool = False):
 
         result["per_cfg_l6"] = per_cfg_l6
 
-        # Legacy fallback for any callers expecting top-level fields
-        if per_cfg_l6:
-            first_cfg = next(iter(per_cfg_l6.values()))
-            result["l6_matched_record"] = first_cfg.get("l6_matched_record")
-            result["l6_meta"] = first_cfg.get("l6_meta", {})
-        else:
-            result["l6_matched_record"] = None
-            result["l6_meta"] = {}
-
         return result
     finally:
         repo.close()
         opp_repo.close()
-
-
-@router.patch("/{quotation_id}/l6")
-def update_quotation_l6(quotation_id: str, l6_record: dict):
-    """Update the L6 matching record for a quotation (user manually selected a different chassis)."""
-    repo = QuotationRepository()
-    try:
-        quotation = repo.get_by_id(quotation_id)
-        if not quotation:
-            raise HTTPException(status_code=404, detail="Quotation not found")
-        
-        # Update the l6_matched_record in the quotation
-        updated = repo.update(quotation_id, l6_matched_record=l6_record)
-        if not updated:
-            raise HTTPException(status_code=500, detail="Failed to update L6 record")
-        
-        return {"success": True, "l6_record": l6_record}
-    finally:
-        repo.close()
 
 
 @router.post("")
@@ -314,10 +285,10 @@ def batch_permanent_delete_quotations(req: BatchQuotationRequest):
     """批量永久删除报价单"""
     from app.models.quotation import Quotation
     from app.models.opportunity_item import OpportunityItem
-    from app.models.base import Opp_SessionLocal
+    from app.models.base import Opportunity_SessionLocal
     from sqlalchemy import delete
 
-    session = Opp_SessionLocal()
+    session = Opportunity_SessionLocal()
     results = {"success": [], "failed": []}
     try:
         for qid in req.quotation_ids:

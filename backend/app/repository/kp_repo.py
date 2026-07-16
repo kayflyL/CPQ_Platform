@@ -21,12 +21,12 @@ class KPRepository:
             sort_order = "desc"
         
         base_q = """
-            SELECT rowid as id, category, model, price, currency, date, note,
-                   (SELECT COUNT(*) FROM kp_records WHERE model = sub.model) as record_count
+            SELECT id, category, model, price, currency, date, note,
+                   (SELECT COUNT(*) FROM kp.kp_records WHERE model = sub.model) as record_count
             FROM (
-                SELECT rowid, category, model, price, currency, date, note,
+                SELECT id, category, model, price, currency, date, note,
                        ROW_NUMBER() OVER (PARTITION BY model ORDER BY date DESC) as rn
-                FROM kp_records
+                FROM kp.kp_records
             ) sub
             WHERE rn = 1
         """
@@ -49,7 +49,7 @@ class KPRepository:
     def get_latest_price_for_model(self, model: str) -> Optional[dict]:
         q = """
             SELECT category, model, price, currency, date, note
-            FROM kp_records
+            FROM kp.kp_records
             WHERE model = :m
             ORDER BY date DESC
             LIMIT 1
@@ -61,7 +61,7 @@ class KPRepository:
     def fuzzy_match_price(self, model_fragment: str) -> Optional[dict]:
         q = """
             SELECT category, model, price, currency, date, note
-            FROM kp_records
+            FROM kp.kp_records
             WHERE model LIKE :f
             ORDER BY date DESC
             LIMIT 1
@@ -72,8 +72,8 @@ class KPRepository:
 
     def get_price_history(self, model: str, limit: int = 20) -> List[dict]:
         q = """
-            SELECT rowid as id, category, model, price, currency, date, note
-            FROM kp_records
+            SELECT id, category, model, price, currency, date, note
+            FROM kp.kp_records
             WHERE model = :m
             ORDER BY date DESC
             LIMIT :l
@@ -85,7 +85,7 @@ class KPRepository:
     def insert_price(self, category: str, model: str, price: float,
                      currency: str = "RMB", date: str = None, note: str = "") -> bool:
         q = """
-            INSERT INTO kp_records (category, model, price, currency, date, note)
+            INSERT INTO kp.kp_records (category, model, price, currency, date, note)
             VALUES (:c, :m, :p, :cu, :d, :n)
         """
         with kp_engine.begin() as conn:
@@ -100,7 +100,7 @@ class KPRepository:
         """Return all unique categories with their model counts."""
         q = """
             SELECT category, COUNT(DISTINCT model) as count
-            FROM kp_records
+            FROM kp.kp_records
             GROUP BY category
             ORDER BY count DESC
         """
@@ -111,12 +111,12 @@ class KPRepository:
     def get_by_category(self, category: str, search: str = "") -> List[dict]:
         """Get latest price for each model in a given category, with record count."""
         base_q = """
-            SELECT rowid as id, category, model, price, currency, date, note,
-                   (SELECT COUNT(*) FROM kp_records WHERE model = sub.model) as record_count
+            SELECT id, category, model, price, currency, date, note,
+                   (SELECT COUNT(*) FROM kp.kp_records WHERE model = sub.model) as record_count
             FROM (
-                SELECT rowid, category, model, price, currency, date, note,
+                SELECT id, category, model, price, currency, date, note,
                        ROW_NUMBER() OVER (PARTITION BY model ORDER BY date DESC) as rn
-                FROM kp_records
+                FROM kp.kp_records
                 WHERE category = :cat
             ) sub
             WHERE rn = 1
@@ -133,7 +133,7 @@ class KPRepository:
 
     def rename_model(self, old_model: str, new_model: str) -> bool:
         """Rename a model across all its history records."""
-        q = "UPDATE kp_records SET model = :new WHERE model = :old"
+        q = "UPDATE kp.kp_records SET model = :new WHERE model = :old"
         with kp_engine.begin() as conn:
             conn.execute(text(q), {"new": new_model, "old": old_model})
         return True
@@ -157,7 +157,7 @@ class KPRepository:
         """获取所有去重的CPU型号（从kp_records中category='CPU'）"""
         q = """
             SELECT DISTINCT model
-            FROM kp_records
+            FROM kp.kp_records
             WHERE category = 'CPU'
               AND model IS NOT NULL
               AND model != ''

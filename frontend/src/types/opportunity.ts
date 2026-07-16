@@ -12,7 +12,7 @@ export interface Project {
   updated_at: string
   
   // Project-level metadata (user-editable)
-  total_qty: number
+  purchase_qty: number
   platform_type: string
   chassis_form: string
   sales_person: string

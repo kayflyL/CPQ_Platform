@@ -2,10 +2,10 @@
 Startup event to initialize rules database tables and default rules.
 """
 from app.models.base import rules_engine, l6_history_engine, Base
-from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MotherboardMapping, MatchingRule
+from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MatchingRule
 from app.models.l6 import L6PriceHistory
-from app.models.export_template import ExportTemplate
 from app.repository.rules_repo import RulesRepository
+from app.repository.system_config_repo import SystemConfigRepository
 import json
 
 
@@ -65,45 +65,15 @@ def init_rules_db():
         for mapping in default_kp_mappings:
             rules_repo.add_kp_category_mapping(mapping)
     
-    # --- Motherboard Mappings ---
-    mb_mappings = rules_repo.get_motherboard_mappings()
-    if not mb_mappings:
-        default_mb_mappings = [
-            {"cpu_feature": "KH50000", "motherboard_model": "Polaris MB", "priority": 1},
-            {"cpu_feature": "KH30000", "motherboard_model": "Orion MB", "priority": 1},
-            {"cpu_feature": "KH20000", "motherboard_model": "Orion MB", "priority": 2},
-            {"cpu_feature": "AMD", "motherboard_model": "TTY TG658V3", "priority": 1},
-            {"cpu_feature": "EPYC", "motherboard_model": "TTY TG658V3", "priority": 2},
-            {"cpu_feature": "INTEL", "motherboard_model": "TTY TG658V3", "priority": 3},
-            {"cpu_feature": "XEON", "motherboard_model": "TTY TG658V3", "priority": 4},
-        ]
-        for mapping in default_mb_mappings:
-            rules_repo.add_motherboard_mapping(mapping)
-    
-    # --- Matching Rules ---
-    matching_rules = rules_repo.get_matching_rules()
-    if not matching_rules:
-        default_rules = [
-            {
-                "rule_name": "l6_match_dimensions",
-                "rule_value": '["chassis", "model", "drive_bays", "psu", "motherboard"]',
-                "description": "L6 匹配维度优先级（JSON 数组）"
-            },
-            {
-                "rule_name": "l6_fallback_dimensions",
-                "rule_value": '["chassis", "model", "drive_bays"]',
-                "description": "L6 降级匹配维度（5维匹配失败时使用）"
-            },
-            {
-                "rule_name": "price_diff_threshold",
-                "rule_value": "0.01",
-                "description": "价格差异阈值（小于此值视为一致）"
-            },
-        ]
-        for rule in default_rules:
-            rules_repo.add_matching_rule(rule)
-    
     print("✅ Rules database initialized")
+
+    # Initialize system_config defaults
+    config_repo = SystemConfigRepository()
+    try:
+        config_repo.init_defaults()
+        print("✅ System config initialized")
+    finally:
+        config_repo.close()
 
     # Clean up old temporary files on startup
     try:
