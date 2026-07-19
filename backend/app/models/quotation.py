@@ -27,6 +27,7 @@ class Quotation(Base):
     config_quantities: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     config_descriptions: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的描述
     config_server_models: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的服务器型号
+    config_warranty_info: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的维保信息（年限/费率/描述）
     
     # 计算字段
     total_price: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
@@ -37,6 +38,9 @@ class Quotation(Base):
     
     # 多租户预留
     tenant_id: Mapped[Optional[str]] = mapped_column(String, default="default")
+
+    # 主推标记
+    is_primary: Mapped[Optional[bool]] = mapped_column(default=False)
 
     def to_dict(self) -> dict:
         result = {
@@ -55,8 +59,10 @@ class Quotation(Base):
             "config_quantities": self.config_quantities or {},
             "config_descriptions": self.config_descriptions or {},
             "config_server_models": self.config_server_models or {},
+            "config_warranty_info": self.config_warranty_info or {},
             "total_price": self.total_price or 0.0,
             "profit_margin": self.profit_margin or 0.0,
+            "is_primary": self.is_primary or False,
         }
         
         # 展开 extra_fields 到顶层

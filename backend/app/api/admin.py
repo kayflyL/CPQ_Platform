@@ -130,6 +130,218 @@ def get_kp_history(model: str = None, part_name: str = None):
         repo.close()
 
 
+# ================== KP Parts 完整 CRUD API (新表) ==================
+
+@router.get("/kp/parts")
+def list_parts(category_id: int = None, search: str = "", page: int = 1, page_size: int = 20,
+               sort_by: str = "name", sort_order: str = "asc",
+               brands: str = None, price_filter: str = None, specs: str = None):
+    """分页列出配件（支持品牌/价格记录/规格筛选）"""
+    repo = KPRepository()
+    try:
+        return repo.list_parts(category_id, search, page, page_size, sort_by, sort_order,
+                               brands, price_filter, specs)
+    finally:
+        repo.close()
+
+
+@router.get("/kp/brands")
+def list_brands(category_id: int = None):
+    """品牌列表 + 计数（用于筛选面板）"""
+    repo = KPRepository()
+    try:
+        return {"brands": repo.list_brands(category_id)}
+    finally:
+        repo.close()
+
+
+@router.get("/kp/spec-facets")
+def list_spec_facets(category_id: int = None):
+    """规格维度聚合（用于筛选面板，随分类变化）"""
+    repo = KPRepository()
+    try:
+        return {"facets": repo.list_spec_facets(category_id)}
+    finally:
+        repo.close()
+
+
+@router.get("/kp/parts/{part_id}")
+def get_part(part_id: int):
+    """获取配件详情（含规格、价格历史、兼容机型）"""
+    repo = KPRepository()
+    try:
+        part = repo.get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail="配件不存在")
+        return part
+    finally:
+        repo.close()
+
+
+@router.post("/kp/parts")
+def create_part(data: dict):
+    """创建配件"""
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="配件名称不能为空")
+    repo = KPRepository()
+    try:
+        return repo.create_part(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        repo.close()
+
+
+@router.put("/kp/parts/{part_id}")
+def update_part(part_id: int, data: dict):
+    """更新配件"""
+    repo = KPRepository()
+    try:
+        part = repo.update_part(part_id, data)
+        if not part:
+            raise HTTPException(status_code=404, detail="配件不存在")
+        return part
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        repo.close()
+
+
+@router.delete("/kp/parts/{part_id}")
+def delete_part(part_id: int):
+    """删除配件"""
+    repo = KPRepository()
+    try:
+        ok = repo.delete_part(part_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="配件不存在")
+        return {"status": "success"}
+    finally:
+        repo.close()
+
+
+# ---- 分类管理 ----
+@router.get("/kp/categories/all")
+def list_all_categories():
+    """列出所有分类（含层级信息）"""
+    repo = KPRepository()
+    try:
+        return {"categories": repo.list_categories()}
+    finally:
+        repo.close()
+
+
+@router.post("/kp/categories")
+def create_category(data: dict):
+    """创建分类"""
+    if not data.get("name"):
+        raise HTTPException(status_code=400, detail="分类名称不能为空")
+    repo = KPRepository()
+    try:
+        return repo.create_category(data)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        repo.close()
+
+
+@router.put("/kp/categories/{cat_id}")
+def update_category(cat_id: int, data: dict):
+    """更新分类"""
+    repo = KPRepository()
+    try:
+        cat = repo.update_category(cat_id, data)
+        if not cat:
+            raise HTTPException(status_code=404, detail="分类不存在")
+        return cat
+    finally:
+        repo.close()
+
+
+@router.delete("/kp/categories/{cat_id}")
+def delete_category(cat_id: int):
+    """删除分类"""
+    repo = KPRepository()
+    try:
+        ok = repo.delete_category(cat_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="分类不存在")
+        return {"status": "success"}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    finally:
+        repo.close()
+
+
+# ---- 价格历史 ----
+@router.get("/kp/parts/{part_id}/prices")
+def get_part_prices(part_id: int):
+    """获取配件价格历史"""
+    repo = KPRepository()
+    try:
+        part = repo.get_part(part_id)
+        if not part:
+            raise HTTPException(status_code=404, detail="配件不存在")
+        return {"prices": part.get("price_history", [])}
+    finally:
+        repo.close()
+
+
+@router.post("/kp/parts/{part_id}/prices")
+def add_price(part_id: int, data: dict):
+    """添加价格记录"""
+    if data.get("price") is None:
+        raise HTTPException(status_code=400, detail="价格不能为空")
+    repo = KPRepository()
+    try:
+        return repo.add_price_history(
+            part_id=part_id,
+            price=data["price"],
+            currency=data.get("currency", "RMB"),
+            price_date=data.get("price_date"),
+            note=data.get("note", ""),
+            source=data.get("source", ""),
+        )
+    finally:
+        repo.close()
+
+
+# ---- 关联配件 ----
+@router.get("/kp/parts/{part_id}/related")
+def get_related_parts(part_id: int):
+    """获取关联配件"""
+    repo = KPRepository()
+    try:
+        return {"related": repo.list_related(part_id)}
+    finally:
+        repo.close()
+
+
+@router.post("/kp/parts/{part_id}/related")
+def add_related_part(part_id: int, data: dict):
+    """添加关联配件"""
+    if not data.get("target_part_id"):
+        raise HTTPException(status_code=400, detail="缺少 target_part_id")
+    repo = KPRepository()
+    try:
+        return repo.add_related(part_id, data["target_part_id"], data.get("sort_order", 0))
+    finally:
+        repo.close()
+
+
+@router.delete("/kp/related/{relation_id}")
+def remove_related_part(relation_id: int):
+    """删除关联"""
+    repo = KPRepository()
+    try:
+        ok = repo.remove_related(relation_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="关联不存在")
+        return {"status": "success"}
+    finally:
+        repo.close()
+
+
 # ================== L6 Whole Machine APIs ==================
 
 @router.get("/l6/list")
@@ -267,88 +479,49 @@ def update_l6_sort_order(data: dict):
 
 
 # ================== Business Fields Management ==================
+# Core endpoints: GET list, POST create, PUT update, DELETE
+# Import/Export: GET export, POST import
+#
+# Deprecated (backend tool-layer only, not used by frontend):
+#   references, history, validation, usage-stats, sort-order, force-delete
 
 from app.repository.business_field_repo import BusinessFieldRepository
 
 
 @router.get("/business-fields")
 def list_business_fields():
-    """列出所有业务字段（含禁用），包括静态字段和动态字段，并标注使用位置"""
+    """列出所有业务字段，包括静态字段和动态字段，并标注使用位置"""
     repo = BusinessFieldRepository()
     try:
         fields = repo.list_all()
-        
-        # 扫描使用位置
-        from sqlalchemy import inspect, text
-        from app.models.base import Opportunity_SessionLocal, Rules_SessionLocal
-        from app.models.univer_template import UniverTemplate
-        
-        # 1. 获取 opportunities 表字段
-        opp_session = Opportunity_SessionLocal()
-        try:
-            inspector = inspect(opp_session.bind)
-            opp_cols = {col['name'] for col in inspector.get_columns('opportunities', schema='opportunities')}
-            
-            # 2. 获取 quotations 表字段
-            quote_cols = {col['name'] for col in inspector.get_columns('quotations', schema='opportunities')}
-            
-            # 3. 扫描 export_templates.bindings
-            template_rows = opp_session.query(UniverTemplate).all()
-            template_fields = set()
-            for template in template_rows:
-                try:
-                    data = json.loads(template.template_json)
-                    # 遍历所有 sheet 的 bindings
-                    for sheet_key, sheet_data in data.items():
-                        if isinstance(sheet_data, dict) and 'bindings' in sheet_data:
-                            for binding in sheet_data['bindings']:
-                                if 'fieldKey' in binding:
-                                    template_fields.add(binding['fieldKey'])
-                except (json.JSONDecodeError, TypeError):
-                    pass
-        finally:
-            opp_session.close()
-        
-        # 为每个字段计算使用位置
-        for field in fields:
-            key = field.get('key', '')
-            locations = []
-            if key in opp_cols:
-                locations.append('商机线索')
-            if key in quote_cols:
-                locations.append('工作台')
-            if key in template_fields:
-                locations.append('导出模板')
-            field['used_in'] = locations
-        
-        # 添加动态字段（dynamic_source_fields 在 rules schema）
+
+        # 添加动态字段
         from app.models.dynamic_source_field import DynamicSourceField
+        from app.models.base import Rules_SessionLocal
         rules_session = Rules_SessionLocal()
         try:
             dynamic_fields = rules_session.query(DynamicSourceField).order_by(
                 DynamicSourceField.source_key, DynamicSourceField.sort_order
             ).all()
-            
+
             for df in dynamic_fields:
                 source_key = df.source_key
                 field_key = df.field_key
-                field_label = df.field_label
-                enabled = df.enabled
-                # 构造与静态字段相同的格式
+                full_key = f"{source_key}.{field_key}"
                 fields.append({
-                    "key": f"{source_key}.{field_key}",
-                    "label": field_label,
+                    "key": full_key,
+                    "label": df.field_label,
                     "category": "dynamic",
                     "group_name": source_key,
                     "source": "dynamic",
                     "scope": "all",
-                    "enabled": bool(enabled),
-                    "description": f"动态字段: {source_key}.{field_key}",
-                    "used_in": ['导出模板'] if f"{source_key}.{field_key}" in template_fields else [],
+                    "enabled": bool(df.enabled),
+                    "description": f"动态字段: {full_key}",
+                    "used_in_pages": "[]",
                 })
         finally:
             rules_session.close()
-        
+
         return fields
     finally:
         repo.close()
@@ -361,10 +534,9 @@ def create_business_field(data: dict, operator: str = "system"):
     for field in required:
         if field not in data or not data[field]:
             raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    
+
     repo = BusinessFieldRepository()
     try:
-        # 检查 key 是否已存在
         existing = repo.get_by_key(data["key"])
         if existing:
             raise HTTPException(status_code=409, detail=f"Field key '{data['key']}' already exists")
@@ -388,225 +560,15 @@ def update_business_field(field_key: str, data: dict, operator: str = "system"):
 
 @router.delete("/business-fields/{field_key}")
 def delete_business_field(field_key: str, operator: str = "system"):
-    """删除业务字段（含引用检查）"""
-    repo = BusinessFieldRepository()
-    try:
-        # Check references first
-        refs = repo.get_references(field_key)
-        if refs:
-            return {
-                "success": False,
-                "has_references": True,
-                "references": refs,
-                "message": f"该字段被 {len(refs)} 处引用，请先解除引用或确认强制删除"
-            }
-        
-        if not repo.delete(field_key, operator):
-            raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
-        return {"success": True}
-    finally:
-        repo.close()
-
-
-@router.delete("/business-fields/{field_key}/force")
-def force_delete_business_field(field_key: str, operator: str = "system"):
-    """强制删除业务字段（忽略引用）"""
+    """删除业务字段"""
     repo = BusinessFieldRepository()
     try:
         if not repo.delete(field_key, operator):
             raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
-        return {"success": True, "message": "字段已强制删除"}
-    finally:
-        repo.close()
-
-
-@router.put("/business-fields/sort-order")
-def update_business_fields_sort(data: dict):
-    """批量更新业务字段排序"""
-    items = data.get("items", [])
-    if not items:
-        raise HTTPException(status_code=400, detail="Missing items array")
-    
-    repo = BusinessFieldRepository()
-    try:
-        repo.batch_update_sort(items)
-        return {"status": "success", "message": "Sort order updated"}
-    finally:
-        repo.close()
-
-
-# ================== Field References ==================
-
-@router.get("/business-fields/{field_key}/references")
-def get_field_references(field_key: str):
-    """获取字段引用关系"""
-    repo = BusinessFieldRepository()
-    try:
-        refs = repo.get_references(field_key)
-        return {"field_key": field_key, "references": refs, "total": len(refs)}
-    finally:
-        repo.close()
-
-
-@router.post("/business-fields/{field_key}/references")
-def add_field_reference(field_key: str, data: dict):
-    """添加字段引用"""
-    required = ["ref_type", "ref_id"]
-    for field in required:
-        if field not in data:
-            raise HTTPException(status_code=400, detail=f"Missing required field: {field}")
-    
-    repo = BusinessFieldRepository()
-    try:
-        # Check if field exists
-        if not repo.get_by_key(field_key):
-            raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
-        
-        ref = repo.add_reference(
-            field_key=field_key,
-            ref_type=data["ref_type"],
-            ref_id=data["ref_id"],
-            ref_name=data.get("ref_name")
-        )
-        return ref
-    finally:
-        repo.close()
-
-
-@router.delete("/business-fields/{field_key}/references/{ref_type}/{ref_id}")
-def remove_field_reference(field_key: str, ref_type: str, ref_id: int):
-    """删除字段引用"""
-    repo = BusinessFieldRepository()
-    try:
-        if not repo.remove_reference(field_key, ref_type, ref_id):
-            raise HTTPException(status_code=404, detail="Reference not found")
         return {"success": True}
     finally:
         repo.close()
 
-
-@router.post("/business-fields/check-references")
-def check_field_references(data: dict):
-    """批量检查字段引用"""
-    keys = data.get("keys", [])
-    if not keys:
-        raise HTTPException(status_code=400, detail="Missing keys array")
-    
-    repo = BusinessFieldRepository()
-    try:
-        refs = repo.check_references(keys)
-        return {"references": refs, "total_fields_with_refs": len(refs)}
-    finally:
-        repo.close()
-
-
-# ================== Field Audit History ==================
-
-@router.get("/business-fields/{field_key}/history")
-def get_field_history(field_key: str, limit: int = 50):
-    """获取字段变更历史"""
-    repo = BusinessFieldRepository()
-    try:
-        if not repo.get_by_key(field_key):
-            raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
-        
-        history = repo.get_audit_history(field_key, limit)
-        return {"field_key": field_key, "history": history, "total": len(history)}
-    finally:
-        repo.close()
-
-
-# ================== Field Validation ==================
-
-@router.post("/business-fields/{field_key}/validate")
-def validate_field_value(field_key: str, data: dict):
-    """校验字段值"""
-    if "value" not in data:
-        raise HTTPException(status_code=400, detail="Missing value")
-    
-    repo = BusinessFieldRepository()
-    try:
-        result = repo.validate_field_value(field_key, data["value"])
-        return result
-    finally:
-        repo.close()
-
-
-@router.post("/business-fields/validate-batch")
-def validate_field_values_batch(data: dict):
-    """批量校验字段值"""
-    values = data.get("values", {})  # {field_key: value}
-    if not values:
-        raise HTTPException(status_code=400, detail="Missing values")
-    
-    repo = BusinessFieldRepository()
-    try:
-        results = {}
-        all_valid = True
-        for key, value in values.items():
-            result = repo.validate_field_value(key, value)
-            results[key] = result
-            if not result["valid"]:
-                all_valid = False
-        
-        return {"valid": all_valid, "results": results}
-    finally:
-        repo.close()
-
-
-# ================== Field Usage Stats ==================
-
-@router.get("/business-fields/{field_key}/stats")
-def get_field_stats(field_key: str):
-    """获取字段使用统计"""
-    repo = BusinessFieldRepository()
-    try:
-        stats = repo.get_usage_stats(field_key)
-        if not stats:
-            raise HTTPException(status_code=404, detail=f"Stats for field '{field_key}' not found")
-        return stats
-    finally:
-        repo.close()
-
-
-@router.get("/business-fields-usage-stats")
-def get_all_field_stats():
-    """获取所有字段使用统计"""
-    repo = BusinessFieldRepository()
-    try:
-        stats = repo.get_all_usage_stats()
-        return {"stats": stats, "total": len(stats)}
-    finally:
-        repo.close()
-
-
-@router.post("/business-fields/{field_key}/record-usage")
-def record_field_usage(field_key: str):
-    """记录字段使用"""
-    repo = BusinessFieldRepository()
-    try:
-        repo.record_usage(field_key)
-        return {"success": True}
-    finally:
-        repo.close()
-
-
-@router.post("/business-fields/record-usage-batch")
-def record_field_usage_batch(data: dict):
-    """批量记录字段使用"""
-    keys = data.get("keys", [])
-    if not keys:
-        raise HTTPException(status_code=400, detail="Missing keys array")
-    
-    repo = BusinessFieldRepository()
-    try:
-        repo.record_batch_usage(keys)
-        return {"success": True, "count": len(keys)}
-    finally:
-        repo.close()
-
-
-# ================== Field Import/Export ==================
 
 @router.get("/business-fields-export")
 def export_business_fields(keys: str = None):
@@ -623,17 +585,36 @@ def export_business_fields(keys: str = None):
 @router.post("/business-fields-import")
 def import_business_fields(data: dict, operator: str = "system"):
     """导入字段定义"""
-    fields = data.get("fields", [])
-    if not fields:
+    fields_list = data.get("fields", [])
+    if not fields_list:
         raise HTTPException(status_code=400, detail="Missing fields array")
-    
-    mode = data.get("mode", "skip")  # skip or overwrite
+
+    mode = data.get("mode", "skip")
     if mode not in ("skip", "overwrite"):
         raise HTTPException(status_code=400, detail="Invalid mode. Use 'skip' or 'overwrite'")
-    
+
     repo = BusinessFieldRepository()
     try:
-        result = repo.import_fields(fields, mode, operator)
+        result = repo.import_fields(fields_list, mode, operator)
         return result
     finally:
         repo.close()
+
+
+# ================== Deprecated Endpoints ==================
+# The following endpoints are kept for backend tool-layer use only.
+# The frontend no longer calls them.
+
+# @router.get("/business-fields/{field_key}/references")      # deprecated
+# @router.post("/business-fields/{field_key}/references")     # deprecated
+# @router.delete("/business-fields/{field_key}/references/..")# deprecated
+# @router.post("/business-fields/check-references")           # deprecated
+# @router.get("/business-fields/{field_key}/history")         # deprecated
+# @router.post("/business-fields/{field_key}/validate")       # deprecated
+# @router.post("/business-fields/validate-batch")             # deprecated
+# @router.get("/business-fields/{field_key}/stats")           # deprecated
+# @router.get("/business-fields-usage-stats")                 # deprecated
+# @router.post("/business-fields/{field_key}/record-usage")   # deprecated
+# @router.post("/business-fields/record-usage-batch")         # deprecated
+# @router.put("/business-fields/sort-order")                  # deprecated
+# @router.delete("/business-fields/{field_key}/force")        # deprecated

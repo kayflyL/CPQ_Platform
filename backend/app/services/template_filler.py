@@ -9,6 +9,7 @@
 import json
 import copy
 from typing import Any
+from app.repository.system_config_repo import SystemConfigRepository
 
 
 def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_config: dict = None) -> dict:
@@ -32,7 +33,7 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
     logger = logging.getLogger(__name__)
     
     # 调试：打印数据源长度
-    for key in ['l6_details', 'kp_details', 'warranty_details', 'config_summary']:
+    for key in ['l6_details', 'kp_details', 'config_summary']:
         if key in data:
             logger.info(f"[fill_snapshot] data[{key}] length: {len(data[key])}")
             if len(data[key]) > 0:
@@ -72,6 +73,10 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
     # 合并：先处理动态（从下往上），再处理静态
     sorted_bindings = dynamic_bindings + static_bindings
     
+    # 每个 sheet 的行偏移表：{after_row_idx: total_inserted_rows}
+    # 用于让静态绑定的行号感知动态插入产生的偏移
+    sheet_row_offsets = {}
+    
     for binding in sorted_bindings:
         sheet_id = binding.get("sheetId")
         if not sheet_id:
@@ -85,9 +90,20 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
                     continue
                 config_name = sheet.get("_config_name")  # 读取配置标记
                 if binding.get("dataType") == "static":
-                    _fill_static_binding(sheet, binding, data, config_name=config_name)
+                    row_offsets = sheet_row_offsets.get(new_id, {})
+                    _fill_static_binding(sheet, binding, data, config_name=config_name, row_offsets=row_offsets)
                 elif binding.get("dataType") == "dynamic":
-                    _fill_dynamic_binding(sheet, binding, data, config_name=config_name)
+                    inserted = _fill_dynamic_binding(sheet, binding, data, config_name=config_name)
+                    if inserted > 0:
+                        # 记录偏移：在哪个行号之后插入了多少行
+                        import re
+                        match = re.match(r"([A-Z]+)(\d+)", binding.get("cellAddress", "").upper())
+                        if match:
+                            template_row = int(match.group(2)) - 1  # 转为 0-indexed
+                            if new_id not in sheet_row_offsets:
+                                sheet_row_offsets[new_id] = {}
+                            offsets = sheet_row_offsets[new_id]
+                            offsets[template_row] = offsets.get(template_row, 0) + inserted
             continue
         
         if sheet_id not in filled["sheets"]:
@@ -96,9 +112,19 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
         sheet = filled["sheets"][sheet_id]
         
         if binding.get("dataType") == "static":
-            _fill_static_binding(sheet, binding, data)
+            row_offsets = sheet_row_offsets.get(sheet_id, {})
+            _fill_static_binding(sheet, binding, data, row_offsets=row_offsets)
         elif binding.get("dataType") == "dynamic":
-            _fill_dynamic_binding(sheet, binding, data)
+            inserted = _fill_dynamic_binding(sheet, binding, data)
+            if inserted > 0:
+                import re
+                match = re.match(r"([A-Z]+)(\d+)", binding.get("cellAddress", "").upper())
+                if match:
+                    template_row = int(match.group(2)) - 1  # 转为 0-indexed
+                    if sheet_id not in sheet_row_offsets:
+                        sheet_row_offsets[sheet_id] = {}
+                    offsets = sheet_row_offsets[sheet_id]
+                    offsets[template_row] = offsets.get(template_row, 0) + inserted
     
     return filled
 
@@ -161,11 +187,12 @@ def _duplicate_config_sheets(workbook: dict, sheet_config: dict, data: dict) -> 
     return workbook, sheet_id_remap
 
 
-def _fill_static_binding(sheet: dict, binding: dict, data: dict, config_name: str = None):
+def _fill_static_binding(sheet: dict, binding: dict, data: dict, config_name: str = None, row_offsets: dict = None):
     """填充静态绑定
     
     Args:
         config_name: 如果提供，当字段值是 dict 时按配置名取值
+        row_offsets: 行偏移表 {after_row_idx: inserted_count}，用于感知动态插入产生的偏移
     """
     cell_address = binding.get("cellAddress")
     field_key = binding.get("fieldKey")
@@ -179,12 +206,56 @@ def _fill_static_binding(sheet: dict, binding: dict, data: dict, config_name: st
     # 解析单元格地址 (如 "B3" → row=2, col=1)
     row_idx, col_idx = _parse_cell_address(cell_address)
     
+    # 应用行偏移：如果该静态绑定的行号在某个动态插入点之后，需要下移
+    if row_offsets:
+        total_offset = 0
+        for after_row, inserted_count in row_offsets.items():
+            if row_idx > after_row:
+                total_offset += inserted_count
+        row_idx += total_offset
+    
     # 获取值（None 转为空字符串）
     value = data.get(field_key, "")
-    
+
+    # cfg_ 前缀字段：从 config_summary 数组按 config_name 取值
+    if (value == "" or value is None) and config_name and field_key.startswith("cfg_"):
+        source_col = field_key[4:]  # "cfg_unit_price" → "unit_price"
+        for cfg in data.get("config_summary", []):
+            if cfg.get("config_name") == config_name:
+                value = cfg.get(source_col, "")
+                break
+
     # 如果值是 dict 且有 config_name，按配置名取值
     if isinstance(value, dict) and config_name:
-        value = value.get(config_name, "")
+        # 尝试精确匹配
+        if config_name in value:
+            value = value[config_name]
+        else:
+            # 尝试模糊匹配（去除空格，不区分大小写）
+            normalized_config_name = config_name.strip().lower()
+            matched = False
+            for key, val in value.items():
+                if key.strip().lower() == normalized_config_name:
+                    value = val
+                    matched = True
+                    break
+            if not matched:
+                value = ""
+    
+    # 如果值是 dict（绑定在封面页），合并所有配置的值
+    if isinstance(value, dict):
+        values = [v for v in value.values() if v]
+        value = "\n".join(values) if values else ""
+    
+    # 如果值为空，尝试从 system_config 获取默认值
+    if value == "":
+        try:
+            sys_repo = SystemConfigRepository()
+            fallback = sys_repo.get_value(field_key, "")
+            if fallback:
+                value = fallback
+        except Exception:
+            pass
     
     if value is None:
         value = ""
@@ -223,11 +294,14 @@ def _clear_cell_binding_marker(sheet: dict, cell_address: str):
         pass  # 解析失败时忽略
 
 
-def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: str = None):
+def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: str = None) -> int:
     """填充动态绑定
     
     Args:
         config_name: 如果提供，只填充属于该配置的数据
+    
+    Returns:
+        插入的行数（用于更新行偏移表）
     """
     region_key = binding.get("regionFieldKey") or binding.get("fieldKey")
     template_row = binding.get("templateRow")
@@ -244,7 +318,7 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
         # 绑定配置不完整，清除标记
         if binding.get("cellAddress"):
             _clear_cell_binding_marker(sheet, binding["cellAddress"])
-        return
+        return 0
     
     # 如果 field_mapping 为空，自动从数据的第一条记录推断
     if not field_mapping:
@@ -278,7 +352,7 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
         # 数据为空，清除绑定标记
         if binding.get("cellAddress"):
             _clear_cell_binding_marker(sheet, binding["cellAddress"])
-        return
+        return 0
     
     # 模板行索引（0-indexed）
     template_row_idx = template_row - 1
@@ -310,6 +384,8 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
             value = row_data.get(field_key, "")
             
             sheet["cellData"][row_idx_str][col_idx_str]["v"] = value
+    
+    return max(extra_rows, 0)
 
 
 def _insert_rows(sheet: dict, after_row_idx: int, count: int):

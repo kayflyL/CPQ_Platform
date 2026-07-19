@@ -19,7 +19,7 @@ from openpyxl.utils import get_column_letter
 from app.repository.univer_template_repo import UniverTemplateRepo
 from app.services.template_filler import fill_snapshot
 from app.services.preview_data_loader import load_preview_data
-from app.services.snapshot_converter import excel_to_snapshot, snapshot_to_excel
+from app.services.snapshot_converter import excel_to_snapshot
 
 router = APIRouter(prefix="/api/univer-templates", tags=["univer-templates"])
 
@@ -172,43 +172,3 @@ def preview_template(
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Preview failed: {str(e)}")
-
-
-# ── 导出 ──
-
-@router.get("/{template_id}/export")
-def export_template(
-    template_id: int,
-    opportunity_id: str = Query(...),
-    quotation_id: Optional[str] = Query(None),
-):
-    """
-    导出：填充数据后生成 Excel 文件
-    
-    返回 .xlsx 文件流
-    """
-    # 1. 读取模板
-    template = repo.get_by_id(template_id)
-    if not template:
-        raise HTTPException(status_code=404, detail="Template not found")
-    
-    workbook_snapshot = template["workbook_snapshot"]
-    bindings = template["bindings"]
-    sheet_config = template.get("sheet_config", {})
-    
-    # 2. 加载数据（传入 bindings 以支持 selectedParts）
-    data = load_preview_data(opportunity_id, quotation_id, bindings)
-    
-    # 3. 填充 snapshot
-    filled_snapshot = fill_snapshot(workbook_snapshot, bindings, data, sheet_config)
-    
-    # 4. 转为 Excel
-    excel_bytes = snapshot_to_excel(filled_snapshot)
-    
-    # 5. 返回文件流
-    filename = f"{opportunity_id}_{template['name']}.xlsx"
-    return StreamingResponse(
-        excel_bytes,
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={filename}"},
-    )

@@ -46,8 +46,20 @@ const routes = [
       {
         path: '/servers',
         name: 'Servers',
-        component: () => import('@/views/L6Pricing.vue'),
+        component: () => import('@/views/ServerConfig.vue'),
         meta: { title: '服务器' }
+      },
+      {
+        path: '/servers/types/:typeId',
+        name: 'ServerModels',
+        component: () => import('@/views/ServerModelsPage.vue'),
+        meta: { title: '机型目录' }
+      },
+      {
+        path: '/servers/config/:modelId',
+        name: 'ServerConfigWizard',
+        component: () => import('@/views/ConfigWizardPage.vue'),
+        meta: { title: '服务器配置' }
       },
 
       {
@@ -55,12 +67,6 @@ const routes = [
         name: 'ExcelParser',
         component: () => import('@/views/ExcelParser.vue'),
         meta: { title: 'Excel 解析' }
-      },
-      {
-        path: '/business-fields',
-        name: 'BusinessFields',
-        component: () => import('@/views/admin/BusinessFieldManagement.vue'),
-        meta: { title: '字段管理' }
       },
       {
         path: '/system-settings',

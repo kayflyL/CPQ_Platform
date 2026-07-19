@@ -22,22 +22,18 @@
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
         </a-menu-item>
-        <a-menu-item key="/base-pricing">
-          <template #icon><DollarOutlined /></template>
-          <span>配件</span>
-        </a-menu-item>
         <a-menu-item key="/servers">
           <template #icon><DesktopOutlined /></template>
           <span>服务器</span>
+        </a-menu-item>
+        <a-menu-item key="/base-pricing">
+          <template #icon><DollarOutlined /></template>
+          <span>配件</span>
         </a-menu-item>
         <a-sub-menu key="settings">
           <template #icon><SettingOutlined /></template>
           <template #title>设置</template>
 
-          <a-menu-item key="/business-fields">
-            <template #icon><FormOutlined /></template>
-            <span>字段管理</span>
-          </a-menu-item>
           <a-menu-item key="/system-settings">
             <template #icon><ControlOutlined /></template>
             <span>系统设置</span>
@@ -64,7 +60,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { DashboardOutlined, ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ClusterOutlined, ApiOutlined, FormOutlined, ControlOutlined } from '@ant-design/icons-vue'
+import { DashboardOutlined, ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, FormOutlined, ControlOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -72,7 +68,7 @@ const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
 
 // 设置类页面路径
-const settingsPaths = ['/business-fields', '/system-settings', '/excel-parser', '/univer-templates']
+const settingsPaths = ['/system-settings', '/excel-parser', '/univer-templates']
 
 watch(() => route.path, (newPath) => {
   selectedKeys.value = [newPath]

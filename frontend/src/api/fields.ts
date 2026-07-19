@@ -13,8 +13,9 @@ const api = axios.create({
  * 按业务域获取字段
  * @param scope opportunity / config / pricing / export / parse / system
  */
-export function getFieldsByScope(scope: string) {
-  return api.get(`/fields/scope/${scope}`).then(res => res.data.data)
+export function getFieldsByScope(scope: string, exportVisible?: boolean) {
+  const params = exportVisible ? { export_visible: true } : {}
+  return api.get(`/fields/scope/${scope}`, { params }).then(res => res.data.data)
 }
 
 /**
@@ -27,7 +28,7 @@ export function getFieldsByPage(page: string) {
 
 /**
  * 获取动态数据源子字段
- * @param sourceKey l6_details / kp_details / warranty_details / config_summary
+ * @param sourceKey l6_details / kp_details / config_summary
  * 如果不传 sourceKey，返回所有数据源的所有字段（按数据源分组）
  */
 export function getDynamicSources(sourceKey?: string) {

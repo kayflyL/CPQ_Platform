@@ -83,7 +83,8 @@ class QuotationRepository:
         "quotation_id", "opportunity_id", "version", "quotation_name", "file_path",
         "l6_price", "total_qty", "config_count", "created_at", "updated_at", "status",
         "quotation_date", "config_quantities", "config_descriptions", "config_server_models",
-        "total_price", "profit_margin", "extra_fields", "tenant_id",
+        "config_warranty_info", "total_price", "profit_margin", "extra_fields", "tenant_id",
+        "is_primary",
     }
 
     def update(self, quotation_id: str, **kwargs) -> Optional[Quotation]:
@@ -142,7 +143,7 @@ class QuotationRepository:
     # Core fields for items that are actual DB columns
     _ITEM_CORE_COLUMNS = {
         "item_id", "quotation_id", "config_name", "category", "part_name",
-        "spec", "qty", "confirmed_price", "base_price", "final_price",
+        "spec", "qty", "base_price", "final_price",
         "profit_margin", "extra_fields", "tenant_id",
     }
 
@@ -171,7 +172,6 @@ class QuotationRepository:
                 part_name=core_kwargs.get("part_name", ""),
                 spec=core_kwargs.get("spec", ""),
                 qty=core_kwargs.get("qty", 0),
-                confirmed_price=core_kwargs.get("confirmed_price", 0.0),
                 base_price=core_kwargs.get("base_price", 0.0),
                 final_price=core_kwargs.get("final_price", 0.0),
                 profit_margin=core_kwargs.get("profit_margin", 0.0),
@@ -187,12 +187,12 @@ class QuotationRepository:
         return len(items)
 
     def calculate_totals(self, quotation_id: str) -> dict:
-        """Calculate and update total_price and profit_margin for a quotation"""
+        """Calculate and update total_price, profit_margin, and config_count for a quotation"""
         quotation = self.get_by_id(quotation_id)
         if not quotation:
-            return {"total_price": 0.0, "profit_margin": 0.0}
+            return {"total_price": 0.0, "profit_margin": 0.0, "config_count": 0}
         
-        # 从 opportunity_items 计算
+        # 从 opportunity_items 计算价格和数量
         items = self.db.query(OpportunityItem).filter(
             OpportunityItem.quotation_id == quotation_id
         ).all()
@@ -210,16 +210,57 @@ class QuotationRepository:
         else:
             profit_margin = 0.0
         
+        # 从 config_l6_picks 统计配置数量（包含所有用户创建的配置，即使没有 items）
+        config_count = 0
+        if quotation.extra_fields:
+            try:
+                extra = json.loads(quotation.extra_fields)
+                config_l6_picks = extra.get("config_l6_picks", {})
+                config_count = len(config_l6_picks) if config_l6_picks else 0
+            except (json.JSONDecodeError, TypeError):
+                pass
+        
+        # 如果没有 config_l6_picks，fallback 到 items 中的 config_name
+        if config_count == 0 and items:
+            config_count = len(set(item.config_name for item in items if item.config_name))
+        
         # 更新 quotation
         quotation.total_price = round(total_price, 2)
         quotation.profit_margin = profit_margin
+        quotation.config_count = config_count
         quotation.updated_at = datetime.now().isoformat()
         self.db.commit()
         
         return {
             "total_price": quotation.total_price,
-            "profit_margin": quotation.profit_margin
+            "profit_margin": quotation.profit_margin,
+            "config_count": quotation.config_count
         }
+
+    def set_primary(self, quotation_id: str) -> bool:
+        """Toggle primary: set if not primary, clear if already primary."""
+        quotation = self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id
+        ).first()
+        if not quotation:
+            return False
+
+        # If already primary, just clear it (toggle off)
+        if quotation.is_primary:
+            quotation.is_primary = False
+            quotation.updated_at = datetime.now().isoformat()
+            self.db.commit()
+            return True
+
+        # Otherwise set as primary (clear others)
+        self.db.query(Quotation).filter(
+            Quotation.opportunity_id == quotation.opportunity_id
+        ).update({Quotation.is_primary: False})
+
+        quotation.is_primary = True
+        quotation.updated_at = datetime.now().isoformat()
+        self.db.commit()
+        return True
 
     def get_items(self, quotation_id: str) -> List[OpportunityItem]:
         """Get all items for a quotation"""

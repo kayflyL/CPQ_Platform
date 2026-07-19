@@ -64,7 +64,7 @@ export async function parseExcelTemplate(buffer: ArrayBuffer): Promise<SheetRend
         }
         // 检查是否有背景填充
         const fill = cell.fill
-        if (fill && fill.fgColor && fill.fgColor.argb && fill.fgColor.argb !== 'FF000000') {
+        if (fill && (fill as any).fgColor && (fill as any).fgColor.argb && (fill as any).fgColor.argb !== 'FF000000') {
           hasData = true
           break
         }
@@ -171,7 +171,7 @@ function colToNum(col: string): number {
  */
 function extractCellValue(cell: ExcelJS.Cell): string | number | null {
   if (cell.type === ExcelJS.ValueType.Formula) {
-    const result = cell.value.result
+    const result = (cell.value as any).result
     if (typeof result === 'number') return result
     if (typeof result === 'string') return result
     return null
@@ -245,6 +245,7 @@ function extractCellStyle(cell: ExcelJS.Cell): CellStyle {
 /**
  * 将样式应用到 exceljs 单元格
  */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function applyCellStyle(cell: ExcelJS.Cell, style: CellStyle) {
   if (style.font) {
     cell.font = {

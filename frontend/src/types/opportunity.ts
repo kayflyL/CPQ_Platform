@@ -53,7 +53,6 @@ export interface ProjectItem {
   part_name: string
   spec: string
   qty: number
-  confirmed_price: number
   base_price: number
   final_price: number
   profit_margin: number

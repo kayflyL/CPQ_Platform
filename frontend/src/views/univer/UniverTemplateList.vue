@@ -1,8 +1,15 @@
 <template>
   <div class="univer-template-list">
     <div class="page-header">
-      <h2>导出模板</h2>
+      <div>
+        <h2 class="page-title">导出模板</h2>
+        <p class="page-sub">管理报价单导出模板，点击卡片进入编辑</p>
+      </div>
       <a-space>
+        <a-button @click="showFieldDrawer = true">
+          <template #icon><SettingOutlined /></template>
+          字段管理
+        </a-button>
         <a-button @click="handleCreateBlank">
           <template #icon><PlusOutlined /></template>
           从空白创建
@@ -14,36 +21,44 @@
       </a-space>
     </div>
 
-    <a-table
-      :dataSource="templates"
-      :columns="columns"
-      :loading="loading"
-      rowKey="id"
-    >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'display_name'">
-          <a @click="handleEdit(record)">{{ record.display_name }}</a>
-          <a-tag v-if="record.is_default" color="green" style="margin-left: 8px">默认</a-tag>
-        </template>
-        <template v-if="column.key === 'action'">
-          <a-space>
-            <a-button type="link" size="small" @click="handleEdit(record)">编辑</a-button>
+    <a-spin :spinning="loading">
+      <div class="template-grid" v-if="templates.length">
+        <div v-for="t in templates" :key="t.id" class="template-card" @click="handleEdit(t)">
+          <div class="card-header">
+            <span class="card-title">{{ t.display_name }}</span>
+            <a-tag v-if="t.is_default" color="green" class="default-tag">默认</a-tag>
+          </div>
+          <div class="card-meta">
+            <span class="meta-item">
+              <ClockCircleOutlined />
+              {{ formatDate(t.created_at) }}
+            </span>
+          </div>
+          <div class="card-actions" @click.stop>
+            <a-button type="link" size="small" @click="handleEdit(t)">编辑</a-button>
             <a-button
-              v-if="!record.is_default"
+              v-if="!t.is_default"
               type="link"
               size="small"
-              @click="handleSetDefault(record)"
+              @click="handleSetDefault(t)"
             >设为默认</a-button>
             <a-popconfirm
               title="确定删除此模板？"
-              @confirm="handleDelete(record.id)"
+              @confirm="handleDelete(t.id)"
             >
               <a-button type="link" size="small" danger>删除</a-button>
             </a-popconfirm>
-          </a-space>
-        </template>
-      </template>
-    </a-table>
+          </div>
+        </div>
+      </div>
+      <div v-else-if="!loading" class="empty-state">
+        <p>暂无模板</p>
+        <a-button type="primary" @click="showUploadModal = true">
+          <template #icon><UploadOutlined /></template>
+          上传第一个模板
+        </a-button>
+      </div>
+    </a-spin>
 
     <!-- 上传弹窗 -->
     <a-modal
@@ -61,7 +76,6 @@
             :beforeUpload="handleBeforeUpload"
             :fileList="fileList"
             :maxCount="1"
-            accept=".xlsx,.xls"
           >
             <a-button>
               <template #icon><UploadOutlined /></template>
@@ -71,6 +85,18 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 字段管理抽屉 -->
+    <a-drawer
+      v-model:open="showFieldDrawer"
+      title="字段管理"
+      placement="right"
+      width="72%"
+      :closable="true"
+      :destroyOnClose="false"
+    >
+      <BusinessFieldManagement />
+    </a-drawer>
   </div>
 </template>
 
@@ -78,26 +104,27 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { UploadOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { UploadOutlined, PlusOutlined, SettingOutlined, ClockCircleOutlined } from '@ant-design/icons-vue'
 import { univerTemplateApi } from '@/api/univerTemplate'
 import type { UniverTemplate } from '@/types/univerTemplate'
+import BusinessFieldManagement from '@/views/admin/BusinessFieldManagement.vue'
 
 const router = useRouter()
 
 const templates = ref<UniverTemplate[]>([])
 const loading = ref(false)
 const showUploadModal = ref(false)
+const showFieldDrawer = ref(false)
 const uploading = ref(false)
 const newTemplateDisplayName = ref('')
 const fileList = ref<any[]>([])
 let selectedFile: File | null = null
 
-const columns = [
-  { title: '模板名称', key: 'display_name', dataIndex: 'display_name' },
-  { title: '名称', dataIndex: 'name', key: 'name' },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at' },
-  { title: '操作', key: 'action', width: 200 },
-]
+function formatDate(dateStr: string) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
 
 async function loadTemplates() {
   loading.value = true
@@ -217,14 +244,122 @@ onMounted(() => {
 
 .page-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
 }
 
-.page-header h2 {
-  margin: 0;
-  font-size: 20px;
+.page-title {
+  font-size: 22px;
   font-weight: 600;
+  margin: 0 0 4px;
+  color: var(--cpq-text-primary, #E8ECEF);
+}
+
+.page-sub {
+  color: var(--cpq-text-secondary, #9BA1AA);
+  font-size: 14px;
+  margin: 0;
+}
+
+.template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px;
+}
+
+.template-card {
+  position: relative;
+  padding: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+  background: linear-gradient(135deg,
+    rgba(255, 255, 255, 0.07) 0%,
+    rgba(255, 255, 255, 0.03) 40%,
+    rgba(8, 12, 16, 0.25) 100%);
+  backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow:
+    0 16px 48px rgba(0, 0, 0, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    inset 0 -12px 36px rgba(0, 0, 0, 0.12);
+}
+
+.template-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--cpq-accent-primary, #00F5D4);
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.template-card:hover {
+  border-color: rgba(0, 245, 212, 0.3);
+  transform: translateY(-2px);
+  box-shadow:
+    0 22px 64px rgba(0, 0, 0, 0.30),
+    0 0 34px rgba(0, 245, 212, 0.10),
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    inset 0 -18px 48px rgba(0, 0, 0, 0.14);
+}
+
+.template-card:hover::before {
+  opacity: 1;
+}
+
+.card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.card-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--cpq-text-primary, #E8ECEF);
+}
+
+.default-tag {
+  flex-shrink: 0;
+}
+
+.card-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.meta-item {
+  font-size: 13px;
+  color: var(--cpq-text-muted, #6E7582);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.card-actions {
+  padding-top: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  gap: 4px;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 80px 20px;
+  color: var(--cpq-text-muted, #6E7582);
+}
+
+.empty-state p {
+  font-size: 15px;
+  margin-bottom: 16px;
 }
 </style>

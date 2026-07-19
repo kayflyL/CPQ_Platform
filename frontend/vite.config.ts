@@ -15,14 +15,16 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          exceljs: ['exceljs'],
+        manualChunks(id: string) {
+          if (id.includes('node_modules/exceljs')) {
+            return 'exceljs'
+          }
         },
       },
     },
   },
   server: {
-    port: 5173,
+    port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api': {
         target: 'http://localhost:8000',

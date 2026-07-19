@@ -17,10 +17,4 @@ export const opportunityApi = {
     })
     return response.data.items || response.data || []
   },
-
-  /** 获取商机报价数据（用于预览注入） */
-  getQuoteData: async (opportunityId: string): Promise<Record<string, any>> => {
-    const response = await api.post(`/opportunities/${opportunityId}/preview-json`)
-    return response.data
-  }
 }

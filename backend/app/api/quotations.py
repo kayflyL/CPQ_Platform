@@ -181,6 +181,19 @@ def delete_quotation(quotation_id: str):
         repo.close()
 
 
+@router.post("/{quotation_id}/set-primary")
+def set_primary_quotation(quotation_id: str):
+    """Set a quotation as primary (is_primary=True) and clear others for the same opportunity."""
+    repo = QuotationRepository()
+    try:
+        success = repo.set_primary(quotation_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        return {"message": "Quotation set as primary"}
+    finally:
+        repo.close()
+
+
 @router.post("/{quotation_id}/restore")
 def restore_quotation(quotation_id: str):
     """Restore a soft-deleted quotation."""
@@ -207,7 +220,7 @@ def get_quotation_items(quotation_id: str):
 
 @router.post("/{quotation_id}/items")
 def save_quotation_items(quotation_id: str, data: dict):
-    """Save configuration items + config_quantities + config_descriptions + config_server_models for a quotation."""
+    """Save configuration items + config_quantities + config_descriptions + config_server_models + config_warranty_info for a quotation."""
     repo = QuotationRepository()
     try:
         # Support both new payload format (dict with items/config_quantities) and legacy (list of items)
@@ -216,15 +229,18 @@ def save_quotation_items(quotation_id: str, data: dict):
             config_quantities = None
             config_descriptions = None
             config_server_models = None
+            config_warranty_info = None
         else:
             items = data.get("items", [])
             config_quantities = data.get("config_quantities")
             config_descriptions = data.get("config_descriptions")
             config_server_models = data.get("config_server_models")
-        
+            config_warranty_info = data.get("config_warranty_info")
+            config_l6_picks = data.get("config_l6_picks")
+
         count = repo.save_items(quotation_id, items)
-        
-        # Update config_quantities, config_descriptions, config_server_models if provided
+
+        # Update config-level fields if provided
         update_kwargs = {}
         if config_quantities:
             update_kwargs["config_quantities"] = config_quantities
@@ -232,6 +248,10 @@ def save_quotation_items(quotation_id: str, data: dict):
             update_kwargs["config_descriptions"] = config_descriptions
         if config_server_models:
             update_kwargs["config_server_models"] = config_server_models
+        if config_warranty_info:
+            update_kwargs["config_warranty_info"] = config_warranty_info
+        if config_l6_picks:
+            update_kwargs["config_l6_picks"] = config_l6_picks
         if update_kwargs:
             repo.update(quotation_id, **update_kwargs)
         
@@ -293,15 +313,19 @@ def batch_permanent_delete_quotations(req: BatchQuotationRequest):
     try:
         for qid in req.quotation_ids:
             try:
-                session.execute(delete(OpportunityItem).where(OpportunityItem.quotation_id == qid))
-                session.execute(delete(Quotation).where(Quotation.quotation_id == qid))
+                # Delete items first
+                session.execute(
+                    delete(OpportunityItem).where(OpportunityItem.quotation_id == qid)
+                )
+                # Delete quotation
+                session.execute(
+                    delete(Quotation).where(Quotation.quotation_id == qid)
+                )
                 results["success"].append(qid)
             except Exception as e:
                 results["failed"].append({"id": qid, "error": str(e)})
         session.commit()
         return results
-    except Exception as e:
-        session.rollback()
-        raise HTTPException(status_code=500, detail="内部服务器错误")
     finally:
-        sessi
+        session.close()
+        repo.close()

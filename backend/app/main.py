@@ -27,8 +27,15 @@ from app.api import dashboard
 from app.api import quotations
 from app.api import univer_templates
 from app.api import l6_chassis
+from app.api import parts as parts_api
+from app.api import server_catalog as server_catalog_api
+from app.api import base_configs as base_configs_api
+from app.api import derive as derive_api
+from app.api import config_schemes as config_schemes_api
 from app.api import fields as fields_api
 from app.api import system_config as system_config_api
+from app.api import kp_config as kp_config_api
+from app.api import bom_templates as bom_templates_api
 from app.core.startup import init_rules_db
 
 settings = get_settings()
@@ -73,8 +80,19 @@ app.include_router(dashboard.router)
 app.include_router(quotations.router)
 app.include_router(univer_templates.router)
 app.include_router(l6_chassis.router)
+app.include_router(parts_api.router)
+app.include_router(server_catalog_api.router)
+app.include_router(base_configs_api.router)
+app.include_router(derive_api.router)
+app.include_router(config_schemes_api.router)
 app.include_router(fields_api.router)
 app.include_router(system_config_api.router)
+app.include_router(kp_config_api.router)
+app.include_router(bom_templates_api.router)
+
+# 注册后面板配置 API
+from app.api import rear_io
+app.include_router(rear_io.router)
 
 @app.get("/")
 def root():

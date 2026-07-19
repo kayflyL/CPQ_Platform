@@ -43,13 +43,8 @@ const emit = defineEmits<{
 const internalShow = ref(false)
 
 watch(() => props.showSidebar, (val) => {
-  if (val !== undefined) internalShow.value = val
+  if (val === true || val === false) internalShow.value = val
 })
-
-const toggle = () => {
-  internalShow.value = !internalShow.value
-  emit('update:showSidebar', internalShow.value)
-}
 
 const close = () => {
   internalShow.value = false

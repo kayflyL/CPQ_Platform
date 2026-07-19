@@ -169,6 +169,7 @@ class QuoteService:
         cleaned = {}
         config_descriptions = {}
         config_server_models = {}
+        config_warranty_info = {}
         for cfg_name, cfg in configs_data.items():
             items = cfg.get('items', [])
             if items:
@@ -181,31 +182,33 @@ class QuoteService:
                     # Extract server_model from config
                     if 'server_model' in cfg:
                         config_server_models[cfg_name] = cfg['server_model']
+                    # Extract warranty_info from config
+                    if 'warranty_info' in cfg:
+                        config_warranty_info[cfg_name] = cfg['warranty_info']
                 except Exception as e:
                     logger.error("DataFrame failed for %s: %s", cfg_name, e)
                     return {"status": "error", "message": f"Data processing error: {e}"}
         try:
-            result = self.engine.save_opportunity(opportunity_info, cleaned, config_descriptions, config_quantities, config_server_models)
+            result = self.engine.save_opportunity(opportunity_info, cleaned, config_descriptions, config_quantities, config_server_models, config_warranty_info)
         except Exception as e:
             logger.error("engine.save_opportunity failed: %s", e)
             return {"status": "error", "message": f"Database save error: {e}"}
 
-        # Sync KP prices
-        try:
-            new_kp = self.engine.sync_kp_prices_to_db(cleaned)
-            if new_kp > 0:
-                result['kp_synced'] = new_kp
-        except Exception as e:
-            print(f"[WARN QuoteService.save_opportunity] KP sync failed (non-fatal): {e}")
+        # Sync KP prices — 默认关闭（用户改在报价工作台单条手动同步）。
+        # 设环境变量 KP_AUTO_SYNC_ENABLED=true 可恢复保存时自动批量同步。
+        if os.environ.get("KP_AUTO_SYNC_ENABLED", "false").lower() == "true":
+            try:
+                new_kp = self.engine.sync_kp_prices_to_db(cleaned)
+                if new_kp > 0:
+                    result['kp_synced'] = new_kp
+            except Exception as e:
+                print(f"[WARN QuoteService.save_opportunity] KP sync failed (non-fatal): {e}")
 
         # Ensure opportunity_id is in result
         if 'opportunity_id' not in result:
             result['opportunity_id'] = opportunity_info.get('opportunity_id', '')
 
         return result
-
-    def export_opportunity(self, opportunity_id: str, template_id: str = None):
-        return self.engine.generate_excel(opportunity_id, template_id)
 
     def get_kp_history(self, model: str) -> list:
         return self.engine.get_kp_price_history(model)

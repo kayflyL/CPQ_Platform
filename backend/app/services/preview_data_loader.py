@@ -12,6 +12,7 @@ from typing import Optional
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.quotation_repo import QuotationRepository
 from app.repository.rules_repo import RulesRepository
+from app.repository.system_config_repo import SystemConfigRepository
 
 
 def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, bindings: list = None) -> dict:
@@ -35,7 +36,6 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                 ...
             ],
             "kp_details": [...],
-            "warranty_details": [...],
             "config_summary": [
                 {"cfg_name": "Config1", "unit_price": 50000, "description": "...", ...},
                 ...
@@ -57,13 +57,11 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
     # 补充系统字段和占位字段
     data.update({
         "l6_spec": "",
-        "model_name": "",
         "business_person": opportunity.get("sales_person", ""),  # 别名
         "export_date": datetime.now().strftime("%Y-%m-%d"),
         "export_time": datetime.now().strftime("%H:%M"),
         "l6_count": 0,
         "kp_count": 0,
-        "warranty_count": 0,
     })
     
     # 2. 加载报价单数据
@@ -80,6 +78,39 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
             data["server_model"] = quotation.config_server_models or {}
             data["quantity"] = quotation.config_quantities or {}
             
+            # 暴露维保描述（per-config，静态字段）
+            config_warranty_info = quotation.config_warranty_info or {}
+            
+            # 获取系统默认值作为 fallback
+            sys_repo = SystemConfigRepository()
+            default_l6_desc = sys_repo.get_value("warranty_desc_l6", "")
+            default_kp_desc = sys_repo.get_value("warranty_desc_kp", "")
+            
+            # 构建 warranty_desc_l6 和 warranty_desc_kp
+            warranty_desc_l6 = {}
+            warranty_desc_kp = {}
+            
+            # 从 config_warranty_info 获取值
+            for cfg_name, warr in config_warranty_info.items():
+                l6_desc = warr.get("l6", {}).get("description", "")
+                kp_desc = warr.get("kp", {}).get("description", "")
+                warranty_desc_l6[cfg_name] = l6_desc or default_l6_desc
+                warranty_desc_kp[cfg_name] = kp_desc or default_kp_desc
+            
+            # 如果 config_warranty_info 为空，从其他配置字段获取配置名，用默认值填充
+            if not warranty_desc_l6:
+                all_config_names = set()
+                all_config_names.update((quotation.config_descriptions or {}).keys())
+                all_config_names.update((quotation.config_server_models or {}).keys())
+                all_config_names.update((quotation.config_quantities or {}).keys())
+                
+                for cfg_name in all_config_names:
+                    warranty_desc_l6[cfg_name] = default_l6_desc
+                    warranty_desc_kp[cfg_name] = default_kp_desc
+            
+            data["warranty_desc_l6"] = warranty_desc_l6
+            data["warranty_desc_kp"] = warranty_desc_kp
+            
             # 从 DB 加载完整配置项明细（包含单价、数量、final_price 等）
             db_items = quote_repo.get_items(quotation_id)
             items = []
@@ -90,35 +121,26 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                     "part_name": item.part_name or "",
                     "spec": item.spec or "",
                     "qty": item.qty or 0,
-                    "confirmed_price": item.confirmed_price or 0.0,
                     "base_price": item.base_price or 0.0,
                     "final_price": item.final_price or 0.0,
                     "profit_margin": item.profit_margin or 0.0,
-                    "model_name": getattr(item, "model_name", "") or "",
-                    "server_model": (quotation.config_server_models or {}).get(item.config_name or "Default", ""),
                     "description": (quotation.config_descriptions or {}).get(item.config_name or "Default", ""),
                 })
             _load_item_details(data, items, quotation, bindings)
     
-    data["model_name_with_qty"] = (
-        f"{data['model_name']} x{data['total_qty']}" if data["model_name"] else ""
-    )
-    
     return data
-
 
 def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     """加载配置项明细到 data"""
     l6_items = []
     kp_items = []
-    warranty_items = []
     
     for idx, item in enumerate(items):
         # 统一字段名：unit_price = final_price（兼容前端显示）
         item_with_no = {
             **item,
             "item_no": item.get("item_no", idx + 1),
-            "unit_price": item.get("final_price", 0) or item.get("confirmed_price", 0),
+            "unit_price": item.get("final_price", 0),
         }
         category = item.get("category", "")
         
@@ -126,16 +148,12 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             l6_items.append(item_with_no)
         elif category == "Key Parts":
             kp_items.append(item_with_no)
-        elif category == "Warranty":
-            warranty_items.append(item_with_no)
     
     data["l6_details"] = l6_items
     data["kp_details"] = kp_items
-    data["warranty_details"] = warranty_items
     data["all_items"] = items
     data["l6_count"] = len(l6_items)
     data["kp_count"] = len(kp_items)
-    data["warranty_count"] = len(warranty_items)
     
     # 从 bindings 中提取 config_summary 的 selectedParts
     selected_parts = None

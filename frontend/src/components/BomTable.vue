@@ -1,25 +1,25 @@
 <template>
   <div class="bom-table-container glass">
+    <div v-if="isExcel" class="excel-ref-badge">📋 Excel 参考（不随选配变动）</div>
     <!-- L6 配置单 -->
     <div class="bom-section">
       <div class="bom-section-header">
         <span class="bom-section-title">L6 配置单</span>
+        <span class="bom-section-sub" v-if="l6TemplateName">{{ l6TemplateName }}</span>
       </div>
-      <table class="bom-table">
+      <table class="bom-table no-cost">
         <thead>
           <tr>
             <th class="col-catalogue">Catalogue</th>
             <th class="col-desc">Description</th>
             <th class="col-qty">Qty</th>
-            <th class="col-cost">Cost</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="row in l6Rows" :key="row.catalogue" class="bom-row">
+          <tr v-for="row in l6Rows" :key="'l6-' + row._idx" class="bom-row">
             <td class="cell-catalogue">{{ row.catalogue }}</td>
             <td class="cell-desc">{{ row.description || '[空]' }}</td>
-            <td class="cell-qty">{{ row.qty || '[空]' }}</td>
-            <td class="cell-cost">{{ row.cost ? `¥${formatNumber(row.cost)}` : '[空]' }}</td>
+            <td class="cell-qty">{{ row.qty === '' || row.qty == null ? '[空]' : row.qty }}</td>
           </tr>
         </tbody>
       </table>
@@ -66,121 +66,66 @@ const formatNumber = (num: number) => {
   return settingsStore.formatNumber(num)
 }
 
-// L6 Catalogue 固定骨架（11行）
-const L6_CATALOGUES = [
-  'Front backplane',
-  'IO1',
-  'IO2',
-  'IO3',
-  'IO4',
-  'Heatsink',
-  'FAN',
-  'Power Supply',
-  'Power cord',
-  'Rail kit',
-  'Cable'
-]
+// L6 配置单：优先按机型族模板（bom_template.rows + bom_context）渲染摘要（catalogue/desc/qty，无价）；
+// 无模板时回落 cfg.items 的 L6 行（legacy/未选基准配置）。
+// Excel 报价单:左栏渲染加载时固化的快照,不随中栏选配变动;新建报价单跟随实时变动。
+const isExcel = computed(() => props.cfg.bom_source === 'excel')
+const l6HasTemplate = computed(() => {
+  const tpl = props.cfg.bom_template
+  return !!(tpl && tpl.rows && tpl.rows.length)
+})
+const l6TemplateName = computed(() => props.cfg.bom_template?.name || '')
 
-// KP Catalogue 固定骨架（6行）
-const KP_CATALOGUES = [
-  'CPU',
-  'Memory',
-  'Raid card',
-  'HDD/SSD',
-  'NIC',
-  'GPU'
-]
-
-// L6 BOM 行数据（响应式）
 const l6Rows = computed(() => {
   const cfg = props.cfg
-  const items = cfg.items || []
-  const bomConfig = cfg.l6_bom_config || {}
-  
-  return L6_CATALOGUES.map(catalogue => {
-    // 优先从 cfg.items 中查找（上传模式）
-    const item = items.find((i: any) => {
-      const partName = (i.part_name || '').toLowerCase()
-      const cat = catalogue.toLowerCase()
-      return partName.includes(cat) || cat.includes(partName)
-    })
-    
-    if (item) {
-      return {
-        catalogue,
-        description: item.spec || item.part_name,
+  // Excel 报价单:渲染加载时固化的快照(不随中栏选配变动)
+  if (isExcel.value) {
+    return (cfg.bom_excel_rows || [])
+      .filter((i: any) => i.category === 'L6' || i.category === '整机')
+      .map((item: any, idx: number) => ({
+        catalogue: item.part_name || '',
+        description: item.spec || '',
         qty: item.qty,
-        cost: item.base_price || item.final_price
-      }
-    }
-    
-    // 自选模式：从 l6_bom_config 中查找
-    let description = ''
-    let qty: number | null = null
-    let cost: number | null = null
-    
-    // 根据 catalogue 映射到 bomConfig 的字段
-    if (catalogue === 'Front backplane' && bomConfig.base_config) {
-      description = bomConfig.base_config.name || bomConfig.base_config.model || ''
-      qty = 1
-      cost = bomConfig.base_config.price || null
-    } else if (['IO1', 'IO2', 'IO3', 'IO4'].includes(catalogue) && bomConfig.front_panel_parts) {
-      const idx = ['IO1', 'IO2', 'IO3', 'IO4'].indexOf(catalogue)
-      const part = bomConfig.front_panel_parts[idx]
-      if (part) {
-        description = part.name || part.model || ''
-        qty = part.qty || 1
-        cost = part.price || null
-      }
-    } else if (catalogue === 'Heatsink' && bomConfig.rear_panel_parts) {
-      const heatsink = bomConfig.rear_panel_parts.find((p: any) => p.type === 'heatsink')
-      if (heatsink) {
-        description = heatsink.name || heatsink.model || ''
-        qty = heatsink.qty || 1
-        cost = heatsink.price || null
-      }
-    } else if (catalogue === 'FAN' && bomConfig.rear_panel_parts) {
-      const fan = bomConfig.rear_panel_parts.find((p: any) => p.type === 'fan')
-      if (fan) {
-        description = fan.name || fan.model || ''
-        qty = fan.qty || 1
-        cost = fan.price || null
-      }
-    } else if (catalogue === 'Power Supply' && bomConfig.psu_parts) {
-      const psu = bomConfig.psu_parts[0]
-      if (psu) {
-        description = psu.name || psu.model || ''
-        qty = psu.qty || 1
-        cost = psu.price || null
-      }
-    } else if (['Power cord', 'Rail kit', 'Cable'].includes(catalogue) && bomConfig.psu_parts) {
-      const type = catalogue.toLowerCase().replace(' ', '_')
-      const part = bomConfig.psu_parts.find((p: any) => p.type === type)
-      if (part) {
-        description = part.name || part.model || ''
-        qty = part.qty || 1
-        cost = part.price || null
-      }
-    }
-    
-    return { catalogue, description, qty, cost }
-  })
+        _idx: idx,
+      }))
+  }
+  const tpl = cfg.bom_template
+  const ctx = cfg.bom_context || {}
+  if (l6HasTemplate.value) {
+    return tpl.rows.map((r: any, idx: number) => {
+      const key = r.slot || r.type
+      const v = ctx[key] || { desc: '', qty: '' }
+      return { catalogue: r.label, description: v.desc || '', qty: v.qty, _idx: idx }
+    })
+  }
+  // 回落：cfg.items 的 L6 行
+  const items = cfg.items || []
+  return items
+    .filter((i: any) => i.category === 'L6' || i.category === '整机')
+    .map((item: any, idx: number) => ({
+      catalogue: item.part_name || '',
+      description: item.spec || '',
+      qty: item.qty,
+      _idx: idx,
+    }))
 })
 
 // KP BOM 行数据（响应式，动态显示实际配置的部件）
+// cost 显示「原始单价」base_price：Excel 上传用 excel 原值；新建跟随中栏 KP 卡片填写的原始单价实时变动
 const kpRows = computed(() => {
   const cfg = props.cfg
-  const items = cfg.items || []
-  
+  // Excel 报价单:渲染快照(不随中栏变动);否则实时读 cfg.items
+  const items = isExcel.value ? (cfg.bom_excel_rows || []) : (cfg.items || [])
+
   // 直接从 cfg.items 中获取所有 Key Parts 类别的项
   const kpItems = items.filter((i: any) => i.category === 'Key Parts')
-  
+
   return kpItems.map((item: any, idx: number) => ({
     // 使用 part_name 作为 catalogue，支持同名多行（如两个 HDD/SSD）
     catalogue: item.part_name || 'Unknown',
     description: item.spec || '',
     qty: item.qty,
-    cost: item.base_price || item.final_price,
+    cost: Number(item.base_price) || 0,
     _idx: idx // 用于 v-for key 去重
   }))
 })
@@ -195,6 +140,16 @@ const kpRows = computed(() => {
   overflow-y: auto;
 }
 
+.excel-ref-badge {
+  margin: 0 12px 8px;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cpq-accent-primary, #00f5d4);
+  background: rgba(0, 245, 212, 0.08);
+  border: 1px solid rgba(0, 245, 212, 0.2);
+  border-radius: 6px;
+}
 .bom-section {
   background: transparent;
   border: none;
@@ -219,6 +174,16 @@ const kpRows = computed(() => {
   font-size: 12px;
   font-weight: 600;
   color: var(--cpq-text-primary);
+}
+
+.bom-section-sub {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--cpq-accent-primary);
+  background: rgba(0, 245, 212, 0.1);
+  padding: 1px 6px;
+  border-radius: 4px;
 }
 
 .bom-table {
@@ -277,6 +242,15 @@ const kpRows = computed(() => {
 .col-cost {
   width: 23%;
   text-align: right;
+}
+
+/* L6 表无 Cost 列：3 列重新分配占满 */
+.bom-table.no-cost .col-catalogue {
+  width: 30%;
+}
+
+.bom-table.no-cost .col-desc {
+  width: 58%;
 }
 
 .cell-catalogue {

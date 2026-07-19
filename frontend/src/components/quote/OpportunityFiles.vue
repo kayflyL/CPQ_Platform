@@ -361,11 +361,11 @@ const handleDelete = async () => {
 }
 
 // 拖拽上传处理
-const handleDragOver = (e: DragEvent) => {
+const handleDragOver = () => {
   isDragging.value = true
 }
 
-const handleDragLeave = (e: DragEvent) => {
+const handleDragLeave = () => {
   isDragging.value = false
 }
 
@@ -373,7 +373,7 @@ const handleDrop = async (e: DragEvent) => {
   isDragging.value = false
   
   const files = e.dataTransfer?.files
-  if (!files || files.length === 0) return
+  if (!files?.length) return
   
   uploading.value = true
   let successCount = 0

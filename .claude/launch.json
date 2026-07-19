@@ -11,7 +11,8 @@
       "name": "frontend",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "D:/CPQ_Platform_V1/frontend", "run", "dev"],
-      "port": 5173
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

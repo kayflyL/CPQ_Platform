@@ -41,6 +41,9 @@ class BusinessField(Base):
     # Multi-tenant + dynamic storage routing
     tenant_id: Mapped[str] = mapped_column(String, default='default')
     is_core_field: Mapped[bool] = mapped_column(Boolean, default=False)  # True=独立列, False=extra_fields JSON
+    
+    # Export template visibility
+    export_visible: Mapped[bool] = mapped_column(Boolean, default=True)  # True=显示在导出模板字段绑定菜单
 
     def to_dict(self) -> dict:
         return {
@@ -68,4 +71,5 @@ class BusinessField(Base):
             "used_in_pages": self.used_in_pages or "[]",
             "tenant_id": self.tenant_id or "default",
             "is_core_field": self.is_core_field or False,
+            "export_visible": self.export_visible if hasattr(self, 'export_visible') else True,
         }

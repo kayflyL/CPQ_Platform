@@ -11,7 +11,7 @@ class UnifiedFieldService:
         self.business_field_repo = BusinessFieldRepository()
         self.dynamic_source_field_repo = DynamicSourceFieldRepository()
     
-    def get_fields_by_scope(self, scope: str) -> list[dict]:
+    def get_fields_by_scope(self, scope: str, export_visible_only: bool = False) -> list[dict]:
         """
         按业务域获取字段
         scope: opportunity / config / pricing / export / parse / system
@@ -23,8 +23,11 @@ class UnifiedFieldService:
         filtered = []
         for field in all_fields:
             field_scope = field.get('scope', 'all')
-            if field_scope == 'all' or field_scope == scope:
-                filtered.append(field)
+            if field_scope != 'all' and field_scope != scope:
+                continue
+            if export_visible_only and not field.get('export_visible', True):
+                continue
+            filtered.append(field)
         
         return filtered
     
@@ -50,7 +53,7 @@ class UnifiedFieldService:
     def get_dynamic_source_fields(self, source_key: str = None) -> dict | list[dict]:
         """
         获取动态数据源子字段
-        source_key: l6_details / kp_details / warranty_details / config_summary
+        source_key: l6_details / kp_details / config_summary
         如果 source_key 为 None，返回所有数据源的所有字段
         """
         if source_key:

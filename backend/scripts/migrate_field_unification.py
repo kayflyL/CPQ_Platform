@@ -81,9 +81,6 @@ def migrate():
         # kp_details: 14 个子字段（同 l6_details）
         kp_fields = l6_fields.copy()
         
-        # warranty_details: 14 个子字段（同 l6_details）
-        warranty_fields = l6_fields.copy()
-        
         # config_summary: 7 个子字段
         config_summary_fields = [
             ('seq', '序号'),
@@ -115,18 +112,6 @@ def migrate():
                 VALUES (:source_key, :field_key, :field_label, :sort_order, 1)
             """), {
                 'source_key': 'kp_details',
-                'field_key': field_key,
-                'field_label': field_label,
-                'sort_order': sort_order
-            })
-            insert_count += 1
-        
-        for sort_order, (field_key, field_label) in enumerate(warranty_fields):
-            session.execute(text("""
-                INSERT INTO dynamic_source_fields (source_key, field_key, field_label, sort_order, enabled)
-                VALUES (:source_key, :field_key, :field_label, :sort_order, 1)
-            """), {
-                'source_key': 'warranty_details',
                 'field_key': field_key,
                 'field_label': field_label,
                 'sort_order': sort_order

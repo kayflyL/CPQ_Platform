@@ -93,21 +93,4 @@ export const univerTemplateApi = {
     const resp = await axios.post(`${API_BASE}/${templateId}/preview`, { bindings }, { params })
     return resp.data
   },
-
-  /** 导出 Excel */
-  async export(
-    templateId: number,
-    opportunityId: string,
-    quotationId?: string
-  ): Promise<Blob> {
-    const params: Record<string, string> = { opportunity_id: opportunityId }
-    if (quotationId) {
-      params.quotation_id = quotationId
-    }
-    const resp = await axios.get(`${API_BASE}/${templateId}/export`, {
-      params,
-      responseType: 'blob',
-    })
-    return resp.data
-  },
 }

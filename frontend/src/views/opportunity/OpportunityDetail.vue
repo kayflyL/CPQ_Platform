@@ -29,6 +29,10 @@
           <template #icon><UndoOutlined /></template>
           取消归档
         </a-button>
+        <a-button size="small" @click="showRecycleBin = true" v-if="deletedQuotations.length > 0">
+          <template #icon><DeleteOutlined /></template>
+          回收站 ({{ deletedQuotations.length }})
+        </a-button>
         <a-button size="small" @click="showSidebar = !showSidebar">
           <template #icon><FolderOutlined /></template>
           文件/评论
@@ -167,6 +171,7 @@
           ></div>
           <div class="quo-content">
             <div class="quo-top">
+              <span v-if="quo.is_primary" class="quo-primary-tag">主推</span>
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
               <span class="quo-price">¥{{ formatPrice(quo.total_price) }}</span>
               <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
@@ -178,6 +183,12 @@
             </div>
           </div>
           <div v-if="!activeSelectMode" class="quo-actions" @click.stop>
+            <button v-if="!quo.is_primary" class="text-btn primary-action" @click="setAsPrimary(quo)">
+              <StarOutlined /> 设为主推
+            </button>
+            <button v-else class="text-btn" @click="setAsPrimary(quo)">
+              <StarFilled style="color:#faad14" /> 取消主推
+            </button>
             <button class="text-btn" @click="viewQuotation(quo)">
               <EyeOutlined /> 查看
             </button>
@@ -203,22 +214,25 @@
       </div>
     </div>
 
-    <!-- 已删除报价单区域 -->
-    <div v-if="deletedQuotations.length > 0" class="quotation-section deleted-section">
-      <div class="section-header">
-        <h2>已删除报价单 <span class="count-badge deleted badge">{{ deletedQuotations.length }}</span></h2>
-        <div class="section-actions">
+    <!-- 回收站抽屉 -->
+    <a-drawer
+      v-model:open="showRecycleBin"
+      title="回收站"
+      placement="right"
+      width="600"
+      :destroyOnClose="false"
+    >
+      <div class="recycle-header">
+        <span class="recycle-count">{{ deletedQuotations.length }} 个已删除报价单</span>
+        <div class="recycle-actions">
           <a-button v-if="deletedSelectMode" size="small" type="primary" @click="handleBatchRestoreQuotations">恢复选中 ({{ deletedSelectedIds.size }})</a-button>
           <a-button v-if="deletedSelectMode" size="small" danger @click="handleBatchPermanentDeleteQuotations">删除选中 ({{ deletedSelectedIds.size }})</a-button>
           <a-button v-if="deletedSelectMode" size="small" @click="exitDeletedSelect">取消</a-button>
           <a-button v-if="!deletedSelectMode" size="small" @click="enterDeletedSelect">批量操作</a-button>
-          <a-button size="small" @click="loadDeletedQuotations">
-            🔄 刷新
-          </a-button>
         </div>
       </div>
 
-      <!-- 已删除报价单批量操作栏 -->
+      <!-- 批量操作栏 -->
       <div v-if="deletedSelectMode && deletedSelectedIds.size > 0" class="batch-bar glass">
         <div class="batch-left">
           <a-checkbox
@@ -237,7 +251,11 @@
         </div>
       </div>
 
-      <div class="quotation-list glass">
+      <div v-if="deletedQuotations.length === 0" class="empty-state glass">
+        <p>回收站为空</p>
+      </div>
+
+      <div v-else class="quotation-list glass">
         <div
           v-for="(quo, index) in deletedQuotations"
           :key="quo.quotation_id"
@@ -288,7 +306,7 @@
           </span>
         </div>
       </div>
-    </div>
+    </a-drawer>
 
     <!-- 重命名弹窗 -->
     <a-modal
@@ -349,7 +367,7 @@ import {
   ArrowLeftOutlined, EditOutlined, PlusOutlined, UploadOutlined,
   InboxOutlined, CheckOutlined, CloseOutlined, EyeOutlined,
   DeleteOutlined, RightOutlined, FolderOutlined, FormOutlined,
-  UndoOutlined
+  UndoOutlined, StarOutlined, StarFilled
 } from '@ant-design/icons-vue'
 import { uploadQuotationToProject } from '@/api/quote'
 import { projectApi, quotationApi } from '@/api'
@@ -366,6 +384,7 @@ const quotations = ref<Quotation[]>([])
 const deletedQuotations = ref<Quotation[]>([])
 const loading = ref(false)
 const showSidebar = ref(false)
+const showRecycleBin = ref(false)
 
 // Active quotation selection
 const activeSelectMode = ref(false)
@@ -645,7 +664,7 @@ const restoreQuotation = async (quotationId: string) => {
 
 const permanentDeleteQuotation = async (quotationId: string) => {
   try {
-    await quotationApi.delete(quotationId)
+    await quotationApi.batchPermanentDelete([quotationId])
     message.success('报价单已永久删除')
     await loadDeletedQuotations()
   } catch (error: any) {
@@ -670,6 +689,18 @@ const startRenameQuotation = (quotation: Quotation) => {
   renameTargetId.value = quotation.quotation_id
   renameValue.value = quotation.quotation_name || ''
   showRenameModal.value = true
+}
+
+// 设置为主推方案
+const setAsPrimary = async (quotation: Quotation) => {
+  try {
+    await quotationApi.setPrimary(quotation.quotation_id)
+    message.success('已设置为主推方案')
+    // 刷新报价单列表
+    await loadProject()
+  } catch (err: any) {
+    message.error('设置失败: ' + (err.message || err))
+  }
 }
 
 const saveRenameQuotation = async () => {
@@ -1127,6 +1158,17 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 4px;
+}
+
+.quo-primary-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--cpq-accent-primary, #7c5cfc);
+  color: #fff;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .quo-name {

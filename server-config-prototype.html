@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务器配置原型 · 配置面精修 · CPQ</title>
+<style>
+:root{--bg0:#08090B;--bg1:#101217;--bg2:#171a21;--bgc:#14161c;--bgi:#0d0f13;--bge:#1c1f27;--t1:#E8ECEF;--t2:#9BA1AA;--t3:#6E7582;--ac:#00F5D4;--acd:rgba(0,245,212,0.12);--acg:rgba(0,245,212,0.30);--bd:rgba(255,255,255,0.10);--bd2:rgba(255,255,255,0.18);--sh:0 8px 32px rgba(0,0,0,0.6);--warn:#fa8c16;--warnd:rgba(250,140,22,0.14);--warnt:#F4D28A;--danger:#ff4d4f;--r:10px;--ease:cubic-bezier(.16,1,.3,1);--f:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'PingFang SC','Microsoft YaHei',sans-serif}
+*{margin:0;padding:0;box-sizing:border-box}html,body{height:100%}body{font-family:var(--f);background:var(--bg0);color:var(--t1);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased}button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}input,select{font-family:inherit}select{color-scheme:dark}
+.topbar{position:sticky;top:0;z-index:50;height:56px;display:flex;align-items:center;gap:16px;padding:0 28px;background:rgba(8,9,11,0.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--bd)}.topbar .brand{display:flex;align-items:center;gap:10px;font-weight:600}.topbar .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--ac);box-shadow:0 0 12px var(--acg)}.topbar .crumb{color:var(--t2);font-size:13px;display:flex;align-items:center;gap:8px}.topbar .crumb a{color:var(--t2);cursor:pointer}.topbar .crumb a:hover{color:var(--ac)}.topbar .crumb .cur{color:var(--t1)}.topbar .crumb .arr{color:var(--t3)}.topbar .spacer{flex:1}.badge{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--ac);border:1px solid var(--acd);padding:3px 10px;border-radius:20px;background:var(--acd)}
+.mode-tabs{display:flex;gap:4px;background:var(--bg1);border:1px solid var(--bd);border-radius:9px;padding:3px}.mode-tab{padding:6px 16px;border-radius:7px;font-size:13px;color:var(--t2);transition:all .2s var(--ease)}.mode-tab.active{background:var(--acd);color:var(--ac)}.mode-tab:hover{color:var(--t1)}
+.view{max-width:1280px;margin:0 auto;padding:32px 28px 120px}.view.hidden{display:none}.view-head{margin-bottom:22px}.view-head h1{font-size:22px;font-weight:600;margin-bottom:6px}.view-head .sub{color:var(--t2);font-size:13px}
+.type-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}.type-card{background:linear-gradient(160deg,var(--bgc),var(--bg1));border:1px solid var(--bd);border-radius:var(--r);padding:24px;text-align:left;transition:all .25s var(--ease);position:relative;overflow:hidden}.type-card::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--ac);opacity:0;transition:opacity .25s var(--ease)}.type-card:hover{border-color:var(--acd);transform:translateY(-2px);box-shadow:var(--sh)}.type-card:hover::before{opacity:1}.type-card h3{font-size:16px;margin-bottom:5px}.type-card .d{color:var(--t2);font-size:13px}.type-card .m{margin-top:14px;padding-top:12px;border-top:1px solid var(--bd);color:var(--t3);font-size:12px;display:flex;justify-content:space-between}.type-card .m .go{color:var(--ac)}
+.filter-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:18px;padding:12px 14px;background:var(--bg1);border:1px solid var(--bd);border-radius:var(--r)}.chip{padding:5px 13px;border-radius:20px;font-size:13px;border:1px solid var(--bd);color:var(--t2);transition:all .2s var(--ease)}.chip:hover{border-color:var(--bd2);color:var(--t1)}.chip.active{background:var(--acd);border-color:var(--ac);color:var(--ac)}.filter-bar .grp{display:flex;gap:6px;align-items:center}.filter-bar .lbl{color:var(--t3);font-size:12px;margin-right:2px}.filter-bar .div{width:1px;height:20px;background:var(--bd);margin:0 6px}
+.model-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}.model-card{background:var(--bgc);border:1px solid var(--bd);border-radius:var(--r);padding:18px;transition:all .25s var(--ease)}.model-card:hover{border-color:var(--acd);transform:translateY(-2px);box-shadow:var(--sh)}.model-card .nm{font-size:15px;font-weight:600;margin-bottom:4px}.model-card .ds{color:var(--t2);font-size:12px;margin-bottom:12px}.model-card .sp{display:flex;gap:16px;padding-top:12px;border-top:1px solid var(--bd);margin-bottom:14px}.model-card .sp .k{font-size:11px;color:var(--t3);display:block;margin-bottom:2px}.model-card .sp .v{font-size:13px;font-weight:500}.model-card .pk{width:100%;padding:8px;border-radius:8px;background:transparent;border:1px solid var(--bd2);color:var(--t2);font-size:13px;transition:all .2s var(--ease)}.model-card:hover .pk{background:var(--acd);border-color:var(--ac);color:var(--ac)}
+.banner{display:flex;align-items:center;gap:14px;flex-wrap:wrap;background:linear-gradient(135deg,var(--bg1),var(--bg2));border:1px solid var(--bd);border-radius:var(--r);padding:16px 20px;margin-bottom:18px}.banner .nm{font-size:17px;font-weight:600}.banner .sb{color:var(--t2);font-size:13px}.tag{font-size:11px;padding:2px 8px;border-radius:4px;font-weight:500;white-space:nowrap;background:rgba(255,255,255,0.06);color:var(--t2);border:1px solid var(--bd)}
+.layout{display:grid;grid-template-columns:1fr;gap:16px}.panel{background:var(--bgc);border:1px solid var(--bd);border-radius:var(--r);overflow:hidden}.phead{display:flex;align-items:center;gap:12px;padding:14px 20px;border-bottom:1px solid var(--bd);background:rgba(255,255,255,0.015)}.phead .num{width:26px;height:26px;border-radius:7px;background:var(--acd);color:var(--ac);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:600;flex-shrink:0}.phead h2{font-size:14px;font-weight:600}.phead .hint{margin-left:auto;color:var(--t3);font-size:12px}.phead .amt{margin-left:auto;font-size:14px;font-weight:600;color:var(--ac)}.pbody{padding:18px 20px}
+/* 摘要卡 */
+.sumcard{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;padding:14px;background:var(--bgi);border:1px solid var(--bd);border-radius:8px;margin-bottom:12px}.sumcard .si .k{font-size:11px;color:var(--t3);display:block;margin-bottom:3px}.sumcard .si .v{font-size:13px;font-weight:600}.sumcard .si .v.derived{color:var(--ac)}.bp-toggle{display:inline-flex;gap:4px;margin-top:4px}.bp-toggle button{padding:3px 10px;border-radius:5px;border:1px solid var(--bd);color:var(--t2);font-size:11px}.bp-toggle button.active{background:var(--acd);border-color:var(--ac);color:var(--ac)}.detail-toggle{font-size:12px;color:var(--ac);cursor:pointer;margin-top:8px;display:inline-flex;align-items:center;gap:4px}.detail-toggle:hover{text-decoration:underline}
+table.kt{width:100%;border-collapse:collapse}table.kt th{text-align:left;font-size:11px;font-weight:500;color:var(--t3);padding:8px 10px;border-bottom:1px solid var(--bd)}table.kt td{padding:8px 10px;border-bottom:1px solid var(--bd);font-size:12px}table.kt tr:last-child td{border-bottom:none}table.kt .mono{font-family:ui-monospace,monospace;font-size:11px;color:var(--t2)}table.kt .r{text-align:right}.table-wrap{overflow-x:auto;border:1px solid var(--bd);border-radius:8px;max-height:280px;overflow-y:auto}.lock{font-size:10px;color:var(--t3);margin-left:4px}.sum-row td{background:var(--bge);font-weight:600}
+/* GPU架构 */
+.arch-pick{display:flex;gap:10px;flex-wrap:wrap}.arch-opt{padding:12px 16px;border-radius:8px;border:1px solid var(--bd);color:var(--t2);font-size:13px;text-align:left;transition:all .2s var(--ease);flex:1;min-width:140px}.arch-opt:hover{border-color:var(--bd2);color:var(--t1)}.arch-opt.active{background:var(--acd);border-color:var(--ac);color:var(--ac)}.arch-opt .ao-d{display:block;font-size:11px;color:var(--t3);margin-top:3px}.arch-opt.active .ao-d{color:var(--ac);opacity:0.7}
+.warn-box{padding:10px 14px;background:rgba(255,77,79,0.10);border:1px solid rgba(255,77,79,0.35);border-radius:8px;color:#ff8888;font-size:12px;margin-top:10px;display:flex;align-items:center;gap:8px}
+/* KP多行 */
+.kp-lines{display:flex;flex-direction:column;gap:9px}.kp-line{display:grid;grid-template-columns:100px 1fr 110px 80px 30px;gap:9px;align-items:center}.kp-line select,.kp-line input{background:var(--bgi);color:var(--t1);border:1px solid var(--bd);border-radius:7px;padding:8px;font-size:13px;outline:none;width:100%}.kp-line select:focus,.kp-line input:focus{border-color:var(--ac)}.kp-line .st{background:var(--bgi);border:1px solid var(--bd);border-radius:7px;display:flex;align-items:center;overflow:hidden}.kp-line .st button{width:28px;height:34px;color:var(--t2);font-size:14px}.kp-line .st button:hover{color:var(--ac);background:var(--acd)}.kp-line .st input{border:none;background:transparent;text-align:center;padding:0;min-width:0}.kp-del{width:28px;height:34px;border-radius:7px;border:1px solid var(--bd);color:var(--t3);font-size:13px}.kp-del:hover{color:var(--danger);border-color:rgba(255,77,79,0.4)}.add-line{align-self:flex-start;margin-top:5px;padding:7px 14px;border-radius:7px;border:1px dashed var(--bd2);color:var(--t2);font-size:13px}.add-line:hover{border-color:var(--ac);color:var(--ac);background:var(--acd)}
+/* 推导行 */
+.dline{display:grid;grid-template-columns:1fr auto;gap:6px 14px;align-items:center;padding:11px 14px;border:1px solid var(--bd);border-radius:8px;margin-bottom:9px;background:var(--bgi)}.dline:last-child{margin-bottom:0}.dline .dl-t{font-size:13px;font-weight:500;display:flex;align-items:center;gap:7px;margin-bottom:3px}.dline .dl-b{font-size:11px;color:var(--t3)}.dline .dl-r{display:flex;align-items:center;gap:8px}.dline input.dv{width:60px;text-align:center;background:var(--bge);border:1px solid var(--bd);color:var(--ac);font-weight:600;border-radius:6px;padding:7px;font-size:13px;outline:none}.dline input.dv.man{color:var(--warn);border-color:rgba(250,140,22,0.4)}.src-badge{font-size:10px;padding:1px 6px;border-radius:3px}.src-badge.sys{background:var(--acd);color:var(--ac)}.src-badge.man{background:var(--warnd);color:var(--warn)}.force-row{display:flex;align-items:center;gap:10px;margin-top:10px;font-size:12px;color:var(--t2)}.switch{position:relative;width:36px;height:20px;background:var(--bge);border-radius:10px;cursor:pointer;transition:background .2s}.switch.on{background:var(--ac)}.switch::after{content:'';position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--t1);transition:left .2s}.switch.on::after{left:18px}
+.slot-row{display:grid;grid-template-columns:60px 1fr 100px;gap:10px;align-items:center;padding:9px 0;border-bottom:1px dashed var(--bd)}.slot-row:last-child{border-bottom:none}.slot-row .sl{font-weight:600;font-size:13px}.slot-row .sl .mx{display:block;font-size:10px;color:var(--t3);font-weight:400}.slot-row select{background:var(--bgi);color:var(--t1);border:1px solid var(--bd);border-radius:7px;padding:8px;font-size:13px;outline:none}.slot-row select:focus{border-color:var(--ac)}.slot-row .pr{text-align:right;font-size:12px;color:var(--t2)}
+.bar{position:fixed;left:0;right:0;bottom:0;z-index:40;display:flex;align-items:center;gap:14px;justify-content:flex-end;padding:13px 28px;background:rgba(8,9,11,0.92);backdrop-filter:blur(12px);border-top:1px solid var(--bd)}.bar .sum{margin-right:auto;color:var(--t2);font-size:13px}.bar .sum b{color:var(--ac)}.btn{padding:9px 20px;border-radius:8px;font-size:14px;font-weight:500;transition:all .2s var(--ease)}.btn-g{border:1px solid var(--bd2);color:var(--t2)}.btn-g:hover{color:var(--t1);border-color:var(--t3)}.btn-p{background:var(--ac);color:#062b25;font-weight:600}.btn-p:hover{box-shadow:0 0 18px var(--acg)}
+#toast{position:fixed;bottom:78px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bge);border:1px solid var(--ac);color:var(--t1);padding:10px 20px;border-radius:8px;font-size:13px;box-shadow:var(--sh);z-index:100;opacity:0;pointer-events:none;transition:all .3s var(--ease)}#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.empty{color:var(--t3);text-align:center;padding:24px;font-size:13px}
+@media(max-width:820px){.kp-line{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="dot"></span> CPQ · 服务器配置</div><div class="crumb" id="crumb"></div><div class="spacer"></div><div class="mode-tabs"><button class="mode-tab active" data-mode="config" onclick="setMode('config')">配置</button><button class="mode-tab" data-mode="admin" onclick="setMode('admin')">管理</button></div><div class="badge">配置面精修</div></header>
+
+<section id="view-types" class="view"><div class="view-head"><h1>配置一台服务器</h1><div class="sub">选择用途，挑机型，进入四步配置。</div></div><div class="type-grid" id="typeGrid" style="margin-top:22px"></div></section>
+<section id="view-catalog" class="view hidden"><div class="view-head"><h1 id="catTitle">机型目录</h1><div class="sub">选一台机型进入配置。背板类型与 GPU 架构在配置中确定。</div></div>
+<div class="filter-bar"><div class="grp"><span class="lbl">形态</span><button class="chip active" data-fg="form" data-v="all">全部</button><button class="chip" data-fg="form" data-v="2U">2U</button><button class="chip" data-fg="form" data-v="4U">4U</button></div><div class="div"></div><div class="grp"><span class="lbl">用途</span><button class="chip active" data-fg="use" data-v="all">全部</button><button class="chip" data-fg="use" data-v="通用计算">通用</button><button class="chip" data-fg="use" data-v="AI加速计算">AI</button></div></div>
+<div class="model-grid" id="modelGrid"></div></section>
+
+<section id="view-config" class="view hidden">
+  <div class="banner" id="banner"></div>
+  <div class="layout">
+    <div class="panel"><div class="phead"><div class="num">1</div><h2>基准配置</h2><span class="hint">背板类型由硬盘推导，可手改</span><span class="amt" id="amt1"></span></div><div class="pbody" id="specBody"></div></div>
+    <div class="panel"><div class="phead"><div class="num">GPU</div><h2>GPU 架构</h2><span class="hint">用途推荐，Switch 需 8 卡</span></div><div class="pbody" id="archBody"></div></div>
+    <div class="panel"><div class="phead"><div class="num">KP</div><h2>核心配件选配</h2><span class="hint">硬盘驱动背板与线缆，CPU/GPU 驱动功耗</span><span class="amt" id="amtKp"></span></div><div class="pbody"><div class="kp-lines" id="kpLines"></div></div></div>
+    <div class="panel"><div class="phead"><div class="num">2</div><h2>前面板 · 硬盘背板连线</h2><span class="hint">SATA/SAS/NVMe 三类，按盘数推导</span><span class="amt" id="amt2"></span></div><div class="pbody" id="frontBody"></div></div>
+    <div class="panel"><div class="phead"><div class="num">3</div><h2>后面板 · IO 槽位选配</h2><span class="hint">每槽独立选</span><span class="amt" id="amt3"></span></div><div class="pbody" id="rearBody"></div></div>
+    <div class="panel"><div class="phead"><div class="num">4</div><h2>电源 PSU</h2><span class="hint">功耗推导，可人工兜底</span><span class="amt" id="amt4"></span></div><div class="pbody" id="psuBody"></div></div>
+  </div>
+</section>
+<section id="view-admin" class="view hidden">
+  <div class="view-head"><h1>数据维护</h1><div class="sub">料号库逐条管理 · 基准配置自己挑件组建。配置面看到的所有料号、基准方案都来自这里。</div></div>
+  <div class="panel" style="margin-bottom:16px">
+    <div class="phead"><div class="num">P</div><h2>料号库</h2><span class="hint">逐条管理所有料号</span></div>
+    <div class="pbody">
+      <div id="adminParts"></div>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+        <div style="font-size:13px;color:var(--t2);margin-bottom:10px">+ 新增料号</div>
+        <div class="kp-line" style="grid-template-columns:130px 1fr 130px 100px 50px">
+          <input id="np-pn" placeholder="料号 PN"><input id="np-name" placeholder="名称"><select id="np-cat"></select><input id="np-price" type="number" placeholder="单价"><button class="btn btn-p btn-s" onclick="addPart()">+</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="phead"><div class="num">B</div><h2>基准配置</h2><span class="hint">自己挑件组机箱方案</span></div>
+    <div class="pbody">
+      <div id="adminBaseList"></div>
+      <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--bd)">
+        <div style="font-size:13px;color:var(--t2);margin-bottom:10px">+ 新建基准配置</div>
+        <div id="newBaseForm"></div>
+      </div>
+    </div>
+  </div>
+</section>
+<div class="bar" id="bar" style="display:none"><div class="sum" id="barSum"></div><button class="btn btn-g" id="btnBack">返回</button><button class="btn btn-p" id="btnNext">生成配置清单</button></div>
+<div id="toast"></div>
+
+<script>
+/* ===== 料号库（按条管理，落地接 parts_master 表） ===== */
+let PART_LIST=[
+ {pn:'S.E.M.0000351',cat:'chassis',name:'机箱 2U12(含硬盘笼)',bays:12,price:4178},
+ {pn:'S.E.M.0000272',cat:'tray',name:'主板托盘',price:175},
+ {pn:'S.E.E.0003275',cat:'mb',name:'Orion 主板',price:5300},
+ {pn:'S.E.M.0000189',cat:'heatsink',name:'CPU 散热器',price:121},
+ {pn:'S.E.E.0003242',cat:'scmio',name:'SCMIO 后IO板',price:68},
+ {pn:'S.E.E.0002303',cat:'ioc',name:'后IO信号线',price:60.33},
+ {pn:'S.E.E.0001675',cat:'ioc',name:'后IO电源线',price:4},
+ {pn:'S.E.E.0003041',cat:'powercord',name:'电源线',price:9.25},
+ {pn:'S.E.M.0000186',cat:'rail',name:'滑轨',price:280},
+ {pn:'S.E.M.0000355',cat:'wind',name:'后置导风罩',price:60.5},
+ {pn:'S.E.M.0000452',cat:'label',name:'标签',price:0.5},
+ {pn:'S.E.E.0001559',cat:'bp',name:'三模背板(12盘)',bays:12,bt:'tri',price:1260},
+ {pn:'S.E.E.0001558',cat:'bp',name:'直连背板(12盘)',bays:12,bt:'dc',price:1050},
+ {pn:'S.E.E.0003002',cat:'sgpio',name:'SGPIO 线缆(三模配)',price:25},
+ {pn:'S.E.E.0001950',cat:'frontcable',name:'前面板 SATA 线(8盘组)',kind:'SATA',price:89.76},
+ {pn:'S.E.E.0001952',cat:'frontcable',name:'前面板 SAS 线(8盘组)',kind:'SAS',price:64.22},
+ {pn:'S.E.E.0002543',cat:'frontcable',name:'前面板 NVMe 线(2盘组)',kind:'NVMe',price:69},
+ {pn:'PSU1300',cat:'psu',name:'PSU 1300W',w:1300,price:470.08},
+ {pn:'PSU1600',cat:'psu',name:'PSU 1600W',w:1600,price:535.06},
+ {pn:'PSU2000',cat:'psu',name:'PSU 2000W',w:2000,price:881.4},
+ {pn:'PSU2700',cat:'psu',name:'PSU 2700W',w:2700,price:1050},
+ {pn:'NVSWITCH',cat:'nvswitch',name:'NVSwitch 板',price:8000},
+ {pn:'NVELINK',cat:'nvelink',name:'NVLink 铜缆组',price:1200},
+ {pn:'GPUPOWER',cat:'gpupwr',name:'GPU 供电线',price:30},
+];
+const PARTS={byPn:{},byCat:{}};
+PART_LIST.forEach(p=>{PARTS.byPn[p.pn]=p;(PARTS.byCat[p.cat]=PARTS.byCat[p.cat]||[]).push(p);});
+
+/* 后面板槽位选项（内联料号信息） */
+const REAR_SLOTS={
+ IO1:{label:'IO1',max:'1*X16+1*X8',opts:[{id:'x16',name:'1*PCIe X16 Riser',p:[{pn:'S.E.E.0001561',name:'X16 Riser',qty:1,price:203}]},{id:'x8',name:'1*PCIe X8 Riser',p:[{pn:'S.E.E.0002346',name:'X8 Riser',qty:1,price:158}]},{id:'x16x8',name:'X16+X8',p:[{pn:'S.E.E.0001561',name:'X16',qty:1,price:203},{pn:'S.E.E.0002346',name:'X8',qty:1,price:158}]},{id:'blank',name:'挡片',p:[]}]},
+ IO2:{label:'IO2',max:'1*X16+1*X8',opts:[{id:'x16',name:'1*PCIe X16 Riser',p:[{pn:'S.E.E.0001561',name:'X16 Riser',qty:1,price:203}]},{id:'x8',name:'1*PCIe X8 Riser',p:[{pn:'S.E.E.0002346',name:'X8 Riser',qty:1,price:158}]},{id:'blank',name:'挡片',p:[]}]},
+ IO3:{label:'IO3',max:'2*X8 / 2*NVMe模组 / 2*SATA模组',opts:[{id:'2x8',name:'2*PCIe X8 Riser',p:[{pn:'S.E.E.0002346',name:'X8 Riser',qty:2,price:158}]},{id:'2nvme',name:'2*NVMe 模组',p:[{pn:'S.E.E.0001443',name:'NVMe Module',qty:2,price:320}]},{id:'blank',name:'挡片',p:[]}]},
+ IO4:{label:'IO4',max:'2*NVMe模组 / 2*SATA模组',opts:[{id:'2nvme',name:'2*NVMe 模组',p:[{pn:'S.E.E.0001443',name:'NVMe Module',qty:2,price:320}]},{id:'blank',name:'挡片',p:[]}]},
+ OCP:{label:'OCP',max:'X8 / X16',opts:[{id:'x8',name:'OCP X8',p:[{pn:'S.E.E.0002854',name:'OCP X8',qty:1,price:296.33}]},{id:'x16',name:'OCP X16',p:[{pn:'S.E.E.0003123',name:'OCP X16',qty:1,price:305}]},{id:'blank',name:'无',p:[]}]},
+};
+
+/* KP 配件 */
+const CATS=['cpu','gpu','memory','drive','m2','raid','nic','fc'];
+const CAT_NAME={cpu:'CPU',gpu:'GPU',memory:'内存',drive:'硬盘',m2:'M.2',raid:'RAID卡',nic:'网卡NIC',fc:'FC HBA'};
+const KP=[
+ {cat:'cpu',pn:'AMD-9335',name:'AMD EPYC 9335 32C 210W',series:'Orion',tdp:210,price:15548.8},
+ {cat:'cpu',pn:'AMD-9554',name:'AMD EPYC 9554 64C 360W',series:'Orion',tdp:360,price:22000},
+ {cat:'cpu',pn:'KH-50000',name:'兆芯 KH-50000 96C 450W',series:'Polaris',tdp:450,price:19000},
+ {cat:'gpu',pn:'RTX5090',name:'NVIDIA RTX5090 32G 涡轮',tdp:450,cablesPer:1,price:34500},
+ {cat:'gpu',pn:'A100',name:'NVIDIA A100 80G',tdp:400,cablesPer:2,price:90000},
+ {cat:'gpu',pn:'MTT-S4000',name:'摩尔线程 MTT S4000',tdp:300,cablesPer:1,price:15000},
+ {cat:'memory',pn:'MEM-32G',name:'32G DDR5 4800',price:8000},
+ {cat:'memory',pn:'MEM-64G',name:'64G DDR5 4800',price:15500},
+ {cat:'drive',pn:'SATA-480G',name:'480G SATA SSD',kind:'SATA',price:1800},
+ {cat:'drive',pn:'SATA-960G',name:'960G SATA SSD',kind:'SATA',price:4800},
+ {cat:'drive',pn:'NVMe-1.92T',name:'1.92T NVMe SSD',kind:'NVMe',price:5300},
+ {cat:'drive',pn:'NVMe-3.84T',name:'3.84T NVMe SSD',kind:'NVMe',price:13051},
+ {cat:'drive',pn:'SAS-2.4T',name:'2.4T SAS HDD',kind:'SAS',price:2400},
+ {cat:'m2',pn:'M2-480G',name:'480G NVMe M.2',price:3448.76},
+ {cat:'raid',pn:'LSI-9560-8i',name:'LSI 9560-8i',price:6500},
+ {cat:'raid',pn:'LSI-9560-16i',name:'LSI 9560-16i',price:11270},
+ {cat:'nic',pn:'NIC-25G',name:'25G 2port+光模块',price:1200},
+ {cat:'fc',pn:'FC-32G',name:'32G FC HBA 双口',price:2650},
+];
+
+/* 规则（可配置，落地接规则配置页） */
+const RULES={powerThreshold:4800,basePower:500,cableGroup:{SATA:8,SAS:8,NVMe:2},psuTiers:[1300,1600,2000,2700],switchGpuRequired:8};
+const FRONT={SATA:{pn:'S.E.E.0001950',group:8,price:89.76},SAS:{pn:'S.E.E.0001952',group:8,price:64.22},NVMe:{pn:'S.E.E.0002543',group:2,price:69}};
+
+/* 基准配置（预设，代表用户已建；块B 做自建） */
+let BASE_CONFIGS=[
+ {id:'es22v3-2u12',name:'ES22V3-P · 2U12 基准',series:'Orion',model:'ES22V3-P',form:'2U',bays:12,
+  common:['S.E.M.0000351','S.E.M.0000272','S.E.E.0003275','S.E.M.0000189','S.E.E.0003242','S.E.E.0002303','S.E.E.0001675','S.E.E.0003041','S.E.M.0000186','S.E.M.0000355','S.E.M.0000452'],
+  bpOption:{tri:'S.E.E.0001559',dc:'S.E.E.0001558'}},
+ {id:'zs22v2-2u12',name:'ZS22V2-P · 2U12 基准',series:'Polaris',model:'ZS22V2-P',form:'2U',bays:12,
+  common:['S.E.M.0000351','S.E.M.0000272','S.E.E.0003275','S.E.M.0000189','S.E.E.0003242','S.E.E.0002303','S.E.E.0001675','S.E.E.0003041','S.E.M.0000186','S.E.M.0000355','S.E.M.0000452'],
+  bpOption:{tri:'S.E.E.0001559',dc:'S.E.E.0001558'}},
+];
+
+const TYPES=[{id:'general',name:'通用计算服务器',d:'企业应用、虚拟化、常规业务'},{id:'ai',name:'AI / 加速计算服务器',d:'模型训练与推理，多 GPU'},{id:'storage',name:'存储服务器',d:'大容量、高盘位密度'}];
+const MODELS=[
+ {id:'es22v3',type:'general',name:'ES22V3-P',form:'2U',bays:12,use:'通用计算',baseId:'es22v3-2u12'},
+ {id:'es24v3',type:'ai',name:'ES24V3-P',form:'2U',bays:12,use:'AI加速计算',baseId:'es22v3-2u12'},
+ {id:'zs22v2',type:'general',name:'ZS22V2-P',form:'2U',bays:12,use:'通用计算',baseId:'zs22v2-2u12'},
+ {id:'es25v3',type:'storage',name:'ES25V3-P',form:'2U',bays:25,use:'存储',baseId:'es22v3-2u12'},
+];
+
+/* ===== 工具 ===== */
+const fmt=n=>(Math.round(n*100)/100).toLocaleString('zh-CN');
+const kpOf=pn=>KP.find(k=>k.pn===pn);
+const kpByCat=(cat,series)=>KP.filter(k=>k.cat===cat&&(!k.series||k.series===series));
+const baseOf=id=>BASE_CONFIGS.find(b=>b.id===id);
+
+/* ===== 状态 ===== */
+let curType=null,curModel=null,filters={form:'all',use:'all'},cfg=null;
+function freshCfg(){
+ const b=baseOf(curModel.baseId);
+ const cpu=kpByCat('cpu',b.series)[0];
+ return{baseId:b.id,bp:null,bpManual:false,gpuArch:curModel.use==='AI加速计算'?'pt':'none',
+  kp:[{cat:'cpu',pn:cpu.pn,qty:1},{cat:'memory',pn:'MEM-32G',qty:4},{cat:'drive',pn:'SATA-480G',qty:2}],
+  rear:{IO1:'blank',IO2:'blank',IO3:'blank',IO4:'blank',OCP:'blank'},ov:{},psuForceOn:false};
+}
+
+/* ===== 推导 ===== */
+function kpAgg(){const a={cpuP:0,gpuP:0,kinds:{}};cfg.kp.forEach(l=>{const p=kpOf(l.pn);if(!p)return;if(p.tdp){if(l.cat==='cpu')a.cpuP+=p.tdp*l.qty;if(l.cat==='gpu')a.gpuP+=p.tdp*l.qty;}if(l.cat==='drive'&&p.kind)a.kinds[p.kind]=(a.kinds[p.kind]||0)+l.qty;});return a;}
+function deriveBpType(){const a=kpAgg();const hasMech=(a.kinds.SATA||0)+(a.kinds.SAS||0)>0;return hasMech?'tri':'dc';}
+function curBp(){return cfg.bpManual?(cfg.bp||deriveBpType()):(cfg.bp=deriveBpType());}
+function basePartsList(){const b=baseOf(cfg.baseId);const bp=curBp();const list=b.common.map(pn=>{const p=PARTS.byPn[pn];return{pn,name:p.name,price:p.price,qty:p.qty||1,locked:true};});const bpPn=b.bpOption[bp];const bpP=PARTS.byPn[bpPn];list.push({pn:bpPn,name:bpP.name+' ★',price:bpP.price,qty:1,locked:false});if(bp==='tri'){const s=PARTS.byPn['S.E.E.0003002'];list.push({pn:'S.E.E.0003002',name:s.name,price:s.price,qty:1,locked:false});}return list;}
+function basePrice(){return basePartsList().reduce((s,x)=>s+x.price*x.qty,0);}
+function calcPower(){return RULES.basePower+kpAgg().cpuP+kpAgg().gpuP;}
+function gpuCount(){return cfg.kp.filter(l=>l.cat==='gpu').reduce((s,l)=>s+l.qty,0);}
+function derivePsu(){const p=calcPower();const qty=p>RULES.powerThreshold?4:2;const need=qty===4?p/2:p;const w=RULES.psuTiers.find(x=>x>=need)||RULES.psuTiers[RULES.psuTiers.length-1];const psu=PARTS.byCat.psu.find(x=>x.w===w);return{p,qty,need,psu};}
+function curPsuQty(){const d=derivePsu();return cfg.psuForceOn?(cfg.ov.psuQty??d.qty):d.qty;}
+function frontRow(kind){const n=kpAgg().kinds[kind]||0;const c=FRONT[kind];const ov=cfg.ov['fc-'+kind];return{kind,n,qty:ov??Math.ceil(n/c.group),c,manual:ov!=null};}
+function frontTotal(){let t=0;['SATA','SAS','NVMe'].forEach(k=>{const r=frontRow(k);t+=r.qty*r.c.price;});return t;}
+function gpuCableTotal(){let n=0;cfg.kp.forEach(l=>{if(l.cat==='gpu'){const p=kpOf(l.pn);n+=(p.cablesPer||1)*l.qty;}});return n;}
+function rearTotal(){let t=0;Object.entries(cfg.rear).forEach(([s,id])=>{const o=REAR_SLOTS[s].opts.find(x=>x.id===id);if(o)o.p.forEach(p=>t+=p.price*p.qty);});return t;}
+function switchExtra(){return cfg.gpuArch==='switch'?[{pn:'NVSWITCH',name:'NVSwitch 板',price:8000,qty:1},{pn:'NVELINK',name:'NVLink 铜缆组',price:1200,qty:1}]:[];}
+function switchWarn(){if(cfg.gpuArch==='switch'&&gpuCount()!==RULES.switchGpuRequired)return'Switch 架构需 '+RULES.switchGpuRequired+' 卡全互联，当前 '+gpuCount()+' 卡。请补齐 GPU 或改用直通架构。';return null;}
+function kpTotal(){return cfg.kp.reduce((s,l)=>{const p=kpOf(l.pn);return s+(p?p.price*l.qty:0);},0);}
+function onKpChange(){if(!cfg.bpManual)cfg.bp=deriveBpType();}
+
+/* ===== 视图 ===== */
+function show(v){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.getElementById('view-'+v).classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});crumb(v);bar(v);}
+function crumb(v){const c=document.getElementById('crumb');let h='';if(v==='types')h='<span class="cur">选择类型</span>';else if(v==='catalog'){const t=TYPES.find(x=>x.id===curType);h='<a onclick="goTypes()">类型</a><span class="arr">/</span><span class="cur">'+t.name+'</span>';}else if(v==='config'){const t=TYPES.find(x=>x.id===curType);h='<a onclick="goTypes()">类型</a><span class="arr">/</span><a onclick="goCatalog()">'+t.name+'</a><span class="arr">/</span><span class="cur">'+curModel.name+'</span>';}c.innerHTML=h;}
+function goTypes(){renderTypes();show('types');}
+function goCatalog(){renderCatalog();show('catalog');}
+function renderTypes(){document.getElementById('typeGrid').innerHTML=TYPES.map(t=>{const n=MODELS.filter(m=>m.type===t.id).length;return'<button class="type-card" onclick="enterType(\''+t.id+'\')"><h3>'+t.name+'</h3><div class="d">'+t.d+'</div><div class="m"><span>'+n+' 个机型</span><span class="go">进入 →</span></div></button>';}).join('');}
+function enterType(id){curType=id;filters={form:'all',use:'all'};renderCatalog();show('catalog');}
+function renderCatalog(){const t=TYPES.find(x=>x.id===curType);document.getElementById('catTitle').textContent=t.name;let list=MODELS.filter(m=>m.type===curType);if(filters.form!=='all')list=list.filter(m=>m.form===filters.form);if(filters.use!=='all')list=list.filter(m=>m.use===filters.use);const g=document.getElementById('modelGrid');if(!list.length){g.innerHTML='<div class="empty" style="grid-column:1/-1">没有符合条件的机型</div>';return;}g.innerHTML=list.map(m=>'<div class="model-card"><div class="nm">'+m.name+'</div><div class="ds">'+m.use+'</div><div class="sp"><div><span class="k">机箱形态</span><span class="v">'+m.form+'</span></div><div><span class="k">盘位</span><span class="v">'+m.bays+'</span></div></div><button class="pk" onclick="enterConfig(\''+m.id+'\')">配置这台 →</button></div>').join('');document.querySelectorAll('.filter-bar .chip').forEach(c=>c.classList.toggle('active',filters[c.dataset.fg]===c.dataset.v));}
+function enterConfig(id){curModel=MODELS.find(m=>m.id===id);cfg=freshCfg();onKpChange();renderConfig();show('config');}
+
+function renderConfig(){const m=curModel;document.getElementById('banner').innerHTML='<div><div class="nm">'+m.name+'</div><div class="sb">'+m.use+' · '+m.form+' · '+m.bays+' 盘位</div></div>';renderSpec();renderArch();renderKp();renderFront();renderRear();renderPsu();updateBar();}
+/* STEP1 摘要+详情 */
+function renderSpec(){const b=baseOf(cfg.baseId);const bp=curBp();const bpName=bp==='tri'?'三模':'直连';const parts=basePartsList();
+ let html='<div class="sumcard">';
+ html+='<div class="si"><span class="k">基准配置</span><span class="v">'+b.name+'</span></div>';
+ html+='<div class="si"><span class="k">机箱形态</span><span class="v">'+b.form+'</span></div>';
+ html+='<div class="si"><span class="k">盘位</span><span class="v">'+b.bays+'</span></div>';
+ html+='<div class="si"><span class="k">硬盘背板</span><span class="v derived">'+bpName+'<div class="bp-toggle"><button class="'+(bp==='tri'?'active':'')+'" onclick="pickBp(\'tri\')">三模</button><button class="'+(bp==='dc'?'active':'')+'" onclick="pickBp(\'dc\')">直连</button></div></span><span style="font-size:10px;color:var(--t3)">由硬盘推导'+(cfg.bpManual?' · 已手改':'')+'</span></div>';
+ html+='</div>';
+ html+='<div class="detail-toggle" onclick="toggleDetail()">▾ 查看料号详情（'+parts.length+' 项）</div>';
+ html+='<div id="detailBox" style="display:none;margin-top:10px"><div class="table-wrap"><table class="kt"><thead><tr><th>PN</th><th>配置项</th><th class="r">数量</th><th class="r">单价</th><th class="r">小计</th></tr></thead><tbody>'+parts.map(p=>'<tr><td class="mono">'+p.pn+'</td><td>'+p.name+(p.locked?'<span class="lock">🔒底盘</span>':'<span class="lock" style="color:var(--ac)">差异件</span>')+'</td><td class="r">'+p.qty+'</td><td class="r">'+fmt(p.price)+'</td><td class="r">'+fmt(p.price*p.qty)+'</td></tr>').join('')+'<tr class="sum-row"><td colspan="4" class="r">基准合计</td><td class="r">'+fmt(basePrice())+'</td></tr></tbody></table></div></div>';
+ document.getElementById('specBody').innerHTML=html;
+ document.getElementById('amt1').textContent='¥'+fmt(basePrice());
+}
+function toggleDetail(){const b=document.getElementById('detailBox');b.style.display=b.style.display==='none'?'block':'none';}
+function pickBp(t){cfg.bp=t;cfg.bpManual=true;renderSpec();updateBar();}
+/* GPU架构 */
+function renderArch(){const a=cfg.gpuArch;const opts=[{id:'none',n:'无 GPU',d:'通用/存储机型'},{id:'pt',n:'Pass-through 直通',d:'推理/渲染/单机算力'},{id:'switch',n:'Switch 交换',d:'训练/分布式，8卡全互联'}];let html='<div class="arch-pick">'+opts.map(o=>'<button class="arch-opt '+(a===o.id?'active':'')+'" onclick="pickArch(\''+o.id+'\')">'+o.n+'<span class="ao-d">'+o.d+'</span></button>').join('')+'</div>';const w=switchWarn();if(w)html+='<div class="warn-box">⚠ '+w+'</div>';document.getElementById('archBody').innerHTML=html;}
+function pickArch(id){cfg.gpuArch=id;renderArch();renderPsu();updateBar();}
+/* KP */
+function renderKp(){const b=baseOf(cfg.baseId);document.getElementById('kpLines').innerHTML=cfg.kp.map((l,i)=>kpRow(l,i,b.series)).join('')+'<button class="add-line" onclick="addKp()">+ 添加配件</button>';document.getElementById('amtKp').textContent='¥'+fmt(kpTotal());}
+function kpRow(l,i,series){const co=CATS.map(c=>'<option value="'+c+'" '+(c===l.cat?'selected':'')+'>'+CAT_NAME[c]+'</option>').join('');const ps=kpByCat(l.cat,series);let pn=l.pn;if(!ps.find(p=>p.pn===l.pn))pn=ps[0].pn;const po=ps.map(p=>'<option value="'+p.pn+'" '+(p.pn===pn?'selected':'')+'>'+p.name+'</option>').join('');const p=kpOf(pn);return'<div class="kp-line"><select onchange="kpCat('+i+',this.value)">'+co+'</select><select onchange="kpPn('+i+',this.value)">'+po+'</select><div class="st"><button onclick="kpQty('+i+',-1)">−</button><input value="'+l.qty+'" onchange="kpQtyIn('+i+',this.value)"><button onclick="kpQty('+i+',1)">+</button></div><div style="text-align:right;font-size:11px;color:var(--t2)">'+fmt((p||{price:0}).price*l.qty)+'</div><button class="kp-del" onclick="kpDel('+i+')">✕</button></div>';}
+function kpCat(i,c){const b=baseOf(cfg.baseId);cfg.kp[i].cat=c;cfg.kp[i].pn=kpByCat(c,b.series)[0].pn;onKpChange();rerender();}
+function kpPn(i,p){cfg.kp[i].pn=p;onKpChange();rerender();}
+function kpQty(i,d){cfg.kp[i].qty=Math.max(0,cfg.kp[i].qty+d);onKpChange();rerender();}
+function kpQtyIn(i,v){let n=parseInt(v)||0;if(n<0)n=0;cfg.kp[i].qty=n;onKpChange();rerender();}
+function kpDel(i){cfg.kp.splice(i,1);onKpChange();rerender();}
+function addKp(){const b=baseOf(cfg.baseId);cfg.kp.push({cat:'drive',pn:kpByCat('drive',b.series)[0].pn,qty:1});onKpChange();rerender();}
+function rerender(){renderKp();renderSpec();renderFront();renderPsu();renderArch();updateBar();}
+/* STEP2 前面板三选项 */
+function renderFront(){const kinds=['SATA','SAS','NVMe'];let html='<div>';let tot=0;kinds.forEach(k=>{const r=frontRow(k);tot+=r.qty*r.c.price;html+='<div class="dline"><div><div class="dl-t">前面板 '+k+' 线缆 <span class="src-badge '+(r.manual?'man':'sys')+'">'+(r.manual?'已手动调整':(r.n>0?'系统推导':'无盘'))+'</span></div><div class="dl-b">料号 '+r.c.pn+' · ¥'+r.c.price+'/根 · 当前 '+r.n+' 块 '+(r.n>0?('÷ 每组'+r.c.group+' = '+Math.ceil(r.n/r.c.group)+' 根'):'')+'</div></div><div class="dl-r"><input type="number" min="0" class="dv '+(r.manual?'man':'')+'" value="'+r.qty+'" onchange="setFc(\''+k+'\',this.value)"><span style="color:var(--t3);font-size:11px">根</span></div></div>';});html+='</div>';document.getElementById('frontBody').innerHTML=html;document.getElementById('amt2').textContent='¥'+fmt(tot);}
+function setFc(k,v){let n=parseInt(v);if(isNaN(n)||n<0)n=0;cfg.ov['fc-'+k]=n;renderFront();updateBar();}
+/* STEP3 后面板 */
+function renderRear(){let html='';Object.keys(REAR_SLOTS).forEach(slot=>{const s=REAR_SLOTS[slot];const sel=cfg.rear[slot];const opts=s.opts.map(o=>'<option value="'+o.id+'" '+(o.id===sel?'selected':'')+'>'+o.name+'</option>').join('');const o=s.opts.find(x=>x.id===sel);const pr=o?o.p.reduce((t,p)=>t+p.price*p.qty,0):0;html+='<div class="slot-row"><div class="sl">'+s.label+'<span class="mx">'+s.max+'</span></div><select onchange="pickSlot(\''+slot+'\',this.value)">'+opts+'</select><div class="pr">'+(pr?'¥'+fmt(pr):'<span style="color:var(--t3)">—</span>')+'</div></div>';});document.getElementById('rearBody').innerHTML=html;document.getElementById('amt3').textContent='¥'+fmt(rearTotal());}
+function pickSlot(s,id){cfg.rear[s]=id;renderRear();updateBar();}
+/* STEP4 电源 */
+function renderPsu(){const d=derivePsu();const q=curPsuQty();const w=switchWarn();let html='<div class="dline"><div><div class="dl-t">'+d.psu.name+'（'+d.psu.w+'W）<span class="src-badge sys">系统推导</span></div><div class="dl-b">基础'+RULES.basePower+'W + CPU '+kpAgg().cpuP+'W + GPU '+kpAgg().gpuP+'W = '+d.p+'W '+(d.p>RULES.powerThreshold?'> '+RULES.powerThreshold+'W → 4 个(2+2)':'≤ '+RULES.powerThreshold+'W → 2 个(1+1)')+'，单路需 ≥'+Math.round(d.need)+'W</div></div><div class="dl-r"><input type="number" min="0" class="dv '+(cfg.psuForceOn?'man':'')+'" value="'+q+'" onchange="setPsuQty(this.value)"><span style="color:var(--t3);font-size:11px">个</span></div></div>';html+='<div class="force-row"><div class="switch '+(cfg.psuForceOn?'on':'')+'" onclick="toggleForce()"></div>人工兜底（强制覆盖电源数量，用于特殊低功耗定制）'+(cfg.psuForceOn?' · 已强制 '+q+' 个':'')+'</div>';html+='<div class="dline"><div><div class="dl-t">GPU 供电线 <span class="src-badge sys">按显卡型号</span></div><div class="dl-b">总根数 = Σ(显卡数 × 单卡线数)；当前 '+gpuCount()+' 卡 → '+gpuCableTotal()+' 根</div></div><div class="dl-r"><span style="color:var(--ac);font-weight:600">'+gpuCableTotal()+'</span><span style="color:var(--t3);font-size:11px">根</span></div></div>';if(cfg.gpuArch==='switch'){switchExtra().forEach(x=>{html+='<div class="dline"><div><div class="dl-t">'+x.name+' <span class="src-badge sys">Switch 架构</span></div><div class="dl-b">料号 '+x.pn+'</div></div><div class="dl-r"><span style="color:var(--ac);font-weight:600">'+x.qty+'</span><span style="color:var(--t3);font-size:11px">组</span></div></div>';});}document.getElementById('psuBody').innerHTML=html;document.getElementById('amt4').textContent='¥'+fmt(d.psu.price*q);}
+function setPsuQty(v){let n=parseInt(v);if(isNaN(n)||n<0)n=0;cfg.psuForceOn=true;cfg.ov.psuQty=n;renderPsu();updateBar();}
+function toggleForce(){cfg.psuForceOn=!cfg.psuForceOn;if(!cfg.psuForceOn)cfg.ov.psuQty=null;renderPsu();updateBar();}
+
+/* 底栏 */
+function updateBar(){const a1=basePrice(),a2=frontTotal(),a3=rearTotal(),akp=kpTotal();const d=derivePsu();const a4=d.psu.price*curPsuQty();let extra=0;if(cfg.gpuArch==='switch')switchExtra().forEach(x=>extra+=x.price*x.qty);extra+=gpuCableTotal()*30;const l6=a1+a2+a3+a4+extra;document.getElementById('barSum').innerHTML='L6 机箱 <b>¥'+fmt(l6)+'</b> · KP 配件 <b>¥'+fmt(akp)+'</b> · 整机 <b style="font-size:15px">¥'+fmt(l6+akp)+'</b>';}
+function bar(v){const B=document.getElementById('bar');if(v==='config'){B.style.display='flex';document.getElementById('btnBack').textContent='返回目录';document.getElementById('btnBack').onclick=()=>goCatalog();document.getElementById('btnNext').textContent='生成配置清单';document.getElementById('btnNext').onclick=()=>{if(switchWarn()){toast('⚠ '+switchWarn());return;}toast('配置清单生成（原型演示）· 服务器页出无价 BOM，工作台出含价报价单');};}else B.style.display='none';}
+let tt;function toast(m){const t=document.getElementById('toast');t.textContent=m;t.classList.add('show');clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2800);}
+document.addEventListener('click',e=>{const c=e.target.closest('.filter-bar .chip');if(!c)return;filters[c.dataset.fg]=c.dataset.v;renderCatalog();});
+
+/* ===== 管理面 ===== */
+function show(v){document.querySelectorAll('.view').forEach(x=>x.classList.add('hidden'));document.getElementById('view-'+v).classList.remove('hidden');window.scrollTo({top:0,behavior:'smooth'});crumb(v);bar(v);}
+function crumb(v){const c=document.getElementById('crumb');let h='';if(v==='admin')h='<span class="cur">数据维护</span>';else if(v==='types')h='<span class="cur">选择类型</span>';else if(v==='catalog'){const t=TYPES.find(x=>x.id===curType);h='<a onclick="goTypes()">类型</a><span class="arr">/</span><span class="cur">'+t.name+'</span>';}else if(v==='config'){const t=TYPES.find(x=>x.id===curType);h='<a onclick="goTypes()">类型</a><span class="arr">/</span><a onclick="goCatalog()">'+t.name+'</a><span class="arr">/</span><span class="cur">'+curModel.name+'</span>';}c.innerHTML=h;}
+function setMode(mode){document.querySelectorAll('.mode-tab').forEach(t=>t.classList.toggle('active',t.dataset.mode===mode));if(mode==='admin'){renderAdmin();show('admin');}else{renderTypes();show('types');}}
+
+let adminCat='all';
+const ALL_CATS=['chassis','tray','mb','heatsink','scmio','ioc','powercord','rail','wind','label','bp','sgpio','frontcable','psu','nvswitch','nvelink','gpupwr','cpu','gpu','memory','drive','m2','raid','nic','fc'];
+function renderAdmin(){renderParts();renderBaseList();renderNewBase();fillCatSelect();}
+function fillCatSelect(){const sel=document.getElementById('np-cat');if(sel)sel.innerHTML=ALL_CATS.map(c=>'<option value="'+c+'">'+c+'</option>').join('');}
+function renderParts(){const cats=['all'].concat(ALL_CATS.filter(c=>PART_LIST.some(p=>p.cat===c)));const chips=cats.map(c=>'<button class="chip '+(adminCat===c?'active':'')+'" onclick="setAdminCat(\''+c+'\')">'+c+'</button>').join('');let list=PART_LIST;if(adminCat!=='all')list=list.filter(p=>p.cat===adminCat);const rows=list.map(p=>'<tr><td class="mono">'+p.pn+'</td><td>'+p.name+'</td><td>'+p.cat+'</td><td>'+(p.bays||p.w||p.kind||p.bt||'—')+'</td><td class="r">'+fmt(p.price)+'</td><td><button class="kp-del" style="width:auto;padding:2px 7px;font-size:11px" onclick="delPart(\''+p.pn+'\')">删</button></td></tr>').join('');document.getElementById('adminParts').innerHTML='<div style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px">'+chips+'<span style="margin-left:auto;color:var(--t3);font-size:12px;align-self:center">'+list.length+' 条</span></div><div class="table-wrap"><table class="kt"><thead><tr><th>PN</th><th>名称</th><th>类别</th><th>规格</th><th class="r">单价</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';}
+function setAdminCat(c){adminCat=c;renderParts();}
+function addPart(){const pn=document.getElementById('np-pn').value.trim();if(!pn){toast('请填料号PN');return;}if(PARTS.byPn[pn]){toast('料号已存在');return;}const name=document.getElementById('np-name').value.trim()||pn;const cat=document.getElementById('np-cat').value;const price=parseFloat(document.getElementById('np-price').value)||0;const p={pn,name,cat,price};PART_LIST.push(p);PARTS.byPn[pn]=p;PARTS.byCat[cat]=(PARTS.byCat[cat]||[]).concat([p]);toast('已新增料号 '+pn);['np-pn','np-name','np-price'].forEach(id=>document.getElementById(id).value='');renderParts();renderNewBase();}
+function delPart(pn){PART_LIST=PART_LIST.filter(p=>p.pn!==pn);delete PARTS.byPn[pn];PARTS.byCat={};PART_LIST.forEach(p=>{(PARTS.byCat[p.cat]=PARTS.byCat[p.cat]||[]).push(p);});renderParts();renderNewBase();toast('已删除 '+pn);}
+
+function renderBaseList(){document.getElementById('adminBaseList').innerHTML=BASE_CONFIGS.map((b,i)=>'<div style="padding:10px 0;border-bottom:1px solid var(--bd);display:flex;justify-content:space-between;align-items:center"><div><b>'+b.name+'</b> <span style="color:var(--t3);font-size:12px"> '+b.series+' · '+b.form+' · '+b.bays+'盘 · '+b.common.length+'件底盘</span></div>'+(b.id.startsWith('custom-')?'<button class="kp-del" style="width:auto;padding:2px 7px;font-size:11px" onclick="delBase('+i+')">删</button>':'<span style="font-size:11px;color:var(--t3)">预设</span>')+'</div>').join('');}
+function delBase(i){BASE_CONFIGS.splice(i,1);renderBaseList();toast('已删除基准配置');}
+
+let nbCommon=[];
+function renderNewBase(){const bps=PARTS.byCat.bp||[];const tri=bps.filter(p=>p.bt==='tri');const dc=bps.filter(p=>p.bt==='dc');const commonHTML=nbCommon.map((l,i)=>{const catOpts=['chassis','tray','mb','heatsink','scmio','ioc','powercord','rail','wind','label'].map(c=>'<option value="'+c+'" '+(c===l.cat?'selected':'')+'>'+c+'</option>').join('');const ps=(PARTS.byCat[l.cat]||[]);let pn=l.pn;if(ps.length&&!ps.find(p=>p.pn===l.pn))pn=ps[0].pn;if(pn)l.pn=pn;const pnOpts=ps.map(p=>'<option value="'+p.pn+'" '+(p.pn===l.pn?'selected':'')+'>'+p.name+'</option>').join('');return'<div class="kp-line" style="grid-template-columns:110px 1fr 50px 28px"><select onchange="nbCat('+i+',this.value)">'+catOpts+'</select><select onchange="nbPn('+i+',this.value)">'+pnOpts+'</select><input value="'+l.qty+'" onchange="nbQty('+i+',this.value)"><button class="kp-del" onclick="nbDel('+i+')">✕</button></div>';}).join('');document.getElementById('newBaseForm').innerHTML='<div class="kp-line" style="grid-template-columns:1fr 100px 80px 70px;margin-bottom:12px"><input id="nb-name" placeholder="基准名称(如 ES22V3-P 2U12)"><select id="nb-series"><option>Orion</option><option>Polaris</option></select><select id="nb-form"><option>2U</option><option>4U</option></select><input id="nb-bays" type="number" value="12" placeholder="盘位"></div><div style="font-size:12px;color:var(--t3);margin-bottom:6px">公共底盘件（锁定类，随机型固定）</div><div id="nbCommon">'+(commonHTML||'<div class="empty">未添加，点下方添加</div>')+'</div><button class="add-line" onclick="nbAdd()" style="margin:8px 0 14px">+ 添加底盘件</button><div style="font-size:12px;color:var(--t3);margin-bottom:6px">硬盘背板（差异件，盘位须与底盘匹配）</div><div class="kp-line" style="grid-template-columns:60px 1fr;margin-bottom:8px"><span style="color:var(--t2);font-size:12px;padding-top:8px">三模</span><select id="nb-tri"><option value="">(无)</option>'+tri.map(p=>'<option value="'+p.pn+'">'+p.name+' ('+p.bays+'盘)</option>').join('')+'</select></div><div class="kp-line" style="grid-template-columns:60px 1fr;margin-bottom:14px"><span style="color:var(--t2);font-size:12px;padding-top:8px">直连</span><select id="nb-dc"><option value="">(无)</option>'+dc.map(p=>'<option value="'+p.pn+'">'+p.name+' ('+p.bays+'盘)</option>').join('')+'</select></div><button class="btn btn-p btn-s" onclick="addBase()">保存基准配置</button>';}
+function nbCat(i,c){nbCommon[i].cat=c;nbCommon[i].pn=(PARTS.byCat[c]||[])[0]?PARTS.byCat[c][0].pn:'';renderNewBase();}
+function nbPn(i,p){nbCommon[i].pn=p;}
+function nbQty(i,v){nbCommon[i].qty=Math.max(1,parseInt(v)||1);}
+function nbDel(i){nbCommon.splice(i,1);renderNewBase();}
+function nbAdd(){const c='chassis';nbCommon.push({cat:c,pn:(PARTS.byCat[c]||[])[0]?PARTS.byCat[c][0].pn:'',qty:1});renderNewBase();}
+function addBase(){const name=document.getElementById('nb-name').value.trim();if(!name){toast('请填基准名称');return;}const series=document.getElementById('nb-series').value;const form=document.getElementById('nb-form').value;const bays=parseInt(document.getElementById('nb-bays').value)||12;const tri=document.getElementById('nb-tri').value;const dc=document.getElementById('nb-dc').value;const triP=tri?PARTS.byPn[tri]:null;const dcP=dc?PARTS.byPn[dc]:null;if(triP&&triP.bays&&triP.bays!==bays){toast('三模背板盘位('+triP.bays+')与底盘('+bays+')不符，已拦截');return;}if(dcP&&dcP.bays&&dcP.bays!==bays){toast('直连背板盘位('+dcP.bays+')与底盘('+bays+')不符，已拦截');return;}if(!nbCommon.filter(l=>l.pn).length){toast('请至少添加一个底盘件');return;}BASE_CONFIGS.push({id:'custom-'+Date.now(),name,series,model:name,form,bays,common:nbCommon.filter(l=>l.pn).map(l=>l.pn),bpOption:{tri:tri||'S.E.E.0001559',dc:dc||'S.E.E.0001558'}});toast('已新建基准配置「'+name+'」，可在配置面使用');nbCommon=[];renderBaseList();renderNewBase();}
+
+setMode('config');
+</script>
+</body>
+</html>

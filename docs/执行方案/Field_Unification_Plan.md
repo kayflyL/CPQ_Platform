@@ -118,7 +118,7 @@
 ```sql
 CREATE TABLE dynamic_source_fields (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_key  TEXT NOT NULL,        -- 数据源标识：l6_details / kp_details / warranty_details / config_summary
+    source_key  TEXT NOT NULL,        -- 数据源标识：l6_details / kp_details / config_summary
     field_key   TEXT NOT NULL,        -- 子字段 key：item_no / part_name / spec / qty ...
     field_label TEXT NOT NULL,        -- 显示名称：序号 / 零件名称 / 规格 / 数量 ...
     sort_order  INTEGER DEFAULT 0,
@@ -127,10 +127,9 @@ CREATE TABLE dynamic_source_fields (
 );
 ```
 
-初始数据（56 条，来自 `UniverTemplateEditor.vue:1088-1146`）：
+初始数据（42 条，来自 `UniverTemplateEditor.vue:1088-1146`）：
 - `l6_details`：14 个子字段（item_no, part_name, spec, qty, base_price, confirmed_price, final_price, unit_price, profit_margin, description, config_name, model_name, server_model, category）
 - `kp_details`：14 个子字段（同上）
-- `warranty_details`：14 个子字段（同上）
 - `config_summary`：7 个子字段（seq, config_name, server_model, description, unit_price, qty, total_price）
 
 ### 决策 2：scope 按业务域分 + 页面标注

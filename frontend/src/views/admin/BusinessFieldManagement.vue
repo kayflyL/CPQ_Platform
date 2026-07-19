@@ -4,12 +4,6 @@
     <div class="page-header">
       <h2>📋 字段管理</h2>
       <div class="header-actions">
-        <a-button v-if="selectedFields.length > 0" size="small" @click="batchToggle(true)">
-          批量启用
-        </a-button>
-        <a-button v-if="selectedFields.length > 0" size="small" @click="batchToggle(false)">
-          批量禁用
-        </a-button>
         <a-button size="small" @click="showExport">
           <template #icon><ExportOutlined /></template>
           导出
@@ -79,17 +73,16 @@
             :rowClassName="(_r: any, i: number) => i % 2 === 0 ? 'table-row-even' : 'table-row-odd'"
             size="small"
             rowKey="key"
-            :row-selection="{ selectedRowKeys: selectedFields, onChange: onSelectChange }"
-            :scroll="{ x: 1200 }"
+            :scroll="{ x: 900 }"
           >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'enabled'">
+              <template v-if="column.key === 'export_visible'">
                 <a-switch
-                  :checked="record.enabled"
-                  checked-children="启用"
-                  un-checked-children="禁用"
+                  :checked="record.export_visible ?? true"
+                  checked-children="可见"
+                  un-checked-children="隐藏"
                   size="small"
-                  @change="(val: boolean) => toggleEnabled(record, val)"
+                  @change="(val: boolean) => toggleExportVisible(record, val)"
                 />
               </template>
               <template v-if="column.key === 'label'">
@@ -100,11 +93,6 @@
                   @change="(e: any) => record.label = e.target.value"
                   @blur="saveField(record)"
                 />
-              </template>
-              <template v-if="column.key === 'description'">
-                <a-tooltip :title="record.description">
-                  <span class="description-text">{{ record.description || '-' }}</span>
-                </a-tooltip>
               </template>
               <template v-if="column.key === 'display_type'">
                 <a-select
@@ -122,25 +110,8 @@
                   <a-select-option value="boolean">布尔</a-select-option>
                 </a-select>
               </template>
-              <template v-if="column.key === 'permission'">
-                <a-select
-                  :value="record.permission || 'editable'"
-                  @change="(val: string) => { record.permission = val; saveField(record) }"
-                  size="small"
-                  style="width: 90px;"
-                >
-                  <a-select-option value="editable">可编辑</a-select-option>
-                  <a-select-option value="readonly">只读</a-select-option>
-                  <a-select-option value="hidden">隐藏</a-select-option>
-                </a-select>
-              </template>
-              <template v-if="column.key === 'used_in'">
-                <a-space :size="4" wrap>
-                  <a-tag v-for="loc in (record.used_in || [])" :key="loc" color="blue" size="small">
-                    {{ loc }}
-                  </a-tag>
-                  <span v-if="!record.used_in || record.used_in.length === 0" style="color: #999;">-</span>
-                </a-space>
+              <template v-if="column.key === 'source_info'">
+                <span style="font-size: 12px; color: var(--cpq-text-secondary, #999);">{{ getSource(record) }}</span>
               </template>
               <template v-if="column.key === 'action'">
                 <a-space>
@@ -194,7 +165,7 @@
         <a-row :gutter="16">
           <a-col :span="12">
             <a-form-item label="分类" required>
-              <a-select v-model:value="editField.category" placeholder="选择分类" :disabled="isEditing">
+              <a-select v-model:value="editField.category" placeholder="选择分类">
                 <a-select-option value="opportunity">商机</a-select-option>
                 <a-select-option value="item">配置项</a-select-option>
                 <a-select-option value="config">配置</a-select-option>
@@ -212,6 +183,18 @@
         </a-row>
         <a-row :gutter="16">
           <a-col :span="12">
+            <a-form-item label="数据源">
+              <a-input v-model:value="editField.source" placeholder="如: Opportunity / L6Record / Custom" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="对应列名">
+              <a-input v-model:value="editField.source_column" placeholder="数据库列名（可选）" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="16">
+          <a-col :span="12">
             <a-form-item label="显示类型">
               <a-select v-model:value="editField.display_type" placeholder="选择类型">
                 <a-select-option value="text">文本</a-select-option>
@@ -224,33 +207,12 @@
               </a-select>
             </a-form-item>
           </a-col>
-          <a-col :span="12">
-            <a-form-item label="权限">
-              <a-select v-model:value="editField.permission" placeholder="选择权限">
-                <a-select-option value="editable">可编辑</a-select-option>
-                <a-select-option value="readonly">只读</a-select-option>
-                <a-select-option value="hidden">隐藏</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="数据源">
-              <a-input v-model:value="editField.source" placeholder="如: Opportunity / L6Record / Custom" />
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item label="对应列名">
-              <a-input v-model:value="editField.source_column" placeholder="数据库列名（可选）" />
-            </a-form-item>
-          </a-col>
         </a-row>
         <a-form-item label="描述">
           <a-textarea v-model:value="editField.description" placeholder="字段说明" :rows="2" />
         </a-form-item>
 
-        <!-- Enum Options (shown when display_type is enum) -->
+        <!-- Enum Options -->
         <a-form-item v-if="editField.display_type === 'enum'" label="选项列表">
           <a-textarea 
             v-model:value="editField.options_text" 
@@ -258,82 +220,6 @@
             :rows="4"
           />
           <div class="form-hint">每行一个选项值</div>
-        </a-form-item>
-
-        <!-- Validation Rules -->
-        <a-form-item label="校验规则">
-          <a-space direction="vertical" style="width: 100%;">
-            <a-checkbox v-model:checked="editField.validation_required">必填</a-checkbox>
-            <a-row :gutter="8">
-              <a-col :span="12">
-                <a-input-number 
-                  v-model:value="editField.validation_min" 
-                  placeholder="最小值" 
-                  style="width: 100%;" 
-                  size="small"
-                />
-              </a-col>
-              <a-col :span="12">
-                <a-input-number 
-                  v-model:value="editField.validation_max" 
-                  placeholder="最大值" 
-                  style="width: 100%;" 
-                  size="small"
-                />
-              </a-col>
-            </a-row>
-            <a-row :gutter="8">
-              <a-col :span="12">
-                <a-input-number 
-                  v-model:value="editField.validation_minLength" 
-                  placeholder="最小长度" 
-                  style="width: 100%;" 
-                  size="small"
-                />
-              </a-col>
-              <a-col :span="12">
-                <a-input-number 
-                  v-model:value="editField.validation_maxLength" 
-                  placeholder="最大长度" 
-                  style="width: 100%;" 
-                  size="small"
-                />
-              </a-col>
-            </a-row>
-            <a-input 
-              v-model:value="editField.validation_pattern" 
-              placeholder="正则表达式（如: ^\d+$）"
-              size="small"
-            />
-          </a-space>
-        </a-form-item>
-
-        <!-- Dependencies -->
-        <a-form-item label="依赖条件（可选）">
-          <a-row :gutter="8">
-            <a-col :span="8">
-              <a-input 
-                v-model:value="editField.dep_field" 
-                placeholder="依赖字段 key"
-                size="small"
-              />
-            </a-col>
-            <a-col :span="8">
-              <a-select v-model:value="editField.dep_operator" placeholder="条件" size="small" style="width: 100%;">
-                <a-select-option value="eq">等于</a-select-option>
-                <a-select-option value="neq">不等于</a-select-option>
-                <a-select-option value="contains">包含</a-select-option>
-              </a-select>
-            </a-col>
-            <a-col :span="8">
-              <a-input 
-                v-model:value="editField.dep_value" 
-                placeholder="条件值"
-                size="small"
-              />
-            </a-col>
-          </a-row>
-          <div class="form-hint">当依赖字段满足条件时，该字段才显示</div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -348,16 +234,10 @@
       cancel-text="取消"
     >
       <a-form layout="vertical" style="margin-top: 16px;">
-        <a-form-item label="导入模式">
-          <a-radio-group v-model:value="importMode">
-            <a-radio value="skip">跳过已存在</a-radio>
-            <a-radio value="overwrite">覆盖已存在</a-radio>
-          </a-radio-group>
-        </a-form-item>
         <a-form-item label="JSON 数据">
           <a-textarea 
             v-model:value="importData" 
-            placeholder='粘贴导出的 JSON 数据，格式如：&#10;{"fields": [...]}'
+            placeholder='粘贴导出的 JSON 数据'
             :rows="10"
           />
         </a-form-item>
@@ -416,12 +296,13 @@ interface BusinessField {
   updated_at: string | null
   created_by: string
   updated_by: string
+  export_visible: boolean
+  used_in?: string[]
 }
 
 const fields = ref<BusinessField[]>([])
 const activeFilter = ref<string | null>(null)
 const searchText = ref('')
-const selectedFields = ref<string[]>([])
 const expandedObjects = ref<Record<string, boolean>>({
   opportunity: true,
   item: false,
@@ -437,7 +318,6 @@ const isEditing = ref(false)
 
 const importModalVisible = ref(false)
 const importLoading = ref(false)
-const importMode = ref('skip')
 const importData = ref('')
 
 const exportModalVisible = ref(false)
@@ -452,37 +332,28 @@ const editField = ref({
   source: '',
   source_column: '',
   display_type: 'text',
-  permission: 'editable',
   options_text: '',
-  validation_required: false,
-  validation_min: null as number | null,
-  validation_max: null as number | null,
-  validation_minLength: null as number | null,
-  validation_maxLength: null as number | null,
-  validation_pattern: '',
-  dep_field: '',
-  dep_operator: 'eq',
-  dep_value: '',
 })
 
 const columns = [
-  { title: '启用', key: 'enabled', width: 80 },
+  { title: '导出可见', key: 'export_visible', width: 90 },
   { title: '字段名称', key: 'label', width: 140 },
-  { title: '描述', key: 'description', width: 180, ellipsis: true },
   { title: '类型', key: 'display_type', width: 100 },
-  { title: '权限', key: 'permission', width: 90 },
-  { title: '使用位置', key: 'used_in', width: 200 },
+  { title: '来源', key: 'source_info', width: 140 },
   { title: '操作', key: 'action', width: 120, fixed: 'right' as const },
 ]
 
 // Object tree structure
+const dynamicSourceNames: Record<string, string> = {
+  config_summary: '配置汇总',
+  l6_details: 'L6配置项',
+  kp_details: 'KP配置项',
+}
+
 const objectTree = computed(() => {
   const objects = [
     { key: 'opportunity', label: '商机', count: 0, groups: [] as any[] },
     { key: 'item', label: '配置项', count: 0, groups: [] as any[] },
-    { key: 'config', label: '配置', count: 0, groups: [] as any[] },
-    { key: 'l6', label: '机箱', count: 0, groups: [] as any[] },
-    { key: 'kp', label: '配件', count: 0, groups: [] as any[] },
     { key: 'system', label: '系统', count: 0, groups: [] as any[] },
     { key: 'dynamic', label: '动态字段', count: 0, groups: [] as any[] },
   ]
@@ -503,7 +374,7 @@ const objectTree = computed(() => {
     if (groupMap[obj.key]) {
       obj.groups = Object.entries(groupMap[obj.key]).map(([name, count]) => ({
         name,
-        label: name,
+        label: dynamicSourceNames[name] || name,
         count,
       }))
     }
@@ -545,6 +416,35 @@ const currentGroupLabel = computed(() => {
   return group
 })
 
+const pageMap: Record<string, string> = {
+  opportunity_detail: '商机线索页',
+  workbench: '报价工作台',
+  config_page: '配置管理页',
+  export_template: '导出模板',
+}
+
+const catMap: Record<string, string> = {
+  opportunity: '商机线索页',
+  item: '报价工作台',
+  config: '配置管理页',
+  l6: '机箱模块',
+  kp: '配件模块',
+  system: '系统内置',
+}
+
+function getSource(f: BusinessField): string {
+  try {
+    const pages = JSON.parse(f.used_in_pages || '[]')
+    if (pages.length > 0) {
+      return pages.map((p: string) => pageMap[p] || p).join(', ')
+    }
+  } catch {}
+  if (f.category === 'dynamic') {
+    return f.group_name || '动态数据源'
+  }
+  return catMap[f.category] || f.category
+}
+
 function toggleObject(key: string) {
   expandedObjects.value[key] = !expandedObjects.value[key]
 }
@@ -552,10 +452,6 @@ function toggleObject(key: string) {
 function setFilter(category: string, group: string) {
   const filterKey = `${category}:${group}`
   activeFilter.value = activeFilter.value === filterKey ? null : filterKey
-}
-
-function onSelectChange(keys: string[]) {
-  selectedFields.value = keys
 }
 
 async function loadFields() {
@@ -567,13 +463,13 @@ async function loadFields() {
   }
 }
 
-async function toggleEnabled(record: BusinessField, val: boolean) {
-  record.enabled = val
+async function toggleExportVisible(record: BusinessField, val: boolean) {
+  record.export_visible = val
   try {
-    await axios.put(`${API_BASE}/${record.key}`, { enabled: val })
-    message.success(val ? '已启用' : '已禁用')
+    await axios.put(`${API_BASE}/${record.key}`, { export_visible: val })
+    message.success(val ? '已设为可见' : '已设为隐藏')
   } catch (e) {
-    record.enabled = !val
+    record.export_visible = !val
     message.error('操作失败')
   }
 }
@@ -582,11 +478,8 @@ async function saveField(record: BusinessField) {
   try {
     await axios.put(`${API_BASE}/${record.key}`, { 
       label: record.label,
-      description: record.description,
       display_type: record.display_type,
-      permission: record.permission,
     })
-    message.success('已保存')
   } catch (e) {
     message.error('保存失败')
   }
@@ -594,32 +487,11 @@ async function saveField(record: BusinessField) {
 
 async function deleteField(record: BusinessField) {
   try {
-    const res = await axios.delete(`${API_BASE}/${record.key}`)
-    if (res.data.has_references) {
-      // Show reference warning
-      const refList = res.data.references.map((r: any) => `${r.ref_type}#${r.ref_id} (${r.ref_name || ''})`).join(', ')
-      message.warning(`该字段被引用: ${refList}。如需强制删除请联系管理员。`)
-      return
-    }
+    await axios.delete(`${API_BASE}/${record.key}`)
     fields.value = fields.value.filter(f => f.key !== record.key)
     message.success('已删除')
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '删除失败')
-  }
-}
-
-async function batchToggle(enabled: boolean) {
-  try {
-    await Promise.all(
-      selectedFields.value.map(key => 
-        axios.put(`${API_BASE}/${key}`, { enabled })
-      )
-    )
-    message.success(`已批量${enabled ? '启用' : '禁用'} ${selectedFields.value.length} 个字段`)
-    selectedFields.value = []
-    loadFields()
-  } catch (e) {
-    message.error('批量操作失败')
   }
 }
 
@@ -633,17 +505,7 @@ function resetEditField() {
     source: '',
     source_column: '',
     display_type: 'text',
-    permission: 'editable',
     options_text: '',
-    validation_required: false,
-    validation_min: null,
-    validation_max: null,
-    validation_minLength: null,
-    validation_maxLength: null,
-    validation_pattern: '',
-    dep_field: '',
-    dep_operator: 'eq',
-    dep_value: '',
   }
 }
 
@@ -656,23 +518,12 @@ function openAddModal() {
 function openEditModal(record: BusinessField) {
   isEditing.value = true
   
-  // Parse existing JSON fields
-  let validationRules: any = {}
-  try {
-    if (record.validation_rules) validationRules = JSON.parse(record.validation_rules)
-  } catch {}
-  
   let options: string[] = []
   try {
     if (record.options) {
       const parsed = JSON.parse(record.options)
       options = parsed.map((o: any) => typeof o === 'string' ? o : o.value || o.label || '')
     }
-  } catch {}
-  
-  let deps: any = {}
-  try {
-    if (record.dependencies) deps = JSON.parse(record.dependencies)
   } catch {}
   
   editField.value = {
@@ -684,32 +535,10 @@ function openEditModal(record: BusinessField) {
     source: record.source,
     source_column: record.source_column || '',
     display_type: record.display_type || 'text',
-    permission: record.permission || 'editable',
     options_text: options.join('\n'),
-    validation_required: validationRules.required || false,
-    validation_min: validationRules.min ?? null,
-    validation_max: validationRules.max ?? null,
-    validation_minLength: validationRules.minLength ?? null,
-    validation_maxLength: validationRules.maxLength ?? null,
-    validation_pattern: validationRules.pattern || '',
-    dep_field: deps.field || '',
-    dep_operator: deps.operator || 'eq',
-    dep_value: deps.value || '',
   }
   
   addModalVisible.value = true
-}
-
-function buildValidationRules(): string | null {
-  const rules: any = {}
-  if (editField.value.validation_required) rules.required = true
-  if (editField.value.validation_min !== null) rules.min = editField.value.validation_min
-  if (editField.value.validation_max !== null) rules.max = editField.value.validation_max
-  if (editField.value.validation_minLength !== null) rules.minLength = editField.value.validation_minLength
-  if (editField.value.validation_maxLength !== null) rules.maxLength = editField.value.validation_maxLength
-  if (editField.value.validation_pattern) rules.pattern = editField.value.validation_pattern
-  
-  return Object.keys(rules).length > 0 ? JSON.stringify(rules) : null
 }
 
 function buildOptions(): string | null {
@@ -718,15 +547,6 @@ function buildOptions(): string | null {
   if (!text) return null
   const options = text.split('\n').map(s => s.trim()).filter(s => s)
   return options.length > 0 ? JSON.stringify(options) : null
-}
-
-function buildDependencies(): string | null {
-  if (!editField.value.dep_field) return null
-  return JSON.stringify({
-    field: editField.value.dep_field,
-    operator: editField.value.dep_operator,
-    value: editField.value.dep_value,
-  })
 }
 
 async function handleSave() {
@@ -745,10 +565,7 @@ async function handleSave() {
       source: editField.value.source || editField.value.category,
       source_column: editField.value.source_column || null,
       display_type: editField.value.display_type,
-      permission: editField.value.permission,
-      validation_rules: buildValidationRules(),
       options: buildOptions(),
-      dependencies: buildDependencies(),
     }
     
     if (isEditing.value) {
@@ -771,7 +588,6 @@ async function handleSave() {
 
 function showImport() {
   importData.value = ''
-  importMode.value = 'skip'
   importModalVisible.value = true
 }
 
@@ -783,15 +599,15 @@ async function handleImport() {
   importLoading.value = true
   try {
     const data = JSON.parse(importData.value)
-    const fields = data.fields || data
-    if (!Array.isArray(fields)) {
+    const fieldsList = data.fields || data
+    if (!Array.isArray(fieldsList)) {
       message.error('JSON 格式错误，需要 fields 数组')
       importLoading.value = false
       return
     }
     const res = await axios.post('/api/admin/business-fields-import', {
-      fields,
-      mode: importMode.value,
+      fields: fieldsList,
+      mode: 'skip',
     })
     message.success(`导入完成: 新增 ${res.data.created}, 更新 ${res.data.updated}, 跳过 ${res.data.skipped}`)
     importModalVisible.value = false
@@ -979,17 +795,6 @@ onMounted(() => {
   overflow-y: auto;
 }
 
-.description-text {
-  color: var(--cpq-text-secondary, #999);
-  font-size: 12px;
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 180px;
-}
-
-/* Form hints */
 .form-hint {
   font-size: 11px;
   color: var(--cpq-text-secondary, #666);

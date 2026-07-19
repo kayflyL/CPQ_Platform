@@ -18,7 +18,7 @@ class L6ChassisRepository:
         backplane_type: Optional[str] = None,
     ) -> List[dict]:
         """获取基准配置列表，支持多维度筛选"""
-        q = "SELECT * FROM l6.l6_base_configs WHERE 1=1"
+        q = "SELECT * FROM l6.l6_base_configs_old WHERE 1=1"
         params = {}
         if chassis:
             q += " AND chassis = :chassis"
@@ -35,22 +35,28 @@ class L6ChassisRepository:
         q += " ORDER BY sort_order, config_id"
         with l6_engine.connect() as conn:
             rows = conn.execute(text(q), params).mappings().all()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            if d.get("base_price") is not None:
+                d["base_price"] = float(d["base_price"])
+            out.append(d)
+        return out
 
     def get_distinct_values(self) -> dict:
         """获取所有基准配置的各维度去重值（用于前端级联筛选）"""
         with l6_engine.connect() as conn:
             chassis_list = [r[0] for r in conn.execute(
-                text("SELECT DISTINCT chassis FROM l6.l6_base_configs WHERE chassis IS NOT NULL AND chassis != '' ORDER BY chassis")
+                text("SELECT DISTINCT chassis FROM l6.l6_base_configs_old WHERE chassis IS NOT NULL AND chassis != '' ORDER BY chassis")
             ).all()]
             series = [r[0] for r in conn.execute(
-                text("SELECT DISTINCT chassis_series FROM l6.l6_base_configs WHERE chassis_series IS NOT NULL AND chassis_series != '' ORDER BY chassis_series")
+                text("SELECT DISTINCT chassis_series FROM l6.l6_base_configs_old WHERE chassis_series IS NOT NULL AND chassis_series != '' ORDER BY chassis_series")
             ).all()]
             bays = [r[0] for r in conn.execute(
-                text("SELECT DISTINCT drive_bays FROM l6.l6_base_configs WHERE drive_bays IS NOT NULL AND drive_bays != '' ORDER BY drive_bays")
+                text("SELECT DISTINCT drive_bays FROM l6.l6_base_configs_old WHERE drive_bays IS NOT NULL AND drive_bays != '' ORDER BY drive_bays")
             ).all()]
             backplanes = [r[0] for r in conn.execute(
-                text("SELECT DISTINCT backplane_type FROM l6.l6_base_configs WHERE backplane_type IS NOT NULL AND backplane_type != '' ORDER BY backplane_type")
+                text("SELECT DISTINCT backplane_type FROM l6.l6_base_configs_old WHERE backplane_type IS NOT NULL AND backplane_type != '' ORDER BY backplane_type")
             ).all()]
         return {
             "chassis": chassis_list,
@@ -61,10 +67,15 @@ class L6ChassisRepository:
 
     def get_base_config(self, config_id: int) -> Optional[dict]:
         """获取单个基准配置"""
-        q = "SELECT * FROM l6.l6_base_configs WHERE config_id = :cid"
+        q = "SELECT * FROM l6.l6_base_configs_old WHERE config_id = :cid"
         with l6_engine.connect() as conn:
             row = conn.execute(text(q), {"cid": config_id}).mappings().first()
-        return dict(row) if row else None
+        if not row:
+            return None
+        d = dict(row)
+        if d.get("base_price") is not None:
+            d["base_price"] = float(d["base_price"])
+        return d
 
     def get_base_config_with_parts(self, config_id: int) -> Optional[dict]:
         """获取基准配置及其组件清单"""
@@ -84,7 +95,7 @@ class L6ChassisRepository:
         cols = list(safe_data.keys())
         placeholders = ", ".join([f":{k}" for k in cols])
         columns = ", ".join(cols)
-        q = f"INSERT INTO l6.l6_base_configs ({columns}) VALUES ({placeholders})"
+        q = f"INSERT INTO l6.l6_base_configs_old ({columns}) VALUES ({placeholders})"
         with l6_engine.begin() as conn:
             result = conn.execute(text(q), safe_data)
             return result.inserted_primary_key[0]
@@ -101,15 +112,15 @@ class L6ChassisRepository:
         if not fields:
             return False
         values["cid"] = config_id
-        q = f"UPDATE l6.l6_base_configs SET {', '.join(fields)} WHERE config_id = :cid"
+        q = f"UPDATE l6.l6_base_configs_old SET {', '.join(fields)} WHERE config_id = :cid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), values)
         return True
 
     def delete_base_config(self, config_id: int) -> bool:
         """删除基准配置及其组件"""
-        q_parts = "DELETE FROM l6.l6_base_config_parts WHERE config_id = :cid"
-        q_config = "DELETE FROM l6.l6_base_configs WHERE config_id = :cid"
+        q_parts = "DELETE FROM l6.l6_base_config_parts_old WHERE config_id = :cid"
+        q_config = "DELETE FROM l6.l6_base_configs_old WHERE config_id = :cid"
         with l6_engine.begin() as conn:
             conn.execute(text(q_parts), {"cid": config_id})
             conn.execute(text(q_config), {"cid": config_id})
@@ -119,7 +130,7 @@ class L6ChassisRepository:
 
     def get_base_config_parts(self, config_id: int) -> List[dict]:
         """获取基准配置的组件清单"""
-        q = "SELECT * FROM l6.l6_base_config_parts WHERE config_id = :cid ORDER BY sort_order"
+        q = "SELECT * FROM l6.l6_base_config_parts_old WHERE config_id = :cid ORDER BY sort_order"
         with l6_engine.connect() as conn:
             rows = conn.execute(text(q), {"cid": config_id}).mappings().all()
         return [dict(r) for r in rows]
@@ -133,7 +144,7 @@ class L6ChassisRepository:
         cols = list(safe_data.keys())
         placeholders = ", ".join([f":{k}" for k in cols])
         columns = ", ".join(cols)
-        q = f"INSERT INTO l6.l6_base_config_parts ({columns}) VALUES ({placeholders})"
+        q = f"INSERT INTO l6.l6_base_config_parts_old ({columns}) VALUES ({placeholders})"
         with l6_engine.begin() as conn:
             result = conn.execute(text(q), safe_data)
             return result.inserted_primary_key[0]
@@ -150,14 +161,14 @@ class L6ChassisRepository:
         if not fields:
             return False
         values["pid"] = part_id
-        q = f"UPDATE l6.l6_base_config_parts SET {', '.join(fields)} WHERE part_id = :pid"
+        q = f"UPDATE l6.l6_base_config_parts_old SET {', '.join(fields)} WHERE part_id = :pid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), values)
         return True
 
     def delete_base_config_part(self, part_id: int) -> bool:
         """删除组件"""
-        q = "DELETE FROM l6.l6_base_config_parts WHERE part_id = :pid"
+        q = "DELETE FROM l6.l6_base_config_parts_old WHERE part_id = :pid"
         with l6_engine.begin() as conn:
             conn.execute(text(q), {"pid": part_id})
         return True
@@ -169,34 +180,35 @@ class L6ChassisRepository:
         drive_bays: Optional[str] = None,
         backplane_type: Optional[str] = None,
     ) -> List[dict]:
-        """获取前面板线缆列表，按属性维度过滤"""
-        q = "SELECT * FROM l6.l6_front_panel_items WHERE 1=1"
-        params = {}
-        q += " ORDER BY sort_order, item_id"
-        with l6_engine.connect() as conn:
-            rows = conn.execute(text(q), params).mappings().all()
+        """前面板线缆 — 统一数据源，从 parts_master 读取（category='前面板线缆'）。
+        原 l6_front_panel_items 表已废弃，前端字段经 specs 映射兼容返回。"""
+        from app.repository.parts_master_repo import PartsMasterRepository
+        rows = PartsMasterRepository().list(category="前面板线缆")
         results = []
         for r in rows:
-            item = dict(r)
-            # 按 drive_bays 过滤
-            if drive_bays and item.get("applicable_drive_bays"):
-                try:
-                    bays = json.loads(item["applicable_drive_bays"])
-                    if bays and drive_bays not in bays:
-                        continue
-                except:
-                    pass
-            # 按 backplane_type 过滤
-            if backplane_type and item.get("applicable_backplane"):
-                try:
-                    types = json.loads(item["applicable_backplane"])
-                    if types and backplane_type not in types:
-                        continue
-                except:
-                    pass
-            results.append(item)
+            specs = r.get("specs") or {}
+            bays = specs.get("drive_bays") or []
+            backs = specs.get("backplane") or []
+            if drive_bays and bays and drive_bays not in bays:
+                continue
+            if backplane_type and backs and backplane_type not in backs:
+                continue
+            results.append({
+                "item_id": r.get("pn"),
+                "pn": r.get("pn"),
+                "cable_type": specs.get("kind") or r.get("sub_type") or "",
+                "part_name": r.get("name") or "",
+                "description": specs.get("description") or "",
+                "unit_price": float(r.get("unit_price") or 0),
+                "group_size": specs.get("group_size") or 1,
+                "applicable_drive_bays": bays,
+                "applicable_backplane": backs,
+            })
         return results
 
+    # ---- front_panel CRUD 已废弃：数据源统一到 parts_master(category='前面板线缆')。
+    # 原 l6_front_panel_items 表已移除；前端 useL6ChassisConfig 只读（get_front_panel_items），不调以下方法。
+    # 如需重新启用管理面，应改写为 PartsMasterRepository 委托。
     def insert_front_panel_item(self, data: dict) -> int:
         """新增前面板线缆"""
         allowed = {"cable_type", "pn", "part_name", "description", "unit_price", "group_size", "applicable_chassis", "applicable_drive_bays", "applicable_backplane", "note", "sort_order"}

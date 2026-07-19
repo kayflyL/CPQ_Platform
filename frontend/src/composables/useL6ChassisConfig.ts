@@ -61,6 +61,11 @@ export function useL6ChassisConfig() {
   const selectedRearPanelId = ref<number | null>(null)
   const selectedPsuId = ref<number | null>(null)
 
+  // 数量状态（基准底盘固定为1，其他可调）
+  const frontPanelQty = ref<number>(1)
+  const rearPanelQty = ref<number>(1)
+  const psuQty = ref<number>(1)
+
   // 选中的对象（computed）
   const selectedBaseConfig = computed(() => baseConfigs.value.find(c => c.config_id === selectedBaseConfigId.value) || null)
   const selectedFrontPanel = computed(() => frontPanelItems.value.find(i => i.item_id === selectedFrontPanelId.value) || null)
@@ -170,11 +175,11 @@ export function useL6ChassisConfig() {
     selectedPsuId.value = selectedRowKeys[0] || null
   }
 
-  // 价格计算
+  // 价格计算（单价 × 数量）
   const baseConfigPrice = computed(() => selectedBaseConfig.value?.base_price || 0)
-  const frontPanelPrice = computed(() => selectedFrontPanel.value?.unit_price || 0)
-  const rearPanelPrice = computed(() => selectedRearPanel.value?.unit_price || 0)
-  const psuPrice = computed(() => selectedPsu.value?.unit_price || 0)
+  const frontPanelPrice = computed(() => (selectedFrontPanel.value?.unit_price || 0) * frontPanelQty.value)
+  const rearPanelPrice = computed(() => (selectedRearPanel.value?.unit_price || 0) * rearPanelQty.value)
+  const psuPrice = computed(() => (selectedPsu.value?.unit_price || 0) * psuQty.value)
   const totalBasePrice = computed(() => baseConfigPrice.value + frontPanelPrice.value + rearPanelPrice.value + psuPrice.value)
 
   // 重置选择
@@ -183,6 +188,9 @@ export function useL6ChassisConfig() {
     selectedFrontPanelId.value = null
     selectedRearPanelId.value = null
     selectedPsuId.value = null
+    frontPanelQty.value = 1
+    rearPanelQty.value = 1
+    psuQty.value = 1
   }
 
   return {
@@ -222,6 +230,10 @@ export function useL6ChassisConfig() {
     rearPanelPrice,
     psuPrice,
     totalBasePrice,
+    // 数量
+    frontPanelQty,
+    rearPanelQty,
+    psuQty,
     // 重置
     resetSelections
   }

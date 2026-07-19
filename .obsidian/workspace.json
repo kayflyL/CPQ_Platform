@@ -11,17 +11,14 @@
             "id": "49ede2bba1275776",
             "type": "leaf",
             "state": {
-              "type": "canvas",
+              "type": "markdown",
               "state": {
-                "file": "docs/业务流程图.canvas",
-                "viewState": {
-                  "x": 378.5594675978811,
-                  "y": 1420.0518880633335,
-                  "zoom": -0.6305050498317215
-                }
+                "file": "docs/执行方案/Excel解析引擎独立化.md",
+                "mode": "source",
+                "source": false
               },
-              "icon": "lucide-layout-dashboard",
-              "title": "业务流程图"
+              "icon": "lucide-file",
+              "title": "Excel解析引擎独立化"
             }
           },
           {
@@ -30,15 +27,16 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "docs/功能块/报价工作台.md",
+                "file": "docs/Changelog.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "报价工作台"
+              "title": "Changelog"
             }
           }
-        ]
+        ],
+        "currentTab": 1
       }
     ],
     "direction": "vertical"
@@ -200,34 +198,37 @@
       "bases:新建数据库": false
     }
   },
-  "active": "49ede2bba1275776",
+  "active": "dfe0ffc6ca037f95",
   "lastOpenFiles": [
-    "frontend/src/components/L6ConfigCard.vue.tmp.8496.0aaf96aa00d8",
-    "frontend/src/components/BomTable.vue.tmp.8496.f294da1d3948",
-    "frontend/src/components/BomTable.vue.tmp.8496.f2d4f91bc786",
-    "frontend/src/views/quote/Workspace.vue.bak",
-    "backend/storage/_temp/Lena-2026-0715 from 桃红_20260716_182005.xlsx",
-    "backend/storage/_temp/Lena-2026-0715 from 桃红_20260716_181134.xlsx",
-    "backend/storage/_temp/Lena-2026-0715 from 桃红_20260716_175714.xlsx",
+    "frontend/src/store/quote.ts.tmp.32728.756009e9e674",
+    "frontend/src/store/quote.ts.tmp.32728.b28aeda18901",
+    "frontend/src/api/template.ts.tmp.32728.9760e9e0e313",
+    "backend/app/api/univer_templates.py.tmp.32728.d7374cb58ea6",
+    "docs/Datebase.md",
     "docs/Frontend_Style_Guide.md",
-    "docs/功能块/报价工作台.md",
-    "frontend/src/components/L6ConfigWizard.vue",
-    "backend/verify-l6.py",
-    "docs/业务流程图.canvas",
-    "docs/功能块/Pricing_Engine_功能模块.md",
-    "docs/功能块/Component_Inventory.md",
+    "docs/frontend-ts-errors.md",
+    "docs/Principles.md",
+    "docs/System_Architecture.md",
     "docs/Changelog.md",
-    "frontend/src/components/BomTable.vue",
-    "HERMES.md",
+    "frontend/src/views/quote/Workspace.vue.tmp.32728.779a66aebfdd",
+    "frontend/src/components/UniverSheet.vue.tmp.32728.ff5ad5653cca",
+    "frontend/src/utils/download.ts",
+    "frontend/src/utils/xlsx-exporter.ts",
+    "frontend/src/utils/xlsx-exporter.ts.tmp.32728.5ee11fa039d8",
+    "backend/storage/20260707_未知销售_未知机箱_未知平台_0配置_0台/exports/PRJ-20260707161742_1_export_20260719_010215.xlsx",
+    "backend/storage/20260707_未知销售_未知机箱_未知平台_0配置_0台/exports/~$PRJ-20260707161742_1_export_20260719_010133.xlsx",
+    "docs/执行方案/配件页优化方案.md",
+    "docs/执行方案/服务器页改造-落地设计.md",
+    "docs/功能块/报价工作台.md",
     "docs/执行方案/Excel解析引擎独立化.md",
     "docs/执行方案/Field_Unification_Plan.md",
+    "docs/功能块/Pricing_Engine_功能模块.md",
+    "docs/功能块/Component_Inventory.md",
+    "docs/业务流程图.canvas",
+    "HERMES.md",
     "docs/执行方案/动态字段管理架构实施方案.md",
-    "backend/storage/20260715_未知销售_未知机箱_未知平台_0配置_0台/uploads",
     "frontend/README.md",
     "frontend/docs/STYLE_GUIDE.md",
-    "docs/Datebase.md",
-    "docs/System_Architecture.md",
-    "docs/Principles.md",
     "frontend/node_modules/@ant-design/icons-svg/inline-svg/outlined/zoom-out.svg",
     "frontend/node_modules/@ant-design/icons-svg/inline-svg/outlined/zoom-in.svg",
     "frontend/node_modules/@ant-design/icons-svg/inline-svg/outlined/zhihu.svg",
@@ -245,9 +246,6 @@
     "docs/Pricing_Engine.md",
     "docs/Engineering_Guide.md",
     "docs/API 路由.md",
-    "docs/README.md",
-    "docs/业务流程.md",
-    "frontend/node_modules/glob-parent/CHANGELOG.md",
-    "frontend/node_modules/hasown/CHANGELOG.md"
+    "docs/README.md"
   ]
 }

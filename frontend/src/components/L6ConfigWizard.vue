@@ -122,6 +122,9 @@ const {
   frontPanelPrice,
   rearPanelPrice,
   psuPrice,
+  frontPanelQty,
+  rearPanelQty,
+  psuQty,
   resetSelections
 } = useL6ChassisConfig()
 
@@ -249,6 +252,9 @@ function handleSave() {
     front_panel: selectedFrontPanel.value,
     rear_panel: selectedRearPanel.value,
     psu: selectedPsu.value,
+    front_panel_qty: frontPanelQty.value,
+    rear_panel_qty: rearPanelQty.value,
+    psu_qty: psuQty.value,
     base_price: baseConfigPrice.value,
     front_panel_price: frontPanelPrice.value,
     rear_panel_price: rearPanelPrice.value,
@@ -280,6 +286,9 @@ defineExpose({
   frontPanelPrice,
   rearPanelPrice,
   psuPrice,
+  frontPanelQty,
+  rearPanelQty,
+  psuQty,
   selectedBaseConfig,
   selectedFrontPanel,
   selectedRearPanel,

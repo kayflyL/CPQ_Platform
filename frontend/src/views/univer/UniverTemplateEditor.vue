@@ -14,39 +14,6 @@
         />
       </div>
       <div class="header-right">
-        <a-select
-          v-model:value="selectedOpportunityId"
-          placeholder="选择商机"
-          size="small"
-          style="width: 220px"
-          show-search
-          :filter-option="filterOpportunityOption"
-          @change="onOpportunityChange"
-        >
-          <a-select-option
-            v-for="opp in opportunityList"
-            :key="opp.opportunity_id"
-            :value="opp.opportunity_id"
-          >
-            {{ opp.opportunity_name }} ({{ opp.customer_name }})
-          </a-select-option>
-        </a-select>
-        <a-select
-          v-model:value="selectedQuotationId"
-          placeholder="选择报价单"
-          size="small"
-          style="width: 200px"
-          :disabled="!selectedOpportunityId"
-          :loading="quotationListLoading"
-        >
-          <a-select-option
-            v-for="quo in quotationList"
-            :key="quo.quotation_id"
-            :value="quo.quotation_id"
-          >
-            {{ quo.quotation_name || quo.quotation_id }}
-          </a-select-option>
-        </a-select>
         <a-button
           @click="handlePreview"
           :loading="previewing"
@@ -60,11 +27,397 @@
           <template #icon><SaveOutlined /></template>
           保存
         </a-button>
+        <a-tooltip :title="rightPanelCollapsed ? '展开侧栏' : '收起侧栏'">
+          <a-button
+            size="small"
+            class="toggle-panel-btn"
+            @click="rightPanelCollapsed = !rightPanelCollapsed"
+          >
+            <template #icon>
+              <LeftOutlined v-if="!rightPanelCollapsed" />
+              <RightOutlined v-else />
+            </template>
+          </a-button>
+        </a-tooltip>
       </div>
     </div>
 
     <!-- 主体区域 -->
     <div class="main-content">
+      <!-- 左栏：字段绑定面板 -->
+      <div class="left-panel" v-show="!leftPanelCollapsed">
+        <div class="panel-title">
+          <span>字段绑定</span>
+          <a-tag v-if="selectedCell" color="blue" class="cell-tag">{{ selectedCell.address }}</a-tag>
+        </div>
+
+        <!-- 未选中单元格 -->
+        <div v-if="!selectedCell" class="no-selection">
+          <p>点击单元格开始绑定</p>
+        </div>
+
+        <!-- 已选中单元格 -->
+        <div v-else class="binding-panel">
+          <!-- 数据类型切换 -->
+          <div class="binding-type-switch">
+            <a-radio-group v-model:value="currentBindingType" size="small" button-style="solid">
+              <a-radio-button value="static">静态</a-radio-button>
+              <a-radio-button value="dynamic">动态</a-radio-button>
+            </a-radio-group>
+          </div>
+
+          <!-- 静态字段列表 -->
+          <div v-if="currentBindingType === 'static'" class="field-groups">
+            <!-- 商机级字段 -->
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('opportunity')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.opportunity" />
+                  <RightOutlined v-else />
+                  商机级字段
+                </span>
+                <a-tag size="small">{{ opportunityFields.length }}</a-tag>
+              </div>
+              <div v-show="expandedGroups.opportunity" class="field-list">
+                <div
+                  v-for="field in opportunityFields"
+                  :key="field.key"
+                  class="field-item"
+                  :class="{ bound: isFieldBound(field.key) }"
+                  @click="bindStaticField(field.key)"
+                >
+                  <span class="field-name">{{ field.label }}</span>
+                  <CheckOutlined v-if="isFieldBound(field.key)" class="check-icon" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 配置项字段 -->
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('config')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.config" />
+                  <RightOutlined v-else />
+                  配置项字段
+                </span>
+                <a-tag size="small">{{ configFields.length }}</a-tag>
+              </div>
+              <div v-show="expandedGroups.config" class="field-list">
+                <div
+                  v-for="field in configFields"
+                  :key="field.key"
+                  class="field-item"
+                  :class="{ bound: isFieldBound(field.key) }"
+                  @click="bindStaticField(field.key)"
+                >
+                  <span class="field-name">{{ field.label }}</span>
+                  <CheckOutlined v-if="isFieldBound(field.key)" class="check-icon" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 系统字段 -->
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('system')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.system" />
+                  <RightOutlined v-else />
+                  系统字段
+                </span>
+                <a-tag size="small">{{ systemFields.length }}</a-tag>
+              </div>
+              <div v-show="expandedGroups.system" class="field-list">
+                <div
+                  v-for="field in systemFields"
+                  :key="field.key"
+                  class="field-item"
+                  :class="{ bound: isFieldBound(field.key) }"
+                  @click="bindStaticField(field.key)"
+                >
+                  <span class="field-name">{{ field.label }}</span>
+                  <CheckOutlined v-if="isFieldBound(field.key)" class="check-icon" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 动态数据源列表 -->
+          <div v-if="currentBindingType === 'dynamic'" class="field-groups">
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('l6_details')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.l6_details" />
+                  <RightOutlined v-else />
+                  L6 配置项
+                </span>
+                <a-tag v-if="currentBindingSource === 'l6_details'" color="green" size="small">当前</a-tag>
+              </div>
+              <div v-show="expandedGroups.l6_details" class="dynamic-source-panel">
+                <a-button
+                  v-if="currentBindingSource !== 'l6_details'"
+                  type="primary"
+                  size="small"
+                  block
+                  @click="selectDynamicSource('l6_details')"
+                  style="margin-bottom: 8px"
+                >
+                  选择此数据源
+                </a-button>
+                <div v-if="currentBindingSource === 'l6_details'" class="mapping-section">
+                  <div class="mapping-header">列映射</div>
+                  <div v-for="(mapping, index) in fieldMappingList" :key="index" class="mapping-item">
+                    <a-select
+                      v-model:value="mapping.subField"
+                      placeholder="子字段"
+                      size="small"
+                      style="width: 45%"
+                      show-search
+                      :filter-option="filterSubFieldOption"
+                    >
+                      <a-select-option
+                        v-for="field in availableSubFields"
+                        :key="field.key"
+                        :value="field.key"
+                      >
+                        {{ field.label }}
+                      </a-select-option>
+                    </a-select>
+                    <a-select
+                      v-model:value="mapping.colLetter"
+                      placeholder="列"
+                      size="small"
+                      style="width: 35%"
+                      @change="onFieldMappingChange"
+                    >
+                      <a-select-option
+                        v-for="col in availableColumns"
+                        :key="col"
+                        :value="col"
+                        :disabled="isColumnMapped(col, index)"
+                      >
+                        {{ col }}
+                      </a-select-option>
+                    </a-select>
+                    <a-button
+                      type="text"
+                      size="small"
+                      danger
+                      @click="removeFieldMapping(index)"
+                    >
+                      <template #icon><DeleteOutlined /></template>
+                    </a-button>
+                  </div>
+                  <a-button
+                    type="dashed"
+                    size="small"
+                    block
+                    @click="addFieldMapping"
+                    style="margin-top: 8px"
+                    :disabled="!canAddMoreMapping"
+                  >
+                    + 添加映射
+                  </a-button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('kp_details')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.kp_details" />
+                  <RightOutlined v-else />
+                  KP 配置项
+                </span>
+                <a-tag v-if="currentBindingSource === 'kp_details'" color="green" size="small">当前</a-tag>
+              </div>
+              <div v-show="expandedGroups.kp_details" class="dynamic-source-panel">
+                <a-button
+                  v-if="currentBindingSource !== 'kp_details'"
+                  type="primary"
+                  size="small"
+                  block
+                  @click="selectDynamicSource('kp_details')"
+                  style="margin-bottom: 8px"
+                >
+                  选择此数据源
+                </a-button>
+                <div v-if="currentBindingSource === 'kp_details'" class="mapping-section">
+                  <div class="mapping-header">列映射</div>
+                  <div v-for="(mapping, index) in fieldMappingList" :key="index" class="mapping-item">
+                    <a-select
+                      v-model:value="mapping.subField"
+                      placeholder="子字段"
+                      size="small"
+                      style="width: 45%"
+                      show-search
+                      :filter-option="filterSubFieldOption"
+                    >
+                      <a-select-option
+                        v-for="field in availableSubFields"
+                        :key="field.key"
+                        :value="field.key"
+                      >
+                        {{ field.label }}
+                      </a-select-option>
+                    </a-select>
+                    <a-select
+                      v-model:value="mapping.colLetter"
+                      placeholder="列"
+                      size="small"
+                      style="width: 35%"
+                      @change="onFieldMappingChange"
+                    >
+                      <a-select-option
+                        v-for="col in availableColumns"
+                        :key="col"
+                        :value="col"
+                        :disabled="isColumnMapped(col, index)"
+                      >
+                        {{ col }}
+                      </a-select-option>
+                    </a-select>
+                    <a-button
+                      type="text"
+                      size="small"
+                      danger
+                      @click="removeFieldMapping(index)"
+                    >
+                      <template #icon><DeleteOutlined /></template>
+                    </a-button>
+                  </div>
+                  <a-button
+                    type="dashed"
+                    size="small"
+                    block
+                    @click="addFieldMapping"
+                    style="margin-top: 8px"
+                    :disabled="!canAddMoreMapping"
+                  >
+                    + 添加映射
+                  </a-button>
+                </div>
+              </div>
+            </div>
+
+            <div class="field-group">
+              <div class="field-group-header" @click="toggleFieldGroup('config_summary')">
+                <span class="field-group-title">
+                  <DownOutlined v-if="expandedGroups.config_summary" />
+                  <RightOutlined v-else />
+                  配置汇总
+                </span>
+                <a-tag v-if="currentBindingSource === 'config_summary'" color="green" size="small">当前</a-tag>
+              </div>
+              <div v-show="expandedGroups.config_summary" class="dynamic-source-panel">
+                <a-button
+                  v-if="currentBindingSource !== 'config_summary'"
+                  type="primary"
+                  size="small"
+                  block
+                  @click="selectDynamicSource('config_summary')"
+                  style="margin-bottom: 8px"
+                >
+                  选择此数据源
+                </a-button>
+                <div v-if="currentBindingSource === 'config_summary'" class="mapping-section">
+                  <div class="mapping-header">列映射</div>
+                  <div v-for="(mapping, index) in fieldMappingList" :key="index" class="mapping-item">
+                    <a-select
+                      v-model:value="mapping.subField"
+                      placeholder="子字段"
+                      size="small"
+                      style="width: 45%"
+                      show-search
+                      :filter-option="filterSubFieldOption"
+                    >
+                      <a-select-option
+                        v-for="field in availableSubFields"
+                        :key="field.key"
+                        :value="field.key"
+                      >
+                        {{ field.label }}
+                      </a-select-option>
+                    </a-select>
+                    <a-select
+                      v-model:value="mapping.colLetter"
+                      placeholder="列"
+                      size="small"
+                      style="width: 35%"
+                      @change="onFieldMappingChange"
+                    >
+                      <a-select-option
+                        v-for="col in availableColumns"
+                        :key="col"
+                        :value="col"
+                        :disabled="isColumnMapped(col, index)"
+                      >
+                        {{ col }}
+                      </a-select-option>
+                    </a-select>
+                    <a-button
+                      type="text"
+                      size="small"
+                      danger
+                      @click="removeFieldMapping(index)"
+                    >
+                      <template #icon><DeleteOutlined /></template>
+                    </a-button>
+                  </div>
+                  <a-button
+                    type="dashed"
+                    size="small"
+                    block
+                    @click="addFieldMapping"
+                    style="margin-top: 8px"
+                    :disabled="!canAddMoreMapping"
+                  >
+                    + 添加映射
+                  </a-button>
+
+                  <!-- 部件选择 -->
+                  <div class="parts-selection">
+                    <div class="mapping-header">🎯 显示部件</div>
+                    <a-select
+                      v-model:value="currentBindingSelectedParts"
+                      mode="multiple"
+                      size="small"
+                      style="width: 100%"
+                      placeholder="选择要显示的部件"
+                      :options="[
+                        { value: 'cpu', label: 'CPU' },
+                        { value: 'memory', label: '内存' },
+                        { value: 'hdd', label: '硬盘' },
+                        { value: 'ssd', label: '固态' },
+                        { value: 'gpu', label: '显卡' },
+                        { value: 'nic', label: '网卡' },
+                        { value: 'raid', label: 'RAID卡' },
+                        { value: 'psu', label: '电源' },
+                        { value: 'front_backplane', label: '前背板' },
+                        { value: 'rear_backplane', label: '后背板' }
+                      ]"
+                      allowClear
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 解除绑定按钮 -->
+          <div v-if="isCellBound && !isPreviewing" class="unbind-section">
+            <a-button
+              type="default"
+              danger
+              size="small"
+              block
+              @click="unbindCurrentCell"
+            >
+              解除当前单元格绑定
+            </a-button>
+          </div>
+        </div>
+      </div>
+
       <!-- 中栏：编辑/预览双实例 -->
       <div class="center-panel">
         <!-- 编辑层：v-show 隐藏，不销毁 -->
@@ -89,178 +442,52 @@
         </div>
       </div>
 
-      <!-- 右栏：绑定面板 -->
-      <div class="right-panel">
-        <div class="panel-title">绑定设置</div>
-        
-        <!-- 当前单元格绑定 -->
-        <div class="current-binding" v-if="selectedCell">
-          <div class="binding-header">
-            <span>当前单元格</span>
-            <span class="cell-address">{{ selectedCell.address }}</span>
-          </div>
-          
-          <div class="binding-form">
-            <div class="form-item">
-              <label>数据类型</label>
-              <a-radio-group v-model:value="currentBindingType" size="small">
-                <a-radio-button value="static">静态</a-radio-button>
-                <a-radio-button value="dynamic">动态</a-radio-button>
-              </a-radio-group>
-            </div>
-
-            <div class="form-item" v-if="currentBindingType === 'static'">
-              <label>字段</label>
-              <a-select
-                v-model:value="currentBindingField"
-                placeholder="选择字段"
-                size="small"
-                style="width: 100%"
-              >
-                <a-select-opt-group label="商机级字段">
-                  <a-select-option
-                    v-for="field in opportunityFields"
-                    :key="field.key"
-                    :value="field.key"
-                  >
-                    {{ field.label }}
-                  </a-select-option>
-                </a-select-opt-group>
-                <a-select-opt-group label="配置项字段">
-                  <a-select-option
-                    v-for="field in configFields"
-                    :key="field.key"
-                    :value="field.key"
-                  >
-                    {{ field.label }}
-                  </a-select-option>
-                </a-select-opt-group>
-                <a-select-opt-group label="系统字段">
-                  <a-select-option
-                    v-for="field in systemFields"
-                    :key="field.key"
-                    :value="field.key"
-                  >
-                    {{ field.label }}
-                  </a-select-option>
-                </a-select-opt-group>
-              </a-select>
-            </div>
-
-            <div class="form-item" v-if="currentBindingType === 'dynamic'">
-              <label>数据源</label>
-              <a-select
-                v-model:value="currentBindingSource"
-                placeholder="选择数据源"
-                size="small"
-                style="width: 100%"
-              >
-                <a-select-option value="l6_details">L6 配置项</a-select-option>
-                <a-select-option value="kp_details">KP 配置项</a-select-option>
-                <a-select-option value="warranty_details">保修项</a-select-option>
-                <a-select-option value="config_summary">配置汇总</a-select-option>
-              </a-select>
-            </div>
-
-            <div class="form-item" v-if="currentBindingType === 'dynamic'">
-              <label>列映射</label>
-              <div class="field-mapping-list">
-                <div v-for="(mapping, index) in fieldMappingList" :key="index" class="mapping-item">
-                  <a-select
-                    v-model:value="mapping.subField"
-                    placeholder="选择子字段"
-                    size="small"
-                    style="width: 45%"
-                    show-search
-                    :filter-option="filterSubFieldOption"
-                  >
-                    <a-select-option
-                      v-for="field in availableSubFields"
-                      :key="field.key"
-                      :value="field.key"
-                    >
-                      {{ field.label }}
-                    </a-select-option>
-                  </a-select>
-                  <a-select
-                    v-model:value="mapping.colLetter"
-                    placeholder="列"
-                    size="small"
-                    style="width: 35%"
-                    @change="onFieldMappingChange"
-                  >
-                    <a-select-option
-                      v-for="col in availableColumns"
-                      :key="col"
-                      :value="col"
-                      :disabled="isColumnMapped(col, index)"
-                    >
-                      {{ col }}
-                    </a-select-option>
-                  </a-select>
-                  <a-button
-                    type="text"
-                    size="small"
-                    danger
-                    @click="removeFieldMapping(index)"
-                  >
-                    <template #icon><DeleteOutlined /></template>
-                  </a-button>
-                </div>
-                <a-button
-                  type="dashed"
-                  size="small"
-                  block
-                  @click="addFieldMapping"
-                  style="margin-top: 8px"
-                  :disabled="!canAddMoreMapping"
-                >
-                  + 添加映射
-                </a-button>
-              </div>
-            </div>
-
-            <div class="form-item" v-if="currentBindingType === 'dynamic' && currentBindingSource === 'config_summary'">
-              <label>🎯 显示部件</label>
-              <a-select
-                v-model:value="currentBindingSelectedParts"
-                mode="multiple"
-                size="small"
-                style="width: 100%"
-                placeholder="选择要在描述中显示的部件类型"
-                :options="[
-                  { value: 'cpu', label: 'CPU' },
-                  { value: 'memory', label: '内存' },
-                  { value: 'hdd', label: '硬盘' },
-                  { value: 'ssd', label: '固态' },
-                  { value: 'gpu', label: '显卡' },
-                  { value: 'nic', label: '网卡' },
-                  { value: 'raid', label: 'RAID卡' },
-                  { value: 'psu', label: '电源' },
-                  { value: 'front_backplane', label: '前背板' },
-                  { value: 'rear_backplane', label: '后背板' }
-                ]"
-                allowClear
-              />
-            </div>
-
-
-
-            <a-button
-              v-if="!isPreviewing"
-              type="primary"
-              size="small"
-              block
-              @click="isCellBound ? unbindCurrentCell() : saveCurrentBinding()"
-              :disabled="!canSaveBinding"
-            >
-              {{ isCellBound ? '解除绑定' : '绑定字段' }}
-            </a-button>
-          </div>
+      <!-- 右栏：预览数据源 + 已绑定列表 -->
+      <div class="right-panel" v-show="!rightPanelCollapsed">
+        <div class="panel-title">
+          <span>预览与绑定</span>
+          <a-tag color="blue" class="binding-count-tag">{{ bindings.length }} 绑定</a-tag>
         </div>
 
-        <div v-else class="no-selection">
-          <p>点击单元格查看绑定</p>
+        <!-- 预览数据源 -->
+        <div class="preview-source">
+          <div class="section-label">
+            <span>预览数据源</span>
+            <a-tag v-if="isPreviewing" color="green" class="previewing-tag">预览中</a-tag>
+          </div>
+          <a-select
+            v-model:value="selectedOpportunityId"
+            placeholder="选择商机"
+            size="small"
+            style="width: 100%"
+            show-search
+            :filter-option="filterOpportunityOption"
+            @change="onOpportunityChange"
+          >
+            <a-select-option
+              v-for="opp in opportunityList"
+              :key="opp.opportunity_id"
+              :value="opp.opportunity_id"
+            >
+              {{ opp.opportunity_name }} ({{ opp.customer_name }})
+            </a-select-option>
+          </a-select>
+          <a-select
+            v-model:value="selectedQuotationId"
+            placeholder="选择报价单"
+            size="small"
+            style="width: 100%"
+            :disabled="!selectedOpportunityId"
+            :loading="quotationListLoading"
+          >
+            <a-select-option
+              v-for="quo in quotationList"
+              :key="quo.quotation_id"
+              :value="quo.quotation_id"
+            >
+              {{ quo.quotation_name || quo.quotation_id }}
+            </a-select-option>
+          </a-select>
         </div>
 
         <!-- 已绑定列表 -->
@@ -303,33 +530,25 @@
       </div>
     </div>
 
-    <!-- 底栏 -->
-    <div class="footer">
-      <div class="footer-left">
-        <span>绑定总览：{{ bindings.length }} 个绑定</span>
-      </div>
-      <div class="footer-right">
-        <span>提示：点击预览按钮选择商机进行数据预览</span>
-      </div>
-    </div>
-
-
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
   SaveOutlined,
   EyeOutlined,
   DeleteOutlined,
+  LeftOutlined,
+  RightOutlined,
+  DownOutlined,
+  CheckOutlined,
 } from '@ant-design/icons-vue'
 import UniverSheet from '@/components/UniverSheet.vue'
 import { univerTemplateApi } from '@/api/univerTemplate'
-import { opportunityApi } from '@/api/template'
 import { getFieldsByScope, getDynamicSources } from '@/api/fields'
 import type {
   UniverTemplate,
@@ -337,7 +556,6 @@ import type {
 } from '@/types/univerTemplate'
 
 const route = useRoute()
-const router = useRouter()
 
 const templateId = computed(() => Number(route.params.id))
 
@@ -355,6 +573,116 @@ const bindings = ref<Binding[]>([])
 const saving = ref(false)
 const previewing = ref(false)
 const dirty = ref(false)
+const rightPanelCollapsed = ref(false)
+const leftPanelCollapsed = ref(false)
+
+// 左栏折叠状态
+const expandedGroups = ref<Record<string, boolean>>({
+  opportunity: true,
+  config: false,
+  system: false,
+  l6_details: false,
+  kp_details: false,
+  config_summary: false,
+})
+
+function toggleFieldGroup(group: string) {
+  expandedGroups.value[group] = !expandedGroups.value[group]
+}
+
+// 判断字段是否已被绑定到当前单元格
+function isFieldBound(fieldKey: string): boolean {
+  if (!selectedCell.value) return false
+  const binding = bindings.value.find(
+    b => b.cellAddress === selectedCell.value!.address && b.sheetId === selectedCell.value!.sheetId
+  )
+  return binding?.fieldKey === fieldKey
+}
+
+// 静态字段点击绑定
+function bindStaticField(fieldKey: string) {
+  if (!selectedCell.value || isPreviewing.value) return
+  
+  const fieldLabel = getFieldLabel(fieldKey)
+  
+  const newBinding: any = {
+    id: `binding_${Date.now()}`,
+    sheetId: selectedCell.value.sheetId,
+    cellAddress: selectedCell.value.address,
+    fieldKey: fieldKey,
+    dataType: 'static',
+  }
+  
+  // 检查是否已存在
+  const existingIndex = bindings.value.findIndex(
+    b => b.cellAddress === selectedCell.value!.address && b.sheetId === selectedCell.value!.sheetId
+  )
+  
+  if (existingIndex >= 0) {
+    bindings.value[existingIndex] = newBinding
+  } else {
+    bindings.value.push(newBinding)
+  }
+  
+  // 写入单元格
+  editorRef.value?.setCellBinding(
+    selectedCell.value.row,
+    selectedCell.value.col,
+    `{{${fieldLabel}}}`,
+    undefined,
+    selectedCell.value.sheetId
+  )
+  
+  dirty.value = true
+  message.success(`已绑定 ${fieldLabel}`)
+}
+
+// 动态数据源选择
+function selectDynamicSource(source: string) {
+  if (!selectedCell.value || isPreviewing.value) return
+  
+  currentBindingSource.value = source
+  fieldMappingList.value = []
+  
+  const sourceLabel = dynamicSourceMap.value[source] || source
+  
+  const newBinding: any = {
+    id: `binding_${Date.now()}`,
+    sheetId: selectedCell.value.sheetId,
+    cellAddress: selectedCell.value.address,
+    fieldKey: source,
+    dataType: 'dynamic',
+    source: source,
+    fieldMapping: {},
+  }
+  
+  if (source === 'config_summary') {
+    newBinding.selectedParts = []
+  }
+  
+  // 检查是否已存在
+  const existingIndex = bindings.value.findIndex(
+    b => b.cellAddress === selectedCell.value!.address && b.sheetId === selectedCell.value!.sheetId
+  )
+  
+  if (existingIndex >= 0) {
+    bindings.value[existingIndex] = newBinding
+  } else {
+    bindings.value.push(newBinding)
+  }
+  
+  // 写入单元格
+  editorRef.value?.setCellBinding(
+    selectedCell.value.row,
+    selectedCell.value.col,
+    `{{${sourceLabel}}}`,
+    undefined,
+    selectedCell.value.sheetId
+  )
+  
+  dirty.value = true
+  message.success(`已选择数据源 ${sourceLabel}`)
+}
 
 // 预览相关
 const isPreviewing = ref(false)
@@ -375,9 +703,9 @@ const dataSourceFields = ref<Record<string, any[]>>({})
 async function loadFields() {
   try {
     const [opp, cfg, sys, dynamicSources] = await Promise.all([
-      getFieldsByScope('opportunity'),
-      getFieldsByScope('config'),
-      getFieldsByScope('system'),
+      getFieldsByScope('opportunity', true),
+      getFieldsByScope('config', true),
+      getFieldsByScope('system', true),
       getDynamicSources(),
     ])
     opportunityFields.value = opp || []
@@ -624,7 +952,6 @@ watch([currentBindingSelectedParts, fieldMappingList], async () => {
 const dynamicSourceMap = ref<Record<string, string>>({
   l6_details: 'L6配置项',
   kp_details: 'KP配置项',
-  warranty_details: '保修项',
   config_summary: '配置汇总',
 })
 
@@ -632,15 +959,6 @@ const editorRef = ref<InstanceType<typeof UniverSheet> | null>(null)
 // const previewRef = ref<InstanceType<typeof UniverSheet> | null>(null) // 暂时未使用
 
 // 计算属性
-const canSaveBinding = computed(() => {
-  if (!selectedCell.value) return false
-  if (currentBindingType.value === 'static') {
-    return !!currentBindingField.value
-  } else {
-    return !!currentBindingSource.value
-  }
-})
-
 const isCellBound = computed(() => {
   if (!selectedCell.value) return false
   return bindings.value.some(
@@ -706,62 +1024,6 @@ function handleCellClick(cell: { row: number; col: number; sheetName: string; sh
       currentBindingSelectedParts.value = []
     }
   })
-}
-
-function saveCurrentBinding() {
-  if (!selectedCell.value) return
-  
-  const fieldKey = currentBindingType.value === 'static' ? currentBindingField.value : currentBindingSource.value
-  if (!fieldKey) return
-  
-  const fieldLabel = getFieldLabel(fieldKey)
-  
-  const newBinding: any = {
-    id: `binding_${Date.now()}`,
-    sheetId: selectedCell.value.sheetId,
-    cellAddress: selectedCell.value.address,
-    fieldKey: fieldKey,
-    dataType: currentBindingType.value,
-  }
-  
-  // 如果是动态绑定，添加列映射
-  if (currentBindingType.value === 'dynamic') {
-    const fieldMapping: Record<string, string> = {}
-    fieldMappingList.value.forEach(mapping => {
-      if (mapping.subField && mapping.colLetter) {
-        fieldMapping[mapping.subField] = mapping.colLetter
-      }
-    })
-    ;(newBinding as any).fieldMapping = fieldMapping
-    
-    // 如果是配置汇总，保存部件选择（实时保存由 watch 处理）
-    if (currentBindingSource.value === 'config_summary') {
-      ;(newBinding as any).selectedParts = currentBindingSelectedParts.value
-    }
-  }
-  
-  // 检查是否已存在
-  const existingIndex = bindings.value.findIndex(
-    b => b.cellAddress === selectedCell.value!.address && b.sheetId === selectedCell.value!.sheetId
-  )
-  
-  if (existingIndex >= 0) {
-    bindings.value[existingIndex] = newBinding
-  } else {
-    bindings.value.push(newBinding)
-  }
-  
-  // 写入单元格：显示 {{字段标签}}，指定 sheetId 避免跨 sheet 污染
-  editorRef.value?.setCellBinding(
-    selectedCell.value.row,
-    selectedCell.value.col,
-    `{{${fieldLabel}}}`,
-    undefined,
-    selectedCell.value.sheetId
-  )
-  
-  dirty.value = true
-  message.success(`已保存绑定`)
 }
 
 function unbindCurrentCell() {
@@ -1104,7 +1366,10 @@ onMounted(async () => {
 .univer-template-editor {
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%;
+  position: relative;
+  z-index: 1; /* 盖到 DefaultLayout .main-scroll::after 暗角装饰(z-index:0)之上，
+                 否则视口边缘的暗角会罩在顶部工具栏/底部 sheet 栏上，泛灰发雾 */
   background: var(--cpq-bg-primary);
   overflow: hidden;
   color: var(--cpq-text-primary);
@@ -1117,7 +1382,6 @@ onMounted(async () => {
   padding: 12px 20px;
   background: var(--cpq-bg-secondary);
   border-bottom: 1px solid var(--cpq-border-primary);
-  backdrop-filter: blur(10px);
 }
 
 .header-left {
@@ -1164,7 +1428,10 @@ onMounted(async () => {
 }
 
 .panel-title {
-  padding: 16px 20px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
   font-weight: 600;
   font-size: 14px;
   color: var(--cpq-text-primary);
@@ -1172,9 +1439,45 @@ onMounted(async () => {
   background: var(--cpq-overlay-w3);
 }
 
+.binding-count-tag {
+  margin: 0;
+}
+
+/* 预览数据源区块 */
+.preview-source {
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+.section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
+
+.preview-source :deep(.ant-select-selector) {
+  background: var(--cpq-bg-input) !important;
+  border-color: var(--cpq-border-primary) !important;
+  color: var(--cpq-text-primary) !important;
+}
+
+.previewing-tag {
+  margin: 0;
+}
+
+.toggle-panel-btn {
+  margin-left: 4px;
+}
+
 .center-panel {
   flex: 1;
-  position: relative;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   min-width: 0;
   background: white;
@@ -1182,11 +1485,10 @@ onMounted(async () => {
 
 .editor-layer,
 .preview-layer {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
 }
 
 .preview-layer {
@@ -1213,7 +1515,149 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  backdrop-filter: blur(10px);
+}
+
+.left-panel {
+  width: 280px;
+  background: var(--cpq-bg-secondary);
+  border-right: 1px solid var(--cpq-border-primary);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cell-tag {
+  margin: 0;
+}
+
+.binding-panel {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.binding-type-switch {
+  margin-bottom: 12px;
+  display: flex;
+  justify-content: center;
+}
+
+.field-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field-group {
+  border: 1px solid var(--cpq-border-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.field-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--cpq-overlay-w3);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+
+.field-group-header:hover {
+  background: var(--cpq-overlay-w4);
+}
+
+.field-group-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--cpq-text-primary);
+}
+
+.field-list {
+  padding: 4px 0;
+  background: var(--cpq-bg-primary);
+}
+
+.field-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-size: 13px;
+  color: var(--cpq-text-primary);
+}
+
+.field-item:hover {
+  background: var(--cpq-overlay-w2);
+}
+
+.field-item.bound {
+  background: var(--cpq-accent-primary-bg, rgba(59, 130, 246, 0.08));
+}
+
+.field-item.bound .field-name {
+  color: var(--cpq-accent-primary);
+  font-weight: 500;
+}
+
+.check-icon {
+  color: var(--cpq-accent-primary);
+  font-size: 12px;
+}
+
+.dynamic-source-panel {
+  padding: 12px;
+  background: var(--cpq-bg-primary);
+  border-top: 1px solid var(--cpq-border-secondary);
+}
+
+.mapping-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mapping-header {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--cpq-text-secondary);
+  margin-bottom: 4px;
+}
+
+.parts-selection {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cpq-border-secondary);
+}
+
+.unbind-section {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--cpq-border-secondary);
+}
+
+.binding-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.binding-panel::-webkit-scrollbar-track {
+  background: var(--cpq-bg-tertiary);
+}
+
+.binding-panel::-webkit-scrollbar-thumb {
+  background: var(--cpq-border-primary);
+  border-radius: 3px;
+}
+
+.binding-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--cpq-border-light);
 }
 
 .current-binding {

@@ -1,5 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form
 from typing import Optional
+from datetime import datetime
+from pydantic import BaseModel
 from app.services.quote_service import QuoteService
 from app.utils.file_storage import FileStorage
 from app.repository.opportunity_file_repo import OpportunityFileRepository
@@ -153,5 +155,34 @@ async def get_kp_price_history(model: str):
     try:
         history = service.get_kp_history(model)
         return history
+    finally:
+        service.close()
+
+
+class KpSyncPriceRequest(BaseModel):
+    category: str
+    model: str
+    price: float
+    currency: str = "RMB"
+    note: str = "报价工作台手动同步"
+
+
+@router.post("/kp/sync-price")
+async def sync_kp_price(payload: KpSyncPriceRequest):
+    """单条手动同步：把当前 KP 配件价格写入 kp_parts 价格历史。
+    用户在报价工作台点击某 KP 卡片的「同步」按钮时调用（替代保存时自动批量同步）。"""
+    service = QuoteService()
+    try:
+        service.engine.kp_repo.insert_price(
+            payload.category,
+            payload.model,
+            float(payload.price),
+            payload.currency,
+            datetime.now().strftime("%Y-%m-%d"),
+            payload.note or "报价工作台手动同步",
+        )
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"同步失败：{e}")
     finally:
         service.close()

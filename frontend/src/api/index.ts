@@ -1,5 +1,4 @@
 import axios from 'axios'
-import type { Opportunity, Quotation } from '@/types/opportunity'
 
 const api = axios.create({
   baseURL: '/api',
@@ -65,41 +64,6 @@ export const projectApi = {
   
   save: async (data: any) => {
     const response = await api.post('/opportunities/save', data)
-    return response.data
-  },
-  
-  export: async (projectId: string, templateId?: string) => {
-    const response = await api.post(`/opportunities/${projectId}/export`, null, {
-      responseType: 'blob',
-      params: templateId ? { template_id: templateId } : {}
-    })
-    
-    // Use filename from backend Content-Disposition, fall back to projectId
-    const disposition = response.headers['content-disposition'] || ''
-    const match = disposition.match(/filename\*=UTF-8''([^;]+)/i) || disposition.match(/filename="?([^";]+)"?/i)
-    const fileName = match ? decodeURIComponent(match[1]) : `${projectId}_报价单.xlsx`
-
-    const url = window.URL.createObjectURL(new Blob([response.data]))
-    const link = document.createElement('a')
-    link.href = url
-    link.setAttribute('download', fileName)
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-  },
-  
-  preview: async (projectId: string, templateId?: string) => {
-    const response = await api.post(`/opportunities/${projectId}/preview`, null, {
-      responseType: 'blob',
-      params: templateId ? { template_id: templateId } : {}
-    })
-    return response.data
-  },
-
-  previewJson: async (projectId: string, templateId?: string) => {
-    const response = await api.post(`/opportunities/${projectId}/preview-json`, null, {
-      params: templateId ? { template_id: templateId } : {}
-    })
     return response.data
   },
   
@@ -195,6 +159,11 @@ export const quotationApi = {
   batchPermanentDelete: async (quotationIds: string[]) => {
     const response = await api.post('/quotations/batch-permanent-delete', { quotation_ids: quotationIds })
     return response.data
+  },
+
+  setPrimary: async (quotationId: string) => {
+    const response = await api.post(`/quotations/${quotationId}/set-primary`)
+    return response.data
   }
 }
 
@@ -210,4 +179,3 @@ export async function getExportCategories() {
 
 // Aliases for store/quote.ts compatibility
 export const saveProject = projectApi.save
-export const exportProject = projectApi.export

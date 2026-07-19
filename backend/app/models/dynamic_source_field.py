@@ -10,7 +10,7 @@ class DynamicSourceField(Base):
     __table_args__ = {"schema": "rules"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    source_key: Mapped[str] = mapped_column(String, nullable=False)  # l6_details / kp_details / warranty_details / config_summary
+    source_key: Mapped[str] = mapped_column(String, nullable=False)  # l6_details / kp_details / config_summary
     field_key: Mapped[str] = mapped_column(String, nullable=False)
     field_label: Mapped[str] = mapped_column(String, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)

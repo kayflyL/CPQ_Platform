@@ -72,7 +72,6 @@ export interface PreviewData {
   total_qty?: number
   l6_details?: any[]
   kp_details?: any[]
-  warranty_details?: any[]
   config_summary?: any[]
   [key: string]: any
 }

@@ -52,6 +52,10 @@ L6History_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=l6
 public_engine = engine.execution_options(schema_translate_map={None: "public"})
 Public_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=public_engine)
 
+# ---- Parts Schema (统一物料主表 parts_master，L6+KP 料号归并) ----
+parts_engine = engine.execution_options(schema_translate_map={None: "parts"})
+Parts_SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=parts_engine)
+
 
 class Base(DeclarativeBase):
     """Common base for all models. All tables share this declarative base."""

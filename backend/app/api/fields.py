@@ -6,14 +6,14 @@ router = APIRouter(prefix="/api/fields", tags=["fields"])
 
 
 @router.get("/scope/{scope}")
-def get_fields_by_scope(scope: str):
+def get_fields_by_scope(scope: str, export_visible: bool = Query(False)):
     """
     按业务域获取字段
     scope: opportunity / config / pricing / export / parse / system
     """
     service = UnifiedFieldService()
     try:
-        fields = service.get_fields_by_scope(scope)
+        fields = service.get_fields_by_scope(scope, export_visible_only=export_visible)
         return {"success": True, "data": fields, "count": len(fields)}
     finally:
         service.close()
@@ -37,7 +37,7 @@ def get_fields_by_page(page: str):
 def get_dynamic_source_fields(source_key: str = Query(None)):
     """
     获取动态数据源子字段
-    source_key: l6_details / kp_details / warranty_details / config_summary
+    source_key: l6_details / kp_details / config_summary
     如果不传 source_key，返回所有数据源的所有字段（按数据源分组）
     """
     service = UnifiedFieldService()

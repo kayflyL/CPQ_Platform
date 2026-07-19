@@ -9,11 +9,17 @@
 
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick } from 'vue'
-import { LocaleType, Tools, Univer, UniverInstanceType } from '@univerjs/core'
+import { Univer, UniverInstanceType, LocaleType } from '@univerjs/core'
 import { FUniver } from '@univerjs/core/facade'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
 import '@univerjs/preset-sheets-core/lib/index.css'
 import zhCN from '@univerjs/preset-sheets-core/locales/zh-CN'
+import type {
+  ResolvedWorkbook,
+  ResolvedSheet,
+  ResolvedCell,
+  ResolvedMerge
+} from '@/utils/xlsx-exporter'
 
 // 补充 Univer 语言包中缺失的 key，避免显示原始 key 名
 if (zhCN['sheets-ui']?.info) {
@@ -50,11 +56,10 @@ const univerContainerRef = ref<HTMLElement | null>(null)
 const univerInnerRef = ref<HTMLElement | null>(null)
 const uniqueContainerId = `univer-container-${Math.random().toString(36).slice(2, 9)}`
 let univer: Univer | null = null
-let _isRendering = false
 let _suppressEdit = false
 
 /**
- * 获取 FUniver API 实例（兼容新旧版本）
+ * Get FUniver API instance (compatible with old and new versions)
  */
 function getFUniverAPI(): any {
   if (!univer) return null
@@ -64,22 +69,6 @@ function getFUniverAPI(): any {
   }
   // 回退到旧 API
   return FUniver.newAPI(univer)
-}
-
-/**
- * Convert cellAddress (e.g. "A1") to 0-indexed row/col
- */
-function cellAddressToRowCol(addr: string): { row: number; col: number } | null {
-  const match = addr.match(/^([A-Z]+)(\d+)$/)
-  if (!match) return null
-  const colStr = match[1]
-  const row = parseInt(match[2]) - 1
-  let col = 0
-  for (let i = 0; i < colStr.length; i++) {
-    col = col * 26 + (colStr.charCodeAt(i) - 64)
-  }
-  col -= 1
-  return { row, col }
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
@@ -96,7 +85,6 @@ async function renderUniver() {
     return
   }
   
-  _isRendering = true
   _suppressEdit = true
   
   // Cleanup old instance
@@ -165,7 +153,6 @@ async function renderUniver() {
       })
     }
     
-    _isRendering = false
     _suppressEdit = false
   }, 500)
 }
@@ -177,16 +164,17 @@ watch(() => props.workbookData, () => {
 
 
 
-// Watch previewData
-watch(() => props.previewData, () => {
-  if (_isRendering) return
-  nextTick(() => {
-    updatePreviewsInPlace()
-  })
-}, { deep: true })
-
 onMounted(() => {
   nextTick(() => renderUniver())
+
+  // 只读模式：在捕获阶段拦截双击，阻止 Univer 进入单元格编辑态。
+  // editable=false 只隐藏工具栏/菜单，并未禁用编辑；一旦进入编辑没有退出路径会卡死。
+  if (!props.editable && univerInnerRef.value) {
+    univerInnerRef.value.addEventListener('dblclick', (e: Event) => {
+      e.stopPropagation()
+      e.preventDefault()
+    }, true)
+  }
 })
 
 function getWorkbookData(): Record<string, any> {
@@ -254,7 +242,90 @@ function clearCellBinding(row: number, col: number) {
   range.setBackground('#FFFFFF')
 }
 
-defineExpose({ getWorkbookData, setCellBinding, clearCellBinding })
+/**
+ * 读取 live Univer 实例 → 与 Univer 解耦的纯数据结构（供 exceljs 写出）。
+ *
+ * 用 workbook.save() 取结构（哪些单元格存在、合并、行高列宽 —— 这些不受
+ * 数字样式 ID 影响），再用 FRange.getCellStyleData() / getValue() 逐格读
+ * 已解析的样式与缓存计算值，绕开快照里 cell.s 为数字 ID 的坑。
+ */
+function getResolvedWorkbook(): ResolvedWorkbook {
+  if (!univer) return { sheets: [] }
+  const univerAPI = getFUniverAPI()
+  const wb = univerAPI?.getActiveWorkbook?.()
+  if (!wb) return { sheets: [] }
+
+  const snap: any = wb.save() || {}
+  const sheets: ResolvedSheet[] = []
+
+  for (const sheetId of snap.sheetOrder || []) {
+    const sd = (snap.sheets || {})[sheetId]
+    if (!sd) continue
+    const fws = wb.getSheetBySheetId(sheetId)
+
+    const merges: ResolvedMerge[] = (sd.mergeData || []).map((m: any) => ({
+      startRow: m.startRow,
+      startColumn: m.startColumn,
+      endRow: m.endRow,
+      endColumn: m.endColumn,
+    }))
+
+    // 合并区非锚点单元格跳过：exceljs 写非锚点会抛错，且 Excel 合并也只显示锚点
+    const skip = new Set<string>()
+    for (const m of merges) {
+      for (let r = m.startRow; r <= m.endRow; r++) {
+        for (let c = m.startColumn; c <= m.endColumn; c++) {
+          if (r !== m.startRow || c !== m.startColumn) skip.add(`${r}_${c}`)
+        }
+      }
+    }
+
+    const cells: ResolvedCell[] = []
+    const cellData = sd.cellData || {}
+    for (const rStr of Object.keys(cellData)) {
+      const row = Number(rStr)
+      const rowObj = cellData[rStr] || {}
+      for (const cStr of Object.keys(rowObj)) {
+        const col = Number(cStr)
+        if (skip.has(`${row}_${col}`) || !fws) continue
+        try {
+          const range = fws.getRange(row, col, 1, 1)
+          cells.push({
+            row,
+            col,
+            v: range.getValue(),
+            style: range.getCellStyleData?.() ?? null,
+          })
+        } catch (e) {
+          console.error('[UniverSheet] read cell failed', row, col, e)
+        }
+      }
+    }
+
+    const rowHeights: Record<number, number> = {}
+    for (const [k, v] of Object.entries(sd.rowData || {})) {
+      const h = (v as any)?.h
+      if (typeof h === 'number') rowHeights[Number(k)] = h
+    }
+    const colWidths: Record<number, number> = {}
+    for (const [k, v] of Object.entries(sd.columnData || {})) {
+      const w = (v as any)?.w
+      if (typeof w === 'number') colWidths[Number(k)] = w
+    }
+
+    sheets.push({
+      name: sd.name || fws?.getSheetName?.() || 'Sheet',
+      cells,
+      merges,
+      rowHeights,
+      colWidths,
+    })
+  }
+
+  return { sheets }
+}
+
+defineExpose({ getWorkbookData, setCellBinding, clearCellBinding, getResolvedWorkbook })
 
 onBeforeUnmount(() => {
   if (univer) {
@@ -287,13 +358,9 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
+/* Univer 在 .univer-container 内生成的 UI 根 div 必须撑满容器高度，
+   否则按内容撑开会把底部 sheet 切换栏顶出可视区。 */
 .univer-container > div {
-  width: 100% !important;
-  height: 100% !important;
-}
-
-/* Univer 内部 canvas 容器 */
-.univer-sheet-wrapper canvas {
   width: 100% !important;
   height: 100% !important;
 }

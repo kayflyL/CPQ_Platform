@@ -102,15 +102,12 @@ class PricingEngine:
 
     def __init__(self, kp_repo: KPRepository, l6_repo: L6Repository,
                  opportunity_repo: OpportunityRepository, rules_repo: RulesRepository = None,
-                 export_template_repo: UniverTemplateRepo = None,
-                 quotation_repo=None, business_field_repo=None):
+                 quotation_repo=None):
         self.kp_repo = kp_repo
         self.l6_repo = l6_repo
         self.opportunity_repo = opportunity_repo
         self.rules_repo = rules_repo
-        self.export_template_repo = export_template_repo
         self._quotation_repo = quotation_repo
-        self._business_field_repo = business_field_repo
         
         # Initialize ExcelParser if rules_repo is available
         self._excel_parser = ExcelParser(rules_repo) if rules_repo else None
@@ -124,13 +121,6 @@ class PricingEngine:
             from app.repository.quotation_repo import QuotationRepository
             self._quotation_repo = QuotationRepository()
         return self._quotation_repo
-
-    def _get_business_field_repo(self):
-        """Lazy-init BusinessFieldRepository (avoids per-cell instantiation)."""
-        if self._business_field_repo is None:
-            from app.repository.business_field_repo import BusinessFieldRepository
-            self._business_field_repo = BusinessFieldRepository()
-        return self._business_field_repo
     
     def _load_rules(self):
         """Load configurable rules from rules.db, with hardcoded fallbacks."""
@@ -271,7 +261,6 @@ class PricingEngine:
                     'part_name': catalogue,
                     'spec': description,
                     'qty': qty,
-                    'confirmed_price': None,
                     'currency': 'RMB'
                 })
         
@@ -308,7 +297,6 @@ class PricingEngine:
                     'part_name': catalogue,
                     'spec': model,
                     'qty': qty,
-                    'confirmed_price': price,
                     'currency': 'USD' if is_usd else 'RMB'
                 })
         
@@ -329,7 +317,6 @@ class PricingEngine:
                     'part_name': warranty_type,
                     'spec': description,
                     'qty': 1,
-                    'confirmed_price': None,
                     'currency': 'RMB',
                     'warranty_years': years
                 })
@@ -677,7 +664,6 @@ class PricingEngine:
                         'part_name': catalogue,
                         'spec': description,
                         'qty': qty,
-                        'confirmed_price': None,
                         'currency': 'RMB'
                     })
                 except:
@@ -731,7 +717,6 @@ class PricingEngine:
                         'part_name': catalogue,
                         'spec': model,
                         'qty': qty,
-                        'confirmed_price': price,
                         'currency': 'USD' if is_usd else 'RMB'
                     })
                 except:
@@ -763,7 +748,6 @@ class PricingEngine:
                         'part_name': warranty_type,
                         'spec': description,
                         'qty': 1,
-                        'confirmed_price': None,
                         'currency': 'RMB',
                         'warranty_years': years
                     })
@@ -787,7 +771,7 @@ class PricingEngine:
         items = items_df.copy()
         items['match_status'] = ""
         items['db_price'] = None
-        items['base_price'] = items['confirmed_price']
+        items['base_price'] = items.get('price', 0)
         items['is_usd_cpu'] = items.get('currency', 'RMB') == 'USD'
         items['profit_margin'] = 10.0  # default
 
@@ -795,7 +779,7 @@ class PricingEngine:
             cat = row['category']
             name = str(row['part_name']).lower().strip()
             spec = str(row.get('spec', '')).lower().strip()
-            original_price = row['confirmed_price']
+            original_price = row.get('price')
             db_price = None
 
             if cat == 'Key Parts':
@@ -905,7 +889,7 @@ class PricingEngine:
 
     # ==================== 4. Project CRUD (via Repository) ====================
 
-    def save_opportunity(self, opportunity_info: dict, configs_data: dict, config_descriptions: dict = None, config_quantities: dict = None, config_server_models: dict = None) -> dict:
+    def save_opportunity(self, opportunity_info: dict, configs_data: dict, config_descriptions: dict = None, config_quantities: dict = None, config_server_models: dict = None, config_warranty_info: dict = None) -> dict:
         """Save opportunity meta + items to projects.db + quotations.db."""
         import time, random
         opportunity_id = opportunity_info.get('opportunity_id', '').strip()
@@ -942,7 +926,6 @@ class PricingEngine:
                 for item in items:
                     item['config_name'] = item.get('config_name', cfg_name)
                     # Ensure required fields
-                    item.setdefault('confirmed_price', 0.0)
                     item.setdefault('base_price', 0.0)
                     item.setdefault('final_price', 0.0)
                     item.setdefault('profit_margin', 0.0)
@@ -979,6 +962,10 @@ class PricingEngine:
             # Save config server_models if provided
             if config_server_models:
                 q_repo.update(quotation_id, config_server_models=config_server_models)
+            
+            # Save config warranty_info if provided
+            if config_warranty_info:
+                q_repo.update(quotation_id, config_warranty_info=config_warranty_info)
             
             # Save items
             item_count = q_repo.save_items(quotation_id, all_items)
@@ -1018,6 +1005,9 @@ class PricingEngine:
                 # Pass config_server_models for config sheet rendering
                 if hasattr(latest, 'config_server_models') and latest.config_server_models:
                     meta['config_server_models'] = latest.config_server_models
+                # Pass config_warranty_info for per-config warranty restoration
+                if hasattr(latest, 'config_warranty_info') and latest.config_warranty_info:
+                    meta['config_warranty_info'] = latest.config_warranty_info
             
             # Build configs from quotations
             configs = {}
@@ -1068,848 +1058,4 @@ class PricingEngine:
             color=font_dict.get('color', '000000')
         )
 
-    def _load_template(self, template_id: str = None) -> dict:
-        """Load export template from DB. Returns None if not found."""
-        if not self.export_template_repo:
-            return None
-        
-        if template_id:
-            return self.export_template_repo.get_by_id(int(template_id))
-        else:
-            # Get default template
-            templates = self.export_template_repo.list()
-            for t in templates:
-                if t.get('is_default'):
-                    return t
-            return None
 
-    def generate_excel(self, opportunity_id: str, template_id: str = None):
-        """Generate Excel using template from DB. Requires template with fileBuffer."""
-        details = self.get_opportunity_details(opportunity_id)
-        if not details:
-            return None, "Error: Project not found"
-        meta = details['meta']
-        configs = details['configs']
-        template = self._load_template(template_id)
-        if not template:
-            return None, "请先在导出模板管理页创建模板"
-        template_json = template.get('template_json', {})
-        cover_tpl = template_json.get('cover', {})
-        config_tpl = template_json.get('config_sheet', {})
-
-        # Get template files - MUST have fileBuffer
-        cover_file, config_file = self._get_template_files(template)
-        if not cover_file and not config_file:
-            return None, "导出模板缺少 Excel 文件，请重新上传模板"
-
-        # Load workbook: merge cover + config template sheets into one
-        if cover_file:
-            wb = openpyxl.load_workbook(cover_file)
-        else:
-            wb = openpyxl.Workbook()
-            # Remove default sheet if config will add its own
-            wb.remove(wb.active)
-
-        if config_file:
-            config_wb = openpyxl.load_workbook(config_file)
-            for src_ws in config_wb.worksheets:
-                # Skip if sheet name already exists (avoid duplicate)
-                if src_ws.title in wb.sheetnames:
-                    # Rename to avoid conflict
-                    new_title = f"{src_ws.title}_config"
-                    self._copy_worksheet(wb, src_ws, new_title)
-                else:
-                    self._copy_worksheet(wb, src_ws, src_ws.title)
-            config_wb.close()
-
-        # Convert configs from list-of-dicts to DataFrames
-        config_dfs = {}
-        for cfg_name, items_list in configs.items():
-            config_dfs[cfg_name] = pd.DataFrame(items_list)
-
-        # Add computed fields to meta for config sheet bindings
-        # model_name: from first L6 item's spec or part_name
-        model_name = ''
-        for cfg_name, df in config_dfs.items():
-            l6_df = df[df['category'] == 'L6'] if not df.empty else pd.DataFrame()
-            if not l6_df.empty:
-                model_name = l6_df.iloc[0].get('spec', '') or l6_df.iloc[0].get('part_name', '') or ''
-                break
-        meta['model_name'] = model_name
-        meta['model_name_with_qty'] = f"{model_name} x{meta.get('total_qty', 0)}" if model_name else ''
-        
-        # l6_desc: summary of L6 part names
-        l6_desc_parts = []
-        for cfg_name, df in config_dfs.items():
-            l6_df = df[df['category'] == 'L6'] if not df.empty else pd.DataFrame()
-            if not l6_df.empty:
-                for _, row in l6_df.iterrows():
-                    part_name = row.get('part_name', '')
-                    if part_name and part_name not in l6_desc_parts:
-                        l6_desc_parts.append(part_name)
-        meta['l6_desc'] = ', '.join(l6_desc_parts[:5])  # Limit to first 5
-        
-        # business_person: fallback to sales_person if not set
-        if 'business_person' not in meta or not meta.get('business_person'):
-            meta['business_person'] = meta.get('sales_person', '')
-
-        # Fill cover sheet - use actual Excel sheet, not configured sheet_name
-        # wb.sheetnames[0] is cover sheet (from cover_fileBuffer)
-        # wb.sheetnames[1] is config sheet (from config_fileBuffer)
-        if len(wb.sheetnames) >= 1:
-            ws1 = wb[wb.sheetnames[0]]
-        else:
-            ws1 = wb.create_sheet(title='封面')
-
-        cover_bindings = cover_tpl.get('bindings', [])
-        if cover_bindings:
-            self._fill_from_bindings(ws1, cover_bindings, meta, config_dfs, inherit_style=True)
-
-        # Fill config sheets
-        config_bindings = config_tpl.get('bindings', [])
-        
-        if len(wb.sheetnames) >= 2:
-            # Keep the original template sheet untouched; each config gets a
-            # fresh copy so filling one config never bleeds into the next.
-            ws_config_original = wb[wb.sheetnames[1]]
-            filled_any = False
-            for cfg_name, items_df in config_dfs.items():
-                sheet_name = self._generate_sheet_name(wb, meta, items_df, cfg_name, config_tpl)
-                ws_copy = self._copy_worksheet(wb, ws_config_original, sheet_name)
-                if config_bindings:
-                    self._fill_from_bindings(ws_copy, config_bindings, meta, {cfg_name: items_df}, inherit_style=True)
-                filled_any = True
-            # Remove the pristine template sheet once all configs are filled
-            if filled_any:
-                wb.remove(ws_config_original)
-        else:
-            # No config sheet in template, create from scratch
-            for cfg_name, items_df in config_dfs.items():
-                sheet_name = self._generate_sheet_name(wb, meta, items_df, cfg_name, config_tpl)
-                ws = wb.create_sheet(title=sheet_name)
-                
-                if config_bindings:
-                    self._fill_from_bindings(ws, config_bindings, meta, {cfg_name: items_df}, inherit_style=False)
-
-        output = io.BytesIO()
-        wb.save(output)
-        output.seek(0)
-        tpl_name = template.get('name', 'formal')
-        return output, f"{opportunity_id}_{tpl_name}.xlsx"
-    
-    def _get_template_files(self, template: dict) -> tuple[Optional[io.BytesIO], Optional[io.BytesIO]]:
-        """Decode cover/config template fileBuffers into in-memory streams.
-
-        openpyxl.load_workbook accepts file-like objects, so we avoid writing
-        temp files that would never be cleaned up.
-        """
-        import base64
-
-        template_json = template.get('template_json', {})
-        cover_tpl = template_json.get('cover', {})
-        config_tpl = template_json.get('config_sheet', {})
-
-        def _decode(buf):
-            if not buf:
-                return None
-            try:
-                return io.BytesIO(base64.b64decode(buf))
-            except Exception as e:
-                print(f"Warning: Failed to decode template fileBuffer: {e}")
-                return None
-
-        return _decode(cover_tpl.get('fileBuffer')), _decode(config_tpl.get('fileBuffer'))
-    
-    def _copy_worksheet(self, wb, source_ws, new_title: str):
-        """Copy a worksheet within the same workbook."""
-        from copy import copy
-        
-        # Create new sheet
-        new_ws = wb.create_sheet(title=new_title)
-        
-        # Copy all cells and styles
-        for row in source_ws.iter_rows():
-            for cell in row:
-                new_cell = new_ws.cell(row=cell.row, column=cell.column, value=cell.value)
-                if cell.has_style:
-                    new_cell.font = copy(cell.font)
-                    new_cell.border = copy(cell.border)
-                    new_cell.fill = copy(cell.fill)
-                    new_cell.number_format = cell.number_format
-                    new_cell.protection = copy(cell.protection)
-                    new_cell.alignment = copy(cell.alignment)
-        
-        # Copy merged cells
-        for merged_range in source_ws.merged_cells.ranges:
-            new_ws.merge_cells(str(merged_range))
-        
-        # Copy column widths
-        for col_letter, dim in source_ws.column_dimensions.items():
-            new_ws.column_dimensions[col_letter].width = dim.width
-        
-        # Copy row heights
-        for row_num, dim in source_ws.row_dimensions.items():
-            if dim.height:
-                new_ws.row_dimensions[row_num].height = dim.height
-        
-        return new_ws
-
-    def _generate_sheet_name(self, wb, meta, items_df, cfg_name, config_tpl=None) -> str:
-        """Generate unique sheet name for config.
-        
-        Supports template variables: {cfg_name}, {chassis_form}, {cpu_model}
-        Default template: {cfg_name}
-        """
-        # Get sheet name template from config, default to {cfg_name}
-        if config_tpl and 'sheetNameTemplate' in config_tpl:
-            name_template = config_tpl['sheetNameTemplate']
-        else:
-            name_template = '{cfg_name}'
-        
-        # Extract variables
-        chassis = meta.get('chassis_form', '')
-        cpu_name = ''
-        
-        kp_items_df = items_df[items_df['category'] == 'Key Parts']
-        if not kp_items_df.empty:
-            cpu_rows = kp_items_df[kp_items_df['part_name'].str.contains('CPU|Processor', case=False, na=False)]
-            if not cpu_rows.empty:
-                cpu_name = cpu_rows.iloc[0].get('spec', '').strip()
-        
-        # Replace template variables
-        sheet_name = name_template.format(
-            cfg_name=cfg_name,
-            chassis_form=chassis,
-            cpu_model=cpu_name
-        )
-        
-        # Clean invalid characters for Excel sheet names
-        # Excel does not allow: \ / ? * [ ]
-        import re
-        sheet_name = re.sub(r'[\\/?*\[\]]', '', sheet_name)
-        
-        sheet_name = sheet_name[:31]
-        base_name = sheet_name
-        suffix = 1
-        while sheet_name in wb.sheetnames:
-            sheet_name = f"{base_name} ({suffix})"[:31]
-            suffix += 1
-        return sheet_name
-
-    def _parse_cell_ref(self, cell_ref: str) -> tuple[int, int]:
-        """Parse cell reference like 'A1' to (row, col) tuple."""
-        import re
-        match = re.match(r'([A-Z]+)(\d+)', cell_ref)
-        if not match:
-            return 1, 1
-        col_str, row_str = match.groups()
-        col = sum((ord(c) - ord('A') + 1) * (26 ** i) for i, c in enumerate(reversed(col_str)))
-        return int(row_str), col
-
-    def _col_letter_to_idx(self, col_letter: str) -> int:
-        """Convert column letter(s) like 'A' or 'AA' to a 1-indexed column number."""
-        col_letter = (col_letter or '').upper()
-        return sum((ord(c) - ord('A') + 1) * (26 ** i) for i, c in enumerate(reversed(col_letter)))
-
-    def _get_number_format(self) -> str:
-        """Get Excel number_format string based on global precision config."""
-        precision = self.rules_repo.get_number_precision() if self.rules_repo else 2
-        format_map = {0: '#,##0', 2: '#,##0.00', 4: '#,##0.0000'}
-        return format_map.get(precision, '#,##0.00')
-    
-    def _fill_from_bindings(self, ws, bindings: list, meta: dict, config_dfs: dict, inherit_style: bool = False):
-        """Fill worksheet cells based on bindings configuration.
-        
-        Args:
-            ws: openpyxl worksheet
-            bindings: list of binding objects with cellAddress, fieldKey, dataType, etc.
-            meta: opportunity metadata dict
-            config_dfs: dict of {cfg_name: DataFrame} for config items
-            inherit_style: if True, copy style from template row for dynamic rows
-        """
-        from copy import copy
-        
-        number_format = self._get_number_format()
-        
-        # Separate static and dynamic bindings
-        static_bindings = [b for b in bindings if b.get('dataType') == 'static']
-        dynamic_bindings = [b for b in bindings if b.get('dataType') == 'dynamic']
-        
-        # Fill static fields
-        for binding in static_bindings:
-            cell_address = binding.get('cellAddress')
-            field_key = binding.get('fieldKey')
-            if not cell_address or not field_key:
-                continue
-            
-            row, col = self._parse_cell_ref(cell_address)
-            
-            # Check if this field should come from config description
-            source = binding.get('source')
-            source_column = binding.get('sourceColumn')
-            
-            if binding.get('staticValue') is not None:
-                # Use staticValue directly if provided
-                cell = ws.cell(row=row, column=col, value=binding.get('staticValue'))
-                if isinstance(binding.get('staticValue'), (int, float)):
-                    cell.number_format = number_format
-            elif source == 'Config' and source_column == 'description':
-                # Get description from the first config in config_dfs
-                if config_dfs:
-                    first_cfg_name = list(config_dfs.keys())[0]
-                    # Try to get description from config metadata
-                    # Note: description is stored in Workspace, not in DataFrame
-                    # We need to pass it through meta or another mechanism
-                    value = meta.get('config_descriptions', {}).get(first_cfg_name, '')
-                    if value:
-                        ws.cell(row=row, column=col, value=value)
-            elif source == 'Config' and source_column == 'server_model':
-                # Get server_model from the first config
-                if config_dfs:
-                    first_cfg_name = list(config_dfs.keys())[0]
-                    value = meta.get('config_server_models', {}).get(first_cfg_name, '')
-                    if value:
-                        ws.cell(row=row, column=col, value=value)
-            else:
-                # Map fieldKey to meta field
-                value = self._get_meta_value(field_key, meta)
-                if value is not None:
-                    cell = ws.cell(row=row, column=col, value=value)
-                    if isinstance(value, (int, float)):
-                        cell.number_format = number_format
-        
-        # Fill dynamic regions. Process from bottom to top so an insertion for
-        # an upper binding correctly shifts lower bindings (and any static cells
-        # below) down.
-        dynamic_bindings.sort(
-            key=lambda b: self._parse_cell_ref(b.get('cellAddress') or 'A1')[0],
-            reverse=True,
-        )
-        for binding in dynamic_bindings:
-            cell_address = binding.get('cellAddress')
-            region_field_key = binding.get('regionFieldKey')
-            field_mapping = binding.get('fieldMapping', {})
-            template_row = binding.get('templateRow')
-            
-            if not cell_address or not region_field_key or not field_mapping:
-                continue
-            
-            start_row, _ = self._parse_cell_ref(cell_address)
-            
-            # Get data for this region
-            # regionFieldKey maps to config items (L6/KP/Warranty/config_summary)
-            region_data = self._get_region_data(region_field_key, config_dfs, meta=meta, binding=binding)
-            
-            if not region_data:
-                continue
-            
-            # The row to inherit style from: explicit templateRow, else the data start row
-            style_source_row = template_row or start_row
-
-            # Capture template row style + height BEFORE inserting any rows
-            template_styles = {}
-            template_height = None
-            if inherit_style:
-                for field_name, col_letter in field_mapping.items():
-                    col_idx = self._col_letter_to_idx(col_letter)
-                    template_cell = ws.cell(row=style_source_row, column=col_idx)
-                    if template_cell.has_style:
-                        template_styles[col_idx] = {
-                            'font': copy(template_cell.font),
-                            'border': copy(template_cell.border),
-                            'fill': copy(template_cell.fill),
-                            'number_format': template_cell.number_format,
-                            'alignment': copy(template_cell.alignment),
-                        }
-                template_height = ws.row_dimensions[style_source_row].height
-
-            # Insert physical rows for the additional data rows. start_row itself
-            # is kept (first data row); insert (n-1) rows below it so data never
-            # overwrites template content (e.g. totals, signatures below).
-            extra_rows = max(0, len(region_data) - 1)
-            if extra_rows > 0:
-                ws.insert_rows(start_row + 1, extra_rows)
-                for i in range(extra_rows):
-                    target_row = start_row + 1 + i
-                    if template_height is not None:
-                        ws.row_dimensions[target_row].height = template_height
-                    for col_idx, style in template_styles.items():
-                        nc = ws.cell(row=target_row, column=col_idx)
-                        nc.font = copy(style['font'])
-                        nc.border = copy(style['border'])
-                        nc.fill = copy(style['fill'])
-                        nc.number_format = style['number_format']
-                        nc.alignment = copy(style['alignment'])
-            
-            # Fill rows based on fieldMapping
-            for idx, item in enumerate(region_data):
-                current_row = start_row + idx
-                for field_name, col_letter in field_mapping.items():
-                    col_idx = self._col_letter_to_idx(col_letter)
-
-                    # Map field_name to actual data key
-                    value = self._map_field_to_value(field_name, item, meta)
-                    
-                    # Check if cell is part of a merged range
-                    cell_ref = f'{col_letter}{current_row}'
-                    is_merged = False
-                    is_top_left = False
-                    
-                    for merged_range in ws.merged_cells.ranges:
-                        if cell_ref in merged_range:
-                            is_merged = True
-                            # Check if this is the top-left cell
-                            top_left = f'{merged_range.min_col}{merged_range.min_row}'
-                            if cell_ref == top_left:
-                                is_top_left = True
-                            break
-                    
-                    # Only write if not merged or is top-left of merge
-                    if not is_merged or is_top_left:
-                        cell = ws.cell(row=current_row, column=col_idx, value=value)
-                        
-                        # Apply number_format for numeric values
-                        if isinstance(value, (int, float)):
-                            cell.number_format = number_format
-                        
-                        # Apply template row style if available
-                        if inherit_style and col_idx in template_styles:
-                            style = template_styles[col_idx]
-                            cell.font = style['font']
-                            cell.border = style['border']
-                            cell.fill = style['fill']
-                            # Don't override number_format if we just set it for numeric values
-                            if not isinstance(value, (int, float)):
-                                cell.number_format = style['number_format']
-                            cell.alignment = style['alignment']
-    
-    def _map_field_to_value(self, field_name: str, item: dict, meta: dict = None) -> any:
-        """Map field name from binding to actual data value.
-        
-        Args:
-            field_name: field name from binding (e.g., 'item_no', 'catalogue', 'description')
-            item: data item dict from region data
-            meta: opportunity metadata (optional, for special fields)
-        
-        Returns:
-            Mapped value or empty string if not found
-        """
-        # Direct mapping: field_name exists in item
-        if field_name in item and item[field_name] is not None:
-            return item[field_name]
-        
-        # Semantic mapping: map common field names to actual data keys
-        mapping = {
-            'item_no': lambda: item.get('item_no') or '',  # Numeric index, set by _get_region_data
-            'catalogue': lambda: item.get('catalogue') or item.get('spec') or '',
-            'description': lambda: item.get('description') or item.get('part_name') or '',
-            'component': lambda: item.get('component') or item.get('part_name') or '',
-            'quantity': lambda: item.get('quantity') or item.get('qty') or 0,
-            'quotation': lambda: item.get('quotation') or item.get('final_price') or item.get('confirmed_price') or 0,
-            'unit_price': lambda: item.get('unit_price') or item.get('final_price') or item.get('base_price') or 0,
-            'total_price': lambda: item.get('total_price') or (item.get('final_price', 0) * item.get('qty', 1)) or 0,
-            'note': lambda: item.get('note') or '',
-        }
-        
-        if field_name in mapping:
-            return mapping[field_name]()
-        
-        # Fallback: return empty string
-        return ''
-    
-    def _get_meta_value(self, field_key: str, meta: dict):
-        """Get value from meta dict based on fieldKey.
-        
-        Now supports dynamic field resolution via business_fields config.
-        Falls back to legacy alias mapping for backward compatibility.
-        """
-        # Try dynamic resolution first
-        value = self._resolve_field_dynamically(field_key, meta)
-        if value is not None:
-            return value
-        
-        # Legacy alias mapping (backward compatibility)
-        aliases = {
-            'opportunity_name': 'opportunity_name',
-            'customer_name': 'customer_name',
-            'sales_person': 'sales_person',
-            'date': 'date',
-            'quotation_date': 'date',
-            'model_name': 'model_name',
-            'total_qty': 'total_qty',
-            'fae': 'fae',
-            'description': 'description',
-            'l6_spec': 'l6_spec',
-            'l6_desc': 'l6_desc',
-            'title': 'title',
-            'version': 'version',
-            'business_person': 'business_person',
-            'model_name_with_qty': 'model_name_with_qty',
-        }
-        
-        mapped_key = aliases.get(field_key)
-        if mapped_key and mapped_key in meta:
-            return meta[mapped_key]
-        
-        return None
-    
-    def _resolve_field_dynamically(self, field_key: str, meta: dict):
-        """Resolve field value dynamically based on business_fields config.
-        
-        Uses the field's source and source_column to fetch from appropriate data source.
-        """
-        # Get field config
-        repo = self._get_business_field_repo()
-        try:
-            field = repo.get_by_key(field_key)
-            if not field:
-                return None
-            
-            source = field.get('source', '')
-            source_column = field.get('source_column')
-            
-            # Route based on source
-            if source == 'System':
-                # System fields: export_date, export_user, export_timestamp
-                from datetime import datetime
-                if field_key == 'export_date':
-                    return datetime.now().strftime('%Y-%m-%d')
-                elif field_key == 'export_user':
-                    return 'System'  # TODO: get from auth context
-                elif field_key == 'export_timestamp':
-                    return datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                return None
-            
-            elif source == 'Opportunity' and source_column:
-                # Opportunity fields: customer_name, opportunity_name, etc.
-                return meta.get(source_column)
-            
-            elif source in ('L6Record', 'KPRecord') and source_column:
-                # L6/KP fields are resolved in _get_region_data, not here
-                # These are for static display (e.g., showing L6 price in header)
-                # For now, return None (dynamic region data handles these)
-                return None
-            
-            elif source == 'Config' and source_column:
-                # Config-level fields: description, server_model, quantity
-                # These are per-config, so we need to know which config
-                # For static bindings, use first config
-                if source_column == 'description':
-                    config_descriptions = meta.get('config_descriptions', {})
-                    if config_descriptions:
-                        first_cfg = list(config_descriptions.keys())[0]
-                        return config_descriptions.get(first_cfg, '')
-                elif source_column == 'server_model':
-                    config_server_models = meta.get('config_server_models', {})
-                    if config_server_models:
-                        first_cfg = list(config_server_models.keys())[0]
-                        return config_server_models.get(first_cfg, '')
-                elif source_column == 'quantity':
-                    config_quantities = meta.get('config_quantities', {})
-                    if config_quantities:
-                        first_cfg = list(config_quantities.keys())[0]
-                        return config_quantities.get(first_cfg, 0)
-                return None
-            
-            else:
-                # Unknown source, try direct meta lookup
-                return meta.get(field_key)
-        finally:
-            repo.close()
-    
-    def _get_region_data(self, region_field_key: str, config_dfs: dict, meta: dict = None, binding: dict = None) -> list:
-        """Get region data (list of dicts) based on regionFieldKey.
-
-        regionFieldKey values:
-        - 'l6_details': all L6 items
-        - 'kp_details': all Key Parts items
-        - 'warranty_details': all Warranty items
-        - 'all_items': all items from all configs
-        - 'config_summary': one row per config (for cover sheet)
-        """
-        all_items = []
-
-        if region_field_key == 'config_summary':
-            return self._build_config_summary(config_dfs, meta or {}, binding or {})
-
-        for cfg_name, df in config_dfs.items():
-            if region_field_key == 'l6_details':
-                l6_items = df[df['category'] == 'L6'].to_dict('records')
-                all_items.extend(l6_items)
-            elif region_field_key == 'kp_details':
-                kp_items = df[df['category'] == 'Key Parts'].to_dict('records')
-                all_items.extend(kp_items)
-            elif region_field_key == 'warranty_details':
-                warranty_items = df[df['category'] == 'Warranty'].to_dict('records')
-                all_items.extend(warranty_items)
-            elif region_field_key == 'all_items':
-                all_items.extend(df.to_dict('records'))
-
-        # Add numeric item_no to each item (1, 2, 3, ...)
-        for idx, item in enumerate(all_items, 1):
-            if 'item_no' not in item or not item['item_no']:
-                item['item_no'] = idx
-
-        return all_items
-    
-    def _build_config_summary(self, config_dfs: dict, meta: dict, binding: dict) -> list:
-        """Build one summary row per config for cover sheet.
-        
-        Generates: seq, model_name, description (from selectedParts), unit_price, quantity, total_price.
-        unit_price = L6 final_price sum + KP final_price sum + Warranty final_price sum
-        quantity = from meta.config_quantities[cfg_name], fallback to meta.total_qty
-        """
-        import pandas as pd
-        
-        # 从 binding 读取 selectedParts（用户选择的部件类型）
-        selected_parts = binding.get('selectedParts')
-        
-        # Per-config quantities
-        config_quantities = meta.get('config_quantities') or {}
-        default_qty = meta.get('total_qty', 0) or 0
-        
-        # Per-config user notes (from Workspace manual input)
-        config_descriptions = meta.get('config_descriptions') or {}
-        
-        summaries = []
-        for idx, (cfg_name, df) in enumerate(config_dfs.items(), 1):
-            if not isinstance(df, pd.DataFrame) or df.empty:
-                continue
-            
-            # Calculate unit_price = L6 + KP + Warranty (all final_price × qty)
-            l6_sum = (df[df['category'] == 'L6']['final_price'] * df[df['category'] == 'L6']['qty']).sum() if 'final_price' in df.columns and 'qty' in df.columns else 0
-            kp_sum = (df[df['category'] == 'Key Parts']['final_price'] * df[df['category'] == 'Key Parts']['qty']).sum() if 'final_price' in df.columns and 'qty' in df.columns else 0
-            warranty_sum = (df[df['category'] == 'Warranty']['final_price'] * df[df['category'] == 'Warranty']['qty']).sum() if 'final_price' in df.columns and 'qty' in df.columns else 0
-            unit_price = float(l6_sum or 0) + float(kp_sum or 0) + float(warranty_sum or 0)
-            
-            # Quantity for this config
-            quantity = config_quantities.get(cfg_name, default_qty)
-            
-            # Description: always dynamically generated from selectedParts (CPU/GPU etc.)
-            cfg_items = df.to_dict('records')
-            description = self._build_description_from_parts(cfg_items, selected_parts)
-            
-            # Model name: extract from L6 data (first L6 item's model_name or spec)
-            model_name = ''
-            l6_df = df[df['category'] == 'L6']
-            if not l6_df.empty:
-                # Try model_name first, then spec
-                model_name = l6_df.iloc[0].get('model_name', '') or l6_df.iloc[0].get('spec', '') or ''
-            
-            # Server model: from config_server_models
-            config_server_models = meta.get('config_server_models') or {}
-            server_model = config_server_models.get(cfg_name, '')
-            
-            summaries.append({
-                'seq': idx,
-                'model_name': model_name,
-                'server_model': server_model,
-                'desc': description,
-                'description': description,  # alias - always dynamic (CPU/GPU parts)
-                'config_note': config_note,  # user manual input from Workspace
-                'unit_price': round(unit_price, 2),
-                'qty': quantity,
-                'quantity': quantity,  # alias
-                'total_price': round(unit_price * quantity, 2),
-            })
-        
-        return summaries
-    
-    def _build_description_from_parts(self, cfg_items: list, selected_parts: list = None) -> str:
-        """Build description from config items, filtered by selected part types.
-        
-        Args:
-            cfg_items: List of config item dicts with part_name, qty, category
-            selected_parts: List of part type keywords to include (e.g., ['cpu', 'memory'])
-                           If None or empty, include all items
-        
-        Returns:
-            Comma-separated description like "CPU Model × 2, Memory Model × 4"
-        """
-        if not cfg_items:
-            return ''
-        
-        # 部件类型关键词映射
-        type_keywords = {
-            'cpu': ['cpu', 'processor', '处理器', 'epyc', 'xeon'],
-            'memory': ['memory', 'ram', '内存', 'ddr', 'dimm'],
-            'hdd': ['hdd', '硬盘', 'disk', 'storage', 'hdd'],
-            'ssd': ['ssd', '固态', 'nvme', 'm.2'],
-            'gpu': ['gpu', '显卡', 'graphics', 'nvidia', 'amd', 'rtx', 'quadro'],
-            'nic': ['nic', '网卡', 'network', 'ethernet', 'ib ', 'infiniband'],
-            'raid': ['raid', 'raid card'],
-            'psu': ['psu', '电源', 'power supply'],
-            'front_backplane': ['front backplane', '前背板'],
-            'rear_backplane': ['rear backplane', '后背板'],
-        }
-        
-        # 如果没有选择部件类型，显示所有项
-        if not selected_parts:
-            parts = []
-            for item in cfg_items:
-                part_name = item.get('part_name', '') or ''
-                qty = item.get('qty', 0) or 0
-                if part_name and qty > 0:
-                    parts.append(f"{part_name} × {qty}")
-            return ', '.join(parts)
-        
-        # 按选择的部件类型过滤
-        filtered_items = []
-        for item in cfg_items:
-            part_name = (item.get('part_name', '') or '').lower()
-            
-            # 检查是否匹配任何选中的部件类型
-            for part_type in selected_parts:
-                keywords = type_keywords.get(part_type, [part_type])
-                if any(kw in part_name for kw in keywords):
-                    filtered_items.append(item)
-                    break
-        
-        # 生成描述
-        parts = []
-        for item in filtered_items:
-            part_name = item.get('part_name', '') or ''
-            qty = item.get('qty', 0) or 0
-            if part_name and qty > 0:
-                parts.append(f"{part_name} × {qty}")
-        
-        return ', '.join(parts)
-
-
-    def _build_export_description(self, items_df: pd.DataFrame, template_override: str = None) -> str:
-        """Build export description from template with loop syntax support.
-        
-        Loop syntax: [${category_model}*${category_qty}; separator]
-        Example: [${disk_model}*${disk_qty}; ] expands to all disk items
-        """
-        # Get template: use default or override
-        default_template = "${cpu_model}*${cpu_qty}, ${memory_model}*${memory_qty}, [${disk_model}*${disk_qty}; ]"
-        template = template_override or default_template
-        
-        # Extract components grouped by category
-        categories = self._extract_categories(items_df)
-        
-        # Process loop blocks - replace each with its expanded content
-        # Insert separator between adjacent loop blocks (][ with nothing between)
-        normalized = re.sub(r'\](\s*)\[', '], [', template)
-        result = normalized
-        loop_pattern = r'\[([^\]]+)\]'
-        
-        def replace_loop(match):
-            block = match.group(1)
-            # Split by ; to get content and separator
-            parts = block.split(';')
-            if len(parts) == 1:
-                content = parts[0]
-                separator = ', '
-            else:
-                content = parts[0]
-                separator = ';'.join(parts[1:]).strip()
-                if not separator:
-                    separator = ', '
-            
-            # Detect category from variables in content
-            var_pattern = r'\$\{(\w+?)_(model|qty)\}'
-            matches = re.findall(var_pattern, content)
-            if not matches:
-                return ''
-            
-            category = matches[0][0].lower()  # Convert to lowercase to match categories dict
-            if category not in categories:
-                return ''
-            
-            items = categories[category]
-            expansions = []
-            for item in items:
-                expanded = content
-                expanded = expanded.replace(f'${{{category}_model}}', item['model'])
-                expanded = expanded.replace(f'${{{category}_qty}}', str(item['qty']))
-                expansions.append(expanded)
-            
-            return separator.join(expansions)
-        
-        result = re.sub(loop_pattern, replace_loop, result)
-        
-        # Now substitute non-loop variables (single items)
-        variables = self._extract_single_items(categories)
-        for key, value in variables.items():
-            result = result.replace(f'${{{key}}}', value)
-        
-        # Clean up and add separators between loop blocks
-        # Clean up multiple commas
-        result = re.sub(r',\s*,', ',', result)
-        # Remove leading/trailing commas
-        result = re.sub(r'^\s*,\s*', '', result)
-        result = re.sub(r'\s*,\s*$', '', result)
-        # Clean up * followed by comma
-        result = re.sub(r'\*\s*,', ',', result)
-        result = result.strip()
-        
-        return result
-    
-    def _extract_categories(self, items_df: pd.DataFrame) -> dict:
-        """Extract components grouped by category.
-        
-        Maps part_name to logical category using configurable mappings from DB.
-        Mappings are stored in rules table as 'export_category_mappings'.
-        
-        Returns:
-            {
-                'cpu': [{'model': 'Intel Xeon', 'qty': 2}],
-                'disk': [
-                    {'model': 'Samsung SSD', 'qty': 4},
-                    {'model': 'Intel SSD', 'qty': 2}
-                ]
-            }
-        """
-        categories = {}
-        if items_df.empty:
-            return categories
-        
-        # Load configurable mappings from DB, fallback to defaults
-        rules_repo = self.rules_repo
-        mappings = rules_repo.get_export_category_mappings()
-        
-        if not mappings:
-            # Default mappings (used when no custom mappings configured)
-            mappings = [
-                {"keywords": ["cpu", "processor"], "variable": "cpu"},
-                {"keywords": ["memory", "ram"], "variable": "memory"},
-                {"keywords": ["hdd", "ssd"], "variable": "disk"},
-                {"keywords": ["raid"], "variable": "raid"},
-                {"keywords": ["nic", "network"], "variable": "nic"},
-                {"keywords": ["gpu"], "variable": "gpu"},
-                {"keywords": ["power supply", "psu"], "variable": "psu"},
-                {"keywords": ["power cord"], "variable": "power_cord"},
-                {"keywords": ["fan"], "variable": "fan"},
-                {"keywords": ["heatsink"], "variable": "heatsink"},
-                {"keywords": ["chassis"], "variable": "chassis"},
-                {"keywords": ["backplane"], "variable": "backplane"},
-                {"keywords": ["cable"], "variable": "cable"},
-                {"keywords": ["rail"], "variable": "rail"},
-            ]
-
-        for _, item in items_df.iterrows():
-            category = str(item.get('category', '')).strip()
-            part_name = str(item.get('part_name', '')).strip()
-            spec = str(item.get('spec', '')).strip()
-
-            if not part_name:
-                continue
-
-            # For L6/KP/Warranty/Key Parts categories, use part_name to determine logical category
-            logical_category = category
-            part_lower = part_name.lower()
-
-            if part_lower == 'l6' or part_lower == '整机':
-                logical_category = 'L6'
-            elif '质保' in part_lower or 'warranty' in part_lower:
-                logical_category = 'Warranty'
-
-            export_categories.setdefault(logical_category, []).append({
-                'part_name': part_name,
-                'spec': spec,
-                'category': category,
-            })
-
-        return export_categories

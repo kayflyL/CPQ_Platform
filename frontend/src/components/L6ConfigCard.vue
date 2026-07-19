@@ -44,24 +44,24 @@
             <td class="category">前面板</td>
             <td>{{ wizardFrontPanel?.part_name || '—' }}</td>
             <td>{{ wizardFrontPanel?.description || '—' }}</td>
-            <td>1</td>
-            <td>¥ {{ formatPrice(wizardFrontPanelPrice) }}</td>
+            <td><a-input-number v-model:value="frontPanelQty" :min="1" :max="99" size="small" style="width: 60px" /></td>
+            <td>¥ {{ formatPrice(wizardFrontPanelUnitPrice) }}</td>
             <td>¥ {{ formatPrice(wizardFrontPanelPrice) }}</td>
           </tr>
           <tr>
             <td class="category">后面板</td>
             <td>{{ wizardRearPanel?.part_name || '—' }}</td>
             <td>{{ wizardRearPanel?.description || '—' }}</td>
-            <td>1</td>
-            <td>¥ {{ formatPrice(wizardRearPanelPrice) }}</td>
+            <td><a-input-number v-model:value="rearPanelQty" :min="1" :max="99" size="small" style="width: 60px" /></td>
+            <td>¥ {{ formatPrice(wizardRearPanelUnitPrice) }}</td>
             <td>¥ {{ formatPrice(wizardRearPanelPrice) }}</td>
           </tr>
           <tr>
             <td class="category">电源</td>
             <td>{{ wizardPsu?.part_name || '—' }}</td>
             <td>{{ wizardPsu?.description || '—' }}</td>
-            <td>1</td>
-            <td>¥ {{ formatPrice(wizardPsuPrice) }}</td>
+            <td><a-input-number v-model:value="psuQty" :min="1" :max="99" size="small" style="width: 60px" /></td>
+            <td>¥ {{ formatPrice(wizardPsuUnitPrice) }}</td>
             <td>¥ {{ formatPrice(wizardPsuPrice) }}</td>
           </tr>
           <tr v-if="hasAnySelection" class="total-row">
@@ -139,6 +139,25 @@ const wizardBasePrice = computed(() => wizardRef.value?.basePrice || 0)
 const wizardFrontPanelPrice = computed(() => wizardRef.value?.frontPanelPrice || 0)
 const wizardRearPanelPrice = computed(() => wizardRef.value?.rearPanelPrice || 0)
 const wizardPsuPrice = computed(() => wizardRef.value?.psuPrice || 0)
+
+// 从 wizard 实时获取单价（用于摘要表显示）
+const wizardFrontPanelUnitPrice = computed(() => wizardRef.value?.selectedFrontPanel?.unit_price || 0)
+const wizardRearPanelUnitPrice = computed(() => wizardRef.value?.selectedRearPanel?.unit_price || 0)
+const wizardPsuUnitPrice = computed(() => wizardRef.value?.selectedPsu?.unit_price || 0)
+
+// 数量（双向绑定到 wizard composable）
+const frontPanelQty = computed({
+  get: () => wizardRef.value?.frontPanelQty ?? 1,
+  set: (v: number) => { if (wizardRef.value) wizardRef.value.frontPanelQty = v || 1 }
+})
+const rearPanelQty = computed({
+  get: () => wizardRef.value?.rearPanelQty ?? 1,
+  set: (v: number) => { if (wizardRef.value) wizardRef.value.rearPanelQty = v || 1 }
+})
+const psuQty = computed({
+  get: () => wizardRef.value?.psuQty ?? 1,
+  set: (v: number) => { if (wizardRef.value) wizardRef.value.psuQty = v || 1 }
+})
 
 // 是否有任何选中项（用于显示合计行）
 const hasAnySelection = computed(() => {

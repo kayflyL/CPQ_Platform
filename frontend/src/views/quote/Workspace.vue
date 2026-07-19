@@ -139,20 +139,28 @@
 
             <!-- 硬件选配区域 -->
             <div v-if="sectionState[name] === 'hardware'" class="section-content">
-              <!-- L6 整机卡片 -->
+              <!-- L6 机箱选配（与服务器配置页共用组件）-->
               <div class="l6-section">
-                <L6ConfigCard
-                  mode="upload"
-                  :base-price="cfg.l6_matched_record?.base_price"
-                  :front-panel-price="cfg.l6_matched_record?.front_panel_price"
-                  :rear-panel-price="cfg.l6_matched_record?.rear_panel_price"
-                  :psu-price="cfg.l6_matched_record?.psu_price"
-                  :custom-price="cfg.l6_custom_price"
-                  :profit-margin="cfg.l6_profit_margin"
-                  @configure="(config) => handleL6ConfigSave(name, config)"
-                  @price-change="(price) => handleL6PriceChange(name, price)"
-                  @margin-change="(margin) => handleL6MarginChange(name, margin)"
+                <L6ChassisConfig
+                  :base-config-id="cfg.base_config_id ?? null"
+                  :kp-summary="kpSummaryFor(cfg)"
+                  :initial-picks="cfg.l6_bom_picks"
+                  @apply="(p: any) => store.setL6ChassisPicks(String(name), p)"
                 />
+                <!-- L6 单一利润率 -->
+                <div class="l6-margin-bar">
+                  <span class="lm-label">L6 机箱利润率</span>
+                  <a-input-number
+                    v-model:value="cfg.l6_profit_margin"
+                    :min="0" :max="100" :precision="1" :step="1"
+                    size="small" style="width: 110px" addon-after="%"
+                    @change="(v: number) => store.setL6ProfitMargin(String(name), v || 0)"
+                  />
+                  <span class="lm-final">
+                    L6 成本 ¥ {{ settingsStore.formatNumber(cfg.l6_custom_price || 0) }}
+                    → 最终售价 ¥ {{ settingsStore.formatNumber((cfg.l6_custom_price || 0) * (1 + (cfg.l6_profit_margin || 0) / 100)) }}
+                  </span>
+                </div>
               </div>
 
               <!-- KP 配件卡片群 -->
@@ -166,6 +174,7 @@
                     <div class="kp-card-header">
                       <span class="kp-name">{{ item.part_name }}</span>
                       <span class="kp-spec" v-if="item.spec">{{ item.spec }}</span>
+                      <span class="kp-match" v-if="item.match_status" :class="matchClass(item.match_status)">{{ item.match_status }}</span>
                     </div>
 
                     <div class="kp-inputs">
@@ -179,7 +188,7 @@
                       </div>
                       <div class="input-group">
                         <label>原始单价</label>
-                        <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" @blur="store.recalculateAll()" />
+                        <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" @change="() => onKpPriceChange(item)" />
                       </div>
                     </div>
 
@@ -188,13 +197,14 @@
                         最终售价：<span class="price-val">¥ {{ settingsStore.formatNumber(item.final_price) }}</span>
                       </div>
                       <a-button
+                        v-if="kpSyncable(item)"
                         size="small"
                         type="primary"
                         ghost
                         class="sync-btn"
-                        :disabled="!item.match_status?.includes('变动') && !item.match_status?.includes('缺失')"
+                        @click="openSyncModal(item)"
                       >
-                        同步
+                        同步价格
                       </a-button>
                     </div>
 
@@ -421,7 +431,7 @@
         </a-select>
 
         <a-button @click="handlePreview" :loading="previewLoading" class="btn-ghost">预览</a-button>
-        <a-button @click="store.doExport(selectedTemplateId)" :loading="exportLoading" class="btn-ghost">导出 Excel</a-button>
+        <a-button @click="handlePreview" :loading="previewLoading" class="btn-ghost">导出 Excel</a-button>
         <a-button type="primary" @click="handleSave()" :loading="saveLoading" class="btn-pri">保存商机</a-button>
       </div>
     </div>
@@ -429,8 +439,63 @@
     <!-- 右侧抽屉：商机文件 + 评论 -->
     <OpportunitySidebar :opportunity-id="currentOpportunityId" />
 
-    <!-- 预览弹窗 -->
-    <PreviewModal v-model:open="previewVisible" :sheets="previewSheets" />
+    <!-- 预览弹窗（使用 Univer 渲染） -->
+    <a-modal
+      v-model:open="previewVisible"
+      title="报价单预览"
+      :width="'95vw'"
+      ok-text="下载 Excel"
+      cancel-text="关闭"
+      :confirm-loading="exportDownloading"
+      @ok="handleDownloadExport"
+      :destroyOnClose="true"
+      style="top: 20px"
+    >
+      <div style="height: 85vh">
+        <UniverSheet
+          v-if="previewSnapshot"
+          ref="previewSheetRef"
+          :workbookData="previewSnapshot"
+          :editable="false"
+        />
+      </div>
+    </a-modal>
+    <!-- KP 同步价格弹窗 -->
+    <a-modal
+      v-model:open="syncVisible"
+      title="同步到 KP 配件库"
+      :confirm-loading="syncLoading"
+      :width="460"
+      ok-text="确认同步"
+      cancel-text="取消"
+      @ok="confirmSync"
+    >
+      <div v-if="syncTarget" class="sync-modal">
+        <div class="sync-row">
+          <span class="sync-label">类别</span>
+          <span class="sync-val">{{ syncTarget.part_name || 'Key Parts' }}</span>
+        </div>
+        <div class="sync-row">
+          <span class="sync-label">型号</span>
+          <span class="sync-val">{{ syncTarget.spec || syncTarget.part_name }}</span>
+        </div>
+        <div class="sync-row">
+          <span class="sync-label">价格</span>
+          <span class="sync-val sync-price">¥ {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</span>
+        </div>
+        <div class="sync-row sync-note">
+          <span class="sync-label">备注</span>
+          <a-textarea
+            v-model:value="syncNote"
+            :rows="2"
+            :maxlength="200"
+            show-count
+            placeholder="可选：如客户、项目、调价原因"
+          />
+        </div>
+        <div class="sync-hint">确认后将把以上价格与备注写入配件库该型号的价格历史。</div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -440,12 +505,15 @@ import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { useSettingsStore } from '@/store/settings'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
-import PreviewModal from '@/components/quote/PreviewModal.vue'
-import L6ConfigCard from '@/components/L6ConfigCard.vue'
+import UniverSheet from '@/components/UniverSheet.vue'
+import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
 import BomTable from '@/components/BomTable.vue'
 import { message, Modal } from 'ant-design-vue'
 import axios from 'axios'
-import { projectApi } from '@/api'
+import { univerTemplateApi } from '@/api/univerTemplate'
+import { syncKpPrice, getKpHistory } from '@/api/quote'
+import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
+import { downloadBlob } from '@/utils/download'
 
 const store = useQuoteStore()
 const settingsStore = useSettingsStore()
@@ -458,20 +526,22 @@ const templates = ref<any[]>([])
 const selectedTemplateId = ref<string>('')
 const previewLoading = ref(false)
 const previewVisible = ref(false)
-const previewSheets = ref<any[]>([])
+const previewSnapshot = ref<Record<string, any> | null>(null)
+
+// KP 同步价格弹窗
+const syncVisible = ref(false)
+const syncTarget = ref<any>(null)
+const syncNote = ref('')
+const syncLoading = ref(false)
 
 // 加载导出模板列表
 const loadTemplates = async () => {
   try {
-    // 从Univer模板API获取模板列表
-    const response = await axios.get('/api/univer-templates')
-    if (response.data && response.data.templates) {
-      templates.value = response.data.templates
-      // 默认选中默认模板
-      const defaultTemplate = response.data.templates.find((t: any) => t.is_default)
-      if (defaultTemplate) {
-        selectedTemplateId.value = String(defaultTemplate.id)
-      }
+    const list = await univerTemplateApi.list()
+    templates.value = list
+    const defaultTemplate = list.find((t: any) => t.is_default)
+    if (defaultTemplate) {
+      selectedTemplateId.value = String(defaultTemplate.id)
     }
   } catch (e) {
     console.error('加载模板列表失败', e)
@@ -493,14 +563,42 @@ const handlePreview = async () => {
       return
     }
 
-    const data = await projectApi.previewJson(opportunityId, selectedTemplateId.value)
-    previewSheets.value = data.sheets || []
+    const quotationId = store.opportunityInfo.quotation_id || (route.query.quotationId as string)
+    const result = await univerTemplateApi.preview(
+      Number(selectedTemplateId.value),
+      opportunityId,
+      quotationId
+    )
+    previewSnapshot.value = result.workbook_snapshot
     previewVisible.value = true
   } catch (e) {
     console.error('预览失败', e)
     message.error('预览失败，请重试')
   } finally {
     previewLoading.value = false
+  }
+}
+
+// 预览弹窗内「下载 Excel」：从 live Univer 实例读已解析样式 → exceljs 写出（WYSIWYG）
+const previewSheetRef = ref<any>(null)
+const exportDownloading = ref(false)
+async function handleDownloadExport() {
+  const wb = previewSheetRef.value?.getResolvedWorkbook?.()
+  if (!wb || !wb.sheets.length) {
+    message.warning('工作簿尚未就绪，请稍候重试')
+    return
+  }
+  exportDownloading.value = true
+  try {
+    const blob = await resolvedWorkbookToXlsx(wb)
+    const oid = store.opportunityInfo?.opportunity_id || '报价单'
+    downloadBlob(blob, `${oid}_报价单.xlsx`)
+    message.success('已导出 Excel')
+  } catch (e: any) {
+    console.error('[handleDownloadExport]', e)
+    message.error('导出失败：' + (e?.message || e))
+  } finally {
+    exportDownloading.value = false
   }
 }
 
@@ -536,7 +634,6 @@ const getWarrantyDesc = (cfg: any, type: 'l6' | 'kp'): string => {
   return warrantyDescDefaults.value[type] || ''
 }
 const saveLoading = ref(false)
-const exportLoading = ref(false)
 
 // 入口上下文（来自路由 query）: upload | opportunities
 const entryFrom = computed(() => (route.query.from as string) || 'upload')
@@ -701,58 +798,39 @@ const addConfig = () => {
     l6_custom_price: 0,
     l6_profit_margin: 10,
     warranty_info: {
-      l6: { detected: false, years: null, rate: 0 },
-      kp: { detected: false, years: null, rate: 0 }
-    }
+      l6: { detected: false, years: null as number | null, rate: 0 },
+      kp: { detected: false, years: null as number | null, rate: 0 }
+    } as any
   }
   activeCfg.value = newName
   sectionState[newName] = 'hardware'
   message.success(`已添加配置页 ${newName}`)
 }
 
-// L6 配置保存（从内嵌 Wizard 直接触发）
-const handleL6ConfigSave = (cfgName: string | number, configData: any) => {
-  const cfg = store.configs[String(cfgName)]
-  if (!cfg) return
-
-  // 将四步配置的分项价格写入 l6_matched_record（卡片显示用）
-  store.setL6MatchedRecord(String(cfgName), {
-    ...cfg.l6_matched_record,
-    base_price: configData.base_price || 0,
-    front_panel_price: configData.front_panel_price || 0,
-    rear_panel_price: configData.rear_panel_price || 0,
-    psu_price: configData.psu_price || 0,
-    price: configData.total_price || 0
-  })
-
-  // 总价作为 l6_custom_price
-  store.setL6CustomPrice(String(cfgName), configData.total_price || 0, 10)
-
-  // 存 BOM 配置详情
-  store.setL6BomConfig(String(cfgName), {
-    base_config: configData.base_config,
-    front_panel: configData.front_panel,
-    rear_panel: configData.rear_panel,
-    psu: configData.psu
-  })
-
-  message.success('L6 配置已保存')
-}
-
-// L6 价格变更（从卡片直接编辑）
-const handleL6PriceChange = (cfgName: string | number, price: number) => {
-  const cfg = store.configs[String(cfgName)]
-  if (!cfg) return
-  // 使用 store 方法确保响应式更新
-  store.setL6CustomPrice(String(cfgName), price, cfg.l6_profit_margin || 10)
-}
-
-// L6 利润率变更（从卡片直接编辑）
-const handleL6MarginChange = (cfgName: string | number, margin: number) => {
-  const cfg = store.configs[String(cfgName)]
-  if (!cfg) return
-  // 使用 store 方法确保响应式更新
-  store.setL6CustomPrice(String(cfgName), cfg.l6_custom_price || 0, margin)
+// 由当前配置的 KP 行合成 kpSummary，喂给 L6ChassisConfig 做 derive（best-effort）
+// excel 解析的 KP spec 是模型串，未必匹配 kp_parts pn → derive 失败回落手选（[[derive-must-have-manual-fallback]]）
+function kpSummaryFor(cfg: any) {
+  const items = cfg.items || []
+  let cpuPn: string | undefined, cpuQty = 0
+  let gpuPn: string | undefined, gpuQty = 0
+  let hasGpu = false
+  const drivesByKind: Record<string, number> = {}
+  for (const it of items) {
+    if (it.category !== 'Key Parts') continue
+    const name = (it.part_name || '').toLowerCase()
+    const spec = it.spec || ''
+    if (name.includes('cpu') || name.includes('processor')) {
+      cpuPn = spec; cpuQty += (it.qty || 0)
+    } else if (name.includes('gpu')) {
+      gpuPn = spec; gpuQty += (it.qty || 0); hasGpu = true
+    } else {
+      const up = (name + ' ' + spec).toUpperCase()
+      for (const k of ['SATA', 'SAS', 'NVMe']) {
+        if (up.includes(k)) { drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0); break }
+      }
+    }
+  }
+  return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: hasGpu ? 'pt' : 'none', drivesByKind }
 }
 
 const handleSave = async () => {
@@ -808,6 +886,118 @@ const onHistoryExpand = async (item: any, keys: string[]) => {
   }
 }
 
+// KP 比价 + 单条手动同步（D3）：enrich 在上传时设 match_status/db_price；
+// 用户改价后客户端按 db_price 重算 match_status；同步按钮单条写配件库历史。
+function matchClass(s: string): string {
+  if (s.includes('一致') || s.includes('已同步')) return 'ok'
+  if (s.includes('差异') || s.includes('待填') || s.includes('缺失')) return 'warn'
+  if (s.includes('新部件')) return 'new'
+  return ''
+}
+
+// db_price 归一化：null/undefined/""/非有限数 → null（视为配件库无此型号）
+// 后端 enrich 理论上给 null 或数字，但持久化往返后可能残留 ""，必须统一兜底，否则 "" == null 为 false 会误判成「有 db 价」
+function dbPriceOf(item: any): number | null {
+  const raw = item.db_price
+  if (raw === '' || raw == null) return null
+  const n = Number(raw)
+  return Number.isFinite(n) ? n : null
+}
+
+function kpSyncable(item: any): boolean {
+  const model = item.spec || item.part_name
+  if (!model) return false
+  const cur = Number(item.base_price) || 0
+  if (cur <= 0) return false
+  const db = dbPriceOf(item)
+  // 配件库无此型号（db=null）→ 可同步；有则仅当价格不一致才可同步
+  if (db == null) return true
+  return Math.abs(cur - db) > 0.01
+}
+
+function onKpPriceChange(item: any) {
+  computeKpMatch(item)
+  store.recalculateAll()
+}
+
+// 按 base_price 与配件库最新价（db_price）计算 match_status 文案（纯计算，不触发 recalc）
+function computeKpMatch(item: any) {
+  const db = dbPriceOf(item)
+  const cur = Number(item.base_price) || 0
+  if (db == null) {
+    item.match_status = cur > 0 ? '🆕 新部件' : '❌ 缺失 (请填写)'
+  } else if (cur === 0) {
+    item.match_status = `⚠️ 待填入 [DB=${db}]`
+  } else if (Math.abs(cur - db) > 0.01) {
+    item.match_status = `⚠️ 差异 (当前: ${cur}, DB: ${db})`
+  } else {
+    item.match_status = `✅ 一致 [DB=${db}]`
+  }
+}
+
+// 加载报价单后：并行刷新所有 KP 行的配件库最新价（db_price）。
+// db_price 原本是上传 enrich 的冻结快照，配件库后续更新或持久化往返（丢成空串）都会让它失真；
+// 实时按 spec 拉一次历史取首条最新价覆盖，同步按钮的显隐才与「配件库当前最新价」一致。
+async function refreshKpDbPrices() {
+  const tasks: Promise<void>[] = []
+  for (const cfg of Object.values(store.configs)) {
+    for (const item of cfg.items) {
+      if (item.category !== 'Key Parts') continue
+      const model = item.spec || item.part_name
+      if (!model) continue
+      tasks.push((async () => {
+        try {
+          const arr = await getKpHistory(model)
+          const latest = Array.isArray(arr) && arr.length ? arr[0] : null
+          const n = latest ? Number(latest.price) : null
+          item.db_price = (n == null || !Number.isFinite(n)) ? null : n
+          computeKpMatch(item)
+        } catch { /* 单条失败保留原 db_price，不阻塞其他行 */ }
+      })())
+    }
+  }
+  await Promise.all(tasks)
+}
+
+// 打开同步弹窗：校验型号与价格后，载入当前 KP 行作为同步目标
+function openSyncModal(item: any) {
+  const model = item.spec || item.part_name
+  if (!model) { message.warning('无型号，无法同步'); return }
+  if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
+  syncTarget.value = item
+  syncNote.value = ''
+  syncVisible.value = true
+}
+
+// 确认同步：把价格 + 用户备注写入配件库历史，并就地刷新该行的 db_price / match_status / 历史
+async function confirmSync() {
+  const item = syncTarget.value
+  if (!item) return
+  const model = item.spec || item.part_name
+  if (!model) { message.warning('无型号，无法同步'); return }
+  if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
+  syncLoading.value = true
+  try {
+    await syncKpPrice({
+      category: item.part_name || 'Key Parts',
+      model,
+      price: Number(item.base_price),
+      note: syncNote.value.trim() || '报价工作台手动同步',
+    })
+    item.db_price = Number(item.base_price)
+    item.match_status = `✅ 已同步 [${item.base_price}]`
+    if (item._histLoaded) {
+      try { item._history = await getKpHistory(model) } catch { /* 历史刷新失败不阻塞 */ }
+    }
+    message.success(`已同步 ${model} → 配件库历史`)
+    syncVisible.value = false
+  } catch (e: any) {
+    message.error('同步失败：' + (e?.message || e))
+  } finally {
+    syncLoading.value = false
+  }
+}
+
 onMounted(async () => {
   // 加载导出模板列表
   await loadTemplates()
@@ -851,6 +1041,7 @@ onMounted(async () => {
       l6_matched_record: null,
       l6_custom_price: 0,
       l6_profit_margin: 10,
+      bom_source: 'live',
       warranty_info: {
         l6: { detected: false, years: null, rate: 0 },
         kp: { detected: false, years: null, rate: 0 }
@@ -869,6 +1060,7 @@ onMounted(async () => {
       const configDescriptions = quotation.config_descriptions || {}
       const configServerModels = quotation.config_server_models || {}
       const configQuantities = quotation.config_quantities || {}
+      const configWarrantyInfo = quotation.config_warranty_info || {}
 
       // 🔧 修复：先从所有数据源收集配置名，确保没有 items 的配置也能被加载
       const allConfigNames = new Set<string>()
@@ -888,7 +1080,7 @@ onMounted(async () => {
           l6_matched_record: null,
           l6_custom_price: 0,
           l6_profit_margin: 10,
-          warranty_info: {
+          warranty_info: configWarrantyInfo[cfgName] || {
             l6: { detected: false, years: null, rate: 0 },
             kp: { detected: false, years: null, rate: 0 }
           }
@@ -951,7 +1143,9 @@ onMounted(async () => {
       }
 
       // 传递 config_quantities 到 store
-      store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities })
+      // Excel 上传报价单判定:file_path 非空 或 从上传页进入 → 左栏快照模式
+      const isExcelQuote = !!quotation.file_path || entryFrom.value === 'upload'
+      store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities, config_l6_picks: quotation.config_l6_picks, is_excel_quote: isExcelQuote })
       message.success("已加载报价单数据")
     } catch (err) {
       console.error("加载报价单失败", err)
@@ -962,7 +1156,8 @@ onMounted(async () => {
     const dataStr = sessionStorage.getItem('quotation_data')
     if (dataStr) {
       try {
-        store.loadData(JSON.parse(dataStr))
+        // 上传后跳转 = Excel 报价单,左栏用快照模式
+        store.loadData({ ...JSON.parse(dataStr), is_excel_quote: true })
       } catch (e) {
         console.error("解析上传数据失败", e)
       }
@@ -972,6 +1167,8 @@ onMounted(async () => {
   }
   initSectionState()
   store.recalculateAll()
+  // 后台并行刷新所有 KP 行的配件库最新价（基于当前配件库，而非上传快照），刷新后同步按钮显隐自动更新
+  refreshKpDbPrices()
 })
 </script>
 
@@ -1318,6 +1515,35 @@ onMounted(async () => {
   padding-top: 24px;
 }
 
+.l6-margin-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-overlay-w6);
+}
+
+.l6-margin-bar .lm-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+  white-space: nowrap;
+}
+
+.l6-margin-bar .lm-final {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
+
+.l6-margin-bar .lm-final :deep(.price) {
+  color: var(--cpq-accent-primary);
+  font-weight: 700;
+}
+
 /* ============================================
    9. KP Section
    ============================================ */
@@ -1389,6 +1615,20 @@ onMounted(async () => {
   color: var(--cpq-text-muted);
   font-weight: normal;
 }
+
+.kp-match {
+  margin-left: auto;
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.kp-match.ok { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
+.kp-match.warn { color: #fa8c16; background: rgba(250,140,22,.14); }
+.kp-match.new { color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); }
 
 .kp-inputs {
   display: grid;
@@ -1532,6 +1772,57 @@ onMounted(async () => {
   color: var(--cpq-text-muted);
   text-align: center;
   padding: 12px 0;
+}
+
+/* KP 同步价格弹窗 */
+.sync-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.sync-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.sync-label {
+  flex: 0 0 48px;
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+  line-height: 22px;
+}
+
+.sync-val {
+  flex: 1;
+  font-size: 14px;
+  color: var(--cpq-text-primary);
+  font-weight: 500;
+  word-break: break-word;
+  line-height: 22px;
+}
+
+.sync-val.sync-price {
+  color: var(--cpq-accent-primary);
+  font-weight: 700;
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.sync-note :deep(.ant-input) {
+  background: var(--cpq-overlay-b30) !important;
+  border-color: var(--cpq-overlay-w10) !important;
+  color: var(--cpq-text-primary) !important;
+}
+
+.sync-hint {
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+  background: var(--cpq-overlay-w4);
+  border-radius: 8px;
+  padding: 8px 10px;
+  line-height: 1.5;
 }
 
 /* ============================================

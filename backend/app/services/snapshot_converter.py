@@ -1,14 +1,11 @@
 """
-Excel ↔ Univer workbook_snapshot 转换服务
+Excel → Univer workbook_snapshot 转换服务
 
 职责：
 - excel_to_snapshot: 上传 Excel → 转为 Univer 格式
-- snapshot_to_excel: 导出时 snapshot → Excel 文件
 """
 import io
 import openpyxl
-from openpyxl.utils import get_column_letter
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from typing import Tuple
 
 
@@ -195,6 +192,8 @@ def _map_vertical_align(align: str) -> int:
     return mapping.get(align, 0)
 
 
+
+
 def _convert_border(border) -> dict:
     """转换边框"""
     bd = {}
@@ -209,126 +208,3 @@ def _convert_border(border) -> dict:
     return bd
 
 
-def snapshot_to_excel(workbook_snapshot: dict) -> io.BytesIO:
-    """
-    将 Univer workbook_snapshot 转为 Excel 文件
-    
-    Args:
-        workbook_snapshot: Univer 格式的 workbook 数据
-        
-    Returns:
-        Excel 文件的 BytesIO 流
-    """
-    wb = openpyxl.Workbook()
-    # 删除默认 sheet
-    wb.remove(wb.active)
-    
-    sheets = workbook_snapshot.get("sheets", {})
-    sheet_order = workbook_snapshot.get("sheetOrder", [])
-    
-    for sheet_id in sheet_order:
-        sheet_data = sheets.get(sheet_id)
-        if not sheet_data:
-            continue
-        
-        ws = wb.create_sheet(title=sheet_data.get("name", "Sheet"))
-        
-        # 写入单元格数据
-        cell_data = sheet_data.get("cellData", {})
-        for row_idx_str, row_data in cell_data.items():
-            row_idx = int(row_idx_str) + 1  # 1-indexed
-            for col_idx_str, cell_obj in row_data.items():
-                col_idx = int(col_idx_str) + 1  # 1-indexed
-                cell = ws.cell(row=row_idx, column=col_idx)
-                
-                # 写入值
-                cell.value = cell_obj.get("v")
-                
-                # 应用样式
-                style = cell_obj.get("s", {})
-                _apply_cell_style(cell, style)
-        
-        # 应用合并单元格
-        merge_data = sheet_data.get("mergeData", [])
-        for merge in merge_data:
-            start_row = merge["startRow"] + 1
-            start_col = merge["startColumn"] + 1
-            end_row = merge["endRow"] + 1
-            end_col = merge["endColumn"] + 1
-            ws.merge_cells(
-                start_row=start_row,
-                start_column=start_col,
-                end_row=end_row,
-                end_column=end_col,
-            )
-        
-        # 应用行高
-        row_data = sheet_data.get("rowData", {})
-        for row_idx_str, row_dim in row_data.items():
-            row_idx = int(row_idx_str) + 1
-            if "h" in row_dim:
-                ws.row_dimensions[row_idx].height = row_dim["h"]
-        
-        # 应用列宽
-        column_data = sheet_data.get("columnData", {})
-        for col_idx_str, col_dim in column_data.items():
-            col_idx = int(col_idx_str) + 1
-            col_letter = get_column_letter(col_idx)
-            if "w" in col_dim:
-                ws.column_dimensions[col_letter].width = col_dim["w"]
-    
-    output = io.BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output
-
-
-def _apply_cell_style(cell, style: dict):
-    """应用样式到单元格"""
-    if not style:
-        return
-    
-    # 字体
-    font_kwargs = {}
-    if "ff" in style:
-        font_kwargs["name"] = style["ff"]
-    if "fs" in style:
-        font_kwargs["size"] = style["fs"]
-    if style.get("bl"):
-        font_kwargs["bold"] = True
-    if style.get("it"):
-        font_kwargs["italic"] = True
-    if "fc" in style:
-        font_kwargs["color"] = style["fc"]
-    if font_kwargs:
-        cell.font = Font(**font_kwargs)
-    
-    # 背景色
-    if "bg" in style:
-        cell.fill = PatternFill(start_color=style["bg"], end_color=style["bg"], fill_type="solid")
-    
-    # 对齐
-    align_kwargs = {}
-    if "ht" in style:
-        align_kwargs["horizontal"] = _reverse_horizontal_align(style["ht"])
-    if "vt" in style:
-        align_kwargs["vertical"] = _reverse_vertical_align(style["vt"])
-    if style.get("tb") == 2:
-        align_kwargs["wrap_text"] = True
-    if align_kwargs:
-        cell.alignment = Alignment(**align_kwargs)
-    
-    # 边框
-    if "bd" in style:
-        border_kwargs = {}
-        bd = style["bd"]
-        if "t" in bd:
-            border_kwargs["top"] = Side(style="thin", color=bd["t"].get("cl", {}).get("rgb", "000000"))
-        if "b" in bd:
-            border_kwargs["bottom"] = Side(style="thin", color=bd["b"].get("cl", {}).get("rgb", "000000"))
-        if "l" in bd:
-            border_kwargs["left"] = Side(style="thin", color=bd["l"].get("cl", {}).get("rgb", "000000"))
-        if "r" in bd:
-            border_kwargs["right"] = Side(style="thin", color=bd["r"].get("cl", {}).get("rgb", "000000"))
-        if border_kwargs:
-            cell.border = Border(**border_kwargs)
