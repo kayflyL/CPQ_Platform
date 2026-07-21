@@ -7,6 +7,7 @@
 - 加载配置项明细（L6/KP/Warranty）—— 从 DB 的 opportunity_items 表
 - 组装完整的预览数据源
 """
+import json
 from datetime import datetime
 from typing import Optional
 from app.repository.opportunity_repo import OpportunityRepository
@@ -130,11 +131,111 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
     
     return data
 
+def _load_l6_from_template(quotation):
+    """从 quotation.extra_fields.config_l6_picks 读 L6 预览行——对齐左栏 BomTable 的渲染。
+
+    两种来源：
+    - bom_source=='excel'：从持久化的 bom_excel_rows 取 L6/整机 行（catalogue=part_name, desc=spec, qty）。
+      与左栏同源，不依赖可变的 opportunity_items。老数据无快照则不加入 covered，
+      交给 _load_item_details 的扁平回落（items 未污染，仍正确）。
+    - live + 有 bom_template.rows：按模板 + bom_context 展开（catalogue=label, desc=ctx.desc, qty=ctx.qty）。
+      无模板的 live cfg 不产出 L6 行（不显示机箱原版料）。
+
+    行字段 key 与扁平料号行保持完全一致（part_name/spec/qty/config_name/...），
+    这样 Univer 模板里的 binding（part_name→Catalogue 列、spec→Description 列、qty→Qty 列）无需改动。
+
+    Returns:
+        (rows_out, covered, excel_cfgs, l6_price_map, l6_margin_map):
+          rows_out 是展开的 L6 行；
+          covered 是已产出行的 cfg 名集合（模板行 / excel 快照）；
+          excel_cfgs 是所有 bom_source=='excel' 的 cfg 名（含无快照老数据，供 _load_item_details 回落判断）；
+          l6_price_map 是 {cfg_name: l6_custom_price}（L6 成本，新方案显式持久化）；
+          l6_margin_map 是 {cfg_name: l6_profit_margin}（L6 利润率%，与成本配对算售价）。
+    """
+    if not quotation or not quotation.extra_fields:
+        return [], set(), set(), {}, {}
+    try:
+        extra = json.loads(quotation.extra_fields)
+    except (json.JSONDecodeError, TypeError):
+        return [], set(), set()
+
+    picks = extra.get("config_l6_picks") or {}
+    rows_out = []
+    covered = set()
+    excel_cfgs = set()
+    l6_price_map = {}
+    l6_margin_map = {}
+    for cfg_name, pick in picks.items():
+        if not isinstance(pick, dict):
+            continue
+        if pick.get("l6_custom_price") is not None:
+            l6_price_map[cfg_name] = pick.get("l6_custom_price") or 0
+        if pick.get("l6_profit_margin") is not None:
+            l6_margin_map[cfg_name] = pick.get("l6_profit_margin") or 0
+        if pick.get("bom_source") == "excel":
+            excel_cfgs.add(cfg_name)
+            excel_rows = pick.get("bom_excel_rows") or []
+            if excel_rows:
+                for r in excel_rows:
+                    if not isinstance(r, dict):
+                        continue
+                    if r.get("category") not in ("L6", "整机"):
+                        continue
+                    qty_val = r.get("qty", 0)
+                    rows_out.append({
+                        "config_name": cfg_name,
+                        "category": r.get("category") or "L6",
+                        "part_name": r.get("part_name", "") or "",
+                        "spec": r.get("spec", "") or "",
+                        "qty": 0 if qty_val is None else qty_val,
+                        "base_price": r.get("base_price", 0) or 0,
+                        "final_price": r.get("final_price", 0) or 0,
+                        "unit_price": r.get("final_price", 0) or 0,
+                        "profit_margin": r.get("profit_margin", 0) or 0,
+                        "description": "",
+                        "item_no": 0,
+                    })
+                covered.add(cfg_name)
+            continue
+        tpl = pick.get("bom_template") or {}
+        rows = tpl.get("rows") if isinstance(tpl, dict) else None
+        if not rows:
+            continue
+        ctx = pick.get("bom_context") or {}
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            key = r.get("slot") or r.get("type")
+            v = ctx.get(key, {}) if isinstance(ctx, dict) else {}
+            v = v if isinstance(v, dict) else {}
+            qty_val = v.get("qty", "")
+            rows_out.append({
+                "config_name": cfg_name,
+                "category": "L6",
+                "part_name": r.get("label", "") or "",
+                "spec": v.get("desc", "") or "",
+                "qty": "" if qty_val is None else qty_val,
+                "base_price": 0,
+                "final_price": 0,
+                "unit_price": 0,
+                "profit_margin": 0,
+                "description": "",
+                "item_no": 0,
+            })
+        covered.add(cfg_name)
+    return rows_out, covered, excel_cfgs, l6_price_map, l6_margin_map
+
+
 def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     """加载配置项明细到 data"""
     l6_items = []
     kp_items = []
-    
+
+    # L6 优先按基准配置绑定的 BOM 模板 / excel 快照展开（对齐左栏 BomTable）；
+    # 已被覆盖的 cfg 不再走扁平料号行。
+    # 无模板 live cfg 不收集机箱原版料；excel 无快照老数据（未 covered 但 in excel_cfgs）允许扁平回落。
+    tpl_l6_rows, covered_cfgs, excel_cfgs, l6_price_map, l6_margin_map = _load_l6_from_template(quotation)
+
     for idx, item in enumerate(items):
         # 统一字段名：unit_price = final_price（兼容前端显示）
         item_with_no = {
@@ -143,12 +244,16 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             "unit_price": item.get("final_price", 0),
         }
         category = item.get("category", "")
-        
+        cfg_name = item.get("config_name", "")
+
         if category == "L6":
-            l6_items.append(item_with_no)
+            # excel 无快照老数据回落扁平；其余未覆盖情况（live 无模板）不显机箱料
+            if cfg_name not in covered_cfgs and cfg_name in excel_cfgs:
+                l6_items.append(item_with_no)
         elif category == "Key Parts":
             kp_items.append(item_with_no)
-    
+
+    l6_items = tpl_l6_rows + l6_items
     data["l6_details"] = l6_items
     data["kp_details"] = kp_items
     data["all_items"] = items
@@ -204,11 +309,21 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     for cfg_key, group in config_groups.items():
         cfg_name = group["name"]
         cfg_items = group["items"]
-        # 计算 unit_price = L6 + KP + Warranty (final_price × qty)
-        l6_sum = sum(
-            (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
-            for i in cfg_items if i.get("category") == "L6"
-        )
+        # 计算 unit_price = L6 + KP + Warranty（售价口径：final_price × qty）
+        # L6 售价 = l6_custom_price(成本) × (1 + l6_profit_margin/100)，与原 items L6 行 final_price 一致；
+        # 老数据（无持久化价格）回落 items L6 行 final_price 求和。
+        if cfg_name in l6_price_map:
+            cost = float(l6_price_map.get(cfg_name) or 0)
+            margin = float(l6_margin_map.get(cfg_name) or 0)
+            l6_sum = cost * (1 + margin / 100)
+        elif cfg_name in excel_cfgs:
+            # excel 模式 L6 仅参考，不参与算价
+            l6_sum = 0
+        else:
+            l6_sum = sum(
+                (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
+                for i in cfg_items if i.get("category") == "L6"
+            )
         kp_sum = sum(
             (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
             for i in cfg_items if i.get("category") == "Key Parts"
@@ -267,14 +382,19 @@ def _build_description(cfg_items: list, selected_parts: list = None, separator: 
         # 数据库未配置关键词映射，返回空描述
         return ""
     
+    # 描述只汇总 Key Parts（CPU/GPU/Memory/Disk 等关键配件）；L6 机箱级料号不参与——
+    # 否则 'cpu' 关键词会把 L6 的 "CPU Heatsink" 误匹配为 CPU，显示成散热器 PN（如 S.E.M.0000189 × 2）。
+    # Key Parts 在 items 里排在 L6 之后，全集遍历会先命中散热器，故必须限定类别。
+    search_pool = [it for it in cfg_items if it.get("category") == "Key Parts"]
+
     parts = []
-    
+
     # 按用户选择的部件类型筛选
     for part_type in selected_parts:
         keywords = type_keywords.get(part_type.lower(), [part_type])
-        
+
         # 查找匹配的部件
-        for item in cfg_items:
+        for item in search_pool:
             part_name = str(item.get("part_name", "") or "").lower()
             spec = str(item.get("spec", "") or "").lower()
             

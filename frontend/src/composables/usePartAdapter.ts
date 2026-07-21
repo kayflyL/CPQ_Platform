@@ -14,14 +14,14 @@ function assertPn(x: PickerItem): PickerItem {
 
 export const fromKpPart = (p: KpPart): PickerItem =>
   assertPn({
-    pn: p.pn, name: p.name, category: p.category, sub_type: p.sub_type,
+    pn: p.pn, name: p.name, category: p.category,
     specs: p.specs, unit_price: p.unit_price, brand: p.brand,
     applicable: p.applicable, source: 'kp',
   })
 
 export const fromPartMaster = (p: PartMaster): PickerItem =>
   assertPn({
-    pn: p.pn, name: p.name, category: p.category, sub_type: p.sub_type,
+    pn: p.pn, name: p.name, category: p.category, section: p.section,
     specs: p.specs, unit_price: p.unit_price, supplier: p.supplier,
     description: p.description, applicable: p.applicable, source: 'l6',
   })

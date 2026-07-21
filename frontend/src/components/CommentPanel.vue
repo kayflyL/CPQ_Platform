@@ -47,7 +47,7 @@ import axios from 'axios'
 
 interface Comment {
   id: number
-  project_id: string
+  opportunity_id: string
   user_name: string
   content: string
   created_at: string
@@ -85,7 +85,7 @@ const handleAdd = async () => {
   loading.value = true
   try {
     await axios.post('/api/comments/', {
-      project_id: props.opportunityId,
+      opportunity_id: props.opportunityId,
       content: newComment.value,
       user_name: '当前用户' // TODO: 从登录状态获取
     })

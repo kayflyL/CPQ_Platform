@@ -9,7 +9,7 @@
  *
  * 遵循：[[ocp-is-networking-not-pcie]]（OCP 独立网络分段）/ [[derive-must-have-manual-fallback]]（推导仅兜底，料号库手选）
  */
-import { ref, computed, onMounted, watch, watchEffect, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect, reactive } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   baseConfigApi, partsApi, rearIOApi, deriveApi, bomTemplateApi,
@@ -18,6 +18,7 @@ import {
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import PartPicker from '@/components/common/PartPicker.vue'
+import CountNumber from '@/components/common/CountNumber.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 
 const props = defineProps<{
@@ -29,6 +30,8 @@ const props = defineProps<{
     drivesByKind?: Record<string, number> // {SATA, SAS, NVMe}
   }
   initialPicks?: any
+  /** 弹窗模式：左侧步骤条 + 右侧单步内容（堆叠模式为 false，Workspace 行为不变） */
+  stepper?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -45,6 +48,15 @@ const {
 const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据
 const baseConfig = ref<(BaseConfig & { parts: any[]; rear_slots?: string[] }) | null>(null)
 const bomTemplate = ref<BomTemplate | null>(null)     // 该机型族的左栏 L6 行骨架模板
+
+// stepper 模式：左步骤条当前激活步（仅 stepper=true 时生效）
+const L6_STEPS = [
+  { id: 'base', n: 1, label: '基准配置' },
+  { id: 'front', n: 2, label: '前面板' },
+  { id: 'rear', n: 3, label: '后面板' },
+  { id: 'psu', n: 4, label: '电源' },
+] as const
+const activeStep = ref<'base' | 'front' | 'rear' | 'psu'>('base')
 const frontCables = ref<PartMaster[]>([])
 const gpuCableParts = ref<PartMaster[]>([])
 const psuParts = ref<PartMaster[]>([])
@@ -91,11 +103,11 @@ async function loadReference(series: string | undefined) {
     return
   }
   const [fcRes, gpuCableRes, rearRes, psuPartsRes, bpRes] = await Promise.all([
-    partsApi.list('前面板线缆'),
-    partsApi.list('GPU电源线'),
+    partsApi.list({ category: '前面板线缆' }),
+    partsApi.list({ category: 'GPU电源线' }),
     rearIOApi.getOptions(series === 'Polaris' ? 'Polaris' : 'Orion'),
-    partsApi.list('电源'),
-    partsApi.list('背板'),
+    partsApi.list({ category: '电源' }),
+    partsApi.list({ category: '背板' }),
   ])
   frontCables.value = fcRes.parts
   gpuCableParts.value = gpuCableRes.parts
@@ -126,8 +138,8 @@ async function loadBaseConfig(id: number) {
 }
 
 // ---- 背板（从料号库，三模/直连）----
-const bpTri = computed(() => bpParts.value.filter(p => /三模|tri/i.test((p.name || '') + (p.sub_type || ''))))
-const bpDc = computed(() => bpParts.value.filter(p => /直连|dc|direct/i.test((p.name || '') + (p.sub_type || ''))))
+const bpTri = computed(() => bpParts.value.filter(p => /三模|tri/i.test((p.name || '') + ((p.specs as any)?.bt || ''))))
+const bpDc = computed(() => bpParts.value.filter(p => /直连|dc|direct/i.test((p.name || '') + ((p.specs as any)?.bt || ''))))
 const baseBackplane = computed(() => {
   const parts = baseConfig.value?.parts || []
   const inParts = parts.find((p: any) => p.category === '背板')
@@ -140,7 +152,7 @@ const baseBackplane = computed(() => {
 const baseBackplaneType = computed<'tri' | 'dc' | null>(() => {
   const bp: any = baseBackplane.value
   if (!bp) return null
-  return /三模|tri/i.test((bp.name || '') + (bp.sub_type || '')) ? 'tri' : 'dc'
+  return /三模|tri/i.test((bp.name || '') + ((bp.specs as any)?.bt || '')) ? 'tri' : 'dc'
 })
 const effectiveBp = computed(() => {
   if (overrides.bpPn) {
@@ -158,7 +170,7 @@ const effectiveBaseParts = computed(() => {
   const parts = [...(baseConfig.value?.parts || [])]
   const bp = effectiveBp.value
   if (bp) {
-    const bpLine = { pn: bp.pn, name: bp.name, category: '背板', sub_type: bp.sub_type, unit_price: bp.unit_price, quantity: 1 }
+    const bpLine = { pn: bp.pn, name: bp.name, category: '背板', unit_price: bp.unit_price, quantity: 1 }
     const idx = parts.findIndex((p: any) => p.category === '背板')
     if (idx >= 0) parts[idx] = bpLine as any
     else parts.push(bpLine as any)
@@ -168,15 +180,21 @@ const effectiveBaseParts = computed(() => {
 
 // ---- 前面板线缆 ----
 function frontCableParts(k: string) {
-  return frontCables.value.filter(p => (p.specs as any)?.kind === k)
+  const ku = k.toUpperCase()
+  return frontCables.value.filter(p => String((p.specs as any)?.kind ?? '').toUpperCase() === ku)
 }
 function frontCablePickedPn(k: string) {
   return overrides['fc-' + k + '-pn'] || frontCableParts(k)[0]?.pn || ''
 }
-function frontCableInfo(k: string) {
+function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'; price: number; name: string } {
   const c = result.value?.front_cables.find(x => x.kind === k)
   const p = frontCables.value.find(x => x.pn === frontCablePickedPn(k))
-  return { n: c?.drive_count ?? 0, group: c?.group_size ?? '-', price: p?.unit_price ?? 0, pn: p?.pn || '' }
+  const group: number | '-' = c?.group_size != null ? c.group_size : '-'
+  return {
+    n: c?.drive_count ?? 0, group,
+    price: p?.unit_price ?? 0, pn: p?.pn || '',
+    name: p?.name || '',
+  }
 }
 
 // ---- 后面板 ----
@@ -350,6 +368,10 @@ watch([rear, overrides, baseConfig, result, bomTemplate], scheduleEmit, { deep: 
 watch(() => props.kpSummary, (s) => applyKpSummary(s), { deep: true })
 
 onMounted(async () => {
+  // 先 hydrate：必须在下方任何 await 之前。loadBaseConfig 会让 baseConfig 变化触发 watch → scheduleEmit，
+  // 若 hydrate 在 await loadReference 之后，50ms timer 会在 hydrate 前到期，把组件空初始的 rear emit 出去覆盖 store，
+  // 进而让 props.initialPicks 响应式变空，hydrate 读到空（配置丢失 bug）。
+  if (props.initialPicks) hydrateFromPicks(props.initialPicks)
   try {
     await loadAllBaseConfigs()
     const seedId = props.initialPicks?.base_config_id ?? props.baseConfigId
@@ -359,8 +381,7 @@ onMounted(async () => {
     } else {
       await loadReference(undefined)
     }
-    // hydrate rear/overrides（baseBpType 在 loadBaseConfig 里已回写）
-    if (props.initialPicks) hydrateFromPicks(props.initialPicks)
+    // baseBpType 由 watchEffect 跟踪 baseBackplaneType；hydrate 已在挂载伊始完成
     // 初次 derive（若有 kpSummary）
     if (props.kpSummary) applyKpSummary(props.kpSummary)
     scheduleEmit()
@@ -368,12 +389,27 @@ onMounted(async () => {
     message.error('L6 配置加载失败：' + (e.message || e))
   }
 })
+
+// 组件卸载时清掉 pending 的 emit timer，避免卸载后残留 emit 把状态写进 store
+onBeforeUnmount(() => {
+  if (_emitTimer) {
+    clearTimeout(_emitTimer)
+    _emitTimer = null
+  }
+})
 </script>
 
 <template>
-  <div class="l6-chassis-config">
+  <div class="l6-chassis-config" :class="{ stepper }">
+    <div v-if="stepper" class="l6-steps">
+      <div v-for="s in L6_STEPS" :key="s.id" :class="['l6-step', { active: activeStep === s.id }]" @click="activeStep = s.id">
+        <span class="l6-step-num">{{ s.n }}</span>
+        <span class="l6-step-label">{{ s.label }}</span>
+      </div>
+    </div>
+    <div class="l6-panels">
     <!-- ① 基准配置 -->
-    <div id="l6-panel-base" class="sc-panel">
+    <div id="l6-panel-base" class="sc-panel" v-show="!stepper || activeStep === 'base'">
       <div class="sc-phead">
         <span class="num">1</span><h2>基准配置</h2>
         <span class="hint">背板由硬盘推导，可手改</span>
@@ -396,7 +432,7 @@ onMounted(async () => {
             <span>{{ bpType() === 'tri' ? '三模' : '直连' }}</span>
             <span class="bp-btns"><button :class="{ on: bpType() === 'tri' }" @click="setOverride('bp', 'tri')">三模</button><button :class="{ on: bpType() === 'dc' }" @click="setOverride('bp', 'dc')">直连</button></span>
             <PartPicker v-if="bpTri.length > 1 || bpDc.length > 1" :items="(bpType()==='tri'?bpTri:bpDc).map(fromPartMaster)" :model-value="overrides.bpPn || effectiveBp?.pn || ''" size="small" placeholder="(选择背板)" :style="{ marginLeft: '6px', width: '180px', verticalAlign: 'middle' }" @update:model-value="(pn:any)=>setOverride('bpPn', typeof pn==='string'?pn:'')" />
-            <span class="tiny">{{ effectiveBp ? effectiveBp.pn + ' · ¥' + (effectiveBp.unit_price||0) + ' · ' + (isManual('bp') ? '已手改' : (baseBackplaneType ? '基准自带' : '硬盘推导')) : '料号库无此类型背板' }}</span>
+            <span class="tiny">{{ effectiveBp ? (effectiveBp.name || effectiveBp.pn) + ' · ¥' + (effectiveBp.unit_price||0) + ' · ' + (isManual('bp') ? '已手改' : (baseBackplaneType ? '基准自带' : '硬盘推导')) : '料号库无此类型背板' }}</span>
           </span></div>
         </div>
         <div v-else class="sc-empty">请先选择基准配置</div>
@@ -404,17 +440,26 @@ onMounted(async () => {
     </div>
 
     <!-- ② 前面板 -->
-    <div id="l6-panel-front" class="sc-panel">
+    <div id="l6-panel-front" class="sc-panel" v-show="!stepper || activeStep === 'front'">
       <div class="sc-phead"><span class="num">2</span><h2>前面板 · 硬盘背板连线</h2><span class="amt">¥{{ frontTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
-        <div class="sc-dline" v-for="k in CORE_DRIVE_KINDS" :key="k">
-          <div>
-            <div class="dl-t">前面板 {{ k }} 线缆<span v-if="isManual('fc-' + k)" class="sc-badge man">已手动调整</span></div>
-            <div class="dl-b">当前 {{ frontCableInfo(k).n }} 块 ÷ 每组 {{ frontCableInfo(k).group }} · ¥{{ frontCableInfo(k).price }}/根 {{ frontCableInfo(k).pn ? '· ' + frontCableInfo(k).pn : '' }}</div>
-          </div>
-          <div class="dl-r">
-            <PartPicker :items="frontCableParts(k).map(fromPartMaster)" :model-value="frontCablePickedPn(k)" size="small" placeholder="(选择线缆)" :style="{ width: '200px' }" @update:model-value="(pn:any)=>setOverride('fc-'+k+'-pn', typeof pn==='string'?pn:'')" />
-            <div class="sc-step"><button @click="setOverride('fc-' + k, Math.max(0, frontCableQty(k) - 1))">−</button><input :value="frontCableQty(k)" @change="(e:any)=>setOverride('fc-' + k, parseInt(e.target.value)||0)" /><button @click="setOverride('fc-' + k, frontCableQty(k) + 1)">+</button></div><span class="u">根</span>
+        <div class="front-grid">
+          <div class="front-card" v-for="k in CORE_DRIVE_KINDS" :key="k" :class="{ active: frontCableQty(k) > 0 }">
+            <div class="front-card-head">
+              <span class="opt-dot"></span>
+              <span class="front-card-name">{{ k }} 线缆</span>
+              <span v-if="isManual('fc-' + k)" class="sc-badge man">已手动</span>
+            </div>
+            <div class="front-card-info">
+              当前 {{ frontCableInfo(k).n }} 块 · 每组 {{ frontCableInfo(k).group }} · ¥{{ frontCableInfo(k).price }}/根
+              <span class="front-card-pn" v-if="frontCableInfo(k).name">{{ frontCableInfo(k).name }}</span>
+            </div>
+            <PartPicker v-if="frontCableParts(k).length" :items="frontCableParts(k).map(fromPartMaster)" :model-value="frontCablePickedPn(k)" size="small" placeholder="(选择线缆)" class="front-card-pick" @update:model-value="(pn:any)=>setOverride('fc-'+k+'-pn', typeof pn==='string'?pn:'')" />
+            <div v-else class="front-card-empty">料号库暂无 {{ k }} 线缆</div>
+            <div class="front-card-step">
+              <div class="sc-step"><button @click="setOverride('fc-' + k, Math.max(0, frontCableQty(k) - 1))">−</button><input :value="frontCableQty(k)" @change="(e:any)=>setOverride('fc-' + k, parseInt(e.target.value)||0)" /><button @click="setOverride('fc-' + k, frontCableQty(k) + 1)">+</button></div>
+              <span class="u">根</span>
+            </div>
           </div>
         </div>
         <div v-if="!frontCables.length" class="sc-empty">料号库暂无「前面板线缆」类别料号，请去管理面添加。</div>
@@ -422,7 +467,7 @@ onMounted(async () => {
     </div>
 
     <!-- ③ 后面板（PCIe IO + 网络 OCP + GPU 供电线）-->
-    <div id="l6-panel-rear" class="sc-panel">
+    <div id="l6-panel-rear" class="sc-panel" v-show="!stepper || activeStep === 'rear'">
       <div class="sc-phead"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe IO 槽位 + OCP 网络接口 + GPU 供电线</span><span class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <div class="sc-section-head"><span class="sh-tag">PCIe IO 槽位</span><span class="sh-amt">¥{{ rearTotal.toLocaleString() }}</span></div>
@@ -435,8 +480,22 @@ onMounted(async () => {
             </div>
             <div class="opt-block" v-for="opt in realOptions(slot)" :key="opt.option_type" :class="{ active: optionQty(slot, opt.option_type) > 0 }">
               <div class="opt-top"><span class="opt-dot"></span><span class="opt-name">{{ optionLabel(opt.option_type) }}</span></div>
+              <div class="opt-bundle" v-if="opt.items?.length">
+                <span v-if="opt.items.length === 1" class="opt-bundle-pn">{{ opt.items[0].name || opt.items[0].pn }}</span>
+                <a-tooltip v-else overlay-class-name="bundle-tip">
+                  <template #title>
+                    <div class="bundle-tip-title">{{ optionLabel(opt.option_type) }} · {{ opt.items.length }} 件捆绑（每件单价）</div>
+                    <div v-for="it in opt.items" :key="it.pn" class="bundle-tip-row">
+                      <span class="bt-name">{{ it.name || it.pn }}</span>
+                      <span class="bt-price">¥{{ it.unit_price }}</span>
+                    </div>
+                    <div class="bundle-tip-sum">合计 ¥{{ opt.total_price.toLocaleString() }} / 件</div>
+                  </template>
+                  <span class="opt-bundle-multi">⭐ {{ opt.items.length }} 件捆绑</span>
+                </a-tooltip>
+              </div>
               <div class="opt-bot">
-                <span class="opt-price">¥{{ opt.total_price.toLocaleString() }}</span>
+                <span class="opt-price">¥{{ opt.total_price.toLocaleString() }}<span class="opt-price-unit" v-if="opt.items?.length > 1">/件</span></span>
                 <div class="opt-stepper">
                   <button :disabled="optionQty(slot, opt.option_type) <= 0" @click="decOption(slot, opt.option_type)">−</button>
                   <span class="opt-qty">{{ optionQty(slot, opt.option_type) }}</span>
@@ -453,6 +512,7 @@ onMounted(async () => {
         <div class="net-options" v-if="hasOcp">
           <button v-for="opt in realOptions('OCP')" :key="opt.option_type" :class="['net-card', { active: optionQty('OCP', opt.option_type) > 0 }]" @click="setRearSingle('OCP', opt.option_type)">
             <span class="net-name">{{ optionLabel(opt.option_type) }}</span>
+            <span class="net-pn" v-if="opt.items?.length === 1">{{ opt.items[0].name || opt.items[0].pn }}</span>
             <span class="net-price">¥{{ opt.total_price.toLocaleString() }}</span>
           </button>
           <button :class="['net-card', 'blank', { active: slotFilled('OCP') === 0 }]" @click="setRearSingle('OCP', null)">
@@ -477,7 +537,7 @@ onMounted(async () => {
     </div>
 
     <!-- ④ 电源 -->
-    <div id="l6-panel-psu" class="sc-panel">
+    <div id="l6-panel-psu" class="sc-panel" v-show="!stepper || activeStep === 'psu'">
       <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量；功耗推导仅供参考</span><span class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <div class="power-breakdown" v-if="result?.power?.total">
@@ -499,105 +559,148 @@ onMounted(async () => {
     </div>
 
     <!-- L6 合计 -->
-    <div class="l6-total-bar">
-      <span>L6 机箱合计 <b>¥{{ l6Total.toLocaleString() }}</b></span>
+    <div class="l6-total-bar cpq-stream-edge">
+      <span>L6 机箱合计 <b>¥<CountNumber :value="l6Total" /></b></span>
       <span class="l6-total-hint">基准 + 前面板 + 后面板 + OCP + 电源 + GPU线</span>
+    </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.l6-chassis-config { display: flex; flex-direction: column; gap: 14px; }
+.l6-chassis-config { display: flex; flex-direction: column; }
+.l6-chassis-config.stepper { flex-direction: row; align-items: flex-start; gap: 16px; }
+.l6-steps { flex: 0 0 150px; display: flex; flex-direction: column; gap: 8px; padding: 12px;
+  background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); border-radius: 14px; position: sticky; top: 12px; }
+.l6-step { display: flex; align-items: center; gap: 9px; padding: 9px 11px; border-radius: 9px; cursor: pointer; transition: all .2s;
+  border: 1px solid transparent; }
+.l6-step:hover { background: var(--cpq-overlay-a8); }
+.l6-step.active { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 12px var(--cpq-overlay-a8); }
+.l6-step-num { width: 22px; height: 22px; border-radius: 6px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF);
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
+.l6-step.active .l6-step-num { background: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-on-primary); }
+.l6-step-label { font-size: 13px; color: var(--cpq-text-secondary,#9BA1AA); font-weight: 500; }
+.l6-step.active .l6-step-label { color: var(--cpq-accent-primary,#1677FF); font-weight: 600; }
+.l6-panels { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
 .sc-panel {
-  background: linear-gradient(135deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 40%, rgba(8,12,16,0.25) 100%);
-  backdrop-filter: blur(16px) saturate(1.4);
-  border: 1px solid rgba(0,245,212,0.12); border-radius: 18px; overflow: hidden;
-  box-shadow: 0 22px 64px rgba(0,0,0,0.30), 0 0 34px rgba(0,245,212,0.04), inset 0 1px 0 rgba(255,255,255,0.13), inset 0 -18px 48px rgba(0,0,0,0.14);
+  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--cpq-overlay-a15); border-radius: 18px; overflow: hidden;
+  box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
-.sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid rgba(255,255,255,.10); background: rgba(255,255,255,.015); }
-.sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: rgba(0,245,212,.12); color: var(--cpq-accent-primary,#00F5D4); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+.sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
+.sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
 .sc-phead .hint { color: var(--cpq-text-muted,#6E7582); font-size: 12px; }
-.sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#00F5D4); font-weight: 700; font-size: 14px; }
+.sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: 14px; }
 .sc-pbody { padding: 18px 20px; }
-.sc-sumcard { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; padding: 14px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; }
+.sc-sumcard { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; padding: 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
 .sc-sumcard .k { display: block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-bottom: 3px; }
 .sc-sumcard .v { font-weight: 600; font-size: 14px; color: var(--cpq-text-primary, #E8ECEF); }
-.sc-sumcard .v.derived { color: var(--cpq-accent-primary,#00F5D4); }
+.sc-sumcard .v.derived { color: var(--cpq-accent-primary,#1677FF); }
 .bp-btns { display: inline-flex; gap: 4px; margin-left: 6px; }
-.bp-btns button { padding: 2px 9px; border: 1px solid rgba(255,255,255,.10); background: transparent; color: var(--cpq-text-secondary,#9BA1AA); border-radius: 6px; font-size: 12px; cursor: pointer; transition: all .2s; }
-.bp-btns button.on { background: rgba(0,245,212,.12); border-color: var(--cpq-accent-primary,#00F5D4); color: var(--cpq-accent-primary,#00F5D4); }
-.bp-sel { margin-left: 6px; background: rgba(0,0,0,.2); color: var(--cpq-text-primary,#E8ECEF); border: 1px solid rgba(255,255,255,.10); border-radius: 6px; padding: 2px 6px; font-size: 12px; outline: none; }
+.bp-btns button { padding: 2px 9px; border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary,#9BA1AA); border-radius: 6px; font-size: 12px; cursor: pointer; transition: all .2s; }
+.bp-btns button.on { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); }
+.bp-sel { margin-left: 6px; background: var(--cpq-overlay-b20); color: var(--cpq-text-primary,#E8ECEF); border: 1px solid var(--cpq-overlay-w10); border-radius: 6px; padding: 2px 6px; font-size: 12px; outline: none; }
 .tiny { display: block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-top: 3px; }
 .bc-picker { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .bc-lab { font-size: 13px; color: var(--cpq-text-secondary,#9BA1AA); white-space: nowrap; }
 .bc-sel { flex: 1; }
-.sc-sel { background: rgba(0,0,0,.2); color: var(--cpq-text-primary,#E8ECEF); border: 1px solid rgba(255,255,255,.10); border-radius: 8px; padding: 8px; font-size: 13px; outline: none; transition: all .2s; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2300F5D4' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 28px; }
-.sc-sel option { background: #1a1d24; color: var(--cpq-text-primary,#E8ECEF); padding: 8px; }
-.sc-sel:focus { border-color: var(--cpq-accent-primary,#00F5D4); box-shadow: 0 0 0 2px rgba(0,245,212,0.15); }
-.sc-step { display: flex; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 8px; overflow: hidden; }
+.sc-sel { background: var(--cpq-overlay-b20); color: var(--cpq-text-primary,#E8ECEF); border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px; font-size: 13px; outline: none; transition: all .2s; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%231677FF' d='M6 8L1 3h10z'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 8px center; padding-right: 28px; }
+.sc-sel option { background: var(--cpq-bg-tertiary); color: var(--cpq-text-primary,#E8ECEF); padding: 8px; }
+.sc-sel:focus { border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 0 2px var(--cpq-overlay-a15); }
+.sc-step { display: flex; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; overflow: hidden; }
 .sc-step button { width: 30px; color: var(--cpq-text-secondary,#9BA1AA); font-size: 14px; background: transparent; border: none; cursor: pointer; transition: all .2s; }
-.sc-step button:hover { color: var(--cpq-accent-primary,#00F5D4); }
+.sc-step button:hover { color: var(--cpq-accent-primary,#1677FF); }
 .sc-step input { width: 100%; min-width: 0; text-align: center; border: none; background: transparent; color: var(--cpq-text-primary,#E8ECEF); font-size: 13px; outline: none; }
-.sc-dline { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; margin-bottom: 9px; }
+.sc-dline { display: flex; justify-content: space-between; align-items: center; padding: 11px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 9px; }
 .dl-t { font-weight: 500; font-size: 13px; color: var(--cpq-text-primary, #E8ECEF); }
 .dl-b { font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-top: 2px; }
 .dl-r { display: flex; align-items: center; gap: 7px; }
 .u { color: var(--cpq-text-muted,#6E7582); font-size: 12px; }
 .sc-badge { font-size: 12px; padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
-.sc-badge.sys { background: rgba(0,245,212,.12); color: var(--cpq-accent-primary,#00F5D4); }
+.sc-badge.sys { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); }
 .sc-badge.man { background: rgba(250,140,22,.14); color: #fa8c16; }
 .fc-sel { width: 200px; }
 .gc-sel { width: 200px; }
 .sc-empty { color: var(--cpq-text-muted,#6E7582); text-align: center; padding: 20px; font-size: 13px; }
+.front-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.front-card { display: flex; flex-direction: column; gap: 9px; padding: 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; min-width: 0; transition: all .2s; }
+.front-card.active { border-color: var(--cpq-overlay-a40); background: var(--cpq-overlay-a8); box-shadow: 0 0 12px var(--cpq-overlay-a8); }
+.front-card-head { display: flex; align-items: center; gap: 7px; padding-bottom: 8px; border-bottom: 1px solid var(--cpq-overlay-w8); }
+.front-card-name { font-size: 14px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
+.front-card.active .opt-dot { background: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 8px var(--cpq-overlay-a40); }
+.front-card-info { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
+.front-card-pn { display: block; color: var(--cpq-text-secondary,#9BA1AA); margin-top: 2px; }
+.front-card-pick { width: 100%; }
+.front-card-pick :deep(.ant-select) { width: 100% !important; }
+.front-card-empty { font-size: 12px; color: var(--cpq-text-muted,#6E7582); padding: 9px 10px; background: var(--cpq-overlay-w3); border: 1px dashed var(--cpq-overlay-w10); border-radius: 8px; text-align: center; }
+.front-card-step { display: flex; align-items: center; gap: 7px; margin-top: auto; }
+.front-card-step .sc-step { flex: 1; }
 .rear-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.slot-col { display: flex; flex-direction: column; padding: 12px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; min-width: 0; }
-.slot-col-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,.08); }
+.slot-col { display: flex; flex-direction: column; padding: 12px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; min-width: 0; }
+.slot-col-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--cpq-overlay-w8); }
 .slot-col-head .slot-name { font-weight: 700; font-size: 14px; color: var(--cpq-text-primary,#E8ECEF); }
 .slot-cap-mini { font-size: 11px; color: var(--cpq-text-muted,#6E7582); margin-left: auto; }
-.opt-block { padding: 8px; border: 1px solid rgba(255,255,255,.08); border-radius: 8px; margin-bottom: 8px; background: rgba(255,255,255,.015); transition: all .2s; }
-.opt-block.active { border-color: rgba(0,245,212,.45); background: rgba(0,245,212,.06); box-shadow: 0 0 12px rgba(0,245,212,0.08); }
+.opt-block { padding: 8px; border: 1px solid var(--cpq-overlay-w8); border-radius: 8px; margin-bottom: 8px; background: var(--cpq-overlay-w4); transition: all .2s; }
+.opt-block.active { border-color: var(--cpq-overlay-a40); background: var(--cpq-overlay-a8); box-shadow: 0 0 12px var(--cpq-overlay-a8); }
 .opt-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .opt-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--cpq-text-muted,#6E7582); flex-shrink: 0; transition: all .2s; }
-.opt-block.active .opt-dot { background: var(--cpq-accent-primary,#00F5D4); border-color: var(--cpq-accent-primary,#00F5D4); box-shadow: 0 0 8px rgba(0,245,212,.6); }
+.opt-block.active .opt-dot { background: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 8px var(--cpq-overlay-a40); }
 .opt-name { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary,#9BA1AA); }
 .opt-block.active .opt-name { color: var(--cpq-text-primary,#E8ECEF); }
 .opt-bot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .opt-price { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
-.opt-stepper { display: flex; align-items: center; background: rgba(0,0,0,.3); border: 1px solid rgba(255,255,255,.10); border-radius: 6px; overflow: hidden; }
+.opt-price-unit { font-size: 10px; opacity: .7; margin-left: 1px; }
+.opt-bundle { margin-bottom: 6px; min-height: 14px; }
+.opt-bundle-pn { font-size: 10px; font-family: monospace; color: var(--cpq-text-muted,#6E7582); }
+.opt-bundle-multi { font-size: 10px; color: var(--cpq-accent-primary,#1677FF); cursor: help; }
+.net-pn { font-size: 10px; font-family: monospace; color: var(--cpq-text-muted,#6E7582); }
+.opt-stepper { display: flex; align-items: center; background: var(--cpq-overlay-b30); border: 1px solid var(--cpq-overlay-w10); border-radius: 6px; overflow: hidden; }
 .opt-stepper button { width: 22px; height: 22px; border: none; background: transparent; color: var(--cpq-text-secondary,#9BA1AA); font-size: 13px; cursor: pointer; transition: all .15s; padding: 0; }
-.opt-stepper button:hover:not(:disabled) { color: var(--cpq-accent-primary,#00F5D4); background: rgba(0,245,212,.08); }
+.opt-stepper button:hover:not(:disabled) { color: var(--cpq-accent-primary,#1677FF); background: var(--cpq-overlay-a8); }
 .opt-stepper button:disabled { opacity: .3; cursor: not-allowed; }
-.opt-qty { min-width: 20px; text-align: center; font-size: 12px; font-weight: 700; color: var(--cpq-accent-primary,#00F5D4); }
+.opt-qty { min-width: 20px; text-align: center; font-size: 12px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); }
 .slot-blank { padding: 10px 8px; text-align: center; }
-.blank-tag { display: inline-block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); background: rgba(255,255,255,.04); border: 1px dashed rgba(255,255,255,.12); border-radius: 6px; padding: 3px 12px; }
+.blank-tag { display: inline-block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); background: var(--cpq-overlay-w4); border: 1px dashed var(--cpq-overlay-w10); border-radius: 6px; padding: 3px 12px; }
 .sc-section-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
 .sc-section-head.sh-gap { margin-top: 18px; }
 .sc-section-head .sh-tag { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
 .sc-section-head .sh-note { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
-.sc-section-head .sh-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#00F5D4); }
+.sc-section-head .sh-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); }
 .net-options { display: flex; flex-wrap: wrap; gap: 12px; }
-.net-card { flex: 1; min-width: 150px; padding: 14px 16px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; color: var(--cpq-text-secondary,#9BA1AA); cursor: pointer; transition: all .25s; text-align: left; display: flex; flex-direction: column; gap: 6px; font-family: inherit; }
-.net-card:hover { border-color: rgba(255,255,255,.18); color: var(--cpq-text-primary,#E8ECEF); transform: translateY(-1px); }
-.net-card.active { background: rgba(0,245,212,.12); border-color: var(--cpq-accent-primary,#00F5D4); color: var(--cpq-accent-primary,#00F5D4); box-shadow: 0 0 16px rgba(0,245,212,0.2); }
+.net-card { flex: 1; min-width: 150px; padding: 14px 16px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; color: var(--cpq-text-secondary,#9BA1AA); cursor: pointer; transition: all .25s; text-align: left; display: flex; flex-direction: column; gap: 6px; font-family: inherit; }
+.net-card:hover { border-color: var(--cpq-overlay-w20); color: var(--cpq-text-primary,#E8ECEF); transform: translateY(-1px); }
+.net-card.active { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 16px var(--cpq-overlay-a20); }
 .net-card.blank { flex: 0 0 auto; min-width: 150px; border-style: dashed; }
 .net-name { font-size: 14px; font-weight: 600; }
 .net-price { font-size: 12px; opacity: .75; }
-.power-breakdown { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; margin-bottom: 12px; }
-.pb-item { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: rgba(255,255,255,.02); border-radius: 8px; }
-.pb-item.total { background: rgba(0,245,212,.08); border: 1px solid rgba(0,245,212,.2); }
+.power-breakdown { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 12px; }
+.pb-item { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--cpq-overlay-w3); border-radius: 8px; }
+.pb-item.total { background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); }
 .pb-label { font-size: 12px; color: var(--cpq-text-muted,#6E7582); }
 .pb-val { font-size: 14px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
-.pb-item.total .pb-val { color: var(--cpq-accent-primary,#00F5D4); }
-.psu-row { display: grid; grid-template-columns: 70px minmax(150px,1fr) 110px 110px 90px; gap: 9px; align-items: center; padding: 11px 14px; background: rgba(0,0,0,.2); border: 1px solid rgba(255,255,255,.10); border-radius: 12px; margin-bottom: 9px; }
+.pb-item.total .pb-val { color: var(--cpq-accent-primary,#1677FF); }
+.psu-row { display: grid; grid-template-columns: 70px minmax(150px,1fr) 110px 110px 90px; gap: 9px; align-items: center; padding: 11px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 9px; }
 .psu-lab { font-size: 13px; font-weight: 500; color: var(--cpq-text-primary,#E8ECEF); }
 .psu-sel { width: 100%; }
 .psu-unit-price { font-size: 12px; color: var(--cpq-text-secondary,#9BA1AA); }
 .psu-step { width: auto; flex: 1; }
-.psu-subtotal { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#00F5D4); text-align: right; }
+.psu-subtotal { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); text-align: right; }
 .psu-empty-hint { font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-bottom: 10px; padding: 9px 12px; background: rgba(250,140,22,.08); border: 1px solid rgba(250,140,22,.25); border-radius: 10px; }
 .gpu-cable-line .dl-r { gap: 5px; }
-.l6-total-bar { display: flex; align-items: baseline; gap: 14px; padding: 12px 18px; border: 1px solid rgba(0,245,212,0.18); border-radius: 14px; background: rgba(0,245,212,.05); }
-.l6-total-bar b { color: var(--cpq-accent-primary,#00F5D4); font-size: 18px; }
+.l6-total-bar { position: relative; display: flex; align-items: baseline; gap: 14px; padding: 12px 18px; border: 1px solid var(--cpq-glass-border-strong); border-radius: var(--cpq-radius-lg); background: var(--cpq-overlay-a8); backdrop-filter: blur(var(--cpq-glass-blur-1)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1)); }
+.l6-total-bar b { color: var(--cpq-accent-primary,#1677FF); font-size: 18px; }
 .l6-total-hint { font-size: 11px; color: var(--cpq-text-muted,#6E7582); margin-left: auto; }
+</style>
+
+<!-- a-tooltip 渲染到 portal（scoped 之外），用全局样式 -->
+<style>
+.bundle-tip { max-width: 340px; }
+.bundle-tip .ant-tooltip-inner { padding: 10px 12px; }
+.bundle-tip-title { font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,.18); font-size: 12px; }
+.bundle-tip-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.7; }
+.bundle-tip-row .bt-name { flex: 1; color: rgba(255,255,255,.72); }
+.bundle-tip-row .bt-price { margin-left: auto; }
+.bundle-tip-sum { margin-top: 5px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,.18); font-weight: 600; font-size: 12px; }
 </style>

@@ -5,7 +5,7 @@ export interface PickerItem {
   pn: string
   name: string
   category?: string
-  sub_type?: string
+  section?: string
   specs?: Record<string, any>
   unit_price?: number
   brand?: string

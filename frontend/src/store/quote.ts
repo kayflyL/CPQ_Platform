@@ -33,6 +33,7 @@ export interface Item {
   is_usd_cpu?: boolean
   match_status?: string
   db_price?: number
+  pn?: string  // KP 新建模式：料号库 pn（PartPicker 选中）；走 opportunity_items.extra_fields 往返
   history?: any[]
   _histActiveKeys?: string[]
   _histLoaded?: boolean
@@ -70,7 +71,8 @@ export interface WarrantyInfo {
 export interface ConfigData {
   name: string
   description: string  // 配置描述
-  server_model?: string  // 服务器型号
+  server_model?: string  // 服务器型号（型号名称字符串，导出模板字段绑定用，恒有值）
+  server_model_id?: number  // 机型目录 id（下拉选中目录机型时填；自由输入/旧报价单留空）
   items: Item[]
   summary: {
     l6_total: number
@@ -85,7 +87,9 @@ export interface ConfigData {
     rear_panel_parts?: any[]
     psu_parts?: any[]
   }
-  l6_custom_price?: number  // 自定义价格
+  l6_custom_price?: number  // 当前生效成本（自动推导或手填）
+  l6_price_manual?: boolean // 手填锁定：true 时选配推导不覆盖 l6_custom_price
+  l6_auto_price?: number    // 最近一次选配推导的成本，切回自动时恢复用
   l6_profit_margin?: number  // 利润率
   base_config_id?: number  // 新流程：L6ChassisConfig 选中的基准配置 ID
   l6_bom_picks?: any  // 新流程：L6ChassisConfig 组件状态快照（rear/overrides/bp…），切 tab 重挂 hydrate 用
@@ -232,28 +236,31 @@ export const useQuoteStore = defineStore('quote', () => {
         return item
       })
 
-      // 迁移：旧报价单中 L6/整机 项的 base_price 求和写入 l6_custom_price
-      // 注意：不从 items 中移除 L6 项，因为左侧栏配置单需要展示这些数据
-      // 计算逻辑在循环中会 continue 跳过 L6 项，只使用 l6_custom_price
-      let l6CustomPrice = Number((cfgData as any).l6_custom_price) || 0
-      if (l6CustomPrice === 0) {
+      // 左栏来源:持久化 bom_source 优先,否则入口信号(Excel 上传→excel / 其余→live)
+      const bomSource: 'live' | 'excel' = ((cfgData as any).bom_source ?? data.config_l6_picks?.[cfgName]?.bom_source ?? (data.is_excel_quote ? 'excel' : 'live')) === 'excel' ? 'excel' : 'live'
+
+      // l6_custom_price：优先 config_l6_picks（显式持久化/手填）> cfgData.per_cfg_l6；
+      // live 模式额外回落 items L6 行求和（老数据迁移）。excel 模式 L6 仅作参考、不参与算价。
+      const picksL6Price = Number((data.config_l6_picks?.[cfgName] as any)?.l6_custom_price) || 0
+      let l6CustomPrice = picksL6Price || Number((cfgData as any).l6_custom_price) || 0
+      if (l6CustomPrice === 0 && bomSource !== 'excel') {
         const l6Items = processedItems.filter(i => i.category === 'L6' || i.category === '整机')
         if (l6Items.length > 0) {
           l6CustomPrice = l6Items.reduce((sum, i) => sum + i.base_price * i.qty, 0)
         }
       }
 
-      // 左栏来源:持久化 bom_source 优先,否则入口信号(Excel 上传→excel / 其余→live)
-      const bomSource: 'live' | 'excel' = ((cfgData as any).bom_source ?? data.config_l6_picks?.[cfgName]?.bom_source ?? (data.is_excel_quote ? 'excel' : 'live')) === 'excel' ? 'excel' : 'live'
-
       newConfigs[cfgName] = {
         name: cfgName,
         description: (cfgData as any).description || '',
         server_model: (cfgData as any).server_model || '',
+        server_model_id: (cfgData as any).server_model_id ?? (data.config_l6_picks?.[cfgName] as any)?.server_model_id ?? undefined,
         items: processedItems,
         summary: (cfgData as any).summary || { l6_total: 0, kp_total: 0, grand_total: 0 },
         l6_matched_record: (cfgData as any).l6_matched_record || null,
         l6_custom_price: l6CustomPrice,
+        l6_price_manual: (data.config_l6_picks?.[cfgName] as any)?.l6_price_manual ?? false,
+        l6_auto_price: (data.config_l6_picks?.[cfgName] as any)?.l6_auto_price ?? undefined,
         l6_profit_margin: (cfgData as any).l6_profit_margin || 10,
         base_config_id: (cfgData as any).base_config_id ?? (data.config_l6_picks?.[cfgName]?.base_config_id) ?? undefined,
         l6_bom_picks: (cfgData as any).l6_bom_picks ?? (data.config_l6_picks?.[cfgName]?.picks) ?? undefined,
@@ -261,7 +268,8 @@ export const useQuoteStore = defineStore('quote', () => {
         bom_context: (cfgData as any).bom_context ?? (data.config_l6_picks?.[cfgName]?.bom_context) ?? undefined,
         bom_source: bomSource,
         bom_excel_rows: bomSource === 'excel'
-          ? processedItems.filter((i: Item) => i.category === 'L6' || i.category === '整机' || i.category === 'Key Parts').map((i: Item) => ({ ...i }))
+          ? ((data.config_l6_picks?.[cfgName] as any)?.bom_excel_rows
+              ?? processedItems.filter((i: Item) => i.category === 'L6' || i.category === '整机' || i.category === 'Key Parts').map((i: Item) => ({ ...i })))
           : undefined,
         warranty_info: (cfgData as any).warranty_info || {
           l6: { years: null, rate: 0 },
@@ -329,13 +337,23 @@ export const useQuoteStore = defineStore('quote', () => {
   }
 
   // 设置 L6 自定义价格（四步配置的结果）
-  function setL6CustomPrice(cfgName: string, price: number, margin: number = 10) {
+  function setL6CustomPrice(cfgName: string, price: number, margin?: number) {
     const cfg = configs.value[cfgName]
     if (cfg) {
       cfg.l6_custom_price = price
-      cfg.l6_profit_margin = margin
+      cfg.l6_price_manual = true  // 手填即锁定，选配推导不再覆盖
+      if (margin != null) cfg.l6_profit_margin = margin
       recalculateAll()
     }
+  }
+
+  // 切回自动：解除手填锁定，l6_custom_price 恢复为最近一次选配推导值
+  function setL6PriceAuto(cfgName: string) {
+    const cfg = configs.value[cfgName]
+    if (!cfg) return
+    cfg.l6_price_manual = false
+    cfg.l6_custom_price = cfg.l6_auto_price ?? cfg.l6_custom_price ?? 0
+    recalculateAll()
   }
 
   // 设置 L6 匹配记录（卡片显示用）
@@ -359,23 +377,19 @@ export const useQuoteStore = defineStore('quote', () => {
   function setL6ChassisPicks(cfgName: string, payload: { baseConfigId: number | null; totals: any; picks: any; l6Rows: any[] }) {
     const cfg = configs.value[cfgName]
     if (!cfg) return
-    // 守护：未选基准配置且组件初挂（空 l6Rows）时，若已有遗留 L6 行（旧报价单/上传模式），
-    // 不清空 items 与 l6_custom_price，仅记录 picks，等用户真正选配再重建
-    const hasExistingL6 = cfg.items.some(i => i.category === 'L6' || i.category === '整机')
-    if (!payload.baseConfigId && (!payload.l6Rows || payload.l6Rows.length === 0) && hasExistingL6) {
+    // 守护：未选基准配置且组件初挂（空 l6Rows）时，保留已有 l6_custom_price，仅记录 picks
+    if (!payload.baseConfigId && (!payload.l6Rows || payload.l6Rows.length === 0)) {
       cfg.l6_bom_picks = payload.picks
       return
     }
-    const margin = (cfg.l6_profit_margin ?? 10) / 100
-    // 给每个 L6 行算 final_price（base × (1+利润率)，与后端 export unit_price 口径一致）
-    const l6RowsWithFinal = (payload.l6Rows || []).map((r: any) => ({
-      ...r,
-      final_price: Math.round(((r.base_price || 0) * (1 + margin)) * 100) / 100,
-      profit_margin: cfg.l6_profit_margin ?? 10,
-    }))
-    const nonL6 = cfg.items.filter(i => i.category !== 'L6' && i.category !== '整机')
-    cfg.items = [...l6RowsWithFinal, ...nonL6]
-    cfg.l6_custom_price = payload.totals?.l6 ?? 0
+    // L6 选配结果不写回 cfg.items：避免污染 excel 原版 items，也避免左栏误显机箱原版料。
+    // 左栏与导出统一走 bom_excel_rows（excel）或 bom_template（live）；L6 价格独立走 l6_custom_price。
+    // 推导成本始终缓存到 l6_auto_price；仅未手填锁定时才覆盖 l6_custom_price。
+    const derived = payload.totals?.l6 ?? 0
+    cfg.l6_auto_price = derived
+    if (!cfg.l6_price_manual) {
+      cfg.l6_custom_price = derived
+    }
     cfg.base_config_id = payload.baseConfigId ?? undefined
     cfg.l6_bom_picks = payload.picks
     cfg.bom_template = payload.bomTemplate ?? undefined
@@ -393,6 +407,19 @@ export const useQuoteStore = defineStore('quote', () => {
     for (const item of cfg.items) {
       if (item.category === 'L6' || item.category === '整机') {
         item.final_price = Math.round(((item.base_price || 0) * (1 + margin)) * 100) / 100
+        item.profit_margin = marginPct
+      }
+    }
+    recalculateAll()
+  }
+
+  // KP 整体利润率：把该配置下所有 KP 配件的 profit_margin 统一设成同一个值
+  // 每个 item 的 profit_margin 已随 items 持久化，这里只是批量统调，无需额外字段
+  function setKpProfitMargin(cfgName: string, marginPct: number) {
+    const cfg = configs.value[cfgName]
+    if (!cfg) return
+    for (const item of cfg.items) {
+      if (item.category === 'Key Parts') {
         item.profit_margin = marginPct
       }
     }
@@ -559,7 +586,7 @@ export const useQuoteStore = defineStore('quote', () => {
         : 0
       warrantySum = l6WarrantyPrice + kpWarrantyPrice
 
-      cfg.summary.l6_total = Math.round(l6Sum * 100) / 100
+      cfg.summary.l6_total = Math.round(l6Sum * (1 + ((cfg.l6_profit_margin ?? 10) / 100)) * 100) / 100
       cfg.summary.kp_total = Math.round(kpSum * 100) / 100
       cfg.summary.warranty_total = Math.round(warrantySum * 100) / 100
       cfg.summary.grand_total = cfg.summary.l6_total + cfg.summary.kp_total + cfg.summary.warranty_total
@@ -598,10 +625,18 @@ export const useQuoteStore = defineStore('quote', () => {
           config_l6_picks: Object.fromEntries(
             Object.entries(configs.value).map(([name, cfg]) => [name, {
               base_config_id: cfg.base_config_id ?? null,
+              server_model_id: cfg.server_model_id ?? null,
               picks: cfg.l6_bom_picks ?? null,
               bom_template: cfg.bom_template ?? null,
               bom_context: cfg.bom_context ?? null,
               bom_source: cfg.bom_source ?? null,
+              // excel 模式持久化左栏快照，使左栏与导出同源、不依赖可变的 cfg.items
+              bom_excel_rows: cfg.bom_source === 'excel' ? (cfg.bom_excel_rows ?? null) : null,
+              // 显式持久化 L6 价格：items 不再写 L6 行，价格不能再从 items 派生
+              l6_custom_price: cfg.l6_custom_price ?? 0,
+              l6_profit_margin: cfg.l6_profit_margin ?? 10,
+              l6_price_manual: cfg.l6_price_manual ?? false,
+              l6_auto_price: cfg.l6_auto_price ?? null,
             }])
           ),
           config_selected_parts: configSelectedParts.value
@@ -625,7 +660,7 @@ export const useQuoteStore = defineStore('quote', () => {
         console.log('[DEBUG saveProject] temp_file:', quotationData.temp_file)
         
         const payload = {
-          project_info: {
+          opportunity_info: {
             ...opportunityInfo.value,
             config_count: Object.keys(configs.value).length
           },
@@ -661,7 +696,7 @@ export const useQuoteStore = defineStore('quote', () => {
     getWarrantyRateL6Pct, getWarrantyRateKPPct,
     calcWarrantyFeeL6, calcWarrantyFeeKP,
     calcConfigTotals, getConfigTotals,
-    setL6CustomPrice, setL6MatchedRecord, setL6BomConfig, setL6ChassisPicks, setL6ProfitMargin,
+    setL6CustomPrice, setL6PriceAuto, setL6MatchedRecord, setL6BomConfig, setL6ChassisPicks, setL6ProfitMargin, setKpProfitMargin,
     recalculateAll, saveProject
   }
 })

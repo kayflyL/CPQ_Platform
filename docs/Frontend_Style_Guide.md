@@ -1,225 +1,247 @@
-# 前端开发规范
+# 前端视觉风格指南
 
-> 适用版本：v0.1.11 | 更新日期：2026-07-11 | 主题：Cyberpunk Dark
+> 更新：2026-07-21 | 风格：**Soft Glassmorphism**（柔和玻璃拟态）| 默认主题：**浅色 light**，支持暗色 dark 一键切换
 
 ---
 
-## 1 CSS 变量色板（唯一合法颜色来源）
+## 一句话定位
 
-本项目采用 **CSS 变量** 实现主题。所有合法颜色、阴影、字体、动效均定义在 `frontend/src/styles/tokens.css`，统一使用 `--cpq-*` 命名空间。所有组件只用 `var(--cpq-*)` 引用，**绝不硬编码颜色值**（设计原则④：硬编码零容忍）。
+CPQ 前端 = **Soft Glassmorphism**：浅天蓝渐变背景 + 三级通透白玻璃容器 + 白边高光（hover/激活切蓝边）+ 极淡冷蓝投影 + 马卡龙语义色 + 工业蓝主色。氛围像**轻量 SaaS 仪表盘**，不是深空赛博。
 
-当前为**纯暗色单主题**（Cyberpunk Dark：接近纯黑 + 亮青强调），未实现亮色主题、未实现运行时主题切换。
+> 历史背景：2026-07 从深空 Glass Console（纯暗色 + 亮青）转向浅色 SaaS 风格。本文件取代旧版"Cyberpunk Dark"规范。
 
-### 1.1 样式文件结构
+## 两条铁律
 
-样式拆分为 5 个文件，在 `main.ts` 中按序 import：
+1. **颜色只走 `--cpq-*` 变量**，绝不硬编码（`#fff` / `rgba()` / `white`）。半透明用 `--cpq-overlay-*`，不手写 rgba。
+2. **容器外观走玻璃工具类**（`.glass` / `.glass-light` / `.glass-strong`），不要自己写实色背景 + border。
+
+---
+
+## 1 样式文件结构（`main.ts` 按序 import）
 
 | 文件 | 职责 |
 |------|------|
-| `styles/tokens.css` | **所有设计变量的唯一定义处**（颜色、阴影、字体、动效、半透明叠加） |
+| `styles/tokens.css` | **所有设计变量唯一来源**，双主题 `:root[data-theme='dark' \| 'light']` |
 | `styles/reset.css` | 基础重置 |
-| `styles/glass.css` | 毛玻璃 / 玻璃拟态效果 |
-| `styles/antd-overrides.css` | Ant Design Vue 组件样式覆盖（见 §3） |
-| `styles/utilities.css` | 工具类 |
+| `styles/glass.css` | 三级玻璃工具类（`.glass` / `.glass-light` / `.glass-strong`） |
+| `styles/console.css` | 数字读数 / LED 徽章 / 流光 / 入场动效 |
+| `styles/antd-overrides.css` | antd-vue 组件玻璃化覆盖（`#app .ant-*`） |
+| `styles/utilities.css` | 通用工具类 |
 
-> 新增颜色需求一律加到 `tokens.css` 的 `:root`，不要在其他文件或组件内私自定义变量。
-
-### 1.2 完整色板
-
-以下为 `tokens.css` 中定义的全部变量，按分类列出。
-
-#### 背景色（接近纯黑）
-
-| 变量 | 值 | 用途 |
-|------|------|------|
-| `--cpq-bg-primary` | `#08090B` | 主背景 |
-| `--cpq-bg-secondary` | `#101217` | 次要背景 |
-| `--cpq-bg-tertiary` | `#171A21` | 三级背景 |
-| `--cpq-bg-sidebar` | `#08090B` | 侧边栏 |
-| `--cpq-bg-sidebar-header` | `#101217` | 侧边栏头部 |
-
-#### 文字色（浅灰白）
-
-| 变量 | 值 | 用途 |
-|------|------|------|
-| `--cpq-text-primary` | `#E8ECEF` | 主文字 |
-| `--cpq-text-secondary` | `#9BA1AA` | 次要文字 |
-| `--cpq-text-muted` | `#6E7582` | 弱化文字 |
-| `--cpq-text-disabled` | `#3D424D` | 禁用文字 |
-
-#### 边框色（半透明白）
-
-| 变量 | 值 | 用途 |
-|------|------|------|
-| `--cpq-border-primary` | `rgba(255,255,255,0.10)` | 主边框 |
-| `--cpq-border-secondary` | `rgba(255,255,255,0.06)` | 次要边框 |
-| `--cpq-border-light` | `rgba(255,255,255,0.15)` | 浅边框 |
-
-#### 强调色（亮青）
-
-| 变量 | 值 | 用途 |
-|------|------|------|
-| `--cpq-accent-primary` | `#00F5D4` | 主强调色（亮青） |
-| `--cpq-accent-primary-light` | `#00F5D4` | 浅强调色 |
-| `--cpq-accent-success` | `#00F5D4` | 成功（同青色） |
-| `--cpq-accent-warning` | `#F4D28A` | 警告 |
-| `--cpq-accent-danger` | `#ff4d4f` | 危险/错误 |
-
-#### 背景层级（卡片 / 面板）
-
-| 变量 | 值 | 用途 |
-|------|------|------|
-| `--cpq-bg-card` | `#1E1E1E` | 卡片 |
-| `--cpq-bg-elevated` | `#252525` | 提升层 |
-| `--cpq-bg-input` | `#2A2A2A` | 输入框 |
-| `--cpq-bg-selected` | `#1A3A1A` | 选中态 |
-| `--cpq-bg-highlight` | `#FFFBE6` | 高亮 |
-| `--cpq-bg-dark` | `#1A1A1A` | 极暗 |
-
-#### 边框层级 / 功能色 / 文字补充
-
-| 变量 | 值 |
-|------|------|
-| `--cpq-border-dark` | `#303030` |
-| `--cpq-color-success` | `#52C41A` |
-| `--cpq-color-warning` | `#FAAD14` |
-| `--cpq-color-info` | `#1890FF` |
-| `--cpq-color-purple` / `--cpq-color-purple-dark` | `#A855F7` / `#722ED1` |
-| `--cpq-color-orange` / `--cpq-color-gold` | `#FA8C16` / `#D4A853` |
-| `--cpq-text-light` / `--cpq-text-inverse` | `#E0E0E0` / `#1F1F1F` |
-| `--cpq-text-tertiary` / `quaternary` / `quinary` | `#999` / `#666` / `#555` |
-
-#### 阴影 / 字体 / 动效
-
-| 类别 | 变量 |
-|------|------|
-| 阴影 | `--cpq-shadow-sm` / `-md` / `-lg`（深黑外投影，0.6~0.85 不透明度） |
-| 字体 | `--cpq-font-family`（系统字体栈含 PingFang/微软雅黑）、`--cpq-font-size-sm` `12px` / `-base` `14px` / `-lg` `16px` |
-| 动效 | `--cpq-ease-out-expo`（cubic-bezier）、`--cpq-transition-fast` `0.2s` / `-normal` `0.3s` / `-slow` `0.5s` |
-
-#### 半透明叠加色（替换组件中的硬编码 rgba）
-
-`tokens.css` 提供成体系的半透明变量，**凡需要 `rgba()` 的地方优先用这些**，不要手写 rgba：
-
-- **白色半透明**（边框/分隔/微背景）：`--cpq-overlay-w3` ~ `--cpq-overlay-w20`（数字 = 不透明度 ×100）
-- **黑色半透明**（遮罩/凹陷/阴影）：`--cpq-overlay-b15` / `b20` / `b30` / `b40` / `b85`
-- **青色半透明**（强调/高亮/光晕）：`--cpq-overlay-a4` ~ `--cpq-overlay-a40`
-- **功能色半透明**：`--cpq-overlay-danger10` / `danger15` / `success15` / `info20` / `warn30`
+> 新增颜色 / 玻璃 / 动效需求，一律加到 `tokens.css` 对应主题块，不在组件内私定义变量。
 
 ---
 
-## 2 硬编码颜色禁令
+## 2 颜色系统
 
-### 2.1 禁止写法
+### 2.1 主色 & 语义色（`:root` 共享，双主题一致）
+
+| 变量 | 值 | 用途 |
+|------|------|------|
+| `--cpq-accent-primary` | `#1677FF` | **主色（工业蓝）**，按钮 / 链接 / 激活态 |
+| `--cpq-accent-primary-light` | `#4096ff` | 主色浅态 / hover |
+| `--cpq-accent-cyan` | `#36CFCF` | **仅 signature 读数 / 流光**，极小面积，别滥用 |
+| `--cpq-color-success` | `#52C9A0` | 成功（薄荷绿，马卡龙浅色系） |
+| `--cpq-color-warning` | `#faad14` | 警告 |
+| `--cpq-color-danger` | `#FF6B6B` | 危险（珊瑚红，马卡龙浅色系） |
+| `--cpq-color-info` | `#1890ff` | 信息 |
+| `--cpq-color-purple` | `#a855f7` | 紫 |
+| `--cpq-accent-on-primary` | `#ffffff` | 主色按钮上的文字 |
+
+> ⚠️ **禁用塑料荧光青 `#00F5D4`**（已全站清除）。青色只用 `#36CFCF` 且仅限 signature。
+
+### 2.2 文字 / 背景 / 边框（按主题切换）
+
+| 变量 | light | dark |
+|------|-------|------|
+| `--cpq-text-primary` | `#1d2129` | `#E8ECEF` |
+| `--cpq-text-secondary` | `#4e5969` | `#9BA1AA` |
+| `--cpq-text-muted` | `#86909c` | `#6E7582` |
+| `--cpq-bg-primary` | `#F2F6FC` | `#08090B` |
+| `--cpq-bg-secondary` | `#F0F4FA` | `#101217` |
+| `--cpq-bg-tertiary` | `#E8EEF6` | `#171A21` |
+| `--cpq-bg-card` | `#ffffff` | `#1e1e1e` |
+| `--cpq-border-primary` | `rgba(22,119,255,0.10)` | `rgba(255,255,255,0.10)` |
+
+> 表格单元格、输入框等**数据可读性优先区保实色**（`--cpq-bg-card` / `--cpq-bg-secondary`），不玻璃化。
+
+---
+
+## 3 玻璃系统（核心）
+
+三级通透白玻璃：常态白边高光，hover / 激活切蓝边 + 蓝微光。
+
+### 3.1 三级工具类
+
+| 类 | 用途 | 圆角 | 磨砂(light) | 背景(light) |
+|----|------|------|------------|------------|
+| `.glass` | **主力面板 / 卡片** | xl `20px` | blur `10px` | 白 `0.40` |
+| `.glass-light` | 次级 / 内嵌容器 / 小卡片 | lg `16px` | blur `12px` | 白 `0.55` |
+| `.glass-strong` | 顶栏 / 弹窗 / 覆盖层（优先可读） | lg `16px` | blur `16px` | 白 `0.75` |
+
+dark 下背景更透（`0.06` / `0.09` / `0.75`）、磨砂略强（`12` / `16` / `22px`）。
+
+### 3.2 用法（容器挂工具类，scoped 只管布局）
+
+```html
+<div class="panel glass">...</div>
+<div class="part-card glass-light">...</div>
+```
 
 ```css
-/* 禁止 */
-color: #333;
-background: white;
-background: rgba(0, 0, 0, 0.8);
-border: 1px solid rgba(255, 255, 255, 0.1);
+/* scoped 里只留布局，外观交给玻璃工具类 */
+.panel { padding: 16px; margin-bottom: 16px; }
 ```
 
-### 2.2 正确写法
+### 3.3 antd 容器玻璃化（`antd-overrides.css`）
 
-```css
-/* 正确 */
-color: var(--cpq-text-primary);
-background: var(--cpq-bg-secondary);
-border: 1px solid var(--cpq-border-primary);
-background: var(--cpq-overlay-b40);   /* 半透明用 overlay 系列 */
+- `card` → glass-2，`modal` / `drawer` / `tooltip` / `select-dropdown` → glass-3，`input` → glass-2
+- **表格单元格保实色**（数据可读性）
+
+### 3.4 ⚠️ 避免玻璃层叠（玻璃套玻璃 = 发灰）
+
+玻璃卡的通透感来自 `backdrop-filter: blur()` 模糊**背后的真实背景**。两层玻璃嵌套时，内层的 `backdrop-filter` 模糊到的是**外层那层已经模糊过的半透明白**，不是页面背景的纹理/色彩 → 两层 blur 叠加成死灰糊状，丢失通透、整体泛白发灰。
+
+**规则：卡片是唯一玻璃层，直坐页面背景。** 需要把多张玻璃卡分组时，外层用**透明布局容器**（只管 `padding` / `margin` / 分隔线，无 bg / blur / border），别再套 `.glass`。
+
+```html
+<!-- ✅ 对：外层透明，卡片是唯一玻璃层 -->
+<div class="kp-section">           <!-- 透明：padding + border-top 分隔，无 glass -->
+  <div class="kp-card glass">…</div>
+  <div class="kp-card glass">…</div>
+</div>
+
+<!-- ❌ 错：外层又套 .glass → 内层卡 blur 到外层白雾，发灰 -->
+<div class="kp-section glass">
+  <div class="kp-card glass">…</div>
+</div>
 ```
 
-### 2.3 例外白名单
-
-| 场景 | 原因 |
-|------|------|
-| Chart.js / ECharts 图表配置 | 库 API 不支持 CSS 变量读取 |
-| SVG 图标内联 fill（优先用 `currentColor`） | — |
+> 实例：报价工作台 Key Parts 区曾用 `.glass.card-kp` 包 `.kp-card`（玻璃），dark 下两层 0.06 白玻璃叠在 body 上发灰；摘掉外层 `.glass` 后 KP 卡与机型目录页 `.sc-type-card`（单层玻璃直坐 body）观感统一。见 CHANGELOG `[未发布]`。
 
 ---
 
-## 3 Ant Design 主题覆盖
+## 4 圆角 / 投影 / overlay
 
-Ant Design Vue 组件的暗色适配**不走 ConfigProvider 的 JS token**，而是通过 `styles/antd-overrides.css` 用 CSS 覆盖：
+### 4.1 圆角阶梯（统一大圆角，弱化棱角）
 
-- 选择器统一用 `#app .ant-*`（靠 `#app` 提升优先级，**不使用 `!important`**）
-- 颜色全部引用 `var(--cpq-*)`
-- 需要调整某个 Ant Design 组件外观时，**改 `antd-overrides.css`，不要在业务组件里覆盖 Ant Design 样式**
+`--cpq-radius-sm 8` / `md 12` / `lg 16` / `xl 20` —— 用 `var(--cpq-radius-md)` 等引用。
 
-示例（antd-overrides.css 节选）：
-```css
-#app .ant-table {
-  background: var(--cpq-bg-secondary);
-  color: var(--cpq-text-primary);
-}
-#app .ant-pagination-item-active {
-  background: var(--cpq-accent-primary);
-  border-color: var(--cpq-accent-primary);
-}
-```
+### 4.2 投影（极淡冷蓝）
 
----
+| 变量 | light | dark |
+|------|-------|------|
+| `--cpq-shadow-sm` | `0 2px 8px rgba(22,119,255,0.06)` | `0 2px 8px rgba(0,0,0,0.40)` |
+| `--cpq-shadow-md` | `0 4px 16px rgba(22,119,255,0.08)` | `0 4px 16px rgba(0,0,0,0.50)` |
+| `--cpq-shadow-lg` | `0 8px 24px rgba(22,119,255,0.10)` | `0 8px 32px rgba(0,0,0,0.60)` |
 
-## 4 stylelint（当前未配置）
+> ⚠️ **投影色用 `--cpq-shadow-color-soft` / `strong`，别用 `--cpq-overlay-b`**。overlay-b 在浅色已改白玻璃，当投影色会失悬浮感变白雾。
 
-> 项目当前**未安装 stylelint**（`package.json` 无相关依赖与脚本）。下方为推荐配置——若要启用硬编码颜色的自动拦截，按此添加即可。
+### 4.3 overlay 语义（关键，别混用）
 
-推荐做法：在 `frontend/` 下安装 stylelint，新增 `.stylelintrc.json`：
-
-```json
-{
-  "extends": "stylelint-config-standard-vue",
-  "rules": {
-    "color-no-hex": [true, { "severity": "error" }],
-    "color-named": "never",
-    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla"]
-  }
-}
-```
-
-并在 `package.json` 的 `scripts` 加入 `{ "lint:style": "stylelint 'src/**/*.{vue,css}' --fix" }`。规则要点：禁止 hex 色值、禁止命名颜色、禁用 `rgb/rgba/hsl/hsla` 函数（半透明统一走 `--cpq-overlay-*` 变量）。
+| 系列 | 浅色下是 | 用途 |
+|------|---------|------|
+| `--cpq-overlay-w*`（w3~w20） | 白玻璃 | 卡片 / 面板底色、分隔线 |
+| `--cpq-overlay-b*`（b15~b40） | 白玻璃（浅色也改白） | 卡片底；**`b85` 全屏遮罩保暗** |
+| `--cpq-overlay-a*`（a4~a40） | 主色蓝半透明 | 强调 / 高亮 / 激活态 |
+| 功能色 overlay | 各语义色半透明 | `danger10` / `success15` / `info20` / `warn30` |
 
 ---
 
-## 5 主题切换（当前未实现）
+## 5 排版 & 动效
 
-当前为**纯暗色单主题**，代码中：
-- 没有 `data-theme` 切换逻辑
-- 没有 ConfigProvider 的 dark/light token 对象
-- `tokens.css` 仅定义 `:root`（无 `[data-theme="light"]` 块）
+### 5.1 排版
 
-若未来要加亮色主题，推荐方向（供参考）：
-1. 在 `tokens.css` 新增 `[data-theme="light"]` 块，填入对调后的变量值
-2. 切换时 `document.documentElement.setAttribute('data-theme', 'light')`
-3. Ant Design 组件因走 `--cpq-*` 变量，会自动跟随；图表需单独处理（见 §6 FAQ）
-4. 持久化到 `localStorage`
+- 字体：`--cpq-font-family`（系统栈含 PingFang SC / 微软雅黑）
+- 字号：`sm 12` / `base 14` / `lg 16`
+- **数字读数**：用 `.cpq-reading`（tabular-nums + lining，等宽对齐；dark 蓝发光，light 干净无发光）
 
----
+### 5.2 动效
 
-## 6 新建页面自检清单
-
-每新建一个页面或组件，提交前逐项确认：
-
-- [ ] color / background / border-color 使用 `--cpq-*` 变量（例外见 §2.3）
-- [ ] 半透明效果用 `--cpq-overlay-*` 系列，不手写 `rgba()`
-- [ ] 无裸色值（`#000`、`#fff`、`white`、`black` 等）
-- [ ] 新颜色需求已加入 `tokens.css` 的 `:root`
-- [ ] Ant Design 组件未在业务代码里手动覆盖样式（统一走 `antd-overrides.css`）
-- [ ] 无硬编码颜色（项目当前未配 stylelint，人工自查）
+- 时长：`--cpq-dur-1 160ms` / `dur-2 280ms` / `dur-3 480ms`
+- 缓动：`--cpq-ease-smooth`（主力）/ `ease-spring`（回弹）/ `ease-out-expo`
+- 入场：`.cpq-rise`（上浮淡入）/ `.cpq-fade`
+- **尊重 `prefers-reduced-motion`**（已配，工具类自动禁用动画）
 
 ---
 
-## 7 常见问题
+## 6 Signature（呼应"实时计算"的设备感）
 
-**Q: 新页面需要一种色板里没有的颜色怎么办？**
-A: 先在 `tokens.css` 的 `:root` 定义一个 `--cpq-*` 变量，再在页面中使用。不私自在组件内定义颜色。
+- **总价条 / L6 合计条**：挂 `.cpq-stream-edge`（青色流光边，2.4s）+ `CountNumber`
+- **KPI / 价格数字**：`.cpq-reading` 或 `CountNumber`（补间滚动，`composables/useCountUp.ts`）
+- **设备状态徽章**：`.cpq-led--active / info / warning / danger / muted`
 
-**Q: 需要 `rgba()` 半透明效果怎么办？**
-A: 优先用 `--cpq-overlay-*` 系列（w/b/a 三色 + 功能色，覆盖常用不透明度）。若没有合适档位，在 `tokens.css` 新增一个 `--cpq-overlay-*` 变量，不要在组件里手写 `rgba()`。
+---
 
-**Q: ECharts / Chart.js 图表颜色怎么办？**
-A: 图表库不读取 CSS 变量，允许在图表 JS 配置里硬编码色值（属 §2.3 例外）。但图表外层文字仍用变量。
+## 7 主题切换
 
-**Q: 旧页面的硬编码颜色要不要一起改？**
-A: 遵循渐进式重构——旧代码暂不强制改，但新增和修改代码必须用 `--cpq-*` 变量。
+- `store/theme.ts`：light（默认）/ dark，跟随系统 + `localStorage` 持久化，顶栏灯泡按钮切换
+- 切换靠 `document.documentElement[data-theme]`，`tokens.css` 双主题块自动生效
+- antd 走 `--cpq-*` 变量自动跟随；**图表需单独处理**（见 §9）
+
+---
+
+## 8 antd 覆盖原则
+
+- 选择器 `#app .ant-*`（`#app` 提优先级，**不用 `!important`**）
+- 改 antd 组件外观改 `antd-overrides.css`，**不在业务组件 scoped 里覆盖 antd**
+- popover / dropdown 等挂 `body` 的组件，scoped 样式不生效，写在 `antd-overrides.css` 全局（用 `overlay-class-name` 作选择器前缀，不带 `#app`）
+
+---
+
+## 9 图表（ECharts / Chart.js）
+
+canvas 渲染读不到 CSS 变量。**图表色走 `composables/useChartTheme.ts` 给真实值**，不写 `var()`。图表外层文字仍用变量。
+
+---
+
+## 10 Do / Don't
+
+✅ **Do**
+- 容器挂 `.glass` / `.glass-light` / `.glass-strong`，scoped 只管布局
+- 颜色 / 半透明 / 圆角 / 投影全用 `--cpq-*` 变量
+- 数字用 `.cpq-reading` 或 `CountNumber`
+- 改 antd 走 `antd-overrides.css`
+
+❌ **Don't**
+- 硬编码颜色（`#fff` / `rgba()` / `white`）
+- 用塑料荧光青 `#00F5D4`（已清除）
+- 把 `--cpq-overlay-b` 当 `box-shadow` 色
+- **玻璃层嵌套**（`.glass` 套 `.glass` / 玻璃卡外面再套玻璃容器）——内层 backdrop-filter 模糊到外层白雾、发灰；分组用透明布局容器（见 §3.4）
+- 在 scoped 里用 `:global()` 混后代选择器（会抽裸 `[data-theme]` 贴到 html）
+- 给图表色写 `var()`（canvas 读不到）
+- 在 scoped 里覆盖 popover / dropdown 等挂 body 的组件（不生效）
+
+---
+
+## 11 新页面 / 组件 checklist
+
+- [ ] 容器用 `.glass` / `.glass-light` / `.glass-strong`，scoped 只留布局
+- [ ] **玻璃层不嵌套**（玻璃卡外层是透明布局容器，不是又一个 `.glass`）
+- [ ] color / bg / border 用 `--cpq-*` 变量，无硬编码
+- [ ] 半透明用 `--cpq-overlay-*`，无手写 rgba
+- [ ] 圆角用 `--cpq-radius-*`，投影用 `--cpq-shadow-*` 或 `shadow-color-*`
+- [ ] 数字 / 价格用 `.cpq-reading` 或 `CountNumber`
+- [ ] 改 antd 走 `antd-overrides.css`，不在业务组件覆盖
+- [ ] 图表色走 `useChartTheme`
+- [ ] 挂 body 的浮层（popover / dropdown）样式写全局非 scoped
+- [ ] 动效尊重 reduced-motion（用 `.cpq-rise` / `.cpq-fade` 工具类即自动）
+
+---
+
+## 12 FAQ
+
+**Q: 需要色板没有的颜色？**
+A: 加到 `tokens.css` 对应主题块，再引用。不在组件私定义。
+
+**Q: 浮层（popover / 下拉）样式不生效？**
+A: 它挂 body，scoped 够不着。写到 `antd-overrides.css`，用 `overlay-class-name` 作选择器前缀（不带 `#app`）。
+
+**Q: 图表颜色怎么办？**
+A: 走 `composables/useChartTheme.ts`，真实色值，不写 `var()`。
+
+**Q: 玻璃卡看起来泛白 / 发灰、不通透？**
+A: 多半是**玻璃层嵌套**了（外层 `.glass` 容器里又放了 `.glass` 卡片）。内层卡的 `backdrop-filter` 模糊到的是外层那层已模糊的白，不是页面背景，两层 blur 叠成死灰。把外层改成透明布局容器（只留 padding/分隔线），让卡片成为唯一玻璃层直坐背景（见 §3.4）。
+
+**Q: stylelint 拦截硬编码？**
+A: 项目当前未配 stylelint，人工按本指南自查。

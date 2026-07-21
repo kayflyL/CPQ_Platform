@@ -24,7 +24,7 @@ class DerivationEngine:
             if l.get("cat") != "drive":
                 continue
             part = l.get("part") or {}
-            k = part.get("kind") or part.get("sub_type")
+            k = (part.get("specs") or {}).get("kind")
             if k:
                 kinds[k] = kinds.get(k, 0) + l.get("qty", 1)
         return kinds
@@ -104,7 +104,7 @@ class DerivationEngine:
             if l.get("cat") != "gpu":
                 continue
             part = l.get("part") or {}
-            model = part.get("sub_type") or part.get("name", "")
+            model = (part.get("specs") or {}).get("model") or part.get("name", "")
             cables = part.get("cables_per") or 1  # specs 里可直接带 cables_per
             if cables == 1:  # 否则按规则表匹配型号
                 for mk, mv in per.items():

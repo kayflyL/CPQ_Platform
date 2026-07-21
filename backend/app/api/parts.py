@@ -7,9 +7,14 @@ router = APIRouter(prefix="/api/parts", tags=["parts"])
 
 
 @router.get("")
-def list_parts(category: Optional[str] = None, search: Optional[str] = None):
-    parts = PartsMasterRepository().list(category, search)
+def list_parts(category: Optional[str] = None, section: Optional[str] = None, search: Optional[str] = None):
+    parts = PartsMasterRepository().list(category, search, section)
     return {"parts": parts, "total": len(parts)}
+
+
+@router.get("/sections")
+def list_sections():
+    return {"sections": PartsMasterRepository().sections()}
 
 
 @router.get("/categories")

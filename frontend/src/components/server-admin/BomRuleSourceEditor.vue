@@ -33,7 +33,7 @@ const STRUCT_SCOPES = [
 ]
 const CONFIG_KEYS_DESC = ['bays', 'form', 'series', 'bp_type', 'psu_qty', 'psu_wattage', 'psu_name', 'gpu_qty', 'gpu_cable_qty']
 const CONFIG_KEYS_QTY = ['psu_qty', 'gpu_cable_qty']
-const PART_FIELDS = ['name', 'sub_type', 'pn']
+const PART_FIELDS = ['name', 'pn', 'specs.bt', 'specs.kind', 'specs.model']
 const VAR_HINT = '${bays} ${form} ${series} ${bp_type} ${psu_qty} ${psu_wattage} ${psu_name} ${gpu_qty} ${gpu_cable_qty}'
 
 const kinds = computed(() => props.mode === 'desc' ? DESC_KINDS : QTY_KINDS)

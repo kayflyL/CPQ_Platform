@@ -23,8 +23,23 @@ class BaseConfigRepository:
         if server_type_id:
             q += " AND server_type_id=:t"; p["t"] = server_type_id
         q += " ORDER BY sort_order"
+        # 一次性聚合所有 config 的 料件数 + 合计价，避免 N+1
+        agg_sql = """
+            SELECT p.config_id,
+                   COALESCE(SUM(p.quantity), 0) AS parts_count,
+                   COALESCE(SUM(COALESCE(m.unit_price, 0) * p.quantity), 0) AS total_price
+            FROM l6.base_config_parts p
+            LEFT JOIN l6.parts_master m ON p.pn = m.pn
+            GROUP BY p.config_id
+        """
         with l6_engine.connect() as c:
-            return [dict(r) for r in c.execute(text(q), p).mappings().all()]
+            configs = [dict(r) for r in c.execute(text(q), p).mappings().all()]
+            aggs = {r["config_id"]: r for r in c.execute(text(agg_sql)).mappings().all()}
+        for cfg in configs:
+            a = aggs.get(cfg["id"])
+            cfg["parts_count"] = int(a["parts_count"]) if a else 0
+            cfg["total_price"] = float(a["total_price"]) if a else 0.0
+        return configs
 
     def get(self, config_id: int) -> Optional[dict]:
         with l6_engine.connect() as c:
@@ -41,7 +56,7 @@ class BaseConfigRepository:
 
     def get_parts(self, config_id: int) -> List[dict]:
         q = """SELECT p.id, p.config_id, p.pn, p.quantity, p.locked, p.sort_order,
-                      m.name, m.category, m.sub_type, m.unit_price, m.specs
+                      m.name, m.category, m.unit_price, m.specs
                FROM l6.base_config_parts p
                JOIN l6.parts_master m ON p.pn = m.pn
                WHERE p.config_id=:cid ORDER BY p.sort_order"""

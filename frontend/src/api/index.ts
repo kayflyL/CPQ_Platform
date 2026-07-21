@@ -23,13 +23,13 @@ export const projectApi = {
     return response.data
   },
   
-  create: async (data: { project_name: string; customer_name?: string }) => {
+  create: async (data: { opportunity_name: string; customer_name?: string }) => {
     const response = await api.post('/opportunities', data)
     return response.data
   },
   
   update: async (projectId: string, data: { 
-    project_name?: string
+    opportunity_name?: string
     customer_name?: string
     purchase_qty?: number
     platform_type?: string
@@ -69,17 +69,17 @@ export const projectApi = {
   
   // Batch operations
   batchTrash: async (projectIds: string[]) => {
-    const response = await api.post('/opportunities/batch-trash', { project_ids: projectIds })
+    const response = await api.post('/opportunities/batch-trash', { opportunity_ids: projectIds })
     return response.data
   },
   
   batchRestore: async (projectIds: string[]) => {
-    const response = await api.post('/opportunities/batch-restore', { project_ids: projectIds })
+    const response = await api.post('/opportunities/batch-restore', { opportunity_ids: projectIds })
     return response.data
   },
   
   batchPermanentDelete: async (projectIds: string[]) => {
-    const response = await api.post('/opportunities/batch-permanent-delete', { project_ids: projectIds })
+    const response = await api.post('/opportunities/batch-permanent-delete', { opportunity_ids: projectIds })
     return response.data
   }
 }
@@ -102,7 +102,7 @@ export const quotationApi = {
   },
   
   create: async (data: { 
-    project_id: string
+    opportunity_id: string
     file_path?: string
     model_name?: string
     platform_type?: string

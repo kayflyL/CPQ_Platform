@@ -328,4 +328,3 @@ def batch_permanent_delete_quotations(req: BatchQuotationRequest):
         return results
     finally:
         session.close()
-        repo.close()

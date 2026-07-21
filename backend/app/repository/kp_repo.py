@@ -526,6 +526,33 @@ class KPRepository:
         self.session.refresh(h)
         return h.to_dict()
 
+    def update_price_history(self, price_id: int, price: float = None,
+                              price_date: str = None, note: str = None) -> bool:
+        """更新价格记录"""
+        h = self.session.query(KPPriceHistory).filter(KPPriceHistory.id == price_id).first()
+        if not h:
+            return False
+        if price is not None:
+            h.price = price
+        if price_date is not None:
+            try:
+                h.price_date = datetime.strptime(price_date, "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        if note is not None:
+            h.note = note
+        self.session.commit()
+        return True
+
+    def delete_price_history(self, price_id: int) -> bool:
+        """删除价格记录"""
+        h = self.session.query(KPPriceHistory).filter(KPPriceHistory.id == price_id).first()
+        if not h:
+            return False
+        self.session.delete(h)
+        self.session.commit()
+        return True
+
     # ---- 关联配件 ----
     def list_related(self, part_id: int) -> List[dict]:
         """获取关联配件"""

@@ -58,7 +58,7 @@ def create_empty_opportunity(req: CreateOpportunityRequest):
     
     repo = OpportunityRepository()
     try:
-        opportunity_id = f"PRJ-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+        opportunity_id = f"OPP-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
         # 创建数据库记录
@@ -91,11 +91,11 @@ def create_empty_opportunity(req: CreateOpportunityRequest):
 
 
 @router.get("/list")
-def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False):
+def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, sort_by: str = "updated_at", sort_order: str = "desc"):
     from app.repository.opportunity_repo import OpportunityRepository
     repo = OpportunityRepository()
     try:
-        items, total = repo.list_opportunities(include_deleted, page, page_size)
+        items, total = repo.list_opportunities(include_deleted, page, page_size, search=search, status=status, platform=platform, chassis=chassis, sort_by=sort_by, sort_order=sort_order)
         return {"items": items, "total": total}
     finally:
         repo.close()
@@ -590,6 +590,40 @@ def batch_move_to_trash(req: BatchOpportunityRequest):
         for pid in req.opportunity_ids:
             try:
                 repo.move_to_trash(pid)
+                results["success"].append(pid)
+            except Exception as e:
+                results["failed"].append({"id": pid, "error": str(e)})
+        return results
+    finally:
+        repo.close()
+
+
+@router.post("/batch-restore")
+def batch_restore(req: BatchOpportunityRequest):
+    """批量从回收站恢复"""
+    repo = OpportunityRepository()
+    results = {"success": [], "failed": []}
+    try:
+        for pid in req.opportunity_ids:
+            try:
+                repo.restore_opportunity(pid)
+                results["success"].append(pid)
+            except Exception as e:
+                results["failed"].append({"id": pid, "error": str(e)})
+        return results
+    finally:
+        repo.close()
+
+
+@router.post("/batch-permanent-delete")
+def batch_permanent_delete(req: BatchOpportunityRequest):
+    """批量永久删除"""
+    repo = OpportunityRepository()
+    results = {"success": [], "failed": []}
+    try:
+        for pid in req.opportunity_ids:
+            try:
+                repo.permanent_delete(pid)
                 results["success"].append(pid)
             except Exception as e:
                 results["failed"].append({"id": pid, "error": str(e)})

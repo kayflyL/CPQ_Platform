@@ -98,16 +98,8 @@ const l6Rows = computed(() => {
       return { catalogue: r.label, description: v.desc || '', qty: v.qty, _idx: idx }
     })
   }
-  // 回落：cfg.items 的 L6 行
-  const items = cfg.items || []
-  return items
-    .filter((i: any) => i.category === 'L6' || i.category === '整机')
-    .map((item: any, idx: number) => ({
-      catalogue: item.part_name || '',
-      description: item.spec || '',
-      qty: item.qty,
-      _idx: idx,
-    }))
+  // 无 BOM 模板时不显示 L6 行——绝不回落到 cfg.items 的机箱原版料
+  return []
 })
 
 // KP BOM 行数据（响应式，动态显示实际配置的部件）
@@ -145,9 +137,9 @@ const kpRows = computed(() => {
   padding: 4px 8px;
   font-size: 11px;
   font-weight: 500;
-  color: var(--cpq-accent-primary, #00f5d4);
-  background: rgba(0, 245, 212, 0.08);
-  border: 1px solid rgba(0, 245, 212, 0.2);
+  color: var(--cpq-accent-primary, #1677FF);
+  background: var(--cpq-overlay-a8);
+  border: 1px solid var(--cpq-overlay-a20);
   border-radius: 6px;
 }
 .bom-section {
@@ -162,8 +154,8 @@ const kpRows = computed(() => {
   align-items: center;
   gap: 6px;
   padding: 8px 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--cpq-overlay-w4);
+  border-bottom: 1px solid var(--cpq-overlay-w8);
 }
 
 .bom-section-icon {
@@ -181,7 +173,7 @@ const kpRows = computed(() => {
   font-size: 10px;
   font-weight: 500;
   color: var(--cpq-accent-primary);
-  background: rgba(0, 245, 212, 0.1);
+  background: var(--cpq-overlay-a10);
   padding: 1px 6px;
   border-radius: 4px;
 }
@@ -193,7 +185,7 @@ const kpRows = computed(() => {
 }
 
 .bom-table thead {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--cpq-overlay-w6);
   position: sticky;
   top: 0;
   z-index: 1;
@@ -204,7 +196,7 @@ const kpRows = computed(() => {
   text-align: left;
   font-weight: 600;
   color: var(--cpq-text-secondary);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-bottom: 1px solid var(--cpq-overlay-w10);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
@@ -212,7 +204,7 @@ const kpRows = computed(() => {
 
 .bom-table td {
   padding: 6px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--cpq-overlay-w5);
   color: var(--cpq-text-primary);
   line-height: 1.3;
 }
@@ -222,7 +214,7 @@ const kpRows = computed(() => {
 }
 
 .bom-row:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--cpq-overlay-w4);
 }
 
 .col-catalogue {

@@ -45,8 +45,8 @@
       :dataSource="projects" 
       :columns="projectColumns" 
       :loading="loading"
-      rowKey="project_id"
-      :row-class-name="(record: any) => selectedIds.has(record.project_id) ? 'selected-row' : ''"
+      rowKey="opportunity_id"
+      :row-class-name="(record: any) => selectedIds.has(record.opportunity_id) ? 'selected-row' : ''"
       bordered
       size="small"
       :pagination="{ pageSize: 20 }"
@@ -99,7 +99,7 @@ const rowSelection = computed(() => ({
 }))
 
 const projectColumns = [
-  { title: '商机名称', dataIndex: 'project_name', width: 180 },
+  { title: '商机名称', dataIndex: 'opportunity_name', width: 180 },
   { title: '平台', dataIndex: 'platform_type', width: 80 },
   { title: '机箱', dataIndex: 'chassis_form', width: 70 },
   { title: '采购数量', dataIndex: 'purchase_qty', width: 70 },
@@ -110,7 +110,7 @@ const projectColumns = [
 
 const toggleSelectAll = (checked: boolean) => {
   if (checked) {
-    selectedIds.value = new Set(projects.value.map(p => p.project_id))
+    selectedIds.value = new Set(projects.value.map(p => p.opportunity_id))
   } else {
     selectedIds.value = new Set()
   }
@@ -162,7 +162,7 @@ const fetchData = async () => {
 
 const handleRestoreProject = async (record: any) => {
   try {
-    await projectApi.restore(record.project_id)
+    await projectApi.restore(record.opportunity_id)
     message.success('✅ 商机已恢复')
     fetchData()
   } catch (err) {
@@ -172,7 +172,7 @@ const handleRestoreProject = async (record: any) => {
 
 const handlePermanentDeleteProject = async (record: any) => {
   try {
-    await projectApi.delete(record.project_id)
+    await projectApi.delete(record.opportunity_id)
     message.success('✅ 商机已永久删除')
     fetchData()
   } catch (err) {

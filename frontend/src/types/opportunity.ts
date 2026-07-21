@@ -3,9 +3,9 @@
  */
 
 export interface Project {
-  project_id: string
+  opportunity_id: string
   folder_name?: string
-  project_name: string
+  opportunity_name: string
   customer_name: string
   status: string
   created_at: string
@@ -25,7 +25,7 @@ export interface Project {
 
 export interface Quotation {
   quotation_id: string
-  project_id: string
+  opportunity_id: string
   version: string
   quotation_name: string
   file_path?: string

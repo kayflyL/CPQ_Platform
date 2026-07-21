@@ -34,7 +34,7 @@ async def generic_exception_handler(request: Request, exc: Exception):
     """Handle uncaught exceptions."""
     # Log the error (TODO: integrate with logging system)
     print(f"Uncaught exception: {exc}")
-    
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

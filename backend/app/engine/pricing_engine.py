@@ -10,8 +10,10 @@ import re
 import os
 import ast
 import json
+import math
 import operator
 import io
+import numpy as np
 import pandas as pd
 import openpyxl
 from pathlib import Path
@@ -277,26 +279,28 @@ class PricingEngine:
                         qty = 1
                 
                 price = None
-                if "kp_price" in item:
+                raw_price = str(item.get("kp_price", "")).strip().replace(',', '')
+                if raw_price:
                     try:
-                        price = float(item["kp_price"])
-                    except:
+                        price = float(raw_price)
+                    except ValueError:
                         pass
-                
+
                 if not catalogue or catalogue.lower() in ['nan', 'none', '', 'catalogue']:
                     continue
-                
+
                 # Determine if USD
                 is_usd = False
                 if 'cpu' in catalogue.lower() or 'processor' in catalogue.lower():
                     if 'usd' in model.lower() or '$' in model:
                         is_usd = True
-                
+
                 items.append({
                     'category': 'Key Parts',
                     'part_name': catalogue,
                     'spec': model,
                     'qty': qty,
+                    'price': price,
                     'currency': 'USD' if is_usd else 'RMB'
                 })
         
@@ -717,6 +721,7 @@ class PricingEngine:
                         'part_name': catalogue,
                         'spec': model,
                         'qty': qty,
+                        'price': price,
                         'currency': 'USD' if is_usd else 'RMB'
                     })
                 except:
@@ -757,6 +762,20 @@ class PricingEngine:
         return pd.DataFrame(items) if items else pd.DataFrame()
 
     # ==================== 2. Price Enrichment (via Repository) ====================
+
+    @staticmethod
+    def _is_json_unsafe(v) -> bool:
+        """True if v is None / NaN / Inf / pandas-NA (incl. numpy float variants) — i.e. must be
+        nullified before JSON serialization, because starlette's JSONResponse uses
+        json.dumps(allow_nan=False) and any NaN/Inf raises a 500."""
+        if v is None:
+            return True
+        if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+            return True
+        try:
+            return bool(pd.isna(v))
+        except (TypeError, ValueError):
+            return False
 
     def enrich_config(self, items_df: pd.DataFrame, meta: Optional[dict] = None) -> pd.DataFrame:
         """Enrich items with DB price match status (NO auto-fill).
@@ -806,12 +825,26 @@ class PricingEngine:
                 else:
                     items.at[idx, 'match_status'] = "🆕 新部件"
 
-        # NaN sanitization for JSON serialization
+        # NaN/Inf sanitization for JSON serialization — must cover ALL columns.
+        # starlette's JSONResponse uses json.dumps(allow_nan=False), so any NaN/Inf in the
+        # response raises a 500. Two gotchas the old .apply()-based code hit:
+        #   1) A plain .apply(lambda v: None if pd.isna(v) else v) on an object column holding
+        #      None+float (e.g. db_price = None for unmatched rows, float for matched) makes
+        #      pandas re-infer the result as float64 and silently turn those Nones back into NaN.
+        #   2) .fillna(0) does not touch Inf, so Inf in a numeric column still 500s.
         for col in items.columns:
-            if items[col].dtype == object:
-                items[col] = items[col].fillna("")
+            s = items[col]
+            if s.dtype == object or str(s.dtype) == 'str':
+                # Rebuild as an EXPLICIT object Series so None stays None (no dtype re-inference).
+                items[col] = pd.Series(
+                    [None if self._is_json_unsafe(v) else v for v in s],
+                    dtype=object, index=items.index,
+                )
             else:
-                items[col] = items[col].fillna(0)
+                # Numeric columns: NaN & Inf → 0 (Inf guard only on float cols).
+                if pd.api.types.is_float_dtype(s):
+                    s = s.replace([np.inf, -np.inf], 0)
+                items[col] = s.fillna(0)
 
         return items
 

@@ -13,7 +13,7 @@ export interface BomEvalContext {
   parts: any[]                        // baseConfig.parts(含 effectiveBaseParts 替换的背板行)
   rear: Record<string, string[]>      // IO1-4 + OCP → option_type[]
   frontCableQty: (k: string) => number
-  frontCableInfo: (k: string) => { pn: string; n: number; group: number | '-'; price: number }
+  frontCableInfo: (k: string) => { pn: string; n: number; group: number | '-'; price: number; name: string }
 }
 
 // 宽松 category 匹配(与 L6ChassisConfig.partByCategory 一致,零破坏)

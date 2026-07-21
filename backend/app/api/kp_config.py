@@ -28,7 +28,7 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
 
     series 过滤语义：applicable 为 null 或无 series 键 = 全系列通用（返回）；
     applicable.series 含该系列 = 返回；applicable.series=[] = 隐藏。
-    输出格式：pn/name/category/brand/sub_type/specs/applicable/unit_price。
+    输出格式：pn/name/category/brand/specs/applicable/unit_price。
     """
     q = """
         SELECT
@@ -37,7 +37,6 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
             p.name,
             c.name AS category,
             p.brand,
-            '' AS sub_type,
             '{}'::jsonb AS specs,
             p.applicable,
             COALESCE(ph.price, 0) AS unit_price
@@ -84,7 +83,6 @@ def get_part_by_pn(pn: str):
             p.name,
             c.name AS category,
             p.brand,
-            '' AS sub_type,
             '{}'::jsonb AS specs,
             p.applicable,
             COALESCE(ph.price, 0) AS unit_price

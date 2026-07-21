@@ -23,10 +23,10 @@
 
     <a-spin :spinning="loading">
       <div class="template-grid" v-if="templates.length">
-        <div v-for="t in templates" :key="t.id" class="template-card" @click="handleEdit(t)">
+        <div v-for="t in templates" :key="t.id" class="template-card glass-light" @click="handleEdit(t)">
           <div class="card-header">
             <span class="card-title">{{ t.display_name }}</span>
-            <a-tag v-if="t.is_default" color="green" class="default-tag">默认</a-tag>
+            <span v-if="t.is_default" class="cpq-led cpq-led--active">默认</span>
           </div>
           <div class="card-meta">
             <span class="meta-item">
@@ -271,20 +271,9 @@ onMounted(() => {
 .template-card {
   position: relative;
   padding: 24px;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 14px;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform var(--cpq-dur-2) var(--cpq-ease-smooth), border-color var(--cpq-dur-1) var(--cpq-ease-smooth), box-shadow var(--cpq-dur-1) var(--cpq-ease-smooth);
   overflow: hidden;
-  background: linear-gradient(135deg,
-    rgba(255, 255, 255, 0.07) 0%,
-    rgba(255, 255, 255, 0.03) 40%,
-    rgba(8, 12, 16, 0.25) 100%);
-  backdrop-filter: blur(16px) saturate(1.4);
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.10),
-    inset 0 -12px 36px rgba(0, 0, 0, 0.12);
 }
 
 .template-card::before {
@@ -294,19 +283,15 @@ onMounted(() => {
   top: 0;
   bottom: 0;
   width: 3px;
-  background: var(--cpq-accent-primary, #00F5D4);
+  background: var(--cpq-accent-primary, #1677FF);
   opacity: 0;
   transition: opacity 0.3s;
 }
 
 .template-card:hover {
-  border-color: rgba(0, 245, 212, 0.3);
-  transform: translateY(-2px);
-  box-shadow:
-    0 22px 64px rgba(0, 0, 0, 0.30),
-    0 0 34px rgba(0, 245, 212, 0.10),
-    inset 0 1px 0 rgba(255, 255, 255, 0.13),
-    inset 0 -18px 48px rgba(0, 0, 0, 0.14);
+  border-color: var(--cpq-glass-border-strong);
+  transform: translateY(-3px);
+  box-shadow: var(--cpq-shadow-lg), inset 0 1px 0 var(--cpq-glass-highlight);
 }
 
 .template-card:hover::before {
@@ -347,7 +332,7 @@ onMounted(() => {
 
 .card-actions {
   padding-top: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--cpq-overlay-w8);
   display: flex;
   gap: 4px;
 }

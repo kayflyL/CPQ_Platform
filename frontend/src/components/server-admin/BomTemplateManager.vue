@@ -122,7 +122,7 @@ defineExpose({ load })
 </script>
 
 <template>
-  <div class="panel">
+  <div class="panel glass">
     <div class="lib-head">
       <h3>BOM 模板</h3>
       <a-button type="primary" size="small" @click="openNew">+ 新建模板</a-button>
@@ -201,7 +201,7 @@ defineExpose({ load })
 </template>
 
 <style scoped>
-.panel { background: var(--cpq-bg-card, #14161c); border: 1px solid var(--cpq-border-primary, rgba(255,255,255,.10)); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.panel { padding: 16px; margin-bottom: 16px; }
 .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
 .lib-head h3 { margin: 0; font-size: 15px; }
 .tpl-hint { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-bottom: 10px; line-height: 1.5; }
@@ -211,8 +211,8 @@ defineExpose({ load })
 .tpl-row { display: flex; align-items: center; gap: 6px; }
 .row-idx { width: 18px; font-size: 11px; color: var(--cpq-text-muted, #6E7582); text-align: right; }
 .row-move { display: flex; flex-direction: column; }
-.rule-active { color: var(--cpq-accent-primary, #00f5d4); }
-.tpl-rule { padding: 6px 8px 6px 24px; background: rgba(255,255,255,.03); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; }
+.rule-active { color: var(--cpq-accent-primary, #1677FF); }
+.tpl-rule { padding: 6px 8px 6px 24px; background: var(--cpq-overlay-w3); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; }
 .rule-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .rule-lab { font-size: 11px; color: var(--cpq-text-muted, #6E7582); width: 80px; flex-shrink: 0; }
 .rule-lab.sub { padding-left: 8px; }

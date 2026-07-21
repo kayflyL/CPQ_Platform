@@ -75,6 +75,14 @@ def init_rules_db():
     finally:
         config_repo.close()
 
+    # Ensure comments table exists (raw SQL table on public schema, no ORM model)
+    try:
+        from app.repository.comment_repo import ensure_comments_table
+        ensure_comments_table()
+        print("✅ Comments table ensured")
+    except Exception as e:
+        print(f"⚠️ Comments table init failed: {e}")
+
     # Clean up old temporary files on startup
     try:
         from app.utils.file_storage import FileStorage

@@ -42,6 +42,17 @@ class Quotation(Base):
     # 主推标记
     is_primary: Mapped[Optional[bool]] = mapped_column(default=False)
 
+    @staticmethod
+    def _sanitize(obj):
+        """Replace NaN/Inf with None so json.dumps won't fail."""
+        if isinstance(obj, float) and (obj != obj or obj == float('inf') or obj == float('-inf')):
+            return None
+        if isinstance(obj, dict):
+            return {k: Quotation._sanitize(v) for k, v in obj.items()}
+        if isinstance(obj, list):
+            return [Quotation._sanitize(v) for v in obj]
+        return obj
+
     def to_dict(self) -> dict:
         result = {
             "quotation_id": self.quotation_id,
@@ -56,7 +67,7 @@ class Quotation(Base):
             "updated_at": self.updated_at or "",
             "status": self.status or "active",
             "quotation_date": self.quotation_date or "",
-            "config_quantities": self.config_quantities or {},
+            "config_quantities": self._sanitize(self.config_quantities) or {},
             "config_descriptions": self.config_descriptions or {},
             "config_server_models": self.config_server_models or {},
             "config_warranty_info": self.config_warranty_info or {},
@@ -69,6 +80,7 @@ class Quotation(Base):
         if self.extra_fields:
             try:
                 extra = json.loads(self.extra_fields)
+                extra = {k: self._sanitize(v) for k, v in extra.items()}
                 result.update(extra)
             except (json.JSONDecodeError, TypeError):
                 pass

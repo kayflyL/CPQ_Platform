@@ -1,0 +1,105 @@
+/* ========================================
+   Glass Console —— 数字读数 / LED 徽章 / 动效
+   signature：数据读数（设备感）+ 配置流程流光
+   ======================================== */
+
+/* === 数字读数 === */
+.cpq-reading {
+  font-feature-settings: var(--cpq-num-feature);
+  font-variant-numeric: tabular-nums lining-nums;
+  color: var(--cpq-accent-primary);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-shadow: var(--cpq-reading-glow);
+  line-height: 1;
+}
+.cpq-reading--cyan {
+  color: var(--cpq-accent-cyan);
+  text-shadow: var(--cpq-cyan-glow);
+}
+.cpq-reading--md { font-size: 22px; }
+.cpq-reading--lg { font-size: 30px; }
+.cpq-reading--xl { font-size: 40px; }
+
+/* === LED 徽章（设备状态指示） === */
+.cpq-led {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-1-bg);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.cpq-led::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+  flex-shrink: 0;
+}
+.cpq-led--active { color: var(--cpq-color-success); }
+.cpq-led--info { color: var(--cpq-accent-primary); }
+.cpq-led--warning { color: var(--cpq-color-warning); }
+.cpq-led--danger { color: var(--cpq-color-danger); }
+.cpq-led--muted { color: var(--cpq-text-muted); }
+.cpq-led--muted::before { box-shadow: none; opacity: 0.6; }
+
+/* === 动效 keyframes === */
+@keyframes cpq-rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes cpq-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes cpq-stream {
+  0% { background-position: -80% 0; }
+  100% { background-position: 180% 0; }
+}
+@keyframes cpq-pulse {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+/* 入场工具类 */
+.cpq-rise {
+  animation: cpq-rise var(--cpq-dur-3) var(--cpq-ease-smooth) both;
+}
+.cpq-fade {
+  animation: cpq-fade var(--cpq-dur-3) var(--cpq-ease-smooth) both;
+}
+
+/* signature 流光边 —— 配置流程激活态面板的边缘流动蓝光 */
+.cpq-stream-edge {
+  position: relative;
+}
+.cpq-stream-edge::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(90deg, transparent, var(--cpq-accent-cyan), transparent) no-repeat;
+  background-size: 60% 100%;
+  animation: cpq-stream 2.4s var(--cpq-ease-smooth) infinite;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* 尊重 reduced-motion */
+@media (prefers-reduced-motion: reduce) {
+  .cpq-rise, .cpq-fade { animation: none !important; opacity: 1; transform: none; }
+  .cpq-stream-edge::after { animation: none !important; display: none; }
+}

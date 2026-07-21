@@ -196,7 +196,7 @@ class L6ChassisRepository:
             results.append({
                 "item_id": r.get("pn"),
                 "pn": r.get("pn"),
-                "cable_type": specs.get("kind") or r.get("sub_type") or "",
+                "cable_type": specs.get("kind") or "",
                 "part_name": r.get("name") or "",
                 "description": specs.get("description") or "",
                 "unit_price": float(r.get("unit_price") or 0),

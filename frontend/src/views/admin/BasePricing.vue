@@ -154,7 +154,7 @@
             </div>
             <div class="card-meta" v-if="part.brand || part.condition">
               <a-tag size="small" v-if="part.brand">{{ part.brand }}</a-tag>
-              <span v-if="part.condition" :class="['cond-badge', conditionClass(part.condition)]">{{ part.condition }}</span>
+              <span v-if="part.condition" :class="['cpq-led', conditionClass(part.condition)]">{{ part.condition }}</span>
             </div>
           </div>
         </div>
@@ -286,7 +286,7 @@
           </div>
           <!-- Chart -->
           <div class="chart-container" v-if="detailPart.price_history && detailPart.price_history.length > 1">
-            <Line :data="detailChartData" :options="chartOptions" />
+            <VChart :option="chartOption" :autoresize="true" style="width: 100%; height: 280px;" />
           </div>
           <!-- List -->
           <div v-if="detailPart.price_history && detailPart.price_history.length" class="price-list">
@@ -294,6 +294,12 @@
               <span class="price-date">{{ h.price_date || '—' }}</span>
               <span class="price-amount">{{ currencySymbol(h.currency) }} {{ formatPrice(h.price) }}</span>
               <span class="price-note">{{ h.note || '—' }}</span>
+              <span class="price-actions">
+                <a-button type="text" size="small" @click="openEditPriceModal(h)"><EditOutlined /></a-button>
+                <a-popconfirm title="确定删除该价格记录？" @confirm="deletePrice(h.id)">
+                  <a-button type="text" size="small" danger><DeleteOutlined /></a-button>
+                </a-popconfirm>
+              </span>
             </div>
           </div>
           <span v-else class="no-data">暂无价格记录</span>
@@ -419,10 +425,10 @@
       </div>
     </a-modal>
 
-    <!-- =================== Add Price Modal =================== -->
+    <!-- =================== Add/Edit Price Modal =================== -->
     <a-modal
       v-model:open="priceModalVisible"
-      title="新增报价"
+      :title="priceForm.id ? '编辑报价' : '新增报价'"
       @ok="savePrice"
       :confirmLoading="priceSaving"
       width="400px"
@@ -500,38 +506,24 @@
 import { ref, onMounted, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import {
-  AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined,
+  AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined
 } from '@ant-design/icons-vue'
 import axios from 'axios'
-import { Line } from 'vue-chartjs'
+import VChart from 'vue-echarts'
+import { use } from 'echarts/core'
+import { LineChart } from 'echarts/charts'
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js'
+  GridComponent,
+  TooltipComponent,
+  DataZoomComponent,
+} from 'echarts/components'
+import { CanvasRenderer } from 'echarts/renderers'
+import { useChartTheme } from '@/composables/useChartTheme'
 
-ChartJS.register(
-  CategoryScale, LinearScale, PointElement, LineElement,
-  Title, Tooltip, Legend, Filler
-)
+use(GridComponent, TooltipComponent, DataZoomComponent, LineChart, CanvasRenderer)
 
-// 图表配色集中管理（chart.js 读不到 CSS 变量，故用 JS 常量；取值与 tokens.css 青色主调一致）
-const CHART_COLORS = {
-  accent: '#00F5D4',                     // = --cpq-accent-primary
-  accentFill: 'rgba(0, 245, 212, 0.10)', // = --cpq-overlay-a10
-  grid: 'rgba(255, 255, 255, 0.05)',     // = --cpq-overlay-w5
-  tick: '#6E7582',                       // = --cpq-text-muted
-  tooltipBg: 'rgba(8, 9, 11, 0.85)',     // = --cpq-overlay-b85
-  tooltipTitle: '#E8ECEF',               // = --cpq-text-primary
-  pointEdge: '#08090B',                  // = --cpq-bg-primary
-}
+const C = useChartTheme().chartColors
 
 // =================== View Mode ===================
 const viewMode = ref<'card' | 'table'>('card')
@@ -713,21 +705,46 @@ const openPartDetail = async (partId: number) => {
   }
 }
 
-const detailChartData = computed(() => {
+const chartOption = computed(() => {
   if (!detailPart.value?.price_history || detailPart.value.price_history.length < 2) return null
   const sorted = [...detailPart.value.price_history].reverse()
+  const colors = C.value
   return {
-    labels: sorted.map(h => h.price_date),
-    datasets: [{
-      label: '价格趋势',
+    grid: { left: 48, right: 24, top: 20, bottom: 32 },
+    xAxis: {
+      type: 'category',
+      data: sorted.map(h => h.price_date),
+      axisLine: { lineStyle: { color: colors.grid } },
+      axisLabel: { color: colors.tick, fontSize: 10 },
+      splitLine: { lineStyle: { color: colors.splitLine } },
+    },
+    yAxis: {
+      type: 'value',
+      axisLine: { lineStyle: { color: colors.grid } },
+      axisLabel: { color: colors.tick },
+      splitLine: { lineStyle: { color: colors.splitLine } },
+    },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: colors.tooltipBg,
+      borderColor: colors.tooltipBorder,
+      textStyle: { color: colors.tooltipText },
+      formatter: (p: any) => {
+        const d = p[0]
+        return `${d.axisValue}<br/>¥ ${d.value.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
+      },
+    },
+    dataZoom: [{ type: 'inside' }],
+    series: [{
+      type: 'line',
+      name: '价格趋势',
       data: sorted.map(h => h.price),
-      borderColor: CHART_COLORS.accent,
-      backgroundColor: CHART_COLORS.accentFill,
-      tension: 0.3,
-      fill: true,
-      pointBackgroundColor: CHART_COLORS.accent,
-      pointBorderColor: CHART_COLORS.pointEdge,
-    }]
+      smooth: 0.3,
+      symbolSize: 6,
+      itemStyle: { color: colors.accent },
+      lineStyle: { width: 2 },
+      areaStyle: { color: colors.accentFill },
+    }],
   }
 })
 
@@ -823,13 +840,18 @@ const deletePart = async (partId: number) => {
   }
 }
 
-// =================== Add Price ===================
+// =================== Add/Edit Price ===================
 const priceModalVisible = ref(false)
 const priceSaving = ref(false)
-const priceForm = ref<any>({ price: 0, price_date: null, note: '' })
+const priceForm = ref<any>({ id: null, price: 0, price_date: null, note: '' })
 
 const openAddPriceModal = () => {
-  priceForm.value = { price: 0, price_date: null, note: '' }
+  priceForm.value = { id: null, price: 0, price_date: null, note: '' }
+  priceModalVisible.value = true
+}
+
+const openEditPriceModal = (h: any) => {
+  priceForm.value = { id: h.id, price: h.price, price_date: h.price_date, note: h.note || '' }
   priceModalVisible.value = true
 }
 
@@ -840,15 +862,31 @@ const savePrice = async () => {
   }
   priceSaving.value = true
   try {
-    await axios.post(`/api/admin/kp/parts/${detailPart.value.id}/prices`, priceForm.value)
-    message.success('报价添加成功')
+    if (priceForm.value.id) {
+      await axios.put(`/api/admin/kp/prices/${priceForm.value.id}`, priceForm.value)
+      message.success('报价更新成功')
+    } else {
+      await axios.post(`/api/admin/kp/parts/${detailPart.value.id}/prices`, priceForm.value)
+      message.success('报价添加成功')
+    }
     priceModalVisible.value = false
     openPartDetail(detailPart.value.id)
     loadParts()
   } catch (e: any) {
-    message.error('添加失败: ' + (e.response?.data?.detail || e.message))
+    message.error((priceForm.value.id ? '更新' : '添加') + '失败: ' + (e.response?.data?.detail || e.message))
   } finally {
     priceSaving.value = false
+  }
+}
+
+const deletePrice = async (priceId: number) => {
+  try {
+    await axios.delete(`/api/admin/kp/prices/${priceId}`)
+    message.success('已删除')
+    openPartDetail(detailPart.value.id)
+    loadParts()
+  } catch (e: any) {
+    message.error('删除失败: ' + (e.response?.data?.detail || e.message))
   }
 }
 
@@ -911,27 +949,6 @@ const deleteCategory = async (catId: number) => {
   }
 }
 
-// =================== Chart Options ===================
-const chartOptions = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { display: false },
-    tooltip: {
-      backgroundColor: CHART_COLORS.tooltipBg,
-      titleColor: CHART_COLORS.tooltipTitle,
-      bodyColor: CHART_COLORS.accent,
-      callbacks: {
-        label: (ctx: any) => `${ctx.parsed.y.toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`
-      }
-    }
-  },
-  scales: {
-    x: { grid: { color: CHART_COLORS.grid }, ticks: { color: CHART_COLORS.tick, font: { size: 10 } } },
-    y: { grid: { color: CHART_COLORS.grid }, ticks: { color: CHART_COLORS.tick, callback: (v: any) => v } }
-  }
-}
-
 // =================== Utils ===================
 const CURRENCY_SYMBOLS: Record<string, string> = { RMB: '¥', CNY: '¥', USD: '$', EUR: '€' }
 const currencySymbol = (currency: string | null | undefined) => {
@@ -949,9 +966,9 @@ const copyText = (text: string) => {
 }
 
 const conditionClass = (cond: string) => {
-  if (cond === '翻新') return 'cond-refurb'
-  if (cond === '拆机') return 'cond-used'
-  return 'cond-new'
+  if (cond === '翻新') return 'cpq-led--warning'
+  if (cond === '拆机') return 'cpq-led--muted'
+  return 'cpq-led--active'
 }
 
 const clearSearch = () => {
@@ -1025,7 +1042,7 @@ onMounted(() => {
   font-family: inherit;
 }
 .seg-item:hover { color: var(--cpq-text-primary); background: var(--cpq-overlay-a6); }
-.seg-item.active { color: #06090E; background: var(--cpq-accent-primary); font-weight: 600; }
+.seg-item.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); font-weight: 600; }
 .seg-item :deep(svg) { width: 15px; height: 15px; }
 
 /* ============ 顶部分类胶囊条 ============ */
@@ -1046,11 +1063,11 @@ onMounted(() => {
   transition: all var(--cpq-transition-fast);
 }
 .cat-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a6); }
-.cat-chip.active { color: #06090E; background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); font-weight: 600; }
-.cat-chip.active .cat-chip-count { background: rgba(6,9,14,0.25); color: #06090E; }
+.cat-chip.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); font-weight: 600; }
+.cat-chip.active .cat-chip-count { background: var(--cpq-overlay-w15); color: var(--cpq-accent-on-primary); }
 .cat-chip-ico { width: 14px; height: 14px; opacity: 0.85; }
 .cat-chip-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cpq-text-muted); opacity: 0.6; }
-.cat-chip.active .cat-chip-dot { background: #06090E; opacity: 1; }
+.cat-chip.active .cat-chip-dot { background: var(--cpq-accent-on-primary); opacity: 1; }
 .cat-chip-count {
   font-size: 11px; padding: 0 7px; line-height: 16px; border-radius: 10px;
   background: var(--cpq-overlay-w6); color: var(--cpq-text-muted);
@@ -1189,7 +1206,7 @@ onMounted(() => {
 }
 .model-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 16px 40px rgba(0,0,0,0.45), 0 0 26px rgba(0,245,212,0.16), inset 0 1px 0 rgba(255,255,255,0.12);
+  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), 0 0 26px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-overlay-w10);
 }
 .card-accent-bar {
   position: absolute; top: 0; left: 0; right: 0; height: 2px;
@@ -1230,10 +1247,7 @@ onMounted(() => {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
   padding-top: 10px; border-top: 1px solid var(--cpq-border-primary);
 }
-.cond-badge { font-size: 11px; line-height: 18px; padding: 1px 9px; border-radius: 10px; border: 1px solid transparent; font-weight: 500; }
-.cond-new { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-color: var(--cpq-overlay-a20); }
-.cond-refurb { color: var(--cpq-accent-warning); background: var(--cpq-overlay-warn30); border-color: var(--cpq-overlay-warn30); }
-.cond-used { color: var(--cpq-text-muted); background: var(--cpq-overlay-w6); border-color: var(--cpq-border-light); }
+/* 成色徽章改用全局 .cpq-led */
 
 /* 表格视图 */
 .table-wrap { padding: 4px 8px; border-radius: 14px; }
@@ -1266,13 +1280,15 @@ onMounted(() => {
 .spec-key { width: 40%; padding: 8px 12px; background: var(--cpq-overlay-w6); font-size: 12px; font-weight: 500; color: var(--cpq-text-secondary); }
 .spec-val { flex: 1; padding: 8px 12px; font-size: 13px; color: var(--cpq-text-primary); }
 
-.chart-container { height: 150px; margin-bottom: 12px; padding: 12px; background: var(--cpq-overlay-w6); border-radius: 8px; }
+.chart-container { margin-bottom: 16px; padding: 12px; background: var(--cpq-overlay-w6); border-radius: 8px; }
 .price-list { display: flex; flex-direction: column; gap: 4px; }
 .price-item { display: flex; align-items: center; gap: 16px; padding: 6px 0; font-size: 12px; border-bottom: 1px solid var(--cpq-border-primary); }
 .price-item:last-child { border-bottom: none; }
 .price-date { color: var(--cpq-text-muted); min-width: 80px; font-variant-numeric: tabular-nums; }
 .price-amount { color: var(--cpq-accent-primary); font-weight: 600; min-width: 80px; font-variant-numeric: tabular-nums; }
 .price-note { color: var(--cpq-text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.price-actions { display: flex; gap: 2px; opacity: 0; transition: opacity var(--cpq-transition-fast); }
+.price-item:hover .price-actions { opacity: 1; }
 
 .compat-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 :deep(.compat-tag) { cursor: pointer; transition: all var(--cpq-transition-fast); }
@@ -1348,6 +1364,6 @@ onMounted(() => {
 :deep(.ant-pagination .ant-pagination-item) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); }
 :deep(.ant-pagination .ant-pagination-item a) { color: var(--cpq-text-secondary); }
 :deep(.ant-pagination .ant-pagination-item-active) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
-:deep(.ant-pagination .ant-pagination-item-active a) { color: #06090E; }
+:deep(.ant-pagination .ant-pagination-item-active a) { color: var(--cpq-accent-on-primary); }
 :deep(.ant-divider) { border-color: var(--cpq-border-primary); }
 </style>

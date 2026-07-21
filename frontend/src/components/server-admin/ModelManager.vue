@@ -88,7 +88,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="model-manager panel">
+  <div class="model-manager panel glass">
     <div class="lib-head">
       <h3>机型管理</h3>
       <a-space>
@@ -150,7 +150,7 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel { background: var(--cpq-bg-card, #14161c); border: 1px solid var(--cpq-border-primary, rgba(255,255,255,.10)); border-radius: 10px; padding: 16px; margin-bottom: 16px; }
+.panel { padding: 16px; margin-bottom: 16px; }
 .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
 .lib-head h3 { margin: 0; font-size: 15px; }
 </style>

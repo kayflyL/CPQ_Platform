@@ -3,6 +3,8 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel } from '@/api/serverConfig'
+import ModelShowcase from '@/components/server-config/ModelShowcase.vue'
+import { matchShowcase } from '@/components/server-config/showcase-config'
 
 const route = useRoute()
 const router = useRouter()
@@ -11,6 +13,7 @@ const typeId = computed(() => Number(route.params.typeId))
 const currentType = ref<ServerType | null>(null)
 const models = ref<ServerModel[]>([])
 const loading = ref(false)
+const showcaseConfig = computed(() => matchShowcase(currentType.value?.name || ''))
 
 async function loadTypeAndModels() {
   loading.value = true
@@ -55,6 +58,9 @@ onMounted(loadTypeAndModels)
       <h2 class="page-title">{{ currentType?.name || '' }} · 机型目录</h2>
       <p class="page-desc">{{ currentType?.description || '' }}</p>
 
+      <!-- 3D 机型总览（仅命中映射的分类渲染） -->
+      <ModelShowcase v-if="showcaseConfig" :type-name="currentType?.name || ''" />
+
       <!-- 机型卡片网格 -->
       <div class="models-grid" v-if="models.length">
         <div v-for="m in models" :key="m.id" class="model-card" @click="goToConfig(m)">
@@ -96,7 +102,7 @@ onMounted(loadTypeAndModels)
   padding: 4px 8px;
 }
 .back-btn:hover {
-  color: var(--cpq-accent-primary, #00F5D4);
+  color: var(--cpq-accent-primary, #1677FF);
 }
 .current-type {
   color: var(--cpq-text-primary, #E8ECEF);
@@ -123,29 +129,29 @@ onMounted(loadTypeAndModels)
 }
 .model-card {
   padding: 24px;
-  border: 1px solid rgba(255,255,255,.10);
+  border: 1px solid var(--cpq-overlay-w10);
   border-radius: 18px;
   cursor: pointer;
   transition: all .3s cubic-bezier(.16,1,.3,1);
   background: linear-gradient(135deg,
-    rgba(255,255,255,0.07) 0%,
-    rgba(255,255,255,0.03) 40%,
-    rgba(8,12,16,0.25) 100%);
-  backdrop-filter: blur(16px) saturate(1.4);
+    var(--cpq-overlay-w6) 0%,
+    var(--cpq-overlay-w3) 40%,
+    var(--cpq-overlay-b20) 100%);
+  backdrop-filter: blur(16px);
   box-shadow:
-    0 22px 64px rgba(0,0,0,0.30),
-    0 0 34px rgba(0,245,212,0.04),
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    inset 0 -18px 48px rgba(0,0,0,0.14);
+    0 22px 64px var(--cpq-overlay-b30),
+    0 0 34px var(--cpq-overlay-a4),
+    inset 0 1px 0 var(--cpq-overlay-w15),
+    inset 0 -18px 48px var(--cpq-overlay-b15);
 }
 .model-card:hover {
-  border-color: rgba(0,245,212,.3);
+  border-color: var(--cpq-overlay-a30);
   transform: translateY(-2px);
   box-shadow:
-    0 22px 64px rgba(0,0,0,0.30),
-    0 0 34px rgba(0,245,212,0.12),
-    inset 0 1px 0 rgba(255,255,255,0.13),
-    inset 0 -18px 48px rgba(0,0,0,0.14);
+    0 22px 64px var(--cpq-shadow-color-strong),
+    0 0 34px var(--cpq-overlay-a15),
+    inset 0 1px 0 var(--cpq-overlay-w15),
+    inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
 .m-top {
   display: flex;
@@ -162,9 +168,9 @@ onMounted(loadTypeAndModels)
   font-size: 12px;
   padding: 3px 10px;
   border-radius: 4px;
-  background: rgba(255,255,255,.06);
+  background: var(--cpq-overlay-w6);
   color: var(--cpq-text-secondary,#9BA1AA);
-  border: 1px solid rgba(255,255,255,.10);
+  border: 1px solid var(--cpq-overlay-w10);
 }
 .mu {
   color: var(--cpq-text-secondary,#9BA1AA);
@@ -177,7 +183,7 @@ onMounted(loadTypeAndModels)
   display: flex;
   gap: 20px;
   padding-top: 14px;
-  border-top: 1px solid rgba(255,255,255,.10);
+  border-top: 1px solid var(--cpq-overlay-w10);
   margin-bottom: 16px;
 }
 .m-specs .k {
@@ -196,16 +202,16 @@ onMounted(loadTypeAndModels)
   padding: 10px;
   border-radius: 8px;
   background: transparent;
-  border: 1px solid rgba(255,255,255,.18);
+  border: 1px solid var(--cpq-overlay-w20);
   color: var(--cpq-text-secondary,#9BA1AA);
   font-size: 13px;
   transition: all .2s;
   cursor: pointer;
 }
 .model-card:hover .m-pick {
-  background: rgba(0,245,212,.12);
-  border-color: var(--cpq-accent-primary,#00F5D4);
-  color: var(--cpq-accent-primary,#00F5D4);
+  background: var(--cpq-overlay-a15);
+  border-color: var(--cpq-accent-primary,#1677FF);
+  color: var(--cpq-accent-primary,#1677FF);
 }
 .sc-empty {
   color: var(--cpq-text-muted,#6E7582);

@@ -76,11 +76,11 @@ const close = () => {
   right: 0;
   bottom: 0;
   width: 400px;
-  background: rgba(12, 13, 16, 0.85);
-  backdrop-filter: blur(24px) saturate(1.4);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  border-left: 1px solid var(--cpq-overlay-w8);
-  box-shadow: -8px 0 24px var(--cpq-overlay-b40);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-3));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3));
+  border-left: 1px solid var(--cpq-glass-border);
+  box-shadow: -8px 0 24px var(--cpq-shadow-color-strong);
   z-index: 1000;
   transform: translateX(100%);
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);

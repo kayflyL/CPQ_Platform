@@ -1,80 +1,135 @@
 /* ========================================
    CPQ Platform - Design Tokens
-   Theme: Cyberpunk Dark (near-black + cyan accent)
-   Namespace: --cpq-*
+   主色：克制工业蓝 #1677FF
+   双主题：:root[data-theme='dark' | 'light']
+   命名空间：--cpq-*
    ======================================== */
 
+/* ---------- 两套主题共享：主色 / 功能色 / 主色半透明 / 字体 / 动效 ---------- */
 :root {
-  /* 背景色 — 接近纯黑 */
-  --cpq-bg-primary: #08090B;
-  --cpq-bg-secondary: #101217;
-  --cpq-bg-tertiary: #171a21;
-  --cpq-bg-sidebar: #08090B;
-  --cpq-bg-sidebar-header: #101217;
-  
-  /* 文字色 — 浅灰白 */
-  --cpq-text-primary: #E8ECEF;
-  --cpq-text-secondary: #9BA1AA;
-  --cpq-text-muted: #6E7582;
-  --cpq-text-disabled: #3D424D;
-  
-  /* 边框色 — 半透明白/青 */
-  --cpq-border-primary: rgba(255, 255, 255, 0.10);
-  --cpq-border-secondary: rgba(255, 255, 255, 0.06);
-  --cpq-border-light: rgba(255, 255, 255, 0.15);
-  
-  /* 强调色 — 亮青色 */
-  --cpq-accent-primary: #00F5D4;
-  --cpq-accent-primary-light: #00F5D4;
-  --cpq-accent-success: #00F5D4;
+  /* 强调色 — 工业蓝（暗浅统一） */
+  --cpq-accent-primary: #1677FF;
+  --cpq-accent-primary-light: #4096ff;
+  --cpq-accent-success: #1677FF;      /* 保留与 primary 等价，不改变既有行为 */
   --cpq-accent-warning: #F4D28A;
-  --cpq-accent-danger: #ff4d4f;
-  
-  /* 背景层级 — 卡片/面板 */
-  --cpq-bg-card: #1e1e1e;
-  --cpq-bg-elevated: #252525;
-  --cpq-bg-input: #2a2a2a;
-  --cpq-bg-selected: #1a3a1a;
-  --cpq-bg-highlight: #fffbe6;
-  --cpq-bg-dark: #1a1a1a;
-  
-  /* 边框层级 */
-  --cpq-border-dark: #303030;
-  
-  /* 功能色 */
-  --cpq-color-success: #52c41a;
+  --cpq-accent-danger: #FF6B6B;       /* 珊瑚红马卡龙 */
+  --cpq-accent-on-primary: #ffffff;   /* 主色按钮上的文字 —— 替换原 #06090E 深字 */
+
+  /* 功能色（antd 标准色板，暗浅共享；success/danger 改马卡龙浅色系） */
+  --cpq-color-success: #52C9A0;
   --cpq-color-warning: #faad14;
   --cpq-color-info: #1890ff;
   --cpq-color-purple: #a855f7;
   --cpq-color-purple-dark: #722ed1;
   --cpq-color-orange: #fa8c16;
   --cpq-color-gold: #d4a853;
-  
-  /* 文字色补充 */
-  --cpq-text-light: #e0e0e0;
-  --cpq-text-inverse: #1f1f1f;
-  --cpq-text-tertiary: #999;
-  --cpq-text-quaternary: #666;
-  --cpq-text-quinary: #555;
-  
-  /* 阴影 — 深黑外投影 */
-  --cpq-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.6);
-  --cpq-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.7);
-  --cpq-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.85);
-  
+
+  /* 蓝色半透明 —— 主色强调/高亮/光晕（随 accent-primary） */
+  --cpq-overlay-a4: rgba(22, 119, 255, 0.04);
+  --cpq-overlay-a5: rgba(22, 119, 255, 0.05);
+  --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+  --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+  --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+  --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+  --cpq-overlay-a30: rgba(22, 119, 255, 0.30);
+  --cpq-overlay-a40: rgba(22, 119, 255, 0.40);
+
+  /* 功能色半透明（跟随马卡龙语义色） */
+  --cpq-overlay-danger10: rgba(255, 107, 107, 0.10);
+  --cpq-overlay-danger15: rgba(255, 107, 107, 0.15);
+  --cpq-overlay-success15: rgba(82, 201, 160, 0.15);
+  --cpq-overlay-info20: rgba(24, 144, 255, 0.20);
+  --cpq-overlay-warn30: rgba(244, 210, 138, 0.30);
+
   /* 字体 */
   --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --cpq-font-size-sm: 12px;
   --cpq-font-size-base: 14px;
   --cpq-font-size-lg: 16px;
-  
+
   /* 动效 */
   --cpq-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
   --cpq-transition-fast: 0.2s var(--cpq-ease-out-expo);
   --cpq-transition-normal: 0.3s var(--cpq-ease-out-expo);
   --cpq-transition-slow: 0.5s var(--cpq-ease-out-expo);
 
-  /* === 半透明叠加色（替换组件中的硬编码 rgba）=== */
+  /* === Glass Console 扩展 === */
+  /* 科技 accent —— 仅 signature 读数/激活微光，小面积，不抢主色 */
+  --cpq-accent-cyan: #36CFCF;
+  --cpq-overlay-cyan15: rgba(54, 207, 207, 0.15);
+  --cpq-overlay-cyan30: rgba(54, 207, 207, 0.30);
+  --cpq-overlay-cyan50: rgba(54, 207, 207, 0.50);
+
+  /* 主色渐变 —— 重点按钮/数字/图表填充 */
+  --cpq-accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+
+  /* 圆角阶梯 —— 统一大圆角，弱化尖锐棱角 */
+  --cpq-radius-sm: 8px;
+  --cpq-radius-md: 12px;
+  --cpq-radius-lg: 16px;
+  --cpq-radius-xl: 20px;
+
+  /* 动效扩展 */
+  --cpq-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --cpq-ease-smooth: cubic-bezier(.4, 0, .2, 1);
+  --cpq-dur-1: 160ms;
+  --cpq-dur-2: 280ms;
+  --cpq-dur-3: 480ms;
+  --cpq-stagger: 60ms;
+
+  /* 数字读数 —— tabular 等宽 + lining，配合 .cpq-reading */
+  --cpq-num-feature: 'tnum' 1, 'lnum' 1;
+
+  color-scheme: light;
+}
+
+/* ---------- 暗色主题（默认）---------- */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* 背景 — 接近纯黑 */
+  --cpq-bg-primary: #08090B;
+  --cpq-bg-secondary: #101217;
+  --cpq-bg-tertiary: #171a21;
+  --cpq-bg-sidebar: #08090B;
+  --cpq-bg-sidebar-header: #101217;
+
+  /* 文字 — 浅灰白 */
+  --cpq-text-primary: #E8ECEF;
+  --cpq-text-secondary: #9BA1AA;
+  --cpq-text-muted: #6E7582;
+  --cpq-text-disabled: #3D424D;
+
+  /* 边框 — 白色半透明 */
+  --cpq-border-primary: rgba(255, 255, 255, 0.10);
+  --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+  --cpq-border-light: rgba(255, 255, 255, 0.15);
+
+  /* 卡片 / 输入框背景 */
+  --cpq-bg-card: #1e1e1e;
+  --cpq-bg-elevated: #252525;
+  --cpq-bg-input: #2a2a2a;
+  --cpq-bg-selected: rgba(22, 119, 255, 0.18);
+  --cpq-bg-highlight: #fffbe6;
+  --cpq-bg-dark: #1a1a1a;
+  --cpq-border-dark: #303030;
+
+  /* 文字补充 */
+  --cpq-text-light: #e0e0e0;
+  --cpq-text-inverse: #1f1f1f;
+  --cpq-text-tertiary: #999;
+  --cpq-text-quaternary: #666;
+  --cpq-text-quinary: #555;
+
+  /* 阴影 — 深黑外投影（软化版，暗版 Soft Glass） */
+  --cpq-shadow-sm: 0 2px 8px rgba(0, 0, 0, 0.40);
+  --cpq-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.50);
+  --cpq-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.60);
+
+  /* 投影色（供自定义尺寸 box-shadow 用，区别于背景用的 overlay-b）*/
+  --cpq-shadow-color-soft: rgba(0, 0, 0, 0.30);
+  --cpq-shadow-color-strong: rgba(0, 0, 0, 0.50);
+
   /* 白色半透明 — 边框/分隔线/微背景 */
   --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
   --cpq-overlay-w4: rgba(255, 255, 255, 0.04);
@@ -92,20 +147,116 @@
   --cpq-overlay-b40: rgba(0, 0, 0, 0.40);
   --cpq-overlay-b85: rgba(8, 9, 11, 0.85);
 
-  /* 青色半透明 — 强调/高亮/光晕 */
-  --cpq-overlay-a4: rgba(0, 245, 212, 0.04);
-  --cpq-overlay-a5: rgba(0, 245, 212, 0.05);
-  --cpq-overlay-a8: rgba(0, 245, 212, 0.08);
-  --cpq-overlay-a10: rgba(0, 245, 212, 0.10);
-  --cpq-overlay-a15: rgba(0, 245, 212, 0.15);
-  --cpq-overlay-a20: rgba(0, 245, 212, 0.20);
-  --cpq-overlay-a30: rgba(0, 245, 212, 0.30);
-  --cpq-overlay-a40: rgba(0, 245, 212, 0.40);
+  /* === Glass Console：深空背景 === */
+  --cpq-bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+  --cpq-grid-line: rgba(255, 255, 255, 0.028);
 
-  /* 功能色半透明 */
-  --cpq-overlay-danger10: rgba(255, 77, 79, 0.10);
-  --cpq-overlay-danger15: rgba(255, 77, 79, 0.15);
-  --cpq-overlay-success15: rgba(82, 196, 26, 0.15);
-  --cpq-overlay-info20: rgba(24, 144, 255, 0.20);
-  --cpq-overlay-warn30: rgba(244, 210, 138, 0.30);
+  /* 三级玻璃（暗版 Soft Glass：弱化模糊） */
+  --cpq-glass-1-bg: rgba(255, 255, 255, 0.06);
+  --cpq-glass-2-bg: rgba(255, 255, 255, 0.09);
+  --cpq-glass-3-bg: rgba(18, 24, 38, 0.75);
+  --cpq-glass-border: rgba(255, 255, 255, 0.11);
+  --cpq-glass-border-strong: rgba(22, 119, 255, 0.40);
+  --cpq-glass-highlight: rgba(255, 255, 255, 0.18);
+  --cpq-glass-blur-1: 12px;
+  --cpq-glass-blur-2: 16px;
+  --cpq-glass-blur-3: 22px;
+
+  /* 数字读数发光（暗色专属） */
+  --cpq-reading-glow: 0 0 24px rgba(22, 119, 255, 0.35);
+  --cpq-cyan-glow: 0 0 16px rgba(54, 207, 207, 0.45);
+  --cpq-led-active-glow: 0 0 8px rgba(82, 201, 160, 0.65);
+  --cpq-led-warning-glow: 0 0 8px rgba(250, 173, 20, 0.55);
+}
+
+/* ---------- 浅色主题 ---------- */
+:root[data-theme='light'] {
+  color-scheme: light;
+
+  /* 背景 — 冷调浅蓝白 + 层级（实色底保表格/输入可读性） */
+  --cpq-bg-primary: #F2F6FC;
+  --cpq-bg-secondary: #F0F4FA;
+  --cpq-bg-tertiary: #E8EEF6;
+  --cpq-bg-sidebar: #F2F6FC;
+  --cpq-bg-sidebar-header: #f5f7fa;
+
+  /* 文字 — 深灰 */
+  --cpq-text-primary: #1d2129;
+  --cpq-text-secondary: #4e5969;
+  --cpq-text-muted: #86909c;
+  --cpq-text-disabled: #c9cdd4;
+
+  /* 边框 — 冷蓝淡色，无厚重分割线（黑色半透明在浅底过重） */
+  --cpq-border-primary: rgba(22, 119, 255, 0.10);
+  --cpq-border-secondary: rgba(22, 119, 255, 0.06);
+  --cpq-border-light: rgba(22, 119, 255, 0.16);
+
+  /* 卡片 / 输入框背景 */
+  --cpq-bg-card: #ffffff;
+  --cpq-bg-elevated: #ffffff;
+  --cpq-bg-input: #ffffff;
+  --cpq-bg-selected: rgba(22, 119, 255, 0.10);
+  --cpq-bg-highlight: #fffbe6;
+  --cpq-bg-dark: #f0f2f5;
+  --cpq-border-dark: #d9d9d9;
+
+  /* 文字补充 */
+  --cpq-text-light: #1d2129;
+  --cpq-text-inverse: #ffffff;
+  --cpq-text-tertiary: #86909c;
+  --cpq-text-quaternary: #a9aeb8;
+  --cpq-text-quinary: #c9cdd4;
+
+  /* 阴影 — 极淡冷蓝微投影（轻量玻璃悬浮感） */
+  --cpq-shadow-sm: 0 2px 8px rgba(22, 119, 255, 0.06);
+  --cpq-shadow-md: 0 4px 16px rgba(22, 119, 255, 0.08);
+  --cpq-shadow-lg: 0 8px 24px rgba(22, 119, 255, 0.10);
+
+  /* 投影色（供自定义尺寸 box-shadow 用，浅色冷蓝、暗色黑）*/
+  --cpq-shadow-color-soft: rgba(22, 119, 255, 0.08);
+  --cpq-shadow-color-strong: rgba(22, 119, 255, 0.14);
+
+  /* Soft Glassmorphism：浅底下 overlay 改白玻璃（卡片/面板底不再发灰），按强度递增 */
+  --cpq-overlay-w3: rgba(255, 255, 255, 0.24);
+  --cpq-overlay-w4: rgba(255, 255, 255, 0.30);
+  --cpq-overlay-w5: rgba(255, 255, 255, 0.36);
+  --cpq-overlay-w6: rgba(255, 255, 255, 0.42);
+  --cpq-overlay-w8: rgba(255, 255, 255, 0.48);
+  --cpq-overlay-w10: rgba(255, 255, 255, 0.54);
+  --cpq-overlay-w15: rgba(255, 255, 255, 0.62);
+  --cpq-overlay-w20: rgba(255, 255, 255, 0.70);
+
+  /* 黑色 overlay 浅底也改白玻璃（卡片底用），仅全屏遮罩 b85 保暗 */
+  --cpq-overlay-b15: rgba(255, 255, 255, 0.34);
+  --cpq-overlay-b20: rgba(255, 255, 255, 0.44);
+  --cpq-overlay-b30: rgba(255, 255, 255, 0.54);
+  --cpq-overlay-b40: rgba(255, 255, 255, 0.62);
+  --cpq-overlay-b85: rgba(0, 0, 0, 0.45);
+
+  /* === Glass Console：饱和浅天蓝 → 冰蓝渐变（透出玻璃底层）=== */
+  --cpq-bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  --cpq-grid-line: rgba(22, 119, 255, 0.022);
+
+  /* 三级玻璃（Soft Glassmorphism：通透白玻璃 + 白边高光 + 弱磨砂） */
+  --cpq-glass-1-bg: rgba(255, 255, 255, 0.40);
+  --cpq-glass-2-bg: rgba(255, 255, 255, 0.55);
+  --cpq-glass-3-bg: rgba(255, 255, 255, 0.75);
+  --cpq-glass-border: rgba(255, 255, 255, 0.65);
+  --cpq-glass-border-strong: rgba(22, 119, 255, 0.45);
+  --cpq-glass-highlight: rgba(255, 255, 255, 1);
+  --cpq-glass-blur-1: 10px;
+  --cpq-glass-blur-2: 12px;
+  --cpq-glass-blur-3: 16px;
+
+  /* 浅色读数：无发光，保持干净 */
+  --cpq-reading-glow: none;
+  --cpq-cyan-glow: none;
+  --cpq-led-active-glow: 0 0 6px rgba(82, 201, 160, 0.4);
+  --cpq-led-warning-glow: 0 0 6px rgba(250, 173, 20, 0.35);
 }

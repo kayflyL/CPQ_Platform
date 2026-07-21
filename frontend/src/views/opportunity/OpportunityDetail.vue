@@ -171,7 +171,7 @@
           ></div>
           <div class="quo-content">
             <div class="quo-top">
-              <span v-if="quo.is_primary" class="quo-primary-tag">主推</span>
+              <span v-if="quo.is_primary" class="cpq-led cpq-led--warning">主推</span>
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
               <span class="quo-price">¥{{ formatPrice(quo.total_price) }}</span>
               <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
@@ -187,7 +187,7 @@
               <StarOutlined /> 设为主推
             </button>
             <button v-else class="text-btn" @click="setAsPrimary(quo)">
-              <StarFilled style="color:#faad14" /> 取消主推
+              <StarFilled style="color:var(--cpq-color-warning)" /> 取消主推
             </button>
             <button class="text-btn" @click="viewQuotation(quo)">
               <EyeOutlined /> 查看
@@ -820,7 +820,7 @@ onMounted(() => {
 .back-btn:hover {
   background: var(--cpq-overlay-w8);
   color: var(--cpq-text-primary);
-  border-color: rgba(255, 255, 255, 0.14);
+  border-color: var(--cpq-overlay-w15);
 }
 
 .page-header h1 {
@@ -1204,8 +1204,8 @@ onMounted(() => {
 }
 
 .quo-margin-badge.badge-low {
-  color: var(--cpq-accent-danger, var(--cpq-accent-danger));
-  background: rgba(255, 77, 79, 0.08);
+  color: var(--cpq-accent-danger);
+  background: var(--cpq-overlay-danger10);
   border-color: var(--cpq-overlay-danger15);
 }
 

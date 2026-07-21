@@ -27,6 +27,14 @@ class OpportunityItem(Base):
     # 多租户预留
     tenant_id: Mapped[Optional[str]] = mapped_column(String, default="default")
 
+    @staticmethod
+    def _sanitize(obj):
+        """Replace NaN/Inf with None so json.dumps won't fail."""
+        import math
+        if isinstance(obj, float) and (obj != obj or obj == float('inf') or obj == float('-inf')):
+            return None
+        return obj
+
     def to_dict(self) -> dict:
         result = {
             "item_id": self.item_id,
@@ -45,6 +53,7 @@ class OpportunityItem(Base):
         if self.extra_fields:
             try:
                 extra = json.loads(self.extra_fields)
+                extra = {k: self._sanitize(v) for k, v in extra.items()}
                 result.update(extra)
             except (json.JSONDecodeError, TypeError):
                 pass

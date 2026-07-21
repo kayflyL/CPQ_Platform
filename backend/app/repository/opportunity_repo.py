@@ -18,11 +18,32 @@ class OpportunityRepository:
         return self._session
 
     def list_opportunities(self, include_deleted: bool = False,
-                      page: int = 1, page_size: int = 50) -> tuple[List[dict], int]:
+                      page: int = 1, page_size: int = 50,
+                      search: str = None, status: str = None,
+                      platform: str = None, chassis: str = None,
+                      sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
         if not include_deleted:
             q = q.filter(Opportunity.status != "deleted")
-        q = q.order_by(Opportunity.updated_at.desc())
+        if status and status != "all":
+            q = q.filter(Opportunity.status == status)
+        if platform:
+            plats = [s.strip() for s in platform.split(',') if s.strip()]
+            if plats:
+                q = q.filter(Opportunity.platform_type.in_(plats))
+        if chassis:
+            chas = [s.strip() for s in chassis.split(',') if s.strip()]
+            if chas:
+                q = q.filter(Opportunity.chassis_form.in_(chas))
+        if search:
+            q = q.filter(
+                Opportunity.opportunity_name.ilike(f"%{search}%") |
+                Opportunity.customer_name.ilike(f"%{search}%") |
+                Opportunity.sales_person.ilike(f"%{search}%")
+            )
+        _SORT_COLS = {"updated_at": Opportunity.updated_at, "created_at": Opportunity.created_at}
+        _col = _SORT_COLS.get(sort_by, Opportunity.updated_at)
+        q = q.order_by(_col.asc() if sort_order == "asc" else _col.desc())
 
         total = q.count()
         rows = q.offset((page - 1) * page_size).limit(page_size).all()
@@ -126,6 +147,10 @@ class OpportunityRepository:
         if existing:
             for key, val in info.items():
                 if hasattr(existing, key) and key not in ("opportunity_id", "created_at"):
+                    # 防御：incoming 为空值时不覆盖已有非空值，避免报价保存擦掉商机名等元数据
+                    cur = getattr(existing, key)
+                    if (val is None or (isinstance(val, str) and val == "")) and cur not in (None, ""):
+                        continue
                     setattr(existing, key, val)
             existing.updated_at = now
             existing.status = "active"

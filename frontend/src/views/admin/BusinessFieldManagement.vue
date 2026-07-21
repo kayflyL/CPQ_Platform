@@ -757,7 +757,7 @@ onMounted(() => {
 
 .tree-group.active {
   background: var(--cpq-overlay-a8);
-  color: var(--cpq-accent-primary, #00F5D4);
+  color: var(--cpq-accent-primary, #1677FF);
 }
 
 /* Content */
@@ -815,7 +815,7 @@ onMounted(() => {
 }
 
 :deep(.table-row-even) {
-  background: rgba(255, 255, 255, 0.01);
+  background: var(--cpq-overlay-w3);
 }
 
 :deep(.table-row-odd) {

@@ -117,7 +117,7 @@ emitFilter()
 
 <style scoped>
 .l6-spec-filter {
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--cpq-overlay-b20);
   backdrop-filter: blur(12px);
   border: 1px solid var(--cpq-overlay-w8);
   border-radius: 12px;
@@ -151,11 +151,11 @@ emitFilter()
 /* ===== Select selector ===== */
 .l6-spec-filter :deep(.ant-select-selector) {
   background: var(--cpq-overlay-w6) !important;
-  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border: 1px solid var(--cpq-overlay-w10) !important;
   border-radius: 6px !important;
 }
 .l6-spec-filter :deep(.ant-select-selection-placeholder) {
-  color: rgba(255, 255, 255, 0.35) !important;
+  color: var(--cpq-text-muted) !important;
 }
 .l6-spec-filter :deep(.ant-select-selection-item) {
   color: var(--cpq-text-primary) !important;
@@ -165,7 +165,7 @@ emitFilter()
 }
 /* Hover */
 .l6-spec-filter :deep(.ant-select:hover .ant-select-selector) {
-  border-color: rgba(255, 255, 255, 0.25) !important;
+  border-color: var(--cpq-overlay-w20) !important;
 }
 /* Focus */
 .l6-spec-filter :deep(.ant-select-focused .ant-select-selector) {
@@ -176,18 +176,18 @@ emitFilter()
 /* ===== Clear button & arrow icon ===== */
 .l6-spec-filter :deep(.ant-select-clear),
 .l6-spec-filter :deep(.ant-select-arrow) {
-  color: rgba(255, 255, 255, 0.4) !important;
+  color: var(--cpq-text-muted) !important;
 }
 .l6-spec-filter :deep(.ant-select-clear:hover),
 .l6-spec-filter :deep(.ant-select-arrow:hover) {
-  color: rgba(255, 255, 255, 0.7) !important;
+  color: var(--cpq-text-secondary) !important;
 }
 
 /* ===== Dropdown menu ===== */
 .l6-spec-filter :deep(.ant-select-dropdown) {
   background: var(--cpq-bg-secondary) !important;
   border: 1px solid var(--cpq-overlay-w10) !important;
-  box-shadow: 0 8px 24px var(--cpq-overlay-b40) !important;
+  box-shadow: 0 8px 24px var(--cpq-shadow-color-strong) !important;
 }
 .l6-spec-filter :deep(.ant-select-item) {
   color: var(--cpq-text-light) !important;
@@ -226,7 +226,7 @@ emitFilter()
 }
 .match-error {
   background: var(--cpq-overlay-danger10);
-  border-color: rgba(255, 77, 79, 0.25);
+  border-color: rgba(255, 107, 107, 0.25);
   color: var(--cpq-accent-danger);
 }
 .match-success {

@@ -306,6 +306,37 @@ def add_price(part_id: int, data: dict):
         repo.close()
 
 
+@router.put("/kp/prices/{price_id}")
+def update_price(price_id: int, data: dict):
+    """更新价格记录"""
+    repo = KPRepository()
+    try:
+        ok = repo.update_price_history(
+            price_id=price_id,
+            price=data.get("price"),
+            price_date=data.get("price_date"),
+            note=data.get("note"),
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="价格记录不存在")
+        return {"ok": True}
+    finally:
+        repo.close()
+
+
+@router.delete("/kp/prices/{price_id}")
+def delete_price(price_id: int):
+    """删除价格记录"""
+    repo = KPRepository()
+    try:
+        ok = repo.delete_price_history(price_id)
+        if not ok:
+            raise HTTPException(status_code=404, detail="价格记录不存在")
+        return {"ok": True}
+    finally:
+        repo.close()
+
+
 # ---- 关联配件 ----
 @router.get("/kp/parts/{part_id}/related")
 def get_related_parts(part_id: int):

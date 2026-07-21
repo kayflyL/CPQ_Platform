@@ -7,9 +7,15 @@ import axios from 'axios'
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
 // ---------- 料号库 ----------
+export interface PartSection {
+  section: string
+  count: number
+  categories: string[]
+}
 export const partsApi = {
-  list: (category?: string, search?: string) =>
-    RESP<{ parts: PartMaster[]; total: number }>(axios.get('/api/parts', { params: { category, search } })),
+  list: (opts?: { category?: string; section?: string; search?: string }) =>
+    RESP<{ parts: PartMaster[]; total: number }>(axios.get('/api/parts', { params: opts })),
+  sections: () => RESP<{ sections: PartSection[] }>(axios.get('/api/parts/sections')),
   categories: () => RESP<{ categories: string[] }>(axios.get('/api/parts/categories')),
   get: (pn: string) => RESP<PartMaster>(axios.get(`/api/parts/${encodeURIComponent(pn)}`)),
   create: (data: Partial<PartMaster>) => RESP<{ pn: string }>(axios.post('/api/parts', data)),
@@ -71,7 +77,7 @@ export const configSchemeApi = {
 // 求值跑前端(bomContext 是临时态);算不出 → fallback;manual → 留空手填。
 export type DescSource =
   | { kind: 'fixed'; value: string }                                       // 固定文案
-  | { kind: 'part_field'; category: string; field: string }                // 料号库字段(name/sub_type/pn/specs.xxx)
+  | { kind: 'part_field'; category: string; field: string }                // 料号库字段(name/pn/specs.xxx)
   | { kind: 'template'; template: string }                                 // ${bays}*3.5 SATA/SAS 变量插值
   | { kind: 'struct_count'; scope: 'io_slot' | 'rear_all' | 'front_cables' } // 结构计数
   | { kind: 'config_value'; key: string }                                  // 配置参数单值
@@ -123,7 +129,7 @@ export interface PartMaster {
   pn: string
   name: string
   category: string
-  sub_type?: string
+  section?: string
   specs?: Record<string, any>
   unit_price?: number
   supplier?: string
@@ -140,6 +146,7 @@ export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string
   form?: string; bays?: number; bp_tri_pn?: string; bp_dc_pn?: string
   gpu_arch_default?: string; sort_order?: number
+  parts_count?: number; total_price?: number
 }
 export interface BaseConfigPart {
   id?: number; config_id?: number; pn: string; quantity: number
@@ -154,7 +161,6 @@ export interface KpPart {
   name: string
   category: string
   brand?: string
-  sub_type?: string
   specs?: Record<string, any>
   applicable?: { series?: string[] } | null
   unit_price?: number
@@ -177,18 +183,9 @@ export interface DeriveResult {
 
 // ---------- 后面板配置类型 ----------
 export interface RearIOItem {
-  item_id: number
-  io_slot: string
-  option_type: string
   pn: string
-  part_name: string
-  description?: string
+  name: string
   unit_price: number
-  quantity: number
-  applicable_chassis?: string
-  applicable_backplane?: string
-  note?: string
-  sort_order: number
 }
 
 export interface RearIOSlotOption {

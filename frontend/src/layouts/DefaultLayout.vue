@@ -6,18 +6,14 @@
         <div class="logo-text">CPQ</div>
         <div class="logo-sub">Platform</div>
       </div>
-      <a-menu 
-        v-model:selectedKeys="selectedKeys" 
+      <a-menu
+        v-model:selectedKeys="selectedKeys"
         v-model:openKeys="openKeys"
-        theme="dark" 
-        mode="horizontal" 
+        :theme="themeStore.isDark ? 'dark' : 'light'"
+        mode="horizontal"
         @click="handleMenuClick"
         class="top-menu"
       >
-        <a-menu-item key="/dashboard">
-          <template #icon><DashboardOutlined /></template>
-          <span>首页</span>
-        </a-menu-item>
         <a-menu-item key="/opportunities">
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
@@ -48,8 +44,14 @@
           </a-menu-item>
         </a-sub-menu>
       </a-menu>
+      <div class="topbar-actions">
+        <a-button type="text" class="theme-toggle" @click="themeStore.toggle()">
+          <BulbOutlined v-if="themeStore.isDark" />
+          <BulbFilled v-else />
+        </a-button>
+      </div>
     </div>
-    
+
     <!-- 下方：唯一滚动区域 (内部承载所有页面内容) -->
     <main class="main-scroll">
       <router-view />
@@ -60,10 +62,12 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { DashboardOutlined, ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, FormOutlined, ControlOutlined } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, FormOutlined, ControlOutlined, BulbOutlined, BulbFilled } from '@ant-design/icons-vue'
+import { useThemeStore } from '@/store/theme'
 
 const router = useRouter()
 const route = useRoute()
+const themeStore = useThemeStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
 
@@ -159,23 +163,40 @@ const handleMenuClick = ({ key }: { key: string }) => {
   text-transform: uppercase;
 }
 
-/* 2. 下方滚动区 */
+/* 顶栏右侧操作区 */
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.theme-toggle {
+  color: var(--cpq-text-secondary) !important;
+  font-size: 16px;
+}
+.theme-toggle:hover {
+  color: var(--cpq-accent-primary) !important;
+}
+
+/* 2. 下方滚动区 —— 深空/冷空渐变 + 网格 */
 .main-scroll {
   flex: 1;
   height: calc(100vh - 56px);
   overflow-y: auto;
   position: relative;
-  background:
-    /* 左上 cyan 光晕 */
-    radial-gradient(ellipse 60% 40% at 15% 5%, var(--cpq-overlay-a10), transparent),
-    /* 右下 blue 光晕 */
-    radial-gradient(ellipse 50% 35% at 85% 70%, rgba(80, 80, 255, 0.08), transparent),
-    /* 中间 white 微光 */
-    radial-gradient(ellipse 40% 30% at 50% 40%, var(--cpq-overlay-w4), transparent),
-    var(--cpq-bg-primary);
+  background: var(--cpq-bg-gradient);
+  background-attachment: fixed;
 }
 
-/* 粒子点阵动画 */
+/* 内容置于网格层之上，路由切换时淡入 */
+.main-scroll > * {
+  position: relative;
+  z-index: 1;
+  animation: cpq-fade var(--cpq-dur-3) var(--cpq-ease-smooth);
+}
+
+/* 网格层 —— 数据中心技术感，中间显、边缘淡 */
 .main-scroll::before {
   content: '';
   position: fixed;
@@ -183,26 +204,15 @@ const handleMenuClick = ({ key }: { key: string }) => {
   pointer-events: none;
   z-index: 0;
   background-image:
-    radial-gradient(circle 1px at 50px 50px, var(--cpq-overlay-w20) 1px, transparent 1px),
-    radial-gradient(circle 1px at 150px 100px, rgba(255,255,255,0.12) 1px, transparent 1px),
-    radial-gradient(circle 1px at 250px 50px, var(--cpq-overlay-w15) 1px, transparent 1px),
-    radial-gradient(circle 1px at 100px 200px, var(--cpq-overlay-w15) 1px, transparent 1px);
-  background-size: 300px 300px;
-  animation: particleDrift 60s linear infinite;
+    linear-gradient(var(--cpq-grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--cpq-grid-line) 1px, transparent 1px);
+  background-size: 48px 48px;
+  -webkit-mask-image: radial-gradient(ellipse 75% 60% at 50% 35%, black 35%, transparent 100%);
+  mask-image: radial-gradient(ellipse 75% 60% at 50% 35%, black 35%, transparent 100%);
 }
 
-/* 边缘暗角 (vignette) */
-.main-scroll::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(ellipse at center, transparent 50%, var(--cpq-overlay-b40) 100%);
-}
-
-@keyframes particleDrift {
-  0% { background-position: 0 0, 50px 50px, 100px 100px, 150px 150px; }
-  100% { background-position: 300px 300px, 350px 350px, 400px 400px, 450px 450px; }
+/* 浅色：logo 去发光（背景渐变两套已自动跟随主题） */
+[data-theme='light'] .logo-text {
+  text-shadow: none;
 }
 </style>

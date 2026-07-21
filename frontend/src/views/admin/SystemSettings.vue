@@ -7,7 +7,7 @@
 
     <a-tabs v-model:activeKey="activeTab" class="settings-tabs">
       <a-tab-pane key="business" tab="业务参数">
-        <div class="settings-card">
+        <div class="settings-card glass">
           <div class="settings-card-title">业务参数</div>
           <p class="settings-card-desc">系统级业务参数，影响报价计算和导出</p>
           <a-table
@@ -62,7 +62,7 @@
       </a-tab-pane>
 
       <a-tab-pane key="precision" tab="数字精度">
-        <div class="settings-card">
+        <div class="settings-card glass">
           <div class="settings-card-title">数字精度</div>
           <p class="settings-card-desc">设置报价单中数字的显示精度，影响 Excel 导出和前端显示</p>
           <div class="setting-row">
@@ -83,7 +83,7 @@
       </a-tab-pane>
 
       <a-tab-pane key="kpMapping" tab="KP 分类映射">
-        <div class="settings-card">
+        <div class="settings-card glass">
           <div class="settings-card-title">KP 分类映射</div>
           <p class="settings-card-desc">配置 KP 配件关键词到标准分类的映射规则，用于自动归类 KP 配件</p>
           
@@ -392,9 +392,6 @@ onMounted(() => {
 }
 
 .settings-card {
-  background: var(--cpq-bg-secondary);
-  border: 1px solid var(--cpq-border-secondary);
-  border-radius: 8px;
   padding: 20px;
 }
 

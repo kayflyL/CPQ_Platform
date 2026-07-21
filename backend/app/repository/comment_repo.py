@@ -16,6 +16,7 @@ class CommentRepo:
         q = """
             INSERT INTO public.comments (opportunity_id, user_name, content, created_at)
             VALUES (:opp_id, :user, :content, :created)
+            RETURNING id
         """
         with public_engine.begin() as conn:
             result = conn.execute(text(q), {
@@ -24,7 +25,7 @@ class CommentRepo:
                 "content": content,
                 "created": datetime.now().isoformat()
             })
-            return result.inserted_primary_key[0]
+            return result.scalar()
 
     def get_comments(self, opportunity_id: str) -> List[Dict]:
         """获取商机的所有评论"""
@@ -62,6 +63,24 @@ class CommentRepo:
         with public_engine.begin() as conn:
             result = conn.execute(text(q), {"opp_id": opportunity_id})
         return result.rowcount
+
+
+def ensure_comments_table():
+    """幂等创建 public.comments 表（raw SQL 表，无 ORM 模型，startup 时调用）"""
+    with public_engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS public.comments (
+                id SERIAL PRIMARY KEY,
+                opportunity_id TEXT NOT NULL,
+                user_name TEXT,
+                content TEXT,
+                created_at TEXT
+            )
+        """))
+        conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_comments_opportunity_id
+            ON public.comments(opportunity_id)
+        """))
 
 
 # 单例

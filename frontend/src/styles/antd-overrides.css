@@ -1,6 +1,7 @@
 /* ========================================
-   CPQ Platform - Ant Design Vue Dark Theme Overrides
+   CPQ Platform - Ant Design Vue Theme Overrides
    Selector specificity: #app .ant-* (no !important)
+   全部走 --cpq-* token，自动跟随暗/浅主题
    ======================================== */
 
 /* 表格 */
@@ -59,12 +60,13 @@
   color: var(--cpq-text-disabled);
 }
 
-/* 输入框 */
+/* 输入框 —— 浅玻璃底 + 白边 + 大圆角 */
 #app .ant-input,
 #app .ant-input-number,
 #app .ant-select-selector {
-  background: var(--cpq-bg-tertiary);
-  border-color: var(--cpq-border-light);
+  background: var(--cpq-glass-2-bg);
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-primary);
 }
 
@@ -88,7 +90,7 @@
 #app .ant-input-number-focused,
 #app .ant-select-focused .ant-select-selector {
   border-color: var(--cpq-accent-primary);
-  box-shadow: 0 0 0 2px rgba(0, 245, 212, 0.15);
+  box-shadow: 0 0 0 2px var(--cpq-overlay-a15);
 }
 
 /* 按钮 */
@@ -118,9 +120,12 @@
   border-color: var(--cpq-accent-primary-light);
 }
 
-/* 标签 */
+/* 标签 —— 胶囊化，去粗边去阴影 */
 #app .ant-tag {
-  border-color: var(--cpq-border-primary);
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding-inline: 10px;
+  line-height: 20px;
 }
 
 /* Tabs */
@@ -147,14 +152,14 @@
   background: var(--cpq-accent-primary-light);
 }
 
-/* Modal */
+/* Modal —— glass-3 半透白 + 弱磨砂 + 白边高光（去 saturate，浅色不发灰） */
 #app .ant-modal-content {
-  background: rgba(16, 18, 23, 0.85);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-3));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3));
+  border: 1px solid var(--cpq-glass-border);
   color: var(--cpq-text-primary);
-  box-shadow: 0 12px 48px rgba(0, 0, 0, 0.8),
-              inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  box-shadow: var(--cpq-shadow-lg), inset 0 1px 0 var(--cpq-glass-highlight);
 }
 
 #app .ant-modal-header {
@@ -203,10 +208,14 @@
   color: var(--cpq-text-primary);
 }
 
-/* Card */
+/* Card —— 半透玻璃卡片 */
 #app .ant-card {
-  background: var(--cpq-bg-secondary);
-  border-color: var(--cpq-border-primary);
+  background: var(--cpq-glass-2-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-1));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1));
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-lg);
+  box-shadow: var(--cpq-shadow-sm), inset 0 1px 0 var(--cpq-glass-highlight);
   color: var(--cpq-text-primary);
 }
 
@@ -254,24 +263,30 @@
   color: var(--cpq-text-primary);
 }
 
-/* Tooltip */
+/* Tooltip —— glass-3 + 白边 */
 #app .ant-tooltip-inner {
-  background: var(--cpq-bg-tertiary);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-2));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-2));
   color: var(--cpq-text-primary);
   font-size: 13px;
   padding: 6px 10px;
-  border-radius: 4px;
-  border: 1px solid var(--cpq-border-primary);
+  border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-glass-border);
   box-shadow: var(--cpq-shadow-md);
 }
 
 #app .ant-tooltip-arrow-content {
-  background: var(--cpq-bg-tertiary);
+  background: var(--cpq-glass-3-bg);
 }
 
-/* Select dropdown */
+/* Select dropdown —— 浮层玻璃，同 Tooltip */
 #app .ant-select-dropdown {
-  background: var(--cpq-bg-tertiary);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-2));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-2));
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: var(--cpq-shadow-md);
 }
 
 #app .ant-select-item {
@@ -286,12 +301,13 @@
   background: var(--cpq-accent-primary);
 }
 
-/* Drawer */
+/* Drawer —— 同 Modal，glass-3 + 弱磨砂 + 白边 */
 #app .ant-drawer .ant-drawer-content-wrapper,
 #app .ant-drawer .ant-drawer-content {
-  background: rgba(16, 18, 23, 0.85);
-  backdrop-filter: blur(20px) saturate(1.6);
-  -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  background: var(--cpq-glass-3-bg);
+  backdrop-filter: blur(var(--cpq-glass-blur-3));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3));
+  border-left: 1px solid var(--cpq-glass-border);
 }
 
 #app .ant-drawer-header {
@@ -334,9 +350,28 @@
 #app .ant-checkbox-inner {
   background: var(--cpq-bg-tertiary);
   border-color: var(--cpq-border-light);
+  border-radius: 5px;
 }
 
 #app .ant-checkbox-checked .ant-checkbox-inner {
   background: var(--cpq-accent-primary);
   border-color: var(--cpq-accent-primary);
 }
+
+/* 商机驾驶舱 - 时间维度自定义浮层（popover 挂 body，不走 #app 前缀） */
+.period-custom-pop .ant-popover-inner {
+  background: var(--cpq-bg-secondary);
+  border: 1px solid var(--cpq-border-primary);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px var(--cpq-shadow-color, rgba(0,0,0,.12));
+}
+.period-custom-pop .ant-popover-inner-content { padding: 14px; }
+.period-custom-pop .custom-panel { width: 250px; display: flex; flex-direction: column; gap: 12px; }
+.period-custom-pop .custom-sec-title { font-size: 11px; font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: 7px; letter-spacing: .3px; }
+.period-custom-pop .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: 8px; background: transparent; color: var(--cpq-text-secondary); font-size: 12px; cursor: pointer; transition: all .2s ease; }
+.period-custom-pop .preset-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.period-custom-pop .preset-btn.active { color: #fff; background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.period-custom-pop .preset-btn.ghost { background: transparent; color: var(--cpq-text-muted); border-color: var(--cpq-border-light); }
+.period-custom-pop .custom-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cpq-border-secondary); }
+.period-custom-pop .custom-cur { font-size: 11px; color: var(--cpq-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

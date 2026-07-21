@@ -36,6 +36,7 @@ STMTS = [
         pn           VARCHAR(200) PRIMARY KEY,
         name         VARCHAR(500) NOT NULL,
         category     VARCHAR(100) NOT NULL,
+        section      VARCHAR(20),
         sub_type     VARCHAR(100),
         specs        JSONB DEFAULT '{}'::jsonb,
         unit_price   DECIMAL(15,2) DEFAULT 0,
@@ -45,6 +46,7 @@ STMTS = [
         created_at   TIMESTAMP DEFAULT NOW()
     )""",
     "CREATE INDEX IF NOT EXISTS idx_parts_master_cat ON parts.parts_master(category)",
+    "CREATE INDEX IF NOT EXISTS idx_parts_master_section ON parts.parts_master(section)",
 
     # ===== l6.server_types =====
     """CREATE TABLE IF NOT EXISTS l6.server_types (

@@ -97,7 +97,15 @@ export function useServerConfig() {
     rear[slot] = [...others, ...Array.from({ length: newQty }, () => optionType)]
   }
   function incOption(slot: string, optionType: string, cap?: number) {
-    setOptionQty(slot, optionType, optionQty(slot, optionType) + 1, cap)
+    const cur = optionQty(slot, optionType)
+    // 首次选某 option：IO1/IO2(组合槽,1×X16+1×X8)默认 1；IO3/IO4/OCP 默认填满槽（cap）
+    const next = cur === 0 ? defaultQtyFor(slot, cap) : cur + 1
+    setOptionQty(slot, optionType, next, cap)
+  }
+  /** 默认数量：IO1/IO2 是 x16+x8 组合槽各 1；其余槽首次选择默认填满槽（cap）。步进器仍可任意手改。 */
+  function defaultQtyFor(slot: string, cap?: number): number {
+    if (slot === 'IO1' || slot === 'IO2') return 1
+    return cap ?? 1
   }
   function decOption(slot: string, optionType: string) {
     setOptionQty(slot, optionType, optionQty(slot, optionType) - 1)

@@ -154,7 +154,7 @@ class L6Repository:
         """获取指定L6记录的价格历史"""
         q = """
             SELECT id, l6_record_id as record_id, price, note, created_at
-            FROM l6.l6_price_history
+            FROM l6_history.l6_price_history
             WHERE l6_record_id = :rid
             ORDER BY created_at DESC
             LIMIT :lim
@@ -166,7 +166,7 @@ class L6Repository:
     def save_history_snapshot(self, record_id: int, price: float, note: str = "") -> bool:
         """保存L6记录的价格快照到历史表"""
         q = """
-            INSERT INTO l6.l6_price_history (l6_record_id, price, note, created_at)
+            INSERT INTO l6_history.l6_price_history (l6_record_id, price, note, created_at)
             VALUES (:rid, :price, :note, :ts)
         """
         with l6_history_engine.begin() as conn:
