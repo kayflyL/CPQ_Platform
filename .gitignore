@@ -25,6 +25,9 @@ pnpm-debug.log*
 *.swo
 *~
 
+# Obsidian (editor state; keep other .obsidian config tracked)
+.obsidian/workspace.json
+
 # Environment
 .env
 .env.local
