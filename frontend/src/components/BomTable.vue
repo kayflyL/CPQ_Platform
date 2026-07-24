@@ -83,8 +83,8 @@ const l6Rows = computed(() => {
     return (cfg.bom_excel_rows || [])
       .filter((i: any) => i.category === 'L6' || i.category === '整机')
       .map((item: any, idx: number) => ({
-        catalogue: item.part_name || '',
-        description: item.spec || '',
+        catalogue: item.catalogue || '',
+        description: item.description || '',
         qty: item.qty,
         _idx: idx,
       }))
@@ -113,9 +113,9 @@ const kpRows = computed(() => {
   const kpItems = items.filter((i: any) => i.category === 'Key Parts')
 
   return kpItems.map((item: any, idx: number) => ({
-    // 使用 part_name 作为 catalogue，支持同名多行（如两个 HDD/SSD）
-    catalogue: item.part_name || 'Unknown',
-    description: item.spec || '',
+    // KP 行：catalogue 现在是型号（旧 spec），part_category 才是类别
+    catalogue: item.catalogue || 'Unknown',
+    description: item.description || '',
     qty: item.qty,
     cost: Number(item.base_price) || 0,
     _idx: idx // 用于 v-for key 去重

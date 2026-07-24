@@ -5,7 +5,6 @@
 export interface Project {
   opportunity_id: string
   folder_name?: string
-  opportunity_name: string
   customer_name: string
   status: string
   created_at: string
@@ -29,29 +28,39 @@ export interface Quotation {
   version: string
   quotation_name: string
   file_path?: string
-  
+
   // Quotation-level fields (user-editable)
   quotation_date: string
-  
+
   // Computed totals
   l6_price: number
   total_qty: number
   config_count: number
   total_price: number
   profit_margin: number
-  
+
   created_at: string
   updated_at: string
   status: string
+
+  // WIP fields (primary-quotation flag + platform classification)
+  is_primary?: boolean
+  platform_type?: string
 }
+
+// Alias: Project is being renamed to Opportunity (商机) across the UI.
+// Kept as a type alias so views can use the semantically-correct name
+// without duplicating the shape.
+export type Opportunity = Project
 
 export interface ProjectItem {
   item_id?: number
   quotation_id: string
   config_name: string
   category: string
-  part_name: string
-  spec: string
+  catalogue: string
+  description: string
+  part_category: string
   qty: number
   base_price: number
   final_price: number

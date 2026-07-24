@@ -42,7 +42,7 @@ export interface AttrSchema { label: string; type: AttrType; options?: string[];
 export const ATTR_SCHEMA: Record<string, AttrSchema> = {
   io_slot:     { label: 'IO 槽位',   type: 'enum-multi',  options: ['IO1', 'IO2', 'IO3', 'IO4', 'OCP'] },
   option_type: { label: '选项类型',  type: 'enum-single', options: ['x16', 'x8', 'nvme', 'sata', 'ocp_x8', 'ocp_x16'] },
-  chassis:     { label: '适用机型',  type: 'enum-multi',  options: ['Orion', 'Polaris'] },
+  chassis:     { label: '适用机型',  type: 'free-tags' },
   backplane:   { label: '适用背板',  type: 'enum-multi',  options: ['三模', '直连'] },
   kind:        { label: '线缆种类',  type: 'enum-single', options: ['SATA', 'SAS', 'NVMe'] },
   bt:          { label: '背板类型',  type: 'enum-single', options: ['tri', 'dc'] },

@@ -4,15 +4,19 @@
  *  规则跟模板存 JSONB、求值跑前端；基准配置通过 bom_template_id 关联此处的模板。 */
 import { ref, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import draggable from 'vuedraggable'
 import { bomTemplateApi, type BomTemplate, type BomTemplateRow } from '@/api/serverConfig'
 import BomRuleSourceEditor from './BomRuleSourceEditor.vue'
+
+type EditableRow = BomTemplateRow & { uid: number }
+let uidSeq = 1
 
 const templates = ref<(BomTemplate & { _usage?: number })[]>([])
 const loading = ref(false)
 const modalVisible = ref(false)
 const editingId = ref<number | null>(null)
 const name = ref('')
-const rows = ref<BomTemplateRow[]>([])
+const rows = ref<EditableRow[]>([])
 const saving = ref(false)
 
 const ROW_TYPES = [
@@ -49,13 +53,8 @@ function toggleQtyFb(r: BomTemplateRow, on: boolean) {
 }
 function canFallback(kind: string) { return kind !== 'manual' && kind !== 'fixed' }
 
-function addRow() { rows.value.push({ type: 'cable', label: 'Cable' }) }
+function addRow() { rows.value.push({ type: 'cable', label: 'Cable', uid: ++uidSeq }) }
 function delRow(i: number) { rows.value.splice(i, 1) }
-function move(i: number, d: number) {
-  const j = i + d
-  if (j < 0 || j >= rows.value.length) return
-  const arr = rows.value; const t = arr[i]; arr[i] = arr[j]; arr[j] = t
-}
 function onTypeChange(i: number) {
   const r = rows.value[i]
   if (r.type === 'io_slot') { if (!r.slot) r.slot = 'IO1' } else { delete r.slot }
@@ -82,7 +81,7 @@ async function openEdit(t: BomTemplate) {
   editingId.value = t.id
   const full = await bomTemplateApi.get(t.id)
   name.value = full.name
-  rows.value = (full.rows || []).map(r => ({ ...r }))
+  rows.value = (full.rows || []).map(r => ({ ...r, uid: ++uidSeq }))
   expanded.value = new Set()
   modalVisible.value = true
 }
@@ -93,7 +92,7 @@ async function save() {
   }
   saving.value = true
   try {
-    const payload = { name: name.value.trim(), rows: rows.value }
+    const payload = { name: name.value.trim(), rows: rows.value.map(({ uid: _uid, ...rest }) => rest) }
     if (editingId.value) await bomTemplateApi.update(editingId.value, payload)
     else editingId.value = (await bomTemplateApi.create(payload)).id
     message.success('模板已保存（所有用此模板的基准配置立即生效）')
@@ -148,9 +147,11 @@ defineExpose({ load })
           <a-input v-model:value="name" placeholder="如：2U12标准、4U8-GPU直连" />
         </a-form-item>
         <div class="sec-label">行骨架（顺序即左栏显示顺序）· 点 ⚙ 配置该行 desc/qty 的解析规则</div>
-        <div class="row-list">
-          <div v-for="(r, i) in rows" :key="i" class="tpl-row-wrap">
+        <draggable v-model="rows" item-key="uid" handle=".tpl-drag" :animation="180" class="row-list">
+          <template #item="{ element: r, index: i }">
+          <div class="tpl-row-wrap">
             <div class="tpl-row">
+              <span class="tpl-drag" title="拖拽排序">⣿</span>
               <span class="row-idx">{{ i + 1 }}</span>
               <a-select :value="r.type" size="small" style="width: 200px" @change="(v: string) => { r.type = v; onTypeChange(i) }">
                 <a-select-option v-for="t in ROW_TYPES" :key="t.value" :value="t.value">{{ t.label }}</a-select-option>
@@ -163,10 +164,6 @@ defineExpose({ load })
                 <a-select-option value="direct">direct</a-select-option>
                 <a-select-option value="switch">switch</a-select-option>
               </a-select>
-              <div class="row-move">
-                <a-button size="small" link :disabled="i === 0" @click="move(i, -1)">↑</a-button>
-                <a-button size="small" link :disabled="i === rows.length - 1" @click="move(i, 1)">↓</a-button>
-              </div>
               <a-button size="small" link :class="{ 'rule-active': expanded.has(i) }" @click="toggleRule(i)" title="解析规则">⚙</a-button>
               <a-button size="small" link danger @click="delRow(i)">✕</a-button>
             </div>
@@ -193,7 +190,8 @@ defineExpose({ load })
               </div>
             </div>
           </div>
-        </div>
+          </template>
+        </draggable>
         <a-button size="small" dashed style="margin-top:6px" @click="addRow">+ 添加行</a-button>
       </a-form>
     </a-modal>
@@ -211,6 +209,8 @@ defineExpose({ load })
 .tpl-row { display: flex; align-items: center; gap: 6px; }
 .row-idx { width: 18px; font-size: 11px; color: var(--cpq-text-muted, #6E7582); text-align: right; }
 .row-move { display: flex; flex-direction: column; }
+.tpl-drag { cursor: grab; color: var(--cpq-text-muted, #6E7582); padding: 0 2px; user-select: none; font-size: 15px; line-height: 1; }
+.tpl-drag:active { cursor: grabbing; }
 .rule-active { color: var(--cpq-accent-primary, #1677FF); }
 .tpl-rule { padding: 6px 8px 6px 24px; background: var(--cpq-overlay-w3); border-radius: 6px; display: flex; flex-direction: column; gap: 4px; }
 .rule-line { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }

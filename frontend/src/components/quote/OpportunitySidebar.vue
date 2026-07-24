@@ -1,35 +1,22 @@
 <template>
-  <!-- 遮罩层 -->
-  <transition name="fade">
-    <div v-if="internalShow" class="sidebar-overlay" @click="close"></div>
-  </transition>
-  
-  <!-- 抽屉面板 -->
-  <div class="sidebar-drawer" :class="{ open: internalShow }">
-    <div class="sidebar-content">
-      <!-- 上半：商机文件 -->
-      <div class="sidebar-section files-section">
-        <opportunity-files 
-          :opportunity-id="opportunityId" 
-          :visible="internalShow" 
-        />
-      </div>
-      <!-- 下半：评论 -->
-      <div class="sidebar-section comment-section">
-        <comment-panel 
-          :opportunity-id="opportunityId" 
-          :visible="internalShow"
-          :show-title="true"
-        />
+  <Teleport to="body">
+    <!-- 遮罩层 -->
+    <transition name="fade">
+      <div v-if="internalShow" class="sidebar-overlay" @click="close"></div>
+    </transition>
+
+    <!-- 抽屉面板：统一协作流（消息 + 文件 + 在线状态） -->
+    <div class="sidebar-drawer" :class="{ open: internalShow }">
+      <div class="sidebar-content">
+        <OpportunityFeed :opportunity-id="opportunityId" :visible="internalShow" />
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import OpportunityFiles from '@/components/quote/OpportunityFiles.vue'
-import CommentPanel from '@/components/CommentPanel.vue'
+import OpportunityFeed from '@/components/feed/OpportunityFeed.vue'
 
 const props = defineProps<{
   opportunityId: string
@@ -42,9 +29,14 @@ const emit = defineEmits<{
 
 const internalShow = ref(false)
 
-watch(() => props.showSidebar, (val) => {
-  if (val === true || val === false) internalShow.value = val
-})
+// Parent owns the state via v-model:show-sidebar; this just mirrors it so the
+// overlay/transition can react, and emits close back up.
+watch(
+  () => props.showSidebar,
+  (val) => {
+    internalShow.value = !!val
+  },
+)
 
 const close = () => {
   internalShow.value = false
@@ -75,7 +67,7 @@ const close = () => {
   top: 0;
   right: 0;
   bottom: 0;
-  width: 400px;
+  width: 420px;
   background: var(--cpq-glass-3-bg);
   backdrop-filter: blur(var(--cpq-glass-blur-3));
   -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3));
@@ -97,22 +89,6 @@ const close = () => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-}
-
-.sidebar-section {
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
-}
-
-.files-section {
-  flex: 0 0 42%;
-  min-height: 220px;
-  border-bottom: 1px solid var(--cpq-overlay-w6);
-}
-
-.comment-section {
-  flex: 1;
 }
 
 .fade-enter-active,

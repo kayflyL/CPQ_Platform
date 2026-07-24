@@ -32,8 +32,8 @@ function goBack() {
   router.push('/servers')
 }
 
-function goToConfig(model: ServerModel) {
-  router.push(`/servers/config/${model.id}`)
+function goToDetail(model: ServerModel) {
+  router.push(`/servers/models/${model.id}`)
 }
 
 onMounted(loadTypeAndModels)
@@ -63,16 +63,15 @@ onMounted(loadTypeAndModels)
 
       <!-- 机型卡片网格 -->
       <div class="models-grid" v-if="models.length">
-        <div v-for="m in models" :key="m.id" class="model-card" @click="goToConfig(m)">
+        <div v-for="m in models" :key="m.id" class="model-card" @click="goToDetail(m)">
           <div class="m-top">
             <span class="mn">{{ m.name }}</span>
-            <span class="m-tag">{{ m.form || '—' }}</span>
+            <span class="m-tag">{{ m.base_config?.form || '—' }}</span>
           </div>
-          <div class="mu">{{ m.use || '通用场景' }}</div>
           <div class="m-specs">
-            <div><span class="k">盘位</span><span class="v">{{ m.bays || '—' }}</span></div>
+            <div><span class="k">盘位</span><span class="v">{{ m.base_config?.bays ?? '—' }}</span></div>
           </div>
-          <button class="m-pick">配置这台 →</button>
+          <button class="m-pick">查看详情 →</button>
         </div>
       </div>
       <div v-else-if="!loading" class="sc-empty">该类型下暂无机型，去「管理」添加。</div>

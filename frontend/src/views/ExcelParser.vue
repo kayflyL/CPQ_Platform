@@ -89,6 +89,110 @@
             </a-table>
           </div>
         </a-card>
+
+        <!-- KP 分类映射 -->
+        <a-card title="KP 分类映射" size="small" style="margin-top: 12px;">
+          <div class="kp-mapping-add">
+            <a-input
+              v-model:value="newKeyword"
+              placeholder="关键词（如 CPU、Memory）"
+              style="width: 100px"
+              size="small"
+            />
+            <a-select
+              v-model:value="newCategory"
+              placeholder="分类"
+              style="width: 90px"
+              size="small"
+            >
+              <a-select-option value="CPU">CPU</a-select-option>
+              <a-select-option value="Memory">Memory</a-select-option>
+              <a-select-option value="Storage">Storage</a-select-option>
+              <a-select-option value="Network">Network</a-select-option>
+              <a-select-option value="PSU">PSU</a-select-option>
+              <a-select-option value="Chassis">Chassis</a-select-option>
+              <a-select-option value="Motherboard">Motherboard</a-select-option>
+              <a-select-option value="Other">Other</a-select-option>
+            </a-select>
+            <a-button type="primary" size="small" @click="handleAddMapping" :loading="adding">
+              +
+            </a-button>
+          </div>
+
+          <a-table
+            :columns="mappingColumns"
+            :data-source="kpMappings"
+            :pagination="false"
+            row-key="id"
+            size="small"
+            :loading="loadingMappings"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'keyword'">
+                <a-input
+                  v-if="editingMappingId === record.id"
+                  v-model:value="record.keyword"
+                  size="small"
+                />
+                <span v-else>{{ record.keyword }}</span>
+              </template>
+              <template v-if="column.key === 'category'">
+                <a-select
+                  v-if="editingMappingId === record.id"
+                  v-model:value="record.category"
+                  size="small"
+                  style="width: 90px"
+                >
+                  <a-select-option value="CPU">CPU</a-select-option>
+                  <a-select-option value="Memory">Memory</a-select-option>
+                  <a-select-option value="Storage">Storage</a-select-option>
+                  <a-select-option value="Network">Network</a-select-option>
+                  <a-select-option value="PSU">PSU</a-select-option>
+                  <a-select-option value="Chassis">Chassis</a-select-option>
+                  <a-select-option value="Motherboard">Motherboard</a-select-option>
+                  <a-select-option value="Other">Other</a-select-option>
+                </a-select>
+                <span v-else>{{ record.category }}</span>
+              </template>
+              <template v-if="column.key === 'action'">
+                <a-space :size="2">
+                  <a-button
+                    v-if="editingMappingId === record.id"
+                    type="link"
+                    size="small"
+                    @click="handleSaveMappingEdit(record)"
+                  >
+                    ✓
+                  </a-button>
+                  <a-button
+                    v-if="editingMappingId === record.id"
+                    type="link"
+                    size="small"
+                    @click="handleCancelMappingEdit"
+                  >
+                    ✗
+                  </a-button>
+                  <a-button
+                    v-if="editingMappingId !== record.id"
+                    type="link"
+                    size="small"
+                    @click="handleEditMapping(record)"
+                  >
+                    <template #icon><EditOutlined /></template>
+                  </a-button>
+                  <a-popconfirm
+                    title="确定删除此映射？"
+                    @confirm="handleDeleteMapping(record.id)"
+                  >
+                    <a-button type="link" size="small" danger>
+                      <template #icon><DeleteOutlined /></template>
+                    </a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
       </div>
 
       <!-- 中栏：Excel 热力图预览 -->
@@ -102,8 +206,8 @@
                     <td
                       v-for="(cell, cIdx) in row"
                       :key="cIdx"
-                      :class="getCellClass(rIdx, cIdx)"
-                      :title="getCellTooltip(rIdx, cIdx)"
+                      :class="getCellClass(Number(rIdx), Number(cIdx))"
+                      :title="getCellTooltip(Number(rIdx), Number(cIdx))"
                     >
                       {{ cell }}
                     </td>
@@ -165,7 +269,7 @@
                   :header="`${regionName} (${items.length} 行)`"
                 >
                   <a-table
-                    :dataSource="items.map((item, idx) => ({ ...item, _key: idx }))"
+                    :dataSource="items.map((item: Record<string, any>, idx: number) => ({ ...item, _key: idx }))"
                     :columns="getDynamicColumns(items)"
                     :pagination="false"
                     size="small"
@@ -232,10 +336,22 @@
           <a-input v-model:value="regionForm.name" placeholder="如: header, L6, KP, Warranty" />
         </a-form-item>
         <a-form-item label="起始关键词">
-          <a-input v-model:value="regionForm.start_keywords" placeholder="多个关键词用逗号分隔" />
+          <a-select
+            v-model:value="regionForm.startKeywordsList"
+            mode="tags"
+            :token-separators="[',']"
+            placeholder="输入关键词后按回车添加"
+            style="width: 100%"
+          />
         </a-form-item>
         <a-form-item label="结束关键词">
-          <a-input v-model:value="regionForm.end_keywords" placeholder="多个关键词用逗号分隔" />
+          <a-select
+            v-model:value="regionForm.endKeywordsList"
+            mode="tags"
+            :token-separators="[',']"
+            placeholder="输入关键词后按回车添加"
+            style="width: 100%"
+          />
         </a-form-item>
         <a-form-item label="跳过行数">
           <a-input-number v-model:value="regionForm.skip_header_rows" :min="0" style="width: 100%;" />
@@ -334,6 +450,19 @@ const loadingRules = ref(false)
 const parsing = ref(false)
 const uploadedFile = ref<File | null>(null)
 
+// KP 分类映射
+const kpMappings = ref<any[]>([])
+const loadingMappings = ref(false)
+const adding = ref(false)
+const newKeyword = ref('')
+const newCategory = ref('')
+const editingMappingId = ref<number | null>(null)
+const mappingColumns = [
+  { title: '关键词', dataIndex: 'keyword', key: 'keyword', width: 100 },
+  { title: '分类', dataIndex: 'category', key: 'category', width: 80 },
+  { title: '', key: 'action', width: 55 }
+]
+
 // UI 状态
 const expandedRegions = ref<string[]>([])
 const expandedDynamicRegions = ref<string[]>([])
@@ -345,11 +474,22 @@ const editingFieldRule = ref<any>(null)
 // 表单状态
 const regionForm = reactive({
   name: '',
-  start_keywords: '',
-  end_keywords: '',
+  startKeywordsList: [] as string[],
+  endKeywordsList: [] as string[],
   skip_header_rows: 0,
   sort_order: 0
 })
+
+// 将数据库的逗号分隔字符串转换为标签数组
+function parseKeywords(keywordsStr: string): string[] {
+  if (!keywordsStr) return []
+  return keywordsStr.split(',').map(k => k.trim()).filter(k => k)
+}
+
+// 将标签数组转换为逗号分隔字符串
+function joinKeywords(keywordsList: string[]): string {
+  return keywordsList.join(',')
+}
 
 const fieldRuleForm = reactive({
   field_key: '',
@@ -376,7 +516,75 @@ const fieldRuleColumns = [
 onMounted(() => {
   loadRules()
   loadBusinessFields()
+  loadMappings()
 })
+
+// KP 分类映射
+const loadMappings = async () => {
+  loadingMappings.value = true
+  try {
+    const res = await axios.get('/api/rules/kp-category-mappings')
+    kpMappings.value = res.data.mappings || []
+  } catch {
+    message.error('加载 KP 分类映射失败')
+  } finally {
+    loadingMappings.value = false
+  }
+}
+
+const handleAddMapping = async () => {
+  if (!newKeyword.value.trim() || !newCategory.value) {
+    message.warning('请填写关键词和分类')
+    return
+  }
+  adding.value = true
+  try {
+    await axios.post('/api/rules/kp-category-mappings', {
+      keyword: newKeyword.value.trim(),
+      category: newCategory.value
+    })
+    message.success('映射已添加')
+    newKeyword.value = ''
+    newCategory.value = ''
+    await loadMappings()
+  } catch {
+    message.error('添加失败')
+  } finally {
+    adding.value = false
+  }
+}
+
+const handleEditMapping = (record: any) => {
+  editingMappingId.value = record.id
+}
+
+const handleCancelMappingEdit = () => {
+  editingMappingId.value = null
+  loadMappings()
+}
+
+const handleSaveMappingEdit = async (record: any) => {
+  try {
+    await axios.put(`/api/rules/kp-category-mappings/${record.id}`, {
+      keyword: record.keyword,
+      category: record.category
+    })
+    message.success('已保存')
+    editingMappingId.value = null
+  } catch {
+    message.error('保存失败')
+  }
+}
+
+const handleDeleteMapping = async (id: number) => {
+  try {
+    await axios.delete(`/api/rules/kp-category-mappings/${id}`)
+    message.success('已删除')
+    await loadMappings()
+  } catch {
+    message.error('删除失败')
+  }
+}
 
 // 加载解析规则
 async function loadRules() {
@@ -466,7 +674,13 @@ async function refreshPreview() {
 // 区域 CRUD
 function editRegion(region: any) {
   editingRegion.value = region
-  Object.assign(regionForm, region)
+  Object.assign(regionForm, {
+    name: region.name,
+    startKeywordsList: parseKeywords(region.start_keywords || ''),
+    endKeywordsList: parseKeywords(region.end_keywords || ''),
+    skip_header_rows: region.skip_header_rows,
+    sort_order: region.sort_order
+  })
   showAddRegionModal.value = true
 }
 
@@ -474,8 +688,8 @@ function cancelEditRegion() {
   editingRegion.value = null
   Object.assign(regionForm, {
     name: '',
-    start_keywords: '',
-    end_keywords: '',
+    startKeywordsList: [],
+    endKeywordsList: [],
     skip_header_rows: 0,
     sort_order: 0
   })
@@ -487,12 +701,21 @@ async function saveRegion() {
     return
   }
 
+  // 将标签数组转换为逗号分隔字符串
+  const payload = {
+    name: regionForm.name,
+    start_keywords: joinKeywords(regionForm.startKeywordsList),
+    end_keywords: joinKeywords(regionForm.endKeywordsList),
+    skip_header_rows: regionForm.skip_header_rows,
+    sort_order: regionForm.sort_order
+  }
+
   try {
     if (editingRegion.value) {
-      await axios.put(`/api/rules/parse-regions/${editingRegion.value.id}`, regionForm)
+      await axios.put(`/api/rules/parse-regions/${editingRegion.value.id}`, payload)
       message.success('更新成功')
     } else {
-      await axios.post('/api/rules/parse-regions', { regions: [...parseRegions.value, regionForm] })
+      await axios.post('/api/rules/parse-regions', { regions: [...parseRegions.value, payload] })
       message.success('添加成功')
     }
     showAddRegionModal.value = false
@@ -869,5 +1092,12 @@ function getCellTooltip(row: number, col: number): string {
   font-size: 11px;
   color: var(--cpq-text-muted);
   margin-top: 2px;
+}
+
+.kp-mapping-add {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
 }
 </style>

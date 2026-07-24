@@ -6,7 +6,6 @@ import { saveProject as saveProjectAPI, quotationApi } from '@/api'
 // Type definitions
 export interface ProjectInfo {
   opportunity_id: string
-  opportunity_name: string
   sales_person: string
   fae: string
   customer_name: string
@@ -23,16 +22,17 @@ export interface ProjectInfo {
 
 export interface Item {
   category: string
-  part_name: string
-  spec: string
+  catalogue: string        // L6=零件名 / KP=型号 / Warranty=描述文本（渲染到 Catalogue 列）
+  description: string      // L6=规格 / KP/Warranty 通常空（渲染到 Description 列）
+  part_category: string    // KP 类别（CPU/Memory/GPU…）；L6/Warranty 为空
   qty: number
   base_price: number
   profit_margin: number
   final_price: number
   currency: string
-  is_usd_cpu?: boolean
   match_status?: string
-  db_price?: number
+  db_price?: number | null
+  db_currency?: string | null
   pn?: string  // KP 新建模式：料号库 pn（PartPicker 选中）；走 opportunity_items.extra_fields 往返
   history?: any[]
   _histActiveKeys?: string[]
@@ -66,6 +66,7 @@ export interface WarrantyInfo {
   years: number | null
   rate: number
   description?: string
+  detected?: boolean
 }
 
 export interface ConfigData {
@@ -73,6 +74,7 @@ export interface ConfigData {
   description: string  // 配置描述
   server_model?: string  // 服务器型号（型号名称字符串，导出模板字段绑定用，恒有值）
   server_model_id?: number  // 机型目录 id（下拉选中目录机型时填；自由输入/旧报价单留空）
+  gpu_arch?: 'none' | 'pt' | 'switch'  // GPU 架构（驱动 GPU 线缆推导；默认 'none'）
   items: Item[]
   summary: {
     l6_total: number
@@ -93,6 +95,7 @@ export interface ConfigData {
   l6_profit_margin?: number  // 利润率
   base_config_id?: number  // 新流程：L6ChassisConfig 选中的基准配置 ID
   l6_bom_picks?: any  // 新流程：L6ChassisConfig 组件状态快照（rear/overrides/bp…），切 tab 重挂 hydrate 用
+  l6_section_totals?: any  // 4 步选配分部段合计 {base,front,rear,ocp,psu,gpuCable,l6}，保存校验按部段判 0 用
   bom_template?: any  // 左栏 L6 摘要模板（机型族行骨架 {id,name,rows}）
   bom_context?: any  // 左栏 L6 摘要行值（{rowKey: {desc,qty}}，L6ChassisConfig 解析）
   bom_source?: 'live' | 'excel'  // 左栏模式：live=跟随中栏选配实时变动 / excel=Excel 上传参考(静态快照)
@@ -106,7 +109,7 @@ export interface ConfigData {
 export const useQuoteStore = defineStore('quote', () => {
   // --- State ---
   const opportunityInfo = ref<ProjectInfo>({
-    opportunity_id: '', opportunity_name: '', sales_person: '', fae: '', customer_name: '',
+    opportunity_id: '', sales_person: '', fae: '', customer_name: '',
     date: '', model_name: '', total_qty: 0, platform_type: '', chassis_form: ''
   })
 
@@ -134,11 +137,14 @@ export const useQuoteStore = defineStore('quote', () => {
       ])
       if (taxRes.ok) {
         const taxData = await taxRes.json()
-        taxRate.value = taxData.value ?? 0.13
+        // system_config.value 是 TEXT 列，API 返回字符串"0.13"；不转 Number 会让 (1 + taxRate) 拼成 "10.13"
+        const t = Number(taxData.value)
+        taxRate.value = Number.isFinite(t) ? t : 0.13
       }
       if (exchangeRes.ok) {
         const exchangeData = await exchangeRes.json()
-        exchangeRate.value = exchangeData.value ?? 7.0
+        const e = Number(exchangeData.value)
+        exchangeRate.value = Number.isFinite(e) ? e : 7.0
       }
     } catch (e) {
       console.warn('Failed to load financial defaults:', e)
@@ -183,8 +189,9 @@ export const useQuoteStore = defineStore('quote', () => {
         // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
         if (item.category === 'L6' || item.category === '整机') return
         
-        // 成本 = base_price（底价，不含任何加成）
-        const itemCost = item.base_price * item.qty
+        // 成本口径：RMB base 已含税 → 直接用 base；USD base 不含税 → ×汇率×(1+增值税率) 折成含税 RMB 成本
+        const unitCost = item.currency === 'USD' ? item.base_price * exchangeRate.value * (1 + taxRate.value) : item.base_price
+        const itemCost = unitCost * item.qty
         // 销售价 = final_price * qty
         const itemSales = item.final_price * item.qty
         totalCost += itemCost
@@ -229,6 +236,8 @@ export const useQuoteStore = defineStore('quote', () => {
         item.base_price = Number(item.base_price) || 0
         item.profit_margin = Number(item.profit_margin) || 10
         item.final_price = Number(item.final_price) || 0
+        // currency 兜底：老报价单无 currency 列，从废弃的 is_usd_cpu 派生一次后丢弃（接口已不再声明该字段）
+        if (!item.currency) item.currency = item.is_usd_cpu ? 'USD' : 'RMB'
         // db_price 归一化：持久化往返可能残留 ""，统一成 null 或数字，避免后续 `== null` 误判
         const dbRaw = item.db_price
         const dbNum = dbRaw === '' || dbRaw == null ? null : Number(dbRaw)
@@ -261,11 +270,14 @@ export const useQuoteStore = defineStore('quote', () => {
         l6_custom_price: l6CustomPrice,
         l6_price_manual: (data.config_l6_picks?.[cfgName] as any)?.l6_price_manual ?? false,
         l6_auto_price: (data.config_l6_picks?.[cfgName] as any)?.l6_auto_price ?? undefined,
-        l6_profit_margin: (cfgData as any).l6_profit_margin || 10,
+        // 利润率必须从 config_l6_picks 读回（与 l6_custom_price 同源持久化）；cfgData.l6_profit_margin
+        // 来自 Workspace 的 per_cfg_l6，后端该字段不含利润率，会兜底成默认 10 → 重进报价单被重置。
+        l6_profit_margin: Number((data.config_l6_picks?.[cfgName] as any)?.l6_profit_margin) || (cfgData as any).l6_profit_margin || 10,
         base_config_id: (cfgData as any).base_config_id ?? (data.config_l6_picks?.[cfgName]?.base_config_id) ?? undefined,
         l6_bom_picks: (cfgData as any).l6_bom_picks ?? (data.config_l6_picks?.[cfgName]?.picks) ?? undefined,
         bom_template: (cfgData as any).bom_template ?? (data.config_l6_picks?.[cfgName]?.bom_template) ?? undefined,
         bom_context: (cfgData as any).bom_context ?? (data.config_l6_picks?.[cfgName]?.bom_context) ?? undefined,
+        l6_section_totals: (cfgData as any).l6_section_totals ?? (data.config_l6_picks?.[cfgName] as any)?.l6_section_totals ?? undefined,
         bom_source: bomSource,
         bom_excel_rows: bomSource === 'excel'
           ? ((data.config_l6_picks?.[cfgName] as any)?.bom_excel_rows
@@ -373,8 +385,15 @@ export const useQuoteStore = defineStore('quote', () => {
   }
 
   // 新流程：L6ChassisConfig 选配变动 → 重建 cfg.items 的 L6 行 + 设 l6_custom_price + 存 picks 快照
-  // payload: { baseConfigId, totals, picks, l6Rows }（来自 L6ChassisConfig 的 apply 事件）
-  function setL6ChassisPicks(cfgName: string, payload: { baseConfigId: number | null; totals: any; picks: any; l6Rows: any[] }) {
+  // payload: { baseConfigId, totals, picks, l6Rows, bomTemplate, bomContext }（来自 L6ChassisConfig 的 apply 事件）
+  function setL6ChassisPicks(cfgName: string, payload: {
+    baseConfigId: number | null
+    totals: any
+    picks: any
+    l6Rows: any[]
+    bomTemplate?: any
+    bomContext?: Record<string, { desc: string; qty: number | string }>
+  }) {
     const cfg = configs.value[cfgName]
     if (!cfg) return
     // 守护：未选基准配置且组件初挂（空 l6Rows）时，保留已有 l6_custom_price，仅记录 picks
@@ -392,6 +411,7 @@ export const useQuoteStore = defineStore('quote', () => {
     }
     cfg.base_config_id = payload.baseConfigId ?? undefined
     cfg.l6_bom_picks = payload.picks
+    cfg.l6_section_totals = payload.totals
     cfg.bom_template = payload.bomTemplate ?? undefined
     cfg.bom_context = payload.bomContext ?? undefined
     recalculateAll()
@@ -489,7 +509,7 @@ export const useQuoteStore = defineStore('quote', () => {
       const qty = item.qty || 1
       let unitSales = 0
 
-      if (item.is_usd_cpu || item.currency === 'USD') {
+      if (item.currency === 'USD') {
         unitSales = base * exchangeRate.value * (1 + taxRate.value) * (1 + (item.profit_margin || 10) / 100)
       } else {
         const marginDec = (item.profit_margin || 10) > 1 ? (item.profit_margin || 10) / 100 : (item.profit_margin || 10)
@@ -497,13 +517,15 @@ export const useQuoteStore = defineStore('quote', () => {
       }
 
       const lineSales = unitSales * qty
-      const lineCost = base * qty
+      // 成本口径：RMB base 已含税 → 直接用 base；USD base 不含税 → ×汇率×(1+增值税率) 折成含税 RMB 成本
+      const unitCost = item.currency === 'USD' ? base * exchangeRate.value * (1 + taxRate.value) : base
+      const lineCost = unitCost * qty
 
       // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
       if (item.category === 'L6' || item.category === '整机') continue
 
-      const partName = (item.part_name || '').toLowerCase()
-      if (partName.includes('质保') || partName.includes('warranty')) {
+      // 质保行单独归桶；其余按 KP 处理（category 取自后端，不再靠 part_name 文本嗅探）
+      if (item.category === 'Warranty') {
         warrantyCost += lineCost
         warrantySales += lineSales
       } else {
@@ -558,12 +580,10 @@ export const useQuoteStore = defineStore('quote', () => {
         let unitPrice = item.base_price
         
         // Currency conversion for USD items (with tax)
-        // 与后端保持一致：检查 is_usd_cpu 或 currency === 'USD'
-        if (item.is_usd_cpu || item.currency === 'USD') {
+        // 与后端保持一致：USD 项 base × 汇率 × (1+税) × (1+利润率)；RMB 项不加税
+        if (item.currency === 'USD') {
           unitPrice = unitPrice * exchangeRate.value * (1 + taxRate.value) * (1 + item.profit_margin / 100)
         } else {
-          // Normal RMB calculation: Base * (1 + Margin/100)
-          // 注意：RMB 项不加税，与后端保持一致
           const marginDecimal = item.profit_margin > 1 ? item.profit_margin / 100 : item.profit_margin
           unitPrice = unitPrice * (1 + marginDecimal)
         }
@@ -637,6 +657,7 @@ export const useQuoteStore = defineStore('quote', () => {
               l6_profit_margin: cfg.l6_profit_margin ?? 10,
               l6_price_manual: cfg.l6_price_manual ?? false,
               l6_auto_price: cfg.l6_auto_price ?? null,
+              l6_section_totals: cfg.l6_section_totals ?? null,
             }])
           ),
           config_selected_parts: configSelectedParts.value
@@ -649,9 +670,9 @@ export const useQuoteStore = defineStore('quote', () => {
         // Creating new opportunity: use existing /opportunities endpoint
         // Ensure opportunity_id exists
         if (!opportunityInfo.value.opportunity_id) {
-          // Generate one from opportunity_name + timestamp
+          // Generate one from timestamp
           const ts = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '').slice(4)
-          opportunityInfo.value.opportunity_id = `${opportunityInfo.value.opportunity_name || 'opportunity'}_${ts}`
+          opportunityInfo.value.opportunity_id = `opportunity_${ts}`
         }
         
         // Read temp_file info from sessionStorage (saved during upload)
@@ -676,7 +697,11 @@ export const useQuoteStore = defineStore('quote', () => {
         }
         // configs already includes server_model per config, so no extra field needed
         console.log('[DEBUG saveProject] payload.temp_file:', payload.temp_file)
-        await saveProjectAPI(payload)
+        const result: any = await saveProjectAPI(payload)
+        // 回写 quotation_id / opportunity_id：首次保存后 store 即持 id，预览可直接命中后端报价单数据，
+        // 无需退出重进（否则 handlePreview 取不到 quotation_id，后端 load_preview_data 跳过明细加载）
+        if (result?.quotation_id) opportunityInfo.value.quotation_id = result.quotation_id
+        if (result?.opportunity_id) opportunityInfo.value.opportunity_id = result.opportunity_id
         message.success('✅ 商机保存成功！')
       }
     } catch (e) {

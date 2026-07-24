@@ -5,6 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>CPQ Platform</title>
+    <script>
+      // 首屏前同步确定主题：读取用户已保存的选择，否则跟随系统，兜底浅色。
+      // 必须在 CSS 第一帧之前把 data-theme 写到 <html>，刷新才不会闪现错误主题，
+      // 也避免图表/Antd 在 data-theme 与 isDark 未对齐的那一帧按错主题渲染（如饼图黑边）。
+      (function () {
+        var t;
+        try {
+          t = localStorage.getItem('cpq-theme');
+        } catch (e) {
+          t = null;
+        }
+        if (t !== 'dark' && t !== 'light') {
+          t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

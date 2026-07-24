@@ -67,7 +67,6 @@ export interface BusinessField {
 /** 预览数据源 */
 export interface PreviewData {
   customer_name?: string
-  opportunity_name?: string
   platform_type?: string
   total_qty?: number
   l6_details?: any[]

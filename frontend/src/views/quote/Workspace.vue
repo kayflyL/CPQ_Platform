@@ -63,7 +63,7 @@
 
           <!-- 中栏：服务器配置 (≈50%) -->
           <div class="col-middle">
-            <!-- 配置基本信息（服务器型号 + 数量） -->
+            <!-- 配置基本信息：服务器型号 + 数量 + 配置描述（同一张卡）-->
             <div class="glass card-section">
               <div class="basic-row">
                 <div class="basic-field basic-field-grow">
@@ -89,10 +89,7 @@
                   />
                 </div>
               </div>
-            </div>
 
-            <!-- 配置描述（可折叠） -->
-            <div class="glass card-desc" :class="{ expanded: descExpanded[name] }">
               <div class="desc-header" @click="descExpanded[name] = !descExpanded[name]">
                 <span class="desc-title">配置描述</span>
                 <span class="desc-preview" v-if="!descExpanded[name]">
@@ -139,67 +136,55 @@
 
             <!-- 硬件选配区域 -->
             <div v-if="sectionState[name] === 'hardware'" class="section-content">
-              <!-- L6 机箱概要卡（点「配置机箱」弹窗做 4 步细配，与 server-config 页一致）-->
+              <!-- ① 机箱卡：ChassisCard 本体 + 卡尾价格三联（利润率/成本/售价进卡内）-->
               <div class="l6-section">
-                <!-- L6 单一利润率（置顶，与 KP 对称：利率在上、总价在下）-->
-                <div class="l6-margin-bar">
-                  <span class="lm-label">L6 机箱利润率</span>
-                  <a-input-number
-                    v-model:value="cfg.l6_profit_margin"
-                    :min="0" :max="100" :precision="1" :step="1"
-                    size="small" style="width: 110px" addon-after="%"
-                    @change="(v: number) => store.setL6ProfitMargin(String(name), v || 0)"
-                  />
-                  <span class="lm-final">
-                    <span class="lm-cost-label">L6 成本 ¥</span>
-                    <a-input-number
-                      v-model:value="cfg.l6_custom_price"
-                      :disabled="!cfg.l6_price_manual"
-                      :min="0" :precision="2" :step="100"
-                      size="small" style="width: 130px"
-                      @change="(v: number) => store.setL6CustomPrice(String(name), v || 0)"
-                    />
-                    <a-switch
-                      :checked="!!cfg.l6_price_manual"
-                      checked-children="手动" un-checked-children="自动"
-                      size="small"
-                      @change="(ck: boolean) => ck ? store.setL6CustomPrice(String(name), cfg.l6_custom_price || 0) : store.setL6PriceAuto(String(name))"
-                    />
-                    <span class="lm-arrow">→ 最终售价 ¥ {{ settingsStore.formatNumber((cfg.l6_custom_price || 0) * (1 + (cfg.l6_profit_margin || 0) / 100)) }}</span>
-                  </span>
-                </div>
                 <ChassisCard
                   :model="chassisModel"
                   :series="chassisSeries"
                   :base-config-name="chassisBaseName"
                   :l6-total="cfg.l6_custom_price || 0"
+                  :hero-price="l6FinalPrice(cfg)"
                   @open="chassisModalOpen = true"
-                />
-                <div class="l6-unmatched-hint" v-if="!chassisMatched">
-                  未关联目录机型，点「配置机箱」可在弹窗内手动挂基准配置
-                </div>
+                >
+                  <template #header-extra>
+                    <PriceTriple
+                      :cost="cfg.l6_custom_price || 0"
+                      :margin="cfg.l6_profit_margin"
+                      :final-price="l6FinalPrice(cfg)"
+                      cost-editable
+                      :cost-disabled="!cfg.l6_price_manual"
+                      @update:margin="(v: number) => store.setL6ProfitMargin(String(name), v || 0)"
+                      @update:cost="(v: number) => store.setL6CustomPrice(String(name), v || 0)"
+                    >
+                      <template #cost-extra>
+                        <a-switch
+                          :checked="!!cfg.l6_price_manual"
+                          checked-children="手动" un-checked-children="自动"
+                          size="small"
+                          @change="(ck: boolean) => ck ? store.setL6CustomPrice(String(name), cfg.l6_custom_price || 0) : store.setL6PriceAuto(String(name))"
+                        />
+                      </template>
+                    </PriceTriple>
+                  </template>
+                  <template #foot-note>
+                    <span class="l6-unmatched-hint" v-if="!chassisMatched">未关联目录机型，点「配置机箱」可在弹窗内手动挂基准配置</span>
+                  </template>
+                </ChassisCard>
               </div>
 
-              <!-- KP 配件卡片群（透明布局容器：KP 卡为唯一玻璃层，对齐目录页单层玻璃）-->
+              <!-- ② Key Parts 配件大卡：结构性容器（弱底+边框，非玻璃避嵌套）+ 头部价格三联 + 扁平子卡 -->
               <div class="card-kp">
-                <div class="sec-head">
-                  <h3 class="sec-title">Key Parts 配件 <span class="count-badge">{{ cfg.items.filter((i: any) => i.category === 'Key Parts').length }}</span></h3>
-                </div>
-
-                <!-- KP 整体利润率（对称 L6 利润率条）：改整体→所有 KP 同步；单改某个 KP→此框清空 -->
-                <div class="kp-margin-bar">
-                  <span class="lm-label">KP 整体利润率</span>
-                  <a-input-number
-                    :value="kpMarginValue(cfg)"
-                    @change="(v: number) => store.setKpProfitMargin(String(name), v || 0)"
-                    :min="0" :max="100" :precision="1" :step="1"
-                    size="small" style="width: 110px" addon-after="%"
-                    placeholder="多种"
+                <div class="kp-card-head">
+                  <div class="kp-card-title">
+                    <h3 class="sec-title">Key Parts 配件 <span class="count-badge">{{ cfg.items.filter((i: any) => i.category === 'Key Parts').length }}</span></h3>
+                  </div>
+                  <PriceTriple
+                    :cost="kpCostTotal(cfg)"
+                    :margin="kpMarginValue(cfg)"
+                    :final-price="kpFinalPrice(cfg)"
+                    margin-placeholder="多种"
+                    @update:margin="(v: number) => store.setKpProfitMargin(String(name), v || 0)"
                   />
-                  <span class="lm-final">
-                    KP 成本 ¥ {{ settingsStore.formatNumber(kpCostTotal(cfg)) }}
-                    → 最终售价 ¥ {{ settingsStore.formatNumber(cfg.summary.kp_total) }}
-                  </span>
                 </div>
 
                 <!-- KP 行：excel 模式 = 平铺卡片(比价/同步/历史)；新建模式 = 按类别分卡(料号库挑选+利润率) -->
@@ -207,8 +192,8 @@
                 <div v-if="cfg.bom_source === 'excel'" class="kp-grid">
                   <div v-for="(item, idx) in cfg.items.filter((i: any) => i.category === 'Key Parts')" :key="idx" class="kp-card">
                     <div class="kp-card-header">
-                      <span class="kp-name">{{ item.part_name }}</span>
-                      <span class="kp-spec" v-if="item.spec">{{ item.spec }}</span>
+                      <span class="kp-name">{{ item.part_category }}</span>
+                      <span class="kp-spec" v-if="item.catalogue">{{ item.catalogue }}</span>
                       <span class="kp-match" v-if="item.match_status" :class="matchClass(item.match_status)">{{ item.match_status }}</span>
                     </div>
 
@@ -225,11 +210,15 @@
                         <label>原始单价</label>
                         <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" @change="() => onKpPriceChange(item)" />
                       </div>
+                      <div class="input-group">
+                        <label>币种</label>
+                        <a-select v-model:value="item.currency" size="small" style="width:100%" :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]" @change="() => store.recalculateAll()" />
+                      </div>
                     </div>
 
                     <div class="kp-footer">
                       <div class="kp-price">
-                        最终售价：<span class="price-val">¥ {{ settingsStore.formatNumber(item.final_price) }}</span>
+                        最终售价：<span class="price-val">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</span>
                       </div>
                       <a-button
                         v-if="kpSyncable(item)"
@@ -282,13 +271,17 @@
                     :price-of="priceOf"
                     :removable="!CORE_CATS.includes(cat)"
                     :is-gpu="cat === 'GPU'"
-                    :gpu-arch="gpuArchFor(cfg)"
+                    :gpu-cable-pn="cfg.l6_bom_picks?.overrides?.gpuCablePn || ''"
+                    :gpu-cable-qty="cfg.l6_bom_picks?.overrides?.gpuCableQty || 0"
+                    :gpu-cable-items="gpuCableItems"
                     quote-mode
+                    flat
                     @set-line="(idx: number, patch: any) => onKpSetLine(cfg, cat, idx, patch)"
                     @del-line="(idx: number) => onKpDelLine(cfg, cat, idx)"
                     @add-line="onKpAddLine(cfg, cat)"
                     @remove-card="onKpRemoveCard(cfg, cat)"
-                    @update:gpu-arch="(a: GpuArch) => setGpuArch(cfg, a)"
+                    @update:gpuCablePn="(pn: string) => setGpuCable(cfg, 'pn', pn)"
+                    @update:gpuCableQty="(q: number) => setGpuCable(cfg, 'qty', q)"
                   />
                   <div class="kp-add-card-wrap" v-if="availableKpCats.length">
                     <select class="kp-add-card-sel" v-model="pendingNewKpCat" @change="onAddKpCard">
@@ -298,11 +291,6 @@
                   </div>
                 </div>
 
-                <!-- KP 合计（成本口径，对称 L6 合计卡）— 置底：总价在下 -->
-                <div class="kp-total-bar cpq-stream-edge">
-                  <span>Key Parts 合计 <b>¥<CountNumber :value="kpCostTotal(cfg)" /></b></span>
-                  <span class="kp-total-hint">成本合计（原始单价 × 数量）</span>
-                </div>
               </div>
             </div>
 
@@ -457,7 +445,7 @@
                   <label>增值税率</label>
                   <a-input-number
                     :value="store.taxRate * 100"
-                    @change="(v: number) => { store.taxRate = (v || 0) / 100; store.recalculateAll() }"
+                    @change="(v: number) => { store.taxRate = (v || 0) / 100; store.recalculateAll(); persistTaxRate() }"
                     :min="0" :max="30" :step="1"
                     size="small"
                     style="width: 90px"
@@ -468,7 +456,7 @@
                   <label>美元汇率</label>
                   <a-input-number
                     :value="store.exchangeRate"
-                    @change="(v: number) => { store.exchangeRate = v || 7; store.recalculateAll() }"
+                    @change="(v: number) => { store.exchangeRate = v || 7; store.recalculateAll(); persistExchangeRate() }"
                     :min="1" :max="20" :step="0.1"
                     size="small"
                     style="width: 90px"
@@ -500,7 +488,6 @@
         </a-select>
 
         <a-button @click="handlePreview" :loading="previewLoading" class="btn-ghost">预览</a-button>
-        <a-button @click="handlePreview" :loading="previewLoading" class="btn-ghost">导出 Excel</a-button>
         <a-button type="primary" @click="handleSave()" :loading="saveLoading" class="btn-pri">保存商机</a-button>
       </div>
     </div>
@@ -536,10 +523,12 @@
       :footer="null"
       width="1120px"
       wrap-class-name="chassis-modal-quote"
+      :force-render="true"
     >
       <L6ChassisConfig
-        v-if="chassisModalOpen"
+        :key="activeCfg"
         stepper
+        :show-gpu-cable="activeConfig?.bom_source === 'excel'"
         :base-config-id="activeConfig?.base_config_id ?? null"
         :kp-summary="kpSummaryFor(activeConfig)"
         :initial-picks="activeConfig?.l6_bom_picks"
@@ -560,15 +549,15 @@
       <div v-if="syncTarget" class="sync-modal">
         <div class="sync-row">
           <span class="sync-label">类别</span>
-          <span class="sync-val">{{ syncTarget.part_name || 'Key Parts' }}</span>
+          <span class="sync-val">{{ syncTarget.part_category || 'Key Parts' }}</span>
         </div>
         <div class="sync-row">
           <span class="sync-label">型号</span>
-          <span class="sync-val">{{ syncTarget.spec || syncTarget.part_name }}</span>
+          <span class="sync-val">{{ syncTarget.catalogue || syncTarget.part_category }}</span>
         </div>
         <div class="sync-row">
           <span class="sync-label">价格</span>
-          <span class="sync-val sync-price">¥ {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</span>
+          <span class="sync-val sync-price">{{ currencySymbol(syncTarget.currency) }} {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</span>
         </div>
         <div class="sync-row sync-note">
           <span class="sync-label">备注</span>
@@ -581,7 +570,7 @@
           />
         </div>
         <div class="sync-hint" v-if="syncTarget && isNewPart(syncTarget)">
-          配件库无此型号，确认后将<strong>创建一条新配件记录</strong>并写入其首条价格历史。如需补全 brand / 规格，可在管理面「料号库 / BasePricing」编辑该新件。
+          配件库无此型号，确认后将<strong>创建一条新配件记录</strong>并写入其首条价格历史。如需补全 brand / 规格，可在管理面「配件管理」编辑该新件。
         </div>
         <div class="sync-hint" v-else>确认后将把以上价格与备注写入配件库该型号的价格历史。</div>
       </div>
@@ -590,7 +579,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, watch } from 'vue'
+import { ref, reactive, onMounted, computed, watch, h } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { useSettingsStore } from '@/store/settings'
@@ -599,16 +588,18 @@ import UniverSheet from '@/components/UniverSheet.vue'
 import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
 import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import KpCategoryCard from '@/components/server-config/KpCategoryCard.vue'
+import PriceTriple from '@/components/common/PriceTriple.vue'
 import BomTable from '@/components/BomTable.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { message, Modal } from 'ant-design-vue'
 import axios from 'axios'
 import { univerTemplateApi } from '@/api/univerTemplate'
-import { catalogApi, baseConfigApi, kpPartsApi, type ServerModel, type KpPart } from '@/api/serverConfig'
+import { catalogApi, baseConfigApi, kpPartsApi, partsApi, type ServerModel, type KpPart } from '@/api/serverConfig'
 import { syncKpPrice, getKpHistory } from '@/api/quote'
 import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
 import { downloadBlob } from '@/utils/download'
-import { fromKpPart } from '@/composables/usePartAdapter'
+import { feedApi } from '@/api/feed'
+import { fromKpPart, fromPartMaster } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
 
@@ -680,7 +671,7 @@ const chassisMatched = computed(() => !!activeConfig.value?.server_model_id)
 const serverModelOptions = computed(() =>
   serverModels.value.map(m => ({
     value: m.name,
-    label: `${m.name}${m.form ? ' · ' + m.form : ''}${m.use ? ' · ' + m.use : ''}`,
+    label: `${m.name}${m.base_config?.form ? ' · ' + m.base_config.form : ''}${m.use ? ' · ' + m.use : ''}`,
   }))
 )
 
@@ -753,14 +744,11 @@ function kpPartByPn(pn: string): KpPart | undefined {
 }
 function priceOf(pn: string): number { return kpPartByPn(pn)?.unit_price || 0 }
 
-// 当前激活配置的 KP 模式
-const kpMode = computed<'new' | 'excel'>(() => activeConfig.value?.bom_source === 'excel' ? 'excel' : 'new')
-
 // 类别卡列表：CORE_CATS 常驻 + cfg.items 已有的 KP 类别（去重，保持出现顺序）
 function kpCardCatsFor(cfg: any): string[] {
   const seen = new Set<string>()
   const out: string[] = []
-  const itemsCats = (cfg.items || []).filter((i: any) => i.category === 'Key Parts').map((i: any) => i.part_name)
+  const itemsCats = (cfg.items || []).filter((i: any) => i.category === 'Key Parts').map((i: any) => i.part_category)
   for (const c of [...CORE_CATS, ...itemsCats]) {
     if (c && !seen.has(c)) { seen.add(c); out.push(c) }
   }
@@ -768,14 +756,14 @@ function kpCardCatsFor(cfg: any): string[] {
 }
 // 某类别下的行（直接返回 cfg.items 内的对象引用，KpCategoryCard 读 pn/qty/base_price/profit_margin）
 function kpLinesForCat(cfg: any, cat: string) {
-  return (cfg.items || []).filter((i: any) => i.category === 'Key Parts' && i.part_name === cat)
+  return (cfg.items || []).filter((i: any) => i.category === 'Key Parts' && i.part_category === cat)
 }
 // 局部 idx → cfg.items 全局 idx
 function kpGlobalIndex(cfg: any, cat: string, localIdx: number): number {
   let seen = 0
   for (let gi = 0; gi < cfg.items.length; gi++) {
     const it = cfg.items[gi]
-    if (it.category !== 'Key Parts' || it.part_name !== cat) continue
+    if (it.category !== 'Key Parts' || it.part_category !== cat) continue
     if (seen === localIdx) return gi
     seen++
   }
@@ -785,13 +773,14 @@ function newKpItem(cat: string): any {
   const part = (kpCatalog.value[cat] || [])[0]
   return {
     category: 'Key Parts',
-    part_name: cat,
+    part_category: cat,
     pn: part?.pn || '',
-    spec: part?.name || '',
+    catalogue: part?.name || '',
+    description: '',
     qty: 1,
     base_price: part?.unit_price || 0,
     profit_margin: 10,
-    currency: 'CNY',
+    currency: 'RMB',
   }
 }
 function onKpSetLine(cfg: any, cat: string, localIdx: number, patch: any) {
@@ -800,7 +789,7 @@ function onKpSetLine(cfg: any, cat: string, localIdx: number, patch: any) {
   Object.assign(cfg.items[gi], patch)
   if (patch.pn) {
     const part = kpPartByPn(patch.pn)
-    if (part) cfg.items[gi].spec = part.name
+    if (part) cfg.items[gi].catalogue = part.name
   }
   store.recalculateAll()
 }
@@ -814,9 +803,16 @@ function onKpAddLine(cfg: any, cat: string) {
   store.recalculateAll()
 }
 function onKpRemoveCard(cfg: any, cat: string) {
-  cfg.items = cfg.items.filter((i: any) => !(i.category === 'Key Parts' && i.part_name === cat))
+  cfg.items = cfg.items.filter((i: any) => !(i.category === 'Key Parts' && i.part_category === cat))
   store.recalculateAll()
 }
+function persistTaxRate() {
+  fetch('/api/system-config/tax_rate', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: store.taxRate }) })
+}
+function persistExchangeRate() {
+  fetch('/api/system-config/usd_to_rmb', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: store.exchangeRate }) })
+}
+
 // 「+ 新增配置卡片」：未显示的 KP 类别
 const availableKpCats = computed(() => {
   const cfg = activeConfig.value
@@ -834,8 +830,20 @@ function onAddKpCard() {
   store.recalculateAll()
 }
 // GPU 架构（per-config，存 cfg.gpu_arch；kpSummary 优先用它驱动 GPU 线缆推导）
-function gpuArchFor(cfg: any): GpuArch { return (cfg?.gpu_arch as GpuArch) || 'none' }
-function setGpuArch(cfg: any, arch: GpuArch) { if (cfg) { cfg.gpu_arch = arch; store.recalculateAll() } }
+// GPU 供电线（quoteMode GPU 卡）：料号库列表 + 状态写回 cfg.l6_bom_picks.overrides，
+// 由常驻 L6ChassisConfig 的 watch 同步进内部 overrides → 重算 GPU 线成本 → apply 进 l6_custom_price
+const gpuCableItems = ref<PickerItem[]>([])
+async function loadGpuCableItems() {
+  try {
+    const res = await partsApi.list({ category: 'GPU电源线' })
+    gpuCableItems.value = (res.parts || []).map(fromPartMaster)
+  } catch { /* 料号库暂无，GPU 卡显示空态 */ }
+}
+function setGpuCable(cfg: any, field: 'pn' | 'qty', value: any) {
+  if (!cfg.l6_bom_picks) cfg.l6_bom_picks = { overrides: {} }
+  if (!cfg.l6_bom_picks.overrides) cfg.l6_bom_picks.overrides = {}
+  ;(cfg.l6_bom_picks.overrides as any)[field === 'pn' ? 'gpuCablePn' : 'gpuCableQty'] = value
+}
 
 // 加载导出模板列表
 const loadTemplates = async () => {
@@ -895,13 +903,28 @@ async function handleDownloadExport() {
   try {
     const blob = await resolvedWorkbookToXlsx(wb)
     const oid = store.opportunityInfo?.opportunity_id || '报价单'
-    downloadBlob(blob, `${oid}_报价单.xlsx`)
+    const fname = `${oid}_报价单.xlsx`
+    downloadBlob(blob, fname)
     message.success('已导出 Excel')
+    // 归档一份到商机存档区(sent_quote),失败不阻断导出
+    void archiveSentQuote(blob, oid, fname)
   } catch (e: any) {
     console.error('[handleDownloadExport]', e)
     message.error('导出失败：' + (e?.message || e))
   } finally {
     exportDownloading.value = false
+  }
+}
+
+// 把导出的报价单 xlsx 归档到商机存档区(sent_quote 类),并自动写一条系统活动。
+// 纯属留底,任何失败都静默 —— 不能影响导出主流程。
+async function archiveSentQuote(blob: Blob, opportunityId: string, fname: string) {
+  try {
+    const quotationId = store.opportunityInfo?.quotation_id || (route.query.quotationId as string)
+    const file = new File([blob], fname, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    await feedApi.attachments.upload(opportunityId, file, { category: 'sent_quote', quotation_id: quotationId, kind: 'export' })
+  } catch (e) {
+    console.warn('归档已发报价失败(不影响导出)', e)
   }
 }
 
@@ -959,9 +982,9 @@ const goBack = () => {
 }
 
 // 当前商机 ID（用于评论关联）
-// 优先用 opportunity_id，没有则用 opportunity_name，都没有则用 'default'
+// 报价单 ID 唯一，直接用 opportunity_id，无则 'default'
 const currentOpportunityId = computed(() => {
-  return store.opportunityInfo?.opportunity_id || store.opportunityInfo?.opportunity_name || 'default'
+  return store.opportunityInfo?.opportunity_id || 'default'
 })
 
 // 每个配置页的栏目状态（独立维护）
@@ -1029,6 +1052,11 @@ const confirmRename = () => {
 
   editingCfg.value = null
   message.success(`已重命名为 "${newName}"`)
+
+  // 自动保存，将重命名持久化到数据库
+  if (store.opportunityInfo.quotation_id) {
+    store.saveProject()
+  }
 }
 
 // 取消重命名
@@ -1131,6 +1159,16 @@ function kpMarginValue(cfg: any): number | undefined {
   return kps.every((i: any) => (Number(i.profit_margin) || 0) === first) ? first : undefined
 }
 
+// L6 最终售价 = 底价 × (1 + 利润率/100)；卡头 heroPrice 与三联售价槽共用，口径统一
+function l6FinalPrice(cfg: any): number {
+  return (Number(cfg.l6_custom_price) || 0) * (1 + (Number(cfg.l6_profit_margin) || 0) / 100)
+}
+
+// KP 最终售价合计：取 store 已算好的 summary.kp_total
+function kpFinalPrice(cfg: any): number {
+  return Number(cfg.summary?.kp_total) || 0
+}
+
 // 由当前配置的 KP 行合成 kpSummary，喂给 L6ChassisConfig 做 derive（best-effort）
 // excel 解析的 KP spec 是模型串，未必匹配 kp_parts pn → derive 失败回落手选（[[derive-must-have-manual-fallback]]）
 function kpSummaryFor(cfg: any) {
@@ -1141,14 +1179,15 @@ function kpSummaryFor(cfg: any) {
   const drivesByKind: Record<string, number> = {}
   for (const it of items) {
     if (it.category !== 'Key Parts') continue
-    const name = (it.part_name || '').toLowerCase()
-    const spec = it.spec || ''
-    if (name.includes('cpu') || name.includes('processor')) {
-      cpuPn = spec; cpuQty += (it.qty || 0)
-    } else if (name.includes('gpu')) {
-      gpuPn = spec; gpuQty += (it.qty || 0); hasGpu = true
+    // 类别（CPU/GPU/HDD…）现在存 part_category；型号/PN 存 catalogue
+    const cat = (it.part_category || '').toLowerCase()
+    const model = it.catalogue || ''
+    if (cat.includes('cpu') || cat.includes('processor')) {
+      cpuPn = model; cpuQty += (it.qty || 0)
+    } else if (cat.includes('gpu')) {
+      gpuPn = model; gpuQty += (it.qty || 0); hasGpu = true
     } else {
-      const up = (name + ' ' + spec).toUpperCase()
+      const up = (cat + ' ' + model).toUpperCase()
       for (const k of ['SATA', 'SAS', 'NVMe']) {
         if (up.includes(k)) { drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0); break }
       }
@@ -1158,22 +1197,56 @@ function kpSummaryFor(cfg: any) {
 }
 
 const handleSave = async () => {
-  // Check for zero-price parts
-  const zeroPriceParts = []
+  // 机箱按 4 部段（基准/前面板/后面板/电源）判 0；KP 等非机箱配件仍逐条列。
+  // 机箱成本真实来源是 4 步选配的 l6_custom_price，cfg.items 里的 L6/整机 行（Excel 原版）不作为逐条判据。
+  const blocks: { cfg: string; zeroSections: string[]; l6Coarse: number; kpParts: string[] }[] = []
   for (const [cfgName, cfg] of Object.entries(store.configs)) {
-    for (const item of cfg.items) {
-      if (item.base_price === 0 || item.final_price === 0) {
-        zeroPriceParts.push({ cfg: cfgName, part: item.part_name })
-      }
+    const zeroSections: string[] = []
+    let l6Coarse = 0
+    const t = cfg.l6_section_totals
+    if (t && typeof t === 'object') {
+      const rearSum = (Number(t.rear) || 0) + (Number(t.ocp) || 0) + (Number(t.gpuCable) || 0)
+      if (!(Number(t.base) > 0)) zeroSections.push('基准')
+      if (!(Number(t.front) > 0)) zeroSections.push('前面板')
+      if (!(rearSum > 0)) zeroSections.push('后面板')
+      if (!(Number(t.psu) > 0)) zeroSections.push('电源')
+    } else {
+      // 未做 4 步选配（如纯 Excel）：粗粒度统计机箱行
+      l6Coarse = (cfg.items || []).filter(i => (i.category === 'L6' || i.category === '整机') && (i.base_price === 0 || i.final_price === 0)).length
+    }
+    const kpParts = (cfg.items || []).filter(i => i.category !== 'L6' && i.category !== '整机' && (i.base_price === 0 || i.final_price === 0)).map(i => i.part_category || i.catalogue)
+    if (zeroSections.length || l6Coarse > 0 || kpParts.length) {
+      blocks.push({ cfg: cfgName, zeroSections, l6Coarse, kpParts })
     }
   }
 
-  if (zeroPriceParts.length > 0) {
+  if (blocks.length > 0) {
+    const chip = (text: string) => h('span', {
+      style: 'display:inline-flex;align-items:center;padding:1px 9px;border-radius:10px;font-size:12px;background:var(--cpq-overlay-danger10);color:var(--cpq-accent-danger);border:1px solid var(--cpq-overlay-danger15);',
+    }, text)
+    const label = (text: string) => h('span', { style: 'color:var(--cpq-text-muted);font-size:12.5px;' }, text)
+
+    const blockNodes = blocks.map(b => h('div', {
+      style: 'margin-bottom:10px;padding:8px 12px;border-left:3px solid var(--cpq-accent-danger);background:var(--cpq-overlay-a4);border-radius:0 6px 6px 0;',
+    }, [
+      h('div', { style: 'font-weight:600;margin-bottom:5px;color:var(--cpq-text-primary);' }, b.cfg),
+      h('div', { style: 'display:flex;flex-wrap:wrap;align-items:center;gap:6px;' }, [
+        ...(b.zeroSections.length ? [label('机箱'), ...b.zeroSections.map(chip)] : []),
+        ...(b.l6Coarse > 0 ? [h('span', { style: 'color:var(--cpq-text-secondary);font-size:12.5px;' }, `机箱 ${b.l6Coarse} 个部件价格为 0（未做 4 步选配）`)] : []),
+        ...(b.kpParts.length ? [label('配件'), ...b.kpParts.map(chip)] : []),
+      ]),
+    ]))
+
     const confirmed = await Modal.confirm({
-      title: '⚠️ 存在价格为 0 的配件',
-      content: `以下配件价格为 0，可能导致整机成本偏低：\n${zeroPriceParts.map(p => `• ${p.cfg}: ${p.part}`).join('\n')}\n\n确定要保存吗？`,
+      title: '存在价格为 0 的项目',
+      icon: () => h('span', { style: 'color:var(--cpq-accent-danger);font-size:18px;' }, '⚠️'),
+      content: h('div', { style: 'font-size:13px;line-height:1.7;color:var(--cpq-text-primary);' }, [
+        h('div', { style: 'color:var(--cpq-text-secondary);margin-bottom:12px;' }, '以下配置存在价格为 0 的项目，可能导致整机成本偏低：'),
+        ...blockNodes,
+      ]),
       okText: '继续保存',
       cancelText: '取消',
+      okType: 'danger',
     })
     if (!confirmed) return
   }
@@ -1197,7 +1270,7 @@ const onHistoryExpand = async (item: any, keys: string[]) => {
 
   item._histLoading = true
   try {
-    const model = item.spec || item.part_name
+    const model = item.catalogue
     if (!model) return
     const resp = await axios.get('/api/quote/kp/history', { params: { model } })
     item._history = resp.data || []
@@ -1215,8 +1288,13 @@ const onHistoryExpand = async (item: any, keys: string[]) => {
 function matchClass(s: string): string {
   if (s.includes('一致') || s.includes('已同步')) return 'ok'
   if (s.includes('差异') || s.includes('待填') || s.includes('缺失')) return 'warn'
-  if (s.includes('新部件')) return 'new'
+  if (s.includes('新部件') || s.includes('跨币种')) return 'new'
   return ''
+}
+
+// 货币符号：USD → $，其余 → ¥（RMB/CNY/空都归到 ¥）
+function currencySymbol(c: any): string {
+  return (c || '').toString().toUpperCase() === 'USD' ? '$' : '¥'
 }
 
 // db_price 归一化：null/undefined/""/非有限数 → null（视为配件库无此型号）
@@ -1229,13 +1307,15 @@ function dbPriceOf(item: any): number | null {
 }
 
 function kpSyncable(item: any): boolean {
-  const model = item.spec || item.part_name
+  const model = item.catalogue
   if (!model) return false
   const cur = Number(item.base_price) || 0
   if (cur <= 0) return false
   const db = dbPriceOf(item)
-  // 配件库无此型号（db=null）→ 可同步；有则仅当价格不一致才可同步
+  // 配件库无此型号（db=null）→ 可入库；有则仅当同币种且价格不一致才提示同步
   if (db == null) return true
+  // 跨币种：数值不可直接比较，跳过（不弹同步），避免 USD 行 vs RMB 库存价误判
+  if ((item.currency || 'RMB') !== (item.db_currency || 'RMB')) return false
   return Math.abs(cur - db) > 0.01
 }
 
@@ -1255,7 +1335,16 @@ function computeKpMatch(item: any) {
   const cur = Number(item.base_price) || 0
   if (db == null) {
     item.match_status = cur > 0 ? '🆕 新部件' : '❌ 缺失 (请填写)'
-  } else if (cur === 0) {
+    return
+  }
+  // 跨币种：直接比价无意义，标注后交由 kpSyncable 跳过同步按钮
+  const itemCur = item.currency || 'RMB'
+  const dbCur = item.db_currency || 'RMB'
+  if (itemCur !== dbCur) {
+    item.match_status = `💱 跨币种 (本行 ${itemCur} / 库 ${dbCur})`
+    return
+  }
+  if (cur === 0) {
     item.match_status = `⚠️ 待填入 [DB=${db}]`
   } else if (Math.abs(cur - db) > 0.01) {
     item.match_status = `⚠️ 差异 (当前: ${cur}, DB: ${db})`
@@ -1272,7 +1361,7 @@ async function refreshKpDbPrices() {
   for (const cfg of Object.values(store.configs)) {
     for (const item of cfg.items) {
       if (item.category !== 'Key Parts') continue
-      const model = item.spec || item.part_name
+      const model = item.catalogue
       if (!model) continue
       tasks.push((async () => {
         try {
@@ -1280,6 +1369,7 @@ async function refreshKpDbPrices() {
           const latest = Array.isArray(arr) && arr.length ? arr[0] : null
           const n = latest ? Number(latest.price) : null
           item.db_price = (n == null || !Number.isFinite(n)) ? null : n
+          item.db_currency = latest ? (latest.currency || 'RMB') : null
           computeKpMatch(item)
         } catch { /* 单条失败保留原 db_price，不阻塞其他行 */ }
       })())
@@ -1290,7 +1380,7 @@ async function refreshKpDbPrices() {
 
 // 打开同步弹窗：校验型号与价格后，载入当前 KP 行作为同步目标
 function openSyncModal(item: any) {
-  const model = item.spec || item.part_name
+  const model = item.catalogue
   if (!model) { message.warning('无型号，无法同步'); return }
   if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
   syncTarget.value = item
@@ -1302,18 +1392,20 @@ function openSyncModal(item: any) {
 async function confirmSync() {
   const item = syncTarget.value
   if (!item) return
-  const model = item.spec || item.part_name
+  const model = item.catalogue
   if (!model) { message.warning('无型号，无法同步'); return }
   if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
   syncLoading.value = true
   try {
     await syncKpPrice({
-      category: item.part_name || 'Key Parts',
+      category: item.part_category || 'Key Parts',
       model,
       price: Number(item.base_price),
+      currency: item.currency || 'RMB',
       note: syncNote.value.trim() || '报价工作台手动同步',
     })
     item.db_price = Number(item.base_price)
+    item.db_currency = item.currency || 'RMB'
     item.match_status = `✅ 已同步 [${item.base_price}]`
     if (item._histLoaded) {
       try { item._history = await getKpHistory(model) } catch { /* 历史刷新失败不阻塞 */ }
@@ -1329,7 +1421,7 @@ async function confirmSync() {
 
 onMounted(async () => {
   // 并行加载：导出模板 / 质保默认值 / 机型目录 / KP 料号目录（下拉 + create 默认 + 机箱卡 series + KP 新建模式都依赖）
-  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog()])
+  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog(), loadGpuCableItems()])
   const firstModel = serverModels.value[0]
 
   // Check routing context
@@ -1345,7 +1437,6 @@ onMounted(async () => {
     store.warrantyRates = {}
     store.opportunityInfo = {
       opportunity_id: opportunityId || '',
-      opportunity_name: '',
       sales_person: '',
       fae: '',
       customer_name: '',
@@ -1361,7 +1452,6 @@ onMounted(async () => {
         const { data: opp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
         store.opportunityInfo = {
           opportunity_id: opp.opportunity_id || opportunityId,
-          opportunity_name: opp.opportunity_name || '',
           sales_person: opp.sales_person || '',
           fae: opp.fae || '',
           customer_name: opp.customer_name || '',
@@ -1483,7 +1573,6 @@ onMounted(async () => {
 
       const opportunityInfo = {
         opportunity_id: quotation.opportunity_id || opportunityId,
-        opportunity_name: quotation.opportunity_name || '',
         customer_name: quotation.customer_name || '',
         quotation_id: quotation.quotation_id,
         version: quotation.version,
@@ -1500,6 +1589,7 @@ onMounted(async () => {
       // Excel 上传报价单判定:file_path 非空 或 从上传页进入 → 左栏快照模式
       const isExcelQuote = !!quotation.file_path || entryFrom.value === 'upload'
       store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities, config_l6_picks: quotation.config_l6_picks, is_excel_quote: isExcelQuote })
+      activeCfg.value = Object.keys(store.configs)[0] || 'CFG1'
       message.success("已加载报价单数据")
     } catch (err) {
       console.error("加载报价单失败", err)
@@ -1512,6 +1602,7 @@ onMounted(async () => {
       try {
         // 上传后跳转 = Excel 报价单,左栏用快照模式
         store.loadData({ ...JSON.parse(dataStr), is_excel_quote: true })
+        activeCfg.value = Object.keys(store.configs)[0] || 'CFG1'
       } catch (e) {
         console.error("解析上传数据失败", e)
       }
@@ -1757,17 +1848,12 @@ onMounted(async () => {
 /* ============================================
    5. 配置描述（可折叠）
    ============================================ */
-.card-desc {
-  margin-bottom: 16px;
-  border-radius: 14px;
-  overflow: hidden;
-  transition: all var(--cpq-transition-fast);
-}
-
 .desc-header {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--cpq-overlay-w10);
   cursor: pointer;
   user-select: none;
   gap: 8px;
@@ -1795,11 +1881,7 @@ onMounted(async () => {
 }
 
 .desc-body {
-  padding: 0 16px 16px;
-}
-
-.card-desc.expanded {
-  box-shadow: 0 4px 12px var(--cpq-shadow-color-soft);
+  padding: 12px 0 0;
 }
 
 /* ============================================
@@ -1869,64 +1951,32 @@ onMounted(async () => {
 }
 
 .l6-unmatched-hint {
-  margin: -8px 0 12px;
-  padding: 8px 14px;
   font-size: 12px;
   color: var(--cpq-accent-warning, #fa8c16);
-  background: var(--cpq-overlay-w4);
-  border: 1px dashed var(--cpq-overlay-w20);
-  border-radius: 8px;
-}
-
-.l6-section + .card-kp {
-  border-top: 1px solid var(--cpq-overlay-a8);
-  padding-top: 24px;
-}
-
-.l6-margin-bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-overlay-w6);
-}
-
-.l6-margin-bar .lm-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
   white-space: nowrap;
 }
 
-.l6-margin-bar .lm-final {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-}
-
-.l6-margin-bar .lm-final :deep(.price) {
-  color: var(--cpq-accent-primary);
-  font-weight: 700;
-}
 
 /* ============================================
    9. KP Section
    ============================================ */
 .card-kp {
-  padding: 20px;
-  border-radius: 14px;
+  padding: 18px 20px 20px;
+  border-radius: var(--cpq-radius-xl, 20px);
   margin-bottom: 24px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-overlay-w10);
 }
-
-.sec-head {
+.kp-card-head {
   display: flex;
+  align-items: flex-start;
   justify-content: space-between;
-  align-items: center;
+  gap: 16px;
   margin-bottom: 16px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--cpq-overlay-w10);
 }
+.kp-card-title { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 
 .sec-title {
   margin: 0;
@@ -1945,57 +1995,6 @@ onMounted(async () => {
   background: var(--cpq-overlay-w6);
   padding: 2px 8px;
   border-radius: 10px;
-}
-
-/* KP 合计卡（对称 L6ChassisConfig 的 l6-total-bar）— 置底 */
-.kp-total-bar {
-  position: relative;
-  display: flex;
-  align-items: baseline;
-  gap: 14px;
-  padding: 12px 18px;
-  margin-top: 16px;
-  border: 1px solid var(--cpq-glass-border-strong);
-  border-radius: var(--cpq-radius-lg);
-  background: var(--cpq-overlay-a8);
-  backdrop-filter: blur(var(--cpq-glass-blur-1));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1));
-}
-
-.kp-total-bar b {
-  color: var(--cpq-accent-primary, #1677FF);
-  font-size: 18px;
-}
-
-.kp-total-hint {
-  font-size: 11px;
-  color: var(--cpq-text-muted, #6E7582);
-  margin-left: auto;
-}
-
-/* KP 整体利润率条（对称 l6-margin-bar）*/
-.kp-margin-bar {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 16px;
-  padding: 12px 16px;
-  border-radius: 12px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-overlay-w6);
-}
-
-.kp-margin-bar .lm-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  white-space: nowrap;
-}
-
-.kp-margin-bar .lm-final {
-  margin-left: auto;
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
 }
 
 .kp-grid {
@@ -2035,25 +2034,19 @@ onMounted(async () => {
   background: var(--cpq-overlay-a8);
 }
 
-/* KP excel 卡：对齐机箱目录页 .sc-type-card 的玻璃配方（双层渐变 + 强投影 + 蓝边 hover）*/
+/* KP excel 卡：扁平分段（降级去玻璃，融入 KP 大卡避免嵌套发灰）*/
 .kp-card {
   position: relative;
-  padding: 16px;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-xl);
-  transition: all .3s var(--cpq-ease-out-expo);
+  padding: 14px 16px;
+  border: 1px solid var(--cpq-overlay-w10);
+  border-radius: 14px;
+  transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth);
   overflow: hidden;
-  background: linear-gradient(135deg, var(--cpq-glass-1-bg) 0%, var(--cpq-glass-2-bg) 100%);
-  backdrop-filter: blur(var(--cpq-glass-blur-1));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1));
-  box-shadow: var(--cpq-shadow-md), inset 0 1px 0 var(--cpq-glass-highlight);
+  background: var(--cpq-overlay-w4);
 }
 
 .kp-card:hover {
-  border-color: var(--cpq-glass-border-strong);
-  transform: translateY(-3px);
-  background: linear-gradient(135deg, var(--cpq-glass-2-bg) 0%, var(--cpq-glass-1-bg) 100%);
-  box-shadow: var(--cpq-shadow-lg), 0 0 0 1px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-glass-highlight);
+  border-color: var(--cpq-overlay-w20);
 }
 
 .kp-card-header {

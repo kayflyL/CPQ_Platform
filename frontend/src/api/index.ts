@@ -23,13 +23,12 @@ export const projectApi = {
     return response.data
   },
   
-  create: async (data: { opportunity_name: string; customer_name?: string }) => {
+  create: async (data: { customer_name: string; sales_person?: string }) => {
     const response = await api.post('/opportunities', data)
     return response.data
   },
   
-  update: async (projectId: string, data: { 
-    opportunity_name?: string
+  update: async (projectId: string, data: {
     customer_name?: string
     purchase_qty?: number
     platform_type?: string
@@ -37,7 +36,7 @@ export const projectApi = {
     sales_person?: string
     fae?: string
     quotation_person?: string
-  }) => {
+  } & Record<string, any>) => {
     const response = await api.put(`/opportunities/${projectId}`, data)
     return response.data
   },

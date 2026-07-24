@@ -469,7 +469,7 @@
               :key="opp.opportunity_id"
               :value="opp.opportunity_id"
             >
-              {{ opp.opportunity_name }} ({{ opp.customer_name }})
+            {{ opp.customer_name }}
             </a-select-option>
           </a-select>
           <a-select

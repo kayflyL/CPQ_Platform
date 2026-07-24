@@ -32,16 +32,26 @@ const routes = [
         meta: { title: '回收站' }
       },
       {
-        path: '/base-pricing',
-        name: 'BasePricing',
-        component: () => import('@/views/admin/BasePricing.vue'),
+        path: '/parts',
+        name: 'Parts',
+        component: () => import('@/views/admin/Parts.vue'),
         meta: { title: '配件' }
+      },
+      {
+        path: '/base-pricing',
+        redirect: '/parts'
       },
       {
         path: '/servers',
         name: 'Servers',
         component: () => import('@/views/ServerConfig.vue'),
-        meta: { title: '服务器' }
+        meta: { title: '服务器配置' }
+      },
+      {
+        path: '/servers/admin',
+        name: 'ServersAdmin',
+        component: () => import('@/views/ServerAdminPage.vue'),
+        meta: { title: '服务器管理' }
       },
       {
         path: '/servers/types/:typeId',
@@ -55,6 +65,37 @@ const routes = [
         component: () => import('@/views/ConfigWizardPage.vue'),
         meta: { title: '服务器配置' }
       },
+      {
+        path: '/servers/base-configs/new',
+        name: 'BaseConfigNew',
+        component: () => import('@/views/server-admin/BaseConfigEditorPage.vue'),
+        meta: { title: '新建基准配置' }
+      },
+      {
+        path: '/servers/base-configs/:id',
+        name: 'BaseConfigEdit',
+        component: () => import('@/views/server-admin/BaseConfigEditorPage.vue'),
+        meta: { title: '编辑基准配置' }
+      },
+
+      {
+        path: '/servers/models/new',
+        name: 'ServerModelNew',
+        component: () => import('@/views/server-admin/ModelEditorPage.vue'),
+        meta: { title: '新建机型' }
+      },
+      {
+        path: '/servers/models/:modelId',
+        name: 'ServerModelDetail',
+        component: () => import('@/views/server-config/ModelDetailPage.vue'),
+        meta: { title: '机型详情' }
+      },
+      {
+        path: '/servers/models/:modelId/edit',
+        name: 'ServerModelEdit',
+        component: () => import('@/views/server-admin/ModelEditorPage.vue'),
+        meta: { title: '编辑机型' }
+      },
 
       {
         path: '/excel-parser',
@@ -62,25 +103,35 @@ const routes = [
         component: () => import('@/views/ExcelParser.vue'),
         meta: { title: 'Excel 解析' }
       },
-      {
-        path: '/system-settings',
-        name: 'SystemSettings',
-        component: () => import('@/views/admin/SystemSettings.vue'),
-        meta: { title: '系统设置' }
-      },
 
-      // Univer 导出模板（新系统）
+      // 导出模板（统一入口）
       {
-        path: '/univer-templates',
-        name: 'UniverTemplateList',
-        component: () => import('@/views/univer/UniverTemplateList.vue'),
+        path: '/export-templates',
+        name: 'ExportTemplates',
+        component: () => import('@/views/export-templates/ExportTemplateList.vue'),
         meta: { title: '导出模板' }
       },
+      
+      // Univer 模板编辑器（Excel）
       {
-        path: '/univer-templates/:id/edit',
+        path: '/export-templates/excel/:id/edit',
         name: 'UniverTemplateEdit',
         component: () => import('@/views/univer/UniverTemplateEditor.vue'),
-        meta: { title: '编辑模板' }
+        meta: { title: '编辑 Excel 模板' }
+      },
+      
+      // 规格书模板编辑器
+      {
+        path: '/export-templates/spec/:id/edit',
+        name: 'SpecTemplateEdit',
+        component: () => import('@/views/spec-templates/SpecTemplateEditor.vue'),
+        meta: { title: '编辑规格书模板' }
+      },
+      {
+        path: '/export-templates/spec/new',
+        name: 'SpecTemplateNew',
+        component: () => import('@/views/spec-templates/SpecTemplateEditor.vue'),
+        meta: { title: '新建规格书模板' }
       }
     ]
   }

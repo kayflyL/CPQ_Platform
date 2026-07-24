@@ -298,6 +298,7 @@ interface BusinessField {
   updated_by: string
   export_visible: boolean
   used_in?: string[]
+  used_in_pages?: string
 }
 
 const fields = ref<BusinessField[]>([])

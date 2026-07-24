@@ -9,10 +9,10 @@
  *
  * 遵循：[[ocp-is-networking-not-pcie]]（OCP 独立网络分段）/ [[derive-must-have-manual-fallback]]（推导仅兜底，料号库手选）
  */
-import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect, reactive } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'vue'
 import { message } from 'ant-design-vue'
 import {
-  baseConfigApi, partsApi, rearIOApi, deriveApi, bomTemplateApi,
+  baseConfigApi, partsApi, rearIOApi, bomTemplateApi,
   type PartMaster, type BaseConfig, type RearIOSlotOption, type BomTemplate,
 } from '@/api/serverConfig'
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
@@ -32,10 +32,19 @@ const props = defineProps<{
   initialPicks?: any
   /** 弹窗模式：左侧步骤条 + 右侧单步内容（堆叠模式为 false，Workspace 行为不变） */
   stepper?: boolean
+  /** 是否显示 GPU 供电线选择行：报价页 GPU 线外移到 GPU 卡→传 false 隐藏；配置页默认 true 保留 */
+  showGpuCable?: boolean
 }>()
 
 const emit = defineEmits<{
-  (e: 'apply', payload: { baseConfigId: number | null; totals: any; picks: any; l6Rows: any[] }): void
+  (e: 'apply', payload: {
+    baseConfigId: number | null
+    totals: any
+    picks: any
+    l6Rows: any[]
+    bomTemplate: BomTemplate | null
+    bomContext: Record<string, { desc: string; qty: number | string }>
+  }): void
   (e: 'update:baseConfigId', id: number | null): void
 }>()
 
@@ -71,10 +80,10 @@ let _allBaseConfigsLoaded = false
 const CORE_DRIVE_KINDS = ['SATA', 'SAS', 'NVMe'] as const
 const DEFAULT_REAR_SLOTS = ['IO1', 'IO2', 'IO3', 'IO4', 'OCP']
 const rearSlots = computed(() => (baseConfig.value as any)?.rear_slots || DEFAULT_REAR_SLOTS)
-const ioSlots = computed(() => rearSlots.value.filter(s => s !== 'OCP'))
+const ioSlots = computed(() => rearSlots.value.filter((s: string) => s !== 'OCP'))
 const hasOcp = computed(() => rearSlots.value.includes('OCP'))
 
-const SLOT_CAP: Record<string, number> = { IO1: 2, IO2: 2, IO3: 2, IO4: 2, OCP: 1 }
+const SLOT_CAP: Record<string, number> = { IO1: 3, IO2: 3, IO3: 3, IO4: 3, OCP: 1 }
 const OPTION_LABEL: Record<string, string> = {
   x16: 'X16 Riser', x8: 'X8 Riser', nvme: 'NVMe模组', sata: 'SATA模组',
   ocp_x8: 'OCP X8', ocp_x16: 'OCP X16', blank: '挡片',
@@ -105,6 +114,8 @@ async function loadReference(series: string | undefined) {
   const [fcRes, gpuCableRes, rearRes, psuPartsRes, bpRes] = await Promise.all([
     partsApi.list({ category: '前面板线缆' }),
     partsApi.list({ category: 'GPU电源线' }),
+    // rear-IO 选项按系列分桶：Polaris 走自己的选项，其余（Orion/Intel/工作站）暂一律按 Orion 查。
+    // 未来 Intel/工作站 有独立 rear-IO 选项时，改成按 server_series 动态分发。
     rearIOApi.getOptions(series === 'Polaris' ? 'Polaris' : 'Orion'),
     partsApi.list({ category: '电源' }),
     partsApi.list({ category: '背板' }),
@@ -231,7 +242,7 @@ function gpuCableUnitPrice(): number { return gpuCablePicked()?.unit_price || 0 
 // ---- 合计 ----
 const baseTotal = computed(() => effectiveBaseParts.value.reduce((s, p) => s + (p.unit_price || 0) * (p.quantity || 1), 0))
 const frontTotal = computed(() => CORE_DRIVE_KINDS.reduce((s, k) => s + frontCableQty(k) * frontCableInfo(k).price, 0))
-const rearTotal = computed(() => ioSlots.value.reduce((sum, slot) => sum + slotPrice(slot), 0))
+const rearTotal = computed(() => ioSlots.value.reduce((sum: number, slot: string) => sum + slotPrice(slot), 0))
 const ocpTotal = computed(() => hasOcp.value ? slotPrice('OCP') : 0)
 const psuLineTotal = computed(() => psuUnitPrice() * psuQty())
 const gpuCableCost = computed(() => gpuCableQty() * gpuCableUnitPrice())
@@ -257,25 +268,26 @@ const picks = computed(() => ({
 }))
 
 // ---- L6 行（写回 cfg.items，供导出 preview_data_loader + 左栏 BomTable）----
+// 字段语义：L6 行 catalogue=零件名（旧 part_name），description=规格/PN（旧 spec），part_category 恒空
 function buildL6Rows() {
   const rows: any[] = []
   for (const p of effectiveBaseParts.value) {
-    rows.push({ category: 'L6', part_name: p.name || p.pn, spec: p.pn, qty: p.quantity || 1, base_price: p.unit_price || 0, currency: 'RMB' })
+    rows.push({ category: 'L6', catalogue: p.name || p.pn, description: p.pn, part_category: '', qty: p.quantity || 1, base_price: p.unit_price || 0, currency: 'RMB' })
   }
   for (const k of CORE_DRIVE_KINDS) {
     const qty = frontCableQty(k); const info = frontCableInfo(k)
-    if (qty > 0) rows.push({ category: 'L6', part_name: `前面板${k}线缆`, spec: info.pn, qty, base_price: info.price, currency: 'RMB' })
+    if (qty > 0) rows.push({ category: 'L6', catalogue: `前面板${k}线缆`, description: info.pn, part_category: '', qty, base_price: info.price, currency: 'RMB' })
   }
   for (const slot of [...ioSlots.value, ...(hasOcp.value ? ['OCP'] : [])]) {
     for (const t of uniqueRealOptions(slot)) {
       const q = optionQty(slot, t)
       const opt = (rearOptions.value[slot] || []).find(o => o.option_type === t)
       const unit = opt?.total_price || 0
-      if (q > 0) rows.push({ category: 'L6', part_name: `后面板${slot}:${optionLabel(t)}`, spec: '', qty: q, base_price: unit, currency: 'RMB' })
+      if (q > 0) rows.push({ category: 'L6', catalogue: `后面板${slot}:${optionLabel(t)}`, description: '', part_category: '', qty: q, base_price: unit, currency: 'RMB' })
     }
   }
-  if (psuQty() > 0 && psuUnitPrice() > 0) rows.push({ category: 'L6', part_name: `电源:${psuName()}`, spec: '', qty: psuQty(), base_price: psuUnitPrice(), currency: 'RMB' })
-  if (gpuCableQty() > 0 && gpuCableUnitPrice() > 0) rows.push({ category: 'L6', part_name: 'GPU供电线', spec: gpuCablePicked()?.pn || '', qty: gpuCableQty(), base_price: gpuCableUnitPrice(), currency: 'RMB' })
+  if (psuQty() > 0 && psuUnitPrice() > 0) rows.push({ category: 'L6', catalogue: `电源:${psuName()}`, description: '', part_category: '', qty: psuQty(), base_price: psuUnitPrice(), currency: 'RMB' })
+  if (gpuCableQty() > 0 && gpuCableUnitPrice() > 0) rows.push({ category: 'L6', catalogue: 'GPU供电线', description: gpuCablePicked()?.pn || '', part_category: '', qty: gpuCableQty(), base_price: gpuCableUnitPrice(), currency: 'RMB' })
   return rows
 }
 
@@ -286,7 +298,7 @@ function applyKpSummary(s: any) {
   if (s.cpuPn) lines.push({ cat: 'CPU', pn: s.cpuPn, qty: s.cpuQty || 1 })
   if (s.gpuPn) lines.push({ cat: 'GPU', pn: s.gpuPn, qty: s.gpuQty || 1 })
   if (s.drivesByKind) {
-    for (const [kind, q] of Object.entries(s.drivesByKind)) {
+    for (const [_kind, q] of Object.entries(s.drivesByKind)) {
       if ((q as number) > 0) lines.push({ cat: 'HDD/SSD', pn: '', qty: q as number })
     }
   }
@@ -366,6 +378,17 @@ function scheduleEmit() {
 
 watch([rear, overrides, baseConfig, result, bomTemplate], scheduleEmit, { deep: true })
 watch(() => props.kpSummary, (s) => applyKpSummary(s), { deep: true })
+// 外部（报价页 GPU 卡）改 GPU 线 → 同步进内部 overrides 触发成本重算 + apply
+// 仅 GPU 线 UI 外移(showGpuCable=false)时由父驱动；ConfigWizard 弹窗内手改走 setOverride 不经此
+watch(
+  () => [props.initialPicks?.overrides?.gpuCablePn, props.initialPicks?.overrides?.gpuCableQty],
+  ([pn, qty]) => {
+    if (overrides.gpuCablePn === pn && Number(overrides.gpuCableQty) === Number(qty)) return
+    overrides.gpuCablePn = pn as any
+    overrides.gpuCableQty = qty as any
+    scheduleEmit()
+  }
+)
 
 onMounted(async () => {
   // 先 hydrate：必须在下方任何 await 之前。loadBaseConfig 会让 baseConfig 变化触发 watch → scheduleEmit，
@@ -520,6 +543,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
 
+        <template v-if="showGpuCable !== false">
         <div class="sc-section-head sc-section-head-gap"><span class="sh-tag">GPU 供电线</span><span class="sh-amt">¥{{ gpuCableCost.toLocaleString() }}</span></div>
         <div class="sc-dline gpu-cable-line" v-if="gpuCableParts.length">
           <div>
@@ -533,6 +557,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
         <div v-else class="sc-empty">料号库暂无「GPU电源线」类别料号。</div>
+        </template>
       </div>
     </div>
 
@@ -698,9 +723,9 @@ onBeforeUnmount(() => {
 <style>
 .bundle-tip { max-width: 340px; }
 .bundle-tip .ant-tooltip-inner { padding: 10px 12px; }
-.bundle-tip-title { font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(255,255,255,.18); font-size: 12px; }
+.bundle-tip-title { font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--cpq-overlay-w10); font-size: 12px; }
 .bundle-tip-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.7; }
-.bundle-tip-row .bt-name { flex: 1; color: rgba(255,255,255,.72); }
+.bundle-tip-row .bt-name { flex: 1; color: var(--cpq-text-secondary, rgba(255,255,255,.72)); }
 .bundle-tip-row .bt-price { margin-left: auto; }
-.bundle-tip-sum { margin-top: 5px; padding-top: 4px; border-top: 1px solid rgba(255,255,255,.18); font-weight: 600; font-size: 12px; }
+.bundle-tip-sum { margin-top: 5px; padding-top: 4px; border-top: 1px solid var(--cpq-overlay-w10); font-weight: 600; font-size: 12px; }
 </style>

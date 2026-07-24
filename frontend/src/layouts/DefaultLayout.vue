@@ -18,11 +18,19 @@
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
         </a-menu-item>
-        <a-menu-item key="/servers">
+        <a-sub-menu key="servers">
           <template #icon><DesktopOutlined /></template>
-          <span>服务器</span>
-        </a-menu-item>
-        <a-menu-item key="/base-pricing">
+          <template #title>服务器</template>
+          <a-menu-item key="/servers">
+            <template #icon><DesktopOutlined /></template>
+            <span>产品配置</span>
+          </a-menu-item>
+          <a-menu-item key="/servers/admin">
+            <template #icon><SettingOutlined /></template>
+            <span>后台管理</span>
+          </a-menu-item>
+        </a-sub-menu>
+        <a-menu-item key="/parts">
           <template #icon><DollarOutlined /></template>
           <span>配件</span>
         </a-menu-item>
@@ -30,15 +38,11 @@
           <template #icon><SettingOutlined /></template>
           <template #title>设置</template>
 
-          <a-menu-item key="/system-settings">
-            <template #icon><ControlOutlined /></template>
-            <span>系统设置</span>
-          </a-menu-item>
           <a-menu-item key="/excel-parser">
             <template #icon><ApiOutlined /></template>
             <span>解析规则</span>
           </a-menu-item>
-          <a-menu-item key="/univer-templates">
+          <a-menu-item key="/export-templates">
             <template #icon><FileExcelOutlined /></template>
             <span>导出模板</span>
           </a-menu-item>
@@ -56,14 +60,20 @@
     <main class="main-scroll">
       <router-view />
     </main>
+
+    <!-- 全局浮动「方案助手」入口(右下角,所有页面常驻) -->
+    <AssistantFloatingButton v-model:open="assistantOpen" />
+    <AssistantPanel v-model:open="assistantOpen" />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, FormOutlined, ControlOutlined, BulbOutlined, BulbFilled } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, BulbOutlined, BulbFilled } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
+import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
+import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -71,10 +81,24 @@ const themeStore = useThemeStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
 
+// 全局方案助手:浮动入口显隐(上下文由 Panel 内 useAssistantContext 按多域 provider 算)
+const assistantOpen = ref(false)
+
 // 设置类页面路径
-const settingsPaths = ['/system-settings', '/excel-parser', '/univer-templates']
+const settingsPaths = ['/excel-parser', '/export-templates']
+
+/** 服务器子路由归类：管理面（后台管理 + 机型/基准编辑页）高亮「后台管理」，其余高亮「产品配置」。 */
+const isServersAdminPath = (p: string) =>
+  p.startsWith('/servers/admin') ||
+  p.startsWith('/servers/base-configs') ||
+  (p.startsWith('/servers/models/') && p.endsWith('/edit'))
 
 watch(() => route.path, (newPath) => {
+  if (newPath.startsWith('/servers')) {
+    selectedKeys.value = [isServersAdminPath(newPath) ? '/servers/admin' : '/servers']
+    openKeys.value = ['servers']
+    return
+  }
   selectedKeys.value = [newPath]
   // 进入设置类页面时自动展开设置子菜单
   if (settingsPaths.includes(newPath)) {

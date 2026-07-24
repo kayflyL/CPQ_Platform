@@ -3,12 +3,14 @@
  *  机箱（基准/前面板/后面板/电源）收进「机箱配置弹窗」（L6ChassisConfig stepper 模式）；
  *  KP 核心配件按 cat 独立成卡（CPU/Memory/HDD-SSD/GPU/NIC 预设 + 用户从 KP 类别新增）。
  *  kpLines 保持扁平 [{cat,pn,qty}]，卡片是渲染期 groupBy 视图 → 推导/持久化链路不动。 */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
+import axios from 'axios'
 import { kpPartsApi, configSchemeApi, baseConfigApi, type ServerModel, type KpPart } from '@/api/serverConfig'
 import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
 import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import KpCategoryCard from '@/components/server-config/KpCategoryCard.vue'
+import SpecSheet from '@/components/server-config/SpecSheet.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { fromKpPart } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
@@ -162,7 +164,25 @@ const grand = computed(() => l6Total.value + kpTotal.value)
 function onL6Apply(payload: any) { l6Apply.value = payload }
 
 const saving = ref(false)
-const bomVisible = ref(false)
+const specVisible = ref(false)
+const specTemplate = ref<{branding: any, display_options: any} | null>(null)
+
+// 加载默认规格书模板
+async function loadSpecTemplate() {
+  try {
+    const resp = await axios.get('/api/spec-templates/default')
+    specTemplate.value = resp.data
+  } catch (e: any) {
+    console.error('Failed to load spec template:', e)
+    message.warning('未找到默认规格书模板，请先在模板编辑器中创建')
+  }
+}
+
+async function printSpec() {
+  specVisible.value = true
+  await nextTick()
+  window.print()
+}
 async function saveConfig() {
   if (!l6Apply.value) { message.warning('请先完成机箱选配'); return }
   saving.value = true
@@ -179,8 +199,8 @@ async function saveConfig() {
         totals: { l6: l6Total.value, kp: kpTotal.value, grand: grand.value },
       },
     })
-    bomVisible.value = true
-    message.success('配置已保存，已生成 BOM')
+    specVisible.value = true
+    message.success('配置已保存，已生成规格书')
   } catch (e: any) {
     message.error('保存失败：' + (e.message || e))
   } finally { saving.value = false }
@@ -195,14 +215,17 @@ function scrollToPanel(panelId: string) {
   }
 }
 
-onMounted(init)
+onMounted(() => {
+  init()
+  loadSpecTemplate()
+})
 </script>
 
 <template>
   <div class="sc-wizard">
     <div class="sc-banner">
       <span class="bm-name">{{ model.name }}</span>
-      <span class="bm-sub">{{ model.use }} · {{ model.form }} · {{ model.bays }} 盘位</span>
+      <span class="bm-sub">{{ model.use }} · {{ model.base_config?.form }} · {{ model.base_config?.bays }} 盘位</span>
     </div>
 
     <!-- 步骤指示器：机箱 + 各 KP 卡片 -->
@@ -236,12 +259,10 @@ onMounted(init)
           :price-of="priceOf"
           :removable="!CORE_CATS.includes(cat)"
           :is-gpu="cat === 'GPU'"
-          :gpu-arch="gpuArch"
           @set-line="(idx:any, patch:any)=>setLineForCat(cat, idx, patch)"
           @del-line="(idx:any)=>delLineForCat(cat, idx)"
           @add-line="addLineForCat(cat)"
           @remove-card="removeCard(cat)"
-          @update:gpu-arch="(a:any)=>gpuArch = a"
         />
 
         <!-- 新增配置卡片（从 KP 类别列表选）-->
@@ -274,7 +295,7 @@ onMounted(init)
             <span class="cc-row-label">KP 配件成本</span>
             <span class="cc-row-val">¥<CountNumber :value="kpTotal" /></span>
           </div>
-          <button class="sc-save" :disabled="saving" @click="saveConfig">{{ saving ? '保存中…' : '保存 / 生成 BOM' }}</button>
+          <button class="sc-save" :disabled="saving" @click="saveConfig">{{ saving ? '保存中…' : '保存 / 生成规格书' }}</button>
         </div>
       </div>
     </div>
@@ -295,19 +316,29 @@ onMounted(init)
       />
     </a-modal>
 
-    <!-- BOM 展示 -->
-    <div v-if="bomVisible" class="sc-bom-mask" @click.self="bomVisible = false">
-      <div class="sc-bom">
-        <div class="bom-head"><h3>配置清单（BOM · 无价）</h3><button @click="bomVisible = false">✕</button></div>
-        <div class="bom-sec"><div class="bom-st">L6 机箱配置</div>
-          <div class="bom-row" v-for="(r, ri) in (l6Apply?.l6Rows || [])" :key="'l'+ri"><span class="bmn">{{ r.part_name }}</span><span class="bmq">{{ r.qty }}</span></div>
+    <!-- 配置规格书（打印用 overlay，使用 Teleport 移到 body 层级，避免打印时父级样式干扰） -->
+    <Teleport to="body">
+      <div v-if="specVisible" class="spec-sheet-overlay" @click.self="specVisible = false">
+        <div class="spec-sheet-scroll">
+          <SpecSheet
+            class="spec-sheet-root"
+            :model="model"
+            :l6-apply="l6Apply"
+            :kp-lines="kpLines"
+            :kp-part="kpPart"
+            :price-of="priceOf"
+            :branding="specTemplate?.branding || {}"
+            :series="series"
+            :display-options="specTemplate?.display_options"
+          />
         </div>
-        <div class="bom-sec"><div class="bom-st">KP 核心配件</div>
-          <div class="bom-row" v-for="(l, i) in kpLines" :key="'k'+i"><span class="bmn">{{ l.cat }}：{{ kpPart(l.pn)?.name || l.pn }}</span><span class="bmq">{{ l.qty }}</span></div>
+        <!-- 工具栏：贴规格书右侧边缘，sticky 随滚动停靠 -->
+        <div class="spec-sheet-toolbar ss-no-print">
+          <button class="ss-tool-btn primary" @click="printSpec">打印 / 导出 PDF</button>
+          <button class="ss-tool-btn" @click="specVisible = false">关闭</button>
         </div>
-        <div class="bom-note">此清单为无价 BOM（服务器页产物）。如需报价，请在报价工作台基于此配置生成。</div>
       </div>
-    </div>
+    </Teleport>
   </div>
 </template>
 
@@ -355,16 +386,19 @@ onMounted(init)
   .sc-layout { flex-direction: column; align-items: stretch; }
   .sc-col-right { position: static; max-height: none; flex: 1; }
 }
-.sc-bom-mask { position: fixed; inset: 0; background: var(--cpq-overlay-b85); backdrop-filter: blur(8px); z-index: 100; display: flex; align-items: center; justify-content: center; padding: 20px; }
-.sc-bom { background: var(--cpq-bg-elevated); backdrop-filter: blur(24px); border: 1px solid var(--cpq-border-primary); border-radius: 16px; max-width: 640px; width: 100%; max-height: 80vh; overflow-y: auto; padding: 22px; box-shadow: var(--cpq-shadow-lg); }
-.bom-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-.bom-head h3 { font-size: 16px; color: var(--cpq-text-primary, #E8ECEF); }
-.bom-head button { background: transparent; border: none; color: var(--cpq-text-secondary,#9BA1AA); font-size: 18px; cursor: pointer; }
-.bom-sec { margin-bottom: 16px; }
-.bom-st { font-size: 13px; color: var(--cpq-text-secondary,#9BA1AA); margin-bottom: 8px; font-weight: 600; }
-.bom-row { display: flex; justify-content: space-between; padding: 7px 0; border-bottom: 1px dashed var(--cpq-overlay-w6); font-size: 13px; }
-.bom-row .bmq { color: var(--cpq-text-secondary,#9BA1AA); }
-.bom-note { margin-top: 12px; padding: 10px 14px; background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); border-radius: 12px; color: var(--cpq-accent-primary,#1677FF); font-size: 12px; }
+.spec-sheet-overlay { position: fixed; inset: 0; z-index: 200; background: var(--cpq-overlay-b85);
+  backdrop-filter: blur(8px); display: flex; flex-direction: row; align-items: flex-start; justify-content: center;
+  gap: 16px; padding: 32px 16px; overflow-y: auto; }
+.spec-sheet-scroll { display: flex; flex: 1; max-width: 900px; flex-direction: column; align-items: center; gap: 14px; }
+/* 工具栏：贴规格书右侧边缘，sticky 随滚动停靠（overlay 的直接子元素，scroll context 内生效） */
+.spec-sheet-toolbar { position: sticky; top: 32px; align-self: flex-start;
+  display: flex; flex-direction: column; gap: 10px; z-index: 10; }
+.ss-tool-btn { padding: 7px 18px; font-size: 13px; font-weight: 600; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--cpq-overlay-w20); background: var(--cpq-overlay-b60);
+  color: var(--cpq-text-primary,#E8ECEF); backdrop-filter: blur(12px); transition: all .2s; }
+.ss-tool-btn:hover { border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); }
+.ss-tool-btn.primary { background: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-on-primary, #fff); border-color: transparent; }
+.ss-tool-btn.primary:hover { color: var(--cpq-accent-on-primary, #fff); opacity: .92; }
 </style>
 
 <!-- a-modal 渲染到 portal（scoped 之外），用全局样式撑满 L6ChassisConfig -->

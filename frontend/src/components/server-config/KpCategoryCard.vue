@@ -1,14 +1,13 @@
 <script setup lang="ts">
 /** KP 单类别卡片 — 一类一卡（CPU / Memory / HDD-SSD / GPU / NIC …）。
  *  行数据来自父组件扁平 kpLines 按 cat 过滤；事件回传父改扁平数组（保持持久化结构不变）。
- *  GPU 卡额外渲染 pt/switch/none 架构切换（驱动 GPU 线缆推导）。
+ *  GPU 卡(quoteMode)额外渲染 GPU 供电线选择（料号库挑 PN + 数量），从机箱弹窗外移至此；成本仍算 L6 机箱。
  *
  *  quoteMode（报价工作台新建模式 opt-in）：每行额外渲染「原始单价 / 利率% / 含税售价」，
  *  线路 final = base_price × (1 + profit_margin/100)；选新 pn 时自动把 base_price 带成料号库单价。
- *  server-config 页不传 quoteMode → 行为完全不变。 */
+ *  server-config 页不传 quoteMode → 行为完全不变（GPU 线在 L6ChassisConfig 弹窗配）。 */
 import PartPicker from '@/components/common/PartPicker.vue'
 import type { PickerItem } from '@/types/picker'
-import type { GpuArch } from '@/composables/useServerConfig'
 
 interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number }
 
@@ -22,8 +21,13 @@ const props = defineProps<{
   priceOf: (pn: string) => number
   removable?: boolean
   isGpu?: boolean
-  gpuArch?: GpuArch
+  /** GPU 供电线（quoteMode + GPU 卡）：料号库挑选 + 数量，状态由父托管(写回 cfg.l6_bom_picks.overrides) */
+  gpuCablePn?: string
+  gpuCableQty?: number
+  gpuCableItems?: PickerItem[]
   quoteMode?: boolean
+  /** 报价页 KP 大卡内降级为扁平分段(去玻璃)，配置页不传保持原样玻璃卡 */
+  flat?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,7 +35,8 @@ const emit = defineEmits<{
   (e: 'del-line', index: number): void
   (e: 'add-line'): void
   (e: 'remove-card'): void
-  (e: 'update:gpuArch', arch: GpuArch): void
+  (e: 'update:gpuCablePn', pn: string): void
+  (e: 'update:gpuCableQty', qty: number): void
 }>()
 
 const lineCost = (l: KpLine) => (props.priceOf(l.pn) || 0) * (l.qty || 0)
@@ -51,7 +56,7 @@ function onPick(i: number, pn: any) {
 </script>
 
 <template>
-  <div :id="`kp-card-${cat}`" class="sc-panel kp-card">
+  <div :id="`kp-card-${cat}`" class="sc-panel kp-card" :class="{ 'kp-flat': flat }">
     <div class="sc-phead">
       <span class="num">{{ stepNum }}</span>
       <h2>{{ cat }}</h2>
@@ -60,14 +65,16 @@ function onPick(i: number, pn: any) {
       <button v-if="removable" class="kp-del-card" @click="emit('remove-card')">删除卡片</button>
     </div>
     <div class="sc-pbody">
-      <div v-if="isGpu" class="gpu-arch-row">
-        <span class="ga-label">GPU 架构</span>
-        <div class="bp-btns">
-          <button :class="{ on: gpuArch === 'none' }" @click="emit('update:gpuArch', 'none')">无</button>
-          <button :class="{ on: gpuArch === 'pt' }" @click="emit('update:gpuArch', 'pt')">PT 直连</button>
-          <button :class="{ on: gpuArch === 'switch' }" @click="emit('update:gpuArch', 'switch')">Switch</button>
+      <!-- GPU 供电线（quoteMode + GPU 卡：从机箱弹窗外移至此，成本仍算 L6 机箱）-->
+      <div v-if="isGpu && quoteMode" class="gpu-cable-row">
+        <span class="gc-label">GPU 供电线</span>
+        <PartPicker class="gc-picker" :items="gpuCableItems || []" :model-value="gpuCablePn || ''" size="small" placeholder="(选择 GPU 供电线)"
+          @update:model-value="(pn:any)=>emit('update:gpuCablePn', typeof pn==='string'?pn:'')" />
+        <div class="sc-step">
+          <button @click="emit('update:gpuCableQty', Math.max(0, (gpuCableQty || 0) - 1))">−</button>
+          <input :value="gpuCableQty || 0" @change="(e:any)=>emit('update:gpuCableQty', parseInt(e.target.value) || 0)" />
+          <button @click="emit('update:gpuCableQty', (gpuCableQty || 0) + 1)">+</button>
         </div>
-        <span class="ga-hint">影响 GPU 供电线缆推导</span>
       </div>
 
       <!-- server-config 模式：单行（picker + 数量 + 行价 + 删除）-->
@@ -130,6 +137,17 @@ function onPick(i: number, pn: any) {
   border: 1px solid var(--cpq-overlay-a15); border-radius: 18px; overflow: hidden;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
+/* flat 模式：报价页 KP 大卡内降级为扁平分段（去玻璃避嵌套，配置页不受影响）*/
+.sc-panel.kp-flat {
+  background: var(--cpq-overlay-w4);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+  border-color: var(--cpq-overlay-w10);
+  border-radius: 14px;
+}
+.sc-panel.kp-flat .sc-phead { background: transparent; border-bottom-color: var(--cpq-overlay-w8); }
+.sc-panel.kp-flat:hover { border-color: var(--cpq-overlay-w20); }
 .sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
 .sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
@@ -139,13 +157,12 @@ function onPick(i: number, pn: any) {
   background: transparent; color: var(--cpq-text-muted,#6E7582); font-size: 12px; cursor: pointer; transition: all .2s; }
 .kp-del-card:hover { color: var(--cpq-accent-danger); border-color: rgba(255,107,107,.4); }
 .sc-pbody { padding: 18px 20px; }
-.gpu-arch-row { display: flex; align-items: center; gap: 12px; padding: 11px 14px; margin-bottom: 12px;
-  background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
-.ga-label { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
-.bp-btns { display: inline-flex; gap: 4px; }
-.bp-btns button { padding: 4px 12px; border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary,#9BA1AA); border-radius: 6px; font-size: 12px; cursor: pointer; transition: all .2s; }
-.bp-btns button.on { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); }
-.ga-hint { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
+/* GPU 供电线行（quoteMode + GPU 卡）：蓝色调区分于普通 KP 行，表"机箱线缆"语义 */
+.gpu-cable-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px;
+  background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); border-radius: 10px; }
+.gc-label { font-size: 12px; font-weight: 600; color: var(--cpq-accent-primary,#1677FF); white-space: nowrap; flex-shrink: 0; }
+.gc-picker { flex: 1; min-width: 0; }
+.gpu-cable-row .sc-step { flex-shrink: 0; }
 .sc-kp-line { display: grid; grid-template-columns: 1fr 130px 100px 32px; gap: 9px; align-items: center; margin-bottom: 9px; }
 .sc-step { display: flex; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; overflow: hidden; }
 .sc-step button { width: 30px; color: var(--cpq-text-secondary,#9BA1AA); font-size: 14px; background: transparent; border: none; cursor: pointer; transition: all .2s; }

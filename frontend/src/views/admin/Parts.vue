@@ -1,10 +1,10 @@
 <template>
-  <div class="base-pricing-page">
+  <div class="parts-page">
     <!-- =================== Page Header =================== -->
     <div class="page-header">
       <div class="page-title-group">
         <h1><DatabaseOutlined class="page-title-icon" />配件管理</h1>
-        <p class="page-subtitle">共 <span class="num">{{ partsTotal }}</span> 个配件 · <span class="num">{{ categories.length }}</span> 个分类</p>
+        <p class="page-subtitle">共 <span class="num">{{ totalPartCount }}</span> 个配件 · <span class="num">{{ categories.length }}</span> 个分类</p>
       </div>
       <div class="header-actions">
         <div class="seg-nav">
@@ -15,6 +15,14 @@
             <UnorderedListOutlined />表格
           </button>
         </div>
+        <a-button size="small" @click="importModalVisible = true">
+          <template #icon><UploadOutlined /></template>
+          导入
+        </a-button>
+        <a-button size="small" @click="exportParts">
+          <template #icon><DownloadOutlined /></template>
+          导出
+        </a-button>
         <a-button type="primary" size="small" @click="openCreatePartModal">
           <template #icon><PlusOutlined /></template>
           新增配件
@@ -22,90 +30,95 @@
       </div>
     </div>
 
-    <!-- =================== Category Chip Nav =================== -->
-    <div class="category-nav-bar glass-light">
-      <div class="cat-chip-scroll">
-        <button :class="['cat-chip', { active: !selectedCategoryId }]" @click="selectCategory(null)">
-          <UnorderedListOutlined class="cat-chip-ico" />
-          <span>全部</span>
-          <span class="cat-chip-count">{{ totalPartCount }}</span>
-        </button>
-        <button
+    <div class="main-layout">
+      <!-- =================== Left Sidebar: 分类导航 =================== -->
+      <aside class="category-sidebar glass">
+        <div class="sidebar-title">分类</div>
+        <div :class="['sidebar-item', { active: !selectedCategoryId && !listAllMode }]" @click="selectCategory(null)">
+          <UnorderedListOutlined class="sidebar-ico" />
+          <span class="sidebar-item-name">全部</span>
+          <span class="sidebar-item-count">{{ totalPartCount }}</span>
+        </div>
+        <div
           v-for="cat in categories"
           :key="cat.id"
-          :class="['cat-chip', { active: selectedCategoryId === cat.id }]"
+          :class="['sidebar-item', { active: selectedCategoryId === cat.id }]"
           @click="selectCategory(cat.id)"
         >
-          <span class="cat-chip-dot"></span>
-          <span>{{ cat.name }}</span>
-          <span class="cat-chip-count">{{ cat.count }}</span>
-        </button>
-      </div>
-      <button class="cat-manage-btn" title="管理分类" @click="categoryManageVisible = true">
-        <SettingOutlined />
-      </button>
-    </div>
-
-    <div class="main-layout">
-      <!-- =================== Left Sidebar: Category Nav =================== -->
-      <aside class="category-sidebar glass">
-        <div class="sidebar-title">筛选</div>
-
-        <div class="filter-group" v-if="brandsList.length">
-          <div class="filter-title">品牌</div>
-          <label class="filter-opt" v-for="b in brandsList" :key="b.brand">
-            <input type="checkbox" :value="b.brand" v-model="selectedBrands" @change="applyFilters">
-            <span class="opt-name">{{ b.brand }}</span>
-            <span class="opt-count">{{ b.count }}</span>
-          </label>
+          <span class="sidebar-dot"></span>
+          <span class="sidebar-item-name">{{ cat.name }}</span>
+          <span class="sidebar-item-count">{{ cat.count }}</span>
         </div>
-
-        <div class="filter-group">
-          <div class="filter-title">价格记录</div>
-          <label class="filter-opt">
-            <input type="radio" value="" v-model="priceFilter" @change="applyFilters">
-            <span class="opt-name">全部</span>
-          </label>
-          <label class="filter-opt">
-            <input type="radio" value="has_price" v-model="priceFilter" @change="applyFilters">
-            <span class="opt-name">有报价</span>
-          </label>
-          <label class="filter-opt">
-            <input type="radio" value="multi" v-model="priceFilter" @change="applyFilters">
-            <span class="opt-name">≥3 条记录</span>
-          </label>
-          <label class="filter-opt">
-            <input type="radio" value="no_price" v-model="priceFilter" @change="applyFilters">
-            <span class="opt-name">暂无报价</span>
-          </label>
+        <div class="sidebar-footer">
+          <button class="sidebar-manage-btn" @click="categoryManageVisible = true">
+            <SettingOutlined /> 管理分类
+          </button>
         </div>
-
-        <template v-if="hasSelectedCategory">
-          <div class="filter-group" v-for="(values, key) in specFacets" :key="key">
-            <div class="filter-title">{{ key }}</div>
-            <div class="chip-row">
-              <span
-                v-for="fv in values"
-                :key="fv.value"
-                :class="['chip', { active: (selectedSpecs[key] || []).includes(fv.value) }]"
-                @click="toggleSpec(key, fv.value)"
-              >{{ fv.value }}<span class="chip-count">{{ fv.count }}</span></span>
-            </div>
-          </div>
-        </template>
-        <div class="filter-hint" v-else>
-          选择具体类别查看精准规格维度
-        </div>
-
-        <button
-          class="clear-filter"
-          v-if="selectedBrands.length || priceFilter || Object.keys(selectedSpecs).length"
-          @click="clearFilters"
-        >清除筛选</button>
       </aside>
 
       <!-- =================== Main Content =================== -->
       <div class="content-area">
+        <!-- ====== 总览仪表盘（选中「全部」且非清单模式） ====== -->
+        <template v-if="!selectedCategoryId && !listAllMode">
+          <div class="stats-row">
+            <div class="stat-card glass-light">
+              <div class="stat-label">配件总数</div>
+              <div class="stat-value">{{ stats.total ?? '—' }}</div>
+              <div class="stat-foot">
+                <span :class="['stat-delta', deltaClass]">相较上周 {{ delta >= 0 ? '+' : '' }}{{ delta }}</span>
+              </div>
+              <VChart v-if="sparkOption" :option="sparkOption" :init-options="{ renderer: 'canvas' }" :autoresize="true" class="stat-spark" />
+            </div>
+            <div class="stat-card glass-light">
+              <div class="stat-label">本周新增</div>
+              <div class="stat-value">{{ stats.this_week_new ?? '—' }}</div>
+              <div class="stat-foot"><span class="stat-sub">最近 7 天新入库</span></div>
+            </div>
+            <div class="stat-card glass-light">
+              <div class="stat-label">有效价格配件</div>
+              <div class="stat-value">{{ stats.valid_price_count ?? '—' }}</div>
+              <div class="stat-foot"><span class="stat-sub">最近两日内有报价</span></div>
+            </div>
+          </div>
+
+          <div class="recent-grid">
+            <div class="recent-panel glass-light">
+              <div class="recent-head"><h4>最近新入库</h4></div>
+              <div v-if="stats.recent_parts && stats.recent_parts.length" class="recent-list">
+                <div v-for="p in stats.recent_parts" :key="p.id" class="recent-row" @click="openPartDetail(p.id)">
+                  <div class="rr-main">
+                    <span class="rr-name">{{ p.name }}</span>
+                    <span class="rr-cat" v-if="p.category_name">{{ p.category_name }}</span>
+                  </div>
+                  <span class="rr-meta">{{ formatDate(p.created_at) }}</span>
+                </div>
+              </div>
+              <div v-else class="recent-empty">暂无新入库配件</div>
+            </div>
+            <div class="recent-panel glass-light">
+              <div class="recent-head"><h4>最近更新价格</h4></div>
+              <div v-if="stats.recent_price_updates && stats.recent_price_updates.length" class="recent-list">
+                <div v-for="p in stats.recent_price_updates" :key="p.id" class="recent-row" @click="openPartDetail(p.id)">
+                  <div class="rr-main">
+                    <span class="rr-name">{{ p.name }}</span>
+                    <span class="rr-cat" v-if="p.category_name">{{ p.category_name }}</span>
+                  </div>
+                  <span class="rr-price" v-if="p.latest_price != null">{{ currencySymbol(p.latest_currency) }} {{ formatPrice(p.latest_price) }}</span>
+                  <span class="rr-meta" v-else>—</span>
+                </div>
+              </div>
+              <div v-else class="recent-empty">暂无价格更新</div>
+            </div>
+          </div>
+
+          <span class="all-list-link" @click="listAllMode = true">浏览全部配件清单 →</span>
+        </template>
+
+        <!-- ====== 列表视图（具体分类 或 全部清单模式） ====== -->
+        <template v-else>
+        <div v-if="listAllMode && !selectedCategoryId" class="list-mode-banner">
+          <button class="back-overview" @click="listAllMode = false">← 返回总览</button>
+        </div>
         <!-- Toolbar -->
         <div class="toolbar glass-light">
           <a-input-search
@@ -125,7 +138,40 @@
             <a-select-option value="price-asc">价格 低→高</a-select-option>
             <a-select-option value="price-desc">价格 高→低</a-select-option>
           </a-select>
+          <a-select
+            v-model:value="selectedBrands"
+            mode="multiple"
+            :options="brandOptions"
+            placeholder="品牌"
+            class="toolbar-brand"
+            allow-clear
+            @change="applyFilters"
+          />
+          <a-radio-group v-model:value="priceFilter" button-style="solid" class="toolbar-price" @change="applyFilters">
+            <a-radio-button value="">全部</a-radio-button>
+            <a-radio-button value="has_price">有报价</a-radio-button>
+            <a-radio-button value="multi">≥3条</a-radio-button>
+            <a-radio-button value="no_price">暂无报价</a-radio-button>
+          </a-radio-group>
           <span class="toolbar-count">共 <b>{{ partsTotal }}</b> 个配件</span>
+        </div>
+
+        <!-- 规格维度（随分类变化，第二行 chips，超过 3 个维度可展开） -->
+        <div v-if="hasSelectedCategory && visibleSpecKeys.length" class="spec-bar glass-light">
+          <span class="spec-bar-label">规格</span>
+          <div class="spec-bar-chips">
+            <template v-for="key in visibleSpecKeys" :key="key">
+              <span
+                v-for="fv in specFacets[key]"
+                :key="key + '_' + fv.value"
+                :class="['spec-chip', { active: (selectedSpecs[key] || []).includes(fv.value) }]"
+                @click="toggleSpec(key, fv.value)"
+              >{{ fv.value }}<span class="spec-chip-count">{{ fv.count }}</span></span>
+            </template>
+          </div>
+          <button v-if="specKeys.length > 3" class="spec-more" @click="specExpanded = !specExpanded">
+            {{ specExpanded ? '收起' : '更多 ▾' }}
+          </button>
         </div>
 
         <!-- Card View -->
@@ -213,6 +259,7 @@
           </a-button>
           <a-button v-else size="small" @click="clearSearch">清除搜索</a-button>
         </div>
+      </template>
       </div>
     </div>
 
@@ -286,7 +333,7 @@
           </div>
           <!-- Chart -->
           <div class="chart-container" v-if="detailPart.price_history && detailPart.price_history.length > 1">
-            <VChart :option="chartOption" :autoresize="true" style="width: 100%; height: 280px;" />
+            <VChart :option="chartOption" :init-options="{ renderer: 'canvas' }" :autoresize="true" style="width: 100%; height: 280px;" />
           </div>
           <!-- List -->
           <div v-if="detailPart.price_history && detailPart.price_history.length" class="price-list">
@@ -400,7 +447,7 @@
                 allow-clear
               />
               <a-input v-model:value="spec.value" placeholder="参数值" style="width: 45%" />
-              <a-button type="text" size="small" danger @click="removeSpec(idx)">✕</a-button>
+              <a-button type="text" size="small" danger @click="removeSpec(Number(idx))">✕</a-button>
             </div>
             <a-button type="dashed" size="small" block @click="addSpec">+ 添加参数</a-button>
           </div>
@@ -421,6 +468,73 @@
             style="width: 100%"
             :token-separators="[',']"
           />
+        </div>
+      </div>
+    </a-modal>
+
+    <!-- =================== 批量导入 Modal =================== -->
+    <a-modal
+      v-model:open="importModalVisible"
+      title="批量导入配件"
+      width="860px"
+      :footer="null"
+      @cancel="resetImport"
+    >
+      <div class="import-modal">
+        <div v-if="!importPreview.length" class="import-step1">
+          <a-upload
+            :before-upload="onImportFileSelect"
+            :max-count="1"
+            accept=".xlsx,.xls"
+            :file-list="[]"
+          >
+            <a-button>
+              <template #icon><InboxOutlined /></template>
+              选择 Excel 文件
+            </a-button>
+          </a-upload>
+          <span v-if="importFile" class="import-filename">{{ importFile.name }}</span>
+
+          <div class="import-actions">
+            <a-button type="link" @click="downloadTemplate">下载导入模板</a-button>
+            <a-button type="primary" :loading="importParsing" :disabled="!importFile" @click="previewImport">
+              解析预览
+            </a-button>
+          </div>
+          <p class="import-tip">先下载模板按格式填写;导入前会展示逐行预览(新增 / 更新 / 冲突),确认后才真正写入。冲突行会自动跳过。</p>
+        </div>
+
+        <div v-else class="import-step2">
+          <div class="import-summary">
+            <a-tag color="green">新增 {{ importSummary.new || 0 }}</a-tag>
+            <a-tag color="blue">更新 {{ importSummary.update || 0 }}</a-tag>
+            <a-tag color="red">冲突 {{ importSummary.conflict || 0 }}</a-tag>
+            <a-tag v-if="importSummary.invalid" color="default">无效 {{ importSummary.invalid }}</a-tag>
+            <span class="import-total">共 {{ importSummary.total }} 行</span>
+          </div>
+          <a-table
+            :data-source="importPreview"
+            :columns="importPreviewColumns"
+            :pagination="{ pageSize: 50 }"
+            size="small"
+            :scroll="{ y: 340 }"
+            row-key="_row_index"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'action'">
+                <a-tag :color="actionColor(record.action)">{{ actionLabel(record.action) }}</a-tag>
+              </template>
+            </template>
+          </a-table>
+          <div class="import-actions">
+            <a-button @click="resetImport">重新选择</a-button>
+            <a-button
+              type="primary"
+              :loading="importCommitting"
+              :disabled="!((importSummary.new || 0) + (importSummary.update || 0))"
+              @click="confirmImport"
+            >确认导入</a-button>
+          </div>
         </div>
       </div>
     </a-modal>
@@ -507,7 +621,8 @@ import { ref, onMounted, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
-  SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined
+  SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined,
+  UploadOutlined, DownloadOutlined
 } from '@ant-design/icons-vue'
 import axios from 'axios'
 import VChart from 'vue-echarts'
@@ -521,9 +636,47 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-use(GridComponent, TooltipComponent, DataZoomComponent, LineChart, CanvasRenderer)
+use([GridComponent, TooltipComponent, DataZoomComponent, LineChart, CanvasRenderer])
 
 const C = useChartTheme().chartColors
+
+// =================== Dashboard 总览 ===================
+const stats = ref<any>({})
+const listAllMode = ref(false)
+const loadStats = async () => {
+  try {
+    const res = await axios.get('/api/admin/kp/stats')
+    stats.value = res.data || {}
+  } catch { /* 静默失败：仪表盘异常不影响列表 */ }
+}
+const delta = computed(() => (stats.value.this_week_new || 0) - (stats.value.last_week_new || 0))
+const deltaClass = computed(() => delta.value > 0 ? 'up' : (delta.value < 0 ? 'down' : 'flat'))
+const sparkOption = computed(() => {
+  const series = stats.value.new_series
+  if (!series || !series.length) return null
+  const colors = C.value
+  return {
+    grid: { left: 0, right: 0, top: 4, bottom: 0 },
+    xAxis: { type: 'category', show: false, boundaryGap: false, data: series.map((s: any) => s.date) },
+    yAxis: { type: 'value', show: false, scale: true },
+    tooltip: {
+      trigger: 'axis',
+      backgroundColor: colors.tooltipBg,
+      borderColor: colors.tooltipBorder,
+      textStyle: { color: colors.tooltipText },
+      formatter: (p: any) => `${p[0].axisValue}<br/>新增 ${p[0].value} 件`,
+    },
+    series: [{
+      type: 'line',
+      data: series.map((s: any) => s.count),
+      smooth: true,
+      symbol: 'none',
+      lineStyle: { width: 2, color: colors.accent },
+      areaStyle: { color: colors.accentFill },
+    }],
+  }
+})
+const formatDate = (iso: string | null) => (iso ? String(iso).slice(0, 10) : '—')
 
 // =================== View Mode ===================
 const viewMode = ref<'card' | 'table'>('card')
@@ -551,6 +704,7 @@ const loadCategories = async () => {
 
 const selectCategory = (catId: number | null) => {
   selectedCategoryId.value = catId
+  listAllMode.value = false
   pagination.value.current = 1
   // 切换分类时重置筛选并重新加载品牌 / 规格维度（随分类变化）
   selectedBrands.value = []
@@ -595,6 +749,12 @@ const filterSpecKey = (input: string, option: any) => {
   return v.includes((input || '').toLowerCase())
 }
 
+// 品牌多选下拉 options；规格维度超过 3 个时折叠
+const brandOptions = computed(() => brandsList.value.map(b => ({ label: `${b.brand} (${b.count})`, value: b.brand })))
+const specExpanded = ref(false)
+const specKeys = computed(() => Object.keys(specFacets.value))
+const visibleSpecKeys = computed(() => specExpanded.value ? specKeys.value : specKeys.value.slice(0, 3))
+
 const applyFilters = () => {
   pagination.value.current = 1
   loadParts()
@@ -612,13 +772,6 @@ const toggleSpec = (key: string, value: string) => {
     delete next[key]
     selectedSpecs.value = next
   }
-  applyFilters()
-}
-
-const clearFilters = () => {
-  selectedBrands.value = []
-  priceFilter.value = ''
-  selectedSpecs.value = {}
   applyFilters()
 }
 
@@ -706,7 +859,7 @@ const openPartDetail = async (partId: number) => {
 }
 
 const chartOption = computed(() => {
-  if (!detailPart.value?.price_history || detailPart.value.price_history.length < 2) return null
+  if (!detailPart.value?.price_history || detailPart.value.price_history.length < 2) return undefined
   const sorted = [...detailPart.value.price_history].reverse()
   const colors = C.value
   return {
@@ -792,6 +945,112 @@ const removeSpec = (idx: number) => {
   partForm.value.specs.splice(idx, 1)
 }
 
+// =================== 批量导入 / 导出 ===================
+const importModalVisible = ref(false)
+const importFile = ref<File | null>(null)
+const importPreview = ref<any[]>([])
+const importSummary = ref<any>({})
+const importParsing = ref(false)
+const importCommitting = ref(false)
+
+const importPreviewColumns = [
+  { title: '行', dataIndex: '_row_index', width: 60 },
+  { title: '操作', key: 'action', width: 90 },
+  { title: '料号', dataIndex: 'oem_sku', width: 140 },
+  { title: '名称', dataIndex: 'name', ellipsis: true },
+  { title: '分类', dataIndex: 'category_name', width: 120 },
+  { title: '消息', dataIndex: 'message', ellipsis: true },
+]
+
+const actionLabel = (a: string) => ({ new: '新增', update: '更新', conflict: '冲突', invalid: '无效' } as any)[a] || a
+const actionColor = (a: string) => ({ new: 'green', update: 'blue', conflict: 'red', invalid: 'default' } as any)[a] || 'default'
+
+const triggerDownload = (blob: Blob, filename: string) => {
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+const onImportFileSelect = (file: File) => {
+  importFile.value = file
+  importPreview.value = []
+  importSummary.value = {}
+  return false
+}
+
+const resetImport = () => {
+  importFile.value = null
+  importPreview.value = []
+  importSummary.value = {}
+}
+
+const downloadTemplate = async () => {
+  try {
+    const res = await axios.get('/api/admin/kp/parts/import-template', { responseType: 'blob' })
+    triggerDownload(res.data, 'kp_parts_import_template.xlsx')
+  } catch (e: any) {
+    message.error('模板下载失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+const exportParts = async () => {
+  try {
+    const params = selectedCategoryId.value ? { category_id: selectedCategoryId.value } : {}
+    const res = await axios.get('/api/admin/kp/parts/export', { responseType: 'blob', params })
+    triggerDownload(res.data, 'kp_parts.xlsx')
+    message.success('已导出')
+  } catch (e: any) {
+    message.error('导出失败: ' + (e.response?.data?.detail || e.message))
+  }
+}
+
+const previewImport = async () => {
+  if (!importFile.value) {
+    message.warning('请先选择文件')
+    return
+  }
+  importParsing.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', importFile.value)
+    const res = await axios.post('/api/admin/kp/parts/import?dry_run=true', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    importPreview.value = res.data.preview || []
+    importSummary.value = res.data.summary || {}
+    if (!importPreview.value.length) message.info('未解析到任何数据行')
+  } catch (e: any) {
+    message.error('解析失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    importParsing.value = false
+  }
+}
+
+const confirmImport = async () => {
+  importCommitting.value = true
+  try {
+    const fd = new FormData()
+    fd.append('file', importFile.value!)
+    const res = await axios.post('/api/admin/kp/parts/import?dry_run=false', fd, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    const s = res.data.summary || {}
+    message.success(`导入完成:新增 ${s.created} · 更新 ${s.updated} · 跳过 ${s.skipped}${s.failed ? ` · 失败 ${s.failed}` : ''}`)
+    importModalVisible.value = false
+    resetImport()
+    loadParts()
+    loadCategories()
+    loadStats()
+  } catch (e: any) {
+    message.error('导入失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    importCommitting.value = false
+  }
+}
+
 const savePart = async () => {
   if (!partForm.value.name) {
     message.error('配件名称不能为空')
@@ -817,6 +1076,7 @@ const savePart = async () => {
     partModalVisible.value = false
     loadParts()
     loadCategories()
+    loadStats()
     // 如果详情打开，刷新详情
     if (detailDrawerVisible.value && partForm.value.id) {
       openPartDetail(partForm.value.id)
@@ -835,6 +1095,7 @@ const deletePart = async (partId: number) => {
     detailDrawerVisible.value = false
     loadParts()
     loadCategories()
+    loadStats()
   } catch (e: any) {
     message.error('删除失败: ' + (e.response?.data?.detail || e.message))
   }
@@ -872,6 +1133,7 @@ const savePrice = async () => {
     priceModalVisible.value = false
     openPartDetail(detailPart.value.id)
     loadParts()
+    loadStats()
   } catch (e: any) {
     message.error((priceForm.value.id ? '更新' : '添加') + '失败: ' + (e.response?.data?.detail || e.message))
   } finally {
@@ -885,6 +1147,7 @@ const deletePrice = async (priceId: number) => {
     message.success('已删除')
     openPartDetail(detailPart.value.id)
     loadParts()
+    loadStats()
   } catch (e: any) {
     message.error('删除失败: ' + (e.response?.data?.detail || e.message))
   }
@@ -983,20 +1246,32 @@ onMounted(() => {
   loadBrands()
   loadSpecFacets()
   loadParts()
+  loadStats()
 })
 </script>
 
 <style scoped>
+/* ============ 批量导入 Modal ============ */
+.import-modal .import-step1 {
+  display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
+}
+.import-modal .import-filename { color: #888; font-size: 13px; }
+.import-modal .import-actions { display: flex; gap: 8px; align-items: center; }
+.import-modal .import-tip { color: #999; font-size: 12px; margin: 4px 0 0; line-height: 1.6; }
+.import-modal .import-summary { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+.import-modal .import-total { color: #888; font-size: 12px; margin-left: 4px; }
+.import-modal .import-step2 .import-actions { justify-content: flex-end; margin-top: 12px; }
+
 /* ============ 页面骨架 ============ */
-.base-pricing-page {
+.parts-page {
   position: relative;
   padding: 24px;
-  background: var(--cpq-bg-primary);
+  background: var(--cpq-bg-gradient);
   min-height: 100vh;
   color: var(--cpq-text-primary);
 }
 /* 顶部签名光条 */
-.base-pricing-page::before {
+.parts-page::before {
   content: '';
   position: fixed;
   top: 0; left: 0; right: 0;
@@ -1188,6 +1463,51 @@ onMounted(() => {
 .toolbar-count b { color: var(--cpq-accent-primary); font-weight: 600; font-variant-numeric: tabular-nums; }
 
 .card-pagination { margin-top: 18px; display: flex; justify-content: flex-end; }
+
+/* ============ 仪表盘 ============ */
+.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; }
+.stat-card { padding: 18px 20px; border-radius: 14px; display: flex; flex-direction: column; gap: 6px; }
+.stat-label { font-size: 12px; color: var(--cpq-text-secondary); letter-spacing: 0.2px; }
+.stat-value { font-size: 30px; font-weight: 700; color: var(--cpq-text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat-foot { font-size: 12px; min-height: 16px; }
+.stat-delta.up { color: var(--cpq-accent-success, #3fbb6c); font-weight: 600; }
+.stat-delta.down { color: var(--cpq-accent-danger); font-weight: 600; }
+.stat-delta.flat { color: var(--cpq-text-muted); }
+.stat-sub { color: var(--cpq-text-muted); }
+.stat-spark { width: 100%; height: 44px; margin-top: 2px; }
+.recent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; animation-delay: 0.06s; }
+.recent-panel { padding: 14px 18px; border-radius: 14px; }
+.recent-head h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
+.recent-list { display: flex; flex-direction: column; }
+.recent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; transition: background var(--cpq-transition-fast); }
+.recent-row + .recent-row { border-top: 1px solid var(--cpq-border-primary); }
+.recent-row:hover { background: var(--cpq-overlay-a6); }
+.rr-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.rr-name { font-size: 13px; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rr-cat { font-size: 11px; color: var(--cpq-accent-primary); }
+.rr-meta { font-size: 11px; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rr-price { font-size: 13px; color: var(--cpq-accent-primary); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.recent-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 14px 6px; }
+.all-list-link { margin-top: 16px; font-size: 13px; color: var(--cpq-accent-primary); cursor: pointer; display: inline-block; }
+.all-list-link:hover { text-decoration: underline; }
+.list-mode-banner { margin-bottom: 12px; }
+.back-overview { background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); color: var(--cpq-text-secondary); font-size: 12px; padding: 5px 12px; border-radius: 8px; cursor: pointer; font-family: inherit; transition: all var(--cpq-transition-fast); }
+.back-overview:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
+
+/* ============ 工具栏筛选 ============ */
+.toolbar-brand { width: 200px; }
+.toolbar-price { flex-shrink: 0; }
+.toolbar-price :deep(.ant-radio-button-wrapper) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); color: var(--cpq-text-secondary); }
+.toolbar-price :deep(.ant-radio-button-wrapper-checked) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
+.spec-bar { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; margin-bottom: 16px; }
+.spec-bar-label { font-size: 12px; color: var(--cpq-text-muted); flex-shrink: 0; padding-top: 5px; }
+.spec-bar-chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
+.spec-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); transition: all var(--cpq-transition-fast); user-select: none; }
+.spec-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
+.spec-chip.active { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-color: var(--cpq-overlay-a20); }
+.spec-chip-count { font-size: 10px; opacity: 0.7; margin-left: 3px; }
+.spec-more { flex-shrink: 0; margin-top: 1px; background: transparent; border: 1px solid var(--cpq-border-primary); border-radius: 8px; color: var(--cpq-text-secondary); font-size: 12px; padding: 3px 10px; cursor: pointer; font-family: inherit; transition: all var(--cpq-transition-fast); }
+.spec-more:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
 
 /* ============ 卡片网格 ============ */
 .card-grid {

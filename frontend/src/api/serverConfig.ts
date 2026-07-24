@@ -47,6 +47,8 @@ export const catalogApi = {
 export const baseConfigApi = {
   list: (params?: { series?: string; form?: string; bays?: number }) =>
     RESP<{ configs: BaseConfig[]; total: number }>(axios.get('/api/base-configs', { params })),
+  listSeries: () =>
+    RESP<{ series: string[]; items: { value: string; label: string }[] }>(axios.get('/api/base-configs/series')),
   get: (id: number) => RESP<BaseConfig & { parts: BaseConfigPart[] }>(axios.get(`/api/base-configs/${id}`)),
   create: (data: Partial<BaseConfig>) => RESP<{ id: number }>(axios.post('/api/base-configs', data)),
   update: (id: number, data: Partial<BaseConfig>) => RESP<{ ok: boolean }>(axios.put(`/api/base-configs/${id}`, data)),
@@ -138,9 +140,35 @@ export interface PartMaster {
   sort_order?: number
 }
 export interface ServerType { id: number; name: string; description?: string; sort_order?: number }
+export interface ServerModelBaseConfig {
+  id?: number
+  form?: string
+  bays?: number
+  series?: string
+  name?: string
+}
+/** 机型的产品化包装内容（结构化分块，JSONB 透传存 server_models.product_content）。 */
+export interface ModelProductContent {
+  overview?: string                              // 产品概述（一段话）
+  features?: { icon?: string; text: string }[]   // 核心特性（可增删列表）
+  specs?: { key: string; value: string }[]       // 技术参数（key-value，保序）
+  scenarios?: string[]                          // 应用场景（标签数组，跨机型联想）
+}
 export interface ServerModel {
-  id: number; name: string; server_type_id?: number; form?: string
-  bays?: number; use?: string; base_config_id?: number; sort_order?: number
+  id: number
+  name: string
+  server_type_id?: number
+  use?: string
+  base_config_id?: number
+  sort_order?: number
+  // 产品级字段（阶段一 Step 1）
+  description?: string
+  image_url?: string
+  lifecycle_status?: 'new' | 'active' | 'eol' | 'discontinued'
+  // 继承自基准配置的技术参数（阶段一 Step 2：form/bays 不再存于机型表）
+  base_config?: ServerModelBaseConfig | null
+  // 产品化包装内容（结构化分块，可空）
+  product_content?: ModelProductContent | null
 }
 export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string

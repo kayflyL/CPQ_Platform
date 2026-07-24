@@ -110,11 +110,8 @@
           <a-select-option value="archived">已归档</a-select-option>
         </a-select>
         <a-select v-model:value="filters.platform" size="small" mode="multiple" placeholder="平台类型" :maxTagCount="1" class="dark-select filter-fixed" @change="onFilterChange">
-          <a-select-option value="Polaris">Polaris</a-select-option>
-          <a-select-option value="Orion">Orion</a-select-option>
-          <a-select-option value="Intel">Intel</a-select-option>
+          <a-select-option v-for="s in platformOptions" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
           <a-select-option value="其他">其他</a-select-option>
-          <a-select-option value="工作站">工作站</a-select-option>
         </a-select>
         <a-select v-model:value="filters.chassis" size="small" mode="multiple" placeholder="机箱形态" :maxTagCount="1" class="dark-select filter-fixed" @change="onFilterChange">
           <a-select-option value="2U">2U</a-select-option>
@@ -124,11 +121,11 @@
           <a-select-option value="8U">8U</a-select-option>
           <a-select-option value="工作站">工作站</a-select-option>
         </a-select>
-        <a-select v-model:value="sortOrder" size="small" class="dark-select filter-fixed" @change="onFilterChange">
-          <a-select-option value="desc">更新时间 新→旧</a-select-option>
-          <a-select-option value="asc">更新时间 旧→新</a-select-option>
+        <a-select v-model:value="sortBy" size="small" class="dark-select filter-fixed" @change="onFilterChange">
+          <a-select-option value="created_at">创建时间 新→旧</a-select-option>
+          <a-select-option value="updated_at">更新时间 新→旧</a-select-option>
         </a-select>
-        <input v-model="filters.search" placeholder="搜索客户 / 销售人员 / 商机名..." class="dark-input filter-input" @input="debounceFilter" />
+        <input v-model="filters.search" placeholder="搜索客户 / 销售人员 / 备注..." class="dark-input filter-input" @input="debounceFilter" />
         <button class="action-btn" @click="resetFilters">重置</button>
       </div>
 
@@ -162,15 +159,14 @@
             <template v-if="column.dataIndex === 'info'">
               <div class="opp-cell">
                 <div class="opp-cell-main">
-                  <a class="opp-name" @click="goToDetail(record.opportunity_id)">{{ record.opportunity_name || '未命名' }}</a>
+                  <a class="opp-name" @click="goToDetail(record.opportunity_id)">{{ record.customer_name || '未命名客户' }}</a>
                   <span class="cpq-led" :class="ledClass(record.status)">{{ statusText(record.status) }}</span>
                 </div>
                 <div class="opp-cell-meta">
-                  <span class="meta" v-if="record.customer_name"><i>客户</i>{{ record.customer_name }}</span>
                   <span class="meta" v-if="record.sales_person"><i>销售</i>{{ record.sales_person }}</span>
                   <span class="meta" v-if="record.platform_type"><i>平台</i>{{ record.platform_type }}</span>
                   <span class="meta" v-if="record.chassis_form"><i>机箱</i>{{ record.chassis_form }}</span>
-                  <span class="meta" v-if="record.purchase_qty"><i>采购</i>{{ record.purchase_qty }}</span>
+                  <span class="meta" v-if="record.purchase_qty"><i>数量</i>{{ record.purchase_qty }}</span>
                   <span class="meta"><i>配置</i>{{ record.config_count ?? 0 }}</span>
                   <span class="meta meta-date"><i>创建</i>{{ formatDate(record.created_at) }}</span>
                 </div>
@@ -186,8 +182,8 @@
     <!-- Create Modal -->
     <a-modal v-model:open="showCreateModal" title="新建商机" @ok="handleCreate" :confirmLoading="creating">
       <a-form layout="vertical">
-        <a-form-item label="商机名称" required><a-input v-model:value="newProject.opportunity_name" placeholder="请输入商机名称" /></a-form-item>
-        <a-form-item label="客户名称"><a-input v-model:value="newProject.customer_name" placeholder="客户名称（可选）" /></a-form-item>
+        <a-form-item label="客户名称" required><a-input v-model:value="newProject.customer_name" placeholder="请输入客户名称" /></a-form-item>
+        <a-form-item label="销售人员"><a-input v-model:value="newProject.sales_person" placeholder="销售人员（可选）" /></a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -205,12 +201,16 @@ import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from
 import axios from 'axios'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
+import { PLAT_COLOR } from '@/constants/platform'
 import dayjs from 'dayjs'
+import { useSeries } from '@/composables/useSeries'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
 
 const router = useRouter()
 const { chartColors } = useChartTheme()
+// 全平台系列权威源（system_config.server_series）：筛选下拉读这里，不再硬编码 Orion/Polaris
+const { items: platformOptions, ensureSeries } = useSeries()
 
 const periods = [
   { label: '本周', value: 'week' },
@@ -332,7 +332,7 @@ const kpiItems = computed(() => {
 
 // Filters / drill / batch select（保留原逻辑）
 const filters = ref({ status: 'all', platform: [] as string[], chassis: [] as string[], search: '' })
-const sortOrder = ref('desc')
+const sortBy = ref('created_at')
 let filterTimer: ReturnType<typeof setTimeout> | null = null
 const drill = ref({ active: false, platform: '', chassis: '', label: '' })
 const listCollapsed = ref(false)
@@ -365,12 +365,8 @@ function drillOn(type: string, name: string) {
   loadTable()
 }
 function drillOff() { drill.value = { active: false, platform: '', chassis: '', label: '' }; loadTable() }
-function pct(count: number, items: any[]) {
-  const total = items.reduce((s, i) => s + i.count, 0)
-  return total > 0 ? Math.round((count / total) * 100) : 0
-}
 
-const PLAT_COLOR: Record<string, string> = { Polaris: '#FF3B5C', Orion: '#0EA5E9', Intel: '#8A94A8', 其他: '#6B7280', 工作站: '#A855F7', INTEL: '#8A94A8', 'INTEL&Orion': '#8A94A8', 兆芯: '#3B82F6', 未分类: '#6B7280' }
+// PLAT_COLOR 移至 @/constants/platform（系列枚举统一改造）
 const PIE_COLORS = ['#1677FF', '#36CFCF', '#5B8FF9', '#722ED1', '#a855f7', '#FF3B5C', '#6B7280']
 
 // 01 商机趋势：总量渐变面积 + 各平台分线
@@ -378,7 +374,7 @@ const chart1Opt = computed(() => {
   const c = (summary.value.charts as any)?.chart1
   if (!c?.total_series) return {}
   const labels = c.total_series.map((d: any) => (d.date.length === 7 ? d.date : d.date.slice(5)))
-  const platDs = Object.entries(c.platform_series || {}).map(([name, vals]: [string, any[]]) => ({
+  const platDs = (Object.entries(c.platform_series || {}) as [string, any[]][]).map(([name, vals]) => ({
     name, type: 'line', smooth: true, symbol: 'circle', symbolSize: 4, showSymbol: false,
     lineStyle: { width: 2, color: PLAT_COLOR[name] || '#6B7280' },
     itemStyle: { color: PLAT_COLOR[name] || '#6B7280' },
@@ -406,7 +402,7 @@ const chart2Opt = computed(() => {
   const entries = Object.entries(c)
   if (entries.length === 0) return {}
   const labels = (c[entries[0][0]] as any[]).map((d: any) => (d.date.length === 7 ? d.date : d.date.slice(5)))
-  const ds = entries.map(([name, vals]: [string, any[]]) => {
+  const ds = (entries as [string, any[]][]).map(([name, vals]) => {
     const col = PLAT_COLOR[name] || '#6B7280'
     return {
       name, type: 'line', smooth: true, symbol: 'circle', symbolSize: 4, showSymbol: false,
@@ -521,8 +517,8 @@ async function loadTable() {
     } else if (Array.isArray(filters.value.chassis) && filters.value.chassis.length > 0) {
       params.chassis = filters.value.chassis.join(',')
     }
-    params.sort_by = 'updated_at'
-    params.sort_order = sortOrder.value
+    params.sort_by = sortBy.value
+    params.sort_order = 'desc'
     const res = await axios.get('/api/opportunities/list', { params })
     tableData.value = res.data.items || []
     tableTotal.value = res.data.total || 0
@@ -534,15 +530,18 @@ async function loadTable() {
 // Create modal（保留）
 const showCreateModal = ref(false)
 const creating = ref(false)
-const newProject = ref({ opportunity_name: '', customer_name: '' })
+const newProject = ref({ customer_name: '', sales_person: '' })
 async function handleCreate() {
-  if (!newProject.value.opportunity_name.trim()) return
+  if (!newProject.value.customer_name.trim()) {
+    message.warning('请输入客户名称')
+    return
+  }
   creating.value = true
   try {
     await axios.post('/api/opportunities/', newProject.value)
     message.success('创建成功')
     showCreateModal.value = false
-    newProject.value = { opportunity_name: '', customer_name: '' }
+    newProject.value = { customer_name: '', sales_person: '' }
     reloadAll()
   } finally { creating.value = false }
 }
@@ -568,6 +567,7 @@ function setPeriod(p: string) { customRange.value = null; period.value = p }
 onMounted(() => {
   tick()
   clockTimer = setInterval(tick, 1000)
+  ensureSeries()
   reloadAll()
 })
 onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
@@ -627,8 +627,8 @@ watch([() => period.value, () => customRange.value], () => reloadAll())
 /* 列表 */
 .cockpit-body { display: flex; gap: 14px; align-items: stretch; }
 .main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.list-panel { position: relative; width: 380px; flex-shrink: 0; overflow: hidden; transition: width var(--cpq-dur-2) var(--cpq-ease-smooth); }
-.list-panel.collapsed { width: 48px; }
+.list-panel { position: relative; flex: 0 0 38%; min-width: 420px; max-width: 560px; overflow: hidden; transition: flex-basis var(--cpq-dur-2) var(--cpq-ease-smooth), width var(--cpq-dur-2) var(--cpq-ease-smooth); }
+.list-panel.collapsed { flex: 0 0 48px; min-width: 48px; max-width: 48px; }
 .list-toggle { position: absolute; top: 0; right: 0; z-index: 2; padding: 5px 12px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .list-toggle:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .list-panel.collapsed .list-toggle { left: 0; right: 0; text-align: center; }

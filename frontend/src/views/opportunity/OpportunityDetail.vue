@@ -6,7 +6,7 @@
         <button class="back-btn" @click="router.push('/opportunities')">
           <ArrowLeftOutlined />
         </button>
-        <h1>{{ opportunity?.opportunity_name || '加载中...' }}</h1>
+        <h1>{{ opportunity ? (opportunity.customer_name || '未命名客户') : '加载中...' }}</h1>
         <span v-if="opportunity" class="status-indicator">
           <span class="status-dot" :class="`status-${opportunity.status}`"></span>
           <span class="status-label">{{ getStatusText(opportunity.status) }}</span>
@@ -75,12 +75,15 @@
               @pressEnter="saveField(field.key)"
               :min="0"
             />
-            <a-input
+            <a-auto-complete
               v-else
               v-model:value="editValue"
+              :options="getFilteredOptions(field.key)"
               size="small"
               style="width: 220px"
               @pressEnter="saveField(field.key)"
+              @focus="loadFieldHistory(field.key)"
+              @search="(val: string) => filterLocal(field.key, val)"
             />
             <button class="inline-btn confirm" @click="saveField(field.key)">
               <CheckOutlined />
@@ -103,6 +106,31 @@
       </div>
     </div>
 
+    <!-- 双栏:左侧证据链(需求/存档/活动) · 右侧报价单 -->
+    <div v-if="opportunity" class="detail-grid">
+      <div class="detail-left">
+    <!-- 客户需求 -->
+    <div v-if="opportunity" class="requirement-card glass">
+      <div class="card-head">
+        <h3>客户需求</h3>
+        <span class="card-hint">贴入需求原文(表格或文字均可),作为配置参考,不约束</span>
+      </div>
+      <a-textarea
+        v-model:value="requirementText"
+        :auto-size="{ minRows: 3, maxRows: 12 }"
+        placeholder="客户原始需求、FAE 邮件要点、关键约束… 可直接贴表格或文字"
+        @blur="saveRequirement"
+      />
+    </div>
+
+    <!-- 存档区 -->
+    <ArchiveSection v-if="opportunity" :opportunity-id="opportunityId" :attachments="feedAttachments" />
+
+    <!-- 活动流 -->
+    <ActivityStream v-if="opportunity" :opportunity-id="opportunityId" :messages="feedMessages" />
+      </div>
+
+      <div class="detail-right">
     <!-- 报价单区域 -->
     <div class="quotation-section">
       <div class="section-header">
@@ -213,6 +241,8 @@
         </div>
       </div>
     </div>
+      </div><!-- /detail-right -->
+    </div><!-- /detail-grid -->
 
     <!-- 回收站抽屉 -->
     <a-drawer
@@ -329,8 +359,8 @@
       </a-form>
     </a-modal>
 
-    <!-- 右侧抽屉：商机文件 + 评论 -->
-    <OpportunitySidebar :opportunity-id="opportunityId" :show-sidebar="showSidebar" />
+    <!-- 右侧抽屉：商机协作流（消息 + 文件 + 在线状态） -->
+    <OpportunitySidebar :opportunity-id="opportunityId" v-model:show-sidebar="showSidebar" />
 
     <!-- 上传报价单 Modal -->
     <a-modal
@@ -360,7 +390,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import {
@@ -373,11 +403,18 @@ import { uploadQuotationToProject } from '@/api/quote'
 import { projectApi, quotationApi } from '@/api'
 import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
+import ArchiveSection from '@/components/opportunity/ArchiveSection.vue'
+import ActivityStream from '@/components/opportunity/ActivityStream.vue'
+import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 
 const route = useRoute()
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
+const opportunityIdRef = computed(() => opportunityId)
+const feed = useFeedSocket(opportunityIdRef)
+const { attachments: feedAttachments, messages: feedMessages } = feed
+const requirementText = ref('')
 
 const opportunity = ref<Opportunity | null>(null)
 const quotations = ref<Quotation[]>([])
@@ -403,6 +440,9 @@ const renameTargetId = ref<string | null>(null)
 // 行内编辑状态
 const editingField = ref<string | null>(null)
 const editValue = ref('')
+
+// 字段历史值（用于自动完成）
+const fieldHistory = ref<Record<string, string[]>>({})
 
 // 从 API 加载字段定义
 const infoFields = ref<Array<{ key: string; label: string; editable: boolean; type?: string }>>([])
@@ -551,6 +591,7 @@ const loadProject = async () => {
       quotation_count: quotationCount,
       config_count: configCount,
     }
+    requirementText.value = (meta as any).customer_requirement_text || ''
     quotations.value = quotationsData
   } catch (err: any) {
     message.error('加载商机详情失败')
@@ -571,9 +612,39 @@ const cancelEdit = () => {
   editValue.value = ''
 }
 
+// 加载字段历史值（用于自动完成）
+const loadFieldHistory = async (fieldKey: string) => {
+  if (fieldHistory.value[fieldKey]) return // 已加载
+  try {
+    const response = await fetch(`/api/opportunities/field-history/${fieldKey}`)
+    const result = await response.json()
+    fieldHistory.value[fieldKey] = result.values || []
+  } catch (err) {
+    console.error('加载字段历史失败:', err)
+    fieldHistory.value[fieldKey] = []
+  }
+}
+
+// 本地过滤（用户输入时实时筛选）
+const filterLocal = (_fieldKey: string, _searchValue: string) => {
+  // 触发响应式更新，重新过滤选项（过滤逻辑在 getFilteredOptions 中）
+  const current = fieldHistory.value
+  fieldHistory.value = { ...current }
+}
+
+// 获取过滤后的选项（用于 a-auto-complete）
+const getFilteredOptions = (fieldKey: string) => {
+  const history = fieldHistory.value[fieldKey] || []
+  const keyword = editValue.value?.toLowerCase() || ''
+  const filtered = keyword
+    ? history.filter(v => v.toLowerCase().includes(keyword))
+    : history
+  return filtered.map(v => ({ value: v, label: v }))
+}
+
 const saveField = async (field: string) => {
   const fieldDef = infoFields.value.find(f => f.key === field)
-  let saveValue = editValue.value
+  let saveValue: string | number = editValue.value
   if ((fieldDef as any)?.type === 'number') {
     saveValue = editValue.value != null ? Number(editValue.value) : 0
   } else if (!editValue.value.trim()) {
@@ -589,6 +660,21 @@ const saveField = async (field: string) => {
     cancelEdit()
   } catch (err: any) {
     message.error('更新失败: ' + (err.message || err))
+  }
+}
+
+// 保存客户需求原文(blur 触发,存 extra_fields)
+const saveRequirement = async () => {
+  const current = (opportunity.value as any)?.customer_requirement_text || ''
+  if (requirementText.value === current) return
+  try {
+    await projectApi.update(opportunityId, { customer_requirement_text: requirementText.value })
+    if (opportunity.value) {
+      (opportunity.value as any).customer_requirement_text = requirementText.value
+    }
+    message.success('客户需求已保存')
+  } catch (err: any) {
+    message.error('保存失败: ' + (err.message || err))
   }
 }
 
@@ -645,7 +731,7 @@ const viewQuotation = (quotation: Quotation) => {
 const loadDeletedQuotations = async () => {
   try {
     const response = await quotationApi.list(opportunityId, { include_deleted: true })
-    deletedQuotations.value = response.filter(q => q.status === 'deleted')
+    deletedQuotations.value = response.filter((q: Quotation) => q.status === 'deleted')
   } catch (error) {
     console.error('加载已删除报价单失败:', error)
   }
@@ -763,7 +849,6 @@ const loadInfoFields = async () => {
     console.error('加载字段定义失败:', err)
     // 使用默认字段作为 fallback
     infoFields.value = [
-      { key: 'opportunity_name', label: '商机名称', editable: true },
       { key: 'customer_name', label: '客户名称', editable: true },
       { key: 'purchase_qty', label: '采购数量', editable: true, type: 'number' },
       { key: 'sales_person', label: '业务/销售', editable: true },
@@ -776,16 +861,41 @@ const loadInfoFields = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadInfoFields()
-  loadProject()
   loadDeletedQuotations()
+  await loadProject()
+  feed.load().then(() => feed.connect()).catch(() => {})
 })
+
+onBeforeUnmount(() => feed.disconnect())
 </script>
 
 <style scoped>
 .opportunity-detail-page {
   padding: 0;
+}
+
+/* ── 双栏布局:左证据链 / 右报价单 ── */
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(380px, 1.4fr) 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.detail-left,
+.detail-right {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.detail-left > :last-child {
+  margin-bottom: 0;
+}
+@media (max-width: 1100px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ── Page Header ── */
@@ -873,6 +983,27 @@ onMounted(() => {
   overflow: hidden;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
+}
+
+.requirement-card {
+  padding: 16px 20px;
+  margin-bottom: 24px;
+}
+.requirement-card .card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.requirement-card .card-head h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.requirement-card .card-hint {
+  font-size: 12px;
+  color: var(--cpq-text-muted);
 }
 
 .info-status-bar {

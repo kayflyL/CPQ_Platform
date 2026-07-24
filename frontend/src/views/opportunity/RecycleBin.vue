@@ -99,7 +99,7 @@ const rowSelection = computed(() => ({
 }))
 
 const projectColumns = [
-  { title: '商机名称', dataIndex: 'opportunity_name', width: 180 },
+  { title: '客户名称', dataIndex: 'customer_name', width: 180 },
   { title: '平台', dataIndex: 'platform_type', width: 80 },
   { title: '机箱', dataIndex: 'chassis_form', width: 70 },
   { title: '采购数量', dataIndex: 'purchase_qty', width: 70 },
