@@ -25,8 +25,8 @@ pnpm-debug.log*
 *.swo
 *~
 
-# Obsidian (editor state; keep other .obsidian config tracked)
-.obsidian/workspace.json
+# Obsidian (editor state — do not track)
+.obsidian/
 
 # Environment
 .env
@@ -64,3 +64,6 @@ graphify-out/
 # Stray Windows redirect targets
 nul
 **/nul
+
+# Local trash/quarantine staging (pre-delete holding area)
+垃圾箱/
