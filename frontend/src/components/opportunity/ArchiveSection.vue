@@ -28,7 +28,7 @@
           <div v-else class="file-list">
             <div v-for="a in items(col.category)" :key="a.attachment_id" class="archive-file">
               <component :is="fileIcon(a.original_filename)" class="file-ic" />
-              <div class="file-main" @click="download(a)">
+              <div class="file-main" @click="$emit('preview', a)">
                 <div class="file-name" :title="a.original_filename">{{ a.original_filename }}</div>
                 <div class="file-meta">{{ formatSize(a.file_size) }} · {{ a.uploader_name || '匿名' }} · {{ formatTime(a.created_at) }}</div>
               </div>
@@ -64,6 +64,10 @@ import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
 
 const props = defineProps<{ opportunityId: string; attachments: FeedAttachment[] }>()
+const emit = defineEmits<{
+  (e: 'preview', a: FeedAttachment): void
+  (e: 'delete', a: FeedAttachment): void
+}>()
 
 const columns = [
   { category: 'requirement', title: '需求文档', icon: '📋' },
@@ -106,12 +110,9 @@ function onDrop(category: string, e: DragEvent) {
 }
 
 async function remove(a: FeedAttachment) {
-  try {
-    await feedApi.attachments.remove(a.attachment_id)
-    message.success('已删除')
-  } catch {
-    message.error('删除失败')
-  }
+  // 通过 emit 让父组件调用 useFeedSocket.deleteAttachment
+  // 这样既有乐观更新，又有 WebSocket 广播的双重保障
+  emit('delete', a)
 }
 async function changeCategory(a: FeedAttachment, category: string) {
   if (category === a.category) return
@@ -183,7 +184,7 @@ function formatTime(iso: string) {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 160px;
+  min-height: 240px;
   transition: all var(--cpq-transition-fast);
 }
 .archive-col.dragging {
@@ -231,7 +232,12 @@ function formatTime(iso: string) {
 .file-main { flex: 1; min-width: 0; cursor: pointer; }
 .file-name {
   font-size: 12px; font-weight: 500; color: var(--cpq-text-primary);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+  line-height: 1.35;
 }
 .file-meta { font-size: 10px; color: var(--cpq-text-muted); margin-top: 1px; }
 .file-act {

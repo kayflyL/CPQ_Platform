@@ -8,8 +8,14 @@
         </button>
         <h1>{{ opportunity ? (opportunity.customer_name || '未命名客户') : '加载中...' }}</h1>
         <span v-if="opportunity" class="status-indicator">
-          <span class="status-dot" :class="`status-${opportunity.status}`"></span>
-          <span class="status-label">{{ getStatusText(opportunity.status) }}</span>
+          <span class="status-dot" :class="`status-${opportunity.result || 'pending'}`"></span>
+          <a-select
+            :value="opportunity.result || 'pending'"
+            size="small"
+            class="header-result-select"
+            :options="resultOptions"
+            @change="onResultChange"
+          />
         </span>
       </div>
       <div class="header-right" v-if="opportunity">
@@ -34,8 +40,8 @@
           回收站 ({{ deletedQuotations.length }})
         </a-button>
         <a-button size="small" @click="showSidebar = !showSidebar">
-          <template #icon><FolderOutlined /></template>
-          文件/评论
+          <template #icon><MessageOutlined /></template>
+          评论
         </a-button>
         <a-popconfirm
           title="确定要删除此商机吗？"
@@ -55,8 +61,18 @@
     <!-- 信息卡片 -->
     <div v-if="opportunity" class="info-card glass">
       <div class="info-status-bar">
-        <span class="info-status-dot" :class="`status-${opportunity.status}`"></span>
-        <span>商机状态：{{ getStatusText(opportunity.status) }}｜创建于 {{ formatDate(opportunity.created_at) }}｜更新于 {{ formatDate(opportunity.updated_at) }}</span>
+        <span class="status-meta">
+          创建于
+          <a-date-picker
+            :value="createdDateValue"
+            size="small"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+            style="width: 120px"
+            @change="onCreatedDateChange"
+          />
+          ｜更新于 {{ formatDate(opportunity.updated_at) }}
+        </span>
       </div>
 
       <div
@@ -66,42 +82,45 @@
       >
         <span class="info-label">{{ field.label }}</span>
         <span class="info-value">
-          <template v-if="editingField === field.key">
-            <a-input-number
-              v-if="(field as any).type === 'number'"
-              v-model:value="editValue"
-              size="small"
-              style="width: 220px"
-              @pressEnter="saveField(field.key)"
-              :min="0"
-            />
-            <a-auto-complete
+          <!-- 机箱形态：标签式多值输入 -->
+          <template v-if="field.key === 'chassis_form'">
+            <template v-if="!field.editable">{{ (opportunity as any)[field.key] || '-' }}</template>
+            <a-select
               v-else
-              v-model:value="editValue"
-              :options="getFilteredOptions(field.key)"
+              v-model:value="chassisFormTags"
+              mode="tags"
               size="small"
               style="width: 220px"
-              @pressEnter="saveField(field.key)"
-              @focus="loadFieldHistory(field.key)"
-              @search="(val: string) => filterLocal(field.key, val)"
+              placeholder="输入后回车添加"
+              :options="chassisFormOptions"
+              @change="onChassisFormChange"
+              @dropdownVisibleChange="(open: boolean) => open && loadFieldHistory('chassis_form')"
             />
-            <button class="inline-btn confirm" @click="saveField(field.key)">
-              <CheckOutlined />
-            </button>
-            <button class="inline-btn cancel" @click="cancelEdit">
-              <CloseOutlined />
-            </button>
           </template>
-          <template v-else>
-            {{ (opportunity as any)[field.key] || '-' }}
-            <button
-              v-if="field.editable"
-              class="edit-icon-btn"
-              @click="startEdit(field.key, (opportunity as any)[field.key])"
-            >
-              <EditOutlined />
-            </button>
-          </template>
+          <!-- 普通字段 -->
+          <template v-else-if="!field.editable">{{ (opportunity as any)[field.key] || '-' }}</template>
+          <a-input-number
+            v-else-if="(field as any).type === 'number'"
+            v-model:value="(opportunity as any)[field.key]"
+            size="small"
+            style="width: 220px"
+            :min="0"
+            @focus="onFieldFocus(field.key)"
+            @blur="onFieldBlur(field.key)"
+            @pressEnter="saveField(field.key)"
+          />
+          <a-auto-complete
+            v-else
+            v-model:value="(opportunity as any)[field.key]"
+            :options="getFilteredOptions(field.key)"
+            :default-active-first-option="false"
+            size="small"
+            style="width: 220px"
+            @keydown.enter="saveField(field.key)"
+            @focus="onFieldFocus(field.key)"
+            @blur="onFieldBlur(field.key)"
+            @select="saveField(field.key)"
+          />
         </span>
       </div>
     </div>
@@ -113,7 +132,7 @@
     <div v-if="opportunity" class="requirement-card glass">
       <div class="card-head">
         <h3>客户需求</h3>
-        <span class="card-hint">贴入需求原文(表格或文字均可),作为配置参考,不约束</span>
+        <span class="card-hint">贴入需求原文（表格或文字均可），作为配置参考，不约束</span>
       </div>
       <a-textarea
         v-model:value="requirementText"
@@ -121,13 +140,29 @@
         placeholder="客户原始需求、FAE 邮件要点、关键约束… 可直接贴表格或文字"
         @blur="saveRequirement"
       />
+      <div class="requirement-actions">
+        <a-button type="primary" :loading="generating" @click="generateQuote">
+          <template #icon><ThunderboltOutlined /></template>
+          生成报价
+        </a-button>
+        <span class="requirement-actions-hint">本地组合整机方案（选基准机型 + 配 KP），人工确认后转为草稿（一期不调 AI）</span>
+      </div>
     </div>
 
-    <!-- 存档区 -->
-    <ArchiveSection v-if="opportunity" :opportunity-id="opportunityId" :attachments="feedAttachments" />
-
-    <!-- 活动流 -->
-    <ActivityStream v-if="opportunity" :opportunity-id="opportunityId" :messages="feedMessages" />
+    <!-- 推理过程面板（生成报价后出现） -->
+    <ReasoningPanel
+      v-if="showReasoning"
+      ref="reasoningPanelRef"
+      :steps="reasonSteps"
+      :plans="reasonPlans"
+      :running="reasonRunning"
+      :error="reasonError"
+      :keywords="reasonKeywords"
+      :pending-prompt="reasonPendingPrompt"
+      @confirm-plan="confirmPlan"
+      @user-reply="onUserReply"
+      @user-skip="onUserSkip"
+    />
       </div>
 
       <div class="detail-right">
@@ -200,38 +235,46 @@
           <div class="quo-content">
             <div class="quo-top">
               <span v-if="quo.is_primary" class="cpq-led cpq-led--warning">主推</span>
+              <span v-if="quo.exported_at" class="quo-state quo-state--exported">已导出</span>
+              <span v-else class="quo-state quo-state--draft">草稿</span>
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
               <span class="quo-price">¥{{ formatPrice(quo.total_price) }}</span>
               <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
                 {{ quo.profit_margin?.toFixed(2) || '0.00' }}%
               </span>
+              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">综合</span>
             </div>
             <div class="quo-bottom">
-              {{ quo.platform_type || '未分类' }} · {{ quo.total_qty || 0 }}台 · {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
+              {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
             </div>
           </div>
           <div v-if="!activeSelectMode" class="quo-actions" @click.stop>
-            <button v-if="!quo.is_primary" class="text-btn primary-action" @click="setAsPrimary(quo)">
-              <StarOutlined /> 设为主推
+            <button v-if="!quo.is_primary" class="icon-btn" title="设为主推" @click="setAsPrimary(quo)">
+              <StarOutlined />
             </button>
-            <button v-else class="text-btn" @click="setAsPrimary(quo)">
-              <StarFilled style="color:var(--cpq-color-warning)" /> 取消主推
+            <button v-else class="icon-btn" title="取消主推" @click="setAsPrimary(quo)">
+              <StarFilled style="color:var(--cpq-color-warning)" />
             </button>
-            <button class="text-btn" @click="viewQuotation(quo)">
-              <EyeOutlined /> 查看
+            <button class="icon-btn" :title="quo.exported_at ? '查看成本' : '编辑'" @click="viewQuotation(quo)">
+              <component :is="quo.exported_at ? EyeOutlined : EditOutlined" />
             </button>
-            <button class="text-btn" @click="editQuotation(quo)">
-              <EditOutlined /> 编辑
+            <button
+              v-if="!quo.has_cost_snapshot || quo.has_manual_cost"
+              class="icon-btn"
+              :title="quo.has_manual_cost ? '编辑成本' : '补录成本'"
+              @click="openCostForBackfill(quo)"
+            >
+              <CalculatorOutlined />
             </button>
-            <button class="text-btn" @click="startRenameQuotation(quo)">
-              <FormOutlined /> 重命名
+            <button class="icon-btn" title="重命名" @click="startRenameQuotation(quo)">
+              <FormOutlined />
             </button>
             <a-popconfirm
               title="确定要删除这个报价单吗？"
               @confirm="deleteQuotation(quo.quotation_id)"
             >
-              <button class="text-btn danger">
-                <DeleteOutlined /> 删除
+              <button class="icon-btn danger" title="删除">
+                <DeleteOutlined />
               </button>
             </a-popconfirm>
           </div>
@@ -241,6 +284,8 @@
         </div>
       </div>
     </div>
+      <!-- 存档区（移至右栏报价单下方） -->
+      <ArchiveSection v-if="opportunity" :opportunity-id="opportunityId" :attachments="feedAttachments" @preview="openAttachmentPreview" @delete="onAttachmentDelete" />
       </div><!-- /detail-right -->
     </div><!-- /detail-grid -->
 
@@ -308,9 +353,10 @@
               <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
                 {{ quo.profit_margin?.toFixed(2) || '0.00' }}%
               </span>
+              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">综合</span>
             </div>
             <div class="quo-bottom">
-              {{ quo.platform_type || '未分类' }} · {{ quo.total_qty || 0 }}台 · {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
+              {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
             </div>
           </div>
           <div v-if="!deletedSelectMode" class="quo-actions" @click.stop>
@@ -362,6 +408,9 @@
     <!-- 右侧抽屉：商机协作流（消息 + 文件 + 在线状态） -->
     <OpportunitySidebar :opportunity-id="opportunityId" v-model:show-sidebar="showSidebar" />
 
+    <!-- 文件在线预览（图片 / PDF / Excel 在线编辑）-->
+    <AttachmentPreviewModal v-model:open="previewOpen" :attachment="previewAttachment" @saved="onPreviewSaved" />
+
     <!-- 上传报价单 Modal -->
     <a-modal
       v-model:open="showUploadModal"
@@ -386,35 +435,79 @@
       <a-spin v-if="uploadStatus === 'loading'" tip="正在解析报价单..." style="display: block; text-align: center; margin: 20px 0;" />
       <a-result v-if="uploadStatus === 'error'" status="error" :title="uploadError" />
     </a-modal>
+
+    <!-- 已导出报价单：成本快照抽屉 -->
+    <QuotationCostDrawer
+      v-model:open="costDrawerOpen"
+      :quotation="costDrawerQuotation"
+      :excel-loading="excelLoading"
+      :reparse-loading="reparseLoading"
+      :save-loading="saveLoading"
+      @view-excel="handleViewExcel"
+      @reparse="handleReparse"
+      @save-cost="handleSaveCost"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import dayjs from 'dayjs'
 import {
   ArrowLeftOutlined, EditOutlined, PlusOutlined, UploadOutlined,
-  InboxOutlined, CheckOutlined, CloseOutlined, EyeOutlined,
-  DeleteOutlined, RightOutlined, FolderOutlined, FormOutlined,
-  UndoOutlined, StarOutlined, StarFilled
+  InboxOutlined, EyeOutlined,
+  DeleteOutlined, RightOutlined, MessageOutlined, FormOutlined,
+  UndoOutlined, StarOutlined, StarFilled, CalculatorOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons-vue'
 import { uploadQuotationToProject } from '@/api/quote'
 import { projectApi, quotationApi } from '@/api'
+import { feedApi } from '@/api/feed'
 import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
+import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
 import ArchiveSection from '@/components/opportunity/ArchiveSection.vue'
-import ActivityStream from '@/components/opportunity/ActivityStream.vue'
+import ReasoningPanel from '@/components/opportunity/ReasoningPanel.vue'
+import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
+import { reasoningApi } from '@/api/reasoning'
+import type { Plan } from '@/api/reasoning'
+import { buildPlanCfg } from '@/composables/usePlanBom'
+import { useReasoningStream } from '@/composables/useReasoningStream'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
+import type { FeedAttachment } from '@/api/feed'
 
 const route = useRoute()
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
 const opportunityIdRef = computed(() => opportunityId)
 const feed = useFeedSocket(opportunityIdRef)
-const { attachments: feedAttachments, messages: feedMessages } = feed
+const { attachments: feedAttachments } = feed
+const previewOpen = ref(false)
+const previewAttachment = ref<FeedAttachment | null>(null)
+function openAttachmentPreview(a: FeedAttachment) {
+  previewAttachment.value = a
+  previewOpen.value = true
+}
+function onAttachmentDelete(a: FeedAttachment) {
+  feed.deleteAttachment(a.attachment_id)
+}
+function onPreviewSaved() {
+  feed.load()
+}
 const requirementText = ref('')
+
+// 推理流（生成报价）：步骤时间线 + 整机方案清单，独立 WS 通道
+const {
+  steps: reasonSteps, plans: reasonPlans, running: reasonRunning,
+  error: reasonError, keywords: reasonKeywords, pendingPrompt: reasonPendingPrompt,
+  connect: connectReasoning, disconnect: disconnectReasoning,
+} = useReasoningStream()
+const reasoningPanelRef = ref<InstanceType<typeof ReasoningPanel> | null>(null)
+const showReasoning = ref(false)
+const generating = ref(false)
 
 const opportunity = ref<Opportunity | null>(null)
 const quotations = ref<Quotation[]>([])
@@ -438,8 +531,8 @@ const renameValue = ref('')
 const renameTargetId = ref<string | null>(null)
 
 // 行内编辑状态
-const editingField = ref<string | null>(null)
-const editValue = ref('')
+const focusField = ref<string | null>(null)
+const focusSnapshot = ref<string | number>('')
 
 // 字段历史值（用于自动完成）
 const fieldHistory = ref<Record<string, string[]>>({})
@@ -447,21 +540,51 @@ const fieldHistory = ref<Record<string, string[]>>({})
 // 从 API 加载字段定义
 const infoFields = ref<Array<{ key: string; label: string; editable: boolean; type?: string }>>([])
 
+// 日期格式化：直接取字符串前 10 位，避免 Date 对象的时区转换问题
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-'
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  return d.toISOString().slice(0, 10)
+  // 直接取 YYYY-MM-DD 部分，不经过 Date 对象转换（防止 UTC 偏移）
+  const slice = dateStr.slice(0, 10)
+  return /^\d{4}-\d{2}-\d{2}$/.test(slice) ? slice : dateStr
+}
+
+// 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker）
+const createdDateValue = computed(() => {
+  const dateStr = opportunity.value?.created_at
+  if (!dateStr) return null
+  // 直接取日期部分，不经过 formatDate 的时区转换
+  const slice = dateStr.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(slice)) return null
+  return dayjs(slice)
+})
+
+// 创建日期变更时保存到后端
+const onCreatedDateChange = async (date: dayjs.Dayjs | null) => {
+  if (!date) return
+
+  // a-date-picker 的 value-format 会把 date 转成字符串
+  const newDateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD')
+  const oldDateStr = formatDate(opportunity.value?.created_at || '')
+
+  if (newDateStr === oldDateStr) return
+
+  try {
+    // 简化：直接用新日期 + 00:00:00
+    const newFull = `${newDateStr} 00:00:00`
+    await projectApi.update(opportunityId, { created_at: newFull })
+
+    if (opportunity.value) {
+      opportunity.value.created_at = newFull
+    }
+    message.success('创建日期已更新')
+  } catch (err: any) {
+    message.error('更新失败: ' + (err.message || err))
+  }
 }
 
 const formatPrice = (price: number) => {
   if (!price) return '0.00'
   return price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-const getStatusText = (status: string) => {
-  const map: Record<string, string> = { active: '进行中', deleted: '已删除', archived: '已归档' }
-  return map[status] || status
 }
 
 const getMarginBarClass = (margin: number | undefined) => {
@@ -602,14 +725,17 @@ const loadProject = async () => {
 }
 
 // 行内编辑
-const startEdit = (field: string, currentValue: any) => {
-  editingField.value = field
-  editValue.value = currentValue ?? ''
+const onFieldFocus = (field: string) => {
+  focusField.value = field
+  focusSnapshot.value = (opportunity.value as any)?.[field] ?? ''
+  loadFieldHistory(field)
 }
-
-const cancelEdit = () => {
-  editingField.value = null
-  editValue.value = ''
+const onFieldBlur = (field: string) => {
+  if (focusField.value !== field) return
+  focusField.value = null
+  const cur = ((opportunity.value as any)?.[field] ?? '') as string | number
+  if (String(cur) === String(focusSnapshot.value)) return
+  saveField(field)
 }
 
 // 加载字段历史值（用于自动完成）
@@ -625,39 +751,67 @@ const loadFieldHistory = async (fieldKey: string) => {
   }
 }
 
-// 本地过滤（用户输入时实时筛选）
-const filterLocal = (_fieldKey: string, _searchValue: string) => {
-  // 触发响应式更新，重新过滤选项（过滤逻辑在 getFilteredOptions 中）
-  const current = fieldHistory.value
-  fieldHistory.value = { ...current }
-}
-
 // 获取过滤后的选项（用于 a-auto-complete）
 const getFilteredOptions = (fieldKey: string) => {
   const history = fieldHistory.value[fieldKey] || []
-  const keyword = editValue.value?.toLowerCase() || ''
+  const keyword = ((opportunity.value as any)?.[fieldKey] ?? '').toString().toLowerCase()
   const filtered = keyword
     ? history.filter(v => v.toLowerCase().includes(keyword))
     : history
   return filtered.map(v => ({ value: v, label: v }))
 }
 
+// 机箱形态标签式输入：逗号分隔字符串 ↔ 数组互转
+const chassisFormTags = computed({
+  get: () => {
+    const raw = (opportunity.value as any)?.chassis_form || ''
+    if (!raw) return []
+    return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
+  },
+  set: (val: string[]) => {
+    if (opportunity.value) {
+      (opportunity.value as any).chassis_form = val.join(',')
+    }
+  }
+})
+
+// 机箱形态历史选项（用于下拉提示）
+const chassisFormOptions = computed(() => {
+  const history = fieldHistory.value['chassis_form'] || []
+  return history.map(v => ({ value: v, label: v }))
+})
+
+// 机箱形态变更时保存
+const onChassisFormChange = async (tags: string[]) => {
+  const newValue = tags.join(',')
+  const oldValue = (opportunity.value as any)?.chassis_form || ''
+  if (newValue === oldValue) return
+  try {
+    await projectApi.update(opportunityId, { chassis_form: newValue })
+    if (opportunity.value) {
+      (opportunity.value as any).chassis_form = newValue
+    }
+    message.success('机箱形态已更新')
+  } catch (err: any) {
+    message.error('更新失败: ' + (err.message || err))
+  }
+}
+
 const saveField = async (field: string) => {
   const fieldDef = infoFields.value.find(f => f.key === field)
-  let saveValue: string | number = editValue.value
+  const raw = (opportunity.value as any)?.[field]
+  if (raw == null) return
+  let saveValue: string | number = raw
   if ((fieldDef as any)?.type === 'number') {
-    saveValue = editValue.value != null ? Number(editValue.value) : 0
-  } else if (!editValue.value.trim()) {
+    saveValue = raw !== '' && raw != null ? Number(raw) : 0
+  } else if (!String(raw).trim()) {
     message.warning('字段不能为空')
     return
   }
   try {
     await projectApi.update(opportunityId, { [field]: saveValue })
-    if (opportunity.value) {
-      (opportunity.value as any)[field] = saveValue
-    }
+    focusSnapshot.value = saveValue
     message.success('更新成功')
-    cancelEdit()
   } catch (err: any) {
     message.error('更新失败: ' + (err.message || err))
   }
@@ -715,17 +869,237 @@ const handleUnarchive = async () => {
   }
 }
 
+const resultOptions = [
+  { value: 'pending', label: '进行中' },
+  { value: 'won', label: '已中标' },
+  { value: 'lost', label: '已丢标' },
+]
+async function onResultChange(val: string) {
+  const prev = (opportunity.value as any)?.result
+  if (val === prev) return
+  try {
+    await projectApi.updateMeta(opportunityId, { result: val })
+    if (opportunity.value) (opportunity.value as any).result = val
+    message.success('已更新商机状态')
+  } catch (err: any) {
+    message.error('更新失败: ' + (err.message || err))
+  }
+}
+
 // 报价单操作
 const createNewQuotation = () => {
+  // 一商机一草稿：已有草稿时直接打开，不另建
+  const draft = quotations.value.find(q => !q.exported_at && q.status === 'active')
+  if (draft) {
+    message.info('已有草稿报价单，已为你打开')
+    router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${draft.quotation_id}&mode=edit&from=opportunities`)
+    return
+  }
   router.push(`/workspace?opportunityId=${opportunityId}&mode=create&from=opportunities`)
 }
 
-const editQuotation = (quotation: Quotation) => {
+// 生成报价：客户需求 → 本地推理 pipeline（分词 + 检索）→ 推理面板
+async function generateQuote() {
+  const text = (requirementText.value || '').trim()
+  if (!text) {
+    message.warning('请先填写客户需求')
+    return
+  }
+  showReasoning.value = true
+  generating.value = true
+  connectReasoning(opportunityId)
+  try {
+    await reasoningApi.generate(opportunityId, text)
+  } catch (e: any) {
+    message.error('启动推理失败：' + (e?.message || e))
+    showReasoning.value = false
+  } finally {
+    generating.value = false
+  }
+}
+
+// 反答回复：拼到原需求后重跑 pipeline（新一轮，pipeline_id 变化前端自动切）
+async function onUserReply(reply: string) {
+  const text = (requirementText.value || '').trim()
+  generating.value = true
+  try {
+    await reasoningApi.generate(opportunityId, text, { supplement_text: reply })
+  } catch (e: any) {
+    message.error('提交补充失败：' + (e?.message || e))
+  } finally {
+    generating.value = false
+  }
+}
+
+// 跳过反问：强制走选型（force_complete）
+async function onUserSkip() {
+  const text = (requirementText.value || '').trim()
+  generating.value = true
+  try {
+    await reasoningApi.generate(opportunityId, text, { force_complete: true })
+  } catch (e: any) {
+    message.error('启动失败：' + (e?.message || e))
+  } finally {
+    generating.value = false
+  }
+}
+
+// 整机方案 → 转为报价单草稿：buildPlanCfg 把 L6 转成基准配置的 BOM 模板格式（live），
+// 种进 config_l6_picks（bom_source/bom_template/bom_context/base_config_id/l6_custom_price），
+// KP 走 items；工作台载入时左栏 BomTable 按模板格式渲染整机 L6、中栏 KP 卡可编辑调价。
+// 无模板时 buildPlanCfg 自动回落 excel 平铺。
+async function confirmPlan(plan: Plan) {
+  try {
+    // 一商机一草稿：已有草稿确认后替换其配置，否则新建（先做这步，避免取消时白跑 buildPlanCfg）
+    const draft = quotations.value.find((q) => !q.exported_at && q.status === 'active')
+    let quotationId: string
+    if (draft) {
+      quotationId = draft.quotation_id
+      const ok = await new Promise<boolean>((resolve) => {
+        Modal.confirm({
+          title: '已有草稿',
+          content: `商机已存在草稿「${draft.quotation_name || draft.quotation_id}」，是否用本方案替换其配置？`,
+          okText: '替换',
+          cancelText: '取消',
+          onOk: () => resolve(true),
+          onCancel: () => resolve(false),
+        })
+      })
+      if (!ok) {
+        reasoningPanelRef.value?.stopConfirming()
+        return
+      }
+    } else {
+      const res = await quotationApi.create({
+        opportunity_id: opportunityId,
+        quotation_name: `方案-${plan.name || plan.model}`,
+      })
+      quotationId = res.quotation_id
+    }
+
+    // 转 BOM 模板格式（live）+ 组 seeding payload
+    const liveCfg = await buildPlanCfg(plan)
+    const picks: Record<string, any> = {
+      base_config_id: plan.config_id,
+      bom_source: liveCfg.bom_source,
+      l6_custom_price: plan.summary.l6_cost ?? 0,
+      l6_profit_margin: 10,
+    }
+    if (liveCfg.bom_source === 'live') {
+      picks.bom_template = liveCfg.bom_template
+      picks.bom_context = liveCfg.bom_context
+    } else {
+      picks.bom_excel_rows = liveCfg.bom_excel_rows
+    }
+    const payload = {
+      items: liveCfg.items,
+      config_quantities: { CFG1: 1 },
+      config_server_models: { CFG1: plan.model || '' },
+      config_l6_picks: { CFG1: picks },
+    }
+    await quotationApi.saveItems(quotationId, payload as any)
+    // L3 统一标记来源为推理流（不管新建还是替换已有草稿；失败不阻塞）
+    quotationApi.update(quotationId, { source: 'reasoning' }).catch(() => {})
+    message.success(`已转为报价单：${plan.name || plan.model}`)
+    disconnectReasoning()
+    router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotationId}&mode=edit&from=opportunities`)
+  } catch (e: any) {
+    message.error('转为报价单失败：' + (e?.message || e))
+    reasoningPanelRef.value?.stopConfirming()
+  }
+}
+
+// 成本快照抽屉
+const costDrawerOpen = ref(false)
+const costDrawerQuotation = ref<any>(null)
+const excelLoading = ref(false)
+const reparseLoading = ref(false)
+const saveLoading = ref(false)
+
+// 找该报价单在 feed 里归档的 sent_quote 导出件
+const findExportAttachment = (quotationId: string) => {
+  return (feedAttachments.value || []).find(
+    a => a.category === 'sent_quote' && a.quotation_id === quotationId && a.kind === 'export'
+  )
+}
+
+const viewQuotation = async (quotation: Quotation) => {
+  if (quotation.exported_at) {
+    // 已导出 → 开抽屉看成本快照（拉全量含 cost_snapshot）
+    costDrawerQuotation.value = quotation
+    costDrawerOpen.value = true
+    try {
+      const full = await quotationApi.getById(quotation.quotation_id)
+      costDrawerQuotation.value = full
+    } catch (e) {
+      // 保留列表数据兜底
+    }
+    return
+  }
+  // 草稿 → 进工作台编辑
   router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotation.quotation_id}&mode=edit&from=opportunities`)
 }
 
-const viewQuotation = (quotation: Quotation) => {
-  router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotation.quotation_id}&mode=view&from=opportunities`)
+const handleViewExcel = async () => {
+  const quo = costDrawerQuotation.value
+  if (!quo) return
+  const att = findExportAttachment(quo.quotation_id)
+  if (!att) {
+    message.warning('未找到已导出的 Excel 归档')
+    return
+  }
+  window.open(feedApi.attachments.downloadUrl(att.attachment_id), '_blank')
+}
+
+const handleReparse = async () => {
+  const quo = costDrawerQuotation.value
+  if (!quo) return
+  reparseLoading.value = true
+  try {
+    // 克隆源的 DB items + 配置字段成新草稿（不解析导出件）
+    const result = await quotationApi.reparse(quo.quotation_id)
+    message.success('已复制为新草稿，正在打开')
+    costDrawerOpen.value = false
+    await loadProject()
+    router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${result.quotation_id}&mode=edit&from=opportunities`)
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail
+    if (detail && detail.existing_draft_id) {
+      message.warning('已有草稿报价单，请先导出或删除当前草稿')
+    } else {
+      message.error('复制失败：' + (e?.message || e))
+    }
+  } finally {
+    reparseLoading.value = false
+  }
+}
+
+// 补录成本入口：无快照的历史报价单，开抽屉录整机级成本
+const openCostForBackfill = async (quotation: Quotation) => {
+  costDrawerQuotation.value = quotation
+  costDrawerOpen.value = true
+  try {
+    const full = await quotationApi.getById(quotation.quotation_id)
+    costDrawerQuotation.value = full
+  } catch (e) {
+    // 保留列表数据兜底
+  }
+}
+
+const handleSaveCost = async (snapshot: Record<string, any>) => {
+  const quo = costDrawerQuotation.value
+  if (!quo) return
+  saveLoading.value = true
+  try {
+    const res = await quotationApi.saveCostSnapshot(quo.quotation_id, snapshot)
+    message.success('成本已保存')
+    costDrawerQuotation.value = res.quotation
+    await loadProject()
+  } catch (e: any) {
+    message.error('保存失败：' + (e?.message || e))
+  } finally {
+    saveLoading.value = false
+  }
 }
 
 const loadDeletedQuotations = async () => {
@@ -868,7 +1242,10 @@ onMounted(async () => {
   feed.load().then(() => feed.connect()).catch(() => {})
 })
 
-onBeforeUnmount(() => feed.disconnect())
+onBeforeUnmount(() => {
+  feed.disconnect()
+  disconnectReasoning()
+})
 </script>
 
 <style scoped>
@@ -876,10 +1253,10 @@ onBeforeUnmount(() => feed.disconnect())
   padding: 0;
 }
 
-/* ── 双栏布局:左证据链 / 右报价单 ── */
+/* ── 双栏布局:左证据链(需求+推理) / 右报价单+存档 —— 四六开，右栏优先 ── */
 .detail-grid {
   display: grid;
-  grid-template-columns: minmax(380px, 1.4fr) 1fr;
+  grid-template-columns: minmax(360px, 2fr) 3fr;
   gap: 24px;
   align-items: start;
 }
@@ -953,22 +1330,23 @@ onBeforeUnmount(() => feed.disconnect())
   border-radius: 50%;
 }
 
-.status-dot.status-active {
+.status-dot.status-pending {
   background: var(--cpq-accent-primary);
   box-shadow: 0 0 6px var(--cpq-overlay-a40);
 }
 
-.status-dot.status-deleted {
-  background: var(--cpq-accent-danger, var(--cpq-accent-danger));
+.status-dot.status-won {
+  background: var(--cpq-accent-success);
+  box-shadow: 0 0 6px var(--cpq-accent-success);
 }
 
-.status-dot.status-archived {
-  background: var(--cpq-text-muted);
+.status-dot.status-lost {
+  background: var(--cpq-accent-danger);
+  box-shadow: 0 0 6px var(--cpq-accent-danger);
 }
 
-.status-label {
-  font-size: 13px;
-  color: var(--cpq-text-muted);
+.header-result-select {
+  width: 108px;
 }
 
 .header-right {
@@ -1006,6 +1384,17 @@ onBeforeUnmount(() => feed.disconnect())
   color: var(--cpq-text-muted);
 }
 
+.requirement-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.requirement-actions-hint {
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+}
+
 .info-status-bar {
   display: flex;
   align-items: center;
@@ -1017,23 +1406,9 @@ onBeforeUnmount(() => feed.disconnect())
   grid-column: 1 / -1;
 }
 
-.info-status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.status-meta {
   flex-shrink: 0;
-}
-
-.info-status-dot.status-active {
-  background: var(--cpq-accent-primary);
-}
-
-.info-status-dot.status-deleted {
-  background: var(--cpq-accent-danger, var(--cpq-accent-danger));
-}
-
-.info-status-dot.status-archived {
-  background: var(--cpq-text-muted);
+  color: var(--cpq-text-muted);
 }
 
 .info-row {
@@ -1070,61 +1445,30 @@ onBeforeUnmount(() => feed.disconnect())
   gap: 8px;
 }
 
-.edit-icon-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--cpq-text-muted);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  opacity: 0;
-  transition: all var(--cpq-transition-fast);
+/* 信息栏内联输入：透明底融入卡片、压淡边框、聚焦才蓝边 —— 消除"网格盒子"密集感
+   保留边框（不走 :bordered=false）避免 auto-complete 塌缩（见 memory infobar-editable-input-style） */
+.info-value :deep(.ant-select-selector),
+.info-value :deep(.ant-input),
+.info-value :deep(.ant-input-number-input) {
+  background: transparent !important;
+  border-color: var(--cpq-overlay-w8) !important;
+  border-radius: var(--cpq-radius-sm) !important;
+  box-shadow: none !important;
+  color: var(--cpq-text-primary) !important;
 }
-
-.info-row:hover .edit-icon-btn {
-  opacity: 1;
+.info-value :deep(.ant-select:hover .ant-select-selector),
+.info-value :deep(.ant-input:hover),
+.info-value :deep(.ant-input-number:hover .ant-input-number-input) {
+  border-color: var(--cpq-overlay-w15) !important;
 }
-
-.edit-icon-btn:hover {
-  background: var(--cpq-overlay-a8);
-  color: var(--cpq-accent-primary);
+.info-value :deep(.ant-select-focused .ant-select-selector),
+.info-value :deep(.ant-input:focus),
+.info-value :deep(.ant-input-number-focused .ant-input-number-input) {
+  border-color: var(--cpq-accent-primary) !important;
+  box-shadow: 0 0 0 2px var(--cpq-overlay-a15) !important;
 }
-
-.inline-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 6px;
-  border: none;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  transition: all var(--cpq-transition-fast);
-}
-
-.inline-btn.confirm {
-  background: var(--cpq-overlay-a10);
-  color: var(--cpq-accent-primary);
-}
-
-.inline-btn.confirm:hover {
-  background: var(--cpq-overlay-a20);
-}
-
-.inline-btn.cancel {
-  background: var(--cpq-overlay-w6);
-  color: var(--cpq-text-muted);
-}
-
-.inline-btn.cancel:hover {
-  background: var(--cpq-overlay-w10);
-  color: var(--cpq-text-primary);
+.info-value :deep(.ant-select-selection-item) {
+  color: var(--cpq-text-primary) !important;
 }
 
 /* ── Batch Bar ── */
@@ -1136,7 +1480,7 @@ onBeforeUnmount(() => feed.disconnect())
   margin-bottom: 12px;
   background: var(--cpq-overlay-danger10);
   border: 1px solid var(--cpq-overlay-danger15);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   animation: fadeInUp 0.3s var(--cpq-ease-out-expo) backwards;
 }
 
@@ -1267,7 +1611,7 @@ onBeforeUnmount(() => feed.disconnect())
 }
 
 .quo-status-bar.margin-low {
-  background: var(--cpq-accent-danger, var(--cpq-accent-danger));
+  background: var(--cpq-accent-danger);
 }
 
 .quo-status-bar.margin-neutral {
@@ -1295,9 +1639,9 @@ onBeforeUnmount(() => feed.disconnect())
   font-size: 11px;
   font-weight: 700;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--cpq-accent-primary, #7c5cfc);
-  color: #fff;
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-accent-primary);
+  color: var(--cpq-accent-on-primary);
   letter-spacing: 0.5px;
   flex-shrink: 0;
 }
@@ -1306,12 +1650,50 @@ onBeforeUnmount(() => feed.disconnect())
   font-size: 14px;
   font-weight: 600;
   color: var(--cpq-text-primary);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 草稿/已导出 状态标 */
+.quo-state {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 9px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.quo-state--draft {
+  color: var(--cpq-color-gold, #D4A853);
+  background: rgba(212, 168, 83, 0.08);
+  border-color: rgba(212, 168, 83, 0.25);
+}
+.quo-state--exported {
+  color: var(--cpq-accent-primary, #1677FF);
+  background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.08));
+  border-color: var(--cpq-overlay-a20, rgba(22, 119, 255, 0.2));
 }
 
 .quo-price {
   font-size: 16px;
   font-weight: 600;
   color: var(--cpq-accent-primary);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.multi-cfg-tag {
+  font-size: 10px;
+  color: var(--cpq-text-muted, #6E7582);
+  padding: 1px 5px;
+  border: 1px solid var(--cpq-divider, rgba(0,0,0,0.08));
+  border-radius: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .quo-margin-badge {
@@ -1320,6 +1702,8 @@ onBeforeUnmount(() => feed.disconnect())
   padding: 2px 8px;
   border-radius: 10px;
   border: 1px solid;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .quo-margin-badge.badge-high {
@@ -1358,15 +1742,39 @@ onBeforeUnmount(() => feed.disconnect())
   margin-right: 12px;
   opacity: 0;
   transition: opacity var(--cpq-transition-fast);
+  flex-shrink: 0;
 }
 
 .quotation-row:hover .quo-actions {
   opacity: 1;
 }
 
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--cpq-radius-sm);
+  border: none;
+  background: transparent;
+  color: var(--cpq-text-muted);
+  font-size: 14px;
+  cursor: pointer;
+  transition: all var(--cpq-transition-fast);
+}
+.icon-btn:hover {
+  background: var(--cpq-overlay-a8);
+  color: var(--cpq-accent-primary);
+}
+.icon-btn.danger:hover {
+  color: var(--cpq-accent-danger);
+  background: var(--cpq-overlay-danger10);
+}
+
 .text-btn {
   padding: 4px 8px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   border: none;
   background: transparent;
   color: var(--cpq-text-muted);
@@ -1419,7 +1827,7 @@ onBeforeUnmount(() => feed.disconnect())
 }
 
 .deleted-badge {
-  color: var(--cpq-accent-danger, var(--cpq-accent-danger)) !important;
+  color: var(--cpq-accent-danger) !important;
   background: var(--cpq-overlay-danger10) !important;
 }
 

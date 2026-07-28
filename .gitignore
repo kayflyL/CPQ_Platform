@@ -38,10 +38,8 @@ pnpm-debug.log*
 *.sqlite
 *.sqlite3
 
-# Storage (temporary files)
-backend/storage/_temp/
-backend/storage/*/uploads/
-backend/storage/*/exports/
+# Storage (user uploaded files — do not track)
+backend/storage/
 
 # OS
 .DS_Store
@@ -57,7 +55,6 @@ frontend/dist/
 backend/dist/
 
 # Tooling artifacts
-graphify-out/
 .hermes/
 .hermes-tmp.*
 
