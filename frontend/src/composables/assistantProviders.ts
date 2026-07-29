@@ -1,7 +1,8 @@
 /**
- * 上下文 provider 实现 — 当前两个域:
+ * 上下文 provider 实现 — 当前三个域:
  * - quoteProvider: 报价工作台(商机 + 当前报价单配置)
  * - opportunityProvider: 商机详情页(商机概览 + 报价单列表)
+ * - opportunityListProvider: 商机线索页(驾驶舱统计 + 业务排行)
  *
  * 未来加策略中心等:在此 export 新 provider,加到 contextProviders 数组即可。
  */
@@ -50,4 +51,47 @@ export const opportunityProvider: ContextProvider = {
   },
 }
 
-export const contextProviders: ContextProvider[] = [quoteProvider, opportunityProvider]
+export const opportunityListProvider: ContextProvider = {
+  key: 'opportunity-list',
+  label: '商机线索',
+  match: (ctx) => ctx.route.path === '/opportunities',
+  async summarize(ctx) {
+    try {
+      // 从 URL query 获取周期参数（支持自定义区间）
+      const query = ctx.route.query
+      const params = new URLSearchParams()
+      if (query.start && query.end) {
+        params.set('start', query.start as string)
+        params.set('end', query.end as string)
+      } else {
+        params.set('period', (query.period as string) || 'week')
+      }
+
+      // 调用驾驶舱摘要接口
+      const r = await fetch(`/api/dashboard/summary?${params}`)
+      const data = await r.json()
+
+      // 提取关键字段
+      const kpi = data.kpi || {}
+      const platforms = (data.structure?.platforms || []).slice(0, 3)
+      const topSales = (data.sales_rank?.top || []).slice(0, 3)
+
+      // 构造上下文摘要
+      const lines = [
+        `【时间周期】${data.period_label || '当前'}`,
+        `【核心指标】总商机 ${kpi.total_opportunities || 0} / 总配置 ${kpi.total_configs || 0} / 新增 ${kpi.new_opportunities || 0}`,
+        `【平台分布】${platforms.map((p: any) => `${p.name || '未分类'}:${p.count}`).join('、') || '无数据'}`,
+        `【业务排行】${topSales.map((s: any) => `${s.name}:${s.count}个`).join('、') || '无数据'}`,
+      ]
+      return lines.join('\n')
+    } catch {
+      return ''
+    }
+  },
+}
+
+export const contextProviders: ContextProvider[] = [
+  quoteProvider,
+  opportunityProvider,
+  opportunityListProvider,
+]

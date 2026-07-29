@@ -104,12 +104,28 @@ const routes = [
         meta: { title: 'Excel 解析' }
       },
 
+      // 策略中心
+      {
+        path: '/strategies',
+        name: 'Strategies',
+        component: () => import('@/views/admin/Strategies.vue'),
+        meta: { title: '策略中心' }
+      },
+
       // 导出模板（统一入口）
       {
         path: '/export-templates',
         name: 'ExportTemplates',
         component: () => import('@/views/export-templates/ExportTemplateList.vue'),
         meta: { title: '导出模板' }
+      },
+
+      // AI 设置
+      {
+        path: '/ai-settings',
+        name: 'AiSettings',
+        component: () => import('@/views/settings/AiSettings.vue'),
+        meta: { title: 'AI 设置' }
       },
       
       // Univer 模板编辑器（Excel）

@@ -99,10 +99,55 @@ class SystemConfigRepository:
         defaults = [
             {"key": "tax_rate", "value": "0.13", "type": "number", "description": "税率"},
             {"key": "usd_to_rmb", "value": "7.0", "type": "number", "description": "美元兑人民币汇率"},
-            {"key": "profit_margin", "value": "0.1", "type": "number", "description": "默认利润率"},
+            {"key": "profit_margin", "value": "0.1", "type": "number", "description": "默认利润率（成本加成的默认目标利润率，非告警阈值）"},
+            {"key": "profit_margin_alert_threshold", "value": "0.08", "type": "number", "description": "利润率告警阈值：报价利润率低于此值时弹窗提示走线下特价审批"},
+            {"key": "default_markup_coefficient", "value": "0.10", "type": "number", "description": "默认成本加成系数（一期固定简易加成；精细化客户分层/阶梯加成二期补）"},
             {"key": "warranty_fee_rate", "value": "0.02", "type": "number", "description": "质保费率"},
             {"key": "warranty_desc_l6", "value": "质保3年，非人为及不可抗力引起的故障，软件FW问题支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "L6 默认质保条款"},
             {"key": "warranty_desc_kp", "value": "质保1年，非人为及不可抗力引起的故障，支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "KP 默认质保条款"},
+            {"key": "server_series", "value": json.dumps([{"value": "Orion", "label": "Orion"}, {"value": "Polaris", "label": "Polaris"}, {"value": "Intel", "label": "Intel"}, {"value": "工作站", "label": "工作站"}], ensure_ascii=False), "type": "json", "description": "服务器系列选项（全平台唯一权威源：基准配置/机型/料件适用机型/商机平台类型）"},
+            {"key": "server_form_factor", "value": json.dumps([{"value": "2U", "label": "2U"}, {"value": "4U", "label": "4U"}, {"value": "4.5U", "label": "4.5U"}, {"value": "5U", "label": "5U"}], ensure_ascii=False), "type": "json", "description": "服务器形态选项"},
+            # AI 设置
+            {"key": "ai_insights_config", "value": json.dumps({
+                "auto_generate": True,
+                "insight_count": 3,
+                "dimensions": ["growth", "risk", "suggestion"],
+                "data_scope": ["kpi", "platform", "sales", "trend"],
+                "depth": "brief",
+                # 维度映射（硬编码提取）
+                "dimension_labels": {
+                    "growth": "增长信号",
+                    "risk": "风险预警",
+                    "suggestion": "行动建议"
+                },
+                # 提示词模板（硬编码提取）
+                "prompt_template": "请分析以上数据，从以下维度发现值得关注的点：{dimensions}。\n\n要求：\n1. 输出 {count} 条洞察\n2. 每条洞察{depth_desc}\n3. 不要套话，直接给结论\n4. 如果发现增长，说明是什么在增长\n5. 如果发现风险，说明具体风险点\n6. 如果有建议，给出具体可操作的建议",
+                # 兜底文案（硬编码提取）
+                "fallback_templates": {
+                    "no_data": "本周期暂无新增商机，建议关注跟进效率",
+                    "error": "刷新重试获取 AI 分析"
+                }
+            }, ensure_ascii=False), "type": "json", "description": "AI 趋势洞察设置"},
+            {"key": "ai_assistant_config", "value": json.dumps({
+                "auto_context": True,
+                "context_detail": "brief",
+                "response_style": "detailed",
+                # 上下文 Provider 配置（拒绝硬编码）
+                "providers": {
+                    "quote": {"enabled": True, "label": "报价工作台", "detail": "brief"},
+                    "opportunity": {"enabled": True, "label": "商机详情", "detail": "brief"},
+                    "opportunity-list": {"enabled": True, "label": "商机线索", "detail": "brief"}
+                }
+            }, ensure_ascii=False), "type": "json", "description": "AI 方案助手设置"},
+            # LLM API 配置（支持前端可视化修改，优先级高于 .env）
+            {"key": "llm_config", "value": json.dumps({
+                "base_url": "",  # 留空则用 .env 的 LLM_BASE_URL
+                "api_key": "",   # 留空则用 .env 的 LLM_API_KEY
+                "model": "",     # 留空则用 .env 的 LLM_MODEL
+                "system_prompt": "你是 CPQ 平台的「方案助手」,辅助销售/FAE 做服务器配置与报价。用户当前所在页面的业务上下文会以「当前上下文」形式提供给你,作答时优先基于它。要求:1) 用中文回复;2) 对料号价格、库存、具体型号编号等易变信息,不要编造——不确定时请用户在配置页确认或查料号库;3) 回答简洁、分点。",
+                "temperature": 0.7,
+                "max_tokens": 2000,
+            }, ensure_ascii=False), "type": "json", "description": "LLM API 配置（base_url/api_key/model 留空则用 .env 环境变量）"},
         ]
         
         for d in defaults:

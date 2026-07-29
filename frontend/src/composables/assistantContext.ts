@@ -6,7 +6,7 @@
  * 加新城(如策略中心):在 assistantProviders.ts 注册一个 provider 即可,
  * 助手核心(DefaultLayout / useAssistant / AssistantPanel)不改。
  */
-import { computed, type ComputedRef } from 'vue'
+import { computed, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { contextProviders } from '@/composables/assistantProviders'
@@ -23,6 +23,31 @@ export interface ContextProvider {
   summarize: (ctx: ProviderCtx) => Promise<string>
 }
 
+// Provider 配置（从后端读取）
+interface ProviderConfig {
+  enabled: boolean
+  label: string
+  detail: 'brief' | 'detailed'
+}
+
+const providerConfig = ref<Record<string, ProviderConfig>>({})
+
+// 加载 Provider 配置
+async function loadProviderConfig() {
+  try {
+    const res = await fetch('/api/system-config/ai_assistant_config/value')
+    const data = await res.json()
+    if (data.value?.providers) {
+      providerConfig.value = data.value.providers
+    }
+  } catch {
+    // 使用默认配置
+  }
+}
+
+// 首次加载
+loadProviderConfig()
+
 export function useAssistantContext() {
   const route = useRoute()
   const store = useQuoteStore()
@@ -30,6 +55,11 @@ export function useAssistantContext() {
 
   const activeProviders: ComputedRef<ContextProvider[]> = computed(() =>
     contextProviders.filter((p) => {
+      // 检查是否被禁用
+      const config = providerConfig.value[p.key]
+      if (config && !config.enabled) {
+        return false
+      }
       try {
         return p.match(ctx)
       } catch {
@@ -39,7 +69,11 @@ export function useAssistantContext() {
   )
 
   const contextLabel = computed(() => {
-    const labels = activeProviders.value.map((p) => p.label)
+    const labels = activeProviders.value.map((p) => {
+      // 使用配置的 label（如果有）
+      const config = providerConfig.value[p.key]
+      return config?.label || p.label
+    })
     return labels.length ? labels.join(' · ') : ''
   })
 
@@ -50,7 +84,11 @@ export function useAssistantContext() {
     for (const p of active) {
       try {
         const text = await p.summarize(ctx)
-        if (text) parts.push(`【${p.label}】\n${text}`)
+        if (text) {
+          const config = providerConfig.value[p.key]
+          const label = config?.label || p.label
+          parts.push(`【${label}】\n${text}`)
+        }
       } catch {
         /* skip failed provider */
       }
@@ -58,5 +96,5 @@ export function useAssistantContext() {
     return parts.join('\n\n')
   }
 
-  return { activeProviders, contextLabel, summarize }
+  return { activeProviders, contextLabel, summarize, providerConfig, loadProviderConfig }
 }

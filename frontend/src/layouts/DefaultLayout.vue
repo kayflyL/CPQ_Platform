@@ -34,10 +34,18 @@
           <template #icon><DollarOutlined /></template>
           <span>配件</span>
         </a-menu-item>
+        <a-menu-item key="/strategies">
+          <template #icon><ThunderboltOutlined /></template>
+          <span>策略中心</span>
+        </a-menu-item>
         <a-sub-menu key="settings">
           <template #icon><SettingOutlined /></template>
           <template #title>设置</template>
 
+          <a-menu-item key="/ai-settings">
+            <template #icon><RobotOutlined /></template>
+            <span>AI 设置</span>
+          </a-menu-item>
           <a-menu-item key="/excel-parser">
             <template #icon><ApiOutlined /></template>
             <span>解析规则</span>
@@ -70,7 +78,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, BulbOutlined, BulbFilled } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
@@ -85,7 +93,7 @@ const openKeys = ref<string[]>([])
 const assistantOpen = ref(false)
 
 // 设置类页面路径
-const settingsPaths = ['/excel-parser', '/export-templates']
+const settingsPaths = ['/ai-settings', '/excel-parser', '/export-templates']
 
 /** 服务器子路由归类：管理面（后台管理 + 机型/基准编辑页）高亮「后台管理」，其余高亮「产品配置」。 */
 const isServersAdminPath = (p: string) =>

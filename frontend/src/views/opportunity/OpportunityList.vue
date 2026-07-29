@@ -60,27 +60,78 @@
       </div>
     </section>
 
-    <!-- 图表区（左：趋势折线 右：分布环形）-->
-    <section class="chart-deck">
-      <div class="chart-col chart-col-main">
-        <div class="chart-card glass">
-          <div class="deck-title"><span class="deck-num">01</span><span class="deck-line"></span>商机总量趋势</div>
-          <v-chart class="chart-inner" :option="chart1Opt" autoresize />
+    <!-- AI 分析区（左：趋势洞察 右：业务排行）-->
+    <section class="ai-deck">
+      <div class="ai-card glass">
+        <div class="ai-header">
+          <div class="ai-title"><span class="ai-icon">🤖</span> 趋势洞察 <span class="ai-badge">AI</span></div>
+          <div class="ai-actions">
+            <router-link to="/ai-settings" class="ai-settings-link" title="AI 设置">
+              <SettingOutlined />
+            </router-link>
+            <button class="ai-refresh" @click="refreshInsights" :disabled="insightsLoading">
+              <span v-if="insightsLoading">⏳</span>
+              <span v-else>🔄</span>
+            </button>
+          </div>
         </div>
-        <div class="chart-card glass">
-          <div class="deck-title"><span class="deck-num">02</span><span class="deck-line"></span>配置平台趋势</div>
-          <v-chart class="chart-inner" :option="chart2Opt" autoresize />
+        <div class="ai-content" v-if="insights.length">
+          <div v-for="(item, idx) in insights" :key="idx" class="ai-item" :class="'ai-item-' + item.type">
+            <span class="ai-item-icon">{{ item.type === 'growth' ? '📈' : item.type === 'risk' ? '⚠️' : '💡' }}</span>
+            <span class="ai-item-text">{{ item.text }}</span>
+            <button class="ai-item-action" @click="askAssistantAboutInsight(item)" title="发给方案助手深入分析">
+              <span>深入分析</span>
+              <span class="ai-item-arrow">→</span>
+            </button>
+          </div>
+        </div>
+        <div class="ai-empty" v-else>
+          <span v-if="insightsLoading">分析中...</span>
+          <span v-else-if="!aiConfig.auto_generate">已关闭自动生成，点击刷新手动获取</span>
+          <span v-else>暂无洞察</span>
         </div>
       </div>
-      <div class="chart-col chart-col-side">
-        <div class="chart-card glass">
-          <div class="deck-title"><span class="deck-num">03</span><span class="deck-line"></span>平台分布</div>
-          <v-chart class="chart-inner chart-inner-pie" :option="pieOpt" autoresize @click="(p: any) => drillOn('platform', p.name)" />
+      <div class="ai-card glass">
+        <div class="ai-header">
+          <div class="ai-title">业务排行</div>
+          <span class="ai-period">{{ periodLabel }}</span>
         </div>
-        <div class="chart-card glass">
-          <div class="deck-title"><span class="deck-num">04</span><span class="deck-line"></span>机箱分布</div>
-          <v-chart class="chart-inner chart-inner-pie" :option="roseOpt" autoresize @click="(p: any) => drillOn('chassis', p.name)" />
+        <div class="rank-content" v-if="topSales.length">
+          <div v-for="(s, idx) in topSales" :key="s.name" class="rank-row">
+            <span class="rank-num" :class="{ 'rank-top': idx < 3 }">{{ idx + 1 }}</span>
+            <span class="rank-name">{{ s.name }}</span>
+            <div class="rank-bar-wrap">
+              <div class="rank-bar" :style="{ width: s.rate * 100 + '%' }"></div>
+            </div>
+            <span class="rank-count">{{ s.count }} 个</span>
+            <span class="rank-rate">{{ (s.rate * 100).toFixed(0) }}%</span>
+          </div>
+          <div class="rank-row rank-others" v-if="othersSales">
+            <span class="rank-num">—</span>
+            <span class="rank-name">其他 {{ othersSales.people }} 人</span>
+            <span class="rank-count">{{ othersSales.count }} 个</span>
+            <span class="rank-rate">{{ (othersSales.rate * 100).toFixed(0) }}%</span>
+          </div>
         </div>
+        <div class="ai-empty" v-else>暂无数据</div>
+      </div>
+    </section>
+
+    <!-- 图表区（合并切换）-->
+    <section class="chart-deck">
+      <div class="chart-card glass">
+        <div class="deck-header">
+          <div class="deck-title"><span class="deck-num">01</span><span class="deck-line"></span>趋势分析</div>
+          <a-segmented v-model:value="trendView" :options="trendOptions" size="small" />
+        </div>
+        <v-chart class="chart-inner" :option="currentTrendOpt" autoresize />
+      </div>
+      <div class="chart-card glass">
+        <div class="deck-header">
+          <div class="deck-title"><span class="deck-num">02</span><span class="deck-line"></span>结构分布</div>
+          <a-segmented v-model:value="distView" :options="distOptions" size="small" />
+        </div>
+        <v-chart class="chart-inner chart-inner-pie" :option="currentDistOpt" autoresize @click="(p: any) => drillOn(distView === 'platform' ? 'platform' : 'chassis', p.name)" />
       </div>
     </section>
       </main>
@@ -105,12 +156,14 @@
 
       <div class="filter-toolbar glass">
         <a-select v-model:value="filters.status" size="small" class="dark-select filter-fixed" @change="onFilterChange">
-          <a-select-option value="all">全部状态</a-select-option>
-          <a-select-option value="active">进行中</a-select-option>
+          <a-select-option value="all">全部</a-select-option>
+          <a-select-option value="pending">进行中</a-select-option>
+          <a-select-option value="won">已中标</a-select-option>
+          <a-select-option value="lost">已丢标</a-select-option>
           <a-select-option value="archived">已归档</a-select-option>
         </a-select>
         <a-select v-model:value="filters.platform" size="small" mode="multiple" placeholder="平台类型" :maxTagCount="1" class="dark-select filter-fixed" @change="onFilterChange">
-          <a-select-option v-for="s in platformOptions" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
+          <a-select-option v-for="s in seriesStore.items" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
           <a-select-option value="其他">其他</a-select-option>
         </a-select>
         <a-select v-model:value="filters.chassis" size="small" mode="multiple" placeholder="机箱形态" :maxTagCount="1" class="dark-select filter-fixed" @change="onFilterChange">
@@ -160,12 +213,13 @@
               <div class="opp-cell">
                 <div class="opp-cell-main">
                   <a class="opp-name" @click="goToDetail(record.opportunity_id)">{{ record.customer_name || '未命名客户' }}</a>
-                  <span class="cpq-led" :class="ledClass(record.status)">{{ statusText(record.status) }}</span>
+                  <a-tag :color="bizTagColor(record)" class="opp-status-tag">{{ bizStatusText(record) }}</a-tag>
                 </div>
                 <div class="opp-cell-meta">
                   <span class="meta" v-if="record.sales_person"><i>销售</i>{{ record.sales_person }}</span>
                   <span class="meta" v-if="record.platform_type"><i>平台</i>{{ record.platform_type }}</span>
                   <span class="meta" v-if="record.chassis_form"><i>机箱</i>{{ record.chassis_form }}</span>
+                  <span class="meta" v-if="record.industry"><i>行业</i>{{ record.industry }}</span>
                   <span class="meta" v-if="record.purchase_qty"><i>数量</i>{{ record.purchase_qty }}</span>
                   <span class="meta"><i>配置</i>{{ record.config_count ?? 0 }}</span>
                   <span class="meta meta-date"><i>创建</i>{{ formatDate(record.created_at) }}</span>
@@ -190,9 +244,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { SettingOutlined } from '@ant-design/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -203,14 +258,18 @@ import CountNumber from '@/components/common/CountNumber.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
 import { PLAT_COLOR } from '@/constants/platform'
 import dayjs from 'dayjs'
-import { useSeries } from '@/composables/useSeries'
+import { useSeriesStore } from '@/stores/series'
+import { useAssistant } from '@/composables/useAssistant'
+import { assistantApi } from '@/api/assistant'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
 
 const router = useRouter()
 const { chartColors } = useChartTheme()
 // 全平台系列权威源（system_config.server_series）：筛选下拉读这里，不再硬编码 Orion/Polaris
-const { items: platformOptions, ensureSeries } = useSeries()
+const seriesStore = useSeriesStore()
+// 方案助手（用于趋势洞察交互）
+const assistant = useAssistant()
 
 const periods = [
   { label: '本周', value: 'week' },
@@ -218,6 +277,147 @@ const periods = [
   { label: '本年', value: 'year' },
 ]
 const period = ref('week')
+
+// 周期显示文本
+const periodLabel = computed(() => {
+  if (customRange.value) return customRange.value.shortLabel
+  const p = periods.find(p => p.value === period.value)
+  return p?.label || ''
+})
+
+// 图表切换状态
+const trendView = ref<'opp' | 'platform'>('opp')
+const distView = ref<'platform' | 'chassis'>('platform')
+const trendOptions = [
+  { value: 'opp', label: '商机趋势' },
+  { value: 'platform', label: '平台趋势' },
+]
+const distOptions = [
+  { value: 'platform', label: '平台' },
+  { value: 'chassis', label: '机箱' },
+]
+
+// AI 趋势洞察配置
+interface InsightsConfig {
+  auto_generate: boolean
+  insight_count: number
+  dimensions: string[]
+  data_scope: string[]
+  depth: string
+}
+const aiConfig = ref<InsightsConfig>({
+  auto_generate: true,
+  insight_count: 3,
+  dimensions: ['growth', 'risk', 'suggestion'],
+  data_scope: ['kpi', 'platform', 'sales', 'trend'],
+  depth: 'brief',
+})
+const configLoaded = ref(false)
+
+// AI 趋势洞察
+interface InsightItem { type: 'growth' | 'risk' | 'suggestion'; text: string }
+const insights = ref<InsightItem[]>([])
+const insightsLoading = ref(false)
+async function loadAiConfig() {
+  try {
+    const res = await axios.get('/api/system-config/ai_insights_config/value')
+    if (res.data.value) {
+      aiConfig.value = { ...aiConfig.value, ...res.data.value }
+    }
+  } catch (err) {
+    console.error('加载 AI 配置失败:', err)
+  } finally {
+    configLoaded.value = true
+  }
+}
+async function refreshInsights() {
+  insightsLoading.value = true
+  try {
+    const params: any = {}
+    if (customRange.value) { params.start = customRange.value.start; params.end = customRange.value.end }
+    else { params.period = period.value }
+
+    const res = await axios.get('/api/dashboard/ai-insights', { params })
+    insights.value = res.data.insights || []
+  } catch (err: any) {
+    console.error('获取 AI 洞察失败:', err)
+    insights.value = [
+      { type: 'growth', text: `本期新增 ${summary.value.kpi?.new_opportunities || 0} 个商机` },
+      { type: 'risk', text: '获取洞察失败，请稍后刷新' },
+      { type: 'suggestion', text: '建议关注平台分布变化' },
+    ]
+  } finally {
+    insightsLoading.value = false
+  }
+}
+
+// 点击洞察 → 发给方案助手深入分析
+async function askAssistantAboutInsight(insight: InsightItem) {
+  // 1. 构造上下文
+  const context = buildTrendContext()
+
+  // 2. 根据洞察类型构造问题
+  const typeLabel = insight.type === 'growth' ? '增长信号' : insight.type === 'risk' ? '风险预警' : '行动建议'
+  const question = `关于趋势洞察「${insight.text}」（${typeLabel}），请详细分析原因和具体应对建议`
+
+  // 3. 确保助手已初始化
+  if (assistant.threads.value.length === 0) {
+    await assistant.loadThreads()
+  }
+  if (!assistant.currentThreadId.value) {
+    await assistant.newThread()
+  }
+
+  // 4. 发送给助手
+  await assistant.send(question, context)
+
+  // 5. 提示用户打开助手面板
+  message.info('已发送给方案助手，点击右下角按钮查看')
+}
+
+// 构造趋势上下文（发送给助手）
+function buildTrendContext(): string {
+  const kpi = summary.value.kpi || {}
+  const platforms = (summary.value.structure?.platforms || []).map((p: any) => `${p.name}:${p.count}`).join(', ')
+  return `【当前数据概览】
+时间周期：${periodLabel.value}
+总商机：${kpi.total_opportunities || 0}
+总配置：${kpi.total_configs || 0}
+新增商机：${kpi.new_opportunities || 0}
+新增配置：${kpi.new_configs || 0}
+平台分布：${platforms || '无'}`
+}
+
+// 业务排行（从 summary 数据读取）
+interface SalesRank { name: string; count: number; rate: number }
+const topSales = ref<SalesRank[]>([])
+const othersSales = ref<{ count: number; rate: number; people: number } | null>(null)
+
+function computeSalesRank() {
+  const data = (summary.value as any).sales_rank
+  if (!data || !data.top) {
+    topSales.value = []
+    othersSales.value = null
+    return
+  }
+
+  const total = data.total || 1
+  topSales.value = data.top.map((s: any) => ({
+    name: s.name,
+    count: s.count,
+    rate: s.count / total,
+  }))
+
+  if (data.others && data.others.count > 0) {
+    othersSales.value = {
+      count: data.others.count,
+      rate: data.others.count / total,
+      people: data.others.people,
+    }
+  } else {
+    othersSales.value = null
+  }
+}
 
 // 自定义区间：上周/上月/去年/近30/近90/指定月/任意区间
 type CustomRange = { key: string; start: string; end: string; shortLabel: string }
@@ -462,6 +662,10 @@ const roseOpt = computed(() => {
   }
 })
 
+// 图表切换
+const currentTrendOpt = computed(() => trendView.value === 'opp' ? chart1Opt.value : chart2Opt.value)
+const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.value : roseOpt.value)
+
 // Table（保留）
 const tableData = ref<any[]>([])
 const tableLoading = ref(false)
@@ -469,18 +673,59 @@ const tablePage = ref(1)
 const tablePageSize = ref(8)
 const tableTotal = ref(0)
 const tableColumns = [{ title: '商机', dataIndex: 'info' }]
+
+// 监听 summary 变化，重新计算业务排行
+watch(() => summary.value, computeSalesRank, { deep: true })
+// 用户手选过 pageSize 后，停止自适应（尊重用户选择，resize 不再覆盖）
+const userPickedPageSize = ref(false)
 const tablePagination = computed(() => ({
   current: tablePage.value, pageSize: tablePageSize.value, total: tableTotal.value,
   showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条`,
-  pageSizeOptions: ['8', '10', '20', '50'],
+  pageSizeOptions: ['5', '8', '10', '15', '20', '30', '50'],
 }))
 function onTableChange(pag: any) {
   tablePage.value = pag.current || 1
-  tablePageSize.value = pag.pageSize || 20
+  if (pag.pageSize && pag.pageSize !== tablePageSize.value) {
+    tablePageSize.value = pag.pageSize
+    userPickedPageSize.value = true
+  }
   loadTable()
 }
-function statusText(s: string) { return ({ active: '进行中', archived: '已归档', deleted: '已删除' } as any)[s] || s }
-function ledClass(s: string) { return ({ active: 'cpq-led--active', archived: 'cpq-led--muted', deleted: 'cpq-led--danger' } as any)[s] || 'cpq-led--muted' }
+
+// 列表 pageSize 自适应容器高度：高屏多显示、矮屏少显示。
+// 行高/预留高度为估算值（a-table small + 两行 cell）；用户手选 pageSize 后停止自适应。
+const ADAPTIVE_ROW_H = 58
+const ADAPTIVE_RESERVED_H = 120
+const ADAPTIVE_MIN = 5
+const ADAPTIVE_MAX = 50
+function computeAdaptivePageSize(): number {
+  const el = document.querySelector('.table-section') as HTMLElement | null
+  if (!el) return tablePageSize.value
+  const usable = el.clientHeight - ADAPTIVE_RESERVED_H
+  if (usable <= 0) return ADAPTIVE_MIN
+  return Math.min(ADAPTIVE_MAX, Math.max(ADAPTIVE_MIN, Math.floor(usable / ADAPTIVE_ROW_H)))
+}
+let resizeTimer: ReturnType<typeof setTimeout> | undefined
+function onListResize() {
+  if (resizeTimer) clearTimeout(resizeTimer)
+  resizeTimer = setTimeout(async () => {
+    if (userPickedPageSize.value) return
+    const next = computeAdaptivePageSize()
+    if (next !== tablePageSize.value) {
+      tablePageSize.value = next
+      tablePage.value = 1
+      await loadTable()
+    }
+  }, 200)
+}
+function bizStatusText(r: any) {
+  if (r?.status === 'archived') return '已归档'
+  return ({ pending: '进行中', won: '已中标', lost: '已丢标' } as any)[r?.result] || '进行中'
+}
+function bizTagColor(r: any) {
+  if (r?.status === 'archived') return 'default'
+  return ({ pending: 'processing', won: 'success', lost: 'error' } as any)[r?.result] || 'default'
+}
 function formatDate(s: string) { return s ? s.slice(0, 10) : '-' }
 function goToDetail(id: string) { router.push(`/opportunities/${id}`) }
 function goToRecycleBin() { router.push('/recycle-bin') }
@@ -506,7 +751,10 @@ async function loadTable() {
   try {
     const params: any = { page: tablePage.value, page_size: tablePageSize.value }
     if (filters.value.search) params.search = filters.value.search
-    if (filters.value.status !== 'all') params.status = filters.value.status
+    if (filters.value.status !== 'all') {
+      if (filters.value.status === 'archived') params.status = 'archived'
+      else params.result = filters.value.status
+    }
     if (drill.value.platform) {
       params.platform = drill.value.platform
     } else if (Array.isArray(filters.value.platform) && filters.value.platform.length > 0) {
@@ -525,6 +773,46 @@ async function loadTable() {
   } finally {
     tableLoading.value = false
   }
+  syncListState()
+}
+
+// 列表分页/筛选状态持久化到 sessionStorage，跳详情再回来可恢复
+// （不依赖 URL query —— 详情页返回按钮用 router.push('/opportunities') 不带 query，URL 方案会被击穿）
+const LIST_STATE_KEY = 'opp_list_state'
+function restoreListState() {
+  let s: any = null
+  try { s = JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) || '') } catch { return }
+  if (!s) return
+  if (s.page) tablePage.value = Number(s.page) || 1
+  if (s.status) filters.value.status = String(s.status)
+  if (Array.isArray(s.platform)) filters.value.platform = s.platform
+  if (Array.isArray(s.chassis)) filters.value.chassis = s.chassis
+  if (typeof s.search === 'string') filters.value.search = s.search
+  if (s.drill_platform) drill.value.platform = String(s.drill_platform)
+  if (s.drill_chassis) drill.value.chassis = String(s.drill_chassis)
+  if (drill.value.platform || drill.value.chassis) {
+    drill.value.active = true
+    const parts: string[] = []
+    if (drill.value.platform) parts.push(`平台: ${drill.value.platform}`)
+    if (drill.value.chassis) parts.push(`机箱: ${drill.value.chassis}`)
+    drill.value.label = parts.join(' + ')
+  }
+  if (s.sort) sortBy.value = String(s.sort)
+}
+
+function syncListState() {
+  try {
+    sessionStorage.setItem(LIST_STATE_KEY, JSON.stringify({
+      page: tablePage.value,
+      status: filters.value.status,
+      platform: filters.value.platform,
+      chassis: filters.value.chassis,
+      search: filters.value.search,
+      drill_platform: drill.value.platform,
+      drill_chassis: drill.value.chassis,
+      sort: sortBy.value,
+    }))
+  } catch { /* sessionStorage 不可用时静默降级 */ }
 }
 
 // Create modal（保留）
@@ -559,19 +847,44 @@ async function loadSummary() {
 }
 async function reloadAll() {
   await loadSummary()
+  // AI 洞察：根据配置决定是否自动生成
+  if (configLoaded.value && aiConfig.value.auto_generate) {
+    refreshInsights() // 异步，不阻塞
+  }
   tablePage.value = 1
-  loadTable()
+  await loadTable() // tableData 加载后会自动触发 computeSalesRank
 }
 function setPeriod(p: string) { customRange.value = null; period.value = p }
 
-onMounted(() => {
+onMounted(async () => {
   tick()
   clockTimer = setInterval(tick, 1000)
-  ensureSeries()
-  reloadAll()
+  seriesStore.ensureSeries()
+  restoreListState()
+  // 加载 AI 配置
+  await loadAiConfig()
+  // 首屏自适应 pageSize（等布局稳定），再加载全部数据
+  nextTick(() => {
+    if (!userPickedPageSize.value) {
+      const adapt = computeAdaptivePageSize()
+      if (adapt !== tablePageSize.value) tablePageSize.value = adapt
+    }
+    reloadAll()
+  })
+  window.addEventListener('resize', onListResize)
 })
-onBeforeUnmount(() => { if (clockTimer) clearInterval(clockTimer) })
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
+  if (resizeTimer) clearTimeout(resizeTimer)
+  window.removeEventListener('resize', onListResize)
+})
 watch([() => period.value, () => customRange.value], () => reloadAll())
+// 折叠/展开侧栏会改变列表容器高度，展开后重算
+watch(listCollapsed, async (v) => {
+  if (v) return
+  await nextTick()
+  onListResize()
+})
 </script>
 
 <style scoped>
@@ -614,20 +927,60 @@ watch([() => period.value, () => customRange.value], () => reloadAll())
   letter-spacing: -0.02em; text-shadow: var(--cpq-reading-glow);
 }
 
+/* AI 分析区 */
+.ai-deck { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: none; }
+.ai-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; gap: 10px; }
+.ai-header { display: flex; justify-content: space-between; align-items: center; }
+.ai-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px; }
+.ai-icon { font-size: 14px; }
+.ai-badge { font-size: 9px; font-weight: 600; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a15); padding: 1px 6px; border-radius: 4px; letter-spacing: 0.5px; }
+.ai-actions { display: flex; align-items: center; gap: 8px; }
+.ai-settings-link { color: var(--cpq-text-muted); font-size: 12px; padding: 4px; border-radius: 4px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.ai-settings-link:hover { color: var(--cpq-accent-primary); background: var(--cpq-overlay-w6); }
+.ai-refresh { background: transparent; border: 1px solid var(--cpq-overlay-w15); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.ai-refresh:hover:not(:disabled) { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+.ai-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+.ai-period { font-size: 11px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); padding: 2px 8px; border-radius: 4px; }
+.ai-content { display: flex; flex-direction: column; gap: 8px; }
+.ai-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; padding: 6px 8px; border-radius: 6px; transition: background var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.ai-item:hover { background: var(--cpq-overlay-w5); }
+.ai-item-icon { flex-shrink: 0; font-size: 12px; }
+.ai-item-text { flex: 1; color: var(--cpq-text-secondary); }
+.ai-item-growth .ai-item-text { color: var(--cpq-accent-success); }
+.ai-item-risk .ai-item-text { color: var(--cpq-accent-warning); }
+.ai-item-suggestion .ai-item-text { color: var(--cpq-accent-primary); }
+.ai-item-action { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--cpq-overlay-w15); border-radius: 4px; background: transparent; color: var(--cpq-text-muted); font-size: 11px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.ai-item-action:hover { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
+.ai-item-arrow { font-size: 10px; }
+.ai-empty { text-align: center; padding: 16px; color: var(--cpq-text-muted); font-size: 12px; }
+
+/* 业务排行 */
+.rank-content { display: flex; flex-direction: column; gap: 8px; }
+.rank-row { display: grid; grid-template-columns: 20px 70px 1fr 45px 36px; align-items: center; gap: 8px; font-size: 12px; }
+.rank-num { font-weight: 600; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
+.rank-num.rank-top { color: var(--cpq-accent-primary); }
+.rank-name { color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rank-bar-wrap { height: 6px; background: var(--cpq-overlay-w10); border-radius: 3px; overflow: hidden; }
+.rank-bar { height: 100%; background: linear-gradient(90deg, var(--cpq-accent-primary), var(--cpq-accent-success)); border-radius: 3px; transition: width var(--cpq-dur-2) var(--cpq-ease-smooth); }
+.rank-count { color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
+.rank-rate { color: var(--cpq-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
+.rank-others { border-top: 1px dashed var(--cpq-overlay-w10); padding-top: 8px; margin-top: 4px; }
+.rank-others .rank-bar-wrap { display: none; }
+
 /* 图表区 */
-.chart-deck { display: grid; grid-template-columns: 1.85fr 1fr; gap: 14px; align-items: start; }
-.chart-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); }
-.deck-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); margin-bottom: 8px; letter-spacing: 0.5px; }
+.chart-deck { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; flex: 1 1 0; min-height: 200px; }
+.chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-height: 0; }
+.deck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex: none; }
+.deck-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); letter-spacing: 0.5px; }
 .deck-num { font-size: 11px; font-weight: 700; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; padding: 1px 6px; border: 1px solid var(--cpq-overlay-a20); border-radius: 4px; background: var(--cpq-overlay-a8); }
 .deck-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--cpq-overlay-a15), transparent); }
-.chart-inner { height: 220px; }
-.chart-inner-pie { height: 220px; cursor: pointer; }
+.chart-inner { flex: 1 1 0; min-height: 120px; }
+.chart-inner-pie { cursor: pointer; }
 
 /* 列表 */
-.cockpit-body { display: flex; gap: 14px; align-items: stretch; }
-.main-area { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.list-panel { position: relative; flex: 0 0 38%; min-width: 420px; max-width: 560px; overflow: hidden; transition: flex-basis var(--cpq-dur-2) var(--cpq-ease-smooth), width var(--cpq-dur-2) var(--cpq-ease-smooth); }
+.cockpit-body { display: flex; gap: 14px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
+.main-area { flex: 1 1 1px; min-width: 500px; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.list-panel { position: relative; flex: 0 0 420px; min-width: 420px; max-width: 560px; overflow: hidden; transition: flex-basis var(--cpq-dur-2) var(--cpq-ease-smooth), width var(--cpq-dur-2) var(--cpq-ease-smooth); }
 .list-panel.collapsed { flex: 0 0 48px; min-width: 48px; max-width: 48px; }
 .list-toggle { position: absolute; top: 0; right: 0; z-index: 2; padding: 5px 12px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .list-toggle:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
@@ -695,11 +1048,13 @@ watch([() => period.value, () => customRange.value], () => reloadAll())
 }
 @media (max-width: 1200px) {
   .kpi-deck { grid-template-columns: repeat(2, 1fr); }
+  .ai-deck { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .chart-deck { grid-template-columns: 1fr; }
   .kpi-deck { grid-template-columns: 1fr; }
   .cockpit-header { flex-wrap: wrap; }
   .cockpit-live { margin-left: 0; }
+  .ai-deck { grid-template-columns: 1fr; }
 }
 </style>
