@@ -60,37 +60,8 @@
       </div>
     </section>
 
-    <!-- AI 分析区（左：趋势洞察 右：业务排行）-->
+    <!-- 业务排行 -->
     <section class="ai-deck">
-      <div class="ai-card glass">
-        <div class="ai-header">
-          <div class="ai-title"><span class="ai-icon">🤖</span> 趋势洞察 <span class="ai-badge">AI</span></div>
-          <div class="ai-actions">
-            <router-link to="/ai-settings" class="ai-settings-link" title="AI 设置">
-              <SettingOutlined />
-            </router-link>
-            <button class="ai-refresh" @click="refreshInsights" :disabled="insightsLoading">
-              <span v-if="insightsLoading">⏳</span>
-              <span v-else>🔄</span>
-            </button>
-          </div>
-        </div>
-        <div class="ai-content" v-if="insights.length">
-          <div v-for="(item, idx) in insights" :key="idx" class="ai-item" :class="'ai-item-' + item.type">
-            <span class="ai-item-icon">{{ item.type === 'growth' ? '📈' : item.type === 'risk' ? '⚠️' : '💡' }}</span>
-            <span class="ai-item-text">{{ item.text }}</span>
-            <button class="ai-item-action" @click="askAssistantAboutInsight(item)" title="发给方案助手深入分析">
-              <span>深入分析</span>
-              <span class="ai-item-arrow">→</span>
-            </button>
-          </div>
-        </div>
-        <div class="ai-empty" v-else>
-          <span v-if="insightsLoading">分析中...</span>
-          <span v-else-if="!aiConfig.auto_generate">已关闭自动生成，点击刷新手动获取</span>
-          <span v-else>暂无洞察</span>
-        </div>
-      </div>
       <div class="ai-card glass">
         <div class="ai-header">
           <div class="ai-title">业务排行</div>
@@ -247,7 +218,6 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { SettingOutlined } from '@ant-design/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
@@ -259,7 +229,6 @@ import { useChartTheme } from '@/composables/useChartTheme'
 import { PLAT_COLOR } from '@/constants/platform'
 import dayjs from 'dayjs'
 import { useSeriesStore } from '@/stores/series'
-import { useAssistant } from '@/composables/useAssistant'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
 
@@ -267,8 +236,6 @@ const router = useRouter()
 const { chartColors } = useChartTheme()
 // 全平台系列权威源（system_config.server_series）：筛选下拉读这里，不再硬编码 Orion/Polaris
 const seriesStore = useSeriesStore()
-// 方案助手（用于趋势洞察交互）
-const assistant = useAssistant()
 
 const periods = [
   { label: '本周', value: 'week' },
@@ -295,97 +262,6 @@ const distOptions = [
   { value: 'platform', label: '平台' },
   { value: 'chassis', label: '机箱' },
 ]
-
-// AI 趋势洞察配置
-interface InsightsConfig {
-  auto_generate: boolean
-  insight_count: number
-  dimensions: string[]
-  data_scope: string[]
-  depth: string
-}
-const aiConfig = ref<InsightsConfig>({
-  auto_generate: true,
-  insight_count: 3,
-  dimensions: ['growth', 'risk', 'suggestion'],
-  data_scope: ['kpi', 'platform', 'sales', 'trend'],
-  depth: 'brief',
-})
-const configLoaded = ref(false)
-
-// AI 趋势洞察
-interface InsightItem { type: 'growth' | 'risk' | 'suggestion'; text: string }
-const insights = ref<InsightItem[]>([])
-const insightsLoading = ref(false)
-async function loadAiConfig() {
-  try {
-    const res = await axios.get('/api/system-config/ai_insights_config/value')
-    if (res.data.value) {
-      aiConfig.value = { ...aiConfig.value, ...res.data.value }
-    }
-  } catch (err) {
-    console.error('加载 AI 配置失败:', err)
-  } finally {
-    configLoaded.value = true
-  }
-}
-async function refreshInsights() {
-  insightsLoading.value = true
-  try {
-    const params: any = {}
-    if (customRange.value) { params.start = customRange.value.start; params.end = customRange.value.end }
-    else { params.period = period.value }
-
-    const res = await axios.get('/api/dashboard/ai-insights', { params })
-    insights.value = res.data.insights || []
-  } catch (err: any) {
-    console.error('获取 AI 洞察失败:', err)
-    insights.value = [
-      { type: 'growth', text: `本期新增 ${summary.value.kpi?.new_opportunities || 0} 个商机` },
-      { type: 'risk', text: '获取洞察失败，请稍后刷新' },
-      { type: 'suggestion', text: '建议关注平台分布变化' },
-    ]
-  } finally {
-    insightsLoading.value = false
-  }
-}
-
-// 点击洞察 → 发给方案助手深入分析
-async function askAssistantAboutInsight(insight: InsightItem) {
-  // 1. 构造上下文
-  const context = buildTrendContext()
-
-  // 2. 根据洞察类型构造问题
-  const typeLabel = insight.type === 'growth' ? '增长信号' : insight.type === 'risk' ? '风险预警' : '行动建议'
-  const question = `关于趋势洞察「${insight.text}」（${typeLabel}），请详细分析原因和具体应对建议`
-
-  // 3. 确保助手已初始化
-  if (assistant.threads.value.length === 0) {
-    await assistant.loadThreads()
-  }
-  if (!assistant.currentThreadId.value) {
-    await assistant.newThread()
-  }
-
-  // 4. 发送给助手
-  await assistant.send(question, context)
-
-  // 5. 提示用户打开助手面板
-  message.info('已发送给方案助手，点击右下角按钮查看')
-}
-
-// 构造趋势上下文（发送给助手）
-function buildTrendContext(): string {
-  const kpi: Record<string, any> = summary.value.kpi || {}
-  const platforms = (summary.value.structure?.platforms || []).map((p: any) => `${p.name}:${p.count}`).join(', ')
-  return `【当前数据概览】
-时间周期：${periodLabel.value}
-总商机：${kpi.total_opportunities || 0}
-总配置：${kpi.total_configs || 0}
-新增商机：${kpi.new_opportunities || 0}
-新增配置：${kpi.new_configs || 0}
-平台分布：${platforms || '无'}`
-}
 
 // 业务排行（从 summary 数据读取）
 interface SalesRank { name: string; count: number; rate: number }
@@ -846,10 +722,6 @@ async function loadSummary() {
 }
 async function reloadAll() {
   await loadSummary()
-  // AI 洞察：根据配置决定是否自动生成
-  if (configLoaded.value && aiConfig.value.auto_generate) {
-    refreshInsights() // 异步，不阻塞
-  }
   tablePage.value = 1
   await loadTable() // tableData 加载后会自动触发 computeSalesRank
 }
@@ -860,8 +732,6 @@ onMounted(async () => {
   clockTimer = setInterval(tick, 1000)
   seriesStore.ensureSeries()
   restoreListState()
-  // 加载 AI 配置
-  await loadAiConfig()
   // 首屏自适应 pageSize（等布局稳定），再加载全部数据
   nextTick(() => {
     if (!userPickedPageSize.value) {
@@ -927,30 +797,11 @@ watch(listCollapsed, async (v) => {
 }
 
 /* AI 分析区 */
-.ai-deck { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; flex: none; }
+.ai-deck { display: grid; grid-template-columns: 1fr; gap: 14px; flex: none; }
 .ai-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; gap: 10px; }
 .ai-header { display: flex; justify-content: space-between; align-items: center; }
 .ai-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px; }
-.ai-icon { font-size: 14px; }
-.ai-badge { font-size: 9px; font-weight: 600; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a15); padding: 1px 6px; border-radius: 4px; letter-spacing: 0.5px; }
-.ai-actions { display: flex; align-items: center; gap: 8px; }
-.ai-settings-link { color: var(--cpq-text-muted); font-size: 12px; padding: 4px; border-radius: 4px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.ai-settings-link:hover { color: var(--cpq-accent-primary); background: var(--cpq-overlay-w6); }
-.ai-refresh { background: transparent; border: 1px solid var(--cpq-overlay-w15); border-radius: 6px; padding: 3px 8px; cursor: pointer; font-size: 12px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.ai-refresh:hover:not(:disabled) { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
-.ai-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
 .ai-period { font-size: 11px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); padding: 2px 8px; border-radius: 4px; }
-.ai-content { display: flex; flex-direction: column; gap: 8px; }
-.ai-item { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; padding: 6px 8px; border-radius: 6px; transition: background var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.ai-item:hover { background: var(--cpq-overlay-w5); }
-.ai-item-icon { flex-shrink: 0; font-size: 12px; }
-.ai-item-text { flex: 1; color: var(--cpq-text-secondary); }
-.ai-item-growth .ai-item-text { color: var(--cpq-accent-success); }
-.ai-item-risk .ai-item-text { color: var(--cpq-accent-warning); }
-.ai-item-suggestion .ai-item-text { color: var(--cpq-accent-primary); }
-.ai-item-action { flex-shrink: 0; display: flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--cpq-overlay-w15); border-radius: 4px; background: transparent; color: var(--cpq-text-muted); font-size: 11px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.ai-item-action:hover { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
-.ai-item-arrow { font-size: 10px; }
 .ai-empty { text-align: center; padding: 16px; color: var(--cpq-text-muted); font-size: 12px; }
 
 /* 业务排行 */

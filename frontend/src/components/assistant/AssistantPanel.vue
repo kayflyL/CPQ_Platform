@@ -68,6 +68,20 @@
           </div>
         </div>
 
+        <!-- 快捷指令（按当前页 provider 条件渲染）-->
+        <div class="ap-quick" v-if="visibleQuickActions.length">
+          <button
+            v-for="a in visibleQuickActions"
+            :key="a.key"
+            class="ap-quick-chip"
+            :disabled="sending"
+            @click="onQuickAction(a)"
+          >
+            <span v-if="a.icon" class="ap-quick-icon">{{ a.icon }}</span>
+            <span>{{ a.label }}</span>
+          </button>
+        </div>
+
         <!-- 输入 -->
         <div class="ap-input">
           <a-textarea
@@ -91,7 +105,7 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { Modal } from 'ant-design-vue'
 import { useAssistant } from '@/composables/useAssistant'
-import { useAssistantContext } from '@/composables/assistantContext'
+import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
 import { useAssistantFab, computePanelAnchor } from '@/composables/useAssistantFab'
 
 const props = defineProps<{ open: boolean }>()
@@ -102,7 +116,7 @@ const {
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
 } = useAssistant()
 
-const { contextLabel, summarize } = useAssistantContext()
+const { contextLabel, summarize, visibleQuickActions } = useAssistantContext()
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
@@ -241,6 +255,14 @@ async function onSend() {
   draft.value = ''
   const summary = await summarize()
   await send(text, summary)
+}
+
+// 快捷指令：prompt 可为函数（动态读配置，如趋势分析）；context 缺省走通用 provider 摘要
+async function onQuickAction(action: QuickAction) {
+  if (sending.value) return
+  const prompt = typeof action.prompt === 'function' ? await action.prompt() : action.prompt
+  const ctx = action.context ? await action.context() : await summarize()
+  await send(prompt, ctx)
 }
 
 async function onNewThread() {
@@ -385,6 +407,38 @@ function onDeleteThread(id: string) {
   overflow-y: auto;
   padding: 12px 14px;
   min-height: 0;
+}
+.ap-quick {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--cpq-overlay-w4);
+}
+.ap-quick-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border: 1px solid var(--cpq-overlay-w15);
+  border-radius: 999px;
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+.ap-quick-chip:hover:not(:disabled) {
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8);
+}
+.ap-quick-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.ap-quick-icon {
+  font-size: 12px;
 }
 .ap-spin {
   display: flex;

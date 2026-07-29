@@ -1,6 +1,6 @@
 # CPQ Platform 前端页面文档
 
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 
 > 本文档按功能模块组织，记录每个页面的路由、功能、API 端点和数据库表映射。  
 > 用途：方案编写参考 + 新会话快速上下文加载。
@@ -30,7 +30,7 @@ frontend-pages/
 ├── strategies/            ← 策略中心模块
 │   └── strategies.md      ← 策略中心管理页（4域6种type+三维scope+L3溯源）
 └── settings/              ← 设置模块
-    ├── ai-settings.md     ← AI 设置（趋势洞察/方案助手/API配置）
+    ├── ai-settings.md     ← AI 设置（方案助手/趋势分析/API 配置）
     ├── excel-parser.md    ← Excel 解析调试
     ├── export-templates.md ← 导出模板管理
     └── field-management.md ← 字段管理

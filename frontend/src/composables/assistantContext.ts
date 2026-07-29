@@ -9,7 +9,7 @@
 import { computed, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
-import { contextProviders } from '@/composables/assistantProviders'
+import { contextProviders, assistantQuickActions } from '@/composables/assistantProviders'
 
 export interface ProviderCtx {
   route: ReturnType<typeof useRoute>
@@ -21,6 +21,19 @@ export interface ContextProvider {
   label: string
   match: (ctx: ProviderCtx) => boolean
   summarize: (ctx: ProviderCtx) => Promise<string>
+}
+
+/** 助手快捷指令：绑到某个 provider，仅在该 provider 激活的页面渲染。 */
+export interface QuickAction {
+  key: string
+  label: string
+  icon?: string
+  /** 命中该 key 的 provider 激活时才显示 */
+  providerKey: string
+  /** 点击后发出的指令文本；可为函数以动态读取配置（如趋势分析 prompt） */
+  prompt: string | (() => Promise<string>)
+  /** 可选：自定义上下文构造（缺省走通用 provider summarize） */
+  context?: () => Promise<string>
 }
 
 // Provider 配置（从后端读取）
@@ -77,6 +90,11 @@ export function useAssistantContext() {
     return labels.length ? labels.join(' · ') : ''
   })
 
+  const visibleQuickActions = computed(() => {
+    const activeKeys = new Set(activeProviders.value.map((p) => p.key))
+    return assistantQuickActions.filter((a) => activeKeys.has(a.providerKey))
+  })
+
   async function summarize(): Promise<string> {
     const active = activeProviders.value
     if (!active.length) return ''
@@ -96,5 +114,5 @@ export function useAssistantContext() {
     return parts.join('\n\n')
   }
 
-  return { activeProviders, contextLabel, summarize, providerConfig, loadProviderConfig }
+  return { activeProviders, contextLabel, summarize, providerConfig, loadProviderConfig, visibleQuickActions }
 }

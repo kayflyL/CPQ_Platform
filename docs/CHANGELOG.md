@@ -1,10 +1,31 @@
 # 更新日志
 
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 
 本文件记录 CPQ Platform 的重要变更。
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+---
+
+## [0.1.21] - 2026-07-30
+
+> 🎯 **本版本主题：趋势洞察重构——从「独立卡片」下沉为方案助手快捷指令，并增强为可配置 prompt + 富格式报告。** 删除商机线索页的趋势洞察卡片（及独立配置 / 后端端点），能力并入方案助手对话；快捷指令的提示词模板可在 AI 设置配置（反对硬编码），上下文由新接口 `/api/dashboard/trend-overview` 一次取齐周/月/近半年聚合 + 近期重点商机，LLM 据此输出 8 段结构化报告。
+
+### 重构
+
+- **趋势洞察卡片下沉为方案助手快捷指令**：删除商机线索页「趋势洞察」独立卡片、`/api/dashboard/ai-insights` 端点、`ai_insights_config` 配置及其种子；能力并入方案助手「📈 分析本期趋势」快捷指令（商机线索页助手面板一键触发）。AI 设置「趋势洞察」tab 移除，业务数据上下文由 `opportunity-list` provider 自动注入
+
+### 新增
+
+- **趋势分析富格式报告**：快捷指令动态读取 `ai_trend_analysis.prompt_template`（AI 设置「趋势分析」tab 可编辑，反对硬编码），调用 `/api/dashboard/trend-overview?limit=N` 取「周/月/近半年」三周期聚合 + 近期重点商机明细（客户/平台/机箱/台数/`lost_reason`），LLM 输出 8 段结构化报告（周数据/月数据/半年逐月环比/平台格局/机箱形态/半年 TOP5/近期重点商机/关键洞察）。归因允许推测但须标注「推测/待核实」，未提供数据禁止编造
+- **快捷指令机制升级**：`QuickAction` 的 `prompt` 与 `context` 均支持函数——前者动态读取配置，后者自定义富上下文（缺省走通用 provider 摘要）；`AssistantPanel.onQuickAction` 通用化，新增指令只需追加 `assistantQuickActions` 数组
+- **AI 设置「趋势分析」tab**：提示词模板（textarea）+ 重点商机条数（slider 5–20）
+- **`/api/dashboard/trend-overview` 接口**：一次返回周/月/近半年聚合（复用 `get_dashboard_summary`）+ 近期重点商机（近半年按 `purchase_qty` 降序 Top N，含 `lost_reason`）
+
+### 修复
+
+- **`get_trend_overview` 裸调路由函数报 500**：内部调用 `get_dashboard_summary(period="week")` 时，未传的 `start`/`end` 拿到的是路由签名的 `Query` 默认对象（非 `None`），被 `_resolve_range` 当字符串 `strptime` 抛 `TypeError`。改为显式传 `start/end` 修复。教训：带 `Query` 默认值的路由函数不能当普通函数裸调
 
 ---
 

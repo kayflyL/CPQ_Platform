@@ -4,13 +4,10 @@ from typing import Optional, List
 from fastapi import APIRouter, Query
 from sqlalchemy import func
 import json
-import asyncio
 
 from app.models.opportunity import Opportunity
 from app.models.quotation import Quotation
 from app.models.base import Opportunity_SessionLocal
-from app.services.llm_client import stream_chat, LLMError
-from app.repository.system_config_repo import SystemConfigRepository
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -225,159 +222,59 @@ def get_dashboard_summary(
         session.close()
 
 
-@router.get("/ai-insights")
-def get_ai_insights(
-    period: str = Query(default="week"),
-    start: Optional[str] = Query(default=None),
-    end: Optional[str] = Query(default=None),
-):
-    """基于当前统计数据生成 AI 趋势洞察"""
-    import asyncio
+@router.get("/trend-overview")
+def get_trend_overview(limit: int = Query(default=10, ge=5, le=20)):
+    """趋势分析富数据:周 / 月 / 近半年三周期聚合 + 近期重点商机明细。
 
-    # 1. 获取统计数据
-    summary = get_dashboard_summary(period, start, end)
+    供方案助手「分析本期趋势」快捷指令注入,一次取齐避免前端多次请求。
+    近半年走 start/end(_resolve_range 无 half_year 枚举)→ 自动按月分桶,可算逐月环比。
+    重点商机近半年内按 purchase_qty 降序取 Top `limit`,带 lost_reason(常含价格反馈)。
+    """
+    today = datetime.now()
+    half_start = (today - timedelta(days=180)).strftime("%Y-%m-%d")
+    today_str = today.strftime("%Y-%m-%d")
 
-    # 2. 读取 AI 设置（所有配置从 system_config 读取，拒绝硬编码）
-    config_repo = SystemConfigRepository()
+    # 三周期聚合(复用 summary)
+    # 注意：显式传 start/end=None 覆盖路由签名里的 Query 默认对象，否则 Query 对象
+    # 会被 _resolve_range 当成非空字符串，strptime 报 TypeError（路由函数不能当普通函数裸调）。
+    week_summary = get_dashboard_summary(period="week", start=None, end=None)
+    month_summary = get_dashboard_summary(period="month", start=None, end=None)
+    half_summary = get_dashboard_summary(period="year", start=half_start, end=today_str)
+
+    # 近期重点商机:近半年内,按 purchase_qty 降序(coalesce 把 NULL 当 0 排后),Top limit
+    half_start_dt = half_start + " 00:00:00"
+    session = Opportunity_SessionLocal()
     try:
-        ai_config = config_repo.get_value("ai_insights_config", {})
+        rows = session.query(
+            Opportunity.customer_name, Opportunity.sales_person, Opportunity.platform_type,
+            Opportunity.chassis_form, Opportunity.purchase_qty, Opportunity.result,
+            Opportunity.lost_reason,
+            func.coalesce(func.sum(Quotation.config_count), 0).label("config_count"),
+        ).outerjoin(
+            Quotation,
+            (Quotation.opportunity_id == Opportunity.opportunity_id) & (Quotation.status != "deleted"),
+        ).filter(
+            Opportunity.status != "deleted",
+            Opportunity.created_at >= half_start_dt,
+        ).group_by(Opportunity.opportunity_id).order_by(
+            func.coalesce(Opportunity.purchase_qty, 0).desc()
+        ).limit(limit).all()
+        highlights = [{
+            "customer_name": r.customer_name or "",
+            "sales_person": r.sales_person or "",
+            "platform_type": r.platform_type or "",
+            "chassis_form": r.chassis_form or "",
+            "purchase_qty": r.purchase_qty or 0,
+            "config_count": int(r.config_count or 0),
+            "result": r.result or "",
+            "lost_reason": r.lost_reason or "",
+        } for r in rows]
     finally:
-        config_repo.close()
+        session.close()
 
-    # 从配置读取参数
-    insight_count = ai_config.get("insight_count", 3)
-    dimensions = ai_config.get("dimensions", ["growth", "risk", "suggestion"])
-    data_scope = ai_config.get("data_scope", ["kpi", "platform", "sales", "trend"])
-    depth = ai_config.get("depth", "brief")
-    dimension_labels = ai_config.get("dimension_labels", {
-        "growth": "增长信号",
-        "risk": "风险预警",
-        "suggestion": "行动建议"
-    })
-    prompt_template = ai_config.get("prompt_template", "")
-    fallback_templates = ai_config.get("fallback_templates", {
-        "no_data": "本周期暂无新增商机，建议关注跟进效率",
-        "error": "刷新重试获取 AI 分析"
-    })
-
-    # 3. 构造数据描述（根据 data_scope 决定包含哪些数据）
-    kpi = summary.get("kpi", {})
-    platforms = summary.get("structure", {}).get("platforms", []) if "platform" in data_scope else []
-    sales_rank = summary.get("sales_rank", {}).get("top", []) if "sales" in data_scope else []
-    charts = summary.get("charts", {}) if "trend" in data_scope else {}
-
-    # 提取趋势数据（最近几天的变化）
-    trend_desc = ""
-    if "trend" in data_scope and charts:
-        chart1 = charts.get("chart1", {})
-        total_series = chart1.get("total_series", [])[-7:] if chart1 else []
-        if len(total_series) >= 2:
-            first, last = total_series[0].get("value", 0), total_series[-1].get("value", 0)
-            if first > 0:
-                change = (last - first) / first * 100
-                trend_desc = f"商机数趋势：从 {first} 变为 {last}（变化 {change:+.1f}%）"
-            else:
-                trend_desc = f"商机数趋势：最新 {last} 个"
-
-    # 平台分布描述
-    plat_desc = "、".join([f"{p['name']}({p['count']}个)" for p in platforms[:5]]) if platforms else ""
-
-    # 业务排行描述
-    sales_desc = "、".join([f"{s['name']}({s['count']}个)" for s in sales_rank[:5]]) if sales_rank else ""
-
-    # 4. 构造维度描述（从配置读取标签）
-    dim_desc = "、".join(dimension_labels.get(d, d) for d in dimensions)
-
-    # 5. 构造提示词
-    prompt_parts = [
-        f"你是数据分析师，正在看商机驾驶舱的数据。",
-        f"",
-        f"时间周期：{summary.get('period_label', '')}",
-        f"",
-    ]
-
-    # 根据数据范围添加数据
-    if "kpi" in data_scope:
-        prompt_parts.append(f"核心指标：")
-        prompt_parts.append(f"- 总商机 {kpi.get('total_opportunities', 0)} 个，本周期新增 {kpi.get('new_opportunities', 0)} 个")
-        prompt_parts.append(f"- 总配置 {kpi.get('total_configs', 0)} 套，本周期新增 {kpi.get('new_configs', 0)} 套")
-        prompt_parts.append(f"")
-
-    if plat_desc:
-        prompt_parts.append(f"平台分布：{plat_desc}")
-        prompt_parts.append(f"")
-
-    if sales_desc:
-        prompt_parts.append(f"业务排行：{sales_desc}")
-        prompt_parts.append(f"")
-
-    if trend_desc:
-        prompt_parts.append(trend_desc)
-        prompt_parts.append(f"")
-
-    # 6. 添加分析要求（从配置模板读取）
-    depth_desc = "一句话" if depth == "brief" else "两句，带数据支撑"
-    if prompt_template:
-        # 使用配置的模板
-        prompt_parts.append(prompt_template.format(
-            dimensions=dim_desc,
-            count=insight_count,
-            depth_desc=depth_desc
-        ))
-    else:
-        # 兜底模板
-        prompt_parts.extend([
-            f"请分析以上数据，从以下维度发现值得关注的点：{dim_desc}。",
-            f"",
-            f"要求：",
-            f"1. 输出 {insight_count} 条洞察",
-            f"2. 每条洞察{depth_desc}",
-            f"3. 不要套话，直接给结论",
-            f"4. 如果发现增长，说明是什么在增长",
-            f"5. 如果发现风险，说明具体风险点",
-            f"6. 如果有建议，给出具体可操作的建议",
-            f"",
-            f"用 JSON 格式返回：",
-            f'{{"insights": [{{"text": "...", "type": "growth|risk|suggestion"}}]}}',
-        ])
-
-    prompt = "\n".join(prompt_parts)
-
-    # 7. 调用 LLM
-    async def call_llm():
-        messages = [{"role": "user", "content": prompt}]
-        result_text = ""
-        async for delta in stream_chat(messages):
-            result_text += delta
-        return result_text
-
-    try:
-        result_text = asyncio.run(call_llm())
-
-        # 8. 解析 JSON
-        import re
-        json_match = re.search(r'\{[\s\S]*\}', result_text)
-        if json_match:
-            result = json.loads(json_match.group())
-            insights = result.get("insights", [])
-        else:
-            insights = []
-
-        # 兜底：如果解析失败，使用配置的兜底模板
-        if not insights:
-            new_opps = kpi.get('new_opportunities', 0)
-            if new_opps == 0:
-                insights = [{"type": "suggestion", "text": fallback_templates.get("no_data", "暂无新增商机")}]
-            else:
-                insights = [{"type": "growth", "text": f"本周期新增 {new_opps} 个商机"}]
-
-        return {"insights": insights}
-
-    except Exception as e:
-        # 异常兜底：使用配置的错误模板
-        return {
-            "insights": [
-                {"type": "growth", "text": f"总商机 {kpi.get('total_opportunities', 0)} 个"},
-                {"type": "suggestion", "text": fallback_templates.get("error", "刷新重试获取 AI 分析")},
-            ]
-        }
+    return {
+        "week": week_summary,
+        "month": month_summary,
+        "half_year": half_summary,
+        "highlights": highlights,
+    }

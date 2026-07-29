@@ -1,10 +1,12 @@
 # AI 设置 (AiSettings)
 
-> 最后更新：2026-07-29
+> 最后更新：2026-07-30
 
 ## 功能概述
 
-配置 AI 趋势洞察和方案助手的行为，所有配置项存储在 `system_config` 表，拒绝硬编码。
+配置方案助手的行为与模型 API，所有配置项存储在 `system_config` 表，拒绝硬编码。
+
+> 「趋势洞察」已下沉为方案助手的「📈 分析本期趋势」快捷指令（商机线索页助手面板内一键触发）：业务数据上下文（周/月/近半年聚合 + 近期重点商机）由 `/api/dashboard/trend-overview` 自动注入，**提示词模板可在此页「趋势分析」tab 配置**（存 `ai_trend_analysis`，反对硬编码）。详见 [方案助手文档](../assistant/floating-assistant.md)。
 
 ## 前端路由
 
@@ -14,47 +16,7 @@
 
 ## 页面结构
 
-页面使用 Tabs 切换三个配置模块：
-
----
-
-## 趋势洞察 (Insights)
-
-### 基础设置
-
-| 配置项 | 说明 | 默认值 |
-|--------|------|--------|
-| 生成方式 | 自动生成 / 手动刷新 | 自动生成 |
-| 洞察数量 | 1-5 条 | 3 条 |
-| 关注维度 | 增长信号、风险预警、行动建议 | 全选 |
-| 数据范围 | 核心指标、平台分布、业务排行、趋势变化 | 全选 |
-| 分析深度 | 简洁 / 详细 | 简洁 |
-
-### 维度标签
-
-可自定义洞察维度的显示名称：
-
-| Key | 默认标签 |
-|-----|----------|
-| `growth` | 增长信号 |
-| `risk` | 风险预警 |
-| `suggestion` | 行动建议 |
-
-### 提示词模板
-
-自定义 AI 分析指令，支持变量：
-- `{dimensions}` — 关注维度
-- `{count}` — 洞察数量
-- `{depth_desc}` — 深度描述
-
-### 兜底文案
-
-AI 调用失败时显示的内容：
-
-| 场景 | 配置项 |
-|------|--------|
-| 无数据 | `fallback_templates.no_data` |
-| 出错 | `fallback_templates.error` |
+页面使用 Tabs 切换三个配置模块（方案助手 / 趋势分析 / API 设置）：
 
 ---
 
@@ -84,6 +46,19 @@ AI 调用失败时显示的内容：
 
 ---
 
+## 趋势分析 (Trend)
+
+方案助手「📈 分析本期趋势」快捷指令的配置。指令的**业务数据上下文**（周/月/近半年聚合 + 近期重点商机）由后端 `/api/dashboard/trend-overview` 自动注入，用户在此只调**提示词口径**与重点商机条数。
+
+| 配置项 | 说明 | 默认值 |
+|--------|------|--------|
+| 重点商机条数 | `highlight_count`（近半年按台数降序取 Top N，传给 trend-overview 的 limit） | 10 |
+| 提示词模板 | `prompt_template`（引导 AI 输出 8 段结构化报告；归因须标注「推测」） | 见种子 |
+
+> 默认 prompt 引导 AI 按周/月/半年趋势 / 平台格局 / 机箱形态 / TOP5 / 近期重点商机 / 关键洞察 分节输出；未提供的定性数据（如具体成交价）不允许编造，仅当 `lost_reason` 有值时摘要价格反馈。
+
+---
+
 ## API 设置
 
 ### LLM 配置
@@ -109,12 +84,13 @@ system_config.llm_config > .env 环境变量 > 默认值
 
 | 方法 | 路径 | 用途 |
 |------|------|------|
-| GET | `/api/system-config/ai_insights_config/value` | 获取趋势洞察配置 |
-| PUT | `/api/system-config/ai_insights_config` | 更新趋势洞察配置 |
 | GET | `/api/system-config/ai_assistant_config/value` | 获取方案助手配置 |
 | PUT | `/api/system-config/ai_assistant_config` | 更新方案助手配置 |
+| GET | `/api/system-config/ai_trend_analysis/value` | 获取趋势分析配置 |
+| PUT | `/api/system-config/ai_trend_analysis` | 更新趋势分析配置 |
 | GET | `/api/system-config/llm_config/value` | 获取 LLM 配置 |
 | PUT | `/api/system-config/llm_config` | 更新 LLM 配置 |
+| GET | `/api/dashboard/trend-overview?limit=N` | 趋势分析富数据（周/月/近半年聚合 + 重点商机，快捷指令注入用） |
 
 ---
 
@@ -122,8 +98,8 @@ system_config.llm_config > .env 环境变量 > 默认值
 
 | Schema | 表 | Key | 用途 |
 |--------|-----|-----|------|
-| `rules` | `system_config` | `ai_insights_config` | 趋势洞察配置 |
 | `rules` | `system_config` | `ai_assistant_config` | 方案助手配置 |
+| `rules` | `system_config` | `ai_trend_analysis` | 趋势分析配置（提示词模板 + 重点商机条数） |
 | `rules` | `system_config` | `llm_config` | LLM API 配置 |
 
 ---
@@ -132,6 +108,6 @@ system_config.llm_config > .env 环境变量 > 默认值
 
 - `views/settings/AiSettings.vue` — AI 设置页面
 - `composables/assistantContext.ts` — 上下文 Provider 管理
-- `composables/assistantProviders.ts` — Provider 定义
+- `composables/assistantProviders.ts` — Provider 定义 + 趋势分析快捷指令（`loadTrendConfig` / `buildTrendContext`）
+- `api/dashboard.py` — `/summary` 单周期统计 + `/trend-overview` 趋势分析富数据
 - `services/llm_client.py` — LLM 客户端（从配置读取参数）
-- `api/dashboard.py` — 趋势洞察 API（从配置读取参数）

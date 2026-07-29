@@ -108,26 +108,6 @@ class SystemConfigRepository:
             {"key": "server_series", "value": json.dumps([{"value": "Orion", "label": "Orion"}, {"value": "Polaris", "label": "Polaris"}, {"value": "Intel", "label": "Intel"}, {"value": "工作站", "label": "工作站"}], ensure_ascii=False), "type": "json", "description": "服务器系列选项（全平台唯一权威源：基准配置/机型/料件适用机型/商机平台类型）"},
             {"key": "server_form_factor", "value": json.dumps([{"value": "2U", "label": "2U"}, {"value": "4U", "label": "4U"}, {"value": "4.5U", "label": "4.5U"}, {"value": "5U", "label": "5U"}], ensure_ascii=False), "type": "json", "description": "服务器形态选项"},
             # AI 设置
-            {"key": "ai_insights_config", "value": json.dumps({
-                "auto_generate": True,
-                "insight_count": 3,
-                "dimensions": ["growth", "risk", "suggestion"],
-                "data_scope": ["kpi", "platform", "sales", "trend"],
-                "depth": "brief",
-                # 维度映射（硬编码提取）
-                "dimension_labels": {
-                    "growth": "增长信号",
-                    "risk": "风险预警",
-                    "suggestion": "行动建议"
-                },
-                # 提示词模板（硬编码提取）
-                "prompt_template": "请分析以上数据，从以下维度发现值得关注的点：{dimensions}。\n\n要求：\n1. 输出 {count} 条洞察\n2. 每条洞察{depth_desc}\n3. 不要套话，直接给结论\n4. 如果发现增长，说明是什么在增长\n5. 如果发现风险，说明具体风险点\n6. 如果有建议，给出具体可操作的建议",
-                # 兜底文案（硬编码提取）
-                "fallback_templates": {
-                    "no_data": "本周期暂无新增商机，建议关注跟进效率",
-                    "error": "刷新重试获取 AI 分析"
-                }
-            }, ensure_ascii=False), "type": "json", "description": "AI 趋势洞察设置"},
             {"key": "ai_assistant_config", "value": json.dumps({
                 "auto_context": True,
                 "context_detail": "brief",
@@ -139,6 +119,23 @@ class SystemConfigRepository:
                     "opportunity-list": {"enabled": True, "label": "商机线索", "detail": "brief"}
                 }
             }, ensure_ascii=False), "type": "json", "description": "AI 方案助手设置"},
+            {"key": "ai_trend_analysis", "value": json.dumps({
+                "highlight_count": 10,
+                # 趋势分析提示词模板（方案助手「分析本期趋势」快捷指令用，前端可改，反对硬编码）
+                "prompt_template": (
+                    "你是 CPQ 平台的数据分析师。下面提供「本周/本月/近半年」三个周期的商机聚合数据,以及近期重点商机明细。"
+                    "请输出一份结构化趋势洞察报告,严格按以下分节:\n\n"
+                    "# 一、周数据\n本周商机数、各平台商机数与配置数。\n\n"
+                    "# 二、月数据\n本月商机数、各平台商机数与配置数。\n\n"
+                    "# 三、半年度商机趋势\n近半年逐月商机数与环比变化(自行计算),点出趋势方向(连续增长/回落/新高)。\n\n"
+                    "# 四、平台格局\n近半年各平台商机数与占比;若主导平台发生切换,描述切换方向。切换原因可推测,但必须标注「(推测)」。\n\n"
+                    "# 五、机箱形态\n近半年各机箱形态占比。\n\n"
+                    "# 六、半年业务 TOP5\n近半年销售人员商机数前五。\n\n"
+                    "# 七、近期重点商机\n列出提供的近期重点商机(客户/平台/机箱/台数/状态);若 lost_reason 有值,摘要丢标原因(常含价格反馈)。\n\n"
+                    "# 八、关键洞察\n用 ✅⚠️🔥📊 标注 3-5 条:增长信号、风险信号、结构变化、值得跟进的重点。归因性结论标注「(推测/待核实)」。\n\n"
+                    "要求:只使用提供的数据;占比与环比自行计算;未提供的信息(如具体成交价)不要编造。"
+                )
+            }, ensure_ascii=False), "type": "json", "description": "AI 趋势分析设置（方案助手快捷指令的提示词模板与重点商机条数）"},
             # LLM API 配置（支持前端可视化修改，优先级高于 .env）
             {"key": "llm_config", "value": json.dumps({
                 "base_url": "",  # 留空则用 .env 的 LLM_BASE_URL

@@ -1,5 +1,7 @@
 # 方案助手(全局浮动 AI 聊天窗)
 
+> 最后更新：2026-07-30
+
 ## 功能概述
 
 全局浮动的「方案助手」入口,任意页面右下角常驻。点击展开聊天窗,接入 **Qwen(通义千问)**,流式输出回复。`DASHSCOPE_API_KEY` 未配或调用失败时自动回退规则占位,保证可用。上下文走**多域 provider**(当前商机/报价,可扩展策略中心等)。
@@ -16,9 +18,17 @@
 interface ContextProvider { key; label; match(ctx); summarize(ctx): Promise<string> }
 ```
 - 发消息时,遍历激活 provider(`match=true`),收集 `summarize()` 拼成 `context_summary` → 后端塞 system prompt。
-- **当前域**:`quoteProvider`(workspace 页:商机+报价配置)、`opportunityProvider`(商机详情页:商机概览+报价单数)。
+- **当前域**:`quoteProvider`(workspace 页:商机+报价配置)、`opportunityProvider`(商机详情页:商机概览+报价单数)、`opportunityListProvider`(商机线索页:驾驶舱 KPI/平台分布/业务排行,是「分析本期趋势」快捷指令的数据源)。
 - **加新城**(如策略中心):在 `assistantProviders.ts` 加 provider + 注册到 `contextProviders` 数组,助手核心不改。
 - 徽标显示激活域 label(无激活→「无上下文」)。
+
+## 快捷指令(`assistantQuickActions`)
+
+面板输入框上方的 chip 横条,**按当前页激活的 provider 条件渲染**——仅当命中 `providerKey` 的 provider 处于激活态时对应指令才出现。点击即将指令文本作为用户消息发出,回复走 WS 流式。`QuickAction` 的 `prompt` 与 `context` 都可为函数:`prompt` 动态读取配置(反对硬编码),`context` 自定义富上下文(缺省走通用 provider 摘要)。扩展只需往 `assistantProviders.ts` 的 `assistantQuickActions` 数组追加一条,`AssistantPanel.onQuickAction` 通用、不改。
+
+| 指令 | providerKey | 说明 |
+|------|-------------|------|
+| 📈 分析本期趋势 | `opportunity-list` | 原「趋势洞察」卡片下沉而来。`prompt` 读 `ai_trend_analysis.prompt_template`(AI 设置「趋势分析」tab 可改);`context` 调 `/api/dashboard/trend-overview` 取周/月/近半年聚合 + 近期重点商机(含 lost_reason),拼成富文本注入。LLM 据此输出 8 段结构化报告 |
 
 ## API 端点(`/api/assistant`)
 
