@@ -1,15 +1,16 @@
 <script setup lang="ts">
-/** 服务器管理后台（/servers/admin）— 机型管理 / 基准配置 / 料号库 三 tab。
+/** 服务器管理后台（/servers/admin）— 产品系列 / 机型管理 / 基准配置 / 料号库 四 tab。
  *  从配置门户 /servers 拆出：配置=面向客户的展示，管理=内部维护。 */
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import SeriesManager from '@/components/server-admin/SeriesManager.vue'
 import PartsLibrary from '@/components/server-admin/PartsLibrary.vue'
 import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
 import BomTemplateManager from '@/components/server-admin/BomTemplateManager.vue'
 import ModelManager from '@/components/server-admin/ModelManager.vue'
 
 const route = useRoute()
-const adminTab = ref<'models' | 'base' | 'parts'>('models')
+const adminTab = ref<'models' | 'series' | 'base' | 'parts'>('models')
 
 /** 子页（机型/基准编辑器）保存后带 ?refresh= 回来，切到对应 tab。 */
 watch(() => route.query.refresh, (v) => {
@@ -23,10 +24,12 @@ watch(() => route.query.refresh, (v) => {
     <div class="page-inner">
       <a-radio-group v-model:value="adminTab" button-style="solid" size="small" class="admin-tabs">
         <a-radio-button value="models">机型管理</a-radio-button>
+        <a-radio-button value="series">产品系列</a-radio-button>
         <a-radio-button value="base">基准配置</a-radio-button>
         <a-radio-button value="parts">料号库</a-radio-button>
       </a-radio-group>
       <ModelManager v-show="adminTab === 'models'" />
+      <SeriesManager v-show="adminTab === 'series'" />
       <BaseConfigBuilder v-show="adminTab === 'base'" />
       <BomTemplateManager v-show="adminTab === 'base'" />
       <PartsLibrary v-show="adminTab === 'parts'" />

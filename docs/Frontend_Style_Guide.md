@@ -205,7 +205,6 @@ canvas 渲染读不到 CSS 变量。**图表色走 `composables/useChartTheme.ts
 
 ❌ **Don't**
 - 硬编码颜色（`#fff` / `rgba()` / `white`）
-- 用塑料荧光青 `#00F5D4`（已清除）
 - 把 `--cpq-overlay-b` 当 `box-shadow` 色
 - **玻璃层嵌套**（`.glass` 套 `.glass` / 玻璃卡外面再套玻璃容器）——内层 backdrop-filter 模糊到外层白雾、发灰；分组用透明布局容器（见 §3.4）
 - 在 scoped 里用 `:global()` 混后代选择器（会抽裸 `[data-theme]` 贴到 html）

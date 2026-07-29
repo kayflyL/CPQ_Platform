@@ -1,12 +1,40 @@
 """
 Startup event to initialize rules database tables and default rules.
 """
-from app.models.base import rules_engine, l6_history_engine, Base
-from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MatchingRule
+from app.models.base import rules_engine, l6_history_engine, opp_engine, Base
+from app.models.rules import KPCategoryMapping, MatchingRule
 from app.models.l6 import L6PriceHistory
+from app.models.spec_template import SpecTemplate
+# Feed (collaboration) models — register with Base.metadata before create_all
+from app.models.feed_user import FeedUser
+from app.models.feed_message import FeedMessage
+from app.models.feed_attachment import FeedAttachment
+from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推理流可视化配置（注册 metadata 供 create_all 建表）
+from app.models.requirement_rule import RequirementRule, RequirementSample  # 需求分析规则库（注册 metadata 供 create_all 建表）
+from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
 from app.repository.rules_repo import RulesRepository
 from app.repository.system_config_repo import SystemConfigRepository
 import json
+
+
+def ensure_parts_master_columns():
+    """料号库字段语义重构（幂等迁移）：
+    原 description 列存的是自由文本规格串 → 重命名为 spec_text（UI label「规格」）；
+    新增 description 列装人话用途说明（UI label「说明」）。存量数据无损落入 spec_text。"""
+    from app.models.base import l6_engine
+    from sqlalchemy import text
+    with l6_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='l6' AND table_name='parts_master'"
+        ))}
+    if "spec_text" not in cols and "description" in cols:
+        with l6_engine.begin() as c:
+            c.execute(text("ALTER TABLE l6.parts_master RENAME COLUMN description TO spec_text"))
+        cols.discard("description"); cols.add("spec_text")
+    if "description" not in cols:
+        with l6_engine.begin() as c:
+            c.execute(text("ALTER TABLE l6.parts_master ADD COLUMN description TEXT"))
 
 
 def init_rules_db():
@@ -15,30 +43,12 @@ def init_rules_db():
     Base.metadata.create_all(bind=rules_engine)
     # Create tables for L6 history DB
     Base.metadata.create_all(bind=l6_history_engine)
+    # Create tables for opportunities DB (includes spec_templates)
+    Base.metadata.create_all(bind=opp_engine)
     
     # Initialize default rules if empty
     rules_repo = RulesRepository()
-    
-    # --- L6 Region Config ---
-    l6_config = rules_repo.get_l6_region_config()
-    if not l6_config:
-        default_l6_config = {
-            "region_start_keywords": "L6",
-            "field_mapping": '{"catalogue":"D", "description":"E", "quantity":"F"}',
-            "region_end_keywords": "Keyparts,KP"
-        }
-        rules_repo.add_l6_region_config(default_l6_config)
-    
-    # --- KP Region Config ---
-    kp_config = rules_repo.get_kp_region_config()
-    if not kp_config:
-        default_kp_config = {
-            "region_start_keywords": "Keyparts,KP",
-            "field_mapping": '{"catalogue":"D", "model":"E", "quantity":"F", "price":"G"}',
-            "region_end_keywords": "Warranty,Total"
-        }
-        rules_repo.add_kp_region_config(default_kp_config)
-    
+
     # --- KP Category Mappings ---
     kp_mappings = rules_repo.get_kp_category_mappings()
     if not kp_mappings:
@@ -75,6 +85,52 @@ def init_rules_db():
     finally:
         config_repo.close()
 
+    # Reasoning flow default seed + v2 migrate（加 clarity_check/ask_user/budget_check）
+    try:
+        from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+        rf_repo = ReasoningFlowRepository()
+        try:
+            rf_repo.seed_default_if_empty()
+            migrated = rf_repo.migrate_v1_to_v2_if_needed()
+            if migrated:
+                print("✅ Reasoning flow migrated to v2 (clarity_check/ask_user/budget_check)")
+            else:
+                print("✅ Reasoning flow initialized")
+        finally:
+            rf_repo.close()
+    except Exception as e:
+        print(f"⚠️ Reasoning flow init failed: {e}")
+
+    # Requirement rules default seed (需求分析规则库：clarity/rebuttal/budget)
+    try:
+        from app.repository.requirement_rule_repo import RequirementRuleRepository
+        rr_repo = RequirementRuleRepository()
+        try:
+            n = rr_repo.seed_default_if_empty()
+            if n:
+                print(f"✅ Requirement rules initialized ({n} rules)")
+            else:
+                print("✅ Requirement rules already present")
+        finally:
+            rr_repo.close()
+    except Exception as e:
+        print(f"⚠️ Requirement rules init failed: {e}")
+
+    # Compatibility rules default seed (兼容性规则引擎：require/exclude/derive/filter/recommend)
+    try:
+        from app.repository.compatibility_rule_repo import CompatibilityRuleRepository
+        cr_repo = CompatibilityRuleRepository()
+        try:
+            n = cr_repo.seed_default_if_empty()
+            if n:
+                print(f"✅ Compatibility rules initialized ({n} rules)")
+            else:
+                print("✅ Compatibility rules already present")
+        finally:
+            cr_repo.close()
+    except Exception as e:
+        print(f"⚠️ Compatibility rules init failed: {e}")
+
     # Ensure comments table exists (raw SQL table on public schema, no ORM model)
     try:
         from app.repository.comment_repo import ensure_comments_table
@@ -82,6 +138,13 @@ def init_rules_db():
         print("✅ Comments table ensured")
     except Exception as e:
         print(f"⚠️ Comments table init failed: {e}")
+
+    # 料号库字段语义重构：原 description(规格串) → spec_text，新增 description(说明)
+    try:
+        ensure_parts_master_columns()
+        print("✅ Parts master columns ensured (spec_text/description)")
+    except Exception as e:
+        print(f"⚠️ Parts master migrate failed: {e}")
 
     # Clean up old temporary files on startup
     try:

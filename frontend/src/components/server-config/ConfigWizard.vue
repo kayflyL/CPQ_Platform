@@ -15,8 +15,10 @@ import CountNumber from '@/components/common/CountNumber.vue'
 import { fromKpPart } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
+import { useSelectionRulesStore, type RuleContext } from '@/stores/selectionRules'
 
 const props = defineProps<{ model: ServerModel }>()
+const selectionRulesStore = useSelectionRulesStore()
 
 // ---- KP 核心配件（扁平 kpLines；卡片是 groupBy 视图）----
 const kpLines = ref<{ cat: string; pn: string; qty: number }[]>([])
@@ -24,7 +26,79 @@ const gpuArch = ref<GpuArch>('none')
 const kpCatalog = ref<Record<string, KpPart[]>>({})
 const kpCategories = ref<{ id: number; name: string }[]>([])
 
-const l6Apply = ref<{ baseConfigId: number | null; totals: any; picks: any; l6Rows: any[] } | null>(null)
+const l6Apply = ref<{ baseConfigId: number | null; totals: any; picks: any; l6Rows: any[]; bomTemplate?: any; bomContext?: any } | null>(null)
+
+// 构造 configs 数组供 SpecSheet 新模式使用
+const specConfigs = computed(() => {
+  if (!l6Apply.value) return []
+
+  // 从 bomTemplate + bomContext 展开 L6 数据（对齐 BomTable 渲染逻辑）
+  let l6Details: any[] = []
+  const tpl = l6Apply.value.bomTemplate
+  const ctx = l6Apply.value.bomContext || {}
+
+  if (tpl?.rows && ctx) {
+    // 按模板展开：catalogue=label（零件名），description=ctx.desc（规格）
+    for (const row of tpl.rows) {
+      const key = row.slot || row.type
+      const v = ctx[key] || {}
+      l6Details.push({
+        catalogue: row.label || '',
+        description: v.desc || '',
+        part_category: '',
+        qty: v.qty || '',
+        category: 'L6',
+        final_price: 0,
+      })
+    }
+  } else {
+    // Fallback：直接用 l6Rows（扁平料号）
+    l6Details = (l6Apply.value.l6Rows || []).map((row: any) => ({
+      catalogue: row.catalogue || '',
+      description: row.description || '',
+      part_category: '',
+      qty: row.qty || 1,
+      category: 'L6',
+      final_price: row.final_price || row.base_price || 0,
+    }))
+  }
+
+  // 从 kpLines 提取 KP 详细料件
+  const kpDetails = kpLines.value.map((line) => {
+    const part = kpPart(line.pn)
+    return {
+      catalogue: part?.name || line.pn || '',
+      description: part?.specs ? Object.entries(part.specs).map(([k, v]) => `${k}: ${v}`).join(' · ') : '',
+      part_category: line.cat || '',
+      qty: line.qty || 1,
+      category: 'Key Parts',
+      final_price: (part?.unit_price || 0) * line.qty,
+    }
+  })
+
+  // 从 picks 提取背板类型和电源信息
+  const picks = l6Apply.value.picks || {}
+  const bpType = picks.bp_type || 'dc'
+  const bpDisplay = bpType === 'tri' ? 'Tri-Mode Backplane' : 'Pass-Thru Backplane'
+  const psuDesc = ctx.psu_requirement?.desc || ''
+
+  return [{
+    config_name: 'Config1',
+    server_model: props.model?.name || '',
+    quantity: 1,
+    l6_details: l6Details,
+    kp_details: kpDetails,
+    l6_total: l6Total.value,
+    kp_total: kpTotal.value,
+    unit_price: grand.value,
+    total_price: grand.value,
+    chassis_form: props.model?.base_config?.form || '',
+    chassis_bays: props.model?.base_config?.bays ? `${props.model.base_config.bays} 盘位` : '',
+    chassis_series: series.value || '',
+    backplane_type: bpDisplay,
+    power_supply: psuDesc,
+  }]
+})
 
 // 预设 5 类（常驻显示，不可删）；其余 KP 类别由用户「+ 新增配置卡片」加入
 const CORE_CATS = ['CPU', 'Memory', 'HDD/SSD', 'GPU', 'NIC']
@@ -46,10 +120,13 @@ async function init() {
     }
 
     kpCategories.value = await kpPartsApi.categories()
+    // KP 目录按机型 series 过滤（API 已支持 series 参数；series 为空则不过滤）
     const kpPartsResults = await Promise.all(
-      kpCategories.value.map(c => kpPartsApi.listByCategory(c.id))
+      kpCategories.value.map(c => kpPartsApi.listByCategory(c.id, series.value || undefined))
     )
     kpCategories.value.forEach((c, i) => { kpCatalog.value[c.name] = kpPartsResults[i] })
+    // 兼容性规则引擎：加载 active 规则供 selectionActions 求值（失败不阻塞配置）
+    selectionRulesStore.ensureRules().catch(() => {})
 
     if (!kpLines.value.length) {
       const firstPn = (cat: string) => (kpCatalog.value[cat]?.[0] || {}).pn || ''
@@ -157,6 +234,30 @@ const kpSummary = computed(() => {
   }
 })
 
+// ---- 兼容性规则引擎：构建 context + 求值（缺必配 / 互斥 / 派生建议）----
+function buildRuleContext(): RuleContext {
+  const kp: RuleContext['kp'] = {}
+  for (const l of kpLines.value) {
+    const spec = (kpPart(l.pn)?.specs || {}) as Record<string, any>
+    const node = kp[l.cat] || (kp[l.cat] = { qty: 0, items: [], spec: {} })
+    node.qty += l.qty || 0
+    node.items.push({ pn: l.pn, qty: l.qty, spec })
+    if (Object.keys(node.spec).length === 0) node.spec = spec
+  }
+  // sata_qty：HDD/SSD 中机械盘(SATA/SAS)数量，供「每8盘→线缆」类 derive 规则
+  let sata_qty = 0
+  for (const it of (kp['HDD/SSD']?.items || [])) {
+    const kind = String(it.spec?.kind || it.spec?.interface || '').toUpperCase()
+    if (kind.includes('SATA') || kind.includes('SAS')) sata_qty += it.qty || 0
+  }
+  return {
+    kp,
+    config: { series: series.value, model: props.model?.name, form: props.model?.base_config?.form, sata_qty },
+    opportunity: {},
+  }
+}
+const selectionActions = computed(() => selectionRulesStore.evaluateRules(buildRuleContext()))
+
 const kpTotal = computed(() => kpLines.value.reduce((s, l) => s + priceOf(l.pn) * l.qty, 0))
 const l6Total = computed(() => l6Apply.value?.totals?.l6 || 0)
 const grand = computed(() => l6Total.value + kpTotal.value)
@@ -239,6 +340,15 @@ onMounted(() => {
     <div class="sc-layout">
       <!-- 左栏：机箱卡 + KP 各类别卡 -->
       <div class="sc-col-left">
+        <!-- 兼容性规则实时校验（缺必配 / 互斥 / 派生建议）-->
+        <div v-if="selectionActions.length" class="sc-alerts glass-light">
+          <div class="sc-alerts-head"><span class="sc-alerts-ic">🛡</span> 兼容性校验</div>
+          <div v-for="a in selectionActions" :key="a.ruleId" class="sc-alert" :class="`sev-${a.severity}`">
+            <span class="sc-alert-ic">{{ a.severity === 'conflict' ? '⚠' : (a.action === 'derive' || a.action === 'recommend' ? '💡' : '＋') }}</span>
+            <span class="sc-alert-tx">{{ a.desc }}</span>
+          </div>
+        </div>
+
         <!-- ① 机箱概要（点配置按钮弹窗做 4 步细配）-->
         <ChassisCard
           :model="model"
@@ -322,13 +432,8 @@ onMounted(() => {
         <div class="spec-sheet-scroll">
           <SpecSheet
             class="spec-sheet-root"
-            :model="model"
-            :l6-apply="l6Apply"
-            :kp-lines="kpLines"
-            :kp-part="kpPart"
-            :price-of="priceOf"
+            :configs="specConfigs"
             :branding="specTemplate?.branding || {}"
-            :series="series"
             :display-options="specTemplate?.display_options"
           />
         </div>
@@ -360,6 +465,15 @@ onMounted(() => {
 .bm-sub { color: var(--cpq-text-secondary,#9BA1AA); font-size: 13px; }
 .sc-layout { display: flex; gap: 16px; align-items: flex-start; }
 .sc-col-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
+.sc-alerts { padding: 12px 16px; border-radius: var(--cpq-radius-lg, 14px); display: flex; flex-direction: column; gap: 8px; }
+.sc-alerts-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #1d2129); }
+.sc-alerts-ic { font-size: 14px; }
+.sc-alert { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; line-height: 1.5; padding: 6px 10px; border-radius: 8px; }
+.sc-alert.sev-conflict { background: rgba(255,77,79,.1); color: var(--cpq-accent-danger, #ff4d4f); }
+.sc-alert.sev-require { background: rgba(22,119,255,.1); color: var(--cpq-accent-primary, #1677ff); }
+.sc-alert.sev-info { background: var(--cpq-overlay-a8, rgba(255,255,255,.5)); color: var(--cpq-text-secondary, #4e5969); }
+.sc-alert-ic { flex: none; font-size: 13px; }
+.sc-alert-tx { flex: 1; }
 .sc-col-right { flex: 0 0 280px; position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow-y: auto; }
 .sc-cost-card { padding: 18px; border-radius: 18px;
   background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);

@@ -96,16 +96,18 @@ class UnifiedFieldService:
         获取组件映射（替代 template_filler.py 的硬编码）
         """
         # TODO: 从数据库读取
+        # 注意：source 目前写死 "l6_details"，但 CPU/GPU/Memory 等实为 Key Parts，
+        # 字段去重载后其型号在 catalogue 列。source 是否应为 kp_details 属既有疑似笔误，未在此处展开。
         return {
-            "cpu_model": {"source": "l6_details", "field": "spec", "type": "cpu"},
+            "cpu_model": {"source": "l6_details", "field": "catalogue", "type": "cpu"},
             "cpu_qty": {"source": "l6_details", "field": "qty", "type": "cpu"},
-            "memory_model": {"source": "l6_details", "field": "spec", "type": "memory"},
+            "memory_model": {"source": "l6_details", "field": "catalogue", "type": "memory"},
             "memory_qty": {"source": "l6_details", "field": "qty", "type": "memory"},
-            "disk_model": {"source": "l6_details", "field": "spec", "type": "hdd"},
+            "disk_model": {"source": "l6_details", "field": "catalogue", "type": "hdd"},
             "disk_qty": {"source": "l6_details", "field": "qty", "type": "hdd"},
-            "gpu_model": {"source": "l6_details", "field": "spec", "type": "gpu"},
+            "gpu_model": {"source": "l6_details", "field": "catalogue", "type": "gpu"},
             "gpu_qty": {"source": "l6_details", "field": "qty", "type": "gpu"},
-            "nic_model": {"source": "l6_details", "field": "spec", "type": "nic"},
+            "nic_model": {"source": "l6_details", "field": "catalogue", "type": "nic"},
             "nic_qty": {"source": "l6_details", "field": "qty", "type": "nic"}
         }
     

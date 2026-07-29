@@ -261,12 +261,21 @@ def permanent_delete(opportunity_id: str):
     repo = OpportunityRepository()
     try:
         repo.permanent_delete(opportunity_id)
-        return {"status": "success"}
     except Exception as e:
         logger.exception("Unhandled error")
         raise HTTPException(status_code=500, detail="内部服务器错误")
     finally:
         repo.close()
+
+    # DB record gone — best-effort purge of the on-disk folder. Match by
+    # opportunity_id so a name-drifted folder (e.g. 未命名_OPP-…) is still found.
+    try:
+        from app.services.storage_adapter import get_storage
+        get_storage().delete_opportunity_folder(opportunity_id)
+    except Exception:
+        logger.exception("On-disk folder cleanup failed")
+
+    return {"status": "success"}
 
 
 @router.put("/{opportunity_id}/meta")
@@ -326,13 +335,20 @@ def batch_restore(req: BatchOpportunityRequest):
 @router.post("/batch-permanent-delete")
 def batch_permanent_delete(req: BatchOpportunityRequest):
     """批量永久删除"""
+    from app.services.storage_adapter import get_storage
     repo = OpportunityRepository()
     results = {"success": [], "failed": []}
     try:
+        storage = get_storage()
         for pid in req.opportunity_ids:
             try:
                 repo.permanent_delete(pid)
                 results["success"].append(pid)
+                # Best-effort: physically remove the on-disk folder too.
+                try:
+                    storage.delete_opportunity_folder(pid)
+                except Exception:
+                    logger.exception("On-disk folder cleanup failed for %s", pid)
             except Exception as e:
                 results["failed"].append({"id": pid, "error": str(e)})
         return results

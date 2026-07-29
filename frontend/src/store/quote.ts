@@ -14,6 +14,8 @@ export interface ProjectInfo {
   total_qty: number
   platform_type: string
   chassis_form: string
+  customer_type?: string
+  quote_scenario?: string
   company?: string
   id?: string
   quotation_id?: string
@@ -33,7 +35,7 @@ export interface Item {
   match_status?: string
   db_price?: number | null
   db_currency?: string | null
-  pn?: string  // KP 新建模式：料号库 pn（PartPicker 选中）；走 opportunity_items.extra_fields 往返
+  pn?: string  // KP 新建模式：料号库 pn（PartPicker 选中）；走 quotation_items.extra_fields 往返
   history?: any[]
   _histActiveKeys?: string[]
   _histLoaded?: boolean
@@ -620,9 +622,13 @@ export const useQuoteStore = defineStore('quote', () => {
       
       if (quotationId) {
         // Editing existing quotation: update items + config_quantities + config_descriptions
+        // L6 行不写入 items，只保留在 config_l6_picks（bom_excel_rows 或 bom_template + bom_context）
+        // 避免 Excel 上传时数据冗余；L6 渲染统一从 config_l6_picks 读取
         const items: any[] = []
         for (const [cfgName, cfg] of Object.entries(configs.value)) {
           for (const item of cfg.items) {
+            // L6/整机 行跳过，不写入 quotation_items
+            if (item.category === 'L6' || item.category === '整机') continue
             items.push({
               ...item,
               config_name: cfgName
@@ -675,11 +681,6 @@ export const useQuoteStore = defineStore('quote', () => {
           opportunityInfo.value.opportunity_id = `opportunity_${ts}`
         }
         
-        // Read temp_file info from sessionStorage (saved during upload)
-        const quotationData = JSON.parse(sessionStorage.getItem('quotation_data') || '{}')
-        console.log('[DEBUG saveProject] quotationData:', quotationData)
-        console.log('[DEBUG saveProject] temp_file:', quotationData.temp_file)
-        
         const payload = {
           opportunity_info: {
             ...opportunityInfo.value,
@@ -692,11 +693,8 @@ export const useQuoteStore = defineStore('quote', () => {
             l6_total: l6Total.value,
             kp_total: kpTotal.value,
             grand_total: grandTotal.value
-          },
-          temp_file: quotationData.temp_file || null
+          }
         }
-        // configs already includes server_model per config, so no extra field needed
-        console.log('[DEBUG saveProject] payload.temp_file:', payload.temp_file)
         const result: any = await saveProjectAPI(payload)
         // 回写 quotation_id / opportunity_id：首次保存后 store 即持 id，预览可直接命中后端报价单数据，
         // 无需退出重进（否则 handlePreview 取不到 quotation_id，后端 load_preview_data 跳过明细加载）

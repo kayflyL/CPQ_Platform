@@ -1,0 +1,24 @@
+{
+  "generated_at": "2026-07-27",
+  "summary": {
+    "total_parts": 223,
+    "total_prices": 418,
+    "total_categories": 9,
+    "price_duplicates": {
+      "groups": 3,
+      "records": 3
+    },
+    "sku_duplicates": 15,
+    "name_similar": 50,
+    "price_anomalies": 7,
+    "no_category": 0,
+    "no_price_history": 0,
+    "zero_price_records": 0,
+    "no_date_records": 0
+  },
+  "price_duplicates_sample": [
+    {
+      "part_id": 62,
+      "price": 7700.0,
+      "currency": "RMB",
+      "price_date": 

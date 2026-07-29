@@ -21,6 +21,25 @@ def list_categories():
     return [dict(r) for r in rows]
 
 
+@router.get("/spec-keys")
+def list_spec_keys():
+    """每个 KP 品类下现有的 spec_key 列表（DISTINCT，从 kp_part_specs 实际数据聚合）。
+    供推理流 match_kp 规则编辑的字段下拉用。返回 {category: [spec_key, ...]}。"""
+    with kp_engine.connect() as c:
+        rows = c.execute(text("""
+            SELECT DISTINCT c.name AS category, s.spec_key
+            FROM kp.kp_part_specs s
+            JOIN kp.kp_parts p ON s.part_id = p.id
+            JOIN kp.kp_categories c ON p.category_id = c.id
+            WHERE c.name IS NOT NULL AND s.spec_key IS NOT NULL AND s.spec_key <> ''
+            ORDER BY c.name, s.spec_key
+        """)).mappings().all()
+    out: dict[str, list[str]] = {}
+    for r in rows:
+        out.setdefault(r["category"], []).append(r["spec_key"])
+    return out
+
+
 @router.get("/parts")
 def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
                series: Optional[str] = Query(None, description="机型系列，按 applicable.series 过滤")):

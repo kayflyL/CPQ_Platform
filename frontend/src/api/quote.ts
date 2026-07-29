@@ -1,20 +1,18 @@
 import axios from 'axios'
+import { getCurrentUser } from './feed'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
-// Quote API (legacy upload)
-export async function uploadQuotation(file: File) {
-  const formData = new FormData()
-  formData.append('file', file)
-  const response = await api.post('/quote/upload', formData, {
-    headers: { 'Content-Type': 'multipart/form-data' }
-  })
-  return response.data
-}
-
-// Upload quotation to a specific opportunity (creates quotation record)
+// Inject X-User-Id so upload-to-opportunity can attribute the archived file
+// to the acting user (mirrors feed.ts; falls back to 匿名 server-side).
+api.interceptors.request.use((config) => {
+  const u = getCurrentUser()
+  if (u?.user_id) config.headers['X-User-Id'] = u.user_id
+  return config
+})
+// Upload quotation to a specific opportunity (creates quotation record + archives source file)
 export async function uploadQuotationToProject(file: File, opportunityId: string) {
   const formData = new FormData()
   formData.append('file', file)

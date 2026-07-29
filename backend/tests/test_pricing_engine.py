@@ -16,7 +16,7 @@ class TestPricingEngineInit:
         )
         assert engine.kp_repo == mock_kp_repo
         assert engine.l6_repo == mock_l6_repo
-        assert engine.project_repo == mock_project_repo
+        assert engine.opportunity_repo == mock_project_repo
 
 
 class TestParseFile:
@@ -61,53 +61,3 @@ class TestParseFile:
         }
         configs, first_meta = engine.parse_file(sheets)
         assert 'EmptySheet' not in configs
-
-
-class TestExtractMeta:
-    """Test metadata extraction from Excel."""
-
-    def test_extract_meta_basic(self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo):
-        """Test basic metadata extraction."""
-        engine = PricingEngine(
-            mock_kp_repo, mock_l6_repo, mock_project_repo,
-            mock_rules_repo
-        )
-        # Create a simple DataFrame with L6 region
-        df = pd.DataFrame({
-            'D': ['L6 Configuration', 'KH50000', 'Keyparts'],
-            'E': ['', '2U Server', ''],
-            'F': ['', '1', '']
-        })
-        meta = engine._extract_meta(df)
-        # Should extract some metadata (exact fields depend on implementation)
-        assert isinstance(meta, dict)
-
-
-class TestParseItems:
-    """Test KP items parsing."""
-
-    def test_parse_items_empty(self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo):
-        """Test parsing empty DataFrame returns empty result."""
-        engine = PricingEngine(
-            mock_kp_repo, mock_l6_repo, mock_project_repo,
-            mock_rules_repo
-        )
-        df = pd.DataFrame()
-        items = engine._parse_items(df)
-        assert items.empty
-
-    def test_parse_items_with_data(self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo):
-        """Test parsing DataFrame with KP items."""
-        engine = PricingEngine(
-            mock_kp_repo, mock_l6_repo, mock_project_repo,
-            mock_rules_repo
-        )
-        df = pd.DataFrame({
-            'D': ['Keyparts', 'CPU001', 'MEM001'],
-            'E': ['', 'Intel Xeon', 'DDR4 32GB'],
-            'F': ['', '2', '4'],
-            'G': ['', '15000', '8000']
-        })
-        items = engine._parse_items(df)
-        # Should parse items (exact structure depends on implementation)
-        assert isinstance(items, pd.DataFrame)

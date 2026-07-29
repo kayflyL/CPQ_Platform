@@ -53,14 +53,14 @@ def _type_id(name):
     return r["id"] if r else None
 
 
-def ensure_model(name, form, bays, use, base_cid, type_name):
+def ensure_model(name, use, base_cid, type_name):
     cur.execute("SELECT 1 FROM l6.server_models WHERE name=%s", (name,))
     if cur.fetchone():
         print(f"  · 机型「{name}」已存在")
         return
-    cur.execute("""INSERT INTO l6.server_models(name,server_type_id,form,bays,use,base_config_id,sort_order)
-                   VALUES(%s,%s,%s,%s,%s,%s,0)""",
-                (name, _type_id(type_name), form, bays, use, base_cid))
+    cur.execute("""INSERT INTO l6.server_models(name,server_type_id,use,base_config_id,sort_order)
+                   VALUES(%s,%s,%s,%s,0)""",
+                (name, _type_id(type_name), use, base_cid))
     print(f"  + 机型「{name}」({use}) → 基准 {base_cid}")
 
 
@@ -125,11 +125,11 @@ polaris25_cid = ensure_base("ZS25V2-P 基准(Polaris 2U25)", "Polaris", "2U", 25
 
 # ============ 3. 机型 ============
 print("③ 机型目录")
-ensure_model("ES22V3-P", "2U", 12, "通用计算", orion_cid, "通用计算服务器")
-ensure_model("ES24V3-P", "2U", 12, "AI加速计算", orion_cid, "AI / 加速计算服务器")
-ensure_model("ZS22V2-P", "2U", 12, "通用计算", polaris_cid, "通用计算服务器")
-ensure_model("ES25V3-P", "2U", 25, "存储", orion25_cid, "存储服务器")
-ensure_model("ZS25V2-P", "2U", 25, "存储", polaris25_cid, "存储服务器")
+ensure_model("ES22V3-P", "通用计算", orion_cid, "通用计算服务器")
+ensure_model("ES24V3-P", "AI加速计算", orion_cid, "AI / 加速计算服务器")
+ensure_model("ZS22V2-P", "通用计算", polaris_cid, "通用计算服务器")
+ensure_model("ES25V3-P", "存储", orion25_cid, "存储服务器")
+ensure_model("ZS25V2-P", "存储", polaris25_cid, "存储服务器")
 
 conn.commit()
 cur.close()

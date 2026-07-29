@@ -188,7 +188,11 @@ class L6ChassisRepository:
         for r in rows:
             specs = r.get("specs") or {}
             bays = specs.get("drive_bays") or []
-            backs = specs.get("backplane") or []
+            # 统一读取 bt（数据已迁移，不再使用 backplane）
+            backs = specs.get("bt") or []
+            # bt 可能是单值字符串，转数组统一处理
+            if isinstance(backs, str):
+                backs = [backs]
             if drive_bays and bays and drive_bays not in bays:
                 continue
             if backplane_type and backs and backplane_type not in backs:

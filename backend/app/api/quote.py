@@ -1,128 +1,97 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException, Form
-from typing import Optional
+from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from datetime import datetime
+from pathlib import Path
 from pydantic import BaseModel
 from app.services.quote_service import QuoteService
-from app.utils.file_storage import FileStorage
-from app.repository.opportunity_file_repo import OpportunityFileRepository
 from app.repository.opportunity_repo import OpportunityRepository
-import uuid
+from app.repository.feed_repo import FeedRepository
+from app.services.storage_adapter import get_storage, build_object_id, StorageError
+from app.services.feed_hub import hub
+from app.api.feed import current_user
+
+
+def _decode_filename(filename: str) -> str:
+    """Best-effort fix for Windows multipart form encoding of Chinese filenames.
+
+    multipart filenames sometimes arrive latin1-mangled on Windows; try common
+    encodings and keep the first decode that yields CJK chars.
+    """
+    try:
+        if not filename.isascii():
+            return filename
+        for encoding in ("utf-8", "gbk", "gb2312", "latin1"):
+            try:
+                decoded = filename.encode("latin1").decode(encoding)
+                if decoded != filename and any("一" <= c <= "鿿" for c in decoded):
+                    return decoded
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return filename
+
 
 router = APIRouter(
     prefix="/api/quote",
     tags=["quote"]
 )
 
-@router.post("/upload")
-async def upload_and_parse(
-    file: UploadFile = File(...),
-    opportunity_id: Optional[str] = Form(None)
-):
-    """
-    Uploads an Excel quotation file, parses it, enriches with L6/KP prices,
-    and returns the structured JSON for the frontend to display.
-    Saves file to temporary directory (will be moved to opportunity folder when opportunity is saved).
-    
-    If opportunity_id is not provided, a new one will be generated.
-    """
-    # Generate opportunity_id if not provided
-    if not opportunity_id:
-        opportunity_id = f"OPP_{uuid.uuid4().hex[:12].upper()}"
-    
-    # Case-insensitive check for Excel extensions
-    filename = file.filename or ""
-    
-    # Fix Windows multipart form encoding issue for Chinese filenames
-    try:
-        # Try to decode as UTF-8 if it looks like garbled text
-        if not filename.isascii():
-            # Already contains non-ASCII, likely correct
-            pass
-        else:
-            # Try common encodings
-            for encoding in ['utf-8', 'gbk', 'gb2312', 'latin1']:
-                try:
-                    decoded = filename.encode('latin1').decode(encoding)
-                    if decoded != filename and any('\u4e00' <= c <= '\u9fff' for c in decoded):
-                        filename = decoded
-                        break
-                except:
-                    continue
-    except:
-        pass
-    
-    if not filename.lower().endswith(('.xlsx', '.xls')):
-        raise HTTPException(status_code=400, detail="File must be an Excel file (.xlsx or .xls)")
-
-    content = await file.read()
-    if len(content) > 50 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
-
-    # Save file to temporary directory (not opportunity folder yet)
-    file_storage = FileStorage()
-    file_info = file_storage.save_upload_temp(content, filename)
-    
-    # Parse the file
-    service = QuoteService()
-    try:
-        result = service.process_upload(content, file.filename)
-        if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message"))
-        
-        # Add opportunity_id and temp file info to result
-        result['opportunity_id'] = opportunity_id
-        result['temp_file'] = {
-            'temp_path': file_info['temp_path'],
-            'original_name': filename,
-            'file_size': file_info['file_size']
-        }
-        return result
-    finally:
-        service.close()
-
 
 @router.post("/upload-to-opportunity")
 async def upload_to_opportunity(
     file: UploadFile = File(...),
-    opportunity_id: str = Form(...)
+    opportunity_id: str = Form(...),
+    user: dict = Depends(current_user),
 ):
-    """Upload Excel quotation to a specific opportunity, parse and create quotation record."""
+    """Upload Excel quotation to a specific opportunity.
+
+    Parses the file, creates a quotation record, and archives the source Excel
+    into the opportunity's file index so it shows up in the archive view.
+    """
     # Verify opportunity exists
     opp_repo = OpportunityRepository()
     try:
         opportunity = opp_repo.get_opportunity(opportunity_id)
         if not opportunity:
             raise HTTPException(status_code=404, detail="商机不存在")
+        customer_name = opportunity.get("customer_name", "") or ""
     finally:
         opp_repo.close()
 
-    # Validate file type
-    filename = file.filename or ""
-    if not filename.lower().endswith(('.xlsx', '.xls')):
+    filename = _decode_filename(file.filename or "")
+    if not filename.lower().endswith((".xlsx", ".xls")):
         raise HTTPException(status_code=400, detail="只支持 .xlsx / .xls 文件")
 
     content = await file.read()
-    file_storage = FileStorage()
-    file_info = file_storage.save_upload_temp(content, filename)
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
 
     service = QuoteService()
+    storage = get_storage()
+    feed_repo = FeedRepository()
     try:
-        result = service.process_upload(content, file.filename)
+        result = service.process_upload(content, filename)
         if result.get("status") == "error":
             raise HTTPException(status_code=500, detail=result.get("message"))
 
-        # Create quotation record in the opportunity
+        # Archive the source Excel under opportunities/{opp_id}/
+        ext = Path(filename).suffix.lower()
+        object_id = build_object_id(filename)
+        try:
+            storage_key = storage.save_bytes(opportunity_id, object_id, content, ext, customer_name=customer_name)
+        except StorageError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+        # Create quotation pointing at the archived file (stable, unlike _temp/)
         from app.repository.quotation_repo import QuotationRepository
         quo_repo = QuotationRepository()
         try:
             quotation = quo_repo.create(
                 opportunity_id=opportunity_id,
-                file_path=file_info['temp_path'],
+                file_path=storage_key,
             )
 
-            # Persist parsed items so they're available when editing
-            # Collect ALL items from all configs and save together
-            # (save_items deletes existing items first, so must save all at once)
+            # Persist parsed items (save_items deletes existing first, so save all at once)
             configs = result.get("configs", {})
             all_items = []
             for cfg_name, cfg_data in configs.items():
@@ -133,19 +102,48 @@ async def upload_to_opportunity(
                     all_items.append(item_copy)
             if all_items:
                 quo_repo.save_items(quotation.quotation_id, all_items)
+
+            # 持久化 excel 参考快照（L6 + KP 行）到 config_l6_picks：左栏 BomTable 与
+            # 规格书导出同源 bom_excel_rows。L6 行不计价（items 不含 L6），故不会与
+            # 规格书的 items 回落重复——preview_data_loader 的 covered_cfgs 判定去重。
+            config_l6_picks = {}
+            for cfg_name, cfg_data in configs.items():
+                bom_rows = cfg_data.get("bom_excel_rows")
+                if bom_rows:
+                    config_l6_picks[cfg_name] = {
+                        "bom_source": "excel",
+                        "bom_excel_rows": bom_rows,
+                    }
+            if config_l6_picks:
+                quo_repo.update(quotation.quotation_id, config_l6_picks=config_l6_picks)
         finally:
             quo_repo.close()
 
-        # Return quotation_id + parsed data + temp_file info
+        # Index the archived file so it appears in the opportunity archive view
+        mime = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            if ext == ".xlsx"
+            else "application/vnd.ms-excel"
+        )
+        att = feed_repo.add_attachment(
+            opportunity_id=opportunity_id,
+            uploader_user_id=user["user_id"],
+            original_filename=filename,
+            storage_key=storage_key,
+            file_size=len(content),
+            mime_type=mime,
+            kind="upload",
+            quotation_id=quotation.quotation_id,
+            category="technical",
+        )
+        await hub.broadcast(opportunity_id, {"type": "attachment", "attachment": att})
+
         result["quotation_id"] = quotation.quotation_id
-        result["temp_file"] = {
-            "temp_path": file_info["temp_path"],
-            "original_name": filename,
-            "file_size": file_info["file_size"],
-        }
+        result["attachment"] = att
         return result
     finally:
         service.close()
+        feed_repo.close()
 
 
 @router.get("/kp/history")

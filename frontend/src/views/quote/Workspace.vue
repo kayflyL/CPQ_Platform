@@ -187,11 +187,11 @@
                   />
                 </div>
 
-                <!-- 选型策略校验提醒（conflict/require 违规；提醒为主，不阻断） -->
-                <div v-if="selectionViolations.length" class="selection-alerts">
-                  <div v-for="v in selectionViolations" :key="v.strategyId" class="selection-alert" :class="v.severity">
-                    <span class="sa-icon">{{ v.severity === 'conflict' ? '⚠' : '＋' }}</span>
-                    <span class="sa-text">{{ v.desc }}<span v-if="v.offenders?.length" class="sa-off">（{{ v.offenders.join(' / ') }}）</span></span>
+                <!-- 兼容性规则提醒（require/exclude/derive/recommend 命中 + 机型系列校验；filter 已用于候选过滤；提醒为主，不阻断） -->
+                <div v-if="selectionAlerts.length" class="selection-alerts">
+                  <div v-for="a in selectionAlerts" :key="a.ruleId + '-' + a.action" class="selection-alert" :class="a.severity">
+                    <span class="sa-icon">{{ a.severity === 'conflict' ? '⚠' : (a.action === 'derive' || a.action === 'recommend' ? '💡' : '＋') }}</span>
+                    <span class="sa-text">{{ a.desc }}<span v-if="a.offenders?.length" class="sa-off">（{{ a.offenders.join(' / ') }}）</span></span>
                   </div>
                 </div>
 
@@ -622,6 +622,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
 import { useSelectionRulesStore } from '@/stores/selectionRules'
+import { evalOp, type RuleContext, type RuleAction } from '@/stores/selectionEngine'
 import { useSettingsStore } from '@/store/settings'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import UniverSheet from '@/components/UniverSheet.vue'
@@ -731,13 +732,31 @@ const chassisBaseName = computed(() => {
 })
 const chassisMatched = computed(() => !!activeConfig.value?.server_model_id)
 
-// auto-complete options：value=name（存进 server_model），label 带 form 提示
-const serverModelOptions = computed(() =>
-  serverModels.value.map(m => ({
+// 商机级候选机型过滤：兼容性规则的 filter 动作（默认规则① series == opportunity.platform_type）。
+// 只依赖商机 platform_type（不依赖具体配置）；命中后候选下拉只显示匹配系列，auto-complete 仍可自由输入（建议层不锁）。
+const modelSeriesFilter = computed(() => {
+  const pt = store.opportunityInfo?.platform_type
+  if (!pt) return null
+  const ctx: RuleContext = { kp: {}, config: {}, opportunity: { platform_type: pt } }
+  const f = selectionRulesStore.evaluateRules(ctx)
+    .find(a => a.action === 'filter' && a.filterScope === 'server_model')
+  if (!f || !f.filterField) return null
+  return { field: f.filterField, op: f.filterOp || '==', value: f.filterValue }
+})
+// auto-complete options：value=name（存进 server_model），label 带 form 提示；商机有平台时按 filter 规则过滤候选系列
+const serverModelOptions = computed(() => {
+  const f = modelSeriesFilter.value
+  const list = f
+    ? serverModels.value.filter(m => {
+        const actual = f.field === 'series' ? (m.base_config?.series || '') : (m as any)[f.field]
+        return evalOp(actual, f.op, f.value)
+      })
+    : serverModels.value
+  return list.map(m => ({
     value: m.name,
     label: `${m.name}${m.base_config?.form ? ' · ' + m.base_config.form : ''}${m.use ? ' · ' + m.use : ''}`,
   }))
-)
+})
 
 // server_model 下拉选中：v-model 已写 name；这里补 server_model_id + base_config_id
 function onServerModelSelect(name: string) {
@@ -1491,12 +1510,46 @@ const handleSave = async () => {
 // 当前配置页的财务数据（随 tab 切换动态变化，使用 computed 确保响应式）
 const configTotals = computed(() => store.getConfigTotals(activeCfg.value))
 
-// 选型策略校验（conflict/require）：对当前配置的 KP items 跑规则，返回违规清单
-const selectionViolations = computed(() => {
+// 兼容性规则引擎：构建当前配置 context（KP 按 category 聚合 + kpPartByPn enrich specs + 平台/系列/SATA 数），跑 WHEN→THEN
+function buildRuleContext(cfg: any) {
+  const kpItems = (cfg.items || []).filter((i: any) => i.category === 'Key Parts')
+  const kp: Record<string, { qty: number; items: any[]; spec: Record<string, any> }> = {}
+  let sataQty = 0
+  for (const it of kpItems) {
+    const cat = it.part_category
+    if (!cat) continue
+    const spec = (it.pn ? kpPartByPn(it.pn)?.specs : null) || {}
+    if (!kp[cat]) kp[cat] = { qty: 0, items: [], spec: {} }
+    kp[cat].qty += Number(it.qty) || 0
+    kp[cat].items.push({ ...it, spec })
+    if (!Object.keys(kp[cat].spec).length && Object.keys(spec).length) kp[cat].spec = spec
+    const iface = String(spec.interface || spec.kind || spec.Type || '')
+    if (/SATA/i.test(iface)) sataQty += Number(it.qty) || 0
+  }
+  return {
+    kp,
+    config: { series: chassisSeries.value, model: cfg.server_model, sata_qty: sataQty },
+    opportunity: { platform_type: store.opportunityInfo?.platform_type || '' },
+  }
+}
+const selectionActions = computed(() => {
   const cfg = activeConfig.value
   if (!cfg) return []
-  const kpItems = (cfg.items || []).filter((i: any) => i.category === 'Key Parts')
-  return selectionRulesStore.validateSelection(kpItems, { series: chassisSeries.value, model: cfg.server_model })
+  return selectionRulesStore.evaluateRules(buildRuleContext(cfg))
+})
+// 提醒列表：filter 动作已由候选下拉过滤消费（见 modelSeriesFilter），不在此重复提示；
+// 但若当前选中机型系列与商机平台不符，补一条提示（建议层，仍可自由输入）
+const selectionAlerts = computed(() => {
+  const alerts = selectionActions.value.filter(a => a.action !== 'filter')
+  const f = modelSeriesFilter.value
+  const cs = chassisSeries.value
+  if (f && f.field === 'series' && cs && !evalOp(cs, f.op, f.value)) {
+    alerts.push({
+      ruleId: -1, ruleName: '机型系列校验', action: 'filter', severity: 'info',
+      desc: `当前机型系列「${cs}」与商机平台「${f.value}」不符（候选已按平台过滤，仍可自由输入其它型号）`,
+    } as RuleAction)
+  }
+  return alerts
 })
 
 // 利润率告警：优先按 platform_type 三档（pricing.margin_tier.floor）；无三档回退 system_config 旧阈值
@@ -1684,7 +1737,7 @@ async function confirmSync() {
 
 onMounted(async () => {
   // 并行加载：导出模板 / 质保默认值 / 机型目录 / KP 料号目录（下拉 + create 默认 + 机箱卡 series + KP 新建模式都依赖）
-  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog(), loadGpuCableItems(), pricingRulesStore.ensurePricingRules(), selectionRulesStore.ensureSelectionRules()])
+  await Promise.all([loadTemplates(), loadWarrantyDefaults(), loadServerModels(), loadKpCatalog(), loadGpuCableItems(), pricingRulesStore.ensurePricingRules(), selectionRulesStore.ensureRules()])
   const firstModel = serverModels.value[0]
 
   // Check routing context
@@ -1847,6 +1900,8 @@ onMounted(async () => {
         l6_spec: quotation.l6_spec || '',
         description: quotation.description || quotation.l6_spec || '',
         total_qty: quotation.total_qty || 0,
+        platform_type: (quotation as any).platform_type || '',
+        chassis_form: (quotation as any).chassis_form || '',
       }
 
       // 传递 config_quantities 到 store
@@ -1854,6 +1909,14 @@ onMounted(async () => {
       const isExcelQuote = !!quotation.file_path || entryFrom.value === 'upload'
       store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities, config_l6_picks: quotation.config_l6_picks, is_excel_quote: isExcelQuote })
       activeCfg.value = Object.keys(store.configs)[0] || 'CFG1'
+      // edit 模式补拉商机 platform_type/chassis_form（兼容性 filter 规则依赖；报价单可能未存该字段）
+      if (opportunityId && !store.opportunityInfo.platform_type) {
+        try {
+          const { data: opp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
+          if (opp.platform_type) store.opportunityInfo.platform_type = opp.platform_type
+          if (opp.chassis_form) store.opportunityInfo.chassis_form = opp.chassis_form
+        } catch { /* 不阻塞加载 */ }
+      }
       message.success("已加载报价单数据")
     } catch (err) {
       console.error("加载报价单失败", err)

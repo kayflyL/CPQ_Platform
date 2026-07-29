@@ -57,6 +57,7 @@ backend/dist/
 # Tooling artifacts
 .hermes/
 .hermes-tmp.*
+.codegraph/
 
 # Stray Windows redirect targets
 nul

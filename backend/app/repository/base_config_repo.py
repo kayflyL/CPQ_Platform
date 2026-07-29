@@ -41,6 +41,15 @@ class BaseConfigRepository:
             cfg["total_price"] = float(a["total_price"]) if a else 0.0
         return configs
 
+    def list_forms(self) -> list:
+        """DISTINCT form（数据驱动，贴需求分析词表「动态下拉」诉求）。"""
+        with l6_engine.connect() as c:
+            rows = c.execute(text(
+                "SELECT DISTINCT form FROM l6.base_configs "
+                "WHERE form IS NOT NULL AND form <> '' ORDER BY form"
+            )).fetchall()
+        return [r[0] for r in rows]
+
     def get(self, config_id: int) -> Optional[dict]:
         with l6_engine.connect() as c:
             r = c.execute(text("SELECT * FROM l6.base_configs WHERE id=:id"),

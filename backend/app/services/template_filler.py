@@ -21,7 +21,7 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
         bindings: 绑定配置列表
         data: 数据源 {
             "customer_name": "XX公司",
-            "l6_details": [{"part_name": "...", "qty": 1, ...}, ...],
+            "l6_details": [{"catalogue": "...", "qty": 1, ...}, ...],
             ...
         }
         sheet_config: 可选，sheet 配置信息（含 cover/config 定义）

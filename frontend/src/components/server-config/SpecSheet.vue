@@ -130,24 +130,7 @@ const terms = computed<(readonly [string, string])[]>(() => {
 const docDate = new Date().toLocaleDateString('zh-CN')
 
 // ==================== 旧模式计算属性 ====================
-const hasChassis = computed(() => !!props.l6Apply)
 const chassisTotal = computed(() => Number(props.l6Apply?.totals?.l6) || 0)
-
-// 机箱摘要 5 项
-const bpTypeLabel = computed(() => {
-  const rows = props.l6Apply?.l6Rows || []
-  const byRe = (re: RegExp) => rows.find((r: any) => re.test(String(r.catalogue || '')))
-  const bpRow = byRe(/背板/) || byRe(/backplane/i)
-  if (bpRow?.catalogue) return String(bpRow.catalogue)
-  return props.l6Apply?.picks?.bp_type || ''
-})
-const powerDesc = computed(() => {
-  const rows = props.l6Apply?.l6Rows || []
-  const psu = rows.find((r: any) => typeof r.catalogue === 'string' && r.catalogue.startsWith('电源:'))
-  if (!psu) return ''
-  const name = String(psu.catalogue).replace(/^电源:/, '').trim()
-  return `${psu.qty ?? 1} × ${name || '电源'}`
-})
 
 const kpTotal = computed(() =>
   (props.kpLines || []).reduce((s, l) => s + ((props.priceOf?.(l.pn) || 0) * (l.qty || 0)), 0)
@@ -245,20 +228,12 @@ function groupByCategory(items: KpItem[]) {
         <span v-if="series || model?.base_config?.form" class="ss-chip">{{ series || model?.base_config?.form }}</span>
       </section>
 
-      <!-- 机箱规格：5 项摘要 + 总价 -->
+      <!-- 旧模式提示：建议使用 configs prop -->
       <section class="ss-section">
-        <div class="ss-section-title">{{ labels.chassis_title }}</div>
-        <div v-if="hasChassis" class="ss-spec-grid">
-          <div class="spec-item"><span class="spec-key">{{ labels.chassis_model }}</span><span class="spec-val">{{ model?.name || '—' }}</span></div>
-          <div class="spec-item"><span class="spec-key">{{ labels.chassis_form }}</span><span class="spec-val">{{ model?.base_config?.form || '—' }}</span></div>
-          <div class="spec-item"><span class="spec-key">{{ labels.chassis_bays }}</span><span class="spec-val">{{ model?.base_config?.bays ? `${model.base_config.bays} 盘位` : '—' }}</span></div>
-          <div class="spec-item"><span class="spec-key">{{ labels.chassis_backplane }}</span><span class="spec-val">{{ bpTypeLabel || '—' }}</span></div>
-          <div class="spec-item"><span class="spec-key">{{ labels.chassis_power }}</span><span class="spec-val">{{ powerDesc || '—' }}</span></div>
-          <div v-if="opts.show_chassis_total" class="spec-item spec-total">
-            <span class="spec-key">{{ labels.chassis_total }}</span><span class="spec-val">{{ money(chassisTotal) }}</span>
-          </div>
+        <div class="ss-empty">
+          请使用 configs prop 传入配置数据以显示完整规格书。<br>
+          当前页面使用的是旧模式，已不再维护。
         </div>
-        <div v-else class="ss-empty">请先完成机箱选配</div>
       </section>
 
       <!-- KP 配件 -->
@@ -351,18 +326,33 @@ function groupByCategory(items: KpItem[]) {
             </div>
           </section>
 
-          <!-- 机箱规格：形态、盘位、背板、电源、总价（型号已在标题块，不重复） -->
-          <section class="ss-section">
-            <div class="ss-section-title">{{ labels.chassis_title }}</div>
-            <div class="ss-spec-grid">
-              <div class="spec-item"><span class="spec-key">{{ labels.chassis_form }}</span><span class="spec-val">{{ cfg.chassis_form || '—' }}</span></div>
-              <div class="spec-item"><span class="spec-key">{{ labels.chassis_bays }}</span><span class="spec-val">{{ cfg.chassis_bays || '—' }}</span></div>
-              <div class="spec-item"><span class="spec-key">{{ labels.chassis_backplane }}</span><span class="spec-val">{{ cfg.backplane_type || 'Pass-Thru' }}</span></div>
-              <div class="spec-item"><span class="spec-key">{{ labels.chassis_power }}</span><span class="spec-val">{{ cfg.power_supply || '—' }}</span></div>
-              <div v-if="opts.show_chassis_total" class="spec-item spec-total">
-                <span class="spec-key">{{ labels.chassis_total }}</span><span class="spec-val">{{ money(cfg.l6_total) }}</span>
-              </div>
-            </div>
+          <!-- L6 机箱详细料件（与 Excel 模板对齐，显示完整零件清单） -->
+          <section v-if="cfg.l6_details?.length" class="ss-section">
+            <div class="ss-section-title">{{ labels.chassis_title }} · Chassis</div>
+            <table class="ss-table">
+              <thead>
+                <tr>
+                  <th class="col-cat">{{ labels.kp_catalogue }}</th>
+                  <th class="col-desc">{{ labels.kp_description }}</th>
+                  <th class="col-qty">{{ labels.kp_qty }}</th>
+                  <th v-if="opts.show_price_column" class="col-cost">{{ labels.kp_cost }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(item, i) in cfg.l6_details" :key="i">
+                  <td class="cell-cat">{{ item.catalogue || '—' }}</td>
+                  <td class="cell-desc">{{ item.description || '—' }}</td>
+                  <td class="cell-qty">{{ item.qty || '—' }}</td>
+                  <td v-if="opts.show_price_column" class="cell-cost">
+                    {{ money((item.final_price || 0) * (item.qty || 1)) }}
+                  </td>
+                </tr>
+                <tr v-if="opts.show_chassis_total" class="ss-subtotal">
+                  <td colspan="3">{{ labels.chassis_total }}</td>
+                  <td v-if="opts.show_price_column" class="ss-subtotal-price">{{ money(cfg.l6_total) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </section>
 
           <!-- KP 配件 -->

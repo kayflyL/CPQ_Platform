@@ -14,12 +14,26 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Any
 import io
+import math
 import openpyxl
 from openpyxl.utils import get_column_letter
 from app.repository.univer_template_repo import UniverTemplateRepo
 from app.services.template_filler import fill_snapshot
 from app.services.preview_data_loader import load_preview_data
 from app.services.snapshot_converter import excel_to_snapshot
+
+
+def _sanitize_for_json(obj):
+    """Replace NaN/Infinity with None for JSON serialization"""
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, float):
+        if math.isnan(obj) or math.isinf(obj):
+            return None
+        return obj
+    return obj
 
 router = APIRouter(prefix="/api/univer-templates", tags=["univer-templates"])
 
@@ -157,7 +171,10 @@ def preview_template(
         # 3. 填充 snapshot
         filled_snapshot = fill_snapshot(workbook_snapshot, bindings, data, sheet_config)
         
-        # 4. 返回
+        # 4. 清洗 NaN/Infinity
+        filled_snapshot = _sanitize_for_json(filled_snapshot)
+        
+        # 5. 返回
         return {
             "workbook_snapshot": filled_snapshot,
             "binding_count": len(bindings),

@@ -3,9 +3,12 @@ import json
 
 logger = logging.getLogger(__name__)
 from datetime import datetime
-from fastapi import APIRouter, HTTPException
+import io
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi.responses import StreamingResponse
 from app.repository.kp_repo import KPRepository
 from app.repository.l6_repo import L6Repository
+from app.services.kp_import_export import ExportService, TemplateService, ImportService
 
 router = APIRouter(
     prefix="/api/admin",
@@ -132,6 +135,61 @@ def get_kp_history(model: str = None, part_name: str = None):
 
 # ================== KP Parts 完整 CRUD API (新表) ==================
 
+# -------------------- 批量导入 / 导出(声明在 /{part_id} 之前,避免被动态路由吞掉) --------------------
+
+@router.get("/kp/parts/import-template")
+def download_parts_template():
+    """下载 KP 配件导入模板(含高频规格列 + 说明 sheet)。"""
+    repo = KPRepository()
+    try:
+        spec_keys = [k for k, _ in repo.list_spec_keys(top_n=15)]
+        data = TemplateService.build_template(spec_keys)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type=TemplateService.media_type(),
+            headers={"Content-Disposition": 'attachment; filename="kp_parts_import_template.xlsx"'},
+        )
+    finally:
+        repo.close()
+
+
+@router.get("/kp/parts/export")
+def export_parts(category_id: int = None):
+    """导出全部 KP 配件为 xlsx(固定字段 + 透视规格列 + 最新价格)。"""
+    repo = KPRepository()
+    try:
+        parts = repo.list_all_for_export(category_id)
+        data = ExportService.export_workbook(parts)
+        return StreamingResponse(
+            io.BytesIO(data),
+            media_type=ExportService.media_type(),
+            headers={"Content-Disposition": 'attachment; filename="kp_parts.xlsx"'},
+        )
+    finally:
+        repo.close()
+
+
+@router.post("/kp/parts/import")
+async def import_parts(file: UploadFile = File(...), dry_run: bool = Query(False)):
+    """批量导入 KP 配件。dry_run=true 返回逐行预览(新增/更新/冲突);false 正式写入。"""
+    content = await file.read()
+    repo = KPRepository()
+    try:
+        try:
+            parsed = ImportService.parse(content)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Excel 解析失败: {e}")
+        preview = ImportService.classify(parsed["rows"], repo)
+        if dry_run:
+            return {"preview": preview, "summary": ImportService.summarize_preview(preview)}
+        result = ImportService.commit(preview, repo)
+        return {"summary": result, "errors": result["errors"]}
+    finally:
+        repo.close()
+
+
+# -------------------- 单条 CRUD --------------------
+
 @router.get("/kp/parts")
 def list_parts(category_id: int = None, search: str = "", page: int = 1, page_size: int = 20,
                sort_by: str = "name", sort_order: str = "asc",
@@ -161,6 +219,48 @@ def list_spec_facets(category_id: int = None):
     repo = KPRepository()
     try:
         return {"facets": repo.list_spec_facets(category_id)}
+    finally:
+        repo.close()
+
+
+@router.get("/kp/stats")
+def kp_stats():
+    """配件库总览统计（仪表盘：总数/本周新增/有效价格/每日新增序列/最近入库/最近调价）"""
+    repo = KPRepository()
+    try:
+        return repo.get_stats()
+    finally:
+        repo.close()
+
+
+@router.get("/kp/price-movers")
+def kp_price_movers(days: int = 7, limit: int = 10):
+    """价格异动看板：最新价 vs N 天前最近一条价的涨跌幅 TOP（涨幅/跌幅各 limit 条）"""
+    repo = KPRepository()
+    try:
+        return repo.get_price_movers(days, limit)
+    finally:
+        repo.close()
+
+
+@router.get("/kp/price-matrix")
+def kp_price_matrix(category_id: int, group_key: str):
+    """同类比价矩阵：同分类下按某 spec_key 分组的价格分布（min/Q1/median/Q3/max + 明细）"""
+    if not category_id or not group_key:
+        raise HTTPException(status_code=400, detail="category_id 和 group_key 必填")
+    repo = KPRepository()
+    try:
+        return repo.get_price_matrix(category_id, group_key)
+    finally:
+        repo.close()
+
+
+@router.get("/kp/parts/duplicates")
+def kp_parts_duplicates():
+    """疑似重复配件检测：oem_sku/alt_sku 精确（强信号）+ 名称 difflib 相似度（弱信号），返回重复组"""
+    repo = KPRepository()
+    try:
+        return repo.detect_duplicates()
     finally:
         repo.close()
 
@@ -314,6 +414,7 @@ def update_price(price_id: int, data: dict):
         ok = repo.update_price_history(
             price_id=price_id,
             price=data.get("price"),
+            currency=data.get("currency"),
             price_date=data.get("price_date"),
             note=data.get("note"),
         )
@@ -578,7 +679,33 @@ def create_business_field(data: dict, operator: str = "system"):
 
 @router.put("/business-fields/{field_key}")
 def update_business_field(field_key: str, data: dict, operator: str = "system"):
-    """更新业务字段"""
+    """更新业务字段（静态字段 → business_fields；动态字段 → dynamic_source_fields）"""
+    # 动态字段 key 格式：source_key.field_key
+    if "." in field_key:
+        source_key, sub_key = field_key.split(".", 1)
+        from app.models.base import Rules_SessionLocal
+        from app.models.dynamic_source_field import DynamicSourceField
+        session = Rules_SessionLocal()
+        try:
+            field = session.query(DynamicSourceField).filter_by(source_key=source_key, field_key=sub_key).first()
+            if not field:
+                raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
+            if "label" in data:
+                field.field_label = data["label"]
+            if "enabled" in data:
+                field.enabled = data["enabled"]
+            session.commit()
+            return {
+                "key": f"{field.source_key}.{field.field_key}",
+                "label": field.field_label,
+                "category": "dynamic",
+                "source": field.source_key,
+                "enabled": field.enabled,
+                "sort_order": field.sort_order,
+            }
+        finally:
+            session.close()
+
     repo = BusinessFieldRepository()
     try:
         result = repo.update(field_key, data, operator)
@@ -591,7 +718,23 @@ def update_business_field(field_key: str, data: dict, operator: str = "system"):
 
 @router.delete("/business-fields/{field_key}")
 def delete_business_field(field_key: str, operator: str = "system"):
-    """删除业务字段"""
+    """删除业务字段（静态字段 → business_fields；动态字段 → dynamic_source_fields）"""
+    # 动态字段 key 格式：source_key.field_key
+    if "." in field_key:
+        source_key, sub_key = field_key.split(".", 1)
+        from app.models.base import Rules_SessionLocal
+        from app.models.dynamic_source_field import DynamicSourceField
+        session = Rules_SessionLocal()
+        try:
+            field = session.query(DynamicSourceField).filter_by(source_key=source_key, field_key=sub_key).first()
+            if not field:
+                raise HTTPException(status_code=404, detail=f"Field '{field_key}' not found")
+            session.delete(field)
+            session.commit()
+            return {"success": True}
+        finally:
+            session.close()
+
     repo = BusinessFieldRepository()
     try:
         if not repo.delete(field_key, operator):

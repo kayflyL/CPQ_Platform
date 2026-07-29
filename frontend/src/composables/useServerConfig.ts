@@ -66,7 +66,9 @@ export function useServerConfig() {
   function psuQty(): number {
     return overrides.psuQty != null ? overrides.psuQty : (result.value?.psu.qty ?? 2)
   }
-  function bpType(): 'tri' | 'dc' {
+  function bpType(): 'tri' | 'dc' | null {
+    // 允许手改覆盖为 null（表示"不选背板"），否则走默认链
+    if (overrides.bp === null) return null
     return overrides.bp ?? baseBpType.value ?? result.value?.bp_type ?? 'dc'
   }
   function isManual(key: string) {

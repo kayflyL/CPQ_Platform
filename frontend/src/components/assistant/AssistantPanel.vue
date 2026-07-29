@@ -1,9 +1,9 @@
 <template>
   <Teleport to="body">
     <transition name="assistant-panel">
-      <div v-if="open" class="assistant-panel">
-        <!-- header -->
-        <div class="ap-header">
+      <div v-if="open" class="assistant-panel" :style="panelStyle">
+        <!-- header（可拖动）-->
+        <div class="ap-header" @mousedown="startDrag">
           <div class="ap-title">
             <RobotOutlined />
             <span>方案助手</span>
@@ -87,11 +87,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import { Modal } from 'ant-design-vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext } from '@/composables/assistantContext'
+import { useAssistantFab, computePanelAnchor } from '@/composables/useAssistantFab'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
@@ -105,6 +106,96 @@ const { contextLabel, summarize } = useAssistantContext()
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+
+// 面板贴着 FAB 当前位置打开（FAB 拖到哪儿，面板就跟到哪儿附近）
+const { pos: fabPos, getFabRect } = useAssistantFab()
+const viewportTick = ref(0)
+
+// 用户拖动后的偏移量（持久化到 sessionStorage）
+const dragOffset = ref({ x: 0, y: 0 })
+const DRAG_KEY = 'assistant-panel-offset'
+
+// 加载已保存的偏移
+onMounted(() => {
+  try {
+    const saved = sessionStorage.getItem(DRAG_KEY)
+    if (saved) {
+      dragOffset.value = JSON.parse(saved)
+    }
+  } catch {
+    /* ignore */
+  }
+})
+
+const panelStyle = computed(() => {
+  // 依赖 fabPos / viewportTick 触发重算（FAB 拖动或窗口缩放时跟着挪）
+  void fabPos.value
+  void viewportTick.value
+  const rect = getFabRect()
+  if (!rect) return undefined // FAB 还没挂载 → 回落 CSS 默认（右下角）
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  const { left, top, height } = computePanelAnchor(rect, vw, vh)
+  // 应用用户拖动偏移
+  return {
+    left: left + dragOffset.value.x + 'px',
+    top: top + dragOffset.value.y + 'px',
+    right: 'auto',
+    bottom: 'auto',
+    height: height + 'px',
+    maxHeight: height + 'px',
+  }
+})
+function onResize() { viewportTick.value++ }
+onMounted(() => window.addEventListener('resize', onResize))
+onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+
+// 拖动逻辑
+let dragging = false
+let dragStart = { x: 0, y: 0 }
+let offsetStart = { x: 0, y: 0 }
+
+function startDrag(e: MouseEvent) {
+  // 忽略关闭按钮点击
+  if ((e.target as HTMLElement).closest('.ap-close')) return
+
+  dragging = true
+  dragStart = { x: e.clientX, y: e.clientY }
+  offsetStart = { ...dragOffset.value }
+
+  document.addEventListener('mousemove', onDrag)
+  document.addEventListener('mouseup', stopDrag)
+
+  // 防止选中文字
+  e.preventDefault()
+}
+
+function onDrag(e: MouseEvent) {
+  if (!dragging) return
+
+  const dx = e.clientX - dragStart.x
+  const dy = e.clientY - dragStart.y
+
+  dragOffset.value = {
+    x: offsetStart.x + dx,
+    y: offsetStart.y + dy,
+  }
+}
+
+function stopDrag() {
+  if (!dragging) return
+  dragging = false
+
+  document.removeEventListener('mousemove', onDrag)
+  document.removeEventListener('mouseup', stopDrag)
+
+  // 持久化偏移
+  try {
+    sessionStorage.setItem(DRAG_KEY, JSON.stringify(dragOffset.value))
+  } catch {
+    /* ignore */
+  }
+}
 
 // vue-tsc 模板里拿不到全局 document，集中到 script setup 暴露
 const getPopupContainer = (node: any) => node?.closest('.assistant-panel') || document.body
@@ -196,6 +287,8 @@ function onDeleteThread(id: string) {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: move;
+  user-select: none;
 }
 .ap-title {
   display: flex;

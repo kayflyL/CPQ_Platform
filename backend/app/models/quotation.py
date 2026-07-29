@@ -21,6 +21,10 @@ class Quotation(Base):
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     status: Mapped[Optional[str]] = mapped_column(String, default="active")
+    # 草稿/已导出状态机：NULL = 草稿（可进工作台编辑）；非空 = 已导出冻结（值=导出时间戳，点列表只看 Excel+成本快照）
+    exported_at: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # 导出时冻结的成本快照（整机/机箱/KP/质保 成本+售价+利润率，逐配置）——前端算、导出动作 POST 回来
+    cost_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     
     # 报价单级字段（用户在报价单页面填写）
     quotation_date: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -28,7 +32,7 @@ class Quotation(Base):
     config_descriptions: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的描述
     config_server_models: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的服务器型号
     config_warranty_info: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的维保信息（年限/费率/描述）
-    
+
     # 计算字段
     total_price: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
     profit_margin: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
@@ -41,6 +45,10 @@ class Quotation(Base):
 
     # 主推标记
     is_primary: Mapped[Optional[bool]] = mapped_column(default=False)
+    # L3 报价单来源：reasoning(推理流确认转草稿) / manual(工作台手动新建) / upload(Excel 上传)
+    source: Mapped[str] = mapped_column(String, default="manual")
+    # L3 策略溯源快照：导出时命中的定价策略（id/version/name/关键参数）；仅 reasoning 单有实际依据
+    strategy_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
 
     @staticmethod
     def _sanitize(obj):
@@ -66,6 +74,8 @@ class Quotation(Base):
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
             "status": self.status or "active",
+            "exported_at": self.exported_at or None,
+            "cost_snapshot": self._sanitize(self.cost_snapshot) or None,
             "quotation_date": self.quotation_date or "",
             "config_quantities": self._sanitize(self.config_quantities) or {},
             "config_descriptions": self.config_descriptions or {},
@@ -74,6 +84,8 @@ class Quotation(Base):
             "total_price": self.total_price or 0.0,
             "profit_margin": self.profit_margin or 0.0,
             "is_primary": self.is_primary or False,
+            "source": self.source or "manual",
+            "strategy_snapshot": self._sanitize(self.strategy_snapshot) or None,
         }
         
         # 展开 extra_fields 到顶层

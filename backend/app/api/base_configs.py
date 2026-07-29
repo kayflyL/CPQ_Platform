@@ -12,6 +12,23 @@ def list_configs(series: Optional[str] = None, form: Optional[str] = None, bays:
     return {"configs": cfgs, "total": len(cfgs)}
 
 
+@router.get("/series")
+def list_series():
+    """返回所有机型系列（从 system_config.server_series 读取，全平台唯一权威源）。
+    items 带 label 供下拉显示；series 为纯 value 数组，向后兼容老调用方。"""
+    from app.repository.system_config_repo import SystemConfigRepository
+    raw = SystemConfigRepository().get_value("server_series", [])
+    items = [it for it in raw if isinstance(it, dict) and "value" in it] if isinstance(raw, list) else []
+    return {"series": [it["value"] for it in items], "items": items}
+
+
+@router.get("/forms")
+def list_forms():
+    """返回所有机箱形态（DISTINCT base_configs.form，数据驱动）。
+    供需求分析词表编辑器「机型词表·form 字段」左侧下拉用。"""
+    return {"forms": BaseConfigRepository().list_forms()}
+
+
 @router.get("/{config_id}")
 def get_config(config_id: int):
     c = BaseConfigRepository().get_with_parts(config_id)

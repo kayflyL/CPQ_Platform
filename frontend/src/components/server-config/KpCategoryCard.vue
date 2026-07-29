@@ -134,7 +134,7 @@ function onPick(i: number, pn: any) {
 .sc-panel {
   background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
   backdrop-filter: blur(16px);
-  border: 1px solid var(--cpq-overlay-a15); border-radius: 18px; overflow: hidden;
+  border: 1px solid var(--cpq-overlay-a15); border-radius: 0; overflow: hidden;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
 /* flat 模式：报价页 KP 大卡内降级为扁平分段（去玻璃避嵌套，配置页不受影响）*/
@@ -143,11 +143,11 @@ function onPick(i: number, pn: any) {
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   box-shadow: none;
-  border-color: var(--cpq-overlay-w10);
-  border-radius: 14px;
+  border-color: var(--cpq-glass-border);
+  border-radius: 0;
 }
 .sc-panel.kp-flat .sc-phead { background: transparent; border-bottom-color: var(--cpq-overlay-w8); }
-.sc-panel.kp-flat:hover { border-color: var(--cpq-overlay-w20); }
+.sc-panel.kp-flat:hover { border-color: var(--cpq-glass-border-strong); }
 .sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
 .sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }

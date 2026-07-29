@@ -28,110 +28,6 @@ def get_cpu_list():
         repo.close()
 
 
-# ========== L6 Region Config ==========
-
-@router.get("/l6-region-config")
-def get_l6_region_config():
-    """Get L6 region config."""
-    config = rules_repo.get_l6_region_config()
-    return {"config": config}
-
-
-@router.post("/l6-region-config")
-def create_l6_region_config(data: dict):
-    """Create L6 region config."""
-    config_id = rules_repo.add_l6_region_config(data)
-    return {"id": config_id, "status": "success"}
-
-
-@router.put("/l6-region-config/{config_id}")
-def update_l6_region_config(config_id: int, data: dict):
-    """Update L6 region config by ID."""
-    success = rules_repo.update_l6_region_config_by_id(config_id, data)
-    if not success:
-        raise HTTPException(status_code=404, detail="Config not found")
-    return {"status": "success"}
-
-
-# ========== KP Region Config ==========
-
-@router.get("/kp-region-config")
-def get_kp_region_config():
-    """Get KP region config."""
-    config = rules_repo.get_kp_region_config()
-    return {"config": config}
-
-
-@router.post("/kp-region-config")
-def create_kp_region_config(data: dict):
-    """Create KP region config."""
-    config_id = rules_repo.add_kp_region_config(data)
-    return {"id": config_id, "status": "success"}
-
-
-@router.put("/kp-region-config/{config_id}")
-def update_kp_region_config(config_id: int, data: dict):
-    """Update KP region config by ID."""
-    success = rules_repo.update_kp_region_config_by_id(config_id, data)
-    if not success:
-        raise HTTPException(status_code=404, detail="Config not found")
-    return {"status": "success"}
-
-
-@router.post("/parse-preview")
-async def parse_preview(
-    file: UploadFile = File(...),
-    template_config: str = Form("{}")
-):
-    """Parse uploaded Excel for heatmap preview. Returns grid + cell marks + meta."""
-    from app.engine.pricing_engine import PricingEngine
-    from app.repository.kp_repo import KPRepository
-    from app.repository.l6_repo import L6Repository
-    from app.repository.opportunity_repo import OpportunityRepository
-    import json
-    
-    # Parse template_config
-    try:
-        config = json.loads(template_config) if template_config else {}
-    except json.JSONDecodeError:
-        config = {}
-    
-    # Read Excel file
-    contents = await file.read()
-    try:
-        xl = pd.ExcelFile(io.BytesIO(contents))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail="无法解析Excel文件")
-    
-    # Find first valid sheet (skip 原始需求/Reference)
-    target_sheet = None
-    for sheet_name in xl.sheet_names:
-        if '原始需求' not in sheet_name and 'Reference' not in sheet_name:
-            target_sheet = sheet_name
-            break
-    
-    if not target_sheet:
-        raise HTTPException(status_code=400, detail="未找到有效的报价Sheet")
-    
-    df = xl.parse(target_sheet, header=None)
-    if df.empty:
-        raise HTTPException(status_code=400, detail="Sheet为空")
-    
-    kp_repo = KPRepository()
-    l6_repo = L6Repository()
-    project_repo = OpportunityRepository()
-    engine = PricingEngine(kp_repo, l6_repo, project_repo, rules_repo)
-    try:
-        kp_mappings = config.get('kp_mappings', [])
-        result = engine.preview_parse(df, max_row=None, max_col=None, kp_mappings=kp_mappings)
-        result['sheet_name'] = target_sheet
-        return result
-    finally:
-        kp_repo.close()
-        l6_repo.close()
-        project_repo.close()
-
-
 # ========== KP Category Mappings ==========
 
 @router.get("/kp-category-mappings")
@@ -177,27 +73,10 @@ def delete_kp_category_mapping(mapping_id: int):
 @router.post("/init-defaults")
 def initialize_default_rules():
     """Initialize default rules if database is empty."""
-    # Check if rules already exist
-    l6_config = rules_repo.get_l6_region_config()
-    if l6_config:
+    # Check if rules already exist (kp mappings 作为已初始化标志)
+    if rules_repo.get_kp_category_mappings():
         return {"status": "already_initialized", "message": "Rules already exist"}
-    
-    # Default L6 Region Config
-    default_l6_config = {
-        "region_start_keywords": "L6",
-        "field_mapping": '{"catalogue":"D", "description":"E", "quantity":"F"}',
-        "region_end_keywords": "Keyparts,KP"
-    }
-    rules_repo.add_l6_region_config(default_l6_config)
-    
-    # Default KP Region Config
-    default_kp_config = {
-        "region_start_keywords": "Keyparts,KP",
-        "field_mapping": '{"catalogue":"D", "model":"E", "quantity":"F", "price":"G"}',
-        "region_end_keywords": "Warranty,Total"
-    }
-    rules_repo.add_kp_region_config(default_kp_config)
-    
+
     # Default KP Category Mappings
     default_kp_mappings = [
         {"keyword": "cpu", "category": "CPU", "priority": 1},

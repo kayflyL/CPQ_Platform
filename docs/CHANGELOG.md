@@ -1,10 +1,34 @@
 # 更新日志
 
-> 最后更新：2026-07-28
+> 最后更新：2026-07-29
 
 本文件记录 CPQ Platform 的重要变更。
 
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
+
+---
+
+## [0.1.20] - 2026-07-29
+
+### 新增
+
+- **商机详情页报价单解析预览**：上传报价单 Excel 不再直接生成报价单，先弹出解析预览弹窗（热力图可视化 + 区域/字段规则可调），确认后再落库生成报价单。复用「设置-解析规则」同一套规则引擎，不重复造轮子。新增前端组件 `QuotationParsePreviewModal` / `ParseHeatmapPreview` / `ParseRulesEditor`，并抽 `useExcelParser` 单例 composable
+- **Excel 表头自适应列定位**：解析规则字段配置可选 `header_labels`，启用后按表头标签（如 Catalogue / Description / Quantity）自动定位取值列，兼容不同模板的列偏移（C/D/E vs D/E/F）。L6 与 KP 区域均支持
+- **l6/kp_region_config 物理删表迁移脚本**：新增 `backend/scripts/drop_l6_kp_region_config.py`，幂等 `DROP` 旧的 `rules.l6_region_config` / `rules.kp_region_config` 表
+
+### 重构
+
+- **pricing_engine 瘦身 1094 → 425 行（-61%）**：删除 7 个遗留解析方法、Excel 导出样式块（`_F_*` / `_NO_FILL` / `_THIN_B` 等）、`_resolve_font`、`update_project_meta`、死导入（`openpyxl` / `Font` / `json` / `ast` / `operator` 等）。`parse_file` 统一走规则驱动的 `ExcelParser`，不再保留旧解析兜底——解析异常直接抛出，暴露问题而非用旧实现掩盖
+- **商机 CRUD 移出 engine**：`save_opportunity` / `get_opportunity_details` 从 `PricingEngine` 搬入 `QuoteService`（业务编排层），engine 回归纯算法。`QuoteService` 新增 `_get_quotation_repo` 懒加载，避免每次调用重复实例化
+- **工具函数归位**：`_safe_eval_math`（公式安全求值，替换 `eval()`）从 `pricing_engine` 移入 `excel_parser`——它服务于解析阶段的公式求值，理应在解析层
+
+### 清理
+
+- **移除 l6/kp_region_config 残留代码**：`models` / `rules_repo` / `rules` API / `startup` 中对旧 region_config 表的读写代码全部删除（已被 `parse_regions` / `parse_field_rules` 取代）
+
+### 修复
+
+- **报价单列表价格/利润不显示**：回退误加的「按 items 重算整机售价/利润」逻辑（既多余又算错，把 OPP-20260729233147664237 算成错误值），列表直接读 `quotation` 表已存的 `total_price` / `profit_margin`（该商机实际为 ¥490,600 / 10%），不再重算
 
 ---
 

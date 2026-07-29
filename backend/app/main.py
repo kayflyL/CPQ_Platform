@@ -36,6 +36,15 @@ from app.api import fields as fields_api
 from app.api import system_config as system_config_api
 from app.api import kp_config as kp_config_api
 from app.api import bom_templates as bom_templates_api
+from app.api import spec_templates as spec_templates_api
+from app.api import feed as feed_api
+from app.api import assistant as assistant_api
+from app.api import reasoning_intel as reasoning_intel_api
+from app.api import candidate_search as candidate_search_api
+from app.api import strategies as strategies_api
+from app.api import reasoning_flow as reasoning_flow_api
+from app.api import requirement_rules as requirement_rules_api
+from app.api import compatibility_rules as compatibility_rules_api
 from app.core.startup import init_rules_db
 
 settings = get_settings()
@@ -89,6 +98,15 @@ app.include_router(fields_api.router)
 app.include_router(system_config_api.router)
 app.include_router(kp_config_api.router)
 app.include_router(bom_templates_api.router)
+app.include_router(spec_templates_api.router)
+app.include_router(feed_api.router)
+app.include_router(assistant_api.router)
+app.include_router(reasoning_intel_api.router)
+app.include_router(candidate_search_api.router)
+app.include_router(strategies_api.router)
+app.include_router(reasoning_flow_api.router)
+app.include_router(requirement_rules_api.router)
+app.include_router(compatibility_rules_api.router)
 
 # 注册后面板配置 API
 from app.api import rear_io

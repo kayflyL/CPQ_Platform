@@ -113,9 +113,9 @@ const kpRows = computed(() => {
   const kpItems = items.filter((i: any) => i.category === 'Key Parts')
 
   return kpItems.map((item: any, idx: number) => ({
-    // KP 行：catalogue 现在是型号（旧 spec），part_category 才是类别
-    catalogue: item.catalogue || 'Unknown',
-    description: item.description || '',
+    // Catalogue 列显示类别（CPU/GPU/Memory 等），Description 列显示型号
+    catalogue: item.part_category || 'Unknown',
+    description: item.catalogue || '',
     qty: item.qty,
     cost: Number(item.base_price) || 0,
     _idx: idx // 用于 v-for key 去重

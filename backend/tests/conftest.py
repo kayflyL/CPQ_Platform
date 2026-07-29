@@ -33,9 +33,16 @@ def mock_project_repo():
 
 @pytest.fixture
 def mock_rules_repo():
-    """Mock RulesRepository."""
+    """Mock RulesRepository.
+
+    ExcelParser（规则驱动）读 parse_regions/parse_field_rules，PricingEngine._load_rules
+    读 kp_category_mappings——这里都返回空列表，避免 MagicMock 被迭代/排序时崩溃。
+    """
     repo = MagicMock()
     repo.get_all.return_value = []
+    repo.get_parse_regions.return_value = []
+    repo.get_parse_field_rules.return_value = []
+    repo.get_kp_category_mappings.return_value = []
     return repo
 
 

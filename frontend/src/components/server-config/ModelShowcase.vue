@@ -2,25 +2,28 @@
 /** 机型目录页 3D 展示区：左侧分类介绍 + 右侧 Three.js 渲染的 .glb 模型。 */
 import { ref, computed } from 'vue'
 import { useServerModel3D } from '@/composables/useServerModel3D'
-import { matchShowcase } from './showcase-config'
+import type { ShowcaseConfig } from './showcase-config'
 
-const props = defineProps<{ typeName: string }>()
-
-const config = computed(() => matchShowcase(props.typeName))
+const props = defineProps<{ config: ShowcaseConfig }>()
 
 const stageRef = ref<HTMLElement | null>(null)
-const { loading, error } = useServerModel3D(stageRef, {
-  src: config.value?.src ?? '',
-})
+
+// 创建响应式的渲染选项
+const renderOptions = computed(() => ({
+  src: props.config.glb_path || '',
+  renderConfig: props.config.render,
+}))
+
+const { loading, error } = useServerModel3D(stageRef, renderOptions)
 </script>
 
 <template>
-  <section v-if="config" class="glass showcase">
+  <section class="glass showcase">
     <div class="showcase-grid">
       <div class="showcase-intro">
         <span class="intro-eyebrow">机型总览</span>
         <h3 class="intro-title">{{ config.title }}</h3>
-        <p class="intro-desc">{{ config.desc }}</p>
+        <p class="intro-desc">{{ config.description }}</p>
         <ul class="intro-bullets">
           <li v-for="b in config.bullets" :key="b">{{ b }}</li>
         </ul>

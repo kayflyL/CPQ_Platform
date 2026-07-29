@@ -23,6 +23,19 @@
           <template #icon><DownloadOutlined /></template>
           导出
         </a-button>
+        <a-button
+          size="small"
+          :disabled="!hasSelectedCategory"
+          :title="!hasSelectedCategory ? '请先在左侧选择分类' : '同分类按规格分组的价格分布'"
+          @click="openMatrixDrawer"
+        >
+          <template #icon><BarChartOutlined /></template>
+          比价矩阵
+        </a-button>
+        <a-button size="small" title="最新价 vs N 天前涨跌幅 TOP" @click="openMoversDrawer">
+          <template #icon><StockOutlined /></template>
+          价格异动
+        </a-button>
         <a-button type="primary" size="small" @click="openCreatePartModal">
           <template #icon><PlusOutlined /></template>
           新增配件
@@ -79,7 +92,17 @@
               <div class="stat-value">{{ stats.valid_price_count ?? '—' }}</div>
               <div class="stat-foot"><span class="stat-sub">最近两日内有报价</span></div>
             </div>
+            <div class="stat-card glass-light clickable" @click="openDuplicates">
+              <div class="stat-label">疑似重复</div>
+              <div class="stat-value">{{ duplicatesData.total_groups }}<span class="stat-unit"> 组</span></div>
+              <div class="stat-foot">
+                <span class="stat-sub" v-if="duplicatesData.total_duplicate_parts">{{ duplicatesData.total_duplicate_parts }} 件待核实 →</span>
+                <span class="stat-sub" v-else>库内无重复</span>
+              </div>
+            </div>
           </div>
+
+          <!-- 价格异动已移至工具栏按钮 + 抽屉（openMoversDrawer），非常驻面板 -->
 
           <div class="recent-grid">
             <div class="recent-panel glass-light">
@@ -173,6 +196,8 @@
             {{ specExpanded ? '收起' : '更多 ▾' }}
           </button>
         </div>
+
+        <!-- 比价矩阵已移至工具栏按钮 + 抽屉（openMatrixDrawer），非常驻面板 -->
 
         <!-- Card View -->
         <div v-if="viewMode === 'card'" class="card-grid">
@@ -550,7 +575,14 @@
       <div class="edit-form">
         <div class="form-row">
           <label>价格 <span class="required">*</span></label>
-          <a-input-number v-model:value="priceForm.price" :min="0" :step="0.01" style="width: 100%" />
+          <div style="display: flex; gap: 8px;">
+            <a-input-number v-model:value="priceForm.price" :min="0" :step="0.01" style="flex: 1" />
+            <a-select v-model:value="priceForm.currency" style="width: 96px">
+              <a-select-option value="RMB">¥ RMB</a-select-option>
+              <a-select-option value="USD">$ USD</a-select-option>
+              <a-select-option value="EUR">€ EUR</a-select-option>
+            </a-select>
+          </div>
         </div>
         <div class="form-row">
           <label>日期</label>
@@ -613,6 +645,141 @@
         </div>
       </div>
     </a-modal>
+
+    <!-- =================== Duplicates Drawer =================== -->
+    <a-drawer
+      v-model:open="duplicatesDrawerVisible"
+      title="疑似重复配件"
+      width="720"
+      :destroyOnClose="true"
+    >
+      <template v-if="duplicatesData.groups?.length">
+        <div class="dup-tip">仅展示疑似重复（oem_sku/alt_sku 相同或名称高度相似），<b>不做自动合并</b>。请人工核实后编辑或删除冗余配件。</div>
+        <div class="dup-summary">
+          <a-tag color="orange">共 {{ duplicatesData.total_groups }} 组</a-tag>
+          <a-tag>{{ duplicatesData.total_duplicate_parts }} 件配件待核实</a-tag>
+        </div>
+        <div class="dup-list">
+          <div v-for="(g, gi) in duplicatesData.groups" :key="gi" class="dup-group">
+            <div class="dup-group-head">
+              <a-tag color="orange">{{ g.reason }}</a-tag>
+              <span class="dup-sim">相似度 {{ (g.similarity * 100).toFixed(0) }}%</span>
+              <span class="dup-count">{{ g.parts.length }} 件</span>
+            </div>
+            <div class="dup-cards">
+              <div v-for="p in g.parts" :key="p.id" class="dup-card" @click="openPartDetail(p.id)">
+                <div class="dup-card-name" :title="p.name">{{ p.name }}</div>
+                <div class="dup-card-meta">
+                  <span v-if="p.brand">{{ p.brand }}</span>
+                  <span v-if="p.oem_sku" class="dup-sku">SKU: {{ p.oem_sku }}</span>
+                  <span v-if="p.alt_sku" class="dup-sku">alt: {{ p.alt_sku }}</span>
+                </div>
+                <div class="dup-card-price" v-if="p.latest_price != null">¥{{ formatPrice(p.latest_price) }}</div>
+                <div class="dup-card-price no-price" v-else>暂无报价</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+      <div v-else class="dup-empty">
+        <InboxOutlined class="dup-empty-ico" />
+        <span>未检测到重复，库内整洁</span>
+      </div>
+    </a-drawer>
+    <!-- =================== Price Movers Drawer =================== -->
+    <a-drawer
+      v-model:open="moversDrawerVisible"
+      title="价格异动"
+      placement="right"
+      width="680"
+    >
+      <div class="movers-head">
+        <a-radio-group :value="priceMoversDays" button-style="solid" size="small" @change="(e:any)=>onMoversDaysChange(e.target.value)">
+          <a-radio-button :value="7">近 7 天</a-radio-button>
+          <a-radio-button :value="30">近 30 天</a-radio-button>
+        </a-radio-group>
+      </div>
+      <div class="movers-grid">
+        <div class="movers-col">
+          <div class="movers-col-title up">涨幅 TOP</div>
+          <div v-if="priceMovers.gainers?.length" class="movers-list">
+            <div v-for="g in priceMovers.gainers" :key="g.id" class="movers-row" @click="openPartDetail(g.id)">
+              <span class="movers-name" :title="g.name">{{ g.name }}</span>
+              <span class="movers-price">¥{{ formatPrice(g.latest_price) }}</span>
+              <span class="movers-delta up">↑ {{ g.delta_pct }}%</span>
+            </div>
+          </div>
+          <div v-else class="movers-empty">暂无涨幅数据</div>
+        </div>
+        <div class="movers-col">
+          <div class="movers-col-title down">跌幅 TOP</div>
+          <div v-if="priceMovers.losers?.length" class="movers-list">
+            <div v-for="g in priceMovers.losers" :key="g.id" class="movers-row" @click="openPartDetail(g.id)">
+              <span class="movers-name" :title="g.name">{{ g.name }}</span>
+              <span class="movers-price">¥{{ formatPrice(g.latest_price) }}</span>
+              <span class="movers-delta down">↓ {{ Math.abs(g.delta_pct) }}%</span>
+            </div>
+          </div>
+          <div v-else class="movers-empty">暂无跌幅数据</div>
+        </div>
+      </div>
+    </a-drawer>
+
+    <!-- =================== Price Matrix Drawer =================== -->
+    <a-drawer
+      v-model:open="matrixDrawerVisible"
+      title="比价矩阵"
+      placement="right"
+      width="720"
+    >
+      <div class="matrix-head">
+        <a-select
+          :value="matrixGroupKey || undefined"
+          :options="matrixKeyOptions"
+          placeholder="选择分组维度"
+          size="small"
+          style="width: 220px"
+          allow-clear
+          @change="onMatrixGroupKeyChange"
+        />
+        <a-radio-group v-model:value="matrixView" button-style="solid" size="small">
+          <a-radio-button value="both">表格+图</a-radio-button>
+          <a-radio-button value="table">仅表格</a-radio-button>
+          <a-radio-button value="box">仅箱线图</a-radio-button>
+        </a-radio-group>
+      </div>
+      <div v-if="!matrixGroupKey" class="matrix-empty">选择上方维度，按该规格分组查看价格分布</div>
+      <div v-else-if="matrixLoading" class="matrix-loading"><a-spin /></div>
+      <div v-else-if="!matrixData.groups?.length" class="matrix-empty">该维度下暂无带价配件</div>
+      <template v-else>
+        <div v-if="matrixView !== 'table'" class="matrix-box-wrap">
+          <VChart :option="matrixBoxOption || undefined" :init-options="{ renderer: 'canvas' }" :autoresize="true" class="matrix-box" />
+        </div>
+        <div v-if="matrixView !== 'box'" class="matrix-table-wrap">
+          <a-table
+            :columns="matrixColumns"
+            :data-source="matrixData.groups"
+            :pagination="false"
+            size="small"
+            row-key="value"
+          >
+            <template #expandedRowRender="{ record }">
+              <div class="matrix-detail">
+                <span v-for="p in record.parts" :key="p.id" class="matrix-detail-chip" @click="openPartDetail(p.id)">
+                  {{ p.name }} <b>¥{{ formatPrice(p.latest_price) }}</b>
+                </span>
+              </div>
+            </template>
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'value'"><b>{{ record.value }}</b></template>
+              <template v-if="column.key === 'prices'">¥{{ formatPrice(record.min) }} ~ ¥{{ formatPrice(record.max) }}</template>
+              <template v-if="column.key === 'median'">¥{{ formatPrice(record.median) }}</template>
+              <template v-if="column.key === 'avg'">¥{{ formatPrice(record.avg) }}</template>
+            </template>
+          </a-table>
+        </div>
+      </template>
+    </a-drawer>
   </div>
 </template>
 
@@ -622,12 +789,12 @@ import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined,
-  UploadOutlined, DownloadOutlined
+  UploadOutlined, DownloadOutlined, BarChartOutlined, StockOutlined
 } from '@ant-design/icons-vue'
 import axios from 'axios'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
-import { LineChart } from 'echarts/charts'
+import { LineChart, BoxplotChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
@@ -636,7 +803,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-use([GridComponent, TooltipComponent, DataZoomComponent, LineChart, CanvasRenderer])
+use([GridComponent, TooltipComponent, DataZoomComponent, LineChart, BoxplotChart, CanvasRenderer])
 
 const C = useChartTheme().chartColors
 
@@ -678,6 +845,117 @@ const sparkOption = computed(() => {
 })
 const formatDate = (iso: string | null) => (iso ? String(iso).slice(0, 10) : '—')
 
+// =================== 数据洞察：价格异动 / 疑似重复 / 比价矩阵 ===================
+// 价格异动看板
+const priceMovers = ref<{ days: number; gainers: any[]; losers: any[] }>({ days: 7, gainers: [], losers: [] })
+const priceMoversDays = ref(7)
+const loadPriceMovers = async () => {
+  try {
+    const res = await axios.get('/api/admin/kp/price-movers', { params: { days: priceMoversDays.value, limit: 8 } })
+    priceMovers.value = res.data || { days: priceMoversDays.value, gainers: [], losers: [] }
+  } catch { /* 静默 */ }
+}
+const onMoversDaysChange = (d: number) => {
+  priceMoversDays.value = d
+  loadPriceMovers()
+}
+const moversDrawerVisible = ref(false)
+const openMoversDrawer = () => {
+  moversDrawerVisible.value = true
+  if (!priceMovers.value.gainers?.length && !priceMovers.value.losers?.length) {
+    loadPriceMovers()
+  }
+}
+
+// 疑似重复检测
+const duplicatesData = ref<{ total_groups: number; total_duplicate_parts: number; groups: any[] }>({ total_groups: 0, total_duplicate_parts: 0, groups: [] })
+const duplicatesDrawerVisible = ref(false)
+const loadDuplicates = async () => {
+  try {
+    const res = await axios.get('/api/admin/kp/parts/duplicates')
+    duplicatesData.value = res.data || { total_groups: 0, total_duplicate_parts: 0, groups: [] }
+  } catch { /* 静默 */ }
+}
+const openDuplicates = () => { duplicatesDrawerVisible.value = true }
+
+// 同类比价矩阵
+const matrixData = ref<{ group_key: string; groups: any[] }>({ group_key: '', groups: [] })
+const matrixGroupKey = ref<string>('')
+const matrixView = ref<'both' | 'table' | 'box'>('both')
+const matrixLoading = ref(false)
+const matrixDrawerVisible = ref(false)
+const openMatrixDrawer = () => { matrixDrawerVisible.value = true }
+// 矩阵分组维度候选：取当前分类下 value 种类数 >=2 的 spec_key（按种类数降序）
+const matrixKeyOptions = computed(() => Object.entries(specFacets.value)
+  .map(([k, vs]: [string, any]) => ({ key: k, n: (vs || []).length }))
+  .filter(x => x.n >= 2)
+  .sort((a, b) => b.n - a.n)
+  .map(x => ({ label: `${x.key} · ${x.n} 种`, value: x.key })))
+const loadPriceMatrix = async () => {
+  if (!selectedCategoryId.value || !matrixGroupKey.value) {
+    matrixData.value = { group_key: matrixGroupKey.value, groups: [] }
+    return
+  }
+  matrixLoading.value = true
+  try {
+    const res = await axios.get('/api/admin/kp/price-matrix', {
+      params: { category_id: selectedCategoryId.value, group_key: matrixGroupKey.value },
+    })
+    matrixData.value = res.data || { group_key: matrixGroupKey.value, groups: [] }
+  } catch {
+    matrixData.value = { group_key: matrixGroupKey.value, groups: [] }
+  } finally {
+    matrixLoading.value = false
+  }
+}
+const onMatrixGroupKeyChange = (k: any) => {
+  matrixGroupKey.value = (k as string) || ''
+  loadPriceMatrix()
+}
+const matrixBoxOption = computed(() => {
+  const groups = matrixData.value.groups || []
+  if (!groups.length) return null
+  const colors = C.value
+  return {
+    grid: { left: 88, right: 28, top: 16, bottom: 32 },
+    xAxis: {
+      type: 'value',
+      axisLine: { lineStyle: { color: colors.grid } },
+      axisLabel: { color: colors.tick, fontSize: 10 },
+      splitLine: { lineStyle: { color: colors.splitLine } },
+    },
+    yAxis: {
+      type: 'category',
+      data: groups.map((g: any) => g.value),
+      axisLine: { lineStyle: { color: colors.grid } },
+      axisLabel: { color: colors.tick, fontSize: 11 },
+    },
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: colors.tooltipBg,
+      borderColor: colors.tooltipBorder,
+      textStyle: { color: colors.tooltipText },
+      formatter: (p: any) => {
+        const g: any = groups[p.dataIndex]
+        if (!g) return ''
+        return `<b>${g.value}</b> · ${g.count} 件<br/>最低 ¥${formatPrice(g.min)}<br/>Q1 ¥${formatPrice(g.q1)}<br/>中位 ¥${formatPrice(g.median)}<br/>Q3 ¥${formatPrice(g.q3)}<br/>最高 ¥${formatPrice(g.max)}`
+      },
+    },
+    series: [{
+      type: 'boxplot',
+      data: groups.map((g: any) => [g.min, g.q1, g.median, g.q3, g.max]),
+      itemStyle: { color: colors.accentFill, borderColor: colors.accent },
+    }],
+  }
+})
+const matrixColumns = [
+  { title: '分组', dataIndex: 'value', key: 'value', width: 140 },
+  { title: '数量', dataIndex: 'count', key: 'count', width: 70 },
+  { title: '价格区间', key: 'prices', width: 220 },
+  { title: '中位', dataIndex: 'median', key: 'median', width: 100 },
+  { title: '均值', dataIndex: 'avg', key: 'avg', width: 100 },
+]
+
 // =================== View Mode ===================
 const viewMode = ref<'card' | 'table'>('card')
 
@@ -710,6 +988,8 @@ const selectCategory = (catId: number | null) => {
   selectedBrands.value = []
   priceFilter.value = ''
   selectedSpecs.value = {}
+  matrixGroupKey.value = ''
+  matrixData.value = { group_key: '', groups: [] }
   loadBrands()
   loadSpecFacets()
   loadParts()
@@ -1104,15 +1384,15 @@ const deletePart = async (partId: number) => {
 // =================== Add/Edit Price ===================
 const priceModalVisible = ref(false)
 const priceSaving = ref(false)
-const priceForm = ref<any>({ id: null, price: 0, price_date: null, note: '' })
+const priceForm = ref<any>({ id: null, price: 0, currency: 'RMB', price_date: null, note: '' })
 
 const openAddPriceModal = () => {
-  priceForm.value = { id: null, price: 0, price_date: null, note: '' }
+  priceForm.value = { id: null, price: 0, currency: detailPart.value?.latest_currency || 'RMB', price_date: null, note: '' }
   priceModalVisible.value = true
 }
 
 const openEditPriceModal = (h: any) => {
-  priceForm.value = { id: h.id, price: h.price, price_date: h.price_date, note: h.note || '' }
+  priceForm.value = { id: h.id, price: h.price, currency: h.currency || 'RMB', price_date: h.price_date, note: h.note || '' }
   priceModalVisible.value = true
 }
 
@@ -1247,6 +1527,7 @@ onMounted(() => {
   loadSpecFacets()
   loadParts()
   loadStats()
+  loadDuplicates()
 })
 </script>
 
@@ -1465,8 +1746,11 @@ onMounted(() => {
 .card-pagination { margin-top: 18px; display: flex; justify-content: flex-end; }
 
 /* ============ 仪表盘 ============ */
-.stats-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 18px; animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; }
-.stat-card { padding: 18px 20px; border-radius: 14px; display: flex; flex-direction: column; gap: 6px; }
+.stats-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; margin-bottom: 18px; animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; }
+.stat-card { padding: 18px 20px; border-radius: 0; display: flex; flex-direction: column; gap: 6px; }
+.stat-card.clickable { cursor: pointer; transition: transform var(--cpq-transition-fast), box-shadow var(--cpq-transition-fast); }
+.stat-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 10px 28px var(--cpq-shadow-color-strong); }
+.stat-unit { font-size: 14px; font-weight: 500; color: var(--cpq-text-secondary); margin-left: 4px; }
 .stat-label { font-size: 12px; color: var(--cpq-text-secondary); letter-spacing: 0.2px; }
 .stat-value { font-size: 30px; font-weight: 700; color: var(--cpq-text-primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
 .stat-foot { font-size: 12px; min-height: 16px; }
@@ -1476,7 +1760,7 @@ onMounted(() => {
 .stat-sub { color: var(--cpq-text-muted); }
 .stat-spark { width: 100%; height: 44px; margin-top: 2px; }
 .recent-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; animation-delay: 0.06s; }
-.recent-panel { padding: 14px 18px; border-radius: 14px; }
+.recent-panel { padding: 14px 18px; border-radius: 0; }
 .recent-head h4 { margin: 0 0 6px; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
 .recent-list { display: flex; flex-direction: column; }
 .recent-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 8px 6px; border-radius: 8px; cursor: pointer; transition: background var(--cpq-transition-fast); }
@@ -1519,7 +1803,7 @@ onMounted(() => {
   position: relative;
   overflow: hidden;
   padding: 16px;
-  border-radius: 14px;
+  border-radius: 0;
   cursor: pointer;
   transition: transform 0.25s var(--cpq-ease-out-expo), box-shadow 0.25s var(--cpq-ease-out-expo);
   animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards;
@@ -1686,4 +1970,59 @@ onMounted(() => {
 :deep(.ant-pagination .ant-pagination-item-active) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 :deep(.ant-pagination .ant-pagination-item-active a) { color: var(--cpq-accent-on-primary); }
 :deep(.ant-divider) { border-color: var(--cpq-border-primary); }
+
+/* ============ 价格异动看板（抽屉内） ============ */
+.movers-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.movers-head h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
+.movers-head :deep(.ant-radio-button-wrapper) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); color: var(--cpq-text-secondary); }
+.movers-head :deep(.ant-radio-button-wrapper-checked) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
+.movers-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.movers-col { display: flex; flex-direction: column; gap: 4px; }
+.movers-col-title { font-size: 12px; font-weight: 600; padding: 4px 0; letter-spacing: 0.3px; }
+.movers-col-title.up { color: var(--cpq-accent-success, #3fbb6c); }
+.movers-col-title.down { color: var(--cpq-accent-danger); }
+.movers-list { display: flex; flex-direction: column; }
+.movers-row { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 8px 6px; border-radius: 8px; cursor: pointer; transition: background var(--cpq-transition-fast); }
+.movers-row + .movers-row { border-top: 1px solid var(--cpq-border-primary); }
+.movers-row:hover { background: var(--cpq-overlay-a6); }
+.movers-name { font-size: 13px; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.movers-price { font-size: 12px; color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
+.movers-delta { font-size: 13px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.movers-delta.up { color: var(--cpq-accent-success, #3fbb6c); }
+.movers-delta.down { color: var(--cpq-accent-danger); }
+.movers-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 14px 6px; text-align: center; }
+
+/* ============ 比价矩阵（抽屉内） ============ */
+.matrix-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.matrix-head h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
+.matrix-head :deep(.ant-radio-button-wrapper) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); color: var(--cpq-text-secondary); }
+.matrix-head :deep(.ant-radio-button-wrapper-checked) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
+.matrix-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 18px; text-align: center; border: 1px dashed var(--cpq-border-primary); border-radius: 8px; }
+.matrix-loading { display: flex; justify-content: center; padding: 24px; }
+.matrix-box-wrap { padding: 8px; background: var(--cpq-overlay-w6); border-radius: 8px; margin-bottom: 12px; }
+.matrix-box { width: 100%; height: 280px; }
+.matrix-table-wrap { border-radius: 8px; overflow: hidden; }
+.matrix-detail { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
+.matrix-detail-chip { font-size: 12px; padding: 4px 10px; border-radius: 10px; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); color: var(--cpq-text-secondary); cursor: pointer; transition: all var(--cpq-transition-fast); }
+.matrix-detail-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
+.matrix-detail-chip b { color: var(--cpq-accent-primary); margin-left: 4px; }
+
+/* ============ 疑似重复 drawer ============ */
+.dup-tip { font-size: 12px; color: var(--cpq-text-secondary); line-height: 1.7; padding: 10px 12px; background: var(--cpq-overlay-w6); border-radius: 8px; margin-bottom: 10px; }
+.dup-summary { display: flex; gap: 8px; margin-bottom: 14px; }
+.dup-list { display: flex; flex-direction: column; gap: 16px; }
+.dup-group { display: flex; flex-direction: column; gap: 8px; }
+.dup-group-head { display: flex; align-items: center; gap: 8px; }
+.dup-sim { font-size: 11px; color: var(--cpq-text-muted); }
+.dup-count { font-size: 11px; color: var(--cpq-accent-primary); margin-left: auto; }
+.dup-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+.dup-card { padding: 10px 12px; border-radius: 10px; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); cursor: pointer; transition: all var(--cpq-transition-fast); display: flex; flex-direction: column; gap: 4px; }
+.dup-card:hover { border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a4); transform: translateY(-1px); }
+.dup-card-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); line-height: 1.35; word-break: break-all; }
+.dup-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--cpq-text-secondary); }
+.dup-sku { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+.dup-card-price { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; }
+.dup-card-price.no-price { font-size: 12px; font-weight: 400; color: var(--cpq-text-muted); }
+.dup-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--cpq-text-muted); }
+.dup-empty-ico { font-size: 40px; color: var(--cpq-text-muted); }
 </style>

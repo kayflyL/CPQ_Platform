@@ -9,6 +9,70 @@ rules.derivation_rules 表读出后注入）。输出：各步推导结果 + 约
 from typing import List, Dict, Optional, Any
 
 
+# ---------- 推导规则透明化注册表 ----------
+# 每条推导项用人话说明逻辑 + 暴露可调参数；底层算法在下面的方法里执行，参数来自 self.rules
+# （由 derivation_rules 表注入）。describe() 把它们连同当前生效值一起返回，供前端展示/编辑。
+DERIVATIONS = [
+    {
+        "key": "power", "name": "整机功耗",
+        "logic": "整机峰值功耗 = 基础功耗 + 全部 CPU 功耗(Σ TDP×数量) + 全部 GPU 功耗(Σ TDP×数量)",
+        "params": [
+            {"rule_key": "base_power", "field": "watts", "label": "基础功耗(W)", "type": "number", "default": 500},
+        ],
+    },
+    {
+        "key": "psu", "name": "电源(PSU)配置",
+        "logic": "数量：总功耗 > 阈值 → 高档数量，否则低档数量；2 电源时单路扛全部功耗，4 电源时每路扛一半；在电源清单里挑最小满足单路瓦数的档位",
+        "params": [
+            {"rule_key": "psu_qty_threshold", "field": "watts", "label": "功耗阈值(W)", "type": "number", "default": 4800},
+            {"rule_key": "psu_qty_threshold", "field": "qty_low", "label": "低档数量(≤阈值)", "type": "number", "default": 2},
+            {"rule_key": "psu_qty_threshold", "field": "qty_high", "label": "高档数量(>阈值)", "type": "number", "default": 4},
+        ],
+    },
+    {
+        "key": "front_cables", "name": "前面板线缆",
+        "logic": "每种硬盘数量 ÷ 每组盘数，向上取整 = 该类线缆根数",
+        "params": [
+            {"rule_key": "cable_group", "field": "SATA", "label": "SATA 每组盘数", "type": "number", "default": 8},
+            {"rule_key": "cable_group", "field": "SAS", "label": "SAS 每组盘数", "type": "number", "default": 8},
+            {"rule_key": "cable_group", "field": "NVMe", "label": "NVMe 每组盘数", "type": "number", "default": 2},
+        ],
+    },
+    {
+        "key": "bp_type", "name": "背板类型",
+        "logic": "配置含机械盘(SATA/SAS) → 三模(tri-mode)背板；纯 NVMe 或无盘 → 直通(dc)背板",
+        "params": [
+            {"rule_key": "bp_type", "field": "mech_kinds", "label": "视为机械盘的类型", "type": "list", "default": ["SATA", "SAS"]},
+        ],
+    },
+    {
+        "key": "gpu_cables", "name": "GPU 供电线",
+        "logic": "Σ 显卡数量 × 单卡线数；单卡线数按型号在映射表匹配，匹配不到默认 1（也可在 KP 件 specs.cables_per 直接指定）",
+        "params": [
+            {"rule_key": "gpu_cable_per", "field": "per_model", "label": "型号→单卡线数 映射", "type": "map", "default": {}},
+        ],
+    },
+    {
+        "key": "switch", "name": "Switch 全互联架构",
+        "logic": "GPU 架构为 switch 时：必须 N 卡全互联(不符则告警)；额外加 NVSwitch 板 + NVLink 铜缆",
+        "params": [
+            {"rule_key": "switch_constraint", "field": "gpu_required", "label": "全互联卡数", "type": "number", "default": 8},
+            {"rule_key": "switch_extra_parts", "field": "add_pn_category", "label": "附加料号类别", "type": "list", "default": ["NVSwitch", "NVLink"]},
+        ],
+    },
+]
+
+
+def default_params_for(rule_key: str) -> dict:
+    """聚合某 rule_key 下所有参数的默认值（PUT 新建行时兜底）。"""
+    out = {}
+    for d in DERIVATIONS:
+        for p in d["params"]:
+            if p["rule_key"] == rule_key:
+                out[p["field"]] = p["default"]
+    return out
+
+
 class DerivationEngine:
     def __init__(self, rules: Dict[str, Any] = None):
         self.rules = rules or {}
@@ -144,6 +208,18 @@ class DerivationEngine:
         if bp_bays and config_bays and bp_bays != config_bays:
             return f"背板盘位({bp_bays})与底盘({config_bays})不符"
         return None
+
+    # ---------- 透明化（供前端展示/编辑推导规则）----------
+    def describe(self) -> list:
+        """返回每条推导规则的人话说明 + 当前生效参数值。"""
+        out = []
+        for d in DERIVATIONS:
+            params = []
+            for p in d["params"]:
+                cur = self._rule(p["rule_key"], {}).get(p["field"], p["default"])
+                params.append({**p, "value": cur})
+            out.append({"key": d["key"], "name": d["name"], "logic": d["logic"], "params": params})
+        return out
 
     # ---------- 汇总 ----------
     def derive_all(self, state: Dict) -> Dict:

@@ -43,13 +43,14 @@ def migrate():
         {"key": "profit_margin", "label": "综合毛利率", "category": "opportunity", "source": "Quotation", "source_column": "profit_margin", "sort_order": 10},
 
         # 配置项字段（配置页行级）
-        {"key": "config_name", "label": "配置名称", "category": "item", "source": "OpportunityItem", "source_column": "config_name", "sort_order": 11},
-        {"key": "category", "label": "分类", "category": "item", "source": "OpportunityItem", "source_column": "category", "sort_order": 12},
-        {"key": "part_name", "label": "部件名称", "category": "item", "source": "OpportunityItem", "source_column": "part_name", "sort_order": 13},
-        {"key": "spec", "label": "规格", "category": "item", "source": "OpportunityItem", "source_column": "spec", "sort_order": 14},
-        {"key": "qty", "label": "数量", "category": "item", "source": "OpportunityItem", "source_column": "qty", "sort_order": 15},
-        {"key": "final_price", "label": "最终价", "category": "item", "source": "OpportunityItem", "source_column": "final_price", "sort_order": 16},
-        {"key": "item_profit_margin", "label": "配置毛利率", "category": "item", "source": "OpportunityItem", "source_column": "item_profit_margin", "sort_order": 17},
+        {"key": "config_name", "label": "配置名称", "category": "item", "source": "QuotationItem", "source_column": "config_name", "sort_order": 11},
+        {"key": "category", "label": "分类", "category": "item", "source": "QuotationItem", "source_column": "category", "sort_order": 12},
+        {"key": "catalogue", "label": "零件名称", "category": "item", "source": "QuotationItem", "source_column": "catalogue", "sort_order": 13},
+        {"key": "description", "label": "描述", "category": "item", "source": "QuotationItem", "source_column": "description", "sort_order": 14},
+        {"key": "part_category", "label": "KP类别", "category": "item", "source": "QuotationItem", "source_column": "part_category", "sort_order": 14},
+        {"key": "qty", "label": "数量", "category": "item", "source": "QuotationItem", "source_column": "qty", "sort_order": 15},
+        {"key": "final_price", "label": "最终价", "category": "item", "source": "QuotationItem", "source_column": "final_price", "sort_order": 16},
+        {"key": "item_profit_margin", "label": "配置毛利率", "category": "item", "source": "QuotationItem", "source_column": "item_profit_margin", "sort_order": 17},
 
         # L6 价格库字段
         {"key": "l6_chassis", "label": "L6-机箱", "category": "l6", "source": "L6Record", "source_column": "chassis", "sort_order": 18},
@@ -71,6 +72,14 @@ def migrate():
         {"key": "export_date", "label": "导出日期", "category": "system", "source": "System", "source_column": None, "sort_order": 30},
         {"key": "export_user", "label": "导出人", "category": "system", "source": "System", "source_column": None, "sort_order": 31},
         {"key": "export_timestamp", "label": "导出时间戳", "category": "system", "source": "System", "source_column": None, "sort_order": 32},
+
+        # D1 商机结果与复盘字段（蓝图 A1-A2）— source=Opportunity 物理列
+        {"key": "industry", "label": "行业", "category": "opportunity", "source": "Opportunity", "source_column": "industry", "sort_order": 33},
+        {"key": "customer_type", "label": "客户类型", "category": "opportunity", "source": "Opportunity", "source_column": "customer_type", "sort_order": 34},
+        {"key": "result", "label": "业务结果", "category": "opportunity", "source": "Opportunity", "source_column": "result", "sort_order": 35},
+        {"key": "win_reason", "label": "中标原因", "category": "opportunity", "source": "Opportunity", "source_column": "win_reason", "sort_order": 36},
+        {"key": "lost_reason", "label": "丢标原因", "category": "opportunity", "source": "Opportunity", "source_column": "lost_reason", "sort_order": 37},
+        {"key": "quote_scenario", "label": "报价场景", "category": "opportunity", "source": "Opportunity", "source_column": "quote_scenario", "sort_order": 38},
     ]
 
     # 批量插入

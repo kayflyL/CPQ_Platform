@@ -2,7 +2,7 @@
 Repository for rules database operations.
 """
 from sqlalchemy.orm import Session
-from app.models.rules import L6RegionConfig, KPRegionConfig, KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule
+from app.models.rules import KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule
 from app.models.base import Rules_SessionLocal
 import json
 
@@ -12,126 +12,6 @@ class RulesRepository:
     
     def __init__(self):
         self.session_factory = Rules_SessionLocal
-    
-    # ========== L6 Region Config ==========
-    
-    def get_l6_region_config(self) -> dict | None:
-        """Get L6 region config (singleton)."""
-        with self.session_factory() as session:
-            config = session.query(L6RegionConfig).first()
-            if not config:
-                return None
-            return {
-                "id": config.id,
-                "region_start_keywords": config.region_start_keywords,
-                "field_mapping": json.loads(config.field_mapping) if config.field_mapping else {},
-                "region_end_keywords": config.region_end_keywords
-            }
-    
-    def add_l6_region_config(self, data: dict) -> int:
-        """Add L6 region config."""
-        with self.session_factory() as session:
-            fm = data.get('field_mapping', {})
-            config = L6RegionConfig(
-                region_start_keywords=data.get('region_start_keywords', ''),
-                field_mapping=json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm,
-                region_end_keywords=data.get('region_end_keywords', '')
-            )
-            session.add(config)
-            session.commit()
-            return config.id
-    
-    def update_l6_region_config(self, data: dict) -> bool:
-        """Update L6 region config (singleton - updates first record)."""
-        with self.session_factory() as session:
-            config = session.query(L6RegionConfig).first()
-            if not config:
-                return False
-            if 'region_start_keywords' in data:
-                config.region_start_keywords = data['region_start_keywords']
-            if 'field_mapping' in data:
-                fm = data['field_mapping']
-                config.field_mapping = json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm
-            if 'region_end_keywords' in data:
-                config.region_end_keywords = data['region_end_keywords']
-            session.commit()
-            return True
-    
-    def update_l6_region_config_by_id(self, config_id: int, data: dict) -> bool:
-        """Update L6 region config by ID."""
-        with self.session_factory() as session:
-            config = session.query(L6RegionConfig).filter(L6RegionConfig.id == config_id).first()
-            if not config:
-                return False
-            if 'region_start_keywords' in data:
-                config.region_start_keywords = data['region_start_keywords']
-            if 'field_mapping' in data:
-                fm = data['field_mapping']
-                config.field_mapping = json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm
-            if 'region_end_keywords' in data:
-                config.region_end_keywords = data['region_end_keywords']
-            session.commit()
-            return True
-    
-    # ========== KP Region Config ==========
-    
-    def get_kp_region_config(self) -> dict | None:
-        """Get KP region config (singleton)."""
-        with self.session_factory() as session:
-            config = session.query(KPRegionConfig).first()
-            if not config:
-                return None
-            return {
-                "id": config.id,
-                "region_start_keywords": config.region_start_keywords,
-                "field_mapping": json.loads(config.field_mapping) if config.field_mapping else {},
-                "region_end_keywords": config.region_end_keywords
-            }
-    
-    def add_kp_region_config(self, data: dict) -> int:
-        """Add KP region config."""
-        with self.session_factory() as session:
-            fm = data.get('field_mapping', {})
-            config = KPRegionConfig(
-                region_start_keywords=data.get('region_start_keywords', ''),
-                field_mapping=json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm,
-                region_end_keywords=data.get('region_end_keywords', '')
-            )
-            session.add(config)
-            session.commit()
-            return config.id
-    
-    def update_kp_region_config(self, data: dict) -> bool:
-        """Update KP region config (singleton - updates first record)."""
-        with self.session_factory() as session:
-            config = session.query(KPRegionConfig).first()
-            if not config:
-                return False
-            if 'region_start_keywords' in data:
-                config.region_start_keywords = data['region_start_keywords']
-            if 'field_mapping' in data:
-                fm = data['field_mapping']
-                config.field_mapping = json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm
-            if 'region_end_keywords' in data:
-                config.region_end_keywords = data['region_end_keywords']
-            session.commit()
-            return True
-    
-    def update_kp_region_config_by_id(self, config_id: int, data: dict) -> bool:
-        """Update KP region config by ID."""
-        with self.session_factory() as session:
-            config = session.query(KPRegionConfig).filter(KPRegionConfig.id == config_id).first()
-            if not config:
-                return False
-            if 'region_start_keywords' in data:
-                config.region_start_keywords = data['region_start_keywords']
-            if 'field_mapping' in data:
-                fm = data['field_mapping']
-                config.field_mapping = json.dumps(fm, ensure_ascii=False) if isinstance(fm, dict) else fm
-            if 'region_end_keywords' in data:
-                config.region_end_keywords = data['region_end_keywords']
-            session.commit()
-            return True
     
     # ========== KP Category Mappings ==========
     

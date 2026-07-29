@@ -3,30 +3,65 @@
  *  分类两级：一级部段（section：基准/前面板/后面板/电源，对应报价表4个STEP）+ 段内细类别（category）。 */
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { partsApi, type PartMaster, type PartSection } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
-import { useSeries } from '@/composables/useSeries'
+import { useSeriesStore } from '@/stores/series'
 import { SECTION_ORDER, defaultSectionFor } from '@/constants/partSections'
 
 const parts = ref<PartMaster[]>([])
+const total = ref(0)
 const sections = ref<PartSection[]>([])
 const categories = ref<string[]>([])      // 全部细类别（编辑表单的 category 自动补全用）
 const section = ref<string>('all')         // 一级部段筛选
 const cat2 = ref<string>('all')            // 段内细类别二级筛选
 const chassisFilter = ref<string>('all')   // 适用机型筛选（all / series名 / common / unclassified）
 // 全平台系列权威源（system_config.server_series）：侧栏机型筛选 + chassis 字段下拉候选都读这里
-const { items: seriesItems, values: seriesValues, ensureSeries } = useSeries()
+const seriesStore = useSeriesStore()
 const search = ref('')
 const viewMode = ref<'card' | 'list'>('card')   // 卡片 / 列表 视图切换
+const sortBy = ref<string>('')                   // 排序字段：name / unit_price
 const loading = ref(false)
+const pagination = ref({ current: 1, pageSize: 50 })
 const modalVisible = ref(false)
 const editing = ref<PartMaster | null>(null)
 const form = ref<Partial<PartMaster>>({})
 // 扩展属性：所有 specs 键值对（schema 驱动渲染）。val 类型随 attrType(key) 变（数组/字符串/数字）。
 const specsRows = ref<{ key: string; val: any }[]>([])
 
+// 导入相关状态
+const importModalVisible = ref(false)
+const importFile = ref<File | null>(null)
+const importPreview = ref<any[]>([])
+const importSummary = ref<any>({})
+const importParsing = ref(false)
+const importCommitting = ref(false)
+
 const categoryOptions = computed(() => categories.value.map(c => ({ label: c, value: c })))
 const sectionOptions = SECTION_ORDER.map(s => ({ label: s, value: s }))
+
+// 历史 values 缓存：每个 specs key 的已存在值列表（用于 free-tags 下拉）
+const specValueCache = ref<Record<string, string[]>>({})
+
+/** 从已加载的料号中提取某 key 的所有历史值（去重排序） */
+function extractSpecValues(key: string): string[] {
+  if (specValueCache.value[key]) return specValueCache.value[key]
+  const set = new Set<string>()
+  for (const p of parts.value) {
+    const v = p.specs?.[key]
+    if (v == null) continue
+    if (Array.isArray(v)) v.forEach(x => x && set.add(String(x)))
+    else set.add(String(v))
+  }
+  const arr = Array.from(set).sort()
+  specValueCache.value[key] = arr
+  return arr
+}
+
+/** 清空缓存（料号列表刷新后调用） */
+function clearSpecValueCache() {
+  specValueCache.value = {}
+}
 
 // 列表视图列定义（卡片/列表共享 filtered 数据与编辑弹窗）
 const tableColumns = [
@@ -34,25 +69,47 @@ const tableColumns = [
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '部段', dataIndex: 'section', key: 'section', width: 90 },
   { title: '类别', dataIndex: 'category', key: 'category', width: 110 },
-  { title: '规格 / 描述', key: 'summary', ellipsis: true },
+  { title: '规格', key: 'summary', ellipsis: true },
   { title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110, align: 'right' as const },
   { title: '操作', key: 'op', width: 130, fixed: 'right' as const },
 ]
 
+// 导入预览表格列
+const importPreviewColumns = [
+  { title: '行', dataIndex: '_row_index', width: 60 },
+  { title: '操作', key: 'action', width: 90 },
+  { title: '料号', dataIndex: 'pn', width: 140 },
+  { title: '名称', dataIndex: 'name', ellipsis: true },
+  { title: '类别', dataIndex: 'category', width: 120 },
+  { title: '消息', dataIndex: 'message', ellipsis: true },
+]
+
 async function load() {
   loading.value = true
+  clearSpecValueCache()
   try {
-    const [list, secs, cats] = await Promise.all([
-      partsApi.list(),
+    const [sortKey, sortOrder] = sortBy.value ? sortBy.value.split('-') : [undefined, undefined]
+    const [listRes, secs, cats] = await Promise.all([
+      partsApi.list({
+        section: section.value === 'all' ? undefined : section.value,
+        category: cat2.value === 'all' ? undefined : cat2.value,
+        search: search.value || undefined,
+        chassis: chassisFilter.value === 'all' ? undefined : chassisFilter.value,
+        page: pagination.value.current,
+        page_size: pagination.value.pageSize,
+        sort_by: sortKey,
+        sort_order: sortOrder,
+      }),
       partsApi.sections(),
       partsApi.categories(),
     ])
-    parts.value = list.parts
+    parts.value = listRes.parts
+    total.value = listRes.total
     sections.value = secs.sections
     categories.value = cats.categories
-    ensureSeries()  // 异步加载全平台系列（权威源），不阻塞料号列表
+    seriesStore.ensureSeries()
   } catch (e: any) {
-    message.error(e.response?.data?.detail || '加载失败')
+    message.error(e.response?.data?.detail || e.message || '加载失败')
   } finally {
     loading.value = false
   }
@@ -64,85 +121,46 @@ const currentSectionCats = computed(() => {
   return sections.value.find(s => s.section === section.value)?.categories || []
 })
 const countOfSection = (sec: string) => sections.value.find(s => s.section === sec)?.count ?? 0
-const countOfCat = (cat: string) => parts.value.filter(p => p.category === cat).length
 
-// 机型筛选逻辑
-const getPartChassis = (p: PartMaster): string[] => {
-  const ch = p.specs?.chassis
-  if (Array.isArray(ch)) return ch
-  if (typeof ch === 'string' && ch) return [ch]
-  return []
+// 切换筛选条件时重置分页并重新加载
+function onSectionChange() {
+  cat2.value = 'all'
+  pagination.value.current = 1
+  load()
 }
-const isCommonPart = (p: PartMaster): boolean => {
-  const ch = getPartChassis(p)
-  return seriesValues.value.length > 0 && seriesValues.value.every(s => ch.includes(s))
+function onCat2Change() {
+  pagination.value.current = 1
+  load()
 }
-const isUnclassifiedPart = (p: PartMaster): boolean => {
-  return getPartChassis(p).length === 0
+function onChassisFilterChange() {
+  pagination.value.current = 1
+  load()
 }
-const countOfChassis = (series: string): number => {
-  return parts.value.filter(p => getPartChassis(p).includes(series)).length
+function onSearch() {
+  pagination.value.current = 1
+  load()
 }
-const countOfCommon = (): number => parts.value.filter(isCommonPart).length
-const countOfUnclassified = (): number => parts.value.filter(isUnclassifiedPart).length
+function onSortChange() {
+  pagination.value.current = 1
+  load()
+}
 
-// 自由标签历史候选：从已加载料号的 specs 聚合每个 key 出现过的值，给 free-tags 控件做"以前填过"的下拉联想。
-// 仅服务于 free-tags（chassis/form/drive_bays 等）；enum-* 有自己的静态 options，不走这里。
-const historyOptionsByKey = computed(() => {
-  const map: Record<string, { label: string; value: string }[]> = {}
-  for (const p of parts.value) {
-    const specs = p.specs
-    if (!specs) continue
-    for (const [k, v] of Object.entries(specs)) {
-      const arr = Array.isArray(v) ? v : (v === null || v === undefined || v === '' ? [] : [v])
-      if (!arr.length) continue
-      const bucket = map[k] || (map[k] = [])
-      for (const x of arr) {
-        const s = String(x)
-        if (s && !bucket.some(o => o.value === s)) bucket.push({ label: s, value: s })
-      }
-    }
-  }
-  return map
-})
-const historyOptions = (key: string) => historyOptionsByKey.value[key] || []
-// free-tags 候选按 key 选源：chassis 走系列权威源（system_config.server_series），
-// 其余 free-tags（form/drive_bays 等）走历史聚合。chassis 仍可自由输入新值（tags 模式）。
-const freeTagOptions = (key: string) => key === 'chassis' ? seriesItems.value : historyOptions(key)
+const summaryOf = (p: PartMaster) => specSummary(p.specs, p.category) || p.spec_text || ''
 
-const filtered = computed(() => {
-  let r = parts.value
-  if (section.value !== 'all') r = r.filter(p => p.section === section.value)
-  if (cat2.value !== 'all') r = r.filter(p => p.category === cat2.value)
-  if (search.value) r = r.filter(p => p.pn.includes(search.value) || p.name.includes(search.value) || (p.description || '').includes(search.value))
-  // 机型筛选
-  if (chassisFilter.value === 'common') {
-    r = r.filter(isCommonPart)
-  } else if (chassisFilter.value === 'unclassified') {
-    r = r.filter(isUnclassifiedPart)
-  } else if (chassisFilter.value !== 'all') {
-    r = r.filter(p => getPartChassis(p).includes(chassisFilter.value))
-  }
-  return r
-})
-function onSectionChange() { cat2.value = 'all' }   // 切段清空二级筛选
-const summaryOf = (p: PartMaster) => specSummary(p.specs, p.category) || p.description || ''
-
-function openNew() {
+async function openNew() {
   editing.value = null
   form.value = { category: categories.value[0] || '', section: defaultSectionFor(categories.value[0]) || SECTION_ORDER[0] }
   specsRows.value = seedSuggested(form.value.category)
+  // 确保 seriesStore.items 加载完成（chassis 下拉候选）
+  await seriesStore.ensureSeries()
   modalVisible.value = true
 }
-function openEdit(p: PartMaster) {
+async function openEdit(p: PartMaster) {
   editing.value = p
   form.value = { ...p }
   specsRows.value = specsToRows(p.specs)
-  // 补齐该类别建议键（不覆盖已有）
-  const existing = new Set(specsRows.value.map(r => r.key))
-  for (const k of (SUGGESTED_KEYS_BY_CATEGORY[p.category] || [])) {
-    if (!existing.has(k)) specsRows.value.push(emptyRow(k))
-  }
+  // 编辑时不再补齐建议键——尊重用户已删除的选择
+  await seriesStore.ensureSeries()
   modalVisible.value = true
 }
 // specs → 编辑行（按 schema 归一 val 类型）
@@ -226,15 +244,19 @@ async function save() {
     const payload: Partial<PartMaster> = {
       pn: form.value.pn, name: form.value.name, category: form.value.category,
       section: form.value.section, unit_price: form.value.unit_price,
-      description: form.value.description, specs,
+      spec_text: form.value.spec_text, description: form.value.description, specs,
     }
-    if (editing.value) await partsApi.update(editing.value.pn, payload)
+    if (editing.value) {
+      await partsApi.update(editing.value.pn, payload)
+    }
     else await partsApi.create(payload)
     message.success('已保存')
     modalVisible.value = false
     load()
   } catch (e: any) {
-    message.error(e.response?.data?.detail || '保存失败')
+    // 兼容多种错误格式：axios response、Error message、字符串
+    const detail = e.response?.data?.detail || e.message || String(e)
+    message.error(detail)
   }
 }
 async function remove(pn: string) {
@@ -243,57 +265,169 @@ async function remove(pn: string) {
   load()
 }
 
-onMounted(load)
+// 导入相关方法
+function openImportModal() {
+  importFile.value = null
+  importPreview.value = []
+  importSummary.value = {}
+  importModalVisible.value = true
+}
+async function downloadTemplate() {
+  try {
+    const res = await partsApi.downloadTemplate()
+    const url = URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'parts_import_template.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    message.error('下载模板失败')
+  }
+}
+function onImportFileSelect(file: File) {
+  importFile.value = file
+  importPreview.value = []
+  importSummary.value = {}
+  return false
+}
+async function previewImport() {
+  if (!importFile.value) {
+    message.warning('请先选择文件')
+    return
+  }
+  importParsing.value = true
+  try {
+    const res = await partsApi.import(importFile.value, true)
+    importPreview.value = res.preview || []
+    importSummary.value = res.summary || {}
+    if (!importPreview.value.length) message.info('未解析到任何数据行')
+  } catch (e: any) {
+    message.error('解析失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    importParsing.value = false
+  }
+}
+async function confirmImport() {
+  if (!importFile.value) return
+  importCommitting.value = true
+  try {
+    const res = await partsApi.import(importFile.value, false)
+    const s = res.summary || {}
+    message.success(`导入完成：新增 ${s.new} · 更新 ${s.update} · 跳过 ${s.invalid}`)
+    importModalVisible.value = false
+    load()
+  } catch (e: any) {
+    message.error('导入失败: ' + (e.response?.data?.detail || e.message))
+  } finally {
+    importCommitting.value = false
+  }
+}
+function resetImport() {
+  importFile.value = null
+  importPreview.value = []
+  importSummary.value = {}
+}
+async function exportParts() {
+  try {
+    const res = await partsApi.export(section.value === 'all' ? undefined : section.value)
+    const url = URL.createObjectURL(new Blob([res.data]))
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `parts_${section.value || 'all'}.xlsx`
+    a.click()
+    URL.revokeObjectURL(url)
+    message.success('已导出')
+  } catch (e: any) {
+    message.error('导出失败')
+  }
+}
 
+const actionLabel = (a: string) => ({ new: '新增', update: '更新', invalid: '无效' } as any)[a] || a
+const actionColor = (a: string) => ({ new: 'green', update: 'blue', invalid: 'default' } as any)[a] || 'default'
+
+// 分页切换
+function onPageChange(page: number, pageSize: number) {
+  pagination.value.current = page
+  pagination.value.pageSize = pageSize
+  load()
+}
+
+// 响应式侧栏折叠
+const sidebarCollapsed = ref(false)
+function toggleSidebar() {
+  sidebarCollapsed.value = !sidebarCollapsed.value
+}
+
+onMounted(load)
 </script>
 
 <template>
-  <div class="parts-library panel glass">
+  <div class="parts-library panel">
     <div class="lib-head">
-      <h3>料号库 <span class="lib-count">{{ filtered.length }} / {{ parts.length }} 项</span></h3>
+      <div class="lib-head-left">
+        <button class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开分类导航">
+          <UnorderedListOutlined v-if="sidebarCollapsed" />
+          <MenuFoldOutlined v-else />
+        </button>
+        <h3>料号库 <span class="lib-count">{{ total }} 项</span></h3>
+      </div>
       <a-space>
-        <a-input-search v-model:value="search" placeholder="搜料号/名称/描述" style="width:220px" size="small" allowClear />
+        <a-input-search v-model:value="search" placeholder="搜料号/名称" style="width:180px" size="small" allowClear @search="onSearch" />
+        <a-select v-model:value="sortBy" style="width:120px" size="small" placeholder="排序" allowClear @change="onSortChange">
+          <a-select-option value="name-asc">名称 A→Z</a-select-option>
+          <a-select-option value="name-desc">名称 Z→A</a-select-option>
+          <a-select-option value="unit_price-asc">价格 低→高</a-select-option>
+          <a-select-option value="unit_price-desc">价格 高→低</a-select-option>
+        </a-select>
         <a-radio-group v-model:value="viewMode" size="small" button-style="solid">
           <a-radio-button value="card">卡片</a-radio-button>
           <a-radio-button value="list">列表</a-radio-button>
         </a-radio-group>
+        <a-button size="small" @click="openImportModal">
+          <template #icon><UploadOutlined /></template>
+          导入
+        </a-button>
+        <a-button size="small" @click="exportParts">
+          <template #icon><DownloadOutlined /></template>
+          导出
+        </a-button>
         <a-button type="primary" size="small" @click="openNew">+ 新增料号</a-button>
       </a-space>
     </div>
     <div class="lib-body">
-      <div class="cat-nav">
-        <div :class="['cat-item', { active: section === 'all' }]" @click="section = 'all'; onSectionChange()">
-          <span class="cat-name">全部</span><span class="cat-count">{{ parts.length }}</span>
+      <aside :class="['cat-nav', { collapsed: sidebarCollapsed }]">
+        <div class="cat-section">
+          <div class="cat-section-label">部段</div>
+          <div :class="['cat-item', { active: section === 'all' }]" @click="section = 'all'; onSectionChange()">
+            <span class="cat-name">全部</span><span class="cat-count">{{ total }}</span>
+          </div>
+          <div v-for="s in SECTION_ORDER" :key="s" :class="['cat-item', { active: section === s }]" @click="section = s; onSectionChange()">
+            <span class="cat-name">{{ s }}</span><span class="cat-count">{{ countOfSection(s) }}</span>
+          </div>
         </div>
-        <div v-for="s in SECTION_ORDER" :key="s" :class="['cat-item', { active: section === s }]" @click="section = s; onSectionChange()">
-          <span class="cat-name">{{ s }}</span><span class="cat-count">{{ countOfSection(s) }}</span>
+        <div v-if="seriesStore.values.length" class="cat-section">
+          <div class="cat-divider"></div>
+          <div class="cat-section-label">适用机型</div>
+          <div :class="['cat-item', { active: chassisFilter === 'all' }]" @click="chassisFilter = 'all'; onChassisFilterChange()">
+            <span class="cat-name">全部</span>
+          </div>
+          <div v-for="s in seriesStore.values" :key="s" :class="['cat-item', { active: chassisFilter === s }]" @click="chassisFilter = s; onChassisFilterChange()">
+            <span class="cat-name">{{ s }}</span>
+          </div>
         </div>
-        <div v-if="seriesValues.length" class="cat-divider"></div>
-        <div v-if="seriesValues.length" class="cat-section-title">适用机型</div>
-        <div v-if="seriesValues.length" :class="['cat-item', { active: chassisFilter === 'all' }]" @click="chassisFilter = 'all'">
-          <span class="cat-name">全部</span><span class="cat-count">{{ parts.length }}</span>
-        </div>
-        <div v-for="s in seriesValues" :key="s" :class="['cat-item', { active: chassisFilter === s }]" @click="chassisFilter = s">
-          <span class="cat-name">{{ s }}</span><span class="cat-count">{{ countOfChassis(s) }}</span>
-        </div>
-        <div :class="['cat-item', { active: chassisFilter === 'common' }]" @click="chassisFilter = 'common'">
-          <span class="cat-name">通用</span><span class="cat-count">{{ countOfCommon() }}</span>
-        </div>
-        <div :class="['cat-item', { active: chassisFilter === 'unclassified' }]" @click="chassisFilter = 'unclassified'">
-          <span class="cat-name">未分类</span><span class="cat-count">{{ countOfUnclassified() }}</span>
-        </div>
-      </div>
+      </aside>
       <div class="card-area">
         <div v-if="currentSectionCats.length" class="subcat-bar">
-          <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'">全部细类</div>
-          <div v-for="c in currentSectionCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c">
-            {{ c }}<span class="subcat-count">{{ countOfCat(c) }}</span>
+          <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'; onCat2Change()">全部细类</div>
+          <div v-for="c in currentSectionCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c; onCat2Change()">
+            {{ c }}
           </div>
         </div>
         <div v-if="loading" class="grid-empty">加载中…</div>
-        <div v-else-if="!filtered.length" class="grid-empty">无匹配料号，点击右上「+ 新增料号」添加</div>
+        <div v-else-if="!parts.length" class="grid-empty">无匹配料号，点击右上「+ 新增料号」添加</div>
         <div v-else-if="viewMode === 'card'" class="card-grid">
-          <div v-for="p in filtered" :key="p.pn" class="part-card glass-light" @click="openEdit(p)">
+          <div v-for="p in parts" :key="p.pn" class="part-card glass-light" @click="openEdit(p)">
             <a-popconfirm title="删除该料号？" @confirm="remove(p.pn)" placement="top">
               <button class="pc-del" @click.stop>✕</button>
             </a-popconfirm>
@@ -308,22 +442,36 @@ onMounted(load)
             </div>
           </div>
         </div>
-        <a-table v-else :data-source="filtered" :columns="tableColumns" row-key="pn" size="small"
-                 :pagination="{ pageSize: 20, size: 'small', showTotal: (t:number) => `共 ${t} 项` }"
-                 class="parts-table">
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'pn'"><span class="tbl-pn">{{ record.pn }}</span></template>
-            <template v-else-if="column.key === 'category'"><span class="tbl-cat">{{ record.category }}</span></template>
-            <template v-else-if="column.key === 'summary'">{{ summaryOf(record) }}</template>
-            <template v-else-if="column.key === 'unit_price'">{{ record.unit_price ? '¥' + record.unit_price : '—' }}</template>
-            <template v-else-if="column.key === 'op'">
-              <a-button size="small" link @click="openEdit(record)">编辑</a-button>
-              <a-popconfirm title="删除该料号？" @confirm="remove(record.pn)">
-                <a-button size="small" link danger>删除</a-button>
-              </a-popconfirm>
+        <template v-else>
+          <a-table :data-source="parts" :columns="tableColumns" row-key="pn" size="small"
+                   :pagination="{ current: pagination.current, pageSize: pagination.pageSize, total, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t:number) => `共 ${t} 项` }"
+                   class="parts-table" @change="(pag: any) => { pagination.current = pag.current; pagination.pageSize = pag.pageSize; load() }">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'pn'"><span class="tbl-pn">{{ record.pn }}</span></template>
+              <template v-else-if="column.key === 'category'"><span class="tbl-cat">{{ record.category }}</span></template>
+              <template v-else-if="column.key === 'summary'">{{ summaryOf(record) }}</template>
+              <template v-else-if="column.key === 'unit_price'">{{ record.unit_price ? '¥' + record.unit_price : '—' }}</template>
+              <template v-else-if="column.key === 'op'">
+                <a-button size="small" link @click="openEdit(record)">编辑</a-button>
+                <a-popconfirm title="删除该料号？" @confirm="remove(record.pn)">
+                  <a-button size="small" link danger>删除</a-button>
+                </a-popconfirm>
+              </template>
             </template>
-          </template>
-        </a-table>
+          </a-table>
+        </template>
+        <!-- 卡片视图分页 -->
+        <div v-if="viewMode === 'card' && total > pagination.pageSize" class="card-pagination">
+          <a-pagination
+            :current="pagination.current"
+            :page-size="pagination.pageSize"
+            :total="total"
+            :page-size-options="['20', '50', '100']"
+            show-size-changer
+            size="small"
+            @change="onPageChange"
+          />
+        </div>
       </div>
     </div>
 
@@ -332,10 +480,12 @@ onMounted(load)
       <a-form layout="vertical">
         <div class="section-title">基础信息</div>
         <a-form-item label="料号 PN" required>
-          <a-input v-model:value="form.pn" :disabled="!!editing" placeholder="如 S.E.M.0000351" />
+          <a-input v-model:value="form.pn" placeholder="如 S.E.M.0000351" />
+          <div class="field-hint">料号唯一标识，可自由修改</div>
         </a-form-item>
         <a-form-item label="名称" required><a-input v-model:value="form.name" /></a-form-item>
-        <a-form-item label="描述"><a-input v-model:value="form.description" placeholder="如 PCBA_3.5''_Triple-mode 或 Cable_..._340mm" /></a-form-item>
+        <a-form-item label="规格"><a-input v-model:value="form.spec_text" placeholder="如 PCBA_3.5''_Triple-mode 或 Cable_..._340mm" /></a-form-item>
+        <a-form-item label="说明"><a-textarea v-model:value="form.description" :rows="2" placeholder="一句话讲清楚这个料号是什么、用在哪、怎么选，给不熟悉的同事看" /></a-form-item>
         <a-row :gutter="12">
           <a-col :span="8"><a-form-item label="部段" required>
             <a-select v-model:value="form.section" :options="sectionOptions" placeholder="选择部段" />
@@ -361,7 +511,7 @@ onMounted(load)
             <a-select v-else-if="attrType(row.key) === 'enum-multi'" v-model:value="row.val" mode="multiple"
                       :options="attrOptions(row.key)" size="small" style="flex:1.4" placeholder="选择（可多选）" />
             <a-select v-else-if="attrType(row.key) === 'free-tags'" v-model:value="row.val" mode="tags"
-                      :options="freeTagOptions(row.key)"
+                      :options="(row.key === 'chassis' ? seriesStore.items : extractSpecValues(row.key).map(v => ({ label: v, value: v })))"
                       :token-separators="[',']" size="small" style="flex:1.4" placeholder="输入后回车添加" />
             <a-input-number v-else-if="attrType(row.key) === 'number'" v-model:value="row.val" size="small" style="flex:1.4">
               <template #addonAfter v-if="attrSchema(row.key)?.unit">{{ attrSchema(row.key)?.unit }}</template>
@@ -373,19 +523,68 @@ onMounted(load)
         </div>
       </a-form>
     </a-modal>
+
+    <!-- 批量导入 Modal -->
+    <a-modal :open="importModalVisible" title="批量导入料号" width="860px" :footer="null" @cancel="importModalVisible = false; resetImport()">
+      <div class="import-modal">
+        <div v-if="!importPreview.length" class="import-step1">
+          <a-upload :before-upload="onImportFileSelect" :max-count="1" accept=".xlsx,.xls" :file-list="[]">
+            <a-button>
+              <template #icon><InboxOutlined /></template>
+              选择 Excel 文件
+            </a-button>
+          </a-upload>
+          <span v-if="importFile" class="import-filename">{{ importFile.name }}</span>
+
+          <div class="import-actions">
+            <a-button type="link" @click="downloadTemplate">下载导入模板</a-button>
+            <a-button type="primary" :loading="importParsing" :disabled="!importFile" @click="previewImport">
+              解析预览
+            </a-button>
+          </div>
+          <p class="import-tip">先下载模板按格式填写；导入前会展示逐行预览（新增 / 更新），确认后才真正写入。</p>
+        </div>
+
+        <div v-else class="import-step2">
+          <div class="import-summary">
+            <a-tag color="green">新增 {{ importSummary.new || 0 }}</a-tag>
+            <a-tag color="blue">更新 {{ importSummary.update || 0 }}</a-tag>
+            <a-tag v-if="importSummary.invalid" color="default">无效 {{ importSummary.invalid }}</a-tag>
+            <span class="import-total">共 {{ importSummary.total }} 行</span>
+          </div>
+          <a-table :data-source="importPreview" :columns="importPreviewColumns" :pagination="{ pageSize: 50 }" size="small" :scroll="{ y: 340 }" row-key="_row_index">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'action'">
+                <a-tag :color="actionColor(record.action)">{{ actionLabel(record.action) }}</a-tag>
+              </template>
+            </template>
+          </a-table>
+          <div class="import-actions">
+            <a-button @click="resetImport">重新选择</a-button>
+            <a-button type="primary" :loading="importCommitting" :disabled="!((importSummary.new || 0) + (importSummary.update || 0))" @click="confirmImport">确认导入</a-button>
+          </div>
+        </div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <style scoped>
 .panel { padding: 16px; margin-bottom: 16px; }
-.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.lib-head-left { display: flex; align-items: center; gap: 8px; }
+.sidebar-toggle { width: 32px; height: 32px; border: 1px solid var(--cpq-overlay-w15); background: transparent; color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+.sidebar-toggle:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary); }
 .lib-head h3 { margin: 0; font-size: 15px; }
 .lib-count { font-size: 12px; font-weight: 400; color: var(--cpq-text-muted, #6E7582); margin-left: 6px; }
-.lib-body { display: grid; grid-template-columns: 160px 1fr; gap: 14px; }
-.cat-nav { display: flex; flex-direction: column; gap: 2px; }
+.lib-body { display: grid; grid-template-columns: 160px 1fr; gap: 14px; transition: grid-template-columns .2s; }
+.lib-body:has(.cat-nav.collapsed) { grid-template-columns: 0px 1fr; }
+.cat-nav { display: flex; flex-direction: column; gap: 2px; overflow: hidden; transition: width .2s, opacity .2s; }
+.cat-nav.collapsed { width: 0; opacity: 0; }
+.cat-section { display: flex; flex-direction: column; gap: 2px; }
 .cat-divider { height: 1px; background: var(--cpq-overlay-w10); margin: 8px 0; }
-.cat-section-title { font-size: 11px; font-weight: 600; color: var(--cpq-text-muted, #6E7582); padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-.cat-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); transition: all .15s; }
+.cat-section-label { font-size: 11px; font-weight: 600; color: var(--cpq-text-muted, #6E7582); padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.cat-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); transition: all .15s; white-space: nowrap; }
 .cat-item:hover { background: var(--cpq-overlay-w5); color: var(--cpq-text-primary, #E8ECEF); }
 .cat-item.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
 .cat-count { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
@@ -395,9 +594,8 @@ onMounted(load)
 .subcat-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-w5); transition: all .15s; }
 .subcat-chip:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary, #E8ECEF); }
 .subcat-chip.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
-.subcat-count { margin-left: 4px; font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
-.subcat-chip.active .subcat-count { color: var(--cpq-accent-primary, #1677FF); }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
+.card-pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .grid-empty { color: var(--cpq-text-muted, #6E7582); text-align: center; padding: 40px; font-size: 13px; }
 .parts-table :deep(.ant-table) { background: transparent; }
 .parts-table :deep(.ant-table-thead > tr > th) { background: var(--cpq-overlay-w8); font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); }
@@ -405,7 +603,7 @@ onMounted(load)
 .parts-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--cpq-overlay-w6); }
 .tbl-pn { font-family: monospace; font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 .tbl-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: 4px; }
-.part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s; }
+.part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s; border-radius: 0; }
 .part-card:hover { transform: translateY(-2px); }
 .pc-del { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 12px; cursor: pointer; border-radius: 4px; opacity: 0; transition: all .15s; }
 .part-card:hover .pc-del { opacity: 1; }
@@ -421,4 +619,22 @@ onMounted(load)
 .spec-row { display: flex; gap: 6px; align-items: center; }
 .section-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #e6e6e6); margin: 4px 0 8px; padding-left: 8px; border-left: 3px solid var(--cpq-accent, #1668dc); }
 .section-hint { font-size: 11px; font-weight: 400; color: var(--cpq-text-secondary, rgba(255,255,255,.45)); }
+.field-hint { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-top: 2px; }
+/* 导入弹窗样式 */
+.import-modal { min-height: 200px; }
+.import-step1 { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.import-filename { color: var(--cpq-text-secondary); font-size: 13px; }
+.import-actions { display: flex; gap: 8px; margin-top: 8px; }
+.import-tip { font-size: 12px; color: var(--cpq-text-muted); line-height: 1.6; }
+.import-step2 { display: flex; flex-direction: column; gap: 12px; }
+.import-summary { display: flex; gap: 8px; align-items: center; }
+.import-total { color: var(--cpq-text-secondary); font-size: 12px; margin-left: auto; }
+/* 响应式适配 */
+@media (max-width: 768px) {
+  .lib-body { grid-template-columns: 1fr; }
+  .cat-nav { position: fixed; left: 0; top: 0; bottom: 0; width: 200px; background: var(--cpq-bg); z-index: 100; box-shadow: 2px 0 12px rgba(0,0,0,.3); transform: translateX(-100%); transition: transform .2s; }
+  .cat-nav:not(.collapsed) { transform: translateX(0); }
+  .cat-nav.collapsed { transform: translateX(-100%); }
+  .card-grid { grid-template-columns: 1fr; }
+}
 </style>

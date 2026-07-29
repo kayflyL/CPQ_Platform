@@ -21,6 +21,7 @@ class OpportunityRepository:
                       page: int = 1, page_size: int = 50,
                       search: str = None, status: str = None,
                       platform: str = None, chassis: str = None,
+                      result: str = None, industry: str = None, customer_type: str = None, quote_scenario: str = None,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
         if not include_deleted:
@@ -35,9 +36,20 @@ class OpportunityRepository:
             chas = [s.strip() for s in chassis.split(',') if s.strip()]
             if chas:
                 q = q.filter(Opportunity.chassis_form.in_(chas))
+        if result and result != "all":
+            q = q.filter(Opportunity.result == result)
+        if industry:
+            inds = [s.strip() for s in industry.split(',') if s.strip()]
+            if inds:
+                q = q.filter(Opportunity.industry.in_(inds))
+        if customer_type:
+            cts = [s.strip() for s in customer_type.split(',') if s.strip()]
+            if cts:
+                q = q.filter(Opportunity.customer_type.in_(cts))
+        if quote_scenario:
+            q = q.filter(Opportunity.quote_scenario == quote_scenario)
         if search:
             q = q.filter(
-                Opportunity.opportunity_name.ilike(f"%{search}%") |
                 Opportunity.customer_name.ilike(f"%{search}%") |
                 Opportunity.sales_person.ilike(f"%{search}%")
             )
@@ -95,7 +107,7 @@ class OpportunityRepository:
     def get_opportunity_with_items(self, opportunity_id: str) -> Optional[dict]:
         """Get opportunity with all quotations and their items."""
         from app.models.quotation import Quotation
-        from app.models.opportunity_item import OpportunityItem
+        from app.models.quotation_item import QuotationItem
         
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id
@@ -118,8 +130,8 @@ class OpportunityRepository:
         total_configs = 0
         
         for quo in quotations:
-            items = self.session.query(OpportunityItem).filter(
-                OpportunityItem.quotation_id == quo.quotation_id
+            items = self.session.query(QuotationItem).filter(
+                QuotationItem.quotation_id == quo.quotation_id
             ).all()
             for item in items:
                 item_dict = item.to_dict()
@@ -134,7 +146,7 @@ class OpportunityRepository:
         result['quotations'] = [q.to_dict() for q in quotations]
         result['items'] = all_items
         result['l6_price'] = total_l6_price
-        result['purchase_qty'] = total_qty
+        # purchase_qty 保留用户输入值，不覆盖；config_count 显示报价单数量
         result['config_count'] = total_configs
         
         return result
@@ -157,8 +169,6 @@ class OpportunityRepository:
         else:
             opp = Opportunity(
                 opportunity_id=opportunity_id,
-                folder_name=info.get("folder_name"),
-                opportunity_name=info.get("opportunity_name", ""),
                 customer_name=info.get("customer_name", ""),
                 sales_person=info.get("sales_person", ""),
                 fae=info.get("fae", ""),
@@ -175,8 +185,9 @@ class OpportunityRepository:
 
     # Core fields that are actual DB columns (not in extra_fields JSON)
     _CORE_COLUMNS = {
-        "opportunity_id", "folder_name", "opportunity_name", "customer_name",
+        "opportunity_id", "customer_name",
         "sales_person", "fae", "quotation_person", "platform_type", "chassis_form",
+        "industry", "customer_type", "quote_scenario", "result", "win_reason", "lost_reason",
         "purchase_qty", "created_at", "updated_at", "status", "extra_fields", "tenant_id",
     }
 
@@ -259,15 +270,15 @@ class OpportunityRepository:
     def permanent_delete(self, opportunity_id: str) -> bool:
         # Delete all quotations and their items
         from app.models.quotation import Quotation
-        from app.models.opportunity_item import OpportunityItem
+        from app.models.quotation_item import QuotationItem
         
         quotations = self.session.query(Quotation).filter(
             Quotation.opportunity_id == opportunity_id
         ).all()
         
         for quo in quotations:
-            self.session.execute(delete(OpportunityItem).where(
-                OpportunityItem.quotation_id == quo.quotation_id
+            self.session.execute(delete(QuotationItem).where(
+                QuotationItem.quotation_id == quo.quotation_id
             ))
         
         self.session.execute(delete(Quotation).where(

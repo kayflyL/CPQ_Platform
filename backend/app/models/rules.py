@@ -5,28 +5,6 @@ from sqlalchemy import Column, Integer, String, Float, Text
 from app.models.base import Base
 
 
-class L6RegionConfig(Base):
-    """L6 区域识别规则"""
-    __tablename__ = 'l6_region_config'
-    __table_args__ = {'schema': 'rules'}
-    
-    id = Column(Integer, primary_key=True)
-    region_start_keywords = Column(String(200), nullable=False, comment='区域起始关键词，逗号分隔')
-    field_mapping = Column(Text, nullable=False, comment='字段列映射 JSON')
-    region_end_keywords = Column(String(200), nullable=False, comment='区域结束关键词，逗号分隔')
-
-
-class KPRegionConfig(Base):
-    """KP 区域识别规则"""
-    __tablename__ = 'kp_region_config'
-    __table_args__ = {'schema': 'rules'}
-    
-    id = Column(Integer, primary_key=True)
-    region_start_keywords = Column(String(200), nullable=False, comment='区域起始关键词，逗号分隔')
-    field_mapping = Column(Text, nullable=False, comment='字段列映射 JSON')
-    region_end_keywords = Column(String(200), nullable=False, comment='区域结束关键词，逗号分隔')
-
-
 class KPCategoryMapping(Base):
     """KP 分类映射：关键词 → 标准分类"""
     __tablename__ = 'kp_category_mapping'

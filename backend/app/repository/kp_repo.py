@@ -4,10 +4,12 @@
 保持旧接口签名兼容（pricing_engine / quote_service 无感迁移）。
 新增完整 CRUD 方法支持配件管理页面。
 """
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
+import difflib
 import json
+import statistics
 from typing import List, Optional, Dict, Any
-from sqlalchemy import text, select, func, exists, and_
+from sqlalchemy import text, select, func, exists, and_, Date
 from sqlalchemy.orm import Session, joinedload
 from app.models.base import KP_SessionLocal
 from app.models.kp import (
@@ -237,6 +239,59 @@ class KPRepository:
             })
         return result
 
+    def get_by_category_with_spec_filter(self, category: str, spec_filters: list[dict]) -> List[dict]:
+        """品类下按 spec 数值范围过滤的配件列表（P3 规格匹配）。
+        spec_filters: [{spec_key, op, value, unit}, ...]；多条件取首条（覆盖主场景，多条件留 TODO）。
+        spec_value 是 Text 带单位（'24 GB'/'32 GB'），用 PG 正则提前缀数字 + '^[0-9]' guard
+        跳过非数值行（避免 'DDR4-3200'/'RDIMM'/'tri-mode' 触发 invalid input syntax 整批崩）。
+        无 spec_filters / spec_key 空 / value 非数 → 退化普通 get_by_category（向后兼容）。
+        """
+        if not spec_filters:
+            return self.get_by_category(category)
+        f = spec_filters[0]
+        spec_key = (f.get("spec_key") or "").strip()
+        op = f.get("op") or ">="
+        try:
+            value = float(f.get("value"))
+        except (TypeError, ValueError):
+            return self.get_by_category(category)
+        if not spec_key:
+            return self.get_by_category(category)
+        op_sql = {">=": ">=", "<=": "<=", "=": "="}.get(op, ">=")  # 白名单，防注入
+        sql = text(r"""
+            SELECT p.id, p.name,
+                   ph.price, ph.currency, ph.price_date, ph.note,
+                   s.spec_value AS matched_spec,
+                   (SELECT COUNT(*) FROM kp.kp_price_history ph3 WHERE ph3.part_id = p.id) AS record_count
+            FROM kp.kp_parts p
+            JOIN kp.kp_categories c ON p.category_id = c.id
+            JOIN kp.kp_part_specs s ON s.part_id = p.id AND s.spec_key = :spec_key
+            LEFT JOIN kp.kp_price_history ph ON ph.id = (
+                SELECT MAX(id) FROM kp.kp_price_history ph2 WHERE ph2.part_id = p.id
+            )
+            WHERE c.name = :category
+              AND s.spec_value ~ '^[0-9]'
+              AND NULLIF(SUBSTRING(s.spec_value FROM '^[0-9]+(\.[0-9]+)?'), '')::NUMERIC """ + op_sql + r""" :value
+            ORDER BY p.name
+        """)
+        rows = self.session.execute(sql, {
+            "spec_key": spec_key, "category": category, "value": value,
+        }).fetchall()
+        result = []
+        for r in rows:
+            result.append({
+                "id": r.id,
+                "category": category,
+                "model": r.name,
+                "price": r.price or 0.0,
+                "currency": r.currency or "RMB",
+                "date": r.price_date.isoformat() if r.price_date else "",
+                "note": r.note or "",
+                "record_count": r.record_count or 0,
+                "matched_spec": r.matched_spec or "",
+            })
+        return result
+
     def rename_model(self, old_model: str, new_model: str) -> bool:
         """重命名配件（兼容旧接口）"""
         part = self.session.query(KPPart).filter(KPPart.name == old_model).first()
@@ -433,6 +488,356 @@ class KPRepository:
             return None
         return part.to_dict(include_specs=True, include_history=True, include_compat=True)
 
+    # ---- 总览统计（仪表盘） ----
+    def _summarize_parts(self, parts) -> list:
+        """把 KPPart 列表归一成仪表盘用的摘要（含最新报价）"""
+        out = []
+        for part in parts:
+            latest = self.session.query(KPPriceHistory) \
+                .filter(KPPriceHistory.part_id == part.id) \
+                .order_by(KPPriceHistory.price_date.desc().nullslast(), KPPriceHistory.id.desc()) \
+                .first()
+            out.append({
+                "id": part.id,
+                "name": part.name,
+                "category_name": part.category.name if part.category else None,
+                "brand": part.brand,
+                "latest_price": latest.price if latest else None,
+                "latest_currency": latest.currency if latest else None,
+                "latest_date": latest.price_date.isoformat() if latest and latest.price_date else None,
+                "created_at": part.created_at.isoformat() if part.created_at else None,
+            })
+        return out
+
+    def get_stats(self, recent_limit: int = 6, series_days: int = 14) -> dict:
+        """配件库总览：总数 / 本周新增 / 上周新增 / 有效价格数 / 每日新增序列 / 最近入库 / 最近调价"""
+        now = datetime.utcnow()
+        week_ago = now - timedelta(days=7)
+        two_weeks_ago = now - timedelta(days=14)
+
+        total = self.session.query(func.count(KPPart.id)).scalar() or 0
+        this_week_new = self.session.query(func.count(KPPart.id)) \
+            .filter(KPPart.created_at >= week_ago).scalar() or 0
+        last_week_new = self.session.query(func.count(KPPart.id)) \
+            .filter(KPPart.created_at >= two_weeks_ago, KPPart.created_at < week_ago).scalar() or 0
+
+        # 有效价格：最新报价日在最近 2 天内的配件数
+        cutoff = date.today() - timedelta(days=2)
+        latest_price_date_sq = select(func.max(KPPriceHistory.price_date)) \
+            .where(KPPriceHistory.part_id == KPPart.id).scalar_subquery()
+        valid_price_count = self.session.query(func.count(KPPart.id)) \
+            .filter(latest_price_date_sq >= cutoff).scalar() or 0
+
+        # 最近 N 天每日新增序列（缺失日补 0）
+        series_start_dt = now - timedelta(days=series_days - 1)
+        series_start = series_start_dt.date()
+        rows = self.session.query(
+            func.cast(KPPart.created_at, Date).label("d"),
+            func.count(KPPart.id),
+        ).filter(KPPart.created_at >= series_start_dt) \
+         .group_by(text("d")).order_by(text("d")).all()
+        counts_by_day = {r[0]: int(r[1]) for r in rows}
+        new_series = []
+        for i in range(series_days):
+            d = series_start + timedelta(days=i)
+            new_series.append({"date": d.isoformat(), "count": counts_by_day.get(d, 0)})
+
+        # 最近入库（按 created_at desc）
+        recent_parts_q = self.session.query(KPPart) \
+            .options(joinedload(KPPart.category)) \
+            .order_by(KPPart.created_at.desc().nullslast(), KPPart.id.desc()) \
+            .limit(recent_limit).all()
+        recent_parts = self._summarize_parts(recent_parts_q)
+
+        # 最近调价（按每个配件最新 price_date desc）
+        latest_sub = select(
+            KPPriceHistory.part_id.label("pid"),
+            func.max(KPPriceHistory.price_date).label("lpd"),
+        ).group_by(KPPriceHistory.part_id).subquery()
+        price_rows = self.session.query(KPPart) \
+            .join(latest_sub, latest_sub.c.pid == KPPart.id) \
+            .options(joinedload(KPPart.category)) \
+            .order_by(latest_sub.c.lpd.desc().nullslast(), KPPart.id.desc()) \
+            .limit(recent_limit).all()
+        recent_price_updates = self._summarize_parts(price_rows)
+
+        return {
+            "total": total,
+            "this_week_new": this_week_new,
+            "last_week_new": last_week_new,
+            "valid_price_count": valid_price_count,
+            "new_series": new_series,
+            "recent_parts": recent_parts,
+            "recent_price_updates": recent_price_updates,
+        }
+
+    # ---- 数据洞察：价格异动 / 比价矩阵 / 疑似重复 ----
+
+    def _latest_price_map(self, part_ids: List[int]) -> Dict[int, KPPriceHistory]:
+        """一次查全量价格历史，按 part_id 分组取最新一条（口径：price_date DESC NULLS LAST, id DESC）。"""
+        if not part_ids:
+            return {}
+        rows = self.session.query(KPPriceHistory) \
+            .filter(KPPriceHistory.part_id.in_(part_ids)) \
+            .order_by(KPPriceHistory.part_id,
+                      KPPriceHistory.price_date.desc().nullslast(),
+                      KPPriceHistory.id.desc()).all()
+        latest: Dict[int, KPPriceHistory] = {}
+        for h in rows:
+            if h.part_id not in latest:
+                latest[h.part_id] = h
+        return latest
+
+    def get_price_movers(self, days: int = 7, limit: int = 10) -> dict:
+        """价格异动看板：每个配件最新价 vs N 天前最近一条价的涨跌幅，返回涨幅/跌幅 TOP。"""
+        cutoff_days = max(1, int(days))
+        top_n = max(1, int(limit))
+
+        # 一次拉全量价格历史，按 part_id 分组（已按最新价口径排序）
+        all_hist = self.session.query(KPPriceHistory) \
+            .order_by(KPPriceHistory.part_id,
+                      KPPriceHistory.price_date.desc().nullslast(),
+                      KPPriceHistory.id.desc()).all()
+        by_part: Dict[int, List[KPPriceHistory]] = {}
+        for h in all_hist:
+            by_part.setdefault(h.part_id, []).append(h)
+
+        candidates = []  # [(part_id, curr, prev, delta_pct)]
+        for pid, hist in by_part.items():
+            if len(hist) < 2:
+                continue
+            curr = hist[0]
+            if not curr.price or curr.price_date is None:
+                continue
+            threshold_date = curr.price_date - timedelta(days=cutoff_days)
+            prev = None
+            for r in hist[1:]:
+                if r.price_date is not None and r.price_date <= threshold_date:
+                    prev = r
+                    break
+            if not prev or not prev.price:
+                continue
+            delta_pct = (curr.price - prev.price) / prev.price * 100
+            candidates.append((pid, curr, prev, delta_pct))
+
+        # 批量取 part 实体
+        part_ids = [c[0] for c in candidates]
+        parts_map = {}
+        if part_ids:
+            parts = self.session.query(KPPart).options(joinedload(KPPart.category)) \
+                .filter(KPPart.id.in_(part_ids)).all()
+            parts_map = {p.id: p for p in parts}
+
+        def build(c):
+            pid, curr, prev, delta_pct = c
+            part = parts_map.get(pid)
+            return {
+                "id": pid,
+                "name": part.name if part else None,
+                "category_name": part.category.name if part and part.category else None,
+                "brand": part.brand if part else None,
+                "latest_price": curr.price,
+                "latest_currency": curr.currency,
+                "latest_date": curr.price_date.isoformat() if curr.price_date else None,
+                "prev_price": prev.price,
+                "prev_date": prev.price_date.isoformat() if prev.price_date else None,
+                "delta_pct": round(delta_pct, 2),
+            }
+
+        gainers = sorted([build(c) for c in candidates if c[3] > 0],
+                         key=lambda x: x["delta_pct"], reverse=True)[:top_n]
+        losers = sorted([build(c) for c in candidates if c[3] < 0],
+                        key=lambda x: x["delta_pct"])[:top_n]
+
+        return {"days": cutoff_days, "gainers": gainers, "losers": losers}
+
+    def get_price_matrix(self, category_id: int, group_key: str) -> dict:
+        """比价矩阵：同分类下按某 spec_key 分组的价格分布（min/Q1/median/Q3/max + 明细）。"""
+        parts = self.session.query(KPPart).options(joinedload(KPPart.category)) \
+            .filter(KPPart.category_id == category_id).all()
+        if not parts:
+            return {"group_key": group_key, "groups": []}
+
+        part_ids = [p.id for p in parts]
+        latest_map = self._latest_price_map(part_ids)
+
+        # 取每个 part 在 group_key 维度的 spec_value
+        spec_rows = self.session.query(KPPartSpec.part_id, KPPartSpec.spec_value) \
+            .filter(KPPartSpec.spec_key == group_key, KPPartSpec.part_id.in_(part_ids)).all()
+        spec_map = {pid: (val or "").strip() for pid, val in spec_rows}
+
+        groups: Dict[str, list] = {}
+        for p in parts:
+            val = spec_map.get(p.id, "")
+            gv = val if val else "(未分组)"
+            groups.setdefault(gv, []).append(p)
+
+        result_groups = []
+        for gv, plist in groups.items():
+            priced = []  # [(part, price, latest)]
+            for p in plist:
+                lp = latest_map.get(p.id)
+                if lp and lp.price is not None:
+                    priced.append((p, lp.price, lp))
+            if not priced:
+                continue
+            prices = [pr[1] for pr in priced]
+            if len(prices) >= 2:
+                try:
+                    qs = statistics.quantiles(prices, n=4, method='inclusive')
+                    q1, q3 = qs[0], qs[2]
+                except Exception:
+                    q1 = q3 = prices[0]
+            else:
+                q1 = q3 = prices[0]
+            result_groups.append({
+                "value": gv,
+                "count": len(priced),
+                "min": round(min(prices), 2),
+                "max": round(max(prices), 2),
+                "avg": round(statistics.mean(prices), 2),
+                "median": round(statistics.median(prices), 2),
+                "q1": round(q1, 2),
+                "q3": round(q3, 2),
+                "parts": [{
+                    "id": p.id,
+                    "name": p.name,
+                    "brand": p.brand,
+                    "category_name": p.category.name if p.category else None,
+                    "latest_price": price,
+                    "latest_currency": lp.currency,
+                    "latest_date": lp.price_date.isoformat() if lp.price_date else None,
+                } for p, price, lp in sorted(priced, key=lambda x: x[1])],
+            })
+
+        result_groups.sort(key=lambda x: x["count"], reverse=True)
+        return {"group_key": group_key, "groups": result_groups}
+
+    def detect_duplicates(self, threshold: float = 0.6) -> dict:
+        """疑似重复检测：oem_sku/alt_sku 精确匹配（强信号）+ name difflib 相似度（弱信号）。
+        返回重复组（不做合并，仅展示）。"""
+        parts = self.session.query(KPPart).options(joinedload(KPPart.category)).all()
+        if len(parts) < 2:
+            return {"total_groups": 0, "total_duplicate_parts": 0, "groups": []}
+
+        part_ids = [p.id for p in parts]
+        latest_map = self._latest_price_map(part_ids)
+        parts_by_id = {p.id: p for p in parts}
+
+        def summary(p):
+            lp = latest_map.get(p.id)
+            return {
+                "id": p.id,
+                "name": p.name,
+                "brand": p.brand,
+                "oem_sku": p.oem_sku,
+                "alt_sku": p.alt_sku,
+                "category_name": p.category.name if p.category else None,
+                "latest_price": lp.price if lp else None,
+                "latest_currency": lp.currency if lp else None,
+            }
+
+        # Union-Find
+        parent = {p.id: p.id for p in parts}
+
+        def find(x):
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        pair_reasons: Dict[tuple, dict] = {}
+
+        def record(a_id, b_id, reason, sim):
+            key = tuple(sorted((a_id, b_id)))
+            prev = pair_reasons.get(key)
+            if not prev or sim > prev["similarity"]:
+                pair_reasons[key] = {"reason": reason, "similarity": sim}
+
+        def norm(s):
+            return (s or "").strip()
+
+        threshold_clamped = max(0.0, min(1.0, float(threshold)))
+
+        # 按 brand 分桶（桶内两两比；桶过大时按 name 前缀再分小桶，防 O(n²) 爆炸）
+        brand_buckets: Dict[str, List[KPPart]] = {}
+        for p in parts:
+            brand_buckets.setdefault(norm(p.brand), []).append(p)
+
+        for bucket in brand_buckets.values():
+            if len(bucket) < 2:
+                continue
+            if len(bucket) > 500:
+                sub: Dict[str, List[KPPart]] = {}
+                for p in bucket:
+                    sub.setdefault(norm(p.name)[:3] or "_", []).append(p)
+                iter_buckets = list(sub.values())
+            else:
+                iter_buckets = [bucket]
+
+            for sub_list in iter_buckets:
+                m = len(sub_list)
+                for i in range(m):
+                    a = sub_list[i]
+                    a_oem, a_alt = norm(a.oem_sku), norm(a.alt_sku)
+                    for j in range(i + 1, m):
+                        b = sub_list[j]
+                        b_oem, b_alt = norm(b.oem_sku), norm(b.alt_sku)
+
+                        hit_reason, hit_sim = None, 0.0
+                        if a_oem and a_oem == b_oem:
+                            hit_reason, hit_sim = f"oem_sku 相同 ({a_oem})", 1.0
+                        elif a_oem and a_oem == b_alt:
+                            hit_reason, hit_sim = f"oem_sku/alt_sku 相同 ({a_oem})", 1.0
+                        elif a_alt and a_alt == b_oem:
+                            hit_reason, hit_sim = f"oem_sku/alt_sku 相同 ({a_alt})", 1.0
+                        elif a_alt and a_alt == b_alt:
+                            hit_reason, hit_sim = f"alt_sku 相同 ({a_alt})", 1.0
+
+                        if not hit_reason and a.category_id == b.category_id:
+                            ratio = difflib.SequenceMatcher(None, a.name or "", b.name or "").ratio()
+                            if ratio >= threshold_clamped:
+                                hit_reason, hit_sim = f"名称相似 ({ratio:.2f})", ratio
+
+                        if hit_reason:
+                            union(a.id, b.id)
+                            record(a.id, b.id, hit_reason, hit_sim)
+
+        # 按 root 聚合
+        groups_map: Dict[int, List[int]] = {}
+        for p in parts:
+            groups_map.setdefault(find(p.id), []).append(p.id)
+
+        result_groups = []
+        for ids in groups_map.values():
+            if len(ids) < 2:
+                continue
+            # 取该组内最强命中原因
+            best = None
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    pr = pair_reasons.get(tuple(sorted((ids[i], ids[j]))))
+                    if pr and (not best or pr["similarity"] > best["similarity"]):
+                        best = pr
+            result_groups.append({
+                "reason": best["reason"] if best else "疑似重复",
+                "similarity": round(best["similarity"], 2) if best else 0.0,
+                "parts": [summary(parts_by_id[pid]) for pid in sorted(ids)],
+            })
+
+        result_groups.sort(key=lambda g: (g["similarity"], len(g["parts"])), reverse=True)
+        total_dup = sum(len(g["parts"]) for g in result_groups)
+        return {
+            "total_groups": len(result_groups),
+            "total_duplicate_parts": total_dup,
+            "groups": result_groups,
+        }
+
     def create_part(self, data: dict) -> dict:
         """创建配件"""
         part = KPPart(
@@ -507,6 +912,50 @@ class KPRepository:
         self.session.commit()
         return True
 
+    # ---- 批量导入/导出辅助 ----
+    def find_or_create_category_by_name(self, name: Optional[str]) -> int:
+        """按名称查找分类,不存在则创建(空名兜底「未分类」)。返回 category_id。"""
+        nm = (str(name).strip() if name else "") or "未分类"
+        cat = self.session.query(KPCategory).filter(KPCategory.name == nm).first()
+        if not cat:
+            cat = KPCategory(name=nm)
+            self.session.add(cat)
+            self.session.flush()
+        return cat.id
+
+    def find_parts_by_dedupe_key(self, oem_sku: Optional[str] = None,
+                                 name: Optional[str] = None) -> List[KPPart]:
+        """去重键查询:优先 oem_sku,空则按 name。返回列表(空/单/多 → new/update/conflict)。"""
+        if oem_sku and str(oem_sku).strip():
+            return self.session.query(KPPart)\
+                .filter(KPPart.oem_sku == str(oem_sku).strip()).all()
+        if name and str(name).strip():
+            return self.session.query(KPPart)\
+                .filter(KPPart.name == str(name).strip()).all()
+        return []
+
+    def list_all_for_export(self, category_id: Optional[int] = None) -> List[KPPart]:
+        """导出用:不分页,eager load category/specs/price_history。"""
+        q = self.session.query(KPPart).options(
+            joinedload(KPPart.category),
+            joinedload(KPPart.specs),
+            joinedload(KPPart.price_history),
+        )
+        if category_id:
+            q = q.filter(KPPart.category_id == category_id)
+        return q.order_by(KPPart.id.asc()).all()
+
+    def list_spec_keys(self, category_id: Optional[int] = None, top_n: int = 15) -> List[tuple]:
+        """[(spec_key, freq)] 按 freq 降序,供导入模板预置高频规格列。"""
+        q = self.session.query(KPPartSpec.spec_key, func.count(KPPartSpec.id))\
+            .join(KPPart, KPPartSpec.part_id == KPPart.id)\
+            .filter(KPPartSpec.spec_key.isnot(None), KPPartSpec.spec_key != '')
+        if category_id:
+            q = q.filter(KPPart.category_id == category_id)
+        rows = q.group_by(KPPartSpec.spec_key)\
+            .order_by(func.count(KPPartSpec.id).desc()).limit(top_n).all()
+        return [(k, int(c)) for k, c in rows]
+
     # ---- 价格历史 ----
     def add_price_history(self, part_id: int, price: float, currency: str = "RMB",
                           price_date: str = None, note: str = "", source: str = "") -> dict:
@@ -526,7 +975,30 @@ class KPRepository:
         self.session.refresh(h)
         return h.to_dict()
 
+    def price_history_exists(self, part_id: int, price: float,
+                             currency: Optional[str] = None,
+                             price_date: Any = None) -> bool:
+        """判断同 part 是否已存在相同(价格 + 币种 + 日期)的记录,用于导入去重防堆积。"""
+        if price is None:
+            return False
+        pd_ = None
+        if price_date:
+            try:
+                pd_ = datetime.strptime(str(price_date)[:10], "%Y-%m-%d").date()
+            except ValueError:
+                pd_ = None
+        if pd_ is None:
+            return False  # 没有日期不去重(避免误合并不同时点的报价)
+        q = self.session.query(KPPriceHistory).filter(
+            KPPriceHistory.part_id == part_id,
+            KPPriceHistory.price == price,
+            KPPriceHistory.currency == (currency or "RMB"),
+            KPPriceHistory.price_date == pd_,
+        )
+        return self.session.query(q.exists()).scalar()
+
     def update_price_history(self, price_id: int, price: float = None,
+                              currency: str = None,
                               price_date: str = None, note: str = None) -> bool:
         """更新价格记录"""
         h = self.session.query(KPPriceHistory).filter(KPPriceHistory.id == price_id).first()
@@ -534,6 +1006,8 @@ class KPRepository:
             return False
         if price is not None:
             h.price = price
+        if currency is not None:
+            h.currency = currency
         if price_date is not None:
             try:
                 h.price_date = datetime.strptime(price_date, "%Y-%m-%d").date()

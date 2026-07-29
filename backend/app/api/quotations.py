@@ -5,6 +5,7 @@ logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
+from datetime import datetime
 from app.repository.quotation_repo import QuotationRepository
 from app.repository.opportunity_repo import OpportunityRepository
 
@@ -46,7 +47,18 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
             quotations = query.order_by(Quotation.created_at.desc()).all()
         finally:
             session.close()
-        return {"quotations": [q.to_dict() for q in quotations]}
+        # 列表保持精简：剥离 cost_snapshot（抽屉按需走 GET /{id} 取），但留标志供行内判断
+        # - has_cost_snapshot：有任何成本快照（手工补录 / 导出冻结）
+        # - has_manual_cost：手工补录过的（manual:true，未冻结，列表给「编辑成本」入口再进抽屉改）
+        items_list = []
+        for q in quotations:
+            d = q.to_dict()
+            snap = d.get("cost_snapshot") or {}
+            d["has_cost_snapshot"] = bool(d.get("cost_snapshot"))
+            d["has_manual_cost"] = d["has_cost_snapshot"] and snap.get("manual") is True
+            d.pop("cost_snapshot", None)
+            items_list.append(d)
+        return {"quotations": items_list}
     finally:
         repo.close()
 
@@ -68,10 +80,9 @@ def get_quotation(quotation_id: str, reparse: bool = False):
         
         result = quotation.to_dict()
         
-        # Include opportunity info (opportunity_name, customer_name)
+        # Include opportunity info (customer_name)
         opportunity = opp_repo.get_opportunity(quotation.opportunity_id)
         if opportunity:
-            result["opportunity_name"] = opportunity.get("opportunity_name", "") or ""
             result["customer_name"] = opportunity.get("customer_name", "") or ""
         
         # Add date field (from quotation_date or created_at)
@@ -194,6 +205,74 @@ def set_primary_quotation(quotation_id: str):
         repo.close()
 
 
+class CostSnapshotRequest(BaseModel):
+    cost_snapshot: dict
+
+
+@router.post("/{quotation_id}/export")
+def export_quotation(quotation_id: str, req: CostSnapshotRequest):
+    """Freeze a draft quotation into an exported one: stamp exported_at and persist the
+    cost snapshot captured client-side. Idempotent — re-exporting just refreshes the snapshot."""
+    repo = QuotationRepository()
+    try:
+        quotation = repo.get_by_id(quotation_id)
+        if not quotation:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        updated = repo.mark_exported(quotation_id, req.cost_snapshot, datetime.now().isoformat())
+        return {"quotation": updated.to_dict()}
+    finally:
+        repo.close()
+
+
+@router.put("/{quotation_id}/cost-snapshot")
+def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest):
+    """Manually backfill a cost snapshot for a historical quotation. Writes cost_snapshot
+    ONLY — exported_at stays untouched (keeps 'manually backfilled' distinct from 'exported')."""
+    repo = QuotationRepository()
+    try:
+        quotation = repo.get_by_id(quotation_id)
+        if not quotation:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        updated = repo.save_cost_snapshot(quotation_id, req.cost_snapshot)
+        return {"quotation": updated.to_dict()}
+    finally:
+        repo.close()
+
+
+@router.post("/{quotation_id}/reparse")
+def reparse_quotation(quotation_id: str):
+    """Clone an exported quotation into a NEW draft.
+
+    Re-parsing the archived export Excel is unreliable (the export has a different layout
+    than the upload template the parser expects). The source quotation's DB items are the
+    authoritative structured data, so we clone those + config-level fields instead. The
+    original exported row stays frozen. Enforces one-draft-per-opportunity.
+    """
+    repo = QuotationRepository()
+    try:
+        source = repo.get_by_id(quotation_id)
+        if not source:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        if not source.exported_at:
+            raise HTTPException(status_code=400, detail="该报价单为草稿，请直接编辑")
+
+        existing_draft = repo.find_draft(source.opportunity_id)
+        if existing_draft and existing_draft.quotation_id != quotation_id:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "message": "已有草稿报价单，请先导出或删除当前草稿",
+                    "existing_draft_id": existing_draft.quotation_id,
+                },
+            )
+
+        new_quotation = repo.create(source.opportunity_id)
+        repo.copy_quotation_state(quotation_id, new_quotation.quotation_id)
+        return {"quotation_id": new_quotation.quotation_id}
+    finally:
+        repo.close()
+
+
 @router.post("/{quotation_id}/restore")
 def restore_quotation(quotation_id: str):
     """Restore a soft-deleted quotation."""
@@ -301,23 +380,40 @@ def batch_restore_quotations(req: BatchQuotationRequest):
 
 
 @router.post("/batch-permanent-delete")
-def batch_permanent_delete_quotations(req: BatchQuotationRequest):
-    """批量永久删除报价单"""
+async def batch_permanent_delete_quotations(req: BatchQuotationRequest):
+    """批量永久删除报价单，同时删除关联的 Feed 附件（sent_quote 归档）"""
     from app.models.quotation import Quotation
-    from app.models.opportunity_item import OpportunityItem
+    from app.models.quotation_item import QuotationItem
     from app.models.base import Opportunity_SessionLocal
     from sqlalchemy import delete
 
     session = Opportunity_SessionLocal()
     results = {"success": [], "failed": []}
+    # 收集需要广播的删除事件
+    attachment_deletions: List[dict] = []
     try:
         for qid in req.quotation_ids:
             try:
-                # Delete items first
+                # 1. 先删关联的 Feed 附件（sent_quote 归档）
+                from app.repository.feed_repo import FeedRepository
+                feed_repo = FeedRepository()
+                try:
+                    del_info = feed_repo.soft_delete_attachments_by_quotation(qid)
+                    if del_info:
+                        opp_id = del_info[0]
+                        att_ids = del_info[1:]
+                        attachment_deletions.append({
+                            "opportunity_id": opp_id,
+                            "attachment_ids": att_ids,
+                        })
+                finally:
+                    feed_repo.close()
+
+                # 2. Delete items first
                 session.execute(
-                    delete(OpportunityItem).where(OpportunityItem.quotation_id == qid)
+                    delete(QuotationItem).where(QuotationItem.quotation_id == qid)
                 )
-                # Delete quotation
+                # 3. Delete quotation
                 session.execute(
                     delete(Quotation).where(Quotation.quotation_id == qid)
                 )
@@ -325,6 +421,16 @@ def batch_permanent_delete_quotations(req: BatchQuotationRequest):
             except Exception as e:
                 results["failed"].append({"id": qid, "error": str(e)})
         session.commit()
+
+        # 广播附件删除事件（让已连接的客户端同步更新）
+        from app.services.feed_hub import hub
+        for item in attachment_deletions:
+            for att_id in item.get("attachment_ids", []):
+                await hub.broadcast(item["opportunity_id"], {
+                    "type": "delete_attachment",
+                    "attachment_id": att_id,
+                })
+
         return results
     finally:
         session.close()

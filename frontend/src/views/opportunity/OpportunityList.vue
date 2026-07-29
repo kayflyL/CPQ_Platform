@@ -260,7 +260,6 @@ import { PLAT_COLOR } from '@/constants/platform'
 import dayjs from 'dayjs'
 import { useSeriesStore } from '@/stores/series'
 import { useAssistant } from '@/composables/useAssistant'
-import { assistantApi } from '@/api/assistant'
 
 use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
 
@@ -377,7 +376,7 @@ async function askAssistantAboutInsight(insight: InsightItem) {
 
 // 构造趋势上下文（发送给助手）
 function buildTrendContext(): string {
-  const kpi = summary.value.kpi || {}
+  const kpi: Record<string, any> = summary.value.kpi || {}
   const platforms = (summary.value.structure?.platforms || []).map((p: any) => `${p.name}:${p.count}`).join(', ')
   return `【当前数据概览】
 时间周期：${periodLabel.value}
@@ -482,7 +481,7 @@ function clearCustom() {
   customOpen.value = false
 }
 const dataLoading = ref(false)
-const summary = ref({ period_label: '', kpi: {}, charts: {}, structure: { platforms: [], chassis: [] }, dates: [] })
+const summary = ref<{ period_label: string; kpi: Record<string, any>; charts: Record<string, any>; structure: any; dates: any[] }>({ period_label: '', kpi: {}, charts: {}, structure: { platforms: [], chassis: [] }, dates: [] })
 const structure = computed(() => summary.value.structure || { platforms: [], chassis: [] })
 
 // 实时时钟

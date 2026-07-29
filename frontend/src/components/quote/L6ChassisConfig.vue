@@ -173,6 +173,7 @@ const effectiveBp = computed(() => {
   // 未加载基准配置时不自动选背板（避免 Workspace 无机型时空配置凭空出现背板行）
   if (!baseConfig.value) return null
   const t = bpType()
+  if (!t) return null  // 用户选择不选背板
   if (baseBackplane.value && baseBackplaneType.value === t) return baseBackplane.value
   const list = t === 'tri' ? bpTri.value : bpDc.value
   return list[0] || null
@@ -378,6 +379,15 @@ function scheduleEmit() {
 
 watch([rear, overrides, baseConfig, result, bomTemplate], scheduleEmit, { deep: true })
 watch(() => props.kpSummary, (s) => applyKpSummary(s), { deep: true })
+// 外部 baseConfigId 变化时重新加载基准配置（用户在报价页选服务器型号后打开弹窗）
+watch(() => props.baseConfigId, async (newId, oldId) => {
+  if (newId && newId !== oldId && newId !== baseConfig.value?.id) {
+    await loadAllBaseConfigs()
+    await loadBaseConfig(newId)
+    await loadReference(baseConfig.value?.series)
+    scheduleEmit()
+  }
+})
 // 外部（报价页 GPU 卡）改 GPU 线 → 同步进内部 overrides 触发成本重算 + apply
 // 仅 GPU 线 UI 外移(showGpuCable=false)时由父驱动；ConfigWizard 弹窗内手改走 setOverride 不经此
 watch(
@@ -452,8 +462,8 @@ onBeforeUnmount(() => {
           <div class="si"><span class="k">形态</span><span class="v">{{ baseConfig.form }}</span></div>
           <div class="si"><span class="k">盘位</span><span class="v">{{ baseConfig.bays }}</span></div>
           <div class="si"><span class="k">硬盘背板</span><span class="v derived">
-            <span>{{ bpType() === 'tri' ? '三模' : '直连' }}</span>
-            <span class="bp-btns"><button :class="{ on: bpType() === 'tri' }" @click="setOverride('bp', 'tri')">三模</button><button :class="{ on: bpType() === 'dc' }" @click="setOverride('bp', 'dc')">直连</button></span>
+            <span>{{ bpType() === 'tri' ? '三模' : bpType() === 'dc' ? '直连' : '未选择' }}</span>
+            <span class="bp-btns"><button :class="{ on: bpType() === 'tri' }" @click="setOverride('bp', bpType() === 'tri' ? null : 'tri')">三模</button><button :class="{ on: bpType() === 'dc' }" @click="setOverride('bp', bpType() === 'dc' ? null : 'dc')">直连</button></span>
             <PartPicker v-if="bpTri.length > 1 || bpDc.length > 1" :items="(bpType()==='tri'?bpTri:bpDc).map(fromPartMaster)" :model-value="overrides.bpPn || effectiveBp?.pn || ''" size="small" placeholder="(选择背板)" :style="{ marginLeft: '6px', width: '180px', verticalAlign: 'middle' }" @update:model-value="(pn:any)=>setOverride('bpPn', typeof pn==='string'?pn:'')" />
             <span class="tiny">{{ effectiveBp ? (effectiveBp.name || effectiveBp.pn) + ' · ¥' + (effectiveBp.unit_price||0) + ' · ' + (isManual('bp') ? '已手改' : (baseBackplaneType ? '基准自带' : '硬盘推导')) : '料号库无此类型背板' }}</span>
           </span></div>

@@ -43,6 +43,10 @@ class StorageAdapter(Protocol):
         Returns (success, {old_key_prefix, new_key_prefix}) for DB updates."""
         ...
 
+    def delete_opportunity_folder(self, opportunity_id: str) -> int:
+        """Physically remove the opportunity's on-disk folder(s); return count removed."""
+        ...
+
     def presigned_url(self, storage_key: str, expires_in: int = 3600) -> Optional[str]:
         """Object-storage presigned URL, or None when downloads are API-proxied."""
         ...
@@ -97,6 +101,22 @@ class LocalFileStorage:
         sanitized_opp_id = self._sanitize(opportunity_id)
         return f"{sanitized_customer}_{sanitized_opp_id}"
 
+    def _find_opportunity_folders(self, opportunity_id: str) -> list:
+        """Existing on-disk folders for this opportunity, matched by id.
+
+        opportunity_id is globally unique, so matching on it (rather than a
+        customer_name-prefixed path) is precise AND robust to folder-name drift
+        — e.g. a legacy '未命名_OPP-…' folder created before customer_name was
+        threaded through every save_bytes() call.
+        """
+        sanitized = self._sanitize(opportunity_id)
+        if not sanitized:
+            return []
+        base = self._safe_join("opportunities")
+        if not base.exists():
+            return []
+        return [d for d in base.iterdir() if d.is_dir() and sanitized in d.name]
+
     def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "") -> str:
         """Save file under opportunities/{customer_name}_{opp_id}/"""
         folder = self._build_folder_name(opportunity_id, customer_name)
@@ -134,41 +154,51 @@ class LocalFileStorage:
             Returns: (True, {"old_prefix": "opportunities/华为_OPP-xxx",
                              "new_prefix": "opportunities/华为科技_OPP-xxx"})
         """
-        old_folder = self._build_folder_name(opportunity_id, old_customer)
+        existing = self._find_opportunity_folders(opportunity_id)
         new_folder = self._build_folder_name(opportunity_id, new_customer)
-
-        old_path = self._safe_join("opportunities", old_folder)
         new_path = self._safe_join("opportunities", new_folder)
 
-        # If old folder doesn't exist, nothing to do (might be a new opp)
-        if not old_path.exists():
-            # Ensure new folder exists for future uploads
+        if not existing:
+            # Nothing on disk yet — ensure the new-named folder exists for
+            # future uploads. Empty old_prefix => caller skips the DB rewrite.
             new_path.mkdir(parents=True, exist_ok=True)
-            return True, {
-                "old_prefix": f"opportunities/{old_folder}",
-                "new_prefix": f"opportunities/{new_folder}",
-            }
+            return True, {"old_prefix": "", "new_prefix": f"opportunities/{new_folder}"}
 
-        # If new folder already exists (edge case), merge or skip
-        if new_path.exists():
-            # Move all files from old to new
-            for f in old_path.iterdir():
-                target = new_path / f.name
-                if not target.exists():
-                    shutil.move(str(f), str(target))
-            # Remove empty old folder
-            try:
-                old_path.rmdir()
-            except OSError:
-                pass  # Folder not empty, keep it
-        else:
-            # Simple rename
-            shutil.move(str(old_path), str(new_path))
+        # old_prefix is the actual on-disk folder name, which may differ from
+        # what old_customer would produce (e.g. legacy '未命名_OPP-…').
+        old_prefix = f"opportunities/{existing[0].name}"
 
-        return True, {
-            "old_prefix": f"opportunities/{old_folder}",
-            "new_prefix": f"opportunities/{new_folder}",
-        }
+        for src in existing:
+            if src.resolve() == new_path.resolve():
+                continue
+            if new_path.exists():
+                # Target already present (e.g. a second drifted folder) — merge.
+                for f in src.iterdir():
+                    target = new_path / f.name
+                    if not target.exists():
+                        shutil.move(str(f), str(target))
+                try:
+                    src.rmdir()
+                except OSError:
+                    pass  # Folder not empty, keep it
+            else:
+                shutil.move(str(src), str(new_path))
+
+        return True, {"old_prefix": old_prefix, "new_prefix": f"opportunities/{new_folder}"}
+
+    def delete_opportunity_folder(self, opportunity_id: str) -> int:
+        """Physically remove this opportunity's folder(s) from disk.
+
+        Returns the count removed. Matches by opportunity_id so a name-drifted
+        folder (e.g. legacy '未命名_OPP-…') that a name-based lookup would miss
+        is still purged.
+        """
+        removed = 0
+        for folder in self._find_opportunity_folders(opportunity_id):
+            shutil.rmtree(folder, ignore_errors=True)
+            if not folder.exists():
+                removed += 1
+        return removed
 
     def presigned_url(self, storage_key: str, expires_in: int = 3600) -> Optional[str]:
         # Local adapter proxies downloads through the REST API; no presign.

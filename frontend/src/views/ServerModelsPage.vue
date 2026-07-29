@@ -4,7 +4,8 @@ import { ref, onMounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel } from '@/api/serverConfig'
 import ModelShowcase from '@/components/server-config/ModelShowcase.vue'
-import { matchShowcase } from '@/components/server-config/showcase-config'
+import ServerModelCard from '@/components/common/ServerModelCard.vue'
+import { getShowcaseConfig } from '@/components/server-config/showcase-config'
 
 const route = useRoute()
 const router = useRouter()
@@ -13,7 +14,9 @@ const typeId = computed(() => Number(route.params.typeId))
 const currentType = ref<ServerType | null>(null)
 const models = ref<ServerModel[]>([])
 const loading = ref(false)
-const showcaseConfig = computed(() => matchShowcase(currentType.value?.name || ''))
+const showcaseConfig = computed(() =>
+  currentType.value ? getShowcaseConfig(currentType.value) : null
+)
 
 async function loadTypeAndModels() {
   loading.value = true
@@ -59,20 +62,17 @@ onMounted(loadTypeAndModels)
       <p class="page-desc">{{ currentType?.description || '' }}</p>
 
       <!-- 3D 机型总览（仅命中映射的分类渲染） -->
-      <ModelShowcase v-if="showcaseConfig" :type-name="currentType?.name || ''" />
+      <ModelShowcase v-if="showcaseConfig" :config="showcaseConfig" />
 
       <!-- 机型卡片网格 -->
       <div class="models-grid" v-if="models.length">
-        <div v-for="m in models" :key="m.id" class="model-card" @click="goToDetail(m)">
-          <div class="m-top">
-            <span class="mn">{{ m.name }}</span>
-            <span class="m-tag">{{ m.base_config?.form || '—' }}</span>
-          </div>
-          <div class="m-specs">
-            <div><span class="k">盘位</span><span class="v">{{ m.base_config?.bays ?? '—' }}</span></div>
-          </div>
-          <button class="m-pick">查看详情 →</button>
-        </div>
+        <ServerModelCard
+          v-for="m in models"
+          :key="m.id"
+          :model="m"
+          :show-base-config="false"
+          @click="goToDetail(m)"
+        />
       </div>
       <div v-else-if="!loading" class="sc-empty">该类型下暂无机型，去「管理」添加。</div>
     </div>
@@ -125,92 +125,6 @@ onMounted(loadTypeAndModels)
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 20px;
-}
-.model-card {
-  padding: 24px;
-  border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 18px;
-  cursor: pointer;
-  transition: all .3s cubic-bezier(.16,1,.3,1);
-  background: linear-gradient(135deg,
-    var(--cpq-overlay-w6) 0%,
-    var(--cpq-overlay-w3) 40%,
-    var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(16px);
-  box-shadow:
-    0 22px 64px var(--cpq-overlay-b30),
-    0 0 34px var(--cpq-overlay-a4),
-    inset 0 1px 0 var(--cpq-overlay-w15),
-    inset 0 -18px 48px var(--cpq-overlay-b15);
-}
-.model-card:hover {
-  border-color: var(--cpq-overlay-a30);
-  transform: translateY(-2px);
-  box-shadow:
-    0 22px 64px var(--cpq-shadow-color-strong),
-    0 0 34px var(--cpq-overlay-a15),
-    inset 0 1px 0 var(--cpq-overlay-w15),
-    inset 0 -18px 48px var(--cpq-shadow-color-soft);
-}
-.m-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 10px;
-}
-.mn {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--cpq-text-primary, #E8ECEF);
-}
-.m-tag {
-  font-size: 12px;
-  padding: 3px 10px;
-  border-radius: 4px;
-  background: var(--cpq-overlay-w6);
-  color: var(--cpq-text-secondary,#9BA1AA);
-  border: 1px solid var(--cpq-overlay-w10);
-}
-.mu {
-  color: var(--cpq-text-secondary,#9BA1AA);
-  font-size: 14px;
-  min-height: 42px;
-  margin-bottom: 16px;
-  line-height: 1.5;
-}
-.m-specs {
-  display: flex;
-  gap: 20px;
-  padding-top: 14px;
-  border-top: 1px solid var(--cpq-overlay-w10);
-  margin-bottom: 16px;
-}
-.m-specs .k {
-  font-size: 12px;
-  color: var(--cpq-text-muted,#6E7582);
-  display: block;
-  margin-bottom: 3px;
-}
-.m-specs .v {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--cpq-text-primary, #E8ECEF);
-}
-.m-pick {
-  width: 100%;
-  padding: 10px;
-  border-radius: 8px;
-  background: transparent;
-  border: 1px solid var(--cpq-overlay-w20);
-  color: var(--cpq-text-secondary,#9BA1AA);
-  font-size: 13px;
-  transition: all .2s;
-  cursor: pointer;
-}
-.model-card:hover .m-pick {
-  background: var(--cpq-overlay-a15);
-  border-color: var(--cpq-accent-primary,#1677FF);
-  color: var(--cpq-accent-primary,#1677FF);
 }
 .sc-empty {
   color: var(--cpq-text-muted,#6E7582);

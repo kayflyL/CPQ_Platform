@@ -3,7 +3,7 @@ import json
 from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.models.quotation import Quotation
-from app.models.opportunity_item import OpportunityItem
+from app.models.quotation_item import QuotationItem
 from app.models.base import Opportunity_SessionLocal
 from datetime import datetime
 
@@ -82,9 +82,10 @@ class QuotationRepository:
     _CORE_COLUMNS = {
         "quotation_id", "opportunity_id", "version", "quotation_name", "file_path",
         "l6_price", "total_qty", "config_count", "created_at", "updated_at", "status",
+        "exported_at", "cost_snapshot",
         "quotation_date", "config_quantities", "config_descriptions", "config_server_models",
         "config_warranty_info", "total_price", "profit_margin", "extra_fields", "tenant_id",
-        "is_primary",
+        "is_primary", "source", "strategy_snapshot",
     }
 
     def update(self, quotation_id: str, **kwargs) -> Optional[Quotation]:
@@ -142,16 +143,16 @@ class QuotationRepository:
 
     # Core fields for items that are actual DB columns
     _ITEM_CORE_COLUMNS = {
-        "item_id", "quotation_id", "config_name", "category", "part_name",
-        "spec", "qty", "base_price", "final_price",
-        "profit_margin", "extra_fields", "tenant_id",
+        "item_id", "quotation_id", "config_name", "category", "catalogue",
+        "description", "part_category", "qty", "base_price", "final_price",
+        "profit_margin", "currency", "extra_fields", "tenant_id",
     }
 
     def save_items(self, quotation_id: str, items: List[dict]) -> int:
         """Save configuration items for a quotation. Supports dynamic fields via extra_fields."""
         # Delete existing items
-        self.db.query(OpportunityItem).filter(
-            OpportunityItem.quotation_id == quotation_id
+        self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id == quotation_id
         ).delete()
         
         # Insert new items
@@ -165,16 +166,18 @@ class QuotationRepository:
                 else:
                     extra[key] = value
             
-            item = OpportunityItem(
+            item = QuotationItem(
                 quotation_id=core_kwargs.get("quotation_id", quotation_id),
                 config_name=core_kwargs.get("config_name", ""),
                 category=core_kwargs.get("category", ""),
-                part_name=core_kwargs.get("part_name", ""),
-                spec=core_kwargs.get("spec", ""),
+                catalogue=core_kwargs.get("catalogue", ""),
+                description=core_kwargs.get("description", ""),
+                part_category=core_kwargs.get("part_category", None),
                 qty=core_kwargs.get("qty", 0),
                 base_price=core_kwargs.get("base_price", 0.0),
                 final_price=core_kwargs.get("final_price", 0.0),
                 profit_margin=core_kwargs.get("profit_margin", 0.0),
+                currency=core_kwargs.get("currency", "RMB"),
                 extra_fields=json.dumps(extra, ensure_ascii=False) if extra else None,
             )
             self.db.add(item)
@@ -192,9 +195,9 @@ class QuotationRepository:
         if not quotation:
             return {"total_price": 0.0, "profit_margin": 0.0, "config_count": 0}
         
-        # 从 opportunity_items 计算价格和数量
-        items = self.db.query(OpportunityItem).filter(
-            OpportunityItem.quotation_id == quotation_id
+        # 从 quotation_items 计算价格和数量
+        items = self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id == quotation_id
         ).all()
         
         total_price = 0.0
@@ -262,10 +265,130 @@ class QuotationRepository:
         self.db.commit()
         return True
 
-    def get_items(self, quotation_id: str) -> List[OpportunityItem]:
+    def get_items(self, quotation_id: str) -> List[QuotationItem]:
         """Get all items for a quotation"""
-        return self.db.query(OpportunityItem).filter(
-            OpportunityItem.quotation_id == quotation_id
+        return self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id == quotation_id
         ).all()
+
+    def find_draft(self, opportunity_id: str) -> Optional[Quotation]:
+        """Return the single active draft (status='active' AND exported_at IS NULL) for an
+        opportunity, or None. Used to enforce the 'one draft per opportunity' invariant."""
+        return self.db.query(Quotation).filter(
+            Quotation.opportunity_id == opportunity_id,
+            Quotation.status == "active",
+            Quotation.exported_at.is_(None),
+        ).order_by(Quotation.created_at.desc()).first()
+
+    def _sync_totals_from_snapshot(self, quotation: Quotation, snapshot: Optional[dict]) -> None:
+        """从成本快照反写 total_price / profit_margin（+ total_qty），让列表行显示与
+        快照一致。导出冻结 / 手工补录后都调一次。快照 schema:
+          totals.totalSales / totals.marginPct；configs.<name>.qty（总台数）。"""
+        if not snapshot or not isinstance(snapshot, dict):
+            return
+        totals = snapshot.get('totals') or {}
+        try:
+            if totals.get('totalSales') is not None:
+                quotation.total_price = round(float(totals['totalSales']), 2)
+            if totals.get('marginPct') is not None:
+                quotation.profit_margin = round(float(totals['marginPct']), 2)
+        except (TypeError, ValueError):
+            pass
+        # 总台数：Σ 各配置 qty（完整快照才有 configs；手工补录无 configs 则不动）
+        configs = snapshot.get('configs') or {}
+        if isinstance(configs, dict) and configs:
+            try:
+                quotation.total_qty = int(sum(int(c.get('qty') or 0) for c in configs.values()))
+            except (TypeError, ValueError):
+                pass
+
+    def mark_exported(self, quotation_id: str, cost_snapshot: dict, exported_at: str) -> Optional[Quotation]:
+        """Freeze a draft into an exported quotation: stamp exported_at and persist the
+        cost snapshot captured by the frontend at export time."""
+        quotation = self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id
+        ).first()
+        if not quotation:
+            return None
+        quotation.exported_at = exported_at
+        quotation.cost_snapshot = cost_snapshot
+        self._sync_totals_from_snapshot(quotation, cost_snapshot)
+        quotation.updated_at = datetime.now().isoformat()
+        self.db.commit()
+        self.db.refresh(quotation)
+        return quotation
+
+    def save_cost_snapshot(self, quotation_id: str, cost_snapshot: dict) -> Optional[Quotation]:
+        """Persist a manually-entered cost snapshot for a historical quotation backfill.
+        Writes cost_snapshot ONLY — exported_at stays untouched, keeping 'manually
+        backfilled' distinct from 'exported/frozen'."""
+        quotation = self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id
+        ).first()
+        if not quotation:
+            return None
+        quotation.cost_snapshot = cost_snapshot
+        self._sync_totals_from_snapshot(quotation, cost_snapshot)
+        quotation.updated_at = datetime.now().isoformat()
+        self.db.commit()
+        self.db.refresh(quotation)
+        return quotation
+
+    def copy_quotation_state(self, source_id: str, target_id: str) -> Optional[Quotation]:
+        """Clone a source quotation's structured state (config-level fields + items +
+        extra_fields incl. config_l6_picks) into an already-created target row, stamping
+        source_quotation_id lineage. Used by the 'copy exported → draft' flow — re-parsing
+        the export Excel is unreliable (different layout), but the source's DB items are
+        the authoritative structured data."""
+        source = self.db.query(Quotation).filter(Quotation.quotation_id == source_id).first()
+        target = self.db.query(Quotation).filter(Quotation.quotation_id == target_id).first()
+        if not source or not target:
+            return None
+
+        # 配置级字段（用户填写）
+        target.config_quantities = source.config_quantities
+        target.config_descriptions = source.config_descriptions
+        target.config_server_models = source.config_server_models
+        target.config_warranty_info = source.config_warranty_info
+        target.quotation_date = source.quotation_date
+        target.file_path = source.file_path
+
+        # extra_fields：继承源的（含 config_l6_picks）+ 标血统
+        src_extra = {}
+        if source.extra_fields:
+            try:
+                src_extra = json.loads(source.extra_fields)
+            except (json.JSONDecodeError, TypeError):
+                src_extra = {}
+        src_extra["source_quotation_id"] = source_id
+        target.extra_fields = json.dumps(src_extra, ensure_ascii=False)
+
+        self.db.flush()
+
+        # 克隆 items（保留全部业务列 + extra_fields）
+        src_items = self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id == source_id
+        ).all()
+        for it in src_items:
+            self.db.add(QuotationItem(
+                quotation_id=target_id,
+                config_name=it.config_name,
+                category=it.category,
+                catalogue=it.catalogue,
+                description=it.description,
+                part_category=it.part_category,
+                qty=it.qty,
+                base_price=it.base_price,
+                final_price=it.final_price,
+                profit_margin=it.profit_margin,
+                currency=it.currency,
+                extra_fields=it.extra_fields,
+            ))
+
+        self.db.commit()
+        # 重算 total_price / profit_margin / config_count
+        self.calculate_totals(target_id)
+        self.db.refresh(target)
+        return target
 
 

@@ -1,29 +1,39 @@
-/** 机型目录页 3D 展示区配置：按分类名匹配 GLB 路径与介绍文案。无映射返回 null。 */
+/** 机型目录页 3D 展示区配置接口。
+ *  配置存储在数据库 l6.server_types.showcase_config，由后台管理界面维护。
+ *  此文件仅提供 TypeScript 接口定义。
+ */
 
+/** 渲染参数配置 */
+export interface RenderConfig {
+  ambient_intensity?: number
+  key_light_intensity?: number
+  fill_light_intensity?: number
+  key_light_color?: string
+  fill_light_color?: string
+  background_color?: string
+  tone_mapping?: 'NoToneMapping' | 'LinearToneMapping' | 'ACESFilmicToneMapping'
+  exposure?: number
+}
+
+/** 展示配置（存储在 server_types.showcase_config） */
 export interface ShowcaseConfig {
-  src: string
+  glb_path: string | null
   title: string
-  desc: string
+  description: string
   bullets: string[]
+  render?: {
+    light?: RenderConfig
+    dark?: RenderConfig
+    camera_fov?: number
+    auto_rotate_speed?: number
+    enable_damping?: boolean
+    damping_factor?: number
+  }
 }
 
-const CONFIGS: Record<string, ShowcaseConfig> = {
-  // 仅映射已提供 GLB 文件的分类；新增 GLB 时在此加一条即可点亮对应分类页
-  ai: {
-    src: '/models/ai-server.glb',
-    title: 'AI 加速计算服务器',
-    desc: '面向大模型训练与高密度推理，多 GPU 并行扩展，提供超高算力与高带宽互联。',
-    bullets: [
-      '多路 GPU 并行，支撑大规模训练与推理',
-      '高速互联，跨卡低延迟通信',
-      '高功率散热设计，稳定满载运行',
-    ],
-  },
-}
-
-/** 按分类名关键字匹配；未命中返回 null（页面据此不渲染该区块）。 */
-export function matchShowcase(typeName: string): ShowcaseConfig | null {
-  if (!typeName) return null
-  if (/AI|加速/.test(typeName)) return CONFIGS.ai ?? null
-  return null
+/** 从 ServerType 获取展示配置。
+ *  ServerType.showcase_config 由后台管理界面维护，无需前端硬编码。
+ */
+export function getShowcaseConfig(type: { showcase_config?: ShowcaseConfig }): ShowcaseConfig | null {
+  return type.showcase_config || null
 }

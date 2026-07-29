@@ -6,7 +6,7 @@ import { message } from 'ant-design-vue'
 import draggable from 'vuedraggable'
 import { baseConfigApi, partsApi, bomTemplateApi, type BomTemplate, type PartMaster } from '@/api/serverConfig'
 import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
-import { useSeries } from '@/composables/useSeries'
+import { useSeriesStore } from '@/stores/series'
 import PartPicker from '@/components/common/PartPicker.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 
@@ -23,7 +23,8 @@ const commonLines = ref<Line[]>([])
 const allParts = ref<PartMaster[]>([])
 const chassisCats = ref<string[]>([])
 const templates = ref<BomTemplate[]>([])
-const seriesOptions = useSeries().items  // 全平台系列权威源（system_config.server_series）
+const seriesStore = useSeriesStore()
+const seriesOptions = seriesStore.items  // 全平台系列权威源（system_config.server_series）
 const formOptions = ref<OptionItem[]>([{ value: '2U', label: '2U' }, { value: '4U', label: '4U' }])
 let uidSeq = 1
 
@@ -31,7 +32,7 @@ function partsOf(cat: string) { return cat === ALL_CAT ? allParts.value : allPar
 function partByPn(pn?: string) { return allParts.value.find(p => p.pn === pn) }
 
 async function loadOptions() {
-  useSeries().ensureSeries()  // 系列走权威源 composable（全平台）
+  seriesStore.ensureSeries()  // 系列走权威源 store（全平台）
   try {
     const f = await systemConfigApi.getValue<OptionItem[]>('server_form_factor')
     if (Array.isArray(f) && f.length) formOptions.value = f
@@ -159,7 +160,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                   <a-button danger size="small" @click="delLine(i)">✕</a-button>
                 </div>
                 <div class="line-info" v-if="partByPn(l.pn)">
-                  <span class="li-desc">{{ partByPn(l.pn)?.description || '（无描述）' }}</span>
+                  <span class="li-desc">{{ partByPn(l.pn)?.spec_text || '（无规格）' }}</span>
                   <span class="li-price">¥{{ (partByPn(l.pn)?.unit_price ?? 0).toLocaleString() }}</span>
                 </div>
               </div>

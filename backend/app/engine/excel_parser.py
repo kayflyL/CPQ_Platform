@@ -15,6 +15,42 @@ import pandas as pd
 from typing import Optional
 from app.repository.rules_repo import RulesRepository
 
+import ast
+import operator
+
+# === Safe arithmetic evaluator (replaces eval() for Excel formulas) ===
+# 解析单元格里的算式公式（如 =A1*B1）时安全求值；不支持 ** 以防 9**9**9 式 DoS。
+_SAFE_BIN_OPS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+}
+_SAFE_UNARY_OPS = {
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
+
+
+def _safe_eval_math(expr: str) -> float:
+    """Safely evaluate a simple arithmetic expression (numbers + - * / parentheses).
+    Does NOT support ** (exponentiation), preventing DoS via 9**9**9.
+    """
+    tree = ast.parse(expr, mode='eval')
+
+    def _eval(node):
+        if isinstance(node, ast.Expression):
+            return _eval(node.body)
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return node.value
+        if isinstance(node, ast.BinOp) and type(node.op) in _SAFE_BIN_OPS:
+            return _SAFE_BIN_OPS[type(node.op)](_eval(node.left), _eval(node.right))
+        if isinstance(node, ast.UnaryOp) and type(node.op) in _SAFE_UNARY_OPS:
+            return _SAFE_UNARY_OPS[type(node.op)](_eval(node.operand))
+        raise ValueError(f"Unsafe or unsupported expression: {ast.dump(node)}")
+
+    return _eval(tree)
+
 
 class ExcelParser:
     """独立的 Excel 解析引擎，规则驱动，支持白盒化溯源"""
@@ -100,9 +136,9 @@ class ExcelParser:
                     source_config = rule["source_config"]
                     
                     if rule["source_type"] == "column":
+                        col_idx = self._resolve_column_idx(df, bounds, source_config)
                         col_letter = source_config.get("col", "A")
-                        col_idx = self._col_letter_to_index(col_letter)
-                        
+
                         if col_idx < df.shape[1]:
                             cell_val = df.iloc[r, col_idx]
                             if pd.notna(cell_val):
@@ -111,7 +147,6 @@ class ExcelParser:
                                     # 处理公式
                                     if isinstance(cell_val, str) and cell_val.startswith('='):
                                         try:
-                                            from app.engine.pricing_engine import _safe_eval_math
                                             value = str(_safe_eval_math(cell_val[1:]))
                                         except:
                                             pass
@@ -296,7 +331,36 @@ class ExcelParser:
         for ch in letter:
             result = result * 26 + (ord(ch) - ord('A') + 1)
         return result - 1
-    
+
+    def _resolve_column_idx(self, df: pd.DataFrame, bounds: dict, source_config: dict) -> int:
+        """确定 column 规则取哪一列：配了 header_labels 时优先按表头标签定位（自适应
+        C/D/E vs D/E/F 等模板列偏移），找不到再回落 col 字母。"""
+        header_labels = source_config.get("header_labels")
+        if header_labels:
+            idx = self._resolve_column_by_header(df, bounds, header_labels)
+            if idx is not None:
+                return idx
+        return self._col_letter_to_index(source_config.get("col", "A"))
+
+    def _resolve_column_by_header(self, df: pd.DataFrame, bounds: dict, labels) -> int | None:
+        """在区域起始行往下扫描，找含任一标签的单元格，返回其列 idx。找不到返回 None。
+
+        扫描范围从区域起始行延伸到数据起始行之后 2 行——兼容不同模板把列标签放在
+        关键词行、紧接的表头行、甚至数据起始行的情况（KP 区域 skip=0，表头常在关键词
+        行的下一行）。第一个命中的单元格即为该字段的取值列。
+        """
+        start = bounds["start_row"]
+        scan_end = bounds["start_row"] + bounds["skip_rows"] + 2
+        labels_lower = [str(l).lower() for l in labels]
+        for r in range(start, min(scan_end + 1, len(df))):
+            for c in range(min(df.shape[1], 20)):
+                val = str(df.iloc[r, c]).strip().lower()
+                if not val:
+                    continue
+                if any(lbl in val for lbl in labels_lower):
+                    return c
+        return None
+
     def preview_parse(self, df: pd.DataFrame, max_row: int = 15, max_col: int = 15) -> dict:
         """生成热力图预览数据（用于前端可视化）
         
@@ -380,9 +444,8 @@ class ExcelParser:
                 for rule in region_rules:
                     source_config = rule["source_config"]
                     if rule["source_type"] == "column":
-                        col_letter = source_config.get("col", "A")
-                        col_idx = self._col_letter_to_index(col_letter)
-                        
+                        col_idx = self._resolve_column_idx(df, bounds, source_config)
+
                         if col_idx < cols:
                             cell_val = str(df.iloc[r, col_idx]).strip() if pd.notna(df.iloc[r, col_idx]) else ''
                             if cell_val and cell_val.lower() not in ['nan', 'none', '']:

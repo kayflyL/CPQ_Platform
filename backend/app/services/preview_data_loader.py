@@ -4,7 +4,7 @@
 职责：
 - 加载商机级数据（meta）
 - 加载报价单级数据（quotation）
-- 加载配置项明细（L6/KP/Warranty）—— 从 DB 的 opportunity_items 表
+- 加载配置项明细（L6/KP/Warranty）—— 从 DB 的 quotation_items 表
 - 组装完整的预览数据源
 """
 import json
@@ -24,7 +24,6 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
         {
             # 商机级字段
             "customer_name": "XX公司",
-            "opportunity_name": "XX项目",
             ...
             
             # 报价单级字段
@@ -33,7 +32,7 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
             
             # 动态区域数据
             "l6_details": [
-                {"part_name": "...", "qty": 1, "unit_price": 100, "final_price": 100, ...},
+                {"catalogue": "...", "qty": 1, "unit_price": 100, "final_price": 100, ...},
                 ...
             ],
             "kp_details": [...],
@@ -119,13 +118,13 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                 items.append({
                     "config_name": item.config_name or "Default",
                     "category": item.category or "",
-                    "part_name": item.part_name or "",
-                    "spec": item.spec or "",
+                    "catalogue": item.catalogue or "",
+                    "description": item.description or "",
+                    "part_category": item.part_category or "",
                     "qty": item.qty or 0,
                     "base_price": item.base_price or 0.0,
                     "final_price": item.final_price or 0.0,
                     "profit_margin": item.profit_margin or 0.0,
-                    "description": (quotation.config_descriptions or {}).get(item.config_name or "Default", ""),
                 })
             _load_item_details(data, items, quotation, bindings)
     
@@ -135,14 +134,14 @@ def _load_l6_from_template(quotation):
     """从 quotation.extra_fields.config_l6_picks 读 L6 预览行——对齐左栏 BomTable 的渲染。
 
     两种来源：
-    - bom_source=='excel'：从持久化的 bom_excel_rows 取 L6/整机 行（catalogue=part_name, desc=spec, qty）。
-      与左栏同源，不依赖可变的 opportunity_items。老数据无快照则不加入 covered，
+    - bom_source=='excel'：从持久化的 bom_excel_rows 取 L6/整机 行（catalogue/description/qty 直通）。
+      与左栏同源，不依赖可变的 quotation_items。老数据无快照则不加入 covered，
       交给 _load_item_details 的扁平回落（items 未污染，仍正确）。
-    - live + 有 bom_template.rows：按模板 + bom_context 展开（catalogue=label, desc=ctx.desc, qty=ctx.qty）。
+    - live + 有 bom_template.rows：按模板 + bom_context 展开（catalogue=label, description=ctx.desc, qty=ctx.qty）。
       无模板的 live cfg 不产出 L6 行（不显示机箱原版料）。
 
-    行字段 key 与扁平料号行保持完全一致（part_name/spec/qty/config_name/...），
-    这样 Univer 模板里的 binding（part_name→Catalogue 列、spec→Description 列、qty→Qty 列）无需改动。
+    行字段 key 统一为展示列 catalogue/description/part_category/qty/config_name，
+    与 Univer 绑定语义一致（catalogue→Catalogue 列、description→Description 列、qty→Qty 列）。
 
     Returns:
         (rows_out, covered, excel_cfgs, l6_price_map, l6_margin_map):
@@ -185,14 +184,13 @@ def _load_l6_from_template(quotation):
                     rows_out.append({
                         "config_name": cfg_name,
                         "category": r.get("category") or "L6",
-                        "part_name": r.get("part_name", "") or "",
-                        "spec": r.get("spec", "") or "",
+                        "catalogue": r.get("catalogue", "") or "",
+                        "description": r.get("description", "") or "",
+                        "part_category": r.get("part_category", "") or "",
                         "qty": 0 if qty_val is None else qty_val,
                         "base_price": r.get("base_price", 0) or 0,
                         "final_price": r.get("final_price", 0) or 0,
-                        "unit_price": r.get("final_price", 0) or 0,
                         "profit_margin": r.get("profit_margin", 0) or 0,
-                        "description": "",
                         "item_no": 0,
                     })
                 covered.add(cfg_name)
@@ -209,17 +207,17 @@ def _load_l6_from_template(quotation):
             v = ctx.get(key, {}) if isinstance(ctx, dict) else {}
             v = v if isinstance(v, dict) else {}
             qty_val = v.get("qty", "")
+            # 统一展示列：catalogue=零件名(label)、description=规格(desc)，与左栏 BomTable 及绑定语义一致。
             rows_out.append({
                 "config_name": cfg_name,
                 "category": "L6",
-                "part_name": r.get("label", "") or "",
-                "spec": v.get("desc", "") or "",
+                "catalogue": r.get("label", "") or "",     # Catalogue = 零件名
+                "description": v.get("desc", "") or "",      # Description = 规格
+                "part_category": "",
                 "qty": "" if qty_val is None else qty_val,
                 "base_price": 0,
                 "final_price": 0,
-                "unit_price": 0,
                 "profit_margin": 0,
-                "description": "",
                 "item_no": 0,
             })
         covered.add(cfg_name)
@@ -237,11 +235,9 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     tpl_l6_rows, covered_cfgs, excel_cfgs, l6_price_map, l6_margin_map = _load_l6_from_template(quotation)
 
     for idx, item in enumerate(items):
-        # 统一字段名：unit_price = final_price（兼容前端显示）
         item_with_no = {
             **item,
             "item_no": item.get("item_no", idx + 1),
-            "unit_price": item.get("final_price", 0),
         }
         category = item.get("category", "")
         cfg_name = item.get("config_name", "")
@@ -267,16 +263,9 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             if binding.get("fieldKey") == "config_summary" and binding.get("selectedParts"):
                 selected_parts = binding["selectedParts"]
                 break
-    
-    # 🔧 修复：从 config_descriptions/config_server_models/config_quantities 收集所有配置名
-    # 确保即使没有 items 的配置也能出现在导出预览中
-    all_config_names = set()
-    if quotation:
-        all_config_names.update((quotation.config_descriptions or {}).keys())
-        all_config_names.update((quotation.config_server_models or {}).keys())
-        all_config_names.update((quotation.config_quantities or {}).keys())
-    
-    # 构建 config_groups（每个配置一行）
+
+    # 🔧 修复：只从有实际 items 的配置构建 config_summary
+    # 避免把已删除/改名的历史配置也加进来
     config_groups = {}
     for item in items:
         cfg_name = item.get("config_name", "Default")
@@ -288,14 +277,9 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
         if cfg_key not in config_groups:
             config_groups[cfg_key] = {"name": cfg_name, "items": []}
         config_groups[cfg_key]["items"].append(item)
-    
-    # 确保所有配置名都在 config_groups 中（即使没有 items）
-    for cfg_name in all_config_names:
-        if cfg_name == "Default":
-            continue
-        cfg_key = cfg_name.strip().upper()
-        if cfg_key not in config_groups:
-            config_groups[cfg_key] = {"name": cfg_name, "items": []}
+
+    # 不再从 config_descriptions 等收集所有配置名，避免旧配置残留
+    # 只有有 items 的配置才会出现在 config_summary 和 configs 中
     
     # 从 quotation 获取每个配置的独立数量和服务器型号
     config_quantities = {}
@@ -359,8 +343,173 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     
     data["config_summary"] = config_summary
 
+    # ── 按配置分组 L6/KP/Warranty 数据，构建 configs 数组 ─────────────────────────────
+    # 从 data 获取维保描述（在 load_preview_data 中已设置）
+    warranty_desc_l6 = data.get("warranty_desc_l6", {})
+    warranty_desc_kp = data.get("warranty_desc_kp", {})
 
-def _build_description(cfg_items: list, selected_parts: list = None, separator: str = ",") -> str:
+    config_items_map = {}  # cfg_key → {"l6": [], "kp": [], "warranty": []}
+    for item in items:
+        cfg_name = item.get("config_name", "Default")
+        if cfg_name == "Default":
+            continue
+        cfg_key = cfg_name.strip().upper()
+        if cfg_key not in config_items_map:
+            config_items_map[cfg_key] = {"l6": [], "kp": [], "warranty": []}
+        category = item.get("category", "")
+        if category == "L6":
+            # 与第 245-248 行逻辑一致：已覆盖的配置不从 items 添加，避免与 tpl_l6_rows 重复
+            if cfg_name not in covered_cfgs and cfg_name in excel_cfgs:
+                config_items_map[cfg_key]["l6"].append(item)
+        elif category == "Key Parts":
+            config_items_map[cfg_key]["kp"].append(item)
+        elif category == "Warranty":
+            config_items_map[cfg_key]["warranty"].append(item)
+    # 将模板展开的 L6 行也加入对应配置
+    for r in tpl_l6_rows:
+        cfg_name = r.get("config_name", "Default")
+        if cfg_name == "Default":
+            continue
+        cfg_key = cfg_name.strip().upper()
+        if cfg_key not in config_items_map:
+            config_items_map[cfg_key] = {"l6": [], "kp": [], "warranty": []}
+        config_items_map[cfg_key]["l6"].append(r)
+
+    # 构建 configs 数组
+    configs = []
+    config_quantities = (quotation.config_quantities or {}) if quotation else {}
+    config_server_models = (quotation.config_server_models or {}) if quotation else {}
+
+    # 从 extra_fields 解析 config_l6_picks，获取背板类型、电源、基准配置等信息
+    config_l6_picks = {}
+    if quotation and quotation.extra_fields:
+        try:
+            extra = json.loads(quotation.extra_fields)
+            config_l6_picks = extra.get("config_l6_picks") or {}
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    for summary in config_summary:
+        cfg_name = summary.get("config_name", "Default")
+        cfg_key = cfg_name.strip().upper()
+        items_by_cfg = config_items_map.get(cfg_key, {"l6": [], "kp": []})
+
+        # 获取该配置的 L6 picks 信息
+        l6_pick = config_l6_picks.get(cfg_name, {})
+        # picks 可能显式存为 null（键存在、值为 None），.get("picks", {}) 此时返回 None 而非默认值
+        picks = (l6_pick.get("picks") or {}) if isinstance(l6_pick, dict) else {}
+
+        # 背板类型：tri=三模, dc=直连
+        bp_type = picks.get("bp_type", "dc")
+        bp_display = "Tri-Mode Backplane" if bp_type == "tri" else "Pass-Thru Backplane"
+
+        # 电源：从 bom_context 获取 psu 信息
+        # bom_context 结构: { psu_requirement: {desc: "1300W", qty: 2}, ... }
+        bom_context = l6_pick.get("bom_context") if isinstance(l6_pick, dict) else {}
+        psu_wattage = ""
+        psu_qty = 2  # 默认 2 个电源
+        if bom_context and isinstance(bom_context, dict):
+            psu_req = bom_context.get("psu_requirement", {})
+            if isinstance(psu_req, dict):
+                psu_desc = psu_req.get("desc", "")
+                psu_qty_val = psu_req.get("qty", 2)
+                if psu_qty_val:
+                    psu_qty = int(psu_qty_val) if isinstance(psu_qty_val, int) else 2
+                # 从 desc 提取瓦数（如 "1300W"）
+                if psu_desc:
+                    import re
+                    match = re.search(r'(\d+)\s*W', str(psu_desc))
+                    if match:
+                        psu_wattage = match.group(1)
+                    else:
+                        psu_wattage = str(psu_desc)  # 没有数字+W就直接用desc
+
+        # 基准配置ID，用于获取 form（机箱形态）和 bays（盘位）和 series
+        base_config_id = l6_pick.get("base_config_id")
+        form = ""
+        bays = 0
+        series = ""
+        if base_config_id:
+            try:
+                from app.repository.base_config_repo import BaseConfigRepository
+                base_repo = BaseConfigRepository()
+                base_cfg = base_repo.get(base_config_id)
+                if base_cfg:
+                    form = base_cfg.get("form", "")
+                    bays = base_cfg.get("bays", 0) or 0
+                    series = base_cfg.get("series", "") or ""
+            except Exception:
+                pass
+
+        # L6 机箱总价（含税售价：成本 × (1 + 利润率/100)）
+        if cfg_name in l6_price_map:
+            cost = float(l6_price_map.get(cfg_name) or 0)
+            margin = float(l6_margin_map.get(cfg_name) or 0)
+            l6_sum = cost * (1 + margin / 100)
+        elif cfg_name in excel_cfgs:
+            l6_sum = 0
+        else:
+            l6_sum = sum(
+                (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
+                for i in items_by_cfg["l6"]
+            )
+        # KP 配件总价
+        kp_sum = sum(
+            (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
+            for i in items_by_cfg["kp"]
+        )
+        # 从 config_summary 获取 unit_price/total_price
+        unit_price = summary.get("unit_price", 0)
+        qty = summary.get("quantity", config_quantities.get(cfg_name, 1))
+        total_price = summary.get("total_price", unit_price * qty)
+
+        # 统一展示映射：所有 category 共用 catalogue/description/part_category，无交换。
+        # （旧实现里 KP/Warranty 把 spec→name、part_name→category 做交换；字段去重载后直通即可。）
+        def _map_detail(i, default_cat):
+            return {
+                "catalogue": i.get("catalogue", ""),
+                "description": i.get("description", ""),
+                "part_category": i.get("part_category", ""),
+                "qty": i.get("qty", 0),
+                "category": i.get("category", default_cat),
+                "final_price": i.get("final_price", 0),
+            }
+
+        l6_details_mapped = [_map_detail(i, "L6") for i in items_by_cfg["l6"]]
+        kp_details_mapped = [_map_detail(i, "Key Parts") for i in items_by_cfg["kp"]]
+
+        # 维保明细
+        warranty_details_mapped = [_map_detail(i, "Warranty") for i in items_by_cfg.get("warranty", [])]
+        warranty_total = sum(
+            (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
+            for i in items_by_cfg.get("warranty", [])
+        )
+
+        configs.append({
+            "config_name": cfg_name,
+            "server_model": config_server_models.get(cfg_name, ""),
+            "quantity": qty,
+            "l6_details": l6_details_mapped,
+            "kp_details": kp_details_mapped,
+            "warranty_details": warranty_details_mapped,
+            "warranty_desc_l6": warranty_desc_l6.get(cfg_name, ""),
+            "warranty_desc_kp": warranty_desc_kp.get(cfg_name, ""),
+            "l6_total": l6_sum,
+            "kp_total": kp_sum,
+            "warranty_total": warranty_total,
+            "unit_price": unit_price,
+            "total_price": total_price,
+            # 机箱规格
+            "chassis_form": form,                      # 机箱形态
+            "chassis_bays": f"{bays} 盘位" if bays else "",  # 盘位
+            "chassis_series": series,                   # 系列（Orion/Polaris）
+            "backplane_type": bp_display,              # 背板类型（Tri-Mode/Pass-Thru）
+            "power_supply": f"{psu_wattage}W x {psu_qty}" if psu_wattage else f"x {psu_qty}",  # 电源
+        })
+    data["configs"] = configs
+
+
+def _build_description(cfg_items: list, selected_parts: list = None, separator: str = ", ") -> str:
     """
     根据配置项和选择的部件类型生成描述
     
@@ -395,13 +544,13 @@ def _build_description(cfg_items: list, selected_parts: list = None, separator: 
 
         # 查找匹配的部件
         for item in search_pool:
-            part_name = str(item.get("part_name", "") or "").lower()
-            spec = str(item.get("spec", "") or "").lower()
-            
-            # 检查是否匹配
-            if any(kw in part_name or kw in spec for kw in keywords):
-                # 优先使用 spec（实际型号），fallback 到 part_name
-                display = item.get("spec", "") or item.get("part_name", "")
+            part_category = str(item.get("part_category", "") or "").lower()  # 类别（CPU/Memory…）
+            catalogue = str(item.get("catalogue", "") or "").lower()          # 型号
+
+            # 检查是否匹配（关键词命中类别或型号）
+            if any(kw in part_category or kw in catalogue for kw in keywords):
+                # 优先使用型号（catalogue），fallback 到类别
+                display = item.get("catalogue", "") or item.get("part_category", "")
                 qty = item.get("quantity", 0) or item.get("qty", 0) or 0
                 
                 if display:

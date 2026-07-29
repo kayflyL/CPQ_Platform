@@ -4,7 +4,6 @@
 
 export interface Project {
   opportunity_id: string
-  folder_name?: string
   customer_name: string
   status: string
   created_at: string
@@ -16,7 +15,14 @@ export interface Project {
   chassis_form: string
   sales_person: string
   fae: string
-  
+  // 商机上下文（pricing scope 维度，可选 — 后端 extra_fields 动态字段）
+  customer_type?: string
+  quote_scenario?: string
+  // 业务结果流转（D1：中标/丢标，与 status 正交）
+  result?: 'pending' | 'won' | 'lost'
+  win_reason?: string
+  lost_reason?: string
+
   // Computed fields from latest quotation
   quotation_count: number
   config_count: number
@@ -42,6 +48,13 @@ export interface Quotation {
   created_at: string
   updated_at: string
   status: string
+  // 草稿/已导出状态机：NULL=草稿(可进工作台)；非空=已导出冻结(时间戳，点列表只看 Excel+成本)
+  exported_at?: string | null
+  cost_snapshot?: Record<string, any> | null
+  // 列表轻量标志（list 端点剥离完整 snapshot，留布尔供行内判断）
+  has_cost_snapshot?: boolean
+  // 手工补录过（manual:true，未冻结）→ 列表给「编辑成本」入口可二次进抽屉改
+  has_manual_cost?: boolean
 
   // WIP fields (primary-quotation flag + platform classification)
   is_primary?: boolean

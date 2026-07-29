@@ -1,21 +1,52 @@
-import { ref, watch, onMounted, onBeforeUnmount, type Ref } from 'vue'
+import { ref, watch, onMounted, onBeforeUnmount, computed, unref, type Ref } from 'vue'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { useThemeStore } from '@/store/theme'
+
+interface RenderConfig {
+  ambient_intensity?: number
+  key_light_intensity?: number
+  fill_light_intensity?: number
+  key_light_color?: string
+  fill_light_color?: string
+  background_color?: string
+  tone_mapping?: 'NoToneMapping' | 'LinearToneMapping' | 'ACESFilmicToneMapping'
+  exposure?: number
+}
+
+interface RenderOptions {
+  src: string
+  renderConfig?: {
+    light?: RenderConfig
+    dark?: RenderConfig
+    camera_fov?: number
+    auto_rotate_speed?: number
+    enable_damping?: boolean
+    damping_factor?: number
+  }
+}
+
+type MaybeRef<T> = T | Ref<T>
 
 /**
  * 服务器 3D 模型展示 —— 加载 .glb，自动缓慢旋转 + 拖拽/滚轮缩放。
  * canvas 透明，露出玻璃卡片 CSS 背景；光照随主题切换。
  * 尊重 prefers-reduced-motion：减弱动效环境下关闭自转。
  * 参照 useCountUp 的 RAF 清理 + useChartTheme 的主题读取。
+ *
+ * @param containerRef 容器元素引用
+ * @param options 渲染选项，支持 Ref 包装以实现实时预览
  */
 export function useServerModel3D(
   containerRef: Ref<HTMLElement | null>,
-  options: { src: string },
+  options: MaybeRef<RenderOptions>,
 ) {
   const loading = ref(true)
   const error = ref<string | null>(null)
+
+  // 响应式解包 options
+  const opts = computed(() => unref(options))
 
   const reduceMotion = typeof window !== 'undefined'
     && !!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
@@ -31,11 +62,41 @@ export function useServerModel3D(
   let raf = 0
   let ro: ResizeObserver | null = null
   let disposed = false
+  let initialized = false
 
-  function applyLights(isDark: boolean) {
-    ambient.intensity = isDark ? 0.9 : 0.6
-    keyLight.intensity = isDark ? 1.1 : 1.45
-    fillLight.intensity = isDark ? 0.5 : 0.35
+  function applyLights(isDark: boolean, renderConfig?: RenderOptions['renderConfig']) {
+    const themeConfig = isDark
+      ? (renderConfig?.dark || {})
+      : (renderConfig?.light || {})
+
+    // 灯光强度
+    ambient.intensity = themeConfig.ambient_intensity ?? (isDark ? 0.9 : 0.6)
+    keyLight.intensity = themeConfig.key_light_intensity ?? (isDark ? 1.1 : 1.45)
+    fillLight.intensity = themeConfig.fill_light_intensity ?? (isDark ? 0.5 : 0.35)
+
+    // 灯光颜色
+    if (themeConfig.key_light_color) {
+      keyLight.color.set(themeConfig.key_light_color)
+    }
+    if (themeConfig.fill_light_color) {
+      fillLight.color.set(themeConfig.fill_light_color)
+    }
+
+    // 背景颜色
+    if (themeConfig.background_color) {
+      scene.background = new THREE.Color(themeConfig.background_color)
+    } else {
+      scene.background = null
+    }
+
+    // 色调映射
+    const toneMapping = themeConfig.tone_mapping || 'NoToneMapping'
+    renderer.toneMapping = THREE[toneMapping]
+
+    // 曝光度
+    if (themeConfig.exposure !== undefined) {
+      renderer.toneMappingExposure = themeConfig.exposure
+    }
   }
 
   function onResize() {
@@ -61,10 +122,20 @@ export function useServerModel3D(
 
   onMounted(() => {
     const el = containerRef.value
-    if (!el) return
+    const currentOpts = opts.value
+    console.log('[useServerModel3D] onMounted, containerRef:', el, 'src:', currentOpts.src)
+    if (!el) {
+      console.warn('[useServerModel3D] Container element is null, skipping initialization')
+      return
+    }
 
     scene = new THREE.Scene()
-    camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000)
+    camera = new THREE.PerspectiveCamera(
+      currentOpts.renderConfig?.camera_fov || 45,
+      1,
+      0.1,
+      1000,
+    )
     camera.position.set(0, 1, 5)
 
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
@@ -80,14 +151,14 @@ export function useServerModel3D(
     fillLight = new THREE.DirectionalLight(0xbfd4ff, 0.35)
     fillLight.position.set(-5, 2, -3)
     scene.add(fillLight)
-    applyLights(themeStore.isDark)
+    applyLights(themeStore.isDark, currentOpts.renderConfig)
 
     controls = new OrbitControls(camera, renderer.domElement)
-    controls.enableDamping = true
-    controls.dampingFactor = 0.08
+    controls.enableDamping = currentOpts.renderConfig?.enable_damping ?? true
+    controls.dampingFactor = currentOpts.renderConfig?.damping_factor || 0.08
     controls.enablePan = false
     controls.autoRotate = !reduceMotion
-    controls.autoRotateSpeed = 0.8
+    controls.autoRotateSpeed = currentOpts.renderConfig?.auto_rotate_speed || 0.8
 
     onResize()
     ro = new ResizeObserver(onResize)
@@ -96,10 +167,12 @@ export function useServerModel3D(
     raf = requestAnimationFrame(tick)
 
     const loader = new GLTFLoader()
+    console.log('[useServerModel3D] Starting GLB load:', currentOpts.src)
     loader.load(
-      options.src,
+      currentOpts.src,
       (gltf) => {
         if (disposed) return
+        console.log('[useServerModel3D] GLB loaded successfully')
         const model = gltf.scene
         pivot = new THREE.Group()
         pivot.add(model)
@@ -128,6 +201,7 @@ export function useServerModel3D(
         controls.maxDistance = dist * 2.5
         controls.update()
 
+        initialized = true
         loading.value = false
       },
       undefined,
@@ -140,9 +214,57 @@ export function useServerModel3D(
     )
   })
 
+  // 监听主题变化
   watch(() => themeStore.isDark, (isDark) => {
-    if (ambient) applyLights(isDark)
+    if (ambient && initialized) {
+      applyLights(isDark, opts.value.renderConfig)
+    }
   })
+
+  // 监听渲染配置变化（实时预览）
+  watch(() => opts.value.renderConfig, (newConfig) => {
+    if (!newConfig || !ambient || !initialized) return
+
+    const themeConfig = themeStore.isDark ? newConfig.dark : newConfig.light
+    if (themeConfig) {
+      ambient.intensity = themeConfig.ambient_intensity ?? ambient.intensity
+      keyLight.intensity = themeConfig.key_light_intensity ?? keyLight.intensity
+      fillLight.intensity = themeConfig.fill_light_intensity ?? fillLight.intensity
+
+      if (themeConfig.key_light_color) {
+        keyLight.color.set(themeConfig.key_light_color)
+      }
+      if (themeConfig.fill_light_color) {
+        fillLight.color.set(themeConfig.fill_light_color)
+      }
+      if (themeConfig.background_color) {
+        scene.background = new THREE.Color(themeConfig.background_color)
+      }
+      if (themeConfig.tone_mapping) {
+        renderer.toneMapping = THREE[themeConfig.tone_mapping]
+      }
+      if (themeConfig.exposure !== undefined) {
+        renderer.toneMappingExposure = themeConfig.exposure
+      }
+    }
+
+    // 相机参数
+    if (newConfig.camera_fov !== undefined) {
+      camera.fov = newConfig.camera_fov
+      camera.updateProjectionMatrix()
+    }
+
+    // 控制器参数
+    if (newConfig.auto_rotate_speed !== undefined) {
+      controls.autoRotateSpeed = newConfig.auto_rotate_speed
+    }
+    if (newConfig.enable_damping !== undefined) {
+      controls.enableDamping = newConfig.enable_damping
+    }
+    if (newConfig.damping_factor !== undefined) {
+      controls.dampingFactor = newConfig.damping_factor
+    }
+  }, { deep: true })
 
   onBeforeUnmount(() => {
     disposed = true

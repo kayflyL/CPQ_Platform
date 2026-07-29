@@ -5,9 +5,11 @@ KP 配件从 kp.kp_parts 查详情（tdp/kind/cables_per/specs），电源/NVSwi
 再用 DerivationEngine + rules.derivation_rules 推导。
 """
 import json
+from typing import Any
 from fastapi import APIRouter
+from pydantic import BaseModel
 from sqlalchemy import text
-from app.engine.derivation_engine import DerivationEngine
+from app.engine.derivation_engine import DerivationEngine, default_params_for
 from app.repository.parts_master_repo import PartsMasterRepository
 from app.models.base import rules_engine, kp_engine
 
@@ -111,3 +113,36 @@ def derive(state: dict):
                 })
         result["switch_extra_parts"] = switch_parts
     return result
+
+
+class DeriveRuleParamUpdate(BaseModel):
+    rule_key: str
+    field: str
+    value: Any
+
+
+@router.get("/rules")
+def derive_rules():
+    """透明化：返回所有内置推导规则的人话逻辑 + 当前生效参数值。"""
+    eng = DerivationEngine(_load_rules())
+    return {"derivations": eng.describe()}
+
+
+@router.put("/rules")
+def update_derive_rule(body: DeriveRuleParamUpdate):
+    """改单个推导参数（merge 进该 rule_key 的 params，upsert derivation_rules 行）。"""
+    with rules_engine.begin() as c:
+        row = c.execute(text("SELECT params FROM rules.derivation_rules WHERE rule_key=:k"),
+                        {"k": body.rule_key}).first()
+        if row:
+            params = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
+        else:
+            params = default_params_for(body.rule_key)
+        params[body.field] = body.value
+        if row:
+            c.execute(text("UPDATE rules.derivation_rules SET params=:p WHERE rule_key=:k"),
+                      {"p": json.dumps(params), "k": body.rule_key})
+        else:
+            c.execute(text("INSERT INTO rules.derivation_rules(rule_key, params, enabled) VALUES(:k, :p, true)"),
+                      {"p": json.dumps(params), "k": body.rule_key})
+    return {"ok": True, "params": params}

@@ -243,11 +243,12 @@
     linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
   --cpq-grid-line: rgba(22, 119, 255, 0.022);
 
-  /* 三级玻璃（Soft Glassmorphism：通透白玻璃 + 白边高光 + 弱磨砂） */
+  /* 三级玻璃（Soft Glassmorphism：通透白玻璃 + 冷蓝灰 hairline 边 + 弱磨砂）
+     浅底白边叠近白底会消失，边框改冷蓝灰给可见边缘；白边签名保留在 inset 内顶高光 */
   --cpq-glass-1-bg: rgba(255, 255, 255, 0.40);
   --cpq-glass-2-bg: rgba(255, 255, 255, 0.55);
   --cpq-glass-3-bg: rgba(255, 255, 255, 0.75);
-  --cpq-glass-border: rgba(255, 255, 255, 0.65);
+  --cpq-glass-border: rgba(120, 144, 176, 0.38);
   --cpq-glass-border-strong: rgba(22, 119, 255, 0.45);
   --cpq-glass-highlight: rgba(255, 255, 255, 1);
   --cpq-glass-blur-1: 10px;

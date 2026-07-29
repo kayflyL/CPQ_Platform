@@ -559,14 +559,14 @@
       "y": 730,
       "width": 260,
       "height": 100,
-      "text": "opportunity_items 表\n\n列：config_name, category,\npart_name, spec, qty, final_price...",
+      "text": "quotation_items 表\n\n列：config_name, category,\npart_name, spec, qty, final_price...",
       "fontSize": 14,
       "fontFamily": 1,
       "strokeColor": "#1e1e1e",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "item_db",
-      "originalText": "opportunity_items 表\n\n列：config_name, category,\npart_name, spec, qty, final_price...",
+      "originalText": "quotation_items 表\n\n列：config_name, category,\npart_name, spec, qty, final_price...",
       "autoResize": true
     },
 
@@ -593,14 +593,14 @@
       "y": 910,
       "width": 1080,
       "height": 120,
-      "text": "字段管理系统（business_fields 表）\n\n配置：field_key, label, source, source_column, page, sort_order\n\n当前状态：只配置了 Opportunity 层的 7 个字段\nQuotation 和 OpportunityItem 的字段还没有接入字段系统",
+      "text": "字段管理系统（business_fields 表）\n\n配置：field_key, label, source, source_column, page, sort_order\n\n当前状态：只配置了 Opportunity 层的 7 个字段\nQuotation 和 QuotationItem 的字段还没有接入字段系统",
       "fontSize": 16,
       "fontFamily": 1,
       "strokeColor": "#1e1e1e",
       "textAlign": "center",
       "verticalAlign": "middle",
       "containerId": "field_system",
-      "originalText": "字段管理系统（business_fields 表）\n\n配置：field_key, label, source, source_column, page, sort_order\n\n当前状态：只配置了 Opportunity 层的 7 个字段\nQuotation 和 OpportunityItem 的字段还没有接入字段系统",
+      "originalText": "字段管理系统（business_fields 表）\n\n配置：field_key, label, source, source_column, page, sort_order\n\n当前状态：只配置了 Opportunity 层的 7 个字段\nQuotation 和 QuotationItem 的字段还没有接入字段系统",
       "autoResize": true
     },
 

@@ -420,7 +420,7 @@
       width="500px"
     >
       <p style="color: var(--cpq-text-secondary); font-size: 13px; margin-bottom: 16px;">
-        上传后将自动解析并创建报价单，归属到此商机。
+        上传后先解析预览，可调整解析规则，确认无误后再生成报价单。
       </p>
       <a-upload-dragger
         name="file"
@@ -432,9 +432,16 @@
         <p class="ant-upload-text">点击或拖拽 Excel 报价单到此区域</p>
         <p class="ant-upload-hint">支持 .xlsx / .xls 格式文件</p>
       </a-upload-dragger>
-      <a-spin v-if="uploadStatus === 'loading'" tip="正在解析报价单..." style="display: block; text-align: center; margin: 20px 0;" />
-      <a-result v-if="uploadStatus === 'error'" status="error" :title="uploadError" />
     </a-modal>
+
+    <!-- 解析预览：核对取值位置/调区域与列规则后再生成报价单 -->
+    <QuotationParsePreviewModal
+      :open="parsePreviewOpen"
+      :file="parsePreviewFile"
+      :opportunity-id="opportunityId"
+      @confirm="onParseConfirm"
+      @cancel="onParseCancel"
+    />
 
     <!-- 已导出报价单：成本快照抽屉 -->
     <QuotationCostDrawer
@@ -468,6 +475,7 @@ import { feedApi } from '@/api/feed'
 import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
+import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
 import ArchiveSection from '@/components/opportunity/ArchiveSection.vue'
 import ReasoningPanel from '@/components/opportunity/ReasoningPanel.vue'
 import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
@@ -1185,26 +1193,42 @@ const saveRenameQuotation = async () => {
 
 // =================== Upload Quotation ===================
 const showUploadModal = ref(false)
-const uploadStatus = ref<'idle' | 'loading' | 'error'>('idle')
-const uploadError = ref('')
+const parsePreviewOpen = ref(false)
+const parsePreviewFile = ref<File | null>(null)
 
+// 上传报价单：先存文件并打开解析预览弹窗，用户核对/调规则后再确认生成
 const handleUploadToProject = async (options: any) => {
-  uploadStatus.value = 'loading'
+  const file = options.file as File
+  options.onSuccess?.() // 结束 dragger 的 uploading 态
+  parsePreviewFile.value = file
+  parsePreviewOpen.value = true
+  showUploadModal.value = false
+}
+
+// 解析预览确认：落库生成报价单
+const onParseConfirm = async () => {
+  if (!parsePreviewFile.value) return
+  const hide = message.loading('正在生成报价单...', 0)
   try {
-    const result = await uploadQuotationToProject(options.file, opportunityId)
+    const result = await uploadQuotationToProject(parsePreviewFile.value, opportunityId)
     if (result.quotation_id) {
-      message.success(`报价单已创建！`)
-      showUploadModal.value = false
-      uploadStatus.value = 'idle'
-      uploadError.value = ''
+      message.success('报价单已创建！')
+      parsePreviewOpen.value = false
+      parsePreviewFile.value = null
       await loadProject()
     } else {
-      throw new Error(result.message || '解析失败')
+      message.error(result.message || '解析失败')
     }
   } catch (err: any) {
-    uploadError.value = err.message || '上传失败'
-    uploadStatus.value = 'error'
+    message.error(err.message || '生成报价单失败')
+  } finally {
+    hide()
   }
+}
+
+const onParseCancel = () => {
+  parsePreviewOpen.value = false
+  parsePreviewFile.value = null
 }
 
 // 加载字段定义

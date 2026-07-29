@@ -18,8 +18,8 @@ export const SPEC_FIELDS: Record<string, SpecField[]> = {
   '散热器':     [{ key: 'tdp', label: 'TDP', icon: '🔥', unit: 'W', type: 'number' }],
   '机箱':       [{ key: 'bays', label: '盘位数', icon: '📦', type: 'number' }, { key: 'form', label: '形态', icon: '📐', type: 'text' }],
   '背板':       [{ key: 'bays', label: '盘位数', icon: '📦', type: 'number' }],
-  '前面板线缆': [{ key: 'drive_bays', label: '适用盘位', icon: '🎯', type: 'tags' }, { key: 'backplane', label: '适用背板', icon: '🎯', type: 'tags' }],
-  'IO线缆':     [{ key: 'drive_bays', label: '适用盘位', icon: '🎯', type: 'tags' }, { key: 'backplane', label: '适用背板', icon: '🎯', type: 'tags' }],
+  '前面板线缆': [{ key: 'drive_bays', label: '适用盘位', icon: '🎯', type: 'tags' }],
+  'IO线缆':     [{ key: 'drive_bays', label: '适用盘位', icon: '🎯', type: 'tags' }],
 }
 
 /** 取某类别的字段族；未配置返回 []。 */
@@ -43,7 +43,6 @@ export const ATTR_SCHEMA: Record<string, AttrSchema> = {
   io_slot:     { label: 'IO 槽位',   type: 'enum-multi',  options: ['IO1', 'IO2', 'IO3', 'IO4', 'OCP'] },
   option_type: { label: '选项类型',  type: 'enum-single', options: ['x16', 'x8', 'nvme', 'sata', 'ocp_x8', 'ocp_x16'] },
   chassis:     { label: '适用机型',  type: 'free-tags' },
-  backplane:   { label: '适用背板',  type: 'enum-multi',  options: ['三模', '直连'] },
   kind:        { label: '线缆种类',  type: 'enum-single', options: ['SATA', 'SAS', 'NVMe'] },
   bt:          { label: '背板类型',  type: 'enum-single', options: ['tri', 'dc'] },
   wattage:     { label: '功率',      type: 'number', unit: 'W' },
@@ -77,8 +76,8 @@ export const SUGGESTED_KEYS_BY_CATEGORY: Record<string, string[]> = {
   '散热器':     ['tdp'],
   '机箱':       ['bays', 'form'],
   '背板':       ['bays', 'bt'],
-  '前面板线缆': ['kind', 'drive_bays', 'backplane'],
-  'IO线缆':     ['kind', 'drive_bays', 'backplane'],
+  '前面板线缆': ['kind', 'drive_bays', 'bt'],
+  'IO线缆':     ['kind', 'drive_bays', 'bt'],
   '后面板Riser': ['io_slot', 'option_type', 'chassis'],
   'OCP':        ['io_slot', 'option_type', 'chassis'],
 }

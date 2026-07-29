@@ -10,8 +10,6 @@ class Opportunity(Base):
     __table_args__ = {"schema": "opportunities"}
 
     opportunity_id: Mapped[str] = mapped_column(String, primary_key=True)
-    folder_name: Mapped[Optional[str]] = mapped_column(String, default=None)
-    opportunity_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     customer_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     sales_person: Mapped[Optional[str]] = mapped_column(String, default=None)
     fae: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -19,6 +17,13 @@ class Opportunity(Base):
     # 从 Quotation 迁移的商机级字段
     platform_type: Mapped[Optional[str]] = mapped_column(String, default=None)
     chassis_form: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # D1 商机结果与复盘（蓝图 A1-A2）— 解锁 M4 丢标复盘 / P2 直销渠道双基线 / M1 行业打法
+    industry: Mapped[Optional[str]] = mapped_column(String, default=None)        # 行业（教育/政府/金融/制造…）
+    customer_type: Mapped[Optional[str]] = mapped_column(String, default=None)   # 客户类型（直销/渠道/集成商/最终用户）
+    quote_scenario: Mapped[Optional[str]] = mapped_column(String, default=None)  # P3 报价场景（集采/框架/竞标/非标）
+    result: Mapped[str] = mapped_column(String, default="pending")               # 业务结果：pending / won / lost（与 status 正交）
+    win_reason: Mapped[Optional[str]] = mapped_column(Text, default=None)        # 中标原因
+    lost_reason: Mapped[Optional[str]] = mapped_column(Text, default=None)       # 丢标原因
     purchase_qty: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -30,14 +35,18 @@ class Opportunity(Base):
         import json
         result = {
             "opportunity_id": self.opportunity_id,
-            "folder_name": self.folder_name or "",
-            "opportunity_name": self.opportunity_name or "",
             "customer_name": self.customer_name or "",
             "sales_person": self.sales_person or "",
             "fae": self.fae or "",
             "quotation_person": self.quotation_person or "",
             "platform_type": self.platform_type or "",
             "chassis_form": self.chassis_form or "",
+            "industry": self.industry or "",
+            "customer_type": self.customer_type or "",
+            "quote_scenario": self.quote_scenario or "",
+            "result": self.result or "pending",
+            "win_reason": self.win_reason or "",
+            "lost_reason": self.lost_reason or "",
             "purchase_qty": self.purchase_qty or 0,
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",

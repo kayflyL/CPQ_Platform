@@ -3,6 +3,7 @@
  * 对应落地设计文档阶段②后端。
  */
 import axios from 'axios'
+import type { ShowcaseConfig } from '@/components/server-config/showcase-config'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
@@ -13,19 +14,38 @@ export interface PartSection {
   categories: string[]
 }
 export const partsApi = {
-  list: (opts?: { category?: string; section?: string; search?: string }) =>
+  list: (opts?: { category?: string; section?: string; search?: string; chassis?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string }) =>
     RESP<{ parts: PartMaster[]; total: number }>(axios.get('/api/parts', { params: opts })),
   sections: () => RESP<{ sections: PartSection[] }>(axios.get('/api/parts/sections')),
   categories: () => RESP<{ categories: string[] }>(axios.get('/api/parts/categories')),
+  /** 每个品类下现有的 spec_key 列表（DISTINCT，从 parts_master.specs 实际数据）→ {category: [spec_key...]} */
+  specKeys: () => RESP<Record<string, string[]>>(axios.get('/api/parts/spec-keys')),
+  /** 指定 category + spec_key 下的所有不同值（DISTINCT）→ {values: [...]} */
+  specValues: (category: string, specKey: string) =>
+    RESP<{ values: string[] }>(axios.get('/api/parts/spec-values', { params: { category, spec_key: specKey } })),
   get: (pn: string) => RESP<PartMaster>(axios.get(`/api/parts/${encodeURIComponent(pn)}`)),
   create: (data: Partial<PartMaster>) => RESP<{ pn: string }>(axios.post('/api/parts', data)),
   update: (pn: string, data: Partial<PartMaster>) => RESP<{ ok: boolean }>(axios.put(`/api/parts/${encodeURIComponent(pn)}`, data)),
   delete: (pn: string) => RESP<{ ok: boolean }>(axios.delete(`/api/parts/${encodeURIComponent(pn)}`)),
+  /** 导出料号库 */
+  export: (section?: string) => axios.get('/api/parts/export', { params: { section }, responseType: 'blob' }),
+  /** 批量导入料号（预览或确认） */
+  import: (file: File, dryRun: boolean = true) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return RESP<{ preview: any[]; summary: { total: number; new: number; update: number; invalid: number } }>(
+      axios.post(`/api/parts/import?dry_run=${dryRun}`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
+    )
+  },
+  /** 下载导入模板 */
+  downloadTemplate: () => axios.get('/api/parts/import-template', { responseType: 'blob' }),
 }
 
 // ---------- KP 核心配件（从 kp.kp_parts 查，唯一数据源）----------
 export const kpPartsApi = {
   categories: () => RESP<{ id: number; name: string }[]>(axios.get('/api/kp/categories')),
+  /** 每个品类下现有的 spec_key 列表（DISTINCT，从 kp_part_specs 实际数据）→ {category: [spec_key...]} */
+  specKeys: () => RESP<Record<string, string[]>>(axios.get('/api/kp/spec-keys')),
   listByCategory: (categoryId: number, series?: string) =>
     RESP<KpPart[]>(axios.get('/api/kp/parts', { params: { category_id: categoryId, series } })),
   listAll: () => RESP<KpPart[]>(axios.get('/api/kp/parts')),
@@ -35,6 +55,7 @@ export const kpPartsApi = {
 export const catalogApi = {
   listTypes: () => RESP<{ types: ServerType[] }>(axios.get('/api/server-catalog/types')),
   createType: (data: Partial<ServerType>) => RESP<{ id: number }>(axios.post('/api/server-catalog/types', data)),
+  updateType: (id: number, data: Partial<ServerType>) => RESP<{ ok: boolean }>(axios.put(`/api/server-catalog/types/${id}`, data)),
   listModels: (typeId?: number) =>
     RESP<{ models: ServerModel[] }>(axios.get('/api/server-catalog/models', { params: { type_id: typeId } })),
   getModel: (id: number) => RESP<ServerModel>(axios.get(`/api/server-catalog/models/${id}`)),
@@ -49,6 +70,9 @@ export const baseConfigApi = {
     RESP<{ configs: BaseConfig[]; total: number }>(axios.get('/api/base-configs', { params })),
   listSeries: () =>
     RESP<{ series: string[]; items: { value: string; label: string }[] }>(axios.get('/api/base-configs/series')),
+  /** 机箱形态 DISTINCT（数据驱动，供词表编辑器机型表 form 字段下拉） */
+  listForms: () =>
+    RESP<{ forms: string[] }>(axios.get('/api/base-configs/forms')),
   get: (id: number) => RESP<BaseConfig & { parts: BaseConfigPart[] }>(axios.get(`/api/base-configs/${id}`)),
   create: (data: Partial<BaseConfig>) => RESP<{ id: number }>(axios.post('/api/base-configs', data)),
   update: (id: number, data: Partial<BaseConfig>) => RESP<{ ok: boolean }>(axios.put(`/api/base-configs/${id}`, data)),
@@ -59,9 +83,20 @@ export const baseConfigApi = {
 }
 
 // ---------- 推导（配置面实时调用）----------
+export interface DerivationRuleParam {
+  rule_key: string; field: string; label: string
+  type: 'number' | 'list' | 'map'; default: any; value: any
+}
+export interface DerivationRule { key: string; name: string; logic: string; params: DerivationRuleParam[] }
+
 export const deriveApi = {
   /** state: { kp_lines:[{cat,pn,qty}], gpu_arch, psu_options? } → 推导结果 + 校验 */
   derive: (state: DeriveState) => RESP<DeriveResult>(axios.post('/api/derive', state)),
+  /** 内置推导规则透明化：人话逻辑 + 当前参数值（功耗/电源/线缆/背板…）*/
+  rules: () => RESP<{ derivations: DerivationRule[] }>(axios.get('/api/derive/rules')),
+  /** 改单个推导参数（merge 进 rule_key 的 params，upsert derivation_rules 行）*/
+  updateRuleParam: (rule_key: string, field: string, value: any) =>
+    RESP<{ ok: boolean; params: Record<string, any> }>(axios.put('/api/derive/rules', { rule_key, field, value })),
 }
 
 // ---------- 配置方案（服务器页配置产出 / 无价 BOM 保存读取）----------
@@ -135,11 +170,18 @@ export interface PartMaster {
   specs?: Record<string, any>
   unit_price?: number
   supplier?: string
-  description?: string
+  spec_text?: string     // 自由文本规格串（UI「规格」），如 PCBA_3.5''_Triple-mode
+  description?: string   // 人话用途说明（UI「说明」）
   applicable?: Record<string, any>
   sort_order?: number
 }
-export interface ServerType { id: number; name: string; description?: string; sort_order?: number }
+export interface ServerType {
+  id: number
+  name: string
+  description?: string
+  sort_order?: number
+  showcase_config?: ShowcaseConfig
+}
 export interface ServerModelBaseConfig {
   id?: number
   form?: string
