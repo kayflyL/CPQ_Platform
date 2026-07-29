@@ -10,6 +10,8 @@
 
 ## [0.1.20] - 2026-07-29
 
+> 🎯 **本版本主题：彻底清理 `pricing_engine` 历史包袱。** 这个最初「解析 + 计价 + 导入导出 + 业务 CRUD」一把梭的单体文件，长期是整个系统最重的历史负担。本版本将其拆解为**纯算法引擎 + 业务服务 + 解析器**三层，单文件从 1094 行砍到 425 行（-61%），连同旧 `region_config` 残留一并清除，引擎 + 服务层**净减 415 行**（删 786 / 增 371，增的主要是从 engine 搬迁的功能而非新代码）。详见文末「历史包袱清理总结」。
+
 ### 新增
 
 - **商机详情页报价单解析预览**：上传报价单 Excel 不再直接生成报价单，先弹出解析预览弹窗（热力图可视化 + 区域/字段规则可调），确认后再落库生成报价单。复用「设置-解析规则」同一套规则引擎，不重复造轮子。新增前端组件 `QuotationParsePreviewModal` / `ParseHeatmapPreview` / `ParseRulesEditor`，并抽 `useExcelParser` 单例 composable
@@ -24,7 +26,19 @@
 
 ### 清理
 
-- **移除 l6/kp_region_config 残留代码**：`models` / `rules_repo` / `rules` API / `startup` 中对旧 region_config 表的读写代码全部删除（已被 `parse_regions` / `parse_field_rules` 取代）
+- **移除 l6/kp_region_config 残留代码**：`rules_repo`(-120) / `models/rules`(-22) / `api/rules`(-121) 三处共 **-263 行**对旧 region_config 表的读写代码全部删除（已被 `parse_regions` / `parse_field_rules` 取代）。代码层清理完毕，配套迁移脚本 `drop_l6_kp_region_config.py` 物理删表收尾
+
+### 🧹 历史包袱清理总结
+
+本次以「拆解 pricing_engine 单体」为核心，量化如下：
+
+| 对象 | 变化 |
+|---|---|
+| `pricing_engine.py` | 1094 → **425 行**（-669，**-61%**） |
+| 旧 `l6/kp_region_config` 残留 | `rules_repo` / `models` / `api` 三处共 **-263 行** |
+| 引擎 + 服务层整体（`engine/` + `quote_service`） | 删 786 / 增 371 = **净减 415 行** |
+
+> 其中约 **180 行**（商机 CRUD、`_safe_eval_math`）是**搬迁**到 `quote_service` / `excel_parser`——功能不丢，只是各归其位；真正被删除的是约 **750 行历史遗留死代码**（7 个遗留解析方法、Excel 导出样式块 `_F_*`/`_NO_FILL`、死导入 `openpyxl`/`Font`/`json`/`ast` 等、旧 region_config 表读写）。`pricing_engine` 现已回归**纯算法层**（解析 → 计价 → KP 同步），不再背解析/导入/导出/业务 CRUD 的旧包袱。
 
 ### 修复
 
