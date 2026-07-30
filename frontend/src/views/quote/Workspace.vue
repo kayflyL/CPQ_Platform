@@ -1115,10 +1115,16 @@ async function freezeExportedQuotation() {
   if (!quotationId) return
   try {
     await quotationApi.export(quotationId, buildCostSnapshot())
-    // L3 策略溯源快照：记录命中的定价策略（失败不阻断导出）
+    // L3 策略溯源快照：记录加法引擎对该 deal 的定价依据（失败不阻断导出）
     const oi = store.opportunityInfo
+    const oia = oi as any
     const snap = pricingRulesStore.getStrategySnapshot({
-      platform: oi?.platform_type, customer_type: oi?.customer_type,
+      platform: oi?.platform_type,
+      industry: oia?.industry,
+      region: oia?.delivery_region ?? oia?.extra_fields?.delivery_region,
+      customerType: oi?.customer_type,
+      cost: configTotals.value?.totalCost ?? null,
+      qty: oia?.purchase_qty ?? null,
     })
     quotationApi.update(quotationId, { strategy_snapshot: snap }).catch(() => {})
   } catch (e: any) {
@@ -1521,23 +1527,19 @@ const selectionActions = computed(() => {
 // 提醒列表：选型规则的 require/exclude/derive/recommend 命中
 const selectionAlerts = computed(() => selectionActions.value.filter(a => a.action !== 'filter'))
 
-// 利润率告警：优先按 platform_type 三档（pricing.margin_tier.floor）；无三档回退 system_config 旧阈值
+// 利润率告警：低于加法引擎保底线（pricing.guardrail.floor）。策略中心定价只作建议，这里仅告警不锁、不自动改价。
 let _marginAlerted = false
 watch(
   () => configTotals.value?.marginPct,
   (m) => {
     if (m == null || !isFinite(m)) return
-    const pt = store.opportunityInfo?.platform_type
-    const tier = pricingRulesStore.getMarginTier(pt, store.opportunityInfo?.customer_type)
-    const floor = tier ? tier.floor : pricingRulesStore.alertThreshold * 100
+    const floor = pricingRulesStore.getGuardrail().floor
     if (m < floor) {
       if (!_marginAlerted) {
         _marginAlerted = true
         Modal.warning({
-          title: tier ? `利润率低于 ${pt} 平台底线` : '利润率低于告警阈值',
-          content: tier
-            ? `当前综合毛利率 ${m.toFixed(2)}% 低于 ${pt} 平台底线 ${tier.floor}%（标准 ${tier.standard}% / 优质 ${tier.premium}%），建议线下走特价审批，系统仅作记录。`
-            : `当前综合毛利率 ${m.toFixed(2)}% 低于阈值 ${floor}%，建议线下走特价审批，系统仅作记录。`,
+          title: '利润率低于保底线',
+          content: `当前综合毛利率 ${m.toFixed(2)}% 低于保底线 ${floor}%，建议线下走特价审批，系统仅作记录。`,
           okText: '知道了',
         })
       }

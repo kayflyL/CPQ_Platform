@@ -29,6 +29,13 @@ const isManual = computed(() => !!snap.value?.manual)
 const isReasoning = computed(() => props.quotation?.source === 'reasoning')
 const strategySnap = computed<any[]>(() => props.quotation?.strategy_snapshot || [])
 function formatStratBody(s: any): string {
+  if (s.type === 'pricing_additive') {
+    const b = s.body || {}
+    const steps = Array.isArray(b.breakdown)
+      ? b.breakdown.filter((x: any) => x.value !== '—').map((x: any) => `${x.matched || ''}${typeof x.value === 'number' ? (x.opKind === 'mult' ? `×${x.value}` : (x.opKind === 'add' ? `${x.value >= 0 ? '+' : ''}${x.value}` : `${x.value}`)) : ''}`.trim()).filter(Boolean).join(' · ')
+      : ''
+    return `目标 ${b.target}%（保底 ${b.floor}% ~ 封顶 ${b.cap}%${b.clamped ? ' · 已触边界' : ''}）${steps ? ' · ' + steps : ''}`
+  }
   if (s.type === 'pricing_scenario') {
     const rb = s.body?.rule_body
     const tier = rb ? `底线 ${rb.floor}% / 标准 ${rb.standard}% / 优质 ${rb.premium}%` : ''

@@ -1,28 +1,27 @@
 /**
- * 定价规则 Pinia Store — 替代原来的 usePricingRules composable。
- * 解决模块级 ref 跨组件响应式失效的问题。
+ * 定价规则 Pinia Store — 加法定价引擎的加载/消费层。
  *
  * 数据源：
- *   - system_config: profit_margin_alert_threshold / default_markup_coefficient
- *   - strategies pricing.pricing_scenario：报价场景
- *   - strategies pricing.margin_tier：毛利三档规则
- *   - strategies pricing.warranty_markup：维保加价
+ *   - strategies pricing.<dim>：6 条维度系数表（platform_baseline/industry_adj/region_adj/
+ *     order_mult/cost_tier/guardrail）；缺失维度回退 constants/pricingMeta 的 DEFAULT_DIM_BODIES
+ *   - strategies pricing.warranty_markup：维保加价（独立维度，保留）
+ *   - system_config profit_margin_alert_threshold：辅助告警阈值
+ *
+ * 求值本身在 stores/pricingEngine（纯 TS，可独立单测）；本 store 只负责加载 + 薄封装 + 溯源快照。
+ * 策略中心画布/抽屉 CRUD 后调 invalidatePricingRules → ensure 重新拉。
  */
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { systemConfigApi } from '@/api/systemConfig'
-import { strategyApi, type MarginTier } from '@/api/strategies'
+import { strategyApi } from '@/api/strategies'
+import { computeTargetMargin as evalTargetMargin, type PricingContext, type PricingDims, type PricingResult } from '@/stores/pricingEngine'
+import { PIPELINE_ORDER, DEFAULT_DIM_BODIES } from '@/constants/pricingMeta'
 
 export const usePricingRulesStore = defineStore('pricingRules', () => {
-  // 阈值与系数
   const _alertThreshold = ref(0.08)
-  const _markupCoefficient = ref(0.1)
-
-  // 报价策略重构：场景（pricing_scenario）+ 规则（margin_tier，按 id 索引）
-  const _scenarios = ref<any[]>([])  // [{id, name, version, scope, rule_id, description}]
-  const _rulesById = ref<Record<number, { body: MarginTier; name: string; version: number }>>({})
+  // 维度策略原始行（type → strategy），未持久化的维度缺失
+  const _dimRows = ref<Record<string, any>>({})
   const _warrantyMarkup = ref<{ y1: number; y3: number; y5: number } | null>(null)
-  const _pricingStrategies = ref<any[]>([])  // L3 溯源：保留原始策略
 
   const _loaded = ref(false)
   let _promise: Promise<void> | null = null
@@ -33,34 +32,21 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
     if (!_promise) {
       _promise = Promise.all([
         systemConfigApi.getValue<number>('profit_margin_alert_threshold'),
-        systemConfigApi.getValue<number>('default_markup_coefficient'),
-        strategyApi.list({ domain: 'pricing', status: 'active', type: 'margin_tier' }),
         strategyApi.list({ domain: 'pricing', status: 'active', type: 'warranty_markup' }),
-        strategyApi.list({ domain: 'pricing', status: 'active', type: 'pricing_scenario' }),
+        ...PIPELINE_ORDER.map(k => strategyApi.list({ domain: 'pricing', status: 'active', type: k })),
       ])
-        .then(([t, m, tiersRes, wmRes, scRes]) => {
+        .then(([t, wmRes, ...dimReses]) => {
           if (typeof t === 'number' && !isNaN(t)) _alertThreshold.value = t
-          if (typeof m === 'number' && !isNaN(m)) _markupCoefficient.value = m
-          // margin_tier 按 id 索引（规则栏，被场景连线）
-          const byId: Record<number, any> = {}
-          for (const s of tiersRes.strategies || []) {
-            if (s.body) byId[s.id] = { body: s.body, name: s.name, version: s.version }
-          }
-          _rulesById.value = byId
-          // pricing_scenario 场景栏
-          _scenarios.value = (scRes.strategies || []).map((s: any) => ({
-            id: s.id, name: s.name, version: s.version,
-            scope: s.scope || {},
-            rule_id: s.body?.rule_id,
-            description: s.body?.description || s.description || '',
-          }))
-          // warranty_markup
           const wm = wmRes.strategies?.[0]?.body
           if (wm && typeof wm === 'object') {
             _warrantyMarkup.value = { y1: wm.y1 ?? 0, y3: wm.y3 ?? 0, y5: wm.y5 ?? 0 }
           }
-          // 保留原始策略用于溯源
-          _pricingStrategies.value = tiersRes.strategies || []
+          const rows: Record<string, any> = {}
+          PIPELINE_ORDER.forEach((k, i) => {
+            const s = dimReses[i]?.strategies?.[0]
+            if (s) rows[k] = s
+          })
+          _dimRows.value = rows
         })
         .catch(() => {})
         .finally(() => { _loaded.value = true })
@@ -74,50 +60,32 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
     _promise = null
   }
 
-  /** scope 匹配：ctx 满足 scope 所有字段则命中 */
-  function scopeMatch(scope: any, ctx: Record<string, any>): boolean {
-    for (const [k, v] of Object.entries(scope || {})) {
-      const cv = ctx[k]
-      if (Array.isArray(v) ? !v.includes(cv) : cv !== v) return false
+  /** 维度系数表：DB 行优先，缺失回退 DEFAULT_DIM_BODIES（未 seed 也能用） */
+  const dims = computed<PricingDims>(() => {
+    const out: any = {}
+    for (const k of PIPELINE_ORDER) {
+      const row = _dimRows.value[k]
+      out[k] = row?.body != null ? row.body : (DEFAULT_DIM_BODIES as any)[k]
     }
-    return true
+    return out
+  })
+
+  /** 维度原始策略行（抽屉按 type 取 id 判 create/update；未持久化为 undefined） */
+  const dimStrategies = computed(() => _dimRows.value)
+
+  /** 跑加法引擎：ctx → 目标毛利率 + breakdown */
+  function computeTargetMargin(ctx: PricingContext): PricingResult {
+    return evalTargetMargin(ctx, dims.value)
   }
 
-  function scopeSpecificity(scope: any): number {
-    return Object.keys(scope || {}).filter(k => !['description'].includes(k)).length
+  /** 保底封顶（工作台告警 floor 源） */
+  function getGuardrail(): { floor: number; cap: number } {
+    const g: any = dims.value.guardrail || (DEFAULT_DIM_BODIES as any).guardrail
+    const floor = Number(g?.floor); const cap = Number(g?.cap)
+    return { floor: Number.isFinite(floor) ? floor : 7, cap: Number.isFinite(cap) ? cap : 30 }
   }
 
-  /** 取命中的三档：遍历场景（最具体优先）→ rule_id → margin_tier 规则。无命中或规则缺失则 null。 */
-  function getMarginTier(
-    platformType?: string | null,
-    customerType?: string | null,
-  ): MarginTier | null {
-    const ctx: Record<string, any> = {
-      platform_type: platformType || '',
-      customer_type: customerType || '',
-    }
-    const hits = _scenarios.value
-      .filter(s => scopeMatch(s.scope, ctx) && s.rule_id != null)
-      .sort((a, b) => scopeSpecificity(b.scope) - scopeSpecificity(a.scope))
-    for (const s of hits) {
-      const rule = _rulesById.value[s.rule_id]
-      if (rule?.body) return rule.body
-    }
-    return null
-  }
-
-  /** 判断利润率（百分点）所处档位 */
-  function judgeMargin(
-    margin: number | undefined | null,
-    tier: MarginTier | null,
-  ): { level: 'below-floor' | 'normal' | 'premium' | 'unknown'; label: string } {
-    if (margin == null || !tier) return { level: 'unknown', label: '—' }
-    if (margin < tier.floor) return { level: 'below-floor', label: `低于底线 ${tier.floor}%` }
-    if (margin >= tier.premium) return { level: 'premium', label: `优质（≥${tier.premium}%）` }
-    return { level: 'normal', label: '正常' }
-  }
-
-  /** P4 维保加价：按年限返回建议费率（百分点）；未命中策略返回 null */
+  /** 维保加价：按年限返回建议费率（百分点）；未命中策略返回 null */
   function getWarrantyRate(years: number | undefined | null): number | null {
     const wm = _warrantyMarkup.value
     if (!wm || !years) return null
@@ -126,31 +94,29 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
     return wm.y1
   }
 
-  /** L3 策略溯源快照（场景化）：记命中场景 + 连线规则 + warranty_markup。 */
+  /** L3 策略溯源快照（加法引擎依据 + 维保）。reasoning 报价单导出时记录。 */
   function getStrategySnapshot(ctx: {
     platform?: string | null
-    customer_type?: string | null
+    industry?: string | null
+    region?: string | null
+    customerType?: string | null
+    cost?: number | null
+    qty?: number | null
     warrantyYears?: number | null
   }): Array<{ type: string; name: string; id?: number; version?: number; body: any; applied?: any }> {
     const out: Array<any> = []
-    const ctxMatch: Record<string, any> = {
-      platform_type: ctx.platform || '',
-      customer_type: ctx.customer_type || '',
-    }
-    const hits = _scenarios.value
-      .filter(s => scopeMatch(s.scope, ctxMatch) && s.rule_id != null)
-      .sort((a, b) => scopeSpecificity(b.scope) - scopeSpecificity(a.scope))
-    if (hits.length) {
-      const s = hits[0]  // 最具体
-      const rule = _rulesById.value[s.rule_id]
-      out.push({
-        type: 'pricing_scenario', name: s.name, id: s.id, version: s.version,
-        body: { description: s.description, rule_body: rule?.body },
-        applied: ctxMatch,
-        linked_rule: { id: s.rule_id, name: rule?.name, version: rule?.version },
-      })
-    }
-    // warranty_markup 通用策略（不依赖 platform），策略存在即记
+    const pr = computeTargetMargin({
+      platform: ctx.platform, industry: ctx.industry, region: ctx.region,
+      customerType: ctx.customerType, cost: ctx.cost, qty: ctx.qty,
+    })
+    out.push({
+      type: 'pricing_additive', name: '加法定价',
+      body: { target: pr.target, floor: pr.floor, cap: pr.cap, clamped: pr.clamped, breakdown: pr.breakdown },
+      applied: {
+        platform: ctx.platform || null, industry: ctx.industry || null, region: ctx.region || null,
+        customer_type: ctx.customerType || null, cost: ctx.cost ?? null, qty: ctx.qty ?? null,
+      },
+    })
     if (_warrantyMarkup.value) {
       out.push({
         type: 'warranty_markup', name: '维保加价',
@@ -161,27 +127,20 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
     return out
   }
 
-  // 计算属性
   const alertThreshold = computed(() => _alertThreshold.value)
-  const markupCoefficient = computed(() => _markupCoefficient.value)
-  const scenarios = computed(() => _scenarios.value)
-  const rulesById = computed(() => _rulesById.value)
   const warrantyMarkup = computed(() => _warrantyMarkup.value)
-  const pricingStrategies = computed(() => _pricingStrategies.value)
 
   return {
     // 状态
     alertThreshold,
-    markupCoefficient,
-    scenarios,
-    rulesById,
     warrantyMarkup,
-    pricingStrategies,
+    dims,
+    dimStrategies,
     // 方法
     ensurePricingRules,
     invalidatePricingRules,
-    getMarginTier,
-    judgeMargin,
+    computeTargetMargin,
+    getGuardrail,
     getWarrantyRate,
     getStrategySnapshot,
     _loaded,

@@ -26,13 +26,6 @@ export interface Strategy {
   updated_by: string
 }
 
-/** 毛利三档（百分点）—— pricing.margin_tier 的 body 结构 */
-export interface MarginTier {
-  floor: number      // 底线：报价利润率低于此值触发告警（走特价审批）
-  standard: number   // 标准：目标毛利
-  premium: number    // 优质
-}
-
 export const strategyApi = {
   list: (params?: { domain?: StrategyDomain; status?: StrategyStatus; type?: string }) =>
     RESP<{ strategies: Strategy[] }>(axios.get('/api/strategies/', { params })),

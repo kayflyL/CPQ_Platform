@@ -28,7 +28,7 @@ frontend-pages/
 ├── parts/                 ← 配件模块
 │   └── parts-management.md ← 配件管理（CRUD+看板+数据洞察）
 ├── strategies/            ← 策略中心模块
-│   └── strategies.md      ← 策略中心管理页（4域6种type+三维scope+L3溯源）
+│   └── strategies.md      ← 策略中心管理页（3域：定价加法引擎/选型CRE/推理流编排 + L3溯源）
 └── settings/              ← 设置模块
     ├── ai-settings.md     ← AI 设置（方案助手/趋势分析/API 配置）
     ├── excel-parser.md    ← Excel 解析调试

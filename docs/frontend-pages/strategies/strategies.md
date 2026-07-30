@@ -10,8 +10,7 @@
 
 | 域           | type               | 说明                           | 落地点                    |
 | ----------- | ------------------ | ---------------------------- | ---------------------- |
-| pricing     | `pricing_scenario` | 报价场景（业务说明 + 匹配条件 + 连线规则）     | 场景化匹配入口，连线 margin_tier |
-| pricing     | `margin_tier`      | 毛利三档（floor/standard/premium） | 被场景连线引用，工作台利润率告警       |
+| pricing     | `platform_baseline`/`industry_adj`/`region_adj`/`order_mult`/`cost_tier`/`qty_mult`/`guardrail` | **加法定价引擎 7 维度**（2026-07-30 取代旧 pricing_scenario/margin_tier） | 演算器 + 未来方案助手；guardrail.floor → 工作台告警 |
 | pricing     | `warranty_markup`  | 维保加价（y1/y3/y5）               | 工作台维保年限建议费率            |
 | selection   | `require`     | 必配依赖（选 A 需配 B ≥N／规格约束） | CRE → 工作台 `selectionActions` |
 | selection   | `exclude`     | 互斥（同 category 同字段值不混搭） | CRE → 工作台 `selectionActions` |
@@ -22,26 +21,37 @@
 
 > ⚠️ **selection 域已重构为兼容性规则引擎（CRE，2026-07-29）**：上表 5 个 selection type 不再存 `strategies` 表，改存独立表 `rules.compatibility_rules`（domain=selection），声明式 `WHEN(条件树)→THEN(动作)`，无序可叠加。前端求值抽到 `stores/selectionEngine.ts`（纯函数 + 28 单测），消费见工作台 `selectionActions`。默认种子 3 条、治理进度与**后续 roadmap（④ 后端兜底 / ⑤ filter 消费 / ⑥ 命中埋点 / ⑦ 规则补全 / ⑧ 寻址空间）**见文末「选型配置治理与后续 roadmap」。
 
-### 场景化匹配（报价策略重构后）
+### 加法定价引擎（报价策略重构，2026-07-30）
 
-pricing 域采用 **场景 + 规则 + 连线** 模型（替代旧的 margin_tier 三维 scope 直匹配）：
-- `pricing_scenario`（场景）：带 scope（platform_type / customer_type 二维，留空 = 通用兜底）+ `body.rule_id` 连线到规则
-- `margin_tier`（规则）：纯规则（scope=null），三档 floor/standard/premium
-- 匹配：商机 → 命中场景（scope 最具体优先）→ 取连线规则的三档
+pricing 域采用**多维度加法叠加**模型（取代旧的 scope 命中→预设三档查表）：
 
-通用兜底：scope={} 的场景连线到通用兜底规则（已 seed 6/10/15），商机没填平台时命中。
+```
+最终毛利率 = (平台基准 + 行业浮动 + 区域浮动) × 订单系数 × 成本阶梯 × 台数折扣 → 夹在 [保底, 封顶]
+```
 
-bom_spec / model_recommend 的 scope 走 `series`（和 base_config.series / KP 适用系列同源）。
+7 条维度 strategy（type 即维度 key，scope=null 全局系数表）：
+
+| 维度 type | 运算 | body 结构 | 数据来源 |
+|---|---|---|---|
+| `platform_baseline` | base 基准 | `{Polaris:15, Orion:11, Intel:11, 工作站:13}` | opportunity.platform_type |
+| `industry_adj` | add ±百分点 | `{行业→±百分点}` | opportunity.industry |
+| `region_adj` | add ±百分点 | `{factors:{国内/海外/偏远}, keywords:{...}}` | opportunity.delivery_region（自由文本→分桶） |
+| `order_mult` | mult ×系数 | `{customer_type→系数}` | opportunity.customer_type（订单维度） |
+| `cost_tier` | mult ×系数 | `{tiers:[{max?,mult}]}` | 报价单 BOM totalCost |
+| `qty_mult` | mult ×系数 | `{bands:[{min,mult}]}` | opportunity.purchase_qty（量越大让利越多） |
+| `guardrail` | clamp 夹取 | `{floor, cap}` | — |
+
+**字段零新增列**——全维度映射到已有商机字段 + 报价成本；形态 `chassis_form` v1 预留不参与。
+
+**用途定调**：策略中心定价**只作建议值 + 演算器**，不驱动工作台售价（工作台仅用 guardrail.floor 告警，不自动改价）；真正消费方是**未来智能方案助手自动出报价单**（引擎纯 TS 可直接 import）。后端零改动（type 自由字符串、body 自由 JSON、`/api/strategies` 复用）。
 
 ### 报价策略画布（pricing 域专用视图）
 
-pricing 域 tab 不用通用列表，改用 `PricingStrategyCanvas.vue` 可视化连线画布：
-- **左栏**：报价场景卡（业务说明 + 匹配条件 tag）
-- **右栏**：毛利三档规则卡（三色条 + 被连线计数）
-- **中间 SVG**：贝塞尔连线（`场景.rule_id → 规则.id`）+ 箭头
-- **拖拽连线**：场景右锚点（LED 圆点）拖到规则卡 → 即时连线（API 持久化 `body.rule_id`）；拖空白断开；命中规则卡蓝边环高亮 + 虚线临时线跟随
-- 场景/规则增删改走画布内结构化 modal（scope 三选留空 = 通用兜底；规则校验 底线<标准<优质）
-- CRUD 后 `invalidatePricingRules`，报价工作台即时读到新连线
+pricing 域 tab 用 `views/admin/pricing/PricingFlowCanvas.vue`（替换旧 `PricingStrategyCanvas.vue`）：
+- **固定流水线图**：vue flow，节点位置由公式顺序派生（`输入→平台基准→+行业→+区域→×订单→×成本→×台数→保底封顶→输出`），`:nodes-draggable=false` + `:nodes-connectable=false` 锁死拓扑（公式顺序固定，无需自由连线）
+- **点维度节点** → `DimensionDrawer.vue` 按维度 type 分支编辑系数表（枚举→数值 / region 分桶因子+关键词 / cost_tier 阶梯行 / guardrail 双值）→ `strategyApi` create/update（未持久化时 create）→ `invalidatePricingRules` 刷新
+- **演算器面板**（headline）：输入一笔 deal（平台/行业/区域/订单/成本）→ 实时 `computeTargetMargin` → breakdown 每步 + 目标毛利率 + 建议售价（`suggestPrice = 成本×(1+目标%)`）。即「不知道怎么加点就来跑一下」的入口
+- 缺省兜底：store 加载 6 维度，缺失维度回退 `constants/pricingMeta.ts` 的 `DEFAULT_DIM_BODIES`（未 seed 也能用）
 
 ### 推理流编排（requirement 域专用视图）
 
@@ -66,8 +76,7 @@ requirement 域 tab 用 `ReasoningFlowCanvas.vue`（vue flow）可视化编排 B
 
 ### signature
 
-- 毛利三档三色分段条（橙=底线 / 蓝=标准 / 绿=优质），编辑器与列表共用
-- 报价策略画布：场景→规则 SVG 贝塞尔连线 + 拖拽编辑（pricing 域专属，体现"场景命中→取连线规则"）
+- 报价策略画布：加法定价固定流水线图（输入→平台基准→+行业→+区域→×订单→×成本→×台数→保底封顶→输出）+ 维度系数抽屉 + 演算器（pricing 域专属，体现"公式怎么叠加 + 这笔单该报多少毛利"）
 - 推理流编排：vue flow DAG 画布（拖拽/连线/加删节点）+ condition 分支 + 图驱动 executor（拓扑执行 + simpleeval 安全求值 + linear fallback 兜底）
 
 ## 前端路由
@@ -100,7 +109,7 @@ requirement 域 tab 用 `ReasoningFlowCanvas.vue`（vue flow）可视化编排 B
 
 ## 联动落地点
 
-- **工作台（Workspace.vue）**：margin_tier 三维 floor → 利润率告警（**只警告不锁**，P6 改回）；warranty_markup → 维保年限建议费率（空时填，尊重手填）；selection CRE（require/exclude/derive/recommend）→ `selectionActions` computed 调 `evaluateRules(ctx)`，命中渲染为图标提醒（⚠ 互斥 / ＋ 必配 / 💡 派生·推荐）；**filter 当前无执行消费端**（见文末 roadmap ⑤）
+- **工作台（Workspace.vue）**：加法引擎 `guardrail.floor` → 利润率告警（**只警告不锁、不自动改价**，策略中心定价只作建议）；warranty_markup → 维保年限建议费率（空时填，尊重手填）；selection CRE（require/exclude/derive/recommend）→ `selectionActions` computed 调 `evaluateRules(ctx)`，命中渲染为图标提醒（⚠ 互斥 / ＋ 必配 / 💡 派生·推荐）；**filter 当前无执行消费端**（见文末 roadmap ⑤）
 - **推理流（candidate_search.py `select_baselines`）**：`_annotate_recommend` 按 scope.series 给 baseline 附 recommend_level + selling_points（仅标注不改检索）；build_plan 透传；ReasoningPanel 方案卡显示推荐 tag + ★包装点
 - **L3 报价单溯源**：导出时 `getStrategySnapshot` 写入 `quotation.strategy_snapshot`；QuotationCostDrawer 显示（**仅 source='reasoning' 单**——人工单策略只是建议，不是定价依据，标了会误导）
 
@@ -110,14 +119,16 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 
 ## 关键文件
 
-- `views/admin/Strategies.vue` — 管理页（4 域 tab + 结构化编辑器；pricing 域用画布、requirement 域用推理流画布）
-- `views/admin/PricingStrategyCanvas.vue` — 报价策略画布（场景↔规则可视化连线 + 拖拽 + CRUD）
+- `views/admin/Strategies.vue` — 管理页（3 域 tab 容器：pricing→PricingFlowCanvas、requirement→ReasoningFlowCanvas、selection→CompatibilityRuleEditor）
+- `views/admin/pricing/PricingFlowCanvas.vue` — 报价策略画布（加法定价固定流水线图 + 演算器）+ `DimensionNode.vue`（vue flow 节点）+ `DimensionDrawer.vue`（维度系数编辑抽屉）
 - `views/admin/reasoning/ReasoningFlowCanvas.vue` — 推理流编排画布（vue flow + 拖拽/连线/加删节点 + 持久化）
 - `views/admin/reasoning/ReasoningNodeVf.vue` + `ReasoningNodeDrawer.vue` — vue flow 自定义节点 + 配置抽屉
 - `backend/app/services/reasoning_executor.py` — 图驱动 executor（handler 注册表 + 拓扑执行 + condition simpleeval 求值）
 - `backend/app/services/requirement_intel_service.py` — run_pipeline 入口派发 + `_run_linear_fallback`
 - `backend/app/repository/reasoning_flow_repo.py` + `models/reasoning_flow.py` + `api/reasoning_flow.py` — 推理流持久化（graph v2 + `_normalize_graph` v1→v2 平移）
-- `stores/pricingRules.ts` — pricing 规则加载（Pinia）+ 场景化匹配 `getMarginTier` + `alertThreshold` + `invalidatePricingRules`
+- `stores/pricingEngine.ts` — 加法定价纯求值逻辑（`computeTargetMargin(ctx,dims)`/`resolveRegion`/`resolveCostTier`/`suggestPrice`，独立 12 单测，镜像 selectionEngine 范式）
+- `constants/pricingMeta.ts` — 定价维度 SSOT（DIMENSION_DEFS/枚举/DEFAULT_DIM_BODIES，与 seed 同步）
+- `stores/pricingRules.ts` — pricing 规则加载（Pinia）+ 加法引擎薄封装 `computeTargetMargin` + `getGuardrail` + 维保 `getWarrantyRate` + L3 `getStrategySnapshot`(pricing_additive) + `invalidatePricingRules`
 - `stores/selectionRules.ts` — selection CRE Pinia store（`ensureRules`/`evaluateRules`/`invalidateRules`，薄封装）
 - `stores/selectionEngine.ts` — CRE 纯求值逻辑（`evaluateRules(rules,ctx)`/`evalWhen`/`evalThen`，独立 28 单测）
 - `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（5 type 分 tab + WHEN/THEN modal，selection 域专用，取代旧 X6 画布）

@@ -8,6 +8,33 @@
 
 ---
 
+## [0.1.24] - 2026-07-30
+
+> 🎯 **本版本主题：策略中心-报价策略重构——加法定价引擎取代旧的「scope命中→预设三档」查表模型。** 定价从「商机命中场景取一套预设毛利三档（8/12/18）」改为「按 平台/行业/区域/订单/成本/台数 多维度加法叠加算出目标毛利率」，用 VueFlow 固定流水线图可视化 + 维度系数抽屉配置 + 演算器实时演算。用途定调：策略中心定价**只作建议值 + 计算器**，不驱动工作台售价（仅 guardrail.floor 告警），真正消费方是未来的智能方案助手自动出报价单（引擎纯 TS 可直接 import）。
+
+### 重构
+
+- **定价模型从查表改为加法叠加**：`最终毛利率 = (平台基准 + 行业浮动 + 区域浮动) × 订单系数 × 成本阶梯 × 台数折扣 → 夹在 [保底, 封顶]`。7 条维度策略（`platform_baseline`/`industry_adj`/`region_adj`/`order_mult`/`cost_tier`/`qty_mult`/`guardrail`，scope=null 全局系数表）。字段零新增列：平台/行业/区域/订单/台数全映射到已有商机字段，成本走报价单 BOM 总成本
+- **纯 TS 引擎 + 单测**：新增 `stores/pricingEngine.ts`（`computeTargetMargin(ctx,dims)`，优雅降级，镜像 `selectionEngine.ts` 范式）+ `pricingEngine.test.ts`（node 原生 test runner）。未来方案助手可直接 import 自动算报价
+- **维度元数据 SSOT**：新增 `constants/pricingMeta.ts`（`DIMENSION_DEFS`/枚举/`DEFAULT_DIM_BODIES`），把 industry/customer_type 三处不一致的枚举统一到此；默认值与 `seed_pricing_strategies.py` 同步
+- **报价策略画布重做**：`PricingStrategyCanvas.vue`（左场景↔右规则 SVG 连线 + 拖拽）→ `pricing/PricingFlowCanvas.vue`（VueFlow 固定流水线图：输入→平台基准→+行业→+区域→×订单→×成本→×台数→保底封顶→输出，拓扑锁死因公式顺序固定）+ `DimensionNode.vue` + `DimensionDrawer.vue`（点节点改系数表）+ **演算器面板**（输入一笔 deal 实时算目标毛利 + breakdown + 建议售价）
+- **工作台告警改保底线**：利润率告警 floor 源从 `margin_tier.floor` 改为 `guardrail.floor`（默认 7%），仍只警告不锁、不自动改价
+- **L3 溯源重塑**：`getStrategySnapshot` 输出 `pricing_additive`（deal 上下文 + breakdown + 目标毛利）；`QuotationCostDrawer.formatStratBody` 加对应分支
+
+### 新增
+
+- **台数折扣维度（`qty_mult`）**：按销售台数分档乘系数（量大让利），独立于成本阶梯（按货值打折）。默认档：1-5台 ×1.0 / 6-20台 ×0.9 / 21-50台 ×0.84 / 51台以上 ×0.75，整体毛利率倍率压缩、不改基准/行业/区域加点，7% 保底兜底
+
+### 移除
+
+- **旧 scope→三档 模型整体移除**：`PricingStrategyCanvas.vue`、`MarginTier` 接口、`getMarginTier`/`judgeMargin`/`scopeMatch`/`scopeSpecificity`、`pricing_scenario`/`margin_tier` seed 全删；线上旧数据由 `seed_pricing_strategies.py` 归档为 archived（可回滚）
+
+### 验证
+
+- `npm run test` 48 例全过；`npm run build` 类型检查通过；浏览器实测台数折扣链路（60台 → ≥51档 ×0.75 → 目标毛利 10.1%、建议售价 132,120）
+
+---
+
 ## [0.1.23] - 2026-07-30
 
 > 🎯 **本版本主题：策略中心-选型配置大整理——清退 DerivationEngine 黑盒、CRE 规则统一为唯一真相源、选型配置 UI 重做。** 原本散落在 DerivationEngine（纯算法黑盒）和前端各组件硬编码里的线缆/背板规则，统一收敛进 CRE 声明式 WHEN→THEN 规则（选型配置页可视化、可配、改即生效）；选型配置页重做为紧凑卡片 + 编辑弹窗 + 因果流拓扑图。
