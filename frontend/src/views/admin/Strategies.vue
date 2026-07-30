@@ -16,7 +16,7 @@ const DOMAINS: { value: StrategyDomain; label: string; hint: string }[] = [
   { value: 'selection', label: '选型配置', hint: '配件互斥与依赖硬规则，工作台选配时实时校验' },
   { value: 'pricing', label: '报价策略', hint: '报价场景 + 毛利三档规则，可视化连线' },
 ]
-const activeDomain = ref<StrategyDomain>('pricing')
+const activeDomain = ref<StrategyDomain>(DOMAINS[0].value)
 </script>
 
 <template>

@@ -622,7 +622,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
 import { useSelectionRulesStore } from '@/stores/selectionRules'
-import { evalOp, type RuleContext, type RuleAction } from '@/stores/selectionEngine'
+import { normalizeDriveKind } from '@/stores/selectionEngine'
 import { useSettingsStore } from '@/store/settings'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import UniverSheet from '@/components/UniverSheet.vue'
@@ -732,31 +732,11 @@ const chassisBaseName = computed(() => {
 })
 const chassisMatched = computed(() => !!activeConfig.value?.server_model_id)
 
-// 商机级候选机型过滤：兼容性规则的 filter 动作（默认规则① series == opportunity.platform_type）。
-// 只依赖商机 platform_type（不依赖具体配置）；命中后候选下拉只显示匹配系列，auto-complete 仍可自由输入（建议层不锁）。
-const modelSeriesFilter = computed(() => {
-  const pt = store.opportunityInfo?.platform_type
-  if (!pt) return null
-  const ctx: RuleContext = { kp: {}, config: {}, opportunity: { platform_type: pt } }
-  const f = selectionRulesStore.evaluateRules(ctx)
-    .find(a => a.action === 'filter' && a.filterScope === 'server_model')
-  if (!f || !f.filterField) return null
-  return { field: f.filterField, op: f.filterOp || '==', value: f.filterValue }
-})
-// auto-complete options：value=name（存进 server_model），label 带 form 提示；商机有平台时按 filter 规则过滤候选系列
-const serverModelOptions = computed(() => {
-  const f = modelSeriesFilter.value
-  const list = f
-    ? serverModels.value.filter(m => {
-        const actual = f.field === 'series' ? (m.base_config?.series || '') : (m as any)[f.field]
-        return evalOp(actual, f.op, f.value)
-      })
-    : serverModels.value
-  return list.map(m => ({
-    value: m.name,
-    label: `${m.name}${m.base_config?.form ? ' · ' + m.base_config.form : ''}${m.use ? ' · ' + m.use : ''}`,
-  }))
-})
+// auto-complete options：value=name（存进 server_model），label 带 form 提示
+const serverModelOptions = computed(() => serverModels.value.map(m => ({
+  value: m.name,
+  label: `${m.name}${m.base_config?.form ? ' · ' + m.base_config.form : ''}${m.use ? ' · ' + m.use : ''}`,
+})))
 
 // server_model 下拉选中：v-model 已写 name；这里补 server_model_id + base_config_id
 function onServerModelSelect(name: string) {
@@ -1138,7 +1118,7 @@ async function freezeExportedQuotation() {
     // L3 策略溯源快照：记录命中的定价策略（失败不阻断导出）
     const oi = store.opportunityInfo
     const snap = pricingRulesStore.getStrategySnapshot({
-      platform: oi?.platform_type, customer_type: oi?.customer_type, quote_scenario: oi?.quote_scenario,
+      platform: oi?.platform_type, customer_type: oi?.customer_type,
     })
     quotationApi.update(quotationId, { strategy_snapshot: snap }).catch(() => {})
   } catch (e: any) {
@@ -1435,10 +1415,11 @@ function kpSummaryFor(cfg: any) {
     } else if (cat.includes('gpu')) {
       gpuPn = model; gpuQty += (it.qty || 0); hasGpu = true
     } else {
-      const up = (cat + ' ' + model).toUpperCase()
-      for (const k of ['SATA', 'SAS', 'NVMe']) {
-        if (up.includes(k)) { drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0); break }
-      }
+      // 盘类型：优先 KP 件结构化 specs（interface/kind/type，pn 查库）；缺失（无 pn / excel 新件）回退型号名嗅探（大小写无关）
+      const spec = (it.pn ? kpPartByPn(it.pn)?.specs : null) as Record<string, any> | null
+      const k = normalizeDriveKind(spec?.interface || spec?.kind || spec?.type)
+        || normalizeDriveKind((it.part_category || '') + ' ' + (it.catalogue || ''))
+      if (k) drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0)
     }
   }
   return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: (cfg?.gpu_arch as GpuArch) || (hasGpu ? 'pt' : 'none'), drivesByKind }
@@ -1529,7 +1510,7 @@ function buildRuleContext(cfg: any) {
   return {
     kp,
     config: { series: chassisSeries.value, model: cfg.server_model, sata_qty: sataQty },
-    opportunity: { platform_type: store.opportunityInfo?.platform_type || '' },
+    opportunity: {},
   }
 }
 const selectionActions = computed(() => {
@@ -1537,20 +1518,8 @@ const selectionActions = computed(() => {
   if (!cfg) return []
   return selectionRulesStore.evaluateRules(buildRuleContext(cfg))
 })
-// 提醒列表：filter 动作已由候选下拉过滤消费（见 modelSeriesFilter），不在此重复提示；
-// 但若当前选中机型系列与商机平台不符，补一条提示（建议层，仍可自由输入）
-const selectionAlerts = computed(() => {
-  const alerts = selectionActions.value.filter(a => a.action !== 'filter')
-  const f = modelSeriesFilter.value
-  const cs = chassisSeries.value
-  if (f && f.field === 'series' && cs && !evalOp(cs, f.op, f.value)) {
-    alerts.push({
-      ruleId: -1, ruleName: '机型系列校验', action: 'filter', severity: 'info',
-      desc: `当前机型系列「${cs}」与商机平台「${f.value}」不符（候选已按平台过滤，仍可自由输入其它型号）`,
-    } as RuleAction)
-  }
-  return alerts
-})
+// 提醒列表：选型规则的 require/exclude/derive/recommend 命中
+const selectionAlerts = computed(() => selectionActions.value.filter(a => a.action !== 'filter'))
 
 // 利润率告警：优先按 platform_type 三档（pricing.margin_tier.floor）；无三档回退 system_config 旧阈值
 let _marginAlerted = false
@@ -1559,7 +1528,7 @@ watch(
   (m) => {
     if (m == null || !isFinite(m)) return
     const pt = store.opportunityInfo?.platform_type
-    const tier = pricingRulesStore.getMarginTier(pt, store.opportunityInfo?.customer_type, store.opportunityInfo?.quote_scenario)
+    const tier = pricingRulesStore.getMarginTier(pt, store.opportunityInfo?.customer_type)
     const floor = tier ? tier.floor : pricingRulesStore.alertThreshold * 100
     if (m < floor) {
       if (!_marginAlerted) {
@@ -1761,8 +1730,7 @@ onMounted(async () => {
       total_qty: 0,
       platform_type: '',
       chassis_form: '',
-      customer_type: '',
-      quote_scenario: ''
+      customer_type: ''
     }
     // 在已有商机下新建报价：回填该商机元数据，避免保存时把名字等覆盖成空（→ 显示"未命名"）
     if (opportunityId) {
@@ -1778,8 +1746,7 @@ onMounted(async () => {
           total_qty: opp.purchase_qty ?? opp.total_qty ?? 0,
           platform_type: opp.platform_type || '',
           chassis_form: opp.chassis_form || '',
-          customer_type: opp.customer_type || '',
-          quote_scenario: opp.quote_scenario || ''
+          customer_type: opp.customer_type || ''
         }
       } catch { /* 读取失败回退空白，不阻塞新建 */ }
     }

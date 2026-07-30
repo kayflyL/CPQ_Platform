@@ -1,10 +1,9 @@
 /**
  * 服务器配置流程的状态中枢（配置面用）。
- * 管理 KP 选配 / GPU 架构 / 后面板槽位 / 手改覆盖，调 /api/derive 实时推导。
- * 对应原型 server-config-prototype.html 的配置面逻辑，落地为 Vue 响应式。
+ * 管理 KP 选配 / GPU 架构 / 后面板槽位 / 手改覆盖。
+ * 前面板线缆和 GPU 供电线已迁移到 CRE 兼容性规则卡片，此处不再调用推导 API。
  */
 import { ref, reactive } from 'vue'
-import { deriveApi, type DeriveState, type DeriveResult } from '@/api/serverConfig'
 
 export type GpuArch = 'none' | 'pt' | 'switch'
 export interface KpLineCfg { cat: string; pn: string; qty: number }
@@ -21,55 +20,25 @@ export function useServerConfig() {
   const overrides = reactive<Record<string, any>>({})
   /** 基准配置自带的背板类型（ConfigWizard 加载基准后回填，作 bpType 默认，优先于硬盘推导） */
   const baseBpType = ref<'tri' | 'dc' | null>(null)
+  /** CRE 兼容性规则求出的背板类型（L6ChassisConfig 跑 derive 赋值规则注入），优先级低于手改/基准 */
+  const derivedBpType = ref<'tri' | 'dc' | null>(null)
+  /** CRE 兼容性规则求出的线缆默认数量（按类型键：SATA/SAS/NVMe/GPU线），L6ChassisConfig 跑 derive 算术规则注入；手改优先 */
+  const derivedCableQty = ref<Record<string, number>>({})
 
-  const deriving = ref(false)
-  const result = ref<DeriveResult | null>(null)
-  const error = ref('')
-
-  /** 重新推导（KP/GPU 架构变化后调用） */
-  async function rederive() {
-    deriving.value = true
-    error.value = ''
-    try {
-      const state: DeriveState = {
-        kp_lines: kpLines.value.map(l => ({ cat: l.cat, pn: l.pn, qty: l.qty })),
-        gpu_arch: gpuArch.value,
-      }
-      result.value = await deriveApi.derive(state)
-    } catch (e: any) {
-      error.value = e?.message || '推导失败'
-    } finally {
-      deriving.value = false
-    }
-  }
-
-  // ---- KP 行操作（每次变动触发重新推导）----
-  function addKp(cat = 'drive', pn = '', qty = 1) {
-    kpLines.value.push({ cat, pn, qty })
-    rederive()
-  }
-  function delKp(i: number) {
-    kpLines.value.splice(i, 1)
-    rederive()
-  }
-  function setKp(i: number, patch: Partial<KpLineCfg>) {
-    kpLines.value[i] = { ...kpLines.value[i], ...patch }
-    rederive()
-  }
-
-  // ---- 显示值：手改覆盖优先，否则用推导结果 ----
+  // ---- 显示值：手改覆盖优先，否则用 CRE 规则注入的默认数量 ----
   function frontCableQty(kind: string): number {
     const o = overrides['fc-' + kind]
     if (o != null) return o
-    return result.value?.front_cables.find(c => c.kind === kind)?.qty ?? 0
+    // 默认数量由 CRE 规则驱动（SATA/SAS÷per、NVMe÷per，per 可在选型配置页改即生效），不再写死 8/8/2
+    return derivedCableQty.value[kind] ?? 0
   }
   function psuQty(): number {
-    return overrides.psuQty != null ? overrides.psuQty : (result.value?.psu.qty ?? 2)
+    return overrides.psuQty ?? 2
   }
   function bpType(): 'tri' | 'dc' | null {
-    // 允许手改覆盖为 null（表示"不选背板"），否则走默认链
+    // 允许手改覆盖为 null（表示"不选背板"），否则走默认链：手改 > 基准自带 > CRE规则推导 > dc 兜底
     if (overrides.bp === null) return null
-    return overrides.bp ?? baseBpType.value ?? result.value?.bp_type ?? 'dc'
+    return overrides.bp ?? baseBpType.value ?? derivedBpType.value ?? 'dc'
   }
   function isManual(key: string) {
     return overrides[key] != null
@@ -79,7 +48,6 @@ export function useServerConfig() {
   }
   function clearOverride(key: string) {
     delete overrides[key]
-    rederive()
   }
 
   // ---- 后面板：按 option_type 计数（数组里的重复条目 = 数量）----
@@ -132,8 +100,10 @@ export function useServerConfig() {
   }
 
   return {
-    kpLines, gpuArch, rear, overrides, baseBpType, deriving, result, error,
-    rederive, addKp, delKp, setKp,
+    kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty,
+    addKp: (cat = 'drive', pn = '', qty = 1) => kpLines.value.push({ cat, pn, qty }),
+    delKp: (i: number) => kpLines.value.splice(i, 1),
+    setKp: (i: number, patch: Partial<KpLineCfg>) => { kpLines.value[i] = { ...kpLines.value[i], ...patch } },
     frontCableQty, psuQty, bpType, isManual, setOverride, clearOverride,
     optionQty, slotFilled, setOptionQty, incOption, decOption, uniqueRealOptions, setRearSingle, loadRear,
   }

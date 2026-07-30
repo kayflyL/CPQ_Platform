@@ -16,7 +16,6 @@ const pricingRulesStore = usePricingRulesStore()
 
 const PLATFORMS = ['Polaris', 'Orion', 'Intel', '工作站']
 const CUSTOMER_TYPES = ['直销', '渠道', '集成商', '最终用户', '代理商']
-const QUOTE_SCENARIOS = ['集采', '框架', '竞标', '非标']
 const MARGIN_MAX = 25
 
 const scenarios = ref<Strategy[]>([])   // pricing_scenario
@@ -87,7 +86,6 @@ function scopeTags(s: Strategy) {
   const out: string[] = []
   if (s.scope?.platform_type) out.push(`平台·${s.scope.platform_type}`)
   if (s.scope?.customer_type) out.push(`客户·${s.scope.customer_type}`)
-  if (s.scope?.quote_scenario) out.push(`场景·${s.scope.quote_scenario}`)
   return out
 }
 function tierGradient(b: any) {
@@ -127,7 +125,7 @@ const scEditing = ref<Strategy | null>(null)
 const scForm = ref<any>({})
 function openScNew() {
   scEditing.value = null
-  scForm.value = { name: '', description: '', platform: '', customer: '', scenario: '' }
+  scForm.value = { name: '', description: '', platform: '', customer: '' }
   scModalVisible.value = true
 }
 function openScEdit(s: Strategy) {
@@ -137,7 +135,6 @@ function openScEdit(s: Strategy) {
     description: s.body?.description || s.description || '',
     platform: s.scope?.platform_type || '',
     customer: s.scope?.customer_type || '',
-    scenario: s.scope?.quote_scenario || '',
   }
   scModalVisible.value = true
 }
@@ -147,7 +144,6 @@ async function saveSc() {
   const scope: any = {}
   if (f.platform) scope.platform_type = f.platform
   if (f.customer) scope.customer_type = f.customer
-  if (f.scenario) scope.quote_scenario = f.scenario
   const body: any = { description: f.description || '' }
   if (scEditing.value && scEditing.value.body?.rule_id != null) body.rule_id = scEditing.value.body.rule_id
   const payload = {
@@ -382,9 +378,6 @@ async function onWindowUp() {
             </a-select>
             <a-select v-model:value="scForm.customer" allow-clear placeholder="客户类型" style="width:100%">
               <a-select-option v-for="c in CUSTOMER_TYPES" :key="c" :value="c">{{ c }}</a-select-option>
-            </a-select>
-            <a-select v-model:value="scForm.scenario" allow-clear placeholder="报价场景" style="width:100%">
-              <a-select-option v-for="s in QUOTE_SCENARIOS" :key="s" :value="s">{{ s }}</a-select-option>
             </a-select>
           </div>
         </a-form-item>

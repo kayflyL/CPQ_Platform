@@ -57,8 +57,7 @@ const fieldRuleForm = reactive({
   source_config: {
     keywords: [] as string[],
     col: '',
-    value_offset: 1,
-    header_labels: [] as string[]
+    value_offset: 1
   },
   enabled: true,
   sort_order: 0
@@ -309,8 +308,7 @@ function editFieldRule(rule: any) {
     source_config: {
       keywords: rule.source_config.keywords || [],
       col: rule.source_config.col || '',
-      value_offset: rule.source_config.value_offset || 1,
-      header_labels: rule.source_config.header_labels || []
+      value_offset: rule.source_config.value_offset || 1
     }
   })
   showAddFieldRuleModal.value = true
@@ -325,8 +323,7 @@ function cancelEditFieldRule() {
     source_config: {
       keywords: [],
       col: '',
-      value_offset: 1,
-      header_labels: []
+      value_offset: 1
     },
     enabled: true,
     sort_order: 0

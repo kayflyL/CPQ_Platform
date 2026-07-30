@@ -21,7 +21,7 @@ class OpportunityRepository:
                       page: int = 1, page_size: int = 50,
                       search: str = None, status: str = None,
                       platform: str = None, chassis: str = None,
-                      result: str = None, industry: str = None, customer_type: str = None, quote_scenario: str = None,
+                      result: str = None, industry: str = None, customer_type: str = None,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
         if not include_deleted:
@@ -46,8 +46,6 @@ class OpportunityRepository:
             cts = [s.strip() for s in customer_type.split(',') if s.strip()]
             if cts:
                 q = q.filter(Opportunity.customer_type.in_(cts))
-        if quote_scenario:
-            q = q.filter(Opportunity.quote_scenario == quote_scenario)
         if search:
             q = q.filter(
                 Opportunity.customer_name.ilike(f"%{search}%") |
@@ -187,7 +185,7 @@ class OpportunityRepository:
     _CORE_COLUMNS = {
         "opportunity_id", "customer_name",
         "sales_person", "fae", "quotation_person", "platform_type", "chassis_form",
-        "industry", "customer_type", "quote_scenario", "result", "win_reason", "lost_reason",
+        "industry", "customer_type", "result",
         "purchase_qty", "created_at", "updated_at", "status", "extra_fields", "tenant_id",
     }
 

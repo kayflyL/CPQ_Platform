@@ -91,12 +91,10 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
   function getMarginTier(
     platformType?: string | null,
     customerType?: string | null,
-    quoteScenario?: string | null,
   ): MarginTier | null {
     const ctx: Record<string, any> = {
       platform_type: platformType || '',
       customer_type: customerType || '',
-      quote_scenario: quoteScenario || '',
     }
     const hits = _scenarios.value
       .filter(s => scopeMatch(s.scope, ctx) && s.rule_id != null)
@@ -132,14 +130,12 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
   function getStrategySnapshot(ctx: {
     platform?: string | null
     customer_type?: string | null
-    quote_scenario?: string | null
     warrantyYears?: number | null
   }): Array<{ type: string; name: string; id?: number; version?: number; body: any; applied?: any }> {
     const out: Array<any> = []
     const ctxMatch: Record<string, any> = {
       platform_type: ctx.platform || '',
       customer_type: ctx.customer_type || '',
-      quote_scenario: ctx.quote_scenario || '',
     }
     const hits = _scenarios.value
       .filter(s => scopeMatch(s.scope, ctxMatch) && s.rule_id != null)

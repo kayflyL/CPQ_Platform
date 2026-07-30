@@ -224,9 +224,9 @@ class PricingEngine:
         → 工作台左栏 BomTable + 规格书导出。字段映射对齐旧 _parse_l6_rows 输出：
         l6_chassis→catalogue、spec→description、qty→qty（见 parse_field_rules 的 L6 区域配置）。
 
-        注：旧的表头自适应列定位（_resolve_l6_columns，读 Catalogue/Description/Quantity
-        标签应对 C/D/E vs D/E/F 偏移）已随旧解析代码一并移除——如不同模板 L6 列偏移，
-        在解析规则页按模板配列即可；将来可给 source_type 加「按表头标签定位列」模式增强。
+        注：列定位只用固定的列字母（parse_field_rules 里 source_config.col）。早先的
+        表头自适应列定位（读 Catalogue/Description/Quantity 标签、以及后来按 header_labels
+        标签扫描）都因频繁定位错列已移除——如不同模板 L6 列偏移，在解析规则页按模板配列即可。
         """
         rows = []
         for item in dynamic_regions.get("L6", []):

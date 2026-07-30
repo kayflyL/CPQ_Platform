@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  evalOp, resolveField, resolveValue, evalWhen, evalThen, evaluateRules, parseCat,
+  evalOp, resolveField, resolveValue, evalWhen, evalThen, evaluateRules, evalAssignValue, parseCat,
   type RuleContext,
 } from './selectionEngine.ts'
 
@@ -105,6 +105,13 @@ test('resolveField: config / opportunity 根', () => {
   assert.equal(resolveField(ctx, 'config.sata_qty'), 8)
   assert.equal(resolveField(ctx, 'opportunity.platform_type'), 'Polaris')
   assert.equal(resolveField(ctx, 'config.missing'), undefined)
+})
+
+test('resolveField: config.sata_qty/sas_qty/nvme_qty 盘类型计数（线缆规则寻址）', () => {
+  const ctx: RuleContext = { kp: {}, config: { sata_qty: 8, sas_qty: 4, nvme_qty: 2 }, opportunity: {} }
+  assert.equal(resolveField(ctx, 'config.sata_qty'), 8)
+  assert.equal(resolveField(ctx, 'config.sas_qty'), 4)
+  assert.equal(resolveField(ctx, 'config.nvme_qty'), 2)
 })
 
 test('resolveValue: 字段路径取 ctx 值，字面量原样返回', () => {
@@ -233,6 +240,7 @@ test('evalThen derive: ceil 向上取整（8 盘 ÷ 8 → 1 根）', () => {
   const out = evalThen(ctx, rule({ body: { then: { action: 'derive', target: 'kp.前置背板', basis: 'config.sata_qty', per: 8, round: 'ceil' } } }))
   assert.equal(out.length, 1)
   assert.equal(out[0].deriveQty, 1)
+  assert.equal(out[0].derivePer, 8)   // 透明展示用：每组基数随规则走
   assert.equal(out[0].action, 'derive')
 })
 
@@ -306,17 +314,72 @@ test('evaluateRules: when 不命中的规则跳过，命中的产出动作', () 
   assert.equal(out[0].target, 'Polaris-rec')
 })
 
-test('evaluateRules: 默认 4 条 seed 规则在典型 ctx 下的集成行为', () => {
-  // 复刻后端 DEFAULT_RULES 的语义，确认 ctx 触发预期动作（锁定 seed 与引擎的契约）
-  const ctx = sampleCtx()
+test('evaluateRules: 默认 6 条 seed 规则在典型 ctx 下的集成行为', () => {
+  // 复刻后端 DEFAULT_RULES（filter / bp_type 赋值 / SATA·SAS·NVMe·GPU线 derive），锁定 seed 与引擎的契约
+  const ctx: RuleContext = {
+    kp: { GPU: { qty: 1, items: [{ pn: 'GPU-A', spec: {} }], spec: {} } },
+    config: { sata_qty: 8, sas_qty: 0, nvme_qty: 2, drive_kinds: ['SATA', 'NVMe'] },
+    opportunity: { platform_type: 'Polaris' },
+  }
   const seedRules = [
     rule({ id: 1, name: '按商机平台过滤候选机型', body: { when: { field: 'opportunity.platform_type', op: 'exists' }, then: { action: 'filter', scope: 'server_model', field: 'series', op: '==', value: 'opportunity.platform_type' } } }),
-    rule({ id: 2, name: '内存同型号不混搭', body: { when: { field: 'kp.Memory.qty', op: '>=', value: 2 }, then: { action: 'exclude', target: 'kp.Memory', unique_field: 'pn' } } }),
-    rule({ id: 3, name: '选 GPU 需配 GPU 供电线', body: { when: { field: 'kp.GPU.qty', op: '>=', value: 1 }, then: { action: 'require', target: 'kp.GPU供电线', min_qty: 'kp.GPU.qty' } } }),
-    rule({ id: 4, name: 'NVMe 盘需配 tri-mode 背板', body: { when: { field: 'kp.HDD/SSD.spec.interface', op: '==', value: 'NVMe' }, then: { action: 'require', target: 'kp.背板', spec_constraint: { support: 'tri-mode' } } } }),
+    rule({ id: 2, name: '背板类型：含 NVMe 盘→三模', body: { when: { field: 'config.drive_kinds', op: 'contains', value: 'NVMe' }, then: { action: 'derive', field: 'config.bp_type', value: 'tri' } } }),
+    rule({ id: 3, name: 'SATA 线缆根数', body: { when: { field: 'config.sata_qty', op: '>=', value: 1 }, then: { action: 'derive', target: 'SATA', basis: 'config.sata_qty', per: 8, round: 'ceil' } } }),
+    rule({ id: 4, name: 'SAS 线缆根数', body: { when: { field: 'config.sas_qty', op: '>=', value: 1 }, then: { action: 'derive', target: 'SAS', basis: 'config.sas_qty', per: 8, round: 'ceil' } } }),
+    rule({ id: 5, name: 'NVMe 线缆根数', body: { when: { field: 'config.nvme_qty', op: '>=', value: 1 }, then: { action: 'derive', target: 'NVMe', basis: 'config.nvme_qty', per: 2, round: 'ceil' } } }),
+    rule({ id: 6, name: 'GPU 供电线根数', body: { when: { field: 'kp.GPU.qty', op: '>=', value: 1 }, then: { action: 'derive', target: 'GPU线', basis: 'kp.GPU.qty', per: 1, round: 'ceil' } } }),
   ]
   const out = evaluateRules(seedRules as any, ctx)
-  const acts = out.map(o => o.action).sort()
-  // sampleCtx：内存冲突 + GPU 缺供电线 + NVMe 缺背板 + 平台 filter，四条全命中
-  assert.deepEqual(acts, ['exclude', 'filter', 'require', 'require'])
+  // 命中：filter + bp_type 赋值 + SATA(1) + NVMe(1) + GPU线(1) = 5；SAS 因 sas_qty=0 不命中
+  assert.equal(out.length, 5)
+  const qty: Record<string, number> = {}
+  for (const a of out) if (a.action === 'derive' && a.deriveTarget) qty[a.deriveTarget] = a.deriveQty!
+  assert.equal(qty['SATA'], 1)          // ceil(8/8)
+  assert.equal(qty['NVMe'], 1)          // ceil(2/2)
+  assert.equal(qty['GPU线'], 1)         // ceil(1/1)
+  assert.equal(qty['SAS'], undefined)   // 未命中（sas_qty=0）
+  const bp = out.find(a => a.assignField === 'config.bp_type')   // 含 NVMe → tri
+  assert.equal(bp?.assignValue, 'tri')
+  assert.ok(out.some(a => a.action === 'filter'))                // 平台过滤
+})
+
+// ============================================================
+// evalThen derive（赋值型）+ evalAssignValue —— 条件→固定值（背板类型）
+// ============================================================
+test('evalThen derive 赋值型: then 带 field+value 产出 assign 动作（不走算术）', () => {
+  const ctx = sampleCtx()
+  const out = evalThen(ctx, rule({ body: { then: { action: 'derive', field: 'config.bp_type', value: 'tri' } } }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].action, 'derive')
+  assert.equal(out[0].assignField, 'config.bp_type')
+  assert.equal(out[0].assignValue, 'tri')
+  assert.equal(out[0].deriveQty, undefined)  // 不应产出算术字段
+})
+
+test('evalAssignValue: 首条命中规则生效（short-circuit），更具体规则放前', () => {
+  const ctx = { kp: {}, config: { drive_kinds: ['NVMe'] }, opportunity: {} } as RuleContext
+  const rules = [
+    // 规则1（在前）：含 NVMe → tri（应被采用）
+    rule({ id: 1, body: { when: { field: 'config.drive_kinds', op: 'contains', value: 'NVMe' }, then: { action: 'derive', field: 'config.bp_type', value: 'tri' } } }),
+    // 规则2（在后，也命中）：→ dc（不应采用，因规则1先命中）
+    rule({ id: 2, body: { when: { any: [{ field: 'config.drive_kinds', op: 'contains', value: 'SATA' }, { field: 'config.drive_kinds', op: 'contains', value: 'NVMe' }] }, then: { action: 'derive', field: 'config.bp_type', value: 'dc' } } }),
+  ]
+  assert.equal(evalAssignValue(rules as any, ctx, 'config.bp_type'), 'tri')
+})
+
+test('evalAssignValue: 无命中返回 undefined（交消费端兜底 dc）', () => {
+  const ctx = { kp: {}, config: { drive_kinds: [] }, opportunity: {} } as RuleContext
+  const rules = [
+    rule({ id: 1, body: { when: { field: 'config.drive_kinds', op: 'contains', value: 'SATA' }, then: { action: 'derive', field: 'config.bp_type', value: 'tri' } } }),
+  ]
+  assert.equal(evalAssignValue(rules as any, ctx, 'config.bp_type'), undefined)
+})
+
+test('evalAssignValue: 跳过算术型 derive 与非 active 规则', () => {
+  const ctx = sampleCtx()
+  const rules = [
+    rule({ id: 1, status: 'draft', body: { then: { action: 'derive', field: 'config.bp_type', value: 'tri' } } }),
+    rule({ id: 2, body: { then: { action: 'derive', basis: 'config.sata_qty', per: 8, target: 'kp.前置背板' } } }),
+  ]
+  assert.equal(evalAssignValue(rules as any, ctx, 'config.bp_type'), undefined)
 })

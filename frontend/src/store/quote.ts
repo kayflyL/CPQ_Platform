@@ -15,7 +15,6 @@ export interface ProjectInfo {
   platform_type: string
   chassis_form: string
   customer_type?: string
-  quote_scenario?: string
   company?: string
   id?: string
   quotation_id?: string

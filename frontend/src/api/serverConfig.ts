@@ -82,23 +82,6 @@ export const baseConfigApi = {
     RESP<{ ok: boolean }>(axios.put(`/api/base-configs/${id}/parts`, parts)),
 }
 
-// ---------- 推导（配置面实时调用）----------
-export interface DerivationRuleParam {
-  rule_key: string; field: string; label: string
-  type: 'number' | 'list' | 'map'; default: any; value: any
-}
-export interface DerivationRule { key: string; name: string; logic: string; params: DerivationRuleParam[] }
-
-export const deriveApi = {
-  /** state: { kp_lines:[{cat,pn,qty}], gpu_arch, psu_options? } → 推导结果 + 校验 */
-  derive: (state: DeriveState) => RESP<DeriveResult>(axios.post('/api/derive', state)),
-  /** 内置推导规则透明化：人话逻辑 + 当前参数值（功耗/电源/线缆/背板…）*/
-  rules: () => RESP<{ derivations: DerivationRule[] }>(axios.get('/api/derive/rules')),
-  /** 改单个推导参数（merge 进 rule_key 的 params，upsert derivation_rules 行）*/
-  updateRuleParam: (rule_key: string, field: string, value: any) =>
-    RESP<{ ok: boolean; params: Record<string, any> }>(axios.put('/api/derive/rules', { rule_key, field, value })),
-}
-
 // ---------- 配置方案（服务器页配置产出 / 无价 BOM 保存读取）----------
 export const configSchemeApi = {
   list: (modelId?: number) =>
@@ -234,21 +217,6 @@ export interface KpPart {
   specs?: Record<string, any>
   applicable?: { series?: string[] } | null
   unit_price?: number
-}
-export interface DeriveState {
-  kp_lines: { cat: string; pn: string; qty: number }[]
-  gpu_arch: 'none' | 'pt' | 'switch'
-  psu_options?: { pn: string; name: string; wattage: number; price: number }[]
-}
-export interface DeriveResult {
-  bp_type: 'tri' | 'dc'
-  power: { total: number; base: number; cpu: number; gpu: number }
-  psu: { power: { total: number; base: number; cpu: number; gpu: number }; qty: number; need_wattage: number; psu: PartMaster | null }
-  front_cables: { kind: string; drive_count: number; group_size: number; qty: number }[]
-  gpu_cables: { total: number; detail: { model: string; qty: number; per: number }[] }
-  switch_extra: { category: string; gpu_count: number }[]
-  switch_extra_parts?: { pn: string; name: string; category: string; qty: number; unit_price: number }[]
-  warnings: string[]
 }
 
 // ---------- 后面板配置类型 ----------

@@ -16,6 +16,7 @@ import { fromKpPart } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext } from '@/stores/selectionRules'
+import { normalizeDriveKind } from '@/stores/selectionEngine'
 
 const props = defineProps<{ model: ServerModel }>()
 const selectionRulesStore = useSelectionRulesStore()
@@ -221,10 +222,10 @@ const kpSummary = computed(() => {
   for (const l of kpLines.value) {
     if (l.cat !== 'HDD/SSD') continue
     const part = kpPart(l.pn) as any
-    const name = (part?.name || '') + ' ' + ((part?.specs as any)?.kind || '')
-    for (const k of ['SATA', 'SAS', 'NVMe']) {
-      if (name.toUpperCase().includes(k)) { drivesByKind[k] = (drivesByKind[k] || 0) + (l.qty || 0); break }
-    }
+    // 盘类型：优先结构化 specs（interface/kind/type）；缺失回退型号名嗅探（大小写无关）
+    const k = normalizeDriveKind(part?.specs?.interface || part?.specs?.kind || part?.specs?.type)
+      || normalizeDriveKind(part?.name || '')
+    if (k) drivesByKind[k] = (drivesByKind[k] || 0) + (l.qty || 0)
   }
   return {
     cpuPn: cpu?.pn, cpuQty: cpu?.qty,

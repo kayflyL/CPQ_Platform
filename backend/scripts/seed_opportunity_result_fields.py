@@ -1,4 +1,4 @@
-"""D1 补录：把商机结果与复盘 5 字段注册进 business_fields（现有库）。
+"""D1 补录：把商机结果字段注册进 business_fields（现有库）。
 
 init_business_fields.py 只在空表时播种；已有数据的库需跑此脚本补录，
 否则 /api/opportunities/field-history/{industry|customer_type} 会因字段未注册而 400。
@@ -28,8 +28,6 @@ FIELDS = [
     {"key": "industry", "label": "行业", "category": "opportunity", "source": "Opportunity", "source_column": "industry", "sort_order": 33},
     {"key": "customer_type", "label": "客户类型", "category": "opportunity", "source": "Opportunity", "source_column": "customer_type", "sort_order": 34},
     {"key": "result", "label": "业务结果", "category": "opportunity", "source": "Opportunity", "source_column": "result", "sort_order": 35},
-    {"key": "win_reason", "label": "中标原因", "category": "opportunity", "source": "Opportunity", "source_column": "win_reason", "sort_order": 36},
-    {"key": "lost_reason", "label": "丢标原因", "category": "opportunity", "source": "Opportunity", "source_column": "lost_reason", "sort_order": 37},
 ]
 
 

@@ -136,8 +136,8 @@ class ExcelParser:
                     source_config = rule["source_config"]
                     
                     if rule["source_type"] == "column":
-                        col_idx = self._resolve_column_idx(df, bounds, source_config)
                         col_letter = source_config.get("col", "A")
+                        col_idx = self._col_letter_to_index(col_letter)
 
                         if col_idx < df.shape[1]:
                             cell_val = df.iloc[r, col_idx]
@@ -332,35 +332,6 @@ class ExcelParser:
             result = result * 26 + (ord(ch) - ord('A') + 1)
         return result - 1
 
-    def _resolve_column_idx(self, df: pd.DataFrame, bounds: dict, source_config: dict) -> int:
-        """确定 column 规则取哪一列：配了 header_labels 时优先按表头标签定位（自适应
-        C/D/E vs D/E/F 等模板列偏移），找不到再回落 col 字母。"""
-        header_labels = source_config.get("header_labels")
-        if header_labels:
-            idx = self._resolve_column_by_header(df, bounds, header_labels)
-            if idx is not None:
-                return idx
-        return self._col_letter_to_index(source_config.get("col", "A"))
-
-    def _resolve_column_by_header(self, df: pd.DataFrame, bounds: dict, labels) -> int | None:
-        """在区域起始行往下扫描，找含任一标签的单元格，返回其列 idx。找不到返回 None。
-
-        扫描范围从区域起始行延伸到数据起始行之后 2 行——兼容不同模板把列标签放在
-        关键词行、紧接的表头行、甚至数据起始行的情况（KP 区域 skip=0，表头常在关键词
-        行的下一行）。第一个命中的单元格即为该字段的取值列。
-        """
-        start = bounds["start_row"]
-        scan_end = bounds["start_row"] + bounds["skip_rows"] + 2
-        labels_lower = [str(l).lower() for l in labels]
-        for r in range(start, min(scan_end + 1, len(df))):
-            for c in range(min(df.shape[1], 20)):
-                val = str(df.iloc[r, c]).strip().lower()
-                if not val:
-                    continue
-                if any(lbl in val for lbl in labels_lower):
-                    return c
-        return None
-
     def preview_parse(self, df: pd.DataFrame, max_row: int = 15, max_col: int = 15) -> dict:
         """生成热力图预览数据（用于前端可视化）
         
@@ -444,7 +415,7 @@ class ExcelParser:
                 for rule in region_rules:
                     source_config = rule["source_config"]
                     if rule["source_type"] == "column":
-                        col_idx = self._resolve_column_idx(df, bounds, source_config)
+                        col_idx = self._col_letter_to_index(source_config.get("col", "A"))
 
                         if col_idx < cols:
                             cell_val = str(df.iloc[r, col_idx]).strip() if pd.notna(df.iloc[r, col_idx]) else ''

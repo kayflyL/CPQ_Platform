@@ -17,11 +17,8 @@ export interface Project {
   fae: string
   // 商机上下文（pricing scope 维度，可选 — 后端 extra_fields 动态字段）
   customer_type?: string
-  quote_scenario?: string
-  // 业务结果流转（D1：中标/丢标，与 status 正交）
+  // 业务结果流转（与 status 正交）
   result?: 'pending' | 'won' | 'lost'
-  win_reason?: string
-  lost_reason?: string
 
   // Computed fields from latest quotation
   quotation_count: number

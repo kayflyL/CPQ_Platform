@@ -228,7 +228,7 @@ def get_trend_overview(limit: int = Query(default=10, ge=5, le=20)):
 
     供方案助手「分析本期趋势」快捷指令注入,一次取齐避免前端多次请求。
     近半年走 start/end(_resolve_range 无 half_year 枚举)→ 自动按月分桶,可算逐月环比。
-    重点商机近半年内按 purchase_qty 降序取 Top `limit`,带 lost_reason(常含价格反馈)。
+    重点商机近半年内按 purchase_qty 降序取 Top `limit`。
     """
     today = datetime.now()
     half_start = (today - timedelta(days=180)).strftime("%Y-%m-%d")
@@ -248,7 +248,6 @@ def get_trend_overview(limit: int = Query(default=10, ge=5, le=20)):
         rows = session.query(
             Opportunity.customer_name, Opportunity.sales_person, Opportunity.platform_type,
             Opportunity.chassis_form, Opportunity.purchase_qty, Opportunity.result,
-            Opportunity.lost_reason,
             func.coalesce(func.sum(Quotation.config_count), 0).label("config_count"),
         ).outerjoin(
             Quotation,
@@ -267,7 +266,6 @@ def get_trend_overview(limit: int = Query(default=10, ge=5, le=20)):
             "purchase_qty": r.purchase_qty or 0,
             "config_count": int(r.config_count or 0),
             "result": r.result or "",
-            "lost_reason": r.lost_reason or "",
         } for r in rows]
     finally:
         session.close()

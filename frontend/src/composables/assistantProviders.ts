@@ -158,7 +158,7 @@ function formatHighlights(hs: any[]): string {
       h.result,
     ].filter(Boolean)
     const line = parts.join(' / ')
-    return h.lost_reason ? `${line} — 丢标原因:${h.lost_reason}` : line
+    return line
   })
   return `【近期重点商机(近半年,按台数降序)】\n${lines.join('\n')}`
 }

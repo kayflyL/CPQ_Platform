@@ -28,7 +28,7 @@ interface ContextProvider { key; label; match(ctx); summarize(ctx): Promise<stri
 
 | 指令 | providerKey | 说明 |
 |------|-------------|------|
-| 📈 分析本期趋势 | `opportunity-list` | 原「趋势洞察」卡片下沉而来。`prompt` 读 `ai_trend_analysis.prompt_template`(AI 设置「趋势分析」tab 可改);`context` 调 `/api/dashboard/trend-overview` 取周/月/近半年聚合 + 近期重点商机(含 lost_reason),拼成富文本注入。LLM 据此输出 8 段结构化报告 |
+| 📈 分析本期趋势 | `opportunity-list` | 原「趋势洞察」卡片下沉而来。`prompt` 读 `ai_trend_analysis.prompt_template`(AI 设置「趋势分析」tab 可改);`context` 调 `/api/dashboard/trend-overview` 取周/月/近半年聚合 + 近期重点商机,拼成富文本注入。LLM 据此输出 8 段结构化报告 |
 
 ## API 端点(`/api/assistant`)
 

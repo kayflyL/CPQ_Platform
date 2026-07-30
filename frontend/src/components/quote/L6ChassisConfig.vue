@@ -3,7 +3,7 @@
  * L6 机箱选配（共用组件）— 服务器配置页(ConfigWizard) 与 报价工作台(Workspace) 共用。
  * 4 个面板：①基准配置（含「选择基准配置」下拉）②前面板 ③后面板(PCIe IO + OCP + GPU 线) ④电源。
  *
- * 内部用 useServerConfig() 管 rear/overrides/baseBpType；kpSummary prop 合成进 kpLines+gpuArch 后 rederive。
+ * 内部用 useServerConfig() 管 rear/overrides/baseBpType；kpSummary prop 合成进 kpLines+gpuArch。
  * 选配变动 → emit `apply`（含 totals/picks/l6Rows）+ `update:baseConfigId`。
  * 父组件切 tab 重挂时由 onMounted 读 initialPicks 自 hydrate。
  *
@@ -16,6 +16,7 @@ import {
   type PartMaster, type BaseConfig, type RearIOSlotOption, type BomTemplate,
 } from '@/api/serverConfig'
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
+import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import PartPicker from '@/components/common/PartPicker.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
@@ -49,10 +50,40 @@ const emit = defineEmits<{
 }>()
 
 const {
-  kpLines, gpuArch, rear, overrides, baseBpType, result,
-  rederive, frontCableQty, psuQty, bpType, isManual, setOverride,
+  kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty,
+  frontCableQty, psuQty, bpType, isManual, setOverride,
   optionQty, slotFilled, incOption, decOption, uniqueRealOptions, setRearSingle,
 } = useServerConfig()
+
+const selectionRulesStore = useSelectionRulesStore()
+// CRE 规则求值上下文：盘类型/各类盘数 + GPU 数量，全部取自 kpSummary（随工作台 KP 增删/换型反应式重算）
+const ruleCtx = computed<RuleContext>(() => {
+  const d = props.kpSummary?.drivesByKind || {}
+  return {
+    kp: { GPU: { qty: props.kpSummary?.gpuQty || 0, items: [], spec: {} } },
+    config: {
+      drive_kinds: (Object.keys(d) as string[]).filter(k => (d as Record<string, number>)[k] > 0),
+      sata_qty: d.SATA || 0, sas_qty: d.SAS || 0, nvme_qty: d.NVMe || 0,
+    },
+    opportunity: {},
+  }
+})
+// CRE 背板规则：盘类型 → 背板类型(tri/dc)，声明式可配、改即生效；注入 useServerConfig.derivedBpType
+const ruleBpType = computed<'tri' | 'dc' | null>(() =>
+  ((selectionRulesStore.assignValue('config.bp_type', ruleCtx.value) as 'tri' | 'dc') ?? null))
+watch(ruleBpType, v => { derivedBpType.value = v }, { immediate: true })
+// CRE 线缆规则：跑 derive 算术规则，按线缆类型(SATA/SAS/NVMe/GPU线)收成动作；数量注入 useServerConfig.derivedCableQty
+const cableActions = computed<Record<string, RuleAction>>(() => {
+  const out: Record<string, RuleAction> = {}
+  for (const a of selectionRulesStore.evaluateRules(ruleCtx.value)) {
+    if (a.action === 'derive' && a.deriveTarget) out[a.deriveTarget] = a
+  }
+  return out
+})
+watch(cableActions, m => {
+  derivedCableQty.value = Object.fromEntries(Object.entries(m).map(([k, a]) => [k, a.deriveQty ?? 0]))
+}, { immediate: true })
+void selectionRulesStore.ensureRules()
 
 const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据
 const baseConfig = ref<(BaseConfig & { parts: any[]; rear_slots?: string[] }) | null>(null)
@@ -199,11 +230,11 @@ function frontCablePickedPn(k: string) {
   return overrides['fc-' + k + '-pn'] || frontCableParts(k)[0]?.pn || ''
 }
 function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'; price: number; name: string } {
-  const c = result.value?.front_cables.find(x => x.kind === k)
+  // 盘数取 kpSummary.drivesByKind；"每组"读 CRE 规则的 derivePer（改规则即同步，无死数）
   const p = frontCables.value.find(x => x.pn === frontCablePickedPn(k))
-  const group: number | '-' = c?.group_size != null ? c.group_size : '-'
   return {
-    n: c?.drive_count ?? 0, group,
+    n: props.kpSummary?.drivesByKind?.[k] ?? 0,
+    group: cableActions.value[k]?.derivePer ?? '-',
     price: p?.unit_price ?? 0, pn: p?.pn || '',
     name: p?.name || '',
   }
@@ -224,11 +255,9 @@ function psuPicked(): PartMaster | null {
   if (!overrides.psuPn) return null
   return psuParts.value.find(p => p.pn === overrides.psuPn) || null
 }
-function psuName(): string { return psuPicked()?.name || result.value?.psu?.psu?.name || '' }
+function psuName(): string { return psuPicked()?.name || '' }
 function psuUnitPrice(): number {
-  const p = psuPicked()
-  if (p) return p.unit_price || 0
-  return result.value?.psu?.psu?.unit_price || 0
+  return psuPicked()?.unit_price || 0
 }
 function gpuCablePicked(): PartMaster | null {
   if (!overrides.gpuCablePn) return null
@@ -236,7 +265,7 @@ function gpuCablePicked(): PartMaster | null {
 }
 function gpuCableQty(): number {
   if (overrides.gpuCableQty != null) return Number(overrides.gpuCableQty) || 0
-  return result.value?.gpu_cables.total ?? 0
+  return derivedCableQty.value['GPU线'] || 0
 }
 function gpuCableUnitPrice(): number { return gpuCablePicked()?.unit_price || 0 }
 
@@ -305,7 +334,6 @@ function applyKpSummary(s: any) {
   }
   kpLines.value = lines
   gpuArch.value = (s.gpuArch || (s.gpuPn ? 'pt' : 'none')) as GpuArch
-  rederive()
 }
 
 // ---- 左栏 L6 摘要模板的行值解析（catalogue/desc/qty，无价）----
@@ -377,7 +405,7 @@ function scheduleEmit() {
   }, 50) // 合并连续变动（rear 累加等），避免高频 emit
 }
 
-watch([rear, overrides, baseConfig, result, bomTemplate], scheduleEmit, { deep: true })
+watch([rear, overrides, baseConfig, bomTemplate], scheduleEmit, { deep: true })
 watch(() => props.kpSummary, (s) => applyKpSummary(s), { deep: true })
 // 外部 baseConfigId 变化时重新加载基准配置（用户在报价页选服务器型号后打开弹窗）
 watch(() => props.baseConfigId, async (newId, oldId) => {
@@ -573,15 +601,8 @@ onBeforeUnmount(() => {
 
     <!-- ④ 电源 -->
     <div id="l6-panel-psu" class="sc-panel" v-show="!stepper || activeStep === 'psu'">
-      <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量；功耗推导仅供参考</span><span class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
+      <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量</span><span class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
-        <div class="power-breakdown" v-if="result?.power?.total">
-          <div class="pb-item"><span class="pb-label">基础功耗</span><span class="pb-val">{{ result.power.base }}W</span></div>
-          <div class="pb-item"><span class="pb-label">CPU 功耗</span><span class="pb-val">+ {{ result.power.cpu }}W</span></div>
-          <div class="pb-item"><span class="pb-label">GPU 功耗</span><span class="pb-val">+ {{ result.power.gpu }}W</span></div>
-          <div class="pb-item total"><span class="pb-label">整机峰值（参考）</span><span class="pb-val">{{ result.power.total }}W</span></div>
-        </div>
-        <div class="psu-empty-hint" v-else>功耗数据未维护，下方请直接从料号库选 PSU。</div>
         <div class="psu-row" v-if="psuParts.length">
           <label class="psu-lab">PSU 型号</label>
           <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="overrides.psuPn || ''" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
@@ -710,19 +731,12 @@ onBeforeUnmount(() => {
 .net-card.blank { flex: 0 0 auto; min-width: 150px; border-style: dashed; }
 .net-name { font-size: 14px; font-weight: 600; }
 .net-price { font-size: 12px; opacity: .75; }
-.power-breakdown { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; padding: 12px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 12px; }
-.pb-item { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: var(--cpq-overlay-w3); border-radius: 8px; }
-.pb-item.total { background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); }
-.pb-label { font-size: 12px; color: var(--cpq-text-muted,#6E7582); }
-.pb-val { font-size: 14px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
-.pb-item.total .pb-val { color: var(--cpq-accent-primary,#1677FF); }
 .psu-row { display: grid; grid-template-columns: 70px minmax(150px,1fr) 110px 110px 90px; gap: 9px; align-items: center; padding: 11px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 9px; }
 .psu-lab { font-size: 13px; font-weight: 500; color: var(--cpq-text-primary,#E8ECEF); }
 .psu-sel { width: 100%; }
 .psu-unit-price { font-size: 12px; color: var(--cpq-text-secondary,#9BA1AA); }
 .psu-step { width: auto; flex: 1; }
 .psu-subtotal { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); text-align: right; }
-.psu-empty-hint { font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-bottom: 10px; padding: 9px 12px; background: rgba(250,140,22,.08); border: 1px solid rgba(250,140,22,.25); border-radius: 10px; }
 .gpu-cable-line .dl-r { gap: 5px; }
 .l6-total-bar { position: relative; display: flex; align-items: baseline; gap: 14px; padding: 12px 18px; border: 1px solid var(--cpq-glass-border-strong); border-radius: var(--cpq-radius-lg); background: var(--cpq-overlay-a8); backdrop-filter: blur(var(--cpq-glass-blur-1)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1)); }
 .l6-total-bar b { color: var(--cpq-accent-primary,#1677FF); font-size: 18px; }

@@ -30,7 +30,6 @@ from app.api import l6_chassis
 from app.api import parts as parts_api
 from app.api import server_catalog as server_catalog_api
 from app.api import base_configs as base_configs_api
-from app.api import derive as derive_api
 from app.api import config_schemes as config_schemes_api
 from app.api import fields as fields_api
 from app.api import system_config as system_config_api
@@ -92,7 +91,6 @@ app.include_router(l6_chassis.router)
 app.include_router(parts_api.router)
 app.include_router(server_catalog_api.router)
 app.include_router(base_configs_api.router)
-app.include_router(derive_api.router)
 app.include_router(config_schemes_api.router)
 app.include_router(fields_api.router)
 app.include_router(system_config_api.router)

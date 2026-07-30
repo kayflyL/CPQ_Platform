@@ -12,7 +12,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { compatibilityRulesApi, type CompatibilityRule } from '@/api/compatibilityRules'
-import { evaluateRules as _evaluateRules, type RuleAction, type RuleContext } from './selectionEngine'
+import { evaluateRules as _evaluateRules, evalAssignValue as _evalAssignValue, type RuleAction, type RuleContext } from './selectionEngine'
 
 // 纯求值逻辑与类型统一由 selectionEngine 提供；re-export 供消费端从 store 统一 import
 export type { RuleAction, RuleActionKind, RuleSeverity, RuleContext } from './selectionEngine'
@@ -47,6 +47,11 @@ export const useSelectionRulesStore = defineStore('selectionRules', () => {
     return _evaluateRules(_creRules.value, ctx)
   }
 
+  /** 求某赋值型字段的目标值（如背板类型 config.bp_type），按规则顺序首命中；无命中返回 undefined。 */
+  function assignValue(field: string, ctx: RuleContext): any {
+    return _evalAssignValue(_creRules.value, ctx, field)
+  }
+
   const creRules = computed(() => _creRules.value)
 
   return {
@@ -54,5 +59,6 @@ export const useSelectionRulesStore = defineStore('selectionRules', () => {
     ensureRules,
     invalidateRules,
     evaluateRules,
+    assignValue,
   }
 })

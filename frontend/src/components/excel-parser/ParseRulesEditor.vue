@@ -263,16 +263,7 @@
           <a-form-item label="列字母">
             <a-input
               v-model:value="fieldRuleForm.source_config.col"
-              placeholder="如: A, B, C, D（表头标签未命中时的回落列）"
-              style="width: 100%;"
-            />
-          </a-form-item>
-          <a-form-item label="表头标签（自适应列定位）">
-            <a-select
-              v-model:value="fieldRuleForm.source_config.header_labels"
-              mode="tags"
-              :token-separators="[',']"
-              placeholder="如 catalogue、类别。配了则优先按表头标签定位列，兼容不同模板的列偏移"
+              placeholder="如: A, B, C, D"
               style="width: 100%;"
             />
           </a-form-item>

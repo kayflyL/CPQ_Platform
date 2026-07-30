@@ -12,41 +12,41 @@ from app.models.base import Rules_SessionLocal
 from app.models.compatibility_rule import CompatibilityRule
 
 
-# P1 默认规则（声明式 WHEN→THEN）。category 名以 DB kp.kp_categories.name 为准（2026-07-29 已核对，
-# 实际为英文且仅 10 个：Network(NIC) requirement / HDD/SSD / GPU / CPU / Memory / Raid card /
-# Bridge / HBA / NVSwitch / GPU card）。
+# 选型配置默认规则（声明式 WHEN→THEN）。CRE 规则是线缆/背板/筛选的「唯一真相源」（拒绝黑盒：
+# 数量计算方式在选型配置页可视化、可配、改即生效）。
 #
-# ⚠️ 重要边界：CRE 的 ctx 只聚合 cfg.items 里 category='Key Parts' 的件（见 Workspace.buildRuleContext），
-#   即只有上列 KP category 能被 kp.<cat>.* 寻址。线缆/背板/电源等件在料号库 l6.parts_master（中文
-#   category：GPU电源线/背板/电源/前面板线缆...），**不进 CRE 寻址空间**——这类功耗/线缆/背板约束
-#   由后端 DerivationEngine 承担（derive_gpu_cables / derive_bp_type）。因此 ③④ 的 target 当前
-#   寻址不到，标 status=testing 保留业务意图但不假装生效；待 ctx 扩展纳入料号库件后再激活。
+# 寻址：ctx.kp 聚合 KP 配件库件（GPU/CPU/Memory/HDD-SSD…，按 kp_categories 英文名）；
+#   ctx.config 暴露盘类型计数 config.sata_qty / sas_qty / nvme_qty、盘类型集合 config.drive_kinds、
+#   config.bp_type。规则只产出「某类型线缆要几根」的数量，
+#   target 取线缆类型标签（SATA/SAS/NVMe/GPU线），消费端（L6ChassisConfig）据此填步进器默认值——
+#   具体选哪根 PN 是用户的事，规则不碰料号库。手改数量优先于规则默认（推导仅兜底）。
 DEFAULT_RULES: list[dict] = [
-    # ① filter：商机平台 → 候选机型过滤（不依赖 category 名，最稳；验证 filter 动作）
-    {"type": "filter", "status": "active", "name": "按商机平台过滤候选机型",
-     "body": {"when": {"field": "opportunity.platform_type", "op": "exists"},
-              "then": {"action": "filter", "scope": "server_model", "field": "series",
-                       "op": "==", "value": "opportunity.platform_type"},
-              "desc": "商机信息栏选了平台类型（如 Polaris），工作台/server config 只出现该系列机型"}},
-    # ② exclude：内存同型号不混搭（Memory 为 kp_categories 真实 category；ctx.items.pn 由消费端从 oem_sku enrich）
-    {"type": "exclude", "status": "active", "name": "内存同型号不混搭",
-     "body": {"when": {"field": "kp.Memory.qty", "op": ">=", "value": 2},
-              "then": {"action": "exclude", "target": "kp.Memory", "unique_field": "pn"},
-              "desc": "配置内 ≥2 条内存时必须同型号（pn 唯一），禁止混用不同速率/容量"}},
-    # ③ require：选 GPU → 必配 GPU 电源线（用户业务例①）
-    #    testing：GPU 电源线在料号库 parts_master(category='GPU电源线')，不进 CRE kp.* 寻址；
-    #    约束已由后端 DerivationEngine.derive_gpu_cables 承担。保留为 require 范例。
-    {"type": "require", "status": "testing", "name": "选 GPU 需配 GPU 电源线（待 ctx 扩展）",
+    # ① derive（赋值型）：配置含 NVMe 盘 → 背板类型=tri。tri-mode 支持 SATA/SAS/NVMe 三协议、
+    #    dc 直连只走 SATA/SAS——故含 NVMe 盘必须 tri；纯 SATA/SAS 或无盘 → dc
+    #    （消费端 bpType() ?? 'dc' 兜底，不 seed dc 规则——CRE 无 not-contains）。
+    {"type": "derive", "status": "active", "name": "背板类型：含 NVMe 盘→三模",
+     "body": {"when": {"field": "config.drive_kinds", "op": "contains", "value": "NVMe"},
+              "then": {"action": "derive", "field": "config.bp_type", "value": "tri"},
+              "desc": "配置含 NVMe 盘 → 三模(tri)背板（tri 支持 SATA/SAS/NVMe）；纯 SATA/SAS 或无盘 → dc 直连兜底"}},
+    # ②③④ 前面板线缆：按硬盘类型各算各的，盘数 ÷ 每组盘数 向上取整。
+    #    盘数走 config.sata_qty/sas_qty/nvme_qty（消费端按盘类型分别聚合，不再用全盘总量）。
+    {"type": "derive", "status": "active", "name": "SATA 线缆根数",
+     "body": {"when": {"field": "config.sata_qty", "op": ">=", "value": 1},
+              "then": {"action": "derive", "target": "SATA", "basis": "config.sata_qty", "per": 8, "round": "ceil"},
+              "desc": "SATA 盘数 ÷ 8（向上取整）= SATA 线缆根数；改 per 即改每组盘数"}},
+    {"type": "derive", "status": "active", "name": "SAS 线缆根数",
+     "body": {"when": {"field": "config.sas_qty", "op": ">=", "value": 1},
+              "then": {"action": "derive", "target": "SAS", "basis": "config.sas_qty", "per": 8, "round": "ceil"},
+              "desc": "SAS 盘数 ÷ 8（向上取整）= SAS 线缆根数；改 per 即改每组盘数"}},
+    {"type": "derive", "status": "active", "name": "NVMe 线缆根数",
+     "body": {"when": {"field": "config.nvme_qty", "op": ">=", "value": 1},
+              "then": {"action": "derive", "target": "NVMe", "basis": "config.nvme_qty", "per": 2, "round": "ceil"},
+              "desc": "NVMe 盘数 ÷ 2（向上取整）= NVMe 线缆根数；改 per 即改每组盘数"}},
+    # ⑤ GPU 供电线：每张 GPU 配 1 根（per=1，改 per 可调成每 N 卡 1 根）
+    {"type": "derive", "status": "active", "name": "GPU 供电线根数",
      "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 1},
-              "then": {"action": "require", "target": "kp.GPU电源线", "min_qty": "kp.GPU.qty"},
-              "desc": "[当前不生效] GPU 电源线属料号库件，不在 CRE 的 KP 寻址空间；已由后端 gpu_cables 推导承担。保留为范例"}},
-    # ④ require(specs)：NVMe 盘 → tri-mode 背板
-    #    testing：背板在料号库 parts_master(category='背板')，不进 CRE kp.* 寻址；
-    #    背板类型由 DerivationEngine.derive_bp_type 推导。保留为 spec_constraint 范例。
-    {"type": "require", "status": "testing", "name": "NVMe 盘需配 tri-mode 背板（待 ctx 扩展）",
-     "body": {"when": {"field": "kp.HDD/SSD.spec.interface", "op": "==", "value": "NVMe"},
-              "then": {"action": "require", "target": "kp.背板", "spec_constraint": {"support": "tri-mode"}},
-              "desc": "[当前不生效] 背板属料号库件，不在 CRE 的 KP 寻址空间；背板类型已由后端推导承担。保留为范例"}},
+              "then": {"action": "derive", "target": "GPU线", "basis": "kp.GPU.qty", "per": 1, "round": "ceil"},
+              "desc": "GPU 数量 ÷ 1（向上取整）= GPU 供电线根数；改 per 即改每 N 卡 1 根"}},
 ]
 
 

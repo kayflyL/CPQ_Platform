@@ -77,9 +77,6 @@ def migrate():
         {"key": "industry", "label": "行业", "category": "opportunity", "source": "Opportunity", "source_column": "industry", "sort_order": 33},
         {"key": "customer_type", "label": "客户类型", "category": "opportunity", "source": "Opportunity", "source_column": "customer_type", "sort_order": 34},
         {"key": "result", "label": "业务结果", "category": "opportunity", "source": "Opportunity", "source_column": "result", "sort_order": 35},
-        {"key": "win_reason", "label": "中标原因", "category": "opportunity", "source": "Opportunity", "source_column": "win_reason", "sort_order": 36},
-        {"key": "lost_reason", "label": "丢标原因", "category": "opportunity", "source": "Opportunity", "source_column": "lost_reason", "sort_order": 37},
-        {"key": "quote_scenario", "label": "报价场景", "category": "opportunity", "source": "Opportunity", "source_column": "quote_scenario", "sort_order": 38},
     ]
 
     # 批量插入

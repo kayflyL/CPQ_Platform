@@ -28,16 +28,20 @@ export interface RuleAction {
   filterField?: string
   filterOp?: string
   filterValue?: any
-  // derive 专用
+  // derive 专用（算术型：basis÷per→数量）
   deriveTarget?: string
   deriveQty?: number
+  derivePer?: number              // 算术型每组基数（per），供消费端透明展示"每组 N"
+  // derive 赋值型专用（条件→固定值，如 背板类型=tri）
+  assignField?: string
+  assignValue?: any
 }
 
 // ── 求值上下文（消费端构建）──
 export interface RuleContext {
   /** 按 category 聚合的 KP 配件：qty=数量合计，items=原始行（含 enrich 的 spec/pn），spec=该类典型规格 */
   kp: Record<string, { qty: number; items: any[]; spec: Record<string, any> }>
-  config: { series?: string; model?: string; form?: string; sata_qty?: number }
+  config: { series?: string; model?: string; form?: string; sata_qty?: number; drive_kinds?: string[] }
   opportunity: { platform_type?: string }
 }
 
@@ -104,6 +108,18 @@ export function parseCat(target: string | undefined): string {
   return target.startsWith('kp.') ? target.slice(3) : target
 }
 
+/** 盘类型 key（与 ctx.config.sata_qty/sas_qty/nvme_qty、CORE_DRIVE_KINDS 一致）*/
+const DRIVE_KIND_KEYS = ['SATA', 'SAS', 'NVMe'] as const
+/**
+ * 盘类型规范化：把任意来源（KP 件 specs.interface/kind/type，或型号名文本）的盘类型字符串
+ * 统一成 SATA/SAS/NVMe（与 ctx.config.*_qty / CORE_DRIVE_KINDS 一致），大小写无关；无法识别返回 undefined。
+ * 消费端策略（见 kpSummaryFor / ConfigWizard kpSummary）：优先结构化 specs，缺失（无 pn / excel 新件无 specs）再回退型号名嗅探。
+ */
+export function normalizeDriveKind(raw: any): string | undefined {
+  const up = String(raw ?? '').toUpperCase()
+  return DRIVE_KIND_KEYS.find(k => up.includes(k.toUpperCase()))
+}
+
 export function readItemField(item: any, field: string): any {
   if (!field) return undefined
   if (field.startsWith('spec.')) return item?.spec?.[field.slice(5)]
@@ -146,6 +162,10 @@ export function evalThen(ctx: RuleContext, rule: CompatibilityRule): RuleAction[
       return []
     }
     case 'derive': {
+      // 赋值型：then 带 field+value（条件→固定值，如 背板类型=tri），区别于算术型 basis÷per
+      if (then.field && 'value' in then) {
+        return [{ ...base, action: 'derive', severity: 'info', assignField: then.field, assignValue: then.value, desc: then.desc || desc }]
+      }
       const basisVal = Number(resolveValue(ctx, then.basis))
       const per = Number(then.per) || 1
       if (!Number.isFinite(basisVal) || basisVal <= 0) return []
@@ -153,7 +173,7 @@ export function evalThen(ctx: RuleContext, rule: CompatibilityRule): RuleAction[
       const cat = parseCat(then.target)
       const haveQty = ctx.kp[cat]?.qty || 0
       if (haveQty < qty) {
-        return [{ ...base, action: 'derive', severity: 'info', deriveTarget: cat, deriveQty: qty, desc: then.desc || `${cat} 建议配 ${qty}（现有 ${haveQty}）` }]
+        return [{ ...base, action: 'derive', severity: 'info', deriveTarget: cat, deriveQty: qty, derivePer: per, desc: then.desc || `${cat} 建议配 ${qty}（现有 ${haveQty}）` }]
       }
       return []
     }
@@ -182,4 +202,20 @@ export function evaluateRules(rules: CompatibilityRule[], ctx: RuleContext): Rul
     out.push(...evalThen(ctx, r))
   }
   return out
+}
+
+/**
+ * 对一组配置 context，求某赋值型字段的目标值（如背板类型 config.bp_type）。
+ * 按 rules 原顺序，首条 when 命中且 then 为赋值型 derive + assignField===field 的规则生效（short-circuit）。
+ * 因此「更具体的规则放前、宽泛规则放后」。无命中返回 undefined（由消费端兜底，如 bpType 的 ?? 'dc'）。
+ */
+export function evalAssignValue(rules: CompatibilityRule[], ctx: RuleContext, field: string): any {
+  for (const r of rules) {
+    if (r.status !== 'active') continue
+    const then: any = r.body?.then
+    if (!then || then.action !== 'derive' || !(then.field && 'value' in then)) continue
+    if (then.field !== field) continue
+    if (evalWhen(ctx, r.body?.when)) return then.value
+  }
+  return undefined
 }
