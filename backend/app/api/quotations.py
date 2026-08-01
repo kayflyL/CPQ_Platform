@@ -241,12 +241,13 @@ def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest):
 
 @router.post("/{quotation_id}/reparse")
 def reparse_quotation(quotation_id: str):
-    """Clone an exported quotation into a NEW draft.
+    """Clone an exported quotation into a NEW (unexported) quotation.
 
     Re-parsing the archived export Excel is unreliable (the export has a different layout
     than the upload template the parser expects). The source quotation's DB items are the
     authoritative structured data, so we clone those + config-level fields instead. The
-    original exported row stays frozen. Enforces one-draft-per-opportunity.
+    original exported row stays frozen. Each clone is an independent quotation — an
+    opportunity may have multiple unexported quotations side by side.
     """
     repo = QuotationRepository()
     try:
@@ -255,16 +256,6 @@ def reparse_quotation(quotation_id: str):
             raise HTTPException(status_code=404, detail="Quotation not found")
         if not source.exported_at:
             raise HTTPException(status_code=400, detail="该报价单为草稿，请直接编辑")
-
-        existing_draft = repo.find_draft(source.opportunity_id)
-        if existing_draft and existing_draft.quotation_id != quotation_id:
-            raise HTTPException(
-                status_code=409,
-                detail={
-                    "message": "已有草稿报价单，请先导出或删除当前草稿",
-                    "existing_draft_id": existing_draft.quotation_id,
-                },
-            )
 
         new_quotation = repo.create(source.opportunity_id)
         repo.copy_quotation_state(quotation_id, new_quotation.quotation_id)

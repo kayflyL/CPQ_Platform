@@ -143,20 +143,24 @@ async function loadReference(series: string | undefined) {
     return
   }
   const [fcRes, gpuCableRes, rearRes, psuPartsRes, bpRes] = await Promise.all([
-    partsApi.list({ category: '前面板线缆' }),
-    partsApi.list({ category: 'GPU电源线' }),
+    // 料号库按「专业分类表」重分类后：高速存储信号线横跨三段，前面板件即原「前面板线缆」；
+    // 电源分配线缆同样横跨基准/后面板，这里按段+GPU 语义筛选（见下方 gpuCables 过滤）
+    partsApi.list({ category: '高速存储信号线', section: '前面板件' }),
+    partsApi.list({ category: '电源分配线缆', section: '后面板件' }),
     // rear-IO 选项按系列分桶（chassisMeta.rearIOBucket：SERIES_REAR_IO_BUCKET 可配，未配置走默认桶）
     rearIOApi.getOptions(rearIOBucket(series)),
-    partsApi.list({ category: '电源' }),
-    partsApi.list({ category: '背板' }),
+    partsApi.list({ category: '电源模块' }),
+    partsApi.list({ category: '前置硬盘背板' }),
   ])
+  // 电源分配线缆(后面板件) 含 GPU 供电线 + 后背板电源线，仅保留 GPU 供电线（PN/name 含 GPU）
+  const gpuCables = gpuCableRes.parts.filter((p: any) => /gpu/i.test(p.pn) || /gpu/i.test(p.name || ''))
   frontCables.value = fcRes.parts
-  gpuCableParts.value = gpuCableRes.parts
+  gpuCableParts.value = gpuCables
   rearOptions.value = (rearRes as any).slots || {}
   psuParts.value = psuPartsRes.parts
   bpParts.value = bpRes.parts
   _refCache.set(key, {
-    frontCables: fcRes.parts, gpuCableParts: gpuCableRes.parts,
+    frontCables: fcRes.parts, gpuCableParts: gpuCables,
     psuParts: psuPartsRes.parts, bpParts: bpRes.parts,
     rearOptions: (rearRes as any).slots || {},
   })
@@ -186,7 +190,7 @@ const bpTri = computed(() => bpParts.value.filter(p => backplaneTypeOf(p) === 't
 const bpDc = computed(() => bpParts.value.filter(p => backplaneTypeOf(p) === 'dc'))
 const baseBackplane = computed(() => {
   const parts = baseConfig.value?.parts || []
-  const inParts = parts.find((p: any) => p.category === '背板')
+  const inParts = parts.find((p: any) => p.category === '前置硬盘背板')
   if (inParts) return inParts
   const triPn = (baseConfig.value as any)?.bp_tri_pn
   const dcPn = (baseConfig.value as any)?.bp_dc_pn
@@ -215,8 +219,8 @@ const effectiveBaseParts = computed(() => {
   const parts = [...(baseConfig.value?.parts || [])]
   const bp = effectiveBp.value
   if (bp) {
-    const bpLine = { pn: bp.pn, name: bp.name, category: '背板', unit_price: bp.unit_price, quantity: 1 }
-    const idx = parts.findIndex((p: any) => p.category === '背板')
+    const bpLine = { pn: bp.pn, name: bp.name, category: '前置硬盘背板', unit_price: bp.unit_price, quantity: 1 }
+    const idx = parts.findIndex((p: any) => p.category === '前置硬盘背板')
     if (idx >= 0) parts[idx] = bpLine as any
     else parts.push(bpLine as any)
   }
@@ -524,7 +528,7 @@ onBeforeUnmount(() => {
             </div>
           </div>
         </div>
-        <div v-if="!frontCables.length" class="sc-empty">料号库暂无「前面板线缆」类别料号，请去管理面添加。</div>
+        <div v-if="!frontCables.length" class="sc-empty">料号库暂无「高速存储信号线(前面板件)」料号，请去管理面添加。</div>
       </div>
     </div>
 
@@ -595,7 +599,7 @@ onBeforeUnmount(() => {
             <span class="u">根</span>
           </div>
         </div>
-        <div v-else class="sc-empty">料号库暂无「GPU电源线」类别料号。</div>
+        <div v-else class="sc-empty">料号库暂无 GPU 供电线料号（电源分配线缆·后面板件）。</div>
         </template>
       </div>
     </div>
@@ -611,7 +615,7 @@ onBeforeUnmount(() => {
           <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', parseInt(e.target.value)||0)" /><button @click="setOverride('psuQty', psuQty() + 1)">+</button></div>
           <span class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
         </div>
-        <div v-else class="sc-empty">料号库暂无「电源」类别 PSU。</div>
+        <div v-else class="sc-empty">料号库暂无「电源模块」类别 PSU。</div>
       </div>
     </div>
 

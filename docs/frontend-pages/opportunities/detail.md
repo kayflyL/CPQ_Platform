@@ -1,6 +1,6 @@
 # 商机详情页 (OpportunityDetail)
 
-> 最后更新：2026-07-29
+> 最后更新：2026-08-01
 
 ## 功能概述
 
@@ -22,7 +22,7 @@
    - **整机方案卡**（2-3 张，作为消息推入流）：左渐变 signature 描边 + 阴影的"主角"卡，显整机摘要（型号 / 系列·形态·盘位 / 底盘件数 + KP 件数 / 合计成本）+「查看 BOM 详情」（抽屉复用工作台 `BomTable`；L6 按基准配置的 **BOM 模板格式** 渲染，经 `usePlanBom.buildPlanCfg` 跑 `evalBomContext` 求值，无模板回落平铺）+「确认转为报价单」
    - 二期脚注（一条 muted 消息："接入 LLM 后还能…"，替代原灰显列表）
    - 面板**粘顶 + 高度跟随视口**（`clamp(260px, calc(100vh - 400px), 600px)`），feed 子项 `flex-shrink:0` 保固有高度、靠内部滚动（避免 overflow:hidden 把方案卡压扁裁字）
-   - 确认转为报价单：所选方案 → 创/换草稿（一商机一草稿，已有则 `Modal.confirm` 替换）→ KP 行存 quotation items、整机 L6（`bom_source:'live'`+`bom_template`+`bom_context`+`base_config_id`+`l6_custom_price`，无模板时回落 `bom_excel_rows`）存 `config_l6_picks` → 跳工作台 `mode=edit`
+   - 确认转为报价单：所选方案 → **新建一张未导出报价单**（每方案独立、不覆盖已有单）→ KP 行存 quotation items、整机 L6（`bom_source:'live'`+`bom_template`+`bom_context`+`base_config_id`+`l6_custom_price`，无模板时回落 `bom_excel_rows`）存 `config_l6_picks` → 跳工作台 `mode=edit`
 4. **存档区**（`ArchiveSection.vue`，**位于右栏报价单下方**）— 三分类文件管理，基于 `FeedAttachment` 表 + `category` 列：
    - 需求文档（requirement）/ 方案·详细报价（technical）/ 已发报价（sent_quote）
    - 每栏独立上传（带 category）、下载、删除；支持拖拽上传
@@ -32,15 +32,15 @@
 6. **报价单列表** — 展示所有报价单：
    - 状态指示灯（利润率色条：高/中/低/负）、主推标记（is_primary）
    - **草稿/已导出状态标**（`exported_at`）：草稿=可进工作台编辑；已导出=冻结，点击只开成本快照抽屉（不再进工作台）
-   - 一商机**至多一个草稿**：点「新增报价」若已有草稿则直接打开；编辑已导出报价单需「复制为草稿」生成新草稿
+   - **每张报价单独立**：状态只有「已导出 / 未导出」两态，没有"草稿"特殊概念。「新增报价」「推理流确认转单」「复制已导出单」各自新建一张未导出单、互不覆盖（2026-08-01：曾因「一商机一草稿」约束导致新增/转单被旧单劫持，已统一移除）。编辑已导出单需点「复制为新报价单」生成未导出副本
    - 操作：设为主推、查看/编辑（同一按钮按状态：草稿→进工作台 / 已导出→开成本抽屉）、重命名、删除；批量选择删除
    - **成本快照抽屉**（`QuotationCostDrawer.vue`）：多配置时**每个配置一个独立整机汇总**（单台 成本/售价/利润率 + L6/KP/质保分段表 + KP 逐项利润率，各配置利润率独立、不跨配置混算），顶部全局费率（汇率/税率/冻结时间）；项目总计（Σ 单台×台数）存 `cost_snapshot.totals` 备列表反写。底部「查看 Excel」（下 sent_quote 归档件）+「复制为草稿」（克隆源的 DB items+配置字段 → 新建草稿并跳工作台）。
    - **手工补录成本**：历史导入报价单无快照时（`!has_cost_snapshot`），列表行显「补录成本」按钮 → 开抽屉录整机级成本/售价（利润额/率自动算），保存落 `cost_snapshot`（`manual:true` 标记，**不动 `exported_at`**）。两种 schema 共存：完整快照（导出冻结，含 configs/kp_items/rates）vs 手工补录（仅 totals）；抽屉按数据形态分流渲染。
    - **列表数字来源**：`total_price` / `profit_margin` / `total_qty` 在导出冻结 / 手工补录时由 `cost_snapshot.totals` **反写**（项目总价 = Σ 单台×台数、综合利润率 = 按成本加权、总台数 = Σ config_qty），与抽屉口径一致；草稿态仍走 `calculate_totals`（Σ items.final×qty，不含机箱、不按台数加权，值偏旧）。多配置（`config_count>1`）时利润率 badge 旁显「综合」角标。
 7. **回收站抽屉** — 已删除报价单：恢复 / 永久删除、批量
-8. **上传报价单** — 拖拽上传 Excel → **先弹解析预览**（左热力图核对取值位置 / 右调区域边界与取值列规则，保存后用原文件自动重算）→ 确认后才生成报价单。解析规则与「设置-解析规则」页共用同一套（`useExcelParser` 单例 + `ParseHeatmapPreview`/`ParseRulesEditor` 子组件），弹窗内调规则即改全局规则；预览走 `/api/rules/excel-parser-preview`（纯解析不落库），确认落库走 `/api/quote/upload-to-opportunity`。
+8. **上传报价单** — 拖拽上传 Excel → **先弹解析预览**（左热力图核对取值位置 / 右调区域边界与取值列规则，保存后用原文件自动重算）→ 确认后才生成报价单。解析规则与「设置-解析规则」页共用同一套（`useExcelParser` 单例 + `ParseHeatmapPreview`/`ParseRulesEditor` 子组件），弹窗内调规则即改全局规则；预览走 `/api/rules/excel-parser-preview`（纯解析不落库），确认落库走 `/api/quote/upload-to-opportunity`。**解析不出有效配置时该接口返回 422 + 中文提示**（如「未识别到有效配置…请检查解析规则是否匹配当前模板」），前端 `message.error` 优先显示该原因（不再笼统报 500）——多为模板与解析规则不匹配，在预览弹窗调规则后重试即可。
 9. **协作动态** — 右侧抽屉（OpportunitySidebar → OpportunityFeed），仅留**消息 + 在线状态**（文件 Tab 已移除，文件统一走存档区）。
-10. **商机操作** — 归档/取消归档、删除
+10. **商机操作** — 业务结果切换（进行中/已中标/已丢标/已过期）、删除（移至回收站）
 
 ## 前端路由
 
@@ -81,8 +81,8 @@
 | DELETE | `/api/quotations/{id}` | `quotationApi.delete` | 删除报价单 |
 | POST | `/api/quotations/{id}/restore` | `quotationApi.restore` | 恢复报价单 |
 | POST | `/api/quotations/{id}/set-primary` | `quotationApi.setPrimary` | 设为主推 |
-| POST | `/api/quotations/{id}/export` | `quotationApi.export` | 冻结草稿为已导出（盖 exported_at + 落 cost_snapshot） |
-| POST | `/api/quotations/{id}/reparse` | `quotationApi.reparse` | 复制已导出报价单为草稿（克隆 DB items+配置字段，不解析导出件；一商机一草稿，冲突 409） |
+| POST | `/api/quotations/{id}/export` | `quotationApi.export` | 冻结为已导出（盖 exported_at + 落 cost_snapshot） |
+| POST | `/api/quotations/{id}/reparse` | `quotationApi.reparse` | 复制已导出报价单为新未导出单（克隆 DB items+配置字段，不解析导出件；独立新建、不冲突） |
 | PUT | `/api/quotations/{id}/cost-snapshot` | `quotationApi.saveCostSnapshot` | 手工补录历史报价单成本（只写 cost_snapshot，不动 exported_at） |
 | POST | `/api/quotations/{id}/items` | `quotationApi.saveItems` | 保存报价配置项 |
 | POST | `/api/quotations/batch-delete` | `quotationApi.batchDelete` | 批量删除报价单 |
@@ -93,7 +93,7 @@
 | 方法 | 路径 | 前端函数 | 用途 |
 |------|------|----------|------|
 | POST | `/api/rules/excel-parser-preview` | `useExcelParser.handleFileUpload` | 解析预览（热力图+结构化结果，纯解析不落库；商机上传预览与设置页共用） |
-| POST | `/api/quote/upload-to-opportunity` | `uploadQuotationToProject` | 确认后落库：解析 + 创建报价单 + 归档源文件 |
+| POST | `/api/quote/upload-to-opportunity` | `uploadQuotationToProject` | 确认后落库：解析 + 创建报价单 + 归档源文件；**解析失败（无有效配置/模板不匹配）返回 422 + 中文 detail**（非 500），前端 `message.error` 优先显示 detail |
 | GET | `/api/quote/kp/history` | `getKpHistory` | 获取 KP 价格历史 |
 | POST | `/api/quote/kp/sync-price` | `syncKpPrice` | 手动同步 KP 配件价格 |
 
@@ -104,7 +104,7 @@
 | WS | `/api/reasoning/ws/{opp_id}` | `reasoningWsUrl` + `useReasoningStream` | 推理步骤流（step_start / step_done / candidates_ready{plans} / pipeline_done / error） |
 | GET | `/api/candidate-search?q=&series=&form=` | — | 散件级聚合检索（L6 料号 + KP 配件 + 基准配置），ILIKE，保留供调试；pipeline 走 `compose_plans` 出整机方案 |
 
-> pipeline 实现在 `backend/app/services/requirement_intel_service.py`，聚合检索逻辑在 `backend/app/api/candidate_search.py`（`search_candidates()` 供 pipeline 和 REST 共用）。WS hub `reasoning_hub.py` 与聊天助手通道物理隔离（按 opportunity_id 分房间）。利润率告警在工作台（见 `workspace.md`），阈值读 `system_config.profit_margin_alert_threshold`，不写死。
+> pipeline 实现在 `backend/app/services/requirement_intel_service.py`，聚合检索逻辑在 `backend/app/api/candidate_search.py`（`search_candidates()` 供 pipeline 和 REST 共用）。WS hub `reasoning_hub.py` 与聊天助手通道物理隔离（按 opportunity_id 分房间）。利润率告警在工作台（见 `workspace.md`）：走**独立策略 `pricing.margin_alert`**（开关+门槛+文案，在策略中心定价画布的「利润率告警」编辑器配），经 `getMarginAlert()` 读取；与保底封顶解耦。
 
 ### 动态字段
 | 方法 | 路径 | 前端函数 | 用途 |

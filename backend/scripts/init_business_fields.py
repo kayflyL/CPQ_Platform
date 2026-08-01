@@ -75,7 +75,7 @@ def migrate():
 
         # D1 商机结果与复盘字段（蓝图 A1-A2）— source=Opportunity 物理列
         {"key": "industry", "label": "行业", "category": "opportunity", "source": "Opportunity", "source_column": "industry", "sort_order": 33},
-        {"key": "customer_type", "label": "客户类型", "category": "opportunity", "source": "Opportunity", "source_column": "customer_type", "sort_order": 34},
+        {"key": "order_type", "label": "订单类型", "category": "opportunity", "source": "Opportunity", "source_column": "order_type", "sort_order": 34},
         {"key": "result", "label": "业务结果", "category": "opportunity", "source": "Opportunity", "source_column": "result", "sort_order": 35},
     ]
 

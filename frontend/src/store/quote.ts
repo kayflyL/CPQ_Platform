@@ -14,7 +14,7 @@ export interface ProjectInfo {
   total_qty: number
   platform_type: string
   chassis_form: string
-  customer_type?: string
+  order_type?: string
   company?: string
   id?: string
   quotation_id?: string

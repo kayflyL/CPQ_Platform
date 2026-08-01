@@ -72,7 +72,16 @@ async def upload_to_opportunity(
     try:
         result = service.process_upload(content, filename)
         if result.get("status") == "error":
-            raise HTTPException(status_code=500, detail=result.get("message"))
+            # 解析失败是业务分支（模板/解析规则不匹配），不是服务器故障：
+            # 用 422 而非 500，避免“服务器挂了”的告警语义；附中文友好提示，
+            # 让用户知道是 Excel 格式问题、去调解析规则，而非系统错误。
+            raw = result.get("message", "") or "未知错误"
+            friendly = (
+                "未识别到有效配置：该 Excel 没解析出任何配置行，请检查解析规则是否匹配当前模板，调整后重试"
+                if "No valid configs" in raw
+                else f"报价单解析失败：{raw}（多为模板格式与解析规则不匹配，可到「解析规则」页调整后重试）"
+            )
+            raise HTTPException(status_code=422, detail=friendly)
 
         # Archive the source Excel under opportunities/{opp_id}/
         ext = Path(filename).suffix.lower()

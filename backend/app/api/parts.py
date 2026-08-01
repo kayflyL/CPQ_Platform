@@ -13,6 +13,7 @@ router = APIRouter(prefix="/api/parts", tags=["parts"])
 @router.get("")
 def list_parts(
     category: Optional[str] = None,
+    major_category: Optional[str] = None,
     section: Optional[str] = None,
     search: Optional[str] = None,
     chassis: Optional[str] = None,
@@ -23,7 +24,7 @@ def list_parts(
 ):
     """分页查询料号列表。page 从 1 开始。"""
     repo = PartsMasterRepository()
-    all_parts = repo.list(category, search, section)
+    all_parts = repo.list(category, search, section, major_category=major_category)
     if chassis:
         all_parts = [
             p for p in all_parts
@@ -42,6 +43,44 @@ def list_parts(
 @router.get("/sections")
 def list_sections():
     return {"sections": PartsMasterRepository().sections()}
+
+@router.get("/major-categories")
+def list_major_categories():
+    """大类汇总（一级主导航用）：[{major_category, count, categories:[子类...]}]。"""
+    return {"major_categories": PartsMasterRepository().major_categories()}
+
+
+# ---- 分类管理（大类/STEP 的增/改名/删，改名删除批量传播到 parts_master）----
+@router.get("/taxonomy")
+def list_taxonomy(kind: str = "major"):
+    """分类列表：[{name, count, categories}]，顺序由 part_taxonomy 决定。kind=major|step。"""
+    return {"items": PartsMasterRepository().list_taxonomy(kind)}
+
+@router.post("/taxonomy")
+def add_taxonomy(body: dict):
+    """新增分类。body: {kind:'major'|'step', name}。"""
+    try:
+        return PartsMasterRepository().add_taxonomy(body.get("kind", ""), body.get("name", ""))
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@router.put("/taxonomy/rename")
+def rename_taxonomy(body: dict):
+    """重命名分类（批量传播到所有用了它的料号）。body: {kind, old_name, new_name}。"""
+    try:
+        updated = PartsMasterRepository().rename_taxonomy(
+            body.get("kind", ""), body.get("old_name", ""), body.get("new_name", ""))
+        return {"updated": updated}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+@router.delete("/taxonomy")
+def delete_taxonomy(kind: str, name: str):
+    """删除分类。被料号使用时拒绝（先把它们迁到别的分类）。"""
+    try:
+        return PartsMasterRepository().delete_taxonomy(kind, name)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @router.get("/categories")
@@ -136,12 +175,13 @@ async def import_parts(file: UploadFile = File(...), dry_run: bool = True):
     # 列名映射（中文 → 字段名）
     col_map = {
         "料号PN": "pn", "料号": "pn", "PN": "pn",
-        "名称": "name", "名称": "name",
-        "部段": "section", "部段": "section",
-        "类别": "category", "类别": "category",
-        "单价": "unit_price", "单价": "unit_price",
-        "规格文本": "spec_text", "规格文本": "spec_text",
-        "说明": "description", "说明": "description",
+        "名称": "name",
+        "大类": "major_category",
+        "部段": "section",
+        "类别": "category",
+        "单价": "unit_price",
+        "规格文本": "spec_text",
+        "说明": "description",
     }
 
     # 识别扩展属性列（不在 col_map 中的列）

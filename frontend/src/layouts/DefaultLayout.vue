@@ -18,18 +18,10 @@
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
         </a-menu-item>
-        <a-sub-menu key="servers">
+        <a-menu-item key="/servers">
           <template #icon><DesktopOutlined /></template>
-          <template #title>服务器</template>
-          <a-menu-item key="/servers">
-            <template #icon><DesktopOutlined /></template>
-            <span>产品配置</span>
-          </a-menu-item>
-          <a-menu-item key="/servers/admin">
-            <template #icon><SettingOutlined /></template>
-            <span>后台管理</span>
-          </a-menu-item>
-        </a-sub-menu>
+          <span>服务器</span>
+        </a-menu-item>
         <a-menu-item key="/parts">
           <template #icon><DollarOutlined /></template>
           <span>配件</span>
@@ -53,6 +45,10 @@
           <a-menu-item key="/export-templates">
             <template #icon><FileExcelOutlined /></template>
             <span>导出模板</span>
+          </a-menu-item>
+          <a-menu-item key="/servers/admin">
+            <template #icon><DesktopOutlined /></template>
+            <span>服务器管理</span>
           </a-menu-item>
         </a-sub-menu>
       </a-menu>
@@ -92,19 +88,30 @@ const openKeys = ref<string[]>([])
 // 全局方案助手:浮动入口显隐(上下文由 Panel 内 useAssistantContext 按多域 provider 算)
 const assistantOpen = ref(false)
 
-// 设置类页面路径
+// 设置类页面路径（含从「服务器」菜单迁入设置的后台「服务器管理」）
 const settingsPaths = ['/ai-settings', '/excel-parser', '/export-templates']
 
-/** 服务器子路由归类：管理面（后台管理 + 机型/基准编辑页）高亮「后台管理」，其余高亮「产品配置」。 */
+/** 服务器管理面路由：后台页 + 机型/基准编辑页，统一高亮设置子菜单下的「服务器管理」；其余服务器路由高亮顶层「服务器」。 */
 const isServersAdminPath = (p: string) =>
   p.startsWith('/servers/admin') ||
   p.startsWith('/servers/base-configs') ||
+  p.startsWith('/servers/models/new') ||
   (p.startsWith('/servers/models/') && p.endsWith('/edit'))
 
 watch(() => route.path, (newPath) => {
+  // 服务器管理面 → 设置子菜单下的「服务器管理」
+  if (isServersAdminPath(newPath)) {
+    selectedKeys.value = ['/servers/admin']
+    openKeys.value = ['settings']
+    return
+  }
+  // 服务器配置门户及其余服务器路由（机型目录/详情/配置向导）→ 顶层「服务器」
   if (newPath.startsWith('/servers')) {
-    selectedKeys.value = [isServersAdminPath(newPath) ? '/servers/admin' : '/servers']
-    openKeys.value = ['servers']
+    selectedKeys.value = ['/servers']
+    return
+  }
+  if (newPath.startsWith('/strategies')) {
+    selectedKeys.value = ['/strategies']
     return
   }
   selectedKeys.value = [newPath]

@@ -23,12 +23,19 @@ function sumQty(parts: any[], re: RegExp): number {
     .reduce((s, p) => s + (Number(p.quantity) || 0), 0)
 }
 
-function deriveVars(parts: any[], plan: Plan): Record<string, any> {
+function deriveVars(parts: any[], plan: Plan, base: any): Record<string, any> {
+  // 背板类型从 base_config.bp_tri_pn/bp_dc_pn 推断（tri=三模支持 NVMe，dc=直连）
+  const bpType = base?.bp_tri_pn ? 'tri' : base?.bp_dc_pn ? 'dc' : ''
   return {
     bays: plan.bays ?? '',
+    form: plan.form || '',
+    series: plan.series || '',
     gpu_qty: sumQty(parts, GPU_RE),
     drive_count: sumQty(parts, DRIVE_RE),
     psu_qty: sumQty(parts, PSU_RE),
+    psu_wattage: (plan as any).chassis_signals?.psu_wattage ?? '',  // 需求里的电源功率（后端注入）
+    bp_type: bpType,
+    bp_type_desc: bpType === 'tri' ? 'NVMe/SATA/SAS' : bpType === 'dc' ? 'SATA/SAS' : '',
     gpu_cable_qty: 0,
   }
 }
@@ -71,9 +78,15 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
     ])
     const rows = (tpl as any)?.rows || []
     if (!rows.length) throw new Error('no bom_template rows')
-    const parts = (base as any)?.parts || []
+    // 注入背板件（bp_tri_pn/bp_dc_pn → 背板行），对齐工作台 effectiveBaseParts：
+    // base_config_parts 不含背板（PN 在 base_configs.bp_*_pn 字段），不注入则模板 part_field 背板行取不到
+    const parts = [...((base as any)?.parts || [])]
+    const bpPn = (base as any)?.bp_tri_pn || (base as any)?.bp_dc_pn
+    if (bpPn && !parts.some((p: any) => (p.category || '').includes('背板'))) {
+      parts.push({ category: '前置硬盘背板', name: bpPn, pn: bpPn, quantity: 1, specs: {} })
+    }
     const ctx: BomEvalContext = {
-      vars: deriveVars(parts, plan),
+      vars: deriveVars(parts, plan, base),
       parts,
       rear: {},
       frontCableQty: () => 0,

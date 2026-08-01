@@ -202,7 +202,7 @@ async function save() {
 
     <!-- guardrail -->
     <a-form v-else-if="dimKey === 'guardrail'" layout="vertical">
-      <p class="pd-hint">最终毛利率夹在 [保底, 封顶] 之间。低于保底上调、高于封顶下调。保底也是工作台利润率告警的底线。</p>
+      <p class="pd-hint">最终毛利率夹在 [保底, 封顶] 之间。低于保底上调、高于封顶下调。（工作台利润率告警已独立到「利润率告警」策略，不再读保底线。）</p>
       <div class="pd-row">
         <span class="pd-row-key">保底 floor</span>
         <a-input-number v-model:value="floor" :min="0" :max="80" :step="1" style="flex:1"><template #addonAfter>%</template></a-input-number>

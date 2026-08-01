@@ -19,22 +19,6 @@
         </span>
       </div>
       <div class="header-right" v-if="opportunity">
-        <a-button 
-          v-if="opportunity.status === 'active'" 
-          size="small" 
-          @click="handleArchive"
-        >
-          <template #icon><InboxOutlined /></template>
-          归档
-        </a-button>
-        <a-button 
-          v-if="opportunity.status === 'archived'" 
-          size="small" 
-          @click="handleUnarchive"
-        >
-          <template #icon><UndoOutlined /></template>
-          取消归档
-        </a-button>
         <a-button size="small" @click="showRecycleBin = true" v-if="deletedQuotations.length > 0">
           <template #icon><DeleteOutlined /></template>
           回收站 ({{ deletedQuotations.length }})
@@ -460,11 +444,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
   ArrowLeftOutlined, EditOutlined, PlusOutlined, UploadOutlined,
-  InboxOutlined, EyeOutlined,
+  EyeOutlined,
   DeleteOutlined, RightOutlined, MessageOutlined, FormOutlined,
   UndoOutlined, StarOutlined, StarFilled, CalculatorOutlined,
   ThunderboltOutlined
@@ -851,36 +835,14 @@ const handleDeleteProject = async () => {
   }
 }
 
-// 归档商机
-const handleArchive = async () => {
-  try {
-    await projectApi.updateMeta(opportunityId, { status: 'archived' })
-    if (opportunity.value) {
-      opportunity.value.status = 'archived'
-    }
-    message.success('商机已归档')
-  } catch (err: any) {
-    message.error('归档失败: ' + (err.message || err))
-  }
-}
+// 归档语义已并入 result（已过期）；以下两个 handler 已移除。
 
-// 取消归档
-const handleUnarchive = async () => {
-  try {
-    await projectApi.updateMeta(opportunityId, { status: 'active' })
-    if (opportunity.value) {
-      opportunity.value.status = 'active'
-    }
-    message.success('商机已取消归档')
-  } catch (err: any) {
-    message.error('取消归档失败: ' + (err.message || err))
-  }
-}
 
 const resultOptions = [
   { value: 'pending', label: '进行中' },
   { value: 'won', label: '已中标' },
   { value: 'lost', label: '已丢标' },
+  { value: 'expired', label: '已过期' },
 ]
 async function onResultChange(val: string) {
   const prev = (opportunity.value as any)?.result
@@ -896,13 +858,8 @@ async function onResultChange(val: string) {
 
 // 报价单操作
 const createNewQuotation = () => {
-  // 一商机一草稿：已有草稿时直接打开，不另建
-  const draft = quotations.value.find(q => !q.exported_at && q.status === 'active')
-  if (draft) {
-    message.info('已有草稿报价单，已为你打开')
-    router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${draft.quotation_id}&mode=edit&from=opportunities`)
-    return
-  }
+  // 始终新建空白工作台。每张报价单独立（只有已导出/未导出之别），
+  // 新建 / 推理流转单 / 复制 各建各的、互不覆盖（曾因「一商机一草稿」复用导致回归，6d6be6b）。
   router.push(`/workspace?opportunityId=${opportunityId}&mode=create&from=opportunities`)
 }
 
@@ -952,38 +909,18 @@ async function onUserSkip() {
   }
 }
 
-// 整机方案 → 转为报价单草稿：buildPlanCfg 把 L6 转成基准配置的 BOM 模板格式（live），
+// 整机方案 → 转为未导出报价单：buildPlanCfg 把 L6 转成基准配置的 BOM 模板格式（live），
 // 种进 config_l6_picks（bom_source/bom_template/bom_context/base_config_id/l6_custom_price），
 // KP 走 items；工作台载入时左栏 BomTable 按模板格式渲染整机 L6、中栏 KP 卡可编辑调价。
 // 无模板时 buildPlanCfg 自动回落 excel 平铺。
 async function confirmPlan(plan: Plan) {
   try {
-    // 一商机一草稿：已有草稿确认后替换其配置，否则新建（先做这步，避免取消时白跑 buildPlanCfg）
-    const draft = quotations.value.find((q) => !q.exported_at && q.status === 'active')
-    let quotationId: string
-    if (draft) {
-      quotationId = draft.quotation_id
-      const ok = await new Promise<boolean>((resolve) => {
-        Modal.confirm({
-          title: '已有草稿',
-          content: `商机已存在草稿「${draft.quotation_name || draft.quotation_id}」，是否用本方案替换其配置？`,
-          okText: '替换',
-          cancelText: '取消',
-          onOk: () => resolve(true),
-          onCancel: () => resolve(false),
-        })
-      })
-      if (!ok) {
-        reasoningPanelRef.value?.stopConfirming()
-        return
-      }
-    } else {
-      const res = await quotationApi.create({
-        opportunity_id: opportunityId,
-        quotation_name: `方案-${plan.name || plan.model}`,
-      })
-      quotationId = res.quotation_id
-    }
+    // 每个方案各自新建一张未导出报价单（不复用、不覆盖已有单）。
+    const res = await quotationApi.create({
+      opportunity_id: opportunityId,
+      quotation_name: `方案-${plan.name || plan.model}`,
+    })
+    const quotationId = res.quotation_id
 
     // 转 BOM 模板格式（live）+ 组 seeding payload
     const liveCfg = await buildPlanCfg(plan)
@@ -1006,7 +943,7 @@ async function confirmPlan(plan: Plan) {
       config_l6_picks: { CFG1: picks },
     }
     await quotationApi.saveItems(quotationId, payload as any)
-    // L3 统一标记来源为推理流（不管新建还是替换已有草稿；失败不阻塞）
+    // L3 统一标记来源为推理流（失败不阻塞）
     quotationApi.update(quotationId, { source: 'reasoning' }).catch(() => {})
     message.success(`已转为报价单：${plan.name || plan.model}`)
     disconnectReasoning()
@@ -1044,7 +981,7 @@ const viewQuotation = async (quotation: Quotation) => {
     }
     return
   }
-  // 草稿 → 进工作台编辑
+  // 未导出 → 进工作台编辑
   router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotation.quotation_id}&mode=edit&from=opportunities`)
 }
 
@@ -1064,19 +1001,14 @@ const handleReparse = async () => {
   if (!quo) return
   reparseLoading.value = true
   try {
-    // 克隆源的 DB items + 配置字段成新草稿（不解析导出件）
+    // 克隆源的 DB items + 配置字段成新报价单（不解析导出件）
     const result = await quotationApi.reparse(quo.quotation_id)
-    message.success('已复制为新草稿，正在打开')
+    message.success('已复制为新报价单，正在打开')
     costDrawerOpen.value = false
     await loadProject()
     router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${result.quotation_id}&mode=edit&from=opportunities`)
   } catch (e: any) {
-    const detail = e?.response?.data?.detail
-    if (detail && detail.existing_draft_id) {
-      message.warning('已有草稿报价单，请先导出或删除当前草稿')
-    } else {
-      message.error('复制失败：' + (e?.message || e))
-    }
+    message.error('复制失败：' + (e?.message || e))
   } finally {
     reparseLoading.value = false
   }
@@ -1220,7 +1152,8 @@ const onParseConfirm = async () => {
       message.error(result.message || '解析失败')
     }
   } catch (err: any) {
-    message.error(err.message || '生成报价单失败')
+    const detail = err?.response?.data?.detail
+    message.error(detail || err?.message || '生成报价单失败')
   } finally {
     hide()
   }
@@ -1367,6 +1300,11 @@ onBeforeUnmount(() => {
 .status-dot.status-lost {
   background: var(--cpq-accent-danger);
   box-shadow: 0 0 6px var(--cpq-accent-danger);
+}
+
+.status-dot.status-expired {
+  background: var(--cpq-accent-warning);
+  box-shadow: 0 0 6px var(--cpq-accent-warning);
 }
 
 .header-result-select {

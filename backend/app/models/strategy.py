@@ -3,10 +3,10 @@
 不塞进 rules.py 的 MatchingRule（那是 Excel 解析键值，会污染）；治理逻辑（审计/埋点）
 照搬 BusinessField 那套模式但独立成表，语义清晰。
 
-domain 四域：requirement(需求分析) / selection(选型配置) / pricing(报价毛利) / market(行业市场)
-type：域内类别，如 pricing.margin_tier / selection.conflict / selection.require
+domain 五域：requirement(需求分析) / selection(选型配置) / pricing(报价毛利) / market(行业市场) / policy(策略文档)
+type：域内类别，如 pricing.platform_baseline / selection.conflict / policy.document
 scope：JSON 生效条件，起步单维 {platform_type:"Polaris"}（行业等数据积累后再扩）
-body：JSON schema 化规则体（每类 type 各自定义结构）
+body：JSON schema 化规则体（每类 type 各自定义结构）；policy.document 的 body = {category,sort_order,content_markdown}
 status：draft/testing/active/archived 四态（只有 active 被业务引用）
 """
 from typing import Optional

@@ -71,11 +71,11 @@ def create_empty_opportunity(req: CreateOpportunityRequest):
 
 
 @router.get("/list")
-def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, customer_type: str = None, sort_by: str = "updated_at", sort_order: str = "desc"):
+def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, order_type: str = None, sort_by: str = "updated_at", sort_order: str = "desc"):
     from app.repository.opportunity_repo import OpportunityRepository
     repo = OpportunityRepository()
     try:
-        items, total = repo.list_opportunities(include_deleted, page, page_size, search=search, status=status, platform=platform, chassis=chassis, result=result, industry=industry, customer_type=customer_type, sort_by=sort_by, sort_order=sort_order)
+        items, total = repo.list_opportunities(include_deleted, page, page_size, search=search, status=status, platform=platform, chassis=chassis, result=result, industry=industry, order_type=order_type, sort_by=sort_by, sort_order=sort_order)
         return {"items": items, "total": total}
     finally:
         repo.close()
@@ -185,7 +185,7 @@ def get_field_history(field_key: str, q: str = None, limit: int = 20):
         core_columns = {
             "customer_name", "sales_person", "fae",
             "quotation_person", "platform_type", "chassis_form",
-            "industry", "customer_type",
+            "industry", "order_type",
             "purchase_qty"
         }
         

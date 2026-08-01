@@ -165,13 +165,13 @@ export const quotationApi = {
     return response.data
   },
 
-  // 冻结草稿为已导出：导出动作调用，把前端算的成本快照落库
+  // 冻结为已导出：导出动作调用，把前端算的成本快照落库
   export: async (quotationId: string, costSnapshot: Record<string, any>) => {
     const response = await api.post(`/quotations/${quotationId}/export`, { cost_snapshot: costSnapshot })
     return response.data
   },
 
-  // 复制已导出报价单为草稿（克隆 DB items+配置字段，不解析导出件；一商机一草稿，冲突 409）
+  // 复制已导出报价单为新未导出单（克隆 DB items+配置字段，不解析导出件；独立新建、不冲突）
   reparse: async (quotationId: string) => {
     const response = await api.post(`/quotations/${quotationId}/reparse`)
     return response.data

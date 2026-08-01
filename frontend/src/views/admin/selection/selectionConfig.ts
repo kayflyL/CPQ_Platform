@@ -13,11 +13,11 @@ export const CATEGORY_COLORS: Record<string, { bg: string; border: string; text:
   GPU: { bg: 'rgba(250, 140, 22, 0.08)', border: '#fa8c16', text: '#fa8c16' },
   'GPU电源线': { bg: 'rgba(250, 140, 22, 0.06)', border: '#ffa940', text: '#d48806' },
 
-  // 存储子系统 - 青系
-  '硬盘': { bg: 'rgba(54, 207, 207, 0.08)', border: '#36cfcf', text: '#13a8a8' },
-  '背板': { bg: 'rgba(54, 207, 207, 0.06)', border: '#36cfcf', text: '#13a8a8' },
-  HBA: { bg: 'rgba(92, 219, 211, 0.06)', border: '#5cdbd3', text: '#36cfcf' },
-  RAID: { bg: 'rgba(92, 219, 211, 0.06)', border: '#5cdbd3', text: '#36cfcf' },
+  // 存储子系统 - 靛系（原青系 #36cfcf 已弃用,换靛蓝两档）
+  '硬盘': { bg: 'rgba(47, 84, 235, 0.08)', border: '#2f54eb', text: '#1d39c4' },
+  '背板': { bg: 'rgba(47, 84, 235, 0.06)', border: '#2f54eb', text: '#1d39c4' },
+  HBA: { bg: 'rgba(89, 126, 249, 0.06)', border: '#597ef9', text: '#2f54eb' },
+  RAID: { bg: 'rgba(89, 126, 249, 0.06)', border: '#597ef9', text: '#2f54eb' },
 
   // 电源/散热 - 红/灰系
   PSU: { bg: 'rgba(255, 107, 107, 0.08)', border: '#ff6b6b', text: '#f5222d' },

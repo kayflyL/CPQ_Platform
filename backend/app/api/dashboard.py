@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Query
-from sqlalchemy import func
+from sqlalchemy import func, case
 import json
 
 from app.models.opportunity import Opportunity
@@ -197,17 +197,21 @@ def get_dashboard_summary(
 
         # === Sales Rank ===
         sales_rows = session.query(
-            Opportunity.sales_person, func.count(Opportunity.opportunity_id).label("count")
+            Opportunity.sales_person,
+            func.count(Opportunity.opportunity_id).label("count"),
+            func.sum(case((Opportunity.result == "won", 1), else_=0)).label("won"),
         ).filter(
             Opportunity.status != "deleted", Opportunity.created_at >= start_str, Opportunity.created_at < end_str
         ).group_by(Opportunity.sales_person).order_by(func.count(Opportunity.opportunity_id).desc()).all()
 
-        # 过滤空值，取 Top 5
-        sales_rank = [{"name": r.sales_person, "count": r.count} for r in sales_rows if r.sales_person]
+        # 过滤空值，取 Top 5；won = 周期内成交（result=won）数，随周期/筛选变化
+        sales_rank = [{"name": r.sales_person, "count": r.count, "won": int(r.won or 0)} for r in sales_rows if r.sales_person]
         top5 = sales_rank[:5]
         total_sales = sum(r["count"] for r in sales_rank)
         others_count = sum(r["count"] for r in sales_rank[5:])
         others = {"count": others_count, "people": len(sales_rank) - 5} if len(sales_rank) > 5 else None
+        # Top5 之后的逐人明细，供前端「点击其他展开」用
+        others_list = sales_rank[5:]
 
         return {
             "period_label": period_label,
@@ -215,7 +219,7 @@ def get_dashboard_summary(
                     "new_opportunities": new_opps, "new_configs": new_configs},
             "charts": {"chart1": chart1, "chart2": chart2, "chart3": chart3},
             "structure": {"platforms": plat_struct, "chassis": ch_struct},
-            "sales_rank": {"top": top5, "others": others, "total": total_sales},
+            "sales_rank": {"top": top5, "others": others, "others_list": others_list, "total": total_sales},
             "dates": all_dates,
         }
     finally:

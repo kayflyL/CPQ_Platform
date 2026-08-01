@@ -235,7 +235,7 @@ async def _dispatch(ntype: str, ctx: dict, config: dict, broadcast: BroadcastFn)
         kp_by_model: dict = {}
         all_kp: list = []
         for bl in baselines:
-            type_cats = kp_categories_for_type(bl.get("server_type_name") or "", config.get("type_packages"))
+            type_cats = kp_categories_for_type(bl.get("server_type_name") or "", config.get("type_packages"), ext.get("categories"))
             eff_cats = list(dict.fromkeys(type_cats + (ext.get("categories") or [])))
             bl_kp = pick_kp_parts(
                 eff_cats, ext.get("keywords", []),
@@ -248,6 +248,9 @@ async def _dispatch(ntype: str, ctx: dict, config: dict, broadcast: BroadcastFn)
                 qty_per_token=ext.get("qty_per_token"),
                 spec_search_terms=ext.get("spec_search_terms"),
                 model_token_regex=ctx.get("model_token_regex"),
+                mem_signal=ext.get("mem_signal"),
+                cpu_signal=ext.get("cpu_signal"),
+                multi_spec_filters=ext.get("multi_spec_filters"),
             )
             mid = bl.get("server_model_id") or bl.get("id")
             kp_by_model[mid] = bl_kp
@@ -269,10 +272,14 @@ async def _dispatch(ntype: str, ctx: dict, config: dict, broadcast: BroadcastFn)
             return {"plans_count": 0, "warning": "未找到匹配的基准配置，请手填或调整需求"}
         # 每个机型取自己的 KP（match_kp per-机型配的），fallback 到全局 kp_parts
         plans = []
+        _ext = ctx.get("ext") or {}
+        _sig = {"psu_wattage": (_ext.get("psu_signal") or {}).get("wattage")}
         for bl in baselines:
             mid = bl.get("server_model_id") or bl.get("id")
             bl_kp = kp_by_model.get(mid) or ctx.get("kp_parts") or []
-            plans.append(build_plan(bl, bl_kp))
+            _p = build_plan(bl, bl_kp)
+            _p["chassis_signals"] = _sig  # 底盘件信号（前端 deriveVars 读 psu_wattage）
+            plans.append(_p)
         ctx["plans"] = plans
         return {"plans_count": len(plans)}
 

@@ -110,7 +110,7 @@ class ServerCatalogRepository:
         if form:
             q += " AND bc.form=:f"
             p["f"] = form
-        q += " ORDER BY m.sort_order"
+        q += " ORDER BY m.sort_order, m.id"
         with l6_engine.connect() as c:
             return [self._attach_base_config(dict(r))
                     for r in c.execute(text(q), p).mappings().all()]

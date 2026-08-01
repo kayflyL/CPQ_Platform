@@ -26,6 +26,8 @@ export function useChartTheme() {
       pointEdge: isDark ? '#08090B' : '#ffffff',
       // 饼图扇区间隔色：匹配图表容器底色，dark 用卡片底色（不再近黑突兀）、light 用白
       segmentBorder: isDark ? '#101217' : '#ffffff',
+      // 排行「其他」项弱化柱色：中性低饱和，与渐变主柱区分
+      mutedBar: isDark ? 'rgba(255, 255, 255, 0.14)' : 'rgba(120, 132, 156, 0.32)',
       // 趋势涨跌色：绿涨红跌（马卡龙浅色系，呼应 Soft Glassmorphism 语义色）
       up: '#52C9A0',
       down: '#FF6B6B',

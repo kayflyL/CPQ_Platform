@@ -307,7 +307,7 @@
               <!-- L6/KP 质保服务费独立计算 -->
               <div class="warranty-row">
                 <!-- L6 质保卡片 -->
-                <div class="glass-light w-card">
+                <div class="w-card">
                   <div class="w-card-title">L6 质保服务费</div>
                   <a-textarea
                     class="w-description"
@@ -326,7 +326,6 @@
                         @change="(val: number) => onWarrantyYearsChange(name, 'l6', val)"
                         :options="[
                           { value: 1, label: '1 年' },
-                          { value: 2, label: '2 年' },
                           { value: 3, label: '3 年' },
                           { value: 5, label: '5 年' }
                         ]"
@@ -359,7 +358,7 @@
                 </div>
 
                 <!-- KP 质保卡片 -->
-                <div class="glass-light w-card">
+                <div class="w-card">
                   <div class="w-card-title">KP 质保服务费</div>
                   <a-textarea
                     class="w-description"
@@ -378,7 +377,6 @@
                         @change="(val: number) => onWarrantyYearsChange(name, 'kp', val)"
                         :options="[
                           { value: 1, label: '1 年' },
-                          { value: 2, label: '2 年' },
                           { value: 3, label: '3 年' },
                           { value: 5, label: '5 年' }
                         ]"
@@ -899,8 +897,9 @@ function onAddKpCard() {
 const gpuCableItems = ref<PickerItem[]>([])
 async function loadGpuCableItems() {
   try {
-    const res = await partsApi.list({ category: 'GPU电源线' })
-    gpuCableItems.value = (res.parts || []).map(fromPartMaster)
+    // 料号库按「专业分类表」重分类后，GPU 供电线归入「电源分配线缆·后面板件」，按 PN/name 含 GPU 筛选
+    const res = await partsApi.list({ category: '电源分配线缆', section: '后面板件' })
+    gpuCableItems.value = (res.parts || []).filter((p: any) => /gpu/i.test(p.pn) || /gpu/i.test(p.name || '')).map(fromPartMaster)
   } catch { /* 料号库暂无，GPU 卡显示空态 */ }
 }
 function setGpuCable(cfg: any, field: 'pn' | 'qty', value: any) {
@@ -1177,17 +1176,21 @@ const getWarrantyDesc = (cfg: any, type: 'l6' | 'kp'): string => {
   if (desc) return desc
   return warrantyDescDefaults.value[type] || ''
 }
-// P4 维保加价：年限改变时，若费率未填，按 warranty_markup 策略建议（尊重用户已填值）
+// 维保年限 → 固定费率映射（1 年不加、3 年 2%、5 年 5%）。年限与费率绑定，切年限即重置费率。
+const WARRANTY_RATE_BY_YEARS: Record<number, number> = { 1: 0, 3: 2, 5: 5 }
 function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number) {
   if (type === 'l6') store.setWarrantyYearsL6(cfgName, years)
   else store.setWarrantyYearsKP(cfgName, years)
-  const currentPct = type === 'l6' ? store.getWarrantyRateL6Pct(cfgName) : store.getWarrantyRateKPPct(cfgName)
-  if (!currentPct) {
-    const suggested = pricingRulesStore.getWarrantyRate(years)
-    if (suggested != null) {
-      if (type === 'l6') store.setWarrantyRateL6(cfgName, suggested)
-      else store.setWarrantyRateKP(cfgName, suggested)
-    }
+  const rate = WARRANTY_RATE_BY_YEARS[years]
+  if (rate !== undefined) {
+    if (type === 'l6') store.setWarrantyRateL6(cfgName, rate)
+    else store.setWarrantyRateKP(cfgName, rate)
+  }
+  // 描述联动：把「质保N年」的 N 换成新年限。文本可自由编辑，仅在匹配该模式时替换数字、其余不动。
+  const cfg = store.configs[cfgName]
+  const cur = cfg?.warranty_info?.[type]?.description || warrantyDescDefaults.value[type] || ''
+  if (/质保\s*\d+\s*年/.test(cur)) {
+    store.setWarrantyDescription(cfgName, type, cur.replace(/质保\s*\d+\s*年/, `质保${years}年`))
   }
 }
 const saveLoading = ref(false)
@@ -2258,7 +2261,6 @@ onMounted(async () => {
   padding: 18px 20px 20px;
   border-radius: var(--cpq-radius-xl, 20px);
   margin-bottom: 24px;
-  background: var(--cpq-overlay-w4);
   border: 1px solid var(--cpq-glass-border);
 }
 .kp-card-head {
@@ -2584,25 +2586,16 @@ onMounted(async () => {
 
 .w-card {
   flex: 1;
-  border-radius: 12px;
-  padding: 20px;
+  padding: 14px 16px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 0;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  text-align: center;
-  position: relative;
-  overflow: hidden;
+  gap: 12px;
+  transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
-
-.w-card::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 4px;
-  background: var(--cpq-accent-primary);
-}
+.w-card:hover { border-color: var(--cpq-glass-border-strong); }
 
 .w-card-title {
   font-size: 15px;
@@ -2631,7 +2624,7 @@ onMounted(async () => {
 
 .w-row {
   display: flex;
-  justify-content: center;
+  justify-content: flex-start;
   align-items: center;
   gap: 10px;
 }

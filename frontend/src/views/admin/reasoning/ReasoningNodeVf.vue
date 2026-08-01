@@ -23,11 +23,20 @@ const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: []
 </script>
 
 <template>
-  <div class="rf-node-vf glass-light" :class="{ 'rf-node--cfg': data?.configurable }">
+  <div class="rf-node-vf glass-light" :class="{
+    'rf-node--cfg': data?.configurable,
+    'rf-node--running': data?.execState === 'running',
+    'rf-node--done': data?.execState === 'done',
+    'rf-node--trace': data?.trace,
+    'rf-node--dim': data?.dim,
+  }">
     <Handle type="target" :position="Position.Left" class="rf-handle" />
     <div class="rf-head">
       <span class="rf-key">{{ stepType }}</span>
-      <span v-if="data?.configurable" class="rf-cfg-tag">可配置</span>
+      <div class="rf-head-tags">
+        <span v-if="data?.badge" class="rf-badge">{{ data.badge }}</span>
+        <span v-if="data?.configurable" class="rf-cfg-tag">可配置</span>
+      </div>
     </div>
     <div class="rf-label">{{ data?.label }}</div>
     <div class="rf-desc">{{ meta.desc }}</div>
@@ -54,6 +63,21 @@ const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: []
   font-size: 10px; padding: 0 6px; border-radius: 6px;
   background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary);
 }
+.rf-head-tags { display: flex; align-items: center; gap: 4px; }
+.rf-badge {
+  font-size: 10px; padding: 0 6px; border-radius: 6px;
+  background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary);
+  font-weight: 600;
+}
+/* 试运行节点高亮：running 蓝边发光 / done 绿边 */
+.rf-node--running {
+  border-color: var(--cpq-accent-primary) !important;
+  box-shadow: 0 0 16px var(--cpq-overlay-a20);
+}
+.rf-node--done { border-color: var(--cpq-color-success) !important; }
+/* 路径回溯：生成链节点高亮特写，其余变暗 */
+.rf-node--trace { border-color: var(--cpq-accent-primary) !important; box-shadow: 0 0 20px var(--cpq-overlay-a20); }
+.rf-node--dim { opacity: 0.3; }
 .rf-label { font-weight: 600; color: var(--cpq-text-primary); margin-top: 4px; font-size: 14px; }
 .rf-desc { font-size: 12px; color: var(--cpq-text-secondary); margin-top: 4px; line-height: 1.45; }
 .rf-sources { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }

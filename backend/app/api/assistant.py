@@ -2,8 +2,9 @@
 
 Identity resolved from X-User-Id (same as Feed). POST /threads/{id}/messages stores
 the user turn and kicks off a background LLM stream; tokens are pushed over the WS
-endpoint (/ws/{thread_id}) via assistant_hub. If DASHSCOPE_API_KEY is unset or the
-call fails, falls back to a rule-based placeholder so the flow stays usable.
+endpoint (/ws/{thread_id}) via assistant_hub. If the call fails, the real error
+(HTTP/auth/model name) is surfaced in-chat so the user can diagnose; AI 设置页的
+「测试连接」按钮做更结构化的排障。
 """
 import asyncio
 from typing import Optional
@@ -148,7 +149,13 @@ async def _stream_llm_reply(
             await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": delta})
         final_text = "".join(full) or "(空回复)"
     except LLMError as e:
-        final_text = _placeholder_reply(user_text) or f"(回复失败:{e})"
+        # 透传真实错误（HTTP 状态/鉴权/model 名等），不再用占位文案吞掉；
+        # AI 设置页的「测试连接」按钮可做更结构化的排障。
+        final_text = (
+            f"⚠️ 模型调用失败：{e}\n\n"
+            "请到「AI 设置 → API 设置」检查端点 / Key / 模型名，"
+            "可用「测试连接」按钮定位具体原因。"
+        )
         await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": final_text})
 
     repo = AssistantRepository()
@@ -169,17 +176,6 @@ def delete_thread(thread_id: str):
     finally:
         repo.close()
     return {"status": "ok"}
-
-
-# ── placeholder reply (fallback when LLM unavailable) ──
-
-def _placeholder_reply(user_text: str) -> str:
-    """Fallback reply when the LLM is unavailable (key missing / call failed)."""
-    t = (user_text or "").strip()
-    low = t.lower()
-    if low in ("你好", "hi", "hello", "嗨") or low.startswith("你好"):
-        return "你好,我是方案助手。当前 AI 模型暂不可用(检查 DASHSCOPE_API_KEY 是否配置),稍后再试。"
-    return "AI 模型暂不可用,你的消息已记录。配置好 DASHSCOPE_API_KEY 后即可正常回复。"
 
 
 # ── WS: subscribe to a thread's LLM token stream ──

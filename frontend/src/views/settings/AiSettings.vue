@@ -127,9 +127,21 @@
 
             <div class="form-row">
               <label class="form-label">模型</label>
-              <div class="form-control">
-                <a-input v-model:value="llmConfig.model" placeholder="如 qwen-plus、gpt-4" style="width: 200px" />
-                <span class="form-hint">留空使用 .env 的 LLM_MODEL</span>
+              <div class="form-control" style="flex-direction: column; align-items: flex-start; gap: 6px;">
+                <div style="display: flex; gap: 8px; width: 100%; flex-wrap: wrap; align-items: center;">
+                  <a-auto-complete
+                    v-model:value="llmConfig.model"
+                    :options="modelOptions"
+                    :filter-option="filterModel"
+                    placeholder="如 qwen-plus、step-3.7-flash"
+                    style="width: 280px"
+                  />
+                  <a-button size="small" :loading="fetchingModels" @click="handleFetchModels">拉取模型列表</a-button>
+                </div>
+                <span class="form-hint">
+                  <template v-if="modelOptions.length">已拉取 {{ modelOptions.length }} 个可用模型，可在下拉中选择或直接输入 id</template>
+                  <template v-else>留空使用 .env 的 LLM_MODEL；点「拉取模型列表」从当前端点获取可选 id</template>
+                </span>
               </div>
             </div>
 
@@ -137,14 +149,15 @@
               <label class="form-label">温度</label>
               <div class="form-control">
                 <a-slider v-model:value="llmConfig.temperature" :min="0" :max="2" :step="0.1" style="width: 160px" />
-                <span class="form-hint">{{ llmConfig.temperature }}</span>
+                <span class="form-hint">{{ llmConfig.temperature }} · 控制随机性:低更稳准(数据/报告建议 0.3~0.5),高越发散(头脑风暴用)</span>
               </div>
             </div>
 
             <div class="form-row">
               <label class="form-label">最大 Tokens</label>
               <div class="form-control">
-                <a-input-number v-model:value="llmConfig.max_tokens" :min="100" :max="8000" :step="100" style="width: 140px" />
+                <a-input-number v-model:value="llmConfig.max_tokens" :min="100" :max="32000" :step="100" style="width: 140px" />
+                <span class="form-hint">reasoning 模型(如 step-3.x)的思考也占此预算,建议 ≥ 8000</span>
               </div>
             </div>
           </div>
@@ -169,7 +182,11 @@
 
           <div class="form-actions">
             <a-button type="primary" :loading="saving" @click="handleSaveLlm">保存设置</a-button>
+            <a-button :loading="testing" @click="handleTestConnection">测试连接</a-button>
             <a-button @click="handleResetLlm">恢复默认</a-button>
+            <span v-if="testResult" class="test-result" :class="testResult.success ? 'test-ok' : 'test-fail'">
+              {{ testResult.success ? '✅' : '❌' }} {{ testResult.message }}
+            </span>
           </div>
         </a-spin>
       </a-tab-pane>
@@ -198,7 +215,7 @@ const DEFAULT_LLM_CONFIG = {
   model: '',
   system_prompt: '你是 CPQ 平台的「方案助手」,辅助销售/FAE 做服务器配置与报价。用户当前所在页面的业务上下文会以「当前上下文」形式提供给你,作答时优先基于它。要求:1) 用中文回复;2) 对料号价格、库存、具体型号编号等易变信息,不要编造——不确定时请用户在配置页确认或查料号库;3) 回答简洁、分点。',
   temperature: 0.7,
-  max_tokens: 2000,
+  max_tokens: 8000,
 }
 
 // 与后端 ai_trend_analysis 种子保持一致（恢复默认用）；运行时实际从后端读取
@@ -239,6 +256,14 @@ const saving = ref(false)
 const assistantConfig = ref({ ...DEFAULT_ASSISTANT_CONFIG })
 const llmConfig = ref({ ...DEFAULT_LLM_CONFIG })
 const trendConfig = ref({ ...DEFAULT_TREND_CONFIG })
+
+// 模型拉取 / 连接测试（API 设置 tab）
+const modelOptions = ref<{ value: string; label: string }[]>([])
+const fetchingModels = ref(false)
+const testing = ref(false)
+const testResult = ref<{ success: boolean; message: string } | null>(null)
+const filterModel = (input: string, option: { value: string }) =>
+  option.value.toLowerCase().includes(input.toLowerCase())
 
 async function loadConfig() {
   loading.value = true
@@ -304,7 +329,59 @@ async function handleSaveLlm() {
 
 function handleResetLlm() {
   llmConfig.value = { ...DEFAULT_LLM_CONFIG }
+  modelOptions.value = []
+  testResult.value = null
   message.info('已恢复默认，请点击保存生效')
+}
+
+// 拉取当前端点（base_url + api_key）下的可用模型 id 列表，填入下拉
+async function handleFetchModels() {
+  if (!llmConfig.value.api_key) {
+    message.warning('请先填写 API Key')
+    return
+  }
+  fetchingModels.value = true
+  testResult.value = null
+  try {
+    const { data } = await axios.post('/api/system-config/llm_config/models', {
+      base_url: llmConfig.value.base_url,
+      api_key: llmConfig.value.api_key,
+      model: llmConfig.value.model,
+    })
+    if (data.success) {
+      modelOptions.value = data.models.map((id: string) => ({ value: id, label: id }))
+      message.success(`已拉取 ${data.models.length} 个模型`)
+    } else {
+      message.error(data.message || '拉取失败')
+    }
+  } catch (err) {
+    console.error('拉取模型失败:', err)
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '网络错误'
+    message.error('拉取失败：' + detail)
+  } finally {
+    fetchingModels.value = false
+  }
+}
+
+// 用表单当前值（含未保存）实测一次 chat，展示真实成功/失败与错误
+async function handleTestConnection() {
+  testing.value = true
+  try {
+    const { data } = await axios.post('/api/system-config/llm_config/test', {
+      base_url: llmConfig.value.base_url,
+      api_key: llmConfig.value.api_key,
+      model: llmConfig.value.model,
+    })
+    testResult.value = { success: data.success, message: data.message }
+    if (data.success) message.success(data.message)
+    else message.error(data.message)
+  } catch (err) {
+    const detail = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail || '请求失败'
+    testResult.value = { success: false, message: detail }
+    message.error(detail)
+  } finally {
+    testing.value = false
+  }
 }
 
 async function handleSaveTrend() {
@@ -440,5 +517,18 @@ onMounted(loadConfig)
   gap: 12px;
   align-items: center;
   margin-left: 24px;
+}
+
+.test-result {
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.test-result.test-ok {
+  color: var(--cpq-success, #52c41a);
+}
+
+.test-result.test-fail {
+  color: var(--cpq-error, #ff4d4f);
 }
 </style>

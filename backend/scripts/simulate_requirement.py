@@ -45,32 +45,35 @@ if not models:
     print("\n  ❌ 无机型 → 流程中止（方案空）")
     sys.exit(0)
 
-print("\n【3️⃣  KP 配件匹配 match_kp】")
-type_name = models[0].get("server_type_name") or ""
+print("\n【3️⃣  KP 配件匹配 match_kp（per-机型，对齐线上 executor）】")
 _mk_cfg = _default_node_configs()["match_kp"]
-type_cats = kp_categories_for_type(type_name, _mk_cfg.get("type_packages"))
-effective_cats = list(dict.fromkeys(type_cats + (ext.get("categories") or [])))
-print(f"  机型类型套餐 : {type_cats}")
-print(f"  + 需求品类   : {ext.get('categories')}")
-print(f"  = 有效品类   : {effective_cats}")
-kp_parts = pick_kp_parts(effective_cats, ext.get("keywords", []),
-                         representative_pick=_resolve_budget_strategy(ext.get("budget")),
-                         fallback_strategy="fallback_representative",
-                         requirement_text=text,
-                         qty_map=ext.get("qty_map"),
-                         qty_per_token=ext.get("qty_per_token"),
-                         spec_search_terms=ext.get("spec_search_terms"),
-                         model_token_regex=cfg.get("model_token_regex"))
-unmatched = [kp for kp in kp_parts if kp.get("unmatched")]
-print(f"  配出 {len(kp_parts)} 件 KP" + (f"  ⚠ 其中 {len(unmatched)} 件 unmatched！" if unmatched else ""))
-for kp in kp_parts:
-    flag = "  ⚠unmatched(需手填)" if kp.get("unmatched") else ""
-    qty = kp.get("qty") or 1
-    qty_str = f"  ×{qty}" if qty > 1 else ""
-    print(f"    [{kp.get('category','?'):10}] {kp.get('pn','?'):20} {kp.get('name','?')[:30]:30} ¥{kp.get('unit_price') or 0}{qty_str}{flag}")
+plans = []
+for bl in models:
+    type_name = bl.get("server_type_name") or ""
+    type_cats = kp_categories_for_type(type_name, _mk_cfg.get("type_packages"), ext.get("categories"))
+    eff_cats = list(dict.fromkeys(type_cats + (ext.get("categories") or [])))
+    bl_kp = pick_kp_parts(eff_cats, ext.get("keywords", []),
+                          representative_pick=_resolve_budget_strategy(ext.get("budget")),
+                          fallback_strategy="fallback_representative",
+                          requirement_text=text,
+                          qty_map=ext.get("qty_map"),
+                          qty_per_token=ext.get("qty_per_token"),
+                          spec_search_terms=ext.get("spec_search_terms"),
+                          model_token_regex=cfg.get("model_token_regex"),
+                          mem_signal=ext.get("mem_signal"),
+                          cpu_signal=ext.get("cpu_signal"),
+                          multi_spec_filters=ext.get("multi_spec_filters"))
+    plans.append((_p := build_plan(bl, bl_kp)))
+    _p["chassis_signals"] = {"psu_wattage": (ext.get("psu_signal") or {}).get("wattage")}
+    unmatched = [kp for kp in bl_kp if kp.get("unmatched")]
+    print(f"  • {bl.get('name')} ({type_name or '-'}) 套餐={type_cats} 配 {len(bl_kp)} 件" + (f" ⚠{len(unmatched)} unmatched" if unmatched else ""))
+    for kp in bl_kp:
+        flag = " ⚠unmatched" if kp.get("unmatched") else ""
+        qty = kp.get("qty") or 1
+        qty_str = f" ×{qty}" if qty > 1 else ""
+        print(f"    [{kp.get('category','?'):22}] {kp.get('pn','?')[:22]:22} ¥{kp.get('unit_price') or 0}{qty_str}{flag}")
 
 print("\n【4️⃣  组合整机方案 build_plan】")
-plans = [build_plan(bl, kp_parts) for bl in models]
 apply_budget_check(plans, ext.get("budget"))
 for i, p in enumerate(plans, 1):
     s = p.get("summary", {})

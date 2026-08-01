@@ -16,7 +16,7 @@ export interface Project {
   sales_person: string
   fae: string
   // 商机上下文（pricing scope 维度，可选 — 后端 extra_fields 动态字段）
-  customer_type?: string
+  order_type?: string
   // 业务结果流转（与 status 正交）
   result?: 'pending' | 'won' | 'lost'
 

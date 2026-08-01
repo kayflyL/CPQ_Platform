@@ -23,18 +23,22 @@ echo.
 
 REM 启动后端
 echo [1/3] 启动后端服务...
-where python >nul 2>&1
-if %errorlevel%==0 (
-    set "PYTHON_CMD=python"
-) else (
-    if exist "%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe" (
-        set "PYTHON_CMD=%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe"
-    ) else (
-        echo [错误] 找不到 Python，请确保已安装或配置环境变量
-        pause
-        exit /b 1
-    )
+REM 优先用项目自带 backend\.venv（依赖齐全；hermes 会把裸 python 劫持到它自家缺依赖的 venv）
+set "VENV_PY=%~dp0backend\.venv\Scripts\python.exe"
+set "HERMES_PY=%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe"
+set "PYTHON_CMD="
+if exist "%VENV_PY%" set "PYTHON_CMD=%VENV_PY%"
+if defined PYTHON_CMD goto :got_python
+if exist "%HERMES_PY%" set "PYTHON_CMD=%HERMES_PY%"
+if defined PYTHON_CMD goto :got_python
+where python >nul 2>&1 && set "PYTHON_CMD=python"
+:got_python
+if not defined PYTHON_CMD (
+    echo [错误] 找不到 Python，请确保已安装或配置环境变量
+    pause
+    exit /b 1
 )
+echo 使用 Python: %PYTHON_CMD%
 start "CPQ-Backend" cmd /k "cd /d %~dp0backend && "%PYTHON_CMD%" -m uvicorn app.main:app --reload --port 8000"
 
 echo 等待后端初始化...

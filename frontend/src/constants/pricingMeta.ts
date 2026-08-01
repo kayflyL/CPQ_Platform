@@ -126,6 +126,22 @@ export const DEFAULT_DIM_BODIES = {
   guardrail: { floor: 7, cap: 30 },
 } as const
 
+// ── ⑤ 利润率告警默认配置（独立策略 type=margin_alert；与 seed_pricing_strategies.py 同步）──
+// 工作台综合毛利率低于门槛时弹窗提示；与保底封顶（引擎 clamp）解耦——独立开关 + 门槛 + 文案。
+// ⚠️ 改这里必须同步改 backend/scripts/seed_pricing_strategies.py 的 MARGIN_ALERT
+export interface MarginAlertBody {
+  enabled: boolean       // 是否启用工作台低利润率告警
+  threshold: number      // 告警门槛（综合毛利率 %），低于此值弹窗
+  title: string          // 弹窗标题
+  content: string        // 弹窗正文模板，支持 ${margin}（当前毛利率）与 ${threshold}（门槛）占位符
+}
+export const DEFAULT_MARGIN_ALERT: MarginAlertBody = {
+  enabled: true,
+  threshold: 7,
+  title: '利润率低于告警线',
+  content: '当前综合毛利率 ${margin}% 低于告警线 ${threshold}%，建议线下走特价审批，系统仅作记录。',
+}
+
 /** 维度的系数值容器 key（region/guardrail/cost_tier 是对象，其余是 Record<enum,number>）——抽屉按维度分支读 */
 export type DimBody = typeof DEFAULT_DIM_BODIES[DimensionKey]
 

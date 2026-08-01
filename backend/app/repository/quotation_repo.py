@@ -271,15 +271,6 @@ class QuotationRepository:
             QuotationItem.quotation_id == quotation_id
         ).all()
 
-    def find_draft(self, opportunity_id: str) -> Optional[Quotation]:
-        """Return the single active draft (status='active' AND exported_at IS NULL) for an
-        opportunity, or None. Used to enforce the 'one draft per opportunity' invariant."""
-        return self.db.query(Quotation).filter(
-            Quotation.opportunity_id == opportunity_id,
-            Quotation.status == "active",
-            Quotation.exported_at.is_(None),
-        ).order_by(Quotation.created_at.desc()).first()
-
     def _sync_totals_from_snapshot(self, quotation: Quotation, snapshot: Optional[dict]) -> None:
         """从成本快照反写 total_price / profit_margin（+ total_qty），让列表行显示与
         快照一致。导出冻结 / 手工补录后都调一次。快照 schema:

@@ -1,6 +1,6 @@
 # CPQ Platform 前端页面文档
 
-> 最后更新：2026-07-30
+> 最后更新：2026-08-01
 
 > 本文档按功能模块组织，记录每个页面的路由、功能、API 端点和数据库表映射。  
 > 用途：方案编写参考 + 新会话快速上下文加载。
@@ -28,7 +28,7 @@ frontend-pages/
 ├── parts/                 ← 配件模块
 │   └── parts-management.md ← 配件管理（CRUD+看板+数据洞察）
 ├── strategies/            ← 策略中心模块
-│   └── strategies.md      ← 策略中心管理页（3域：定价加法引擎/选型CRE/推理流编排 + L3溯源）
+│   └── strategies.md      ← 策略中心管理页（3域：定价加法引擎/选型CRE/推理流编排 + L3溯源 + 策略文档库）
 └── settings/              ← 设置模块
     ├── ai-settings.md     ← AI 设置（方案助手/趋势分析/API 配置）
     ├── excel-parser.md    ← Excel 解析调试
@@ -84,6 +84,23 @@ frontend-pages/
 | `/export-templates/excel/:id`        | Excel 模板编辑器 | 设置   |
 | `/export-templates/spec/:id`         | 规格书模板编辑器    | 设置   |
 | `/export-templates/fields`           | 字段管理        | 设置   |
+
+## 顶部导航菜单
+
+| 菜单项 | 类型 | 跳转 | 说明 |
+|--------|------|------|------|
+| 商机线索 | 顶层 | `/opportunities` | |
+| 服务器 | 顶层 | `/servers` | 产品配置门户（机型目录 → 详情 → 配置向导） |
+| 配件 | 顶层 | `/parts` | |
+| 策略中心 | 顶层 | `/strategies` | |
+| 设置 ▸ AI 设置 | 子菜单 | `/ai-settings` | |
+| 设置 ▸ 解析规则 | 子菜单 | `/excel-parser` | |
+| 设置 ▸ 导出模板 | 子菜单 | `/export-templates` | |
+| 设置 ▸ 服务器管理 | 子菜单 | `/servers/admin` | 机型 / 基准配置 / 料号库维护后台 |
+
+> 导航高亮规则：服务器管理面路由（`/servers/admin`、`/servers/base-configs/*`、`/servers/models/new`、`/servers/models/*/edit`）高亮「设置 ▸ 服务器管理」并展开设置子菜单；其余 `/servers/*` 路由高亮顶层「服务器」。
+>
+> 变更：2026-08-01「服务器」由子菜单改为顶层项（直进产品配置），原「后台管理」迁入「设置」并更名为「服务器管理」。
 
 ## 后端 API 前缀总览
 

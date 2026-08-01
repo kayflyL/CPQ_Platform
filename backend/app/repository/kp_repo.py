@@ -7,6 +7,7 @@
 from datetime import datetime, date, timedelta
 import difflib
 import json
+import re
 import statistics
 from typing import List, Optional, Dict, Any
 from sqlalchemy import text, select, func, exists, and_, Date
@@ -15,6 +16,52 @@ from app.models.base import KP_SessionLocal
 from app.models.kp import (
     KPCategory, KPPart, KPPartSpec, KPPriceHistory, KPPartCompat, KPPartRelated
 )
+
+_NUM_SPEC_OPS = {">=", "<=", ">", "<"}
+
+def _spec_num(val) -> Optional[float]:
+    """从 spec 值提首个数字：'32 GB'→32.0 / '5600 MT/s'→5600.0 / 'DDR5'→None。"""
+    if val is None:
+        return None
+    m = re.search(r"[\d.]+", str(val))
+    if not m:
+        return None
+    try:
+        return float(m.group())
+    except ValueError:
+        return None
+
+
+def _spec_match_all(spec_map: dict, parsed: list) -> str:
+    """所有 (spec_key, op, value) AND 满足 → 返回命中标签串（如 'Type=DDR5 · Speed>=5600'）；任一不满足 → ''。
+    数值型 op 且双方都能提数 → 数值比较；op='in' → 等值/数值等值集合；其余 → 字符串等值。"""
+    hits = []
+    for sk, op, val in parsed:
+        sv = spec_map.get(sk)
+        if sv is None:
+            return ""  # 该 spec 不存在 → AND 不满足
+        sv_num = _spec_num(sv)
+        val_num = _spec_num(val) if not isinstance(val, list) else None
+        if op in _NUM_SPEC_OPS and sv_num is not None and val_num is not None:
+            ok = (sv_num >= val_num if op == ">="
+                  else sv_num <= val_num if op == "<="
+                  else sv_num > val_num if op == ">"
+                  else sv_num < val_num if op == "<"
+                  else abs(sv_num - val_num) < 1e-9)  # = / ==
+            if not ok:
+                return ""
+            hits.append(f"{sk}{op}{val_num:g}")
+        elif op == "in":
+            vals = val if isinstance(val, list) else [val]
+            if not any(str(sv).strip() == str(v).strip() or _spec_num(sv) == _spec_num(v) for v in vals):
+                return ""
+            hits.append(f"{sk}∈{{{','.join(str(v) for v in vals)}}}")
+        else:
+            sv_s = str(sv).strip()
+            if not (sv_s == str(val).strip() or _spec_num(sv) == _spec_num(val)):
+                return ""
+            hits.append(f"{sk}={sv_s}")  # 显示真实 spec_value（DDR5 / 1G / 32 GB）
+    return " · ".join(hits)
 
 
 class KPRepository:
@@ -240,57 +287,52 @@ class KPRepository:
         return result
 
     def get_by_category_with_spec_filter(self, category: str, spec_filters: list[dict]) -> List[dict]:
-        """品类下按 spec 数值范围过滤的配件列表（P3 规格匹配）。
-        spec_filters: [{spec_key, op, value, unit}, ...]；多条件取首条（覆盖主场景，多条件留 TODO）。
-        spec_value 是 Text 带单位（'24 GB'/'32 GB'），用 PG 正则提前缀数字 + '^[0-9]' guard
-        跳过非数值行（避免 'DDR4-3200'/'RDIMM'/'tri-mode' 触发 invalid input syntax 整批崩）。
-        无 spec_filters / spec_key 空 / value 非数 → 退化普通 get_by_category（向后兼容）。
+        """品类下按 spec 过滤配件（多条件 AND，支持数值范围 + 等值/IN）。
+
+        spec_filters: [{spec_key, op, value, unit?}, ...]，AND 组合。
+        - 数值型 op（>= <= > < =）：spec_value 提数字比较（'32 GB'→32、'5600 MT/s'→5600）。
+        - 等值/IN（op='=' 且 value 非数值，或 op='in'）：字符串等值匹配（Type=DDR5、Link Speed=1G）。
+        KP 件少（品类级几十件），全取 + Python 过滤，避免拼动态 raw SQL（且能组合多条件）。
+        无 spec_filters / 全无 spec_key → 退化 get_by_category（向后兼容）。
         """
         if not spec_filters:
             return self.get_by_category(category)
-        f = spec_filters[0]
-        spec_key = (f.get("spec_key") or "").strip()
-        op = f.get("op") or ">="
-        try:
-            value = float(f.get("value"))
-        except (TypeError, ValueError):
+        parsed = []
+        for f in spec_filters:
+            sk = (f.get("spec_key") or "").strip()
+            if sk:
+                parsed.append((sk, (f.get("op") or "=").strip(), f.get("value")))
+        if not parsed:
             return self.get_by_category(category)
-        if not spec_key:
-            return self.get_by_category(category)
-        op_sql = {">=": ">=", "<=": "<=", "=": "="}.get(op, ">=")  # 白名单，防注入
-        sql = text(r"""
-            SELECT p.id, p.name,
-                   ph.price, ph.currency, ph.price_date, ph.note,
-                   s.spec_value AS matched_spec,
-                   (SELECT COUNT(*) FROM kp.kp_price_history ph3 WHERE ph3.part_id = p.id) AS record_count
-            FROM kp.kp_parts p
-            JOIN kp.kp_categories c ON p.category_id = c.id
-            JOIN kp.kp_part_specs s ON s.part_id = p.id AND s.spec_key = :spec_key
-            LEFT JOIN kp.kp_price_history ph ON ph.id = (
-                SELECT MAX(id) FROM kp.kp_price_history ph2 WHERE ph2.part_id = p.id
-            )
-            WHERE c.name = :category
-              AND s.spec_value ~ '^[0-9]'
-              AND NULLIF(SUBSTRING(s.spec_value FROM '^[0-9]+(\.[0-9]+)?'), '')::NUMERIC """ + op_sql + r""" :value
-            ORDER BY p.name
-        """)
-        rows = self.session.execute(sql, {
-            "spec_key": spec_key, "category": category, "value": value,
-        }).fetchall()
-        result = []
-        for r in rows:
-            result.append({
-                "id": r.id,
+
+        parts = self.session.query(KPPart).options(joinedload(KPPart.specs)) \
+            .join(KPCategory, KPPart.category_id == KPCategory.id, isouter=True) \
+            .filter(KPCategory.name == category) \
+            .order_by(KPPart.name).all()
+
+        out: list = []
+        for part in parts:
+            spec_map = {s.spec_key: s.spec_value for s in (part.specs or [])}
+            hit = _spec_match_all(spec_map, parsed)
+            if not hit:
+                continue
+            latest = self.session.query(KPPriceHistory) \
+                .filter(KPPriceHistory.part_id == part.id) \
+                .order_by(KPPriceHistory.price_date.desc().nullslast(), KPPriceHistory.id.desc()) \
+                .first()
+            record_count = self.session.query(KPPriceHistory).filter(KPPriceHistory.part_id == part.id).count()
+            out.append({
+                "id": part.id,
                 "category": category,
-                "model": r.name,
-                "price": r.price or 0.0,
-                "currency": r.currency or "RMB",
-                "date": r.price_date.isoformat() if r.price_date else "",
-                "note": r.note or "",
-                "record_count": r.record_count or 0,
-                "matched_spec": r.matched_spec or "",
+                "model": part.name,
+                "price": latest.price if latest else 0.0,
+                "currency": latest.currency if latest else "RMB",
+                "date": latest.price_date.isoformat() if latest and latest.price_date else "",
+                "note": latest.note if latest else "",
+                "record_count": record_count,
+                "matched_spec": hit,
             })
-        return result
+        return out
 
     def rename_model(self, old_model: str, new_model: str) -> bool:
         """重命名配件（兼容旧接口）"""

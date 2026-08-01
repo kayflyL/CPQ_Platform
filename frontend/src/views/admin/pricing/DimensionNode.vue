@@ -10,7 +10,7 @@ const props = defineProps<{
   data?: { kind?: 'input' | 'dim' | 'output'; dimKey?: string; label?: string; opKind?: OpKind; sign?: string; summary?: string }
 }>()
 
-const ACCENT: Record<OpKind, string> = { base: '#1677ff', add: '#36cfcf', mult: '#fa8c16', clamp: '#8b5cf6' }
+const ACCENT: Record<OpKind, string> = { base: '#1677ff', add: '#52c9a0', mult: '#fa8c16', clamp: '#8b5cf6' }
 const accent = computed(() => (props.data?.opKind ? ACCENT[props.data.opKind] : '#1677ff'))
 const kind = computed(() => props.data?.kind || 'dim')
 </script>

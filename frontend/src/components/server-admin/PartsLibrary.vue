@@ -1,20 +1,23 @@
 <script setup lang="ts">
 /** 料号库管理（管理面）— 所有 L6+KP 料号逐条 CRUD。对应原型管理面料号库。
- *  分类两级：一级部段（section：基准/前面板/后面板/电源，对应报价表4个STEP）+ 段内细类别（category）。 */
+ *  分类三级，大类/STEP 由 l6.part_taxonomy 管理（左栏可增/改名/删，改名批量传播到所有相关料号）：
+ *  一级大类（major_category，主导航）+ 二级子类（category，开放自由输入）；
+ *  section（STEP 基准/前面板/后面板/电源）为快速筛选。 */
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons-vue'
-import { partsApi, type PartMaster, type PartSection } from '@/api/serverConfig'
+import { partsApi, type PartMaster, type PartSection, type PartMajorCategory } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
 import { useSeriesStore } from '@/stores/series'
-import { SECTION_ORDER, defaultSectionFor } from '@/constants/partSections'
 
 const parts = ref<PartMaster[]>([])
 const total = ref(0)
-const sections = ref<PartSection[]>([])
+const majorCats = ref<PartMajorCategory[]>([])  // 大类汇总（一级主导航 + 段内子类）
+const sections = ref<PartSection[]>([])          // STEP 汇总（快速筛选用）
 const categories = ref<string[]>([])      // 全部细类别（编辑表单的 category 自动补全用）
-const section = ref<string>('all')         // 一级部段筛选
-const cat2 = ref<string>('all')            // 段内细类别二级筛选
+const majorCat = ref<string>('all')       // 一级大类筛选（主导航）
+const section = ref<string>('all')        // STEP 快速筛选（基准/前面板/后面板/电源）
+const cat2 = ref<string>('all')           // 段内子类二级筛选
 const chassisFilter = ref<string>('all')   // 适用机型筛选（all / series名 / common / unclassified）
 // 全平台系列权威源（system_config.server_series）：侧栏机型筛选 + chassis 字段下拉候选都读这里
 const seriesStore = useSeriesStore()
@@ -38,7 +41,9 @@ const importParsing = ref(false)
 const importCommitting = ref(false)
 
 const categoryOptions = computed(() => categories.value.map(c => ({ label: c, value: c })))
-const sectionOptions = SECTION_ORDER.map(s => ({ label: s, value: s }))
+// 大类/STEP 选项来自 taxonomy（用户可增改），不再写死常量
+const majorCategoryOptions = computed(() => majorCats.value.map(m => ({ label: m.major_category, value: m.major_category })))
+const sectionOptions = computed(() => sections.value.map(s => ({ label: s.section, value: s.section })))
 
 // 历史 values 缓存：每个 specs key 的已存在值列表（用于 free-tags 下拉）
 const specValueCache = ref<Record<string, string[]>>({})
@@ -67,7 +72,7 @@ function clearSpecValueCache() {
 const tableColumns = [
   { title: '料号 PN', dataIndex: 'pn', key: 'pn', width: 160 },
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
-  { title: '部段', dataIndex: 'section', key: 'section', width: 90 },
+  { title: '大类', dataIndex: 'major_category', key: 'major_category', width: 120 },
   { title: '类别', dataIndex: 'category', key: 'category', width: 110 },
   { title: '规格', key: 'summary', ellipsis: true },
   { title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110, align: 'right' as const },
@@ -91,6 +96,7 @@ async function load() {
     const [sortKey, sortOrder] = sortBy.value ? sortBy.value.split('-') : [undefined, undefined]
     const [listRes, secs, cats] = await Promise.all([
       partsApi.list({
+        major_category: majorCat.value === 'all' ? undefined : majorCat.value,
         section: section.value === 'all' ? undefined : section.value,
         category: cat2.value === 'all' ? undefined : cat2.value,
         search: search.value || undefined,
@@ -107,6 +113,13 @@ async function load() {
     total.value = listRes.total
     sections.value = secs.sections
     categories.value = cats.categories
+    // 大类汇总单独取：后端未重启（无 /major-categories）时不致命，降级为空大类导航
+    try {
+      const majors = await partsApi.majorCategories()
+      majorCats.value = majors.major_categories
+    } catch {
+      majorCats.value = []
+    }
     seriesStore.ensureSeries()
   } catch (e: any) {
     message.error(e.response?.data?.detail || e.message || '加载失败')
@@ -115,16 +128,20 @@ async function load() {
   }
 }
 
-// 当前部段下可选的细类别（二级 chips）
-const currentSectionCats = computed(() => {
-  if (section.value === 'all') return categories.value
-  return sections.value.find(s => s.section === section.value)?.categories || []
+// 当前大类下可选的子类（二级 chips）
+const currentMajorCats = computed(() => {
+  if (majorCat.value === 'all') return categories.value
+  return majorCats.value.find(m => m.major_category === majorCat.value)?.categories || []
 })
-const countOfSection = (sec: string) => sections.value.find(s => s.section === sec)?.count ?? 0
 
-// 切换筛选条件时重置分页并重新加载
-function onSectionChange() {
+// 切换大类（主导航）→ 重置子类 + 分页 + 重载
+function onMajorChange() {
   cat2.value = 'all'
+  pagination.value.current = 1
+  load()
+}
+// STEP 快速筛选 → 只重置分页 + 重载（与子类正交，不重置子类）
+function onSectionChange() {
   pagination.value.current = 1
   load()
 }
@@ -145,11 +162,51 @@ function onSortChange() {
   load()
 }
 
+// ---- 大类/STEP 分类管理（增/改名/删；改名批量传播到所有相关料号）----
+const taxModal = ref<{ open: boolean; mode: 'add' | 'rename'; kind: 'major' | 'step'; oldName?: string; name: string }>(
+  { open: false, mode: 'add', kind: 'major', name: '' })
+function openAddTax(kind: 'major' | 'step') {
+  taxModal.value = { open: true, mode: 'add', kind, name: '' }
+}
+function openRenameTax(kind: 'major' | 'step', oldName: string) {
+  taxModal.value = { open: true, mode: 'rename', kind, oldName, name: oldName }
+}
+async function saveTax() {
+  const { mode, kind, name, oldName } = taxModal.value
+  const n = (name || '').trim()
+  if (!n) { message.warning('名称不能为空'); return }
+  try {
+    if (mode === 'add') await partsApi.taxonomy.add(kind, n)
+    else await partsApi.taxonomy.rename(kind, oldName!, n)
+    // 改名后若当前选中的正是被改的项，跟随到新名
+    if (mode === 'rename' && kind === 'major' && majorCat.value === oldName) majorCat.value = n
+    if (mode === 'rename' && kind === 'step' && section.value === oldName) section.value = n
+    taxModal.value.open = false
+    load()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '操作失败')
+  }
+}
+async function deleteTax(kind: 'major' | 'step', name: string) {
+  try {
+    await partsApi.taxonomy.remove(kind, name)
+    if (kind === 'major' && majorCat.value === name) { majorCat.value = 'all'; cat2.value = 'all' }
+    if (kind === 'step' && section.value === name) section.value = 'all'
+    load()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || e.message || '删除失败')
+  }
+}
+
 const summaryOf = (p: PartMaster) => specSummary(p.specs, p.category) || p.spec_text || ''
 
 async function openNew() {
   editing.value = null
-  form.value = { category: categories.value[0] || '', section: defaultSectionFor(categories.value[0]) || SECTION_ORDER[0] }
+  form.value = {
+    category: categories.value[0] || '',
+    major_category: majorCats.value[0]?.major_category || '',
+    section: sections.value[0]?.section || '',
+  }
   specsRows.value = seedSuggested(form.value.category)
   // 确保 seriesStore.items 加载完成（chassis 下拉候选）
   await seriesStore.ensureSeries()
@@ -205,12 +262,8 @@ function addSpecRow() {
 function removeSpecRow(i: number) {
   specsRows.value.splice(i, 1)
 }
-// 类别切换时：若部段未手填则按映射补默认值；并补齐该类别建议键空行
+// 子类切换时：补齐该子类建议键空行（大类/STEP 由用户从 taxonomy 下拉选）
 function onCategoryChange() {
-  if (!form.value.section && form.value.category) {
-    const s = defaultSectionFor(form.value.category)
-    if (s) form.value.section = s
-  }
   const existing = new Set(specsRows.value.map(r => r.key))
   for (const k of (SUGGESTED_KEYS_BY_CATEGORY[form.value.category || ''] || [])) {
     if (!existing.has(k)) specsRows.value.push(emptyRow(k))
@@ -243,7 +296,8 @@ async function save() {
     const specs = buildSpecs()
     const payload: Partial<PartMaster> = {
       pn: form.value.pn, name: form.value.name, category: form.value.category,
-      section: form.value.section, unit_price: form.value.unit_price,
+      major_category: form.value.major_category, section: form.value.section,
+      unit_price: form.value.unit_price,
       spec_text: form.value.spec_text, description: form.value.description, specs,
     }
     if (editing.value) {
@@ -398,12 +452,36 @@ onMounted(load)
     <div class="lib-body">
       <aside :class="['cat-nav', { collapsed: sidebarCollapsed }]">
         <div class="cat-section">
-          <div class="cat-section-label">部段</div>
-          <div :class="['cat-item', { active: section === 'all' }]" @click="section = 'all'; onSectionChange()">
+          <div class="cat-section-label"><span>大类</span><button class="tax-add" @click="openAddTax('major')" title="新增大类">+</button></div>
+          <div :class="['cat-item', { active: majorCat === 'all' }]" @click="majorCat = 'all'; onMajorChange()">
             <span class="cat-name">全部</span><span class="cat-count">{{ total }}</span>
           </div>
-          <div v-for="s in SECTION_ORDER" :key="s" :class="['cat-item', { active: section === s }]" @click="section = s; onSectionChange()">
-            <span class="cat-name">{{ s }}</span><span class="cat-count">{{ countOfSection(s) }}</span>
+          <div v-for="m in majorCats" :key="m.major_category" :class="['cat-item', { active: majorCat === m.major_category }]" @click="majorCat = m.major_category; onMajorChange()">
+            <span class="cat-name">{{ m.major_category }}</span>
+            <span class="cat-tools">
+              <span class="cat-count">{{ m.count }}</span>
+              <button class="cat-tool" title="重命名" @click.stop="openRenameTax('major', m.major_category)">✎</button>
+              <a-popconfirm title="删除该大类？被料号使用时会拒绝" @confirm="deleteTax('major', m.major_category)">
+                <button class="cat-tool cat-del" title="删除" @click.stop>✕</button>
+              </a-popconfirm>
+            </span>
+          </div>
+        </div>
+        <div class="cat-section">
+          <div class="cat-divider"></div>
+          <div class="cat-section-label"><span>STEP 筛选</span><button class="tax-add" @click="openAddTax('step')" title="新增 STEP">+</button></div>
+          <div :class="['cat-item', { active: section === 'all' }]" @click="section = 'all'; onSectionChange()">
+            <span class="cat-name">全部</span>
+          </div>
+          <div v-for="s in sections" :key="s.section" :class="['cat-item', { active: section === s.section }]" @click="section = s.section; onSectionChange()">
+            <span class="cat-name">{{ s.section }}</span>
+            <span class="cat-tools">
+              <span class="cat-count">{{ s.count }}</span>
+              <button class="cat-tool" title="重命名" @click.stop="openRenameTax('step', s.section)">✎</button>
+              <a-popconfirm title="删除该 STEP？被料号使用时会拒绝" @confirm="deleteTax('step', s.section)">
+                <button class="cat-tool cat-del" title="删除" @click.stop>✕</button>
+              </a-popconfirm>
+            </span>
           </div>
         </div>
         <div v-if="seriesStore.values.length" class="cat-section">
@@ -418,9 +496,9 @@ onMounted(load)
         </div>
       </aside>
       <div class="card-area">
-        <div v-if="currentSectionCats.length" class="subcat-bar">
-          <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'; onCat2Change()">全部细类</div>
-          <div v-for="c in currentSectionCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c; onCat2Change()">
+        <div v-if="currentMajorCats.length" class="subcat-bar">
+          <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'; onCat2Change()">全部子类</div>
+          <div v-for="c in currentMajorCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c; onCat2Change()">
             {{ c }}
           </div>
         </div>
@@ -487,16 +565,19 @@ onMounted(load)
         <a-form-item label="规格"><a-input v-model:value="form.spec_text" placeholder="如 PCBA_3.5''_Triple-mode 或 Cable_..._340mm" /></a-form-item>
         <a-form-item label="说明"><a-textarea v-model:value="form.description" :rows="2" placeholder="一句话讲清楚这个料号是什么、用在哪、怎么选，给不熟悉的同事看" /></a-form-item>
         <a-row :gutter="12">
-          <a-col :span="8"><a-form-item label="部段" required>
-            <a-select v-model:value="form.section" :options="sectionOptions" placeholder="选择部段" />
+          <a-col :span="6"><a-form-item label="大类" required>
+            <a-select v-model:value="form.major_category" :options="majorCategoryOptions" placeholder="选择大类" />
           </a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="类别">
+          <a-col :span="6"><a-form-item label="子类">
             <a-auto-complete v-model:value="form.category" :options="categoryOptions"
                              @change="onCategoryChange"
                              :filter-option="(input: string, option: { value: string; label: string }) => (option.value as string).toLowerCase().includes(input.toLowerCase())"
-                             placeholder="选择或输入细类别" allow-clear />
+                             placeholder="选择或输入子类" allow-clear />
           </a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="STEP 部段" required>
+            <a-select v-model:value="form.section" :options="sectionOptions" placeholder="基准/前面板/后面板/电源" />
+          </a-form-item></a-col>
+          <a-col :span="6"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
         </a-row>
 
         <div class="section-title">扩展属性 <span class="section-hint">· 适用于槽位 / 机型 / 规格</span></div>
@@ -566,6 +647,12 @@ onMounted(load)
         </div>
       </div>
     </a-modal>
+
+    <!-- 分类管理 Modal（新增 / 重命名 大类·STEP）-->
+    <a-modal :open="taxModal.open" :title="(taxModal.mode === 'add' ? '新增' : '重命名') + (taxModal.kind === 'major' ? '大类' : ' STEP')" @ok="saveTax" @cancel="taxModal.open = false" :destroyOnClose="true">
+      <a-input v-model:value="taxModal.name" :placeholder="taxModal.kind === 'major' ? '大类名称' : 'STEP 名称（如 基准件）'" @pressEnter="saveTax" />
+      <div class="field-hint" v-if="taxModal.mode === 'rename'">改名会同步到所有用了该分类的料号。</div>
+    </a-modal>
   </div>
 </template>
 
@@ -579,16 +666,26 @@ onMounted(load)
 .lib-count { font-size: 12px; font-weight: 400; color: var(--cpq-text-muted, #6E7582); margin-left: 6px; }
 .lib-body { display: grid; grid-template-columns: 160px 1fr; gap: 14px; transition: grid-template-columns .2s; }
 .lib-body:has(.cat-nav.collapsed) { grid-template-columns: 0px 1fr; }
-.cat-nav { display: flex; flex-direction: column; gap: 2px; overflow: hidden; transition: width .2s, opacity .2s; }
-.cat-nav.collapsed { width: 0; opacity: 0; }
+.cat-nav { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - 130px); padding-right: 2px; transition: width .2s, opacity .2s; }
+.cat-nav::-webkit-scrollbar { width: 5px; }
+.cat-nav::-webkit-scrollbar-thumb { background: var(--cpq-overlay-w15); border-radius: 3px; }
+.cat-nav.collapsed { width: 0; opacity: 0; max-height: none; }
 .cat-section { display: flex; flex-direction: column; gap: 2px; }
 .cat-divider { height: 1px; background: var(--cpq-overlay-w10); margin: 8px 0; }
-.cat-section-label { font-size: 11px; font-weight: 600; color: var(--cpq-text-muted, #6E7582); padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.cat-section-label { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: var(--cpq-text-muted, #6E7582); padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+.tax-add { margin-left: auto; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 15px; line-height: 1; width: 18px; height: 18px; cursor: pointer; border-radius: 4px; }
+.tax-add:hover { background: var(--cpq-overlay-w15); color: var(--cpq-accent-primary, #1677FF); }
 .cat-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); transition: all .15s; white-space: nowrap; }
 .cat-item:hover { background: var(--cpq-overlay-w5); color: var(--cpq-text-primary, #E8ECEF); }
 .cat-item.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
 .cat-count { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
 .cat-item.active .cat-count { color: var(--cpq-accent-primary, #1677FF); }
+.cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.cat-tools { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0; }
+.cat-tool { width: 18px; height: 18px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 11px; cursor: pointer; border-radius: 4px; opacity: 0; transition: opacity .15s, background .15s; display: inline-flex; align-items: center; justify-content: center; }
+.cat-item:hover .cat-tool { opacity: 1; }
+.cat-tool:hover { background: var(--cpq-overlay-w15); color: var(--cpq-text-primary, #E8ECEF); }
+.cat-tool.cat-del:hover { background: var(--cpq-overlay-danger15); color: var(--cpq-accent-danger, #ff4d4f); }
 .card-area { min-height: 200px; }
 .subcat-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .subcat-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-w5); transition: all .15s; }

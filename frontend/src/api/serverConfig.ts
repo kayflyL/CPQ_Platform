@@ -13,10 +13,27 @@ export interface PartSection {
   count: number
   categories: string[]
 }
+
+/** 大类汇总项（一级主导航）：major_category 大类 + 段内子类列表 */
+export interface PartMajorCategory {
+  major_category: string
+  count: number
+  categories: string[]
+}
 export const partsApi = {
-  list: (opts?: { category?: string; section?: string; search?: string; chassis?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string }) =>
+  list: (opts?: { category?: string; major_category?: string; section?: string; search?: string; chassis?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string }) =>
     RESP<{ parts: PartMaster[]; total: number }>(axios.get('/api/parts', { params: opts })),
   sections: () => RESP<{ sections: PartSection[] }>(axios.get('/api/parts/sections')),
+  majorCategories: () => RESP<{ major_categories: PartMajorCategory[] }>(axios.get('/api/parts/major-categories')),
+  /** 大类/STEP 分类管理：增/改名/删，改名删除批量传播到所有相关料号 */
+  taxonomy: {
+    add: (kind: 'major' | 'step', name: string) =>
+      RESP<{ kind: string; name: string }>(axios.post('/api/parts/taxonomy', { kind, name })),
+    rename: (kind: 'major' | 'step', old_name: string, new_name: string) =>
+      RESP<{ updated: number }>(axios.put('/api/parts/taxonomy/rename', { kind, old_name, new_name })),
+    remove: (kind: 'major' | 'step', name: string) =>
+      RESP<{ name: string }>(axios.delete('/api/parts/taxonomy', { params: { kind, name } })),
+  },
   categories: () => RESP<{ categories: string[] }>(axios.get('/api/parts/categories')),
   /** 每个品类下现有的 spec_key 列表（DISTINCT，从 parts_master.specs 实际数据）→ {category: [spec_key...]} */
   specKeys: () => RESP<Record<string, string[]>>(axios.get('/api/parts/spec-keys')),
@@ -149,6 +166,7 @@ export interface PartMaster {
   pn: string
   name: string
   category: string
+  major_category?: string
   section?: string
   specs?: Record<string, any>
   unit_price?: number

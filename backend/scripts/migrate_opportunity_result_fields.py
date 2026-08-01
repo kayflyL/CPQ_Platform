@@ -1,4 +1,4 @@
-"""D1 迁移：给 opportunities.opportunities 加 3 列（行业/客户类型/结果）。
+"""D1 迁移：给 opportunities.opportunities 加 3 列（行业/订单类型/结果）。
 
 用 opp_engine 执行（复用项目已配好的连接，无需手动连库）。
 幂等：ADD COLUMN IF NOT EXISTS + UPDATE WHERE IS NULL，重跑无副作用。
@@ -26,7 +26,7 @@ STATEMENTS = [
     "ALTER TABLE opportunities.opportunities "
     "ADD COLUMN IF NOT EXISTS industry      VARCHAR",
     "ALTER TABLE opportunities.opportunities "
-    "ADD COLUMN IF NOT EXISTS customer_type VARCHAR",
+    "ADD COLUMN IF NOT EXISTS order_type VARCHAR",
     "ALTER TABLE opportunities.opportunities "
     "ADD COLUMN IF NOT EXISTS result        VARCHAR DEFAULT 'pending'",
     "UPDATE opportunities.opportunities SET result = 'pending' WHERE result IS NULL",
@@ -38,7 +38,7 @@ def main():
         for stmt in STATEMENTS:
             conn.execute(text(stmt))
     print("✓ opportunities.opportunities 已加 3 列：")
-    print("  industry / customer_type / result")
+    print("  industry / order_type / result")
     print("  result 历史空值已回填为 pending")
 
 

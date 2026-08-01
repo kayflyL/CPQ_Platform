@@ -1,6 +1,6 @@
 """API endpoints for strategy center (策略中心)。
 
-domain: requirement / selection / pricing / market
+domain: requirement / selection / pricing / market / policy(策略文档)
 status: draft / testing / active / archived（只有 active 被业务引用）
 """
 from fastapi import APIRouter, HTTPException
@@ -9,7 +9,7 @@ from app.repository.strategy_repo import StrategyRepository
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
-_VALID_DOMAIN = {"requirement", "selection", "pricing", "market"}
+_VALID_DOMAIN = {"requirement", "selection", "pricing", "market", "policy"}
 
 
 @router.get("/")

@@ -83,6 +83,19 @@ DEFAULT_DIMS = {
     },
 }
 
+# 利润率告警策略（独立于上方 6 维度；工作台低毛利弹窗的阈值+文案 SSOT，与保底封顶解耦）
+# ⚠️ body 必须与 frontend constants/pricingMeta.ts DEFAULT_MARGIN_ALERT 保持一致
+MARGIN_ALERT = {
+    "name": "利润率告警",
+    "body": {
+        "enabled": True,
+        "threshold": 7,
+        "title": "利润率低于告警线",
+        "content": "当前综合毛利率 ${margin}% 低于告警线 ${threshold}%，建议线下走特价审批，系统仅作记录。",
+    },
+    "desc": "工作台综合毛利率低于门槛时的告警弹窗（开关+门槛+标题+正文模板 ${margin}/${threshold}）；与保底封顶解耦",
+}
+
 LEGACY_TYPES = ("margin_tier", "pricing_scenario")  # 旧查表分类模型，归档
 
 
@@ -131,6 +144,30 @@ def main():
                 if not dry:
                     repo.set_status(s["id"], "archived", operator="seed")
                 archived.append(f'{s["type"]}#{s["id"]}')
+
+        # 利润率告警（独立策略，非维度）
+        ma_exist = active_by_type.get("margin_alert")
+        if ma_exist and not args.reset:
+            skipped.append("margin_alert")
+        else:
+            ma_payload = {
+                "domain": "pricing",
+                "type": "margin_alert",
+                "name": MARGIN_ALERT["name"],
+                "scope": None,
+                "body": MARGIN_ALERT["body"],
+                "status": "active",
+                "description": MARGIN_ALERT["desc"],
+                "change_reason": "利润率告警策略种子",
+            }
+            if dry:
+                added.append("margin_alert")
+            elif ma_exist and args.reset:
+                repo.update(ma_exist["id"], {"body": MARGIN_ALERT["body"], "name": MARGIN_ALERT["name"], "description": MARGIN_ALERT["desc"]}, operator="seed")
+                reset.append("margin_alert")
+            else:
+                repo.create(ma_payload, operator="seed")
+                added.append("margin_alert")
 
         print(f"✓ 维度 seed：新增 {added or '无'}；跳过(已存在) {skipped or '无'}；重置 {reset or '无'}")
         print(f"  归档旧类型 {archived or '无'}（margin_tier/pricing_scenario → archived，未删除）")

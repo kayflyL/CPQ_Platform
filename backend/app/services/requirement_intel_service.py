@@ -86,6 +86,73 @@ def _extract_budget(text: str) -> Optional[float]:
     return num
 
 
+# 内存代际/速率/容量正则（_extract_mem_signal 用）
+_MEM_GEN_RE = re.compile(r"DDR?([345])", re.IGNORECASE)
+_MEM_SPEED_RE = re.compile(r"(?<![\d])(3200|4400|4800|5200|5600|6400)(?:\s*MT/s?\b|MHz)?", re.IGNORECASE)
+_MEM_SIGNAL_RE = re.compile(r"DDR?([345])|\bD[345]\b|内存|memory|\bram\b|rdimm", re.IGNORECASE)
+_NUM_GB_RE = re.compile(r"(\d+)\s*GB?\b", re.IGNORECASE)
+
+
+def _extract_mem_signal(text: str) -> Optional[dict]:
+    """从需求文本提取内存语义 {total_gb, type(DDR4/DDR5), speed}。
+    total_gb 取「含内存信号(DDR/D5/内存)的段」里的 G 值，避免误抓 SSD/硬盘容量（如 480G启动盘）。
+    无任何内存信号 → None（交回主流程按 spec_rules/代表件处理）。"""
+    if not text:
+        return None
+    gen = _MEM_GEN_RE.search(text)
+    mem_type = f"DDR{gen.group(1)}" if gen else (
+        "DDR5" if re.search(r"\bD5\b", text, re.IGNORECASE) else
+        "DDR4" if re.search(r"\bD4\b", text, re.IGNORECASE) else None
+    )
+    has_mem_word = bool(_MEM_SIGNAL_RE.search(text))
+    if not mem_type and not has_mem_word:
+        return None
+    speed_m = _MEM_SPEED_RE.search(text)
+    speed = int(speed_m.group(1)) if speed_m else None
+    # 容量：按段切，只取含内存信号的段；无内存段则全文兜底
+    segs = re.split(r"[\n,，;；、]+", text)
+    mem_segs = [s for s in segs if _MEM_SIGNAL_RE.search(s)]
+    scope = " ".join(mem_segs) if mem_segs else text
+    caps = [int(m.group(1)) for m in _NUM_GB_RE.finditer(scope)]
+    caps = [c for c in caps if c <= 1024]  # 单条内存不 >1024G，超的当硬盘忽略
+    total = max(caps) if caps else None
+    if not mem_type and not speed and not total:
+        return None
+    return {"type": mem_type, "speed": speed, "total_gb": total}
+
+
+# CPU 双路信号（全套/满配/双路/2颗 → 双 CPU）
+_DUAL_CPU_RE = re.compile(r"全套|满配|双路|双\s*CPU|2\s*颗|两颗|2\s*cpu", re.IGNORECASE)
+
+
+def _extract_cpu_signal(text: str) -> Optional[dict]:
+    """从需求文本提取 CPU 信号 {duality}。全套配置/双路/满配/2颗 → duality=True。"""
+    if not text:
+        return None
+    return {"duality": True} if _DUAL_CPU_RE.search(text) else None
+
+
+# 电源功率（W）：'电源配1300' / '1300W电源' / '1300W' → 1300
+_PSU_WATT_RE = re.compile(r"(?:电源|psu|power)[^\d]{0,6}(\d{3,4})|(\d{3,4})\s*[Ww](?:att)?(?:\s*电源)?")
+
+
+def _extract_psu_signal(text: str) -> Optional[dict]:
+    """从需求文本提电源功率 {wattage}。合理服务器 PSU 范围 200-3000W，超范围忽略。"""
+    if not text:
+        return None
+    m = _PSU_WATT_RE.search(text)
+    if not m:
+        return None
+    w = m.group(1) or m.group(2)
+    try:
+        wattage = int(w)
+    except (TypeError, ValueError):
+        return None
+    if 200 <= wattage <= 3000:
+        return {"wattage": wattage}
+    return None
+
+
 def _fold_lexicons(lexicons: Optional[list]) -> tuple:
     """把多张词表折叠成 5 个 dict，喂给 extract_keywords。
     - kind=kp          → category_lexicon {品类: [triggers]}（喂 pick_kp_parts）
@@ -140,7 +207,8 @@ def extract_keywords(text: str, lexicon: Optional[dict] = None, keyword_limit: i
     if not text:
         return {"keywords": [], "categories": [], "series": None, "form": None,
                 "usage": None, "server_type_name": None, "chassis_categories": [],
-                "qty_map": {}, "qty_per_token": {}, "spec_search_terms": set(), "budget": None}
+                "qty_map": {}, "qty_per_token": {}, "spec_search_terms": set(), "budget": None,
+                "mem_signal": None, "cpu_signal": None, "multi_spec_filters": {}, "psu_signal": None}
 
     low = text.lower()
 
@@ -167,6 +235,7 @@ def extract_keywords(text: str, lexicon: Optional[dict] = None, keyword_limit: i
 
     # 规格别名（千兆/万兆等规格描述 → 品类 + 搜索词；救 ILIKE 命不中的规格词，库 model 是英文不含"千兆"）
     spec_search_terms: set[str] = set()
+    multi_spec_filters: dict[str, list[dict]] = {}
     if spec_aliases:
         for _alias in spec_aliases:
             _trig = (_alias.get("trigger") or "").lower()
@@ -178,6 +247,10 @@ def extract_keywords(text: str, lexicon: Optional[dict] = None, keyword_limit: i
                     if _term and _term.lower() not in {k.lower() for k in keywords}:
                         keywords.append(_term)
                         spec_search_terms.add(_term.lower())
+                # 同品类多规格（如千兆+万兆网卡）：收集 spec_filter，pick stage2 按速率各产出一件
+                _sf = _alias.get("spec_filter")
+                if _cat and isinstance(_sf, dict) and _sf.get("spec_key"):
+                    multi_spec_filters.setdefault(_cat, []).append(_sf)
 
     # 按品类触发词分段解析数量（结构化清单"品类：型号 * N"，每段独立，避免跨行乱关联）
     _multis = "".join(re.escape(_m) for _m in (qty_multipliers or ["*", "×"]))
@@ -256,6 +329,9 @@ def extract_keywords(text: str, lexicon: Optional[dict] = None, keyword_limit: i
 
     # 预算（元）
     budget = _extract_budget(text)
+    mem_signal = _extract_mem_signal(text)
+    cpu_signal = _extract_cpu_signal(text)
+    psu_signal = _extract_psu_signal(text)
 
     # jieba 分词补充关键词（型号 token + 有意义词）
     tokens: list[str] = []
@@ -304,7 +380,9 @@ def extract_keywords(text: str, lexicon: Optional[dict] = None, keyword_limit: i
             "usage": usage, "server_type_name": server_type_name,
             "chassis_categories": chassis_categories,
             "qty_map": qty_map, "qty_per_token": qty_per_token,
-            "spec_search_terms": spec_search_terms, "budget": budget}
+            "spec_search_terms": spec_search_terms, "budget": budget,
+            "mem_signal": mem_signal, "cpu_signal": cpu_signal,
+            "multi_spec_filters": multi_spec_filters, "psu_signal": psu_signal}
 
 
 PIPELINE_STEPS = [
@@ -536,7 +614,7 @@ async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broa
         _kp_by_model: dict = {}
         _all_kp: list = []
         for _bl in baselines:
-            _type_cats = kp_categories_for_type(_bl.get("server_type_name") or "", _mk_cfg.get("type_packages"))
+            _type_cats = kp_categories_for_type(_bl.get("server_type_name") or "", _mk_cfg.get("type_packages"), ext["categories"])
             _eff_cats = list(dict.fromkeys(_type_cats + (ext["categories"] or [])))
             _bl_kp = pick_kp_parts(
                 _eff_cats, ext["keywords"],
@@ -549,6 +627,9 @@ async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broa
                 qty_per_token=ext.get("qty_per_token"),
                 spec_search_terms=ext.get("spec_search_terms"),
                 model_token_regex=_ext_cfg.get("model_token_regex"),
+                mem_signal=ext.get("mem_signal"),
+                cpu_signal=ext.get("cpu_signal"),
+                multi_spec_filters=ext.get("multi_spec_filters"),
             )
             _kp_by_model[_bl.get("server_model_id") or _bl.get("id")] = _bl_kp
             _all_kp.extend(_bl_kp)
@@ -575,6 +656,10 @@ async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broa
         for _bl in baselines:
             _bl_kp = _kp_by_model.get(_bl.get("server_model_id") or _bl.get("id")) or []
             plans.append(build_plan(_bl, _bl_kp))
+        # 底盘件信号注入 plan（前端 usePlanBom.deriveVars 读 psu_wattage 显示电源功率）
+        _sig = {"psu_wattage": (ext.get("psu_signal") or {}).get("wattage")}
+        for p in plans:
+            p["chassis_signals"] = _sig
         apply_budget_check(plans, budget)  # 注 over_budget / underspend 字段
         await _broadcast({
             "type": "step_done", "step": "compose",

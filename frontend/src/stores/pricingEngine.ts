@@ -23,7 +23,7 @@ export interface PricingContext {
   platform?: string | null       // opportunity.platform_type
   industry?: string | null       // opportunity.industry
   region?: string | null         // opportunity.delivery_region（自由文本，引擎内分桶；已是桶名也认）
-  customerType?: string | null   // opportunity.customer_type（订单维度）
+  customerType?: string | null   // opportunity.order_type（订单维度）
   form?: string | null           // opportunity.chassis_form（v1 预留不参与）
   cost?: number | null           // 报价单 BOM 总成本（RMB）
   qty?: number | null            // 销售台数（opportunity.purchase_qty）

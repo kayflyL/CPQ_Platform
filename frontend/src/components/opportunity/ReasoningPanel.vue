@@ -17,32 +17,8 @@
         <p v-if="m.kind === 'text' && !m.muted" class="rp-bubble">{{ m.text }}</p>
         <p v-else-if="m.kind === 'text' && m.muted" class="rp-note">{{ m.text }}</p>
         <p v-else-if="m.kind === 'user'" class="rp-bubble user">{{ m.text }}</p>
-        <article v-else-if="m.kind === 'plan' && m.plan" class="rp-plan">
-          <header class="rp-plan-head">
-            <div class="rp-plan-namebox">
-              <h4 class="rp-plan-name">
-                {{ m.plan.name || m.plan.model || '(未命名整机)' }}
-                <a-tag v-if="m.plan.use" class="rp-use">{{ m.plan.use }}</a-tag>
-                <a-tag v-if="m.plan.recommend_level === 'recommend'" color="success" class="rp-rec">推荐</a-tag>
-                <a-tag v-else-if="m.plan.recommend_level === 'avoid'" color="error" class="rp-rec">不推荐</a-tag>
-              </h4>
-              <span class="rp-plan-series">{{ [m.plan.series, m.plan.form, m.plan.bays != null ? `${m.plan.bays}盘位` : ''].filter(Boolean).join(' · ') }}</span>
-            </div>
-            <span class="rp-plan-cost">¥{{ fmt(m.plan.summary.total_cost) }}</span>
-          </header>
-          <p v-if="m.plan.over_budget" class="rp-plan-warn">
-            <WarningOutlined /> 满足需求但超预算 ¥{{ fmt(m.plan.over_budget.amount) }}
-          </p>
-          <p v-else-if="m.plan.underspend" class="rp-plan-warn info">
-            <InfoCircleOutlined /> 方案仅用预算 {{ Math.round(m.plan.underspend.ratio * 100) }}%，可升级配置（还剩 ¥{{ fmt(m.plan.underspend.amount) }}）
-          </p>
-          <p v-if="m.plan.selling_points" class="rp-plan-points">★ {{ m.plan.selling_points }}</p>
-          <p class="rp-plan-meta">底盘 {{ m.plan.summary.parts_count }} 件 + KP {{ m.plan.summary.kp_count }} 件 · 含税价以工作台为准</p>
-          <footer class="rp-plan-actions">
-            <a-button size="small" @click="viewDetail(m.plan)">
-              <template #icon><EyeOutlined /></template>
-              查看 BOM 详情
-            </a-button>
+        <PlanCard v-else-if="m.kind === 'plan' && m.plan" :plan="m.plan" @view-bom="viewDetail(m.plan)">
+          <template #extra-actions>
             <a-button
               type="primary"
               size="small"
@@ -52,8 +28,8 @@
               <template #icon><ArrowRightOutlined /></template>
               确认转为报价单
             </a-button>
-          </footer>
-        </article>
+          </template>
+        </PlanCard>
       </template>
 
       <!-- 思考中：打字指示 -->
@@ -108,14 +84,15 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import {
-  RobotOutlined, ExclamationCircleOutlined, InfoCircleOutlined,
-  ArrowRightOutlined, EyeOutlined, WarningOutlined,
+  RobotOutlined, ExclamationCircleOutlined, ArrowRightOutlined,
 } from '@ant-design/icons-vue'
 import BomTable from '@/components/BomTable.vue'
+import PlanCard from '@/components/reasoning/PlanCard.vue'
 import type { Plan } from '@/api/reasoning'
 import type { ReasoningStep } from '@/composables/useReasoningStream'
 import { FUTURE_STEPS } from '@/composables/useReasoningStream'
 import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
+import { STEP_COPY } from '@/utils/reasoningStepCopy'
 
 const props = defineProps<{
   steps: ReasoningStep[]
@@ -144,25 +121,7 @@ const drawerPlan = ref<Plan | null>(null)
 const drawerCfg = ref<PlanLiveCfg | null>(null)
 const drawerLoading = ref(false)
 
-// 每步完成 → 自然语言一条（AI 口吻）
-const STEP_COPY: Record<string, (p: any) => string> = {
-  extract: (p) => {
-    const kws = (p?.keywords || []).join('、')
-    const sf = [p?.series, p?.form].filter(Boolean).join(' ')
-    return `抓到关键信息：${kws || '（没抓到明显关键词）'}${sf ? `，场景像 ${sf}` : ''}。`
-  },
-  select_baseline: (p) => {
-    const names = (p?.matches || []).map((m: any) => m.name)
-    return `从机型库挑了 ${p?.count ?? 0} 个整机骨架${names.length ? `：${names.join(' / ')}` : ''}。`
-  },
-  match_kp: (p) => {
-    const cats = Object.keys(p?.by_category || {})
-    return `按需求配了 ${p?.kp_count ?? 0} 件 KP${cats.length ? `（${cats.join('、')}）` : ''}。`
-  },
-  compose: (p) => p?.warning
-    ? `${p.warning}`
-    : `组合出 ${p?.plans_count ?? 0} 张整机方案，挑一张看看 👇`,
-}
+// STEP_COPY（每步完成 → AI 口吻摘要）抽到 @/utils/reasoningStepCopy，与试运行面板共用
 
 interface Msg { key: string; kind: 'text' | 'plan' | 'user'; text?: string; muted?: boolean; plan?: Plan }
 
@@ -219,10 +178,6 @@ async function scrollBottom() {
 }
 watch(() => messages.value.length, scrollBottom)
 watch(showTyping, (v) => { if (v) scrollBottom() })
-
-function fmt(n: number | null | undefined) {
-  return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
 
 async function viewDetail(p: Plan) {
   drawerPlan.value = p
@@ -373,76 +328,7 @@ defineExpose({ stopConfirming: () => { confirmingId.value = null } })
   color: var(--cpq-text-muted);
 }
 
-/* 整机方案卡 = 主角（左渐变 signature 描边 + 阴影）*/
-.rp-plan {
-  position: relative;
-  flex-shrink: 0;
-  margin: 4px 0 2px;
-  padding: 12px 14px 12px 16px;
-  background: var(--cpq-overlay-w6);
-  border: 1px solid var(--cpq-overlay-w10);
-  border-radius: var(--cpq-radius-md);
-  box-shadow: var(--cpq-shadow-sm);
-  overflow: hidden;
-  animation: rp-in 0.3s var(--cpq-ease-out-expo) both;
-  transition: border-color var(--cpq-transition-fast), box-shadow var(--cpq-transition-fast);
-}
-.rp-plan::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 3px;
-  background: var(--cpq-accent-gradient);
-}
-.rp-plan:hover {
-  border-color: var(--cpq-glass-border-strong);
-  box-shadow: var(--cpq-shadow-md);
-}
-.rp-plan-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-.rp-plan-namebox {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.rp-plan-name {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  word-break: break-word;
-  overflow-wrap: anywhere;
-}
-.rp-plan-series {
-  font-size: 11px;
-  color: var(--cpq-accent-primary);
-}
-.rp-plan-cost {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--cpq-accent-primary);
-  flex-shrink: 0;
-  font-variant-numeric: tabular-nums;
-}
-.rp-plan-meta {
-  margin: 6px 0 10px;
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-}
-.rp-plan-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
+/* 整机方案卡样式抽到 @/components/reasoning/PlanCard.vue（.pc-* 前缀）*/
 
 /* 打字指示（三点）*/
 .rp-typing {
@@ -482,20 +368,6 @@ defineExpose({ stopConfirming: () => { confirmingId.value = null } })
   padding: 0 0 10px;
   border-bottom: 1px solid var(--cpq-overlay-w8);
   margin-bottom: 10px;
-}
-
-/* ── 超预算标注 ── */
-.rp-plan-warn {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 6px 0 0;
-  padding: 5px 10px;
-  font-size: 12px;
-  color: var(--cpq-accent-warning, #faad14);
-  background: var(--cpq-overlay-w6);
-  border: 1px solid var(--cpq-overlay-w15, var(--cpq-overlay-w10));
-  border-radius: var(--cpq-radius-sm, 8px);
 }
 
 /* ── 反问回复区 ── */

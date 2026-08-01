@@ -44,7 +44,7 @@
             <td class="cell-catalogue">{{ row.catalogue }}</td>
             <td class="cell-desc">{{ row.description || '[空]' }}</td>
             <td class="cell-qty">{{ row.qty || '[空]' }}</td>
-            <td class="cell-cost">{{ row.cost ? `¥${formatNumber(row.cost)}` : '[空]' }}</td>
+            <td class="cell-cost">{{ row.cost ? `${currencySymbol(row.currency)}${formatNumber(row.cost)}` : '[空]' }}</td>
           </tr>
         </tbody>
       </table>
@@ -65,6 +65,9 @@ const settingsStore = useSettingsStore()
 const formatNumber = (num: number) => {
   return settingsStore.formatNumber(num)
 }
+
+// 原币种符号：USD 件显 $（原单价未折算），RMB 件显 ¥；折算统一在方案总价（build_plan summary.total_cost）
+const currencySymbol = (c?: string) => (c || 'RMB').toUpperCase() === 'USD' ? '$' : '¥'
 
 // L6 配置单：优先按机型族模板（bom_template.rows + bom_context）渲染摘要（catalogue/desc/qty，无价）；
 // 无模板时回落 cfg.items 的 L6 行（legacy/未选基准配置）。
@@ -118,6 +121,7 @@ const kpRows = computed(() => {
     description: item.catalogue || '',
     qty: item.qty,
     cost: Number(item.base_price) || 0,
+    currency: item.currency || 'RMB',  // 原币种：USD 件显 $，RMB 件显 ¥
     _idx: idx // 用于 v-for key 去重
   }))
 })

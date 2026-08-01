@@ -13,3 +13,4 @@ pytest>=7.4.0
 pytest-cov>=4.1.0
 openai>=1.0
 jieba>=0.42.1
+simpleeval>=0.9.11  # reasoning_executor condition 节点安全求值（缺它则所有 condition 静默走 true 分支）

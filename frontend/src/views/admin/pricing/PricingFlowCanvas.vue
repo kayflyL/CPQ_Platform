@@ -19,6 +19,7 @@ import {
 } from '@/constants/pricingMeta'
 import DimensionNode from './DimensionNode.vue'
 import DimensionDrawer from './DimensionDrawer.vue'
+import MarginAlertEditor from './MarginAlertEditor.vue'
 
 const store = usePricingRulesStore()
 const nodeTypes: any = markRaw({ dim: DimensionNode })
@@ -77,7 +78,7 @@ const graph = computed(() => {
   return { nodes, edges }
 })
 
-const ACCENT: Record<string, string> = { base: '#1677ff', add: '#36cfcf', mult: '#fa8c16', clamp: '#8b5cf6' }
+const ACCENT: Record<string, string> = { base: '#1677ff', add: '#52c9a0', mult: '#fa8c16', clamp: '#8b5cf6' }
 
 // ── 抽屉 ──
 const drawerOpen = ref(false)
@@ -171,6 +172,9 @@ function stepText(s: any): string {
         </div>
       </a-collapse-panel>
     </a-collapse>
+
+    <!-- 利润率告警配置（独立策略 margin_alert，工作台低毛利弹窗 SSOT）-->
+    <MarginAlertEditor />
 
     <DimensionDrawer v-model:open="drawerOpen" :dim-key="drawerKey" :initial-body="drawerBody" :strategy-id="drawerId" @saved="onSaved" />
   </div>

@@ -3,7 +3,7 @@
   "configurations": [
     {
       "name": "backend",
-      "runtimeExecutable": "python",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--app-dir", "D:/CPQ_Platform_V1/backend", "--reload", "--port", "8000"],
       "port": 8000
     },

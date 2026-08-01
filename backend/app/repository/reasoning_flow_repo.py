@@ -142,9 +142,12 @@ def _default_node_configs() -> dict:
                 },
             ],
             "spec_aliases": [
-                {"trigger": "千兆", "category": "Network(NIC) requirement", "search_terms": ["1G", "1000M", "千兆"]},
-                {"trigger": "万兆", "category": "Network(NIC) requirement", "search_terms": ["10G", "10000M", "万兆"]},
-                {"trigger": "百兆", "category": "Network(NIC) requirement", "search_terms": ["100M", "百兆"]},
+                {"trigger": "千兆", "category": "Network(NIC) requirement", "search_terms": ["1G", "1000M", "千兆"],
+                 "spec_filter": {"spec_key": "Link Speed", "op": "=", "value": "1G"}},
+                {"trigger": "万兆", "category": "Network(NIC) requirement", "search_terms": ["10G", "10000M", "万兆"],
+                 "spec_filter": {"spec_key": "Link Speed", "op": "=", "value": "10G"}},
+                {"trigger": "百兆", "category": "Network(NIC) requirement", "search_terms": ["100M", "百兆"],
+                 "spec_filter": {"spec_key": "Link Speed", "op": "=", "value": "100M"}},
             ],
             "qty_units": [
                 # 口语化数量单位 → 品类（N卡→GPU, N条→Memory, N颗/N块→CPU）

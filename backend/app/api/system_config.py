@@ -2,8 +2,10 @@
 from pathlib import Path
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
-from typing import Any
+from typing import Any, Optional
+from pydantic import BaseModel
 from app.repository.system_config_repo import SystemConfigRepository
+from app.services import llm_client
 from app.utils.file_storage import FileStorage
 
 router = APIRouter(prefix="/api/system-config", tags=["system-config"])
@@ -89,6 +91,30 @@ def init_defaults():
         return {"success": True, "message": "Default configs initialized"}
     finally:
         repo.close()
+
+
+# ── LLM 配置排障：测试连接 + 拉取模型列表（AI 设置页用）──────────────
+# 用表单当前值（未保存也行）实测，缺省字段回落 system_config.llm_config / .env。
+class LlmTestBody(BaseModel):
+    base_url: Optional[str] = None
+    api_key: Optional[str] = None
+    model: Optional[str] = None
+
+
+@router.post("/llm_config/test")
+def test_llm(body: LlmTestBody):
+    """用给定配置实测一次 chat，返回真实结果/错误（供「测试连接」按钮）。"""
+    return llm_client.test_connection(body.model_dump(exclude_none=True))
+
+
+@router.post("/llm_config/models")
+def list_llm_models(body: LlmTestBody):
+    """拉取 provider 可用模型 id 列表（供「拉取模型列表」按钮）。"""
+    try:
+        ids = llm_client.list_models(body.model_dump(exclude_none=True))
+        return {"success": True, "models": ids}
+    except llm_client.LLMError as e:
+        return {"success": False, "models": [], "message": str(e)}
 
 
 @router.post("/branding/logo")

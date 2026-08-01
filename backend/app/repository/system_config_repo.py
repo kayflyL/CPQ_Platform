@@ -143,7 +143,7 @@ class SystemConfigRepository:
                 "model": "",     # 留空则用 .env 的 LLM_MODEL
                 "system_prompt": "你是 CPQ 平台的「方案助手」,辅助销售/FAE 做服务器配置与报价。用户当前所在页面的业务上下文会以「当前上下文」形式提供给你,作答时优先基于它。要求:1) 用中文回复;2) 对料号价格、库存、具体型号编号等易变信息,不要编造——不确定时请用户在配置页确认或查料号库;3) 回答简洁、分点。",
                 "temperature": 0.7,
-                "max_tokens": 2000,
+                "max_tokens": 8000,
             }, ensure_ascii=False), "type": "json", "description": "LLM API 配置（base_url/api_key/model 留空则用 .env 环境变量）"},
         ]
         

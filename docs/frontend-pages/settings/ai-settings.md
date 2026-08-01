@@ -1,6 +1,6 @@
 # AI 设置 (AiSettings)
 
-> 最后更新：2026-07-30
+> 最后更新：2026-07-31
 
 ## 功能概述
 
@@ -67,9 +67,9 @@
 |--------|------|------------|
 | API 端点 | `base_url` | system_config > .env |
 | API Key | `api_key`（密码形式显示） | system_config > .env |
-| 模型 | `model` | system_config > .env |
-| 温度 | `temperature` (0-2) | 0.7 |
-| 最大 Tokens | `max_tokens` | 2000 |
+| 模型 | `model`（可输入或从「拉取模型列表」下拉选 id，如 `step-3.7-flash`） | system_config > .env |
+| 温度 | `temperature` (0-2，低更稳准/高越发散) | 0.7 |
+| 最大 Tokens | `max_tokens`（reasoning 模型如 step-3.x 的思考也占此预算，建议 ≥ 8000） | 8000 |
 | System Prompt | 系统提示词 | 见默认值 |
 
 ### 配置优先级
@@ -77,6 +77,17 @@
 ```
 system_config.llm_config > .env 环境变量 > 默认值
 ```
+
+### 排障工具（测试连接 / 拉取模型列表）
+
+API 设置 tab 提供两个排障按钮，用**表单当前值**（未保存也行，缺省字段回落 `llm_config` / `.env`）实测，避免再踩「模型名填了显示名 → 连不上但看不到原因」的坑：
+
+| 按钮 | 行为 | 说明 |
+|------|------|------|
+| 拉取模型列表 | GET `{base_url}/models`，列出该 key 下可用模型 id | 拉到后模型框变为可搜索下拉（a-auto-complete），也可继续手输；根治手敲模型名拼错 |
+| 测试连接 | 实测一次 chat completion（max_tokens=8） | 成功提示模型已响应；失败直接展示 provider 真实错误（404 / 401 / 超时等），不再被占位文案吞掉 |
+
+> 历史坑：模型字段曾只能手填，用户易把控制台显示名（如 `Step 3.7 Flash`）当 id，导致 404 `model_invalid`；而方案助手聊天窗的失败回退文案曾固定为「配置好 DASHSCOPE_API_KEY」，把真实错误盖住。现已改为：聊天窗失败时透传真实错误（`assistant.py`），并在此页提供结构化排障。
 
 ---
 
@@ -90,6 +101,8 @@ system_config.llm_config > .env 环境变量 > 默认值
 | PUT | `/api/system-config/ai_trend_analysis` | 更新趋势分析配置 |
 | GET | `/api/system-config/llm_config/value` | 获取 LLM 配置 |
 | PUT | `/api/system-config/llm_config` | 更新 LLM 配置 |
+| POST | `/api/system-config/llm_config/test` | 测试连接（body: base_url/api_key/model，缺省回落 DB/.env） |
+| POST | `/api/system-config/llm_config/models` | 拉取可用模型 id 列表（body 同上） |
 | GET | `/api/dashboard/trend-overview?limit=N` | 趋势分析富数据（周/月/近半年聚合 + 重点商机，快捷指令注入用） |
 
 ---
@@ -110,4 +123,4 @@ system_config.llm_config > .env 环境变量 > 默认值
 - `composables/assistantContext.ts` — 上下文 Provider 管理
 - `composables/assistantProviders.ts` — Provider 定义 + 趋势分析快捷指令（`loadTrendConfig` / `buildTrendContext`）
 - `api/dashboard.py` — `/summary` 单周期统计 + `/trend-overview` 趋势分析富数据
-- `services/llm_client.py` — LLM 客户端（从配置读取参数）
+- `services/llm_client.py` — LLM 客户端（stream_chat 流式 + test_connection / list_models 排障）

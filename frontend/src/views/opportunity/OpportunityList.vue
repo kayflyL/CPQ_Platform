@@ -1,7 +1,6 @@
 <template>
   <div class="cockpit">
-    <div class="cockpit-scan" aria-hidden="true"></div>
-
+    <div class="cockpit-left">
     <!-- 顶栏：标题 + LIVE + 周期 -->
     <header class="cockpit-header glass-strong">
       <div class="cockpit-brand">
@@ -50,7 +49,6 @@
       </div>
     </header>
 
-    <div class="cockpit-body">
       <main class="main-area">
     <!-- KPI 精简行 -->
     <section class="kpi-deck">
@@ -60,54 +58,60 @@
       </div>
     </section>
 
-    <!-- 业务排行 -->
-    <section class="ai-deck">
-      <div class="ai-card glass">
-        <div class="ai-header">
-          <div class="ai-title">业务排行</div>
-          <span class="ai-period">{{ periodLabel }}</span>
-        </div>
-        <div class="rank-content" v-if="topSales.length">
-          <div v-for="(s, idx) in topSales" :key="s.name" class="rank-row">
-            <span class="rank-num" :class="{ 'rank-top': idx < 3 }">{{ idx + 1 }}</span>
-            <span class="rank-name">{{ s.name }}</span>
-            <div class="rank-bar-wrap">
-              <div class="rank-bar" :style="{ width: s.rate * 100 + '%' }"></div>
-            </div>
-            <span class="rank-count">{{ s.count }} 个</span>
-            <span class="rank-rate">{{ (s.rate * 100).toFixed(0) }}%</span>
-          </div>
-          <div class="rank-row rank-others" v-if="othersSales">
-            <span class="rank-num">—</span>
-            <span class="rank-name">其他 {{ othersSales.people }} 人</span>
-            <span class="rank-count">{{ othersSales.count }} 个</span>
-            <span class="rank-rate">{{ (othersSales.rate * 100).toFixed(0) }}%</span>
-          </div>
-        </div>
-        <div class="ai-empty" v-else>暂无数据</div>
-      </div>
-    </section>
-
-    <!-- 图表区（合并切换）-->
+    <!-- 图表区（Bento 2×2：业务排行/线索转化 同排｜趋势分析/结构分布 同排）-->
     <section class="chart-deck">
-      <div class="chart-card glass">
+      <div class="chart-card chart-card-trend glass">
         <div class="deck-header">
-          <div class="deck-title"><span class="deck-num">01</span><span class="deck-line"></span>趋势分析</div>
+          <div class="deck-title"><span class="deck-line"></span>趋势分析</div>
           <a-segmented v-model:value="trendView" :options="trendOptions" size="small" />
         </div>
         <v-chart class="chart-inner" :option="currentTrendOpt" autoresize />
       </div>
-      <div class="chart-card glass">
+      <div class="chart-card chart-card-dist glass">
         <div class="deck-header">
-          <div class="deck-title"><span class="deck-num">02</span><span class="deck-line"></span>结构分布</div>
+          <div class="deck-title"><span class="deck-line"></span>结构分布</div>
           <a-segmented v-model:value="distView" :options="distOptions" size="small" />
         </div>
         <v-chart class="chart-inner chart-inner-pie" :option="currentDistOpt" autoresize @click="(p: any) => drillOn(distView === 'platform' ? 'platform' : 'chassis', p.name)" />
       </div>
+      <div class="chart-card chart-card-rank glass">
+        <div class="deck-header">
+          <div class="deck-title"><span class="deck-line"></span>业务排行</div>
+          <button v-if="rankExpanded" class="rank-toggle" @click="rankExpanded = false">收起其他 ▲</button>
+        </div>
+        <div class="rank-body" :class="{ 'rank-body-scroll': rankExpanded }">
+          <v-chart v-if="topSales.length" class="chart-inner" :style="rankExpanded ? { height: rankBodyHeight + 'px', flex: 'none' } : null" :option="rankOpt" autoresize @click="onRankClick" />
+          <div v-else class="chart-empty">暂无排行数据</div>
+        </div>
+      </div>
+      <div class="chart-card chart-card-won glass">
+        <div class="deck-header">
+          <div class="deck-title"><span class="deck-line"></span>线索转化</div>
+          <button v-if="wonExpanded" class="rank-toggle" @click="wonExpanded = false">收起 ▲</button>
+        </div>
+        <div v-if="wonRows.length" class="won-list">
+          <div class="won-row won-head">
+            <span class="won-rank"></span>
+            <span class="won-name">销售</span>
+            <span class="won-num">线索</span>
+            <span class="won-num">成交</span>
+            <span class="won-rate-head">成交率</span>
+          </div>
+          <div v-for="(r, i) in wonRows" :key="r.name + i" class="won-row" :class="{ 'won-others': r.others, 'won-clickable': r.expandable }" @click="onWonRowClick(r)">
+            <span class="won-rank">{{ r.others ? '·' : i + 1 }}</span>
+            <span class="won-name">{{ r.name }}<span v-if="r.expandable" class="won-expand-hint"> ▸</span></span>
+            <span class="won-num">{{ r.count }}</span>
+            <span class="won-num won-won">{{ r.won }}</span>
+            <span class="won-rate" :style="{ color: wonRateColor(r.rate) }">{{ r.rate }}%</span>
+          </div>
+        </div>
+        <div v-else class="chart-empty">暂无转化数据</div>
+      </div>
     </section>
       </main>
+    </div>
 
-      <aside class="list-panel" :class="{ collapsed: listCollapsed }">
+    <aside class="list-panel" :class="{ collapsed: listCollapsed }">
         <button class="list-toggle" @click="listCollapsed = !listCollapsed">
           <span v-if="listCollapsed">商机列表 ◀</span>
           <span v-else>折叠 ▶</span>
@@ -131,7 +135,7 @@
           <a-select-option value="pending">进行中</a-select-option>
           <a-select-option value="won">已中标</a-select-option>
           <a-select-option value="lost">已丢标</a-select-option>
-          <a-select-option value="archived">已归档</a-select-option>
+          <a-select-option value="expired">已过期</a-select-option>
         </a-select>
         <a-select v-model:value="filters.platform" size="small" mode="multiple" placeholder="平台类型" :maxTagCount="1" class="dark-select filter-fixed" @change="onFilterChange">
           <a-select-option v-for="s in seriesStore.items" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
@@ -202,7 +206,6 @@
       </div>
         </div>
       </aside>
-    </div>
 
     <!-- Create Modal -->
     <a-modal v-model:open="showCreateModal" title="新建商机" @ok="handleCreate" :confirmLoading="creating">
@@ -244,13 +247,6 @@ const periods = [
 ]
 const period = ref('week')
 
-// 周期显示文本
-const periodLabel = computed(() => {
-  if (customRange.value) return customRange.value.shortLabel
-  const p = periods.find(p => p.value === period.value)
-  return p?.label || ''
-})
-
 // 图表切换状态
 const trendView = ref<'opp' | 'platform'>('opp')
 const distView = ref<'platform' | 'chassis'>('platform')
@@ -264,15 +260,25 @@ const distOptions = [
 ]
 
 // 业务排行（从 summary 数据读取）
-interface SalesRank { name: string; count: number; rate: number }
+interface SalesRank { name: string; count: number; won: number; rate: number }
 const topSales = ref<SalesRank[]>([])
 const othersSales = ref<{ count: number; rate: number; people: number } | null>(null)
+// 「其他」聚合展开后隐藏在里面的销售明细（Top5 之后的逐人）
+const othersList = ref<SalesRank[]>([])
+const rankExpanded = ref(false)
+const wonExpanded = ref(false)
+// 展开时按行数给图表定高，外层 rank-body 滚动，避免明细挤在一起
+const RANK_ROW_H = 30
+const rankBodyHeight = computed(() => Math.max((topSales.value.length + othersList.value.length) * RANK_ROW_H, 120))
 
 function computeSalesRank() {
   const data = (summary.value as any).sales_rank
+  rankExpanded.value = false
+  wonExpanded.value = false
   if (!data || !data.top) {
     topSales.value = []
     othersSales.value = null
+    othersList.value = []
     return
   }
 
@@ -280,6 +286,14 @@ function computeSalesRank() {
   topSales.value = data.top.map((s: any) => ({
     name: s.name,
     count: s.count,
+    won: s.won || 0,
+    rate: s.count / total,
+  }))
+  // Top5 之后的逐人明细（点击「其他」展开时用）
+  othersList.value = (data.others_list || []).map((s: any) => ({
+    name: s.name,
+    count: s.count,
+    won: s.won || 0,
     rate: s.count / total,
   }))
 
@@ -537,6 +551,99 @@ const roseOpt = computed(() => {
   }
 })
 
+// 03 业务排行：横向条形（第 1 名居顶，柱长=商机数；前 3 名序号高亮、「其他」弱化）
+const rankOpt = computed(() => {
+  if (!topSales.value.length) return {}
+  const rows = topSales.value.map((s) => ({ name: s.name, count: s.count, rate: s.rate, others: false }))
+  if (rankExpanded.value && othersList.value.length) {
+    // 展开：接上 Top5 之后的逐人明细，不再显示聚合「其他」
+    othersList.value.forEach((s) => rows.push({ name: s.name, count: s.count, rate: s.rate, others: false }))
+  } else if (othersSales.value && othersSales.value.count > 0) {
+    rows.push({ name: `其他 ${othersSales.value.people} 人`, count: othersSales.value.count, rate: othersSales.value.rate, others: true })
+  }
+  const top = rows[0]?.count || 1
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      trigger: 'axis', axisPointer: { type: 'shadow' },
+      backgroundColor: chartColors.value.tooltipBg, textStyle: { color: chartColors.value.tooltipText },
+      borderColor: chartColors.value.tooltipBorder, borderWidth: 1,
+      formatter: (params: any) => {
+        const r = rows[params[0].dataIndex]
+        return `${r.name}<br/>商机数 <b>${r.count}</b> · 占比 ${(r.rate * 100).toFixed(1)}%`
+      },
+    },
+    grid: { left: 4, right: 44, top: 8, bottom: 4, containLabel: true },
+    xAxis: {
+      type: 'value', max: Math.max(1, Math.ceil(top * 1.2)),
+      splitLine: { lineStyle: { color: chartColors.value.splitLine } },
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: chartColors.value.axisLabel, fontSize: 10 },
+    },
+    yAxis: {
+      type: 'category', inverse: true, data: rows.map((r) => r.name),
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: {
+        margin: 12, color: chartColors.value.axisLabel, fontSize: 12,
+        formatter: (_v: string, i: number) => `{${i < 3 ? 'rt' : 'rm'}|${i + 1}}  {n|${rows[i].name}}`,
+        rich: {
+          rt: { color: chartColors.value.accent, fontWeight: 700, fontSize: 11, align: 'right' },
+          rm: { color: chartColors.value.tick, fontWeight: 600, fontSize: 11, align: 'right' },
+          n: { color: chartColors.value.tooltipText, fontSize: 12 },
+        },
+      },
+    },
+    series: [{
+      type: 'bar', barMaxWidth: 14, itemStyle: { borderRadius: [0, 6, 6, 0] },
+      data: rows.map((r) => ({
+        value: r.count,
+        itemStyle: { color: r.others
+          ? chartColors.value.mutedBar
+          : { type: 'linear', x: 0, y: 0, x2: 1, y2: 0, colorStops: [{ offset: 0, color: chartColors.value.barEnd }, { offset: 1, color: chartColors.value.barStart }] } },
+      })),
+      label: { show: true, position: 'right', color: chartColors.value.tooltipText, fontSize: 11, fontWeight: 600,
+        formatter: (p: any) => {
+          const r = rows[p.dataIndex]
+          return r.others ? `${r.count}  ▸` : `${r.count}`
+        } },
+      animationDuration: 800,
+    }],
+  }
+})
+
+// 04 线索转化：按销售直列 线索量/成交量/成交率（与业务排行同序）
+// 折叠：Top5 + 其他聚合（可点开）；展开：Top5 + 其后逐人明细，列表滚动
+const wonRows = computed(() => {
+  const rows = topSales.value.map((s) => ({ name: s.name, count: s.count, won: s.won, others: false, expandable: false }))
+  if (wonExpanded.value) {
+    othersList.value.forEach((s) => rows.push({ name: s.name, count: s.count, won: s.won, others: false, expandable: false }))
+  } else if (othersSales.value && othersSales.value.count > 0) {
+    const othersWon = othersList.value.reduce((a, s) => a + (s.won || 0), 0)
+    rows.push({ name: `其他 ${othersSales.value.people} 人`, count: othersSales.value.count, won: othersWon, others: true, expandable: true })
+  }
+  return rows.map((r) => ({ ...r, rate: r.count > 0 ? Math.round((r.won / r.count) * 100) : 0 }))
+})
+
+// 点击「其他 N 人」聚合行 → 展开隐藏的销售明细
+function onWonRowClick(row: any) {
+  if (row.expandable) wonExpanded.value = true
+}
+
+// 成交率色码：高(≥50%)绿 / 中(30–49%)蓝 / 低(<30%)灰 —— 一眼区分转化好坏
+function wonRateColor(rate: number) {
+  if (rate >= 50) return '#52C9A0'
+  if (rate >= 30) return '#1677FF'
+  return '#86909c'
+}
+
+// 业务排行：折叠态点击「其他 N 人」聚合行 → 展开隐藏的销售明细
+function onRankClick(params: any) {
+  if (rankExpanded.value) return
+  if (params?.componentType === 'series' && typeof params.name === 'string' && params.name.startsWith('其他')) {
+    rankExpanded.value = true
+  }
+}
+
 // 图表切换
 const currentTrendOpt = computed(() => trendView.value === 'opp' ? chart1Opt.value : chart2Opt.value)
 const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.value : roseOpt.value)
@@ -594,12 +701,10 @@ function onListResize() {
   }, 200)
 }
 function bizStatusText(r: any) {
-  if (r?.status === 'archived') return '已归档'
-  return ({ pending: '进行中', won: '已中标', lost: '已丢标' } as any)[r?.result] || '进行中'
+  return ({ pending: '进行中', won: '已中标', lost: '已丢标', expired: '已过期' } as any)[r?.result] || '进行中'
 }
 function bizTagColor(r: any) {
-  if (r?.status === 'archived') return 'default'
-  return ({ pending: 'processing', won: 'success', lost: 'error' } as any)[r?.result] || 'default'
+  return ({ pending: 'processing', won: 'success', lost: 'error', expired: 'warning' } as any)[r?.result] || 'default'
 }
 function formatDate(s: string) { return s ? s.slice(0, 10) : '-' }
 function goToDetail(id: string) { router.push(`/opportunities/${id}`) }
@@ -617,7 +722,7 @@ async function handleBatchTrash() {
     await axios.post('/api/opportunities/batch-trash', { opportunity_ids: selectedRowKeys.value })
     message.success(`已将 ${selectedRowKeys.value.length} 项移至回收站`)
     exitSelectMode()
-    reloadAll()
+    reloadAll({ resetPage: true })
   } finally { batching.value = false }
 }
 async function loadTable() {
@@ -627,8 +732,7 @@ async function loadTable() {
     const params: any = { page: tablePage.value, page_size: tablePageSize.value }
     if (filters.value.search) params.search = filters.value.search
     if (filters.value.status !== 'all') {
-      if (filters.value.status === 'archived') params.status = 'archived'
-      else params.result = filters.value.status
+      params.result = filters.value.status
     }
     if (drill.value.platform) {
       params.platform = drill.value.platform
@@ -659,7 +763,7 @@ function restoreListState() {
   try { s = JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) || '') } catch { return }
   if (!s) return
   if (s.page) tablePage.value = Number(s.page) || 1
-  if (s.status) filters.value.status = String(s.status)
+  if (s.status) filters.value.status = String(s.status) === 'archived' ? 'expired' : String(s.status)
   if (Array.isArray(s.platform)) filters.value.platform = s.platform
   if (Array.isArray(s.chassis)) filters.value.chassis = s.chassis
   if (typeof s.search === 'string') filters.value.search = s.search
@@ -705,7 +809,7 @@ async function handleCreate() {
     message.success('创建成功')
     showCreateModal.value = false
     newProject.value = { customer_name: '', sales_person: '' }
-    reloadAll()
+    reloadAll({ resetPage: true })
   } finally { creating.value = false }
 }
 
@@ -720,9 +824,10 @@ async function loadSummary() {
     summary.value = res.data
   } finally { dataLoading.value = false }
 }
-async function reloadAll() {
+async function reloadAll({ resetPage = false }: { resetPage?: boolean } = {}) {
   await loadSummary()
-  tablePage.value = 1
+  // 首屏恢复页码时不能重置；切周期 / 新建 / 批量删除 等显式传 resetPage:true 才回到第 1 页
+  if (resetPage) tablePage.value = 1
   await loadTable() // tableData 加载后会自动触发 computeSalesRank
 }
 function setPeriod(p: string) { customRange.value = null; period.value = p }
@@ -747,7 +852,7 @@ onBeforeUnmount(() => {
   if (resizeTimer) clearTimeout(resizeTimer)
   window.removeEventListener('resize', onListResize)
 })
-watch([() => period.value, () => customRange.value], () => reloadAll())
+watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage: true }))
 // 折叠/展开侧栏会改变列表容器高度，展开后重算
 watch(listCollapsed, async (v) => {
   if (v) return
@@ -757,12 +862,9 @@ watch(listCollapsed, async (v) => {
 </script>
 
 <style scoped>
-.cockpit { position: relative; display: flex; flex-direction: column; gap: 14px; padding: 16px 24px 24px; min-height: calc(100vh - 56px); }
+.cockpit { position: relative; display: flex; flex-direction: row; align-items: stretch; gap: 14px; padding: 16px 24px 24px; min-height: calc(100vh - 56px); }
+.cockpit-left { flex: 1 1 1px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 
-/* 扫描线背景 */
-.cockpit-scan { position: fixed; left: 0; right: 0; top: 56px; bottom: 0; pointer-events: none; z-index: 0; overflow: hidden; }
-.cockpit-scan::before { content: ''; position: absolute; left: 0; right: 0; top: -240px; height: 240px; background: linear-gradient(180deg, transparent, var(--cpq-overlay-a8), transparent); animation: cpq-scan-move 9s linear infinite; }
-@keyframes cpq-scan-move { 0% { transform: translateY(0); } 100% { transform: translateY(calc(100vh - 56px + 240px)); } }
 .cockpit > * { position: relative; z-index: 1; }
 
 /* 顶栏 */
@@ -796,39 +898,48 @@ watch(listCollapsed, async (v) => {
   letter-spacing: -0.02em; text-shadow: var(--cpq-reading-glow);
 }
 
-/* AI 分析区 */
-.ai-deck { display: grid; grid-template-columns: 1fr; gap: 14px; flex: none; }
-.ai-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; gap: 10px; }
-.ai-header { display: flex; justify-content: space-between; align-items: center; }
-.ai-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); display: flex; align-items: center; gap: 6px; letter-spacing: 0.5px; }
-.ai-period { font-size: 11px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); padding: 2px 8px; border-radius: 4px; }
-.ai-empty { text-align: center; padding: 16px; color: var(--cpq-text-muted); font-size: 12px; }
-
-/* 业务排行 */
-.rank-content { display: flex; flex-direction: column; gap: 8px; }
-.rank-row { display: grid; grid-template-columns: 20px 70px 1fr 45px 36px; align-items: center; gap: 8px; font-size: 12px; }
-.rank-num { font-weight: 600; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
-.rank-num.rank-top { color: var(--cpq-accent-primary); }
-.rank-name { color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.rank-bar-wrap { height: 6px; background: var(--cpq-overlay-w10); border-radius: 3px; overflow: hidden; }
-.rank-bar { height: 100%; background: linear-gradient(90deg, var(--cpq-accent-primary), var(--cpq-accent-success)); border-radius: 3px; transition: width var(--cpq-dur-2) var(--cpq-ease-smooth); }
-.rank-count { color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
-.rank-rate { color: var(--cpq-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; text-align: right; }
-.rank-others { border-top: 1px dashed var(--cpq-overlay-w10); padding-top: 8px; margin-top: 4px; }
-.rank-others .rank-bar-wrap { display: none; }
-
-/* 图表区 */
-.chart-deck { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; flex: 1 1 0; min-height: 200px; }
+/* 图表区（Bento 2×2：线索转化+业务排行 同排｜趋势分析+结构分布 同排）*/
+.chart-deck { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-areas: "rank won" "trend dist"; gap: 14px; flex: 1 1 0; min-height: 380px; }
 .chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-height: 0; }
+.chart-card-won { grid-area: won; }
+.chart-card-rank { grid-area: rank; }
+.chart-card-trend { grid-area: trend; }
+.chart-card-dist { grid-area: dist; }
+/* 线索转化：销售直列（线索量/成交量/成交率，成交率色码一眼区分）*/
+.won-list { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.won-list::-webkit-scrollbar { width: 6px; }
+.won-list::-webkit-scrollbar-thumb { background: var(--cpq-overlay-a20); border-radius: 3px; }
+.won-list::-webkit-scrollbar-track { background: transparent; }
+.won-row { display: grid; grid-template-columns: 20px 1fr 34px 34px 46px; align-items: center; gap: 8px; padding: 6px 2px; flex: 1 1 0; min-height: 16px; border-bottom: 1px solid var(--cpq-overlay-w4); }
+.won-row:last-child { border-bottom: none; }
+.won-head { flex: 0 0 auto; min-height: 0; font-size: 11px; color: var(--cpq-text-muted); font-weight: 500; border-bottom-color: var(--cpq-overlay-w8); }
+.won-clickable { cursor: pointer; transition: background var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.won-clickable:hover { background: var(--cpq-overlay-a8); }
+.won-expand-hint { color: var(--cpq-accent-primary); font-size: 10px; }
+.won-rank { font-size: 11px; font-weight: 700; color: var(--cpq-accent-primary); text-align: center; font-variant-numeric: tabular-nums; }
+.won-name { font-size: 12.5px; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.won-num { font-size: 12.5px; color: var(--cpq-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.won-won { color: #52C9A0; font-weight: 600; }
+.won-rate-head { font-size: 11px; color: var(--cpq-text-muted); text-align: right; }
+.won-rate { font-size: 12.5px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.won-others .won-name, .won-others .won-num { color: var(--cpq-text-muted); }
 .deck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex: none; }
 .deck-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); letter-spacing: 0.5px; }
 .deck-num { font-size: 11px; font-weight: 700; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; padding: 1px 6px; border: 1px solid var(--cpq-overlay-a20); border-radius: 4px; background: var(--cpq-overlay-a8); }
 .deck-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--cpq-overlay-a15), transparent); }
+.rank-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--cpq-overlay-a20); border-radius: 999px; background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: 11px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.rank-toggle:hover { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary); }
 .chart-inner { flex: 1 1 0; min-height: 120px; }
 .chart-inner-pie { cursor: pointer; }
+.chart-empty { flex: 1 1 0; display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: 12px; }
+/* 业务排行展开：图表按行数定高，外层滚动，明细不再挤压 */
+.rank-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.rank-body-scroll { overflow-y: auto; }
+.rank-body-scroll::-webkit-scrollbar { width: 6px; }
+.rank-body-scroll::-webkit-scrollbar-thumb { background: var(--cpq-overlay-a20); border-radius: 3px; }
+.rank-body-scroll::-webkit-scrollbar-track { background: transparent; }
 
 /* 列表 */
-.cockpit-body { display: flex; gap: 14px; align-items: stretch; flex: 1 1 auto; min-height: 0; }
 .main-area { flex: 1 1 1px; min-width: 500px; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .list-panel { position: relative; flex: 0 0 420px; min-width: 420px; max-width: 560px; overflow: hidden; transition: flex-basis var(--cpq-dur-2) var(--cpq-ease-smooth), width var(--cpq-dur-2) var(--cpq-ease-smooth); }
 .list-panel.collapsed { flex: 0 0 48px; min-width: 48px; max-width: 48px; }
@@ -893,18 +1004,17 @@ watch(listCollapsed, async (v) => {
 .cockpit :deep(.ant-pagination-item-active a) { color: var(--cpq-accent-primary) !important; }
 
 @media (prefers-reduced-motion: reduce) {
-  .cockpit-scan::before { animation: none; display: none; }
   .live-dot { animation: none; }
 }
 @media (max-width: 1200px) {
   .kpi-deck { grid-template-columns: repeat(2, 1fr); }
-  .ai-deck { grid-template-columns: 1fr; }
+  /* 中屏：趋势置顶通栏，线索转化/业务排行 并列，结构分布垫底 */
+  .chart-deck { grid-template-columns: 1fr 1fr; grid-template-areas: "trend trend" "rank won" "dist dist"; }
 }
 @media (max-width: 768px) {
-  .chart-deck { grid-template-columns: 1fr; }
+  .chart-deck { grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "rank" "won" "trend" "dist"; min-height: 0; }
   .kpi-deck { grid-template-columns: 1fr; }
   .cockpit-header { flex-wrap: wrap; }
   .cockpit-live { margin-left: 0; }
-  .ai-deck { grid-template-columns: 1fr; }
 }
 </style>

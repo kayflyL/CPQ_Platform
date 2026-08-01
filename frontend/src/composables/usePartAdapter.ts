@@ -28,7 +28,7 @@ export const fromPartMaster = (p: PartMaster): PickerItem =>
 
 export const fromPsuOption = (o: PsuOption): PickerItem =>
   assertPn({
-    pn: o.pn, name: o.part_name, category: '电源',
+    pn: o.pn, name: o.part_name, category: '电源模块',
     specs: { wattage: o.wattage }, unit_price: o.unit_price,
     description: o.description, source: 'psu',
   })
