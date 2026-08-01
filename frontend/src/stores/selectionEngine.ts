@@ -109,7 +109,7 @@ export function parseCat(target: string | undefined): string {
 }
 
 /** 盘类型 key（与 ctx.config.sata_qty/sas_qty/nvme_qty、CORE_DRIVE_KINDS 一致）*/
-const DRIVE_KIND_KEYS = ['SATA', 'SAS', 'NVMe'] as const
+export const DRIVE_KIND_KEYS = ['SATA', 'SAS', 'NVMe'] as const
 /**
  * 盘类型规范化：把任意来源（KP 件 specs.interface/kind/type，或型号名文本）的盘类型字符串
  * 统一成 SATA/SAS/NVMe（与 ctx.config.*_qty / CORE_DRIVE_KINDS 一致），大小写无关；无法识别返回 undefined。

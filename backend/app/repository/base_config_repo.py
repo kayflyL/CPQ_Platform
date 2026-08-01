@@ -84,10 +84,13 @@ class BaseConfigRepository:
 
     def insert(self, data: dict) -> int:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
-                   "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id"}
+                   "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
+                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp"}
         d = {k: v for k, v in data.items() if k in allowed}
         if "name" not in d:
             raise ValueError("name required")
+        if isinstance(d.get("rear_slots"), (list, dict)):
+            d["rear_slots"] = json.dumps(d["rear_slots"], ensure_ascii=False)
         cols = list(d.keys())
         q = f"INSERT INTO l6.base_configs ({','.join(cols)}) VALUES ({','.join([':' + k for k in cols])}) RETURNING id"
         with l6_engine.begin() as c:
@@ -95,12 +98,15 @@ class BaseConfigRepository:
 
     def update(self, config_id: int, updates: dict) -> bool:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
-                   "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id"}
+                   "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
+                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp"}
         f, v = [], {}
         for k, val in updates.items():
             if k in allowed:
                 f.append(f"{k}=:{k}")
                 v[k] = val
+        if isinstance(v.get("rear_slots"), (list, dict)):
+            v["rear_slots"] = json.dumps(v["rear_slots"], ensure_ascii=False)
         if not f:
             return False
         v["id"] = config_id

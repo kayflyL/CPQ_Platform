@@ -199,8 +199,15 @@ export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string
   form?: string; bays?: number; bp_tri_pn?: string; bp_dc_pn?: string
   gpu_arch_default?: string; sort_order?: number
+  // 机箱能力档案（P1：把原散落前端硬编码的「机箱物理上能装什么」提到数据）
+  psu_bays?: number       // 电源槽位数（驱动电源数量上限/默认）
+  rear_slots?: RearSlot[] // 后面板槽位布局 [{name, cap}]
+  gpu_slots?: number      // 可装 GPU 数上限
+  max_tdp?: number | null  // 散热/供电承载 TDP 上限(W)，可空，供 PSU↔GPU 功率规则参考
   parts_count?: number; total_price?: number
 }
+/** 后面板槽位：名称 + 容量（如 IO1 容纳 3 张卡、OCP 容纳 1 张）*/
+export interface RearSlot { name: string; cap: number }
 export interface BaseConfigPart {
   id?: number; config_id?: number; pn: string; quantity: number
   locked?: boolean; sort_order?: number

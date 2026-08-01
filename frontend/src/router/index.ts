@@ -104,12 +104,31 @@ const routes = [
         meta: { title: 'Excel 解析' }
       },
 
-      // 策略中心
+      // 策略中心（门户 + 3 模块：对标服务器模块的真路由下钻）
       {
         path: '/strategies',
-        name: 'Strategies',
-        component: () => import('@/views/admin/Strategies.vue'),
+        name: 'StrategyPortal',
+        component: () => import('@/views/admin/StrategyPortal.vue'),
         meta: { title: '策略中心' }
+      },
+      {
+        path: '/strategies/pricing',
+        name: 'StrategyPricing',
+        component: () => import('@/views/admin/pricing/PricingWorkspace.vue'),
+        meta: { title: '报价策略' }
+      },
+      {
+        path: '/strategies/selection',
+        name: 'StrategySelection',
+        component: () => import('@/views/admin/selection/SelectionWorkspace.vue'),
+        meta: { title: '选型配置' }
+      },
+      {
+        path: '/strategies/requirement',
+        name: 'StrategyRequirement',
+        component: () => import('@/views/admin/LegacyModulePage.vue'),
+        props: { module: 'requirement' },
+        meta: { title: '需求分析' }
       },
 
       // 导出模板（统一入口）

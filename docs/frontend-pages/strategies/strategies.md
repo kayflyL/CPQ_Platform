@@ -1,6 +1,6 @@
 # 策略中心 (Strategies)
 
-> 最后更新：2026-07-30
+> 最后更新：2026-08-01
 
 ## 功能概述
 
@@ -10,7 +10,8 @@
 
 | 域           | type               | 说明                           | 落地点                    |
 | ----------- | ------------------ | ---------------------------- | ---------------------- |
-| pricing     | `platform_baseline`/`industry_adj`/`region_adj`/`order_mult`/`cost_tier`/`qty_mult`/`guardrail` | **加法定价引擎 7 维度**（2026-07-30 取代旧 pricing_scenario/margin_tier） | 演算器 + 未来方案助手；guardrail.floor → 工作台告警 |
+| pricing     | `platform_baseline`/`industry_adj`/`region_adj`/`order_mult`/`cost_tier`/`qty_mult`/`guardrail` | **加法定价引擎 7 维度**（2026-07-30 取代旧 pricing_scenario/margin_tier） | 演算器 + 未来方案助手 |
+| pricing     | `margin_alert` | **利润率告警**（独立策略，开关+门槛+文案，2026-07-31） | 工作台低毛利弹窗（`MarginAlertEditor` 配） |
 | pricing     | `warranty_markup`  | 维保加价（y1/y3/y5）               | 工作台维保年限建议费率            |
 | selection   | `require`     | 必配依赖（选 A 需配 B ≥N／规格约束） | CRE → 工作台 `selectionActions` |
 | selection   | `exclude`     | 互斥（同 category 同字段值不混搭） | CRE → 工作台 `selectionActions` |
@@ -36,14 +37,18 @@ pricing 域采用**多维度加法叠加**模型（取代旧的 scope 命中→�
 | `platform_baseline` | base 基准 | `{Polaris:15, Orion:11, Intel:11, 工作站:13}` | opportunity.platform_type |
 | `industry_adj` | add ±百分点 | `{行业→±百分点}` | opportunity.industry |
 | `region_adj` | add ±百分点 | `{factors:{国内/海外/偏远}, keywords:{...}}` | opportunity.delivery_region（自由文本→分桶） |
-| `order_mult` | mult ×系数 | `{customer_type→系数}` | opportunity.customer_type（订单维度） |
+| `order_mult` | mult ×系数 | `{customer_type→系数}` | opportunity.order_type（订单维度） |
 | `cost_tier` | mult ×系数 | `{tiers:[{max?,mult}]}` | 报价单 BOM totalCost |
 | `qty_mult` | mult ×系数 | `{bands:[{min,mult}]}` | opportunity.purchase_qty（量越大让利越多） |
 | `guardrail` | clamp 夹取 | `{floor, cap}` | — |
 
 **字段零新增列**——全维度映射到已有商机字段 + 报价成本；形态 `chassis_form` v1 预留不参与。
 
-**用途定调**：策略中心定价**只作建议值 + 演算器**，不驱动工作台售价（工作台仅用 guardrail.floor 告警，不自动改价）；真正消费方是**未来智能方案助手自动出报价单**（引擎纯 TS 可直接 import）。后端零改动（type 自由字符串、body 自由 JSON、`/api/strategies` 复用）。
+**用途定调**：策略中心定价**只作建议值 + 演算器**，不驱动工作台售价（工作台利润率告警走独立 `margin_alert` 策略，与保底封顶解耦，不自动改价）；真正消费方是**未来智能方案助手自动出报价单**（引擎纯 TS 可直接 import）。后端零改动（type 自由字符串、body 自由 JSON、`/api/strategies` 复用）。
+
+### 报价策略工作台（pricing 域 tab 骨架，2026-07-31）
+
+pricing 域 tab 改挂 `views/admin/pricing/PricingWorkspace.vue`——**左目录 + 右内容**骨架：左目录两项「定价策略」（→ 画布）/「策略文档」（→ 文档库）。骨架通用，将来选型/推理 tab 想加文档库可照搬。
 
 ### 报价策略画布（pricing 域专用视图）
 
@@ -52,6 +57,18 @@ pricing 域 tab 用 `views/admin/pricing/PricingFlowCanvas.vue`（替换旧 `Pri
 - **点维度节点** → `DimensionDrawer.vue` 按维度 type 分支编辑系数表（枚举→数值 / region 分桶因子+关键词 / cost_tier 阶梯行 / guardrail 双值）→ `strategyApi` create/update（未持久化时 create）→ `invalidatePricingRules` 刷新
 - **演算器面板**（headline）：输入一笔 deal（平台/行业/区域/订单/成本）→ 实时 `computeTargetMargin` → breakdown 每步 + 目标毛利率 + 建议售价（`suggestPrice = 成本×(1+目标%)`）。即「不知道怎么加点就来跑一下」的入口
 - 缺省兜底：store 加载 6 维度，缺失维度回退 `constants/pricingMeta.ts` 的 `DEFAULT_DIM_BODIES`（未 seed 也能用）
+
+### 策略文档库（policy 域，2026-07-31）
+
+标准 CPQ 配套的「定价手册」（对标 Oracle/SAP CPQ 策略模块绑文档库），直击「售前看不懂规则 / 定价口径混乱 / 新人上手慢」。
+
+- **存储复用 strategies 表**：新增 `domain='policy'`、`type='document'`。文档行 = `name`(标题) + `body={category,sort_order,content_markdown}` + `description`(摘要) + `status`。**零新表**、复用 `/api/strategies` CRUD（后端仅 `_VALID_DOMAIN` 加 `policy` 一处）
+- **左列表 + 右阅读窗**（`PolicyLibrary.vue`）：左侧按分类（总览/维度详解/操作指南…）过滤 + 新建；右侧渲染选中文档 markdown（标题/分类 tag/版本/更新人）+ 编辑/删除操作
+- **Markdown 渲染**：引入 `marked` + `dompurify`（防 XSS），封装 `components/common/MarkdownView.vue`（Glass Console 排版：GFM 表格/代码块/引用/列表）
+- **编辑器**（`PolicyDocEditor.vue`，a-modal）：标题/分类/排序/状态 + markdown textarea(左)/实时预览(右)分屏 + 修改说明。镜像 AI 设置 prompt 的 textarea 范式，不上 WYSIWYG 重库
+- **种子**：`backend/app/repository/policy_doc_repo.DEFAULT_DOCS` 首启动空表自动灌 5 篇定价手册（总览/加法三维度/乘法两维度/台数折扣/保底封顶），「空表才灌、绝不覆盖用户改动」
+
+> 版本快照/历史回滚曾设计（StrategyRevision 快照表）但**本期未做**——文档改动直接覆盖，`strategy.version` 仅自增记数。需要「规则变更留存/回滚」时再补。
 
 ### 推理流编排（requirement 域专用视图）
 
@@ -68,16 +85,31 @@ requirement 域 tab 用 `ReasoningFlowCanvas.vue`（vue flow）可视化编排 B
 
 **预算校验**：budget_check 给方案注 `over_budget`（不剔除）；match_kp 的 representative_pick 按 `requirement_rules[budget]` 区间动态选（高预算→max_price / 低预算→min_price）。
 
+**货币折算（build_plan，2026-07-31）**：KP 件币种不一（CPU/GPU 如 KH50000 常标 USD，底盘 RMB），`candidate_search.build_plan` 的 `summary.total_cost` 按报价工作台口径（`store/quote.ts`）折算统一为**含税 RMB**——USD 件 `unit_price × usd_to_rmb × (1+tax_rate)`（system_config 读 `tax_rate=0.13` / `usd_to_rmb=7.0`，默认值），RMB 件已含税直用，baseline 底盘 RMB。summary 带 `currency:"RMB"` + `rates:{usd_to_rmb,tax_rate}`。前端 KP 明细按原币种显示符号（`$/¥`，`ReasoningFlowCanvas.currencySymbol`），方案卡总价统一 ¥。影响所有 build_plan 消费方（test-run + 商机详情页方案卡）。
+
 **三层兜底**：无 active flow / graph 异常 / executor 异常 → `_run_linear_fallback`（线性 5 步 + 预算校验，无反问）。WS 新增 need_input / pipeline_paused 事件，ReasoningPanel 加反问输入区 + 超预算标注（非零改）。
 
 > 详细设计见 `docs/strategy-center-design.md`「需求分析智能化」段。
 
 > 曾试 AntV X6，Vite 下 view 层不渲染弃用，改 vue flow（Vue3 原生、Vite 友好）。
 
+### 推理流·试运行 playground（三栏布局，2026-07-31）
+
+**三栏布局**（左节点 palette / 中画布 / 右试运行，参考导出模板页 `UniverTemplateEditor`）：左栏点节点类型添加到画布（分流程节点/分支与校验/预留三组），改完节点 config 在右栏立刻试运行验证，配置→验证闭环不再断在命令行 `simulate_requirement.py`。
+
+- **输入**：需求文本（默认填示例需求）+ 可选预算，纯文本、不绑商机。
+- **执行**：`POST /api/reasoning-flow/test-run` → 复用线上 `run_graph_executor`（`opportunity_id` 占位、`force_complete=True` 跳过反问一步出方案）→ 收集 broadcast 事件 + 从 ctx 取 ext/kp_by_model/plans 明细。**测的就是画布上配的真实 flow 跑出来的**，与线上同源。
+- **节点逐步高亮**：`useTestRun` 拿到完整 events 后用 setTimeout 按 `step_start`/`step_done` 顺序回放 → 经 `applyNodeState` 回调把 `execState`（running 蓝 / done 绿）+ `STEP_BADGE` 摘要徽标（如"配6件"）写回画布 nodes（按 node id 精确匹配）。
+- **步骤明细**：每步用 `STEP_COPY` 渲染中文摘要，点展开看 IO——extract 看 keywords/品类/内存·CPU 信号；match_kp 看每机型 KP 表（pn/qty/价/matched_spec，unmatched 标红）；其他 step 看 payload 原始 JSON。
+- **候选方案**：复用 `PlanCard.vue`（与商机详情页 ReasoningPanel 共用），点「查看 BOM」复用 `buildPlanCfg` + `BomTable` 出详情抽屉（顺带验证底盘件注入）。
+- **⚠️ simpleeval 依赖**：condition 求值靠 `simpleeval`（executor 顶部 try/except import）。**`requirements.txt` 已补 `simpleeval>=0.9.11`**——缺它 `_eval_condition` 静默永远返回 True，所有 condition 走 true 分支（曾导致试运行永远卡在 ask_user、线上 cond_clarity 失效）。装包用 `uv pip install --python backend/.venv/Scripts/python.exe simpleeval`。
+- **变量流转 + 回溯 + 编排校验（2026-08-01，借鉴腾讯元器 `docs/工作流开发/`）**：① 节点 IO 元数据（`utils/reasoningNodeIo.ts`，试运行步骤展开显「←输入/→输出」变量流转，执行仍走隐式 ctx）② 方案卡「回溯路径」→ 画布高亮生成链 extract→select_baseline→match_kp→compose，其余变暗 ③ condition 分支必连校验（缺 true/false 边告警，避免路由死路）。palette 改三环节分组（信息收集/判断处理/分支控制/预留）。**未做**：全显式变量系统（侵入大）、单节点独立调试、LLM 节点化（二期）、聚合/循环/批处理（无场景）
+
 ### signature
 
 - 报价策略画布：加法定价固定流水线图（输入→平台基准→+行业→+区域→×订单→×成本→×台数→保底封顶→输出）+ 维度系数抽屉 + 演算器（pricing 域专属，体现"公式怎么叠加 + 这笔单该报多少毛利"）
-- 推理流编排：vue flow DAG 画布（拖拽/连线/加删节点）+ condition 分支 + 图驱动 executor（拓扑执行 + simpleeval 安全求值 + linear fallback 兜底）
+- 策略文档库：左目录（定价策略/策略文档）+ 文档库（markdown 阅读/编辑，复用 strategies 表 domain=policy）—— pricing tab 的「定价手册」
+- 推理流编排：vue flow DAG 画布（拖拽/连线/加删节点）+ condition 分支 + 图驱动 executor（拓扑执行 + simpleeval 安全求值 + linear fallback 兜底）+ 试运行 playground（画布内嵌：输入需求→节点逐步高亮+每步明细+候选方案，复用 PlanCard/BomTable）
 
 ## 前端路由
 
@@ -109,7 +141,7 @@ requirement 域 tab 用 `ReasoningFlowCanvas.vue`（vue flow）可视化编排 B
 
 ## 联动落地点
 
-- **工作台（Workspace.vue）**：加法引擎 `guardrail.floor` → 利润率告警（**只警告不锁、不自动改价**，策略中心定价只作建议）；warranty_markup → 维保年限建议费率（空时填，尊重手填）；selection CRE（require/exclude/derive/recommend）→ `selectionActions` computed 调 `evaluateRules(ctx)`，命中渲染为图标提醒（⚠ 互斥 / ＋ 必配 / 💡 派生·推荐）；**filter 当前无执行消费端**（见文末 roadmap ⑤）
+- **工作台（Workspace.vue）**：`margin_alert` 策略 → 利润率告警（开关+门槛+文案，**只警告不锁、不自动改价**，经 `getMarginAlert()` 读，正文占位符 `${margin}`/`${threshold}`）；warranty_markup → 维保年限建议费率（空时填，尊重手填）；selection CRE（require/exclude/derive/recommend）→ `selectionActions` computed 调 `evaluateRules(ctx)`，命中渲染为图标提醒（⚠ 互斥 / ＋ 必配 / 💡 派生·推荐）；**filter 当前无执行消费端**（见文末 roadmap ⑤）
 - **推理流（candidate_search.py `select_baselines`）**：`_annotate_recommend` 按 scope.series 给 baseline 附 recommend_level + selling_points（仅标注不改检索）；build_plan 透传；ReasoningPanel 方案卡显示推荐 tag + ★包装点
 - **L3 报价单溯源**：导出时 `getStrategySnapshot` 写入 `quotation.strategy_snapshot`；QuotationCostDrawer 显示（**仅 source='reasoning' 单**——人工单策略只是建议，不是定价依据，标了会误导）
 
@@ -119,10 +151,15 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 
 ## 关键文件
 
-- `views/admin/Strategies.vue` — 管理页（3 域 tab 容器：pricing→PricingFlowCanvas、requirement→ReasoningFlowCanvas、selection→CompatibilityRuleEditor）
-- `views/admin/pricing/PricingFlowCanvas.vue` — 报价策略画布（加法定价固定流水线图 + 演算器）+ `DimensionNode.vue`（vue flow 节点）+ `DimensionDrawer.vue`（维度系数编辑抽屉）
+- `views/admin/Strategies.vue` — 管理页（3 域 tab 容器：pricing→PricingWorkspace、requirement→ReasoningFlowCanvas、selection→CompatibilityRuleEditor）
+- `views/admin/pricing/PricingWorkspace.vue` — 报价策略左目录骨架（定价策略/策略文档）
+- `views/admin/pricing/PricingFlowCanvas.vue` — 报价策略画布（加法定价固定流水线图 + 演算器）+ `DimensionNode.vue`（vue flow 节点）+ `DimensionDrawer.vue`（维度系数编辑抽屉）+ `MarginAlertEditor.vue`（利润率告警配置卡 + 编辑 modal，独立 `margin_alert` 策略）
+- `views/admin/pricing/PolicyLibrary.vue` + `PolicyDocEditor.vue` — 策略文档库主视图（左列表+右阅读窗）+ 编辑 modal（markdown textarea + 实时预览）
+- `components/common/MarkdownView.vue` — marked + dompurify markdown 渲染（Glass Console 排版）
+- `constants/policyMeta.ts` — 文档分类 SSOT（DOC_CATEGORIES + readDocBody）
 - `views/admin/reasoning/ReasoningFlowCanvas.vue` — 推理流编排画布（vue flow + 拖拽/连线/加删节点 + 持久化）
-- `views/admin/reasoning/ReasoningNodeVf.vue` + `ReasoningNodeDrawer.vue` — vue flow 自定义节点 + 配置抽屉
+- `views/admin/reasoning/ReasoningNodeVf.vue` + `ReasoningNodeDrawer.vue` — vue flow 自定义节点 + 配置抽屉（节点支持试运行高亮 execState + 徽标 badge）
+- `components/reasoning/PlanCard.vue` — 整机方案卡（ReasoningPanel + 试运行面板共用，emit view-bom）+ `utils/reasoningStepCopy.ts`（STEP_COPY/STEP_BADGE 共享文案）+ `composables/useTestRun.ts`（试运行状态机：同步 HTTP + 逐步回放 + 节点高亮回调）
 - `backend/app/services/reasoning_executor.py` — 图驱动 executor（handler 注册表 + 拓扑执行 + condition simpleeval 求值）
 - `backend/app/services/requirement_intel_service.py` — run_pipeline 入口派发 + `_run_linear_fallback`
 - `backend/app/repository/reasoning_flow_repo.py` + `models/reasoning_flow.py` + `api/reasoning_flow.py` — 推理流持久化（graph v2 + `_normalize_graph` v1→v2 平移）
@@ -132,14 +169,28 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 - `stores/selectionRules.ts` — selection CRE Pinia store（`ensureRules`/`evaluateRules`/`invalidateRules`，薄封装）
 - `stores/selectionEngine.ts` — CRE 纯求值逻辑（`evaluateRules(rules,ctx)`/`evalWhen`/`evalThen`，独立 28 单测）
 - `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（5 type 分 tab + WHEN/THEN modal，selection 域专用，取代旧 X6 画布）
-- `backend/app/repository/compatibility_rule_repo.py` + `models/compatibility_rule.py` + `api/compatibility_rules.py` — CRE 后端 CRUD + seed（DEFAULT_RULES 4 条）
+- `backend/app/repository/compatibility_rule_repo.py` + `models/compatibility_rule.py` + `api/compatibility_rules.py` — CRE 后端 CRUD + seed（DEFAULT_RULES 8 条：5 derive + 3 exclude；`seed_missing_defaults` 按名补种）
+- `backend/app/services/selection_engine.py` + `tests/test_selection_engine.py` — CRE 后端求值（selectionEngine.ts 等价 Python 移植 + 34 测试，双端共用规则数据，完成 roadmap ④）
+- `constants/chassisMeta.ts` — 机箱域 SSOT（槽位布局/组合槽/选项标签/背板关键词/系列桶/GPU 架构/电源默认）
+- `utils/partFit.ts` — 配件↔机箱适配纯函数（背板类型/盘类型/槽位容量/系列适用，数据驱动）
+- `views/admin/selection/SelectionWorkspace.vue` + `ChassisCapabilityEditor.vue` + `PartFitMatrix.vue` — 选型配置四标签工作台（🏗 机箱能力 / 🔗 配件适配 / 🛠 兼容规则 / 📄 文档库）
+- `scripts/migrate_base_config_capability.py` — base_config 能力档案字段迁移（psu_bays/rear_slots/gpu_slots/max_tdp，幂等 + 回填）
 - `api/strategies.ts` + `api/reasoningFlow.ts` — API 接口
 - `backend/app/api/strategies.py` + `repository/strategy_repo.py` + `models/strategy.py`
+- `backend/app/repository/policy_doc_repo.py` — policy 文档种子（DEFAULT_DOCS 5 篇定价手册 + seed_default_if_empty，startup 空表自动灌）
 - `scripts/seed_*.py` — 各 type 默认策略种子（selection/pricing/result_fields/warranty_markup/model_recommend 等）
 
 ---
 
 ## 选型配置治理与后续 roadmap（2026-07-29）
+
+> 🔄 **2026-08-01 选型配置重构（[0.1.28]，落地「L0 机箱能力档案 + L1 配件适配(声明式) + L2 跨件规则(CRE)」两层架构，详见 CHANGELOG）**
+> - **L0 机箱能力档案**：`base_config` 加 psu_bays / rear_slots(JSON `[{name,cap}]`) / gpu_slots / max_tdp / gpu_arch_default（`scripts/migrate_base_config_capability.py` 回填存量），选型配置新「🏗 机箱能力」标签可按机箱编辑——原 `L6ChassisConfig` 散落硬编码（SLOT_CAP / 电源=2 / 系列桶三元 / 背板正则 / 线缆 kind 过滤）全部清零。
+> - **L1 配件适配（声明式）**：`utils/partFit.ts` + `constants/chassisMeta.ts`(SSOT) 统一读配件 specs 声明的适配关系（背板类型/盘类型/槽位容量/系列适用）；新「🔗 配件适配」标签可视化机箱能力 × 配件适用系列。
+> - **L2 跨件规则（CRE）**：求值器移植后端 `services/selection_engine.py`（**roadmap ④ 后端兜底 ✅ 完成**，34 测试与前端逐条对齐，双端共用规则数据 DB SSOT）；DEFAULT_RULES 现 **8 条**（5 derive + 3 exclude 内存/CPU/GPU 同型号不混搭，target 已核对 `kp_categories` 真键非中文旧分类）；`seed_missing_defaults` 按名补种（不清用户改动）+ 接 startup；ConfigWizard 保存校验升级（阻断级 conflict/require 弹确认可强存）。`SelectionWorkspace` 改四标签（机箱能力/配件适配/兼容规则/文档库）。GPU 架构改读 `base_config.gpu_arch_default`（数据驱动）。
+> - **仍未做（诚实记录）**：filter 接 PartPicker（当前无 filter 规则，接了是死代码）/ SAS·SATA→HBA·RAID（需跨品类「或」语义）/ PSU↔GPU 功率（PSU 是机箱件不在 ctx.kp）/ usage 关键词完整 system_config UI（推理流核心未盲改，已提为集中常量 `USAGE_TYPE_ROUTING`）。
+>
+> 下文为重构前的历史治理记录（默认种子表等已由上述更新覆盖，保留作背景）。
 
 selection 域已重构为**声明式兼容性规则引擎（CRE, Compatibility Rule Engine）**，取代旧的 `conflict/require/bom_spec/model_recommend` 四 type + 前端 `validateSelection`。规则存独立表 `rules.compatibility_rules`，范式 `WHEN(条件树)→THEN(动作)`，无序可叠加。前端求值抽到 `stores/selectionEngine.ts`（纯函数，`evaluateRules(rules, ctx)`，28 单测覆盖全操作符/全动作），`stores/selectionRules.ts` 薄封装读 `/api/compatibility-rules?status=active`。工作台 `selectionActions` computed 调 `evaluateRules(buildRuleContext(cfg))`，命中渲染为图标提醒（**当前为建议层，只警告不锁**）。
 

@@ -47,6 +47,29 @@ DEFAULT_RULES: list[dict] = [
      "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 1},
               "then": {"action": "derive", "target": "GPU线", "basis": "kp.GPU.qty", "per": 1, "round": "ceil"},
               "desc": "GPU 数量 ÷ 1（向上取整）= GPU 供电线根数；改 per 即改每 N 卡 1 根"}},
+    # ⑥⑦⑧ exclude（互斥）：核心件同品类不得混插不同型号。target 取 KP 品类真名
+    #    （CPU/Memory/GPU —— 已核对 kp.kp_categories 实际键），unique_field=pn 按料号判同型号。
+    #    engine 仅在 items≥2 且 PN 出现 ≥2 种时才报冲突，单行多件同型号不误报。
+    {"type": "exclude", "status": "active", "name": "内存同型号不混搭",
+     "body": {"when": {"field": "kp.Memory.qty", "op": ">=", "value": 2},
+              "then": {"action": "exclude", "target": "kp.Memory", "unique_field": "pn",
+                       "desc": "内存须同型号同速率（多通道成对），禁止不同 PN 混插"},
+              "desc": "Memory 出现 ≥2 种 PN → 冲突（RDIMM/LRDIMM 或不同容量/速率混搭会不开机）"}},
+    {"type": "exclude", "status": "active", "name": "CPU 双路同型号",
+     "body": {"when": {"field": "kp.CPU.qty", "op": ">=", "value": 2},
+              "then": {"action": "exclude", "target": "kp.CPU", "unique_field": "pn",
+                       "desc": "双路 CPU 必须同型号同步进"},
+              "desc": "CPU 出现 ≥2 种 PN → 冲突（双路必须同型号，否则不点亮）"}},
+    {"type": "exclude", "status": "active", "name": "GPU 同型号不混搭",
+     "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 2},
+              "then": {"action": "exclude", "target": "kp.GPU", "unique_field": "pn",
+                       "desc": "多卡 GPU 须同型号（驱动/NVLink 兼容）"},
+              "desc": "GPU 出现 ≥2 种 PN → 冲突（多卡混型号影响 NVLink/驱动）"}},
+    # ⚠️ 已知表达力缺口（本期不做，避免产出死规则）：
+    #   - SAS/SATA 盘 → HBA 或 RAID 卡：require 需跨品类「或」语义，单条 require 表达不了；
+    #   - PSU↔GPU 功率匹配：电源(PSU)是机箱件(parts_master)，不在 ctx.kp，CRE 无法寻址；
+    #   - 盘→背板(tri-mode)：背板同为机箱件，不进 ctx.kp。
+    #   这些靠 L1 配件适配（partFitsChassis）+ 未来 chassis-rule 扩展承载。
 ]
 
 
@@ -186,6 +209,31 @@ class CompatibilityRuleRepository:
             ))
         self.session.commit()
         return len(DEFAULT_RULES)
+
+    def seed_missing_defaults(self) -> int:
+        """按 name 补种 DEFAULT_RULES 里还缺的规则（幂等、绝不覆盖已有）。
+        规则迭代后新加的默认规则自动流到存量库，用户无需「重置默认」清掉自己的改动。
+        startup 在 seed_default_if_empty 之后调用。"""
+        existing = {r["name"] for r in self.list()}
+        now = datetime.now().isoformat()
+        added = 0
+        for item in DEFAULT_RULES:
+            if item["name"] in existing:
+                continue
+            self.session.add(CompatibilityRule(
+                domain="selection",
+                type=item["type"],
+                name=item["name"],
+                body=json.dumps(item["body"], ensure_ascii=False),
+                status=item.get("status", "active"),
+                version=1, hit_count=0,
+                created_at=now, updated_at=now,
+                created_by="seed", updated_by="seed",
+            ))
+            added += 1
+        if added:
+            self.session.commit()
+        return added
 
     def close(self):
         self.session.close()

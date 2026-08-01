@@ -233,38 +233,52 @@ TYPE_KP_CATEGORIES: dict[str, list[str]] = {
 }
 
 
-def kp_categories_for_type(type_name: str, type_packages: Optional[list] = None) -> list[str]:
+def kp_categories_for_type(type_name: str, type_packages: Optional[list] = None,
+                           requested_cats: Optional[list[str]] = None) -> list[str]:
     """按 server_type.name 关键词返回 KP 品类套餐。
     type_packages 来自 match_kp config（可配）：[{type_keyword, categories}]。
-    None → 用模块常量 TYPE_KP_CATEGORIES 兜底（兼容老调用方）。"""
+    None → 用模块常量 TYPE_KP_CATEGORIES 兜底（兼容老调用方）。
+    requested_cats：需求 extract 出的品类；GPU 仅当需求明确要（含 GPU）才配，不随机型类型硬塞
+    （AI 套餐默认含 GPU，但用户没要 GPU 时不该塞）。None = 不过滤（老调用方向后兼容）。"""
     if not type_name:
         return []
     pkgs = type_packages if type_packages is not None else [
         {"type_keyword": k, "categories": v} for k, v in TYPE_KP_CATEGORIES.items()
     ]
+    cats: list[str] = []
     for pkg in pkgs:
         kw = pkg.get("type_keyword") or ""
         if kw and kw in type_name:
-            return pkg.get("categories") or []
-    return []
+            cats = list(pkg.get("categories") or [])
+            break
+    # GPU 仅当需求明确要才配（requested_cats 非 None 且含 GPU；None=老调用方不过滤）
+    if requested_cats is not None and "GPU" in cats and "GPU" not in requested_cats:
+        cats = [c for c in cats if c != "GPU"]
+    return cats
+
+
+# usage 文本 → server_type 路由关键词（可配：未来接 system_config / reasoning config；当前集中常量，
+# 拒绝散落在函数体里）。(usage 命中词, 要匹配的 server_type.name 关键词)；顺序即优先级（AI > 存储 > 通用兜底）。
+USAGE_TYPE_ROUTING: list[tuple[str, str]] = [
+    ("AI", "AI"),
+    ("存储", "存储"),
+]
+USAGE_DEFAULT_TYPE_KEYWORD = "通用"  # usage 非空但未命中上面路由 → 通用计算类（默认大类）
 
 
 def _match_type_by_usage(usage: Optional[str], types: list[dict]) -> Optional[int]:
-    """usage → server_type_id（按 server_type.name 关键词匹配）。
+    """usage → server_type_id（按 USAGE_TYPE_ROUTING 关键词路由）。
     AI类→AI训练/推理；存储类→存储；其他非空 usage→通用计算（默认大类）；usage 空→None（不限制）。"""
     if not usage:
         return None
-    if "AI" in usage:
-        for t in types:
-            if "AI" in (t.get("name") or ""):
-                return t["id"]
-    if "存储" in usage:
-        for t in types:
-            if "存储" in (t.get("name") or ""):
-                return t["id"]
+    for usage_kw, type_kw in USAGE_TYPE_ROUTING:
+        if usage_kw in usage:
+            for t in types:
+                if type_kw in (t.get("name") or ""):
+                    return t["id"]
     # 虚拟化/数据库/通用计算/渲染 → 通用计算类（默认大类）
     for t in types:
-        if "通用" in (t.get("name") or ""):
+        if USAGE_DEFAULT_TYPE_KEYWORD in (t.get("name") or ""):
             return t["id"]
     return None
 
@@ -299,6 +313,12 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                 break
     if type_id is None:
         type_id = _match_type_by_usage(usage, types)
+    # 无类型信号但有形态（如"2U"）→ 默认通用计算类型，避免 AI/存储机型混入结果
+    if type_id is None and form:
+        for t in types:
+            if "通用" in (t.get("name") or ""):
+                type_id = t["id"]
+                break
     models = cat_repo.list_models(type_id=type_id, series=series, form=form)
     if not models and type_id is not None:
         # usage→type 过滤后为空：fallback 去掉 type 过滤再试（按 series/form），仍空才真返空
@@ -407,6 +427,58 @@ def extract_spec_values(text: str, spec_rules: list[dict]) -> list[dict]:
     return out
 
 
+def _memory_kp_row(rep: dict, qty: int, extra: str) -> dict:
+    """构造 Memory KP 行（容量反推专用），合并 matched_spec 标签。"""
+    spec = rep.get("matched_spec") or ""
+    if extra:
+        spec = f"{spec} · {extra}" if spec else extra
+    return {
+        "pn": rep.get("model") or "",
+        "name": rep.get("model") or "",
+        "category": "Memory",
+        "unit_price": rep.get("price"),
+        "currency": rep.get("currency") or "RMB",
+        "matched_spec": spec,
+        "qty": qty,
+    }
+
+
+def _pick_memory_part(parts: list[dict], mem_signal: dict, pick_rep) -> Optional[dict]:
+    """Memory 容量反推：从已按 Type/Speed 过滤的候选件里选单条容量 + 算 qty。
+    选使条数最接近 8（双路 8 内存通道）的容量；qty=ceil(total/cap)。
+    返回标准 KP 行（含 qty / matched_spec），或 None 交回主流程兜底。"""
+    if not parts:
+        return None
+    total = mem_signal.get("total_gb")
+    cap_re = re.compile(r"(\d+)\s*GB?\b", re.IGNORECASE)
+
+    def cap_of(p):
+        m = cap_re.search(p.get("model") or "")
+        return int(m.group(1)) if m else None
+
+    if not total:  # 无总容量：代表件 qty=1
+        rep = pick_rep(parts)
+        return _memory_kp_row(rep, 1, "") if rep else None
+    caps = sorted({c for c in (cap_of(p) for p in parts) if c and c <= total}, reverse=True)
+    if not caps:
+        rep = pick_rep(parts)
+        return _memory_kp_row(rep, 1, "") if rep else None
+    best_cap, best_qty = None, None
+    for c in caps:
+        q = -(-total // c)  # ceil(total/c)
+        if q < 1 or q > 32:
+            continue
+        if best_cap is None or abs(q - 8) < abs(best_qty - 8):
+            best_cap, best_qty = c, q
+    if best_cap is None:
+        best_cap, best_qty = caps[0], max(1, -(-total // caps[0]))
+    candidates = [p for p in parts if cap_of(p) == best_cap] or parts
+    rep = pick_rep(candidates)
+    if not rep:
+        return None
+    return _memory_kp_row(rep, best_qty, f"{total}GB→{best_qty}×{best_cap}G")
+
+
 def pick_kp_parts(categories: list[str], keywords: list[str],
                   category_aliases: Optional[dict] = None,
                   representative_pick: str = "min_price",
@@ -416,7 +488,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                   qty_map: Optional[dict] = None,
                   qty_per_token: Optional[dict] = None,
                   spec_search_terms: Optional[set] = None,
-                  model_token_regex: Optional[str] = None) -> list[dict]:
+                  model_token_regex: Optional[str] = None,
+                  mem_signal: Optional[dict] = None,
+                  cpu_signal: Optional[dict] = None,
+                  multi_spec_filters: Optional[dict] = None) -> list[dict]:
     """对每个需求品类从 KP 库挑 1 个代表件。三级匹配：
        1) 型号 token 精确命中  2) 规格范围匹配（spec_rules）  3) 品类代表件。
 
@@ -460,6 +535,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             return parts[0]
         return min(with_price, key=lambda p: p["price"]) if with_price else parts[0]
 
+    # CPU 双路（全套/双路/满配 → 2 颗）：写入 qty_map 供末尾注入
+    if cpu_signal and cpu_signal.get("duality"):
+        qty_map = {**(qty_map or {}), "CPU": max(2, (qty_map or {}).get("CPU", 1))}
+
     out: list[dict] = []
     kp_repo = KPRepository()
     try:
@@ -481,6 +560,9 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 if any(o.get("pn") == _pn and not o.get("unmatched") for o in out):
                     continue
                 cat = r.get("category") or ""
+                # multi_spec 品类（如网卡多速率）交给 stage2 按 spec_filter 各产出一件，stage1 不抢先
+                if cat and multi_spec_filters and cat in multi_spec_filters:
+                    continue
                 out.append({
                     "pn": r.get("model") or "",
                     "name": r.get("model") or "",
@@ -508,8 +590,53 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
         # 2. 按需求品类：先试规格匹配，未命中按 fallback_strategy / 代表件兜底
         for need_cat in categories or []:
             db_cat = _match_kp_category(need_cat, db_cats, aliases_map=category_aliases)
-            if not db_cat or db_cat in matched_categories:
+            if not db_cat:
                 continue
+            _is_multi = bool(multi_spec_filters and db_cat in multi_spec_filters)
+            if db_cat in matched_categories and not _is_multi:
+                continue
+            # Memory 容量反推（有 mem_signal 时优先：按代际/速率过滤 + 总量反推条数）
+            if mem_signal and db_cat.lower() == "memory":
+                mfilters = []
+                if mem_signal.get("type"):
+                    mfilters.append({"spec_key": "Type", "op": "=", "value": mem_signal["type"]})
+                if mem_signal.get("speed"):
+                    mfilters.append({"spec_key": "Speed", "op": ">=", "value": mem_signal["speed"]})
+                if mfilters:
+                    try:
+                        mem_parts = kp_repo.get_by_category_with_spec_filter(db_cat, mfilters)
+                    except Exception:
+                        mem_parts = []
+                    if mem_parts:
+                        mem_row = _pick_memory_part(mem_parts, mem_signal, _pick_rep)
+                        if mem_row:
+                            out.append(mem_row)
+                            matched_categories.add(db_cat)
+                            continue
+            # 同品类多规格（如网卡千兆+万兆）：按每个 spec_filter 各产出一件，不被品类级 matched 跳过
+            if _is_multi:
+                _produced = 0
+                for sf in multi_spec_filters[db_cat]:
+                    try:
+                        sparts = kp_repo.get_by_category_with_spec_filter(db_cat, [sf])
+                    except Exception:
+                        sparts = []
+                    if sparts:
+                        srep = _pick_rep(sparts)
+                        if srep:
+                            out.append({
+                                "pn": srep.get("model") or "",
+                                "name": srep.get("model") or "",
+                                "category": db_cat,
+                                "unit_price": srep.get("price"),
+                                "currency": srep.get("currency") or "RMB",
+                                "matched_spec": srep.get("matched_spec") or "",
+                            })
+                            _produced += 1
+                if _produced:
+                    matched_categories.add(db_cat)
+                    continue
+                # 全 sf 未命中（spec 稀疏）→ 落回下方通用 spec_rules / 代表件兜底
             rules = _rules_for(db_cat) or _rules_for(need_cat)
             spec_hit = None
             if rules:
@@ -570,7 +697,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
     finally:
         kp_repo.close()
     # 注入数量：型号 token 命中件用 qty_per_token（精确到件），代表件用 qty_map（品类级），默认 1
+    # 已显式设 qty 的（如 Memory 容量反推）保留，不被 qty_map 覆盖。
     for kp in out:
+        if kp.get("qty"):
+            continue
         _tok = (kp.get("matched_token") or "").lower()
         if _tok and (qty_per_token or {}).get(_tok):
             kp["qty"] = qty_per_token[_tok]
@@ -610,9 +740,26 @@ def build_plan(baseline: dict, kp_parts: list[dict]) -> dict:
         "currency": kp.get("currency") or "RMB",
     } for kp in matched_kp]
 
-    total_cost = float(baseline.get("total_price") or 0) + sum(float(kp.get("unit_price") or 0) * (kp.get("qty") or 1) for kp in matched_kp)
+    # 货币折算（口径对齐报价工作台 store/quote.ts:194）：USD 件 base 不含税 → ×汇率×(1+增值税率) 折成含税 RMB；
+    # RMB 件已含税直用；baseline（底盘）currency=RMB 已含税。total_cost 统一为含税 RMB，避免美元数值当人民币混加。
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        _cfg = SystemConfigRepository()
+        try:
+            tax_rate = float(_cfg.get_value("tax_rate", 0.13))
+            usd_to_rmb = float(_cfg.get_value("usd_to_rmb", 7.0))
+        finally:
+            _cfg.close()
+    except Exception:
+        tax_rate, usd_to_rmb = 0.13, 7.0
+
+    def _rmb(price, currency):
+        p = float(price or 0)
+        return p * usd_to_rmb * (1 + tax_rate) if str(currency or "RMB").upper() == "USD" else p
+
     l6_cost = float(baseline.get("total_price") or 0)
-    kp_cost = sum(float(kp.get("unit_price") or 0) * (kp.get("qty") or 1) for kp in matched_kp)
+    kp_cost = sum(_rmb(kp.get("unit_price"), kp.get("currency")) * (kp.get("qty") or 1) for kp in matched_kp)
+    total_cost = l6_cost + kp_cost
 
     return {
         "config_id": baseline.get("id"),
@@ -635,6 +782,8 @@ def build_plan(baseline: dict, kp_parts: list[dict]) -> dict:
             "l6_cost": round(l6_cost, 2),
             "kp_cost": round(kp_cost, 2),
             "total_cost": round(total_cost, 2),
+            "currency": "RMB",  # total_cost 已折算统一为含税 RMB（USD 件 ×usd_to_rmb×(1+tax_rate)）
+            "rates": {"usd_to_rmb": usd_to_rmb, "tax_rate": tax_rate},
         },
         "cfg": {
             "bom_source": "excel",

@@ -190,7 +190,7 @@
                 <!-- 兼容性规则提醒（require/exclude/derive/recommend 命中 + 机型系列校验；filter 已用于候选过滤；提醒为主，不阻断） -->
                 <div v-if="selectionAlerts.length" class="selection-alerts">
                   <div v-for="a in selectionAlerts" :key="a.ruleId + '-' + a.action" class="selection-alert" :class="a.severity">
-                    <span class="sa-icon">{{ a.severity === 'conflict' ? '⚠' : (a.action === 'derive' || a.action === 'recommend' ? '💡' : '＋') }}</span>
+                    <span class="sa-icon">{{ alertIcon(a.severity) }}</span>
                     <span class="sa-text">{{ a.desc }}<span v-if="a.offenders?.length" class="sa-off">（{{ a.offenders.join(' / ') }}）</span></span>
                   </div>
                 </div>
@@ -623,6 +623,7 @@ import { useQuoteStore } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
 import { useSelectionRulesStore } from '@/stores/selectionRules'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
+import { alertIcon } from '@/constants/ruleMeta'
 import { useSettingsStore } from '@/store/settings'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import UniverSheet from '@/components/UniverSheet.vue'
@@ -1122,7 +1123,7 @@ async function freezeExportedQuotation() {
       platform: oi?.platform_type,
       industry: oia?.industry,
       region: oia?.delivery_region ?? oia?.extra_fields?.delivery_region,
-      customerType: oi?.customer_type,
+      customerType: oi?.order_type,
       cost: configTotals.value?.totalCost ?? null,
       qty: oia?.purchase_qty ?? null,
     })
@@ -1527,19 +1528,22 @@ const selectionActions = computed(() => {
 // 提醒列表：选型规则的 require/exclude/derive/recommend 命中
 const selectionAlerts = computed(() => selectionActions.value.filter(a => a.action !== 'filter'))
 
-// 利润率告警：低于加法引擎保底线（pricing.guardrail.floor）。策略中心定价只作建议，这里仅告警不锁、不自动改价。
+// 利润率告警：读策略中心 margin_alert 策略（开关 + 门槛 + 文案）；只告警不锁、不自动改价。
 let _marginAlerted = false
 watch(
   () => configTotals.value?.marginPct,
   (m) => {
     if (m == null || !isFinite(m)) return
-    const floor = pricingRulesStore.getGuardrail().floor
-    if (m < floor) {
+    const alert = pricingRulesStore.getMarginAlert()
+    if (!alert.enabled) return
+    if (m < alert.threshold) {
       if (!_marginAlerted) {
         _marginAlerted = true
         Modal.warning({
-          title: '利润率低于保底线',
-          content: `当前综合毛利率 ${m.toFixed(2)}% 低于保底线 ${floor}%，建议线下走特价审批，系统仅作记录。`,
+          title: alert.title,
+          content: alert.content
+            .replace(/\$\{margin\}/g, m.toFixed(2))
+            .replace(/\$\{threshold\}/g, String(alert.threshold)),
           okText: '知道了',
         })
       }
@@ -1732,7 +1736,7 @@ onMounted(async () => {
       total_qty: 0,
       platform_type: '',
       chassis_form: '',
-      customer_type: ''
+      order_type: ''
     }
     // 在已有商机下新建报价：回填该商机元数据，避免保存时把名字等覆盖成空（→ 显示"未命名"）
     if (opportunityId) {
@@ -1748,7 +1752,7 @@ onMounted(async () => {
           total_qty: opp.purchase_qty ?? opp.total_qty ?? 0,
           platform_type: opp.platform_type || '',
           chassis_form: opp.chassis_form || '',
-          customer_type: opp.customer_type || ''
+          order_type: opp.order_type || ''
         }
       } catch { /* 读取失败回退空白，不阻塞新建 */ }
     }

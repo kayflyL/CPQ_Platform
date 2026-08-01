@@ -13,11 +13,13 @@ import { ref, computed, onMounted, onBeforeUnmount, watch, watchEffect } from 'v
 import { message } from 'ant-design-vue'
 import {
   baseConfigApi, partsApi, rearIOApi, bomTemplateApi,
-  type PartMaster, type BaseConfig, type RearIOSlotOption, type BomTemplate,
+  type PartMaster, type BaseConfig, type RearSlot, type RearIOSlotOption, type BomTemplate,
 } from '@/api/serverConfig'
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
+import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
+import { backplaneTypeOf, driveKindOf, slotCapOf } from '@/utils/partFit'
 import PartPicker from '@/components/common/PartPicker.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
@@ -50,7 +52,7 @@ const emit = defineEmits<{
 }>()
 
 const {
-  kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty,
+  kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty, basePsuBays,
   frontCableQty, psuQty, bpType, isManual, setOverride,
   optionQty, slotFilled, incOption, decOption, uniqueRealOptions, setRearSingle,
 } = useServerConfig()
@@ -86,7 +88,7 @@ watch(cableActions, m => {
 void selectionRulesStore.ensureRules()
 
 const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据
-const baseConfig = ref<(BaseConfig & { parts: any[]; rear_slots?: string[] }) | null>(null)
+const baseConfig = ref<(BaseConfig & { parts: any[] }) | null>(null)
 const bomTemplate = ref<BomTemplate | null>(null)     // 该机型族的左栏 L6 行骨架模板
 
 // stepper 模式：左步骤条当前激活步（仅 stepper=true 时生效）
@@ -108,18 +110,16 @@ interface RefCache { frontCables: PartMaster[]; gpuCableParts: PartMaster[]; psu
 const _refCache = new Map<string, RefCache>()
 let _allBaseConfigsLoaded = false
 
-const CORE_DRIVE_KINDS = ['SATA', 'SAS', 'NVMe'] as const
-const DEFAULT_REAR_SLOTS = ['IO1', 'IO2', 'IO3', 'IO4', 'OCP']
-const rearSlots = computed(() => (baseConfig.value as any)?.rear_slots || DEFAULT_REAR_SLOTS)
+// 槽位布局/容量来自 base_config 能力档案（RearSlot[]），缺数据兜底 chassisMeta.DEFAULT_REAR_SLOTS；
+// 盘类型/选项标签也从 chassisMeta 取——无散落硬编码（[[systematic-cleanup-not-whackamole]]）
+const rearSlotDefs = computed<RearSlot[]>(() => {
+  const rs = baseConfig.value?.rear_slots
+  return rs && rs.length ? rs : DEFAULT_REAR_SLOTS
+})
+const rearSlots = computed(() => rearSlotDefs.value.map(s => s.name))
 const ioSlots = computed(() => rearSlots.value.filter((s: string) => s !== 'OCP'))
 const hasOcp = computed(() => rearSlots.value.includes('OCP'))
-
-const SLOT_CAP: Record<string, number> = { IO1: 3, IO2: 3, IO3: 3, IO4: 3, OCP: 1 }
-const OPTION_LABEL: Record<string, string> = {
-  x16: 'X16 Riser', x8: 'X8 Riser', nvme: 'NVMe模组', sata: 'SATA模组',
-  ocp_x8: 'OCP X8', ocp_x16: 'OCP X16', blank: '挡片',
-}
-const optionLabel = (t: string) => OPTION_LABEL[t] || t
+const slotCap = (name: string) => slotCapOf(rearSlotDefs.value, name)
 
 // ---- reference 数据加载（带缓存）----
 async function loadAllBaseConfigs() {
@@ -145,9 +145,8 @@ async function loadReference(series: string | undefined) {
   const [fcRes, gpuCableRes, rearRes, psuPartsRes, bpRes] = await Promise.all([
     partsApi.list({ category: '前面板线缆' }),
     partsApi.list({ category: 'GPU电源线' }),
-    // rear-IO 选项按系列分桶：Polaris 走自己的选项，其余（Orion/Intel/工作站）暂一律按 Orion 查。
-    // 未来 Intel/工作站 有独立 rear-IO 选项时，改成按 server_series 动态分发。
-    rearIOApi.getOptions(series === 'Polaris' ? 'Polaris' : 'Orion'),
+    // rear-IO 选项按系列分桶（chassisMeta.rearIOBucket：SERIES_REAR_IO_BUCKET 可配，未配置走默认桶）
+    rearIOApi.getOptions(rearIOBucket(series)),
     partsApi.list({ category: '电源' }),
     partsApi.list({ category: '背板' }),
   ])
@@ -166,6 +165,8 @@ async function loadReference(series: string | undefined) {
 async function loadBaseConfig(id: number) {
   try {
     baseConfig.value = await baseConfigApi.get(id)
+    // 电源槽位数走 base_config 能力档案（psu_bays），缺省 chassisMeta.DEFAULT_PSU_BAYS
+    basePsuBays.value = baseConfig.value?.psu_bays ?? DEFAULT_PSU_BAYS
     // baseBpType 由下方 watchEffect 跟踪 baseBackplaneType（须在 baseBackplaneType 声明之后注册）
     // 加载该机型族的左栏 BOM 行骨架模板
     try {
@@ -176,12 +177,13 @@ async function loadBaseConfig(id: number) {
   } catch (e: any) {
     baseConfig.value = null
     bomTemplate.value = null
+    basePsuBays.value = DEFAULT_PSU_BAYS
   }
 }
 
 // ---- 背板（从料号库，三模/直连）----
-const bpTri = computed(() => bpParts.value.filter(p => /三模|tri/i.test((p.name || '') + ((p.specs as any)?.bt || ''))))
-const bpDc = computed(() => bpParts.value.filter(p => /直连|dc|direct/i.test((p.name || '') + ((p.specs as any)?.bt || ''))))
+const bpTri = computed(() => bpParts.value.filter(p => backplaneTypeOf(p) === 'tri'))
+const bpDc = computed(() => bpParts.value.filter(p => backplaneTypeOf(p) === 'dc'))
 const baseBackplane = computed(() => {
   const parts = baseConfig.value?.parts || []
   const inParts = parts.find((p: any) => p.category === '背板')
@@ -192,9 +194,9 @@ const baseBackplane = computed(() => {
   return pn ? bpParts.value.find(p => p.pn === pn) : null
 })
 const baseBackplaneType = computed<'tri' | 'dc' | null>(() => {
-  const bp: any = baseBackplane.value
-  if (!bp) return null
-  return /三模|tri/i.test((bp.name || '') + ((bp.specs as any)?.bt || '')) ? 'tri' : 'dc'
+  // specs.bt 优先，缺失按 chassisMeta 关键词嗅探；都判不出时，有背板默认 dc（与历史行为一致）
+  const t = backplaneTypeOf(baseBackplane.value)
+  return t ?? (baseBackplane.value ? 'dc' : null)
 })
 const effectiveBp = computed(() => {
   if (overrides.bpPn) {
@@ -223,8 +225,7 @@ const effectiveBaseParts = computed(() => {
 
 // ---- 前面板线缆 ----
 function frontCableParts(k: string) {
-  const ku = k.toUpperCase()
-  return frontCables.value.filter(p => String((p.specs as any)?.kind ?? '').toUpperCase() === ku)
+  return frontCables.value.filter(p => driveKindOf(p) === k)
 }
 function frontCablePickedPn(k: string) {
   return overrides['fc-' + k + '-pn'] || frontCableParts(k)[0]?.pn || ''
@@ -244,7 +245,7 @@ function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'
 function realOptions(slot: string) {
   return (rearOptions.value[slot] || []).filter(o => o.option_type !== 'blank')
 }
-function canInc(slot: string) { return slotFilled(slot) < (SLOT_CAP[slot] ?? 0) }
+function canInc(slot: string) { return slotFilled(slot) < slotCap(slot) }
 function slotPrice(slot: string): number {
   const opts = rearOptions.value[slot] || []
   return (rear[slot] || []).reduce((s, t) => s + (t === 'blank' ? 0 : (opts.find(o => o.option_type === t)?.total_price || 0)), 0)
@@ -536,7 +537,7 @@ onBeforeUnmount(() => {
           <div class="slot-col" v-for="slot in ioSlots" :key="slot">
             <div class="slot-col-head">
               <span class="slot-name">{{ slot }}</span>
-              <span class="slot-cap-mini" v-if="(SLOT_CAP[slot]||0) > 1">{{ slotFilled(slot) }}/{{ SLOT_CAP[slot] }}</span>
+              <span class="slot-cap-mini" v-if="slotCap(slot) > 1">{{ slotFilled(slot) }}/{{ slotCap(slot) }}</span>
               <span class="slot-cap-mini" v-else>单卡</span>
             </div>
             <div class="opt-block" v-for="opt in realOptions(slot)" :key="opt.option_type" :class="{ active: optionQty(slot, opt.option_type) > 0 }">
@@ -560,7 +561,7 @@ onBeforeUnmount(() => {
                 <div class="opt-stepper">
                   <button :disabled="optionQty(slot, opt.option_type) <= 0" @click="decOption(slot, opt.option_type)">−</button>
                   <span class="opt-qty">{{ optionQty(slot, opt.option_type) }}</span>
-                  <button :disabled="!canInc(slot)" @click="incOption(slot, opt.option_type, SLOT_CAP[slot])">＋</button>
+                  <button :disabled="!canInc(slot)" @click="incOption(slot, opt.option_type, slotCap(slot))">＋</button>
                 </div>
               </div>
             </div>

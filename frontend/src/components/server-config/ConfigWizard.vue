@@ -4,7 +4,8 @@
  *  KP 核心配件按 cat 独立成卡（CPU/Memory/HDD-SSD/GPU/NIC 预设 + 用户从 KP 类别新增）。
  *  kpLines 保持扁平 [{cat,pn,qty}]，卡片是渲染期 groupBy 视图 → 推导/持久化链路不动。 */
 import { ref, computed, onMounted, nextTick } from 'vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import { alertIcon, isBlockingSeverity } from '@/constants/ruleMeta'
 import axios from 'axios'
 import { kpPartsApi, configSchemeApi, baseConfigApi, type ServerModel, type KpPart } from '@/api/serverConfig'
 import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
@@ -107,6 +108,7 @@ const CORE_CATS = ['CPU', 'Memory', 'HDD/SSD', 'GPU', 'NIC']
 // 机箱卡片用的 series / 基准配置名（从 model.base_config_id 关联的 BaseConfig 读）
 const series = ref('')
 const baseConfigName = ref('')
+const baseGpuArchDefault = ref<string | null>(null)
 const chassisModalOpen = ref(false)
 
 async function init() {
@@ -117,6 +119,7 @@ async function init() {
         const bc = await baseConfigApi.get(props.model.base_config_id)
         series.value = (bc as any).series || ''
         baseConfigName.value = (bc as any).name || ''
+        baseGpuArchDefault.value = (bc as any).gpu_arch_default ?? null
       } catch { /* 无基准配置时机箱卡片显示 — */ }
     }
 
@@ -131,7 +134,11 @@ async function init() {
 
     if (!kpLines.value.length) {
       const firstPn = (cat: string) => (kpCatalog.value[cat]?.[0] || {}).pn || ''
-      const isAI = props.model.use === 'AI加速计算'
+      // GPU 架构优先读 base_config.gpu_arch_default（数据驱动，可在「机箱能力」标签配）；
+      // 未配时回退 model.use 字符串判定，兼容老基准配置
+      const gd = baseGpuArchDefault.value
+      const hasDefault = gd != null && gd !== ''
+      const isAI = hasDefault ? gd !== 'none' : props.model.use === 'AI加速计算'
       kpLines.value = [
         { cat: 'CPU', pn: firstPn('CPU'), qty: 1 },
         { cat: 'Memory', pn: firstPn('Memory'), qty: 4 },
@@ -139,7 +146,7 @@ async function init() {
         { cat: 'GPU', pn: isAI ? firstPn('GPU') : '', qty: isAI ? 1 : 0 },
         { cat: 'NIC', pn: firstPn('NIC'), qty: 2 },
       ]
-      gpuArch.value = isAI ? 'pt' : 'none'
+      gpuArch.value = hasDefault ? (gd as any) : (isAI ? 'pt' : 'none')
     }
   } catch (e: any) {
     message.error('加载失败：' + (e.message || e))
@@ -285,8 +292,25 @@ async function printSpec() {
   await nextTick()
   window.print()
 }
+// 阻断级兼容性冲突（互斥/缺必配）确认：可强存，仅校验不锁死（保留手改优先 [[derive-must-have-manual-fallback]]）
+function confirmBlocking(blocking: { desc: string }[]): Promise<boolean> {
+  return new Promise(resolve => {
+    Modal.confirm({
+      title: `存在 ${blocking.length} 项兼容性冲突`,
+      content: blocking.map(b => b.desc).join('；'),
+      okText: '仍然保存',
+      okType: 'danger',
+      cancelText: '返回修改',
+      onOk: () => resolve(true),
+      onCancel: () => resolve(false),
+    })
+  })
+}
 async function saveConfig() {
   if (!l6Apply.value) { message.warning('请先完成机箱选配'); return }
+  // CRE 阻断级校验升级：有 conflict/require 命中时弹确认，用户可「仍然保存」强存
+  const blocking = selectionActions.value.filter(a => isBlockingSeverity(a.severity))
+  if (blocking.length && !(await confirmBlocking(blocking))) return
   saving.value = true
   try {
     await configSchemeApi.create({
@@ -345,7 +369,7 @@ onMounted(() => {
         <div v-if="selectionActions.length" class="sc-alerts glass-light">
           <div class="sc-alerts-head"><span class="sc-alerts-ic">🛡</span> 兼容性校验</div>
           <div v-for="a in selectionActions" :key="a.ruleId" class="sc-alert" :class="`sev-${a.severity}`">
-            <span class="sc-alert-ic">{{ a.severity === 'conflict' ? '⚠' : (a.action === 'derive' || a.action === 'recommend' ? '💡' : '＋') }}</span>
+            <span class="sc-alert-ic">{{ alertIcon(a.severity) }}</span>
             <span class="sc-alert-tx">{{ a.desc }}</span>
           </div>
         </div>

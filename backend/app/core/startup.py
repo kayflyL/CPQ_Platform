@@ -126,10 +126,29 @@ def init_rules_db():
                 print(f"✅ Compatibility rules initialized ({n} rules)")
             else:
                 print("✅ Compatibility rules already present")
+            # 按名补种 DEFAULT_RULES 新增项（不覆盖用户已有改动）
+            m = cr_repo.seed_missing_defaults()
+            if m:
+                print(f"   + {m} new default rule(s) appended (non-destructive)")
         finally:
             cr_repo.close()
     except Exception as e:
         print(f"⚠️ Compatibility rules init failed: {e}")
+
+    # Policy docs default seed (策略文档库:5 篇定价手册,空表才灌,绝不覆盖用户改动)
+    try:
+        from app.repository.policy_doc_repo import PolicyDocRepository
+        pd_repo = PolicyDocRepository()
+        try:
+            n = pd_repo.seed_default_if_empty()
+            if n:
+                print(f"✅ Policy docs initialized ({n} docs)")
+            else:
+                print("✅ Policy docs already present")
+        finally:
+            pd_repo.close()
+    except Exception as e:
+        print(f"⚠️ Policy docs init failed: {e}")
 
     # Ensure comments table exists (raw SQL table on public schema, no ORM model)
     try:

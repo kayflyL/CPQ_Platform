@@ -18,7 +18,7 @@ export interface RuleTypeDef { value: RuleType; label: string; cssVar: string; h
 export const RULE_TYPE_DEFS: RuleTypeDef[] = [
   { value: 'require',   label: '必配/依赖', cssVar: 'var(--cpq-accent-primary)', hex: '#1677ff' },
   { value: 'exclude',   label: '互斥',     cssVar: 'var(--cpq-accent-danger)',  hex: '#ff4d4f' },
-  { value: 'derive',    label: '派生',     cssVar: 'var(--cpq-accent-cyan)',    hex: '#36cfcf' },
+  { value: 'derive',    label: '派生',     cssVar: 'var(--cpq-color-purple)',  hex: '#a855f7' },
   { value: 'filter',    label: '过滤',     cssVar: 'var(--cpq-accent-warning)', hex: '#fa8c16' },
   { value: 'recommend', label: '推荐',     cssVar: 'var(--cpq-color-success)',  hex: '#52c41a' },
 ]
@@ -93,4 +93,29 @@ export const RULE_GRAPH_TEXT = {
 /** 互斥结果文案：同 {field} 不混搭 */
 export function excludeText(uniqueField?: string): string {
   return `同 ${uniqueField || RULE_GRAPH_TEXT.excludeDefaultField} 不混搭`
+}
+
+// ── ⑤ 告警 severity 元数据（消费方 Workspace / ConfigWizard 实时校验面板共用）──
+// 引擎对每条命中动作已赋 severity（exclude→conflict / require→require / derive·recommend·filter→info），
+// 这里集中其展示属性（图标/标签/是否阻断），替换散落模板里的图标三元式硬编码。
+export type AlertSeverity = 'conflict' | 'require' | 'info'
+export interface AlertSeverityDef { value: AlertSeverity; icon: string; label: string; blocking: boolean }
+export const ALERT_SEVERITY_DEFS: AlertSeverityDef[] = [
+  { value: 'conflict', icon: '⚠', label: '冲突', blocking: true },  // exclude 互斥命中（如内存/CPU/GPU 混插）
+  { value: 'require',  icon: '＋', label: '必配', blocking: true },  // require 缺配 / 规格不符
+  { value: 'info',     icon: '💡', label: '建议', blocking: false }, // derive / recommend
+]
+const _ALERT_SEV_MAP = Object.fromEntries(ALERT_SEVERITY_DEFS.map(s => [s.value, s])) as Record<AlertSeverity, AlertSeverityDef>
+
+/** 告警图标：按 severity 取（消费方替换图标三元式）*/
+export function alertIcon(severity: AlertSeverity | string): string {
+  return _ALERT_SEV_MAP[severity as AlertSeverity]?.icon ?? '💡'
+}
+/** severity 展示标签 */
+export function alertLabel(severity: AlertSeverity | string): string {
+  return _ALERT_SEV_MAP[severity as AlertSeverity]?.label ?? severity
+}
+/** 是否阻断级（conflict/require）——消费方据此决定是否进保存确认 */
+export function isBlockingSeverity(severity: AlertSeverity | string): boolean {
+  return !!_ALERT_SEV_MAP[severity as AlertSeverity]?.blocking
 }

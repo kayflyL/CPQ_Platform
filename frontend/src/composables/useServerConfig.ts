@@ -2,8 +2,12 @@
  * 服务器配置流程的状态中枢（配置面用）。
  * 管理 KP 选配 / GPU 架构 / 后面板槽位 / 手改覆盖。
  * 前面板线缆和 GPU 供电线已迁移到 CRE 兼容性规则卡片，此处不再调用推导 API。
+ *
+ * 默认值（电源数、组合槽）取自 constants/chassisMeta SSOT；per-chassis 实际能力（psu_bays）
+ * 由 L6ChassisConfig 加载 base_config 后注入 basePsuBays。无散落硬编码。
  */
 import { ref, reactive } from 'vue'
+import { DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS } from '@/constants/chassisMeta'
 
 export type GpuArch = 'none' | 'pt' | 'switch'
 export interface KpLineCfg { cat: string; pn: string; qty: number }
@@ -24,6 +28,8 @@ export function useServerConfig() {
   const derivedBpType = ref<'tri' | 'dc' | null>(null)
   /** CRE 兼容性规则求出的线缆默认数量（按类型键：SATA/SAS/NVMe/GPU线），L6ChassisConfig 跑 derive 算术规则注入；手改优先 */
   const derivedCableQty = ref<Record<string, number>>({})
+  /** 基准配置的电源槽位数（L6ChassisConfig 加载 base_config.psu_bays 后注入；缺省 chassisMeta.DEFAULT_PSU_BAYS） */
+  const basePsuBays = ref<number>(DEFAULT_PSU_BAYS)
 
   // ---- 显示值：手改覆盖优先，否则用 CRE 规则注入的默认数量 ----
   function frontCableQty(kind: string): number {
@@ -33,7 +39,7 @@ export function useServerConfig() {
     return derivedCableQty.value[kind] ?? 0
   }
   function psuQty(): number {
-    return overrides.psuQty ?? 2
+    return overrides.psuQty ?? basePsuBays.value
   }
   function bpType(): 'tri' | 'dc' | null {
     // 允许手改覆盖为 null（表示"不选背板"），否则走默认链：手改 > 基准自带 > CRE规则推导 > dc 兜底
@@ -68,13 +74,13 @@ export function useServerConfig() {
   }
   function incOption(slot: string, optionType: string, cap?: number) {
     const cur = optionQty(slot, optionType)
-    // 首次选某 option：IO1/IO2(组合槽,1×X16+1×X8)默认 1；IO3/IO4/OCP 默认填满槽（cap）
+    // 首次选某 option：组合槽(COMBO_REAR_SLOTS，如 IO1/IO2=1×X16+1×X8)默认 1；其余槽默认填满槽（cap）
     const next = cur === 0 ? defaultQtyFor(slot, cap) : cur + 1
     setOptionQty(slot, optionType, next, cap)
   }
-  /** 默认数量：IO1/IO2 是 x16+x8 组合槽各 1；其余槽首次选择默认填满槽（cap）。步进器仍可任意手改。 */
+  /** 默认数量：组合槽首次选默认 1；其余槽首次选择默认填满槽（cap）。步进器仍可任意手改。 */
   function defaultQtyFor(slot: string, cap?: number): number {
-    if (slot === 'IO1' || slot === 'IO2') return 1
+    if (COMBO_REAR_SLOTS.includes(slot)) return 1
     return cap ?? 1
   }
   function decOption(slot: string, optionType: string) {
@@ -100,7 +106,7 @@ export function useServerConfig() {
   }
 
   return {
-    kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty,
+    kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty, basePsuBays,
     addKp: (cat = 'drive', pn = '', qty = 1) => kpLines.value.push({ cat, pn, qty }),
     delKp: (i: number) => kpLines.value.splice(i, 1),
     setKp: (i: number, patch: Partial<KpLineCfg>) => { kpLines.value[i] = { ...kpLines.value[i], ...patch } },
