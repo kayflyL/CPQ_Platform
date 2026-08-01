@@ -18,9 +18,10 @@ import json
 
 
 def ensure_parts_master_columns():
-    """料号库字段语义重构（幂等迁移）：
+    """料号库字段语义重构（幂等迁移，boot 时自愈）：
     原 description 列存的是自由文本规格串 → 重命名为 spec_text（UI label「规格」）；
-    新增 description 列装人话用途说明（UI label「说明」）。存量数据无损落入 spec_text。"""
+    新增 description 列装人话用途说明（UI label「说明」）。存量数据无损落入 spec_text。
+    major_category（大类·一级导航）也在此建列，SSOT=l6.part_taxonomy（见 create_part_taxonomy.sql）。"""
     from app.models.base import l6_engine
     from sqlalchemy import text
     with l6_engine.connect() as c:
@@ -35,6 +36,9 @@ def ensure_parts_master_columns():
     if "description" not in cols:
         with l6_engine.begin() as c:
             c.execute(text("ALTER TABLE l6.parts_master ADD COLUMN description TEXT"))
+    if "major_category" not in cols:
+        with l6_engine.begin() as c:
+            c.execute(text("ALTER TABLE l6.parts_master ADD COLUMN major_category TEXT"))
 
 
 def init_rules_db():
