@@ -1,5 +1,7 @@
 # 基准配置编辑器 (BaseConfigEditorPage)
 
+> 最后更新：2026-08-02
+
 ## 功能概述
 
 基准配置的全页编辑器，左编辑/右摘要双面板布局。
@@ -66,7 +68,7 @@
 
 | Schema | 表 | 用途 |
 |--------|-----|------|
-| `l6` | `base_configs` | 基准配置主表（name, series, form, bays, bom_template_id） |
+| `l6` | `base_configs` | 基准配置主表（name, series, form, bays, bom_template_id, model_id, config_content） |
 | `l6` | `base_config_parts` | 基准配置料件（category, pn, quantity） |
 | `l6` | `parts_master` | 配件主数据（查价、查功耗） |
 | `kp` | `kp_categories` | 配件分类 |

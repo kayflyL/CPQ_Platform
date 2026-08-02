@@ -11,7 +11,8 @@ from app.models.base import l6_engine
 
 class BaseConfigRepository:
     def list(self, series: Optional[str] = None, form: Optional[str] = None,
-             bays: Optional[int] = None, server_type_id: Optional[int] = None) -> List[dict]:
+             bays: Optional[int] = None, server_type_id: Optional[int] = None,
+             model_id: Optional[int] = None, unassigned: bool = False) -> List[dict]:
         q = "SELECT * FROM l6.base_configs WHERE 1=1"
         p: dict = {}
         if series:
@@ -22,6 +23,10 @@ class BaseConfigRepository:
             q += " AND bays=:b"; p["b"] = bays
         if server_type_id:
             q += " AND server_type_id=:t"; p["t"] = server_type_id
+        if model_id is not None:
+            q += " AND model_id=:mid"; p["mid"] = model_id
+        if unassigned:
+            q += " AND model_id IS NULL"
         q += " ORDER BY sort_order"
         # 一次性聚合所有 config 的 料件数 + 合计价，避免 N+1
         agg_sql = """
@@ -39,6 +44,13 @@ class BaseConfigRepository:
             a = aggs.get(cfg["id"])
             cfg["parts_count"] = int(a["parts_count"]) if a else 0
             cfg["total_price"] = float(a["total_price"]) if a else 0.0
+            # config_content JSONB 读归一化（psycopg2 可能返回 str）
+            cc = cfg.get("config_content")
+            if isinstance(cc, str):
+                try:
+                    cfg["config_content"] = json.loads(cc)
+                except Exception:
+                    cfg["config_content"] = None
         return configs
 
     def list_forms(self) -> list:
@@ -54,7 +66,16 @@ class BaseConfigRepository:
         with l6_engine.connect() as c:
             r = c.execute(text("SELECT * FROM l6.base_configs WHERE id=:id"),
                           {"id": config_id}).mappings().first()
-        return dict(r) if r else None
+        if not r:
+            return None
+        d = dict(r)
+        cc = d.get("config_content")
+        if isinstance(cc, str):
+            try:
+                d["config_content"] = json.loads(cc)
+            except Exception:
+                d["config_content"] = None
+        return d
 
     def get_with_parts(self, config_id: int) -> Optional[dict]:
         cfg = self.get(config_id)
@@ -85,26 +106,36 @@ class BaseConfigRepository:
     def insert(self, data: dict) -> int:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
                    "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
-                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp"}
+                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp",
+                   "model_id", "config_content"}
         d = {k: v for k, v in data.items() if k in allowed}
         if "name" not in d:
             raise ValueError("name required")
         if isinstance(d.get("rear_slots"), (list, dict)):
             d["rear_slots"] = json.dumps(d["rear_slots"], ensure_ascii=False)
+        if isinstance(d.get("config_content"), (dict, list)):
+            d["config_content"] = json.dumps(d["config_content"], ensure_ascii=False)
         cols = list(d.keys())
-        q = f"INSERT INTO l6.base_configs ({','.join(cols)}) VALUES ({','.join([':' + k for k in cols])}) RETURNING id"
+        val_list = ",".join(f"CAST(:{k} AS jsonb)" if k == "config_content" else f":{k}" for k in cols)
+        q = f"INSERT INTO l6.base_configs ({','.join(cols)}) VALUES ({val_list}) RETURNING id"
         with l6_engine.begin() as c:
             return c.execute(text(q), d).scalar()
 
     def update(self, config_id: int, updates: dict) -> bool:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
                    "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
-                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp"}
+                   "psu_bays", "rear_slots", "gpu_slots", "max_tdp",
+                   "model_id", "config_content"}
         f, v = [], {}
         for k, val in updates.items():
-            if k in allowed:
+            if k not in allowed:
+                continue
+            if k == "config_content" and isinstance(val, (dict, list)):
+                val = json.dumps(val, ensure_ascii=False)
+                f.append("config_content = CAST(:config_content AS jsonb)")
+            else:
                 f.append(f"{k}=:{k}")
-                v[k] = val
+            v[k] = val
         if isinstance(v.get("rear_slots"), (list, dict)):
             v["rear_slots"] = json.dumps(v["rear_slots"], ensure_ascii=False)
         if not f:

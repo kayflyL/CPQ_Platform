@@ -1,6 +1,6 @@
 # 机型产品详情页 (ModelDetailPage)
 
-> 最后更新：2026-07-25
+> 最后更新：2026-08-02
 
 ## 功能概述
 
@@ -28,9 +28,10 @@
 8. **空内容兜底** — 机型未补充任何 product_content 时提示
 
 ### 数据流
-- `getModel` 加载机型（含 base_config + product_content）
-- 点「配置这台服务器」→ `/servers/config/:modelId`（进 ConfigWizardPage）
-- **无编辑入口**（配置面纯展示 + 配置）
+- `getModel` 加载机型（含 base_config 主配置单对象 + `configs[]` 所有变体 + product_content）
+- 配置变体卡片（产品概述下方）：每个配置一张卡片，点击展开看该配置的说明 + 规格差异（`config_content`）；机型级 product_content（概述/场景/特性/规格）在上方固定
+- 点「配置这台服务器」→ `/servers/config/:modelId`（走主配置，本期不在向导内切变体）
+- **无编辑入口**（配置面纯展示；配置变体归属与简介在管理面机型编辑页维护）
 
 ## 前端路由
 

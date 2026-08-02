@@ -24,6 +24,7 @@ const props = withDefaults(defineProps<{
   clickable?: boolean
   typeName?: string
   baseConfigName?: string
+  configCount?: number
 }>(), {
   showImage: true,
   showLifecycle: true,
@@ -71,7 +72,8 @@ const cardClass = computed(() => ({
 
     <!-- 关联基准配置 -->
     <div v-if="showBaseConfig" class="m-bc">
-      <template v-if="baseConfigName">基准配置 · {{ baseConfigName }}</template>
+      <template v-if="configCount != null">{{ configCount }} 个配置</template>
+      <template v-else-if="baseConfigName">基准配置 · {{ baseConfigName }}</template>
       <template v-else>未关联基准配置</template>
     </div>
 

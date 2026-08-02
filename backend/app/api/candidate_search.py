@@ -330,7 +330,9 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
     out: list[dict] = []
     for m in models:
         bc_id = m.get("base_config_id")
-        bc = bc_map.get(bc_id, {}) if bc_id else {}
+        if not bc_id:
+            continue  # 无主配置机型（新建未关联/未设主）跳过：选型需要可配置 baseline
+        bc = bc_map.get(bc_id, {})
         bc_embed = m.get("base_config") or {}
         sid = m.get("server_type_id")
         out.append({

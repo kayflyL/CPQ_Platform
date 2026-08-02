@@ -19,7 +19,9 @@ const search = ref('')
 const loading = ref(false)
 
 const typeName = (id?: number) => types.value.find(t => t.id === id)?.name || '—'
-const baseName = (id?: number) => baseConfigs.value.find(b => b.id === id)?.name
+/** 该机型的配置变体数（客户端按 model_id 计数，避免给 list_models 加 configs[]） */
+const configCount = (modelId?: number) =>
+  baseConfigs.value.filter(b => b.model_id === modelId).length
 
 async function load() {
   loading.value = true
@@ -78,7 +80,7 @@ watch(() => route.query.refresh, (v) => { if (v === 'models') load() })
           :key="m.id"
           :model="m"
           :type-name="typeName(m.server_type_id)"
-          :base-config-name="baseName(m.base_config_id)"
+          :config-count="configCount(m.id)"
           :show-actions="true"
           :clickable="false"
           @edit="goEdit(m)"

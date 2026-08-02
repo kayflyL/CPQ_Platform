@@ -41,6 +41,41 @@ def ensure_parts_master_columns():
             c.execute(text("ALTER TABLE l6.parts_master ADD COLUMN major_category TEXT"))
 
 
+def ensure_base_config_linkage_columns():
+    """机型↔基准配置 一对多关联（幂等迁移，boot 时自愈）：
+    base_configs 加 model_id（反向关联机型，ON DELETE SET NULL）+ config_content（配置级介绍 JSONB）。
+    回填把「已被机型 base_config_id 挂载」的配置补上 model_id——纯数据派生，零业务名硬编码；
+    孤儿配置（未被任何机型挂载）保持 NULL，由用户在机型编辑页手动归属（可随时改）。
+    对应 migrations/add_model_link_to_base_configs.sql。"""
+    from app.models.base import l6_engine
+    from sqlalchemy import text
+    with l6_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='l6' AND table_name='base_configs'"
+        ))}
+    with l6_engine.begin() as c:
+        if "model_id" not in cols:
+            c.execute(text(
+                "ALTER TABLE l6.base_configs ADD COLUMN model_id INTEGER "
+                "REFERENCES l6.server_models(id) ON DELETE SET NULL"
+            ))
+        if "config_content" not in cols:
+            c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN config_content JSONB"))
+        # 反向回填（幂等：仅填 model_id 为 NULL 且被某机型挂载的；孤儿不动）
+        c.execute(text("""
+            UPDATE l6.base_configs bc
+            SET model_id = (SELECT id FROM l6.server_models sm WHERE sm.base_config_id = bc.id)
+            WHERE bc.model_id IS NULL
+              AND EXISTS (SELECT 1 FROM l6.server_models sm WHERE sm.base_config_id = bc.id)
+        """))
+        # base_config_id 允许空：新建机型可先无主配置，关联配置后再设主（去掉旧 NOT NULL）
+        c.execute(text("ALTER TABLE l6.server_models ALTER COLUMN base_config_id DROP NOT NULL"))
+        c.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_base_configs_model_id ON l6.base_configs(model_id)"
+        ))
+
+
 def init_rules_db():
     """Create rules database tables and initialize default rules if empty."""
     # Create all tables for rules DB
@@ -168,6 +203,13 @@ def init_rules_db():
         print("✅ Parts master columns ensured (spec_text/description)")
     except Exception as e:
         print(f"⚠️ Parts master migrate failed: {e}")
+
+    # 机型↔基准配置 一对多：base_configs 加 model_id + config_content，回填归属
+    try:
+        ensure_base_config_linkage_columns()
+        print("✅ Base config linkage columns ensured (model_id/config_content)")
+    except Exception as e:
+        print(f"⚠️ Base config linkage migrate failed: {e}")
 
     # Clean up old temporary files on startup
     try:

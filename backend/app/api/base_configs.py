@@ -7,8 +7,9 @@ router = APIRouter(prefix="/api/base-configs", tags=["base-configs"])
 
 
 @router.get("")
-def list_configs(series: Optional[str] = None, form: Optional[str] = None, bays: Optional[int] = None):
-    cfgs = BaseConfigRepository().list(series, form, bays)
+def list_configs(series: Optional[str] = None, form: Optional[str] = None, bays: Optional[int] = None,
+                 model_id: Optional[int] = None, unassigned: bool = False):
+    cfgs = BaseConfigRepository().list(series, form, bays, model_id=model_id, unassigned=unassigned)
     return {"configs": cfgs, "total": len(cfgs)}
 
 

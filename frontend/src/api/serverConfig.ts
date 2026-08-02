@@ -83,7 +83,7 @@ export const catalogApi = {
 
 // ---------- 基准配置（引用 parts_master + 底盘件清单）----------
 export const baseConfigApi = {
-  list: (params?: { series?: string; form?: string; bays?: number }) =>
+  list: (params?: { series?: string; form?: string; bays?: number; model_id?: number; unassigned?: boolean }) =>
     RESP<{ configs: BaseConfig[]; total: number }>(axios.get('/api/base-configs', { params })),
   listSeries: () =>
     RESP<{ series: string[]; items: { value: string; label: string }[] }>(axios.get('/api/base-configs/series')),
@@ -212,6 +212,13 @@ export interface ServerModel {
   base_config?: ServerModelBaseConfig | null
   // 产品化包装内容（结构化分块，可空）
   product_content?: ModelProductContent | null
+  // 该机型的所有配置变体（getModel 附带；含主配置 base_config）
+  configs?: BaseConfig[]
+}
+/** 配置级介绍（轻量两段，存 base_configs.config_content JSONB，后端不透明透传） */
+export interface ConfigContent {
+  description?: string   // 配置说明（一段话）
+  spec_diff?: string     // 规格差异说明
 }
 export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string
@@ -223,6 +230,8 @@ export interface BaseConfig {
   gpu_slots?: number      // 可装 GPU 数上限
   max_tdp?: number | null  // 散热/供电承载 TDP 上限(W)，可空，供 PSU↔GPU 功率规则参考
   parts_count?: number; total_price?: number
+  model_id?: number | null                    // 所属机型（一对多反向关联；NULL=孤儿待归属）
+  config_content?: ConfigContent | null       // 配置级介绍
 }
 /** 后面板槽位：名称 + 容量（如 IO1 容纳 3 张卡、OCP 容纳 1 张）*/
 export interface RearSlot { name: string; cap: number }

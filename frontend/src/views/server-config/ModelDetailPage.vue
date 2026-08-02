@@ -25,6 +25,12 @@ const hasContent = computed(() => {
   return !!(c && (c.overview || c.features?.length || c.specs?.length || c.scenarios?.length))
 })
 
+// 配置变体卡片：点卡片展开看该配置的说明+规格差异（机型级 product_content 在上方固定，不随配置变）
+const configs = computed(() => model.value?.configs || [])
+const expandedCfgId = ref<number | null>(null)
+function toggleCfg(id: number) {
+  expandedCfgId.value = expandedCfgId.value === id ? null : id
+}
 const seriesRaw = computed(() => model.value?.base_config?.series || '')
 const seriesLabel = computed(() => {
   const found = seriesStore.items.find(i => i.value === seriesRaw.value)
@@ -175,6 +181,34 @@ onMounted(() => {
             <section v-if="pc?.overview" class="block glass">
               <h3 class="block-title">产品概述</h3>
               <p class="overview-text">{{ pc.overview }}</p>
+            </section>
+
+            <!-- 配置变体卡片（产品概述下方；点卡片展开看该配置的说明 + 规格差异） -->
+            <section v-if="configs.length" class="block block-plain">
+              <h3 class="block-title">配置变体<span class="block-sub"> · 共 {{ configs.length }} 个，点击卡片查看详情</span></h3>
+              <div class="cfg-cards">
+                <div v-for="c in configs" :key="c.id" class="cfg-card"
+                  :class="{ expanded: expandedCfgId === c.id }" @click="toggleCfg(c.id)">
+                  <div class="cfg-card-head">
+                    <span class="cfg-card-name">{{ c.name }}</span>
+                    <span class="cfg-card-spec">{{ c.form || '—' }} · {{ c.bays ?? '—' }}盘 · {{ c.series || '—' }}</span>
+                    <span v-if="c.id === model.base_config_id" class="cfg-card-primary">主配置</span>
+                  </div>
+                  <div v-if="expandedCfgId === c.id" class="cfg-card-body" @click.stop>
+                    <div v-if="c.config_content?.description" class="cfg-field">
+                      <div class="cfg-field-label">配置说明</div>
+                      <p class="overview-text">{{ c.config_content.description }}</p>
+                    </div>
+                    <div v-if="c.config_content?.spec_diff" class="cfg-field">
+                      <div class="cfg-field-label">规格差异</div>
+                      <p class="overview-text">{{ c.config_content.spec_diff }}</p>
+                    </div>
+                    <div v-if="!c.config_content?.description && !c.config_content?.spec_diff" class="cfg-card-empty">
+                      该配置暂未填写说明
+                    </div>
+                  </div>
+                </div>
+              </div>
             </section>
 
             <section v-if="pc?.scenarios?.length" class="block glass">
@@ -501,6 +535,24 @@ onMounted(() => {
 .spec-v { flex: 1; padding: 12px 16px; font-size: 14px; font-weight: 500; color: var(--cpq-text-primary, #1d2129); white-space: pre-wrap; }
 
 .empty-content { text-align: center; color: var(--cpq-text-muted, #6E7582); font-size: 14px; }
+
+/* 配置变体卡片（点卡片展开说明+规格差异） */
+.block-sub { font-size: 13px; font-weight: 400; color: var(--cpq-text-muted, #6E7582); }
+.cfg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.cfg-card {
+  padding: 16px 18px; cursor: pointer;
+  border: 1px solid var(--cpq-overlay-w10); border-radius: 12px;
+  background: var(--cpq-overlay-w4); transition: all 0.2s ease;
+}
+.cfg-card:hover { border-color: var(--cpq-overlay-w20); transform: translateY(-2px); box-shadow: 0 6px 18px var(--cpq-shadow-color, rgba(0,0,0,.08)); }
+.cfg-card.expanded { border-color: var(--cpq-accent-primary, #1677FF); box-shadow: 0 0 0 1px var(--cpq-accent-primary, #1677FF); }
+.cfg-card-head { display: flex; flex-direction: column; gap: 6px; }
+.cfg-card-name { font-size: 14px; font-weight: 600; color: var(--cpq-text-primary, #1F2430); }
+.cfg-card-spec { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
+.cfg-card-primary { align-self: flex-start; font-size: 10px; font-weight: 600; color: #fff; background: var(--cpq-accent-primary, #1677FF); padding: 1px 8px; border-radius: 999px; }
+.cfg-card-body { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--cpq-overlay-w15); display: flex; flex-direction: column; gap: 12px; }
+.cfg-field-label { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary, #9BA1AA); margin-bottom: 4px; }
+.cfg-card-empty { font-size: 13px; color: var(--cpq-text-muted, #6E7582); font-style: italic; }
 
 @media (max-width: 760px) {
   .hero-scene { min-height: 520px; }

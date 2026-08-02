@@ -125,7 +125,26 @@ class ServerCatalogRepository:
         """
         with l6_engine.connect() as c:
             r = c.execute(text(q), {"id": model_id}).mappings().first()
-        return self._attach_base_config(dict(r)) if r else None
+            if not r:
+                return None
+            row = self._attach_base_config(dict(r))
+            # 该机型的所有配置变体（含主配置）；机型↔配置一对多，model_id 反向关联。
+            # base_config（主配置单对象）保持不变，configs[] 是新增 key，互不影响。
+            cfg_rows = c.execute(text("""
+                SELECT id, name, form, bays, series, config_content, sort_order
+                FROM l6.base_configs WHERE model_id=:mid ORDER BY sort_order, id
+            """), {"mid": model_id}).mappings().all()
+        row["configs"] = []
+        for cr in cfg_rows:
+            cd = dict(cr)
+            cc = cd.get("config_content")
+            if isinstance(cc, str):
+                try:
+                    cd["config_content"] = json.loads(cc)
+                except Exception:
+                    cd["config_content"] = None
+            row["configs"].append(cd)
+        return row
 
     def insert_model(self, data: dict) -> int:
         d = {k: v for k, v in data.items() if k in self._MODEL_FIELDS}
