@@ -183,6 +183,55 @@ async def analyze_thread(thread_id: str, body: AnalyzeBody, user: dict = Depends
     return {"status": "started", "thread_id": thread_id, "user_message": user_msg}
 
 
+def _fmt_money(v) -> str:
+    """金额格式化（¥1,234.56）；非数字回落 '-'。"""
+    try:
+        return f"¥{float(v):,.2f}"
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _plan_bom_text(plan: dict) -> str:
+    """把单个整机方案转成可读 BOM 文本（L6 配置单 + KP 配置单）。
+
+    供对话框/企业微信直接展示：纯文本 + 管道分隔，不依赖组件渲染。
+    """
+    cfg = plan.get("cfg") or {}
+    rows = cfg.get("bom_excel_rows") or []
+    l6 = [r for r in rows if r.get("category") == "L6"]
+    kp = [r for r in rows if r.get("category") == "Key Parts"]
+    head = " · ".join([
+        x for x in [
+            plan.get("series"),
+            plan.get("form"),
+            f"{plan.get('bays')}盘位" if plan.get("bays") is not None else None,
+        ] if x
+    ]) or "整机方案"
+    summary = plan.get("summary") or {}
+    out = [
+        f"{plan.get('name') or plan.get('model') or '整机方案'}（{head}）",
+        f"总价 {_fmt_money(summary.get('total_cost'))} · 底盘 {summary.get('parts_count', 0)} 件 + KP {summary.get('kp_count', 0)} 件",
+    ]
+    if l6:
+        out.append("")
+        out.append("— L6 配置单 —")
+        out.append("Catalogue | Description | Qty")
+        for r in l6:
+            out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''}")
+    if kp:
+        out.append("")
+        out.append("— KP 配置单 —")
+        out.append("Catalogue | Description | Qty | 单价")
+        for r in kp:
+            out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''} | {_fmt_money(r.get('base_price'))}")
+    return "\n".join(out)
+
+
+def _build_bom_text(plans: list) -> str:
+    """多个方案拼成一段可读 BOM 文本（对话框/企微推送用）。"""
+    return "\n\n".join(f"【{i}】{_plan_bom_text(p)}" for i, p in enumerate(plans, 1))
+
+
 async def _stream_analysis(
     thread_id: str, requirement_text: str, supplement_text: Optional[str],
     budget: Optional[float], force_complete: bool, confirm: Optional[dict],
@@ -249,15 +298,25 @@ async def _stream_analysis(
     try:
         if plans:
             names = [p.get("name") or p.get("model") or p.get("config_id") for p in plans]
-            summary = "✅ 需求分析完成，生成 %d 个整机方案：\n%s" % (
-                len(plans), "\n".join(f"- {n}" for n in names))
-            repo.add_message(
+            bom_text = _build_bom_text(plans)
+            summary = (
+                "✅ 需求分析完成，生成 %d 个整机方案：\n%s\n\n%s"
+                % (len(plans), "\n".join(f"- {n}" for n in names), bom_text)
+            )
+            result_msg = repo.add_message(
                 thread_id=thread_id, role="assistant", content=summary,
                 kind="analysis_result",
                 data=json.dumps({
                     "plans": plans, "keywords": keywords, "series": series, "form": form,
+                    "bom_text": bom_text,
                 }, ensure_ascii=False, default=str),
             )
+            # 广播结果消息：实时网页端也把 BOM 文本气泡推进对话流（与企微端推送同一段文本）
+            await assistant_hub.broadcast(thread_id, {
+                "type": "analysis_result",
+                "message": result_msg,
+                "data": {"bom_text": bom_text},
+            })
         elif last_input:
             q = last_input["question"] or "请补充以下信息："
             options = "（可选：%s）" % " / ".join(last_input["options"]) if last_input.get("options") else ""

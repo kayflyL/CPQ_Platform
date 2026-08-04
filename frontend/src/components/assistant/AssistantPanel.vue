@@ -70,15 +70,15 @@
                 {{ s.label }}
               </span>
             </div>
-            <!-- 需求分析：整机方案卡（BOM）-->
+            <!-- 需求分析：整机方案卡（BOM 文本已在对话气泡里，卡片点「查看 BOM 详情」弹窗看完整表格）-->
             <template v-if="analysisPlans.length">
-              <p class="ap-note">以下为整机方案（可查看 BOM 明细）：</p>
+              <p class="ap-note">以下为整机方案（BOM 明细见上方文本，点卡片「查看 BOM 详情」看表格）</p>
               <PlanCard
                 v-for="p in analysisPlans"
                 :key="p.config_id"
                 :plan="p"
                 class="ap-plan-card"
-                @view-bom="viewDetail(p)"
+                @view-bom="openBomModal(p)"
               >
                 <template #extra-actions>
                   <a-button
@@ -208,25 +208,23 @@
       </div>
     </transition>
 
-          <!-- BOM 详情抽屉（复用工作台 BomTable，与商机详情页推理面板一致）-->
-      <a-drawer
-        v-model:open="drawerOpen"
-        :title="drawerPlan?.name || '整机 BOM 详情'"
-        placement="right"
-        width="560"
-        class="ap-bom-drawer"
-      >
-        <div class="ap-bom-wrap" v-if="drawerPlan">
-          <div class="ap-bom-summary">
-            {{ [drawerPlan.series, drawerPlan.form, drawerPlan.bays != null ? `${drawerPlan.bays}盘位` : ''].filter(Boolean).join(' · ') }}
-            · 底盘 {{ drawerPlan.summary.parts_count }} 件 + KP {{ drawerPlan.summary.kp_count }} 件
-          </div>
-          <a-spin :spinning="drawerLoading" tip="转 BOM 模板格式…">
-            <BomTable v-if="drawerCfg" :cfg="drawerCfg" />
-          </a-spin>
-        </div>
-      </a-drawer>
-
+    <!-- 网页端增强：点方案卡「查看 BOM 详情」弹窗看完整表格 BOM（对话框里已有 BOM 文本）-->
+    <a-modal
+      v-model:open="bomModalOpen"
+      :title="bomModalPlan?.name || '整机 BOM 详情'"
+      width="760"
+      :footer="null"
+      class="ap-bom-modal"
+    >
+      <div v-if="bomModalPlan" class="ap-bom-modal-summary">
+        {{ [bomModalPlan.series, bomModalPlan.form, bomModalPlan.bays != null ? `${bomModalPlan.bays}盘位` : ''].filter(Boolean).join(' · ') }}
+        · 底盘 {{ bomModalPlan.summary.parts_count }} 件 + KP {{ bomModalPlan.summary.kp_count }} 件
+        · 总价 ¥{{ fmtCost(bomModalPlan.summary.total_cost) }}
+      </div>
+      <a-spin :spinning="bomModalLoading" tip="转 BOM 模板格式…">
+        <BomTable v-if="bomModalCfg" :cfg="bomModalCfg" />
+      </a-spin>
+    </a-modal>
   </Teleport>
 </template>
 
@@ -480,21 +478,24 @@ function onAcceptAll() {
   acceptAllAnalysis()
 }
 
-// ── 需求分析：BOM 详情抽屉 ──
-const drawerOpen = ref(false)
-const drawerPlan = ref<Plan | null>(null)
-const drawerCfg = ref<PlanLiveCfg | null>(null)
-const drawerLoading = ref(false)
-async function viewDetail(p: Plan) {
-  drawerPlan.value = p
-  drawerCfg.value = null
-  drawerLoading.value = true
-  drawerOpen.value = true
+// ── 网页端增强：点方案卡「查看 BOM 详情」→ 弹窗展示完整表格 BOM ──
+const bomModalOpen = ref(false)
+const bomModalPlan = ref<Plan | null>(null)
+const bomModalCfg = ref<PlanLiveCfg | null>(null)
+const bomModalLoading = ref(false)
+async function openBomModal(p: Plan) {
+  bomModalPlan.value = p
+  bomModalCfg.value = null
+  bomModalLoading.value = true
+  bomModalOpen.value = true
   try {
-    drawerCfg.value = await buildPlanCfg(p)
+    bomModalCfg.value = await buildPlanCfg(p)
   } finally {
-    drawerLoading.value = false
+    bomModalLoading.value = false
   }
+}
+function fmtCost(n: number | null | undefined) {
+  return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 // ── 需求分析：转报价单（需会话绑定商机；逻辑与商机详情页 confirmPlan 同源）──
@@ -951,14 +952,13 @@ function onDeleteThread(id: string) {
   margin-top: 6px;
 }
 
-/* ── 需求分析：BOM 抽屉 / 发起弹窗 ── */
-.ap-bom-wrap { display: flex; flex-direction: column; height: 100%; }
-.ap-bom-summary {
+/* ── 网页端增强：BOM 弹窗 ── */
+.ap-bom-modal-summary {
   font-size: 12px;
   color: var(--cpq-text-secondary);
-  padding: 0 0 10px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--cpq-overlay-w8);
-  margin-bottom: 10px;
+  margin-bottom: 12px;
 }
 .ap-analyze-bar {
   padding: 6px 12px;

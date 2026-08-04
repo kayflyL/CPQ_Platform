@@ -152,6 +152,11 @@ export function useAssistant() {
           if (s.status === 'running') s.status = 'error'
         })
         return
+      case 'analysis_result':
+        // 需求分析结果消息（BOM 文本）→ 推进对话流（企微端也推同一段文本）
+        analysisRunning.value = false
+        if (data.message) messages.value.push(data.message as AssistantMessage)
+        return
       case 'analysis_finished':
         analysisRunning.value = false
         return
