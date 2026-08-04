@@ -112,11 +112,12 @@
         <div class="ap-quick">
           <button
             class="ap-quick-chip primary"
+            :class="{ active: analyzeMode }"
             :disabled="analysisBusy"
-            @click="openAnalyzeModal"
+            @click="toggleAnalyzeMode"
           >
             <span class="ap-quick-icon">🧩</span>
-            <span>需求分析 / 生成 BOM</span>
+            <span>{{ analyzeMode ? '退出需求分析' : '需求分析 / 生成 BOM' }}</span>
           </button>
           <button
             v-for="a in visibleQuickActions"
@@ -187,17 +188,21 @@
           <p class="ap-note" style="margin-top:6px">「全部采纳」直接看当前方案（不重跑 LLM）；改了选择才重新生成。</p>
         </div>
 
-        <!-- 输入 -->
+        <!-- 输入（需求分析模式 = 在会话里直接发需求）-->
+        <div class="ap-analyze-bar" v-if="analyzeMode">
+          <span class="ap-analyze-bar-tip">🧩 需求分析模式：把客户需求直接发出来，Enter 开始；再点上方「退出需求分析」返回聊天。</span>
+        </div>
         <div class="ap-input">
           <a-textarea
             v-model:value="draft"
             :auto-size="{ minRows: 1, maxRows: 4 }"
-            placeholder="输入消息，Enter 发送 / Shift+Enter 换行"
+            :placeholder="analyzeMode ? '输入客户需求，Enter 开始需求分析（Shift+Enter 换行）' : '输入消息，Enter 发送 / Shift+Enter 换行'"
             :disabled="sending"
             @press-enter="onEnter"
           />
-          <a-button type="primary" :loading="sending" :disabled="!draft.trim()" @click="onSend">
-            发送
+          <a-button type="primary" :loading="analysisBusy || sending" :disabled="!draft.trim()" @click="onSend">
+            <template #icon v-if="analyzeMode"><ThunderboltOutlined /></template>
+            {{ analyzeMode ? '开始分析' : '发送' }}
           </a-button>
         </div>
       </div>
@@ -222,26 +227,6 @@
         </div>
       </a-drawer>
 
-      <!-- 需求分析发起弹窗 -->
-      <a-modal
-        v-model:open="analyzeModalOpen"
-        title="🧩 需求分析 / 生成 BOM"
-        ok-text="开始分析"
-        cancel-text="取消"
-        :confirm-loading="analysisBusy"
-        @ok="onAnalyzeModalOk"
-      >
-        <p class="ap-modal-tip">输入客户需求（可贴表格/文字），系统拆解需求 → 选机型 → 配 KP → 出整机 BOM。有反问你直接在对话里补充。</p>
-        <a-textarea
-          v-model:value="analyzeDraft"
-          :auto-size="{ minRows: 4, maxRows: 10 }"
-          placeholder="例如：2U 服务器，AMD 9654 双路，16条32G DDR5，2块7.68T NVMe，阵列卡 LSI 9560-8i，预算 20 万，用于数据库"
-        />
-        <div class="ap-modal-budget">
-          <a-input-number v-model:value="analyzeBudget" :min="0" :step="10000" placeholder="预算（元，可选）" style="width:160px" />
-        </div>
-        <p v-if="!currentThread?.opportunity_id" class="ap-note">当前会话未绑定商机：可出 BOM 方案，但「转为报价单」需先打开商机详情页发起会话。</p>
-      </a-modal>
   </Teleport>
 </template>
 
@@ -251,7 +236,7 @@ import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined,
-  ArrowRightOutlined, BulbOutlined, ExclamationCircleOutlined,
+  ArrowRightOutlined, BulbOutlined, ExclamationCircleOutlined, ThunderboltOutlined,
 } from '@ant-design/icons-vue'
 import { Modal, message as antMessage } from 'ant-design-vue'
 import { useAssistant } from '@/composables/useAssistant'
@@ -411,6 +396,11 @@ async function onSend() {
   const text = draft.value
   if (!text.trim() || sending.value) return
   draft.value = ''
+  if (analyzeMode.value) {
+    analyzeMode.value = false
+    await runAnalysis(text)
+    return
+  }
   const summary = await summarize()
   await send(text, summary)
 }
@@ -423,25 +413,18 @@ async function onQuickAction(action: QuickAction) {
   await send(prompt, ctx)
 }
 
-// ── 需求分析：发起弹窗 ──
-const analyzeModalOpen = ref(false)
-const analyzeDraft = ref('')
-const analyzeBudget = ref<number | undefined>(undefined)
+// ── 需求分析：会话内模式（点「需求分析」切换输入框，直接发需求，不再弹窗）──
+const analyzeMode = ref(false)
 const router = useRouter()
 
-function openAnalyzeModal() {
-  analyzeDraft.value = ''
-  analyzeBudget.value = undefined
-  analyzeModalOpen.value = true
-}
-async function onAnalyzeModalOk() {
-  const text = analyzeDraft.value.trim()
-  if (!text) {
-    antMessage.warning('请先输入客户需求')
-    return
+function toggleAnalyzeMode() {
+  analyzeMode.value = !analyzeMode.value
+  if (analyzeMode.value) {
+    nextTick(() => {
+      const ta = document.querySelector('.assistant-panel .ap-input textarea') as HTMLTextAreaElement | null
+      ta?.focus()
+    })
   }
-  analyzeModalOpen.value = false
-  await runAnalysis(text, { budget: analyzeBudget.value })
 }
 
 // ── 需求分析：反问回复（ask_user）──
@@ -977,14 +960,15 @@ function onDeleteThread(id: string) {
   border-bottom: 1px solid var(--cpq-overlay-w8);
   margin-bottom: 10px;
 }
-.ap-modal-tip {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-  line-height: 1.5;
+.ap-analyze-bar {
+  padding: 6px 12px;
+  border-top: 1px solid var(--cpq-overlay-w8);
+  background: var(--cpq-accent-soft);
 }
-.ap-modal-budget {
-  margin-top: 8px;
+.ap-analyze-bar-tip {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cpq-accent-primary);
 }
 .ap-quick-chip.primary {
   border-color: var(--cpq-accent-primary);
@@ -996,6 +980,11 @@ function onDeleteThread(id: string) {
   border-color: var(--cpq-accent-primary);
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a8);
+}
+.ap-quick-chip.primary.active {
+  border-color: var(--cpq-accent-primary);
+  background: var(--cpq-accent-primary);
+  color: #fff;
 }
 
 .assistant-panel-enter-active,
