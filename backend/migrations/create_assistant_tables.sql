@@ -13,7 +13,8 @@ CREATE TABLE IF NOT EXISTS opportunities.assistant_threads (
   created_by     TEXT,        -- FeedUser.user_id(身份复用 Feed 的 X-User-Id)
   created_at     TEXT,
   updated_at     TEXT,
-  deleted_at     TEXT
+  deleted_at     TEXT,
+  reasoning_state TEXT         -- 方案助手需求分析会话状态(JSON,与商机 extra_fields 平行)
 );
 CREATE INDEX IF NOT EXISTS idx_at_threads_user ON opportunities.assistant_threads(created_by);
 
@@ -22,6 +23,8 @@ CREATE TABLE IF NOT EXISTS opportunities.assistant_messages (
   thread_id      TEXT NOT NULL,
   role           TEXT NOT NULL,   -- user | assistant | system
   content        TEXT,
+  kind           TEXT DEFAULT 'text',  -- text | analysis_trigger | analysis_result
+  data           TEXT,           -- 结构化载荷 JSON(analysis_result → {plans,...} 供历史重放)
   opportunity_id TEXT,            -- 上下文快照(发该条消息时所在商机/报价,用于重建 LLM 上下文)
   quotation_id   TEXT,
   created_at     TEXT,

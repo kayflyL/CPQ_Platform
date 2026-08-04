@@ -46,9 +46,9 @@
         <div class="ap-messages" ref="messagesEl">
           <a-spin v-if="loading" size="small" class="ap-spin" />
           <a-empty
-            v-else-if="!messages.length && !streamingText && !waitingAI"
+            v-else-if="!messages.length && !streamingText && !waitingAI && !analysisSteps.length && !analysisPlans.length && !analysisRunning && !analysisPrompt && !analysisConfirm && !analysisError"
             :image-style="{ height: '48px' }"
-            description="和方案助手聊聊？输入消息开始"
+            description="和方案助手聊聊？输入消息开始，或点下方「需求分析 / 生成 BOM」"
           />
           <div v-else class="ap-msg-list">
             <div
@@ -59,17 +59,65 @@
             >
               <div class="ap-bubble">{{ m.content }}</div>
             </div>
+            <!-- 需求分析：步骤时间线（运行中）-->
+            <div v-if="analysisSteps.length" class="ap-steps">
+              <span
+                v-for="s in analysisSteps"
+                :key="s.key"
+                class="ap-step"
+                :class="`st-${s.status}`"
+              >
+                {{ s.label }}
+              </span>
+            </div>
+            <!-- 需求分析：整机方案卡（BOM）-->
+            <template v-if="analysisPlans.length">
+              <p class="ap-note">以下为整机方案（可查看 BOM 明细）：</p>
+              <PlanCard
+                v-for="p in analysisPlans"
+                :key="p.config_id"
+                :plan="p"
+                class="ap-plan-card"
+                @view-bom="viewDetail(p)"
+              >
+                <template #extra-actions>
+                  <a-button
+                    v-if="currentThread?.opportunity_id"
+                    type="primary"
+                    size="small"
+                    :loading="convertingId === p.config_id"
+                    @click="convertPlan(p)"
+                  >
+                    <template #icon><ArrowRightOutlined /></template>
+                    转为报价单
+                  </a-button>
+                </template>
+              </PlanCard>
+            </template>
+            <!-- 需求分析失败 -->
+            <p v-if="analysisError" class="ap-bubble err"><ExclamationCircleOutlined /> {{ analysisError }}</p>
             <div v-if="streamingText || waitingAI" class="ap-msg role-assistant">
               <div class="ap-bubble">
                 <template v-if="streamingText">{{ streamingText }}<span class="ap-cursor">▍</span></template>
                 <span v-else class="ap-typing"><i></i><i></i><i></i></span>
               </div>
             </div>
+            <div v-if="analysisRunning" class="ap-msg role-assistant">
+              <div class="ap-bubble"><span class="ap-typing"><i></i><i></i><i></i></span></div>
+            </div>
           </div>
         </div>
 
-        <!-- 快捷指令（按当前页 provider 条件渲染）-->
-        <div class="ap-quick" v-if="visibleQuickActions.length">
+        <!-- 快捷指令：需求分析（常驻）+ 按当前页 provider 条件渲染 -->
+        <div class="ap-quick">
+          <button
+            class="ap-quick-chip primary"
+            :disabled="analysisBusy"
+            @click="openAnalyzeModal"
+          >
+            <span class="ap-quick-icon">🧩</span>
+            <span>需求分析 / 生成 BOM</span>
+          </button>
           <button
             v-for="a in visibleQuickActions"
             :key="a.key"
@@ -80,6 +128,63 @@
             <span v-if="a.icon" class="ap-quick-icon">{{ a.icon }}</span>
             <span>{{ a.label }}</span>
           </button>
+        </div>
+
+        <!-- 需求分析：反问回复区（ask_user 节点触发，pipeline 暂停等用户补齐）-->
+        <div v-if="analysisPrompt" class="ap-reply-footer">
+          <p class="ap-reply-q">{{ analysisPrompt.question }}</p>
+          <p v-if="analysisPrompt.format" class="ap-note ap-format">{{ analysisPrompt.format }}</p>
+          <div v-if="analysisPrompt.options?.length" class="ap-reply-options">
+            <a-tag
+              v-for="opt in analysisPrompt.options"
+              :key="opt"
+              class="ap-reply-opt"
+              @click="quickReply(opt)"
+            >{{ opt }}</a-tag>
+          </div>
+          <a-textarea
+            v-model:value="replyText"
+            :auto-size="{ minRows: 1, maxRows: 4 }"
+            :placeholder="analysisPrompt.clarity_capped ? '已多次补充，可直接发送或跳过' : '回复补充信息，回车发送（Shift+Enter 换行）'"
+            class="ap-reply-input"
+            @press-enter="onReplyEnter"
+          />
+          <div class="ap-reply-actions">
+            <a-button size="small" @click="onSkipAnalysis">跳过</a-button>
+            <a-button type="primary" size="small" :disabled="!replyText.trim()" @click="submitReply">
+              <template #icon><ArrowRightOutlined /></template>
+              发送
+            </a-button>
+          </div>
+        </div>
+
+        <!-- 需求分析：LLM 确认面板（confirm 节点，默认采纳、高亮可改）-->
+        <div v-if="analysisConfirm" class="ap-confirm-footer">
+          <p class="ap-confirm-title"><BulbOutlined /> {{ analysisConfirm.question }}</p>
+          <div
+            v-for="it in analysisConfirm.items"
+            :key="it.id"
+            class="ap-confirm-item"
+            :class="{ accepted: (confirmChoices[it.id] || analysisConfirm.default || 'accept') === 'accept' }"
+          >
+            <div class="ap-confirm-info">
+              <span class="ap-confirm-label">{{ it.label }}</span>
+              <a-tag v-if="it.level === 'conflict'" color="orange" class="ap-confirm-tag">与规则冲突</a-tag>
+              <a-tag v-else color="blue" class="ap-confirm-tag">低置信度</a-tag>
+              <span v-if="it.rule != null" class="ap-confirm-v">规则：{{ it.rule }}</span>
+              <span class="ap-confirm-v llm">LLM：{{ it.llm || '—' }}</span>
+              <span v-if="it.confidence != null" class="ap-confirm-conf">置信 {{ Math.round(it.confidence * 100) }}%</span>
+            </div>
+            <div class="ap-confirm-opts">
+              <a-button size="small" :type="(confirmChoices[it.id] || 'accept') === 'accept' ? 'primary' : 'default'" @click="setConfirmChoice(it.id, 'accept')">采纳</a-button>
+              <a-button size="small" :type="(confirmChoices[it.id] || 'accept') === 'ignore' ? 'danger' : 'default'" @click="setConfirmChoice(it.id, 'ignore')">忽略</a-button>
+            </div>
+          </div>
+          <div class="ap-confirm-actions">
+            <a-button size="small" @click="onAcceptAll">全部采纳，查看方案</a-button>
+            <a-button type="primary" size="small" :disabled="!hasConfirmIgnore" @click="onConfirmSubmit">按以上选择重新生成</a-button>
+          </div>
+          <p class="ap-note" style="margin-top:6px">「全部采纳」直接看当前方案（不重跑 LLM）；改了选择才重新生成。</p>
         </div>
 
         <!-- 输入 -->
@@ -97,23 +202,76 @@
         </div>
       </div>
     </transition>
+
+          <!-- BOM 详情抽屉（复用工作台 BomTable，与商机详情页推理面板一致）-->
+      <a-drawer
+        v-model:open="drawerOpen"
+        :title="drawerPlan?.name || '整机 BOM 详情'"
+        placement="right"
+        width="560"
+        class="ap-bom-drawer"
+      >
+        <div class="ap-bom-wrap" v-if="drawerPlan">
+          <div class="ap-bom-summary">
+            {{ [drawerPlan.series, drawerPlan.form, drawerPlan.bays != null ? `${drawerPlan.bays}盘位` : ''].filter(Boolean).join(' · ') }}
+            · 底盘 {{ drawerPlan.summary.parts_count }} 件 + KP {{ drawerPlan.summary.kp_count }} 件
+          </div>
+          <a-spin :spinning="drawerLoading" tip="转 BOM 模板格式…">
+            <BomTable v-if="drawerCfg" :cfg="drawerCfg" />
+          </a-spin>
+        </div>
+      </a-drawer>
+
+      <!-- 需求分析发起弹窗 -->
+      <a-modal
+        v-model:open="analyzeModalOpen"
+        title="🧩 需求分析 / 生成 BOM"
+        ok-text="开始分析"
+        cancel-text="取消"
+        :confirm-loading="analysisBusy"
+        @ok="onAnalyzeModalOk"
+      >
+        <p class="ap-modal-tip">输入客户需求（可贴表格/文字），系统拆解需求 → 选机型 → 配 KP → 出整机 BOM。有反问你直接在对话里补充。</p>
+        <a-textarea
+          v-model:value="analyzeDraft"
+          :auto-size="{ minRows: 4, maxRows: 10 }"
+          placeholder="例如：2U 服务器，AMD 9654 双路，16条32G DDR5，2块7.68T NVMe，阵列卡 LSI 9560-8i，预算 20 万，用于数据库"
+        />
+        <div class="ap-modal-budget">
+          <a-input-number v-model:value="analyzeBudget" :min="0" :step="10000" placeholder="预算（元，可选）" style="width:160px" />
+        </div>
+        <p v-if="!currentThread?.opportunity_id" class="ap-note">当前会话未绑定商机：可出 BOM 方案，但「转为报价单」需先打开商机详情页发起会话。</p>
+      </a-modal>
   </Teleport>
 </template>
 
+
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined } from '@ant-design/icons-vue'
-import { Modal } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
+import {
+  RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined,
+  ArrowRightOutlined, BulbOutlined, ExclamationCircleOutlined,
+} from '@ant-design/icons-vue'
+import { Modal, message as antMessage } from 'ant-design-vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
 import { useAssistantFab, computePanelAnchor } from '@/composables/useAssistantFab'
+import PlanCard from '@/components/reasoning/PlanCard.vue'
+import BomTable from '@/components/BomTable.vue'
+import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
+import { quotationApi } from '@/api'
+import type { Plan } from '@/api/reasoning'
 
 const props = defineProps<{ open: boolean }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const {
-  threads, currentThreadId, messages, loading, sending, streamingText, waitingAI,
+  threads, currentThreadId, currentThread, messages, loading, sending, streamingText, waitingAI,
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
+  analysisSteps, analysisPlans, analysisRunning, analysisBusy, analysisError,
+  analysisPrompt, analysisConfirm,
+  runAnalysis, replyAnalysis, skipAnalysis, confirmAnalysis, acceptAllAnalysis,
 } = useAssistant()
 
 const { contextLabel, summarize, visibleQuickActions } = useAssistantContext()
@@ -263,6 +421,147 @@ async function onQuickAction(action: QuickAction) {
   const prompt = typeof action.prompt === 'function' ? await action.prompt() : action.prompt
   const ctx = action.context ? await action.context() : await summarize()
   await send(prompt, ctx)
+}
+
+// ── 需求分析：发起弹窗 ──
+const analyzeModalOpen = ref(false)
+const analyzeDraft = ref('')
+const analyzeBudget = ref<number | undefined>(undefined)
+const router = useRouter()
+
+function openAnalyzeModal() {
+  analyzeDraft.value = ''
+  analyzeBudget.value = undefined
+  analyzeModalOpen.value = true
+}
+async function onAnalyzeModalOk() {
+  const text = analyzeDraft.value.trim()
+  if (!text) {
+    antMessage.warning('请先输入客户需求')
+    return
+  }
+  analyzeModalOpen.value = false
+  await runAnalysis(text, { budget: analyzeBudget.value })
+}
+
+// ── 需求分析：反问回复（ask_user）──
+const replyText = ref('')
+const quickLocked = ref(false)
+function quickReply(opt: string) {
+  if (quickLocked.value) return
+  quickLocked.value = true
+  replyText.value = ''
+  replyAnalysis(opt)
+}
+function submitReply() {
+  const t = replyText.value.trim()
+  if (!t) return
+  replyText.value = ''
+  replyAnalysis(t)
+}
+function onReplyEnter(e: KeyboardEvent) {
+  if (e.shiftKey) return
+  e.preventDefault()
+  submitReply()
+}
+function onSkipAnalysis() {
+  replyText.value = ''
+  skipAnalysis()
+}
+watch(() => analysisPrompt.value, () => {
+  quickLocked.value = false
+  nextTick(scrollToBottom)
+})
+
+// ── 需求分析：LLM 确认面板（confirm 节点）──
+const confirmChoices = ref<Record<string, string>>({})
+function setConfirmChoice(id: string, v: string) {
+  confirmChoices.value = { ...confirmChoices.value, [id]: v }
+}
+const hasConfirmIgnore = computed(() =>
+  Object.values(confirmChoices.value).some((v) => v === 'ignore'),
+)
+watch(() => analysisConfirm.value, (pc) => {
+  confirmChoices.value = {}
+  if (pc?.items?.length) {
+    const def = pc.default || 'accept'
+    pc.items.forEach((it) => { confirmChoices.value[it.id] = def })
+  }
+  nextTick(scrollToBottom)
+})
+function onConfirmSubmit() {
+  if (!Object.keys(confirmChoices.value).length) return
+  confirmAnalysis({ ...confirmChoices.value })
+}
+function onAcceptAll() {
+  acceptAllAnalysis()
+}
+
+// ── 需求分析：BOM 详情抽屉 ──
+const drawerOpen = ref(false)
+const drawerPlan = ref<Plan | null>(null)
+const drawerCfg = ref<PlanLiveCfg | null>(null)
+const drawerLoading = ref(false)
+async function viewDetail(p: Plan) {
+  drawerPlan.value = p
+  drawerCfg.value = null
+  drawerLoading.value = true
+  drawerOpen.value = true
+  try {
+    drawerCfg.value = await buildPlanCfg(p)
+  } finally {
+    drawerLoading.value = false
+  }
+}
+
+// ── 需求分析：转报价单（需会话绑定商机；逻辑与商机详情页 confirmPlan 同源）──
+const convertingId = ref<number | null>(null)
+async function convertPlan(plan: Plan) {
+  const oid = currentThread.value?.opportunity_id
+  if (!oid) {
+    antMessage.warning('该会话未绑定商机，无法转为报价单')
+    return
+  }
+  convertingId.value = plan.config_id
+  try {
+    const res = await quotationApi.create({
+      opportunity_id: oid,
+      quotation_name: `方案-${plan.name || plan.model}`,
+    })
+    const quotationId = res.quotation_id
+    const liveCfg = await buildPlanCfg(plan)
+    const picks: Record<string, any> = {
+      base_config_id: plan.config_id,
+      // 服务器型号 id：机箱卡按它匹配目录机型（形态/用途/型号都从机型对象读）
+      server_model_id: plan.server_model_id ?? null,
+      bom_source: liveCfg.bom_source,
+      l6_custom_price: plan.summary.l6_cost ?? 0,
+      l6_profit_margin: 10,
+      // IO 选配随 picks 持久化：机箱配置器按机型标准 riser 回填 IO 数量（与 BOM 同源）
+      picks: liveCfg.rear ? { rear: liveCfg.rear } : undefined,
+    }
+    if (liveCfg.bom_source === 'live') {
+      picks.bom_template = liveCfg.bom_template
+      picks.bom_context = liveCfg.bom_context
+    } else {
+      picks.bom_excel_rows = liveCfg.bom_excel_rows
+    }
+    const payload = {
+      items: liveCfg.items,
+      config_quantities: { CFG1: 1 },
+      config_server_models: { CFG1: plan.model || '' },
+      config_l6_picks: { CFG1: picks },
+    }
+    await quotationApi.saveItems(quotationId, payload as any)
+    quotationApi.update(quotationId, { source: 'reasoning' }).catch(() => {})
+    antMessage.success(`已转为报价单：${plan.name || plan.model}`)
+    disconnectWs()
+    router.push(`/workspace?opportunityId=${oid}&quotationId=${quotationId}&mode=edit&from=assistant`)
+  } catch (e: any) {
+    antMessage.error('转为报价单失败：' + (e?.message || e))
+  } finally {
+    convertingId.value = null
+  }
 }
 
 async function onNewThread() {
@@ -534,6 +833,169 @@ function onDeleteThread(id: string) {
   gap: 8px;
   align-items: flex-end;
   background: var(--cpq-overlay-w3);
+}
+
+/* ── 需求分析：步骤时间线 ── */
+.ap-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0;
+}
+.ap-step {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-overlay-w8);
+  white-space: nowrap;
+}
+.ap-step.st-running {
+  color: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+  background: var(--cpq-accent-soft);
+}
+.ap-step.st-done {
+  color: var(--cpq-text-secondary);
+}
+.ap-step.st-error {
+  color: var(--cpq-accent-danger);
+  border-color: var(--cpq-accent-danger);
+}
+.ap-plan-card {
+  max-width: 100%;
+}
+.ap-bubble.err {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cpq-accent-danger);
+  background: var(--cpq-overlay-danger10);
+  border-color: var(--cpq-overlay-danger15);
+}
+
+/* ── 需求分析：反问回复区 ── */
+.ap-reply-footer {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--cpq-overlay-w8);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ap-reply-q {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cpq-text-primary);
+  white-space: pre-wrap;
+}
+.ap-format {
+  white-space: pre-line;
+  padding: 6px 8px;
+  background: var(--cpq-overlay-w4);
+  border: 1px dashed var(--cpq-overlay-w10);
+  border-radius: var(--cpq-radius-sm, 8px);
+  color: var(--cpq-text-secondary);
+}
+.ap-reply-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ap-reply-opt {
+  cursor: pointer;
+  margin: 0;
+}
+.ap-reply-input {
+  border-radius: var(--cpq-radius-sm, 8px);
+}
+.ap-reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── 需求分析：LLM 确认面板 ── */
+.ap-confirm-footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--cpq-overlay-w8);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 45%;
+  overflow-y: auto;
+}
+.ap-confirm-title {
+  margin: 0 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.ap-confirm-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--cpq-overlay-w10);
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-a4);
+}
+.ap-confirm-item.accepted {
+  border-color: var(--cpq-accent-primary);
+  background: var(--cpq-accent-soft);
+}
+.ap-confirm-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+.ap-confirm-label { font-weight: 600; color: var(--cpq-text-primary); }
+.ap-confirm-tag { margin-inline-end: 0 !important; }
+.ap-confirm-v { color: var(--cpq-text-secondary); }
+.ap-confirm-v.llm { color: var(--cpq-accent-primary); }
+.ap-confirm-conf { color: var(--cpq-text-muted); }
+.ap-confirm-opts { display: flex; gap: 6px; flex-shrink: 0; }
+.ap-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* ── 需求分析：BOM 抽屉 / 发起弹窗 ── */
+.ap-bom-wrap { display: flex; flex-direction: column; height: 100%; }
+.ap-bom-summary {
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+  padding: 0 0 10px;
+  border-bottom: 1px solid var(--cpq-overlay-w8);
+  margin-bottom: 10px;
+}
+.ap-modal-tip {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+  line-height: 1.5;
+}
+.ap-modal-budget {
+  margin-top: 8px;
+}
+.ap-quick-chip.primary {
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-accent-soft);
+  font-weight: 600;
+}
+.ap-quick-chip.primary:hover:not(:disabled) {
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8);
 }
 
 .assistant-panel-enter-active,

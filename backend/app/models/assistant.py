@@ -26,6 +26,9 @@ class AssistantThread(Base):
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     deleted_at: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # 需求分析会话状态（JSON 文本）：方案助手通道跑 pipeline 的 clarify/目录/系列等状态，
+    # 与商机通道的 opportunities.extra_fields 平行；企微等新通道也以 thread 为会话。
+    reasoning_state: Mapped[Optional[str]] = mapped_column(Text, default=None)
 
     def to_dict(self) -> dict:
         return {
@@ -47,6 +50,10 @@ class AssistantMessage(Base):
     thread_id: Mapped[str] = mapped_column(String, index=True)
     role: Mapped[str] = mapped_column(String, default="user")  # user | assistant | system
     content: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    # 消息类型：text=普通聊天；analysis_trigger=需求分析发起；analysis_result=需求分析结果（data 带 plans）
+    kind: Mapped[Optional[str]] = mapped_column(String, default="text")
+    # 结构化载荷（JSON 文本）：analysis_result → {plans, keywords, series, form}，供历史重放渲染方案卡
+    data: Mapped[Optional[str]] = mapped_column(Text, default=None)
     # Snapshot of where the user was when this turn was sent (per-message, since
     # a thread can span pages). Used to reconstruct context for the LLM later.
     opportunity_id: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -60,6 +67,8 @@ class AssistantMessage(Base):
             "thread_id": self.thread_id,
             "role": self.role or "user",
             "content": self.content or "",
+            "kind": self.kind or "text",
+            "data": self.data or "",
             "opportunity_id": self.opportunity_id or "",
             "quotation_id": self.quotation_id or "",
             "created_at": self.created_at or "",

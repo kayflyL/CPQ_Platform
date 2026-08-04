@@ -7,6 +7,8 @@ endpoint (/ws/{thread_id}) via assistant_hub. If the call fails, the real error
 「测试连接」按钮做更结构化的排障。
 """
 import asyncio
+import logging
+import json
 from typing import Optional
 
 from fastapi import (
@@ -19,6 +21,9 @@ from app.repository.feed_user_repo import FeedUserRepository
 from app.services import llm_client
 from app.services.assistant_hub import assistant_hub
 from app.services.llm_client import LLMError
+from app.services.requirement_intel_service import run_assistant_pipeline
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
 
@@ -47,6 +52,19 @@ class PostMessageBody(BaseModel):
     opportunity_id: Optional[str] = None
     quotation_id: Optional[str] = None
     context_summary: Optional[str] = None  # 前端多域 provider 拼的当前上下文摘要
+
+
+class AnalyzeBody(BaseModel):
+    """方案助手「需求分析 → 生成 BOM」入参（与商机详情页 generate 同语义）。
+
+    requirement_text: 本轮需求/补充文本；supplement_text: 反问补充（续接暂停的 pipeline）；
+    explicit_budget / force_complete / confirm 与商机通道一致。
+    """
+    requirement_text: str = ""
+    supplement_text: Optional[str] = None
+    explicit_budget: Optional[float] = None
+    force_complete: bool = False
+    confirm: Optional[dict] = None
 
 
 @router.post("/threads")
@@ -112,6 +130,157 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
 
     asyncio.create_task(_stream_llm_reply(thread_id, body.content, body.context_summary, history))
     return {"user_message": user_msg, "thread": thread}
+
+
+@router.post("/threads/{thread_id}/analyze", status_code=202)
+async def analyze_thread(thread_id: str, body: AnalyzeBody, user: dict = Depends(current_user)):
+    """方案助手通道需求分析：与商机详情页同一套 pipeline（图驱动 executor + 反问 + LLM 增强 +
+    BOM 组合），状态存 assistant 会话、步骤/方案经 /ws/{thread_id} 流式推送。
+
+    立即返回 202；前端订阅助手 WS 消费 pipeline_start/step_*/need_input/need_confirm/
+    candidates_ready/pipeline_done|paused/analysis_result 事件。
+    补充分支：supplement_text 续接暂停的 pipeline（同商机通道反答回填语义）。
+    """
+    repo = AssistantRepository()
+    try:
+        thread = repo.get_thread(thread_id)
+        if not thread:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        text = (body.requirement_text or "").strip()
+        supplement_text = (body.supplement_text or "").strip()
+        # 反答/跳过时前端不重发原文：从会话状态取已存的需求原文（与商机详情页传原文+补充同语义）
+        if not text and (supplement_text or body.force_complete):
+            try:
+                from app.services.reasoning_session import ReasoningSession
+                extra = ReasoningSession(thread_id, "thread").get_extra()
+                text = (extra.get("requirement_clarity_base") or "").strip()
+            except Exception:
+                text = ""
+        if not text and not supplement_text:
+            raise HTTPException(status_code=400, detail="需求内容为空")
+        # 需求文本作为用户消息入库（kind=analysis_trigger），历史重放/身份归属用
+        user_msg = repo.add_message(
+            thread_id=thread_id, role="user",
+            content=text or f"[补充] {supplement_text}",
+            opportunity_id=thread.get("opportunity_id") or None,
+            kind="analysis_trigger",
+            data=json.dumps({"supplement": bool(supplement_text)}, ensure_ascii=False),
+        )
+        # auto-title：首条消息前 24 字
+        if not thread.get("title") or thread["title"] == "新会话":
+            snippet = (text or supplement_text or "").strip().replace("\n", " ")[:24]
+            if snippet:
+                updated = repo.update_thread_title(thread_id, snippet)
+                if updated:
+                    thread = updated
+    finally:
+        repo.close()
+
+    asyncio.create_task(_stream_analysis(
+        thread_id, text, supplement_text,
+        body.explicit_budget, body.force_complete, body.confirm,
+    ))
+    return {"status": "started", "thread_id": thread_id, "user_message": user_msg}
+
+
+async def _stream_analysis(
+    thread_id: str, requirement_text: str, supplement_text: Optional[str],
+    budget: Optional[float], force_complete: bool, confirm: Optional[dict],
+) -> None:
+    """跑方案助手需求分析 pipeline，并把结果/暂停点落库为结构化消息（历史重放）。
+
+    事件经 assistant_hub 广播给 /ws/{thread_id} 的实时客户端；结束后按终态补一条
+    analysis_result / analysis_pending / analysis_confirm 消息，供刷新后重放方案卡/反问框。
+    """
+    supplement = None
+    if supplement_text or budget is not None or confirm:
+        supplement = {"text": supplement_text or None, "budget": budget, "confirm": confirm or {}}
+
+    events: list = []
+    try:
+        events = await run_assistant_pipeline(
+            thread_id, requirement_text,
+            supplement=supplement, force_complete=force_complete,
+        )
+    except Exception as e:
+        logger.exception("方案助手需求分析失败 thread=%s", thread_id)
+        final_text = f"⚠️ 需求分析失败：{e}"
+        await assistant_hub.broadcast(thread_id, {"type": "error", "message": final_text})
+        repo = AssistantRepository()
+        try:
+            repo.add_message(thread_id=thread_id, role="assistant", content=final_text)
+        finally:
+            repo.close()
+        return
+
+    # 从事件流提取终态：最后一条 need_input/need_confirm + candidates_ready 方案
+    plans: list = []
+    keywords: list = []
+    series = None
+    form = None
+    last_input: Optional[dict] = None
+    last_confirm: Optional[dict] = None
+    for ev in events:
+        t = ev.get("type")
+        if t == "candidates_ready":
+            plans = ev.get("plans") or []
+            keywords = ev.get("keywords") or []
+            series = ev.get("series")
+            form = ev.get("form")
+        elif t == "need_input":
+            last_input = {
+                "question": ev.get("question") or "",
+                "options": ev.get("options") or [],
+                "reply_id": ev.get("reply_id") or "",
+                "stage": ev.get("stage") or "",
+                "format": ev.get("format") or "",
+                "round": ev.get("round") or 1,
+                "clarity_capped": bool(ev.get("clarity_capped")),
+            }
+        elif t == "need_confirm":
+            last_confirm = {
+                "question": ev.get("question") or "",
+                "items": ev.get("items") or [],
+                "default": ev.get("default") or "accept",
+                "reply_id": ev.get("reply_id") or "",
+            }
+
+    repo = AssistantRepository()
+    try:
+        if plans:
+            names = [p.get("name") or p.get("model") or p.get("config_id") for p in plans]
+            summary = "✅ 需求分析完成，生成 %d 个整机方案：\n%s" % (
+                len(plans), "\n".join(f"- {n}" for n in names))
+            repo.add_message(
+                thread_id=thread_id, role="assistant", content=summary,
+                kind="analysis_result",
+                data=json.dumps({
+                    "plans": plans, "keywords": keywords, "series": series, "form": form,
+                }, ensure_ascii=False, default=str),
+            )
+        elif last_input:
+            q = last_input["question"] or "请补充以下信息："
+            options = "（可选：%s）" % " / ".join(last_input["options"]) if last_input.get("options") else ""
+            repo.add_message(
+                thread_id=thread_id, role="assistant", content=f"{q}{options}",
+                kind="analysis_pending",
+                data=json.dumps(last_input, ensure_ascii=False, default=str),
+            )
+        elif last_confirm:
+            repo.add_message(
+                thread_id=thread_id, role="assistant", content=last_confirm["question"] or "大模型补充了信息，请确认：",
+                kind="analysis_confirm",
+                data=json.dumps(last_confirm, ensure_ascii=False, default=str),
+            )
+        else:
+            repo.add_message(
+                thread_id=thread_id, role="assistant",
+                content="需求分析未生成方案，请补充需求后重试。",
+            )
+    finally:
+        repo.close()
+    # 广播一个终态事件，让实时 UI 收尾（WS 已收到全部事件，此事件仅兜底/定稿用）
+    await assistant_hub.broadcast(thread_id, {"type": "analysis_finished"})
 
 
 async def _stream_llm_reply(

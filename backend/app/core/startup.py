@@ -132,6 +132,31 @@ def ensure_base_config_linkage_columns():
         ))
 
 
+def ensure_assistant_reasoning_columns():
+    """方案助手需求分析通道（幂等 DDL，boot 时自愈）：
+    assistant_threads 加 reasoning_state（需求分析会话状态 JSON）；
+    assistant_messages 加 kind（消息类型）+ data（结构化载荷，如方案列表）。
+    对应 create_assistant_tables.sql 的扩展——旧库 ADD COLUMN，新库由 ORM create_all 直接带列。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        t_cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='assistant_threads'"
+        ))}
+        m_cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='assistant_messages'"
+        ))}
+    with opp_engine.begin() as c:
+        if "reasoning_state" not in t_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_threads ADD COLUMN reasoning_state TEXT"))
+        if "kind" not in m_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_messages ADD COLUMN kind TEXT DEFAULT 'text'"))
+        if "data" not in m_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_messages ADD COLUMN data TEXT"))
+
+
 def ensure_compatibility_rule_category():
     """兼容规则加「业务分类」列（幂等 DDL，boot 时自愈）：
     rules.compatibility_rules 加 category TEXT + 索引。用户可自定义的开放标签，引擎不感知。
@@ -326,6 +351,13 @@ def init_rules_db():
         print("✅ Base config linkage columns ensured (model_id/config_content)")
     except Exception as e:
         print(f"⚠️ Base config linkage migrate failed: {e}")
+
+    # 方案助手需求分析通道：assistant_threads.reasoning_state + assistant_messages.kind/data
+    try:
+        ensure_assistant_reasoning_columns()
+        print("✅ Assistant reasoning columns ensured (reasoning_state/kind/data)")
+    except Exception as e:
+        print(f"⚠️ Assistant reasoning columns migrate failed: {e}")
 
     # Clean up old temporary files on startup
     try:

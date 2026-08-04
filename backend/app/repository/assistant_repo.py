@@ -93,6 +93,37 @@ class AssistantRepository:
         self.session.refresh(t)
         return t.to_dict()
 
+
+    # ── reasoning state（方案助手通道的需求分析会话状态，JSON 存 reasoning_state 列）──
+
+    def get_reasoning_state(self, thread_id: str) -> Optional[str]:
+        """读会话的需求分析状态（原始 JSON 文本；无则 None）。"""
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        return t.reasoning_state if t else None
+
+    def update_reasoning_state(self, thread_id: str, patch: dict) -> None:
+        """合并写会话需求分析状态（read-modify-write，幂等）。"""
+        import json
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        if not t:
+            return
+        current = {}
+        if t.reasoning_state:
+            try:
+                parsed = json.loads(t.reasoning_state)
+                if isinstance(parsed, dict):
+                    current = parsed
+            except Exception:
+                current = {}
+        current.update(patch or {})
+        t.reasoning_state = json.dumps(current, ensure_ascii=False)
+        t.updated_at = now_iso()
+        self.session.commit()
+
     # ── messages ──
 
     def list_messages(self, thread_id: str, limit: int = 200) -> List[dict]:
@@ -114,12 +145,16 @@ class AssistantRepository:
         content: str,
         opportunity_id: Optional[str] = None,
         quotation_id: Optional[str] = None,
+        kind: str = "text",
+        data: Optional[str] = None,
     ) -> dict:
         m = AssistantMessage(
             message_id=uuid.uuid4().hex,
             thread_id=thread_id,
             role=role,
             content=content,
+            kind=kind,
+            data=data,
             opportunity_id=opportunity_id,
             quotation_id=quotation_id,
             created_at=now_iso(),

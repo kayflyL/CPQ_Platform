@@ -1397,6 +1397,35 @@ def _read_opportunity_extra(opportunity_id: str) -> dict:
         return {}
 
 
+def _extra_for(session_id: str, store=None) -> dict:
+    """会话状态读后端：给了 store 走 store（thread/商机），否则读商机 extra_fields。"""
+    if store is not None:
+        try:
+            return store.get_extra()
+        except Exception:
+            return {}
+    return _read_opportunity_extra(session_id)
+
+
+def _update_meta(session_id: str, patch: dict, store=None) -> None:
+    """会话状态写后端：给了 store 走 store，否则写商机 extra_fields。"""
+    if store is not None:
+        try:
+            store.update_meta(patch)
+            return
+        except Exception as e:
+            logger.warning("写会话状态失败 session=%s err=%s", session_id, e)
+            return
+    try:
+        from app.repository.opportunity_repo import OpportunityRepository
+        repo = OpportunityRepository()
+        try:
+            repo.update_meta(session_id, patch)
+        finally:
+            repo.close()
+    except Exception as e:
+        logger.warning("写商机 extra_fields 失败 opp=%s err=%s", session_id, e)
+
 def _read_opportunity_ctx(opportunity_id: str) -> dict:
     """读商机完整上下文（含 industry 等列 + extra_fields），给场景分析用。失败返回 {}。"""
     try:
@@ -1412,92 +1441,52 @@ def _read_opportunity_ctx(opportunity_id: str) -> dict:
         return {}
 
 
-def _read_opportunity_budget(opportunity_id: str) -> Optional[float]:
-    extra = _read_opportunity_extra(opportunity_id)
+def _read_opportunity_budget(session_id: str, store=None) -> Optional[float]:
+    extra = _extra_for(session_id, store)
     b = extra.get("budget")
     try:
         return float(b) if b is not None else None
     except (TypeError, ValueError):
         return None
 
-
-def _read_clarify_round(opportunity_id: str) -> int:
-    extra = _read_opportunity_extra(opportunity_id)
+def _read_clarify_round(session_id: str, store=None) -> int:
+    extra = _extra_for(session_id, store)
     try:
         return int(extra.get("requirement_clarity_round", 0))
     except (TypeError, ValueError):
         return 0
 
+def _write_clarify_round(session_id: str, round_num: int, store=None) -> None:
+    _update_meta(session_id, {"requirement_clarity_round": round_num}, store)
 
-def _write_clarify_round(opportunity_id: str, round_num: int) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {"requirement_clarity_round": round_num})
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 clarify_round 失败 opp=%s err=%s", opportunity_id, e)
-
-
-def _read_clarify_supplements(opportunity_id: str) -> tuple:
+def _read_clarify_supplements(session_id: str, store=None) -> tuple:
     """返回 (base原文, 累积补充串)。跨轮持久化历次反答回填，避免每轮只拼最新一句丢失已答字段。"""
-    extra = _read_opportunity_extra(opportunity_id)
+    extra = _extra_for(session_id, store)
     return extra.get("requirement_clarity_base") or "", extra.get("requirement_clarity_supplements") or ""
 
-def _read_clarify_defaults(opportunity_id: str) -> list:
+def _read_clarify_defaults(session_id: str, store=None) -> list:
     """读"已答默认"字段集合（答"还没定/你推荐"跳过的字段，跨轮不再追问）。"""
-    extra = _read_opportunity_extra(opportunity_id)
+    extra = _extra_for(session_id, store)
     v = extra.get("requirement_clarity_defaults")
     return list(v) if isinstance(v, list) else []
 
+def _write_clarify_defaults(session_id: str, defaults: list, store=None) -> None:
+    _update_meta(session_id, {"requirement_clarity_defaults": list(defaults)}, store)
 
-def _write_clarify_defaults(opportunity_id: str, defaults: list) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {"requirement_clarity_defaults": list(defaults)})
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 clarify_defaults 失败 opp=%s err=%s", opportunity_id, e)
-
-
-def _read_last_asked(opportunity_id: str) -> list:
+def _read_last_asked(session_id: str, store=None) -> list:
     """读"最近一轮反问问过的字段"（配合"还没定"→ 把该字段标为默认）。"""
-    extra = _read_opportunity_extra(opportunity_id)
+    extra = _extra_for(session_id, store)
     v = extra.get("requirement_clarity_last_asked")
     return list(v) if isinstance(v, list) else []
 
+def _write_last_asked(session_id: str, fields: list, store=None) -> None:
+    _update_meta(session_id, {"requirement_clarity_last_asked": list(fields)}, store)
 
-def _write_last_asked(opportunity_id: str, fields: list) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {"requirement_clarity_last_asked": list(fields)})
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 last_asked 失败 opp=%s err=%s", opportunity_id, e)
-
-
-def _write_clarify_supplements(opportunity_id: str, base: str, supplements: str) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {
-                "requirement_clarity_base": base,
-                "requirement_clarity_supplements": supplements,
-            })
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 clarify_supplements 失败 opp=%s err=%s", opportunity_id, e)
-
+def _write_clarify_supplements(session_id: str, base: str, supplements: str, store=None) -> None:
+    _update_meta(session_id, {
+        "requirement_clarity_base": base,
+        "requirement_clarity_supplements": supplements,
+    }, store)
 
 def _merge_clarify_defaults(defaults: list, last_asked: list, supplement: dict,
                              is_new_conversation: bool) -> list:
@@ -1565,9 +1554,10 @@ def _write_llm_feedback_sample(opportunity_id: str, requirement_text: str, appli
 
 
 # ── 目录驱动引导会话状态（需求不明确时的反问状态机，见 catalog_guide）────────
-def _read_catalog_state(opportunity_id: str) -> dict:
+
+def _read_catalog_state(session_id: str, store=None) -> dict:
     """读目录引导会话状态（stage/type_name/model_id/offered）。无则返回空 state。"""
-    extra = _read_opportunity_extra(opportunity_id)
+    extra = _extra_for(session_id, store)
     offered = extra.get("requirement_catalog_offered")
     try:
         offered = json.loads(offered) if isinstance(offered, str) else (offered or {})
@@ -1580,80 +1570,44 @@ def _read_catalog_state(opportunity_id: str) -> dict:
         "offered": offered if isinstance(offered, dict) else {},
     }
 
+def _write_catalog_state(session_id: str, state: dict, store=None) -> None:
+    _update_meta(session_id, {
+        "requirement_catalog_stage": state.get("stage") or "",
+        "requirement_catalog_type_name": state.get("type_name"),
+        "requirement_catalog_model_id": state.get("model_id"),
+        "requirement_catalog_offered": json.dumps(state.get("offered") or {}, ensure_ascii=False),
+    }, store)
 
-def _write_catalog_state(opportunity_id: str, state: dict) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {
-                "requirement_catalog_stage": state.get("stage") or "",
-                "requirement_catalog_type_name": state.get("type_name"),
-                "requirement_catalog_model_id": state.get("model_id"),
-                "requirement_catalog_offered": json.dumps(state.get("offered") or {}, ensure_ascii=False),
-            })
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 catalog_state 失败 opp=%s err=%s", opportunity_id, e)
-
-
-def _reset_catalog_state(opportunity_id: str) -> dict:
+def _reset_catalog_state(session_id: str, store=None) -> dict:
     state = {"stage": "", "type_name": None, "model_id": None, "offered": {}}
-    _write_catalog_state(opportunity_id, state)
+    _write_catalog_state(session_id, state, store)
     return state
 
-
-def _advance_catalog_state(opportunity_id: str, state: dict, reply: str, ask_cfg: dict,
-                           flow_configs: dict) -> dict:
+def _advance_catalog_state(session_id: str, state: dict, reply: str, ask_cfg: dict,
+                           flow_configs: dict, store=None) -> dict:
     """消费客户回复推进目录引导阶段（DB 目录数据版）。返回新 state；无变化时原样返回。"""
     from app.services.catalog_guide import advance_with_catalog
     new_state = advance_with_catalog(state, reply, ask_cfg)
     if new_state != state:
-        _write_catalog_state(opportunity_id, new_state)
+        _write_catalog_state(session_id, new_state, store)
         return new_state
     return state
 
-
-def _persist_catalog_offer(opportunity_id: str, stage: str, offered: dict) -> None:
+def _persist_catalog_offer(session_id: str, stage: str, offered: dict, store=None) -> None:
     """ask_user 发问后记录本轮推给客户的选项 + 当前 stage（供下轮选项匹配）。"""
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {
-                "requirement_catalog_stage": stage,
-                "requirement_catalog_offered": json.dumps(offered or {}, ensure_ascii=False),
-            })
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 catalog_offer 失败 opp=%s err=%s", opportunity_id, e)
+    _update_meta(session_id, {
+        "requirement_catalog_stage": stage,
+        "requirement_catalog_offered": json.dumps(offered or {}, ensure_ascii=False),
+    }, store)
 
-
-# ── 系列确认（confirm_series 节点，2026-08-04 流程重构 R29）────────────────
-# 场景分析推断出系列后，问用户"是否 XX 系列？"；答复（是/不是/系列名）解析后
-# 存 extra_fields.requirement_confirmed_series（跨轮），下轮注入 ctx.confirmed_series。
-# 特殊值 "__ask__" = 用户否认推断系列 → confirm_series 改列在售系列让用户选。
-
-
-def _persist_series_offer(opportunity_id: str, offered: dict) -> None:
+def _persist_series_offer(session_id: str, offered: dict, store=None) -> None:
     """confirm_series 发问后记录本轮推的系列（下轮答"是"时取用）。"""
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {
-                "requirement_series_offer": json.dumps(offered or {}, ensure_ascii=False),
-            })
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 series_offer 失败 opp=%s err=%s", opportunity_id, e)
+    _update_meta(session_id, {
+        "requirement_series_offer": json.dumps(offered or {}, ensure_ascii=False),
+    }, store)
 
-
-def _read_series_offer(opportunity_id: str) -> dict:
-    extra = _read_opportunity_extra(opportunity_id)
+def _read_series_offer(session_id: str, store=None) -> dict:
+    extra = _extra_for(session_id, store)
     if isinstance(extra, dict):
         raw = extra.get("requirement_series_offer")
         try:
@@ -1662,23 +1616,12 @@ def _read_series_offer(opportunity_id: str) -> dict:
             return {}
     return {}
 
+def _write_confirmed_series(session_id: str, value: str, store=None) -> None:
+    _update_meta(session_id, {"requirement_confirmed_series": value}, store)
 
-def _write_confirmed_series(opportunity_id: str, value: str) -> None:
-    try:
-        from app.repository.opportunity_repo import OpportunityRepository
-        repo = OpportunityRepository()
-        try:
-            repo.update_meta(opportunity_id, {"requirement_confirmed_series": value})
-        finally:
-            repo.close()
-    except Exception as e:
-        logger.warning("写 confirmed_series 失败 opp=%s err=%s", opportunity_id, e)
-
-
-def _read_confirmed_series(opportunity_id: str) -> str:
-    extra = _read_opportunity_extra(opportunity_id)
+def _read_confirmed_series(session_id: str, store=None) -> str:
+    extra = _extra_for(session_id, store)
     return str(extra.get("requirement_confirmed_series") or "") if isinstance(extra, dict) else ""
-
 
 def _parse_series_confirm(reply: str, offer: dict) -> Optional[str]:
     """系列确认答复解析：是→offer.series；不是/换→'__ask__'；具体系列名→该名；无关→None。
@@ -1710,54 +1653,65 @@ def _parse_series_confirm(reply: str, offer: dict) -> Optional[str]:
 
 
 async def run_pipeline(opportunity_id: str, requirement_text: str,
-                       supplement: dict = None, force_complete: bool = False) -> None:
+                       supplement: dict = None, force_complete: bool = False,
+                       session=None, hub=None, collector=None) -> None:
     """跑推理 pipeline。有 active flow → 图驱动 executor；异常或无 flow → 线性 5 步 fallback。
 
     supplement: 反答回填 {"text":..., "budget":...}；force_complete: 用户点跳过，强制走选型。
-    三层兜底：DB 异常 → linear fallback；graph executor 异常 → linear fallback。"""
+    三层兜底：DB 异常 → linear fallback；graph executor 异常 → linear fallback。
+
+    session/hub（方案助手通道复用，2026-08-05）：默认 None → 绑商机(extra_fields) + reasoning_hub；
+    方案助手/企微传 ReasoningSession(thread_id,'thread') + assistant_hub，会话状态与会话一起存，
+    与商机通道物理隔离（互不串状态）。
+    collector：可选事件收集器（每个广播 payload 回调一次），供调用方在 pipeline 结束后
+    拿 candidates_ready 的方案清单落库（方案助手结果消息重放）。
+    """
+    from app.services.reasoning_session import ReasoningSession
+    session = session or ReasoningSession(opportunity_id, "opportunity")
+    hub = hub or reasoning_hub
     # 累积拼接完整需求文本（原文 + 历次反问补充）——跨轮持久化，避免每轮只拼最新一句、丢失已答字段。
     # 旧实现 full_text=原文+最新补充 → 第三轮答"Orion"时丢了第二轮"AI训练/推理" → 用途又变缺失 → 重复问用途。
     original = (requirement_text or "").strip()
-    stored_base, acc_supplements = _read_clarify_supplements(opportunity_id)
+    stored_base, acc_supplements = _read_clarify_supplements(opportunity_id, session)
     # M1 1.1：会话语义抽成纯函数 —— 无 supplement 且非 force_complete = 全新对话，无条件清空旧补充。
     full_text, acc_supplements = _merge_clarify_text(
         original, stored_base, acc_supplements, supplement, force_complete,
     )
     if original:
-        _write_clarify_supplements(opportunity_id, original, acc_supplements)  # 持久化供下轮累积
+        _write_clarify_supplements(opportunity_id, original, acc_supplements, session)  # 持久化供下轮累积
 
     # M1 1.3b：已答默认字段（答"还没定/你推荐"跳过的）跨轮记忆，避免重复追问。
     is_new_conversation = not supplement and not force_complete
-    defaults = _read_clarify_defaults(opportunity_id)
-    last_asked = _read_last_asked(opportunity_id)
+    defaults = _read_clarify_defaults(opportunity_id, session)
+    last_asked = _read_last_asked(opportunity_id, session)
     new_defaults = _merge_clarify_defaults(defaults, last_asked, supplement, is_new_conversation)
     if new_defaults != defaults:
-        _write_clarify_defaults(opportunity_id, new_defaults)
+        _write_clarify_defaults(opportunity_id, new_defaults, session)
         defaults = new_defaults
     if is_new_conversation or (supplement and last_asked):
         # 全新对话清空 last_asked；补充后本轮 asked 已被消费（下轮 _broadcast 会重写）
-        _write_last_asked(opportunity_id, [])
+        _write_last_asked(opportunity_id, [], session)
 
-    # 预算优先级：反问明确给 > 商机 extra_fields > 无
+    # 预算优先级：反问明确给 > 商机/会话 extra > 无
     if supplement and supplement.get("budget") is not None:
         budget = supplement["budget"]
     else:
-        budget = _read_opportunity_budget(opportunity_id)
+        budget = _read_opportunity_budget(opportunity_id, session)
 
-    # 反问轮次（死循环防护，存 extra_fields 跨重启/多用户）。
+    # 反问轮次（死循环防护，存会话状态跨重启/多用户）。
     # ⚠️ 语义：每次点「生成报价」（无 supplement）= 全新对话，必须重置 round=0；
     # 只有反答回填（supplement）才 +1。否则 round 跨会话单调累积，用户多测几次就
     # 永久卡在 MAX 阈值 → clarity_check 强制出方案 → 反问机制整体失效（[0.1.43] 修）。
-    round_num = _read_clarify_round(opportunity_id)
+    round_num = _read_clarify_round(opportunity_id, session)
     # P2：纯 confirm 决策（无文本/预算）不算反问轮次，避免占用死循环防护预算
     _has_clarify = bool(supplement and (supplement.get("text") or supplement.get("budget") is not None))
     if _has_clarify:
         round_num = min(round_num + 1, MAX_CLARIFY_ROUNDS + 1)
-        _write_clarify_round(opportunity_id, round_num)
+        _write_clarify_round(opportunity_id, round_num, session)
     else:
         # 重新生成 = 新对话，重置死循环计数器（否则跨会话累积卡死反问）
         round_num = 0
-        _write_clarify_round(opportunity_id, 0)
+        _write_clarify_round(opportunity_id, 0, session)
 
     pipeline_id = f"pl_{uuid.uuid4().hex[:12]}"
     initial_ctx = {
@@ -1766,7 +1720,7 @@ async def run_pipeline(opportunity_id: str, requirement_text: str,
         "pipeline_id": pipeline_id,
         "force_complete": force_complete,
         "clarify_defaults": defaults,  # M1 1.3b：已答默认字段，clarity_check 剔除不再追问
-        "confirmed_series": _read_confirmed_series(opportunity_id),  # R29：系列确认（confirm_series）
+        "confirmed_series": _read_confirmed_series(opportunity_id, session),  # R29：系列确认（confirm_series）
     }
     # P2：LLM 确认面板决策（confirm 节点消费）：{item_id: "accept"|"ignore"}
     if supplement and supplement.get("confirm"):
@@ -1779,8 +1733,13 @@ async def run_pipeline(opportunity_id: str, requirement_text: str,
         payload.setdefault("round", round_num)
         # M1 1.3b：need_input 广播时记录本轮问的字段，供下轮"还没定"标默认跳过
         if payload.get("type") == "need_input":
-            _write_last_asked(opportunity_id, list(payload.get("asked_fields") or []))
-        await reasoning_hub.broadcast(opportunity_id, payload)
+            _write_last_asked(opportunity_id, list(payload.get("asked_fields") or []), session)
+        await hub.broadcast(opportunity_id, payload)
+        if collector:
+            try:
+                collector(payload)
+            except Exception:
+                pass
 
     flow = None
     try:
@@ -1797,22 +1756,22 @@ async def run_pipeline(opportunity_id: str, requirement_text: str,
     # 阶段推进放在图执行前：stage 变 done → clarity_check 直接视为 explicit → 本轮就出方案，
     # 而不是像旧版那样「反问永远停在 ask_user，下轮才能继续」。
     flow_configs = (flow or {}).get("node_configs") or {}
-    catalog = _read_catalog_state(opportunity_id)
+    catalog = _read_catalog_state(opportunity_id, session)
     # 只有客户实际回复了文本才推进目录引导（纯 budget 补充不算回答，避免误跳到下一问）
     if supplement and (supplement.get("text") or "").strip():
         # 系列确认答复（confirm_series 节点）：是→确认推断系列 / 不是→标记补全 / 系列名→直选。
         _series_reply = (supplement.get("text") or "").strip()
-        _series_offer = _read_series_offer(opportunity_id)
+        _series_offer = _read_series_offer(opportunity_id, session)
         _series_confirmed = _parse_series_confirm(_series_reply, _series_offer)
         if _series_confirmed is not None:
-            _write_confirmed_series(opportunity_id, _series_confirmed)
+            _write_confirmed_series(opportunity_id, _series_confirmed, session)
         from app.services.catalog_guide import load_ask_config
         ask_cfg = load_ask_config(flow_configs)
         catalog = _advance_catalog_state(
-            opportunity_id, catalog, supplement.get("text") or "", ask_cfg, flow_configs,
+            opportunity_id, catalog, supplement.get("text") or "", ask_cfg, flow_configs, session,
         )
     elif is_new_conversation and catalog.get("stage"):
-        catalog = _reset_catalog_state(opportunity_id)
+        catalog = _reset_catalog_state(opportunity_id, session)
     from app.services.catalog_guide import load_ask_config as _ask_cfg
     initial_ctx.update({
         "catalog_stage": catalog.get("stage") or "",
@@ -1849,11 +1808,12 @@ async def run_pipeline(opportunity_id: str, requirement_text: str,
         except Exception as e:
             logger.exception("graph executor 失败，回退 linear fallback: %s", e)
 
-    await _run_linear_fallback(opportunity_id, full_text, _broadcast, flow, budget=budget, force_complete=force_complete)
-
+    await _run_linear_fallback(opportunity_id, full_text, _broadcast, flow, budget=budget,
+                               force_complete=force_complete, session=session)
 
 async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broadcast, flow,
-                              budget: Optional[float] = None, force_complete: bool = False) -> None:
+                              budget: Optional[float] = None, force_complete: bool = False,
+                              session=None) -> None:
     """线性 5 步 fallback（原 run_pipeline 体）。flow.node_configs 透传参数；三层兜底。"""
     cfg: dict = {}
     if flow:
@@ -1903,7 +1863,7 @@ async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broa
         # 2. 机型选型（目录引导选的类型优先 > 场景分析 > extract 信号；只推命中的不硬塞）
         await _broadcast({"type": "step_start", "step": "select_baseline"})
         _sb_cfg = cfg.get("select_baseline") or {}
-        _catalog = _read_catalog_state(opportunity_id)
+        _catalog = _read_catalog_state(opportunity_id, session)
         # 场景分析（与图 executor 的 scene_analysis 节点同源，保证线性 fallback 行为一致）
         try:
             from app.services.scene_analyzer import analyze_scene
@@ -2041,3 +2001,28 @@ async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broa
     except Exception as e:
         logger.exception("requirement pipeline failed for %s", opportunity_id)
         await _broadcast({"type": "error", "message": f"推理流程异常: {e}"})
+
+# ── 方案助手通道（2026-08-05）：同一套 pipeline，状态存 assistant 会话、步骤广播到助手 WS ──
+
+async def run_assistant_pipeline(thread_id: str, requirement_text: str,
+                                 supplement: dict = None, force_complete: bool = False) -> list:
+    """方案助手/未来企微通道的需求分析入口。
+
+    与商机通道共用 run_pipeline 全部逻辑（图驱动 executor + clarify 反问 + 目录引导 +
+    LLM 增强/确认 + 线性兜底），差异只在：
+      - 会话状态存 opportunities.assistant_threads.reasoning_state（thread 会话，重启不丢）；
+      - 步骤/方案事件广播到 assistant_hub 的 thread 房间（前端方案助手 WS 直接消费）。
+    返回本次 pipeline 的全部广播事件（供调用方拿 candidates_ready 方案落库重放）。
+    这样「方案助手」= 通道无关的 Agent API，企微接入时只需新增一个消息适配层调用同一入口。
+    """
+    from app.services.reasoning_session import ReasoningSession
+    from app.services.assistant_hub import assistant_hub
+    events: list = []
+    await run_pipeline(
+        thread_id, requirement_text,
+        supplement=supplement, force_complete=force_complete,
+        session=ReasoningSession(thread_id, "thread"),
+        hub=assistant_hub,
+        collector=events.append,
+    )
+    return events
