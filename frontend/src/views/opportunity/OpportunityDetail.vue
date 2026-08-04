@@ -965,9 +965,13 @@ async function confirmPlan(plan: Plan) {
     const liveCfg = await buildPlanCfg(plan)
     const picks: Record<string, any> = {
       base_config_id: plan.config_id,
+      // 服务器型号 id：机箱卡按它匹配目录机型（形态/用途/型号都从机型对象读），缺失会导致卡上字段全空
+      server_model_id: plan.server_model_id ?? null,
       bom_source: liveCfg.bom_source,
       l6_custom_price: plan.summary.l6_cost ?? 0,
       l6_profit_margin: 10,
+      // IO 选配随 picks 持久化：推理 BOM 的 IO 行是模板描述，真正数量靠这里回填机箱配置器（修复 IO=0）
+      picks: liveCfg.rear ? { rear: liveCfg.rear } : undefined,
     }
     if (liveCfg.bom_source === 'live') {
       picks.bom_template = liveCfg.bom_template

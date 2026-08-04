@@ -688,7 +688,7 @@ const syncLoading = ref(false)
 
 // 机型目录 + 机箱概要卡 series/baseConfigName 缓存
 const serverModels = ref<ServerModel[]>([])
-const baseInfoCache = ref<Record<number, { series: string; name: string }>>({})
+const baseInfoCache = ref<Record<number, { series: string; name: string; model_id?: number | null }>>({})
 const chassisModalOpen = ref(false)
 
 async function loadServerModels() {
@@ -704,8 +704,29 @@ async function loadBaseInfo(baseConfigId?: number | null) {
   if (baseInfoCache.value[baseConfigId]) return
   try {
     const bc = await baseConfigApi.get(baseConfigId)
-    baseInfoCache.value[baseConfigId] = { series: (bc as any).series || '', name: (bc as any).name || '' }
+    baseInfoCache.value[baseConfigId] = {
+      series: (bc as any).series || '',
+      name: (bc as any).name || '',
+      // model_id：base_config 关联的服务器型号（server_models.id），存量兼容回填用
+      model_id: (bc as any).model_id ?? null,
+    }
   } catch { /* 基准配置缺失时机箱卡显示 — */ }
+}
+
+// 存量兼容：推理流转出的老报价单可能缺 server_model_id（server_model 存的是基准配置名），
+// 导致机箱卡的形态/用途取不到。回填顺序：① server_model 名精确匹配目录机型；② 基准配置.model_id 反查机型。
+function backfillServerModelId(cfg: any) {
+  if (cfg.server_model_id) return
+  const name = String(cfg.server_model || '').trim()
+  if (name) {
+    const byName = serverModels.value.find(m => m.name === name)
+    if (byName) { cfg.server_model_id = byName.id; return }
+  }
+  const info = cfg.base_config_id ? baseInfoCache.value[cfg.base_config_id] : null
+  if (info?.model_id) {
+    const byBc = serverModels.value.find(m => m.id === info.model_id)
+    if (byBc) cfg.server_model_id = byBc.id
+  }
 }
 
 // 当前激活配置（机箱卡 + 弹窗引用；v-for 内只有 active config 渲染，故单一 modal 即可）
@@ -1905,7 +1926,11 @@ onMounted(async () => {
   store.recalculateAll()
   // 加载所有 config 的机箱卡 series/baseConfigName（按 base_config_id 批量；命中缓存，重复 id 只取一次）
   for (const cfg of Object.values(store.configs)) {
-    if (cfg.base_config_id) loadBaseInfo(cfg.base_config_id)
+    if (cfg.base_config_id) {
+      await loadBaseInfo(cfg.base_config_id)
+      // 存量兼容：老推理报价单 server_model_id 缺失时回填（修机箱卡形态/用途为空）
+      backfillServerModelId(cfg)
+    }
   }
   // 后台并行刷新所有 KP 行的配件库最新价（基于当前配件库，而非上传快照），刷新后同步按钮显隐自动更新
   refreshKpDbPrices()

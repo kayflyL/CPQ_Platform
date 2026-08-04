@@ -57,6 +57,48 @@ export function frontCableQtyFor(kind: string, counts: { sata: number; sas: numb
   return Math.ceil(n / (CABLE_PER[kind] || 1))
 }
 
+/** 把机型标准 riser 描述（如 '1*X8 FHFL' / '1*X16+1*X8 FHFL'）解析成 option_type 数组（['x8'] / ['x16','x8']）。
+ * 与 BOM 左栏 IO 行（struct_count scope=io_slot 渲染 standard_riser）同源，保证「推理 BOM 显示什么 → 机箱配置器就配什么」。 */
+export function optionTypesFromRiserDesc(desc: string | undefined): string[] {
+  if (!desc) return []
+  const out: string[] = []
+  const re = /(\d+)\s*\*\s*(X16|X8)/gi
+  let m: RegExpExecArray | null
+  while ((m = re.exec(desc)) !== null) {
+    const qty = Number(m[1])
+    const t = m[2].toLowerCase()
+    for (let i = 0; i < qty; i++) out.push(t)
+  }
+  return out
+}
+
+/** 取槽位对应的标准 riser 描述（config_content.standard_riser：{slot: desc} 键大小写不敏感，或字符串兜底） */
+function stdRiserForSlot(std: any, slot: string): string | undefined {
+  if (std && typeof std === 'object') {
+    if (std[slot]) return std[slot]
+    const k = Object.keys(std).find((x) => x.toLowerCase() === slot)
+    return (k && std[k]) || std.default
+  }
+  return std || undefined
+}
+
+/** 推理 BOM 的 IO 选配：优先按机型标准 riser（与 BOM 左栏 IO 行同源）；未配置的槽位兜底默认组合槽/OCP。 */
+export function rearForPlan(
+  slotDefs: { name: string; cap: number }[],
+  stdRiser: any,
+  options: Record<string, { option_type: string }[]>,
+): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const s of slotDefs || []) {
+    const types = optionTypesFromRiserDesc(stdRiserForSlot(stdRiser, s.name))
+    if (types.length) out[s.name] = types
+  }
+  for (const [slot, opts] of Object.entries(defaultRearFrom(slotDefs, options))) {
+    if (!out[slot]) out[slot] = opts
+  }
+  return out
+}
+
 /** 后面板默认选配：组合槽(IO1/IO2)按 1×X16+1×X8、OCP 按 X8（料号库有则取）；其余槽默认挡片。 */
 export function defaultRearFrom(
   slotDefs: { name: string; cap: number }[],
@@ -141,6 +183,8 @@ export interface PlanLiveCfg {
   bom_template?: { rows: any[] } | null
   bom_context?: Record<string, { desc: string; qty: number | string }>
   bom_excel_rows?: any[]
+  /** 后面板 IO 选配（rear[slot] = option_type 数组），转报价单时随 picks 持久化，机箱配置器据此回填数量 */
+  rear?: Record<string, string[]>
   items: any[]
 }
 
@@ -173,7 +217,9 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
     const gpuQty = sumQty(items, GPU_RE)
     // 后面板默认选配：槽位布局取 base_config.rear_slots（能力档案），缺失兜底按 form/series 标准布局
     const slotDefs = (base as any)?.rear_slots?.length ? (base as any).rear_slots : rearSlotsFor(plan.form, plan.series)
-    const rear = defaultRearFrom(slotDefs, (rearRes as any)?.slots || {})
+    // IO 选配优先按机型标准 riser（standard_riser，与 BOM 左栏 IO 行同源），无数据兜底默认组合槽/OCP
+    const stdRiser = (base as any)?.config_content?.standard_riser
+    const rear = rearForPlan(slotDefs, stdRiser, (rearRes as any)?.slots || {})
     const ctx: BomEvalContext = {
       vars: deriveVars(parts, items, plan, base, counts),
       parts,
@@ -185,7 +231,7 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
       },
     }
     const bom_context = evalBomContext(rows, ctx)
-    return { bom_source: 'live', bom_template: { rows }, bom_context, items }
+    return { bom_source: 'live', bom_template: { rows }, bom_context, rear, items }
   } catch {
     return { bom_source: 'excel', bom_excel_rows: plan.cfg.bom_excel_rows, items }
   }
