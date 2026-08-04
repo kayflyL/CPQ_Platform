@@ -212,7 +212,8 @@
     <a-modal
       v-model:open="bomModalOpen"
       :title="bomModalPlan?.name || '整机 BOM 详情'"
-      width="760"
+      width="620px"
+      :z-index="1600"
       :footer="null"
       class="ap-bom-modal"
     >
@@ -960,6 +961,11 @@ function onDeleteThread(id: string) {
   border-bottom: 1px solid var(--cpq-overlay-w8);
   margin-bottom: 12px;
 }
+/* 弹窗要在方案助手面板(z-index:1500)之上；内容超高时弹窗内部滚动，不撑破视口 */
+.ap-bom-modal :deep(.ant-modal-body) {
+  max-height: 70vh;
+  overflow-y: auto;
+}
 .ap-analyze-bar {
   padding: 6px 12px;
   border-top: 1px solid var(--cpq-overlay-w8);
@@ -995,5 +1001,13 @@ function onDeleteThread(id: string) {
 .assistant-panel-leave-to {
   opacity: 0;
   transform: translateY(20px) scale(0.96);
+}
+</style>
+
+<style>
+/* BOM 弹窗是 Teleport 到 body 的 a-modal 内部 DOM，scoped 样式覆盖不到，用全局类收口 */
+.ap-bom-modal .ant-modal-body {
+  max-height: 70vh;
+  overflow-y: auto;
 }
 </style>
