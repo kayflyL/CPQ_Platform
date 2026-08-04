@@ -1,8 +1,7 @@
 """Requirement rule models — 需求分析规则库（schema=rules）。
 
-照 strategy.py 模式，聚焦需求分析三类规则：
+规则类型（旧 rebuttal/workload 臆造选项反问已随目录驱动引导删除）：
 - clarity：需求明确度判定（命中条件 → explicit / partial / unclear）
-- rebuttal：反问话术（缺某字段时引导用户补齐）
 - budget：预算区间 → 配件选配策略映射（min_price/max_price）
 
 hit_count 内联（高频读展示），不走日志表（后加）。
@@ -20,7 +19,7 @@ class RequirementRule(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     domain: Mapped[str] = mapped_column(String(20), nullable=False, default="requirement", index=True)
-    type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # clarity/rebuttal/budget
+    type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # clarity/budget
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     scope: Mapped[Optional[str]] = mapped_column(Text, default=None)        # JSON 生效条件
     body: Mapped[str] = mapped_column(Text, nullable=False)                 # JSON 规则体

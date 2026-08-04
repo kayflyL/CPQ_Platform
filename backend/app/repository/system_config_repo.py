@@ -96,6 +96,7 @@ class SystemConfigRepository:
 
     def init_defaults(self):
         """Initialize default configs if not exist"""
+        from app.services.scene_analyzer import DEFAULT_SCENE_MAPPING
         defaults = [
             {"key": "tax_rate", "value": "0.13", "type": "number", "description": "税率"},
             {"key": "usd_to_rmb", "value": "7.0", "type": "number", "description": "美元兑人民币汇率"},
@@ -106,6 +107,32 @@ class SystemConfigRepository:
             {"key": "warranty_desc_l6", "value": "质保3年，非人为及不可抗力引起的故障，软件FW问题支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "L6 默认质保条款"},
             {"key": "warranty_desc_kp", "value": "质保1年，非人为及不可抗力引起的故障，支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "KP 默认质保条款"},
             {"key": "server_series", "value": json.dumps([{"value": "Orion", "label": "Orion"}, {"value": "Polaris", "label": "Polaris"}, {"value": "Intel", "label": "Intel"}, {"value": "工作站", "label": "工作站"}], ensure_ascii=False), "type": "json", "description": "服务器系列选项（全平台唯一权威源：基准配置/机型/料件适用机型/商机平台类型）"},
+            # 需求分析：电源瓦数推断（技术员按 GPU 功耗选电源的自动化规则，可调，拒绝硬编码）
+            {"key": "psu_inference", "value": json.dumps({
+                "high_tdp_gpus": ["H100", "A100", "H200", "B200", "B100", "L40", "MI300",
+                                  "RTX PRO", "RTX 6000", "RTX 5090"],
+                "tiers": [
+                    {"min_gpu": 8, "high_tdp": True, "wattage": "2700"},
+                    {"min_gpu": 1, "high_tdp": False, "wattage": "2000"},
+                ],
+                "no_gpu_wattage": "1600",
+            }, ensure_ascii=False), "type": "json", "description": "电源瓦数推断配置（high_tdp_gpus 高功耗 GPU 关键词；tiers 档位：满足 min_gpu+high_tdp 用 wattage；无 GPU 用 no_gpu_wattage）"},
+            # 需求分析：目录引导的客户话术识别词（默认回答/委托/规格提示正则），可编辑
+            # 需求分析：CPU/GPU 型号家族词（clarity「型号双命中→明确」判定的词法分类词表，可编辑；
+            # 由 startup 的 model_family_sync 从 kp 库自动补齐新型号，只加不删）
+            {"key": "model_family_words", "value": json.dumps({
+                "CPU": ["epyc", "xeon", "至强", "kh-", "kh50"],
+                "GPU": ["h100", "a100", "h200", "h800", "a800", "b200", "b100", "l40", "l20",
+                        "mi300", "mi250", "mi100", "rtx", "r9700", "w7900", "w7800", "w6600",
+                        "tesla", "quadro", "radeon", "instinct", "v100", "a30", "a10"],
+            }, ensure_ascii=False), "type": "json", "description": "CPU/GPU 型号家族词表（型号 token 词法归类用；startup 自动从 kp 库补齐新型号）"},
+            {"key": "requirement_guide_words", "value": json.dumps({
+                "default": ["不确定", "你推荐", "还没定", "越大越好", "都可以", "不限", "随便", "您推荐", "帮我选"],
+                "delegate": ["你帮我推荐", "帮我推荐", "你来推荐", "你推荐", "你定", "你来定", "你看着办",
+                             "听你的", "随便", "都行", "都可以", "怎么都行", "帮我选", "你帮选", "帮我来一台"],
+                "spec_hint_re": ["cpu", "内存", "gpu", "硬盘", "ssd", "hdd", "nvme", "raid", "网卡",
+                                 "万兆", "千兆", "机架", "塔式", "[1-8]\\s*u\\b", "核", "颗", "条", "张"],
+            }, ensure_ascii=False), "type": "json", "description": "需求分析引导话术识别：default=「不确定/你推荐」等放弃指定；delegate=委托推荐；spec_hint_re=贴了规格清单的提示（正则列表，小写）"},
             {"key": "server_form_factor", "value": json.dumps([{"value": "2U", "label": "2U"}, {"value": "4U", "label": "4U"}, {"value": "4.5U", "label": "4.5U"}, {"value": "5U", "label": "5U"}], ensure_ascii=False), "type": "json", "description": "服务器形态选项"},
             # AI 设置
             {"key": "ai_assistant_config", "value": json.dumps({
@@ -136,8 +163,30 @@ class SystemConfigRepository:
                     "要求:只使用提供的数据;占比与环比自行计算;未提供的信息(如具体成交价)不要编造。"
                 )
             }, ensure_ascii=False), "type": "json", "description": "AI 趋势分析设置（方案助手快捷指令的提示词模板与重点商机条数）"},
+            # 场景分析映射（scene_analysis 节点）：AI/存储/通用场景规则 + 系列/形态推断 + 商机上下文偏好。
+            # 权威数据源（策略中心可编辑）；种子取 scene_analyzer.DEFAULT_SCENE_MAPPING，改映射先改常量再重种。
+            {"key": "scene_mapping", "value": json.dumps(DEFAULT_SCENE_MAPPING, ensure_ascii=False),
+             "type": "json", "description": "场景分析映射：场景规则/系列形态推断/商机上下文偏好（scene_analysis 节点数据源）"},
+            # 需求期望槽位清单（clarity_check 明确度判定数据源）：L0 底线/L1 重要/L2 系统推导。
+            {"key": "requirement_slots", "value": json.dumps({
+                "version": 1,
+                "ask_threshold": 2,
+                "slots": [
+                    {"key": "scene", "label": "应用场景", "level": "L0"},
+                    {"key": "series", "label": "所属系列", "level": "L0"},
+                    {"key": "cpu", "label": "CPU", "level": "L0"},
+                    {"key": "memory", "label": "内存", "level": "L0"},
+                    {"key": "storage", "label": "存储", "level": "L0", "default_ok": True},
+                    {"key": "form", "label": "机箱形态", "level": "L1"},
+                    {"key": "gpu", "label": "GPU", "level": "L1"},
+                    {"key": "nic", "label": "网卡", "level": "L1"},
+                    {"key": "raid", "label": "阵列卡", "level": "L2"},
+                    {"key": "psu", "label": "电源", "level": "L2"},
+                ],
+            }, ensure_ascii=False), "type": "json", "description": "需求期望槽位清单（clarity 明确度：L0 底线缺≥2 反问 / L1 重要提示可补 / L2 系统推导）"},
             # LLM API 配置（支持前端可视化修改，优先级高于 .env）
             {"key": "llm_config", "value": json.dumps({
+                "enabled": True,  # 统一 AI 引擎开关（设置-AI 设置-启用 AI）；关闭后所有 AI 能力走规则/不调 LLM
                 "base_url": "",  # 留空则用 .env 的 LLM_BASE_URL
                 "api_key": "",   # 留空则用 .env 的 LLM_API_KEY
                 "model": "",     # 留空则用 .env 的 LLM_MODEL

@@ -26,6 +26,8 @@ export function useTestRun(opts: {
   const running = ref(false)
   const error = ref<string | null>(null)
   const awaitingInput = ref(false)
+  const pendingQuestion = ref('')
+  const pendingOptions = ref<string[]>([])
 
   let timers: ReturnType<typeof setTimeout>[] = []
 
@@ -42,6 +44,8 @@ export function useTestRun(opts: {
     kpByModel.value = {}
     error.value = null
     awaitingInput.value = false
+    pendingQuestion.value = ''
+    pendingOptions.value = []
     opts.applyNodeState?.(null, { execState: null })  // null id = 清所有节点高亮
   }
 
@@ -62,6 +66,9 @@ export function useTestRun(opts: {
     ext.value = res.ext || {}
     kpByModel.value = res.kp_by_model || {}
     awaitingInput.value = !!res.awaiting_input
+    const needInput = (res.events || []).filter((e) => e.type === 'need_input').pop() as any
+    pendingQuestion.value = needInput?.question || ''
+    pendingOptions.value = needInput?.options || []
     running.value = false
   }
 
@@ -91,13 +98,13 @@ export function useTestRun(opts: {
     timers.push(setTimeout(() => finish(res), t + 80))
   }
 
-  async function runTest(text: string, budget?: number) {
+  async function runTest(text: string, budget?: number, forceComplete?: boolean) {
     if (!text.trim() || running.value) return
     reset()
     running.value = true
     let res: TestRunResult
     try {
-      res = await reasoningFlowApi.testRun(text, budget)
+      res = await reasoningFlowApi.testRun(text, budget, forceComplete)
     } catch (e: any) {
       error.value = e.response?.data?.detail || e.message || '试运行请求失败'
       running.value = false
@@ -116,5 +123,5 @@ export function useTestRun(opts: {
 
   onBeforeUnmount(() => clearTimers())
 
-  return { steps, plans, ext, kpByModel, running, error, awaitingInput, runTest, reset }
+  return { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, runTest, reset }
 }

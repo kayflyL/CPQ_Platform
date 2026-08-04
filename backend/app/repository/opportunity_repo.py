@@ -1,7 +1,7 @@
 """Repository for Opportunity metadata (商机线索)."""
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import delete
+from sqlalchemy import delete, or_
 from sqlalchemy.orm import Session
 from app.models.opportunity import Opportunity
 from app.models.base import Opportunity_SessionLocal
@@ -31,11 +31,30 @@ class OpportunityRepository:
         if platform:
             plats = [s.strip() for s in platform.split(',') if s.strip()]
             if plats:
-                q = q.filter(Opportunity.platform_type.in_(plats))
+                # 「未分类」是图表层对空值的显示名（dashboard 结构分布把 platform_type 为空 → 未分类），
+                # 列表过滤需把它翻译回「空值/NULL」才能命中对应的未分类商机。
+                conds = []
+                if "未分类" in plats:
+                    conds.append(Opportunity.platform_type.is_(None))
+                    conds.append(Opportunity.platform_type == "")
+                named = [p for p in plats if p != "未分类"]
+                if named:
+                    conds.append(Opportunity.platform_type.in_(named))
+                if conds:
+                    q = q.filter(or_(*conds))
         if chassis:
             chas = [s.strip() for s in chassis.split(',') if s.strip()]
             if chas:
-                q = q.filter(Opportunity.chassis_form.in_(chas))
+                # 与平台同理：「未分类」对应 chassis_form 为空/NULL 的商机。
+                conds = []
+                if "未分类" in chas:
+                    conds.append(Opportunity.chassis_form.is_(None))
+                    conds.append(Opportunity.chassis_form == "")
+                named = [c for c in chas if c != "未分类"]
+                if named:
+                    conds.append(Opportunity.chassis_form.in_(named))
+                if conds:
+                    q = q.filter(or_(*conds))
         if result and result != "all":
             q = q.filter(Opportunity.result == result)
         if industry:

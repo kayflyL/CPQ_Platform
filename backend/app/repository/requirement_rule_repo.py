@@ -1,6 +1,7 @@
 """Repository for rules.requirement_rules + rules.requirement_samples.
 
-照 strategy_repo.py 模式。加 list_by_type / record_hit / sample CRUD / seed_default_if_empty。
+规则类型：clarity（明确度判定）/ budget（预算映射）。
+旧 rebuttal/workload（臆造选项反问）已随目录驱动引导上线删除（cleanup_obsolete_rules）。
 """
 import json
 from datetime import datetime
@@ -53,14 +54,6 @@ DEFAULT_RULES: list[dict] = [
         },
     },
     {
-        "type": "clarity", "name": "无用途 → 不明确",
-        "body": {
-            "signal": {"type": "no_usage"},
-            "level": "unclear", "missing_if_not": ["用途"], "weight": 35,
-            "explain": "未说明用途场景，无法定向选型",
-        },
-    },
-    {
         "type": "clarity", "name": "无预算 → 部分明确",
         "body": {
             "signal": {"type": "no_budget"},
@@ -68,56 +61,74 @@ DEFAULT_RULES: list[dict] = [
             "explain": "未提供预算，配件档次无法确定",
         },
     },
-    # ── rebuttal：反问话术 ──
     {
-        "type": "rebuttal", "name": "缺型号反问",
+        "type": "clarity", "name": "提到 CPU 却无 CPU 型号 → 部分明确",
         "body": {
-            "trigger_field": "具体型号", "priority": 90,
-            "question": "您提到 {series} {form}，方便告诉我具体型号吗？比如 {example}。",
-            "example_by_series": {
-                "Orion": "AMD EPYC 9554",
-                "Intel": "Intel Xeon Gold 6348",
-                "Polaris": "NVIDIA HGX H100",
-            },
-            "example_default": "具体型号或规格",
-            "options": [],
-            "fallback": "请补充您需要的服务器型号。",
+            "signal": {"type": "no_model_in_category", "category": "CPU"},
+            "level": "partial", "missing_if_not": ["CPU型号"], "weight": 45,
+            "explain": "提到了 CPU 品类但没给具体型号",
         },
     },
     {
-        "type": "rebuttal", "name": "缺预算反问",
+        "type": "clarity", "name": "提到 GPU 却无 GPU 型号 → 部分明确",
         "body": {
-            "trigger_field": "预算", "priority": 50,
-            "question": "这次采购的大致预算范围是？",
-            "options": ["5万以内", "5-10万", "10-30万", "30万以上", "不限预算"],
-            "fallback": "请补充预算范围。",
+            "signal": {"type": "no_model_in_category", "category": "GPU"},
+            "level": "partial", "missing_if_not": ["GPU型号"], "weight": 46,
+            "explain": "提到了 GPU 品类但没给具体型号",
         },
     },
     {
-        "type": "rebuttal", "name": "缺用途反问",
+        "type": "clarity", "name": "提到内存却无容量 → 部分明确",
         "body": {
-            "trigger_field": "用途", "priority": 80,
-            "question": "这套配置主要用于什么场景？",
-            "options": ["AI训练/推理", "虚拟化/云", "数据库/OLTP", "存储/备份", "通用计算"],
-            "fallback": "请描述主要用途。",
+            "signal": {"type": "combined", "rules": [
+                {"type": "no_model_in_category", "category": "Memory"},
+                {"type": "no_memory_capacity"},
+            ]},
+            "level": "partial", "missing_if_not": ["内存容量"], "weight": 44,
+            "explain": "提到了内存品类但没解析到容量",
+        },
+    },
+
+    {
+        "type": "clarity", "name": "品类≥4 + 内存容量 → 明确",
+        "body": {
+            "signal": {"type": "combined", "rules": [
+                {"type": "category_count", "op": ">=", "value": 4},
+                {"type": "has_memory_capacity", "value": True},
+            ]},
+            "level": "explicit", "missing_if_not": [], "weight": 85,
+            "explain": "4 个以上配件品类且有内存容量 → 明细清单，直接组 BOM",
         },
     },
     {
-        "type": "rebuttal", "name": "缺系列反问",
+        "type": "clarity", "name": "品类≥4 + 型号 token → 明确",
         "body": {
-            "trigger_field": "系列", "priority": 70,
-            "question": "有没有倾向的产品系列或平台？",
-            "options": ["Orion（AMD）", "Intel 平台", "Polaris", "工作站", "不确定/你推荐"],
-            "fallback": "请告知倾向的系列或平台。",
+            "signal": {"type": "combined", "rules": [
+                {"type": "category_count", "op": ">=", "value": 4},
+                {"type": "model_token_count", "op": ">=", "value": 1},
+            ]},
+            "level": "explicit", "missing_if_not": [], "weight": 84,
+            "explain": "4 个以上配件品类且给出具体型号 → 明细清单，直接组 BOM",
         },
     },
     {
-        "type": "rebuttal", "name": "缺形态反问",
+        "type": "clarity", "name": "型号 token ≥3 → 明确",
         "body": {
-            "trigger_field": "形态", "priority": 60,
-            "question": "机箱形态有要求吗？",
-            "options": ["2U 机架", "4U 塔式", "1U 机架", "高密度", "不确定"],
-            "fallback": "请告知机箱形态要求。",
+            "signal": {"type": "model_token_count", "op": ">=", "value": 3},
+            "level": "explicit", "missing_if_not": [], "weight": 80,
+            "explain": "贴了 3 个以上具体型号/规格 token → 需求明确",
+        },
+    },
+    {
+        "type": "clarity", "name": "品类≥3 + 内存容量 + 用途 → 明确",
+        "body": {
+            "signal": {"type": "combined", "rules": [
+                {"type": "category_count", "op": ">=", "value": 3},
+                {"type": "has_memory_capacity", "value": True},
+                {"type": "has_usage", "value": True},
+            ]},
+            "level": "explicit", "missing_if_not": [], "weight": 75,
+            "explain": "多品类 + 内存容量 + 明确用途 → 需求明确",
         },
     },
     # ── budget：预算区间 → 选配策略 ──
@@ -157,7 +168,6 @@ DEFAULT_RULES: list[dict] = [
         },
     },
 ]
-
 
 class RequirementRuleRepository:
     def __init__(self):
@@ -330,6 +340,31 @@ class RequirementRuleRepository:
             raise
         return self.seed_default_if_empty()
 
+    # ===== 旧思路清理（目录驱动引导上线后，workload/rebuttal 已废弃） =====
+    # 按名称过时的规则也随启动清理（如"无用途→不明确"：目录引导下用途不再是反问字段）
+    _OBSOLETE_RULE_NAMES = {"无用途 → 不明确"}
+
+    def cleanup_obsolete_rules(self) -> int:
+        """删除已废弃规则及其样本，幂等：无则删 0。
+        1) 类型不在 clarity/budget 的（旧 rebuttal/workload——臆造选项反问）；
+        2) 名称过时的 clarity 规则（_OBSOLETE_RULE_NAMES，目录驱动引导后语义失效）。
+        保留只会继续误导判定，清掉让 rule 库与当前思路一致。"""
+        keep = {"clarity", "budget"}
+        deleted = 0
+        for r in self.session.query(RequirementRule).all():
+            obsolete = r.type not in keep or r.name in self._OBSOLETE_RULE_NAMES
+            if not obsolete:
+                continue
+            self.session.query(RequirementSample).filter(
+                RequirementSample.rule_id == r.id
+            ).delete(synchronize_session=False)
+            self.session.delete(r)
+            deleted += 1
+        if deleted:
+            self.session.commit()
+        return deleted
+
+
     # ===== Seed =====
     def seed_default_if_empty(self) -> int:
         existing = self.session.query(RequirementRule).count()
@@ -350,6 +385,26 @@ class RequirementRuleRepository:
             ))
         self.session.commit()
         return len(DEFAULT_RULES)
+
+    def seed_missing_defaults(self) -> int:
+        """按 name 非破坏补种 DEFAULT_RULES 新增项（不覆盖用户已有规则/命中计数）。
+        规则迭代后新增的 clarity/rebuttal/budget 项随启动自动补上（与兼容规则同模式）。"""
+        existing = {r.name for r in self.session.query(RequirementRule).all()}
+        now = datetime.now().isoformat()
+        added = 0
+        for item in DEFAULT_RULES:
+            if item["name"] in existing:
+                continue
+            self.session.add(RequirementRule(
+                domain="requirement", type=item["type"], name=item["name"],
+                body=json.dumps(item["body"], ensure_ascii=False),
+                status="active", version=1, hit_count=0,
+                created_at=now, updated_at=now, created_by="seed-missing", updated_by="seed-missing",
+            ))
+            added += 1
+        if added:
+            self.session.commit()
+        return added
 
     def close(self):
         self.session.close()

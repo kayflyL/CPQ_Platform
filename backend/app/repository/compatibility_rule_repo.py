@@ -24,43 +24,43 @@ DEFAULT_RULES: list[dict] = [
     # ① derive（赋值型）：配置含 NVMe 盘 → 背板类型=tri。tri-mode 支持 SATA/SAS/NVMe 三协议、
     #    dc 直连只走 SATA/SAS——故含 NVMe 盘必须 tri；纯 SATA/SAS 或无盘 → dc
     #    （消费端 bpType() ?? 'dc' 兜底，不 seed dc 规则——CRE 无 not-contains）。
-    {"type": "derive", "status": "active", "name": "背板类型：含 NVMe 盘→三模",
+    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "背板类型：含 NVMe 盘→三模",
      "body": {"when": {"field": "config.drive_kinds", "op": "contains", "value": "NVMe"},
               "then": {"action": "derive", "field": "config.bp_type", "value": "tri"},
               "desc": "配置含 NVMe 盘 → 三模(tri)背板（tri 支持 SATA/SAS/NVMe）；纯 SATA/SAS 或无盘 → dc 直连兜底"}},
     # ②③④ 前面板线缆：按硬盘类型各算各的，盘数 ÷ 每组盘数 向上取整。
     #    盘数走 config.sata_qty/sas_qty/nvme_qty（消费端按盘类型分别聚合，不再用全盘总量）。
-    {"type": "derive", "status": "active", "name": "SATA 线缆根数",
+    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "SATA 线缆根数",
      "body": {"when": {"field": "config.sata_qty", "op": ">=", "value": 1},
               "then": {"action": "derive", "target": "SATA", "basis": "config.sata_qty", "per": 8, "round": "ceil"},
               "desc": "SATA 盘数 ÷ 8（向上取整）= SATA 线缆根数；改 per 即改每组盘数"}},
-    {"type": "derive", "status": "active", "name": "SAS 线缆根数",
+    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "SAS 线缆根数",
      "body": {"when": {"field": "config.sas_qty", "op": ">=", "value": 1},
               "then": {"action": "derive", "target": "SAS", "basis": "config.sas_qty", "per": 8, "round": "ceil"},
               "desc": "SAS 盘数 ÷ 8（向上取整）= SAS 线缆根数；改 per 即改每组盘数"}},
-    {"type": "derive", "status": "active", "name": "NVMe 线缆根数",
+    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "NVMe 线缆根数",
      "body": {"when": {"field": "config.nvme_qty", "op": ">=", "value": 1},
               "then": {"action": "derive", "target": "NVMe", "basis": "config.nvme_qty", "per": 2, "round": "ceil"},
               "desc": "NVMe 盘数 ÷ 2（向上取整）= NVMe 线缆根数；改 per 即改每组盘数"}},
     # ⑤ GPU 供电线：每张 GPU 配 1 根（per=1，改 per 可调成每 N 卡 1 根）
-    {"type": "derive", "status": "active", "name": "GPU 供电线根数",
+    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "GPU 供电线根数",
      "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 1},
               "then": {"action": "derive", "target": "GPU线", "basis": "kp.GPU.qty", "per": 1, "round": "ceil"},
               "desc": "GPU 数量 ÷ 1（向上取整）= GPU 供电线根数；改 per 即改每 N 卡 1 根"}},
     # ⑥⑦⑧ exclude（互斥）：核心件同品类不得混插不同型号。target 取 KP 品类真名
     #    （CPU/Memory/GPU —— 已核对 kp.kp_categories 实际键），unique_field=pn 按料号判同型号。
     #    engine 仅在 items≥2 且 PN 出现 ≥2 种时才报冲突，单行多件同型号不误报。
-    {"type": "exclude", "status": "active", "name": "内存同型号不混搭",
+    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "内存同型号不混搭",
      "body": {"when": {"field": "kp.Memory.qty", "op": ">=", "value": 2},
               "then": {"action": "exclude", "target": "kp.Memory", "unique_field": "pn",
                        "desc": "内存须同型号同速率（多通道成对），禁止不同 PN 混插"},
               "desc": "Memory 出现 ≥2 种 PN → 冲突（RDIMM/LRDIMM 或不同容量/速率混搭会不开机）"}},
-    {"type": "exclude", "status": "active", "name": "CPU 双路同型号",
+    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "CPU 双路同型号",
      "body": {"when": {"field": "kp.CPU.qty", "op": ">=", "value": 2},
               "then": {"action": "exclude", "target": "kp.CPU", "unique_field": "pn",
                        "desc": "双路 CPU 必须同型号同步进"},
               "desc": "CPU 出现 ≥2 种 PN → 冲突（双路必须同型号，否则不点亮）"}},
-    {"type": "exclude", "status": "active", "name": "GPU 同型号不混搭",
+    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "GPU 同型号不混搭",
      "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 2},
               "then": {"action": "exclude", "target": "kp.GPU", "unique_field": "pn",
                        "desc": "多卡 GPU 须同型号（驱动/NVLink 兼容）"},
@@ -79,7 +79,7 @@ class CompatibilityRuleRepository:
 
     # ===== 规则 CRUD =====
     def list(self, type: Optional[str] = None, status: Optional[str] = None,
-             domain: str = "selection") -> List[dict]:
+             domain: str = "selection", category: Optional[str] = None) -> List[dict]:
         q = self.session.query(CompatibilityRule)
         if domain:
             q = q.filter(CompatibilityRule.domain == domain)
@@ -87,7 +87,9 @@ class CompatibilityRuleRepository:
             q = q.filter(CompatibilityRule.type == type)
         if status:
             q = q.filter(CompatibilityRule.status == status)
-        q = q.order_by(CompatibilityRule.type, CompatibilityRule.id)
+        if category:
+            q = q.filter(CompatibilityRule.category == category)
+        q = q.order_by(CompatibilityRule.category, CompatibilityRule.type, CompatibilityRule.id)
         return [r.to_dict() for r in q.all()]
 
     def list_by_type(self, rule_type: str, status: str = "active") -> List[dict]:
@@ -105,6 +107,7 @@ class CompatibilityRuleRepository:
         rule = CompatibilityRule(
             domain=data.get("domain", "selection"),
             type=data["type"],
+            category=data.get("category"),
             name=data["name"],
             scope=json.dumps(scope, ensure_ascii=False) if scope else None,
             body=json.dumps(body, ensure_ascii=False) if body is not None else "{}",
@@ -131,6 +134,10 @@ class CompatibilityRuleRepository:
         for k in ("type", "name", "status", "change_reason", "description"):
             if k in data and data[k] is not None:
                 setattr(r, k, data[k])
+        # category 允许清空（空串/None → 未分类），故不并入上面的非空守卫
+        if "category" in data:
+            cv = data["category"]
+            r.category = cv.strip() if isinstance(cv, str) and cv.strip() else None
         if "scope" in data:
             r.scope = json.dumps(data["scope"], ensure_ascii=False) if data["scope"] else None
         if "body" in data:
@@ -171,6 +178,21 @@ class CompatibilityRuleRepository:
         self.session.refresh(r)
         return {"id": r.id, "hit_count": r.hit_count, "last_hit_at": r.last_hit_at}
 
+
+    def record_hits(self, rule_ids: list) -> int:
+        """批量命中计数（推理管线按方案跑规则后一次提交；单条走 record_hit）。"""
+        if not rule_ids:
+            return 0
+        now = datetime.now().isoformat()
+        rows = self.session.query(CompatibilityRule).filter(CompatibilityRule.id.in_(rule_ids)).all()
+        n = 0
+        for r in rows:
+            r.hit_count = (r.hit_count or 0) + 1
+            r.last_hit_at = now
+            n += 1
+        if n:
+            self.session.commit()
+        return n
     def stats(self, rule_id: int) -> dict:
         r = self.session.query(CompatibilityRule).filter(CompatibilityRule.id == rule_id).first()
         if not r:
@@ -197,6 +219,7 @@ class CompatibilityRuleRepository:
             self.session.add(CompatibilityRule(
                 domain="selection",
                 type=item["type"],
+                category=item.get("category"),
                 name=item["name"],
                 body=json.dumps(item["body"], ensure_ascii=False),
                 status=item.get("status", "active"),
@@ -223,6 +246,7 @@ class CompatibilityRuleRepository:
             self.session.add(CompatibilityRule(
                 domain="selection",
                 type=item["type"],
+                category=item.get("category"),
                 name=item["name"],
                 body=json.dumps(item["body"], ensure_ascii=False),
                 status=item.get("status", "active"),
@@ -234,6 +258,25 @@ class CompatibilityRuleRepository:
         if added:
             self.session.commit()
         return added
+
+    def backfill_default_categories(self) -> int:
+        """按 DEFAULT_RULES 的 name→category 给存量规则补分类（幂等、绝不覆盖用户已设的）。
+        新增 category 列后老规则该列为 NULL，这里按名回填默认分类。startup 在 seed 之后调用。"""
+        name_cat = {item["name"]: item.get("category") for item in DEFAULT_RULES if item.get("category")}
+        if not name_cat:
+            return 0
+        rows = self.session.query(CompatibilityRule).filter(
+            CompatibilityRule.category.is_(None)
+        ).all()
+        n = 0
+        for r in rows:
+            cat = name_cat.get(r.name)
+            if cat:
+                r.category = cat
+                n += 1
+        if n:
+            self.session.commit()
+        return n
 
     def close(self):
         self.session.close()

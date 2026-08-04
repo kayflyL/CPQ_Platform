@@ -1,6 +1,7 @@
 <script setup lang="ts">
 /** 服务器管理后台（/servers/admin）— 产品系列 / 机型管理 / 基准配置 / 料号库 四 tab。
- *  从配置门户 /servers 拆出：配置=面向客户的展示，管理=内部维护。 */
+ *  从配置门户 /servers 拆出：配置=面向客户的展示，管理=内部维护。
+ *  配件适配 tab 已移除（2026-08-03）：specs.chassis 声明未被任何装配逻辑消费，纯参考视图 → 删除。 */
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import SeriesManager from '@/components/server-admin/SeriesManager.vue'

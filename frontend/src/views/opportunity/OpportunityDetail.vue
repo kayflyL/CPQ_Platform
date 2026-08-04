@@ -71,7 +71,7 @@
             <template v-if="!field.editable">{{ (opportunity as any)[field.key] || '-' }}</template>
             <a-select
               v-else
-              v-model:value="chassisFormTags"
+              :value="chassisFormTags"
               mode="tags"
               size="small"
               style="width: 220px"
@@ -143,9 +143,13 @@
       :error="reasonError"
       :keywords="reasonKeywords"
       :pending-prompt="reasonPendingPrompt"
+      :pending-confirm="reasonPendingConfirm"
       @confirm-plan="confirmPlan"
       @user-reply="onUserReply"
       @user-skip="onUserSkip"
+      @confirm-submit="onConfirmSubmit"
+      @confirm-accept-all="onConfirmAcceptAll"
+      @restart="onRestartConversation"
     />
       </div>
 
@@ -495,6 +499,7 @@ const requirementText = ref('')
 const {
   steps: reasonSteps, plans: reasonPlans, running: reasonRunning,
   error: reasonError, keywords: reasonKeywords, pendingPrompt: reasonPendingPrompt,
+  pendingConfirm: reasonPendingConfirm,
   connect: connectReasoning, disconnect: disconnectReasoning,
 } = useReasoningStream()
 const reasoningPanelRef = ref<InstanceType<typeof ReasoningPanel> | null>(null)
@@ -753,18 +758,15 @@ const getFilteredOptions = (fieldKey: string) => {
   return filtered.map(v => ({ value: v, label: v }))
 }
 
-// 机箱形态标签式输入：逗号分隔字符串 ↔ 数组互转
-const chassisFormTags = computed({
-  get: () => {
-    const raw = (opportunity.value as any)?.chassis_form || ''
-    if (!raw) return []
-    return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
-  },
-  set: (val: string[]) => {
-    if (opportunity.value) {
-      (opportunity.value as any).chassis_form = val.join(',')
-    }
-  }
+// 机箱形态标签式输入：逗号分隔字符串 ↔ 数组互转。
+// 注意：这里不能再用 v-model 的 setter 提前改写 opportunity.chassis_form——
+// ant-design-vue 的 Select 会先 emit update:value 再 emit change，
+// 若 setter 先把新值写进 opportunity，onChassisFormChange 里的新旧值对比就会恒等、
+// 直接 return 导致永不保存。因此改为受控 :value，由 @change 保存成功后再回写。
+const chassisFormTags = computed(() => {
+  const raw = (opportunity.value as any)?.chassis_form || ''
+  if (!raw) return []
+  return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
 })
 
 // 机箱形态历史选项（用于下拉提示）
@@ -896,6 +898,14 @@ async function onUserReply(reply: string) {
   }
 }
 
+// 重新开始：断开推理流、关闭面板。后端会话状态在下次「生成报价」时自动清空（全新对话），
+// 无需刷新网页。保留需求文本，用户可改后重新生成。
+function onRestartConversation() {
+  disconnectReasoning()
+  showReasoning.value = false
+  message.info('已重置对话，修改需求后可再次点击「生成报价」开始新对话')
+}
+
 // 跳过反问：强制走选型（force_complete）
 async function onUserSkip() {
   const text = (requirementText.value || '').trim()
@@ -907,6 +917,35 @@ async function onUserSkip() {
   } finally {
     generating.value = false
   }
+}
+
+// LLM 确认面板：改了选择 → 带决策重跑 pipeline（confirm 节点应用 + 写反馈样本）
+async function onConfirmSubmit(decisions: Record<string, string>) {
+  const text = (requirementText.value || '').trim()
+  generating.value = true
+  try {
+    await reasoningApi.generate(opportunityId, text, { confirm: decisions })
+  } catch (e: any) {
+    message.error('提交确认失败：' + (e?.message || e))
+  } finally {
+    generating.value = false
+  }
+}
+
+// 全部采纳：只记录反馈样本（不重跑 LLM），关闭面板直接看当前方案（已是默认采纳结果）
+async function onConfirmAcceptAll() {
+  const text = (requirementText.value || '').trim()
+  const items = reasonPendingConfirm.value?.items || []
+  const decisions: Record<string, string> = {}
+  items.forEach((it) => { decisions[it.id] = 'accept' })
+  try {
+    if (Object.keys(decisions).length) {
+      await reasoningApi.confirmFeedback(opportunityId, text, decisions)
+    }
+  } catch (e: any) {
+    message.error('记录确认反馈失败：' + (e?.message || e))
+  }
+  reasonPendingConfirm.value = null
 }
 
 // 整机方案 → 转为未导出报价单：buildPlanCfg 把 L6 转成基准配置的 BOM 模板格式（live），

@@ -13,9 +13,8 @@ const NODE_META: Record<string, { desc: string; sources: string[] }> = {
   review: { desc: '方案就绪，下发整机方案清单', sources: [] },
   condition: { desc: '条件判断：按表达式求值选分支', sources: ['expr'] },
   clarity_check: { desc: '读规则库评估明确度，不明确触发反问', sources: ['clarity 规则'] },
-  ask_user: { desc: '按缺失字段挑话术，暂停 pipeline 等回复', sources: ['rebuttal 话术'] },
+  ask_user: { desc: '目录驱动引导：选类型 → 选机型 → 按格式填 KP，暂停等回复', sources: ['server_types', 'server_models', 'KP 套餐'] },
   budget_check: { desc: '给方案注超预算标注（不剔除）', sources: ['预算规则'] },
-  llm: { desc: 'LLM 节点（P2.2 预留）', sources: [] },
 }
 const props = defineProps<{ id: string; data: any }>()
 const stepType = computed(() => props.data?.stepType || '')

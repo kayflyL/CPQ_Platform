@@ -7,9 +7,10 @@ import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { reasoningFlowApi, type ReasoningNodeKey, type LexiconEntry } from '@/api/reasoningFlow'
 import { strategyApi } from '@/api/strategies'
-import { kpPartsApi } from '@/api/serverConfig'
+import { kpPartsApi, catalogApi } from '@/api/serverConfig'
 import ConditionBuilder, { type SpecRule } from './ConditionBuilder.vue'
 import RequirementRuleList from './RequirementRuleList.vue'
+import SlotListEditor from './SlotListEditor.vue'
 import LexiconEditor from './LexiconEditor.vue'
 import SpecAliasEditor from './SpecAliasEditor.vue'
 import TypePackageEditor from './TypePackageEditor.vue'
@@ -17,18 +18,24 @@ import QtyUnitEditor from './QtyUnitEditor.vue'
 import ChipListInput from './ChipListInput.vue'
 
 const NODE_META: Record<string, string> = {
+  normalize_input: '需求输入规范化：extract 前的格式归一（表格行/字符修正/噪音过滤/空白折叠），规则可配、白盒报告',
   extract: '需求理解与关键词提取：分词 + 词表/系列映射（纯数据加工层，不做判定/分支）',
-  clarity_check: '需求明确度判定：读「明确度规则」库评估 → 不明确触发反问（规则在本节点抽屉配）',
-  ask_user: '反问补全：按缺失字段挑「反问话术」生成追问，暂停 pipeline 等用户回复（话术在本节点抽屉配）',
+  clarity_check: '需求明确度判定：按期望槽位清单算「已填 vs 期望」差距 → L0 缺≥阈值触发反问（清单在本节点抽屉配）',
+  ask_user: '反问补全（目录驱动引导）：选服务器类型 → 选机型 → 按格式填 KP 规格，选项 100% 来自产品目录（引导配置在本节点抽屉配）',
   budget_check: '预算校验：按「预算映射」驱动选件 + 给方案注超预算标注（映射在本节点抽屉配）',
   select_baseline: '机型选型：四级兜底 + model_recommend 标注',
   match_kp: '配件匹配：型号/规格/品类代表件三级匹配（P3 规格范围过滤）',
   compose: '组合整机方案（每 baseline × 同组 KP → 一张整机 BOM）',
   review: '产出形态：字段勾选 + 预设档位（BOM 模板不在此节点）',
   condition: '条件分支：按表达式求值选真/假分支',
-  llm: 'LLM 节点（P2.3 接入，预留）',
+  scene_analysis: '场景分析：需求信号 + 商机上下文 → AI/存储/通用 × 系列 × 形态，输出带证据（映射数据在 system_config.scene_mapping，可编辑）',
+  llm_understand: 'LLM 主理解：需求原文 + 在售目录白名单 → 统一槽位契约（槽位/置信度/证据/预算/意图摘要/缺失项/追问）。开启后 LLM 结果才真正进选型（默认关，不拖慢流程）',
+  slot_validate: '槽位语义校验：白名单外值丢弃 + LLM 与规则冲突/低置信度收集（P2 确认面板消费），是 LLM 进选型前的确定性闸门',
+  confirm: 'LLM 确认面板：冲突/低置信度项默认采纳 LLM 补充、高亮可改；决策写入 requirement_samples 反馈闭环。无确认项自动跳过',
+  llm_ask: 'LLM 反问：复用目录驱动状态机（类型→机型→KP 格式），问题文案由 LLM 生成（一次列全缺失项）；LLM 未开时回落纯目录问题',
+  llm_audit: 'LLM 方案校对：bom_cases 同平台 few-shot + 一次调用校对全部方案（意图级问题：GPU/存储/平台是否满足）；规则硬校验仍在 review 兜底，默认关',
 }
-const CONFIGURABLE = ['extract', 'select_baseline', 'match_kp', 'review', 'condition', 'llm', 'budget_check']
+const CONFIGURABLE = ['extract', 'select_baseline', 'match_kp', 'review', 'condition', 'llm', 'budget_check', 'ask_user', 'scene_analysis', 'normalize_input', 'confirm_series', 'llm_understand', 'slot_validate', 'confirm', 'llm_ask', 'llm_audit']
 
 const props = defineProps<{
   open: boolean
@@ -60,6 +67,23 @@ const kpCategoryNames = ref<string[]>([])   // KP 库品类名（/api/kp/categor
 const specKeysMap = ref<Record<string, string[]>>({})  // 品类→现有 spec_key（/api/kp/spec-keys）
 // match_kp 别名表（低频，保留 JSON；批次 2 再结构化）
 const aliasesJson = ref('')
+// scene_analysis 场景映射（JSON，权威数据源 system_config.scene_mapping；此处仅节点级兜底）
+const sceneMappingJson = ref('')
+// normalize_input 归一配置（JSON：char_fixes / noise_patterns / 开关）
+const normalizeJson = ref('')
+// ask_user 目录驱动引导配置（推荐类型 / 代表性机型 / 回复格式模板）
+const catalogTypes = ref<any[]>([])          // 服务器类型（l6.server_types）
+const modelsByType = ref<Record<number, any[]>>({})  // 类型 id → 在售机型
+const enabledTypes = ref<string[]>([])
+const recommendedType = ref('')
+const recommendedModels = ref<Record<string, string>>({})
+const typeQuestion = ref('')
+const modelQuestion = ref('')
+const kpIntro = ref('')
+const replyFormat = ref('')
+const defaultHint = ref('')
+const maxRounds = ref(6)
+
 // review 产出形态
 const outputPreset = ref<'detailed' | 'standard' | 'concise'>('standard')
 const outputFields = ref<Record<string, any>>({})
@@ -97,6 +121,19 @@ watch(() => props.open, async (v) => {
     expr: c.expr || '',
     prompt: c.prompt || '',
     model: c.model || 'qwen',
+    mode: c.mode || 'catalog',
+    enable_llm: !!c.enable_llm,
+    decide_threshold: c.decide_threshold ?? 30,
+    fallback_scene: c.fallback_scene || '通用计算服务器',
+    enabled_types: Array.isArray(c.enabled_types) ? c.enabled_types : [],
+    recommended_type: c.recommended_type || '',
+    recommended_models: c.recommended_models || {},
+    type_question: c.type_question || '',
+    model_question: c.model_question || '',
+    kp_intro: c.kp_intro || '',
+    reply_format: c.reply_format || '',
+    default_hint: c.default_hint || '',
+    max_rounds: c.max_rounds ?? 6,
   }
   // extract 词表：优先读新 lexicons（5 张）；旧结构（category_lexicon/series_keyword_map）自动转新
   if (Array.isArray(c.lexicons) && c.lexicons.length) {
@@ -131,6 +168,8 @@ watch(() => props.open, async (v) => {
   presetReady.value = true
   // match_kp 别名
   aliasesJson.value = JSON.stringify(c.category_aliases ?? {}, null, 2)
+  sceneMappingJson.value = c.mapping ? JSON.stringify(c.mapping, null, 2) : ''
+  normalizeJson.value = JSON.stringify({ char_fixes: c.char_fixes, enable_table_rows: c.enable_table_rows, noise_patterns: c.noise_patterns, collapse_whitespace: c.collapse_whitespace }, null, 2)
   // match_kp 规格匹配（P3）
   specRules.value = Array.isArray(c.spec_rules) ? c.spec_rules.map((r: any) => ({
     category: r.category || '', spec_key: r.spec_key || '',
@@ -141,6 +180,28 @@ watch(() => props.open, async (v) => {
       const r = await strategyApi.list({ domain: 'selection', status: 'active', type: 'model_recommend' })
       recommendStrategies.value = r.strategies || []
     } catch { recommendStrategies.value = [] }
+  }
+  typeQuestion.value = form.value.type_question || ''
+  modelQuestion.value = form.value.model_question || ''
+  kpIntro.value = form.value.kp_intro || ''
+  replyFormat.value = form.value.reply_format || ''
+  defaultHint.value = form.value.default_hint || ''
+  maxRounds.value = form.value.max_rounds ?? 6
+  if (props.nodeType === 'ask_user') {
+    // 目录数据源（l6.server_types / l6.server_models）——引导配置的内容都从这里选，不硬编码
+    catalogApi.listTypes().then((r: any) => {
+      const types = r.types || []
+      catalogTypes.value = types
+      enabledTypes.value = Array.isArray(c.enabled_types) ? c.enabled_types : []
+      recommendedType.value = c.recommended_type || ''
+      const rec: Record<string, string> = c.recommended_models || {}
+      recommendedModels.value = { ...rec }
+      return Promise.all(types.map((t: any) =>
+        catalogApi.listModels(t.id)
+          .then((m: any) => { modelsByType.value[t.id] = m.models || [] })
+          .catch(() => { modelsByType.value[t.id] = [] })
+      ))
+    }).catch(() => { catalogTypes.value = [] })
   }
   if (props.nodeType === 'match_kp') {
     // 分开调：spec-keys 失败不能拖累 categories（品类下拉必须可用）
@@ -155,15 +216,15 @@ watch(() => props.open, async (v) => {
 
 watch(outputPreset, (p) => { if (presetReady.value) applyPreset(p) })
 
-async function save() {
-  if (!props.nodeKey || !configurable.value) { emit('update:open', false); return }
+/** 组装当前表单 → 节点 config。JSON 解析失败已在此 toast 并返回 null。 */
+function buildConfig(): Record<string, any> | null {
+  if (!props.nodeKey || !configurable.value) return null
   const t = props.nodeType
-  let config: Record<string, any> = {}
   if (t === 'extract') {
     const mk = (id: string, name: string, kind: string, entries: LexiconEntry[]) => ({
       id, name, kind, entries: entries.filter(e => e.key && e.triggers.length),
     })
-    config = {
+    return {
       keyword_limit: +form.value.keyword_limit,
       lexicons: [
         mk('lex_kp', 'KP 配件词表', 'kp', kpEntries.value),
@@ -178,36 +239,104 @@ async function save() {
       model_token_regex: modelTokenRegex.value,
     }
   } else if (t === 'select_baseline') {
-    config = { max_plans: +form.value.max_plans, recommend_strategy_id: form.value.recommend_strategy_id || null, no_signal_strategy: form.value.no_signal_strategy || 'return_empty' }
+    return { max_plans: +form.value.max_plans, recommend_strategy_id: form.value.recommend_strategy_id || null, no_signal_strategy: form.value.no_signal_strategy || 'return_empty' }
   } else if (t === 'match_kp') {
     let aliases: any = null
-    try { aliases = JSON.parse(aliasesJson.value || '{}') } catch { message.error('别名表 JSON 解析失败'); return }
-    config = {
+    try { aliases = JSON.parse(aliasesJson.value || '{}') } catch { message.error('别名表 JSON 解析失败'); return null }
+    return {
       representative_pick: form.value.representative_pick,
       fallback_strategy: form.value.fallback_strategy || 'fallback_representative',
       spec_rules: specRules.value.filter(r => r.category && r.spec_key && r.value != null),
       type_packages: typePackages.value.filter(p => p.type_keyword),
       category_aliases: aliases,
     }
+  } else if (t === 'ask_user') {
+    return {
+      mode: 'catalog',
+      enabled_types: enabledTypes.value,
+      recommended_type: recommendedType.value,
+      recommended_models: recommendedModels.value,
+      type_question: typeQuestion.value || undefined,
+      model_question: modelQuestion.value || undefined,
+      kp_intro: kpIntro.value || undefined,
+      reply_format: replyFormat.value || undefined,
+      default_hint: defaultHint.value || undefined,
+      max_rounds: +maxRounds.value || 6,
+    }
   } else if (t === 'budget_check') {
-    config = { underspend_threshold: +form.value.underspend_threshold }
+    return { underspend_threshold: +form.value.underspend_threshold }
   } else if (t === 'review') {
-    config = { output_preset: outputPreset.value, output_fields: outputFields.value }
+    return { output_preset: outputPreset.value, output_fields: outputFields.value }
   } else if (t === 'condition') {
-    config = { expr: form.value.expr || '' }
+    return { expr: form.value.expr || '' }
+  } else if (t === 'normalize_input') {
+    try {
+      const norm = JSON.parse(normalizeJson.value || '{}')
+      return {
+        char_fixes: Array.isArray(norm.char_fixes) ? norm.char_fixes : [],
+        enable_table_rows: norm.enable_table_rows !== false,
+        noise_patterns: Array.isArray(norm.noise_patterns) ? norm.noise_patterns : [],
+        collapse_whitespace: norm.collapse_whitespace !== false,
+      }
+    } catch { message.error('归一配置 JSON 解析失败'); return null }
+  } else if (t === 'scene_analysis') {
+    let mapping: any = null
+    if (sceneMappingJson.value.trim()) {
+      try { mapping = JSON.parse(sceneMappingJson.value) } catch { message.error('场景映射 JSON 解析失败'); return null }
+    }
+    return {
+      decide_threshold: +form.value.decide_threshold || 30,
+      fallback_scene: form.value.fallback_scene || '通用计算服务器',
+      mapping: mapping,
+    }
+  } else if (t === 'llm_understand') {
+    return { enable_llm: !!form.value.enable_llm, max_retry: +form.value.max_retry || 1 }
+  } else if (t === 'slot_validate') {
+    return { strict: form.value.strict !== false }
+  } else if (t === 'confirm') {
+    return { default_decision: form.value.default_decision || 'accept' }
+  } else if (t === 'llm_ask') {
+    return { use_llm_questions: form.value.use_llm_questions !== false }
+  } else if (t === 'llm_audit') {
+    return { enable_llm: !!form.value.enable_llm, reference_limit: +form.value.reference_limit || 2 }
   } else if (t === 'llm') {
-    config = { prompt: form.value.prompt || '', model: form.value.model || 'qwen' }
+    return { prompt: form.value.prompt || '', model: form.value.model || 'qwen' }
   }
+  // 未单列的类型（如 confirm_series）保持旧行为：存空 config
+  return {}
+}
+
+async function persist(config: Record<string, any>): Promise<boolean> {
   saving.value = true
   try {
     await reasoningFlowApi.updateNode(props.nodeKey as ReasoningNodeKey, config)
-    message.success('已保存（下次推理生效）')
     emit('saved')
-    emit('update:open', false)
+    return true
   } catch (e: any) {
     message.error(e.response?.data?.detail || '保存失败')
+    return false
   } finally {
     saving.value = false
+  }
+}
+
+async function save() {
+  if (!props.nodeKey || !configurable.value) { emit('update:open', false); return }
+  const config = buildConfig()
+  if (config === null) return
+  if (await persist(config)) {
+    message.success('已保存（下次推理生效）')
+    emit('update:open', false)
+  }
+}
+
+/** 「启用 LLM 增强」开关拨动即立即保存（不再要求点「保存」，避免关抽屉后以为开了实际没开）。 */
+async function toggleLlm() {
+  if (!props.nodeKey || !configurable.value) return
+  const config = buildConfig()
+  if (config === null) return
+  if (await persist(config)) {
+    message.success(form.value.enable_llm ? 'LLM 增强已开启（下次推理生效）' : 'LLM 增强已关闭')
   }
 }
 </script>
@@ -227,6 +356,7 @@ async function save() {
 
     <!-- extract：需求理解与关键词提取（5 张词表，结构统一：左品类下拉 + 右触发词） -->
     <a-form v-if="nodeType === 'extract'" layout="vertical">
+      <a-alert type="info" show-icon banner message="LLM 已收拢到独立「LLM 主理解」节点：本节点保持 100% 规则抽取，不再挂大模型" style="margin-bottom: 12px" />
       <a-divider orientation="left" class="rf-sec">提取参数</a-divider>
       <p class="rf-hint">本节点只做分词 + 词表命中。明确度规则→clarity_check 节点；反问话术→ask_user 节点；预算映射→budget_check 节点。</p>
       <a-form-item label="关键词上限（keyword_limit）"><a-input-number v-model:value="form.keyword_limit" :min="1" :max="50" style="width:100%" /></a-form-item>
@@ -270,18 +400,50 @@ async function save() {
       </a-form-item>
     </a-form>
 
-    <!-- clarity_check：A 明确度规则库（实时 CRUD，立即生效） -->
+    <!-- clarity_check：期望槽位清单（明确度 = 槽位覆盖度，L0/L1/L2 可配置） -->
     <div v-else-if="nodeType === 'clarity_check'">
-      <a-alert type="info" show-icon banner message="规则实时保存、立即生效；运行中越积越准，为未来 LLM 喂语料" style="margin-bottom: 12px" />
-      <p class="rf-hint">评估需求明确度（明确/部分/不明确）→ 不明确自动触发 ask_user 反问。</p>
-      <RequirementRuleList rule-type="clarity" />
+      <SlotListEditor />
     </div>
 
-    <!-- ask_user：B 反问话术库（实时 CRUD，立即生效） -->
+    <!-- ask_user：目录驱动引导（选项 100% 来自产品目录，拒绝臆造） -->
     <div v-else-if="nodeType === 'ask_user'">
-      <a-alert type="info" show-icon banner message="话术实时保存、立即生效" style="margin-bottom: 12px" />
-      <p class="rf-hint">缺某字段时如何引导用户补齐（按优先级问，像 AI 客服多轮对话）。</p>
-      <RequirementRuleList rule-type="rebuttal" />
+      <a-alert type="info" show-icon banner message="选项全部来自产品目录（服务器类型/在售机型），保存即生效" style="margin-bottom: 12px" />
+      <p class="rf-hint">流程：选类型 → 选机型 → 按格式填 KP 规格。客户答「不确定/你推荐」走下面的推荐项；「跳过」强制出方案。</p>
+      <a-divider orientation="left" class="rf-sec">引导内容</a-divider>
+      <a-form-item label="启用类型（空 = 全部有货在售类型）">
+        <a-select v-model:value="enabledTypes" mode="multiple" allow-clear placeholder="全部类型" style="width: 100%">
+          <a-select-option v-for="t in catalogTypes" :key="t.name" :value="t.name">{{ t.name }}</a-select-option>
+        </a-select>
+        <p class="rf-hint">只推有在售机型的类型；这里可剔除不想推的类型。</p>
+      </a-form-item>
+      <a-form-item label="推荐类型（客户答「你推荐/不确定」时的默认）">
+        <a-select v-model:value="recommendedType" allow-clear placeholder="第一个类型" style="width: 100%">
+          <a-select-option v-for="t in catalogTypes" :key="t.name" :value="t.name">{{ t.name }}</a-select-option>
+        </a-select>
+      </a-form-item>
+      <a-form-item label="代表性机型（每类型一个，客户不选机型时用）">
+        <div class="rf-rec-models">
+          <div v-for="t in catalogTypes" :key="t.id" class="rf-rec-row">
+            <span class="rf-rec-label">{{ t.name }}</span>
+            <a-select v-model:value="recommendedModels[t.name]" allow-clear placeholder="第一个在售机型" style="flex: 1">
+              <a-select-option v-for="m in (modelsByType[t.id] || [])" :key="m.id" :value="m.name">{{ m.name }}</a-select-option>
+            </a-select>
+          </div>
+        </div>
+        <p class="rf-hint">机型数据源：l6.server_models（按类型过滤，仅展示在售）。</p>
+      </a-form-item>
+      <a-divider orientation="left" class="rf-sec">话术与格式</a-divider>
+      <a-form-item label="类型选择问句"><a-textarea v-model:value="typeQuestion" :rows="1" placeholder="请选择服务器类型（以下均为有货在售类型）：" /></a-form-item>
+      <a-form-item label="机型选择问句"><a-textarea v-model:value="modelQuestion" :rows="1" placeholder="请选择该类型下的在售机型：" /></a-form-item>
+      <a-form-item label="KP 填写引导语"><a-textarea v-model:value="kpIntro" :rows="1" placeholder="请按以下格式填写需要的配件，没有的项可省略：" /></a-form-item>
+      <a-form-item label="回复格式模板（引导客户按格式填写）">
+        <a-textarea v-model:value="replyFormat" :rows="5" placeholder="CPU：型号 ×数量&#10;内存：容量 ×条数&#10;GPU：型号 ×数量&#10;硬盘：容量 ×数量&#10;预算：金额" />
+        <p class="rf-hint">客户回复按此格式解析（型号/数量/容量/预算信号均由 extract 拾取）；格式越规范识别率越高。</p>
+      </a-form-item>
+      <a-form-item label="默认提示语"><a-input v-model:value="defaultHint" placeholder="不确定可回复「你推荐」，或点「跳过」让我推荐" /></a-form-item>
+      <a-form-item label="最大反问轮数"><a-input-number v-model:value="maxRounds" :min="1" :max="10" style="width: 100%" /></a-form-item>
+      <a-divider orientation="left" class="rf-sec">KP 品类套餐</a-divider>
+      <p class="rf-hint">该类型支持哪些选配件品类，在下方「配件匹配」节点的「机型类型套餐」里配（两处共用同一数据源，避免重复维护）。</p>
     </div>
 
     <!-- budget_check：C 预算映射库（实时 CRUD，立即生效） + underspend 阈值 -->
@@ -349,6 +511,7 @@ async function save() {
 
     <!-- review：产出形态（P6） -->
     <a-form v-else-if="nodeType === 'review'" layout="vertical">
+      <a-alert type="info" show-icon banner message="LLM 语义校对已收拢到独立「LLM 方案校对」节点（bom_cases few-shot，默认关）；本节点只做规则硬校验（缺件/平台/超预算）+ 合并 LLM 校对结果" style="margin-bottom: 12px" />
       <a-divider orientation="left" class="rf-sec">基础参数</a-divider>
       <a-form-item label="产出预设">
         <a-radio-group v-model:value="outputPreset">
@@ -374,14 +537,99 @@ async function save() {
     <a-form v-else-if="nodeType === 'condition'" layout="vertical">
       <a-form-item label="条件表达式（simpleeval 安全求值）">
         <a-input v-model:value="form.expr" placeholder="如：series == 'Polaris'" />
-        <p class="rf-hint">可用变量：series / form / categories（列表）/ keywords（列表）/ <b>clarity</b>（explicit·partial·unclear）/ <b>clarity_capped</b>（bool）/ <b>budget</b>（数值）/ <b>has_budget</b>（bool）/ <b>missing_fields</b>（列表）。求值 true 走真分支（sourceHandle='true'），false 走假分支。</p>
+        <p class="rf-hint">可用变量：series / form / categories（列表）/ keywords（列表）/ <b>clarity</b>（explicit·partial·unclear）/ <b>clarity_capped</b>（bool）/ <b>budget</b>（数值）/ <b>has_budget</b>（bool）/ <b>missing_fields</b>（列表）。空列表判断用 <code>not missing_fields</code>（simpleeval 不支持 len()）。求值 true 走真分支（sourceHandle='true'），false 走假分支。</p>
       </a-form-item>
     </a-form>
 
-    <!-- llm：保留 -->
-    <a-form v-else-if="nodeType === 'llm'" layout="vertical">
-      <a-form-item label="Prompt"><a-textarea v-model:value="form.prompt" :rows="4" placeholder="（P2.3 接入 LLM 调用）" /></a-form-item>
-      <a-form-item label="模型"><a-input v-model:value="form.model" /></a-form-item>
+    <!-- normalize_input：需求输入规范化（extract 前） -->
+    <a-form v-else-if="nodeType === 'normalize_input'" layout="vertical">
+      <a-alert type="info" show-icon banner message="白盒：每次归一会输出 report（改了什么）。规则数据驱动，改这里立即生效" style="margin-bottom: 12px" />
+      <p class="rf-hint">把千变万化的用户写法归一成 extract 能识别的统一格式：字符修正（拼写颠倒/全角）、Markdown 表格行（数量列→*N）、噪音过滤（时间戳/问候语）、空白折叠。</p>
+      <a-collapse :bordered="false">
+        <a-collapse-panel key="norm" header="归一规则（JSON）">
+          <p class="rf-hint">结构：char_fixes（[from,to] 有序替换）、enable_table_rows（bool）、noise_patterns（[{pattern,flags,note}]）、collapse_whitespace（bool）。</p>
+          <a-textarea v-model:value="normalizeJson" :rows="14" class="rf-json" />
+        </a-collapse-panel>
+      </a-collapse>
+    </a-form>
+
+    <!-- scene_analysis：场景分析（AI/存储/通用 × 系列 × 形态） -->
+    <a-form v-else-if="nodeType === 'scene_analysis'" layout="vertical">
+      <a-alert type="info" show-icon banner message="LLM 已收拢到独立「LLM 主理解」节点：本节点保持规则兜底确定性" style="margin-bottom: 12px" />
+      <a-alert type="info" show-icon banner message="白盒：输出带证据（为什么选这个场景/系列/形态）。映射权威数据源 = system_config.scene_mapping（平台配置），此处仅节点级兜底" style="margin-bottom: 12px" />
+      <a-divider orientation="left" class="rf-sec">判定参数</a-divider>
+      <a-form-item label="判定阈值（decide_threshold）">
+        <a-input-number v-model:value="form.decide_threshold" :min="0" :max="100" style="width:100%" />
+        <p class="rf-hint">场景分≥此值才判定；低于回退默认场景（避免过度反问）。</p>
+      </a-form-item>
+      <a-form-item label="默认场景（fallback_scene）">
+        <a-input v-model:value="form.fallback_scene" placeholder="通用计算服务器" />
+        <p class="rf-hint">无强场景信号时回退的类型（需与 l6.server_types 名称一致）。</p>
+      </a-form-item>
+      <a-collapse :bordered="false">
+        <a-collapse-panel key="mapping" header="场景映射（高级 · JSON · 权威在 system_config.scene_mapping）">
+          <p class="rf-hint">结构：scene_rules（场景→信号权重+证据）、series_hints、form_infer、opportunity_hints、thresholds、fallback_scene。留空=用系统配置/内置默认。</p>
+          <a-textarea v-model:value="sceneMappingJson" :rows="14" class="rf-json" />
+        </a-collapse-panel>
+      </a-collapse>
+    </a-form>
+
+    <!-- llm_understand：LLM 主理解（需求原文 + 目录白名单 → 槽位契约） -->
+    <a-form v-else-if="nodeType === 'llm_understand'" layout="vertical">
+      <a-form-item label="启用 LLM 主理解">
+        <a-switch v-model:checked="form.enable_llm" @change="toggleLlm" />
+        <span class="rf-hint" style="display:block;margin-top:4px">开启后本节点调用大模型（受「设置→AI 设置→启用 AI」总开关约束）；LLM 输出经 schema 收口 + 语义校验（白名单/型号接地/数量）+ 失败喂回重试 1 次，再失败自动降级规则，绝不阻塞流程。默认关 = 纯规则透传，零成本</span>
+      </a-form-item>
+      <a-alert type="info" show-icon banner message="这是 LLM 唯一主入口：需求原文 + 在售目录白名单 → 统一槽位契约（槽位/置信度/证据/预算/意图摘要/缺失项/追问），只许从白名单选、选不出写 null、禁编料号" style="margin-bottom: 12px" />
+      <a-divider orientation="left" class="rf-sec">行为参数</a-divider>
+      <a-form-item label="校验失败重试次数（max_retry）">
+        <a-input-number v-model:value="form.max_retry" :min="0" :max="3" style="width:100%" />
+        <p class="rf-hint">语义校验不通过时，把具体错误喂回大模型修正；0 = 不重试（失败即降级）。每次 LLM 调用约 30~60s，重试会翻倍耗时。</p>
+      </a-form-item>
+    </a-form>
+
+    <!-- slot_validate：槽位语义校验（确定性闸门） -->
+    <a-form v-else-if="nodeType === 'slot_validate'" layout="vertical">
+      <a-form-item label="严格模式">
+        <a-switch v-model:checked="form.strict" />
+        <span class="rf-hint" style="display:block;margin-top:4px">开：白名单外系列/形态/类型直接丢弃并记 issues（推荐）；关：仅提示不丢弃。LLM 与规则冲突/低置信度项会进 confirm_items，供 P2 确认面板消费</span>
+      </a-form-item>
+      <a-alert type="info" show-icon banner message="确定性闸门：LLM 结果进选型前的最后一道语义校验（不调大模型，零成本）。覆盖度明细也会在这里产出，是 P2 明确度判定的输入" style="margin-bottom: 12px" />
+    </a-form>
+
+    <!-- confirm：LLM 确认面板（默认采纳、高亮可改） -->
+    <a-form v-else-if="nodeType === 'confirm'" layout="vertical">
+      <a-form-item label="默认决策">
+        <a-radio-group v-model:value="form.default_decision">
+          <a-radio value="accept">默认采纳 LLM 补充项（推荐）</a-radio>
+          <a-radio value="ignore">默认忽略，需用户手动采纳</a-radio>
+        </a-radio-group>
+        <p class="rf-hint">前端面板默认按此决策预勾选并高亮，用户可逐项改。无确认项时本节点自动跳过（零成本）。</p>
+      </a-form-item>
+      <a-alert type="info" show-icon banner message="确认面板展示「LLM 与规则冲突 / 低置信度」项；决策（采纳/忽略）写入 requirement_samples 反馈闭环（source=llm_feedback），供未来 LLM 语料/评测" style="margin-bottom: 12px" />
+    </a-form>
+
+    <!-- llm_ask：LLM 反问（复用目录状态机 + LLM 一次性追问） -->
+    <a-form v-else-if="nodeType === 'llm_ask'" layout="vertical">
+      <a-form-item label="注入 LLM 缺失项追问">
+        <a-switch v-model:checked="form.use_llm_questions" />
+        <p class="rf-hint">开：把 LLM 主理解产出的一次性缺失项追问（如「请确认：CPU型号；内存容量…」）并入反问文案；关：纯目录问题（与 ask_user 一致）。</p>
+      </a-form-item>
+      <a-alert type="info" show-icon banner message="本节点复用 ask_user 的目录驱动状态机（类型→机型→KP 格式），选项 100% 来自产品目录；LLM 未开启时自动回落纯目录问题" style="margin-bottom: 12px" />
+    </a-form>
+
+    <!-- llm_audit：LLM 方案校对（bom_cases few-shot，一次调用校对全部方案） -->
+    <a-form v-else-if="nodeType === 'llm_audit'" layout="vertical">
+      <a-form-item label="启用 LLM 方案校对">
+        <a-switch v-model:checked="form.enable_llm" @change="toggleLlm" />
+        <span class="rf-hint" style="display:block;margin-top:4px">开启后对全部方案一次调用大模型（受「设置→AI 设置→启用 AI」总开关约束）；规则硬校验（缺件/平台/超预算）仍在 review 节点 100% 兜底，失败自动降级规则，绝不阻塞流程。默认关 = 纯规则校对，零成本</span>
+      </a-form-item>
+      <a-divider orientation="left" class="rf-sec">行为参数</a-divider>
+      <a-form-item label="few-shot 参考案例数（reference_limit）">
+        <a-input-number v-model:value="form.reference_limit" :min="0" :max="5" style="width:100%" />
+        <p class="rf-hint">取同系列（平台）的 bom_cases 当「这类需求该长什么样」的参考样本；平台不同不会硬套。0 = 不带参考。</p>
+      </a-form-item>
+      <a-alert type="info" show-icon banner message="只报意图级硬问题（GPU/存储/平台是否满足需求意图），禁止逐行 diff——吸取 2026-08-04「案例库规格级对照全误报」教训。每次调用记 trace，指标可在 /api/reasoning/llm-metrics 查看" style="margin-bottom: 12px" />
     </a-form>
 
     <a-empty v-else description="该节点无可配置参数" />
@@ -393,4 +641,7 @@ async function save() {
 .rf-json { font-family: ui-monospace, monospace; font-size: 12px; }
 .rf-sec { font-size: 13px; margin-top: 8px; }
 .rf-checks { display: flex; flex-wrap: wrap; gap: 12px 16px; padding: 4px 0; }
+.rf-rec-models { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.rf-rec-row { display: flex; align-items: center; gap: 10px; }
+.rf-rec-label { min-width: 150px; font-size: 12px; color: var(--cpq-text-secondary); }
 </style>

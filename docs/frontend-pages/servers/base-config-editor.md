@@ -1,6 +1,6 @@
 # 基准配置编辑器 (BaseConfigEditorPage)
 
-> 最后更新：2026-08-02
+> 最后更新：2026-08-04
 
 ## 功能概述
 
@@ -9,6 +9,7 @@
 ### 核心功能
 1. **左侧编辑面板**：
    - 基础信息：名称、系列、机箱形态、盘位、关联 BOM 模板
+   - **机箱能力**（2026-08-02 并入，原独立「机箱能力」编辑器）：电源槽 psu_bays / GPU 槽上限 gpu_slots / TDP 上限 max_tdp / GPU 架构 gpu_arch_default / 后面板槽位布局 rear_slots（可增删行 + 恢复标准布局）——机箱物理边界，决定配置容量与默认值。默认/选项走 `chassisMeta.ts` SSOT（DEFAULT_REAR_SLOTS / GPU_ARCH_OPTIONS）；「恢复标准布局」按 form+series 取底座模板（`rearSlotsFor`：2U AMD=IO1-4+OCP / 2U Polaris（兆芯）=IO1-4 无 OCP / 4U=仅 OCP（GPU 走 gpu_slots+gpu_arch，业内 GPU 机无 IO1-4））
    - 料件清单：可拖拽排序的料件列表
      - 分类选择（全部/特定分类）
      - 料号选择（PartPicker 组件）
@@ -18,7 +19,7 @@
    - 料件总数
    - 成本合计
    - 功耗合计（TDP）
-3. **保存/取消** — 创建或更新基准配置
+3. **保存/取消** — 创建或更新基准配置（save payload 含机箱能力字段；历史曾把 gpu_arch_default 写死 'none' 的 clobber 坑已修）
 
 ### 数据流
 - 新建模式：空表单
@@ -68,7 +69,7 @@
 
 | Schema | 表 | 用途 |
 |--------|-----|------|
-| `l6` | `base_configs` | 基准配置主表（name, series, form, bays, bom_template_id, model_id, config_content） |
+| `l6` | `base_configs` | 基准配置主表（name, series, form, bays, bom_template_id, model_id, config_content, **psu_bays, rear_slots, gpu_slots, max_tdp, gpu_arch_default**） |
 | `l6` | `base_config_parts` | 基准配置料件（category, pn, quantity） |
 | `l6` | `parts_master` | 配件主数据（查价、查功耗） |
 | `kp` | `kp_categories` | 配件分类 |
@@ -79,4 +80,5 @@
 
 - `PartPicker.vue` — 料号选择器（分类筛选 + 搜索）
 - `useSeries()` — 系列选项 composable
+- `chassisMeta.ts` — 机箱能力 SSOT（DEFAULT_REAR_SLOTS / GPU_ARCH_OPTIONS / 按底座分 rear_slots 模板 REAR_SLOTS_2U_AMD·2U_POLARIS·4U + rearSlotsFor）
 - `vuedraggable` — 拖拽排序

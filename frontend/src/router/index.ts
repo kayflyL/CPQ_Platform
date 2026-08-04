@@ -126,8 +126,7 @@ const routes = [
       {
         path: '/strategies/requirement',
         name: 'StrategyRequirement',
-        component: () => import('@/views/admin/LegacyModulePage.vue'),
-        props: { module: 'requirement' },
+        component: () => import('@/views/admin/requirement/RequirementWorkspace.vue'),
         meta: { title: '需求分析' }
       },
 

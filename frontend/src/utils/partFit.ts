@@ -49,14 +49,5 @@ export function slotCapOf(rearSlots: RearSlot[] | undefined, slotName: string): 
   return rearSlots?.find(s => s.name === slotName)?.cap ?? 0
 }
 
-/** 配件适用的机箱系列（specs.chassis 数组；空表示未声明=通用）*/
-export function applicableSeries(part: SpecdPart): string[] {
-  const c = part.specs?.chassis
-  return Array.isArray(c) ? c.map(String) : []
-}
-
-/** 配件是否适用某系列（specs.chassis 未声明视为通用=适用）*/
-export function fitsSeries(part: SpecdPart, series?: string): boolean {
-  const list = applicableSeries(part)
-  return !series || list.length === 0 || list.includes(series)
-}
+// 注：specs.chassis「适用系列」声明曾由 配件适配页(PartFitMatrix) 可视化，但该声明未被
+// 任何装配逻辑消费（L6/KP/推理均不过滤），页面已随 2026-08-03 移除；applicableSeries/fitsSeries 一并删除。

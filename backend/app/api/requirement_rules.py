@@ -1,6 +1,6 @@
 """API endpoints for requirement rules (需求分析规则库)。
 
-type: clarity (明确度判定) / rebuttal (反问话术) / budget (预算映射)
+type: clarity (明确度判定) / budget (预算映射)（旧 rebuttal/workload 已随目录驱动引导删除）
 status: draft / testing / active / archived（只有 active 被 pipeline 引用）
 """
 from fastapi import APIRouter, HTTPException
@@ -9,7 +9,7 @@ from app.repository.requirement_rule_repo import RequirementRuleRepository
 router = APIRouter(prefix="/api/requirement-rules", tags=["requirement-rules"])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
-_VALID_TYPE = {"clarity", "rebuttal", "budget"}
+_VALID_TYPE = {"clarity", "budget"}
 
 
 @router.get("/")

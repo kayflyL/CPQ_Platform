@@ -1,13 +1,13 @@
 <script setup lang="ts">
 /** 策略文档编辑器 —— a-modal:元数据 + markdown 编辑(左 textarea / 右实时预览)。
- *  新建:doc=null;编辑:doc=Strategy。保存走 strategyApi.saveDoc(自动落版本快照)。 */
+ *  新建:doc=null;编辑:doc=PolicyDoc。保存走 policyDocApi（无 id，编辑按 module+created_at 定位）。 */
 import { ref, reactive, watch, computed } from 'vue'
 import { message } from 'ant-design-vue'
-import { strategyApi, type Strategy, type StrategyStatus } from '@/api/strategies'
+import { policyDocApi, type PolicyDoc, type StrategyStatus } from '@/api/strategies'
 import { DOC_CATEGORIES, readDocBody, type StrategyModule } from '@/constants/policyMeta'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 
-const props = defineProps<{ open: boolean; doc: Strategy | null; module: StrategyModule }>()
+const props = defineProps<{ open: boolean; doc: PolicyDoc | null; module: StrategyModule }>()
 const emit = defineEmits<{ 'update:open': [v: boolean]; saved: [] }>()
 
 const saving = ref(false)
@@ -68,19 +68,20 @@ async function save() {
   if (!content) { message.warning('请填写文档内容'); return }
   saving.value = true
   try {
-    await strategyApi.saveDoc({
-      id: props.doc?.id,
+    const base = {
+      module: props.module,
       name,
-      body: {
-        module: props.module,
-        category: form.category,
-        sort_order: Number(form.sort_order) || 1,
-        content_markdown: form.content_markdown,
-      },
+      category: form.category,
+      sort_order: Number(form.sort_order) || 1,
+      content_markdown: form.content_markdown,
       description: form.description.trim() || undefined,
-      change_reason: form.change_reason.trim() || undefined,
       status: form.status,
-    })
+    }
+    if (props.doc?.created_at) {
+      await policyDocApi.update({ ...base, created_at: props.doc.created_at })
+    } else {
+      await policyDocApi.create(base)
+    }
     message.success(isEdit.value ? '已保存(新版本已留痕)' : '已创建')
     emit('saved')
   } catch (e: any) {

@@ -99,6 +99,11 @@ const l6Rows = computed(() => {
       const key = r.slot || r.type
       const v = ctx[key] || { desc: '', qty: '' }
       return { catalogue: r.label, description: v.desc || '', qty: v.qty, _idx: idx }
+    }).filter((row: any) => {
+      // 空行隐藏：desc 与 qty 都为空（含 0）→ 整行不显示（"没有就隐藏"，不再出现 [空]）
+      const descEmpty = row.description === '' || row.description == null
+      const qtyEmpty = row.qty === '' || row.qty == null || row.qty === 0
+      return !(descEmpty && qtyEmpty)
     })
   }
   // 无 BOM 模板时不显示 L6 行——绝不回落到 cfg.items 的机箱原版料

@@ -8,7 +8,7 @@
  *   ③ CRE ctx 字段命名空间与 config/opportunity 字段中文
  *   ④ 拓扑图 / 卡片展示文案与符号
  *
- * 注意：config.* 是 CRE 引擎上下文派生字段，不属于商机字段表(init_business_fields)
+ * 注意：config.* 是 CRE 引擎上下文派生字段，不属于商机字段表
  *       也不属于料号 spec 字段族(partSpecFields)，故在此独立维护。
  */
 import type { RuleType } from '@/api/compatibilityRules'
@@ -118,4 +118,32 @@ export function alertLabel(severity: AlertSeverity | string): string {
 /** 是否阻断级（conflict/require）——消费方据此决定是否进保存确认 */
 export function isBlockingSeverity(severity: AlertSeverity | string): boolean {
   return !!_ALERT_SEV_MAP[severity as AlertSeverity]?.blocking
+}
+
+// ── ⑥ 规则业务分类（category）配色 SSOT ──
+// category 是用户可自定义的开放标签（后端 DISTINCT 驱动，非固定枚举）。
+// 故只给 seed 预置项指定「语义色」，再用马卡龙调色板按分类名稳定散列取色，
+// 让用户新建的任意分类也拿到一致颜色——杜绝组件内裸写色值/三元式。
+// seed 分类（与 backend DEFAULT_RULES 的 category 一致；过滤条/分组按此顺序排前）
+export const RULE_CATEGORY_SEED: string[] = ['背板与线缆', '核心件互斥']
+// seed 分类的语义色（互斥→红、线缆→紫，呼应规则类型色语义）
+export const RULE_CATEGORY_COLOR: Record<string, string> = {
+  '背板与线缆': 'var(--cpq-color-purple)',
+  '核心件互斥': 'var(--cpq-accent-danger)',
+}
+// 马卡龙调色板（Glass Console 语义色同源），用户自建分类按名稳定散列落入
+export const CATEGORY_PALETTE: string[] = [
+  'var(--cpq-accent-primary)',
+  'var(--cpq-color-success)',
+  'var(--cpq-accent-warning)',
+  'var(--cpq-color-purple)',
+  'var(--cpq-accent-danger)',
+]
+/** 分类色：seed 项走语义色表，其余按名稳定散列取调色板；空分类走弱化文本色 */
+export function categoryColor(name: string | null | undefined): string {
+  if (!name) return 'var(--cpq-text-muted)'
+  if (RULE_CATEGORY_COLOR[name]) return RULE_CATEGORY_COLOR[name]
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  return CATEGORY_PALETTE[h % CATEGORY_PALETTE.length]
 }

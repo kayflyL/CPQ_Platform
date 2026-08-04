@@ -215,10 +215,14 @@ export interface ServerModel {
   // 该机型的所有配置变体（getModel 附带；含主配置 base_config）
   configs?: BaseConfig[]
 }
-/** 配置级介绍（轻量两段，存 base_configs.config_content JSONB，后端不透明透传） */
+/** 配置级内容（存 base_configs.config_content JSONB，后端不透明透传） */
 export interface ConfigContent {
   description?: string   // 配置说明（一段话）
   spec_diff?: string     // 规格差异说明
+  // IO/Riser 与内存速率（数据驱动，需求分析/报价工作台/server config 同源消费）：
+  standard_riser?: Record<string, string> | string  // 各 IO 槽默认 riser（dict 按槽位 / 字符串全槽同规格）
+  riser_x16?: string                                // 升级规格（装 GPU → 全槽；100G+ 网卡 → IO1）
+  standard_mem_speed?: string | number | null       // 机型标准内存速率 (MT/s)，需求未写时按此选件
 }
 export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string

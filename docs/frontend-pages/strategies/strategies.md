@@ -1,6 +1,6 @@
 # 策略中心 (Strategies)
 
-> 最后更新：2026-08-01
+> 最后更新：2026-08-02
 
 ## 功能概述
 
@@ -168,12 +168,14 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 - `stores/pricingRules.ts` — pricing 规则加载（Pinia）+ 加法引擎薄封装 `computeTargetMargin` + `getGuardrail` + 维保 `getWarrantyRate` + L3 `getStrategySnapshot`(pricing_additive) + `invalidatePricingRules`
 - `stores/selectionRules.ts` — selection CRE Pinia store（`ensureRules`/`evaluateRules`/`invalidateRules`，薄封装）
 - `stores/selectionEngine.ts` — CRE 纯求值逻辑（`evaluateRules(rules,ctx)`/`evalWhen`/`evalThen`，独立 28 单测）
-- `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（5 type 分 tab + WHEN/THEN modal，selection 域专用，取代旧 X6 画布）
-- `backend/app/repository/compatibility_rule_repo.py` + `models/compatibility_rule.py` + `api/compatibility_rules.py` — CRE 后端 CRUD + seed（DEFAULT_RULES 8 条：5 derive + 3 exclude；`seed_missing_defaults` 按名补种）
+- `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（卡片网格 + **业务分类(category) 过滤条/分组** + WHEN/THEN 编辑 modal，selection 域专用，取代旧 X6 画布）
+- `backend/app/repository/compatibility_rule_repo.py` + `models/compatibility_rule.py` + `api/compatibility_rules.py` — CRE 后端 CRUD + seed（DEFAULT_RULES 8 条：5 derive + 3 exclude；`seed_missing_defaults` 按名补种；**`category` 业务分类列** + `backfill_default_categories` 按 name 回填存量）
+- `constants/ruleMeta.ts` — CRE 元数据 SSOT（规则类型/操作符/字段/拓扑文案/告警 severity + **业务分类配色** `RULE_CATEGORY_SEED`/`RULE_CATEGORY_COLOR`/`categoryColor`）
+- `scripts/migrate_compatibility_rule_category.py` — 兼容规则分类列迁移（幂等 + 按 name 回填存量；startup `ensure_compatibility_rule_category` 自愈同逻辑）
 - `backend/app/services/selection_engine.py` + `tests/test_selection_engine.py` — CRE 后端求值（selectionEngine.ts 等价 Python 移植 + 34 测试，双端共用规则数据，完成 roadmap ④）
 - `constants/chassisMeta.ts` — 机箱域 SSOT（槽位布局/组合槽/选项标签/背板关键词/系列桶/GPU 架构/电源默认）
-- `utils/partFit.ts` — 配件↔机箱适配纯函数（背板类型/盘类型/槽位容量/系列适用，数据驱动）
-- `views/admin/selection/SelectionWorkspace.vue` + `ChassisCapabilityEditor.vue` + `PartFitMatrix.vue` — 选型配置四标签工作台（🏗 机箱能力 / 🔗 配件适配 / 🛠 兼容规则 / 📄 文档库）
+- `utils/partFit.ts` — 配件↔机箱适配纯函数（背板类型/盘类型/槽位容量，数据驱动；系列适用已随配件适配页 2026-08-03 移除）
+- `views/admin/selection/SelectionWorkspace.vue` + `ChassisCapabilityEditor.vue` — 选型配置工作台（🏗 机箱能力 / 🛠 兼容规则 / 📄 文档库；🔗 配件适配已移除）
 - `scripts/migrate_base_config_capability.py` — base_config 能力档案字段迁移（psu_bays/rear_slots/gpu_slots/max_tdp，幂等 + 回填）
 - `api/strategies.ts` + `api/reasoningFlow.ts` — API 接口
 - `backend/app/api/strategies.py` + `repository/strategy_repo.py` + `models/strategy.py`
@@ -188,9 +190,16 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 > - **L0 机箱能力档案**：`base_config` 加 psu_bays / rear_slots(JSON `[{name,cap}]`) / gpu_slots / max_tdp / gpu_arch_default（`scripts/migrate_base_config_capability.py` 回填存量），选型配置新「🏗 机箱能力」标签可按机箱编辑——原 `L6ChassisConfig` 散落硬编码（SLOT_CAP / 电源=2 / 系列桶三元 / 背板正则 / 线缆 kind 过滤）全部清零。
 > - **L1 配件适配（声明式）**：`utils/partFit.ts` + `constants/chassisMeta.ts`(SSOT) 统一读配件 specs 声明的适配关系（背板类型/盘类型/槽位容量/系列适用）；新「🔗 配件适配」标签可视化机箱能力 × 配件适用系列。
 > - **L2 跨件规则（CRE）**：求值器移植后端 `services/selection_engine.py`（**roadmap ④ 后端兜底 ✅ 完成**，34 测试与前端逐条对齐，双端共用规则数据 DB SSOT）；DEFAULT_RULES 现 **8 条**（5 derive + 3 exclude 内存/CPU/GPU 同型号不混搭，target 已核对 `kp_categories` 真键非中文旧分类）；`seed_missing_defaults` 按名补种（不清用户改动）+ 接 startup；ConfigWizard 保存校验升级（阻断级 conflict/require 弹确认可强存）。`SelectionWorkspace` 改四标签（机箱能力/配件适配/兼容规则/文档库）。GPU 架构改读 `base_config.gpu_arch_default`（数据驱动）。
-> - **仍未做（诚实记录）**：filter 接 PartPicker（当前无 filter 规则，接了是死代码）/ SAS·SATA→HBA·RAID（需跨品类「或」语义）/ PSU↔GPU 功率（PSU 是机箱件不在 ctx.kp）/ usage 关键词完整 system_config UI（推理流核心未盲改，已提为集中常量 `USAGE_TYPE_ROUTING`）。
+> - **仍未做（诚实记录）**：filter 接 PartPicker（当前无 filter 规则，接了是死代码）/ SAS·SATA→HBA·RAID（需跨品类「或」语义）/ PSU↔GPU 功率（PSU 是机箱件不在 ctx.kp）/ usage 关键词完整 system_config UI（usage 现只来自配置词表、与 server_type_name 同源，旧 `USAGE_TYPE_ROUTING` 路由已删）。
 >
 > 下文为重构前的历史治理记录（默认种子表等已由上述更新覆盖，保留作背景）。
+
+> 🔄 **2026-08-02 兼容规则加「业务分类」维度（[0.1.29]）**：规则页从扁平网格升级为「分类过滤条 + 按主题分组」。新增 `category` 列（**用户可自定义的开放标签，引擎不感知、仅组织用**；后端 DISTINCT 驱动，非固定枚举——区别于引擎语义的 `type` 机制轴，这是**主题轴**：把跨 type 但同硬件主题的规则聚一起，如 GPU 供电线(derive) 与 GPU 同型号(exclude) 可同归「GPU 周边」）。seed 两类：`背板与线缆`（背板类型 + SATA/SAS/NVMe/GPU 供电线 5 条）、`核心件互斥`（内存/CPU/GPU 同型号 3 条）。`CompatibilityRuleEditor` 加分类过滤条 + 分组标题 + 编辑表单「业务分类」字段（a-auto-complete，已有候选 + 可自由输入新分类）；`ruleMeta.ts` 加 category 配色 SSOT（seed 语义色 + 马卡龙调色板按名稳定散列取色，新建分类自动配一致色）。`GET /api/compatibility-rules/?category=` 支持过滤。
+
+> 🔄 **2026-08-02 选型配置拆解（[0.1.30]）**：L0 机箱能力 + L1 配件适配迁出选型配置，回归纯「选型规则」scope。
+> - **机箱能力(L0) → 并入基准配置编辑器**：原 `ChassisCapabilityEditor`（选型配置独立标签）与 `BaseConfigEditorPage`（服务器管理）编辑同一 `base_configs` 行却字段互不相通，且 `BaseConfigEditorPage` save 把 `gpu_arch_default` 写死 `'none'`（存一次清空 GPU 架构的 clobber bug）。现能力字段（psu_bays/gpu_slots/max_tdp/gpu_arch_default/rear_slots）折进 `BaseConfigEditorPage` 左面板，init 载入 + save 一并提交；`ChassisCapabilityEditor` 删除。
+> - **配件适配(L1) → 服务器管理第 5 个 tab**：`PartFitMatrix` 是跨配置的目录参考视图（机箱能力 × 配件适用系列），`git mv` 到 `components/server-admin/`，挂到 `ServerAdminPage`「配件适配」tab。
+> - **`SelectionWorkspace` 四标签 → 两标签**（🛠 兼容规则 + 📄 文档库）。L0/L1 是目录主数据（归服务器管理），只有 L2 跨件兼容规则（CRE）才是选型规则（归选型配置）。
 
 selection 域已重构为**声明式兼容性规则引擎（CRE, Compatibility Rule Engine）**，取代旧的 `conflict/require/bom_spec/model_recommend` 四 type + 前端 `validateSelection`。规则存独立表 `rules.compatibility_rules`，范式 `WHEN(条件树)→THEN(动作)`，无序可叠加。前端求值抽到 `stores/selectionEngine.ts`（纯函数，`evaluateRules(rules, ctx)`，28 单测覆盖全操作符/全动作），`stores/selectionRules.ts` 薄封装读 `/api/compatibility-rules?status=active`。工作台 `selectionActions` computed 调 `evaluateRules(buildRuleContext(cfg))`，命中渲染为图标提醒（**当前为建议层，只警告不锁**）。
 

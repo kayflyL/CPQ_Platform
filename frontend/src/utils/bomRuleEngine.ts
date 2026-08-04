@@ -45,6 +45,17 @@ function readField(part: any, field: string): any {
   return (part as any)[field]
 }
 
+// I6 R25 + R27：机型标准 riser——数据驱动（{slot:desc} 按槽位、键大小写不敏感，或字符串），
+// 未配置返回 undefined（留空手填，拒绝硬编码）
+function stdRiserFor(std: any, slot: string): string | undefined {
+  if (std && typeof std === 'object') {
+    if (std[slot]) return std[slot]
+    const k = Object.keys(std).find((x) => x.toLowerCase() === slot)
+    return (k && std[k]) || std.default
+  }
+  return std || undefined
+}
+
 // ${var} 插值;任一变量缺失/空 → null(整串失败走 fallback)
 function renderTpl(tpl: string, vars: Record<string, any>): string | null {
   let missing = false
@@ -58,11 +69,14 @@ function renderTpl(tpl: string, vars: Record<string, any>): string | null {
 
 function structCount(scope: string, ctx: BomEvalContext, row: BomTemplateRow): string {
   if (scope === 'io_slot') {
-    const types = (ctx.rear[row.slot || ''] || []).filter((t: string) => t !== 'blank')
-    if (!types.length) return ''
-    const counts: Record<string, number> = {}
-    for (const t of types) counts[t] = (counts[t] || 0) + 1
-    return Object.entries(counts).map(([t, n]) => `${n}*${SHORT_LABEL[t] || t}`).join('+')
+    // I6 R25 + R26 + R27：riser 规格全数据驱动（standard_riser 默认 / riser_x16 升级），不硬编码。
+    // 装 GPU → 全槽 riser_x16；高带宽网卡(100G+) → IO1 riser_x16；否则按槽位 standard_riser；无数据留空。
+    const gpuQty = ctx.vars.gpu_qty || 0
+    const slot = String(row.slot || '').toLowerCase()
+    const x16 = ctx.vars.riser_x16
+    if (gpuQty > 0) return x16 || ''
+    if (ctx.vars.high_bw_nic && slot === 'io1') return x16 || ''
+    return stdRiserFor(ctx.vars.standard_riser, slot) || ''
   }
   if (scope === 'rear_all') {
     const all: Record<string, number> = {}
@@ -73,7 +87,16 @@ function structCount(scope: string, ctx: BomEvalContext, row: BomTemplateRow): s
     const gpuQty = ctx.vars.gpu_qty || 0
     if (gpuQty > 0) parts.push(`${gpuQty}*GPU`)
     for (const [t, n] of Object.entries(all)) parts.push(`${n}*${SHORT_LABEL[t] || t}`)
+    // 直连机型：NVMe 盘直连 CPU，Direct connected 汇总追加 "N NVME"（盘数驱动，见 ESA24V3-P 典型配置）
+    const nvmeQty = ctx.vars.nvme_count || 0
+    if (nvmeQty > 0) parts.push(`${nvmeQty}NVME`)
     return parts.join('+')
+  }
+  if (scope === 'gpu_direct') {
+    // GPU 直连汇总（模板 1 的 rear_summary「GPU 直连」行用）：只输出 GPU 数量。
+    // 严格"配了 GPU 才显示"：不配 GPU → 空串，与 qty(config_calc gpu_qty) 同空 → BomTable 整行隐藏。
+    const gpuQty = ctx.vars.gpu_qty || 0
+    return gpuQty > 0 ? `${gpuQty}*GPU` : ''
   }
   if (scope === 'front_cables') {
     const cables = DRIVE_KINDS.map(k => {
@@ -131,7 +154,9 @@ function evalQty(rule: BomRule | undefined, ctx: BomEvalContext): number | strin
   const v = tryQty(rule.qty, ctx)
   if (v != null) return v
   if (rule.qty.kind === 'manual') return ''
-  if (rule.qty_fallback) return tryQty(rule.qty_fallback, ctx) ?? ''
+  // 兼容 qty_fallback 在 rule 顶层或 rule.qty 内层两种写法（模板 fan 行曾把 fallback 嵌进 qty）
+  const fb = rule.qty_fallback ?? (rule.qty as any)?.qty_fallback
+  if (fb) return tryQty(fb, ctx) ?? ''
   return ''
 }
 

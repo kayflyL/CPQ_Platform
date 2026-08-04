@@ -107,6 +107,20 @@
       <a-tab-pane key="api" tab="API 设置">
         <a-spin :spinning="loading">
           <div class="form-section">
+            <h4 class="section-title">
+              启用 AI 引擎
+              <span class="section-hint">统一开关：关闭后所有 AI 能力（需求分析抽取/方案助手/趋势分析）走规则或停用，不调用大模型</span>
+            </h4>
+            <div class="form-row">
+              <label class="form-label">启用 AI</label>
+              <div class="form-control">
+                <a-switch v-model:checked="llmConfig.enabled" />
+                <span class="form-hint">{{ llmConfig.enabled ? '已启用（大模型介入理解类环节，选件/算价仍由规则确定性完成）' : '已关闭（系统全规则运行，不依赖大模型）' }}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="form-section">
             <h4 class="section-title">LLM API 配置</h4>
 
             <div class="form-row">
@@ -210,6 +224,7 @@ const DEFAULT_ASSISTANT_CONFIG = {
 }
 
 const DEFAULT_LLM_CONFIG = {
+  enabled: true,
   base_url: '',
   api_key: '',
   model: '',

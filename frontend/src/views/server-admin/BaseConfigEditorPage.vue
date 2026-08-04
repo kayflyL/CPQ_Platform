@@ -9,6 +9,7 @@ import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
 import { useSeriesStore } from '@/stores/series'
 import PartPicker from '@/components/common/PartPicker.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
+import { DEFAULT_REAR_SLOTS, GPU_ARCH_OPTIONS, rearSlotsFor } from '@/constants/chassisMeta'
 
 const route = useRoute()
 const router = useRouter()
@@ -17,7 +18,18 @@ const ALL_CAT = '全部'
 const editingId = ref<number | null>(null)
 const saving = ref(false)
 const loading = ref(false)
-const form = ref<any>({ name: '', series: '', form: '2U', bays: 12, bom_template_id: null })
+const form = ref<any>({
+  name: '', series: '', form: '2U', bays: 12, bom_template_id: null,
+  // 机箱能力档案（原独立「机箱能力」编辑器，现并入：物理边界，决定配置容量与默认）
+  psu_bays: 2, gpu_slots: 0, max_tdp: null as number | null, gpu_arch_default: 'none',
+  rear_slots: DEFAULT_REAR_SLOTS.map(s => ({ ...s })),
+  // config_content（riser / 内存速率等，数据驱动；description/spec_diff 由机型编辑维护）
+  configContent: {
+    description: '', spec_diff: '',
+    standard_riser: {} as Record<string, string>,
+    riser_x16: '', standard_mem_speed: null as number | null,
+  },
+})
 interface Line { uid: number; cat: string; pn: string; qty: number }
 const commonLines = ref<Line[]>([])
 const allParts = ref<PartMaster[]>([])
@@ -50,8 +62,28 @@ async function init() {
     if (id && id !== 'new') {
       editingId.value = Number(id)
       const full: any = await baseConfigApi.get(editingId.value)
-      form.value = { name: full.name, series: full.series || '', form: full.form || '2U', bays: full.bays ?? 12, bom_template_id: full.bom_template_id ?? null }
+      form.value = {
+        name: full.name, series: full.series || '', form: full.form || '2U', bays: full.bays ?? 12, bom_template_id: full.bom_template_id ?? null,
+        // 机箱能力档案（full 来自 baseConfigApi.get，含 psu_bays/rear_slots/gpu_slots/max_tdp/gpu_arch_default）
+        psu_bays: full.psu_bays ?? 2, gpu_slots: full.gpu_slots ?? 0,
+        max_tdp: full.max_tdp ?? null, gpu_arch_default: full.gpu_arch_default ?? 'none',
+        rear_slots: (full.rear_slots?.length ? full.rear_slots : DEFAULT_REAR_SLOTS).map((s: any) => ({ name: s.name, cap: s.cap })),
+      }
       commonLines.value = (full.parts || []).map((p: any) => ({ uid: uidSeq++, cat: p.category || ALL_CAT, pn: p.pn, qty: p.quantity }))
+      // config_content：riser 按槽位展开（字符串=全槽同规格）、内存速率、保留 description/spec_diff
+      const cc = full.config_content || {}
+      const stdRiser: Record<string, string> = {}
+      if (typeof cc.standard_riser === 'string') {
+        ;(full.rear_slots || []).filter((s: any) => /^io/i.test((s.name || '').trim())).forEach((s: any) => { stdRiser[s.name] = cc.standard_riser as string })
+      } else if (cc.standard_riser && typeof cc.standard_riser === 'object') {
+        Object.assign(stdRiser, cc.standard_riser)
+      }
+      form.value.configContent = {
+        description: cc.description || '', spec_diff: cc.spec_diff || '',
+        standard_riser: stdRiser,
+        riser_x16: cc.riser_x16 || '',
+        standard_mem_speed: cc.standard_mem_speed != null && cc.standard_mem_speed !== '' ? Number(cc.standard_mem_speed) : null,
+      }
     }
   } finally { loading.value = false }
 }
@@ -84,13 +116,48 @@ const summary = computed(() => {
   return { count, price, tdp }
 })
 
+// ---- 后面板槽位行（rear_slots 可增删，命名/容量可编辑）----
+function addSlot() { form.value.rear_slots.push({ name: '', cap: 1 }) }
+function removeSlot(i: number | string) { form.value.rear_slots.splice(Number(i), 1) }
+function resetSlots() { form.value.rear_slots = rearSlotsFor(form.value.form, form.value.series) }
+/** IO 槽判断（riser 规格按槽位配；OCP 是网卡位不算 riser） */
+function isIoSlot(name?: string) { return /^io/i.test((name || '').trim()) }
+
 async function save() {
   if (!form.value.name) return message.warning('请填基准名称')
   const parts = commonLines.value.filter(l => l.pn)
   if (!parts.length) return message.warning('请至少添加一个底盘件')
+  // 槽位名校验：不重；数量非负
+  const slotNames = form.value.rear_slots.map((s: any) => (s.name || '').trim()).filter(Boolean)
+  if (slotNames.length !== new Set(slotNames).size) return message.warning('后面板槽位名重复')
   saving.value = true
   try {
-    const payload: any = { name: form.value.name, series: form.value.series, model: form.value.name, form: form.value.form, bays: form.value.bays, gpu_arch_default: 'none', bom_template_id: form.value.bom_template_id ?? null }
+    const payload: any = {
+      name: form.value.name, series: form.value.series, model: form.value.name,
+      form: form.value.form, bays: form.value.bays, bom_template_id: form.value.bom_template_id ?? null,
+      // 机箱能力档案（原 ChassisCapabilityEditor 编辑的字段，现并入；修掉历史 gpu_arch_default 写死 'none' 的 clobber 坑）
+      psu_bays: Number(form.value.psu_bays) || 0,
+      gpu_slots: Number(form.value.gpu_slots) || 0,
+      max_tdp: form.value.max_tdp == null ? null : (Number(form.value.max_tdp) || null),
+      gpu_arch_default: form.value.gpu_arch_default || 'none',
+      rear_slots: (form.value.rear_slots || []).filter((s: any) => (s.name || '').trim()).map((s: any) => ({ name: s.name.trim(), cap: Number(s.cap) || 0 })),
+      // config_content：只写非空字段；standard_riser 按槽位 dict（留空的槽不落库 → 手填）
+      config_content: (() => {
+        const c: any = {}
+        const d = form.value.configContent || {}
+        if (d.description) c.description = d.description
+        if (d.spec_diff) c.spec_diff = d.spec_diff
+        const ioNames = new Set((form.value.rear_slots || []).map((s: any) => (s.name || '').trim()).filter((n: string) => /^io/i.test(n)))
+        const stdRiser: Record<string, string> = {}
+        for (const [k, v] of Object.entries(d.standard_riser || {})) {
+          if (v && String(v).trim() && ioNames.has(k)) stdRiser[k] = String(v).trim()
+        }
+        if (Object.keys(stdRiser).length) c.standard_riser = stdRiser
+        if (d.riser_x16 && String(d.riser_x16).trim()) c.riser_x16 = String(d.riser_x16).trim()
+        if (d.standard_mem_speed != null && d.standard_mem_speed !== '') c.standard_mem_speed = Number(d.standard_mem_speed)
+        return Object.keys(c).length ? c : null
+      })(),
+    }
     let id = editingId.value
     if (id) await baseConfigApi.update(id, payload)
     else id = (await baseConfigApi.create(payload)).id
@@ -134,6 +201,54 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 <a-select-option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}（{{ t.rows?.length || 0 }}行）</a-select-option>
               </a-select>
             </a-form-item>
+
+            <div class="sec-label">机箱能力（物理边界 · 决定配置容量与默认值）</div>
+            <a-row :gutter="12">
+              <a-col :span="6"><a-form-item label="电源槽位"><a-input-number v-model:value="form.psu_bays" :min="0" :max="8" style="width:100%" /></a-form-item></a-col>
+              <a-col :span="6"><a-form-item label="GPU 槽上限"><a-input-number v-model:value="form.gpu_slots" :min="0" :max="16" style="width:100%" /></a-form-item></a-col>
+              <a-col :span="6"><a-form-item label="TDP 上限 (W)"><a-input-number v-model:value="form.max_tdp" :min="0" placeholder="可空" style="width:100%" /></a-form-item></a-col>
+              <a-col :span="6"><a-form-item label="GPU 架构"><a-select v-model:value="form.gpu_arch_default" :options="GPU_ARCH_OPTIONS" /></a-form-item></a-col>
+            </a-row>
+            <div class="slot-editor">
+              <div class="rear-edit-head">
+                <span class="sec-label" style="margin:0">后面板槽位（每槽一张卡：数量 = 可装卡数；IO 槽可填 riser 预填规格）</span>
+                <a-space :size="6">
+                  <a-button size="small" @click="addSlot">+ 槽位</a-button>
+                  <a-button size="small" type="link" @click="resetSlots">恢复标准布局</a-button>
+                </a-space>
+              </div>
+              <div style="font-size:12px;color:var(--cpq-text-muted);margin:4px 0 8px">
+                GPU 槽走上方「GPU 槽上限」(gpu_slots)；NVMe 模组作为槽内选项(option_type=nvme)。
+                riser 填充优先级：装 GPU → 全 IO 槽取「升级规格」；100G/200G/400G 网卡 → IO1 取「升级规格」；否则取本槽预填；预填空 = 手填。
+              </div>
+              <div class="slot-grid">
+                <div v-for="(s, i) in form.rear_slots" :key="i" class="slot-card">
+                  <div class="slot-card-head">
+                    <a-input v-model:value="s.name" placeholder="槽位名 (IO1 / OCP)" style="flex:1" />
+                    <a-button danger size="small" @click="removeSlot(i)">✕</a-button>
+                  </div>
+                  <a-form-item label="数量（可装卡数）" :style="{ marginBottom: 6 }">
+                    <a-input-number v-model:value="s.cap" :min="0" :max="12" style="width:100%" />
+                  </a-form-item>
+                  <a-form-item v-if="isIoSlot(s.name)" label="riser 预填规格（留空=手填）" :style="{ marginBottom: 0 }">
+                    <a-input v-model:value="form.configContent.standard_riser[s.name]" placeholder="如 1*X16+1*X8 FHFL" />
+                  </a-form-item>
+                </div>
+              </div>
+              <a-row :gutter="12" style="margin-top:6px">
+                <a-col :span="12">
+                  <a-form-item label="升级规格 riser_x16（GPU / 100G+ 网卡时使用）">
+                    <a-input v-model:value="form.configContent.riser_x16" placeholder="如 1*X16+1*X8 FHFL" />
+                  </a-form-item>
+                </a-col>
+                <a-col :span="12">
+                  <a-form-item label="标准内存速率 (MT/s)">
+                    <a-input-number v-model:value="form.configContent.standard_mem_speed" :min="0" placeholder="如 4800" style="width:100%" />
+                    <div style="font-size:12px;color:var(--cpq-text-muted)">需求未写速率时按此选件（技术员惯例 4800）</div>
+                  </a-form-item>
+                </a-col>
+              </a-row>
+            </div>
           </a-form>
 
           <div class="sec-label">底盘件（⣿ 拖拽排序；选中后自动归类）</div>
@@ -193,6 +308,11 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .col-left { flex: 1; min-width: 0; padding: 16px; }
 .col-right { flex: 0 0 240px; position: sticky; top: 16px; }
 .sec-label { font-size: 13px; color: var(--cpq-text-muted, #6E7582); margin: 8px 0; }
+.slot-editor { margin-bottom: 8px; }
+.rear-edit-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.slot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+.slot-card { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 10px 12px; background: var(--cpq-overlay-w4); }
+.slot-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .line-list { min-height: 40px; }
 .line-block { margin-bottom: 10px; }
 .line-row { display: flex; gap: 6px; align-items: center; }

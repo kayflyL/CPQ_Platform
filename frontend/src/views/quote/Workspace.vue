@@ -1413,7 +1413,7 @@ function kpSummaryFor(cfg: any) {
   const items = cfg?.items || []
   let cpuPn: string | undefined, cpuQty = 0
   let gpuPn: string | undefined, gpuQty = 0
-  let hasGpu = false
+  let hasGpu = false, highBwNic = false
   const drivesByKind: Record<string, number> = {}
   for (const it of items) {
     if (it.category !== 'Key Parts') continue
@@ -1424,6 +1424,8 @@ function kpSummaryFor(cfg: any) {
       cpuPn = model; cpuQty += (it.qty || 0)
     } else if (cat.includes('gpu')) {
       gpuPn = model; gpuQty += (it.qty || 0); hasGpu = true
+    } else if (/nic|网卡|网络/.test(cat) && /(100|200|400)\s*g/i.test(`${it.description || ''} ${it.catalogue || ''}`)) {
+      highBwNic = true  // R26：100G+ 高带宽网卡（x16 卡）→ IO1 riser 升级 x16
     } else {
       // 盘类型：优先 KP 件结构化 specs（interface/kind/type，pn 查库）；缺失（无 pn / excel 新件）回退型号名嗅探（大小写无关）
       const spec = (it.pn ? kpPartByPn(it.pn)?.specs : null) as Record<string, any> | null
@@ -1432,7 +1434,7 @@ function kpSummaryFor(cfg: any) {
       if (k) drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0)
     }
   }
-  return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: (cfg?.gpu_arch as GpuArch) || (hasGpu ? 'pt' : 'none'), drivesByKind }
+  return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: (cfg?.gpu_arch as GpuArch) || (hasGpu ? 'pt' : 'none'), drivesByKind, highBwNic }
 }
 
 const handleSave = async () => {

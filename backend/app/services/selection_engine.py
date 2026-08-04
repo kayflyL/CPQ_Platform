@@ -269,3 +269,76 @@ def eval_assign_value(rules: Iterable[dict], ctx: dict, field: str) -> Any:
         if eval_when(ctx, _body(r).get("when")):
             return then.get("value")
     return None
+
+
+# ── 整机方案上下文（需求分析 → 选型配置 打通）──────────────────────────────────
+# 需求分析 build_plan 产出方案后，把 KP 件聚合成与工作台一致的 RuleContext，
+# 让同一套兼容性规则同时约束「人工选配」和「自动出方案」（消除规则只在前端生效的割裂）。
+# 规则本体（如何配线 / 硬盘线 / 背板类型）由选型配置页统一管理，这里只负责组装输入。
+
+_DRIVE_CAT_HINTS = ("硬盘", "DRIVE", "SSD", "HDD", "DISK", "盘")
+_DRIVE_BLOB_HINTS = ("NVME", "SATA", "SAS")
+
+
+def _canonical_kp_cat(cat: str) -> str:
+    """KP 品类名 → 规则寻址用的标准键（对齐 DEFAULT_RULES 的 target：CPU/Memory/GPU）。"""
+    raw = str(cat or "")
+    up = raw.upper()
+    if "GPU" in up or "显卡" in raw:
+        return "GPU"
+    if "CPU" in up:
+        return "CPU"
+    if "MEMORY" in up or "内存" in raw:
+        return "Memory"
+    return raw
+
+
+def plan_rule_context(kp_parts: list, baseline: Optional[dict] = None) -> dict:
+    """把整机方案 KP 件聚合成规则求值 ctx（对齐前端 Workspace buildRuleContext / L6ChassisConfig ruleCtx）。
+
+    - kp.<品类>：qty 合计 + items（pn/name/matched_spec），品类名规范到 CPU/Memory/GPU
+    - config：盘类型计数 sata_qty/sas_qty/nvme_qty + 集合 drive_kinds + 机型 series/model/form
+    - opportunity：空（需求分析阶段没有商机平台维度）
+    """
+    kp: dict = {}
+    sata = sas = nvme = 0
+    drive_kinds: set = set()
+    has_drive = False
+    for row in kp_parts or []:
+        if row.get("unmatched"):
+            continue
+        cat = _canonical_kp_cat(row.get("category") or row.get("part_category") or "其他")
+        node = kp.setdefault(cat, {"qty": 0, "items": [], "spec": {}})
+        qty = int(row.get("qty") or 1)
+        node["qty"] += qty
+        node["items"].append({
+            "pn": row.get("pn") or row.get("model") or "",
+            "name": row.get("name") or "",
+            "matched_spec": row.get("matched_spec") or "",
+        })
+        cat_u = str(row.get("category") or row.get("part_category") or "").upper()
+        blob = f"{cat_u} {str(row.get('name') or '').upper()} {str(row.get('matched_spec') or '').upper()}"
+        if any(k in cat_u for k in _DRIVE_CAT_HINTS) or any(k in blob for k in _DRIVE_BLOB_HINTS):
+            has_drive = True
+            if "NVME" in blob:
+                nvme += qty
+                drive_kinds.add("NVMe")
+            if "SAS" in blob:
+                sas += qty
+                drive_kinds.add("SAS")
+            if "SATA" in blob:
+                sata += qty
+                drive_kinds.add("SATA")
+    if has_drive and not drive_kinds:
+        drive_kinds.add("SATA")  # 协议不明默认 SATA（2U 最常见，与 candidate_search._kp_signals 一致）
+    config = {
+        "sata_qty": sata,
+        "sas_qty": sas,
+        "nvme_qty": nvme,
+        "drive_kinds": sorted(drive_kinds),
+    }
+    if baseline:
+        for k in ("series", "model", "form"):
+            if baseline.get(k):
+                config[k] = baseline[k]
+    return {"kp": kp, "config": config, "opportunity": {}}

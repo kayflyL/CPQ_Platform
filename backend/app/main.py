@@ -41,6 +41,8 @@ from app.api import assistant as assistant_api
 from app.api import reasoning_intel as reasoning_intel_api
 from app.api import candidate_search as candidate_search_api
 from app.api import strategies as strategies_api
+from app.api import policy_docs as policy_docs_api
+from app.api import bom_cases as bom_cases_api
 from app.api import reasoning_flow as reasoning_flow_api
 from app.api import requirement_rules as requirement_rules_api
 from app.api import compatibility_rules as compatibility_rules_api
@@ -102,6 +104,8 @@ app.include_router(assistant_api.router)
 app.include_router(reasoning_intel_api.router)
 app.include_router(candidate_search_api.router)
 app.include_router(strategies_api.router)
+app.include_router(policy_docs_api.router)
+app.include_router(bom_cases_api.router)
 app.include_router(reasoning_flow_api.router)
 app.include_router(requirement_rules_api.router)
 app.include_router(compatibility_rules_api.router)

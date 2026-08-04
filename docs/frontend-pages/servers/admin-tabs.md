@@ -1,10 +1,12 @@
 # 服务器管理 Tab (Admin Tabs)
 
-> 最后更新：2026-07-27
+> 最后更新：2026-08-02
 
 ## 功能概述
 
-服务器管理后台（`/servers/admin`，宿主组件 `ServerAdminPage.vue`）下三个 Tab 的管理界面。入口与路由见 [server-admin.md](server-admin.md)。
+服务器管理后台（`/servers/admin`，宿主组件 `ServerAdminPage.vue`）下各 Tab 的管理界面（机型管理 / 产品系列 / 基准配置 / 料号库）。入口与路由见 [server-admin.md](server-admin.md)。
+
+> 配件适配 Tab 已于 2026-08-03 移除：specs.chassis「适用系列」声明未被任何装配逻辑消费，纯参考视图冗余（料号库/基准配置/兼容性规则已覆盖装配约束）。
 
 ## Tab 1: 料号库 (PartsLibrary)
 

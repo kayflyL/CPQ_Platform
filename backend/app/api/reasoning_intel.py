@@ -3,7 +3,7 @@
 POST /api/reasoning/{opportunity_id}/generate 触发后台 pipeline（jieba 分词 → 聚合检索），
 立即返回 202；推理步骤通过 reasoning_hub 经 WS /api/reasoning/ws/{opportunity_id} 实时推送。
 
-与聊天助手通道物理隔离：pipeline 一期纯本地，不调 LLM。
+与聊天助手通道物理隔离：pipeline 默认纯本地规则；llm 节点(enable_llm)开启时调 LLM 抽取增强，失败自动降级规则结果，不阻塞主流程。
 """
 import asyncio
 from typing import Optional
@@ -22,6 +22,7 @@ class GenerateBody(BaseModel):
     supplement_text: Optional[str] = None       # 反答回填文本
     explicit_budget: Optional[float] = None     # 用户明确给预算
     force_complete: bool = False                # 跳过反问，强制走选型
+    confirm: Optional[dict] = None              # LLM 确认面板决策 {item_id: accept|ignore}
 
 
 # 正在跑的 pipeline 句柄（防止同一商机并发重入；弱保护，进程内有效）
@@ -37,8 +38,12 @@ async def generate(opportunity_id: str, body: GenerateBody):
         return {"status": "ignored", "reason": "empty"}
 
     supplement = None
-    if supplement_text or body.explicit_budget is not None:
-        supplement = {"text": supplement_text or None, "budget": body.explicit_budget}
+    if supplement_text or body.explicit_budget is not None or body.confirm:
+        supplement = {
+            "text": supplement_text or None,
+            "budget": body.explicit_budget,
+            "confirm": body.confirm or {},
+        }
 
     # 并发保护：取消旧 task + 短暂等待（前端也按 pipeline_id 过滤过期消息双保险）
     prev = _running.get(opportunity_id)
@@ -61,6 +66,38 @@ async def generate(opportunity_id: str, body: GenerateBody):
     task.add_done_callback(_cleanup)
 
     return {"status": "started", "opportunity_id": opportunity_id}
+
+
+class ConfirmBody(BaseModel):
+    requirement_text: str = ""
+    decisions: Optional[dict] = None    # {item_id: accept|ignore}
+
+
+@router.get("/llm-metrics")
+def llm_metrics():
+    """LLM 节点指标汇总（P3）：调用次数/平均耗时/成功率 + 反馈采纳率/修订率。
+
+    数据源：rules.llm_trace（每次 LLM 节点调用）+ requirement_samples（llm_feedback 决策）。
+    """
+    from app.services.llm_trace import llm_metrics as _metrics
+    return _metrics()
+
+
+@router.post("/{opportunity_id}/confirm", status_code=200)
+def record_confirm(opportunity_id: str, body: ConfirmBody):
+    """LLM 确认面板反馈（全部采纳/部分忽略）→ rules.requirement_samples（source=llm_feedback）。
+
+    仅记录决策，不重跑 pipeline：用于「全部采纳、直接看方案」的场景（改了决策的场景走
+    generate 的 confirm 参数，由 confirm 节点应用并记录）。
+    """
+    from app.services.requirement_intel_service import _write_llm_feedback_sample
+    decisions = body.decisions or {}
+    applied = [
+        {"id": k, "slot": k.removeprefix("cf_"), "decision": v, "value": v}
+        for k, v in decisions.items() if v in ("accept", "ignore")
+    ]
+    _write_llm_feedback_sample(opportunity_id, body.requirement_text or "", applied)
+    return {"status": "recorded", "count": len(applied)}
 
 
 @router.websocket("/ws/{opportunity_id}")

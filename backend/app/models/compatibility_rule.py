@@ -26,6 +26,8 @@ class CompatibilityRule(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     domain: Mapped[str] = mapped_column(String(20), nullable=False, default="selection", index=True)
     type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # require/exclude/derive/filter/recommend
+    # 业务分类（用户可自定义的开放标签，引擎不感知、仅组织用）。后端 DISTINCT 驱动，非固定枚举。
+    category: Mapped[Optional[str]] = mapped_column(String(60), default=None, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     scope: Mapped[Optional[str]] = mapped_column(Text, default=None)        # JSON 生效范围（series/platform_type）
     body: Mapped[str] = mapped_column(Text, nullable=False)                 # JSON: {when, then, desc}
@@ -46,6 +48,7 @@ class CompatibilityRule(Base):
             "id": self.id,
             "domain": self.domain,
             "type": self.type,
+            "category": self.category,
             "name": self.name,
             "scope": json.loads(self.scope) if self.scope else None,
             "body": json.loads(self.body) if self.body else None,

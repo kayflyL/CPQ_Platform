@@ -4,10 +4,11 @@
  *  卡片统一白玻璃 + hover 蓝边,不分模块配色(Glass Console:色彩只给语义态)。 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { strategyApi } from '@/api/strategies'
+import { policyDocApi } from '@/api/strategies'
+import { readDocBody } from '@/constants/policyMeta'
 
 const router = useRouter()
-const pricingDocCount = ref<number | null>(null)
+const docCounts = ref<Record<string, number>>({})
 
 interface ModuleCard {
   key: string
@@ -21,15 +22,15 @@ const MODULES: ModuleCard[] = [
   {
     key: 'requirement',
     title: '需求分析',
-    desc: 'BOM 推理流可视化编排:提取需求 → 明确度反问 → 选 baseline → 配 KP → 组方案',
-    tags: ['推理流 DAG', 'CRE 规则库', '图驱动 executor'],
+    desc: 'BOM 推理流可视化编排:提取需求 → 明确度反问 → 选 baseline → 配 KP → 组方案,产出自动套用选型配置规则',
+    tags: ['推理流 DAG', '需求规则库', '图驱动 executor'],
     to: '/strategies/requirement',
   },
   {
     key: 'selection',
     title: '选型配置',
-    desc: '配件互斥 / 依赖 / 派生硬规则,工作台选配时实时校验(建议层,只警告不锁)',
-    tags: ['CRE 规则引擎', 'WHEN→THEN', '声明式'],
+    desc: '配件互斥 / 依赖 / 派生硬规则 + BOM案例库(典型配置方案,按系列/平台/机型分类,需求分析可作推荐参考)',
+    tags: ['CRE 规则引擎', 'BOM案例库', '声明式'],
     to: '/strategies/selection',
   },
   {
@@ -45,8 +46,13 @@ function enter(m: ModuleCard) { router.push(m.to) }
 
 onMounted(async () => {
   try {
-    const res = await strategyApi.listDocs()
-    pricingDocCount.value = res.strategies?.length ?? 0
+    const res = await policyDocApi.list()
+    const counts: Record<string, number> = {}
+    for (const d of res.docs || []) {
+      const m = readDocBody(d.body).module
+      counts[m] = (counts[m] || 0) + 1
+    }
+    docCounts.value = counts
   } catch { /* 文档数非关键,失败静默 */ }
 })
 </script>
@@ -55,7 +61,7 @@ onMounted(async () => {
   <div class="portal">
     <header class="portal-head">
       <h1 class="portal-title">策略中心</h1>
-      <p class="portal-sub">定价 · 选型 · 推理 三域规则统一治理。点卡片进入对应模块。</p>
+      <p class="portal-sub">需求分析 → 选型配置 → 报价 三步链路，规则统一治理。点卡片进入对应模块。</p>
     </header>
 
     <div class="portal-grid">
@@ -68,8 +74,8 @@ onMounted(async () => {
         <div class="mc-head">
           <div class="mc-title-block">
             <div class="mc-title">{{ m.title }}</div>
-            <div v-if="m.key === 'pricing' && pricingDocCount !== null" class="mc-badge">
-              {{ pricingDocCount }} 篇文档
+            <div v-if="docCounts[m.key] != null" class="mc-badge">
+              {{ docCounts[m.key] }} 篇文档
             </div>
           </div>
         </div>

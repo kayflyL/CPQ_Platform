@@ -31,6 +31,7 @@ const props = defineProps<{
     gpuPn?: string; gpuQty?: number
     gpuArch?: GpuArch
     drivesByKind?: Record<string, number> // {SATA, SAS, NVMe}
+    highBwNic?: boolean                    // 含 100G+ 高带宽网卡（x16 卡）→ IO1 riser 升级 x16
   }
   initialPicks?: any
   /** 弹窗模式：左侧步骤条 + 右侧单步内容（堆叠模式为 false，Workspace 行为不变） */
@@ -352,11 +353,25 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
       form: (baseConfig.value as any)?.form,
       series: (baseConfig.value as any)?.series,
       bp_type: bpType(),
+      // I6 R25 + R27：io_slot riser 数据驱动（standard_riser/riser_x16），不硬编码、不查料号
+      standard_riser: (baseConfig.value as any)?.config_content?.standard_riser || '',
+      riser_x16: (baseConfig.value as any)?.config_content?.riser_x16 || '',
+      // R26：高带宽网卡（100G+，x16 卡）→ IO1 riser 升级 x16
+      high_bw_nic: !!props.kpSummary?.highBwNic,
       psu_qty: psuQty(),
       psu_wattage: (psuP?.specs as any)?.wattage,
       psu_name: psuName(),
       gpu_qty: props.kpSummary?.gpuQty || 0,
       gpu_cable_qty: gpuCableQty(),
+      // GPU 电源线描述（模板 gpu_power_cord 行用；无 GPU 为空 → 行自动隐藏）
+      gpu_power_cord_desc: props.kpSummary?.gpuPn
+        ? `${String(props.kpSummary.gpuPn).split('·')[0].trim()} power cord`
+        : '',
+      // NVMe 盘数（模板 rear_summary 行「N NVME」直连汇总用；与 buildPlanCfg 同口径）
+      nvme_count: props.kpSummary?.drivesByKind?.NVMe || 0,
+      // 背板描述 + 前面板线缆总根数（模板 Cable/背板行用；与 buildPlanCfg 同口径）
+      bp_type_desc: bpType() === 'tri' ? 'NVMe/SATA/SAS' : 'SATA/SAS',
+      cable_qty: CORE_DRIVE_KINDS.reduce((s, k) => s + frontCableQty(k), 0),
     },
     parts: effectiveBaseParts.value,
     rear,

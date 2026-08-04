@@ -144,7 +144,13 @@ function toggleContentEdit(cfg: BaseConfig) {
 async function saveConfigContent(cfg: BaseConfig) {
   contentSaving.value = true
   try {
-    await baseConfigApi.update(cfg.id!, { config_content: { ...contentDraft.value } })
+    // 合并保存：只覆盖 description/spec_diff，保留 standard_riser/riser_x16/standard_mem_speed（否则会被清掉）
+    const cc: Record<string, any> = { ...(cfg.config_content || {}) }
+    if (contentDraft.value.description?.trim()) cc.description = contentDraft.value.description.trim()
+    else delete cc.description
+    if (contentDraft.value.spec_diff?.trim()) cc.spec_diff = contentDraft.value.spec_diff.trim()
+    else delete cc.spec_diff
+    await baseConfigApi.update(cfg.id!, { config_content: cc })
     message.success('配置简介已保存')
     contentEditId.value = null
     await refreshConfigs()

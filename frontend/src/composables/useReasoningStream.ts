@@ -17,6 +17,17 @@ export interface ReasoningStep {
   payload?: any
 }
 
+export interface ConfirmItem {
+  id: string
+  slot: string
+  label: string
+  rule?: string | null
+  llm?: string | null
+  level: 'conflict' | 'low_confidence'
+  confidence?: number
+  default?: string
+}
+
 /** 二期占位步骤（面板内灰显，对应流程图虚线框） */
 export const FUTURE_STEPS: { key: string; label: string }[] = [
   { key: 'llm_best_fit', label: 'LLM 语义择优（判断"最合适"）' },
@@ -44,6 +55,15 @@ export function useReasoningStream() {
     options: string[]
     round: number
     clarity_capped: boolean
+    stage?: string      // 目录驱动引导阶段：type/model/kp
+    format?: string     // KP 填写格式模板（引导客户按格式回复）
+  } | null>(null)
+  /** LLM 确认面板待决策项（confirm 节点触发：冲突/低置信度，默认采纳可改） */
+  const pendingConfirm = ref<{
+    reply_id: string
+    question: string
+    items: ConfirmItem[]
+    default: string
   } | null>(null)
   /** 当前 pipeline_id（过滤过期消息，防并发/重跑交错） */
   const currentPipelineId = ref<string | null>(null)
@@ -58,6 +78,7 @@ export function useReasoningStream() {
     series.value = null
     form.value = null
     pendingPrompt.value = null
+    pendingConfirm.value = null
     currentPipelineId.value = null
   }
 
@@ -106,6 +127,7 @@ export function useReasoningStream() {
           }))
           plans.value = []
           pendingPrompt.value = null  // 新轮次清旧反问
+          pendingConfirm.value = null // 新轮次清旧确认
           break
         case 'step_start':
           setStep(data.step, 'running')
@@ -122,6 +144,17 @@ export function useReasoningStream() {
             options: data.options || [],
             round: data.round || 1,
             clarity_capped: !!data.clarity_capped,
+            stage: data.stage || undefined,
+            format: data.format || undefined,
+          }
+          break
+        case 'need_confirm':
+          // confirm 节点：默认采纳 LLM 补充项（面板高亮可改），pipeline 已出默认方案
+          pendingConfirm.value = {
+            reply_id: data.reply_id || '',
+            question: data.question || '',
+            items: data.items || [],
+            default: data.default || 'accept',
           }
           break
         case 'candidates_ready':
@@ -174,5 +207,5 @@ export function useReasoningStream() {
     running.value = false
   }
 
-  return { steps, plans, running, error, keywords, series, form, pendingPrompt, connect, disconnect, reset }
+  return { steps, plans, running, error, keywords, series, form, pendingPrompt, pendingConfirm, connect, disconnect, reset }
 }

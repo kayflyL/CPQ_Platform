@@ -18,6 +18,27 @@
     <p v-else-if="plan.underspend" class="pc-warn info">
       <InfoCircleOutlined /> 方案仅用预算 {{ Math.round(plan.underspend.ratio * 100) }}%，可升级配置（还剩 ¥{{ fmt(plan.underspend.amount) }}）
     </p>
+    <!-- AI 校对结论（review 节点，阻塞式：通过/不通过 + 必改项） -->
+    <p
+      v-if="plan.audit"
+      class="pc-warn"
+      :class="plan.audit.status === 'ok' ? 'info' : 'error'"
+    >
+      <InfoCircleOutlined v-if="plan.audit.status === 'ok'" />
+      <WarningOutlined v-else />
+      {{ plan.audit.status === 'ok' ? '校对通过 ✓' : ('需修改：' + (plan.audit.issues || []).join('；')) }}
+    </p>
+    <!-- 选型配置规则校验告警（需求分析自动出方案与工作台共用同一套规则） -->
+    <p
+      v-for="a in plan.selection_alerts"
+      :key="(a.ruleId ?? 0) + '-' + a.desc"
+      class="pc-warn"
+      :class="a.severity === 'info' ? 'info' : ''"
+    >
+      <WarningOutlined v-if="a.severity !== 'info'" />
+      <InfoCircleOutlined v-else />
+      {{ a.desc }}
+    </p>
     <p v-if="plan.selling_points" class="pc-points">★ {{ plan.selling_points }}</p>
     <p class="pc-meta">底盘 {{ plan.summary.parts_count }} 件 + KP {{ plan.summary.kp_count }} 件 · 含税价以工作台为准</p>
     <footer class="pc-actions">
@@ -39,7 +60,7 @@
 import { WarningOutlined, InfoCircleOutlined, EyeOutlined } from '@ant-design/icons-vue'
 import type { Plan } from '@/api/reasoning'
 
-defineProps<{ plan: Plan }>()
+const props = defineProps<{ plan: Plan }>()
 defineEmits<{ (e: 'view-bom', plan: Plan): void }>()
 
 function fmt(n: number | null | undefined) {
@@ -136,6 +157,12 @@ function fmt(n: number | null | undefined) {
   background: var(--cpq-overlay-w6);
   border: 1px solid var(--cpq-overlay-w15, var(--cpq-overlay-w10));
   border-radius: var(--cpq-radius-sm, 8px);
+}
+.pc-warn.info {
+  color: var(--cpq-accent-info, #3b82f6);
+}
+.pc-warn.error {
+  color: var(--cpq-accent-danger, #dc2626);
 }
 
 @keyframes pc-in {

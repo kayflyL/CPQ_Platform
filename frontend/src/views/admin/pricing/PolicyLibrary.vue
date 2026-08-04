@@ -4,21 +4,21 @@
  *  卡片统一白玻璃(镜像 ServerModelCard),分类不带配色(Glass Console:色彩只给语义态)。 */
 import { ref, computed, onMounted } from 'vue'
 import { Modal, message } from 'ant-design-vue'
-import { strategyApi, type Strategy } from '@/api/strategies'
+import { policyDocApi, type PolicyDoc } from '@/api/strategies'
 import { readDocBody, DOC_CATEGORIES, type StrategyModule } from '@/constants/policyMeta'
 import PolicyDocEditor from './PolicyDocEditor.vue'
 
 const props = defineProps<{ module: StrategyModule }>()
-const emit = defineEmits<{ 'open-doc': [doc: Strategy] }>()
+const emit = defineEmits<{ 'open-doc': [doc: PolicyDoc] }>()
 
-const docs = ref<Strategy[]>([])
+const docs = ref<PolicyDoc[]>([])
 /** 本模块文档（按 body.module 过滤；存量无 module 归 'pricing'，见 readDocBody）*/
 const moduleDocs = computed(() => docs.value.filter(d => readDocBody(d.body).module === props.module))
 const loading = ref(false)
 const filterCat = ref<string>('all')
 const search = ref('')
 const editorOpen = ref(false)
-const editing = ref<Strategy | null>(null)
+const editing = ref<PolicyDoc | null>(null)
 
 const cats = computed(() => {
   const present = new Set(moduleDocs.value.map((d) => readDocBody(d.body).category))
@@ -38,15 +38,15 @@ const filtered = computed(() => {
   if (q) list = list.filter((d) => (d.name + (d.description || '')).toLowerCase().includes(q))
   return [...list].sort((a, b) => {
     const ba = readDocBody(a.body), bb = readDocBody(b.body)
-    return ba.sort_order - bb.sort_order || a.id - b.id
+    return ba.sort_order - bb.sort_order || (a.created_at || '').localeCompare(b.created_at || '')
   })
 })
 
 async function load() {
   loading.value = true
   try {
-    const res = await strategyApi.listDocs()
-    docs.value = res.strategies || []
+    const res = await policyDocApi.list(props.module)
+    docs.value = res.docs || []
   } catch (e: any) {
     message.error(e.response?.data?.detail || '加载文档失败')
   } finally {
@@ -55,23 +55,23 @@ async function load() {
 }
 
 function openNew() { editing.value = null; editorOpen.value = true }
-function openEdit(d: Strategy, e: Event) { e.stopPropagation(); editing.value = d; editorOpen.value = true }
+function openEdit(d: PolicyDoc, e: Event) { e.stopPropagation(); editing.value = d; editorOpen.value = true }
 async function onSaved() { editorOpen.value = false; await load() }
 
-function remove(d: Strategy, e: Event) {
+function remove(d: PolicyDoc, e: Event) {
   e.stopPropagation()
   Modal.confirm({
     title: '删除该文档？',
     content: `「${d.name}」将被删除,不可恢复。`,
     okText: '删除', okType: 'danger', cancelText: '取消',
     onOk: async () => {
-      try { await strategyApi.delete(d.id); message.success('已删除'); await load() }
+      try { await policyDocApi.remove(props.module, d.created_at || ''); message.success('已删除'); await load() }
       catch (e: any) { message.error(e.response?.data?.detail || '删除失败') }
     },
   })
 }
 
-function excerpt(d: Strategy): string {
+function excerpt(d: PolicyDoc): string {
   const b = readDocBody(d.body)
   const firstLine = b.content_markdown.split('\n').find((l) => l.trim() && !l.startsWith('#'))
   return d.description || (firstLine || '').replace(/[`*|#]/g, '').slice(0, 60) || '—'
@@ -113,7 +113,7 @@ onMounted(load)
         <div v-if="filtered.length" class="pl-grid">
           <div
             v-for="d in filtered"
-            :key="d.id"
+            :key="d.created_at || d.name"
             class="pl-card is-clickable"
             @click="emit('open-doc', d)"
           >

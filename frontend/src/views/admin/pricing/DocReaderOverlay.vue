@@ -2,11 +2,11 @@
 /** 文档阅读浮窗 —— 点文档卡居中弹出,磨砂玻璃遮罩 + scale/fade 柔和入场(呼吸感)。
  *  不用 a-modal 以精确控制呼吸动画;Esc / 点遮罩 / ✕ 关闭。尊重 prefers-reduced-motion。 */
 import { computed, watch, onBeforeUnmount } from 'vue'
-import type { Strategy } from '@/api/strategies'
+import type { PolicyDoc } from '@/api/strategies'
 import { readDocBody } from '@/constants/policyMeta'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 
-const props = defineProps<{ doc: Strategy | null }>()
+const props = defineProps<{ doc: PolicyDoc | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 const body = computed(() => (props.doc ? readDocBody(props.doc.body) : null))

@@ -18,6 +18,7 @@ import { kpPartsApi } from '@/api/serverConfig'
 import {
   RULE_TYPE_MAP, RULE_TYPE_OPTIONS, RULE_OP_OPTIONS, RULE_OP_MAP,
   RULE_GRAPH_TEXT as T, excludeText,
+  categoryColor, RULE_CATEGORY_SEED,
 } from '@/constants/ruleMeta'
 
 // 改规则后让消费端（工作台 / 配置向导）缓存的规则失效重拉，做到「改完即时生效」
@@ -26,7 +27,54 @@ const selectionRulesStore = useSelectionRulesStore()
 
 const rules = ref<CompatibilityRule[]>([])
 const loading = ref(false)
-const filtered = computed(() => rules.value)
+
+// ── 业务分类（开放标签，DISTINCT 驱动不锁枚举）：顶部过滤条 + 卡片按分类分组 ──
+const catFilter = ref<string>('__all__')   // '__all__' | '__none__' | 具体分类名
+// 分类名排序：seed 预置项排前（按 RULE_CATEGORY_SEED 顺序），其余按中文排序
+const seedFirstSort = (a: string, b: string) => {
+  const sa = RULE_CATEGORY_SEED.indexOf(a), sb = RULE_CATEGORY_SEED.indexOf(b)
+  if (sa >= 0 || sb >= 0) { if (sa < 0) return 1; if (sb < 0) return -1; return sa - sb }
+  return a.localeCompare(b, 'zh')
+}
+const categoryChips = computed(() => {
+  const counts = new Map<string, number>()
+  for (const r of rules.value) {
+    if (!r.category) continue
+    counts.set(r.category, (counts.get(r.category) || 0) + 1)
+  }
+  return [...counts.entries()]
+    .sort(([a], [b]) => seedFirstSort(a, b))
+    .map(([name, count]) => ({ name, count }))
+})
+const uncategorizedCount = computed(() => rules.value.filter(r => !r.category).length)
+// 编辑表单分类下拉候选（已有分类 + 可自由输入新分类）
+const categoryOpts = computed(() =>
+  [...new Set(rules.value.map(r => r.category).filter(Boolean) as string[])]
+    .sort(seedFirstSort).map(c => ({ value: c, label: c }))
+)
+
+const filtered = computed(() => {
+  const f = catFilter.value
+  if (!f || f === '__all__') return rules.value
+  if (f === '__none__') return rules.value.filter(r => !r.category)
+  return rules.value.filter(r => r.category === f)
+})
+// 按 category 分组渲染（seed 顺序优先 → 其余按名 → 未分类最后）
+const groupedFiltered = computed(() => {
+  const map = new Map<string, CompatibilityRule[]>()
+  for (const r of filtered.value) {
+    const key = r.category || '__none__'
+    if (!map.has(key)) map.set(key, [])
+    map.get(key)!.push(r)
+  }
+  return [...map.entries()]
+    .map(([key, rs]) => ({ key, category: key === '__none__' ? '' : key, rules: rs }))
+    .sort((a, b) => {
+      if (a.key === '__none__') return 1
+      if (b.key === '__none__') return -1
+      return seedFirstSort(a.category, b.category)
+    })
+})
 
 async function load() {
   loading.value = true
@@ -87,7 +135,7 @@ const editModalVisible = ref(false)
 
 function blankForm(): any {
   return {
-    name: '', type: 'derive', status: 'active',
+    name: '', type: 'derive', status: 'active', category: '',
     whenAll: [{ field: '', op: '>=', value: '' }],
     target: '', min_qty: '', unique_field: 'pn', specKey: '', specVal: '',
     basis: '', per: 1, round: 'ceil', deriveMode: 'calc', assignField: 'config.bp_type', assignValue: '',
@@ -110,7 +158,7 @@ function openEdit(r: CompatibilityRule) {
     : (w.field ? [{ field: w.field, op: w.op || '>=', value: w.value ?? '' }] : [{ field: '', op: '>=', value: '' }])
   const t = b.then || {}
   form.value = {
-    name: r.name, type: r.type, status: r.status, whenAll,
+    name: r.name, type: r.type, status: r.status, category: r.category || '', whenAll,
     target: t.target || '', min_qty: t.min_qty || '', unique_field: t.unique_field || 'pn',
     specKey: t.spec_constraint ? Object.keys(t.spec_constraint)[0] || '' : '',
     specVal: t.spec_constraint ? String(Object.values(t.spec_constraint)[0] ?? '') : '',
@@ -162,12 +210,13 @@ async function save() {
     message.warning('请填赋值的值（如 tri）'); return
   }
   const body = buildBody()
+  const category = f.category?.trim() || null
   saving.value = true
   try {
     if (!isNew.value && editing.value?.id) {
-      await compatibilityRulesApi.update(editing.value.id, { name: f.name, body, status: f.status })
+      await compatibilityRulesApi.update(editing.value.id, { name: f.name, body, status: f.status, category })
     } else {
-      await compatibilityRulesApi.create({ type: f.type, name: f.name, body, status: f.status })
+      await compatibilityRulesApi.create({ type: f.type, name: f.name, body, status: f.status, category })
     }
     message.success('已保存，已即时生效')
     closeEdit()
@@ -293,29 +342,54 @@ function toggleTrial(r: CompatibilityRule) {
           </a-space>
         </div>
 
+        <div class="cre-cats">
+          <button class="cre-cat" :class="{ on: catFilter === '__all__' }" @click="catFilter = '__all__'">
+            全部<em>{{ rules.length }}</em>
+          </button>
+          <button v-for="c in categoryChips" :key="c.name" class="cre-cat"
+            :class="{ on: catFilter === c.name }" :style="{ '--ccat': categoryColor(c.name) }"
+            @click="catFilter = c.name">
+            {{ c.name }}<em>{{ c.count }}</em>
+          </button>
+          <button v-if="uncategorizedCount" class="cre-cat"
+            :class="{ on: catFilter === '__none__' }" @click="catFilter = '__none__'">
+            未分类<em>{{ uncategorizedCount }}</em>
+          </button>
+        </div>
+
         <a-spin :spinning="loading">
-          <div v-if="filtered.length" class="cre-list">
-            <div v-for="r in filtered" :key="r.id"
-              class="cre-card glass-light"
-              :class="{ archived: r.status !== 'active', active: trialRuleId === r.id }"
-              :style="{ '--ctype': RULE_TYPE_MAP[r.type]?.cssVar || RULE_TYPE_MAP.require.cssVar }"
-              @click="openEdit(r)">
-              <div class="cre-card-head">
-                <span class="cre-dot" :class="r.status === 'active' ? 'on' : 'off'"
-                  :title="r.status === 'active' ? '生效中' : '已停用'"></span>
-                <span class="cre-name">{{ r.name }}</span>
-                <a-tag class="cre-type-tag" :color="RULE_TYPE_MAP[r.type]?.cssVar" size="small">{{ RULE_TYPE_MAP[r.type]?.label }}</a-tag>
+          <div v-if="groupedFiltered.length">
+            <div v-for="grp in groupedFiltered" :key="grp.key" class="cre-group">
+              <div class="cre-group-head" :style="{ '--ccat': categoryColor(grp.category) }">
+                <span class="cre-group-bar"></span>
+                <span class="cre-group-name">{{ grp.category || '未分类' }}</span>
+                <span class="cre-group-count">{{ grp.rules.length }}</span>
               </div>
-              <div class="cre-card-logic">
-                <p class="cre-line"><em class="ck when">当</em><span>{{ whenText(r.body) }}</span></p>
-                <p class="cre-line"><em class="ck then">则</em><span>{{ thenText(r.body) }}</span></p>
-              </div>
-              <div v-if="r.body?.desc" class="cre-desc" :title="r.body.desc">{{ r.body.desc }}</div>
-              <div class="cre-card-foot" @click.stop>
-                <a-tooltip title="试跑此规则"><a-button size="small" type="text" @click="toggleTrial(r)"><ThunderboltOutlined /></a-button></a-tooltip>
-                <a-tooltip :title="r.status === 'active' ? '停用' : '启用'"><a-button size="small" type="text" @click="toggleStatus(r)"><PoweroffOutlined /></a-button></a-tooltip>
-                <a-tooltip title="编辑"><a-button size="small" type="text" @click="openEdit(r)"><EditOutlined /></a-button></a-tooltip>
-                <a-tooltip title="删除"><a-button size="small" type="text" danger @click="remove(r)"><DeleteOutlined /></a-button></a-tooltip>
+              <div class="cre-list">
+                <div v-for="r in grp.rules" :key="r.id"
+                  class="cre-card glass-light"
+                  :class="{ archived: r.status !== 'active', active: trialRuleId === r.id }"
+                  :style="{ '--ctype': RULE_TYPE_MAP[r.type]?.cssVar || RULE_TYPE_MAP.require.cssVar }"
+                  @click="openEdit(r)">
+                  <div class="cre-card-head">
+                    <span class="cre-dot" :class="r.status === 'active' ? 'on' : 'off'"
+                      :title="r.status === 'active' ? '生效中' : '已停用'"></span>
+                    <span class="cre-name">{{ r.name }}</span>
+                    <a-tag class="cre-type-tag" :color="RULE_TYPE_MAP[r.type]?.cssVar" size="small">{{ RULE_TYPE_MAP[r.type]?.label }}</a-tag>
+                    <span v-if="r.hit_count" class="cre-hit" title="WHEN 条件命中累计次数（工作台选配 + 需求分析自动出方案都会记）">命中 {{ r.hit_count }} 次</span>
+                  </div>
+                  <div class="cre-card-logic">
+                    <p class="cre-line"><em class="ck when">当</em><span>{{ whenText(r.body) }}</span></p>
+                    <p class="cre-line"><em class="ck then">则</em><span>{{ thenText(r.body) }}</span></p>
+                  </div>
+                  <div v-if="r.body?.desc" class="cre-desc" :title="r.body.desc">{{ r.body.desc }}</div>
+                  <div class="cre-card-foot" @click.stop>
+                    <a-tooltip title="试跑此规则"><a-button size="small" type="text" @click="toggleTrial(r)"><ThunderboltOutlined /></a-button></a-tooltip>
+                    <a-tooltip :title="r.status === 'active' ? '停用' : '启用'"><a-button size="small" type="text" @click="toggleStatus(r)"><PoweroffOutlined /></a-button></a-tooltip>
+                    <a-tooltip title="编辑"><a-button size="small" type="text" @click="openEdit(r)"><EditOutlined /></a-button></a-tooltip>
+                    <a-tooltip title="删除"><a-button size="small" type="text" danger @click="remove(r)"><DeleteOutlined /></a-button></a-tooltip>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -359,14 +433,21 @@ function toggleTrial(r: CompatibilityRule) {
         <div class="cre-edit-form glass-light">
           <a-form layout="vertical" size="small">
             <a-row :gutter="16">
-              <a-col :span="16">
+              <a-col :span="12">
                 <a-form-item label="规则名称">
                   <a-input v-model:value="form.name" placeholder="如：选 GPU 需配 GPU 线缆" />
                 </a-form-item>
               </a-col>
-              <a-col :span="8">
+              <a-col :span="6">
                 <a-form-item label="规则类型">
                   <a-select v-model:value="form.type" :options="RULE_TYPE_OPTIONS" />
+                </a-form-item>
+              </a-col>
+              <a-col :span="6">
+                <a-form-item label="业务分类">
+                  <a-auto-complete :value="form.category" :options="categoryOpts"
+                    placeholder="如：背板与线缆" :filter-option="filterFn"
+                    @update:value="(v: any) => form.category = String(v || '')" />
                 </a-form-item>
               </a-col>
             </a-row>
@@ -457,6 +538,32 @@ function toggleTrial(r: CompatibilityRule) {
 .cre-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .cre-hint { color: var(--cpq-text-secondary); font-size: 12px; }
 
+/* 分类过滤条：开放标签，DISTINCT 驱动；选中态用该分类的语义色（--ccat） */
+.cre-cats { display: flex; flex-wrap: wrap; gap: 8px; }
+.cre-cat {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px; cursor: pointer;
+  border: 1px solid var(--cpq-overlay-a15, rgba(0,0,0,.08));
+  background: var(--cpq-overlay-w4, rgba(255,255,255,.4));
+  color: var(--cpq-text-secondary); font-size: 12.5px;
+  transition: border-color .15s ease, background .15s ease, color .15s ease;
+}
+.cre-cat em { font-style: normal; font-size: 11px; padding: 0 6px; border-radius: 8px;
+  background: var(--cpq-overlay-a10, rgba(0,0,0,.06)); color: var(--cpq-text-muted); }
+.cre-cat:hover { border-color: var(--ccat, var(--cpq-accent-primary)); color: var(--cpq-text-primary); }
+.cre-cat.on { border-color: var(--ccat, var(--cpq-accent-primary)); color: var(--cpq-text-primary);
+  background: color-mix(in srgb, var(--ccat, var(--cpq-accent-primary)) 12%, transparent); }
+.cre-cat.on em { background: var(--ccat, var(--cpq-accent-primary)); color: #fff; }
+
+/* 分类分组标题 */
+.cre-group { margin-bottom: 16px; }
+.cre-group-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
+.cre-group-bar { width: 3px; height: 14px; border-radius: 2px; flex: none;
+  background: var(--ccat, var(--cpq-text-muted)); }
+.cre-group-name { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); }
+.cre-group-count { font-size: 11px; color: var(--cpq-text-muted); padding: 0 7px; border-radius: 8px;
+  background: var(--cpq-overlay-a10, rgba(0,0,0,.06)); }
+
 /* 规则卡片：自适应紧凑网格，类型色左边条 + 右上角类型标签 */
 .cre-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
 .cre-card {
@@ -473,6 +580,7 @@ function toggleTrial(r: CompatibilityRule) {
 .cre-dot.on { background: var(--cpq-color-success); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cpq-color-success) 22%, transparent); }
 .cre-dot.off { background: var(--cpq-text-muted); }
 .cre-name { font-weight: 600; font-size: 14px; color: var(--cpq-text-primary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cre-hit { font-size: 11px; color: var(--cpq-text-muted); background: var(--cpq-overlay-a10); padding: 1px 8px; border-radius: 8px; white-space: nowrap; flex-shrink: 0; }
 .cre-type-tag { margin: 0; flex: none; }
 .cre-card-logic { display: flex; flex-direction: column; gap: 4px; }
 .cre-line { display: flex; align-items: flex-start; gap: 6px; margin: 0; font-size: 12.5px; line-height: 1.45; color: var(--cpq-text-primary); }

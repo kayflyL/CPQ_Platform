@@ -102,7 +102,7 @@
 |------|------|----------|------|
 | POST | `/api/reasoning/{opp_id}/generate` | `reasoningApi.generate` | 触发推理 pipeline（jieba 分词 → 选 baseline → 配 KP → 组合整机方案），后台异步跑 |
 | WS | `/api/reasoning/ws/{opp_id}` | `reasoningWsUrl` + `useReasoningStream` | 推理步骤流（step_start / step_done / candidates_ready{plans} / pipeline_done / error） |
-| GET | `/api/candidate-search?q=&series=&form=` | — | 散件级聚合检索（L6 料号 + KP 配件 + 基准配置），ILIKE，保留供调试；pipeline 走 `compose_plans` 出整机方案 |
+| GET | `/api/candidate-search?q=&series=&form=` | — | 散件级聚合检索（L6 料号 + KP 配件 + 基准配置），ILIKE，保留供调试；pipeline 出整机方案走推理管线（select_models → pick_kp_parts → build_plan，旧 compose_plans 已删） |
 
 > pipeline 实现在 `backend/app/services/requirement_intel_service.py`，聚合检索逻辑在 `backend/app/api/candidate_search.py`（`search_candidates()` 供 pipeline 和 REST 共用）。WS hub `reasoning_hub.py` 与聊天助手通道物理隔离（按 opportunity_id 分房间）。利润率告警在工作台（见 `workspace.md`）：走**独立策略 `pricing.margin_alert`**（开关+门槛+文案，在策略中心定价画布的「利润率告警」编辑器配），经 `getMarginAlert()` 读取；与保底封顶解耦。
 

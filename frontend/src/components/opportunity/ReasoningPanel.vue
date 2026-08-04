@@ -4,6 +4,16 @@
       <span class="rp-head-icon"><RobotOutlined /></span>
       <span class="rp-head-title">推理过程</span>
       <span class="rp-head-status" :class="statusClass">{{ statusText }}</span>
+      <a-button
+        v-if="hasActivity"
+        size="small"
+        type="text"
+        class="rp-restart"
+        @click="emit('restart')"
+      >
+        <template #icon><RedoOutlined /></template>
+        重新开始
+      </a-button>
     </header>
 
     <div class="rp-feed" ref="feedRef">
@@ -41,8 +51,9 @@
 
     <!-- 反问回复区（ask_user 节点触发，pipeline 暂停等用户补齐） -->
     <div v-if="pendingPrompt" class="rp-reply-footer">
+      <p v-if="pendingPrompt.format" class="rp-note rp-format">{{ pendingPrompt.format }}</p>
       <div v-if="pendingPrompt.options?.length" class="rp-reply-options">
-        <a-tag v-for="opt in pendingPrompt.options" :key="opt" class="rp-reply-opt" @click="replyText = opt">{{ opt }}</a-tag>
+        <a-tag v-for="opt in pendingPrompt.options" :key="opt" class="rp-reply-opt" @click="quickReply(opt)">{{ opt }}</a-tag>
       </div>
       <a-textarea
         v-model:value="replyText"
@@ -58,6 +69,40 @@
           发送
         </a-button>
       </div>
+    </div>
+
+    <!-- LLM 确认面板（confirm 节点触发：冲突/低置信度项，默认采纳、高亮可改） -->
+    <div v-if="pendingConfirm" class="rp-confirm-footer">
+      <p class="rp-confirm-title"><BulbOutlined /> {{ pendingConfirm.question || '大模型补充了以下信息，默认已采纳，可改为「忽略」后重新生成：' }}</p>
+      <div v-for="it in pendingConfirm.items" :key="it.id" class="rp-confirm-item" :class="{ accepted: (confirmChoices[it.id] || 'accept') === 'accept' }">
+        <div class="rp-confirm-info">
+          <span class="rp-confirm-label">{{ it.label }}</span>
+          <a-tag v-if="it.level === 'conflict'" color="orange" class="rp-confirm-tag">与规则冲突</a-tag>
+          <a-tag v-else color="blue" class="rp-confirm-tag">低置信度</a-tag>
+          <span v-if="it.rule != null" class="rp-confirm-v">规则：{{ it.rule }}</span>
+          <span class="rp-confirm-v llm">LLM：{{ it.llm || '—' }}</span>
+          <span v-if="it.confidence != null" class="rp-confirm-conf">置信 {{ Math.round(it.confidence * 100) }}%</span>
+        </div>
+        <div class="rp-confirm-opts">
+          <a-button
+            size="small"
+            :type="(confirmChoices[it.id] || 'accept') === 'accept' ? 'primary' : 'default'"
+            @click="setConfirmChoice(it.id, 'accept')"
+          >采纳</a-button>
+          <a-button
+            size="small"
+            :type="(confirmChoices[it.id] || 'accept') === 'ignore' ? 'danger' : 'default'"
+            @click="setConfirmChoice(it.id, 'ignore')"
+          >忽略</a-button>
+        </div>
+      </div>
+      <div class="rp-confirm-actions">
+        <a-button size="small" @click="onConfirmAcceptAll">全部采纳，查看方案</a-button>
+        <a-button type="primary" size="small" :disabled="!hasConfirmIgnore" @click="onConfirmSubmit">
+          按以上选择重新生成
+        </a-button>
+      </div>
+      <p class="rp-note" style="margin-top:6px">「全部采纳」直接看当前方案（不重跑 LLM）；改了选择才重新生成。</p>
     </div>
 
     <!-- BOM 详情抽屉（复用工作台 BomTable，L6 走基准配置的 BOM 模板格式） -->
@@ -84,12 +129,12 @@
 <script setup lang="ts">
 import { ref, computed, watch, nextTick } from 'vue'
 import {
-  RobotOutlined, ExclamationCircleOutlined, ArrowRightOutlined,
+  RobotOutlined, ExclamationCircleOutlined, ArrowRightOutlined, RedoOutlined, BulbOutlined,
 } from '@ant-design/icons-vue'
 import BomTable from '@/components/BomTable.vue'
 import PlanCard from '@/components/reasoning/PlanCard.vue'
 import type { Plan } from '@/api/reasoning'
-import type { ReasoningStep } from '@/composables/useReasoningStream'
+import type { ReasoningStep, ConfirmItem } from '@/composables/useReasoningStream'
 import { FUTURE_STEPS } from '@/composables/useReasoningStream'
 import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
 import { STEP_COPY } from '@/utils/reasoningStepCopy'
@@ -107,12 +152,23 @@ const props = defineProps<{
     options: string[]
     round: number
     clarity_capped: boolean
+    stage?: string
+    format?: string
+  } | null
+  pendingConfirm?: {
+    reply_id: string
+    question: string
+    items: ConfirmItem[]
+    default: string
   } | null
 }>()
 const emit = defineEmits<{
   (e: 'confirm-plan', plan: Plan): void
   (e: 'user-reply', text: string): void
   (e: 'user-skip'): void
+  (e: 'confirm-submit', decisions: Record<string, string>): void
+  (e: 'confirm-accept-all'): void
+  (e: 'restart'): void
 }>()
 
 const confirmingId = ref<number | null>(null)
@@ -197,7 +253,21 @@ function onConfirm(p: Plan) {
 }
 
 // ── 反问回复（ask_user 节点触发，pipeline 暂停等用户补齐）──
+/** 面板是否有内容（出现"重新开始"按钮的条件） */
+const hasActivity = computed(() =>
+  props.steps.length > 0 || props.plans.length > 0 || !!props.pendingPrompt || !!props.pendingConfirm || !!props.error || props.running,
+)
+
 const replyText = ref('')
+/** 点 chip 即发送（Spec Assistant 式）；防连点锁，下一轮反问到达时解锁 */
+const quickLocked = ref(false)
+function quickReply(opt: string) {
+  if (quickLocked.value) return
+  quickLocked.value = true
+  sentReplies.value.push(opt)
+  replyText.value = ''
+  emit('user-reply', opt)
+}
 const replyPlaceholder = computed(() =>
   props.pendingPrompt?.clarity_capped
     ? '已多次补充，可直接发送或跳过'
@@ -219,7 +289,34 @@ function onEnter(e: KeyboardEvent) {
   e.preventDefault()
   submitReply()
 }
-watch(() => props.pendingPrompt, () => scrollBottom())
+watch(() => props.pendingPrompt, () => {
+  quickLocked.value = false
+  scrollBottom()
+})
+
+// ── LLM 确认面板（confirm 节点：默认采纳、高亮可改）──
+const confirmChoices = ref<Record<string, string>>({})
+function setConfirmChoice(id: string, v: string) {
+  confirmChoices.value = { ...confirmChoices.value, [id]: v }
+}
+const hasConfirmIgnore = computed(() =>
+  Object.values(confirmChoices.value).some((v) => v === 'ignore'),
+)
+watch(() => props.pendingConfirm, (pc) => {
+  confirmChoices.value = {}
+  if (pc?.items?.length) {
+    const def = pc.default || 'accept'
+    pc.items.forEach((it) => { confirmChoices.value[it.id] = def })
+  }
+  scrollBottom()
+})
+function onConfirmSubmit() {
+  if (!Object.keys(confirmChoices.value).length) return
+  emit('confirm-submit', { ...confirmChoices.value })
+}
+function onConfirmAcceptAll() {
+  emit('confirm-accept-all')
+}
 
 defineExpose({ stopConfirming: () => { confirmingId.value = null } })
 </script>
@@ -269,6 +366,10 @@ defineExpose({ stopConfirming: () => { confirmingId.value = null } })
 }
 .rp-head-status.running { color: var(--cpq-accent-primary); }
 .rp-head-status.err { color: var(--cpq-accent-danger); }
+.rp-restart {
+  margin-left: auto;
+  color: var(--cpq-text-secondary);
+}
 
 /* ── 消息流 ── */
 .rp-feed {
@@ -371,6 +472,14 @@ defineExpose({ stopConfirming: () => { confirmingId.value = null } })
 }
 
 /* ── 反问回复区 ── */
+.rp-format {
+  white-space: pre-line;
+  padding: 6px 8px;
+  background: var(--cpq-overlay-w4);
+  border: 1px dashed var(--cpq-overlay-w10);
+  border-radius: var(--cpq-radius-sm, 8px);
+  color: var(--cpq-text-secondary);
+}
 .rp-reply-footer {
   flex-shrink: 0;
   margin-top: 10px;
@@ -396,5 +505,52 @@ defineExpose({ stopConfirming: () => { confirmingId.value = null } })
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+/* ── LLM 确认面板 ── */
+.rp-confirm-footer {
+  border-top: 1px solid var(--cpq-overlay-w8);
+  padding-top: 10px;
+  margin-top: 4px;
+}
+.rp-confirm-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+  margin-bottom: 8px;
+}
+.rp-confirm-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  border: 1px solid var(--cpq-overlay-w10);
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-a4);
+}
+.rp-confirm-item.accepted {
+  border-color: var(--cpq-accent-primary);
+  background: var(--cpq-accent-soft);
+}
+.rp-confirm-info {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+.rp-confirm-label { font-weight: 600; color: var(--cpq-text-primary); }
+.rp-confirm-tag { margin-inline-end: 0 !important; }
+.rp-confirm-v { color: var(--cpq-text-secondary); }
+.rp-confirm-v.llm { color: var(--cpq-accent-primary); }
+.rp-confirm-conf { color: var(--cpq-text-muted); }
+.rp-confirm-opts { display: flex; gap: 6px; flex-shrink: 0; }
+.rp-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 </style>

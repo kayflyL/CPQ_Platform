@@ -5,16 +5,16 @@
  *  定价引擎模式:挂现有 PricingFlowCanvas(画布+演算器,零改)。 */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { Strategy } from '@/api/strategies'
+import type { PolicyDoc } from '@/api/strategies'
 import PolicyLibrary from './PolicyLibrary.vue'
 import PricingFlowCanvas from './PricingFlowCanvas.vue'
 import DocReaderOverlay from './DocReaderOverlay.vue'
 
 const router = useRouter()
-const mode = ref<'docs' | 'engine'>('docs')
-const readerDoc = ref<Strategy | null>(null)
+const mode = ref<'docs' | 'engine'>('engine')  // 三个模块工作台统一默认进主视图（引擎/规则），文档库为辅
+const readerDoc = ref<PolicyDoc | null>(null)
 
-function openReader(d: Strategy) { readerDoc.value = d }
+function openReader(d: PolicyDoc) { readerDoc.value = d }
 </script>
 
 <template>

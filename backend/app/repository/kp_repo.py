@@ -64,6 +64,25 @@ def _spec_match_all(spec_map: dict, parsed: list) -> str:
     return " · ".join(hits)
 
 
+# 连字符归一（U+2010 单连字符 / U+2011 不换行连字符 … → ASCII '-'）：
+# 客户需求写 "ConnectX-6"（ASCII -），库件名可能是 "ConnectX‑6"（U+2011），ILIKE 不命中（2026-08-03 R2）。
+_UNICODE_HYPHENS = ("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2212")
+
+
+def _norm_hyphen(s: str) -> str:
+    for ch in _UNICODE_HYPHENS:
+        s = s.replace(ch, "-")
+    return s
+
+
+def _name_norm(expr):
+    """列表达式上的 Unicode 连字符 → ASCII '-'（供 ILIKE 归一匹配）。"""
+    out = expr
+    for ch in _UNICODE_HYPHENS:
+        out = func.replace(out, ch, "-")
+    return out
+
+
 class KPRepository:
     """配件管理 Repository — 新表 + 旧接口兼容"""
 
@@ -99,7 +118,8 @@ class KPRepository:
          .filter(KPPriceHistory.id == self._latest_price_subquery())
 
         if search:
-            q = q.filter(KPPart.name.ilike(f"%{search}%") | KPPriceHistory.note.ilike(f"%{search}%"))
+            _s = _norm_hyphen(search)
+            q = q.filter(_name_norm(KPPart.name).ilike(f"%{_s}%") | KPPriceHistory.note.ilike(f"%{_s}%"))
         if category:
             q = q.filter(KPCategory.name == category)
 
@@ -262,7 +282,8 @@ class KPRepository:
             .filter(KPCategory.name == category)
 
         if search:
-            q = q.filter(KPPart.name.ilike(f"%{search}%"))
+            _s = _norm_hyphen(search)
+            q = q.filter(_name_norm(KPPart.name).ilike(f"%{_s}%"))
 
         q = q.order_by(KPPart.name)
         rows = q.all()
@@ -283,6 +304,7 @@ class KPRepository:
                 "date": latest.price_date.isoformat() if latest and latest.price_date else "",
                 "note": latest.note if latest else "",
                 "record_count": record_count,
+                "applicable": part.applicable,  # 兼容机型/系列（I22：RAID 默认按机型选件用）
             })
         return result
 
@@ -331,6 +353,34 @@ class KPRepository:
                 "note": latest.note if latest else "",
                 "record_count": record_count,
                 "matched_spec": hit,
+            })
+        return out
+
+    def get_by_category_with_specs(self, category: str) -> list:
+        """品类下全部件 + 规格字典（Capacity/Type…），供规格属性替代匹配。
+
+        返回 [{id, category, model, price, currency, specs:{spec_key: spec_value}}]。
+        与 get_by_category 不同：带上完整 specs，让调用方做「数值容量/接口」判断
+        （2026-08-03：盘件按 Capacity/Type 属性替代，不再只靠名字字符串）。
+        """
+        parts = self.session.query(KPPart).options(joinedload(KPPart.specs)) \
+            .join(KPCategory, KPPart.category_id == KPCategory.id, isouter=True) \
+            .filter(KPCategory.name == category) \
+            .order_by(KPPart.name).all()
+        out = []
+        for part in parts:
+            latest = self.session.query(KPPriceHistory) \
+                .filter(KPPriceHistory.part_id == part.id) \
+                .order_by(KPPriceHistory.price_date.desc().nullslast(), KPPriceHistory.id.desc()) \
+                .first()
+            out.append({
+                "id": part.id,
+                "category": category,
+                "model": part.name,
+                "applicable": part.applicable,
+                "price": latest.price if latest else 0.0,
+                "currency": latest.currency if latest else "RMB",
+                "specs": {sp.spec_key: sp.spec_value for sp in (part.specs or [])},
             })
         return out
 

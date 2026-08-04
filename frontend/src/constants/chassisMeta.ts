@@ -13,17 +13,37 @@ import type { RearSlot } from '@/api/serverConfig'
 export { DRIVE_KIND_KEYS as CORE_DRIVE_KINDS } from '@/stores/selectionEngine'
 
 /**
- * 后面板槽位默认布局（仅当 base_config.rear_slots 缺失时兜底）。
- * 正常情况下槽位布局走 base_config.rear_slots 数据（每台机箱可不同）。
- * 与后端 scripts/migrate_base_config_capability.py 的 DEFAULT_REAR_SLOTS 对齐。
+ * 后面板槽位按底座分模板（基于 15 份真实配置归纳）。
+ *   - 2U AMD(Orion)：IO1~IO4 + OCP（单 GPU 走 IO1/2 双宽 FHFL）
+ *   - 2U Polaris（兆芯）：IO1~IO4，无 OCP（OCP 是 AMD/Orion 平台特性；4U GPU 机仍带 OCP）
+ *   - 4U GPU 机：仅 OCP（业内 GPU 槽与 IO 槽物理分区，IO1-4 是 2U 通用机 Riser 命名，4U 不用；
+ *     8 GPU 走 gpu_slots，拓扑 direct/switch 走 gpu_arch；OCP3.0 是标准网卡位）
+ * 2U 槽名沿用 IO1-4+OCP、cap 保持 3 不动，与存量配置一致（避免 step 容量行为回退）。
+ * DEFAULT_REAR_SLOTS 是「base_config.rear_slots 缺失时」的兜底（= 2U AMD，最常见）。
  */
-export const DEFAULT_REAR_SLOTS: RearSlot[] = [
-  { name: 'IO1', cap: 3 },
-  { name: 'IO2', cap: 3 },
-  { name: 'IO3', cap: 3 },
-  { name: 'IO4', cap: 3 },
-  { name: 'OCP', cap: 1 },
+export const REAR_SLOTS_2U_AMD: RearSlot[] = [
+  { name: 'IO1', cap: 3 }, { name: 'IO2', cap: 3 }, { name: 'IO3', cap: 3 }, { name: 'IO4', cap: 3 }, { name: 'OCP', cap: 1 },
 ]
+// 2U Polaris（兆芯）：同 AMD 布局但无 OCP（真实配置 2U 兆芯无 OCP 行；4U GPU 机仍带 OCP）
+export const REAR_SLOTS_2U_POLARIS: RearSlot[] = [
+  { name: 'IO1', cap: 3 }, { name: 'IO2', cap: 3 }, { name: 'IO3', cap: 3 }, { name: 'IO4', cap: 3 },
+]
+// 4U GPU 机：后面板仅 OCP(网卡)，无 IO1-IO4 Riser。业内定式（Dell XE9680 / HPE DL380 GPU cage /
+// Supermicro 4U）：GPU 槽与通用 IO 槽物理分区，IO1-4 是 2U 通用机命名；8 GPU 走 gpu_slots，拓扑走 gpu_arch。
+// OCP3.0 是 4U GPU 机标准网卡位（独立分区），料号库 ocp_x16(AI)/ocp_x8(普通) 支撑。
+export const REAR_SLOTS_4U: RearSlot[] = [{ name: 'OCP', cap: 1 }]
+
+/** 后面板槽位兜底默认（= 2U AMD）。仅当 base_config.rear_slots 缺失时用。
+ *  与后端 scripts/migrate_base_config_capability.py 的 DEFAULT_REAR_SLOTS 对齐。 */
+export const DEFAULT_REAR_SLOTS: RearSlot[] = REAR_SLOTS_2U_AMD
+
+/** 按 form+series 取该底座的标准后面板布局（「恢复标准布局」按钮 / 新建默认用）。返回克隆副本。
+ *  2U AMD/Orion=IO1-4+OCP；2U Polaris（兆芯）=IO1-4 无 OCP；4U=仅 OCP（GPU 走 gpu_slots+gpu_arch，业内 GPU 机无 IO1-4）。 */
+export function rearSlotsFor(form?: string, series?: string): RearSlot[] {
+  if (form === '4U') return REAR_SLOTS_4U.map(s => ({ ...s }))                       // 4U GPU 机：仅 OCP，无 IO1-4
+  if (form === '2U' && series === 'Polaris') return REAR_SLOTS_2U_POLARIS.map(s => ({ ...s }))
+  return REAR_SLOTS_2U_AMD.map(s => ({ ...s }))
+}
 
 /** 组合槽：首次选默认 1 条（如 IO1/IO2 = 1×X16 + 1×X8），其余槽首次默认填满 cap。步进器仍可手改。 */
 export const COMBO_REAR_SLOTS = ['IO1', 'IO2']

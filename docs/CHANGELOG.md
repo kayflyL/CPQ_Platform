@@ -1,827 +1,262 @@
 # 更新日志
 
-> 最后更新：2026-08-01
-
-本文件记录 CPQ Platform 的重要变更。
-
-格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
-
----
-
-## [0.1.28] - 2026-08-01
-
-> 🎯 **本版本主题：选型配置重构——机箱能力档案 + CRE 双端求值 + 硬编码清零。** 把散落前端的机箱物理边界（电源槽/后面板槽位/GPU 槽/TDP）、背板/线缆适配正则、系列分桶三元、PSU 默认数、GPU 架构推断全部提到「数据 + SSOT 常量」，选型配置页扩成机箱能力/配件适配/兼容规则/文档库四标签；CRE 规则引擎移植到后端（双端共用一套规则数据）、补 3 条 exclude 互斥规则、ConfigWizard 保存校验升级。调研业界 Dell/HPE/Tacton 做法，落地「结构性兼容靠部件目录声明 + 跨件关系靠规则层」两层架构。
-
-### 架构：两层兼容（业界共识）
-
-- **L0 机箱能力档案**（base_config 字段）：机箱物理上能装什么——psu_bays/rear_slots/gpu_slots/max_tdp/gpu_arch_default
-- **L1 配件适配**（声明式）：配件↔机箱关系由料号库 specs 声明，`utils/partFit.ts` 统一读取
-- **L2 跨件规则**（CRE）：require/exclude/derive/recommend 关系层
-
-### P1 机箱能力档案 + 配件适配统一
-
-- `base_config` 加 psu_bays / rear_slots(JSON `[{name,cap}]`) / gpu_slots / max_tdp；`scripts/migrate_base_config_capability.py` 幂等迁移 + 回填存量 10 行
-- `constants/chassisMeta.ts`（SSOT：DEFAULT_REAR_SLOTS / COMBO_REAR_SLOTS / OPTION_LABEL / BACKPLANE_TYPE_KEYWORDS / SERIES_REAR_IO_BUCKET / GPU_ARCH_OPTIONS）+ `utils/partFit.ts`（backplaneTypeOf/driveKindOf/slotCapOf/fitsSeries，数据驱动适配器）
-- `L6ChassisConfig.vue` 清掉 SLOT_CAP / DEFAULT_REAR_SLOTS / 背板正则 / 前面板线缆 kind 过滤 / 系列桶三元共五处硬编码；`useServerConfig` 电源默认读 basePsuBays、组合槽走 COMBO_REAR_SLOTS（原 IO1/IO2 写死）
-
-### P2 CRE 双端求值 + 激活（完成 roadmap ④）
-
-- `backend/app/services/selection_engine.py`：selectionEngine.ts 等价 Python 移植，双端共用规则数据(DB) SSOT；`tests/test_selection_engine.py` 34 例与前端测试逐一对齐，锁语义一致——原 roadmap「④ 后端兜底」落地，reasoning/服务端可跑同一套规则
-- DEFAULT_RULES 加 3 条 exclude（内存/CPU/GPU 同型号不混搭，target 已核对 kp_categories 真键，非中文旧分类）；`seed_missing_defaults` 按名补种（不清用户改动）+ 接 startup，新规则自动流到存量库
-- ConfigWizard 保存校验升级：阻断级（conflict/require）命中弹确认、可强存（保留手改优先）；`constants/ruleMeta.ts` 加 severity SSOT（ALERT_SEVERITY_DEFS/alertIcon/isBlockingSeverity），替换 Workspace+ConfigWizard 两处重复的图标三元式
-
-### P3 场景路由数据化
-
-- `candidate_search._match_type_by_usage` 的 usage→type 关键词提为模块顶常量 `USAGE_TYPE_ROUTING`（TYPE_KP_CATEGORIES 本就已被 reasoning config 的 type_packages 覆盖，是兜底常量）
-- ConfigWizard GPU 架构改读 `base_config.gpu_arch_default`（数据驱动，未配回退 model.use 字符串判定）；机箱能力标签暴露该字段编辑
-
-### 页面重构
-
-- `SelectionWorkspace.vue` 四标签（呼应「机箱选型 + 硬件搭配」两分法）：🏗 机箱能力（`ChassisCapabilityEditor`）/ 🔗 配件适配（`PartFitMatrix`）/ 🛠 兼容规则（现有 `CompatibilityRuleEditor`）/ 📄 文档库（`PolicyLibrary` module=selection，与报价策略文档库独立）
-
-### 已知未做（诚实记录，避免假装覆盖）
-
-- **filter 动作接 PartPicker**：当前无 filter 规则，接了是死代码；待有 filter 规则再接
-- **SAS/SATA→HBA/RAID**（需跨品类「或」语义）、**PSU↔GPU 功率**（PSU 是机箱件不在 ctx.kp）：CRE 当前表达不了，留 L1 配件适配 + 未来 chassis-rule 扩展承载（已在 DEFAULT_RULES 注释记）
-- **usage 关键词完整 system_config UI 接入**：推理流核心路径，未盲改（仅提为集中常量）
-
-### 验证
-
-`npm run build` ✓ · `pytest tests/test_selection_engine.py` 34 passed ✓ · DB→引擎端到端（内存混插触发 / offenders 正确 / CPU 同型号·GPU 单卡不误报）✓ · backend py_compile ✓
-
----
-
-## [0.1.27] - 2026-08-01
-
-> 🎯 **本版本主题：推理流工作流编排可解释性完善（借鉴腾讯元器工作流设计）。** 给试运行补「变量流转可见 + 路径回溯 + 编排校验」三件套——节点的输入依赖/产出对下游可见、点方案回溯生成链、condition 分支必连校验。
-
-### 新增（可解释性，P0/P1/P2 依次落地）
-
-- **P0 节点 IO 元数据 + 变量流转展示**：`utils/reasoningNodeIo.ts` 声明每个节点类型的 consumes/produces 变量（描述性，**执行仍走隐式 ctx 不变**）。试运行步骤展开顶部显示「← 输入（来自上游谁）/ → 输出（给下游什么）」——调试 match_kp 配错件时一眼看到它依赖 ext 的什么、产出 kp_by_model。参考腾讯元器的显式输入/输出变量声明
-- **P1 路径回溯**：方案卡加「回溯路径」按钮 → 画布高亮生成链节点（extract→select_baseline→match_kp→compose）+ 其余变暗（`ReasoningNodeVf` 加 trace/dim 状态），点「退出回溯」恢复。参考腾讯元器端到端调试的"点输出反高亮路径"
-- **P2 palette 按三环节分组**：左栏节点 palette 从"流程/分支/预留"改为「信息收集 / 判断处理 / 分支控制 / 预留」，贴合收集→判断→处理心智（参考腾讯元器节点分类）
-- **P2 分支必连校验**：condition 节点必须有 true + false 出边（含兜底），否则画布顶部告警"缺 true/false 分支"——避免编排成路由死路（参考腾讯元器分支必连约束）
-
-### 未做（明确推迟，避免过度设计）
-
-- **全改显式变量系统**（节点只能引祖先输出、禁隐式 ctx）：侵入太大（10 个 handler 全改），P0 的 IO 元数据拿到 80% 可解释性，执行保留 ctx
-- **单节点独立调试**（填输入看输出）：需 mock ctx、复杂；整条试运行已覆盖验证需求
-- **LLM 节点化**（实际调用）：属二期语义择优，记忆定调 Path A 本地不调 LLM；llm 节点 IO 元数据已就位，二期接调用即可
-- **变量聚合 / 循环 / 批处理节点**：无业务场景（选型/匹配线性）
-
-### 验证
-
-- `npm run build` 过类型；preview inspect：palette 分组=信息收集/判断处理/分支控制/预留 ✓、试运行展开 extract 显示 IO「←输入 requirement_text / →输出 ext·keywords/...·budget」✓、回溯路径按钮存在 ✓
-
----
-
-## [0.1.26] - 2026-08-01
-
-> 🎯 **本版本主题：需求分析加「试运行」playground + 修两个潜伏 bug（simpleeval 缺失 / 货币混算）。** 管理员改完推理流节点配置（extract 词表 / match_kp 规则）后，画布右栏立刻输入需求试运行——节点逐步高亮 + 每步 IO 明细 + 候选方案，配置→验证闭环不再断在命令行 `simulate_requirement.py`。顺带挖出并修了 simpleeval 从未进 requirements、build_plan 把美元当人民币混加两个老 bug。
-
-### 新增
-
-- **推理流试运行 playground（三栏布局）**：参考导出模板页 `UniverTemplateEditor`——左节点 palette（点击添加，分流程节点/分支与校验/预留三组）/ 中 vue flow 画布 / 右试运行。布局演进：下方内嵌（画布吃滚轮缩放、入口难找）→ 两栏（加节点仍靠 dropdown）→ 三栏（左 palette 常驻最顺）
-- **试运行后端**：`POST /api/reasoning-flow/test-run`（仅改 `reasoning_flow.py` 1 文件）——复用线上 `run_graph_executor`（`opportunity_id` 占位、`force_complete=True` 跳反问），收集 broadcast + 从 ctx 取 ext/kp_by_model/plans 明细。**测的就是画布上配的真实 flow 跑出来的**，与线上同源
-- **节点逐步高亮 + 步骤明细**：`useTestRun`（同步 HTTP + setTimeout 回放 step_start/step_done）→ `applyNodeState` 把 execState（running 蓝 / done 绿）+ 徽标（如"配6件"）写回画布 nodes（按 node id 精确匹配）；步骤可展开看 IO（extract 关键词/品类/signals、match_kp 每机型 KP 表含 matched_spec/unmatched）
-- **抽共享件**：`PlanCard.vue`（方案卡，ReasoningPanel + 试运行共用）、`utils/reasoningStepCopy.ts`（STEP_COPY/BADGE）、`composables/useTestRun.ts`
-
-### 修复（两个潜伏 bug + 深色化）
-
-- **simpleeval 从未写进 requirements**（严重）：`reasoning_executor` try/except 静默 import `simpleeval` 但没声明依赖，缺它 `_eval_condition` 永远返回 True → **所有 condition 节点静默走 true 分支**（cond_clarity 永远反问、试运行走不到选型）。补 `simpleeval>=0.9.11`。⚠️ **教训：try/except import 的可选依赖必须进 requirements——静默降级最难排查**
-- **build_plan 货币混算**（严重）：`total_cost = baseline + sum(kp.unit_price×qty)` 不看 currency，把 USD 的 KP 件（如 KH50000 96C CPU）当人民币混加还贴 ¥。按报价工作台口径（`store/quote.ts:194`）折算：USD 件 `×usd_to_rmb×(1+tax_rate)` → 含税 RMB（system_config 默认 7.0/0.13），RMB 件已含税直用。`summary` 带 `currency:"RMB"` + `rates`。明细按原币种显 $/¥（BomTable / 试运行），总价统一 ¥。影响所有 build_plan 消费方（test-run + 商机详情页方案卡）
-- **vue-flow 控件深色模式白框**：MiniMap 容器（`#fff`）/ Controls 按钮（`#fefefe`）/ **MiniMap 视口遮罩 mask**（`rgba(240,240,240,.6)`）三层默认白/浅灰，深色模式突兀。scoped `:deep()` 覆盖——容器和按钮用 `var(--cpq-bg-secondary)`，mask 深色模式改 `rgba(0,0,0,.45)`。⚠️ **教训：vue-flow 主题化要查三层（容器 / controls-button / minimap-mask，最后那个最隐蔽）；定位白源用 preview inspect `getComputedStyle(el).fill/.backgroundColor`，screenshot 不可用**
-
-### 验证
-
-- curl `/api/reasoning-flow/test-run` 跑通整链出方案 ¥121874（KH50000 USD 3500×2 折算 55370 RMB）；`npm run build` 过类型；48 个单测全过；preview inspect 确认深色模式 mask fill=`rgba(0,0,0,.45)`、minimap bg=`#101217`、节点蓝
-
----
-
-## [0.1.25] - 2026-07-31
-
-> 🎯 **本版本主题：策略中心-报价策略补「策略文档库」——左目录骨架 + 定价手册文档库。** 对标头部商用 CPQ（Oracle/SAP/纷享销客等策略模块绑文档库的标配），报价策略 tab 加左目录（定价策略 / 策略文档），新增可读可编辑的定价手册，直击「售前看不懂规则 / 定价口径混乱 / 新人上手慢」。
-
-### 新增
-
-- **报价策略左目录骨架**：pricing tab 从直接挂画布改为 `PricingWorkspace.vue`（左目录：定价策略 / 策略文档 + 右内容），骨架通用，选型/推理 tab 将来可照搬
-- **策略文档库（policy 域）**：复用 `rules.strategies` 表（新增 `domain='policy'`、`type='document'`，body={category,sort_order,content_markdown}），**零新表**、复用 `/api/strategies` CRUD。`PolicyLibrary.vue` 左列表(按分类过滤) + 右阅读窗；`PolicyDocEditor.vue` 编辑 modal（markdown textarea + 实时预览分屏 + 修改说明）
-- **Markdown 渲染**：引入 `marked` + `dompurify`（防 XSS），封装 `MarkdownView.vue`（Glass Console 排版：GFM 表格/代码块/引用/列表）
-- **定价手册种子**：`policy_doc_repo.DEFAULT_DOCS` 首启动空表自动灌 5 篇（总览/加法三维度/乘法两维度/台数折扣/保底封顶），「空表才灌、绝不覆盖用户改动」
-
-### 未做（明确推迟）
-
-- **版本快照/历史回滚**：曾设计 `strategy_revisions` 快照表（update 前落本 + 历史版本抽屉 + 恢复），**本期移除暂不做**——文档改动直接覆盖，`strategy.version` 仅自增记数。需要「规则变更留存/回滚」时再补
-
-### 验证
-
-- `npm run build` 类型检查通过；后端启动自动 seed 5 篇 policy 文档；浏览器实测左目录切换、markdown 渲染(表格/标题)、新建/编辑/删除全链路
-
----
-
-## [0.1.24] - 2026-07-30
-
-> 🎯 **本版本主题：策略中心报价策略重构——加法定价引擎取代旧的「scope 命中 → 预设三档」查表模型**
+> 最后更新：2026-08-04
 >
-> 定价方式彻底改了：以前是「商机命中某个场景，就取一套预设的毛利三档（8/12/18）」；现在改成「按平台 / 行业 / 区域 / 订单 / 成本 / 台数六个维度做加法叠加，算出目标毛利率」。
->
-> 可视化方面用 VueFlow 做了固定流水线图，配合维度系数抽屉配置 + 演算器实时演算。
->
-> **定位说明**：策略中心的定价只做「建议值 + 计算器」，不直接驱动工作台售价（只在低于 `guardrail.floor` 时告警）。真正的消费方是未来的智能方案助手——引擎是纯 TS 写的，可以直接 import 用来自动出报价单。
-
-### 重构
-
-- **定价模型：查表 → 加法叠加**
-  - 公式：`最终毛利率 = (平台基准 + 行业浮动 + 区域浮动) × 订单系数 × 成本阶梯 × 台数折扣`，结果夹在 `[保底, 封顶]` 之间
-  - 共 7 条维度策略：`platform_baseline` / `industry_adj` / `region_adj` / `order_mult` / `cost_tier` / `qty_mult` / `guardrail`（scope=null，全局系数表）
-  - 零新增列：平台、行业、区域、订单、台数全都映射到已有的商机字段，成本取报价单 BOM 的总成本
-- **纯 TS 引擎 + 单测**
-  - 新增 `stores/pricingEngine.ts`，提供 `computeTargetMargin(ctx, dims)` 方法，带优雅降级，镜像 `selectionEngine.ts` 的范式
-  - 配套 `pricingEngine.test.ts`，用 node 原生 test runner
-  - 未来方案助手可以直接 import 自动算报价
-- **维度元数据 SSOT（单一真相源）**
-  - 新增 `constants/pricingMeta.ts`，集中管理 `DIMENSION_DEFS`、枚举值、`DEFAULT_DIM_BODIES`
-  - 把 industry、customer_type 三处不一致的枚举统一到这里
-  - 默认值与 `seed_pricing_strategies.py` 保持同步
-- **报价策略画布重做**
-  - 旧方案：`PricingStrategyCanvas.vue`（左场景 ↔ 右规则 SVG 连线 + 拖拽）
-  - 新方案：`pricing/PricingFlowCanvas.vue`（VueFlow 固定流水线图）
-  - 流程：输入 → 平台基准 → +行业 → +区域 → ×订单 → ×成本 → ×台数 → 保底封顶 → 输出
-  - 拓扑锁死，因为公式顺序是固定的
-  - 配套组件：`DimensionNode.vue` + `DimensionDrawer.vue`（点节点改系数表）
-  - 新增**演算器面板**：输入一笔 deal，实时算出目标毛利 + breakdown + 建议售价
-- **工作台告警改保底线**
-  - 利润率告警的 floor 源从 `margin_tier.floor` 改为 `guardrail.floor`（默认 7%）
-  - 仍然只警告不锁价、不自动改价
-- **L3 溯源重塑**
-  - `getStrategySnapshot` 输出 `pricing_additive` 格式（deal 上下文 + breakdown + 目标毛利）
-  - `QuotationCostDrawer.formatStratBody` 加了对应分支
-
-### 新增
-
-- **台数折扣维度（`qty_mult`）**
-  - 按销售台数分档乘系数，量大让利
-  - 独立于成本阶梯（成本阶梯按货值打折，台数折扣按数量打折）
-  - 默认档位：1-5台 ×1.0 / 6-20台 ×0.9 / 21-50台 ×0.84 / 51台以上 ×0.75
-  - 效果：整体毛利率倍率压缩，不改变基准/行业/区域的加点
-  - 7% 保底兜底
-
-### 移除
-
-- **旧 scope→三档模型整体移除**
-  - 删除：`PricingStrategyCanvas.vue`、`MarginTier` 接口、`getMarginTier` / `judgeMargin` / `scopeMatch` / `scopeSpecificity`
-  - 删除：`pricing_scenario` / `margin_tier` seed 数据
-  - 线上旧数据由 `seed_pricing_strategies.py` 归档为 archived 状态（可回滚）
-
-### 验证
-
-- `npm run test` 48 例全过
-- `npm run build` 类型检查通过
-- 浏览器实测台数折扣链路：60台 → ≥51档 ×0.75 → 目标毛利 10.1%、建议售价 132,120
+> 定位：**轻量变更索引**（接手导航）——每条 = 变更 + 根因一句 + 涉及面；细节与 why 以代码注释为准。
+> 图例：🔄 撤回/纠正 · ⚠️ 破坏性/严重 · 💡 认知定论（最值得看）。
 
 ---
 
-## [0.1.23] - 2026-07-30
-
-> 🎯 **本版本主题：策略中心选型配置大整理——清退 DerivationEngine 黑盒、CRE 规则统一为唯一真相源、选型配置 UI 重做**
->
-> 以前线缆/背板的规则散落在两处：DerivationEngine（纯算法黑盒）和前端各组件的硬编码里。现在统一收敛进 CRE 声明式 WHEN→THEN 规则，在选型配置页可视化、可配置、改即生效。
->
-> 选型配置页也重做了：紧凑卡片 + 编辑弹窗 + 因果流拓扑图。
-
-### 重构
-
-- **清退 DerivationEngine，CRE 成为线缆/背板唯一真相源**
-  - 删除后端 `derivation_engine.py`、`/api/derive` 端点
-  - 删除前端 `DerivationRulesPanel` 透明面板
-  - 前面板线缆规则（SATA/SAS ÷8、NVMe ÷2）+ GPU 供电线 → 迁入 CRE `DEFAULT_RULES`（derive 算术型）
-  - 背板类型规则（含 NVMe 盘 → tri）→ 迁为 CRE derive 赋值型
-  - 整机功耗 / PSU 配置 / Switch 全互联三条规则直接删除
-  - 效果：线缆数量怎么算不再藏在算法里，选型配置页可见、可改
-- **CRE 规则元数据 SSOT（单一真相源）**
-  - 新增 `frontend/src/constants/ruleMeta.ts`
-  - 集中管理：规则类型（label + 语义色 CSS var + hex）、操作符符号、CRE ctx 字段中文、拓扑展示文案
-  - 选型配置编辑器、规则拓扑图、ImpactNode 三处共用
-  - 清掉了原先各写一套的硬编码（之前 editor 用 CSS var、graph 用写死 hex 还对不上，主题色一改就漂移）
-- **选型配置页 UI 重做**
-  - 规则卡片：从「2 列宽长条」改为自适应紧凑卡片网格（类型色左边条 + 生效状态点 + 右上角类型标签）
-  - 编辑方式：从「全页两态切换」改为 `a-modal` 弹窗（左构建器 + 右单规则拓扑）
-  - 规则拓扑图：从抽象的品类依赖图 → 重做成三列因果流（WHEN 条件 → 动作枢纽 → THEN 结果）
-  - 把每条规则的字段/算式都摊开看，不再「乱画」
-
-### 修复
-
-- **NVMe 线缆始终为 0**
-  - 根因：`kpSummaryFor` 把硬盘型号转全大写后，用混合大小写的 `'NVMe'` 去匹配
-  - `"NVME".includes("NVMe")` 永远是 false——所以唯独 NVMe 漏识别了（SATA/SAS 本身全大写反而不受影响）
-  - 修复：抽出引擎层 `normalizeDriveKind`（大小写无关）
-  - 盘类型识别改为「优先读 KP 件结构化 `specs.interface/kind/type`，没有 pn / excel 新件缺 specs 时才回退到型号名」
-  - ConfigWizard 里同样的 bug 一并修了
-
-### 清理
-
-- **移除「按商机平台过滤候选机型」规则**
-  - 这条 filter 规则只过滤了候选机型下拉，没覆盖基准配置下拉（表现不一致），而且效果不达预期
-  - 整体下线：删后端 `DEFAULT_RULES` 第一条 + 前端 `modelSeriesFilter` / 候选机型过滤 / 平台不符提示
-  - 候选机型与基准配置下拉恢复全量
-
----
-
-## [0.1.22] - 2026-07-30
-
-> 🎯 **本版本主题：回退「Excel 表头自适应列定位」——列定位回归固定列字母**
->
-> 这个功能在 0.1.20 引入，本意是兼容不同报价单模板的列偏移（C/D/E vs D/E/F），但实际表现不稳定，频繁定位错列，反而不如直接按规则里配置的列字母取值。
->
-> 本版本整条删除，取值列改回纯固定列字母（`source_config.col`）。
-
-### 回退
-
-- **移除「Excel 表头自适应列定位」**（0.1.20 引入的 `header_labels` 机制）
-  - 删除后端 `ExcelParser._resolve_column_idx` / `_resolve_column_by_header` 两个方法
-  - 删除前端规则编辑器的「表头标签（自适应列定位）」表单项
-  - 删除 `useExcelParser` 表单状态中的 `header_labels`
-  - 现在取值列完全由解析规则里配置的列字母（`source_config.col`）决定，不再扫描表头
-
-  **为什么回退：**
-
-  - **频繁定位错列**：自适应逻辑在区域起始行往下扫描，对每个单元格做子串匹配（`label in cell`）。表头关键词一旦作为子串出现在别的单元格，或短标签命中相邻列，就会取错列——实际使用中反复出现，这是直接原因
-  - **扫描范围靠经验估，难覆盖所有排版**：不同模板把列标签放在关键词行、紧接的表头行、甚至数据起始行，靠 `skip_rows + 2` 这种经验窗口兜不住，窗口稍有偏差就错位
-  - **双重列定位来源冲突**：每条 column 规则本来就已显式配了 `col` 列字母，再叠一层表头自动探测等于两套真相；命中时探测结果覆盖了正确配置，定位变得不可预期
-  - **结论**：固定列字母「所见即所取」，可预期、可复现；不同模板的列偏移在解析规则页按模板配 `col` 即可，比自动探测可靠。自动探测的复杂度换来的是更高的出错率，得不偿失
-
-  注：DB 里已存量规则中残留的 `header_labels` 配置，移除读取代码后会被自动忽略，无需迁移。
-
----
-
-## [0.1.21] - 2026-07-30
-
-> 🎯 **本版本主题：趋势洞察重构——从「独立卡片」下沉为方案助手快捷指令，并增强为可配置 prompt + 富格式报告**
->
-> 删除商机线索页的趋势洞察卡片（及独立配置 / 后端端点），能力并入方案助手对话。
->
-> 快捷指令的提示词模板可以在 AI 设置里配置（反对硬编码），上下文由新接口 `/api/dashboard/trend-overview` 一次取齐周/月/近半年聚合 + 近期重点商机，LLM 据此输出 8 段结构化报告。
-
-### 重构
-
-- **趋势洞察卡片 → 下沉为方案助手快捷指令**
-  - 删除商机线索页「趋势洞察」独立卡片
-  - 删除 `/api/dashboard/ai-insights` 端点
-  - 删除 `ai_insights_config` 配置及其种子
-  - 能力并入方案助手「📈 分析本期趋势」快捷指令（商机线索页助手面板一键触发）
-  - AI 设置「趋势洞察」tab 移除，业务数据上下文由 `opportunity-list` provider 自动注入
-
-### 新增
-
-- **趋势分析富格式报告**
-  - 快捷指令动态读取 `ai_trend_analysis.prompt_template`（AI 设置「趋势分析」tab 可编辑，反对硬编码）
-  - 调用 `/api/dashboard/trend-overview?limit=N` 取数据：周/月/近半年三周期聚合 + 近期重点商机明细（客户/平台/机箱/台数/`lost_reason`）
-  - LLM 输出 8 段结构化报告：周数据 / 月数据 / 半年逐月环比 / 平台格局 / 机箱形态 / 半年 TOP5 / 近期重点商机 / 关键洞察
-  - 归因允许推测但须标注「推测/待核实」，未提供数据禁止编造
-- **快捷指令机制升级**
-  - `QuickAction` 的 `prompt` 与 `context` 均支持函数——前者动态读取配置，后者自定义富上下文（缺省走通用 provider 摘要）
-  - `AssistantPanel.onQuickAction` 通用化，新增指令只需追加 `assistantQuickActions` 数组
-- **AI 设置「趋势分析」tab**
-  - 提示词模板（textarea）+ 重点商机条数（slider 5–20）
-- **`/api/dashboard/trend-overview` 接口**
-  - 一次返回周/月/近半年聚合（复用 `get_dashboard_summary`）
-  - 近期重点商机：近半年按 `purchase_qty` 降序 Top N，含 `lost_reason`
-
-### 修复
-
-- **`get_trend_overview` 裸调路由函数报 500**
-  - 根因：内部调用 `get_dashboard_summary(period="week")` 时，未传的 `start`/`end` 拿到的是路由签名的 `Query` 默认对象（不是 `None`），被 `_resolve_range` 当字符串 `strptime` 抛 `TypeError`
-  - 修复：改为显式传 `start/end`
-  - 教训：带 `Query` 默认值的路由函数不能当普通函数裸调
-
----
-
-## [0.1.20] - 2026-07-29
-
-> 🎯 **本版本主题：彻底清理 `pricing_engine` 历史包袱**
->
-> 这个最初「解析 + 计价 + 导入导出 + 业务 CRUD」一把梭的单体文件，长期是整个系统最重的历史负担。
->
-> 本版本将其拆解为**纯算法引擎 + 业务服务 + 解析器**三层，单文件从 1094 行砍到 425 行（-61%），连同旧 `region_config` 残留一并清除。
->
-> 引擎 + 服务层**净减 415 行**（删 786 / 增 371，增的主要是从 engine 搬迁的功能而非新代码）。详见文末「历史包袱清理总结」。
+## [0.1.41] - 2026-08-04 — IO/Riser 数据补齐 + 基准配置编辑器补 UI + 防简介保存清字段
+
+- **IO 空根因**：ZS22V2-P 基准配置（bc 20）`config_content` 只有测试残留（`{"spec_diff":"22222","description":"123123"}`），没配 `standard_riser`/`riser_x16` → 模板 eval 走"未配置留空手填" → IO1/IO2 空
+- **bc 20 数据补齐**（Polaris 2U12 三模版）：`standard_riser={"IO1":"1*X16+1*X8 FHFL","IO2":"1*X16+1*X8 FHFL"}`、`riser_x16="1*X16+1*X8 FHFL"`、`standard_mem_speed="4800"`（技术员单口径；顺带清掉 UI 会显示的测试残留文案）
+- **基准配置编辑器补 UI**：原页面只有 rear_slots（IO1-4 + 容量），`config_content` 无编辑入口（文档超前于 UI）→ 新增「IO/Riser 与内存速率」编辑区：各 IO 槽 `standard_riser`（按槽位 dict）+ `riser_x16` 升级规格 + `standard_mem_speed`；留空的槽不落库=手填；`ConfigContent` 类型同步扩展
+- **修 clobber 坑**：ModelEditorPage 保存"简介"原来整体替换 `config_content`（只带 description/spec_diff）→ 会把 standard_riser 等字段清掉 → 改为合并保存（保留 riser/内存字段）
+- 实测验证：该需求重跑 → IO1/IO2 = 1*X16+1*X8 FHFL、Memory = 32GB DDR5 4800（对齐技术员单）；pytest 282 · vue-tsc ✓ · npm test 56 ✓
+
+## [0.1.40] - 2026-08-04 — 代码瘦身第一轮：删一次性脚本/死代码/死依赖（-4k+ 行）
+
+- **一次性脚本 36 个（~3100 行）**：`backend/scripts` 45→9。删 migrate_*/seed_*/drop_*/clean_*/diag_*/update_bom_template_* 等已执行完的脚本；保留 6 个长期工具（replay_cases/simulate_requirement/online_verify/audit_reasoning_batch/strategy_insights/analyze_kp_data）+ 3 个被前端注释当同步契约的脚本（seed_pricing_strategies/seed_strategy_fields/migrate_base_config_capability）
+- **requirement_check 死代码整段拆除**：0.1.36 已从流程删节点，本轮把残留全清——executor handler、linear fallback 调用、PIPELINE_STEPS 条目、`_VALID_NODE_KEYS`、默认节点配置、v6 迁移方法 + startup 调用、`check_plan` 全家桶（DEFAULT_CHECK_CONFIG/load_check_config/helper）+ 9 个对应测试、前端 RequirementCheck 类型/字段/IO 定义/步骤文案/节点抽屉表单；DB 清 30 条孤儿 node_config；`audit_plan`（review 校对）保留
+- **死文件/死依赖**：`bom_similar.py`+test（experience_alerts 引擎，0.1.38 已下线，零引用）、前端 3 个零引用组件（ActivityStream/ShowcasePreviewModal/SelectionNode）、`selectionConfig.ts`（已删画布的配置）、`dagre.d.ts`+package.json 移除未用 `dagre` 依赖、旧 `scripts/_backup/` 6 个 BOM 模板备份
+- **死常量**：`requirement_checker._PLATFORM_SERIES`（只定义未引用）
+- **过期注释 3 处**：startup.py / ruleMeta.ts / bomRuleEngine.l6.test.ts 里指向已删脚本的引用
+- **llm 占位节点拆除**：通用 `llm` 节点（role=extract_enhance）从未被任何流程图连接（34 个 flow 全无），其能力已被 extract 节点自带 enable_llm 增强取代 → 删 executor handler/默认配置/_VALID_NODE_KEYS/前端 palette/抽屉表单/IO 定义 + 2 个 dispatch 测试 + DB 32 条孤儿 node_config；extract/scene/review 三节点自己的 enable_llm 开关保留
+- 验证：pytest 284（-18 测试：9 check_plan + 5 bom_similar + 4 其他）· vue-tsc ✓ · npm test 56 ✓ · 重放 5 案例无回归（BI 0 差异）
+
+## [0.1.39] - 2026-08-04 — 国产 CPU 厂商分家：Polaris=兆芯，KH-50000 不再标"海光"
+
+- **根因**：系统只有"系列"维度没有"芯片厂商"维度，Polaris 被当成"信创大杂烩"桶（兆芯+海光+飞腾+鲲鹏混装），"海光"又被当成 Polaris 代称 → 用户需求 `KH-50000`（兆芯开胜）被整条链路当成海光
+- **口径定论（用户确认）**：Polaris 只配兆芯、Orion 只配 AMD；海光/飞腾/鲲鹏/龙芯不是 Polaris
+- **改动（代码 + 配置双修）**：
+  - 系列词表摘除海光/hygon：extract 节点 lex_series（默认 + active 流配置）+ scene_mapping series_hints（默认 + system_config）→ `KH-50000/兆芯/zhaoxin/开胜/开先` 独属 Polaris
+  - CPU 平台过滤按厂商分家（candidate_search）：需求点名厂商 → 只留该厂商家族（海光需求绝不落兆芯 KH/KX）；只写"信创/国产"或平台=Polaris → 留兆芯家族；`_XINCHUANG_RE` 补"国产"；修中文前缀 `KH` 词边界不匹配问题
+  - review 校对厂商感知（requirement_checker）：海光/飞腾/鲲鹏/龙芯需求不再提示"应为 Polaris"，海光需求配 Polaris（兆芯）也 blocked
+  - 系列确认别名（requirement_intel_service）："海光"→Polaris 别名删除，只留兆芯/开胜/信创/国产
+  - 前端 chassisMeta 常量 `REAR_SLOTS_2U_HAIGUANG` → `REAR_SLOTS_2U_POLARIS`（Polaris=兆芯）
+- **验证**：pytest 298 · vue-tsc ✓ · npm test 56 ✓ · 重放 5 案例无回归；`KH-50000` 需求实测 → ZS22V2-P（Polaris）CPU=KH50000×2、事件零"海光"、audit ok；`海光` 需求实测 → 系列 None + 校对 blocked（Polaris 是兆芯不能替代海光）
+
+## [0.1.38] - 2026-08-04 — experience_alerts 在线展示下线（案例库防偏差误报噪音）
+
+- **用户实测**：ZS22V2-P（兆芯 KH-50000）需求被 `attach_experience_alerts` 拿 ES22V3-P（AMD）案例做规格级对照 → 跨平台满屏差异（CPU platform/HDD cap/iface/Memory speed/NIC/数量…）
+- **处理**：review 节点不再挂 `experience_alerts`（案例库对照只保留在训练 bom_compare/重放），PlanCard 撤掉 experience_alerts 展示；在线"重大偏差"由 audit_plan 硬校验兜底（缺件/平台冲突/严重超预算）
+- 方案卡最终只剩「校对通过 ✓ / 需修改：…」，零噪音警告
+- 验证：pytest 290 · vue-tsc ✓；海光需求实测：requirement_check 不存在、experience_alerts=0、selection_alerts=[]、audit ok
+
+## [0.1.37] - 2026-08-04 — 阶段 2：LLM 接入（extract/scene/review 三节点增强 + 节点级开关 + 槽位清单可视化）
+
+- **LLM 三节点接入（每个节点抽屉独立开关 enable_llm && 全局「设置-AI 设置-启用 AI」双重约束）**：
+  - extract：LLM 结构化抽取并入 extract 节点（`run_extract_enhance`，schema 收口 + merge 只补缺、规则赢、能力声明不产配置）；失败降级规则结果
+  - scene_analysis：`run_scene_infer` 规则推不出系列时 LLM 从语义补推断（如 A800 8卡→Orion），明说/已定不动
+  - review：`run_llm_audit` 语义校对（方案是否真满足需求意图），规则硬校验兜底；LLM 存疑 → status=review（需人工确认）
+- **节点抽屉 UI**：extract/review/scene_analysis 抽屉顶部加「启用 LLM 增强」开关；llm 节点保留（通用）
+- **槽位清单可视化**：新增 `SlotListEditor.vue` 放 clarity_check 抽屉（编辑全局 `requirement_slots`：L0/L1/L2 层级 + label + default_ok + 反问阈值），替换已弃用的信号规则编辑
+- **降级验证**：extract enable_llm=True 但 LLM 未配置 → chat_json 失败 → 静默降级规则，不阻塞主流程
+- 验证：pytest 290 · 前端 vue-tsc ✓ · npm test 56 ✓ · 重放 5 案例无回归
+
+## [0.1.36] - 2026-08-04 — 需求分析流程重构（R29）：槽位覆盖度 + 系列确认 + AI 统一开关 + 删差异报告
+
+- **删 requirement_check**：在线「需求核对差异报告」实测警告泛滥（把库缺口/替代/措辞全当警告）→ active flow 移除节点 + PlanCard 撤警告行；`bom_compare`/重放（训练对照）保留
+- **明确度=槽位覆盖度**：`requirement_slots` 期望清单可配置（L0 底线[场景/系列/CPU/内存]/L1 重要[形态/GPU/网卡]/L2 推导[RAID/电源]），`evaluate_slot_coverage` 按已填槽位差距判 explicit/partial；存储 default_ok（缺了给默认盘），AI 场景缺 GPU 反问
+- **系列确认 confirm_series（新节点）**：scene_analysis 输出 `series_source`（explicit=需求明说 / inferred=系统推断）+ `scene_determined`；cond_scene 判据改 `scene_determined`；推断系列→问「是否 XX 系列？」，推不出→列在售系列选，明说/已确认→直接选型；答复（是/不是/系列名/平台别名）解析持久化 `requirement_confirmed_series`
+- **review 改校对**：`audit_plan` 阻塞式 通过/不通过 + 必改项≤2（缺 CPU/内存、信创需求配非信创、严重超预算），挂 plan.audit，PlanCard 展示「校对通过 ✓ / 需修改：…」
+- **AI 统一设置**：`llm_config.enabled` 全局开关（设置-AI 设置-API 设置「启用 AI」），`llm_client.stream_chat/chat_json` 统一 gate + `is_llm_enabled()`；关闭后所有 AI 能力走规则/不调 LLM，llm 节点双重开关（节点 enable_llm && 全局）
+- 验证：pytest 290 · 前端 vue-tsc ✓ · npm test 56 ✓ · 重放 5 案例无回归（BI 0 ✓）
 
-### 新增
+## [0.1.35] - 2026-08-04 — ESA24V3-P（4U）首测：RAID 显式型号分组 + NIC SKU 归一 + PSU 冗余数量
+
+- **RAID 显式型号分组（R28）**：需求逐行给阵列卡型号（`RAID卡：LSI 9560 16i 8G缓存 *1`）→ `_extract_raid_groups` 归一 `9560-16i` 按组精确出件（不再泛配 9540-8i）；stage-1 跳过 RAID 组 token（含完整型号串，修 BI/LLW 回归），无型号（RAID 0,1,10）交回 I22 applicable 兼容选件
+- **NIC 型号归一**：`X710DA2BLK` 去 BLK 后缀 → 命中库件 `Intel X710-DA2` 含光模块（原选国产无光模块件）；连字符归一放匹配侧（保留 ConnectX-6 形态）；`光口含模块/含模块` 识别为光模块信号
+- **PSU 冗余数量（R28）**：`2700W 2+2/3+1冗余` → 4 个（N+M 求和；原按「冗余=双电源」出 2）；4U 8 卡机电源 2700W×4 对齐技术员单
+- **噪音过滤**：`TDP360W`（CPU TDP 连写）不再当型号 token 报 unmatched
+- **新案例入库**：ESA24V3-P · HK-2026-0707（4U8-Switch，model_id=16 / bc25 / tpl3），校对 BOM 以技术员单为准；待确认：GPU A800 需求 ×2 vs 技术员 ×8、Switch 行 `3*X16` 口径、L6 文案 KH50000 vs AMD 实配
+- 验证：pytest 283 · 重放 5 案例（BI 0 差异 ✓ / ESA24 3 [GPU业务+2库缺口] / YLL 1 / YC 1 / LLW 3 已知）
+
+## [0.1.34] - 2026-08-04 — IO/Riser 配置经验沉淀 + 对照引擎 riser 内容级比对
 
-- **商机详情页报价单解析预览**
-  - 上传报价单 Excel 不再直接生成报价单，先弹出解析预览弹窗（热力图可视化 + 区域/字段规则可调），确认后再落库生成报价单
-  - 复用「设置-解析规则」同一套规则引擎，不重复造轮子
-  - 新增前端组件：`QuotationParsePreviewModal` / `ParseHeatmapPreview` / `ParseRulesEditor`
-  - 抽出 `useExcelParser` 单例 composable
-- **Excel 表头自适应列定位**
-  - 解析规则字段配置可选 `header_labels`，启用后按表头标签（如 Catalogue / Description / Quantity）自动定位取值列
-  - 兼容不同模板的列偏移（C/D/E vs D/E/F）
-  - L6 与 KP 区域均支持
-- **l6/kp_region_config 物理删表迁移脚本**
-  - 新增 `backend/scripts/drop_l6_kp_region_config.py`，幂等 `DROP` 旧的 `rules.l6_region_config` / `rules.kp_region_config` 表
-
-### 重构
-
-- **pricing_engine 瘦身：1094 → 425 行（-61%）**
-  - 删除 7 个遗留解析方法
-  - 删除 Excel 导出样式块（`_F_*` / `_NO_FILL` / `_THIN_B` 等）
-  - 删除 `_resolve_font`、`update_project_meta`
-  - 删除死导入（`openpyxl` / `Font` / `json` / `ast` / `operator` 等）
-  - `parse_file` 统一走规则驱动的 `ExcelParser`，不再保留旧解析兜底——解析异常直接抛出，暴露问题而非用旧实现掩盖
-- **商机 CRUD 移出 engine**
-  - `save_opportunity` / `get_opportunity_details` 从 `PricingEngine` 搬入 `QuoteService`（业务编排层）
-  - engine 回归纯算法定位
-  - `QuoteService` 新增 `_get_quotation_repo` 懒加载，避免每次调用重复实例化
-- **工具函数归位**
-  - `_safe_eval_math`（公式安全求值，替换 `eval()`）从 `pricing_engine` 移入 `excel_parser`
-  - 它服务于解析阶段的公式求值，理应在解析层
-
-### 清理
-
-- **移除 l6/kp_region_config 残留代码**
-  - `rules_repo`(-120) / `models/rules`(-22) / `api/rules`(-121) 三处共 **-263 行**对旧 region_config 表的读写代码全部删除
-  - 已被 `parse_regions` / `parse_field_rules` 取代
-  - 代码层清理完毕，配套迁移脚本 `drop_l6_kp_region_config.py` 物理删表收尾
-
-### 🧹 历史包袱清理总结
-
-本次以「拆解 pricing_engine 单体」为核心，量化如下：
-
-| 对象 | 变化 |
-|---|---|
-| `pricing_engine.py` | 1094 → **425 行**（-669，**-61%**） |
-| 旧 `l6/kp_region_config` 残留 | `rules_repo` / `models` / `api` 三处共 **-263 行** |
-| 引擎 + 服务层整体（`engine/` + `quote_service`） | 删 786 / 增 371 = **净减 415 行** |
-
-> 其中约 **180 行**（商机 CRUD、`_safe_eval_math`）是**搬迁**到 `quote_service` / `excel_parser`——功能不丢，只是各归其位。
->
-> 真正被删除的是约 **750 行历史遗留死代码**：7 个遗留解析方法、Excel 导出样式块 `_F_*`/`_NO_FILL`、死导入 `openpyxl`/`Font`/`json`/`ast` 等、旧 region_config 表读写。
->
-> `pricing_engine` 现已回归**纯算法层**（解析 → 计价 → KP 同步），不再背解析/导入/导出/业务 CRUD 的旧包袱。
-
-### 修复
-
-- **报价单列表价格/利润不显示**
-  - 回退误加的「按 items 重算整机售价/利润」逻辑（既多余又算错，把 OPP-20260729233147664237 算成错误值）
-  - 列表直接读 `quotation` 表已存的 `total_price` / `profit_margin`（该商机实际为 ¥490,600 / 10%），不再重算
-
----
-
-## [0.1.19] - 2026-07-28
-
-> 🎯 **本版本主题：商机存储文件夹可读命名优化 + 附件物理文件清理**
->
-> 文件夹从纯 ID 改为带客户名前缀，磁盘上可直接识别归属；删除附件时同步清理物理文件，避免垃圾累积。
-
-### 新增
-
-- **商机存储文件夹可读命名**
-  - 文件夹名从纯 ID（`OPP-xxx`）改为带客户名前缀（`客户名_OPP-xxx`）
-  - 可以直接在磁盘上识别商机归属
-- **客户名变更自动同步文件夹**
-  - 编辑商机客户名时，自动重命名存储文件夹并更新数据库中的文件路径
-
-### 修复
-
-- **存档区删除附件物理文件残留**
-  - 以前只软删除数据库记录，物理文件没删，导致垃圾累积
-  - 现在删除时同步清理磁盘文件
-- **永久删除报价单 Feed 附件残留**
-  - 永久删除报价单时，同步删除关联的 `sent_quote` 归档文件并广播通知前端
-- **存档区删除附件前端不同步**
-  - 改为通过父组件调用 `useFeedSocket.deleteAttachment()`
-  - 乐观更新 + WebSocket 广播双重保障
-
-### 变更
-
-- **存储路径格式变更**：从 `opportunities/{opp_id}/` 改为 `opportunities/{客户名}_{opp_id}/`
-
-### 迁移
-
-- 新增 `backend/scripts/migrate_opportunity_folders.py` 脚本用于存量数据迁移
-- 支持 `--dry-run` 预览变更
-
----
-
-## [0.1.18] - 2026-07-28
-
-### 新增
-
-- **料号库分页**
-  - 后端 API 支持 `page`/`page_size` 参数
-  - 前端卡片/列表双视图都加了分页组件
-  - 默认每页 50 条，避免料号多时 DOM 爆炸
-- **料号库批量导入/导出**
-  - 工具栏新增「导入」「导出」按钮
-  - 导入流程：选文件 → 解析预览（标注新增/更新/无效）→ 确认写入
-  - 扩展属性自动展开为 Excel 列
-  - 导出按当前筛选条件下载 Excel
-- **料号库响应式适配**
-  - 左侧分类导航可折叠（按钮切换）
-  - 移动端（≤768px）侧栏变为覆盖层
-  - 卡片网格自适应列数
-- **料号库卡片去圆角**
-  - `.part-card` 改为 `border-radius: 0`，方方正正更整洁
-
-### 修复
-
-- **料号库卡片泛白**
-  - 根因：玻璃层嵌套（`.panel.glass` 套 `.part-card.glass-light`），两层白色玻璃叠加接近纯白
-  - 修复：移除外层 `.glass`，让卡片直接坐在渐变背景上
-  - 符合设计系统「玻璃层不嵌套」原则
-
-### 变更
-
-- **料号 PN 可编辑**
-  - 编辑表单中 PN 字段移除 `disabled` 属性，添加提示「料号唯一标识，可自由修改」
-  - 此前设为不可编辑是误判——当前无多用户系统，管理页可自由修改
-
----
-
-## [0.1.17] - 2026-07-27
-
-### 新增
-
-- **报价工作台规格书预览**
-  - 模板选择器合并「Excel 模板」和「规格书」两组（opt-group 分组）
-  - 选规格书时用 `SpecSheet` 组件渲染，支持「打印为 PDF」
-  - 选 Excel 走原有路径
-  - 后端零改动，复用 `/api/spec-templates/preview-data` 接口
-- **报价工作台行级货币**
-  - 每个 KP 配件行可独立选择 RMB / USD
-  - 最终售价按币种联动重算
-  - USD 行按汇率折算再加税，RMB 行不折算不加税
-  - `QuotationItem` 表新增 `currency` 列，迁移脚本幂等执行
-- **跨币种 KP 比对提示**
-  - 当配件行与料号库最新价币种不同时，不再误弹「同步价格」（数值不可直接比较）
-  - 改为显示「💱 跨币种」中性提示
-- **需求分析推理流增强**
-  - 支持结构化 BOM 清单解析（如 `3.84T×4 + 960G×2` 按件独立计数）
-  - 支持 per-机型 KP 套餐
-  - 预算驱动选件
-  - underspend/超预算双向标注
-
-### 修复
-
-- **USD 计价行最终售价被放大约 9 倍**
-  - 根因：`system_config` 返回的税率/汇率是字符串，字符串拼接导致 `1 + "0.13"` 变成 `"10.13"`
-  - USD 公式算成了 `base × 汇率 × 10.13`
-  - 修复：源头统一转 `Number()`，所有 USD 计算同时修复
-- **浅色主题卡片边缘看不清**
-  - 根因：`--cpq-glass-border` 在浅色下是纯白，叠在近白底上完全隐形
-  - 修复：改为冷蓝灰 hairline 边框，暗色白边不变
-
-### 重构
-
-- **料号库字段语义重构**
-  - `parts_master.description`（原存自由文本规格串）拆分为两列：
-    - `spec_text`：UI 显示为「规格」
-    - `description`：UI 显示为「说明」，人话用途介绍
-  - 编辑表单字段顺序调整为：名称 → 规格 → 说明
-  - 卡片摘要、搜索、PartPicker 统一改读 `spec_text`
-  - 后端启动时幂等迁移（`RENAME COLUMN` + `ADD COLUMN`）
-- **系列枚举统一 SSOT（单一真相源）**
-  - Orion / Polaris / Intel / 工作站全部以 `system_config.server_series` 为唯一权威源
-  - 前端走 `useSeries()` composable 获取
-  - 改名或新增只改一处，全站生效
-- **需求分析推理流取消硬编码**
-  - 机型→KP 套餐、数量格式、型号 token 正则、underspend 阈值、select 策略全部挪到前端抽屉可配
-  - 同时修复一批 BUG：模糊需求硬推全部机型、AI 触发词不全、`4U8GPU`/`44U` FORM 边界、电源 W 误抓为预算等
-
-### 清理
-
-- 移除遗留的 `is_usd_cpu` 布尔字段（语义退化，只认 CPU 且易丢）
-- 统一改用 `currency` 字符串字段
-
----
-
-## [0.1.16] - 2026-07-23
-
-### 新增
-
-- **料号库机型系列筛选**
-  - 左侧导航新增「适用机型」筛选区
-  - 与基准配置共用 `server_series` 数据源
-- **基准配置背板回归普通配件**
-  - 背板不再走 `bp_tri_pn`/`bp_dc_pn` 特殊字段
-  - 改为在 parts 清单里像普通料一样添加（选「背板」分类 + 料号）
-- **商机驾驶舱自定义时间区间**
-  - 「本周/本月/本年」三个快捷之外，新增自定义浮层
-  - 支持：上周、上月、去年、近30天、指定月份、任意区间
-- **商机列表排序**
-  - 筛选区新增升降序下拉，按更新时间排序
-
-### 优化
-
-- 驾驶舱图表粒度自适应时间区间
-  - ≤10 天按天 / 11–90 天按周 / >90 天按月
-
-### 重构
-
-- **料号库编辑表单分区**
-  - 按「基础信息 / 规格参数 / 扩展属性」三段布局
-  - 规格参数按类别动态渲染专用字段
-  - 杜绝同字段两处编辑
-- **服务器管理面接入玻璃视觉系统**
-  - 料号库、机型、BOM 模板、基准配置四个组件的实色 `.panel` 迁移到 `.glass` / `.glass-light`
-  - 消除 dark-first 遗留样式
-- **报价工作台 KP/L6 卡片布局调整**
-  - L6 利润率条置顶、KP 合计置底，两卡对称
-  - 摘掉 KP 区外层 `.glass`，避免玻璃层嵌套导致的发糊问题
-
-### 修复
-
-- **主题切换刷新后组件主题错位**（饼图黑边、按钮底发黑）
-  - 根因：浏览器扩展（如 Dark Reader）会篡写 `<html data-theme>`，导致 CSS 主题与图表/Antd 主题错位
-  - 修复：新增 `MutationObserver` 守护（被篡改时一帧内顶回用户选择）
-  - 首屏脚本按 localStorage 预写主题（刷新不闪回）
-- **L6 价格历史快照丢失**
-  - 根因：`l6_repo` 原生 SQL 写错 schema（`l6.` vs `l6_history.`），导致 save 一直失败
-- **迁移后序列未同步**
-  - 插带 id 数据后 SERIAL 停在 1，新 INSERT 撞主键
-  - 新增 `sync_sequences.py` 批量 setval 全部 34 个序列
-- **料号编辑保存 500**
-  - `PartsMasterRepository.update` 缺失字段映射
-  - 类别输入改用 `a-auto-complete` 支持自由输入
-
-### 清理
-
-- 删除料号 `specs` 冗余字段（`kind` / `description` / `note`）
-- 删除前端「供应商」死表单项（数据库表无此列）
-
-### 文档
-
-- 重写 `Frontend_Style_Guide.md`（Soft Glassmorphism 现状，取代过时 Cyberpunk 版），新增「避免玻璃层叠」一节
-- `Principles.md` 加第⑩条「视觉规范同步」
-
----
-
-## [0.1.15] - 2026-07-17
-
-### 修复
-
-- **报价工作台预览数据不完整**
-  - preview 接口调用缺 `quotationId`，导致 config / l6 / kp 数据未加载
-  - Univer 编辑器预览正常
-
-### 清理
-
-- 移除冗余字段 `confirmed_price`（价格统一为 `base_price` + `final_price`）
-- 移除 `kp_details` / `l6_details` item 里冗余的 `model_name` / `server_model`（保留 `config_summary.server_model`）
-
----
-
-## [0.1.14] - 2026-07-16
-
-### 修复
-
-- **导出模板编辑器边缘发灰**
-  - 根因：`DefaultLayout` 的 `.main-scroll::after` 暗角装饰（cyberpunk 主题遗留）罩住全屏编辑器边缘
-  - 修复：给编辑器根元素加 `position: relative; z-index: 1` 提升到装饰层之上
-  - 全屏页面照此处理，普通页面保留氛围装饰
-
----
-
-## [0.1.13] - 2026-07-16
-
-### 修复
-
-- **导出模板编辑器 L6/KP 保修字段预览错位**
-  - 根因：填充引擎 `fill_snapshot` 动态绑定插入行后，未同步静态绑定行号
-  - 配置项越多，静态绑定偏移越严重
-  - 修复：改用行偏移表累加修正静态绑定目标行号
-
----
+- **riser 数据驱动落地（R25/R26/R27）**：`config_content.standard_riser`（默认，per-slot dict、大小写不敏感）+ `riser_x16`（GPU/100G 升级）；未配置留空手填，零硬编码。ES22V3-P 三连版=满配 `1*X16+1*X8 FHFL`、直连版=预算 `1*X8 FHFL`（对上 LLW/BI/YLL 技术员单）
+- **对照引擎新增 riser 内容级比对**：行数一致时比槽位规格（`_riser_signature` 归一，`2*X8` vs `1*X16+1*X8` 报 l6 差异；FHFL 形态词/槽位顺序不算）→ 重放立即抓出 YC IO2=2*X8 缺口（待更多样本定 per-slot 覆盖）
+- **经验与规则入系统**：文档写入「策略中心-选型配置-📄文档库」（`rules.policy_docs` module=selection，操作指南「IO 与 Riser：配置经验与填充规则」）——联网调研 + 4 案例实证 + 填充规则 + 改哪里
+- **Riser 配置优先级文档**：文档库新增操作指南「Riser 配置优先级：系统自动填充规则」（sort_order=4）——系统自动填充 IO1/IO2 的可执行优先级（GPU→全槽 riser_x16 / 100G+ 网卡→IO1 riser_x16 / 否则 standard_riser / 未配置留空手填）+ 实测输出表 + 数据改哪里
+- 验证：pytest 277 · npm test 56 ✓
+
+## [0.1.33] - 2026-08-03 — 需求分析收尾：意图感知开场白 + 完整清单直接出 BOM + 推理 BOM 完整性
+
+- **对话更聪明**：意图感知开场白（你好→问候 / 我要服务器→问用途 / 贴规格→识别）；"你帮我推荐/你定"= 全局授权直接出方案（区别于"还没定"只跳当前字段）；负载原型按原文匹配（最近补充 > 全文 > usage），修"数据库/OLTP"被 server_type 词表折叠后错配"通用/Web 业务"；删开场白"现成配置清单"引导（已贴清单还问清单=荒谬）
+- 💡 **完整配置清单直接出 BOM**：clarity 新增 4 规则（品类≥4+内存/型号→明确、型号token≥3→明确、品类≥3+内存+用途→明确）；无规则命中兜底改按信号推导缺口（修"请补充需求描述不够具体"假死循环）
+- **推理 BOM 完整性**：`buildPlanCfg` 接料号库后面板数据——IO1/IO2=1×X16+1×X8、OCP=X8、按 KP 盘型推线缆（SATA/SAS÷8、NVMe÷2，镜像 CRE）、NVMe→背板 tri；模板 Cable 行 manual→推导（改动已备份 `backend/scripts/_backup/bom_template_1_20260803.json`）
+- **内存解析**：`DDR564G*8`=DDR5-64G×8=512G（原把代际"5"算进容量→564G→9 条）；`_extract_mem_signal` 加代际剥离 + 单条×条数
+- 验证：pytest 92 · `npm run build` ✓ · `npm test` 48 ✓
+
+## [0.1.32] - 2026-08-02~03 — 需求分析对话机制（反问修复+负载引导+会话重置）
+
+> 合并原 0.1.39 / 0.1.40 / 0.1.41 / 0.1.42 / 0.1.43 / 0.1.44 六条。
+- **反问三连修**：① cond_clarity 阈值写反（只对 unclear 反问、partial 放行）→ 改非 explicit 都反问；② 补充不累积"没记性"→ `requirement_clarity_base/supplements` 跨轮持久化；③ round 跨会话不重置→重新生成报价=新对话重置 round=0（清理 3 存量卡死商机）
+- `model_token_in_category` 原失效（"EPYC9354"不含"CPU"）→ 型号→品类关键词表；extract 加 `usage_inferred` 区分"用户明说/系统兜底"
+- 死循环防护：轮次上限 3→6；修 R-22 编辑事故（赋值行丢失→NameError→假死循环）+ 防回归测试
+- **Spec Assistant 式引导**：新规则类型 `workload`（6 负载原型 + drill_down 追问树，策略中心 ask_user 节点可 CRUD）；首轮抛负载菜单、选 AI→问 GPU；`_field_satisfied` 防跨轮重复问
+- **M1 会话语义**：`_merge_clarify_text` 新对话清空旧补充（修"重复上一轮"）；一次一问 take=1；"不确定/你推荐/还没定"=已答只跳当前字段；推理面板「🔄 重新开始」按钮
+- LLM 预留（不接，离线可跑）：llm 节点 passthrough + `chat_json()` 桩（extract_enhance / question_gen / best_fit 三 role）
+
+## [0.1.31] - 2026-08-02 — 需求→BOM 引擎校正（训练循环）
+
+> 合并原 0.1.33 / 0.1.34 / 0.1.35 / 0.1.36 / 0.1.37 / 0.1.38 六条。
+- 🔄 **BOM 填充层位纠正**：PSU/后面板填充从 `build_plan.bom_excel_rows` 回退（那是无模板 excel 兜底路径，模板模式不读）→ 改 `chassis_signals.psu_wattage` + 前端模板渲染；修 `deriveVars` gpu_qty/drive_count/psu_qty 全 0 bug（GPU/盘不在机箱件里）
+- 🔄 OCP 不再自动填（2 轮真实样本：网络走 PCIe 网卡 KP 件、从不占 OCP，推翻 Dell 行业假设）；IO1/IO2 有 GPU 才填 X16 Riser
+- PSU 瓦数按 GPU 分档：≥8 高功耗→2700W / 有 GPU→2000W / 无→1600W（修 R9700 误估 2700）
+- KP 数量串台(R-6) + 过匹配(R-8)：数量解析改位置绑定+方向感知（修 SSD 盗内存 16、GPU 漏 ×1、NIC 串 8）；stage-1 跳纯容量碎片、Memory 交容量反推
+- 型号正则修 H100/A100 漏匹配(R-15)：加 `[A-Za-z][0-9]{3,}` 分支；非 AI 需求 abort 修复（规格清单无用途词→usage 兜底"通用计算"）
+- 🔄 撤回 4U 补件：4U=整机箱 lump 是有意的（未拆件，L6 行偏粗是预期）；GPU电源线属按 GPU 数人工加、不属机箱标配层；风扇占位件 `S.E.M.0000501` 挂 2U ×6（价 0 待补）
+- R-17 Cable 调研（未实现）：SAS→Mini-SAS 线、NVMe→PCIe/MCIO；模板 `struct_count(front_cables)`+`frontCableQty` 机制已备、仅推理喂 0
+
+## [0.1.29] - 2026-08-02 — 机箱能力主数据对齐
+
+> 合并原 0.1.31 / 0.1.32 两条。
+- 15 份真实配置校准 5 类底座（AMD/海光 × 2U/4U × 直连/Switch）；4U GPU 槽恒 8；OCP 是 AMD 平台特性（海光 2U 无、4U 有）
+- 后面板槽位标准化：`chassisMeta` `REAR_SLOTS_2U_AMD/HAIGUANG/4U` + `rearSlotsFor(form,series)`；「恢复标准布局」按 form+series 取模板
+- 能力档案回填 `backfill_chassis_capability.py`（4U→psu=4/gpu=8、2U→psu=2、2U 海光去 OCP），10 条校正（不覆盖已填值）
+- 🔄 4U 后面板纠正：`REAR_SLOTS_4U` 从误克隆 IO1-4+OCP → 仅 OCP（GPU 槽与 IO 槽物理分区）；4U GPU 走 gpu_slots=8 + gpu_arch(direct/switch)
+- 待确认：ZSA24V2-P gpu_arch 建议 switch；id=21/24/26 数据不一致；内存速率分档待权威 MT/s
+
+## [0.1.28] - 2026-08-01~02 — 选型配置重构（L0/L1/L2 架构）
+
+> 合并原 0.1.28 / 0.1.29 / 0.1.30 三条。
+- 💡 **两层兼容架构**：L0 机箱能力档案（base_config psu_bays/rear_slots/gpu_slots/max_tdp）+ L1 配件适配（料号库 specs 声明，`partFit.ts`）+ L2 跨件规则 CRE（require/exclude/derive/recommend）
+- CRE 双端：`selection_engine.py`（Python 移植 selectionEngine.ts），DB 规则 SSOT 双端共用；补 3 条 exclude 互斥（同型号不混搭）；`seed_missing_defaults` 按名补种
+- 硬编码清零：`chassisMeta.ts` SSOT、L6ChassisConfig 清 5 处硬编码、GPU 架构读 `gpu_arch_default`
+- 兼容规则加"业务分类"维度（category 列，仅组织用；编辑器分类过滤条+主题分组；API `?category=`）
+- 机箱能力并入 `BaseConfigEditorPage`（修 save payload 写死 gpu_arch_default='none' 的 clobber bug）；删冗余 ChassisCapabilityEditor；选型配置瘦身两标签；PartFitMatrix 迁服务器管理（L0/L1 目录主数据归服务器管理、仅 L2 CRE 归选型配置）
+
+## [0.1.27] - 2026-08-01 — 推理流编排可解释性
+
+- 节点 IO 元数据（`reasoningNodeIo.ts` consumes/produces）+ 试运行步骤显示输入/输出；方案卡「回溯路径」高亮生成链；palette 三环节分组；condition 分支必连校验（防路由死路）
+- 明确不做：全改显式变量系统、单节点调试、LLM 节点化（二期）
+
+## [0.1.26] - 2026-08-01 — 需求分析试运行 + 两个潜伏 bug
+
+- 画布加试运行 playground：`POST /api/reasoning-flow/test-run` 复用线上 `run_graph_executor`（force_complete 跳反问），节点逐步高亮+IO 明细+候选方案；抽 PlanCard/useTestRun 共享
+- ⚠️ simpleeval 从未进 requirements（缺它 `_eval_condition` 永远 True → cond_clarity 永远反问）；build_plan 货币混算（USD 件当 RMB 混加，按 `store/quote.ts` 口径折算成含税 RMB）
+
+## [0.1.25] - 2026-07-31 — 策略文档库
+
+- 报价策略加左目录（定价策略/策略文档）；文档复用 `rules.strategies`（domain=policy，零新表）；marked+dompurify Markdown 渲染；5 篇定价手册种子（空表才灌，绝不覆盖用户改动）
+- 推迟：版本快照/回滚（改动直接覆盖）
+
+## [0.1.24] - 2026-07-30 — 报价策略重构：查表→加法定价引擎
+
+- 💡 定价模型：查表三档 → 六维加法叠加（平台+行业+区域）×订单×成本×台数，夹 [保底,封顶]；7 条维度策略、零新增列
+- 纯 TS 引擎 `pricingEngine.ts`+单测；`pricingMeta.ts` 维度元数据 SSOT；VueFlow 固定流水线画布+维度抽屉+演算器；工作台告警 floor 改 guardrail（仍只警告不锁价）
+- 移除旧 scope→三档模型（PricingStrategyCanvas、MarginTier、seed）；L3 溯源输出 pricing_additive
+
+## [0.1.23] - 2026-07-30 — 选型配置大整理：清退 DerivationEngine
+
+- 💡 线缆/背板规则收敛进 CRE 唯一真相源：删 `derivation_engine.py`、`/api/derive`、DerivationRulesPanel；SATA/SAS÷8、NVMe÷2、GPU 供电线、背板 tri（含 NVMe→tri）迁入 CRE；删整机功耗/PSU/Switch 三条规则
+- `ruleMeta.ts` 元数据 SSOT（规则类型标签/语义色/算子符号/ctx 字段）；选型配置页重做（紧凑卡片+弹窗编辑+三列因果流拓扑）
+- 修 NVMe 线缆恒 0（`"NVME".includes("NVMe")` 恒 false）→ 引擎层 `normalizeDriveKind` 大小写无关 + 优先读 KP specs
+- 移除"按商机平台过滤候选机型"filter 规则（只过滤候选机型、与基准配置下拉表现不一致）
+
+## [0.1.22] - 2026-07-30 — 回退 Excel 表头自适应列定位
+
+- 🔄 移除 0.1.20 引入的 `header_labels` 自适应列定位：频繁定位错列（子串匹配误命中）、扫描窗口难覆盖所有排版、与显式 `col` 双真相冲突 → 回归固定列字母 `source_config.col`（所见即所取）；存量 header_labels 自动忽略无需迁移
+
+## [0.1.21] - 2026-07-30 — 趋势洞察下沉为方案助手快捷指令
+
+- 删商机线索页趋势洞察卡片、`/api/dashboard/ai-insights`、`ai_insights_config` → 并入助手「📈 分析本期趋势」快捷指令
+- 快捷指令 prompt/context 支持函数；AI 设置可配 prompt 模板；新增 `/api/dashboard/trend-overview`（周/月/近半年聚合+重点商机，LLM 输出 8 段报告）
+- 修 `get_trend_overview` 裸调路由函数 500（Query 默认对象被 strptime）——带 Query 默认值的路由函数不能当普通函数裸调
+
+## [0.1.20] - 2026-07-29 — 清理 pricing_engine 历史包袱
+
+- 💡 `pricing_engine` 1094→425 行（-61%）：拆纯算法引擎 + 业务服务（QuoteService，商机 CRUD 迁入）+ 解析器（ExcelParser）；删 7 个遗留解析方法、Excel 导出样式块、死导入；parse_file 统一走规则驱动（异常直接暴露而非旧实现掩盖）；`_safe_eval_math` 移入 excel_parser（替换 eval()）
+- 删 l6/kp_region_config 残留（rules_repo/models/api 共 -263 行）+ 物理删表脚本 `drop_l6_kp_region_config.py`
+- 商机详情页报价单解析预览弹窗（热力图+区域/字段规则可调）；Excel 表头自适应列定位（0.1.22 回退）
+- 修报价单列表价格/利润不显示（回退误加的按 items 重算逻辑，直接读 quotation 表存量值）
+
+## [0.1.19] - 2026-07-28 — 商机存储文件夹可读命名 + 附件清理
+
+- 文件夹 `OPP-xxx` → `客户名_OPP-xxx`（客户名变更自动重命名+同步路径）；迁移脚本 `migrate_opportunity_folders.py`（--dry-run）
+- 修附件物理文件残留：存档区删除、永久删除报价单 Feed 附件时同步清磁盘文件
+
+## [0.1.18] - 2026-07-28 — 料号库体验
+
+- 分页（50/页）、批量导入/导出（解析预览标注新增/更新/无效）、响应式（侧栏可折叠/移动端覆盖层）、卡片去圆角
+- 修卡片泛白（玻璃层嵌套叠加近纯白）；PN 可编辑（此前不可编辑是误判）
+
+## [0.1.17] - 2026-07-27 — 工作台规格书 + 行级货币 + 推理流增强
+
+- 工作台规格书预览（SpecSheet+打印 PDF，后端零改动）；KP 行级 RMB/USD（QuotationItem.currency，按币种联动重算）
+- ⚠️ 修 USD 计价放大 ~9 倍（税率/汇率是字符串，`1+"0.13"="10.13"`，源头统一 Number()）
+- 推理流：结构化 BOM 解析（`3.84T×4+960G×2` 按件独立计数）、per-机型 KP 套餐、预算驱动选件、underspend/超预算双向标注
+- 料号库 description 拆 `spec_text`/`description`；系列枚举统一 `system_config.server_series` SSOT；推理流硬编码挪前端抽屉可配（机型套餐/数量格式/型号正则/underspend/select 策略）
+
+## [0.1.16] - 2026-07-23 — 料号库/驾驶舱/主题
+
+- 料号库机型系列筛选；背板回归普通配件（不再走 bp_tri_pn/bp_dc_pn 特殊字段）；驾驶舱自定义时间区间+图表粒度自适应；列表排序
+- 修主题切换被浏览器扩展篡改（MutationObserver 守护+首屏预写主题）、L6 价格历史快照丢失（l6_repo 写错 schema）、序列未同步（`sync_sequences.py`）、料号编辑 500
+- 服务器管理面接入玻璃视觉系统；文档：Frontend_Style_Guide 重写（Soft Glassmorphism）
+
+## [0.1.15] - 2026-07-17 — 清理
+
+- 修预览数据不完整（preview 接口缺 quotationId）；移除冗余 `confirmed_price`（统一 base_price+final_price）、item 冗余 model_name/server_model
+
+## [0.1.14] - 2026-07-16 — 修导出模板编辑器边缘发灰（Dark 主题暗角装饰罩住全屏编辑器，z-index 提升）
+
+## [0.1.13] - 2026-07-16 — 修导出模板 L6/KP 保修字段预览错位（动态绑定插行未同步静态绑定行号，改用行偏移表累加）
 
 ## [0.1.12] - 2026-07-16
 
-> ⚠️ **破坏性变更**：数据库从 SQLite 全面迁移至 PostgreSQL，必须跑迁移脚本，旧 SQLite 文件不再兼容。
+> ⚠️ 破坏性：SQLite 四库 → 单一 PostgreSQL（schema 隔离 opportunities/kp/l6/rules/l6_history/public），必须跑迁移脚本，旧 SQLite 不再兼容；`DATABASE_URL` 环境变量替代硬编码路径。
 
-### 重构
+## [0.1.11] - 2026-07-11 — 导出模板 + 文档
 
-- **数据库：SQLite → PostgreSQL**
-  - 原 SQLite 四库（kp / l6 / rules / cpq_platform）合并为单一 PostgreSQL 实例
-  - 按 schema 隔离（opportunities / kp / l6 / rules / l6_history / public）
-  - 迁移脚本保留原表结构和索引，数据无损迁移
-  - 环境变量 `DATABASE_URL` 替代硬编码路径，支持容器化部署
+- 动态绑定自动保存（bindingForm 深度 watcher，修切 tab 绑定丢失）；新增 CLAUDE.md / Pricing_Engine.md / Excel_Parsing.md / Engineering_Guide.md + API 路由文档补全 119 端点
 
----
+## [0.1.10] - 2026-07-09 — 硬编码清理
 
-## [0.1.11] - 2026-07-11
+- 后端路径 `DATA_PATH` 环境变量；前端 14 组件 100+ 处色值改 `--cpq-*` CSS 变量；CORS 读环境变量；新增 docs/README.md、Deployment.md
 
-### 新增
+## [0.1.9] - 2026-07-04 — 项目文件管理
 
-- **导出模板动态绑定自动保存**
-  - 新增 `bindingForm` 深度 watcher 实时提交
-  - 不再依赖「保存绑定」按钮
-  - 仅动态绑定自动保存，静态单元格仍需手动操作
+- 拖拽多文件上传、新建项目自动建标准文件夹；修详情页路由白屏、文件列表加载失败（filename vs file_name 字段名不匹配）
 
-### 修复
+## [0.1.8] - 2026-07-04 — L6 三栏对比 + 导出模板引擎
 
-- **模板编辑器绑定丢失**
-  - 表单值变化时未触发保存，导致用户辛苦配置的绑定在切换标签页后丢失
+- L6 三栏对比（需求/匹配/定价）；导出模板引擎（`${xxx}` 变量 + `#for` 循环块）+ 卡片 CRUD + 所见即所得编辑器；配置页预览复刻 Excel 结构
+- L6 匹配：主板降级、机箱模糊匹配；修匹配引擎空指针、导出合并单元格错位、Excel 空行渲染横线
 
-### 文档
+## [0.1.7] - 2026-07-03 — 文件归档/评论
 
-- 新增 `CLAUDE.md`（新会话入口）、`Pricing_Engine.md`（定价引擎原理）、`Excel_Parsing.md`（Excel 解析逻辑）、`Engineering_Guide.md`（工程指南）、业务流程图
-- 重写 API 路由文档（补全 119 端点），统一所有文档版本号至 v0.1.11，修正启动命令与脱节链接
+- 文件按项目自动归档+实时扫描+重命名/删除/上传/打开；项目评论（@提及/回复）；工作台侧边栏（文件列表+评论流）双栏
+- ⚠️ 修文件下载路径穿越（路径白名单校验，拒绝 ../）
 
----
+## [0.1.6] - 2026-07-03 — 质保独立计算
 
-## [0.1.10] - 2026-07-09
+- 质保服务费 L6/KP 独立计算；质保年限自动识别（"质保3年"→3 年）；质保卡片重构
 
-### 重构
+## [0.1.5] - 2026-07-03 — 质保可编辑 + 修复
 
-- **硬编码清理**
-  - 后端路径改用 `DATA_PATH` 环境变量，支持跨平台部署
-  - 前端 14 个组件 100+ 处 CSS 硬编码色值改用 `--cpq-*` CSS 变量，统一主题切换
-  - CORS 配置从代码硬编码改为读取环境变量
+- CPU 价格 0 警告；质保可编辑（年限/费率）；L6 匹配状态显示；价格失焦重算；修前端税率多乘 13%、综合毛利率口径不一致
 
-### 文档
+## [0.1.4] - 2026-07-03 — 导出规则 + 评论
 
-- 新增 `docs/README.md`（文档索引）、`Deployment.md`（部署指南）
+- 导出描述引擎：循环块、动态分类（按配件类别自动分组）、拖拽排序、智能展开（空行自动跳过）；工作台侧边栏评论流
 
----
+## [0.1.3] - 2026-07-02 — L6 价格库
 
-## [0.1.9] - 2026-07-04
+- 五维规格匹配筛选（机箱/机型/盘位/PSU/主板）；卡片网格重构；抽 `L6SpecFilter` 公共组件
 
-### 新增
+## [0.1.2] - 2026-07-02 — L6 匹配规则可视化
 
-- **项目文件管理**
-  - 支持拖拽上传多文件
-  - 新建项目自动创建标准文件夹结构
+- 规则可视化配置页（拖拽排序/降级开关/模糊规则/多结果手选）；L6 匹配引擎增强（主板降级、机箱模糊）；"基准价格"更名"KP价格库"
 
-### 优化
+## [0.1.1] - 2026-07-01 — 四库分离 + 规则在线化
 
-- 报价工作台「返回」按钮文字调整
-
-### 修复
-
-- **详情页路由崩溃**：编辑/查看按钮点击后页面白屏，路由参数解析错误
-- **项目文件列表加载失败**：前后端字段名不匹配（`filename` vs `file_name`）
-
----
-
-## [0.1.8] - 2026-07-04
-
-### 新增
-
-- **L6 三栏对比视图**：需求 / 匹配 / 定价三列并行展示，直观对比选型差异
-- **导出模板引擎**：支持变量替换（`${xxx}`）和循环块（`#for` 语法），动态生成报价单
-- **导出模板管理**：卡片式列表 + 新建/编辑/删除 CRUD
-- **模板编辑器**：左侧配置树 + 右侧实时预览，所见即所得
-
-### 优化
-
-- **配置页预览复刻 Excel 结构**：合并单元格、8 列表头、数据对齐，还原 Excel 原貌
-- **L6 匹配增强**：支持主板降级（找不到精确主板时降级到兼容型号）、机箱模糊匹配（盘位相近可匹配）
-
-### 修复
-
-- **L6 匹配引擎崩溃**：空指针异常，未处理「无匹配结果」情况
-- **导出合并单元格写入错误**：openpyxl 行列计算错误，导致单元格错位
-- **Excel 需求显示横线**：解析时未过滤空行，导致空白行渲染为横线
-
----
-
-## [0.1.7] - 2026-07-03
-
-### 新增
-
-- **项目文件自动归档**：上传文件按项目 ID 自动归档，支持子目录
-- **文件列表实时扫描**：进入项目详情时自动扫描文件目录，增量更新数据库
-- **文件管理功能**：重命名、删除、上传、打开（调用系统默认程序）
-- **项目评论**：支持 @提及、评论回复、评论删除
-- **报价工作台侧边栏**：文件列表 + 评论流，双栏布局
-
-### 修复
-
-- **文件下载路径穿越**
-  - 根因：未校验文件路径，存在安全漏洞
-  - 修复：新增路径白名单校验，拒绝 `../` 等非法路径
-
----
-
-## [0.1.6] - 2026-07-03
-
-### 新增
-
-- **质保服务费独立计算**：L6 和 KP 分别计算质保费，互不干扰
-- **质保年限自动识别**：从备注字段解析质保年限（如「质保3年」→ 3 年），自动填充费率
-
-### 优化
-
-- **质保卡片重构**：识别状态、年限下拉、费率调整、金额实时计算，交互更流畅
-
----
-
-## [0.1.5] - 2026-07-03
-
-### 新增
-
-- **CPU 价格为 0 警告**：检测到 CPU 价格异常时，UI 显眼提示用户确认
-- **质保项可编辑**：质保不再是只读展示，支持手动调整年限和费率
-
-### 优化
-
-- **L6 匹配状态显示**：匹配成功/失败/部分匹配，状态一目了然
-- **质保独立统计**：报价单预览和导出时，质保单独列示，不混入 L6/KP
-- **价格输入失焦触发重算**：输入框失去焦点时自动触发价格重算，减少手动点击
-- **KPI 按 CFG 切换**：不同配置方案显示不同的 KPI 指标
-
-### 修复
-
-- **前端税率多乘 13%**：计算毛利率时重复乘税率，导致毛利偏低
-- **综合毛利率计算错误**：分子分母口径不一致，已修正
-
----
-
-## [0.1.4] - 2026-07-03
-
-### 新增
-
-- **报价单导出规则模块**：动态分类（按配件类别自动分组）、循环语法（`#for item in items`）、拖拽排序
-- **报价工作台评论**：侧边栏评论流，支持实时更新
-
-### 优化
-
-- **导出描述引擎重构**：支持循环块、动态分类、智能展开（空行自动跳过）
-
----
-
-## [0.1.3] - 2026-07-02
-
-### 新增
-
-- **L6 价格库五维规格匹配筛选**：机箱、机型、盘位、PSU、主板五个维度联动筛选，快速定位目标价格
-
-### 优化
-
-- **L6 价格库卡片样式重构**：从表格改为卡片网格，信息密度更高
-- **提取 `L6SpecFilter` 公共组件**：复用于价格库和配置页，减少代码重复
-
----
-
-## [0.1.2] - 2026-07-02
-
-### 新增
-
-- **L6 匹配规则可视化配置页**：拖拽排序调整优先级、降级开关、模糊规则（盘位相近可匹配）、多结果手选（匹配到多个时手动选择）
-
-### 优化
-
-- **L6 匹配引擎增强**：主板降级（找不到精确主板时降级到兼容型号）、机箱模糊匹配（盘位相近可匹配）
-- **命名调整**：「基准价格」改名为「KP价格库」，语义更清晰
-- **规则管理页重构**：一级色块分类 + 二级 Tab，层级更清晰
-
----
-
-## [0.1.1] - 2026-07-01
-
-### 新增
-
-- **独立数据库架构**：kp / l6 / rules / cpq_platform 四库分离，业务域边界清晰
-- **规则在线化**：Excel 锚点（从模板读取配置位置）、L6 维度（机箱/盘位/主板等）、KP 映射（型号→价格）、主板映射（CPU 型号→主板兼容）
-- **基准价格管理**：KP/L6 在线 CRUD，支持价格历史趋势图
-- **规则管理 CRUD**：Web 端直接编辑规则，无需改代码
-- **回收站**：软删除机制，误删可恢复
-- **项目管理看板**：商机/报价单状态一览
-
-### 优化
-
-- **网格布局自适应**：`auto-fill minmax` 自适应网格，响应式更流畅
-- **Chart.js 价格趋势可视化**：历史价格折线图，直观展示价格波动
-
----
+- kp/l6/rules/cpq_platform 四库分离；规则在线化（Excel 锚点/L6 维度/KP 映射/主板映射）；KP/L6 在线 CRUD+价格历史趋势图；回收站软删除；项目管理看板
 
 ## [0.1.0] - 2026-06-29
 
-> ⚠️ **破坏性变更**：从旧系统 0.2.5（Streamlit 单体）全面重写为 Vue3 + FastAPI 前后端分离架构，数据不兼容。
+> ⚠️ 破坏性：从旧系统 0.2.5（Streamlit 单体）全面重写为 Vue3+FastAPI 前后端分离，数据不兼容。
 
-### 版本概述
-
-从旧系统 0.2.5（Streamlit 单体）迁移至 Vue3 + FastAPI 前后端分离架构。这是一个完整的重写，保留核心业务逻辑，全面升级技术栈和用户体验。
-
-### 新增
-
-- **智能上传**：Excel 拖拽 → 自动解析 → 多配置拆分 → 入库，告别手动录入
-- **报价工作台**：
-  - 实时精算：L6 + KP 价格变动即时反映
-  - 独立调价：每个配件可单独调价，不影响其他
-  - 财务联动：毛利率、售价、成本三维联动
-- **项目管理**：
-  - 看板视图：商机状态一览
-  - 校对流程：标记、备注、确认
-  - 导出功能：一键导出报价单
-- **基准价格**：KP/L6 在线 CRUD + 历史趋势
-- **核心引擎**：
-  - 五维匹配：机箱/机型/盘位/PSU/主板联动
-  - 质保按需：自动计算或手动覆盖
-  - WYSIWYG 导出：所见即所得，模板可配
-
-### 技术栈
-
-- 前端：Vue3 + TypeScript + Vite + Ant Design Vue + Pinia
-- 后端：FastAPI + SQLAlchemy
-- 数据库：SQLite × 4 独立库（v0.1.12 迁移至 PostgreSQL）
-- 样式：GitHub Dark 暗色主题（v0.1.16 迁移至 Soft Glassmorphism 浅色主题）
+- 智能上传（Excel 拖拽→自动解析→多配置拆分→入库）；报价工作台（实时精算/独立调价/财务三维联动）；五维匹配引擎；质保按需；WYSIWYG 导出
+- 技术栈：Vue3+TS+Vite+AntD+Pinia / FastAPI+SQLAlchemy / SQLite×4（0.1.12 迁 PostgreSQL）

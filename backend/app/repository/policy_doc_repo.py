@@ -1,254 +1,118 @@
-"""策略文档库(policy 域)—— 复用 rules.strategies 表存 markdown 文档。
+"""策略文档库仓储（rules.policy_docs 独立表）—— 无数字 id，增删改查用「创建时间戳」定位。
 
-文档 = domain='policy', type='document' 的策略行:
-  name       = 文档标题
-  body       = {module, category, sort_order, content_markdown}  # module 隔离各策略文档库(pricing/selection)
-  description = 摘要
-CRUD 走通用 /api/strategies(domain=policy),本模块只负责首启动种子(空表才灌,绝不覆盖用户改动)。
-
-⚠️ 文档分类(category)与 frontend/src/constants/policyMeta.ts 的 DOC_CATEGORIES 对齐(SSOT)。
-DEFAULT_DOCS 内容只在后端 seed 定义(首启动灌一次,后续用户可改/加,前端不重复存)。
+2026-08-04：文档从 rules.strategies（与定价/选型规则混表 + 自增数字 id）独立出来：
+- doc_key（UUID）仅作数据库主键，前端/API 永不暴露、永不递增；
+- 业务定位键 = (module, created_at)：创建时间戳不可变、微秒精度，手动创建不会重复；
+- 列表不返回任何 id；编辑/删除传 module + created_at 即可定位。
 """
-from app.repository.strategy_repo import StrategyRepository
+import logging
+from typing import Optional
 
+from ..models.base import Rules_SessionLocal
+from ..models.policy_doc import PolicyDoc
 
-def _md(s: str) -> str:
-    """占位:便于将来统一处理缩进/换行,目前原样返回。"""
-    return s.strip()
+logger = logging.getLogger(__name__)
 
-
-DEFAULT_DOCS = [
-    {
-        "name": "定价总览:加法叠加公式与七步流水线",
-        "category": "总览",
-        "sort_order": 1,
-        "desc": "一口 deal 怎么算出目标毛利率——公式 + 七步流水线表",
-        "content": _md("""
-# 定价总览:加法叠加公式
-
-本平台报价毛利率由 **七维度加法引擎** 计算,不是固定值。输入一笔 deal 的六个属性,引擎按固定流水线算出目标毛利率,再夹在 [保底, 封顶] 之间。
-
-## 公式
-
-> **最终毛利率 = ( 平台基准 + 行业浮动 + 区域浮动 ) × 订单系数 × 成本阶梯 × 台数折扣 → 夹在 [保底 7%, 封顶 30%]**
-
-## 七步流水线(顺序固定)
-
-| 步 | 维度 | 运算 | 说明 |
-|---|---|---|---|
-| ① | 平台基准 | 基准 | 按芯片平台取起点毛利(Polaris 15% / Orion 11% / Intel 11% / 工作站 13%) |
-| ② | 行业浮动 | +百分点 | 按客户行业 ±(AI算力 +3 / IDC机房 -2 / 政企 +3 …) |
-| ③ | 区域浮动 | +百分点 | 交付地区分桶(国内 0 / 海外 +2 / 偏远 +1) |
-| ④ | 订单系数 | ×系数 | 客户类型(直签 ×0.9 / 渠道 ×0.7 / 集采 ×0.75 / 零散 ×1.0) |
-| ⑤ | 成本阶梯 | ×系数 | BOM 总成本越高点位越低(<5w ×1.1 / 5-30w ×1.0 / >30w ×0.9) |
-| ⑥ | 台数折扣 | ×系数 | 量越大让利越多(1-5台 ×1.0 / 6-20 ×0.9 / 21-50 ×0.84 / 51+ ×0.75) |
-| ⑦ | 保底封顶 | 夹取 | 低于 7% 上调、高于 30% 下调 |
-
-## 怎么用
-
-- **演算器**:策略中心 → 报价策略 → 画布右侧演算器,输入一笔 deal 实时看每步 breakdown 与建议售价。
-- **画布**:点任一维度节点 → 抽屉改系数表 → 保存(自动落版本快照,可回滚)。
-
-## 定位(重要)
-
-本引擎 **只给建议值 + 计算器**,不自动改工作台售价。工作台售价仍由销售手填,引擎仅在**实际毛利低于保底 7%** 时告警一次。真正驱动售价的消费方是**未来的智能方案助手**(自动出报价单)。
-"""),
-    },
-    {
-        "name": "加法三维度:平台基准 / 行业 / 区域",
-        "category": "维度详解",
-        "sort_order": 2,
-        "desc": "前三维加法链——在基准毛利上 ±百分点",
-        "content": _md("""
-# 加法三维度:平台基准 / 行业 / 区域
-
-前三维是 **加法链**,在基准毛利上做 ±百分点调整。
-
-## ① 平台基准(起点)
-
-按整机芯片平台定起点,体现平台毛利差异:
-
-| 平台 | 基准毛利率 |
-|---|---|
-| Polaris(兆芯) | 15% |
-| Orion(AMD) | 11% |
-| Intel | 11% |
-| 工作站 | 13% |
-
-> 兆芯国产平台毛利空间最大;AMD/Intel 走量、点位压低;工作站因定制属性略高。
-> 若机型平台未配基准,引擎回退到保底线(7%),不报错。
-
-## ② 行业浮动(±百分点)
-
-| 行业 | 调整 |
-|---|---|
-| AI算力 | +3 |
-| 政企信息化 | +3 |
-| 工业边缘 | +2 |
-| 安防存储 | +1 |
-| 高校科研 | 0 |
-| IDC机房 | -2 |
-
-> AI算力 / 政企利润空间大,加点;IDC机房价格竞争激烈,压点。
-
-## ③ 区域浮动(分桶)
-
-交付地区是自由文本,引擎按关键词分桶后取系数:
-
-| 桶 | 调整 | 命中关键词(示例) |
-|---|---|---|
-| 国内 | 0 | (默认桶) |
-| 海外 | +2 | 海外 / 境外 / 东南亚 / 欧美 / 中东 / 日本 / 韩国 / 新加坡 / 欧洲 / 北美 … |
-| 偏远 | +1 | 西藏 / 新疆 / 青海 / 内蒙古 / 宁夏 / 甘肃 / 偏远 |
-
-> 海外加点是因为物流 / 售后成本高;偏远指国内偏远地区(西北等),小幅加点覆盖运费。
-> 判定优先级:**偏远 > 海外 > 国内**,命中即止。
-"""),
-    },
-    {
-        "name": "乘法两维度:订单系数 × 成本阶梯",
-        "category": "维度详解",
-        "sort_order": 3,
-        "desc": "加法链结果再依次乘两个系数",
-        "content": _md("""
-# 乘法两维度:订单系数 × 成本阶梯
-
-加法链算出的中间毛利,再依次乘两个系数。
-
-## ④ 订单系数(客户类型)
-
-| 客户类型 | 系数 | 含义 |
-|---|---|---|
-| 直签大客户 | ×0.9 | 直签议价强,让 10% |
-| 渠道分销 | ×0.7 | 渠道需留利润空间,让 30% |
-| 集采项目 | ×0.75 | 集采招标压价,让 25% |
-| 零散项目 | ×1.0 | 零散单不折让 |
-
-## ⑤ 成本阶梯(BOM 总成本)
-
-成本越高、点位越低(大单走量让利):
-
-| 成本区间 | 系数 |
-|---|---|
-| < 5 万 | ×1.1 |
-| 5 万 ~ 30 万 | ×1.0 |
-| > 30 万 | ×0.9 |
-
-> 小单(<5w)货值低、固定成本摊薄差,点位反而要高;大单(>30w)走量,压点换量。
-> 边界(含端点归上档):≤50000 落高档、50001 落中档;300000 落中档、300001 落末档。
-
-## 举例
-
-Polaris(15) + 政企(+3) + 海外(+2) = **20%** → 集采 ×0.75 = **15%** → 成本 12w 中档 ×1.0 = **15%** → 再乘台数折扣 → 保底封顶。
-"""),
-    },
-    {
-        "name": "台数折扣:量大让利",
-        "category": "维度详解",
-        "sort_order": 4,
-        "desc": "按销售台数分档乘系数,独立于成本阶梯",
-        "content": _md("""
-# 台数折扣:量大让利
-
-**独立于成本阶梯**——成本阶梯按 *货值* 打折,台数折扣按 *数量* 打折,两者都乘进毛利。
-
-## 四档系数
-
-| 台数区间 | 系数 | 定位 |
-|---|---|---|
-| 1 ~ 5 台 | ×1.0 | 散单 / 样机 / 小客户,全额毛利 |
-| 6 ~ 20 台 | ×0.9 | 中小项目 / 企业批量,小幅让利 |
-| 21 ~ 50 台 | ×0.84 | 标准项目集采 / 机房上架,正常让利 |
-| 51 台以上 | ×0.75 | 大型机房 / IDC 整批 / 总包,大幅折价走量 |
-
-## 为什么独立成维度
-
-- 5 台 ×10万 = 50万 与 50 台 ×1万 = 50万,货值相同但**履约 / 服务成本天差地别**——只看成本阶梯区分不了,必须再乘台数折扣。
-- 量大让利是服务器行业惯例(整机集采 / IDC 总包),单独可配、可调。
-
-## 边界规则
-
-按 min 降序取首个 `min ≤ qty` 的档:6 台落 ≥6 档、21 台落 ≥21 档、51 台落 ≥51 档(含端点归本档)。
-
-## 举例
-
-Polaris 基准 15%,60 台 → ≥51 档 ×0.75 = **11.25%** → 夹保底封顶 [7%, 30%] → 目标 **11.25%**。
-"""),
-    },
-    {
-        "name": "保底封顶与兜底机制",
-        "category": "操作指南",
-        "sort_order": 5,
-        "desc": "最后一步夹区间 + 各维度缺失如何优雅降级",
-        "content": _md("""
-# 保底封顶与兜底机制
-
-最后一步把算出的毛利夹在 [保底, 封顶] 之间,防止极端输入产出不可接受的报价。
-
-## 默认区间
-
-| 下限(保底) | 上限(封顶) |
-|---|---|
-| 7% | 30% |
-
-- **低于 7%** → 自动上调到 7%(亏本线兜底)。常见于 渠道分销(×0.7)+ 末档成本(×0.9)+ 大台数(×0.75) 叠加。
-- **高于 30%** → 下调到 30%(防止漫天要价,保持竞争力)。罕见,通常是大单 + 高基准平台。
-
-## 各维度缺失的优雅降级
-
-引擎不会因缺数据报错,任一维度未配置 / ctx 缺值 → 该步默认不调整:
-
-| 情况 | 行为 |
-|---|---|
-| 平台基准未配 | 回退保底线(7%)作为起点 |
-| 行业 / 区域 / 客户类型未命中 | 该步 ±0 或 ×1 |
-| 成本 / 台数缺失 | 该步 ×1 |
-| 全部维度为空 | 目标 = 保底 |
-
-## 工作台联动
-
-工作台 **不自动** 按目标毛利改售价——售价仍由销售手填。引擎只在 **实际毛利低于保底 7%** 时弹一次告警,不锁单。真正驱动售价的是未来的智能方案助手。
-
-## 在哪改系数
-
-策略中心 → 报价策略 → 画布点对应维度节点 → 抽屉改系数表 → 保存(自动落版本快照,可在「历史版本」回滚)。
-"""),
-    },
-]
+# 对外返回的文档结构：无 id/doc_key；body 保留旧结构兼容前端 readDocBody
+def _to_dict(d: PolicyDoc) -> dict:
+    def _iso(v) -> Optional[str]:
+        return v.isoformat() if v else None
+    return {
+        "name": d.name,
+        "module": d.module,
+        "category": d.category,
+        "sort_order": d.sort_order,
+        "content_markdown": d.content_markdown,
+        "description": d.description,
+        "status": d.status,
+        "version": d.version,
+        "created_at": _iso(d.created_at),
+        "updated_at": _iso(d.updated_at),
+        "created_by": d.created_by,
+        "updated_by": d.updated_by,
+        # body 兼容旧前端 readDocBody(d.body)
+        "body": {
+            "module": d.module,
+            "category": d.category,
+            "sort_order": d.sort_order,
+            "content_markdown": d.content_markdown,
+        },
+    }
 
 
 class PolicyDocRepository:
-    """策略文档库仓储。CRUD 复用 StrategyRepository(domain=policy),本类封装种子。"""
+    """策略文档库仓储（rules.policy_docs）。CRUD 全部以 (module, created_at) 定位，无数字 id。"""
 
     def __init__(self):
-        self.repo = StrategyRepository()
+        self.session = Rules_SessionLocal()
 
-    def list_docs(self, status: str = None) -> list:
-        return self.repo.list(domain="policy", status=status)
+    def list_docs(self, module: Optional[str] = None, status: Optional[str] = None) -> list:
+        q = self.session.query(PolicyDoc)
+        if module:
+            q = q.filter(PolicyDoc.module == module)
+        if status:
+            q = q.filter(PolicyDoc.status == status)
+        return [_to_dict(d) for d in q.order_by(PolicyDoc.sort_order, PolicyDoc.created_at).all()]
 
-    def seed_default_if_empty(self) -> int:
-        """空表才灌 5 篇定价手册;已有任何 policy 文档则跳过(绝不覆盖用户改动)。返回新增条数。"""
-        if self.repo.list(domain="policy"):
-            return 0
-        n = 0
-        for d in DEFAULT_DOCS:
-            self.repo.create({
-                "domain": "policy",
-                "type": "document",
-                "name": d["name"],
-                "scope": None,
-                "body": {
-                    "module": "pricing",
-                    "category": d["category"],
-                    "sort_order": d["sort_order"],
-                    "content_markdown": d["content"],
-                },
-                "status": "active",
-                "description": d["desc"],
-                "change_reason": "策略文档库初始化",
-            }, operator="seed")
-            n += 1
-        return n
+    def create_doc(self, data: dict) -> dict:
+        """新建文档。返回含 created_at（定位键）。"""
+        d = PolicyDoc(
+            module=data.get("module") or "pricing",
+            name=(data.get("name") or "").strip(),
+            category=data.get("category") or "总览",
+            sort_order=int(data.get("sort_order") or 1),
+            content_markdown=data.get("content_markdown") or "",
+            description=data.get("description"),
+            status=data.get("status") or "active",
+            created_by=data.get("operator") or "system",
+            updated_by=data.get("operator") or "system",
+        )
+        if not d.name:
+            raise ValueError("文档标题 name 必填")
+        self.session.add(d)
+        self.session.commit()
+        self.session.refresh(d)
+        return _to_dict(d)
+
+    def _find(self, module: str, created_at: str) -> Optional[PolicyDoc]:
+        if not module or not created_at:
+            return None
+        return self.session.query(PolicyDoc).filter(
+            PolicyDoc.module == module,
+            PolicyDoc.created_at == created_at,
+        ).first()
+
+    def update_doc(self, module: str, created_at: str, data: dict) -> Optional[dict]:
+        """按 (module, created_at) 定位更新；created_at 不变（创建时间）。version +1。"""
+        d = self._find(module, created_at)
+        if not d:
+            return None
+        if "name" in data:
+            d.name = (data["name"] or "").strip()
+        if "category" in data:
+            d.category = data["category"]
+        if "sort_order" in data:
+            d.sort_order = int(data.get("sort_order") or 1)
+        if "content_markdown" in data:
+            d.content_markdown = data["content_markdown"] or ""
+        if "description" in data:
+            d.description = data["description"]
+        if "status" in data:
+            d.status = data["status"]
+        d.version = (d.version or 1) + 1
+        d.updated_by = data.get("operator") or "system"
+        self.session.commit()
+        self.session.refresh(d)
+        return _to_dict(d)
+
+    def delete_doc(self, module: str, created_at: str) -> bool:
+        """按 (module, created_at) 定位删除；删了就是删了，无任何补种机制。"""
+        d = self._find(module, created_at)
+        if not d:
+            return False
+        self.session.delete(d)
+        self.session.commit()
+        return True
 
     def close(self):
-        self.repo.close()
+        self.session.close()

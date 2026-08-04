@@ -14,10 +14,10 @@ _VALID_TYPE = {"require", "exclude", "derive", "filter", "recommend"}
 
 
 @router.get("/")
-def list_rules(type: str = None, status: str = None):
+def list_rules(type: str = None, status: str = None, category: str = None):
     repo = CompatibilityRuleRepository()
     try:
-        return {"rules": repo.list(type=type, status=status)}
+        return {"rules": repo.list(type=type, status=status, category=category)}
     finally:
         repo.close()
 

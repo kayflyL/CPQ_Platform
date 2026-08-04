@@ -6,7 +6,8 @@ sys.path.insert(0, r'D:\CPQ_Platform_V1\backend')
 
 from app.services.requirement_intel_service import extract_keywords, _fold_lexicons, apply_budget_check
 from app.repository.reasoning_flow_repo import _default_node_configs
-from app.api.candidate_search import select_models, pick_kp_parts, build_plan, kp_categories_for_type
+from app.api.candidate_search import (select_models, pick_kp_parts, build_plan,
+                                 kp_categories_for_type, build_variant_signals)
 from app.services.reasoning_executor import _resolve_budget_strategy
 
 text = sys.argv[1] if len(sys.argv) > 1 else "AI训练/推理服务器"
@@ -37,7 +38,8 @@ print(f"  底盘件品类   : {ext.get('chassis_categories')}")
 print("\n【2️⃣  机型选型 select_models】")
 models = select_models(ext.get("usage"), ext.get("server_type_name"),
                        ext.get("series"), ext.get("form"), limit=3,
-                       no_signal_strategy=_default_node_configs()["select_baseline"].get("no_signal_strategy"))
+                       no_signal_strategy=_default_node_configs()["select_baseline"].get("no_signal_strategy"),
+                       variant_signals=build_variant_signals(ext, text))
 print(f"  命中 {len(models)} 个机型" + ("  ⚠ 空！" if not models else ""))
 for m in models:
     print(f"    • {m['name']} | type={m.get('server_type_name')} | series={m.get('series')} | form={m.get('form')} | 底盘{m.get('parts_count')}件 ¥{m.get('total_price'):.0f}")
@@ -54,6 +56,7 @@ for bl in models:
     eff_cats = list(dict.fromkeys(type_cats + (ext.get("categories") or [])))
     bl_kp = pick_kp_parts(eff_cats, ext.get("keywords", []),
                           representative_pick=_resolve_budget_strategy(ext.get("budget")),
+                          spec_rules=_mk_cfg.get("spec_rules"),
                           fallback_strategy="fallback_representative",
                           requirement_text=text,
                           qty_map=ext.get("qty_map"),
@@ -62,9 +65,20 @@ for bl in models:
                           model_token_regex=cfg.get("model_token_regex"),
                           mem_signal=ext.get("mem_signal"),
                           cpu_signal=ext.get("cpu_signal"),
-                          multi_spec_filters=ext.get("multi_spec_filters"))
+                          multi_spec_filters=ext.get("multi_spec_filters"),
+                          drive_groups=ext.get("drive_groups"),
+                          gpu_groups=ext.get("gpu_groups"),
+                          mem_groups=ext.get("mem_groups"))
     plans.append((_p := build_plan(bl, bl_kp)))
-    _p["chassis_signals"] = {"psu_wattage": (ext.get("psu_signal") or {}).get("wattage")}
+    _sig_w = (ext.get("psu_signal") or {}).get("wattage")
+    _sig_q = (ext.get("psu_signal") or {}).get("qty")
+    if _sig_w or _sig_q:  # 需求文本功率/数量优先覆盖 build_plan 推断（合并保留 bp_type/cable 派生）
+        _cs = _p.get("chassis_signals") or {}
+        if _sig_w:
+            _cs = {**_cs, "psu_wattage": _sig_w}
+        if _sig_q:
+            _cs = {**_cs, "psu_qty": int(_sig_q)}
+        _p["chassis_signals"] = _cs
     unmatched = [kp for kp in bl_kp if kp.get("unmatched")]
     print(f"  • {bl.get('name')} ({type_name or '-'}) 套餐={type_cats} 配 {len(bl_kp)} 件" + (f" ⚠{len(unmatched)} unmatched" if unmatched else ""))
     for kp in bl_kp:

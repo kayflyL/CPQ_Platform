@@ -2,8 +2,8 @@
 /** RequirementRuleList — 需求分析规则库统一编辑器（抽屉 A/B/C 分区共用）。
  *  按 ruleType 渲染列表 + 编辑 modal：
  *  - clarity：明确度判定（signal JSON + level/weight/missing）
- *  - rebuttal：反问话术（trigger/priority/question/options/fallback）
  *  - budget：预算映射（min/max/representative_pick/label）
+ *  （旧 rebuttal/workload 已随目录驱动引导删除）
  *  规则存 requirement_rules 表（独立 CRUD，实时生效，非 node_config）。 */
 import { ref, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
@@ -31,6 +31,9 @@ const SIGNAL_TYPES: { value: string; label: string; hint?: string }[] = [
   { value: 'category_count', label: '配件品类数 ≥/≤ N', hint: '用户提到了几类配件，如 CPU+GPU = 2 类' },
   { value: 'model_token_count', label: '具体型号数 ≥/≤ N', hint: '用户提到了几个具体型号，如 EPYC9354、RTX4090' },
   { value: 'model_token_in_category', label: '提到了某品类的具体型号', hint: '如 CPU 的 EPYC9354、GPU 的 RTX4090。下方填该品类 + 至少几个' },
+  { value: 'no_model_in_category', label: '提到某品类却无该品类型号', hint: '如说了"CPU/GPU"但没给具体型号，适合追问型号。下方填品类' },
+  { value: 'has_memory_capacity', label: '有内存容量' },
+  { value: 'no_memory_capacity', label: '无内存容量' },
   { value: 'combined', label: '组合条件（全部满足）' },
 ]
 const SUB_SIGNAL_TYPES = SIGNAL_TYPES.filter((t) => t.value !== 'combined')
@@ -53,6 +56,7 @@ function parseSignal(sig: any) {
 function _buildLeaf(s: any): any {
   if (s.type === 'category_count' || s.type === 'model_token_count') return { type: s.type, op: s.op || '>=', value: +s.value || 0 }
   if (s.type === 'model_token_in_category') return { type: s.type, category: s.category || 'CPU', min: +s.min || 1 }
+  if (s.type === 'no_model_in_category') return { type: s.type, category: s.category || 'CPU' }
   return { type: s.type }
 }
 function buildSignal(): any {
@@ -79,7 +83,7 @@ async function resetDefaults() {
   })
 }
 
-const typeLabel = computed(() => ({ clarity: '明确度判定', rebuttal: '反问话术', budget: '预算映射' }[props.ruleType]))
+const typeLabel = computed(() => ({ clarity: '明确度判定', budget: '预算映射' }[props.ruleType]))
 
 async function load() {
   loading.value = true
@@ -96,7 +100,6 @@ watch(() => props.ruleType, load, { immediate: true })
 
 function blankForm(): any {
   if (props.ruleType === 'clarity') return { name: '', level: 'partial', weight: 50, missing_if_not: [] }
-  if (props.ruleType === 'rebuttal') return { name: '', trigger_field: '', priority: 50, question: '', options: [], fallback: '' }
   return { name: '', min: null, max: null, representative_pick: 'min_price', label: '' }
 }
 
@@ -113,8 +116,6 @@ function startEdit(r: RequirementRule) {
   if (props.ruleType === 'clarity') {
     form.value = { name: r.name, level: b.level || 'partial', weight: b.weight ?? 50, missing_if_not: b.missing_if_not || [] }
     parseSignal(b.signal)
-  } else if (props.ruleType === 'rebuttal') {
-    form.value = { name: r.name, trigger_field: b.trigger_field || '', priority: b.priority ?? 50, question: b.question || '', options: b.options || [], fallback: b.fallback || '' }
   } else {
     const rng = b.range || {}
     const st = b.strategy || {}
@@ -130,13 +131,6 @@ async function saveRule() {
   if (props.ruleType === 'clarity') {
     const signal = buildSignal()
     body = { signal, level: f.level, weight: +f.weight || 0, missing_if_not: f.missing_if_not || [], explain: f.name }
-  } else if (props.ruleType === 'rebuttal') {
-    if (!f.trigger_field?.trim()) { message.warning('请填触发字段（如：具体型号）'); return }
-    body = {
-      trigger_field: f.trigger_field, priority: +f.priority || 0,
-      question: f.question || '', options: f.options || [],
-      fallback: f.fallback || `请补充${f.trigger_field}。`,
-    }
   } else {
     body = {
       range: { min: f.min != null && f.min !== '' ? +f.min : null, max: f.max != null && f.max !== '' ? +f.max : null, currency: 'CNY' },
@@ -192,7 +186,6 @@ function removeRule(r: RequirementRule) {
         </div>
         <div class="rl-desc">
           <template v-if="ruleType === 'clarity'">权重 {{ r.body?.weight }} · 缺：{{ (r.body?.missing_if_not || []).join('、') || '—' }}</template>
-          <template v-else-if="ruleType === 'rebuttal'">{{ r.body?.question || r.body?.fallback }}</template>
           <template v-else>{{ r.body?.range?.min ?? '−' }} ~ {{ r.body?.range?.max ?? '∞' }} · {{ r.body?.strategy?.label }}</template>
         </div>
       </div>
@@ -268,19 +261,6 @@ function removeRule(r: RequirementRule) {
           <a-form-item label="缺失字段（命中时计入 missing_fields，供反问）">
             <ChipListInput v-model="form.missing_if_not" placeholder="如 具体型号、预算" />
           </a-form-item>
-        </template>
-
-        <template v-else-if="ruleType === 'rebuttal'">
-          <a-form-item label="触发字段（匹配 missing_fields）"><a-input v-model:value="form.trigger_field" placeholder="如：具体型号" /></a-form-item>
-          <a-form-item label="优先级（数字越大越先问）"><a-input-number v-model:value="form.priority" :min="0" :max="100" style="width:100%" /></a-form-item>
-          <a-form-item label="问句模板">
-            <p class="rl-hint">可用变量：{series} {form} {example}（按用户已填系列给示例）。</p>
-            <a-textarea v-model:value="form.question" :rows="3" placeholder="如：您提到 {series}，方便告诉我具体型号吗？" />
-          </a-form-item>
-          <a-form-item label="快捷选项（chip 形式）">
-            <ChipListInput v-model="form.options" placeholder="如 5万以内、5-10万" />
-          </a-form-item>
-          <a-form-item label="兜底话术（模板渲染失败时）"><a-input v-model:value="form.fallback" placeholder="如：请补充型号。" /></a-form-item>
         </template>
 
         <template v-else>

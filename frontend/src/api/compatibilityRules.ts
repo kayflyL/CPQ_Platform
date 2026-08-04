@@ -15,6 +15,7 @@ export interface CompatibilityRule {
   id: number
   domain: string
   type: RuleType
+  category?: string | null          // 业务分类（用户可自定义的开放标签，引擎不感知、仅组织用）
   name: string
   scope: Record<string, any> | null
   body: Record<string, any> | null       // { when, then, desc }
@@ -27,7 +28,7 @@ export interface CompatibilityRule {
 }
 
 export const compatibilityRulesApi = {
-  list: (params?: { type?: RuleType; status?: RuleStatus }) =>
+  list: (params?: { type?: RuleType; status?: RuleStatus; category?: string }) =>
     RESP<{ rules: CompatibilityRule[] }>(axios.get('/api/compatibility-rules/', { params })),
   get: (id: number) => RESP<CompatibilityRule>(axios.get(`/api/compatibility-rules/${id}`)),
   create: (data: Partial<CompatibilityRule> & { type: RuleType; name: string }) =>

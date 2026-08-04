@@ -1,13 +1,14 @@
 /**
  * 需求分析规则库 API（/api/requirement-rules）。
- * 三类规则：clarity（明确度判定）/ rebuttal（反问话术）/ budget（预算映射）。
+ * 规则类型：clarity（明确度判定）/ budget（预算映射）。
+ * 旧 rebuttal/workload（臆造选项反问）已随目录驱动引导上线删除。
  * 独立建表，运行中积累命中，为未来 LLM 喂语料。
  */
 import axios from 'axios'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
-export type RuleType = 'clarity' | 'rebuttal' | 'budget'
+export type RuleType = 'clarity' | 'budget'
 export type RuleStatus = 'draft' | 'testing' | 'active' | 'archived'
 
 export interface RequirementRule {
