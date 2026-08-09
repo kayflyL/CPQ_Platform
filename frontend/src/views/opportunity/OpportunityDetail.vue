@@ -226,11 +226,11 @@
               <span v-if="quo.exported_at" class="quo-state quo-state--exported">已导出</span>
               <span v-else class="quo-state quo-state--draft">草稿</span>
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
-              <span class="quo-price">¥{{ formatPrice(quo.total_price) }}</span>
-              <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
+              <span class="quo-price"><template v-if="quotePriceVisible">¥{{ formatPrice(quo.total_price) }}</template><span v-else class="price-hidden">***</span></span>
+              <span v-if="quotePriceVisible" class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
                 {{ quo.profit_margin?.toFixed(2) || '0.00' }}%
               </span>
-              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">综合</span>
+              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">首个/共{{ quo.config_count }}</span>
             </div>
             <div class="quo-bottom">
               {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
@@ -243,11 +243,11 @@
             <button v-else class="icon-btn" title="取消主推" @click="setAsPrimary(quo)">
               <StarFilled style="color:var(--cpq-color-warning)" />
             </button>
-            <button class="icon-btn" :title="quo.exported_at ? '查看成本' : '编辑'" @click="viewQuotation(quo)">
+            <button v-if="!quo.exported_at || quotePriceVisible" class="icon-btn" :title="quo.exported_at ? '查看成本' : '编辑'" @click="viewQuotation(quo)">
               <component :is="quo.exported_at ? EyeOutlined : EditOutlined" />
             </button>
             <button
-              v-if="!quo.has_cost_snapshot || quo.has_manual_cost"
+              v-if="quotePriceVisible && (!quo.has_cost_snapshot || quo.has_manual_cost)"
               class="icon-btn"
               :title="quo.has_manual_cost ? '编辑成本' : '补录成本'"
               @click="openCostForBackfill(quo)"
@@ -337,11 +337,11 @@
           <div class="quo-content">
             <div class="quo-top">
               <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
-              <span class="quo-price">¥{{ formatPrice(quo.total_price) }}</span>
-              <span class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
+              <span class="quo-price"><template v-if="quotePriceVisible">¥{{ formatPrice(quo.total_price) }}</template><span v-else class="price-hidden">***</span></span>
+              <span v-if="quotePriceVisible" class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
                 {{ quo.profit_margin?.toFixed(2) || '0.00' }}%
               </span>
-              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">综合</span>
+              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">首个/共{{ quo.config_count }}</span>
             </div>
             <div class="quo-bottom">
               {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
@@ -460,6 +460,7 @@ import {
 import { uploadQuotationToProject } from '@/api/quote'
 import { projectApi, quotationApi } from '@/api'
 import { feedApi } from '@/api/feed'
+import { useAuthStore } from '@/store/auth'
 import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
@@ -476,6 +477,9 @@ import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 
 const route = useRoute()
+const auth = useAuthStore()
+/** 商机详情报价单价格可见性（字段级权限，配置驱动） */
+const quotePriceVisible = computed(() => auth.can('field.opportunity.quote_price'))
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
 const opportunityIdRef = computed(() => opportunityId)
@@ -1683,6 +1687,10 @@ onBeforeUnmount(() => {
   border-color: var(--cpq-overlay-a20, rgba(22, 119, 255, 0.2));
 }
 
+.price-hidden {
+  color: var(--cpq-text-muted, #6E7582);
+  letter-spacing: 1px;
+}
 .quo-price {
   font-size: 16px;
   font-weight: 600;

@@ -2,10 +2,12 @@
 import logging
 
 logger = logging.getLogger(__name__)
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
+from app.api.deps import get_current_user_optional, field_visible, require_perms
+from app.utils.price_mask import mask_price_fields
 from app.repository.quotation_repo import QuotationRepository
 from app.repository.opportunity_repo import OpportunityRepository
 
@@ -31,7 +33,8 @@ class QuotationUpdate(BaseModel):
 
 
 @router.get("")
-def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool = False):
+def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool = False,
+                    user: dict = Depends(get_current_user_optional)):
     """List all quotations, optionally filtered by opportunity_id."""
     repo = QuotationRepository()
     try:
@@ -50,6 +53,7 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
         # 列表保持精简：剥离 cost_snapshot（抽屉按需走 GET /{id} 取），但留标志供行内判断
         # - has_cost_snapshot：有任何成本快照（手工补录 / 导出冻结）
         # - has_manual_cost：手工补录过的（manual:true，未冻结，列表给「编辑成本」入口再进抽屉改）
+        show_price = field_visible(user, "field.opportunity.quote_price")
         items_list = []
         for q in quotations:
             d = q.to_dict()
@@ -57,6 +61,10 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
             d["has_cost_snapshot"] = bool(d.get("cost_snapshot"))
             d["has_manual_cost"] = d["has_cost_snapshot"] and snap.get("manual") is True
             d.pop("cost_snapshot", None)
+            if not show_price:
+                d = mask_price_fields(d)
+                d["has_cost_snapshot"] = False
+                d["has_manual_cost"] = False
             items_list.append(d)
         return {"quotations": items_list}
     finally:
@@ -64,7 +72,8 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
 
 
 @router.get("/{quotation_id}")
-def get_quotation(quotation_id: str, reparse: bool = False):
+def get_quotation(quotation_id: str, reparse: bool = False,
+                  user: dict = Depends(get_current_user_optional)):
     """Get a quotation by ID with its items.
 
     Args:
@@ -133,6 +142,12 @@ def get_quotation(quotation_id: str, reparse: bool = False):
                 logger.warning("QuoteService init failed: %s", e)
 
         result["per_cfg_l6"] = per_cfg_l6
+
+        # 字段级价格掩码（报价工作台价格权限）：不可见 → 价格字段置空 + 快照整体置空
+        if not field_visible(user, "field.quote.price"):
+            result = mask_price_fields(result)
+            result["cost_snapshot"] = None
+            result["strategy_snapshot"] = None
 
         return result
     finally:
@@ -210,7 +225,8 @@ class CostSnapshotRequest(BaseModel):
 
 
 @router.post("/{quotation_id}/export")
-def export_quotation(quotation_id: str, req: CostSnapshotRequest):
+def export_quotation(quotation_id: str, req: CostSnapshotRequest,
+                     admin: dict = Depends(require_perms("field.quote.price"))):
     """Freeze a draft quotation into an exported one: stamp exported_at and persist the
     cost snapshot captured client-side. Idempotent — re-exporting just refreshes the snapshot."""
     repo = QuotationRepository()
@@ -278,12 +294,15 @@ def restore_quotation(quotation_id: str):
 
 
 @router.get("/{quotation_id}/items")
-def get_quotation_items(quotation_id: str):
+def get_quotation_items(quotation_id: str, user: dict = Depends(get_current_user_optional)):
     """Get all items for a quotation."""
     repo = QuotationRepository()
     try:
         items = repo.get_items(quotation_id)
-        return {"items": [item.to_dict() for item in items]}
+        rows = [item.to_dict() for item in items]
+        if not field_visible(user, "field.quote.price"):
+            rows = mask_price_fields(rows)
+        return {"items": rows}
     finally:
         repo.close()
 
@@ -308,9 +327,7 @@ def save_quotation_items(quotation_id: str, data: dict):
             config_warranty_info = data.get("config_warranty_info")
             config_l6_picks = data.get("config_l6_picks")
 
-        count = repo.save_items(quotation_id, items)
-
-        # Update config-level fields if provided
+        # 先更新 config-level 字段（config_warranty_info / config_l6_picks 等），再 save_items。
         update_kwargs = {}
         if config_quantities:
             update_kwargs["config_quantities"] = config_quantities
@@ -324,7 +341,22 @@ def save_quotation_items(quotation_id: str, data: dict):
             update_kwargs["config_l6_picks"] = config_l6_picks
         if update_kwargs:
             repo.update(quotation_id, **update_kwargs)
-        
+
+        count = repo.save_items(quotation_id, items)
+
+        # total_price / profit_margin 由前端工作台算好直接存（单一计算源）。
+        # calculate_totals 不再算这俩（只 config_count），消除前后端两套口径漂移。
+        if isinstance(data, dict):
+            price_fields = {}
+            if data.get("total_price") is not None:
+                price_fields["total_price"] = float(data["total_price"])
+            if data.get("profit_margin") is not None:
+                price_fields["profit_margin"] = float(data["profit_margin"])
+            if data.get("l6_price") is not None:
+                price_fields["l6_price"] = float(data["l6_price"])
+            if price_fields:
+                repo.update(quotation_id, **price_fields)
+
         return {"saved": count}
     finally:
         repo.close()

@@ -151,6 +151,7 @@
                       :cost="cfg.l6_custom_price || 0"
                       :margin="cfg.l6_profit_margin"
                       :final-price="l6FinalPrice(cfg)"
+                      perm="field.quote.price"
                       cost-editable
                       :cost-disabled="!cfg.l6_price_manual"
                       @update:margin="(v: number) => store.setL6ProfitMargin(String(name), v || 0)"
@@ -182,6 +183,7 @@
                     :cost="kpCostTotal(cfg)"
                     :margin="kpMarginValue(cfg)"
                     :final-price="kpFinalPrice(cfg)"
+                    perm="field.quote.price"
                     margin-placeholder="多种"
                     @update:margin="(v: number) => store.setKpProfitMargin(String(name), v || 0)"
                   />
@@ -212,11 +214,11 @@
                       </div>
                       <div class="input-group">
                         <label>利润率%</label>
-                        <a-input-number v-model:value="item.profit_margin" size="small" style="width:100%" :min="0" @blur="store.recalculateAll()" />
+                        <a-input-number v-model:value="item.profit_margin" size="small" style="width:100%" :min="0" :disabled="!priceVisible" @blur="store.recalculateAll()" />
                       </div>
                       <div class="input-group">
                         <label>原始单价</label>
-                        <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" @change="() => onKpPriceChange(item)" />
+                        <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" :disabled="!priceVisible" @change="() => onKpPriceChange(item)" />
                       </div>
                       <div class="input-group">
                         <label>币种</label>
@@ -226,7 +228,8 @@
 
                     <div class="kp-footer">
                       <div class="kp-price">
-                        最终售价：<span class="price-val">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</span>
+                        <template v-if="priceVisible">最终售价：<span class="price-val">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</span></template>
+                        <span v-else class="price-hidden">价格不可见</span>
                       </div>
                       <a-button
                         v-if="kpSyncable(item)"
@@ -425,22 +428,25 @@
               <!-- 含税总价（主指标） -->
               <div class="fin-hero">
                 <div class="hero-label">含税总价</div>
-                <div class="hero-val">¥<CountNumber :value="configTotals.totalSales" /></div>
+                <div class="hero-val">
+                  <template v-if="priceVisible">¥<CountNumber :value="configTotals.totalSales" /></template>
+                  <span v-else class="price-hidden">***</span>
+                </div>
               </div>
 
               <!-- 指标行 -->
               <div class="fin-rows">
                 <div class="fin-row">
                   <span class="fin-label">整机总成本</span>
-                  <span class="fin-val">¥<CountNumber :value="configTotals.totalCost" /></span>
+                  <span class="fin-val"><template v-if="priceVisible">¥<CountNumber :value="configTotals.totalCost" /></template><span v-else class="price-hidden">***</span></span>
                 </div>
                 <div class="fin-row">
                   <span class="fin-label">总利润额</span>
-                  <span class="fin-val" :class="configTotals.profit >= 0 ? 'pos' : 'neg'">¥<CountNumber :value="configTotals.profit" /></span>
+                  <span class="fin-val" :class="configTotals.profit >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">¥<CountNumber :value="configTotals.profit" /></template><span v-else class="price-hidden">***</span></span>
                 </div>
                 <div class="fin-row">
                   <span class="fin-label">综合毛利率</span>
-                  <span class="fin-val" :class="configTotals.marginPct >= 0 ? 'pos' : 'neg'">{{ configTotals.marginPct.toFixed(settingsStore.numberPrecision) }}%</span>
+                  <span class="fin-val" :class="configTotals.marginPct >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">{{ configTotals.marginPct.toFixed(settingsStore.numberPrecision) }}%</template><span v-else class="price-hidden">***</span></span>
                 </div>
               </div>
 
@@ -487,6 +493,7 @@
           v-model:value="selectedTemplateValue"
           style="width: 220px"
           placeholder="选择导出模板"
+          :disabled="!priceVisible"
         >
           <a-select-opt-group v-if="templates.length" label="Excel 模板">
             <a-select-option v-for="t in templates" :key="'excel-' + t.id" :value="'excel:' + t.id">
@@ -500,7 +507,7 @@
           </a-select-opt-group>
         </a-select>
 
-        <a-button @click="handlePreview" :loading="previewLoading" class="btn-ghost">预览</a-button>
+        <a-button @click="handlePreview" :loading="previewLoading" :disabled="!priceVisible" class="btn-ghost">预览</a-button>
         <a-button type="primary" @click="handleSave()" :loading="saveLoading" class="btn-pri">保存商机</a-button>
       </div>
     </div>
@@ -593,7 +600,7 @@
         </div>
         <div class="sync-row">
           <span class="sync-label">价格</span>
-          <span class="sync-val sync-price">{{ currencySymbol(syncTarget.currency) }} {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</span>
+          <span class="sync-val sync-price"><template v-if="priceVisible">{{ currencySymbol(syncTarget.currency) }} {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</template><span v-else class="price-hidden">***</span></span>
         </div>
         <div class="sync-row sync-note">
           <span class="sync-label">备注</span>
@@ -623,6 +630,7 @@ import { useSelectionRulesStore } from '@/stores/selectionRules'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
 import { alertIcon } from '@/constants/ruleMeta'
 import { useSettingsStore } from '@/store/settings'
+import { useAuthStore } from '@/store/auth'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import UniverSheet from '@/components/UniverSheet.vue'
 import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
@@ -652,6 +660,9 @@ const store = useQuoteStore()
 const pricingRulesStore = usePricingRulesStore()
 const selectionRulesStore = useSelectionRulesStore()
 const settingsStore = useSettingsStore()
+const auth = useAuthStore()
+/** 报价工作台价格可见性（字段级权限，配置驱动） */
+const priceVisible = computed(() => auth.can('field.quote.price'))
 const route = useRoute()
 const router = useRouter()
 const activeCfg = ref('CFG1')
@@ -918,8 +929,8 @@ function onAddKpCard() {
 const gpuCableItems = ref<PickerItem[]>([])
 async function loadGpuCableItems() {
   try {
-    // 料号库按「专业分类表」重分类后，GPU 供电线归入「电源分配线缆·后面板件」，按 PN/name 含 GPU 筛选
-    const res = await partsApi.list({ category: '电源分配线缆', section: '后面板件' })
+    // GPU 供电线归入「电源分配线缆·后面板」，按 PN/name 含 GPU 筛选
+    const res = await partsApi.list({ category: '电源分配线缆', major_category: '后面板' })
     gpuCableItems.value = (res.parts || []).filter((p: any) => /gpu/i.test(p.pn) || /gpu/i.test(p.name || '')).map(fromPartMaster)
   } catch { /* 料号库暂无，GPU 卡显示空态 */ }
 }
@@ -1197,21 +1208,29 @@ const getWarrantyDesc = (cfg: any, type: 'l6' | 'kp'): string => {
   if (desc) return desc
   return warrantyDescDefaults.value[type] || ''
 }
-// 维保年限 → 固定费率映射（1 年不加、3 年 2%、5 年 5%）。年限与费率绑定，切年限即重置费率。
-const WARRANTY_RATE_BY_YEARS: Record<number, number> = { 1: 0, 3: 2, 5: 5 }
-function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number) {
-  if (type === 'l6') store.setWarrantyYearsL6(cfgName, years)
-  else store.setWarrantyYearsKP(cfgName, years)
-  const rate = WARRANTY_RATE_BY_YEARS[years]
+// 维保年限 → 费率映射（%），L6 与 KP 各自一套：L6 3 年不加、5 年 2%；KP 1 年不加、3 年 2%、5 年 5%。
+// 切年限即按映射重置该类型费率。
+const WARRANTY_RATE_BY_YEARS: Record<'l6' | 'kp', Record<number, number>> = {
+  l6: { 1: 0, 3: 0, 5: 2 },
+  kp: { 1: 0, 3: 2, 5: 5 },
+}
+function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number | null) {
+  // allowClear 清空时 years 为 undefined/null：置空年限，不设费率、不动描述
+  const yrs = years ?? null
+  if (type === 'l6') store.setWarrantyYearsL6(cfgName, yrs)
+  else store.setWarrantyYearsKP(cfgName, yrs)
+  if (yrs == null) return
+  const rate = WARRANTY_RATE_BY_YEARS[type][yrs]
   if (rate !== undefined) {
     if (type === 'l6') store.setWarrantyRateL6(cfgName, rate)
     else store.setWarrantyRateKP(cfgName, rate)
   }
-  // 描述联动：把「质保N年」的 N 换成新年限。文本可自由编辑，仅在匹配该模式时替换数字、其余不动。
+  // 描述联动：把「质保X年」的 X 换成新年限。宽松匹配（[^，,。；;] 兼容历史"质保undefined年"等异常值）；
+  // 文本可自由编辑，仅在匹配该模式时替换、其余不动。
   const cfg = store.configs[cfgName]
   const cur = cfg?.warranty_info?.[type]?.description || warrantyDescDefaults.value[type] || ''
-  if (/质保\s*\d+\s*年/.test(cur)) {
-    store.setWarrantyDescription(cfgName, type, cur.replace(/质保\s*\d+\s*年/, `质保${years}年`))
+  if (/质保[^，,。；;]*年/.test(cur)) {
+    store.setWarrantyDescription(cfgName, type, cur.replace(/质保[^，,。；;]*年/, `质保${yrs}年`))
   }
 }
 const saveLoading = ref(false)
@@ -1286,12 +1305,6 @@ const confirmRename = () => {
   store.configs[newName] = { ...oldCfg, name: newName }
   delete store.configs[oldName]
 
-  // 更新质保费率
-  if (store.warrantyRates[oldName]) {
-    store.warrantyRates[newName] = store.warrantyRates[oldName]
-    delete store.warrantyRates[oldName]
-  }
-
   // 更新栏目状态
   if (sectionState[oldName]) {
     sectionState[newName] = sectionState[oldName]
@@ -1335,7 +1348,6 @@ const closeContextMenu = () => {
 const deleteConfig = (cfgName: string) => {
   delete store.configs[cfgName]
   delete store.configQuantities[cfgName]  // 同步删除配置数量
-  delete store.warrantyRates[cfgName]
   delete sectionState[cfgName]
 
   // 如果删除的是当前激活的配置，切换到第一个
@@ -1751,7 +1763,6 @@ onMounted(async () => {
     store.configs = {}
     store.configQuantities = {}
     store.configSelectedParts = {}
-    store.warrantyRates = {}
     store.opportunityInfo = {
       opportunity_id: opportunityId || '',
       sales_person: '',
@@ -1949,7 +1960,7 @@ onMounted(async () => {
 .workspace-page {
   position: relative;
   min-height: 100vh;
-  background: var(--cpq-bg-primary);
+  /* 不设整页背景：透出布局网格层，玻璃卡片才有磨砂感 */
   color: var(--cpq-text-primary);
 }
 
@@ -2445,6 +2456,10 @@ onMounted(async () => {
   font-weight: 700;
   font-size: 14px;
   font-variant-numeric: tabular-nums;
+}
+.price-hidden {
+  color: var(--cpq-text-muted, #6e7582);
+  letter-spacing: 1px;
 }
 
 .sync-btn {

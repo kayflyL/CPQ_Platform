@@ -91,6 +91,21 @@ def require_perms(*keys: str):
     return checker
 
 
+def field_visible(user: Optional[dict], key: str) -> bool:
+    """字段级权限判断：AUTH_ENABLED=false（灰度）恒可见；否则需角色含 key。"""
+    from app.core.config import get_settings
+    if not get_settings().AUTH_ENABLED:
+        return True
+    if not user:
+        return False
+    from app.repository.role_repo import RoleRepository
+    repo = RoleRepository()
+    try:
+        return key in repo.permissions_of(user.get("role"))
+    finally:
+        repo.close()
+
+
 def get_current_user_optional(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Optional[dict]:
     """Lenient: resolve user from JWT, None when absent/invalid."""
     settings = get_settings()
