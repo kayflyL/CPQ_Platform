@@ -53,6 +53,17 @@
         </a-sub-menu>
       </a-menu>
       <div class="topbar-actions">
+        <a-dropdown v-if="auth.user" placement="bottomRight">
+          <a-button type="text" class="user-btn">
+            <UserOutlined />
+            <span class="user-name">{{ auth.user.name }}</span>
+          </a-button>
+          <template #overlay>
+            <a-menu @click="onUserMenu">
+              <a-menu-item key="logout"><LogoutOutlined /> 退出登录</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
         <a-button type="text" class="theme-toggle" @click="themeStore.toggle()">
           <BulbOutlined v-if="themeStore.isDark" />
           <BulbFilled v-else />
@@ -74,14 +85,16 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
+import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
+const auth = useAuthStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
 
@@ -123,6 +136,13 @@ watch(() => route.path, (newPath) => {
 
 const handleMenuClick = ({ key }: { key: string }) => {
   router.push(key)
+}
+
+function onUserMenu({ key }: { key: string }) {
+  if (key === 'logout') {
+    auth.logout()
+    router.push('/login')
+  }
 }
 </script>
 
@@ -169,6 +189,23 @@ const handleMenuClick = ({ key }: { key: string }) => {
   border-bottom: none !important;
 }
 
+.user-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cpq-text-secondary, #9BA1AA);
+}
+.user-btn:hover {
+  color: var(--cpq-text-primary, #E8ECEF) !important;
+}
+.user-name {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+
 .topbar :deep(.anticon) {
   color: var(--cpq-text-secondary) !important;
 }
@@ -206,6 +243,7 @@ const handleMenuClick = ({ key }: { key: string }) => {
 .topbar-actions {
   display: flex;
   align-items: center;
+  gap: 4px;
   flex-shrink: 0;
   margin-left: 8px;
 }

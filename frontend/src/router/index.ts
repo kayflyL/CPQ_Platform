@@ -1,7 +1,20 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import DefaultLayout from '@/layouts/DefaultLayout.vue'
+import { useAuthStore } from '@/store/auth'
 
 const routes = [
+  {
+    path: '/login',
+    name: 'Login',
+    component: () => import('@/views/Login.vue'),
+    meta: { title: '登录' }
+  },
+  {
+    path: '/forbidden',
+    name: 'Forbidden',
+    component: () => import('@/views/Forbidden.vue'),
+    meta: { title: '无权访问' }
+  },
   {
     path: '/',
     component: DefaultLayout,
@@ -174,6 +187,20 @@ const routes = [
 const router = createRouter({
   history: createWebHistory(),
   routes
+})
+
+// 登录守卫：未登录 → /login；已登录访问 /login → 首页
+router.beforeEach(async (to) => {
+  const auth = useAuthStore()
+  if (!auth.loaded) await auth.loadMe()
+  if (to.path === '/login') {
+    return auth.isAuthenticated ? { path: '/' } : true
+  }
+  if (to.path === '/forbidden') return true
+  if (!auth.isAuthenticated) {
+    return { path: '/login', query: to.fullPath ? { redirect: to.fullPath } : {} }
+  }
+  return true
 })
 
 export default router

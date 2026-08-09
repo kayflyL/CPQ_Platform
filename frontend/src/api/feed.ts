@@ -3,10 +3,11 @@
  * Replaces the old OpportunityFiles.vue + CommentPanel.vue split.
  *
  * A dedicated axios instance injects X-User-Id from the persisted current-user
- * picker so every feed request is attributed. Swap point for JWT later.
+ * picker so every feed request is attributed, plus the Bearer token for auth.
  */
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
+import { AUTH_TOKEN_KEY } from './auth'
 
 // ── types ──
 export interface FeedUser {
@@ -48,11 +49,13 @@ export interface FeedMessage {
   attachments: FeedAttachment[]
 }
 
-// ── http instance with current-user header ──
+// ── http instance with current-user header + Bearer token（Step D 后服务端改用 JWT）──
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
 http.interceptors.request.use((config) => {
   const u = getCurrentUser()
   if (u?.user_id) config.headers['X-User-Id'] = u.user_id
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
