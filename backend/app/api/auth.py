@@ -34,6 +34,13 @@ class ChangePasswordBody(BaseModel):
     new_password: str
 
 
+@router.get("/config")
+def auth_config():
+    """公开：AUTH_ENABLED 灰度开关（前端据此决定是否强制登录/是否放行全部权限）。"""
+    from app.core.config import get_settings
+    return {"auth_enabled": get_settings().AUTH_ENABLED}
+
+
 @router.post("/login")
 def login(body: LoginBody):
     """用户名 + 密码 → JWT + 用户信息。密码错误/禁用/无密码统一 401（不泄露账号状态）。"""

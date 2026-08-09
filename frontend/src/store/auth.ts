@@ -17,13 +17,30 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const permissions = ref<string[]>([])
   const loaded = ref(false)
+  /** AUTH_ENABLED 灰度开关：false = 不强制登录、全部权限放行（旧行为）。 */
+  const authEnabled = ref(true)
+  const configLoaded = ref(false)
 
-  const isAuthenticated = computed(() => !!user.value)
+  const isAuthenticated = computed(() => !authEnabled.value || !!user.value)
 
-  /** 是否有某权限（menu/route/字段级 UI 统一入口）。 */
+  /** 是否有某权限（menu/route/字段级 UI 统一入口）。灰度关闭时全放行。 */
   function can(key: string): boolean {
+    if (!authEnabled.value) return true
     if (!key) return true
     return permissions.value.includes(key)
+  }
+
+  /** 拉取 AUTH_ENABLED（只拉一次）。 */
+  async function ensureConfig() {
+    if (configLoaded.value) return
+    try {
+      const r = await authApi.config()
+      authEnabled.value = r.auth_enabled
+    } catch {
+      authEnabled.value = true // 拉取失败按开启处理，安全优先
+    } finally {
+      configLoaded.value = true
+    }
   }
 
   function applySession(res: MeResult) {
@@ -62,5 +79,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, permissions, loaded, isAuthenticated, can, login, logout, loadMe }
+  return { token, user, permissions, loaded, authEnabled, configLoaded, isAuthenticated, can, ensureConfig, login, logout, loadMe }
 })

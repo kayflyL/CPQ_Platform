@@ -200,6 +200,7 @@ const router = createRouter({
 // 登录守卫：未登录 → /login；已登录访问 /login → 首页
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
+  await auth.ensureConfig()
   if (!auth.loaded) await auth.loadMe()
   if (to.path === '/login') {
     return auth.isAuthenticated ? { path: '/' } : true

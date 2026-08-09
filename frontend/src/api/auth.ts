@@ -30,6 +30,7 @@ export interface MeResult {
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
 export const authApi = {
+  config: () => RESP<{ auth_enabled: boolean }>(axios.get('/api/auth/config')),
   login: (username: string, password: string) =>
     RESP<LoginResult>(axios.post('/api/auth/login', { username, password })),
   me: () => RESP<MeResult>(axios.get('/api/auth/me')),
