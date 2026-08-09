@@ -8,7 +8,7 @@ import type { Plan } from '@/api/reasoning'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
-export type ReasoningNodeKey = 'extract' | 'select_baseline' | 'match_kp' | 'compose' | 'review' | 'ask_user' | 'clarity_check' | 'budget_check' | 'scene_analysis' | 'cond_scene' | 'normalize_input' | 'llm_understand' | 'slot_validate' | 'llm_audit'
+export type ReasoningNodeKey = 'understand' | 'extract' | 'gap_analyze' | 'llm_ask' | 'scene_decide' | 'model_reason' | 'kp_reason' | 'spec_compliance' | 'compose' | 'budget_check' | 'llm_audit' | 'audit_fix' | 'llm_confirm' | 'review' | 'condition' | 'text_clean' | 'cond_gap'
 
 /** extract 节点配置（多词表体系：KP 表 + 机型表，左侧 DB 下拉动态） */
 export interface LexiconEntry {
@@ -99,9 +99,15 @@ export const reasoningFlowApi = {
     RESP<any>(axios.put(`/api/reasoning-flow/nodes/${nodeKey}`, { config })),
   activate: (flowId: number) =>
     RESP<ReasoningFlow>(axios.post(`/api/reasoning-flow/versions/${flowId}/activate`, {})),
-  llmNodes: () => RESP<{ nodes: Array<{ id: string; type: string; label: string; enable_llm: boolean }> }>(axios.get('/api/reasoning-flow/llm-nodes')),
   testRun: (text: string, budget?: number, forceComplete?: boolean) =>
     RESP<TestRunResult>(axios.post('/api/reasoning-flow/test-run', {
+      requirement_text: text,
+      explicit_budget: budget,
+      force_complete: forceComplete ?? true,
+    })),
+  /** 流式试运行：注册 run_id，事件经 WS /api/reasoning-flow/test-run-ws/{run_id} 实时推送 */
+  testRunStart: (text: string, budget?: number, forceComplete?: boolean) =>
+    RESP<{ run_id: string }>(axios.post('/api/reasoning-flow/test-run/start', {
       requirement_text: text,
       explicit_budget: budget,
       force_complete: forceComplete ?? true,

@@ -3,14 +3,26 @@
 P0：直接改 active 流的 node_config（立即生效）；版本切版 API 预留给二期 draft 试错流程。
 三层兜底在 run_pipeline（DB 异常回退模块常量），API 层不兜底。
 """
+import asyncio
 import logging
-from fastapi import APIRouter, HTTPException
+import uuid
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+from app.services.assistant_hub import assistant_hub
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"])
 
-_VALID_NODE_KEYS = {"extract", "select_baseline", "match_kp", "compose", "review", "condition", "ask_user", "clarity_check", "budget_check", "scene_analysis", "cond_scene", "normalize_input", "confirm_series", "llm_understand", "slot_validate", "confirm", "llm_ask", "llm_audit"}
+_VALID_NODE_KEYS = {
+    # v12 单路能力链（画布 palette 可拖，2026-08-09 补：此前缺这些 key 会导致抽屉保存 400）
+    "understand", "gap_analyze", "scene_decide", "model_reason", "kp_reason",
+    "spec_compliance", "audit_fix", "llm_confirm", "text_clean", "llm_agent",
+    # 旧 palette / 历史节点（保留兼容）
+    "extract", "select_baseline", "match_kp", "compose", "review", "condition",
+    "ask_user", "clarity_check", "budget_check", "scene_analysis", "cond_scene",
+    "normalize_input", "confirm_series", "llm_understand", "slot_validate", "confirm",
+    "llm_ask", "llm_audit",
+}
 
 
 def _is_valid_node_key(key: str) -> bool:
@@ -29,38 +41,6 @@ def get_active():
     repo = ReasoningFlowRepository()
     try:
         return {"flow": repo.get_active_flow()}
-    finally:
-        repo.close()
-
-
-# 带 LLM 开关的节点类型（enable_llm 开关在这些节点上生效）
-LLM_NODE_TYPES = {"llm_understand", "llm_audit", "llm"}
-
-
-@router.get("/llm-nodes")
-def list_llm_nodes():
-    """列出 active 流中所有带 LLM 开关的节点（llm_understand/llm_audit/llm）及当前开关状态。
-
-    供需求分析页「LLM 节点」按钮：一次看清哪些节点挂了 LLM、各自开关状态。
-    """
-    repo = ReasoningFlowRepository()
-    try:
-        f = repo.get_active_flow()
-        if not f:
-            return {"nodes": []}
-        cfg_map = f.get("node_configs") or {}
-        out = []
-        for n in (f.get("graph") or {}).get("nodes") or []:
-            ntype = n.get("type") or n.get("id")
-            if ntype in LLM_NODE_TYPES:
-                cfg = cfg_map.get(n.get("id")) or {}
-                out.append({
-                    "id": n.get("id"),
-                    "type": ntype,
-                    "label": n.get("label") or n.get("id"),
-                    "enable_llm": bool(cfg.get("enable_llm")),
-                })
-        return {"nodes": out}
     finally:
         repo.close()
 
@@ -165,3 +145,83 @@ async def test_run(body: dict):
         "plans": ctx.get("plans") or [],
         "awaiting_input": bool(ctx.get("awaiting_input")),
     }
+
+
+# ── 流式试运行（2026-08：画布右侧栏「完成一步显示一步」）─────────────────────
+# 复用 assistant_hub 房间：POST /test-run/start 只注册 run_id（不立即跑），
+# 第一个 WS 订阅者连上 /test-run-ws/{run_id} 后才启动后台任务——保证首个节点 step_start
+# 不被 WS 连接竞态漏掉；随后 step_start/step_done/need_input/candidates_ready 实时推送，
+# 结束后广播终态（ext/kp_by_model/plans/awaiting_input）。
+
+_pending_runs: dict = {}  # run_id -> {text, budget, force_complete, flow}
+
+
+async def _stream_test_run(run_id: str, text: str, budget: float, force_complete: bool, flow: dict) -> None:
+    async def _broadcast(payload: dict):
+        payload.setdefault("run_id", run_id)
+        await assistant_hub.broadcast(run_id, payload)
+
+    try:
+        # 预置全部将执行步骤为 pending（condition 静默路由、extract 仅 AI 失效才跑 → 不预置，跑到了再懒创建）
+        steps = [
+            {"key": n.get("id"), "label": n.get("label") or n.get("id")}
+            for n in (flow.get("graph") or {}).get("nodes") or []
+            if (n.get("type") or "") not in ("condition", "extract")
+        ]
+        await _broadcast({"type": "pipeline_start", "steps": steps})
+        from app.services.reasoning_executor import run_graph_executor
+        initial_ctx = {"budget": budget, "force_complete": force_complete}
+        ctx = await run_graph_executor("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
+        awaiting = bool(ctx.get("awaiting_input"))
+        await _broadcast({
+            "type": "pipeline_paused" if awaiting else "pipeline_done",
+            "ext": ctx.get("ext") or {},
+            "kp_by_model": ctx.get("kp_by_model") or {},
+            "plans": ctx.get("plans") or [],
+            "awaiting_input": awaiting,
+        })
+    except Exception as e:
+        logger.exception("流式试运行失败 run_id=%s", run_id)
+        await _broadcast({"type": "error", "message": f"试运行失败：{e}"})
+
+
+@router.post("/test-run/start")
+async def test_run_start(body: dict):
+    """流式试运行：注册 run_id 并后台启动图执行器，事件经 WS /test-run-ws/{run_id} 实时推送。
+    返回 {run_id}；与旧 /test-run（一次性返回）并存，画布试运行改用本端点逐步显示。"""
+    text = (body or {}).get("requirement_text")
+    if not text:
+        raise HTTPException(400, "Missing requirement_text")
+    budget = (body or {}).get("explicit_budget")
+    force_complete = bool((body or {}).get("force_complete", True))
+    repo = ReasoningFlowRepository()
+    try:
+        flow = repo.get_active_flow()
+    finally:
+        repo.close()
+    if not flow:
+        raise HTTPException(400, "无 active 推理流，请先在画布配置节点")
+    run_id = f"tr_{uuid.uuid4().hex[:12]}"
+    _pending_runs[run_id] = {
+        "text": text, "budget": budget, "force_complete": force_complete, "flow": flow,
+    }
+    return {"run_id": run_id}
+
+
+@router.websocket("/test-run-ws/{run_id}")
+async def test_run_ws(ws: WebSocket, run_id: str):
+    """订阅某次流式试运行的事件（连接即收，入站消息忽略）。
+    首个订阅者连上时启动后台任务，确保从头订阅（不漏首个 step_start）。"""
+    await assistant_hub.connect(ws, run_id)
+    params = _pending_runs.pop(run_id, None)
+    if params:
+        asyncio.create_task(_stream_test_run(
+            run_id, params["text"], params["budget"], params["force_complete"], params["flow"],
+        ))
+    try:
+        while True:
+            await ws.receive_text()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        await assistant_hub.disconnect(ws)

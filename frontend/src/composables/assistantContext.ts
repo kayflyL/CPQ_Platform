@@ -10,6 +10,7 @@ import { computed, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
 import { useQuoteStore } from '@/store/quote'
 import { contextProviders, assistantQuickActions } from '@/composables/assistantProviders'
+import { isConfigIntent as _isConfigIntent, hasServerWord as _hasServerWord } from '@/utils/configIntent' 
 
 export interface ProviderCtx {
   route: ReturnType<typeof useRoute>
@@ -44,6 +45,23 @@ interface ProviderConfig {
 }
 
 const providerConfig = ref<Record<string, ProviderConfig>>({})
+// 配置意图词表：策略中心-需求分析-「需求理解」节点抽屉可配（intent_words，单一来源）；
+// 读不到（未配置/接口失败）→ 空，消费端回退前端内置默认（与后端默认同源同值）。
+const intentWords = ref<string[]>([])
+
+/** 从 active 推理流的 understand 节点配置读意图词（策略中心需求分析页可配，改即生效）。 */
+async function loadIntentWords() {
+  try {
+    const { reasoningFlowApi } = await import('@/api/reasoningFlow')
+    const { flow } = await reasoningFlowApi.get()
+    const words = flow?.node_configs?.understand?.intent_words
+    if (Array.isArray(words)) {
+      intentWords.value = words.map((w: any) => String(w || ''))
+    }
+  } catch {
+    intentWords.value = []  // 回退前端内置默认
+  }
+}
 
 // 加载 Provider 配置
 async function loadProviderConfig() {
@@ -56,6 +74,7 @@ async function loadProviderConfig() {
   } catch {
     // 使用默认配置
   }
+  await loadIntentWords()
 }
 
 // 首次加载
@@ -114,5 +133,15 @@ export function useAssistantContext() {
     return parts.join('\n\n')
   }
 
-  return { activeProviders, contextLabel, summarize, providerConfig, loadProviderConfig, visibleQuickActions }
+  /** 配置意图：命中词表（system_config 可配，缺省内置默认）→ 自然进入需求分析 */
+  function isConfigIntent(text: string): boolean {
+    return _isConfigIntent(text, intentWords.value)
+  }
+
+  /** 弱服务器意图：提到服务器但没强到直接进分析 → 对话给「开始选配」按钮 */
+  function hasServerWord(text: string): boolean {
+    return _hasServerWord(text)
+  }
+
+  return { activeProviders, contextLabel, summarize, providerConfig, loadProviderConfig, visibleQuickActions, intentWords, isConfigIntent, hasServerWord }
 }

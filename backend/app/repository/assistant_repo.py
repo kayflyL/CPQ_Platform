@@ -70,6 +70,28 @@ class AssistantRepository:
         ).scalar_one_or_none()
         return t.to_dict() if t else None
 
+    def list_all_threads(self, limit: int = 500) -> List[dict]:
+        """管理员：列出全部会话（含回收站），带消息数/状态，按最后活跃倒序。"""
+        from sqlalchemy import func
+        rows = self.session.execute(
+            select(AssistantThread)
+            .order_by(AssistantThread.updated_at.desc())
+            .limit(limit)
+        ).scalars().all()
+        out: List[dict] = []
+        for t in rows:
+            cnt = self.session.execute(
+                select(func.count()).select_from(AssistantMessage).where(
+                    AssistantMessage.thread_id == t.thread_id,
+                    AssistantMessage.deleted_at.is_(None),
+                )
+            ).scalar() or 0
+            d = t.to_dict()
+            d["deleted_at"] = t.deleted_at or ""
+            d["msg_count"] = int(cnt)
+            out.append(d)
+        return out
+
     def soft_delete_thread(self, thread_id: str) -> bool:
         t = self.session.execute(
             select(AssistantThread).where(AssistantThread.thread_id == thread_id)
@@ -77,6 +99,31 @@ class AssistantRepository:
         if not t:
             return False
         t.deleted_at = now_iso()
+        self.session.commit()
+        return True
+
+    def restore_thread(self, thread_id: str) -> bool:
+        """回收站恢复：清空 deleted_at（会话回到正常）。"""
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        if not t:
+            return False
+        t.deleted_at = None
+        self.session.commit()
+        return True
+
+    def hard_delete_thread(self, thread_id: str) -> bool:
+        """彻底删除：物理清掉该会话全部消息 + 线程行（含 reasoning_state）。"""
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        if not t:
+            return False
+        self.session.execute(
+            AssistantMessage.__table__.delete().where(AssistantMessage.thread_id == thread_id)
+        )
+        self.session.delete(t)
         self.session.commit()
         return True
 
@@ -123,6 +170,70 @@ class AssistantRepository:
         t.reasoning_state = json.dumps(current, ensure_ascii=False)
         t.updated_at = now_iso()
         self.session.commit()
+
+    # ── 历史数据清理（rules 表走 Rules_SessionLocal，遵守 schema 隔离）──
+
+    def hard_delete_empty_threads(self) -> int:
+        """一键清理空会话：物理删除所有 0 消息（无有效消息）的线程。返回删除数。"""
+        from sqlalchemy import func
+        rows = self.session.execute(select(AssistantThread)).scalars().all()
+        deleted = 0
+        for t in rows:
+            cnt = self.session.execute(
+                select(func.count()).select_from(AssistantMessage).where(
+                    AssistantMessage.thread_id == t.thread_id,
+                    AssistantMessage.deleted_at.is_(None),
+                )
+            ).scalar() or 0
+            if cnt == 0:
+                self.session.delete(t)
+                deleted += 1
+        self.session.commit()
+        return deleted
+
+    def purge_llm_trace(self, keep_days: int) -> int:
+        """LLM 调用痕迹：只保留最近 keep_days 天，删除更早。keep_days<=0 → 全清。"""
+        from datetime import datetime, timedelta, timezone
+        from app.models.base import Rules_SessionLocal
+        from app.models.llm_trace import LLMTrace
+        if keep_days < 0:
+            keep_days = 0
+        session = Rules_SessionLocal()
+        try:
+            cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+            q = LLMTrace.__table__.delete()
+            if keep_days > 0:
+                q = q.where(LLMTrace.created_at < cutoff)
+            res = session.execute(q)
+            session.commit()
+            return res.rowcount or 0
+        finally:
+            session.close()
+
+    def prune_requirement_samples(self, keep_n: int) -> int:
+        """需求反馈样本：保留最近 keep_n 条（按 id 倒序），删除其余；keep_n=0 → 全清。"""
+        from app.models.base import Rules_SessionLocal
+        from app.models.requirement_rule import RequirementSample
+        if keep_n < 0:
+            keep_n = 0
+        session = Rules_SessionLocal()
+        try:
+            if keep_n == 0:
+                res = session.execute(RequirementSample.__table__.delete())
+            else:
+                keep_ids = session.execute(
+                    select(RequirementSample.id).order_by(RequirementSample.id.desc()).limit(keep_n)
+                ).scalars().all()
+                if keep_ids:
+                    res = session.execute(
+                        RequirementSample.__table__.delete().where(RequirementSample.id.not_in(keep_ids))
+                    )
+                else:
+                    res = None
+            session.commit()
+            return res.rowcount if res is not None else 0
+        finally:
+            session.close()
 
     # ── messages ──
 

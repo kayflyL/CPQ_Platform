@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+# dev server 日志（本机调试用，随时可删）
+vite-dev.log
+vite-dev-err.log

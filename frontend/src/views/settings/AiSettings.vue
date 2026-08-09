@@ -147,7 +147,7 @@
                     v-model:value="llmConfig.model"
                     :options="modelOptions"
                     :filter-option="filterModel"
-                    placeholder="如 qwen-plus、step-3.7-flash"
+                    placeholder="模型 id，可点「拉取模型列表」选取"
                     style="width: 280px"
                   />
                   <a-button size="small" :loading="fetchingModels" @click="handleFetchModels">拉取模型列表</a-button>
@@ -171,7 +171,7 @@
               <label class="form-label">最大 Tokens</label>
               <div class="form-control">
                 <a-input-number v-model:value="llmConfig.max_tokens" :min="100" :max="32000" :step="100" style="width: 140px" />
-                <span class="form-hint">reasoning 模型(如 step-3.x)的思考也占此预算,建议 ≥ 8000</span>
+                <span class="form-hint">reasoning(思考)类模型的思考也占此预算,建议 ≥ 8000</span>
               </div>
             </div>
           </div>
@@ -204,14 +204,167 @@
           </div>
         </a-spin>
       </a-tab-pane>
+
+      <!-- 会话记录（AI 设置·管理页） -->
+      <a-tab-pane key="threads" tab="会话记录">
+        <a-spin :spinning="threadsLoading">
+          <div class="threads-wrap">
+            <div class="threads-head">
+              <div>
+                <h4 class="section-title">会话记录</h4>
+                <div class="thread-stats">
+                  <span>总 {{ threads.length }}</span>
+                  <span>正常 {{ activeCount }}</span>
+                  <span>回收站 {{ trashCount }}</span>
+                  <span>消息 {{ msgTotal }}</span>
+                </div>
+              </div>
+              <div class="threads-head-right">
+                <a-button size="small" @click="loadThreads">刷新</a-button>
+              </div>
+            </div>
+
+            <a-radio-group v-model:value="trashView" button-style="solid" size="small" style="margin: 10px 0">
+              <a-radio-button :value="false">正常会话</a-radio-button>
+              <a-radio-button :value="true">回收站（{{ trashCount }}）</a-radio-button>
+            </a-radio-group>
+
+            <!-- 正常会话列表 -->
+            <template v-if="!trashView">
+              <div class="threads-ops">
+                <span class="threads-ops-tip">本列表 {{ activeThreads.length }} 个（空会话 {{ activeEmptyCount }}）</span>
+                <a-popconfirm
+                  :title="`一键彻底删除 ${activeEmptyCount} 个空会话（0 消息，硬删除不可恢复）？`"
+                  @confirm="cleanupEmptyThreads"
+                >
+                  <a-button size="small" danger :disabled="!activeEmptyCount">一键清理空会话</a-button>
+                </a-popconfirm>
+                <span v-if="activeSelected.length" class="threads-ops-tip">已选 {{ activeSelected.length }} 个</span>
+                <a-popconfirm
+                  :title="`把选中的 ${activeSelected.length} 个会话移入回收站（其中 ${selectedEmptyCount} 个无消息）？可在回收站恢复或彻底清除`"
+                  @confirm="batchDelete"
+                >
+                  <a-button size="small" danger :disabled="!activeSelected.length">批量删除（进回收站）</a-button>
+                </a-popconfirm>
+              </div>
+              <a-table
+                :data-source="activeThreads"
+                :columns="threadColumns"
+                :pagination="activePagination"
+                @change="onActiveTableChange"
+                size="small"
+                row-key="thread_id"
+                :scroll="{ x: 820 }"
+                :row-selection="{ selectedRowKeys: activeSelected, onChange: (k: any) => { activeSelected = k } }"
+              >
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'title'">
+                    <span class="thread-title">{{ record.title || '(未命名)' }}</span>
+                  </template>
+                  <template v-else-if="column.key === 'msg_count'">
+                    <span :class="{ 'thread-msg-empty': !(record.msg_count || 0) }">
+                      {{ record.msg_count || 0 }}{{ !(record.msg_count || 0) ? '（空）' : '' }}
+                    </span>
+                  </template>
+                  <template v-else-if="column.key === 'action'">
+                    <a-space>
+                      <a-button size="small" @click="viewThread(record)">查看</a-button>
+                      <a-popconfirm title="删除后进回收站，可在回收站恢复或彻底清除？" @confirm="softDeleteThread(record)">
+                        <a-button size="small" danger>删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </template>
+                </template>
+              </a-table>
+            </template>
+
+            <!-- 回收站列表（独立入口） -->
+            <template v-else>
+              <div class="threads-ops">
+                <span v-if="trashSelected.length" class="threads-ops-tip">已选 {{ trashSelected.length }} 个</span>
+                <a-button size="small" :disabled="!trashSelected.length" @click="batchRestore">批量恢复</a-button>
+                <a-popconfirm :title="`彻底清除选中的 ${trashSelected.length} 个会话（消息+状态一起删除，不可恢复）？`" @confirm="batchPurge">
+                  <a-button size="small" danger :disabled="!trashSelected.length">批量彻底清除</a-button>
+                </a-popconfirm>
+              </div>
+              <a-table
+                :data-source="trashThreads"
+                :columns="trashColumns"
+                :pagination="trashPagination"
+                @change="onTrashTableChange"
+                size="small"
+                row-key="thread_id"
+                :scroll="{ x: 900 }"
+                :row-selection="{ selectedRowKeys: trashSelected, onChange: (k: any) => { trashSelected = k } }"
+              >
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'title'">
+                    <span class="thread-title">{{ record.title || '(未命名)' }}</span>
+                  </template>
+                  <template v-else-if="column.key === 'msg_count'">
+                    <span :class="{ 'thread-msg-empty': !(record.msg_count || 0) }">
+                      {{ record.msg_count || 0 }}{{ !(record.msg_count || 0) ? '（空）' : '' }}
+                    </span>
+                  </template>
+                  <template v-else-if="column.key === 'action'">
+                    <a-space>
+                      <a-button size="small" @click="viewThread(record)">查看</a-button>
+                      <a-button size="small" type="primary" ghost @click="restoreThread(record)">恢复</a-button>
+                      <a-popconfirm title="彻底删除该会话（消息+状态一起清除，不可恢复）？" @confirm="purgeThread(record)">
+                        <a-button size="small" danger>彻底清除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </template>
+                </template>
+              </a-table>
+            </template>
+
+            <div class="form-section" style="margin-top: 20px">
+              <h4 class="section-title">历史数据清理</h4>
+              <div class="form-row">
+                <label class="form-label">LLM 调用记录</label>
+                <div class="form-control">
+                  <a-input-number v-model:value="traceKeepDays" :min="0" :max="365" style="width:120px" />
+                  <a-button size="small" @click="cleanupTrace">清理更早的记录</a-button>
+                  <span class="form-hint">只保留最近 N 天（0=清空全部），删除不可恢复</span>
+                </div>
+              </div>
+              <div class="form-row">
+                <label class="form-label">需求反馈样本</label>
+                <div class="form-control">
+                  <a-input-number v-model:value="sampleKeepN" :min="0" :max="10000" style="width:120px" />
+                  <a-button size="small" @click="cleanupSamples">清理多余的样本</a-button>
+                  <span class="form-hint">保留最近 N 条（0=清空全部），删除不可恢复</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </a-spin>
+      </a-tab-pane>
+
     </a-tabs>
+
+    <!-- 查看会话消息 -->
+    <a-modal v-model:open="viewOpen" :title="`会话记录：${viewThreadTitle}`" :footer="null" width="680">
+      <div class="thread-msgs">
+        <div v-for="m in viewMessages" :key="m.message_id" class="thread-msg" :class="`role-${m.role}`">
+          <div class="thread-msg-head">
+            <span class="thread-msg-role">{{ m.role === 'user' ? '用户' : m.role === 'assistant' ? '助手' : '系统' }}</span>
+            <span class="thread-msg-meta">{{ m.kind || 'text' }} · {{ m.created_at }}</span>
+          </div>
+          <pre class="thread-msg-content">{{ m.content }}</pre>
+        </div>
+        <a-empty v-if="!viewMessages.length" description="无消息" />
+      </div>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import axios from 'axios'
+import { assistantApi, type AssistantThread, type AssistantMessage } from '@/api/assistant'
 
 const DEFAULT_ASSISTANT_CONFIG = {
   auto_context: true,
@@ -420,13 +573,172 @@ function handleResetTrend() {
   message.info('已恢复默认，请点击保存生效')
 }
 
+// ── 会话记录（AI 设置·管理页）──
+const threads = ref<AssistantThread[]>([])
+const threadsLoading = ref(false)
+const trashView = ref(false)          // false=正常会话 / true=回收站
+const activePage = ref(1)
+const activePageSize = ref(10)
+const trashPage = ref(1)
+const trashPageSize = ref(10)
+const activePagination = computed(() => ({
+  current: activePage.value, pageSize: activePageSize.value, total: activeThreads.value.length,
+  showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条`,
+  pageSizeOptions: ['10', '20', '50', '100'],
+}))
+const trashPagination = computed(() => ({
+  current: trashPage.value, pageSize: trashPageSize.value, total: trashThreads.value.length,
+  showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条`,
+  pageSizeOptions: ['10', '20', '50', '100'],
+}))
+function onActiveTableChange(pag: any) {
+  activePage.value = pag.current || 1
+  if (pag.pageSize && pag.pageSize !== activePageSize.value) activePageSize.value = pag.pageSize
+}
+function onTrashTableChange(pag: any) {
+  trashPage.value = pag.current || 1
+  if (pag.pageSize && pag.pageSize !== trashPageSize.value) trashPageSize.value = pag.pageSize
+}
+const activeSelected = ref<string[]>([])
+const trashSelected = ref<string[]>([])
+const viewOpen = ref(false)
+const viewThreadTitle = ref('')
+const viewMessages = ref<AssistantMessage[]>([])
+const traceKeepDays = ref(30)
+const sampleKeepN = ref(0)
+
+const trashCount = computed(() => threads.value.filter((t) => t.deleted_at).length)
+const activeCount = computed(() => threads.value.length - trashCount.value)
+const msgTotal = computed(() => threads.value.reduce((a, t) => a + (t.msg_count || 0), 0))
+const activeThreads = computed(() => threads.value.filter((t) => !t.deleted_at))
+const activeEmptyCount = computed(() => activeThreads.value.filter((t) => !(t.msg_count || 0)).length)
+const selectedActiveThreads = computed(() => activeThreads.value.filter((t) => activeSelected.value.includes(t.thread_id)))
+const selectedEmptyCount = computed(() => selectedActiveThreads.value.filter((t) => !(t.msg_count || 0)).length)
+const trashThreads = computed(() => threads.value.filter((t) => !!t.deleted_at))
+const threadColumns = [
+  { title: '标题', key: 'title', width: 220 },
+  { title: '创建人', dataIndex: 'created_by', key: 'created_by', width: 150 },
+  { title: '消息数', dataIndex: 'msg_count', key: 'msg_count', width: 90 },
+  { title: '最后活跃', dataIndex: 'updated_at', key: 'updated_at', width: 170 },
+  { title: '操作', key: 'action', width: 150 },
+]
+const trashColumns = [
+  { title: '标题', key: 'title', width: 220 },
+  { title: '创建人', dataIndex: 'created_by', key: 'created_by', width: 150 },
+  { title: '消息数', dataIndex: 'msg_count', key: 'msg_count', width: 90 },
+  { title: '删除时间', dataIndex: 'deleted_at', key: 'deleted_at', width: 170 },
+  { title: '操作', key: 'action', width: 220 },
+]
+
+async function loadThreads() {
+  threadsLoading.value = true
+  activeSelected.value = []
+  trashSelected.value = []
+  try {
+    threads.value = await assistantApi.threads.listAll()
+  } catch (err) {
+    console.error('加载会话失败:', err)
+    message.error('加载会话失败')
+  } finally {
+    threadsLoading.value = false
+  }
+}
+async function viewThread(t: AssistantThread) {
+  viewThreadTitle.value = t.title || t.thread_id
+  viewMessages.value = []
+  viewOpen.value = true
+  try {
+    viewMessages.value = await assistantApi.threads.messages(t.thread_id)
+  } catch (err) {
+    console.error('加载消息失败:', err)
+    message.error('加载消息失败')
+  }
+}
+async function restoreThread(t: AssistantThread) {
+  try {
+    await assistantApi.threads.restore(t.thread_id)
+    message.success('已恢复')
+    loadThreads()
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '恢复失败')
+  }
+}
+async function softDeleteThread(t: AssistantThread) {
+  try {
+    await assistantApi.threads.remove(t.thread_id)
+    message.success('已移入回收站')
+    loadThreads()
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '删除失败')
+  }
+}
+async function purgeThread(t: AssistantThread) {
+  try {
+    await assistantApi.threads.purge(t.thread_id)
+    message.success('已彻底清除')
+    loadThreads()
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '清除失败')
+  }
+}
+async function cleanupEmptyThreads() {
+  try {
+    const deleted = await assistantApi.threads.cleanupEmptyThreads()
+    message.success(`已彻底清除 ${deleted} 个空会话`)
+    loadThreads()
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '清理失败')
+  }
+}
+async function batchDelete() {
+  if (!activeSelected.value.length) return
+  for (const id of activeSelected.value) {
+    try { await assistantApi.threads.remove(id) } catch (e) { /* 单条失败继续 */ }
+  }
+  message.success(`已把 ${activeSelected.value.length} 个会话移入回收站`)
+  loadThreads()
+}
+async function batchRestore() {
+  if (!trashSelected.value.length) return
+  for (const id of trashSelected.value) {
+    try { await assistantApi.threads.restore(id) } catch (e) { /* 单条失败继续 */ }
+  }
+  message.success(`已恢复 ${trashSelected.value.length} 个会话`)
+  loadThreads()
+}
+async function batchPurge() {
+  if (!trashSelected.value.length) return
+  for (const id of trashSelected.value) {
+    try { await assistantApi.threads.purge(id) } catch (e) { /* 单条失败继续 */ }
+  }
+  message.success(`已彻底清除 ${trashSelected.value.length} 个会话`)
+  loadThreads()
+}
+async function cleanupTrace() {
+  try {
+    const r = await axios.post('/api/assistant/admin/cleanup/trace', { keep_days: traceKeepDays.value })
+    message.success(`已清理 ${r.data?.deleted ?? 0} 条 LLM 调用记录`)
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '清理失败')
+  }
+}
+async function cleanupSamples() {
+  try {
+    const r = await axios.post('/api/assistant/admin/cleanup/samples', { keep_n: sampleKeepN.value })
+    message.success(`已清理 ${r.data?.deleted ?? 0} 条反馈样本`)
+  } catch (err: any) {
+    message.error(err.response?.data?.detail || '清理失败')
+  }
+}
+watch(activeTab, (k) => { if (k === 'threads') loadThreads() })
+
 onMounted(loadConfig)
 </script>
 
 <style scoped>
 .ai-settings-page {
   padding: 24px;
-  max-width: 800px;
+  max-width: 1100px;
 }
 
 .page-header {
@@ -546,4 +858,18 @@ onMounted(loadConfig)
 .test-result.test-fail {
   color: var(--cpq-error, #ff4d4f);
 }
+.threads-wrap { width: 100%; }
+.threads-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.threads-head-right { display: flex; align-items: center; gap: 10px; }
+.thread-stats { display: flex; align-items: center; gap: 16px; color: var(--cpq-text-secondary); font-size: 13px; margin-top: 6px; }
+.threads-ops { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
+.threads-ops-tip { font-size: 12px; color: var(--cpq-text-muted); }
+.thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: bottom; }
+.thread-msg-empty { color: var(--cpq-text-muted); }
+.thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
+.thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px 10px; }
+.thread-msg.role-user { border-left: 3px solid var(--cpq-accent-primary); }
+.thread-msg.role-assistant { border-left: 3px solid var(--cpq-color-success); }
+.thread-msg-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--cpq-text-muted); }
+.thread-msg-content { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); }
 </style>

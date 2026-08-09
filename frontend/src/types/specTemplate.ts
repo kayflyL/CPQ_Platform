@@ -1,8 +1,8 @@
 /**
  * 规格书模板类型定义
  *
- * 设计原则：模板只控制"显示什么"（品牌信息 + 显示开关），
- * 不控制"怎么画"（布局/样式由 SpecSheet.vue 统一渲染）。
+ * 设计原则：模板控制"显示什么"（品牌信息 + 显示开关 + 自定义标签），
+ * 以及"怎么画"（样式 Token：颜色/字号/布局）；渲染统一由 SpecSheet.vue 消费。
  */
 
 import type { Branding } from '@/store/settings'
@@ -16,6 +16,8 @@ export interface DisplayOptions {
   show_footer_check: boolean    // 是否显示"✓ 已通过机型兼容校验"
   show_config_subtotal?: boolean // 是否显示配置小计
   show_commercial_terms?: boolean // 是否显示报价条款区块（报价单位/有效期/交付付款/寄送）
+  /** 样式 Token（颜色/字号/布局，可调，缺省用 DEFAULT_SPEC_STYLES） */
+  styles?: SpecStyles
   /** 自定义标签文本 */
   labels?: {
     chassis_title?: string       // 机箱规格标题
@@ -34,6 +36,59 @@ export interface DisplayOptions {
     config_subtotal?: string     // 含税单价（单配置）
     grand_total?: string         // 含税总价（单配置 × 数量）
   }
+}
+
+/** 样式 Token：规格书可调样式（颜色/字号/布局），随 display_options 持久化 */
+export interface SpecStyles {
+  // 颜色
+  accent_color?: string            // 主色/强调色（标题、价格、强调边、chip）
+  text_color?: string              // 正文文字色
+  text_secondary_color?: string    // 次级文字色（表头/次要信息）
+  border_color?: string            // 边框色
+  table_header_bg?: string         // 表头/浅色面板底色
+  term_text_color?: string         // 条款文字色
+  // 字号（px）
+  font_size_doc_title?: number     // 文档标题
+  font_size_company?: number       // 公司名
+  font_size_title?: number         // 型号标题
+  font_size_section_title?: number // 区块标题
+  font_size_table_header?: number  // 表头
+  font_size_table_body?: number    // 表格正文
+  font_size_grand_total?: number   // 合计金额
+  font_size_meta?: number          // 小字（条款/页脚/标签）
+  // 布局
+  page_padding_top?: number        // 页边距上（mm）
+  page_padding_bottom?: number     // 页边距下（mm）
+  page_padding_left?: number       // 页边距左（mm）
+  page_padding_right?: number      // 页边距右（mm）
+  section_gap?: number             // 区块间距（px）
+  title_align?: 'left' | 'center'  // 型号标题区块对齐
+  logo_size?: number               // Logo 尺寸（px）
+}
+
+/** 默认样式 Token（与 SpecSheet.vue 历史硬编码值一致） */
+export const DEFAULT_SPEC_STYLES: Required<SpecStyles> = {
+  accent_color: '#1668C0',
+  text_color: '#1F2329',
+  text_secondary_color: '#6B7280',
+  border_color: '#E5E7EB',
+  table_header_bg: '#F7F8FA',
+  term_text_color: '#4B5563',
+  font_size_doc_title: 14,
+  font_size_company: 16,
+  font_size_title: 24,
+  font_size_section_title: 12,
+  font_size_table_header: 11,
+  font_size_table_body: 13,
+  font_size_grand_total: 22,
+  font_size_meta: 11,
+  page_padding_top: 14,
+  page_padding_bottom: 14,
+  page_padding_left: 15,
+  page_padding_right: 15,
+  section_gap: 12,
+  title_align: 'left',
+  logo_size: 48,
 }
 
 /** 默认标签 */

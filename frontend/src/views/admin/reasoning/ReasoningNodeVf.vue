@@ -1,24 +1,15 @@
 <script setup lang="ts">
 /** vue flow 自定义节点（注册名 rf）。复用 Glass Console 玻璃卡样式 + 左右 Handle。
  *  data 由 ReasoningFlowCanvas 注入：{ stepType, label, configurable }。
- *  P2.2 加 condition（多出口 Handle）/ llm 时在此扩 meta + 分支渲染。 */
+ *  元数据（中文名/职能/来源/图标）统一读 utils/reasoningNodeMeta（palette/节点卡/抽屉共用真源）。 */
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
+import { reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
 
-const NODE_META: Record<string, { desc: string; sources: string[] }> = {
-  extract: { desc: 'jieba 分词 + 词表命中，提取关键词/品类/系列/形态', sources: ['词表', 'jieba'] },
-  select_baseline: { desc: '按系列/形态四级兜底选机型骨架', sources: ['model_recommend', 'base_configs'] },
-  match_kp: { desc: '型号 token 精确命中优先，否则按品类别名挑代表件', sources: ['别名表', 'kp 库'] },
-  compose: { desc: '每 baseline × 同组 KP 组合整机方案', sources: ['build_plan'] },
-  review: { desc: '方案就绪，下发整机方案清单', sources: [] },
-  condition: { desc: '条件判断：按表达式求值选分支', sources: ['expr'] },
-  clarity_check: { desc: '读规则库评估明确度，不明确触发反问', sources: ['clarity 规则'] },
-  ask_user: { desc: '目录驱动引导：选类型 → 选机型 → 按格式填 KP，暂停等回复', sources: ['server_types', 'server_models', 'KP 套餐'] },
-  budget_check: { desc: '给方案注超预算标注（不剔除）', sources: ['预算规则'] },
-}
 const props = defineProps<{ id: string; data: any }>()
 const stepType = computed(() => props.data?.stepType || '')
-const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: [] })
+const meta = computed(() => reasoningNodeMeta(stepType.value))
+const showName = computed(() => meta.value?.name || props.data?.label || stepType.value)
 </script>
 
 <template>
@@ -31,18 +22,29 @@ const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: []
   }">
     <Handle type="target" :position="Position.Left" class="rf-handle" />
     <div class="rf-head">
+      <span class="rf-icon ni-chip" :class="`ni--${meta?.tone || 'gray'}`" v-if="meta?.icon">
+        <component :is="meta.icon" />
+      </span>
       <span class="rf-key">{{ stepType }}</span>
       <div class="rf-head-tags">
         <span v-if="data?.badge" class="rf-badge">{{ data.badge }}</span>
+        <span v-if="meta?.fallback" class="rf-cfg-tag rf-tag--fallback" title="AI 失效时才走的兜底节点">兜底</span>
         <span v-if="data?.configurable" class="rf-cfg-tag">可配置</span>
       </div>
     </div>
-    <div class="rf-label">{{ data?.label }}</div>
-    <div class="rf-desc">{{ meta.desc }}</div>
-    <div v-if="meta.sources.length" class="rf-sources">
+    <div class="rf-label">{{ showName }}</div>
+    <div class="rf-desc">{{ meta?.desc }}</div>
+    <div v-if="meta?.sources?.length" class="rf-sources">
       <span v-for="s in meta.sources" :key="s" class="rf-source">{{ s }}</span>
     </div>
-    <Handle type="source" :position="Position.Right" class="rf-handle" />
+    <!-- condition 节点：双出口 Handle（真=true 上 / 假=false 下）；其余节点单出口 -->
+    <template v-if="stepType === 'condition'">
+      <Handle id="true" type="source" :position="Position.Right" class="rf-handle rf-handle--branch" style="top: 28%;" />
+      <Handle id="false" type="source" :position="Position.Right" class="rf-handle rf-handle--branch" style="top: 72%;" />
+      <span class="rf-handle-label rf-handle-label--true">真</span>
+      <span class="rf-handle-label rf-handle-label--false">假</span>
+    </template>
+    <Handle v-else type="source" :position="Position.Right" class="rf-handle" />
   </div>
 </template>
 
@@ -51,17 +53,22 @@ const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: []
   width: 220px; padding: 10px 14px;
   border-radius: var(--cpq-radius-md, 12px);
   cursor: grab;
+  position: relative;
 }
 .rf-node--cfg { border-color: var(--cpq-glass-border-strong) !important; }
-.rf-head { display: flex; align-items: center; justify-content: space-between; }
+.rf-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.rf-icon { width: 26px; height: 26px; font-size: 14px; border-radius: 7px; }
+.rf-icon :deep(svg) { width: 15px; height: 15px; }
 .rf-key {
   font-size: 11px; font-family: ui-monospace, monospace;
   color: var(--cpq-text-muted); text-transform: lowercase; letter-spacing: .5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rf-cfg-tag {
   font-size: 10px; padding: 0 6px; border-radius: 6px;
   background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary);
 }
+.rf-tag--fallback { background: rgba(250, 140, 22, 0.14); color: var(--cpq-accent-warning, #fa8c16); }
 .rf-head-tags { display: flex; align-items: center; gap: 4px; }
 .rf-badge {
   font-size: 10px; padding: 0 6px; border-radius: 6px;
@@ -89,4 +96,21 @@ const meta = computed(() => NODE_META[stepType.value] || { desc: '', sources: []
   background: var(--cpq-accent-primary, #1677FF) !important;
   border: 2px solid var(--cpq-glass-3-bg, #fff) !important;
 }
+
+/* 节点图标软底色块（与 palette 共用同一套 ni-- 色调） */
+.ni-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--cpq-radius-sm, 8px);
+  font-size: 15px; flex-shrink: 0;
+}
+.ni-chip.ni--blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
+.ni-chip.ni--purple { background: rgba(168, 85, 247, 0.12); color: var(--cpq-color-purple, #a855f7); }
+.ni-chip.ni--green { background: var(--cpq-overlay-success15); color: var(--cpq-color-success, #52C9A0); }
+.ni-chip.ni--orange { background: rgba(250, 140, 22, 0.12); color: var(--cpq-color-orange, #fa8c16); }
+.ni-chip.ni--cyan { background: var(--cpq-overlay-cyan15); color: var(--cpq-accent-cyan, #36CFCF); }
+.ni-chip.ni--gray { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
+/* condition 双出口标签（真/假分支） */
+.rf-handle-label { position: absolute; right: 18px; font-size: 9px; line-height: 1; pointer-events: none; }
+.rf-handle-label--true { top: 25%; color: var(--cpq-color-success); }
+.rf-handle-label--false { top: 69%; color: var(--cpq-accent-warning, #fa8c16); }
 </style>

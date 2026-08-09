@@ -246,7 +246,11 @@ def _check_qty_ranges(data: dict, errors: list) -> None:
     def _check(path: str, val) -> None:
         if val is None:
             return
-        lo, hi = _QTY_RANGES[path]
+        import re
+        key = re.sub(r"\[\d+\]", "", path)  # storage[0].qty → storage.qty（_QTY_RANGES 按品类存，不带索引）
+        if key not in _QTY_RANGES:
+            return  # 未知路径跳过（不崩）
+        lo, hi = _QTY_RANGES[key]
         try:
             v = int(val)
         except (TypeError, ValueError):
@@ -310,6 +314,10 @@ def validate_slots(data: dict, catalog: dict, requirement_text: str = "") -> tup
             errors.append(
                 f"形态「{form}」不在机箱形态白名单（{'/'.join(catalog.get('forms') or [])}），"
                 f"请只从白名单选或留 null")
+    # server_type 已推断（有 confidence）但没填 value → 强制重试补 value（解决 grounding 漏导致选不到机型）
+    _st_slot = data.get("server_type") if isinstance(data, dict) else None
+    if isinstance(_st_slot, dict) and _st_slot.get("confidence") is not None and not _slot_value(data, "server_type"):
+        errors.append("server_type 已推断但未填 value：必须在售类型全名（如「AI / 加速计算服务器」「通用计算服务器」「存储服务器」），请补 value 字段")
     server_type = _slot_value(data, "server_type")
     if server_type:
         known_types = {str(t) for t in (catalog.get("server_types") or [])}
@@ -493,14 +501,17 @@ def apply_llm_merge(ext: dict, data: dict, requirement_text: str = "", catalog: 
     except Exception as e:
         logger.warning("LLM 槽位合并失败（保持规则结果）: %s", e)
         return changes
-    # server_type（在售类型白名单）——规则没抽到才补
+    # server_type（在售类型白名单）——规则没抽到才补；严格相等优先，否则模糊（"AI" 命中 "AI / 加速计算服务器"）
     try:
         st = _slot_value(data, "server_type")
         if st and not ext.get("server_type_name"):
-            known = {str(t) for t in (catalog or {}).get("server_types") or []}
-            if str(st) in known:
-                ext["server_type_name"] = str(st)
-                changes.append(f"server_type={st}")
+            known = [str(t) for t in (catalog or {}).get("server_types") or []]
+            _exact = str(st) if str(st) in known else None
+            _fuzzy = next((k for k in known if str(st) in k or k in str(st)), None) if not _exact else None
+            _hit = _exact or _fuzzy
+            if _hit:
+                ext["server_type_name"] = _hit
+                changes.append(f"server_type={_hit}")
     except Exception as e:
         logger.warning("server_type 合并失败: %s", e)
     # budget（数值 > 0）——规则/上下文没给才补
@@ -514,41 +525,6 @@ def apply_llm_merge(ext: dict, data: dict, requirement_text: str = "", catalog: 
     except (TypeError, ValueError):
         pass
     return list(dict.fromkeys(changes))
-
-
-def apply_confirm_decisions(ext: dict, items: list, decisions: dict) -> list:
-    """按用户决策应用 LLM 确认项（confirm 节点，P2）。
-
-    策略：默认采纳 LLM 补充项（accept）；用户可改为 ignore → 回规则值或清空。
-    返回实际应用明细（写 requirement_samples 反馈闭环用）。
-    """
-    ext = ext or {}
-    applied: list = []
-    for it in items or []:
-        iid = it.get("id")
-        dec = (decisions or {}).get(iid, it.get("default") or "accept")
-        slot = it.get("slot")
-        llm_v = it.get("llm")
-        rule_v = it.get("rule")
-        ext_key = {"server_type": "server_type_name"}.get(slot, slot)
-        if dec == "ignore":
-            # 忽略 LLM 补充：回规则值（冲突项）或清空（纯 LLM 推断项）
-            if rule_v is not None:
-                ext[ext_key] = rule_v
-            else:
-                ext[ext_key] = None
-            applied.append({"id": iid, "slot": slot, "label": it.get("label"),
-                            "decision": "ignore", "value": rule_v})
-        else:
-            if llm_v is not None:
-                ext[ext_key] = llm_v
-                applied.append({"id": iid, "slot": slot, "label": it.get("label"),
-                                "decision": "accept", "value": llm_v})
-            elif rule_v is not None:
-                ext[ext_key] = rule_v
-                applied.append({"id": iid, "slot": slot, "label": it.get("label"),
-                                "decision": "accept", "value": rule_v})
-    return applied
 
 
 # ── 6. slot_validate 节点：最终业务语义闸门 ──────────────────────────────

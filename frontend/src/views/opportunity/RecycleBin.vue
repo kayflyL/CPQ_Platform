@@ -186,7 +186,7 @@ onMounted(fetchData)
 <style scoped>
 .recycle-bin-container { 
   padding: 20px; 
-  background: var(--cpq-bg-primary);
+  /* 不设整页背景：透出布局网格层，玻璃卡片才有磨砂感 */
   color: var(--cpq-text-primary);
   min-height: 100vh;
 }

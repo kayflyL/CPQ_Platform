@@ -278,7 +278,7 @@ class ImportService:
             if not name:
                 preview.append({**r, "action": "invalid", "message": "名称为空,跳过"})
                 continue
-            existing = repo.find_parts_by_dedupe_key(oem_sku=oem, name=name)
+            existing = repo.find_parts_by_dedupe_key(oem_sku=oem, name=name, category=r.get("category_name"))
             if len(existing) == 0:
                 preview.append({**r, "action": "new", "message": "将新增"})
             elif len(existing) == 1:

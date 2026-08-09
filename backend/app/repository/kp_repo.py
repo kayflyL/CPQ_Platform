@@ -83,6 +83,87 @@ def _name_norm(expr):
     return out
 
 
+# ============================================================
+# 同一性判据（导入去重 / 疑似重复检测共用）
+# 决定两条记录是否「同一个件」——spec 主导、name 差异词兜底：让大小写/空格/冗余词
+# （SSD/HDD/U.2/形态，因已结构化成 spec）不再制造一物多码；同时保留 gen4/工作负载/转速
+# 等真差异词，避免 M.2/U.2、HDD/SSD、gen3/gen4 被误合。详见 memory kp-dedup-tier-a。
+# ============================================================
+def _icap(name):
+    m = re.search(r'([\d.]+)\s*([TG])', (name or '').upper())
+    if not m: return None
+    n = float(m.group(1)); gb = n * 1024 if m.group(2) == 'T' else n
+    if gb >= 1024 and abs(gb / 1024 - round(gb / 1024)) < 1e-6: return f"{int(gb // 1024)} TB"
+    if gb >= 1024: return f"{gb / 1024:g} TB"
+    return f"{int(gb)} GB"
+
+def _itype(name):
+    u = (name or '').upper()
+    if 'NVME' in u: return 'NVMe'
+    if 'SAS' in u: return 'SAS'
+    if 'SATA' in u: return 'SATA'
+    return None
+
+def _imedia(name):
+    u = (name or '').upper()
+    if 'HDD' in u: return 'HDD'
+    if 'SSD' in u: return 'SSD'
+    return 'SSD' if _itype(name) == 'NVMe' else None   # NVMe 协议物理上必为 SSD
+
+def _iform(name):
+    u = (name or '').upper()
+    if 'M.2' in u or 'M2 ' in u: return 'M.2'
+    if 'U.2' in u or 'U2 ' in u or 'U.2' in (name or ''): return 'U.2'
+    if '2.5' in u: return '2.5"'
+    if "3.5" in u or "3'5" in u or "3’5" in u: return '3.5"'
+    return None
+
+def _igen(name):
+    m = re.search(r'gen\s?(\d)', (name or '').lower())
+    return f"gen{m.group(1)}" if m else ""
+
+def _iworkload(name):
+    s = (name or '').lower()
+    for pat, k in [(r'读取?密集型|读密集型', '读密集'), (r'写密集型', '写密集'),
+                   (r'混合型', '混合'), (r'企业级', '企业级')]:
+        if re.search(pat, s): return k
+    return ""
+
+def _irpm(name):
+    s = (name or '').upper(); m = re.search(r'([\d.]+)\s*K\b', s)
+    if m:
+        k = float(m.group(1))
+        if abs(k - 7.2) < .05: return "7200"
+        if abs(k - 10) < .05: return "10000"
+        if abs(k - 15) < .05: return "15000"
+    for t, v in [('7200', '7200'), ('10K', '10000'), ('15K', '15000')]:
+        if t in s: return v
+    return ""
+
+def _inorm_general(name):
+    s = re.sub(r'[ \t]+', ' ', (name or '').lower().replace('（', '(').replace('）', ')').replace('，', ',')).strip()
+    s = re.sub(r'(\d+\.?\d*)\s*t\b', r'\1t', s)
+    s = re.sub(r'(\d+\.?\d*)\s*gb\b', r'\1g', s)
+    return re.sub(r'\s*([+,/])\s*', r'\1', s)   # 标点周围空格归一（2port +光 → 2port+光）
+
+def part_identity_key(name: str, category: str, specs: Optional[dict] = None) -> tuple:
+    """同一性键。HDD/SSD 用结构化 spec（缺则从 name 解析，含形态默认推断）+ name 差异词；
+    其它品类用归一名。新件（specs=None）全从 name 解析；库内件传 specs 更准。导入与去重共用此键。"""
+    sp = specs or {}
+    if (category or '') == 'HDD/SSD':
+        typ = sp.get('Type') or _itype(name)
+        media = sp.get('Media') or _imedia(name)
+        ff = sp.get('Form Factor') or _iform(name)
+        if not ff:  # name/spec 都无形态 → 按企业盘主流规律推断默认（用户拍板，见 kp-dedup-tier-a）
+            if typ == 'NVMe': ff = 'U.2'
+            elif media == 'HDD': ff = '3.5"'
+            elif media == 'SSD': ff = '2.5"'
+        return ('HDD/SSD',
+                sp.get('Capacity') or _icap(name), typ, ff, media,
+                _igen(name), _iworkload(name), sp.get('RPM') or _irpm(name))
+    return (category or '', _inorm_general(name))
+
+
 class KPRepository:
     """配件管理 Repository — 新表 + 旧接口兼容"""
 
@@ -743,68 +824,6 @@ class KPRepository:
 
         return {"days": cutoff_days, "gainers": gainers, "losers": losers}
 
-    def get_price_matrix(self, category_id: int, group_key: str) -> dict:
-        """比价矩阵：同分类下按某 spec_key 分组的价格分布（min/Q1/median/Q3/max + 明细）。"""
-        parts = self.session.query(KPPart).options(joinedload(KPPart.category)) \
-            .filter(KPPart.category_id == category_id).all()
-        if not parts:
-            return {"group_key": group_key, "groups": []}
-
-        part_ids = [p.id for p in parts]
-        latest_map = self._latest_price_map(part_ids)
-
-        # 取每个 part 在 group_key 维度的 spec_value
-        spec_rows = self.session.query(KPPartSpec.part_id, KPPartSpec.spec_value) \
-            .filter(KPPartSpec.spec_key == group_key, KPPartSpec.part_id.in_(part_ids)).all()
-        spec_map = {pid: (val or "").strip() for pid, val in spec_rows}
-
-        groups: Dict[str, list] = {}
-        for p in parts:
-            val = spec_map.get(p.id, "")
-            gv = val if val else "(未分组)"
-            groups.setdefault(gv, []).append(p)
-
-        result_groups = []
-        for gv, plist in groups.items():
-            priced = []  # [(part, price, latest)]
-            for p in plist:
-                lp = latest_map.get(p.id)
-                if lp and lp.price is not None:
-                    priced.append((p, lp.price, lp))
-            if not priced:
-                continue
-            prices = [pr[1] for pr in priced]
-            if len(prices) >= 2:
-                try:
-                    qs = statistics.quantiles(prices, n=4, method='inclusive')
-                    q1, q3 = qs[0], qs[2]
-                except Exception:
-                    q1 = q3 = prices[0]
-            else:
-                q1 = q3 = prices[0]
-            result_groups.append({
-                "value": gv,
-                "count": len(priced),
-                "min": round(min(prices), 2),
-                "max": round(max(prices), 2),
-                "avg": round(statistics.mean(prices), 2),
-                "median": round(statistics.median(prices), 2),
-                "q1": round(q1, 2),
-                "q3": round(q3, 2),
-                "parts": [{
-                    "id": p.id,
-                    "name": p.name,
-                    "brand": p.brand,
-                    "category_name": p.category.name if p.category else None,
-                    "latest_price": price,
-                    "latest_currency": lp.currency,
-                    "latest_date": lp.price_date.isoformat() if lp.price_date else None,
-                } for p, price, lp in sorted(priced, key=lambda x: x[1])],
-            })
-
-        result_groups.sort(key=lambda x: x["count"], reverse=True)
-        return {"group_key": group_key, "groups": result_groups}
-
     def detect_duplicates(self, threshold: float = 0.6) -> dict:
         """疑似重复检测：oem_sku/alt_sku 精确匹配（强信号）+ name difflib 相似度（弱信号）。
         返回重复组（不做合并，仅展示）。"""
@@ -1016,14 +1035,32 @@ class KPRepository:
         return cat.id
 
     def find_parts_by_dedupe_key(self, oem_sku: Optional[str] = None,
-                                 name: Optional[str] = None) -> List[KPPart]:
-        """去重键查询:优先 oem_sku,空则按 name。返回列表(空/单/多 → new/update/conflict)。"""
+                                 name: Optional[str] = None,
+                                 category: Optional[str] = None) -> List[KPPart]:
+        """去重键查询:优先 oem_sku,空则 name 精确,再空则同 category 下 identity 匹配。
+        返回列表(空/单/多 → new/update/conflict)。identity 层抓大小写/空格/冗余词变体
+        (SSD/U.2/形态等已结构化的冗余标注),但 M.2/U.2、HDD/SSD、gen3/gen4 因 spec/差异词
+        不同不会被误合。"""
         if oem_sku and str(oem_sku).strip():
             return self.session.query(KPPart)\
                 .filter(KPPart.oem_sku == str(oem_sku).strip()).all()
         if name and str(name).strip():
-            return self.session.query(KPPart)\
-                .filter(KPPart.name == str(name).strip()).all()
+            nm = str(name).strip()
+            exact = self.session.query(KPPart).filter(KPPart.name == nm).all()
+            if exact:
+                return exact
+            if category and str(category).strip():
+                cat_name = str(category).strip()
+                cat = self.session.query(KPCategory).filter(KPCategory.name == cat_name).first()
+                if cat:
+                    new_key = part_identity_key(nm, cat_name)
+                    cands = self.session.query(KPPart).options(joinedload(KPPart.specs))\
+                        .filter(KPPart.category_id == cat.id).all()
+                    hits = [p for p in cands
+                            if part_identity_key(p.name, cat_name,
+                                                 {s.spec_key: s.spec_value for s in (p.specs or [])}) == new_key]
+                    if hits:
+                        return hits
         return []
 
     def list_all_for_export(self, category_id: Optional[int] = None) -> List[KPPart]:

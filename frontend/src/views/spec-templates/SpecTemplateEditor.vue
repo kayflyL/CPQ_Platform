@@ -223,6 +223,43 @@
               </a-form>
             </div>
           </a-tab-pane>
+          <a-tab-pane key="styles" tab="样式配置">
+            <div class="config-section">
+              <h4>颜色</h4>
+              <div class="style-row"><span class="style-label">主色 / 强调色</span><input type="color" class="color-picker" v-model="styles.accent_color" /><span class="style-hint">{{ styles.accent_color }}</span></div>
+              <div class="style-row"><span class="style-label">正文文字色</span><input type="color" class="color-picker" v-model="styles.text_color" /><span class="style-hint">{{ styles.text_color }}</span></div>
+              <div class="style-row"><span class="style-label">次级文字色</span><input type="color" class="color-picker" v-model="styles.text_secondary_color" /><span class="style-hint">{{ styles.text_secondary_color }}</span></div>
+              <div class="style-row"><span class="style-label">边框色</span><input type="color" class="color-picker" v-model="styles.border_color" /><span class="style-hint">{{ styles.border_color }}</span></div>
+              <div class="style-row"><span class="style-label">表头/面板底色</span><input type="color" class="color-picker" v-model="styles.table_header_bg" /><span class="style-hint">{{ styles.table_header_bg }}</span></div>
+              <div class="style-row"><span class="style-label">条款文字色</span><input type="color" class="color-picker" v-model="styles.term_text_color" /><span class="style-hint">{{ styles.term_text_color }}</span></div>
+            </div>
+
+            <div class="config-section">
+              <h4>字号（px）</h4>
+              <div class="style-row"><span class="style-label">文档标题</span><a-input-number :value="styles.font_size_doc_title" :min="8" :max="48" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_doc_title', v)" /></div>
+              <div class="style-row"><span class="style-label">公司名</span><a-input-number :value="styles.font_size_company" :min="8" :max="48" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_company', v)" /></div>
+              <div class="style-row"><span class="style-label">型号标题</span><a-input-number :value="styles.font_size_title" :min="10" :max="72" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_title', v)" /></div>
+              <div class="style-row"><span class="style-label">区块标题</span><a-input-number :value="styles.font_size_section_title" :min="8" :max="32" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_section_title', v)" /></div>
+              <div class="style-row"><span class="style-label">表头</span><a-input-number :value="styles.font_size_table_header" :min="8" :max="32" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_table_header', v)" /></div>
+              <div class="style-row"><span class="style-label">表格正文</span><a-input-number :value="styles.font_size_table_body" :min="8" :max="32" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_table_body', v)" /></div>
+              <div class="style-row"><span class="style-label">合计金额</span><a-input-number :value="styles.font_size_grand_total" :min="10" :max="72" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_grand_total', v)" /></div>
+              <div class="style-row"><span class="style-label">条款/页脚小字</span><a-input-number :value="styles.font_size_meta" :min="8" :max="24" size="small" @change="(v: number | string | null) => onStyleNumber('font_size_meta', v)" /></div>
+            </div>
+
+            <div class="config-section">
+              <h4>布局</h4>
+              <div class="style-row"><span class="style-label">页边距 上/下 (mm)</span><a-input-number :value="styles.page_padding_top" :min="0" :max="50" size="small" @change="(v: number | string | null) => onStyleNumber('page_padding_top', v)" /><a-input-number :value="styles.page_padding_bottom" :min="0" :max="50" size="small" @change="(v: number | string | null) => onStyleNumber('page_padding_bottom', v)" /></div>
+              <div class="style-row"><span class="style-label">页边距 左/右 (mm)</span><a-input-number :value="styles.page_padding_left" :min="0" :max="50" size="small" @change="(v: number | string | null) => onStyleNumber('page_padding_left', v)" /><a-input-number :value="styles.page_padding_right" :min="0" :max="50" size="small" @change="(v: number | string | null) => onStyleNumber('page_padding_right', v)" /></div>
+              <div class="style-row"><span class="style-label">区块间距 (px)</span><a-input-number :value="styles.section_gap" :min="0" :max="48" size="small" @change="(v: number | string | null) => onStyleNumber('section_gap', v)" /></div>
+              <div class="style-row"><span class="style-label">标题对齐</span>
+                <a-radio-group :value="styles.title_align" size="small" @change="(e: any) => onStyleTitleAlign(e.target.value)">
+                  <a-radio-button value="left">左对齐</a-radio-button>
+                  <a-radio-button value="center">居中</a-radio-button>
+                </a-radio-group>
+              </div>
+              <div class="style-row"><span class="style-label">Logo 尺寸 (px)</span><a-input-number :value="styles.logo_size" :min="16" :max="200" size="small" @change="(v: number | string | null) => onStyleNumber('logo_size', v)" /></div>
+            </div>
+          </a-tab-pane>
         </a-tabs>
       </div>
 
@@ -235,6 +272,7 @@
             :branding="template.branding"
             :business-person="previewBusinessPerson"
             :display-options="template.display_options"
+            :placeholder-preview="!previewConfigs.length"
           />
         </div>
       </div>
@@ -250,6 +288,7 @@
             :branding="template.branding"
             :business-person="previewBusinessPerson"
             :display-options="template.display_options"
+            :placeholder-preview="!previewConfigs.length"
           />
         </div>
       </div>
@@ -262,7 +301,8 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { specTemplateApi } from '@/api/specTemplate'
-import type { SpecTemplate, PreviewConfig, DisplayOptions } from '@/types/specTemplate'
+import { DEFAULT_SPEC_STYLES } from '@/types/specTemplate'
+import type { SpecTemplate, PreviewConfig, DisplayOptions, SpecStyles } from '@/types/specTemplate'
 import { getDefaultTemplateConfig } from '@/utils/defaultTemplateConfig'
 import SpecSheet from '@/components/server-config/SpecSheet.vue'
 
@@ -286,6 +326,18 @@ const template = ref<SpecTemplate>({
 // labels 在 DisplayOptions 中是可选字段，但运行时由 getDefaultTemplateConfig() / loadTemplate()
 // 保证一定存在。这里加一层本地别名兜底 undefined，供模板 v-model 直接使用（TS18048 止血）。
 const labels = computed(() => template.value.display_options?.labels ?? ({} as NonNullable<DisplayOptions['labels']>))
+
+// 样式 Token（编辑态）：loadTemplate/新建已把默认 styles 并入 display_options，这里兜底防 undefined
+const styles = computed<SpecStyles>(() => template.value.display_options.styles ?? { ...DEFAULT_SPEC_STYLES })
+
+function onStyleNumber(key: keyof SpecStyles, value: number | string | null) {
+  const n = value == null ? undefined : Number(value)
+  ;(template.value.display_options.styles as any)[key] = n
+}
+
+function onStyleTitleAlign(v: string) {
+  ;(template.value.display_options.styles as any).title_align = v === 'center' ? 'center' : 'left'
+}
 
 // 预览数据源
 const previewOppId = ref('')
@@ -462,7 +514,8 @@ async function loadTemplate(id: number) {
       display_options: {
         ...defaults.display_options,
         ...data.display_options,
-        labels: { ...defaults.display_options.labels, ...data.display_options?.labels }
+        labels: { ...defaults.display_options.labels, ...data.display_options?.labels },
+        styles: { ...defaults.display_options.styles, ...data.display_options?.styles }
       }
     }
     // 旧默认值迁移：config_subtotal/grand_total 曾默认为「小计」「整机合计」，
@@ -644,4 +697,8 @@ function handleBack() {
   width: 100%;
   max-width: 900px;
 }
+.style-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.style-label { flex: 0 0 118px; font-size: 13px; color: var(--cpq-text-secondary); }
+.style-hint { font-size: 12px; color: var(--cpq-text-muted); }
+.color-picker { width: 36px; height: 26px; padding: 0; border: 1px solid var(--cpq-border-primary); border-radius: 4px; background: none; cursor: pointer; }
 </style>

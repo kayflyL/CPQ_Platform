@@ -7,7 +7,11 @@
  * 由 L6ChassisConfig 加载 base_config 后注入 basePsuBays。无散落硬编码。
  */
 import { ref, reactive } from 'vue'
-import { DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS } from '@/constants/chassisMeta'
+import { DEFAULT_PSU_BAYS } from '@/constants/chassisMeta'
+import {
+  rearOptionQty, rearSlotFilled, rearSetOptionQty, rearIncOption, rearDecOption,
+  rearUniqueReal, rearSetSingle, rearLoadInto,
+} from './useRearState'
 
 export type GpuArch = 'none' | 'pt' | 'switch'
 export interface KpLineCfg { cat: string; pn: string; qty: number }
@@ -56,53 +60,30 @@ export function useServerConfig() {
     delete overrides[key]
   }
 
-  // ---- 后面板：按 option_type 计数（数组里的重复条目 = 数量）----
+  // ---- 后面板：按 option_type 计数（数组里的重复条目 = 数量）；逻辑下沉 useRearState（与 RearPanel 同源，无两份算法）----
+  /** 取某槽的可变数组（缺省懒建空数组；rear 为 reactive，键级改动触发响应） */
+  const rearArr = (slot: string): string[] => { if (!rear[slot]) rear[slot] = []; return rear[slot] }
   /** 槽位中某 option_type 的数量（blank 不计入） */
-  function optionQty(slot: string, optionType: string): number {
-    return (rear[slot] || []).filter(t => t === optionType && t !== 'blank').length
-  }
+  function optionQty(slot: string, optionType: string): number { return rearOptionQty(rearArr(slot), optionType) }
   /** 槽位已装 Riser 总数（blank 不计入） */
-  function slotFilled(slot: string): number {
-    return (rear[slot] || []).filter(t => t !== 'blank').length
-  }
-  /** 设某 option_type 数量为 qty，其它 option 保留；cap 限制该槽位总容量 */
+  function slotFilled(slot: string): number { return rearSlotFilled(rearArr(slot)) }
+  /** 设某 option_type 数量为 qty，其它 option 保留；cap 限制该槽位总容量（就地改，引用不变） */
   function setOptionQty(slot: string, optionType: string, qty: number, cap?: number) {
-    const others = (rear[slot] || []).filter(t => t !== optionType && t !== 'blank')
-    const remaining = cap != null ? Math.max(0, cap - others.length) : Infinity
-    const newQty = Math.max(0, Math.min(qty, remaining))
-    rear[slot] = [...others, ...Array.from({ length: newQty }, () => optionType)]
+    rearSetOptionQty(rearArr(slot), optionType, qty, cap)
   }
+  /** 加一：首次选按默认数量（组合槽 1 / 其余填满 cap），否则 +1；受 cap 约束（见 useRearState） */
   function incOption(slot: string, optionType: string, cap?: number) {
-    const cur = optionQty(slot, optionType)
-    // 首次选某 option：组合槽(COMBO_REAR_SLOTS，如 IO1/IO2=1×X16+1×X8)默认 1；其余槽默认填满槽（cap）
-    const next = cur === 0 ? defaultQtyFor(slot, cap) : cur + 1
-    setOptionQty(slot, optionType, next, cap)
+    rearIncOption(rearArr(slot), optionType, cap, slot)
   }
-  /** 默认数量：组合槽首次选默认 1；其余槽首次选择默认填满槽（cap）。步进器仍可任意手改。 */
-  function defaultQtyFor(slot: string, cap?: number): number {
-    if (COMBO_REAR_SLOTS.includes(slot)) return 1
-    return cap ?? 1
-  }
-  function decOption(slot: string, optionType: string) {
-    setOptionQty(slot, optionType, optionQty(slot, optionType) - 1)
-  }
-  /** 槽位中已选 option_type 去重列表（blank 不计入，用于明细） */
-  function uniqueRealOptions(slot: string): string[] {
-    return [...new Set((rear[slot] || []).filter(t => t !== 'blank'))]
-  }
-  /** 单选槽位（如 OCP 网络卡）：整槽设为 [optionType] 或清空 */
-  function setRearSingle(slot: string, optionType: string | null) {
-    rear[slot] = optionType && optionType !== 'blank' ? [optionType] : []
-  }
+  function decOption(slot: string, optionType: string) { rearDecOption(rearArr(slot), optionType) }
+  /** 槽位中已选 option_type 去重列表（blank 不计，用于明细） */
+  function uniqueRealOptions(slot: string): string[] { return rearUniqueReal(rearArr(slot)) }
+  /** 单选槽位（如 OCP 网络卡）：整槽设为 [optionType] 或清空（就地改） */
+  function setRearSingle(slot: string, optionType: string | null) { rearSetSingle(rearArr(slot), optionType) }
   /** 读取已保存配置时归一 rear：旧 {slot:'x16'} / 数组一律转数组，blank 丢弃 */
   function loadRear(raw: Record<string, any> | undefined) {
     if (!raw) return
-    for (const slot of Object.keys(rear)) {
-      const v = raw[slot]
-      if (Array.isArray(v)) rear[slot] = v.filter(t => t !== 'blank')
-      else if (typeof v === 'string' && v !== 'blank') rear[slot] = [v]
-      else rear[slot] = []
-    }
+    for (const slot of Object.keys(rear)) rearLoadInto(rearArr(slot), raw[slot])
   }
 
   return {

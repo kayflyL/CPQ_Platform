@@ -46,16 +46,21 @@ EXTRACT_ENHANCE_SCHEMA: dict = {
             "qty": {"type": "integer"},
             "type": {"type": "string", "enum": ["DDR4", "DDR5"]},
             "speed_mt": {"type": "integer"},
+            "comparison": {"type": "string", "enum": ["gte", "lte"]},
+            "total_gb": {"type": "integer"},   # 需求只给总容量（如 256GB DDR5-4800）时填，单条/条数交给配件规划拆
         }},
         "drives": {"type": "array", "items": {"type": "object", "properties": {
             "capacity": {"type": "string"},
             "capacity_gb": {"type": "integer"},
             "interface": {"type": "string", "enum": ["SATA", "SAS", "NVMe", "U.2", "U.3"]},
             "qty": {"type": "integer"},
+            "comparison": {"type": "string", "enum": ["gte", "lte"]},
         }}},
         "gpu": {"type": "array", "items": {"type": "object", "properties": {
             "model": {"type": "string"},
             "qty": {"type": "integer"},
+            "capacity_gb": {"type": "integer"},
+            "comparison": {"type": "string", "enum": ["gte", "lte"]},
         }}},
         "nic": {"type": "array", "items": {"type": "object", "properties": {
             "model": {"type": "string"},
@@ -74,6 +79,7 @@ EXTRACT_ENHANCE_SCHEMA: dict = {
         }},
         "form": {"type": "string"},
         "series": {"type": "string"},
+        "server_type": {"type": "string", "description": "服务器类型（从在售类型清单选，如 AI/加速计算服务器、存储服务器、通用计算服务器）"},
         "notes": {"type": "array", "items": {"type": "string"}},
     },
 }
@@ -86,8 +92,11 @@ EXTRACT_ENHANCE_SYSTEM_PROMPT = (
     "   例如「支持12个3.5英寸硬盘」不产硬盘条目；「支持8个GPU」不产 8 张 GPU（除非给出具体型号）。\n"
     "2) 内存 qty 是【内存条数】，不是插槽数；「24个DDR5插槽」不写 qty=24，且不知道单条容量就写 null。\n"
     "3) 没有把握的字段一律 null，绝不猜（尤其具体型号、单条容量、核数）。\n"
-    "4) drives.capacity 按原文写（如 \"960G\" / \"7.68T\"），interface 只取 SATA/SAS/NVMe/U.2/U.3；\n"
-    "   容量归属（启动盘/数据盘/缓存盘）不写进槽位。\n"
+    "4) drives 必须填 capacity_gb（数值 GB，AI 把自然语言归一成机器可用值）：\n"
+    "   \"1T以上硬盘\"→{capacity:\"1T以上\",capacity_gb:1024,comparison:\"gte\",qty:1}；\"一tb/一t/1tb\"→capacity_gb:1024；\"960G\"→960；\n"
+    "   comparison 语义（drives/memory/gpu 通用）：\"以上/至少/不小于\"→gte、\"以下/不超过/最多\"→lte、无比较→省略；\n"
+    "   gpu.capacity_gb 为显存（GB）：\"48G以上显存的显卡\"→{capacity_gb:48,comparison:\"gte\",qty:1}，无型号也填；\n"
+    "   capacity 保留原文，interface 只取 SATA/SAS/NVMe/U.2/U.3，qty 缺省 1；容量归属不写进槽位。\n"
     "5) 电源 wattage 只取明确写出的瓦数（如 1300W/2700W）；「根据功耗选择」写 null。\n"
     "6) form 只取 1U/2U/4U/5U/6U/8U 或 null；series 只取平台系列（Orion/Polaris/Intel/工作站 等）或 null。\n"
     "7) 只补缺失/模糊项；规则已抽到且你同意的项也要在 JSON 里带出（确认即价值），但不要编新项。"
@@ -144,13 +153,17 @@ def _model_tokens_of(model: str) -> list:
 
 
 def _term_from_capacity(capacity: Optional[str], capacity_gb: Optional[int]) -> Optional[str]:
-    """容量 → 盘组 term："960G"/"7.68T" 原样归一；只有数字 GB → "NG"。"""
+    """容量 → 盘组 term（AI-first 契约，2026-08）：
+    - 优先用 LLM 归一好的 capacity_gb（数值 GB，AI 理解自然语言：1T以上/一tb/1tb/960G → 数值），
+      下游选件按「容量≥需求的最小件」匹配——AI 路不靠约束词正则；
+    - capacity_gb 缺失/离谱才回退解析 capacity 原文（只认纯容量串，比较词不猜——那是 AI 的职责）；
+    - 只有数字 GB → "NG"。"""
+    if capacity_gb is not None and 1 <= int(capacity_gb) <= 65536:
+        return f"{int(capacity_gb)}G"
     if capacity:
         m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*([GT])(?:B)?\s*$", str(capacity), re.I)
         if m:
             return f"{m.group(1)}{m.group(2).upper()}"
-    if capacity_gb:
-        return f"{int(capacity_gb)}G"
     return None
 
 
@@ -195,10 +208,13 @@ def _has_drive_config_signal(text: str) -> bool:
 
 # ── 确定性合并：只补缺、规则赢 ─────────────────────────────────────────
 
-def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list:
+def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
+                   catalog: Optional[dict] = None) -> list:
     """把 schema 收口后的 LLM 槽位确定性合并进 ext（就地修改）。
 
     规则赢：已存在的字段/组绝不覆盖，只补缺；能力声明不当配置。
+    catalog：可选的目录白名单上下文（build_catalog_context 产出），提供时用于 server_type/系列
+    锚定校验（agent 主理解路传入；增强路不传则 series 仍走 _load_series_values）。
     返回变更说明列表（step_done payload / 日志用）。
     """
     if not cleaned:
@@ -229,6 +245,19 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
             changes.append(f"series={series}")
         else:
             changes.append(f"series 跳过(非平台系列): {series}")
+
+    # ── 服务器类型：catalog 锚定（命中在售类型白名单才写 server_type_name/usage，防 LLM 编造类型）──
+    stype = (cleaned.get("server_type") or "").strip()
+    if stype and not ext.get("server_type_name"):
+        known_types = [str(t).lower() for t in ((catalog or {}).get("server_types") or []) if t]
+        hit = stype.lower() in known_types or \
+            any(stype.lower() in t or t in stype.lower() for t in known_types)
+        if hit:
+            ext["server_type_name"] = stype
+            ext["usage"] = stype
+            changes.append(f"server_type_name={stype}")
+        else:
+            changes.append(f"server_type 跳过(不在在售白名单): {stype}")
 
     # ── CPU：合并进 cpu_signal（duality/qty/cores/tdp_w/model），规则已抽到的键不覆盖 ──
     cpu = cleaned.get("cpu") or {}
@@ -261,6 +290,17 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
             changes.append(f"cpu.model={model}")
         if sig:
             ext["cpu_signal"] = sig
+        # CPU 型号 token 进 keywords（stage-1 型号精确命中需要；agent 主理解路 ext 从空起步时关键，
+        # 否则只靠 cpu_signal.model，pick 的通用关键词匹配路径够不到 CPU 型号）
+        if model:
+            _kw = ext.get("keywords")
+            if _kw is None:
+                _kw = []
+                ext["keywords"] = _kw
+            for _t in _model_tokens_of(model):
+                if _t not in _kw:
+                    _kw.append(_t)
+                    changes.append(f"keywords+{_t}")
 
     # ── 内存：合并 mem_signal（type/speed/total_gb/per_stick_gb）；mem_groups 仅当
     #    规则没抽到任何内存组且 LLM 明确给了单条容量（R7：插槽数/未知容量绝不臆造）──
@@ -278,23 +318,39 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
             changes.append(f"mem.speed={speed}")
         per = mem.get("per_stick_gb")
         mqty = mem.get("qty")
+        total = mem.get("total_gb")
         if per and 4 <= int(per) <= 1024:
             if not sig.get("per_stick_gb"):
                 sig["per_stick_gb"] = int(per)
             if mqty and 1 <= int(mqty) <= 64 and not sig.get("total_gb"):
                 sig["total_gb"] = int(per) * int(mqty)
                 changes.append(f"mem.total_gb={sig['total_gb']}")
+            # 单条 + 总量都给了但没条数 → 反推条数（32G×? = 256G → 8）
+            if total and 128 <= int(total) <= 32768 and mqty is None:
+                _q = int(total) // int(per)
+                if 1 <= _q <= 64 and _q * int(per) == int(total):
+                    mqty = _q
+        elif total and 128 <= int(total) <= 32768:
+            # 只给总量：保留 mem_signal.total_gb，条数由配件规划（kp LLM 提议）按通道拆
+            sig["total_gb"] = int(total)
+            changes.append(f"mem.total_gb={int(total)}")
         if sig:
             ext["mem_signal"] = sig
         if per and 4 <= int(per) <= 1024 and not (ext.get("mem_groups") or []):
             n = int(mqty) if mqty and 1 <= int(mqty) <= 64 else 1
-            ext["mem_groups"] = [{"term": f"{int(per)}G", "qty": n}]
+            _mg = {"term": f"{int(per)}G", "qty": n}
+            if mem.get("comparison") in ("gte", "lte"):
+                _mg["comparison"] = mem["comparison"]
+            ext["mem_groups"] = [_mg]
             changes.append(f"mem_groups+{per}G×{n}")
 
-    # ── 盘：能力声明不当配置；有配置信号才补（去重：同 term+kind 已有则跳过）──
-    if not _has_drive_config_signal(requirement_text):
-        if cleaned.get("drives"):
-            changes.append("drives 跳过：需求为能力声明/盘位描述，非实际盘配置")
+    # ── 盘：仅当文本含显式能力声明（支持/最多/最大 N 盘位）且无强配置信号时跳过（R7：能力≠配置）；
+    # 否则信任 LLM 已按 prompt 过滤能力声明。"2块960G SSD 系统盘" 无能力词，是实际配置，应进 drive_groups
+    # （旧 _has_drive_config_signal 对无"配/装/需"前缀的格式误判为非配置，丢盘——已弃用该文本 guard）。
+    _text = requirement_text or ""
+    _cap_only = bool(_DRIVE_CAPABILITY_RE.search(_text)) and not bool(_DRIVE_STRONG_RE.search(_text))
+    if _cap_only and cleaned.get("drives"):
+        changes.append("drives 跳过：需求为能力声明/盘位描述，非实际盘配置")
     else:
         existing = [(g.get("term"), g.get("kind")) for g in (ext.get("drive_groups") or [])]
         for d in (cleaned.get("drives") or [])[:16]:
@@ -307,8 +363,10 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
                 continue
             if (term, kind) in existing:
                 continue
-            ext.setdefault("drive_groups", []).append(
-                {"term": term, "qty": int(qty or 1), "kind": kind})
+            _dg = {"term": term, "qty": int(qty or 1), "kind": kind}
+            if d.get("comparison") in ("gte", "lte"):
+                _dg["comparison"] = d["comparison"]
+            ext.setdefault("drive_groups", []).append(_dg)
             existing.append((term, kind))
             changes.append(f"drive_groups+{term}×{qty or 1} {kind or ''}".strip())
             _add_cat("HDD/SSD")
@@ -322,21 +380,38 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
     for g in (cleaned.get("gpu") or [])[:8]:
         model = (g.get("model") or "").strip()
         qty = g.get("qty")
-        if not model:
+        cap = g.get("capacity_gb")
+        cmpv = g.get("comparison")
+        if not model and cap is None:
             continue
         if qty is not None and not (1 <= int(qty) <= 64):
             continue
-        toks = _model_tokens_of(model)
-        if not toks:
+        toks = _model_tokens_of(model) if model else []
+        if model and not toks:
             continue
-        hit = next((gg for gg in ggroups if any(t in (gg.get("tokens") or []) for t in toks)), None)
-        if hit:
-            if model not in (hit.get("tokens") or []):
-                hit["tokens"] = [model] + list(hit.get("tokens") or [])
-                changes.append(f"gpu_groups[{model}] 前置精确型号")
-            continue
-        ggroups.append({"tokens": [model] + toks, "qty": int(qty or 1)})
-        changes.append(f"gpu_groups+{model}×{qty or 1}")
+        if toks:
+            hit = next((gg for gg in ggroups if any(t in (gg.get("tokens") or []) for t in toks)), None)
+            if hit:
+                if model not in (hit.get("tokens") or []):
+                    hit["tokens"] = [model] + list(hit.get("tokens") or [])
+                    changes.append(f"gpu_groups[{model}] 前置精确型号")
+                continue
+            _gg = {"tokens": [model] + toks, "qty": int(qty or 1)}
+            if cap is not None and 1 <= int(cap) <= 512:
+                _gg["cap"] = int(cap)
+                if cmpv in ("gte", "lte"):
+                    _gg["comparison"] = cmpv
+            ggroups.append(_gg)
+            changes.append(f"gpu_groups+{model}×{qty or 1}")
+        else:
+            # 纯显存需求（无型号）："48G以上显存" → 只带 cap + comparison，无 tokens
+            if cap is None or not (1 <= int(cap) <= 512):
+                continue
+            _gg = {"tokens": [], "qty": int(qty or 1), "cap": int(cap)}
+            if cmpv in ("gte", "lte"):
+                _gg["comparison"] = cmpv
+            ggroups.append(_gg)
+            changes.append(f"gpu_groups+显存{cap}G×{qty or 1}")
         _add_cat("GPU")
 
     # ── 网卡：仅当规则没抽到任何网卡行时按 LLM 槽位补行 ──
@@ -402,6 +477,15 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "") -> list
                 keywords.append(t)
                 changes.append(f"keywords+{t}")
         ext["raid_signal"] = {"model": raid_model, "qty": int(raid.get("qty") or 1)}
+        # raid_groups（_pick_raid_groups 显式型号分组路径需要；形状对齐 _extract_raid_groups：{model,qty,cache}。
+        # agent 主理解路 ext 从空起步时必须产，否则 RAID 落不到精确型号、泛配到品类代表件）
+        _rg = ext.get("raid_groups")
+        if _rg is None:
+            _rg = []
+            ext["raid_groups"] = _rg
+        if not any(g.get("model") == raid_model for g in _rg):
+            _rg.append({"model": raid_model, "qty": int(raid.get("qty") or 1), "cache": None})
+            changes.append(f"raid_groups+{raid_model}×{raid.get('qty') or 1}")
         _add_cat("Raid card")
 
     notes = cleaned.get("notes") or []

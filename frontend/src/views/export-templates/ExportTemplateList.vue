@@ -85,6 +85,40 @@
       </a-tab-pane>
     </a-tabs>
 
+    <!-- 新建 Excel 模板弹窗（从空白创建 / 上传 Excel 创建） -->
+    <a-modal
+      v-model:open="showCreateExcelModal"
+      title="新建 Excel 模板"
+      :footer="null"
+      :destroyOnClose="true"
+      width="520px"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="模板名称" required>
+          <a-input v-model:value="newTemplateName" placeholder="如：标准报价单" :maxlength="50" />
+        </a-form-item>
+        <a-form-item label="Excel 文件（可选；不选则从空白创建）">
+          <a-upload
+            :before-upload="handleBeforeUpload"
+            :file-list="fileList"
+            :max-count="1"
+            accept=".xlsx,.xls"
+            :on-remove="handleRemoveFile"
+          >
+            <a-button>
+              <template #icon><UploadOutlined /></template>
+              选择文件
+            </a-button>
+          </a-upload>
+        </a-form-item>
+      </a-form>
+      <div class="create-excel-footer">
+        <a-button @click="showCreateExcelModal = false">取消</a-button>
+        <a-button :loading="creatingExcel" @click="handleCreateBlankExcel">从空白创建</a-button>
+        <a-button type="primary" :loading="creatingExcel" @click="handleUploadCreateExcel">上传创建</a-button>
+      </div>
+    </a-modal>
+
     <!-- 字段管理抽屉 -->
     <a-drawer
       v-model:open="showFieldDrawer"
@@ -103,7 +137,7 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { SettingOutlined } from '@ant-design/icons-vue'
+import { SettingOutlined, UploadOutlined } from '@ant-design/icons-vue'
 import { univerTemplateApi } from '@/api/univerTemplate'
 import { specTemplateApi } from '@/api/specTemplate'
 import BusinessFieldManagement from '@/views/admin/BusinessFieldManagement.vue'
@@ -111,6 +145,13 @@ import BusinessFieldManagement from '@/views/admin/BusinessFieldManagement.vue'
 const router = useRouter()
 const activeTab = ref('excel')
 const showFieldDrawer = ref(false)
+
+// 新建 Excel 模板弹窗状态（方案 B：空白创建 / 上传 Excel 创建）
+const showCreateExcelModal = ref(false)
+const creatingExcel = ref(false)
+const newTemplateName = ref('')
+const selectedFile = ref<File | null>(null)
+const fileList = ref<any[]>([])
 
 const excelTemplates = ref<any[]>([])
 const specTemplates = ref<any[]>([])
@@ -149,7 +190,102 @@ function formatDate(dateStr: string) {
 
 // Excel 模板操作
 function handleCreateExcel() {
-  router.push('/export-templates/excel/new')
+  // 方案 B：列表页弹窗内选择「从空白创建」或「上传 Excel 创建」，创建成功后再进编辑器
+  newTemplateName.value = ''
+  selectedFile.value = null
+  fileList.value = []
+  showCreateExcelModal.value = true
+}
+
+
+// ── 新建 Excel 模板：从空白创建 / 上传 Excel 创建（方案 B） ──
+
+function handleBeforeUpload(file: File) {
+  selectedFile.value = file
+  fileList.value = [file]
+  return false
+}
+
+function handleRemoveFile() {
+  selectedFile.value = null
+  fileList.value = []
+}
+
+function buildBlankSnapshot(): Record<string, any> {
+  return {
+    sheetOrder: ['sheet-1'],
+    sheets: {
+      'sheet-1': {
+        id: 'sheet-1',
+        name: 'Sheet1',
+        cellData: {
+          '0': {
+            '0': { v: '在此开始编辑' }
+          }
+        },
+        rowCount: 100,
+        columnCount: 26,
+      }
+    }
+  }
+}
+
+async function handleCreateBlankExcel() {
+  const displayName = newTemplateName.value.trim() || '新模板'
+  creatingExcel.value = true
+  try {
+    const result = await univerTemplateApi.create({
+      name: displayName,
+      display_name: displayName,
+      workbook_snapshot: buildBlankSnapshot(),
+      sheet_config: { cover: { sheetId: 'sheet-1' } },
+    })
+    message.success('创建成功')
+    showCreateExcelModal.value = false
+    resetCreateExcel()
+    router.push(`/export-templates/excel/${result.id}/edit`)
+    await loadExcelTemplates()
+  } catch (err: any) {
+    message.error(`创建失败: ${err.message}`)
+  } finally {
+    creatingExcel.value = false
+  }
+}
+
+async function handleUploadCreateExcel() {
+  if (!newTemplateName.value.trim()) {
+    message.warning('请输入模板名称')
+    return
+  }
+  if (!selectedFile.value) {
+    message.warning('请选择 Excel 文件')
+    return
+  }
+  creatingExcel.value = true
+  try {
+    const result = await univerTemplateApi.uploadExcel(selectedFile.value)
+    const created = await univerTemplateApi.create({
+      name: newTemplateName.value.trim(),
+      display_name: newTemplateName.value.trim(),
+      workbook_snapshot: result.workbook_snapshot,
+      sheet_config: result.sheet_config,
+    })
+    message.success('上传创建成功')
+    showCreateExcelModal.value = false
+    resetCreateExcel()
+    router.push(`/export-templates/excel/${created.id}/edit`)
+    await loadExcelTemplates()
+  } catch (err: any) {
+    message.error(`上传创建失败: ${err.message}`)
+  } finally {
+    creatingExcel.value = false
+  }
+}
+
+function resetCreateExcel() {
+  newTemplateName.value = ''
+  selectedFile.value = null
+  fileList.value = []
 }
 
 function handleEditExcel(tpl: any) {
@@ -219,6 +355,13 @@ async function handleDeleteSpec(tpl: any) {
 </script>
 
 <style scoped>
+.create-excel-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 .export-template-list {
   padding: 24px;
 }
@@ -256,16 +399,9 @@ async function handleDeleteSpec(tpl: any) {
   border-radius: 18px;
   cursor: pointer;
   transition: all .3s cubic-bezier(.16,1,.3,1);
-  background: linear-gradient(135deg,
-    var(--cpq-overlay-w6) 0%,
-    var(--cpq-overlay-w3) 40%,
-    var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(16px);
-  box-shadow:
-    0 22px 64px var(--cpq-overlay-b30),
-    0 0 34px var(--cpq-overlay-a4),
-    inset 0 1px 0 var(--cpq-overlay-w15),
-    inset 0 -18px 48px var(--cpq-overlay-b15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
 }
 
 .template-card:hover {
@@ -324,16 +460,9 @@ async function handleDeleteSpec(tpl: any) {
   cursor: pointer;
   border: 1px solid var(--cpq-overlay-w10);
   border-radius: 18px;
-  background: linear-gradient(135deg,
-    var(--cpq-overlay-w6) 0%,
-    var(--cpq-overlay-w3) 40%,
-    var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(16px);
-  box-shadow:
-    0 22px 64px var(--cpq-overlay-b30),
-    0 0 34px var(--cpq-overlay-a4),
-    inset 0 1px 0 var(--cpq-overlay-w15),
-    inset 0 -18px 48px var(--cpq-overlay-b15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: all .3s cubic-bezier(.16,1,.3,1);
 }
 

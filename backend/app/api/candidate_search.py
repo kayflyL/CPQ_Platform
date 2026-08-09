@@ -32,7 +32,6 @@ def _normalize_l6(row: dict) -> dict:
         "pn": row.get("pn"),
         "name": row.get("name") or "",
         "category": row.get("category") or "",
-        "section": row.get("section") or "",
         "unit_price": row.get("unit_price"),
         "currency": "RMB",
         "specs": row.get("specs") or {},
@@ -216,18 +215,24 @@ def kp_categories_for_type(type_name: str, type_packages: Optional[list] = None,
         {"type_keyword": k, "categories": v} for k, v in TYPE_KP_CATEGORIES.items()
     ]
     cats: list[str] = []
+    mandatory_storage = False
+    mandatory_gpu = False
     for pkg in pkgs:
         kw = pkg.get("type_keyword") or ""
         if kw and kw in type_name:
             cats = list(pkg.get("categories") or [])
+            mandatory_storage = bool(pkg.get("mandatory_storage"))  # 配置驱动：存储类套餐强制带盘
+            mandatory_gpu = bool(pkg.get("mandatory_gpu"))          # 配置驱动：AI 类套餐强制带卡
             break
     # GPU/HDD/SSD 仅当需求明确要才配（requested_cats 非 None 且含对应品类；None=老调用方不过滤）
     # HDD/SSD 同 GPU 原则（R4 修）："12/24 bays HDDSupport of NVMe" 是机箱能力不是硬盘配置，
     # 套餐默认含 HDD/SSD 但需求没提硬盘时不硬塞（避免凭空配一块 480G）。
+    # 例外：套餐显式标 mandatory_storage=True（如存储服务器）→ 硬盘是核心，强制保留；
+    #       mandatory_gpu=True（如 AI/加速计算服务器）→ GPU 是核心，强制保留（配件库有 GPU，2026-08 修）。
     if requested_cats is not None:
-        if "GPU" in cats and "GPU" not in requested_cats:
+        if "GPU" in cats and "GPU" not in requested_cats and not mandatory_gpu:
             cats = [c for c in cats if c != "GPU"]
-        if "HDD/SSD" in cats and "HDD/SSD" not in requested_cats:
+        if "HDD/SSD" in cats and "HDD/SSD" not in requested_cats and not mandatory_storage:
             cats = [c for c in cats if c != "HDD/SSD"]
     return cats
 
@@ -343,7 +348,8 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                   limit: int = MAX_PLANS,
                   recommend_strategy_id: Optional[int] = None,
                   no_signal_strategy: Optional[str] = "return_empty",
-                  variant_signals: Optional[dict] = None) -> list[dict]:
+                  variant_signals: Optional[dict] = None,
+                  fallback_order: Optional[list] = None) -> list[dict]:
     """按机型类型 + series/form 从【机型层】选 1-N 个机型作整机骨架。
 
     类型匹配：server_type_name 精确（词表/目录引导配的真实类型名）；无类型信号但有形态 → 默认通用计算；
@@ -376,10 +382,39 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
             if "通用" in (t.get("name") or ""):
                 type_id = t["id"]
                 break
-    models = cat_repo.list_models(type_id=type_id, series=series, form=form)
-    if not models and type_id is not None:
-        # usage→type 过滤后为空：fallback 去掉 type 过滤再试（按 series/form），仍空才真返空
-        models = cat_repo.list_models(series=series, form=form)
+    # 多级放宽选型（可配 fallback_order，见 model_reason 节点抽屉；默认 exact→same_series→
+    # same_form→all）：严格条件命中不了时，按用户配置的顺序逐级放宽（先保系列、再保形态、最后保类型），
+    # 每级仍保留「去掉 type 再试」的旧兜底（防止 type 白名单太严误杀）。命中级记 match_stage/
+    # fallback_note 供白盒展示「为什么给了这个替代」，绝不静默。
+    _stage_fn = {
+        "exact": lambda: (type_id, series, form),
+        "same_series": lambda: (type_id, series, None),
+        "same_form": lambda: (type_id, None, form),
+        "all": lambda: (type_id, None, None),
+    }
+    stages = [st for st in (fallback_order or ["exact", "same_series", "same_form", "all"]) if st in _stage_fn]
+    models: list = []
+    match_stage = None
+    relaxed_dims: list = []
+    for st in stages:
+        _t, _s, _f = _stage_fn[st]()
+        _cands = cat_repo.list_models(type_id=_t, series=_s, form=_f)
+        if not _cands and _t is not None:
+            _cands = cat_repo.list_models(series=_s, form=_f)  # 旧兜底：type 白名单太严时去掉 type 再试
+        if _cands:
+            models = _cands
+            match_stage = st
+            # 记录相对原始请求放宽了哪些维度（数据驱动，非硬编码话术）
+            if series and _s is None:
+                relaxed_dims.append("平台系列")
+            if form and _f is None:
+                relaxed_dims.append("机箱形态")
+            if server_type_name and _t is None:
+                relaxed_dims.append("服务器类型")
+            break
+    if not models:
+        # 全级放宽仍空 → 返空（交反问），与旧行为一致
+        models = []
     type_name_by_id = {t["id"]: t.get("name") or "" for t in types}
     # 批量取 base_configs 聚合（parts_count/total_price/bom_template_id）
     bc_repo = BaseConfigRepository()
@@ -419,12 +454,42 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                 "bays": bc_embed.get("bays") if bc_embed.get("bays") is not None else bc.get("bays"),
                 "model": m.get("name") or bc.get("model") or "",
                 "bom_template_id": bc.get("bom_template_id"),
+                # 白盒标注：命中级 + 放宽说明（"库内无 X，已按最接近给出"——分析可见，非黑盒）
+                "match_stage": match_stage,
+                "fallback_note": _fallback_note(match_stage, relaxed_dims, series, form),
+                # 机箱能力约束（基准配置页「机箱能力」可配）：PSU 档位 / CPU 上限 / 内存条数上限 / 每路通道数
+                # 缺省 None → 消费端用全局兜底（不把物理边界硬编码在推理链路）
+                "psu_wattages": bc.get("psu_wattages") or None,
+                "max_cpu": bc.get("max_cpu") or None,
+                "max_dimm": bc.get("max_dimm") or None,
+                "mem_channels": bc.get("mem_channels") or None,
                 "parts_count": int(bc.get("parts_count") or 0),
                 "total_price": float(bc.get("total_price") or 0),
             })
     results = out[:limit]
     _annotate_recommend(results, recommend_strategy_id)
     return results
+
+
+_STAGE_LABEL = {"exact": "精确匹配", "same_series": "放宽形态", "same_form": "放宽系列", "all": "放宽系列+形态"}
+
+
+def _fallback_note(stage: Optional[str], relaxed: list, series: Optional[str], form: Optional[str]) -> str:
+    """命中级的白盒说明：精确命中 → "精确匹配"；放宽命中 → 说明放宽了什么维度。
+    纯数据驱动（由实际放宽维度生成），不硬编码具体机型/系列。"""
+    if not stage or stage == "exact":
+        return "精确匹配"
+    parts = []
+    if relaxed:
+        parts.append("、".join(relaxed))
+    req = []
+    if series:
+        req.append(f"{series} 平台")
+    if form:
+        req.append(form)
+    if req and relaxed:
+        return f"库内无「{' '.join(req)}」全匹配机型，已放宽【{ '、'.join(relaxed) }】，按最接近给出候选（如需精确请调整需求）"
+    return f"按{'/'.join(relaxed) or '最接近'}给出候选"
 
 
 def _annotate_recommend(baselines: list[dict], strategy_id: Optional[int] = None) -> None:
@@ -524,9 +589,13 @@ def _memory_kp_row(rep: dict, qty: int, extra: str) -> dict:
     }
 
 
-def _pick_memory_part(parts: list[dict], mem_signal: dict, pick_rep) -> Optional[dict]:
+def _pick_memory_part(parts: list[dict], mem_signal: dict, pick_rep,
+                       target_sticks: Optional[int] = None,
+                       max_sticks: Optional[int] = None) -> Optional[dict]:
     """Memory 容量反推：从已按 Type/Speed 过滤的候选件里选单条容量 + 算 qty。
-    选使条数最接近 8（双路 8 内存通道）的容量；qty=ceil(total/cap)。
+    选使条数最接近 target_sticks 的容量（默认 8 兼容旧行为；可配：
+    基准配置 mem_channels×CPU 路数，如 EPYC 12 通道/路 → 双路目标 24）；
+    qty=ceil(total/cap)，且不超过 max_sticks（默认 32；可配：基准配置 max_dimm）。
     返回标准 KP 行（含 qty / matched_spec），或 None 交回主流程兜底。"""
     if not parts:
         return None
@@ -537,6 +606,8 @@ def _pick_memory_part(parts: list[dict], mem_signal: dict, pick_rep) -> Optional
         m = cap_re.search(p.get("model") or "")
         return int(m.group(1)) if m else None
 
+    target = target_sticks or 8
+    max_q = max_sticks or 32
     if not total:  # 无总容量：代表件 qty=1
         rep = pick_rep(parts)
         return _memory_kp_row(rep, 1, "") if rep else None
@@ -547,9 +618,9 @@ def _pick_memory_part(parts: list[dict], mem_signal: dict, pick_rep) -> Optional
     best_cap, best_qty = None, None
     for c in caps:
         q = -(-total // c)  # ceil(total/c)
-        if q < 1 or q > 32:
+        if q < 1 or q > max_q:
             continue
-        if best_cap is None or abs(q - 8) < abs(best_qty - 8):
+        if best_cap is None or abs(q - target) < abs(best_qty - target):
             best_cap, best_qty = c, q
     if best_cap is None:
         best_cap, best_qty = caps[0], max(1, -(-total // caps[0]))
@@ -606,11 +677,17 @@ def _part_type_matches(part: dict, kind: Optional[str]) -> bool:
     return str(kind).lower() in blob
 
 
-def _drive_spec_substitute(kp_repo, db_cat: str, term: str, kind: Optional[str]) -> list:
+def _drive_spec_substitute(kp_repo, db_cat: str, term: str, kind: Optional[str],
+                           comparison: Optional[str] = None,
+                           strategy: str = "tolerance",
+                           tolerance_pct: float = 10.0) -> list:
     """规格属性替代：按【接口 + 容量数值】选 1 件最合适替代（2026-08-03）。
 
-    优先级：同容量等级（±10% 容差）→ 容量≥需求的最小件（够用）→ 容量≤需求且
-    不低于 80% 的最大件（最接近）→ 空（交回 unmatched，诚实提示）。
+    优先级（2026-08 可配置化 + AI comparison，用户可配 kp_reason.capacity_match）：
+    - comparison=gte / strategy=strict_min → 只选 容量≥需求 的最小件（"1T以上/至少" 不再选 960G）；
+    - comparison=lte → 只选 容量≤需求 的最大件；
+    - 默认（tolerance，无比较）→ 同容量等级（±tolerance_pct% 容差）→ 容量≥需求的最小件 →
+      容量≤需求且不低于 80% 的最大件 → 空（交回 unmatched，诚实提示）。
     """
     need_gb = _cap_to_gb(term)
     if need_gb is None:
@@ -623,7 +700,13 @@ def _drive_spec_substitute(kp_repo, db_cat: str, term: str, kind: Optional[str])
     cands = [(p, c) for p in typed if (c := _part_capacity_gb(p))]
     if not cands:
         return []
-    same = [t for t in cands if abs(t[1] - need_gb) <= max(64, need_gb * 0.1)]
+    if comparison == "lte":
+        under = [t for t in cands if t[1] <= need_gb]
+        return [max(under, key=lambda t: t[1])[0]] if under else []
+    if comparison == "gte" or strategy == "strict_min":
+        over = [t for t in cands if t[1] >= need_gb]
+        return [min(over, key=lambda t: t[1])[0]] if over else []
+    same = [t for t in cands if abs(t[1] - need_gb) <= max(64, need_gb * (tolerance_pct / 100.0))]
     if same:
         return [min(same, key=lambda t: t[1])[0]]
     over = [t for t in cands if t[1] >= need_gb]
@@ -636,7 +719,8 @@ def _drive_spec_substitute(kp_repo, db_cat: str, term: str, kind: Optional[str])
 
 
 def _pick_drive_groups(drive_groups: list, db_cat: str, kp_repo, _pick_rep, out: list,
-                       spec_substitute: bool = True) -> int:
+                       spec_substitute: bool = True,
+                       capacity_match: Optional[dict] = None) -> int:
     """按盘组逐件匹配 KP 盘（容量 + 接口 → 每盘组 1 件，同件累计数量）。
 
     解决"一品类只出一个代表件"：2×7.68T NVMe + 2×960G SATA 应出两件，各带各自数量。
@@ -644,6 +728,12 @@ def _pick_drive_groups(drive_groups: list, db_cat: str, kp_repo, _pick_rep, out:
     → 仍无 → 标 unmatched 提示手填（不进 BOM）。
     """
     produced = 0
+    _cm = capacity_match or {}
+    _strategy = _cm.get("strategy") or "tolerance"
+    try:
+        _tol = float(_cm.get("tolerance") or 10)
+    except (TypeError, ValueError):
+        _tol = 10.0
     for g in drive_groups or []:
         term = (g.get("term") or "").strip()
         if not term:
@@ -668,7 +758,9 @@ def _pick_drive_groups(drive_groups: list, db_cat: str, kp_repo, _pick_rep, out:
         substituted = False
         if not cands and spec_substitute and not media:
             # 介质明确时不做跨介质替代（8T HDD 不能用 8T SSD 顶替，用途/价格差异大）
-            cands = _drive_spec_substitute(kp_repo, db_cat, term, kind)
+            cands = _drive_spec_substitute(kp_repo, db_cat, term, kind,
+                                           comparison=g.get("comparison"),
+                                           strategy=_strategy, tolerance_pct=_tol)
             substituted = bool(cands)
         if cands:
             rep = _pick_rep(cands)
@@ -745,11 +837,23 @@ def _filter_cpu_parts_for_platform(parts: list, requirement_text: str = "",
     return parts
 
 
-def _default_mem_type_for_cpu(rows: list) -> Optional[str]:
-    """CPU 代际 → 内存代际默认（R16）：需求未写 DDR 代际时，按已选 CPU 件型号推断，
-    避免给 KH50000（DDR5 平台）配到 DDR4 件（正确性问题）。
-    KH50000/KH-50000/KH5000、EPYC 9004/9005、Xeon 6 → DDR5；KH40000/KX/老代 → DDR4。
-    CPU 未命中（unmatched 无件号）→ None（交回原逻辑）。"""
+# CPU 型号 → 内存代际默认规则（顺序敏感，首个正则命中即定；可配：match_kp.cpu_mem_type_rules）。
+# 覆盖海光/兆鑫 KH、AMD EPYC、Intel Xeon 主流代际。EPYC 9 = 9004 Genoa / 9005 Turin / Bergamo 全系 DDR5（含 9124/9354/9554…）。
+_DEFAULT_CPU_MEM_TYPE_RULES = [
+    {"pattern": r"KH50000|KH-50000|KH5000", "mem_type": "DDR5"},
+    {"pattern": r"KH40000|KH4000|KX", "mem_type": "DDR4"},
+    {"pattern": r"EPYC 9", "mem_type": "DDR5"},
+    {"pattern": r"EPYC 7", "mem_type": "DDR4"},
+    {"pattern": r"XEON 6", "mem_type": "DDR5"},
+    {"pattern": r"XEON [1-4]", "mem_type": "DDR4"},
+]
+
+
+def _default_mem_type_for_cpu(rows: list, rules: Optional[list] = None) -> Optional[str]:
+    """CPU 代际 → 内存代际默认：需求未写 DDR 代际时，按已选 CPU 件型号推断，
+    避免给 DDR5 平台（KH50000/EPYC 9xx4/Xeon 6）配到 DDR4 件。
+    rules：[{pattern, mem_type}]（可配，match_kp.cpu_mem_type_rules 透传）；None=用内置默认。
+    CPU 未命中（无件号 / 规则不匹配）→ None（交回原逻辑按容量选最便宜）。"""
     cpu_pn = ""
     for r in rows or []:
         if str(r.get("category") or "").strip().lower() == "cpu" and r.get("pn"):
@@ -758,10 +862,15 @@ def _default_mem_type_for_cpu(rows: list) -> Optional[str]:
     if not cpu_pn:
         return None
     up = cpu_pn.upper()
-    if re.search(r"KH50000|KH-50000|KH5000|EPYC 90(0[45])|EPYC 9J|XEON 6", up):
-        return "DDR5"
-    if re.search(r"KH40000|KH4000|KX|EPYC 70|XEON [1234]", up):
-        return "DDR4"
+    for rule in (rules if rules is not None else _DEFAULT_CPU_MEM_TYPE_RULES):
+        pat = (rule or {}).get("pattern")
+        mt = (rule or {}).get("mem_type")
+        if pat and mt:
+            try:
+                if re.search(pat, up):
+                    return mt
+            except re.error:
+                continue  # 脏正则跳过，不崩
     return None
 
 
@@ -795,35 +904,68 @@ def _gpu_cap_gb(part: dict) -> Optional[int]:
     return int(m.group(1)) if m else None
 
 
-def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: list) -> int:
-    """按 GPU 组逐件匹配（型号 token → 库件），同件累计数量。
-    "8×RTX 5090 + 4×AMD R9700" → 两件各带数量；未命中标 unmatched 提示手填。"""
+def _gpu_vram_filter(cands: list, need: Optional[int], comparison: Optional[str],
+                      strategy: str = "tolerance") -> list:
+    """按显存过滤 GPU 候选（2026-08 纳入 capacity_match 体系）：
+    comparison=gte / 策略 strict_min → 显存 ≥need 的最小件；comparison=lte → ≤need 的最大件；
+    容差模式（无比较）→ 精确 ==need（显存是硬规格，不做容差近似）。
+    无显存约束（need None）→ 原样返回。"""
+    if not cands or need is None:
+        return cands
+    cc = [(r, c) for r in cands if (c := _gpu_cap_gb(r))]
+    if not cc:
+        return []
+    if comparison == "gte" or strategy == "strict_min":
+        ge = [(r, c) for r, c in cc if c >= need]
+        return [min(ge, key=lambda t: t[1])[0]] if ge else []
+    if comparison == "lte":
+        le = [(r, c) for r, c in cc if c <= need]
+        return [max(le, key=lambda t: t[1])[0]] if le else []
+    exact = [(r, c) for r, c in cc if c == need]
+    return [r for r, _ in exact]
+
+
+def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: list,
+                     capacity_match: Optional[dict] = None) -> int:
+    """按 GPU 组逐件匹配（型号 token → 库件；显存约束纳入 capacity_match 体系），同件累计数量。
+    "8×RTX 5090 + 4×AMD R9700" → 两件各带数量；"48G以上显存"（无型号）→ 按显存挑件；
+    未命中标 unmatched 提示手填。"""
     produced = 0
+    _cm = capacity_match or {}
+    _strategy = _cm.get("strategy") or "tolerance"
     for g in gpu_groups or []:
         toks = [t for t in (g.get("tokens") or []) if t]
         qty = int(g.get("qty") or 1)
-        if not toks:
+        _cap = g.get("cap")          # 显存容量（GB，R10/I50；2026-08 支持纯显存组）
+        _cmp = g.get("comparison")   # gte/lte（AI 识别"以上/以下"）
+        if not toks and not _cap:
             continue
         hit = None
-        _cap = g.get("cap")  # 显存容量（R10/I50）：需求 "RTX PRO 5000 72G" → 优先选 72G 件，不落 48G
-        for t in toks:
+        if toks:
+            for t in toks:
+                try:
+                    rows = kp_repo.get_latest_prices(search=t)
+                except Exception:
+                    rows = []
+                # 只认「GPU 品类 + 件名含型号 token」的命中——get_latest_prices 会搜价格备注，
+                # "4500" 曾命中备注含 4500 的天数智芯 智铠100（2026-08-03 训练：RTX PRO 4500 被配成智铠100）
+                _tl = t.lower()
+                cands = [r for r in rows
+                         if ("gpu" in (r.get("category") or "").lower() or "显卡" in (r.get("category") or ""))
+                         and _tl in ((r.get("model") or "").lower())]
+                cands = _gpu_vram_filter(cands, _cap, _cmp, _strategy)
+                if cands:
+                    hit = _pick_rep(cands)
+                    break
+        else:
+            # 纯显存需求（无型号）：从全 GPU 品类按显存过滤挑件
             try:
-                rows = kp_repo.get_latest_prices(search=t)
+                _gpu_all = kp_repo.get_by_category(db_cat) or []
             except Exception:
-                rows = []
-            # 只认「GPU 品类 + 件名含型号 token」的命中——get_latest_prices 会搜价格备注，
-            # "4500" 曾命中备注含 4500 的天数智芯 智铠100（2026-08-03 训练：RTX PRO 4500 被配成智铠100）
-            _tl = t.lower()
-            cands = [r for r in rows
-                     if ("gpu" in (r.get("category") or "").lower() or "显卡" in (r.get("category") or ""))
-                     and _tl in ((r.get("model") or "").lower())]
-            if _cap:
-                cap_cands = [r for r in cands if _gpu_cap_gb(r) == _cap]
-                if cap_cands:
-                    cands = cap_cands
+                _gpu_all = []
+            cands = _gpu_vram_filter(_gpu_all, _cap, _cmp, _strategy)
             if cands:
                 hit = _pick_rep(cands)
-                break
         if hit:
             pn = hit.get("model") or ""
             existing = next((o for o in out if o.get("pn") == pn and not o.get("unmatched")), None)
@@ -835,7 +977,7 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     "category": db_cat,
                     "unit_price": hit.get("price"),
                     "currency": hit.get("currency") or "RMB",
-                    "matched_spec": f"型号 {toks[0]}",
+                    "matched_spec": f"型号 {toks[0]}" if toks else f"显存 {_cap}G",
                     "qty": qty,
                 })
             produced += 1
@@ -847,7 +989,7 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     _gpu_all = kp_repo.get_by_category(db_cat) or []
                 except Exception:
                     _gpu_all = []
-                _cap_m = [r for r in _gpu_all if _gpu_cap_gb(r) == _cap]
+                _cap_m = _gpu_vram_filter(_gpu_all, _cap, _cmp, _strategy)
                 if _cap_m:
                     sub = _pick_rep(_cap_m)
             if sub:
@@ -855,7 +997,8 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     "pn": sub.get("model") or "", "name": sub.get("model") or "",
                     "category": db_cat,
                     "unit_price": sub.get("price"), "currency": sub.get("currency") or "RMB",
-                    "matched_spec": f"型号 {toks[0]}（替代 {sub.get('model')}）",
+                    "matched_spec": (f"型号 {toks[0]}（替代 {sub.get('model')}）" if toks
+                                     else f"显存 {_cap}G（替代 {sub.get('model')}）"),
                     "qty": qty,
                 })
             else:
@@ -863,7 +1006,8 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     "pn": "", "name": "", "category": db_cat,
                     "unit_price": 0, "currency": "RMB",
                     "unmatched": True,
-                    "unmatched_reason": f"GPU 型号 {toks[0]} 在 KP 库未命中，需手填",
+                    "unmatched_reason": (f"GPU 型号 {toks[0]} 在 KP 库未命中，需手填" if toks
+                                         else f"显存 {_cap}G 的 GPU 未命中，需手填"),
                     "qty": qty,
                 })
             produced += 1
@@ -953,6 +1097,18 @@ def _pick_mem_groups(mem_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
             sc = [r for r in cands if str(_speed) in (r.get("model") or "")]
             if sc:
                 cands = sc
+        # AI comparison（gte=以上/至少，lte=以下/最多）：按单条容量过滤，满足"32G以上"不选 16G
+        _cmp = g.get("comparison")
+        if _cmp in ("gte", "lte") and cands:
+            _need = _cap_to_gb(term)
+            if _need:
+                _cc = [(r, c) for r in cands if (c := _part_capacity_gb(r))]
+                if _cmp == "gte":
+                    _ge = [(r, c) for r, c in _cc if c >= _need]
+                    cands = [min(_ge, key=lambda t: t[1])[0]] if _ge else []
+                else:
+                    _le = [(r, c) for r, c in _cc if c <= _need]
+                    cands = [max(_le, key=lambda t: t[1])[0]] if _le else []
         if cands:
             rep = _pick_rep(cands)
             pn = rep.get("model") or ""
@@ -1000,7 +1156,11 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                   mem_groups: Optional[list] = None,
                   drive_spec_substitute: bool = True,
                   platform_series: Optional[str] = None,
-                  default_mem_speed: Optional[int] = None) -> list[dict]:
+                  default_mem_speed: Optional[int] = None,
+                  default_mem_channels: Optional[int] = None,
+                  default_max_dimm: Optional[int] = None,
+                  cpu_mem_type_rules: Optional[list] = None,
+                  capacity_match: Optional[dict] = None) -> list[dict]:
     """对每个需求品类从 KP 库挑 1 个代表件。三级匹配：
        1) 型号 token 精确命中  2) 规格范围匹配（spec_rules）  3) 品类代表件。
 
@@ -1171,6 +1331,9 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 # GPU 由 gpu_groups 分组处理（多卡各出一件）；stage-1 不抢先，避免只出一件代表
                 if gpu_groups and ("gpu" in cat.lower() or "显卡" in cat):
                     continue
+                # RAID 由 raid_groups 分组处理（显式型号按组匹配）；stage-1 不抢先，避免同件双重计 qty
+                if raid_groups and ("raid" in cat.lower() or "阵列" in cat):
+                    continue
                 # multi_spec 品类（如网卡多速率）交给 stage2 按 spec_filter 各产出一件，stage1 不抢先
                 if cat and multi_spec_filters and cat in multi_spec_filters:
                     continue
@@ -1181,6 +1344,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                     "unit_price": r.get("price"),
                     "currency": r.get("currency") or "RMB",
                     "matched_token": kw,
+                    "specs": r.get("specs") or None,  # 功耗/TDP 等（数据驱动；无则 None 交兜底）
                 })
                 if cat:
                     matched_categories.add(cat)
@@ -1231,13 +1395,13 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             # 内存代际默认跟 CPU（R16/R17）：mem_groups 与 mem_signal 两条路径共用同源代际，
             # 避免 "4*32GB 内存"（无 DDR 字样）在 mem_groups 路径选到 DDR4
             if db_cat.lower() == "memory" and not (mem_signal or {}).get("type"):
-                _cpu_mt = _default_mem_type_for_cpu(out)
+                _cpu_mt = _default_mem_type_for_cpu(out, cpu_mem_type_rules)
                 if _cpu_mt:
                     mem_signal = {**(mem_signal or {}), "type": _cpu_mt}
             # ── 规格分组多件匹配（优先于"一品类一件"；GPU/内存/盘按组逐件出，同件累计数量）──
             if not _is_multi:
                 if gpu_groups and ("gpu" in db_cat.lower() or "显卡" in db_cat):
-                    if _pick_gpu_groups(gpu_groups, db_cat, kp_repo, _pick_rep, out):
+                    if _pick_gpu_groups(gpu_groups, db_cat, kp_repo, _pick_rep, out, capacity_match=capacity_match):
                         matched_categories.add(db_cat)
                         continue
                 if mem_groups and db_cat.lower() in ("memory", "内存"):
@@ -1247,7 +1411,8 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                         continue
                 if drive_groups and any(k in db_cat.lower() for k in ("hdd", "ssd", "硬盘", "存储", "盘")):
                     if _pick_drive_groups(drive_groups, db_cat, kp_repo, _pick_rep, out,
-                                          spec_substitute=drive_spec_substitute):
+                                          spec_substitute=drive_spec_substitute,
+                                          capacity_match=capacity_match):
                         matched_categories.add(db_cat)
                         continue
                 # RAID 显式型号分组（R28 2026-08-04）：需求逐行给阵列卡型号 → 按组精确匹配
@@ -1260,7 +1425,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             # Memory 容量反推（有 mem_signal 时优先：按代际/速率过滤 + 总量反推条数）
             if mem_signal and db_cat.lower() == "memory":
                 mfilters = []
-                _mem_type = mem_signal.get("type") or _default_mem_type_for_cpu(out)
+                _mem_type = mem_signal.get("type") or _default_mem_type_for_cpu(out, cpu_mem_type_rules)
                 if _mem_type:
                     mfilters.append({"spec_key": "Type", "op": "=", "value": _mem_type})
                 if mem_signal.get("speed"):
@@ -1278,7 +1443,14 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 except Exception:
                     mem_parts = []
                 if mem_parts:
-                    mem_row = _pick_memory_part(mem_parts, mem_signal, _pick_rep)
+                    # 目标条数/上限按机型能力驱动（mem_channels×CPU 路数、max_dimm）；
+                    # 基准配置未配时保持旧行为（目标 8 / 上限 32），拒绝硬编码平台通道数
+                    _cpu_qty = int((qty_map or {}).get("CPU") or 1)
+                    mem_row = _pick_memory_part(
+                        mem_parts, mem_signal, _pick_rep,
+                        target_sticks=(default_mem_channels or 12) * max(1, _cpu_qty) if default_mem_channels else None,
+                        max_sticks=default_max_dimm,
+                    )
                     if mem_row:
                         out.append(mem_row)
                         matched_categories.add(db_cat)
@@ -1438,6 +1610,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 "category": db_cat,
                 "unit_price": rep.get("price"),
                 "currency": rep.get("currency") or "RMB",
+                "specs": rep.get("specs") or None,  # 功耗/TDP 等（数据驱动；无则 None 交兜底）
             })
             matched_categories.add(db_cat)
     finally:
@@ -1459,6 +1632,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
 _PSU_FALLBACK = {
     "high_tdp_gpus": ["H100", "A100", "H200", "B200", "B100", "L40", "MI300",
                       "RTX PRO", "RTX 6000", "RTX 5090"],
+    # 2026-08 Phase1：GPU TDP 优先（配件库 specs.tdp 数据驱动）；没数据时回退 high_tdp_gpus 词表；
+    # 再没有 → 按 gpu_tdp_by_model 配置表（用户可维护，默认带常见卡兜底）。
+    "high_tdp_threshold_w": 250,
+    "gpu_tdp_by_model": {"R9700": 300, "W7900": 300, "L40": 300, "RTX 5090": 350},
     "tiers": [
         {"min_gpu": 8, "high_tdp": True, "wattage": "2700"},
         {"min_gpu": 1, "high_tdp": False, "wattage": "2000"},
@@ -1489,8 +1666,11 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
     # 高功耗 GPU 词表去空白归一（R8/I43 修）：词表 "RTX 5090"，件名 "RTX5090" 无空格
     # → 直接子串匹配 miss，8×RTX5090 掉到 2000W。归一后两端都去空白再比。
     _high_tdp_words = [re.sub(r"\s+", "", str(k)).upper() for k in (_psu_cfg.get("high_tdp_gpus") or []) if k]
+    _tdp_threshold = float(_psu_cfg.get("high_tdp_threshold_w") or 250)
+    _tdp_by_model = {re.sub(r"\s+", "", str(k)).upper(): float(v)
+                     for k, v in (_psu_cfg.get("gpu_tdp_by_model") or {}).items() if k and v}
     gpu_qty = 0
-    high_tdp = False
+    gpu_tdp_max = 0.0
     drive_kinds: set = set()
     has_drive = False
     for kp in kp_parts or []:
@@ -1500,9 +1680,26 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
         name_u = (kp.get("name") or "").upper()
         if "GPU" in cat_u or "显卡" in cat:
             gpu_qty += qty
+            # 数据驱动 TDP：配件库 specs.tdp 优先（如 "AMD AI Pro R9700 32G" tdp=300）
+            _gpu_tdp = None
+            _sp = kp.get("specs") or {}
+            if isinstance(_sp, dict):
+                _gpu_tdp = _sp.get("tdp") or _sp.get("TDP") or _sp.get("Power")
+            if _gpu_tdp is None:
+                # 配置表兜底（用户可维护 gpu_tdp_by_model）
+                for _mk, _tv in _tdp_by_model.items():
+                    if _mk in re.sub(r"\s+", "", name_u):
+                        _gpu_tdp = _tv
+                        break
+            if _gpu_tdp is not None:
+                try:
+                    gpu_tdp_max = max(gpu_tdp_max, float(_gpu_tdp))
+                except (TypeError, ValueError):
+                    pass
+            # 词表兜底（无 TDP 数据时）
             _name_compact = re.sub(r"\s+", "", name_u)  # I43：件名去空白（RTX5090 ↔ RTX 5090）
             if any(k in _name_compact for k in _high_tdp_words):
-                high_tdp = True
+                gpu_tdp_max = max(gpu_tdp_max, float(_tdp_threshold))
         blob = f"{cat} {kp.get('name') or ''} {kp.get('matched_spec') or ''}".upper()
         if (any(k in cat_u for k in ("硬盘", "DRIVE", "SSD", "HDD", "DISK", "盘"))
                 or any(k in blob for k in ("NVME", "SATA", "SAS"))):
@@ -1515,7 +1712,8 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
                 drive_kinds.add("SATA")
     if has_drive and not drive_kinds:
         drive_kinds.add("SATA")  # 协议不明默认 SATA（2U 最常见）
-    return gpu_qty, drive_kinds, high_tdp
+    high_tdp = gpu_tdp_max >= _tdp_threshold
+    return gpu_qty, drive_kinds, high_tdp, gpu_tdp_max
 
 
 # 无 GPU 整机负载粗估（CPU TDP + 常项）→ 取 ≥负载的最小标准 PSU 瓦数（1+1 冗余）
@@ -1544,9 +1742,19 @@ def _estimate_system_load(kp_parts: list[dict]) -> int:
         cu = cat.upper()
         nu = name.upper()
         if "CPU" in cu:
-            m = re.search(r"(\d{4})", name)
-            tdp = _CPU_TDP_MAP.get(m.group(1).lower(), _DEFAULT_CPU_TDP) if m else _DEFAULT_CPU_TDP
-            load += tdp * qty
+            # CPU TDP 数据驱动：配件库 specs.tdp 优先（可在配件库改，覆盖新 SKU 不再改代码），
+            # 型号表/默认值仅作兜底（9005 等未收录型号不低估负载）
+            _tdp = None
+            try:
+                _tdp = float((kp.get("specs") or {}).get("tdp") or 0) or None
+            except (TypeError, ValueError):
+                _tdp = None
+            if _tdp:
+                load += _tdp * qty
+            else:
+                m = re.search(r"(\d{4})", name)
+                tdp = _CPU_TDP_MAP.get(m.group(1).lower(), _DEFAULT_CPU_TDP) if m else _DEFAULT_CPU_TDP
+                load += tdp * qty
         elif "MEM" in cu or "内存" in cat:
             # 内存功耗按单条容量分级（I15/I61 R24）：64G 条 ≈15W，32G ≈10W——原统一 10W 低估高配内存
             _m = re.search(r"(\d{1,3})\s*G\s*B?\b", name, re.I)
@@ -1663,19 +1871,45 @@ def _sync_plan_backplane(plan: dict, base_parts: list) -> None:
         summary["total_cost"] = round(float(summary.get("total_cost") or 0) + delta, 2)
 
 
-def _infer_psu_wattage(gpu_qty: int, high_tdp: bool = False, kp_parts: Optional[list] = None) -> str:
+def _clamp_psu_wattage(w: str, allowed_wattages=None) -> str:
+    """把推断瓦数收敛到机型允许档位（基准配置 psu_wattages，如 ES22V3-P=[1300,1600,2000]）。
+    未配置/非法档位列表 → 原样返回（沿用全局档位）；推断值不在档内 →
+    取 ≥推断值的最小档，无更高档则取最大档（机型物理上限，宁高勿低）。"""
+    try:
+        w_int = int(float(w))
+    except (TypeError, ValueError):
+        return w
+    if not allowed_wattages:
+        return w
+    try:
+        allowed = sorted({int(float(x)) for x in allowed_wattages if x not in (None, "")})
+    except (TypeError, ValueError):
+        return w
+    if not allowed:
+        return w
+    if w_int in allowed:
+        return str(w_int)
+    for a in allowed:
+        if a >= w_int:
+            return str(a)
+    return str(allowed[-1])
+
+
+def _infer_psu_wattage(gpu_qty: int, high_tdp: bool = False, kp_parts: Optional[list] = None,
+                       allowed_wattages=None) -> str:
     """电源瓦数推断（配置驱动：system_config.psu_inference 的 tiers 档位，逐条匹配取首个；
     无 GPU 按 KP 件功耗估算（CPU TDP + 常项）取 ≥负载的最小标准瓦数，替代无脑 1600W 默认）。
+    allowed_wattages=机型允许档位（基准配置 psu_wattages）→ 结果收敛到机型物理支持范围。
     喂前端模板电源行 chassis_signals.psu_wattage；需求文本若显式写了功率，由调用方覆盖。"""
     _cfg = _load_psu_inference()
     for t in _cfg.get("tiers") or []:
         if gpu_qty >= int(t.get("min_gpu") or 0) and bool(t.get("high_tdp")) == high_tdp:
             w = t.get("wattage")
             if w is not None:
-                return str(w)
+                return _clamp_psu_wattage(str(w), allowed_wattages)
     if not gpu_qty:
-        return _suggest_psu_wattage(_estimate_system_load(kp_parts))
-    return str(_cfg.get("no_gpu_wattage") or "1600")
+        return _clamp_psu_wattage(_suggest_psu_wattage(_estimate_system_load(kp_parts)), allowed_wattages)
+    return _clamp_psu_wattage(str(_cfg.get("no_gpu_wattage") or "1600"), allowed_wattages)
 
 
 def build_plan(baseline: dict, kp_parts: list[dict]) -> dict:
@@ -1702,8 +1936,12 @@ def build_plan(baseline: dict, kp_parts: list[dict]) -> dict:
     # 电源瓦数推断（纯性能推算：CPU TDP + 内存按容量计功耗 + 常项 → ≥负载最小标准档）。
     # I15/I61 2026-08-04 R24：不再用静态"机型标准"字段——改进负载模型（内存按容量计功耗），
     # 让 64G×24 这类高内存配置自然推断出 1600W（原 10W/条 低估 → 1300W）。
-    _gpu_qty, _, _high_tdp = _kp_signals(matched_kp)
-    chassis_signals = {"psu_wattage": _infer_psu_wattage(_gpu_qty, _high_tdp, matched_kp)}
+    _gpu_qty, _, _high_tdp, _gpu_tdp = _kp_signals(matched_kp)
+    # PSU 档位按机型物理支持收敛（基准配置 psu_wattages；未配 → 全局档位）
+    chassis_signals = {"psu_wattage": _infer_psu_wattage(
+        _gpu_qty, _high_tdp, matched_kp,
+        allowed_wattages=baseline.get("psu_wattages"),
+    )}
 
     kp_rows = [{
         "category": "Key Parts",

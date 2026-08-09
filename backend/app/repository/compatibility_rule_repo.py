@@ -65,6 +65,18 @@ DEFAULT_RULES: list[dict] = [
               "then": {"action": "exclude", "target": "kp.GPU", "unique_field": "pn",
                        "desc": "多卡 GPU 须同型号（驱动/NVLink 兼容）"},
               "desc": "GPU 出现 ≥2 种 PN → 冲突（多卡混型号影响 NVLink/驱动）"}},
+    # ⑨⑩ 机箱能力校验（基准配置页可配 max_cpu/max_dimm；未配置 → config.* 解析为空不触发）：
+    #    需求超机型物理上限时出告警，提示换平台或手调——不静默产出超能力 BOM。
+    {"type": "recommend", "category": "机箱能力校验", "status": "active", "name": "CPU 颗数不超过机型上限",
+     "body": {"when": {"field": "kp.CPU.qty", "op": ">", "value": "config.max_cpu"},
+              "then": {"action": "recommend", "target": "CPU", "severity": "warning",
+                       "desc": "CPU 颗数超过机型上限（基准配置 max_cpu，双路默认 2）——需换多路平台或手调"},
+              "desc": "CPU 颗数 > 机型上限 → 告警（物理边界，不静默产出超能力 BOM）"}},
+    {"type": "recommend", "category": "机箱能力校验", "status": "active", "name": "内存条数不超过机型上限",
+     "body": {"when": {"field": "kp.Memory.qty", "op": ">", "value": "config.max_dimm"},
+              "then": {"action": "recommend", "target": "Memory", "severity": "warning",
+                       "desc": "内存条数超过机型上限（基准配置 max_dimm，EPYC 双路默认 24）——需换平台或减配"},
+              "desc": "内存条数 > 机型上限 → 告警（如 24 DIMM 上限，超配不点亮/不开机）"}},
     # ⚠️ 已知表达力缺口（本期不做，避免产出死规则）：
     #   - SAS/SATA 盘 → HBA 或 RAID 卡：require 需跨品类「或」语义，单条 require 表达不了；
     #   - PSU↔GPU 功率匹配：电源(PSU)是机箱件(parts_master)，不在 ctx.kp，CRE 无法寻址；

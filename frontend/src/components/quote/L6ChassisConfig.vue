@@ -18,9 +18,11 @@ import {
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
-import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
-import { backplaneTypeOf, driveKindOf, slotCapOf } from '@/utils/partFit'
+import { cableDescFrom } from '@/utils/bomL6Derive'
+import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
+import { backplaneTypeOf, driveKindOf } from '@/utils/partFit'
 import PartPicker from '@/components/common/PartPicker.vue'
+import RearPanel from '@/components/server-config/RearPanel.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 
@@ -55,7 +57,7 @@ const emit = defineEmits<{
 const {
   kpLines, gpuArch, rear, overrides, baseBpType, derivedBpType, derivedCableQty, basePsuBays,
   frontCableQty, psuQty, bpType, isManual, setOverride,
-  optionQty, slotFilled, incOption, decOption, uniqueRealOptions, setRearSingle,
+  optionQty, uniqueRealOptions,
 } = useServerConfig()
 
 const selectionRulesStore = useSelectionRulesStore()
@@ -118,9 +120,42 @@ const rearSlotDefs = computed<RearSlot[]>(() => {
   return rs && rs.length ? rs : DEFAULT_REAR_SLOTS
 })
 const rearSlots = computed(() => rearSlotDefs.value.map(s => s.name))
-const ioSlots = computed(() => rearSlots.value.filter((s: string) => s !== 'OCP'))
+const ioSlots = computed(() => rearSlots.value.filter((s: string) => s !== 'OCP'))   // buildPlanCfg 明细用（槽名）
 const hasOcp = computed(() => rearSlots.value.includes('OCP'))
-const slotCap = (name: string) => slotCapOf(rearSlotDefs.value, name)
+
+// RearPanel 视图：rear_slot 定义 + reactive rear 数组（defaults 即 rear[name]，RearPanel 就地改 → 回流 rear）
+const rearSlotsView = computed<RearSlot[]>(() =>
+  rearSlotDefs.value.filter(s => s.name !== 'OCP').map(s => ({ name: s.name, cap: s.cap, defaults: rear[s.name] }))
+)
+const ocpSlotView = computed<RearSlot | null>(() => {
+  const o = rearSlotDefs.value.find(s => s.name === 'OCP')
+  return o ? { name: 'OCP', cap: o.cap, defaults: rear['OCP'] } : null
+})
+// 配置页展示的后面板选项 = 按基准配置选中的料号(PN)过滤：只留基准选中的类型卡、卡内只留选中的料号。
+// 旧基准无 defaults → 返回全目录（自由选，向后兼容）。这让「显示哪个料」受基准配置管理，不再系统按属性自动列。
+const rearOptionsLocked = computed<Record<string, RearIOSlotOption[]>>(() => {
+  const defs = baseConfig.value?.rear_slots || []
+  if (!defs.some(s => ((s as any).defaults || []).length)) return rearOptions.value
+  const out: Record<string, RearIOSlotOption[]> = {}
+  for (const [slot, opts] of Object.entries(rearOptions.value)) {
+    const slotDef = defs.find(s => s.name === slot)
+    const pns = new Set<string>(((slotDef as any)?.defaults || []) as string[])
+    if (!pns.size) { out[slot] = opts; continue }   // 该槽基准未选料 → 自由
+    out[slot] = (opts || [])
+      .filter(o => (o.items || []).some(it => pns.has(it.pn)))                       // 只留基准选中的类型卡
+      .map(o => {
+        const items = (o.items || []).filter(it => pns.has(it.pn))                    // 卡内只留选中的料号
+        return { ...o, items, total_price: items.reduce((s, it) => s + (it.unit_price || 0), 0) }
+      })
+  }
+  return out
+})
+// 保证 reactive rear 覆盖所有基准槽位名（RearPanel 就地改 defaults=rear[name]，键需存在才回流）
+watchEffect(() => {
+  for (const s of rearSlotDefs.value) {
+    if (!rear[s.name]) rear[s.name] = []
+  }
+})
 
 // ---- reference 数据加载（带缓存）----
 async function loadAllBaseConfigs() {
@@ -144,16 +179,15 @@ async function loadReference(series: string | undefined) {
     return
   }
   const [fcRes, gpuCableRes, rearRes, psuPartsRes, bpRes] = await Promise.all([
-    // 料号库按「专业分类表」重分类后：高速存储信号线横跨三段，前面板件即原「前面板线缆」；
-    // 电源分配线缆同样横跨基准/后面板，这里按段+GPU 语义筛选（见下方 gpuCables 过滤）
-    partsApi.list({ category: '高速存储信号线', section: '前面板件' }),
-    partsApi.list({ category: '电源分配线缆', section: '后面板件' }),
+    // 高速存储信号线·前面板 = 前面板线缆；电源分配线缆·后面板 = GPU 供电线来源（见下方 gpuCables 过滤）
+    partsApi.list({ category: '高速存储信号线', major_category: '前面板' }),
+    partsApi.list({ category: '电源分配线缆', major_category: '后面板' }),
     // rear-IO 选项按系列分桶（chassisMeta.rearIOBucket：SERIES_REAR_IO_BUCKET 可配，未配置走默认桶）
     rearIOApi.getOptions(rearIOBucket(series)),
     partsApi.list({ category: '电源模块' }),
     partsApi.list({ category: '前置硬盘背板' }),
   ])
-  // 电源分配线缆(后面板件) 含 GPU 供电线 + 后背板电源线，仅保留 GPU 供电线（PN/name 含 GPU）
+  // 电源分配线缆·后面板 含 GPU 供电线 + 后背板电源线，仅保留 GPU 供电线（PN/name 含 GPU）
   const gpuCables = gpuCableRes.parts.filter((p: any) => /gpu/i.test(p.pn) || /gpu/i.test(p.name || ''))
   frontCables.value = fcRes.parts
   gpuCableParts.value = gpuCables
@@ -167,12 +201,35 @@ async function loadReference(series: string | undefined) {
   })
 }
 
-async function loadBaseConfig(id: number) {
+/** 基准 defaults 是 PN 料号列表；按目录把它算成去重 option_type（配置页按类型卡调数量，多料捆绑=一个类型） */
+function pnsToTypes(slot: string, pns: string[] | undefined): string[] {
+  const opts = rearOptions.value[slot] || []
+  const types: string[] = []
+  for (const pn of (pns || [])) {
+    const o = opts.find(opt => (opt.items || []).some(it => it.pn === pn))
+    if (o && o.option_type !== 'blank' && !types.includes(o.option_type)) types.push(o.option_type)
+  }
+  return types
+}
+
+/** 用基准配置 rear_slots[].defaults（PN 列表）播种 rear（料自动填好，按类型卡填数量=1）。
+ *  force=true 覆盖现有（切基准机箱时刷新默认）；false 只填空槽（保留 hydrate 回填的报价单 rear）。 */
+function seedRearFromDefaults(force: boolean) {
+  const defs = baseConfig.value?.rear_slots || []
+  for (const s of defs) {
+    const types = pnsToTypes(s.name, (s as any).defaults)
+    if (force || !rear[s.name] || rear[s.name].length === 0) rear[s.name] = types
+  }
+}
+
+async function loadBaseConfig(id: number, reseed: boolean = false) {
   try {
     baseConfig.value = await baseConfigApi.get(id)
     // 电源槽位数走 base_config 能力档案（psu_bays），缺省 chassisMeta.DEFAULT_PSU_BAYS
     basePsuBays.value = baseConfig.value?.psu_bays ?? DEFAULT_PSU_BAYS
     // baseBpType 由下方 watchEffect 跟踪 baseBackplaneType（须在 baseBackplaneType 声明之后注册）
+    // 用基准 defaults 播种后面板（料自动填好）：reseed=false 保留 hydrate 回填，true 切机箱时刷新
+    seedRearFromDefaults(reseed)
     // 加载该机型族的左栏 BOM 行骨架模板
     try {
       bomTemplate.value = await bomTemplateApi.getForBaseConfig(id)
@@ -232,7 +289,14 @@ const effectiveBaseParts = computed(() => {
 function frontCableParts(k: string) {
   return frontCables.value.filter(p => driveKindOf(p) === k)
 }
+/** 基准配置为该盘类选的默认线缆（机箱定义，配置页锁死不能换；空=未配，取料号库首件兜底） */
+function baseFrontCable(k: string): string {
+  return (baseConfig.value as any)?.config_content?.front_cables?.[k] || ''
+}
 function frontCablePickedPn(k: string) {
+  // 锁死：基准选了线缆就用基准的（机箱定义，配置页不能换料，只跟盘数调数量）；未配 → 手改(旧报价单) → 料号库首件
+  const base = baseFrontCable(k)
+  if (base) return base
   return overrides['fc-' + k + '-pn'] || frontCableParts(k)[0]?.pn || ''
 }
 function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'; price: number; name: string } {
@@ -247,19 +311,20 @@ function frontCableInfo(k: string): { pn: string; n: number; group: number | '-'
 }
 
 // ---- 后面板 ----
-function realOptions(slot: string) {
-  return (rearOptions.value[slot] || []).filter(o => o.option_type !== 'blank')
-}
-function canInc(slot: string) { return slotFilled(slot) < slotCap(slot) }
 function slotPrice(slot: string): number {
-  const opts = rearOptions.value[slot] || []
+  const opts = rearOptionsLocked.value[slot] || []
   return (rear[slot] || []).reduce((s, t) => s + (t === 'blank' ? 0 : (opts.find(o => o.option_type === t)?.total_price || 0)), 0)
 }
 
 // ---- PSU / GPU 线（料号库手选，推导仅兜底）----
+/** 有效 PSU 料号：手改 overrides 优先 → 基准配置默认(default_psu_pn) → 空（软默认，配置页可改） */
+function effectivePsuPn(): string {
+  return overrides.psuPn || (baseConfig.value as any)?.config_content?.default_psu_pn || ''
+}
 function psuPicked(): PartMaster | null {
-  if (!overrides.psuPn) return null
-  return psuParts.value.find(p => p.pn === overrides.psuPn) || null
+  const pn = effectivePsuPn()
+  if (!pn) return null
+  return psuParts.value.find(p => p.pn === pn) || null
 }
 function psuName(): string { return psuPicked()?.name || '' }
 function psuUnitPrice(): number {
@@ -372,6 +437,13 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
       // 背板描述 + 前面板线缆总根数（模板 Cable/背板行用；与 buildPlanCfg 同口径）
       bp_type_desc: bpType() === 'tri' ? 'NVMe/SATA/SAS' : 'SATA/SAS',
       cable_qty: CORE_DRIVE_KINDS.reduce((s, k) => s + frontCableQty(k), 0),
+      // Cable 行主描述（盘数驱动，desc 只显示描述）：live 路径缺 RAID 型号 → 通用 "12SAS Cable" 可读文案，
+      // 避免回退 front_cables 把裸 pn 拼进描述
+      cable_desc: cableDescFrom({
+        sata: props.kpSummary?.drivesByKind?.SATA || 0,
+        sas: props.kpSummary?.drivesByKind?.SAS || 0,
+        nvme: props.kpSummary?.drivesByKind?.NVMe || 0,
+      }, ''),
     },
     parts: effectiveBaseParts.value,
     rear,
@@ -404,7 +476,7 @@ defineExpose({ hydrateFromPicks })
 // ---- 选基准配置（D2 下拉）----
 async function selectBaseConfig(id: number | null) {
   if (id == null) { baseConfig.value = null; emit('update:baseConfigId', null); return }
-  await loadBaseConfig(id)
+  await loadBaseConfig(id, true)
   emit('update:baseConfigId', id)
 }
 
@@ -431,7 +503,7 @@ watch(() => props.kpSummary, (s) => applyKpSummary(s), { deep: true })
 watch(() => props.baseConfigId, async (newId, oldId) => {
   if (newId && newId !== oldId && newId !== baseConfig.value?.id) {
     await loadAllBaseConfigs()
-    await loadBaseConfig(newId)
+    await loadBaseConfig(newId, true)
     await loadReference(baseConfig.value?.series)
     scheduleEmit()
   }
@@ -531,15 +603,10 @@ onBeforeUnmount(() => {
               <span class="front-card-name">{{ k }} 线缆</span>
               <span v-if="isManual('fc-' + k)" class="sc-badge man">已手动</span>
             </div>
-            <div class="front-card-info">
-              当前 {{ frontCableInfo(k).n }} 块 · 每组 {{ frontCableInfo(k).group }} · ¥{{ frontCableInfo(k).price }}/根
-              <span class="front-card-pn" v-if="frontCableInfo(k).name">{{ frontCableInfo(k).name }}</span>
-            </div>
-            <PartPicker v-if="frontCableParts(k).length" :items="frontCableParts(k).map(fromPartMaster)" :model-value="frontCablePickedPn(k)" size="small" placeholder="(选择线缆)" class="front-card-pick" @update:model-value="(pn:any)=>setOverride('fc-'+k+'-pn', typeof pn==='string'?pn:'')" />
-            <div v-else class="front-card-empty">料号库暂无 {{ k }} 线缆</div>
-            <div class="front-card-step">
+            <div v-if="!frontCableParts(k).length" class="front-card-empty">料号库暂无 {{ k }} 线缆</div>
+            <div v-else class="front-card-bot">
+              <span class="front-price">¥{{ frontCableInfo(k).price }}</span>
               <div class="sc-step"><button @click="setOverride('fc-' + k, Math.max(0, frontCableQty(k) - 1))">−</button><input :value="frontCableQty(k)" @change="(e:any)=>setOverride('fc-' + k, parseInt(e.target.value)||0)" /><button @click="setOverride('fc-' + k, frontCableQty(k) + 1)">+</button></div>
-              <span class="u">根</span>
             </div>
           </div>
         </div>
@@ -551,55 +618,13 @@ onBeforeUnmount(() => {
     <div id="l6-panel-rear" class="sc-panel" v-show="!stepper || activeStep === 'rear'">
       <div class="sc-phead"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe IO 槽位 + OCP 网络接口 + GPU 供电线</span><span class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
       <div class="sc-pbody">
-        <div class="sc-section-head"><span class="sh-tag">PCIe IO 槽位</span><span class="sh-amt">¥{{ rearTotal.toLocaleString() }}</span></div>
-        <div class="rear-grid" :style="{ gridTemplateColumns: `repeat(${ioSlots.length}, minmax(0,1fr))` }">
-          <div class="slot-col" v-for="slot in ioSlots" :key="slot">
-            <div class="slot-col-head">
-              <span class="slot-name">{{ slot }}</span>
-              <span class="slot-cap-mini" v-if="slotCap(slot) > 1">{{ slotFilled(slot) }}/{{ slotCap(slot) }}</span>
-              <span class="slot-cap-mini" v-else>单卡</span>
-            </div>
-            <div class="opt-block" v-for="opt in realOptions(slot)" :key="opt.option_type" :class="{ active: optionQty(slot, opt.option_type) > 0 }">
-              <div class="opt-top"><span class="opt-dot"></span><span class="opt-name">{{ optionLabel(opt.option_type) }}</span></div>
-              <div class="opt-bundle" v-if="opt.items?.length">
-                <span v-if="opt.items.length === 1" class="opt-bundle-pn">{{ opt.items[0].name || opt.items[0].pn }}</span>
-                <a-tooltip v-else overlay-class-name="bundle-tip">
-                  <template #title>
-                    <div class="bundle-tip-title">{{ optionLabel(opt.option_type) }} · {{ opt.items.length }} 件捆绑（每件单价）</div>
-                    <div v-for="it in opt.items" :key="it.pn" class="bundle-tip-row">
-                      <span class="bt-name">{{ it.name || it.pn }}</span>
-                      <span class="bt-price">¥{{ it.unit_price }}</span>
-                    </div>
-                    <div class="bundle-tip-sum">合计 ¥{{ opt.total_price.toLocaleString() }} / 件</div>
-                  </template>
-                  <span class="opt-bundle-multi">⭐ {{ opt.items.length }} 件捆绑</span>
-                </a-tooltip>
-              </div>
-              <div class="opt-bot">
-                <span class="opt-price">¥{{ opt.total_price.toLocaleString() }}<span class="opt-price-unit" v-if="opt.items?.length > 1">/件</span></span>
-                <div class="opt-stepper">
-                  <button :disabled="optionQty(slot, opt.option_type) <= 0" @click="decOption(slot, opt.option_type)">−</button>
-                  <span class="opt-qty">{{ optionQty(slot, opt.option_type) }}</span>
-                  <button :disabled="!canInc(slot)" @click="incOption(slot, opt.option_type, slotCap(slot))">＋</button>
-                </div>
-              </div>
-            </div>
-            <div class="slot-blank" v-if="realOptions(slot).length === 0"><span class="blank-tag">挡片</span></div>
-            <div class="slot-blank" v-else-if="slotFilled(slot) === 0"><span class="blank-tag">挡片</span></div>
-          </div>
-        </div>
-
-        <div class="sc-section-head sc-section-head-gap" v-if="hasOcp"><span class="sh-tag">网络 · OCP 网卡</span><span class="sh-note">OCP 走独立接口，不占 PCIe 槽位</span><span class="sh-amt">¥{{ ocpTotal.toLocaleString() }}</span></div>
-        <div class="net-options" v-if="hasOcp">
-          <button v-for="opt in realOptions('OCP')" :key="opt.option_type" :class="['net-card', { active: optionQty('OCP', opt.option_type) > 0 }]" @click="setRearSingle('OCP', opt.option_type)">
-            <span class="net-name">{{ optionLabel(opt.option_type) }}</span>
-            <span class="net-pn" v-if="opt.items?.length === 1">{{ opt.items[0].name || opt.items[0].pn }}</span>
-            <span class="net-price">¥{{ opt.total_price.toLocaleString() }}</span>
-          </button>
-          <button :class="['net-card', 'blank', { active: slotFilled('OCP') === 0 }]" @click="setRearSingle('OCP', null)">
-            <span class="net-name">不装（挡片）</span><span class="net-price">¥0</span>
-          </button>
-        </div>
+        <RearPanel
+          :slots="rearSlotsView"
+          :ocp-slot="ocpSlotView"
+          :options="rearOptionsLocked"
+          :combo-slots="COMBO_REAR_SLOTS"
+          :totals="{ io: rearTotal, ocp: ocpTotal }"
+        />
 
         <template v-if="showGpuCable !== false">
         <div class="sc-section-head sc-section-head-gap"><span class="sh-tag">GPU 供电线</span><span class="sh-amt">¥{{ gpuCableCost.toLocaleString() }}</span></div>
@@ -625,7 +650,7 @@ onBeforeUnmount(() => {
       <div class="sc-pbody">
         <div class="psu-row" v-if="psuParts.length">
           <label class="psu-lab">PSU 型号</label>
-          <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="overrides.psuPn || ''" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
+          <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="effectivePsuPn()" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
           <span class="psu-unit-price">单价 ¥{{ psuUnitPrice().toLocaleString() }}</span>
           <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', parseInt(e.target.value)||0)" /><button @click="setOverride('psuQty', psuQty() + 1)">+</button></div>
           <span class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
@@ -659,7 +684,7 @@ onBeforeUnmount(() => {
 .l6-step.active .l6-step-label { color: var(--cpq-accent-primary,#1677FF); font-weight: 600; }
 .l6-panels { display: flex; flex-direction: column; gap: 14px; flex: 1; min-width: 0; }
 .sc-panel {
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-a15); border-radius: 18px; overflow: hidden;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
@@ -706,51 +731,15 @@ onBeforeUnmount(() => {
 .front-card-head { display: flex; align-items: center; gap: 7px; padding-bottom: 8px; border-bottom: 1px solid var(--cpq-overlay-w8); }
 .front-card-name { font-size: 14px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
 .front-card.active .opt-dot { background: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 8px var(--cpq-overlay-a40); }
-.front-card-info { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
-.front-card-pn { display: block; color: var(--cpq-text-secondary,#9BA1AA); margin-top: 2px; }
-.front-card-pick { width: 100%; }
-.front-card-pick :deep(.ant-select) { width: 100% !important; }
 .front-card-empty { font-size: 12px; color: var(--cpq-text-muted,#6E7582); padding: 9px 10px; background: var(--cpq-overlay-w3); border: 1px dashed var(--cpq-overlay-w10); border-radius: 8px; text-align: center; }
-.front-card-step { display: flex; align-items: center; gap: 7px; margin-top: auto; }
-.front-card-step .sc-step { flex: 1; }
-.rear-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
-.slot-col { display: flex; flex-direction: column; padding: 12px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; min-width: 0; }
-.slot-col-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--cpq-overlay-w8); }
-.slot-col-head .slot-name { font-weight: 700; font-size: 14px; color: var(--cpq-text-primary,#E8ECEF); }
-.slot-cap-mini { font-size: 11px; color: var(--cpq-text-muted,#6E7582); margin-left: auto; }
-.opt-block { padding: 8px; border: 1px solid var(--cpq-overlay-w8); border-radius: 8px; margin-bottom: 8px; background: var(--cpq-overlay-w4); transition: all .2s; }
-.opt-block.active { border-color: var(--cpq-overlay-a40); background: var(--cpq-overlay-a8); box-shadow: 0 0 12px var(--cpq-overlay-a8); }
-.opt-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.opt-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid var(--cpq-text-muted,#6E7582); flex-shrink: 0; transition: all .2s; }
-.opt-block.active .opt-dot { background: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 8px var(--cpq-overlay-a40); }
-.opt-name { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary,#9BA1AA); }
-.opt-block.active .opt-name { color: var(--cpq-text-primary,#E8ECEF); }
-.opt-bot { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.opt-price { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
-.opt-price-unit { font-size: 10px; opacity: .7; margin-left: 1px; }
-.opt-bundle { margin-bottom: 6px; min-height: 14px; }
-.opt-bundle-pn { font-size: 10px; font-family: monospace; color: var(--cpq-text-muted,#6E7582); }
-.opt-bundle-multi { font-size: 10px; color: var(--cpq-accent-primary,#1677FF); cursor: help; }
-.net-pn { font-size: 10px; font-family: monospace; color: var(--cpq-text-muted,#6E7582); }
-.opt-stepper { display: flex; align-items: center; background: var(--cpq-overlay-b30); border: 1px solid var(--cpq-overlay-w10); border-radius: 6px; overflow: hidden; }
-.opt-stepper button { width: 22px; height: 22px; border: none; background: transparent; color: var(--cpq-text-secondary,#9BA1AA); font-size: 13px; cursor: pointer; transition: all .15s; padding: 0; }
-.opt-stepper button:hover:not(:disabled) { color: var(--cpq-accent-primary,#1677FF); background: var(--cpq-overlay-a8); }
-.opt-stepper button:disabled { opacity: .3; cursor: not-allowed; }
-.opt-qty { min-width: 20px; text-align: center; font-size: 12px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); }
-.slot-blank { padding: 10px 8px; text-align: center; }
-.blank-tag { display: inline-block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); background: var(--cpq-overlay-w4); border: 1px dashed var(--cpq-overlay-w10); border-radius: 6px; padding: 3px 12px; }
+.front-card-bot { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: auto; }
+.front-price { font-size: 13px; font-weight: 600; color: var(--cpq-text-muted,#6E7582); }
+.front-card.active .front-price { color: var(--cpq-accent-primary,#1677FF); }
 .sc-section-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
 .sc-section-head.sh-gap { margin-top: 18px; }
 .sc-section-head .sh-tag { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); }
 .sc-section-head .sh-note { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
 .sc-section-head .sh-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); }
-.net-options { display: flex; flex-wrap: wrap; gap: 12px; }
-.net-card { flex: 1; min-width: 150px; padding: 14px 16px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; color: var(--cpq-text-secondary,#9BA1AA); cursor: pointer; transition: all .25s; text-align: left; display: flex; flex-direction: column; gap: 6px; font-family: inherit; }
-.net-card:hover { border-color: var(--cpq-overlay-w20); color: var(--cpq-text-primary,#E8ECEF); transform: translateY(-1px); }
-.net-card.active { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 16px var(--cpq-overlay-a20); }
-.net-card.blank { flex: 0 0 auto; min-width: 150px; border-style: dashed; }
-.net-name { font-size: 14px; font-weight: 600; }
-.net-price { font-size: 12px; opacity: .75; }
 .psu-row { display: grid; grid-template-columns: 70px minmax(150px,1fr) 110px 110px 90px; gap: 9px; align-items: center; padding: 11px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 9px; }
 .psu-lab { font-size: 13px; font-weight: 500; color: var(--cpq-text-primary,#E8ECEF); }
 .psu-sel { width: 100%; }
@@ -761,15 +750,4 @@ onBeforeUnmount(() => {
 .l6-total-bar { position: relative; display: flex; align-items: baseline; gap: 14px; padding: 12px 18px; border: 1px solid var(--cpq-glass-border-strong); border-radius: var(--cpq-radius-lg); background: var(--cpq-overlay-a8); backdrop-filter: blur(var(--cpq-glass-blur-1)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1)); }
 .l6-total-bar b { color: var(--cpq-accent-primary,#1677FF); font-size: 18px; }
 .l6-total-hint { font-size: 11px; color: var(--cpq-text-muted,#6E7582); margin-left: auto; }
-</style>
-
-<!-- a-tooltip 渲染到 portal（scoped 之外），用全局样式 -->
-<style>
-.bundle-tip { max-width: 340px; }
-.bundle-tip .ant-tooltip-inner { padding: 10px 12px; }
-.bundle-tip-title { font-weight: 600; margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--cpq-overlay-w10); font-size: 12px; }
-.bundle-tip-row { display: flex; gap: 8px; align-items: baseline; font-size: 12px; line-height: 1.7; }
-.bundle-tip-row .bt-name { flex: 1; color: var(--cpq-text-secondary, rgba(255,255,255,.72)); }
-.bundle-tip-row .bt-price { margin-left: auto; }
-.bundle-tip-sum { margin-top: 5px; padding-top: 4px; border-top: 1px solid var(--cpq-overlay-w10); font-weight: 600; font-size: 12px; }
 </style>

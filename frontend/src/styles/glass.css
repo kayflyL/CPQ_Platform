@@ -1,38 +1,39 @@
 /* ========================================
    CPQ Platform - 三级玻璃（Soft Glassmorphism）
-   弱磨砂 blur + 1px 白边高光 + 白色内发光 + 极淡冷蓝投影
+   白玻璃配方（对齐策略中心模块卡）：
+   斜向高光渐变（白 6% → 白 3% → 黑 20%）+ 磨砂 blur + 1px 白边高光 + 内顶部高光 + 柔和外投影
    常态白边（玻璃边缘高光），hover/激活切蓝边 + 蓝微光
    暗色：半透明透出深空背景；浅色：通透白玻璃透出浅天蓝渐变
    ======================================== */
 
 /* 普通卡片 — 主力面板 */
 .glass {
-  background: var(--cpq-glass-1-bg) !important;
-  backdrop-filter: blur(var(--cpq-glass-blur-1));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1));
+  background: var(--cpq-glass-card-bg) !important;
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   border: 1px solid var(--cpq-glass-border) !important;
   border-radius: var(--cpq-radius-xl);
-  box-shadow: var(--cpq-shadow-md), inset 0 1px 0 var(--cpq-glass-highlight);
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), box-shadow var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .glass:hover {
   border-color: var(--cpq-glass-border-strong) !important;
-  box-shadow: var(--cpq-shadow-md), 0 0 16px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-glass-highlight);
+  box-shadow: var(--cpq-glass-card-shadow-glow);
 }
 
 /* 次级面板 / 内嵌容器 */
 .glass-light {
-  background: var(--cpq-glass-2-bg) !important;
-  backdrop-filter: blur(var(--cpq-glass-blur-2));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-2));
+  background: var(--cpq-glass-card-bg) !important;
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   border: 1px solid var(--cpq-glass-border) !important;
   border-radius: var(--cpq-radius-lg);
-  box-shadow: var(--cpq-shadow-sm), inset 0 1px 0 var(--cpq-glass-highlight);
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), box-shadow var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .glass-light:hover {
   border-color: var(--cpq-glass-border-strong) !important;
-  box-shadow: var(--cpq-shadow-sm), 0 0 14px var(--cpq-overlay-a10), inset 0 1px 0 var(--cpq-glass-highlight);
+  box-shadow: var(--cpq-glass-card-shadow-glow);
 }
 
 /* 顶栏 / 弹窗 / 覆盖层 — 较不透明优先可读性（结构层，不加 hover 蓝光） */

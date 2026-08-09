@@ -92,7 +92,7 @@ def test_build_audit_messages_contains_requirement_refs_plans():
     assert "同平台参考案例" in user and "BC-1" in user
     assert "[0]" in user and "Orion 2U AI" in user
     assert "price" not in user.lower() and "cost" not in user.lower()   # 不暴露价格
-    assert "禁止逐行 diff" in msgs[0]["content"] or "逐行 diff" in msgs[0]["content"]
+    assert "独立裁判" in msgs[0]["content"] and "规则引擎硬校验" in user
 
 
 # ============================================================
@@ -179,3 +179,14 @@ def test_review_merges_llm_audit_issues():
     assert plan["audit"]["status"] == "review"      # 规则通过但 LLM 存疑 → review
     assert "GPU 可能不足" in plan["audit"]["issues"]
     assert payload["blocked"] == 0
+
+
+
+def test_build_audit_messages_includes_rule_checks():
+    """裁判输入包含规则硬校验事实（防塌缩）：规则已判 blocked 时消息里要有。"""
+    from app.services.llm_audit import build_audit_messages
+    msgs = build_audit_messages("客户要 AI 训练服务器", [PLAN], CASES,
+                                rule_checks=[{"index": 0, "status": "blocked", "issues": ["方案缺少内存实件"]}])
+    user = msgs[1]["content"]
+    assert "规则引擎硬校验结果" in user
+    assert "blocked" in user and "方案缺少内存实件" in user

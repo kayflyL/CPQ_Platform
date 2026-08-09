@@ -190,55 +190,34 @@ class QuotationRepository:
         return len(items)
 
     def calculate_totals(self, quotation_id: str) -> dict:
-        """Calculate and update total_price, profit_margin, and config_count for a quotation"""
+        """只更新 config_count。total_price / profit_margin / l6_price 由前端工作台
+        saveProject 算好直接存（单一计算源），这里不重算——避免前后端两套口径漂移。
+        本方法仅保留给 upload / reparse 等无前端入口的场景填 config_count。"""
         quotation = self.get_by_id(quotation_id)
         if not quotation:
-            return {"total_price": 0.0, "profit_margin": 0.0, "config_count": 0}
-        
-        # 从 quotation_items 计算价格和数量
+            return {"config_count": 0}
+
         items = self.db.query(QuotationItem).filter(
             QuotationItem.quotation_id == quotation_id
         ).all()
-        
-        total_price = 0.0
-        total_base = 0.0
-        
-        for item in items:
-            total_price += (item.final_price or 0.0) * (item.qty or 0)
-            total_base += (item.base_price or 0.0) * (item.qty or 0)
-        
-        # 计算利润率
-        if total_base > 0:
-            profit_margin = round((total_price - total_base) / total_base * 100, 2)
-        else:
-            profit_margin = 0.0
-        
-        # 从 config_l6_picks 统计配置数量（包含所有用户创建的配置，即使没有 items）
+
+        # config_count：优先 config_l6_picks，fallback 到 items 的 config_name
         config_count = 0
         if quotation.extra_fields:
             try:
                 extra = json.loads(quotation.extra_fields)
-                config_l6_picks = extra.get("config_l6_picks", {})
-                config_count = len(config_l6_picks) if config_l6_picks else 0
+                picks = extra.get("config_l6_picks", {}) or {}
+                config_count = len(picks)
             except (json.JSONDecodeError, TypeError):
                 pass
-        
-        # 如果没有 config_l6_picks，fallback 到 items 中的 config_name
         if config_count == 0 and items:
             config_count = len(set(item.config_name for item in items if item.config_name))
-        
-        # 更新 quotation
-        quotation.total_price = round(total_price, 2)
-        quotation.profit_margin = profit_margin
+
         quotation.config_count = config_count
         quotation.updated_at = datetime.now().isoformat()
         self.db.commit()
-        
-        return {
-            "total_price": quotation.total_price,
-            "profit_margin": quotation.profit_margin,
-            "config_count": quotation.config_count
-        }
+
+        return {"config_count": config_count}
 
     def set_primary(self, quotation_id: str) -> bool:
         """Toggle primary: set if not primary, clear if already primary."""
@@ -271,22 +250,41 @@ class QuotationRepository:
             QuotationItem.quotation_id == quotation_id
         ).all()
 
+    def get_items_by_quotation_ids(self, quotation_ids: List[str]) -> dict:
+        """批量取多个报价单的全部 items，按 quotation_id 分组（消除详情接口的 N+1）。"""
+        if not quotation_ids:
+            return {}
+        items = self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id.in_(quotation_ids)
+        ).all()
+        out: dict = {}
+        for it in items:
+            out.setdefault(it.quotation_id, []).append(it)
+        return out
+
     def _sync_totals_from_snapshot(self, quotation: Quotation, snapshot: Optional[dict]) -> None:
-        """从成本快照反写 total_price / profit_margin（+ total_qty），让列表行显示与
-        快照一致。导出冻结 / 手工补录后都调一次。快照 schema:
-          totals.totalSales / totals.marginPct；configs.<name>.qty（总台数）。"""
+        """从成本快照反写 total_price / profit_margin / total_qty，让列表行显示与快照一致。
+        口径与前端 saveProject / 工作台 getConfigTotals 对齐：列表显示「主配置(第一个)」的
+        含税总价 + 利润率，而非项目综合。快照 schema：
+          configs.<name>.totals.{totalSales,marginPct}（单台）；totals.{totalSales,marginPct}（综合加权）。
+        完整快照（导出）→ 取 configs 第一个的单台；手工补录（仅 totals 无 configs）→ 回落综合。"""
         if not snapshot or not isinstance(snapshot, dict):
             return
-        totals = snapshot.get('totals') or {}
+        configs = snapshot.get('configs') or {}
+        # 主配置(第一个)的单台 totals；无 configs 则回落综合 totals（手工补录场景）
+        first_totals = None
+        if isinstance(configs, dict) and configs:
+            first_cfg = next(iter(configs.values())) or {}
+            first_totals = (first_cfg or {}).get('totals') or {}
+        src = first_totals or (snapshot.get('totals') or {})
         try:
-            if totals.get('totalSales') is not None:
-                quotation.total_price = round(float(totals['totalSales']), 2)
-            if totals.get('marginPct') is not None:
-                quotation.profit_margin = round(float(totals['marginPct']), 2)
+            if src.get('totalSales') is not None:
+                quotation.total_price = round(float(src['totalSales']), 2)
+            if src.get('marginPct') is not None:
+                quotation.profit_margin = round(float(src['marginPct']), 2)
         except (TypeError, ValueError):
             pass
         # 总台数：Σ 各配置 qty（完整快照才有 configs；手工补录无 configs 则不动）
-        configs = snapshot.get('configs') or {}
         if isinstance(configs, dict) and configs:
             try:
                 quotation.total_qty = int(sum(int(c.get('qty') or 0) for c in configs.values()))

@@ -493,12 +493,12 @@ onMounted(() => {
 .feature-list li {
   display: flex; gap: 14px; align-items: flex-start;
   padding: 16px 18px;
-  background: var(--cpq-glass-2-bg);
-  backdrop-filter: blur(var(--cpq-glass-blur-2));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-2));
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   border: 1px solid var(--cpq-glass-border);
   border-radius: var(--cpq-radius-lg);
-  box-shadow: var(--cpq-shadow-sm), inset 0 1px 0 var(--cpq-glass-highlight);
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), box-shadow var(--cpq-dur-1) var(--cpq-ease-smooth), transform var(--cpq-dur-2) var(--cpq-ease-smooth);
   font-size: 14px; color: var(--cpq-text-secondary, #4e5969); line-height: 1.5;
 }

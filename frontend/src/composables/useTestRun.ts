@@ -1,14 +1,17 @@
 /**
- * useTestRun — 策略中心·需求分析「试运行」面板的状态机。
+ * useTestRun — 策略中心·需求分析画布「试运行」面板的状态机（2026-08：改为 WS 流式）。
  *
- * 与 useReasoningStream 的区别：后者 WS 驱动（逐条事件到达），本 composable 同步 HTTP 一次性拿到完整 events，
- * 再用 setTimeout 按 events 顺序逐步回放（节点高亮 + 步骤 running→done 动画），让管理员看清每步在发挥什么作用。
- * 明细（plans/ext/kp_by_model）用响应顶层，回放动画只驱动 UI 状态。
+ * 此前：同步 HTTP 一次性拿到完整 events，再用 setTimeout 逐步回放 —— 后端跑多久（含 LLM
+ * 单步 20~40s）前端就干等多久，跑完才"一口气列出全部步骤"，体验很差（用户反馈）。
+ * 现在：POST /test-run/start 注册 run_id → 后端边跑边把 step_start/step_done/need_input/
+ * candidates_ready 经 WS /api/reasoning-flow/test-run-ws/{run_id} 实时推送 → 本 composable
+ * 收到事件即更新步骤状态 + 节点高亮（applyNodeState），真·完成一步显示一步。
  *
- * 节点高亮经 applyNodeState 回调注入画布（解耦：本 composable 不持有画布 nodes ref）。
+ * 与 useReasoningStream 的区别：后者是方案助手通道（assistant_hub + thread 房间 + 聊天消息），
+ * 本 composable 是画布试运行通道（独立 run_id 房间，无聊天语义），但复用同一套 hub 基建。
  */
 import { ref, onBeforeUnmount } from 'vue'
-import { reasoningFlowApi, type TestRunResult, type TestRunEvent } from '@/api/reasoningFlow'
+import { reasoningFlowApi } from '@/api/reasoningFlow'
 import type { Plan } from '@/api/reasoning'
 import type { ReasoningStep, StepStatus } from '@/composables/useReasoningStream'
 import { STEP_BADGE } from '@/utils/reasoningStepCopy'
@@ -29,15 +32,20 @@ export function useTestRun(opts: {
   const pendingQuestion = ref('')
   const pendingOptions = ref<string[]>([])
 
-  let timers: ReturnType<typeof setTimeout>[] = []
+  let ws: WebSocket | null = null
 
-  function clearTimers() {
-    timers.forEach(clearTimeout)
-    timers = []
+  function closeWs() {
+    if (ws) {
+      ws.onmessage = null
+      ws.onerror = null
+      ws.onclose = null
+      try { ws.close() } catch { /* noop */ }
+      ws = null
+    }
   }
 
   function reset() {
-    clearTimers()
+    closeWs()
     steps.value = []
     plans.value = []
     ext.value = {}
@@ -49,79 +57,110 @@ export function useTestRun(opts: {
     opts.applyNodeState?.(null, { execState: null })  // null id = 清所有节点高亮
   }
 
+  function ensureStep(key: string, label?: string) {
+    if (!steps.value.some((s) => s.key === key)) {
+      steps.value.push({ key, label: label || key, status: 'pending' as StepStatus })
+    }
+  }
+
   function setStep(key: string, status: StepStatus, payload?: any) {
     const i = steps.value.findIndex((s) => s.key === key)
     if (i >= 0) steps.value[i] = { ...steps.value[i], status, payload: payload ?? steps.value[i].payload }
   }
 
-  function seedSteps(events: TestRunEvent[]): ReasoningStep[] {
-    const startEv = events.find((e) => e.type === 'pipeline_start')
-    const seeds = startEv?.steps
-      || events.filter((e) => e.type === 'step_start').map((e) => ({ key: e.step!, label: e.label || e.step! }))
-    return (seeds as any[]).map((s) => ({ key: s.key, label: s.label, status: 'pending' as StepStatus }))
+  function pushSubstep(key: string, sub: { kind: string; text: string }) {
+    const i = steps.value.findIndex((s) => s.key === key)
+    if (i >= 0) {
+      const cur = steps.value[i]
+      steps.value[i] = { ...cur, substeps: [...(cur.substeps || []), sub] }
+    }
   }
 
-  function finish(res: TestRunResult) {
-    plans.value = res.plans || []
-    ext.value = res.ext || {}
-    kpByModel.value = res.kp_by_model || {}
-    awaitingInput.value = !!res.awaiting_input
-    const needInput = (res.events || []).filter((e) => e.type === 'need_input').pop() as any
-    pendingQuestion.value = needInput?.question || ''
-    pendingOptions.value = needInput?.options || []
-    running.value = false
-  }
-
-  function replay(events: TestRunEvent[], res: TestRunResult) {
-    const perEvent = 220  // 每个 step_start/step_done 事件间隔 ms
-    let t = 0
-    events.forEach((ev) => {
-      if (ev.type === 'step_start' || ev.type === 'step_done') {
-        const delay = t
-        const fire = () => {
-          if (ev.type === 'step_start') {
-            setStep(ev.step!, 'running')
-            opts.applyNodeState?.(ev.step!, { execState: 'running' })
-          } else {
-            setStep(ev.step!, 'done', ev.payload)
-            const badge = ev.step ? STEP_BADGE[ev.step]?.(ev.payload) : undefined
-            opts.applyNodeState?.(ev.step!, { execState: 'done', badge })
-          }
-        }
-        timers.push(setTimeout(fire, delay))
-        t += perEvent
-      } else if (ev.type === 'pipeline_done' || ev.type === 'pipeline_paused') {
-        timers.push(setTimeout(() => finish(res), t))
-      }
-    })
-    // 兜底：无 pipeline_done/paused 事件时也要收尾
-    timers.push(setTimeout(() => finish(res), t + 80))
+  function handle(data: any) {
+    switch (data.type) {
+      case 'pipeline_start':
+        // 预置全部将执行步骤为 pending（后端按图节点算好；extract 兜底跑到时再懒创建）
+        steps.value = (data.steps || []).map((s: any) => ({
+          key: s.key,
+          label: s.label || s.key,
+          status: 'pending' as StepStatus,
+        }))
+        return
+      case 'step_start':
+        ensureStep(data.step, data.label)
+        setStep(data.step, 'running')
+        opts.applyNodeState?.(data.step, { execState: 'running' })
+        return
+      case 'step_done':
+        ensureStep(data.step, data.label)
+        setStep(data.step, 'done', data.payload)
+        const badge = data.step ? STEP_BADGE[data.step]?.(data.payload) : undefined
+        opts.applyNodeState?.(data.step, { execState: 'done', badge })
+        return
+      case 'step_progress':
+        pushSubstep(data.step, data.sub || { kind: 'progress', text: '' })
+        return
+      case 'need_input':
+        awaitingInput.value = true
+        pendingQuestion.value = data.question || ''
+        pendingOptions.value = data.options || []
+        return
+      case 'candidates_ready':
+        plans.value = data.plans || []
+        return
+      case 'pipeline_paused':
+      case 'pipeline_done':
+        ext.value = data.ext || {}
+        kpByModel.value = data.kp_by_model || {}
+        if (data.plans?.length) plans.value = data.plans
+        awaitingInput.value = !!data.awaiting_input
+        running.value = false
+        closeWs()
+        return
+      case 'error':
+        error.value = data.message || '试运行失败'
+        running.value = false
+        closeWs()
+        return
+      default:
+        return
+    }
   }
 
   async function runTest(text: string, budget?: number, forceComplete?: boolean) {
     if (!text.trim() || running.value) return
     reset()
     running.value = true
-    let res: TestRunResult
+    let runId = ''
     try {
-      res = await reasoningFlowApi.testRun(text, budget, forceComplete)
+      const res = await reasoningFlowApi.testRunStart(text, budget, forceComplete)
+      runId = res.run_id
     } catch (e: any) {
-      error.value = e.response?.data?.detail || e.message || '试运行请求失败'
+      error.value = e.response?.data?.detail || e.message || '试运行启动失败'
       running.value = false
       return
     }
-    if (res.error) {
-      error.value = res.error  // 报错也继续回放 events，让用户看到走到哪步崩了
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws'
+    try {
+      ws = new WebSocket(`${proto}://${location.host}/api/reasoning-flow/test-run-ws/${encodeURIComponent(runId)}`)
+    } catch {
+      error.value = '流式连接建立失败'
+      running.value = false
+      return
     }
-    steps.value = seedSteps(res.events || [])
-    if ((res.events || []).length) {
-      replay(res.events, res)
-    } else {
-      finish(res)
+    ws.onmessage = (ev) => {
+      try { handle(JSON.parse(ev.data)) } catch { /* 忽略坏帧 */ }
+    }
+    ws.onerror = () => {
+      if (running.value) { error.value = '流式连接中断，请重试'; running.value = false }
+    }
+    ws.onclose = () => {
+      // 未收到终态就断开 → 保底结束（防止一直转圈）
+      if (running.value) running.value = false
     }
   }
 
-  onBeforeUnmount(() => clearTimers())
+  onBeforeUnmount(() => closeWs())
 
   return { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, runTest, reset }
 }

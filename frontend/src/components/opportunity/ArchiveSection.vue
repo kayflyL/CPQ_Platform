@@ -2,7 +2,7 @@
   <div class="archive-section glass">
     <div class="section-header">
       <h3>存档区</h3>
-      <span class="section-hint">需求文档 / 方案·详细报价 / 已发报价 — 拖拽或点 + 上传到对应分类</span>
+      <span class="section-hint">需求/成本报价 / 方案·详细报价 / 已发报价 — 拖拽或点 + 上传到对应分类</span>
     </div>
     <div class="archive-cols">
       <div
@@ -70,7 +70,7 @@ const emit = defineEmits<{
 }>()
 
 const columns = [
-  { category: 'requirement', title: '需求文档', icon: '📋' },
+  { category: 'requirement', title: '需求/成本报价', icon: '📋' },
   { category: 'technical', title: '方案/详细报价', icon: '🔧' },
   { category: 'sent_quote', title: '已发报价', icon: '📤' },
 ] as const
@@ -177,9 +177,12 @@ function formatTime(iso: string) {
   gap: 12px;
 }
 .archive-col {
-  background: var(--cpq-glass-2-bg);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   border: 1px solid var(--cpq-glass-border);
   border-radius: 12px;
+  box-shadow: var(--cpq-glass-card-shadow);
   padding: 12px;
   display: flex;
   flex-direction: column;

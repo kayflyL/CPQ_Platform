@@ -7,8 +7,8 @@ import { computed } from 'vue'
 import type { ServerModel, KpPart } from '@/api/serverConfig'
 import type { Branding } from '@/store/settings'
 import { DEFAULT_COMMERCIAL_TERMS } from '@/store/settings'
-import { DEFAULT_LABELS } from '@/types/specTemplate'
-import type { DisplayOptions } from '@/types/specTemplate'
+import { DEFAULT_LABELS, DEFAULT_SPEC_STYLES } from '@/types/specTemplate'
+import type { DisplayOptions, SpecStyles } from '@/types/specTemplate'
 
 /** 多配置模式的数据结构 */
 interface ConfigItem {
@@ -75,9 +75,12 @@ const props = defineProps<{
     show_footer_check?: boolean
     show_commercial_terms?: boolean
     labels?: DisplayOptions['labels']
+    styles?: SpecStyles
   }
   /** 兼容旧接口 */
   legacyMode?: boolean
+  /** 结构预览占位模式：无真实数据时渲染「字段占位」页（模板编辑器用，默认关闭） */
+  placeholderPreview?: boolean
   model?: ServerModel
   l6Apply?: { totals?: any; l6Rows?: any[]; picks?: any } | null
   kpLines?: { cat: string; pn: string; qty: number }[]
@@ -113,6 +116,37 @@ const opts = computed(() => ({
   show_grand_total: props.displayOptions?.show_grand_total !== false,
   show_footer_check: props.displayOptions?.show_footer_check !== false,
   show_commercial_terms: props.displayOptions?.show_commercial_terms !== false,
+}))
+
+// 样式 Token：合并默认值 + 模板自定义（缺失字段用默认，向后兼容旧模板）
+const styles = computed<SpecStyles>(() => ({
+  ...DEFAULT_SPEC_STYLES,
+  ...props.displayOptions?.styles,
+}))
+
+// 映射成 CSS 变量，绑定在根节点，整页（含占位页/打印）同源消费
+const cssVars = computed(() => ({
+  '--ss-accent': styles.value.accent_color,
+  '--ss-text': styles.value.text_color,
+  '--ss-text-secondary': styles.value.text_secondary_color,
+  '--ss-border': styles.value.border_color,
+  '--ss-table-header-bg': styles.value.table_header_bg,
+  '--ss-term-text': styles.value.term_text_color,
+  '--ss-font-doc-title': `${styles.value.font_size_doc_title}px`,
+  '--ss-font-company': `${styles.value.font_size_company}px`,
+  '--ss-font-title': `${styles.value.font_size_title}px`,
+  '--ss-font-section-title': `${styles.value.font_size_section_title}px`,
+  '--ss-font-table-header': `${styles.value.font_size_table_header}px`,
+  '--ss-font-table-body': `${styles.value.font_size_table_body}px`,
+  '--ss-font-grand-total': `${styles.value.font_size_grand_total}px`,
+  '--ss-font-meta': `${styles.value.font_size_meta}px`,
+  '--ss-page-pad-t': `${styles.value.page_padding_top}mm`,
+  '--ss-page-pad-r': `${styles.value.page_padding_right}mm`,
+  '--ss-page-pad-b': `${styles.value.page_padding_bottom}mm`,
+  '--ss-page-pad-l': `${styles.value.page_padding_left}mm`,
+  '--ss-section-gap': `${styles.value.section_gap}px`,
+  '--ss-title-justify': styles.value.title_align === 'center' ? 'center' : 'space-between',
+  '--ss-logo-size': `${styles.value.logo_size}px`,
 }))
 
 // 报价条款：合并默认口径，只保留非空项（按 报价单位→有效期→交付付款→寄送 固定顺序）
@@ -157,6 +191,11 @@ const subtitle = computed(() => {
 
 // ==================== 新模式计算属性 ====================
 const activeConfigs = computed(() => props.configs || [])
+
+/** 字段占位符：渲染 {{字段名}}，与 Excel 模板绑定字段同观感（结构预览占位页用） */
+function ph(name: string): string {
+  return `{{${name}}}`
+}
 
 // 工具函数
 function money(n: number | string | null | undefined): string {
@@ -203,7 +242,7 @@ function groupByCategory(items: KpItem[]) {
 </script>
 
 <template>
-  <div class="spec-sheet" :class="{ 'spec-sheet--multi': !isLegacyMode }">
+  <div class="spec-sheet" :class="{ 'spec-sheet--multi': !isLegacyMode }" :style="cssVars">
     <!-- ==================== 兼容模式：旧逻辑 ==================== -->
     <template v-if="isLegacyMode">
       <!-- 抬头 -->
@@ -294,7 +333,124 @@ function groupByCategory(items: KpItem[]) {
 
     <!-- ==================== 多配置模式 ==================== -->
     <template v-else>
-      <div v-if="!activeConfigs.length" class="ss-empty">
+      <!-- 结构预览占位页：无数据时按模板版式渲染「字段占位」，加载预览后填充真实数据（对齐 Excel 模板交互） -->
+      <template v-if="placeholderPreview && !activeConfigs.length">
+        <div class="ss-page">
+          <!-- 抬头（品牌信息：模板自带配置，非数据） -->
+          <header class="ss-header">
+            <div class="ss-brand">
+              <img v-if="branding.logo_url" :src="branding.logo_url" class="ss-logo" alt="logo" />
+              <div class="ss-brand-text">
+                <div class="ss-company">{{ branding.company_name || '' }}</div>
+                <div v-if="branding.tagline" class="ss-tagline">{{ branding.tagline }}</div>
+              </div>
+            </div>
+            <div class="ss-doc">
+              <div class="ss-doc-title">{{ branding.doc_title || '配置规格书 / Server Build Specification' }}</div>
+              <div class="ss-doc-meta">日期 {{ docDate }}</div>
+            </div>
+          </header>
+
+          <!-- 标题块：字段占位 -->
+          <section class="ss-title-block ss-title-block--inline">
+            <div class="ss-title-left">
+              <div class="ss-title-name"><span class="ss-placeholder">{{ ph('服务器型号') }}</span></div>
+              <span class="ss-chip ss-placeholder">{{ ph('系列') }}</span>
+            </div>
+            <div class="ss-title-right">
+              <span class="ss-to-business">To 业务：<span class="ss-placeholder">{{ ph('业务员') }}</span></span>
+            </div>
+          </section>
+
+          <!-- L6 机箱详细料件（字段占位） -->
+          <section class="ss-section">
+            <div class="ss-section-title">{{ labels.chassis_title }} · Chassis</div>
+            <table class="ss-table">
+              <thead>
+                <tr>
+                  <th class="col-cat">{{ labels.kp_catalogue }}</th>
+                  <th class="col-desc">{{ labels.kp_description }}</th>
+                  <th class="col-qty">{{ labels.kp_qty }}</th>
+                  <th v-if="opts.show_price_column" class="col-cost">{{ labels.kp_cost }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="cell-cat"><span class="ss-placeholder">{{ ph('机箱料号') }}</span></td>
+                  <td class="cell-desc"><span class="ss-placeholder">{{ ph('L6 明细') }}</span></td>
+                  <td class="cell-qty">—</td>
+                  <td v-if="opts.show_price_column" class="cell-cost"><span class="ss-placeholder">{{ ph('金额') }}</span></td>
+                </tr>
+                <tr v-if="opts.show_chassis_total" class="ss-subtotal">
+                  <td colspan="3">{{ labels.chassis_total }}</td>
+                  <td v-if="opts.show_price_column" class="ss-subtotal-price"><span class="ss-placeholder">{{ ph('机箱小计') }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- KP 配件（字段占位） -->
+          <section class="ss-section">
+            <div class="ss-section-title">{{ labels.kp_title }}</div>
+            <table class="ss-table">
+              <thead>
+                <tr>
+                  <th class="col-cat">{{ labels.kp_catalogue }}</th><th class="col-desc">{{ labels.kp_description }}</th>
+                  <th class="col-qty">{{ labels.kp_qty }}</th><th v-if="opts.show_price_column" class="col-cost">{{ labels.kp_cost }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="cell-cat"><span class="ss-placeholder">{{ ph('配件类别') }}</span></td>
+                  <td class="cell-desc"><span class="ss-placeholder">{{ ph('KP 明细') }}</span></td>
+                  <td class="cell-qty">—</td>
+                  <td v-if="opts.show_price_column" class="cell-cost"><span class="ss-placeholder">{{ ph('金额') }}</span></td>
+                </tr>
+                <tr v-if="opts.show_kp_subtotal" class="ss-subtotal">
+                  <td colspan="3">{{ labels.kp_subtotal }}</td>
+                  <td v-if="opts.show_price_column" class="ss-subtotal-price"><span class="ss-placeholder">{{ ph('KP 小计') }}</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <!-- 配置小计（字段占位） -->
+          <section v-if="opts.show_config_subtotal" class="ss-config-subtotal">
+            <span><span class="ss-placeholder">{{ ph('配置名') }}</span> {{ labels.config_subtotal }}</span>
+            <span class="ss-placeholder">{{ ph('含税单价') }}</span>
+          </section>
+
+          <!-- 含税总价（字段占位） -->
+          <section v-if="opts.show_grand_total" class="ss-grand">
+            <span class="ss-grand-label">{{ labels.grand_total }}</span>
+            <span class="ss-grand-val"><span class="ss-placeholder">{{ ph('含税总价') }}</span></span>
+            <span class="ss-grand-qty">（<span class="ss-placeholder">{{ ph('数量') }}</span>台）</span>
+          </section>
+
+          <!-- 报价条款（模板自带） -->
+          <section v-if="opts.show_commercial_terms && terms.length" class="ss-terms">
+            <div class="ss-terms-title">报价条款 / Terms</div>
+            <div class="ss-terms-grid">
+              <div v-for="[label, text] in terms" :key="label" class="ss-terms-item">
+                <span class="ss-terms-label">{{ label }}</span>
+                <span class="ss-terms-text">{{ text }}</span>
+              </div>
+            </div>
+          </section>
+
+          <!-- 页脚（模板自带） -->
+          <footer class="ss-footer">
+            <div v-if="opts.show_footer_check" class="ss-check">✓ 已通过机型兼容校验</div>
+            <div class="ss-contact">
+              <span v-if="branding.contact_phone">TEL {{ branding.contact_phone }}</span>
+              <span v-if="branding.contact_email">EMAIL {{ branding.contact_email }}</span>
+              <span v-if="branding.address">{{ branding.address }}</span>
+            </div>
+            <div v-if="branding.footer_note" class="ss-footnote">{{ branding.footer_note }}</div>
+          </footer>
+        </div>
+      </template>
+      <div v-else-if="!activeConfigs.length" class="ss-empty">
         请选择商机并点击"加载预览"按钮查看规格书预览
       </div>
       <!-- 配置循环：每配置单独一页 A4 -->
@@ -495,40 +651,40 @@ function groupByCategory(items: KpItem[]) {
 .ss-page {
   width: 210mm;
   min-height: 297mm;
-  padding: 14mm 15mm;
+  padding: var(--ss-page-pad-t, 14mm) var(--ss-page-pad-r, 15mm) var(--ss-page-pad-b, 14mm) var(--ss-page-pad-l, 15mm);
   background: #ffffff;
-  border: 1px solid #E5E7EB;
+  border: 1px solid var(--ss-border, #E5E7EB);
   box-shadow: 0 10px 40px rgba(15, 23, 42, .12);
-  color: #1F2329;
+  color: var(--ss-text, #1F2329);
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--ss-section-gap, 12px);
   page-break-after: always;
 }
 .ss-page:last-child { page-break-after: auto; }
 
 /* 抬头 */
 .ss-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  padding-bottom: 16px; border-bottom: 1px solid #1668C0; }
+  padding-bottom: 16px; border-bottom: 1px solid var(--ss-accent, #1668C0); }
 .ss-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.ss-logo { width: 48px; height: 48px; object-fit: contain; border-radius: 6px; background: #fff; }
-.ss-company { font-size: 16px; font-weight: 700; color: #1F2329; }
-.ss-tagline { font-size: 11px; color: #6B7280; margin-top: 2px; }
+.ss-logo { width: var(--ss-logo-size, 48px); height: var(--ss-logo-size, 48px); object-fit: contain; border-radius: 6px; background: #fff; }
+.ss-company { font-size: var(--ss-font-company, 16px); font-weight: 700; color: var(--ss-text, #1F2329); }
+.ss-tagline { font-size: var(--ss-font-meta, 11px); color: var(--ss-text-secondary, #6B7280); margin-top: 2px; }
 .ss-doc { text-align: right; }
-.ss-doc-title { font-size: 14px; font-weight: 700; color: #1668C0; }
-.ss-doc-meta { font-size: 11px; color: #6B7280; margin-top: 4px; }
+.ss-doc-title { font-size: var(--ss-font-doc-title, 14px); font-weight: 700; color: var(--ss-accent, #1668C0); }
+.ss-doc-meta { font-size: var(--ss-font-meta, 11px); color: var(--ss-text-secondary, #6B7280); margin-top: 4px; }
 
 /* 标题块 */
-.ss-title-block { position: relative; padding: 4px 0 4px 14px; border-left: 4px solid #1668C0; }
-.ss-title-block--inline { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px; }
+.ss-title-block { position: relative; padding: 4px 0 4px 14px; border-left: 4px solid var(--ss-accent, #1668C0); }
+.ss-title-block--inline { display: flex; align-items: center; justify-content: var(--ss-title-justify, space-between); gap: 12px; margin-bottom: 8px; }
 .ss-title-block--inline .ss-title-left { display: flex; align-items: center; gap: 10px; }
 .ss-title-block--inline .ss-title-right { margin-top: 0; }
-.ss-title-name { font-size: 24px; font-weight: 700; color: #111418; line-height: 1.2; }
-.ss-title-sub { font-size: 12px; color: #6B7280; margin-top: 6px; }
+.ss-title-name { font-size: var(--ss-font-title, 24px); font-weight: 700; color: #111418; line-height: 1.2; }
+.ss-title-sub { font-size: 12px; color: var(--ss-text-secondary, #6B7280); margin-top: 6px; }
 .ss-title-right { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .ss-chip { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 600;
-  color: #1668C0; background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: 999px; }
+  color: var(--ss-accent, #1668C0); background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: 999px; }
 .ss-to-business { font-size: 12px; color: #64748b; margin-left: 8px; }
 .ss-qty-badge { font-size: 12px; color: #64748b; }
 
@@ -552,72 +708,83 @@ function groupByCategory(items: KpItem[]) {
 
 /* 配置小计 */
 .ss-config-subtotal { display: flex; justify-content: space-between; align-items: center;
-  padding: 12px 16px; border-top: 1px solid #E5E7EB; margin-top: 12px;
+  padding: 12px 16px; border-top: 1px solid var(--ss-border, #E5E7EB); margin-top: 12px;
   font-weight: 600; color: #111418; }
-.ss-config-subtotal span:last-child { font-size: 16px; color: #1668C0; font-weight: 700; }
+.ss-config-subtotal span:last-child { font-size: 16px; color: var(--ss-accent, #1668C0); font-weight: 700; }
 
 /* 段落标题 */
 .ss-section { display: flex; flex-direction: column; gap: 8px; }
-.ss-section-title { font-size: 12px; font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
-  color: #1668C0; border-bottom: 1px solid #E5E7EB; padding-bottom: 6px; }
+.ss-section-title { font-size: var(--ss-font-section-title, 12px); font-weight: 700; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--ss-accent, #1668C0); border-bottom: 1px solid var(--ss-border, #E5E7EB); padding-bottom: 6px; }
 
 /* 机箱摘要：2 列 key:value 网格（避免短值右侧大片留白） */
-.ss-spec-grid { display: grid; grid-template-columns: 1fr 1fr; width: 100%; font-size: 13px; }
+.ss-spec-grid { display: grid; grid-template-columns: 1fr 1fr; width: 100%; font-size: var(--ss-font-table-body, 13px); }
 .ss-spec-grid .spec-item { display: flex; gap: 10px; padding: 9px 10px; border-bottom: 1px solid #EEF0F3; }
-.ss-spec-grid .spec-key { color: #6B7280; font-weight: 500; white-space: nowrap; }
-.ss-spec-grid .spec-val { color: #1F2329; font-weight: 500; word-break: break-word; }
-.ss-spec-grid .spec-total { grid-column: span 2; border-bottom: none; border-top: 1px solid #E5E7EB; font-variant-numeric: tabular-nums; }
+.ss-spec-grid .spec-key { color: var(--ss-text-secondary, #6B7280); font-weight: 500; white-space: nowrap; }
+.ss-spec-grid .spec-val { color: var(--ss-text, #1F2329); font-weight: 500; word-break: break-word; }
+.ss-spec-grid .spec-total { grid-column: span 2; border-bottom: none; border-top: 1px solid var(--ss-border, #E5E7EB); font-variant-numeric: tabular-nums; }
 .ss-spec-grid .spec-total .spec-key { color: #111418; font-weight: 700; }
-.ss-spec-grid .spec-total .spec-val { color: #1668C0; font-weight: 700; font-size: 15px; }
+.ss-spec-grid .spec-total .spec-val { color: var(--ss-accent, #1668C0); font-weight: 700; font-size: 15px; }
 
 /* KP BOM 表 */
-.ss-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.ss-table { width: 100%; border-collapse: collapse; font-size: var(--ss-font-table-body, 13px); }
 .ss-table thead th { padding: 8px 10px; text-align: left; font-weight: 700; font-size: 11px;
-  text-transform: uppercase; letter-spacing: .4px; color: #6B7280;
-  background: #F7F8FA; border-bottom: 1px solid #E5E7EB; }
-.ss-table tbody td { padding: 6px 10px; border-bottom: 1px solid #EEF0F3; color: #1F2329; line-height: 1.38; }
+  text-transform: uppercase; letter-spacing: .4px; color: var(--ss-text-secondary, #6B7280);
+  background: var(--ss-table-header-bg, #F7F8FA); border-bottom: 1px solid var(--ss-border, #E5E7EB); }
+.ss-table tbody td { padding: 6px 10px; border-bottom: 1px solid #EEF0F3; color: var(--ss-text, #1F2329); line-height: 1.38; }
 .col-cat { width: 16%; }
 .col-desc { width: 52%; }
 .ss-table .col-qty { width: 10%; text-align: center; }
 .ss-table .col-cost { width: 22%; text-align: right; }
-.cell-cat { color: #6B7280; font-weight: 500; white-space: nowrap; }
-.cell-desc { color: #1F2329; font-weight: 500; word-break: break-word; }
-.cell-qty { text-align: center; color: #6B7280; }
-.cell-cost { text-align: right; color: #1668C0; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cell-cat { color: var(--ss-text-secondary, #6B7280); font-weight: 500; white-space: nowrap; }
+.cell-desc { color: var(--ss-text, #1F2329); font-weight: 500; word-break: break-word; }
+.cell-qty { text-align: center; color: var(--ss-text-secondary, #6B7280); }
+.cell-cost { text-align: right; color: var(--ss-accent, #1668C0); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* 组分隔：每个分类首行顶部加细线（第一组除外） */
 .ss-table tbody tr.group-first td { border-top: 2px solid #E5E7EB; }
 .ss-table tbody tr.group-first:first-child td { border-top: none; }
 .ss-subtotal td { padding: 11px 10px; font-weight: 700; color: #111418;
-  border-bottom: none; border-top: 1px solid #E5E7EB; font-variant-numeric: tabular-nums; }
-.ss-subtotal td.ss-subtotal-price { color: #1668C0; text-align: right; font-size: 15px; }
+  border-bottom: none; border-top: 1px solid var(--ss-border, #E5E7EB); font-variant-numeric: tabular-nums; }
+.ss-subtotal td.ss-subtotal-price { color: var(--ss-accent, #1668C0); text-align: right; font-size: 15px; }
 .ss-empty { padding: 18px; text-align: center; font-size: 12px; color: #9CA3AF;
   background: #F7F8FA; border: 1px dashed #D1D5DB; border-radius: 8px; }
 
+/* 结构预览占位符：{{字段}}，高亮描边提示「加载预览后填充真实数据」 */
+.ss-placeholder {
+  background: rgba(22, 104, 192, 0.08);
+  border: 1px dashed rgba(22, 104, 192, 0.35);
+  border-radius: 3px;
+  padding: 0 4px;
+  color: #1668C0;
+  font-weight: 500;
+}
+
+
 /* 维保条款：小字紧凑 */
-.ss-warranty-item { font-size: 12px; color: #4B5563; line-height: 1.5; }
-.ss-warranty-item strong { color: #1F2329; font-weight: 600; }
+.ss-warranty-item { font-size: 12px; color: var(--ss-term-text, #4B5563); line-height: 1.5; }
+.ss-warranty-item strong { color: var(--ss-text, #1F2329); font-weight: 600; }
 
 /* 报价条款：紧凑 2 列，给整页留出空间 */
-.ss-terms { padding: 9px 12px; background: #F7F8FA; border: 1px solid #E5E7EB; border-radius: 6px; }
-.ss-terms-title { font-size: 11px; font-weight: 700; letter-spacing: .5px; color: #1668C0;
+.ss-terms { padding: 9px 12px; background: var(--ss-table-header-bg, #F7F8FA); border: 1px solid var(--ss-border, #E5E7EB); border-radius: 6px; }
+.ss-terms-title { font-size: var(--ss-font-meta, 11px); font-weight: 700; letter-spacing: .5px; color: var(--ss-accent, #1668C0);
   text-transform: uppercase; margin-bottom: 6px; }
 .ss-terms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; }
-.ss-terms-item { font-size: 11px; line-height: 1.5; color: #4B5563; display: flex; gap: 6px; align-items: baseline; }
-.ss-terms-label { color: #1F2329; font-weight: 600; white-space: nowrap; flex: 0 0 5em; }
+.ss-terms-item { font-size: var(--ss-font-meta, 11px); line-height: 1.5; color: var(--ss-term-text, #4B5563); display: flex; gap: 6px; align-items: baseline; }
+.ss-terms-label { color: var(--ss-text, #1F2329); font-weight: 600; white-space: nowrap; flex: 0 0 5em; }
 .ss-terms-text { word-break: break-word; }
 
 /* 合计：柔和边框 */
 .ss-grand { display: flex; justify-content: flex-end; align-items: baseline; gap: 14px;
-  padding: 13px 16px; border-top: 1px solid #E5E7EB; }
-.ss-grand-label { font-size: 13px; font-weight: 600; color: #1F2329; }
-.ss-grand-val { font-size: 22px; font-weight: 700; color: #1668C0; font-variant-numeric: tabular-nums; }
-.ss-grand-qty { font-size: 14px; font-weight: 600; color: #6B7280; }
+  padding: 13px 16px; border-top: 1px solid var(--ss-border, #E5E7EB); }
+.ss-grand-label { font-size: 13px; font-weight: 600; color: var(--ss-text, #1F2329); }
+.ss-grand-val { font-size: var(--ss-font-grand-total, 22px); font-weight: 700; color: var(--ss-accent, #1668C0); font-variant-numeric: tabular-nums; }
+.ss-grand-qty { font-size: 14px; font-weight: 600; color: var(--ss-text-secondary, #6B7280); }
 
 /* 页脚 */
-.ss-footer { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid #E5E7EB; }
-.ss-check { font-size: 12px; font-weight: 600; color: #1668C0; }
-.ss-contact { display: flex; flex-wrap: wrap; gap: 14px; font-size: 11px; color: #6B7280; }
-.ss-footnote { font-size: 11px; color: #9CA3AF; }
+.ss-footer { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid var(--ss-border, #E5E7EB); }
+.ss-check { font-size: 12px; font-weight: 600; color: var(--ss-accent, #1668C0); }
+.ss-contact { display: flex; flex-wrap: wrap; gap: 14px; font-size: var(--ss-font-meta, 11px); color: var(--ss-text-secondary, #6B7280); }
+.ss-footnote { font-size: var(--ss-font-meta, 11px); color: #9CA3AF; }
 </style>
 
 <!-- 非 scoped：打印规则需跳出 scoped 边界，锚点 .spec-sheet-root 由父级加在组件根上。

@@ -386,3 +386,54 @@ def test_eval_assign_value_skips_arithmetic_and_inactive():
         rule(id=2, body={"then": {"action": "derive", "basis": "config.sata_qty", "per": 8, "target": "kp.前置背板"}}),
     ]
     assert eval_assign_value(rules, ctx, "config.bp_type") is None
+
+
+# ============================================================
+# 机箱能力校验规则（基准配置页可配 max_cpu / max_dimm）
+# ============================================================
+def test_recommend_cpu_over_limit_fires():
+    """CPU 颗数 > 机型上限（config.max_cpu）→ 命中 recommend 告警（severity 可配）。"""
+    ctx = {"kp": {"CPU": {"qty": 4, "items": [{"pn": "CPU-1"}]}},
+           "config": {"max_cpu": 2}, "opportunity": {}}
+    r = rule(id=90, body={"when": {"field": "kp.CPU.qty", "op": ">", "value": "config.max_cpu"},
+                          "then": {"action": "recommend", "target": "CPU", "severity": "warning",
+                                   "desc": "CPU 颗数超过机型上限"}})
+    out = evaluate_rules([r], ctx)
+    assert len(out) == 1
+    assert out[0]["severity"] == "warning" and out[0]["target"] == "CPU"
+
+
+def test_recommend_cpu_within_limit_silent():
+    ctx = {"kp": {"CPU": {"qty": 2, "items": [{"pn": "CPU-1"}]}},
+           "config": {"max_cpu": 2}, "opportunity": {}}
+    r = rule(id=91, body={"when": {"field": "kp.CPU.qty", "op": ">", "value": "config.max_cpu"},
+                          "then": {"action": "recommend", "target": "CPU"}})
+    assert evaluate_rules([r], ctx) == []
+
+
+def test_recommend_memory_over_limit_fires():
+    """内存条数 > 机型上限（config.max_dimm，EPYC 双路 24）→ 告警。"""
+    ctx = {"kp": {"Memory": {"qty": 32, "items": [{"pn": "MEM-1"}]}},
+           "config": {"max_dimm": 24}, "opportunity": {}}
+    r = rule(id=92, body={"when": {"field": "kp.Memory.qty", "op": ">", "value": "config.max_dimm"},
+                          "then": {"action": "recommend", "target": "Memory", "severity": "warning"}})
+    out = evaluate_rules([r], ctx)
+    assert len(out) == 1 and out[0]["target"] == "Memory" and out[0]["severity"] == "warning"
+
+
+def test_capability_rule_no_max_config_no_fire():
+    """机型未配 max_cpu/max_dimm → config.* 解析为空，规则不误触发（缺省不限）。"""
+    ctx = {"kp": {"CPU": {"qty": 4, "items": [{"pn": "CPU-1"}]}},
+           "config": {}, "opportunity": {}}
+    r = rule(id=93, body={"when": {"field": "kp.CPU.qty", "op": ">", "value": "config.max_cpu"},
+                          "then": {"action": "recommend", "target": "CPU"}})
+    assert evaluate_rules([r], ctx) == []
+
+
+def test_plan_rule_context_exposes_capability():
+    from app.services.selection_engine import plan_rule_context
+    ctx = plan_rule_context([], baseline={"series": "Orion", "max_cpu": 2, "max_dimm": 24})
+    assert ctx["config"]["series"] == "Orion"
+    assert ctx["config"]["max_cpu"] == 2
+    assert ctx["config"]["max_dimm"] == 24
+    assert "max_cpu" not in plan_rule_context([], baseline=None)["config"]

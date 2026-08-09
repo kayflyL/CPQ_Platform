@@ -23,15 +23,6 @@
           <template #icon><DownloadOutlined /></template>
           导出
         </a-button>
-        <a-button
-          size="small"
-          :disabled="!hasSelectedCategory"
-          :title="!hasSelectedCategory ? '请先在左侧选择分类' : '同分类按规格分组的价格分布'"
-          @click="openMatrixDrawer"
-        >
-          <template #icon><BarChartOutlined /></template>
-          比价矩阵
-        </a-button>
         <a-button size="small" title="最新价 vs N 天前涨跌幅 TOP" @click="openMoversDrawer">
           <template #icon><StockOutlined /></template>
           价格异动
@@ -42,33 +33,68 @@
         </a-button>
       </div>
     </div>
-
-    <div class="main-layout">
-      <!-- =================== Left Sidebar: 分类导航 =================== -->
-      <aside class="category-sidebar glass">
-        <div class="sidebar-title">分类</div>
-        <div :class="['sidebar-item', { active: !selectedCategoryId && !listAllMode }]" @click="selectCategory(null)">
-          <UnorderedListOutlined class="sidebar-ico" />
-          <span class="sidebar-item-name">全部</span>
-          <span class="sidebar-item-count">{{ totalPartCount }}</span>
+    <!-- =================== 顶部分类胶囊条（分类自左侧栏上移，侧栏只留规格筛选） =================== -->
+    <div class="category-nav-bar glass-light">
+      <div class="cat-chip-scroll">
+        <div :class="['cat-chip', { active: !selectedCategoryId }]" @click="selectCategory(null)">
+          全部<span class="cat-chip-count">{{ totalPartCount }}</span>
         </div>
         <div
           v-for="cat in categories"
           :key="cat.id"
-          :class="['sidebar-item', { active: selectedCategoryId === cat.id }]"
+          :class="['cat-chip', { active: selectedCategoryId === cat.id }]"
           @click="selectCategory(cat.id)"
         >
-          <span class="sidebar-dot"></span>
-          <span class="sidebar-item-name">{{ cat.name }}</span>
-          <span class="sidebar-item-count">{{ cat.count }}</span>
+          {{ cat.name }}<span class="cat-chip-count">{{ cat.count }}</span>
         </div>
-        <div class="sidebar-footer">
-          <button class="sidebar-manage-btn" @click="categoryManageVisible = true">
-            <SettingOutlined /> 管理分类
-          </button>
-        </div>
-      </aside>
+      </div>
+      <button class="cat-manage-btn" title="管理分类" @click="categoryManageVisible = true">
+        <SettingOutlined />
+      </button>
+    </div>
 
+    <div class="main-layout">
+      <!-- =================== Left Sidebar: 规格筛选（分类已移至顶部胶囊条） =================== -->
+      <aside v-if="hasSelectedCategory" class="category-sidebar glass">
+        <!-- 筛选维度（选中品类才显；业内标准：折叠维度+每维显前5+展开） -->
+        <div v-if="brandsList.length || specKeys.length" class="sidebar-filters">
+          <div class="sidebar-title">
+            <span>筛选</span>
+            <span v-if="selectedTags.length" class="filter-clear" @click="clearAllFilters">清空</span>
+          </div>
+          <a-collapse :default-active-key="defaultOpenDims" ghost :bordered="false" expand-icon-position="end" size="small">
+            <a-collapse-panel v-if="brandsList.length" key="Brand">
+              <template #header>Brand <span class="dim-count">{{ brandsList.length }}</span></template>
+              <div class="filter-list">
+                <div v-for="b in visibleBrands" :key="'b_' + b.brand"
+                  :class="['filter-item', { on: selectedBrands.includes(b.brand) }]">
+                  <input type="checkbox" :checked="selectedBrands.includes(b.brand)" @change="toggleBrand(b.brand)" />
+                  <span class="fi-name" :title="'只看 ' + b.brand" @click="switchBrand(b.brand)">{{ b.brand }}</span>
+                  <span class="fi-count">{{ b.count }}</span>
+                </div>
+                <button v-if="brandsList.length > 5" class="filter-more" @click="toggleDimExpand('Brand')">
+                  {{ expandedDims.has('Brand') ? '收起' : '+' + (brandsList.length - 5) }}
+                </button>
+              </div>
+            </a-collapse-panel>
+            <a-collapse-panel v-for="key in specKeys" :key="key">
+              <template #header>{{ key }} <span class="dim-count">{{ (specFacets[key] || []).length }}</span></template>
+              <div class="filter-list">
+                <div v-for="fv in visibleSpec(key)" :key="key + '_' + fv.value"
+                  :class="['filter-item', { on: (selectedSpecs[key] || []).includes(fv.value) }]">
+                  <input type="checkbox" :checked="(selectedSpecs[key] || []).includes(fv.value)" @change="toggleSpec(key, fv.value)" />
+                  <span class="fi-name" :title="'只看 ' + fv.value" @click="switchSpec(key, fv.value)">{{ fv.value }}</span>
+                  <span class="fi-count">{{ fv.count }}</span>
+                </div>
+                <button v-if="(specFacets[key] || []).length > 5" class="filter-more" @click="toggleDimExpand(key)">
+                  {{ expandedDims.has(key) ? '收起' : '+' + ((specFacets[key] || []).length - 5) }}
+                </button>
+              </div>
+            </a-collapse-panel>
+          </a-collapse>
+        </div>
+        <div v-else class="filter-hint">该分类暂无品牌 / 规格筛选维度</div>
+      </aside>
       <!-- =================== Main Content =================== -->
       <div class="content-area">
         <!-- ====== 总览仪表盘（选中「全部」且非清单模式） ====== -->
@@ -161,15 +187,6 @@
             <a-select-option value="price-asc">价格 低→高</a-select-option>
             <a-select-option value="price-desc">价格 高→低</a-select-option>
           </a-select>
-          <a-select
-            v-model:value="selectedBrands"
-            mode="multiple"
-            :options="brandOptions"
-            placeholder="品牌"
-            class="toolbar-brand"
-            allow-clear
-            @change="applyFilters"
-          />
           <a-radio-group v-model:value="priceFilter" button-style="solid" class="toolbar-price" @change="applyFilters">
             <a-radio-button value="">全部</a-radio-button>
             <a-radio-button value="has_price">有报价</a-radio-button>
@@ -179,25 +196,7 @@
           <span class="toolbar-count">共 <b>{{ partsTotal }}</b> 个配件</span>
         </div>
 
-        <!-- 规格维度（随分类变化，第二行 chips，超过 3 个维度可展开） -->
-        <div v-if="hasSelectedCategory && visibleSpecKeys.length" class="spec-bar glass-light">
-          <span class="spec-bar-label">规格</span>
-          <div class="spec-bar-chips">
-            <template v-for="key in visibleSpecKeys" :key="key">
-              <span
-                v-for="fv in specFacets[key]"
-                :key="key + '_' + fv.value"
-                :class="['spec-chip', { active: (selectedSpecs[key] || []).includes(fv.value) }]"
-                @click="toggleSpec(key, fv.value)"
-              >{{ fv.value }}<span class="spec-chip-count">{{ fv.count }}</span></span>
-            </template>
-          </div>
-          <button v-if="specKeys.length > 3" class="spec-more" @click="specExpanded = !specExpanded">
-            {{ specExpanded ? '收起' : '更多 ▾' }}
-          </button>
-        </div>
-
-        <!-- 比价矩阵已移至工具栏按钮 + 抽屉（openMatrixDrawer），非常驻面板 -->
+        <!-- 配件列表（卡片/表格切换） -->
 
         <!-- Card View -->
         <div v-if="viewMode === 'card'" class="card-grid">
@@ -725,61 +724,6 @@
       </div>
     </a-drawer>
 
-    <!-- =================== Price Matrix Drawer =================== -->
-    <a-drawer
-      v-model:open="matrixDrawerVisible"
-      title="比价矩阵"
-      placement="right"
-      width="720"
-    >
-      <div class="matrix-head">
-        <a-select
-          :value="matrixGroupKey || undefined"
-          :options="matrixKeyOptions"
-          placeholder="选择分组维度"
-          size="small"
-          style="width: 220px"
-          allow-clear
-          @change="onMatrixGroupKeyChange"
-        />
-        <a-radio-group v-model:value="matrixView" button-style="solid" size="small">
-          <a-radio-button value="both">表格+图</a-radio-button>
-          <a-radio-button value="table">仅表格</a-radio-button>
-          <a-radio-button value="box">仅箱线图</a-radio-button>
-        </a-radio-group>
-      </div>
-      <div v-if="!matrixGroupKey" class="matrix-empty">选择上方维度，按该规格分组查看价格分布</div>
-      <div v-else-if="matrixLoading" class="matrix-loading"><a-spin /></div>
-      <div v-else-if="!matrixData.groups?.length" class="matrix-empty">该维度下暂无带价配件</div>
-      <template v-else>
-        <div v-if="matrixView !== 'table'" class="matrix-box-wrap">
-          <VChart :option="matrixBoxOption || undefined" :init-options="{ renderer: 'canvas' }" :autoresize="true" class="matrix-box" />
-        </div>
-        <div v-if="matrixView !== 'box'" class="matrix-table-wrap">
-          <a-table
-            :columns="matrixColumns"
-            :data-source="matrixData.groups"
-            :pagination="false"
-            size="small"
-            row-key="value"
-          >
-            <template #expandedRowRender="{ record }">
-              <div class="matrix-detail">
-                <span v-for="p in record.parts" :key="p.id" class="matrix-detail-chip" @click="openPartDetail(p.id)">
-                  {{ p.name }} <b>¥{{ formatPrice(p.latest_price) }}</b>
-                </span>
-              </div>
-            </template>
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'value'"><b>{{ record.value }}</b></template>
-              <template v-if="column.key === 'prices'">¥{{ formatPrice(record.min) }} ~ ¥{{ formatPrice(record.max) }}</template>
-              <template v-if="column.key === 'median'">¥{{ formatPrice(record.median) }}</template>
-              <template v-if="column.key === 'avg'">¥{{ formatPrice(record.avg) }}</template>
-            </template>
-          </a-table>
-        </div>
-      </template>
-    </a-drawer>
   </div>
 </template>
 
@@ -789,12 +733,12 @@ import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined,
-  UploadOutlined, DownloadOutlined, BarChartOutlined, StockOutlined
+  UploadOutlined, DownloadOutlined, StockOutlined
 } from '@ant-design/icons-vue'
 import axios from 'axios'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
-import { LineChart, BoxplotChart } from 'echarts/charts'
+import { LineChart } from 'echarts/charts'
 import {
   GridComponent,
   TooltipComponent,
@@ -803,7 +747,7 @@ import {
 import { CanvasRenderer } from 'echarts/renderers'
 import { useChartTheme } from '@/composables/useChartTheme'
 
-use([GridComponent, TooltipComponent, DataZoomComponent, LineChart, BoxplotChart, CanvasRenderer])
+use([GridComponent, TooltipComponent, DataZoomComponent, LineChart, CanvasRenderer])
 
 const C = useChartTheme().chartColors
 
@@ -878,83 +822,7 @@ const loadDuplicates = async () => {
 }
 const openDuplicates = () => { duplicatesDrawerVisible.value = true }
 
-// 同类比价矩阵
-const matrixData = ref<{ group_key: string; groups: any[] }>({ group_key: '', groups: [] })
-const matrixGroupKey = ref<string>('')
-const matrixView = ref<'both' | 'table' | 'box'>('both')
-const matrixLoading = ref(false)
-const matrixDrawerVisible = ref(false)
-const openMatrixDrawer = () => { matrixDrawerVisible.value = true }
-// 矩阵分组维度候选：取当前分类下 value 种类数 >=2 的 spec_key（按种类数降序）
-const matrixKeyOptions = computed(() => Object.entries(specFacets.value)
-  .map(([k, vs]: [string, any]) => ({ key: k, n: (vs || []).length }))
-  .filter(x => x.n >= 2)
-  .sort((a, b) => b.n - a.n)
-  .map(x => ({ label: `${x.key} · ${x.n} 种`, value: x.key })))
-const loadPriceMatrix = async () => {
-  if (!selectedCategoryId.value || !matrixGroupKey.value) {
-    matrixData.value = { group_key: matrixGroupKey.value, groups: [] }
-    return
-  }
-  matrixLoading.value = true
-  try {
-    const res = await axios.get('/api/admin/kp/price-matrix', {
-      params: { category_id: selectedCategoryId.value, group_key: matrixGroupKey.value },
-    })
-    matrixData.value = res.data || { group_key: matrixGroupKey.value, groups: [] }
-  } catch {
-    matrixData.value = { group_key: matrixGroupKey.value, groups: [] }
-  } finally {
-    matrixLoading.value = false
-  }
-}
-const onMatrixGroupKeyChange = (k: any) => {
-  matrixGroupKey.value = (k as string) || ''
-  loadPriceMatrix()
-}
-const matrixBoxOption = computed(() => {
-  const groups = matrixData.value.groups || []
-  if (!groups.length) return null
-  const colors = C.value
-  return {
-    grid: { left: 88, right: 28, top: 16, bottom: 32 },
-    xAxis: {
-      type: 'value',
-      axisLine: { lineStyle: { color: colors.grid } },
-      axisLabel: { color: colors.tick, fontSize: 10 },
-      splitLine: { lineStyle: { color: colors.splitLine } },
-    },
-    yAxis: {
-      type: 'category',
-      data: groups.map((g: any) => g.value),
-      axisLine: { lineStyle: { color: colors.grid } },
-      axisLabel: { color: colors.tick, fontSize: 11 },
-    },
-    tooltip: {
-      trigger: 'item',
-      backgroundColor: colors.tooltipBg,
-      borderColor: colors.tooltipBorder,
-      textStyle: { color: colors.tooltipText },
-      formatter: (p: any) => {
-        const g: any = groups[p.dataIndex]
-        if (!g) return ''
-        return `<b>${g.value}</b> · ${g.count} 件<br/>最低 ¥${formatPrice(g.min)}<br/>Q1 ¥${formatPrice(g.q1)}<br/>中位 ¥${formatPrice(g.median)}<br/>Q3 ¥${formatPrice(g.q3)}<br/>最高 ¥${formatPrice(g.max)}`
-      },
-    },
-    series: [{
-      type: 'boxplot',
-      data: groups.map((g: any) => [g.min, g.q1, g.median, g.q3, g.max]),
-      itemStyle: { color: colors.accentFill, borderColor: colors.accent },
-    }],
-  }
-})
-const matrixColumns = [
-  { title: '分组', dataIndex: 'value', key: 'value', width: 140 },
-  { title: '数量', dataIndex: 'count', key: 'count', width: 70 },
-  { title: '价格区间', key: 'prices', width: 220 },
-  { title: '中位', dataIndex: 'median', key: 'median', width: 100 },
-  { title: '均值', dataIndex: 'avg', key: 'avg', width: 100 },
-]
+
 
 // =================== View Mode ===================
 const viewMode = ref<'card' | 'table'>('card')
@@ -988,8 +856,6 @@ const selectCategory = (catId: number | null) => {
   selectedBrands.value = []
   priceFilter.value = ''
   selectedSpecs.value = {}
-  matrixGroupKey.value = ''
-  matrixData.value = { group_key: '', groups: [] }
   loadBrands()
   loadSpecFacets()
   loadParts()
@@ -1029,11 +895,23 @@ const filterSpecKey = (input: string, option: any) => {
   return v.includes((input || '').toLowerCase())
 }
 
-// 品牌多选下拉 options；规格维度超过 3 个时折叠
-const brandOptions = computed(() => brandsList.value.map(b => ({ label: `${b.brand} (${b.count})`, value: b.brand })))
-const specExpanded = ref(false)
-const specKeys = computed(() => Object.keys(specFacets.value))
-const visibleSpecKeys = computed(() => specExpanded.value ? specKeys.value : specKeys.value.slice(0, 3))
+// 筛选分组维度：Brand（brandsList，有品牌才显）+ 各 spec 维度（specFacets），全部按维度分组渲染
+// 当前分类名（查筛选白名单用）
+const selectedCategoryName = computed(() => categories.value.find(c => c.id === selectedCategoryId.value)?.name || '')
+// 筛选白名单（system_config.kp_filter_dims，每品类业内关键 spec；Brand 另算）
+const filterDims = ref<Record<string, string[]>>({})
+const loadFilterDims = async () => {
+  try {
+    const res = await axios.get('/api/system-config/kp_filter_dims/value')
+    filterDims.value = res.data.value || {}
+  } catch { filterDims.value = {} }
+}
+// 只显白名单∩已有的维度；无白名单则显全部（兜底）
+const specKeys = computed(() => {
+  const dims = filterDims.value[selectedCategoryName.value]
+  const all = Object.keys(specFacets.value)
+  return dims && dims.length ? dims.filter(k => all.includes(k)) : all
+})
 
 const applyFilters = () => {
   pagination.value.current = 1
@@ -1052,6 +930,67 @@ const toggleSpec = (key: string, value: string) => {
     delete next[key]
     selectedSpecs.value = next
   }
+  applyFilters()
+}
+const toggleBrand = (brand: string) => {
+  const cur = [...selectedBrands.value]
+  const idx = cur.indexOf(brand)
+  if (idx >= 0) cur.splice(idx, 1)
+  else cur.push(brand)
+  selectedBrands.value = cur
+  applyFilters()
+}
+// 点行文字 = 单选切换（该维度只看这一个值）；点勾选框 = 多选累加/取消
+const switchBrand = (brand: string) => {
+  const only = selectedBrands.value.length === 1 && selectedBrands.value[0] === brand
+  selectedBrands.value = only ? [] : [brand]
+  applyFilters()
+}
+const switchSpec = (key: string, value: string) => {
+  const cur = selectedSpecs.value[key] || []
+  const only = cur.length === 1 && cur[0] === value
+  const next = only ? [] : [value]
+  if (next.length) selectedSpecs.value = { ...selectedSpecs.value, [key]: next }
+  else {
+    const clone = { ...selectedSpecs.value }
+    delete clone[key]
+    selectedSpecs.value = clone
+  }
+  applyFilters()
+}
+
+// 筛选维度折叠（每维显前5+「+N」展开；列表保持原有顺序，选中项原地高亮，不做重排）
+const FACET_LIMIT = 5
+const expandedDims = ref<Set<string>>(new Set())
+const toggleDimExpand = (key: string) => {
+  const s = new Set(expandedDims.value)
+  s.has(key) ? s.delete(key) : s.add(key)
+  expandedDims.value = s
+}
+const visibleBrands = computed(() => {
+  return expandedDims.value.has('Brand') ? [...brandsList.value] : brandsList.value.slice(0, FACET_LIMIT)
+})
+const visibleSpec = (key: string) => {
+  const vals = specFacets.value[key] || []
+  return expandedDims.value.has(key) ? [...vals] : vals.slice(0, FACET_LIMIT)
+}
+const defaultOpenDims = computed(() => {
+  const d: string[] = []
+  if (brandsList.value.length) d.push('Brand')
+  d.push(...specKeys.value.slice(0, 2))
+  return d
+})
+const selectedTags = computed(() => {
+  const tags: { type: string; key: string; value: string; label: string; remove: () => void }[] = []
+  selectedBrands.value.forEach(b => tags.push({ type: 'brand', key: 'Brand', value: b, label: b, remove: () => toggleBrand(b) }))
+  Object.entries(selectedSpecs.value).forEach(([k, vs]) => {
+    vs.forEach(v => tags.push({ type: 'spec', key: k, value: v, label: `${k}: ${v}`, remove: () => toggleSpec(k, v) }))
+  })
+  return tags
+})
+const clearAllFilters = () => {
+  selectedBrands.value = []
+  selectedSpecs.value = {}
   applyFilters()
 }
 
@@ -1523,6 +1462,7 @@ const clearSearch = () => {
 // =================== Init ===================
 onMounted(() => {
   loadCategories()
+  loadFilterDims()
   loadBrands()
   loadSpecFacets()
   loadParts()
@@ -1547,7 +1487,7 @@ onMounted(() => {
 .parts-page {
   position: relative;
   padding: 24px;
-  background: var(--cpq-bg-gradient);
+  /* 不设整页背景：透出 DefaultLayout 的深空渐变 + 固定网格层，玻璃面板才有磨砂感 */
   min-height: 100vh;
   color: var(--cpq-text-primary);
 }
@@ -1559,6 +1499,12 @@ onMounted(() => {
   height: 2px;
   z-index: 100;
   background: linear-gradient(90deg, transparent, var(--cpq-accent-primary), transparent);
+}
+
+/* 可点击卡片 hover 上浮（对齐策略中心模块卡）；基底白玻璃配方已由全局 .glass/.glass-light 提供 */
+.parts-page .stat-card.clickable:hover,
+.parts-page .model-card:hover {
+  box-shadow: var(--cpq-glass-card-shadow-hover) !important;
 }
 
 /* 入场动画 */
@@ -1618,7 +1564,7 @@ onMounted(() => {
   cursor: pointer; font-family: inherit;
   transition: all var(--cpq-transition-fast);
 }
-.cat-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a6); }
+.cat-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a8); }
 .cat-chip.active { color: var(--cpq-accent-on-primary); background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); font-weight: 600; }
 .cat-chip.active .cat-chip-count { background: var(--cpq-overlay-w15); color: var(--cpq-accent-on-primary); }
 .cat-chip-ico { width: 14px; height: 14px; opacity: 0.85; }
@@ -1636,7 +1582,7 @@ onMounted(() => {
   color: var(--cpq-text-secondary); cursor: pointer; font-family: inherit;
   transition: all var(--cpq-transition-fast);
 }
-.cat-manage-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
+.cat-manage-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a8); }
 .cat-manage-btn :deep(svg) { width: 15px; height: 15px; }
 
 /* sidebar 规格折叠提示 */
@@ -1779,19 +1725,28 @@ onMounted(() => {
 .back-overview:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
 
 /* ============ 工具栏筛选 ============ */
-.toolbar-brand { width: 200px; }
 .toolbar-price { flex-shrink: 0; }
 .toolbar-price :deep(.ant-radio-button-wrapper) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); color: var(--cpq-text-secondary); }
 .toolbar-price :deep(.ant-radio-button-wrapper-checked) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
-.spec-bar { display: flex; align-items: flex-start; gap: 10px; padding: 10px 14px; border-radius: 12px; margin-bottom: 16px; }
-.spec-bar-label { font-size: 12px; color: var(--cpq-text-muted); flex-shrink: 0; padding-top: 5px; }
-.spec-bar-chips { flex: 1; display: flex; flex-wrap: wrap; gap: 6px; }
-.spec-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); transition: all var(--cpq-transition-fast); user-select: none; }
-.spec-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
-.spec-chip.active { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-color: var(--cpq-overlay-a20); }
-.spec-chip-count { font-size: 10px; opacity: 0.7; margin-left: 3px; }
-.spec-more { flex-shrink: 0; margin-top: 1px; background: transparent; border: 1px solid var(--cpq-border-primary); border-radius: 8px; color: var(--cpq-text-secondary); font-size: 12px; padding: 3px 10px; cursor: pointer; font-family: inherit; transition: all var(--cpq-transition-fast); }
-.spec-more:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
+/* ============ 侧栏筛选（折叠维度） ============ */
+.sidebar-filters { border-top: 1px solid var(--cpq-border-primary); padding: 10px 0; margin-top: 8px; }
+.sidebar-filters .sidebar-title { font-size: 11px; color: var(--cpq-text-muted); padding: 0 14px 6px; display: flex; align-items: center; letter-spacing: 0.5px; text-transform: uppercase; }
+.sidebar-filters :deep(.ant-collapse-header) { padding: 7px 14px !important; font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary); }
+.sidebar-filters :deep(.ant-collapse-content-box) { padding: 0 14px 8px !important; }
+.dim-count { font-size: 10px; opacity: 0.6; font-weight: 400; margin-left: 3px; }
+.filter-list { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.filter-item { display: flex; align-items: center; gap: 8px; padding: 4px 6px; border-radius: 7px; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; user-select: none; transition: all var(--cpq-transition-fast); }
+.filter-item:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
+.filter-item.on { color: var(--cpq-accent-primary); font-weight: 500; }
+.filter-item input { width: 14px; height: 14px; margin: 0; accent-color: var(--cpq-accent-primary); flex-shrink: 0; cursor: pointer; }
+.filter-item .fi-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; border-radius: 4px; }
+.filter-item .fi-name:hover { color: var(--cpq-accent-primary); }
+.filter-item .fi-count { font-size: 11px; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
+.filter-item.on .fi-count { color: var(--cpq-accent-primary); }
+.filter-clear { margin-left: auto; font-size: 11px; color: var(--cpq-text-muted); cursor: pointer; }
+.filter-clear:hover { color: var(--cpq-accent-danger); }
+.filter-more { background: transparent; border: none; color: var(--cpq-text-muted); font-size: 11px; cursor: pointer; padding: 2px 4px; font-family: inherit; }
+.filter-more:hover { color: var(--cpq-accent-primary); }
 
 /* ============ 卡片网格 ============ */
 .card-grid {
@@ -1810,7 +1765,7 @@ onMounted(() => {
 }
 .model-card:hover {
   transform: translateY(-3px);
-  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), 0 0 26px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-overlay-w10);
+  box-shadow: var(--cpq-glass-card-shadow-hover);
 }
 .card-accent-bar {
   position: absolute; top: 0; left: 0; right: 0; height: 2px;
@@ -1991,21 +1946,6 @@ onMounted(() => {
 .movers-delta.up { color: var(--cpq-accent-success, #3fbb6c); }
 .movers-delta.down { color: var(--cpq-accent-danger); }
 .movers-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 14px 6px; text-align: center; }
-
-/* ============ 比价矩阵（抽屉内） ============ */
-.matrix-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
-.matrix-head h4 { margin: 0; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
-.matrix-head :deep(.ant-radio-button-wrapper) { background: var(--cpq-overlay-w6); border-color: var(--cpq-border-primary); color: var(--cpq-text-secondary); }
-.matrix-head :deep(.ant-radio-button-wrapper-checked) { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
-.matrix-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 18px; text-align: center; border: 1px dashed var(--cpq-border-primary); border-radius: 8px; }
-.matrix-loading { display: flex; justify-content: center; padding: 24px; }
-.matrix-box-wrap { padding: 8px; background: var(--cpq-overlay-w6); border-radius: 8px; margin-bottom: 12px; }
-.matrix-box { width: 100%; height: 280px; }
-.matrix-table-wrap { border-radius: 8px; overflow: hidden; }
-.matrix-detail { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0; }
-.matrix-detail-chip { font-size: 12px; padding: 4px 10px; border-radius: 10px; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); color: var(--cpq-text-secondary); cursor: pointer; transition: all var(--cpq-transition-fast); }
-.matrix-detail-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-overlay-a20); }
-.matrix-detail-chip b { color: var(--cpq-accent-primary); margin-left: 4px; }
 
 /* ============ 疑似重复 drawer ============ */
 .dup-tip { font-size: 12px; color: var(--cpq-text-secondary); line-height: 1.7; padding: 10px 12px; background: var(--cpq-overlay-w6); border-radius: 8px; margin-bottom: 10px; }

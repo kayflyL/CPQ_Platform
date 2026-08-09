@@ -104,7 +104,7 @@ async def stream_chat(
             if delta:
                 has_content = True
                 yield delta
-        # 流正常结束却无正文：reasoning 类模型(如 step-3.x)在复杂任务上会把
+        # 流正常结束却无正文：reasoning 类模型在复杂任务上会把
         # max_tokens 预算在思考阶段(reasoning_content)耗尽,正文 content 一个
         # token 都没产出即被 length 截断。这里给出可操作的诊断,而不是让上层
         # 显示无意义的"(空回复)"。
@@ -129,6 +129,9 @@ async def chat_json(
     messages: List[Dict[str, str]],
     schema: Optional[dict] = None,
     model: Optional[str] = None,
+    temperature: Optional[float] = None,
+    timeout: float = 90.0,
+    max_attempts: int = 2,
 ) -> dict:
     """非流式 JSON 模式调用 —— 结构化抽槽专用（LLM 节点 extract_enhance / best_fit 用）。
 
@@ -137,28 +140,31 @@ async def chat_json(
       • chat_json   —— 非流式，收全文再解析 JSON，给结构化抽取（绝不能边流边抽 JSON）。
 
     护栏（第一期已落实，见 docs/training 调研结论）：
-      • reasoning 模型(step-3.x 等)思考阶段会耗光 max_tokens → 正文空回；必须给足 max_tokens(≥8000)；
+      • reasoning 模型思考阶段会耗光 max_tokens → 正文空回；必须给足 max_tokens(≥8000)；
       • 走 JSON mode(response_format={"type":"json_object"})，按 schema 校验：多余键丢弃、类型强制、
         未知枚举置空（上层回退规则值，绝不裸进 match_kp/compose）；
       • 失败重试一次 → 仍失败 raise LLMError，上层降级到规则抽取结果（绝不阻塞主流程）。
 
     未配置/不可用时：llm 节点默认 enable_llm=False 走 passthrough，系统脱离网络大模型也能正常运行。
+
+    timeout/max_attempts：调用方可按场景收紧（如理解节点首调给短超时+不重试，失败后自行换更轻的
+    prompt 再试——避免「同一超长 prompt 失败后盲目重试同样失败」的假重试）。
     """
     config = _get_llm_config()
     if not config.get("enabled", True):
         raise LLMError("AI 引擎未启用（设置 → AI 设置 → 启用 AI）")
-    client = _client(config["base_url"], config["api_key"], timeout=90)
+    client = _client(config["base_url"], config["api_key"], timeout=timeout)
     if messages and messages[0].get("role") != "system":
         messages = [{"role": "system", "content": config["system_prompt"]}] + messages
 
     last_err: Optional[Exception] = None
-    for attempt in (1, 2):
+    for attempt in range(1, max(1, int(max_attempts)) + 1):
         try:
             resp = await client.chat.completions.create(
                 model=model or config["model"],
                 messages=messages,  # type: ignore[arg-type]
                 response_format={"type": "json_object"},
-                temperature=config["temperature"],
+                temperature=config["temperature"] if temperature is None else temperature,
                 max_tokens=config["max_tokens"],
             )
             content = ""

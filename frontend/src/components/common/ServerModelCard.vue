@@ -96,9 +96,9 @@ const cardClass = computed(() => ({
   padding: 16px;
   border: 1px solid var(--cpq-overlay-w10);
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px var(--cpq-overlay-b20), inset 0 1px 0 var(--cpq-overlay-w15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: all .2s cubic-bezier(.16,1,.3,1);
 }
 .model-card.is-clickable {
@@ -107,7 +107,7 @@ const cardClass = computed(() => ({
 .model-card.is-clickable:hover {
   border-color: var(--cpq-overlay-a30);
   transform: translateY(-2px);
-  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
+  box-shadow: var(--cpq-glass-card-shadow-hover);
 }
 
 .lc-chip {

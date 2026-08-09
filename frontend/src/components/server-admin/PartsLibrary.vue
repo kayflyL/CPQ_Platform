@@ -1,22 +1,19 @@
 <script setup lang="ts">
 /** 料号库管理（管理面）— 所有 L6+KP 料号逐条 CRUD。对应原型管理面料号库。
- *  分类三级，大类/STEP 由 l6.part_taxonomy 管理（左栏可增/改名/删，改名批量传播到所有相关料号）：
- *  一级大类（major_category，主导航）+ 二级子类（category，开放自由输入）；
- *  section（STEP 基准/前面板/后面板/电源）为快速筛选。 */
+ *  分类：大类（major_category，解剖分组，SSOT=l6.part_taxonomy，左栏可增/改名/删）+ 二级子类（category，开放自由输入）。
+ *  STEP(section) 已于 2026-08-09 退役：报价/配置流取料改按 major_category。 */
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons-vue'
-import { partsApi, type PartMaster, type PartSection, type PartMajorCategory } from '@/api/serverConfig'
+import { partsApi, type PartMaster, type PartMajorCategory } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
 import { useSeriesStore } from '@/stores/series'
 
 const parts = ref<PartMaster[]>([])
 const total = ref(0)
 const majorCats = ref<PartMajorCategory[]>([])  // 大类汇总（一级主导航 + 段内子类）
-const sections = ref<PartSection[]>([])          // STEP 汇总（快速筛选用）
 const categories = ref<string[]>([])      // 全部细类别（编辑表单的 category 自动补全用）
 const majorCat = ref<string>('all')       // 一级大类筛选（主导航）
-const section = ref<string>('all')        // STEP 快速筛选（基准/前面板/后面板/电源）
 const cat2 = ref<string>('all')           // 段内子类二级筛选
 const chassisFilter = ref<string>('all')   // 适用机型筛选（all / series名 / common / unclassified）
 // 全平台系列权威源（system_config.server_series）：侧栏机型筛选 + chassis 字段下拉候选都读这里
@@ -41,9 +38,8 @@ const importParsing = ref(false)
 const importCommitting = ref(false)
 
 const categoryOptions = computed(() => categories.value.map(c => ({ label: c, value: c })))
-// 大类/STEP 选项来自 taxonomy（用户可增改），不再写死常量
+// 大类选项来自 taxonomy（用户可增改），不再写死常量
 const majorCategoryOptions = computed(() => majorCats.value.map(m => ({ label: m.major_category, value: m.major_category })))
-const sectionOptions = computed(() => sections.value.map(s => ({ label: s.section, value: s.section })))
 
 // 历史 values 缓存：每个 specs key 的已存在值列表（用于 free-tags 下拉）
 const specValueCache = ref<Record<string, string[]>>({})
@@ -94,10 +90,9 @@ async function load() {
   clearSpecValueCache()
   try {
     const [sortKey, sortOrder] = sortBy.value ? sortBy.value.split('-') : [undefined, undefined]
-    const [listRes, secs, cats] = await Promise.all([
+    const [listRes, cats] = await Promise.all([
       partsApi.list({
         major_category: majorCat.value === 'all' ? undefined : majorCat.value,
-        section: section.value === 'all' ? undefined : section.value,
         category: cat2.value === 'all' ? undefined : cat2.value,
         search: search.value || undefined,
         chassis: chassisFilter.value === 'all' ? undefined : chassisFilter.value,
@@ -106,12 +101,10 @@ async function load() {
         sort_by: sortKey,
         sort_order: sortOrder,
       }),
-      partsApi.sections(),
       partsApi.categories(),
     ])
     parts.value = listRes.parts
     total.value = listRes.total
-    sections.value = secs.sections
     categories.value = cats.categories
     // 大类汇总单独取：后端未重启（无 /major-categories）时不致命，降级为空大类导航
     try {
@@ -140,11 +133,6 @@ function onMajorChange() {
   pagination.value.current = 1
   load()
 }
-// STEP 快速筛选 → 只重置分页 + 重载（与子类正交，不重置子类）
-function onSectionChange() {
-  pagination.value.current = 1
-  load()
-}
 function onCat2Change() {
   pagination.value.current = 1
   load()
@@ -162,13 +150,13 @@ function onSortChange() {
   load()
 }
 
-// ---- 大类/STEP 分类管理（增/改名/删；改名批量传播到所有相关料号）----
-const taxModal = ref<{ open: boolean; mode: 'add' | 'rename'; kind: 'major' | 'step'; oldName?: string; name: string }>(
+// ---- 大类分类管理（增/改名/删；改名批量传播到所有相关料号）----
+const taxModal = ref<{ open: boolean; mode: 'add' | 'rename'; kind: 'major'; oldName?: string; name: string }>(
   { open: false, mode: 'add', kind: 'major', name: '' })
-function openAddTax(kind: 'major' | 'step') {
+function openAddTax(kind: 'major') {
   taxModal.value = { open: true, mode: 'add', kind, name: '' }
 }
-function openRenameTax(kind: 'major' | 'step', oldName: string) {
+function openRenameTax(kind: 'major', oldName: string) {
   taxModal.value = { open: true, mode: 'rename', kind, oldName, name: oldName }
 }
 async function saveTax() {
@@ -180,18 +168,16 @@ async function saveTax() {
     else await partsApi.taxonomy.rename(kind, oldName!, n)
     // 改名后若当前选中的正是被改的项，跟随到新名
     if (mode === 'rename' && kind === 'major' && majorCat.value === oldName) majorCat.value = n
-    if (mode === 'rename' && kind === 'step' && section.value === oldName) section.value = n
     taxModal.value.open = false
     load()
   } catch (e: any) {
     message.error(e.response?.data?.detail || e.message || '操作失败')
   }
 }
-async function deleteTax(kind: 'major' | 'step', name: string) {
+async function deleteTax(kind: 'major', name: string) {
   try {
     await partsApi.taxonomy.remove(kind, name)
     if (kind === 'major' && majorCat.value === name) { majorCat.value = 'all'; cat2.value = 'all' }
-    if (kind === 'step' && section.value === name) section.value = 'all'
     load()
   } catch (e: any) {
     message.error(e.response?.data?.detail || e.message || '删除失败')
@@ -205,7 +191,6 @@ async function openNew() {
   form.value = {
     category: categories.value[0] || '',
     major_category: majorCats.value[0]?.major_category || '',
-    section: sections.value[0]?.section || '',
   }
   specsRows.value = seedSuggested(form.value.category)
   // 确保 seriesStore.items 加载完成（chassis 下拉候选）
@@ -262,7 +247,7 @@ function addSpecRow() {
 function removeSpecRow(i: number) {
   specsRows.value.splice(i, 1)
 }
-// 子类切换时：补齐该子类建议键空行（大类/STEP 由用户从 taxonomy 下拉选）
+// 子类切换时：补齐该子类建议键空行（大类由用户从 taxonomy 下拉选）
 function onCategoryChange() {
   const existing = new Set(specsRows.value.map(r => r.key))
   for (const k of (SUGGESTED_KEYS_BY_CATEGORY[form.value.category || ''] || [])) {
@@ -296,7 +281,7 @@ async function save() {
     const specs = buildSpecs()
     const payload: Partial<PartMaster> = {
       pn: form.value.pn, name: form.value.name, category: form.value.category,
-      major_category: form.value.major_category, section: form.value.section,
+      major_category: form.value.major_category,
       unit_price: form.value.unit_price,
       spec_text: form.value.spec_text, description: form.value.description, specs,
     }
@@ -384,11 +369,11 @@ function resetImport() {
 }
 async function exportParts() {
   try {
-    const res = await partsApi.export(section.value === 'all' ? undefined : section.value)
+    const res = await partsApi.export()
     const url = URL.createObjectURL(new Blob([res.data]))
     const a = document.createElement('a')
     a.href = url
-    a.download = `parts_${section.value || 'all'}.xlsx`
+    a.download = 'parts.xlsx'
     a.click()
     URL.revokeObjectURL(url)
     message.success('已导出')
@@ -462,23 +447,6 @@ onMounted(load)
               <span class="cat-count">{{ m.count }}</span>
               <button class="cat-tool" title="重命名" @click.stop="openRenameTax('major', m.major_category)">✎</button>
               <a-popconfirm title="删除该大类？被料号使用时会拒绝" @confirm="deleteTax('major', m.major_category)">
-                <button class="cat-tool cat-del" title="删除" @click.stop>✕</button>
-              </a-popconfirm>
-            </span>
-          </div>
-        </div>
-        <div class="cat-section">
-          <div class="cat-divider"></div>
-          <div class="cat-section-label"><span>STEP 筛选</span><button class="tax-add" @click="openAddTax('step')" title="新增 STEP">+</button></div>
-          <div :class="['cat-item', { active: section === 'all' }]" @click="section = 'all'; onSectionChange()">
-            <span class="cat-name">全部</span>
-          </div>
-          <div v-for="s in sections" :key="s.section" :class="['cat-item', { active: section === s.section }]" @click="section = s.section; onSectionChange()">
-            <span class="cat-name">{{ s.section }}</span>
-            <span class="cat-tools">
-              <span class="cat-count">{{ s.count }}</span>
-              <button class="cat-tool" title="重命名" @click.stop="openRenameTax('step', s.section)">✎</button>
-              <a-popconfirm title="删除该 STEP？被料号使用时会拒绝" @confirm="deleteTax('step', s.section)">
                 <button class="cat-tool cat-del" title="删除" @click.stop>✕</button>
               </a-popconfirm>
             </span>
@@ -565,19 +533,16 @@ onMounted(load)
         <a-form-item label="规格"><a-input v-model:value="form.spec_text" placeholder="如 PCBA_3.5''_Triple-mode 或 Cable_..._340mm" /></a-form-item>
         <a-form-item label="说明"><a-textarea v-model:value="form.description" :rows="2" placeholder="一句话讲清楚这个料号是什么、用在哪、怎么选，给不熟悉的同事看" /></a-form-item>
         <a-row :gutter="12">
-          <a-col :span="6"><a-form-item label="大类" required>
+          <a-col :span="8"><a-form-item label="大类" required>
             <a-select v-model:value="form.major_category" :options="majorCategoryOptions" placeholder="选择大类" />
           </a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="子类">
+          <a-col :span="8"><a-form-item label="子类">
             <a-auto-complete v-model:value="form.category" :options="categoryOptions"
                              @change="onCategoryChange"
                              :filter-option="(input: string, option: { value: string; label: string }) => (option.value as string).toLowerCase().includes(input.toLowerCase())"
                              placeholder="选择或输入子类" allow-clear />
           </a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="STEP 部段" required>
-            <a-select v-model:value="form.section" :options="sectionOptions" placeholder="基准/前面板/后面板/电源" />
-          </a-form-item></a-col>
-          <a-col :span="6"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
+          <a-col :span="8"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
         </a-row>
 
         <div class="section-title">扩展属性 <span class="section-hint">· 适用于槽位 / 机型 / 规格</span></div>
@@ -648,9 +613,9 @@ onMounted(load)
       </div>
     </a-modal>
 
-    <!-- 分类管理 Modal（新增 / 重命名 大类·STEP）-->
-    <a-modal :open="taxModal.open" :title="(taxModal.mode === 'add' ? '新增' : '重命名') + (taxModal.kind === 'major' ? '大类' : ' STEP')" @ok="saveTax" @cancel="taxModal.open = false" :destroyOnClose="true">
-      <a-input v-model:value="taxModal.name" :placeholder="taxModal.kind === 'major' ? '大类名称' : 'STEP 名称（如 基准件）'" @pressEnter="saveTax" />
+    <!-- 分类管理 Modal（新增 / 重命名 大类）-->
+    <a-modal :open="taxModal.open" :title="(taxModal.mode === 'add' ? '新增' : '重命名') + '大类'" @ok="saveTax" @cancel="taxModal.open = false" :destroyOnClose="true">
+      <a-input v-model:value="taxModal.name" placeholder="大类名称" @pressEnter="saveTax" />
       <div class="field-hint" v-if="taxModal.mode === 'rename'">改名会同步到所有用了该分类的料号。</div>
     </a-modal>
   </div>

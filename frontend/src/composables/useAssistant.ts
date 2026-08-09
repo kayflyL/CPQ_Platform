@@ -26,6 +26,7 @@ export interface AnalysisPrompt {
   clarity_capped: boolean
   stage?: string
   format?: string
+  why?: string
 }
 export interface AnalysisConfirm {
   reply_id: string
@@ -79,6 +80,13 @@ export function useAssistant() {
       }
     }
   }
+  function pushAnalysisSubstep(key: string, sub: { kind: string; text: string }) {
+    const i = analysisSteps.value.findIndex((s) => s.key === key)
+    if (i >= 0) {
+      const cur = analysisSteps.value[i]
+      analysisSteps.value[i] = { ...cur, substeps: [...(cur.substeps || []), sub] }
+    }
+  }
   function finishAnalysisSteps() {
     analysisSteps.value.forEach((s) => {
       if (s.status === 'pending' || s.status === 'running') s.status = 'done'
@@ -115,6 +123,9 @@ export function useAssistant() {
       case 'step_done':
         setAnalysisStep(data.step, 'done', data.payload)
         return
+      case 'step_progress':
+        pushAnalysisSubstep(data.step, data.sub || { kind: 'progress', text: '' })
+        return
       case 'need_input':
         analysisPrompt.value = {
           reply_id: data.reply_id || '',
@@ -124,6 +135,7 @@ export function useAssistant() {
           clarity_capped: !!data.clarity_capped,
           stage: data.stage || undefined,
           format: data.format || undefined,
+          why: data.why || undefined,
         }
         return
       case 'need_confirm':

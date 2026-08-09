@@ -121,10 +121,7 @@ export const useQuoteStore = defineStore('quote', () => {
   
   // 每个配置选择的部件类型（用于生成描述）
   const configSelectedParts = ref<Record<string, string[]>>({})
-  
-  // 质保费率（每个配置独立）
-  const warrantyRates = ref<Record<string, { l6: number; kp: number }>>({})
-  
+
   // 财务常量（用户可在线调整）
   const taxRate = ref(0.13) // 增值税率（默认 13%）
   const exchangeRate = ref(7.0) // 美元汇率（默认 7.0）
@@ -176,36 +173,6 @@ export const useQuoteStore = defineStore('quote', () => {
 
   const grandTotal = computed(() => {
     return l6Total.value + kpTotal.value + warrantyTotal.value
-  })
-
-  const marginPercent = computed(() => {
-    if (grandTotal.value === 0) return 0
-    // 计算综合毛利率: (总销售价 - 总成本) / 总销售价
-    // 成本 = base_price * qty 的总和（不含利润、不含税）
-    let totalCost = 0
-    let totalSales = 0
-    
-    Object.values(configs.value).forEach(cfg => {
-      cfg.items.forEach(item => {
-        // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
-        if (item.category === 'L6' || item.category === '整机') return
-        
-        // 成本口径：RMB base 已含税 → 直接用 base；USD base 不含税 → ×汇率×(1+增值税率) 折成含税 RMB 成本
-        const unitCost = item.currency === 'USD' ? item.base_price * exchangeRate.value * (1 + taxRate.value) : item.base_price
-        const itemCost = unitCost * item.qty
-        // 销售价 = final_price * qty
-        const itemSales = item.final_price * item.qty
-        totalCost += itemCost
-        totalSales += itemSales
-      })
-      // L6 只有一个机箱，始终使用 l6_custom_price
-      totalCost += cfg.l6_custom_price || 0
-      const margin = cfg.l6_profit_margin || 0
-      totalSales += (cfg.l6_custom_price || 0) * (1 + margin / 100)
-    })
-
-    if (totalSales === 0) return 0
-    return ((totalSales - totalCost) / totalSales) * 100
   })
 
   // --- Actions ---
@@ -289,18 +256,6 @@ export const useQuoteStore = defineStore('quote', () => {
           kp: { years: null, rate: 0 }
         }
       }
-      
-      // 初始化质保费率（从后端返回的 warranty_info）
-      // 所有费率默认为 0，遵循"不自动加钱"原则
-      const wInfo = (cfgData as any).warranty_info
-      if (wInfo) {
-        warrantyRates.value[cfgName] = {
-          l6: wInfo.l6?.rate ?? 0,
-          kp: wInfo.kp?.rate ?? 0
-        }
-      } else {
-        warrantyRates.value[cfgName] = { l6: 0, kp: 0 }
-      }
     }
     
     configs.value = newConfigs
@@ -315,21 +270,17 @@ export const useQuoteStore = defineStore('quote', () => {
     }
   }
 
-  // 设置 L6 质保费率（%）
+  // 质保费率单源 = cfg.warranty_info.rate（小数，随 config_warranty_info 持久化）。
+  // 入参 ratePercent 是百分点（2 表示 2%），存时 /100。loadData 直接从 warranty_info 读回，无需第二源。
   function setWarrantyRateL6(cfgName: string, ratePercent: number) {
-    if (!warrantyRates.value[cfgName]) {
-      warrantyRates.value[cfgName] = { l6: 0, kp: 0 }
-    }
-    warrantyRates.value[cfgName].l6 = ratePercent / 100
+    const cfg = configs.value[cfgName]
+    if (cfg?.warranty_info?.l6) cfg.warranty_info.l6.rate = ratePercent / 100
     recalculateAll()
   }
 
-  // 设置 KP 质保费率（%）
   function setWarrantyRateKP(cfgName: string, ratePercent: number) {
-    if (!warrantyRates.value[cfgName]) {
-      warrantyRates.value[cfgName] = { l6: 0, kp: 0 }
-    }
-    warrantyRates.value[cfgName].kp = ratePercent / 100
+    const cfg = configs.value[cfgName]
+    if (cfg?.warranty_info?.kp) cfg.warranty_info.kp.rate = ratePercent / 100
     recalculateAll()
   }
 
@@ -447,19 +398,15 @@ export const useQuoteStore = defineStore('quote', () => {
     recalculateAll()
   }
 
-  // 清零 L6 质保费率
   function clearWarrantyL6(cfgName: string) {
-    if (warrantyRates.value[cfgName]) {
-      warrantyRates.value[cfgName].l6 = 0
-    }
+    const cfg = configs.value[cfgName]
+    if (cfg?.warranty_info?.l6) cfg.warranty_info.l6.rate = 0
     recalculateAll()
   }
 
-  // 清零 KP 质保费率
   function clearWarrantyKP(cfgName: string) {
-    if (warrantyRates.value[cfgName]) {
-      warrantyRates.value[cfgName].kp = 0
-    }
+    const cfg = configs.value[cfgName]
+    if (cfg?.warranty_info?.kp) cfg.warranty_info.kp.rate = 0
     recalculateAll()
   }
 
@@ -471,30 +418,25 @@ export const useQuoteStore = defineStore('quote', () => {
     }
   }
 
-  // 获取某配置的 L6 质保费率（%）
   function getWarrantyRateL6Pct(cfgName: string): number {
-    return (warrantyRates.value[cfgName]?.l6 ?? 0) * 100
+    return (configs.value[cfgName]?.warranty_info?.l6?.rate ?? 0) * 100
   }
 
-  // 获取某配置的 KP 质保费率（%）
   function getWarrantyRateKPPct(cfgName: string): number {
-    return (warrantyRates.value[cfgName]?.kp ?? 0) * 100
+    return (configs.value[cfgName]?.warranty_info?.kp?.rate ?? 0) * 100
   }
 
-  // 计算某配置的 L6 质保费
+  // 维保费 = 售价 × rate（rate 已按年限映射好，如 3年=2%，不再 × years）
   function calcWarrantyFeeL6(cfgName: string): number {
     const cfg = configs.value[cfgName]
     if (!cfg) return 0
-    const rate = warrantyRates.value[cfgName]?.l6 ?? 0
-    return cfg.summary.l6_total * rate
+    return cfg.summary.l6_total * (cfg.warranty_info?.l6?.rate ?? 0)
   }
 
-  // 计算某配置的 KP 质保费
   function calcWarrantyFeeKP(cfgName: string): number {
     const cfg = configs.value[cfgName]
     if (!cfg) return 0
-    const rate = warrantyRates.value[cfgName]?.kp ?? 0
-    return cfg.summary.kp_total * rate
+    return cfg.summary.kp_total * (cfg.warranty_info?.kp?.rate ?? 0)
   }
 
   // 计算单个配置的财务数据（供组件调用，替代组件内重复逻辑）
@@ -572,7 +514,6 @@ export const useQuoteStore = defineStore('quote', () => {
     for (const cfg of Object.values(configs.value)) {
       let l6Sum = 0
       let kpSum = 0
-      let warrantySum = 0
 
       for (const item of cfg.items) {
         // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
@@ -597,19 +538,12 @@ export const useQuoteStore = defineStore('quote', () => {
       // L6 只有一个机箱，始终使用 l6_custom_price
       l6Sum = cfg.l6_custom_price || 0
 
-      // 根据用户填写的年限和费率自动计算维保价格
-      // 公式：维保价格 = 硬件总价 × 费率 × 年限
-      const l6WarrantyPrice = cfg.warranty_info?.l6?.years && cfg.warranty_info?.l6?.rate
-        ? l6Sum * cfg.warranty_info.l6.rate * cfg.warranty_info.l6.years
-        : 0
-      const kpWarrantyPrice = cfg.warranty_info?.kp?.years && cfg.warranty_info?.kp?.rate
-        ? kpSum * cfg.warranty_info.kp.rate * cfg.warranty_info.kp.years
-        : 0
-      warrantySum = l6WarrantyPrice + kpWarrantyPrice
-
       cfg.summary.l6_total = Math.round(l6Sum * (1 + ((cfg.l6_profit_margin ?? 10) / 100)) * 100) / 100
       cfg.summary.kp_total = Math.round(kpSum * 100) / 100
-      cfg.summary.warranty_total = Math.round(warrantySum * 100) / 100
+      // 维保 = 售价 × rate（rate 已按年限映射好，如 3年=2%，不再 × years；与 calcWarrantyFeeL6/KP 同口径）
+      const wTotal = cfg.summary.l6_total * (cfg.warranty_info?.l6?.rate ?? 0)
+        + cfg.summary.kp_total * (cfg.warranty_info?.kp?.rate ?? 0)
+      cfg.summary.warranty_total = Math.round(wTotal * 100) / 100
       cfg.summary.grand_total = cfg.summary.l6_total + cfg.summary.kp_total + cfg.summary.warranty_total
     }
   }
@@ -665,7 +599,19 @@ export const useQuoteStore = defineStore('quote', () => {
               l6_section_totals: cfg.l6_section_totals ?? null,
             }])
           ),
-          config_selected_parts: configSelectedParts.value
+          config_selected_parts: configSelectedParts.value,
+          // 顶层 total_price/profit_margin/l6_price = 主配置(第一个)，只给列表/卡片快览；
+          // 与工作台 getConfigTotals(activeCfg) 同源（默认激活首配置 → 列表 = 工作台首屏）。
+          // 导出/预览 Excel 走 config_summary（逐配置）+ cost_snapshot，不读这三个字段。
+          ...((): Record<string, number> => {
+            const first = Object.keys(configs.value)[0]
+            const t = first ? configTotalsMap.value[first] : null
+            return {
+              total_price: Math.round((t?.totalSales || 0) * 100) / 100,
+              profit_margin: Math.round((t?.marginPct || 0) * 100) / 100,
+              l6_price: Math.round((t?.l6Sales || 0) * 100) / 100,
+            }
+          })(),
         }
 
         const result = await quotationApi.updateDetails(quotationId, payload)
@@ -687,7 +633,6 @@ export const useQuoteStore = defineStore('quote', () => {
           },
           configs: configs.value,
           config_quantities: configQuantities.value,
-          warranty_rates: warrantyRates.value,
           totals: {
             l6_total: l6Total.value,
             kp_total: kpTotal.value,
@@ -708,8 +653,8 @@ export const useQuoteStore = defineStore('quote', () => {
   }
 
   return {
-    opportunityInfo, configs, configQuantities, configSelectedParts, warrantyRates, taxRate, exchangeRate,
-    l6Total, kpTotal, grandTotal, marginPercent,
+    opportunityInfo, configs, configQuantities, configSelectedParts, taxRate, exchangeRate,
+    l6Total, kpTotal, grandTotal,
     loadData, updateItem,
     setWarrantyRateL6, setWarrantyRateKP,
     setWarrantyYearsL6, setWarrantyYearsKP,

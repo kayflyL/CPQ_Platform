@@ -358,3 +358,143 @@ def test_build_messages_contains_text_and_digest():
     assert msgs[0]["role"] == "system"
     assert "960G NMVE" in msgs[1]["content"]
     assert "HDD/SSD" in msgs[1]["content"]
+
+
+# ============================================================
+# agent 主理解路（P1.2）：ext 从空起步，LLM 槽位确定性全填
+# ============================================================
+
+def test_merge_agent_primary_fills_all_essential_keys():
+    """agent 主理解路：ext 从空起步，LLM 槽位合并后 pick_kp_parts/build_plan 所需全键齐全。"""
+    ext: dict = {}
+    cleaned = {
+        "cpu": {"model": "AMD EPYC 9124", "cores": 16, "qty": 1},
+        "memory": {"per_stick_gb": 32, "qty": 16, "type": "DDR5", "speed_mt": 5600},
+        "drives": [{"capacity": "3.84T", "interface": "NVMe", "qty": 2},
+                   {"capacity": "480G", "interface": "SATA", "qty": 2}],
+        "gpu": [{"model": "RTX 5090", "qty": 8}],
+        "nic": [{"speed_g": 25, "ports": 2, "qty": 2, "with_optical_module": True}],
+        "psu": {"wattage": 2700, "qty": 4},
+        "raid": {"model": "LSI 9560-16i", "qty": 1},
+        "form": "4U",
+        "server_type": "AI / 加速计算服务器",
+    }
+    merge_into_ext(ext, cleaned,
+                   requirement_text="EPYC 9124 / 32G*16 DDR5 / 2*3.84T NVMe / RTX 5090 32G*8 / 双口25G",
+                   catalog={"server_types": ["AI / 加速计算服务器", "通用计算服务器", "存储服务器"]})
+    cats = ext["categories"]
+    for c in ("CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement", "Raid card"):
+        assert c in cats, f"缺品类 {c}"
+    # CPU 信号 + 型号 token 进 keywords（P1.2 补丁）
+    assert ext["cpu_signal"]["model"] == "AMD EPYC 9124"
+    assert "9124" in ext["keywords"]
+    # 内存信号 + 组
+    assert ext["mem_signal"]["type"] == "DDR5"
+    assert ext["mem_groups"] == [{"term": "32G", "qty": 16}]
+    # 盘组（两种盘）
+    assert sorted(g["term"] for g in ext["drive_groups"]) == ["3.84T", "480G"]
+    # GPU 组
+    assert ext["gpu_groups"][0]["qty"] == 8
+    # 网卡多规格行
+    assert ext["multi_spec_filters"]["Network(NIC) requirement"][0]["qty"] == 2
+    # 电源
+    assert ext["psu_signal"]["wattage"] == 2700
+    # RAID 组（P1.2 补丁：形状 {model,qty,cache}，对齐 _extract_raid_groups）
+    assert ext["raid_groups"] == [{"model": "LSI 9560-16i", "qty": 1, "cache": None}]
+    assert ext["raid_signal"] == {"model": "LSI 9560-16i", "qty": 1}
+    # 形态 + 服务器类型（P1.2：catalog 锚定）
+    assert ext["form"] == "4U"
+    assert ext["server_type_name"] == "AI / 加速计算服务器"
+    assert ext["usage"] == "AI / 加速计算服务器"
+
+
+def test_merge_server_type_catalog_anchored():
+    """P1.2：server_type 命中 catalog 在售白名单才写（防 LLM 编造类型）；编造/无 catalog → 不写。"""
+    catalog = {"server_types": ["AI / 加速计算服务器", "通用计算服务器", "存储服务器"]}
+    ext = {}
+    merge_into_ext(ext, {"server_type": "通用计算服务器"}, requirement_text="web", catalog=catalog)
+    assert ext["server_type_name"] == "通用计算服务器"
+    # 不在白名单（编造）→ 拒绝
+    ext2 = {}
+    merge_into_ext(ext2, {"server_type": "量子计算服务器"}, requirement_text="x", catalog=catalog)
+    assert "server_type_name" not in ext2
+    # 无 catalog（增强路）→ 不校验也不写 server_type（agent 路必传 catalog）
+    ext3 = {}
+    merge_into_ext(ext3, {"server_type": "AI"}, requirement_text="x")
+    assert "server_type_name" not in ext3
+
+
+def test_merge_cpu_model_token_enters_keywords_dedup():
+    """P1.2：CPU 型号 token 进 keywords（stage-1 精确命中），重复同型号去重。"""
+    ext: dict = {}
+    merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
+    assert "KH50000" in ext["keywords"]
+    merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
+    assert ext["keywords"].count("KH50000") == 1
+
+
+def test_merge_raid_groups_shape_matches_extract():
+    """P1.2：raid_groups 形状对齐 _extract_raid_groups（{model,qty,cache}），_pick_raid_groups 可消费；同型号去重。"""
+    ext: dict = {}
+    merge_into_ext(ext, {"raid": {"model": "9560-8i", "qty": 1}}, requirement_text="RAID卡 9560-8i")
+    assert ext["raid_groups"] == [{"model": "9560-8i", "qty": 1, "cache": None}]
+    merge_into_ext(ext, {"raid": {"model": "9560-8i", "qty": 1}}, requirement_text="RAID卡 9560-8i")
+    assert len(ext["raid_groups"]) == 1
+
+def test_merge_drive_capacity_gb_ai_first():
+    """AI-first（2026-08 修）：LLM 把"1T以上的硬盘"归一成 capacity_gb=1024 →
+    merge 必须产出 drive_group term=1024G + HDD/SSD 品类（此前只给 capacity:"1T以上" →
+    _term_from_capacity 返回 None → 整条盘需求被静默跳过 → 方案零硬盘 + 审计误报）。"""
+    ext: dict = {}
+    merge_into_ext(
+        ext,
+        {"drives": [{"capacity": "1T以上", "capacity_gb": 1024, "qty": 1}]},
+        requirement_text="配1T以上的硬盘",
+    )
+    assert ext["drive_groups"] == [{"term": "1024G", "qty": 1, "kind": None}]
+    assert "HDD/SSD" in ext["categories"]
+
+    # 缺 capacity_gb（AI 没归一）→ 比较短语不猜，保持跳过（不产错误盘）
+    ext2: dict = {}
+    merge_into_ext(
+        ext2,
+        {"drives": [{"capacity": "1T以上", "qty": 1}]},
+        requirement_text="配1T以上的硬盘",
+    )
+    assert not ext2.get("drive_groups")
+    assert "HDD/SSD" not in ext2.get("categories", [])
+
+
+def test_merge_drive_comparison_gte_carried():
+    """AI comparison（gte/lte）从 LLM 契约透传到 drive_groups（2026-08 可配置化）。"""
+    ext: dict = {}
+    merge_into_ext(
+        ext,
+        {"drives": [{"capacity": "1T以上", "capacity_gb": 1024, "comparison": "gte", "qty": 1}]},
+        requirement_text="配1T以上的硬盘",
+    )
+    assert ext["drive_groups"][0]["term"] == "1024G"
+    assert ext["drive_groups"][0]["comparison"] == "gte"
+    # 无比较 → 不写 comparison 键
+    ext2: dict = {}
+    merge_into_ext(
+        ext2,
+        {"drives": [{"capacity": "960G", "capacity_gb": 960, "qty": 1}]},
+        requirement_text="配960G硬盘",
+    )
+    assert "comparison" not in ext2["drive_groups"][0]
+
+
+def test_merge_gpu_vram_only_comparison():
+    """AI 显存约束（2026-08）：无型号的"48G以上显存"→ 纯显存组（tokens=[] + cap + comparison）。"""
+    ext: dict = {}
+    merge_into_ext(
+        ext,
+        {"gpu": [{"capacity_gb": 48, "comparison": "gte", "qty": 2}]},
+        requirement_text="配2张48G以上显存的显卡",
+    )
+    g = ext["gpu_groups"]
+    assert len(g) == 1
+    assert g[0]["tokens"] == [] and g[0]["cap"] == 48
+    assert g[0]["comparison"] == "gte" and g[0]["qty"] == 2
+    assert "GPU" in ext["categories"]

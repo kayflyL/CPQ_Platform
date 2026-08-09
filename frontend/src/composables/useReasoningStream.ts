@@ -15,6 +15,7 @@ export interface ReasoningStep {
   label: string
   status: StepStatus
   payload?: any
+  substeps?: { kind: string; text: string }[]
 }
 
 export interface ConfirmItem {
@@ -89,6 +90,14 @@ export function useReasoningStream() {
     }
   }
 
+  function pushSubstep(key: string, sub: { kind: string; text: string }) {
+    const i = steps.value.findIndex((s) => s.key === key)
+    if (i >= 0) {
+      const cur = steps.value[i]
+      steps.value[i] = { ...cur, substeps: [...(cur.substeps || []), sub] }
+    }
+  }
+
   function connect(opportunityId: string) {
     disconnect()
     reset()
@@ -134,6 +143,10 @@ export function useReasoningStream() {
           break
         case 'step_done':
           setStep(data.step, 'done', data.payload)
+          break
+        case 'step_progress':
+          // 节点内子进度（如 llm_agent「AI 理解中...」「理解到：...」），白盒化长等待
+          pushSubstep(data.step, data.sub || { kind: 'progress', text: '' })
           break
         case 'need_input':
           // ask_user 节点：暂停 pipeline，等用户回复补充

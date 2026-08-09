@@ -21,7 +21,7 @@ export const fromKpPart = (p: KpPart): PickerItem =>
 
 export const fromPartMaster = (p: PartMaster): PickerItem =>
   assertPn({
-    pn: p.pn, name: p.name, category: p.category, section: p.section,
+    pn: p.pn, name: p.name, category: p.category,
     specs: p.specs, unit_price: p.unit_price, supplier: p.supplier,
     description: p.spec_text, applicable: p.applicable, source: 'l6',
   })

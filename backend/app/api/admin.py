@@ -243,18 +243,6 @@ def kp_price_movers(days: int = 7, limit: int = 10):
         repo.close()
 
 
-@router.get("/kp/price-matrix")
-def kp_price_matrix(category_id: int, group_key: str):
-    """同类比价矩阵：同分类下按某 spec_key 分组的价格分布（min/Q1/median/Q3/max + 明细）"""
-    if not category_id or not group_key:
-        raise HTTPException(status_code=400, detail="category_id 和 group_key 必填")
-    repo = KPRepository()
-    try:
-        return repo.get_price_matrix(category_id, group_key)
-    finally:
-        repo.close()
-
-
 @router.get("/kp/parts/duplicates")
 def kp_parts_duplicates():
     """疑似重复配件检测：oem_sku/alt_sku 精确（强信号）+ 名称 difflib 相似度（弱信号），返回重复组"""

@@ -80,6 +80,15 @@
   /* 数字读数 —— tabular 等宽 + lining，配合 .cpq-reading */
   --cpq-num-feature: 'tnum' 1, 'lnum' 1;
 
+
+  /* ============ 白玻璃卡片配方（统一由主题管理，页面禁止硬编码） ============ */
+  /* 对齐策略中心模块卡：斜向高光渐变（白 6%→白 3%→黑 20%）+ 磨砂 + 内顶部高光 + 柔和外投影 */
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  --cpq-glass-card-blur: 14px;
+  --cpq-glass-card-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  --cpq-glass-card-shadow-hover: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
+  --cpq-glass-card-shadow-glow: 0 10px 30px var(--cpq-shadow-color-soft), 0 0 16px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-overlay-w15);
+
   color-scheme: light;
 }
 

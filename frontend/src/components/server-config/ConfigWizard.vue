@@ -475,7 +475,7 @@ onMounted(() => {
 <style scoped>
 .sc-wizard { max-width: 1440px; margin: 0 auto; }
 .sc-steps { display: flex; align-items: center; gap: 0; margin-bottom: 20px; padding: 12px 20px;
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-a15); border-radius: 18px;
   box-shadow: var(--cpq-shadow-md); position: sticky; top: 0; z-index: 10; }
@@ -501,7 +501,7 @@ onMounted(() => {
 .sc-alert-tx { flex: 1; }
 .sc-col-right { flex: 0 0 280px; position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow-y: auto; }
 .sc-cost-card { padding: 18px; border-radius: 18px;
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px); border: 1px solid var(--cpq-overlay-a15); box-shadow: var(--cpq-shadow-md); }
 .cc-hero { display: flex; flex-direction: column; gap: 2px; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--cpq-overlay-w10); }
 .cc-hero-label { font-size: 12px; color: var(--cpq-text-muted,#6E7582); }

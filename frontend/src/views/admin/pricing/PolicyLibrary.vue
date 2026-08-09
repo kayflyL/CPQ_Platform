@@ -148,10 +148,10 @@ onMounted(load)
   flex: 0 0 200px;
   border-radius: 14px;
   border: 1px solid var(--cpq-glass-border);
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 60%, var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
   padding: 12px 10px;
   position: sticky;
   top: 76px;
@@ -203,10 +203,10 @@ onMounted(load)
   padding: 14px 16px 12px;
   border: 1px solid var(--cpq-glass-border);
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   min-height: 132px;
 }
@@ -214,7 +214,7 @@ onMounted(load)
 .pl-card.is-clickable:hover {
   border-color: var(--cpq-glass-border-strong);
   transform: translateY(-2px);
-  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
+  box-shadow: var(--cpq-glass-card-shadow-hover);
 }
 .pl-card-top { display: flex; align-items: center; justify-content: space-between; }
 .pl-card-cat {

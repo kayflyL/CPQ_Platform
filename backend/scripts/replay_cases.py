@@ -31,7 +31,7 @@ def _real_diffs(s: dict) -> int:
         int(s.get("l6_diff") or 0) + int(s.get("requirement_diff") or 0)
 
 
-async def _run_flow(requirement: str):
+async def _run_flow(requirement: str, ai_mode: bool = False):
     repo = ReasoningFlowRepository()
     try:
         flow = repo.get_active_flow()
@@ -43,9 +43,12 @@ async def _run_flow(requirement: str):
     events: list = []
     async def _collect(payload: dict):
         events.append(payload)
+    initial_ctx = {"budget": None, "force_complete": True}
+    if ai_mode:
+        initial_ctx["llm_enabled"] = True  # route_fork → AI 路（llm_agent 主理解）
     try:
         ctx = await run_graph_executor("replay", requirement, flow, _collect,
-                                       initial_ctx={"budget": None, "force_complete": True})
+                                       initial_ctx=initial_ctx)
     except Exception as e:
         return None, f"图执行失败: {e}"
     return ctx.get("plans") or [], None
@@ -70,12 +73,12 @@ def _print_diff(d: dict, prefix="    "):
         print(f"{prefix}• [{tag}] {who} {d.get('field', '')}: 系统={d.get('system')} vs 案例={d.get('case')} {d.get('note', '')}")
 
 
-async def replay_one(case: dict) -> dict:
+async def replay_one(case: dict, ai_mode: bool = False) -> dict:
     req = (case.get("requirement") or "").strip()
     if not req:
         return {"case": case["case_key"], "name": case["name"], "status": "skip",
                 "reason": "requirement 为空（旧案例未补）"}
-    plans, err = await _run_flow(req)
+    plans, err = await _run_flow(req, ai_mode=ai_mode)
     if err:
         return {"case": case["case_key"], "name": case["name"], "status": "error", "reason": err}
     if not plans:
@@ -106,6 +109,7 @@ async def replay_one(case: dict) -> dict:
 async def main():
     ap = argparse.ArgumentParser(description="BOM案例库全量重放（改规则安全网）")
     ap.add_argument("--case", help="只重放指定 case_key")
+    ap.add_argument("--ai", action="store_true", help="走 AI 路（llm_agent 主理解；默认走本地 extract 路）")
     args = ap.parse_args()
 
     repo = BomCaseRepository()
@@ -121,7 +125,7 @@ async def main():
 
     results = []
     for c in cases:
-        results.append(await replay_one(c))
+        results.append(await replay_one(c, ai_mode=args.ai))
 
     ok_n = diff_n = skip_n = err_n = 0
     for r in results:

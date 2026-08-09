@@ -42,6 +42,15 @@
       </div>
     </div>
 
+    <!-- 加载骨架：数据未到先占位，避免白屏/无响应感 -->
+    <div v-if="loading && !opportunity" class="detail-skeleton">
+      <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 4 }" /></div>
+      <div class="sk-grid">
+        <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 12 }" /></div>
+        <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 12 }" /></div>
+      </div>
+    </div>
+
     <!-- 信息卡片 -->
     <div v-if="opportunity" class="info-card glass">
       <div class="info-status-bar">
@@ -1242,8 +1251,10 @@ const loadInfoFields = async () => {
 onMounted(async () => {
   loadInfoFields()
   loadDeletedQuotations()
-  await loadProject()
-  feed.load().then(() => feed.connect()).catch(() => {})
+  // 详情主数据与 feed（消息/附件）并行加载，互不阻塞；主内容仍等 loadProject 返回后填充
+  const projectP = loadProject()
+  const feedP = feed.load().then(() => feed.connect()).catch(() => {})
+  await Promise.all([projectP, feedP])
 })
 
 onBeforeUnmount(() => {
@@ -1859,4 +1870,9 @@ onBeforeUnmount(() => {
 .text-btn.restore:hover {
   background: var(--cpq-overlay-a10);
 }
+.detail-skeleton { display: flex; flex-direction: column; gap: 16px; padding: 16px 0; }
+.sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.sk-card { padding: 16px; border-radius: 12px; }
+@media (max-width: 900px) { .sk-grid { grid-template-columns: 1fr; } }
+
 </style>

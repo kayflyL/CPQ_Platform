@@ -14,7 +14,6 @@ router = APIRouter(prefix="/api/parts", tags=["parts"])
 def list_parts(
     category: Optional[str] = None,
     major_category: Optional[str] = None,
-    section: Optional[str] = None,
     search: Optional[str] = None,
     chassis: Optional[str] = None,
     page: int = 1,
@@ -24,7 +23,7 @@ def list_parts(
 ):
     """分页查询料号列表。page 从 1 开始。"""
     repo = PartsMasterRepository()
-    all_parts = repo.list(category, search, section, major_category=major_category)
+    all_parts = repo.list(category, search, major_category=major_category)
     if chassis:
         all_parts = [
             p for p in all_parts
@@ -40,9 +39,6 @@ def list_parts(
     return {"parts": all_parts[start:end], "total": total}
 
 
-@router.get("/sections")
-def list_sections():
-    return {"sections": PartsMasterRepository().sections()}
 
 @router.get("/major-categories")
 def list_major_categories():
@@ -50,15 +46,18 @@ def list_major_categories():
     return {"major_categories": PartsMasterRepository().major_categories()}
 
 
-# ---- 分类管理（大类/STEP 的增/改名/删，改名删除批量传播到 parts_master）----
+# ---- 分类管理（大类的增/改名/删，改名删除批量传播到 parts_master）----
 @router.get("/taxonomy")
 def list_taxonomy(kind: str = "major"):
-    """分类列表：[{name, count, categories}]，顺序由 part_taxonomy 决定。kind=major|step。"""
-    return {"items": PartsMasterRepository().list_taxonomy(kind)}
+    """分类列表：[{name, count, categories}]，顺序由 part_taxonomy 决定。kind=major。"""
+    try:
+        return {"items": PartsMasterRepository().list_taxonomy(kind)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 @router.post("/taxonomy")
 def add_taxonomy(body: dict):
-    """新增分类。body: {kind:'major'|'step', name}。"""
+    """新增分类。body: {kind:'major', name}。"""
     try:
         return PartsMasterRepository().add_taxonomy(body.get("kind", ""), body.get("name", ""))
     except ValueError as e:
@@ -101,17 +100,16 @@ def get_spec_values(category: str, spec_key: str):
 
 
 @router.get("/export")
-def export_parts(section: Optional[str] = None):
+def export_parts():
     """导出料号库为 Excel。"""
     repo = PartsMasterRepository()
-    parts = repo.list(section=section)
+    parts = repo.list()
     # 展平 specs 为多列
     rows = []
     for p in parts:
         row = {
             "料号PN": p.get("pn"),
             "名称": p.get("name"),
-            "部段": p.get("section"),
             "类别": p.get("category"),
             "单价": p.get("unit_price"),
             "规格文本": p.get("spec_text"),
@@ -133,7 +131,7 @@ def export_parts(section: Optional[str] = None):
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename=parts_{section or 'all'}.xlsx"}
+        headers={"Content-Disposition": "attachment; filename=parts.xlsx"}
     )
 
 
@@ -145,7 +143,7 @@ def download_import_template():
         {
             "料号PN": "S.E.M.0000351",
             "名称": "3.5寸背板 PCBA",
-            "部段": "基准件",
+            "大类": "机箱主体",
             "类别": "背板",
             "单价": 850.00,
             "规格文本": "PCBA_3.5''_Triple-mode",
@@ -177,16 +175,17 @@ async def import_parts(file: UploadFile = File(...), dry_run: bool = True):
         "料号PN": "pn", "料号": "pn", "PN": "pn",
         "名称": "name",
         "大类": "major_category",
-        "部段": "section",
         "类别": "category",
         "单价": "unit_price",
         "规格文本": "spec_text",
         "说明": "description",
     }
 
+    # 已退役字段（旧模板残留列，忽略不导入，也不当扩展属性）
+    ignored_cols = {"部段"}
     # 识别扩展属性列（不在 col_map 中的列）
     known_cols = set(col_map.keys())
-    spec_cols = [c for c in df.columns if c not in known_cols and not c.startswith("_")]
+    spec_cols = [c for c in df.columns if c not in known_cols and c not in ignored_cols and not c.startswith("_")]
 
     preview = []
     summary = {"total": len(df), "new": 0, "update": 0, "invalid": 0}

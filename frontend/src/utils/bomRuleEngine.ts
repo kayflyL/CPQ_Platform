@@ -99,10 +99,11 @@ function structCount(scope: string, ctx: BomEvalContext, row: BomTemplateRow): s
     return gpuQty > 0 ? `${gpuQty}*GPU` : ''
   }
   if (scope === 'front_cables') {
+    // desc 只显示描述，绝不显示 pn（料号）——优先线缆名，拿不到退回盘型名
     const cables = DRIVE_KINDS.map(k => {
       const q = ctx.frontCableQty(k); const info = ctx.frontCableInfo(k)
       if (q <= 0) return null
-      return `${q}*${info.pn || k}`
+      return `${q}*${info.name || k}`
     }).filter(Boolean)
     return cables.join('，')
   }

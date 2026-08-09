@@ -107,6 +107,15 @@ class SystemConfigRepository:
             {"key": "warranty_desc_l6", "value": "质保3年，非人为及不可抗力引起的故障，软件FW问题支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "L6 默认质保条款"},
             {"key": "warranty_desc_kp", "value": "质保1年，非人为及不可抗力引起的故障，支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "KP 默认质保条款"},
             {"key": "server_series", "value": json.dumps([{"value": "Orion", "label": "Orion"}, {"value": "Polaris", "label": "Polaris"}, {"value": "Intel", "label": "Intel"}, {"value": "工作站", "label": "工作站"}], ensure_ascii=False), "type": "json", "description": "服务器系列选项（全平台唯一权威源：基准配置/机型/料件适用机型/商机平台类型）"},
+            # KP 配件库筛选白名单：每品类只显业内关键 spec（不堆全部），Brand 另算（kp_parts.brand），管理面可改，拒绝硬编码
+            {"key": "kp_filter_dims", "value": json.dumps({
+                "HDD/SSD": ["Capacity", "Type", "Form Factor", "Media"],
+                "Memory": ["Capacity", "Type", "Speed"],
+                "GPU": ["Capacity", "Architecture", "tdp"],
+                "CPU": ["Cores", "tdp", "Socket"],
+                "Network(NIC) requirement": ["Link Speed", "Ports", "接口"],
+                "Raid card": ["Ports", "Cache", "电容"]
+            }, ensure_ascii=False), "type": "json", "description": "KP 筛选白名单：每品类只显这些 spec 维度（业内关键，不堆全部）；Brand 另算（kp_parts.brand 并进第一组）；管理面 system-config 可改"},
             # 需求分析：电源瓦数推断（技术员按 GPU 功耗选电源的自动化规则，可调，拒绝硬编码）
             {"key": "psu_inference", "value": json.dumps({
                 "high_tdp_gpus": ["H100", "A100", "H200", "B200", "B100", "L40", "MI300",

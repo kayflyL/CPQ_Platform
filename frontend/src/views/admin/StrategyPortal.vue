@@ -110,17 +110,17 @@ onMounted(async () => {
   padding: 20px;
   border: 1px solid var(--cpq-glass-border);
   border-radius: 14px;
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  box-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .mod-card.is-clickable { cursor: pointer; }
 .mod-card.is-clickable:hover {
   border-color: var(--cpq-glass-border-strong);
   transform: translateY(-2px);
-  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), inset 0 1px 0 var(--cpq-overlay-w15);
+  box-shadow: var(--cpq-glass-card-shadow-hover);
 }
 
 .mc-head { display: flex; align-items: center; gap: 14px; }

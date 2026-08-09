@@ -205,8 +205,10 @@ class QuoteService:
                     meta['config_warranty_info'] = latest.config_warranty_info
 
             configs = {}
+            # 一次 IN 查询取全部报价单 items（消除逐单查询的 N+1）
+            items_by_quo = q_repo.get_items_by_quotation_ids([q.quotation_id for q in quotations])
             for quo in quotations:
-                cfg_items = [item.to_dict() for item in q_repo.get_items(quo.quotation_id)]
+                cfg_items = [item.to_dict() for item in items_by_quo.get(quo.quotation_id, [])]
                 for item in cfg_items:
                     cfg_name = item.get('config_name', 'CFG1')
                     configs.setdefault(cfg_name, []).append(item)

@@ -5,7 +5,7 @@
  */
 import type { Branding } from '@/store/settings'
 import { DEFAULT_COMMERCIAL_TERMS } from '@/store/settings'
-import { DEFAULT_LABELS, type DisplayOptions } from '@/types/specTemplate'
+import { DEFAULT_LABELS, DEFAULT_SPEC_STYLES, type DisplayOptions } from '@/types/specTemplate'
 
 /** 默认品牌配置 */
 export const DEFAULT_BRANDING: Branding = {
@@ -22,6 +22,7 @@ export const DEFAULT_BRANDING: Branding = {
 
 /** 默认显示控制选项 */
 export const DEFAULT_DISPLAY_OPTIONS: DisplayOptions = {
+  styles: { ...DEFAULT_SPEC_STYLES },
   show_price_column: true,
   show_chassis_total: true,
   show_kp_subtotal: true,
@@ -36,7 +37,11 @@ export const DEFAULT_DISPLAY_OPTIONS: DisplayOptions = {
 export function getDefaultTemplateConfig() {
   return {
     branding: { ...DEFAULT_BRANDING },
-    display_options: { ...DEFAULT_DISPLAY_OPTIONS, labels: { ...DEFAULT_LABELS } }
+    display_options: {
+      ...DEFAULT_DISPLAY_OPTIONS,
+      labels: { ...DEFAULT_LABELS },
+      styles: { ...DEFAULT_SPEC_STYLES }
+    }
   }
 }
 

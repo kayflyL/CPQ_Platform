@@ -54,16 +54,16 @@ onMounted(loadTypes)
   border: 1px solid var(--cpq-glass-border);
   border-radius: var(--cpq-radius-xl); cursor: pointer;
   transition: all .3s var(--cpq-ease-out-expo); overflow: hidden;
-  background: linear-gradient(135deg, var(--cpq-glass-1-bg) 0%, var(--cpq-glass-2-bg) 100%);
-  backdrop-filter: blur(var(--cpq-glass-blur-1));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1));
-  box-shadow: var(--cpq-shadow-md), inset 0 1px 0 var(--cpq-glass-highlight);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
 }
 .sc-type-card:hover {
   border-color: var(--cpq-glass-border-strong);
   transform: translateY(-3px);
-  background: linear-gradient(135deg, var(--cpq-glass-2-bg) 0%, var(--cpq-glass-1-bg) 100%);
-  box-shadow: var(--cpq-shadow-lg), 0 0 0 1px var(--cpq-overlay-a15), inset 0 1px 0 var(--cpq-glass-highlight);
+  background: var(--cpq-glass-card-bg);
+  box-shadow: var(--cpq-glass-card-shadow-hover);
 }
 .sc-type-card:hover .tn { color: var(--cpq-accent-primary); }
 .sc-type-card .tn { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--cpq-text-primary, #E8ECEF); }

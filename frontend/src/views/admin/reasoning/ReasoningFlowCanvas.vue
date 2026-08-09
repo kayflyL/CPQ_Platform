@@ -14,7 +14,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import { message } from 'ant-design-vue'
-import { PlayCircleOutlined, ExclamationCircleOutlined, NodeIndexOutlined, UndoOutlined, RedoOutlined, ThunderboltOutlined, ClearOutlined } from '@ant-design/icons-vue'
+import { PlayCircleOutlined, ExclamationCircleOutlined, NodeIndexOutlined, UndoOutlined, RedoOutlined, ClearOutlined, QuestionCircleOutlined, ToolOutlined } from '@ant-design/icons-vue'
 import { reasoningFlowApi, type ReasoningFlow as RFlow } from '@/api/reasoningFlow'
 import ReasoningNodeVf from './ReasoningNodeVf.vue'
 import ReasoningNodeDrawer from './ReasoningNodeDrawer.vue'
@@ -24,35 +24,72 @@ import { useTestRun } from '@/composables/useTestRun'
 import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
 import { STEP_COPY } from '@/utils/reasoningStepCopy'
 import { NODE_IO } from '@/utils/reasoningNodeIo'
+import { REASONING_NODE_GROUPS, REASONING_CFG_TYPES, reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
 import type { Plan } from '@/api/reasoning'
 
-const CFG_TYPES = ['extract', 'select_baseline', 'match_kp', 'condition', 'llm', 'ask_user', 'scene_analysis', 'normalize_input', 'confirm_series', 'llm_understand', 'slot_validate', 'confirm', 'llm_ask', 'llm_audit']
-const NODE_TYPES = [
-  { type: 'normalize_input', label: '需求输入规范化 normalize_input' },
-  { type: 'extract', label: '需求理解 extract' },
-  { type: 'select_baseline', label: '机型选型 select_baseline' },
-  { type: 'match_kp', label: '配件匹配 match_kp' },
-  { type: 'compose', label: '组合方案 compose' },
-  { type: 'review', label: '方案就绪 review' },
-  { type: 'condition', label: '条件分支 condition' },
-  { type: 'clarity_check', label: '明确度判定 clarity_check' },
-  { type: 'ask_user', label: '反问补全 ask_user' },
-  { type: 'budget_check', label: '预算校验 budget_check' },
-  { type: 'scene_analysis', label: '场景分析 scene_analysis' },
-  { type: 'confirm_series', label: '系列确认 confirm_series' },
-  { type: 'llm_understand', label: 'LLM 主理解 llm_understand' },
-  { type: 'slot_validate', label: '槽位语义校验 slot_validate' },
-  { type: 'confirm', label: 'LLM 确认 confirm' },
-  { type: 'llm_ask', label: 'LLM 反问 llm_ask' },
-  { type: 'llm_audit', label: 'LLM 方案校对 llm_audit' },
-]
-/** 左栏 palette 分组（按信息收集 / 判断处理 / 分支控制三环节，参考腾讯元器节点分类） */
-const NODE_GROUPS = [
-  { name: '信息收集', types: ['normalize_input', 'extract', 'llm_understand', 'ask_user', 'llm_ask'] },
-  { name: '判断处理', types: ['slot_validate', 'confirm', 'clarity_check', 'scene_analysis', 'confirm_series', 'select_baseline', 'match_kp', 'compose', 'budget_check', 'llm_audit', 'review'] },
-  { name: '分支控制', types: ['condition'] },
-]
-const nodeMeta = (t: string) => NODE_TYPES.find((n) => n.type === t)
+/** 节点元数据统一读 utils/reasoningNodeMeta（palette / 节点卡 / 抽屉 / 时间线共用真源） */
+const CFG_TYPES = REASONING_CFG_TYPES
+const NODE_GROUPS = REASONING_NODE_GROUPS
+const nodeMeta = (t: string) => reasoningNodeMeta(t)
+
+// ── palette 搜索 + 拖拽添加 ──
+const paletteQuery = ref('')
+const snapOn = ref(true)
+const paletteGroups = computed(() => {
+  const q = paletteQuery.value.trim().toLowerCase()
+  if (!q) return NODE_GROUPS
+  return NODE_GROUPS
+    .map((g) => ({ ...g, types: g.types.filter((t) => {
+      const m = nodeMeta(t)
+      return !m || m.name.toLowerCase().includes(q) || t.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q)
+    }) }))
+    .filter((g) => g.types.length)
+})
+const usedCount = (type: string) => nodes.value.filter((n) => n.data?.stepType === type).length
+const dragType = ref<string | null>(null)
+function onPaletteDragStart(type: string, e: DragEvent) {
+  dragType.value = type
+  if (e.dataTransfer) {
+    e.dataTransfer.setData('text/plain', type)
+    e.dataTransfer.effectAllowed = 'copy'
+  }
+}
+function onPaletteDragEnd() { dragType.value = null }
+function onPaletteDrop(e: DragEvent) {
+  const type = dragType.value || e.dataTransfer?.getData('text/plain')
+  dragType.value = null
+  if (!type || !nodeMeta(type)) return
+  const pt = screenToFlowCoordinate({ x: e.clientX, y: e.clientY })
+  addNode(type, { x: pt.x - 110, y: pt.y - 44 })
+}
+
+// ── 连线染色（2026-08 重构：合并单路后）──
+// ai=蓝（LLM 增强/ReAct 决策节点）/ shared=灰（确定性红线：组装/预算/就绪 + 缺口分析）
+const ROUTE_BY_TYPE: Record<string, 'ai' | 'local' | 'shared'> = {
+  understand: 'ai', llm_ask: 'ai', scene_decide: 'ai', model_reason: 'ai', kp_reason: 'ai', llm_audit: 'ai', llm_confirm: 'ai',
+  spec_compliance: 'shared', compose: 'shared', budget_check: 'shared', audit_fix: 'shared', review: 'shared',
+}
+const ROUTE_META: Record<string, { label: string; sub: string; cls: string }> = {
+  ai: { label: 'AI 增强', sub: 'LLM 理解/推理/反问/校对', cls: 'rf-edge--ai' },
+  local: { label: '规则', sub: '确定性兜底', cls: 'rf-edge--local' },
+  shared: { label: '确定性', sub: '组装/预算/就绪', cls: 'rf-edge--shared' },
+}
+function routeOf(stepType?: string): 'ai' | 'local' | 'shared' {
+  return ROUTE_BY_TYPE[stepType || ''] || 'shared'
+}
+/** 边 route：任一端 ai→ai；否则任一端 local→local；否则 shared */
+function edgeRoute(e: { source: string; target: string }): 'ai' | 'local' | 'shared' {
+  const sn = nodes.value.find((n) => n.id === e.source)
+  const tn = nodes.value.find((n) => n.id === e.target)
+  const sr = routeOf(sn?.data?.stepType)
+  const tr = routeOf(tn?.data?.stepType)
+  if (sr === 'ai' || tr === 'ai') return 'ai'
+  if (sr === 'local' || tr === 'local') return 'local'
+  return 'shared'
+}
+function routeClass(e: { source: string; target: string }): string {
+  return `rf-edge--${edgeRoute(e)}`
+}
 
 const nodes = ref<any[]>([])
 const edges = shallowRef<Edge[]>([])
@@ -65,7 +102,7 @@ const drawerNodeKey = ref<string | null>(null)
 const drawerNodeType = ref<string | null>(null)
 const drawerConfig = ref<Record<string, any> | null>(null)
 
-const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, getSelectedEdges } = useVueFlow()
+const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, getSelectedEdges, screenToFlowCoordinate } = useVueFlow()
 
 // ── 试运行 playground（右栏）──
 // 试运行输入默认清空（历史曾预填演示需求，2026-08-05 移除：避免误以为是系统内置需求）
@@ -89,6 +126,12 @@ function toggleStep(key: string) {
 function stepSummary(key: string, payload: any) {
   return STEP_COPY[key]?.(payload) || ''
 }
+/** llm_agent 步骤明细：接地三元组（server_type/形态/系列）紧凑展示 */
+/** llm_agent 步骤明细：工具入参只取值（{server_type_name:'AI',form:'4U'} → 'AI, 4U'） */
+function fmtToolArgs(args: any): string {
+  if (!args || typeof args !== 'object') return ''
+  return Object.values(args).map((v) => String(v)).filter(Boolean).join(', ')
+}
 function statusText(s: string) {
   return s === 'running' ? '执行中' : s === 'done' ? '完成' : s === 'error' ? '失败' : '待执行'
 }
@@ -96,20 +139,24 @@ const modelKpList = computed(() => plans.value.map((p) => {
   const key = String(p.server_model_id ?? p.config_id)
   return { name: p.name || p.model || key, kps: kpByModel.value[key] || [] }
 }))
-/** P2 分支必连校验：condition 节点必须有 true + false 出边（兜底），否则路由死路（参考腾讯元器分支必连约束） */
-const danglingBranches = computed(() => {
-  const issues: string[] = []
-  nodes.value.filter((n) => n.data?.stepType === 'condition').forEach((cn) => {
-    const handles = new Set(edges.value.filter((e) => e.source === cn.id).map((e) => e.sourceHandle || 'true'))
-    if (!handles.has('true')) issues.push(`${cn.data?.label || cn.id}：缺 true 分支`)
-    if (!handles.has('false')) issues.push(`${cn.data?.label || cn.id}：缺 false 分支`)
-  })
-  return issues
-})
 const currencySymbol = (c?: string) => (c || 'RMB').toUpperCase() === 'USD' ? '$' : '¥'
 
 async function onRun() {
   await runTest(reqText.value, reqBudget.value ?? undefined, !enableClarity.value)
+}
+
+// ── 试运行交互式反问（P2C）：暂停反问时模拟客户回复 → 拼进需求文本重跑，直到出方案 ──
+const askReply = ref('')
+async function continueAsk() {
+  const reply = askReply.value.trim()
+  if (!reply || running.value) return
+  const combined = [reqText.value.trim(), `（客户回答：${reply}）`].filter(Boolean).join('\n')
+  askReply.value = ''
+  await runTest(combined, reqBudget.value ?? undefined, false)
+}
+function pickOption(o: string) {
+  askReply.value = o
+  continueAsk()
 }
 
 // P1 路径回溯：点方案 → 高亮该次试运行**实际执行过**的节点（steps 里 status=done 的，
@@ -122,16 +169,16 @@ function tracePlan() {
     const inChain = executed.has(n.id)
     return { ...n, data: { ...n.data, trace: inChain, dim: !inChain } }
   })
-  // 连线：连接两个参与节点的边高亮（数据流向），其余变淡
+  // 连线：连接两个参与节点的边高亮（数据流向），其余按原 route 色变淡
   edges.value = edges.value.map((e: any) => ({
     ...e,
-    class: (executed.has(e.source) && executed.has(e.target)) ? 'rf-edge--trace' : 'rf-edge--dim',
+    class: (executed.has(e.source) && executed.has(e.target)) ? 'rf-edge--trace' : `${routeClass(e)} rf-edge--dim`,
   }))
 }
 function clearTrace() {
   traced.value = false
   nodes.value = nodes.value.map((n) => ({ ...n, data: { ...n.data, trace: false, dim: false } }))
-  edges.value = edges.value.map((e: any) => ({ ...e, class: '' }))
+  edges.value = edges.value.map((e: any) => ({ ...e, class: routeClass(e) }))
 }
 
 // 试运行方案卡的 BOM 详情抽屉（复用工作台 buildPlanCfg + BomTable）
@@ -157,21 +204,30 @@ async function load() {
   try {
     const r = await reasoningFlowApi.get()
     flow.value = r.flow
-    if (!r.flow) { message.warning('无 active 推理流'); return }
-    nodes.value = r.flow.graph.nodes.map((n: any) => ({
+    const fl = r.flow
+    if (!fl) { message.warning('无 active 推理流'); return }
+    nodes.value = fl.graph.nodes.map((n: any) => ({
       id: n.id,
       type: 'rf',
       position: n.position,
       data: { stepType: n.type, label: n.label, configurable: CFG_TYPES.includes(n.type) },
     }))
-    edges.value = r.flow.graph.edges.map((e: any): Edge => ({
-      id: e.id,
-      source: e.source,
-      target: e.target,
-      sourceHandle: e.source_handle,
-      targetHandle: e.target_handle,
-      animated: true,
-    }))
+    edges.value = fl.graph.edges.map((e: any): Edge => {
+      // 只有 condition 节点保留 true/false 出口；普通节点的 source_handle（缺口/足够/答完回理解
+      // 等语义标签）VueFlow 找不到对应 Handle 就不会渲染 → 归一到默认出口。
+      const sn = fl.graph.nodes.find((n: any) => n.id === e.source)
+      const isCond = sn?.type === 'condition'
+      return {
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: isCond ? (e.source_handle ?? null) : null,
+        targetHandle: e.target_handle ?? null,
+        type: 'smoothstep',
+        animated: true,
+        class: routeClass(e),
+      } as Edge
+    })
   } catch (e: any) {
     message.error(e.response?.data?.detail || '加载失败')
   } finally {
@@ -186,6 +242,16 @@ async function load() {
 let persistTimer: ReturnType<typeof setTimeout> | null = null
 async function persistGraph() {
   if (!flow.value) return
+  // 防 active flow 漂移：若 active 被外部切换（升级脚本/版本切换/他人编辑），画布内存已过期，
+  // 直接写回会污染新 active —— 先比对 id，不一致则放弃回写并刷新画布。
+  try {
+    const cur = await reasoningFlowApi.get()
+    if (cur.flow && String(cur.flow.id) !== String(flow.value.id)) {
+      message.warning('推理流 active 版本已被切换，已停止回写，正在刷新画布…')
+      load()
+      return
+    }
+  } catch { /* GET 失败降级为原行为（仍 persist） */ }
   const g = {
     nodes: nodes.value.map(n => ({
       id: n.id,
@@ -284,7 +350,7 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-function addNode(type: string) {
+function addNode(type: string, position?: { x: number; y: number }) {
   recordHistory()
   const sameTypeCount = nodes.value.filter(n => n.data?.stepType === type).length
   const id = `${type}_${sameTypeCount + 1}`
@@ -292,8 +358,8 @@ function addNode(type: string) {
   nodes.value = [...nodes.value, {
     id,
     type: 'rf',
-    position: { x: 250 + sameTypeCount * 30, y: 120 + sameTypeCount * 40 },
-    data: { stepType: type, label: meta?.label || type, configurable: CFG_TYPES.includes(type) },
+    position: position || { x: 250 + sameTypeCount * 30, y: 120 + sameTypeCount * 40 },
+    data: { stepType: type, label: meta?.name || type, configurable: CFG_TYPES.includes(type) },
   }]
   debouncePersist()
 }
@@ -306,7 +372,9 @@ onConnect(params => {
     target: params.target,
     sourceHandle: params.sourceHandle,
     targetHandle: params.targetHandle,
+    type: 'smoothstep',
     animated: true,
+    class: routeClass(params),
   } as Edge]
   debouncePersist()
 })
@@ -340,56 +408,12 @@ watch(() => edges.value.length, () => debouncePersist())
 onMounted(load)
 function onSaved() { load() }
 
-// ── LLM 节点总览（一键看所有带 LLM 开关的节点 + 开关）──
-const llmNodesOpen = ref(false)
-const llmNodes = ref<Array<{ id: string; type: string; label: string; enable_llm: boolean }>>([])
-const llmBusy = ref(false)
-async function openLlmNodes() {
-  llmNodesOpen.value = true
-  try {
-    const r = await reasoningFlowApi.llmNodes()
-    llmNodes.value = r.nodes || []
-  } catch (e: any) {
-    message.error('读取 LLM 节点失败：' + (e.response?.data?.detail || e.message))
-    llmNodes.value = []
-  }
-}
-async function toggleLlmNode(node: { id: string; enable_llm: boolean }) {
-  llmBusy.value = true
-  try {
-    const cur = (flow.value?.node_configs as Record<string, any> | undefined)?.[node.id] || {}
-    await reasoningFlowApi.updateNode(node.id as any, { ...cur, enable_llm: node.enable_llm })
-    message.success(`「${node.id}」LLM ${node.enable_llm ? '已开启（下次推理生效）' : '已关闭'}`)
-  } catch (e: any) {
-    node.enable_llm = !node.enable_llm  // 失败回滚开关
-    message.error('设置失败：' + (e.response?.data?.detail || e.message))
-  } finally {
-    llmBusy.value = false
-  }
-}
-async function setAllLlm(enable: boolean) {
-  llmBusy.value = true
-  let ok = 0
-  for (const n of llmNodes.value) {
-    if (n.enable_llm === enable) continue
-    const cur = (flow.value?.node_configs as Record<string, any> | undefined)?.[n.id] || {}
-    try {
-      await reasoningFlowApi.updateNode(n.id as any, { ...cur, enable_llm: enable })
-      n.enable_llm = enable
-      ok++
-    } catch (e: any) {
-      message.error(`「${n.id}」设置失败：` + (e.response?.data?.detail || e.message))
-    }
-  }
-  llmBusy.value = false
-  message.success(enable ? `已开启 ${ok} 个 LLM 节点` : `已关闭 ${ok} 个 LLM 节点`)
-}
 </script>
 
 <template>
   <div class="rf-canvas">
     <div class="rf-toolbar">
-      <span class="rf-tip">左栏点节点添加到画布 · 中画布拖拽编排/连线（点边删连线）· 右栏试运行验证 · 单击节点开配置</span>
+      <span class="rf-tip">左侧拖/点添加节点 · 画布连线（点边删线）· 单击节点开配置 · 右栏试运行验证</span>
       <div class="rf-actions">
         <a-button size="small" :disabled="!undoStack.length" @click="undo" title="撤销（Ctrl+Z）">
           <template #icon><UndoOutlined /></template>撤销
@@ -397,37 +421,54 @@ async function setAllLlm(enable: boolean) {
         <a-button size="small" :disabled="!redoStack.length" @click="redo" title="重做（Ctrl+Shift+Z / Ctrl+Y）">
           <template #icon><RedoOutlined /></template>重做
         </a-button>
-        <a-button size="small" :loading="llmBusy" @click="openLlmNodes" title="查看并一键开关所有 LLM 节点">
-          <template #icon><ThunderboltOutlined /></template>LLM 节点
-        </a-button>
+        <a-checkbox v-model:checked="snapOn" title="拖拽节点时对齐网格">吸附</a-checkbox>
         <span v-if="flow" class="rf-version">v{{ flow.version }} · {{ flow.status }}</span>
       </div>
     </div>
 
-    <div v-if="danglingBranches.length" class="rf-warn-bar">
-      <ExclamationCircleOutlined />
-      <span>{{ danglingBranches.join('；') }}（condition 需连 true/false 两个分支，避免路由死路）</span>
-    </div>
-
     <div class="main-content">
-      <!-- 左栏：节点 palette（点击添加到画布） -->
+      <!-- 左栏：节点 palette（拖拽/点击添加到画布） -->
       <aside class="left-panel">
-        <div class="panel-title">节点 · 点击添加</div>
+        <div class="panel-title">节点</div>
+        <a-input v-model:value="paletteQuery" size="small" allow-clear placeholder="搜索节点（名称/类型/职能）" class="palette-search" />
         <div class="node-palette">
-          <div v-for="g in NODE_GROUPS" :key="g.name" class="node-group">
+          <div v-for="g in paletteGroups" :key="g.name" class="node-group">
             <div class="node-group-name">{{ g.name }}</div>
-            <div v-for="t in g.types" :key="t" class="node-item" @click="addNode(t)">
-              <span class="node-item-title">{{ nodeMeta(t)?.label || t }}</span>
-              <span class="node-item-type">{{ t }}</span>
+            <div
+              v-for="t in g.types"
+              :key="t"
+              class="node-item"
+              :class="{ 'node-item--used': usedCount(t) > 0 }"
+              draggable="true"
+              title="拖到画布或点击添加"
+              @click="addNode(t)"
+              @dragstart="onPaletteDragStart(t, $event)"
+              @dragend="onPaletteDragEnd"
+            >
+              <span class="node-item-icon ni-chip" :class="`ni--${nodeMeta(t)?.tone || 'gray'}`">
+                <component :is="nodeMeta(t)?.icon || NodeIndexOutlined" />
+              </span>
+              <span class="node-item-body">
+                <span class="node-item-title">{{ nodeMeta(t)?.name || t }}</span>
+                <span class="node-item-desc">{{ nodeMeta(t)?.desc }}</span>
+              </span>
+              <span v-if="usedCount(t) > 0" class="node-item-count">{{ usedCount(t) }}</span>
             </div>
           </div>
+          <p v-if="!paletteGroups.length" class="palette-empty">没有匹配的节点</p>
         </div>
       </aside>
 
       <!-- 中栏：vue flow 画布（编排 + 试运行时节点逐步高亮） -->
       <main class="center-panel">
+        <!-- 双路线图例：连线颜色由节点 route 派生（AI=LLM路 / 本地=正则 / 共用） -->
+        <div class="rf-legend">
+          <span v-for="r in (['ai','local','shared'] as const)" :key="r" class="rf-leg-item">
+            <i class="rf-leg-dot" :class="ROUTE_META[r].cls"></i>{{ ROUTE_META[r].label }}<span class="rf-leg-sub">{{ ROUTE_META[r].sub }}</span>
+          </span>
+        </div>
         <a-spin :spinning="loading" class="center-spin">
-          <div class="rf-flow-wrap">
+          <div class="rf-flow-wrap" :class="{ 'rf-drop-target': !!dragType }" @dragover.prevent @drop="onPaletteDrop">
             <VueFlow
               v-model:nodes="nodes"
               v-model:edges="edges"
@@ -435,11 +476,17 @@ async function setAllLlm(enable: boolean) {
               fit-view-on-init
               :min-zoom="0.3"
               :max-zoom="2"
+              snap-to-grid
+              :snap-grid="[16, 16]"
             >
               <Background :gap="20" :size="1" pattern-color="rgba(127,127,127,0.18)" />
               <Controls />
               <MiniMap pannable zoomable />
             </VueFlow>
+            <div v-if="!loading && !nodes.length" class="rf-empty-state">
+              <div class="rf-empty-title">画布还是空的</div>
+              <p>从左侧<b>拖拽</b>或<b>点击</b>节点添加到画布，连好线后点右栏「运行」验证。<br/>通常以「需求理解」为起点、「方案就绪」为终点。</p>
+            </div>
           </div>
         </a-spin>
       </main>
@@ -479,13 +526,17 @@ async function setAllLlm(enable: boolean) {
 
           <p v-if="error" class="rf-tr-error"><ExclamationCircleOutlined /> {{ error }}</p>
 
-          <!-- 反问问句（启用反问且模糊需求命中 ask_user 时显示） -->
+          <!-- 反问问句（P2C：可交互——选项/回复 → 继续重跑，模拟完整对话流） -->
           <div v-if="awaitingInput && pendingQuestion" class="rf-tr-ask">
-            <div class="rf-tr-ask-q">❓ {{ pendingQuestion }}</div>
+            <div class="rf-tr-ask-q"><QuestionCircleOutlined /> {{ pendingQuestion }}</div>
             <div v-if="pendingOptions.length" class="rf-tr-ask-opts">
-              <a-tag v-for="o in pendingOptions" :key="o">{{ o }}</a-tag>
+              <a-button v-for="o in pendingOptions" :key="o" size="small" @click="pickOption(o)">{{ o }}</a-button>
             </div>
-            <div class="rf-tr-ask-hint">已暂停在 ask_user 节点（试运行不接回复，回复交互请到商机详情页）</div>
+            <div class="rf-tr-ask-reply">
+              <a-input v-model:value="askReply" size="small" placeholder="输入你的回答，或点上方选项" @pressEnter="continueAsk" />
+              <a-button type="primary" size="small" :loading="running" :disabled="!askReply.trim()" @click="continueAsk">继续</a-button>
+            </div>
+            <div class="rf-tr-ask-hint">模拟客户回复后重新跑流程（回答会拼进需求文本，仍模糊会继续反问，直到出方案）</div>
           </div>
 
           <!-- 步骤时间线 -->
@@ -506,6 +557,19 @@ async function setAllLlm(enable: boolean) {
                 <p v-if="s.status === 'done' && stepSummary(s.key, s.payload)" class="rf-tr-step-summary">
                   {{ stepSummary(s.key, s.payload) }}
                 </p>
+                <!-- 专家分析（问题清单，像方案助手一样先给建议，再进选配） -->
+                <div v-if="s.status === 'done' && (s.payload?.issues || []).length" class="rf-tr-issues">
+                  <div class="rf-tr-issues-title">专家分析 · {{ s.payload.issues.length }} 条</div>
+                  <div v-for="(it, ii) in s.payload.issues" :key="'iss' + ii" class="rf-tr-issue">
+                    <div class="rf-tr-issue-text">{{ it.issue }}</div>
+                    <div v-if="it.evidence" class="rf-tr-issue-ev">依据：{{ it.evidence }}</div>
+                    <div v-if="it.suggestion" class="rf-tr-issue-sg">→ {{ it.suggestion }}</div>
+                  </div>
+                </div>
+                <!-- 子进度（白盒：节点内分步，如 llm_agent「AI 理解中...」「理解到：...」，运行中也实时显示） -->
+                <ul v-if="s.substeps?.length" class="rf-tr-substeps">
+                  <li v-for="(sb, i) in s.substeps" :key="'sb' + i" :class="`rf-tr-sub--${sb.kind}`">{{ sb.text }}</li>
+                </ul>
                 <div v-if="expandedStep === s.key && s.status === 'done'" class="rf-tr-detail">
                   <!-- 变量流转：该节点消费的上游变量 + 产出的下游变量（IO 元数据，可解释性） -->
                   <div v-if="NODE_IO[s.key]" class="rf-tr-io">
@@ -524,6 +588,15 @@ async function setAllLlm(enable: boolean) {
                     <div class="rf-tr-kv"><span>系列 / 形态</span><b>{{ ext.series || '—' }} / {{ ext.form || '—' }}</b></div>
                     <div v-if="ext.mem_signal" class="rf-tr-kv"><span>内存信号</span><b>{{ ext.mem_signal.type }} · {{ ext.mem_signal.total_gb }}G</b></div>
                     <div v-if="ext.cpu_signal?.duality" class="rf-tr-kv"><span>CPU</span><b>双路信号</b></div>
+                  </template>
+                  <template v-else-if="s.key === 'llm_agent'">
+                    <div class="rf-tr-kv"><span>来源</span><b>{{ s.payload?.source === 'llm' ? 'LLM 填表' : 'extract 离线兜底' }}</b></div>
+                    <div class="rf-tr-kv"><span>机型类型</span><b>{{ s.payload?.server_type_name || '—' }}</b></div>
+                    <div v-if="(s.payload?.changes || []).length" class="rf-tr-kv"><span>resolver 归一</span><b>{{ (s.payload?.changes || []).length }} 项</b></div>
+                    <div v-if="s.payload?.sufficient === false" class="rf-tr-kv"><span>完整度</span><b>不足 → 反问：{{ (s.payload?.missing_critical || []).join('、') }}</b></div>
+                    <template v-for="(tc, i) in (s.payload?.tool_trace || [])" :key="'tc' + i">
+                      <div class="rf-tr-kv"><span>接地工具 {{ Number(i) + 1 }}</span><b><ToolOutlined /> {{ tc.tool }}({{ fmtToolArgs(tc.args) }}) → {{ tc.result_count ?? '?' }} 候选</b></div>
+                    </template>
                   </template>
                   <template v-else-if="s.key === 'match_kp'">
                     <div v-for="m in modelKpList" :key="m.name" class="rf-tr-model">
@@ -547,7 +620,7 @@ async function setAllLlm(enable: boolean) {
 
           <!-- 候选方案 -->
           <div v-if="plans.length" class="rf-tr-plans">
-            <div v-if="traced" class="rf-tr-trace-hint">🔍 回溯模式：生成链节点 + 连线高亮；点任一高亮节点 → 右栏展开该步输入/输出数据；点「退出回溯」恢复</div>
+            <div v-if="traced" class="rf-tr-trace-hint"><NodeIndexOutlined /> 回溯模式：生成链节点 + 连线高亮；点任一高亮节点 → 右栏展开该步输入/输出数据；点「退出回溯」恢复</div>
             <PlanCard v-for="p in plans" :key="p.config_id" :plan="p" @view-bom="viewBom">
               <template #extra-actions>
                 <a-button size="small" :type="traced ? 'default' : 'primary'" ghost @click="traced ? clearTrace() : tracePlan()">
@@ -582,41 +655,12 @@ async function setAllLlm(enable: boolean) {
       </div>
     </a-drawer>
 
-    <!-- LLM 节点总览：一次看清所有带 LLM 开关的节点 + 一键开/关 -->
-    <a-modal
-      v-model:open="llmNodesOpen"
-      title="LLM 节点总览"
-      :footer="null"
-      width="520"
-    >
-      <a-alert type="info" show-icon banner message="这里只列带 LLM 开关的节点。开/关立即保存（受「设置→AI 设置→启用 AI」总开关约束），下次推理生效" style="margin-bottom: 12px" />
-      <div v-if="!llmNodes.length" class="rf-llm-empty">当前画布没有 LLM 节点 —— 从左侧调色板添加「LLM 主理解 / LLM 方案校对」。</div>
-      <div v-for="n in llmNodes" :key="n.id" class="rf-llm-row">
-        <div class="rf-llm-info">
-          <span class="rf-llm-label">{{ n.label }}</span>
-          <span class="rf-llm-type">{{ n.type }} · {{ n.id }}</span>
-        </div>
-        <a-switch
-          :checked="n.enable_llm"
-          :disabled="llmBusy"
-          checked-children="开"
-          un-checked-children="关"
-          @change="(v: boolean) => { n.enable_llm = v; toggleLlmNode(n) }"
-        />
-      </div>
-      <div v-if="llmNodes.length" class="rf-llm-actions">
-        <a-button size="small" :loading="llmBusy" @click="setAllLlm(true)">全部开启</a-button>
-        <a-button size="small" :loading="llmBusy" @click="setAllLlm(false)">全部关闭</a-button>
-        <span class="rf-llm-hint">注意：LLM 主理解/方案校对每次推理约 20~40s，全开会显著变慢。</span>
-      </div>
-    </a-modal>
   </div>
 </template>
 
 <style scoped>
 .rf-canvas { display: flex; flex-direction: column; gap: 8px; height: calc(100vh - 150px); min-height: 480px; }
 .rf-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 0 2px; gap: 12px; }
-.rf-warn-bar { display: flex; align-items: center; gap: 6px; padding: 6px 12px; font-size: 12px; color: var(--cpq-accent-warning, #faad14); background: rgba(244, 210, 138, 0.12); border: 1px solid rgba(244, 210, 138, 0.3); border-radius: 8px; }
 .rf-tip { font-size: 12px; color: var(--cpq-text-muted); flex: 1; }
 .rf-actions { display: flex; align-items: center; gap: 10px; }
 .rf-version {
@@ -631,15 +675,35 @@ async function setAllLlm(enable: boolean) {
 .center-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .center-panel :deep(.ant-spin-nested-loading) { flex: 1; display: flex; }
 .center-panel :deep(.ant-spin-container) { flex: 1; display: flex; }
-.rf-flow-wrap { flex: 1; min-width: 0; min-height: 0; overflow: hidden; }
+.rf-flow-wrap { flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
+.rf-drop-target { outline: 2px dashed var(--cpq-accent-primary); outline-offset: -2px; }
+.rf-empty-state {
+  position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; pointer-events: none; text-align: center; color: var(--cpq-text-muted);
+}
+.rf-empty-title { font-size: 16px; font-weight: 600; color: var(--cpq-text-secondary); }
+.rf-empty-state p { font-size: 12px; line-height: 1.7; margin: 0; }
 
 /* MiniMap 默认白底（@vue-flow/minimap style.css 写死 #fff），深色模式很突兀；
    用面板背景 token 跟随主题（深色 #101217 / 浅色 #F0F4FA），节点用主色醒目 */
 .center-panel :deep(.vue-flow__minimap) { background-color: var(--cpq-bg-secondary); }
+/* 边语义标签（缺口/足够/AI 失效→兜底 等）：小字 + 半透明底，避免盖住连线 */
 .center-panel :deep(.vue-flow__minimap-node) { fill: var(--cpq-accent-primary, #1677FF); opacity: 0.75; }
 /* minimap 视口遮罩默认浅灰 rgba(240,240,240,.6)，深色 minimap 上显白雾 → 深色模式改黑半透 */
 [data-theme="dark"] .center-panel :deep(.vue-flow__minimap-mask) { fill: rgba(0, 0, 0, 0.45); }
 /* 回溯连线：生成链边高亮（蓝粗），其余变淡 */
+/* 双路线连线染色：route 由节点 stepType 派生（运行时算）；定义在 trace 之前以让 trace 高亮优先 */
+.center-panel :deep(.rf-edge--ai .vue-flow__edge-path) { stroke: var(--cpq-accent-primary); stroke-width: 2; }
+.center-panel :deep(.rf-edge--local .vue-flow__edge-path) { stroke: var(--cpq-accent-warning, #fa8c16); stroke-width: 2; }
+.center-panel :deep(.rf-edge--shared .vue-flow__edge-path) { stroke: var(--cpq-text-muted); stroke-width: 1.5; }
+/* 双路线图例 */
+.rf-legend { display: flex; gap: 14px; padding: 5px 12px; font-size: 12px; color: var(--cpq-text-secondary); border-bottom: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.11)); flex-shrink: 0; }
+.rf-leg-item { display: inline-flex; align-items: center; gap: 5px; }
+.rf-leg-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.rf-leg-dot.rf-edge--ai { background: var(--cpq-accent-primary); }
+.rf-leg-dot.rf-edge--local { background: var(--cpq-accent-warning, #fa8c16); }
+.rf-leg-dot.rf-edge--shared { background: var(--cpq-text-muted); }
+.rf-leg-sub { color: var(--cpq-text-muted); margin-left: 2px; }
 .center-panel :deep(.rf-edge--trace .vue-flow__edge-path) { stroke: var(--cpq-accent-primary); stroke-width: 2.5; }
 .center-panel :deep(.rf-edge--dim) { opacity: 0.12; }
 
@@ -669,15 +733,40 @@ async function setAllLlm(enable: boolean) {
   font-size: 10px; font-weight: 600; color: var(--cpq-text-muted);
   text-transform: uppercase; letter-spacing: .5px; padding: 8px 14px 3px;
 }
+.palette-search { margin: 6px 10px 2px; width: calc(100% - 20px); }
 .node-item {
-  display: flex; flex-direction: column; gap: 1px; padding: 7px 14px;
-  cursor: pointer; transition: background var(--cpq-transition-fast);
-  border-left: 2px solid transparent;
+  display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px;
+  cursor: grab; transition: background var(--cpq-transition-fast);
+  border-left: 2px solid transparent; position: relative;
+  border-radius: var(--cpq-radius-sm, 8px);
 }
-.node-item:hover { background: var(--cpq-overlay-a8); border-left-color: var(--cpq-accent-primary); }
-.node-item:active { background: var(--cpq-overlay-a15); }
-.node-item-title { font-size: 12px; font-weight: 500; color: var(--cpq-text-primary); }
-.node-item-type { font-size: 10px; color: var(--cpq-text-muted); font-family: ui-monospace, monospace; }
+.node-item:hover { background: var(--cpq-overlay-a5); border-left-color: var(--cpq-accent-primary); box-shadow: var(--cpq-shadow-sm); }
+.node-item:active { background: var(--cpq-overlay-a10); cursor: grabbing; }
+.node-item--used { background: var(--cpq-overlay-a4); }
+.node-item-icon { flex-shrink: 0; margin-top: 1px; }
+.node-item-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.node-item-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); line-height: 1.4; }
+.node-item-desc { font-size: 11px; color: var(--cpq-text-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.node-item-count {
+  position: absolute; right: 10px; top: 10px;
+  font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; text-align: center;
+  border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.palette-empty { font-size: 12px; color: var(--cpq-text-muted); text-align: center; padding: 16px 0; margin: 0; }
+
+/* 节点图标软底色块（AntD 线性图标 + 站点色板色调） */
+.ni-chip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: var(--cpq-radius-sm, 8px);
+  font-size: 15px; flex-shrink: 0;
+}
+.ni-chip.ni--blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
+.ni-chip.ni--purple { background: rgba(168, 85, 247, 0.12); color: var(--cpq-color-purple, #a855f7); }
+.ni-chip.ni--green { background: var(--cpq-overlay-success15); color: var(--cpq-color-success, #52C9A0); }
+.ni-chip.ni--orange { background: rgba(250, 140, 22, 0.12); color: var(--cpq-color-orange, #fa8c16); }
+.ni-chip.ni--cyan { background: var(--cpq-overlay-cyan15); color: var(--cpq-accent-cyan, #36CFCF); }
+.ni-chip.ni--gray { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
 
 /* ── 右栏试运行 ── */
 .rf-testrun { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -694,11 +783,23 @@ async function setAllLlm(enable: boolean) {
 }
 .rf-tr-ask-q { font-size: 13px; color: var(--cpq-text, #1f2937); line-height: 1.5; }
 .rf-tr-ask-opts { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.rf-tr-ask-opts .ant-btn { font-size: 12px; }
+.rf-tr-ask-reply { margin-top: 8px; display: flex; gap: 8px; }
+.rf-tr-ask-reply .ant-input { flex: 1; min-width: 0; }
 .rf-tr-ask-hint { margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
 .rf-tr-error {
   margin: 0; font-size: 12px; color: var(--cpq-accent-danger);
   display: flex; align-items: center; gap: 6px;
 }
+
+/* ── 专家分析（问题清单）── */
+.rf-tr-issues { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--cpq-overlay-w6, rgba(120,90,255,.06)); border: 1px solid var(--cpq-overlay-w10, rgba(120,90,255,.18)); }
+.rf-tr-issues-title { font-size: 12px; font-weight: 600; color: var(--cpq-accent-primary, #7c6cff); margin-bottom: 6px; }
+.rf-tr-issue { padding: 5px 0; border-top: 1px dashed var(--cpq-overlay-w10, rgba(0,0,0,.08)); }
+.rf-tr-issue:first-of-type { border-top: none; }
+.rf-tr-issue-text { font-size: 13px; color: var(--cpq-text-primary, #1f2329); }
+.rf-tr-issue-ev { font-size: 12px; color: var(--cpq-text-muted, #8a919f); margin-top: 2px; }
+.rf-tr-issue-sg { font-size: 12px; color: var(--cpq-color-success, #3f9e5f); margin-top: 2px; }
 
 .rf-tr-steps { display: flex; flex-direction: column; gap: 6px; }
 .rf-tr-step {
@@ -725,6 +826,11 @@ async function setAllLlm(enable: boolean) {
 .rf-tr-step.is-running .rf-tr-step-status { color: var(--cpq-accent-primary); }
 .rf-tr-step.is-done .rf-tr-step-status { color: var(--cpq-color-success); }
 .rf-tr-step-summary { margin: 3px 0 0; font-size: 12px; color: var(--cpq-text-secondary); line-height: 1.5; }
+.rf-tr-substeps { margin: 4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.rf-tr-substeps li { font-size: 12px; color: var(--cpq-text-secondary); line-height: 1.5; padding-left: 12px; position: relative; }
+.rf-tr-substeps li::before { content: '·'; position: absolute; left: 2px; color: var(--cpq-text-muted); }
+.rf-tr-substeps li.rf-tr-sub--understood { color: var(--cpq-color-success); }
+.rf-tr-substeps li.rf-tr-sub--llm_understand { color: var(--cpq-accent-primary); }
 
 .rf-tr-detail {
   margin-top: 8px; padding-top: 8px;
@@ -761,13 +867,6 @@ async function setAllLlm(enable: boolean) {
 .rf-tr-trace-hint { font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); padding: 6px 10px; border-radius: 6px; }
 .rf-tr-empty { font-size: 12px; color: var(--cpq-text-muted); text-align: center; padding: 12px 0; margin: 0; }
 
-/* ── LLM 节点总览 ── */
-.rf-llm-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 12px 0; }
-.rf-llm-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 10px;
-  padding: 8px 10px; margin-bottom: 6px; border: 1px solid var(--cpq-overlay-w10);
-  border-radius: var(--cpq-radius-sm, 8px); background: var(--cpq-overlay-w4);
-}
 .rf-llm-info { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .rf-llm-label { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
 .rf-llm-type { font-size: 10px; color: var(--cpq-text-muted); font-family: ui-monospace, monospace; }

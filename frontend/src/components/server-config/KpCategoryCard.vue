@@ -132,7 +132,7 @@ function onPick(i: number, pn: any) {
 
 <style scoped>
 .sc-panel {
-  background: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-a15); border-radius: 0; overflow: hidden;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);

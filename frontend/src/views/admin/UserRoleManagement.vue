@@ -18,7 +18,8 @@
               <span v-if="record.role_key === 'admin'" class="role-tag">超级管理员</span>
             </template>
             <template v-else-if="column.key === 'permissions'">
-              <span class="perm-count">{{ record.permissions.length }} 项</span>
+              <span v-if="record.role_key === 'admin'" class="perm-count">全部（{{ catalog.length }}）</span>
+              <span v-else class="perm-count">{{ record.permissions.length }} 项</span>
             </template>
             <template v-else-if="column.key === 'op'">
               <a-space>
@@ -92,7 +93,8 @@
               <a-checkbox
                 v-for="p in g.items"
                 :key="p.key"
-                :checked="roleForm.permissions.includes(p.key)"
+                :checked="editingRoleKey === 'admin' ? true : roleForm.permissions.includes(p.key)"
+                :disabled="editingRoleKey === 'admin'"
                 @change="(e: any) => togglePerm(p.key, e.target.checked)"
               >
                 {{ p.name }}<span class="perm-key">{{ p.key }}</span>

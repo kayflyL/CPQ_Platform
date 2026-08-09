@@ -68,12 +68,31 @@ export const BACKPLANE_TYPE_KEYWORDS: Record<'tri' | 'dc', string[]> = {
 /** 电源默认数量兜底（正常走 base_config.psu_bays，每台机箱可不同）*/
 export const DEFAULT_PSU_BAYS = 2
 
+/** 全平台标准 PSU 瓦数档位（对应后端 candidate_search._PSU_STANDARD_W；基准配置页「机箱能力」据此多选/可自定义。
+ *  每台机箱物理支持的档位不同（如 ES22V3-P=[1300,1600,2000]、4U 8卡机=[2000,2700]）——缺省空=不限沿用全局。 */
+export const PSU_WATTAGE_OPTIONS = [1300, 1600, 2000, 2700, 3200]
+
 /** GPU 架构选项（base_config.gpu_arch_default 用；与 useServerConfig.GpuArch = none/pt/switch 对齐）*/
 export const GPU_ARCH_OPTIONS: { value: string; label: string }[] = [
   { value: 'none', label: '无 GPU' },
   { value: 'pt', label: '直通 (Passthrough)' },
   { value: 'switch', label: '交换 (Switch)' },
 ]
+
+/** GPU 架构选项按形态：4U=直通/交换（AI GPU 机，二选一）；2U=无（通用机，GPU 走 PCIe 槽、无直通/交换拓扑）。
+ *  切换机箱形态时 GPU 架构选项随之变（4U 才有 GPU 架构概念）。*/
+export function gpuArchOptionsFor(form?: string): { value: string; label: string }[] {
+  if (form === '4U') return [
+    { value: 'pt', label: '直通（8 GPU · CPU 直连）' },
+    { value: 'switch', label: '交换（10 GPU · PCIe Switch）' },
+  ]
+  return [{ value: 'none', label: '无 GPU（2U 通用机无 GPU 架构）' }]
+}
+/** 按形态取结构性默认（切形态时重置用）：电源槽 / GPU 槽 / GPU 架构。4U=4槽+8GPU直通；2U=2槽+0。*/
+export function formDefaults(form?: string): { psu_bays: number; gpu_slots: number; gpu_arch: string } {
+  if (form === '4U') return { psu_bays: 4, gpu_slots: 8, gpu_arch: 'pt' }
+  return { psu_bays: 2, gpu_slots: 0, gpu_arch: 'none' }
+}
 
 /**
  * 系列 → 后面板选项桶映射。rear-io 选项按 bucket 查（rear_io_api），不同系列可能走不同选项集。

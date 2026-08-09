@@ -39,13 +39,13 @@ export function raidModelFrom(items: any[]): string {
   return m ? m[1] : ''
 }
 
-/** Cable 行描述（盘数驱动）：SAS/SATA 盘按 4 向上取整 → "{raid型号} {N}SAS Cable"；
- *  NVMe 盘按 2 向上取整 → "{N}NVMe Cable"。无 RAID 时只出 NVMe 缆；都无 → ''（模板回落盘型分组）。 */
+/** Cable 行描述（盘数驱动）：SAS/SATA 盘按 4 向上取整 → "{raid型号} {N}SAS Cable"（无 RAID 也输出，不带型号前缀）；
+ *  NVMe 盘按 2 向上取整 → "{N}NVMe Cable"。都无 → ''（模板回落盘型分组）。 */
 export function cableDescFrom(counts: { sata: number; sas: number; nvme: number }, raidModel: string): string {
   const lines: string[] = []
   const sasTotal = (counts.sata || 0) + (counts.sas || 0)
-  if (sasTotal > 0 && raidModel) {
-    lines.push(`${raidModel} ${Math.ceil(sasTotal / 4) * 4}SAS Cable`)
+  if (sasTotal > 0) {
+    lines.push(`${raidModel ? raidModel + ' ' : ''}${Math.ceil(sasTotal / 4) * 4}SAS Cable`)
   }
   const nvme = counts.nvme || 0
   if (nvme > 0) {

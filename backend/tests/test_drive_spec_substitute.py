@@ -218,3 +218,73 @@ def test_real_db_pick_drive_groups_1_6t():
     assert out[0].get("unmatched") is not True
     assert "替代" in out[0]["matched_spec"]
     assert "1.92T" in out[0]["pn"] or "1.92T" in out[0]["name"]
+
+# ============================================================
+# 2026-08 可配置化 + AI comparison：gte / strict_min / lte / 容差
+# ============================================================
+
+def test_substitute_gte_does_not_pick_below():
+    # "1T以上"（comparison=gte，1024G）：库有 960G 和 1T → 必须选 ≥1024G（1T），不选 960G
+    repo = FakeRepo([_part("960G SATA SSD", specs={"Capacity": "960 GB", "Type": "SATA"}),
+                     _part("1T SATA SSD", specs={"Capacity": "1 TB", "Type": "SATA"}),
+                     _part("2T SATA HDD", specs={"Capacity": "2 TB", "Type": "SATA"})])
+    subs = _drive_spec_substitute(repo, "HDD/SSD", "1024G", "SATA", comparison="gte")
+    assert subs and "1T" in subs[0]["model"] and "960G" not in subs[0]["model"]
+
+
+def test_substitute_gte_no_above_returns_empty():
+    # "1T以上" 但库最大只有 960G → 严格下限不给 960G，交回 unmatched（诚实提示）
+    repo = FakeRepo([_part("960G SATA SSD", specs={"Capacity": "960 GB", "Type": "SATA"})])
+    subs = _drive_spec_substitute(repo, "HDD/SSD", "1024G", "SATA", comparison="gte")
+    assert subs == []
+
+
+def test_substitute_strategy_strict_min_acts_like_gte():
+    # 用户把策略配成 strict_min（无 comparison）→ 也只选 ≥需求
+    repo = FakeRepo([_part("960G SATA SSD", specs={"Capacity": "960 GB", "Type": "SATA"}),
+                     _part("1T SATA SSD", specs={"Capacity": "1 TB", "Type": "SATA"})])
+    subs = _drive_spec_substitute(repo, "HDD/SSD", "1024G", "SATA", strategy="strict_min")
+    assert subs and "1T" in subs[0]["model"]
+
+
+def test_substitute_lte_picks_largest_below():
+    # "1T以下"（comparison=lte，1024G）：2T 超限，选 ≤1024G 的最大件（960G）
+    repo = FakeRepo([_part("480G SATA SSD", specs={"Capacity": "480 GB", "Type": "SATA"}),
+                     _part("960G SATA SSD", specs={"Capacity": "960 GB", "Type": "SATA"}),
+                     _part("2T SATA HDD", specs={"Capacity": "2 TB", "Type": "SATA"})])
+    subs = _drive_spec_substitute(repo, "HDD/SSD", "1024G", "SATA", comparison="lte")
+    assert subs and "960G" in subs[0]["model"]
+
+
+def test_substitute_tolerance_default_still_picks_same_class():
+    # 默认 tolerance（无 comparison）：1T(1024G) 需求 ±10% 同档仍可近选（现状行为不变）
+    repo = FakeRepo([_part("960G SATA SSD", specs={"Capacity": "960 GB", "Type": "SATA"}),
+                     _part("1T SATA SSD", specs={"Capacity": "1 TB", "Type": "SATA"})])
+    subs = _drive_spec_substitute(repo, "HDD/SSD", "1024G", "SATA")
+    assert subs and ("960G" in subs[0]["model"] or "1T" in subs[0]["model"])
+
+
+# ============================================================
+# 2026-08 GPU 显存纳入 capacity_match：_gpu_vram_filter
+# ============================================================
+
+def test_gpu_vram_filter_gte_lte_strict_exact():
+    from app.api.candidate_search import _gpu_vram_filter
+    p48 = {"model": "GPU 48G"}; p72 = {"model": "GPU 72G"}; p32 = {"model": "GPU 32G"}
+    # gte → ≥48 的最小件
+    r = _gpu_vram_filter([p32, p48, p72], 48, "gte", "tolerance")
+    assert r and "48G" in r[0]["model"]
+    # strict_min（无比较）→ 同上
+    r2 = _gpu_vram_filter([p32, p72], 48, None, "strict_min")
+    assert r2 and "72G" in r2[0]["model"]
+    # lte → ≤48 的最大件
+    r3 = _gpu_vram_filter([p32, p48, p72], 48, "lte", "tolerance")
+    assert r3 and "48G" in r3[0]["model"]
+    # 容差模式无比较 → 精确 ==48
+    r4 = _gpu_vram_filter([p32, p48, p72], 48, None, "tolerance")
+    assert r4 and all("48G" in x["model"] for x in r4)
+    # gte 无 ≥ 件 → 空
+    r5 = _gpu_vram_filter([p32], 48, "gte", "tolerance")
+    assert r5 == []
+    # 无 need → 原样
+    assert _gpu_vram_filter([p32], None, None, "tolerance") == [p32]

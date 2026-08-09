@@ -59,8 +59,8 @@ test('cableDescFrom 按盘数驱动（SAS 按 4 取整 / NVMe 按 2 取整）', 
   assert.equal(cableDescFrom({ sata: 6, sas: 0, nvme: 0 }, '9560'), '9560 8SAS Cable')
   // 3-4 NVMe → 4NVMe（无 SAS/SATA 盘 → 只出 NVMe 缆）
   assert.equal(cableDescFrom({ sata: 0, sas: 0, nvme: 4 }, '9560'), '4NVMe Cable')
-  // 无 RAID 只出 NVMe
-  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 2 }, ''), '2NVMe Cable')
+  // 无 RAID 也出 SAS（不带型号前缀），NVMe 照常
+  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 2 }, ''), '4SAS Cable\n2NVMe Cable')
   // 都无 → 空（模板回落 front_cables）
   assert.equal(cableDescFrom({ sata: 0, sas: 0, nvme: 0 }, '9560'), '')
 })

@@ -11,53 +11,237 @@ from ..models.base import Rules_SessionLocal
 from ..models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig
 
 
-# 默认图结构 v6（vue flow 兼容）：v2 加 clarity_check→cond_clarity 分支 + budget_check；
-# v3 加 scene_analysis（场景分析，机型选型前）+ cond_scene（场景未定→反问 / 已定→选型）；
-# v4 加 normalize_input（需求输入规范化）；v6 加 llm_understand（LLM 主理解，默认关）+
-# slot_validate（槽位语义校验）—— 收拢 LLM 到单一主理解节点，替代旧 extract/scene 散装增强；
-# v7 加 confirm（LLM 确认面板：冲突/低置信度默认采纳、高亮可改）；
-# v8 加 llm_audit（LLM 方案校对：bom_cases few-shot 意图级校对，默认关）。
-# ⚠️ cond_clarity / cond_scene 的 false 边必须显式 source_handle="false"（executor 把缺省 handle 当 true）
+# 默认图结构 v9（双路线，vue flow 兼容）：按全局 AI 开关在 route_fork 分叉，两路到 select_baseline 前彻底分开——
+# AI 路（开）：normalize→route_fork→llm_agent（LLM 填表理解 + catalog 锚定；抽不全反问最关键1问）→select_baseline；
+# 本地路（关）：normalize→route_fork→extract→slot_validate→clarity_check→cond_clarity→[ask_user|scene_analysis→cond_scene→confirm_series]→select_baseline。
+# 尾部 cond_audit 再按同开关分叉：AI 路过 llm_audit（方案校对）、本地路直出 review。
+# 删了 v6/v7 的 llm_understand、llm_extract（皆被 llm_agent 取代）与 confirm（default_accept 死重）。
+# ⚠️ 所有 condition 的 false 边必须显式 source_handle="false"（executor 把缺省 handle 当 true）。
 DEFAULT_GRAPH = {
     "nodes": [
         {"id": "normalize_input", "type": "normalize_input", "label": "需求输入规范化", "position": {"x": 0, "y": 200}},
-        {"id": "extract", "type": "extract", "label": "需求理解与关键词提取", "position": {"x": 300, "y": 200}},
-        {"id": "llm_understand", "type": "llm_understand", "label": "LLM 主理解（可关）", "position": {"x": 450, "y": 200}},
-        {"id": "slot_validate", "type": "slot_validate", "label": "槽位语义校验", "position": {"x": 600, "y": 200}},
-        {"id": "confirm", "type": "confirm", "label": "LLM 确认（默认采纳）", "position": {"x": 750, "y": 200}},
-        {"id": "clarity_check", "type": "clarity_check", "label": "需求明确度判定", "position": {"x": 900, "y": 200}},
-        {"id": "cond_clarity", "type": "condition", "label": "明确度分支", "position": {"x": 1200, "y": 200}},
-        {"id": "ask_user", "type": "ask_user", "label": "反问补全信息", "position": {"x": 1500, "y": 60}},
-        {"id": "scene_analysis", "type": "scene_analysis", "label": "场景分析（AI/存储/通用）", "position": {"x": 1500, "y": 340}},
-        {"id": "cond_scene", "type": "condition", "label": "场景分支", "position": {"x": 1800, "y": 340}},
-        {"id": "confirm_series", "type": "confirm_series", "label": "系列确认", "position": {"x": 1980, "y": 340}},
-        {"id": "select_baseline", "type": "select_baseline", "label": "机型选型（基准配置）", "position": {"x": 2250, "y": 340}},
-        {"id": "match_kp", "type": "match_kp", "label": "配件匹配", "position": {"x": 2550, "y": 340}},
-        {"id": "compose", "type": "compose", "label": "组合整机方案", "position": {"x": 2850, "y": 340}},
-        {"id": "budget_check", "type": "budget_check", "label": "预算校验", "position": {"x": 3150, "y": 340}},
-        {"id": "llm_audit", "type": "llm_audit", "label": "LLM 方案校对（可关）", "position": {"x": 3400, "y": 340}},
-        {"id": "review", "type": "review", "label": "方案就绪", "position": {"x": 3750, "y": 340}},
+        {"id": "route_fork", "type": "condition", "label": "路线分流（AI / 本地）", "position": {"x": 280, "y": 200}},
+        {"id": "llm_agent", "type": "llm_agent", "label": "需求理解（AI 路·LLM 填表）", "position": {"x": 560, "y": 60}},
+        {"id": "extract", "type": "extract", "label": "需求理解与关键词提取（本地路）", "position": {"x": 560, "y": 340}},
+        {"id": "slot_validate", "type": "slot_validate", "label": "槽位语义校验（本地路）", "position": {"x": 820, "y": 340}},
+        {"id": "clarity_check", "type": "clarity_check", "label": "需求明确度判定", "position": {"x": 1080, "y": 200}},
+        {"id": "cond_clarity", "type": "condition", "label": "明确度分支", "position": {"x": 1320, "y": 200}},
+        {"id": "ask_user", "type": "ask_user", "label": "反问补全信息", "position": {"x": 1600, "y": 60}},
+        {"id": "scene_analysis", "type": "scene_analysis", "label": "场景分析（AI/存储/通用）", "position": {"x": 1600, "y": 340}},
+        {"id": "cond_scene", "type": "condition", "label": "场景分支", "position": {"x": 1900, "y": 340}},
+        {"id": "confirm_series", "type": "confirm_series", "label": "系列确认", "position": {"x": 2080, "y": 340}},
+        {"id": "select_baseline", "type": "select_baseline", "label": "机型选型（基准配置）", "position": {"x": 2350, "y": 340}},
+        {"id": "match_kp", "type": "match_kp", "label": "配件匹配", "position": {"x": 2650, "y": 340}},
+        {"id": "compose", "type": "compose", "label": "组合整机方案", "position": {"x": 2950, "y": 340}},
+        {"id": "budget_check", "type": "budget_check", "label": "预算校验", "position": {"x": 3250, "y": 340}},
+        {"id": "cond_audit", "type": "condition", "label": "方案校对分流（AI / 本地）", "position": {"x": 3500, "y": 340}},
+        {"id": "llm_audit", "type": "llm_audit", "label": "LLM 方案校对（AI 路）", "position": {"x": 3720, "y": 200}},
+        {"id": "review", "type": "review", "label": "方案就绪", "position": {"x": 3980, "y": 340}},
     ],
     "edges": [
-        {"id": "e1", "source": "normalize_input", "target": "extract"},
-        {"id": "e1b", "source": "extract", "target": "llm_understand"},
-        {"id": "e1c", "source": "llm_understand", "target": "slot_validate"},
-        {"id": "e2", "source": "slot_validate", "target": "confirm"},
-        {"id": "e2b", "source": "confirm", "target": "clarity_check"},
-        {"id": "e3", "source": "clarity_check", "target": "cond_clarity"},
-        {"id": "e4", "source": "cond_clarity", "target": "ask_user", "source_handle": "true"},
-        {"id": "e5", "source": "cond_clarity", "target": "scene_analysis", "source_handle": "false"},
-        {"id": "e6", "source": "scene_analysis", "target": "cond_scene"},
-        {"id": "e7", "source": "cond_scene", "target": "confirm_series", "source_handle": "true"},
-        {"id": "e8", "source": "cond_scene", "target": "ask_user", "source_handle": "false"},
-        {"id": "e9", "source": "confirm_series", "target": "select_baseline"},
-        {"id": "e10", "source": "select_baseline", "target": "match_kp"},
-        {"id": "e11", "source": "match_kp", "target": "compose"},
-        {"id": "e12", "source": "compose", "target": "budget_check"},
-        {"id": "e12b", "source": "budget_check", "target": "llm_audit"},
-        {"id": "e13", "source": "llm_audit", "target": "review"},
+        {"id": "e0", "source": "normalize_input", "target": "route_fork"},
+        {"id": "e1", "source": "route_fork", "target": "llm_agent", "source_handle": "true"},
+        {"id": "e2", "source": "route_fork", "target": "extract", "source_handle": "false"},
+        {"id": "e3", "source": "llm_agent", "target": "select_baseline"},
+        {"id": "e4", "source": "extract", "target": "slot_validate"},
+        {"id": "e5", "source": "slot_validate", "target": "clarity_check"},
+        {"id": "e6", "source": "clarity_check", "target": "cond_clarity"},
+        {"id": "e7", "source": "cond_clarity", "target": "ask_user", "source_handle": "true"},
+        {"id": "e8", "source": "cond_clarity", "target": "scene_analysis", "source_handle": "false"},
+        {"id": "e9", "source": "scene_analysis", "target": "cond_scene"},
+        {"id": "e10", "source": "cond_scene", "target": "confirm_series", "source_handle": "true"},
+        {"id": "e11", "source": "cond_scene", "target": "ask_user", "source_handle": "false"},
+        {"id": "e12", "source": "confirm_series", "target": "select_baseline"},
+        {"id": "e13", "source": "select_baseline", "target": "match_kp"},
+        {"id": "e14", "source": "match_kp", "target": "compose"},
+        {"id": "e15", "source": "compose", "target": "budget_check"},
+        {"id": "e16", "source": "budget_check", "target": "cond_audit"},
+        {"id": "e17", "source": "cond_audit", "target": "llm_audit", "source_handle": "true"},
+        {"id": "e18", "source": "cond_audit", "target": "review", "source_handle": "false"},
+        {"id": "e19", "source": "llm_audit", "target": "review"},
     ],
 }
+
+
+# 默认图结构 v12（单路能力链，2026-08 重构·实测迭代）—— 执行走 Graph Orchestrator。
+# understand → gap_analyze → scene_decide → model_reason → kp_reason → spec_compliance →
+# compose → budget_check → llm_audit → audit_fix → review。
+# 反问循环：gap_analyze --(缺口)--> llm_ask --(答完回)--> understand（补充后整链重跑）。
+# 自纠回边：budget_check 超预算 → 自动降配（确定性，重跑 kp 代表件/compose）；
+#           audit_fix 检出问题 → 重跑 kp_reason/spec_compliance/compose/budget_check/llm_audit（上限可配）。
+# 删除 cond_gap（orchestrator 不执行条件节点，缺口→反问由编排器决策，避免画布与执行不一致）。
+# AI 开：understand/llm_ask/scene_decide/model_reason/kp_reason/llm_audit 走 LLM 增强 + ReAct 工具决策；
+# AI 关/失败：各节点内部规则兜底（source 白盒标注）。spec_compliance/compose/budget_check/review 是确定性红线。
+# Phase2（2026-08 定稿）：默认链收敛为 6 节点 —— AI 员工 + 工具 + 校验。
+# understand 自带「专家分析/场景/缺口」（不再依赖 gap_analyze/scene_decide）；
+# kp_reason = LLM 提议 + 库校验；compose/llm_audit/review 确定性+裁判校验。
+# 旧节点（gap_analyze/scene_decide/spec_compliance/budget_check/audit_fix/extract）保留在 palette
+# 作为可选能力，用户拖回画布即参与执行（图=能力注册表，天然可回退）。
+DEFAULT_GRAPH_V11 = {
+    "nodes": [
+        {"id": "understand", "type": "understand", "label": "需求理解+专家分析", "position": {"x": 0, "y": 200}},
+        {"id": "llm_ask", "type": "llm_ask", "label": "智能反问", "position": {"x": 280, "y": 60}},
+        {"id": "model_reason", "type": "model_reason", "label": "机型推理（多级放宽）", "position": {"x": 560, "y": 200}},
+        {"id": "kp_reason", "type": "kp_reason", "label": "配件提议+库校验", "position": {"x": 840, "y": 200}},
+        {"id": "compose", "type": "compose", "label": "方案组装（确定性）", "position": {"x": 1120, "y": 200}},
+        {"id": "llm_audit", "type": "llm_audit", "label": "方案校对（独立裁判）", "position": {"x": 1400, "y": 200}},
+        {"id": "review", "type": "review", "label": "方案就绪", "position": {"x": 1680, "y": 200}},
+    ],
+    "edges": [
+        {"id": "p2e0", "source": "understand", "target": "model_reason"},
+        {"id": "p2e1", "source": "model_reason", "target": "kp_reason"},
+        {"id": "p2e2", "source": "kp_reason", "target": "compose"},
+        {"id": "p2e3", "source": "compose", "target": "llm_audit"},
+        {"id": "p2e4", "source": "llm_audit", "target": "review"},
+    ],
+}
+
+
+def _type_packages_defaults(pkgs: list) -> list:
+    """给类型套餐打「强制核心件」标记（配置驱动，拒绝硬编码）：
+      - 存储类套餐 mandatory_storage=True（硬盘是存储服务器核心，需求没提也配代表盘）；
+      - AI 类套餐 mandatory_gpu=True（AI/加速计算服务器核心是 GPU，配件库有卡就配，2026-08 修）。
+    只改命中关键词的套餐，其他套餐不动；无套餐时用默认三套。"""
+    pkgs = [dict(p) for p in pkgs]
+    if not any("存储" in (p.get("type_keyword") or "") for p in pkgs):
+        pkgs = pkgs + [{"type_keyword": "存储", "categories": ["CPU", "Memory", "HDD/SSD", "Raid card"]}]
+    if not any("AI" in (p.get("type_keyword") or "") for p in pkgs):
+        pkgs = pkgs + [{"type_keyword": "AI", "categories": ["CPU", "GPU", "Memory", "HDD/SSD"]}]
+    for p in pkgs:
+        kw = p.get("type_keyword") or ""
+        if "存储" in kw:
+            p["mandatory_storage"] = True
+        if "AI" in kw:
+            p["mandatory_gpu"] = True
+    return pkgs
+
+
+def _default_intent_words() -> list:
+    """方案助手「自然进入选配」意图词（挂 understand 节点，策略中心可配）。
+    用户消息命中任一子串 → 自动进入需求分析；与前端 utils/configIntent 默认同源。"""
+    return [
+        "配置服务器", "配一台服务器", "配台服务器", "配个服务器", "服务器配置",
+        "帮我配", "给我配", "怎么配", "要配一台", "配置一台", "做一台服务器",
+        "选配", "选型", "需求分析", "生成方案", "生成bom", "整机方案", "报价", "bom",
+    ]
+
+
+def _ask_user_defaults() -> dict:
+    """目录引导兜底默认（AI 关/失败时用）：与 catalog_guide.DEFAULT_ASK_CONFIG 同源。
+    落进 v11 llm_ask 节点配置，画布抽屉可视化编辑（拒绝黑盒/硬编码在代码里）。
+    """
+    try:
+        from app.services.catalog_guide import DEFAULT_ASK_CONFIG
+        return dict(DEFAULT_ASK_CONFIG)
+    except Exception:
+        return {"mode": "catalog", "enabled_types": [], "recommended_type": "",
+                "recommended_models": {}, "max_rounds": 6,
+                "type_question": "请选择服务器类型（以下均为有货在售类型）：",
+                "model_question": "请选择该类型下的在售机型：",
+                "kp_intro": "请按以下格式填写需要的配件，没有的项可省略：",
+                "reply_format": "CPU：型号 ×数量\n内存：容量 ×条数\nGPU：型号 ×数量\n硬盘：容量 ×数量\n预算：金额",
+                "default_hint": "不确定可回复「你推荐」，或点「跳过」让我推荐"}
+
+def _v11_node_configs() -> dict:
+    """v11 节点默认配置（AI 增强优先、节点内规则兜底；全部画布可配）。"""
+    # 领域知识默认（与旧 extract 同源，AI 理解 + 规则兜底共用；用户可在 understand 抽屉改）
+    _legacy_extract = _default_node_configs().get("extract") or {}
+    _legacy_sb = _default_node_configs().get("select_baseline") or {}
+    _legacy_mk = _default_node_configs().get("match_kp") or {}
+    return {
+        # AI 理解：领域知识注入 + 目录白名单 + few-shot 案例
+        "understand": {"ai_mode": "auto", "system_prompt": None,
+                       "case_source": "internal", "case_top_k": 2, "case_match": "tags_keyword",
+                       # 自然进入选配意图词：方案助手聊到这些说法 → 自动进入需求分析（策略中心可配）
+                       "intent_words": _default_intent_words(),
+                       "keyword_limit": _legacy_extract.get("keyword_limit") or 12,
+                       "lexicons": _legacy_extract.get("lexicons") or [],
+                       "spec_aliases": _legacy_extract.get("spec_aliases") or [],
+                       "qty_units": _legacy_extract.get("qty_units") or [],
+                       "qty_multipliers": _legacy_extract.get("qty_multipliers") or [],
+                       "model_token_regex": _legacy_extract.get("model_token_regex") or ""},
+        # 缺口分析：槽位覆盖度 + LLM 可选解释
+        "gap_analyze": {"llm_explain": True},
+        # 缺口分支：非 explicit 且未封顶 → 反问
+        "cond_gap": {"expr": "clarity != 'explicit' and not clarity_capped"},
+        # 智能反问：LLM 策略提问（问最关键1个/列全）；目录选项白名单
+        # workload_categories：缺场景/用途时首问工作负载（更贴业务，映射到类型），可配
+        "llm_ask": {"strategy": "one", "max_rounds": 6,
+                    # AI 关/失败时的目录引导兜底文案/选项 —— 显式落进节点配置，
+                    # 让画布抽屉看到真实默认值（不再"看着是空的"），用户可改可存。
+                    "ask_user": _ask_user_defaults(),
+                    "workload_categories": [
+                        {"label": "虚拟化 / 云主机", "desc": "运行多少台虚拟机？", "type": "通用计算服务器"},
+                        {"label": "数据库", "desc": "SQL/NoSQL？数据量多大？", "type": "通用计算服务器"},
+                        {"label": "AI / 机器学习", "desc": "训练还是推理？需要几块 GPU？", "type": "AI / 加速计算服务器"},
+                        {"label": "Web / 应用服务器", "desc": "并发/在线用户量多大？", "type": "通用计算服务器"},
+                        {"label": "文件 / 备份存储", "desc": "容量多大？", "type": "存储服务器"},
+                        {"label": "边缘 / 分支机构", "desc": "部署环境？", "type": "通用计算服务器"},
+                    ],
+                    # 分档引导（P1-2）：缺 CPU/内存/存储 规格时，给规模档位参考，降低回答门槛
+                    # ⚠️ recommend 必须可解析（CPU：N核 / 内存：容量×条数 / 存储：容量+接口），
+                    # 否则用户点档位后理解节点抽不出来、下轮重复问同一题（实测复现修）。
+                    "scale_tiers": {
+                        "CPU": [
+                            {"label": "小型", "desc": "访问量较低，单一应用", "recommend": "16核"},
+                            {"label": "中型", "desc": "多个服务/中等流量", "recommend": "32核"},
+                            {"label": "大型", "desc": "高并发/微服务", "recommend": "64核"},
+                        ],
+                        "内存": [
+                            {"label": "入门", "desc": "少量应用", "recommend": "32G*4条"},
+                            {"label": "标准", "desc": "中等负载", "recommend": "32G*8条"},
+                            {"label": "高配", "desc": "内存密集", "recommend": "64G*8条"},
+                        ],
+                        "存储": [
+                            {"label": "基础", "desc": "系统盘+少量数据", "recommend": "2×480G SSD"},
+                            {"label": "标准", "desc": "业务数据", "recommend": "2×960G SSD + 2×4T SATA"},
+                            {"label": "大容量", "desc": "海量存储", "recommend": "8×8T SATA"},
+                        ],
+                    }},
+        # 场景判定：规则判定本体 + AI 增强
+        "scene_decide": {"ai_mode": "auto", "fallback_scene": "通用计算服务器", "decide_threshold": 30},
+        # 机型推理：ReAct 调 select_models（LLM 决定选哪个，数据规则补全）
+        "model_reason": {"ai_mode": "auto", "enabled_tools": ["select_models"],
+                         "max_iterations": 6, "max_plans": 6,
+                         "recommend_strategy_id": _legacy_sb.get("recommend_strategy_id"),
+                         "no_signal_strategy": _legacy_sb.get("no_signal_strategy") or "return_empty",
+                         "fallback_order": _legacy_sb.get("fallback_order") or ["exact", "same_series", "same_form", "all"]},
+        # 配件推理：ReAct 调 pick_kp_parts（工具结果即决策，规则精确执行）
+        "kp_reason": {"ai_mode": "auto", "enabled_tools": ["pick_kp_parts"], "max_iterations": 6,
+                      "representative_pick": _legacy_mk.get("representative_pick") or "auto",
+                      "spec_rules": _legacy_mk.get("spec_rules") or [],
+                      "type_packages": _type_packages_defaults(_legacy_mk.get("type_packages") or []),
+                      "fallback_strategy": _legacy_mk.get("fallback_strategy") or "fallback_representative",
+                      "category_aliases": _legacy_mk.get("category_aliases"),
+                      "cpu_mem_type_rules": _legacy_mk.get("cpu_mem_type_rules") or [],
+                      "drive_spec_substitute": _legacy_mk.get("drive_spec_substitute", True)},
+        "compose": {"kp_per_baseline": True},
+        # 预算校验：超预算自动降配（确定性，先换 min_price 代表件→重组装→重校验；downgrade_axis.model 预留）
+        "budget_check": {"underspend_threshold": 0.5, "auto_downgrade": True,
+                         "downgrade_axis": ["representative_pick", "model"]},
+        # 规格合规校验（v12 新增，确定性红线前）：需求规格 vs 实配 —— AI 缺卡自动补、型号降级/内存代际不符标 issue
+        "spec_compliance": {"enabled": True, "mode": "auto_fix",
+                            "strict_model_match": True, "gpu_required_for_ai": True,
+                            "cpu_mem_generation": _legacy_mk.get("cpu_mem_type_rules") or [],
+                            "max_fix_rounds": 2},
+        # 审计自纠（v12 新增）：llm_audit 检出问题 → 重跑整链（含自身）再评估一次
+        #（执行中自我修正闭环；上限 max_retry，默认 1 轮，重跑后仍不过 → review 人工复核）
+        "audit_fix": {"enabled": True, "max_retry": 1,
+                      "retry_scope": ["kp_reason", "spec_compliance", "compose", "budget_check",
+                                      "llm_audit", "audit_fix"],
+                      "only_critical": True},
+        "llm_audit": {"enable_llm": True, "reference_limit": 2},
+        "review": {
+            "output_preset": "standard",
+            # BOM 明细输出（方案助手/企微分析结果里附的 BOM 文本）：
+            # enabled=是否显示；mode=live 走用户配置的 BOM 模板（与前端一致）/ excel 平铺
+            "bom_output": {"enabled": True, "mode": "live", "show_price": True,
+                           "show_summary": True, "include_l6": True, "include_kp": True},
+            # 推荐输出（方案助手：方案就绪后先给推荐+理由+下一步引导，BOM 附后）
+            "recommendation": {"enabled": True, "style": "concise", "include_next_steps": True,
+                               "next_steps": ["CPU", "内存", "存储", "网络"]},
+        },
+    }
 
 
 def _normalize_graph(g: dict) -> dict:
@@ -96,32 +280,52 @@ def _normalize_graph(g: dict) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
+# 型号 token 正则（必含数字；含单字母+3位数字以匹配 H100/A100/B200）—— extract 与 llm_agent 共用
+_DEFAULT_MODEL_TOKEN_REGEX = (
+    r"^(?=.*[0-9])([A-Za-z]{2,}[0-9A-Za-z\-]{2,}|[A-Za-z][0-9]{3,}|[0-9]{4,}|[0-9][0-9A-Za-z.\-]{2,})$"
+)
+
+
 def _default_node_configs() -> dict:
     """默认节点 config = 当前模块常量快照（建 v1 用）。延迟 import 避免循环。"""
     from app.services.requirement_intel_service import _CN_STOPWORDS
     from app.services.requirement_normalizer import DEFAULT_NORMALIZE_CONFIG as _DEFAULT_NORMALIZE_CONFIG
     from app.api.candidate_search import CATEGORY_KP_ALIASES, MAX_PLANS, PER_KEYWORD_LIMIT
     return {
-        # LLM 方案校对（v8 新增，2026-08 P3）：bom_cases 同平台 few-shot 意图级校对。
-        # 默认关（不拖慢流程）；开启后对全部方案一次调用 LLM，失败降级规则校对。
-        "llm_audit": {
-            "enable_llm": False,   # 节点级开关（受「设置→AI 设置→启用 AI」总开关约束）
-            "reference_limit": 2,  # few-shot 参考案例数（同系列优先）
+        # ── 双路线分叉节点（condition，expr 读全局 AI 开关 llm_enabled）──
+        # route_fork（头部）：true(AI 开)→llm_agent、false(本地)→extract
+        "route_fork": {"expr": "llm_enabled"},
+        # cond_audit（尾部）：true(AI 开)→llm_audit、false(本地)→review
+        "cond_audit": {"expr": "llm_enabled"},
+
+        # AI 路需求理解主节点（P1，2026-08-07）：LLM 接管需求理解，替代 regex extract。
+        # = run_agent_understand：需求原文 → catalog 白名单锚定 → LLM 出 RequirementSlots
+        #   （EXTRACT_ENHANCE_SCHEMA）→ merge_into_ext 确定性合并 → ctx["ext"]。
+        # 三道闸：catalog 白名单锚定 + merge 校验 + extract 确定性兜底（离线可跑）。
+        # 取代旧 B2「确定性 extract + ReAct 接地」——理解不再是 regex，打地鼠从根上消失。
+        # ReAct 接地降级为可选 escalation（escalate_grounding 默认关）；pick_kp_parts/build_plan 保持确定性。
+        "llm_agent": {
+            "system_prompt": None,            # None=用 agent_understand.AGENT_UNDERSTAND_SYSTEM_PROMPT；画布可覆盖
+            "escalate_grounding": False,      # server_type 缺/弱时 ReAct 调 select_models 锁机型（默认关，靠 catalog 直抽）
+            "enabled_tools": ["select_models"],   # escalate_grounding 开时用；search_cases 待 P4 CBR few-shot 接入
+            "max_iterations": 5,                  # escalate 接地的 ReAct 循环上限（兜底防爆）
+            "model_token_regex": _DEFAULT_MODEL_TOKEN_REGEX,  # 兜底给 match_kp（主源是 extract 节点 config）
+            # CBR 案例检索参数（escalate + P4 search_cases 用，画布可配）：
+            "case_source": "internal",            # internal（查 BomCase 表）/ external（以后接 RAG API）/ off（关，退零样本）
+            "case_top_k": 2,                      # 检索相似案例数
+            "case_match": "tags_keyword",         # 匹配方式：tags / keyword / tags_keyword
         },
-        # LLM 确认面板（v7 新增，2026-08 P2）：冲突/低置信度项默认采纳 LLM 补充、高亮可改。
-        "confirm": {
-            "default_decision": "accept",   # 默认采纳（前端高亮）；可选 ignore
+
+        # LLM 方案校对（v8）：bom_cases 同平台 few-shot 意图级校对。仅 AI 路走（cond_audit true 边），
+        # 故 enable_llm 默认 True；开启后对全部方案一次调用 LLM，失败降级规则校对。
+        "llm_audit": {
+            "enable_llm": True,   # AI 路校对节点（受全局 AI 开关约束）
+            "reference_limit": 2,  # few-shot 参考案例数（同系列优先）
         },
         # LLM 反问节点（P2）：复用目录状态机，文案由 LLM 生成（一次列全缺失项）。
         # 未在默认图（默认走 ask_user + LLM 追问注入），需要显式编排时从画布添加。
         "llm_ask": {
             "use_llm_questions": True,      # 注入 LLM 主理解的缺失项追问
-        },
-        # LLM 主理解（v6 新增，2026-08 LLM 重构 P1）：需求原文 + 目录白名单 → RequirementSlots 契约。
-        # 默认关（不拖慢流程）；开启后本节点调用大模型并确定性合并（规则赢、只补缺）。
-        "llm_understand": {
-            "enable_llm": False,   # 节点级开关（受「设置→AI 设置→启用 AI」总开关约束）
-            "max_retry": 1,        # 语义校验失败带错误喂回 LLM 的重试次数
         },
         # 槽位语义校验（v6 新增）：白名单外值丢弃 + LLM vs 规则冲突/低置信度收集（P2 confirm 用）
         "slot_validate": {
@@ -210,7 +414,7 @@ def _default_node_configs() -> dict:
                 {"unit": "个"},  # "2个处理器" / "8个GPU卡" / "24个DDR5"（R7：口语数量词）
             ],
             "qty_multipliers": ["*", "×"],  # 结构化清单乘号（*N / ×N）
-            "model_token_regex": r"^(?=.*[0-9])([A-Za-z]{2,}[0-9A-Za-z\-]{2,}|[A-Za-z][0-9]{3,}|[0-9]{4,}|[0-9][0-9A-Za-z.\-]{2,})$",  # 型号 token 正则（必含数字；含单字母+3位数字以匹配 H100/A100/B200）
+            "model_token_regex": _DEFAULT_MODEL_TOKEN_REGEX,  # extract 与 llm_agent 共用（见模块常量）
             "stopwords": sorted(_CN_STOPWORDS),
             "engine_note": "分词引擎：jieba（内置，不可配）",
         },
@@ -231,6 +435,16 @@ def _default_node_configs() -> dict:
                 {"category": "GPU", "spec_key": "Capacity", "op": ">=", "value": 16, "unit": "GB"},
                 {"category": "HDD/SSD", "spec_key": "Capacity", "op": ">=", "value": 480, "unit": "GB"},
             ],
+            # CPU 型号 → 内存代际默认（需求没写 DDR 代际时按已选 CPU 推断，避免 DDR5 平台配到 DDR4）。
+            # 顺序敏感、首个正则命中即定。可配：增删 CPU 型号 / 改代际映射（如新增海光/飞腾）。
+            "cpu_mem_type_rules": [
+                {"pattern": "KH50000|KH-50000|KH5000", "mem_type": "DDR5"},
+                {"pattern": "KH40000|KH4000|KX", "mem_type": "DDR4"},
+                {"pattern": "EPYC 9", "mem_type": "DDR5"},
+                {"pattern": "EPYC 7", "mem_type": "DDR4"},
+                {"pattern": "XEON 6", "mem_type": "DDR5"},
+                {"pattern": "XEON [1-4]", "mem_type": "DDR4"},
+            ],
             "type_packages": [
                 # 机型类型（关键词匹配 server_type.name）→ 标准 KP 品类套餐
                 {"type_keyword": "AI", "categories": ["CPU", "GPU", "Memory", "HDD/SSD"]},
@@ -241,11 +455,13 @@ def _default_node_configs() -> dict:
             # 盘件规格属性替代（2026-08-03）：需求容量库无同名件时按 Capacity/Type 数值
             # 选替代件（同容量等级→够用最小→最接近），BOM 标注「替代」；False = 严格 unmatched。
             "drive_spec_substitute": True,
+            # 容量匹配（2026-08 可配置化）：strategy=tolerance(±容差近似，默认)/strict_min(只选≥需求)；
+            # AI 识别出"以上/以下"(comparison gte/lte)时按严格语义执行，不受此默认策略影响。
+            "capacity_match": {"strategy": "tolerance", "tolerance": 10},
         },
         "compose": {"kp_per_baseline": True},
         "review": {},
         # v3 新增：需求明确度判定 + 反问 + 预算校验
-        "clarity_check": {"rules_source": "requirement_rules"},  # 规则从 requirement_rules 表读
         # 反问阈值：只有 explicit（信息齐全）才不反问；partial/unclear 都反问。
         # 旧值 "clarity == 'unclear'" 只在"几乎啥都没说"时反问，导致"我想要一台AMD服务器"(判 partial)直接放行不反问——典型模糊需求反而漏网。
         "cond_clarity": {"expr": "clarity != 'explicit' and not clarity_capped"},
@@ -301,6 +517,23 @@ class ReasoningFlowRepository:
         d["graph"] = _normalize_graph(d.get("graph") or {"nodes": [], "edges": []})
         d["node_configs"] = cfg_map
         return d
+
+    def active_is_current(self) -> bool:
+        """active 流的节点集是否已覆盖 DEFAULT_GRAPH 全部节点（=已是最新一代）。
+
+        防护 migrate 膨胀：active 已最新 → startup 跳过所有建流 migrate，绝不新建。
+        历史教训：persistGraph 污染 + migrate 漏 guard 曾导致每次启动新建一流（#107-120 共 13 条膨胀）。
+        用「节点集覆盖」而非逐节点 guard，单点兜底，任何历史 migrate 都不会再因 active 已最新而误建。
+        """
+        f = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True).first()
+        if not f:
+            return False
+        graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
+        active_ids = {n.get("id") for n in graph.get("nodes") or []}
+        if "understand" in active_ids:
+            return True  # v11 单路能力链（2026-08 重构），跳过全部历史 migrate（防 v11 被误判旧版回滚）
+        default_ids = {n.get("id") for n in (DEFAULT_GRAPH.get("nodes") or [])}
+        return default_ids <= active_ids  # active 是 DEFAULT 的超集即视为最新
 
     def get(self, flow_id: int) -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
@@ -426,6 +659,67 @@ class ReasoningFlowRepository:
         self.upsert_node_config(f.id, "ask_user", cfg, operator="self-heal")
         return True
 
+    def migrate_llm_agent_to_understand(self) -> bool:
+        """自愈：active flow 的 llm_agent 配置升级到 P1 理解模式。
+
+        旧配置（B2 接地版）没有 escalate_grounding 字段；本方法补 escalate_grounding=False，
+        保留用户已改的其他字段（system_prompt/case_* 等）。幂等：已有 escalate_grounding 则不动。
+        dispatch 对缺该字段的旧配置本就向后兼容（默认不接地升级），本自愈只为画布显示一致。
+        """
+        f = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True).first()
+        if not f:
+            return False
+        n = self.session.query(ReasoningNodeConfig).filter(
+            ReasoningNodeConfig.flow_id == f.id,
+            ReasoningNodeConfig.node_key == "llm_agent",
+        ).first()
+        if not n:
+            return False
+        try:
+            cfg = json.loads(n.config) if n.config else {}
+        except Exception:
+            cfg = {}
+        if "escalate_grounding" in cfg:
+            return False  # 已是 P1 理解模式
+        cfg["escalate_grounding"] = False
+        self.upsert_node_config(f.id, "llm_agent", cfg, operator="self-heal")
+        return True
+
+    def migrate_remove_llm_guide(self) -> bool:
+        """自愈：active flow 若还有 llm_guide 节点 → 重写图（删 llm_guide，llm_agent→select_baseline 直连）+ 删 llm_guide config。
+
+        幂等：已无 llm_guide 则不动。P3 溶解 llm_guide（反问已并入 llm_agent，llm_guide 的对话阶段机冗余）。
+        每次启动跑（只 upsert 活流图、不建新流，无膨胀）。
+        """
+        f = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True).first()
+        if not f:
+            return False
+        graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
+        nodes = graph.get("nodes") or []
+        if not any(n.get("id") == "llm_guide" for n in nodes):
+            return False  # 已无 llm_guide
+        new_nodes = [n for n in nodes if n.get("id") != "llm_guide"]
+        # 边：target=llm_guide → select_baseline（llm_agent→llm_guide ⇒ llm_agent→select_baseline）；source=llm_guide 丢弃；去重
+        new_edges: list = []
+        seen: set = set()
+        for e in graph.get("edges") or []:
+            if e.get("source") == "llm_guide":
+                continue
+            if e.get("target") == "llm_guide":
+                e = {**e, "target": "select_baseline"}
+            key = (e.get("source"), e.get("target"), e.get("source_handle"))
+            if key in seen:
+                continue
+            seen.add(key)
+            new_edges.append(e)
+        self.upsert_graph(f.id, {"nodes": new_nodes, "edges": new_edges}, operator="self-heal")
+        self.session.query(ReasoningNodeConfig).filter(
+            ReasoningNodeConfig.flow_id == f.id,
+            ReasoningNodeConfig.node_key == "llm_guide",
+        ).delete()
+        self.session.commit()
+        return True
+
     def activate(self, flow_id: int, operator: str = "system") -> Optional[dict]:
         for f in self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True).all():
             f.is_active = False
@@ -439,6 +733,366 @@ class ReasoningFlowRepository:
         self.session.commit()
         self.session.refresh(f)
         return f.to_dict()
+
+    def upgrade_to_dual_route(self, operator: str = "upgrade-v9") -> Optional[dict]:
+        """幂等升级到 v9 双路线拓扑（route_fork 头部分叉 + cond_audit 尾部分叉）。
+
+        不挂 startup（避免 v9 教训：每次启动重复迁移堆 active）。由一次性脚本 / admin API 手动调。
+        新建一条 flow 并 activate（先清后置）；旧 active flow 的 graph 不动，作回退锚点。
+        幂等：当前 active 已含 route_fork 节点 → 返回 None 跳过。
+        """
+        active = self.get_active_flow()
+        graph = (active.get("graph") if active else None) or {"nodes": []}
+        if any(n.get("id") == "route_fork" for n in (graph.get("nodes") or [])):
+            return None  # 已是 v9 双路线
+        now = datetime.now().isoformat()
+        f = ReasoningFlow(
+            name="默认推理流 v9（双路线：LLM路/本地路）",
+            version=1, status="draft",
+            graph=json.dumps(DEFAULT_GRAPH, ensure_ascii=False),
+            is_active=False,
+            description="双路线：AI 开→llm_agent（智能体接地 server_type，不过 extract）；AI 关→extract 正则链。"
+                        "头部 route_fork / 尾部 cond_audit 分叉。",
+            created_at=now, updated_at=now, created_by=operator, updated_by=operator,
+        )
+        self.session.add(f)
+        self.session.commit()
+        self.session.refresh(f)
+        for node_key, cfg in _default_node_configs().items():
+            self.session.add(ReasoningNodeConfig(
+                flow_id=f.id, node_key=node_key,
+                config=json.dumps(cfg, ensure_ascii=False),
+                version=1, updated_at=now, updated_by=operator,
+            ))
+        self.session.commit()
+        return self.activate(f.id, operator=operator)
+
+    def upgrade_to_v11(self, operator: str = "upgrade-v11") -> Optional[dict]:
+        """幂等升级到 v11 单路能力链（合并 AI/本地双路线 + Graph Orchestrator 执行语义）。
+
+        不挂 startup（v9 教训）。由脚本 / admin API 手动调。
+        新建一条 flow 并 activate；旧 active flow（v9）保留作回退锚点。
+        幂等：当前 active 已含 understand 节点 → 返回 None 跳过。
+        """
+        active = self.get_active_flow()
+        graph = (active.get("graph") if active else None) or {"nodes": []}
+        if any(n.get("id") == "understand" for n in (graph.get("nodes") or [])):
+            return None  # 已是 v11
+        now = datetime.now().isoformat()
+        f = ReasoningFlow(
+            name="默认推理流 v11（单路能力链 + 智能体编排）",
+            version=1, status="draft",
+            graph=json.dumps(DEFAULT_GRAPH_V11, ensure_ascii=False),
+            is_active=False,
+            description="单路：understand→gap→(反问循环)→scene→model→kp→compose→budget→audit→review。"
+                        "AI 开→LLM 增强+ReAct 工具决策；AI 关→节点内规则兜底。执行走 Graph Orchestrator。",
+            created_at=now, updated_at=now, created_by=operator, updated_by=operator,
+        )
+        self.session.add(f)
+        self.session.commit()
+        self.session.refresh(f)
+        for node_key, cfg in _v11_node_configs().items():
+            self.session.add(ReasoningNodeConfig(
+                flow_id=f.id, node_key=node_key,
+                config=json.dumps(cfg, ensure_ascii=False),
+                version=1, updated_at=now, updated_by=operator,
+            ))
+        self.session.commit()
+        return self.activate(f.id, operator=operator)
+
+    def migrate_v11_decision_rules(self, operator: str = "migrate-v11-rules") -> bool:
+        """幂等：把旧 flow 的 select_baseline/match_kp 规则迁入 active v11 的 model_reason/kp_reason。
+
+        v11 单路把选型/匹配规则归到 model_reason/kp_reason；迁移漏带则抽屉规则为空。
+        model_reason 缺 fallback_order、kp_reason 缺 spec_rules → 从旧 flow 补（保留 AI 配置字段）。
+        """
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        cfgs = active.get("node_configs") or {}
+        flows = self.session.query(ReasoningFlow).filter(ReasoningFlow.id < active["id"]).order_by(ReasoningFlow.id.desc()).all()
+        src = {"select_baseline": None, "match_kp": None}
+        for f in flows:
+            for nk in src:
+                if src[nk] is not None:
+                    continue
+                c = self.session.query(ReasoningNodeConfig).filter(
+                    ReasoningNodeConfig.flow_id == f.id, ReasoningNodeConfig.node_key == nk).first()
+                if c and c.config:
+                    cfg = json.loads(c.config) if c.config else {}
+                    if cfg.get("fallback_order") or cfg.get("spec_rules") or cfg.get("type_packages"):
+                        src[nk] = cfg
+        changed = False
+        mr = cfgs.get("model_reason") or {}
+        if not mr.get("fallback_order") and src["select_baseline"]:
+            for k in ("max_plans", "recommend_strategy_id", "no_signal_strategy", "fallback_order"):
+                if src["select_baseline"].get(k) is not None:
+                    mr[k] = src["select_baseline"][k]
+            self.upsert_node_config(active["id"], "model_reason", mr, operator=operator)
+            changed = True
+        kr = cfgs.get("kp_reason") or {}
+        if not kr.get("spec_rules") and src["match_kp"]:
+            for k in ("representative_pick", "spec_rules", "type_packages", "fallback_strategy",
+                      "category_aliases", "cpu_mem_type_rules", "drive_spec_substitute"):
+                if src["match_kp"].get(k) is not None:
+                    kr[k] = src["match_kp"][k]
+            self.upsert_node_config(active["id"], "kp_reason", kr, operator=operator)
+            changed = True
+        return changed
+
+    def migrate_v11_understand_knowledge(self, operator: str = "migrate-v11-kb") -> bool:
+        """幂等：把旧 flow 里 extract 节点的领域知识（词表/别名/数量/正则）迁入 active v11 的 understand。
+
+        v11 单路图没有 extract 节点，领域知识归 understand；若迁移时漏带，用户打开 understand
+        抽屉会看到空词表。此函数把最新旧 flow（含 extract 词表）的配置合并进 understand
+        （保留 AI 配置字段）。understand 已有 lexicons → 跳过。
+        """
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        u_cfg = (active.get("node_configs") or {}).get("understand") or {}
+        if u_cfg.get("lexicons"):
+            return False  # 已有领域知识，跳过
+        # 找含 extract 词表的旧 flow（id 降序，最新优先）
+        import json as _json
+        flows = self.session.query(ReasoningFlow).filter(ReasoningFlow.id < active["id"]).order_by(ReasoningFlow.id.desc()).all()
+        kb = None
+        for f in flows:
+            c = self.session.query(ReasoningNodeConfig).filter(
+                ReasoningNodeConfig.flow_id == f.id, ReasoningNodeConfig.node_key == "extract").first()
+            if c and c.config:
+                cfg = _json.loads(c.config) if c.config else {}
+                if cfg.get("lexicons"):
+                    kb = cfg
+                    break
+        if not kb:
+            return False
+        merged = dict(u_cfg)
+        for k in ("keyword_limit", "lexicons", "spec_aliases", "qty_units", "qty_multipliers",
+                  "model_token_regex", "category_lexicon"):
+            if kb.get(k) is not None:
+                merged[k] = kb[k]
+        self.upsert_node_config(active["id"], "understand", merged, operator=operator)
+        return True
+
+    def migrate_v11_scale_tiers(self, operator: str = "migrate-v11-scale") -> bool:
+        """幂等：把存量 v11 llm_ask 里不可解析的旧分档 recommend（区间/模糊）刷成可解析规格。
+
+        旧值（32-48 核 / 128-256 GB / 多盘大容量）用户点了抽不出来 → 下轮重复问。
+        只替换精确命中的旧默认值，用户已改的自定义档位不动。
+        """
+        old_map = {
+            "CPU": {"小型": "16-24 核", "中型": "32-48 核", "大型": "56-64 核"},
+            "内存": {"入门": "64-128 GB", "标准": "128-256 GB", "高配": "256 GB+"},
+            "存储": {"基础": "2×480G SSD", "标准": "2×960G SSD + 2×4T", "大容量": "多盘大容量"},
+        }
+        new_map = _v11_node_configs().get("llm_ask", {}).get("scale_tiers") or {}
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        la = (active.get("node_configs") or {}).get("llm_ask") or {}
+        st = la.get("scale_tiers") or {}
+        changed = False
+        for key, tiers in st.items():
+            for tier in (tiers or []):
+                label = (tier or {}).get("label") or ""
+                rec = (tier or {}).get("recommend") or ""
+                if label in (old_map.get(key) or {}) and rec == old_map[key][label]:
+                    new_rec = ((new_map.get(key) or []) and
+                               next((t.get("recommend") for t in new_map[key] if t.get("label") == label), None))
+                    if new_rec:
+                        tier["recommend"] = new_rec
+                        changed = True
+        if changed:
+            self.upsert_node_config(active["id"], "llm_ask", la, operator=operator)
+        return changed
+
+    def migrate_v11_storage_packages(self, operator: str = "migrate-v11-storage") -> bool:
+        """幂等：给存量 v11 kp_reason 的「存储」套餐补 mandatory_storage=True。
+
+        否则老配置里存储服务器套餐在需求没提硬盘时被 HDD/SSD 过滤规则删掉，
+        委托/默认方案会配出「没有一块硬盘的存储服务器」（实测复现）。
+        """
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        kr = (active.get("node_configs") or {}).get("kp_reason") or {}
+        pkgs = kr.get("type_packages") or []
+        changed = False
+        for pkg in pkgs:
+            kw = pkg.get("type_keyword") or ""
+            if "存储" in kw and not pkg.get("mandatory_storage"):
+                pkg["mandatory_storage"] = True
+                changed = True
+            if "AI" in kw and not pkg.get("mandatory_gpu"):
+                pkg["mandatory_gpu"] = True  # 2026-08：AI 类型默认配 GPU（配件库有卡）
+                changed = True
+        if changed:
+            self.upsert_node_config(active["id"], "kp_reason", kr, operator=operator)
+        return changed
+
+    def migrate_v12_spec_audit(self, operator: str = "migrate-v12-spec-audit") -> bool:
+        """幂等：把存量 v11 单路图升级到 v12 —— 加 spec_compliance / audit_fix 两个节点
+        （含连线与默认配置），并移除 cond_gap（orchestrator 不执行条件节点）。
+
+        v11 已有 understand（单路能力链）才迁移；只做增量（加节点/边/配置），
+        不重建整图，用户自定义的其它节点/连线保留。
+        """
+        active = self.get_active_flow()
+        if not active:
+            return False
+        graph = active.get("graph") or {}
+        nodes = graph.get("nodes") or []
+        ids = {n.get("id") for n in nodes}
+        if "understand" not in ids:
+            return False
+        import json as _json
+        dft_graph = DEFAULT_GRAPH_V11.get("nodes") or []
+        dft_pos = {n.get("id"): n.get("position") for n in dft_graph}
+        dft_labels = {n.get("id"): n.get("label") for n in dft_graph}
+        # 1) 节点：插入 spec_compliance / audit_fix / extract（幂等，只补缺失），移除 cond_gap
+        kept = [n for n in nodes if n.get("id") != "cond_gap"]
+        has = {n.get("id") for n in kept}
+        new_nodes = list(kept)
+        for nid in ("spec_compliance", "audit_fix", "extract"):
+            if nid not in has:
+                new_nodes.append({"id": nid, "type": nid, "label": dft_labels.get(nid, nid),
+                                  "position": dft_pos.get(nid, {"x": 1600, "y": 340})})
+        # 2) 边：移除 cond_gap 相关边 + 被新链替代的旧直连（kp→compose、llm_audit→review），补新边
+        _drop = {("cond_gap", None), (None, "cond_gap"),
+                 ("kp_reason", "compose"), ("llm_audit", "review")}
+        edges = graph.get("edges") or []
+        kept_edges = [e for e in edges
+                      if (e.get("source"), e.get("target")) not in _drop
+                      and e.get("source") != "cond_gap" and e.get("target") != "cond_gap"]
+        edge_ids = {(e.get("source"), e.get("target")) for e in kept_edges}
+        for e in (DEFAULT_GRAPH_V11.get("edges") or []):
+            if (e.get("source"), e.get("target")) not in edge_ids:
+                kept_edges.append(e)
+        # 3) 写图（幂等：仅当节点/边有变化才写）
+        graph_changed = len(new_nodes) != len(nodes) or len(kept_edges) != len(edges)
+        if graph_changed:
+            self.upsert_graph(active["id"], {"nodes": new_nodes, "edges": kept_edges}, operator=operator)
+        # 4) 补节点配置（含已存在节点的缺失/过期键）
+        cfgs = active.get("node_configs") or {}
+        base = _v11_node_configs()
+        changed = graph_changed
+        for nk in ("spec_compliance", "audit_fix", "extract"):
+            cur = cfgs.get(nk) or {}
+            dft = base.get(nk) or {}
+            if nk == "audit_fix":
+                _need = ("enabled", "max_retry", "retry_scope")
+            elif nk == "spec_compliance":
+                _need = ("enabled", "mode", "gpu_required_for_ai", "strict_model_match")
+            else:
+                _need = ("keyword_limit", "note")
+            _stale = (nk == "audit_fix" and "audit_fix" not in (cur.get("retry_scope") or []))
+            if not cur:
+                self.upsert_node_config(active["id"], nk, dft, operator=operator)
+                changed = True
+            elif _stale or any(k not in cur for k in _need):
+                merged = {**dft, **cur}
+                if _stale:
+                    merged["retry_scope"] = dft.get("retry_scope") or merged.get("retry_scope")
+                self.upsert_node_config(active["id"], nk, merged, operator=operator)
+                changed = True
+        # 5) budget_check 补 auto_downgrade
+        bc = (active.get("node_configs") or {}).get("budget_check") or {}
+        if not bc.get("auto_downgrade"):
+            self.upsert_node_config(active["id"], "budget_check",
+                                    {**(base.get("budget_check") or {}), **bc}, operator=operator)
+            changed = True
+        return changed
+
+    def migrate_v11_intent_words(self, operator: str = "migrate-v11-intent") -> bool:
+        """幂等：给存量 v11 understand 节点回填「自然进入选配」意图词（intent_words）。
+
+        否则老配置的 understand 抽屉看不到词表、助手读不到 → 退回前端内置默认（同源同值）。
+        已有 intent_words 则跳过，不覆盖用户改过的词表。
+        """
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        u_cfg = (active.get("node_configs") or {}).get("understand") or {}
+        if u_cfg.get("intent_words"):
+            return False
+        merged = dict(u_cfg)
+        merged["intent_words"] = _default_intent_words()
+        self.upsert_node_config(active["id"], "understand", merged, operator=operator)
+        return True
+
+    def migrate_v11_ask_config(self, operator: str = "migrate-v11-ask") -> bool:
+        """幂等：把目录引导兜底默认（ask_user）回填进 active v11 的 llm_ask 节点配置。
+
+        v11 llm_ask 抽屉的「目录引导兜底（AI 关时 · 引导文案/选项）」若为空，说明节点配置里
+        没有 ask_user 子配置（老 v11 迁移时没带）。此函数用 _ask_user_defaults 补上，
+        让抽屉显示真实可编辑默认值，而不是空文本框。已存在 ask_user 则跳过。
+        """
+        active = self.get_active_flow()
+        if not active or not any(n.get("id") == "understand" for n in ((active.get("graph") or {}).get("nodes") or [])):
+            return False
+        la = (active.get("node_configs") or {}).get("llm_ask") or {}
+        if la.get("ask_user"):
+            return False  # 已有引导配置，跳过
+        merged = dict(la)
+        merged["ask_user"] = _ask_user_defaults()
+        self.upsert_node_config(active["id"], "llm_ask", merged, operator=operator)
+        return True
+
+    def migrate_v13_cleanup_orphan_configs(self, operator: str = "migrate-v13-cleanup") -> bool:
+        """幂等：清理图里已不存在的节点配置（孤儿配置）。
+
+        v12 图升级后 cond_gap 节点已从画布移除，但旧 node_config 行残留；ask_user 顶层配置
+        也被 llm_ask 节点内的 ask_user 子配置取代（load_ask_config 读不到时自动回退
+        DEFAULT_ASK_CONFIG，删除安全）。孤儿配置只占库、不进执行，按「该删的删掉」原则清理。
+        """
+        active = self.get_active_flow()
+        if not active:
+            return False
+        ids = {n.get("id") for n in ((active.get("graph") or {}).get("nodes") or [])}
+        cfgs = active.get("node_configs") or {}
+        orphans = [k for k in cfgs if k not in ids]
+        deleted = 0
+        for k in orphans:
+            deleted += self.session.query(ReasoningNodeConfig).filter(
+                ReasoningNodeConfig.flow_id == active["id"],
+                ReasoningNodeConfig.node_key == k,
+            ).delete()
+        # 死键剥离：use_catalog_options 是误导性死配置（白名单过滤是硬保证，不提供关闭开关）
+        _dead_keys = ("use_catalog_options",)
+        la = cfgs.get("llm_ask") or {}
+        if any(k in la for k in _dead_keys):
+            merged = {k2: v for k2, v in la.items() if k2 not in _dead_keys}
+            self.upsert_node_config(active["id"], "llm_ask", merged, operator=operator)
+            deleted += 1
+        self.session.commit()
+        if deleted:
+            print(f"  - 清理 {deleted} 条死配置（孤儿行 + use_catalog_options）")
+        return deleted > 0
+
+    def migrate_v14_restore_default_edges(self, operator: str = "migrate-v14-edges") -> bool:
+        """幂等：默认 v11 节点集但 edges 为空 → 恢复 DEFAULT_GRAPH_V11 连线。
+
+        根因：v12/v13 图重建时旧边引用旧节点 id（route_fork/cond_clarity…）被过滤丢弃、
+        新边未回填 → active 流 13 节点 0 连线，画布全节点「孤立未连线」，编排器退化为
+        无依赖平坦能力链（understand 不再先于 gap_analyze…）。数据自愈，不动节点位置/配置。
+        """
+        active = self.get_active_flow()
+        if not active:
+            return False
+        graph = active.get("graph") or {}
+        edges = graph.get("edges") or []
+        if edges:
+            return False  # 已有连线，不动
+        nodes = graph.get("nodes") or []
+        ids = {n.get("id") for n in nodes}
+        dft_ids = {n.get("id") for n in (DEFAULT_GRAPH_V11.get("nodes") or [])}
+        if ids != dft_ids:
+            return False  # 不是默认节点集（用户自定义图），不猜测连线
+        graph["edges"] = DEFAULT_GRAPH_V11.get("edges") or []
+        self.upsert_graph(active["id"], graph, operator=operator)
+        print(f"  - 恢复 {len(graph['edges'])} 条默认连线（active flow {active['id']}：0 边 → v11 链）")
+        return True
 
     def seed_default_if_empty(self) -> dict:
         """无任何 flow 时建 v1（= 当前硬编码），设 active。已有则返回首个。"""
@@ -613,6 +1267,8 @@ class ReasoningFlowRepository:
             return None
         graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
         node_ids = {n.get("id") for n in graph.get("nodes") or []}
+        if "route_fork" in node_ids or "llm_guide" in node_ids:
+            return None  # 已是 v9+ 双路线（llm_understand 已删），跳过历史 migrate，避免无限新建
         if "llm_understand" in node_ids:
             return None  # 已是 v6+
 
@@ -656,6 +1312,8 @@ class ReasoningFlowRepository:
             return None
         graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
         node_ids = {n.get("id") for n in graph.get("nodes") or []}
+        if "route_fork" in node_ids or "llm_guide" in node_ids:
+            return None  # 已是 v9+ 双路线（confirm 已删），跳过历史 migrate
         if "confirm" in node_ids:
             return None  # 已是 v7+
 

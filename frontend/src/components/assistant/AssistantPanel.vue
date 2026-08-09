@@ -105,20 +105,19 @@
             <div v-if="analysisRunning" class="ap-msg role-assistant">
               <div class="ap-bubble"><span class="ap-typing"><i></i><i></i><i></i></span></div>
             </div>
+            <!-- 自然进入选配：聊到服务器但未自动进入 → 对话里给「开始选配」按钮（2026-08）-->
+            <div v-if="showConfigCta" class="ap-config-cta">
+              <span>听起来您想配置服务器，需要我帮您选配吗？</span>
+              <a-button type="primary" size="small" @click="startConfigFromChat">
+                <template #icon><ThunderboltOutlined /></template>
+                开始选配
+              </a-button>
+            </div>
           </div>
         </div>
 
-        <!-- 快捷指令：需求分析（常驻）+ 按当前页 provider 条件渲染 -->
+        <!-- 快捷指令：按当前页 provider 条件渲染（需求分析已改为自然进入，不再手动开关） -->
         <div class="ap-quick">
-          <button
-            class="ap-quick-chip primary"
-            :class="{ active: analyzeMode }"
-            :disabled="analysisBusy"
-            @click="toggleAnalyzeMode"
-          >
-            <span class="ap-quick-icon">🧩</span>
-            <span>{{ analyzeMode ? '退出需求分析' : '需求分析 / 生成 BOM' }}</span>
-          </button>
           <button
             v-for="a in visibleQuickActions"
             :key="a.key"
@@ -134,6 +133,7 @@
         <!-- 需求分析：反问回复区（ask_user 节点触发，pipeline 暂停等用户补齐）-->
         <div v-if="analysisPrompt" class="ap-reply-footer">
           <p class="ap-reply-q">{{ analysisPrompt.question }}</p>
+          <p v-if="analysisPrompt.why" class="ap-note ap-why">💡 {{ analysisPrompt.why }}</p>
           <p v-if="analysisPrompt.format" class="ap-note ap-format">{{ analysisPrompt.format }}</p>
           <div v-if="analysisPrompt.options?.length" class="ap-reply-options">
             <a-tag
@@ -145,8 +145,11 @@
           </div>
           <a-textarea
             v-model:value="replyText"
+            ref="replyInputEl"
             :auto-size="{ minRows: 1, maxRows: 4 }"
-            :placeholder="analysisPrompt.clarity_capped ? '已多次补充，可直接发送或跳过' : '回复补充信息，回车发送（Shift+Enter 换行）'"
+            :placeholder="analysisPrompt.options?.length
+              ? '点上方选项填入，或直接输入你的回答，回车发送'
+              : (analysisPrompt.clarity_capped ? '已多次补充，可直接发送或跳过' : '回复补充信息，回车发送（Shift+Enter 换行）')"
             class="ap-reply-input"
             @press-enter="onReplyEnter"
           />
@@ -188,21 +191,17 @@
           <p class="ap-note" style="margin-top:6px">「全部采纳」直接看当前方案（不重跑 LLM）；改了选择才重新生成。</p>
         </div>
 
-        <!-- 输入（需求分析模式 = 在会话里直接发需求）-->
-        <div class="ap-analyze-bar" v-if="analyzeMode">
-          <span class="ap-analyze-bar-tip">🧩 需求分析模式：把客户需求直接发出来，Enter 开始；再点上方「退出需求分析」返回聊天。</span>
-        </div>
+        <!-- 输入：聊天/自然进入需求分析（命中配置意图词自动进入，无需手动切模式） -->
         <div class="ap-input">
           <a-textarea
             v-model:value="draft"
             :auto-size="{ minRows: 1, maxRows: 4 }"
-            :placeholder="analyzeMode ? '输入客户需求，Enter 开始需求分析（Shift+Enter 换行）' : '输入消息，Enter 发送 / Shift+Enter 换行'"
+            placeholder="输入消息，Enter 发送 / Shift+Enter 换行（说「帮我配台服务器」会自动进入选配）"
             :disabled="sending"
             @press-enter="onEnter"
           />
           <a-button type="primary" :loading="analysisBusy || sending" :disabled="!draft.trim()" @click="onSend">
-            <template #icon v-if="analyzeMode"><ThunderboltOutlined /></template>
-            {{ analyzeMode ? '开始分析' : '发送' }}
+            发送
           </a-button>
         </div>
       </div>
@@ -254,11 +253,11 @@ const {
   threads, currentThreadId, currentThread, messages, loading, sending, streamingText, waitingAI,
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
   analysisSteps, analysisPlans, analysisRunning, analysisBusy, analysisError,
-  analysisPrompt, analysisConfirm,
+  analysisPrompt, analysisConfirm, analysisActive,
   runAnalysis, replyAnalysis, skipAnalysis, confirmAnalysis, acceptAllAnalysis,
 } = useAssistant()
 
-const { contextLabel, summarize, visibleQuickActions } = useAssistantContext()
+const { contextLabel, summarize, visibleQuickActions, isConfigIntent, hasServerWord } = useAssistantContext()
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
@@ -395,8 +394,8 @@ async function onSend() {
   const text = draft.value
   if (!text.trim() || sending.value) return
   draft.value = ''
-  if (analyzeMode.value) {
-    analyzeMode.value = false
+  // 2026-08：自然进入 —— 用户直接说「帮我配台服务器/配置服务器/选配…」→ 自动进入需求分析，不用再点按钮
+  if (isConfigIntent(text)) {
     await runAnalysis(text)
     return
   }
@@ -412,28 +411,36 @@ async function onQuickAction(action: QuickAction) {
   await send(prompt, ctx)
 }
 
-// ── 需求分析：会话内模式（点「需求分析」切换输入框，直接发需求，不再弹窗）──
-const analyzeMode = ref(false)
 const router = useRouter()
 
-function toggleAnalyzeMode() {
-  analyzeMode.value = !analyzeMode.value
-  if (analyzeMode.value) {
-    nextTick(() => {
-      const ta = document.querySelector('.assistant-panel .ap-input textarea') as HTMLTextAreaElement | null
-      ta?.focus()
-    })
+// ── 自然进入选配：弱意图兜底按钮（聊到服务器但没强到直接进分析）──
+const lastUserText = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    if (messages.value[i].role === 'user') return messages.value[i].content || ''
   }
+  return ''
+})
+const showConfigCta = computed(() =>
+  !analysisActive.value && !analysisPrompt.value && !analysisRunning.value &&
+  hasServerWord(lastUserText.value) && !isConfigIntent(lastUserText.value))
+function startConfigFromChat() {
+  const t = lastUserText.value.trim()
+  if (!t) return
+  runAnalysis(t)
 }
 
 // ── 需求分析：反问回复（ask_user）──
 const replyText = ref('')
 const quickLocked = ref(false)
+// 选项点击 → 预填输入框（可编辑），输入框始终可见（2026-08 修复：统一为单一输入区）
+const customInput = ref(false)
+const replyInputEl = ref<HTMLTextAreaElement | null>(null)
 function quickReply(opt: string) {
-  if (quickLocked.value) return
-  quickLocked.value = true
-  replyText.value = ''
-  replyAnalysis(opt)
+  // 2026-08：点选项 → 填入输入框（可编辑/可补充），由用户确认后发送。
+  // 避免"选项直接发"和"输入框"两个入口割裂——选项只是快捷填充。
+  replyText.value = opt
+  customInput.value = true
+  nextTick(() => { replyInputEl.value?.focus() })
 }
 function submitReply() {
   const t = replyText.value.trim()
@@ -452,6 +459,7 @@ function onSkipAnalysis() {
 }
 watch(() => analysisPrompt.value, () => {
   quickLocked.value = false
+  customInput.value = false
   nextTick(scrollToBottom)
 })
 
@@ -736,6 +744,22 @@ function onDeleteThread(id: string) {
 }
 .ap-msg {
   display: flex;
+}
+/* 自然进入选配：对话内「开始选配」提示条（弱意图兜底） */
+.ap-config-cta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--cpq-overlay-w3);
+  border: 1px dashed var(--cpq-glass-border, rgba(255, 255, 255, 0.16));
+  font-size: 13px;
+  color: var(--cpq-text-muted);
+}
+.ap-config-cta .ant-btn-primary {
+  margin-left: auto;
+  flex-shrink: 0;
 }
 .role-user {
   justify-content: flex-end;

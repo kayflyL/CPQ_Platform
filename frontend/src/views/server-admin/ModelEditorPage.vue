@@ -252,7 +252,7 @@ async function save() {
     message.error(e.response?.data?.detail || '保存失败')
   } finally { saving.value = false }
 }
-function cancel() { router.push('/servers/admin') }
+function cancel() { router.push({ path: '/servers/admin', query: { refresh: 'models' } }) }
 
 onMounted(init)
 </script>

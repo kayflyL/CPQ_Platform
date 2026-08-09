@@ -66,6 +66,8 @@ _GUIDE_WORDS_FALLBACK = {
                  "听你的", "随便", "都行", "都可以", "怎么都行", "帮我选", "你帮选", "帮我来一台"],
     "spec_hint_re": ["cpu", "内存", "gpu", "硬盘", "ssd", "hdd", "nvme", "raid", "网卡",
                      "万兆", "千兆", "机架", "塔式", "[1-8]\\s*u\\b", "核", "颗", "条", "张"],
+    "restart": ["改主意", "重新开始", "重来", "重新描述", "换个需求", "换一个需求", "换一种",
+                "当我没说", "算了", "重说", "重新来", "换个思路", "不要这个", "换方向"],
 }
 
 
@@ -97,6 +99,18 @@ def load_ask_config(flow_configs: Optional[dict]) -> dict:
     merged = dict(DEFAULT_ASK_CONFIG)
     merged.update({k: v for k, v in cfg.items() if v is not None})
     return merged
+
+
+def is_restart_reply(text: str) -> bool:
+    """客户「改主意/重新开始/换需求」→ 清空历史累积、当全新需求重新引导（P1-1 意图切换）。"""
+    low = (text or "").strip()
+    if not low:
+        return False
+    g = load_guide_words()
+    for w in (g.get("restart") or []):
+        if w and w in low:
+            return True
+    return False
 
 
 def is_default_reply(text: str) -> bool:

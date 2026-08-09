@@ -8,11 +8,6 @@ import type { ShowcaseConfig } from '@/components/server-config/showcase-config'
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
 // ---------- 料号库 ----------
-export interface PartSection {
-  section: string
-  count: number
-  categories: string[]
-}
 
 /** 大类汇总项（一级主导航）：major_category 大类 + 段内子类列表 */
 export interface PartMajorCategory {
@@ -21,17 +16,16 @@ export interface PartMajorCategory {
   categories: string[]
 }
 export const partsApi = {
-  list: (opts?: { category?: string; major_category?: string; section?: string; search?: string; chassis?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string }) =>
+  list: (opts?: { category?: string; major_category?: string; search?: string; chassis?: string; page?: number; page_size?: number; sort_by?: string; sort_order?: string }) =>
     RESP<{ parts: PartMaster[]; total: number }>(axios.get('/api/parts', { params: opts })),
-  sections: () => RESP<{ sections: PartSection[] }>(axios.get('/api/parts/sections')),
   majorCategories: () => RESP<{ major_categories: PartMajorCategory[] }>(axios.get('/api/parts/major-categories')),
-  /** 大类/STEP 分类管理：增/改名/删，改名删除批量传播到所有相关料号 */
+  /** 大类分类管理：增/改名/删，改名删除批量传播到所有相关料号 */
   taxonomy: {
-    add: (kind: 'major' | 'step', name: string) =>
+    add: (kind: 'major', name: string) =>
       RESP<{ kind: string; name: string }>(axios.post('/api/parts/taxonomy', { kind, name })),
-    rename: (kind: 'major' | 'step', old_name: string, new_name: string) =>
+    rename: (kind: 'major', old_name: string, new_name: string) =>
       RESP<{ updated: number }>(axios.put('/api/parts/taxonomy/rename', { kind, old_name, new_name })),
-    remove: (kind: 'major' | 'step', name: string) =>
+    remove: (kind: 'major', name: string) =>
       RESP<{ name: string }>(axios.delete('/api/parts/taxonomy', { params: { kind, name } })),
   },
   categories: () => RESP<{ categories: string[] }>(axios.get('/api/parts/categories')),
@@ -45,7 +39,7 @@ export const partsApi = {
   update: (pn: string, data: Partial<PartMaster>) => RESP<{ ok: boolean }>(axios.put(`/api/parts/${encodeURIComponent(pn)}`, data)),
   delete: (pn: string) => RESP<{ ok: boolean }>(axios.delete(`/api/parts/${encodeURIComponent(pn)}`)),
   /** 导出料号库 */
-  export: (section?: string) => axios.get('/api/parts/export', { params: { section }, responseType: 'blob' }),
+  export: () => axios.get('/api/parts/export', { responseType: 'blob' }),
   /** 批量导入料号（预览或确认） */
   import: (file: File, dryRun: boolean = true) => {
     const fd = new FormData()
@@ -167,7 +161,6 @@ export interface PartMaster {
   name: string
   category: string
   major_category?: string
-  section?: string
   specs?: Record<string, any>
   unit_price?: number
   supplier?: string
@@ -223,6 +216,8 @@ export interface ConfigContent {
   standard_riser?: Record<string, string> | string  // 各 IO 槽默认 riser（dict 按槽位 / 字符串全槽同规格）
   riser_x16?: string                                // 升级规格（装 GPU → 全槽；100G+ 网卡 → IO1）
   standard_mem_speed?: string | number | null       // 机型标准内存速率 (MT/s)，需求未写时按此选件
+  front_cables?: Record<string, string>             // 前面板线缆 PN 按盘类 {SATA, SAS, NVMe}（基准配置选默认，配置页可改）
+  default_psu_pn?: string                            // 默认电源 PSU 料号（基准配置选默认，配置页可改；与 front_cables 同为软默认，不锁死）
 }
 export interface BaseConfig {
   id: number; name: string; server_type_id?: number; series?: string; model?: string
@@ -233,12 +228,24 @@ export interface BaseConfig {
   rear_slots?: RearSlot[] // 后面板槽位布局 [{name, cap}]
   gpu_slots?: number      // 可装 GPU 数上限
   max_tdp?: number | null  // 散热/供电承载 TDP 上限(W)，可空，供 PSU↔GPU 功率规则参考
+  // 机箱能力约束（基准配置页可配；缺省 → 推理链路用全局兜底，不硬编码物理边界）：
+  psu_wattages?: number[]   // 允许的 PSU 瓦数档位（如 [1300,1600,2000]；空/缺省=不限沿用全局）
+  max_cpu?: number          // CPU 颗数上限（双路默认 2）
+  max_dimm?: number         // 内存条数上限（EPYC 双路默认 24）
+  mem_channels?: number     // 每路内存通道数（EPYC 12 通道/路，驱动内存选型目标条数）
   parts_count?: number; total_price?: number
   model_id?: number | null                    // 所属机型（一对多反向关联；NULL=孤儿待归属）
   config_content?: ConfigContent | null       // 配置级介绍
 }
 /** 后面板槽位：名称 + 容量（如 IO1 容纳 3 张卡、OCP 容纳 1 张）*/
-export interface RearSlot { name: string; cap: number }
+export interface RearSlot {
+  name: string
+  cap: number
+  /** 该槽默认装载的 option_type 多重集（重复即数量），与配置页 rear[slot] 同形：['x16','x16']=2 条 X16。
+   *  基准配置在此选默认卡 + 默认数量；配置页选了基准机箱后用此播种 rear，且只能调数量不能换卡（电源除外）。
+   *  空/缺省 = 挡片；配置页遇空 defaults 的旧基准回退自由选（向后兼容）。 */
+  defaults?: string[]
+}
 export interface BaseConfigPart {
   id?: number; config_id?: number; pn: string; quantity: number
   locked?: boolean; sort_order?: number

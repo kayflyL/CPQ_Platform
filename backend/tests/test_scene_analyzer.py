@@ -153,20 +153,57 @@ def test_series_hint_inference_when_ext_missing():
 # ── 图级回归：8 卡 / 兆芯 不再乱推机型 ───────────────────────────
 def _run_graph(text, force=True):
     import asyncio
-    from app.repository.reasoning_flow_repo import DEFAULT_GRAPH, _default_node_configs
+    from unittest.mock import patch
+    from app.repository.reasoning_flow_repo import DEFAULT_GRAPH_V11, _v11_node_configs
     from app.services.reasoning_executor import run_graph_executor
 
     async def _run():
-        # 用模块常量构造 flow（不依赖 DB 用户可调 max_plans），保证测试确定性
-        flow = {"graph": DEFAULT_GRAPH, "node_configs": _default_node_configs()}
+        # v11 单路能力图（Phase3：ai_mode=rule 已删，理解/推理用 hermetic 保证确定性不调 LLM）
+        node_configs = _v11_node_configs()
+        flow = {"graph": DEFAULT_GRAPH_V11, "node_configs": node_configs}
         events = []
 
         async def bc(p):
             events.append(p)
 
-        ctx = await run_graph_executor("test-run", text, flow, bc,
-                                       initial_ctx={"force_complete": force})
-        return ctx, events
+        async def fake_understand_dispatch(ntype, ctx, config, broadcast):
+            # 注入已理解信号（按需求平台分支：兆芯→Polaris、AMD→Orion、GPU→AI），走确定性规则
+            req = ctx.get("requirement_text") or ""
+            if "KH5000" in req or "兆芯" in req:
+                stype, series = "通用计算服务器", "Polaris"
+            elif "AMD" in req.upper() or "EPYC" in req.upper() or "9654" in req:
+                stype, series = "通用计算服务器", "Orion"
+            else:
+                stype, series = "AI / 加速计算服务器", None
+            ctx["ext"] = {
+                "server_type_name": stype, "series": series, "form": "2U" if "2U" in req else "4U",
+                "categories": ["CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement"],
+                "gpu_groups": [{"tokens": ["Rtx 5090", "5090"], "qty": 8, "cap": 32}],
+                "mem_groups": [{"term": "32G", "qty": 16}],
+                "drive_groups": [{"term": "480G", "qty": 2, "kind": "SATA"}, {"term": "3840G", "qty": 2, "kind": "NVMe"}],
+                "multi_spec_filters": {"Network(NIC) requirement": [{"filters": [{"spec_key": "Link Speed", "op": "=", "value": "25G"}], "qty": 2}]},
+                "qty_map": {"CPU": 2},
+            }
+            # Phase2：scene 由理解节点提供（不再依赖 scene_decide 节点）
+            ctx["scene"] = {"scene_name": stype, "series": series, "form": "2U" if "2U" in req else "4U",
+                            "determined": True, "source": "understand"}
+            return {"called": True, "source": "llm", "sufficient": True, "issues": []}
+
+        import app.services.reasoning_executor as rex
+        import app.services.llm_client as llm_client
+        orig_dispatch = rex._dispatch
+        orig_llm = llm_client.is_llm_enabled
+        rex._dispatch = lambda ntype, ctx, config, broadcast: (
+            fake_understand_dispatch(ntype, ctx, config, broadcast) if ntype == "understand"
+            else orig_dispatch(ntype, ctx, config, broadcast))
+        llm_client.is_llm_enabled = lambda: False  # model/kp 走规则，确定性
+        try:
+            ctx = await run_graph_executor("test-run", text, flow, bc,
+                                           initial_ctx={"force_complete": force})
+            return ctx, events
+        finally:
+            rex._dispatch = orig_dispatch
+            llm_client.is_llm_enabled = orig_llm
 
     return asyncio.run(_run())
 

@@ -284,9 +284,11 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     # 从 quotation 获取每个配置的独立数量和服务器型号
     config_quantities = {}
     config_server_models = {}
+    config_warranty_info = {}
     if quotation:
         config_quantities = quotation.config_quantities or {}
         config_server_models = quotation.config_server_models or {}
+        config_warranty_info = quotation.config_warranty_info or {}
     
     config_summary = []
     seq = 1
@@ -316,6 +318,12 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
             for i in cfg_items if i.get("category") == "Warranty"
         )
+        # 按费率算的维保（对齐前端 calcWarrantyFeeL6/KP：L6售价×l6.rate + KP售价×kp.rate）。
+        # rate 存 config_warranty_info，由工作台 setWarrantyRate 同步进 warranty_info 持久化。
+        wi = config_warranty_info.get(cfg_name) or {}
+        l6_rate = float((wi.get("l6") or {}).get("rate") or 0)
+        kp_rate = float((wi.get("kp") or {}).get("rate") or 0)
+        warranty_sum += l6_sum * l6_rate + kp_sum * kp_rate
         unit_price = l6_sum + kp_sum + warranty_sum
         
         # 提取 server_model（从 quotation.config_server_models）
