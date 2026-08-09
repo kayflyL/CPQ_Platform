@@ -8,12 +8,14 @@
  */
 import { ref } from 'vue'
 import type { Ref } from 'vue'
-import { feedApi, getCurrentUser } from '@/api/feed'
+import { feedApi } from '@/api/feed'
 import type { FeedMessage, FeedAttachment } from '@/api/feed'
+import { useAuthStore } from '@/store/auth'
 
 export type PresenceUser = { user_id: string; name: string }
 
 export function useFeedSocket(opportunityId: Ref<string>) {
+  const auth = useAuthStore()
   const messages = ref<FeedMessage[]>([])
   const attachments = ref<FeedAttachment[]>([])
   const online = ref<PresenceUser[]>([])
@@ -40,8 +42,7 @@ export function useFeedSocket(opportunityId: Ref<string>) {
   }
   function wsUrl(oppId: string): string {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const u = getCurrentUser()
-    const uid = u?.user_id || ''
+    const uid = auth.user?.user_id || ''
     return `${proto}://${location.host}/api/feed/ws/${encodeURIComponent(oppId)}?user_id=${encodeURIComponent(uid)}`
   }
 
@@ -90,7 +91,7 @@ export function useFeedSocket(opportunityId: Ref<string>) {
           break
         case 'typing':
           if (data.user_id) {
-            const me = getCurrentUser()?.user_id
+            const me = auth.user?.user_id
             if (data.user_id === me) break // don't show our own typing
             typingUsers.value[data.user_id] = { name: data.name || '某人', until: Date.now() + 3000 }
             clearTimeout(typingTimers[data.user_id])

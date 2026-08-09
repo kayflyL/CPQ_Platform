@@ -11,10 +11,10 @@
           :title="`${u.name} 在线`"
           :style="{ background: avatarColor(u.name) }"
         >{{ initial(u.name) }}</span>
-        <button class="me-btn" @click="openPicker" :title="me?.name || '点击选择身份'">
+        <div class="me-btn" :title="me?.name || ''">
           <span class="me-dot" :class="{ on: connected }"></span>
-          {{ me?.name || '未选择' }}
-        </button>
+          {{ me?.name || '未登录' }}
+        </div>
       </div>
     </div>
 
@@ -51,7 +51,7 @@
       <div class="composer">
         <a-textarea
           v-model:value="draft"
-          :placeholder="me ? '输入消息，Enter 发送 / Shift+Enter 换行' : '请先选择身份'"
+          :placeholder="'输入消息，Enter 发送 / Shift+Enter 换行'"
           :disabled="!me"
           :auto-size="{ minRows: 1, maxRows: 4 }"
           @press-enter="onEnter"
@@ -64,30 +64,15 @@
         </div>
       </div>
     </div>
-
-    <!-- 身份选择 modal -->
-    <a-modal v-model:open="showPicker" title="选择你的身份" :footer="null" width="420px" :mask-closable="false">
-      <p class="picker-hint">多人协作里你的每条消息/上传都会署名。选已有成员或输入新名字。</p>
-      <a-input
-        ref="pickerInput"
-        v-model:value="pickerName"
-        placeholder="输入你的名字"
-        @press-enter="confirmPicker"
-      />
-      <div v-if="users.length" class="picker-suggestions">
-        <button v-for="u in users" :key="u.user_id" class="suggestion-chip" @click="chooseExisting(u)">{{ u.name }}</button>
-      </div>
-      <a-button type="primary" block style="margin-top: 12px" :disabled="!pickerName.trim()" @click="confirmPicker">确定</a-button>
-    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
-import { feedApi, getCurrentUser, setCurrentUser } from '@/api/feed'
 import type { FeedMessage, FeedUser } from '@/api/feed'
 import { useFeedSocket } from '@/composables/useFeedSocket'
+import { useAuthStore } from '@/store/auth'
 
 const props = defineProps<{ opportunityId: string; visible: boolean }>()
 
@@ -100,11 +85,19 @@ const sending = ref(false)
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 
-const me = ref<FeedUser | null>(getCurrentUser())
-const users = ref<FeedUser[]>([])
-const showPicker = ref(false)
-const pickerName = ref('')
-const pickerInput = ref<any>(null)
+const auth = useAuthStore()
+/** 当前身份 = 登录用户（后端按 JWT 记录归属；这里仅用于本地展示/判定 mine） */
+const me = computed<FeedUser | null>(() =>
+  auth.user
+    ? {
+        user_id: auth.user.user_id,
+        name: auth.user.name,
+        email: auth.user.email || '',
+        role: auth.user.role,
+        created_at: auth.user.created_at,
+      }
+    : null,
+)
 
 const typingLabel = computed(() => {
   const names = Object.values(typingUsers.value).map((t) => t.name)
@@ -114,12 +107,6 @@ const typingLabel = computed(() => {
 // ── lifecycle: open/close ──
 async function activate() {
   if (!props.opportunityId) return
-  if (!me.value) {
-    await loadUsers()
-    showPicker.value = true
-    return
-  }
-  await loadUsers()
   loading.value = true
   try {
     await feed.load()
@@ -156,39 +143,6 @@ watch(
 function scrollToBottom() {
   const el = messagesEl.value
   if (el) el.scrollTop = el.scrollHeight
-}
-
-// ── user picker ──
-async function loadUsers() {
-  try {
-    users.value = await feedApi.users.list()
-  } catch {
-    /* ignore */
-  }
-}
-function openPicker() {
-  pickerName.value = me.value?.name || ''
-  showPicker.value = true
-  nextTick(() => pickerInput.value?.focus?.())
-}
-function chooseExisting(u: FeedUser) {
-  me.value = u
-  setCurrentUser(u)
-  showPicker.value = false
-  if (props.visible) activate()
-}
-async function confirmPicker() {
-  const name = pickerName.value.trim()
-  if (!name) return
-  try {
-    const u = await feedApi.users.ensure(name)
-    me.value = u
-    setCurrentUser(u)
-    showPicker.value = false
-    await activate()
-  } catch {
-    message.error('保存身份失败')
-  }
 }
 
 // ── composer ──
@@ -394,31 +348,5 @@ function initial(name: string) {
   display: flex;
   gap: 6px;
   justify-content: flex-end;
-}
-
-/* picker */
-.picker-hint {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-  margin-bottom: 10px;
-}
-.picker-suggestions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 12px;
-}
-.suggestion-chip {
-  border: 1px solid var(--cpq-overlay-w6);
-  background: var(--cpq-overlay-w3);
-  border-radius: 14px;
-  padding: 4px 12px;
-  font-size: 12px;
-  cursor: pointer;
-  color: var(--cpq-text-primary);
-}
-.suggestion-chip:hover {
-  border-color: var(--cpq-accent-primary);
-  color: var(--cpq-accent-primary);
 }
 </style>
