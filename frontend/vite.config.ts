@@ -24,6 +24,7 @@ export default defineConfig({
     },
   },
   server: {
+    host: true, // 局域网可访问：监听 0.0.0.0（别人通过 http://<本机IP>:5173 打开）
     port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api': {
