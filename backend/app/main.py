@@ -47,6 +47,7 @@ from app.api import reasoning_flow as reasoning_flow_api
 from app.api import requirement_rules as requirement_rules_api
 from app.api import compatibility_rules as compatibility_rules_api
 from app.api import auth as auth_api
+from app.api import roles as roles_api
 from app.core.startup import init_rules_db
 
 settings = get_settings()
@@ -111,6 +112,7 @@ app.include_router(reasoning_flow_api.router)
 app.include_router(requirement_rules_api.router)
 app.include_router(compatibility_rules_api.router)
 app.include_router(auth_api.router)
+app.include_router(roles_api.router)
 
 # 注册后面板配置 API
 from app.api import rear_io

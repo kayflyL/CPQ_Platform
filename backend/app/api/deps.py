@@ -11,7 +11,7 @@ Later steps add require_perms(*keys) here for page/field-level RBAC.
 from typing import Optional
 
 import jwt as pyjwt
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from app.core.config import get_settings
 from app.core.security import decode_token
@@ -66,6 +66,13 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
     if not u:
         raise HTTPException(status_code=401, detail="未登录或登录已过期")
     return u
+
+
+def require_admin(user: dict = Depends(get_current_user)) -> dict:
+    """管理端依赖：仅 admin 角色可访问（Step D 升级为配置驱动 require_perms）。"""
+    if (user.get("role") or "") != "admin":
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user
 
 
 def get_current_user_optional(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Optional[dict]:

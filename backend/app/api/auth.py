@@ -15,6 +15,15 @@ from app.repository.feed_user_repo import FeedUserRepository
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def _permissions_of(role: Optional[str]) -> list:
+    from app.repository.role_repo import RoleRepository
+    repo = RoleRepository()
+    try:
+        return repo.permissions_of(role)
+    finally:
+        repo.close()
+
+
 class LoginBody(BaseModel):
     username: str
     password: str
@@ -37,15 +46,15 @@ def login(body: LoginBody):
             raise HTTPException(status_code=403, detail="账号已禁用")
         token = create_access_token(u["user_id"], u.get("role") or "member")
         u.pop("password_hash", None)  # 永不把哈希返回给客户端
-        return {"token": token, "user": u}
+        return {"token": token, "user": u, "permissions": _permissions_of(u.get("role"))}
     finally:
         repo.close()
 
 
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
-    """返回当前登录用户（前端鉴权层用）。"""
-    return {"user": user}
+    """返回当前登录用户 + 角色权限（前端鉴权层用）。"""
+    return {"user": user, "permissions": _permissions_of(user.get("role"))}
 
 
 @router.put("/password")

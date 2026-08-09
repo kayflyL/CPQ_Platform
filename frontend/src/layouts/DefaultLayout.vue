@@ -14,39 +14,43 @@
         @click="handleMenuClick"
         class="top-menu"
       >
-        <a-menu-item key="/opportunities">
+        <a-menu-item v-if="auth.can('page.opportunities')" key="/opportunities">
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
         </a-menu-item>
-        <a-menu-item key="/servers">
+        <a-menu-item v-if="auth.can('page.servers')" key="/servers">
           <template #icon><DesktopOutlined /></template>
           <span>服务器</span>
         </a-menu-item>
-        <a-menu-item key="/parts">
+        <a-menu-item v-if="auth.can('page.parts')" key="/parts">
           <template #icon><DollarOutlined /></template>
           <span>配件</span>
         </a-menu-item>
-        <a-menu-item key="/strategies">
+        <a-menu-item v-if="auth.can('page.strategies')" key="/strategies">
           <template #icon><ThunderboltOutlined /></template>
           <span>策略中心</span>
         </a-menu-item>
-        <a-sub-menu key="settings">
+        <a-sub-menu v-if="showSettings" key="settings">
           <template #icon><SettingOutlined /></template>
           <template #title>设置</template>
 
-          <a-menu-item key="/ai-settings">
+          <a-menu-item v-if="auth.can('page.settings.users')" key="/settings/users">
+            <template #icon><TeamOutlined /></template>
+            <span>用户与权限</span>
+          </a-menu-item>
+          <a-menu-item v-if="auth.can('page.settings.ai')" key="/ai-settings">
             <template #icon><RobotOutlined /></template>
             <span>AI 设置</span>
           </a-menu-item>
-          <a-menu-item key="/excel-parser">
+          <a-menu-item v-if="auth.can('page.settings.excel')" key="/excel-parser">
             <template #icon><ApiOutlined /></template>
             <span>解析规则</span>
           </a-menu-item>
-          <a-menu-item key="/export-templates">
+          <a-menu-item v-if="auth.can('page.settings.templates')" key="/export-templates">
             <template #icon><FileExcelOutlined /></template>
             <span>导出模板</span>
           </a-menu-item>
-          <a-menu-item key="/servers/admin">
+          <a-menu-item v-if="auth.can('page.settings.admin')" key="/servers/admin">
             <template #icon><DesktopOutlined /></template>
             <span>服务器管理</span>
           </a-menu-item>
@@ -83,9 +87,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined, UserOutlined, LogoutOutlined } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined, UserOutlined, LogoutOutlined, TeamOutlined } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
 import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
@@ -97,6 +101,12 @@ const themeStore = useThemeStore()
 const auth = useAuthStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
+
+// 「设置」子菜单是否显示：任一设置项有权限即显示
+const showSettings = computed(() =>
+  ['page.settings.users', 'page.settings.ai', 'page.settings.excel', 'page.settings.templates', 'page.settings.admin']
+    .some((p) => auth.can(p))
+)
 
 // 全局方案助手:浮动入口显隐(上下文由 Panel 内 useAssistantContext 按多域 provider 算)
 const assistantOpen = ref(false)

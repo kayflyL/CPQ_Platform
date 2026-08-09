@@ -19,6 +19,12 @@ export interface AuthUser {
 export interface LoginResult {
   token: string
   user: AuthUser
+  permissions: string[]
+}
+
+export interface MeResult {
+  user: AuthUser
+  permissions: string[]
 }
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
@@ -26,7 +32,7 @@ const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 export const authApi = {
   login: (username: string, password: string) =>
     RESP<LoginResult>(axios.post('/api/auth/login', { username, password })),
-  me: () => RESP<{ user: AuthUser }>(axios.get('/api/auth/me')),
+  me: () => RESP<MeResult>(axios.get('/api/auth/me')),
   changePassword: (old_password: string, new_password: string) =>
     RESP<{ success: boolean }>(axios.put('/api/auth/password', { old_password, new_password })),
 }

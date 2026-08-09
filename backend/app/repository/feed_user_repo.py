@@ -144,6 +144,16 @@ class FeedUserRepository:
         self.session.commit()
         return True
 
+    def update_name(self, user_id: str, name: str) -> bool:
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.name = (name or "").strip() or u.name
+        self.session.commit()
+        return True
+
     def list_all(self) -> List[dict]:
         rows = self.session.execute(
             select(FeedUser).order_by(FeedUser.name.asc())

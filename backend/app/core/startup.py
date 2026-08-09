@@ -13,6 +13,7 @@ from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推�
 from app.models.requirement_rule import RequirementRule, RequirementSample  # 需求分析规则库
 from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标）（注册 metadata 供 create_all 建表）
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
+from app.models.role import Role  # RBAC 角色（注册 metadata 供 create_all 建表）
 from app.models.policy_doc import PolicyDoc  # 策略文档库独立表（注册 metadata 供 create_all 建表）
 from app.repository.rules_repo import RulesRepository
 from app.repository.system_config_repo import SystemConfigRepository
@@ -214,6 +215,49 @@ def ensure_feed_user_auth_columns():
             c.execute(text("ALTER TABLE opportunities.feed_users ADD COLUMN password_hash TEXT"))
         if "is_active" not in cols:
             c.execute(text("ALTER TABLE opportunities.feed_users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"))
+
+
+_DEFAULT_PERMISSIONS = [
+    {"key": "page.opportunities", "name": "商机线索", "group": "page"},
+    {"key": "page.servers", "name": "服务器", "group": "page"},
+    {"key": "page.parts", "name": "配件", "group": "page"},
+    {"key": "page.strategies", "name": "策略中心", "group": "page"},
+    {"key": "page.settings.ai", "name": "AI 设置", "group": "page"},
+    {"key": "page.settings.excel", "name": "解析规则", "group": "page"},
+    {"key": "page.settings.templates", "name": "导出模板", "group": "page"},
+    {"key": "page.settings.admin", "name": "服务器管理", "group": "page"},
+    {"key": "page.settings.users", "name": "用户与权限", "group": "page"},
+    {"key": "field.quote.price", "name": "报价工作台·价格", "group": "field"},
+    {"key": "field.opportunity.quote_price", "name": "商机详情·报价单价格", "group": "field"},
+    {"key": "field.parts.price", "name": "配件页·价格", "group": "field"},
+    {"key": "field.server.price", "name": "服务器配置·价格", "group": "field"},
+]
+
+
+def ensure_permission_catalog():
+    """权限目录种子（幂等，仅缺失时写入一次）：system_config.auth.permissions。
+    之后全部由「用户与权限」页维护（可增删 key），重启不覆盖。"""
+    from app.repository.system_config_repo import SystemConfigRepository
+    repo = SystemConfigRepository()
+    try:
+        if repo.get_value("auth.permissions", None) is None:
+            repo.set("auth.permissions", _DEFAULT_PERMISSIONS, type="json", description="权限目录")
+            print("✅ Permission catalog seeded (auth.permissions)")
+    finally:
+        repo.close()
+
+
+def ensure_roles_table_and_seed():
+    """角色种子（幂等，仅空表时写入一次）：rules.roles。
+    admin 特殊（权限=目录全量）；其余角色为初始建议值，页面可改可增。"""
+    from app.repository.role_repo import RoleRepository
+    repo = RoleRepository()
+    try:
+        n = repo.seed_defaults()
+        if n:
+            print(f"✅ Roles seeded ({n} default roles)")
+    finally:
+        repo.close()
 
 
 def ensure_bootstrap_admin():
@@ -471,6 +515,16 @@ def init_rules_db():
         ensure_bootstrap_admin()
     except Exception as e:
         print(f"⚠️ Bootstrap admin init failed: {e}")
+
+    # RBAC：权限目录 + 角色种子（幂等，仅首次）
+    try:
+        ensure_permission_catalog()
+    except Exception as e:
+        print(f"⚠️ Permission catalog init failed: {e}")
+    try:
+        ensure_roles_table_and_seed()
+    except Exception as e:
+        print(f"⚠️ Roles seed failed: {e}")
 
     # Clean up old temporary files on startup
     try:
