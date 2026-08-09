@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     LLM_MODEL: str = os.getenv("LLM_MODEL", "qwen-plus")
     LLM_BASE_URL: str = os.getenv("LLM_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")
 
+    # Auth / JWT（认证闭环）
+    # AUTH_ENABLED=false 时回退匿名（灰度开关，便于逐步切换；默认强制登录）
+    AUTH_ENABLED: bool = os.getenv("AUTH_ENABLED", "true").lower() == "true"
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "cpq-dev-insecure-secret-change-me")
+    JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
+    JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
+
     # CORS Configuration
     CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 

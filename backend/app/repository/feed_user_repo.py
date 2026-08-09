@@ -1,8 +1,8 @@
-"""Feed user repository — lightweight identity (no password).
+"""Feed user repository — identity + auth (JWT).
 
-get_or_create by display name is the whole "sign-in" flow today. The
-author_user_id FK on messages/attachments references these rows, so a later
-JWT/login migration only touches this table, not the feed schema.
+get_or_create by display name is the legacy "sign-in" flow (feed picker);
+auth methods (get_by_name / set_password / update_role / update_active /
+create_user) serve the JWT login + admin user management.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
@@ -62,6 +62,87 @@ class FeedUserRepository:
             select(FeedUser.user_id, FeedUser.name).where(FeedUser.user_id.in_(ids))
         ).all()
         return {uid: (name or "匿名") for uid, name in rows}
+
+    def get_by_name(self, name: str) -> Optional[dict]:
+        """Look up a single user by display name (exact match, no password_hash)."""
+        name = (name or "").strip()
+        if not name:
+            return None
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.name == name)
+        ).scalar_one_or_none()
+        return u.to_dict() if u else None
+
+    def get_by_name_auth(self, name: str) -> Optional[dict]:
+        """内部鉴权视图：按名取用户并带 password_hash（仅登录/引导用，禁止直接返回 API）。"""
+        name = (name or "").strip()
+        if not name:
+            return None
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.name == name)
+        ).scalar_one_or_none()
+        if not u:
+            return None
+        d = u.to_dict()
+        d["password_hash"] = u.password_hash
+        return d
+
+    def get_auth(self, user_id: str) -> Optional[dict]:
+        """内部鉴权视图：按 id 取用户并带 password_hash（仅登录/改密用）。"""
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return None
+        d = u.to_dict()
+        d["password_hash"] = u.password_hash
+        return d
+    def create_user(self, name: str, role: str = "member", password_hash: Optional[str] = None,
+                    email: Optional[str] = None) -> dict:
+        """Create a user with explicit role/password (admin user management / bootstrap)."""
+        user = FeedUser(
+            user_id=uuid.uuid4().hex,
+            name=(name or "").strip() or "匿名",
+            email=email,
+            role=role or "member",
+            password_hash=password_hash,
+            is_active=True,
+            created_at=now_iso(),
+        )
+        self.session.add(user)
+        self.session.commit()
+        self.session.refresh(user)
+        return user.to_dict()
+
+    def set_password(self, user_id: str, password_hash: Optional[str]) -> bool:
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.password_hash = password_hash
+        self.session.commit()
+        return True
+
+    def update_role(self, user_id: str, role: str) -> bool:
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.role = role or "member"
+        self.session.commit()
+        return True
+
+    def update_active(self, user_id: str, is_active: bool) -> bool:
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.is_active = bool(is_active)
+        self.session.commit()
+        return True
 
     def list_all(self) -> List[dict]:
         rows = self.session.execute(
