@@ -5,12 +5,12 @@
         <div class="logo-text">CPQ</div>
         <div class="logo-sub">Platform · 登录</div>
       </div>
-      <a-form layout="vertical" @finish="onFinish">
+      <a-form :model="form" layout="vertical" @finish="onFinish">
         <a-form-item label="用户名" name="username" :rules="[{ required: true, message: '请输入用户名' }]">
-          <a-input v-model:value="username" placeholder="用户名" autocomplete="username" @press-enter="submit" />
+          <a-input v-model:value="form.username" placeholder="用户名" autocomplete="username" @press-enter="submit" />
         </a-form-item>
         <a-form-item label="密码" name="password" :rules="[{ required: true, message: '请输入密码' }]">
-          <a-input-password v-model:value="password" placeholder="密码" autocomplete="current-password" @press-enter="submit" />
+          <a-input-password v-model:value="form.password" placeholder="密码" autocomplete="current-password" @press-enter="submit" />
         </a-form-item>
         <a-button type="primary" block :loading="loading" html-type="submit">登 录</a-button>
       </a-form>
@@ -20,7 +20,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/store/auth'
@@ -29,8 +29,7 @@ const router = useRouter()
 const route = useRoute()
 const auth = useAuthStore()
 
-const username = ref('')
-const password = ref('')
+const form = reactive({ username: '', password: '' })
 const loading = ref(false)
 
 async function onFinish() {
@@ -38,10 +37,10 @@ async function onFinish() {
 }
 
 async function submit() {
-  if (!username.value.trim() || !password.value) return
+  if (!form.username.trim() || !form.password) return
   loading.value = true
   try {
-    await auth.login(username.value.trim(), password.value)
+    await auth.login(form.username.trim(), form.password)
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } catch (e: any) {
