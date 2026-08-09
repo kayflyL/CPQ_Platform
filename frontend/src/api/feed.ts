@@ -2,8 +2,8 @@
  * Feed API client — unified collaboration stream (messages + attachments).
  * Replaces the old OpportunityFiles.vue + CommentPanel.vue split.
  *
- * A dedicated axios instance injects X-User-Id from the persisted current-user
- * picker so every feed request is attributed, plus the Bearer token for auth.
+ * A dedicated axios instance attaches the Bearer token so every feed request
+ * is attributed to the logged-in user (backend resolves identity from JWT).
  */
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
@@ -49,36 +49,16 @@ export interface FeedMessage {
   attachments: FeedAttachment[]
 }
 
-// ── http instance with current-user header + Bearer token（Step D 后服务端改用 JWT）──
+// ── http instance with Bearer token（服务端按 JWT 解析身份）──
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
 http.interceptors.request.use((config) => {
-  const u = getCurrentUser()
-  if (u?.user_id) config.headers['X-User-Id'] = u.user_id
   const token = localStorage.getItem(AUTH_TOKEN_KEY)
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-const STORAGE_KEY = 'cpq_feed_current_user'
-export function getCurrentUser(): FeedUser | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as FeedUser) : null
-  } catch {
-    return null
-  }
-}
-export function setCurrentUser(u: FeedUser) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(u))
-}
-
 // ── API ──
 export const feedApi = {
-  users: {
-    list: () => http.get<FeedUser[]>('/api/feed/users').then((r) => r.data),
-    ensure: (name: string, email?: string) =>
-      http.post<FeedUser>('/api/feed/users', { name, email }).then((r) => r.data),
-  },
   messages: {
     list: (oppId: string) =>
       http.get<{ messages: FeedMessage[] }>(`/api/feed/${oppId}/messages`).then((r) => r.data.messages),

@@ -1,10 +1,9 @@
 /**
  * Assistant API client — 全局「方案助手」AI 聊天窗(骨架期,LLM 待接国产模型).
- * 照 feed.ts 模式:独立 axios + X-User-Id header(identity 复用 Feed user picker).
+ * 独立 axios + Bearer token（身份由后端 JWT 解析）。
  */
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
-import { getCurrentUser, setCurrentUser, feedApi } from './feed'
 import { AUTH_TOKEN_KEY } from './auth'
 
 export interface AssistantThread {
@@ -83,30 +82,10 @@ export interface AssistantAnalysisResultData {
 
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
 http.interceptors.request.use((config) => {
-  const u = getCurrentUser()
-  if (u?.user_id) config.headers['X-User-Id'] = u.user_id
   const token = localStorage.getItem(AUTH_TOKEN_KEY)
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
-
-/**
- * 确保有一个稳定身份:优先复用 Feed 身份(cpq_feed_current_user),
- * 没有则 ensure 一个「助手用户」并写入 Feed 的 key(与 Feed 共享)。
- * 避免未选身份时落到后端「匿名」→ 会话归属漂移、历史看不到。
- */
-export async function ensureAssistantUser() {
-  let u = getCurrentUser()
-  if (!u) {
-    try {
-      u = await feedApi.users.ensure('助手用户')
-      setCurrentUser(u)
-    } catch {
-      u = null
-    }
-  }
-  return u
-}
 
 export const assistantApi = {
   threads: {

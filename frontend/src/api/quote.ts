@@ -1,15 +1,14 @@
 import axios from 'axios'
-import { getCurrentUser } from './feed'
+import { AUTH_TOKEN_KEY } from './auth'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
-// Inject X-User-Id so upload-to-opportunity can attribute the archived file
-// to the acting user (mirrors feed.ts; falls back to 匿名 server-side).
+// Bearer token：服务端按 JWT 解析上传/归档的归属用户。
 api.interceptors.request.use((config) => {
-  const u = getCurrentUser()
-  if (u?.user_id) config.headers['X-User-Id'] = u.user_id
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 // Upload quotation to a specific opportunity (creates quotation record + archives source file)

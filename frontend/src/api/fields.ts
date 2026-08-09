@@ -3,10 +3,16 @@
  * 替代各页面硬编码的字段定义
  */
 import axios from 'axios'
+import { AUTH_TOKEN_KEY } from './auth'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
+})
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
 })
 
 /**

@@ -12,7 +12,7 @@
  */
 import { ref, computed, watch } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
-import { assistantApi, assistantWsUrl, ensureAssistantUser } from '@/api/assistant'
+import { assistantApi, assistantWsUrl } from '@/api/assistant'
 import type { AssistantThread, AssistantMessage, AssistantAnalysisStep } from '@/api/assistant'
 import type { Plan } from '@/api/reasoning'
 
@@ -220,7 +220,6 @@ export function useAssistant() {
 
   async function loadThreads() {
     try {
-      await ensureAssistantUser()
       threads.value = await assistantApi.threads.list()
       if (!currentThreadId.value && threads.value.length) {
         await selectThread(threads.value[0].thread_id)
