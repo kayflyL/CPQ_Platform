@@ -7,7 +7,7 @@ from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.feed_repo import FeedRepository
 from app.services.storage_adapter import get_storage, build_object_id, StorageError
 from app.services.feed_hub import hub
-from app.api.feed import current_user
+from app.api.deps import get_current_user as current_user
 
 
 def _decode_filename(filename: str) -> str:

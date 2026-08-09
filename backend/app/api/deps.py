@@ -69,10 +69,26 @@ def get_current_user(authorization: Optional[str] = Header(default=None, alias="
 
 
 def require_admin(user: dict = Depends(get_current_user)) -> dict:
-    """管理端依赖：仅 admin 角色可访问（Step D 升级为配置驱动 require_perms）。"""
+    """管理端依赖：仅 admin 角色可访问。"""
     if (user.get("role") or "") != "admin":
         raise HTTPException(status_code=403, detail="需要管理员权限")
     return user
+
+
+def require_perms(*keys: str):
+    """页面级权限依赖工厂：用户角色需含 keys 中任意一个权限 key（any 语义）。
+    权限来自 rules.roles（配置驱动，非硬编码）。"""
+    def checker(user: dict = Depends(get_current_user)) -> dict:
+        from app.repository.role_repo import RoleRepository
+        repo = RoleRepository()
+        try:
+            perms = set(repo.permissions_of(user.get("role")))
+        finally:
+            repo.close()
+        if keys and not any(k in perms for k in keys):
+            raise HTTPException(status_code=403, detail="无权限执行此操作")
+        return user
+    return checker
 
 
 def get_current_user_optional(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Optional[dict]:

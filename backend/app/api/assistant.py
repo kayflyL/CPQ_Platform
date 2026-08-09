@@ -12,12 +12,12 @@ import json
 from typing import Optional
 
 from fastapi import (
-    APIRouter, Header, HTTPException, Depends, WebSocket, WebSocketDisconnect,
+    APIRouter, HTTPException, Depends, WebSocket, WebSocketDisconnect,
 )
 from pydantic import BaseModel
 
+from app.api.deps import get_current_user as current_user, require_perms
 from app.repository.assistant_repo import AssistantRepository
-from app.repository.feed_user_repo import FeedUserRepository
 from app.services import llm_client
 from app.services.assistant_hub import assistant_hub
 from app.services.llm_client import LLMError
@@ -26,19 +26,6 @@ from app.services.requirement_intel_service import run_assistant_pipeline
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
-
-
-def current_user(x_user_id: Optional[str] = Header(default=None, alias="X-User-Id")) -> dict:
-    """Resolve acting user from X-User-Id, falling back to 匿名 (mirrors Feed)."""
-    repo = FeedUserRepository()
-    try:
-        if x_user_id:
-            u = repo.get(x_user_id)
-            if u:
-                return u
-        return repo.get_or_create("匿名")
-    finally:
-        repo.close()
 
 
 class CreateThreadBody(BaseModel):
@@ -71,20 +58,28 @@ class AnalyzeBody(BaseModel):
 def create_thread(body: CreateThreadBody, user: dict = Depends(current_user)):
     repo = AssistantRepository()
     try:
-        return {"thread": repo.create_thread(
+        thread = repo.create_thread(
             created_by=user["user_id"],
             title=body.title,
             opportunity_id=body.opportunity_id,
             quotation_id=body.quotation_id,
-        )}
+        )
+        # 开场引导（P0-2）：新会话主动引导工作负载，文案可配（system_config.assistant_opening）
+        opening = _opening_message()
+        if opening:
+            repo.add_message(thread_id=thread["thread_id"], role="assistant", content=opening, kind="opening")
+        return {"thread": thread}
     finally:
         repo.close()
 
 
 @router.get("/threads")
-def list_threads(user: dict = Depends(current_user)):
+def list_threads(scope: str = "mine", user: dict = Depends(current_user)):
+    """会话列表：scope=mine（默认，当前用户，不含回收站）/ scope=all（AI 设置管理页，含回收站+消息数）。"""
     repo = AssistantRepository()
     try:
+        if scope == "all":
+            return {"threads": repo.list_all_threads()}
         return {"threads": repo.list_threads(user["user_id"])}
     finally:
         repo.close()
@@ -158,10 +153,12 @@ async def analyze_thread(thread_id: str, body: AnalyzeBody, user: dict = Depends
                 text = ""
         if not text and not supplement_text:
             raise HTTPException(status_code=400, detail="需求内容为空")
-        # 需求文本作为用户消息入库（kind=analysis_trigger），历史重放/身份归属用
+        # 需求文本作为用户消息入库（kind=analysis_trigger），历史重放/身份归属用。
+        # 反答补充时内容应为补充文本，而不是原始需求——否则每次补充都把首条"你好"重复入库显示。
+        user_content = f"[补充] {supplement_text}" if supplement_text else text
         user_msg = repo.add_message(
             thread_id=thread_id, role="user",
-            content=text or f"[补充] {supplement_text}",
+            content=user_content,
             opportunity_id=thread.get("opportunity_id") or None,
             kind="analysis_trigger",
             data=json.dumps({"supplement": bool(supplement_text)}, ensure_ascii=False),
@@ -183,6 +180,35 @@ async def analyze_thread(thread_id: str, body: AnalyzeBody, user: dict = Depends
     return {"status": "started", "thread_id": thread_id, "user_message": user_msg}
 
 
+_DEFAULT_OPENING = (
+    "Hi！我是你的服务器配置顾问 🎉\n\n"
+    "请告诉我你的工作负载，我来推荐合适的平台，再陪你一步步配置：\n\n"
+    "- 🖥️ 虚拟化 / 云主机（运行多少台虚拟机？）\n"
+    "- 🗄️ 数据库（SQL/NoSQL？数据量多大？）\n"
+    "- 🤖 AI / 机器学习（训练还是推理？需要几块 GPU？）\n"
+    "- 🌐 Web / 应用服务器\n"
+    "- 💾 文件 / 备份存储\n"
+    "- 🏢 边缘 / 分支机构\n\n"
+    "也可以直接描述你的需求。"
+)
+
+
+def _opening_message() -> str:
+    """新会话开场引导文案（system_config.assistant_opening 可配，默认内置）。"""
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            v = repo.get_value("assistant_opening")
+        finally:
+            repo.close()
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    except Exception:
+        pass
+    return _DEFAULT_OPENING
+
+
 def _fmt_money(v) -> str:
     """金额格式化（¥1,234.56）；非数字回落 '-'。"""
     try:
@@ -191,14 +217,27 @@ def _fmt_money(v) -> str:
         return "-"
 
 
-def _plan_bom_text(plan: dict) -> str:
+def _plan_bom_text(plan: dict, bom_cfg: Optional[dict] = None) -> str:
     """把单个整机方案转成可读 BOM 文本（L6 配置单 + KP 配置单）。
 
     供对话框/企业微信直接展示：纯文本 + 管道分隔，不依赖组件渲染。
+    bom_cfg（review 节点配置）：
+      enabled=false → 不显示 BOM 明细；
+      mode=live → 走用户配置的 BOM 模板求值（与前端 BomTable live 模式一致）；
+      mode=excel（默认）→ bom_excel_rows 平铺；
+      show_summary / show_price / include_l6 / include_kp 控制显示。
     """
+    bom_cfg = bom_cfg or {}
+    if bom_cfg.get("enabled") is False:
+        return ""
+    mode = bom_cfg.get("mode") or "excel"
+    show_summary = bom_cfg.get("show_summary", True)
+    show_price = bom_cfg.get("show_price", True)
+    include_l6 = bom_cfg.get("include_l6", True)
+    include_kp = bom_cfg.get("include_kp", True)
+
     cfg = plan.get("cfg") or {}
     rows = cfg.get("bom_excel_rows") or []
-    l6 = [r for r in rows if r.get("category") == "L6"]
     kp = [r for r in rows if r.get("category") == "Key Parts"]
     head = " · ".join([
         x for x in [
@@ -208,28 +247,111 @@ def _plan_bom_text(plan: dict) -> str:
         ] if x
     ]) or "整机方案"
     summary = plan.get("summary") or {}
-    out = [
-        f"{plan.get('name') or plan.get('model') or '整机方案'}（{head}）",
-        f"总价 {_fmt_money(summary.get('total_cost'))} · 底盘 {summary.get('parts_count', 0)} 件 + KP {summary.get('kp_count', 0)} 件",
-    ]
-    if l6:
+    out = [f"{plan.get('name') or plan.get('model') or '整机方案'}（{head}）"]
+    if show_summary:
+        out.append(f"总价 {_fmt_money(summary.get('total_cost'))} · 底盘 {summary.get('parts_count', 0)} 件 + KP {summary.get('kp_count', 0)} 件")
+
+    if mode == "live":
+        # 走用户配置的 BOM 模板（与前端 live 模式一致：模板行 + 变量求值）；失败回落 excel 平铺
+        try:
+            from app.services.bom_template_eval import eval_l6_rows
+            l6 = eval_l6_rows(
+                int(plan.get("bom_template_id") or 0),
+                int(plan.get("config_id") or 0),
+                kp, plan.get("chassis_signals"),
+            )
+        except Exception:
+            l6 = [r for r in rows if r.get("category") == "L6"]
+    else:
+        l6 = [r for r in rows if r.get("category") == "L6"]
+
+    if include_l6 and l6:
         out.append("")
         out.append("— L6 配置单 —")
         out.append("Catalogue | Description | Qty")
         for r in l6:
             out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''}")
-    if kp:
+    if include_kp and kp:
         out.append("")
         out.append("— KP 配置单 —")
-        out.append("Catalogue | Description | Qty | 单价")
-        for r in kp:
-            out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''} | {_fmt_money(r.get('base_price'))}")
+        if show_price:
+            out.append("Catalogue | Description | Qty | 单价")
+            for r in kp:
+                out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''} | {_fmt_money(r.get('base_price'))}")
+        else:
+            out.append("Catalogue | Description | Qty")
+            for r in kp:
+                out.append(f"{r.get('catalogue') or ''} | {r.get('description') or ''} | {r.get('qty') or ''}")
     return "\n".join(out)
 
 
-def _build_bom_text(plans: list) -> str:
+def _build_bom_text(plans: list, bom_cfg: Optional[dict] = None) -> str:
     """多个方案拼成一段可读 BOM 文本（对话框/企微推送用）。"""
-    return "\n\n".join(f"【{i}】{_plan_bom_text(p)}" for i, p in enumerate(plans, 1))
+    return "\n\n".join(f"【{i}】{_plan_bom_text(p, bom_cfg)}" for i, p in enumerate(plans, 1))
+
+
+def _audit_warning(plans: list) -> str:
+    """方案审计警示（确定性，不依赖 LLM）：review/blocked 的方案把规则/LLM 审计问题
+    原样展示在分析结果里，避免推荐语"报喜不报忧"（如内存不足仍推荐）。"""
+    lines = []
+    for p in plans or []:
+        a = p.get("audit") or {}
+        st = a.get("status")
+        if st in ("review", "blocked"):
+            name = p.get("name") or p.get("model") or "方案"
+            issues = [str(i) for i in (a.get("issues") or []) if str(i).strip()][:3]
+            lines.append(f"⚠️ {name} 需人工复核" + (f"：{'；'.join(issues)}" if issues else ""))
+    return "\n".join(lines)
+
+
+_REC_SCHEMA = {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]}
+_REC_SYSTEM_PROMPT = (
+    "你是 CPQ 平台的服务器方案顾问。基于已生成的整机方案，向客户推荐最合适的一个，并给出下一步配置引导。\n"
+    "输入：候选方案（名称/系列/形态/盘位/卖点/总价）+ 客户原始需求。\n"
+    "要求：\n"
+    "1) 推荐一个方案，理由只能引用方案字段（卖点/系列/形态/规格/总价），禁止编造型号/规格/价格；\n"
+    "2) 用中文，语气友好、分点；\n"
+    "3) 结尾给「下一步一起配」的引导（按给定清单，如 CPU/内存/存储/网络，问用户从哪开始）；\n"
+    "4) 只输出 json：{text}。"
+)
+
+
+async def _build_recommendation(plans: list, requirement_text: str,
+                                rec_cfg: Optional[dict]) -> Optional[str]:
+    """生成对话式推荐语（推荐最优方案 + 理由 + 下一步引导）。失败/关闭返回 None → 回退方案清单。"""
+    if not (rec_cfg or {}).get("enabled", True):
+        return None
+    try:
+        if not llm_client.is_llm_enabled():
+            return None
+    except Exception:
+        return None
+    try:
+        style = (rec_cfg or {}).get("style") or "concise"
+        steps = (rec_cfg or {}).get("next_steps") or ["CPU", "内存", "存储", "网络"]
+        plan_lines = []
+        for i, p in enumerate(plans, 1):
+            plan_lines.append(
+                f"方案{i}：{p.get('name') or p.get('model') or '整机方案'}"
+                f"（{p.get('series') or ''} {p.get('form') or ''}，{p.get('bays')}盘位）\n"
+                f"  卖点：{p.get('selling_points') or '—'}\n"
+                f"  总价：{_fmt_money((p.get('summary') or {}).get('total_cost'))}"
+            )
+        user = (
+            f"客户需求：{requirement_text}\n\n"
+            f"候选方案：\n" + "\n".join(plan_lines) + "\n\n"
+            f"推荐风格：{'详细' if style == 'detailed' else '简洁'}\n"
+            f"下一步引导项：{'、'.join(steps)}\n\n请输出推荐语。"
+        )
+        data = await llm_client.chat_json(
+            [{"role": "system", "content": _REC_SYSTEM_PROMPT}, {"role": "user", "content": user}],
+            schema=_REC_SCHEMA, temperature=0.5,
+        )
+        text = ((data or {}).get("text") or "").strip()
+        return text or None
+    except Exception as e:
+        logger.warning("推荐语生成失败（回退方案清单）: %s", e)
+        return None
 
 
 async def _stream_analysis(
@@ -267,6 +389,8 @@ async def _stream_analysis(
     keywords: list = []
     series = None
     form = None
+    bom_output: Optional[dict] = None
+    recommendation: Optional[dict] = None
     last_input: Optional[dict] = None
     last_confirm: Optional[dict] = None
     for ev in events:
@@ -276,10 +400,13 @@ async def _stream_analysis(
             keywords = ev.get("keywords") or []
             series = ev.get("series")
             form = ev.get("form")
+            bom_output = ev.get("bom_output") or None
+            recommendation = ev.get("recommendation") or None
         elif t == "need_input":
             last_input = {
                 "question": ev.get("question") or "",
                 "options": ev.get("options") or [],
+                "why": ev.get("why") or "",
                 "reply_id": ev.get("reply_id") or "",
                 "stage": ev.get("stage") or "",
                 "format": ev.get("format") or "",
@@ -298,11 +425,22 @@ async def _stream_analysis(
     try:
         if plans:
             names = [p.get("name") or p.get("model") or p.get("config_id") for p in plans]
-            bom_text = _build_bom_text(plans)
-            summary = (
-                "✅ 需求分析完成，生成 %d 个整机方案：\n%s\n\n%s"
-                % (len(plans), "\n".join(f"- {n}" for n in names), bom_text)
-            )
+            bom_text = _build_bom_text(plans, bom_output)
+            # P0-1 对话式推荐：先给推荐+理由+下一步引导；生成失败回退方案清单+BOM
+            rec_text = await _build_recommendation(plans, requirement_text, recommendation)
+            if rec_text:
+                summary = rec_text
+                if bom_text:
+                    summary += "\n\n—— BOM 明细 ——\n" + bom_text
+            else:
+                summary = (
+                    "✅ 需求分析完成，生成 %d 个整机方案：\n%s\n\n%s"
+                    % (len(plans), "\n".join(f"- {n}" for n in names), bom_text)
+                )
+            # 审计警示（确定性红线：不报喜不报忧）—— 推荐语/BOM 之外的独立段落
+            _warn = _audit_warning(plans)
+            if _warn:
+                summary += "\n\n" + _warn
             result_msg = repo.add_message(
                 thread_id=thread_id, role="assistant", content=summary,
                 kind="analysis_result",
@@ -395,15 +533,72 @@ async def _stream_llm_reply(
 
 
 @router.delete("/threads/{thread_id}")
-def delete_thread(thread_id: str):
+def delete_thread(thread_id: str, hard: bool = False):
+    """删除会话：默认软删（进回收站）；hard=1 彻底删除（消息+状态一起物理清）。"""
     repo = AssistantRepository()
     try:
-        ok = repo.soft_delete_thread(thread_id)
+        if hard:
+            ok = repo.hard_delete_thread(thread_id)
+        else:
+            ok = repo.soft_delete_thread(thread_id)
         if not ok:
             raise HTTPException(status_code=404, detail="会话不存在")
     finally:
         repo.close()
     return {"status": "ok"}
+
+
+@router.post("/threads/{thread_id}/restore")
+def restore_thread(thread_id: str):
+    """回收站恢复：清空 deleted_at，会话回到正常列表。"""
+    repo = AssistantRepository()
+    try:
+        if not repo.restore_thread(thread_id):
+            raise HTTPException(status_code=404, detail="会话不存在")
+    finally:
+        repo.close()
+    return {"status": "ok"}
+
+
+@router.post("/admin/cleanup/empty-threads")
+def cleanup_empty_threads(admin: dict = Depends(require_perms("page.settings.ai"))):
+    """一键清理空会话：物理删除所有 0 消息的会话（含消息+状态），不可恢复。"""
+    repo = AssistantRepository()
+    try:
+        deleted = repo.hard_delete_empty_threads()
+    finally:
+        repo.close()
+    return {"deleted": deleted}
+
+
+@router.post("/admin/cleanup/trace")
+def cleanup_trace(body: dict, admin: dict = Depends(require_perms("page.settings.ai"))):
+    """LLM 调用痕迹清理：只保留最近 keep_days 天（<=0 全清）。"""
+    try:
+        keep_days = int((body or {}).get("keep_days") or 30)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="keep_days 需为数字")
+    repo = AssistantRepository()
+    try:
+        deleted = repo.purge_llm_trace(keep_days)
+    finally:
+        repo.close()
+    return {"deleted": deleted}
+
+
+@router.post("/admin/cleanup/samples")
+def cleanup_samples(body: dict, admin: dict = Depends(require_perms("page.settings.ai"))):
+    """需求反馈样本清理：保留最近 keep_n 条（0=全清）。"""
+    try:
+        keep_n = int((body or {}).get("keep_n") or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="keep_n 需为数字")
+    repo = AssistantRepository()
+    try:
+        deleted = repo.prune_requirement_samples(keep_n)
+    finally:
+        repo.close()
+    return {"deleted": deleted}
 
 
 # ── WS: subscribe to a thread's LLM token stream ──

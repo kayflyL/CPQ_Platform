@@ -5,6 +5,7 @@
 import axios from 'axios'
 import type { AxiosInstance } from 'axios'
 import { getCurrentUser, setCurrentUser, feedApi } from './feed'
+import { AUTH_TOKEN_KEY } from './auth'
 
 export interface AssistantThread {
   thread_id: string
@@ -14,6 +15,9 @@ export interface AssistantThread {
   created_by: string
   created_at: string
   updated_at: string
+  /** 管理页（scope=all）扩展字段 */
+  deleted_at?: string
+  msg_count?: number
 }
 export interface AssistantMessage {
   message_id: string
@@ -39,6 +43,7 @@ export interface AssistantAnalysisStep {
   label: string
   status: 'pending' | 'running' | 'done' | 'error'
   payload?: any
+  substeps?: { kind: string; text: string }[]
 }
 
 export interface AssistantAnalysisPrompt {
@@ -80,6 +85,8 @@ const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
 http.interceptors.request.use((config) => {
   const u = getCurrentUser()
   if (u?.user_id) config.headers['X-User-Id'] = u.user_id
+  const token = localStorage.getItem(AUTH_TOKEN_KEY)
+  if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
@@ -114,6 +121,24 @@ export const assistantApi = {
         })
         .then((r) => r.data.thread),
     remove: (id: string) => http.delete(`/api/assistant/threads/${id}`),
+    /** AI 设置·会话记录：管理员列全部会话（含回收站 + 消息数） */
+    listAll: () =>
+      http
+        .get<{ threads: AssistantThread[] }>('/api/assistant/threads', { params: { scope: 'all' } })
+        .then((r) => r.data.threads),
+    /** 回收站恢复 */
+    restore: (id: string) => http.post(`/api/assistant/threads/${id}/restore`),
+    /** 彻底删除（消息+状态一起物理清） */
+    purge: (id: string) => http.delete(`/api/assistant/threads/${id}`, { params: { hard: 1 } }),
+    /** 一键清理空会话（0 消息，硬删除） */
+    cleanupEmptyThreads: () =>
+      http.post<{ deleted: number }>('/api/assistant/admin/cleanup/empty-threads').then((r) => r.data.deleted),
+    /** LLM 调用痕迹清理：只保留最近 keepDays 天 */
+    cleanupTrace: (keepDays: number) =>
+      http.post('/api/assistant/admin/cleanup/trace', { keep_days: keepDays }),
+    /** 需求反馈样本清理：保留最近 keepN 条（0=全清） */
+    cleanupSamples: (keepN: number) =>
+      http.post('/api/assistant/admin/cleanup/samples', { keep_n: keepN }),
     messages: (id: string) =>
       http
         .get<{ messages: AssistantMessage[] }>(`/api/assistant/threads/${id}/messages`)

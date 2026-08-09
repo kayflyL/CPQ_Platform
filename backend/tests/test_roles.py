@@ -138,6 +138,27 @@ def test_create_user_short_password(monkeypatch):
     assert ei.value.status_code == 400
 
 
+def test_require_perms(monkeypatch):
+    """页面级权限依赖：有任一 key 放行，无则 403。"""
+    from app.api.deps import require_perms
+    import app.repository.role_repo as rr
+
+    class _Repo:
+        def __init__(self, perms):
+            self.perms = perms
+        def permissions_of(self, role):
+            return self.perms
+        def close(self):
+            pass
+
+    monkeypatch.setattr(rr, "RoleRepository", lambda: _Repo(["page.a", "field.x"]))
+    ok = require_perms("page.a")(user={"role": "x"})
+    assert ok["role"] == "x"
+    with pytest.raises(HTTPException) as ei:
+        require_perms("page.b")(user={"role": "x"})
+    assert ei.value.status_code == 403
+
+
 def test_permissions_of_admin_returns_catalog(monkeypatch):
     """admin 角色恒返回目录全量（超级管理员兜底）。"""
     from app.repository import role_repo as rr

@@ -1,9 +1,10 @@
 """API endpoints for system configuration"""
 from pathlib import Path
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import FileResponse
 from typing import Any, Optional
 from pydantic import BaseModel
+from app.api.deps import require_admin
 from app.repository.system_config_repo import SystemConfigRepository
 from app.services import llm_client
 from app.utils.file_storage import FileStorage
@@ -52,7 +53,7 @@ def get_config_value(key: str, default: Any = None):
 
 
 @router.put("/{key}")
-def set_config(key: str, data: dict):
+def set_config(key: str, data: dict, admin: dict = Depends(require_admin)):
     """Set config value"""
     repo = SystemConfigRepository()
     try:
@@ -70,7 +71,7 @@ def set_config(key: str, data: dict):
 
 
 @router.delete("/{key}")
-def delete_config(key: str):
+def delete_config(key: str, admin: dict = Depends(require_admin)):
     """Delete config"""
     repo = SystemConfigRepository()
     try:
@@ -83,7 +84,7 @@ def delete_config(key: str):
 
 
 @router.post("/init-defaults")
-def init_defaults():
+def init_defaults(admin: dict = Depends(require_admin)):
     """Initialize default configs"""
     repo = SystemConfigRepository()
     try:
@@ -118,7 +119,7 @@ def list_llm_models(body: LlmTestBody):
 
 
 @router.post("/branding/logo")
-async def upload_branding_logo(file: UploadFile = File(...)):
+async def upload_branding_logo(file: UploadFile = File(...), admin: dict = Depends(require_admin)):
     """上传品牌 logo（覆盖式，落盘到 storage/branding/logo<ext>，并写回 branding.logo_path）。"""
     ext = Path(file.filename or "").suffix.lower()
     if ext not in _BRANDING_LOGO_EXTS:

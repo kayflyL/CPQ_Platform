@@ -4,7 +4,8 @@ type: require(必配) / exclude(互斥) / derive(派生) / filter(过滤) / reco
 status: draft / testing / active / archived（只有 active 被执行器引用）
 body: {when:{all/any:[{field,op,value}]}, then:{action,...}, desc}
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import require_perms
 from app.repository.compatibility_rule_repo import CompatibilityRuleRepository
 
 router = APIRouter(prefix="/api/compatibility-rules", tags=["compatibility-rules"])
@@ -23,7 +24,7 @@ def list_rules(type: str = None, status: str = None, category: str = None):
 
 
 @router.post("/reset")
-def reset_rules():
+def reset_rules(admin: dict = Depends(require_perms("page.strategies"))):
     """清空并重置为默认规则（规则版本迭代后让用户一键更新到最新 seed）。返回插入条数。"""
     repo = CompatibilityRuleRepository()
     try:

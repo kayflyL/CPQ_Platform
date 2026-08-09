@@ -4,22 +4,25 @@ Unified activity stream: chat messages that may carry file attachments, plus a
 file index view over the same attachments table. Replaces the old split
 (/api/comments + /api/opportunities/{}/files).
 
-Identity is resolved from the X-User-Id header (set by the frontend user
-picker). The dependency falls back to an anonymous user so the API stays
-usable before a user is picked.
+Identity is resolved from the JWT (Authorization: Bearer). REST endpoints
+attribute messages/attachments to the logged-in user; the old X-User-Id header
+is no longer trusted (Step D — closes impersonation). The WebSocket presence
+still takes ?user_id= for display only (messages themselves are JWT-attributed).
+AUTH_ENABLED=false keeps the legacy anonymous fallback (灰度).
 """
 from typing import List, Optional
 from pathlib import Path
 import uuid
 
 from fastapi import (
-    APIRouter, UploadFile, File, Form, Header, HTTPException, Depends,
+    APIRouter, UploadFile, File, Form, HTTPException, Depends,
     WebSocket, WebSocketDisconnect,
 )
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 import json
 
+from app.api.deps import get_current_user as current_user
 from app.repository.feed_repo import FeedRepository
 from app.repository.feed_user_repo import FeedUserRepository
 from app.services.storage_adapter import get_storage, build_object_id, StorageError
@@ -33,19 +36,6 @@ _ALLOWED_EXTS = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".txt", ".zip",
 }
 _MAX_SIZE = 50 * 1024 * 1024  # 50 MB
-
-
-def current_user(x_user_id: Optional[str] = Header(default=None, alias="X-User-Id")) -> dict:
-    """Resolve the acting user from X-User-Id, falling back to 匿名."""
-    repo = FeedUserRepository()
-    try:
-        if x_user_id:
-            u = repo.get(x_user_id)
-            if u:
-                return u
-        return repo.get_or_create("匿名")
-    finally:
-        repo.close()
 
 
 # ── users (lightweight identity) ──

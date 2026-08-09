@@ -3,7 +3,8 @@
 type: clarity (明确度判定) / budget (预算映射)（旧 rebuttal/workload 已随目录驱动引导删除）
 status: draft / testing / active / archived（只有 active 被 pipeline 引用）
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
+from app.api.deps import require_perms
 from app.repository.requirement_rule_repo import RequirementRuleRepository
 
 router = APIRouter(prefix="/api/requirement-rules", tags=["requirement-rules"])
@@ -22,7 +23,7 @@ def list_rules(type: str = None, status: str = None):
 
 
 @router.post("/reset")
-def reset_rules():
+def reset_rules(admin: dict = Depends(require_perms("page.strategies"))):
     """清空并重置为默认规则（规则版本迭代后让用户一键更新到最新 seed）。返回插入条数。"""
     repo = RequirementRuleRepository()
     try:
