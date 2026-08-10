@@ -194,7 +194,7 @@
           <a-textarea
             v-model:value="draft"
             :auto-size="{ minRows: 1, maxRows: 4 }"
-            placeholder="输入消息，Enter 发送 / Shift+Enter 换行（说「帮我配台服务器」会自动进入选配）"
+            placeholder="输入消息…"
             :disabled="sending"
             @press-enter="onEnter"
           />
