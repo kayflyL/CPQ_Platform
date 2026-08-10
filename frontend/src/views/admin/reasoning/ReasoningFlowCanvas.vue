@@ -582,15 +582,9 @@ function onSaved() { load() }
                       <span v-for="v in NODE_IO[s.key].out" :key="v.name" class="rf-tr-io-var out">{{ v.name }}<small v-if="v.desc"> · {{ v.desc }}</small></span>
                     </div>
                   </div>
-                  <template v-if="s.key === 'extract'">
-                    <div class="rf-tr-kv"><span>关键词</span><b>{{ (ext.keywords || []).join('、') || '—' }}</b></div>
-                    <div class="rf-tr-kv"><span>KP 品类</span><b>{{ (ext.categories || []).join('、') || '—' }}</b></div>
-                    <div class="rf-tr-kv"><span>系列 / 形态</span><b>{{ ext.series || '—' }} / {{ ext.form || '—' }}</b></div>
-                    <div v-if="ext.mem_signal" class="rf-tr-kv"><span>内存信号</span><b>{{ ext.mem_signal.type }} · {{ ext.mem_signal.total_gb }}G</b></div>
-                    <div v-if="ext.cpu_signal?.duality" class="rf-tr-kv"><span>CPU</span><b>双路信号</b></div>
-                  </template>
+
                   <template v-else-if="s.key === 'llm_agent'">
-                    <div class="rf-tr-kv"><span>来源</span><b>{{ s.payload?.source === 'llm' ? 'LLM 填表' : 'extract 离线兜底' }}</b></div>
+                    <div class="rf-tr-kv"><span>来源</span><b>{{ s.payload?.source === 'llm' ? 'LLM 填表' : '规则兜底' }}</b></div>
                     <div class="rf-tr-kv"><span>机型类型</span><b>{{ s.payload?.server_type_name || '—' }}</b></div>
                     <div v-if="(s.payload?.changes || []).length" class="rf-tr-kv"><span>resolver 归一</span><b>{{ (s.payload?.changes || []).length }} 项</b></div>
                     <div v-if="s.payload?.sufficient === false" class="rf-tr-kv"><span>完整度</span><b>不足 → 反问：{{ (s.payload?.missing_critical || []).join('、') }}</b></div>

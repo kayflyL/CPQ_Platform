@@ -7,6 +7,26 @@
 
 ---
 
+## [0.1.57] - 2026-08-10 — 历史遗留清理（双路图/逐节点开关/migrate代码/extract前端残留，净 -936 行）
+
+### 三批清理（每批后跑测试确认）
+- **批次1·死注释/死引用**（7 文件）：capabilities.py/requirement_intel_service.py 删 requirement_parser 悬空引用；models/reasoning_flow.py 旧 5 步描述改 AI-first 单路链；llm_extract_enhance/llm_client/reasoning_intel 删双路旧描述。
+- **批次2·逐节点开关**：删 `ai_mode`(4处死字段) + `enable_llm`(llm_audit 只认全局开关 + 删 orchestrator `audit_llm` 预算字段) + `proposal_mode`(kp_reason 固定 llm_propose，删 react/rule 分支 + 死符号 `_KP_REASON_PROMPT`/`_collect_kp_from_react`)。测试：删 `test_disabled_skips_llm`(节点级开关已不存在)。
+- **批次3·结构性删除**：
+  - `DEFAULT_GRAPH`(v9 双路种子图) 删除 + `seed_default_if_empty` 改 seed V11（新环境直接建单路链）
+  - `active_is_current` 删 v9 死检查（understand 提前返回已覆盖）
+  - **21 个 migrate/upgrade 方法**删除（reasoning_flow_repo -815 行）+ **startup.py 19 个 migrate 调用**删除（只留 seed + active_is_current 检查）
+  - `_VALID_NODE_KEYS` 收敛 + 补全 orchestrator/result_check（修保存 400 潜在 bug）
+  - extract dispatch 改静默跳过（返回 None）；`understand_fallback` 死信号删除
+  - 前端 extract meta/IO/stepCopy/抽屉 buildConfig/form 全清理；NodeIndexOutlined 未用导入删
+
+### 验证
+- 后端 371 passed（原 372，删 1 个废弃测试 test_disabled_skips_llm）
+- 前端 vue-tsc 0 error + npm test 60/60 全绿
+- 净节省 **-936 行**（1011 删 / 75 插入），reasoning_flow_repo.py 从 ~1393 行降到 ~605 行
+
+---
+
 ## [0.1.56] - 2026-08-10 — 正则解析路径物理删除（requirement_parser 包移除，约 -2600 行）
 
 ### 删除清单（AI-first 后死代码物理清除）

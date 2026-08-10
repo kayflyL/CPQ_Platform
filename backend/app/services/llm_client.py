@@ -145,7 +145,7 @@ async def chat_json(
         未知枚举置空（上层回退规则值，绝不裸进 match_kp/compose）；
       • 失败重试一次 → 仍失败 raise LLMError，上层降级到规则抽取结果（绝不阻塞主流程）。
 
-    未配置/不可用时：llm 节点默认 enable_llm=False 走 passthrough，系统脱离网络大模型也能正常运行。
+    未配置/不可用时：上层走诚实降级（目录手动选型 + 明确告知），系统脱离网络大模型也能正常运行。
 
     timeout/max_attempts：调用方可按场景收紧（如理解节点首调给短超时+不重试，失败后自行换更轻的
     prompt 再试——避免「同一超长 prompt 失败后盲目重试同样失败」的假重试）。

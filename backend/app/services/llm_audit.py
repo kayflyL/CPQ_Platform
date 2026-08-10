@@ -181,9 +181,6 @@ async def run_llm_audit(requirement_text: str, plans: list, config: dict,
         base["reason"] = "no_plans"
         return base
     config = config or {}
-    if not config.get("enable_llm"):
-        base["reason"] = "disabled"
-        return base
     try:
         if not llm_client.is_llm_enabled():
             base["reason"] = "global_ai_disabled"

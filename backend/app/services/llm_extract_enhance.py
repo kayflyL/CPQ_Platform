@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LLM 抽取增强 —— extract 节点 enable_llm 的增强实现（schema 收口 + 规则兜底）。
+"""LLM 抽取增强 —— understand 节点调用的 LLM 增强实现（schema 收口 + 规则兜底）。
 
 设计铁律（reasoning_executor._dispatch 的 llm 节点注释）：
   • LLM 输出绝不裸进 match_kp/compose（碰料号/价格/兼容必须 100% 确定性）；

@@ -156,9 +156,8 @@ async def run_understand(ctx: dict, config: dict, broadcast=None, step_id: str =
         domain_map=domain_map,
     )
     # AI 失效（LLM 关/报错/空表/resolver 失败）→ 不在此内联兜底：
-    # 置 understand_fallback，编排器路由到 extract 规则理解兜底节点（requirement_parser 单点收敛）
+    # 返回 ai_failed，编排器据此走诚实降级（目录手动选型 + 明确告知用户 AI 不可用）。
     if not res.get("ok"):
-        ctx["understand_fallback"] = True
         ctx["ext"] = {}
         return {"called": False, "source": "ai_failed", "sufficient": False,
                 "missing_critical": res.get("missing_critical") or [],
@@ -410,37 +409,11 @@ async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     return {"ok": False, "source": "rule"}
 
 
-# ── kp_reason：配件推理（ReAct + pick_kp_parts）───────────────────────
-
-_KP_REASON_PROMPT = (
-    "你是 CPQ 平台的服务器配件匹配智能体（ReAct：推理→行动→观察）。\n"
-    "【每轮只输出一个 json 对象（JSON 格式）】，包含 action 字段；禁止输出任何多余文字。\n"
-    "目标：为已选机型按需求匹配关键配件（CPU/内存/硬盘/GPU/网卡等）。\n"
-    "【必须用 pick_kp_parts 工具查真实配件库】，禁止编造料号/规格/价格。\n"
-    "流程：先调 pick_kp_parts（传 server_type_name/categories/keywords/requirement_text），\n"
-    "观察返回的配件清单，确认是否满足需求（数量/规格），可再调一次调整参数，然后 final 收敛。\n"
-    "【final.answer 必须严格用以下格式】：\n"
-    "配齐：<品类×数量，逗号分隔>；理由：<一句话，只能引用工具返回字段>"
-)
-
-
-def _collect_kp_from_react(tool_calls_log: list) -> list:
-    """从 ReAct 工具轨迹收集 pick_kp_parts 返回的配件清单（最后一次调用优先）。"""
-    kps = []
-    for c in tool_calls_log or []:
-        if c.get("name") != "pick_kp_parts":
-            continue
-        res = c.get("result")
-        if isinstance(res, dict) and res.get("parts"):
-            kps = res["parts"]  # 后调用覆盖前调用
-    return kps
-
-
 # ── KP「LLM 提议 + 库校验」（2026-08 改革·Phase1 核心）──────────────────
 # 方案助手（纯 LLM）比规则匹配聪明（256GB→8×32G、2GB缓存8口→9361-8i、双口网卡、电源按 GPU 功耗）。
 # 改革：kp_reason = LLM 提议（读需求+理解摘要+机型通道，产出需领域知识才能定的项）→
 #        pick_kp_parts 库校验执行（用真实配件库精确匹配，防幻觉）。
-# 可配：proposal_mode = llm_propose(默认) / react(旧 ReAct) / rule(纯规则)。
+# AI-first：固定 LLM 提议 + 库校验（proposal_mode/react/rule 旧模式已删）。
 KP_PROPOSE_SCHEMA: dict = {
     "type": "object",
     "properties": {
@@ -592,46 +565,14 @@ async def _kp_llm_propose(ctx: dict, config: dict) -> dict:
 async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     """配件推理（改革版·Phase1）：LLM 提议（内存条数/RAID/网卡/电源）→ pick_kp_parts 库校验执行。
 
-    proposal_mode（可配）：llm_propose(默认) / react(旧 ReAct) / rule(纯规则)。
-    返回 {ok, kp_parts, kp_count, reason, trace, source}。ok=False 时上层走 run_match_kp_rule 规则。
+    AI-first：固定走 LLM 提议（内存条数/RAID/网卡/电源）→ pick_kp_parts 库校验执行。
+    返回 {ok, kp_parts, kp_count, reason, trace, source}。LLM 提议失败 → run_match_kp_rule 规则兜底。
     """
     ext = ctx.get("ext") or {}
     baseline = ctx.get("baseline") or (ctx.get("baselines") or [None])[0]
     if not _ai_enabled(ctx, config):
         return {"ok": False, "source": "rule"}
-    mode = str(config.get("proposal_mode") or "llm_propose")
-    if mode == "rule":
-        rule_res = run_match_kp_rule(ctx, config)
-        return {**rule_res, "ok": bool(rule_res.get("kp_count")), "source": "rule",
-                "reason": "", "trace": [], "kp_parts": ctx.get("kp_parts") or []}
-    if mode == "react":
-        # 旧 ReAct 路径（兼容，不默认）：LLM 用 pick_kp_parts 工具探查/确认
-        from app.services.agent_react import run_react_loop
-        text = ctx.get("requirement_text") or ""
-        server_type = None
-        if baseline:
-            server_type = baseline.get("server_type_name")
-        if not server_type:
-            server_type = ext.get("server_type_name") or (ctx.get("scene") or {}).get("scene_name")
-        extra = (
-            f"已选机型：{json.dumps({k: (baseline or {}).get(k) for k in ('name', 'server_type_name', 'series', 'form') if (baseline or {}).get(k)}, ensure_ascii=False)}\n"
-            f"需求品类：{json.dumps(ext.get('categories') or [], ensure_ascii=False)}\n"
-            f"需求关键词：{json.dumps(ext.get('keywords') or [], ensure_ascii=False)}"
-        )
-        agent_cfg = {"enabled_tools": config.get("enabled_tools") or ["pick_kp_parts"],
-                     "system_prompt": config.get("system_prompt") or _KP_REASON_PROMPT}
-        try:
-            react = await run_react_loop(text, agent_cfg, extra_context=extra,
-                                         max_iterations=int(config.get("max_iterations") or 4))
-            if react.get("ok"):
-                return {"ok": True, "kp_parts": _collect_kp_from_react(react.get("tool_calls_log") or []),
-                        "reason": react.get("answer") or "", "trace": react.get("tool_calls_log") or [],
-                        "source": "llm"}
-            logger.warning("kp_reason ReAct 未收敛，降级规则: %r", react.get("answer"))
-        except Exception as e:
-            logger.exception("kp_reason ReAct 失败，降级规则: %s", e)
-        return {"ok": False, "source": "rule"}
-    # 默认 llm_propose：LLM 提议 → 库校验执行
+    # AI-first：LLM 提议 → 库校验执行（proposal_mode 旧开关已删）
     proposal_note = ""
     prop = await _kp_llm_propose(ctx, config)
     if prop.get("ok"):

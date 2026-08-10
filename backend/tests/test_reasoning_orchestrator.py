@@ -327,7 +327,7 @@ def test_orchestrator_ai_off_catalog_done_runs_chain():
 
     async def fake_dispatch(cap, ctx, config, broadcast):
         if cap == "understand":
-            ctx["understand_fallback"] = True  # 模拟 AI 失效 → 编排器路由 extract 兜底
+            pass  # AI 失效由 fake_decide 返回 None + is_llm_enabled=False 模拟
         if cap == "compose":
             ctx["plans"] = [{"name": "T-Plan"}]
         return {"ok": True}

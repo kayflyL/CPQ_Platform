@@ -338,55 +338,14 @@ def init_rules_db():
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
         rf_repo = ReasoningFlowRepository()
         try:
+            # 首次部署建默认流（V11 单路能力链）；已有流则不动。
             rf_repo.seed_default_if_empty()
-            # 配置自愈（不建流，每次启动都跑，幂等）
-            if rf_repo.fix_cond_clarity_threshold():
-                print("✅ cond_clarity 阈值自愈：unclear-only → 非 explicit 都反问（修模糊需求不反问 bug）")
-            if rf_repo.migrate_extract_model_token_regex():
-                print("✅ extract model_token_regex 自愈：恢复 H100/A100 单字母+3位数字分支")
-            if rf_repo.migrate_ask_user_to_catalog():
-                print("✅ ask_user 配置自愈：rebuttal/workload 话术 → 目录驱动引导（类型→机型→KP 格式）")
-            if rf_repo.migrate_llm_agent_to_understand():
-                print("✅ llm_agent 配置自愈：升级到 P1 理解模式（LLM 主理解 + escalate_grounding 默认关）")
-            if rf_repo.migrate_remove_llm_guide():
-                print("✅ 图自愈：溶解 llm_guide（llm_agent→select_baseline 直连，反问已并入 llm_agent）")
-            if rf_repo.migrate_v11_understand_knowledge():
-                print("✅ v11 understand 领域知识回填：旧 extract 词表已迁入（understand 抽屉不再空）")
-            if rf_repo.migrate_v11_decision_rules():
-                print("✅ v11 选型/匹配规则回填：旧 select_baseline/match_kp 规则已迁入（model_reason/kp_reason 抽屉不再空）")
-            if rf_repo.migrate_v11_ask_config():
-                print("✅ v11 llm_ask 引导兜底回填：目录引导文案/选项默认已落进节点配置（抽屉不再空）")
-            if rf_repo.migrate_v11_scale_tiers():
-                print("✅ v11 llm_ask 分档推荐刷新：区间/模糊档位 → 可解析规格（点了不再重复问）")
-            if rf_repo.migrate_v11_storage_packages():
-                print("✅ v11 kp_reason 套餐自愈：存储 mandatory_storage / AI mandatory_gpu（AI 默认带卡、存储默认带盘）")
-            if rf_repo.migrate_v12_spec_audit():
-                print("✅ v12 图升级：+规格合规校验/+审计自纠，移除 cond_gap（画布与执行对齐）")
-            if rf_repo.migrate_v13_cleanup_orphan_configs():
-                print("✅ v13 清理：删除图里已不存在的孤儿节点配置（cond_gap/ask_user 残留）")
-            if rf_repo.migrate_v14_restore_default_edges():
-                print("✅ v14 图自愈：默认节点集但 0 连线 → 恢复 v11 能力链（修画布全节点孤立）")
-            if rf_repo.migrate_v11_intent_words():
-                print("✅ v11 understand 意图词回填：方案助手「自然进入选配」词表已落进节点配置（策略中心可改）")
-            # 建流 migrate：active 已是最新一代（节点集覆盖 DEFAULT_GRAPH）则全跳过。
-            # ⚠️ 防膨胀兜底：历史 #107-120 共 13 条垃圾流，根因是 active 被污染判成缺节点 → 每次
-            # 启动反复建流。用「节点集覆盖」单点判断，任何历史 migrate 都不会再因 active 已最新而误建。
+            # 历史一次性 migrate（v1→v8、v11/v12/v13/v14 自愈）已全部移除——active 已是 V11 最新代，
+            # seed_default_if_empty 直接建 V11，不再需要逐版迁移。旧环境若 active 仍是 v9 双路图，建议清空 reasoning_flow 表后重启（seed_default_if_empty 会建 V11）。
             if rf_repo.active_is_current():
-                print("✅ Reasoning flow 已是最新一代，跳过历史 migrate（防膨胀）")
+                print("✅ Reasoning flow 已是 V11 最新代")
             else:
-                if rf_repo.migrate_v1_to_v2_if_needed():
-                    print("✅ Reasoning flow migrated to v2 (clarity_check/ask_user/budget_check)")
-                if rf_repo.migrate_v3_scene_analysis_if_needed():
-                    print("✅ Reasoning flow migrated to v4 (scene_analysis/cond_scene)")
-                if rf_repo.migrate_v5_normalize_input_if_needed():
-                    print("✅ Reasoning flow migrated to v5 (normalize_input)")
-                if rf_repo.migrate_v6_llm_understand_if_needed():
-                    print("✅ Reasoning flow migrated to v6 (llm_understand/slot_validate)")
-                if rf_repo.migrate_v7_confirm_if_needed():
-                    print("✅ Reasoning flow migrated to v7 (confirm 确认面板)")
-                if rf_repo.migrate_v8_llm_audit_if_needed():
-                    print("✅ Reasoning flow migrated to v8 (llm_audit 方案校对)")
-                print("✅ Reasoning flow migration applied")
+                print("⚠️ Reasoning flow 非最新代（仍含旧 v9 节点），建议手动升级到 V11 单路能力链")
         finally:
             rf_repo.close()
     except Exception as e:

@@ -5,7 +5,6 @@
 import { computed } from 'vue'
 
 const NODE_META: Record<string, { desc: string; sources: string[] }> = {
-  extract: { desc: 'jieba 分词 + 词表命中，提取关键词/品类/系列/形态', sources: ['词表', 'jieba'] },
   select_baseline: { desc: '按系列/形态四级兜底选机型骨架', sources: ['model_recommend', 'base_configs'] },
   match_kp: { desc: '型号 token 精确命中优先，否则按品类别名挑代表件', sources: ['别名表', 'kp 库'] },
   compose: { desc: '每 baseline × 同组 KP 组合整机方案', sources: ['build_plan'] },

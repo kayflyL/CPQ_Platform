@@ -138,9 +138,9 @@ _ORCH_CFG_DEFAULT = {
     "budgets": {"wall_clock_s": 240, "max_steps": 30, "max_tool_calls": 40, "max_ask_rounds": 6},
 }
 _AI_BUDGET = {
-    "fast":     {"model_iter": 3, "kp_iter": 3, "audit_llm": False},
-    "balanced": {"model_iter": 4, "kp_iter": 4, "audit_llm": True},
-    "quality":  {"model_iter": 6, "kp_iter": 6, "audit_llm": True},
+    "fast":     {"model_iter": 3, "kp_iter": 3},
+    "balanced": {"model_iter": 4, "kp_iter": 4},
+    "quality":  {"model_iter": 6, "kp_iter": 6},
 }
 
 
@@ -189,8 +189,6 @@ def _apply_ai_budget(config, orch: dict, ntype: str) -> dict:
         cfg["max_iterations"] = b["model_iter"]
     elif ntype == "kp_reason":
         cfg["max_iterations"] = b["kp_iter"]
-    elif ntype == "llm_audit":
-        cfg["enable_llm"] = b["audit_llm"]
     return cfg
 
 # 编排 agent 的决策契约（chat_json schema）

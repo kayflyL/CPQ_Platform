@@ -3,9 +3,6 @@
  * 输入各节点 step_done 的 payload，返回一句话摘要 / 精简徽标。
  *
  * payload 形状（reasoning_executor._dispatch 各节点返回值）：
- * - extract:         { keywords, categories, series, form, usage, server_type_name, chassis_categories, budget }
- * - select_baseline: { count, matches:[{config_id,name,series,form}] }
- * - match_kp:        { kp_count, by_category:{category:n}, unmatched_count }
  * - compose:         { plans_count, warning? }
  */
 export const STEP_COPY: Record<string, (p: any) => string> = {

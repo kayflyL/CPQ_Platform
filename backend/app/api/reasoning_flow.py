@@ -14,19 +14,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"])
 
 _VALID_NODE_KEYS = {
-    # v12 单路能力链（画布 palette 可拖，2026-08-09 补：此前缺这些 key 会导致抽屉保存 400）
-    "understand", "gap_analyze", "scene_decide", "model_reason", "kp_reason",
-    "spec_compliance", "audit_fix", "llm_confirm", "text_clean", "llm_agent",
-    # 旧 palette / 历史节点（保留兼容）
-    "extract", "select_baseline", "match_kp", "compose", "review", "condition",
-    "ask_user", "clarity_check", "budget_check", "scene_analysis", "cond_scene",
-    "normalize_input", "confirm_series", "llm_understand", "slot_validate", "confirm",
-    "llm_ask", "llm_audit",
+    # AI-first 单路能力链（画布 palette 当前节点 + 编排/自检）
+    "understand", "llm_ask", "orchestrator",
+    "model_reason", "kp_reason",
+    "spec_compliance", "result_check", "compose", "budget_check",
+    "llm_audit", "audit_fix", "llm_confirm", "review",
+    "condition", "text_clean",
+    # 历史节点 key（保留兼容：旧 flow 的 node_config 仍可能含这些 key，upsert 不应 400）
+    "extract", "select_baseline", "match_kp", "scene_decide", "gap_analyze",
+    "ask_user", "clarity_check", "scene_analysis", "cond_scene", "cond_gap",
+    "normalize_input", "confirm_series", "llm_understand", "slot_validate",
+    "confirm", "llm_agent", "route_fork", "cond_audit", "cond_clarity",
 }
 
 
 def _is_valid_node_key(key: str) -> bool:
-    """节点 key 校验：固定 key（extract/scene_analysis/…）或画布 palette 新增节点的后缀 id
+    """节点 key 校验：当前能力链 key（understand/model_reason/…）或画布 palette 新增节点的后缀 id
     （addNode 生成 extract_1 / scene_analysis_2，executor 按节点 id 读 config）。
     只认合法 base 类型，防止任意 key 写入。"""
     if key in _VALID_NODE_KEYS:

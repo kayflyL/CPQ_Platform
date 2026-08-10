@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 推理流节点配置抽屉 —— 按 node.type 渲染参数表单。
- *  extract（P1 词表 + P2 关键词→系列映射）/ select_baseline / match_kp / review（P6 产出形态）/
+ *  understand（领域知识词表 + 分步 AI 理解）/ model_reason / kp_reason / review（产出形态）/
  *  condition（expr）/ llm（prompt/model）。width=640 + 分区（基础/高级）。
  *  nodeKey=节点 id（API key），nodeType=节点 type（渲染表单）。保存调 updateNode（立即生效）。 */
 import { ref, computed, watch } from 'vue'
@@ -35,7 +35,7 @@ const DEFAULT_LLM_ASK_PROMPT = [
 ].join('\n')
 
 const NODE_META: Record<string, string> = {
-  understand: '需求理解（AI 主节点）：LLM 填表理解需求 + 领域知识(词表)注入 + 目录白名单锚定；抽不全→反问；AI 关/失败→extract 规则兜底（source 白盒标注）',
+  understand: '需求理解（AI 主节点）：LLM 填表理解需求 + 领域知识(词表)注入 + 目录白名单锚定；抽不全→反问；AI 失效→诚实降级（目录手动选型 + 明确告知）',
   gap_analyze: '缺口分析：已填槽位 vs 期望清单 → 明确度 + 缺失项（LLM 可选解释缺什么、为什么关键）',
   llm_ask: '智能反问：LLM 基于完整上下文生成策略性问题（带选项/理由，一次问最关键的一个）；AI 关→目录引导兜底',
   scene_decide: '场景判定：需求信号 → AI/存储/通用 × 系列 × 形态，带证据白盒（AI 增强 + 规则本体）',
@@ -51,7 +51,7 @@ const NODE_META: Record<string, string> = {
   result_check: '方案自检（确定性）：结果完整性 + 必填核心件 + 数量合理性；失败可自动触发重跑',
   text_clean: '文本清洗（可选）：去噪音/全角归一/表格行归一（AI 与规则共用前置，可删）',
 }
-const CONFIGURABLE = ['understand', 'extract', 'gap_analyze', 'llm_ask', 'orchestrator', 'scene_decide', 'model_reason', 'kp_reason', 'spec_compliance', 'result_check', 'compose', 'budget_check', 'llm_audit', 'audit_fix', 'llm_confirm', 'review', 'condition', 'text_clean']
+const CONFIGURABLE = ['understand', 'gap_analyze', 'llm_ask', 'orchestrator', 'scene_decide', 'model_reason', 'kp_reason', 'spec_compliance', 'result_check', 'compose', 'budget_check', 'llm_audit', 'audit_fix', 'llm_confirm', 'review', 'condition', 'text_clean']
 
 const props = defineProps<{
   open: boolean
@@ -62,20 +62,20 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:open': [boolean]; saved: []; remove: [string] }>()
 
 const form = ref<any>({})
-// extract 词表（5 张：KP / 机箱底盘件 / 服务器类型 / 系列 / 形态，结构统一左品类右触发词）
+// 领域知识词表（5 张：KP / 机箱底盘件 / 服务器类型 / 系列 / 形态，understand 节点注入给 LLM）
 const kpEntries = ref<LexiconEntry[]>([])
 const chassisEntries = ref<LexiconEntry[]>([])
 const serverTypeEntries = ref<LexiconEntry[]>([])
 const seriesEntries = ref<LexiconEntry[]>([])
 const formEntries = ref<LexiconEntry[]>([])
-// extract 规格别名（千兆→NIC+1G/1000M，救 ILIKE 命不中的规格词）
+// 规格别名（千兆→NIC+1G/1000M，救 ILIKE 命不中的规格词）
 const specAliases = ref<Array<{ trigger: string; category: string; search_terms: string[] }>>([])
 // match_kp 机型类型套餐（AI→CPU/GPU/Memory/HDD 等，可配）
 const typePackages = ref<Array<{ type_keyword: string; categories: string[] }>>([])
-// extract 数量解析（口语化单位 N卡→GPU + 结构化乘号 *N/×N，可配）
+// 数量解析（口语化单位 N卡→GPU + 结构化乘号 *N/×N，可配）
 const qtyUnits = ref<Array<{ unit: string; category: string }>>([])
 const qtyMultipliers = ref<string[]>([])
-// extract 型号 token 正则（extract 抽 + pick 过滤同源，可配）
+// 型号 token 正则（understand 理解 + pick 过滤同源，可配）
 const modelTokenRegex = ref('')
 // match_kp 规格匹配（P3）：品类+spec_key 都从 KP 库现有数据拉
 const specRules = ref<SpecRule[]>([])       // 规格匹配规则
@@ -244,7 +244,7 @@ watch(() => props.open, async (v) => {
     rc_qty_reasonable: c.checks?.qty_reasonable ?? true,
     rc_on_fail: c.on_fail || 'mark',
   }
-  // extract 词表：优先读新 lexicons（5 张）；旧结构（category_lexicon/series_keyword_map）自动转新
+  // 词表：优先读新 lexicons（5 张）；旧结构（category_lexicon/series_keyword_map）自动转新
   if (Array.isArray(c.lexicons) && c.lexicons.length) {
     const find = (k: string) => c.lexicons.find((l: any) => l.kind === k)?.entries || []
     kpEntries.value = find('kp')
@@ -323,25 +323,7 @@ function rowsToCpuMem(rows: Record<string, any>[]): Array<{ pattern: string; mem
 function buildConfig(): Record<string, any> | null {
   if (!props.nodeKey || !configurable.value) return null
   const t = props.nodeType
-  if (t === 'extract') {
-    const mk = (id: string, name: string, kind: string, entries: LexiconEntry[]) => ({
-      id, name, kind, entries: entries.filter(e => e.key && e.triggers.length),
-    })
-    return {
-      keyword_limit: +form.value.keyword_limit,
-      lexicons: [
-        mk('lex_kp', 'KP 配件词表', 'kp', kpEntries.value),
-        mk('lex_chassis', '机箱底盘件词表', 'chassis', chassisEntries.value),
-        mk('lex_server_type', '服务器类型词表', 'server_type', serverTypeEntries.value),
-        mk('lex_series', '系列词表', 'series', seriesEntries.value),
-        mk('lex_form', '机箱形态词表', 'form', formEntries.value),
-      ],
-      spec_aliases: specAliases.value.filter(a => a.trigger && a.category),
-      qty_units: qtyUnits.value.filter(u => u.unit && u.category),
-      qty_multipliers: qtyMultipliers.value.filter(m => m),
-      model_token_regex: modelTokenRegex.value,
-    }
-  } else if (t === 'select_baseline') {
+  if (t === 'select_baseline') {
     return { max_plans: +form.value.max_plans, recommend_strategy_id: form.value.recommend_strategy_id || null, no_signal_strategy: form.value.no_signal_strategy || 'return_empty' }
   } else if (t === 'match_kp') {
     return {
@@ -594,10 +576,10 @@ async function save() {
 
     <a-alert v-if="nodeType" :message="metaDesc" type="info" show-icon style="margin-bottom: 16px" />
 
-    <!-- extract：需求理解与关键词提取（5 张词表，结构统一：左品类下拉 + 右触发词） -->
-    <a-form v-if="nodeType === 'extract' || nodeType === 'understand'" layout="vertical">
+    <!-- understand：领域知识（5 张词表/规格别名/数量解析）+ AI 分步理解配置 -->
+    <a-form v-if="nodeType === 'understand'" layout="vertical">
       <template v-if="nodeType === 'understand'">
-        <a-alert type="info" show-icon banner message="领域知识库：词表/规格别名/数量解析由 AI 理解与规则兜底【共用】——LLM 理解时自动注入这些映射（如 兆芯→Polaris），不再是 extract 专属黑盒" style="margin-bottom: 12px" />
+        <a-alert type="info" show-icon banner message="领域知识库：词表/规格别名/数量解析由 AI 理解与规则兜底【共用】——LLM 理解时自动注入这些映射（如 兆芯→Polaris），understand 节点统一管理" style="margin-bottom: 12px" />
         <a-divider orientation="left" class="rf-sec">理解方式（分步子任务·agent 化）</a-divider>
         <a-form-item label="分步理解">
           <a-switch v-model:checked="form.us_split" />
@@ -706,7 +688,7 @@ async function save() {
         <ChipListInput v-model="qtyMultipliers" placeholder="乘号，如 * / ×" />
       </a-form-item>
       <a-form-item label="型号 token 正则（model_token_regex）">
-        <p class="rf-hint">识别型号 token 的正则（extract 抽取 + pick 过滤<b>同源</b>）。默认必含数字，避免 nvme/sata 品类词误命中。改它要懂正则。</p>
+        <p class="rf-hint">识别型号 token 的正则（understand 理解 + pick 过滤<b>同源</b>）。默认必含数字，避免 nvme/sata 品类词误命中。改它要懂正则。</p>
         <a-input v-model:value="modelTokenRegex" placeholder="如 ^(?=.*[0-9])(...)$" />
       </a-form-item>
     </a-form>

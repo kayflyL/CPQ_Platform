@@ -324,7 +324,7 @@ def test_run_extract_enhance_merges_and_reports():
     slots = {"cpu": {"model": "AMD EPYC 9254", "cores": 24, "qty": 2}, "form": "2U"}
     with _patch_chat_json(return_value=slots):
         payload = asyncio.run(run_extract_enhance(
-            "2* AMD EPYC 9254 24 2.9 GHz 128 MB 200W", ext, {"enable_llm": True}))
+            "2* AMD EPYC 9254 24 2.9 GHz 128 MB 200W", ext, {}))
     assert payload["llm_called"] is True
     assert payload["merged"] is True
     assert ext["cpu_signal"]["cores"] == 24      # 就地增强
@@ -335,7 +335,7 @@ def test_run_extract_enhance_merges_and_reports():
 def test_run_extract_enhance_llm_failure_degrades_silently():
     ext = {"categories": ["CPU"]}
     with _patch_chat_json(exc=llm_client.LLMError("no key")):
-        payload = asyncio.run(run_extract_enhance("服务器", ext, {"enable_llm": True}))
+        payload = asyncio.run(run_extract_enhance("服务器", ext, {}))
     assert payload["merged"] is False
     assert payload["error"]
     assert ext == {"categories": ["CPU"]}        # ctx 不变

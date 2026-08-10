@@ -6,7 +6,7 @@
  */
 import type { Component } from 'vue'
 import {
-  RobotOutlined, NodeIndexOutlined, ScanOutlined, QuestionCircleOutlined, AimOutlined,
+  RobotOutlined, ScanOutlined, QuestionCircleOutlined, AimOutlined,
   DesktopOutlined, ToolOutlined, CheckCircleOutlined, BuildOutlined, MoneyCollectOutlined,
   AuditOutlined, SyncOutlined, ShakeOutlined, FileDoneOutlined, BranchesOutlined, ClearOutlined,
   ControlOutlined, SafetyCertificateOutlined,
@@ -46,11 +46,6 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
     type: 'understand', name: '需求理解', icon: RobotOutlined, tone: 'blue',
     desc: 'LLM 填表理解需求 + 领域知识注入 + 在售目录锚定；抽不全→反问，AI 失效→规则兜底',
     sources: ['词表', '别名表', '在售目录'],
-  },
-  extract: {
-    type: 'extract', name: '规则理解兜底', icon: NodeIndexOutlined, tone: 'gray', fallback: true,
-    desc: 'AI 失效时的分词 + 词表命中兜底解析（离线可跑）',
-    sources: ['词表', 'jieba'],
   },
   gap_analyze: {
     type: 'gap_analyze', name: '缺口分析', icon: ScanOutlined, tone: 'cyan',
@@ -135,7 +130,7 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
 }
 
 export const REASONING_CFG_TYPES = [
-  'understand', 'extract', 'gap_analyze', 'llm_ask', 'orchestrator', 'scene_decide', 'model_reason', 'kp_reason',
+  'understand', 'gap_analyze', 'llm_ask', 'orchestrator', 'scene_decide', 'model_reason', 'kp_reason',
   'spec_compliance', 'result_check', 'compose', 'budget_check', 'llm_audit', 'audit_fix', 'llm_confirm', 'review', 'condition', 'text_clean',
 ]
 

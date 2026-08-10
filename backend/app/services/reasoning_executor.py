@@ -206,10 +206,9 @@ async def _dispatch(ntype: str, ctx: dict, config: dict, broadcast: BroadcastFn)
         return {"normalized": text, "report": report}
 
     if ntype == "extract":
-        # Phase3 清理：extract 正则理解自由文本的路径已废弃（AI 失效→目录手动选型，诚实降级）。
-        # 仅当用户显式把 extract 连进纯规则旧图时才触达；返回占位，不再跑 requirement_parser。
-        return {"deprecated": True, "keywords": [], "categories": [], "series": None,
-                "form": None, "source": "deprecated"}
+        # extract 正则理解路径已随 AI-first 改革删除（CHANGELOG [0.1.55-56]）。
+        # 图里残留的 extract 节点静默跳过（不执行、不广播），兼容旧图数据。
+        return None
 
     if ntype == "llm_agent":
         # P1：AI 路「需求理解」主节点（LLM 接管理解，替代 regex extract）。
@@ -811,9 +810,8 @@ async def run_graph_executor(opportunity_id: str, requirement_text: str, flow: d
         ntype = node.get("type") or nid
         config = node_configs.get(nid) or {}
 
-        # Phase3：extract 不再作「AI 失效自动兜底」——"用正则假装理解自由文本"是历史包袱（错误答案比
-        # 没有答案更糟）。extract 只在用户明确把它连进图（作为普通节点）时才执行；AI 失败走反问/手动。
-        if ntype == "extract" and "understand" in nodes:
+        # extract 节点已废弃（AI-first），图里残留则静默跳过。
+        if ntype == "extract":
             continue
 
         # condition 静默路由（不广播 step_start）
@@ -833,8 +831,6 @@ async def run_graph_executor(opportunity_id: str, requirement_text: str, flow: d
         await broadcast({"type": "step_done", "step": nid, "payload": payload})
 
         # 后继入队
-        if ntype == "extract":
-            ctx.pop("understand_fallback", None)  # 兜底已消费，清标志
         _enqueue([e.get("target") for e in adj[nid]])
 
         # 环容忍：主队列走完仍有未访问节点（回边环）→ 按节点定义顺序补执行一次（visited 防重入）

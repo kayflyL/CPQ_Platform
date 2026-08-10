@@ -3,7 +3,7 @@
 POST /api/reasoning/{opportunity_id}/generate 触发后台 pipeline（jieba 分词 → 聚合检索），
 立即返回 202；推理步骤通过 reasoning_hub 经 WS /api/reasoning/ws/{opportunity_id} 实时推送。
 
-与聊天助手通道物理隔离：pipeline 默认纯本地规则；llm 节点(enable_llm)开启时调 LLM 抽取增强，失败自动降级规则结果，不阻塞主流程。
+与聊天助手通道物理隔离：pipeline 受全局 AI 开关约束——开则走 LLM 理解增强，关/失败则诚实降级（目录手动选型），不阻塞主流程。
 """
 import asyncio
 from typing import Optional

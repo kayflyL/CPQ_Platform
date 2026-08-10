@@ -1,6 +1,6 @@
 """需求分析 pipeline —— 会话状态 + 图驱动/线性兜底执行入口。
 
-2026-08 重构：需求解析（extract_keywords 等）已拆到 requirement_parser 包，
+2026-08 重构（AI-first）：自由文本需求理解由 LLM（understand 节点）承担，
 本模块只保留：pipeline 入口、反问/补充/目录/系列 会话状态机、线性兜底。
 """
 
@@ -12,8 +12,8 @@ from typing import Optional
 
 from app.services.reasoning_hub import reasoning_hub
 from app.api.candidate_search import select_models, pick_kp_parts, build_plan, kp_categories_for_type, build_variant_signals
-# 平台系列权威源 + 中文停用词（原 requirement_parser 包仅存的活导出；其余正则解析路径已随
-# AI-first 改革删除，见 CHANGELOG [0.1.55-56]。series 权威源 = system_config.server_series。）
+# 平台系列权威源 + 中文停用词（本地定义；series 权威源 = system_config.server_series）。
+# 正则解析路径（requirement_parser 包）已随 AI-first 改革删除，见 CHANGELOG [0.1.55-56]。
 _SERIES_KEYWORDS = ["Orion", "Polaris", "Intel", "工作站"]  # 兜底常量（读配置失败时用）
 
 

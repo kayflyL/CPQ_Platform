@@ -103,21 +103,13 @@ def _run(text, plans, config):
     return asyncio.run(run_llm_audit(text, plans, config, opportunity_id="opp1"))
 
 
-def test_disabled_skips_llm():
-    patches, m = _patch_env(chat_return={})
-    with _use(patches):
-        res = _run("服务器", [PLAN], {"enable_llm": False})
-    assert res["reason"] == "disabled"
-    m.assert_not_called()
-
-
 def test_success_audits_all_plans_once():
     data = {"plans": [
         {"index": 0, "passed": False, "issues": ["GPU 可能不足，训练场景建议 8 卡"]},
     ]}
     patches, m = _patch_env(chat_return=data)
     with _use(patches):
-        res = _run("AI 训练 8卡", [PLAN], {"enable_llm": True})
+        res = _run("AI 训练 8卡", [PLAN], {})
     assert res["called"] is True and res["reason"] == "ok"
     assert res["plans_checked"] == 1
     assert res["issue_plans"] == 1
@@ -130,7 +122,7 @@ def test_success_audits_all_plans_once():
 def test_llm_error_degrades_silently():
     patches, m = _patch_env(chat_side=llm_client.LLMError("boom"))
     with _use(patches):
-        res = _run("服务器", [PLAN], {"enable_llm": True})
+        res = _run("服务器", [PLAN], {})
     assert res["called"] is True
     assert res["reason"] == "llm_error"
     assert res["audits"] == []
@@ -140,7 +132,7 @@ def test_llm_error_degrades_silently():
 def test_global_ai_disabled():
     patches, m = _patch_env(chat_return={}, enabled=False)
     with _use(patches):
-        res = _run("服务器", [PLAN], {"enable_llm": True})
+        res = _run("服务器", [PLAN], {})
     assert res["reason"] == "global_ai_disabled"
     m.assert_not_called()
 
@@ -160,7 +152,7 @@ def test_dispatch_llm_audit_branch():
                     "issues": ["GPU 可能不足"]}], "plans_checked": 1, "issue_plans": 1,
                     "duration_ms": 10, "references": ["BC-1"]}
         m.side_effect = fake
-        payload = asyncio.run(_dispatch("llm_audit", ctx, {"enable_llm": True}, broadcast))
+        payload = asyncio.run(_dispatch("llm_audit", ctx, {}, broadcast))
     assert ctx["llm_audits"][0]["issues"] == ["GPU 可能不足"]
     assert payload["issue_plans"] == 1
 
