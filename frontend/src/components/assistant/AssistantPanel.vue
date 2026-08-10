@@ -267,7 +267,7 @@ const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 
 // 面板贴着 FAB 当前位置打开（FAB 拖到哪儿，面板就跟到哪儿附近）
-const { pos: fabPos, getFabRect, moveClamped } = useAssistantFab()
+const { pos: fabPos, getFabRect } = useAssistantFab()
 const viewportTick = ref(0)
 
 // 用户拖动后的偏移量（持久化到 sessionStorage）
@@ -313,7 +313,6 @@ onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 let dragging = false
 let dragStart = { x: 0, y: 0 }
 let offsetStart = { x: 0, y: 0 }
-let fabOrigin: { x: number; y: number } | null = null
 
 function startDrag(e: MouseEvent) {
   // 忽略关闭按钮点击
@@ -323,7 +322,6 @@ function startDrag(e: MouseEvent) {
   dragStart = { x: e.clientX, y: e.clientY }
   offsetStart = { ...dragOffset.value }
   // 记录拖动开始时 FAB 的位置（拖面板时 FAB 跟着走，两者不分离）
-  fabOrigin = fabPos.value ? { ...fabPos.value } : null
 
   document.addEventListener('mousemove', onDrag)
   document.addEventListener('mouseup', stopDrag)
@@ -341,11 +339,6 @@ function onDrag(e: MouseEvent) {
   dragOffset.value = {
     x: offsetStart.x + dx,
     y: offsetStart.y + dy,
-  }
-  // FAB 跟随移动（拖面板时 X 按钮一起走，不再分离）
-  const fabEl = getFabRect()
-  if (fabOrigin && fabEl) {
-    moveClamped(fabOrigin.x + dx, fabOrigin.y + dy, fabEl.width, fabEl.height)
   }
 }
 

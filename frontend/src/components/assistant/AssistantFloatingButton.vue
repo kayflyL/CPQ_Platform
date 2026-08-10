@@ -1,22 +1,22 @@
 <template>
   <button
+    v-show="!open"
     ref="btnRef"
     class="assistant-fab"
-    :class="{ open, dragging: isDragging }"
+    :class="{ dragging: isDragging }"
     :style="fabStyle"
     @click="onClick"
     @pointerdown="onPointerDown"
-    :title="open ? '收起方案助手 · 可拖动' : '方案助手 · 可拖动'"
+    title="方案助手 · 可拖动"
   >
-    <CloseOutlined v-if="open" />
-    <RobotOutlined v-else />
-    <span v-if="!open" class="fab-label">方案助手</span>
+    <RobotOutlined />
+    <span class="fab-label">方案助手</span>
   </button>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { RobotOutlined, CloseOutlined } from '@ant-design/icons-vue'
+import { RobotOutlined } from '@ant-design/icons-vue'
 import { useAssistantFab } from '@/composables/useAssistantFab'
 
 const props = defineProps<{ open: boolean }>()
@@ -151,13 +151,6 @@ onBeforeUnmount(() => {
   transform: none;
   transition: none; /* 拖动期间 1:1 跟手，不补间 */
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.assistant-fab.open {
-  background: var(--cpq-overlay-w6);
-  color: var(--cpq-text-primary);
-  border-color: var(--cpq-glass-border);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 .fab-label {
   font-size: 14px;

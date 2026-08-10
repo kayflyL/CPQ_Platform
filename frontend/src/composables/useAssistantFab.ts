@@ -39,7 +39,19 @@ export function useAssistantFab() {
   function setFabEl(el: HTMLElement | null) {
     fabEl.value = el
   }
-  function getFabRect(): DOMRect | null {
+  function getFabRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
+    // FAB 在面板打开时 v-show 隐藏（display:none → getBoundingClientRect 返回零），
+    // 改用 pos ref（模块级单例，FAB 挂载/拖动时实时更新）。
+    if (pos.value) {
+      const w = 120, h = 52  // FAB 大致尺寸（含 label 展开宽）
+      const fabElReal = fabEl.value
+      if (fabElReal) {
+        const r = fabElReal.getBoundingClientRect()
+        if (r.width > 0) return r  // FAB 可见时用真实 rect
+      }
+      return { left: pos.value.x, top: pos.value.y, right: pos.value.x + w, bottom: pos.value.y + h, width: w, height: h }
+    }
+    // 无保存位置 → FAB 用 CSS 默认（右下角），读真实 DOM
     return fabEl.value?.getBoundingClientRect() ?? null
   }
   function persist(p: FabPos | null) {
