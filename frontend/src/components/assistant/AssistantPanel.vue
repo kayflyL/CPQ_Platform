@@ -46,19 +46,41 @@
         <div class="ap-messages" ref="messagesEl">
           <a-spin v-if="loading" size="small" class="ap-spin" />
           <a-empty
-            v-else-if="!messages.length && !streamingText && !waitingAI && !analysisSteps.length && !analysisPlans.length && !analysisRunning && !analysisPrompt && !analysisConfirm && !analysisError"
+            v-else-if="!messages.length && !streamingText && !waitingAI && !analysisSteps.length && !analysisRunning && !analysisPrompt && !analysisConfirm && !analysisError"
             :image-style="{ height: '48px' }"
             description="和方案助手聊聊？输入消息开始，或点下方「需求分析 / 生成 BOM」"
           />
           <div v-else class="ap-msg-list">
-            <div
-              v-for="m in messages"
-              :key="m.message_id"
-              class="ap-msg"
-              :class="`role-${m.role}`"
-            >
-              <div class="ap-bubble">{{ m.content }}</div>
-            </div>
+            <template v-for="m in messages" :key="m.message_id">
+              <!-- 需求分析结果：BOM 文本气泡 + 方案卡（融入消息流，不钉底）-->
+              <div v-if="m.kind === 'analysis_result'" class="ap-msg role-assistant">
+                <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
+                <PlanCard
+                  v-for="p in parsePlans(m)"
+                  :key="(m.message_id || '') + '-' + p.config_id"
+                  :plan="p"
+                  class="ap-plan-card"
+                  @view-bom="openBomModal(p)"
+                >
+                  <template #extra-actions>
+                    <a-button
+                      v-if="currentThread?.opportunity_id"
+                      type="primary"
+                      size="small"
+                      :loading="convertingId === p.config_id"
+                      @click="convertPlan(p)"
+                    >
+                      <template #icon><ArrowRightOutlined /></template>
+                      转为报价单
+                    </a-button>
+                  </template>
+                </PlanCard>
+              </div>
+              <!-- 普通消息 -->
+              <div v-else class="ap-msg" :class="`role-${m.role}`">
+                <div class="ap-bubble">{{ m.content }}</div>
+              </div>
+            </template>
             <!-- 需求分析：步骤时间线（运行中）-->
             <div v-if="analysisSteps.length" class="ap-steps">
               <span
@@ -70,30 +92,6 @@
                 {{ s.label }}
               </span>
             </div>
-            <!-- 需求分析：整机方案卡（BOM 文本已在对话气泡里，卡片点「查看 BOM 详情」弹窗看完整表格）-->
-            <template v-if="analysisPlans.length">
-              <p class="ap-note">以下为整机方案（BOM 明细见上方文本，点卡片「查看 BOM 详情」看表格）</p>
-              <PlanCard
-                v-for="p in analysisPlans"
-                :key="p.config_id"
-                :plan="p"
-                class="ap-plan-card"
-                @view-bom="openBomModal(p)"
-              >
-                <template #extra-actions>
-                  <a-button
-                    v-if="currentThread?.opportunity_id"
-                    type="primary"
-                    size="small"
-                    :loading="convertingId === p.config_id"
-                    @click="convertPlan(p)"
-                  >
-                    <template #icon><ArrowRightOutlined /></template>
-                    转为报价单
-                  </a-button>
-                </template>
-              </PlanCard>
-            </template>
             <!-- 需求分析失败 -->
             <p v-if="analysisError" class="ap-bubble err"><ExclamationCircleOutlined /> {{ analysisError }}</p>
             <div v-if="streamingText || waitingAI" class="ap-msg role-assistant">
@@ -252,12 +250,18 @@ const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 const {
   threads, currentThreadId, currentThread, messages, loading, sending, streamingText, waitingAI,
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
-  analysisSteps, analysisPlans, analysisRunning, analysisBusy, analysisError,
+  analysisSteps, analysisRunning, analysisBusy, analysisError,
   analysisPrompt, analysisConfirm, analysisActive,
   runAnalysis, replyAnalysis, skipAnalysis, confirmAnalysis, acceptAllAnalysis,
 } = useAssistant()
 
 const { contextLabel, summarize, visibleQuickActions, isConfigIntent, hasServerWord } = useAssistantContext()
+
+/** 从 analysis_result 消息的 data JSON 解析方案清单（失败/空 → []，渲染走 else 分支显示纯文本） */
+function parsePlans(m: { kind?: string; data?: string }): Plan[] {
+  if (m.kind !== 'analysis_result' || !m.data) return []
+  try { return (JSON.parse(m.data).plans || []) as Plan[] } catch { return [] }
+}
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)

@@ -14,7 +14,6 @@ import { ref, computed, watch } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
 import { assistantApi, assistantWsUrl } from '@/api/assistant'
 import type { AssistantThread, AssistantMessage, AssistantAnalysisStep } from '@/api/assistant'
-import type { Plan } from '@/api/reasoning'
 
 export type AnalysisStepStatus = 'pending' | 'running' | 'done' | 'error'
 
@@ -55,7 +54,6 @@ export function useAssistant() {
 
   // ── 需求分析状态（方案助手生成 BOM）──
   const analysisSteps = ref<AssistantAnalysisStep[]>([])
-  const analysisPlans = ref<Plan[]>([])
   const analysisRunning = ref(false)
   const analysisBusy = ref(false) // REST 请求在途（防连点）
   const analysisError = ref<string | null>(null)
@@ -94,7 +92,6 @@ export function useAssistant() {
   }
   function resetAnalysis() {
     analysisSteps.value = []
-    analysisPlans.value = []
     analysisRunning.value = false
     analysisError.value = null
     analysisPrompt.value = null
@@ -108,7 +105,6 @@ export function useAssistant() {
         analysisActive.value = true
         analysisRunning.value = true
         analysisError.value = null
-        analysisPlans.value = []
         analysisPrompt.value = null
         analysisConfirm.value = null
         analysisSteps.value = (data.steps || []).map((s: any) => ({
@@ -147,7 +143,7 @@ export function useAssistant() {
         }
         return
       case 'candidates_ready':
-        analysisPlans.value = data.plans || []
+        // plans 由后续 analysis_result 消息承载（融入消息流，不再单独存 ref）
         return
       case 'pipeline_paused':
         analysisRunning.value = false
@@ -259,16 +255,11 @@ export function useAssistant() {
     // 找到最后一条 analysis_ 消息作为当前分析态
     for (const m of msgs) {
       if (m.kind === 'analysis_result') {
-        try {
-          const d = JSON.parse(m.data || '{}')
-          analysisPlans.value = d.plans || []
-          analysisActive.value = true
-          analysisRunning.value = false
-          analysisPrompt.value = null
-          analysisConfirm.value = null
-        } catch {
-          /* ignore */
-        }
+        // 方案卡融入消息流渲染（parsePlans 在模板侧），这里只标记分析态
+        analysisActive.value = true
+        analysisRunning.value = false
+        analysisPrompt.value = null
+        analysisConfirm.value = null
       } else if (m.kind === 'analysis_pending') {
         try {
           const d = JSON.parse(m.data || '{}')
@@ -424,7 +415,7 @@ export function useAssistant() {
     threads, currentThreadId, currentThread, messages, loading, sending,
     streamingText, waitingAI, loadThreads, selectThread, newThread, send, removeThread,
     connectWs, disconnectWs,
-    analysisSteps, analysisPlans, analysisRunning, analysisBusy, analysisError,
+    analysisSteps, analysisRunning, analysisBusy, analysisError,
     analysisPrompt, analysisConfirm, analysisActive,
     runAnalysis, replyAnalysis, skipAnalysis, confirmAnalysis, acceptAllAnalysis,
   }
