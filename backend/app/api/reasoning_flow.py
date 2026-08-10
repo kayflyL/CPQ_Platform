@@ -108,9 +108,10 @@ async def test_run(body: dict):
     """试运行 playground：输入需求文本（+可选预算），同步跑 active flow 图执行器，
     返回每步事件 + ext/kp_by_model/plans 明细。供策略中心画布编辑器交互测试。
 
-    - 不绑商机（opportunity_id 传占位 "test-run"——run_graph_executor 内部从不引用它）。
-    - force_complete 默认 True（跳过反问、一键出方案）；前端可传 False 测反问补全（unclear/partial 会暂停在 ask_user）。
-    - 不回退 linear fallback：调试工具，图执行的报错原样暴露给用户看（仅包一层 except 返回 error+events）。
+    - 不绑商机（opportunity_id 传占位 "test-run"）。
+    - 走 run_orchestrator（与方案助手正式路径一致）：LLM 自主编排 + step_start/step_done 实时推送。
+    - force_complete 默认 True（跳过反问、一键出方案）；前端可传 False 测反问补全。
+    - 不回退 linear fallback：调试工具，报错原样暴露给用户看（仅包一层 except 返回 error+events）。
     - 明细全从 ctx 取（step_done 的 payload 是摘要级，明细在 ctx.kp_by_model / ctx.plans）。
     """
     text = (body or {}).get("requirement_text")
@@ -131,14 +132,14 @@ async def test_run(body: dict):
     async def _collect(payload: dict):
         events.append(payload)
 
-    from app.services.reasoning_executor import run_graph_executor
+    from app.services.reasoning_orchestrator import run_orchestrator
     initial_ctx = {"budget": budget, "force_complete": force_complete}
     try:
-        ctx = await run_graph_executor(
+        ctx = await run_orchestrator(
             "test-run", text, flow, _collect, initial_ctx=initial_ctx
         )
     except Exception as e:
-        logger.exception("test-run 图执行失败")
+        logger.exception("test-run orchestrator 执行失败")
         return {"error": str(e), "events": events}
 
     return {
@@ -172,9 +173,9 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
             if (n.get("type") or "") not in ("condition", "extract")
         ]
         await _broadcast({"type": "pipeline_start", "steps": steps})
-        from app.services.reasoning_executor import run_graph_executor
+        from app.services.reasoning_orchestrator import run_orchestrator
         initial_ctx = {"budget": budget, "force_complete": force_complete}
-        ctx = await run_graph_executor("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
+        ctx = await run_orchestrator("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
         awaiting = bool(ctx.get("awaiting_input"))
         await _broadcast({
             "type": "pipeline_paused" if awaiting else "pipeline_done",

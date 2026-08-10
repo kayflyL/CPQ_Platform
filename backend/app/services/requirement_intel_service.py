@@ -40,16 +40,6 @@ _CN_STOPWORDS = set("的了和与及或是在为对我你他这那有无疑也�
 
 logger = logging.getLogger(__name__)
 
-PIPELINE_STEPS = [
-    {"key": "normalize_input", "label": "需求输入规范化"},
-    {"key": "extract", "label": "需求理解与关键词提取"},
-    {"key": "select_baseline", "label": "机型选型（基准配置）"},
-    {"key": "match_kp", "label": "配件匹配"},
-    {"key": "compose", "label": "组合整机方案"},
-    {"key": "review", "label": "方案就绪"},
-]
-
-
 # 反问最多 N 轮（与 reasoning_executor.MAX_CLARIFY_ROUNDS 同步）。
 # 目录驱动引导正常 3 步（类型→机型→KP 格式）即可走完，6 是兜底保险。
 MAX_CLARIFY_ROUNDS = 6
@@ -553,217 +543,24 @@ async def run_pipeline(opportunity_id: str, requirement_text: str,
     })
 
     graph_nodes = (flow or {}).get("graph", {}).get("nodes") or []
+    # ── 执行：V11 单路能力链 → orchestrator（唯一执行引擎）──────────────────
     if flow and graph_nodes:
         try:
-            node_ids = {n.get("id") for n in graph_nodes}
-            # v11 单路能力图 → Graph Orchestrator（高 agent：LLM 自主编排 + 反问循环 + 对话记忆）。
-            # 旧图（v9 双路线等）仍走 run_graph_executor（兼容回退）。
-            if "understand" in node_ids:
-                from app.services.reasoning_orchestrator import run_orchestrator
-                if supplement and supplement.get("text"):
-                    initial_ctx["supplement_text"] = supplement["text"]
-                await run_orchestrator(opportunity_id, full_text, flow, _broadcast,
-                                       initial_ctx=initial_ctx, session=session)
-                return
-            from app.services.reasoning_executor import run_graph_executor
-            steps = [{"key": n.get("id"), "label": n.get("label") or n.get("id")} for n in graph_nodes]
-            await _broadcast({"type": "pipeline_start", "steps": steps, "is_rerun": round_num > 0})
-            ctx = await run_graph_executor(opportunity_id, full_text, flow, _broadcast, initial_ctx=initial_ctx)
-            # P2：LLM 确认待决 → 先发 need_confirm（面板展示，默认采纳可改）再 paused
-            if ctx.get("confirm_pending") and not force_complete:
-                await _broadcast({
-                    "type": "need_confirm",
-                    "reply_id": ctx.get("confirm_reply_id"),
-                    "items": ctx.get("confirm_items") or [],
-                    "default": "accept",
-                    "question": "大模型补充了以下信息，默认已采纳，可改为「忽略」后重新生成方案：",
-                })
-                await _broadcast({"type": "pipeline_paused"})
-            elif ctx.get("awaiting_input") and not force_complete:
-                # ask_user 叶子节点置 awaiting_input → 发 paused（等用户补）；否则 done
-                await _broadcast({"type": "pipeline_paused", "reply_id": ctx.get("last_reply_id")})
-            else:
-                await _broadcast({"type": "pipeline_done"})
+            from app.services.reasoning_orchestrator import run_orchestrator
+            if supplement and supplement.get("text"):
+                initial_ctx["supplement_text"] = supplement["text"]
+            await run_orchestrator(opportunity_id, full_text, flow, _broadcast,
+                                   initial_ctx=initial_ctx, session=session)
             return
         except Exception as e:
-            logger.exception("graph executor 失败，回退 linear fallback: %s", e)
+            logger.exception("orchestrator 执行失败，走诚实降级: %s", e)
 
-    await _run_linear_fallback(opportunity_id, full_text, _broadcast, flow, budget=budget,
-                               force_complete=force_complete, session=session)
-
-async def _run_linear_fallback(opportunity_id: str, requirement_text: str, _broadcast, flow,
-                              budget: Optional[float] = None, force_complete: bool = False,
-                              session=None) -> None:
-    """线性 5 步 fallback（原 run_pipeline 体）。flow.node_configs 透传参数；三层兜底。"""
-    cfg: dict = {}
-    if flow:
-        cfg = flow.get("node_configs") or {}
-    try:
-        await _broadcast({"type": "pipeline_start", "steps": PIPELINE_STEPS})
-
-        # 0. 输入规范化（与图 executor 的 normalize_input 节点同源，保证两条路径行为一致）
-        await _broadcast({"type": "step_start", "step": "normalize_input"})
-        from app.services.requirement_normalizer import normalize_text
-        requirement_text, _norm_report = normalize_text(
-            requirement_text, cfg.get("normalize_input") or {})
-        await _broadcast({"type": "step_done", "step": "normalize_input",
-                          "payload": {"normalized": requirement_text, "report": _norm_report}})
-
-        # 1. 提取（Phase3 清理：不再用正则假装理解自由文本——AI 失效/图异常走诚实降级，
-        #    提示用户手动配置，而不是产出可能错误的 BOM）
-        await _broadcast({"type": "step_start", "step": "extract"})
-        await _broadcast({"type": "step_progress", "step": "extract",
-                          "sub": {"kind": "degraded",
-                                  "text": "⚠️ AI 推理不可用（未连接推理流/图异常），请手动选择机型与配件"}})
-        await _broadcast({"type": "step_done", "step": "extract",
-                          "payload": {"deprecated": True, "keywords": [], "categories": [],
-                                      "series": None, "form": None}})
-        ext: dict = {}
-
-        # 2. 机型选型（目录引导选的类型优先 > 场景分析 > extract 信号；只推命中的不硬塞）
-        await _broadcast({"type": "step_start", "step": "select_baseline"})
-        _sb_cfg = cfg.get("select_baseline") or {}
-        _catalog = _read_catalog_state(opportunity_id, session)
-        # 场景分析（与图 executor 的 scene_analysis 节点同源，保证线性 fallback 行为一致）
-        try:
-            from app.services.scene_analyzer import analyze_scene
-            _scene = analyze_scene(
-                ext, requirement_text,
-                config=cfg.get("scene_analysis") or {},
-                opportunity=_read_opportunity_ctx(opportunity_id),
-                catalog_type_name=_catalog.get("type_name"),
-                force_complete=bool(force_complete),
-            )
-        except Exception as _e:
-            logger.warning("线性 fallback 场景分析失败，退回 extract 信号: %s", _e)
-            _scene = {}
-        _type_name = (_catalog.get("type_name")
-                      or (_scene.get("scene_name") if _scene.get("determined") else None)
-                      or ext.get("server_type_name"))
-        baselines = select_models(
-            ext.get("usage"),
-            _type_name,
-            _scene.get("series") or ext.get("series") or None,
-            _scene.get("form") or ext.get("form") or None,
-            limit=_sb_cfg.get("max_plans") or 3,
-            recommend_strategy_id=_sb_cfg.get("recommend_strategy_id"),
-            no_signal_strategy=_sb_cfg.get("no_signal_strategy"),
-            variant_signals=build_variant_signals(ext, requirement_text),
-        )
-        # 目录引导选了具体机型 → 优先保留该机型（防混推其他类型机型）
-        _cat_model_id = _catalog.get("model_id")
-        if _cat_model_id:
-            _keep = [b for b in baselines
-                     if b.get("server_model_id") == _cat_model_id or b.get("id") == _cat_model_id]
-            if _keep:
-                baselines = _keep
-        await _broadcast({
-            "type": "step_done", "step": "select_baseline",
-            "payload": {
-                "count": len(baselines),
-                "matches": [{
-                    "config_id": b.get("id"),
-                    "name": b.get("name") or "",
-                    "series": b.get("series") or "",
-                    "form": b.get("form") or "",
-                } for b in baselines],
-            },
-        })
-
-        # 3. 配件匹配（per-机型：每个机型按自己的 server_type 套餐 ∪ 需求品类）
-        await _broadcast({"type": "step_start", "step": "match_kp"})
-        _mk_cfg = cfg.get("match_kp") or {}
-        _cfg_pick = _mk_cfg.get("representative_pick")
-        if _cfg_pick and _cfg_pick != "auto":
-            _pick = _cfg_pick
-        else:
-            from app.services.reasoning_executor import _resolve_budget_strategy
-            _pick = _resolve_budget_strategy(budget)
-        _kp_by_model: dict = {}
-        _all_kp: list = []
-        for _bl in baselines:
-            _type_cats = kp_categories_for_type(_bl.get("server_type_name") or "", _mk_cfg.get("type_packages"), ext["categories"])
-            _eff_cats = list(dict.fromkeys(_type_cats + (ext["categories"] or [])))
-            _bl_kp = pick_kp_parts(
-                _eff_cats, ext["keywords"],
-                category_aliases=_mk_cfg.get("category_aliases"),
-                representative_pick=_pick,
-                spec_rules=_mk_cfg.get("spec_rules"),
-                fallback_strategy=_mk_cfg.get("fallback_strategy") or "fallback_representative",
-                requirement_text=requirement_text,
-                qty_map=ext.get("qty_map"),
-                qty_per_token=ext.get("qty_per_token"),
-                spec_search_terms=ext.get("spec_search_terms"),
-                model_token_regex=_ext_cfg.get("model_token_regex"),
-                mem_signal=ext.get("mem_signal"),
-                cpu_signal=ext.get("cpu_signal"),
-                multi_spec_filters=ext.get("multi_spec_filters"),
-                drive_groups=ext.get("drive_groups"),
-                gpu_groups=ext.get("gpu_groups"),
-                mem_groups=ext.get("mem_groups"),
-                drive_spec_substitute=(cfg.get("match_kp") or {}).get("drive_spec_substitute", True),
-            )
-            _kp_by_model[_bl.get("server_model_id") or _bl.get("id")] = _bl_kp
-            _all_kp.extend(_bl_kp)
-        by_category: dict[str, int] = {}
-        for kp in _all_kp:
-            c = kp.get("category") or "其他"
-            by_category[c] = by_category.get(c, 0) + 1
-        unmatched_count = sum(1 for kp in _all_kp if kp.get("unmatched"))
-        await _broadcast({
-            "type": "step_done", "step": "match_kp",
-            "payload": {"kp_count": len(_all_kp), "by_category": by_category, "unmatched_count": unmatched_count},
-        })
-
-        # 4. 组合整机方案（每 baseline 取自己 per-机型配的 KP）
-        await _broadcast({"type": "step_start", "step": "compose"})
-        if not baselines:
-            await _broadcast({
-                "type": "step_done", "step": "compose",
-                "payload": {"plans_count": 0, "warning": "未找到匹配的基准配置，请手填或调整需求"},
-            })
-            await _broadcast({"type": "pipeline_done"})
-            return
-        plans = []
-        for _bl in baselines:
-            _bl_kp = _kp_by_model.get(_bl.get("server_model_id") or _bl.get("id")) or []
-            plans.append(build_plan(_bl, _bl_kp))
-        # 电源瓦数：需求文本信号优先覆盖 build_plan 的 GPU 推断值（前端模板电源行读 psu_wattage）
-        _sig_w = (ext.get("psu_signal") or {}).get("wattage")
-        _sig_q = (ext.get("psu_signal") or {}).get("qty")
-        if _sig_w or _sig_q:
-            for p in plans:
-                # 合并而非整体替换：保留 build_plan 已派生的 bp_type / cable_qty_by_kind（选型配置规则）
-                _cs = p.get("chassis_signals") or {}
-                if _sig_w:
-                    _cs = {**_cs, "psu_wattage": _sig_w}
-                if _sig_q:
-                    _cs = {**_cs, "psu_qty": int(_sig_q)}
-                p["chassis_signals"] = _cs
-        apply_budget_check(plans, budget)  # 注 over_budget / underspend 字段
-        await _broadcast({
-            "type": "step_done", "step": "compose",
-            "payload": {"plans_count": len(plans)},
-        })
-
-        # 5. 方案就绪 → 下发整机方案清单
-        await _broadcast({"type": "step_start", "step": "review"})
-        await _broadcast({
-            "type": "candidates_ready",
-            "plans": plans,
-            "keywords": ext["keywords"],
-            "series": ext["series"],
-            "form": ext["form"],
-        })
-        await _broadcast({"type": "step_done", "step": "review"})
-
-        await _broadcast({"type": "pipeline_done"})
-    except Exception as e:
-        logger.exception("requirement pipeline failed for %s", opportunity_id)
-        await _broadcast({"type": "error", "message": f"推理流程异常: {e}"})
-
-# ── 方案助手通道（2026-08-05）：同一套 pipeline，状态存 assistant 会话、步骤广播到助手 WS ──
-
+    # 无 flow / orchestrator 异常 → 诚实降级（不假装跑规则链出方案）
+    await _broadcast({"type": "pipeline_start", "steps": []})
+    await _broadcast({"type": "step_progress", "step": "orchestrator",
+                      "sub": {"kind": "degraded",
+                              "text": "⚠️ 需求分析引擎暂时不可用，请稍后重试，或在配置页手动选型"}})
+    await _broadcast({"type": "pipeline_done", "plans": [], "ext": {}, "kp_by_model": {}})
 async def run_assistant_pipeline(thread_id: str, requirement_text: str,
                                  supplement: dict = None, force_complete: bool = False) -> list:
     """方案助手/未来企微通道的需求分析入口。

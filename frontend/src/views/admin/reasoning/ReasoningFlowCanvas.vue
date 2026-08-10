@@ -14,7 +14,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import { message } from 'ant-design-vue'
-import { PlayCircleOutlined, ExclamationCircleOutlined, NodeIndexOutlined, UndoOutlined, RedoOutlined, ClearOutlined, QuestionCircleOutlined, ToolOutlined } from '@ant-design/icons-vue'
+import { PlayCircleOutlined, ExclamationCircleOutlined, SyncOutlined, NodeIndexOutlined, UndoOutlined, RedoOutlined, ClearOutlined, QuestionCircleOutlined, ToolOutlined } from '@ant-design/icons-vue'
 import { reasoningFlowApi, type ReasoningFlow as RFlow } from '@/api/reasoningFlow'
 import ReasoningNodeVf from './ReasoningNodeVf.vue'
 import ReasoningNodeDrawer from './ReasoningNodeDrawer.vue'
@@ -117,7 +117,7 @@ function applyNodeState(id: string | null, state: { execState: 'running' | 'done
     : n))
 }
 
-const { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, runTest } = useTestRun({ applyNodeState })
+const { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, planProgress, runTest } = useTestRun({ applyNodeState })
 
 const expandedStep = ref<string | null>(null)
 function toggleStep(key: string) {
@@ -539,6 +539,11 @@ function onSaved() { load() }
             <div class="rf-tr-ask-hint">模拟客户回复后重新跑流程（回答会拼进需求文本，仍模糊会继续反问，直到出方案）</div>
           </div>
 
+          <!-- agent 思考指示器（orchestrator LLM 决策间隙） -->
+          <div v-if="planProgress && running" class="rf-tr-plan">
+            <SyncOutlined spin />
+            <span>智能体规划中…剩余 {{ planProgress.remaining }} 步 · 已耗时 {{ planProgress.elapsedS }}s</span>
+          </div>
           <!-- 步骤时间线 -->
           <div v-if="steps.length" class="rf-tr-steps">
             <div
@@ -795,6 +800,7 @@ function onSaved() { load() }
 .rf-tr-issue-ev { font-size: 12px; color: var(--cpq-text-muted, #8a919f); margin-top: 2px; }
 .rf-tr-issue-sg { font-size: 12px; color: var(--cpq-color-success, #3f9e5f); margin-top: 2px; }
 
+.rf-tr-plan { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 8px; background: var(--cpq-bg-elevated, #f6f8fa); border-radius: 8px; font-size: 12px; color: var(--cpq-text-secondary, #888); }
 .rf-tr-steps { display: flex; flex-direction: column; gap: 6px; }
 .rf-tr-step {
   display: flex; gap: 10px; padding: 8px 10px;

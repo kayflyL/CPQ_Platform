@@ -7,6 +7,31 @@
 
 ---
 
+## [0.1.58] - 2026-08-10 — 执行路径统一 + 旧 handler/线性兜底删除（-604 行，结构性除旧）
+
+### 核心改革：三套执行路径 → 统一为 orchestrator 唯一引擎
+- **画布试运行改走 `run_orchestrator`**（此前走 `run_graph_executor`，与正式方案助手执行逻辑不一致）
+  - reasoning_flow.py test_run/_stream_test_run 从 graph_executor 切到 orchestrator
+  - 前端 useTestRun.ts 新增 `plan_progress` 消费：LLM 决策间隙显示"智能体规划中…剩余 N 步"
+  - **节点高亮 + 卡片特性完整保留**（step_start/step_done 格式相同，前端事件驱动不认后端引擎）
+- **`_run_linear_fallback` 删除**（-173 行）：orchestrator 异常 → 诚实降级（广播"引擎不可用"），不再跑旧 5 步规则链假装出方案
+- **`_dispatch` 删 9 个 v9 handler**（-296 行）：normalize_input/llm_agent/slot_validate/scene_analysis/select_baseline/match_kp/clarity_check/ask_user/confirm_series + extract — orchestrator 只 dispatch V11 能力链类型，这些 handler 确认无人调用
+- **`PIPELINE_STEPS` 常量删除**（v9 线性链步骤定义，-8 行）
+- **`build_domain_knowledge` 死函数删除**（0 引用，-5 行）
+- **6 个 v9 测试删除**（-116 行）：test_executor_select_baseline/clarity_check×4/ask_user — 测的 handler 已删
+
+### 验证
+- 后端 365 passed（-6 个废弃测试）+ 前端 vue-tsc 0err/npm test 60 绿
+- 净节省 **-604 行**（649 删 / 45 插入）
+- reasoning_executor.py 843→547 行（-35%）；requirement_intel_service.py 删 linear fallback 后大幅精简
+
+### 保留（评估后决定不动）
+- `run_graph_executor`（90 行）：仅测试/脚本用（test_scene_analyzer 图级回归），生产代码已全走 orchestrator
+- `_default_node_configs`（214 行）：v9 配置生成器，但其中 extract/select_baseline/match_kp 三段词表数据仍是 V11 种子的默认值来源（动它有破坏 seed 默认值风险）
+- `_run_understand_legacy`：split_steps=false 降级路径，有测试覆盖
+
+---
+
 ## [0.1.57] - 2026-08-10 — 历史遗留清理（双路图/逐节点开关/migrate代码/extract前端残留，净 -936 行）
 
 ### 三批清理（每批后跑测试确认）

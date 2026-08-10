@@ -78,11 +78,6 @@ def build_domain_knowledge_map(flow_configs: Optional[dict] = None, lexicons: Op
         return {}
 
 
-def build_domain_knowledge(flow_configs: Optional[dict] = None, lexicons: Optional[list] = None,
-                           match_text: Optional[str] = None, kinds: Optional[list] = None) -> str:
-    """兼容旧调用：返回拼接文本（等价 build_domain_knowledge_map(...).values() 拼接）。"""
-    m = build_domain_knowledge_map(flow_configs, lexicons=lexicons, match_text=match_text, kinds=kinds)
-    return "\n".join(m.values())
 
 
 def _ai_enabled(ctx: dict, config: Optional[dict]) -> bool:

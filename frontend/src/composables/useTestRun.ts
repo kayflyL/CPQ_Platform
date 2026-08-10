@@ -31,6 +31,7 @@ export function useTestRun(opts: {
   const awaitingInput = ref(false)
   const pendingQuestion = ref('')
   const pendingOptions = ref<string[]>([])
+  const planProgress = ref<{ remaining: number; elapsedS: number } | null>(null)
 
   let ws: WebSocket | null = null
 
@@ -54,6 +55,7 @@ export function useTestRun(opts: {
     awaitingInput.value = false
     pendingQuestion.value = ''
     pendingOptions.value = []
+    planProgress.value = null
     opts.applyNodeState?.(null, { execState: null })  // null id = 清所有节点高亮
   }
 
@@ -100,6 +102,12 @@ export function useTestRun(opts: {
       case 'step_progress':
         pushSubstep(data.step, data.sub || { kind: 'progress', text: '' })
         return
+      case 'plan_progress':
+        planProgress.value = {
+          remaining: (data.remaining || []).length,
+          elapsedS: Math.round(data.elapsed_s || data.budget?.elapsed_s || 0),
+        }
+        return
       case 'need_input':
         awaitingInput.value = true
         pendingQuestion.value = data.question || ''
@@ -110,6 +118,7 @@ export function useTestRun(opts: {
         return
       case 'pipeline_paused':
       case 'pipeline_done':
+        planProgress.value = null
         ext.value = data.ext || {}
         kpByModel.value = data.kp_by_model || {}
         if (data.plans?.length) plans.value = data.plans
@@ -162,5 +171,5 @@ export function useTestRun(opts: {
 
   onBeforeUnmount(() => closeWs())
 
-  return { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, runTest, reset }
+  return { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, planProgress, runTest, reset }
 }

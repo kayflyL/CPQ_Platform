@@ -8,38 +8,6 @@ import asyncio
 
 from app.services.requirement_intel_service import _merge_clarify_text, _merge_clarify_defaults
 from app.services import reasoning_executor as rex
-
-def test_executor_select_baseline_no_nameerror():
-    """线上 executor 节点回归（R9 修复）：select_baseline 走 build_variant_signals，
-    曾因 reasoning_executor 漏导入抛 NameError → 前端卡机型选型节点。
-    必须用 _dispatch（真实节点路径），golden 线性脚本路径覆盖不到。"""
-    from app.repository.reasoning_flow_repo import _default_node_configs
-    from app.services import reasoning_executor as rex
-
-    async def _noop(_):
-        return None
-
-    async def _run():
-        cfgs = _default_node_configs()
-        ctx = {"requirement_text": """机箱:4U8卡机架式
-CPU: AMD 9654 * 2
-内存:DDR564G *8
-硬盘:SATASSD480G*2
-硬盘:Intel P5510 U.2NVME 3.84*2
-RAID卡:9361-8i*1
-网卡:100G双口MCX5*1
-显卡:AMD R9700*8"""}
-        await rex._dispatch("extract", ctx, cfgs["extract"], _noop)
-        # 真实链路 extract 后接场景判定（窄化后类型/系列由 scene_decide 提供，不再从文本推断）
-        await rex._dispatch("scene_decide", ctx, cfgs.get("scene_decide") or {}, _noop)
-        payload = await rex._dispatch("select_baseline", ctx, cfgs["select_baseline"], _noop)
-        return payload
-
-    payload = asyncio.run(_run())
-    assert payload.get("count", 0) >= 1  # 不再 NameError，且能出机型方案
-    names = [m.get("name") for m in payload.get("matches") or []]
-    assert any("直通" in n or "直连" in n for n in names)  # 8卡具体配置单 → 直通/直连排第一
-
 def test_max_clarify_rounds_defined_and_synced():
     # M1 回归：两处 MAX_CLARIFY_ROUNDS 必须都有定义且一致。
     # 曾因编辑把赋值行替换成注释丢失（requirement_intel_service 漏修），
@@ -267,90 +235,6 @@ def test_build_question_kp_gives_format_and_categories():
 def test_kp_categories_from_flow_config():
     cats = kp_categories_for_type_name("存储服务器", FLOW_CFG)
     assert "Raid card" in cats and "HDD/SSD" in cats
-
-# ============================================================
-# clarity_check —— 目录引导 done / 默认回答 / force_complete
-# ============================================================
-
-def _stub_clarity(monkeypatch, missing=None):
-    import app.services.clarity_evaluator as ce
-    missing = missing or ["GPU型号", "系列", "形态", "用途", "预算"]
-
-    def fake_evaluate(ext, config=None):
-        return "unclear", list(missing), {"coverage": "0/10", "slots": [], "missing_l0": missing}
-
-    monkeypatch.setattr(ce, "evaluate_slot_coverage", fake_evaluate)
-
-    async def no_broadcast(payload):
-        pass
-
-    return no_broadcast
-
-def test_clarity_check_catalog_done_is_explicit(monkeypatch):
-    # 目录引导走完（type→model→kp）→ 视为信息足够，直接出方案
-    no_broadcast = _stub_clarity(monkeypatch)
-    ctx = {"requirement_text": "我想要一台服务器",
-           "ext": {}, "budget": None, "clarify_round": 3,
-           "force_complete": False, "clarify_defaults": [],
-           "catalog_stage": "done"}
-    payload = asyncio.run(rex._dispatch("clarity_check", ctx, {}, no_broadcast))
-    assert payload["level"] == "explicit"
-    assert payload["missing_fields"] == []
-    assert ctx["clarity_explain"].get("catalog_complete") is True
-
-def test_clarity_check_defaults_remove_only_marked_fields(monkeypatch):
-    no_broadcast = _stub_clarity(monkeypatch)
-    ctx = {"requirement_text": "我想要一台服务器\n补充：还没定",
-           "ext": {}, "budget": None, "clarify_round": 1, "force_complete": False,
-           "clarify_defaults": ["GPU型号"]}
-    payload = asyncio.run(rex._dispatch("clarity_check", ctx, {}, no_broadcast))
-    assert payload["level"] == "unclear"
-    assert "GPU型号" not in payload["missing_fields"]
-    assert "系列" in payload["missing_fields"]
-
-def test_clarity_check_defaults_all_satisfied_explicit(monkeypatch):
-    no_broadcast = _stub_clarity(monkeypatch)
-    ctx = {"requirement_text": "我想要一台服务器\n补充：还没定",
-           "ext": {}, "budget": None, "clarify_round": 3, "force_complete": False,
-           "clarify_defaults": ["GPU型号", "系列", "形态", "用途", "预算"]}
-    payload = asyncio.run(rex._dispatch("clarity_check", ctx, {}, no_broadcast))
-    assert payload["level"] == "explicit"
-    assert payload["missing_fields"] == []
-    assert ctx["clarity_explain"].get("defaults_satisfied") is True
-
-def test_clarity_check_force_complete_still_works(monkeypatch):
-    no_broadcast = _stub_clarity(monkeypatch)
-    ctx = {"requirement_text": "我想要一台服务器\n补充：还没定",
-           "ext": {}, "budget": None, "clarify_round": 0, "force_complete": True,
-           "clarify_defaults": []}
-    payload = asyncio.run(rex._dispatch("clarity_check", ctx, {}, no_broadcast))
-    assert payload["level"] == "partial"
-    assert payload["missing_fields"] == []
-    assert ctx["clarity_capped"] is True
-
-# ============================================================
-# ask_user —— 目录驱动发问（need_input 带真实目录选项 + 格式模板）
-# ============================================================
-
-def test_ask_user_type_question_broadcast(monkeypatch):
-    import app.services.catalog_guide as cg
-    monkeypatch.setattr(cg, "load_catalog", _fake_catalog)
-
-    async def collect(payload):
-        collected.append(payload)
-
-    collected = []
-    ctx = {"requirement_text": "我想要一台服务器", "catalog_stage": "",
-           "catalog_state": _empty_state(), "flow_configs": FLOW_CFG,
-           "clarify_round": 0, "clarity_capped": False, "missing_fields": []}
-    payload = asyncio.run(rex._dispatch("ask_user", ctx, {}, collect))
-    assert payload["question"]
-    msg = collected[0]
-    assert msg["type"] == "need_input"
-    assert "通用计算服务器" in msg["options"]
-    assert msg["stage"] == ""
-    assert ctx["awaiting_input"] is True
-
 # ============================================================
 # 明确度（clarity_evaluator）
 # ============================================================
