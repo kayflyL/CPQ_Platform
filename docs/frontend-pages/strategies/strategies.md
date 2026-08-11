@@ -1,6 +1,6 @@
 # 策略中心 (Strategies)
 
-> 最后更新：2026-08-02
+> 最后更新：2026-08-10
 
 ## 功能概述
 
@@ -167,10 +167,10 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 - `constants/pricingMeta.ts` — 定价维度 SSOT（DIMENSION_DEFS/枚举/DEFAULT_DIM_BODIES，与 seed 同步）
 - `stores/pricingRules.ts` — pricing 规则加载（Pinia）+ 加法引擎薄封装 `computeTargetMargin` + `getGuardrail` + 维保 `getWarrantyRate` + L3 `getStrategySnapshot`(pricing_additive) + `invalidatePricingRules`
 - `stores/selectionRules.ts` — selection CRE Pinia store（`ensureRules`/`evaluateRules`/`invalidateRules`，薄封装）
-- `stores/selectionEngine.ts` — CRE 纯求值逻辑（`evaluateRules(rules,ctx)`/`evalWhen`/`evalThen`，独立 28 单测）
-- `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（卡片网格 + **业务分类(category) 过滤条/分组** + WHEN/THEN 编辑 modal，selection 域专用，取代旧 X6 画布）
+- `stores/selectionEngine.ts` — CRE 纯求值逻辑（`evaluateRules(rules,ctx)`/`evalWhen`/`evalThen` + **试跑轨迹 `evaluateWithTrace`/`extractConds`**（逐条件 resolved/passed + THEN 实际产出），独立 38 单测）
+- `views/admin/CompatibilityRuleEditor.vue` — CRE 编辑器（卡片网格 + **业务分类(category) 过滤条/分组** + WHEN/THEN 编辑 modal，selection 域专用，取代旧 X6 画布）；**编辑弹窗右侧 = 试跑台**（挑真实 KP 零件构造 ctx → `evaluateWithTrace` → 轨迹图按命中着色，边改边验；外卡 ⚡ 试跑已移除）
 - `backend/app/repository/compatibility_rule_repo.py` + `models/compatibility_rule.py` + `api/compatibility_rules.py` — CRE 后端 CRUD + seed（DEFAULT_RULES 8 条：5 derive + 3 exclude；`seed_missing_defaults` 按名补种；**`category` 业务分类列** + `backfill_default_categories` 按 name 回填存量）
-- `constants/ruleMeta.ts` — CRE 元数据 SSOT（规则类型/操作符/字段/拓扑文案/告警 severity + **业务分类配色** `RULE_CATEGORY_SEED`/`RULE_CATEGORY_COLOR`/`categoryColor`）
+- `constants/ruleMeta.ts` — CRE 元数据 SSOT（规则类型/操作符/字段/拓扑文案/告警 severity + **业务分类配色** `RULE_CATEGORY_SEED`/`RULE_CATEGORY_COLOR`/`categoryColor` + **试跑轨迹状态色** `COND_STATUS_COLOR`/`condStatus`）
 - `scripts/migrate_compatibility_rule_category.py` — 兼容规则分类列迁移（幂等 + 按 name 回填存量；startup `ensure_compatibility_rule_category` 自愈同逻辑）
 - `backend/app/services/selection_engine.py` + `tests/test_selection_engine.py` — CRE 后端求值（selectionEngine.ts 等价 Python 移植 + 34 测试，双端共用规则数据，完成 roadmap ④）
 - `constants/chassisMeta.ts` — 机箱域 SSOT（槽位布局/组合槽/选项标签/背板关键词/系列桶/GPU 架构/电源默认）
@@ -185,6 +185,11 @@ quotation.source 字段：`reasoning`（推理流 confirmPlan 转草稿）/ `man
 ---
 
 ## 选型配置治理与后续 roadmap（2026-07-29）
+
+> 🔄 **2026-08-10 试跑 × 规则拓扑结合（编辑弹窗内交互式规则调试器）**
+> - 旧「外卡 ⚡ 试跑」+ 编辑弹窗右侧「静态拓扑图」都没用（共同病根：无真实运行时数据——试跑反推合成标量、items 恒空；拓扑只复读规则定义文字），二者合并重构。
+> - 引擎加 `evaluateWithTrace`（逐条件 resolved/expected/passed + 整条 hit + THEN 实际产出），拓扑图接 trace 着色：WHEN 条件 ✓(绿)/✗(红)/⊘(灰无值)、动作命中发光、未命中整条淡化、THEN 节点显示**实际产出**（exclude 冲突 pn / derive 算出数量 / require 缺配）。
+> - 编辑弹窗右侧改试跑台：上半挑真实 KP 零件构造 ctx（复用 `PartPicker`，让 exclude/require 能真跑），下半当前规则的轨迹图，改 form 即时重算（边改边验，对标 Camunda DMN Simulator）。外卡 ⚡ 试跑按钮移除。聚焦当前编辑的单条规则。
 
 > 🔄 **2026-08-01 选型配置重构（[0.1.28]，落地「L0 机箱能力档案 + L1 配件适配(声明式) + L2 跨件规则(CRE)」两层架构，详见 CHANGELOG）**
 > - **L0 机箱能力档案**：`base_config` 加 psu_bays / rear_slots(JSON `[{name,cap}]`) / gpu_slots / max_tdp / gpu_arch_default（`scripts/migrate_base_config_capability.py` 回填存量），选型配置新「🏗 机箱能力」标签可按机箱编辑——原 `L6ChassisConfig` 散落硬编码（SLOT_CAP / 电源=2 / 系列桶三元 / 背板正则 / 线缆 kind 过滤）全部清零。

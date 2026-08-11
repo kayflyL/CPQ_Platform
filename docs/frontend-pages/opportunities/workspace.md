@@ -1,6 +1,6 @@
 # 报价工作台 (Workspace)
 
-> 最后更新：2026-08-01
+> 最后更新：2026-08-10
 
 ## 功能概述
 
@@ -27,7 +27,7 @@
    - 成本合计
    - 售价计算
    - 利润率显示
-   - **利润率告警**：综合毛利率低于门槛时弹一次性 Modal 提示线下特价审批。告警走**独立策略 `pricing.margin_alert`**（开关 `enabled` + 门槛 `threshold` + 标题 `title` + 正文 `content` 模板，正文支持 `${margin}`/`${threshold}` 占位符），经 `pricingRulesStore.getMarginAlert()` 读取；**阈值与文案都在策略中心「利润率告警」编辑器（`MarginAlertEditor.vue`，挂在定价画布）配，不再硬编码**。策略中心定价只作建议，告警**只警告不锁价、不自动改价**，与保底封顶（引擎 clamp）解耦。默认门槛 7%（`DEFAULT_MARGIN_ALERT`，seed 进 DB 可见可改）。（历史：曾借 `guardrail.floor` + 硬编码文案，2026-07-31 重构为独立 `margin_alert` 策略；`system_config.profit_margin_alert_threshold` 保留但不驱动此告警）
+   - **利润率告警**：综合毛利率低于门槛时弹一次性 Modal 提示线下特价审批。告警走**独立策略 `pricing.margin_alert`**（开关 `enabled` + 门槛 `threshold` + 标题 `title` + 正文 `content` 模板，正文支持 `${margin}`/`${threshold}` 占位符），经 `pricingRulesStore.getMarginAlert()` 读取；**阈值与文案都在策略中心「利润率告警」编辑器（`MarginAlertEditor.vue`，挂在定价画布）配，不再硬编码**。策略中心定价只作建议，告警**只警告不锁价、不自动改价**，与保底封顶（引擎 clamp）解耦。默认门槛 7%（`DEFAULT_MARGIN_ALERT`，seed 进 DB 可见可改）。（历史：曾借 `guardrail.floor` + 硬编码文案，2026-07-31 重构为独立 `margin_alert` 策略；早期 `system_config.profit_margin_alert_threshold` 阈值已于 2026-08-10 作为死码清除）
    - 价格参数调整
 
 ### 预览与导出模板

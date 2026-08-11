@@ -125,19 +125,65 @@ test('GPU 直连汇总：严格配 GPU 才显示（有 NVMe 无 GPU 也隐藏）
 })
 
 
-// I6 R25：L6 描述式——io_slot 不查后面板料号，riser 规格 = 机型标准(standard_riser)，装 GPU → 升级 x16
+// I6 R25 + R28：L6 描述式——riser 规格数据驱动；R28 起后面板显式选卡（重复=数量）优先按实际选择输出签名
 const IO_SLOT_ROWS = [
   { type: 'io_slot', label: 'IO1', slot: 'IO1', rule: { qty: { kind: 'fixed', value: 1 }, desc: { kind: 'struct_count', scope: 'io_slot' } } },
   { type: 'io_slot', label: 'IO2', slot: 'IO2', rule: { qty: { kind: 'fixed', value: 1 }, desc: { kind: 'struct_count', scope: 'io_slot' } } },
 ]
 
-test('io_slot 描述派生（数据驱动）：无 GPU → standard_riser；GPU → riser_x16；未配置 → 留空', () => {
-  const noGpu = evalBomContext(IO_SLOT_ROWS, ctx({ gpu_qty: 0 }))
-  assert.equal(noGpu['IO1'].desc, '1*X8 FHFL')
-  assert.equal(noGpu['IO2'].desc, '1*X8 FHFL')
-  const withGpu = evalBomContext(IO_SLOT_ROWS, ctx({ gpu_qty: 2 }))
+test('io_slot 描述派生：显式选卡 → 实际规格签名；未选 → standard_riser；GPU → riser_x16；未配置 → 留空', () => {
+  const base = ctx()
+  const run = (rear: Record<string, string[]>, vars: Record<string, any> = {}) =>
+    evalBomContext(IO_SLOT_ROWS, {
+      ...base,
+      vars: { ...base.vars, gpu_qty: 0, ...vars },
+      rear: { ...base.rear, ...rear },
+    })
+
+  // 后面板显式选卡（重复即数量）→ desc 按实际选择（用户场景：IO1 选 3×X16 + 1×X8）
+  const picked = run({ IO1: ['x16', 'x16', 'x16', 'x8'], IO2: ['x8'] })
+  assert.equal(picked['IO1'].desc, '3*X16+1*X8')
+  assert.equal(picked['IO2'].desc, '1*X8')
+  // 未显式选卡 → 机型标准 standard_riser（兜底不变）
+  const none = run({ IO1: [], IO2: [] })
+  assert.equal(none['IO1'].desc, '1*X8 FHFL')
+  assert.equal(none['IO2'].desc, '1*X8 FHFL')
+  // 装 GPU → riser_x16（硬约束优先于选卡）
+  const withGpu = run({ IO1: ['x8'] }, { gpu_qty: 2 })
   assert.equal(withGpu['IO1'].desc, '1*X16+1*X8 FHFL')
   // 未配置数据 → 留空（拒绝硬编码）
-  const noData = evalBomContext(IO_SLOT_ROWS, ctx({ standard_riser: '', riser_x16: '' }))
+  const noData = run({ IO1: [], IO2: [] }, { standard_riser: '', riser_x16: '' })
   assert.equal(noData['IO1'].desc, '')
+})
+
+// 模板 1（2U12标准）新增的 OCP 网络槽行：desc 跟实际选的适配板（ocp_x8/ocp_x16）走，
+// 没选 OCP → desc 空 + qty 空（ocp_qty=0）→ 整行隐藏（BomTable / 规格书空行过滤一致）
+const OCP_ROW = {
+  type: 'io_slot', label: 'OCP', slot: 'OCP',
+  rule: { qty: { kind: 'config_calc', key: 'ocp_qty' },
+          desc: { kind: 'struct_count', scope: 'io_slot' } },
+}
+
+test('OCP 行：desc 跟实际选适配板走（X16/X8），未选 → 空行可隐藏', () => {
+  const base = ctx()
+  const make = (ocp: string[], ocpQty: number, extra: Record<string, any> = {}) =>
+    evalBomContext([OCP_ROW], {
+      ...base,
+      vars: { ...base.vars, ocp_qty: ocpQty, ...extra },
+      rear: { ...base.rear, OCP: ocp },
+    })
+  const x16 = make(['ocp_x16'], 1)
+  assert.equal(x16['OCP'].desc, 'OCP 3.0 X16')
+  assert.equal(x16['OCP'].qty, 1)
+  const x8 = make(['ocp_x8'], 1)
+  assert.equal(x8['OCP'].desc, 'OCP 3.0 X8')
+  assert.equal(x8['OCP'].qty, 1)
+  // OCP 独立分段：装 GPU 不影响 OCP 描述（riser_x16 只作用于 PCIe IO 槽）
+  const x8Gpu = make(['ocp_x8'], 1, { gpu_qty: 2 })
+  assert.equal(x8Gpu['OCP'].desc, 'OCP 3.0 X8')
+  // 未选 → desc 与 qty 都空 → BomTable / 规格书整行隐藏
+  const none = make([], 0)
+  assert.equal(none['OCP'].desc, '')
+  assert.equal(none['OCP'].qty, '')
+  assert.ok((none['OCP'].desc === '' || none['OCP'].desc == null) && (none['OCP'].qty === '' || none['OCP'].qty == null || none['OCP'].qty === 0))
 })

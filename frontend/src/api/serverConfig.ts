@@ -203,6 +203,8 @@ export interface ServerModel {
   lifecycle_status?: 'new' | 'active' | 'eol' | 'discontinued'
   // 继承自基准配置的技术参数（阶段一 Step 2：form/bays 不再存于机型表）
   base_config?: ServerModelBaseConfig | null
+  // 图纸摘要（列表/卡片预览用）：top 视图 svg_url + viewBox，无图时为 null
+  drawing?: { svg_url: string; viewBox?: number[] | null } | null
   // 产品化包装内容（结构化分块，可空）
   product_content?: ModelProductContent | null
   // 该机型的所有配置变体（getModel 附带；含主配置 base_config）

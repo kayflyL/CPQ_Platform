@@ -67,15 +67,44 @@ function renderTpl(tpl: string, vars: Record<string, any>): string | null {
   return missing ? null : out
 }
 
+/** 后面板实际选卡（option_type 数组，重复=数量）→ 槽位规格签名（如 "3*X16+1*X8"）。
+ * 口径与后端 bom_compare._riser_signature 一致（宽度倒序、忽略形态词 FHFL/FHHL）。 */
+function rearSpecSignature(picked: string[]): string {
+  const agg: Record<string, number> = {}
+  for (const t of picked) {
+    const label = SHORT_LABEL[t]
+    if (!label) continue
+    agg[label] = (agg[label] || 0) + 1
+  }
+  const order: Record<string, number> = { X16: 0, X8: 1, NVMe: 2, SATA: 3 }
+  return Object.keys(agg)
+    .sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99) || a.localeCompare(b))
+    .map((k) => `${agg[k]}*${k}`)
+    .join('+')
+}
+
 function structCount(scope: string, ctx: BomEvalContext, row: BomTemplateRow): string {
   if (scope === 'io_slot') {
-    // I6 R25 + R26 + R27：riser 规格全数据驱动（standard_riser 默认 / riser_x16 升级），不硬编码。
-    // 装 GPU → 全槽 riser_x16；高带宽网卡(100G+) → IO1 riser_x16；否则按槽位 standard_riser；无数据留空。
+    // I6 R25 + R26 + R27 + R28：riser 规格全数据驱动（standard_riser 默认 / riser_x16 升级），不硬编码。
+    // 装 GPU → 全槽 riser_x16；高带宽网卡(100G+) → IO1 riser_x16（硬约束优先）；
+    // 后面板显式选卡（重复=数量）→ 按实际选择输出规格签名（如 "3*X16+1*X8"）；否则按槽位 standard_riser；无数据留空。
     const gpuQty = ctx.vars.gpu_qty || 0
     const slot = String(row.slot || '').toLowerCase()
     const x16 = ctx.vars.riser_x16
+    // OCP 网络槽（独立分段，不占 PCIe）：desc 跟实际选的适配板（ocp_x8/ocp_x16）走；
+    // 未选 → 空串，配合 qty ocp_qty=0 → 整行隐藏（BomTable / 规格书空行过滤一致）
+    if (slot === 'ocp') {
+      const t = (ctx.rear['OCP'] || []).find((x) => x !== 'blank')
+      if (t === 'ocp_x16') return 'OCP 3.0 X16'
+      if (t === 'ocp_x8') return 'OCP 3.0 X8'
+      return ''
+    }
     if (gpuQty > 0) return x16 || ''
     if (ctx.vars.high_bw_nic && slot === 'io1') return x16 || ''
+    // rear 键名是模板槽名（IO1/OCP 大写），slot 已转小写 → 大小写不敏感查找
+    const rearKey = Object.keys(ctx.rear || {}).find((k) => k.toLowerCase() === slot)
+    const picked = ((rearKey && ctx.rear[rearKey]) || []).filter((t) => t !== 'blank')
+    if (picked.length) return rearSpecSignature(picked)
     return stdRiserFor(ctx.vars.standard_riser, slot) || ''
   }
   if (scope === 'rear_all') {

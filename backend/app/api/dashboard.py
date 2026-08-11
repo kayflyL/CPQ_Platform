@@ -1,6 +1,8 @@
 """Dashboard statistics API — unified summary + detail endpoints."""
 from datetime import datetime, timedelta
 from typing import Optional, List
+import re
+import statistics
 from fastapi import APIRouter, Query
 from sqlalchemy import func, case
 import json
@@ -11,8 +13,42 @@ from app.models.base import Opportunity_SessionLocal
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
-PLAT_COLORS = {"Polaris": "#26E2D1", "Orion": "#FA8C16", "Intel": "#8A94A8", "其他": "#8A94A8", "工作站": "#A855F7"}
 CHAS_COLORS = {"2U": "#26E2D1", "4U": "#FA8C16", "5U": "#A855F7", "4.5U": "#1890FF", "工作站": "#A855F7", "2U/4U": "#8A94A8", "8U": "#8A94A8"}
+
+# PN 提取：config_server_models 里混存干净 PN（ZSA24V2-P）和整机名（Orion 2U25 标准基准机箱），
+# 用正则把 PN-like 段抠出来归一；提不出来的退化成"其他机型"，不污染机型维度。
+_PN_RE = re.compile(r'([A-Z]{2,4}[\dA-Z]{1,6}(?:[- ][A-Z\d]+)?)')
+
+
+def _normalize_pn(raw: str) -> str:
+    """从 config_server_models 的值里抽出规范 PN（大写、去空格）；提不出返回 ''。"""
+    m = _PN_RE.search((raw or '').upper().replace(' ', ''))
+    return m.group(1) if m else ''
+
+
+def _pct_quartiles(values: list) -> dict:
+    """对一组利润率(百分点)算箱线五元组 + 均值/样本数。样本<4 时前端用散点兜底，这里照给。"""
+    if not values:
+        return None
+    vs = sorted(float(v) for v in values if v is not None and -50 < float(v) < 200)
+    if not vs:
+        return None
+
+    def _q(p: float) -> float:
+        if len(vs) == 1:
+            return vs[0]
+        idx = p * (len(vs) - 1)
+        lo = int(idx)
+        hi = min(lo + 1, len(vs) - 1)
+        frac = idx - lo
+        return round(vs[lo] + (vs[hi] - vs[lo]) * frac, 2)
+
+    return {
+        "min": vs[0], "q1": _q(0.25), "median": _q(0.5), "q3": _q(0.75), "max": vs[-1],
+        "mean": round(statistics.mean(vs), 2), "n": len(vs),
+        # 散点（原始利润点），箱体样本不足时前端直接画散点不画箱
+        "scatter": vs,
+    }
 
 PERIODS = {
     "week": lambda: (datetime.now() - timedelta(days=datetime.now().weekday())).replace(hour=0, minute=0, second=0, microsecond=0),
@@ -143,20 +179,55 @@ def get_dashboard_summary(
             "platform_series": {p: [{"date": dk, "value": plat_map.get(dk, {}).get(p, 0)} for dk in all_dates] for p in all_plats},
         }
 
-        # === Chart 2: Config platform trend（按商机创建时间，与 KPI 口径一致）===
-        cfg_plat_rows = session.query(de.label("date"), Opportunity.platform_type, func.sum(Quotation.config_count).label("count")).join(
+        # === Chart 2: 机型趋势河流（ThemeRiver）— 月×机型(PN) 报价次数 ===
+        # 删原"配置平台趋势"：平台维度已由 chart1 分线覆盖，这里换成细粒度机型(PN)维度。
+        # PN 从 quotations.config_server_models(JSON: {CFG1: "ZSA24V2-P"}) 抽取归一；
+        # 一张报价单里出现多个 PN 时各计一次（机型出现即曝光）。
+        pn_rows = session.query(
+            de.label("date"), Quotation.config_server_models, Quotation.config_count,
+        ).join(
             Opportunity, Quotation.opportunity_id == Opportunity.opportunity_id
-        ).filter(Quotation.status != "deleted", Opportunity.status != "deleted",
-                  Opportunity.created_at >= start_str, Opportunity.created_at < end_str
-        ).group_by(de, Opportunity.platform_type).order_by(de).all()
+        ).filter(
+            Quotation.status != "deleted", Opportunity.status != "deleted",
+            Opportunity.created_at >= start_str, Opportunity.created_at < end_str,
+            Quotation.config_server_models.isnot(None),
+        ).all()
 
-        cfg_plat_map = {}
-        for r in cfg_plat_rows:
+        # 河流数据：{月份: {PN: 报价次数}}，沿用与 chart1 相同的 _bucket 分桶口径
+        river_map: dict = {}
+        pn_total: dict = {}  # PN → 累计次数，用于排序取主力机型
+        for r in pn_rows:
+            try:
+                d = json.loads(r.config_server_models) if isinstance(r.config_server_models, str) else r.config_server_models
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(d, dict):
+                continue
             bk = _bucket(str(r.date), granularity)
-            p = r.platform_type or "未分类"
-            cfg_plat_map.setdefault(bk, {})[p] = cfg_plat_map.setdefault(bk, {}).get(p, 0) + r.count
-        all_cfg_plats = sorted(set(p for d in cfg_plat_map.values() for p in d.keys()))
-        chart2 = {p: [{"date": dk, "value": cfg_plat_map.get(dk, {}).get(p, 0)} for dk in all_dates] for p in all_cfg_plats}
+            pns = set()
+            for v in d.values():
+                pn = _normalize_pn(str(v))
+                if pn:
+                    pns.add(pn)
+            for pn in pns:
+                river_map.setdefault(bk, {})[pn] = river_map.setdefault(bk, {}).get(pn, 0) + 1
+                pn_total[pn] = pn_total.get(pn, 0) + 1
+
+        # 主力机型 Top8，其余归"其他"避免河流色带过多糊成一团
+        TOP_PN = 8
+        top_pns = [p for p, _ in sorted(pn_total.items(), key=lambda x: x[1], reverse=True)[:TOP_PN]]
+        chart2_data = []  # ThemeRiver 扁平格式：[日期, 值, 机型名]
+        for dk in all_dates:
+            m = river_map.get(dk, {})
+            other_sum = 0
+            for pn, cnt in m.items():
+                if pn in top_pns:
+                    chart2_data.append([dk, cnt, pn])
+                else:
+                    other_sum += cnt
+            if other_sum > 0:
+                chart2_data.append([dk, other_sum, "其他机型"])
+        chart2 = {"data": chart2_data, "models": top_pns + (["其他机型"] if len(pn_total) > TOP_PN else [])}
 
         # === Chart 3: Chassis stacked bar（按商机创建时间，与 KPI 口径一致）===
         ch_rows = session.query(de.label("date"), Opportunity.chassis_form, func.sum(Quotation.config_count).label("count")).join(
@@ -213,11 +284,53 @@ def get_dashboard_summary(
         # Top5 之后的逐人明细，供前端「点击其他展开」用
         others_list = sales_rank[5:]
 
+        # === Chart 5: 机型利润箱线（各 PN 的 profit_margin 分布）===
+        # 不限本周期——利润样本本就稀疏（config_server_models 是新字段，集中在近 3 月），
+        # 按周期切会把单机型切成个位数点，画不出箱。这里取全量，让箱体样本尽量厚。
+        profit_rows = session.query(
+            Quotation.config_server_models, Quotation.profit_margin,
+        ).filter(
+            Quotation.status != "deleted",
+            Quotation.config_server_models.isnot(None),
+            Quotation.profit_margin.isnot(None),
+        ).all()
+
+        pn_profits: dict = {}  # PN → [利润率...]
+        for r in profit_rows:
+            try:
+                d = json.loads(r.config_server_models) if isinstance(r.config_server_models, str) else r.config_server_models
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if not isinstance(d, dict):
+                continue
+            for v in d.values():
+                pn = _normalize_pn(str(v))
+                if pn:
+                    pn_profits.setdefault(pn, []).append(float(r.profit_margin or 0))
+
+        # 样本 ≥4 才单独成箱（画得出四分位），其余折叠进"其他机型"聚合箱
+        BOX_MIN_N = 4
+        boxes = []
+        other_vals: list = []
+        for pn, vals in pn_profits.items():
+            if len(vals) >= BOX_MIN_N:
+                q = _pct_quartiles(vals)
+                if q:
+                    boxes.append({"name": pn, **q})
+            else:
+                other_vals.extend(vals)
+        # 按中位数降序：高利润机型居左，一眼看到"谁赚得多"
+        boxes.sort(key=lambda x: x["median"], reverse=True)
+        other_box = _pct_quartiles(other_vals) if other_vals else None
+        if other_box:
+            boxes.append({"name": "其他机型", **other_box})
+        chart5 = {"boxes": boxes}
+
         return {
             "period_label": period_label,
             "kpi": {"total_opportunities": total_opps, "total_configs": total_configs,
                     "new_opportunities": new_opps, "new_configs": new_configs},
-            "charts": {"chart1": chart1, "chart2": chart2, "chart3": chart3},
+            "charts": {"chart1": chart1, "chart2": chart2, "chart3": chart3, "chart5": chart5},
             "structure": {"platforms": plat_struct, "chassis": ch_struct},
             "sales_rank": {"top": top5, "others": others, "others_list": others_list, "total": total_sales},
             "dates": all_dates,

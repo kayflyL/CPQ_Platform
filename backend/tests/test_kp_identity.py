@@ -62,3 +62,21 @@ class Test非硬盘品类用归一名:
         assert K("25G CX4 2port+光模块", self.CAT) == K("25G CX4 2Port +光模块", self.CAT)
     def test_容量单位归一(self):
         assert K("25G 网卡", self.CAT) == K("25G 网卡", self.CAT)
+
+
+class TestMemory属性参与同一性:
+    """Memory 用容量/代数/速率/DIMM 形态/rank/ECC 做 key，避免同容量同速不同形态误合。"""
+    def test_容量代数速率归一(self):
+        assert K("32G 4800 DDR5 RDIMM", "Memory") == K("32GB DDR5 4800MHz RDIMM", "Memory")
+    def test_容量单位差异(self):
+        assert K("64G 5600 DDR5 RDIMM", "Memory") == K("64GB DDR5 5600MHz RDIMM", "Memory")
+    def test_dimm形态不同不误合(self):
+        assert K("32GB DDR5 4800 UDIMM", "Memory") != K("32GB DDR5 4800 RDIMM", "Memory")
+    def test_代数不同不误合(self):
+        assert K("32G 4800 DDR4 RDIMM", "Memory") != K("32G 4800 DDR5 RDIMM", "Memory")
+    def test_速率不同不误合(self):
+        assert K("64G 5600 DDR5 RDIMM", "Memory") != K("64G 4800 DDR5 RDIMM", "Memory")
+    def test_rank保留(self):
+        assert K("16GB DDR5-6400 Single Rank x8", "Memory") != K("16GB DDR5-6400 Dual Rank x8", "Memory")
+    def test_specs优先(self):
+        assert K("32GB DDR5 4800", "Memory", {"DIMM Type": "RDIMM"}) == K("32G 4800 DDR5 RDIMM", "Memory")

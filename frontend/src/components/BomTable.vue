@@ -7,12 +7,13 @@
         <span class="bom-section-title">L6 配置单</span>
         <span class="bom-section-sub" v-if="l6TemplateName">{{ l6TemplateName }}</span>
       </div>
-      <table class="bom-table no-cost">
+      <table class="bom-table">
         <thead>
           <tr>
             <th class="col-catalogue">Catalogue</th>
             <th class="col-desc">Description</th>
             <th class="col-qty">Qty</th>
+            <th class="col-cost">Cost</th>
           </tr>
         </thead>
         <tbody>
@@ -20,6 +21,7 @@
             <td class="cell-catalogue">{{ row.catalogue }}</td>
             <td class="cell-desc">{{ row.description || '[空]' }}</td>
             <td class="cell-qty">{{ row.qty === '' || row.qty == null ? '[空]' : row.qty }}</td>
+            <td class="cell-cost">—</td>
           </tr>
         </tbody>
       </table>
@@ -189,6 +191,7 @@ const kpRows = computed(() => {
 
 .bom-table {
   width: 100%;
+  table-layout: fixed;
   border-collapse: collapse;
   font-size: 11px;
 }
@@ -202,13 +205,17 @@ const kpRows = computed(() => {
 
 .bom-table th {
   padding: 6px 10px;
-  text-align: left;
   font-weight: 600;
   color: var(--cpq-text-secondary);
   border-bottom: 1px solid var(--cpq-overlay-w10);
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.3px;
+}
+
+/* 表头对齐归位到列类：Catalogue/Description 左、Qty 居中、Cost 右（th 默认 center，需显式左对齐） */
+.bom-table th:not(.col-qty):not(.col-cost) {
+  text-align: left;
 }
 
 .bom-table td {
@@ -245,14 +252,6 @@ const kpRows = computed(() => {
   text-align: right;
 }
 
-/* L6 表无 Cost 列：3 列重新分配占满 */
-.bom-table.no-cost .col-catalogue {
-  width: 30%;
-}
-
-.bom-table.no-cost .col-desc {
-  width: 58%;
-}
 
 .cell-catalogue {
   font-weight: 500;

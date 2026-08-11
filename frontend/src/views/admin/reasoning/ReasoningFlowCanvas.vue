@@ -117,7 +117,7 @@ function applyNodeState(id: string | null, state: { execState: 'running' | 'done
     : n))
 }
 
-const { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, planProgress, runTest } = useTestRun({ applyNodeState })
+const { steps, plans, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, planProgress, runTest } = useTestRun({ applyNodeState })
 
 const expandedStep = ref<string | null>(null)
 function toggleStep(key: string) {

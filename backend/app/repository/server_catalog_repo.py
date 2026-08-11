@@ -15,6 +15,7 @@ class ServerCatalogRepository:
     _MODEL_FIELDS = {
         "name", "server_type_id", "use", "base_config_id", "sort_order",
         "description", "image_url", "lifecycle_status", "product_content",
+        "drawing_config",
     }
 
     # 服务器类型可写字段白名单
@@ -42,7 +43,36 @@ class ServerCatalogRepository:
         pc = row.get("product_content")
         if isinstance(pc, str):
             row["product_content"] = json.loads(pc)
+        dc = row.get("drawing_config")
+        if isinstance(dc, str):
+            try:
+                row["drawing_config"] = json.loads(dc)
+            except Exception:
+                row["drawing_config"] = None
+        # 轻量图纸摘要（列表/卡片预览用）：top 视图 svg_url + viewBox，避免透传整份配置
+        row["drawing"] = None
+        if isinstance(row.get("drawing_config"), dict):
+            _top = (row["drawing_config"].get("views") or {}).get("top") or {}
+            if _top.get("svg_url"):
+                row["drawing"] = {"svg_url": _top["svg_url"], "viewBox": _top.get("viewBox")}
         return row
+
+    def get_drawing_config(self, model_id: int) -> Optional[dict]:
+        """读取机型图纸配置（drawing_config JSONB），未配置返回 None。"""
+        with l6_engine.connect() as c:
+            r = c.execute(
+                text("SELECT drawing_config FROM l6.server_models WHERE id=:id"),
+                {"id": model_id},
+            ).mappings().first()
+        if not r:
+            return None
+        v = r["drawing_config"]
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except Exception:
+                return None
+        return v
     # ---- 服务器类型 ----
     def list_types(self) -> List[dict]:
         with l6_engine.connect() as c:
@@ -167,6 +197,9 @@ class ServerCatalogRepository:
             if k == "product_content" and isinstance(val, (dict, list)):
                 val = json.dumps(val, ensure_ascii=False)
                 f.append("product_content = CAST(:product_content AS jsonb)")
+            elif k == "drawing_config" and isinstance(val, (dict, list)):
+                val = json.dumps(val, ensure_ascii=False)
+                f.append("drawing_config = CAST(:drawing_config AS jsonb)")
             else:
                 f.append(f"{k}=:{k}")
             v[k] = val

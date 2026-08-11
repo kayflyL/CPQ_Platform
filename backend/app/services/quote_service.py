@@ -104,7 +104,7 @@ class QuoteService:
                     # USD CPU: base * usd_to_rmb * (1 + tax_rate) * (1 + margin/100)
                     base = item['base_price']
                     margin_pct = item['profit_margin']
-                    margin_dec = margin_pct / 100 if margin_pct > 1 else margin_pct
+                    margin_dec = margin_pct / 100
                     tax = self.config.get('tax_rate', 0.13)
                     usd_rate = self.config.get('usd_to_rmb', 7.0)
 

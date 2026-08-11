@@ -65,7 +65,7 @@
           <div class="deck-title"><span class="deck-line"></span>趋势分析</div>
           <a-segmented v-model:value="trendView" :options="trendOptions" size="small" />
         </div>
-        <v-chart class="chart-inner" :option="currentTrendOpt" autoresize />
+        <v-chart class="chart-inner" :key="'trend-' + trendView" :option="currentTrendOpt" autoresize />
       </div>
       <div class="chart-card chart-card-dist glass">
         <div class="deck-header">
@@ -74,6 +74,17 @@
         </div>
         <v-chart class="chart-inner chart-inner-pie" :option="currentDistOpt" autoresize @click="(p: any) => drillOn(distView === 'platform' ? 'platform' : 'chassis', p.name)" />
       </div>
+      <!-- 手机端：商机列表预览磁贴（WP 消息磁贴语言：N行裸文本，靠字号+透明度层级，无圆点/图标） -->
+      <button v-if="isMobile" class="list-tile glass" @click="listDrawerOpen = true">
+        <span class="list-tile-title">商机列表 <span class="lt-count">{{ tableTotal }}</span></span>
+        <span class="list-tile-preview">
+          <span v-for="o in recentOpps" :key="o.id" class="lt-item">
+            <span class="lt-name">{{ o.name }}</span>
+            <span v-if="o.platform" class="lt-plat">{{ o.platform }}</span>
+          </span>
+          <span v-if="!recentOpps.length" class="lt-empty">暂无商机</span>
+        </span>
+      </button>
       <div class="chart-card chart-card-rank glass">
         <div class="deck-header">
           <div class="deck-title"><span class="deck-line"></span>业务排行</div>
@@ -87,36 +98,48 @@
       <div class="chart-card chart-card-won glass">
         <div class="deck-header">
           <div class="deck-title"><span class="deck-line"></span>线索转化</div>
+          <a-segmented v-model:value="wonView" :options="wonOptions" size="small" />
+        </div>
+        <div v-if="wonView === 'won'" class="won-branch">
           <button v-if="wonExpanded" class="rank-toggle" @click="wonExpanded = false">收起 ▲</button>
-        </div>
-        <div v-if="wonRows.length" class="won-list">
-          <div class="won-row won-head">
-            <span class="won-rank"></span>
-            <span class="won-name">销售</span>
-            <span class="won-num">线索</span>
-            <span class="won-num">成交</span>
-            <span class="won-rate-head">成交率</span>
+          <div v-if="wonRows.length" class="won-list">
+            <div class="won-row won-head">
+              <span class="won-rank"></span>
+              <span class="won-name">销售</span>
+              <span class="won-num">线索</span>
+              <span class="won-num">成交</span>
+              <span class="won-rate-head">成交率</span>
+            </div>
+            <div v-for="(r, i) in wonRows" :key="r.name + i" class="won-row" :class="{ 'won-others': r.others, 'won-clickable': r.expandable }" @click="onWonRowClick(r)">
+              <span class="won-rank">{{ r.others ? '·' : i + 1 }}</span>
+              <span class="won-name">{{ r.name }}<span v-if="r.expandable" class="won-expand-hint"> ▸</span></span>
+              <span class="won-num">{{ r.count }}</span>
+              <span class="won-num won-won">{{ r.won }}</span>
+              <span class="won-rate" :style="{ color: wonRateColor(r.rate) }">{{ r.rate }}%</span>
+            </div>
           </div>
-          <div v-for="(r, i) in wonRows" :key="r.name + i" class="won-row" :class="{ 'won-others': r.others, 'won-clickable': r.expandable }" @click="onWonRowClick(r)">
-            <span class="won-rank">{{ r.others ? '·' : i + 1 }}</span>
-            <span class="won-name">{{ r.name }}<span v-if="r.expandable" class="won-expand-hint"> ▸</span></span>
-            <span class="won-num">{{ r.count }}</span>
-            <span class="won-num won-won">{{ r.won }}</span>
-            <span class="won-rate" :style="{ color: wonRateColor(r.rate) }">{{ r.rate }}%</span>
-          </div>
+          <div v-else class="chart-empty">暂无转化数据</div>
         </div>
-        <div v-else class="chart-empty">暂无转化数据</div>
+        <div v-else class="profit-box-wrap">
+          <v-chart v-if="profitHasData" class="chart-inner" :key="'profit-box'" :option="profitBoxOpt" autoresize />
+          <div v-else class="chart-empty">暂无机型利润数据（需报价单填机型型号+利润率）</div>
+        </div>
       </div>
     </section>
       </main>
     </div>
 
-    <aside class="list-panel" :class="{ collapsed: listCollapsed }">
-        <button class="list-toggle" @click="listCollapsed = !listCollapsed">
-          <span v-if="listCollapsed">商机列表 ◀</span>
-          <span v-else>折叠 ▶</span>
+    <!-- 移动端：遮罩层，点抽屉外关闭 -->
+    <div v-if="isMobile && listDrawerOpen" class="list-drawer-mask" @click="listDrawerOpen = false"></div>
+
+    <aside class="list-panel" :class="{ collapsed: listCollapsed, 'drawer-open': isMobile && listDrawerOpen, 'is-mobile': isMobile }">
+        <button v-if="!isMobile" class="list-toggle" @click="listCollapsed = !listCollapsed" :title="listCollapsed ? '展开商机列表' : '折叠商机列表'">
+          <RightOutlined v-if="listCollapsed" />
+          <span v-if="listCollapsed" class="toggle-vert">商机列表</span>
+          <template v-else>折叠 <LeftOutlined /></template>
         </button>
-        <div class="list-panel-content" v-show="!listCollapsed">
+        <button v-if="isMobile" class="list-drawer-close" @click="listDrawerOpen = false">✕ 关闭</button>
+        <div class="list-panel-content" v-show="!isMobile || listDrawerOpen">
           <div class="list-header">
             <div class="list-title">
               <h3>商机列表</h3>
@@ -188,7 +211,16 @@
               <div class="opp-cell">
                 <div class="opp-cell-main">
                   <a class="opp-name" @click="goToDetail(record.opportunity_id)">{{ record.customer_name || '未命名客户' }}</a>
-                  <a-tag :color="bizTagColor(record)" class="opp-status-tag">{{ bizStatusText(record) }}</a-tag>
+                  <a-dropdown :trigger="['click']" placement="bottomRight">
+                    <a-tag :color="bizTagColor(record)" class="opp-status-tag opp-status-pick">{{ bizStatusText(record) }}<span class="opp-caret">▾</span></a-tag>
+                    <template #overlay>
+                      <a-menu @click="(e: any) => changeResult(record, e.key)">
+                        <a-menu-item v-for="o in RESULT_OPTIONS" :key="o.value">
+                          <span :style="{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', marginRight:'7px', verticalAlign:'middle', background: o.dot }"></span><span :style="{ fontWeight: o.value === record.result ? 600 : 400 }">{{ o.label }}</span>
+                        </a-menu-item>
+                      </a-menu>
+                    </template>
+                  </a-dropdown>
                 </div>
                 <div class="opp-cell-meta">
                   <span class="meta" v-if="record.sales_person"><i>销售</i>{{ record.sales_person }}</span>
@@ -221,19 +253,21 @@
 import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { RightOutlined, LeftOutlined } from '@ant-design/icons-vue'
 import VChart from 'vue-echarts'
 import { use } from 'echarts/core'
 import { CanvasRenderer } from 'echarts/renderers'
-import { LineChart, BarChart, PieChart } from 'echarts/charts'
+import { LineChart, BarChart, PieChart, TreemapChart, BoxplotChart, ScatterChart } from 'echarts/charts'
 import { GridComponent, TooltipComponent, LegendComponent, TitleComponent } from 'echarts/components'
 import axios from 'axios'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { useChartTheme } from '@/composables/useChartTheme'
-import { PLAT_COLOR } from '@/constants/platform'
+import { PLAT_COLOR, PLAT_COLOR_FALLBACK } from '@/constants/platform'
 import dayjs from 'dayjs'
 import { useSeriesStore } from '@/stores/series'
 
-use([CanvasRenderer, LineChart, BarChart, PieChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
+// 图表组件按需注册：treemap(机型趋势) + boxplot+scatter(机型利润箱线) + 趋势/分布/排行用的常规组件。
+use([CanvasRenderer, LineChart, BarChart, PieChart, TreemapChart, BoxplotChart, ScatterChart, GridComponent, TooltipComponent, LegendComponent, TitleComponent])
 
 const router = useRouter()
 const { chartColors } = useChartTheme()
@@ -248,11 +282,17 @@ const periods = [
 const period = ref('week')
 
 // 图表切换状态
-const trendView = ref<'opp' | 'platform'>('opp')
+const trendView = ref<'opp' | 'model'>('opp')
 const distView = ref<'platform' | 'chassis'>('platform')
+// 线索转化卡切换：won=转化清单 / profit=机型利润箱线
+const wonView = ref<'won' | 'profit'>('won')
+const wonOptions = [
+  { value: 'won', label: '线索转化' },
+  { value: 'profit', label: '机型利润' },
+]
 const trendOptions = [
   { value: 'opp', label: '商机趋势' },
-  { value: 'platform', label: '平台趋势' },
+  { value: 'model', label: '机型趋势' },
 ]
 const distOptions = [
   { value: 'platform', label: '平台' },
@@ -425,6 +465,12 @@ const sortBy = ref('created_at')
 let filterTimer: ReturnType<typeof setTimeout> | null = null
 const drill = ref({ active: false, platform: '', chassis: '', label: '' })
 const listCollapsed = ref(false)
+// 窄屏列表抽屉：仅移动端用，桌面端走 listCollapsed 右栏折叠
+const listDrawerOpen = ref(false)
+// 窄屏判断（多处分支共用：列表抽屉 / 助手面板全屏 / 布局微调）
+const isMobile = ref(false)
+function syncMobile() { isMobile.value = window.matchMedia('(max-width: 768px)').matches }
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
 const selectMode = ref(false)
 const selectedRowKeys = ref<string[]>([])
 const batching = ref(false)
@@ -484,38 +530,126 @@ const chart1Opt = computed(() => {
   }
 })
 
-// 02 配置平台趋势：各平台渐变面积
+// 02 机型趋势：Treemap 矩形树图——每个机型一块矩形，面积=周期内报价次数，一眼看主力机型占比
+// 后端 chart2.data 是 [[日期, 值, 机型名], ...]，前端聚合成「机型 → 总次数」喂 treemap。
+// 机型趋势 treemap 配色：完全对齐结构分布图（饼图/玫瑰图）的质地——
+// 实心平涂色（PIE_COLORS）+ segmentBorder 主题感知边色（浅色白/深色卡片底）+ 圆角。
+// 不用渐变、不用死白，主题切换自动适配。
+const MODEL_COLORS = ['#1677FF', '#36CFCF', '#5B8FF9', '#722ED1', '#a855f7', '#FF3B5C', '#FA8C16', '#52C41A', '#6B7280']
 const chart2Opt = computed(() => {
   const c = (summary.value.charts as any)?.chart2
-  if (!c) return {}
-  const entries = Object.entries(c)
-  if (entries.length === 0) return {}
-  const labels = (c[entries[0][0]] as any[]).map((d: any) => (d.date.length === 7 ? d.date : d.date.slice(5)))
-  const ds = (entries as [string, any[]][]).map(([name, vals]) => {
-    const col = PLAT_COLOR[name] || '#6B7280'
-    return {
-      name, type: 'line', smooth: true, symbol: 'circle', symbolSize: 4, showSymbol: false,
-      lineStyle: { width: 2, color: col },
-      itemStyle: { color: col },
-      areaStyle: { color: { type: 'linear', x: 0, y: 0, x2: 0, y2: 1, colorStops: [{ offset: 0, color: col + '40' }, { offset: 1, color: col + '05' }] } },
-      emphasis: { focus: 'series' },
-      data: vals.map((d: any) => d.value),
-    }
+  const data = c?.data
+  if (!Array.isArray(data) || data.length === 0) return {}
+  // 聚合：机型 → 总报价次数
+  const totals: Record<string, number> = {}
+  for (const row of data) {
+    const pn = row[2], cnt = Number(row[1]) || 0
+    totals[pn] = (totals[pn] || 0) + cnt
+  }
+  const items = Object.entries(totals)
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value)
+  if (items.length === 0) return {}
+  const total = items.reduce((s, d) => s + d.value, 0)
+  return {
+    backgroundColor: 'transparent',
+    tooltip: {
+      backgroundColor: chartColors.value.tooltipBg, textStyle: { color: chartColors.value.tooltipText },
+      borderColor: chartColors.value.tooltipBorder, borderWidth: 1,
+      formatter: (p: any) => `${p.name}<br/>报价 <b>${p.value}</b> 次 · 占比 <b>${total ? (p.value / total * 100).toFixed(1) : 0}%</b>`,
+    },
+    series: [{
+      type: 'treemap',
+      roam: false, nodeClick: false, breadcrumb: { show: false },
+      left: 0, right: 0, top: 4, bottom: 0,
+      // 大块标机型名+次数；小块由 echarts 自适应隐藏文字
+      label: {
+        show: true, position: 'inside', fontWeight: 600,
+        formatter: (p: any) => {
+          const pct = total ? (p.value / total * 100).toFixed(0) : '0'
+          return `{n|${p.name}}\n{v|${p.value}次 · ${pct}%}`
+        },
+        rich: {
+          n: { fontSize: 12, fontWeight: 700, color: '#fff', lineHeight: 18, textShadowBlur: 4, textShadowColor: 'rgba(0,0,0,0.3)' },
+          v: { fontSize: 10, color: 'rgba(255,255,255,0.9)', lineHeight: 14 },
+        },
+      },
+      upperLabel: { show: false },
+      // 对齐结构分布图：segmentBorder 主题感知边色（浅色白/深色卡片底）；实心平涂色，方块直角
+      itemStyle: { borderColor: chartColors.value.segmentBorder, borderWidth: 2, gapWidth: 3 },
+      levels: [{ itemStyle: { borderColor: chartColors.value.segmentBorder, borderWidth: 2, gapWidth: 3 } }],
+      data: items.map((d, i) => ({
+        name: d.name, value: d.value,
+        itemStyle: { color: MODEL_COLORS[i % MODEL_COLORS.length] },
+      })),
+      animationDuration: 700,
+    }],
+  }
+})
+
+// 机型利润箱线：各 PN 的 profit_margin 分布（箱体=Q1~Q3，须=min/max，叠散点=原始利润点）
+// 高利润机型居左；样本<4 的机型后端已折叠进"其他机型"聚合箱。
+const profitBoxOpt = computed(() => {
+  const c = (summary.value.charts as any)?.chart5
+  const boxes = c?.boxes
+  if (!Array.isArray(boxes) || boxes.length === 0) return {}
+  const names = boxes.map((b: any) => b.name)
+  // echarts boxplot 要 [[min,Q1,median,Q3,max], ...]；散点叠原始利润点
+  const boxData = boxes.map((b: any) => [b.min, b.q1, b.median, b.q3, b.max])
+  const scatterData: any[] = []
+  boxes.forEach((b: any, i: number) => {
+    (b.scatter || []).forEach((v: number) => scatterData.push([i, v]))
   })
   return {
     backgroundColor: 'transparent',
-    tooltip: { trigger: 'axis', backgroundColor: chartColors.value.tooltipBg, textStyle: { color: chartColors.value.tooltipText }, borderColor: chartColors.value.tooltipBorder, borderWidth: 1 },
-    legend: { top: 0, textStyle: { color: chartColors.value.axisLabel, fontSize: 10 }, padding: [0, 0, 8, 0], icon: 'roundRect', itemWidth: 12, itemHeight: 2 },
-    grid: { left: 40, right: 16, bottom: 28, top: 32 },
-    xAxis: { type: 'category', boundaryGap: false, data: labels, axisLine: { lineStyle: { color: chartColors.value.grid } }, axisLabel: { color: chartColors.value.axisLabel, fontSize: 10, rotate: ((labels[0] || '').length === 7 ? 0 : 30) }, axisTick: { show: false } },
-    yAxis: { type: 'value', splitLine: { lineStyle: { color: chartColors.value.splitLine } }, axisLabel: { color: chartColors.value.axisLabel, fontSize: 10 } },
-    series: ds,
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: chartColors.value.tooltipBg, textStyle: { color: chartColors.value.tooltipText },
+      borderColor: chartColors.value.tooltipBorder, borderWidth: 1,
+      formatter: (p: any) => {
+        if (p.componentSubType === 'boxplot') {
+          const v = p.value
+          return `${names[v[0] || p.dataIndex]}<br/>` +
+            `最大 <b>${v[5] ?? v[4]}%</b><br/>Q3 <b>${v[4] ?? '-'}%</b><br/>` +
+            `中位 <b>${v[3] ?? '-'}%</b><br/>Q1 <b>${v[2] ?? '-'}%</b><br/>最小 <b>${v[1] ?? '-'}%</b>`
+        }
+        return `${names[p.value[0]]}<br/>利润率 <b>${p.value[1]}%</b>`
+      },
+    },
+    grid: { left: 44, right: 16, top: 12, bottom: 30 },
+    xAxis: {
+      type: 'category', data: names, boundaryGap: true,
+      axisLine: { lineStyle: { color: chartColors.value.grid } },
+      axisLabel: { color: chartColors.value.axisLabel, fontSize: 10, rotate: names.length > 4 ? 20 : 0, interval: 0 },
+      axisTick: { show: false }, splitLine: { show: false },
+    },
+    yAxis: {
+      type: 'value', name: '利润率%', nameTextStyle: { color: chartColors.value.axisLabel, fontSize: 10 },
+      splitLine: { lineStyle: { color: chartColors.value.splitLine } },
+      axisLabel: { color: chartColors.value.axisLabel, fontSize: 10, formatter: '{value}%' },
+    },
+    series: [
+      {
+        name: '利润分布', type: 'boxplot', data: boxData,
+        itemStyle: { color: chartColors.value.barStart + '55', borderColor: chartColors.value.accent, borderWidth: 1.5 },
+        animationDuration: 800,
+      },
+      {
+        name: '利润点', type: 'scatter', data: scatterData, symbolSize: 5,
+        itemStyle: { color: chartColors.value.accent, opacity: 0.55 },
+        animationDuration: 600,
+      },
+    ],
   }
+})
+const profitHasData = computed(() => {
+  const boxes = (summary.value.charts as any)?.chart5?.boxes
+  return Array.isArray(boxes) && boxes.length > 0
 })
 
 // 02 平台分布：环形图（中心总数）
 const pieOpt = computed(() => {
-  const data = (structure.value.platforms || []).map((p: any) => ({ name: p.name || '未分类', value: p.count }))
+  const data = (structure.value.platforms || []).map((p: any) => ({ name: p.name || '未分类', value: p.count, itemStyle: { color: PLAT_COLOR[p.name] || PLAT_COLOR_FALLBACK } }))
   if (data.length === 0) return {}
   const total = data.reduce((s: number, d: any) => s + d.value, 0)
   return {
@@ -527,7 +661,7 @@ const pieOpt = computed(() => {
       type: 'pie', radius: ['52%', '72%'], center: ['50%', '44%'],
       avoidLabelOverlap: false, label: { show: false }, labelLine: { show: false },
       itemStyle: { borderColor: chartColors.value.segmentBorder, borderWidth: 2 },
-      data, color: PIE_COLORS,
+      data,
       animationType: 'expansion', animationDuration: 900,
     }],
   }
@@ -654,6 +788,14 @@ const tableLoading = ref(false)
 const tablePage = ref(1)
 const tablePageSize = ref(8)
 const tableTotal = ref(0)
+// 商机列表磁贴预览：tableData 默认按更新时间新→旧，取前 5 个做迷你预览（客户名+平台）
+const recentOpps = computed(() =>
+  tableData.value.slice(0, 5).map((r: any) => ({
+    id: r.opportunity_id,
+    name: r.customer_name || '未命名客户',
+    platform: r.platform_type || '',
+  }))
+)
 const tableColumns = [{ title: '商机', dataIndex: 'info' }]
 
 // 监听 summary 变化，重新计算业务排行
@@ -700,11 +842,41 @@ function onListResize() {
     }
   }, 200)
 }
+// 业务结果枚举（列表标签 + 内联切换菜单 + 详情页共用口径）
+const RESULT_OPTIONS = [
+  { value: 'pending', label: '进行中', color: 'processing', dot: '#1677FF' },
+  { value: 'won', label: '已中标', color: 'success', dot: '#52C9A0' },
+  { value: 'lost', label: '已丢标', color: 'error', dot: '#FF6B6B' },
+  { value: 'expired', label: '已过期', color: 'warning', dot: '#F4D28A' },
+] as const
 function bizStatusText(r: any) {
-  return ({ pending: '进行中', won: '已中标', lost: '已丢标', expired: '已过期' } as any)[r?.result] || '进行中'
+  return RESULT_OPTIONS.find((o) => o.value === r?.result)?.label ?? '进行中'
 }
 function bizTagColor(r: any) {
-  return ({ pending: 'processing', won: 'success', lost: 'error', expired: 'warning' } as any)[r?.result] || 'default'
+  return RESULT_OPTIONS.find((o) => o.value === r?.result)?.color ?? 'default'
+}
+function resultLabel(val: string) {
+  return RESULT_OPTIONS.find((o) => o.value === val)?.label ?? val
+}
+// 列表内联改业务结果：乐观更新标签 → 存库 → 离筛选行本地移除 + 刷新图表（不刷表避免行跳动）
+async function changeResult(record: any, val: string) {
+  if (val === record.result) return
+  const idx = tableData.value.findIndex((r: any) => r.opportunity_id === record.opportunity_id)
+  if (idx < 0) return
+  const prev = tableData.value[idx].result
+  tableData.value[idx] = { ...tableData.value[idx], result: val }
+  try {
+    await axios.put(`/api/opportunities/${record.opportunity_id}/meta`, { result: val })
+    message.success(`状态已改为「${resultLabel(val)}」`)
+    if (filters.value.status !== 'all' && filters.value.status !== val) {
+      tableData.value = tableData.value.filter((r: any) => r.opportunity_id !== record.opportunity_id)
+      tableTotal.value = Math.max(0, tableTotal.value - 1)
+    }
+    loadSummary()
+  } catch {
+    tableData.value[idx] = { ...tableData.value[idx], result: prev }
+    message.error('状态更新失败')
+  }
 }
 function formatDate(s: string) { return s ? s.slice(0, 10) : '-' }
 function goToDetail(id: string) { router.push(`/opportunities/${id}`) }
@@ -846,11 +1018,17 @@ onMounted(async () => {
     reloadAll()
   })
   window.addEventListener('resize', onListResize)
+  // 窄屏监听：列表抽屉 / 助手面板全屏 / 布局分支共用 isMobile
+  syncMobile()
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   if (resizeTimer) clearTimeout(resizeTimer)
   window.removeEventListener('resize', onListResize)
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
 })
 watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage: true }))
 // 折叠/展开侧栏会改变列表容器高度，展开后重算
@@ -862,7 +1040,7 @@ watch(listCollapsed, async (v) => {
 </script>
 
 <style scoped>
-.cockpit { position: relative; display: flex; flex-direction: row; align-items: stretch; gap: 14px; padding: 16px 24px 24px; min-height: calc(100vh - 56px); }
+.cockpit { position: relative; display: flex; flex-direction: row; flex-wrap: wrap; align-items: stretch; gap: 14px; padding: 16px 24px 24px; min-height: calc(100vh - 56px); overflow-x: auto; }
 .cockpit-left { flex: 1 1 1px; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
 
 .cockpit > * { position: relative; z-index: 1; }
@@ -900,13 +1078,15 @@ watch(listCollapsed, async (v) => {
 
 /* 图表区（Bento 2×2：线索转化+业务排行 同排｜趋势分析+结构分布 同排）*/
 .chart-deck { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-areas: "rank won" "trend dist"; gap: 14px; flex: 1 1 0; min-height: 380px; }
-.chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-height: 0; }
+.chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .chart-card-won { grid-area: won; }
 .chart-card-rank { grid-area: rank; }
 .chart-card-trend { grid-area: trend; }
 .chart-card-dist { grid-area: dist; }
 /* 线索转化：销售直列（线索量/成交量/成交率，成交率色码一眼区分）*/
 .won-list { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
+.won-branch { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.profit-box-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .won-list::-webkit-scrollbar { width: 6px; }
 .won-list::-webkit-scrollbar-thumb { background: var(--cpq-overlay-a20); border-radius: 3px; }
 .won-list::-webkit-scrollbar-track { background: transparent; }
@@ -929,7 +1109,7 @@ watch(listCollapsed, async (v) => {
 .deck-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--cpq-overlay-a15), transparent); }
 .rank-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--cpq-overlay-a20); border-radius: 999px; background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: 11px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .rank-toggle:hover { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary); }
-.chart-inner { flex: 1 1 0; min-height: 120px; }
+.chart-inner { flex: 1 1 0; width: 100%; min-width: 0; min-height: 120px; }
 .chart-inner-pie { cursor: pointer; }
 .chart-empty { flex: 1 1 0; display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: 12px; }
 /* 业务排行展开：图表按行数定高，外层滚动，明细不再挤压 */
@@ -940,12 +1120,26 @@ watch(listCollapsed, async (v) => {
 .rank-body-scroll::-webkit-scrollbar-track { background: transparent; }
 
 /* 列表 */
-.main-area { flex: 1 1 1px; min-width: 500px; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
+.main-area { flex: 1 1 1px; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 14px; }
 .list-panel { position: relative; flex: 0 0 420px; min-width: 420px; max-width: 560px; overflow: hidden; transition: flex-basis var(--cpq-dur-2) var(--cpq-ease-smooth), width var(--cpq-dur-2) var(--cpq-ease-smooth); }
 .list-panel.collapsed { flex: 0 0 48px; min-width: 48px; max-width: 48px; }
-.list-toggle { position: absolute; top: 0; right: 0; z-index: 2; padding: 5px 12px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.list-toggle { position: absolute; top: 0; right: 0; z-index: 2; padding: 5px 12px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; font-size: 12px; white-space: nowrap; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); display: inline-flex; align-items: center; gap: 4px; }
 .list-toggle:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
-.list-panel.collapsed .list-toggle { left: 0; right: 0; text-align: center; }
+/* 折叠态：竖排手柄占满窄条（顶部图标 + 竖排"商机列表"），内容区整体隐藏，杜绝文字溢出裁切 */
+.list-panel.collapsed .list-toggle {
+  left: 0; right: 0; top: 0; bottom: 0;
+  width: 100%; height: 100%;
+  flex-direction: column; justify-content: flex-start;
+  gap: 10px; padding: 14px 0 0;
+  border: none; border-radius: 0; border-left: 1px solid var(--cpq-overlay-w8);
+  background: var(--cpq-glass-3-bg); font-size: 13px; font-weight: 600;
+}
+.list-panel.collapsed .list-toggle:hover { border-left-color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
+.list-panel.collapsed .list-toggle :deep(.anticon) { font-size: 14px; line-height: 1; }
+.toggle-vert {
+  writing-mode: vertical-rl; text-orientation: upright; letter-spacing: 2px;
+}
+.list-panel.collapsed .list-panel-content { display: none; }
 .list-panel-content { position: absolute; inset: 0; display: flex; flex-direction: column; gap: 10px; padding: 36px 4px 0 0; overflow: hidden; }
 .list-header { display: flex; justify-content: space-between; align-items: center; padding: 0 2px; }
 .list-title { display: flex; align-items: center; gap: 12px; }
@@ -977,6 +1171,10 @@ watch(listCollapsed, async (v) => {
 .opp-cell-main { display: flex; align-items: center; gap: 10px; }
 .opp-name { color: var(--cpq-text-primary); font-size: 14px; font-weight: 500; cursor: pointer; text-decoration: none; }
 .opp-name:hover { color: var(--cpq-accent-primary); }
+/* 列表内联状态切换：标签可点开菜单 */
+.opp-status-pick { cursor: pointer; user-select: none; transition: filter var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.opp-status-pick:hover { filter: brightness(1.06); }
+.opp-caret { font-size: 9px; margin-left: 3px; opacity: 0.7; }
 .opp-cell-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; }
 .opp-cell-meta .meta { font-size: 11px; color: var(--cpq-text-secondary); }
 .opp-cell-meta .meta i { font-style: normal; color: var(--cpq-text-muted); margin-right: 4px; }
@@ -1012,9 +1210,70 @@ watch(listCollapsed, async (v) => {
   .chart-deck { grid-template-columns: 1fr 1fr; grid-template-areas: "trend trend" "rank won" "dist dist"; }
 }
 @media (max-width: 768px) {
-  .chart-deck { grid-template-columns: 1fr; grid-template-rows: auto; grid-template-areas: "rank" "won" "trend" "dist"; min-height: 0; }
-  .kpi-deck { grid-template-columns: 1fr; }
-  .cockpit-header { flex-wrap: wrap; }
-  .cockpit-live { margin-left: 0; }
+  /* 容器：去横向滚动，单列纵向流 */
+  .cockpit { flex-direction: column; overflow-x: hidden; padding: 10px 12px 80px; }
+  .cockpit-left { width: 100%; }
+  /* KPI 2×2 磁贴：紧凑 gap 呼应 Live Tile gutter(8px) */
+  .kpi-deck { grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .kpi-mini { border-radius: 8px; }
+  /* 图表磁贴四排：结构+列表磁贴(方形并列) / 趋势(通栏) / 排行(通栏) / 转化(通栏)。
+     结构行高 220 给饼图足够空间（180 太挤，标题和图叠在一起）。 */
+  .chart-deck {
+    display: grid; gap: 8px; min-height: 0;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-rows: 220px 240px 200px 220px;
+    grid-template-areas: "dist listtile" "trend trend" "rank rank" "won won";
+  }
+  .chart-card { min-height: 0; border-radius: 8px; padding: 12px 14px; }
+  .chart-card-trend { grid-area: trend; }
+  .chart-card-dist { grid-area: dist; }
+  .chart-card-rank { grid-area: rank; }
+  .chart-card-won { grid-area: won; }
+  /* 窄屏结构分布：deck-line（装饰横线）在窄磁贴里挤占标题，隐藏；segmented 缩小避免竖排 */
+  .chart-card-dist .deck-line { display: none; }
+  .chart-card-dist .deck-title { gap: 0; }
+  .chart-card-dist .deck-header :deep(.ant-segmented) { transform: scale(0.85); transform-origin: right center; flex-shrink: 0; }
+  /* echarts 在窄屏 grid 首次渲染时拿到的容器宽可能偏小（时序），强制 canvas 撑满卡片宽度 */
+  .chart-card-dist .chart-inner-pie { width: 100%; }
+  .chart-card-dist .chart-inner-pie canvas { width: 100% !important; }
+  /* 商机列表预览磁贴（WP 消息磁贴语言：N行裸文本，字号+透明度做层级，纯行距分隔，无圆点/图标） */
+  .list-tile {
+    grid-area: listtile; width: 100%; box-sizing: border-box; font: inherit;
+    border: none; cursor: pointer;
+    display: flex; flex-direction: column; gap: 8px;
+    padding: 12px 14px; border-radius: 8px;
+    color: var(--cpq-text-primary); text-align: left;
+  }
+  .list-tile-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--cpq-text-secondary); flex: none; }
+  .lt-count { font-size: 10px; font-weight: 600; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 0 6px; border-radius: 999px; }
+  .list-tile-preview { display: flex; flex-direction: column; gap: 5px; min-height: 0; overflow: hidden; }
+  .lt-item { display: flex; align-items: baseline; gap: 6px; line-height: 1.3; }
+  .lt-name { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
+  .lt-plat { flex: none; font-size: 11px; color: var(--cpq-text-secondary); opacity: 0.6; } /* captionSubtle：辅助信息降透明度 */
+  .lt-empty { font-size: 12px; color: var(--cpq-text-muted); font-style: italic; }
+  .cockpit-header { flex-wrap: wrap; gap: 10px; padding: 10px 14px; border-radius: 8px; }
+  .cockpit-live { margin-left: 0; order: -1; }
+  .period-toggle { width: 100%; flex-wrap: wrap; }
+
+  /* 列表抽屉化：窄屏从 topbar 下方滑入（不盖 topbar，导航始终可用） */
+  .list-panel.is-mobile {
+    position: fixed; top: 50px; right: 0; bottom: 0;
+    width: 100vw; max-width: 100vw; height: calc(100vh - 50px); min-width: 0; flex-basis: auto;
+    z-index: 1200; transform: translateX(100%); transition: transform var(--cpq-dur-2) var(--cpq-ease-smooth);
+    background: var(--cpq-glass-3-bg); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-radius: 0;
+  }
+  .list-panel.is-mobile.drawer-open { transform: translateX(0); }
+  .list-panel.is-mobile .list-panel-content { padding: 48px 12px 12px; }
+  .list-drawer-close {
+    position: absolute; top: 10px; right: 14px; z-index: 3;
+    border: none; background: var(--cpq-overlay-w8); color: var(--cpq-text-primary);
+    padding: 6px 12px; border-radius: 999px; font-size: 13px; cursor: pointer;
+  }
+  /* 遮罩层（不盖 topbar） */
+  .list-drawer-mask {
+    position: fixed; top: 50px; left: 0; right: 0; bottom: 0; z-index: 1100;
+    background: rgba(0,0,0,0.5); backdrop-filter: blur(2px);
+  }
 }
 </style>

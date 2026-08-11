@@ -6,8 +6,10 @@
  *  quoteMode（报价工作台新建模式 opt-in）：每行额外渲染「原始单价 / 利率% / 含税售价」，
  *  线路 final = base_price × (1 + profit_margin/100)；选新 pn 时自动把 base_price 带成料号库单价。
  *  server-config 页不传 quoteMode → 行为完全不变（GPU 线在 L6ChassisConfig 弹窗配）。 */
+import { computed } from 'vue'
 import PartPicker from '@/components/common/PartPicker.vue'
 import type { PickerItem } from '@/types/picker'
+import { useAuthStore } from '@/store/auth'
 
 interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number }
 
@@ -39,6 +41,11 @@ const emit = defineEmits<{
   (e: 'update:gpuCableQty', qty: number): void
 }>()
 
+const auth = useAuthStore()
+/** 价格可见性：quote 模式（报价工作台）走报价价格权限 field.quote.price；配置页走服务器配置价格权限 field.server.price。
+ *  与设置-用户与权限目录完全对齐；无权限直接隐藏价格，不出现 *** 掩码。 */
+const priceVisible = computed(() => auth.can(props.quoteMode ? 'field.quote.price' : 'field.server.price'))
+
 const lineCost = (l: KpLine) => (props.priceOf(l.pn) || 0) * (l.qty || 0)
 // quote 模式：含税售价/行 = 原始单价 × (1 + 利率/100) × 数量
 const quoteLineUnitFinal = (l: KpLine) => (Number(l.base_price) || 0) * (1 + (Number(l.profit_margin) || 0) / 100)
@@ -61,7 +68,7 @@ function onPick(i: number, pn: any) {
       <span class="num">{{ stepNum }}</span>
       <h2>{{ cat }}</h2>
       <span class="hint">{{ pickerItems.length }} 个可选料号</span>
-      <span class="amt">¥{{ cardTotal().toLocaleString() }}</span>
+      <span v-if="priceVisible" class="amt">¥{{ cardTotal().toLocaleString() }}</span>
       <button v-if="removable" class="kp-del-card" @click="emit('remove-card')">删除卡片</button>
     </div>
     <div class="sc-pbody">
@@ -87,7 +94,7 @@ function onPick(i: number, pn: any) {
             <input :value="l.qty" @change="(e:any)=>emit('set-line', i, { qty: parseInt(e.target.value) || 0 })" />
             <button @click="emit('set-line', i, { qty: l.qty + 1 })">+</button>
           </div>
-          <span class="sc-kp-price">¥{{ lineCost(l).toLocaleString() }}</span>
+          <span v-if="priceVisible" class="sc-kp-price">¥{{ lineCost(l).toLocaleString() }}</span>
           <button class="sc-del" @click="emit('del-line', i)" title="删除该行">✕</button>
         </div>
       </template>
@@ -105,18 +112,18 @@ function onPick(i: number, pn: any) {
             </div>
             <button class="sc-del" @click="emit('del-line', i)" title="删除该行">✕</button>
           </div>
-          <div class="qm-fields">
-            <div class="qm-field">
+          <div class="qm-fields" :class="{ 'qm-fields-noprice': !priceVisible }">
+            <div v-if="priceVisible" class="qm-field">
               <label>原始单价</label>
               <a-input-number :value="l.base_price" @change="(v:any)=>emit('set-line', i, { base_price: Number(v) || 0 })"
                 size="small" :precision="2" style="width:100%" />
             </div>
             <div class="qm-field">
               <label>利率%</label>
-              <a-input-number :value="l.profit_margin" @change="(v:any)=>emit('set-line', i, { profit_margin: Number(v) || 0 })"
+              <a-input-number :value="l.profit_margin" :disabled="!priceVisible" @change="(v:any)=>emit('set-line', i, { profit_margin: Number(v) || 0 })"
                 size="small" :min="0" style="width:100%" />
             </div>
-            <div class="qm-field">
+            <div v-if="priceVisible" class="qm-field">
               <label>含税售价</label>
               <span class="qm-final">¥ {{ quoteLineSales(l).toLocaleString() }}</span>
             </div>
@@ -178,6 +185,7 @@ function onPick(i: number, pn: any) {
 /* ---- quote 模式（报价工作台新建模式）行布局 ---- */
 .sc-kp-line.qm-line { grid-template-columns: 1fr 130px 32px; margin-bottom: 6px; }
 .qm-picker { min-width: 0; }
+.qm-fields.qm-fields-noprice { grid-template-columns: 1fr; }
 .qm-fields {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
   align-items: center; margin-bottom: 12px; padding: 9px 12px;

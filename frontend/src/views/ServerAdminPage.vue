@@ -9,14 +9,17 @@ import PartsLibrary from '@/components/server-admin/PartsLibrary.vue'
 import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
 import BomTemplateManager from '@/components/server-admin/BomTemplateManager.vue'
 import ModelManager from '@/components/server-admin/ModelManager.vue'
+import ServerDrawingPortal from '@/components/server-admin/ServerDrawingPortal.vue'
 
 const route = useRoute()
-const adminTab = ref<'models' | 'series' | 'base' | 'parts'>('models')
+const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing'>('models')
 
-/** 子页（机型/基准编辑器）保存后带 ?refresh= 回来，切到对应 tab。 */
-watch(() => route.query.refresh, (v) => {
-  if (v === 'models') adminTab.value = 'models'
-  else if (v === 'base-config') adminTab.value = 'base'
+/** 子页返回/外链入口切 tab：图纸编辑器返回用 ?tab=drawing；机型/基准编辑器保存后带 ?refresh= 回来。 */
+watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
+  const t = tab || refresh
+  if (t === 'models') adminTab.value = 'models'
+  else if (t === 'drawing') adminTab.value = 'drawing'
+  else if (t === 'base-config') adminTab.value = 'base'
 }, { immediate: true })
 </script>
 
@@ -28,12 +31,14 @@ watch(() => route.query.refresh, (v) => {
         <a-radio-button value="series">产品系列</a-radio-button>
         <a-radio-button value="base">基准配置</a-radio-button>
         <a-radio-button value="parts">料号库</a-radio-button>
+        <a-radio-button value="drawing">图纸配置</a-radio-button>
       </a-radio-group>
       <ModelManager v-show="adminTab === 'models'" />
       <SeriesManager v-show="adminTab === 'series'" />
       <BaseConfigBuilder v-show="adminTab === 'base'" />
       <BomTemplateManager v-show="adminTab === 'base'" />
       <PartsLibrary v-show="adminTab === 'parts'" />
+      <ServerDrawingPortal v-show="adminTab === 'drawing'" />
     </div>
   </div>
 </template>

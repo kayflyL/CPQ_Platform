@@ -47,7 +47,7 @@ export interface RuleContext {
 
 const FIELD_PATH_RE = /^(kp|config|opportunity)\./
 
-type Cond = { field: string; op: string; value: any }
+export type Cond = { field: string; op: string; value: any }
 
 /** 解析字段路径 → context 实际值。"kp.GPU.qty"/"config.series"/"opportunity.platform_type" */
 export function resolveField(ctx: RuleContext, field: string | undefined): any {
@@ -200,6 +200,59 @@ export function evaluateRules(rules: CompatibilityRule[], ctx: RuleContext): Rul
     if (r.status !== 'active') continue
     if (!evalWhen(ctx, r.body?.when)) continue
     out.push(...evalThen(ctx, r))
+  }
+  return out
+}
+
+// ── 逐条件 / 逐规则评估明细（试跑轨迹图消费）──
+// evaluateRules 是黑盒（只回最终动作），试跑需要看清「每个条件真假、整条是否命中、THEN 实际产出」，
+// 故把 evalCondition 内部算出又丢弃的 resolved/expected 捞回来，供拓扑图按命中轨迹着色。
+
+/** 单个 WHEN 条件的评估明细 */
+export interface CondTrace {
+  field: string
+  op: string
+  value: any
+  resolved: any       // 条件字段在 ctx 中的实际值（actual）
+  expected: any       // value 解析后：字段路径→ctx 值，否则字面量
+  passed: boolean     // evalOp(resolved, op, expected)
+}
+
+/** 单条规则的评估明细 */
+export interface RuleTrace {
+  rule: CompatibilityRule
+  hit: boolean
+  isAny: boolean
+  conds: CondTrace[]
+  firedActions: RuleAction[]   // hit ? evalThen(ctx, rule) : []
+}
+
+/** 展平 WHEN 条件树（all / any / 单条 / 无条件）为条件数组 + 是否 any 语义 */
+export function extractConds(when: any): { conds: Cond[]; isAny: boolean } {
+  if (!when) return { conds: [], isAny: false }
+  if (Array.isArray(when.all)) return { conds: when.all, isAny: false }
+  if (Array.isArray(when.any)) return { conds: when.any, isAny: true }
+  if (when.field) return { conds: [when], isAny: false }
+  return { conds: [], isAny: false }
+}
+
+/**
+ * 对一组配置 context 跑全部 active 规则，返回逐条件 / 逐规则评估明细（试跑轨迹用）。
+ * 与 evaluateRules 同语义，但保留每个条件的 resolved/expected/passed 与 THEN 实际产出。
+ */
+export function evaluateWithTrace(rules: CompatibilityRule[], ctx: RuleContext): RuleTrace[] {
+  const out: RuleTrace[] = []
+  for (const r of rules) {
+    if (r.status !== 'active') continue
+    const { conds, isAny } = extractConds(r.body?.when)
+    const condTraces: CondTrace[] = conds.map((c: any) => {
+      const resolved = c?.field ? resolveField(ctx, c.field) : undefined
+      const expected = resolveValue(ctx, c?.value)
+      const passed = c?.field ? evalOp(resolved, c.op, expected) : true
+      return { field: c?.field ?? '', op: c?.op ?? '', value: c?.value, resolved, expected, passed }
+    })
+    const hit = evalWhen(ctx, r.body?.when)
+    out.push({ rule: r, hit, isAny, conds: condTraces, firedActions: hit ? evalThen(ctx, r) : [] })
   }
   return out
 }

@@ -24,10 +24,12 @@ import { backplaneTypeOf, driveKindOf } from '@/utils/partFit'
 import PartPicker from '@/components/common/PartPicker.vue'
 import RearPanel from '@/components/server-config/RearPanel.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
+import { useAuthStore } from '@/store/auth'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 
 const props = defineProps<{
   baseConfigId?: number | null
+  serverModelId?: number | null
   kpSummary?: {
     cpuPn?: string; cpuQty?: number
     gpuPn?: string; gpuQty?: number
@@ -61,6 +63,9 @@ const {
 } = useServerConfig()
 
 const selectionRulesStore = useSelectionRulesStore()
+const auth = useAuthStore()
+/** 服务器配置价格可见性（字段级权限，配置驱动；无权限直接隐藏价格，不出现 *** 掩码） */
+const priceVisible = computed(() => auth.can('field.server.price'))
 // CRE 规则求值上下文：盘类型/各类盘数 + GPU 数量，全部取自 kpSummary（随工作台 KP 增删/换型反应式重算）
 const ruleCtx = computed<RuleContext>(() => {
   const d = props.kpSummary?.drivesByKind || {}
@@ -90,7 +95,12 @@ watch(cableActions, m => {
 }, { immediate: true })
 void selectionRulesStore.ensureRules()
 
-const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据
+const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据（全量缓存）
+/** 下拉数据源：已匹配目录机型（serverModelId）→ 只列该机型绑定的配置；未匹配 → 全量（兼容手动挂载） */
+const baseConfigOptions = computed(() => {
+  if (!props.serverModelId) return allBaseConfigs.value
+  return allBaseConfigs.value.filter(c => c.model_id === props.serverModelId)
+})
 const baseConfig = ref<(BaseConfig & { parts: any[] }) | null>(null)
 const bomTemplate = ref<BomTemplate | null>(null)     // 该机型族的左栏 L6 行骨架模板
 
@@ -285,6 +295,15 @@ const effectiveBaseParts = computed(() => {
   return parts
 })
 
+/** 背板信息小字：无价格权限时不拼 ¥ 单价，仅保留名称与来源说明 */
+const bpTiny = computed(() => {
+  const bp = effectiveBp.value
+  if (!bp) return '料号库无此类型背板'
+  const name = bp.name || bp.pn
+  const status = isManual('bp') ? '已手改' : (baseBackplaneType.value ? '基准自带' : '硬盘推导')
+  return priceVisible.value ? `${name} · ¥${bp.unit_price || 0} · ${status}` : `${name} · ${status}`
+})
+
 // ---- 前面板线缆 ----
 function frontCableParts(k: string) {
   return frontCables.value.filter(p => driveKindOf(p) === k)
@@ -418,7 +437,7 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
       form: (baseConfig.value as any)?.form,
       series: (baseConfig.value as any)?.series,
       bp_type: bpType(),
-      // I6 R25 + R27：io_slot riser 数据驱动（standard_riser/riser_x16），不硬编码、不查料号
+      // I6 R25 + R27 + R28：io_slot riser 数据驱动（standard_riser/riser_x16 兜底；R28 起后面板显式选卡优先，按实际选卡出签名）
       standard_riser: (baseConfig.value as any)?.config_content?.standard_riser || '',
       riser_x16: (baseConfig.value as any)?.config_content?.riser_x16 || '',
       // R26：高带宽网卡（100G+，x16 卡）→ IO1 riser 升级 x16
@@ -434,6 +453,8 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
         : '',
       // NVMe 盘数（模板 rear_summary 行「N NVME」直连汇总用；与 buildPlanCfg 同口径）
       nvme_count: props.kpSummary?.drivesByKind?.NVMe || 0,
+      // OCP 转接适配板（模板 OCP 行 qty）：选了 OCP（rear['OCP'] 非空）→ 1，否则 0 → 行自动隐藏
+      ocp_qty: (rear['OCP'] || []).filter((t: string) => t !== 'blank').length > 0 ? 1 : 0,
       // 背板描述 + 前面板线缆总根数（模板 Cable/背板行用；与 buildPlanCfg 同口径）
       bp_type_desc: bpType() === 'tri' ? 'NVMe/SATA/SAS' : 'SATA/SAS',
       cable_qty: CORE_DRIVE_KINDS.reduce((s, k) => s + frontCableQty(k), 0),
@@ -566,7 +587,7 @@ onBeforeUnmount(() => {
       <div class="sc-phead">
         <span class="num">1</span><h2>基准配置</h2>
         <span class="hint">背板由硬盘推导，可手改</span>
-        <span class="amt">¥{{ baseTotal.toLocaleString() }}</span>
+        <span v-if="priceVisible" class="amt">¥{{ baseTotal.toLocaleString() }}</span>
       </div>
       <div class="sc-pbody">
         <!-- 选择基准配置（D2）-->
@@ -574,7 +595,7 @@ onBeforeUnmount(() => {
           <label class="bc-lab">选择基准配置</label>
           <select class="sc-sel bc-sel" :value="baseConfig?.id ?? ''" @change="(e:any)=>selectBaseConfig(e.target.value ? Number(e.target.value) : null)">
             <option value="">(请选择)</option>
-            <option v-for="c in allBaseConfigs" :key="c.id" :value="c.id">{{ c.name }} · {{ c.series }} · {{ c.form }} · {{ c.bays }}盘</option>
+            <option v-for="c in baseConfigOptions" :key="c.id" :value="c.id">{{ c.name }} · {{ c.series }} · {{ c.form }} · {{ c.bays }}盘</option>
           </select>
         </div>
         <div v-if="baseConfig" class="sc-sumcard">
@@ -585,7 +606,7 @@ onBeforeUnmount(() => {
             <span>{{ bpType() === 'tri' ? '三模' : bpType() === 'dc' ? '直连' : '未选择' }}</span>
             <span class="bp-btns"><button :class="{ on: bpType() === 'tri' }" @click="setOverride('bp', bpType() === 'tri' ? null : 'tri')">三模</button><button :class="{ on: bpType() === 'dc' }" @click="setOverride('bp', bpType() === 'dc' ? null : 'dc')">直连</button></span>
             <PartPicker v-if="bpTri.length > 1 || bpDc.length > 1" :items="(bpType()==='tri'?bpTri:bpDc).map(fromPartMaster)" :model-value="overrides.bpPn || effectiveBp?.pn || ''" size="small" placeholder="(选择背板)" :style="{ marginLeft: '6px', width: '180px', verticalAlign: 'middle' }" @update:model-value="(pn:any)=>setOverride('bpPn', typeof pn==='string'?pn:'')" />
-            <span class="tiny">{{ effectiveBp ? (effectiveBp.name || effectiveBp.pn) + ' · ¥' + (effectiveBp.unit_price||0) + ' · ' + (isManual('bp') ? '已手改' : (baseBackplaneType ? '基准自带' : '硬盘推导')) : '料号库无此类型背板' }}</span>
+            <span class="tiny">{{ bpTiny }}</span>
           </span></div>
         </div>
         <div v-else class="sc-empty">请先选择基准配置</div>
@@ -594,7 +615,7 @@ onBeforeUnmount(() => {
 
     <!-- ② 前面板 -->
     <div id="l6-panel-front" class="sc-panel" v-show="!stepper || activeStep === 'front'">
-      <div class="sc-phead"><span class="num">2</span><h2>前面板 · 硬盘背板连线</h2><span class="amt">¥{{ frontTotal.toLocaleString() }}</span></div>
+      <div class="sc-phead"><span class="num">2</span><h2>前面板 · 硬盘背板连线</h2><span v-if="priceVisible" class="amt">¥{{ frontTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <div class="front-grid">
           <div class="front-card" v-for="k in CORE_DRIVE_KINDS" :key="k" :class="{ active: frontCableQty(k) > 0 }">
@@ -605,7 +626,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="!frontCableParts(k).length" class="front-card-empty">料号库暂无 {{ k }} 线缆</div>
             <div v-else class="front-card-bot">
-              <span class="front-price">¥{{ frontCableInfo(k).price }}</span>
+              <span v-if="priceVisible" class="front-price">¥{{ frontCableInfo(k).price }}</span>
               <div class="sc-step"><button @click="setOverride('fc-' + k, Math.max(0, frontCableQty(k) - 1))">−</button><input :value="frontCableQty(k)" @change="(e:any)=>setOverride('fc-' + k, parseInt(e.target.value)||0)" /><button @click="setOverride('fc-' + k, frontCableQty(k) + 1)">+</button></div>
             </div>
           </div>
@@ -616,22 +637,22 @@ onBeforeUnmount(() => {
 
     <!-- ③ 后面板（PCIe IO + 网络 OCP + GPU 供电线）-->
     <div id="l6-panel-rear" class="sc-panel" v-show="!stepper || activeStep === 'rear'">
-      <div class="sc-phead"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe IO 槽位 + OCP 网络接口 + GPU 供电线</span><span class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
+      <div class="sc-phead"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe 扩展能力 + OCP 接口 + GPU 供电线</span><span v-if="priceVisible" class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <RearPanel
           :slots="rearSlotsView"
           :ocp-slot="ocpSlotView"
           :options="rearOptionsLocked"
           :combo-slots="COMBO_REAR_SLOTS"
-          :totals="{ io: rearTotal, ocp: ocpTotal }"
+          :totals="priceVisible ? { io: rearTotal, ocp: ocpTotal } : undefined"
         />
 
         <template v-if="showGpuCable !== false">
-        <div class="sc-section-head sc-section-head-gap"><span class="sh-tag">GPU 供电线</span><span class="sh-amt">¥{{ gpuCableCost.toLocaleString() }}</span></div>
+        <div class="sc-section-head sc-section-head-gap"><span class="sh-tag">GPU 供电线</span><span v-if="priceVisible" class="sh-amt">¥{{ gpuCableCost.toLocaleString() }}</span></div>
         <div class="sc-dline gpu-cable-line" v-if="gpuCableParts.length">
           <div>
             <div class="dl-t">GPU 供电线<span :class="['sc-badge', isManual('gpuCableQty') ? 'man' : 'sys']">{{ gpuArch === 'none' ? '无 GPU' : (isManual('gpuCableQty') ? '手动' : '推导') }}</span></div>
-            <div class="dl-b">{{ gpuCablePicked()?.name ? gpuCablePicked()!.name + ' · ' : '' }}单价 ¥{{ gpuCableUnitPrice() }}/根</div>
+            <div class="dl-b">{{ gpuCablePicked()?.name ? gpuCablePicked()!.name + (priceVisible ? ' · ' : '') : '' }}<template v-if="priceVisible">单价 ¥{{ gpuCableUnitPrice() }}/根</template></div>
           </div>
           <div class="dl-r">
             <PartPicker :items="gpuCableParts.map(fromPartMaster)" :model-value="overrides.gpuCablePn || ''" size="small" placeholder="(选择线缆)" :style="{ width: '200px' }" @update:model-value="(pn:any)=>setOverride('gpuCablePn', typeof pn==='string'?pn:'')" />
@@ -646,21 +667,21 @@ onBeforeUnmount(() => {
 
     <!-- ④ 电源 -->
     <div id="l6-panel-psu" class="sc-panel" v-show="!stepper || activeStep === 'psu'">
-      <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量</span><span class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
+      <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量</span><span v-if="priceVisible" class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <div class="psu-row" v-if="psuParts.length">
           <label class="psu-lab">PSU 型号</label>
           <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="effectivePsuPn()" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
-          <span class="psu-unit-price">单价 ¥{{ psuUnitPrice().toLocaleString() }}</span>
+          <span v-if="priceVisible" class="psu-unit-price">单价 ¥{{ psuUnitPrice().toLocaleString() }}</span>
           <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', parseInt(e.target.value)||0)" /><button @click="setOverride('psuQty', psuQty() + 1)">+</button></div>
-          <span class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
+          <span v-if="priceVisible" class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
         </div>
         <div v-else class="sc-empty">料号库暂无「电源模块」类别 PSU。</div>
       </div>
     </div>
 
     <!-- L6 合计 -->
-    <div class="l6-total-bar cpq-stream-edge">
+    <div v-if="priceVisible" class="l6-total-bar cpq-stream-edge">
       <span>L6 机箱合计 <b>¥<CountNumber :value="l6Total" /></b></span>
       <span class="l6-total-hint">基准 + 前面板 + 后面板 + OCP + 电源 + GPU线</span>
     </div>

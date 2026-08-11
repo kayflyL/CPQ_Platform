@@ -186,6 +186,8 @@
             <a-select-option value="name-desc">名称 Z→A</a-select-option>
             <a-select-option value="price-asc">价格 低→高</a-select-option>
             <a-select-option value="price-desc">价格 高→低</a-select-option>
+            <a-select-option value="first_price_date-desc">入库时间 新→旧</a-select-option>
+            <a-select-option value="first_price_date-asc">入库时间 旧→新</a-select-option>
           </a-select>
           <a-radio-group v-model:value="priceFilter" button-style="solid" class="toolbar-price" @change="applyFilters">
             <a-radio-button value="">全部</a-radio-button>

@@ -156,4 +156,26 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
 }
+
+/* 窄屏：FAB 缩成圆形图标按钮，藏文字，上移避开列表抽屉 FAB */
+@media (max-width: 768px) {
+  .assistant-fab {
+    right: 16px;
+    bottom: 80px; /* 抬高，给下方列表抽屉 FAB 让位 */
+    height: 48px;
+    min-width: 48px;
+    width: 48px;
+    padding: 0;
+    border-radius: 50%;
+    font-size: 20px;
+    justify-content: center; /* 单图标精确居中（label 已藏，去 gap） */
+    gap: 0;
+  }
+  .assistant-fab :deep(.anticon), .assistant-fab .anticon {
+    line-height: 1; /* SVG 沿 flex 双轴居中，消除行框偏移 */
+    margin: 0;
+    padding: 0;
+  }
+  .fab-label { display: none; }
+}
 </style>

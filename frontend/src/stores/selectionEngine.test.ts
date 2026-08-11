@@ -8,7 +8,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
-  evalOp, resolveField, resolveValue, evalWhen, evalThen, evaluateRules, evalAssignValue, parseCat,
+  evalOp, resolveField, resolveValue, evalWhen, evalThen, evaluateRules, evaluateWithTrace, extractConds, evalAssignValue, parseCat,
   type RuleContext,
 } from './selectionEngine.ts'
 
@@ -382,4 +382,78 @@ test('evalAssignValue: 跳过算术型 derive 与非 active 规则', () => {
     rule({ id: 2, body: { then: { action: 'derive', basis: 'config.sata_qty', per: 8, target: 'kp.前置背板' } } }),
   ]
   assert.equal(evalAssignValue(rules as any, ctx, 'config.bp_type'), undefined)
+})
+
+// ============================================================
+// evaluateWithTrace / extractConds —— 试跑轨迹：逐条件明细 + THEN 实际产出
+// ============================================================
+test('evaluateWithTrace: 逐条件返回 resolved/expected/passed 与整体 hit', () => {
+  const ctx = sampleCtx()  // GPU.qty=1, series=Polaris
+  const rules = [
+    rule({ id: 1, body: { when: { all: [
+      { field: 'kp.GPU.qty', op: '>=', value: 1 },
+      { field: 'config.series', op: '==', value: 'Orion' },   // 不满足
+    ] }, then: { action: 'recommend', target: 'X' } } }),
+  ]
+  const trace = evaluateWithTrace(rules as any, ctx)
+  assert.equal(trace.length, 1)
+  assert.equal(trace[0].hit, false)                   // Orion 不匹配 → 整体不命中
+  assert.equal(trace[0].isAny, false)
+  assert.equal(trace[0].conds.length, 2)
+  assert.equal(trace[0].conds[0].field, 'kp.GPU.qty')
+  assert.equal(trace[0].conds[0].resolved, 1)
+  assert.equal(trace[0].conds[0].passed, true)
+  assert.equal(trace[0].conds[1].resolved, 'Polaris')
+  assert.equal(trace[0].conds[1].expected, 'Orion')
+  assert.equal(trace[0].conds[1].passed, false)
+  assert.equal(trace[0].firedActions.length, 0)       // 不命中 → 无动作
+})
+
+test('evaluateWithTrace: exclude 用真实零件 ctx → firedActions 含冲突 pn（试跑核心价值）', () => {
+  const ctx = sampleCtx()  // Memory 2 条不同 pn
+  const rules = [
+    rule({ id: 1, name: '内存同型号不混搭', body: {
+      when: { field: 'kp.Memory.qty', op: '>=', value: 2 },
+      then: { action: 'exclude', target: 'kp.Memory', unique_field: 'pn' },
+    } }),
+  ]
+  const trace = evaluateWithTrace(rules as any, ctx)
+  assert.equal(trace[0].hit, true)
+  assert.equal(trace[0].firedActions.length, 1)
+  assert.deepEqual(trace[0].firedActions[0].offenders, ['MEM-3200-16', 'MEM-4800-16'])
+})
+
+test('evaluateWithTrace: any 语义——任一 passed 即 hit，isAny=true', () => {
+  const ctx = sampleCtx()
+  const rules = [
+    rule({ id: 1, body: { when: { any: [
+      { field: 'config.series', op: '==', value: 'Orion' },    // false
+      { field: 'config.series', op: '==', value: 'Polaris' },  // true
+    ] }, then: { action: 'recommend', target: 'Y' } } }),
+  ]
+  const trace = evaluateWithTrace(rules as any, ctx)
+  assert.equal(trace[0].isAny, true)
+  assert.equal(trace[0].hit, true)                    // 任一满足即命中
+  assert.equal(trace[0].conds[0].passed, false)
+  assert.equal(trace[0].conds[1].passed, true)
+  assert.equal(trace[0].firedActions.length, 1)
+})
+
+test('evaluateWithTrace: 条件字段在 ctx 无值 → resolved=undefined（拓扑图标 ⊘ 无法评估）', () => {
+  const ctx = sampleCtx()  // 无 Network 品类
+  const rules = [
+    rule({ id: 1, body: { when: { field: 'kp.Network.qty', op: '>=', value: 1 }, then: { action: 'recommend', target: 'N' } } }),
+  ]
+  const trace = evaluateWithTrace(rules as any, ctx)
+  assert.equal(trace[0].conds[0].resolved, undefined)
+  assert.equal(trace[0].conds[0].passed, false)       // undefined >= 1 → false
+  assert.equal(trace[0].hit, false)
+})
+
+test('extractConds: 展平 all / any / 单条件 / 空', () => {
+  assert.deepEqual(extractConds({ all: [{ field: 'a' }, { field: 'b' }] }), { conds: [{ field: 'a' }, { field: 'b' }], isAny: false })
+  assert.deepEqual(extractConds({ any: [{ field: 'a' }] }), { conds: [{ field: 'a' }], isAny: true })
+  assert.deepEqual(extractConds({ field: 'a', op: '==', value: 1 }), { conds: [{ field: 'a', op: '==', value: 1 }], isAny: false })
+  assert.deepEqual(extractConds(undefined), { conds: [], isAny: false })
+  assert.deepEqual(extractConds({}), { conds: [], isAny: false })
 })

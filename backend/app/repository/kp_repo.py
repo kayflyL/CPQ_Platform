@@ -146,8 +146,98 @@ def _inorm_general(name):
     s = re.sub(r'(\d+\.?\d*)\s*gb\b', r'\1g', s)
     return re.sub(r'\s*([+,/])\s*', r'\1', s)   # 标点周围空格归一（2port +光 → 2port+光）
 
+def _imem_type(name):
+    u = (name or '').upper()
+    m = re.search(r'\b(LPDDR[0-9X]+|DDR[0-9L]+)\b', u)
+    return m.group(1) if m else None
+
+def _imem_speed(name):
+    u = (name or '').upper()
+    m = re.search(r'\b(\d{4})\s*(?:MT/S|MHZ)?', u)
+    if not m:
+        return None
+    return f"{int(m.group(1))} MT/s"
+
+def _imem_dimm(name):
+    u = (name or '').upper()
+    for k in ('LRDIMM', 'RDIMM', 'UDIMM', 'SODIMM', 'DIMM'):
+        if k in u:
+            return k
+    return None
+
+def _imem_rank(name):
+    u = (name or '').upper()
+    m = re.search(r'(SINGLE|DUAL|QUAD)\s*RANK', u)
+    return f"{m.group(1).title()} Rank" if m else None
+
+def _imem_ecc(name):
+    u = (name or '').upper()
+    return 'ECC' if 'ECC' in u else None
+
+# 分类族：报价侧零散分类名归一到 canonical，再映射到库里真实 kp_categories 变体。
+# 先归一分类，再做匹配——否则 GPU card / Raid Card 这种变体连候选桶都进不去。
+CATEGORY_FAMILIES = {
+    'CPU': ['CPU'],
+    'Memory': ['Memory'],
+    'HDD/SSD': ['HDD/SSD'],
+    'GPU': ['GPU', 'GPU card'],
+    'Raid card': ['Raid card', 'Raid Card'],
+    'Network(NIC) requirement': ['Network(NIC) requirement'],
+    'HBA': ['HBA'],
+    'Bridge': ['Bridge'],
+    'NVSwitch': ['NVSwitch'],
+    'Power': ['Power'],
+    'Fan': ['Fan'],
+    'Heatsink': ['Heatsink'],
+    'Cable': ['Cable'],
+    'Rail': ['Rail'],
+}
+
+_CATEGORY_KEYWORDS = (
+    ('raid', 'Raid card'),
+    ('network', 'Network(NIC) requirement'),
+    ('nic', 'Network(NIC) requirement'),
+    ('gpu', 'GPU'),
+    ('memory', 'Memory'),
+    ('ram', 'Memory'),
+    ('hdd', 'HDD/SSD'),
+    ('ssd', 'HDD/SSD'),
+    ('m.2', 'HDD/SSD'),
+    ('storage', 'HDD/SSD'),
+    ('cpu', 'CPU'),
+    ('processor', 'CPU'),
+    ('hba', 'HBA'),
+    ('bridge', 'Bridge'),
+    ('nvswitch', 'NVSwitch'),
+    ('power', 'Power'),
+    ('psu', 'Power'),
+    ('fan', 'Fan'),
+    ('heatsink', 'Heatsink'),
+    ('cooler', 'Heatsink'),
+    ('cable', 'Cable'),
+    ('wire', 'Cable'),
+    ('rail', 'Rail'),
+)
+
+def category_family(raw: str) -> str:
+    """报价/库里零散分类名 → 分类族 canonical。未知分类原样返回，避免静默吞掉。"""
+    s = (raw or '').strip().lower()
+    if not s:
+        return ''
+    for kw, family in _CATEGORY_KEYWORDS:
+        if kw in s:
+            return family
+    return s
+
+def category_family_members(family: str) -> List[str]:
+    """分类族对应的库里真实 kp_categories 名称（含变体）。"""
+    if not family:
+        return []
+    return CATEGORY_FAMILIES.get(family, [family])
+
 def part_identity_key(name: str, category: str, specs: Optional[dict] = None) -> tuple:
     """同一性键。HDD/SSD 用结构化 spec（缺则从 name 解析，含形态默认推断）+ name 差异词；
+    Memory 用容量/代数/速率/DIMM 形态/rank/ECC（缺则从 name 解析）；
     其它品类用归一名。新件（specs=None）全从 name 解析；库内件传 specs 更准。导入与去重共用此键。"""
     sp = specs or {}
     if (category or '') == 'HDD/SSD':
@@ -161,6 +251,14 @@ def part_identity_key(name: str, category: str, specs: Optional[dict] = None) ->
         return ('HDD/SSD',
                 sp.get('Capacity') or _icap(name), typ, ff, media,
                 _igen(name), _iworkload(name), sp.get('RPM') or _irpm(name))
+    if (category or '') == 'Memory':
+        return ('Memory',
+                sp.get('Capacity') or _icap(name),
+                sp.get('Type') or _imem_type(name),
+                sp.get('Speed') or _imem_speed(name),
+                sp.get('DIMM Type') or _imem_dimm(name),
+                sp.get('Rank') or _imem_rank(name),
+                sp.get('ECC') or _imem_ecc(name))
     return (category or '', _inorm_general(name))
 
 
@@ -276,6 +374,37 @@ class KPRepository:
             "date": latest.price_date.isoformat() if latest.price_date else "",
             "note": latest.note,
         }
+
+    def get_parts_for_matching(self, families: List[str]) -> List[dict]:
+        """按分类族取料号（含 specs + 最新价），供报价匹配候选。"""
+        cats = []
+        for f in families or []:
+            cats.extend(category_family_members(f))
+        cats = sorted(set(cats))
+        if not cats:
+            return []
+
+        parts = self.session.query(KPPart)\
+            .options(joinedload(KPPart.specs))\
+            .join(KPCategory, KPPart.category_id == KPCategory.id)\
+            .filter(KPCategory.name.in_(cats))\
+            .all()
+        latest = {r['model']: r for r in self.get_latest_prices() if r.get('category') in cats}
+        out = []
+        for p in parts:
+            lr = latest.get(p.name) or {}
+            out.append({
+                'id': p.id,
+                'name': p.name,
+                'category': p.category.name if p.category else '',
+                'oem_sku': p.oem_sku or '',
+                'alt_sku': p.alt_sku or '',
+                'specs': {s.spec_key: s.spec_value for s in (p.specs or [])},
+                'price': lr.get('price'),
+                'currency': lr.get('currency', 'RMB'),
+                'date': lr.get('date', ''),
+            })
+        return out
 
     def get_price_history(self, model: str, limit: int = 20) -> List[dict]:
         """获取配件价格历史（兼容旧接口）"""
@@ -552,7 +681,8 @@ class KPRepository:
                    brands: str = None, price_filter: str = None, specs: str = None) -> Dict[str, Any]:
         """分页列出配件
 
-        sort_by 支持: name / price / updated_at；price 按每个配件最新一次报价排序。
+        sort_by 支持: name / price / updated_at / first_price_date；
+        price 按最新一次报价排序，first_price_date 按首次报价日期(入库时间)排序。
         brands: 逗号分隔的品牌名；price_filter: has_price/no_price/multi；specs: JSON 字符串 {key:[values]}。
         """
         q = self.session.query(KPPart).options(joinedload(KPPart.category))
@@ -602,6 +732,12 @@ class KPRepository:
                 .scalar_subquery()
         elif sort_by == "updated_at":
             sort_expr = KPPart.updated_at
+        elif sort_by == "first_price_date":
+            # 入库时间：取该配件最早一次报价日期(MIN price_date)。
+            # 实测 created_at 68% 挤在同一次批量导入、区分度极差，故用首次报价日期代替。
+            sort_expr = select(func.min(KPPriceHistory.price_date))\
+                .where(KPPriceHistory.part_id == KPPart.id)\
+                .scalar_subquery()
         else:
             sort_expr = KPPart.name
 

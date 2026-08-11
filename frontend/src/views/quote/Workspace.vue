@@ -573,6 +573,7 @@
         stepper
         :show-gpu-cable="activeConfig?.bom_source === 'excel'"
         :base-config-id="activeConfig?.base_config_id ?? null"
+        :server-model-id="activeConfig?.server_model_id ?? null"
         :kp-summary="kpSummaryFor(activeConfig)"
         :initial-picks="activeConfig?.l6_bom_picks"
         @apply="(p: any) => store.setL6ChassisPicks(activeCfg, p)"
@@ -1525,6 +1526,8 @@ const handleSave = async () => {
     if (!confirmed) return
   }
 
+  warnLowMarginIfNeeded()
+
   saveLoading.value = true
   try {
     await store.saveProject()
@@ -1566,30 +1569,27 @@ const selectionActions = computed(() => {
 // 提醒列表：选型规则的 require/exclude/derive/recommend 命中
 const selectionAlerts = computed(() => selectionActions.value.filter(a => a.action !== 'filter'))
 
-// 利润率告警：读策略中心 margin_alert 策略（开关 + 门槛 + 文案）；只告警不锁、不自动改价。
-let _marginAlerted = false
-watch(
-  () => configTotals.value?.marginPct,
-  (m) => {
-    if (m == null || !isFinite(m)) return
-    const alert = pricingRulesStore.getMarginAlert()
-    if (!alert.enabled) return
-    if (m < alert.threshold) {
-      if (!_marginAlerted) {
-        _marginAlerted = true
-        Modal.warning({
-          title: alert.title,
-          content: alert.content
-            .replace(/\$\{margin\}/g, m.toFixed(2))
-            .replace(/\$\{threshold\}/g, String(alert.threshold)),
-          okText: '知道了',
-        })
-      }
-    } else {
-      _marginAlerted = false
-    }
-  },
-)
+// 利润率告警：读策略中心 margin_alert 策略（开关 + 门槛 + 文案）；只在保存商机时检查全部配置，不锁、不自动改价。
+function warnLowMarginIfNeeded() {
+  const alert = pricingRulesStore.getMarginAlert()
+  if (!alert.enabled) return
+  const low = Object.keys(store.configs)
+    .map((name) => ({ name, margin: store.getConfigTotals(name).marginPct }))
+    .filter(({ margin }) => margin != null && isFinite(margin) && margin < alert.threshold)
+  if (!low.length) return
+  const minMargin = Math.min(...low.map(({ margin }) => margin))
+  let content = alert.content
+    .replace(/\$\{margin\}/g, minMargin.toFixed(2))
+    .replace(/\$\{threshold\}/g, String(alert.threshold))
+  if (low.length > 1) {
+    content += `\n低毛利配置：${low.map(({ name, margin }) => `${name} ${margin.toFixed(2)}%`).join('、')}`
+  }
+  Modal.warning({
+    title: alert.title,
+    content,
+    okText: '知道了',
+  })
+}
 
 // KP 历史价格懒加载
 const onHistoryExpand = async (item: any, keys: string[]) => {

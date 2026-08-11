@@ -51,10 +51,28 @@ export const COMBO_REAR_SLOTS = ['IO1', 'IO2']
 /** 后面板 option_type 显示标签（option_type 是料号库声明，标签是展示文案）*/
 export const OPTION_LABEL: Record<string, string> = {
   x16: 'X16 Riser', x8: 'X8 Riser', nvme: 'NVMe模组', sata: 'SATA模组',
-  ocp_x8: 'OCP X8', ocp_x16: 'OCP X16', blank: '挡片',
+  ocp_x8: 'OCP 3.0 x8 Adapter', ocp_x16: 'OCP 3.0 x16 Adapter', blank: '挡片',
 }
 /** 取 option_type 的展示标签，未配置原样返回 */
 export const optionLabel = (t: string) => OPTION_LABEL[t] || t
+
+/** 类型卡短标签（槽位能力摘要用，如 "X16×1 + X8×1"） */
+export const OPTION_SHORT_LABEL: Record<string, string> = {
+  x16: 'X16', x8: 'X8', nvme: 'NVMe', sata: 'SATA',
+  ocp_x8: 'OCP x8', ocp_x16: 'OCP x16', blank: '挡片',
+}
+export const optionShortLabel = (t: string) => OPTION_SHORT_LABEL[t] || t
+
+/** 类型卡「支持设备」提示（纯展示文案，不做适配判定；适配判定见 utils/partFit.ts）。
+ * 帮助销售理解「槽是能力位、卡是实现件」，而非「在买 Riser」。 */
+export const REAR_SLOT_SUPPORT: Record<string, string> = {
+  x16: 'GPU / 400G 高速网卡',
+  x8: '网卡 / RAID / HBA',
+  nvme: '后置 NVMe 模组',
+  sata: 'SATA 硬盘模组',
+  ocp_x8: 'OCP 3.0 网络模块',
+  ocp_x16: 'OCP 3.0 网络模块（AI）',
+}
 
 /**
  * 背板类型关键词。适配判定优先读 specs.bt（料号库声明），缺失时按这些关键词嗅探 name+bt 文本。

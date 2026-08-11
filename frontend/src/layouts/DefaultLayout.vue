@@ -2,11 +2,15 @@
   <div class="app-layout">
     <!-- 顶部：固定导航栏 -->
     <div class="topbar glass-strong">
+      <a-button v-if="isMobile" type="text" class="menu-hamburger" @click="mobileMenuOpen = true">
+        <MenuOutlined /><span class="mh-text">菜单</span>
+      </a-button>
       <div class="logo-area">
         <div class="logo-text">CPQ</div>
         <div class="logo-sub">Platform</div>
       </div>
       <a-menu
+        v-if="!isMobile"
         v-model:selectedKeys="selectedKeys"
         v-model:openKeys="openKeys"
         :theme="themeStore.isDark ? 'dark' : 'light'"
@@ -75,6 +79,57 @@
       </div>
     </div>
 
+    <!-- 移动端：导航抽屉（汉堡触发，内嵌同一份菜单 inline 模式） -->
+    <a-drawer
+      v-if="isMobile"
+      v-model:open="mobileMenuOpen"
+      placement="left"
+      :width="260"
+      :header-style="{ display: 'none' }"
+      :body-style="{ padding: '12px 0', background: 'var(--cpq-bg-primary)' }"
+      class="mobile-nav-drawer"
+    >
+      <a-menu
+        v-model:selectedKeys="selectedKeys"
+        v-model:openKeys="openKeys"
+        :theme="themeStore.isDark ? 'dark' : 'light'"
+        mode="inline"
+        @click="handleMenuClick"
+        class="mobile-menu"
+      >
+        <a-menu-item v-if="auth.can('page.opportunities')" key="/opportunities">
+          <template #icon><ProjectOutlined /></template><span>商机线索</span>
+        </a-menu-item>
+        <a-menu-item v-if="auth.can('page.servers')" key="/servers">
+          <template #icon><DesktopOutlined /></template><span>服务器</span>
+        </a-menu-item>
+        <a-menu-item v-if="auth.can('page.parts')" key="/parts">
+          <template #icon><DollarOutlined /></template><span>配件</span>
+        </a-menu-item>
+        <a-menu-item v-if="auth.can('page.strategies')" key="/strategies">
+          <template #icon><ThunderboltOutlined /></template><span>策略中心</span>
+        </a-menu-item>
+        <a-sub-menu v-if="showSettings" key="settings">
+          <template #icon><SettingOutlined /></template><template #title>设置</template>
+          <a-menu-item v-if="auth.can('page.settings.users')" key="/settings/users">
+            <template #icon><TeamOutlined /></template><span>用户与权限</span>
+          </a-menu-item>
+          <a-menu-item v-if="auth.can('page.settings.ai')" key="/ai-settings">
+            <template #icon><RobotOutlined /></template><span>AI 设置</span>
+          </a-menu-item>
+          <a-menu-item v-if="auth.can('page.settings.excel')" key="/excel-parser">
+            <template #icon><ApiOutlined /></template><span>解析规则</span>
+          </a-menu-item>
+          <a-menu-item v-if="auth.can('page.settings.templates')" key="/export-templates">
+            <template #icon><FileExcelOutlined /></template><span>导出模板</span>
+          </a-menu-item>
+          <a-menu-item v-if="auth.can('page.settings.admin')" key="/servers/admin">
+            <template #icon><DesktopOutlined /></template><span>服务器管理</span>
+          </a-menu-item>
+        </a-sub-menu>
+      </a-menu>
+    </a-drawer>
+
     <!-- 下方：唯一滚动区域 (内部承载所有页面内容) -->
     <main class="main-scroll">
       <router-view />
@@ -87,7 +142,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { MenuOutlined } from '@ant-design/icons-vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined, UserOutlined, LogoutOutlined, TeamOutlined } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
@@ -101,6 +157,12 @@ const themeStore = useThemeStore()
 const auth = useAuthStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
+
+// 移动端汉堡菜单（matchMedia 驱动，≤768 收起横向菜单改为抽屉）
+const isMobile = ref(false)
+const mobileMenuOpen = ref(false)
+function syncMobile() { isMobile.value = window.matchMedia('(max-width: 768px)').matches }
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
 
 // 「设置」子菜单是否显示：任一设置项有权限即显示
 const showSettings = computed(() =>
@@ -146,7 +208,18 @@ watch(() => route.path, (newPath) => {
 
 const handleMenuClick = ({ key }: { key: string }) => {
   router.push(key)
+  mobileMenuOpen.value = false // 手机端点完菜单项收起抽屉
 }
+
+onMounted(() => {
+  syncMobile()
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
+})
 
 function onUserMenu({ key }: { key: string }) {
   if (key === 'logout') {
@@ -301,5 +374,28 @@ function onUserMenu({ key }: { key: string }) {
 /* 浅色：logo 去发光（背景渐变两套已自动跟随主题） */
 [data-theme='light'] .logo-text {
   text-shadow: none;
+}
+
+/* 移动端：汉堡菜单按钮 */
+.menu-hamburger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 0 8px;
+  color: var(--cpq-text-primary);
+  font-size: 16px;
+}
+.mh-text { font-size: 13px; font-weight: 600; }
+.mobile-menu { background: transparent !important; border-inline-end: none !important; }
+
+@media (max-width: 768px) {
+  /* 顶栏：logo 缩小、用户名隐藏省空间，主题/用户按钮收成图标 */
+  .topbar { padding: 0 8px; height: 50px; }
+  .logo-area { margin-left: 4px; }
+  .logo-text { font-size: 16px; }
+  .logo-sub { font-size: 8px; }
+  .user-name { display: none; }
+  .topbar-actions { gap: 0; }
 }
 </style>

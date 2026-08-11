@@ -101,7 +101,6 @@ class SystemConfigRepository:
             {"key": "tax_rate", "value": "0.13", "type": "number", "description": "税率"},
             {"key": "usd_to_rmb", "value": "7.0", "type": "number", "description": "美元兑人民币汇率"},
             {"key": "profit_margin", "value": "0.1", "type": "number", "description": "默认利润率（成本加成的默认目标利润率，非告警阈值）"},
-            {"key": "profit_margin_alert_threshold", "value": "0.08", "type": "number", "description": "利润率告警阈值：报价利润率低于此值时弹窗提示走线下特价审批"},
             {"key": "default_markup_coefficient", "value": "0.10", "type": "number", "description": "默认成本加成系数（一期固定简易加成；精细化客户分层/阶梯加成二期补）"},
             {"key": "warranty_fee_rate", "value": "0.02", "type": "number", "description": "质保费率"},
             {"key": "warranty_desc_l6", "value": "质保3年，非人为及不可抗力引起的故障，软件FW问题支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "L6 默认质保条款"},

@@ -133,3 +133,33 @@ class FileStorage:
             "file_size": len(file_content),
             "url": f"/api/server-catalog/showcase-models/{stored_name}",
         }
+
+    def save_drawing_svg(self, file_content: bytes, original_name: str) -> dict:
+        """Save a sanitized server drawing SVG to storage/drawing-svgs/ (timestamped).
+
+        Returns {stored_path, filename, file_size, url}.
+        """
+        import uuid
+        from pathlib import PurePath
+
+        ext = PurePath(original_name).suffix.lower()
+        if ext != ".svg":
+            raise FileStorageError("Unsupported format: only .svg allowed")
+
+        stem = ''.join(c for c in PurePath(original_name).stem if c.isalnum() or c in '-_')[:32] or 'drawing'
+        short_uid = uuid.uuid4().hex[:8]
+        stored_name = f"{stem}_{short_uid}{ext}"
+
+        drawing_dir = self._safe_join("drawing-svgs")
+        drawing_dir.mkdir(parents=True, exist_ok=True)
+        stored_path = drawing_dir / stored_name
+
+        with open(stored_path, "wb") as f:
+            f.write(file_content)
+
+        return {
+            "stored_path": f"drawing-svgs/{stored_name}",
+            "filename": stored_name,
+            "file_size": len(file_content),
+            "url": f"/api/server-catalog/drawing-svg/{stored_name}",
+        }

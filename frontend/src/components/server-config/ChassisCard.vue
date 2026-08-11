@@ -2,8 +2,10 @@
 /** 机箱概要卡片 — 配置页第 1 项 / 报价工作台机箱卡。
  *  卡头：标题 + 右侧 header-extra slot（报价页塞 PriceTriple 三联；配置页默认显 l6Total）。
  *  卡尾：基准配置(可选) + 配置机箱按钮。emit('open') 由父弹 4 步细配弹窗。 */
+import { computed } from 'vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import type { ServerModel } from '@/api/serverConfig'
+import { useAuthStore } from '@/store/auth'
 
 defineProps<{
   model: ServerModel
@@ -15,6 +17,10 @@ defineProps<{
 }>()
 
 const emit = defineEmits<{ (e: 'open'): void }>()
+
+const auth = useAuthStore()
+/** 服务器配置价格可见性（配置页默认卡头金额；报价页走 header-extra 自有 field.quote.price 逻辑，不受影响） */
+const priceVisible = computed(() => auth.can('field.server.price'))
 </script>
 
 <template>
@@ -24,7 +30,7 @@ const emit = defineEmits<{ (e: 'open'): void }>()
       <h2>机箱</h2>
       <div class="sc-phead-right">
         <slot name="header-extra">
-          <span class="amt">¥<CountNumber :value="heroPrice ?? l6Total" /></span>
+          <span v-if="priceVisible" class="amt">¥<CountNumber :value="heroPrice ?? l6Total" /></span>
         </slot>
       </div>
     </div>

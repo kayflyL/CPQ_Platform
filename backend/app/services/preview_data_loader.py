@@ -207,12 +207,18 @@ def _load_l6_from_template(quotation):
             v = ctx.get(key, {}) if isinstance(ctx, dict) else {}
             v = v if isinstance(v, dict) else {}
             qty_val = v.get("qty", "")
+            desc_val = v.get("desc", "") or ""
+            # 空行隐藏：desc 与 qty 都为空（含 0）→ 整行不显示（与左栏 BomTable 一致；
+            # 如 2U 没配 OCP/GPU 时 OCP、GPU Power cord 行不再出现「—」占位）
+            qty_empty = qty_val is None or qty_val == "" or qty_val == 0
+            if not desc_val and qty_empty:
+                continue
             # 统一展示列：catalogue=零件名(label)、description=规格(desc)，与左栏 BomTable 及绑定语义一致。
             rows_out.append({
                 "config_name": cfg_name,
                 "category": "L6",
                 "catalogue": r.get("label", "") or "",     # Catalogue = 零件名
-                "description": v.get("desc", "") or "",      # Description = 规格
+                "description": desc_val,                     # Description = 规格
                 "part_category": "",
                 "qty": "" if qty_val is None else qty_val,
                 "base_price": 0,
@@ -545,27 +551,26 @@ def _build_description(cfg_items: list, selected_parts: list = None, separator: 
     search_pool = [it for it in cfg_items if it.get("category") == "Key Parts"]
 
     parts = []
+    consumed = [False] * len(search_pool)  # 已被更早的类型认领的 item，避免 hdd/ssd 关键词域重叠时重复抓取
 
-    # 按用户选择的部件类型筛选
+    # 按用户在模板里排定的类型顺序遍历（顺序由 selectedParts 决定，不在此写死）
     for part_type in selected_parts:
         keywords = type_keywords.get(part_type.lower(), [part_type])
 
-        # 查找匹配的部件
-        for item in search_pool:
+        # 收齐该类型的所有匹配件：同一品类常有多件（2 块 SSD / 2 张网卡），都要列出
+        for idx, item in enumerate(search_pool):
+            if consumed[idx]:
+                continue
             part_category = str(item.get("part_category", "") or "").lower()  # 类别（CPU/Memory…）
             catalogue = str(item.get("catalogue", "") or "").lower()          # 型号
 
-            # 检查是否匹配（关键词命中类别或型号）
+            # 关键词命中类别或型号即归入此类型，并标记消费防止后续类型重复
             if any(kw in part_category or kw in catalogue for kw in keywords):
                 # 优先使用型号（catalogue），fallback 到类别
                 display = item.get("catalogue", "") or item.get("part_category", "")
                 qty = item.get("quantity", 0) or item.get("qty", 0) or 0
-                
                 if display:
-                    if qty > 1:
-                        parts.append(f"{display} × {qty}")
-                    else:
-                        parts.append(f"{display}")
-                break  # 每个类型只取第一个匹配
-    
+                    parts.append(f"{display} × {qty}" if qty > 1 else display)
+                consumed[idx] = True
+
     return separator.join(parts)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 后面板共用组件 —— 基准配置编辑器与服务器配置页同源（视觉统一）。
- * 渲染 PCIe IO 槽位网格（每槽 opt-block 步进器，数量即选中）+ OCP 网络单选段。
+ * 渲染 PCIe 扩展槽位网格（每槽 opt-block 步进器，数量即选中）+ OCP 网络单选段。
  * 就地改 slot.defaults（option_type 多重集）：配置页传入的 defaults 即 reactive rear[name]，
  * 基准配置传入的 defaults 即 rear_slots[].defaults —— 改动双向回流到各自宿主，无需 emit。
  *
@@ -15,6 +15,8 @@
 import { computed } from 'vue'
 import { rearOptionQty, rearSlotFilled, rearSetOptionQty, rearDefaultQty, rearDecOption, rearSetSingle } from '@/composables/useRearState'
 import type { RearIOSlotOption, RearSlot } from '@/api/serverConfig'
+import { optionLabel } from '@/constants/chassisMeta'
+import { useAuthStore } from '@/store/auth'
 
 const props = withDefaults(defineProps<{
   slots: RearSlot[]                            // PCIe IO 槽（name + cap + defaults）
@@ -57,12 +59,15 @@ function inc(def: RearSlot, t: string) {
 function dec(def: RearSlot, t: string) { rearDecOption(ensure(def), t) }
 function pickOcp(def: RearSlot, t: string | null) { rearSetSingle(ensure(def), t) }
 
+const auth = useAuthStore()
+/** 服务器配置价格可见性（字段级权限；无权限只显示描述标签，价格直接隐藏，不出现 *** 掩码） */
+const priceVisible = computed(() => auth.can('field.server.price'))
 const ioTotal = computed(() => props.totals?.io)
 const ocpTotal = computed(() => props.totals?.ocp)
 </script>
 
 <template>
-  <div class="sc-section-head"><span class="sh-tag">PCIe IO 槽位</span><span v-if="ioTotal != null" class="sh-amt">¥{{ ioTotal.toLocaleString() }}</span></div>
+  <div class="sc-section-head"><span class="sh-tag">PCIe 扩展能力</span><span v-if="priceVisible && ioTotal != null" class="sh-amt">¥{{ ioTotal.toLocaleString() }}</span></div>
   <div class="rear-grid" :style="{ gridTemplateColumns: `repeat(${slots.length || 1}, minmax(0,1fr))` }">
     <div class="slot-col" v-for="def in slots" :key="def.name">
       <div class="slot-col-head">
@@ -73,7 +78,7 @@ const ocpTotal = computed(() => props.totals?.ocp)
         </slot>
       </div>
       <div class="opt-block" v-for="opt in displayOptions(def)" :key="opt.option_type" :class="{ active: qtyOf(def, opt.option_type) > 0 }">
-        <span class="opt-price">¥{{ opt.total_price.toLocaleString() }}</span>
+        <span class="opt-info"><span class="opt-label">{{ optionLabel(opt.option_type) }}</span><span v-if="priceVisible" class="opt-price">¥{{ opt.total_price.toLocaleString() }}</span></span>
         <div class="opt-stepper">
           <button :disabled="qtyOf(def, opt.option_type) <= 0" @click="dec(def, opt.option_type)">−</button>
           <span class="opt-qty">{{ qtyOf(def, opt.option_type) }}</span>
@@ -86,13 +91,13 @@ const ocpTotal = computed(() => props.totals?.ocp)
   </div>
 
   <template v-if="ocpSlot">
-    <div class="sc-section-head sh-gap"><span class="sh-tag">网络 · OCP 网卡</span><span class="sh-note">OCP 走独立接口，不占 PCIe 槽位</span><span v-if="ocpTotal != null" class="sh-amt">¥{{ ocpTotal.toLocaleString() }}</span></div>
+    <div class="sc-section-head sh-gap"><span class="sh-tag">网络扩展 · OCP 接口</span><span class="sh-note">OCP 转接适配板 · 支持 OCP 3.0 网络模块，不占 PCIe 槽位</span><span v-if="priceVisible && ocpTotal != null" class="sh-amt">¥{{ ocpTotal.toLocaleString() }}</span></div>
     <div class="net-options">
       <button v-for="opt in displayOptions(ocpSlot)" :key="opt.option_type" :class="['net-card', { active: qtyOf(ocpSlot, opt.option_type) > 0 }]" @click="pickOcp(ocpSlot, opt.option_type)">
-        <span class="net-price">¥{{ opt.total_price.toLocaleString() }}</span>
+        <span class="net-label">{{ optionLabel(opt.option_type) }}</span><span v-if="priceVisible" class="net-price">¥{{ opt.total_price.toLocaleString() }}</span>
       </button>
       <button :class="['net-card', 'blank', { active: filled(ocpSlot) === 0 }]" @click="pickOcp(ocpSlot, null)">
-        <span class="net-price">¥0</span>
+        <span class="net-label">挡片</span><span v-if="priceVisible" class="net-price">¥0</span>
       </button>
     </div>
   </template>
@@ -111,6 +116,9 @@ const ocpTotal = computed(() => props.totals?.ocp)
 .slot-col-head .slot-name { font-weight: 700; font-size: 14px; color: var(--cpq-text-primary, #E8ECEF); }
 .slot-cap-mini { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-left: auto; }
 .opt-block { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 8px 10px; border: 1px solid var(--cpq-overlay-w8); border-radius: 8px; margin-bottom: 8px; background: var(--cpq-overlay-w4); transition: all .2s; }
+.opt-info { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.opt-label { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.opt-block.active .opt-label { color: var(--cpq-accent-primary, #1677FF); }
 .opt-block.active { border-color: var(--cpq-overlay-a40); background: var(--cpq-overlay-a8); box-shadow: 0 0 12px var(--cpq-overlay-a8); }
 .opt-price { font-size: 13px; font-weight: 600; color: var(--cpq-text-secondary, #9BA1AA); }
 .opt-block.active .opt-price { color: var(--cpq-accent-primary, #1677FF); }
@@ -122,7 +130,9 @@ const ocpTotal = computed(() => props.totals?.ocp)
 .slot-blank { padding: 10px 8px; text-align: center; }
 .blank-tag { display: inline-block; font-size: 12px; color: var(--cpq-text-muted, #6E7582); background: var(--cpq-overlay-w4); border: 1px dashed var(--cpq-overlay-w10); border-radius: 6px; padding: 3px 12px; }
 .net-options { display: flex; flex-wrap: wrap; gap: 12px; }
-.net-card { flex: 1; min-width: 120px; padding: 12px 16px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; color: var(--cpq-text-secondary, #9BA1AA); cursor: pointer; transition: all .25s; font-family: inherit; font-size: 14px; font-weight: 600; text-align: center; }
+.net-card { flex: 1; min-width: 120px; padding: 12px 16px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; color: var(--cpq-text-secondary, #9BA1AA); cursor: pointer; transition: all .25s; font-family: inherit; font-size: 14px; font-weight: 600; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.net-label { white-space: nowrap; }
+.net-card.active .net-label { color: var(--cpq-accent-primary, #1677FF); }
 .net-card:hover { border-color: var(--cpq-overlay-w20); color: var(--cpq-text-primary, #E8ECEF); transform: translateY(-1px); }
 .net-card.active { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary, #1677FF); color: var(--cpq-accent-primary, #1677FF); box-shadow: 0 0 16px var(--cpq-overlay-a20); }
 .net-card.blank { flex: 0 0 auto; min-width: 120px; border-style: dashed; }

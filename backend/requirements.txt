@@ -15,3 +15,4 @@ openai>=1.0
 simpleeval>=0.9.11  # reasoning_executor condition 节点安全求值（缺它则所有 condition 静默走 true 分支）
 bcrypt>=4.0.1  # 密码哈希（认证）
 PyJWT>=2.8.0  # JWT 签发/校验（认证）
+defusedxml>=0.7.1  # SVG 上传清洗（防 XXE/实体膨胀）

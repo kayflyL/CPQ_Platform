@@ -12,6 +12,14 @@ export const PANEL_MAX_HEIGHT = 560
 export const PANEL_GAP = 12
 
 export interface FabPos { x: number; y: number }
+export interface FabRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
+  width: number
+  height: number
+}
 
 function loadPos(): FabPos | null {
   try {
@@ -39,7 +47,7 @@ export function useAssistantFab() {
   function setFabEl(el: HTMLElement | null) {
     fabEl.value = el
   }
-  function getFabRect(): { left: number; top: number; right: number; bottom: number; width: number; height: number } | null {
+  function getFabRect(): FabRect | null {
     // FAB 在面板打开时 v-show 隐藏（display:none → getBoundingClientRect 返回零），
     // 改用 pos ref（模块级单例，FAB 挂载/拖动时实时更新）。
     if (pos.value) {
@@ -86,7 +94,7 @@ export function useAssistantFab() {
 
 /** 给 Panel 用的定位算法：在 FAB 当前位置附近找一块塞得下的区域。
  * 优先 FAB 左上方；左边不够放右侧，上边不够放下方。 */
-export function computePanelAnchor(fabRect: DOMRect, vw: number, vh: number) {
+export function computePanelAnchor(fabRect: FabRect, vw: number, vh: number) {
   const panelH = Math.min(PANEL_MAX_HEIGHT, vh - 2 * FAB_EDGE_MARGIN)
   // 水平：默认 panel 右边对齐 FAB 右边（panel 在 FAB 左侧）
   let left = fabRect.right - PANEL_WIDTH

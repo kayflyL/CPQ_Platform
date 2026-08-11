@@ -41,7 +41,7 @@ const ROW_TYPES: RowTypeDef[] = [
 ]
 const autoTypes = ROW_TYPES.filter(t => t.group === 'auto')
 const manualTypes = ROW_TYPES.filter(t => t.group === 'manual')
-const SLOT_OPTIONS = ['IO1', 'IO2', 'IO3', 'IO4']
+const SLOT_OPTIONS = ['IO1', 'IO2', 'IO3', 'IO4', 'OCP']
 
 /** 新行推荐默认规则：按行类型自动填充，保存即合理（依据现有真实模板整理，可自行调整） */
 const RECOMMENDED_RULES: Record<string, BomRule> = {
@@ -119,6 +119,14 @@ function onTypeChange(i: number) {
   const def = ROW_TYPES.find(t => t.value === r.type)
   if (def && !r.label) r.label = def.short
   r.rule = defaultRuleFor(r.type)   // 切换类型 → 重置为该类型推荐规则，避免残留不匹配规则
+}
+
+/** OCP 槽防呆：slot 切到 OCP 且 qty 还是默认 fixed 1 时，自动切成 config_calc ocp_qty
+ * （否则没选 OCP 时 qty=1，OCP 行不会随「未选」隐藏）。 */
+function onSlotChange(r: BomTemplateRow) {
+  if ((r.slot || '').toUpperCase() !== 'OCP') return
+  const q = r.rule?.qty as any
+  if (q?.kind === 'fixed' && Number(q.value) === 1) r.rule!.qty = { kind: 'config_calc', key: 'ocp_qty' }
 }
 
 /** 规则摘要：不开 ⚙ 也知道这行怎么算 */
@@ -228,7 +236,7 @@ async function openEdit(t: BomTemplate) {
 async function save() {
   if (!name.value.trim()) return message.warning('请填模板名')
   for (const r of rows.value) {
-    if (r.type === 'io_slot' && !r.slot) return message.warning('IO 槽位行需选 slot（IO1~IO4）')
+    if (r.type === 'io_slot' && !r.slot) return message.warning('IO 槽位行需选 slot（IO1~IO4/OCP）')
   }
   saving.value = true
   try {
@@ -327,7 +335,7 @@ defineExpose({ load })
                   </span>
                   <span class="c-label"><a-input v-model:value="r.label" size="small" placeholder="左栏标签" /></span>
                   <span class="c-slot">
-                    <a-select v-if="r.type === 'io_slot'" v-model:value="r.slot" size="small" style="width: 100%">
+                    <a-select v-if="r.type === 'io_slot'" v-model:value="r.slot" size="small" style="width: 100%" @change="onSlotChange(r)">
                       <a-select-option v-for="s in SLOT_OPTIONS" :key="s" :value="s">{{ s }}</a-select-option>
                     </a-select>
                     <a-select v-else-if="r.type === 'rear_summary'" v-model:value="r.mode" size="small" style="width: 100%">

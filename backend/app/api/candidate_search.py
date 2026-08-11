@@ -11,7 +11,7 @@ from typing import Optional
 from fastapi import APIRouter, Query
 
 from app.repository.parts_master_repo import PartsMasterRepository
-from app.repository.kp_repo import KPRepository
+from app.repository.kp_repo import KPRepository, category_family, category_family_members
 from app.repository.base_config_repo import BaseConfigRepository
 from app.repository.server_catalog_repo import ServerCatalogRepository
 
@@ -1565,6 +1565,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             except Exception:
                 parts = []
             _kws = [k for k in (keywords or []) if k]
+            if "raid" in db_cat.lower() or "阵列" in db_cat:
+                # RAID 级别（0/1/10/5/6）和 raid 字样不是具体型号，不当关键字收窄候选
+                _kws = [k for k in _kws
+                        if not re.match(r"^\d+$", k) and k.lower() not in ("raid", "阵列", "阵列卡")]
             _kw_hit = False
             if parts and _kws:
                 _hit = None
@@ -1594,7 +1598,16 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             # I22：需求未指定 RAID 型号（如只写 "RAID 0,1,10"）→ 按配件库 applicable.series 兼容机型选件。
             # 配件库标了兼容系列的件优先（ES22V3-P/Orion 默认 LSI 9540-8i），未标不排除；
             # 需求给了具体型号（keyword 命中）不适用——显式型号优先。
-            if not _kw_hit and db_cat in ("Raid card", "阵列卡") and platform_series:
+            # 候选按 RAID 分类族合并（Raid card / Raid Card 变体都进桶），避免大小写变体漏掉兼容件。
+            if not _kw_hit and "raid" in db_cat.lower() and platform_series:
+                _raid_cats = category_family_members(category_family(db_cat)) or [db_cat]
+                _family_parts = []
+                for _cat in _raid_cats:
+                    try:
+                        _family_parts.extend(kp_repo.get_by_category(_cat) or [])
+                    except Exception:
+                        continue
+                parts = _family_parts or parts
                 _compat = [pt for pt in parts
                            if platform_series in ((pt.get("applicable") or {}).get("series") or [])]
                 if _compat:

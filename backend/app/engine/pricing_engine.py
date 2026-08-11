@@ -16,7 +16,7 @@ from typing import Optional
 
 from app.core.config import get_settings
 
-from app.repository.kp_repo import KPRepository
+from app.repository.kp_repo import KPRepository, category_family, _inorm_general, part_identity_key
 from app.repository.l6_repo import L6Repository
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.rules_repo import RulesRepository
@@ -273,13 +273,32 @@ class PricingEngine:
 
         # Fetch all latest KP prices at once (one query via repo)
         kp_latest = self.kp_repo.get_latest_prices()
-        kp_dict = {r['model'].lower().strip(): r['price'] for r in kp_latest}
+        exact_all: dict = {}
+        for r in kp_latest:
+            key = _inorm_general(r.get('model') or '')
+            if key:
+                exact_all.setdefault(key, []).append(r)
 
         items = items_df.copy()
         items['match_status'] = ""
         items['db_price'] = None
+        items['db_currency'] = None
         items['base_price'] = items.get('price', 0)
         items['profit_margin'] = 10.0  # default
+
+        family_cache: dict = {}
+
+        def _family_parts(family: str) -> list:
+            if family not in family_cache:
+                family_cache[family] = self.kp_repo.get_parts_for_matching([family]) if family else []
+            return family_cache[family]
+
+        def _uniform(p: dict) -> dict:
+            return {
+                'name': p.get('model') or p.get('name') or '',
+                'price': p.get('price'),
+                'currency': p.get('currency', 'RMB'),
+            }
 
         for idx, row in items.iterrows():
             cat = row['category']
@@ -287,19 +306,48 @@ class PricingEngine:
             part_category = str(row.get('part_category', '')).lower().strip()  # 类别（KP）
             original_price = row.get('price')
             db_price = None
+            db_currency = None
+            matched = None
 
             if cat == 'Key Parts':
-                # KP 价格按型号（catalogue）匹配；kp_dict 以 model.lower() 为键
-                if catalogue in kp_dict:
-                    db_price = kp_dict[catalogue]
-                elif catalogue and len(catalogue) > 2:
-                    fuzzy = self.kp_repo.fuzzy_match_price(catalogue)
-                    if fuzzy:
-                        db_price = fuzzy['price']
+                family = category_family(part_category)
+                if catalogue and len(catalogue) > 2:
+                    # 结构化同一性键：HDD/Memory 按 spec 维度判同件，其余品类按归一名；
+                    # 与 KP 库导入去重(part_identity_key)同口径——不再靠纯名字，避免「写法差一点就误判新料」。
+                    q_key = part_identity_key(catalogue, family or part_category)
+                    if family:
+                        family_parts = _family_parts(family)
+                        # L0 SKU 精确（最强信号）
+                        sku_hits = [p for p in family_parts
+                                    if p.get('oem_sku') and str(p['oem_sku']).strip().lower() == catalogue]
+                        # L1 结构化同一性键
+                        key_hits = [p for p in family_parts
+                                    if part_identity_key(p.get('name') or '', family,
+                                                         p.get('specs') or {}) == q_key]
+                        if len(sku_hits) == 1:
+                            matched = _uniform(sku_hits[0])
+                        elif len(key_hits) == 1:
+                            matched = _uniform(key_hits[0])
+                    else:
+                        # 无分类旧单：全局归一名精确兜底，再走旧 fuzzy（不丢已有匹配）
+                        hits = exact_all.get(_inorm_general(catalogue)) or []
+                        if len(hits) == 1:
+                            matched = _uniform(hits[0])
+                        else:
+                            fuzzy = self.kp_repo.fuzzy_match_price(catalogue)
+                            if fuzzy:
+                                matched = _uniform(fuzzy)
+
+                if matched is not None:
+                    db_price = matched.get('price')
+                    db_currency = matched.get('currency') or 'RMB'
 
             items.at[idx, 'db_price'] = db_price
+            items.at[idx, 'db_currency'] = db_currency
 
-            if db_price is not None:
+            if matched is not None and db_price is None:
+                items.at[idx, 'match_status'] = f"⚠️ 已匹配无价格 [DB={matched.get('name') or ''}]"
+            elif db_price is not None:
                 if pd.isna(original_price) or original_price == 0:
                     items.at[idx, 'match_status'] = f"⚠️ 待填入 [DB={db_price}]"
                 else:

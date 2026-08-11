@@ -53,7 +53,7 @@
           <div v-else class="ap-msg-list">
             <template v-for="m in messages" :key="m.message_id">
               <!-- 需求分析结果：BOM 文本气泡 + 方案卡（融入消息流，不钉底）-->
-              <div v-if="m.kind === 'analysis_result'" class="ap-msg role-assistant">
+              <div v-if="m.kind === 'analysis_result'" class="ap-msg role-assistant ap-msg-result">
                 <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
                 <PlanCard
                   v-for="p in parsePlans(m)"
@@ -103,7 +103,7 @@
             <div v-if="analysisRunning" class="ap-msg role-assistant">
               <div class="ap-bubble"><span class="ap-typing"><i></i><i></i><i></i></span></div>
             </div>
-            <!-- 自然进入选配：聊到服务器但未自动进入 → 对话里给「开始选配」按钮（2026-08）-->
+            <!-- 弱意图兜底：聊到服务器但没命中意图词 → 对话里给「开始选配」按钮 -->
             <div v-if="showConfigCta" class="ap-config-cta">
               <span>听起来您想配置服务器，需要我帮您选配吗？</span>
               <a-button type="primary" size="small" @click="startConfigFromChat">
@@ -267,94 +267,74 @@ const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 
 // 面板贴着 FAB 当前位置打开（FAB 拖到哪儿，面板就跟到哪儿附近）
-const { pos: fabPos, getFabRect } = useAssistantFab()
+const { pos: fabPos, getFabRect, moveClamped, refitToViewport } = useAssistantFab()
 const viewportTick = ref(0)
-
-// 用户拖动后的偏移量（持久化到 sessionStorage）
-const dragOffset = ref({ x: 0, y: 0 })
-const DRAG_KEY = 'assistant-panel-offset'
-
-// 加载已保存的偏移
-onMounted(() => {
-  try {
-    const saved = sessionStorage.getItem(DRAG_KEY)
-    if (saved) {
-      dragOffset.value = JSON.parse(saved)
-    }
-  } catch {
-    /* ignore */
-  }
-})
 
 const panelStyle = computed(() => {
   // 依赖 fabPos / viewportTick 触发重算（FAB 拖动或窗口缩放时跟着挪）
   void fabPos.value
   void viewportTick.value
+  // 窄屏（手机）：面板占满全屏，不再贴 FAB 锚定——像原生 App 的全屏聊天
+  if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+    return { left: '0px', top: '0px', right: 'auto', bottom: 'auto', width: '100vw', height: '100vh', maxHeight: '100vh' }
+  }
   const rect = getFabRect()
-  if (!rect) return undefined // FAB 还没挂载 → 回落 CSS 默认（右下角）
-  const vw = window.innerWidth
-  const vh = window.innerHeight
-  const { left, top, height } = computePanelAnchor(rect, vw, vh)
-  // 应用用户拖动偏移
+  // FAB 还没挂载 / 被隐藏（rect 退化）→ 回落 CSS 默认（右下角），避免面板飞到左上角
+  if (!rect || rect.width === 0) return undefined
+  // 面板以 FAB 为锚、由 computePanelAnchor 夹进视口；不再叠加额外偏移，杜绝跑出页面/远离按钮
+  const { left, top, height } = computePanelAnchor(rect, window.innerWidth, window.innerHeight)
   return {
-    left: left + dragOffset.value.x + 'px',
-    top: top + dragOffset.value.y + 'px',
+    left: left + 'px',
+    top: top + 'px',
     right: 'auto',
     bottom: 'auto',
     height: height + 'px',
     maxHeight: height + 'px',
   }
 })
-function onResize() { viewportTick.value++ }
+function onResize() {
+  // 视口变小 → 把 FAB 也夹回视口，面板随之重算
+  const rect = getFabRect()
+  if (rect && rect.width > 0) refitToViewport(rect.width, rect.height)
+  viewportTick.value++
+}
 onMounted(() => window.addEventListener('resize', onResize))
 onBeforeUnmount(() => window.removeEventListener('resize', onResize))
 
-// 拖动逻辑
+// 拖动逻辑：拖面板 = 同步移动 FAB（夹进视口）。面板以 FAB 为锚 → FAB 不出界面板就不出界，
+// 且每次都贴着 FAB 打开（不再有独立持久化偏移把面板拽远/拽出页面）
 let dragging = false
 let dragStart = { x: 0, y: 0 }
-let offsetStart = { x: 0, y: 0 }
+let fabStart = { x: 0, y: 0 }
+let fabSize = { w: 120, h: 52 }
 
 function startDrag(e: MouseEvent) {
   // 忽略关闭按钮点击
   if ((e.target as HTMLElement).closest('.ap-close')) return
-
+  const rect = getFabRect()
+  if (!rect || rect.width === 0) return
   dragging = true
   dragStart = { x: e.clientX, y: e.clientY }
-  offsetStart = { ...dragOffset.value }
-  // 记录拖动开始时 FAB 的位置（拖面板时 FAB 跟着走，两者不分离）
-
+  fabStart = { x: rect.left, y: rect.top }
+  fabSize = { w: rect.width || 120, h: rect.height || 52 }
   document.addEventListener('mousemove', onDrag)
   document.addEventListener('mouseup', stopDrag)
-
   // 防止选中文字
   e.preventDefault()
 }
 
 function onDrag(e: MouseEvent) {
   if (!dragging) return
-
   const dx = e.clientX - dragStart.x
   const dy = e.clientY - dragStart.y
-
-  dragOffset.value = {
-    x: offsetStart.x + dx,
-    y: offsetStart.y + dy,
-  }
+  moveClamped(fabStart.x + dx, fabStart.y + dy, fabSize.w, fabSize.h)
 }
 
 function stopDrag() {
   if (!dragging) return
   dragging = false
-
   document.removeEventListener('mousemove', onDrag)
   document.removeEventListener('mouseup', stopDrag)
-
-  // 持久化偏移
-  try {
-    sessionStorage.setItem(DRAG_KEY, JSON.stringify(dragOffset.value))
-  } catch {
-    /* ignore */
-  }
 }
 
 // vue-tsc 模板里拿不到全局 document，集中到 script setup 暴露
@@ -395,13 +375,36 @@ function onEnter(e: KeyboardEvent) {
   onSend()
 }
 
+/**
+ * 进入需求分析时拼需求文本 = 本次输入 + 上一次出方案之后的近期用户消息。
+ * 修复：用户分轮表达（先说「AMD 6卡GPU」，再发「帮我配置」）时，触发意图的那句短消息
+ * 会把前面的规格丢掉，导致后端分析完全看不到真实需求、给出无关方案。
+ */
+function buildRequirement(currentText: string): string {
+  const msgs = messages.value
+  // 从最近一次出方案/分析结束之后开始收集（新一轮需求，不混入上一轮已满足的需求）
+  let start = 0
+  for (let i = msgs.length - 1; i >= 0; i--) {
+    const k = msgs[i].kind
+    if (k === 'analysis_result' || k === 'analysis_finished') { start = i + 1; break }
+  }
+  const prior = msgs
+    .slice(start)
+    .filter((m) => m.role === 'user')
+    .map((m) => (m.content || '').trim())
+    .filter(Boolean)
+  const cur = (currentText || '').trim()
+  return [...prior, cur].filter(Boolean).join('\n')
+}
+
 async function onSend() {
   const text = draft.value
   if (!text.trim() || sending.value) return
   draft.value = ''
-  // 2026-08：自然进入 —— 用户直接说「帮我配台服务器/配置服务器/选配…」→ 自动进入需求分析，不用再点按钮
+  // 自然进入：命中意图词（策略中心·需求分析·需求理解节点的 intent_words 可配，改即生效）
+  // → 直接进分析，并带上近期用户消息作为完整需求（避免分轮表达丢需求）
   if (isConfigIntent(text)) {
-    await runAnalysis(text)
+    await runAnalysis(buildRequirement(text))
     return
   }
   const summary = await summarize()
@@ -418,7 +421,7 @@ async function onQuickAction(action: QuickAction) {
 
 const router = useRouter()
 
-// ── 自然进入选配：弱意图兜底按钮（聊到服务器但没强到直接进分析）──
+// ── 弱意图兜底：提到服务器但没命中意图词 → 对话里给「开始选配」按钮，点进去带近期需求进分析 ──
 const lastUserText = computed(() => {
   for (let i = messages.value.length - 1; i >= 0; i--) {
     if (messages.value[i].role === 'user') return messages.value[i].content || ''
@@ -429,9 +432,9 @@ const showConfigCta = computed(() =>
   !analysisActive.value && !analysisPrompt.value && !analysisRunning.value &&
   hasServerWord(lastUserText.value) && !isConfigIntent(lastUserText.value))
 function startConfigFromChat() {
-  const t = lastUserText.value.trim()
-  if (!t) return
-  runAnalysis(t)
+  // lastUserText 已在 messages 里 → 传空串，buildRequirement 会把它和更早的需求一起带上（不重复）
+  if (!lastUserText.value.trim()) return
+  runAnalysis(buildRequirement(''))
 }
 
 // ── 需求分析：反问回复（ask_user）──
@@ -879,6 +882,11 @@ function onDeleteThread(id: string) {
 }
 .ap-plan-card {
   max-width: 100%;
+}
+/* 需求分析结果：文本气泡 + 方案卡纵向堆叠（.ap-msg 默认 row-flex 会把两者并排挤成两栏、且等高拉伸把卡片撑得特别长） */
+.ap-msg-result {
+  flex-direction: column;
+  gap: 8px;
 }
 .ap-bubble.err {
   display: flex;

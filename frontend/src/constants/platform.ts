@@ -5,7 +5,7 @@
 export const PLAT_COLOR: Record<string, string> = {
   Orion: '#0EA5E9',
   Polaris: '#FF3B5C',
-  Intel: '#8A94A8',
+  Intel: '#1D4ED8',
   工作站: '#A855F7',
   'INTEL&Orion': '#8A94A8',  // 混合平台（特殊业务值，迁移不动）
   其他: '#6B7280',

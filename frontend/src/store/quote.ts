@@ -31,6 +31,7 @@ export interface Item {
   profit_margin: number
   final_price: number
   currency: string
+  item_id?: number
   match_status?: string
   db_price?: number | null
   db_currency?: string | null
@@ -455,8 +456,7 @@ export const useQuoteStore = defineStore('quote', () => {
       if (item.currency === 'USD') {
         unitSales = base * exchangeRate.value * (1 + taxRate.value) * (1 + (item.profit_margin || 10) / 100)
       } else {
-        const marginDec = (item.profit_margin || 10) > 1 ? (item.profit_margin || 10) / 100 : (item.profit_margin || 10)
-        unitSales = base * (1 + marginDec)
+        unitSales = base * (1 + (item.profit_margin || 10) / 100)
       }
 
       const lineSales = unitSales * qty
@@ -526,8 +526,7 @@ export const useQuoteStore = defineStore('quote', () => {
         if (item.currency === 'USD') {
           unitPrice = unitPrice * exchangeRate.value * (1 + taxRate.value) * (1 + item.profit_margin / 100)
         } else {
-          const marginDecimal = item.profit_margin > 1 ? item.profit_margin / 100 : item.profit_margin
-          unitPrice = unitPrice * (1 + marginDecimal)
+          unitPrice = unitPrice * (1 + item.profit_margin / 100)
         }
 
         item.final_price = Math.round(unitPrice * 100) / 100

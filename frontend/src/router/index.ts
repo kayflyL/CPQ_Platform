@@ -109,6 +109,12 @@ const routes = [
         component: () => import('@/views/server-admin/ModelEditorPage.vue'),
         meta: { title: '编辑机型', perm: 'page.settings.admin' }
       },
+      {
+        path: '/servers/drawing/:modelId',
+        name: 'ServerDrawingConfig',
+        component: () => import('@/views/admin/ServerDrawingConfig.vue'),
+        meta: { title: '服务器图纸配置', perm: 'page.settings.admin' }
+      },
 
       {
         path: '/excel-parser',

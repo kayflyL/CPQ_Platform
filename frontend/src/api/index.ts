@@ -170,7 +170,7 @@ export const quotationApi = {
     const response = await api.post(`/quotations/${quotationId}/items`, data)
     return response.data
   },
-  
+
   batchDelete: async (quotationIds: string[]) => {
     const response = await api.post('/quotations/batch-delete', { quotation_ids: quotationIds })
     return response.data

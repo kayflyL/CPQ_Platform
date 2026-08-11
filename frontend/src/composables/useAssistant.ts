@@ -90,6 +90,11 @@ export function useAssistant() {
       if (s.status === 'pending' || s.status === 'running') s.status = 'done'
     })
   }
+  /** 分析走到终点（结果已进消息流）→ 收起步骤时间线，否则它会一直挂在输入框上方、不被新消息顶走 */
+  function endAnalysisTimeline() {
+    analysisSteps.value = []
+    analysisActive.value = false
+  }
   function resetAnalysis() {
     analysisSteps.value = []
     analysisRunning.value = false
@@ -151,7 +156,7 @@ export function useAssistant() {
         return
       case 'pipeline_done':
         analysisRunning.value = false
-        finishAnalysisSteps()
+        endAnalysisTimeline()
         return
       case 'error':
         analysisError.value = data.message || '推理流程异常'
@@ -164,9 +169,11 @@ export function useAssistant() {
         // 需求分析结果消息（BOM 文本）→ 推进对话流（企微端也推同一段文本）
         analysisRunning.value = false
         if (data.message) messages.value.push(data.message as AssistantMessage)
+        endAnalysisTimeline()
         return
       case 'analysis_finished':
         analysisRunning.value = false
+        endAnalysisTimeline()
         return
       case 'chunk':
         if (typeof data.delta === 'string') {

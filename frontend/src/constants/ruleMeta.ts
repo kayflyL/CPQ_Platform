@@ -1,12 +1,12 @@
 /**
  * CRE 选型规则元数据 SSOT —— 兼容性规则编辑器(CompatibilityRuleEditor) 与
- * 规则拓扑图(CompatibilityImpactGraph / ImpactNode) 共用的唯一真相源。
+ * 选配消费端(ConfigWizard / Workspace) 共用的唯一真相源。
  *
  * 集中三类元数据，杜绝 label / 色值 / 符号 / 展示文案散落多处裸字面导致漂移：
- *   ① 规则类型（label + 语义色 CSS var + VueFlow edge/SVG 需要的真实 hex）
+ *   ① 规则类型（label + 语义色 CSS var + 真实 hex）
  *   ② 操作符（符号即展示文本）
  *   ③ CRE ctx 字段命名空间与 config/opportunity 字段中文
- *   ④ 拓扑图 / 卡片展示文案与符号
+ *   ④ 卡片展示文案与符号
  *
  * 注意：config.* 是 CRE 引擎上下文派生字段，不属于商机字段表
  *       也不属于料号 spec 字段族(partSpecFields)，故在此独立维护。
@@ -53,6 +53,29 @@ export const OPP_FIELD_LABEL: Record<string, string> = { platform_type: '平台�
 export function ctxFieldLabel(ns: string, key: string): string {
   const tbl = ns === 'config' ? CONFIG_FIELD_LABEL : ns === 'opportunity' ? OPP_FIELD_LABEL : null
   return tbl ? (tbl[key] ?? key) : key
+}
+
+/** KP 品类中文（CRE ctx.kp 命名空间：规则条件 kp.<cat>.qty / .spec.<key>） */
+export const KP_CATEGORY_LABEL: Record<string, string> = {
+  Memory: '内存', CPU: 'CPU', GPU: 'GPU', NIC: '网卡', PSU: '电源',
+  'HDD/SSD': '硬盘', 'GPU供电线': 'GPU供电线', 线缆: '线缆', 背板: '背板',
+}
+/** KP spec 键中文 */
+export const KP_SPEC_LABEL: Record<string, string> = {
+  model: '型号', socket: '插槽', cores: '核心', kind: '类型', interface: '接口',
+  capacity: '容量', tdp: '功耗', wattage: '功率', brand: '品牌', gen: '代次',
+}
+/** 规则条件字段路径 → 友好中文（卡片一行触发条件渲染用，未登记回退原 key） */
+export function humanizeFieldPath(path: string): string {
+  if (!path) return ''
+  const m = path.match(/^kp\.(.+?)\.(qty|spec\.(.+))$/)
+  if (m) {
+    const cat = KP_CATEGORY_LABEL[m[1]] ?? m[1]
+    return m[2] === 'qty' ? `${cat}数量` : `${cat}${KP_SPEC_LABEL[m[3]] ?? m[3]}`
+  }
+  if (path.startsWith('config.')) return CONFIG_FIELD_LABEL[path.slice(7)] ?? path.slice(7)
+  if (path.startsWith('opportunity.')) return OPP_FIELD_LABEL[path.slice(11)] ?? path.slice(11)
+  return path
 }
 
 // ── ④ 拓扑图 / 卡片展示文案与符号（字面集中，编辑器与拓扑图共用）──
@@ -120,30 +143,8 @@ export function isBlockingSeverity(severity: AlertSeverity | string): boolean {
   return !!_ALERT_SEV_MAP[severity as AlertSeverity]?.blocking
 }
 
-// ── ⑥ 规则业务分类（category）配色 SSOT ──
+// ── ⑥ 规则业务分类（category）seed ──
 // category 是用户可自定义的开放标签（后端 DISTINCT 驱动，非固定枚举）。
-// 故只给 seed 预置项指定「语义色」，再用马卡龙调色板按分类名稳定散列取色，
-// 让用户新建的任意分类也拿到一致颜色——杜绝组件内裸写色值/三元式。
-// seed 分类（与 backend DEFAULT_RULES 的 category 一致；过滤条/分组按此顺序排前）
+// seed 分类（与 backend DEFAULT_RULES 的 category 一致）；过滤条/分组按此顺序排前。
+// 分类着色已移除——开放标签不做语义化上色，过滤条统一白玻璃+蓝边激活（Glass Console）。
 export const RULE_CATEGORY_SEED: string[] = ['背板与线缆', '核心件互斥']
-// seed 分类的语义色（互斥→红、线缆→紫，呼应规则类型色语义）
-export const RULE_CATEGORY_COLOR: Record<string, string> = {
-  '背板与线缆': 'var(--cpq-color-purple)',
-  '核心件互斥': 'var(--cpq-accent-danger)',
-}
-// 马卡龙调色板（Glass Console 语义色同源），用户自建分类按名稳定散列落入
-export const CATEGORY_PALETTE: string[] = [
-  'var(--cpq-accent-primary)',
-  'var(--cpq-color-success)',
-  'var(--cpq-accent-warning)',
-  'var(--cpq-color-purple)',
-  'var(--cpq-accent-danger)',
-]
-/** 分类色：seed 项走语义色表，其余按名稳定散列取调色板；空分类走弱化文本色 */
-export function categoryColor(name: string | null | undefined): string {
-  if (!name) return 'var(--cpq-text-muted)'
-  if (RULE_CATEGORY_COLOR[name]) return RULE_CATEGORY_COLOR[name]
-  let h = 0
-  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
-  return CATEGORY_PALETTE[h % CATEGORY_PALETTE.length]
-}

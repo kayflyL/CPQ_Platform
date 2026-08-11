@@ -230,6 +230,8 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
         return { pn: k, n, group: CABLE_PER[k] ?? ('-' as const), price: 0, name: '' }
       },
     }
+    // OCP 转接适配板（模板 OCP 行 qty）：rear 默认含 OCP（rearForPlan/defaultRearFrom 兜底 ocp_x8）→ 1
+    ctx.vars.ocp_qty = (rear['OCP'] || []).filter(t => t !== 'blank').length > 0 ? 1 : 0
     const bom_context = evalBomContext(rows, ctx)
     return { bom_source: 'live', bom_template: { rows }, bom_context, rear, items }
   } catch {

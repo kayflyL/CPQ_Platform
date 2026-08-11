@@ -1,6 +1,6 @@
 # 商机详情页 (OpportunityDetail)
 
-> 最后更新：2026-08-01
+> 最后更新：2026-08-10
 
 ## 功能概述
 
@@ -119,7 +119,7 @@
 | `opportunities` | `quotations` | 报价单列表（template_json 存配置） |
 | `opportunities` | `opportunity_files` | *已废弃*（代码层移除，DROP sql 待执行） |
 | `rules` | `business_fields` | 动态字段定义 |
-| `rules` | `system_config` | 全局可配置项（key-value）：`profit_margin_alert_threshold` 利润率告警阈值、`default_markup_coefficient` 加成系数（未来统筹配置页遍历此表） |
+| `rules` | `system_config` | 全局可配置项（key-value）：`default_markup_coefficient` 加成系数、`tax_rate`/`usd_to_rmb`/`warranty_fee_rate` 等（未来统筹配置页遍历此表）。注：利润率告警不在本表，走独立策略 `pricing.margin_alert`（见工作台） |
 | `public` | `comments` | 商机评论/批注 |
 
 ## 关键组件

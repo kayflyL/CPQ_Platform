@@ -10,8 +10,9 @@
         :key="col.category"
         class="archive-col"
         :class="{ dragging: draggingCategory === col.category }"
-        @dragover.prevent="draggingCategory = col.category"
-        @dragleave.prevent="draggingCategory = draggingCategory === col.category ? null : draggingCategory"
+        @dragenter.prevent="onDragEnter(col.category)"
+        @dragover.prevent
+        @dragleave.prevent="onDragLeave(col.category)"
         @drop.prevent="onDrop(col.category, $event)"
       >
         <div class="col-head">
@@ -54,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, DownloadOutlined, DeleteOutlined, SwapOutlined,
@@ -76,6 +77,9 @@ const columns = [
 ] as const
 
 const draggingCategory = ref<string | null>(null)
+// 拖入/拖出计数器：分类列内的子元素会让浏览器在父容器上误触发 dragleave，
+// 用计数器抵消，只有真正离开整列才清高亮（解决拖入时蓝色一闪一闪）
+const dragCounters = reactive<Record<string, number>>({})
 const fileInputs = reactive<Record<string, HTMLInputElement | null>>({})
 
 const items = (category: string) => (props.attachments || []).filter((a) => a.category === category)
@@ -104,10 +108,44 @@ function onFilePicked(category: string, e: Event) {
   uploadFiles(category, Array.from(target.files || []))
   target.value = ''
 }
+function onDragEnter(category: string) {
+  dragCounters[category] = (dragCounters[category] || 0) + 1
+  draggingCategory.value = category
+}
+function onDragLeave(category: string) {
+  const c = Math.max(0, (dragCounters[category] || 0) - 1)
+  dragCounters[category] = c
+  if (c === 0 && draggingCategory.value === category) draggingCategory.value = null
+}
 function onDrop(category: string, e: DragEvent) {
+  for (const k of Object.keys(dragCounters)) dragCounters[k] = 0
   draggingCategory.value = null
   uploadFiles(category, Array.from(e.dataTransfer?.files || []))
 }
+
+// 兜底：拦截整页文件拖放的浏览器默认行为（打开/下载文件），
+// 确保松手落空或落在分类列之外时绝不触发下载——只有分类列的 drop 才真正上传
+function isFileDrag(e: DragEvent) {
+  return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files')
+}
+function onWindowDragOver(e: DragEvent) {
+  if (isFileDrag(e)) e.preventDefault()
+}
+function onWindowDrop(e: DragEvent) {
+  if (!isFileDrag(e)) return
+  e.preventDefault()
+  // 落到分类列之外：清掉残留高亮（落在列内时由上面的 onDrop 处理上传）
+  for (const k of Object.keys(dragCounters)) dragCounters[k] = 0
+  draggingCategory.value = null
+}
+onMounted(() => {
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('drop', onWindowDrop)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('drop', onWindowDrop)
+})
 
 async function remove(a: FeedAttachment) {
   // 通过 emit 让父组件调用 useFeedSocket.deleteAttachment

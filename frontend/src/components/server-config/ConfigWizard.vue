@@ -13,6 +13,7 @@ import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import KpCategoryCard from '@/components/server-config/KpCategoryCard.vue'
 import SpecSheet from '@/components/server-config/SpecSheet.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
+import { useAuthStore } from '@/store/auth'
 import { fromKpPart } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
@@ -21,6 +22,9 @@ import { normalizeDriveKind } from '@/stores/selectionEngine'
 
 const props = defineProps<{ model: ServerModel }>()
 const selectionRulesStore = useSelectionRulesStore()
+const auth = useAuthStore()
+/** 服务器配置页价格可见性（字段级权限；无权限直接隐藏价格，不出现 *** 掩码） */
+const priceVisible = computed(() => auth.can('field.server.price'))
 
 // ---- KP 核心配件（扁平 kpLines；卡片是 groupBy 视图）----
 const kpLines = ref<{ cat: string; pn: string; qty: number }[]>([])
@@ -44,11 +48,15 @@ const specConfigs = computed(() => {
     for (const row of tpl.rows) {
       const key = row.slot || row.type
       const v = ctx[key] || {}
+      const desc = v.desc || ''
+      const qty = v.qty || ''
+      // 空行隐藏：desc 与 qty 都为空（含 0）→ 整行不显示（与左栏 BomTable 一致）
+      if (!desc && (qty === '' || qty == null || qty === 0)) continue
       l6Details.push({
         catalogue: row.label || '',
-        description: v.desc || '',
+        description: desc,
         part_category: '',
-        qty: v.qty || '',
+        qty,
         category: 'L6',
         final_price: 0,
       })
@@ -409,7 +417,7 @@ onMounted(() => {
         </div>
 
         <!-- KP 配件合计 -->
-        <div class="kp-total-bar cpq-stream-edge">
+        <div v-if="priceVisible" class="kp-total-bar cpq-stream-edge">
           <span>KP 配件合计 <b>¥<CountNumber :value="kpTotal" /></b></span>
           <span class="kp-total-hint">CPU + 内存 + 硬盘 + GPU + 网卡 + …</span>
         </div>
@@ -418,15 +426,15 @@ onMounted(() => {
       <!-- 右栏：成本汇总 + 保存 -->
       <div class="sc-col-right">
         <div class="sc-cost-card glass cpq-stream-edge">
-          <div class="cc-hero">
+          <div v-if="priceVisible" class="cc-hero">
             <span class="cc-hero-label">整机总价</span>
             <span class="cc-hero-val">¥<CountNumber :value="grand" /></span>
           </div>
-          <div class="cc-row">
+          <div v-if="priceVisible" class="cc-row">
             <span class="cc-row-label">机箱成本（L6）</span>
             <span class="cc-row-val">¥<CountNumber :value="l6Total" /></span>
           </div>
-          <div class="cc-row">
+          <div v-if="priceVisible" class="cc-row">
             <span class="cc-row-label">KP 配件成本</span>
             <span class="cc-row-val">¥<CountNumber :value="kpTotal" /></span>
           </div>

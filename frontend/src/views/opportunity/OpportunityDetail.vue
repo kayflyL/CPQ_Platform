@@ -291,7 +291,7 @@
       v-model:open="showRecycleBin"
       title="回收站"
       placement="right"
-      width="600"
+      :width="'min(600px, 100vw)'"
       :destroyOnClose="false"
     >
       <div class="recycle-header">
@@ -1295,6 +1295,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 24px;
 }
 
@@ -1302,6 +1304,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-width: 0;
 }
 
 .back-btn {
@@ -1330,6 +1333,11 @@ onBeforeUnmount(() => {
   font-size: 22px;
   font-weight: 600;
   color: var(--cpq-text-primary);
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-indicator {
@@ -1874,5 +1882,26 @@ onBeforeUnmount(() => {
 .sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .sk-card { padding: 16px; border-radius: 12px; }
 @media (max-width: 900px) { .sk-grid { grid-template-columns: 1fr; } }
+/* ── 窄屏适配：信息卡列数收窄，避免行内输入被裁切；头部/操作区允许换行 ── */
+@media (max-width: 1100px) {
+  .info-card { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 860px) {
+  .info-card { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .opportunity-detail-page { padding: 0 12px; }
+  .header-right { flex-wrap: wrap; }
+  .section-header { flex-wrap: wrap; gap: 8px; }
+  .quo-top { flex-wrap: wrap; row-gap: 4px; }
+  .batch-bar { flex-wrap: wrap; gap: 8px; }
+  .info-status-bar { flex-wrap: wrap; }
+  .requirement-card .card-head { flex-wrap: wrap; row-gap: 4px; }
+}
+@media (max-width: 600px) {
+  .info-row { flex-direction: column; align-items: stretch; gap: 6px; }
+  .info-label { width: auto; text-align: left; padding-right: 0; }
+  .info-value { flex: none; flex-wrap: wrap; }
+}
 
 </style>

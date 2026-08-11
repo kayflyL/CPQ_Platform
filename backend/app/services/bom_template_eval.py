@@ -227,6 +227,18 @@ def eval_l6_rows(template_id: int, base_config_id: int,
         cable_parts.append(f"{(-(-drives['NVMe'] // 2)) * 2} NVMe Cable")
     cable_desc = "，".join(cable_parts)
 
+    # OCP 网络槽（与前端 defaultRearFrom 同口径）：rear_slots 含 OCP 槽 → 默认 ocp_x8 适配板
+    _rear_slots = bc.get("rear_slots") or []
+    if isinstance(_rear_slots, str):
+        try:
+            _rear_slots = json.loads(_rear_slots)
+        except Exception:
+            _rear_slots = []
+    _has_ocp = any(
+        isinstance(s, dict) and _norm(str(s.get("name") or "")) == "ocp"
+        for s in _rear_slots
+    )
+
     _cc = bc.get("config_content") or {}
     vars_ = {
         "bays": bc.get("bays") or "",
@@ -245,6 +257,7 @@ def eval_l6_rows(template_id: int, base_config_id: int,
         "gpu_power_cord_desc": gpu_cord_desc,
         "nvme_count": nvme_count,
         "cable_desc": cable_desc,
+        "ocp_qty": 1 if _has_ocp else 0,
     }
 
     out = []
@@ -290,6 +303,10 @@ def _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count, drives) -> Option
             # 不硬编码任何 riser 文案。装 GPU → 全槽 riser_x16；高带宽网卡(100G+) → IO1 riser_x16；
             # 否则按槽位 standard_riser；无数据 → None 留空手填。
             slot = _norm((row or {}).get("slot") or "")
+            # OCP 网络槽（独立分段，不占 PCIe）：desc 跟适配板默认（ocp_x8）走，与前端 defaultRearFrom 同口径；
+            # 无 OCP 槽 → None（配合 qty ocp_qty=0 → 整行隐藏）
+            if slot == "ocp":
+                return "OCP 3.0 X8" if vars_.get("ocp_qty") else None
             _x16 = vars_.get("riser_x16")
             if gpu_qty > 0:
                 return str(_x16) if _x16 else None

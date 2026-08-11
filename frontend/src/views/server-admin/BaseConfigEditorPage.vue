@@ -5,12 +5,12 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { baseConfigApi, partsApi, bomTemplateApi, rearIOApi, type BomTemplate, type PartMaster, type RearIOSlotOption, type RearIOItem } from '@/api/serverConfig'
+import { catalogApi, baseConfigApi, partsApi, bomTemplateApi, rearIOApi, type BomTemplate, type PartMaster, type RearIOSlotOption, type RearIOItem, type ServerType } from '@/api/serverConfig'
 import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
 import { useSeriesStore } from '@/stores/series'
 import PartPicker from '@/components/common/PartPicker.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
-import { DEFAULT_REAR_SLOTS, rearSlotsFor, rearIOBucket, optionLabel, CORE_DRIVE_KINDS, gpuArchOptionsFor, formDefaults, PSU_WATTAGE_OPTIONS } from '@/constants/chassisMeta'
+import { DEFAULT_REAR_SLOTS, rearSlotsFor, rearIOBucket, optionLabel, optionShortLabel, REAR_SLOT_SUPPORT, CORE_DRIVE_KINDS, gpuArchOptionsFor, formDefaults, PSU_WATTAGE_OPTIONS } from '@/constants/chassisMeta'
 import { driveKindOf } from '@/utils/partFit'
 
 const route = useRoute()
@@ -21,6 +21,7 @@ const saving = ref(false)
 const loading = ref(false)
 const form = ref<any>({
   name: '', series: '', form: '2U', bays: 12, bom_template_id: null,
+  server_type_id: null as number | null,
   // 机箱能力档案（物理边界：电源槽位 / GPU 槽 / TDP / 架构 —— 在⑤处理器、⑦供电、⑨扩展分组内编辑）
   psu_bays: 2, gpu_slots: 0, max_tdp: null as number | null, gpu_arch_default: 'none',
   // 机箱能力约束（PSU 档位 / CPU 上限 / 内存条数上限 / 每路通道数）：缺省走全局兜底，拒绝硬编码
@@ -42,6 +43,7 @@ const templates = ref<BomTemplate[]>([])
 const seriesStore = useSeriesStore()
 const seriesOptions = seriesStore.items  // 全平台系列权威源（system_config.server_series）
 const formOptions = ref<OptionItem[]>([{ value: '2U', label: '2U' }, { value: '4U', label: '4U' }])
+const types = ref<ServerType[]>([])   // 机型类型（通用计算 / AI / 存储），驱动编辑机型页下拉过滤
 let uidSeq = 1
 
 // 整机解剖分组骨架（视图数据；③后面板已激活，其余待逐节承接）
@@ -105,6 +107,24 @@ function cardCandidates(slot: any, type: string): RearIOItem[] {
 function cardPrice(slot: any, type: string): number {
   return cardPns(slot, type).reduce((s, pn) => s + (rearItemMap.value[pn]?.price || 0), 0)
 }
+/** 该槽已装类型卡摘要：一类型=1 张卡，多料=捆绑组成件（不是数量）。
+ * 例：IO1="X16 + X8"；IO3="X8 + NVMe + SATA(3件捆绑)"；空槽显示 空。 */
+function slotSpecSummary(slot: any): string {
+  const segs: string[] = []
+  for (const t of optionTypes(slot.name)) {
+    const pns = cardPns(slot, t)
+    if (pns.length) segs.push(pns.length > 1 ? `${optionShortLabel(t)}(${pns.length}件捆绑)` : optionShortLabel(t))
+  }
+  return segs.join(' + ') || '空'
+}
+/** 该槽已装类型卡的支持设备提示（展示层文案，去重） */
+function slotSupport(slot: any): string {
+  const set = new Set<string>()
+  for (const t of optionTypes(slot.name)) {
+    if (cardPns(slot, t).length && REAR_SLOT_SUPPORT[t]) set.add(REAR_SLOT_SUPPORT[t])
+  }
+  return [...set].join(' / ')
+}
 function addPn(slot: any, pn: any) {
   const arr = slot.defaults || (slot.defaults = [])
   if (pn && !arr.includes(pn)) arr.push(String(pn))
@@ -151,12 +171,14 @@ async function init() {
     const [partsRes, tplRes] = await Promise.all([partsApi.list({ page_size: 1000 }), bomTemplateApi.list()])
     allParts.value = partsRes.parts
     templates.value = tplRes.templates || []
+    types.value = (await catalogApi.listTypes()).types
     const id = route.params.id as string | undefined
     if (id && id !== 'new') {
       editingId.value = Number(id)
       const full: any = await baseConfigApi.get(editingId.value)
       form.value = {
         name: full.name, series: full.series || '', form: full.form || '2U', bays: full.bays ?? 12, bom_template_id: full.bom_template_id ?? null,
+        server_type_id: full.server_type_id ?? null,
         // 机箱能力档案（full 来自 baseConfigApi.get，含 psu_bays/rear_slots/gpu_slots/max_tdp/gpu_arch_default）
         psu_bays: full.psu_bays ?? 2, gpu_slots: full.gpu_slots ?? 0,
         max_tdp: full.max_tdp ?? null, gpu_arch_default: full.gpu_arch_default ?? 'none',
@@ -235,6 +257,7 @@ async function save() {
     const payload: any = {
       name: form.value.name, series: form.value.series, model: form.value.name,
       form: form.value.form, bays: form.value.bays, bom_template_id: form.value.bom_template_id ?? null,
+      server_type_id: form.value.server_type_id ?? null,
       // 机箱能力档案（原 ChassisCapabilityEditor 编辑的字段，现并入；修掉历史 gpu_arch_default 写死 'none' 的 clobber 坑）
       psu_bays: Number(form.value.psu_bays) || 0,
       gpu_slots: Number(form.value.gpu_slots) || 0,
@@ -320,10 +343,11 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
             <div class="bc-card-head"><span class="bc-card-tag">基准信息</span></div>
             <a-form layout="vertical" :disabled="loading">
               <a-row :gutter="12">
-                <a-col :span="10"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 Orion-2U-标准型" /></a-form-item></a-col>
-                <a-col :span="5"><a-form-item label="系列"><a-select v-model:value="form.series"><a-select-option v-for="o in seriesOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
-                <a-col :span="4"><a-form-item label="形态"><a-select v-model:value="form.form"><a-select-option v-for="o in formOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
-                <a-col :span="5"><a-form-item label="盘位"><a-input-number v-model:value="form.bays" :min="1" style="width:100%" /></a-form-item></a-col>
+                <a-col :span="8"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 Orion-2U-标准型" /></a-form-item></a-col>
+                <a-col :span="6"><a-form-item label="类型"><a-select v-model:value="form.server_type_id" allow-clear placeholder="选择机型类型"><a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option></a-select></a-form-item></a-col>
+                <a-col :span="4"><a-form-item label="系列"><a-select v-model:value="form.series"><a-select-option v-for="o in seriesOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
+                <a-col :span="3"><a-form-item label="形态"><a-select v-model:value="form.form"><a-select-option v-for="o in formOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
+                <a-col :span="3"><a-form-item label="盘位"><a-input-number v-model:value="form.bays" :min="1" style="width:100%" /></a-form-item></a-col>
               </a-row>
               <a-form-item label="BOM 模板">
                 <a-select v-model:value="form.bom_template_id" allow-clear placeholder="(可选 — 报价时按模板推导)">
@@ -347,20 +371,24 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                    多料组成捆绑卡(价=合计)。一槽可多类型。defaults 存 PN 列表；配置页据此算类型卡→只调数量(电源除外)。 -->
               <div v-if="s.n === 3" class="rear-editor">
                 <div class="rear-ctrl">
-                  <span class="rear-ctrl-hint">每张类型卡内"+加料"选具体料号（多料=捆绑，价=合计）→ 配置页据此自动填好、只能给整张卡调数量不能换料。一个槽可同时配 X8 和 X16。槽名 / 容量在槽头编辑。</span>
                   <a-space :size="6">
                     <a-button size="small" @click="addSlot">+ 槽位</a-button>
                     <a-button size="small" type="link" @click="resetSlots">恢复标准布局</a-button>
                   </a-space>
                 </div>
 
-                <div class="sc-section-head"><span class="sh-tag">PCIe IO 槽位</span><span class="sh-note">每张类型卡内选料号 · 多料组成捆绑卡</span></div>
+                <div class="sc-section-head"><span class="sh-tag">PCIe 扩展能力</span><span class="sh-note">能力与默认结构件 · 每张类型卡内选料号，多料组成捆绑卡；标准 riser 规格留空 = 该槽留空手填</span></div>
                 <div class="rear-grid" :style="{ gridTemplateColumns: `repeat(${ioSlots.length || 1}, minmax(0,1fr))` }">
                   <div class="slot-col" v-for="s2 in ioSlots" :key="rearIndex(s2)">
                     <div class="slot-col-head">
                       <a-input v-model:value="s2.name" placeholder="IO1" class="slot-name-in" />
                       <a-input-number v-model:value="s2.cap" :min="0" :max="12" :controls="false" class="slot-cap-in" />
                       <a-button danger size="small" class="slot-del" @click="removeSlot(rearIndex(s2))">✕</a-button>
+                    </div>
+                    <div class="slot-sum">
+                      <span class="sum-line">规格：<b>{{ slotSpecSummary(s2) }}</b></span>
+                      <span class="sum-line" v-if="slotSupport(s2)">支持：<b>{{ slotSupport(s2) }}</b></span>
+                      <span class="sum-line std-riser-line"><span class="std-riser-lab">标准 riser 规格</span><a-input v-model:value="form.configContent.standard_riser[s2.name]" size="small" class="std-riser-in" placeholder="如 1*X16+1*X8 FHFL" /></span>
                     </div>
                     <div class="type-card" v-for="t in optionTypes(s2.name)" :key="t"
                          :class="{ active: cardPns(s2, t).length }">
@@ -388,7 +416,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 </div>
 
                 <template v-if="ocpSlot">
-                  <div class="sc-section-head sh-gap"><span class="sh-tag">网络 · OCP 网卡</span><span class="sh-note">独立接口，不占 PCIe 槽</span></div>
+                  <div class="sc-section-head sh-gap"><span class="sh-tag">网络扩展 · OCP 接口</span><span class="sh-note">OCP 转接适配板 · 支持 OCP 3.0 网络模块，不占 PCIe 槽</span></div>
                   <div class="ocp-cards">
                     <div class="type-card" v-for="t in optionTypes(ocpSlot.name)" :key="t"
                          :class="{ active: cardPns(ocpSlot, t).length }">
@@ -414,14 +442,14 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 </template>
 
                 <div class="rear-x16">
-                  <label class="rear-x16-lab">升级规格 riser_x16（装 GPU / 100G+ 网卡时全槽取此规格）</label>
+                  <label class="rear-x16-lab">PCIe 扩展升级规则</label>
+                  <div class="rear-x16-note">装 GPU（≥1 张）→ 全部 IO 槽应用此规格；含 100G/200G/400G 网卡 → IO1 应用此规格；留空 = 装 GPU 时对应行留空手填</div>
                   <a-input v-model:value="form.configContent.riser_x16" placeholder="如 1*X16+1*X8 FHFL" />
                 </div>
               </div>
 
               <!-- ② 前面板：按盘类(SATA/SAS/NVMe)选默认线缆料号（软默认，配置页预填可改） -->
               <div v-else-if="s.n === 2" class="front-panel">
-                <span class="rear-ctrl-hint">为每类硬盘选一条默认线缆 → 配置页按此预填、用户可再改。数量由配置页按盘数推导。</span>
                 <div class="front-cards">
                   <div class="type-card" v-for="k in CORE_DRIVE_KINDS" :key="k"
                        :class="{ active: !!cablePickedPn(k) }">
@@ -450,13 +478,11 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
               <!-- ⑦ 供电：电源槽位 / PSU 档位 / 默认型号（软默认，配置页预填可改） -->
               <div v-else-if="s.n === 7" class="psu-panel">
                 <div class="capability-block">
-                  <span class="rear-ctrl-hint">电源物理边界与档位：PSU 推断结果收敛到所选档位（留空=不限，沿用全局档位）。</span>
                   <a-row :gutter="12">
                     <a-col :span="6"><div class="cap-item"><span class="cap-lab">电源槽位</span><a-input-number v-model:value="form.psu_bays" :min="0" :max="8" style="width:100%" /></div></a-col>
                     <a-col :span="18"><div class="cap-item"><span class="cap-lab">PSU 瓦数档位 (W)</span><a-select v-model:value="form.psu_wattages" mode="tags" placeholder="留空=不限（沿用全局档位）；如 ES22V3-P=[1300,1600,2000]" :options="PSU_WATTAGE_OPTIONS.map(v => ({ value: v, label: v + 'W' }))" style="width:100%" /></div></a-col>
                   </a-row>
                 </div>
-                <span class="rear-ctrl-hint">默认 PSU 型号给配置页预填、用户可再改（电源型号不锁死）。</span>
                 <div class="psu-row-edit">
                   <label class="psu-lab-edit">默认 PSU 型号</label>
                   <a-select v-if="psuOptions.length" class="psu-sel-edit"
@@ -478,7 +504,6 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 
               <!-- ① 机箱主体：机箱 / 辅料 / 线缆固定件（能力/约束字段已归各分组） -->
               <div v-else-if="s.n === 1" class="section-parts">
-                <span class="rear-ctrl-hint">机箱 / 辅料 / 线缆固定件（随机箱，配置页不调）。</span>
                 <div class="line-list">
                   <div class="line-block" v-for="l in linesForSection(1)" :key="l.uid">
                     <div class="line-row">
@@ -498,7 +523,6 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 
               <!-- ⑥ 内存：条数上限 / 每路通道数 / 标准速率（能力属性；内存条是 KP 配置件，不进基准） -->
               <div v-else-if="s.n === 6" class="section-parts">
-                <span class="rear-ctrl-hint">内存条是 KP 配置件（配置页选）；这里存机型的「内存物理边界与标准」——容量反推按「每路通道数 × CPU 路数」选条数、不超过条数上限；需求未写速率时按标准速率选件。</span>
                 <a-row :gutter="12">
                   <a-col :span="8"><div class="cap-item"><span class="cap-lab">内存条数上限</span><a-input-number v-model:value="form.max_dimm" :min="1" :max="64" style="width:100%" /></div></a-col>
                   <a-col :span="8"><div class="cap-item"><span class="cap-lab">每路通道数</span><a-input-number v-model:value="form.mem_channels" :min="1" :max="24" style="width:100%" /></div></a-col>
@@ -510,7 +534,6 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
               <div v-else-if="anatomyMajor(s.n)" class="section-parts">
                 <!-- ⑤ 处理器：CPU 物理边界（颗数上限 / 散热·供电承载 TDP 上限） -->
                 <div v-if="s.n === 5" class="capability-block">
-                  <span class="rear-ctrl-hint">CPU 物理边界：颗数上限、散热/供电承载的 TDP 上限。</span>
                   <a-row :gutter="12">
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">CPU 颗数上限</span><a-input-number v-model:value="form.max_cpu" :min="1" :max="8" style="width:100%" /></div></a-col>
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">CPU TDP 上限 (W)</span><a-input-number v-model:value="form.max_tdp" :min="0" placeholder="可空" style="width:100%" /></div></a-col>
@@ -518,13 +541,11 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 </div>
                 <!-- ⑨ 扩展：GPU 槽上限 / 默认拓扑架构 -->
                 <div v-if="s.n === 9" class="capability-block">
-                  <span class="rear-ctrl-hint">扩展物理边界：可装 GPU 槽位上限、默认拓扑架构（direct/switch）。</span>
                   <a-row :gutter="12">
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">GPU 槽上限</span><a-input-number v-model:value="form.gpu_slots" :min="0" :max="16" style="width:100%" /></div></a-col>
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">GPU 架构</span><a-select v-model:value="form.gpu_arch_default" :options="gpuArchOptionsFor(form.form)" style="width:100%" /></div></a-col>
                   </a-row>
                 </div>
-                <span class="rear-ctrl-hint">{{ s.title }}固定件（随机箱，配置页不调）。料号库按分类已筛好，选料后自动归类。</span>
                 <div class="line-list">
                   <div class="line-block" v-for="l in linesForSection(s.n)" :key="l.uid">
                     <div class="line-row">
@@ -610,7 +631,6 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 /* —— ③ 后面板：类型卡 + 卡内料号组成 —— */
 .rear-editor { display: flex; flex-direction: column; gap: 10px; }
 .rear-ctrl { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.rear-ctrl-hint { font-size: 12px; line-height: 1.5; color: var(--cpq-text-muted, #6E7582); }
 .sc-section-head { display: flex; align-items: baseline; gap: 10px; margin: 2px 0 0; }
 .sc-section-head.sh-gap { margin-top: 8px; }
 .sc-section-head .sh-tag { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary, #E8ECEF); }
@@ -619,6 +639,12 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .slot-col { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0;
   background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
 .slot-col-head { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--cpq-overlay-w8); }
+.slot-sum { display: flex; flex-direction: column; gap: 2px; padding: 0 2px; }
+.slot-sum .sum-line { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
+.slot-sum .sum-line b { color: var(--cpq-text-secondary, #9BA1AA); font-weight: 600; }
+.slot-sum .std-riser-line { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.slot-sum .std-riser-lab { flex-shrink: 0; }
+.slot-sum .std-riser-in { flex: 1; min-width: 0; }
 .slot-name-in { flex: 1; min-width: 56px; }
 .slot-cap-in { width: 42px; flex-shrink: 0; }
 .slot-cap-in :deep(input) { text-align: center; padding: 0 2px; font-size: 12px; }
@@ -645,6 +671,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .ocp-cards .type-card { flex: 1; min-width: 200px; }
 .rear-x16 { margin-top: 4px; }
 .rear-x16-lab { display: block; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); margin-bottom: 4px; }
+.rear-x16-note { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-bottom: 4px; }
 
 /* —— ② 前面板 / ⑦ 供电（软默认）—— */
 .front-panel { display: flex; flex-direction: column; gap: 8px; }

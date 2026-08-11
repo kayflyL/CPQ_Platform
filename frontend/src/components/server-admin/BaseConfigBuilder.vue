@@ -3,16 +3,21 @@
 import { ref, onMounted, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { baseConfigApi, type BaseConfig } from '@/api/serverConfig'
+import { baseConfigApi, catalogApi, type BaseConfig } from '@/api/serverConfig'
 
 const router = useRouter()
 const route = useRoute()
 const configs = ref<BaseConfig[]>([])
 const loading = ref(false)
+const typeMap = ref<Record<number, string>>({})
 
 async function load() {
   loading.value = true
-  try { configs.value = (await baseConfigApi.list()).configs } finally { loading.value = false }
+  try {
+    const [res, types] = await Promise.all([baseConfigApi.list(), catalogApi.listTypes()])
+    configs.value = res.configs
+    typeMap.value = Object.fromEntries((types.types || []).map((t) => [t.id, t.name]))
+  } finally { loading.value = false }
 }
 function openNew() { router.push('/servers/base-configs/new') }
 function openEdit(b: any) { router.push(`/servers/base-configs/${b.id}`) }
@@ -22,6 +27,7 @@ async function remove(id: number, name: string) {
 const columns = [
   { title: '基准名称', dataIndex: 'name', key: 'name' },
   { title: '系列', dataIndex: 'series', key: 'series', width: 90 },
+  { title: '类型', key: 'type', width: 110 },
   { title: '形态', dataIndex: 'form', key: 'form', width: 70 },
   { title: '盘位', dataIndex: 'bays', key: 'bays', width: 70 },
   { title: '料件数', dataIndex: 'parts_count', key: 'parts_count', width: 80 },
@@ -40,7 +46,8 @@ onMounted(load)
     </div>
     <a-table :data-source="configs" :columns="columns" :loading="loading" row-key="id" size="small" :pagination="false">
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'parts_count'"><span class="cell-num">{{ record.parts_count ?? 0 }}</span></template>
+        <template v-if="column.key === 'type'"><span>{{ typeMap[record.server_type_id ?? -1] || '-' }}</span></template>
+        <template v-else-if="column.key === 'parts_count'"><span class="cell-num">{{ record.parts_count ?? 0 }}</span></template>
         <template v-else-if="column.key === 'total_price'"><span class="cell-price">¥{{ (record.total_price ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span></template>
         <template v-else-if="column.key === 'op'">
           <a-button size="small" link @click="openEdit(record)">编辑</a-button>
