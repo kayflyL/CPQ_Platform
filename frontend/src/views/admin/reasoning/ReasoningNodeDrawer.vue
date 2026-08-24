@@ -528,25 +528,7 @@ async function save() {
                 <a-radio-button value="ai_config">AI 智能选配</a-radio-button>
                 <a-radio-button value="self_config">用户自己配置</a-radio-button>
               </a-radio-group>
-              <p class="rf-hint">目录推荐发送候选卡片；AI 智能选配自动匹配并继续配件；用户自己配置时跳过下游 BOM。</p>
-            </a-form-item>
-            <a-form-item label="候选来源工具">
-              <a-select v-model:value="form.mr_grounding_tool" :options="agentToolOptions" placeholder="选择提供候选清单的工具" style="width:100%" />
-              <p class="rf-hint">节点会从该工具的调用结果中读取候选清单，再由 LLM 选择。</p>
-            </a-form-item>
-            <a-form-item label="候选结果字段">
-              <a-input v-model:value="form.mr_grounding_result_key" placeholder="candidates" />
-            </a-form-item>
-            <a-form-item label="选择 ID 正则">
-              <a-input v-model:value="form.mr_choice_id_pattern" placeholder="id=(\d+)" />
-              <p class="rf-hint">从 final.answer 中提取候选 id；第一捕获组用于匹配候选字段。</p>
-            </a-form-item>
-            <a-form-item label="候选匹配字段">
-              <a-select v-model:value="form.mr_choice_fields" mode="tags" :options="[
-                { value: 'config_id', label: 'config_id' },
-                { value: 'server_model_id', label: 'server_model_id' },
-                { value: 'id', label: 'id' },
-              ]" placeholder="config_id, server_model_id, id" style="width:100%" />
+              <p class="rf-hint">这里是「默认偏好」：AI 会先按用户意图判断该推荐/智能选配/自配，只有 AI 拿不准时才回退到这里的默认值。</p>
             </a-form-item>
           </a-form>
 
@@ -688,8 +670,27 @@ async function save() {
             :rule-available="fillRuleTypes"
             :rule-defaults="fillRuleTypes"
           />
-
-
+          <a-form v-if="runtimeType === 'model_reason'" layout="vertical" class="node-section nrb-card">
+            <div class="node-section-title">机型候选来源（AI 选型读取候选清单）</div>
+            <a-form-item label="候选来源工具">
+              <a-select v-model:value="form.mr_grounding_tool" :options="agentToolOptions" placeholder="选择提供候选清单的工具" style="width:100%" />
+              <p class="rf-hint">节点会从该工具的调用结果中读取候选清单，再由 LLM 选择。</p>
+            </a-form-item>
+            <a-form-item label="候选结果字段">
+              <a-input v-model:value="form.mr_grounding_result_key" placeholder="candidates" />
+            </a-form-item>
+            <a-form-item label="选择 ID 正则">
+              <a-input v-model:value="form.mr_choice_id_pattern" placeholder="id=(\d+)" />
+              <p class="rf-hint">从 final.answer 中提取候选 id；第一捕获组用于匹配候选字段。</p>
+            </a-form-item>
+            <a-form-item label="候选匹配字段">
+              <a-select v-model:value="form.mr_choice_fields" mode="tags" :options="[
+                { value: 'config_id', label: 'config_id' },
+                { value: 'server_model_id', label: 'server_model_id' },
+                { value: 'id', label: 'id' },
+              ]" placeholder="config_id, server_model_id, id" style="width:100%" />
+            </a-form-item>
+          </a-form>
 
 
         </div>

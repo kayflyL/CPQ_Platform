@@ -180,10 +180,11 @@ async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) ->
     return {**res, "source": res.get("source") or "agent_fill"}
 
 def _model_selection_intent(answer: str) -> str:
-    """识别用户在机型选型节点的意图。
+    """识别用户在机型选型节点的意图（关键词兜底，主判定走 LLM resolve_intent）。
 
     意图词表外置到 rules.requirement_rules 的 model_action_phrases；规则库空缺时不强判，
     只返回默认 choose。型号匹配由 baselines 的确定性字段完成，本函数不承担。
+    仅在 LLM 不可用/超时时作为保守兜底，避免断网时把“确认/推荐”误判成自配。
     """
     text = str(answer or "").strip().lower()
     if not text:
@@ -197,6 +198,40 @@ def _model_selection_intent(answer: str) -> str:
         if any(k in text for k in phrases.get(action) or []):
             return action
     return "choose"
+
+
+async def _resolve_selection_mode(ctx: dict, config: dict, answer: str) -> str:
+    """用 LLM 判断当前应走推荐 / AI 智能选配 / 用户自配（决策权交给 AI）。
+
+    返回:
+      - recommend  : 出候选卡让用户选（默认，AI 拿不准时）
+      - ai_config  : 用户明确委托“你推荐/帮我选好并继续”，自动锁定并推进下游
+      - self_config: 用户明确“我自己配”，跳过 BOM 直接进详情页
+      抽屉的 selection_mode 只作为兜底偏好，AI 意图优先；py 不写死流程路径。
+    """
+    text = str(answer or "").strip()
+    if text:
+        try:
+            from app.services.workflow_intent import resolve_intent
+            ctx_lines = str(ctx.get("last_ask_question") or "").strip()
+            if ctx_lines:
+                ctx_lines = "当前环节：机型选型\n" + ctx_lines
+            data = await resolve_intent(text, ctx_lines)
+            intent = str((data or {}).get("intent") or "").strip().lower()
+            if intent == "auto_recommend":
+                return "ai_config"
+            if intent == "self_config":
+                return "self_config"
+            if intent in ("confirm_choice", "choose", "refine", "reselect"):
+                return "recommend"
+        except Exception:
+            pass
+    kw = _model_selection_intent(text)
+    if kw == "auto_pick":
+        return "ai_config"
+    if kw == "self_config":
+        return "self_config"
+    return str(config.get("selection_mode") or "recommend").strip().lower()
 
 
 def _lock_model_from_answer(answer: str, baselines: list) -> dict:
@@ -228,16 +263,38 @@ def _model_reason_matches(baselines: list) -> list:
 
 
 async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
-    # 机型选型三态：
-    # - recommend：从服务器目录推荐 1-N 台候选机型，发卡片并等待用户选择或“自己配置”
-    # - ai_config：按线索登记 + 规则/文档库智能选配，锁定一台进入下游
-    # - self_config：用户自己去服务器详情页配置，跳过下游 BOM 节点
+    # 机型选型三态（由 AI 意图驱动，抽屉 selection_mode 仅作兜底偏好）：
+    # - recommend：出候选卡并等待用户确认选择，确认后锁定推进配件/BOM
+    # - ai_config：用户明确委托“你推荐/帮我选好并继续”，自动锁定一台进入下游
+    # - self_config：用户明确“我自己配”，跳过下游 BOM 进详情页
     from app.services.capabilities import run_model_reason, run_select_baseline_rule
     ext = ctx.get("ext") or {}
     agent_model = str(ext.get("server_model") or "").strip()
-    selection_mode = str(config.get("selection_mode") or "recommend").strip().lower()
     answer = str(ctx.get("last_user_answer") or "").strip()
-    intent = _model_selection_intent(answer) if answer else ""
+    intent = ""
+    if answer:
+        try:
+            from app.services.workflow_intent import resolve_intent
+            _idata = await resolve_intent(answer, str(ctx.get("last_ask_question") or "")[:600])
+            _it = str((_idata or {}).get("intent") or "").strip().lower()
+            if _it == "auto_recommend":
+                intent = "auto_pick"
+            elif _it == "self_config":
+                intent = "self_config"
+            elif _it == "confirm_choice":
+                intent = "choose"
+                ctx["_confirm_choice"] = True
+            elif _it == "refine":
+                intent = "refine"
+            elif _it == "reselect":
+                intent = "reselect"
+            elif _it == "cancel":
+                intent = "cancel"
+        except Exception:
+            intent = _model_selection_intent(answer)
+        if not intent:
+            intent = _model_selection_intent(answer)
+    selection_mode = await _resolve_selection_mode(ctx, config, answer)
     clarity = str(ctx.get("clarity") or "partial").strip().lower()
 
     if selection_mode == "self_config" or intent == "self_config":
@@ -276,8 +333,7 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         ctx["current_target"] = "model_reason"
         ctx["baselines"] = []
         ctx["model_reason"] = {"source": "unclear", "reason": "需求信息不足，暂不硬猜机型"}
-        question = ("需求信息还不足，我先不硬猜机型。你可以补充场景/类型/系列/形态等关键信息；"
-                    "或回复“我自己配置”去详情页；或回复“取消”。")
+        question = await _natural_preamble(ctx, "需求信息还不够具体。你可以补充场景/类型/系列/形态等关键信息，我再帮你缩小候选。")
         ctx["last_ask_question"] = question
         if broadcast:
             try:
@@ -315,17 +371,16 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
                                    "reason": "客户指定机型在售，已放入候选首位等待确认"}
             return await _ask_model_choice(
                 ctx, ordered, rule_res, broadcast,
-                f"你指定的机型 {locked.get('name')} 在售，已放在候选首位。请回复序号/型号确认，" +
-                "或回复“我自己配置”去详情页自配，或回复“重选机型”。")
+                str(locked.get("name") or "") + " 在售，已放在候选首位，你看看这台是否合适：")
         if baselines:
             return await _ask_model_choice(ctx, baselines, rule_res, broadcast,
-                                           "你指定的机型暂不在在售目录，以下是最接近的候选；也可回复“我自己配置”或“重选机型”。")
+                                           "你指定的机型暂不在在售目录，这些是当前最接近的候选，你看看：")
         ctx["awaiting_input"] = True
         ctx["current_target"] = "model_reason"
         ctx["baselines"] = []
         ctx["model_reason"] = {"source": "customer_specified_missing",
                                "reason": "客户指定机型不在目录，且无接近候选"}
-        question = "你指定的机型暂不在在售目录，我可以帮你推荐接近机型，或你回复“我自己配置”去详情页，或回复“取消”。"
+        question = await _natural_preamble(ctx, "你指定的机型暂不在在售目录，我可以推荐接近机型，你也可以去详情页自己配置。")
         ctx["last_ask_question"] = question
         if broadcast:
             try:
@@ -378,6 +433,15 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
                                    "reason": f"已按用户选择锁定机型 {locked.get('name') or ''}"}
             return {"count": 1, "matches": _model_reason_matches([locked]),
                     "source": "user_pick", "reason": "已按用户选择锁定机型"}
+        if ctx.get("_confirm_choice") and baselines:
+            # 用户已确认“就这个/选当前这个”但没给序号：默认锁当前推荐首位，放行配件/BOM，避免无限重发卡片。
+            locked = baselines[0]
+            ctx["baselines"] = [locked]
+            ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
+            ctx["model_reason"] = {"source": "user_pick", "baseline": locked,
+                                   "reason": "已按用户确认锁定机型 " + (locked.get("name") or "")}
+            return {"count": 1, "matches": _model_reason_matches([locked]),
+                    "source": "user_pick", "reason": "已按用户选择锁定机型"}
         if not ctx.get("force_complete"):
             # 用户本轮提供了补充信息而非有效型号：不误报“没识别到机型”，直接给出目录候选卡片。
             return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
@@ -395,12 +459,31 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
             "reason": "已从服务器目录生成候选机型"}
 
 
+async def _natural_preamble(ctx: dict, fallback: str) -> str:
+    """让 LLM 生成自然、带个性的引导语；不可用时返回中性 fallback（不含固定选项句）。
+
+    fallback 由调用方按纯数据情境给出（如“这些是当前在售机型”），代不代表 AI 口吻，
+    只保证错峰断电时仍有可读输出；具体推荐理由不写死在 py。
+    """
+    from app.services.workflow_intent import reply_with_context
+    try:
+        ctx_lines = str(ctx.get("last_ask_question") or "").strip()
+        req = str(ctx.get("requirement_text") or "").strip()
+        if req:
+            ctx_lines = (ctx_lines + "\n客户已表达需求：" + req[:300]) if ctx_lines else ("客户已表达需求：" + req[:300])
+        reply = await reply_with_context(str(fallback or "这些是在售机型"), ctx_lines)
+    except Exception:
+        reply = ""
+    return str(reply or fallback or "").strip()
+
+
 async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, fallback: str) -> dict:
+    """发候选卡，等用户确认。用户能看到的文字由 LLM 生成，py 只留纯数据与流转。"""
     _fz = ctx.get("feasibility") or {}
     _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
     _fz_block = ("\n".join(_fz_lines) + "\n") if _fz_lines else ""
     if not baselines:
-        # 候选为空：先把在售目录里的真实机型作为可挑选候选，避免“未找到”→ 只能自配/取消的死板兜底。
+        # 候选为空：从在售目录取真实机型兜底；目录也空则给中性提示，不背固定“自己配置/取消”。
         try:
             from app.services.catalog_guide import load_catalog
             _types, _by_type = load_catalog()
@@ -417,30 +500,27 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
             baselines = _browse
             ctx["baselines"] = baselines
             rule_res = {**rule_res, "count": len(baselines)}
-            return await _ask_model_choice(
-                ctx, baselines, rule_res, broadcast,
-                "按当前筛选条件暂未找到精确匹配机型，以下是在售目录里可参考的机型，你可选择其一，或继续补充需求：")
-        # 目录也为空：简短中性提示，不再背“你可以/我自己配置/取消”的固定文案。
-        question = _fz_block + "当前在售目录里没有可匹配的机型。请补充更具体的需求，或回复“取消”结束。"
-        ctx["awaiting_input"] = True
-        ctx["current_target"] = "model_reason"
-        ctx["last_ask_question"] = question
-        ctx["model_reason"] = {"source": "recommend", "baselines": [], "reason": "目录无匹配候选，等待用户选择"}
-        if broadcast:
-            try:
-                await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
-                                 "options": ["取消"], "why": "候选为空"})
-            except Exception:
-                pass
-        return {**rule_res, "source": "recommend", "matches": [], "question": question,
-                "reason": "等待用户选择处理方式"}
+            _preamble = await _natural_preamble(ctx, "按你的需求，当前目录里没有精确命中的机型，我重新给了这些真实在售选项：")
+        else:
+            question = _fz_block + "当前在售目录里没有可匹配的机型，请补充更具体的需求后再试。"
+            ctx["awaiting_input"] = True
+            ctx["current_target"] = "model_reason"
+            ctx["last_ask_question"] = question
+            ctx["model_reason"] = {"source": "recommend", "baselines": [], "reason": "目录无匹配候选，等待用户选择"}
+            if broadcast:
+                try:
+                    await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
+                                     "options": [], "why": "候选为空"})
+                except Exception:
+                    pass
+            return {**rule_res, "source": "recommend", "matches": [], "question": question,
+                    "reason": "等待用户选择处理方式"}
 
     options = [f"{i + 1}. {b.get('name') or ''}（{b.get('series') or ''}/{b.get('form') or ''}）"
                for i, b in enumerate(baselines[:5])]
-    body = ("我按需求从服务器目录筛出了以下机型，回复序号/型号确认：\n" +
-            "\n".join(options) + "\n" +
-            "也可以回复“我自己配置”去服务器详情页自配，或“重选机型”/“取消”。")
-    question = _fz_block + ((fallback + "\n" + body) if fallback else body)
+    _preamble = await _natural_preamble(ctx, fallback or "我根据你的需求整理了几个在售机型，你看看哪个合适：")
+    body = _preamble + "\n" + "\n".join(options)
+    question = _fz_block + body
     ctx["awaiting_input"] = True
     ctx["current_target"] = "model_reason"
     ctx["last_ask_question"] = question
@@ -457,8 +537,9 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
     return {**rule_res, "source": "recommend", "matches": _model_reason_matches(baselines),
             "question": question, "reason": "等待用户确认候选机型"}
 
+
 def _kp_reply_intent(answer: str) -> str:
-    """识别用户在配件选配节点的意图；词表外置到 kp_action_phrases。"""
+    """识别用户在配件选配节点的意图（关键词兜底，主判定走 LLM resolve_intent）。"""
     text = str(answer or "").strip().lower()
     if not text:
         return "confirm"
@@ -471,6 +552,30 @@ def _kp_reply_intent(answer: str) -> str:
         if any(k in text for k in phrases.get(action) or []):
             return action
     return "adjust"
+
+
+async def _resolve_kp_intent(ctx: dict, answer: str) -> str:
+    """用 LLM 判断配件节点意图，关键词仅作兜底。返回 cancel / reselect_model / confirm / adjust。"""
+    text = str(answer or "").strip()
+    if not text:
+        return "confirm"
+    try:
+        from app.services.workflow_intent import resolve_intent
+        data = await resolve_intent(text, str(ctx.get("last_ask_question") or "")[:600])
+        intent = str((data or {}).get("intent") or "").strip().lower()
+        if intent == "cancel":
+            return "cancel"
+        if intent == "reselect":
+            return "reselect_model"
+        if intent == "confirm_choice":
+            return "confirm"
+        if intent == "refine":
+            return "adjust"
+        if intent in ("self_config", "auto_recommend", "choose"):
+            return "confirm"
+    except Exception:
+        pass
+    return _kp_reply_intent(text)
 
 
 def _kp_summary_lines(parts: list) -> list:
@@ -487,7 +592,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
     # 精确执行仍由规则保证（compose 需要完整字段），LLM 输出确认 + 理由。
     from app.services.capabilities import run_kp_reason, run_match_kp_rule
     answer = str(ctx.get("last_user_answer") or "").strip()
-    intent = _kp_reply_intent(answer) if answer else "first"
+    intent = await _resolve_kp_intent(ctx, answer) if answer else "first"
 
     if intent == "cancel":
         ctx["flow_exit"] = "cancelled"
@@ -498,7 +603,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         # 回到上一节点重新挑机型：本轮先暂停，pending 的 current_target 会保存为 model_reason。
         ctx["awaiting_input"] = True
         ctx["current_target"] = "model_reason"
-        ctx["last_ask_question"] = "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。"
+        ctx["last_ask_question"] = await _natural_preamble(ctx, "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。")
         ctx["model_selection"] = None
         ctx["baselines"] = []
         ctx["kp_reason"] = {"source": "reselect_model", "reason": "用户要求重新选择机型"}
@@ -526,8 +631,8 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         if ctx.get("force_complete") or ctx.get("delegated"):
             return {**rule_res, "source": "confirmed", "reason": "配件方案已确认", "kp_count": len(parts)}
         lines = _kp_summary_lines(parts)
-        question = ("我按需求配了这些配件：\n" + ("\n".join(lines) if lines else "（未匹配到明确配件）") +
-                    "\n回复“确认”继续生成 BOM；要改就直接说要怎么改；也可以“重新选机型”或“取消”。")
+        _lede = await _natural_preamble(ctx, "我按你的需求整理了一份配件清单，你看看是否合适：")
+        question = _lede + "\n" + ("\n".join(lines) if lines else "（暂未匹配到明确配件）")
         ctx["awaiting_input"] = True
         ctx["current_target"] = "kp_reason"
         ctx["last_ask_question"] = question
@@ -552,7 +657,7 @@ async def _handle_compose(ctx: dict, config: dict, broadcast: BroadcastFn) -> di
     kp_by_model = ctx.get("kp_by_model") or {}
     if not baselines:
         ctx["plans"] = []
-        return {"plans_count": 0, "warning": "未找到匹配的基准配置，请手填或调整需求"}
+        return {"plans_count": 0, "warning": "无匹配的整机基准配置，请调整需求后重试"}
     # 每个机型取自己的 KP（match_kp per-机型配的），fallback 到全局 kp_parts；来源策略由节点配置决定。
     plans = []
     _ext = ctx.get("ext") or {}
