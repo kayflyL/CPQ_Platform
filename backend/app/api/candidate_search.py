@@ -1870,8 +1870,17 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
 # 各项由规则库 power_calibration 驱动；未配置则不臆断（按 0/空处理，由调用方安全降级）。
 def _estimate_system_load(kp_parts: list[dict]) -> int:
     """按 KP 件粗估整机负载（W）。CPU 查 TDP 表，其余按件均摊——纯估算用于电源建议，
-    不是精确功耗计算。各项数值来自 power_calibration 规则库。"""
+    不是精确功耗计算。数值与品类关键词均来自规则库（power_calibration / part_family_keywords）。"""
+    from app.services.requirement_rule_catalog import part_family_keywords
     calib = _load_power_calibration()
+    _pfk = part_family_keywords()
+
+    def _match(fam: str, cu: str, cat: str, nu: str) -> bool:
+        kws = _pfk.get(fam) or {}
+        return (any(k in cu for k in kws.get("cat_upper", []))
+                or any(k in cat for k in kws.get("cat", []))
+                or any(k in nu for k in kws.get("name_upper", [])))
+
     load = int(calib.get("sys_base_w") or 0)
     tdp_map = calib.get("cpu_tdp_map") or {}
     default_cpu_tdp = calib.get("default_cpu_tdp") or 0
@@ -1887,9 +1896,7 @@ def _estimate_system_load(kp_parts: list[dict]) -> int:
         qty = int(kp.get("qty") or 1)
         cu = cat.upper()
         nu = name.upper()
-        if "CPU" in cu:
-            # CPU TDP 数据驱动：配件库 specs.tdp 优先（可在配件库改，覆盖新 SKU 不再改代码），
-            # 型号表/默认值仅作兜底（9005 等未收录型号不低估负载）
+        if _match("cpu", cu, cat, nu):
             _tdp = None
             try:
                 _tdp = float((kp.get("specs") or {}).get("tdp") or 0) or None
@@ -1901,8 +1908,7 @@ def _estimate_system_load(kp_parts: list[dict]) -> int:
                 m = re.search(r"(\d{4})", name)
                 tdp = float(tdp_map.get(m.group(1).lower(), default_cpu_tdp) if m else default_cpu_tdp)
                 load += tdp * qty
-        elif "MEM" in cu or "内存" in cat:
-            # 内存功耗按单条容量分级（I15/I61 R24）：64G 条 ≈15W，32G ≈10W——原统一 10W 低估高配内存
+        elif _match("memory", cu, cat, nu):
             _m = re.search(r"(\d{1,3})\s*G\s*B?\b", name, re.I)
             _cap = int(_m.group(1)) if _m else 0
             _w = mem_default_w
@@ -1911,13 +1917,13 @@ def _estimate_system_load(kp_parts: list[dict]) -> int:
                     _w = _cw
                     break
             load += _w * qty
-        elif "NVME" in nu:
+        elif _match("nvme", cu, cat, nu):
             load += nvme_w * qty
-        elif any(k in cat for k in ("硬盘", "SSD", "HDD", "DISK")):
+        elif _match("disk", cu, cat, nu):
             load += sata_w * qty
-        elif "NIC" in cu or "NETWORK" in cu or "网卡" in cat:
+        elif _match("nic", cu, cat, nu):
             load += nic_w * qty
-        elif "RAID" in cu or "阵列" in cat or "HBA" in cu:
+        elif _match("raid", cu, cat, nu):
             load += raid_w
     return int(load)
 
