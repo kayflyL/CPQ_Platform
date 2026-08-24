@@ -875,6 +875,23 @@ def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     ctx["requirement"] = _copy.deepcopy(ext)
     ctx["requirement_text_snapshot"] = str(req_text or "")
 
+def _has_recommend_signal(ext: dict) -> bool:
+    """编排层判断：客户是否已给足【机型/机箱/任一硬件】信号，足以让下游给候选、由用户选推荐/自配。
+    只有真空白（纯寒暄/啥都没说）才判不够继续；否则交给 agent_fill 反问会卡住完整需求。"""
+    if not ext:
+        return False
+    _form_type = ("form", "chassis_form", "server_type", "server_type_name",
+                  "server_model", "model", "baseline_model")
+    if any(ext.get(k) for k in _form_type):
+        return True
+    try:
+        from app.services.slot_contract import _slot_filled
+        return any(_slot_filled(ext, k) for k in ("cpu", "memory", "storage", "gpu",
+                                                   "nic", "raid", "psu"))
+    except Exception:
+        return False
+
+
 async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str = "agent_fill") -> dict:
     """智能对话填表 Agent（ReAct 形态，不再兼容旧槽位状态机）。
 
@@ -1022,7 +1039,7 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     # → 停止机械重复追问，带着“可默认”的 partial 清晰度交给下游，由下游按目录默认/放宽处理。
     _no_progress = bool(ctx.get("last_user_answer")) and bool(prev_missing) and sorted(missing) == sorted(prev_missing)
     ctx["converged"] = bool(_no_progress)
-    need_ask = bool(missing) and not done and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress
+    need_ask = bool(missing) and not done and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress and not _has_recommend_signal(ext)
     _fz_block = ""
     _fz = ctx.get("feasibility") or {}
     _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
@@ -1059,7 +1076,7 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     elif has_model:
         # 客户点名机型是强信号：不再因缺类型/系列/形态把它打成 unclear，交给下游按名称确认/找最近似。
         ctx["clarity"] = "explicit"
-    elif missing and not done:
+    elif missing and not done and not _has_recommend_signal(ext):
         ctx["clarity"] = "unclear"
     elif missing:
         # 模型自评 done=true：即使还有非硬性缺口（如未给系列），也视为可下沉，交下游得出候选。
