@@ -73,6 +73,48 @@ def part_family_keywords(enabled_types: Optional[list[str]] = None) -> dict[str,
                 if isinstance(kws, dict):
                     out[str(fam)] = {str(k): [str(x) for x in (v if isinstance(v, list) else [v])] for k, v in kws.items() if k in ("cat_upper", "cat", "name_upper")}
     return out
+# 型号 token 排除规则（KP 候选检索 stage-1 用）：识别"规格碎片/部件词"而非型号，
+# 命中即跳过精确命中、落后续代表件。数据默认在规则库（可被 kp_token_exclude 规则覆盖）。
+DEFAULT_KP_TOKEN_EXCLUDE_PATTERNS: list[str] = [
+    r"^\d+(?:\.\d+)?(?:[GTW]B?|MB|MHz|GHz)$",
+    r"^\d+[A-Z]{1,2}$",
+    r"^DDR[345]-?\d*[A-Z]*$",
+    r"^\d+[A-Za-z]*series$",
+    r"^(?:SATA|SAS|NVME?|U\.?2|SSD|HDD)[A-Za-z]*\d+(?:\.\d+)?[GT]B?$",
+    r"^\d+\.\d+$",
+    r"^\d+[A-Za-z]{2,}$",
+    r"^\d+-\d+(?:度|℃|°C)?$",
+    r"^\d+[xX]\d+$",
+    r"^Gen[345]$",
+    r"^Gen[345][xX]\d+$",
+    r"^\d+[GT]?B?(?:SATA|SAS|NVME?|GB?)[A-Za-z0-9.]*$",
+    r"^\d+\.\d+[A-Za-z]+$",
+    r"^PCIe\d*(?:\.\d+)?$",
+    r"^RAID\d+$",
+    r"^GX\d+$",
+    r"^\dU\d+$",
+    r"^\d+i\d+[GT]?B?$",
+]
+DEFAULT_KP_TOKEN_IGNORE_WORDS: list[str] = ["rj45", "ipmi", "bmc", "mgmt", "management"]
+
+
+def kp_token_exclude(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
+    """型号 token 排除规则：patterns（命中即当非型号跳过）+ ignore_words（小写忽略词）。
+    规则 body 可覆盖默认；缺失回退默认，保证候选检索不因配置缺失而改变行为。"""
+    patterns = list(DEFAULT_KP_TOKEN_EXCLUDE_PATTERNS)
+    ignore = list(DEFAULT_KP_TOKEN_IGNORE_WORDS)
+    for row in active_bodies("kp_token_exclude", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        p = row.get("patterns")
+        if isinstance(p, list):
+            patterns = [str(x) for x in p if str(x).strip()]
+        iw = row.get("ignore_words")
+        if isinstance(iw, list):
+            ignore = [str(x).lower() for x in iw if str(x).strip()]
+    return {"patterns": patterns, "ignore_words": ignore}
+
+
 def platform_series_map(enabled_types: Optional[list[str]] = None) -> list[dict]:
     """平台系列 → 关键词映射（AMD→Orion / 兆芯→Polaris / Intel→Intel）。"""
     return [dict(x) for x in active_bodies("platform_series_map", enabled_types) if x]

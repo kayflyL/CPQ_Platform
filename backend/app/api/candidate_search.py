@@ -1310,6 +1310,11 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
         category_aliases = _default_category_aliases()
     if cpu_vendor_rules is None:
         cpu_vendor_rules = _default_cpu_vendor_rules()
+    # 型号 token 排除规则（规格碎片/部件词，命中即非型号）：来自规则库 kp_token_exclude，可配。
+    from app.services.requirement_rule_catalog import kp_token_exclude as _kp_tok_exclude
+    _tok_excl = _kp_tok_exclude()
+    _kp_excl_patterns = _tok_excl.get("patterns") or []
+    _kp_ignore_words = _tok_excl.get("ignore_words") or []
     # 型号 token 正则（model_token_regex 可配，None→模块常量 MODEL_TOKEN_RE 兜底；和 extract 同源）
     _mt_re = MODEL_TOKEN_RE
     if model_token_regex:
@@ -1365,26 +1370,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 kw = _raid_norm.group(1)
             # Mellanox ConnectX 别名（R9/I46）："MCX5" → "CX5"（100G双口MCX5 → 100G CX5 2port）
             kw = re.sub(r"^mcx(\d+)$", r"cx\1", kw, flags=re.I)
-            if re.match(
-                    r"^\d+(?:\.\d+)?(?:[GTW]B?|MB|MHz|GHz)$"   # 480G/64GB/360W/256MB/3.1GHz
-                    r"|^\d+[A-Z]{1,2}$"                            # 5600B
-                    r"|^DDR[345]-?\d*[A-Z]*$"                     # DDR5-5600B
-                    r"|^\d+[A-Za-z]*series$"                     # 9005series（R4 修）
-                    r"|^(?:SATA|SAS|NVME?|U\.?2|SSD|HDD)[A-Za-z]*\d+(?:\.\d+)?[GT]B?$"  # SATASSD480G/U.2NVME7.68T（R5）
-                    r"|^\d+\.\d+$"                                # 7.68/1.92/3.0 纯小数碎片（R5 防重复出盘）
-                    r"|^\d+[A-Za-z]{2,}$"                            # 8GPU/6400MT/822mm 数字+单词连写（R7）
-                    r"|^\d+-\d+(?:度|℃|°C)?$"                          # 5-35 环境温度范围（R17 招标）
-                    r"|^\d+[xX]\d+$"                                   # 7x24 服务响应时间（R19，非型号）
-                    r"|^Gen[345]$"                                      # NVMe Gen3/4/5 代际（R18，非型号）
-                    r"|^Gen[345][xX]\d+$"                              # PCIe Gen4x4 代际×通道（R20，非型号）
-                    r"|^\d+[GT]?B?(?:SATA|SAS|NVME?|GB?)[A-Za-z0-9.]*$"  # 6GSATA2.5in 接口速率+尺寸（R20）
-                    r"|^\d+\.\d+[A-Za-z]+$"                         # 2.5in/3.5in 盘尺寸（R20，非型号）
-                    r"|^PCIe\d*(?:\.\d+)?$"                          # PCIe4/PCIe4.0/PCIe5.0 槽位规格（R7）
-                    r"|^RAID\d+$"                                      # RAID1/5/10 级别注释（I38，R2）
-                    r"|^GX\d+$"                                        # GX16/GX8 PCIe 槽位标记（I41，R8）
-                    r"|^\dU\d+$"                                       # 2U12/2U25 机箱盘位数（R12/I60）
-                    r"|^\d+i\d+[GT]?B?$",                             # 8i4G：RAID 缓存后缀碎片（R8/I44，随归一后丢弃）
-                    kw, re.I):
+            if any(re.match(_pat, kw, re.I) for _pat in _kp_excl_patterns):
                 continue
             # GPU 组相关 token 跳过 stage-1（R10/I50）：GPU 由 gpu_groups 精确处理，
             # 防 "RTX PRO 5000" 的裸数字 "5000" 泛命中其他品类件（如 CPU 库的 KH50000 96C）
@@ -1404,7 +1390,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             if _raid_toks and kw.lower() in _raid_toks:
                 continue
             # 板载管理口（IPMI/BMC RJ45）不是独立网卡件（R4 修）
-            if kw.lower() in ("rj45", "ipmi", "bmc", "mgmt", "management"):
+            if kw.lower() in _kp_ignore_words:
                 continue
             # "9004/9005系列" —— 系列号不是具体型号，不报 unmatched 噪音（R7）
             if re.search(re.escape(kw) + r"[^，。\n]{0,6}(?:系列|series)", requirement_text or "", re.I):
