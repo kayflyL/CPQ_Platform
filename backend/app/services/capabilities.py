@@ -62,8 +62,6 @@ DEFAULT_MODEL_REASON_CONFIG = {
     "grounding_result_key": "candidates",
     "choice_id_pattern": r"id=(\d+)",
     "choice_fields": ["config_id", "server_model_id", "id"],
-    "skip_react_when_model_missing": True,
-    "model_missing_token_pattern": r"[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\-]*",
 }
 
 DEFAULT_COMPOSE_CONFIG = {
@@ -150,41 +148,6 @@ def _parse_model_choice(answer: str, candidates: list, config: Optional[dict] = 
     return best
 
 
-def _named_model_not_in_catalog(text: str, config: dict, ctx: dict) -> bool:
-    """需求是否点名了「不在在售目录的具体机型」（如 联想 WA5480 G3）。
-
-    判定（纯检测，不涉及业务判断）：
-      - 文本命中任一在售机型名 → False（ReAct 有意义：选它）；
-      - 否则用可配的 model_token_regex 提取机型 token（WA5480/R760/5090 等），有 token 且
-        无一命中在售机型 → True（用户点名了库外机型，ReAct 只会反复确认"没有"然后烧时间降级，
-        不如直走规则降级 + 白盒说明）。
-    任何异常降级 False（保守：不短路，保持原 ReAct 行为）。
-    """
-    try:
-        from app.services.catalog_guide import load_catalog
-        _, models_by_type = load_catalog()
-        catalog_names = [str(m.get("name") or "").lower()
-                         for ms in (models_by_type or {}).values() for m in (ms or [])]
-        low = (text or "").lower()
-        if any(n and n in low for n in catalog_names):
-            return False
-        import re
-        # 机型代码特征（纯检测，非业务规则）：2+ 字母后跟 2+ 数字（可带 -/字母后缀）——
-        # 命中「点名了具体型号」如 WA5480 / ES22V3-P / R760；排除纯数字与带单位规格（32G/5090/5600/2700）。
-        cfg = _model_reason_config(config)
-        # 用户可在 model_reason 抽屉用 model_missing_token_pattern 覆盖（空=用默认特征）。
-        pat = cfg.get("model_missing_token_pattern") or DEFAULT_MODEL_REASON_CONFIG["model_missing_token_pattern"]
-        try:
-            parts = re.split(r"[\s,，、;；:：()（）×*]+", low)
-            hit = [t for t in parts if t and re.fullmatch(pat, t, re.I)]
-            return bool(hit)
-        except Exception:
-            return False
-    except Exception as e:
-        logger.warning("model_reason 短路判定失败（不短路）: %s", e)
-        return False
-
-
 async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     """机型推理：AI 开 → ReAct 调 select_models 选机型 + 理由；AI 关/失败 → {ok:False} 由上层降级规则。
 
@@ -200,14 +163,6 @@ async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     if ctx.get("delegated"):
         # 客户已委托推荐 → 不再反问（编排层已拦截，这里兜底）
         return {"ok": False, "source": "delegated"}
-    # 短路（可配 skip_react_when_model_missing，默认开）：需求点名了不在在售目录的具体机型
-    # （如 联想 WA5480 G3）→ ReAct 只会反复确认"目录里没有"然后烧 30s 降级，不如直走规则
-    # 降级（select_models 已有 fallback_order 多级放宽 + 白盒说明），省时且更透明。
-    if bool(cfg.get("skip_react_when_model_missing", True)) and \
-            _named_model_not_in_catalog(text, cfg, ctx):
-        logger.info("model_reason 短路：需求点名机型不在在售目录，直走规则降级")
-        ctx["model_reason_shortcut"] = True
-        return {"ok": False, "source": "rule", "reason": "需求点名机型不在在售目录，按最接近在售机型给出"}
     # 构建检索意图上下文（已理解槽位 + 场景判定）
     intent = {
         "server_type_name": ctx.get("catalog_type_name") or scene.get("scene_name") or ext.get("server_type_name"),

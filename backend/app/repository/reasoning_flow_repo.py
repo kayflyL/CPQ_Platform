@@ -86,8 +86,6 @@ def _requirement_analysis_node_configs() -> dict:
             "grounding_result_key": "candidates",
             "choice_id_pattern": "id=(\d+)",
             "choice_fields": ["config_id", "server_model_id", "id"],
-            "skip_react_when_model_missing": True,
-            "model_missing_token_pattern": "[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\-]*",
             "rule_types": ["fallback_order", "gpu_form_map", "compliance_map", "type_package"],
         },
         "kp_reason": {
@@ -470,15 +468,12 @@ class ReasoningFlowRepository:
 
             if node_key == "model_reason":
                 for field in ("grounding_tool", "grounding_result_key",
-                              "choice_id_pattern", "model_missing_token_pattern"):
+                              "choice_id_pattern"):
                     if not cfg.get(field) and default.get(field):
                         cfg[field] = default[field]
                         dirty = True
                 if not cfg.get("choice_fields") and default.get("choice_fields"):
                     cfg["choice_fields"] = list(default["choice_fields"])
-                    dirty = True
-                if "skip_react_when_model_missing" not in cfg and "skip_react_when_model_missing" in default:
-                    cfg["skip_react_when_model_missing"] = bool(default["skip_react_when_model_missing"])
                     dirty = True
 
             if node_key == "kp_reason":

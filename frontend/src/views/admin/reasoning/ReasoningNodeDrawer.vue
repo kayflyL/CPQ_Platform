@@ -19,8 +19,6 @@ const MODEL_REASON_DEFAULTS = {
   grounding_result_key: 'candidates',
   choice_id_pattern: 'id=(\\d+)',
   choice_fields: ['config_id', 'server_model_id', 'id'],
-  skip_react_when_model_missing: true,
-  model_missing_token_pattern: '[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\\-]*',
 }
 const KP_REASON_DEFAULTS = {
   proposal_enabled: true,
@@ -204,8 +202,6 @@ watch(() => props.open, async (v) => {
     mr_choice_fields: Array.isArray(c.choice_fields)
       ? [...c.choice_fields]
       : [...MODEL_REASON_DEFAULTS.choice_fields],
-    mr_skip_react: c.skip_react_when_model_missing ?? MODEL_REASON_DEFAULTS.skip_react_when_model_missing,
-    mr_model_missing_token_pattern: c.model_missing_token_pattern ?? MODEL_REASON_DEFAULTS.model_missing_token_pattern,
     kr_proposal_enabled: c.proposal_enabled ?? KP_REASON_DEFAULTS.proposal_enabled,
     kr_temperature: c.temperature ?? KP_REASON_DEFAULTS.temperature,
     kr_timeout: c.timeout ?? KP_REASON_DEFAULTS.timeout,
@@ -269,8 +265,6 @@ function buildConfig(): Record<string, any> | null {
     config.grounding_result_key = form.value.mr_grounding_result_key || MODEL_REASON_DEFAULTS.grounding_result_key
     config.choice_id_pattern = form.value.mr_choice_id_pattern || MODEL_REASON_DEFAULTS.choice_id_pattern
     config.choice_fields = Array.isArray(form.value.mr_choice_fields) ? [...form.value.mr_choice_fields] : []
-    config.skip_react_when_model_missing = form.value.mr_skip_react !== false
-    config.model_missing_token_pattern = form.value.mr_model_missing_token_pattern || MODEL_REASON_DEFAULTS.model_missing_token_pattern
   }
   if (runtimeType.value === 'kp_reason') {
     const proposalSchema = parseJsonObject(form.value.kr_proposal_schema_text)
@@ -553,13 +547,6 @@ async function save() {
                 { value: 'server_model_id', label: 'server_model_id' },
                 { value: 'id', label: 'id' },
               ]" placeholder="config_id, server_model_id, id" style="width:100%" />
-            </a-form-item>
-            <a-form-item label="库外机型短路">
-              <a-switch v-model:checked="form.mr_skip_react" />
-              <p class="rf-hint">需求点名了不在在售目录的机型时，直接走规则兜底，避免 LLM 反复确认后降级。</p>
-            </a-form-item>
-            <a-form-item label="库外机型识别正则">
-              <a-input v-model:value="form.mr_model_missing_token_pattern" placeholder="[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\-]*" />
             </a-form-item>
           </a-form>
 
