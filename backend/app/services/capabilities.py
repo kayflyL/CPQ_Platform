@@ -414,7 +414,13 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     if not _ai_enabled(ctx, cfg):
         return {"ok": False, "source": "rule"}
     proposal_note = ""
-    if bool(cfg.get("proposal_enabled", True)):
+    # 默认走规则库：仅当用户明确说了配件诉求（内存/RAID/网卡/电源等）才让 LLM 提议，
+    # 否则纯规则由 pick_kp_parts 按类型/形态补齐，避免每次配件选型都等数十秒的 LLM 流式。
+    _kp_ext = ctx.get("ext") or {}
+    _need_llm = any(_kp_ext.get(k) for k in ("cpu", "mem_signal", "mem_groups", "memory",
+                                              "raid_signal", "raid", "nic_signal", "nic",
+                                              "psu_signal", "psu", "gpu_groups", "gpu"))
+    if bool(cfg.get("proposal_enabled", True)) and (_need_llm or ctx.get("delegated")):
         prop = await _kp_llm_propose(ctx, cfg, broadcast)
         if prop.get("ok"):
             proposal_note = prop.get("reason") or ""
@@ -876,13 +882,22 @@ def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     ctx["requirement_text_snapshot"] = str(req_text or "")
 
 def _has_recommend_signal(ext: dict) -> bool:
-    """编排层判断：客户是否已给足【机型/机箱/任一硬件】信号，足以让下游给候选、由用户选推荐/自配。
-    只有真空白（纯寒暄/啥都没说）才判不够继续；否则交给 agent_fill 反问会卡住完整需求。"""
+    """编排层判断：客户是否已给足【机型/机箱/任一硬件】信号，足以让下游给候选，无需再反向补问。
+    单独的 server_type_name（类型）不算足够——它只是第一层粗筛，还缺系列/形态/预算等关键字段；
+    只有「系列+形态齐全」「点名机型」「已填任一硬件」「用户明确委托」才算足够。这样缺关键字段时
+    agent_fill 会继续自然追问，而不是过早下沉出卡。"""
     if not ext:
         return False
-    _form_type = ("form", "chassis_form", "server_type", "server_type_name",
-                  "server_model", "model", "baseline_model")
-    if any(ext.get(k) for k in _form_type):
+    # 类型 + （系列 或 形态 任一）：已能选型，缺的维度由下游 select_models 逐级放宽补齐，
+    # 不因缺单个维度在 agent_fill 反复反问（否则给“2U+预算”也会被问缺系列）。
+    has_type = bool(ext.get("server_type_name") or ext.get("server_type"))
+    has_form_or_series = bool((ext.get("series") or ext.get("platform_type"))
+                              or (ext.get("form") or ext.get("chassis_form")))
+    if has_type and has_form_or_series:
+        return True
+    # 点名机型：强信号，交给下游按名称确认/找最近似
+    if any(str(v or "").strip() for v in (ext.get("server_model"), ext.get("model"),
+                                           ext.get("baseline_model"))):
         return True
     try:
         from app.services.slot_contract import _slot_filled

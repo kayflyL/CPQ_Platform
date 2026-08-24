@@ -59,18 +59,15 @@ def resolve_intent_keywords(message: str) -> Optional[str]:
         phrases = _rc.model_action_phrases()
     except Exception:
         phrases = {}
-    for action, keys in (("cancel", phrases.get("cancel") or []),
-                         ("self_config", phrases.get("self_config") or []),
-                         ("reselect", phrases.get("reselect") or []),
-                         ("auto_recommend", phrases.get("auto_pick") or [])):
+    for action in ("cancel", "self_config", "reselect", "auto_recommend",
+                   "list_catalog", "explain"):
+        # 词表一律来自规则库（model_action_phrases / intent_keywords 语义同源），py 不背业务中文词。
+        if action == "auto_recommend":
+            keys = phrases.get("auto_pick") or []
+        else:
+            keys = phrases.get(action) or []
         if any(k in text for k in keys):
             return action
-    for k in ("有哪些", "有什么", "都有什么", "什么机型", "哪些服务器", "有哪些服务器", "你们卖什么"):
-        if k in text:
-            return "list_catalog"
-    for k in ("什么意思", "啥意思", "解释", "不懂", "没懂", "为什么"):
-        if k in text:
-            return "explain"
     return None
 
 

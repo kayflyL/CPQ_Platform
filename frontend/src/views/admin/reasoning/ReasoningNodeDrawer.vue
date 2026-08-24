@@ -193,7 +193,11 @@ watch(() => props.open, async (v) => {
     label: props.nodeLabel ?? '',
     enabled_tools: Array.isArray(c.enabled_tools)
       ? [...c.enabled_tools]
-      : [...(NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
+      : [...(runtimeType.value === 'model_reason'
+            ? ['select_models']
+            : runtimeType.value === 'kp_reason'
+              ? ['select_parts', 'pick_kp_parts']
+              : (NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || []))],
     max_iterations: c.max_iterations ?? (NODE_DEFAULT_CONFIG[activeNodeType.value]?.max_iterations ?? 6),
     mr_selection_mode: c.selection_mode ?? MODEL_REASON_DEFAULTS.selection_mode,
     mr_grounding_tool: c.grounding_tool ?? MODEL_REASON_DEFAULTS.grounding_tool,

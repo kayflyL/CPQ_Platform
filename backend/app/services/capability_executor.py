@@ -242,6 +242,33 @@ async def run_fixed_workflow(
     ]
     await broadcast({"type": "pipeline_start", "steps": steps})
 
+    # 首轮意图预判（非断点续跑）：用户若只是闲聊/普通提问/问目录，直接给自然回复并停，
+    # 不跑完整选型链路，避免“我就想聊天”被塞进选型流程。
+    if not str(ctx.get("current_target") or "").strip() and ctx.get("requirement_text"):
+        try:
+            from app.services.workflow_intent import resolve_intent
+            _entry = await resolve_intent(str(ctx.get("requirement_text") or "").strip())
+            _entry_intent = str((_entry or {}).get("intent") or "").strip().lower()
+            if _entry_intent in ("noise", "ask", "list_catalog", "explain"):
+                from app.services.workflow_intent import catalog_digest, reply_with_context
+                _lines = _intent_context(ctx)
+                try:
+                    _cat = await catalog_digest()
+                except Exception:
+                    _cat = ""
+                if _cat:
+                    _lines += "\n\n【在售目录】\n" + _cat
+                _reply = await reply_with_context(str(ctx.get("requirement_text") or ""), _lines)
+                if _reply:
+                    ctx["awaiting_input"] = True
+                    ctx["current_target"] = "__entry_reply__"
+                    ctx["last_ask_question"] = _reply
+                    await broadcast({"type": "need_confirm", "step": "input", "question": _reply,
+                                     "options": [], "why": "entry_intent_reply"})
+                    return ctx
+        except Exception:
+            pass
+
     resume_from = str(ctx.get("current_target") or "").strip()
     if resume_from and resume_from in nodes and await _route_resume_intent(ctx, broadcast, resume_from):
         return ctx
