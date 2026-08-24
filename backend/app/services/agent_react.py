@@ -72,6 +72,13 @@ REACT_AGENT_HINT = (
     "- 每轮只输出一个 JSON 对象；不要只复述需求原文，不要输出 Markdown 代码块。\n"
 )
 
+REACT_CONVERGENCE_HINT = (
+    "\n\n【收敛规则（必须遵守）】\n"
+    "- 数据不足时先问一个最关键的问题，不要为凑数据连续换关键词调工具。\n"
+    "- 同一工具+同一类目最多调用一次；如需换词最多再试一次，仍无命中就用 final 说明，并如实报告已取到的工具事实。\n"
+    "- 配件数据齐后，立即用 build_plan 组完整方案，然后 final 给用户完整中文方案；禁止反复调工具拖延。\n"
+)
+
 NATIVE_TOOL_SYSTEM_HINT = (
     "\n\n【工具调用说明】\n"
     "- 需要查询/计算/生成方案时才调用工具；普通对话直接回复用户。\n"
@@ -301,6 +308,7 @@ async def _run_thinking_loop(
         sys_prompt = (system_prompt or cfg.get("system_prompt") or REACT_SYSTEM_PROMPT) \
             + REACT_JSON_CONTRACT \
             + REACT_AGENT_HINT \
+            + REACT_CONVERGENCE_HINT \
             + "\n\n" + _format_catalog(registry) \
             + f"\n\n最多 {max_iterations} 轮，尽快收敛。"
 
@@ -398,6 +406,16 @@ async def _run_thinking_loop(
                 base["answer"] = json.dumps(raw_ans, ensure_ascii=False)
                 return base
             ans_str = str(raw_ans).strip()
+            if not ans_str:
+                base["ok"] = True
+                base["answer"] = ""
+                return base
+            # 工具 ReAct 路径：模型给自然语言最终回答，直接收敛（final_only=False）。
+            # 单次抽取（agent_fill）路径仍严格要求 JSON，避免误收“只复述需求”的垃圾。
+            if not final_only:
+                base["ok"] = True
+                base["answer"] = ans_str
+                return base
             # 防御：final 只复述需求/不可解析 → 纠正重试，不静默当成功
             if ans_str:
                 try:
@@ -415,7 +433,6 @@ async def _run_thinking_loop(
             base["ok"] = True
             base["answer"] = ans_str
             return base
-
         if action == "call_tool":
             if final_only:
                 messages.append({"role": "user", "content": "本节点无需工具，请直接输出最终 JSON 对象。"})

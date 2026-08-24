@@ -31,7 +31,7 @@ class _FakeRepo:
 def _stub_ctlg(monkeypatch):
     monkeypatch.setattr(ps, "KPRepository", _FakeRepo)
     monkeypatch.setattr(rc, "category_aliases", lambda *a, **k: {
-        "CPU": ["CPU"], "Memory": ["Memory"], "HDD/SSD": ["HDD/SSD"]})
+        "CPU": ["CPU", "处理器"], "Memory": ["Memory", "内存"], "HDD/SSD": ["HDD", "SSD", "硬盘", "存储"]})
 
 
 def test_explicit_categories_and_qty(monkeypatch):
@@ -59,3 +59,29 @@ def test_infer_from_type(monkeypatch):
         "CPU": ["CPU"], "GPU": ["GPU"]})
     parts = ps.select_parts(server_type_name="AI 推理服务器")
     assert "CPU" in [p["category"] for p in parts]
+
+
+def test_search_map_per_category(monkeypatch):
+    _stub_ctlg(monkeypatch)
+    parts = ps.select_parts(categories=["CPU", "Memory"],
+                            search_map={"CPU": "Intel", "Memory": "DDR5"},
+                            qty_map={"CPU": 2, "Memory": 4})
+    assert parts[0]["pn"] == "Intel Xeon 8380"
+    assert parts[1]["pn"] == "32G DDR5"
+    assert parts[0]["unmatched"] is False and parts[1]["unmatched"] is False
+
+
+def test_search_fallback_when_no_hit(monkeypatch):
+    _stub_ctlg(monkeypatch)
+    parts = ps.select_parts(categories=["CPU"], search="Zen9")
+    assert parts[0]["unmatched"] is True
+    assert parts[0]["pn"] == "AMD EPYC 9124"
+    assert "未命中" in parts[0]["unmatched_reason"]
+
+
+def test_cn_alias_matches(monkeypatch):
+    _stub_ctlg(monkeypatch)
+    parts = ps.select_parts(categories=["内存"], search="DDR5")
+    assert parts[0]["category"] == "内存"
+    assert parts[0]["pn"] == "32G DDR5"
+    assert parts[0]["unmatched"] is False

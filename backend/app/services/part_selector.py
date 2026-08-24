@@ -44,25 +44,32 @@ def _resolve_categories(categories: Optional[list], server_type_name: Optional[s
 
 
 def _match_category(need_cat: str, db_cats: list[str], aliases_map: Optional[dict]) -> Optional[str]:
-    """需求品类 → 命中的 KP 库分类名（先别名精确，再子串，再 token 兜底）。无命中 None。"""
-    aliases = (aliases_map or {}).get(need_cat, [])
+    """需求品类 → 命中的 KP 库分类名（库名/别名双向匹配，先精确再子串再 token）。无命中 None。"""
+    aliases = aliases_map or {}
     db_low = {c: (c or "").lower() for c in db_cats}
-    for a in aliases:
-        a = str(a).lower()
-        for c, cl in db_low.items():
-            if cl == a:
+    nlow = (need_cat or "").strip().lower()
+    if not nlow:
+        return None
+    for c, cl in db_low.items():
+        if cl == nlow:
+            return c
+    for c, alist in aliases.items():
+        for a in alist:
+            if nlow == str(a).strip().lower():
                 return c
-    for a in aliases:
-        a = str(a).lower()
-        for c, cl in db_low.items():
-            if a in cl or cl in a:
+    for c, alist in aliases.items():
+        for a in alist:
+            alow = str(a).strip().lower()
+            if alow and (alow in nlow or nlow in alow):
                 return c
-    for tok in re.split(r"[/\s]+", (need_cat or "").lower()):
+    for tok in re.split(r"[/\s]+", nlow):
         if len(tok) < 2:
             continue
-        for c, cl in db_low.items():
-            if tok in cl:
-                return c
+        for c, alist in aliases.items():
+            for a in alist:
+                alow = str(a).strip().lower()
+                if alow and (tok in alow or alow in tok):
+                    return c
     return None
 
 
@@ -80,6 +87,7 @@ def select_parts(categories: Optional[list] = None,
                  server_type_name: Optional[str] = None,
                  search: Optional[str] = None,
                  qty_map: Optional[dict] = None,
+                 search_map: Optional[dict] = None,
                  representative_pick: str = "min_price") -> list[dict]:
     """按品类查 KP 库选代表件，返回 build_plan 可消费的部件列表。"""
     cats = _resolve_categories(categories, server_type_name)
@@ -96,7 +104,8 @@ def select_parts(categories: Optional[list] = None,
         parts: list[dict] = []
         for cat in cats:
             db_cat = _match_category(cat, db_cats, aliases)
-            kw = (search or "").strip()
+            sm = search_map or {}
+            kw = str(sm.get(cat) or sm.get(db_cat) or search or "").strip()
             if not db_cat:
                 parts.append({"category": cat, "pn": "", "name": "", "unit_price": 0.0,
                               "currency": "RMB", "qty": int(qty.get(cat) or qty.get("") or 1),
@@ -118,6 +127,23 @@ def select_parts(categories: Optional[list] = None,
                     "qty": q,
                     "matched_spec": "",
                     "unmatched": False,
+                })
+                continue
+            fb_rows = repo.get_latest_prices(search="", category=db_cat,
+                                             sort_by="price", sort_order="asc",
+                                             include_record_count=False)
+            fb_rep = _pick_rep(fb_rows, representative_pick)
+            if fb_rep:
+                parts.append({
+                    "category": cat,
+                    "pn": str(fb_rep.get("model") or ""),
+                    "name": str(fb_rep.get("model") or ""),
+                    "unit_price": float(fb_rep.get("price") or 0),
+                    "currency": str(fb_rep.get("currency") or "RMB"),
+                    "qty": q,
+                    "matched_spec": "",
+                    "unmatched": True,
+                    "unmatched_reason": f"关键词 {kw or '未给'} 未命中，已取该类目代表件",
                 })
             else:
                 parts.append({"category": cat, "pn": "", "name": "", "unit_price": 0.0,

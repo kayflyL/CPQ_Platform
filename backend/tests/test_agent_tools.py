@@ -102,6 +102,28 @@ def test_quote_draft_tool():
 
 # ── run_react_loop ────────────────────────────────────────────────────
 
+
+def _patch_stream(seq_or_raise):
+    """把 llm_client.stream_agent_chat 换成按 seq 依次吐 JSON 片段的 async generator。
+
+    每次调用 stream_agent_chat（Loop 的每一轮）取下一个 turn；数据耗尽重复最后一个，
+    避免无限重试把测试拖死。异常分支仍是 async generator，保证 async for 能捕获。
+    """
+    if isinstance(seq_or_raise, BaseException):
+        async def _ag(messages, model=None):
+            raise seq_or_raise
+            yield  # pragma: no cover 保持 async generator 语义
+        return _ag
+    seq = list(seq_or_raise)
+    idx = 0
+    async def _ag(messages, model=None):
+        nonlocal idx
+        it = seq[idx] if idx < len(seq) else (seq[-1] if seq else {"action": "final", "answer": ""})
+        idx += 1
+        yield {"type": "content", "delta": json.dumps(it, ensure_ascii=False)}
+    return _ag
+
+
 def _patch_llm(seq_or_raise):
     """把 llm_client.chat_json 换成按 seq 依次返回（或抛）的 async mock。"""
     if isinstance(seq_or_raise, BaseException):
@@ -112,12 +134,11 @@ def _patch_llm(seq_or_raise):
     return _h
 
 
+
 def test_react_final_no_tools():
     """无工具时，LLM 直接给 final → 返回 answer。"""
     from app.services import agent_react, llm_client
-    with patch("app.services.llm_client.chat_json", _patch_llm([{"action": "final", "answer": "ok"}])), \
-         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
-         patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    with patch("app.services.llm_client.stream_agent_chat", _patch_stream([{"action": "final", "answer": "ok"}])),          patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))),          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "ok" and out["iterations"] == 1
 
@@ -128,14 +149,12 @@ def test_react_calls_tool_then_final():
     reg = agent_tools.ToolRegistry()
     seen = []
     async def fake_h(args):
-        seen.append(args); return {"count": 1, "candidates": [{"name": "X"}]}
+        seen.append(args)
+        return {"count": 1, "candidates": [{"name": "X"}]}
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     seq = [{"action": "call_tool", "tool": "fake_tool", "args": {"k": 1}, "thought": "go"},
            {"action": "final", "answer": "done"}]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
-         patch("app.services.llm_client.chat_json", _patch_llm(seq)), \
-         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
-         patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    with patch("app.services.agent_react.build_tool_registry", return_value=reg),          patch("app.services.llm_client.stream_agent_chat", _patch_stream(seq)),          patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))),          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "done"
     assert seen == [{"k": 1}]
@@ -145,9 +164,7 @@ def test_react_calls_tool_then_final():
 def test_react_llm_error_degrades():
     """LLM 抛 LLMError → ok=False（上层降级），不抛。"""
     from app.services import agent_react, llm_client
-    with patch("app.services.llm_client.chat_json", _patch_llm(llm_client.LLMError("boom"))), \
-         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
-         patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    with patch("app.services.llm_client.stream_agent_chat", _patch_stream(llm_client.LLMError("boom"))),          patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))),          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is False and out["answer"] == ""
 
@@ -155,12 +172,12 @@ def test_react_llm_error_degrades():
 def test_react_max_iterations_cap():
     """LLM 一直发非法 action → 超 max_iterations → ok=False（truncated）。"""
     from app.services import agent_react, llm_client
-    async def _always_bad(messages, schema=None): return {"action": "garbage"}
-    with patch("app.services.llm_client.chat_json", _always_bad), \
-         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
-         patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    async def _always_bad(messages, model=None):
+        yield {"type": "content", "delta": json.dumps({"action": "garbage"})}
+    with patch("app.services.llm_client.stream_agent_chat", _always_bad),          patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))),          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=2))
     assert out["ok"] is False and out["iterations"] == 2
+
 
 
 if __name__ == "__main__":

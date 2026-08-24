@@ -141,6 +141,7 @@ async def _tool_select_parts(args: dict) -> Any:
         server_type_name=args.get("server_type_name"),
         search=args.get("search") or (_kw[0] if _kw and isinstance(_kw, list) else None),
         qty_map=args.get("qty_map"),
+        search_map=args.get("search_map"),
         representative_pick=args.get("representative_pick") or "min_price",
     )
     if not picks:
@@ -669,6 +670,7 @@ _TOOL_SPECS = {
                 "server_type_name": {"type": "string", "description": "服务器类型全名（据此推断标准配件类目）"},
                 "search": {"type": "string", "description": "型号/规格关键词，如 RTX 5090 / 8C / 64G"},
                 "qty_map": {"type": "object", "description": "每类目数量，如 {CPU:2, Memory:8, HDD/SSD:4}"},
+                "search_map": {"type": "object", "description": "按类目给关键词，如 {CPU:Xeon, Memory:DDR5, GPU:RTX 5090}"},
                 "representative_pick": {"type": "string", "description": "min_price/max_price/first，默认 min_price"},
             },
         },
