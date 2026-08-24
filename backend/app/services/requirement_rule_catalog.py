@@ -185,6 +185,32 @@ def kp_signal_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]
     return out
 
 
+
+# KP 候选检索 stage-1 上下文词表（pick_kp_parts 用）：系列号/风扇/电源/GPU/RAID 品类词。
+# 默认来自这里，可被 kp_token_context 规则覆盖；candidate_search 只读不内联。
+DEFAULT_KP_TOKEN_CONTEXT: dict[str, list[str]] = {
+    "series_words": ["系列", "series"],
+    "fan_words": ["风扇", "fan"],
+    "psu_words": ["瓦", "白金", "热插拔", "电源", "psu", "redundant", "platinum"],
+    "gpu_cat_keywords": ["gpu", "显卡"],
+    "raid_cat_keywords": ["raid", "阵列"],
+}
+
+
+def kp_token_context(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
+    """KP 候选检索 stage-1 上下文词表（默认值 + 规则覆盖）。candidate_search 只读不内联。"""
+    out: dict[str, list[str]] = {k: list(v) for k, v in DEFAULT_KP_TOKEN_CONTEXT.items()}
+    for row in active_bodies("kp_token_context", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        for k, v in row.items():
+            if isinstance(v, list):
+                out[str(k)] = [str(x) for x in v]
+            elif isinstance(v, str):
+                out[str(k)] = [v]
+    return out
+
+
 def kp_token_exclude(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
     """型号 token 排除规则：patterns（命中即当非型号跳过）+ ignore_words（小写忽略词）。
     规则 body 可覆盖默认；缺失回退默认，保证候选检索不因配置缺失而改变行为。"""

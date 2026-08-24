@@ -1335,6 +1335,14 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
     _tok_excl = _kp_tok_exclude()
     _kp_excl_patterns = _tok_excl.get("patterns") or []
     _kp_ignore_words = _tok_excl.get("ignore_words") or []
+    # 上下文词表（系列/风扇/电源/GPU/RAID 品类）来自规则库，正则形状保留在代码。
+    from app.services.requirement_rule_catalog import kp_token_context as _kp_ctx
+    _ctx = _kp_ctx() or {}
+    _series_words = "|".join(_ctx.get("series_words") or [])
+    _fan_words = "|".join(_ctx.get("fan_words") or [])
+    _psu_words = "|".join(_ctx.get("psu_words") or [])
+    _gpu_cat_kws = _ctx.get("gpu_cat_keywords") or []
+    _raid_cat_kws = _ctx.get("raid_cat_keywords") or []
     # 型号 token 正则（model_token_regex 可配，None→模块常量 MODEL_TOKEN_RE 兜底；和 extract 同源）
     _mt_re = MODEL_TOKEN_RE
     if model_token_regex:
@@ -1413,18 +1421,18 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             if kw.lower() in _kp_ignore_words:
                 continue
             # "9004/9005系列" —— 系列号不是具体型号，不报 unmatched 噪音（R7）
-            if re.search(re.escape(kw) + r"[^，。\n]{0,6}(?:系列|series)", requirement_text or "", re.I):
+            if _series_words and re.search(re.escape(kw) + r"[^，。\n]{0,6}(?:" + _series_words + ")", requirement_text or "", re.I):
                 continue
             # 纯数字后跟 风扇/fan（"6组6056风扇"）→ 风扇规格，不当型号（I41，R8）
-            if re.match(r"^\d{4,5}$", kw) and re.search(re.escape(kw) + r"[^，。\n]{0,4}(?:风扇|fan)", requirement_text or "", re.I):
+            if re.match(r"^\d{4,5}$", kw) and _fan_words and re.search(re.escape(kw) + r"[^，。\n]{0,4}(?:" + _fan_words + ")", requirement_text or "", re.I):
                 continue
             # 电源瓦数纯数字（"2700瓦"/"电源配1300"/"2700 白金 热插拔"）→ 电源规格，不当型号（R10/I53）
             # 2026-08-04：上下文双向检查——"电源配1300" 的电源词在数字【前】（原只查后 0-6 字符漏检）
             if re.match(r"^\d{3,4}$", kw):
-                _psu_ctx_after = re.escape(kw) + r"[^，。\n]{0,6}(?:瓦|白金|热插拔|电源|psu|redundant|platinum)"
-                _psu_ctx_before = r"(?:瓦|白金|热插拔|电源|psu|redundant|platinum)[^，。\n]{0,6}" + re.escape(kw)
-                if re.search(_psu_ctx_after, requirement_text or "", re.I) or \
-                   re.search(_psu_ctx_before, requirement_text or "", re.I):
+                _psu_ctx_after = re.escape(kw) + r"[^，。\n]{0,6}(?:" + _psu_words + ")"
+                _psu_ctx_before = r"(?:" + _psu_words + ")[^，。\n]{0,6}" + re.escape(kw)
+                if _psu_words and (re.search(_psu_ctx_after, requirement_text or "", re.I) or \
+                   re.search(_psu_ctx_before, requirement_text or "", re.I)):
                     continue
             # 内存速率纯数字（"DDR5 5200"/"5200 MT/s"）→ 内存规格，不当型号（R21）
             if re.match(r"^\d{3,4}$", kw) and re.search(
@@ -1472,10 +1480,10 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 if mem_signal and cat.lower() in ("memory", "内存"):
                     continue
                 # GPU 由 gpu_groups 分组处理（多卡各出一件）；stage-1 不抢先，避免只出一件代表
-                if gpu_groups and ("gpu" in cat.lower() or "显卡" in cat):
+                if gpu_groups and any(k.lower() in cat.lower() for k in _gpu_cat_kws):
                     continue
                 # RAID 由 raid_groups 分组处理（显式型号按组匹配）；stage-1 不抢先，避免同件双重计 qty
-                if raid_groups and ("raid" in cat.lower() or "阵列" in cat):
+                if raid_groups and any(k.lower() in cat.lower() for k in _raid_cat_kws):
                     continue
                 # multi_spec 品类（如网卡多速率）交给 stage2 按 spec_filter 各产出一件，stage1 不抢先
                 if cat and multi_spec_filters and cat in multi_spec_filters:
