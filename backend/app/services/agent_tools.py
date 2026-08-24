@@ -132,6 +132,33 @@ async def _tool_pick_kp_parts(args: dict) -> Any:
     return {"count": len(digest), "parts": digest}
 
 
+async def _tool_select_parts(args: dict) -> Any:
+    """select_parts → 干净版配件匹配 digest（pn/name/category/qty，供 agent 编排）。"""
+    from app.services.part_selector import select_parts
+    _kw = args.get("keywords") or []
+    picks = select_parts(
+        categories=args.get("categories"),
+        server_type_name=args.get("server_type_name"),
+        search=args.get("search") or (_kw[0] if _kw and isinstance(_kw, list) else None),
+        qty_map=args.get("qty_map"),
+        representative_pick=args.get("representative_pick") or "min_price",
+    )
+    if not picks:
+        return {"count": 0, "parts": [], "note": "无品类/无常可配，请补 categories 或 server_type_name"}
+    digest = [{
+        "category": p.get("category") or "",
+        "pn": p.get("pn") or "",
+        "name": p.get("name") or "",
+        "qty": p.get("qty") or 1,
+        "matched_spec": p.get("matched_spec") or "",
+        "unit_price": float(p.get("unit_price") or 0),
+        "currency": p.get("currency") or "RMB",
+        "unmatched": bool(p.get("unmatched")),
+        "unmatched_reason": p.get("unmatched_reason") or "",
+    } for p in picks]
+    return {"count": len(digest), "parts": digest}
+
+
 async def _tool_build_plan(args: dict) -> Any:
     """build_plan → 整机方案 digest（机型/成本/未匹配件，给 LLM 推荐理由用）。"""
     from app.api.candidate_search import build_plan
@@ -628,6 +655,24 @@ _TOOL_SPECS = {
             },
         },
         "handler": _tool_select_models,
+    },
+    "select_parts": {
+        "category": "selection",
+        "data_sources": ["kp_price"],
+        "default_enabled": False,
+        "description": ("按指定配件类目从配件库挑代表件（CPU/内存/硬盘/GPU/网卡等），返回料号/型号/单价/数量。"
+                        "要精确某型号或规格时传 search 关键词；同一类目可多次调用换关键词。"),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "categories": {"type": "array", "items": {"type": "string"}, "description": "要匹配的配件类目，如 CPU/GPU/Memory/HDD/SSD/NIC"},
+                "server_type_name": {"type": "string", "description": "服务器类型全名（据此推断标准配件类目）"},
+                "search": {"type": "string", "description": "型号/规格关键词，如 RTX 5090 / 8C / 64G"},
+                "qty_map": {"type": "object", "description": "每类目数量，如 {CPU:2, Memory:8, HDD/SSD:4}"},
+                "representative_pick": {"type": "string", "description": "min_price/max_price/first，默认 min_price"},
+            },
+        },
+        "handler": _tool_select_parts,
     },
     "pick_kp_parts": {
         "category": "selection",
