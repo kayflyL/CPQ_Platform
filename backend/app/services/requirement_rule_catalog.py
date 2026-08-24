@@ -118,6 +118,45 @@ def conditional_kp_categories(enabled_types: Optional[list[str]] = None) -> dict
     return out
 
 
+
+# 机型变体信号：可被 variant_signal_rules 规则覆盖。
+# candidate_search.build_variant_signals 只读不内联：直连/Switch/盘类型/RAID/配置单特征 等词表都来自这里。
+DEFAULT_VARIANT_SIGNAL_RULES: dict[str, Any] = {
+    "disk_kinds": [
+        {"token": "sata", "kind": "SATA", "check_cats": False},
+        {"token": "sas", "kind": "SAS", "check_cats": False},
+        {"token": "nvme", "kind": "NVMe", "check_cats": True},
+    ],
+    "direct_patterns": ["直通", "直连", r"direct", r"pass-?thru"],
+    "switch_patterns": [r"\bswitch\b", "交换"],
+    "config_qty_pattern": r"[*×]\s*\d+",
+    "raid_cats": ["Raid card"],
+    "raid_words": ["raid", "阵列"],
+    "gpu_cats": ["GPU"],
+    "cpu_cats": ["CPU"],
+    "gpu_qty_key": "GPU",
+    "gpu_group_qty_key": "qty",
+}
+
+
+def variant_signal_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
+    """机型变体信号词表（默认值 + 规则覆盖）。build_variant_signals 只读不内联。"""
+    out: dict[str, Any] = {}
+    for k, v in DEFAULT_VARIANT_SIGNAL_RULES.items():
+        if isinstance(v, dict):
+            out[str(k)] = dict(v)
+        elif isinstance(v, list):
+            out[str(k)] = list(v)
+        else:
+            out[str(k)] = v
+    for row in active_bodies("variant_signal_rules", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        for k, v in row.items():
+            out[str(k)] = v
+    return out
+
+
 def kp_token_exclude(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
     """型号 token 排除规则：patterns（命中即当非型号跳过）+ ignore_words（小写忽略词）。
     规则 body 可覆盖默认；缺失回退默认，保证候选检索不因配置缺失而改变行为。"""

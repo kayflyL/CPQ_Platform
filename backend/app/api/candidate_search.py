@@ -231,48 +231,70 @@ def kp_categories_for_type(type_name: str, type_packages: Optional[list] = None,
 def build_variant_signals(ext: dict, requirement_text: str = "") -> dict:
     """从 extract 结果 + 需求文本构建机型变体选择信号（R7）。
 
-    - gpu_qty：qty_map.GPU（"8个GPU卡" → 8）
-    - has_raid：需求含 Raid card 品类或 raid 字样
-    - storage_kinds：文本含 SATA/SAS/NVMe 盘类型词（含盘位能力描述如"前置8*SATA"）
-    - form：需求形态（尺寸推断出的 4U 等）
+    词表/正则全部来自规则库 variant_signal_rules（默认值 + 规则覆盖），
+    此处只做组合读取，不内联业务词；缺省回退默认值保证行为不变。
     """
     ext = ext or {}
     qty_map = ext.get("qty_map") or {}
     cats = ext.get("categories") or []
     low = (requirement_text or "").lower()
+
+    from app.services.requirement_rule_catalog import variant_signal_rules
+    rules = variant_signal_rules() or {}
+
+    def _lst(v):
+        if v is None:
+            return []
+        if isinstance(v, (list, tuple)):
+            return list(v)
+        return [v]
+
+    # 盘类型：SATA/SAS/NVMe；NVMe 还看需求品类别名（能力描述如"前置8*SATA"）
     kinds: set = set()
-    if "sata" in low:
-        kinds.add("SATA")
-    if "sas" in low:
-        kinds.add("SAS")
-    if "nvme" in low or "nvme" in " ".join(str(c) for c in cats).lower():
-        kinds.add("NVMe")
-    # 直通/直连（R8/I39 修复）：需求显式写"直通机型/直连" → 偏好直连模板（2）。
-    # 典型场景：4U 8卡 GPU 直通 + RAID/SATA 盘（技术员用直连模板而非 Switch）。
-    direct = bool(re.search(r"直通|直连|direct|pass-?thru", low))
-    # Switch 字样（R9/I46 防御）：需求显式写 Switch/交换 → 偏好 Switch 模板（3），
-    # 压过"8卡具体配置单默认直连"。
-    switch = bool(re.search(r"\bswitch\b|交换", low))
-    # 配置单特征（R9/I46）：需求含 ≥2 处 "*N/×N" 购买数量 → 具体配置单（非能力描述）。
-    # 8 卡具体配置单默认直连（技术员 Direct connected）；能力描述（如 R7 典型报价单）走 RAID/存储偏好。
-    cfg_qty = len(re.findall(r"[*×]\s*\d+", low)) >= 2
+    for dk in _lst(rules.get("disk_kinds")):
+        if not isinstance(dk, dict):
+            continue
+        token = str(dk.get("token") or "").lower()
+        kind = dk.get("kind")
+        if not token:
+            continue
+        hit = token in low
+        if dk.get("check_cats") and not hit:
+            hit = token in " ".join(str(c) for c in cats).lower()
+        if hit and kind:
+            kinds.add(kind)
+
+    # 直通/直连：需求显式写"直通机型/直连" → 偏好直连模板（2）
+    direct = any(re.search(p, low) for p in _lst(rules.get("direct_patterns")))
+    # Switch 字样：需求显式写 Switch/交换 → 偏好 Switch 模板（3）
+    switch = any(re.search(p, low) for p in _lst(rules.get("switch_patterns")))
+    # 配置单特征：需求含 ≥2 处 "*N/×N" 购买数量 → 具体配置单（非能力描述）
+    cfg_qty = len(re.findall(str(rules.get("config_qty_pattern") or r"[*\u00d7]\s*\d+"), low)) >= 2
+    # RAID：需求含 Raid card 品类或 raid/阵列 字样
+    raid_cats = _lst(rules.get("raid_cats"))
+    raid_words = _lst(rules.get("raid_words"))
+    has_raid = bool(any(c in cats for c in raid_cats) or any(w in low for w in raid_words))
+    # GPU/CPU 品类名（默认 GPU/CPU）
+    gpu_cats = _lst(rules.get("gpu_cats"))
+    cpu_cats = _lst(rules.get("cpu_cats"))
     # GPU 数量：qty_map 可能缺 GPU（"显卡:AMD R9700*8" 只在 gpu_groups）→ 用 gpu_groups 兜底
-    gpu_qty = int(qty_map.get("GPU") or 0)
+    gpu_key = str(rules.get("gpu_qty_key") or "GPU")
+    gpu_gq = str(rules.get("gpu_group_qty_key") or "qty")
+    gpu_qty = int(qty_map.get(gpu_key) or 0)
     for _g in ext.get("gpu_groups") or []:
-        gpu_qty = max(gpu_qty, int(_g.get("qty") or 0))
+        gpu_qty = max(gpu_qty, int(_g.get(gpu_gq) or 0))
+
     return {
         "gpu_qty": gpu_qty,
-        "has_raid": bool("Raid card" in cats or "raid" in low or "阵列" in low),
+        "has_raid": has_raid,
         "storage_kinds": kinds,
         "form": ext.get("form"),
         "series": ext.get("series"),
-        "has_cpu": "CPU" in cats,
+        "has_cpu": bool(any(c in cats for c in cpu_cats)),
         "direct": direct,
         "switch": switch,
         "has_config_quantities": cfg_qty,
     }
-
-
 def _rank_base_config_variant(bc: dict, signals: Optional[dict], main_config_id: Optional[int]) -> int:
     """机型多基准配置变体排序分（越大越优，2026-08-03 R7）。
 
