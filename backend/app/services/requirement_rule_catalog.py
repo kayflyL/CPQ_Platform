@@ -56,7 +56,7 @@ DEFAULT_PART_FAMILY_KEYWORDS: dict[str, dict[str, list[str]]] = {
     "memory": {"cat_upper": ["MEM"], "cat": ["内存"]},
     "nvme": {"name_upper": ["NVME"]},
     "disk": {"cat": ["硬盘", "SSD", "HDD", "DISK"]},
-    "gpu": {"cat_upper": ["GPU"], "cat": ["显卡", "图形"]},"psu": {"cat_upper": ["PSU", "POWER"], "cat": ["电源"]},"nic": {"cat_upper": ["NIC", "NETWORK"], "cat": ["网卡"]},
+    "nic": {"cat_upper": ["NIC", "NETWORK"], "cat": ["网卡"]},
     "raid": {"cat_upper": ["RAID", "HBA"], "cat": ["阵列"]},
     "sata": {"name_upper": ["SATA"]},
     "sas": {"name_upper": ["SAS"]},

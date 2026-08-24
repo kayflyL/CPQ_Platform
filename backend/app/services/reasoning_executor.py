@@ -7,11 +7,10 @@
 
 任何异常由调用方（run_pipeline）兜底诚实降级。
 """
-import json
 import logging
 import re
 import time
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable
 
 from app.api.candidate_search import (select_models, pick_kp_parts, build_plan,
                            kp_categories_for_type, build_variant_signals)
@@ -589,239 +588,26 @@ def _apply_payload_map(payload_map: dict, ctx: dict) -> dict:
             payload[str(dest)] = source
     return payload
 
-def _extract_json_object(text: str) -> Optional[dict]:
-    """从 final answer 里抽取 JSON 对象（允许前后有说明文字）。"""
-    if not text:
-        return None
-    t = str(text).strip()
-    try:
-        v = json.loads(t)
-        return v if isinstance(v, dict) else None
-    except Exception:
-        pass
-    s = t.find("{")
-    e = t.rfind("}")
-    if s != -1 and e != -1 and e > s:
-        try:
-            v = json.loads(t[s:e + 1])
-            return v if isinstance(v, dict) else None
-        except Exception:
-            return None
-    return None
-
-
-def _dig_path(obj: Any, dotted: str, default: Optional[Any] = None):
-    """按点分路径从 dict 取值，缺失返回 default。"""
-    if not dotted:
-        return default
-    cur = obj
-    for part in str(dotted).split("."):
-        if isinstance(cur, dict):
-            cur = cur.get(part)
-        else:
-            return default
-        if cur is None:
-            return default
-    return cur
-
-
-def _resolve_pre_args(args: Any, ctx: dict) -> Any:
-    """解析 pre_tools 参数模板：ctx.<path> 取 ctx，req.<path> 取 requirement。"""
-    if isinstance(args, str):
-        if args.startswith("ctx."):
-            return _dig_path(ctx, args[4:])
-        if args.startswith("req."):
-            return _dig_path(ctx.get("requirement") or {}, args[4:])
-        return args
-    if isinstance(args, dict):
-        return {k: _resolve_pre_args(v, ctx) for k, v in args.items()}
-    if isinstance(args, list):
-        return [_resolve_pre_args(x, ctx) for x in args]
-    return args
-
-
-async def _run_pre_tools(config: dict, ctx: dict) -> list[str]:
-    """执行节点配置的确定性前置工具，收集事实供 LLM 单次决策（AI 只编排，事实从工具来）。"""
-    specs = config.get("pre_tools") or []
-    if not specs:
-        return []
-    from app.services.agent_tools import build_tool_registry
-    names = []
-    for spec in specs:
-        t = spec.get("tool") if isinstance(spec, dict) else spec
-        if t:
-            names.append(str(t))
-    if not names:
-        return []
-    reg = build_tool_registry({"enabled_tools": names})
-    out: list[str] = []
-    for spec in specs:
-        tool = spec.get("tool") if isinstance(spec, dict) else spec
-        if not tool:
-            continue
-        args = spec.get("args") if isinstance(spec, dict) else {}
-        args = _resolve_pre_args(args, ctx)
-        try:
-            res = await reg.execute(str(tool), args)
-        except Exception as exc:
-            logger.exception("pre_tool failed tool=%s", tool)
-            res = {"error": str(exc)}
-        try:
-            txt = json.dumps(res, ensure_ascii=False, default=str)
-        except Exception:
-            txt = str(res)
-        out.append(f"[工具 {tool} 结果]\n{txt[:3000]}")
-    return out
-
-
-def _apply_agent_effects(structured: dict, ctx: dict, config: dict) -> dict:
-    """执行 Agent 结构化答案里的确定性副作用（编排胶水，非业务硬编码）。
-
-    仅当 config.allowed_effects 声明时才触发对应动作：
-      - build_bom:   用 baseline+parts 跑真实 build_plan，写 ctx.plans/bom_scheme；
-      - self_config: 用户选择自配→冻结流程并退出主线（推送机型卡片由交互层处理）。
-    """
-    allowed = set(config.get("allowed_effects") or [])
-    action = str(structured.get("action") or "").strip()
-    if not action or action not in allowed:
-        return {}
-    effects: dict = {}
-    if action == "self_config":
-        ctx["flow_exit"] = "self_config"
-        ctx["current_target"] = "model_choice"
-        effects["self_config"] = True
-    elif action == "build_bom":
-        baseline = structured.get("baseline") or {}
-        parts = structured.get("parts") or []
-        if isinstance(baseline, dict) and isinstance(parts, list) and parts:
-            try:
-                from app.api.candidate_search import build_plan
-                plan = build_plan(baseline, parts)
-            except Exception as exc:
-                logger.exception("build_bom effect failed")
-                plan = {"error": str(exc)}
-            if isinstance(plan, dict) and plan.get("error") is None:
-                ctx["plans"] = [plan]
-                ctx["bom_scheme"] = {"plans": [plan], "baseline": baseline, "parts": parts}
-                effects["build_bom"] = True
-            else:
-                ctx["bom_error"] = plan.get("error") if isinstance(plan, dict) else "build_plan 失败"
-                effects["build_bom"] = {"error": ctx.get("bom_error")}
-        else:
-            ctx["bom_error"] = "build_bom 缺 baseline 或 parts"
-            effects["build_bom"] = {"error": ctx.get("bom_error")}
-    return effects
-
-async def _run_single_shot(text: str, config: dict, extra_context: str) -> dict:
-    """final_only 节点的单发决策：走 chat_json（非流式，快），模型一次给契约 JSON。
-
-    返回与 run_react_loop 兼容的 {ok, answer, iterations, tool_calls_log, thought_log}。
-    """
-    from app.services import llm_client
-    from app.services.agent_react import REACT_SYSTEM_PROMPT, FINAL_ONLY_CONTRACT
-    base: dict = {"ok": False, "answer": "", "iterations": 0, "tool_calls_log": [], "thought_log": []}
-    if not llm_client.is_llm_enabled():
-        base["answer"] = "AI 未启用"
-        return base
-    sys_prompt = (config.get("system_prompt") or REACT_SYSTEM_PROMPT) \
-        + (config.get("final_only_contract") or FINAL_ONLY_CONTRACT) \
-        + "\n\n一次输出，只输出一个 JSON 对象，不要 Markdown 代码块，不要复述需求。"
-    messages = [{"role": "system", "content": sys_prompt}]
-    user_content = f"需求：{text or ''}".strip()
-    if extra_context:
-        user_content += f"\n\n参考：{extra_context}"
-    messages.append({"role": "user", "content": user_content})
-    try:
-        data = await llm_client.chat_json(llm_client._ensure_json_instruction(messages))
-    except Exception as exc:
-        logger.warning("single_shot chat_json failed: %s", exc)
-        base["answer"] = ""
-        return base
-    if not isinstance(data, dict):
-        base["answer"] = ""
-        return base
-    action = str(data.get("action") or "").strip()
-    if action == "final" and isinstance(data.get("answer"), dict):
-        base["answer"] = json.dumps(data.get("answer"), ensure_ascii=False)
-        base["ok"] = True
-    elif action == "final":
-        base["answer"] = str(data.get("answer") or "").strip()
-        base["ok"] = True
-    else:
-        base["answer"] = json.dumps(data, ensure_ascii=False) if data else ""
-        base["ok"] = True
-    base["iterations"] = 1
-    return base
-
-
 async def _handle_generic_agent(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
-    """Generic agent node: LLM decides, calls tools from the global catalog.
-
-    config 可配（节点抽屉）：
-      - context_map: [{key,label}] 把上游 ctx 序列化进 extra_context；
-      - result_key:  把最终结构化答案写回 ctx 的键（默认沿用 agent_result）；
-      - result_mapping: {ctx_key: path} 把答案里的子字段再复制到 ctx 顶层。
-    结构化答案取 final answer（JSON 对象），非 JSON 则仅保留 agent_result。
-    """
+    """Generic agent node: LLM decides, calls tools from the global catalog."""
     from app.services.agent_react import run_react_loop
     text = ctx.get("requirement_text") or ctx.get("normalized_text") or ""
     if not str(text).strip():
         return {"ok": False, "answer": "", "reason": "empty_text"}
-
-    extra = []
-    for item in config.get("context_map") or []:
-        k = str((item or {}).get("key") or "")
-        label = str((item or {}).get("label") or k)
-        val = ctx.get(k)
-        if val is None:
-            val = _dig_path(ctx, k)
-        if val not in (None, "", [], {}):
-            try:
-                extra.append(f"[{label}]\n{json.dumps(val, ensure_ascii=False, default=str)[:2000]}")
-            except Exception:
-                extra.append(f"[{label}]\n{str(val)[:2000]}")
-    pre = await _run_pre_tools(config, ctx)
-    extra_context = "\n\n".join(pre + extra)
-
-    if config.get("final_only"):
-        result = await _run_single_shot(text, config, extra_context)
-    else:
-        result = await run_react_loop(
-            requirement_text=str(text),
-            config=config,
-            extra_context=extra_context,
-            max_iterations=int(config.get("max_iterations") or 6),
-            system_prompt=config.get("system_prompt") or None,
-            history=ctx.get("history") or [],
-            final_only=False,
-        )
+    result = await run_react_loop(
+        requirement_text=str(text),
+        config=config,
+        max_iterations=int(config.get("max_iterations") or 6),
+        system_prompt=config.get("system_prompt") or None,
+        history=ctx.get("history") or [],
+    )
     ctx["agent_result"] = result
-
-    answer = str(result.get("answer") or "").strip()
-    structured: Optional[dict] = None
-    if answer:
-        parsed = _extract_json_object(answer)
-        if isinstance(parsed, dict):
-            structured = parsed
-
-    result_key = str(config.get("result_key") or "agent_result")
-    effects: dict = {}
-    if structured is not None:
-        ctx[result_key] = structured
-        for ck, path in (config.get("result_mapping") or {}).items():
-            val = _dig_path(structured, str(path))
-            if val is not None:
-                ctx[str(ck)] = val
-        effects = _apply_agent_effects(structured, ctx, config)
-
     return {
         "ok": result.get("ok"),
-        "answer": answer,
+        "answer": result.get("answer") or "",
         "iterations": result.get("iterations") or 0,
         "tool_calls_log": result.get("tool_calls_log") or [],
         "thought_log": result.get("thought_log") or [],
-        "structured": structured,
-        "effects": effects,
     }
 
 async def _handle_generic_rule(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:

@@ -23,18 +23,18 @@ GENERIC_NODE_TYPES = {
 DEFAULT_REQUIREMENT_ANALYSIS_GRAPH = {
     "nodes": [
         {"id": "input", "type": "input", "label": "输入", "position": {"x": 0, "y": 200}},
-        {"id": "need_analysis", "type": "agent", "label": "需求分析 Agent", "position": {"x": 300, "y": 200}},
-        {"id": "model_choice", "type": "agent", "label": "机型选型 Agent", "position": {"x": 600, "y": 200}},
-        {"id": "parts_proposal", "type": "agent", "label": "配件选配 Agent", "position": {"x": 900, "y": 200}},
-        {"id": "bom_assemble", "type": "agent", "label": "BOM 组装 Agent", "position": {"x": 1200, "y": 200}},
-        {"id": "output", "type": "output", "label": "输出·BOM方案草稿", "position": {"x": 1500, "y": 200}},
+        {"id": "agent_fill", "type": "agent_fill", "label": "智能对话填表 Agent", "position": {"x": 280, "y": 200}},
+        {"id": "model_reason", "type": "model_reason", "label": "机型选型", "position": {"x": 580, "y": 200}},
+        {"id": "kp_reason", "type": "kp_reason", "label": "配件选型", "position": {"x": 860, "y": 200}},
+        {"id": "compose", "type": "compose", "label": "方案组装·BOM", "position": {"x": 1140, "y": 200}},
+        {"id": "output", "type": "output", "label": "输出·BOM方案草稿", "position": {"x": 1420, "y": 200}},
     ],
     "edges": [
-        {"id": "e1", "source": "input", "target": "need_analysis"},
-        {"id": "e2", "source": "need_analysis", "target": "model_choice"},
-        {"id": "e3", "source": "model_choice", "target": "parts_proposal"},
-        {"id": "e4", "source": "parts_proposal", "target": "bom_assemble"},
-        {"id": "e5", "source": "bom_assemble", "target": "output"},
+        {"id": "e1", "source": "input", "target": "agent_fill"},
+        {"id": "e2", "source": "agent_fill", "target": "model_reason"},
+        {"id": "e3", "source": "model_reason", "target": "kp_reason"},
+        {"id": "e4", "source": "kp_reason", "target": "compose"},
+        {"id": "e5", "source": "compose", "target": "output"},
     ],
 }
 
@@ -66,152 +66,47 @@ DEFAULT_GENERIC_GRAPH = {
 
 
 def _requirement_analysis_node_configs() -> dict:
-    """需求分析 Skill 默认节点契约（AI 优先 5 节点链）。
-
-    设计：AI 只做理解+编排，事实（目录/价格/兼容/BOM）全部由工具从规则库与目录读取；
-    代码里不写死任何价格、兼容表、配件词表。每个 agent 节点用 enabled_tools 收窄工具，
-    用 context_map 把上游结构化结果注入，用 result_key/result_mapping/action 写回 ctx。
-    """
+    """需求分析 Skill 的默认节点契约，只保留真实业务链：输入 → 线索登记 → 方案配置 → 输出。"""
     return {
         "input": {
             "description": "接收客户自然语言需求与商机上下文",
             "deterministic": True,
         },
-        "need_analysis": {
-            "description": "智能体理解需求→读规则目录→输出结构化需求槽位（server_type/form/series/gpu/raid 等）",
-            "enabled_tools": ["load_requirement_rules", "list_server_types", "list_server_models"],
-            "system_prompt": (
-                "你是【需求分析 Agent】。把客户自然语言需求转成结构化槽位，供后续选型/选配/报价使用。\n"
-                "铁律：只做理解与编排，不记忆价格、兼容、BOM。凡涉及目录、系列、形态、配件、类型的事实，"
-                "一律调用工具获取；不确定就调用工具确认，绝不编造。\n"
-                "工具：load_requirement_rules（读需求规则/别名）、list_server_types/list_server_models（在售目录）。\n"
-                "先调用 load_requirement_rules 读规则，再按规则把需求规范化。\n"
-                "最终必须用 final 动作，且 answer 字段是如下 JSON 对象（不要多余文字），形如：\n"
-                '{"requirement": {"server_type_name":"通用服务器","server_type":"通用","form":"2U","series":"",'
-                '"gpu_count":2,"raid_level":"","nic_speed":"","psu_signal":{},"purchase_qty":1,"gpu_groups":[],'
-                '"scope":"","usage":""}, "summary":"一句话需求要点"}'
-            ),
-            "result_key": "need_analysis",
-            "final_only": True,
-            "final_only_contract": ("直接给出需求槽位 JSON，键名必须按下表，不得改名："
-                                     '{"requirement": {"server_type_name":"服务器类型全名","server_type":"通用|AI|存储|边缘|GPU","form":"1U|2U|4U|8U",'
-                                     '"series":"产品系列(可空)","gpu_count":0,"raid_level":"","nic_speed":"","purchase_qty":1,'
-                                     '"gpu_groups":[{"kind":"GPU","qty":0}],"scope":"","usage":"用途简要"},'
-                                     '"summary":"一句话需求要点"}。server_type_name/form/gpu_count 必须从需求里精确提取，无法确定就留空，禁止臆造。'),
-            "pre_tools": [{"tool": "load_requirement_rules", "args": {}}],
-            "result_mapping": {
-                "requirement": "requirement",
-                "ext": "requirement",
-                "normalized_text": "summary",
-            },
-            "context_map": [],
-            "max_iterations": 4,
-            "allowed_effects": [],
-            "rule_types": ["category_alias", "platform_series_map", "type_alias", "gpu_form_map",
-                           "raid_level_map", "cpu_mem_generation", "workload_map"],
+        "agent_fill": {
+            "description": "会对话、会查目录确认在售/系列、边答边填线索登记表；信息不足自然反问，一个回合可批量填多个槽；机型与配件的最终选型交给下游节点",
+            "data_sources": ["server_catalog", "demand_analysis_docs"],
+            "rule_types": ["platform_series_map", "category_alias", "workload_map", "compliance_map", "gpu_form_map", "type_package"],
+            "conflict_strategy": "auto_resolve",
+            "enabled_tools": ["list_server_types", "list_server_models", "get_server_model"],
         },
-        "model_choice": {
-            "description": "智能体按需求从目录筛机型并用 validate_compat 校验；用户可选自配并收到机型卡片",
-            "enabled_tools": ["select_models", "validate_compat", "load_requirement_rules"],
-            "system_prompt": (
-                "你是【机型选型 Agent】。上游已给需求槽位（见“需求槽位”）。任务：调用 select_models 从目录筛出候选机型，"
-                "再调用 validate_compat 校验候选与需求是否可行，给出推荐。\n"
-                "铁律：不背价格/兼容/目录，一切以工具返回为准；无匹配就如实说明并建议放宽。\n"
-                "工具：select_models（按 server_type/form/series/usage 筛）、validate_compat（校验）。\n"
-                "若用户明确表示“自己配/不要推荐/我要自己选”，则 action 置为 self_config，"
-                "把候选机型放入 candidates，到此为止（系统会推送机型卡片让你进入自配页）。\n"
-                "最终必须用 final 动作，且 answer 字段是如下 JSON 对象：\n"
-                '{"action":"recommend|self_config","candidates":[...工具返回candidates...],'
-                '"recommended":<推荐项，含baseline>,"recommended_index":0,"reason":"推荐理由",'
-                '"baseline":<推荐项的baseline>}'
-            ),
-            "result_key": "model_choice",
-            "final_only": True,
-            "final_only_contract": ("直接给出机型决策 JSON：{\"action\":\"recommend|self_config\",\"candidates\":[select_models候选digest],"
-                                     "\"recommended\":<建议候选含baseline>,\"baseline\":<建议候选的baseline>,\"reason\":\"推荐理由\"}。"
-                                     "用户表示自配时 action=self_config。"),
-            "pre_tools": [{"tool": "select_models", "args": {"server_type_name": "req.server_type_name", "form": "req.form", "series": "req.series", "usage": "req.usage", "limit": 6}}],
-            "result_mapping": {
-                "candidates": "candidates",
-                "baselines": "candidates",
-                "recommended": "recommended",
-                "baseline": "baseline",
-                "recommended_index": "recommended_index",
-                "model_choice_reason": "reason",
-                "action": "action",
-                "flow_exit": "flow_exit",
-            },
-            "context_map": [{"key": "requirement", "label": "需求槽位"}],
-            "max_iterations": 4,
-            "allowed_effects": ["self_config"],
+        "model_reason": {
+            "description": "按线索登记字段推荐或智能选配在售机型骨架",
+            "selection_mode": "recommend",
+            "grounding_tool": "select_models",
+            "grounding_result_key": "candidates",
+            "choice_id_pattern": "id=(\d+)",
+            "choice_fields": ["config_id", "server_model_id", "id"],
+            "rule_types": ["fallback_order", "gpu_form_map", "compliance_map", "type_package"],
         },
-        "parts_proposal": {
-            "description": "智能体按需求+已选机型从配件库挑配件，并校验兼容，输出 parts_proposal 契约",
-            "enabled_tools": ["select_parts", "validate_compat"],
-            "system_prompt": (
-                "你是【配件选配 Agent】。已给需求槽位与已选机型（见“需求槽位/已选机型”）。任务："
-                "调用 select_parts 按类目挑配件，再调用 validate_compat（用已选机型 baseline）校验兼容，"
-                "必要时换件重选。\n"
-                "铁律：不背配件型号/价格，全部以 select_parts 返回为准；无法命中就用工具给的代表件，并在 summary 说明。\n"
-                "最终必须用 final 动作，且 answer 字段是如下 JSON 对象：\n"
-                '{"baseline":<上游baseline>,"by_category":{"CPU":[...],"Memory":[...]},'
-                '"parts":[...select_parts返回parts...],"summary":"配件规划要点"}'
-            ),
-            "result_key": "parts_proposal",
-            "final_only": True,
-            "final_only_contract": ("直接给出配件契约 JSON：{\"baseline\":<已选机型baseline>,\"by_category\":{...},\"parts\":[select_parts返回parts...],"
-                                     "\"summary\":\"配件规划要点\"}。baseline 取上游已选机型，不要改价格/型号。"),
-            "pre_tools": [{"tool": "select_parts", "args": {"categories": ["CPU", "Memory", "HDD/SSD", "GPU", "NIC", "RAID"], "server_type_name": "req.server_type_name"}}],
-            "result_mapping": {
-                "parts": "parts",
-                "kp_parts": "parts",
-                "by_category": "by_category",
-                "baseline": "baseline",
-                "part_summary": "summary",
-            },
-            "context_map": [{"key": "requirement", "label": "需求槽位"}, {"key": "baseline", "label": "已选机型"}],
-            "max_iterations": 4,
-            "allowed_effects": [],
+        "kp_reason": {
+            "description": "按线索登记字段选择关键配件",
+            "proposal_enabled": True,
+            "proposal_schema": {},
+            "user_prompt_template": "",
+            "proposal_mapping": {},
+            "reason_template": "配件规划：已确认 {{items}}",
+            "rule_types": ["type_package", "category_alias", "spec_rule", "cpu_mem_generation", "capacity_match", "raid_level_map", "compliance_map", "workload_map"],
         },
-        "bom_assemble": {
-            "description": "智能体用 validate_compat+compute_price 校验并算价，触发确定性 build_bom 产出整机方案",
-            "enabled_tools": ["validate_compat", "compute_price", "select_parts", "select_models"],
-            "system_prompt": (
-                "你是【BOM 组装 Agent】。已给需求槽位、已选机型、配件清单。任务：调用 validate_compat 确认整体可行，"
-                "调用 compute_price 取得真实成本，然后输出 action=build_bom 触发确定性 BOM 组装。\n"
-                "铁律：不手拼 BOM、不估成本；成本/兼容事实全部来自工具返回，最终方案由系统按真实 BOM 模板组装。\n"
-                "最终必须用 final 动作，且 answer 字段是如下 JSON 对象：\n"
-                '{"action":"build_bom","baseline":<已选机型baseline>,"parts":<配件清单>,'
-                '"cost":<compute_price返回cost>,"summary":"方案要点"}'
-            ),
-            "result_key": "bom_scheme",
-            "final_only": True,
-            "final_only_contract": ("直接给出 BOM 组装 JSON：{\"action\":\"build_bom\",\"baseline\":<已选机型baseline>,\"parts\":<配件清单>,"
-                                     "\"cost\":<compute_price返回cost>,\"summary\":\"方案要点\"}。cost 必须用工具返回值，禁止估算。"),
-            "pre_tools": [
-                {"tool": "validate_compat", "args": {"baseline": "ctx.baseline", "parts": "ctx.parts", "requirement": "ctx.requirement"}},
-                {"tool": "compute_price", "args": {"baseline": "ctx.baseline", "parts": "ctx.parts"}},
-            ],
-            "result_mapping": {
-                "baseline": "baseline",
-                "parts": "parts",
-                "bom_scheme": "bom_scheme",
-                "requirement": "requirement",
-                "ext": "requirement",
-                "bom_cost": "cost",
-                "bom_summary": "summary",
-            },
-            "context_map": [
-                {"key": "requirement", "label": "需求槽位"},
-                {"key": "baseline", "label": "已选机型"},
-                {"key": "parts_proposal", "label": "配件选配"},
-                {"key": "parts", "label": "配件清单"},
-            ],
-            "max_iterations": 4,
-            "allowed_effects": ["build_bom"],
+        "compose": {
+            "description": "按真实 BOM 模板组装 bom_scheme.configs",
+            "kp_source": "per_baseline",
+            "psu_override_enabled": True,
+            "psu_wattage_source": "ext.psu_signal.wattage",
+            "psu_qty_source": "ext.psu_signal.qty",
+            "deterministic": True,
         },
         "output": {
-            "description": "写回真实 requirement + bom_scheme，并交付 AI Office / 商机详情页",
+            "description": "写回真实 requirement + bom_scheme，并交付给 AI Office/商机详情页",
             "output_kind": "bom_scheme_draft",
             "target": "bom_scheme",
             "payload_map": {"plans": "ctx.plans", "ext": "ctx.ext"},
@@ -219,7 +114,6 @@ def _requirement_analysis_node_configs() -> dict:
             "deterministic": True,
         },
     }
-
 
 
 def _normalize_graph(g: dict) -> dict:
@@ -516,10 +410,10 @@ class ReasoningFlowRepository:
 
 
     def self_heal_agent_node_configs(self, flow_id: Optional[int] = None) -> int:
-        """自愈节点配置：仅对 requirement_analysis 生效，主链集合从默认配置动态取。
+        """自愈：为 agent_fill 补齐可编辑职责文案与子任务提示词。
 
-        不再写死旧六节点集合；非 requirement_analysis 技能不做删除/新建，避免误伤。
         只补缺失字段，不覆盖用户已保存的 enabled/system_prompt/label 等值。
+        保证旧 active flow 打开抽屉时也能看到完整默认提示词，而不是前端另写一份硬编码。
         """
         query = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True)
         if flow_id is not None:
@@ -527,13 +421,11 @@ class ReasoningFlowRepository:
         f = query.first()
         if not f:
             return 0
-        is_ra = str(f.skill_key or f.name or "") == "requirement_analysis"
-        if not is_ra:
-            return 0
         defaults = _requirement_analysis_node_configs()
-        canonical = set(defaults.keys())
         changed = 0
 
+        # 只保留主链节点配置；其余不在主链的旧键直接删除，避免干扰后续接管与回显。
+        canonical = {"input", "agent_fill", "model_reason", "kp_reason", "compose", "output"}
         for n in self.session.query(ReasoningNodeConfig).filter(
             ReasoningNodeConfig.flow_id == f.id
         ).all():
@@ -543,63 +435,108 @@ class ReasoningFlowRepository:
         if changed:
             self.session.commit()
 
-        for node_key in canonical:
-            n = self.session.query(ReasoningNodeConfig).filter(
-                ReasoningNodeConfig.flow_id == f.id,
-                ReasoningNodeConfig.node_key == node_key,
-            ).first()
-            if n:
-                continue
-            default = dict(defaults.get(node_key) or {})
-            ptype = _prompt_node_type(node_key)
-            if ptype:
-                try:
-                    from app.services.prompt_store import merge_node_prompt
-                    default = merge_node_prompt(ptype, default)
-                except Exception:
-                    pass
-            self.upsert_node_config(f.id, node_key, default, operator="self-heal")
-            changed += 1
-
-        for node_key in canonical:
+        for node_key in ("input", "agent_fill", "model_reason", "kp_reason", "compose", "output"):
+            default = defaults.get(node_key) or {}
             n = self.session.query(ReasoningNodeConfig).filter(
                 ReasoningNodeConfig.flow_id == f.id,
                 ReasoningNodeConfig.node_key == node_key,
             ).first()
             if not n:
+                if node_key == "agent_fill":
+                    # 画布已收敛到 agent_fill 但 DB 无配置行：补建默认配置并回填提示词，
+                    # 保证抽屉打开即回显默认 system_prompt。
+                    from app.services.prompt_store import merge_node_prompt
+                    cfg = merge_node_prompt("agent_fill", dict(default))
+                    self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")
+                    changed += 1
                 continue
             try:
                 cfg = json.loads(n.config) if n.config else {}
             except Exception:
                 cfg = {}
-            default = defaults.get(node_key) or {}
             dirty = False
-            for k, v in default.items():
-                if k in ("description", "system_prompt"):
-                    continue
-                if isinstance(v, dict):
-                    if isinstance(cfg.get(k), dict) and not cfg[k]:
-                        cfg[k] = dict(v)
+
+            if node_key == "agent_fill":
+                if not cfg.get("description") and default.get("description"):
+                    cfg["description"] = default["description"]
+                    dirty = True
+
+            if node_key in ("agent_fill", "model_reason", "kp_reason"):
+                if not cfg.get("rule_types") and default.get("rule_types"):
+                    cfg["rule_types"] = list(default["rule_types"])
+                    dirty = True
+
+            if node_key == "model_reason":
+                for field in ("grounding_tool", "grounding_result_key",
+                              "choice_id_pattern"):
+                    if not cfg.get(field) and default.get(field):
+                        cfg[field] = default[field]
                         dirty = True
-                    elif cfg.get(k) is None:
-                        cfg[k] = dict(v)
+                if not cfg.get("choice_fields") and default.get("choice_fields"):
+                    cfg["choice_fields"] = list(default["choice_fields"])
+                    dirty = True
+
+            if node_key == "kp_reason":
+                for field in ("proposal_enabled",):
+                    if field not in cfg and field in default:
+                        cfg[field] = bool(default[field])
                         dirty = True
-                elif isinstance(v, list):
-                    if cfg.get(k) in (None, []):
-                        cfg[k] = list(v)
+                for field in ("proposal_schema", "proposal_mapping"):
+                    if not cfg.get(field) and default.get(field):
+                        cfg[field] = dict(default[field])
                         dirty = True
-                else:
-                    if cfg.get(k) is None:
-                        cfg[k] = v
+                for field in ("user_prompt_template", "reason_template"):
+                    if not cfg.get(field) and default.get(field):
+                        cfg[field] = default[field]
                         dirty = True
+                for field in ("temperature", "timeout", "max_attempts"):
+                    if cfg.get(field) is None and default.get(field) is not None:
+                        cfg[field] = default[field]
+                        dirty = True
+
+            if node_key == "compose":
+                for field in ("kp_source", "psu_wattage_source", "psu_qty_source"):
+                    if not cfg.get(field) and default.get(field):
+                        cfg[field] = default[field]
+                        dirty = True
+                if "psu_override_enabled" not in cfg and "psu_override_enabled" in default:
+                    cfg["psu_override_enabled"] = bool(default["psu_override_enabled"])
+                    dirty = True
+
+            if node_key == "agent_fill":
+                for legacy_key in ("system_prompt", "user_prompt_template", "output_schema",
+                                   "option_scopes", "fallback_forms", "fallback_series",
+                                   "ask_skill_key", "show_why", "max_rounds",
+                                   "strategy", "max_ask_rounds", "target", "entry_points"):
+                    if legacy_key in cfg:
+                        cfg.pop(legacy_key)
+                        dirty = True
+                if not cfg.get("data_sources") and default.get("data_sources"):
+                    cfg["data_sources"] = list(default["data_sources"])
+                    dirty = True
+                if not cfg.get("rule_types") and default.get("rule_types"):
+                    cfg["rule_types"] = list(default["rule_types"])
+                    dirty = True
+                if not cfg.get("enabled_tools") and default.get("enabled_tools"):
+                    cfg["enabled_tools"] = list(default["enabled_tools"])
+                    dirty = True
+                # 方案A(2026-08)：agent_fill 只做理解/查证/填表；把 select_models/pick_kp_parts
+                # 两个选型/配件决策工具交回 model_reason/kp_reason，避免 Agent 一把梭定方案。
+                _dtools = list(cfg.get("enabled_tools") or [])
+                _norm = [t for t in _dtools if t not in ("select_models", "pick_kp_parts")]
+                for _t in (default.get("enabled_tools") or []):
+                    if _t not in _norm:
+                        _norm.append(_t)
+                if _norm != _dtools:
+                    cfg["enabled_tools"] = _norm
+                    dirty = True
+
+
             if dirty:
-                n.config = json.dumps(cfg, ensure_ascii=False)
-                n.updated_at = datetime.now().isoformat()
-                n.updated_by = "self-heal"
+                self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")
                 changed += 1
-        if changed:
-            self.session.commit()
         return changed
+
 
     def activate(self, flow_id: int, operator: str = "system") -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
@@ -692,7 +629,7 @@ class ReasoningFlowRepository:
                     "input": {},
                     "agent": {
                         "enabled_tools": ["query_cpq_data"],
-                        "max_iterations": 4,
+                        "max_iterations": 6,
                         "system_prompt": "",
                         "rule_types": [],
                     },
