@@ -208,25 +208,23 @@ def kp_categories_for_type(type_name: str, type_packages: Optional[list] = None,
         type_packages = _default_type_packages()
     pkgs = type_packages
     cats: list[str] = []
-    mandatory_storage = False
-    mandatory_gpu = False
+    flags: dict = {}
     for pkg in pkgs:
         kw = pkg.get("type_keyword") or ""
         if kw and kw in type_name:
             cats = list(pkg.get("categories") or [])
-            mandatory_storage = bool(pkg.get("mandatory_storage"))  # 配置驱动：存储类套餐强制带盘
-            mandatory_gpu = bool(pkg.get("mandatory_gpu"))          # 配置驱动：AI 类套餐强制带卡
+            flags = {str(k): bool(v) for k, v in pkg.items() if str(k).startswith("mandatory_")}
             break
-    # GPU/HDD/SSD 仅当需求明确要才配（requested_cats 非 None 且含对应品类；None=老调用方不过滤）
-    # HDD/SSD 同 GPU 原则（R4 修）："12/24 bays HDDSupport of NVMe" 是机箱能力不是硬盘配置，
-    # 套餐默认含 HDD/SSD 但需求没提硬盘时不硬塞（避免凭空配一块 480G）。
-    # 例外：套餐显式标 mandatory_storage=True（如存储服务器）→ 硬盘是核心，强制保留；
-    #       mandatory_gpu=True（如 AI/加速计算服务器）→ GPU 是核心，强制保留（配件库有 GPU，2026-08 修）。
+    # 条件品类：套餐默认含、但需求没明确要就不硬塞（除非套餐标 mandatory）。配置来自规则库 conditional_kp_categories。
     if requested_cats is not None:
-        if "GPU" in cats and "GPU" not in requested_cats and not mandatory_gpu:
-            cats = [c for c in cats if c != "GPU"]
-        if "HDD/SSD" in cats and "HDD/SSD" not in requested_cats and not mandatory_storage:
-            cats = [c for c in cats if c != "HDD/SSD"]
+        from app.services.requirement_rule_catalog import conditional_kp_categories as _cond_kp
+        for _cat, _spec in (_cond_kp() or {}).items():
+            if _cat not in cats or _cat in requested_cats:
+                continue
+            _flag = str(_spec.get("package_flag") or "")
+            if _flag and flags.get(_flag):
+                continue
+            cats = [c for c in cats if c != _cat]
     return cats
 
 

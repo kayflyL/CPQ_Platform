@@ -98,6 +98,26 @@ DEFAULT_KP_TOKEN_EXCLUDE_PATTERNS: list[str] = [
 DEFAULT_KP_TOKEN_IGNORE_WORDS: list[str] = ["rj45", "ipmi", "bmc", "mgmt", "management"]
 
 
+# 条件品类：套餐默认含、但需求没明确要就不硬塞（除非套餐标 mandatory）。
+# 键是需求品类名；值 {package_flag} 指向 type_package 里对应的强制字段名（mandatory_gpu/mandatory_storage）。
+DEFAULT_CONDITIONAL_KP_CATEGORIES: dict[str, dict] = {
+    "GPU": {"package_flag": "mandatory_gpu"},
+    "HDD/SSD": {"package_flag": "mandatory_storage"},
+}
+
+
+def conditional_kp_categories(enabled_types: Optional[list[str]] = None) -> dict[str, dict]:
+    """需求品类 → 条件品类策略（默认 + 规则覆盖）。candidate_search 只读不内联。"""
+    out = {k: dict(v) for k, v in DEFAULT_CONDITIONAL_KP_CATEGORIES.items()}
+    for row in active_bodies("conditional_kp_categories", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        for cat, spec in row.items():
+            if isinstance(spec, dict):
+                out[str(cat)] = dict(spec)
+    return out
+
+
 def kp_token_exclude(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
     """型号 token 排除规则：patterns（命中即当非型号跳过）+ ignore_words（小写忽略词）。
     规则 body 可覆盖默认；缺失回退默认，保证候选检索不因配置缺失而改变行为。"""
