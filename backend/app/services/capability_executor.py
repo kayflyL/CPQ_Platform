@@ -59,7 +59,21 @@ def _brief_list(value, limit: int = 5) -> list:
     return value[:limit]
 
 
-def _trace_preview(node_type: str, ctx: dict, payload: Optional[dict] = None):
+def _trace_kind_for(node_id: Optional[str], node_type: str) -> str:
+    """节点 id → 画布回填的 trace_kind（新 AI 链节点用 agent 类型，靠 id 区分产出）。"""
+    if node_id:
+        _map = {
+            "need_analysis": "requirement_slots",
+            "model_choice": "model_choice",
+            "parts_proposal": "parts_proposal",
+            "bom_assemble": "bom_scheme",
+        }
+        if str(node_id) in _map:
+            return _map[str(node_id)]
+    return node_type
+
+
+def _trace_preview(node_type: str, ctx: dict, payload: Optional[dict] = None, node_id: Optional[str] = None):
     ext = ctx.get("ext") if isinstance(ctx.get("ext"), dict) else {}
     # 线索登记表只以「需求分析节点冻结的需求快照」为准；未冻结（如早期节点）兜底用 ext。
     lead_slots = ctx.get("requirement") if isinstance(ctx.get("requirement"), dict) else {}
@@ -68,8 +82,44 @@ def _trace_preview(node_type: str, ctx: dict, payload: Optional[dict] = None):
     output_preview: dict[str, Any] = {}
     artifact: Optional[dict] = None
     summary = ""
+    trace_kind = _trace_kind_for(node_id, node_type)
 
-    if node_type == "input":
+    if trace_kind == "requirement_slots":
+        snap = ctx.get("requirement") if isinstance(ctx.get("requirement"), dict) else {}
+        input_preview = {"requirement_text": str(ctx.get("requirement_text") or "")[:200]}
+        output_preview = {"requirement": snap, "summary": str(ctx.get("normalized_text") or "")[:200]}
+        artifact = {"kind": "requirement_slots", "title": "线索登记表", "data": snap}
+        summary = "已理解需求并冻结线索登记表"
+    elif trace_kind == "model_choice":
+        mc = ctx.get("model_choice") if isinstance(ctx.get("model_choice"), dict) else {}
+        cands = mc.get("candidates") or ctx.get("baselines") or ctx.get("candidates") or []
+        rec = mc.get("recommended") if isinstance(mc.get("recommended"), dict) else mc.get("recommended")
+        output_preview = {
+            "candidates": _brief_list(cands, 5),
+            "recommended": (rec or {}).get("name") if isinstance(rec, dict) else rec,
+            "reason": str(mc.get("reason") or "")[:200],
+        }
+        artifact = {"kind": "model_choice", "title": "机型决策", "data": output_preview}
+        summary = "已从在售目录选出机型"
+    elif trace_kind == "parts_proposal":
+        pp = ctx.get("parts_proposal") if isinstance(ctx.get("parts_proposal"), dict) else {}
+        parts = pp.get("parts") or ctx.get("parts") or []
+        by_cat = pp.get("by_category") or {}
+        output_preview = {"parts_count": len(parts), "parts": _brief_list(parts, 8), "by_category": by_cat}
+        artifact = {"kind": "parts_proposal", "title": "配件决策", "data": output_preview}
+        summary = "已规划内存 / 硬盘 / GPU / 网卡等配件"
+    elif trace_kind == "bom_scheme":
+        plans = ctx.get("plans") or []
+        bom = ctx.get("bom_scheme") if isinstance(ctx.get("bom_scheme"), dict) else {}
+        cost = ctx.get("bom_cost") if isinstance(ctx.get("bom_cost"), dict) else {}
+        output_preview = {
+            "plans_count": len(plans),
+            "total_cost": cost.get("total_cost"),
+            "bom_scheme": bom,
+        }
+        artifact = {"kind": "bom_scheme", "title": "BOM 方案", "data": bom or {"plans_count": len(plans)}}
+        summary = f"已组装 {len(plans)} 个候选方案"
+    elif node_type == "input":
         input_preview = {"requirement_text": str(ctx.get("requirement_text") or "")[:200]}
         output_preview = {
             "requirement_text": str(ctx.get("requirement_text") or "")[:200],
@@ -212,14 +262,14 @@ async def run_fixed_workflow(
             continue
 
         label = node.get("label") or node_id
-        input_preview, _, _, _ = _trace_preview(node_type, ctx)
+        input_preview, _, _, _ = _trace_preview(node_type, ctx, node_id=node_id)
         await broadcast({"type": "step_start", "step": node_id, "label": label, "input": input_preview})
         try:
             payload = await _dispatch(node_type, ctx, config, broadcast)
         except Exception as exc:
             logger.exception("capability node failed node=%s type=%s", node_id, node_type)
             payload = {"error": str(exc)}
-        _, output_preview, artifact, summary = _trace_preview(node_type, ctx, payload)
+        _, output_preview, artifact, summary = _trace_preview(node_type, ctx, payload, node_id=node_id)
         await broadcast({"type": "step_done", "step": node_id, "payload": payload,
                          "input": input_preview, "output": output_preview, "artifact": artifact, "summary": summary})
 
