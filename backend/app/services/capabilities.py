@@ -903,9 +903,63 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         "\n\n任务：只登记客户已明确表达的需求层字段；缺的只反问“必填且未委托”的字段；客户委托（你随便/都行）就留空交下游，不要编造具体值；客户改口就覆盖草稿。"
     )
     extra += _semantic_ref_text(config, req_text)
+
+    # 智能体要有「可推理的数据」：把在售目录的类型/系列/形态喂给模型，并列出全部应填槽位，
+    # 让它把用户需求映射到在售字段，而不是靠文本猜。数据全部来自目录/契约，代码不写死业务词。
+    _cat_block = ""
+    try:
+        from app.services.catalog_guide import load_catalog
+        _types, _models_by_type = load_catalog()
+        _type_names = [str(t.get("name") or "") for t in (_types or []) if t.get("name")]
+        _props = []
+        _series, _forms = [], []
+        for _ms in (_models_by_type or {}).values():
+            for _m in (_ms or []):
+                _bc = _m.get("base_config") or {}
+                _s = str(_bc.get("series") or _m.get("series") or "").strip()
+                _f = str(_bc.get("form") or _m.get("form") or "").strip()
+                if _s and _s not in _series:
+                    _series.append(_s)
+                if _f and _f not in _forms:
+                    _forms.append(_f)
+        if _type_names:
+            _props.append("在售服务器类型：" + "、".join(_type_names))
+        if _series:
+            _props.append("可用平台系列：" + "、".join(_series))
+        if _forms:
+            _props.append("可用机箱形态：" + "、".join(_forms))
+        if _props:
+            _cat_block = "\n\n【在售目录参考】" + "\n".join(_props)
+    except Exception:
+        _cat_block = ""
+
+    # 全部应填槽位（基本信息 + 部件），明确告诉模型该抽什么。
+    _slot_guide = []
+    _seen = set()
+    for _s in slot_spec():
+        _k = _s.get("key")
+        if _k and _k != "server_model" and _k not in _seen:
+            _seen.add(_k)
+            _slot_guide.append(f"{_k}({_s.get('label') or _k})")
+    for _sk in ("cpu", "memory", "drives", "gpu", "nic", "raid", "psu"):
+        if _sk not in _seen:
+            _seen.add(_sk)
+            _slot_guide.append(_sk)
+    _fill_guide = ("可按此抽槽（只填用户明确表达的）：" + "、".join(_slot_guide)
+                   if _slot_guide else "")
+    if _cat_block or _fill_guide:
+        extra += _cat_block + (("\n\n" + _fill_guide) if _fill_guide else "")
     _prompt = config.get("prompt") or {}
     sys_prompt = str(_prompt.get("system_prompt") or "").strip() or str(
         prompt_store.get_prompt_defaults("agent_fill").get("system_prompt") or "")
+    sys_prompt = (sys_prompt +
+        "\n\n【工作方式】先用工具核对在售目录（list_server_types / get_server_model 等）看类型/系列/形态是否在售，"
+        "再给最终 JSON。最终输出唯一格式："
+        '{"action":"final","answer":{"fill":{...},"ask":"一句话反问","done":true,"edit":false,"semantic":{...}}}。'
+        "\n- fill：只填用户在需求里明确表达的字段（server_type/series/chassis_form/form/purchase_qty/server_model/" +
+        "cpu/memory/drives/gpu/nic/raid/psu）；值要映射到【在售目录参考】里的真实在售值，拿不准就留空、不要编造。"
+        "\n- 需求信息不足以选型时：ask 只问最关键的一个问题，不要逐项问；客户委托/模糊就 fill 留空、done=true 交下游。"
+        "\n- semantic：只填契约结构（如 delegated/workload），不要写成字符串。")
     tools = list(config.get("enabled_tools") or capability_spec.default_tools("agent_fill"))
 
     async def _sink(ev: dict) -> None:
@@ -917,18 +971,14 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         except Exception:
             pass
 
-    # 单次流式：agent_fill 不再是多轮工具调用循环。模型只负责正常情况下一次输出最终 JSON（fill/ask/done/edit/semantic）；
-    # 事实冲地由下游确定性层（_apply_extracted_slots/_enrich_agent_semantic/check_feasibility）完成。
-    # 安全余量：限制最多 2 轮（正常 1 轮，非 JSON 时一次轻量纠正），不再无限滚大。
     result = await run_react_loop(
         requirement_text=req_text or "（无需求原文）",
         config={**config, "enabled_tools": tools},
         system_prompt=sys_prompt,
         history=ctx.get("history") or [],
         extra_context=extra,
-        max_iterations=min(int(config.get("max_iterations") or 3), 2),
+        max_iterations=min(int(config.get("max_iterations") or 4), 4),
         event_sink=_sink,
-        final_only=True,
     )
     raw_answer = result.get("answer") or ""
     agent_answer = raw_answer if isinstance(raw_answer, str) else (
