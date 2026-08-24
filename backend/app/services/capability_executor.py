@@ -168,9 +168,9 @@ def _intent_context(ctx: dict) -> str:
 
 
 async def _route_resume_intent(ctx: dict, broadcast: Callable[..., Any], node_id: str) -> bool:
-    """多轮回复时，先用 LLM 判“这句到底在干嘛”；
-    对于确定节点会答错的意图（看目录/听不懂/闲聊/普通提问）直接给自然回复并停在原地，
-    其余意图放行回确定性节点（取消/自配/重选/确认/补需求仍由节点处理）。"""
+    """多轮回复时，先用 LLM 判“这句到底在干嘛”；对确定节点会答错的意图
+    （看目录/听不懂/闲聊/普通提问）直接给自然回复并停在原地，其余放行回节点。
+    回复一律由 LLM 生成（人设/边界在数据文件），代码不写死任何话术；LLM 不可用则不拦截。"""
     answer = str(ctx.get("last_user_answer") or "").strip()
     if not answer:
         return False
@@ -183,28 +183,22 @@ async def _route_resume_intent(ctx: dict, broadcast: Callable[..., Any], node_id
     if intent not in ("list_catalog", "explain", "noise", "ask"):
         return False
 
-    if intent == "list_catalog":
-        try:
-            from app.services.workflow_intent import catalog_digest
-            lines = await catalog_digest()
-        except Exception:
-            lines = "（暂时读不到目录，请稍后再试）"
-        reply = "当前在售服务器目录如下，你可以补充具体需求（场景/类型/系列/形态/预算）：\n" + str(lines)
-    else:
+    ctx_lines = _intent_context(ctx)
+    try:
+        from app.services.workflow_intent import catalog_digest
+        cat = await catalog_digest()
+    except Exception:
+        cat = ""
+    if cat:
+        ctx_lines += "\n\n【在售目录】\n" + cat
+
+    try:
+        from app.services.workflow_intent import reply_with_context
+        reply = await reply_with_context(answer, ctx_lines)
+    except Exception:
         reply = ""
-        try:
-            from app.services.workflow_intent import reply_with_context
-            _ctx_lines = _intent_context(ctx)
-            try:
-                from app.services.workflow_intent import catalog_digest
-                _ctx_lines += "\n\n【在售目录】\n" + (await catalog_digest())
-            except Exception:
-                pass
-            reply = await reply_with_context(answer, _ctx_lines)
-        except Exception:
-            reply = ""
-        if not reply:
-            reply = "收到。你可以继续补充需求，或告诉我去详情页自己配置。"
+    if not reply:
+        return False
 
     ctx["awaiting_input"] = True
     ctx["current_target"] = node_id
@@ -212,7 +206,7 @@ async def _route_resume_intent(ctx: dict, broadcast: Callable[..., Any], node_id
     if broadcast:
         try:
             await broadcast({"type": "need_confirm", "step": node_id, "question": reply,
-                             "options": [], "why": "根据用户提问直接回应"})
+                             "options": [], "why": "intent_reply"})
         except Exception:
             pass
     return True
