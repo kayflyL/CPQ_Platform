@@ -1815,6 +1815,12 @@ def _load_psu_inference() -> dict:
 def _kp_signals(kp_parts: list[dict]) -> tuple:
     """从 KP 结果提信号：GPU 数 + 是否含高功耗 GPU + 盘类型集合(NVMe/SAS/SATA)。"""
     _psu_cfg = _load_psu_inference()
+    from app.services.requirement_rule_catalog import kp_signal_rules
+    rules = kp_signal_rules() or {}
+    _gpu_cats = [str(x) for x in (rules.get("gpu_cats") or [])]
+    _drive_cats = [str(x) for x in (rules.get("drive_cat_keywords") or [])]
+    _drive_protos = rules.get("drive_protocol_kinds") or []
+    _drive_default_kind = rules.get("drive_default_kind") or "SATA"
     # 高功耗 GPU 词表去空白归一（R8/I43 修）：词表 "RTX 5090"，件名 "RTX5090" 无空格
     # → 直接子串匹配 miss，8×RTX5090 掉到 2000W。归一后两端都去空白再比。
     _high_tdp_words = [re.sub(r"\s+", "", str(k)).upper() for k in (_psu_cfg.get("high_tdp_gpus") or []) if k]
@@ -1834,7 +1840,7 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
         cat_u = cat.upper()
         qty = int(kp.get("qty") or 1)
         name_u = (kp.get("name") or "").upper()
-        if "GPU" in cat_u or "显卡" in cat:
+        if any(k.upper() in cat_u for k in _gpu_cats):
             gpu_qty += qty
             # 数据驱动 TDP：配件库 specs.tdp 优先（如 "AMD AI Pro R9700 32G" tdp=300）
             _gpu_tdp = None
@@ -1857,17 +1863,23 @@ def _kp_signals(kp_parts: list[dict]) -> tuple:
             if _tdp_threshold is not None and any(k in _name_compact for k in _high_tdp_words):
                 gpu_tdp_max = max(gpu_tdp_max, float(_tdp_threshold))
         blob = f"{cat} {kp.get('name') or ''} {kp.get('matched_spec') or ''}".upper()
-        if (any(k in cat_u for k in ("硬盘", "DRIVE", "SSD", "HDD", "DISK", "盘"))
-                or any(k in blob for k in ("NVME", "SATA", "SAS"))):
+        _cat_hit = any(k in cat_u for k in _drive_cats)
+        _proto_hit = False
+        for _pr in _drive_protos:
+            if isinstance(_pr, dict):
+                _tok = str(_pr.get("token") or "").upper()
+                _kind = _pr.get("kind")
+            else:
+                _tok = str(_pr or "").upper()
+                _kind = None
+            if _tok and _tok in blob:
+                _proto_hit = True
+                if _kind:
+                    drive_kinds.add(_kind)
+        if _cat_hit or _proto_hit:
             has_drive = True
-            if "NVME" in blob:
-                drive_kinds.add("NVMe")
-            if "SAS" in blob:
-                drive_kinds.add("SAS")
-            if "SATA" in blob:
-                drive_kinds.add("SATA")
     if has_drive and not drive_kinds:
-        drive_kinds.add("SATA")  # 协议不明默认 SATA（2U 最常见）
+        drive_kinds.add(_drive_default_kind)  # 协议不明默认（规则库 drive_default_kind）
     high_tdp = bool(_tdp_threshold is not None and gpu_tdp_max >= _tdp_threshold)
     return gpu_qty, drive_kinds, high_tdp, gpu_tdp_max
 

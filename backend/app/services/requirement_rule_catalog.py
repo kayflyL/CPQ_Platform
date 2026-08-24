@@ -157,6 +157,34 @@ def variant_signal_rules(enabled_types: Optional[list[str]] = None) -> dict[str,
     return out
 
 
+
+# KP 信号提取品类词表（candidate_search._kp_signals 用）：GPU/显卡 品类、硬盘类品类、盘协议关键词。
+# 默认来自这里，可被 kp_signal_rules 规则覆盖；candidate_search 只读不内联。
+DEFAULT_KP_SIGNAL_RULES: dict[str, Any] = {
+    "gpu_cats": ["GPU", "显卡"],
+    "drive_cat_keywords": ["硬盘", "DRIVE", "SSD", "HDD", "DISK", "盘"],
+    "drive_protocol_kinds": [
+        {"token": "NVME", "kind": "NVMe"},
+        {"token": "SAS", "kind": "SAS"},
+        {"token": "SATA", "kind": "SATA"},
+    ],
+    "drive_default_kind": "SATA",
+}
+
+
+def kp_signal_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
+    """KP 信号提取品类词表（默认值 + 规则覆盖）。candidate_search._kp_signals 只读不内联。"""
+    out: dict[str, Any] = {}
+    for k, v in DEFAULT_KP_SIGNAL_RULES.items():
+        out[str(k)] = list(v) if isinstance(v, list) else v
+    for row in active_bodies("kp_signal_rules", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        for k, v in row.items():
+            out[str(k)] = v
+    return out
+
+
 def kp_token_exclude(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
     """型号 token 排除规则：patterns（命中即当非型号跳过）+ ignore_words（小写忽略词）。
     规则 body 可覆盖默认；缺失回退默认，保证候选检索不因配置缺失而改变行为。"""
