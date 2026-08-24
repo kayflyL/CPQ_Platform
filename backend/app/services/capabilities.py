@@ -945,21 +945,13 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         if _sk not in _seen:
             _seen.add(_sk)
             _slot_guide.append(_sk)
-    _fill_guide = ("可按此抽槽（只填用户明确表达的）：" + "、".join(_slot_guide)
+    _fill_guide = ("请按此映射本次确认的字段：" + "、".join(_slot_guide)
                    if _slot_guide else "")
     if _cat_block or _fill_guide:
         extra += _cat_block + (("\n\n" + _fill_guide) if _fill_guide else "")
     _prompt = config.get("prompt") or {}
     sys_prompt = str(_prompt.get("system_prompt") or "").strip() or str(
         prompt_store.get_prompt_defaults("agent_fill").get("system_prompt") or "")
-    sys_prompt = (sys_prompt +
-        "\n\n【工作方式】先用工具核对在售目录（list_server_types / get_server_model 等）看类型/系列/形态是否在售，"
-        "再给最终 JSON。最终输出唯一格式："
-        '{"action":"final","answer":{"fill":{...},"ask":"一句话反问","done":true,"edit":false,"semantic":{...}}}。'
-        "\n- fill：只填用户在需求里明确表达的字段（server_type/series/chassis_form/form/purchase_qty/server_model/" +
-        "cpu/memory/drives/gpu/nic/raid/psu）；值要映射到【在售目录参考】里的真实在售值，拿不准就留空、不要编造。"
-        "\n- 需求信息不足以选型时：ask 只问最关键的一个问题，不要逐项问；客户委托/模糊就 fill 留空、done=true 交下游。"
-        "\n- semantic：只填契约结构（如 delegated/workload），不要写成字符串。")
     tools = list(config.get("enabled_tools") or capability_spec.default_tools("agent_fill"))
 
     async def _sink(ev: dict) -> None:
@@ -1030,7 +1022,7 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     # → 停止机械重复追问，带着“可默认”的 partial 清晰度交给下游，由下游按目录默认/放宽处理。
     _no_progress = bool(ctx.get("last_user_answer")) and bool(prev_missing) and sorted(missing) == sorted(prev_missing)
     ctx["converged"] = bool(_no_progress)
-    need_ask = bool(missing) and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress
+    need_ask = bool(missing) and not done and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress
     _fz_block = ""
     _fz = ctx.get("feasibility") or {}
     _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
@@ -1064,8 +1056,11 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     elif ctx.get("converged"):
         # 客户反复没答上同个字段 → 不再卡住，按“已有信息可下沉”继续，由下游给默认/放宽。
         ctx["clarity"] = "partial"
-    elif missing:
+    elif missing and not done:
         ctx["clarity"] = "unclear"
+    elif missing:
+        # 模型自评 done=true：即使还有非硬性缺口（如未给系列），也视为可下沉，交下游得出候选。
+        ctx["clarity"] = "partial"
     else:
         ctx["clarity"] = "explicit" if has_model else "partial"
     return {"ok": True, "source": step_id, "sufficient": bool(not missing),
