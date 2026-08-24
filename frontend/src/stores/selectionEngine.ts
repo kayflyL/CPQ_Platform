@@ -13,7 +13,7 @@
 import type { CompatibilityRule } from '@/api/compatibilityRules'
 
 export type RuleActionKind = 'require' | 'exclude' | 'derive' | 'filter' | 'recommend'
-export type RuleSeverity = 'conflict' | 'require' | 'info'
+export type RuleSeverity = 'conflict' | 'require' | 'warning' | 'info'
 
 export interface RuleAction {
   ruleId: number
@@ -41,7 +41,8 @@ export interface RuleAction {
 export interface RuleContext {
   /** 按 category 聚合的 KP 配件：qty=数量合计，items=原始行（含 enrich 的 spec/pn），spec=该类典型规格 */
   kp: Record<string, { qty: number; items: any[]; spec: Record<string, any> }>
-  config: { series?: string; model?: string; form?: string; sata_qty?: number; drive_kinds?: string[] }
+  config: { series?: string; model?: string; form?: string; sata_qty?: number; sas_qty?: number; nvme_qty?: number; drive_kinds?: string[];
+    max_cpu?: number; max_dimm?: number; max_tdp?: number | null; gpu_slots?: number; psu_bays?: number }
   opportunity: { platform_type?: string }
 }
 
@@ -186,7 +187,7 @@ export function evalThen(ctx: RuleContext, rule: CompatibilityRule): RuleAction[
       }]
     }
     case 'recommend': {
-      return [{ ...base, action: 'recommend', severity: 'info', target: then.target, desc: then.desc || desc }]
+      return [{ ...base, action: 'recommend', severity: (then.severity as RuleSeverity) || 'info', target: then.target, desc: then.desc || desc }]
     }
     default:
       return []

@@ -4,7 +4,8 @@
  * 纯展示 + 交互组件：区域几何/名称/关联字段来自 @/constants/serverAnatomy（数据驱动），
  * 本组件只负责渲染与点击回传，不感知规则内容。
  */
-import type { AnatomyRegion } from '@/constants/serverAnatomy'
+import { computed, ref } from 'vue'
+import type { AnatomyRegion, AnatomyView } from '@/constants/serverAnatomy'
 
 interface DecItem {
   type: 'rect' | 'circle'
@@ -19,16 +20,44 @@ interface DecItem {
   label?: string
 }
 
-defineProps<{
+const props = withDefaults(defineProps<{
   regions: AnatomyRegion[]
   counts: Record<string, number>
+  view?: AnatomyView
+  /** 装饰模式：rules=兼容规则（0/命中徽标与未配置虚线）；plain=纯解剖图（无规则残留） */
+  decorMode?: 'rules' | 'plain'
+  /** 自定义徽标文本（id → 文案），缺省显示 counts 数字 */
+  badges?: Record<string, string>
   activeId: string | null
+  /** 规则聚焦高亮区域（双向联动：点规则 → 地图高亮命中区域） */
+  highlightIds?: string[]
+  /** 配置沙盒：硬件数量 → 原有装饰元素按数量截显（无图纸回退图，没有可显隐图层） */
+  sandboxCounts?: { gpu?: number; cpu?: number; dimm?: number; drives?: number; psu?: number }
+}>(), {
+  view: 'top',
+  decorMode: 'rules',
+  highlightIds: () => [],
+})
+const emit = defineEmits<{
+  select: [id: string | null, region: AnatomyRegion | null]
+  hover: [id: string | null, region: AnatomyRegion | null]
+  /** HTML5 拖放：规则卡片拖到区域上放下 */
+  'drop-rule': [ruleId: string, uid: string]
 }>()
-defineEmits<{ select: [id: string | null] }>()
+const viewLabel = computed(() => props.view === 'top' ? '服务器俯视图' : props.view === 'front' ? '服务器前视图' : '服务器后视图')
+const sideLabel = computed(() => props.view === 'top' ? '前置 ◀' : props.view === 'front' ? '前面板' : '后面板')
+const sideLabelEnd = computed(() => props.view === 'top' ? '▶ 后置' : '')
+/** 拖放悬停区域 id（投放目标高亮） */
+const dragUid = ref<string | null>(null)
+function onDrop(e: DragEvent, uid: string) {
+  const ruleId = e.dataTransfer?.getData('text/plain') ?? ''
+  dragUid.value = null
+  if (ruleId) emit('drop-rule', ruleId, uid)
+}
 
 /** 按区域 kind 生成装饰图形（仅视觉，几何随区域尺寸自适应） */
 function decorItems(r: AnatomyRegion): DecItem[] {
-  const items: DecItem[] = []
+  let items: DecItem[] = []
   const cx = r.x + r.w / 2
   const cy = r.y + r.h / 2
   switch (r.kind) {
@@ -126,25 +155,51 @@ function decorItems(r: AnatomyRegion): DecItem[] {
       break
     }
   }
+  const sc = props.sandboxCounts || {}
+  if (r.kind === 'gpu') return sliceDecor(items, 'dec-gpu', sc.gpu)
+  if (r.kind === 'psu') return sliceDecor(items, 'dec-psu', sc.psu)
+  if (r.kind === 'bays') return sliceDecor(items, 'dec-bay', sc.drives)
+  if (r.kind === 'cpus') {
+    items = sliceDecor(items, 'dec-cpu', sc.cpu)
+    return sliceDecor(items, 'dec-dimm', sc.dimm)
+  }
   return items
 }
+
+/** 沙盒截显：某类装饰元素只保留前 count 个（缺省不截） */
+function sliceDecor(items: DecItem[], cls: string, count: number | undefined): DecItem[] {
+  if (count == null) return items
+  let seen = 0
+  return items.filter(it => {
+    if (it.cls !== cls) return true
+    seen++
+    return seen <= count
+  })
+}
+
 </script>
 
 <template>
   <div class="sam">
-    <svg viewBox="0 0 1000 560" class="sam-svg" role="img" aria-label="服务器俯视图">
+    <svg viewBox="0 0 1000 560" class="sam-svg" role="img" :aria-label="viewLabel">
       <rect class="sam-chassis" x="20" y="40" width="960" height="480" rx="16" />
-      <text class="sam-side-label" x="42" y="32">前置 ◀</text>
-      <text class="sam-side-label" x="958" y="32" text-anchor="end">▶ 后置</text>
+      <text class="sam-side-label" x="42" y="32">{{ sideLabel }}</text>
+      <text v-if="sideLabelEnd" class="sam-side-label" x="958" y="32" text-anchor="end">{{ sideLabelEnd }}</text>
 
       <g v-for="r in regions" :key="r.id" class="sam-region"
-        :class="{ on: activeId === r.id, empty: !counts[r.id] }"
-        @click="$emit('select', activeId === r.id ? null : r.id)">
+        :class="{ on: activeId === r.id, empty: decorMode !== 'plain' && !counts[r.id], hl: highlightIds.includes(r.id), dragOver: dragUid === r.id }"
+        @click="$emit('select', activeId === r.id ? null : r.id, r)"
+        @mouseenter="$emit('hover', r.id, r)"
+        @mouseleave="$emit('hover', null, null)"
+        @dragenter.prevent="dragUid = r.id"
+        @dragleave.prevent="dragUid = null"
+        @dragover.prevent
+        @drop.prevent.stop="onDrop($event, r.id)">
         <title>{{ r.tip || `${r.name}（点击查看相关规则）` }}</title>
 
         <rect class="sam-region-bg" :x="r.x" :y="r.y" :width="r.w" :height="r.h" rx="10" />
 
-        <g v-if="!counts[r.id] && activeId !== r.id" class="sam-norule">
+        <g v-if="decorMode !== 'plain' && !counts[r.id] && activeId !== r.id" class="sam-norule">
           <rect class="sam-norule-bg" :x="r.x + 8" :y="r.y + 8" :width="r.w - 16" :height="r.h - 16" rx="6" />
         </g>
 
@@ -156,9 +211,9 @@ function decorItems(r: AnatomyRegion): DecItem[] {
 
         <text class="sam-name" :x="r.x + r.w / 2" :y="r.y + r.h - 16" text-anchor="middle">{{ r.name }}</text>
 
-        <g class="sam-badge" :class="{ zero: !counts[r.id] }">
+        <g v-if="decorMode !== 'plain'" class="sam-badge" :class="{ zero: !counts[r.id] }">
           <circle :cx="r.x + r.w - 16" :cy="r.y + 16" r="13" />
-          <text :x="r.x + r.w - 16" :y="r.y + 21" text-anchor="middle">{{ counts[r.id] ?? 0 }}</text>
+          <text :x="r.x + r.w - 16" :y="r.y + 21" text-anchor="middle">{{ badges?.[r.id] ?? (counts[r.id] || 0) }}</text>
         </g>
       </g>
     </svg>
@@ -192,6 +247,13 @@ function decorItems(r: AnatomyRegion): DecItem[] {
   stroke-width: 1.6;
   filter: drop-shadow(0 0 8px rgba(22, 119, 255, 0.45));
 }
+.sam-region.hl .sam-region-bg {
+  fill: rgba(52, 211, 153, 0.18);
+  stroke: #34d399;
+  stroke-width: 1.8;
+  filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.4));
+}
+.sam-region.hl .sam-name { fill: #d1fae5; }
 .sam-region.empty .sam-region-bg {
   fill: rgba(255, 255, 255, 0.03);
   stroke: rgba(255, 255, 255, 0.08);
@@ -223,4 +285,7 @@ function decorItems(r: AnatomyRegion): DecItem[] {
 .sam-badge.zero { opacity: 0.55; }
 .sam-badge.zero circle { fill: var(--cpq-bg-tertiary); stroke: rgba(255, 255, 255, 0.2); }
 .sam-badge.zero text { fill: var(--cpq-text-disabled); }
+.sam-region.dragOver .sam-region-bg { stroke: #38bdf8; stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.8)); }
+
+
 </style>

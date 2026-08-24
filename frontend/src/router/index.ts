@@ -18,25 +18,41 @@ const routes = [
   {
     path: '/',
     component: DefaultLayout,
-    redirect: '/opportunities',
+    redirect: '/portal',
     children: [
+      {
+        path: '/portal',
+        name: 'Portal',
+        component: () => import('@/views/portal/Portal.vue'),
+        meta: { title: '工作台', aiEntryPoint: true }
+      },
+      {
+        path: '/portal/opps',
+        redirect: '/opportunities',
+      },
+      {
+        path: '/portal/workstation/:view',
+        name: 'PortalWorkstation',
+        component: () => import('@/views/portal/PortalWorkstationView.vue'),
+        meta: { title: '门户工作台', perm: 'page.opportunities', aiEntryPoint: true }
+      },
       {
         path: '/workspace',
         name: 'Workspace',
         component: () => import('@/views/quote/Workspace.vue'),
-        meta: { title: '报价工作台', perm: 'page.opportunities' }
+        meta: { title: '报价工作台', perm: 'page.opportunities', aiEntryPoint: true }
       },
       {
         path: '/opportunities',
         name: 'Opportunities',
         component: () => import('@/views/opportunity/OpportunityList.vue'),
-        meta: { title: '商机线索', perm: 'page.opportunities' }
+        meta: { title: '商机线索', perm: 'page.opportunities_all', aiEntryPoint: true }
       },
       {
         path: '/opportunities/:opportunityId',
         name: 'OpportunityDetail',
         component: () => import('@/views/opportunity/OpportunityDetail.vue'),
-        meta: { title: '商机详情', perm: 'page.opportunities' }
+        meta: { title: '商机详情', perm: 'page.opportunities', aiEntryPoint: true }
       },
       {
         path: '/recycle-bin',
@@ -140,7 +156,7 @@ const routes = [
         path: '/strategies/selection',
         name: 'StrategySelection',
         component: () => import('@/views/admin/selection/SelectionWorkspace.vue'),
-        meta: { title: '选型配置', perm: 'page.strategies' }
+        meta: { title: '选型配置', perm: 'page.strategies', aiEntryPoint: true }
       },
       {
         path: '/strategies/requirement',
@@ -148,7 +164,6 @@ const routes = [
         component: () => import('@/views/admin/requirement/RequirementWorkspace.vue'),
         meta: { title: '需求分析', perm: 'page.strategies' }
       },
-
       // 导出模板（统一入口）
       {
         path: '/export-templates',
@@ -157,12 +172,12 @@ const routes = [
         meta: { title: '导出模板', perm: 'page.settings.templates' }
       },
 
-      // AI 设置
+      // AI 办公室（全局实时视图 + Manage Teams 画布入口）
       {
-        path: '/ai-settings',
-        name: 'AiSettings',
-        component: () => import('@/views/settings/AiSettings.vue'),
-        meta: { title: 'AI 设置', perm: 'page.settings.ai' }
+        path: '/ai-office',
+        name: 'AiOffice',
+        component: () => import('@/views/office/AiOfficeView.vue'),
+        meta: { title: 'AI 办公室', aiEntryPoint: true }
       },
       
       // Univer 模板编辑器（Excel）

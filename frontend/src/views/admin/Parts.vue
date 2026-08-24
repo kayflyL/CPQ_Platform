@@ -48,6 +48,17 @@
           {{ cat.name }}<span class="cat-chip-count">{{ cat.count }}</span>
         </div>
       </div>
+      <a-input-search
+        v-model:value="searchText"
+        placeholder="搜索名称 / SKU / 品牌"
+        class="nav-search"
+        @search="onGlobalSearch"
+        allow-clear
+      >
+        <template #prefix>
+          <SearchOutlined style="color: var(--cpq-text-muted)" />
+        </template>
+      </a-input-search>
       <button class="cat-manage-btn" title="管理分类" @click="categoryManageVisible = true">
         <SettingOutlined />
       </button>
@@ -170,17 +181,6 @@
         </div>
         <!-- Toolbar -->
         <div class="toolbar glass-light">
-          <a-input-search
-            v-model:value="searchText"
-            placeholder="搜索配件名称、SKU、品牌..."
-            class="toolbar-search"
-            @search="loadParts"
-            allow-clear
-          >
-            <template #prefix>
-              <SearchOutlined style="color: var(--cpq-text-muted)" />
-            </template>
-          </a-input-search>
           <a-select v-model:value="sortBy" class="toolbar-sort" @change="loadParts">
             <a-select-option value="name-asc">名称 A→Z</a-select-option>
             <a-select-option value="name-desc">名称 Z→A</a-select-option>
@@ -1032,6 +1032,13 @@ const loadParts = async () => {
   }
 }
 
+// 顶部全局搜索：总览页发起时自动切到全部清单模式，免二级点入
+const onGlobalSearch = () => {
+  if (!selectedCategoryId.value && !listAllMode.value) listAllMode.value = true
+  pagination.value.current = 1
+  loadParts()
+}
+
 const handleTableChange = (pag: any) => {
   pagination.value.current = pag.current
   pagination.value.pageSize = pag.pageSize
@@ -1558,6 +1565,7 @@ onMounted(() => {
 .cat-chip-scroll {
   flex: 1; display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0;
 }
+.nav-search { width: 260px; flex-shrink: 0; }
 .cat-chip {
   display: inline-flex; align-items: center; gap: 7px;
   padding: 6px 14px; border-radius: 999px; white-space: nowrap;
@@ -1686,7 +1694,6 @@ onMounted(() => {
   border-radius: 14px; margin-bottom: 18px;
   animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards; animation-delay: 0.1s;
 }
-.toolbar-search { width: 320px; }
 .toolbar-sort { width: 160px; }
 .toolbar-count { margin-left: auto; font-size: 13px; color: var(--cpq-text-muted); }
 .toolbar-count b { color: var(--cpq-accent-primary); font-weight: 600; font-variant-numeric: tabular-nums; }

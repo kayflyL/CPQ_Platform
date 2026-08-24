@@ -215,6 +215,13 @@ def new_case_key(created_at: Optional[datetime] = None) -> str:
     dt = created_at or datetime.now()
     return "BC-" + dt.strftime("%Y%m%d-%H%M%S-%f")
 
+def _validate_case(data: dict) -> None:
+    """创建与更新共用校验：name/requirement 不允许被清空。"""
+    if data.get("name") is not None and not str(data.get("name") or "").strip():
+        raise ValueError("案例名称 name 必填")
+    if data.get("requirement") is not None and not str(data.get("requirement") or "").strip():
+        raise ValueError("原始需求 requirement 必填（重放/检索依赖，训练校对后案例必须携带）")
+
 
 class BomCaseRepository:
     def __init__(self):
@@ -248,7 +255,8 @@ class BomCaseRepository:
         return _to_dict(d, with_parts=True) if d else None
 
     def create_case(self, data: dict) -> dict:
-        case_key = data.get("case_key") or new_case_key()
+        _validate_case(data)
+        case_key = new_case_key()
         d = BomCase(
             case_key=case_key,
             name=(data.get("name") or "").strip(),
@@ -281,6 +289,7 @@ class BomCaseRepository:
         return self.session.query(BomCase).filter(BomCase.case_key == case_key).first()
 
     def update_case(self, case_key: str, data: dict) -> Optional[dict]:
+        _validate_case(data)
         d = self._find(case_key)
         if not d:
             return None

@@ -21,6 +21,8 @@ const props = withDefaults(defineProps<{
   showBaseConfig?: boolean
   showSpecs?: boolean
   showActions?: boolean
+  showPublish?: boolean
+  showTagline?: boolean
   clickable?: boolean
   typeName?: string
   baseConfigName?: string
@@ -31,6 +33,8 @@ const props = withDefaults(defineProps<{
   showBaseConfig: true,
   showSpecs: true,
   showActions: false,
+  showPublish: false,
+  showTagline: false,
   clickable: true,
 })
 
@@ -53,6 +57,9 @@ const cardClass = computed(() => ({
       {{ lcMeta(model.lifecycle_status).label }}
     </span>
 
+    <!-- 下架角标（管理面专用：货架页不出现下架机型，无需展示） -->
+    <span v-if="showPublish && model.is_published === false" class="lc-chip lc-off pub-chip">已下架</span>
+
     <!-- 机型图片 -->
     <div v-if="showImage" class="m-thumb">
       <img v-if="model.image_url" :src="model.image_url" :alt="model.name" />
@@ -62,6 +69,9 @@ const cardClass = computed(() => ({
     <!-- 机型名 + 类型 -->
     <div class="m-name">{{ model.name }}</div>
     <div v-if="typeName" class="m-type">{{ typeName }}</div>
+
+    <!-- 一句话定位（产品货架卡用；取 product_content.tagline，空则不占位） -->
+    <div v-if="showTagline && model.product_content?.tagline" class="m-tagline">{{ model.product_content.tagline }}</div>
 
     <!-- 规格（形态/盘位/系列） -->
     <div v-if="showSpecs" class="m-specs">
@@ -120,6 +130,7 @@ const cardClass = computed(() => ({
   border-radius: 999px;
   border: 1px solid transparent;
 }
+.pub-chip { right: auto; left: 12px; }
 .lc-active { color: #1f9d6b; background: rgba(125, 215, 170, .18); border-color: rgba(125, 215, 170, .45); }
 .lc-new    { color: #2f7de1; background: rgba(150, 195, 250, .18); border-color: rgba(150, 195, 250, .45); }
 .lc-eol    { color: #c8861a; background: rgba(245, 200, 110, .18); border-color: rgba(245, 200, 110, .45); }
@@ -155,6 +166,15 @@ const cardClass = computed(() => ({
 .m-type {
   font-size: 12px;
   color: var(--cpq-text-secondary, #9BA1AA);
+}
+.m-tagline {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--cpq-text-secondary, #9BA1AA);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .m-specs {

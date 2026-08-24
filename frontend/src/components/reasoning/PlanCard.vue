@@ -53,7 +53,7 @@
 
 <script setup lang="ts">
 /**
- * 整机方案卡（ReasoningPanel 与策略中心试运行面板共用）。
+ * 整机方案卡（策略中心试运行面板使用）。
  * 展示机型/系列/总价/预算标注/卖点/件数 + 「查看 BOM 详情」按钮（emit view-bom）。
  * 业务专属动作（如商机详情页的「确认转报价单」）经 #extra-actions slot 注入，保持组件通用。
  */

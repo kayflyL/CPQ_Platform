@@ -2,9 +2,22 @@
   <div class="archive-section glass">
     <div class="section-header">
       <h3>存档区</h3>
-      <span class="section-hint">需求/成本报价 / 方案·详细报价 / 已发报价 — 拖拽或点 + 上传到对应分类</span>
+      <span class="section-hint">{{ sectionHint }}</span>
     </div>
-    <div class="archive-cols">
+
+    <div class="archive-toolbar">
+      <a-input v-model:value="searchText" placeholder="搜索文件名 / 上传人" allow-clear class="toolbar-search">
+        <template #prefix><SearchOutlined /></template>
+      </a-input>
+      <a-select v-model:value="typeFilter" :options="TYPE_OPTIONS" class="toolbar-select" />
+      <a-select v-model:value="sortBy" :options="SORT_OPTIONS" class="toolbar-select" />
+      <div class="view-toggle">
+        <button type="button" :class="{ on: viewMode === 'grid' }" title="三栏视图" @click="viewMode = 'grid'"><AppstoreOutlined /></button>
+        <button type="button" :class="{ on: viewMode === 'list' }" title="列表视图" @click="viewMode = 'list'"><UnorderedListOutlined /></button>
+      </div>
+    </div>
+
+    <div v-if="viewMode === 'grid'" class="archive-cols">
       <div
         v-for="col in columns"
         :key="col.category"
@@ -51,30 +64,90 @@
         <input :ref="(el:any) => (fileInputs[col.category] = el)" type="file" multiple hidden @change="onFilePicked(col.category, $event)" />
       </div>
     </div>
+
+    <div v-else class="archive-list">
+      <!-- 列表视图：扁平表格，统一搜索/筛选/排序，复用同一套预览/移动/下载/删除 -->
+      <a-table
+        :data-source="sortedFiltered"
+        :columns="listColumns"
+        :pagination="false"
+        size="small"
+        row-key="attachment_id"
+        :locale="{ emptyText: '没有符合条件的文件' }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'name'">
+            <div class="list-file-name" @click="$emit('preview', record)">
+              <component :is="fileIcon(record.original_filename)" class="file-ic" />
+              <span class="list-file-text">{{ record.original_filename }}</span>
+            </div>
+          </template>
+          <template v-else-if="column.key === 'category'">
+            <span class="list-cat">{{ categoryLabel(record.category) }}</span>
+          </template>
+          <template v-else-if="column.key === 'size'">{{ formatSize(record.file_size) }}</template>
+          <template v-else-if="column.key === 'uploader'">{{ record.uploader_name || '匿名' }}</template>
+          <template v-else-if="column.key === 'time'">{{ formatTime(record.created_at) }}</template>
+          <template v-else-if="column.key === 'action'">
+            <a-space :size="0">
+              <a-dropdown placement="bottomRight" :trigger="['click']">
+                <button class="file-act list-act" title="移动到其他分类"><SwapOutlined /></button>
+                <template #overlay>
+                  <a-menu @click="(e: any) => changeCategory(record, String(e.key))">
+                    <a-menu-item v-for="col in columns" :key="col.category" :disabled="col.category === record.category">
+                      {{ col.icon }} {{ col.title }}
+                    </a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <button class="file-act list-act" @click="download(record)" title="下载"><DownloadOutlined /></button>
+              <button class="file-act list-act danger" @click="remove(record)" title="删除"><DeleteOutlined /></button>
+            </a-space>
+          </template>
+        </template>
+      </a-table>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, DownloadOutlined, DeleteOutlined, SwapOutlined,
   FileExcelOutlined, FilePdfOutlined, FileImageOutlined, FileOutlined,
+  SearchOutlined, AppstoreOutlined, UnorderedListOutlined,
 } from '@ant-design/icons-vue'
 import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
 
-const props = defineProps<{ opportunityId: string; attachments: FeedAttachment[] }>()
+const props = defineProps<{ opportunityId: string; attachments: FeedAttachment[]; categories?: string[] }>()
 const emit = defineEmits<{
   (e: 'preview', a: FeedAttachment): void
   (e: 'delete', a: FeedAttachment): void
 }>()
 
-const columns = [
-  { category: 'requirement', title: '需求/成本报价', icon: '📋' },
-  { category: 'technical', title: '方案/详细报价', icon: '🔧' },
-  { category: 'sent_quote', title: '已发报价', icon: '📤' },
+const ALL_COLUMNS = [
+  { category: 'requirement', title: '成本附件', icon: '📋' },
+  { category: 'technical', title: '方案附件', icon: '📦' },
+  { category: 'sent_quote', title: '报价附件', icon: '📤' },
+  { category: 'lead_requirement', title: '我的附件', icon: '📎' },
 ] as const
+
+const columns = computed(() => {
+  if (props.categories && props.categories.length) {
+    const set = new Set(props.categories)
+    return ALL_COLUMNS.filter((c) => set.has(c.category))
+  }
+  return [...ALL_COLUMNS]
+})
+
+const sectionHint = computed(() => {
+  if (props.categories && props.categories.length === 1 && props.categories[0] === 'lead_requirement') {
+    return '上传或拖拽文件到“我的附件”'
+  }
+  return `${columns.value.map(c => c.title).join(' / ')} — 拖拽或点 + 上传到对应分类`
+})
 
 const draggingCategory = ref<string | null>(null)
 // 拖入/拖出计数器：分类列内的子元素会让浏览器在父容器上误触发 dragleave，
@@ -82,7 +155,53 @@ const draggingCategory = ref<string | null>(null)
 const dragCounters = reactive<Record<string, number>>({})
 const fileInputs = reactive<Record<string, HTMLInputElement | null>>({})
 
-const items = (category: string) => (props.attachments || []).filter((a) => a.category === category)
+// ── 搜索 / 筛选 / 排序 / 视图（纯前端，作用于 feed 附件列表）──
+const searchText = ref('')
+const typeFilter = ref<'all' | 'excel' | 'pdf' | 'image' | 'other'>('all')
+const sortBy = ref<'time_desc' | 'time_asc' | 'name_asc' | 'size_desc'>('time_desc')
+const viewMode = ref<'grid' | 'list'>('grid')
+
+const TYPE_OPTIONS = [
+  { value: 'all', label: '全部类型' },
+  { value: 'excel', label: 'Excel' },
+  { value: 'pdf', label: 'PDF' },
+  { value: 'image', label: '图片' },
+  { value: 'other', label: '其他' },
+]
+const SORT_OPTIONS = [
+  { value: 'time_desc', label: '最新上传' },
+  { value: 'time_asc', label: '最早上传' },
+  { value: 'name_asc', label: '文件名 A-Z' },
+  { value: 'size_desc', label: '文件大小' },
+]
+const listColumns = [
+  { title: '文件名', dataIndex: 'original_filename', key: 'name' },
+  { title: '分类', dataIndex: 'category', key: 'category', width: 130 },
+  { title: '大小', dataIndex: 'file_size', key: 'size', width: 90 },
+  { title: '上传人', dataIndex: 'uploader_name', key: 'uploader', width: 110 },
+  { title: '时间', dataIndex: 'created_at', key: 'time', width: 90 },
+  { title: '操作', key: 'action', width: 130 },
+]
+
+function categoryLabel(category: string) {
+  return columns.value.find((c) => c.category === category)?.title || category
+}
+const sortedFiltered = computed(() => {
+  const q = searchText.value.trim().toLowerCase()
+  const list = (props.attachments || []).filter((a) => {
+    if (typeFilter.value !== 'all' && fileTypeOf(a.original_filename) !== typeFilter.value) return false
+    if (!q) return true
+    return (a.original_filename || '').toLowerCase().includes(q)
+      || (a.uploader_name || '').toLowerCase().includes(q)
+  })
+  const dir = sortBy.value === 'time_asc' ? 1 : -1
+  return list.slice().sort((x, y) => {
+    if (sortBy.value === 'name_asc') return (x.original_filename || '').localeCompare(y.original_filename || '', 'zh')
+    if (sortBy.value === 'size_desc') return (y.file_size || 0) - (x.file_size || 0)
+    return (new Date(x.created_at || 0).getTime() - new Date(y.created_at || 0).getTime()) * dir
+  })
+})
+const items = (category: string) => sortedFiltered.value.filter((a) => a.category === category)
 
 async function uploadFiles(category: string, files: File[]) {
   if (!files.length) return
@@ -165,11 +284,18 @@ function download(a: FeedAttachment) {
   window.open(feedApi.attachments.downloadUrl(a.attachment_id), '_blank')
 }
 
+function fileTypeOf(name: string): 'excel' | 'pdf' | 'image' | 'other' {
+  const ext = (name || '').toLowerCase().split('.').pop() || ''
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'excel'
+  if (ext === 'pdf') return 'pdf'
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return 'image'
+  return 'other'
+}
 function fileIcon(name: string) {
-  const ext = name.toLowerCase().split('.').pop() || ''
-  if (['xlsx', 'xls', 'csv'].includes(ext)) return FileExcelOutlined
-  if (ext === 'pdf') return FilePdfOutlined
-  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp', 'svg'].includes(ext)) return FileImageOutlined
+  const t = fileTypeOf(name)
+  if (t === 'excel') return FileExcelOutlined
+  if (t === 'pdf') return FilePdfOutlined
+  if (t === 'image') return FileImageOutlined
   return FileOutlined
 }
 function formatSize(bytes: number) {
@@ -290,4 +416,42 @@ function formatTime(iso: string) {
 .archive-file:hover .file-act { opacity: 1; }
 .file-act:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
 .file-act.danger:hover { background: var(--cpq-overlay-danger10); color: var(--cpq-accent-danger); }
+.archive-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.toolbar-search { width: 220px; }
+.toolbar-select { width: 120px; }
+.view-toggle {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  background: var(--cpq-overlay-w3);
+  border: 1px solid var(--cpq-overlay-w6);
+  border-radius: 8px;
+  padding: 2px;
+}
+.view-toggle button {
+  width: 28px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--cpq-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  transition: all var(--cpq-transition-fast);
+}
+.view-toggle button.on { background: var(--cpq-accent-primary); color: #fff; }
+.archive-list { padding: 4px 0; }
+.list-file-name { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; min-width: 0; }
+.list-file-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.list-cat { color: var(--cpq-text-secondary); }
+.list-act { opacity: 1; }
 </style>

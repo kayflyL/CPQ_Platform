@@ -1,120 +1,151 @@
 <template>
-  <Teleport to="body">
+  <Teleport :disabled="embedded" to="body">
     <transition name="assistant-panel">
-      <div v-if="open" class="assistant-panel" :style="panelStyle">
+      <div v-if="embedded || open" class="assistant-panel" :class="{ 'assistant-panel--embedded': embedded }" :style="panelStyle">
         <!-- header（可拖动）-->
         <div class="ap-header" @mousedown="startDrag">
-          <div class="ap-title">
-            <RobotOutlined />
-            <span>方案助手</span>
-          </div>
-          <div class="ap-ctx" v-if="contextLabel">
-            <span class="ap-ctx-dot"></span>{{ contextLabel }}
-          </div>
-          <div class="ap-ctx ap-ctx-none" v-else>无上下文</div>
-          <button class="ap-close" @click="emit('update:open', false)" title="收起">
-            <CloseOutlined />
+          <button
+            class="ap-role-card"
+            type="button"
+            :title="preview ? activeColleagueName : '切换 AI 角色'"
+            :disabled="preview"
+            @mousedown.stop
+            @click="toggleRoleMenu"
+          >
+            <div class="ap-role-avatar" :style="roleAvatarStyle(activeColleague)">
+              <img v-if="activeColleague?.avatar_url" :src="activeColleague.avatar_url" alt="" />
+              <span v-else class="ap-avatar-initial">{{ avatarInitial(activeColleagueName) }}</span>
+            </div>
+            <div class="ap-role-meta">
+              <div class="ap-role-name">
+                <span class="ap-role-dot"></span>
+                <span class="ap-role-title">{{ activeColleagueName }}</span>
+              </div>
+              <div class="ap-role-desc">{{ colleagueDescription(activeColleague) }}</div>
+              <div v-if="contextLabel" class="ap-role-ctx">{{ contextLabel }}</div>
+            </div>
           </button>
+          <div v-if="!preview" class="ap-header-actions" @mousedown.stop>
+            <button class="ap-icon-btn" type="button" title="会话历史" @click="toggleHistoryDrawer">
+              <MenuOutlined />
+            </button>
+            <button class="ap-icon-btn ap-close" type="button" title="收起" @click="emit('update:open', false)">
+              <CloseOutlined />
+            </button>
+          </div>
         </div>
 
-        <!-- thread 切换 -->
-        <div class="ap-threads">
-          <a-select
-            :value="currentThreadId || undefined"
-            size="small"
-            class="ap-thread-select"
-            :placeholder="threads.length ? `切换会话（共 ${threads.length} 个）` : '还没有会话'"
-            :options="threadOptions"
-            :allow-clear="false"
-            :get-popup-container="getPopupContainer"
-            @change="(id: any) => selectThread(String(id))"
-          >
-            <template #option="{ value, label }">
-              <div class="thread-opt">
-                <span class="thread-opt-label">{{ label }}</span>
-                <DeleteOutlined class="thread-opt-del" @click.stop="onDeleteThread(String(value))" />
+        <!-- 角色切换下拉：挂在面板内部，避免 Ant 全局弹层层级问题 -->
+        <transition name="ap-menu">
+          <div v-if="roleMenuOpen && !preview" class="ap-role-menu" @mousedown.stop>
+            <div class="ap-role-menu-head">切换 AI 角色</div>
+            <button
+              v-for="c in aiColleagues"
+              :key="c.role_key"
+              type="button"
+              class="ap-role-opt"
+              :class="{ active: c.role_key === activeRoleKey }"
+              @click="chooseRole(c.role_key)"
+            >
+              <div class="ap-role-avatar sm" :style="roleAvatarStyle(c)">
+                <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
+                <span v-else class="ap-avatar-initial">{{ avatarInitial(c.name) }}</span>
               </div>
-            </template>
-          </a-select>
-          <a-button size="small" @click="onNewThread" :loading="loading">
-            <template #icon><PlusOutlined /></template>
-            新会话
-          </a-button>
-        </div>
+              <div class="ap-role-opt-main">
+                <div class="ap-role-opt-name">{{ c.name || c.role_key }}</div>
+                <div class="ap-role-opt-desc">{{ colleagueDescription(c) }}</div>
+              </div>
+              <CheckOutlined v-if="c.role_key === activeRoleKey" class="ap-role-opt-check" />
+            </button>
+          </div>
+        </transition>
+
+        <!-- 会话历史：内部右侧抽屉，不依赖全局 Drawer -->
+        <transition name="ap-drawer">
+          <div v-if="historyDrawerOpen && !preview" class="ap-history-drawer" @mousedown.stop>
+            <div class="ap-history-mask" @click="historyDrawerOpen = false"></div>
+            <aside class="ap-history-panel">
+              <div class="ap-history-head">
+                <div class="ap-history-title">会话历史</div>
+                <button class="ap-new-thread" type="button" :disabled="loading" @click="onNewThread">
+                  <PlusOutlined />
+                  新对话
+                </button>
+              </div>
+              <div class="ap-history-list">
+                <button
+                  v-for="t in threads"
+                  :key="t.thread_id"
+                  type="button"
+                  class="ap-thread-item"
+                  :class="{ active: t.thread_id === currentThreadId }"
+                  @click="chooseThread(t.thread_id)"
+                >
+                  <div class="ap-thread-main">
+                    <div class="ap-thread-title">{{ threadTitle(t) }}</div>
+                    <div class="ap-thread-meta">{{ t.msg_count || 0 }} 条 · {{ formatThreadTime(t.updated_at) }}</div>
+                  </div>
+                  <DeleteOutlined class="ap-thread-del" @click.stop="onDeleteThread(t.thread_id)" />
+                </button>
+                <div v-if="!threads.length" class="ap-history-empty">暂无会话</div>
+              </div>
+            </aside>
+          </div>
+        </transition>
 
         <!-- 消息列表 -->
         <div class="ap-messages" ref="messagesEl">
           <a-spin v-if="loading" size="small" class="ap-spin" />
           <a-empty
-            v-else-if="!messages.length && !streamingText && !waitingAI && !analysisSteps.length && !analysisRunning && !analysisPrompt && !analysisConfirm && !analysisError"
+            v-else-if="!messages.length && !streamingText && !waitingAI && !pendingDispatch"
             :image-style="{ height: '48px' }"
-            description="和方案助手聊聊？输入消息开始，或点下方「需求分析 / 生成 BOM」"
+            :description="`和${activeColleagueName}聊聊？直接描述服务器配置需求，AI 会自动判断是否进入分析。`"
           />
           <div v-else class="ap-msg-list">
             <template v-for="m in messages" :key="m.message_id">
-              <!-- 需求分析结果：BOM 文本气泡 + 方案卡（融入消息流，不钉底）-->
-              <div v-if="m.kind === 'analysis_result'" class="ap-msg role-assistant ap-msg-result">
+              <!-- 真实业务产出（需求单/BOM 方案草稿）：文本气泡 + 产出物卡片 -->
+              <div v-if="m.kind === 'business_artifact'" class="ap-msg role-assistant ap-msg-result">
+                <div class="ap-msg-head">
+                  <div
+                    class="ap-avatar"
+                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
+                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
+                  >
+                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
+                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
+                  </div>
+                  <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
+                </div>
                 <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
-                <PlanCard
-                  v-for="p in parsePlans(m)"
-                  :key="(m.message_id || '') + '-' + p.config_id"
-                  :plan="p"
-                  class="ap-plan-card"
-                  @view-bom="openBomModal(p)"
-                >
-                  <template #extra-actions>
-                    <a-button
-                      v-if="currentThread?.opportunity_id"
-                      type="primary"
-                      size="small"
-                      :loading="convertingId === p.config_id"
-                      @click="convertPlan(p)"
-                    >
-                      <template #icon><ArrowRightOutlined /></template>
-                      转为报价单
-                    </a-button>
-                  </template>
-                </PlanCard>
+                <BusinessArtifactView
+                  v-if="artifactFor(m)"
+                  :entity-type="artifactFor(m)!.entityType"
+                  :entity="artifactFor(m)!.entity"
+                  :thread-id="currentThreadId"
+                  class="ap-artifact-card"
+                />
               </div>
-              <!-- 普通消息 -->
-              <div v-else class="ap-msg" :class="`role-${m.role}`">
-                <div class="ap-bubble">{{ m.content }}</div>
-              </div>
+              <!-- 普通消息：与 AI 办公室角色聊天共用公共消息组件 -->
+              <AssistantMessageItem
+                v-else
+                :message="m"
+                :author="colleagueForRole(m.colleague_role_key)"
+              />
             </template>
-            <!-- 需求分析：步骤时间线（运行中）-->
-            <div v-if="analysisSteps.length" class="ap-steps">
-              <span
-                v-for="s in analysisSteps"
-                :key="s.key"
-                class="ap-step"
-                :class="`st-${s.status}`"
-              >
-                {{ s.label }}
-              </span>
-            </div>
-            <!-- 需求分析失败 -->
-            <p v-if="analysisError" class="ap-bubble err"><ExclamationCircleOutlined /> {{ analysisError }}</p>
-            <div v-if="streamingText || waitingAI" class="ap-msg role-assistant">
-              <div class="ap-bubble">
-                <template v-if="streamingText">{{ streamingText }}<span class="ap-cursor">▍</span></template>
-                <span v-else class="ap-typing"><i></i><i></i><i></i></span>
-              </div>
-            </div>
-            <div v-if="analysisRunning" class="ap-msg role-assistant">
-              <div class="ap-bubble"><span class="ap-typing"><i></i><i></i><i></i></span></div>
-            </div>
-            <!-- 弱意图兜底：聊到服务器但没命中意图词 → 对话里给「开始选配」按钮 -->
-            <div v-if="showConfigCta" class="ap-config-cta">
-              <span>听起来您想配置服务器，需要我帮您选配吗？</span>
-              <a-button type="primary" size="small" @click="startConfigFromChat">
-                <template #icon><ThunderboltOutlined /></template>
-                开始选配
-              </a-button>
-            </div>
+            <AssistantMessageItem
+              v-if="streamingText || waitingAI"
+              :message="{ role: 'assistant', content: streamingText || '' }"
+              :author="activeColleague || { name: '方案助手', avatar_url: '', color: '' }"
+              :streaming="!!streamingText"
+              :typing="!streamingText && !thinkingActive"
+              :status-text="statusText"
+              :thinking="thinkingText"
+              :thinking-active="thinkingActive"
+            />
           </div>
         </div>
 
-        <!-- 快捷指令：按当前页 provider 条件渲染（需求分析已改为自然进入，不再手动开关） -->
+        <!-- 快捷指令：按当前页 provider 条件渲染（需求分析由绑定 Skill 的 AI 角色判断进入） -->
         <div class="ap-quick">
           <button
             v-for="a in visibleQuickActions"
@@ -123,154 +154,204 @@
             :disabled="sending"
             @click="onQuickAction(a)"
           >
-            <span v-if="a.icon" class="ap-quick-icon">{{ a.icon }}</span>
             <span>{{ a.label }}</span>
           </button>
         </div>
 
-        <!-- 需求分析：反问回复区（ask_user 节点触发，pipeline 暂停等用户补齐）-->
-        <div v-if="analysisPrompt" class="ap-reply-footer">
-          <p class="ap-reply-q">{{ analysisPrompt.question }}</p>
-          <p v-if="analysisPrompt.why" class="ap-note ap-why">💡 {{ analysisPrompt.why }}</p>
-          <p v-if="analysisPrompt.format" class="ap-note ap-format">{{ analysisPrompt.format }}</p>
-          <div v-if="analysisPrompt.options?.length" class="ap-reply-options">
-            <a-tag
-              v-for="opt in analysisPrompt.options"
-              :key="opt"
-              class="ap-reply-opt"
-              @click="quickReply(opt)"
-            >{{ opt }}</a-tag>
+        <!-- 发送前转接确认：总助识别到更适合处理的 AI 同事 -->
+        <div v-if="pendingDispatch" class="ap-dispatch">
+          <div class="ap-dispatch-info">
+            <div
+              class="ap-avatar"
+              :class="{ 'ap-avatar-has-img': !!pendingDispatch.colleague?.avatar_url }"
+              :style="{ background: pendingDispatch.colleague?.color || 'var(--cpq-accent-primary, #1677ff)' }"
+            >
+              <img v-if="pendingDispatch.colleague?.avatar_url" :src="pendingDispatch.colleague.avatar_url" alt="" />
+              <span v-else class="ap-avatar-initial">{{ avatarInitial(pendingDispatch.colleague?.name || 'AI 同事') }}</span>
+            </div>
+            <div class="ap-dispatch-text">
+              <strong>{{ pendingDispatch.colleague?.name || 'AI 同事' }}</strong>
+              <span>这条消息更适合由该同事处理，是否转接？</span>
+            </div>
           </div>
-          <a-textarea
-            v-model:value="replyText"
-            ref="replyInputEl"
-            :auto-size="{ minRows: 1, maxRows: 4 }"
-            :placeholder="analysisPrompt.options?.length
-              ? '点上方选项填入，或直接输入你的回答，回车发送'
-              : (analysisPrompt.clarity_capped ? '已多次补充，可直接发送或跳过' : '回复补充信息，回车发送（Shift+Enter 换行）')"
-            class="ap-reply-input"
-            @press-enter="onReplyEnter"
-          />
-          <div class="ap-reply-actions">
-            <a-button size="small" @click="onSkipAnalysis">跳过</a-button>
-            <a-button type="primary" size="small" :disabled="!replyText.trim()" @click="submitReply">
-              <template #icon><ArrowRightOutlined /></template>
-              发送
-            </a-button>
+          <div class="ap-dispatch-actions">
+            <a-button size="small" :disabled="sending" @click="cancelDispatch">仍由总助处理</a-button>
+            <a-button type="primary" size="small" :loading="sending" @click="confirmDispatch">确认转接</a-button>
           </div>
         </div>
 
-        <!-- 需求分析：LLM 确认面板（confirm 节点，默认采纳、高亮可改）-->
-        <div v-if="analysisConfirm" class="ap-confirm-footer">
-          <p class="ap-confirm-title"><BulbOutlined /> {{ analysisConfirm.question }}</p>
-          <div
-            v-for="it in analysisConfirm.items"
-            :key="it.id"
-            class="ap-confirm-item"
-            :class="{ accepted: (confirmChoices[it.id] || analysisConfirm.default || 'accept') === 'accept' }"
-          >
-            <div class="ap-confirm-info">
-              <span class="ap-confirm-label">{{ it.label }}</span>
-              <a-tag v-if="it.level === 'conflict'" color="orange" class="ap-confirm-tag">与规则冲突</a-tag>
-              <a-tag v-else color="blue" class="ap-confirm-tag">低置信度</a-tag>
-              <span v-if="it.rule != null" class="ap-confirm-v">规则：{{ it.rule }}</span>
-              <span class="ap-confirm-v llm">LLM：{{ it.llm || '—' }}</span>
-              <span v-if="it.confidence != null" class="ap-confirm-conf">置信 {{ Math.round(it.confidence * 100) }}%</span>
-            </div>
-            <div class="ap-confirm-opts">
-              <a-button size="small" :type="(confirmChoices[it.id] || 'accept') === 'accept' ? 'primary' : 'default'" @click="setConfirmChoice(it.id, 'accept')">采纳</a-button>
-              <a-button size="small" :type="(confirmChoices[it.id] || 'accept') === 'ignore' ? 'danger' : 'default'" @click="setConfirmChoice(it.id, 'ignore')">忽略</a-button>
-            </div>
-          </div>
-          <div class="ap-confirm-actions">
-            <a-button size="small" @click="onAcceptAll">全部采纳，查看方案</a-button>
-            <a-button type="primary" size="small" :disabled="!hasConfirmIgnore" @click="onConfirmSubmit">按以上选择重新生成</a-button>
-          </div>
-          <p class="ap-note" style="margin-top:6px">「全部采纳」直接看当前方案（不重跑 LLM）；改了选择才重新生成。</p>
-        </div>
-
-        <!-- 输入：聊天/自然进入需求分析（命中配置意图词自动进入，无需手动切模式） -->
-        <div class="ap-input">
-          <a-textarea
-            v-model:value="draft"
-            :auto-size="{ minRows: 1, maxRows: 4 }"
-            placeholder="输入消息…"
-            :disabled="sending"
-            @press-enter="onEnter"
-          />
-          <a-button type="primary" :loading="analysisBusy || sending" :disabled="!draft.trim()" @click="onSend">
-            发送
-          </a-button>
-        </div>
+        <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill） -->
+        <AssistantComposer
+          v-model="draft"
+          placeholder="输入消息…"
+          :disabled="sending"
+          :sending="sending"
+          @send="onSend"
+        />
       </div>
     </transition>
 
-    <!-- 网页端增强：点方案卡「查看 BOM 详情」弹窗看完整表格 BOM（对话框里已有 BOM 文本）-->
-    <a-modal
-      v-model:open="bomModalOpen"
-      :title="bomModalPlan?.name || '整机 BOM 详情'"
-      width="620px"
-      :z-index="1600"
-      :footer="null"
-      class="ap-bom-modal"
-    >
-      <div v-if="bomModalPlan" class="ap-bom-modal-summary">
-        {{ [bomModalPlan.series, bomModalPlan.form, bomModalPlan.bays != null ? `${bomModalPlan.bays}盘位` : ''].filter(Boolean).join(' · ') }}
-        · 底盘 {{ bomModalPlan.summary.parts_count }} 件 + KP {{ bomModalPlan.summary.kp_count }} 件
-        · 总价 ¥{{ fmtCost(bomModalPlan.summary.total_cost) }}
-      </div>
-      <a-spin :spinning="bomModalLoading" tip="转 BOM 模板格式…">
-        <BomTable v-if="bomModalCfg" :cfg="bomModalCfg" />
-      </a-spin>
-    </a-modal>
   </Teleport>
 </template>
 
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
-import { useRouter } from 'vue-router'
 import {
-  RobotOutlined, PlusOutlined, CloseOutlined, DeleteOutlined,
-  ArrowRightOutlined, BulbOutlined, ExclamationCircleOutlined, ThunderboltOutlined,
+  PlusOutlined, CloseOutlined, DeleteOutlined, MenuOutlined, CheckOutlined,
 } from '@ant-design/icons-vue'
-import { Modal, message as antMessage } from 'ant-design-vue'
+import { Modal } from 'ant-design-vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
 import { useAssistantFab, computePanelAnchor } from '@/composables/useAssistantFab'
-import PlanCard from '@/components/reasoning/PlanCard.vue'
-import BomTable from '@/components/BomTable.vue'
-import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
-import { quotationApi } from '@/api'
-import type { Plan } from '@/api/reasoning'
+import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
+import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
+import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
+import { assistantApi } from '@/api/assistant'
 
-const props = defineProps<{ open: boolean }>()
+const props = withDefaults(defineProps<{
+  open: boolean
+  embedded?: boolean
+  preview?: boolean
+  initialRoleKey?: string
+  entryPoint?: string
+}>(), {
+  embedded: false,
+  preview: false,
+  initialRoleKey: '',
+  entryPoint: 'floating_assistant',
+})
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const {
-  threads, currentThreadId, currentThread, messages, loading, sending, streamingText, waitingAI,
+  threads, currentThreadId, messages, loading, sending, streamingText, thinkingText, waitingAI, statusText, nodeTraces,
+  pendingDispatch, confirmDispatch, cancelDispatch,
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
-  analysisSteps, analysisRunning, analysisBusy, analysisError,
-  analysisPrompt, analysisConfirm, analysisActive,
-  runAnalysis, replyAnalysis, skipAnalysis, confirmAnalysis, acceptAllAnalysis,
-} = useAssistant()
+  activeRoleKey, switchRole, createPreviewThread, destroyPreview,
+} = useAssistant(props.entryPoint || 'floating_assistant', {
+  preview: props.preview,
+  initialRoleKey: props.initialRoleKey || null,
+})
 
-const { contextLabel, summarize, visibleQuickActions, isConfigIntent, hasServerWord } = useAssistantContext()
+const { contextLabel, summarize, visibleQuickActions } = useAssistantContext()
 
-/** 从 analysis_result 消息的 data JSON 解析方案清单（失败/空 → []，渲染走 else 分支显示纯文本） */
-function parsePlans(m: { kind?: string; data?: string }): Plan[] {
-  if (m.kind !== 'analysis_result' || !m.data) return []
-  try { return (JSON.parse(m.data).plans || []) as Plan[] } catch { return [] }
+function artifactFor(m: { kind?: string; data?: string }): { entityType: string; entity: any } | null {
+  if (m.kind !== 'business_artifact' || !m.data) return null
+  try {
+    const d = JSON.parse(m.data)
+    const entity = d?.entity || d?.bom_scheme
+    if (!entity || !d?.entity_type) return null
+    return { entityType: String(d.entity_type), entity }
+  } catch {
+    return null
+  }
 }
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+const roleMenuOpen = ref(false)
+const historyDrawerOpen = ref(false)
+
+// 技能流程是否运行中（用于画布 input 节点「运行」状态）
+const busy = computed(() => waitingAI.value || !!statusText.value || !!streamingText.value)
+const thinkingActive = computed(() => waitingAI.value && (!!thinkingText.value || !streamingText.value))
+
+// ── AI 同事身份：群聊式头像/昵称 + 发送前转接确认 ──
+const aiColleagues = ref<any[]>([])
+async function loadColleagues() {
+  try {
+    const data = await assistantApi.aiColleagues.list()
+    aiColleagues.value = Array.isArray(data.colleagues) ? data.colleagues : []
+  } catch {
+    aiColleagues.value = []
+  }
+}
+const activeColleague = computed(
+  () => aiColleagues.value.find((c) => c.role_key === activeRoleKey.value) || null,
+)
+const activeColleagueName = computed(() =>
+  activeColleague.value?.name || '方案助手',
+)
+function colleagueForRole(roleKey?: string): {
+  name: string
+  avatar_url: string
+  color?: string
+} {
+  if (!roleKey) return { name: '方案助手', avatar_url: '', color: '' }
+  const found = aiColleagues.value.find((c) => c?.role_key === roleKey)
+  if (found) return found
+  return { name: roleKey, avatar_url: '', color: '' }
+}
+function avatarInitial(name?: string): string {
+  const text = (name || 'AI').trim()
+  return Array.from(text)[0] || 'AI'
+}
+function colleagueDescription(c?: any): string {
+  if (!c) return 'AI 员工'
+  if (typeof c.description === 'string' && c.description.trim()) return c.description.trim()
+  const caps = Array.isArray(c.capabilities) ? c.capabilities : []
+  const capText = caps
+    .map((x: any) => (typeof x === 'string' ? x : x?.label || x?.name || ''))
+    .filter(Boolean)
+    .join('、')
+  if (capText) return capText
+  const skills = Array.isArray(c.skills) ? c.skills : []
+  const skillText = skills
+    .map((x: any) => (typeof x === 'string' ? x : x?.name || x?.key || ''))
+    .filter(Boolean)
+    .join('、')
+  if (skillText) return skillText
+  return 'AI 员工'
+}
+function roleAvatarStyle(c?: any) {
+  return { background: c?.color || 'var(--cpq-accent-primary, #1677ff)' }
+}
+function threadTitle(t: { title?: string; first_message?: string; thread_id: string }) {
+  return t.title?.trim() || t.first_message?.trim() || t.thread_id
+}
+function formatThreadTime(value?: string) {
+  if (!value) return '—'
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return value
+  const now = new Date()
+  const diff = now.getTime() - d.getTime()
+  const seconds = Math.floor(diff / 1000)
+  if (seconds < 60) return '刚刚'
+  if (seconds < 3600) return `${Math.floor(seconds / 60)} 分钟前`
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+  }
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  if (d.toDateString() === yesterday.toDateString()) return '昨天'
+  return d.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+}
+function toggleRoleMenu() {
+  if (props.preview) return
+  roleMenuOpen.value = !roleMenuOpen.value
+  historyDrawerOpen.value = false
+}
+function toggleHistoryDrawer() {
+  if (props.preview) return
+  historyDrawerOpen.value = !historyDrawerOpen.value
+  roleMenuOpen.value = false
+}
+async function chooseRole(roleKey: string) {
+  roleMenuOpen.value = false
+  if (!roleKey || roleKey === activeRoleKey.value) return
+  await switchRole(roleKey)
+}
+async function chooseThread(id: string) {
+  historyDrawerOpen.value = false
+  if (id === currentThreadId.value) return
+  await selectThread(id)
+}
 
 // 面板贴着 FAB 当前位置打开（FAB 拖到哪儿，面板就跟到哪儿附近）
 const { pos: fabPos, getFabRect, moveClamped, refitToViewport } = useAssistantFab()
 const viewportTick = ref(0)
 
 const panelStyle = computed(() => {
+  if (props.embedded) return {}
   // 依赖 fabPos / viewportTick 触发重算（FAB 拖动或窗口缩放时跟着挪）
   void fabPos.value
   void viewportTick.value
@@ -299,7 +380,12 @@ function onResize() {
   viewportTick.value++
 }
 onMounted(() => window.addEventListener('resize', onResize))
-onBeforeUnmount(() => window.removeEventListener('resize', onResize))
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', onResize)
+  if (props.embedded && props.preview) {
+    destroyPreview()
+  }
+})
 
 // 拖动逻辑：拖面板 = 同步移动 FAB（夹进视口）。面板以 FAB 为锚 → FAB 不出界面板就不出界，
 // 且每次都贴着 FAB 打开（不再有独立持久化偏移把面板拽远/拽出页面）
@@ -337,18 +423,15 @@ function stopDrag() {
   document.removeEventListener('mouseup', stopDrag)
 }
 
-// vue-tsc 模板里拿不到全局 document，集中到 script setup 暴露
-const getPopupContainer = (node: any) => node?.closest('.assistant-panel') || document.body
-
-const threadOptions = computed(() =>
-  threads.value.map((t) => ({ value: t.thread_id, label: t.title || '新会话' })),
-)
-
 watch(
   () => props.open,
   async (v) => {
-    if (v) {
-      await loadThreads()
+    const active = props.embedded || v
+    if (active) {
+      await Promise.all([loadThreads(), loadColleagues()])
+      if (props.embedded && props.preview) {
+        await createPreviewThread()
+      }
       if (currentThreadId.value) connectWs(currentThreadId.value)
     } else {
       disconnectWs()
@@ -369,47 +452,26 @@ function scrollToBottom() {
   if (el) el.scrollTop = el.scrollHeight
 }
 
-function onEnter(e: KeyboardEvent) {
-  if (e.shiftKey) return
-  e.preventDefault()
-  onSend()
-}
-
-/**
- * 进入需求分析时拼需求文本 = 本次输入 + 上一次出方案之后的近期用户消息。
- * 修复：用户分轮表达（先说「AMD 6卡GPU」，再发「帮我配置」）时，触发意图的那句短消息
- * 会把前面的规格丢掉，导致后端分析完全看不到真实需求、给出无关方案。
- */
-function buildRequirement(currentText: string): string {
-  const msgs = messages.value
-  // 从最近一次出方案/分析结束之后开始收集（新一轮需求，不混入上一轮已满足的需求）
-  let start = 0
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    const k = msgs[i].kind
-    if (k === 'analysis_result' || k === 'analysis_finished') { start = i + 1; break }
-  }
-  const prior = msgs
-    .slice(start)
-    .filter((m) => m.role === 'user')
-    .map((m) => (m.content || '').trim())
-    .filter(Boolean)
-  const cur = (currentText || '').trim()
-  return [...prior, cur].filter(Boolean).join('\n')
-}
-
 async function onSend() {
   const text = draft.value
   if (!text.trim() || sending.value) return
   draft.value = ''
-  // 自然进入：命中意图词（策略中心·需求分析·需求理解节点的 intent_words 可配，改即生效）
-  // → 直接进分析，并带上近期用户消息作为完整需求（避免分轮表达丢需求）
-  if (isConfigIntent(text)) {
-    await runAnalysis(buildRequirement(text))
-    return
+  await sendText(text)
+}
+
+// 供父组件（SkillStudio 输入节点「运行」）注入文本到真实 AI 对话
+async function sendText(text: string) {
+  nodeTraces.value = []
+  const content = (text || '').trim()
+  if (!content || sending.value) return
+  if (props.embedded && props.preview && !currentThreadId.value) {
+    await createPreviewThread()
   }
   const summary = await summarize()
-  await send(text, summary)
+  await send(content, summary)
 }
+
+defineExpose({ sendText, nodeTraces, busy })
 
 // 快捷指令：prompt 可为函数（动态读配置，如趋势分析）；context 缺省走通用 provider 摘要
 async function onQuickAction(action: QuickAction) {
@@ -419,154 +481,10 @@ async function onQuickAction(action: QuickAction) {
   await send(prompt, ctx)
 }
 
-const router = useRouter()
-
-// ── 弱意图兜底：提到服务器但没命中意图词 → 对话里给「开始选配」按钮，点进去带近期需求进分析 ──
-const lastUserText = computed(() => {
-  for (let i = messages.value.length - 1; i >= 0; i--) {
-    if (messages.value[i].role === 'user') return messages.value[i].content || ''
-  }
-  return ''
-})
-const showConfigCta = computed(() =>
-  !analysisActive.value && !analysisPrompt.value && !analysisRunning.value &&
-  hasServerWord(lastUserText.value) && !isConfigIntent(lastUserText.value))
-function startConfigFromChat() {
-  // lastUserText 已在 messages 里 → 传空串，buildRequirement 会把它和更早的需求一起带上（不重复）
-  if (!lastUserText.value.trim()) return
-  runAnalysis(buildRequirement(''))
-}
-
-// ── 需求分析：反问回复（ask_user）──
-const replyText = ref('')
-const quickLocked = ref(false)
-// 选项点击 → 预填输入框（可编辑），输入框始终可见（2026-08 修复：统一为单一输入区）
-const customInput = ref(false)
-const replyInputEl = ref<HTMLTextAreaElement | null>(null)
-function quickReply(opt: string) {
-  // 2026-08：点选项 → 填入输入框（可编辑/可补充），由用户确认后发送。
-  // 避免"选项直接发"和"输入框"两个入口割裂——选项只是快捷填充。
-  replyText.value = opt
-  customInput.value = true
-  nextTick(() => { replyInputEl.value?.focus() })
-}
-function submitReply() {
-  const t = replyText.value.trim()
-  if (!t) return
-  replyText.value = ''
-  replyAnalysis(t)
-}
-function onReplyEnter(e: KeyboardEvent) {
-  if (e.shiftKey) return
-  e.preventDefault()
-  submitReply()
-}
-function onSkipAnalysis() {
-  replyText.value = ''
-  skipAnalysis()
-}
-watch(() => analysisPrompt.value, () => {
-  quickLocked.value = false
-  customInput.value = false
-  nextTick(scrollToBottom)
-})
-
-// ── 需求分析：LLM 确认面板（confirm 节点）──
-const confirmChoices = ref<Record<string, string>>({})
-function setConfirmChoice(id: string, v: string) {
-  confirmChoices.value = { ...confirmChoices.value, [id]: v }
-}
-const hasConfirmIgnore = computed(() =>
-  Object.values(confirmChoices.value).some((v) => v === 'ignore'),
-)
-watch(() => analysisConfirm.value, (pc) => {
-  confirmChoices.value = {}
-  if (pc?.items?.length) {
-    const def = pc.default || 'accept'
-    pc.items.forEach((it) => { confirmChoices.value[it.id] = def })
-  }
-  nextTick(scrollToBottom)
-})
-function onConfirmSubmit() {
-  if (!Object.keys(confirmChoices.value).length) return
-  confirmAnalysis({ ...confirmChoices.value })
-}
-function onAcceptAll() {
-  acceptAllAnalysis()
-}
-
-// ── 网页端增强：点方案卡「查看 BOM 详情」→ 弹窗展示完整表格 BOM ──
-const bomModalOpen = ref(false)
-const bomModalPlan = ref<Plan | null>(null)
-const bomModalCfg = ref<PlanLiveCfg | null>(null)
-const bomModalLoading = ref(false)
-async function openBomModal(p: Plan) {
-  bomModalPlan.value = p
-  bomModalCfg.value = null
-  bomModalLoading.value = true
-  bomModalOpen.value = true
-  try {
-    bomModalCfg.value = await buildPlanCfg(p)
-  } finally {
-    bomModalLoading.value = false
-  }
-}
-function fmtCost(n: number | null | undefined) {
-  return Number(n || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-// ── 需求分析：转报价单（需会话绑定商机；逻辑与商机详情页 confirmPlan 同源）──
-const convertingId = ref<number | null>(null)
-async function convertPlan(plan: Plan) {
-  const oid = currentThread.value?.opportunity_id
-  if (!oid) {
-    antMessage.warning('该会话未绑定商机，无法转为报价单')
-    return
-  }
-  convertingId.value = plan.config_id
-  try {
-    const res = await quotationApi.create({
-      opportunity_id: oid,
-      quotation_name: `方案-${plan.name || plan.model}`,
-    })
-    const quotationId = res.quotation_id
-    const liveCfg = await buildPlanCfg(plan)
-    const picks: Record<string, any> = {
-      base_config_id: plan.config_id,
-      // 服务器型号 id：机箱卡按它匹配目录机型（形态/用途/型号都从机型对象读）
-      server_model_id: plan.server_model_id ?? null,
-      bom_source: liveCfg.bom_source,
-      l6_custom_price: plan.summary.l6_cost ?? 0,
-      l6_profit_margin: 10,
-      // IO 选配随 picks 持久化：机箱配置器按机型标准 riser 回填 IO 数量（与 BOM 同源）
-      picks: liveCfg.rear ? { rear: liveCfg.rear } : undefined,
-    }
-    if (liveCfg.bom_source === 'live') {
-      picks.bom_template = liveCfg.bom_template
-      picks.bom_context = liveCfg.bom_context
-    } else {
-      picks.bom_excel_rows = liveCfg.bom_excel_rows
-    }
-    const payload = {
-      items: liveCfg.items,
-      config_quantities: { CFG1: 1 },
-      config_server_models: { CFG1: plan.model || '' },
-      config_l6_picks: { CFG1: picks },
-    }
-    await quotationApi.saveItems(quotationId, payload as any)
-    quotationApi.update(quotationId, { source: 'reasoning' }).catch(() => {})
-    antMessage.success(`已转为报价单：${plan.name || plan.model}`)
-    disconnectWs()
-    router.push(`/workspace?opportunityId=${oid}&quotationId=${quotationId}&mode=edit&from=assistant`)
-  } catch (e: any) {
-    antMessage.error('转为报价单失败：' + (e?.message || e))
-  } finally {
-    convertingId.value = null
-  }
-}
-
 async function onNewThread() {
+  if (props.preview) return
   await newThread()
+  historyDrawerOpen.value = false
 }
 
 function onDeleteThread(id: string) {
@@ -576,6 +494,7 @@ function onDeleteThread(id: string) {
     okText: '删除',
     okType: 'danger',
     cancelText: '取消',
+    zIndex: 1800,
     onOk: async () => {
       await removeThread(id)
     },
@@ -588,8 +507,8 @@ function onDeleteThread(id: string) {
   position: fixed;
   right: 24px;
   bottom: 88px;
-  width: 380px;
-  height: 560px;
+  width: min(390px, calc(100vw - 32px));
+  height: min(680px, calc(100vh - 120px));
   max-height: calc(100vh - 120px);
   background: var(--cpq-glass-3-bg, rgba(255, 255, 255, 0.92));
   backdrop-filter: blur(var(--cpq-glass-blur-3, 16px));
@@ -597,10 +516,35 @@ function onDeleteThread(id: string) {
   border: 1px solid var(--cpq-glass-border);
   border-radius: 16px;
   box-shadow: 0 12px 40px var(--cpq-shadow-color-strong, rgba(0, 0, 0, 0.25));
-  z-index: 1500;
+  z-index: 1600;
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.assistant-panel--embedded {
+  flex: 1;
+  min-height: 0;
+  position: static;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  height: 100%;
+  max-height: none;
+  border-radius: 0;
+  box-shadow: none;
+  border: 0;
+  z-index: auto;
+}
+
+.assistant-panel--embedded .ap-header {
+  cursor: default;
+}
+.assistant-panel--embedded .ap-role-card {
+  cursor: default;
+}
+.assistant-panel--embedded .ap-role-card:hover {
+  background: transparent;
 }
 
 .ap-header {
@@ -619,9 +563,6 @@ function onDeleteThread(id: string) {
   font-size: 14px;
   font-weight: 600;
   color: var(--cpq-text-primary);
-}
-.ap-title :deep(.anticon) {
-  color: var(--cpq-accent-primary);
 }
 .ap-ctx {
   font-size: 11px;
@@ -677,6 +618,10 @@ function onDeleteThread(id: string) {
 .ap-thread-select {
   flex: 1;
   min-width: 0;
+}
+.ap-role-select {
+  width: 132px;
+  flex-shrink: 0;
 }
 .thread-opt {
   display: flex;
@@ -737,9 +682,6 @@ function onDeleteThread(id: string) {
   opacity: 0.5;
   cursor: not-allowed;
 }
-.ap-quick-icon {
-  font-size: 12px;
-}
 .ap-spin {
   display: flex;
   justify-content: center;
@@ -752,22 +694,43 @@ function onDeleteThread(id: string) {
 }
 .ap-msg {
   display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
-/* 自然进入选配：对话内「开始选配」提示条（弱意图兜底） */
-.ap-config-cta {
+.ap-msg-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-radius: 12px;
-  background: var(--cpq-overlay-w3);
-  border: 1px dashed var(--cpq-glass-border, rgba(255, 255, 255, 0.16));
-  font-size: 13px;
-  color: var(--cpq-text-muted);
 }
-.ap-config-cta .ant-btn-primary {
-  margin-left: auto;
+.ap-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--cpq-accent-primary, #1677ff);
+  border: 1px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
+  overflow: hidden;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+}
+.ap-avatar-initial {
+  line-height: 1;
+}
+.ap-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ap-author {
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--cpq-text-muted);
+  margin-bottom: 4px;
 }
 .role-user {
   justify-content: flex-end;
@@ -785,22 +748,11 @@ function onDeleteThread(id: string) {
   word-break: break-word;
   white-space: pre-wrap;
 }
-.role-user .ap-bubble {
-  background: var(--cpq-accent-primary);
-  color: #fff;
-  border-bottom-right-radius: 4px;
-}
 .role-assistant .ap-bubble {
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-primary);
   border: 1px solid var(--cpq-overlay-w6);
   border-bottom-left-radius: 4px;
-}
-.role-system .ap-bubble {
-  background: transparent;
-  color: var(--cpq-text-muted);
-  font-style: italic;
-  font-size: 12px;
 }
 .ap-cursor {
   display: inline-block;
@@ -843,6 +795,38 @@ function onDeleteThread(id: string) {
   }
 }
 
+/* ── 发送前转接确认 ── */
+.ap-dispatch {
+  flex-shrink: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--cpq-overlay-w8);
+  background: var(--cpq-accent-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ap-dispatch-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ap-dispatch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
+.ap-dispatch-text strong {
+  color: var(--cpq-text-primary);
+  font-size: 13px;
+}
+.ap-dispatch-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .ap-input {
   padding: 10px 12px;
   border-top: 1px solid var(--cpq-overlay-w6);
@@ -880,12 +864,49 @@ function onDeleteThread(id: string) {
   color: var(--cpq-accent-danger);
   border-color: var(--cpq-accent-danger);
 }
+/* ── AI 工具调用状态条 ── */
+.ap-tool-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 2px 0 6px;
+}
+.ap-tool {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-overlay-w8);
+}
+.ap-tool .anticon {
+  color: var(--cpq-accent-primary);
+}
+.ap-tool.done .anticon {
+  color: var(--cpq-accent-success, #52c41a);
+}
+.ap-tool-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-tool-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+}
 .ap-plan-card {
   max-width: 100%;
 }
 /* 需求分析结果：文本气泡 + 方案卡纵向堆叠（.ap-msg 默认 row-flex 会把两者并排挤成两栏、且等高拉伸把卡片撑得特别长） */
 .ap-msg-result {
   flex-direction: column;
+  align-items: stretch;
   gap: 8px;
 }
 .ap-bubble.err {
@@ -1003,16 +1024,6 @@ function onDeleteThread(id: string) {
   max-height: 70vh;
   overflow-y: auto;
 }
-.ap-analyze-bar {
-  padding: 6px 12px;
-  border-top: 1px solid var(--cpq-overlay-w8);
-  background: var(--cpq-accent-soft);
-}
-.ap-analyze-bar-tip {
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--cpq-accent-primary);
-}
 .ap-quick-chip.primary {
   border-color: var(--cpq-accent-primary);
   color: var(--cpq-accent-primary);
@@ -1028,6 +1039,325 @@ function onDeleteThread(id: string) {
   border-color: var(--cpq-accent-primary);
   background: var(--cpq-accent-primary);
   color: #fff;
+}
+
+/* ── 方案助手改版：角色卡 + 内部角色菜单 + 内部会话抽屉 ── */
+.ap-header {
+  padding: 12px;
+  border-bottom: 1px solid var(--cpq-overlay-w6);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: move;
+  user-select: none;
+  background: transparent;
+}
+.ap-role-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.ap-role-card:hover {
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
+}
+.ap-role-avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+  overflow: hidden;
+  color: #fff;
+  font-weight: 700;
+  font-size: 17px;
+  background: var(--cpq-accent-primary, #1677ff);
+}
+.ap-role-avatar.sm {
+  width: 34px;
+  height: 34px;
+  border-radius: 11px;
+  font-size: 13px;
+}
+.ap-role-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.ap-role-meta {
+  min-width: 0;
+}
+.ap-role-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ap-role-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cpq-accent-success, #22c55e);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
+  flex-shrink: 0;
+}
+.ap-role-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cpq-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-role-desc {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-role-ctx {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--cpq-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-header-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.ap-icon-btn {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.12));
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
+  color: var(--cpq-text-muted);
+  cursor: pointer;
+  font-size: 14px;
+}
+.ap-icon-btn:hover {
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.10));
+}
+.ap-close:hover {
+  border-color: var(--cpq-accent-danger);
+  color: var(--cpq-accent-danger);
+  background: var(--cpq-overlay-danger10, rgba(255, 77, 79, 0.10));
+}
+
+.ap-role-menu {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: 66px;
+  z-index: 6;
+  overflow: hidden;
+  border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.14));
+  border-radius: 16px;
+  background: var(--cpq-glass-3-bg, rgba(18, 24, 38, 0.96));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.28);
+  max-height: min(320px, calc(100% - 76px));
+  overflow-y: auto;
+}
+.ap-role-menu-head {
+  padding: 10px 12px;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--cpq-text-muted);
+  border-bottom: 1px solid var(--cpq-overlay-w6);
+}
+.ap-role-opt {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.ap-role-opt:hover {
+  background: rgba(59, 130, 246, 0.10);
+}
+.ap-role-opt.active {
+  background: rgba(59, 130, 246, 0.14);
+}
+.ap-role-opt-main {
+  flex: 1;
+  min-width: 0;
+}
+.ap-role-opt-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.ap-role-opt-desc {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-role-opt-check {
+  color: var(--cpq-accent-success, #22c55e);
+  font-weight: 700;
+}
+
+.ap-history-drawer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  display: flex;
+  justify-content: flex-end;
+}
+.ap-history-mask {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.30);
+}
+.ap-history-panel {
+  position: relative;
+  width: 86%;
+  height: 100%;
+  border-left: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.14));
+  background: var(--cpq-bg-elevated, #ffffff);
+  box-shadow: -20px 0 50px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+}
+.ap-history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px;
+  border-bottom: 1px solid var(--cpq-overlay-w6);
+}
+.ap-history-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--cpq-text-primary);
+}
+.ap-new-thread {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid var(--cpq-accent-primary);
+  border-radius: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.10));
+  cursor: pointer;
+}
+.ap-new-thread:hover {
+  background: var(--cpq-overlay-a10, rgba(22, 119, 255, 0.16));
+}
+.ap-new-thread:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.ap-history-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+.ap-thread-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.ap-thread-item:hover {
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
+}
+.ap-thread-item.active {
+  background: rgba(59, 130, 246, 0.14);
+}
+.ap-thread-main {
+  flex: 1;
+  min-width: 0;
+}
+.ap-thread-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-thread-meta {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+}
+.ap-thread-del {
+  color: var(--cpq-text-muted);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.ap-thread-del:hover {
+  color: var(--cpq-accent-danger);
+}
+.ap-history-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+}
+
+.ap-menu-enter-active,
+.ap-menu-leave-active {
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.ap-menu-enter-from,
+.ap-menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+.ap-drawer-enter-active,
+.ap-drawer-leave-active {
+  transition: opacity 0.18s ease;
+}
+.ap-drawer-enter-active .ap-history-panel,
+.ap-drawer-leave-active .ap-history-panel {
+  transition: transform 0.18s ease;
+}
+.ap-drawer-enter-from,
+.ap-drawer-leave-to {
+  opacity: 0;
+}
+.ap-drawer-enter-from .ap-history-panel,
+.ap-drawer-leave-to .ap-history-panel {
+  transform: translateX(100%);
 }
 
 .assistant-panel-enter-active,
@@ -1047,4 +1377,6 @@ function onDeleteThread(id: string) {
   max-height: 70vh;
   overflow-y: auto;
 }
+
+
 </style>

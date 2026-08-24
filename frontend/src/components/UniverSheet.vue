@@ -358,13 +358,6 @@ onBeforeUnmount(() => {
   position: relative;
 }
 
-/* Univer 在 .univer-container 内生成的 UI 根 div 必须撑满容器高度，
-   否则按内容撑开会把底部 sheet 切换栏顶出可视区。 */
-.univer-container > div {
-  width: 100% !important;
-  height: 100% !important;
-}
-
 /* 右键菜单所有层级文字颜色 */
 [data-u-context-menu-submenu] button,
 [data-u-context-menu-submenu] div {

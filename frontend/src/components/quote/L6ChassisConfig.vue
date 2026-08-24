@@ -19,6 +19,7 @@ import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import { cableDescFrom } from '@/utils/bomL6Derive'
+import { loadBomCategoryAliases, getBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
 import { backplaneTypeOf, driveKindOf } from '@/utils/partFit'
 import PartPicker from '@/components/common/PartPicker.vue'
@@ -42,6 +43,8 @@ const props = defineProps<{
   stepper?: boolean
   /** 是否显示 GPU 供电线选择行：报价页 GPU 线外移到 GPU 卡→传 false 隐藏；配置页默认 true 保留 */
   showGpuCable?: boolean
+  /** 是否显示价格：serverconfig 统一传 false；报价工作台不传时按 field.quote.price 控制 */
+  priceVisible?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -64,8 +67,8 @@ const {
 
 const selectionRulesStore = useSelectionRulesStore()
 const auth = useAuthStore()
-/** 服务器配置价格可见性（字段级权限，配置驱动；无权限直接隐藏价格，不出现 *** 掩码） */
-const priceVisible = computed(() => auth.can('field.server.price'))
+/** 价格可见性：serverconfig 显式传 false；报价工作台未传时按 field.quote.price 控制。 */
+const priceVisible = computed(() => props.priceVisible ?? auth.can('field.quote.price'))
 // CRE 规则求值上下文：盘类型/各类盘数 + GPU 数量，全部取自 kpSummary（随工作台 KP 增删/换型反应式重算）
 const ruleCtx = computed<RuleContext>(() => {
   const d = props.kpSummary?.drivesByKind || {}
@@ -94,6 +97,17 @@ watch(cableActions, m => {
   derivedCableQty.value = Object.fromEntries(Object.entries(m).map(([k, a]) => [k, a.deriveQty ?? 0]))
 }, { immediate: true })
 void selectionRulesStore.ensureRules()
+
+/** 电源冗余状态：手册 CRPS 3+1 冗余（4 槽满载）；数量不足提示补配 */
+const psuRedundancy = computed<{ level: 'ok' | 'warn' | 'err' | ''; text: string }>(() => {
+  const q = psuQty()
+  const bays = basePsuBays.value || 4
+  if (q <= 0) return { level: '', text: '' }
+  if (q > bays) return { level: 'err', text: `超过电源槽位上限（${bays} 槽）` }
+  if (q < 3) return { level: 'warn', text: `仅 ${q} 块，无冗余（手册建议 3+1 冗余，至少 3 块）` }
+  if (q === 3) return { level: 'ok', text: 'N+1 冗余' }
+  return { level: 'ok', text: `3+1 冗余（${bays} 槽满载）` }
+})
 
 const allBaseConfigs = ref<BaseConfig[]>([])          // 「选择基准配置」下拉数据（全量缓存）
 /** 下拉数据源：已匹配目录机型（serverModelId）→ 只列该机型绑定的配置；未匹配 → 全量（兼容手动挂载） */
@@ -470,6 +484,7 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
     rear,
     frontCableQty,
     frontCableInfo,
+    categoryAliases: getBomCategoryAliases(),
   }
   return evalBomContext(bomTemplate.value?.rows || [], ctx)
 }
@@ -546,6 +561,7 @@ onMounted(async () => {
   // 若 hydrate 在 await loadReference 之后，50ms timer 会在 hydrate 前到期，把组件空初始的 rear emit 出去覆盖 store，
   // 进而让 props.initialPicks 响应式变空，hydrate 读到空（配置丢失 bug）。
   if (props.initialPicks) hydrateFromPicks(props.initialPicks)
+  await loadBomCategoryAliases()
   try {
     await loadAllBaseConfigs()
     const seedId = props.initialPicks?.base_config_id ?? props.baseConfigId
@@ -584,7 +600,7 @@ onBeforeUnmount(() => {
     <div class="l6-panels">
     <!-- ① 基准配置 -->
     <div id="l6-panel-base" class="sc-panel" v-show="!stepper || activeStep === 'base'">
-      <div class="sc-phead">
+      <div class="sc-phead" :class="{ 'no-price': !priceVisible }">
         <span class="num">1</span><h2>基准配置</h2>
         <span class="hint">背板由硬盘推导，可手改</span>
         <span v-if="priceVisible" class="amt">¥{{ baseTotal.toLocaleString() }}</span>
@@ -615,7 +631,7 @@ onBeforeUnmount(() => {
 
     <!-- ② 前面板 -->
     <div id="l6-panel-front" class="sc-panel" v-show="!stepper || activeStep === 'front'">
-      <div class="sc-phead"><span class="num">2</span><h2>前面板 · 硬盘背板连线</h2><span v-if="priceVisible" class="amt">¥{{ frontTotal.toLocaleString() }}</span></div>
+      <div class="sc-phead" :class="{ 'no-price': !priceVisible }"><span class="num">2</span><h2>前面板 · 硬盘背板连线</h2><span v-if="priceVisible" class="amt">¥{{ frontTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <div class="front-grid">
           <div class="front-card" v-for="k in CORE_DRIVE_KINDS" :key="k" :class="{ active: frontCableQty(k) > 0 }">
@@ -625,7 +641,7 @@ onBeforeUnmount(() => {
               <span v-if="isManual('fc-' + k)" class="sc-badge man">已手动</span>
             </div>
             <div v-if="!frontCableParts(k).length" class="front-card-empty">料号库暂无 {{ k }} 线缆</div>
-            <div v-else class="front-card-bot">
+            <div v-else class="front-card-bot" :class="{ 'no-price': !priceVisible }">
               <span v-if="priceVisible" class="front-price">¥{{ frontCableInfo(k).price }}</span>
               <div class="sc-step"><button @click="setOverride('fc-' + k, Math.max(0, frontCableQty(k) - 1))">−</button><input :value="frontCableQty(k)" @change="(e:any)=>setOverride('fc-' + k, parseInt(e.target.value)||0)" /><button @click="setOverride('fc-' + k, frontCableQty(k) + 1)">+</button></div>
             </div>
@@ -637,13 +653,14 @@ onBeforeUnmount(() => {
 
     <!-- ③ 后面板（PCIe IO + 网络 OCP + GPU 供电线）-->
     <div id="l6-panel-rear" class="sc-panel" v-show="!stepper || activeStep === 'rear'">
-      <div class="sc-phead"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe 扩展能力 + OCP 接口 + GPU 供电线</span><span v-if="priceVisible" class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
+      <div class="sc-phead" :class="{ 'no-price': !priceVisible }"><span class="num">3</span><h2>后面板 · IO 与网络</h2><span class="hint">PCIe 扩展能力 + OCP 接口 + GPU 供电线</span><span v-if="priceVisible" class="amt">¥{{ (rearTotal + ocpTotal + gpuCableCost).toLocaleString() }}</span></div>
       <div class="sc-pbody">
         <RearPanel
           :slots="rearSlotsView"
           :ocp-slot="ocpSlotView"
           :options="rearOptionsLocked"
           :combo-slots="COMBO_REAR_SLOTS"
+          :price-visible="priceVisible"
           :totals="priceVisible ? { io: rearTotal, ocp: ocpTotal } : undefined"
         />
 
@@ -667,15 +684,16 @@ onBeforeUnmount(() => {
 
     <!-- ④ 电源 -->
     <div id="l6-panel-psu" class="sc-panel" v-show="!stepper || activeStep === 'psu'">
-      <div class="sc-phead"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量</span><span v-if="priceVisible" class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
+      <div class="sc-phead" :class="{ 'no-price': !priceVisible }"><span class="num">4</span><h2>电源 PSU</h2><span class="hint">自选型号与数量</span><span v-if="priceVisible" class="amt">¥{{ psuLineTotal.toLocaleString() }}</span></div>
       <div class="sc-pbody">
-        <div class="psu-row" v-if="psuParts.length">
+        <div class="psu-row" :class="{ 'no-price': !priceVisible }" v-if="psuParts.length">
           <label class="psu-lab">PSU 型号</label>
           <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="effectivePsuPn()" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
           <span v-if="priceVisible" class="psu-unit-price">单价 ¥{{ psuUnitPrice().toLocaleString() }}</span>
           <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', parseInt(e.target.value)||0)" /><button @click="setOverride('psuQty', psuQty() + 1)">+</button></div>
           <span v-if="priceVisible" class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
         </div>
+        <div v-if="psuRedundancy.level" class="psu-rd" :class="psuRedundancy.level">{{ psuRedundancy.text }}</div>
         <div v-else class="sc-empty">料号库暂无「电源模块」类别 PSU。</div>
       </div>
     </div>
@@ -715,6 +733,7 @@ onBeforeUnmount(() => {
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
 .sc-phead .hint { color: var(--cpq-text-muted,#6E7582); font-size: 12px; }
 .sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: 14px; }
+.sc-phead.no-price .hint { margin-left: auto; }
 .sc-pbody { padding: 18px 20px; }
 .sc-sumcard { display: grid; grid-template-columns: repeat(4,1fr); gap: 14px; padding: 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
 .sc-sumcard .k { display: block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-bottom: 3px; }
@@ -754,6 +773,7 @@ onBeforeUnmount(() => {
 .front-card.active .opt-dot { background: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); box-shadow: 0 0 8px var(--cpq-overlay-a40); }
 .front-card-empty { font-size: 12px; color: var(--cpq-text-muted,#6E7582); padding: 9px 10px; background: var(--cpq-overlay-w3); border: 1px dashed var(--cpq-overlay-w10); border-radius: 8px; text-align: center; }
 .front-card-bot { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: auto; }
+.front-card-bot.no-price { justify-content: flex-end; }
 .front-price { font-size: 13px; font-weight: 600; color: var(--cpq-text-muted,#6E7582); }
 .front-card.active .front-price { color: var(--cpq-accent-primary,#1677FF); }
 .sc-section-head { display: flex; align-items: baseline; gap: 10px; margin: 4px 0 10px; }
@@ -762,6 +782,7 @@ onBeforeUnmount(() => {
 .sc-section-head .sh-note { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
 .sc-section-head .sh-amt { margin-left: auto; font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF); }
 .psu-row { display: grid; grid-template-columns: 70px minmax(150px,1fr) 110px 110px 90px; gap: 9px; align-items: center; padding: 11px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; margin-bottom: 9px; }
+.psu-row.no-price { grid-template-columns: 70px minmax(150px,1fr) 110px; }
 .psu-lab { font-size: 13px; font-weight: 500; color: var(--cpq-text-primary,#E8ECEF); }
 .psu-sel { width: 100%; }
 .psu-unit-price { font-size: 12px; color: var(--cpq-text-secondary,#9BA1AA); }
@@ -770,5 +791,10 @@ onBeforeUnmount(() => {
 .gpu-cable-line .dl-r { gap: 5px; }
 .l6-total-bar { position: relative; display: flex; align-items: baseline; gap: 14px; padding: 12px 18px; border: 1px solid var(--cpq-glass-border-strong); border-radius: var(--cpq-radius-lg); background: var(--cpq-overlay-a8); backdrop-filter: blur(var(--cpq-glass-blur-1)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-1)); }
 .l6-total-bar b { color: var(--cpq-accent-primary,#1677FF); font-size: 18px; }
+.psu-rd { margin-top: 4px; padding: 8px 14px; border-radius: 8px; font-size: 12px; }
+.psu-rd.ok { background: rgba(34,197,94,.12); color: #4ade80; border: 1px solid rgba(34,197,94,.25); }
+.psu-rd.warn { background: rgba(250,140,22,.12); color: #fb923c; border: 1px solid rgba(250,140,22,.25); }
+.psu-rd.err { background: rgba(239,68,68,.12); color: #f87171; border: 1px solid rgba(239,68,68,.25); }
+
 .l6-total-hint { font-size: 11px; color: var(--cpq-text-muted,#6E7582); margin-left: auto; }
 </style>

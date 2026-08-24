@@ -4,7 +4,7 @@
  *
  * 集中四类元数据，杜绝 label / 维度顺序 / 枚举 / 单位散落多处裸字面导致漂移：
  *   ① 维度定义（key + label + 运算类型 opKind + 单位 + 说明，按公式流水线顺序）
- *   ② 各维度枚举选项（platform / industry / region 分桶 / customer_type）——统一三处历史不一致
+ *   ② 各维度枚举选项（platform / industry / region 分桶 / 机箱形态 / customer_type）——统一三处历史不一致
  *   ③ 区域分桶关键词（delivery_region 自由文本 → 国内/海外/偏远）
  *   ④ 默认系数表（DEFAULT_DIM_BODIES）——与 backend/scripts/seed_pricing_strategies.py 必须保持一致
  *
@@ -23,6 +23,7 @@ export type DimensionKey =
   | 'platform_baseline'
   | 'industry_adj'
   | 'region_adj'
+  | 'form_adj'
   | 'order_mult'
   | 'cost_tier'
   | 'qty_mult'
@@ -45,7 +46,8 @@ export interface DimensionDef {
 export const DIMENSION_DEFS: DimensionDef[] = [
   { key: 'platform_baseline', label: '平台基准毛利', shortLabel: '平台基准', opKind: 'base',  unit: '%',  sign: '',  desc: '按芯片平台取基准毛利率，是加法链的起点' },
   { key: 'industry_adj',      label: '行业浮动',     shortLabel: '行业',     opKind: 'add',   unit: '百分点', sign: '+', desc: '在基准上按客户行业 ±百分点' },
-  { key: 'region_adj',        label: '区域浮动',     shortLabel: '区域',     opKind: 'add',   unit: '百分点', sign: '+', desc: '按客户区域(交付地区)分桶后 ±百分点' },
+  { key: 'region_adj',        label: '区域浮动',     shortLabel: '区域',     opKind: 'add',   unit: '百分点', sign: '+', desc: '按客户区域(交付地区)分桶后 ±百分点；海外可带每台固定费(报关/物流)' },
+  { key: 'form_adj',          label: '形态浮动',     shortLabel: '形态',     opKind: 'add',   unit: '百分点', sign: '+', desc: '按机箱形态(2U/4U/5U/塔式)±百分点（4U 成本高压点）' },
   { key: 'order_mult',        label: '订单系数',     shortLabel: '订单',     opKind: 'mult',  unit: '×', sign: '×', desc: '按订单/客户类型乘系数修正' },
   { key: 'cost_tier',         label: '成本阶梯',     shortLabel: '成本',     opKind: 'mult',  unit: '×', sign: '×', desc: '按整机 BOM 总成本阶梯乘系数（成本越高点位越低）' },
   { key: 'qty_mult',          label: '台数折扣',     shortLabel: '台数',     opKind: 'mult',  unit: '×', sign: '×', desc: '按销售台数分档乘系数（量越大让利越多）' },
@@ -83,6 +85,14 @@ export const REGION_BUCKET_OPTIONS = [
   { value: '偏远', label: '偏远（国内偏远地区）' },
 ]
 
+/** 机箱形态（对齐商机需求 slots 的 chassis_form；未列形态引擎跳过不调整）*/
+export const FORM_OPTIONS = [
+  { value: '2U', label: '2U' },
+  { value: '4U', label: '4U' },
+  { value: '5U', label: '5U' },
+  { value: '塔式', label: '塔式' },
+]
+
 /** 订单/客户类型（对齐 seed_strategy_fields 的 customer_type 枚举）*/
 export const CUSTOMER_TYPE_OPTIONS = [
   { value: '直签大客户', label: '直签大客户' },
@@ -104,9 +114,11 @@ export const DEFAULT_DIM_BODIES = {
   platform_baseline: { Polaris: 15, Orion: 11, Intel: 11, '工作站': 13 },
   industry_adj: { 'AI算力': 3, 'IDC机房': -2, '政企信息化': 3, '高校科研': 0, '安防存储': 1, '工业边缘': 2 },
   region_adj: {
-    factors: { 国内: 0, 海外: 2, 偏远: 1 },
+    // 海外 = ±百分点 + 每台固定费(报关/国际物流/海外质保，只入售价不进毛利)；纯数字形态兼容存量
+    factors: { 国内: 0, 海外: { pct: 2, fixed_fee: 800 }, 偏远: 1 },
     keywords: REGION_KEYWORDS,
   },
+  form_adj: { '2U': 0, '4U': -1, '5U': -1, '塔式': 1 },
   order_mult: { '直签大客户': 0.9, '渠道分销': 0.7, '集采项目': 0.75, '零散项目': 1.0 },
   cost_tier: {
     tiers: [
@@ -123,7 +135,14 @@ export const DEFAULT_DIM_BODIES = {
       { min: 51, mult: 0.75 },      // 51+ 台 大型机房/IDC 整批/总包，大幅折价走量
     ],
   },
-  guardrail: { floor: 7, cap: 30 },
+  // tiers = 按订单类型差异化红线（首命中；渠道/集采毛利天然被系数压低，给现实空间）
+  guardrail: {
+    floor: 7, cap: 30,
+    tiers: [
+      { customer_type: '渠道分销', floor: 5, cap: 25 },
+      { customer_type: '集采项目', floor: 5, cap: 20 },
+    ],
+  },
 } as const
 
 // ── ⑤ 利润率告警默认配置（独立策略 type=margin_alert；与 seed_pricing_strategies.py 同步）──
@@ -144,6 +163,32 @@ export const DEFAULT_MARGIN_ALERT: MarginAlertBody = {
 
 /** 维度的系数值容器 key（region/guardrail/cost_tier 是对象，其余是 Record<enum,number>）——抽屉按维度分支读 */
 export type DimBody = typeof DEFAULT_DIM_BODIES[DimensionKey]
+
+// ── ④b BOM 分项毛利（pricing.part_margin）——非流水线：deal 目标毛利之上的品类修正层 ──
+// key 用 KP 品类名（kp_categories 英文）；未列品类 = 0 修正（用 deal 目标毛利）。
+// 消费方：pricingEngine.computePartMargins(target, body, floor, cap)；演算器预览 + 未来 AI 出价 per-line margin。
+// ⚠️ 与 backend/scripts/seed_pricing_strategies.py 的 PART_MARGIN 同步
+export const PART_MARGIN_META = {
+  type: 'part_margin',
+  label: 'BOM 分项毛利',
+  shortLabel: '分项毛利',
+  desc: '在 deal 目标毛利上按品类 ±百分点（内存/GPU 加价空间大、硬盘透明竞争压点），每个夹 [保底, 封顶]',
+} as const
+
+/** 分项毛利品类选项（KP 品类库英文命名，与源头一致不加注释）*/
+export const PART_CATEGORY_OPTIONS = [
+  { value: 'CPU', label: 'CPU' },
+  { value: 'Memory', label: 'Memory' },
+  { value: 'HDD/SSD', label: 'HDD/SSD' },
+  { value: 'GPU', label: 'GPU' },
+  { value: 'NIC', label: 'NIC' },
+  { value: 'Raid card', label: 'Raid card' },
+]
+
+export const DEFAULT_PART_MARGIN = { CPU: 2, Memory: 3, 'HDD/SSD': -2, GPU: 3, NIC: 1 } as const
+
+/** 抽屉可编辑的策略 key：流水线维度 + 非流水线的分项毛利 */
+export type DrawerDimKey = DimensionKey | 'part_margin'
 
 // ── 展示文案（画布/演算器共用）──
 export const PRICING_TEXT = {

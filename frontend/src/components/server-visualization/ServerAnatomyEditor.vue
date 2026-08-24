@@ -10,7 +10,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Application, Container, Graphics, Text } from 'pixi.js'
 import type { DrawingRegion, DrawingViewBox, DrawingLayerMeta } from '@/api/serverDrawing'
-import { REGION_KIND_LABELS } from '@/constants/serverAnatomy'
+import { partsApi } from '@/api/serverConfig'
 import { applyLayerMeta, serializeSvg, elementBBox } from '@/utils/svgLayers'
 
 const props = withDefaults(defineProps<{
@@ -168,6 +168,7 @@ async function init() {
   app.stage.addChild(regionLayer)
   app.stage.addChild(uiLayer)
   app.stage.addChild(previewLayer)
+  loadKindOptions()
   await loadBg()
   fit()
   layoutBg()
@@ -446,7 +447,7 @@ function onUp() {
     if (ghost && ghost.w >= MIN_SIZE && ghost.h >= MIN_SIZE) {
       snapshot()
       regions.value.push({
-        uid: uid(), name: '', region_type: 'plain',
+        uid: uid(), name: '', region_type: kindOptions.value[0]?.value || 'plain',
         x: Math.round(ghost.x), y: Math.round(ghost.y),
         width: Math.round(ghost.w), height: Math.round(ghost.h),
       })
@@ -490,7 +491,7 @@ function onWheel(e: WheelEvent) {
 
 // ── 区域表单 ──
 const formOpen = ref(false)
-const form = reactive({ name: '', region_type: 'plain' as DrawingRegion['region_type'], remark: '' })
+const form = reactive({ name: '', region_type: 'plain' as string, remark: '' })
 const formUid = ref<string | null>(null)
 
 function openForm(uidv: string) {
@@ -589,7 +590,18 @@ const hintText = computed(() => {
   return mode.value === 'draw' ? '拖拽拉出矩形区域' : '点击区域移动，拖四角拉伸'
 })
 
-const kindOptions = Object.entries(REGION_KIND_LABELS).map(([value, label]) => ({ value, label }))
+// 区域类型 = 料号库大类（数据驱动，来自 /api/parts/major-categories）
+const kindOptions = ref<{ value: string; label: string }[]>([])
+async function loadKindOptions() {
+  try {
+    const res = await partsApi.majorCategories()
+    kindOptions.value = (res.major_categories || [])
+      .filter(m => m.id != null)
+      .map(m => ({ value: String(m.id), label: m.major_category }))
+  } catch {
+    kindOptions.value = []
+  }
+}
 
 // ══ 图层编辑（mode === 'layer'）══
 const LAYER_NS = 'http://www.w3.org/2000/svg'
@@ -863,6 +875,81 @@ function saveLayers() {
   emit('saveSvg', serializeSvg(svg))
 }
 
+/** 元素的真实插入参考点（在包裹层内时取最外层包裹层，避免 insertBefore 引用深层节点报错） */
+function realInsertRef(el: Element): Element {
+  let ref: Element = el
+  while (ref.parentElement && ref.parentElement.hasAttribute('data-edit-wrap')) ref = ref.parentElement
+  return ref
+}
+
+/** 图层面板：同层排序（上移/下移/置顶/置底） */
+function moveLayer(id: string, dir: 'up' | 'down' | 'top' | 'bottom') {
+  const svg = svgEl()
+  const el = svg?.getElementById(id)
+  if (!el) return
+  const ref = realInsertRef(el)
+  const parent = ref.parentElement
+  if (!parent) return
+  pushSvgUndo()
+  if (dir === 'up') {
+    if (ref.previousElementSibling) parent.insertBefore(ref, ref.previousElementSibling)
+  } else if (dir === 'down') {
+    if (ref.nextElementSibling) parent.insertBefore(ref, ref.nextElementSibling.nextElementSibling || null)
+  } else if (dir === 'top') {
+    if (parent.firstElementChild && parent.firstElementChild !== ref) parent.insertBefore(ref, parent.firstElementChild)
+  } else if (dir === 'bottom') {
+    if (parent.lastElementChild && parent.lastElementChild !== ref) parent.appendChild(ref)
+  }
+  markLayerDirty()
+}
+
+/** 图层面板：拖拽到某兄弟元素之前/之后（同一父级） */
+function moveLayerBefore(id: string, targetId: string) {
+  const svg = svgEl()
+  const el = svg?.getElementById(id)
+  const target = svg?.getElementById(targetId)
+  if (!el || !target || el === target) return
+  const er = realInsertRef(el)
+  const tr = realInsertRef(target)
+  if (er.parentElement !== tr.parentElement) return
+  pushSvgUndo()
+  if (tr.compareDocumentPosition(er) & Node.DOCUMENT_POSITION_PRECEDING) {
+    tr.after(er)
+  } else {
+    tr.before(er)
+  }
+  markLayerDirty()
+}
+
+/** 图层面板：拖拽归入某个分组（追加到组末尾） */
+function reparentLayer(id: string, targetId: string) {
+  const svg = svgEl()
+  const el = svg?.getElementById(id)
+  if (!el || !svg) return
+  if (targetId === '__root__') {
+    // 拖到树内空白：移到 SVG 根层（顶层）
+    const ref = realInsertRef(el)
+    if (ref.parentNode !== svg) {
+      pushSvgUndo()
+      svg.appendChild(ref)
+      markLayerDirty()
+    }
+    return
+  }
+  const target = svg?.getElementById(targetId)
+  if (!target || el === target || target.contains(el)) return
+  pushSvgUndo()
+  if (target.tagName === 'g') {
+    target.appendChild(realInsertRef(el))
+  } else {
+    // 非 g 目标（跨父级拖到更浅层）：移出当前分组到目标层级，插到目标之前
+    const ref = realInsertRef(target)
+    const tp = ref.parentElement
+    if (tp) tp.insertBefore(realInsertRef(el), ref)
+  }
+  markLayerDirty()
+}
+
 /** 属性面板支持：fill / stroke / opacity 直接改元素属性（仅非 g 叶子元素） */
 function setLayerProp(prop: 'fill' | 'stroke' | 'opacity', value: string) {
   if (!layerState || layerState.el.tagName === 'g') return
@@ -915,6 +1002,7 @@ watch(mode, (m) => {
 defineExpose({
   selectRegion, removeRegion, openForm, fit,
   selectLayer, clearLayerSelection, removeLayer, duplicateLayer, saveLayers,
+  moveLayer, moveLayerBefore, reparentLayer,
   setLayerProp, setLayerRect, resetLayerTransform,
 })
 </script>

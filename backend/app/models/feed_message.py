@@ -5,7 +5,7 @@ Replaces the old public.comments table (comments backfilled as kind='comment').
 A message may carry 0..N attachments (see FeedAttachment.message_id).
 """
 from typing import Optional
-from sqlalchemy import String, Text
+from sqlalchemy import String, Text, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
@@ -21,6 +21,8 @@ class FeedMessage(Base):
     # 'comment' = user chat post; 'system' = auto event (e.g. "导出了报价单X")
     kind: Mapped[str] = mapped_column(String, default="comment")
     quotation_id: Mapped[Optional[str]] = mapped_column(String, default=None)
+    node_key: Mapped[Optional[str]] = mapped_column(String, default=None)
+    flow_card_id: Mapped[Optional[int]] = mapped_column(Integer, default=None, index=True)
     created_at: Mapped[str] = mapped_column(String)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     deleted_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -34,6 +36,8 @@ class FeedMessage(Base):
             "body": self.body or "",
             "kind": self.kind or "comment",
             "quotation_id": self.quotation_id or "",
+            "node_key": self.node_key or "",
+            "flow_card_id": self.flow_card_id,
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
             "deleted_at": self.deleted_at or "",

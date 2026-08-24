@@ -1,6 +1,5 @@
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
-import Antd from 'ant-design-vue'
 import 'ant-design-vue/dist/reset.css'
 import './styles/tokens.css'
 import './styles/reset.css'
@@ -26,5 +25,4 @@ useAuthStore().loadMe()
 // 强制初始化 theme store，确保 ECharts 图表的 chartColors computed 拿到正确的 isDark 值
 useThemeStore()
 app.use(router)
-app.use(Antd)
 app.mount('#app')

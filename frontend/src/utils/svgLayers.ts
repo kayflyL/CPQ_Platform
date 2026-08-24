@@ -63,11 +63,26 @@ function countEls(el: Element): number {
   return n
 }
 
+/** 无 id 元素内部 id 计数器（每次解析重置，DOM 顺序稳定） */
+let anonSeq = 0
+
+function suggestAnonName(el: Element, seq: number): string {
+  return el.tagName === 'g' ? `未命名分组 ${seq}` : `未命名形状 ${seq}`
+}
+
 function buildNode(el: Element, depth: number, metaMap: Map<string, DrawingLayerMeta>, svg: SVGSVGElement): SvgLayerNode | null {
-  const id = el.getAttribute('id') || ''
+  // 编辑器选中的瞬态包裹层（data-edit-wrap）不是图层：透传其唯一子元素，避免元素从树里消失
+  if (el.hasAttribute('data-edit-wrap')) {
+    for (const c of Array.from(el.children)) {
+      if (SKIP_TAGS.has(c.tagName)) continue
+      const n = buildNode(c, depth, metaMap, svg)
+      if (n) return n
+    }
+    return null
+  }
+  const rawId = el.getAttribute('id') || ''
   const tag = el.tagName
   if (depth >= MAX_DEPTH && tag === 'g') return null
-  const meta = id ? metaMap.get(id) : undefined
   const children: SvgLayerNode[] = []
   if (tag === 'g' || tag === 'svg') {
     for (const c of Array.from(el.children)) {
@@ -77,12 +92,17 @@ function buildNode(el: Element, depth: number, metaMap: Map<string, DrawingLayer
     }
   }
   const bbox = elementBBox(el, svg)
-  const meaningful = id || (tag === 'g' && children.length > 0) || bbox != null
+  const meaningful = rawId || (tag === 'g' && children.length > 0) || bbox != null
   if (!meaningful) return null
+  // 无 id 元素：分配稳定内部 id 并写回元素（编辑/保存/消费端显隐都按 id 定位）
+  const id = rawId || `__anon_${++anonSeq}`
+  if (!rawId) el.setAttribute('id', id)
+  const meta = metaMap.get(id)
+  const anonNo = /^__anon_(\d+)$/.exec(id)
   return {
     id,
     tag,
-    name: meta?.name || id,
+    name: meta?.name || (anonNo ? suggestAnonName(el, Number(anonNo[1])) : id),
     elCount: countEls(el),
     bbox,
     children,
@@ -92,9 +112,9 @@ function buildNode(el: Element, depth: number, metaMap: Map<string, DrawingLayer
     opacity: meta?.opacity ?? 1,
   }
 }
-
 /** 解析 SVG DOM → 图层树（元数据合并自 metaList） */
 export function parseSvgLayers(svg: SVGSVGElement, metaList: DrawingLayerMeta[] = []): SvgLayerNode[] {
+  anonSeq = 0
   const metaMap = new Map<string, DrawingLayerMeta>()
   for (const m of metaList || []) if (m.id) metaMap.set(m.id, m)
   const roots: SvgLayerNode[] = []
@@ -161,4 +181,45 @@ export const LAYER_NAME_TEMPLATES: { key: string; label: string; prefix: string 
 
 export function templateName(prefix: string, index: number): string {
   return prefix ? prefix + '_' + (index + 1) : ''
+}
+
+
+// ── 配置沙盒：借用 SVG 自身分层，显隐某类硬件图层序列（不重新绘制元素） ──
+// Figma 重复元素命名约定：GPU / GPU_2 / GPU_3 …、内存槽 / 内存槽_2 …、CPU 0 / CPU 1。
+export type SandboxLayerKind = 'gpu' | 'cpu' | 'dimm' | 'psu' | 'bay'
+export const SANDBOX_LAYER_PATTERNS: Record<SandboxLayerKind, RegExp> = {
+  gpu: /^GPU(?:_(\d+))?$/,
+  cpu: /^CPU (\d+)$/,
+  dimm: /^内存槽(?:_(\d+))?$/,
+  // 后视图电源分层（ESA24 V3-P 实测：PSU / PSU_2 / PSU_3 / PSU_4，对应 4 槽 3+1 冗余）
+  psu: /^PSU(?:_(\d+))?$/,
+  // 前视图盘位分层（ESA24 V3-P 实测：3.5英寸硬盘 / _2 ~ _12，共 12 盘位）
+  bay: /^3\.5英寸硬盘(?:_(\d+))?$/,
+}
+
+/** 收集某类硬件的图层（按 id 序号升序；无后缀基准计 1） */
+export function collectLayerSequence(nodes: SvgLayerNode[], kind: SandboxLayerKind): Element[] {
+  const re = SANDBOX_LAYER_PATTERNS[kind]
+  const found: { el: Element; idx: number }[] = []
+  const walk = (list: SvgLayerNode[]) => {
+    for (const n of list) {
+      const m = re.exec(n.id)
+      if (m) found.push({ el: n.el, idx: m[1] != null ? Number(m[1]) : 1 })
+      if (n.children.length) walk(n.children)
+    }
+  }
+  walk(nodes)
+  return found.sort((a, b) => a.idx - b.idx).map(x => x.el)
+}
+
+/** 沙盒图层显隐：显示前 count 个图层、隐藏其余（某 kind 未传（undefined）则不动，防止无沙盒场景下误隐藏） */
+export function applySandboxVisibility(tree: SvgLayerNode[], counts: Partial<Record<SandboxLayerKind, number>> | undefined) {
+  for (const kind of Object.keys(SANDBOX_LAYER_PATTERNS) as SandboxLayerKind[]) {
+    const count = counts?.[kind]
+    if (count == null) continue
+    for (const [i, el] of collectLayerSequence(tree, kind).entries()) {
+      if (i < count) el.removeAttribute('display')
+      else el.setAttribute('display', 'none')
+    }
+  }
 }

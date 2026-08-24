@@ -16,9 +16,7 @@ from app.services.llm_extract_enhance import (
     _interface_norm,
     _model_tokens_of,
     _term_from_capacity,
-    build_messages,
     merge_into_ext,
-    run_extract_enhance,
 )
 
 
@@ -88,7 +86,7 @@ def _patch_env(mock_client, comp):
     patch("app.services.llm_client._client", return_value=mock_client).start()
     patch("app.services.llm_client._get_llm_config", return_value={
         "base_url": "http://x", "api_key": "k", "model": "m",
-        "system_prompt": "", "temperature": 0.2, "max_tokens": 8000,
+        "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}},
     }).start()
 
 
@@ -99,7 +97,7 @@ def test_chat_json_json_mode_and_schema_clean():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
         data = asyncio.run(llm_client.chat_json(
             [{"role": "user", "content": "hi"}], schema=EXTRACT_ENHANCE_SCHEMA))
     assert data["cpu"]["cores"] == 24
@@ -117,7 +115,7 @@ def test_chat_json_retries_once_then_succeeds():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
         data = asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert data["form"] == "4U"
     assert len(comp.calls) == 2
@@ -130,7 +128,7 @@ def test_chat_json_raises_after_retries():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert len(comp.calls) == 2
@@ -141,7 +139,7 @@ def test_chat_json_empty_content_raises():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert len(comp.calls) == 2
@@ -305,59 +303,6 @@ def test_merge_rule_wins_on_psu_and_mem():
     # 内存 speed 已有 → 不覆盖
     assert ext["mem_signal"]["speed"] == 4800
 
-
-# ============================================================
-# run_extract_enhance —— handler 编排 + 失败降级
-# ============================================================
-
-def _patch_chat_json(return_value=None, exc=None):
-    m = AsyncMock()
-    if exc:
-        m.side_effect = exc
-    else:
-        m.return_value = return_value
-    return patch("app.services.llm_client.chat_json", m)
-
-
-def test_run_extract_enhance_merges_and_reports():
-    ext = {"categories": ["CPU"]}
-    slots = {"cpu": {"model": "AMD EPYC 9254", "cores": 24, "qty": 2}, "form": "2U"}
-    with _patch_chat_json(return_value=slots):
-        payload = asyncio.run(run_extract_enhance(
-            "2* AMD EPYC 9254 24 2.9 GHz 128 MB 200W", ext, {}))
-    assert payload["llm_called"] is True
-    assert payload["merged"] is True
-    assert ext["cpu_signal"]["cores"] == 24      # 就地增强
-    assert ext["form"] == "2U"
-    assert payload["llm_slots"]["cpu"]["cores"] == 24
-
-
-def test_run_extract_enhance_llm_failure_degrades_silently():
-    ext = {"categories": ["CPU"]}
-    with _patch_chat_json(exc=llm_client.LLMError("no key")):
-        payload = asyncio.run(run_extract_enhance("服务器", ext, {}))
-    assert payload["merged"] is False
-    assert payload["error"]
-    assert ext == {"categories": ["CPU"]}        # ctx 不变
-
-
-def test_run_extract_enhance_empty_text_skips():
-    payload = asyncio.run(run_extract_enhance("", {"categories": []}, {}))
-    assert payload["reason"] == "empty_text"
-
-
-def test_run_extract_enhance_sparse_threshold_skips():
-    ext = {"categories": ["CPU", "Memory", "HDD/SSD", "GPU"]}
-    with _patch_chat_json(return_value={"form": "2U"}) as m:
-        payload = asyncio.run(run_extract_enhance("服务器", ext, {"sparse_max_categories": 3}))
-    assert payload["merged"] is False
-    m.assert_not_awaited()
-
-def test_build_messages_contains_text_and_digest():
-    msgs = build_messages("1* 960G NMVE", {"categories": ["HDD/SSD"]})
-    assert msgs[0]["role"] == "system"
-    assert "960G NMVE" in msgs[1]["content"]
-    assert "HDD/SSD" in msgs[1]["content"]
 
 
 # ============================================================

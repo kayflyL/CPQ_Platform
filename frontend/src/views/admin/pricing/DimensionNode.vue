@@ -7,11 +7,11 @@ import type { OpKind } from '@/constants/pricingMeta'
 
 const props = defineProps<{
   id?: string
-  data?: { kind?: 'input' | 'dim' | 'output'; dimKey?: string; label?: string; opKind?: OpKind; sign?: string; summary?: string }
+  data?: { kind?: 'input' | 'dim' | 'output'; dimKey?: string; label?: string; opKind?: OpKind; sign?: string; summary?: string; accent?: string }
 }>()
 
 const ACCENT: Record<OpKind, string> = { base: '#1677ff', add: '#52c9a0', mult: '#fa8c16', clamp: '#8b5cf6' }
-const accent = computed(() => (props.data?.opKind ? ACCENT[props.data.opKind] : '#1677ff'))
+const accent = computed(() => props.data?.accent || (props.data?.opKind ? ACCENT[props.data.opKind] : '#1677ff'))
 const kind = computed(() => props.data?.kind || 'dim')
 </script>
 

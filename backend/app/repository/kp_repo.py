@@ -276,8 +276,12 @@ class KPRepository:
     # 旧接口兼容层（pricing_engine / quote_service 使用）
     # ============================================================
 
-    def get_latest_prices(self, search: str = "", category: str = "", sort_by: str = "date", sort_order: str = "desc") -> List[dict]:
-        """获取每个配件的最新价格（兼容旧接口）"""
+    def get_latest_prices(self, search: str = "", category: str = "", sort_by: str = "date", sort_order: str = "desc", include_record_count: bool = True) -> List[dict]:
+        """获取每个配件的最新价格（兼容旧接口）
+
+        include_record_count=False 时跳过逐件 COUNT(*) 统计（导入/匹配热路径使用，
+        避免 N+1 往返）；管理页等需要展示历史记录数的调用保持默认 True。
+        """
         # 白名单排序字段
         allowed_sort = {"name": "name", "price": "latest_price", "date": "latest_date", "category": "category_name"}
         sort_field = allowed_sort.get(sort_by, "latest_date")
@@ -315,8 +319,11 @@ class KPRepository:
         rows = q.all()
         result = []
         for r in rows:
-            # 统计该配件的历史记录数
-            record_count = self.session.query(KPPriceHistory).filter(KPPriceHistory.part_id == r.id).count()
+            # 统计该配件的历史记录数（热路径可跳过，避免逐件 COUNT 的 N+1 往返）
+            if include_record_count:
+                record_count = self.session.query(KPPriceHistory).filter(KPPriceHistory.part_id == r.id).count()
+            else:
+                record_count = None
             result.append({
                 "id": r.id,
                 "category": r.category_name or "",
@@ -375,8 +382,12 @@ class KPRepository:
             "note": latest.note,
         }
 
-    def get_parts_for_matching(self, families: List[str]) -> List[dict]:
-        """按分类族取料号（含 specs + 最新价），供报价匹配候选。"""
+    def get_parts_for_matching(self, families: List[str], latest_map: Optional[dict] = None) -> List[dict]:
+        """按分类族取料号（含 specs + 最新价），供报价匹配候选。
+
+        latest_map：外部预取的最新价 {model: row}，传入时不再内部重复拉全量价
+        （导入流程跨 CFG 共享同一份快照，避免每分类族一次全量拉价）。
+        """
         cats = []
         for f in families or []:
             cats.extend(category_family_members(f))
@@ -389,7 +400,10 @@ class KPRepository:
             .join(KPCategory, KPPart.category_id == KPCategory.id)\
             .filter(KPCategory.name.in_(cats))\
             .all()
-        latest = {r['model']: r for r in self.get_latest_prices() if r.get('category') in cats}
+        if latest_map is not None:
+            latest = {k: v for k, v in latest_map.items() if v.get('category') in cats}
+        else:
+            latest = {r['model']: r for r in self.get_latest_prices() if r.get('category') in cats}
         out = []
         for p in parts:
             lr = latest.get(p.name) or {}

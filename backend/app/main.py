@@ -30,15 +30,15 @@ from app.api import l6_chassis
 from app.api import parts as parts_api
 from app.api import server_catalog as server_catalog_api
 from app.api import base_configs as base_configs_api
-from app.api import config_schemes as config_schemes_api
 from app.api import fields as fields_api
 from app.api import system_config as system_config_api
+from app.api import ai_colleagues as ai_colleagues_api
+from app.api import office as office_api
 from app.api import kp_config as kp_config_api
 from app.api import bom_templates as bom_templates_api
 from app.api import spec_templates as spec_templates_api
 from app.api import feed as feed_api
 from app.api import assistant as assistant_api
-from app.api import reasoning_intel as reasoning_intel_api
 from app.api import candidate_search as candidate_search_api
 from app.api import strategies as strategies_api
 from app.api import policy_docs as policy_docs_api
@@ -48,7 +48,9 @@ from app.api import requirement_rules as requirement_rules_api
 from app.api import compatibility_rules as compatibility_rules_api
 from app.api import auth as auth_api
 from app.api import roles as roles_api
+from app.api import portal as portal_api
 from app.core.startup import init_rules_db
+from app.services.office_clock import office_clock
 
 settings = get_settings()
 
@@ -57,8 +59,11 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     # Startup
     init_rules_db()
-    yield
-    # Shutdown (if needed)
+    await office_clock.start()
+    try:
+        yield
+    finally:
+        await office_clock.stop()
 
 
 app = FastAPI(
@@ -95,15 +100,15 @@ app.include_router(l6_chassis.router)
 app.include_router(parts_api.router)
 app.include_router(server_catalog_api.router)
 app.include_router(base_configs_api.router)
-app.include_router(config_schemes_api.router)
 app.include_router(fields_api.router)
 app.include_router(system_config_api.router)
+app.include_router(ai_colleagues_api.router)
+app.include_router(office_api.router)
 app.include_router(kp_config_api.router)
 app.include_router(bom_templates_api.router)
 app.include_router(spec_templates_api.router)
 app.include_router(feed_api.router)
 app.include_router(assistant_api.router)
-app.include_router(reasoning_intel_api.router)
 app.include_router(candidate_search_api.router)
 app.include_router(strategies_api.router)
 app.include_router(policy_docs_api.router)
@@ -113,6 +118,7 @@ app.include_router(requirement_rules_api.router)
 app.include_router(compatibility_rules_api.router)
 app.include_router(auth_api.router)
 app.include_router(roles_api.router)
+app.include_router(portal_api.router)
 
 # 注册后面板配置 API
 from app.api import rear_io

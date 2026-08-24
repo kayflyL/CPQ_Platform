@@ -1,15 +1,20 @@
 /**
  * 加法定价引擎 —— 纯求值逻辑（无 vue/pinia 依赖，可独立单测）。
  *
- * 公式：最终毛利率 = (平台基准 + 行业浮动 + 区域浮动) × 订单系数 × 成本阶梯系数 → 夹在 [保底, 封顶]
+ * 公式：最终毛利率 = (平台基准 + 行业浮动 + 区域浮动 + 形态浮动) × 订单系数 × 成本阶梯 × 台数折扣 → 夹在 [保底, 封顶]
  *
  * 策略 type（见 constants/pricingMeta.ts 的 DimensionKey）：
- *   platform_baseline: Record<platform, 毛利%>          base  加法链起点
- *   industry_adj:      Record<industry, ±百分点>         add
- *   region_adj:        { factors: Record<桶,±百分点>, keywords: Record<桶,[词]> }  add（先分桶）
- *   order_mult:        Record<customer_type, 系数>       mult
+ *   platform_baseline: Record<platform, 毛利%>   base  加法链起点
+ *   industry_adj:      Record<industry, ±百分点>  add
+ *   region_adj:        { factors: Record<桶, ±百分点 | {pct,fixed_fee}>, keywords }  add（先分桶；海外可带每台固定费）
+ *   form_adj:          Record<机箱形态, ±百分点>   add（2U/4U/5U/塔式…）
+ *   order_mult:        Record<customer_type, 系数> mult（枚举存商机 extra_fields.customer_type）
  *   cost_tier:         { tiers: [{ max?:成本上限, mult }] }  mult（按成本落档）
- *   guardrail:         { floor, cap }                    clamp
+ *   qty_mult:          { bands: [{ min, mult }] }  mult（量大让利）
+ *   guardrail:         { floor, cap, tiers?: [{customer_type,floor,cap}] }  clamp（可按订单类型分档红线）
+ *
+ * 另有非流水线的分项毛利修正（pricing.part_margin）：computePartMargins 在 deal 目标毛利上
+ * 按品类 ±百分点（CPU/内存/硬盘…），每个夹 [floor, cap]——未来 AI 出价 per-line margin 直接消费。
  *
  * 设计要点：
  *  - 优雅降级：任一维度未配置 / ctx 缺值 → 该维度不调整（add→+0、mult→×1），baseline 缺失回退保底 floor。
@@ -23,21 +28,28 @@ export interface PricingContext {
   platform?: string | null       // opportunity.platform_type
   industry?: string | null       // opportunity.industry
   region?: string | null         // opportunity.delivery_region（自由文本，引擎内分桶；已是桶名也认）
-  customerType?: string | null   // opportunity.order_type（订单维度）
-  form?: string | null           // opportunity.chassis_form（v1 预留不参与）
+  customerType?: string | null   // 商机 extra_fields.customer_type（枚举：直签大客户/渠道分销/集采项目/零散项目；可用 order_type 兜底）
+  form?: string | null           // opportunity.chassis_form（机箱形态：2U/4U/5U/塔式…）
   cost?: number | null           // 报价单 BOM 总成本（RMB）
   qty?: number | null            // 销售台数（opportunity.purchase_qty）
 }
+
+/** 区域桶系数：纯数字=±百分点；对象可带每台固定费（报关/国际物流/海外质保，只入售价不进毛利） */
+export interface RegionFactor { pct: number; fixed_fee?: number }
+/** 保底封顶分档：按订单类型差异化红线（首命中） */
+export interface GuardrailTier { customer_type: string; floor: number; cap: number }
+export interface GuardrailBody { floor: number; cap: number; tiers?: GuardrailTier[] }
 
 // ── 维度系数表（strategy.body 的形态，store 加载后拼成此对象）──
 export interface PricingDims {
   platform_baseline?: Record<string, number>
   industry_adj?: Record<string, number>
-  region_adj?: { factors: Record<string, number>; keywords?: Record<string, string[]> }
+  region_adj?: { factors: Record<string, number | RegionFactor>; keywords?: Record<string, string[]> }
+  form_adj?: Record<string, number>
   order_mult?: Record<string, number>
   cost_tier?: { tiers: Array<{ max?: number; mult: number }> }
   qty_mult?: { bands: Array<{ min: number; mult: number }> }
-  guardrail?: { floor: number; cap: number }
+  guardrail?: GuardrailBody
 }
 
 export interface PricingStep {
@@ -56,6 +68,7 @@ export interface PricingResult {
   floor: number
   cap: number
   clamped: boolean               // 是否触发保底/封顶
+  fixedFee: number               // 每台固定附加费（元，海外报关/物流等；只入售价不进毛利）
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10
@@ -108,13 +121,36 @@ export function resolveQtyBand(qty: number | null | undefined, bands?: PricingDi
   return { mult: 1 }
 }
 
+/** 区域桶系数归一：number → {pct, fixed_fee:0}；非法返回 null */
+function normFactor(v: number | RegionFactor | undefined | null): { pct: number; fixedFee: number } | null {
+  if (v == null) return null
+  if (typeof v === 'number') return Number.isFinite(v) ? { pct: v, fixedFee: 0 } : null
+  const pct = Number(v.pct)
+  if (!Number.isFinite(pct)) return null
+  const fee = Number(v.fixed_fee)
+  return { pct, fixedFee: Number.isFinite(fee) && fee > 0 ? fee : 0 }
+}
+
+/** 保底封顶解析：tiers 按 ctx.customerType 首命中分档（差异化红线），无命中/无 tiers 用默认档 */
+export function resolveGuardrail(g: GuardrailBody | undefined, ctx: PricingContext): { floor: number; cap: number; matched?: string } {
+  const floor = Number(g?.floor ?? 0) || 0
+  const cap = Number(g?.cap ?? 100) || 100
+  const hit = (g?.tiers || []).find(t => t.customer_type && ctx.customerType && t.customer_type === ctx.customerType)
+  if (hit) {
+    const f = Number(hit.floor), c = Number(hit.cap)
+    if (Number.isFinite(f) && Number.isFinite(c)) return { floor: f, cap: c, matched: hit.customer_type }
+  }
+  return { floor, cap }
+}
+
 /**
  * 核心求值：按维度顺序线性叠加 → clamp。
  */
 export function computeTargetMargin(ctx: PricingContext, dims: PricingDims): PricingResult {
   const breakdown: PricingStep[] = []
-  const floor = dims.guardrail?.floor ?? 0
-  const cap = dims.guardrail?.cap ?? 100
+  const gr = resolveGuardrail(dims.guardrail, ctx)
+  const floor = gr.floor
+  const cap = gr.cap
 
   // ① 平台基准（base）
   let m: number
@@ -141,18 +177,29 @@ export function computeTargetMargin(ctx: PricingContext, dims: PricingDims): Pri
     breakdown.push({ dimKey: 'industry_adj', opKind: 'add', value: '—', subtotal: round1(m), skipped: true, note: ctx.industry ? `行业「${ctx.industry}」未配浮动` : '无行业信息' })
   }
 
-  // ③ 区域浮动（add，先分桶）
+  // ③ 区域浮动（add，先分桶；factor 可带每台固定费）
   const bucket = resolveRegion(ctx.region, dims.region_adj)
-  const regionVal = dims.region_adj?.factors?.[bucket]
-  if (regionVal != null && Number.isFinite(Number(regionVal))) {
-    const v = Number(regionVal)
-    m += v
-    breakdown.push({ dimKey: 'region_adj', opKind: 'add', value: v, matched: bucket, subtotal: round1(m), note: ctx.region && bucket !== ctx.region ? `「${ctx.region}」→ ${bucket}` : undefined })
+  const factor = normFactor(dims.region_adj?.factors?.[bucket])
+  let fixedFee = 0
+  if (factor) {
+    m += factor.pct
+    fixedFee = factor.fixedFee
+    breakdown.push({ dimKey: 'region_adj', opKind: 'add', value: factor.pct, matched: bucket, subtotal: round1(m), note: ctx.region && bucket !== ctx.region ? `「${ctx.region}」→ ${bucket}` : undefined })
   } else {
     breakdown.push({ dimKey: 'region_adj', opKind: 'add', value: '—', matched: bucket, subtotal: round1(m), skipped: true, note: `桶「${bucket}」未配浮动` })
   }
 
-  // ④ 订单系数（mult）
+  // ④ 形态浮动（add）
+  const formKey = matchKey(dims.form_adj, ctx.form)
+  if (formKey) {
+    const v = Number(dims.form_adj![formKey]) || 0
+    m += v
+    breakdown.push({ dimKey: 'form_adj', opKind: 'add', value: v, matched: formKey, subtotal: round1(m) })
+  } else {
+    breakdown.push({ dimKey: 'form_adj', opKind: 'add', value: '—', subtotal: round1(m), skipped: true, note: ctx.form ? `形态「${ctx.form}」未配浮动` : '无机箱形态' })
+  }
+
+  // ⑤ 订单系数（mult）
   const ordKey = matchKey(dims.order_mult, ctx.customerType)
   if (ordKey) {
     const v = Number(dims.order_mult![ordKey])
@@ -166,7 +213,7 @@ export function computeTargetMargin(ctx: PricingContext, dims: PricingDims): Pri
     breakdown.push({ dimKey: 'order_mult', opKind: 'mult', value: '—', subtotal: round1(m), skipped: true, note: ctx.customerType ? `订单「${ctx.customerType}」未配系数` : '无订单类型' })
   }
 
-  // ⑤ 成本阶梯（mult）
+  // ⑥ 成本阶梯（mult）
   const tier = resolveCostTier(ctx.cost, dims.cost_tier)
   if (tier.matched) {
     m *= tier.mult
@@ -175,7 +222,7 @@ export function computeTargetMargin(ctx: PricingContext, dims: PricingDims): Pri
     breakdown.push({ dimKey: 'cost_tier', opKind: 'mult', value: '—', subtotal: round1(m), skipped: true, note: ctx.cost == null ? '无成本数据' : (dims.cost_tier ? '未配成本阶梯' : '未配成本阶梯') })
   }
 
-  // ⑥ 台数折扣（mult）
+  // ⑦ 台数折扣（mult）
   const qb = resolveQtyBand(ctx.qty, dims.qty_mult)
   if (qb.matched) {
     m *= qb.mult
@@ -184,24 +231,48 @@ export function computeTargetMargin(ctx: PricingContext, dims: PricingDims): Pri
     breakdown.push({ dimKey: 'qty_mult', opKind: 'mult', value: '—', subtotal: round1(m), skipped: true, note: ctx.qty == null ? '无台数数据' : '未配台数折扣' })
   }
 
-  // ⑦ 保底封顶（clamp）
+  // ⑧ 保底封顶（clamp，可按订单类型分档红线）
   const raw = m
   let clamped = false
   if (m < floor) { m = floor; clamped = true }
   else if (m > cap) { m = cap; clamped = true }
+  const tierNote = gr.matched ? `（按「${gr.matched}」分档 ${floor}~${cap}）` : ''
   breakdown.push({
     dimKey: 'guardrail', opKind: 'clamp', value: `${floor}~${cap}`, subtotal: round1(m),
-    note: clamped ? (raw < floor ? `低于保底 ${floor}%，上调` : `高于封顶 ${cap}%，下调`) : '在区间内',
+    note: clamped ? (raw < floor ? `低于保底 ${floor}%，上调${tierNote}` : `高于封顶 ${cap}%，下调${tierNote}`) : `在区间内${tierNote}`,
   })
 
-  return { target: round1(m), breakdown, floor, cap, clamped }
+  return { target: round1(m), breakdown, floor, cap, clamped, fixedFee }
 }
 
 /**
- * 由目标毛利率反推建议售价：售价 = 成本 × (1 + target/100)。
- * 无成本返回 null（演算器/助手自行兜底）。
+ * 由目标毛利率反推建议售价：售价 = (成本 + 每台固定费) × (1 + target/100)。
+ * fixedFee 为海外报关/物流等每台固定附加（computeTargetMargin 结果的 fixedFee）；无成本返回 null。
  */
-export function suggestPrice(cost: number | null | undefined, targetMarginPct: number): number | null {
+export function suggestPrice(cost: number | null | undefined, targetMarginPct: number, fixedFee = 0): number | null {
   if (cost == null || !Number.isFinite(cost) || cost <= 0) return null
-  return round1(cost * (1 + targetMarginPct / 100))
+  const fee = Number.isFinite(fixedFee) && fixedFee > 0 ? fixedFee : 0
+  return round1((cost + fee) * (1 + targetMarginPct / 100))
+}
+
+/** 分项建议毛利条目 */
+export interface PartMargin { category: string; adj: number; margin: number }
+
+/**
+ * 分项建议毛利（pricing.part_margin）：deal 目标毛利 + 品类修正（±百分点），每个夹 [floor, cap]。
+ * 未列品类修正为 0（用 default）；供演算器预览 + 未来 AI 出价 per-line margin 直接消费。
+ */
+export function computePartMargins(
+  target: number,
+  adj: Record<string, number> | null | undefined,
+  floor: number,
+  cap: number,
+): { default: number; parts: PartMargin[] } {
+  const clamp = (v: number) => round1(Math.min(Math.max(v, floor), cap))
+  const parts = Object.entries(adj || {})
+    .map(([category, a]) => ({ category: String(category).trim(), adj: Number(a) || 0 }))
+    .filter((p) => p.category)
+    .sort((a, b) => a.category.localeCompare(b.category))
+    .map((p) => ({ ...p, margin: clamp(target + p.adj) }))
+  return { default: clamp(target), parts }
 }

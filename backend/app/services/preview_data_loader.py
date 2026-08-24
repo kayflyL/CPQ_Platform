@@ -85,6 +85,16 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
             sys_repo = SystemConfigRepository()
             default_l6_desc = sys_repo.get_value("warranty_desc_l6", "")
             default_kp_desc = sys_repo.get_value("warranty_desc_kp", "")
+            try:
+                exchange_rate = float(sys_repo.get_value("usd_to_rmb", "7.0") or 7.0)
+            except (TypeError, ValueError):
+                exchange_rate = 7.0
+            try:
+                tax_rate = float(sys_repo.get_value("tax_rate", "0.13") or 0.13)
+            except (TypeError, ValueError):
+                tax_rate = 0.13
+            data["exchange_rate"] = exchange_rate
+            data["tax_rate"] = tax_rate
             
             # 构建 warranty_desc_l6 和 warranty_desc_kp
             warranty_desc_l6 = {}
@@ -125,6 +135,7 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                     "base_price": item.base_price or 0.0,
                     "final_price": item.final_price or 0.0,
                     "profit_margin": item.profit_margin or 0.0,
+                    "currency": item.currency or "RMB",
                 })
             _load_item_details(data, items, quotation, bindings)
     
@@ -230,6 +241,21 @@ def _load_l6_from_template(quotation):
     return rows_out, covered, excel_cfgs, l6_price_map, l6_margin_map
 
 
+def _calc_cost_sum(items: list, exchange_rate: float, tax_rate: float, category: str) -> float:
+    """RMB 含税成本口径：USD 项 base × 汇率 × (1+税率)；RMB 项直接用 base。"""
+    total = 0.0
+    for i in items:
+        if category and i.get("category") != category:
+            continue
+        base = float(i.get("base_price") or 0)
+        qty = float(i.get("qty") or 1)
+        currency = (i.get("currency") or "RMB").upper()
+        if currency == "USD":
+            base *= exchange_rate * (1 + tax_rate)
+        total += base * qty
+    return total
+
+
 def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     """加载配置项明细到 data"""
     l6_items = []
@@ -296,6 +322,9 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
         config_server_models = quotation.config_server_models or {}
         config_warranty_info = quotation.config_warranty_info or {}
     
+    exchange_rate = float(data.get("exchange_rate", 7.0) or 7.0)
+    tax_rate = float(data.get("tax_rate", 0.13) or 0.13)
+
     config_summary = []
     seq = 1
     for cfg_key, group in config_groups.items():
@@ -307,29 +336,33 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
         if cfg_name in l6_price_map:
             cost = float(l6_price_map.get(cfg_name) or 0)
             margin = float(l6_margin_map.get(cfg_name) or 0)
+            l6_cost = cost
             l6_sum = cost * (1 + margin / 100)
         elif cfg_name in excel_cfgs:
             # excel 模式 L6 仅参考，不参与算价
+            l6_cost = 0
             l6_sum = 0
         else:
             l6_sum = sum(
                 (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
                 for i in cfg_items if i.get("category") == "L6"
             )
+            l6_cost = _calc_cost_sum(cfg_items, exchange_rate, tax_rate, "L6")
         kp_sum = sum(
             (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
             for i in cfg_items if i.get("category") == "Key Parts"
         )
+        kp_cost = _calc_cost_sum(cfg_items, exchange_rate, tax_rate, "Key Parts")
         warranty_sum = sum(
             (i.get("final_price", 0) or 0) * (i.get("qty", 1) or 1)
             for i in cfg_items if i.get("category") == "Warranty"
         )
-        # 按费率算的维保（对齐前端 calcWarrantyFeeL6/KP：L6售价×l6.rate + KP售价×kp.rate）。
+        # 按费率算的维保（对齐前端 calcWarrantyFeeL6/KP：L6成本×l6.rate + KP成本×kp.rate）。
         # rate 存 config_warranty_info，由工作台 setWarrantyRate 同步进 warranty_info 持久化。
         wi = config_warranty_info.get(cfg_name) or {}
         l6_rate = float((wi.get("l6") or {}).get("rate") or 0)
         kp_rate = float((wi.get("kp") or {}).get("rate") or 0)
-        warranty_sum += l6_sum * l6_rate + kp_sum * kp_rate
+        warranty_sum += l6_cost * l6_rate + kp_cost * kp_rate
         unit_price = l6_sum + kp_sum + warranty_sum
         
         # 提取 server_model（从 quotation.config_server_models）

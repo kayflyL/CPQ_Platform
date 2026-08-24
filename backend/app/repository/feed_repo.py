@@ -37,6 +37,8 @@ class FeedRepository:
         body: Optional[str] = None,
         kind: str = "comment",
         quotation_id: Optional[str] = None,
+        node_key: Optional[str] = None,
+        flow_card_id: Optional[int] = None,
     ) -> dict:
         msg = FeedMessage(
             message_id=uuid.uuid4().hex,
@@ -45,6 +47,8 @@ class FeedRepository:
             body=body,
             kind=kind,
             quotation_id=quotation_id,
+            node_key=node_key,
+            flow_card_id=flow_card_id,
             created_at=now_iso(),
         )
         self.session.add(msg)
@@ -73,6 +77,12 @@ class FeedRepository:
             d["attachments"] = atts_by_msg.get(m.message_id, [])
             out.append(d)
         return out
+
+    def get_message(self, message_id: str) -> Optional[dict]:
+        m = self.session.execute(
+            select(FeedMessage).where(FeedMessage.message_id == message_id)
+        ).scalar_one_or_none()
+        return m.to_dict() if m else None
 
     def soft_delete_message(self, message_id: str) -> Optional[str]:
         """Soft-delete a message; returns its opportunity_id (or None if missing)
@@ -103,6 +113,7 @@ class FeedRepository:
         version: int = 1,
         version_group: Optional[str] = None,
         category: Optional[str] = None,
+        flow_card_id: Optional[int] = None,
     ) -> dict:
         att = FeedAttachment(
             attachment_id=uuid.uuid4().hex,
@@ -118,6 +129,7 @@ class FeedRepository:
             version=version,
             version_group=version_group or uuid.uuid4().hex,
             category=category,
+            flow_card_id=flow_card_id,
             created_at=now_iso(),
         )
         self.session.add(att)

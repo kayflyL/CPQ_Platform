@@ -36,20 +36,32 @@ class CaseProvider:
 _TAG_KEYWORDS = {
     "AI": ["gpu", "ai", "训练", "推理", "深度学习", "加速计算", "5090", "4090", "a100", "h100", "h800", "l40", "w7900", "涡轮"],
     "存储": ["存储", "对象存储", "nas", "大容量", "冷存储", "分布式存储"],
-    "通用": ["虚拟化", "数据库", "web", "容器", "k8s", "通用", "办公", "业务", "mysql", "oracle"],
     "2U": ["2u"],
     "4U": ["4u"],
     "8卡GPU": ["8卡", "8 gpu", "8gpu", "8块gpu", "8×gpu", "8*gpu", "8 ×gpu"],
-    "Orion": ["orion", "amd", "epyc", "猎户", "genoa"],
-    "Polaris": ["polaris", "兆芯", "kh5000", "kh-5000", "kh50000", "开胜"],
-    "Intel": ["intel", "xeon"],
 }
+
+
+def _series_tag_keywords() -> dict:
+    """平台系列 → 检索标签关键词：读规则目录 platform_series_map，不内嵌厂商正则。"""
+    try:
+        from app.services.requirement_rule_catalog import platform_series_map as _psm
+        out: dict = {}
+        for r in _psm():
+            series = str(r.get("series") or "").strip()
+            kws = [str(k).strip().lower() for k in (r.get("keywords") or []) if str(k).strip()]
+            if series and kws:
+                out[series] = kws
+        return out
+    except Exception:
+        return {}
 
 
 def _infer_tags(query: str) -> list:
     """需求关键词 → 场景标签（检索用，轻量；非精确分类，只为匹配 BomCase.scenario_tags）。"""
     low = (query or "").lower()
-    return [tag for tag, kws in _TAG_KEYWORDS.items() if any(kw in low for kw in kws)]
+    merged = {**_TAG_KEYWORDS, **_series_tag_keywords()}
+    return [tag for tag, kws in merged.items() if any(kw in low for kw in kws)]
 
 
 # ── 零依赖字符 n-gram + TF-IDF 检索（A 方案）──────────────────────────

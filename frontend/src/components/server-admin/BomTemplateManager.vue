@@ -9,6 +9,8 @@ import { bomTemplateApi, type BomTemplate, type BomTemplateRow, type BomRule } f
 import { policyDocApi } from '@/api/strategies'
 import { readDocBody } from '@/constants/policyMeta'
 import { evalBomContext } from '@/utils/bomRuleEngine'
+import { loadBomCategoryAliases, getBomCategoryAliases, invalidateBomCategoryAliases } from '@/utils/bomCategoryAliases'
+import { systemConfigApi } from '@/api/systemConfig'
 import MarkdownView from '@/components/common/MarkdownView.vue'
 import BomRuleSourceEditor from './BomRuleSourceEditor.vue'
 
@@ -23,6 +25,10 @@ const editingId = ref<number | null>(null)
 const name = ref('')
 const rows = ref<EditableRow[]>([])
 const saving = ref(false)
+
+const aliasModalOpen = ref(false)
+const aliasText = ref('')
+const aliasSaving = ref(false)
 
 /** 行类型：中文说明 + 分组（自动计算 / 人工填写） */
 interface RowTypeDef { value: string; label: string; short: string; group: 'auto' | 'manual' }
@@ -187,6 +193,7 @@ const preview = computed(() => {
     rear: {},
     frontCableQty: () => 0,
     frontCableInfo: () => ({ pn: '', n: 0, group: '-' as const, price: 0, name: '' }),
+    categoryAliases: getBomCategoryAliases(),
   }
   const evaled = evalBomContext(rows.value, ctx)
   return rows.value.map((r, i) => {
@@ -258,13 +265,40 @@ async function remove(t: BomTemplate) {
   } catch { message.error('删除失败') }
 }
 
+
+async function openAliasModal() {
+  try {
+    const v = await systemConfigApi.getValue<any>('bom_category_aliases')
+    aliasText.value = JSON.stringify((v && typeof v === 'object') ? v : {}, null, 2)
+  } catch { aliasText.value = '{}' }
+  aliasModalOpen.value = true
+}
+async function saveAliasModal() {
+  let parsed: any
+  try { parsed = JSON.parse(aliasText.value) }
+  catch { return message.error('JSON 解析失败，请检查格式') }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return message.error('请输入对象：{ category: [别名...] }')
+  aliasSaving.value = true
+  try {
+    await systemConfigApi.set('bom_category_aliases', parsed)
+    invalidateBomCategoryAliases()
+    await loadBomCategoryAliases()
+    message.success('品类别名已保存')
+    aliasModalOpen.value = false
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '保存失败')
+  } finally { aliasSaving.value = false }
+}
 const columns = [
   { title: '模板名', dataIndex: 'name', key: 'name' },
   { title: '行数', key: 'rows', width: 80 },
   { title: '用途', key: 'usage', width: 100 },
   { title: '操作', key: 'op', width: 120 },
 ]
-onMounted(load)
+onMounted(async () => {
+  load()
+  await loadBomCategoryAliases()
+})
 defineExpose({ load })
 </script>
 
@@ -273,6 +307,7 @@ defineExpose({ load })
     <div class="lib-head">
       <h3>BOM 模板</h3>
       <span class="lib-actions">
+        <a-button size="small" @click="openAliasModal()">⚙️ 品别名</a-button>
         <a-button size="small" @click="openHelp()">📖 模板说明</a-button>
         <a-button type="primary" size="small" @click="openNew">+ 新建模板</a-button>
       </span>
@@ -422,6 +457,10 @@ defineExpose({ load })
         </a-spin>
       </div>
     </a-drawer>
+    <a-modal v-model:open="aliasModalOpen" title="BOM 品类别名（system_config.bom_category_aliases）" width="720" :confirm-loading="aliasSaving" @ok="saveAliasModal()">
+      <p class="tpl-hint">模板 row 常填英文 category（heatsink/fan/rail/chassis/backplane/cable/psu），底盘件 parts_master category 多为中文；此处维护中英别名用于跨语言匹配零件。格式：{ "heatsink": ["散热器"] }。</p>
+      <a-textarea v-model:value="aliasText" :rows="12" spellcheck="false" />
+    </a-modal>
   </div>
 </template>
 

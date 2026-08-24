@@ -10,7 +10,11 @@ from app.repository.requirement_rule_repo import RequirementRuleRepository
 router = APIRouter(prefix="/api/requirement-rules", tags=["requirement-rules"])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
-_VALID_TYPE = {"clarity", "budget"}
+_VALID_TYPE = {
+    "clarity", "budget", "cpu_mem_generation", "category_alias",
+    "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
+    "platform_series_map", "raid_level_map", "workload_map", "compliance_map", "gpu_form_map",
+}
 
 
 @router.get("/")

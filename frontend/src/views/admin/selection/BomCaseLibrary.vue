@@ -82,6 +82,7 @@ async function load() {
 // 详情表格：L6 段优先用已固化的 l6_rows 快照；KP 段拆 bom_excel_rows（3 列：类别/型号/数量）
 const l6RowsOf = (c: BomCase) =>
   (c.l6_rows && c.l6_rows.length ? c.l6_rows : (c.bom_excel_rows || []).filter(r => r.category === 'L6'))
+const unresolvedCount = (c: BomCase) => (c.kp_lines || []).filter(l => l.unresolved || !l.part_id).length
 // ── L6 自动跟随 KP：GPU 电源线=GPU 总数；散热器=CPU 总数 ──
 const _isGpuCableRow = (r: L6Row) => /gpu.+power|gpu.+cable|gpu.*线|电源线/i.test(r.catalogue)
 const _isHeatsinkRow = (r: L6Row) => /heatsink|散热/i.test(r.catalogue)
@@ -207,6 +208,19 @@ const baseConfigOptions = computed(() => {
 async function save() {
   if (!form.value.name.trim()) { message.warning('请填写案例名称'); return }
   if (!form.value.requirement.trim()) { message.warning('请填写原始需求（重放/检索依赖）'); return }
+  const unresolvedLines = form.value.kp_lines.filter(l => !l.part_id)
+  if (unresolvedLines.length) {
+    const ok = await new Promise<boolean>(resolve => {
+      Modal.confirm({
+        title: '存在未关联料号的 KP 行',
+        content: `共 ${unresolvedLines.length} 行未关联料号，这些行不会进入 BOM。是否继续保存？`,
+        okText: '继续保存', okType: 'primary', cancelText: '返回修改',
+        onOk: () => resolve(true),
+        onCancel: () => resolve(false),
+      })
+    })
+    if (!ok) return
+  }
   saving.value = true
   try {
     const payload = {
@@ -304,6 +318,7 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
             </div>
             <div class="bc-meta">
               L6 {{ l6RowsOf(c).length }} 行 · KP {{ c.kp_lines.length }} 行
+              <span v-if="unresolvedCount(c)" class="bc-unresolved">未关联 {{ unresolvedCount(c) }}</span>
             </div>
             <div class="bc-foot">
               <span class="bc-src" v-if="c.notes">{{ c.notes }}</span>
@@ -441,6 +456,7 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
 .bc-ver { font-size: 12px; color: var(--cpq-text-muted); }
 .bc-cls { display: flex; flex-wrap: wrap; gap: 4px; }
 .bc-meta { font-size: 12px; color: var(--cpq-text-muted); }
+.bc-unresolved { display: inline-block; margin-left: 6px; color: var(--cpq-accent-warning, #faad14); }
 .bc-foot { display: flex; justify-content: space-between; align-items: center; margin-top: auto; }
 .bc-src { font-size: 11px; color: var(--cpq-text-disabled); max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bc-actions { display: flex; gap: 8px; }

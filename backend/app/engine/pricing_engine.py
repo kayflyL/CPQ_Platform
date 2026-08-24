@@ -265,14 +265,21 @@ class PricingEngine:
         except (TypeError, ValueError):
             return False
 
-    def enrich_config(self, items_df: pd.DataFrame, meta: Optional[dict] = None) -> pd.DataFrame:
+    def enrich_config(self, items_df: pd.DataFrame, meta: Optional[dict] = None,
+                      kp_latest: Optional[list] = None) -> pd.DataFrame:
         """Enrich items with DB price match status (NO auto-fill).
-        Uses kp_repo instead of direct sqlite3 queries."""
+        Uses kp_repo instead of direct sqlite3 queries.
+
+        kp_latest：外部预取的最新价列表（process_upload 一次拉取、跨 CFG 共享同一份快照）；
+        为 None 时内部按需拉取（兼容单独调用场景）。
+        """
         if items_df.empty:
             return items_df
 
         # Fetch all latest KP prices at once (one query via repo)
-        kp_latest = self.kp_repo.get_latest_prices()
+        if kp_latest is None:
+            kp_latest = self.kp_repo.get_latest_prices(include_record_count=False)
+        latest_by_model = {r.get('model'): r for r in kp_latest if r.get('model')}
         exact_all: dict = {}
         for r in kp_latest:
             key = _inorm_general(r.get('model') or '')
@@ -290,7 +297,8 @@ class PricingEngine:
 
         def _family_parts(family: str) -> list:
             if family not in family_cache:
-                family_cache[family] = self.kp_repo.get_parts_for_matching([family]) if family else []
+                family_cache[family] = self.kp_repo.get_parts_for_matching(
+                    [family], latest_map=latest_by_model) if family else []
             return family_cache[family]
 
         def _uniform(p: dict) -> dict:

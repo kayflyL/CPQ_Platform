@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import Optional, List
 from datetime import datetime
-from app.api.deps import get_current_user_optional, field_visible, require_perms
+from app.api.deps import get_current_user, field_visible, require_perms, ensure_opportunity_access, require_quotation_access, ensure_quotation_access, user_has_permission
 from app.utils.price_mask import mask_price_fields
 from app.repository.quotation_repo import QuotationRepository
 from app.repository.opportunity_repo import OpportunityRepository
@@ -34,10 +34,14 @@ class QuotationUpdate(BaseModel):
 
 @router.get("")
 def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool = False,
-                    user: dict = Depends(get_current_user_optional)):
+                    user: dict = Depends(get_current_user)):
     """List all quotations, optionally filtered by opportunity_id."""
     repo = QuotationRepository()
     try:
+        if opportunity_id:
+            ensure_opportunity_access(opportunity_id, user)
+        elif not user_has_permission(user, "page.opportunities_all"):
+            raise HTTPException(status_code=403, detail="缺少商机范围")
         from app.models.quotation import Quotation
         from app.models.base import Opportunity_SessionLocal
         session = Opportunity_SessionLocal()
@@ -73,7 +77,7 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
 
 @router.get("/{quotation_id}")
 def get_quotation(quotation_id: str, reparse: bool = False,
-                  user: dict = Depends(get_current_user_optional)):
+                  user: dict = Depends(require_quotation_access)):
     """Get a quotation by ID with its items.
 
     Args:
@@ -156,8 +160,9 @@ def get_quotation(quotation_id: str, reparse: bool = False,
 
 
 @router.post("")
-def create_quotation(req: QuotationCreate):
+def create_quotation(req: QuotationCreate, user: dict = Depends(get_current_user)):
     """Create a new quotation."""
+    ensure_opportunity_access(req.opportunity_id, user)
     # Verify opportunity exists
     opp_repo = OpportunityRepository()
     try:
@@ -181,7 +186,8 @@ def create_quotation(req: QuotationCreate):
 
 
 @router.put("/{quotation_id}")
-def update_quotation(quotation_id: str, req: QuotationUpdate):
+def update_quotation(quotation_id: str, req: QuotationUpdate,
+                     _user: dict = Depends(require_quotation_access)):
     """Update a quotation."""
     repo = QuotationRepository()
     try:
@@ -195,7 +201,7 @@ def update_quotation(quotation_id: str, req: QuotationUpdate):
 
 
 @router.delete("/{quotation_id}")
-def delete_quotation(quotation_id: str):
+def delete_quotation(quotation_id: str, _user: dict = Depends(require_quotation_access)):
     """Soft delete a quotation."""
     repo = QuotationRepository()
     try:
@@ -208,7 +214,7 @@ def delete_quotation(quotation_id: str):
 
 
 @router.post("/{quotation_id}/set-primary")
-def set_primary_quotation(quotation_id: str):
+def set_primary_quotation(quotation_id: str, _user: dict = Depends(require_quotation_access)):
     """Set a quotation as primary (is_primary=True) and clear others for the same opportunity."""
     repo = QuotationRepository()
     try:
@@ -226,7 +232,8 @@ class CostSnapshotRequest(BaseModel):
 
 @router.post("/{quotation_id}/export")
 def export_quotation(quotation_id: str, req: CostSnapshotRequest,
-                     admin: dict = Depends(require_perms("field.quote.price"))):
+                     admin: dict = Depends(require_perms("field.quote.price")),
+                     _user: dict = Depends(require_quotation_access)):
     """Freeze a draft quotation into an exported one: stamp exported_at and persist the
     cost snapshot captured client-side. Idempotent — re-exporting just refreshes the snapshot."""
     repo = QuotationRepository()
@@ -241,7 +248,8 @@ def export_quotation(quotation_id: str, req: CostSnapshotRequest,
 
 
 @router.put("/{quotation_id}/cost-snapshot")
-def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest):
+def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest,
+                       _user: dict = Depends(require_quotation_access)):
     """Manually backfill a cost snapshot for a historical quotation. Writes cost_snapshot
     ONLY — exported_at stays untouched (keeps 'manually backfilled' distinct from 'exported')."""
     repo = QuotationRepository()
@@ -256,7 +264,7 @@ def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest):
 
 
 @router.post("/{quotation_id}/reparse")
-def reparse_quotation(quotation_id: str):
+def reparse_quotation(quotation_id: str, _user: dict = Depends(require_quotation_access)):
     """Clone an exported quotation into a NEW (unexported) quotation.
 
     Re-parsing the archived export Excel is unreliable (the export has a different layout
@@ -281,7 +289,7 @@ def reparse_quotation(quotation_id: str):
 
 
 @router.post("/{quotation_id}/restore")
-def restore_quotation(quotation_id: str):
+def restore_quotation(quotation_id: str, _user: dict = Depends(require_quotation_access)):
     """Restore a soft-deleted quotation."""
     repo = QuotationRepository()
     try:
@@ -294,7 +302,7 @@ def restore_quotation(quotation_id: str):
 
 
 @router.get("/{quotation_id}/items")
-def get_quotation_items(quotation_id: str, user: dict = Depends(get_current_user_optional)):
+def get_quotation_items(quotation_id: str, user: dict = Depends(require_quotation_access)):
     """Get all items for a quotation."""
     repo = QuotationRepository()
     try:
@@ -308,7 +316,8 @@ def get_quotation_items(quotation_id: str, user: dict = Depends(get_current_user
 
 
 @router.post("/{quotation_id}/items")
-def save_quotation_items(quotation_id: str, data: dict):
+def save_quotation_items(quotation_id: str, data: dict,
+                         _user: dict = Depends(require_quotation_access)):
     """Save configuration items + config_quantities + config_descriptions + config_server_models + config_warranty_info for a quotation."""
     repo = QuotationRepository()
     try:
@@ -369,13 +378,14 @@ class BatchQuotationRequest(BaseModel):
 
 
 @router.post("/batch-delete")
-def batch_delete_quotations(req: BatchQuotationRequest):
+def batch_delete_quotations(req: BatchQuotationRequest, user: dict = Depends(get_current_user)):
     """批量软删除报价单"""
     repo = QuotationRepository()
     results = {"success": [], "failed": []}
     try:
         for qid in req.quotation_ids:
             try:
+                ensure_quotation_access(qid, user)
                 repo.delete(qid)
                 results["success"].append(qid)
             except Exception as e:
@@ -386,13 +396,14 @@ def batch_delete_quotations(req: BatchQuotationRequest):
 
 
 @router.post("/batch-restore")
-def batch_restore_quotations(req: BatchQuotationRequest):
+def batch_restore_quotations(req: BatchQuotationRequest, user: dict = Depends(get_current_user)):
     """批量恢复报价单"""
     repo = QuotationRepository()
     results = {"success": [], "failed": []}
     try:
         for qid in req.quotation_ids:
             try:
+                ensure_quotation_access(qid, user)
                 repo.restore(qid)
                 results["success"].append(qid)
             except Exception as e:
@@ -403,7 +414,8 @@ def batch_restore_quotations(req: BatchQuotationRequest):
 
 
 @router.post("/batch-permanent-delete")
-async def batch_permanent_delete_quotations(req: BatchQuotationRequest):
+async def batch_permanent_delete_quotations(req: BatchQuotationRequest,
+                                             user: dict = Depends(get_current_user)):
     """批量永久删除报价单，同时删除关联的 Feed 附件（sent_quote 归档）"""
     from app.models.quotation import Quotation
     from app.models.quotation_item import QuotationItem
@@ -417,6 +429,7 @@ async def batch_permanent_delete_quotations(req: BatchQuotationRequest):
     try:
         for qid in req.quotation_ids:
             try:
+                ensure_quotation_access(qid, user)
                 # 1. 先删关联的 Feed 附件（sent_quote 归档）
                 from app.repository.feed_repo import FeedRepository
                 feed_repo = FeedRepository()

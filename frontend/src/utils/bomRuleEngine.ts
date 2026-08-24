@@ -14,28 +14,20 @@ export interface BomEvalContext {
   rear: Record<string, string[]>      // IO1-4 + OCP → option_type[]
   frontCableQty: (k: string) => number
   frontCableInfo: (k: string) => { pn: string; n: number; group: number | '-'; price: number; name: string }
+  categoryAliases?: Record<string, string[]>
+
 }
 
-// 中英品类对照：模板 row 常填英文 category，baseline 底盘件 category 多为中文（parts_master）。
-// 不加这个，part_field kind 的 heatsink/rail/cable 行因中英不匹配取不到底盘件 → 显示空。
-const CATEGORY_CN_EN: Record<string, string[]> = {
-  heatsink: ['散热器', '散热'],
-  fan: ['风扇'],
-  rail: ['滑轨', '导轨'],
-  chassis: ['机箱'],
-  backplane: ['背板'],
-  cable: ['线缆'],
-}
-// 宽松 category 匹配(与 L6ChassisConfig.partByCategory 一致,零破坏)
-function findPart(parts: any[], cat: string): any | null {
+// 宽松 category 匹配：先按品类精确/子串；别名来自调用方注入的 system_config.bom_category_aliases
+// （拒绝前端硬编码中英词表；未注入空对象则只精确/子串匹配，不臆断中文别名）
+function findPart(parts: any[], cat: string, categoryAliases?: Record<string, string[]>): any | null {
   const cl = cat.toLowerCase()
-  const aliases = CATEGORY_CN_EN[cl] || []
+  const aliasList = (categoryAliases || {})[cl] || []
   return parts.find((p: any) => {
     const c = (p.category || '').toLowerCase()
     const n = (p.name || '').toLowerCase()
     return c === cl || c.includes(cl) || n.includes(cl)
-      || aliases.some(a => c.includes(a) || n.includes(a))
-      || (cat === 'rail' && (n.includes('rail') || n.includes('slide')))
+      || aliasList.some(a => c.includes(a) || n.includes(a))
   }) || null
 }
 
@@ -145,7 +137,7 @@ function tryDesc(src: DescSource, ctx: BomEvalContext, row: BomTemplateRow): str
     case 'fixed': return src.value || null
     case 'manual': return null
     case 'part_field': {
-      const v = readField(findPart(ctx.parts, src.category), src.field)
+      const v = readField(findPart(ctx.parts, src.category, ctx.categoryAliases), src.field)
       return (v != null && v !== '') ? String(v) : null
     }
     case 'template': return renderTpl(src.template, ctx.vars)
@@ -159,7 +151,7 @@ function tryQty(src: QtySource, ctx: BomEvalContext): number | null {
     case 'fixed': return src.value           // fixed 即便 0 也算有效
     case 'manual': return null
     case 'part_quantity': {
-      const p = findPart(ctx.parts, src.category)
+      const p = findPart(ctx.parts, src.category, ctx.categoryAliases)
       const q: any = (p as any)?.quantity
       return (q != null && q !== '' && Number(q) > 0) ? Number(q) : null
     }

@@ -7,23 +7,31 @@
  * candidates_ready 经 WS /api/reasoning-flow/test-run-ws/{run_id} 实时推送 → 本 composable
  * 收到事件即更新步骤状态 + 节点高亮（applyNodeState），真·完成一步显示一步。
  *
- * 与 useReasoningStream 的区别：后者是方案助手通道（assistant_hub + thread 房间 + 聊天消息），
+ * 与方案助手聊天通道（assistant_hub + thread 房间 + 聊天消息）的区别，
  * 本 composable 是画布试运行通道（独立 run_id 房间，无聊天语义），但复用同一套 hub 基建。
  */
 import { ref, onBeforeUnmount } from 'vue'
 import { reasoningFlowApi } from '@/api/reasoningFlow'
 import type { Plan } from '@/api/reasoning'
-import type { ReasoningStep, StepStatus } from '@/composables/useReasoningStream'
+import type { ReasoningStep, StepStatus } from '@/composables/reasoningTypes'
 import { STEP_BADGE } from '@/utils/reasoningStepCopy'
 
 export type NodeExecState = 'running' | 'done' | null
-export interface NodeState { execState: NodeExecState; badge?: string }
+export interface NodeState {
+  execState: NodeExecState
+  badge?: string
+  input?: any
+  output?: any
+  summary?: string
+  artifact?: any
+}
 
 export function useTestRun(opts: {
   applyNodeState?: (id: string | null, state: NodeState) => void
 } = {}) {
   const steps = ref<ReasoningStep[]>([])
   const plans = ref<Plan[]>([])
+  const bomScheme = ref<any>(null)
   const ext = ref<Record<string, any>>({})
   const kpByModel = ref<Record<string, any[]>>({})
   const running = ref(false)
@@ -32,6 +40,7 @@ export function useTestRun(opts: {
   const pendingQuestion = ref('')
   const pendingOptions = ref<string[]>([])
   const planProgress = ref<{ remaining: number; elapsedS: number } | null>(null)
+  const missingFields = ref<string[]>([])
 
   let ws: WebSocket | null = null
 
@@ -49,12 +58,14 @@ export function useTestRun(opts: {
     closeWs()
     steps.value = []
     plans.value = []
+    bomScheme.value = null
     ext.value = {}
     kpByModel.value = {}
     error.value = null
     awaitingInput.value = false
     pendingQuestion.value = ''
     pendingOptions.value = []
+    missingFields.value = []
     planProgress.value = null
     opts.applyNodeState?.(null, { execState: null })  // null id = 清所有节点高亮
   }
@@ -91,13 +102,35 @@ export function useTestRun(opts: {
       case 'step_start':
         ensureStep(data.step, data.label)
         setStep(data.step, 'running')
-        opts.applyNodeState?.(data.step, { execState: 'running' })
+        const si = steps.value.findIndex((s) => s.key === data.step)
+        if (si >= 0) steps.value[si] = { ...steps.value[si], input: data.input }
+        opts.applyNodeState?.(data.step, { execState: 'running', input: data.input })
         return
       case 'step_done':
         ensureStep(data.step, data.label)
         setStep(data.step, 'done', data.payload)
+        const di = steps.value.findIndex((s) => s.key === data.step)
+        if (di >= 0) {
+          steps.value[di] = {
+            ...steps.value[di],
+            input: data.input ?? steps.value[di].input,
+            output: data.output,
+            summary: data.summary,
+            artifact: data.artifact,
+          }
+        }
         const badge = data.step ? STEP_BADGE[data.step]?.(data.payload) : undefined
-        opts.applyNodeState?.(data.step, { execState: 'done', badge })
+        opts.applyNodeState?.(data.step, {
+          execState: 'done',
+          badge,
+          input: data.input,
+          output: data.output,
+          summary: data.summary,
+          artifact: data.artifact,
+        })
+        if (data.artifact?.kind === 'requirement_missing') {
+          missingFields.value = Array.isArray(data.artifact?.data?.missing_fields) ? data.artifact.data.missing_fields : []
+        }
         return
       case 'step_progress':
         pushSubstep(data.step, data.sub || { kind: 'progress', text: '' })
@@ -112,6 +145,8 @@ export function useTestRun(opts: {
         awaitingInput.value = true
         pendingQuestion.value = data.question || ''
         pendingOptions.value = data.options || []
+        missingFields.value = Array.isArray(data.missing_fields) ? data.missing_fields : []
+        running.value = false
         return
       case 'candidates_ready':
         plans.value = data.plans || []
@@ -122,6 +157,7 @@ export function useTestRun(opts: {
         ext.value = data.ext || {}
         kpByModel.value = data.kp_by_model || {}
         if (data.plans?.length) plans.value = data.plans
+        bomScheme.value = data.bom_scheme || null
         awaitingInput.value = !!data.awaiting_input
         running.value = false
         closeWs()
@@ -136,13 +172,13 @@ export function useTestRun(opts: {
     }
   }
 
-  async function runTest(text: string, budget?: number, forceComplete?: boolean) {
+  async function runTest(text: string, budget?: number, forceComplete?: boolean, skillKey?: string) {
     if (!text.trim() || running.value) return
     reset()
     running.value = true
     let runId = ''
     try {
-      const res = await reasoningFlowApi.testRunStart(text, budget, forceComplete)
+      const res = await reasoningFlowApi.testRunStart(text, budget, forceComplete, skillKey)
       runId = res.run_id
     } catch (e: any) {
       error.value = e.response?.data?.detail || e.message || '试运行启动失败'
@@ -171,5 +207,5 @@ export function useTestRun(opts: {
 
   onBeforeUnmount(() => closeWs())
 
-  return { steps, plans, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, planProgress, runTest, reset }
+  return { steps, plans, bomScheme, ext, kpByModel, running, error, awaitingInput, pendingQuestion, pendingOptions, missingFields, planProgress, runTest, reset }
 }

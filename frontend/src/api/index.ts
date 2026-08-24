@@ -1,33 +1,11 @@
 import axios from 'axios'
-import { AUTH_TOKEN_KEY } from './auth'
+import { attachAuthInterceptors } from './authHttp'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
 
-// ── 认证：所有 axios 请求带 Bearer token；401 → 清 token 跳登录 ──
-function attachAuthInterceptors(instance: import('axios').AxiosInstance) {
-  instance.interceptors.request.use((config) => {
-    const token = localStorage.getItem(AUTH_TOKEN_KEY)
-    if (token) config.headers.Authorization = `Bearer ${token}`
-    return config
-  })
-  instance.interceptors.response.use(
-    (r) => r,
-    (err) => {
-      const status = err?.response?.status
-      const url: string = err?.config?.url || ''
-      if (status === 401 && !url.includes('/api/auth/login')) {
-        localStorage.removeItem(AUTH_TOKEN_KEY)
-        if (!window.location.pathname.startsWith('/login')) {
-          window.location.href = '/login'
-        }
-      }
-      return Promise.reject(err)
-    }
-  )
-}
 attachAuthInterceptors(api)
 attachAuthInterceptors(axios)
 
@@ -50,8 +28,18 @@ export const projectApi = {
   },
   
   create: async (data: { customer_name: string; sales_person?: string }) => {
-    const response = await api.post('/opportunities', data)
+    const response = await api.post('/opportunities/', data)
     return response.data
+  },
+
+  fieldHistory: async (fieldKey: string) => {
+    const response = await api.get(`/opportunities/field-history/${encodeURIComponent(fieldKey)}`)
+    return response.data.values || []
+  },
+
+  businessOptions: async () => {
+    const response = await api.get('/opportunities/business-options')
+    return response.data.items || []
   },
   
   update: async (projectId: string, data: {

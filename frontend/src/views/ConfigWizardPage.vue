@@ -22,6 +22,8 @@ async function loadModel() {
 }
 
 function goBack() {
+  // 有站内来路原路返回（如从详情页进入）；直开向导才回机型目录
+  if (window.history.state?.back) { router.back(); return }
   if (currentModel.value?.server_type_id) {
     router.push(`/servers/types/${currentModel.value.server_type_id}`)
   } else {
@@ -38,7 +40,7 @@ onMounted(loadModel)
       <!-- 面包屑导航 -->
       <div class="breadcrumb">
         <button class="sc-back" @click="goBack">
-          ← 返回机型目录
+          ← 返回
         </button>
         <a-divider type="vertical" />
         <span class="current-model">{{ currentModel?.name || '加载中...' }}</span>
@@ -53,19 +55,30 @@ onMounted(loadModel)
 
 <style scoped>
 .config-page {
-  padding: 4px 0 80px;
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
 }
 .page-inner {
-  max-width: 1180px;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  max-width: 1600px;
+  width: 100%;
   margin: 0 auto;
-  padding: 0 24px;
+  padding: 12px 24px 0;
 }
 
 .breadcrumb {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 24px;
+  flex-shrink: 0;
+  margin-bottom: 12px;
 }
 .current-model {
   color: var(--cpq-text-primary, #E8ECEF);
@@ -80,5 +93,11 @@ onMounted(loadModel)
   text-align: center;
   padding: 60px 0;
   font-size: 14px;
+}
+
+@media (max-width: 960px) {
+  .config-page { height: auto; min-height: 0; overflow: visible; padding: 4px 0 80px; }
+  .page-inner { flex: none; min-height: 0; display: block; padding: 0 24px; }
+  .breadcrumb { margin-bottom: 24px; }
 }
 </style>

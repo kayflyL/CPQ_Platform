@@ -1,8 +1,7 @@
 /**
- * Requirement intelligence API — 商机详情页「生成报价」推理流客户端.
- * POST /api/reasoning/{oid}/generate 触发后台 pipeline；WS /api/reasoning/ws/{oid} 接收步骤流。
+ * 推理结果类型定义（方案 / 候选 / 告警），供试运行与产出物卡片复用。
+ * 旧 /api/reasoning 商机推理流客户端已随 AI Office 整改移除。
  */
-import axios from 'axios'
 
 export type CandidateSource = 'l6' | 'kp' | 'baseline'
 
@@ -79,41 +78,10 @@ export interface Plan {
   selection_alerts?: SelectionAlert[]
   /** BOM案例库在线防偏差告警（P2）：最相似案例规格对照，偏差提示；只提示不自动改方案 */
   experience_alerts?: Array<{ severity: 'error' | 'warning' | 'info'; desc: string }>
-  /** 预算校验标注（budget_check 节点注入；null/undefined=未超预算） */
+  /** 预算校验标注（null/undefined=未超预算） */
   over_budget?: { amount: number; ratio: number } | null
   /** 预算利用不足标注（方案价/预算 < 阈值，默认 0.5；null=无） */
   underspend?: { ratio: number; amount: number } | null
-  /** AI 校对结论（review 节点注入，阻塞式：通过/不通过 + 必改项） */
+  /** AI 校对结论（阻塞式：通过/不通过 + 必改项） */
   audit?: { status: 'ok' | 'blocked'; issues: string[]; issue_count: number; checked_at?: string } | null
-}
-
-export interface GenerateOpts {
-  supplement_text?: string        // 反答回填文本（后端拼到原需求后重跑）
-  explicit_budget?: number        // 用户明确给预算
-  force_complete?: boolean        // 跳过反问，强制走选型
-  confirm?: Record<string, string> // LLM 确认面板决策 {item_id: accept|ignore}
-}
-
-export const reasoningApi = {
-  /** 触发推理 pipeline（后台异步跑，步骤经 WS 推送）。重跑时传 supplement_text / confirm 决策 */
-  generate: (opportunityId: string, requirementText: string, opts?: GenerateOpts) =>
-    axios.post(`/api/reasoning/${encodeURIComponent(opportunityId)}/generate`, {
-      requirement_text: requirementText,
-      supplement_text: opts?.supplement_text,
-      explicit_budget: opts?.explicit_budget,
-      force_complete: opts?.force_complete ?? false,
-      confirm: opts?.confirm ?? undefined,
-    }),
-  /** LLM 确认面板反馈（全部采纳/部分忽略）→ requirement_samples，不重跑 pipeline */
-  confirmFeedback: (opportunityId: string, requirementText: string, decisions: Record<string, string>) =>
-    axios.post(`/api/reasoning/${encodeURIComponent(opportunityId)}/confirm`, {
-      requirement_text: requirementText,
-      decisions,
-    }),
-}
-
-/** WS 订阅某商机的推理步骤流（step_start/step_done/candidates_ready/pipeline_done/error） */
-export function reasoningWsUrl(opportunityId: string): string {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${proto}://${location.host}/api/reasoning/ws/${encodeURIComponent(opportunityId)}`
 }

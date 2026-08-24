@@ -23,6 +23,11 @@ class Quotation(Base):
     status: Mapped[Optional[str]] = mapped_column(String, default="active")
     # 草稿/已导出状态机：NULL = 草稿（可进工作台编辑）；非空 = 已导出冻结（值=导出时间戳，点列表只看 Excel+成本快照）
     exported_at: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # 报价员正式发送后才写入：submitted_at 为发送时间，submitted_by 为操作人，
+    # submitted_attachment_id 为推送到报价单审批评论里的 Excel 附件 id。
+    submitted_at: Mapped[Optional[str]] = mapped_column(String, default=None)
+    submitted_by: Mapped[Optional[str]] = mapped_column(String, default=None)
+    submitted_attachment_id: Mapped[Optional[str]] = mapped_column(String, default=None)
     # 导出时冻结的成本快照（整机/机箱/KP/质保 成本+售价+利润率，逐配置）——前端算、导出动作 POST 回来
     cost_snapshot: Mapped[Optional[dict]] = mapped_column(JSON, default=None)
     
@@ -75,6 +80,9 @@ class Quotation(Base):
             "updated_at": self.updated_at or "",
             "status": self.status or "active",
             "exported_at": self.exported_at or None,
+            "submitted_at": self.submitted_at or None,
+            "submitted_by": self.submitted_by or "",
+            "submitted_attachment_id": self.submitted_attachment_id or "",
             "cost_snapshot": self._sanitize(self.cost_snapshot) or None,
             "quotation_date": self.quotation_date or "",
             "config_quantities": self._sanitize(self.config_quantities) or {},

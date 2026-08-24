@@ -82,6 +82,7 @@ watch(() => route.query.refresh, (v) => { if (v === 'models') load() })
           :type-name="typeName(m.server_type_id)"
           :config-count="configCount(m.id)"
           :show-actions="true"
+          :show-publish="true"
           :clickable="false"
           @edit="goEdit(m)"
           @delete="remove(m.id, m.name)"

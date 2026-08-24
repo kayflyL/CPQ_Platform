@@ -6,7 +6,8 @@ P0：直接改 active 流的 node_config（立即生效）；版本切版 API �
 import asyncio
 import logging
 import uuid
-from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
 from app.services.assistant_hub import assistant_hub
 
@@ -14,22 +15,19 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"])
 
 _VALID_NODE_KEYS = {
-    # AI-first 单路能力链（画布 palette 当前节点 + 编排/自检）
-    "understand", "llm_ask", "orchestrator",
+    "input",
+    # 通用能力节点类型
+    "agent", "ask", "rule", "transform", "branch", "assemble", "output", "orchestrator",
+    # 需求分析业务链（对齐商机详情页真实步骤）
+    "agent_fill", "orchestrator",
     "model_reason", "kp_reason",
-    "spec_compliance", "result_check", "compose", "budget_check",
-    "llm_audit", "audit_fix", "llm_confirm", "review",
-    "condition", "text_clean",
-    # 历史节点 key（保留兼容：旧 flow 的 node_config 仍可能含这些 key，upsert 不应 400）
-    "extract", "select_baseline", "match_kp", "scene_decide", "gap_analyze",
-    "ask_user", "clarity_check", "scene_analysis", "cond_scene", "cond_gap",
-    "normalize_input", "confirm_series", "llm_understand", "slot_validate",
-    "confirm", "llm_agent", "route_fork", "cond_audit", "cond_clarity",
+    "compose",
+    "condition",
 }
 
 
 def _is_valid_node_key(key: str) -> bool:
-    """节点 key 校验：当前能力链 key（understand/model_reason/…）或画布 palette 新增节点的后缀 id
+    """节点 key 校验：当前能力链 key（agent_fill/model_reason/…）或画布 palette 新增节点的后缀 id
     （addNode 生成 extract_1 / scene_analysis_2，executor 按节点 id 读 config）。
     只认合法 base 类型，防止任意 key 写入。"""
     if key in _VALID_NODE_KEYS:
@@ -38,34 +36,39 @@ def _is_valid_node_key(key: str) -> bool:
     return base in _VALID_NODE_KEYS
 
 
+def _flow_for_skill(repo: ReasoningFlowRepository, skill_key: Optional[str]) -> Optional[dict]:
+    """取指定技能的 active flow；若技能 flow 尚不存在，则按默认图建一份。"""
+    return repo.ensure_skill_flow(skill_key or "requirement_analysis")
+
+
 @router.get("/")
-def get_active():
+def get_active(skill_key: Optional[str] = Query(default=None)):
     """取 active 流（含 graph + node_configs 按 node_key 索引）。无 active 返回 {flow: null}。"""
     repo = ReasoningFlowRepository()
     try:
-        return {"flow": repo.get_active_flow()}
+        return {"flow": _flow_for_skill(repo, skill_key)}
     finally:
         repo.close()
 
 
 @router.get("/versions")
-def list_versions():
+def list_versions(skill_key: Optional[str] = Query(default=None)):
     repo = ReasoningFlowRepository()
     try:
-        return {"versions": repo.list_versions()}
+        return {"versions": repo.list_versions(skill_key)}
     finally:
         repo.close()
 
 
 @router.put("/graph")
-def update_graph(data: dict):
+def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
     """改 active 流图结构（一期改坐标/标签；二期拖拽编排接 stencil+dnd）。"""
     graph = data.get("graph")
     if not isinstance(graph, dict):
         raise HTTPException(400, "Missing graph")
     repo = ReasoningFlowRepository()
     try:
-        f = repo.get_active_flow()
+        f = _flow_for_skill(repo, skill_key)
         if not f:
             raise HTTPException(404, "No active reasoning flow")
         return repo.upsert_graph(f["id"], graph, operator=data.get("operator", "system"))
@@ -74,18 +77,23 @@ def update_graph(data: dict):
 
 
 @router.put("/nodes/{node_key}")
-def update_node(node_key: str, data: dict):
-    """改 active 流某节点 config（立即生效：下次推理即用新参数）。"""
+def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(default=None)):
+    """改 active 流某节点 config（立即生效：下次推理即用新参数）。
+    data 可同时带 label：仅更新图节点展示名，不进入 config。"""
     if not _is_valid_node_key(node_key):
         raise HTTPException(400, f"Invalid node_key: {node_key}")
     config = data.get("config")
     if not isinstance(config, dict):
         raise HTTPException(400, "Missing config")
+    label = data.get("label")
     repo = ReasoningFlowRepository()
     try:
-        f = repo.get_active_flow()
+        f = _flow_for_skill(repo, skill_key)
         if not f:
             raise HTTPException(404, "No active reasoning flow")
+        if isinstance(label, str) and label.strip():
+            if repo.update_node_label(f["id"], node_key, label.strip(), operator=data.get("operator", "system")) is None:
+                raise HTTPException(404, f"Node not found in active graph: {node_key}")
         return repo.upsert_node_config(f["id"], node_key, config, operator=data.get("operator", "system"))
     finally:
         repo.close()
@@ -104,12 +112,12 @@ def activate(flow_id: int, data: dict = None):
 
 
 @router.post("/test-run")
-async def test_run(body: dict):
+async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
     """试运行 playground：输入需求文本（+可选预算），同步跑 active flow 图执行器，
     返回每步事件 + ext/kp_by_model/plans 明细。供策略中心画布编辑器交互测试。
 
     - 不绑商机（opportunity_id 传占位 "test-run"）。
-    - 走 run_orchestrator（与方案助手正式路径一致）：LLM 自主编排 + step_start/step_done 实时推送。
+    - 走 run_fixed_workflow（固定专家流程）：按图确定性执行，仅 agent_fill 信息不足时反问中断。
     - force_complete 默认 True（跳过反问、一键出方案）；前端可传 False 测反问补全。
     - 不回退 linear fallback：调试工具，报错原样暴露给用户看（仅包一层 except 返回 error+events）。
     - 明细全从 ctx 取（step_done 的 payload 是摘要级，明细在 ctx.kp_by_model / ctx.plans）。
@@ -121,7 +129,7 @@ async def test_run(body: dict):
     force_complete = bool((body or {}).get("force_complete", True))
     repo = ReasoningFlowRepository()
     try:
-        flow = repo.get_active_flow()
+        flow = _flow_for_skill(repo, skill_key)
     finally:
         repo.close()
     if not flow:
@@ -132,10 +140,11 @@ async def test_run(body: dict):
     async def _collect(payload: dict):
         events.append(payload)
 
-    from app.services.reasoning_orchestrator import run_orchestrator
+    from app.services.capability_executor import run_fixed_workflow
+    from app.services.portal_flow_adapter import build_preview_bom_scheme
     initial_ctx = {"budget": budget, "force_complete": force_complete}
     try:
-        ctx = await run_orchestrator(
+        ctx = await run_fixed_workflow(
             "test-run", text, flow, _collect, initial_ctx=initial_ctx
         )
     except Exception as e:
@@ -147,6 +156,7 @@ async def test_run(body: dict):
         "ext": ctx.get("ext") or {},
         "kp_by_model": ctx.get("kp_by_model") or {},
         "plans": ctx.get("plans") or [],
+        "bom_scheme": build_preview_bom_scheme(ctx),
         "awaiting_input": bool(ctx.get("awaiting_input")),
     }
 
@@ -166,22 +176,17 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
         await assistant_hub.broadcast(run_id, payload)
 
     try:
-        # 预置全部将执行步骤为 pending（condition 静默路由、extract 仅 AI 失效才跑 → 不预置，跑到了再懒创建）
-        steps = [
-            {"key": n.get("id"), "label": n.get("label") or n.get("id")}
-            for n in (flow.get("graph") or {}).get("nodes") or []
-            if (n.get("type") or "") not in ("condition", "extract")
-        ]
-        await _broadcast({"type": "pipeline_start", "steps": steps})
-        from app.services.reasoning_orchestrator import run_orchestrator
+        from app.services.capability_executor import run_fixed_workflow
+        from app.services.portal_flow_adapter import build_preview_bom_scheme
         initial_ctx = {"budget": budget, "force_complete": force_complete}
-        ctx = await run_orchestrator("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
+        ctx = await run_fixed_workflow("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
         awaiting = bool(ctx.get("awaiting_input"))
         await _broadcast({
             "type": "pipeline_paused" if awaiting else "pipeline_done",
             "ext": ctx.get("ext") or {},
             "kp_by_model": ctx.get("kp_by_model") or {},
             "plans": ctx.get("plans") or [],
+            "bom_scheme": build_preview_bom_scheme(ctx),
             "awaiting_input": awaiting,
         })
     except Exception as e:
@@ -190,7 +195,7 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
 
 
 @router.post("/test-run/start")
-async def test_run_start(body: dict):
+async def test_run_start(body: dict, skill_key: Optional[str] = Query(default=None)):
     """流式试运行：注册 run_id 并后台启动图执行器，事件经 WS /test-run-ws/{run_id} 实时推送。
     返回 {run_id}；与旧 /test-run（一次性返回）并存，画布试运行改用本端点逐步显示。"""
     text = (body or {}).get("requirement_text")
@@ -200,7 +205,7 @@ async def test_run_start(body: dict):
     force_complete = bool((body or {}).get("force_complete", True))
     repo = ReasoningFlowRepository()
     try:
-        flow = repo.get_active_flow()
+        flow = _flow_for_skill(repo, skill_key)
     finally:
         repo.close()
     if not flow:

@@ -1,88 +1,72 @@
 /**
- * 节点 IO 元数据（描述性，声明每个节点类型消费/产出的变量）。
- * executor 仍走隐式 ctx 不变；这里只给试运行/画布展示"变量流转"用——可解释性。
- * 参考：腾讯元器的节点显式输入/输出变量声明（下游引用祖先输出）。
- *
- * in  = 该节点读取的变量（来源：系统输入 / 上游节点输出）
- * out = 该节点写入 ctx 的变量（给下游消费）
- * 数据来自 reasoning_executor._dispatch 各 handler 的实际读写。
+ * 节点 IO 元数据：声明每个需求分析节点读取/产出的真实业务变量。
+ * 抽屉顶部「输入 / 输出契约」与试运行时间线共用这一份真源，避免再写散落的硬编码说明。
  */
 export interface IoVar { name: string; from?: string; desc?: string }
 export type NodeIo = { in: IoVar[]; out: IoVar[] }
 
 export const NODE_IO: Record<string, NodeIo> = {
-  understand: {
-    in: [{ name: 'requirement_text', from: '输入', desc: '需求原文' }, { name: 'flow_configs', from: '画布', desc: '领域知识(词表)/目录白名单/案例参数' }],
+  input: {
+    in: [],
     out: [
-      { name: 'ext', desc: '槽位信号(类型/系列/形态/品类/内存/CPU/盘/GPU/网卡/电源/预算)' },
-      { name: 'llm_slots', desc: 'LLM 填表契约（槽位+置信度+证据+意图）' },
-      { name: 'source', desc: 'llm / extract_only_*（AI 走了 LLM 还是规则兜底）' },
+      { name: 'requirement_text', desc: '客户自然语言需求原文' },
+      { name: 'opportunity_id', desc: '商机上下文' },
+      { name: 'normalized_text', desc: '规范化后的需求文本' },
     ],
   },
-  gap_analyze: {
-    in: [{ name: 'ext', from: 'understand', desc: '已理解槽位' }],
-    out: [
-      { name: 'clarity', desc: 'explicit/partial（信息是否足够）' },
-      { name: 'missing_fields', desc: '缺失关键信息清单' },
-      { name: 'clarity_capped', desc: '反问封顶标志' },
+  agent_fill: {
+    in: [
+      { name: 'requirement_text', from: 'input', desc: '需求原文' },
+      { name: 'last_user_answer', desc: '上一轮反问后客户回答（对话回合）' },
+      { name: 'catalog', desc: '在售类型/系列/形态白名单' },
     ],
-  },
-  cond_gap: {
-    in: [{ name: 'clarity', from: 'gap_analyze' }, { name: 'clarity_capped', from: 'gap_analyze' }],
-    out: [{ name: '__branch', desc: 'true→llm_ask 反问 / false→scene_decide 继续' }],
-  },
-  llm_ask: {
-    in: [{ name: 'missing_fields', from: 'gap_analyze' }, { name: 'ext', from: 'understand' }, { name: 'catalog', from: '实时 DB', desc: '在售类型/系列（选项白名单）' }],
     out: [
-      { name: 'awaiting_input', desc: '反问暂停（need_input + question/options/why）' },
-      { name: 'source', desc: 'llm / rule（LLM 策略提问还是目录引导兜底）' },
+      { name: 'ext', desc: '映射到真实线索登记表字段的槽位信号' },
+      { name: 'purchase_qty', desc: '整机采购台数' },
+      { name: 'missing_fields', desc: '信息不足时输出的缺失关键字段' },
+      { name: 'awaiting_input', desc: '信息不足时反问暂停，等待用户补充' },
     ],
-  },
-  scene_decide: {
-    in: [{ name: 'ext', from: 'understand', desc: '需求信号' }, { name: 'opportunity', from: '商机上下文' }],
-    out: [{ name: 'scene', desc: 'scene_name/series/form + 置信度 + 证据（白盒）' }],
   },
   model_reason: {
-    in: [{ name: 'ext', from: 'understand' }, { name: 'scene', from: 'scene_decide' }],
+    in: [
+      { name: 'ext', from: 'agent_fill', desc: '线索登记字段' },
+      { name: 'catalog', desc: '在售机型目录' },
+    ],
     out: [
-      { name: 'baselines', desc: 'LLM 选定的机型骨架（数据由规则补全）' },
-      { name: 'model_reason', desc: 'source=llm/rule + reason + ReAct 工具轨迹' },
+      { name: 'baselines', desc: '选中的机型骨架' },
+      { name: 'model_reason', desc: '选型来源与理由' },
     ],
   },
   kp_reason: {
-    in: [{ name: 'ext', from: 'understand' }, { name: 'baselines', from: 'model_reason' }],
+    in: [
+      { name: 'ext', from: 'agent_fill', desc: '线索登记字段' },
+      { name: 'baselines', from: 'model_reason', desc: '机型骨架' },
+    ],
     out: [
-      { name: 'kp_by_model', desc: '每机型配的 KP 件' },
-      { name: 'kp_parts', desc: 'KP 件展平' },
-      { name: 'kp_reason', desc: 'source=llm/rule + reason + ReAct 工具轨迹' },
+      { name: 'kp_by_model', desc: '每个机型对应的关键配件' },
+      { name: 'kp_parts', desc: '展平后的关键配件清单' },
     ],
   },
   compose: {
-    in: [{ name: 'baselines', from: 'model_reason' }, { name: 'kp_by_model', from: 'kp_reason' }, { name: 'ext.psu_signal', from: 'understand' }],
-    out: [{ name: 'plans', desc: '整机方案（确定性组装：价格/兼容性/PSU/线缆派生）' }],
+    in: [
+      { name: 'baselines', from: 'model_reason', desc: '机型骨架' },
+      { name: 'kp_by_model', from: 'kp_reason', desc: '配件清单' },
+      { name: 'ext.psu_signal', from: 'agent_fill', desc: '电源信号' },
+    ],
+    out: [
+      { name: 'plans', desc: '按真实 BOM 模板组装后的 bom_scheme 配置数据' },
+    ],
   },
-  budget_check: {
-    in: [{ name: 'plans', from: 'compose' }, { name: 'budget', from: '输入' }],
-    out: [{ name: 'plans.over_budget/underspend', desc: '预算标注（不剔除）' }],
-  },
-  llm_audit: {
-    in: [{ name: 'plans', from: 'compose', desc: '整机方案（校对对象）' }, { name: 'requirement_text', from: '输入' }],
-    out: [{ name: 'plan.audit', desc: '意图级校对 passed/issues → review 合并' }],
-  },
-  llm_confirm: {
-    in: [{ name: 'model_reason', from: 'model_reason' }, { name: 'kp_reason', from: 'kp_reason' }],
-    out: [{ name: 'confirm_items', desc: '推荐机型/配件 + 理由，供确认面板（可调整）' }],
-  },
-  review: {
-    in: [{ name: 'plans', from: 'compose' }, { name: 'ext', from: 'understand' }],
-    out: [{ name: 'candidates_ready', desc: '广播方案清单给前端' }],
-  },
-  text_clean: {
-    in: [{ name: 'requirement_text', from: '输入', desc: '原始需求文本' }],
-    out: [{ name: 'normalized_text', desc: '轻量清洗后的文本（understand 消费）' }, { name: 'report', desc: '清洗报告（白盒）' }],
-  },
-  condition: {
-    in: [{ name: 'ctx 变量', desc: '白名单 clarity/missing_fields/clarity_capped…' }],
-    out: [{ name: '__branch', desc: 'true/false 分支路由' }],
+  output: {
+    in: [
+      { name: 'plans', from: 'compose', desc: 'BOM 方案配置数据' },
+      { name: 'ext', from: 'agent_fill', desc: '线索登记字段' },
+      { name: 'opportunity_id', from: 'input', desc: '商机上下文' },
+    ],
+    out: [
+      { name: 'requirement', desc: '写回真实线索登记表' },
+      { name: 'bom_scheme', desc: '写回真实方案配置草稿' },
+      { name: 'business_entity', desc: '交付给 AI Office / 商机详情页' },
+    ],
   },
 }

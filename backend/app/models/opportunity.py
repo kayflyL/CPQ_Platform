@@ -12,16 +12,13 @@ class Opportunity(Base):
     opportunity_id: Mapped[str] = mapped_column(String, primary_key=True)
     customer_name: Mapped[Optional[str]] = mapped_column(String, default=None)
     sales_person: Mapped[Optional[str]] = mapped_column(String, default=None)
+    owner_user_id: Mapped[Optional[str]] = mapped_column(String, default=None)
     fae: Mapped[Optional[str]] = mapped_column(String, default=None)
     quotation_person: Mapped[Optional[str]] = mapped_column(String, default=None)
-    # 从 Quotation 迁移的商机级字段
-    platform_type: Mapped[Optional[str]] = mapped_column(String, default=None)
-    chassis_form: Mapped[Optional[str]] = mapped_column(String, default=None)
     # D1 商机结果与复盘（蓝图 A1-A2）— 解锁 M4 丢标复盘 / P2 直销渠道双基线 / M1 行业打法
     industry: Mapped[Optional[str]] = mapped_column(String, default=None)        # 行业（教育/政府/金融/制造…）
     order_type: Mapped[Optional[str]] = mapped_column(String, default=None)    # 订单类型（直销/渠道/集成商/最终用户）
     result: Mapped[str] = mapped_column(String, default="pending")               # 业务结果：pending / won / lost / expired(已过期)（与 status 正交）
-    purchase_qty: Mapped[int] = mapped_column(default=0)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     status: Mapped[Optional[str]] = mapped_column(String, default="active")  # active / deleted(回收站)；archived 已并入 result=expired
@@ -34,14 +31,12 @@ class Opportunity(Base):
             "opportunity_id": self.opportunity_id,
             "customer_name": self.customer_name or "",
             "sales_person": self.sales_person or "",
+            "owner_user_id": self.owner_user_id or "",
             "fae": self.fae or "",
             "quotation_person": self.quotation_person or "",
-            "platform_type": self.platform_type or "",
-            "chassis_form": self.chassis_form or "",
             "industry": self.industry or "",
             "order_type": self.order_type or "",
             "result": self.result or "pending",
-            "purchase_qty": self.purchase_qty or 0,
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
             "status": self.status or "active",

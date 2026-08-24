@@ -30,6 +30,13 @@ def list_forms():
     return {"forms": BaseConfigRepository().list_forms()}
 
 
+@router.get("/cost-analysis")
+def get_cost_analysis():
+    """全量基准配置裸机成本（编辑器右侧成本分析面板·机型对比卡）。
+    口径与前端面板一致：底盘件 + 后面板默认卡 + 前面板默认线缆 + PSU×槽位，缺价只计数。"""
+    return {"configs": BaseConfigRepository().cost_analysis()}
+
+
 @router.get("/{config_id}")
 def get_config(config_id: int):
     c = BaseConfigRepository().get_with_parts(config_id)

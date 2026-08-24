@@ -9,14 +9,13 @@
     @pointerdown="onPointerDown"
     title="方案助手 · 可拖动"
   >
-    <RobotOutlined />
+    <span class="fab-mark">助</span>
     <span class="fab-label">方案助手</span>
   </button>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
-import { RobotOutlined } from '@ant-design/icons-vue'
 import { useAssistantFab } from '@/composables/useAssistantFab'
 
 const props = defineProps<{ open: boolean }>()
@@ -136,7 +135,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   font-size: 22px;
-  z-index: 1500;
+  z-index: 1550;
   user-select: none;
   touch-action: none; /* 拖动时不触发移动端滚动/手势 */
   box-shadow: 0 8px 24px var(--cpq-shadow-color-strong, rgba(0, 0, 0, 0.25));
@@ -156,6 +155,11 @@ onBeforeUnmount(() => {
   font-size: 14px;
   font-weight: 600;
 }
+.fab-mark {
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+}
 
 /* 窄屏：FAB 缩成圆形图标按钮，藏文字，上移避开列表抽屉 FAB */
 @media (max-width: 768px) {
@@ -170,11 +174,6 @@ onBeforeUnmount(() => {
     font-size: 20px;
     justify-content: center; /* 单图标精确居中（label 已藏，去 gap） */
     gap: 0;
-  }
-  .assistant-fab :deep(.anticon), .assistant-fab .anticon {
-    line-height: 1; /* SVG 沿 flex 双轴居中，消除行框偏移 */
-    margin: 0;
-    padding: 0;
   }
   .fab-label { display: none; }
 }

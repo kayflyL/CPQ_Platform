@@ -1,18 +1,18 @@
 <script setup lang="ts">
 /** 需求分析工作台(/strategies/requirement)—— 模块工作台 shell（对齐选型配置/报价策略）。
- *  头部:← 策略中心 + 需求分析 + [🛠 推理流 | 📄 文档库] 模式开关。
- *  推理流模式:挂 ReasoningFlowCanvas（DAG 编排 + 试运行,零改）。
+ *  头部:← 策略中心 + 需求分析 + [🧩 规则目录 | 📄 文档库] 模式开关。
+ *  规则目录模式:挂 RequirementRuleCatalog（需求分析规则作为数据集中维护）。
  *  文档库模式:挂 PolicyLibrary(module=requirement),点卡 → DocReaderOverlay 呼吸浮窗。 */
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import type { PolicyDoc } from '@/api/strategies'
 import PolicyLibrary from '../pricing/PolicyLibrary.vue'
 import DocReaderOverlay from '../pricing/DocReaderOverlay.vue'
-import ReasoningFlowCanvas from '../reasoning/ReasoningFlowCanvas.vue'
+import RequirementRuleCatalog from '../selection/RequirementRuleCatalog.vue'
 
 const router = useRouter()
-type Mode = 'engine' | 'docs'
-const mode = ref<Mode>('engine')
+type Mode = 'rules' | 'docs'
+const mode = ref<Mode>('rules')
 const readerDoc = ref<PolicyDoc | null>(null)
 
 function openReader(d: PolicyDoc) { readerDoc.value = d }
@@ -28,14 +28,14 @@ function openReader(d: PolicyDoc) { readerDoc.value = d }
       <span class="rw-title">需求分析</span>
       <div class="rw-toggle">
         <a-radio-group v-model:value="mode" button-style="solid" size="small">
-          <a-radio-button value="engine">🛠 推理流</a-radio-button>
+          <a-radio-button value="rules">🧩 规则目录</a-radio-button>
           <a-radio-button value="docs">📄 文档库</a-radio-button>
         </a-radio-group>
       </div>
     </div>
 
     <div class="rw-body">
-      <ReasoningFlowCanvas v-if="mode === 'engine'" />
+      <RequirementRuleCatalog v-if="mode === 'rules'" />
       <PolicyLibrary v-else-if="mode === 'docs'" module="requirement" @open-doc="openReader" />
     </div>
 
@@ -44,7 +44,7 @@ function openReader(d: PolicyDoc) { readerDoc.value = d }
 </template>
 
 <style scoped>
-.rw { display: flex; flex-direction: column; padding: 8px 24px 40px; }
+.rw { display: flex; flex-direction: column; height: 100%; min-height: 0; padding: 8px 24px 40px; overflow: hidden; }
 .rw-bar {
   display: flex;
   align-items: center;
@@ -70,5 +70,5 @@ function openReader(d: PolicyDoc) { readerDoc.value = d }
 .rw-sep { color: var(--cpq-text-disabled); }
 .rw-title { font-size: 15px; font-weight: 600; color: var(--cpq-text-primary); }
 .rw-toggle { margin-left: auto; }
-.rw-body { flex: 1; min-height: 0; }
+.rw-body { flex: 1; min-height: 0; overflow: hidden; }
 </style>

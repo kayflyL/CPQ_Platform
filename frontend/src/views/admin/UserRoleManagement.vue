@@ -38,7 +38,10 @@
         <div class="toolbar">
           <a-button type="primary" @click="openCreateUser">+ 新建用户</a-button>
         </div>
-        <a-table :data-source="users" :columns="userColumns" row-key="user_id" size="small" :loading="usersLoading" :pagination="false">
+        <a-tabs v-model:activeKey="userGroupKey" size="small">
+          <a-tab-pane v-for="tab in userGroupTabs" :key="tab.key" :tab="tab.label" />
+        </a-tabs>
+        <a-table :data-source="filteredUsers" :columns="userColumns" row-key="user_id" size="small" :loading="usersLoading" :pagination="false">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'role'">
               <a-select
@@ -71,7 +74,7 @@
     <a-drawer
       :open="roleDrawer"
       @update:open="(v: boolean) => (roleDrawer = v)"
-      :width="520"
+      :width="720"
       placement="right"
       :title="editingRoleKey ? '编辑角色' : '新建角色'"
     >
@@ -87,20 +90,38 @@
         </a-form-item>
         <a-form-item label="权限">
           <div v-if="editingRoleKey === 'admin'" class="admin-note">管理员默认拥有全部权限（目录新增后自动生效），无需勾选。</div>
-          <div v-for="g in permissionGroups" :key="g.group" class="perm-group">
-            <div class="perm-group-title">{{ g.label }}</div>
-            <div class="perm-list">
-              <a-checkbox
-                v-for="p in g.items"
-                :key="p.key"
-                :checked="editingRoleKey === 'admin' ? true : roleForm.permissions.includes(p.key)"
-                :disabled="editingRoleKey === 'admin'"
-                @change="(e: any) => togglePerm(p.key, e.target.checked)"
-              >
-                {{ p.name }}<span class="perm-key">{{ p.key }}</span>
-              </a-checkbox>
-            </div>
-          </div>
+          <a-input
+            v-if="editingRoleKey !== 'admin'"
+            v-model:value="permSearch"
+            allow-clear
+            size="small"
+            placeholder="搜索权限名称或 key"
+            style="margin-bottom: 10px"
+          />
+          <a-collapse v-if="editingRoleKey !== 'admin'" v-model:activeKey="activeModules" :bordered="false">
+            <a-collapse-panel v-for="g in permissionGroups" :key="g.group" :header="`${g.label}（${g.items.length}）`">
+              <template #extra>
+                <a-checkbox
+                  :checked="isGroupAllChecked(g.items)"
+                  :indeterminate="isGroupIndeterminate(g.items)"
+                  @click.stop
+                  @change="(e: any) => toggleGroup(g.items, e.target.checked)"
+                >
+                  全选
+                </a-checkbox>
+              </template>
+              <div class="perm-list">
+                <a-checkbox
+                  v-for="p in g.items"
+                  :key="p.key"
+                  :checked="roleForm.permissions.includes(p.key)"
+                  @change="(e: any) => togglePerm(p.key, e.target.checked)"
+                >
+                  {{ p.name }}<span class="perm-key">{{ p.key }}</span>
+                </a-checkbox>
+              </div>
+            </a-collapse-panel>
+          </a-collapse>
         </a-form-item>
       </a-form>
       <template #footer>
@@ -150,7 +171,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { rbacApi, type PermissionItem, type RoleItem, type AdminUser } from '@/api/rbac'
 
@@ -163,19 +184,83 @@ const rolesLoading = ref(false)
 const roleDrawer = ref(false)
 const roleSaving = ref(false)
 const editingRoleKey = ref<string | null>(null)
+const permSearch = ref('')
+const activeModules = ref<string[]>([])
 const roleForm = ref<{ role_key: string; name: string; description: string; permissions: string[] }>({
   role_key: '', name: '', description: '', permissions: [],
 })
 
 const permissionGroups = computed(() => {
+  const moduleOrder = ['工作台', '商机线索', '服务器', '配件', '策略中心', '设置']
+  const keyword = permSearch.value.trim().toLowerCase()
   const groups: { group: string; label: string; items: PermissionItem[] }[] = []
-  const order = ['page', 'field']
-  for (const g of order) {
-    const items = catalog.value.filter(p => p.group === g)
-    if (items.length) groups.push({ group: g, label: g === 'page' ? '页面权限' : '字段级权限', items })
+  const used = new Set<string>()
+  for (const module of moduleOrder) {
+    const items = catalog.value.filter(p => {
+      const moduleName = p.module || moduleOf(p)
+      if (moduleName !== module) return false
+      return !keyword || p.name.toLowerCase().includes(keyword) || p.key.toLowerCase().includes(keyword)
+    })
+    if (items.length) {
+      groups.push({ group: module, label: module, items })
+      used.add(module)
+    }
+  }
+  const others = catalog.value.filter(p => {
+    const moduleName = p.module || moduleOf(p)
+    if (used.has(moduleName)) return false
+    return !keyword || p.name.toLowerCase().includes(keyword) || p.key.toLowerCase().includes(keyword)
+  })
+  if (others.length) {
+    groups.push({ group: '未分组', label: '未分组', items: others })
   }
   return groups
 })
+
+function moduleOf(p: PermissionItem): string {
+  const prefixes: [string, string][] = [
+    ['page.portal', '工作台'],
+    ['page.opportunities', '商机线索'],
+    ['page.servers', '服务器'],
+    ['page.parts', '配件'],
+    ['page.strategies', '策略中心'],
+    ['page.settings', '设置'],
+    ['field.quote', '工作台'],
+    ['field.opportunity', '商机线索'],
+    ['field.parts', '配件'],
+    ['field.server', '服务器'],
+    ['field.flow', '商机线索'],
+    ['action.flow.return', '商机线索'],
+  ]
+  for (const [prefix, module] of prefixes) {
+    if (p.key.startsWith(prefix)) return module
+  }
+  return '未分组'
+}
+
+function groupCheckedCount(items: PermissionItem[]): number {
+  return items.filter(p => roleForm.value.permissions.includes(p.key)).length
+}
+
+function isGroupAllChecked(items: PermissionItem[]): boolean {
+  return !!items.length && groupCheckedCount(items) === items.length
+}
+
+function isGroupIndeterminate(items: PermissionItem[]): boolean {
+  const count = groupCheckedCount(items)
+  return count > 0 && count < items.length
+}
+
+function toggleGroup(items: PermissionItem[], checked: boolean) {
+  for (const p of items) {
+    if (checked && !roleForm.value.permissions.includes(p.key)) {
+      roleForm.value.permissions.push(p.key)
+    } else if (!checked) {
+      const i = roleForm.value.permissions.indexOf(p.key)
+      if (i >= 0) roleForm.value.permissions.splice(i, 1)
+    }
+  }
+}
 
 const roleColumns = [
   { title: '角色 key', dataIndex: 'role_key', key: 'role_key', width: 140 },
@@ -275,6 +360,33 @@ const resetTarget = ref<AdminUser | null>(null)
 
 const roleOptions = computed(() => roles.value.map(r => ({ value: r.role_key, label: r.name })))
 
+const userGroupKey = ref('all')
+const userGroupTabs = computed(() => {
+  const tabs = [{ key: 'all', label: '全部角色' }]
+  const roleKeys = new Set(roles.value.map(r => r.role_key))
+  for (const role of roles.value) {
+    tabs.push({ key: role.role_key, label: role.name })
+  }
+  if (users.value.some(u => u.role && !roleKeys.has(u.role))) {
+    tabs.push({ key: '__unassigned__', label: '未分配角色' })
+  }
+  return tabs
+})
+const filteredUsers = computed(() => {
+  if (userGroupKey.value === 'all') return users.value
+  if (userGroupKey.value === '__unassigned__') {
+    const roleKeys = new Set(roles.value.map(r => r.role_key))
+    return users.value.filter(u => !u.role || !roleKeys.has(u.role))
+  }
+  return users.value.filter(u => u.role === userGroupKey.value)
+})
+
+watch(userGroupTabs, tabs => {
+  if (!tabs.some(t => t.key === userGroupKey.value)) {
+    userGroupKey.value = 'all'
+  }
+}, { immediate: true })
+
 const userColumns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
   { title: '角色', dataIndex: 'role', key: 'role', width: 200 },
@@ -365,6 +477,7 @@ async function confirmResetPwd() {
 onMounted(async () => {
   try {
     catalog.value = await rbacApi.permissions.list()
+    activeModules.value = permissionGroups.value.map(g => g.group)
   } catch {
     /* 目录加载失败不阻塞页面 */
   }

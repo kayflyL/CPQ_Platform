@@ -121,12 +121,13 @@ export function excludeText(uniqueField?: string): string {
 // ── ⑤ 告警 severity 元数据（消费方 Workspace / ConfigWizard 实时校验面板共用）──
 // 引擎对每条命中动作已赋 severity（exclude→conflict / require→require / derive·recommend·filter→info），
 // 这里集中其展示属性（图标/标签/是否阻断），替换散落模板里的图标三元式硬编码。
-export type AlertSeverity = 'conflict' | 'require' | 'info'
+export type AlertSeverity = 'conflict' | 'require' | 'warning' | 'info'
 export interface AlertSeverityDef { value: AlertSeverity; icon: string; label: string; blocking: boolean }
 export const ALERT_SEVERITY_DEFS: AlertSeverityDef[] = [
   { value: 'conflict', icon: '⚠', label: '冲突', blocking: true },  // exclude 互斥命中（如内存/CPU/GPU 混插）
   { value: 'require',  icon: '＋', label: '必配', blocking: true },  // require 缺配 / 规格不符
-  { value: 'info',     icon: '💡', label: '建议', blocking: false }, // derive / recommend
+  { value: 'warning',  icon: '⚠️', label: '告警', blocking: false }, // recommend 超上限等物理边界告警
+  { value: 'info',     icon: '💡', label: '建议', blocking: false }, // derive / 普通 recommend
 ]
 const _ALERT_SEV_MAP = Object.fromEntries(ALERT_SEVERITY_DEFS.map(s => [s.value, s])) as Record<AlertSeverity, AlertSeverityDef>
 

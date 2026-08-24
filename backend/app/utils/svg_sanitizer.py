@@ -49,6 +49,26 @@ _ALLOWED_ATTRS = {
 }
 
 _ON_ATTR_RE = re.compile(r"^on", re.IGNORECASE)
+
+
+def _repair_mojibake_id(s: str) -> str:
+    """修复 id 双重编码乱码：部分本地 SVG 工具把 UTF-8 字节按 Latin-1 逐字节转义
+    （如 '挂耳-左' 变成 '&#230;&#140;&#130;&#232;&#128;&#179;-&#229;&#183;&#166;'），
+    或直接落成 CP1252 字面量（如 'æŒ¡ç‰‡'），解析后变成乱码字符。依次尝试
+    Latin-1 / CP1252 两种还原；仅当重新编码能还原出含 CJK 的合法 UTF-8 时应用，
+    ASCII 与正常文本原样返回。"""
+    if not s or all(ord(ch) < 128 for ch in s):
+        return s
+    for enc in ("latin-1", "cp1252"):
+        try:
+            fixed = s.encode(enc).decode("utf-8")
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            continue
+        if fixed == s:
+            continue
+        if any("\u4e00" <= ch <= "\u9fff" for ch in fixed):
+            return fixed
+    return s
 _URL_REF_RE = re.compile(r"url\(\s*#([A-Za-z0-9_\-:]+)\s*\)")
 _REFERENCE_ATTRS = {"clip-path", "mask", "filter", "marker-start", "marker-mid", "marker-end"}
 
@@ -105,6 +125,9 @@ def _rebuild(el, is_root: bool = False):
             continue
         if k not in _ALLOWED_ATTRS:
             continue
+        # id 中文乱码自动修复（仅影响属性值，不影响几何/表现）
+        if k == "id":
+            v = _repair_mojibake_id(v)
         new.set(k, v)
     if is_root:
         new.set("xmlns", "http://www.w3.org/2000/svg")

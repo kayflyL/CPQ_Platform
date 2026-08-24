@@ -8,7 +8,8 @@ import type { AuthUser } from './auth'
 export interface PermissionItem {
   key: string
   name: string
-  group: 'page' | 'field'
+  group: 'page' | 'field' | 'action'
+  module?: string
 }
 
 export interface RoleItem {

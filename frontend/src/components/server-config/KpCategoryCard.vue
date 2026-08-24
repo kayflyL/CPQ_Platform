@@ -11,7 +11,7 @@ import PartPicker from '@/components/common/PartPicker.vue'
 import type { PickerItem } from '@/types/picker'
 import { useAuthStore } from '@/store/auth'
 
-interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number }
+interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number; currency?: string; final_price?: number }
 
 const props = defineProps<{
   cat: string
@@ -42,14 +42,12 @@ const emit = defineEmits<{
 }>()
 
 const auth = useAuthStore()
-/** 价格可见性：quote 模式（报价工作台）走报价价格权限 field.quote.price；配置页走服务器配置价格权限 field.server.price。
- *  与设置-用户与权限目录完全对齐；无权限直接隐藏价格，不出现 *** 掩码。 */
-const priceVisible = computed(() => auth.can(props.quoteMode ? 'field.quote.price' : 'field.server.price'))
+/** 价格可见性：quote 模式（报价工作台）走 field.quote.price；serverconfig 统一无价直接隐藏。 */
+const priceVisible = computed(() => props.quoteMode && auth.can('field.quote.price'))
 
 const lineCost = (l: KpLine) => (props.priceOf(l.pn) || 0) * (l.qty || 0)
 // quote 模式：含税售价/行 = 原始单价 × (1 + 利率/100) × 数量
-const quoteLineUnitFinal = (l: KpLine) => (Number(l.base_price) || 0) * (1 + (Number(l.profit_margin) || 0) / 100)
-const quoteLineSales = (l: KpLine) => quoteLineUnitFinal(l) * (l.qty || 0)
+const quoteLineSales = (l: KpLine) => (Number(l.final_price) || 0) * (l.qty || 0)
 const cardTotal = () => props.quoteMode
   ? props.lines.reduce((s, l) => s + quoteLineSales(l), 0)
   : props.lines.reduce((s, l) => s + lineCost(l), 0)
@@ -64,7 +62,7 @@ function onPick(i: number, pn: any) {
 
 <template>
   <div :id="`kp-card-${cat}`" class="sc-panel kp-card" :class="{ 'kp-flat': flat }">
-    <div class="sc-phead">
+    <div class="sc-phead" :class="{ 'no-price': !priceVisible }">
       <span class="num">{{ stepNum }}</span>
       <h2>{{ cat }}</h2>
       <span class="hint">{{ pickerItems.length }} 个可选料号</span>
@@ -86,8 +84,8 @@ function onPick(i: number, pn: any) {
 
       <!-- server-config 模式：单行（picker + 数量 + 行价 + 删除）-->
       <template v-if="!quoteMode">
-        <div class="sc-kp-line" v-for="(l, i) in lines" :key="i">
-          <PartPicker :items="pickerItems" :model-value="l.pn" size="small" placeholder="(请选择)"
+        <div class="sc-kp-line" :class="{ 'no-price': !priceVisible }" v-for="(l, i) in lines" :key="i">
+          <PartPicker class="kp-picker" :items="pickerItems" :model-value="l.pn" size="small" placeholder="(请选择)"
             @update:model-value="(pn:any)=>onPick(i, pn)" />
           <div class="sc-step">
             <button @click="emit('set-line', i, { qty: Math.max(0, l.qty - 1) })">−</button>
@@ -119,6 +117,12 @@ function onPick(i: number, pn: any) {
                 size="small" :precision="2" style="width:100%" />
             </div>
             <div class="qm-field">
+              <label>币种</label>
+              <a-select :value="l.currency || 'RMB'" size="small" style="width:100%"
+                :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]"
+                @change="(v:any)=>emit('set-line', i, { currency: v })" />
+            </div>
+            <div class="qm-field">
               <label>利率%</label>
               <a-input-number :value="l.profit_margin" :disabled="!priceVisible" @change="(v:any)=>emit('set-line', i, { profit_margin: Number(v) || 0 })"
                 size="small" :min="0" style="width:100%" />
@@ -141,7 +145,7 @@ function onPick(i: number, pn: any) {
 .sc-panel {
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px);
-  border: 1px solid var(--cpq-overlay-a15); border-radius: 0; overflow: hidden;
+  border: 1px solid var(--cpq-overlay-a15); border-radius: 0; overflow: visible;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
 /* flat 模式：报价页 KP 大卡内降级为扁平分段（去玻璃避嵌套，配置页不受影响）*/
@@ -155,11 +159,12 @@ function onPick(i: number, pn: any) {
 }
 .sc-panel.kp-flat .sc-phead { background: transparent; border-bottom-color: var(--cpq-overlay-w8); }
 .sc-panel.kp-flat:hover { border-color: var(--cpq-glass-border-strong); }
-.sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
+.sc-phead { display: flex; align-items: center; flex-wrap: wrap; row-gap: 8px; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
 .sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
 .sc-phead .hint { color: var(--cpq-text-muted,#6E7582); font-size: 12px; }
 .sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: 14px; }
+.sc-phead.no-price .kp-del-card { margin-left: auto; }
 .kp-del-card { margin-left: 8px; padding: 4px 10px; border: 1px solid var(--cpq-overlay-w20); border-radius: 7px;
   background: transparent; color: var(--cpq-text-muted,#6E7582); font-size: 12px; cursor: pointer; transition: all .2s; }
 .kp-del-card:hover { color: var(--cpq-accent-danger); border-color: rgba(255,107,107,.4); }
@@ -170,7 +175,9 @@ function onPick(i: number, pn: any) {
 .gc-label { font-size: 12px; font-weight: 600; color: var(--cpq-accent-primary,#1677FF); white-space: nowrap; flex-shrink: 0; }
 .gc-picker { flex: 1; min-width: 0; }
 .gpu-cable-row .sc-step { flex-shrink: 0; }
-.sc-kp-line { display: grid; grid-template-columns: 1fr 130px 100px 32px; gap: 9px; align-items: center; margin-bottom: 9px; }
+.sc-kp-line { display: grid; grid-template-columns: minmax(0, 1fr) 130px 100px 32px; gap: 9px; align-items: center; margin-bottom: 9px; }
+.sc-kp-line.no-price { grid-template-columns: minmax(0, 1fr) 130px 32px; }
+.kp-picker { min-width: 0; }
 .sc-step { display: flex; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; overflow: hidden; }
 .sc-step button { width: 30px; color: var(--cpq-text-secondary,#9BA1AA); font-size: 14px; background: transparent; border: none; cursor: pointer; transition: all .2s; }
 .sc-step button:hover { color: var(--cpq-accent-primary,#1677FF); }
@@ -183,11 +190,11 @@ function onPick(i: number, pn: any) {
 .sc-add:hover { border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); background: var(--cpq-overlay-a8); }
 
 /* ---- quote 模式（报价工作台新建模式）行布局 ---- */
-.sc-kp-line.qm-line { grid-template-columns: 1fr 130px 32px; margin-bottom: 6px; }
+.sc-kp-line.qm-line { grid-template-columns: minmax(0, 1fr) 130px 32px; margin-bottom: 6px; }
 .qm-picker { min-width: 0; }
-.qm-fields.qm-fields-noprice { grid-template-columns: 1fr; }
+.qm-fields.qm-fields-noprice { grid-template-columns: repeat(2, 1fr); }
 .qm-fields {
-  display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px;
   align-items: center; margin-bottom: 12px; padding: 9px 12px;
   background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 10px;
 }

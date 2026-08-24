@@ -42,8 +42,8 @@ export function useFeedSocket(opportunityId: Ref<string>) {
   }
   function wsUrl(oppId: string): string {
     const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-    const uid = auth.user?.user_id || ''
-    return `${proto}://${location.host}/api/feed/ws/${encodeURIComponent(oppId)}?user_id=${encodeURIComponent(uid)}`
+    const token = auth.token || ''
+    return `${proto}://${location.host}/api/feed/ws/${encodeURIComponent(oppId)}?token=${encodeURIComponent(token)}`
   }
 
   // ── lifecycle ──
@@ -140,8 +140,8 @@ export function useFeedSocket(opportunityId: Ref<string>) {
   }
 
   // ── mutations (REST; WS echo updates state) ──
-  async function postMessage(body: string, files: File[] = []) {
-    const m = await feedApi.messages.create(opportunityId.value, body, files)
+  async function postMessage(body: string, files: File[] = [], nodeKey?: string, flowCardId?: number | null) {
+    const m = await feedApi.messages.create(opportunityId.value, body, files, nodeKey, flowCardId)
     upsertMessage(m) // optimistic; WS dedupes
     return m
   }

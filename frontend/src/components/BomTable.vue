@@ -13,7 +13,7 @@
             <th class="col-catalogue">Catalogue</th>
             <th class="col-desc">Description</th>
             <th class="col-qty">Qty</th>
-            <th class="col-cost">Cost</th>
+            <th v-if="!hideCost" class="col-cost">Cost</th>
           </tr>
         </thead>
         <tbody>
@@ -21,7 +21,7 @@
             <td class="cell-catalogue">{{ row.catalogue }}</td>
             <td class="cell-desc">{{ row.description || '[空]' }}</td>
             <td class="cell-qty">{{ row.qty === '' || row.qty == null ? '[空]' : row.qty }}</td>
-            <td class="cell-cost">—</td>
+            <td v-if="!hideCost" class="cell-cost">—</td>
           </tr>
         </tbody>
       </table>
@@ -38,7 +38,7 @@
             <th class="col-catalogue">Catalogue</th>
             <th class="col-desc">Description</th>
             <th class="col-qty">Qty</th>
-            <th class="col-cost">Cost</th>
+            <th v-if="!hideCost" class="col-cost">Cost</th>
           </tr>
         </thead>
         <tbody>
@@ -46,7 +46,7 @@
             <td class="cell-catalogue">{{ row.catalogue }}</td>
             <td class="cell-desc">{{ row.description || '[空]' }}</td>
             <td class="cell-qty">{{ row.qty || '[空]' }}</td>
-            <td class="cell-cost">{{ row.cost ? `${currencySymbol(row.currency)}${formatNumber(row.cost)}` : '[空]' }}</td>
+            <td v-if="!hideCost" class="cell-cost">{{ row.cost ? `${currencySymbol(row.currency)}${formatNumber(row.cost)}` : '[空]' }}</td>
           </tr>
         </tbody>
       </table>
@@ -60,6 +60,7 @@ import { useSettingsStore } from '@/store/settings'
 
 const props = defineProps<{
   cfg: any
+  hideCost?: boolean
 }>()
 
 const settingsStore = useSettingsStore()

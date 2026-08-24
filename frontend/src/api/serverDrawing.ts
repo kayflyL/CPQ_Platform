@@ -1,6 +1,5 @@
 /** 服务器可视化图纸配置 API（对接后端 /api/server-catalog/models/{id}/drawing） */
 import axios from 'axios'
-import type { AnatomyRegionKind } from '@/constants/serverAnatomy'
 
 export type DrawingViewType = 'top' | 'front' | 'rear'
 
@@ -8,7 +7,7 @@ export type DrawingViewType = 'top' | 'front' | 'rear'
 export interface DrawingRegion {
   uid: string
   name: string
-  region_type: AnatomyRegionKind
+  region_type: string
   x: number
   y: number
   width: number
@@ -32,8 +31,22 @@ export interface DrawingView {
   viewBox: DrawingViewBox | null
   regions: DrawingRegion[]
   layers?: DrawingLayerMeta[]
-  /** 上一版图纸（替换/回退用）；存在时界面可提供「回退」 */
+  /** 上一版图纸（兼容旧数据；新版统一走 history 版本管理） */
   prev?: DrawingView | null
+  /** 历史版本（最近 N 个） */
+  history?: DrawingVersion[]
+}
+
+/** 图纸版本（当前版 / 历史版） */
+export interface DrawingVersion {
+  id: string
+  svg_url: string
+  viewBox: DrawingViewBox | null
+  regions: DrawingRegion[]
+  layers?: DrawingLayerMeta[]
+  created_at?: string | null
+  is_current?: boolean
+  file_exists?: boolean
 }
 
 export interface ServerDrawingConfig {
@@ -68,9 +81,29 @@ export const serverDrawingApi = {
       axios.put(`/api/server-catalog/models/${modelId}/drawing/svg?view=${view}`, { svg })
     ),
 
-  /** 回退到上一版图纸（当前与 prev 互换，再点一次可切回） */
-  rollback: (modelId: number, view: DrawingViewType = 'top') =>
+  /** 回退到历史版本（默认最近一版，可指定 version_id；当前版会压入历史） */
+  rollback: (modelId: number, view: DrawingViewType = 'top', versionId?: string) =>
     RESP<{ ok: boolean; view: DrawingView }>(
-      axios.post(`/api/server-catalog/models/${modelId}/drawing/rollback?view=${view}`)
+      axios.post(`/api/server-catalog/models/${modelId}/drawing/rollback?view=${view}`, null, {
+        params: versionId ? { version_id: versionId } : undefined,
+      })
+    ),
+
+  /** 版本列表：当前版 + 历史版（从新到旧，标注文件是否存在） */
+  listVersions: (modelId: number, view: DrawingViewType = 'top') =>
+    RESP<{ versions: DrawingVersion[] }>(
+      axios.get(`/api/server-catalog/models/${modelId}/drawing/versions`, { params: { view } })
+    ),
+
+  /** 删除一个历史版本（其 SVG 文件若无其他引用则一并清理） */
+  deleteVersion: (modelId: number, versionId: string, view: DrawingViewType = 'top') =>
+    RESP<{ ok: boolean; removed_files?: number }>(
+      axios.delete(`/api/server-catalog/models/${modelId}/drawing/versions/${versionId}`, { params: { view } })
+    ),
+
+  /** 删除某视图整张图纸（含全部历史版本，文件一并清理） */
+  deleteDrawing: (modelId: number, view: DrawingViewType = 'top') =>
+    RESP<{ ok: boolean; removed_files?: number }>(
+      axios.delete(`/api/server-catalog/models/${modelId}/drawing`, { params: { view } })
     ),
 }

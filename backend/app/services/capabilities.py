@@ -1,16 +1,13 @@
 """能力节点 AI 增强层（2026-08 重构·阶段2）。
 
 每个能力节点 = 一个智能，画布可编排；本模块实现 AI 增强版 handler：
-  - understand   需求理解（LLM 填表 + 领域知识注入 + 内部校验）
-  - gap_analyze  缺口分析（槽位覆盖度 + LLM 可选解释）
-  - scene_decide 场景判定（规则判定 + LLM 可选增强）
+  - agent_fill   智能对话填表 Agent（会对话、会查目录/KP、边答边填线索登记表）
   - model_reason 机型推理（ReAct 调 select_models，失败降级规则）
   - kp_reason    配件推理（ReAct 调 pick_kp_parts，失败降级规则）
-  - llm_ask      智能反问（LLM 基于完整上下文策略提问，失败降级目录引导）
-  - llm_confirm  决策确认（推荐 + 理由汇总，供用户确认/调整）
+  - compose      方案组装（build_plan 生成 BOM）
 
 设计原则（拒绝硬编码、拒绝黑盒）：
-  - AI 优先、确定性兜底：LLM 失败/关闭/超轮 → 自动降级到节点内置规则实现，白盒标注 source；
+  - 反问候选由数据来源 + 规则目录确定性过滤，LLM 只负责措辞；LLM 失败直接返回错误，不再离线兜底；
   - 每个节点输出 evidence/confidence/source/trace，前端逐步展示；
   - 型号/料号/价格/兼容性精确性永远由工具/规则保证，LLM 只做推理与编排。
 """
@@ -19,64 +16,10 @@ import logging
 import re
 from typing import Any, Optional
 
+from app.services import capability_spec
+from app.services import prompt_store
+
 logger = logging.getLogger(__name__)
-
-
-# ── 领域知识注入：词表(触发词→品类/系列/类型/形态) → LLM 可读文本 ────────
-
-_KIND_LABEL = {
-    "kp": "配件品类", "chassis": "机箱底盘件",
-    "server_type": "服务器类型", "series": "平台系列", "form": "机箱形态",
-}
-
-
-def _lexicon_mapping_map(lexicons: Optional[list], match_text: Optional[str] = None,
-                         kinds: Optional[list] = None) -> dict:
-    """词表 → {kind: 领域知识文本}（understand 分步子任务按 kind 按需注入用）。
-
-    例：系列映射「兆芯/开胜/zhaoxin → Polaris」；类型映射「AI训练/深度学习 → AI / 加速计算服务器」。
-    这些是产品领域知识，LLM 不知道，必须查词表——用户可配（原 extract 节点抽屉）。
-
-    match_text（按需检索）：给定时只保留「触发词命中需求原文」的条目——与本次需求无关的条目
-    是噪音，全量灌既拖慢 reasoning 模型（空回/超时主因之一），也稀释关键事实。
-    kinds：限定只返回这些种类的词表（子任务各取所需，避免跨种类噪音）。
-    """
-    if not lexicons:
-        return {}
-    text = (match_text or "").strip().lower()
-    kinds = set(kinds or [])
-    out: dict = {}
-    for lex in lexicons:
-        kind = lex.get("kind")
-        if kind not in _KIND_LABEL:
-            continue
-        if kinds and kind not in kinds:
-            continue
-        entries = []
-        for e in lex.get("entries") or []:
-            key = e.get("key") or ""
-            trigs = [str(t) for t in (e.get("triggers") or []) if str(t).strip()]
-            if key and trigs:
-                if text and not any(t.lower() in text for t in trigs):
-                    continue
-                entries.append(f"{key}：{'/'.join(trigs)}")
-        if entries:
-            out[kind] = f"【领域知识·{_KIND_LABEL[kind]}】" + "；".join(entries[:40])
-    return out
-
-
-def build_domain_knowledge_map(flow_configs: Optional[dict] = None, lexicons: Optional[list] = None,
-                               match_text: Optional[str] = None, kinds: Optional[list] = None) -> dict:
-    """构建领域知识 map（{kind: 文本}），供 understand 分步子任务按需注入。失败静默降级空 map。"""
-    try:
-        if lexicons is None:
-            extract_cfg = (flow_configs or {}).get("extract") or {}
-            lexicons = extract_cfg.get("lexicons")
-        return _lexicon_mapping_map(lexicons, match_text=match_text, kinds=kinds)
-    except Exception as e:
-        logger.warning("构建领域知识失败: %s", e)
-        return {}
-
 
 
 
@@ -109,206 +52,93 @@ def _safe_broadcast(broadcast, step_id: Optional[str], kind: str, text: str) -> 
         pass
 
 
-# ── understand：需求理解 ─────────────────────────────────────────────
-
-async def run_understand(ctx: dict, config: dict, broadcast=None, step_id: str = "understand") -> dict:
-    """需求理解：LLM 填表 + 领域知识注入 + 目录白名单；抽不全 → sufficient=False 触发反问。
-
-    复用 agent_understand（填表→resolver→extract 兜底），新增领域知识注入。
-    返回 {ok, ext, source, sufficient, missing_critical, changes, error}。
-    """
-    from app.services.agent_understand import run_agent_understand
-    text = ctx.get("normalized_text") or ctx.get("requirement_text") or ""
-    flow_cfgs = ctx.get("flow_configs") or {}
-    legacy = flow_cfgs.get("extract") or {}
-    # 领域知识：understand 节点自身 config（v11 单路无 extract 节点）优先，旧图 fallback extract
-    extract_cfg = {}
-    for _k in ("lexicons", "spec_aliases", "qty_units", "qty_multipliers",
-               "model_token_regex", "keyword_limit", "category_lexicon", "parse_rules"):
-        if config.get(_k) is not None:
-            extract_cfg[_k] = config[_k]
-    for _k, _v in legacy.items():
-        extract_cfg.setdefault(_k, _v)
-    # agent 化·按需检索：只注入命中需求原文的词表条目（轻 prompt，防空回/提速）
-    # 领域知识 map（按 kind 分桶）：分步子任务各取所需（S1 类型/系列/形态、S2~S4 KP/底盘）。
-    # 按需检索：只注入命中需求原文的词表条目（轻 prompt，防空回/提速）。
-    domain_map = build_domain_knowledge_map(flow_cfgs, lexicons=extract_cfg.get("lexicons"), match_text=text)
-    # 工作负载→类型映射（llm_ask 节点可配）：AI 反问首问给工作负载选项，客户选了标签后，
-    # 这里让理解节点把「AI / 机器学习」这类标签确定性映射到在售类型（如 AI / 加速计算服务器），
-    # 不依赖 LLM 猜。来源 = llm_ask 节点 config.workload_categories（画布可配，非硬编码）。
-    wl_cats = ((ctx.get("flow_configs") or {}).get("llm_ask") or {}).get("workload_categories") or []
-    wl_lines = [f"- {c.get('label')}（{c.get('desc') or ''}）→ {c.get('type') or ''}"
-                for c in wl_cats if c.get("label") and c.get("type")]
-    if wl_lines:
-        _wl = ("【工作负载 → 服务器类型映射（AI 反问选项与理解共用）】\n"
-               + "\n".join(wl_lines)
-               + "\n客户说的工作负载名称按此映射到 server_type_name，类型只能选在售类型。")
-        domain_map["server_type"] = ((domain_map.get("server_type") or "") + "\n\n" + _wl).strip()
-    res = await run_agent_understand(
-        text, config, extract_config=extract_cfg,
-        broadcast=broadcast, step_id=step_id,
-        domain_knowledge="\n".join(domain_map.values()),
-        domain_map=domain_map,
-    )
-    # AI 失效（LLM 关/报错/空表/resolver 失败）→ 不在此内联兜底：
-    # 返回 ai_failed，编排器据此走诚实降级（目录手动选型 + 明确告知用户 AI 不可用）。
-    if not res.get("ok"):
-        ctx["ext"] = {}
-        return {"called": False, "source": "ai_failed", "sufficient": False,
-                "missing_critical": res.get("missing_critical") or [],
-                "changes": [], "error": res.get("error") or "ai_failed"}
-    ext = res.get("ext") or {}
-    ctx["ext"] = ext
-    ctx["model_token_regex"] = extract_cfg.get("model_token_regex") or config.get("model_token_regex")
-    if ctx.get("budget") is None and ext.get("budget") is not None:
-        ctx["budget"] = ext["budget"]
-    # Phase2：理解节点自带「专家分析 / 场景 / 缺口」——默认链可不再经过 gap_analyze/scene_decide。
-    # 场景：由已理解类型/系列/形态确定性给出（与 scene_decide 输出同构，模型/选型消费端兼容）。
-    _issues = res.get("analysis_issues") or []
-    if _issues:
-        ctx["analysis_issues"] = _issues
-    ctx["scene"] = {
-        "scene_name": ext.get("server_type_name"),
-        "series": ext.get("series"),
-        "form": ext.get("form"),
-        "determined": bool(ext.get("server_type_name")),
-        "source": "understand",
-    }
-    # 缺口/明确度：理解充分→explicit，否则 partial（与 gap_analyze 判定同向，供反问门控）
-    if not bool(res.get("sufficient")) and not ctx.get("delegated"):
-        ctx["understand_insufficient"] = True
-        for m in (res.get("missing_critical") or []):
-            if m and m not in ctx.setdefault("missing_fields", []):
-                ctx["missing_fields"].append(m)
-        ctx["clarity"] = "partial"
-    else:
-        ctx["clarity"] = "explicit"
-    return {
-        "called": bool(res.get("ok")),
-        "source": res.get("source"),
-        "sufficient": bool(res.get("sufficient")),
-        "missing_critical": res.get("missing_critical") or [],
-        "changes": res.get("changes") or [],
-        "error": res.get("error"),
-        "issues": _issues,
-    }
-
-
-def run_gap_analyze(ctx: dict, config: Optional[dict] = None) -> dict:
-    """缺口分析：已填槽位 vs 期望清单 → level + missing_fields + 原因。
-
-    确定性：槽位覆盖度（clarity_evaluator）；LLM 可选解释（config.llm_explain，异步由上层调）。
-    期望槽位来源：节点 config 显式覆盖（slots/ask_threshold）> system_config.requirement_slots
-    （全局，前端 SlotListEditor 编辑）——不能把整包节点 config（含 llm_explain）传进去，
-    否则 evaluate_slot_coverage 会因 config 非 None 而跳过全局读取（2026-08 重构修复）。
-    """
-    from app.services.clarity_evaluator import evaluate_slot_coverage, load_requirement_slots
-    ext = ctx.get("ext") or {}
-    try:
-        if config and (config.get("slots") or config.get("ask_threshold") is not None):
-            slots_cfg = {"slots": config.get("slots") or [], "ask_threshold": config.get("ask_threshold")}
-        else:
-            slots_cfg = load_requirement_slots()
-        level, missing, explain = evaluate_slot_coverage(ext, slots_cfg)
-    except Exception as e:
-        logger.exception("槽位覆盖度评估异常，回退 partial: %s", e)
-        level, missing, explain = "partial", ["需求描述不够具体"], {}
-    # 目录引导已完成 → 视为信息足够
-    if (ctx.get("catalog_stage") or "") == "done":
-        level, missing = "explicit", []
-        explain = {**(explain or {}), "catalog_complete": True}
-    # 客户已委托推荐（"你推荐/不确定/随便"）→ 信息视为足够，不再反问（AI 路等价目录引导 delegate 特判）
-    if ctx.get("delegated"):
-        level, missing = "explicit", []
-        explain = {**(explain or {}), "delegated": True}
-    # understand 抽不全（无类型/无配置信号）→ 强制不足，合并缺失项（交给 llm_ask 智能反问）。
-    # 客户已委托推荐（delegated）时不覆盖：委托 = 不再反问，直接按推荐默认出方案。
-    if ctx.get("understand_insufficient") and not ctx.get("delegated"):
-        level = "partial"
-        for m in (ctx.get("missing_fields") or []):
-            if m and m not in missing:
-                missing.append(m)
-        explain = {**(explain or {}), "understand_insufficient": True}
-    ctx["clarity"] = level
-    ctx["missing_fields"] = missing
-    ctx["clarity_explain"] = explain
-    # cond_gap 条件用：反问封顶标志（orchestrator 有循环上限，此处默认未封顶）
-    ctx["clarity_capped"] = bool(ctx.get("clarity_capped") or ctx.get("force_complete"))
-    return {"level": level, "missing_fields": missing, "explain": explain, "capped": ctx["clarity_capped"]}
-
-
-# ── scene_decide：场景判定 ───────────────────────────────────────────
-
-def run_scene_decide(ctx: dict, config: Optional[dict] = None) -> dict:
-    """场景判定：需求信号 → AI/存储/通用 × 系列 × 形态（带证据白盒）。
-
-    规则判定（scene_analyzer）为确定性本体；LLM 增强在 model_reason/kp_reason 阶段体现。
-    """
-    from app.services.scene_analyzer import analyze_scene
-    ext = ctx.get("ext") or {}
-    scene = analyze_scene(
-        ext,
-        ctx.get("requirement_text") or "",
-        config=config,
-        opportunity=ctx.get("opportunity"),
-        catalog_type_name=ctx.get("catalog_type_name"),
-        force_complete=bool(ctx.get("force_complete")),
-    )
-    ctx["scene"] = scene
-    ctx["scene_determined"] = bool(scene.get("determined"))
-    if not scene.get("determined"):
-        for _f in scene.get("missing") or []:
-            if _f not in ctx.setdefault("missing_fields", []):
-                ctx["missing_fields"].append(_f)
-    return {
-        "scene_name": scene.get("scene_name"),
-        "series": scene.get("series"),
-        "form": scene.get("form"),
-        "determined": scene.get("determined"),
-        "confidence": scene.get("confidence"),
-        "evidence": scene.get("evidence"),
-        "missing": scene.get("missing"),
-    }
 
 
 # ── model_reason：机型推理（ReAct + select_models）────────────────────
 
-_MODEL_REASON_PROMPT = (
-    "你是 CPQ 平台的服务器机型选型智能体（ReAct：推理→行动→观察）。\n"
-    "【每轮只输出一个 json 对象（JSON 格式）】，包含 action 字段；禁止输出任何多余文字。\n"
-    "目标：根据已理解的需求，为整机方案选定 1-N 个候选机型。\n"
-    "【必须用 select_models 工具查真实在售机型】，禁止编造机型名/型号。\n"
-    "流程：先调 select_models（传 server_type_name/form/series/usage），观察返回的候选清单，\n"
-    "从中选出满足需求的最优机型（可多选，但宁缺毋滥），然后 final 收敛。\n"
-    "【final.answer 必须严格用以下格式】：\n"
-    "选型：<机型名>（id=<config_id>）；理由：<一句话，只能引用工具返回字段>\n"
-    "若工具返回无匹配机型，final.answer 写：选型：无；理由：<原因>"
-)
+
+DEFAULT_MODEL_REASON_CONFIG = {
+    "grounding_tool": "select_models",
+    "grounding_result_key": "candidates",
+    "choice_id_pattern": r"id=(\d+)",
+    "choice_fields": ["config_id", "server_model_id", "id"],
+    "skip_react_when_model_missing": True,
+    "model_missing_token_pattern": r"[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\-]*",
+}
+
+DEFAULT_COMPOSE_CONFIG = {
+    "kp_source": "per_baseline",
+    "psu_override_enabled": True,
+    "psu_wattage_source": "ext.psu_signal.wattage",
+    "psu_qty_source": "ext.psu_signal.qty",
+}
+
+def _compose_config(config: Optional[dict]) -> dict:
+    """归一化 compose 节点配置；配件来源与电源覆盖策略不再写死。"""
+    cfg = dict(config or {})
+    for key, value in DEFAULT_COMPOSE_CONFIG.items():
+        cfg.setdefault(key, value)
+    return cfg
+def _get_nested(data: dict, path: str, default=None):
+    """按点分路径读取嵌套字典值；路径非法返回 default。"""
+    cur = data
+    for part in str(path or "").split("."):
+        if not isinstance(cur, dict) or part not in cur:
+            return default
+        cur = cur[part]
+    return cur
 
 
-def _extract_grounding_from_react(tool_calls_log: list) -> list:
-    """从 ReAct 工具轨迹收集 select_models 返回的候选清单（含完整字段）。"""
+def _model_reason_config(config: Optional[dict]) -> dict:
+    """归一化 model_reason 节点配置；默认值集中在这里，不在执行逻辑中散落业务常量。"""
+    cfg = dict(config or {})
+    for key, value in DEFAULT_MODEL_REASON_CONFIG.items():
+        if isinstance(value, list):
+            cfg.setdefault(key, list(value))
+        else:
+            cfg.setdefault(key, value)
+    d = prompt_store.get_prompt_defaults("model_reason")
+    cur = cfg.get("system_prompt")
+    if cur is None or (isinstance(cur, str) and not cur.strip()):
+        cfg["system_prompt"] = d.get("system_prompt", "")
+    return cfg
+
+
+def _extract_grounding_from_react(tool_calls_log: list, config: Optional[dict] = None) -> list:
+    """从 ReAct 工具轨迹收集候选清单；工具名与结果字段由节点配置指定。"""
+    cfg = _model_reason_config(config)
     candidates = []
     for c in tool_calls_log or []:
-        if c.get("name") != "select_models":
+        if c.get("name") != cfg.get("grounding_tool"):
             continue
         res = c.get("result")
-        if isinstance(res, dict) and res.get("candidates"):
-            candidates.extend(res["candidates"])
+        if not isinstance(res, dict):
+            continue
+        result_key = str(cfg.get("grounding_result_key") or "candidates")
+        values = res.get(result_key)
+        if isinstance(values, list):
+            candidates.extend(values)
     return candidates
 
 
-def _parse_model_choice(answer: str, candidates: list) -> Optional[dict]:
-    """从 LLM final.answer 解析选中的机型（匹配候选 name/config_id；禁编）。"""
+def _parse_model_choice(answer: str, candidates: list, config: Optional[dict] = None) -> Optional[dict]:
+    """从 LLM final.answer 解析选中的机型；id 正则与候选字段由节点配置指定。"""
+    cfg = _model_reason_config(config)
     if not answer:
         return None
-    # 显式 id=xxx
-    m = re.search(r"id=(\d+)", answer)
-    if m:
-        cid = int(m.group(1))
-        for c in candidates:
-            if c.get("config_id") == cid or c.get("server_model_id") == cid or c.get("id") == cid:
-                return c
+    # 显式 id=xxx（正则与候选字段可配）
+    try:
+        pattern = str(cfg.get("choice_id_pattern") or DEFAULT_MODEL_REASON_CONFIG["choice_id_pattern"])
+        m = re.search(pattern, answer, re.I)
+        if m:
+            raw = m.group(1) if m.lastindex and m.lastindex >= 1 else m.group(0)
+            cid = int(raw) if str(raw).isdigit() else raw
+            fields = [str(f) for f in (cfg.get("choice_fields") or []) if f]
+            for c in candidates:
+                if any(c.get(field) == cid for field in fields):
+                    return c
+    except re.error:
+        pass
     # 名称匹配（精确/包含）
     low = answer.lower()
     best = None
@@ -341,8 +171,9 @@ def _named_model_not_in_catalog(text: str, config: dict, ctx: dict) -> bool:
         import re
         # 机型代码特征（纯检测，非业务规则）：2+ 字母后跟 2+ 数字（可带 -/字母后缀）——
         # 命中「点名了具体型号」如 WA5480 / ES22V3-P / R760；排除纯数字与带单位规格（32G/5090/5600/2700）。
+        cfg = _model_reason_config(config)
         # 用户可在 model_reason 抽屉用 model_missing_token_pattern 覆盖（空=用默认特征）。
-        pat = config.get("model_missing_token_pattern") or r"[A-Za-z]{2,}[0-9]{2,}[A-Za-z0-9\-]*"
+        pat = cfg.get("model_missing_token_pattern") or DEFAULT_MODEL_REASON_CONFIG["model_missing_token_pattern"]
         try:
             parts = re.split(r"[\s,，、;；:：()（）×*]+", low)
             hit = [t for t in parts if t and re.fullmatch(pat, t, re.I)]
@@ -360,10 +191,11 @@ async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     返回 {ok, baseline, reason, trace, source}。ok=False 时上层走 select_baseline 规则。
     """
     from app.services.agent_react import run_react_loop
+    cfg = _model_reason_config(config)
     text = ctx.get("requirement_text") or ""
     ext = ctx.get("ext") or {}
     scene = ctx.get("scene") or {}
-    if not _ai_enabled(ctx, config):
+    if not _ai_enabled(ctx, cfg):
         return {"ok": False, "source": "rule"}
     if ctx.get("delegated"):
         # 客户已委托推荐 → 不再反问（编排层已拦截，这里兜底）
@@ -371,8 +203,8 @@ async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     # 短路（可配 skip_react_when_model_missing，默认开）：需求点名了不在在售目录的具体机型
     # （如 联想 WA5480 G3）→ ReAct 只会反复确认"目录里没有"然后烧 30s 降级，不如直走规则
     # 降级（select_models 已有 fallback_order 多级放宽 + 白盒说明），省时且更透明。
-    if bool(config.get("skip_react_when_model_missing", True)) and \
-            _named_model_not_in_catalog(text, config, ctx):
+    if bool(cfg.get("skip_react_when_model_missing", True)) and \
+            _named_model_not_in_catalog(text, cfg, ctx):
         logger.info("model_reason 短路：需求点名机型不在在售目录，直走规则降级")
         ctx["model_reason_shortcut"] = True
         return {"ok": False, "source": "rule", "reason": "需求点名机型不在在售目录，按最接近在售机型给出"}
@@ -384,15 +216,22 @@ async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
         "usage": ext.get("usage"),
     }
     extra = "已理解需求意图：" + json.dumps({k: v for k, v in intent.items() if v}, ensure_ascii=False)
+    persona = (ctx.get("colleague_system_prompt") or "").strip()
+    base_prompt = str(cfg.get("system_prompt") or "")
+    if persona:
+        base_prompt = persona + "\n\n" + base_prompt
     agent_cfg = {
-        "enabled_tools": config.get("enabled_tools") or ["select_models"],
-        "system_prompt": config.get("system_prompt") or _MODEL_REASON_PROMPT,
+        "enabled_tools": cfg.get("enabled_tools") or [str(cfg.get("grounding_tool"))],
+        "system_prompt": base_prompt,
     }
     try:
         react = await run_react_loop(text, agent_cfg, extra_context=extra,
-                                     max_iterations=int(config.get("max_iterations") or 4))
-        candidates = _extract_grounding_from_react(react.get("tool_calls_log") or [])
-        chosen = _parse_model_choice(react.get("answer") or "", candidates)
+                                     max_iterations=int(cfg.get("max_iterations") or 2),
+                                     allowed_tool_ids=ctx.get("colleague_tool_ids"),
+                                     model=ctx.get("colleague_model_override"),
+                                     event_sink=broadcast)
+        candidates = _extract_grounding_from_react(react.get("tool_calls_log") or [], cfg)
+        chosen = _parse_model_choice(react.get("answer") or "", candidates, cfg)
         if react.get("ok") and chosen:
             return {
                 "ok": True, "baseline": chosen, "reason": react.get("answer") or "",
@@ -432,19 +271,16 @@ KP_PROPOSE_SCHEMA: dict = {
     },
 }
 
-KP_PROPOSE_SYSTEM_PROMPT = (
-    "你是 CPQ 服务器配件规划智能体。输入：客户需求原文 + 已理解摘要 + 机型内存通道能力。\n"
-    "任务：把「只有总量没单条/条数」的内存、RAID 型号、网卡口数、电源瓦数这些**需要领域知识才能定**的项确认下来，输出 JSON。\n"
-    "规则：\n"
-    "1) 内存：给了总量没给单条/条数时，按机型通道数拆条（如 256GB、12 通道 → 8×32G 填 8 通道；"
-    "优先 32G/64G 常见条，别用 16G 凑 16 条），给出 per_stick_gb/qty/total_gb；\n"
-    "2) RAID：需求给了缓存/接口数等规格（如 2GB缓存+8口）但没型号 → 推断常见型号（如 LSI 9361-8i）；不确定写 null；\n"
-    "3) 网卡：按需求口数与速率确认（双口/单口、是否含光模块），产出每张卡的 speed_g/ports/qty/with_optical_module；\n"
-    "4) 电源：按需求 GPU/CPU 数量粗估满载功耗（如 8×300W GPU + 双路 ≈ >4000W → 4×2700W 或 3000W 冗余），"
-    "给 wattage/qty + reason；需求已明确瓦数则沿用；\n"
-    "5) 一切以需求与给定事实为准，没把握的字段留 null，绝不编造具体料号。\n"
-    "只输出 JSON：{memory:{per_stick_gb,qty,type,speed_mt,total_gb,reason}, raid:{model,qty,reason}, "
-    "nic:[{speed_g,ports,qty,with_optical_module,reason}], psu:{wattage,qty,reason}, notes:[...]}"
+
+KP_FINAL_CONTRACT = (
+    "\n\n【任务】只输出一个 JSON 对象，不要 Markdown 代码块，不调用工具、不分步。"
+    "你已完成信息处理，直接给配件提议。"
+    '必须是：{"action":"final","answer":{"memory":{"per_stick_gb":32,"qty":8,"type":"DDR5","speed_mt":6400,"total_gb":256,"reason":"..."},'
+    '"raid":{"model":"RAID卡型号","qty":1,"reason":"..."},'
+    '"nic":[{"speed_g":10,"ports":2,"qty":1,"with_optical_module":false,"reason":"..."}],'
+    '"psu":{"wattage":3000,"qty":4,"reason":"..."},"notes":["..."]}}'
+    "\n- memory/raid/nic/psu 按上面键给；没把握的键省略（置空），绝不编造不在机型能力目录内的型号/料号/瓦数。"
+    "\n- 型号/料号/价格/兼容性由后端库校验，你只给建议；最终以库为准。"
 )
 
 
@@ -481,42 +317,64 @@ def _ext_digest_for_kp(ext: dict) -> str:
     return "；".join(parts) or "（空）"
 
 
-def _kp_proposal_reason(data: dict) -> str:
-    """提议的白盒说明（给 step_done payload / 用户看）。"""
+def _kp_proposal_reason(data: dict, config: Optional[dict] = None) -> str:
+    """提议的白盒说明（给 step_done payload / 用户看）；摘要规则由 proposal_mapping 驱动。"""
+    cfg = _kp_config(config)
     notes = []
-    mem = data.get("memory") or {}
-    if mem.get("per_stick_gb") and mem.get("qty"):
-        notes.append(f"内存 {mem['per_stick_gb']}G×{mem['qty']}")
-    raid = data.get("raid") or {}
-    if raid.get("model"):
-        notes.append(f"RAID {raid['model']}")
-    nics = data.get("nic") or []
-    if nics:
-        notes.append(f"网卡 {len(nics)} 张")
-    psu = data.get("psu") or {}
-    if psu.get("wattage"):
-        notes.append(f"电源 {psu['wattage']}W×{psu.get('qty') or '?'}")
-    return "配件规划：已确认 " + "、".join(notes) if notes else ""
+    mapping = cfg.get("proposal_mapping") or {}
+    for target, spec in mapping.items():
+        if not isinstance(spec, dict):
+            continue
+        source = data.get(target)
+        if isinstance(source, list):
+            if source:
+                notes.append(f"{target} {len(source)} 项")
+            continue
+        if not isinstance(source, dict):
+            continue
+        fields = [str(f) for f in (spec.get("fields") or []) if f]
+        required = [str(f) for f in (spec.get("required_any") or fields) if f]
+        if not any(source.get(f) is not None for f in required):
+            continue
+        parts = []
+        for f in fields:
+            if source.get(f) is not None:
+                parts.append(f"{f}={source[f]}")
+        if parts:
+            notes.append(f"{target} {'，'.join(parts)}")
+    summary = "、".join(notes)
+    template = str(cfg.get("reason_template") or "{{items}}")
+    return template.replace("{{items}}", summary) if summary else ""
 
 
-def _apply_kp_proposal(ext: dict, data: dict, requirement_text: str) -> None:
+def _apply_kp_proposal(ext: dict, data: dict, requirement_text: str, config: Optional[dict] = None) -> None:
     """把 LLM 提议合并进 ext（复用 merge_into_ext 的确定性收口：只补缺、规则赢）。
-    理解已抽到的（per_stick/mem_groups/raid 型号/nic 过滤器/psu 瓦数）不覆盖；只补缺口。"""
+    哪个字段合入、哪些字段必填，全部由 proposal_mapping 配置决定。"""
     from app.services.llm_extract_enhance import merge_into_ext
+    cfg = _kp_config(config)
     slots: dict = {}
-    mem = data.get("memory") or {}
-    if mem.get("per_stick_gb") or mem.get("total_gb"):
-        slots["memory"] = {k: mem.get(k) for k in ("per_stick_gb", "qty", "type", "speed_mt", "comparison", "total_gb")
-                           if mem.get(k) is not None}
-    raid = data.get("raid") or {}
-    if raid.get("model"):
-        slots["raid"] = {"model": str(raid["model"]), "qty": int(raid.get("qty") or 1)}
-    nics = data.get("nic") or []
-    if nics:
-        slots["nic"] = [{"speed_g": n.get("speed_g"), "ports": n.get("ports"), "qty": n.get("qty"),
-                         "with_optical_module": n.get("with_optical_module")} for n in nics]
-    # psu 不合并：电源瓦数由 compose 的确定性 GPU-TDP 计算（_infer_psu_wattage，数据驱动）给出，
-    # 需求显式瓦数由理解抽取（S4）→ merge；LLM 提议的口算常偏低（如 8×R9700 给了 2000W），不采用。
+    for target, spec in (cfg.get("proposal_mapping") or {}).items():
+        if not isinstance(spec, dict):
+            continue
+        source = data.get(target)
+        fields = [str(f) for f in (spec.get("fields") or []) if f]
+        required = [str(f) for f in (spec.get("required_any") or fields) if f]
+        if isinstance(source, list):
+            cleaned_items = []
+            for item in source or []:
+                if not isinstance(item, dict):
+                    continue
+                if not any(item.get(f) is not None for f in required):
+                    continue
+                cleaned_items.append({f: item.get(f) for f in fields if item.get(f) is not None})
+            if cleaned_items:
+                slots[target] = cleaned_items
+            continue
+        if not isinstance(source, dict):
+            continue
+        if not any(source.get(f) is not None for f in required):
+            continue
+        slots[target] = {f: source.get(f) for f in fields if source.get(f) is not None}
     if slots:
         try:
             merge_into_ext(ext, slots, requirement_text=requirement_text)
@@ -524,10 +382,13 @@ def _apply_kp_proposal(ext: dict, data: dict, requirement_text: str) -> None:
             logger.warning("kp 提议合并失败（丢弃提议，规则赢）: %s", e)
 
 
-async def _kp_llm_propose(ctx: dict, config: dict) -> dict:
-    """KP LLM 提议：读需求+理解摘要+机型通道 → 确认内存条数/RAID/网卡/电源（领域知识）。
-    产出结构化信号合并进 ext；pick_kp_parts 随后做库校验执行。失败返回 {ok:False}，上层降级规则。"""
+async def _kp_llm_propose(ctx: dict, config: dict, broadcast=None) -> dict:
+    """KP LLM 提议（单次流式）：读需求+理解摘要+机型通道 → 一次流式输出配件提议 JSON。
+    与 agent_fill 同构：不再多轮 ReAct/工具，模型只输出最终 JSON；schema 收口与事实落地交给
+    clean_by_schema + _apply_kp_proposal（规则赢）。失败返回 {ok:False}，上层降级规则。"""
     from app.services import llm_client
+    from app.services.agent_react import run_react_loop
+    cfg = _kp_config(config)
     ext = ctx.get("ext") or {}
     baseline = ctx.get("baseline") or (ctx.get("baselines") or [None])[0]
     mem_cfg = ""
@@ -536,25 +397,56 @@ async def _kp_llm_propose(ctx: dict, config: dict) -> dict:
         md = baseline.get("max_dimm")
         mem_cfg = f"机型 {baseline.get('name') or '?'}：内存通道={mc or '未知'}，最大插槽={md or '未知'}"
     text = ctx.get("requirement_text") or ""
-    user = (
-        f"客户需求原文：\n{text}\n\n"
-        f"已理解摘要：\n{_ext_digest_for_kp(ext)}\n\n"
-        f"机型能力：{mem_cfg or '（未选机型）'}\n\n"
-        "请确认内存/RAID/网卡/电源（没把握留空）。"
-    )
+    user_template = str(cfg.get("user_prompt_template") or "")
+    user = user_template
+    for key, value in {
+        "requirement_text": text,
+        "understood": _ext_digest_for_kp(ext),
+        "baseline_capability": mem_cfg or "（未选机型）",
+    }.items():
+        user = user.replace("{{" + key + "}}", str(value))
+
+    async def _sink(ev: dict) -> None:
+        if not broadcast:
+            return
+        try:
+            await broadcast({"type": "step_progress", "step": "kp_reason",
+                             "sub": ev.get("sub") or {}})
+        except Exception:
+            pass
+
     try:
-        data = await llm_client.chat_json(
-            [{"role": "system", "content": KP_PROPOSE_SYSTEM_PROMPT},
-             {"role": "user", "content": user}],
-            schema=KP_PROPOSE_SCHEMA, temperature=0.2, timeout=60, max_attempts=1,
+        result = await run_react_loop(
+            requirement_text=text or "（无需求原文）",
+            config={**cfg, "enabled_tools": []},
+            system_prompt=str(cfg.get("system_prompt") or ""),
+            history=[],
+            extra_context=user,
+            max_iterations=min(int(cfg.get("max_iterations") or 3), 2),
+            event_sink=_sink,
+            final_only=True,
+            final_only_contract=KP_FINAL_CONTRACT,
         )
     except Exception as e:
         logger.warning("kp LLM 提议失败: %s", e)
         return {"ok": False, "error": str(e)[:200]}
-    if not isinstance(data, dict) or not data:
+    raw_answer = result.get("answer") or ""
+    if not result.get("ok") or not raw_answer:
+        err = str(result.get("error") or (raw_answer if isinstance(raw_answer, str) else "empty"))[:200]
+        logger.warning("kp LLM 提议未返回有效 JSON: %s", err)
+        return {"ok": False, "error": err or "empty"}
+    text_ans = raw_answer if isinstance(raw_answer, str) else json.dumps(raw_answer, ensure_ascii=False)
+    try:
+        parsed = llm_client._parse_json_content(text_ans) if isinstance(text_ans, str) else raw_answer
+    except Exception:
+        parsed = None
+    if not isinstance(parsed, dict) or not parsed:
         return {"ok": False, "error": "empty"}
-    _apply_kp_proposal(ext, data, text)
-    return {"ok": True, "proposal": data, "reason": _kp_proposal_reason(data)}
+    data, _ = llm_client.clean_by_schema(parsed, cfg.get("proposal_schema") or KP_PROPOSE_SCHEMA)
+    if not isinstance(data, dict) or not data:
+        return {"ok": False, "error": "empty_schema"}
+    _apply_kp_proposal(ext, data, text, cfg)
+    return {"ok": True, "proposal": data, "reason": _kp_proposal_reason(data, cfg)}
 
 
 async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
@@ -563,239 +455,655 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     AI-first：固定走 LLM 提议（内存条数/RAID/网卡/电源）→ pick_kp_parts 库校验执行。
     返回 {ok, kp_parts, kp_count, reason, trace, source}。LLM 提议失败 → run_match_kp_rule 规则兜底。
     """
-    ext = ctx.get("ext") or {}
-    baseline = ctx.get("baseline") or (ctx.get("baselines") or [None])[0]
-    if not _ai_enabled(ctx, config):
+    cfg = _kp_config(config)
+    if not _ai_enabled(ctx, cfg):
         return {"ok": False, "source": "rule"}
-    # AI-first：LLM 提议 → 库校验执行（proposal_mode 旧开关已删）
     proposal_note = ""
-    prop = await _kp_llm_propose(ctx, config)
-    if prop.get("ok"):
-        proposal_note = prop.get("reason") or ""
-        ctx["kp_proposal"] = prop.get("proposal")
-    else:
-        logger.warning("kp LLM 提议失败(%s)，降级规则匹配", prop.get("error"))
-    rule_res = run_match_kp_rule(ctx, config)
+    if bool(cfg.get("proposal_enabled", True)):
+        prop = await _kp_llm_propose(ctx, cfg, broadcast)
+        if prop.get("ok"):
+            proposal_note = prop.get("reason") or ""
+            ctx["kp_proposal"] = prop.get("proposal")
+        else:
+            logger.warning("kp LLM 提议失败(%s)，降级规则匹配", prop.get("error"))
+    rule_res = run_match_kp_rule(ctx, cfg)
     ok = bool(rule_res.get("kp_count"))
     return {**rule_res, "ok": ok, "source": "llm+rule" if proposal_note else "rule",
             "reason": proposal_note, "trace": [], "kp_parts": ctx.get("kp_parts") or []}
 
 
-# ── 智能反问（llm_ask）与决策确认（llm_confirm）─────────────────────────
-# （2026-08 Phase1 误删后按原契约重建：选项白名单过滤禁塔式/空选项目录兜底/工作负载放行 由
-#   tests/test_llm_ask_catalog.py 约束；run_llm_ask 主逻辑与原实现一致。）
-_FORM_WHITELIST = ["1U", "2U", "4U", "5U", "6U", "8U"]
 
-_LLM_ASK_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "question": {"type": "string"},
-        "options": {"type": "array", "items": {"type": "string"}},
-        "why": {"type": "string"},
+
+DEFAULT_KP_REASON_CONFIG = {
+    "proposal_enabled": True,
+    "proposal_schema": KP_PROPOSE_SCHEMA,
+    "temperature": 0.2,
+    "timeout": 60,
+    "max_attempts": 1,
+    "proposal_mapping": {
+        "memory": {
+            "fields": ["per_stick_gb", "qty", "type", "speed_mt", "comparison", "total_gb"],
+            "required_any": ["per_stick_gb", "total_gb"],
+        },
+        "raid": {
+            "fields": ["model", "qty"],
+            "required_any": ["model"],
+        },
+        "nic": {
+            "fields": ["speed_g", "ports", "qty", "with_optical_module"],
+            "required_any": ["speed_g", "ports", "qty"],
+        },
     },
-    "required": ["question", "options"],
+    "reason_template": "配件规划：已确认 {{items}}",
 }
 
-_LLM_ASK_PROMPT = (
-    "你是 CPQ 平台的服务器配置顾问，负责在信息不足时向客户提出最关键的一个问题。\n"
-    "要求：\n"
-    "1) 一次只问一个最关键的问题，简短、口语化；\n"
-    "2) options 只能从给定白名单/工作负载选项里选，禁止编造（如目录没有塔式，就不能给塔式）；\n"
-    "3) 每个问题给 why（一句话说明为什么问这个）；\n"
-    "4) 只输出 JSON：{question, options, why}。"
-)
+
+def _kp_config(config: Optional[dict]) -> dict:
+    """归一化 kp_reason 节点配置；LLM 提议的 schema/提示词/映射全部可编辑。"""
+    cfg = dict(config or {})
+    for key, value in DEFAULT_KP_REASON_CONFIG.items():
+        if isinstance(value, dict):
+            cfg.setdefault(key, dict(value))
+        elif isinstance(value, list):
+            cfg.setdefault(key, list(value))
+        else:
+            cfg.setdefault(key, value)
+    d = prompt_store.get_prompt_defaults("kp_reason")
+    for key in ("system_prompt", "user_prompt_template"):
+        cur = cfg.get(key)
+        if cur is None or (isinstance(cur, str) and not cur.strip()):
+            cfg[key] = d.get(key, "")
+    return cfg
 
 
-def _catalog_whitelist() -> dict:
-    """从目录派生反问白名单：类型/系列/形态/机型。形态从机型 base_config.form 去重 + 顶层 form 兜底；
-    目录空 → 回退 _FORM_WHITELIST（不崩）。"""
-    out: dict = {"types": [], "series": [], "forms": [], "models": []}
+
+
+def _ask_config(config: Optional[dict]) -> dict:
+    """归一化 agent_fill/model_reason 等节点配置：数据来源与规则目录可配，不再含反问状态机字段。"""
+    cfg = dict(config or {})
+    cfg.setdefault("data_sources", ["server_catalog"])
+    cfg.setdefault("rule_types", ["platform_series_map"])
+    return cfg
+
+def _infer_series_from_requirement(text: str, config: Optional[dict] = None) -> Optional[str]:
+    """按 platform_series_map 把 AMD/兆芯/Intel 等平台词归一为系列。"""
+    low = (text or "").lower()
+    try:
+        from app.services.requirement_rule_catalog import platform_series_map
+        rules = platform_series_map(enabled_types=_ask_config(config).get("rule_types"))
+    except Exception:
+        return None
+    for rule in rules:
+        series = str(rule.get("series") or "").strip()
+        keywords = [str(k).strip().lower() for k in (rule.get("keywords") or []) if str(k).strip()]
+        if series and any(k in low for k in keywords):
+            return series
+    return None
+
+
+def _catalog_whitelist(config: Optional[dict] = None, ext: Optional[dict] = None,
+                       requirement_text: str = "") -> dict:
+    """从在售目录构建与已确认字段一致的候选白名单。
+
+    保留机型与类型/系列/形态的关联（model_meta），后续选项过滤只在此受限集合内进行。
+    """
+    cfg = _ask_config(config)
+    ext = ext or {}
+    out: dict = {"types": [], "series": [], "forms": [], "models": [], "model_meta": {}}
     try:
         from app.services.catalog_guide import load_catalog
         types, models_by_type = load_catalog()
-        out["types"] = [str(t.get("name") or "") for t in (types or []) if t.get("name")]
-        for tn, ms in (models_by_type or {}).items():
-            for m in (ms or []):
-                nm = m.get("name")
-                if nm and str(nm) not in out["models"]:
-                    out["models"].append(str(nm))
-                f = (m.get("base_config") or {}).get("form") or m.get("form")
-                if f and str(f) not in out["forms"]:
-                    out["forms"].append(str(f))
     except Exception as e:
-        logger.warning("读反问白名单失败（回退形态常量）: %s", e)
-    if not out["forms"]:
-        out["forms"] = list(_FORM_WHITELIST)
-    try:
-        from app.repository.system_config_repo import SystemConfigRepository
-        repo = SystemConfigRepository()
+        logger.warning("读反问候选目录失败: %s", e)
+        return out
+
+    confirmed_type = (ext.get("server_type_name") or "").strip()
+    confirmed_series = (ext.get("series") or "").strip() or _infer_series_from_requirement(requirement_text, cfg) or ""
+    confirmed_form = (ext.get("form") or "").strip()
+    type_names = [str(t.get("name") or "") for t in (types or []) if t.get("name")]
+    type_names = [tn for tn in type_names if (models_by_type or {}).get(tn)]
+
+    type_set: set = set()
+    series_order: list = []
+    form_order: list = []
+    model_order: list = []
+    model_meta: dict = {}
+
+    def _add_unique(lst: list, value: str) -> None:
+        value = str(value or "").strip()
+        if value and value not in lst:
+            lst.append(value)
+
+    for tn in type_names:
+        if confirmed_type and tn != confirmed_type:
+            continue
+        for m in (models_by_type or {}).get(tn) or []:
+            base = m.get("base_config") or {}
+            model_series = (base.get("series") or m.get("series") or "").strip()
+            model_form = (base.get("form") or m.get("form") or "").strip()
+            if confirmed_series and model_series != confirmed_series:
+                continue
+            if confirmed_form and model_form != confirmed_form:
+                continue
+            name = str(m.get("name") or "").strip()
+            if not name:
+                continue
+            type_set.add(tn)
+            _add_unique(series_order, model_series)
+            _add_unique(form_order, model_form)
+            if name not in model_order:
+                model_order.append(name)
+            model_meta[name] = {"type": tn, "series": model_series, "form": model_form}
+
+    out["types"] = [tn for tn in type_names if tn in type_set]
+    if not out["types"] and confirmed_type:
+        out["types"] = [confirmed_type]
+    out["series"] = series_order
+    out["forms"] = form_order
+    out["models"] = model_order
+    out["model_meta"] = model_meta
+    out["inferred_series"] = confirmed_series or None
+    return out
+
+
+def _slot_now_filled(ext: dict, key: str) -> bool:
+    """反问回填后判断某 slot 是否已确认（与理解节点 slot 填充口径一致）。"""
+    from app.services import semantic_contract as _sc
+    if _sc.absent_confirmed(ext, key):
+        return True
+    def _has(v) -> bool:
+        if v is None or v is False:
+            return False
+        if isinstance(v, str):
+            return v.strip() != ""
+        if isinstance(v, (int, float)):
+            return v > 0
+        if isinstance(v, dict):
+            return any(_has(x) for x in v.values())
+        if isinstance(v, (list, tuple)):
+            return any(_has(x) for x in v)
+        return bool(v)
+    mapping = {
+        "server_type": ["server_type_name", "server_type"],
+        "platform_type": ["series", "platform_type"],
+        "chassis_form": ["form", "chassis_form"],
+        "purchase_qty": ["purchase_qty", "n"],
+        "n": ["n", "purchase_qty"],
+        "server_model": ["server_model", "model", "baseline_model"],
+        "cpu": ["cpu_signal", "cpu"],
+        "memory": ["mem_signal", "mem_groups", "memory"],
+        "storage": ["drive_groups", "drives", "storage"],
+        "gpu": ["gpu_groups", "gpu"],
+        "nic": ["nic_groups", "nic_signal", "nic", "multi_spec_filters"],
+        "raid": ["raid_groups", "raid_signal", "raid"],
+        "psu": ["psu_signal", "psu"],
+    }
+    return any(_has(ext.get(k)) for k in mapping.get(key, []))
+
+
+
+
+def _infer_series_from_selected_model(ext: dict, whitelist: dict, cfg: dict,
+                                      requirement_text: str = "") -> None:
+    """机型已选但系列/类型/形态空 → 从 model_meta 反推，避免「机型定了却问系列」。"""
+    model = str(ext.get("server_model") or "").strip()
+    if not model:
+        return
+    meta = (whitelist.get("model_meta") or {}).get(model) or {}
+    if not ext.get("server_type_name") and meta.get("type"):
+        ext["server_type_name"] = meta["type"]
+    if not (ext.get("series") or ext.get("platform_type")) and meta.get("series"):
+        ext["series"] = meta["series"]
+        ext["platform_type"] = meta["series"]
+    if not (ext.get("form") or ext.get("chassis_form")) and meta.get("form"):
+        ext["form"] = meta["form"]
+        ext["chassis_form"] = meta["form"]
+
+
+def _confirmed_text(ext: dict) -> str:
+    """把已确认的选型要点拼成一行（只做状态展示，不做话术）。"""
+    parts = []
+    if ext.get("server_type_name"):
+        parts.append(f"服务器类型={ext['server_type_name']}")
+    if ext.get("series"):
+        parts.append(f"平台系列={ext['series']}")
+    if ext.get("form"):
+        parts.append(f"机箱形态={ext['form']}")
+    if ext.get("server_model"):
+        parts.append(f"机型={ext['server_model']}")
+    if ext.get("purchase_qty"):
+        parts.append(f"数量={ext['purchase_qty']}")
+    return "；".join(parts) or "（暂无明确约束）"
+
+def _apply_extracted_slots(ext: dict, slots: dict, allow_overwrite: bool = False) -> bool:
+    """把 LLM 抽取的需求层 slots 应用到 ext（信任模型语义）。
+
+    allow_overwrite=True 用于 edit 意图：允许覆盖已确认值；默认只填空槽。
+    目录/部件结构槽不在此落（由 slot_extractor / 下游负责）。仅拒绝 None 与明显空值。
+    """
+    if not isinstance(slots, dict):
+        return False
+    changed = False
+    for key, value in (slots or {}).items():
+        if value is None:
+            continue
+        if isinstance(value, bool) and not value:
+            continue
+        if isinstance(value, str) and not value.strip():
+            continue
+        key = str(key).strip()
+        if not key:
+            continue
+        if isinstance(value, (dict, list)):
+            continue
+        if key in ("server_type", "server_type_name"):
+            v = str(value).strip()
+            if not v:
+                continue
+            if allow_overwrite or not _slot_now_filled(ext, "server_type"):
+                ext["server_type"] = ext["server_type_name"] = v
+                changed = True
+        elif key in ("platform_type", "series"):
+            v = str(value).strip()
+            if not v:
+                continue
+            if allow_overwrite or not _slot_now_filled(ext, "platform_type"):
+                ext["platform_type"] = ext["series"] = v
+                changed = True
+        elif key in ("chassis_form", "form"):
+            v = str(value).strip()
+            if not v:
+                continue
+            if allow_overwrite or not _slot_now_filled(ext, "chassis_form"):
+                ext["chassis_form"] = ext["form"] = v
+                changed = True
+        elif key in ("server_model", "model", "baseline_model"):
+            v = str(value).strip()
+            if not v:
+                continue
+            if allow_overwrite or not _slot_now_filled(ext, "server_model"):
+                ext["server_model"] = v
+                ext.pop("model", None)
+                changed = True
+        elif key in ("purchase_qty", "n"):
+            try:
+                qty = int(float(value))
+            except Exception:
+                continue
+            if allow_overwrite or (not _slot_now_filled(ext, "n") and not _slot_now_filled(ext, "purchase_qty")):
+                ext["n"] = ext["purchase_qty"] = qty
+                changed = True
+        else:
+            if allow_overwrite or not _slot_now_filled(ext, key):
+                ext[key] = value
+                changed = True
+    return changed
+def _extract_agent_fill_json(text: str) -> dict:
+    """从 agent final 消息里抽取含 fill/ask/done/edit 的 JSON 对象（取键最全的那个）。"""
+    s = str(text or "")
+    import json
+
+    def balanced_end(start: int) -> int:
+        depth = 0
+        in_str = False
+        esc = False
+        for j in range(start, len(s)):
+            ch = s[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return j
+        return -1
+
+    best: dict = {}
+    best_score = -1
+    for i, ch in enumerate(s):
+        if ch != "{":
+            continue
+        end = balanced_end(i)
+        if end == -1:
+            continue
         try:
-            series = repo.get_value("server_series", [])
-            if isinstance(series, list):
-                out["series"] = [str(x.get("value")) for x in series if isinstance(x, dict) and x.get("value")]
-        finally:
-            repo.close()
+            obj = json.loads(s[i:end + 1])
+        except Exception:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        if not any(k in obj for k in ("fill", "ask", "done", "edit")):
+            continue
+        score = sum(1 for k in ("fill", "ask", "done", "edit") if k in obj)
+        if score > best_score:
+            best = obj
+            best_score = score
+    return best
+
+
+def _ground_fill_from_tools(answer: str, tool_calls_log: list, ext: dict,
+                            config: dict, req_text: str) -> None:
+    """模型未给 fill 时，用 agent 已调工具返回的真实目录候选落地机型，再反推系列/形态/类型。"""
+    ans = str(answer or "")
+    cands: dict = {}
+    for call in (tool_calls_log or []):
+        if not isinstance(call, dict) or call.get("name") not in (
+                "select_models", "get_server_model", "list_server_models"):
+            continue
+        result = call.get("result")
+        items = []
+        if isinstance(result, dict):
+            items = result.get("matches") or result.get("candidates") or result.get("models") or [result]
+        elif isinstance(result, list):
+            items = result
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            name = str(it.get("name") or it.get("model") or it.get("model_name") or "").strip()
+            if name:
+                cands.setdefault(name, it)
+    if not cands:
+        return
+    picks = [name for name in cands if name in ans]
+    if not picks:
+        return
+    picks.sort(key=len, reverse=True)
+    name = picks[0]
+    meta = cands[name]
+    ext.setdefault("server_model", name)
+    if meta.get("type") and not ext.get("server_type_name"):
+        ext["server_type_name"] = meta["type"]
+    if meta.get("series") and not ext.get("series"):
+        ext["series"] = meta["series"]
+        ext.setdefault("platform_type", meta["series"])
+    if meta.get("form") and not ext.get("form"):
+        ext["form"] = meta["form"]
+        ext.setdefault("chassis_form", meta["form"])
+    whitelist = _catalog_whitelist(config, ext=ext, requirement_text=req_text)
+    _infer_series_from_selected_model(ext, whitelist, config, requirement_text=req_text)
+
+
+def _semantic_ref_text(config: Optional[dict], req_text: Optional[str]) -> str:
+    """把语义契约参考（workload_map/compliance_map/gpu_form_map）注入 agent 上下文，供它按规则推断。"""
+    from app.services import requirement_rule_catalog as _rc
+    rule_types = (config or {}).get("rule_types")
+    chunks = []
+    # 真实在售目录（数据源）：模型只按目录里实际存在的类型/系列/形态归一化，禁用死词表。
+    try:
+        from app.services.catalog_guide import load_catalog
+        _c_types, _c_by_type = load_catalog()
+    except Exception:
+        _c_types, _c_by_type = [], {}
+    if _c_types:
+        _tnames = [str(t.get("name") or "").strip() for t in _c_types if str(t.get("name") or "").strip()]
+        if _tnames:
+            chunks.append("在售服务器类型目录（只能填这些 server_type_name）：\n" + "\n".join("  - " + n for n in _tnames))
+        _series_order: list = []
+        _form_order: list = []
+        for _tn, _ms in (_c_by_type or {}).items():
+            for _m in _ms or []:
+                _b = _m.get("base_config") or {}
+                for _s in (_b.get("series"), _m.get("series")):
+                    _s = str(_s or "").strip()
+                    if _s and _s not in _series_order:
+                        _series_order.append(_s)
+                for _f in (_b.get("form"), _m.get("form")):
+                    _f = str(_f or "").strip()
+                    if _f and _f not in _form_order:
+                        _form_order.append(_f)
+        if _series_order:
+            chunks.append("在售平台系列目录（只能填这些 series/platform_type）：\n" + "\n".join("  - " + s for s in _series_order))
+        if _form_order:
+            chunks.append("在售机箱形态目录（只能填这些 form/chassis_form）：\n" + "\n".join("  - " + f for f in _form_order))
+    ta = _rc.type_alias(rule_types)
+    if ta:
+        lines = ["  %s → %s" % (r.get("keyword"), r.get("type_name")) for r in ta if r.get("keyword") and r.get("type_name")]
+        chunks.append("类型别名等价参考（客户说左侧词，按右侧目录类型登记 server_type_name）：\n" + "\n".join(lines))
+    psm = _rc.platform_series_map(rule_types)
+    if psm:
+        lines = []
+        for r in psm:
+            kws = "、".join(str(k) for k in (r.get("keywords") or []) if str(k).strip())
+            if kws:
+                lines.append("  " + kws + " → " + str(r.get("series") or ""))
+        if lines:
+            chunks.append("平台系列别名等价参考（客户说左侧平台词 → 按右侧系列登记 series/platform_type）：\n" + "\n".join(lines))
+    wl = _rc.workload_map(rule_types)
+    if wl:
+        lines = []
+        for r in wl:
+            lines.append("  %s → 意图=%s 总显存=%sG 卡数=%s" % (
+                r.get("workload_keyword"), r.get("intent"), r.get("total_vram_gb"), r.get("gpu_count")))
+        chunks.append("工作负载等价参考（命中关键词即按此填 total_vram_gb/gpu_count）：\n" + "\n".join(lines))
+    cm = _rc.compliance_map(rule_types)
+    if cm:
+        c = cm[0]
+        chunks.append("国产化参考：系列=%s 排除厂商=%s 允许厂商=%s GPU策略=%s" % (
+            c.get("platform_series"), c.get("excluded_manufacturers"),
+            c.get("allowed_manufacturers"), c.get("gpu_policy")))
+    gm = _rc.gpu_form_map(rule_types)
+    if gm:
+        lines = ["  %s-%s卡 → %s" % (r.get("gpu_count_min"), r.get("gpu_count_max"), r.get("form")) for r in gm]
+        chunks.append("GPU卡数→机箱形态：\n" + "\n".join(lines))
+    return "\n\n" + "\n".join(chunks) if chunks else ""
+
+
+def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional[str]) -> None:
+    """agent 吐出的语义契约后处理：按规则补齐 workload/国产化/GPU 卡数，不硬编码业务。"""
+    from app.services import semantic_contract as _sc
+    from app.services import requirement_rule_catalog as _rc
+    rule_types = (config or {}).get("rule_types")
+    rtext = str(req_text or "").lower()
+    # 模型输出的 semantic 已经过 schema 收口，此处作为 advisor；侧重在“事实确定性”。
+    # 量化事实（gpu_count/total_vram_gb）来源：模型 semantic > 规则库 workload_map（规则赢模型的数值）。
+    wl = dict(_sc.workload(ext))
+    # 2) 规则库 workload_map：命中关键词即按规则补总显存/卡数/意图（规则赢模型的数值）。
+    for r in _rc.workload_map(rule_types):
+        kw = str(r.get("workload_keyword") or "").lower()
+        if kw and kw in rtext:
+            if r.get("intent"):
+                wl["kind"] = str(r.get("intent"))
+            if r.get("total_vram_gb") is not None and "total_vram_gb" not in wl:
+                wl["total_vram_gb"] = r.get("total_vram_gb")
+            if r.get("gpu_count") is not None and "gpu_count" not in wl:
+                wl["gpu_count"] = r.get("gpu_count")
+            break
+    if wl:
+        _sc.set_value(ext, "workload", wl)
+        if wl.get("kind") and _sc.intent(ext) in (None, "general"):
+            _sc.set_value(ext, "intent", str(wl.get("kind")))
+    comp = dict(_sc.compliance(ext))
+    if comp.get("domestic_only"):
+        if _sc.intent(ext) in (None, "general"):
+            _sc.set_value(ext, "intent", "domestic_compliance")
+    # GPU 卡数保存到 gpu_groups：量化事实来自模型 semantic 与规则库 workload_map。
+    gc = int(wl.get("gpu_count") or 0)
+    if gc > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu_groups") and not ext.get("gpu"):
+        ext["gpu_groups"] = [{"qty": gc}]
+
+def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
+    """把 agent_fill 落地的需求事实固化为「线索登记表」快照 ctx.requirement。
+
+    下游（机型/KP/组装）只读该快照，绝不回写；后续持久化与运行面板都以它为准。
+    机型字段只在客户原话真实点名时才保留（否则从 ext 与快照一并剔除，
+    避免 LLM 臆造或下游选型结果污染“原始需求”，也不误导下游当作客户指定机型）。
+    """
+    import copy as _copy
+    import re as _re
+    model = str(ext.get("server_model") or ext.get("model") or "").strip()
+    if model:
+        norm_model = _re.sub(r"\s+", "", model)
+        norm_text = _re.sub(r"\s+", "", str(req_text or ""))
+        if norm_model not in norm_text:
+            ext.pop("server_model", None)
+            ext.pop("model", None)
+    ctx["requirement"] = _copy.deepcopy(ext)
+    ctx["requirement_text_snapshot"] = str(req_text or "")
+
+async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str = "agent_fill") -> dict:
+    """智能对话填表 Agent（ReAct 形态，不再兼容旧槽位状态机）。
+
+    - 完整会话历史 + 目录/KP 工具 + 当前草稿/缺口一起交给 agent。
+    - agent 调工具查证（是否在售、系列归属、配件），可一次批量填多槽，可改口。
+    - 最后输出结构化 {fill, ask, done, edit}；执行器落地并决定是否反问。
+    - LLM 不可用时不回退白名单正则，直接返回 error 交给调用方。
+    """
+    from app.services.slot_contract import _missing_critical, slot_label
+    from app.services.slot_state import is_confirmed
+    from app.services import prompt_store
+    from app.services.agent_react import run_react_loop
+    config = prompt_store.merge_node_prompt("agent_fill", config or {})
+
+    req_text = str(ctx.get("requirement_text") or ctx.get("normalized_text") or "").strip()
+    ext = dict(ctx.get("ext") or {})
+    from app.services.slot_contract import slot_spec
+    req_keys = {s.get("key") for s in slot_spec() if s.get("src_type") != "kp" and s.get("key") != "server_model"}
+    prev_missing = list(ctx.get("missing_fields") or [])
+    missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
+    confirmed_text = _confirmed_text(ext)
+    missing_labels = [slot_label(m) for m in missing]
+    extra = (
+        "当前线索登记表草稿：\n" + (confirmed_text or "（尚未填写）") +
+        "\n\n还缺（参考，不必按顺序问）：" + ("、".join(missing_labels) or "无") +
+        "\n\n任务：只登记客户已明确表达的需求层字段；缺的只反问“必填且未委托”的字段；客户委托（你随便/都行）就留空交下游，不要编造具体值；客户改口就覆盖草稿。"
+    )
+    extra += _semantic_ref_text(config, req_text)
+    _prompt = config.get("prompt") or {}
+    sys_prompt = str(_prompt.get("system_prompt") or "").strip() or str(
+        prompt_store.get_prompt_defaults("agent_fill").get("system_prompt") or "")
+    tools = list(config.get("enabled_tools") or capability_spec.default_tools("agent_fill"))
+
+    async def _sink(ev: dict) -> None:
+        if not broadcast:
+            return
+        try:
+            await broadcast({"type": "step_progress", "step": step_id,
+                             "sub": ev.get("sub") or {}})
+        except Exception:
+            pass
+
+    # 单次流式：agent_fill 不再是多轮工具调用循环。模型只负责正常情况下一次输出最终 JSON（fill/ask/done/edit/semantic）；
+    # 事实冲地由下游确定性层（_apply_extracted_slots/_enrich_agent_semantic/check_feasibility）完成。
+    # 安全余量：限制最多 2 轮（正常 1 轮，非 JSON 时一次轻量纠正），不再无限滚大。
+    result = await run_react_loop(
+        requirement_text=req_text or "（无需求原文）",
+        config={**config, "enabled_tools": tools},
+        system_prompt=sys_prompt,
+        history=ctx.get("history") or [],
+        extra_context=extra,
+        max_iterations=min(int(config.get("max_iterations") or 3), 2),
+        event_sink=_sink,
+        final_only=True,
+    )
+    raw_answer = result.get("answer") or ""
+    agent_answer = raw_answer if isinstance(raw_answer, str) else (
+        json.dumps(raw_answer, ensure_ascii=False)
+        if isinstance(raw_answer, (dict, list)) else str(raw_answer))
+    if not result.get("ok"):
+        error = str(result.get("error") or (agent_answer if agent_answer else "agent_fill 不可用"))[:200]
+        return {"ok": False, "error": error, "source": step_id,
+                "sufficient": False, "missing_critical": missing}
+
+    parsed = agent_answer if isinstance(agent_answer, dict) else _extract_agent_fill_json(agent_answer)
+    fill = parsed.get("fill") if isinstance(parsed.get("fill"), dict) else {}
+    ask = str(parsed.get("ask") or "").strip()
+    done = bool(parsed.get("done", True))
+    edit = bool(parsed.get("edit", False))
+
+    from app.services import semantic_contract as _sc
+    # 输出格式收口：模型回的 semantic 子对象按契约 schema 验证，
+    # 非法类型/未知字段/非法枚举一律丢弃（如 workload 被写成字符串 → 丢弃，保留已有结构化值）。
+    _sem_raw = parsed.get(_sc.container_key())
+    if isinstance(_sem_raw, dict):
+        from app.services.llm_client import clean_by_schema
+        _sem_raw, _sem_dropped = clean_by_schema(_sem_raw, _sc.schema())
+    _sc.merge(ext, _sem_raw)
+
+    if fill:
+        _apply_extracted_slots(ext, fill, allow_overwrite=edit)
+        try:
+            from app.services.slot_extractor import apply_structured_slots
+            apply_structured_slots(ext, fill, req_text)
+        except Exception:
+            pass
+    _enrich_agent_semantic(ext, config, req_text)
+    # 可行性护栏在理解阶段即触发，冲突不等到机型选型才提示。
+    try:
+        from app.services.feasibility_guard import check_feasibility
+        _fz = check_feasibility(ext, config)
+        if _fz.get("warnings") or _fz.get("hints"):
+            ctx["feasibility"] = _fz
     except Exception:
         pass
-    if not out["series"]:
-        out["series"] = ["Orion", "Polaris", "Intel", "工作站"]
-    return out
+    ctx["ext"] = ext
+    _freeze_requirement(ctx, ext, req_text)
+    ctx["agent_fill_trace"] = result.get("tool_calls_log") or []
 
+    missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
+    ctx["missing_fields"] = missing
+    # 反问收敛：这是对上一个追问的补充回答，且缺口集合与上一轮完全一致（用户答了但没填上该字段）
+    # → 停止机械重复追问，带着“可默认”的 partial 清晰度交给下游，由下游按目录默认/放宽处理。
+    _no_progress = bool(ctx.get("last_user_answer")) and bool(prev_missing) and sorted(missing) == sorted(prev_missing)
+    ctx["converged"] = bool(_no_progress)
+    need_ask = bool(missing) and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress
+    _fz_block = ""
+    _fz = ctx.get("feasibility") or {}
+    _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
+    if _fz_lines:
+        _fz_block = chr(10).join(_fz_lines) + chr(10)
+    if need_ask:
+        question = ask or ("还有几个关键信息待确认：" + "、".join(
+            [slot_label(m) for m in missing]))
+        if _fz_block:
+            question = _fz_block + question
+        import uuid
+        rid = f"agent_{uuid.uuid4().hex[:12]}"
+        ctx["awaiting_input"] = True
+        ctx["last_reply_id"] = rid
+        ctx["last_ask_question"] = question
+        if broadcast:
+            try:
+                await broadcast({"type": "need_input", "reply_id": rid, "question": question,
+                                 "options": None, "why": "", "missing_fields": missing,
+                                 "source": "agent_fill"})
+            except Exception:
+                pass
+        return {"ok": True, "question": question, "options": None, "source": step_id,
+                "sufficient": False, "missing_critical": missing, "agent_answer": agent_answer}
 
-def _filter_catalog_options(opts: list, whitelist: dict) -> list:
-    """LLM 反问选项白名单过滤：禁塔式/卧式/刀片/桌面；保留机架式(别名)、白名单项、委托选项。"""
-    out = []
-    wl: list = []
-    for lst in (whitelist.get("types") or [], whitelist.get("series") or [],
-                whitelist.get("forms") or [], whitelist.get("models") or [],
-                whitelist.get("workload") or []):
-        wl.extend(str(x) for x in lst if x)
-    for o in opts or []:
-        s = str(o or "").strip()
-        if not s:
-            continue
-        if any(k in s for k in ("塔式", "卧式", "刀片", "桌面")):
-            continue
-        if any(k in s for k in ("不确定", "你推荐", "随便", "委托")):
-            out.append(s)
-            continue
-        if "机架式" in s or any(x and (x in s or s in x) for x in wl):
-            out.append(s)
-    return out
-
-
-def _catalog_fallback_options(missing: list, whitelist: dict) -> list:
-    """缺失项关键词 → 对应目录维度合法选项：形态→形态、系列→系列、其余→类型。"""
-    missing = missing or []
-    if any("形态" in str(m) or "form" in str(m).lower() for m in missing):
-        return list(whitelist.get("forms") or [])
-    if any("系列" in str(m) for m in missing):
-        return list(whitelist.get("series") or [])
-    return list(whitelist.get("types") or [])
-
-
-async def run_llm_ask(ctx: dict, config: dict, broadcast=None) -> dict:
-    """智能反问：LLM 基于完整上下文生成策略性问题；AI 关/失败 → 由上层走目录引导兜底。
-
-    返回 {ok, question, options, why}。ok=False 时上层走 _ask_catalog_question。
-    """
-    from app.services import llm_client
-    from app.services.agent_understand import _understood_summary
-    if not _ai_enabled(ctx, config):
-        return {"ok": False, "source": "rule"}
-    text = ctx.get("requirement_text") or ""
-    ext = ctx.get("ext") or {}
-    missing = ctx.get("missing_fields") or []
-    strategy = (config or {}).get("strategy") or "one"  # one=问最关键1个 / all=列全
-    whitelist = _catalog_whitelist()
-    workload_cats = (config or {}).get("workload_categories") or []
-    need_workload = any(("场景" in str(m)) or ("用途" in str(m)) or ("workload" in str(m).lower()) for m in missing) \
-        or not ext.get("server_type_name")
-    scale_tiers = (config or {}).get("scale_tiers") or {}
-    scale_note = ""
-    for m in missing:
-        key = None
-        if "CPU" in m or "处理" in m:
-            key = "CPU"
-        elif "内存" in m:
-            key = "内存"
-        elif "存储" in m or "硬盘" in m or "盘" in m:
-            key = "存储"
-        tiers = scale_tiers.get(key) if key else None
-        if tiers:
-            scale_note += f"\n【{key}按规模分档（选项/推荐参考，禁止编造）】\n" + "\n".join(
-                f"- {t.get('label')}（{t.get('desc') or ''}）：推荐 {t.get('recommend') or ''}"
-                for t in tiers if t.get("label"))
-    for _key in ("CPU", "内存", "存储"):
-        for _t in (scale_tiers.get(_key) or []):
-            if _t.get("label"):
-                whitelist.setdefault("workload", []).append(str(_t["label"]))
-
-    if need_workload and workload_cats:
-        wl_labels = [str(c.get("label") or "").strip() for c in workload_cats if c.get("label")]
-        wl_desc = "\n".join(
-            f"- {c.get('label')}（{c.get('desc') or ''}）→ {c.get('type') or ''}"
-            for c in workload_cats if c.get("label"))
-        user = (
-            f"客户需求原文：\n{text}\n\n"
-            f"已理解：{_understood_summary(ext)}\n"
-            f"还缺的关键信息：{'、'.join(missing) if missing else '（无明确缺失，但可确认关键选型点）'}\n"
-            f"【当前需要确定客户的工作负载/用途】可选工作负载（选项只能从这里选，禁止编造）：\n{wl_desc}\n\n"
-            + (scale_note + "\n\n" if scale_note else "")
-            + "请输出一个问工作负载的问题，options 用上面的工作负载名称。"
-        )
+    has_model = bool(ext.get("server_model") or ext.get("model"))
+    ctx["customer_specified_model"] = has_model
+    if ctx.get("delegated"):
+        # 客户已委托（你推荐/都行）→ 需求“模糊”不再等同于“无法下手”，交给下游推荐，不判 unclear。
+        ctx["clarity"] = "delegated"
+    elif ctx.get("converged"):
+        # 客户反复没答上同个字段 → 不再卡住，按“已有信息可下沉”继续，由下游给默认/放宽。
+        ctx["clarity"] = "partial"
+    elif missing:
+        ctx["clarity"] = "unclear"
     else:
-        user = (
-            f"客户需求原文：\n{text}\n\n"
-            f"已理解：{_understood_summary(ext)}\n"
-            f"还缺的关键信息：{'、'.join(missing) if missing else '（无明确缺失，但可确认关键选型点）'}\n"
-            f"追问策略：{'一次问最关键的一个问题' if strategy != 'all' else '一次列全缺失项（每项带选项）'}\n"
-            f"在售目录（选项只能从这里选，禁止编造）：\n"
-            f"  类型：{'、'.join(whitelist.get('types') or []) or '（无）'}\n"
-            f"  系列：{'、'.join(whitelist.get('series') or []) or '（无）'}\n"
-            f"  形态（全部机架式，无塔式）：{'、'.join(whitelist.get('forms') or [])}\n"
-            f"  机型：{'、'.join((whitelist.get('models') or [])[:10]) or '（无）'}\n\n"
-            + (scale_note + "\n\n" if scale_note else "")
-            + "请输出策略性问题。"
-        )
-    try:
-        messages = [{"role": "system", "content": (config or {}).get("system_prompt") or _LLM_ASK_PROMPT},
-                    {"role": "user", "content": user}]
-        data = await llm_client.chat_json(messages, schema=_LLM_ASK_SCHEMA, temperature=0.4)
-        q = (data or {}).get("question") or ""
-        if not q:
-            return {"ok": False, "source": "empty"}
-        opts = (data or {}).get("options") or []
-        if need_workload and workload_cats:
-            wl_labels = [str(c.get("label") or "").strip() for c in workload_cats if c.get("label")]
-            ok_opts = _filter_catalog_options(opts, {**whitelist, "workload": wl_labels})
-        else:
-            ok_opts = _filter_catalog_options(opts, whitelist)
-        if not ok_opts:
-            ok_opts = _catalog_fallback_options(missing, whitelist)
-        show_why = (config or {}).get("show_why", True)
-        return {"ok": True, "question": q, "options": ok_opts,
-                "why": ((data or {}).get("why") or "") if show_why else "", "source": "llm"}
-    except Exception as e:
-        logger.warning("llm_ask LLM 失败，走目录引导兜底: %s", e)
-        return {"ok": False, "source": "error"}
+        ctx["clarity"] = "explicit" if has_model else "partial"
+    return {"ok": True, "source": step_id, "sufficient": bool(not missing),
+            "missing_critical": missing, "agent_answer": agent_answer, "done": done}
 
 
-def run_llm_confirm(ctx: dict, config: Optional[dict] = None) -> dict:
-    """决策确认：汇总机型/配件推荐 + 理由，供前端确认面板展示（可调整后重跑）。
-
-    确定性汇总（不额外调 LLM）：reason 来自 model_reason/kp_reason 的 trace。
-    """
-    items = []
-    mr = ctx.get("model_reason") or {}
-    if mr.get("baseline"):
-        b = mr["baseline"]
-        items.append({
-            "id": "baseline",
-            "type": "机型",
-            "value": b.get("name") or "",
-            "series": b.get("series") or "",
-            "form": b.get("form") or "",
-            "reason": mr.get("reason") or "",
-        })
-    kps = ctx.get("kp_parts") or []
-    for kp in kps[:30]:
-        items.append({
-            "id": f"kp-{kp.get('pn') or kp.get('name') or kp.get('category')}",
-            "type": kp.get("category") or "配件",
-            "value": kp.get("name") or "",
-            "qty": kp.get("qty") or 1,
-            "unit_price": kp.get("unit_price"),
-            "currency": kp.get("currency") or "RMB",
-            "matched_spec": kp.get("matched_spec") or "",
-        })
-    return {"ok": True, "items": items, "count": len(items)}
-
-
-def run_select_baseline_rule(ctx: dict, config: Optional[dict] = None) -> dict:
+def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     """机型选型规则本体：四级兜底（exact/same_series/same_form/all，fallback_order 可配）+ model_recommend 标注。"""
     from app.api.candidate_search import select_models, build_variant_signals
+    from app.services.requirement_rule_catalog import fallback_order as _catalog_fallback_order
     cfg = config or {}
+    _fb = _catalog_fallback_order(enabled_types=cfg.get("rule_types"))
+    _fallback_order = _fb.get("order") or ["exact", "same_series", "same_form", "all"]
+    _no_signal_strategy = _fb.get("no_signal_strategy") or "return_empty"
     if ctx.get("awaiting_input"):
         ctx["baselines"] = []
         return {"count": 0, "matches": [], "skipped": "awaiting_input"}
@@ -804,19 +1112,61 @@ def run_select_baseline_rule(ctx: dict, config: Optional[dict] = None) -> dict:
     _type_name = (ctx.get("catalog_type_name")
                   or (scene.get("scene_name") if scene.get("determined") else None)
                   or ext.get("server_type_name"))
+    from app.services import semantic_contract as _sc
+    from app.services.requirement_rule_catalog import compliance_map as _compliance_map, gpu_form_map as _gpu_form_map
     _series = scene.get("series") or ext.get("series") or None
     _form = scene.get("form") or ext.get("form") or None
+    # 客户已委托（你推荐/随便/都行）且完全没给类型/系列/形态线索 → 默认到目录里排序第一的
+    # “通用”类型，让推荐有抓手，而不是返回“找不到机型”。数据来自目录 sort_order，非硬编码词。
+    if not _type_name and not _series and not _form and ctx.get("delegated"):
+        try:
+            from app.repository.server_catalog_repo import ServerCatalogRepository
+            _cts = ServerCatalogRepository().list_types()
+            if _cts:
+                _def_type = min(_cts, key=lambda t: int(t.get("sort_order") or 1 << 30))
+                _type_name = str(_def_type.get("name") or "")
+                ctx["delegated_default_type"] = _type_name
+        except Exception:
+            logger.exception("委托默认类型解析失败，交回空候选")
+    _domestic_only = bool(_sc.is_domestic_only(ext))
+    _domestic_series = set()
+    if _domestic_only:
+        _cms = _compliance_map(enabled_types=cfg.get("rule_types")) or [{}]
+        _domestic_series = set(_cms[0].get("platform_series") or ["Polaris"])
+        if _series not in _domestic_series:
+            _series = next(iter(_domestic_series), _series)
+    # GPU 数量（来自 workload/exclusion 卡数）→ 机箱形态约束
+    _gpu_count = int((_sc.gpu_requirement(ext) or {}).get("gpu_count") or 0)
+    if _gpu_count > 0:
+        for _rule in _gpu_form_map(enabled_types=cfg.get("rule_types")):
+            _lo = int(_rule.get("gpu_count_min") or 0)
+            _hi = int(_rule.get("gpu_count_max") or (1 << 31))
+            if _lo <= _gpu_count <= _hi and _rule.get("form"):
+                _form = str(_rule.get("form") or _form)
+                break
     from app.api.candidate_search import MAX_PLANS
     baselines = select_models(
         ext.get("usage"), _type_name, _series, _form,
         limit=cfg.get("max_plans") or MAX_PLANS,
         recommend_strategy_id=cfg.get("recommend_strategy_id"),
-        no_signal_strategy=cfg.get("no_signal_strategy"),
+        no_signal_strategy=_no_signal_strategy,
         variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),
-        # 多级放宽（用户可配 fallback_order，见 model_reason 节点抽屉）：
+        # 多级放宽（用户可配 fallback_order；未配则读规则目录）：
         # 库内无 {系列} 平台 {类型} 机型时按配置顺序逐级放宽，白盒标注放宽维度
-        fallback_order=cfg.get("fallback_order") or ["exact", "same_series", "same_form", "all"],
+        fallback_order=_fallback_order,
     )
+    if _domestic_only and _domestic_series:
+        baselines = [b for b in baselines if b.get("series") in _domestic_series]
+        if not baselines and _series in _domestic_series:
+            # 放宽被过滤后无结果：保留系列但标注
+            baselines = [b for b in select_models(
+                ext.get("usage"), _type_name, _series, _form,
+                limit=cfg.get("max_plans") or MAX_PLANS,
+                recommend_strategy_id=cfg.get("recommend_strategy_id"),
+                no_signal_strategy=_no_signal_strategy,
+                variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),
+                fallback_order=_fallback_order,
+            ) if b.get("series") in _domestic_series]
     _cat_model_id = ctx.get("catalog_model_id")
     if _cat_model_id:
         _keep = [b for b in baselines
@@ -844,17 +1194,26 @@ def _resolve_budget_strategy(budget) -> str:
         repo = RequirementRuleRepository()
         try:
             rules = repo.list_by_type("budget", status="active")
+            selected = None
+            for r in rules:
+                rng = (r.get("body") or {}).get("range") or {}
+                mn, mx = rng.get("min"), rng.get("max")
+                if budget is None:
+                    if mn is None and mx is None:
+                        selected = r
+                        break
+                    continue
+                if (mn is None or budget >= mn) and (mx is None or budget < mx):
+                    selected = r
+                    break
+            if selected:
+                try:
+                    repo.record_hits([selected.get("id")])
+                except Exception:
+                    pass
+                return (selected.get("body") or {}).get("strategy", {}).get("representative_pick", "min_price")
         finally:
             repo.close()
-        for r in rules:
-            rng = (r.get("body") or {}).get("range") or {}
-            mn, mx = rng.get("min"), rng.get("max")
-            if budget is None:
-                if mn is None and mx is None:
-                    return (r.get("body") or {}).get("strategy", {}).get("representative_pick", "min_price")
-                continue
-            if (mn is None or budget >= mn) and (mx is None or budget < mx):
-                return (r.get("body") or {}).get("strategy", {}).get("representative_pick", "min_price")
     except Exception as e:
         logger.warning("读 budget 规则失败，回退 min_price: %s", e)
     return "min_price"
@@ -881,21 +1240,42 @@ def _dedup_kp_by_pn(kp_list: list) -> list:
 def run_match_kp_rule(ctx: dict, config: Optional[dict] = None) -> dict:
     """配件匹配规则本体：型号/规格/品类代表件三级匹配（per-机型各配 KP）。"""
     from app.api.candidate_search import pick_kp_parts, kp_categories_for_type, _base_config_std_mem_speed
+    from app.services import requirement_rule_catalog as _rule_catalog
     cfg = config or {}
     ext = ctx.get("ext") or {}
     baselines = ctx.get("baselines") or []
     cfg_pick = cfg.get("representative_pick")
+    _rule_types = cfg.get("rule_types") or []
+    _type_packages = _rule_catalog.type_packages(_rule_types or None)
+    _category_aliases = _rule_catalog.category_aliases(_rule_types or None)
+    _spec_rules = _rule_catalog.spec_rules(_rule_types or None)
+    _cpu_mem_rules = _rule_catalog.cpu_mem_type_rules(_rule_types or None)
+    _capacity_match = _rule_catalog.capacity_match(_rule_types or None)
+    _raid_level_rules = _rule_catalog.raid_level_map(_rule_types or None)
     pick = cfg_pick if (cfg_pick and cfg_pick != "auto") else _resolve_budget_strategy(ctx.get("budget"))
+    from app.services import semantic_contract as _sc
+    _ex_gpu = str((_sc.exclusions(ext) or {}).get("gpu") or "").lower()
+    _domestic_only = bool(_sc.is_domestic_only(ext))
+    _excl_mfr = set()
+    _dom_series = set()
+    if _domestic_only:
+        _cm = (_rule_catalog.compliance_map(_rule_types or None) or [{}])[0]
+        _excl_mfr = {str(x).lower() for x in (_cm.get("excluded_manufacturers") or [])}
+        _dom_series = {str(x).lower() for x in (_cm.get("platform_series") or [])}
     kp_by_model: dict = {}
     all_kp: list = []
     for bl in baselines:
-        type_cats = kp_categories_for_type(bl.get("server_type_name") or "", cfg.get("type_packages"), ext.get("categories"))
+        type_cats = kp_categories_for_type(bl.get("server_type_name") or "", _type_packages, ext.get("categories"))
         eff_cats = list(dict.fromkeys(type_cats + (ext.get("categories") or [])))
+        _eff_gpu_groups = ext.get("gpu_groups")
+        if _ex_gpu in ("none", "self_provided"):
+            eff_cats = [c for c in eff_cats if c not in ("GPU", "GPU card", "GPU Card")]
+            _eff_gpu_groups = []
         bl_kp = pick_kp_parts(
             eff_cats, ext.get("keywords", []),
-            category_aliases=cfg.get("category_aliases"),
+            category_aliases=_category_aliases,
             representative_pick=pick,
-            spec_rules=cfg.get("spec_rules"),
+            spec_rules=_spec_rules,
             fallback_strategy=cfg.get("fallback_strategy") or "fallback_representative",
             requirement_text=ctx.get("requirement_text"),
             qty_map=ext.get("qty_map"),
@@ -907,19 +1287,28 @@ def run_match_kp_rule(ctx: dict, config: Optional[dict] = None) -> dict:
             multi_spec_filters=ext.get("multi_spec_filters"),
             drive_groups=ext.get("drive_groups"),
             raid_groups=ext.get("raid_groups"),
-            gpu_groups=ext.get("gpu_groups"),
+            gpu_groups=_eff_gpu_groups,
             mem_groups=ext.get("mem_groups"),
             platform_series=bl.get("series"),
             drive_spec_substitute=cfg.get("drive_spec_substitute", True),
             default_mem_speed=_base_config_std_mem_speed(bl.get("id")),
             default_mem_channels=bl.get("mem_channels"),
             default_max_dimm=bl.get("max_dimm"),
-            cpu_mem_type_rules=cfg.get("cpu_mem_type_rules"),
-            capacity_match=cfg.get("capacity_match") or {"strategy": "tolerance", "tolerance": 10},
+            cpu_mem_type_rules=_cpu_mem_rules,
+            capacity_match=_capacity_match or {"strategy": "tolerance", "tolerance": 10},
+            raid_level_rules=_raid_level_rules,
         )
         mid = bl.get("server_model_id") or bl.get("id")
+        _bl_kp = bl_kp
+        if _excl_mfr:
+            _bl_kp = [kp for kp in _bl_kp
+                      if str(kp.get("brand") or kp.get("manufacturer") or "").lower() not in _excl_mfr]
+        if _dom_series:
+            _bs = str(bl.get("series") or "").lower()
+            if _bs and _bs not in _dom_series:
+                _bl_kp = []
         # 去重（per-机型）：同 pn 因别名分类（Raid Card/Raid card）重复命中 → 保留 qty 最大一条（9361-8i×2 → ×1）
-        kp_by_model[mid] = _dedup_kp_by_pn(bl_kp)
+        kp_by_model[mid] = _dedup_kp_by_pn(_bl_kp)
         all_kp.extend(kp_by_model[mid])
     ctx["kp_by_model"] = kp_by_model
     ctx["kp_parts"] = all_kp
@@ -929,260 +1318,3 @@ def run_match_kp_rule(ctx: dict, config: Optional[dict] = None) -> dict:
         by_category[c] = by_category.get(c, 0) + 1
     unmatched_count = sum(1 for kp in all_kp if kp.get("unmatched"))
     return {"kp_count": len(all_kp), "by_category": by_category, "unmatched_count": unmatched_count}
-
-
-# ── spec_compliance：规格合规校验（v12 新增，确定性红线前）──────────────────
-
-_CPU_MODEL_RE = re.compile(
-    r"(?:EPYC|Xeon|霄龙|至强|开胜|开先|zhaoxin|兆芯|海光|KH[- ]?\d+|KX[- ]?\d+)\s*[- ]?[0-9][0-9A-Za-z]*",
-    re.IGNORECASE,
-)
-
-
-def _req_cpu_tokens(text: str) -> list:
-    """从需求原文提取 CPU 型号 token（归一去空格/连字符，如 "EPYC 9654" → EPYC9654）。"""
-    out = []
-    for m in _CPU_MODEL_RE.finditer(text or ""):
-        tok = re.sub(r"[\s\-]+", "", m.group(0)).upper()
-        if tok and tok not in out:
-            out.append(tok)
-    return out
-
-
-def _merge_retry(ctx: dict, caps: list) -> list:
-    """合并 retry_caps（去重保序），供 orchestrator 重跑链。"""
-    cur = list(ctx.get("retry_caps") or [])
-    for c in caps:
-        if c not in cur:
-            cur.append(c)
-    return cur
-
-
-def _expected_mem_type_from_cpu_parts(kp_parts: list, rules: Optional[list]) -> Optional[str]:
-    """按实配 CPU 件型号推内存代际（复用 candidate_search._default_mem_type_for_cpu）。"""
-    try:
-        from app.api.candidate_search import _default_mem_type_for_cpu
-        return _default_mem_type_for_cpu(kp_parts, rules)
-    except Exception:
-        return None
-
-
-def run_spec_compliance(ctx: dict, config: Optional[dict] = None) -> dict:
-    """规格合规校验（确定性）：kp_reason 之后、compose 之前。
-
-    检查需求规格 vs 实配：
-      - AI 类型缺 GPU → auto_fix 追加 GPU 品类并请求重跑（gpu_required_for_ai，默认开）；
-      - 存储类型缺盘 → auto_fix 追加 HDD/SSD（兜底，正常 mandatory_storage 已在品类层处理）；
-      - 需求明确 CPU 型号但实配不同 → 标 issue（strict_model_match，默认开，不自动造件）；
-      - CPU 代际 → 内存代际不符 → auto_fix 重设 mem_signal.type 并请求重跑（cpu_mem_generation）。
-    返回 {issues, fixed, server_type, mode}；auto_fix 改 ctx 并置 retry_caps（orchestrator 重跑链）。
-    """
-    cfg = config or {}
-    if not cfg.get("enabled", True):
-        return {"issues": [], "fixed": 0, "skipped": "disabled"}
-    ext = ctx.get("ext") or {}
-    scene = ctx.get("scene") or {}
-    server_type = (ext.get("server_type_name") or scene.get("scene_name")
-                   or ctx.get("catalog_type_name") or "")
-    kp_parts = ctx.get("kp_parts") or []
-    mode = cfg.get("mode") or "auto_fix"
-    fix_budget = int(ctx.get("spec_fix_count") or 0) < int(cfg.get("max_fix_rounds") or 2)
-    issues: list = []
-    fixed = 0
-
-    def _request_retry():
-        ctx["retry_caps"] = _merge_retry(
-            ctx, ["kp_reason", "spec_compliance", "compose", "budget_check", "llm_audit", "audit_fix"])
-        ctx["spec_fix_count"] = int(ctx.get("spec_fix_count") or 0) + 1
-
-    # 1) AI 类型缺 GPU（配件库有 GPU，2026-08 修：AI 默认带卡）
-    if cfg.get("gpu_required_for_ai", True) and "AI" in server_type:
-        has_gpu = any("GPU" in (k.get("category") or "") for k in kp_parts)
-        if not has_gpu:
-            issues.append("AI/加速计算服务器未配置 GPU 加速卡")
-            if mode == "auto_fix" and fix_budget:
-                cats = list(ext.get("categories") or [])
-                if "GPU" not in cats:
-                    ext["categories"] = cats + ["GPU"]
-                    ctx["ext"] = ext
-                _request_retry()
-                fixed += 1
-    # 2) 存储类型缺盘（兜底；正常 mandatory_storage 已在品类层保证）
-    if "存储" in server_type:
-        has_drive = any("HDD/SSD" in (k.get("category") or "") for k in kp_parts)
-        if not has_drive:
-            issues.append("存储服务器未配置任何硬盘/SSD")
-            if mode == "auto_fix" and fix_budget:
-                cats = list(ext.get("categories") or [])
-                if "HDD/SSD" not in cats:
-                    ext["categories"] = cats + ["HDD/SSD"]
-                    ctx["ext"] = ext
-                _request_retry()
-                fixed += 1
-    # 3) CPU 型号严格匹配（需求明确型号 → 实配必须命中；不自动造件，标 issue 交审计/人工）
-    if cfg.get("strict_model_match", True):
-        req_cpus = _req_cpu_tokens(ctx.get("requirement_text") or "")
-        if req_cpus:
-            picked = [str(k.get("name") or k.get("description") or "") for k in kp_parts
-                      if "CPU" in (k.get("category") or "")]
-            picked_text = re.sub(r"[\s\-]+", "", " ".join(picked)).upper()
-            miss = [t for t in req_cpus if t not in picked_text]
-            if miss:
-                issues.append(f"需求指定 CPU 型号 {'、'.join(miss)} 未命中（实配 {'/'.join(picked) or '无'}）")
-    # 4) CPU 代际 → 内存代际（auto_fix 重设 mem_signal.type 重跑）
-    mem_rules = cfg.get("cpu_mem_generation") or []
-    if mem_rules:
-        expected = _expected_mem_type_from_cpu_parts(kp_parts, mem_rules)
-        if expected:
-            mem_text = " ".join(str(k.get("description") or k.get("name") or "") for k in kp_parts
-                                if "内存" in (k.get("category") or "") or "Memory" in (k.get("category") or ""))
-            if mem_text and expected not in mem_text.upper():
-                issues.append(f"内存代际不匹配：CPU 需 {expected}，实配 {mem_text[:40]}")
-                if mode == "auto_fix" and fix_budget:
-                    ms = dict(ext.get("mem_signal") or {})
-                    ms["type"] = expected
-                    ext["mem_signal"] = ms
-                    ctx["ext"] = ext
-                    _request_retry()
-                    fixed += 1
-    ctx["spec_issues"] = issues
-    return {"issues": issues, "fixed": fixed, "server_type": server_type, "mode": mode}
-
-
-# ── audit_fix：审计自纠（v12 新增，执行中自我修正闭环）────────────────────
-
-def _collect_audit_issues(ctx: dict) -> list:
-    """汇总可自纠的问题：llm_audits（LLM 意图级）+ spec_issues（规则级，最新一次）。"""
-    issues: list = []
-    for la in (ctx.get("llm_audits") or []):
-        for i in (la.get("issues") or []):
-            if str(i).strip():
-                issues.append(str(i))
-    for i in (ctx.get("spec_issues") or []):
-        if str(i).strip():
-            issues.append(str(i))
-    return list(dict.fromkeys(issues))
-
-
-def _memory_upgrade_target(ctx: dict, cfg: dict) -> Optional[int]:
-    """内存不足时抬到「标准档」可解析总量（llm_ask.scale_tiers.内存 配置驱动）。
-    优先取 label 含「标准」的档（如 "32G*8条" → 256）；无标准档取最大值；解析失败 None（不硬编码）。"""
-    try:
-        tiers = ((ctx.get("flow_configs") or {}).get("llm_ask") or {}).get("scale_tiers") or {}
-        mem_tiers = tiers.get("内存") or []
-        targets = []
-        std_target = None
-        for t in mem_tiers:
-            rec = str(t.get("recommend") or "")
-            m = re.search(r"(\d+)\s*[Gg]\s*[*×]\s*(\d+)", rec)
-            if m:
-                total = int(m.group(1)) * int(m.group(2))
-                targets.append(total)
-                if "标准" in str(t.get("label") or ""):
-                    std_target = total
-        if not targets:
-            return None
-        return std_target if std_target is not None else max(targets)
-    except Exception:
-        return None
-
-
-def run_audit_fix(ctx: dict, config: Optional[dict] = None) -> dict:
-    """审计自纠（确定性）：llm_audit 检出问题 → 用确定性动作（补 GPU / 抬内存）改需求信号，
-    并请求 orchestrator 重跑 retry_scope 链（默认到 llm_audit 再审计一次）；仍不过 → review 标人工复核。
-
-    这是把 llm_audit 从「纯事后审计」升级为「执行中自我修正」的闭环，上限 max_retry（默认 1）。
-    """
-    cfg = config or {}
-    if not cfg.get("enabled", True):
-        return {"retry": False, "issues": [], "skipped": "disabled"}
-    issues = _collect_audit_issues(ctx)
-    if not issues:
-        return {"retry": False, "issues": [], "reason": "no_issues"}
-    retried = int(ctx.get("audit_retry_count") or 0)
-    max_retry = int(cfg.get("max_retry") or 1)
-    if retried >= max_retry:
-        return {"retry": False, "issues": issues, "reason": "retry_capped", "retried": retried}
-    ext = ctx.get("ext") or {}
-    action = False
-    # 补 GPU（"未配置 GPU / 缺少 GPU"）
-    if any(("GPU" in str(i)) and ("未配置" in str(i) or "缺少" in str(i) or "无 GPU" in str(i)) for i in issues):
-        cats = list(ext.get("categories") or [])
-        if "GPU" not in cats:
-            ext["categories"] = cats + ["GPU"]
-            ctx["ext"] = ext
-            action = True
-    # 抬内存目标（"内存不足/严重/无法支撑"）
-    if any(("内存" in str(i)) and ("不足" in str(i) or "严重" in str(i) or "无法支撑" in str(i) or "远低于" in str(i)) for i in issues):
-        target = _memory_upgrade_target(ctx, cfg)
-        if target:
-            ms = dict(ext.get("mem_signal") or {})
-            cur = int(ms.get("total_gb") or 0)
-            if cur < target:
-                ms["total_gb"] = target
-                ext["mem_signal"] = ms
-                ctx["ext"] = ext
-                action = True
-    if not action:
-        return {"retry": False, "issues": issues, "reason": "no_action", "retried": retried}
-    ctx["audit_retry_count"] = retried + 1
-    scope = cfg.get("retry_scope") or ["kp_reason", "spec_compliance", "compose", "budget_check", "llm_audit", "audit_fix"]
-    ctx["retry_caps"] = _merge_retry(ctx, scope)
-    return {"retry": True, "issues": issues, "retried": retried + 1}
-
-
-# ── result_check：方案自检（确定性，2026-08 新增）─────────────────────────
-# 与 spec_compliance（规格合规：配置是否符合目录/兼容规则）分工：
-# 本节点查「结果完整性」——方案有没有缺漏/自洽，纯确定性，画布可见可配。
-
-def run_result_check(ctx: dict, config: Optional[dict] = None) -> dict:
-    """方案自检：结果非空 + 必填核心件 + 数量合理性。
-
-    确定性规则（不调 LLM）；检查项由节点 config.checks 勾选（前端抽屉可配）。
-    返回 {checks:[{name,passed,detail}], failed, on_fail}。
-    """
-    cfg = config or {}
-    checks_cfg = cfg.get("checks") or {}
-    plans = ctx.get("plans") or []
-    baselines = ctx.get("baselines") or []
-    kp_parts = ctx.get("kp_parts") or []
-    results: list[dict] = []
-
-    def _cat(p) -> str:
-        return str(p.get("category") or p.get("part_category") or p.get("catalogue") or "").lower()
-
-    # 1) 方案非空：有方案、有机型、有配件
-    if checks_cfg.get("plan_not_empty", True):
-        ok = bool(plans) and bool(baselines) and bool(kp_parts)
-        detail = f"方案 {len(plans)} 张 / 机型 {len(baselines)} / 配件 {len(kp_parts)} 件"
-        results.append({"name": "方案非空", "passed": ok, "detail": detail})
-
-    # 2) 必填核心件：CPU / 内存 / 盘 至少各一（存储类/AI 类同理要有核心件）
-    if checks_cfg.get("required_fields", True):
-        cats = {_cat(p) for p in kp_parts}
-        has_cpu = any("cpu" in c for c in cats)
-        has_mem = any("mem" in c for c in cats)
-        has_disk = any(("hdd" in c) or ("ssd" in c) or ("disk" in c) or ("盘" in c) or ("storage" in c) for c in cats)
-        ok = has_cpu and has_mem and has_disk
-        results.append({"name": "核心件齐全（CPU/内存/盘）", "passed": ok,
-                        "detail": f"CPU={has_cpu} 内存={has_mem} 盘={has_disk}"})
-
-    # 3) 数量合理性：内存有量、配了 GPU 则有 GPU 供电线/数量匹配
-    if checks_cfg.get("qty_reasonable", True):
-        issues: list[str] = []
-        mem_count = sum(int(p.get("qty") or 0) for p in kp_parts if "mem" in _cat(p))
-        gpu_qty = sum(int(p.get("qty") or 0) for p in kp_parts
-                      if (("gpu" in _cat(p) or "显卡" in _cat(p)) and "power" not in _cat(p) and "cord" not in _cat(p)))
-        gpu_cord = sum(int(p.get("qty") or 0) for p in kp_parts if "gpu power" in _cat(p) or "gpu_cord" in _cat(p) or "显卡电源线" in _cat(p))
-        if mem_count <= 0:
-            issues.append("无内存条")
-        if gpu_qty > 0 and gpu_cord <= 0:
-            issues.append(f"配了 {gpu_qty} 张 GPU 但无 GPU 供电线")
-        ok = not issues
-        results.append({"name": "数量合理性", "passed": ok,
-                        "detail": ("；".join(issues) if issues else f"GPU={gpu_qty} 内存条={mem_count}")})
-
-    failed = any(not r["passed"] for r in results)
-    on_fail = cfg.get("on_fail") or "mark"
-    ctx["result_check"] = {"checks": results, "failed": failed, "on_fail": on_fail}
-    return {"checks": results, "failed": failed, "on_fail": on_fail}

@@ -6,7 +6,7 @@ not team activity.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, func, or_
 import uuid
 
 from app.models.assistant import AssistantThread, AssistantMessage
@@ -36,13 +36,19 @@ class AssistantRepository:
         title: Optional[str] = None,
         opportunity_id: Optional[str] = None,
         quotation_id: Optional[str] = None,
+        thread_kind: str = "assistant",
+        colleague_role_key: Optional[str] = None,
+        entry_point: Optional[str] = None,
     ) -> dict:
         now = now_iso()
         t = AssistantThread(
             thread_id=uuid.uuid4().hex,
             title=title or self._auto_title(opportunity_id, quotation_id),
+            thread_kind=thread_kind,
+            colleague_role_key=colleague_role_key,
             opportunity_id=opportunity_id,
             quotation_id=quotation_id,
+            entry_point=entry_point,
             created_by=created_by,
             created_at=now,
             updated_at=now,
@@ -52,17 +58,75 @@ class AssistantRepository:
         self.session.refresh(t)
         return t.to_dict()
 
-    def list_threads(self, created_by: str, limit: int = 50) -> List[dict]:
+    def update_thread_entry_point(self, thread_id: str, entry_point: str) -> Optional[dict]:
+        """Update the latest entry source for a thread (portal/floating_assistant/ai_office)."""
+        entry_point = (entry_point or "").strip() or None
+        if not entry_point:
+            return self.get_thread(thread_id)
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        if not t:
+            return None
+        t.entry_point = entry_point
+        t.updated_at = now_iso()
+        self.session.commit()
+        self.session.refresh(t)
+        return t.to_dict()
+
+    def update_thread_opportunity_id(self, thread_id: str, opportunity_id: str) -> Optional[dict]:
+        """Bind an AI Office thread to an internal opportunity so later turns reuse it."""
+        t = self.session.execute(
+            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        ).scalar_one_or_none()
+        if not t:
+            return None
+        t.opportunity_id = opportunity_id or None
+        t.updated_at = now_iso()
+        self.session.commit()
+        self.session.refresh(t)
+        return t.to_dict()
+
+    def list_threads(
+        self,
+        created_by: str,
+        limit: int = 50,
+        thread_kind: str = "assistant",
+        colleague_role_key: Optional[str] = None,
+        include_deleted: bool = False,
+        with_meta: bool = False,
+        include_preview: bool = False,
+    ) -> List[dict]:
+        conditions = [
+            AssistantThread.created_by == created_by,
+            AssistantThread.thread_kind == thread_kind,
+        ]
+        if not include_deleted:
+            conditions.append(AssistantThread.deleted_at.is_(None))
+        if not include_preview:
+            conditions.append(AssistantThread.entry_point != "skill_studio_preview")
+        if colleague_role_key:
+            conditions.append(AssistantThread.colleague_role_key == colleague_role_key)
         rows = self.session.execute(
             select(AssistantThread)
-            .where(
-                AssistantThread.created_by == created_by,
-                AssistantThread.deleted_at.is_(None),
-            )
+            .where(*conditions)
             .order_by(AssistantThread.updated_at.desc())
             .limit(limit)
         ).scalars().all()
-        return [t.to_dict() for t in rows]
+        if not with_meta:
+            return [t.to_dict() for t in rows]
+        message_meta = self.threads_message_meta([t.thread_id for t in rows])
+        out: List[dict] = []
+        for t in rows:
+            d = t.to_dict()
+            meta = message_meta.get(t.thread_id, {})
+            d["deleted_at"] = t.deleted_at or ""
+            d["msg_count"] = meta.get("msg_count", 0)
+            d["first_message"] = meta.get("first_message", "")
+            d["last_message"] = meta.get("last_message", "")
+            d["role_counts"] = meta.get("role_counts", {})
+            out.append(d)
+        return out
 
     def get_thread(self, thread_id: str) -> Optional[dict]:
         t = self.session.execute(
@@ -70,54 +134,107 @@ class AssistantRepository:
         ).scalar_one_or_none()
         return t.to_dict() if t else None
 
-    def list_all_threads(self, limit: int = 500) -> List[dict]:
+    def list_all_threads(
+        self,
+        limit: int = 500,
+        thread_kind: Optional[str] = None,
+        colleague_role_key: Optional[str] = None,
+        created_by: Optional[str] = None,
+        keyword: Optional[str] = None,
+    ) -> List[dict]:
         """管理员：列出全部会话（含回收站），带消息数/状态，按最后活跃倒序。"""
-        from sqlalchemy import func
+        conditions = []
+        if thread_kind:
+            conditions.append(AssistantThread.thread_kind == thread_kind)
+        if colleague_role_key:
+            conditions.append(AssistantThread.colleague_role_key == colleague_role_key)
+        if created_by:
+            conditions.append(AssistantThread.created_by == created_by)
+        if keyword:
+            term = f"%{str(keyword).strip()}%"
+            conditions.append(or_(AssistantThread.title.ilike(term), AssistantThread.thread_id.ilike(term)))
         rows = self.session.execute(
             select(AssistantThread)
+            .where(*conditions)
             .order_by(AssistantThread.updated_at.desc())
             .limit(limit)
         ).scalars().all()
+        message_meta = self.threads_message_meta([t.thread_id for t in rows])
         out: List[dict] = []
         for t in rows:
-            cnt = self.session.execute(
-                select(func.count()).select_from(AssistantMessage).where(
-                    AssistantMessage.thread_id == t.thread_id,
-                    AssistantMessage.deleted_at.is_(None),
-                )
-            ).scalar() or 0
             d = t.to_dict()
+            meta = message_meta.get(t.thread_id, {})
             d["deleted_at"] = t.deleted_at or ""
-            d["msg_count"] = int(cnt)
+            d["msg_count"] = meta.get("msg_count", 0)
+            d["first_message"] = meta.get("first_message", "")
+            d["last_message"] = meta.get("last_message", "")
+            d["role_counts"] = meta.get("role_counts", {})
             out.append(d)
         return out
 
-    def soft_delete_thread(self, thread_id: str) -> bool:
-        t = self.session.execute(
-            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
-        ).scalar_one_or_none()
+    def threads_message_meta(self, thread_ids: List[str]) -> dict:
+        """批量返回会话消息元信息：总数、首条/末条预览、role 计数。"""
+        ids = [str(i) for i in thread_ids if i]
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(AssistantMessage)
+            .where(
+                AssistantMessage.thread_id.in_(ids),
+                AssistantMessage.deleted_at.is_(None),
+            )
+            .order_by(AssistantMessage.created_at.asc())
+        ).scalars().all()
+        grouped: dict = {}
+        for tid in ids:
+            grouped[tid] = {"items": [], "role_counts": {}}
+        for m in rows:
+            grouped.setdefault(m.thread_id, {"items": [], "role_counts": {}})
+            grouped[m.thread_id]["items"].append(m)
+        out: dict = {}
+        for tid, data in grouped.items():
+            items = data["items"]
+            counts = dict(data["role_counts"])
+            for m in items:
+                role = m.role or "unknown"
+                counts[role] = int(counts.get(role, 0)) + 1
+            out[tid] = {
+                "msg_count": len(items),
+                "first_message": (items[0].content or "")[:120] if items else "",
+                "last_message": (items[-1].content or "")[:120] if items else "",
+                "role_counts": counts,
+            }
+        return out
+
+    def soft_delete_thread(self, thread_id: str, created_by: Optional[str] = None) -> bool:
+        query = select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        if created_by:
+            query = query.where(AssistantThread.created_by == created_by)
+        t = self.session.execute(query).scalar_one_or_none()
         if not t:
             return False
         t.deleted_at = now_iso()
         self.session.commit()
         return True
 
-    def restore_thread(self, thread_id: str) -> bool:
+    def restore_thread(self, thread_id: str, created_by: Optional[str] = None) -> bool:
         """回收站恢复：清空 deleted_at（会话回到正常）。"""
-        t = self.session.execute(
-            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
-        ).scalar_one_or_none()
+        query = select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        if created_by:
+            query = query.where(AssistantThread.created_by == created_by)
+        t = self.session.execute(query).scalar_one_or_none()
         if not t:
             return False
         t.deleted_at = None
         self.session.commit()
         return True
 
-    def hard_delete_thread(self, thread_id: str) -> bool:
+    def hard_delete_thread(self, thread_id: str, created_by: Optional[str] = None) -> bool:
         """彻底删除：物理清掉该会话全部消息 + 线程行（含 reasoning_state）。"""
-        t = self.session.execute(
-            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
-        ).scalar_one_or_none()
+        query = select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        if created_by:
+            query = query.where(AssistantThread.created_by == created_by)
+        t = self.session.execute(query).scalar_one_or_none()
         if not t:
             return False
         self.session.execute(
@@ -127,11 +244,12 @@ class AssistantRepository:
         self.session.commit()
         return True
 
-    def update_thread_title(self, thread_id: str, title: str) -> Optional[dict]:
+    def update_thread_title(self, thread_id: str, title: str, created_by: Optional[str] = None) -> Optional[dict]:
         """Overwrite a thread's title (used to auto-name it from the first user message)."""
-        t = self.session.execute(
-            select(AssistantThread).where(AssistantThread.thread_id == thread_id)
-        ).scalar_one_or_none()
+        query = select(AssistantThread).where(AssistantThread.thread_id == thread_id)
+        if created_by:
+            query = query.where(AssistantThread.created_by == created_by)
+        t = self.session.execute(query).scalar_one_or_none()
         if not t:
             return None
         t.title = title
@@ -237,17 +355,18 @@ class AssistantRepository:
 
     # ── messages ──
 
-    def list_messages(self, thread_id: str, limit: int = 200) -> List[dict]:
+    def list_messages(self, thread_id: str, limit: int = 50) -> List[dict]:
+        safe_limit = max(1, min(int(limit or 50), 500))
         rows = self.session.execute(
             select(AssistantMessage)
             .where(
                 AssistantMessage.thread_id == thread_id,
                 AssistantMessage.deleted_at.is_(None),
             )
-            .order_by(AssistantMessage.created_at.asc())
-            .limit(limit)
+            .order_by(AssistantMessage.created_at.desc())
+            .limit(safe_limit)
         ).scalars().all()
-        return [m.to_dict() for m in rows]
+        return [m.to_dict() for m in reversed(rows)]
 
     def add_message(
         self,
@@ -258,6 +377,7 @@ class AssistantRepository:
         quotation_id: Optional[str] = None,
         kind: str = "text",
         data: Optional[str] = None,
+        colleague_role_key: Optional[str] = None,
     ) -> dict:
         m = AssistantMessage(
             message_id=uuid.uuid4().hex,
@@ -266,6 +386,7 @@ class AssistantRepository:
             content=content,
             kind=kind,
             data=data,
+            colleague_role_key=colleague_role_key,
             opportunity_id=opportunity_id,
             quotation_id=quotation_id,
             created_at=now_iso(),

@@ -175,6 +175,63 @@
   color: var(--cpq-text-secondary);
 }
 
+/* 门户弹窗：遮罩由组件 maskStyle 控制；面板改为不透明深色，避免蓝色半透明泛色 */
+#app .portal-modal .ant-modal-content {
+  background: var(--cpq-bg-secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+#app .portal-modal .ant-modal-header {
+  background: var(--cpq-bg-secondary);
+}
+#app .portal-modal .ant-modal-body {
+  background: var(--cpq-bg-secondary);
+}
+
+/* 方案/成本编辑弹窗：与其他门户弹窗保持同一表面色，只保留自身圆角、边框和阴影 */
+#app .portal-sheet-modal .ant-modal-content {
+  background: var(--cpq-bg-secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--cpq-border-primary);
+  border-radius: 16px;
+  box-shadow: var(--cpq-shadow-lg);
+}
+#app .portal-sheet-modal .ant-modal-header,
+#app .portal-sheet-modal .ant-modal-body {
+  background: var(--cpq-bg-secondary);
+}
+#app .portal-sheet-modal .ant-modal-header {
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+/* 方案/成本大表：单元格内输入控件完全透明，聚焦反馈只交给 .sheet-cell:focus-within */
+#app .portal-sheet-modal .sheet-table .ant-input,
+#app .portal-sheet-modal .sheet-table .ant-input-number,
+#app .portal-sheet-modal .sheet-table .ant-select-selector {
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  caret-color: var(--cpq-accent-primary);
+}
+
+#app .portal-sheet-modal .sheet-table .ant-input:focus,
+#app .portal-sheet-modal .sheet-table .ant-input-focused,
+#app .portal-sheet-modal .sheet-table .ant-input-number-focused,
+#app .portal-sheet-modal .sheet-table .ant-select-focused .ant-select-selector {
+  border: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+}
+
+#app .portal-sheet-modal .sheet-table .ant-input-number-input,
+#app .portal-sheet-modal .sheet-table .ant-select-selection-search-input {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+
 /* Upload */
 #app .ant-upload {
   background: var(--cpq-bg-secondary);

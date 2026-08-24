@@ -1,11 +1,11 @@
 <script setup lang="ts">
 /** 选型配置工作台(/strategies/selection)—— 模块工作台 shell。
- *  头部:← 策略中心 + 选型配置 + [🛠 兼容规则 | 📄 文档库] 模式开关。
+ *  头部:← 策略中心 + 选型配置 + [🛠 兼容规则 | 📦 BOM案例库 | 📄 文档库] 模式开关。
  *
  *  机箱能力(L0)已并入「设置-服务器管理-基准配置」编辑器(同一 base_config 实体，避免两处编辑)；
  *  配件适配(L1)曾迁「设置-服务器管理」做参考视图，2026-08-03 已移除(specs.chassis 无装配消费)。
- *  本页只剩纯「选型规则」scope：
- *   🛠 兼容规则：CRE 卡片+编辑弹窗+拓扑(跨件 require/exclude/derive/recommend,改即生效)。
+ *  本页只剩纯「选型装配」scope：
+ *   🛠 兼容规则：选型阶段声明式规则 + 编辑弹窗（搜索/分类/状态/命中次数/编辑/删除/停用）。
  *   📄 文档库：选型配置专属文档(module=selection,与报价策略文档库独立)。
  */
 import { ref } from 'vue'
@@ -17,7 +17,7 @@ import CompatibilityRuleEditor from '../CompatibilityRuleEditor.vue'
 import BomCaseLibrary from './BomCaseLibrary.vue'
 
 const router = useRouter()
-type Mode = 'engine' | 'docs' | 'cases'
+type Mode = 'engine' | 'cases' | 'docs'
 const mode = ref<Mode>('engine')
 const readerDoc = ref<PolicyDoc | null>(null)
 

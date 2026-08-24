@@ -1,7 +1,7 @@
 <template>
   <a-modal
     :open="open"
-    title="解析预览 — 确认报价单内容"
+    title="解析预览 — 确认成本表内容"
     width="92%"
     :footer="null"
     :destroy-on-close="true"
@@ -13,7 +13,7 @@
       type="info"
       show-icon
       banner
-      message="核对热力图里的取值位置是否正确；若区域边界或取值列有误，在右侧「解析规则」调整，保存后会用本文件自动重算。确认无误后再生成报价单。"
+      message="核对热力图里的取值位置是否正确；若区域边界或取值列有误，在右侧「解析规则」调整，保存后会用本文件自动重算。确认无误后再生成成本表。"
       style="margin-bottom: 12px; flex-shrink: 0;"
     />
 
@@ -34,7 +34,12 @@
     <!-- 底部操作 -->
     <div class="preview-footer">
       <a-button @click="emit('cancel')">取消</a-button>
-      <a-button type="primary" @click="emit('confirm')">确认生成报价单</a-button>
+      <a-button
+        type="primary"
+        :loading="confirming"
+        :disabled="confirming"
+        @click="emit('confirm')"
+      >确认生成成本表</a-button>
     </div>
   </a-modal>
 </template>
@@ -49,6 +54,7 @@ const props = defineProps<{
   open: boolean
   file: File | null
   opportunityId: string
+  confirming: boolean
 }>()
 
 const emit = defineEmits<{

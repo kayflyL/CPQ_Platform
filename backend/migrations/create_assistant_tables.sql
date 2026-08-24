@@ -10,13 +10,24 @@ CREATE TABLE IF NOT EXISTS opportunities.assistant_threads (
   title          TEXT,
   opportunity_id TEXT,        -- 上下文锚:会话可绑定某商机(可空=全局会话)
   quotation_id   TEXT,
+  entry_point    TEXT,        -- 最近入口:portal / floating_assistant / ai_office / settings
   created_by     TEXT,        -- FeedUser.user_id(身份复用 Feed 的 X-User-Id)
   created_at     TEXT,
   updated_at     TEXT,
   deleted_at     TEXT,
-  reasoning_state TEXT         -- 方案助手需求分析会话状态(JSON,与商机 extra_fields 平行)
+  reasoning_state TEXT,        -- 方案助手需求分析会话状态(JSON,与商机 extra_fields 平行)
+  thread_kind     TEXT NOT NULL DEFAULT 'assistant',  -- assistant=方案助手；office_colleague=AI Office 同事会话
+  colleague_role_key TEXT     -- AI Office 会话归属的同事 role_key；方案助手为空
 );
 CREATE INDEX IF NOT EXISTS idx_at_threads_user ON opportunities.assistant_threads(created_by);
+-- Skill 预览线程（entry_point=skill_studio_preview）与正式 office 线程共用 user+role，需允许并存。
+DROP INDEX IF EXISTS uq_assistant_office_thread_active;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_office_thread_active
+ON opportunities.assistant_threads (created_by, colleague_role_key)
+WHERE thread_kind = 'office_colleague'
+  AND colleague_role_key IS NOT NULL
+  AND deleted_at IS NULL
+  AND entry_point IS DISTINCT FROM 'skill_studio_preview';
 
 CREATE TABLE IF NOT EXISTS opportunities.assistant_messages (
   message_id     TEXT PRIMARY KEY,

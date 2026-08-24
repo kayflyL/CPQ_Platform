@@ -1,6 +1,6 @@
 /**
  * 推理流可视化配置 API（/api/reasoning-flow）。
- * 推理流 DAG：5 节点 extract→select_baseline→match_kp→compose→review + 各节点参数 config。
+ * 推理流 DAG：Skill 工作流节点与参数配置。
  * 改节点 config 立即生效（下次推理用新参数）；三层兜底在 run_pipeline（DB 异常回退模块常量）。
  */
 import axios from 'axios'
@@ -8,46 +8,13 @@ import type { Plan } from '@/api/reasoning'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
-export type ReasoningNodeKey = 'understand' | 'extract' | 'gap_analyze' | 'llm_ask' | 'scene_decide' | 'model_reason' | 'kp_reason' | 'spec_compliance' | 'compose' | 'budget_check' | 'llm_audit' | 'audit_fix' | 'llm_confirm' | 'review' | 'condition' | 'text_clean' | 'cond_gap'
-
-/** extract 节点配置（多词表体系：KP 表 + 机型表，左侧 DB 下拉动态） */
-export interface LexiconEntry {
-  key: string                                    // 左侧下拉选中的值（品类名 / 系列 / 形态 / 类型名）
-  triggers: string[]                             // 右侧触发词
-}
-export interface Lexicon {
-  id: string                                     // 词表 id（lex_kp / lex_model）
-  name: string                                   // 词表显示名
-  kind: 'kp' | 'model'                           // 决定左侧下拉数据源
-  entries: LexiconEntry[]
-}
-export interface ExtractNodeConfig {
-  keyword_limit?: number
-  lexicons?: Lexicon[]                           // 新：多词表（两张主表）
-  // 旧字段保留兼容已存配置；编辑器检测到旧结构自动转新
-  category_lexicon?: Record<string, string[]>
-  series_keywords?: string[]
-  series_keyword_map?: Record<string, string>
-  stopwords?: string[]
-  engine_note?: string
-}
-
-/** review 节点配置（P6 产出形态；BOM 模板不在此节点） */
-export interface ReviewNodeConfig {
-  output_preset?: 'detailed' | 'standard' | 'concise'
-  output_fields?: {
-    show_price?: boolean
-    merge_chassis_kp?: boolean
-    currency?: string
-    show_recommend_reason?: boolean
-    show_missing_hint?: boolean
-  }
-}
+export type ReasoningNodeKey = 'input' | 'agent_fill' | 'model_reason' | 'kp_reason' | 'compose' | 'output' | 'agent' | 'rule' | 'branch' | 'assemble' | 'orchestrator' | 'condition'
 
 export interface ReasoningNodeMeta {
   id: string
   type: string
   label: string
+  runtime?: string | null
   position?: { x: number; y: number }
 }
 export interface ReasoningGraph {
@@ -91,25 +58,35 @@ export interface TestRunResult {
 }
 
 export const reasoningFlowApi = {
-  get: () => RESP<{ flow: ReasoningFlow | null }>(axios.get('/api/reasoning-flow/')),
-  listVersions: () => RESP<{ versions: ReasoningFlow[] }>(axios.get('/api/reasoning-flow/versions')),
-  updateGraph: (graph: ReasoningGraph) =>
-    RESP<ReasoningFlow>(axios.put('/api/reasoning-flow/graph', { graph })),
-  updateNode: (nodeKey: ReasoningNodeKey, config: Record<string, any>) =>
-    RESP<any>(axios.put(`/api/reasoning-flow/nodes/${nodeKey}`, { config })),
+  get: (skillKey?: string) =>
+    RESP<{ flow: ReasoningFlow | null }>(axios.get('/api/reasoning-flow/', {
+      params: skillKey ? { skill_key: skillKey } : undefined,
+    })),
+  listVersions: (skillKey?: string) =>
+    RESP<{ versions: ReasoningFlow[] }>(axios.get('/api/reasoning-flow/versions', {
+      params: skillKey ? { skill_key: skillKey } : undefined,
+    })),
+  updateGraph: (graph: ReasoningGraph, skillKey?: string) =>
+    RESP<ReasoningFlow>(axios.put('/api/reasoning-flow/graph', { graph }, {
+      params: skillKey ? { skill_key: skillKey } : undefined,
+    })),
+  updateNode: (nodeKey: ReasoningNodeKey, config: Record<string, any>, label?: string, skillKey?: string) =>
+    RESP<any>(axios.put(`/api/reasoning-flow/nodes/${nodeKey}`, { config, label }, {
+      params: skillKey ? { skill_key: skillKey } : undefined,
+    })),
   activate: (flowId: number) =>
     RESP<ReasoningFlow>(axios.post(`/api/reasoning-flow/versions/${flowId}/activate`, {})),
-  testRun: (text: string, budget?: number, forceComplete?: boolean) =>
+  testRun: (text: string, budget?: number, forceComplete?: boolean, skillKey?: string) =>
     RESP<TestRunResult>(axios.post('/api/reasoning-flow/test-run', {
       requirement_text: text,
       explicit_budget: budget,
       force_complete: forceComplete ?? true,
-    })),
+    }, { params: skillKey ? { skill_key: skillKey } : undefined })),
   /** 流式试运行：注册 run_id，事件经 WS /api/reasoning-flow/test-run-ws/{run_id} 实时推送 */
-  testRunStart: (text: string, budget?: number, forceComplete?: boolean) =>
+  testRunStart: (text: string, budget?: number, forceComplete?: boolean, skillKey?: string) =>
     RESP<{ run_id: string }>(axios.post('/api/reasoning-flow/test-run/start', {
       requirement_text: text,
       explicit_budget: budget,
       force_complete: forceComplete ?? true,
-    })),
+    }, { params: skillKey ? { skill_key: skillKey } : undefined })),
 }

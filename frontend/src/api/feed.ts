@@ -30,6 +30,7 @@ export interface FeedAttachment {
   kind: string
   category?: string
   quotation_id?: string
+  flow_card_id?: number | null
   version: number
   version_group: string
   created_at: string
@@ -43,6 +44,8 @@ export interface FeedMessage {
   body: string
   kind: string
   quotation_id?: string
+  node_key?: string
+  flow_card_id?: number | null
   created_at: string
   updated_at?: string
   deleted_at?: string
@@ -63,9 +66,11 @@ export const feedApi = {
     list: (oppId: string) =>
       http.get<{ messages: FeedMessage[] }>(`/api/feed/${oppId}/messages`).then((r) => r.data.messages),
     /** Post a message with optional attachments. */
-    create: (oppId: string, body: string, files: File[] = []) => {
+    create: (oppId: string, body: string, files: File[] = [], nodeKey?: string, flowCardId?: number | null) => {
       const fd = new FormData()
       fd.append('body', body)
+      if (nodeKey) fd.append('node_key', nodeKey)
+      if (flowCardId) fd.append('flow_card_id', String(flowCardId))
       files.forEach((f) => fd.append('files', f))
       return http
         .post<{ message: FeedMessage }>(`/api/feed/${oppId}/messages`, fd, {
@@ -78,12 +83,13 @@ export const feedApi = {
   attachments: {
     list: (oppId: string) =>
       http.get<{ attachments: FeedAttachment[] }>(`/api/feed/${oppId}/attachments`).then((r) => r.data.attachments),
-    upload: (oppId: string, file: File, opts?: { category?: string; quotation_id?: string; kind?: string }) => {
+    upload: (oppId: string, file: File, opts?: { category?: string; quotation_id?: string; kind?: string; flow_card_id?: number | null }) => {
       const fd = new FormData()
       fd.append('file', file)
       if (opts?.category) fd.append('category', opts.category)
       if (opts?.quotation_id) fd.append('quotation_id', opts.quotation_id)
       if (opts?.kind) fd.append('kind', opts.kind)
+      if (opts?.flow_card_id) fd.append('flow_card_id', String(opts.flow_card_id))
       return http
         .post<{ attachment: FeedAttachment }>(`/api/feed/${oppId}/attachments`, fd, {
           headers: { 'Content-Type': 'multipart/form-data' },

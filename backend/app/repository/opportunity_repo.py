@@ -1,7 +1,8 @@
 """Repository for Opportunity metadata (商机线索)."""
+import json
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import delete, or_
+from sqlalchemy import delete, or_, and_
 from sqlalchemy.orm import Session
 from app.models.opportunity import Opportunity
 from app.models.base import Opportunity_SessionLocal
@@ -17,46 +18,94 @@ class OpportunityRepository:
             self._session = Opportunity_SessionLocal()
         return self._session
 
+    _REQUIREMENT_FIELD_KEYS = ("platform_type", "chassis_form", "purchase_qty", "warranty_years")
+
+    def _current_slot_map(self, opp_ids: Optional[List[str]] = None) -> dict:
+        """读取各商机需求单 slots，用于替代 opportunities 旧列派生平台/机箱/数量/维保。
+
+        优先级：current 需求单 > 最新 draft 需求单；仅当 current 缺失时才回退 draft。
+        """
+        from app.models.flow import OpportunityRequirement
+        q = self.session.query(
+            OpportunityRequirement.opportunity_id,
+            OpportunityRequirement.status,
+            OpportunityRequirement.version,
+            OpportunityRequirement.slots,
+        ).filter(OpportunityRequirement.status.in_(["current", "draft"]))
+        if opp_ids:
+            q = q.filter(OpportunityRequirement.opportunity_id.in_(opp_ids))
+        q = q.order_by(
+            OpportunityRequirement.opportunity_id,
+            OpportunityRequirement.version.desc(),
+        )
+
+        def _parse(raw):
+            slots = raw or {}
+            if isinstance(slots, str):
+                try:
+                    slots = json.loads(slots)
+                except (json.JSONDecodeError, TypeError):
+                    slots = {}
+            return slots if isinstance(slots, dict) else {}
+
+        current: dict = {}
+        draft: dict = {}
+        for oid, status, _version, raw in q.all():
+            parsed = _parse(raw)
+            if status == "current" and oid not in current:
+                current[oid] = parsed
+            elif status == "draft" and oid not in draft:
+                draft[oid] = parsed
+
+        out: dict = {}
+        all_ids = set(current) | set(draft)
+        for oid in all_ids:
+            out[oid] = current.get(oid) or draft.get(oid) or {}
+        return out
+
+    def _merge_requirement_fields(self, opp_dicts: List[dict]) -> None:
+        """把当前需求单派生字段合并到 Opportunity dict，保持旧 API 字段兼容。"""
+        if not opp_dicts:
+            return
+        ids = [d.get("opportunity_id") for d in opp_dicts if d.get("opportunity_id")]
+        slot_map = self._current_slot_map(ids)
+        for d in opp_dicts:
+            slots = slot_map.get(d.get("opportunity_id"), {})
+            d["platform_type"] = slots.get("platform_type") or ""
+            d["chassis_form"] = slots.get("chassis_form") or ""
+            d["purchase_qty"] = slots.get("purchase_qty") or 0
+            d["warranty_years"] = slots.get("warranty_years") or ""
+
     def list_opportunities(self, include_deleted: bool = False,
                       page: int = 1, page_size: int = 50,
                       search: str = None, status: str = None,
                       platform: str = None, chassis: str = None,
                       result: str = None, industry: str = None, order_type: str = None,
+                      sales_person: str = None, owner_user_id: str = None,
+                      owner_sales_person: str = None,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
+        # AI Office 内部商机只在转真实商机后进入业务列表。
+        q = q.filter(Opportunity.status != "ai_office")
         if not include_deleted:
             q = q.filter(Opportunity.status != "deleted")
         if status and status != "all":
             q = q.filter(Opportunity.status == status)
-        if platform:
-            plats = [s.strip() for s in platform.split(',') if s.strip()]
-            if plats:
-                # 「未分类」是图表层对空值的显示名（dashboard 结构分布把 platform_type 为空 → 未分类），
-                # 列表过滤需把它翻译回「空值/NULL」才能命中对应的未分类商机。
-                conds = []
-                if "未分类" in plats:
-                    conds.append(Opportunity.platform_type.is_(None))
-                    conds.append(Opportunity.platform_type == "")
-                named = [p for p in plats if p != "未分类"]
-                if named:
-                    conds.append(Opportunity.platform_type.in_(named))
-                if conds:
-                    q = q.filter(or_(*conds))
-        if chassis:
-            chas = [s.strip() for s in chassis.split(',') if s.strip()]
-            if chas:
-                # 与平台同理：「未分类」对应 chassis_form 为空/NULL 的商机。
-                conds = []
-                if "未分类" in chas:
-                    conds.append(Opportunity.chassis_form.is_(None))
-                    conds.append(Opportunity.chassis_form == "")
-                named = [c for c in chas if c != "未分类"]
-                if named:
-                    conds.append(Opportunity.chassis_form.in_(named))
-                if conds:
-                    q = q.filter(or_(*conds))
         if result and result != "all":
             q = q.filter(Opportunity.result == result)
+        if owner_user_id:
+            owner_cond = [Opportunity.owner_user_id == owner_user_id]
+            if owner_sales_person:
+                owner_cond.append(
+                    and_(Opportunity.owner_user_id.is_(None), Opportunity.sales_person == owner_sales_person)
+                )
+            q = q.filter(or_(*owner_cond))
+        elif owner_sales_person:
+            q = q.filter(Opportunity.sales_person == owner_sales_person)
+        if sales_person:
+            persons = [s.strip() for s in sales_person.split(',') if s.strip()]
+            if persons:
+                q = q.filter(Opportunity.sales_person.in_(persons))
         if industry:
             inds = [s.strip() for s in industry.split(',') if s.strip()]
             if inds:
@@ -70,6 +119,23 @@ class OpportunityRepository:
                 Opportunity.customer_name.ilike(f"%{search}%") |
                 Opportunity.sales_person.ilike(f"%{search}%")
             )
+        if platform or chassis:
+            # 旧列已迁移到需求单 slots，列表筛选改为基于当前需求单派生值过滤。
+            candidate_ids = [r.opportunity_id for r in q.with_entities(Opportunity.opportunity_id).all()]
+            slot_map = self._current_slot_map(candidate_ids)
+            def _slot_match(oid: str, field: str, values: list) -> bool:
+                raw = str((slot_map.get(oid, {}).get(field)) or "").strip()
+                if "未分类" in values and raw == "":
+                    return True
+                named = [v for v in values if v != "未分类"]
+                return raw in named
+            if platform:
+                plats = [s.strip() for s in platform.split(',') if s.strip()]
+                candidate_ids = [oid for oid in candidate_ids if _slot_match(oid, "platform_type", plats)]
+            if chassis:
+                chas = [s.strip() for s in chassis.split(',') if s.strip()]
+                candidate_ids = [oid for oid in candidate_ids if _slot_match(oid, "chassis_form", chas)]
+            q = q.filter(Opportunity.opportunity_id.in_(candidate_ids or [""]))
         _SORT_COLS = {"updated_at": Opportunity.updated_at, "created_at": Opportunity.created_at}
         _col = _SORT_COLS.get(sort_by, Opportunity.updated_at)
         q = q.order_by(_col.asc() if sort_order == "asc" else _col.desc())
@@ -84,26 +150,29 @@ class OpportunityRepository:
         opp_ids = [r.opportunity_id for r in rows]
         stats_map: dict = {}
         if opp_ids:
-            stats_rows = (
-                self.session.query(
-                    Quotation.opportunity_id,
-                    func.count(Quotation.quotation_id).label("quotation_count"),
-                    func.max(Quotation.config_count).label("max_config_count"),
-                )
-                .filter(
-                    Quotation.opportunity_id.in_(opp_ids),
-                    Quotation.status == "active",
-                )
-                .group_by(Quotation.opportunity_id)
-                .all()
-            )
-            stats_map = {
-                s.opportunity_id: {
-                    "quotation_count": s.quotation_count,
-                    "config_count": s.max_config_count or 0,
-                }
-                for s in stats_rows
-            }
+            # 每商机「当前版本」的 config_count（status=active 中 version 最大的一条），
+            # 与工作台"当前版本"口径一致，避免多版本报价单的 config_count 被重复相加。
+            _rn = func.row_number().over(
+                partition_by=Quotation.opportunity_id,
+                order_by=(Quotation.version.desc(), Quotation.created_at.desc()),
+            ).label("rn")
+            stats_rows = self.session.query(
+                Quotation.opportunity_id.label("oid"),
+                func.count(Quotation.quotation_id).over(
+                    partition_by=Quotation.opportunity_id
+                ).label("quotation_count"),
+                Quotation.config_count.label("cc"),
+                _rn,
+            ).filter(
+                Quotation.opportunity_id.in_(opp_ids),
+                Quotation.status == "active",
+            ).all()
+            stats_map = {}
+            for s in stats_rows:
+                if s.oid not in stats_map:
+                    stats_map[s.oid] = {"quotation_count": s.quotation_count, "config_count": 0}
+                if s.rn == 1:
+                    stats_map[s.oid]["config_count"] = s.cc or 0
 
         result = []
         for r in rows:
@@ -113,13 +182,19 @@ class OpportunityRepository:
             opp_dict["config_count"] = stats.get("config_count", 0)
             result.append(opp_dict)
 
+        self._merge_requirement_fields(result)
+
         return result, total
 
     def get_opportunity(self, opportunity_id: str) -> Optional[dict]:
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id
         ).first()
-        return opp.to_dict() if opp else None
+        if not opp:
+            return None
+        result = opp.to_dict()
+        self._merge_requirement_fields([result])
+        return result
 
     def get_opportunity_with_items(self, opportunity_id: str) -> Optional[dict]:
         """Get opportunity with all quotations and their items."""
@@ -133,6 +208,7 @@ class OpportunityRepository:
             return None
         
         result = opp.to_dict()
+        self._merge_requirement_fields([result])
         
         # Get all active quotations for this opportunity
         quotations = self.session.query(Quotation).filter(
@@ -175,7 +251,7 @@ class OpportunityRepository:
         ).first()
         if existing:
             for key, val in info.items():
-                if hasattr(existing, key) and key not in ("opportunity_id", "created_at"):
+                if hasattr(existing, key) and key not in ("opportunity_id", "created_at", "owner_user_id", "tenant_id"):
                     # 防御：incoming 为空值时不覆盖已有非空值，避免报价保存擦掉商机名等元数据
                     cur = getattr(existing, key)
                     if (val is None or (isinstance(val, str) and val == "")) and cur not in (None, ""):
@@ -188,10 +264,8 @@ class OpportunityRepository:
                 opportunity_id=opportunity_id,
                 customer_name=info.get("customer_name", ""),
                 sales_person=info.get("sales_person", ""),
+                owner_user_id=info.get("owner_user_id"),
                 fae=info.get("fae", ""),
-                purchase_qty=info.get("purchase_qty", 0),
-                platform_type=info.get("platform_type", ""),
-                chassis_form=info.get("chassis_form", ""),
                 created_at=now,
                 updated_at=now,
                 status="active",
@@ -203,9 +277,9 @@ class OpportunityRepository:
     # Core fields that are actual DB columns (not in extra_fields JSON)
     _CORE_COLUMNS = {
         "opportunity_id", "customer_name",
-        "sales_person", "fae", "quotation_person", "platform_type", "chassis_form",
+        "sales_person", "owner_user_id", "fae", "quotation_person",
         "industry", "order_type", "result",
-        "purchase_qty", "created_at", "updated_at", "status", "extra_fields", "tenant_id",
+        "created_at", "updated_at", "status", "extra_fields", "tenant_id",
     }
 
     def update_meta(self, opportunity_id: str, updates: dict) -> bool:
@@ -225,6 +299,8 @@ class OpportunityRepository:
                 extra = {}
         
         for key, val in updates.items():
+            if key in ("opportunity_id", "tenant_id"):
+                continue
             if key in self._CORE_COLUMNS:
                 # Core column: set directly
                 setattr(opp, key, val)

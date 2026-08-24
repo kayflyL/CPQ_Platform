@@ -73,3 +73,6 @@ backend/tmp_*.json
 
 # 本地登录凭据（不入库）
 .claude/.dev-login
+
+# docs 目录不再跟踪
+docs/

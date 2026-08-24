@@ -1,7 +1,7 @@
 """Reasoning flow models — 推理流可视化配置（schema=rules）。
 
 把需求分析推理流参数化（AI-first 单路能力链：
-understand→model_reason→kp_reason→spec_compliance→compose→llm_audit→audit_fix→review）：ReasoningFlow 存图结构（节点+边），ReasoningNodeConfig 存每步可配参数。
+input→agent_fill→model_reason→kp_reason→compose→output）：ReasoningFlow 存图结构（节点+边），ReasoningNodeConfig 存每步可配参数。
 run_pipeline 读 active flow 的 config 驱动执行；DB 异常或无 active 回退模块常量（三层兜底）。
 
 语义独立于 Strategy（Strategy=业务规则，Flow=执行图），但照搬其 to_dict / JSON 序列化模式。
@@ -19,6 +19,7 @@ class ReasoningFlow(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
+    skill_key: Mapped[Optional[str]] = mapped_column(String(80), nullable=True, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)  # draft/active
     graph: Mapped[str] = mapped_column(Text, nullable=False)  # JSON {nodes:[{key,label}], edges:[{from,to}]}
@@ -32,7 +33,7 @@ class ReasoningFlow(Base):
     def to_dict(self) -> dict:
         import json
         return {
-            "id": self.id, "name": self.name, "version": self.version,
+            "id": self.id, "name": self.name, "skill_key": self.skill_key, "version": self.version,
             "status": self.status,
             "graph": json.loads(self.graph) if self.graph else {"nodes": [], "edges": []},
             "is_active": self.is_active, "description": self.description,
@@ -48,7 +49,7 @@ class ReasoningNodeConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     flow_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)  # 关联 reasoning_flow.id
-    node_key: Mapped[str] = mapped_column(String(40), nullable=False)  # understand/model_reason/kp_reason/compose/review…
+    node_key: Mapped[str] = mapped_column(String(40), nullable=False)  # input/agent_fill/model_reason/kp_reason/compose/output…
     config: Mapped[str] = mapped_column(Text, nullable=False)  # JSON 参数体
     version: Mapped[int] = mapped_column(Integer, default=1)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)

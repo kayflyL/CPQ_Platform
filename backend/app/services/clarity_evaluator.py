@@ -211,16 +211,12 @@ DEFAULT_REQUIREMENT_SLOTS: dict = {
     "version": 1,
     "ask_threshold": 2,  # L0 缺 ≥ N 项 → 反问补全
     "slots": [
-        {"key": "scene", "label": "应用场景", "level": "L0"},
-        {"key": "series", "label": "所属系列", "level": "L0"},
-        {"key": "cpu", "label": "CPU", "level": "L0"},
-        {"key": "memory", "label": "内存", "level": "L0"},
-        {"key": "storage", "label": "存储", "level": "L0", "default_ok": True},
-        {"key": "form", "label": "机箱形态", "level": "L1"},
-        {"key": "gpu", "label": "GPU", "level": "L1"},
-        {"key": "nic", "label": "网卡", "level": "L1"},
-        {"key": "raid", "label": "阵列卡", "level": "L2"},
-        {"key": "psu", "label": "电源", "level": "L2"},
+        {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息"},
+        {"key": "server_model", "label": "机型", "level": "L0", "group": "基本信息"},
+        {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息"},
+        {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息"},
+        {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息"},
+        {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息"},
     ],
 }
 
@@ -228,14 +224,10 @@ DEFAULT_REQUIREMENT_SLOTS: dict = {
 def load_requirement_slots() -> dict:
     """读期望槽位清单（system_config.requirement_slots，可配置）；缺失/异常回退默认。"""
     try:
-        from app.repository.system_config_repo import SystemConfigRepository
-        repo = SystemConfigRepository()
-        try:
-            cfg = repo.get_value("requirement_slots")
-        finally:
-            repo.close()
-        if isinstance(cfg, dict) and cfg.get("slots"):
-            return cfg
+        from app.services.requirement_slots import combined_slot_spec
+        slots = combined_slot_spec()
+        if slots:
+            return {"version": 1, "ask_threshold": DEFAULT_REQUIREMENT_SLOTS.get("ask_threshold", 2), "slots": slots}
     except Exception:
         pass
     return DEFAULT_REQUIREMENT_SLOTS
@@ -247,26 +239,30 @@ def _slot_filled(key: str, ext: dict) -> bool:
         return False
     cats = [str(c) for c in (ext.get("categories") or [])]
     qty = ext.get("qty_map") or {}
-    if key == "scene":
-        # 应用场景：明说用途/类型，或强信号可确定（GPU→AI、存储词→存储）
+    if key in ("scene", "server_type"):
+        # 应用场景：模型已按目录锚定用途/类型，或已实例化 GPU（可信确定性信号）；
+        # 不再用代码关键词猜场景——语义由模型/规则库负责。
         if ext.get("usage") or ext.get("server_type_name"):
             return True
         if ext.get("gpu_groups"):
             return True
-        low = " ".join(str(k) for k in (ext.get("keywords") or [])).lower()
-        if any(w in low for w in ("存储", "nas", "数据库", "ai", "训练", "推理", "大模型", "gpu")):
-            return True
         return False
-    if key == "series":
-        return bool(ext.get("series"))
+    if key in ("series", "platform_type"):
+        return bool(ext.get("series") or ext.get("platform_type"))
+    if key == "server_model":
+        return bool(ext.get("server_model") or ext.get("model") or ext.get("baseline_model"))
+    if key == "purchase_qty":
+        return bool(ext.get("purchase_qty") or ext.get("server_qty") or ext.get("whole_qty"))
+    if key == "warranty_years":
+        return bool(ext.get("warranty_years"))
     if key == "cpu":
         return bool(ext.get("cpu_signal")) or bool(qty.get("CPU")) or "CPU" in cats
     if key == "memory":
         return bool(ext.get("mem_signal")) or bool(ext.get("mem_groups")) or bool(qty.get("Memory")) or "Memory" in cats
     if key == "storage":
         return bool(ext.get("drive_groups")) or bool(qty.get("HDD/SSD")) or "HDD/SSD" in cats
-    if key == "form":
-        return bool(ext.get("form"))
+    if key in ("form", "chassis_form"):
+        return bool(ext.get("form") or ext.get("chassis_form"))
     if key == "gpu":
         return bool(ext.get("gpu_groups")) or bool(qty.get("GPU"))
     if key == "nic":

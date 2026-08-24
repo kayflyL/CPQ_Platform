@@ -17,6 +17,18 @@ from app.services.storage_adapter import now_iso
 
 _PERMISSION_CATALOG_KEY = "auth.permissions"
 
+_REMOVED_PERMISSION_KEYS = {"field.server.price"}
+
+
+_DEFAULT_ROLES = [
+    ("admin", "管理员", "拥有全部权限（含用户与权限管理）", None),
+    ("business", "业务", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts"]),
+    ("te", "技术支持工程师", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts", "field.flow.bom", "action.flow.return.boming"]),
+    ("quote", "市场报价专员", "商机线索 + 报价工作台（含价格）", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.flow.bom", "field.flow.cost", "action.flow.return.quoting", "action.flow.submit.quoting"]),
+    ("cost", "成本核算", "商机线索 + 报价/配件价格", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.flow.bom", "field.flow.cost", "action.flow.return.costing"]),
+    ("director", "总监", "看全量页面 + 价格", ["page.opportunities", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price"]),
+]
+
 
 def _catalog_keys() -> List[str]:
     """权限目录全部 key（system_config.auth.permissions）。"""
@@ -118,15 +130,7 @@ class RoleRepository:
         existing = self.session.execute(select(Role.role_key)).all()
         if existing:
             return 0
-        defaults = [
-            ("admin", "管理员", "拥有全部权限（含用户与权限管理）", None),  # admin 特殊：动态=目录全量
-            ("business", "业务", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts"]),
-            ("te", "技术支持工程师", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts"]),
-            ("quote", "市场报价专员", "商机线索 + 报价工作台（含价格）", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price"]),
-            ("cost", "成本核算", "商机线索 + 报价/配件/服务器价格", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.server.price"]),
-            ("director", "总监", "看全量页面 + 价格", ["page.opportunities", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.server.price"]),
-        ]
-        for key, name, desc, perms in defaults:
+        for key, name, desc, perms in _DEFAULT_ROLES:
             self.session.add(Role(
                 role_key=key,
                 name=name,
@@ -135,4 +139,39 @@ class RoleRepository:
                 updated_at=now_iso(),
             ))
         self.session.commit()
-        return len(defaults)
+        return len(_DEFAULT_ROLES)
+
+    def seed_missing_defaults(self) -> int:
+        """非破坏补种默认角色的缺失权限（只追加，不删除用户自定义权限）。"""
+        changed = 0
+        for key, _name, _desc, perms in _DEFAULT_ROLES:
+            if not perms:
+                continue
+            role = self.session.execute(
+                select(Role).where(Role.role_key == key)
+            ).scalar_one_or_none()
+            if not role:
+                continue
+            current = set(role.to_dict().get("permissions", []))
+            missing = set(perms) - current
+            if missing:
+                role.permissions = json.dumps(sorted(current | missing), ensure_ascii=False)
+                role.updated_at = now_iso()
+                changed += 1
+        if changed:
+            self.session.commit()
+        return changed
+
+    def prune_removed_permissions(self) -> int:
+        """删除已下线的权限 key（如 serverconfig 无价后移除 field.server.price）。"""
+        changed = 0
+        for role in self.session.execute(select(Role)).scalars().all():
+            current = role.to_dict().get("permissions") or []
+            kept = [p for p in current if p not in _REMOVED_PERMISSION_KEYS]
+            if len(kept) != len(current):
+                role.permissions = json.dumps(kept, ensure_ascii=False)
+                role.updated_at = now_iso()
+                changed += 1
+        if changed:
+            self.session.commit()
+        return changed

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""LLM 抽取增强 —— understand 节点调用的 LLM 增强实现（schema 收口 + 规则兜底）。
+"""LLM 抽取增强 —— 需求理解/选型节点共用的 LLM 增强实现（schema 收口 + 规则兜底）。
 
 设计铁律（reasoning_executor._dispatch 的 llm 节点注释）：
   • LLM 输出绝不裸进 match_kp/compose（碰料号/价格/兼容必须 100% 确定性）；
@@ -8,7 +8,7 @@
 
 本模块职责：
   1) 把「需求原文 + 规则抽取摘要」拼成 prompt（build_messages）；
-  2) 调 llm_client.chat_json()（JSON mode + schema 收口）；
+  2) 提供 EXTRACT_ENHANCE_SCHEMA 供理解节点填表；
   3) merge_into_ext() 确定性合并：只补缺、规则赢、能力声明不当作实际配置。
 
 典型收益（对齐训练轮次）：
@@ -18,12 +18,9 @@
     —— 但「支持12个盘/8个GPU」这类能力声明绝不产盘/GPU 条目（R7 教训）；
   • 规则词表够不到的措辞（如"傲腾缓存盘"）补出盘组，HDD/SSD 品类自动补位。
 """
-import json
 import logging
 import re
 from typing import Optional
-
-from app.services import llm_client
 
 logger = logging.getLogger(__name__)
 
@@ -73,60 +70,20 @@ EXTRACT_ENHANCE_SCHEMA: dict = {
             "wattage": {"type": "integer"},
             "qty": {"type": "integer"},
         }},
-        "raid": {"type": "object", "properties": {
+        "raid": {"type": "array", "items": {"type": "object", "properties": {
             "model": {"type": "string"},
             "qty": {"type": "integer"},
-        }},
+            "cache": {"type": ["string", "integer", "null"]},
+            "raid_levels": {"type": "array", "items": {"type": "string"},
+                            "description": "只写 RAID 级别、未写型号时填，如 [\"0\",\"1\",\"10\"]；写了型号则留空"},
+        }}},
+        "purchase_qty": {"type": "integer", "description": "整机采购台数（如 2 台、10 台；未明确写则缺省 1）"},
         "form": {"type": "string"},
         "series": {"type": "string"},
-        "server_type": {"type": "string", "description": "服务器类型（从在售类型清单选，如 AI/加速计算服务器、存储服务器、通用计算服务器）"},
+        "server_type": {"type": "string", "description": "服务器类型（从在售类型清单选一个规范类型名，未明确则留空）"},
         "notes": {"type": "array", "items": {"type": "string"}},
     },
 }
-
-EXTRACT_ENHANCE_SYSTEM_PROMPT = (
-    "你是 CPQ 服务器需求的结构化抽取器。输入：需求原文 + 规则引擎已抽取摘要（可能不完整/有误）。\n"
-    "任务：把需求里「规则没抽到或抽不准」的槽位补全成 JSON。只输出 JSON 对象，不要任何多余文字。\n"
-    "硬性约束：\n"
-    "1) 能力声明 ≠ 实际配置：「支持/最多/最大/可扩展 N 个 X」是机箱能力，不是要配 N 个 X。\n"
-    "   例如「支持12个3.5英寸硬盘」不产硬盘条目；「支持8个GPU」不产 8 张 GPU（除非给出具体型号）。\n"
-    "2) 内存 qty 是【内存条数】，不是插槽数；「24个DDR5插槽」不写 qty=24，且不知道单条容量就写 null。\n"
-    "3) 没有把握的字段一律 null，绝不猜（尤其具体型号、单条容量、核数）。\n"
-    "4) drives 必须填 capacity_gb（数值 GB，AI 把自然语言归一成机器可用值）：\n"
-    "   \"1T以上硬盘\"→{capacity:\"1T以上\",capacity_gb:1024,comparison:\"gte\",qty:1}；\"一tb/一t/1tb\"→capacity_gb:1024；\"960G\"→960；\n"
-    "   comparison 语义（drives/memory/gpu 通用）：\"以上/至少/不小于\"→gte、\"以下/不超过/最多\"→lte、无比较→省略；\n"
-    "   gpu.capacity_gb 为显存（GB）：\"48G以上显存的显卡\"→{capacity_gb:48,comparison:\"gte\",qty:1}，无型号也填；\n"
-    "   capacity 保留原文，interface 只取 SATA/SAS/NVMe/U.2/U.3，qty 缺省 1；容量归属不写进槽位。\n"
-    "5) 电源 wattage 只取明确写出的瓦数（如 1300W/2700W）；「根据功耗选择」写 null。\n"
-    "6) form 只取 1U/2U/4U/5U/6U/8U 或 null；series 只取平台系列（Orion/Polaris/Intel/工作站 等）或 null。\n"
-    "7) 只补缺失/模糊项；规则已抽到且你同意的项也要在 JSON 里带出（确认即价值），但不要编新项。"
-)
-
-
-def build_messages(requirement_text: str, ext: dict) -> list:
-    """构造 chat_json 的 messages：系统 prompt + 需求原文 + 规则摘要。"""
-    digest = {
-        "categories": ext.get("categories") or [],
-        "keywords": ext.get("keywords") or [],
-        "series": ext.get("series"),
-        "form": ext.get("form"),
-        "cpu_signal": ext.get("cpu_signal"),
-        "mem_signal": ext.get("mem_signal"),
-        "psu_signal": ext.get("psu_signal"),
-        "drive_groups": ext.get("drive_groups") or [],
-        "gpu_groups": ext.get("gpu_groups") or [],
-        "mem_groups": ext.get("mem_groups") or [],
-    }
-    user = (
-        f"需求原文：\n{(requirement_text or '').strip()}\n\n"
-        f"规则引擎已抽取（可能不完整/有误）：\n{json.dumps(digest, ensure_ascii=False, default=str)}\n\n"
-        "请输出补全后的 JSON 槽位（严格按上述 schema 的键名）。"
-    )
-    return [
-        {"role": "system", "content": EXTRACT_ENHANCE_SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-
 
 # ── 确定性翻译工具（merge 用，全部可单测）──────────────────────────────
 
@@ -259,6 +216,13 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         else:
             changes.append(f"server_type 跳过(不在在售白名单): {stype}")
 
+    # ── 整机采购台数：只补缺，且不要和内存条数/盘数混淆（由 schema 单独字段收口）──
+    purchase_qty = cleaned.get("purchase_qty")
+    if purchase_qty and 1 <= int(purchase_qty) <= 10000:
+        if not ext.get("purchase_qty"):
+            ext["purchase_qty"] = int(purchase_qty)
+            changes.append(f"purchase_qty={purchase_qty}")
+
     # ── CPU：合并进 cpu_signal（duality/qty/cores/tdp_w/model），规则已抽到的键不覆盖 ──
     cpu = cleaned.get("cpu") or {}
     if cpu:
@@ -382,6 +346,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         qty = g.get("qty")
         cap = g.get("capacity_gb")
         cmpv = g.get("comparison")
+        brand_tokens = re.findall(r"[\u4e00-\u9fff]{2,}", model or "")
         if not model and cap is None:
             continue
         if qty is not None and not (1 <= int(qty) <= 64):
@@ -392,11 +357,14 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         if toks:
             hit = next((gg for gg in ggroups if any(t in (gg.get("tokens") or []) for t in toks)), None)
             if hit:
-                if model not in (hit.get("tokens") or []):
-                    hit["tokens"] = [model] + list(hit.get("tokens") or [])
-                    changes.append(f"gpu_groups[{model}] 前置精确型号")
+                hit_tokens = list(hit.get("tokens") or [])
+                for _t in brand_tokens + [model] + toks:
+                    if _t not in hit_tokens:
+                        hit_tokens.insert(0, _t)
+                hit["tokens"] = hit_tokens
+                changes.append(f"gpu_groups[{model}] 前置精确型号")
                 continue
-            _gg = {"tokens": [model] + toks, "qty": int(qty or 1)}
+            _gg = {"tokens": brand_tokens + [model] + toks, "qty": int(qty or 1)}
             if cap is not None and 1 <= int(cap) <= 512:
                 _gg["cap"] = int(cap)
                 if cmpv in ("gte", "lte"):
@@ -464,28 +432,45 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         changes.append(f"psu.qty={q}")
 
     # ── 阵列卡：补型号 token 进 keywords（无专属 group 机制，靠 stage-1 精确匹配）──
-    raid = cleaned.get("raid") or {}
-    raid_model = (raid.get("model") or "").strip()
-    if raid_model:
-        toks = _model_tokens_of(raid_model)
-        keywords = ext.get("keywords")
-        if keywords is None:
-            keywords = []
-            ext["keywords"] = keywords
-        for t in toks:
-            if t not in keywords:
-                keywords.append(t)
-                changes.append(f"keywords+{t}")
-        ext["raid_signal"] = {"model": raid_model, "qty": int(raid.get("qty") or 1)}
-        # raid_groups（_pick_raid_groups 显式型号分组路径需要；形状对齐 _extract_raid_groups：{model,qty,cache}。
-        # agent 主理解路 ext 从空起步时必须产，否则 RAID 落不到精确型号、泛配到品类代表件）
+    # 兼容单对象与数组：多张 RAID 卡（如 9560 + 9364）分别进入 raid_groups，不覆盖第一张。
+    raid_raw = cleaned.get("raid") or {}
+    raid_items = raid_raw if isinstance(raid_raw, list) else ([raid_raw] if isinstance(raid_raw, dict) else [])
+    for raid in raid_items:
+        if not isinstance(raid, dict):
+            continue
+        raid_model = (raid.get("model") or "").strip()
+        raid_levels = [str(x).strip() for x in (raid.get("raid_levels") or []) if str(x).strip()]
+        raid_qty = int(raid.get("qty") or 1)
         _rg = ext.get("raid_groups")
         if _rg is None:
             _rg = []
             ext["raid_groups"] = _rg
-        if not any(g.get("model") == raid_model for g in _rg):
-            _rg.append({"model": raid_model, "qty": int(raid.get("qty") or 1), "cache": None})
-            changes.append(f"raid_groups+{raid_model}×{raid.get('qty') or 1}")
+        if not raid_model and not raid_levels:
+            continue
+        if raid_model:
+            toks = _model_tokens_of(raid_model)
+            keywords = ext.get("keywords")
+            if keywords is None:
+                keywords = []
+                ext["keywords"] = keywords
+            for t in toks:
+                if t not in keywords:
+                    keywords.append(t)
+                    changes.append(f"keywords+{t}")
+            ext["raid_signal"] = {"model": raid_model, "qty": raid_qty}
+            if not any((g or {}).get("model") == raid_model for g in _rg):
+                _rg.append({"model": raid_model, "qty": raid_qty, "cache": raid.get("cache")})
+                changes.append(f"raid_groups+{raid_model}×{raid_qty}")
+        else:
+            # 只写 RAID 级别未写型号（如 RAID 0,1,10）：不臆造型号，保留级别信号，下游按兼容机型选件。
+            sig = dict(ext.get("raid_signal") or {})
+            if not sig.get("model"):
+                sig["raid_levels"] = raid_levels
+                sig["qty"] = raid_qty
+                ext["raid_signal"] = sig
+            if not any((g or {}).get("raid_levels") for g in _rg):
+                _rg.append({"raid_levels": raid_levels, "qty": raid_qty})
+                changes.append(f"raid_groups+RAID {'/'.join(raid_levels)}×{raid_qty}")
         _add_cat("Raid card")
 
     notes = cleaned.get("notes") or []
@@ -500,149 +485,3 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
     }
     return changes
 
-
-async def run_extract_enhance(requirement_text: str, ext: dict, config: dict) -> dict:
-    """extract 节点 LLM 抽取增强（就地增强 ext；由 extract 节点 enable_llm 调用）。
-
-    任何失败 → 返回 {llm_called, merged:False, error}，绝不抛到主流程。
-    config 可配：sparse_max_categories —— 品类数 > 阈值则跳过（只对"稀疏"需求调 LLM）。
-    """
-    text = (requirement_text or "").strip()
-    if not text:
-        return {"llm_called": False, "merged": False, "reason": "empty_text"}
-    sparse_max = config.get("sparse_max_categories")
-    n_cat = len(ext.get("categories") or [])
-    if sparse_max is not None and n_cat > int(sparse_max):
-        return {"llm_called": False, "merged": False,
-                "reason": f"categories={n_cat} > sparse_max_categories={sparse_max}"}
-    try:
-        data = await llm_client.chat_json(
-            build_messages(text, ext),
-            schema=EXTRACT_ENHANCE_SCHEMA,
-        )
-    except llm_client.LLMError as e:
-        logger.warning("extract_enhance LLM 调用失败，降级规则结果: %s", e)
-        return {"llm_called": True, "merged": False, "error": str(e)[:300]}
-    if not data:
-        return {"llm_called": True, "merged": False, "reason": "empty_slots"}
-    try:
-        changes = merge_into_ext(ext, data, requirement_text=text)
-    except Exception as e:  # merge 异常也降级，不让 LLM 结果破坏主流程
-        logger.exception("extract_enhance merge 失败，丢弃 LLM 结果: %s", e)
-        return {"llm_called": True, "merged": False, "error": f"merge:{e}"[:300]}
-    return {
-        "llm_called": True,
-        "merged": bool(changes),
-        "changes": changes,
-        "llm_slots": {
-            k: data.get(k) for k in ("cpu", "memory", "drives", "gpu", "nic", "psu", "raid",
-                                     "form", "series")
-            if data.get(k) is not None
-        },
-    }
-
-
-# ============================================================
-# scene_analysis / review 的 LLM 增强（2026-08-04 流程重构阶段 2）
-# 铁律同 extract：LLM 输出绝不裸进选件/改方案，只做"理解/判断"增强，
-# 规则始终兜底；任何失败静默降级，不阻塞主流程。
-# ============================================================
-
-SCENE_INFER_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "scene_name": {"type": "string"},   # 服务器类型名（AI/通用/存储）
-        "series": {"type": "string"},       # 系列（Orion/Polaris/Intel）
-        "reason": {"type": "string"},
-    },
-}
-
-SCENE_INFER_SYSTEM_PROMPT = (
-    "你是服务器选型助手。根据客户需求判断「所属系列」与「应用场景」（AI/通用/存储）。"
-    "规则：1) 只输出确定/强推断的信息，无法判断的字段给空字符串；"
-    "2) 系列只从 Orion/AMD平台、Polaris/信创平台、Intel 平台 中选；"
-    "3) 不确定就留空，不要猜。输出严格 JSON。"
-)
-
-
-def build_scene_messages(requirement_text: str, scene: dict) -> list:
-    digest = {k: scene.get(k) for k in ("scene_name", "series", "form", "confidence", "evidence")}
-    user = (
-        f"需求原文：\n{(requirement_text or '').strip()}\n\n"
-        f"规则引擎已判断（可能不完整）：\n{json.dumps(digest, ensure_ascii=False, default=str)}\n\n"
-        "请补全 scene_name 与 series（严格按 schema 键名）。"
-    )
-    return [
-        {"role": "system", "content": SCENE_INFER_SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-
-
-async def run_scene_infer(requirement_text: str, scene: dict, config: dict) -> dict:
-    """scene_analysis 节点 LLM 增强：规则推不出系列/场景时，LLM 从语义补推断。
-    返回 {llm_called, series, scene_name, confidence, reason}；任何失败返回空（规则兜底）。"""
-    try:
-        data = await llm_client.chat_json(build_scene_messages(requirement_text or "", scene or {}),
-                                          schema=SCENE_INFER_SCHEMA)
-    except llm_client.LLMError as e:
-        logger.warning("scene_infer LLM 调用失败（降级规则）: %s", e)
-        return {"llm_called": True, "series": None, "scene_name": None}
-    return {
-        "llm_called": True,
-        "series": str(data.get("series") or "").strip() or None,
-        "scene_name": str(data.get("scene_name") or "").strip() or None,
-        "reason": str(data.get("reason") or "").strip() or "",
-    }
-
-
-AUDIT_SCHEMA: dict = {
-    "type": "object",
-    "properties": {
-        "passed": {"type": "boolean"},
-        "issues": {"type": "array", "items": {"type": "string"}},
-    },
-}
-
-AUDIT_SYSTEM_PROMPT = (
-    "你是服务器方案校对员。客户给出需求，系统生成整机方案。请判断方案是否满足客户需求意图"
-    "（如：客户要训练大模型但方案 GPU 不足、要存储但盘位/容量明显不够、要信创但配了非信创平台）。"
-    "只列【硬性问题】（最多 3 条），不确定的不报；不要重复方案已有的措辞差异。输出严格 JSON。"
-)
-
-
-def build_audit_messages(requirement_text: str, plan: dict) -> list:
-    summary = {
-        "name": plan.get("name"),
-        "series": plan.get("series"),
-        "form": plan.get("form"),
-        "bays": plan.get("bays"),
-        "bom": [
-            {"cat": r.get("part_category") or r.get("category"), "desc": r.get("description"), "qty": r.get("qty")}
-            for r in (plan.get("cfg") or {}).get("bom_excel_rows") or []
-        ],
-    }
-    user = (
-        f"客户需求：\n{(requirement_text or '').strip()}\n\n"
-        f"系统方案：\n{json.dumps(summary, ensure_ascii=False, default=str)}\n\n"
-        "输出 passed 与 issues（严格按 schema）。"
-    )
-    return [
-        {"role": "system", "content": AUDIT_SYSTEM_PROMPT},
-        {"role": "user", "content": user},
-    ]
-
-
-async def run_llm_audit(requirement_text: str, plan: dict, config: dict) -> dict:
-    """review 节点 LLM 语义校对：返回 {llm_called, passed, issues}；失败返回空（规则硬校验兜底）。"""
-    try:
-        data = await llm_client.chat_json(build_audit_messages(requirement_text or "", plan or {}),
-                                          schema=AUDIT_SCHEMA)
-    except llm_client.LLMError as e:
-        logger.warning("llm_audit 调用失败（降级规则校对）: %s", e)
-        return {"llm_called": True, "passed": None, "issues": []}
-    issues = [str(i) for i in (data.get("issues") or []) if str(i).strip()]
-    return {
-        "llm_called": True,
-        "passed": bool(data.get("passed")),
-        "issues": issues[:3],
-    }

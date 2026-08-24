@@ -19,9 +19,14 @@ class AssistantThread(Base):
 
     thread_id: Mapped[str] = mapped_column(String, primary_key=True)
     title: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # 会话类型隔离：assistant=方案助手全局会话；office_colleague=AI Office 同事会话
+    thread_kind: Mapped[Optional[str]] = mapped_column(String, default="assistant")
+    # AI Office 会话归属的同事 role_key；方案助手全局会话为空
+    colleague_role_key: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     # Context anchor: a thread may be started against a specific opportunity/quotation
     opportunity_id: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     quotation_id: Mapped[Optional[str]] = mapped_column(String, default=None)
+    entry_point: Mapped[Optional[str]] = mapped_column(String, default=None)
     created_by: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -34,8 +39,11 @@ class AssistantThread(Base):
         return {
             "thread_id": self.thread_id,
             "title": self.title or "",
+            "thread_kind": self.thread_kind or "assistant",
+            "colleague_role_key": self.colleague_role_key or "",
             "opportunity_id": self.opportunity_id or "",
             "quotation_id": self.quotation_id or "",
+            "entry_point": self.entry_point or "",
             "created_by": self.created_by or "",
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
@@ -50,10 +58,12 @@ class AssistantMessage(Base):
     thread_id: Mapped[str] = mapped_column(String, index=True)
     role: Mapped[str] = mapped_column(String, default="user")  # user | assistant | system
     content: Mapped[Optional[str]] = mapped_column(Text, default=None)
-    # 消息类型：text=普通聊天；analysis_trigger=需求分析发起；analysis_result=需求分析结果（data 带 plans）
+    # 消息类型：text=普通聊天；business_artifact=业务草稿/交付物
     kind: Mapped[Optional[str]] = mapped_column(String, default="text")
-    # 结构化载荷（JSON 文本）：analysis_result → {plans, keywords, series, form}，供历史重放渲染方案卡
+    # 结构化载荷（JSON 文本）：business_artifact → 业务实体草稿
     data: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    # 本条 assistant 消息由哪位 AI 同事生成（群聊式头像/昵称展示用；总助/旧消息为空）
+    colleague_role_key: Mapped[Optional[str]] = mapped_column(String, default=None)
     # Snapshot of where the user was when this turn was sent (per-message, since
     # a thread can span pages). Used to reconstruct context for the LLM later.
     opportunity_id: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -69,6 +79,7 @@ class AssistantMessage(Base):
             "content": self.content or "",
             "kind": self.kind or "text",
             "data": self.data or "",
+            "colleague_role_key": self.colleague_role_key or "",
             "opportunity_id": self.opportunity_id or "",
             "quotation_id": self.quotation_id or "",
             "created_at": self.created_at or "",

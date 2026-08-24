@@ -18,7 +18,15 @@
         @click="handleMenuClick"
         class="top-menu"
       >
-        <a-menu-item v-if="auth.can('page.opportunities')" key="/opportunities">
+        <a-menu-item key="/portal">
+          <template #icon><SolutionOutlined /></template>
+          <span>工作台</span>
+        </a-menu-item>
+        <a-menu-item key="/ai-office">
+          <template #icon><TeamOutlined /></template>
+          <span>AI 办公室</span>
+        </a-menu-item>
+        <a-menu-item v-if="auth.can('page.opportunities_all')" key="/opportunities">
           <template #icon><ProjectOutlined /></template>
           <span>商机线索</span>
         </a-menu-item>
@@ -41,10 +49,6 @@
           <a-menu-item v-if="auth.can('page.settings.users')" key="/settings/users">
             <template #icon><TeamOutlined /></template>
             <span>用户与权限</span>
-          </a-menu-item>
-          <a-menu-item v-if="auth.can('page.settings.ai')" key="/ai-settings">
-            <template #icon><RobotOutlined /></template>
-            <span>AI 设置</span>
           </a-menu-item>
           <a-menu-item v-if="auth.can('page.settings.excel')" key="/excel-parser">
             <template #icon><ApiOutlined /></template>
@@ -97,7 +101,13 @@
         @click="handleMenuClick"
         class="mobile-menu"
       >
-        <a-menu-item v-if="auth.can('page.opportunities')" key="/opportunities">
+        <a-menu-item key="/portal">
+          <template #icon><SolutionOutlined /></template><span>工作台</span>
+        </a-menu-item>
+        <a-menu-item key="/ai-office">
+          <template #icon><TeamOutlined /></template><span>AI 办公室</span>
+        </a-menu-item>
+        <a-menu-item v-if="auth.can('page.opportunities_all')" key="/opportunities">
           <template #icon><ProjectOutlined /></template><span>商机线索</span>
         </a-menu-item>
         <a-menu-item v-if="auth.can('page.servers')" key="/servers">
@@ -113,9 +123,6 @@
           <template #icon><SettingOutlined /></template><template #title>设置</template>
           <a-menu-item v-if="auth.can('page.settings.users')" key="/settings/users">
             <template #icon><TeamOutlined /></template><span>用户与权限</span>
-          </a-menu-item>
-          <a-menu-item v-if="auth.can('page.settings.ai')" key="/ai-settings">
-            <template #icon><RobotOutlined /></template><span>AI 设置</span>
           </a-menu-item>
           <a-menu-item v-if="auth.can('page.settings.excel')" key="/excel-parser">
             <template #icon><ApiOutlined /></template><span>解析规则</span>
@@ -145,7 +152,7 @@
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { MenuOutlined } from '@ant-design/icons-vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, RobotOutlined, UserOutlined, LogoutOutlined, TeamOutlined } from '@ant-design/icons-vue'
+import { ProjectOutlined, DollarOutlined, DesktopOutlined, SettingOutlined, FileExcelOutlined, ApiOutlined, ThunderboltOutlined, BulbOutlined, BulbFilled, UserOutlined, LogoutOutlined, TeamOutlined, SolutionOutlined } from '@ant-design/icons-vue'
 import { useThemeStore } from '@/store/theme'
 import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
@@ -166,7 +173,7 @@ let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
 
 // 「设置」子菜单是否显示：任一设置项有权限即显示
 const showSettings = computed(() =>
-  ['page.settings.users', 'page.settings.ai', 'page.settings.excel', 'page.settings.templates', 'page.settings.admin']
+  ['page.settings.users', 'page.settings.excel', 'page.settings.templates', 'page.settings.admin']
     .some((p) => auth.can(p))
 )
 
@@ -174,7 +181,7 @@ const showSettings = computed(() =>
 const assistantOpen = ref(false)
 
 // 设置类页面路径（含从「服务器」菜单迁入设置的后台「服务器管理」）
-const settingsPaths = ['/ai-settings', '/excel-parser', '/export-templates']
+const settingsPaths = ['/excel-parser', '/export-templates']
 
 /** 服务器管理面路由：后台页 + 机型/基准编辑页，统一高亮设置子菜单下的「服务器管理」；其余服务器路由高亮顶层「服务器」。 */
 const isServersAdminPath = (p: string) =>
@@ -197,6 +204,10 @@ watch(() => route.path, (newPath) => {
   }
   if (newPath.startsWith('/strategies')) {
     selectedKeys.value = ['/strategies']
+    return
+  }
+  if (newPath === '/portal' || newPath.startsWith('/portal/workstation')) {
+    selectedKeys.value = ['/portal']
     return
   }
   selectedKeys.value = [newPath]

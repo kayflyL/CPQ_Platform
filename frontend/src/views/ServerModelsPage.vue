@@ -24,7 +24,7 @@ async function loadTypeAndModels() {
     const typesRes = await catalogApi.listTypes()
     currentType.value = typesRes.types.find(t => t.id === typeId.value) || null
 
-    const modelsRes = await catalogApi.listModels(typeId.value)
+    const modelsRes = await catalogApi.listModels(typeId.value, { publishedOnly: true })
     models.value = modelsRes.models
   } catch (e: any) {
     console.error('加载机型失败', e)

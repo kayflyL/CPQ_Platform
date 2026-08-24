@@ -2,11 +2,14 @@
  * 模板管理 API（新版，基于 Univer snapshot）
  */
 import axios from 'axios'
+import { attachAuthInterceptors } from './authHttp'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000
 })
+
+attachAuthInterceptors(api)
 
 /** 商机 API（预览用） */
 export const opportunityApi = {

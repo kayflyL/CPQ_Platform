@@ -3,7 +3,7 @@
     <!-- 页面头部 -->
     <div class="page-header">
       <div class="header-left">
-        <button class="back-btn" @click="router.push('/opportunities')">
+        <button class="back-btn" @click="goBack()">
           <ArrowLeftOutlined />
         </button>
         <h1>{{ opportunity ? (opportunity.customer_name || '未命名客户') : '加载中...' }}</h1>
@@ -25,7 +25,7 @@
         </a-button>
         <a-button size="small" @click="showSidebar = !showSidebar">
           <template #icon><MessageOutlined /></template>
-          评论
+          协作动态
         </a-button>
         <a-popconfirm
           title="确定要删除此商机吗？"
@@ -51,240 +51,38 @@
       </div>
     </div>
 
-    <!-- 信息卡片 -->
-    <div v-if="opportunity" class="info-card glass">
-      <div class="info-status-bar">
-        <span class="status-meta">
-          创建于
-          <a-date-picker
-            :value="createdDateValue"
-            size="small"
-            format="YYYY-MM-DD"
-            value-format="YYYY-MM-DD"
-            style="width: 120px"
-            @change="onCreatedDateChange"
-          />
-          ｜更新于 {{ formatDate(opportunity.updated_at) }}
-        </span>
-      </div>
-
-      <div
-        v-for="field in infoFields"
-        :key="field.key"
-        class="info-row"
-      >
-        <span class="info-label">{{ field.label }}</span>
-        <span class="info-value">
-          <!-- 机箱形态：标签式多值输入 -->
-          <template v-if="field.key === 'chassis_form'">
-            <template v-if="!field.editable">{{ (opportunity as any)[field.key] || '-' }}</template>
-            <a-select
-              v-else
-              :value="chassisFormTags"
-              mode="tags"
-              size="small"
-              style="width: 220px"
-              placeholder="输入后回车添加"
-              :options="chassisFormOptions"
-              @change="onChassisFormChange"
-              @dropdownVisibleChange="(open: boolean) => open && loadFieldHistory('chassis_form')"
-            />
-          </template>
-          <!-- 普通字段 -->
-          <template v-else-if="!field.editable">{{ (opportunity as any)[field.key] || '-' }}</template>
-          <a-input-number
-            v-else-if="(field as any).type === 'number'"
-            v-model:value="(opportunity as any)[field.key]"
-            size="small"
-            style="width: 220px"
-            :min="0"
-            @focus="onFieldFocus(field.key)"
-            @blur="onFieldBlur(field.key)"
-            @pressEnter="saveField(field.key)"
-          />
-          <a-auto-complete
-            v-else
-            v-model:value="(opportunity as any)[field.key]"
-            :options="getFilteredOptions(field.key)"
-            :default-active-first-option="false"
-            size="small"
-            style="width: 220px"
-            @keydown.enter="saveField(field.key)"
-            @focus="onFieldFocus(field.key)"
-            @blur="onFieldBlur(field.key)"
-            @select="saveField(field.key)"
-          />
-        </span>
-      </div>
+    <div v-else-if="projectLoadError && !opportunity" class="detail-load-error">
+      <span>{{ projectLoadError }}</span>
+      <a-button type="primary" size="small" @click="loadProject">重试</a-button>
     </div>
 
-    <!-- 双栏:左侧证据链(需求/存档/活动) · 右侧报价单 -->
-    <div v-if="opportunity" class="detail-grid">
-      <div class="detail-left">
-    <!-- 客户需求 -->
-    <div v-if="opportunity" class="requirement-card glass">
-      <div class="card-head">
-        <h3>客户需求</h3>
-        <span class="card-hint">贴入需求原文（表格或文字均可），作为配置参考，不约束</span>
-      </div>
-      <a-textarea
-        v-model:value="requirementText"
-        :auto-size="{ minRows: 3, maxRows: 12 }"
-        placeholder="客户原始需求、FAE 邮件要点、关键约束… 可直接贴表格或文字"
-        @blur="saveRequirement"
-      />
-      <div class="requirement-actions">
-        <a-button type="primary" :loading="generating" @click="generateQuote">
-          <template #icon><ThunderboltOutlined /></template>
-          生成报价
-        </a-button>
-        <span class="requirement-actions-hint">本地组合整机方案（选基准机型 + 配 KP），人工确认后转为草稿（一期不调 AI）</span>
-      </div>
-    </div>
-
-    <!-- 推理过程面板（生成报价后出现） -->
-    <ReasoningPanel
-      v-if="showReasoning"
-      ref="reasoningPanelRef"
-      :steps="reasonSteps"
-      :plans="reasonPlans"
-      :running="reasonRunning"
-      :error="reasonError"
-      :keywords="reasonKeywords"
-      :pending-prompt="reasonPendingPrompt"
-      :pending-confirm="reasonPendingConfirm"
-      @confirm-plan="confirmPlan"
-      @user-reply="onUserReply"
-      @user-skip="onUserSkip"
-      @confirm-submit="onConfirmSubmit"
-      @confirm-accept-all="onConfirmAcceptAll"
-      @restart="onRestartConversation"
+    <!-- 商机全生命周期流程看板 -->
+    <OpportunityProcessBoard
+      ref="boardRef"
+      v-if="opportunity"
+      :opportunity-id="opportunityId"
+      :legacy-requirement-text="legacyRequirementText"
+      :attachments="feedAttachments"
+      :quotations="quotations"
+      :quote-price-visible="quotePriceVisible"
+      :quote-select-mode="activeSelectMode"
+      :quote-selected-ids="activeSelectedIdsArray"
+      @preview-attachment="openAttachmentPreview"
+      @delete-attachment="onAttachmentDelete"
+      @new-quotation="createNewQuotation"
+      @upload-cost-sheet="showUploadModal = true"
+      @view-quotation="viewQuotation"
+      @set-primary="setAsPrimary"
+      @rename-quotation="startRenameQuotation"
+      @delete-quotation="deleteQuotation"
+      @cost-quotation="openCostForBackfill"
+      @toggle-quote-select="toggleActiveSelect"
+      @enter-quote-batch="enterActiveSelect"
+      @exit-quote-batch="exitActiveSelect"
+      @batch-delete-quotes="handleBatchQuotationDelete"
+      @refresh-meta="loadProject"
+      @refresh-quotations="loadProject"
     />
-      </div>
-
-      <div class="detail-right">
-    <!-- 报价单区域 -->
-    <div class="quotation-section">
-      <div class="section-header">
-        <h2>报价单 <span class="count-badge">{{ quotations.length }}</span></h2>
-        <div class="section-actions">
-          <a-button v-if="activeSelectMode" size="small" type="primary" @click="handleBatchQuotationDelete">
-            <template #icon><DeleteOutlined /></template>
-            删除选中 ({{ activeSelectedIds.size }})
-          </a-button>
-          <a-button v-if="activeSelectMode" size="small" @click="exitActiveSelect">取消</a-button>
-          <a-button v-if="!activeSelectMode && quotations.length > 0" size="small" @click="enterActiveSelect">批量操作</a-button>
-          <a-button size="small" @click="showUploadModal = true">
-            <template #icon><UploadOutlined /></template>
-            上传报价
-          </a-button>
-          <a-button type="primary" size="small" @click="createNewQuotation">
-            <template #icon><PlusOutlined /></template>
-            新增报价
-          </a-button>
-        </div>
-      </div>
-
-      <!-- 活跃报价单批量操作栏 -->
-      <div v-if="activeSelectMode && activeSelectedIds.size > 0" class="batch-bar glass">
-        <div class="batch-left">
-          <a-checkbox
-            :checked="activeSelectedIds.size === quotations.length && quotations.length > 0"
-            :indeterminate="activeSelectedIds.size > 0 && activeSelectedIds.size < quotations.length"
-            @change="toggleActiveSelectAll"
-          >
-            全选
-          </a-checkbox>
-          <span class="batch-count">已选 {{ activeSelectedIds.size }} 项</span>
-        </div>
-        <div class="batch-actions">
-          <a-button danger size="small" @click="handleBatchQuotationDelete">
-            <template #icon><DeleteOutlined /></template>
-            删除选中
-          </a-button>
-          <a-button size="small" @click="exitActiveSelect">取消</a-button>
-        </div>
-      </div>
-
-      <div v-if="quotations.length === 0 && !loading" class="empty-state glass">
-        <p>暂无报价单，点击上方按钮创建</p>
-      </div>
-
-      <div v-else class="quotation-list glass">
-        <div
-          v-for="(quo, index) in quotations"
-          :key="quo.quotation_id"
-          class="quotation-row"
-          :class="{ 'selecting': activeSelectMode }"
-          :style="{ animationDelay: `${index * 50}ms` }"
-          @click="activeSelectMode ? toggleActiveSelect(quo.quotation_id) : viewQuotation(quo)"
-        >
-          <div v-if="activeSelectMode" class="row-checkbox" @click.stop>
-            <a-checkbox
-              :checked="activeSelectedIds.has(quo.quotation_id)"
-              @change="toggleActiveSelect(quo.quotation_id)"
-            />
-          </div>
-          <div
-            class="quo-status-bar"
-            :class="getMarginBarClass(quo.profit_margin)"
-          ></div>
-          <div class="quo-content">
-            <div class="quo-top">
-              <span v-if="quo.is_primary" class="cpq-led cpq-led--warning">主推</span>
-              <span v-if="quo.exported_at" class="quo-state quo-state--exported">已导出</span>
-              <span v-else class="quo-state quo-state--draft">草稿</span>
-              <span class="quo-name">{{ quo.quotation_name || '未命名报价单' }}</span>
-              <span class="quo-price"><template v-if="quotePriceVisible">¥{{ formatPrice(quo.total_price) }}</template><span v-else class="price-hidden">***</span></span>
-              <span v-if="quotePriceVisible" class="quo-margin-badge" :class="getMarginBadgeClass(quo.profit_margin)">
-                {{ quo.profit_margin?.toFixed(2) || '0.00' }}%
-              </span>
-              <span v-if="(quo.config_count || 0) > 1" class="multi-cfg-tag">首个/共{{ quo.config_count }}</span>
-            </div>
-            <div class="quo-bottom">
-              {{ quo.config_count || 0 }}配置 · {{ formatDate(quo.created_at) }}
-            </div>
-          </div>
-          <div v-if="!activeSelectMode" class="quo-actions" @click.stop>
-            <button v-if="!quo.is_primary" class="icon-btn" title="设为主推" @click="setAsPrimary(quo)">
-              <StarOutlined />
-            </button>
-            <button v-else class="icon-btn" title="取消主推" @click="setAsPrimary(quo)">
-              <StarFilled style="color:var(--cpq-color-warning)" />
-            </button>
-            <button v-if="!quo.exported_at || quotePriceVisible" class="icon-btn" :title="quo.exported_at ? '查看成本' : '编辑'" @click="viewQuotation(quo)">
-              <component :is="quo.exported_at ? EyeOutlined : EditOutlined" />
-            </button>
-            <button
-              v-if="quotePriceVisible && (!quo.has_cost_snapshot || quo.has_manual_cost)"
-              class="icon-btn"
-              :title="quo.has_manual_cost ? '编辑成本' : '补录成本'"
-              @click="openCostForBackfill(quo)"
-            >
-              <CalculatorOutlined />
-            </button>
-            <button class="icon-btn" title="重命名" @click="startRenameQuotation(quo)">
-              <FormOutlined />
-            </button>
-            <a-popconfirm
-              title="确定要删除这个报价单吗？"
-              @confirm="deleteQuotation(quo.quotation_id)"
-            >
-              <button class="icon-btn danger" title="删除">
-                <DeleteOutlined />
-              </button>
-            </a-popconfirm>
-          </div>
-          <span v-if="!activeSelectMode" class="quo-arrow">
-            <RightOutlined />
-          </span>
-        </div>
-      </div>
-    </div>
-      <!-- 存档区（移至右栏报价单下方） -->
-      <ArchiveSection v-if="opportunity" :opportunity-id="opportunityId" :attachments="feedAttachments" @preview="openAttachmentPreview" @delete="onAttachmentDelete" />
-      </div><!-- /detail-right -->
-    </div><!-- /detail-grid -->
 
     <!-- 回收站抽屉 -->
     <a-drawer
@@ -411,13 +209,13 @@
     <!-- 上传报价单 Modal -->
     <a-modal
       v-model:open="showUploadModal"
-      title="上传报价单"
+      title="上传成本表"
       :footer="null"
       :destroyOnClose="true"
       width="500px"
     >
       <p style="color: var(--cpq-text-secondary); font-size: 13px; margin-bottom: 16px;">
-        上传后先解析预览，可调整解析规则，确认无误后再生成报价单。
+        上传后先解析预览，可调整解析规则，确认无误后再生成成本表。
       </p>
       <a-upload-dragger
         name="file"
@@ -426,16 +224,17 @@
         accept=".xlsx, .xls"
       >
         <p class="ant-upload-drag-icon"><inbox-outlined /></p>
-        <p class="ant-upload-text">点击或拖拽 Excel 报价单到此区域</p>
+        <p class="ant-upload-text">点击或拖拽 Excel 成本表到此区域</p>
         <p class="ant-upload-hint">支持 .xlsx / .xls 格式文件</p>
       </a-upload-dragger>
     </a-modal>
 
-    <!-- 解析预览：核对取值位置/调区域与列规则后再生成报价单 -->
+    <!-- 解析预览：核对取值位置/调区域与列规则后再生成成本表 -->
     <QuotationParsePreviewModal
       :open="parsePreviewOpen"
       :file="parsePreviewFile"
       :opportunity-id="opportunityId"
+      :confirming="parseConfirming"
       @confirm="onParseConfirm"
       @cancel="onParseCancel"
     />
@@ -458,32 +257,24 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import dayjs from 'dayjs'
 import {
-  ArrowLeftOutlined, EditOutlined, PlusOutlined, UploadOutlined,
-  EyeOutlined,
-  DeleteOutlined, RightOutlined, MessageOutlined, FormOutlined,
-  UndoOutlined, StarOutlined, StarFilled, CalculatorOutlined,
-  ThunderboltOutlined
+  ArrowLeftOutlined,
+  DeleteOutlined, RightOutlined, MessageOutlined,
+  UndoOutlined
 } from '@ant-design/icons-vue'
-import { uploadQuotationToProject } from '@/api/quote'
+import { portalApi } from '@/api/portal'
 import { projectApi, quotationApi } from '@/api'
 import { feedApi } from '@/api/feed'
 import { useAuthStore } from '@/store/auth'
-import { getFieldsByPage } from '@/api/fields'
 import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
 import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
-import ArchiveSection from '@/components/opportunity/ArchiveSection.vue'
-import ReasoningPanel from '@/components/opportunity/ReasoningPanel.vue'
+import OpportunityProcessBoard from '@/components/opportunity/OpportunityProcessBoard.vue'
 import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
-import { reasoningApi } from '@/api/reasoning'
-import type { Plan } from '@/api/reasoning'
-import { buildPlanCfg } from '@/composables/usePlanBom'
-import { useReasoningStream } from '@/composables/useReasoningStream'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
+import { formatDate, formatPrice, marginBadgeClass as getMarginBadgeClass } from '@/utils/quoteCommon'
 
 const route = useRoute()
 const auth = useAuthStore()
@@ -492,6 +283,22 @@ const quotePriceVisible = computed(() => auth.can('field.opportunity.quote_price
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
 const opportunityIdRef = computed(() => opportunityId)
+const boardRef = ref<{ reload: () => Promise<void> } | null>(null)
+
+async function reloadBoard() {
+  await boardRef.value?.reload()
+}
+function goBack() {
+  const from = route.query.from as string
+  const portalMap: Record<string, string> = {
+    'portal-business': '/portal/workstation/business',
+    'portal-te': '/portal/workstation/te',
+    'portal-cost': '/portal/workstation/cost',
+    'portal-quote': '/portal/workstation/quote',
+    'portal-admin': '/portal/workstation/dispatch',
+  }
+  router.push(portalMap[from] || '/opportunities')
+}
 const feed = useFeedSocket(opportunityIdRef)
 const { attachments: feedAttachments } = feed
 const previewOpen = ref(false)
@@ -506,29 +313,20 @@ function onAttachmentDelete(a: FeedAttachment) {
 function onPreviewSaved() {
   feed.load()
 }
-const requirementText = ref('')
-
-// 推理流（生成报价）：步骤时间线 + 整机方案清单，独立 WS 通道
-const {
-  steps: reasonSteps, plans: reasonPlans, running: reasonRunning,
-  error: reasonError, keywords: reasonKeywords, pendingPrompt: reasonPendingPrompt,
-  pendingConfirm: reasonPendingConfirm,
-  connect: connectReasoning, disconnect: disconnectReasoning,
-} = useReasoningStream()
-const reasoningPanelRef = ref<InstanceType<typeof ReasoningPanel> | null>(null)
-const showReasoning = ref(false)
-const generating = ref(false)
+const legacyRequirementText = ref('')
 
 const opportunity = ref<Opportunity | null>(null)
 const quotations = ref<Quotation[]>([])
 const deletedQuotations = ref<Quotation[]>([])
 const loading = ref(false)
+const projectLoadError = ref('')
 const showSidebar = ref(false)
 const showRecycleBin = ref(false)
 
 // Active quotation selection
 const activeSelectMode = ref(false)
 const activeSelectedIds = ref<Set<string>>(new Set())
+const activeSelectedIdsArray = computed(() => [...activeSelectedIds.value])
 
 // Deleted quotation selection
 const deletedSelectMode = ref(false)
@@ -540,91 +338,12 @@ const renameLoading = ref(false)
 const renameValue = ref('')
 const renameTargetId = ref<string | null>(null)
 
-// 行内编辑状态
-const focusField = ref<string | null>(null)
-const focusSnapshot = ref<string | number>('')
-
-// 字段历史值（用于自动完成）
-const fieldHistory = ref<Record<string, string[]>>({})
-
-// 从 API 加载字段定义
-const infoFields = ref<Array<{ key: string; label: string; editable: boolean; type?: string }>>([])
-
-// 日期格式化：直接取字符串前 10 位，避免 Date 对象的时区转换问题
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-'
-  // 直接取 YYYY-MM-DD 部分，不经过 Date 对象转换（防止 UTC 偏移）
-  const slice = dateStr.slice(0, 10)
-  return /^\d{4}-\d{2}-\d{2}$/.test(slice) ? slice : dateStr
-}
-
-// 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker）
-const createdDateValue = computed(() => {
-  const dateStr = opportunity.value?.created_at
-  if (!dateStr) return null
-  // 直接取日期部分，不经过 formatDate 的时区转换
-  const slice = dateStr.slice(0, 10)
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(slice)) return null
-  return dayjs(slice)
-})
-
-// 创建日期变更时保存到后端
-const onCreatedDateChange = async (date: dayjs.Dayjs | null) => {
-  if (!date) return
-
-  // a-date-picker 的 value-format 会把 date 转成字符串
-  const newDateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD')
-  const oldDateStr = formatDate(opportunity.value?.created_at || '')
-
-  if (newDateStr === oldDateStr) return
-
-  try {
-    // 简化：直接用新日期 + 00:00:00
-    const newFull = `${newDateStr} 00:00:00`
-    await projectApi.update(opportunityId, { created_at: newFull })
-
-    if (opportunity.value) {
-      opportunity.value.created_at = newFull
-    }
-    message.success('创建日期已更新')
-  } catch (err: any) {
-    message.error('更新失败: ' + (err.message || err))
-  }
-}
-
-const formatPrice = (price: number) => {
-  if (!price) return '0.00'
-  return price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-const getMarginBarClass = (margin: number | undefined) => {
-  if (margin == null) return 'margin-neutral'
-  if (margin >= 10) return 'margin-high'
-  if (margin >= 0) return 'margin-mid'
-  return 'margin-low'
-}
-
-const getMarginBadgeClass = (margin: number | undefined) => {
-  if (margin == null) return 'badge-neutral'
-  if (margin >= 10) return 'badge-high'
-  if (margin >= 0) return 'badge-mid'
-  return 'badge-low'
-}
-
 // Active quotation selection helpers
 const toggleActiveSelect = (id: string) => {
   const s = new Set(activeSelectedIds.value)
   if (s.has(id)) s.delete(id)
   else s.add(id)
   activeSelectedIds.value = s
-}
-
-const toggleActiveSelectAll = (checked: boolean) => {
-  if (checked) {
-    activeSelectedIds.value = new Set(quotations.value.map(q => q.quotation_id))
-  } else {
-    activeSelectedIds.value = new Set()
-  }
 }
 
 const enterActiveSelect = () => {
@@ -646,6 +365,7 @@ const handleBatchQuotationDelete = async () => {
     message.success(`已删除 ${ok} 个报价单` + (fail > 0 ? `，${fail} 个失败` : ''))
     exitActiveSelect()
     await loadProject()
+    await reloadBoard()
   } catch (err: any) {
     message.error('批量删除失败: ' + (err.message || err))
   }
@@ -687,6 +407,7 @@ const handleBatchRestoreQuotations = async () => {
     exitDeletedSelect()
     await loadProject()
     await loadDeletedQuotations()
+    await reloadBoard()
   } catch (err: any) {
     message.error('批量恢复失败: ' + (err.message || err))
   }
@@ -701,6 +422,7 @@ const handleBatchPermanentDeleteQuotations = async () => {
     message.success(`已永久删除 ${ok} 个报价单` + (fail > 0 ? `，${fail} 个失败` : ''))
     exitDeletedSelect()
     await loadDeletedQuotations()
+    await reloadBoard()
   } catch (err: any) {
     message.error('批量永久删除失败: ' + (err.message || err))
   }
@@ -708,6 +430,7 @@ const handleBatchPermanentDeleteQuotations = async () => {
 
 const loadProject = async () => {
   loading.value = true
+  projectLoadError.value = ''
   try {
     const data = await projectApi.getById(opportunityId)
     // API 返回结构: {meta: {...}, configs: {...}, quotations: [...]}
@@ -724,118 +447,18 @@ const loadProject = async () => {
       quotation_count: quotationCount,
       config_count: configCount,
     }
-    requirementText.value = (meta as any).customer_requirement_text || ''
+    legacyRequirementText.value = (meta as any).customer_requirement_text || ''
     quotations.value = quotationsData
   } catch (err: any) {
+    if (err?.response?.status === 404) {
+      message.error('商机不存在或已删除')
+      goBack()
+      return
+    }
+    projectLoadError.value = '加载商机详情失败，请重试'
     message.error('加载商机详情失败')
-    router.push('/opportunities')
   } finally {
     loading.value = false
-  }
-}
-
-// 行内编辑
-const onFieldFocus = (field: string) => {
-  focusField.value = field
-  focusSnapshot.value = (opportunity.value as any)?.[field] ?? ''
-  loadFieldHistory(field)
-}
-const onFieldBlur = (field: string) => {
-  if (focusField.value !== field) return
-  focusField.value = null
-  const cur = ((opportunity.value as any)?.[field] ?? '') as string | number
-  if (String(cur) === String(focusSnapshot.value)) return
-  saveField(field)
-}
-
-// 加载字段历史值（用于自动完成）
-const loadFieldHistory = async (fieldKey: string) => {
-  if (fieldHistory.value[fieldKey]) return // 已加载
-  try {
-    const response = await fetch(`/api/opportunities/field-history/${fieldKey}`)
-    const result = await response.json()
-    fieldHistory.value[fieldKey] = result.values || []
-  } catch (err) {
-    console.error('加载字段历史失败:', err)
-    fieldHistory.value[fieldKey] = []
-  }
-}
-
-// 获取过滤后的选项（用于 a-auto-complete）
-const getFilteredOptions = (fieldKey: string) => {
-  const history = fieldHistory.value[fieldKey] || []
-  const keyword = ((opportunity.value as any)?.[fieldKey] ?? '').toString().toLowerCase()
-  const filtered = keyword
-    ? history.filter(v => v.toLowerCase().includes(keyword))
-    : history
-  return filtered.map(v => ({ value: v, label: v }))
-}
-
-// 机箱形态标签式输入：逗号分隔字符串 ↔ 数组互转。
-// 注意：这里不能再用 v-model 的 setter 提前改写 opportunity.chassis_form——
-// ant-design-vue 的 Select 会先 emit update:value 再 emit change，
-// 若 setter 先把新值写进 opportunity，onChassisFormChange 里的新旧值对比就会恒等、
-// 直接 return 导致永不保存。因此改为受控 :value，由 @change 保存成功后再回写。
-const chassisFormTags = computed(() => {
-  const raw = (opportunity.value as any)?.chassis_form || ''
-  if (!raw) return []
-  return raw.split(',').map((s: string) => s.trim()).filter(Boolean)
-})
-
-// 机箱形态历史选项（用于下拉提示）
-const chassisFormOptions = computed(() => {
-  const history = fieldHistory.value['chassis_form'] || []
-  return history.map(v => ({ value: v, label: v }))
-})
-
-// 机箱形态变更时保存
-const onChassisFormChange = async (tags: string[]) => {
-  const newValue = tags.join(',')
-  const oldValue = (opportunity.value as any)?.chassis_form || ''
-  if (newValue === oldValue) return
-  try {
-    await projectApi.update(opportunityId, { chassis_form: newValue })
-    if (opportunity.value) {
-      (opportunity.value as any).chassis_form = newValue
-    }
-    message.success('机箱形态已更新')
-  } catch (err: any) {
-    message.error('更新失败: ' + (err.message || err))
-  }
-}
-
-const saveField = async (field: string) => {
-  const fieldDef = infoFields.value.find(f => f.key === field)
-  const raw = (opportunity.value as any)?.[field]
-  if (raw == null) return
-  let saveValue: string | number = raw
-  if ((fieldDef as any)?.type === 'number') {
-    saveValue = raw !== '' && raw != null ? Number(raw) : 0
-  } else if (!String(raw).trim()) {
-    message.warning('字段不能为空')
-    return
-  }
-  try {
-    await projectApi.update(opportunityId, { [field]: saveValue })
-    focusSnapshot.value = saveValue
-    message.success('更新成功')
-  } catch (err: any) {
-    message.error('更新失败: ' + (err.message || err))
-  }
-}
-
-// 保存客户需求原文(blur 触发,存 extra_fields)
-const saveRequirement = async () => {
-  const current = (opportunity.value as any)?.customer_requirement_text || ''
-  if (requirementText.value === current) return
-  try {
-    await projectApi.update(opportunityId, { customer_requirement_text: requirementText.value })
-    if (opportunity.value) {
-      (opportunity.value as any).customer_requirement_text = requirementText.value
-    }
-    message.success('客户需求已保存')
-  } catch (err: any) {
-    message.error('保存失败: ' + (err.message || err))
   }
 }
 
@@ -844,14 +467,13 @@ const handleDeleteProject = async () => {
   try {
     await projectApi.trash(opportunityId)
     message.success('商机已移至回收站')
-    router.push('/opportunities')
+    goBack()
   } catch (err: any) {
     message.error('删除失败: ' + (err.message || err))
   }
 }
 
 // 归档语义已并入 result（已过期）；以下两个 handler 已移除。
-
 
 const resultOptions = [
   { value: 'pending', label: '进行中' },
@@ -864,7 +486,7 @@ async function onResultChange(val: string) {
   if (val === prev) return
   try {
     await projectApi.updateMeta(opportunityId, { result: val })
-    if (opportunity.value) (opportunity.value as any).result = val
+    await loadProject()
     message.success('已更新商机状态')
   } catch (err: any) {
     message.error('更新失败: ' + (err.message || err))
@@ -876,138 +498,6 @@ const createNewQuotation = () => {
   // 始终新建空白工作台。每张报价单独立（只有已导出/未导出之别），
   // 新建 / 推理流转单 / 复制 各建各的、互不覆盖（曾因「一商机一草稿」复用导致回归，6d6be6b）。
   router.push(`/workspace?opportunityId=${opportunityId}&mode=create&from=opportunities`)
-}
-
-// 生成报价：客户需求 → 本地推理 pipeline（分词 + 检索）→ 推理面板
-async function generateQuote() {
-  const text = (requirementText.value || '').trim()
-  if (!text) {
-    message.warning('请先填写客户需求')
-    return
-  }
-  showReasoning.value = true
-  generating.value = true
-  connectReasoning(opportunityId)
-  try {
-    await reasoningApi.generate(opportunityId, text)
-  } catch (e: any) {
-    message.error('启动推理失败：' + (e?.message || e))
-    showReasoning.value = false
-  } finally {
-    generating.value = false
-  }
-}
-
-// 反答回复：拼到原需求后重跑 pipeline（新一轮，pipeline_id 变化前端自动切）
-async function onUserReply(reply: string) {
-  const text = (requirementText.value || '').trim()
-  generating.value = true
-  try {
-    await reasoningApi.generate(opportunityId, text, { supplement_text: reply })
-  } catch (e: any) {
-    message.error('提交补充失败：' + (e?.message || e))
-  } finally {
-    generating.value = false
-  }
-}
-
-// 重新开始：断开推理流、关闭面板。后端会话状态在下次「生成报价」时自动清空（全新对话），
-// 无需刷新网页。保留需求文本，用户可改后重新生成。
-function onRestartConversation() {
-  disconnectReasoning()
-  showReasoning.value = false
-  message.info('已重置对话，修改需求后可再次点击「生成报价」开始新对话')
-}
-
-// 跳过反问：强制走选型（force_complete）
-async function onUserSkip() {
-  const text = (requirementText.value || '').trim()
-  generating.value = true
-  try {
-    await reasoningApi.generate(opportunityId, text, { force_complete: true })
-  } catch (e: any) {
-    message.error('启动失败：' + (e?.message || e))
-  } finally {
-    generating.value = false
-  }
-}
-
-// LLM 确认面板：改了选择 → 带决策重跑 pipeline（confirm 节点应用 + 写反馈样本）
-async function onConfirmSubmit(decisions: Record<string, string>) {
-  const text = (requirementText.value || '').trim()
-  generating.value = true
-  try {
-    await reasoningApi.generate(opportunityId, text, { confirm: decisions })
-  } catch (e: any) {
-    message.error('提交确认失败：' + (e?.message || e))
-  } finally {
-    generating.value = false
-  }
-}
-
-// 全部采纳：只记录反馈样本（不重跑 LLM），关闭面板直接看当前方案（已是默认采纳结果）
-async function onConfirmAcceptAll() {
-  const text = (requirementText.value || '').trim()
-  const items = reasonPendingConfirm.value?.items || []
-  const decisions: Record<string, string> = {}
-  items.forEach((it) => { decisions[it.id] = 'accept' })
-  try {
-    if (Object.keys(decisions).length) {
-      await reasoningApi.confirmFeedback(opportunityId, text, decisions)
-    }
-  } catch (e: any) {
-    message.error('记录确认反馈失败：' + (e?.message || e))
-  }
-  reasonPendingConfirm.value = null
-}
-
-// 整机方案 → 转为未导出报价单：buildPlanCfg 把 L6 转成基准配置的 BOM 模板格式（live），
-// 种进 config_l6_picks（bom_source/bom_template/bom_context/base_config_id/l6_custom_price），
-// KP 走 items；工作台载入时左栏 BomTable 按模板格式渲染整机 L6、中栏 KP 卡可编辑调价。
-// 无模板时 buildPlanCfg 自动回落 excel 平铺。
-async function confirmPlan(plan: Plan) {
-  try {
-    // 每个方案各自新建一张未导出报价单（不复用、不覆盖已有单）。
-    const res = await quotationApi.create({
-      opportunity_id: opportunityId,
-      quotation_name: `方案-${plan.name || plan.model}`,
-    })
-    const quotationId = res.quotation_id
-
-    // 转 BOM 模板格式（live）+ 组 seeding payload
-    const liveCfg = await buildPlanCfg(plan)
-    const picks: Record<string, any> = {
-      base_config_id: plan.config_id,
-      // 服务器型号 id：机箱卡按它匹配目录机型（形态/用途/型号都从机型对象读），缺失会导致卡上字段全空
-      server_model_id: plan.server_model_id ?? null,
-      bom_source: liveCfg.bom_source,
-      l6_custom_price: plan.summary.l6_cost ?? 0,
-      l6_profit_margin: 10,
-      // IO 选配随 picks 持久化：推理 BOM 的 IO 行是模板描述，真正数量靠这里回填机箱配置器（修复 IO=0）
-      picks: liveCfg.rear ? { rear: liveCfg.rear } : undefined,
-    }
-    if (liveCfg.bom_source === 'live') {
-      picks.bom_template = liveCfg.bom_template
-      picks.bom_context = liveCfg.bom_context
-    } else {
-      picks.bom_excel_rows = liveCfg.bom_excel_rows
-    }
-    const payload = {
-      items: liveCfg.items,
-      config_quantities: { CFG1: 1 },
-      config_server_models: { CFG1: plan.model || '' },
-      config_l6_picks: { CFG1: picks },
-    }
-    await quotationApi.saveItems(quotationId, payload as any)
-    // L3 统一标记来源为推理流（失败不阻塞）
-    quotationApi.update(quotationId, { source: 'reasoning' }).catch(() => {})
-    message.success(`已转为报价单：${plan.name || plan.model}`)
-    disconnectReasoning()
-    router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotationId}&mode=edit&from=opportunities`)
-  } catch (e: any) {
-    message.error('转为报价单失败：' + (e?.message || e))
-    reasoningPanelRef.value?.stopConfirming()
-  }
 }
 
 // 成本快照抽屉
@@ -1091,6 +581,7 @@ const handleSaveCost = async (snapshot: Record<string, any>) => {
     message.success('成本已保存')
     costDrawerQuotation.value = res.quotation
     await loadProject()
+    await reloadBoard()
   } catch (e: any) {
     message.error('保存失败：' + (e?.message || e))
   } finally {
@@ -1113,6 +604,7 @@ const restoreQuotation = async (quotationId: string) => {
     message.success('报价单已恢复')
     await loadProject()
     await loadDeletedQuotations()
+    await reloadBoard()
   } catch (error: any) {
     message.error('恢复失败: ' + (error.message || error))
   }
@@ -1123,6 +615,7 @@ const permanentDeleteQuotation = async (quotationId: string) => {
     await quotationApi.batchPermanentDelete([quotationId])
     message.success('报价单已永久删除')
     await loadDeletedQuotations()
+    await reloadBoard()
   } catch (error: any) {
     message.error('删除失败: ' + (error.message || error))
   }
@@ -1132,9 +625,9 @@ const deleteQuotation = async (quotationId: string) => {
   try {
     await quotationApi.delete(quotationId)
     message.success('报价单已删除')
-    quotations.value = quotations.value.filter(q => q.quotation_id !== quotationId)
-    // 刷新已删除报价单列表
+    await loadProject()
     await loadDeletedQuotations()
+    await reloadBoard()
   } catch (err: any) {
     message.error('删除失败: ' + (err.message || err))
   }
@@ -1154,6 +647,7 @@ const setAsPrimary = async (quotation: Quotation) => {
     message.success('已设置为主推方案')
     // 刷新报价单列表
     await loadProject()
+    await reloadBoard()
   } catch (err: any) {
     message.error('设置失败: ' + (err.message || err))
   }
@@ -1172,6 +666,7 @@ const saveRenameQuotation = async () => {
     message.success('重命名成功')
     showRenameModal.value = false
     await loadProject()
+    await reloadBoard()
   } catch (err: any) {
     message.error('重命名失败: ' + (err.message || err))
   } finally {
@@ -1183,8 +678,10 @@ const saveRenameQuotation = async () => {
 const showUploadModal = ref(false)
 const parsePreviewOpen = ref(false)
 const parsePreviewFile = ref<File | null>(null)
+// 生成成本表中：防重复点击导致重复创建（后端解析期间可连点）
+const parseConfirming = ref(false)
 
-// 上传报价单：先存文件并打开解析预览弹窗，用户核对/调规则后再确认生成
+// 上传成本表：先存文件并打开解析预览弹窗，用户核对/调规则后再确认生成
 const handleUploadToProject = async (options: any) => {
   const file = options.file as File
   options.onSuccess?.() // 结束 dragger 的 uploading 态
@@ -1193,25 +690,28 @@ const handleUploadToProject = async (options: any) => {
   showUploadModal.value = false
 }
 
-// 解析预览确认：落库生成报价单
+// 解析预览确认：落库生成成本表草稿（防重入：生成期间按钮 loading/禁用，函数开头二次拦截）
 const onParseConfirm = async () => {
-  if (!parsePreviewFile.value) return
-  const hide = message.loading('正在生成报价单...', 0)
+  if (!parsePreviewFile.value || parseConfirming.value) return
+  parseConfirming.value = true
+  const hide = message.loading('正在生成成本表...', 0)
   try {
-    const result = await uploadQuotationToProject(parsePreviewFile.value, opportunityId)
-    if (result.quotation_id) {
-      message.success('报价单已创建！')
+    const result = await portalApi.uploadCostSheet(opportunityId, parsePreviewFile.value)
+    if (result.sheet?.id) {
+      message.success('成本表已创建！')
       parsePreviewOpen.value = false
       parsePreviewFile.value = null
       await loadProject()
+      await reloadBoard()
     } else {
-      message.error(result.message || '解析失败')
+      message.error('成本表创建失败，请稍后重试')
     }
   } catch (err: any) {
     const detail = err?.response?.data?.detail
-    message.error(detail || err?.message || '生成报价单失败')
+    message.error(detail || err?.message || '生成成本表失败')
   } finally {
     hide()
+    parseConfirming.value = false
   }
 }
 
@@ -1220,36 +720,7 @@ const onParseCancel = () => {
   parsePreviewFile.value = null
 }
 
-// 加载字段定义
-const loadInfoFields = async () => {
-  try {
-    const fields = await getFieldsByPage('opportunity_detail')
-    infoFields.value = fields
-      .filter((f: any) => f.enabled)
-      .map((f: any) => ({
-        key: f.key,
-        label: f.label,
-        editable: f.permission !== 'readonly',
-        type: f.type === 'number' ? 'number' : undefined
-      }))
-  } catch (err) {
-    console.error('加载字段定义失败:', err)
-    // 使用默认字段作为 fallback
-    infoFields.value = [
-      { key: 'customer_name', label: '客户名称', editable: true },
-      { key: 'purchase_qty', label: '采购数量', editable: true, type: 'number' },
-      { key: 'sales_person', label: '业务/销售', editable: true },
-      { key: 'fae', label: 'FAE', editable: true },
-      { key: 'quotation_person', label: '报价人', editable: true },
-      { key: 'delivery_region', label: '交付地区', editable: true },
-      { key: 'delivery_cycle', label: '交付周期', editable: true },
-      { key: 'warranty_years', label: '维保年限', editable: true },
-    ]
-  }
-}
-
 onMounted(async () => {
-  loadInfoFields()
   loadDeletedQuotations()
   // 详情主数据与 feed（消息/附件）并行加载，互不阻塞；主内容仍等 loadProject 返回后填充
   const projectP = loadProject()
@@ -1259,35 +730,12 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   feed.disconnect()
-  disconnectReasoning()
 })
 </script>
 
 <style scoped>
 .opportunity-detail-page {
   padding: 0;
-}
-
-/* ── 双栏布局:左证据链(需求+推理) / 右报价单+存档 —— 四六开，右栏优先 ── */
-.detail-grid {
-  display: grid;
-  grid-template-columns: minmax(360px, 2fr) 3fr;
-  gap: 24px;
-  align-items: start;
-}
-.detail-left,
-.detail-right {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-.detail-left > :last-child {
-  margin-bottom: 0;
-}
-@media (max-width: 1100px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 /* ── Page Header ── */
@@ -1389,38 +837,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: grid;
   grid-template-columns: 1fr 1fr 1fr;
-}
-
-.requirement-card {
-  padding: 16px 20px;
-  margin-bottom: 24px;
-}
-.requirement-card .card-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.requirement-card .card-head h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
-.requirement-card .card-hint {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-
-.requirement-actions {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-top: 12px;
-}
-.requirement-actions-hint {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
 }
 
 .info-status-bar {
@@ -1879,6 +1295,7 @@ onBeforeUnmount(() => {
   background: var(--cpq-overlay-a10);
 }
 .detail-skeleton { display: flex; flex-direction: column; gap: 16px; padding: 16px 0; }
+.detail-load-error { display: flex; align-items: center; gap: 12px; padding: 24px 0; color: var(--cpq-text-muted); }
 .sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .sk-card { padding: 16px; border-radius: 12px; }
 @media (max-width: 900px) { .sk-grid { grid-template-columns: 1fr; } }
@@ -1896,7 +1313,6 @@ onBeforeUnmount(() => {
   .quo-top { flex-wrap: wrap; row-gap: 4px; }
   .batch-bar { flex-wrap: wrap; gap: 8px; }
   .info-status-bar { flex-wrap: wrap; }
-  .requirement-card .card-head { flex-wrap: wrap; row-gap: 4px; }
 }
 @media (max-width: 600px) {
   .info-row { flex-direction: column; align-items: stretch; gap: 6px; }

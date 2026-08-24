@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""需求槽位契约（RequirementSlots）—— LLM 主理解节点 llm_understand 的输入/输出契约。
+"""需求槽位契约（RequirementSlots）—— 需求理解/选型节点共用的输入/输出契约。
 
 背景（2026-08 需求分析 LLM 重构，P1）：
   - 旧「extract/scene/review 三处散装 LLM 增强」默认关闭、规则赢、只补缺 → 典型需求
@@ -28,19 +28,164 @@ logger = logging.getLogger(__name__)
 # 机箱形态白名单（与 extract 形态词表一致）
 FORM_WHITELIST = ["1U", "2U", "4U", "5U", "6U", "8U"]
 
-# 期望槽位兜底（权威源 = system_config.requirement_slots；读失败用，与 seed 一致）
-_FALLBACK_SLOTS = [
-    {"key": "scene", "label": "应用场景", "level": "L0"},
-    {"key": "series", "label": "所属系列", "level": "L0"},
-    {"key": "cpu", "label": "CPU", "level": "L0"},
-    {"key": "memory", "label": "内存", "level": "L0"},
-    {"key": "storage", "label": "存储", "level": "L0", "default_ok": True},
-    {"key": "form", "label": "机箱形态", "level": "L1"},
-    {"key": "gpu", "label": "GPU", "level": "L1"},
-    {"key": "nic", "label": "网卡", "level": "L1"},
-    {"key": "raid", "label": "阵列卡", "level": "L2"},
-    {"key": "psu", "label": "电源", "level": "L2"},
+# 基本信息兜底（权威源 = system_config.requirement_slots；读失败用，与 seed 一致）
+_FALLBACK_BASIC_SLOTS = [
+    {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
+    {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "catalog"},
+    {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
+    {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息", "required": False, "ask": True, "candidate_source": "catalog"},
+    {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息", "required": True, "ask": False, "candidate_source": "free"},
+    {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "free"},
 ]
+
+# 部件兜底（读 KP 大类失败时用；动态来源不落 requirement_slots）
+_FALLBACK_KP_SLOTS = [
+    {"key": "cpu", "label": "CPU", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "memory", "label": "内存", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "storage", "label": "存储", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "gpu", "label": "GPU", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "nic", "label": "网卡", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "raid", "label": "阵列卡", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+    {"key": "psu", "label": "电源", "group": "部件", "candidate_source": "catalog", "src_type": "kp"},
+]
+
+_FALLBACK_SLOTS = [dict(x) for x in _FALLBACK_BASIC_SLOTS + _FALLBACK_KP_SLOTS]
+
+_ALIAS_KEY = {"scene": "server_type", "series": "platform_type", "form": "chassis_form"}
+_BASIC_KEYS = {"server_type", "server_model", "platform_type", "chassis_form", "purchase_qty", "warranty_years"}
+
+
+def _load_kp_categories() -> list:
+    """从 kp.kp_categories 读取大类名列表；失败返回空。"""
+    try:
+        from sqlalchemy import text
+        from app.models.base import kp_engine
+        with kp_engine.connect() as c:
+            rows = c.execute(text("SELECT name FROM kp.kp_categories ORDER BY sort_order, id")).mappings().all()
+        return [str(r["name"]).strip() for r in rows if r.get("name")]
+    except Exception:
+        return []
+
+
+def _load_kp_slot_map() -> dict:
+    """读 KP 大类→归一部件槽位映射（system_config.kp_slot_group_map）；失败用兜底常量。"""
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            raw = repo.get_value("kp_slot_group_map", {})
+        finally:
+            repo.close()
+        if isinstance(raw, dict) and raw:
+            return raw
+    except Exception:
+        pass
+    from app.repository.system_config_repo import _DEFAULT_KP_SLOT_GROUP_MAP
+    return dict(_DEFAULT_KP_SLOT_GROUP_MAP)
+
+
+def _load_basic_slots() -> list:
+    """读基本信息槽位（system_config.requirement_slots.slots，只保留基本信息 6 项）。"""
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            cfg = repo.get_value("requirement_slots", {})
+        finally:
+            repo.close()
+        raw_slots = cfg.get("slots") if isinstance(cfg, dict) else None
+        if not isinstance(raw_slots, list):
+            return []
+        out = []
+        seen = set()
+        for s in raw_slots:
+            if not isinstance(s, dict):
+                continue
+            k = str(s.get("key") or s.get("name") or "").strip()
+            k = _ALIAS_KEY.get(k, k)
+            if not k or k not in _BASIC_KEYS or k in seen:
+                continue
+            d = dict(s)
+            d["key"] = k
+            d["src_key"] = k
+            d["src_type"] = "config"
+            d.setdefault("group", "基本信息")
+            d.setdefault("label", k)
+            d.setdefault("level", "L2")
+            d.setdefault("required", d.get("level") == "L0")
+            d.setdefault("ask", d.get("level") != "L2")
+            d.setdefault("candidate_source",
+                         "catalog" if k in ("server_type", "platform_type", "chassis_form", "server_model") else "free")
+            out.append(d)
+            seen.add(k)
+        return out
+    except Exception:
+        return []
+
+
+def _load_kp_slots() -> list:
+    """由 KP 大类动态生成部件槽位（按 kp_slot_group_map 归一映射）。
+
+    已知归一部件槽位（cpu/memory/storage/gpu/nic/raid/psu）进入进度卡/反问统计；
+    未映射的大类不生成进度槽位（作为表单自由行，由 KpPartsEditor 直接处理）。
+    """
+    cats = _load_kp_categories()
+    if not cats:
+        return [dict(x) for x in _FALLBACK_KP_SLOTS]
+    m = _load_kp_slot_map()
+    out = []
+    seen = set()
+    order = 0
+    for cat in cats:
+        rule = m.get(cat)
+        if not isinstance(rule, dict):
+            continue
+        key = str(rule.get("key") or "").strip()
+        if not key or key in seen:
+            continue
+        d = dict(rule)
+        d["key"] = key
+        d["src_key"] = key
+        d["src_type"] = "kp"
+        d["group"] = str(rule.get("group") or "部件")
+        d.setdefault("label", key)
+        d.setdefault("candidate_source", "catalog")
+        for _k in ("level", "required", "ask", "default_ok"):
+            d.pop(_k, None)
+        d["order"] = 100 + order
+        out.append(d)
+        seen.add(key)
+        order += 1
+    # 兜底：若 KP 库里没出现任何常见大类（极少），用常量补齐
+    for fb in _FALLBACK_KP_SLOTS:
+        if fb["key"] not in seen:
+            d = dict(fb)
+            d.setdefault("order", 100 + order)
+            out.append(d)
+            seen.add(fb["key"])
+            order += 1
+    return out
+
+
+def combined_slot_spec() -> list:
+    """合成完整槽位清单 = 基本信息(requirement_slots) + 部件(KP 大类动态)。
+
+    唯一权威源：基本信息由管理员配置；部件不再写死在 requirement_slots，改由 KP 大类动态合成。
+    供理解节点、反问节点、前端进度卡、编辑器统一读取。
+    """
+    basic = _load_basic_slots() or [dict(x) for x in _FALLBACK_BASIC_SLOTS]
+    kp = _load_kp_slots()
+    out = []
+    for i, b in enumerate(basic):
+        b = dict(b)
+        b.setdefault("order", i)
+        out.append(b)
+    for p in kp:
+        p = dict(p)
+        p.setdefault("order", 200 + (p.get("order") or 0))
+        out.append(p)
+    return out
+
 
 # 数量合理性范围（与 llm_extract_enhance.merge_into_ext 的确定性闸门一致）
 _QTY_RANGES = {
@@ -97,9 +242,7 @@ def build_catalog_context() -> dict:
             fw = repo.get_value("model_family_words", {})
             if isinstance(fw, dict) and fw:
                 ctx["family_words"] = fw
-            slots_cfg = repo.get_value("requirement_slots", {})
-            if isinstance(slots_cfg, dict) and slots_cfg.get("slots"):
-                ctx["slots_spec"] = slots_cfg["slots"]
+            ctx["slots_spec"] = combined_slot_spec()
         finally:
             repo.close()
     except Exception as e:
@@ -138,8 +281,8 @@ LLM_UNDERSTAND_SCHEMA: dict = {
     "type": "object",
     "properties": {
         "server_type": _SLOT_VALUE,   # value = 在售类型名（目录白名单）
-        "series": _SLOT_VALUE,        # value = 系列（Orion/Polaris/Intel/工作站）
-        "form": _SLOT_VALUE,          # value = 1U/2U/4U/5U/6U/8U
+        "platform_type": _SLOT_VALUE,  # value = 平台/系列（Orion/Polaris/Intel/工作站）
+        "chassis_form": _SLOT_VALUE,  # value = 机箱形态（1U/2U/4U/5U/6U/8U）
         "cpu": {"type": "object", "properties": {
             "model": {"type": "string"}, "qty": {"type": "integer"},
             "confidence": {"type": "number"}, "source": {"type": "string"},
@@ -175,11 +318,12 @@ LLM_UNDERSTAND_SCHEMA: dict = {
             "confidence": {"type": "number"}, "source": {"type": "string"},
             "evidence": {"type": "string"},
         }},
-        "raid": {"type": "object", "properties": {
+        "raid": {"type": "array", "items": {"type": "object", "properties": {
             "model": {"type": "string"}, "qty": {"type": "integer"},
+            "cache": {"type": ["string", "integer", "null"]},
             "confidence": {"type": "number"}, "source": {"type": "string"},
             "evidence": {"type": "string"},
-        }},
+        }}},
         "budget": _SLOT_VALUE,        # value = 预算金额（元，数字）
         "intent_summary": {"type": "string"},
         "missing": {"type": "array", "items": {"type": "string"}},
@@ -188,13 +332,22 @@ LLM_UNDERSTAND_SCHEMA: dict = {
 }
 
 # 槽位 key（不含 intent_summary/missing/questions 元信息）
-SLOT_KEYS = ["server_type", "series", "form", "cpu", "memory", "storage",
+SLOT_KEYS = ["server_type", "platform_type", "chassis_form", "cpu", "memory", "storage",
              "gpu", "nic", "psu", "raid", "budget"]
 
 
+_SLOT_KEY_ALIAS = {"platform_type": "series", "chassis_form": "form"}
+
+
 def _slot_value(data: dict, key: str):
-    """取槽位对象里的 value（字符串型槽位用）。"""
-    slot = data.get(key) if isinstance(data, dict) else None
+    """取槽位对象里的 value（字符串型槽位用），兼容新旧字段名（platform_type/chassis_form ↔ series/form）。"""
+    if not isinstance(data, dict):
+        return None
+    slot = data.get(key)
+    if slot is None:
+        alt = _SLOT_KEY_ALIAS.get(key)
+        if alt:
+            slot = data.get(alt)
     if isinstance(slot, dict):
         return slot.get("value")
     return slot
@@ -212,9 +365,11 @@ def _iter_models(data: dict):
     for i, n in enumerate(data.get("nic") or []):
         if isinstance(n, dict) and n.get("model"):
             yield f"nic[{i}].model", str(n["model"]).strip()
-    raid = data.get("raid") if isinstance(data, dict) else None
-    if isinstance(raid, dict) and raid.get("model"):
-        yield "raid.model", str(raid["model"]).strip()
+    raid_data = data.get("raid") if isinstance(data, dict) else None
+    raid_items = raid_data if isinstance(raid_data, list) else ([raid_data] if isinstance(raid_data, dict) else [])
+    for i, raid in enumerate(raid_items):
+        if isinstance(raid, dict) and raid.get("model"):
+            yield f"raid[{i}].model", str(raid["model"]).strip()
 
 
 def _model_grounded(model: str, requirement_text: str, catalog: dict) -> bool:
@@ -281,9 +436,11 @@ def _check_qty_ranges(data: dict, errors: list) -> None:
     if isinstance(psu, dict):
         _check("psu.wattage", psu.get("wattage"))
         _check("psu.qty", psu.get("qty"))
-    raid = data.get("raid") if isinstance(data, dict) else {}
-    if isinstance(raid, dict):
-        _check("raid.qty", raid.get("qty"))
+    raid_data = data.get("raid") if isinstance(data, dict) else {}
+    raid_items = raid_data if isinstance(raid_data, list) else ([raid_data] if isinstance(raid_data, dict) else [])
+    for i, raid in enumerate(raid_items):
+        if isinstance(raid, dict):
+            _check(f"raid[{i}].qty", raid.get("qty"))
 
 
 def validate_slots(data: dict, catalog: dict, requirement_text: str = "") -> tuple:
@@ -300,14 +457,14 @@ def validate_slots(data: dict, catalog: dict, requirement_text: str = "") -> tup
     catalog = catalog or {}
 
     # 白名单校验：系列 / 形态 / 服务器类型
-    series = _slot_value(data, "series")
+    series = _slot_value(data, "platform_type")
     if series:
         known = {str(s).lower() for s in (catalog.get("series") or [])}
         if str(series).lower() not in known:
             errors.append(
                 f"系列「{series}」不在在售系列白名单（{'/'.join(catalog.get('series') or []) or '无'}），"
                 f"请只从白名单选或留 null")
-    form = _slot_value(data, "form")
+    form = _slot_value(data, "chassis_form")
     if form:
         f = str(form).strip().upper()
         if f not in (catalog.get("forms") or []):
@@ -317,7 +474,7 @@ def validate_slots(data: dict, catalog: dict, requirement_text: str = "") -> tup
     # server_type 已推断（有 confidence）但没填 value → 强制重试补 value（解决 grounding 漏导致选不到机型）
     _st_slot = data.get("server_type") if isinstance(data, dict) else None
     if isinstance(_st_slot, dict) and _st_slot.get("confidence") is not None and not _slot_value(data, "server_type"):
-        errors.append("server_type 已推断但未填 value：必须在售类型全名（如「AI / 加速计算服务器」「通用计算服务器」「存储服务器」），请补 value 字段")
+        errors.append("server_type 已推断但未填 value：必须在售类型全名，请补 value 字段")
     server_type = _slot_value(data, "server_type")
     if server_type:
         known_types = {str(t) for t in (catalog.get("server_types") or [])}
@@ -369,11 +526,21 @@ def _collect_confidences(data: dict) -> list:
     return out
 
 
-# ── 4. 覆盖度（clarity 主判据，P2 正式接入；P1 先产出给 llm_understand 展示）──
+# ── 4. 覆盖度（clarity 主判据，P2 正式接入；P1 先产出给前端展示）──
 def _slot_filled(data: dict, key: str) -> bool:
     """槽位是否已填：_SLOT_VALUE 对象看 value；扁平对象（cpu/memory/psu/raid）看业务字段。"""
-    k = "server_type" if key == "scene" else key
+    _KEY_TO_CONTRACT = {
+        "scene": "server_type", "server_type": "server_type",
+        "platform_type": "platform_type", "series": "platform_type",
+        "chassis_form": "chassis_form", "form": "chassis_form",
+        "model": "server_model", "server_model": "server_model",
+    }
+    k = _KEY_TO_CONTRACT.get(key, key)
     v = data.get(k)
+    if v is None:
+        alt = _SLOT_KEY_ALIAS.get(k)
+        if alt:
+            v = data.get(alt)
     if isinstance(v, dict):
         if "value" in v:
             val = v["value"]
@@ -407,7 +574,7 @@ def compute_coverage(data: dict, catalog: Optional[dict] = None) -> dict:
     missing = [d["label"] for d in detail if not d["filled"]]
     by_level: dict = {}
     for d in detail:
-        lv = d.get("level") or "?"
+        lv = d.get("level") or d.get("group") or "?"
         by_level.setdefault(lv, {"filled": 0, "total": 0})
         by_level[lv]["total"] += 1
         if d["filled"]:
@@ -431,12 +598,12 @@ def slots_to_enhance(data: dict) -> dict:
     """
     data = data or {}
     out: dict = {}
-    form = _slot_value(data, "form")
-    if form:
-        out["form"] = str(form).strip().upper()
-    series = _slot_value(data, "series")
-    if series:
-        out["series"] = str(series).strip()
+    chassis_form = _slot_value(data, "chassis_form") or _slot_value(data, "form")
+    if chassis_form:
+        out["form"] = str(chassis_form).strip().upper()
+    platform_type = _slot_value(data, "platform_type") or _slot_value(data, "series")
+    if platform_type:
+        out["series"] = str(platform_type).strip()
 
     cpu = data.get("cpu") if isinstance(data, dict) else None
     if isinstance(cpu, dict):
@@ -480,11 +647,16 @@ def slots_to_enhance(data: dict) -> dict:
         p = {k: psu[k] for k in ("wattage", "qty") if psu.get(k) is not None}
         if p:
             out["psu"] = p
-    raid = data.get("raid") if isinstance(data, dict) else None
-    if isinstance(raid, dict):
-        r = {k: raid[k] for k in ("model", "qty") if raid.get(k) is not None}
-        if r:
-            out["raid"] = r
+    raid_data = data.get("raid") if isinstance(data, dict) else None
+    raid_items = raid_data if isinstance(raid_data, list) else ([raid_data] if isinstance(raid_data, dict) else [])
+    raids = []
+    for raid in raid_items:
+        if isinstance(raid, dict):
+            r = {k: raid[k] for k in ("model", "qty", "cache") if raid.get(k) is not None}
+            if r:
+                raids.append(r)
+    if raids:
+        out["raid"] = raids
     return out
 
 

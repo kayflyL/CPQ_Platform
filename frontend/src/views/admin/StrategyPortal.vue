@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /** 策略中心门户(/strategies)—— 模块卡片入口,对标服务器配置门户(ServerModelCard 同款白玻璃卡)。
- *  点卡进入各模块:报价策略(工作台) / 选型配置 / 需求分析(后两者暂直跳编辑器,有文档后升级同款工作台)。
+ *  点卡进入各模块:选型配置 / 需求分析 / 报价策略。
  *  卡片统一白玻璃 + hover 蓝边,不分模块配色(Glass Console:色彩只给语义态)。 */
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
@@ -22,8 +22,8 @@ const MODULES: ModuleCard[] = [
   {
     key: 'requirement',
     title: '需求分析',
-    desc: 'BOM 推理流可视化编排:提取需求 → 明确度反问 → 选 baseline → 配 KP → 组方案,产出自动套用选型配置规则',
-    tags: ['推理流 DAG', '需求规则库', '图驱动 executor'],
+    desc: '需求明确度、平台系列、RAID/规格等规则目录 + 需求分析文档库',
+    tags: ['需求分析规则目录', '文档库', '固定专家流程'],
     to: '/strategies/requirement',
   },
   {
@@ -61,7 +61,7 @@ onMounted(async () => {
   <div class="portal">
     <header class="portal-head">
       <h1 class="portal-title">策略中心</h1>
-      <p class="portal-sub">需求分析 → 选型配置 → 报价 三步链路，规则统一治理。点卡片进入对应模块。</p>
+      <p class="portal-sub">选型配置 → 报价策略链路，规则统一治理。点卡片进入对应模块。</p>
     </header>
 
     <div class="portal-grid">

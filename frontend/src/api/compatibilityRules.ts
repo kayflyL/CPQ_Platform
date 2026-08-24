@@ -16,6 +16,8 @@ export interface CompatibilityRule {
   domain: string
   type: RuleType
   category?: string | null          // 业务分类（用户可自定义的开放标签，引擎不感知、仅组织用）
+  /** 显式绑定的区域大类 id 列表（料号库大类；字段推断仅作建议） */
+  regions?: string[]
   name: string
   scope: Record<string, any> | null
   body: Record<string, any> | null       // { when, then, desc }

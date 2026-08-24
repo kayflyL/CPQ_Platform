@@ -1,29 +1,34 @@
 @echo off
-chcp 65001 >nul
+chcp 936 >nul
 echo ==========================================
-echo CPQ Platform ä¸€é”®å¯åŠ¨
+echo CPQ Platform Ò»¼üÆô¶¯
 echo ==========================================
 echo.
 
-REM æ£€æŸ¥ PostgreSQL æœåŠ¡
-echo [0/3] æ£€æŸ¥ PostgreSQL æœåŠ¡...
+REM ¼ì²é PostgreSQL ·þÎñ
+echo [0/3] ¼ì²é PostgreSQL ·þÎñ...
 sc query postgresql-x64-18 | find "RUNNING" >nul
 if %errorlevel% neq 0 (
-    echo PostgreSQL æœªè¿è¡Œï¼Œå°è¯•å¯åŠ¨...
+    echo PostgreSQL Î´ÔËÐÐ£¬³¢ÊÔÆô¶¯...
     net start postgresql-x64-18 >nul 2>&1
     if %errorlevel% neq 0 (
-        echo [è­¦å‘Š] æ— æ³•å¯åŠ¨ PostgreSQLï¼Œè¯·æ‰‹åŠ¨æ£€æŸ¥æœåŠ¡
+        echo [¾¯¸æ] ÎÞ·¨Æô¶¯ PostgreSQL£¬ÇëÊÖ¶¯¼ì²é·þÎñ
     ) else (
-        echo PostgreSQL å·²å¯åŠ¨
+        echo PostgreSQL ÒÑÆô¶¯
     )
 ) else (
-    echo PostgreSQL å·²è¿è¡Œ
+    echo PostgreSQL ÒÑÔËÐÐ
 )
 echo.
 
-REM å¯åŠ¨åŽç«¯
-echo [1/3] å¯åŠ¨åŽç«¯æœåŠ¡...
-REM ä¼˜å…ˆç”¨é¡¹ç›®è‡ªå¸¦ backend\.venvï¼ˆä¾èµ–é½å…¨ï¼›hermes ä¼šæŠŠè£¸ python åŠ«æŒåˆ°å®ƒè‡ªå®¶ç¼ºä¾èµ–çš„ venvï¼‰
+REM ÇåÀí¾Éºó¶Ë£¨·ÀÖØ¸´ÔËÐÐ¶ÑÊµÀý£©£ºÍ£µôËùÓÐ uvicorn ½ø³Ì + Õ¼ÓÃ 8000 µÄ½ø³Ì
+echo [0.5/3] ÇåÀí¾Éºó¶Ë½ø³Ì...
+powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter 'Name=''python.exe''' | Where-Object { $_.CommandLine -match 'uvicorn|spawn_main' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 500; Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; exit 0"
+timeout /t 2 >nul
+
+REM Æô¶¯ºó¶Ë
+echo [1/3] Æô¶¯ºó¶Ë·þÎñ...
+REM ÓÅÏÈÓÃÏîÄ¿×Ô´ø backend\.venv£¨ÒÀÀµÆëÈ«£»hermes »á°ÑÂã python ½Ù³Öµ½Ëü×Ô¼ÒÈ±ÒÀÀµµÄ venv£©
 set "VENV_PY=%~dp0backend\.venv\Scripts\python.exe"
 set "HERMES_PY=%LOCALAPPDATA%\hermes\hermes-agent\venv\Scripts\python.exe"
 set "PYTHON_CMD="
@@ -34,28 +39,28 @@ if defined PYTHON_CMD goto :got_python
 where python >nul 2>&1 && set "PYTHON_CMD=python"
 :got_python
 if not defined PYTHON_CMD (
-    echo [é”™è¯¯] æ‰¾ä¸åˆ° Pythonï¼Œè¯·ç¡®ä¿å·²å®‰è£…æˆ–é…ç½®çŽ¯å¢ƒå˜é‡
+    echo [´íÎó] ÕÒ²»µ½ Python£¬ÇëÈ·±£ÒÑ°²×°»òÅäÖÃ»·¾³±äÁ¿
     pause
     exit /b 1
 )
-echo ä½¿ç”¨ Python: %PYTHON_CMD%
-start "CPQ-Backend" cmd /k "cd /d %~dp0backend && "%PYTHON_CMD%" -m uvicorn app.main:app --reload --port 8000"
+echo Ê¹ÓÃ Python: %PYTHON_CMD%
+start "CPQ-Backend" /d "%~dp0backend" cmd /k "%PYTHON_CMD% -m uvicorn app.main:app --reload --port 8000"
 
-echo ç­‰å¾…åŽç«¯åˆå§‹åŒ–...
+echo µÈ´ýºó¶Ë³õÊ¼»¯...
 timeout /t 3 >nul
 echo.
 
-REM å¯åŠ¨å‰ç«¯
-echo [2/3] å¯åŠ¨å‰ç«¯æœåŠ¡...
-start "CPQ-Frontend" cmd /k "cd /d %~dp0frontend && npm run dev"
+REM Æô¶¯Ç°¶Ë
+echo [2/3] Æô¶¯Ç°¶Ë·þÎñ...
+start "CPQ-Frontend" /d "%~dp0frontend" cmd /k "npm run dev"
 
 echo.
-echo [3/3] æ‰“å¼€æµè§ˆå™¨...
+echo [3/3] ´ò¿ªä¯ÀÀÆ÷...
 timeout /t 5 >nul
 start http://localhost:5173
 
 echo.
 echo ==========================================
-echo å¯åŠ¨å®Œæˆï¼è¯·ä¿æŒé»‘è‰²çª—å£å¼€å¯ã€‚
+echo Æô¶¯Íê³É£¡Çë±£³ÖºÚÉ«´°¿Ú¿ªÆô¡£
 echo ==========================================
 pause

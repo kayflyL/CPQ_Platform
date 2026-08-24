@@ -20,7 +20,7 @@ def _fake_repos(list_models_fn):
     class _Cat:
         def list_types(self):
             return [{"id": 1, "name": "AI / 加速计算服务器"}]
-        def list_models(self, type_id=None, series=None, form=None):
+        def list_models(self, type_id=None, series=None, form=None, published_only=False):
             return list_models_fn(type_id=type_id, series=series, form=form)
         def close(self):
             pass

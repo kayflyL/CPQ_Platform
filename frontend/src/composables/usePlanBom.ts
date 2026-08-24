@@ -12,6 +12,7 @@
  */
 import { bomTemplateApi, baseConfigApi, rearIOApi } from '@/api/serverConfig'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
+import { loadBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { rearSlotsFor, COMBO_REAR_SLOTS, rearIOBucket } from '@/constants/chassisMeta'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
 import { DRIVE_RE, GPU_RE, PSU_RE, gpuModelFrom, raidModelFrom, cableDescFrom , highBwNicFrom } from '@/utils/bomL6Derive'
@@ -205,6 +206,7 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
       rearRes = await rearIOApi.getOptions(rearIOBucket(plan.series))
     } catch { /* ignore */ }
     const rows = (tpl as any)?.rows || []
+    const categoryAliases = await loadBomCategoryAliases()
     if (!rows.length) throw new Error('no bom_template rows')
     // 注入背板件（bp_tri_pn/bp_dc_pn → 背板行），对齐工作台 effectiveBaseParts：
     // base_config_parts 不含背板（PN 在 base_configs.bp_*_pn 字段），不注入则模板 part_field 背板行取不到
@@ -229,6 +231,7 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
         const n = planCableQty(plan, k, frontCableQtyFor(k, counts, gpuQty))
         return { pn: k, n, group: CABLE_PER[k] ?? ('-' as const), price: 0, name: '' }
       },
+      categoryAliases,
     }
     // OCP 转接适配板（模板 OCP 行 qty）：rear 默认含 OCP（rearForPlan/defaultRearFrom 兜底 ocp_x8）→ 1
     ctx.vars.ocp_qty = (rear['OCP'] || []).filter(t => t !== 'blank').length > 0 ? 1 : 0

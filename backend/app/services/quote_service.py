@@ -68,11 +68,13 @@ class QuoteService:
             if not configs:
                 return {"status": "error", "message": "No valid configs found in file."}
 
-            # Enrich with KP prices
+            # Enrich with KP prices：一次预取最新价（跳过逐件 COUNT 的 N+1），
+            # 跨 CFG 共享同一份价格快照，避免每个配置页重复全量拉价
+            kp_latest = self.kp_repo.get_latest_prices(include_record_count=False)
             result_configs = {}
             for cfg_name, cfg_data in configs.items():
                 items_df = cfg_data['items']
-                enriched_df = self.engine.enrich_config(items_df, cfg_data.get('meta'))
+                enriched_df = self.engine.enrich_config(items_df, cfg_data.get('meta'), kp_latest=kp_latest)
 
                 # Default profit_margin to config value
                 default_margin = self.config.get('profit_margin', 0.1) * 100
@@ -89,8 +91,8 @@ class QuoteService:
 
                 # 质保信息结构（前端需要，后端不再处理）
                 warranty_info = {
-                    "l6": {"years": None, "rate": 0.02, "description": ""},
-                    "kp": {"years": None, "rate": 0.02, "description": ""}
+                    "l6": {"years": None, "rate": 0, "description": ""},
+                    "kp": {"years": None, "rate": 0, "description": ""}
                 }
                 
                 for _, row in enriched_df.iterrows():

@@ -15,7 +15,7 @@ class ServerCatalogRepository:
     _MODEL_FIELDS = {
         "name", "server_type_id", "use", "base_config_id", "sort_order",
         "description", "image_url", "lifecycle_status", "product_content",
-        "drawing_config",
+        "drawing_config", "is_published",
     }
 
     # 服务器类型可写字段白名单
@@ -34,9 +34,13 @@ class ServerCatalogRepository:
                 "bays": row.get("bc_bays"),
                 "series": row.get("bc_series"),
                 "name": row.get("bc_name"),
+                "psu_bays": row.get("bc_psu_bays"),
+                "gpu_slots": row.get("bc_gpu_slots"),
+                "max_cpu": row.get("bc_max_cpu"),
+                "max_dimm": row.get("bc_max_dimm"),
             }
         # 清掉 JOIN 临时前缀键
-        for k in ("bc_form", "bc_bays", "bc_series", "bc_name"):
+        for k in ("bc_form", "bc_bays", "bc_series", "bc_name", "bc_psu_bays", "bc_gpu_slots", "bc_max_cpu", "bc_max_dimm"):
             row.pop(k, None)
         row["base_config"] = bc
         # JSONB 列（psycopg2 可能返回 str）归一化为 dict
@@ -73,6 +77,23 @@ class ServerCatalogRepository:
             except Exception:
                 return None
         return v
+
+    def list_all_drawing_configs(self) -> List[dict]:
+        """返回全部机型的 drawing_config（原始 JSON，供图纸文件 GC 扫描引用）。"""
+        with l6_engine.connect() as c:
+            rows = c.execute(
+                text("SELECT id, drawing_config FROM l6.server_models")
+            ).mappings().all()
+        out = []
+        for r in rows:
+            cfg = r["drawing_config"]
+            if isinstance(cfg, str):
+                try:
+                    cfg = json.loads(cfg)
+                except Exception:
+                    cfg = None
+            out.append({"id": r["id"], "drawing_config": cfg})
+        return out
     # ---- 服务器类型 ----
     def list_types(self) -> List[dict]:
         with l6_engine.connect() as c:
@@ -122,10 +143,13 @@ class ServerCatalogRepository:
 
     # ---- 机型 ----
     def list_models(self, type_id: Optional[int] = None,
-                    series: Optional[str] = None, form: Optional[str] = None) -> List[dict]:
+                    series: Optional[str] = None, form: Optional[str] = None,
+                    published_only: bool = False) -> List[dict]:
         q = """
             SELECT m.*, bc.form AS bc_form, bc.bays AS bc_bays,
-                   bc.series AS bc_series, bc.name AS bc_name
+                   bc.series AS bc_series, bc.name AS bc_name,
+                   bc.psu_bays AS bc_psu_bays, bc.gpu_slots AS bc_gpu_slots,
+                   bc.max_cpu AS bc_max_cpu, bc.max_dimm AS bc_max_dimm
             FROM l6.server_models m
             LEFT JOIN l6.base_configs bc ON bc.id = m.base_config_id
             WHERE 1=1
@@ -134,6 +158,8 @@ class ServerCatalogRepository:
         if type_id:
             q += " AND m.server_type_id=:t"
             p["t"] = type_id
+        if published_only:
+            q += " AND m.is_published"
         if series:
             q += " AND bc.series=:s"
             p["s"] = series
@@ -145,10 +171,24 @@ class ServerCatalogRepository:
             return [self._attach_base_config(dict(r))
                     for r in c.execute(text(q), p).mappings().all()]
 
+    def count_image_references(self, url: str) -> int:
+        """图片 URL 全库引用计数：机型主图 image_url 精确匹配 + product_content 文本包含（场景图等内嵌）。
+
+        图片文件删除前的安全检查：>0 说明还有别的机型在用，不能删。
+        """
+        q = """
+            SELECT count(*) FROM l6.server_models
+            WHERE image_url = :u OR product_content::text LIKE :pat
+        """
+        with l6_engine.connect() as c:
+            return c.execute(text(q), {"u": url, "pat": f"%{url}%"}).scalar() or 0
+
     def get_model(self, model_id: int) -> Optional[dict]:
         q = """
             SELECT m.*, bc.form AS bc_form, bc.bays AS bc_bays,
-                   bc.series AS bc_series, bc.name AS bc_name
+                   bc.series AS bc_series, bc.name AS bc_name,
+                   bc.psu_bays AS bc_psu_bays, bc.gpu_slots AS bc_gpu_slots,
+                   bc.max_cpu AS bc_max_cpu, bc.max_dimm AS bc_max_dimm
             FROM l6.server_models m
             LEFT JOIN l6.base_configs bc ON bc.id = m.base_config_id
             WHERE m.id=:id

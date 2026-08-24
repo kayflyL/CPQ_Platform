@@ -7,16 +7,34 @@
  */
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
-import { UploadOutlined, SaveOutlined, RollbackOutlined, SwapOutlined } from '@ant-design/icons-vue'
-import { catalogApi, type ServerModel } from '@/api/serverConfig'
-import { serverDrawingApi, type DrawingRegion, type DrawingLayerMeta, type DrawingViewBox, type DrawingViewType } from '@/api/serverDrawing'
-import { REGION_KIND_LABELS } from '@/constants/serverAnatomy'
+import { message, Modal } from 'ant-design-vue'
+import { UploadOutlined, SaveOutlined, RollbackOutlined, SwapOutlined, HistoryOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { catalogApi, partsApi, type PartMajorCategory, type ServerModel } from '@/api/serverConfig'
+import { serverDrawingApi, type DrawingRegion, type DrawingLayerMeta, type DrawingVersion, type DrawingViewBox, type DrawingViewType } from '@/api/serverDrawing'
 import { ServerAnatomyEditor } from '@/components/server-visualization'
 import SvgLayerPanel from '@/components/server-visualization/SvgLayerPanel.vue'
 import { parseSvgLayers, templateName, type SvgLayerNode } from '@/utils/svgLayers'
 
 const models = ref<ServerModel[]>([])
+// 区域类型 = 料号库大类（id→名称），徽标/下拉显示用
+const majorOptions = ref<PartMajorCategory[]>([])
+const majorLabelById = computed(() => {
+  const m: Record<string, string> = {}
+  for (const it of majorOptions.value) if (it.id != null) m[String(it.id)] = it.major_category
+  return m
+})
+function majorLabel(v: string): string {
+  return majorLabelById.value[v] || v
+}
+async function loadMajors() {
+  try {
+    const res = await partsApi.majorCategories()
+    majorOptions.value = res.major_categories || []
+  } catch {
+    majorOptions.value = []
+  }
+}
+
 const route = useRoute()
 const router = useRouter()
 // 从路由参数取机型（卡片入口 /servers/drawing/:modelId），无参数时进页后默认第一个
@@ -24,8 +42,8 @@ const modelId = ref<number | null>(route.params.modelId ? Number(route.params.mo
 const view = ref<DrawingViewType>('top')
 const viewOptions = [
   { value: 'top', label: '俯视图' },
-  { value: 'front', label: '前视图（预留）', disabled: true },
-  { value: 'rear', label: '后视图（预留）', disabled: true },
+  { value: 'front', label: '前视图' },
+  { value: 'rear', label: '后视图' },
 ]
 const svgUrl = ref<string | null>(null)
 const viewBox = ref<DrawingViewBox | null>(null)
@@ -40,10 +58,101 @@ const layersMeta = ref<DrawingLayerMeta[]>([])
 const svgElRef = ref<SVGSVGElement | null>(null)
 const activeLayerId = ref<string | null>(null)
 const layerDirty = ref(false)
-const hasPrev = ref(false)
 const tab = ref<'regions' | 'layers'>('regions')
 
+// ── 版本历史 ──
+const versions = ref<DrawingVersion[]>([])
+const versionsOpen = ref(false)
+const versionsLoading = ref(false)
+const versionsBusy = ref(false)
+const rollingVersionId = ref<string | null>(null)
+const deletingVersionId = ref<string | null>(null)
+const hasHistory = computed(() => versions.value.some(v => !v.is_current))
+const hasMissingFile = computed(() => versions.value.some(v => v.file_exists === false))
+
+function formatTime(iso?: string | null): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const p2 = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} ${p2(d.getHours())}:${p2(d.getMinutes())}`
+}
+
+async function loadVersions() {
+  if (!modelId.value) return
+  versionsLoading.value = true
+  try {
+    const res = await serverDrawingApi.listVersions(modelId.value, view.value)
+    versions.value = res.versions || []
+  } catch {
+    versions.value = []
+  } finally {
+    versionsLoading.value = false
+  }
+}
+
+function openVersions() {
+  loadVersions()
+  versionsOpen.value = true
+}
+
+async function rollbackTo(versionId?: string) {
+  if (!modelId.value) return
+  versionsBusy.value = true
+  rollingVersionId.value = versionId || null
+  try {
+    await serverDrawingApi.rollback(modelId.value, view.value, versionId)
+    message.success('已回退到指定版本')
+    versionsOpen.value = false
+    await loadDrawing()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '回退失败')
+  } finally {
+    versionsBusy.value = false
+    rollingVersionId.value = null
+  }
+}
+
+async function removeVersion(versionId: string) {
+  if (!modelId.value) return
+  deletingVersionId.value = versionId
+  try {
+    const res = await serverDrawingApi.deleteVersion(modelId.value, versionId, view.value)
+    message.success('版本已删除' + (res.removed_files ? `（清理 ${res.removed_files} 个文件）` : ''))
+    await loadVersions()
+    await loadDrawing()
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '删除失败')
+  } finally {
+    deletingVersionId.value = null
+  }
+}
+
+function confirmDeleteDrawing() {
+  Modal.confirm({
+    title: '删除当前图纸',
+    content: '将删除该机型的整张图纸配置与全部历史版本，相关 SVG 文件也会一并清理。此操作不可恢复。',
+    okType: 'danger',
+    okText: '删除',
+    cancelText: '取消',
+    onOk: async () => {
+      if (!modelId.value) return
+      try {
+        const res = await serverDrawingApi.deleteDrawing(modelId.value, view.value)
+        message.success('图纸已删除' + (res.removed_files ? `（清理 ${res.removed_files} 个文件）` : ''))
+        versionsOpen.value = false
+        await loadDrawing()
+        await loadVersions()
+      } catch (e: any) {
+        message.error(e.response?.data?.detail || '删除失败')
+      }
+    },
+  })
+}
+
+const svgRevision = ref(0)
 const layerNodes = computed<SvgLayerNode[]>(() => {
+  void svgRevision.value
   if (!svgElRef.value) return []
   const out = parseSvgLayers(svgElRef.value, layersMeta.value)
   return out
@@ -69,7 +178,16 @@ function removeRegion(uid: string) { editorRef.value?.removeRegion(uid) }
 // 图层事件
 function onSvgReady(svg: SVGSVGElement) { svgElRef.value = svg }
 function onLayerSelect(id: string | null) { activeLayerId.value = id }
-function onLayerChanged() { layerDirty.value = true }
+function onLayerChanged() { layerDirty.value = true; svgRevision.value++ }
+// 图层面板：排序 / 拖拽 / 复制 / 删除（桥接到画布编辑器，编辑后自动刷新面板）
+function onReorder(id: string, dir: 'up' | 'down' | 'top' | 'bottom') { editorRef.value?.moveLayer(id, dir) }
+function onMoveBefore(id: string, targetId: string) { editorRef.value?.moveLayerBefore(id, targetId) }
+function onReparent(id: string, targetId: string) { editorRef.value?.reparentLayer(id, targetId) }
+function onDuplicateLayer(id: string) { editorRef.value?.duplicateLayer(id) }
+function onRemoveLayer(id: string) {
+  editorRef.value?.removeLayer(id)
+  if (activeLayerId.value === id) activeLayerId.value = null
+}
 function updateLayerMeta(id: string, patch: Partial<DrawingLayerMeta>) {
   const cur = layersMeta.value.find(m => m.id === id) || { id }
   const merged = { ...cur, ...patch }
@@ -118,18 +236,6 @@ async function onSaveSvg(svg: string) {
   }
 }
 function saveDrawingEdit() { editorRef.value?.saveLayers() }
-
-// 回退上一版
-async function rollback() {
-  if (!modelId.value) return
-  try {
-    await serverDrawingApi.rollback(modelId.value, view.value)
-    message.success('已回退到上一版图纸')
-    await loadDrawing()
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '回退失败')
-  }
-}
 
 // ── 替换向导 ──
 interface ReplaceReport {
@@ -247,7 +353,6 @@ async function loadDrawing() {
     viewBox.value = v?.viewBox || null
     regions.value = v?.regions || []
     layersMeta.value = v?.layers || []
-    hasPrev.value = !!v?.prev
     svgElRef.value = null
     activeLayerId.value = null
     layerDirty.value = false
@@ -256,6 +361,7 @@ async function loadDrawing() {
     message.error('图纸配置读取失败')
   } finally {
     loading.value = false
+    loadVersions()
   }
 }
 
@@ -302,7 +408,7 @@ const currentModelName = computed(() => models.value.find(m => m.id === modelId.
 
 watch(modelId, loadDrawing, { immediate: true })
 watch(view, loadDrawing)
-onMounted(loadModels)
+onMounted(() => { loadModels(); loadMajors() })
 </script>
 
 <template>
@@ -333,16 +439,17 @@ onMounted(loadModels)
         <div class="sdc-status">
           <a-tag v-if="svgUrl" color="green">已上传图纸</a-tag>
           <a-tag v-else color="default">未上传</a-tag>
-          <a-tag v-if="hasPrev" color="orange">有上一版可回退</a-tag>
+          <a-tag v-if="hasHistory" color="orange">有历史版本</a-tag>
+          <a-tag v-if="hasMissingFile" color="red">存在文件缺失版本</a-tag>
         </div>
         <a-button type="primary" block :loading="saving" @click="save"><SaveOutlined /> 保存标注</a-button>
         <a-button block :disabled="!layerDirty" @click="saveDrawingEdit">保存图纸编辑</a-button>
         <a-space style="width: 100%" :size="8">
           <a-button block size="small" @click="replaceOpen = true"><SwapOutlined /> 替换图纸</a-button>
-          <a-button block size="small" :disabled="!hasPrev" @click="rollback"><RollbackOutlined /> 回退</a-button>
+          <a-button block size="small" @click="openVersions"><HistoryOutlined /> 版本历史</a-button>
         </a-space>
         <p class="sdc-note">当前机型：{{ currentModelName }}<template v-if="viewBox"> · viewBox {{ viewBox.join(', ') }}</template></p>
-        <p class="sdc-note">替换图纸会自动备份旧版并迁移区域坐标；回退可恢复上一版。</p>
+        <p class="sdc-note">替换/编辑图纸会自动备份旧版；版本历史支持回退与删除，删除版本会同步清理后端 SVG 文件。</p>
       </aside>
 
       <main class="sdc-center">
@@ -374,7 +481,7 @@ onMounted(loadModels)
                 @click="selectRegion(r.uid)">
                 <div class="sdc-region-top">
                   <span class="sdc-region-name">{{ r.name || '（未命名）' }}</span>
-                  <span class="sdc-region-type">{{ REGION_KIND_LABELS[r.region_type] }}</span>
+                  <span class="sdc-region-type">{{ majorLabel(r.region_type) }}</span>
                 </div>
                 <div class="sdc-region-xy">{{ r.x }},{{ r.y }} · {{ r.width }}×{{ r.height }}</div>
                 <div class="sdc-region-ops">
@@ -397,6 +504,7 @@ onMounted(loadModels)
 
           <a-tab-pane key="layers" tab="图层面板">
                         <SvgLayerPanel
+              :key="String(modelId) + view"
               :nodes="layerNodes"
               :active-id="activeLayerId"
               @select="(id: string | null) => editorRef?.selectLayer(id)"
@@ -405,6 +513,11 @@ onMounted(loadModels)
               @toggle-locked="onToggleLocked"
               @set-opacity="onSetOpacity"
               @apply-template="onApplyTemplate"
+              @reorder="onReorder"
+              @move-before="onMoveBefore"
+              @reparent="onReparent"
+              @duplicate="onDuplicateLayer"
+              @remove="onRemoveLayer"
             />
             <div v-if="activeLayerNode" class="sdc-layerprop">
               <div class="sdc-tips-title">图层属性 · {{ activeLayerNode.tag }}</div>
@@ -487,6 +600,40 @@ onMounted(loadModels)
         </a-space>
       </div>
     </a-modal>
+
+    <!-- 版本历史 -->
+    <a-modal v-model:open="versionsOpen" title="版本历史" :footer="null" width="660px" :mask-closable="false">
+      <a-spin :spinning="versionsLoading">
+        <div v-if="!versions.length" style="padding: 20px 0; text-align: center; color: var(--cpq-text-muted)">暂无版本</div>
+        <div v-else style="display: flex; flex-direction: column; gap: 8px; max-height: 420px; overflow-y: auto">
+          <div v-for="ver in versions" :key="ver.id" class="sdc-ver-row">
+            <div class="sdc-ver-info">
+              <span class="sdc-ver-name" :title="ver.svg_url">{{ ver.svg_url ? ver.svg_url.split('/').pop() : '未上传' }}</span>
+              <a-tag v-if="ver.is_current" color="blue">当前</a-tag>
+              <a-tag v-else color="default">历史</a-tag>
+              <a-tag :color="ver.file_exists ? 'green' : 'red'">{{ ver.file_exists ? '文件存在' : '文件缺失' }}</a-tag>
+            </div>
+            <div class="sdc-ver-meta">
+              <span>{{ ver.created_at ? formatTime(ver.created_at) : '导入时间未知' }}</span>
+              <span>{{ ver.regions.length }} 个区域</span>
+            </div>
+            <div class="sdc-ver-actions">
+              <a-button v-if="!ver.is_current" size="small" :disabled="!ver.file_exists"
+                :loading="versionsBusy && rollingVersionId === ver.id" @click="rollbackTo(ver.id)">
+                <RollbackOutlined /> 回退
+              </a-button>
+              <a-button v-if="!ver.is_current" size="small" danger :loading="deletingVersionId === ver.id"
+                @click="removeVersion(ver.id)">
+                <DeleteOutlined /> 删除
+              </a-button>
+            </div>
+          </div>
+        </div>
+        <a-divider style="margin: 12px 0" />
+        <a-button block danger @click="confirmDeleteDrawing"><DeleteOutlined /> 删除当前图纸（含全部历史版本）</a-button>
+        <p class="sdc-note" style="margin-top: 8px">删除版本会同步清理后端 SVG 文件；若文件仍被其他版本引用则自动保留。文件缺失的版本不可回退，可直接删除。</p>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -534,4 +681,9 @@ onMounted(loadModels)
 .sdc-prop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .sdc-rep-block { display: flex; flex-direction: column; gap: 6px; }
 .sdc-rep-tags { display: flex; flex-wrap: wrap; gap: 4px; }
+.sdc-ver-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; border: 1px solid var(--cpq-glass-border); border-radius: 10px; }
+.sdc-ver-info { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sdc-ver-name { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sdc-ver-meta { display: flex; gap: 12px; color: var(--cpq-text-muted); font-size: 12px; }
+.sdc-ver-actions { display: flex; gap: 8px; justify-content: flex-end; }
 </style>

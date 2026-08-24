@@ -4,6 +4,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from app.models.quotation import Quotation
 from app.models.quotation_item import QuotationItem
+from app.models.opportunity import Opportunity
 from app.models.base import Opportunity_SessionLocal
 from datetime import datetime
 
@@ -15,6 +16,19 @@ class QuotationRepository:
     def close(self):
         if self.db:
             self.db.close()
+
+    def _touch_opportunity(self, opportunity_id: Optional[str]) -> None:
+        """报价单任何变更回写父商机 updated_at —— 商机列表「更新时间 新→旧」排序/展示
+        覆盖报价单动静（否则只动报价单的商机永远沉底）。格式与 opportunity_repo 一致
+        （'%Y-%m-%d %H:%M:%S'），保证同列字符串排序不乱。"""
+        if not opportunity_id:
+            return
+        self.db.query(Opportunity).filter(
+            Opportunity.opportunity_id == opportunity_id
+        ).update(
+            {Opportunity.updated_at: datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+            synchronize_session=False,
+        )
 
     def create(self, opportunity_id: str, file_path: Optional[str] = None,
                quotation_date: str = None, quotation_name: str = None) -> Quotation:
@@ -60,6 +74,7 @@ class QuotationRepository:
         )
         
         self.db.add(quotation)
+        self._touch_opportunity(opportunity_id)
         self.db.commit()
         self.db.refresh(quotation)
         return quotation
@@ -82,7 +97,7 @@ class QuotationRepository:
     _CORE_COLUMNS = {
         "quotation_id", "opportunity_id", "version", "quotation_name", "file_path",
         "l6_price", "total_qty", "config_count", "created_at", "updated_at", "status",
-        "exported_at", "cost_snapshot",
+        "exported_at", "submitted_at", "submitted_by", "submitted_attachment_id", "cost_snapshot",
         "quotation_date", "config_quantities", "config_descriptions", "config_server_models",
         "config_warranty_info", "total_price", "profit_margin", "extra_fields", "tenant_id",
         "is_primary", "source", "strategy_snapshot",
@@ -113,6 +128,7 @@ class QuotationRepository:
         # Save extra_fields back
         quotation.extra_fields = json.dumps(extra, ensure_ascii=False) if extra else None
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         self.db.refresh(quotation)
         return quotation
@@ -125,6 +141,7 @@ class QuotationRepository:
         
         quotation.status = "deleted"
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         return True
 
@@ -138,6 +155,7 @@ class QuotationRepository:
         
         quotation.status = "active"
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         return True
 
@@ -215,6 +233,7 @@ class QuotationRepository:
 
         quotation.config_count = config_count
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
 
         return {"config_count": config_count}
@@ -231,6 +250,7 @@ class QuotationRepository:
         if quotation.is_primary:
             quotation.is_primary = False
             quotation.updated_at = datetime.now().isoformat()
+            self._touch_opportunity(quotation.opportunity_id)
             self.db.commit()
             return True
 
@@ -241,6 +261,7 @@ class QuotationRepository:
 
         quotation.is_primary = True
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         return True
 
@@ -249,6 +270,61 @@ class QuotationRepository:
         return self.db.query(QuotationItem).filter(
             QuotationItem.quotation_id == quotation_id
         ).all()
+
+    def patch_items(self, quotation_id: str, configs: List[dict], delete_missing: bool = False) -> int:
+        """按 item_id 更新或新增 KP/Warranty 行。
+
+        门户工作表保存使用：前端只传当前 stage 可编辑的行，避免动到 L6 或历史行。
+        delete_missing=True 时（方案配置整表保存），同步删除未提交的 KP 行，以及已删除配置下的全部行。
+        """
+        opp_id = self.db.query(Quotation.opportunity_id).filter(
+            Quotation.quotation_id == quotation_id).scalar()
+        items = self.get_items(quotation_id)
+        by_id = {item.item_id: item for item in items if item.item_id is not None}
+        updated = 0
+        seen_ids = set()
+        submitted_names = {
+            cfg.get("name") or cfg.get("config_name") or ""
+            for cfg in configs
+        }
+
+        for cfg in configs:
+            config_name = cfg.get("name") or cfg.get("config_name") or ""
+            for row in cfg.get("kp_rows") or []:
+                item_id = row.get("item_id")
+                item = by_id.get(item_id) if item_id is not None else None
+                if item is None:
+                    item = QuotationItem(quotation_id=quotation_id)
+                    self.db.add(item)
+                    items.append(item)
+
+                if item_id is not None:
+                    seen_ids.add(item_id)
+                if config_name:
+                    item.config_name = config_name
+                for key in (
+                    "category", "catalogue", "description", "part_category",
+                    "qty", "base_price", "final_price", "profit_margin", "currency",
+                ):
+                    if key in row and row[key] is not None:
+                        setattr(item, key, row[key])
+
+                extra = json.loads(item.extra_fields) if item.extra_fields else {}
+                if row.get("note") is not None:
+                    extra["note"] = row.get("note")
+                item.extra_fields = json.dumps(extra, ensure_ascii=False) if extra else None
+                updated += 1
+
+        if delete_missing:
+            for item in list(items):
+                if item.config_name and item.config_name not in submitted_names:
+                    self.db.delete(item)
+                elif item.category == "Key Parts" and item.item_id is not None and item.item_id not in seen_ids:
+                    self.db.delete(item)
+
+        self._touch_opportunity(opp_id)
+        self.db.commit()
+        return updated
 
     def get_items_by_quotation_ids(self, quotation_ids: List[str]) -> dict:
         """批量取多个报价单的全部 items，按 quotation_id 分组（消除详情接口的 N+1）。"""
@@ -303,6 +379,7 @@ class QuotationRepository:
         quotation.cost_snapshot = cost_snapshot
         self._sync_totals_from_snapshot(quotation, cost_snapshot)
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         self.db.refresh(quotation)
         return quotation
@@ -319,6 +396,7 @@ class QuotationRepository:
         quotation.cost_snapshot = cost_snapshot
         self._sync_totals_from_snapshot(quotation, cost_snapshot)
         quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         self.db.refresh(quotation)
         return quotation

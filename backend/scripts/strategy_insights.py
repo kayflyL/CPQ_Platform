@@ -63,10 +63,12 @@ def main():
         print("【2. 核心列维度分布】")
         for col, label in [("platform_type", "平台类型"), ("chassis_form", "机箱形态")]:
             rows = s.execute(text(f"""
-                SELECT COALESCE({col}, '') AS v, COUNT(*) AS n
-                FROM opportunities.opportunities
-                WHERE status != 'deleted'
-                GROUP BY {col} ORDER BY n DESC
+                SELECT COALESCE(r.slots ->> '{col}', '') AS v, COUNT(*) AS n
+                FROM opportunities.opportunities o
+                LEFT JOIN opportunities.opportunity_requirements r
+                  ON r.opportunity_id = o.opportunity_id AND r.status = 'current'
+                WHERE o.status != 'deleted'
+                GROUP BY COALESCE(r.slots ->> '{col}', '') ORDER BY n DESC
             """)).mappings().all()
             print(f"  · {label}（{col}）：")
             for r in rows:
@@ -113,9 +115,11 @@ def main():
         print("\n" + "=" * 64)
         print("【4. 已导出报价毛利分布（按平台类型分组）】")
         mrows = s.execute(text("""
-            SELECT o.platform_type AS pt, q.profit_margin AS m
+            SELECT COALESCE(r.slots ->> 'platform_type', '') AS pt, q.profit_margin AS m
             FROM opportunities.quotations q
             JOIN opportunities.opportunities o ON o.opportunity_id = q.opportunity_id
+            LEFT JOIN opportunities.opportunity_requirements r
+              ON r.opportunity_id = o.opportunity_id AND r.status = 'current'
             WHERE q.status = 'active' AND q.exported_at IS NOT NULL
               AND q.profit_margin IS NOT NULL
         """)).mappings().all()

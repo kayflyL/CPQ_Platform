@@ -30,6 +30,8 @@ class CompatibilityRule(Base):
     category: Mapped[Optional[str]] = mapped_column(String(60), default=None, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     scope: Mapped[Optional[str]] = mapped_column(Text, default=None)        # JSON 生效范围（series/platform_type）
+    # JSON: 显式绑定的区域大类 id 列表（料号库大类，机型无关；字段推断仅作建议）
+    regions: Mapped[Optional[str]] = mapped_column(Text, default=None)
     body: Mapped[str] = mapped_column(Text, nullable=False)                 # JSON: {when, then, desc}
     status: Mapped[str] = mapped_column(String(20), default="active", index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
@@ -51,6 +53,7 @@ class CompatibilityRule(Base):
             "category": self.category,
             "name": self.name,
             "scope": json.loads(self.scope) if self.scope else None,
+            "regions": json.loads(self.regions) if self.regions else [],
             "body": json.loads(self.body) if self.body else None,
             "status": self.status,
             "version": self.version,

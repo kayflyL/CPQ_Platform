@@ -64,6 +64,42 @@ def test_search_cases_handler_uses_provider(monkeypatch=None):
     assert kwargs.get("top_k") == 3
 
 
+def test_cost_breakdown_tool():
+    from app.services.agent_tools import _tool_cost_breakdown
+    out = asyncio.run(_tool_cost_breakdown({
+        "plan": {
+            "name": "4U AI 服务器",
+            "model": "X100",
+            "summary": {
+                "l6_cost": 12000.0,
+                "kp_cost": 88000.0,
+                "total_cost": 100000.0,
+                "currency": "RMB",
+            },
+        },
+    }))
+    assert out["cost"]["total_cost"] == 100000.0
+    assert out["cost"]["l6_cost"] == 12000.0
+    err = asyncio.run(_tool_cost_breakdown({}))
+    assert "error" in err
+
+
+def test_quote_draft_tool():
+    from app.services.agent_tools import _tool_quote_draft
+    out = asyncio.run(_tool_quote_draft({
+        "plan": {
+            "name": "4U AI 服务器",
+            "model": "X100",
+            "summary": {"total_cost": 100000.0, "currency": "RMB"},
+        },
+    }))
+    assert out["draft"]["base_cost"] == 100000.0
+    assert out["draft"]["status"] == "draft"
+    assert "final_price" in out["draft"]
+    err = asyncio.run(_tool_quote_draft({}))
+    assert "error" in err
+
+
 # ── run_react_loop ────────────────────────────────────────────────────
 
 def _patch_llm(seq_or_raise):
@@ -78,8 +114,9 @@ def _patch_llm(seq_or_raise):
 
 def test_react_final_no_tools():
     """无工具时，LLM 直接给 final → 返回 answer。"""
-    from app.services import agent_react
+    from app.services import agent_react, llm_client
     with patch("app.services.llm_client.chat_json", _patch_llm([{"action": "final", "answer": "ok"}])), \
+         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "ok" and out["iterations"] == 1
@@ -87,7 +124,7 @@ def test_react_final_no_tools():
 
 def test_react_calls_tool_then_final():
     """LLM 先 call_tool → 执行（mock registry 的 fake 工具）→ 喂回 → 再 final。"""
-    from app.services import agent_react, agent_tools
+    from app.services import agent_react, agent_tools, llm_client
     reg = agent_tools.ToolRegistry()
     seen = []
     async def fake_h(args):
@@ -97,6 +134,7 @@ def test_react_calls_tool_then_final():
            {"action": "final", "answer": "done"}]
     with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
          patch("app.services.llm_client.chat_json", _patch_llm(seq)), \
+         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "done"
@@ -108,6 +146,7 @@ def test_react_llm_error_degrades():
     """LLM 抛 LLMError → ok=False（上层降级），不抛。"""
     from app.services import agent_react, llm_client
     with patch("app.services.llm_client.chat_json", _patch_llm(llm_client.LLMError("boom"))), \
+         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is False and out["answer"] == ""
@@ -115,9 +154,10 @@ def test_react_llm_error_degrades():
 
 def test_react_max_iterations_cap():
     """LLM 一直发非法 action → 超 max_iterations → ok=False（truncated）。"""
-    from app.services import agent_react
+    from app.services import agent_react, llm_client
     async def _always_bad(messages, schema=None): return {"action": "garbage"}
     with patch("app.services.llm_client.chat_json", _always_bad), \
+         patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMNativeToolsUnsupported("unsupported"))), \
          patch("app.services.llm_client.is_llm_enabled", return_value=True):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=2))
     assert out["ok"] is False and out["iterations"] == 2

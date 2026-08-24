@@ -16,16 +16,6 @@ from sqlalchemy import text
 
 from app.models.base import l6_engine, kp_engine
 
-# 品类中英别名（对齐前端 bomRuleEngine.CATEGORY_CN_EN）
-_CAT_ALIASES = {
-    "heatsink": ["散热器", "散热"],
-    "fan": ["风扇"],
-    "rail": ["滑轨", "导轨", "rail"],
-    "chassis": ["机箱"],
-    "backplane": ["背板"],
-    "cable": ["线缆", "cable"],
-    "psu": ["电源", "psu", "power supply"],
-}
 _IO_SLOT_NAMES = {"io1", "io2", "io3", "io4", "ocp"}
 
 
@@ -33,10 +23,13 @@ def _norm(s: str) -> str:
     return re.sub(r"[\s\-]", "", (s or "")).lower()
 
 
-def _find_part(parts: list, category: str) -> Optional[dict]:
-    """按品类找基准配置底盘件（类别/别名/名称宽松匹配，取首个）。"""
+def _find_part(parts: list, category: str, category_aliases: Optional[dict] = None) -> Optional[dict]:
+    """按品类查找基准配置的底盘件（别名/名称/品类模糊匹配），取首个命中。
+    category_aliases 来自 system_config.bom_category_aliases（可配置，拒绝硬编码）；
+    未配置返回空别名，仅按品类精确匹配，不臆断中文别名。"""
     cl = _norm(category)
-    aliases = [_norm(a) for a in _CAT_ALIASES.get(cl, [])]
+    alias_src = (category_aliases or {}).get(cl, []) or []
+    aliases = [_norm(a) for a in alias_src]
     for p in parts:
         cat = _norm(p.get("category") or "")
         name = _norm(p.get("name") or "")
@@ -201,8 +194,18 @@ def eval_l6_rows(template_id: int, base_config_id: int,
     if not bc:
         return []
 
-    # 底盘件按品类索引
-    part_idx = {cat: _find_part(bc["parts"], cat) for cat in ("backplane", "heatsink", "fan", "rail", "psu", "cable")}
+    # 底盘件按品类索引；别名取自 system_config.bom_category_aliases（可配置，拒绝硬编码）
+    _category_aliases: dict = {}
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        _repo = SystemConfigRepository()
+        try:
+            _category_aliases = _repo.get_value("bom_category_aliases") or {}
+        finally:
+            _repo.close()
+    except Exception:
+        _category_aliases = {}
+    part_idx = {cat: _find_part(bc["parts"], cat, _category_aliases) for cat in ("backplane", "heatsink", "fan", "rail", "psu", "cable")}
     # 背板 bt → bp_type_desc
     bt = _spec_str(part_idx["backplane"].get("specs") if part_idx["backplane"] else {}, "bt") if part_idx["backplane"] else ""
     bp_type = (chassis_signals or {}).get("bp_type") or bt or ""
@@ -234,8 +237,19 @@ def eval_l6_rows(template_id: int, base_config_id: int,
             _rear_slots = json.loads(_rear_slots)
         except Exception:
             _rear_slots = []
-    _has_ocp = any(
-        isinstance(s, dict) and _norm(str(s.get("name") or "")) == "ocp"
+    # OCP 行只在该基准配置真的装了 OCP 转接适配板（base parts 含 OCP 件）或 OCP 槽带 defaults 时输出；
+    # 仅“有 OCP 槽位”不算（ES22V3-P 有 OCP 槽但未装板，历史回归多出 OCP 3.0 X8 行）。
+    def _slot_has_defaults(slot: dict) -> bool:
+        try:
+            return bool((slot or {}).get("defaults"))
+        except Exception:
+            return False
+    _has_ocp_part = any(
+        "ocp" in _norm(f"{p.get('category') or ''} {p.get('name') or ''}")
+        for p in (bc.get("parts") or [])
+    )
+    _has_ocp = _has_ocp_part or any(
+        isinstance(s, dict) and _norm(str(s.get("name") or "")) == "ocp" and _slot_has_defaults(s)
         for s in _rear_slots
     )
 

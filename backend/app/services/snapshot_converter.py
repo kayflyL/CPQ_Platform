@@ -35,6 +35,10 @@ def excel_to_snapshot(file_stream: io.BytesIO) -> Tuple[dict, dict]:
     """
     # 使用 data_only=False 保留公式
     wb = openpyxl.load_workbook(file_stream, data_only=False)
+    # data_only=False 下 openpyxl 拿不到公式的缓存计算结果（cell._value 是公式字符串本身），
+    # 额外以 data_only=True 加载一份用于读取缓存值；无缓存值（如程序生成的 xlsx）则为 None，靠 Univer 公式引擎计算。
+    file_stream.seek(0)
+    wb_values = openpyxl.load_workbook(file_stream, data_only=True)
     
     sheets = {}
     sheet_order = []
@@ -57,10 +61,11 @@ def excel_to_snapshot(file_stream: io.BytesIO) -> Tuple[dict, dict]:
                     # 优先使用公式，如果没有公式则使用缓存值
                     cell_obj = {}
                     if cell.data_type == 'f':  # 公式类型
-                        cell_obj["f"] = cell.value  # 保留公式
-                        # 如果有缓存值，也保存一份用于预览
-                        if cell._value is not None:
-                            cell_obj["v"] = cell._value
+                        cell_obj["f"] = cell.value  # 保留公式（带前导 =，Excel 打开/后端 openpyxl 导出均安全）
+                        # 缓存计算值：data_only=True 读到的才是 Excel 里保存的计算结果
+                        cached = wb_values[ws.title][cell.coordinate].value
+                        if cached is not None:
+                            cell_obj["v"] = cached
                     else:
                         cell_obj["v"] = cell.value
                     

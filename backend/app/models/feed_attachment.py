@@ -32,6 +32,7 @@ class FeedAttachment(Base):
     # Business semantics for the archive view: requirement | technical | sent_quote (NULL = uncategorized)
     category: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     quotation_id: Mapped[Optional[str]] = mapped_column(String, default=None)
+    flow_card_id: Mapped[Optional[int]] = mapped_column(Integer, default=None, index=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
     version_group: Mapped[Optional[str]] = mapped_column(String, default=None)
     created_at: Mapped[str] = mapped_column(String)
@@ -51,6 +52,7 @@ class FeedAttachment(Base):
             "kind": self.kind or "upload",
             "category": self.category or "",
             "quotation_id": self.quotation_id or "",
+            "flow_card_id": self.flow_card_id,
             "version": self.version or 1,
             "version_group": self.version_group or "",
             "created_at": self.created_at or "",

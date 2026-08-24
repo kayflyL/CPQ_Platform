@@ -6,7 +6,7 @@ from app.api.candidate_search import pick_kp_parts
 
 
 def test_raid_qty_not_doubled():
-    """需求 'RAID: 2GB缓存,接口数8个' + 显式模型 9361-8i → 只出一条 LSI 9361-8i ×1。"""
+    """需求 'RAID: 2GB缓存,接口数8个' + 显式模型 9361-8i → 只出一条 RAID 且精确命中料号。"""
     out = pick_kp_parts(
         ["CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement", "Raid Card"],
         ["9354", "9361-8i"],
@@ -22,7 +22,27 @@ def test_raid_qty_not_doubled():
     raids = [r for r in out if "raid" in (r.get("category") or "").lower()]
     assert len(raids) == 1, f"RAID 应只出一条，实际 {len(raids)}: {raids}"
     assert raids[0]["qty"] == 1, f"RAID qty 应为 1，实际 {raids[0]['qty']}"
-    assert "9361" in (raids[0]["name"] or "")
+    assert raids[0].get("unmatched") is not True
+    assert "9361-8i" in (raids[0].get("pn") or "")
+
+
+def test_raid_space_model_matches_hyphen_part():
+    """LLM 输出 'LSI 9560 16i'（空格）时，应跨 KP 的 RAID/Raid Card 分类找到 'LSI 9560-16i'。"""
+    out = pick_kp_parts(
+        ["Raid card"],
+        ["9560", "16i", "9364", "8i"],
+        requirement_text="RAID卡：LSI 9560 16i *1；LSI 9364 8i *1",
+        raid_groups=[
+            {"model": "LSI 9560 16i", "qty": 1, "cache": 8},
+            {"model": "LSI 9364 8i", "qty": 1, "cache": 2},
+        ],
+    )
+    raids = [r for r in out if "raid" in (r.get("category") or "").lower() or "阵列" in (r.get("category") or "")]
+    assert len(raids) == 2, f"RAID 应出两行，实际 {raids}"
+    pns = {r.get("pn") or "" for r in raids}
+    assert "LSI 9560-16i" in pns
+    assert "LSI 9364-8i" in pns
+    assert all(r.get("unmatched") is not True for r in raids)
 
 
 def test_memory_total_resolves_sticks():

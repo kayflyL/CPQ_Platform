@@ -12,6 +12,14 @@ from ..models.requirement_rule import RequirementRule, RequirementSample
 
 
 # ===== 默认规则 seed（三层兜底的最底层常量也复用这套结构） =====
+_VALID_TYPE = {
+    "clarity", "budget", "cpu_mem_generation", "category_alias",
+    "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
+    "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map", "gpu_form_map",
+    "type_alias", "delegation_phrases", "model_action_phrases", "kp_action_phrases",
+    "gpu_brand_map", "spec_unit_patterns", "power_calibration",
+}
+
 DEFAULT_RULES: list[dict] = [
     # ── clarity：需求明确度判定 ──
     {
@@ -167,6 +175,88 @@ DEFAULT_RULES: list[dict] = [
             "strategy": {"representative_pick": "min_price", "label": "默认"},
         },
     },
+
+    # ── 选型规则目录：节点只引用，不内嵌 ──
+    {"type": "cpu_mem_generation", "name": "KH50000 → DDR5", "body": {"pattern": "KH50000|KH-50000|KH5000", "mem_type": "DDR5"}},
+    {"type": "cpu_mem_generation", "name": "KH40000/KX → DDR4", "body": {"pattern": "KH40000|KH4000|KX", "mem_type": "DDR4"}},
+    {"type": "cpu_mem_generation", "name": "EPYC 9 → DDR5", "body": {"pattern": "EPYC 9", "mem_type": "DDR5"}},
+    {"type": "cpu_mem_generation", "name": "EPYC 7 → DDR4", "body": {"pattern": "EPYC 7", "mem_type": "DDR4"}},
+    {"type": "cpu_mem_generation", "name": "XEON 6 → DDR5", "body": {"pattern": "XEON 6", "mem_type": "DDR5"}},
+    {"type": "cpu_mem_generation", "name": "XEON 1-4 → DDR4", "body": {"pattern": "XEON [1-4]", "mem_type": "DDR4"}},
+
+    {"type": "category_alias", "name": "CPU 品类别名", "body": {"category": "CPU", "aliases": ["CPU", "处理器"]}},
+    {"type": "category_alias", "name": "Memory 品类别名", "body": {"category": "Memory", "aliases": ["Memory", "内存", "内存条", "RAM"]}},
+    {"type": "category_alias", "name": "HDD/SSD 品类别名", "body": {"category": "HDD/SSD", "aliases": ["HDD", "SSD", "硬盘", "Storage", "存储"]}},
+    {"type": "category_alias", "name": "GPU 品类别名", "body": {"category": "GPU", "aliases": ["GPU", "显卡", "图形卡"]}},
+    {"type": "category_alias", "name": "NIC 品类别名", "body": {"category": "NIC", "aliases": ["NIC", "网卡", "Network"]}},
+    {"type": "category_alias", "name": "Raid card 品类别名", "body": {"category": "Raid card", "aliases": ["RAID", "Raid", "阵列卡"]}},
+    {"type": "category_alias", "name": "Power 品类别名", "body": {"category": "Power", "aliases": ["PSU", "电源", "Power"]}},
+    {"type": "category_alias", "name": "Fan 品类别名", "body": {"category": "Fan", "aliases": ["Fan", "风扇"]}},
+    {"type": "category_alias", "name": "Heatsink 品类别名", "body": {"category": "Heatsink", "aliases": ["Heatsink", "散热器", "散热"]}},
+    {"type": "category_alias", "name": "Cable 品类别名", "body": {"category": "Cable", "aliases": ["Cable", "线缆"]}},
+    {"type": "category_alias", "name": "Rail 品类别名", "body": {"category": "Rail", "aliases": ["Rail", "导轨"]}},
+    {"type": "category_alias", "name": "Backplane 品类别名", "body": {"category": "Backplane", "aliases": ["Backplane", "背板"]}},
+
+    {"type": "platform_series_map", "name": "AMD/EPYC → Orion", "body": {"series": "Orion", "keywords": ["epyc", "amd", "orion", "霄龙", "猎户", "genoa", "9654", "9554", "9354", "9124", "9254", "9745"], "evidence": "AMD/EPYC 平台"}},
+    {"type": "platform_series_map", "name": "兆芯/信创 → Polaris", "body": {"series": "Polaris", "keywords": ["kh", "kh50000", "kh-50000", "kh5000", "kh-5000", "兆芯", "zhaoxin", "开胜", "开先", "kx", "kx40000", "kx-40000", "信创"], "evidence": "兆芯/信创平台"}},
+    {"type": "platform_series_map", "name": "Intel/Xeon → Intel", "body": {"series": "Intel", "keywords": ["xeon", "intel", "至强"], "evidence": "Intel 平台"}},
+    {"type": "cpu_vendor_map", "name": "CPU: AMD/EPYC → Orion", "body": {"vendor": "amd", "series": "Orion", "pattern": r"AMD|EPYC", "flags": "i", "evidence": "AMD/EPYC 平台"}},
+    {"type": "cpu_vendor_map", "name": "兆芯 → Polaris", "body": {"vendor": "zhaoxin", "series": "Polaris", "pattern": r"(?:^|[^A-Za-z0-9])(?:KH|KX|ZX)|兆芯|zhaoxin|开胜|开先", "flags": "i", "evidence": "Polaris 配兆芯"}},
+    {"type": "cpu_vendor_map", "name": "Intel → Intel", "body": {"vendor": "intel", "series": "Intel", "pattern": r"INTEL|XEON", "flags": "i", "evidence": "Intel 平台"}},
+    {"type": "cpu_vendor_map", "name": "海光", "body": {"vendor": "hygon", "series": "", "pattern": r"海光|hygon|C86", "flags": "i", "evidence": "海光 CPU 家族"}},
+    {"type": "cpu_vendor_map", "name": "飞腾", "body": {"vendor": "phytium", "series": "", "pattern": r"飞腾|phytium|腾锐|腾云", "flags": "i", "evidence": "飞腾 CPU 家族"}},
+    {"type": "cpu_vendor_map", "name": "鲲鹏", "body": {"vendor": "kunpeng", "series": "", "pattern": r"鲲鹏|kunpeng|\b920\b", "flags": "i", "evidence": "鲲鹏 CPU 家族"}},
+    {"type": "cpu_vendor_map", "name": "龙芯", "body": {"vendor": "loongson", "series": "", "pattern": r"龙芯|loongson", "flags": "i", "evidence": "龙芯 CPU 家族"}},
+    {"type": "gpu_brand_map", "name": "GPU 品牌词表", "body": {"nvidia": ["nvidia", "rtx", "geforce", "quadro", "tesla", "a100", "a800", "h100", "h200", "b100", "b200", "l40", "l20"], "amd": ["amd", "radeon", "r9700", "w7900", "mi300", "mi250", "mi210"]}},
+    {"type": "spec_unit_patterns", "name": "规格单位正则", "body": {"gb": r"g(?:b)?", "tb": r"t(?:b)?", "mb": r"m(?:b)?", "pcs": r"(?:pcs?|颗|个)", "w": r"w(?:att)?", "rpm": r"rpm", "cores": r"(?:cores?|核|c)", "核": r"(?:cores?|核|c)", "mhz": r"m(?:hz)?", "ghz": r"g(?:hz)?"}},
+    {"type": "power_calibration", "name": "功耗/电源推断校准", "body": {"sys_base_w": 260, "default_cpu_tdp": 280, "cpu_tdp_map": {"9654": 360, "9554": 360, "9754": 360, "9745": 360, "9174f": 320, "9454": 290, "9354": 280, "9534": 280, "9334": 280, "8434": 290, "9124": 200}, "mem_stick_w": 10, "mem_stick_w_by_cap": [[16, 8], [32, 10], [64, 15], [512, 20]], "sata_drive_w": 8, "nvme_drive_w": 15, "nic_w": 10, "raid_w": 15, "psu_standard_w": [1300, 1600, 2000, 2700, 3200], "high_tdp_gpus": ["H100", "A100", "H200", "B200", "B100", "L40", "MI300", "RTX PRO", "RTX 6000", "RTX 5090"], "high_tdp_threshold_w": 250, "gpu_tdp_by_model": {"R9700": 300, "W7900": 300, "L40": 300, "RTX 5090": 350}, "tiers": [{"min_gpu": 8, "high_tdp": True, "wattage": "2700"}, {"min_gpu": 1, "high_tdp": False, "wattage": "2000"}], "no_gpu_wattage": "1600"}},
+    {"type": "type_alias", "name": "AI 类型别名", "body": {"keyword": "AI加速", "type_name": "AI / 加速计算服务器", "aliases": ["AI加速", "AI服务器", "AI训推", "算力", "AI推理", "AI", "加速计算"]}},
+    {"type": "type_alias", "name": "通用计算类型别名", "body": {"keyword": "通用计算", "type_name": "通用计算服务器", "aliases": ["通用计算", "通用", "办公", "Web", "虚拟化基础", "计算"]}},
+    {"type": "type_alias", "name": "存储类型别名", "body": {"keyword": "存储", "type_name": "存储服务器", "aliases": ["存储", "文件", "NAS", "备份"]}},
+
+    {"type": "type_package", "name": "AI 机型套餐", "body": {"type_keyword": "AI", "categories": ["CPU", "GPU", "Memory", "HDD/SSD"], "mandatory_gpu": True, "gpu_overridable_by_exclusion": True, "ask_gpu": "auto"}},
+    {"type": "type_package", "name": "存储机型套餐", "body": {"type_keyword": "存储", "categories": ["CPU", "Memory", "HDD/SSD", "Raid card"], "mandatory_storage": True}},
+    {"type": "type_package", "name": "通用机型套餐", "body": {"type_keyword": "通用", "categories": ["CPU", "Memory", "HDD/SSD"]}},
+    {"type": "type_package", "name": "国产化/信创套餐", "body": {"type_keyword": "国产化", "categories": ["CPU", "Memory", "HDD/SSD"], "compliance": "domestic_only", "platform_series": ["Polaris"]}},
+    {"type": "type_package", "name": "AI 大模型套餐", "body": {"type_keyword": "大模型", "categories": ["CPU", "GPU", "Memory", "HDD/SSD"], "mandatory_gpu": True, "gpu_overridable_by_exclusion": True, "ask_gpu": "auto", "intent": "llm_inference"}},
+
+    {"type": "spec_rule", "name": "CPU 默认 ≥16 核", "body": {"category": "CPU", "spec_key": "Cores", "op": ">=", "value": 16, "unit": "核"}},
+    {"type": "spec_rule", "name": "内存默认 ≥16GB", "body": {"category": "Memory", "spec_key": "Capacity", "op": ">=", "value": 16, "unit": "GB"}},
+    {"type": "spec_rule", "name": "GPU 默认 ≥16GB", "body": {"category": "GPU", "spec_key": "Capacity", "op": ">=", "value": 16, "unit": "GB"}},
+    {"type": "spec_rule", "name": "硬盘默认 ≥480GB", "body": {"category": "HDD/SSD", "spec_key": "Capacity", "op": ">=", "value": 480, "unit": "GB"}},
+
+    {"type": "raid_level_map", "name": "RAID 0/1/10 → 硬件阵列卡", "body": {"level": "RAID 0,1,10", "category": "Raid card", "prefer_models": ["9560", "9364"], "evidence": "明确 RAID 级别但未给型号 → 仍需硬件阵列卡"}},
+    {"type": "raid_level_map", "name": "RAID 5/6 → 硬件阵列卡", "body": {"level": "RAID 5,6", "category": "Raid card", "prefer_models": ["9560", "9364"], "evidence": "RAID 5/6 需硬件阵列卡与缓存"}},
+
+    {"type": "capacity_match", "name": "容量匹配默认策略", "body": {"strategy": "tolerance", "tolerance": 10}},
+    {"type": "fallback_order", "name": "机型选型放宽顺序", "body": {"order": ["exact", "same_series", "same_form", "all"], "no_signal_strategy": "return_empty"}},
+    {"type": "check_rule", "name": "方案自检默认项", "body": {"checks": {"plan_not_empty": True, "required_fields": True, "qty_reasonable": True}, "on_fail": "mark"}},
+
+    {"type": "workload_map", "name": "70B 大模型 → 8卡 140G", "body": {"workload_keyword": "70B", "intent": "llm_inference", "total_vram_gb": 140, "gpu_count": 8}},
+    {"type": "workload_map", "name": "Qwen-72B → 2卡 146G", "body": {"workload_keyword": "Qwen-72B", "intent": "llm_inference", "total_vram_gb": 146, "gpu_count": 2}},
+
+    {"type": "compliance_map", "name": "国产化 → Polaris + 国产件", "body": {"domestic_only": True, "platform_series": ["Polaris"], "cpu_keywords": ["KH", "兆芯", "开胜"], "allowed_manufacturers": ["兆芯", "海光"], "excluded_manufacturers": ["AMD", "Intel", "NVIDIA"], "gpu_policy": "exclude_foreign"}},
+
+    {"type": "gpu_form_map", "name": "1-4卡 → 2U", "body": {"gpu_count_min": 1, "gpu_count_max": 4, "form": "2U"}},
+    {"type": "gpu_form_map", "name": "5-16卡 → 4U", "body": {"gpu_count_min": 5, "gpu_count_max": 16, "form": "4U"}},
+
+    {"type": "delegation_phrases", "name": "客户委托话术词表", "body": {
+        "keywords": ["你推荐", "你选", "随便", "都行", "听你的", "你定", "你看着办", "你决定", "你来定",
+                     "推荐一个", "帮我推荐", "帮我选", "帮我挑", "好用的", "你拿主意", "听你安排", "看着办",
+                     "不清楚", "拿不准", "我不太懂", "我不懂", "懂了，你定", "你看着决定"]
+    }},
+
+    {"type": "model_action_phrases", "name": "机型选型用户意图词表", "body": {
+        "self_config": ["我自己配", "自己配", "去详情页", "去服务器详情", "手动配", "不要你配"],
+        "auto_pick": ["你推荐", "你选", "随便", "都行", "听你的", "你定", "推荐一个"],
+        "reselect": ["重选", "重新选", "换一台", "换机型", "再看", "别的机型"],
+        "cancel": ["算了", "不要了", "取消", "中止", "结束", "退出"]
+    }},
+    {"type": "kp_action_phrases", "name": "配件选配用户意图词表", "body": {
+        "cancel": ["算了", "不要了", "取消", "中止", "结束", "退出"],
+        "reselect_model": ["重选机型", "重新选机型", "换机型", "换一台", "重新选服务器", "改机型"],
+        "confirm": ["你推荐", "随便", "都行", "听你的", "你定", "推荐吧", "可以", "确认", "没问题", "继续", "就这个", "行", "好"]
+    }},
 ]
 
 class RequirementRuleRepository:
@@ -268,6 +358,22 @@ class RequirementRuleRepository:
         self.session.refresh(r)
         return {"id": r.id, "hit_count": r.hit_count, "last_hit_at": r.last_hit_at}
 
+    def record_hits(self, rule_ids: list) -> int:
+        """批量记录命中：执行链路一次提交多条规则（同 compatibility_rule_repo 模式）。"""
+        ids = [int(i) for i in rule_ids if i]
+        if not ids:
+            return 0
+        now = datetime.now().isoformat()
+        self.session.query(RequirementRule).filter(RequirementRule.id.in_(ids)).update(
+            {
+                RequirementRule.hit_count: RequirementRule.hit_count + 1,
+                RequirementRule.last_hit_at: now,
+            },
+            synchronize_session=False,
+        )
+        self.session.commit()
+        return len(ids)
+
     def stats(self, rule_id: int) -> dict:
         r = self.session.query(RequirementRule).filter(RequirementRule.id == rule_id).first()
         if not r:
@@ -349,7 +455,7 @@ class RequirementRuleRepository:
         1) 类型不在 clarity/budget 的（旧 rebuttal/workload——臆造选项反问）；
         2) 名称过时的 clarity 规则（_OBSOLETE_RULE_NAMES，目录驱动引导后语义失效）。
         保留只会继续误导判定，清掉让 rule 库与当前思路一致。"""
-        keep = {"clarity", "budget"}
+        keep = _VALID_TYPE
         deleted = 0
         for r in self.session.query(RequirementRule).all():
             obsolete = r.type not in keep or r.name in self._OBSOLETE_RULE_NAMES

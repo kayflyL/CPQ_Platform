@@ -280,12 +280,21 @@ test('evalThen filter: 返回过滤动作，value 字段路径被解析', () => 
   assert.equal(out[0].filterValue, 'Polaris')  // 字段路径已解析
 })
 
-test('evalThen recommend: 返回推荐动作', () => {
+test('evalThen recommend: 返回推荐动作，默认 info', () => {
   const ctx = sampleCtx()
   const out = evalThen(ctx, rule({ body: { then: { action: 'recommend', target: 'Polaris-G6', desc: '主推' } } }))
   assert.equal(out.length, 1)
   assert.equal(out[0].action, 'recommend')
   assert.equal(out[0].target, 'Polaris-G6')
+  assert.equal(out[0].severity, 'info')
+})
+
+test('evalThen recommend: 保留 then.severity（如超上限 warning）', () => {
+  const ctx = sampleCtx()
+  const out = evalThen(ctx, rule({ body: { then: { action: 'recommend', target: 'Memory', severity: 'warning', desc: '内存超上限' } } }))
+  assert.equal(out.length, 1)
+  assert.equal(out[0].action, 'recommend')
+  assert.equal(out[0].severity, 'warning')
 })
 
 // ============================================================

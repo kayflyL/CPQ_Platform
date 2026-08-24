@@ -9,6 +9,16 @@ from sqlalchemy import text
 from app.models.base import l6_engine
 
 
+def _json(v):
+    """JSONB 列读归一化（psycopg2 对 jsonb 一般直接返回 dict/list，历史/异常时可能为 str）。"""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except Exception:
+            return None
+    return v
+
+
 class BaseConfigRepository:
     def list(self, series: Optional[str] = None, form: Optional[str] = None,
              bays: Optional[int] = None, server_type_id: Optional[int] = None,
@@ -67,6 +77,105 @@ class BaseConfigRepository:
                 "WHERE form IS NOT NULL AND form <> '' ORDER BY form"
             )).fetchall()
         return [r[0] for r in rows]
+
+    def cost_analysis(self) -> List[dict]:
+        """全量基准配置的裸机成本分析（编辑器右侧「机型成本对比」卡数据源，与前端面板同口径）：
+        底盘件 + 后面板默认卡(每槽1套，PN 与底盘件去重防双计) + 前面板默认线缆(每盘类1根)
+        + 默认 PSU×psu_bays(满配预估)。缺价件(unit_price NULL / PN 库外)不计入、只计数。
+        价格源 = parts_master.unit_price 实时查询；裸机口径，KP 配置件(CPU/内存/盘体/GPU/网卡)不在内。"""
+        with l6_engine.connect() as c:
+            cfgs = [dict(r) for r in c.execute(text(
+                "SELECT b.id, b.name, b.series, b.form, b.model_id, b.psu_bays,"
+                " b.rear_slots, b.config_content, m.name AS model_name"
+                " FROM l6.base_configs b LEFT JOIN l6.server_models m ON b.model_id = m.id"
+                " ORDER BY b.sort_order, b.id"
+            )).mappings().all()]
+            part_rows = c.execute(text(
+                "SELECT p.config_id, p.pn, p.quantity, m.unit_price"
+                " FROM l6.base_config_parts p LEFT JOIN l6.parts_master m ON p.pn = m.pn"
+            )).mappings().all()
+
+        prices: dict = {}
+        chassis: dict = {}
+        for r in part_rows:
+            prices[r["pn"]] = r["unit_price"]
+            d = chassis.setdefault(r["config_id"], {"total": 0.0, "missing": 0, "pns": set()})
+            d["pns"].add(r["pn"])
+            if r["unit_price"] is None:
+                d["missing"] += 1
+            else:
+                d["total"] += float(r["unit_price"]) * int(r["quantity"] or 0)
+
+        # 引用件价格补查（后面板默认/线缆/PSU 的 PN 通常不在 base_config_parts）
+        extra = set()
+        for cfg in cfgs:
+            cc = _json(cfg.get("config_content"))
+            cc = cc if isinstance(cc, dict) else {}
+            slots = _json(cfg.get("rear_slots"))
+            if isinstance(slots, list):
+                for s in slots:
+                    if isinstance(s, dict):
+                        extra.update(pn for pn in (s.get("defaults") or []) if pn)
+            fc = cc.get("front_cables")
+            if isinstance(fc, dict):
+                extra.update(pn for pn in fc.values() if pn)
+            if cc.get("default_psu_pn"):
+                extra.add(cc["default_psu_pn"])
+        extra -= set(prices)
+        if extra:
+            with l6_engine.connect() as c:
+                for r in c.execute(text(
+                    "SELECT pn, unit_price FROM l6.parts_master WHERE pn = ANY(:pns)"
+                ), {"pns": list(extra)}).mappings().all():
+                    prices[r["pn"]] = r["unit_price"]
+
+        out = []
+        for cfg in cfgs:
+            ch = chassis.get(cfg["id"]) or {"total": 0.0, "missing": 0, "pns": set()}
+            seen: set = set(ch["pns"])
+            missing = ch["missing"]
+            rear = cables = psu = 0.0
+
+            def _cost(pn) -> float:
+                nonlocal missing
+                up = prices.get(pn)
+                if up is None:
+                    missing += 1
+                    return 0.0
+                return float(up)
+
+            slots = _json(cfg.get("rear_slots"))
+            if isinstance(slots, list):
+                for s in slots:
+                    if not isinstance(s, dict):
+                        continue
+                    for pn in (s.get("defaults") or []):
+                        if not pn or pn in seen:
+                            continue
+                        seen.add(pn)
+                        rear += _cost(pn)
+            cc = _json(cfg.get("config_content"))
+            cc = cc if isinstance(cc, dict) else {}
+            fc = cc.get("front_cables")
+            if isinstance(fc, dict):
+                for pn in fc.values():
+                    if not pn or pn in seen:
+                        continue
+                    seen.add(pn)
+                    cables += _cost(pn)
+            if cc.get("default_psu_pn") and cc["default_psu_pn"] not in seen:
+                psu += _cost(cc["default_psu_pn"]) * int(cfg.get("psu_bays") or 0)
+
+            out.append({
+                "id": cfg["id"], "name": cfg["name"], "series": cfg.get("series") or "",
+                "form": cfg.get("form") or "", "model_id": cfg.get("model_id"),
+                "model_name": cfg.get("model_name"),
+                "total": round(ch["total"] + rear + cables + psu, 2),
+                "by_source": {"chassis": round(ch["total"], 2), "rear": round(rear, 2),
+                              "cables": round(cables, 2), "psu": round(psu, 2)},
+                "missing": missing,
+            })
+        return out
 
     def get(self, config_id: int) -> Optional[dict]:
         with l6_engine.connect() as c:

@@ -45,31 +45,13 @@
         </div>
       </div>
 
-      <div v-if="typingLabel" class="typing">{{ typingLabel }} 正在输入…</div>
-
-      <!-- composer -->
-      <div class="composer">
-        <a-textarea
-          v-model:value="draft"
-          :placeholder="'输入消息，Enter 发送 / Shift+Enter 换行'"
-          :disabled="!me"
-          :auto-size="{ minRows: 1, maxRows: 4 }"
-          @press-enter="onEnter"
-          @input="onTyping"
-        />
-        <div class="composer-actions">
-          <a-button type="primary" :loading="sending" :disabled="!me || !draft.trim()" @click="onSend">
-            发送
-          </a-button>
-        </div>
-      </div>
+      <div class="feed-hint">评论已合并到各审批节点下方，请在对应节点中回复。</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onBeforeUnmount } from 'vue'
-import { message } from 'ant-design-vue'
 import type { FeedMessage, FeedUser } from '@/api/feed'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import { useAuthStore } from '@/store/auth'
@@ -78,11 +60,9 @@ const props = defineProps<{ opportunityId: string; visible: boolean }>()
 
 const opportunityIdRef = computed(() => props.opportunityId)
 const feed = useFeedSocket(opportunityIdRef)
-const { messages, online, typingUsers, connected } = feed
+const { messages, online, connected } = feed
 
 const loading = ref(false)
-const sending = ref(false)
-const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 
 const auth = useAuthStore()
@@ -98,11 +78,6 @@ const me = computed<FeedUser | null>(() =>
       }
     : null,
 )
-
-const typingLabel = computed(() => {
-  const names = Object.values(typingUsers.value).map((t) => t.name)
-  return names.length ? names.join('、') : ''
-})
 
 // ── lifecycle: open/close ──
 async function activate() {
@@ -143,35 +118,6 @@ watch(
 function scrollToBottom() {
   const el = messagesEl.value
   if (el) el.scrollTop = el.scrollHeight
-}
-
-// ── composer ──
-function onEnter(e: KeyboardEvent) {
-  if (e.shiftKey) return
-  e.preventDefault()
-  onSend()
-}
-let lastTyping = 0
-function onTyping() {
-  const now = Date.now()
-  if (now - lastTyping > 1500) {
-    lastTyping = now
-    feed.sendTyping()
-  }
-}
-async function onSend() {
-  if (!me.value) return
-  const body = draft.value.trim()
-  if (!body) return
-  sending.value = true
-  try {
-    await feed.postMessage(body, [])
-    draft.value = ''
-  } catch {
-    message.error('发送失败')
-  } finally {
-    sending.value = false
-  }
 }
 
 async function onDeleteMessage(m: FeedMessage) {
@@ -258,6 +204,14 @@ function initial(name: string) {
 }
 
 /* timeline */
+.feed-hint {
+  padding: 10px 14px;
+  border-top: 1px solid var(--cpq-overlay-w6);
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  text-align: center;
+}
+
 .feed-timeline {
   flex: 1;
   display: flex;

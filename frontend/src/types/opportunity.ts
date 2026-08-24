@@ -47,6 +47,10 @@ export interface Quotation {
   status: string
   // 草稿/已导出状态机：NULL=草稿(可进工作台)；非空=已导出冻结(时间戳，点列表只看 Excel+成本)
   exported_at?: string | null
+  // 报价员发送后才写入：已发送时间/操作人/审批评论附件 id
+  submitted_at?: string | null
+  submitted_by?: string
+  submitted_attachment_id?: string
   cost_snapshot?: Record<string, any> | null
   // 列表轻量标志（list 端点剥离完整 snapshot，留布尔供行内判断）
   has_cost_snapshot?: boolean

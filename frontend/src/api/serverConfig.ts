@@ -11,6 +11,7 @@ const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
 /** 大类汇总项（一级主导航）：major_category 大类 + 段内子类列表 */
 export interface PartMajorCategory {
+  id: number | null
   major_category: string
   count: number
   categories: string[]
@@ -67,12 +68,17 @@ export const catalogApi = {
   listTypes: () => RESP<{ types: ServerType[] }>(axios.get('/api/server-catalog/types')),
   createType: (data: Partial<ServerType>) => RESP<{ id: number }>(axios.post('/api/server-catalog/types', data)),
   updateType: (id: number, data: Partial<ServerType>) => RESP<{ ok: boolean }>(axios.put(`/api/server-catalog/types/${id}`, data)),
-  listModels: (typeId?: number) =>
-    RESP<{ models: ServerModel[] }>(axios.get('/api/server-catalog/models', { params: { type_id: typeId } })),
+  listModels: (typeId?: number, opts?: { publishedOnly?: boolean }) =>
+    RESP<{ models: ServerModel[] }>(axios.get('/api/server-catalog/models', {
+      params: { type_id: typeId, published_only: opts?.publishedOnly || undefined },
+    })),
   getModel: (id: number) => RESP<ServerModel>(axios.get(`/api/server-catalog/models/${id}`)),
   createModel: (data: Partial<ServerModel>) => RESP<{ id: number }>(axios.post('/api/server-catalog/models', data)),
   updateModel: (id: number, data: Partial<ServerModel>) => RESP<{ ok: boolean }>(axios.put(`/api/server-catalog/models/${id}`, data)),
   deleteModel: (id: number) => RESP<{ ok: boolean }>(axios.delete(`/api/server-catalog/models/${id}`)),
+  // 门户 banner 配置（system_config 存储；标题/副标题空=门户用内置默认文案）
+  getPortalBanner: () => RESP<PortalBanner>(axios.get('/api/server-catalog/portal-banner')),
+  savePortalBanner: (data: PortalBanner) => RESP<PortalBanner>(axios.put('/api/server-catalog/portal-banner', data)),
 }
 
 // ---------- 基准配置（引用 parts_master + 底盘件清单）----------
@@ -91,16 +97,23 @@ export const baseConfigApi = {
   /** 整体替换底盘件清单（基准配置组装） */
   setParts: (id: number, parts: Partial<BaseConfigPart>[]) =>
     RESP<{ ok: boolean }>(axios.put(`/api/base-configs/${id}/parts`, parts)),
+  /** 全量基准配置裸机成本（编辑器成本分析面板·机型对比卡；口径=底盘件+后面板默认卡+线缆+PSU×槽位） */
+  costAnalysis: () => RESP<{ configs: BaseConfigCost[] }>(axios.get('/api/base-configs/cost-analysis')),
 }
 
-// ---------- 配置方案（服务器页配置产出 / 无价 BOM 保存读取）----------
-export const configSchemeApi = {
-  list: (modelId?: number) =>
-    RESP<{ schemes: any[] }>(axios.get('/api/config-schemes', { params: { model_id: modelId } })),
-  get: (id: number) => RESP<any>(axios.get(`/api/config-schemes/${id}`)),
-  create: (data: { name?: string; model_id?: number; payload: any }) =>
-    RESP<{ id: number }>(axios.post('/api/config-schemes', data)),
-  delete: (id: number) => RESP<{ ok: boolean }>(axios.delete(`/api/config-schemes/${id}`)),
+/** 裸机成本分析行（cost-analysis 端点返回；与 CostAnalysisPanel 前端口径一致） */
+export interface BaseConfigCost {
+  id: number
+  name: string
+  series?: string
+  form?: string
+  model_id: number | null
+  model_name: string | null
+  /** 完整裸机成本（下限：缺价件未计入） */
+  total: number
+  by_source: { chassis: number; rear: number; cables: number; psu: number }
+  /** 缺价件数（unit_price 空 / PN 库外，未计入 total） */
+  missing: number
 }
 
 // ---------- BOM 模板（左栏 L6 配置单的机型族行骨架）----------
@@ -176,19 +189,57 @@ export interface ServerType {
   sort_order?: number
   showcase_config?: ShowcaseConfig
 }
+/** 门户 banner 轮播图项（每图可配独立副标题，门户随图切换展示；空=不显示） */
+export interface PortalBannerImage {
+  url: string
+  subtitle?: string
+}
+/** 门户 banner 配置（system_config.server_portal_banner；标题空由门户回落内置默认） */
+export interface PortalBanner {
+  title?: string
+  /** 轮播图列表（首张为主图；空=银河场景做背景） */
+  images?: PortalBannerImage[]
+}
 export interface ServerModelBaseConfig {
   id?: number
   form?: string
   bays?: number
   series?: string
   name?: string
+  // 机箱能力档案（配置页「机箱能力」标签可配；选型规则上下文读取，超上限出告警）
+  psu_bays?: number
+  gpu_slots?: number
+  max_tdp?: number | null
+  max_cpu?: number
+  max_dimm?: number
+}
+/** 能力维度卡关键数字（详情页右侧 mono 数字列） */
+export interface CapabilityMetric { v: string; l: string }
+/** 能力维度卡（详情页「产品能力」暗色带，两列横向卡） */
+export interface ModelCapability {
+  name: string              // 维度名（如 算力）
+  name_en?: string          // mono 英文标签（如 Compute）
+  icon?: string             // capIcons 注册表键（chip/slots/net/…）
+  desc?: string             // 一句话价值（约 25 字）
+  metrics?: CapabilityMetric[]
+}
+/** 场景适配照片卡 */
+export interface ModelScenario {
+  name: string              // 场景名（跨机型联想）
+  fit?: string              // 为什么适配（一句话）
+  image?: string            // 配图 URL（后台上传）
 }
 /** 机型的产品化包装内容（结构化分块，JSONB 透传存 server_models.product_content）。 */
 export interface ModelProductContent {
-  overview?: string                              // 产品概述（一段话）
-  features?: { icon?: string; text: string }[]   // 核心特性（可增删列表）
-  specs?: { key: string; value: string }[]       // 技术参数（key-value，保序）
-  scenarios?: string[]                          // 应用场景（标签数组，跨机型联想）
+  tagline?: string                                // 一句话定位（铭牌副标题，15 字左右）
+  overview?: string                               // 产品概述（一段话）
+  stage_theme?: 'wine' | 'ocean' | 'carbon' | 'violet'  // 展示页主题色（默认 ocean）
+  highlight_image?: string                      // 为什么选它模块配图（左栏正方形图，站内图库/外链）
+  highlights?: { title: string; text: string }[]  // 为什么选它（ruled list：短标题 + 一句话）
+  capabilities?: ModelCapability[]                // 产品能力（六维预设，编辑器增删）
+  specs?: { key: string; value: string }[]        // 完整技术规格（详情页沉底折叠，保序）
+  scenarios?: (ModelScenario | string)[]          // 场景适配（照片卡；string=旧版标签，展示时按 {name} 兼容）
+  features?: { icon?: string; text: string }[]    // 旧版核心特性（只读兼容：无 highlights 时按亮点行降级展示）
 }
 export interface ServerModel {
   id: number
@@ -201,6 +252,8 @@ export interface ServerModel {
   description?: string
   image_url?: string
   lifecycle_status?: 'new' | 'active' | 'eol' | 'discontinued'
+  /** 是否上架：false=下架（服务器页机型目录不展示；管理面/报价/推理流照旧可见） */
+  is_published?: boolean
   // 继承自基准配置的技术参数（阶段一 Step 2：form/bays 不再存于机型表）
   base_config?: ServerModelBaseConfig | null
   // 图纸摘要（列表/卡片预览用）：top 视图 svg_url + viewBox，无图时为 null

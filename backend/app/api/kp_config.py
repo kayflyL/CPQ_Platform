@@ -56,7 +56,12 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
             p.name,
             c.name AS category,
             p.brand,
-            '{}'::jsonb AS specs,
+            COALESCE(
+              (SELECT jsonb_object_agg(s.spec_key, s.spec_value)
+                 FROM kp.kp_part_specs s
+                WHERE s.part_id = p.id AND s.spec_key IS NOT NULL),
+              '{}'::jsonb
+            ) AS specs,
             p.applicable,
             COALESCE(ph.price, 0) AS unit_price
         FROM kp.kp_parts p
@@ -86,10 +91,7 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
     
     out = []
     for r in rows:
-        d = dict(r)
-        # specs 从 kp_part_specs 聚合（当前表为空，先返回空 dict）
-        d["specs"] = {}
-        out.append(d)
+        out.append(dict(r))
     return out
 
 
@@ -102,7 +104,12 @@ def get_part_by_pn(pn: str):
             p.name,
             c.name AS category,
             p.brand,
-            '{}'::jsonb AS specs,
+            COALESCE(
+              (SELECT jsonb_object_agg(s.spec_key, s.spec_value)
+                 FROM kp.kp_part_specs s
+                WHERE s.part_id = p.id AND s.spec_key IS NOT NULL),
+              '{}'::jsonb
+            ) AS specs,
             p.applicable,
             COALESCE(ph.price, 0) AS unit_price
         FROM kp.kp_parts p
@@ -120,6 +127,4 @@ def get_part_by_pn(pn: str):
         row = c.execute(text(q), {"pn": pn}).mappings().first()
     if not row:
         return None
-    d = dict(row)
-    d["specs"] = {}
-    return d
+    return dict(row)

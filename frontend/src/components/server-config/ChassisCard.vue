@@ -2,25 +2,21 @@
 /** 机箱概要卡片 — 配置页第 1 项 / 报价工作台机箱卡。
  *  卡头：标题 + 右侧 header-extra slot（报价页塞 PriceTriple 三联；配置页默认显 l6Total）。
  *  卡尾：基准配置(可选) + 配置机箱按钮。emit('open') 由父弹 4 步细配弹窗。 */
-import { computed } from 'vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import type { ServerModel } from '@/api/serverConfig'
-import { useAuthStore } from '@/store/auth'
 
-defineProps<{
-  model: ServerModel
+const props = defineProps<{
+  model: ServerModel | { name: string; base_config?: ServerModel['base_config']; use?: string }
   series?: string
   baseConfigName?: string
-  l6Total: number
+  l6Total?: number
   /** 卡头金额：传则显示售价(报价页)，不传回退 l6Total 成本(配置页) */
   heroPrice?: number
+  /** 是否显示默认卡头金额：serverconfig 统一无价传 false；报价页走 header-extra 不受影响 */
+  priceVisible?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'open'): void }>()
-
-const auth = useAuthStore()
-/** 服务器配置价格可见性（配置页默认卡头金额；报价页走 header-extra 自有 field.quote.price 逻辑，不受影响） */
-const priceVisible = computed(() => auth.can('field.server.price'))
 </script>
 
 <template>
@@ -28,9 +24,9 @@ const priceVisible = computed(() => auth.can('field.server.price'))
     <div class="sc-phead">
       <span class="num">1</span>
       <h2>机箱</h2>
-      <div class="sc-phead-right">
+      <div v-if="props.priceVisible || $slots['header-extra']" class="sc-phead-right">
         <slot name="header-extra">
-          <span v-if="priceVisible" class="amt">¥<CountNumber :value="heroPrice ?? l6Total" /></span>
+          <span v-if="props.priceVisible" class="amt">¥<CountNumber :value="heroPrice ?? l6Total ?? 0" /></span>
         </slot>
       </div>
     </div>
@@ -65,13 +61,13 @@ const priceVisible = computed(() => auth.can('field.server.price'))
 .sc-phead-right { margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0; }
 .sc-phead .amt { color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: 14px; white-space: nowrap; }
 .sc-pbody { padding: 18px 20px; }
-.chassis-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.ci { padding: 12px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
+.chassis-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 14px; }
+.ci { min-width: 0; padding: 12px 14px; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
 .ci .k { display: block; font-size: 12px; color: var(--cpq-text-muted,#6E7582); margin-bottom: 4px; }
-.ci .v { font-weight: 600; font-size: 15px; color: var(--cpq-text-primary, #E8ECEF); }
+.ci .v { font-weight: 600; font-size: 15px; color: var(--cpq-text-primary, #E8ECEF); overflow-wrap: anywhere; min-width: 0; }
 .ci .v.name { font-size: 16px; }
 .ci .v.arch { color: var(--cpq-accent-primary,#1677FF); }
-.chassis-foot { display: flex; align-items: center; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--cpq-overlay-w10); }
+.chassis-foot { display: flex; align-items: center; flex-wrap: wrap; row-gap: 10px; gap: 16px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--cpq-overlay-w10); }
 .chassis-bc { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .bc-k { font-size: 11px; color: var(--cpq-text-muted,#6E7582); }
 .bc-v { font-size: 13px; font-weight: 600; color: var(--cpq-text-secondary,#9BA1AA); }

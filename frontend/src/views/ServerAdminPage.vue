@@ -10,9 +10,10 @@ import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
 import BomTemplateManager from '@/components/server-admin/BomTemplateManager.vue'
 import ModelManager from '@/components/server-admin/ModelManager.vue'
 import ServerDrawingPortal from '@/components/server-admin/ServerDrawingPortal.vue'
+import PortalBannerSettings from '@/components/server-admin/PortalBannerSettings.vue'
 
 const route = useRoute()
-const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing'>('models')
+const adminTab = ref<'models' | 'series' | 'base' | 'parts' | 'drawing' | 'portal'>('models')
 
 /** 子页返回/外链入口切 tab：图纸编辑器返回用 ?tab=drawing；机型/基准编辑器保存后带 ?refresh= 回来。 */
 watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
@@ -32,6 +33,7 @@ watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
         <a-radio-button value="base">基准配置</a-radio-button>
         <a-radio-button value="parts">料号库</a-radio-button>
         <a-radio-button value="drawing">图纸配置</a-radio-button>
+        <a-radio-button value="portal">门户设置</a-radio-button>
       </a-radio-group>
       <ModelManager v-show="adminTab === 'models'" />
       <SeriesManager v-show="adminTab === 'series'" />
@@ -39,6 +41,7 @@ watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
       <BomTemplateManager v-show="adminTab === 'base'" />
       <PartsLibrary v-show="adminTab === 'parts'" />
       <ServerDrawingPortal v-show="adminTab === 'drawing'" />
+      <PortalBannerSettings v-show="adminTab === 'portal'" />
     </div>
   </div>
 </template>

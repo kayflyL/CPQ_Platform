@@ -26,6 +26,10 @@ export const systemConfigApi = {
     RESP<{ key: string; value: T }>(
       axios.get(`/api/system-config/${encodeURIComponent(key)}/value`)
     ).then(r => r.value as T),
+  getRequirementSlotsSpec: () =>
+    RESP<{ slots: any[]; version: number; ask_threshold: number }>(
+      axios.get('/api/system-config/requirement_slots_spec')
+    ),
   set: (key: string, value: any, type?: string, description?: string) =>
     RESP<SystemConfigItem>(
       axios.put(`/api/system-config/${encodeURIComponent(key)}`, { value, type, description })

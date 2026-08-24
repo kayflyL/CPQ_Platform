@@ -26,8 +26,11 @@ from datetime import datetime
 class StorageAdapter(Protocol):
     base_path: Path
 
-    def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "") -> str:
-        """Persist bytes; return the relative storage_key."""
+    def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "", subfolder: str = "") -> str:
+        """Persist bytes; return the relative storage_key.
+
+        subfolder is an optional single path segment for node/category grouping.
+        """
         ...
 
     def read_bytes(self, storage_key: str) -> bytes: ...
@@ -117,12 +120,16 @@ class LocalFileStorage:
             return []
         return [d for d in base.iterdir() if d.is_dir() and sanitized in d.name]
 
-    def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "") -> str:
-        """Save file under opportunities/{customer_name}_{opp_id}/"""
+    def save_bytes(self, opportunity_id: str, object_id: str, content: bytes, ext: str, customer_name: str = "", subfolder: str = "") -> str:
+        """Save file under opportunities/{customer_name}_{opp_id}/{subfolder}/"""
         folder = self._build_folder_name(opportunity_id, customer_name)
+        safe_subfolder = self._sanitize((subfolder or "").strip("/").strip("\\"))
         obj = self._sanitize(object_id)
         ext = ext if ext.startswith(".") else f".{ext}"
-        rel = f"opportunities/{folder}/{obj}{ext}"
+        base = f"opportunities/{folder}"
+        if safe_subfolder:
+            base = f"{base}/{safe_subfolder}"
+        rel = f"{base}/{obj}{ext}"
         target = self._safe_join(rel)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)

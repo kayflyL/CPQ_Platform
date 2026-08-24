@@ -9,6 +9,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 
 from app.repository.bom_case_repo import BomCaseRepository
 
@@ -63,6 +64,8 @@ def create_case(data: dict):
             return repo.create_case(data)
         except ValueError as e:
             raise HTTPException(400, str(e))
+        except IntegrityError:
+            raise HTTPException(409, "案例键冲突，请重试")
     finally:
         repo.close()
 
@@ -71,7 +74,10 @@ def create_case(data: dict):
 def update_case(case_key: str, data: dict):
     repo = BomCaseRepository()
     try:
-        d = repo.update_case(case_key, data)
+        try:
+            d = repo.update_case(case_key, data)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
         if not d:
             raise HTTPException(404, f"未找到 BOM案例 {case_key}")
         return d

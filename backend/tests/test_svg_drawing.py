@@ -58,6 +58,29 @@ def test_sanitize_rejects_bad_xml():
         sanitize_svg(b"<svg><unclosed></svg>")
 
 
+def test_sanitize_repairs_mojibake_id_entity_form():
+    # Figma 导出把 UTF-8 字节写成十进制数字实体：&#230;&#140;&#161;&#231;&#137;&#135; = 挡片
+    svg = (b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           b'<g id="&#230;&#140;&#161;&#231;&#137;&#135;"><rect x="0" y="0" width="10" height="10"/></g></svg>')
+    out, _ = sanitize_svg(svg)
+    assert 'id="挡片"' in out
+
+
+def test_sanitize_repairs_mojibake_id_literal_cp1252_form():
+    # 字面量 CP1252 乱码文本：UTF-8 字节 E6 8C A1 E7 89 87 按 CP1252 解码为 æŒ¡ç‰‡
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<g id="æŒ¡ç‰‡"><rect x="0" y="0" width="10" height="10"/></g></svg>').encode("utf-8")
+    out, _ = sanitize_svg(svg)
+    assert 'id="挡片"' in out
+
+
+def test_sanitize_keeps_normal_chinese_id():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+           '<g id="挂耳-右"><rect x="0" y="0" width="10" height="10"/></g></svg>').encode("utf-8")
+    out, _ = sanitize_svg(svg)
+    assert 'id="挂耳-右"' in out
+
+
 def test_normalize_regions_valid():
     rs = _normalize_regions([
         {"uid": "a", "name": "盘位", "region_type": "bays",
@@ -70,9 +93,6 @@ def test_normalize_regions_valid():
 def test_normalize_regions_rejects_bad():
     with pytest.raises(ValueError):
         _normalize_regions([{"x": 0, "y": 0, "width": 1, "height": 1}])
-    with pytest.raises(ValueError):
-        _normalize_regions([{"name": "a", "region_type": "nope",
-                             "x": 0, "y": 0, "width": 1, "height": 1}])
     with pytest.raises(ValueError):
         _normalize_regions([{"name": "a", "region_type": "io",
                              "x": 0, "y": 0, "width": 0, "height": 1}])

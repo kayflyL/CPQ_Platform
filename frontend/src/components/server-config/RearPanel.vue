@@ -16,7 +16,6 @@ import { computed } from 'vue'
 import { rearOptionQty, rearSlotFilled, rearSetOptionQty, rearDefaultQty, rearDecOption, rearSetSingle } from '@/composables/useRearState'
 import type { RearIOSlotOption, RearSlot } from '@/api/serverConfig'
 import { optionLabel } from '@/constants/chassisMeta'
-import { useAuthStore } from '@/store/auth'
 
 const props = withDefaults(defineProps<{
   slots: RearSlot[]                            // PCIe IO 槽（name + cap + defaults）
@@ -26,7 +25,8 @@ const props = withDefaults(defineProps<{
   comboSlots?: string[]                        // 组合槽（fill 模式下首次选默认 1，其余填满 cap）
   firstClick?: 'fill' | 'one'                  // 首次选行为：fill=配置页(组合槽1/其余填cap) | one=逐个+1(基准编辑器作者精确控)
   totals?: { io?: number; ocp?: number }       // 可选：段头金额徽标（配置页传 rearTotal/ocpTotal）
-}>(), { comboSlots: () => [] as string[], firstClick: 'fill' })
+  priceVisible?: boolean                       // 价格可见性由宿主控制：serverconfig false，报价页按 field.quote.price
+}>(), { comboSlots: () => [] as string[], firstClick: 'fill', priceVisible: true })
 
 /** 真实可选 option（去掉 blank 挡片） */
 function rawOptions(name: string): RearIOSlotOption[] {
@@ -59,9 +59,7 @@ function inc(def: RearSlot, t: string) {
 function dec(def: RearSlot, t: string) { rearDecOption(ensure(def), t) }
 function pickOcp(def: RearSlot, t: string | null) { rearSetSingle(ensure(def), t) }
 
-const auth = useAuthStore()
-/** 服务器配置价格可见性（字段级权限；无权限只显示描述标签，价格直接隐藏，不出现 *** 掩码） */
-const priceVisible = computed(() => auth.can('field.server.price'))
+const priceVisible = computed(() => props.priceVisible)
 const ioTotal = computed(() => props.totals?.io)
 const ocpTotal = computed(() => props.totals?.ocp)
 </script>

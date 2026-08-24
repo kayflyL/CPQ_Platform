@@ -1,0 +1,3 @@
+backend/app\api\candidate_search.py
+backend/app\repository\compatibility_rule_repo.py
+backend/app\services\reasoning_prompt_defaults.json

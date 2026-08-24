@@ -10,9 +10,22 @@ from app.models.feed_user import FeedUser
 from app.models.feed_message import FeedMessage
 from app.models.feed_attachment import FeedAttachment
 from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推理流可视化配置（注册 metadata 供 create_all 建表）
+from app.models.skill import SkillCatalog  # Skill 元数据独立表（注册 metadata 供 create_all 建表）
 from app.models.requirement_rule import RequirementRule, RequirementSample  # 需求分析规则库
 from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标）（注册 metadata 供 create_all 建表）
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
+from app.models.office_event import OfficeEvent  # AI 办公室事件审计（注册 metadata 供 create_all 建表）
+from app.models.office_governance import OfficeGovernanceItem  # AI 办公室治理审批（注册 metadata 供 create_all 建表）
+from app.models.flow import (  # 协作流程 BOM/成本卡片（注册 metadata 供 create_all 建表）
+    OpportunityFlow,
+    OpportunityFlowNode,
+    OpportunityRequirement,
+    OpportunityBomScheme,
+    OpportunityCostSheet,
+    OpportunityFlowCard,
+    OpportunityFlowCardLink,
+    FlowAssignmentRule,
+)
 from app.models.role import Role  # RBAC 角色（注册 metadata 供 create_all 建表）
 from app.models.policy_doc import PolicyDoc  # 策略文档库独立表（注册 metadata 供 create_all 建表）
 from app.repository.rules_repo import RulesRepository
@@ -157,10 +170,25 @@ def ensure_base_config_constraint_columns():
             c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN mem_channels INTEGER NOT NULL DEFAULT 12"))
 
 
+def ensure_server_model_published_column():
+    """机型「是否上架」开关（幂等 DDL，boot 时自愈）：
+    server_models 加 is_published BOOLEAN NOT NULL DEFAULT TRUE（存量机型全部视为已上架）。
+    下架机型只在面向客户的服务器货架（机型目录）隐藏；管理面/报价/推理流照旧可见。"""
+    from app.models.base import l6_engine
+    from sqlalchemy import text
+    with l6_engine.begin() as c:
+        c.execute(text(
+            "ALTER TABLE l6.server_models "
+            "ADD COLUMN IF NOT EXISTS is_published BOOLEAN NOT NULL DEFAULT TRUE"
+        ))
+
+
 def ensure_assistant_reasoning_columns():
     """方案助手需求分析通道（幂等 DDL，boot 时自愈）：
-    assistant_threads 加 reasoning_state（需求分析会话状态 JSON）；
-    assistant_messages 加 kind（消息类型）+ data（结构化载荷，如方案列表）。
+    assistant_threads 加 reasoning_state（需求分析会话状态 JSON）与
+    thread_kind（assistant=方案助手全局会话 / office_colleague=AI Office 同事会话）；
+    assistant_messages 加 kind（消息类型）+ data（结构化载荷，如方案列表）
+    + colleague_role_key（群聊式头像/昵称展示）。
     对应 create_assistant_tables.sql 的扩展——旧库 ADD COLUMN，新库由 ORM create_all 直接带列。"""
     from app.models.base import opp_engine
     from sqlalchemy import text
@@ -176,11 +204,50 @@ def ensure_assistant_reasoning_columns():
     with opp_engine.begin() as c:
         if "reasoning_state" not in t_cols:
             c.execute(text("ALTER TABLE opportunities.assistant_threads ADD COLUMN reasoning_state TEXT"))
+        if "thread_kind" not in t_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_threads ADD COLUMN thread_kind TEXT NOT NULL DEFAULT 'assistant'"))
+        if "colleague_role_key" not in t_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_threads ADD COLUMN colleague_role_key TEXT"))
         if "kind" not in m_cols:
             c.execute(text("ALTER TABLE opportunities.assistant_messages ADD COLUMN kind TEXT DEFAULT 'text'"))
         if "data" not in m_cols:
             c.execute(text("ALTER TABLE opportunities.assistant_messages ADD COLUMN data TEXT"))
+        if "colleague_role_key" not in m_cols:
+            c.execute(text("ALTER TABLE opportunities.assistant_messages ADD COLUMN colleague_role_key TEXT"))
+        if "thread_kind" not in t_cols:
+            c.execute(text(
+                "UPDATE opportunities.assistant_threads t "
+                "SET thread_kind='office_colleague' "
+                "WHERE EXISTS (SELECT 1 FROM opportunities.assistant_messages m "
+                "WHERE m.thread_id=t.thread_id AND m.kind='opening' "
+                "AND m.colleague_role_key IS NOT NULL AND m.colleague_role_key <> 'assistant')"
+            ))
+        if "colleague_role_key" not in t_cols:
+            c.execute(text(
+                "UPDATE opportunities.assistant_threads t "
+                "SET colleague_role_key=m.colleague_role_key "
+                "FROM opportunities.assistant_messages m "
+                "WHERE m.thread_id=t.thread_id AND m.kind='opening' "
+                "AND m.colleague_role_key IS NOT NULL AND m.colleague_role_key <> 'assistant'"
+            ))
 
+
+
+def ensure_assistant_preview_office_index():
+    """允许 Skill 预览线程与正式 office 线程共存：唯一索引排除 entry_point=skill_studio_preview。"""
+    from sqlalchemy import text
+    try:
+        with opp_engine.begin() as c:
+            c.execute(text("DROP INDEX IF EXISTS opportunities.uq_assistant_office_thread_active"))
+            c.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_assistant_office_thread_active "
+                "ON opportunities.assistant_threads (created_by, colleague_role_key) "
+                "WHERE thread_kind='office_colleague' AND colleague_role_key IS NOT NULL "
+                "AND deleted_at IS NULL AND entry_point IS DISTINCT FROM 'skill_studio_preview'"
+            ))
+        print("✅ Assistant preview office index ensured")
+    except Exception as e:
+        print(f"⚠️ Assistant preview office index ensure failed: {e}")
 
 def ensure_compatibility_rule_category():
     """兼容规则加「业务分类」列（幂等 DDL，boot 时自愈）：
@@ -197,6 +264,18 @@ def ensure_compatibility_rule_category():
             "ON rules.compatibility_rules(category)"
         ))
 
+
+
+def ensure_compatibility_rule_regions():
+    """兼容规则加「显式绑定区域大类」列（幂等 DDL，boot 时自愈）：
+    rules.compatibility_rules 加 regions TEXT（JSON 数组：料号库大类 id 列表）。
+    绑定粒度为「区域类型=料号库大类」——机型无关、不随图纸版本失效。"""
+    from app.models.base import rules_engine
+    from sqlalchemy import text
+    with rules_engine.begin() as c:
+        c.execute(text(
+            "ALTER TABLE rules.compatibility_rules ADD COLUMN IF NOT EXISTS regions TEXT"
+        ))
 
 
 def ensure_feed_user_auth_columns():
@@ -217,32 +296,140 @@ def ensure_feed_user_auth_columns():
             c.execute(text("ALTER TABLE opportunities.feed_users ADD COLUMN is_active BOOLEAN NOT NULL DEFAULT TRUE"))
 
 
+def ensure_feed_message_node_key():
+    """评论挂到审批节点（幂等 DDL，boot 时自愈）：
+    opportunities.opportunity_messages 加 node_key，允许评论归属到具体流程节点。
+    旧评论 node_key 为空，前端回退到 requirement 节点展示。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_messages'"
+        ))}
+    with opp_engine.begin() as c:
+        if "node_key" not in cols:
+            c.execute(text("ALTER TABLE opportunities.opportunity_messages ADD COLUMN node_key TEXT"))
+
+
+def ensure_opportunity_owner_column():
+    """商机归属列（幂等 DDL，boot 时自愈）：
+    opportunities.opportunities 加 owner_user_id，记录创建商机的登录用户。
+    存量行先为 NULL，等销售账号同步后再回填。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunities'"
+        ))}
+    with opp_engine.begin() as c:
+        if "owner_user_id" not in cols:
+            c.execute(text("ALTER TABLE opportunities.opportunities ADD COLUMN owner_user_id TEXT"))
+
+
+def ensure_quotation_submission_columns():
+    """报价单发送状态（幂等 DDL，boot 时自愈）：
+    opportunities.quotations 加 submitted_at / submitted_by / submitted_attachment_id。
+    只有报价员正式发送并推送 Excel 到报价审批评论后才会写入 submitted_at。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='quotations'"
+        ))}
+    with opp_engine.begin() as c:
+        if "submitted_at" not in cols:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN submitted_at TEXT"))
+        if "submitted_by" not in cols:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN submitted_by TEXT"))
+        if "submitted_attachment_id" not in cols:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN submitted_attachment_id TEXT"))
+
+
+def backfill_premature_done_flows():
+    """回退旧逻辑误置的 done 流程：当前在报价节点、状态为 done，
+    但没有任何已发送报价单（submitted_at IS NULL）→ 重置为 running，等待报价员真正发送。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.begin() as c:
+        c.execute(text("""
+            UPDATE opportunities.opportunity_flows f
+            SET status = 'running'
+            WHERE f.status = 'done'
+              AND f.current_node = 'quoting'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM opportunities.quotations q
+                  WHERE q.opportunity_id = f.opportunity_id
+                    AND q.submitted_at IS NOT NULL
+              )
+        """))
+
+
 _DEFAULT_PERMISSIONS = [
-    {"key": "page.opportunities", "name": "商机线索", "group": "page"},
-    {"key": "page.servers", "name": "服务器", "group": "page"},
-    {"key": "page.parts", "name": "配件", "group": "page"},
-    {"key": "page.strategies", "name": "策略中心", "group": "page"},
-    {"key": "page.settings.ai", "name": "AI 设置", "group": "page"},
-    {"key": "page.settings.excel", "name": "解析规则", "group": "page"},
-    {"key": "page.settings.templates", "name": "导出模板", "group": "page"},
-    {"key": "page.settings.admin", "name": "服务器管理", "group": "page"},
-    {"key": "page.settings.users", "name": "用户与权限", "group": "page"},
-    {"key": "field.quote.price", "name": "报价工作台·价格", "group": "field"},
-    {"key": "field.opportunity.quote_price", "name": "商机详情·报价单价格", "group": "field"},
-    {"key": "field.parts.price", "name": "配件页·价格", "group": "field"},
-    {"key": "field.server.price", "name": "服务器配置·价格", "group": "field"},
+    {"key": "page.portal", "name": "工作台", "group": "page", "module": "工作台"},
+    {"key": "page.opportunities", "name": "商机线索", "group": "page", "module": "商机线索"},
+    {"key": "page.opportunities_all", "name": "商机线索·全量视图", "group": "page", "module": "商机线索"},
+    {"key": "page.servers", "name": "服务器", "group": "page", "module": "服务器"},
+    {"key": "page.parts", "name": "配件", "group": "page", "module": "配件"},
+    {"key": "page.strategies", "name": "策略中心", "group": "page", "module": "策略中心"},
+    {"key": "ai.office.manage", "name": "AI 员工与空间管理", "group": "action", "module": "AI 办公室"},
+    {"key": "ai.office.admin", "name": "AI 运行与管理", "group": "action", "module": "AI 办公室"},
+    {"key": "page.settings.excel", "name": "解析规则", "group": "page", "module": "设置"},
+    {"key": "page.settings.templates", "name": "导出模板", "group": "page", "module": "设置"},
+    {"key": "page.settings.admin", "name": "服务器管理", "group": "page", "module": "设置"},
+    {"key": "page.settings.users", "name": "用户与权限", "group": "page", "module": "设置"},
+    {"key": "field.quote.price", "name": "报价工作台·价格", "group": "field", "module": "工作台"},
+    {"key": "field.opportunity.quote_price", "name": "商机详情·报价单价格", "group": "field", "module": "商机线索"},
+    {"key": "field.parts.price", "name": "配件页·价格", "group": "field", "module": "配件"},
+    {"key": "field.flow.bom", "name": "流程·中间BOM交付物", "group": "field", "module": "商机线索"},
+    {"key": "field.flow.cost", "name": "流程·成本核价交付物", "group": "field", "module": "商机线索"},
+    {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索"},
+    {"key": "action.flow.return.costing", "name": "退回成本核算", "group": "action", "module": "商机线索"},
+    {"key": "action.flow.return.quoting", "name": "退回市场报价", "group": "action", "module": "商机线索"},
+    {"key": "action.flow.submit.quoting", "name": "发送报价单", "group": "action", "module": "商机线索"},
 ]
+
+_REMOVED_PERMISSION_KEYS = {"field.server.price"}
 
 
 def ensure_permission_catalog():
-    """权限目录种子（幂等，仅缺失时写入一次）：system_config.auth.permissions。
-    之后全部由「用户与权限」页维护（可增删 key），重启不覆盖。"""
+    """权限目录种子（幂等，只补缺失 key，不覆盖用户已有配置）。"""
     from app.repository.system_config_repo import SystemConfigRepository
     repo = SystemConfigRepository()
     try:
-        if repo.get_value("auth.permissions", None) is None:
-            repo.set("auth.permissions", _DEFAULT_PERMISSIONS, type="json", description="权限目录")
-            print("✅ Permission catalog seeded (auth.permissions)")
+        catalog = repo.get_value("auth.permissions", None)
+        if catalog is None:
+            catalog = _DEFAULT_PERMISSIONS
+        elif not isinstance(catalog, list):
+            catalog = []
+        changed = False
+        filtered_catalog = []
+        for item in catalog:
+            if isinstance(item, dict) and item.get("key") in _REMOVED_PERMISSION_KEYS:
+                changed = True
+                continue
+            filtered_catalog.append(item)
+        if changed:
+            catalog = filtered_catalog
+        existing_keys = {p.get("key") for p in catalog if isinstance(p, dict) and p.get("key")}
+        default_by_key = {item["key"]: item for item in _DEFAULT_PERMISSIONS}
+        for item in catalog:
+            if not isinstance(item, dict) or not item.get("key"):
+                continue
+            default = default_by_key.get(item["key"])
+            if default:
+                item.setdefault("module", default["module"])
+                item.setdefault("group", default["group"])
+        for item in _DEFAULT_PERMISSIONS:
+            if item.get("key") not in existing_keys:
+                catalog.append(item)
+                changed = True
+        if catalog is not _DEFAULT_PERMISSIONS or changed:
+            repo.set("auth.permissions", catalog, type="json", description="权限目录")
+        print("✅ Permission catalog ensured (auth.permissions)")
     finally:
         repo.close()
 
@@ -256,6 +443,12 @@ def ensure_roles_table_and_seed():
         n = repo.seed_defaults()
         if n:
             print(f"✅ Roles seeded ({n} default roles)")
+        m = repo.seed_missing_defaults()
+        if m:
+            print(f"✅ Role permissions backfilled ({m} roles)")
+        removed = repo.prune_removed_permissions()
+        if removed:
+            print(f"✅ Removed obsolete permissions from {removed} roles")
     finally:
         repo.close()
 
@@ -285,6 +478,251 @@ def ensure_bootstrap_admin():
     finally:
         repo.close()
 
+
+def backfill_bom_schemes_from_quotations():
+    """存量报价单回填为 BOM 方案卡片 / 成本核算卡片（幂等，仅处理无方案的商机）。"""
+    from datetime import datetime
+    from app.models.flow import OpportunityBomScheme, OpportunityCostSheet
+    from app.models.quotation import Quotation
+    from app.models.quotation_item import QuotationItem
+    from app.models.base import Opportunity_SessionLocal
+
+    db = Opportunity_SessionLocal()
+    try:
+        opp_rows = db.query(Quotation.opportunity_id).filter(
+            Quotation.status == "active",
+            Quotation.source.in_(["worktable", "manual"]),
+        ).distinct().all()
+        for (opp_id,) in opp_rows:
+            existing = db.query(OpportunityBomScheme).filter(
+                OpportunityBomScheme.opportunity_id == opp_id
+            ).first()
+            if existing:
+                continue
+            quote = db.query(Quotation).filter(
+                Quotation.opportunity_id == opp_id,
+                Quotation.status == "active",
+            ).order_by(Quotation.exported_at.desc(), Quotation.created_at.desc()).first()
+            if not quote:
+                continue
+
+            items = db.query(QuotationItem).filter(
+                QuotationItem.quotation_id == quote.quotation_id
+            ).all()
+            extra = {}
+            if quote.extra_fields:
+                try:
+                    extra = json.loads(quote.extra_fields) or {}
+                except (json.JSONDecodeError, TypeError):
+                    extra = {}
+            picks = extra.get("config_l6_picks") or {}
+            if not isinstance(picks, dict):
+                picks = {}
+
+            names = list((quote.config_quantities or {}).keys())
+            if not names:
+                names = sorted({it.config_name for it in items if it.config_name})
+            if not names:
+                names = ["CFG1"]
+
+            configs = []
+            for name in names:
+                pick = picks.get(name) or {}
+                if not isinstance(pick, dict):
+                    pick = {}
+                l6_rows = [
+                    {
+                        "category": "L6",
+                        "catalogue": row.get("catalogue") or "",
+                        "description": row.get("description") or "",
+                        "part_category": row.get("part_category") or "",
+                        "qty": int(row.get("qty") or 0),
+                        "base_price": row.get("base_price") or 0,
+                        "final_price": row.get("final_price") or 0,
+                        "profit_margin": row.get("profit_margin") or 0,
+                        "currency": "RMB",
+                        "note": row.get("note") or "",
+                    }
+                    for row in (pick.get("bom_excel_rows") or [])
+                    if isinstance(row, dict) and (row.get("category") or "") in ("L6", "整机")
+                ]
+                kp_rows = []
+                for it in items:
+                    if it.config_name != name or (it.category or "") != "Key Parts":
+                        continue
+                    it_extra = {}
+                    if it.extra_fields:
+                        try:
+                            it_extra = json.loads(it.extra_fields) or {}
+                        except (json.JSONDecodeError, TypeError):
+                            it_extra = {}
+                    kp_rows.append({
+                        "item_id": it.item_id,
+                        "category": "Key Parts",
+                        "part_category": it.part_category or "",
+                        "catalogue": it.catalogue or "",
+                        "description": it.description or "",
+                        "qty": it.qty or 0,
+                        "base_price": it.base_price or 0,
+                        "final_price": it.final_price or 0,
+                        "profit_margin": it.profit_margin or 0,
+                        "currency": it.currency or "RMB",
+                        "note": it_extra.get("note") or "",
+                    })
+                l6_cost = float(pick.get("l6_custom_price") or 0) if pick.get("l6_price_manual") else 0
+                configs.append({
+                    "name": name,
+                    "server_model": (quote.config_server_models or {}).get(name) or "",
+                    "description": (quote.config_descriptions or {}).get(name) or "",
+                    "qty": int((quote.config_quantities or {}).get(name) or 1),
+                    "l6_cost": l6_cost,
+                    "l6_margin": 0,
+                    "l6_rows": l6_rows,
+                    "kp_rows": kp_rows,
+                    "totals": {},
+                })
+
+            if not configs:
+                continue
+            now = datetime.now().isoformat()
+            scheme = OpportunityBomScheme(
+                opportunity_id=opp_id,
+                name=f"存量-{quote.quotation_name or quote.quotation_id[:8]}",
+                status="current",
+                configs=configs,
+                created_by=quote.submitted_by or "system",
+                created_at=quote.created_at or now,
+                updated_at=quote.updated_at or now,
+            )
+            db.add(scheme)
+            db.flush()
+
+            sheet = OpportunityCostSheet(
+                opportunity_id=opp_id,
+                bom_scheme_id=scheme.id,
+                name=f"成本-{scheme.name}",
+                status="current" if quote.cost_snapshot else "draft",
+                configs=json.loads(json.dumps(configs)),
+                quotation_id=quote.quotation_id,
+                created_by=quote.submitted_by or "system",
+                created_at=quote.created_at or now,
+                updated_at=quote.updated_at or now,
+            )
+            db.add(sheet)
+        db.commit()
+    finally:
+        db.close()
+
+
+def repair_bom_scheme_l6_rows():
+    """清理历史回填错误：误混进 BOM/成本表 l6_rows 的 KP 行。
+
+    旧版 backfill_bom_schemes_from_quotations 会把 bom_excel_rows 的 L6+KP 平铺行
+    全部写入 configs[].l6_rows。KP 行的特征是 part_category 有值；L6 行该字段始终为空。
+    """
+    from app.models.flow import OpportunityBomScheme, OpportunityCostSheet
+    from app.models.base import Opportunity_SessionLocal
+
+    db = Opportunity_SessionLocal()
+    try:
+        for model in (OpportunityBomScheme, OpportunityCostSheet):
+            rows = db.query(model).filter(model.configs.isnot(None)).all()
+            for row in rows:
+                configs = row.configs or []
+                changed = False
+                cleaned = []
+                for cfg in configs:
+                    if not isinstance(cfg, dict):
+                        cleaned.append(cfg)
+                        continue
+                    l6_rows = cfg.get("l6_rows") or []
+                    if not isinstance(l6_rows, list):
+                        cleaned.append(cfg)
+                        continue
+                    next_rows = [r for r in l6_rows if isinstance(r, dict) and not (r.get("part_category") or "")]
+                    if len(next_rows) != len(l6_rows):
+                        cfg = dict(cfg)
+                        cfg["l6_rows"] = next_rows
+                        changed = True
+                    cleaned.append(cfg)
+                if changed:
+                    row.configs = cleaned
+                    db.add(row)
+        db.commit()
+    finally:
+        db.close()
+
+
+def ensure_reasoning_skill_key_column():
+    """给 rules.reasoning_flow 增加正式 skill_key 关联并回填存量同名行（幂等）。
+
+    旧库只用 name 充当 workflow_key；新库优先 skill_key，name 保留兼容展示/历史。
+    """
+    from sqlalchemy import text
+    with rules_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='rules' AND table_name='reasoning_flow'"
+        ))}
+    if not cols:
+        return
+    with rules_engine.begin() as c:
+        if "skill_key" not in cols:
+            c.execute(text("ALTER TABLE rules.reasoning_flow ADD COLUMN skill_key VARCHAR(80)"))
+        c.execute(text(
+            "UPDATE rules.reasoning_flow SET skill_key = name "
+            "WHERE skill_key IS NULL AND name IS NOT NULL"
+        ))
+
+
+def ensure_skill_catalog_approval_policy_dropped():
+    """移除 Skill 级 approval_policy（草稿语义改由输出物承担）。
+
+    新库由 ORM create_all 直接不带该列；旧库这里幂等 DROP COLUMN。
+    """
+    from sqlalchemy import text
+    with rules_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='rules' AND table_name='skill_catalog'"
+        ))}
+    if "approval_policy" not in cols:
+        return
+    with rules_engine.begin() as c:
+        c.execute(text("ALTER TABLE rules.skill_catalog DROP COLUMN approval_policy"))
+
+
+def ensure_skill_catalog_routing_columns():
+    """skill_catalog 只保留 hit_count；清理已废弃的 trigger_rules 列（幂等）。"""
+    from sqlalchemy import text
+    with rules_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='rules' AND table_name='skill_catalog'"
+        ))}
+    if not cols:
+        return
+    with rules_engine.begin() as c:
+        if "trigger_rules" in cols:
+            c.execute(text("ALTER TABLE rules.skill_catalog DROP COLUMN trigger_rules"))
+        if "hit_count" not in cols:
+            c.execute(text("ALTER TABLE rules.skill_catalog ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0"))
+        c.execute(text("UPDATE rules.skill_catalog SET hit_count = 0 WHERE hit_count IS NULL"))
+
+
+def cleanup_legacy_skill_library_mirror():
+    """删除 system_config.ai_colleagues.skill_library JSON 镜像；Skill 定义只保留 rules.skill_catalog。"""
+    repo = SystemConfigRepository()
+    try:
+        cfg = repo.get_value("ai_colleagues", {}) or {}
+        if not isinstance(cfg, dict) or "skill_library" not in cfg:
+            return
+        cfg.pop("skill_library", None)
+        repo.set("ai_colleagues", cfg, "json", "AI 同事配置（Skill 定义统一由 rules.skill_catalog 管理）", "system")
+    finally:
+        repo.close()
+
+
 def init_rules_db():
     """Create rules database tables and initialize default rules if empty."""
     # Create all tables for rules DB
@@ -293,6 +731,20 @@ def init_rules_db():
     Base.metadata.create_all(bind=l6_history_engine)
     # Create tables for opportunities DB (includes spec_templates)
     Base.metadata.create_all(bind=opp_engine)
+
+    # 旧库迁移：reasoning_flow 增加 skill_key 列并回填。
+    try:
+        ensure_reasoning_skill_key_column()
+    except Exception as e:
+        print(f"⚠️ Reasoning flow skill_key migration failed: {e}")
+    try:
+        ensure_skill_catalog_approval_policy_dropped()
+    except Exception as e:
+        print(f"⚠️ Skill catalog approval_policy cleanup failed: {e}")
+    try:
+        ensure_skill_catalog_routing_columns()
+    except Exception as e:
+        print(f"⚠️ Skill catalog routing columns migration failed: {e}")
     
     # Initialize default rules if empty
     rules_repo = RulesRepository()
@@ -333,23 +785,59 @@ def init_rules_db():
     finally:
         config_repo.close()
 
-    # Reasoning flow default seed + v2 migrate（加 clarity_check/ask_user/budget_check）
+    try:
+        cleanup_legacy_skill_library_mirror()
+        print("✅ Legacy skill_library mirror cleaned")
+    except Exception as e:
+        print(f"⚠️ Legacy skill_library mirror cleanup failed: {e}")
+
+    # Reasoning flow default seed + business graph migrate
     try:
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
         rf_repo = ReasoningFlowRepository()
         try:
-            # 首次部署建默认流（V11 单路能力链）；已有流则不动。
+            # 首次部署建默认流；已有流则不动。
             rf_repo.seed_default_if_empty()
-            # 历史一次性 migrate（v1→v8、v11/v12/v13/v14 自愈）已全部移除——active 已是 V11 最新代，
-            # seed_default_if_empty 直接建 V11，不再需要逐版迁移。旧环境若 active 仍是 v9 双路图，建议清空 reasoning_flow 表后重启（seed_default_if_empty 会建 V11）。
+            # 一次性把旧需求分析图迁移到真实业务四步图（input→agent_fill→model_reason→kp_reason→compose→output）。
+            if rf_repo.migrate_requirement_analysis_to_business_graph():
+                print("✅ Reasoning flow migrated to business graph")
             if rf_repo.active_is_current():
-                print("✅ Reasoning flow 已是 V11 最新代")
+                healed = rf_repo.self_heal_agent_node_configs()
+                print(f"✅ Reasoning flow current（补齐 {healed} 个可编辑节点配置）")
             else:
-                print("⚠️ Reasoning flow 非最新代（仍含旧 v9 节点），建议手动升级到 V11 单路能力链")
+                print("⚠️ Reasoning flow 非最新代，已尝试迁移但仍未对齐")
         finally:
             rf_repo.close()
     except Exception as e:
         print(f"⚠️ Reasoning flow init failed: {e}")
+
+    # Capability spec 启动自检：prompt/工具引用在源存在，避免“用了但没定义”运行期崩溃。
+    try:
+        from app.services import capability_spec
+        errors = capability_spec.validate_specs()
+        if errors:
+            for e in errors:
+                print(f"⚠️ Capability spec validation: {e}")
+        else:
+            print("✅ Capability spec validated（prompt/tool 引用全部在源）")
+    except Exception as e:
+        print(f"⚠️ Capability spec validation failed: {e}")
+
+    # Skill Catalog 主存储：只补代码默认缺失项，不覆盖用户已编辑技能。
+    try:
+        from app.services.skill_registry import default_skill_library
+        from app.repository.skill_catalog_repo import SkillCatalogRepository
+        sk_repo = SkillCatalogRepository()
+        try:
+            changed = sk_repo.sync_defaults(default_skill_library())
+            print(f"✅ Skill catalog synced ({changed} new)")
+            normalized = sk_repo.normalize_workflow_tools()
+            if normalized:
+                print(f"✅ Skill catalog workflow tools normalized ({normalized})")
+        finally:
+            sk_repo.close()
+    except Exception as e:
+        print(f"⚠️ Skill catalog init failed: {e}")
 
     # Requirement rules default seed (需求分析规则库：clarity/budget)
     try:
@@ -377,6 +865,7 @@ def init_rules_db():
     # 兼容规则分类列 DDL（必须在 ORM seed/backfill 前跑，确保列存在）
     try:
         ensure_compatibility_rule_category()
+        ensure_compatibility_rule_regions()
     except Exception as e:
         print(f"⚠️ Compatibility rule category column init failed: {e}")
 
@@ -457,10 +946,18 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Base config constraint migrate failed: {e}")
 
+    # 机型「是否上架」：下架机型不进服务器货架（机型目录），管理面/工作台照旧全量
+    try:
+        ensure_server_model_published_column()
+        print("✅ Server model published column ensured (is_published)")
+    except Exception as e:
+        print(f"⚠️ Server model published migrate failed: {e}")
+
     # 方案助手需求分析通道：assistant_threads.reasoning_state + assistant_messages.kind/data
     try:
         ensure_assistant_reasoning_columns()
-        print("✅ Assistant reasoning columns ensured (reasoning_state/kind/data)")
+        ensure_assistant_preview_office_index()
+        print("✅ Assistant reasoning columns ensured (reasoning_state/thread_kind/kind/data/colleague_role_key)")
     except Exception as e:
         print(f"⚠️ Assistant reasoning columns migrate failed: {e}")
 
@@ -470,6 +967,41 @@ def init_rules_db():
         print("✅ Feed user auth columns ensured (password_hash/is_active)")
     except Exception as e:
         print(f"⚠️ Feed user auth columns migrate failed: {e}")
+
+    # 评论节点归属：opportunity_messages 加 node_key（审批节点内评论线程）
+    try:
+        ensure_feed_message_node_key()
+        print("✅ Feed message node_key column ensured")
+    except Exception as e:
+        print(f"⚠️ Feed message node_key migrate failed: {e}")
+
+    # 商机归属：opportunities.opportunities 加 owner_user_id（个人商机/全量视图过滤依据）
+    try:
+        ensure_opportunity_owner_column()
+        print("✅ Opportunity owner column ensured (owner_user_id)")
+    except Exception as e:
+        print(f"⚠️ Opportunity owner column migrate failed: {e}")
+    # 报价单发送状态：submitted_at/submitted_by/submitted_attachment_id + 旧 done 数据回退
+    try:
+        ensure_quotation_submission_columns()
+        print("✅ Quotation submission columns ensured (submitted_at/submitted_by/submitted_attachment_id)")
+    except Exception as e:
+        print(f"⚠️ Quotation submission columns migrate failed: {e}")
+    try:
+        backfill_premature_done_flows()
+        print("✅ Premature done flows backfilled to running")
+    except Exception as e:
+        print(f"⚠️ Premature done flows backfill failed: {e}")
+    try:
+        backfill_bom_schemes_from_quotations()
+        print("✅ Legacy quotations backfilled to BOM/cost cards")
+    except Exception as e:
+        print(f"⚠️ BOM/cost card backfill failed: {e}")
+    try:
+        repair_bom_scheme_l6_rows()
+        print("✅ Legacy BOM/cost L6 rows repaired")
+    except Exception as e:
+        print(f"⚠️ BOM/cost L6 row repair failed: {e}")
     try:
         ensure_bootstrap_admin()
     except Exception as e:
@@ -492,5 +1024,16 @@ def init_rules_db():
         removed = fs.cleanup_temp(max_age_hours=24)
         if removed:
             print(f"🧹 Cleaned up {removed} old temp file(s)")
+    except Exception:
+        pass
+
+    # AI Office runtime event / resolved governance retention
+    try:
+        from app.repository.office_event_repo import OfficeEventRepository
+        from app.repository.office_governance_repo import OfficeGovernanceRepository
+        event_removed = OfficeEventRepository().prune_runtime_events()
+        gov_removed = OfficeGovernanceRepository().prune_resolved()
+        if event_removed or gov_removed:
+            print(f"🧹 AI Office retention: {event_removed} runtime events, {gov_removed} resolved governance items")
     except Exception:
         pass

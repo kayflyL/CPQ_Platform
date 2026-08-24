@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 基准配置全页双面板编辑器：左编辑（基准信息 + 整机解剖分组）/ 右摘要（料件数 / 合计 / 功耗）。
+/** 基准配置全页双面板编辑器：左编辑（基准信息 + 整机解剖分组）/ 右成本分析（四卡：合计/构成/Top成本项/机型对比）。
  *  布局按解剖分组：能力/约束字段归属各分组（⑤处理器=CPU 颗数/TDP 上限；⑥内存=条数/通道/标准速率；
  *  ⑦供电=电源槽位/PSU 档位/默认型号；⑨扩展=GPU 槽上限/架构），固定件（底盘件）按料号库大类（major_category=解剖分组）归类。 */
 import { ref, computed, onMounted, watch } from 'vue'
@@ -9,6 +9,7 @@ import { catalogApi, baseConfigApi, partsApi, bomTemplateApi, rearIOApi, type Bo
 import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
 import { useSeriesStore } from '@/stores/series'
 import PartPicker from '@/components/common/PartPicker.vue'
+import CostAnalysisPanel from '@/components/server-admin/CostAnalysisPanel.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 import { DEFAULT_REAR_SLOTS, rearSlotsFor, rearIOBucket, optionLabel, optionShortLabel, REAR_SLOT_SUPPORT, CORE_DRIVE_KINDS, gpuArchOptionsFor, formDefaults, PSU_WATTAGE_OPTIONS } from '@/constants/chassisMeta'
 import { driveKindOf } from '@/utils/partFit'
@@ -224,21 +225,6 @@ const anatomyMajor = (n: number) => ANATOMY.find(a => a.n === n)?.title || ''
 const sectionActive = (n: number) => [2, 3, 6, 7].includes(n) || partsForSection(n).length > 0
 const linesForSection = (n: number) => commonLines.value.filter(l => l.major === anatomyMajor(n))
 const partsForSection = (n: number) => allParts.value.filter(p => p.major_category === anatomyMajor(n))
-
-// ---- 摘要 ----
-const summary = computed(() => {
-  let count = 0, price = 0, tdp = 0
-  for (const l of commonLines.value) {
-    if (!l.pn) continue
-    const p = partByPn(l.pn)
-    const q = Number(l.qty) || 0
-    count += q
-    if (p?.unit_price) price += p.unit_price * q
-    const t = Number(p?.specs?.tdp) || Number(p?.specs?.power) || 0
-    tdp += t * q
-  }
-  return { count, price, tdp }
-})
 
 // ---- 后面板槽位行（rear_slots 可增删，命名/容量在槽头编辑；默认卡经 RearPanel 步进器选）----
 function addSlot() { form.value.rear_slots.push({ name: '', cap: 1, defaults: [] as string[] }) }
@@ -579,11 +565,16 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
         </div>
 
         <div class="col-right">
-          <div class="glass summary-card">
-            <div class="sum-row"><span>料件数</span><b>{{ summary.count }}</b></div>
-            <div class="sum-row"><span>合计</span><b class="sum-price">¥{{ summary.price.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</b></div>
-            <div class="sum-row"><span>估算功耗</span><b>{{ summary.tdp }} W</b></div>
-          </div>
+          <CostAnalysisPanel
+            :parts="allParts"
+            :lines="commonLines"
+            :rear-slots="form.rear_slots"
+            :front-cables="form.configContent.front_cables || {}"
+            :default-psu-pn="form.configContent.default_psu_pn || ''"
+            :psu-bays="form.psu_bays"
+            :editing-id="editingId"
+            :groups="ANATOMY"
+          />
         </div>
       </div>
     </div>
@@ -600,7 +591,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .btn-ghost { background: transparent; border: 1px solid var(--cpq-overlay-w15); }
 .two-col { display: flex; gap: 16px; align-items: flex-start; }
 .col-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.col-right { flex: 0 0 240px; position: sticky; top: 16px; }
+.col-right { flex: 0 0 420px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
 
 /* —— 通用玻璃卡片（基准信息 / 备份）—— */
 .bc-card { padding: 16px 18px; border-radius: var(--cpq-radius-lg, 14px);
@@ -695,13 +686,6 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .line-info { display: flex; justify-content: space-between; gap: 12px; padding: 4px 4px 0; margin-top: 2px; font-size: 13px; }
 .li-desc { color: var(--cpq-text-secondary, #9BA1AA); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .li-price { color: var(--cpq-accent-primary); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-/* —— 右侧摘要 —— */
-.summary-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
-.sum-row { display: flex; justify-content: space-between; align-items: baseline; font-size: 13px; }
-.sum-row span { color: var(--cpq-text-muted, #6E7582); }
-.sum-row b { font-variant-numeric: tabular-nums; }
-.sum-price { color: var(--cpq-accent-primary); font-size: 16px; }
 </style>
 
 <!-- PartPicker 下拉 teleported 到 body，非 scoped；用 .bcb-opt 前缀限定 -->

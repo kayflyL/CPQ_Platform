@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { saveProject as saveProjectAPI, quotationApi } from '@/api'
+import { calcUnitCost, calcUnitSales } from '@/utils/quoteCommon'
 
 // Type definitions
 export interface ProjectInfo {
@@ -427,17 +428,26 @@ export const useQuoteStore = defineStore('quote', () => {
     return (configs.value[cfgName]?.warranty_info?.kp?.rate ?? 0) * 100
   }
 
-  // 维保费 = 售价 × rate（rate 已按年限映射好，如 3年=2%，不再 × years）
+  function calcKpCost(cfgName: string): number {
+    const cfg = configs.value[cfgName]
+    if (!cfg) return 0
+    return cfg.items.reduce((sum, item) => {
+      if (item.category !== 'Key Parts') return sum
+      const qty = Number(item.qty) || 1
+      return sum + calcUnitCost(item.base_price, item.currency, exchangeRate.value, taxRate.value) * qty
+    }, 0)
+  }
+
+  // 维保费 = 成本 × rate（rate 已按年限映射好，如 3年=3%，不再 × years）
   function calcWarrantyFeeL6(cfgName: string): number {
     const cfg = configs.value[cfgName]
     if (!cfg) return 0
-    return cfg.summary.l6_total * (cfg.warranty_info?.l6?.rate ?? 0)
+    return (Number(cfg.l6_custom_price) || 0) * (cfg.warranty_info?.l6?.rate ?? 0)
   }
 
   function calcWarrantyFeeKP(cfgName: string): number {
-    const cfg = configs.value[cfgName]
-    if (!cfg) return 0
-    return cfg.summary.kp_total * (cfg.warranty_info?.kp?.rate ?? 0)
+    const rate = configs.value[cfgName]?.warranty_info?.kp?.rate ?? 0
+    return calcKpCost(cfgName) * rate
   }
 
   // 计算单个配置的财务数据（供组件调用，替代组件内重复逻辑）
@@ -451,18 +461,10 @@ export const useQuoteStore = defineStore('quote', () => {
     for (const item of cfg.items) {
       const base = item.base_price || 0
       const qty = item.qty || 1
-      let unitSales = 0
-
-      if (item.currency === 'USD') {
-        unitSales = base * exchangeRate.value * (1 + taxRate.value) * (1 + (item.profit_margin || 10) / 100)
-      } else {
-        unitSales = base * (1 + (item.profit_margin || 10) / 100)
-      }
-
-      const lineSales = unitSales * qty
-      // 成本口径：RMB base 已含税 → 直接用 base；USD base 不含税 → ×汇率×(1+增值税率) 折成含税 RMB 成本
-      const unitCost = item.currency === 'USD' ? base * exchangeRate.value * (1 + taxRate.value) : base
+      const unitCost = calcUnitCost(base, item.currency, exchangeRate.value, taxRate.value)
+      const unitSales = calcUnitSales(base, item.currency, item.profit_margin, exchangeRate.value, taxRate.value)
       const lineCost = unitCost * qty
+      const lineSales = unitSales * qty
 
       // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
       if (item.category === 'L6' || item.category === '整机') continue
@@ -479,21 +481,20 @@ export const useQuoteStore = defineStore('quote', () => {
 
     // L6 只有一个机箱，价格由 l6_custom_price 统一管理
     l6Cost = cfg.l6_custom_price || 0
-    const l6Margin = cfg.l6_profit_margin || 0
+    const l6Margin = cfg.l6_profit_margin ?? 10
     l6Sales = l6Cost * (1 + l6Margin / 100)
 
     // 加上手动质保费用
     const warrantyL6 = calcWarrantyFeeL6(cfgName)
     const warrantyKP = calcWarrantyFeeKP(cfgName)
-    const totalWarranty = warrantyCost + warrantyL6 + warrantyKP
     const totalWarrantySales = warrantySales + warrantyL6 + warrantyKP
     
-    const totalCost = l6Cost + kpCost + totalWarranty
+    const totalCost = l6Cost + kpCost + warrantyCost
     const totalSales = l6Sales + kpSales + totalWarrantySales
     const profit = totalSales - totalCost
     const marginPct = totalCost > 0 ? (profit / totalCost) * 100 : 0
 
-    return { l6Cost, kpCost, warrantyCost: totalWarranty, l6Sales, kpSales, warrantySales: totalWarrantySales, totalCost, totalSales, profit, marginPct }
+    return { l6Cost, kpCost, warrantyCost, l6Sales, kpSales, warrantySales: totalWarrantySales, totalCost, totalSales, profit, marginPct }
   }
 
   // 为每个配置创建 computed 的财务数据（确保响应式追踪）
@@ -512,37 +513,37 @@ export const useQuoteStore = defineStore('quote', () => {
 
   function recalculateAll() {
     for (const cfg of Object.values(configs.value)) {
-      let l6Sum = 0
-      let kpSum = 0
+      let kpCost = 0
+      let kpSales = 0
+      let warrantySales = 0
 
       for (const item of cfg.items) {
         // 跳过 L6/整机 项（L6 只有一个价格，由 l6_custom_price 统一管理）
         if (item.category === 'L6' || item.category === '整机') continue
 
-        let unitPrice = item.base_price
-        
-        // Currency conversion for USD items (with tax)
-        // 与后端保持一致：USD 项 base × 汇率 × (1+税) × (1+利润率)；RMB 项不加税
-        if (item.currency === 'USD') {
-          unitPrice = unitPrice * exchangeRate.value * (1 + taxRate.value) * (1 + item.profit_margin / 100)
-        } else {
-          unitPrice = unitPrice * (1 + item.profit_margin / 100)
-        }
+        const unitCost = calcUnitCost(item.base_price, item.currency, exchangeRate.value, taxRate.value)
+        const unitSales = calcUnitSales(item.base_price, item.currency, item.profit_margin, exchangeRate.value, taxRate.value)
+        item.final_price = Math.round(unitSales * 100) / 100
+        const lineSales = item.final_price * item.qty
 
-        item.final_price = Math.round(unitPrice * 100) / 100
-        const lineTotal = item.final_price * item.qty
-        kpSum += lineTotal
+        if (item.category === 'Warranty') {
+          warrantySales += lineSales
+        } else {
+          kpCost += unitCost * item.qty
+          kpSales += lineSales
+        }
       }
       
       // L6 只有一个机箱，始终使用 l6_custom_price
-      l6Sum = cfg.l6_custom_price || 0
+      const l6Cost = cfg.l6_custom_price || 0
+      const l6Sales = l6Cost * (1 + ((cfg.l6_profit_margin ?? 10) / 100))
 
-      cfg.summary.l6_total = Math.round(l6Sum * (1 + ((cfg.l6_profit_margin ?? 10) / 100)) * 100) / 100
-      cfg.summary.kp_total = Math.round(kpSum * 100) / 100
-      // 维保 = 售价 × rate（rate 已按年限映射好，如 3年=2%，不再 × years；与 calcWarrantyFeeL6/KP 同口径）
-      const wTotal = cfg.summary.l6_total * (cfg.warranty_info?.l6?.rate ?? 0)
-        + cfg.summary.kp_total * (cfg.warranty_info?.kp?.rate ?? 0)
-      cfg.summary.warranty_total = Math.round(wTotal * 100) / 100
+      cfg.summary.l6_total = Math.round(l6Sales * 100) / 100
+      cfg.summary.kp_total = Math.round(kpSales * 100) / 100
+      // 维保 = 成本 × rate（rate 已按年限映射好，如 3年=3%，不再 × years；与 calcWarrantyFeeL6/KP 同口径）
+      const warrantyFee = l6Cost * (cfg.warranty_info?.l6?.rate ?? 0)
+        + kpCost * (cfg.warranty_info?.kp?.rate ?? 0)
+      cfg.summary.warranty_total = Math.round((warrantyFee + warrantySales) * 100) / 100
       cfg.summary.grand_total = cfg.summary.l6_total + cfg.summary.kp_total + cfg.summary.warranty_total
     }
   }

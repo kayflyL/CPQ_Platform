@@ -3,11 +3,10 @@ from datetime import datetime
 from pathlib import Path
 from pydantic import BaseModel
 from app.services.quote_service import QuoteService
-from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.feed_repo import FeedRepository
 from app.services.storage_adapter import get_storage, build_object_id, StorageError
 from app.services.feed_hub import hub
-from app.api.deps import get_current_user as current_user
+from app.api.deps import get_current_user as current_user, ensure_opportunity_access
 
 
 def _decode_filename(filename: str) -> str:
@@ -48,15 +47,8 @@ async def upload_to_opportunity(
     Parses the file, creates a quotation record, and archives the source Excel
     into the opportunity's file index so it shows up in the archive view.
     """
-    # Verify opportunity exists
-    opp_repo = OpportunityRepository()
-    try:
-        opportunity = opp_repo.get_opportunity(opportunity_id)
-        if not opportunity:
-            raise HTTPException(status_code=404, detail="商机不存在")
-        customer_name = opportunity.get("customer_name", "") or ""
-    finally:
-        opp_repo.close()
+    opportunity = ensure_opportunity_access(opportunity_id, user)
+    customer_name = opportunity.get("customer_name", "") or ""
 
     filename = _decode_filename(file.filename or "")
     if not filename.lower().endswith((".xlsx", ".xls")):
@@ -143,7 +135,7 @@ async def upload_to_opportunity(
             mime_type=mime,
             kind="upload",
             quotation_id=quotation.quotation_id,
-            category="technical",
+            category="requirement",
         )
         await hub.broadcast(opportunity_id, {"type": "attachment", "attachment": att})
 

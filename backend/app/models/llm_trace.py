@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """LLM 调用审计 trace —— rules.llm_trace（P3：证明 LLM 节点价值，指标数据源）。
 
-记录每次 LLM 节点调用（llm_understand / llm_audit）：状态/耗时/合并/问题数/重试，
+记录每次 LLM 节点调用：状态/耗时/合并/问题数/重试，
 配合 requirement_samples（llm_feedback）算「采纳率/修订率」。
 """
 from typing import Optional
@@ -15,9 +15,12 @@ class LLMTrace(Base):
     __table_args__ = {"schema": "rules"}
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    node_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)  # llm_understand / llm_audit
+    node_type: Mapped[str] = mapped_column(String(40), nullable=False, index=True)
     opportunity_id: Mapped[str] = mapped_column(String(64), default="", index=True)
     pipeline_id: Mapped[str] = mapped_column(String(40), default="")
+    user_id: Mapped[str] = mapped_column(String(64), default="", index=True)
+    role_key: Mapped[str] = mapped_column(String(80), default="", index=True)
+    tool_name: Mapped[str] = mapped_column(String(80), default="")
     model: Mapped[str] = mapped_column(String(80), default="")
     status: Mapped[str] = mapped_column(String(20), default="ok")   # ok / llm_error / validated_failed
     called: Mapped[bool] = mapped_column(Boolean, default=True)

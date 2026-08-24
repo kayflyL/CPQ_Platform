@@ -7,8 +7,8 @@ const STORAGE_KEY = 'cpq:assistant-fab-pos'
 
 export const FAB_EDGE_MARGIN = 8
 export const FAB_DRAG_THRESHOLD = 4
-export const PANEL_WIDTH = 380
-export const PANEL_MAX_HEIGHT = 560
+export const PANEL_WIDTH = 390
+export const PANEL_MAX_HEIGHT = 680
 export const PANEL_GAP = 12
 
 export interface FabPos { x: number; y: number }

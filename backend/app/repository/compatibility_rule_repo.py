@@ -122,6 +122,7 @@ class CompatibilityRuleRepository:
             category=data.get("category"),
             name=data["name"],
             scope=json.dumps(scope, ensure_ascii=False) if scope else None,
+            regions=json.dumps(data.get("regions") or [], ensure_ascii=False),
             body=json.dumps(body, ensure_ascii=False) if body is not None else "{}",
             status=data.get("status", "active"),
             version=1,
@@ -152,6 +153,8 @@ class CompatibilityRuleRepository:
             r.category = cv.strip() if isinstance(cv, str) and cv.strip() else None
         if "scope" in data:
             r.scope = json.dumps(data["scope"], ensure_ascii=False) if data["scope"] else None
+        if "regions" in data:
+            r.regions = json.dumps(data["regions"] or [], ensure_ascii=False)
         if "body" in data:
             r.body = json.dumps(data["body"], ensure_ascii=False) if data["body"] is not None else "{}"
         r.version = (r.version or 1) + 1

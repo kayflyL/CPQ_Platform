@@ -7,6 +7,7 @@
  * 无快照时（历史导入单）切换为录入模式。 */
 import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { money } from '@/utils/quoteCommon'
 
 const props = defineProps<{
   open: boolean
@@ -77,10 +78,6 @@ function requestEdit() {
   editing.value = true
 }
 
-function money(n: any): string {
-  const v = Number(n || 0)
-  return '¥' + v.toLocaleString(undefined, { maximumFractionDigits: 2 })
-}
 function pct(n: any): string {
   const v = Number(n || 0)
   return (Number.isFinite(v) ? v : 0).toFixed(1) + '%'

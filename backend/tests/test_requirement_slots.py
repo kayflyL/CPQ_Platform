@@ -54,7 +54,13 @@ def test_build_catalog_context_from_db():
     assert ctx["models_by_type"]["AI / 加速计算服务器"] == ["ESA 4U-8卡", "ZSA 2U-8卡"]
     assert ctx["series"] == ["Orion"]
     assert ctx["family_words"] == {"CPU": ["epyc"]}
-    assert ctx["slots_spec"] == [{"key": "series", "label": "所属系列", "level": "L0"}]
+    # slots_spec 现由 combined_slot_spec() 归一化：series 别名 → platform_type，并携带元数据
+    slots_spec = ctx["slots_spec"]
+    assert slots_spec and all(s.get("key") for s in slots_spec)
+    assert slots_spec[0]["key"] == "platform_type"
+    assert slots_spec[0]["label"] == "所属系列"
+    assert slots_spec[0]["src_type"] == "config"
+    assert slots_spec[0]["group"] == "基本信息"
 
 
 def test_build_catalog_context_db_failure_falls_back():
