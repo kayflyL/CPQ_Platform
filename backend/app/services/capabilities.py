@@ -1056,6 +1056,9 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     elif ctx.get("converged"):
         # 客户反复没答上同个字段 → 不再卡住，按“已有信息可下沉”继续，由下游给默认/放宽。
         ctx["clarity"] = "partial"
+    elif has_model:
+        # 客户点名机型是强信号：不再因缺类型/系列/形态把它打成 unclear，交给下游按名称确认/找最近似。
+        ctx["clarity"] = "explicit"
     elif missing and not done:
         ctx["clarity"] = "unclear"
     elif missing:
