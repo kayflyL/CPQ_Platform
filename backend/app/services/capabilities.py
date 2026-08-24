@@ -562,38 +562,9 @@ def _catalog_whitelist(config: Optional[dict] = None, ext: Optional[dict] = None
 
 
 def _slot_now_filled(ext: dict, key: str) -> bool:
-    """反问回填后判断某 slot 是否已确认（与理解节点 slot 填充口径一致）。"""
-    from app.services import semantic_contract as _sc
-    if _sc.absent_confirmed(ext, key):
-        return True
-    def _has(v) -> bool:
-        if v is None or v is False:
-            return False
-        if isinstance(v, str):
-            return v.strip() != ""
-        if isinstance(v, (int, float)):
-            return v > 0
-        if isinstance(v, dict):
-            return any(_has(x) for x in v.values())
-        if isinstance(v, (list, tuple)):
-            return any(_has(x) for x in v)
-        return bool(v)
-    mapping = {
-        "server_type": ["server_type_name", "server_type"],
-        "platform_type": ["series", "platform_type"],
-        "chassis_form": ["form", "chassis_form"],
-        "purchase_qty": ["purchase_qty", "n"],
-        "n": ["n", "purchase_qty"],
-        "server_model": ["server_model", "model", "baseline_model"],
-        "cpu": ["cpu_signal", "cpu"],
-        "memory": ["mem_signal", "mem_groups", "memory"],
-        "storage": ["drive_groups", "drives", "storage"],
-        "gpu": ["gpu_groups", "gpu"],
-        "nic": ["nic_groups", "nic_signal", "nic", "multi_spec_filters"],
-        "raid": ["raid_groups", "raid_signal", "raid"],
-        "psu": ["psu_signal", "psu"],
-    }
-    return any(_has(ext.get(k)) for k in mapping.get(key, []))
+    """反问回填后判断某 slot 是否已确认（统一走 slot_contract 契约口径，避免重复映射）。"""
+    from app.services.slot_contract import _slot_filled
+    return _slot_filled(ext, key)
 
 
 
