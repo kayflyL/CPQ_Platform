@@ -269,6 +269,8 @@ async def _run_thinking_loop(
     tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
     final_only: bool = False,
     final_only_contract: Optional[str] = None,
+    llm_timeout: float = 90.0,
+    llm_max_attempts: int = 2,
 ) -> dict:
     """智能体主循环（ChatGPT 式）：流式思考 + 工具调用 + 必反问。
 
@@ -338,10 +340,23 @@ async def _run_thinking_loop(
         except Exception:
             pass
 
-    async def _stream_once() -> tuple[str, str, Optional[dict]]:
-        """流式聚合一轮：收思考 + 正文，正文尝试解析 JSON。失败返回 data=None。"""
+    async def _once() -> tuple[str, str, Optional[dict]]:
+        """单轮取模型输出。
+        final_only（单次收敛）走一次非流式 chat_json：只拿最终 JSON，不逐段广播思考，
+        既省时也避免 step_progress 刷屏。工具 ReAct（final_only=False）仍走流式聚合，
+        让前端能看到思考与工具调用过程。"""
         parts: list[str] = []
         thinks: list[str] = []
+        if final_only:
+            try:
+                data = await llm_client.chat_json(messages, model=model,
+                                                  timeout=llm_timeout, max_attempts=llm_max_attempts)
+            except llm_client.LLMError as e:
+                logger.warning("agent final_only LLM 失败（降级）: %s", e)
+                return "", "", None
+            if isinstance(data, dict):
+                return json.dumps(data, ensure_ascii=False), "", data
+            return "", "", None
         try:
             async for item in llm_client.stream_agent_chat(
                     llm_client._ensure_json_instruction(messages), model=model):
@@ -373,7 +388,7 @@ async def _run_thinking_loop(
 
     for i in range(max_iter):
         base["iterations"] = i + 1
-        text, _think, data = await _stream_once()
+        text, _think, data = await _once()
         if data is None:
             raw = (text or "").strip()
             messages.append({"role": "user",
@@ -589,6 +604,8 @@ async def run_react_loop(
     tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
     final_only: bool = False,
     final_only_contract: Optional[str] = None,
+    llm_timeout: float = 90.0,
+    llm_max_attempts: int = 2,
 ) -> dict:
     """Agent loop: native tools first, text-ReAct fallback only before side effects."""
     # final_only = 单次流式（无工具）：不进入 native tool 循环，也不走多轮工具回退，
@@ -608,6 +625,8 @@ async def run_react_loop(
             tool_guard=tool_guard,
             final_only=final_only,
             final_only_contract=final_only_contract,
+            llm_timeout=llm_timeout,
+            llm_max_attempts=llm_max_attempts,
         )
 
     native = await _run_native_tool_loop(
@@ -646,4 +665,6 @@ async def run_react_loop(
         tool_guard=tool_guard,
         final_only=final_only,
         final_only_contract=final_only_contract,
+        llm_timeout=llm_timeout,
+        llm_max_attempts=llm_max_attempts,
     )

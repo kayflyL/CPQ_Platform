@@ -377,10 +377,12 @@ async def _kp_llm_propose(ctx: dict, config: dict, broadcast=None) -> dict:
             system_prompt=str(cfg.get("system_prompt") or ""),
             history=[],
             extra_context=user,
-            max_iterations=min(int(cfg.get("max_iterations") or 3), 2),
+            max_iterations=min(int(cfg.get("max_iterations") or 2), 1),
             event_sink=_sink,
             final_only=True,
             final_only_contract=KP_FINAL_CONTRACT,
+            llm_timeout=45.0,
+            llm_max_attempts=1,
         )
     except Exception as e:
         logger.warning("kp LLM 提议失败: %s", e)
@@ -417,10 +419,10 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     # 默认走规则库：仅当用户明确说了配件诉求（内存/RAID/网卡/电源等）才让 LLM 提议，
     # 否则纯规则由 pick_kp_parts 按类型/形态补齐，避免每次配件选型都等数十秒的 LLM 流式。
     _kp_ext = ctx.get("ext") or {}
-    _need_llm = any(_kp_ext.get(k) for k in ("cpu", "mem_signal", "mem_groups", "memory",
-                                              "raid_signal", "raid", "nic_signal", "nic",
-                                              "psu_signal", "psu", "gpu_groups", "gpu"))
-    if bool(cfg.get("proposal_enabled", True)) and (_need_llm or ctx.get("delegated")):
+    # 只在客户用自然语言提住真正模糊的配件诉求（吐需更多内存/架 raid/万兆网卡）时才让 LLM 提议；
+    # 结构化 gpu_groups/mem_groups/raid_groups/drive_groups 等是事实，由 pick_kp_parts 规则直接利用，不再走慢 LLM，避免 GPU/内存场景卡数十秒。
+    _need_llm = any(_kp_ext.get(k) for k in ("mem_signal", "raid_signal", "nic_signal", "psu_signal"))
+    if bool(cfg.get("proposal_enabled", True)) and _need_llm:
         prop = await _kp_llm_propose(ctx, cfg, broadcast)
         if prop.get("ok"):
             proposal_note = prop.get("reason") or ""
@@ -436,7 +438,7 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
 
 
 DEFAULT_KP_REASON_CONFIG = {
-    "proposal_enabled": True,
+    "proposal_enabled": False,
     "proposal_schema": KP_PROPOSE_SCHEMA,
     "temperature": 0.2,
     "timeout": 60,
@@ -907,6 +909,19 @@ def _has_recommend_signal(ext: dict) -> bool:
         return False
 
 
+AGENT_FILL_FINAL_CONTRACT = (
+    "\n\n【输出要求：只输出一个 JSON 对象，不要 Markdown 代码块，不要调用任何工具，不要分步。"
+    "基于客户原话与下方《在售目录参考/草稿/缺口》把客户已明确表达的字段登记为结构化需求\u3002\n"
+    "JSON 顶层字段\uff1a\n"
+    '  - "fill"\uff1a对象，只含客户已明确表达的字段（键使用给定字段名，如 server_type_name/series/form/cpu/memory/gpu_count），未提到的不要填\u3002\n'
+    '  - "ask"\uff1a字符串。若缺“必填且客户未委托”的关键字段，用一句自然中文只问最关键的那个；已足够则给空字符串\u3002\n'
+    '  - "done"\uff1a布尔。客户已委托、点名机型、或关键字段足够时为 true，否则 false\u3002\n'
+    '  - "edit"\uff1a布尔。客户在改口/覆盖之前需求时为 true，否则 false\u3002\n'
+    '  - "semantic"\uff1a对象。仅当客户提到 workload 时填结构化对象（kind/gpu_count/total_vram_gb 等），不要写成字符串\u3002\n'
+    "不得编造客户没说的型号/规格/数量/预算；数值只取客户原话明确给出的\u3002"
+)
+
+
 async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str = "agent_fill") -> dict:
     """智能对话填表 Agent（ReAct 形态，不再兼容旧槽位状态机）。
 
@@ -997,12 +1012,14 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
 
     result = await run_react_loop(
         requirement_text=req_text or "（无需求原文）",
-        config={**config, "enabled_tools": tools},
+        config={**config, "enabled_tools": []},
         system_prompt=sys_prompt,
         history=ctx.get("history") or [],
         extra_context=extra,
-        max_iterations=min(int(config.get("max_iterations") or 4), 4),
+        max_iterations=min(int(config.get("max_iterations") or 2), 2),
         event_sink=_sink,
+        final_only=True,
+        final_only_contract=AGENT_FILL_FINAL_CONTRACT,
     )
     raw_answer = result.get("answer") or ""
     agent_answer = raw_answer if isinstance(raw_answer, str) else (

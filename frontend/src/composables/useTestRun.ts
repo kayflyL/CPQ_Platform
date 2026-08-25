@@ -81,12 +81,25 @@ export function useTestRun(opts: {
     if (i >= 0) steps.value[i] = { ...steps.value[i], status, payload: payload ?? steps.value[i].payload }
   }
 
+  const MAX_SUBSTEPS = 30
+  // step_progress 节流：连续 thinking 增量合并为一条，并限制子步骤总数，避免逐 delta 刷屏。
   function pushSubstep(key: string, sub: { kind: string; text: string }) {
     const i = steps.value.findIndex((s) => s.key === key)
-    if (i >= 0) {
-      const cur = steps.value[i]
-      steps.value[i] = { ...cur, substeps: [...(cur.substeps || []), sub] }
+    if (i < 0) return
+    const cur = steps.value[i]
+    const subs = cur.substeps || []
+    const last = subs[subs.length - 1]
+    if (sub?.kind === 'thinking' && last?.kind === 'thinking') {
+      const merged = { ...last, text: ((last.text || '') + (sub.text || '')).trim() }
+      steps.value[i] = { ...cur, substeps: [...subs.slice(0, -1), merged] }
+      return
     }
+    const next = [...subs, sub]
+    if (next.length > MAX_SUBSTEPS) {
+      steps.value[i] = { ...cur, substeps: next.slice(next.length - MAX_SUBSTEPS) }
+      return
+    }
+    steps.value[i] = { ...cur, substeps: next }
   }
 
   function handle(data: any) {

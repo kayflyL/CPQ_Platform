@@ -198,6 +198,10 @@ async def _route_resume_intent(ctx: dict, broadcast: Callable[..., Any], node_id
     except Exception:
         reply = ""
     if not reply:
+        reply = str(intent_data.get("reply") or "").strip()
+    if not reply and intent == "list_catalog" and cat:
+        reply = str(cat or "")
+    if not reply:
         return False
 
     ctx["awaiting_input"] = True
@@ -249,6 +253,14 @@ async def run_fixed_workflow(
             from app.services.workflow_intent import resolve_intent
             _entry = await resolve_intent(str(ctx.get("requirement_text") or "").strip())
             _entry_intent = str((_entry or {}).get("intent") or "").strip().lower()
+            # 关键词兜底：即使 LLM 分类漂移，明显的“列目录/解释”也按非选型处理
+            try:
+                from app.services.workflow_intent import resolve_intent_keywords
+                _kw_intent = resolve_intent_keywords(str(ctx.get("requirement_text") or "").strip())
+                if _kw_intent in ("list_catalog", "explain"):
+                    _entry_intent = _kw_intent
+            except Exception:
+                pass
             if _entry_intent in ("noise", "ask", "list_catalog", "explain"):
                 from app.services.workflow_intent import catalog_digest, reply_with_context
                 _lines = _intent_context(ctx)
@@ -259,6 +271,10 @@ async def run_fixed_workflow(
                 if _cat:
                     _lines += "\n\n【在售目录】\n" + _cat
                 _reply = await reply_with_context(str(ctx.get("requirement_text") or ""), _lines)
+                if not _reply:
+                    _reply = str((_entry or {}).get("reply") or "").strip()
+                if not _reply and _entry_intent == "list_catalog" and _cat:
+                    _reply = str(_cat or "")
                 if _reply:
                     ctx["awaiting_input"] = True
                     ctx["current_target"] = "__entry_reply__"

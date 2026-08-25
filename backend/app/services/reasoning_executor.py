@@ -262,6 +262,53 @@ def _model_reason_matches(baselines: list) -> list:
     } for b in baselines]
 
 
+
+async def _interrupt_reply(answer: str, intent: str, ctx: dict, idata: dict, broadcast: BroadcastFn) -> Any:
+    """用户在选型/配件节点中途提问（介绍/列目录/闲聊/解释）→ 自然回复，停在原地，绝不推卡。"""
+    if not answer or intent not in ("ask", "explain", "list_catalog", "noise"):
+        return None
+    reply = ""
+    ctx_lines = str(ctx.get("last_ask_question") or "").strip()
+    req = str(ctx.get("requirement_text") or "").strip()
+    if req:
+        ctx_lines = (ctx_lines + "\n客户已表达需求：" + req[:300]) if ctx_lines else ("客户已表达需求：" + req[:300])
+    try:
+        from app.services.workflow_intent import reply_with_context, catalog_digest
+        if intent == "list_catalog":
+            try:
+                _cat = await catalog_digest()
+            except Exception:
+                _cat = ""
+            if _cat:
+                ctx_lines += "\n\n【在售目录】\n" + _cat
+        reply = await reply_with_context(answer, ctx_lines)
+    except Exception:
+        reply = ""
+    if not reply:
+        reply = str((idata or {}).get("reply") or "").strip()
+    if not reply and intent == "list_catalog":
+        try:
+            from app.services.workflow_intent import catalog_digest
+            reply = await catalog_digest()
+        except Exception:
+            reply = ""
+    if not reply:
+        return None
+
+    node = str(ctx.get("current_target") or "model_reason").strip()
+    ctx["awaiting_input"] = True
+    ctx["current_target"] = node
+    ctx["last_ask_question"] = reply
+    if broadcast:
+        try:
+            await broadcast({"type": "need_confirm", "step": node, "question": reply,
+                             "options": [], "why": "用户提问，自然回复"})
+        except Exception:
+            pass
+    return {"source": "interrupt_reply", "matches": [], "question": reply,
+            "reason": "用户在选型中提问，已自然回复并停在原地"}
+
+
 async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     # 机型选型三态（由 AI 意图驱动，抽屉 selection_mode 仅作兜底偏好）：
     # - recommend：出候选卡并等待用户确认选择，确认后锁定推进配件/BOM
@@ -277,6 +324,9 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
             from app.services.workflow_intent import resolve_intent
             _idata = await resolve_intent(answer, str(ctx.get("last_ask_question") or "")[:600])
             _it = str((_idata or {}).get("intent") or "").strip().lower()
+            _interrupt = await _interrupt_reply(answer, _it, ctx, _idata, broadcast)
+            if _interrupt is not None:
+                return _interrupt
             if _it == "auto_recommend":
                 intent = "auto_pick"
             elif _it == "self_config":
@@ -592,6 +642,16 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
     # 精确执行仍由规则保证（compose 需要完整字段），LLM 输出确认 + 理由。
     from app.services.capabilities import run_kp_reason, run_match_kp_rule
     answer = str(ctx.get("last_user_answer") or "").strip()
+    if answer:
+        try:
+            from app.services.workflow_intent import resolve_intent
+            _idata = await resolve_intent(answer, str(ctx.get("last_ask_question") or "")[:600])
+            _it = str((_idata or {}).get("intent") or "").strip().lower()
+            _interrupt = await _interrupt_reply(answer, _it, ctx, _idata, broadcast)
+            if _interrupt is not None:
+                return _interrupt
+        except Exception:
+            pass
     intent = await _resolve_kp_intent(ctx, answer) if answer else "first"
 
     if intent == "cancel":
