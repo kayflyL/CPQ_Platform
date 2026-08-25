@@ -270,6 +270,15 @@ async def run_fixed_workflow(
     if resume_from and resume_from not in nodes:
         ctx["current_target"] = ""
         resume_from = ""
+    # 续跑合并：用户补充的是真需求（refine/grasp）时，把它并入需求原文，避免旧原文盖住新消息
+    #（选型/确认/取消/自配这类动作词不混入需求文本）。
+    _pi = str(ctx.get("plan_intent") or "").strip().lower()
+    if resume_from and resume_from in nodes and _pi in ("refine", "grasp"):
+        _sup = str(ctx.get("last_user_answer") or "").strip()
+        _base = str(ctx.get("requirement_text") or "").strip()
+        if _sup and _sup not in _base:
+            ctx["requirement_text"] = (_base + "\n" + _sup).strip()
+        ctx.pop("last_user_answer", None)
     queue: list[str] = sorted([nid for nid, degree in indeg.items() if degree == 0])
     if resume_from and resume_from in nodes:
         # 多轮能力会话：用户回答后从暂停节点继续，避免重跑 input/agent_fill 后把
