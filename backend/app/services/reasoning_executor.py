@@ -188,7 +188,7 @@ def _model_selection_intent(answer: str) -> str:
     """
     text = str(answer or "").strip().lower()
     if not text:
-        return "choose"
+        return ""
     try:
         from app.services import requirement_rule_catalog as _rc
         phrases = _rc.model_action_phrases()
@@ -197,7 +197,7 @@ def _model_selection_intent(answer: str) -> str:
     for action in ("self_config", "auto_pick", "reselect", "cancel"):
         if any(k in text for k in phrases.get(action) or []):
             return action
-    return "choose"
+    return ""
 
 
 async def _resolve_selection_mode(ctx: dict, config: dict, answer: str) -> str:
@@ -209,24 +209,15 @@ async def _resolve_selection_mode(ctx: dict, config: dict, answer: str) -> str:
       - self_config: 用户明确“我自己配”，跳过 BOM 直接进详情页
       抽屉的 selection_mode 只作为兜底偏好，AI 意图优先；py 不写死流程路径。
     """
-    text = str(answer or "").strip()
-    if text:
-        try:
-            from app.services.workflow_intent import resolve_intent
-            ctx_lines = str(ctx.get("last_ask_question") or "").strip()
-            if ctx_lines:
-                ctx_lines = "当前环节：机型选型\n" + ctx_lines
-            data = await resolve_intent(text, ctx_lines)
-            intent = str((data or {}).get("intent") or "").strip().lower()
-            if intent == "auto_recommend":
-                return "ai_config"
-            if intent == "self_config":
-                return "self_config"
-            if intent in ("confirm_choice", "choose", "refine", "reselect"):
-                return "recommend"
-        except Exception:
-            pass
-    kw = _model_selection_intent(text)
+    # 意图由角色层统一判定；这里只做映射，不再二次调 LLM。
+    pi = str(ctx.get("plan_intent") or "").strip().lower()
+    if pi == "auto_recommend":
+        return "ai_config"
+    if pi == "self_config":
+        return "self_config"
+    if pi in ("confirm_choice", "choose", "refine", "reselect"):
+        return "recommend"
+    kw = _model_selection_intent(str(answer or "").strip())
     if kw == "auto_pick":
         return "ai_config"
     if kw == "self_config":
@@ -262,53 +253,6 @@ def _model_reason_matches(baselines: list) -> list:
     } for b in baselines]
 
 
-
-async def _interrupt_reply(answer: str, intent: str, ctx: dict, idata: dict, broadcast: BroadcastFn) -> Any:
-    """用户在选型/配件节点中途提问（介绍/列目录/闲聊/解释）→ 自然回复，停在原地，绝不推卡。"""
-    if not answer or intent not in ("ask", "explain", "list_catalog", "noise"):
-        return None
-    reply = ""
-    ctx_lines = str(ctx.get("last_ask_question") or "").strip()
-    req = str(ctx.get("requirement_text") or "").strip()
-    if req:
-        ctx_lines = (ctx_lines + "\n客户已表达需求：" + req[:300]) if ctx_lines else ("客户已表达需求：" + req[:300])
-    try:
-        from app.services.workflow_intent import reply_with_context, catalog_digest
-        if intent == "list_catalog":
-            try:
-                _cat = await catalog_digest()
-            except Exception:
-                _cat = ""
-            if _cat:
-                ctx_lines += "\n\n【在售目录】\n" + _cat
-        reply = await reply_with_context(answer, ctx_lines)
-    except Exception:
-        reply = ""
-    if not reply:
-        reply = str((idata or {}).get("reply") or "").strip()
-    if not reply and intent == "list_catalog":
-        try:
-            from app.services.workflow_intent import catalog_digest
-            reply = await catalog_digest()
-        except Exception:
-            reply = ""
-    if not reply:
-        return None
-
-    node = str(ctx.get("current_target") or "model_reason").strip()
-    ctx["awaiting_input"] = True
-    ctx["current_target"] = node
-    ctx["last_ask_question"] = reply
-    if broadcast:
-        try:
-            await broadcast({"type": "need_confirm", "step": node, "question": reply,
-                             "options": [], "why": "用户提问，自然回复"})
-        except Exception:
-            pass
-    return {"source": "interrupt_reply", "matches": [], "question": reply,
-            "reason": "用户在选型中提问，已自然回复并停在原地"}
-
-
 async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     # 机型选型三态（由 AI 意图驱动，抽屉 selection_mode 仅作兜底偏好）：
     # - recommend：出候选卡并等待用户确认选择，确认后锁定推进配件/BOM
@@ -318,32 +262,19 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     ext = ctx.get("ext") or {}
     agent_model = str(ext.get("server_model") or "").strip()
     answer = str(ctx.get("last_user_answer") or "").strip()
-    intent = ""
-    if answer:
-        try:
-            from app.services.workflow_intent import resolve_intent
-            _idata = await resolve_intent(answer, str(ctx.get("last_ask_question") or "")[:600])
-            _it = str((_idata or {}).get("intent") or "").strip().lower()
-            _interrupt = await _interrupt_reply(answer, _it, ctx, _idata, broadcast)
-            if _interrupt is not None:
-                return _interrupt
-            if _it == "auto_recommend":
-                intent = "auto_pick"
-            elif _it == "self_config":
-                intent = "self_config"
-            elif _it == "confirm_choice":
-                intent = "choose"
-                ctx["_confirm_choice"] = True
-            elif _it == "refine":
-                intent = "refine"
-            elif _it == "reselect":
-                intent = "reselect"
-            elif _it == "cancel":
-                intent = "cancel"
-        except Exception:
-            intent = _model_selection_intent(answer)
-        if not intent:
-            intent = _model_selection_intent(answer)
+    # 意图已由角色层 _decide_plan_turn 统一判定（存 ctx["plan_intent"]），节点不再重复分类。
+    _pi = str(ctx.get("plan_intent") or "").strip().lower()
+    intent = {
+        "auto_recommend": "auto_pick",
+        "self_config": "self_config",
+        "confirm_choice": "choose",
+        "choose": "choose",
+        "refine": "refine",
+        "reselect": "reselect",
+        "cancel": "cancel",
+    }.get(_pi, _model_selection_intent(answer) if answer else "")
+    if intent == "choose" and _pi == "confirm_choice":
+        ctx["_confirm_choice"] = True
     selection_mode = await _resolve_selection_mode(ctx, config, answer)
     clarity = str(ctx.get("clarity") or "partial").strip().lower()
 
@@ -605,26 +536,21 @@ def _kp_reply_intent(answer: str) -> str:
 
 
 async def _resolve_kp_intent(ctx: dict, answer: str) -> str:
-    """用 LLM 判断配件节点意图，关键词仅作兜底。返回 cancel / reselect_model / confirm / adjust。"""
+    """配件节点意图映射：角色层已统一判定，这里只按 plan_intent 映射，关键词仅作兜底。"""
     text = str(answer or "").strip()
+    pi = str(ctx.get("plan_intent") or "").strip().lower()
+    if pi == "cancel":
+        return "cancel"
+    if pi == "reselect":
+        return "reselect_model"
+    if pi == "confirm_choice":
+        return "confirm"
+    if pi == "refine":
+        return "adjust"
+    if pi in ("self_config", "auto_recommend", "choose"):
+        return "confirm"
     if not text:
         return "confirm"
-    try:
-        from app.services.workflow_intent import resolve_intent
-        data = await resolve_intent(text, str(ctx.get("last_ask_question") or "")[:600])
-        intent = str((data or {}).get("intent") or "").strip().lower()
-        if intent == "cancel":
-            return "cancel"
-        if intent == "reselect":
-            return "reselect_model"
-        if intent == "confirm_choice":
-            return "confirm"
-        if intent == "refine":
-            return "adjust"
-        if intent in ("self_config", "auto_recommend", "choose"):
-            return "confirm"
-    except Exception:
-        pass
     return _kp_reply_intent(text)
 
 
@@ -642,16 +568,6 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
     # 精确执行仍由规则保证（compose 需要完整字段），LLM 输出确认 + 理由。
     from app.services.capabilities import run_kp_reason, run_match_kp_rule
     answer = str(ctx.get("last_user_answer") or "").strip()
-    if answer:
-        try:
-            from app.services.workflow_intent import resolve_intent
-            _idata = await resolve_intent(answer, str(ctx.get("last_ask_question") or "")[:600])
-            _it = str((_idata or {}).get("intent") or "").strip().lower()
-            _interrupt = await _interrupt_reply(answer, _it, ctx, _idata, broadcast)
-            if _interrupt is not None:
-                return _interrupt
-        except Exception:
-            pass
     intent = await _resolve_kp_intent(ctx, answer) if answer else "first"
 
     if intent == "cancel":

@@ -14,14 +14,12 @@ import SlotListEditor from './SlotListEditor.vue'
 import { REASONING_CFG_TYPES, NODE_DEFAULT_CONFIG, nodeArchetype, reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
 
 const MODEL_REASON_DEFAULTS = {
-  selection_mode: 'recommend',
   grounding_tool: 'select_models',
   grounding_result_key: 'candidates',
   choice_id_pattern: 'id=(\\d+)',
   choice_fields: ['config_id', 'server_model_id', 'id'],
 }
 const KP_REASON_DEFAULTS = {
-  proposal_enabled: true,
   temperature: 0.2,
   timeout: 60,
   max_attempts: 1,
@@ -199,14 +197,12 @@ watch(() => props.open, async (v) => {
               ? ['select_parts', 'pick_kp_parts']
               : (NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || []))],
     max_iterations: c.max_iterations ?? (NODE_DEFAULT_CONFIG[activeNodeType.value]?.max_iterations ?? 6),
-    mr_selection_mode: c.selection_mode ?? MODEL_REASON_DEFAULTS.selection_mode,
     mr_grounding_tool: c.grounding_tool ?? MODEL_REASON_DEFAULTS.grounding_tool,
     mr_grounding_result_key: c.grounding_result_key ?? MODEL_REASON_DEFAULTS.grounding_result_key,
     mr_choice_id_pattern: c.choice_id_pattern ?? MODEL_REASON_DEFAULTS.choice_id_pattern,
     mr_choice_fields: Array.isArray(c.choice_fields)
       ? [...c.choice_fields]
       : [...MODEL_REASON_DEFAULTS.choice_fields],
-    kr_proposal_enabled: c.proposal_enabled ?? KP_REASON_DEFAULTS.proposal_enabled,
     kr_temperature: c.temperature ?? KP_REASON_DEFAULTS.temperature,
     kr_timeout: c.timeout ?? KP_REASON_DEFAULTS.timeout,
     kr_max_attempts: c.max_attempts ?? KP_REASON_DEFAULTS.max_attempts,
@@ -264,7 +260,6 @@ function buildConfig(): Record<string, any> | null {
     config.system_prompt = form.value.system_prompt || ''
   }
   if (runtimeType.value === 'model_reason') {
-    config.selection_mode = form.value.mr_selection_mode || MODEL_REASON_DEFAULTS.selection_mode
     config.grounding_tool = form.value.mr_grounding_tool || MODEL_REASON_DEFAULTS.grounding_tool
     config.grounding_result_key = form.value.mr_grounding_result_key || MODEL_REASON_DEFAULTS.grounding_result_key
     config.choice_id_pattern = form.value.mr_choice_id_pattern || MODEL_REASON_DEFAULTS.choice_id_pattern
@@ -281,7 +276,6 @@ function buildConfig(): Record<string, any> | null {
       message.error('配件提议合并映射不是合法 JSON 对象')
       return null
     }
-    config.proposal_enabled = form.value.kr_proposal_enabled !== false
     config.temperature = +form.value.kr_temperature || KP_REASON_DEFAULTS.temperature
     config.timeout = +form.value.kr_timeout || KP_REASON_DEFAULTS.timeout
     config.max_attempts = +form.value.kr_max_attempts || KP_REASON_DEFAULTS.max_attempts
@@ -524,24 +518,14 @@ async function save() {
             </a-form-item>
           </a-form>
 
-          <!-- 机型决策节点：把 grounding 工具、结果字段、选择正则和库外机型短路全部暴露为配置 -->
+          <!-- 机型决策节点：只保留任务契约；选型模式由 AI 角色按用户意图实时判断，不作为可配目标 -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <a-form-item label="选型模式">
-              <a-radio-group v-model:value="form.mr_selection_mode" button-style="solid">
-                <a-radio-button value="recommend">目录推荐</a-radio-button>
-                <a-radio-button value="ai_config">AI 智能选配</a-radio-button>
-                <a-radio-button value="self_config">用户自己配置</a-radio-button>
-              </a-radio-group>
-              <p class="rf-hint">这里是「默认偏好」：AI 会先按用户意图判断该推荐/智能选配/自配，只有 AI 拿不准时才回退到这里的默认值。</p>
-            </a-form-item>
+            <p class="rf-hint">本节点只负责按需求生成候选，并给出「推荐 / 自配 / 智能选配」入口；最终走哪种模式由 AI 角色根据用户意图判断，不在节点里固定。</p>
           </a-form>
 
           <!-- 配件决策节点：LLM 结构化提议的 schema、提示词模板、合并映射全部可配 -->
           <a-form v-else-if="runtimeType === 'kp_reason'" layout="vertical">
-            <a-form-item label="启用 LLM 配件提议">
-              <a-switch v-model:checked="form.kr_proposal_enabled" />
-              <p class="rf-hint">关闭后跳过 LLM 结构化提议，只走规则库校验；提议失败时也会自动降级到规则。</p>
-            </a-form-item>
+            <p class="rf-hint">配件方案由 AI 按需求提议，规则库校验兜底；是否启用 LLM 提议由系统按可用性自动决定，不在节点里固定。</p>
             <a-form-item label="提议提示词模板">
               <a-textarea v-model:value="form.kr_user_prompt_template" :rows="10" placeholder="留空使用后端默认模板" style="font-family: ui-monospace, monospace;" />
               <p class="rf-hint">可用占位符：<code v-pre>{{requirement_text}}</code>、<code v-pre>{{understood}}</code>、<code v-pre>{{baseline_capability}}</code>。</p>

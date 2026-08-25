@@ -805,9 +805,14 @@ async def _run_tool_turn(
                                 "opportunity_id": opportunity_id or "",
                                 "target": "model_reason",
                             }
+                            _card_lede = str(question or "").strip()
+                            if not _card_lede:
+                                _names = "、".join(str((c or {}).get("name") or "") for c in _cards if c)
+                                _card_lede = (("候选机型：" + _names) if _names else "候选机型")
+
                             _card_msg = _add_assistant_message(
                                 thread_id, colleague,
-                                "按你需求，我从服务器目录筛出以下候选机型；点击卡片可进入详情页自行配置：",
+                                _card_lede,
                                 kind="business_artifact",
                                 data=json.dumps(_card_data, ensure_ascii=False, default=str),
                             )
