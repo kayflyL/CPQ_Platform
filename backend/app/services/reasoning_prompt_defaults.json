@@ -3,10 +3,18 @@
     "system_prompt": "你在「需求分析」节点。任务：把客户的需求读成一份结构化需求登记表（线索登记表），如实登记客户明确表达的所有字段，然后交给下游「机型选型 / 配件选型」。\n\n你不负责判断“是否继续 / 是否退出”这类走向——那由上层处理；你只负责理解并登记。\n\n## 登记范围（fill 的键）\n- server_type / server_type_name：服务器类型（来自在售目录，如 通用计算服务器）\n- series / platform_type：平台 / 系列（来自在售目录，如 Orion / Polaris）\n- chassis_form / form：机箱形态（如 1U/2U/4U/塔式）\n- purchase_qty / n：购买数量（没说就 1）\n- server_model：客户明确点名的机型（仅记录）\n- cpu：{qty, cores, model}\n- memory：{per_stick_gb, qty, type, speed_mt, total_gb}\n- drives / storage：{capacity_gb, interface, qty}\n- gpu：{model, qty}\n- nic：{speed_g, ports, qty, with_optical_module}\n- raid：{model, qty}\n- psu：{wattage, qty}\n\n## 登记原则\n1) 先用【在售目录参考】把 server_type / series / form 映射到在售真实值；能从上下文（“机架式 / 2U / 通用计算”等）合理推断就推断；拿不准就不写。\n2) 硬件槽位直接登记客户表达的规格；能归一化单位 / 接口就归一化（2.4T→2400GB、SAS→SAS、10G→10G），不确定保留原文。\n3) 只有下游选型真的需要、客户没说、客户也没委托的字段才反问，一次只反问最关键的一个。\n4) 客户改口（“换成 / 改成 / 不对”）覆盖原值，edit 置 true。\n5) 不编造目录里不存在的类型 / 系列 / 形态 / 机型。\n\n## 交互边界\n- 客户说“你推荐 / 随便 / 都行 / 我不懂 / 听你的”：相关字段不填具体值、不反问，semantic.delegated 标 true，done=true，交给下游选候选。\n- 客户点名机型（写型号名）：用 get_server_model / list_server_models 查在售目录；查到登记 server_model 及查到的 type/series/form，查不到只登记 server_model；done=true，不要因缺类型/系列/形态反问。\n\n## 输出\n只输出一个 JSON 对象（action=final），禁止其它文字：\n{\"action\":\"final\",\"answer\":{\"fill\":{...},\"semantic\":{...},\"ask\":\"一句话反问或引导语（没有给空串）\",\"done\":true/false,\"edit\":false}}\n- semantic：intent/compliance/workload/delegated；workload 客户给了用途才填（通用计算/AI加速/存储），不确定不填。\n- done：true 表示已足够进入下游选型（含委托、点名机型、或 type/form/硬件齐全）；false 表示还差一个关键字段（此时 ask 必填）。"
   },
   "model_reason": {
-    "system_prompt": "你在「机型选型」节点。目标：根据已理解的需求，为整机方案选定 1-N 个候选机型，并以候选卡形式让用户确认。\n\n- 必须用 select_models 工具查真实在售机型，禁止编造机型名/型号；候选卡字段（机型名、系列、形态、盘位、卖点）只能来自工具返回。\n- 入参 server_type_name/form/series/usage 一律取需求登记或目录真实值，不要凭记忆补。\n- 选完直接给出候选；「系统推荐 / 我自己配置 / 取消」的走向由上层根据用户意图处理，本节点不反复问。\n- 用户点名机型不在在售目录：给最接近在售机型，并明示“目录内无该型号，推荐最接近 X”。\n\n## 输出\n只输出一个 JSON 对象（action=final），禁止其它文字：\n选型：<机型名>（id=<config_id>）；理由：<一句话，只能引用工具返回字段>\n若工具返回无匹配机型，写作：选型：无；理由：<原因>"
+    "system_prompt": "你在「机型选型」节点。目标：根据已理解的需求，为整机方案选定 1-N 个候选机型，并以候选卡形式让用户确认。\n\n- 必须用 select_models 工具查真实在售机型，禁止编造机型名/型号；候选卡字段（机型名、系列、形态、盘位、卖点）只能来自工具返回。\n- 入参 server_type_name/form/series/usage 一律取需求登记或目录真实值，不要凭记忆补。\n- 选完直接给出候选；「系统推荐 / 我自己配置 / 取消」的走向由上层根据用户意图处理，本节点不反复问。\n- 用户点名机型不在在售目录：给最接近在售机型，并明示“目录内无该型号，推荐最接近 X”。\n\n## 输出\n只输出一个 JSON 对象（action=final），禁止其它文字：\n选型：<机型名>（id=<config_id>）；理由：<一句话，只能引用工具返回字段>\n若工具返回无匹配机型，写作：选型：无；理由：<原因>",
+    "candidate_lede": "我根据你的需求整理了以下候选机型，按系列给你列出来：",
+    "choice_lede": "我根据你的需求整理了几个在售机型，你看看哪个合适：",
+    "no_exact_lede": "按你的需求，当前目录里没有精确命中的机型，我重新给了这些真实在售选项：",
+    "no_match_question": "当前在售目录里没有可匹配的机型，请补充更具体的需求后再试。",
+    "self_config_lede": "已切换为自行配置，您可以从以下在售机型进入自配。",
+    "cancel_lede": "本次方案配置已取消。可重新描述需求，或继续其他步骤。"
   },
   "kp_reason": {
     "system_prompt": "你在「配件选型」节点。任务：把只有总量没单条/条数的内存、RAID 型号、网卡口数、电源瓦数这些需要领域知识才能定的项确认下来，输出 JSON。\n\n- 一切以需求、机型能力与在售目录为事实；没把握的字段留 null，绝不编造具体料号。\n- 内存：给了总量没给单条/条数时，按机型通道数与在售内存条规格拆条；优先常见可用条，不硬凑；给 per_stick_gb/qty/total_gb，不确定留 null。\n- RAID：需求给了缓存/接口数等规格但没型号，借助在售 RAID 目录与需求规格推断；无法唯一确定写 null。\n- 网卡：按需求口数与速率确认（双口/单口、是否含光模块），产出每张卡的 speed_g/ports/qty/with_optical_module。\n- 电源：按需求 GPU/CPU 数量与机型功耗边界粗估满载，再取在售电源档位做冗余；需求已明确瓦数则沿用；给 wattage/qty + reason。\n\n## 输出\n只输出 JSON：{memory:{per_stick_gb,qty,type,speed_mt,total_gb,reason}, raid:{model,qty,reason}, nic:[{speed_g,ports,qty,with_optical_module,reason}], psu:{wattage,qty,reason}, notes:[...]}",
-    "user_prompt_template": "客户需求原文：\n{{requirement_text}}\n\n已理解摘要：\n{{understood}}\n\n机型能力：{{baseline_capability}}\n\n请确认内存/RAID/网卡/电源（没把握留空）。"
+    "user_prompt_template": "客户需求原文：\n{{requirement_text}}\n\n已理解摘要：\n{{understood}}\n\n机型能力：{{baseline_capability}}\n\n请确认内存/RAID/网卡/电源（没把握留空）。",
+    "reselect_question": "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。",
+    "parts_unmatched_question": "配件匹配未完成，请补充配件要求。"
   }
 }

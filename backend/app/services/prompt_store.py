@@ -90,7 +90,11 @@ def get_prompt_defaults(node: str) -> dict:
     raw = dict(raw) if isinstance(raw, dict) else {}
     if node == "agent_fill":
         raw = _migrate_agent_fill(raw, node)
-    return raw
+    out = dict(_seed_file().get(node) or {})
+    for key, value in raw.items():
+        if value is not None and (not isinstance(value, str) or value.strip()):
+            out[key] = value
+    return out
 
 
 def merge_node_prompt(node: str, config: Optional[dict]) -> dict:

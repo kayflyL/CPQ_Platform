@@ -376,6 +376,28 @@ def _add_assistant_message(
         repo.close()
 
 
+def _catalog_model_cards() -> list:
+    """从在售目录构造可跳转自配的机型候选卡（只取数据，不决定选哪个）。"""
+    try:
+        from app.services.catalog_guide import load_catalog
+        _types, _models_by_type = load_catalog()
+    except Exception:
+        return []
+    cards = []
+    for _t in (_types or []):
+        for _m in (_models_by_type.get(str(_t.get("name") or "")) or []):
+            if not isinstance(_m, dict):
+                continue
+            _bc = _m.get("base_config") or {}
+            cards.append({
+                "config_id": _m.get("id"),
+                "name": _m.get("name") or "",
+                "series": _bc.get("series") or _m.get("series") or "",
+                "form": _bc.get("form") or _m.get("form") or "",
+            })
+    return cards
+
+
 async def mark_self_config_flow(thread_id: str, colleague: Optional[dict]) -> Optional[dict]:
     """候选卡“去配置这台服务器”点击后，把当前待机型 workflow 置为 self_config 并跳过下游 BOM。
 
@@ -385,7 +407,11 @@ async def mark_self_config_flow(thread_id: str, colleague: Optional[dict]) -> Op
     if not pending:
         return None
     _clear_pending_workflow(thread_id)
-    self_text = "已切换为自行配置。可在服务器详情页完成配置；如需继续组装 BOM，再回来告知。"
+    try:
+        from app.services import prompt_store
+        self_text = str(prompt_store.get_prompt_defaults("model_reason").get("self_config_lede") or "")
+    except Exception:
+        self_text = ""
     _add_assistant_message(thread_id, colleague, self_text)
     role_key = str((colleague or {}).get("role_key") or "assistant")
     await assistant_hub.broadcast(thread_id, {
@@ -919,7 +945,11 @@ async def _run_tool_turn(
             return "系统已向用户发起澄清提问，请等待用户补充信息后再继续。"
         if ctx.get("flow_exit") == "cancelled":
             _clear_pending_workflow(thread_id)
-            cancel_text = "本次方案配置已取消。可重新描述需求，或继续其他步骤。"
+            try:
+                from app.services import prompt_store
+                cancel_text = str(prompt_store.get_prompt_defaults("model_reason").get("cancel_lede") or "")
+            except Exception:
+                cancel_text = ""
             _add_assistant_message(thread_id, colleague, cancel_text)
             await raw_broadcast({"type": "analysis_cancelled", "message": cancel_text})
             await publish_office_event(role_key, "done", "已取消方案配置", thread_id=thread_id)
@@ -927,12 +957,39 @@ async def _run_tool_turn(
             return "已取消本次方案配置。"
         if ctx.get("flow_exit") == "self_config":
             _clear_pending_workflow(thread_id)
-            self_text = "已切换为自行配置。可在服务器详情页完成配置；如需继续组装 BOM，再回来告知。"
+            try:
+                from app.services import prompt_store
+                self_text = str(prompt_store.get_prompt_defaults("model_reason").get("self_config_lede") or "")
+            except Exception:
+                self_text = ""
             _add_assistant_message(thread_id, colleague, self_text)
+            _cards = _catalog_model_cards()
+            if _cards:
+                try:
+                    _card_data = {
+                        "entity_type": "model_candidates",
+                        "entity": {"candidates": _cards, "question": self_text},
+                        "opportunity_id": opportunity_id or "",
+                        "target": "server_config",
+                    }
+                    _card_msg = _add_assistant_message(
+                        thread_id, colleague, self_text,
+                        kind="business_artifact",
+                        data=json.dumps(_card_data, ensure_ascii=False, default=str),
+                    )
+                    await assistant_hub.broadcast(thread_id, {
+                        "type": "business_entity_ready",
+                        "entity_type": "model_candidates",
+                        "entity": _card_data,
+                        "opportunity_id": opportunity_id or "",
+                        "message": _card_msg,
+                    })
+                except Exception:
+                    logger.exception("self_config catalog card broadcast failed")
             await raw_broadcast({"type": "analysis_finished", "message": self_text, "exit": "self_config"})
             await publish_office_event(role_key, "done", "用户选择自行配置机型", thread_id=thread_id)
             workflow_result_sent["value"] = True
-            return "用户选择自行配置机型，下游 BOM 节点已跳过。"
+            return "用户选择自行配置机型。"
         downstream = await downstream_guard(handoff)
         if downstream:
             target_role = str(downstream.get("target_role") or "更高权限的 AI 角色")
@@ -1068,13 +1125,19 @@ async def _run_tool_turn(
             action = routed_rule.get("action") if isinstance(routed_rule.get("action"), dict) else {}
             conversation_input = conversation_text(history)
             requirement_source = str(action.get("requirement_source") or "current_or_conversation").strip()
-            if requirement_source == "conversation":
+            if routed_key == "requirement_analysis":
+                # 进入 BOM 流水线前，优先用完整会话上下文预填线索登记表；当前这句话作为补充信息合并。
                 requirement_text = conversation_input or user_text
+                supplement_text = "" if requirement_text == conversation_input else user_text
+            elif requirement_source == "conversation":
+                requirement_text = conversation_input or user_text
+                supplement_text = "" if requirement_text == conversation_input else user_text
             elif requirement_source in {"current_or_conversation", "conversation_or_current"}:
                 requirement_text = user_text or conversation_input
+                supplement_text = "" if requirement_text == conversation_input else conversation_input
             else:
                 requirement_text = user_text or conversation_input
-            supplement_text = "" if requirement_text == conversation_input else conversation_input
+                supplement_text = "" if requirement_text == conversation_input else conversation_input
             await workflow_runner({
                 "requirement_text": requirement_text,
                 "skill_key": routed_key,

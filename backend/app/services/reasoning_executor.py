@@ -317,6 +317,11 @@ def _model_reason_matches(baselines: list) -> list:
 def _model_reason_display(config: dict) -> dict:
     """机型展示白盒参：按系列分组 / 每组限量 / 介绍字数 / 是否附详情页链接。"""
     cfg = dict(config or {})
+    try:
+        from app.services import prompt_store
+        _defaults = prompt_store.get_prompt_defaults("model_reason")
+    except Exception:
+        _defaults = {}
     return {
         "group_by_series": bool(cfg.get("group_by_series", True)),
         "per_series_limit": max(1, int(cfg.get("per_series_limit") or 2)),
@@ -324,6 +329,11 @@ def _model_reason_display(config: dict) -> dict:
         "show_detail_link": bool(cfg.get("show_detail_link", True)),
         "model_ask_phrase": str(cfg.get("model_ask_phrase") or "").strip(),
         "detail_link_phrase": str(cfg.get("detail_link_phrase") or "").strip(),
+        "candidate_lede": str(cfg.get("candidate_lede") or _defaults.get("candidate_lede") or "").strip(),
+        "choice_lede": str(cfg.get("choice_lede") or _defaults.get("choice_lede") or "").strip(),
+        "no_exact_lede": str(cfg.get("no_exact_lede") or _defaults.get("no_exact_lede") or "").strip(),
+        "no_match_question": str(cfg.get("no_match_question") or _defaults.get("no_match_question") or "").strip(),
+        "self_config_lede": str(cfg.get("self_config_lede") or _defaults.get("self_config_lede") or "").strip(),
     }
 
 
@@ -426,7 +436,7 @@ async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, 
         _lines.append(f"{s}：")
         for b in grouped[s]:
             _lines.append("  " + str(b.get("name") or "") + "（" + str(b.get("form") or "") + "）")
-    _preamble = "我根据你的需求整理了以下候选机型，按系列给你列出来："
+    _preamble = str(display.get("candidate_lede") or "")
     body = _preamble + "\n" + "\n".join(_lines)
     question = body
     ctx["awaiting_input"] = True
@@ -441,7 +451,7 @@ async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, 
         try:
             await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
                              "options": [f"{i + 1}. {b.get('name')}" for i, b in enumerate(_baselines)],
-                             "why": "机型选型需要用户确认或选择自己配置",
+                             "why": "机型选型需要用户确认候选",
                              "candidates": _baselines})
         except Exception:
             pass
@@ -449,33 +459,12 @@ async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, 
             "question": question, "reason": "等待用户确认候选机型"}
 
 
-async def _ask_model_intro(ctx: dict, baseline: dict, rule_res: dict, broadcast: BroadcastFn, display: dict) -> dict:
-    """用户已选机型：介绍详情 + 问自配/智能配；不推候选卡，只发一次文字。"""
-    _intro = await _model_detail_intro(ctx, baseline, display)
-    _preamble = "这台机器的特点如下："
-    _ask_phrase = str(display.get("model_ask_phrase") or "").strip()
-    _ask = _ask_phrase if _ask_phrase else "你可以自己配置，也可以让我帮你系统智能配。"
-    question = _preamble + "\n" + _intro + "\n" + _ask
-    ctx["awaiting_input"] = True
-    ctx["current_target"] = "model_reason"
-    ctx["model_phase"] = "await_mode"
-    ctx["last_ask_question"] = question
-    ctx["model_reason"] = {"source": "intro", "baseline": baseline,
-                           "reason": "等待用户选择自配或智能配"}
-    if broadcast:
-        try:
-            await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
-                             "options": ["我自己配置", "智能配", "取消"], "why": "请选择配置方式"})
-        except Exception:
-            pass
-    return {"count": 1, "matches": _model_reason_matches([baseline]), "source": "intro",
-            "question": question, "reason": "等待用户选择自配或智能配"}
 
 
 async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     """方案A：机型选型节点不再起独立 LLM（run_model_reason 已弃用）。节点只做：
-    真实候选（select_models）按系列分组列出 -> 用户选机后介绍详情并问“自配/智能配”；
-    出口（自配/取消/智能配）由角色层 plan_intent 判定，关键词仅在 LLM 不可用时兜底。
+    真实候选（select_models）按系列分组列出 -> 用户确认机型后锁定并继续配件/BOM；
+    出口（自配/取消）由角色层 plan_intent 判定，关键词仅在 LLM 不可用时兜底。
     """
     from app.services.capabilities import run_select_baseline_rule, _model_reason_config
     ext = dict(ctx.get("ext") or {})
@@ -492,7 +481,7 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         ctx["baselines"] = []
         ctx["model_reason"] = {"source": "self_config", "reason": "用户选择自己配置"}
         return {"count": 0, "matches": [], "source": "self_config",
-                "reason": "用户选择自己配置，下游 BOM 节点已跳过"}
+                "reason": "用户选择自己配置"}
     if intent == "cancel":
         ctx["flow_exit"] = "cancelled"
         ctx["awaiting_input"] = False
@@ -500,36 +489,7 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         ctx["model_reason"] = {"source": "cancelled", "reason": "用户取消方案配置"}
         return {"count": 0, "matches": [], "source": "cancelled", "reason": "已取消方案配置"}
 
-    phase = str(ctx.get("model_phase") or "").strip()
-
-    # 已锁机型、正等“自配/智能配”：用户说智能配就交下游，说自配/取消就走出口。
-    if phase == "await_mode":
-        _locked = ctx.get("_locked_baseline") or {}
-        if intent == "self_config":
-            ctx["flow_exit"] = "self_config"
-            ctx["awaiting_input"] = False
-            ctx["baselines"] = []
-            ctx["model_reason"] = {"source": "self_config", "reason": "用户选择自己配置"}
-            return {"count": 0, "matches": [], "source": "self_config",
-                    "reason": "用户选择自己配置，下游 BOM 节点已跳过"}
-        if intent == "cancel":
-            ctx["flow_exit"] = "cancelled"
-            ctx["awaiting_input"] = False
-            ctx["baselines"] = []
-            ctx["model_reason"] = {"source": "cancelled", "reason": "用户取消方案配置"}
-            return {"count": 0, "matches": [], "source": "cancelled", "reason": "已取消方案配置"}
-        if intent in ("auto_pick", "choose", "confirm_choice") and _locked:
-            ctx["baselines"] = [_locked]
-            ctx["model_selection"] = {"id": _locked.get("id"), "name": _locked.get("name") or ""}
-            ctx["model_reason"] = {"source": "user_pick", "baseline": _locked,
-                                   "reason": "用户选择智能配，已锁定机型 " + (_locked.get("name") or "")}
-            ctx["awaiting_input"] = False
-            return {"count": 1, "matches": _model_reason_matches([_locked]),
-                    "source": "user_pick", "reason": "已按你的选择锁定机型，继续配件选配"}
-        rule_res = run_select_baseline_rule(ctx, config)
-        return await _ask_model_intro(ctx, _locked, rule_res, broadcast, display)
-
-    # 首次 / await_choice：用户明确委托“你推荐/帮我选好并继续”，直接锁首台交下游 BOM。
+    # 首次 / 用户明确委托“你推荐/帮我选好并继续”：直接锁首台交下游 BOM。
     if intent == "auto_pick":
         rule_res = run_select_baseline_rule(ctx, config)
         _baselines = _group_baselines(ctx.get("baselines") or [], display)
@@ -557,7 +517,12 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         if locked:
             ctx["baselines"] = [locked]
             ctx["_locked_baseline"] = locked
-            return await _ask_model_intro(ctx, locked, rule_res, broadcast, display)
+            ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
+            ctx["model_reason"] = {"source": "user_pick", "baseline": locked,
+                                   "reason": "用户已锁定机型 " + (locked.get("name") or "")}
+            ctx["awaiting_input"] = False
+            return {"count": 1, "matches": _model_reason_matches([locked]),
+                    "source": "user_pick", "reason": "已按你的选择锁定机型，继续配件选配"}
 
     # 默认：列出候选（按系列分组、每组限量），一次广播候选卡。
     return await _ask_model_choice_grouped(ctx, _baselines, rule_res, broadcast, display)
@@ -585,9 +550,9 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
             baselines = _browse
             ctx["baselines"] = baselines
             rule_res = {**rule_res, "count": len(baselines)}
-            _preamble = "按你的需求，当前目录里没有精确命中的机型，我重新给了这些真实在售选项："
+            _preamble = str(display.get("no_exact_lede") or "")
         else:
-            question = _fz_block + "当前在售目录里没有可匹配的机型，请补充更具体的需求后再试。"
+            question = _fz_block + str(display.get("no_match_question") or "")
             ctx["awaiting_input"] = True
             ctx["current_target"] = "model_reason"
             ctx["last_ask_question"] = question
@@ -603,7 +568,7 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
 
     options = [f"{i + 1}. {b.get('name') or ''}（{b.get('series') or ''}/{b.get('form') or ''}）"
                for i, b in enumerate(baselines[:5])]
-    _preamble = fallback or "我根据你的需求整理了几个在售机型，你看看哪个合适："
+    _preamble = fallback or str(display.get("choice_lede") or "")
     body = _preamble + "\n" + "\n".join(options)
     question = _fz_block + body
     ctx["awaiting_input"] = True
@@ -614,8 +579,8 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
     if broadcast:
         try:
             await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
-                             "options": options + ["我自己配置", "重选机型", "取消"],
-                             "why": "机型选型需要用户确认或选择自己配置",
+                             "options": options + ["重选机型", "取消"],
+                             "why": "机型选型需要用户确认候选",
                              "candidates": baselines})
         except Exception:
             pass
@@ -687,6 +652,11 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
     # 配件推理（AI 路）：LLM 提议 + 规则校验后先让用户确认；用户可改口、重选机型或取消。
     # 精确执行仍由规则保证（compose 需要完整字段），LLM 输出确认 + 理由。
     from app.services.capabilities import run_kp_reason, run_match_kp_rule
+    try:
+        from app.services import prompt_store
+        _kp_defaults = prompt_store.get_prompt_defaults("kp_reason")
+    except Exception:
+        _kp_defaults = {}
     answer = str(ctx.get("last_user_answer") or "").strip()
     intent = await _resolve_kp_intent(ctx, answer) if answer else "first"
 
@@ -699,7 +669,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         # 回到上一节点重新挑机型：本轮先暂停，pending 的 current_target 会保存为 model_reason。
         ctx["awaiting_input"] = True
         ctx["current_target"] = "model_reason"
-        ctx["last_ask_question"] = "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。"
+        ctx["last_ask_question"] = str(_kp_defaults.get("reselect_question") or "")
         ctx["model_selection"] = None
         ctx["baselines"] = []
         ctx["kp_reason"] = {"source": "reselect_model", "reason": "用户要求重新选择机型"}
@@ -724,21 +694,24 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         parts = ctx.get("kp_parts") or []
         ctx["kp_reason"] = {**rule_res, "source": "llm+rule" if res.get("ok") else "rule",
                             "proposal_reason": res.get("reason") or ""}
-        if ctx.get("force_complete") or ctx.get("delegated"):
-            return {**rule_res, "source": "confirmed", "reason": "配件方案已确认", "kp_count": len(parts)}
+        # 确定性选件完成后直接交给 compose 组装 BOM；只有完全没匹配到、或出现未匹配项时才停下。
+        if ctx.get("force_complete") or ctx.get("delegated") or rule_res.get("kp_count"):
+            if not rule_res.get("unmatched_count"):
+                ctx["kp_reason"] = {**ctx["kp_reason"], "source": "confirmed"}
+                ctx["awaiting_input"] = False
+                return {**rule_res, "source": "confirmed", "reason": "配件方案已确认", "kp_count": len(parts)}
         lines = _kp_summary_lines(parts)
-        _lede = "我按你的需求整理了一份配件清单，你看看是否合适："
-        question = _lede + "\n" + ("\n".join(lines) if lines else "（暂未匹配到明确配件）")
+        question = str(_kp_defaults.get("parts_unmatched_question") or "") + "\n" + ("\n".join(lines) if lines else "")
         ctx["awaiting_input"] = True
         ctx["current_target"] = "kp_reason"
         ctx["last_ask_question"] = question
         if broadcast:
             try:
                 await broadcast({"type": "need_confirm", "step": "kp_reason", "question": question,
-                                 "options": ["确认", "重新选机型", "取消"], "why": "生成 BOM 前请确认配件方案"})
+                                 "options": ["重新选机型", "取消"], "why": "配件匹配未完成"})
             except Exception:
                 pass
-        return {**rule_res, "source": "confirm_parts", "question": question, "reason": "等待用户确认配件方案"}
+        return {**rule_res, "source": "confirm_parts", "question": question, "reason": "等待用户补充配件要求"}
 
     # 用户确认/直接继续：用当前已确认的配件结果交给 compose。
     rule_res = run_match_kp_rule(ctx, config)
