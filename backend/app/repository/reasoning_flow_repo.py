@@ -86,6 +86,12 @@ def _requirement_analysis_node_configs() -> dict:
             "grounding_result_key": "candidates",
             "choice_id_pattern": "id=(\d+)",
             "choice_fields": ["config_id", "server_model_id", "id"],
+            "group_by_series": True,
+            "per_series_limit": 2,
+            "intro_max_chars": 180,
+            "show_detail_link": True,
+            "model_ask_phrase": "你可以自己配置，也可以让我帮你系统智能配。",
+            "detail_link_phrase": "点击卡片或回复“我自己配置”可进入详情页查看完整参数。",
             "rule_types": ["fallback_order", "gpu_form_map", "compliance_map", "type_package"],
         },
         "kp_reason": {

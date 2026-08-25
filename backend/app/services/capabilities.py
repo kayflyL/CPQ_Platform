@@ -62,6 +62,12 @@ DEFAULT_MODEL_REASON_CONFIG = {
     "grounding_result_key": "candidates",
     "choice_id_pattern": r"id=(\d+)",
     "choice_fields": ["config_id", "server_model_id", "id"],
+    "group_by_series": True,
+    "per_series_limit": 2,
+    "intro_max_chars": 180,
+    "show_detail_link": True,
+    "model_ask_phrase": "",
+    "detail_link_phrase": "",
 }
 
 DEFAULT_COMPOSE_CONFIG = {
@@ -102,100 +108,6 @@ def _model_reason_config(config: Optional[dict]) -> dict:
     return cfg
 
 
-def _extract_grounding_from_react(tool_calls_log: list, config: Optional[dict] = None) -> list:
-    """从 ReAct 工具轨迹收集候选清单；工具名与结果字段由节点配置指定。"""
-    cfg = _model_reason_config(config)
-    candidates = []
-    for c in tool_calls_log or []:
-        if c.get("name") != cfg.get("grounding_tool"):
-            continue
-        res = c.get("result")
-        if not isinstance(res, dict):
-            continue
-        result_key = str(cfg.get("grounding_result_key") or "candidates")
-        values = res.get(result_key)
-        if isinstance(values, list):
-            candidates.extend(values)
-    return candidates
-
-
-def _parse_model_choice(answer: str, candidates: list, config: Optional[dict] = None) -> Optional[dict]:
-    """从 LLM final.answer 解析选中的机型；id 正则与候选字段由节点配置指定。"""
-    cfg = _model_reason_config(config)
-    if not answer:
-        return None
-    # 显式 id=xxx（正则与候选字段可配）
-    try:
-        pattern = str(cfg.get("choice_id_pattern") or DEFAULT_MODEL_REASON_CONFIG["choice_id_pattern"])
-        m = re.search(pattern, answer, re.I)
-        if m:
-            raw = m.group(1) if m.lastindex and m.lastindex >= 1 else m.group(0)
-            cid = int(raw) if str(raw).isdigit() else raw
-            fields = [str(f) for f in (cfg.get("choice_fields") or []) if f]
-            for c in candidates:
-                if any(c.get(field) == cid for field in fields):
-                    return c
-    except re.error:
-        pass
-    # 名称匹配（精确/包含）
-    low = answer.lower()
-    best = None
-    for c in candidates:
-        nm = str(c.get("name") or "")
-        if nm and (nm.lower() in low or low in nm.lower()):
-            if best is None or len(nm) > len(str(best.get("name") or "")):
-                best = c
-    return best
-
-
-async def run_model_reason(ctx: dict, config: dict, broadcast=None) -> dict:
-    """机型推理：AI 开 → ReAct 调 select_models 选机型 + 理由；AI 关/失败 → {ok:False} 由上层降级规则。
-
-    返回 {ok, baseline, reason, trace, source}。ok=False 时上层走 select_baseline 规则。
-    """
-    from app.services.agent_react import run_react_loop
-    cfg = _model_reason_config(config)
-    text = ctx.get("requirement_text") or ""
-    ext = ctx.get("ext") or {}
-    scene = ctx.get("scene") or {}
-    if not _ai_enabled(ctx, cfg):
-        return {"ok": False, "source": "rule"}
-    if ctx.get("delegated"):
-        # 客户已委托推荐 → 不再反问（编排层已拦截，这里兜底）
-        return {"ok": False, "source": "delegated"}
-    # 构建检索意图上下文（已理解槽位 + 场景判定）
-    intent = {
-        "server_type_name": ctx.get("catalog_type_name") or scene.get("scene_name") or ext.get("server_type_name"),
-        "series": scene.get("series") or ext.get("series"),
-        "form": scene.get("form") or ext.get("form"),
-        "usage": ext.get("usage"),
-    }
-    extra = "已理解需求意图：" + json.dumps({k: v for k, v in intent.items() if v}, ensure_ascii=False)
-    persona = (ctx.get("colleague_system_prompt") or "").strip()
-    base_prompt = str(cfg.get("system_prompt") or "")
-    if persona:
-        base_prompt = persona + "\n\n" + base_prompt
-    agent_cfg = {
-        "enabled_tools": cfg.get("enabled_tools") or [str(cfg.get("grounding_tool"))],
-        "system_prompt": base_prompt,
-    }
-    try:
-        react = await run_react_loop(text, agent_cfg, extra_context=extra,
-                                     max_iterations=int(cfg.get("max_iterations") or 2),
-                                     allowed_tool_ids=ctx.get("colleague_tool_ids"),
-                                     model=ctx.get("colleague_model_override"),
-                                     event_sink=broadcast)
-        candidates = _extract_grounding_from_react(react.get("tool_calls_log") or [], cfg)
-        chosen = _parse_model_choice(react.get("answer") or "", candidates, cfg)
-        if react.get("ok") and chosen:
-            return {
-                "ok": True, "baseline": chosen, "reason": react.get("answer") or "",
-                "trace": react.get("tool_calls_log") or [], "source": "llm",
-            }
-        logger.warning("model_reason LLM 未收敛/未选中机型，降级规则（answer=%r）", react.get("answer"))
-    except Exception as e:
-        logger.exception("model_reason 失败，降级规则: %s", e)
-    return {"ok": False, "source": "rule"}
 
 
 # ── KP「LLM 提议 + 库校验」（2026-08 改革·Phase1 核心）──────────────────
@@ -922,37 +834,35 @@ AGENT_FILL_FINAL_CONTRACT = (
 )
 
 
-async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str = "agent_fill") -> dict:
-    """智能对话填表 Agent（ReAct 形态，不再兼容旧槽位状态机）。
+async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> dict:
+    """外层 AI 角色抽槽（方案A）：把用户原话理解成结构化需求槽位。
 
-    - 完整会话历史 + 目录/KP 工具 + 当前草稿/缺口一起交给 agent。
-    - agent 调工具查证（是否在售、系列归属、配件），可一次批量填多槽，可改口。
-    - 最后输出结构化 {fill, ask, done, edit}；执行器落地并决定是否反问。
-    - LLM 不可用时不回退白名单正则，直接返回 error 交给调用方。
+    仅做一次 LLM 结构化抽取（无工具调用），不负责措辞/节点后续判定。
+    结果落进 ctx.ext / ctx.requirement，并返回 {fill, missing_critical, done, ask}。
+    这是「AI 角色填表 + 节点纯工具/契约/校验」的填表层。
     """
-    from app.services.slot_contract import _missing_critical, slot_label
-    from app.services.slot_state import is_confirmed
+    from app.services.slot_contract import _missing_critical, slot_label, slot_spec
     from app.services import prompt_store
     from app.services.agent_react import run_react_loop
-    config = prompt_store.merge_node_prompt("agent_fill", config or {})
 
+    config = prompt_store.merge_node_prompt("agent_fill", config or {})
     req_text = str(ctx.get("requirement_text") or ctx.get("normalized_text") or "").strip()
     ext = dict(ctx.get("ext") or {})
-    from app.services.slot_contract import slot_spec
+
     req_keys = {s.get("key") for s in slot_spec() if s.get("src_type") != "kp" and s.get("key") != "server_model"}
     prev_missing = list(ctx.get("missing_fields") or [])
-    missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
-    confirmed_text = _confirmed_text(ext)
+    missing = [m for m in _missing_critical(ext) if m in req_keys and not _slot_now_filled(ext, m)]
     missing_labels = [slot_label(m) for m in missing]
+
+    confirmed_text = _confirmed_text(ext)
     extra = (
         "当前线索登记表草稿：\n" + (confirmed_text or "（尚未填写）") +
         "\n\n还缺（参考，不必按顺序问）：" + ("、".join(missing_labels) or "无") +
-        "\n\n任务：只登记客户已明确表达的需求层字段；缺的只反问“必填且未委托”的字段；客户委托（你随便/都行）就留空交下游，不要编造具体值；客户改口就覆盖草稿。"
+        "\n\n任务：只登记客户已明确表达的需求层字段；缺的只反问“必填且未委托”的字段；客户委托（你随便/都行）就留空交下游；客户改口就覆盖草稿。"
     )
     extra += _semantic_ref_text(config, req_text)
 
-    # 智能体要有「可推理的数据」：把在售目录的类型/系列/形态喂给模型，并列出全部应填槽位，
-    # 让它把用户需求映射到在售字段，而不是靠文本猜。数据全部来自目录/契约，代码不写死业务词。
+    # 在售目录参考：把类型/系列/形态喂给模型，让它把用户需求映射到在售字段。
     _cat_block = ""
     try:
         from app.services.catalog_guide import load_catalog
@@ -980,33 +890,15 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     except Exception:
         _cat_block = ""
 
-    # 全部应填槽位（基本信息 + 部件），明确告诉模型该抽什么。
-    _slot_guide = []
-    _seen = set()
-    for _s in slot_spec():
-        _k = _s.get("key")
-        if _k and _k != "server_model" and _k not in _seen:
-            _seen.add(_k)
-            _slot_guide.append(f"{_k}({_s.get('label') or _k})")
-    for _sk in ("cpu", "memory", "drives", "gpu", "nic", "raid", "psu"):
-        if _sk not in _seen:
-            _seen.add(_sk)
-            _slot_guide.append(_sk)
-    _fill_guide = ("请按此映射本次确认的字段：" + "、".join(_slot_guide)
-                   if _slot_guide else "")
-    if _cat_block or _fill_guide:
-        extra += _cat_block + (("\n\n" + _fill_guide) if _fill_guide else "")
     _prompt = config.get("prompt") or {}
     sys_prompt = str(_prompt.get("system_prompt") or "").strip() or str(
         prompt_store.get_prompt_defaults("agent_fill").get("system_prompt") or "")
-    tools = list(config.get("enabled_tools") or capability_spec.default_tools("agent_fill"))
 
     async def _sink(ev: dict) -> None:
         if not broadcast:
             return
         try:
-            await broadcast({"type": "step_progress", "step": step_id,
-                             "sub": ev.get("sub") or {}})
+            await broadcast({"type": "step_progress", "step": "agent_fill", "sub": ev.get("sub") or {}})
         except Exception:
             pass
 
@@ -1015,8 +907,8 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         config={**config, "enabled_tools": []},
         system_prompt=sys_prompt,
         history=ctx.get("history") or [],
-        extra_context=extra,
-        max_iterations=min(int(config.get("max_iterations") or 2), 2),
+        extra_context=extra + _cat_block,
+        max_iterations=1,
         event_sink=_sink,
         final_only=True,
         final_only_contract=AGENT_FILL_FINAL_CONTRACT,
@@ -1026,9 +918,8 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         json.dumps(raw_answer, ensure_ascii=False)
         if isinstance(raw_answer, (dict, list)) else str(raw_answer))
     if not result.get("ok"):
-        error = str(result.get("error") or (agent_answer if agent_answer else "agent_fill 不可用"))[:200]
-        return {"ok": False, "error": error, "source": step_id,
-                "sufficient": False, "missing_critical": missing}
+        return {"ok": False, "error": str(result.get("error") or (agent_answer if agent_answer else "需求抽取不可用"))[:200],
+                "missing_critical": missing, "sufficient": False, "source": "agent_fill"}
 
     parsed = agent_answer if isinstance(agent_answer, dict) else _extract_agent_fill_json(agent_answer)
     fill = parsed.get("fill") if isinstance(parsed.get("fill"), dict) else {}
@@ -1037,8 +928,6 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     edit = bool(parsed.get("edit", False))
 
     from app.services import semantic_contract as _sc
-    # 输出格式收口：模型回的 semantic 子对象按契约 schema 验证，
-    # 非法类型/未知字段/非法枚举一律丢弃（如 workload 被写成字符串 → 丢弃，保留已有结构化值）。
     _sem_raw = parsed.get(_sc.container_key())
     if isinstance(_sem_raw, dict):
         from app.services.llm_client import clean_by_schema
@@ -1053,70 +942,24 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
         except Exception:
             pass
     _enrich_agent_semantic(ext, config, req_text)
-    # 可行性护栏在理解阶段即触发，冲突不等到机型选型才提示。
-    try:
-        from app.services.feasibility_guard import check_feasibility
-        _fz = check_feasibility(ext, config)
-        if _fz.get("warnings") or _fz.get("hints"):
-            ctx["feasibility"] = _fz
-    except Exception:
-        pass
-    ctx["ext"] = ext
     _freeze_requirement(ctx, ext, req_text)
-    ctx["agent_fill_trace"] = result.get("tool_calls_log") or []
+    ctx["ext"] = ext
 
-    missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
-    ctx["missing_fields"] = missing
-    # 反问收敛：这是对上一个追问的补充回答，且缺口集合与上一轮完全一致（用户答了但没填上该字段）
-    # → 停止机械重复追问，带着“可默认”的 partial 清晰度交给下游，由下游按目录默认/放宽处理。
-    _no_progress = bool(ctx.get("last_user_answer")) and bool(prev_missing) and sorted(missing) == sorted(prev_missing)
-    ctx["converged"] = bool(_no_progress)
-    need_ask = bool(missing) and not done and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress and not _has_recommend_signal(ext)
-    _fz_block = ""
-    _fz = ctx.get("feasibility") or {}
-    _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
-    if _fz_lines:
-        _fz_block = chr(10).join(_fz_lines) + chr(10)
-    if need_ask:
-        question = ask or ("还有几个关键信息待确认：" + "、".join(
-            [slot_label(m) for m in missing]))
-        if _fz_block:
-            question = _fz_block + question
-        import uuid
-        rid = f"agent_{uuid.uuid4().hex[:12]}"
-        ctx["awaiting_input"] = True
-        ctx["last_reply_id"] = rid
-        ctx["last_ask_question"] = question
-        if broadcast:
-            try:
-                await broadcast({"type": "need_input", "reply_id": rid, "question": question,
-                                 "options": None, "why": "", "missing_fields": missing,
-                                 "source": "agent_fill"})
-            except Exception:
-                pass
-        return {"ok": True, "question": question, "options": None, "source": step_id,
-                "sufficient": False, "missing_critical": missing, "agent_answer": agent_answer}
+    new_missing = [m for m in _missing_critical(ext) if m in req_keys and not _slot_now_filled(ext, m)]
+    return {
+        "ok": True, "source": "agent_fill", "done": done, "ask": ask,
+        "fill": fill, "missing_critical": new_missing, "sufficient": not new_missing,
+        "delegated": bool((ext.get("semantic") or {}).get("delegated")),
+    }
 
-    has_model = bool(ext.get("server_model") or ext.get("model"))
-    ctx["customer_specified_model"] = has_model
-    if ctx.get("delegated"):
-        # 客户已委托（你推荐/都行）→ 需求“模糊”不再等同于“无法下手”，交给下游推荐，不判 unclear。
-        ctx["clarity"] = "delegated"
-    elif ctx.get("converged"):
-        # 客户反复没答上同个字段 → 不再卡住，按“已有信息可下沉”继续，由下游给默认/放宽。
-        ctx["clarity"] = "partial"
-    elif has_model:
-        # 客户点名机型是强信号：不再因缺类型/系列/形态把它打成 unclear，交给下游按名称确认/找最近似。
-        ctx["clarity"] = "explicit"
-    elif missing and not done and not _has_recommend_signal(ext):
-        ctx["clarity"] = "unclear"
-    elif missing:
-        # 模型自评 done=true：即使还有非硬性缺口（如未给系列），也视为可下沉，交下游得出候选。
-        ctx["clarity"] = "partial"
-    else:
-        ctx["clarity"] = "explicit" if has_model else "partial"
-    return {"ok": True, "source": step_id, "sufficient": bool(not missing),
-            "missing_critical": missing, "agent_answer": agent_answer, "done": done}
+
+async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str = "agent_fill") -> dict:
+    """兼容壳（方案A）：节点不再起独立 LLM，委托外层 AI 角色抽槽（extract_requirement_slots）。
+
+    保留签名以兼容既有调用方/测试；理解与措辞已收归外层角色层。
+    """
+    from app.services.capabilities import extract_requirement_slots
+    return await extract_requirement_slots(ctx, config, broadcast)
 
 
 def run_select_baseline_rule(ctx: dict, config: dict) -> dict:

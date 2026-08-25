@@ -156,28 +156,89 @@ def _latest_user_utterance(ctx: dict) -> str:
 
 
 async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
-    # 智能对话填表 Agent：会对话、会查目录/KP、边答边填线索登记表。
-    # 复用 run_agent_fill；信息不足时内部自然反问（need_input）。
-    # 用户委托（你推荐/随便/都行/我不太懂/帮我推荐）时不再追问缺失字段，交给下游。
-    # 注意：last_user_answer 只在“回答上一个追问”时才有值；首轮/自由输入时必须看最新用户原话，
-    # 否则托管式需求会被机械反问（这正是“AI 已判断委托、本地状态机却再问一次”的根因）。
-    if not ctx.get("delegated") and _is_delegation(_latest_user_utterance(ctx), config, ext=ctx.get("ext")):
+    # 方案A：agent_fill 不再起独立 LLM（理解/措辞已由外层 AI 角色 extract_requirement_slots 完成）。
+    # 本节点只读已抽好的需求槽位，做契约校验 + 缺失反问 + 落表，保证不重复思考、不再套壳。
+    try:
+        from app.services.slot_contract import _missing_critical, slot_label, slot_spec
+        from app.services.slot_state import is_confirmed
+        from app.services.capabilities import _has_recommend_signal
+    except Exception:
+        _missing_critical = lambda ext: []
+        slot_label = lambda k: str(k)
+        slot_spec = lambda: []
+        is_confirmed = lambda ext, k: True
+        _has_recommend_signal = lambda ext: True
+
+    ext = dict(ctx.get("ext") or {})
+    req_text = str(ctx.get("requirement_text") or "").strip()
+    req_keys = {s.get("key") for s in slot_spec() if s.get("src_type") != "kp" and s.get("key") != "server_model"}
+    prev_missing = list(ctx.get("missing_fields") or [])
+    missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
+
+    # 委托兜底：客户明确委托时不再追问缺失字段，交给下游推荐。
+    if not ctx.get("delegated") and _is_delegation(_latest_user_utterance(ctx), config, ext=ext):
         ctx["delegated"] = True
-    from app.services.capabilities import run_agent_fill
-    res = await run_agent_fill(ctx, config, broadcast)
-    # 信任 LLM 在 semantic=delegated 中给出的委托判定，兜底覆盖关键词漏判的场景。
-    _sem = (ctx.get("ext") or {}).get("semantic") or {}
-    if _sem.get("delegated") and not ctx.get("delegated"):
-        ctx["delegated"] = True
+
+    ctx["missing_fields"] = missing
+    # 反问收敛：用户答了但缺口完全一致 → 停止机械重复，按 partial 交下游。
+    _no_progress = bool(ctx.get("last_user_answer")) and bool(prev_missing) and sorted(missing) == sorted(prev_missing)
+    ctx["converged"] = bool(_no_progress)
+    need_ask = bool(missing) and not ctx.get("force_complete") and not ctx.get("delegated") and not _no_progress and not _has_recommend_signal(ext)
+
+    # 缺关键槽：触发反问，把外层 AI 角色已生成的自然反问 question 透传；无则用字段名组成中性提示。
+    if need_ask:
+        question = str(ctx.get("agent_fill_ask") or "").strip()
+        if not question:
+            question = "还有几个关键信息待确认：" + "、".join([slot_label(m) for m in missing])
+        import uuid
+        rid = f"agent_{uuid.uuid4().hex[:12]}"
+        ctx["awaiting_input"] = True
+        ctx["last_reply_id"] = rid
+        ctx["last_ask_question"] = question
+        _fz = ctx.get("feasibility") or {}
+        _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]
+        if _fz_lines:
+            question = "\n".join(_fz_lines) + "\n" + question
+        if broadcast:
+            try:
+                await broadcast({"type": "need_input", "reply_id": rid, "question": question,
+                                 "options": None, "why": "", "missing_fields": missing,
+                                 "source": "agent_fill"})
+            except Exception:
+                pass
+        return {"ok": True, "question": question, "options": None, "source": "agent_fill",
+                "sufficient": False, "missing_critical": missing}
+
+    # 校验 + 落表：无关键缺口（或已委托/已收敛），固化需求快照并推进下游。
+    ctx["awaiting_input"] = False
+    _has_model = bool(ext.get("server_model") or ext.get("model"))
+    if ctx.get("delegated"):
+        ctx["clarity"] = "delegated"
+    elif ctx.get("converged"):
+        ctx["clarity"] = "partial"
+    elif _has_model:
+        ctx["clarity"] = "explicit"
+    elif missing:
+        ctx["clarity"] = "partial"
+    else:
+        ctx["clarity"] = "explicit" if _has_model else "partial"
+
+    # 固化需求快照（下游只读，不回填）。
+    try:
+        from app.services.capabilities import _freeze_requirement
+        _freeze_requirement(ctx, ext, req_text)
+    except Exception:
+        pass
+
     if ctx.get("business_mode") == "opportunity_flow" and ctx.get("opportunity_id"):
         try:
             from app.services.portal_flow_adapter import persist_requirement_from_ctx
             persist_requirement_from_ctx(ctx, str(ctx.get("operator_name") or ""))
         except Exception:
             logger.exception("持久化真实需求草稿失败 opportunity=%s", ctx.get("opportunity_id"))
-    if res.get("error"):
-        ctx["agent_fill_error"] = res.get("error")
-    return {**res, "source": res.get("source") or "agent_fill"}
+
+    return {"ok": True, "source": "agent_fill", "sufficient": bool(not missing),
+            "missing_critical": missing, "done": not need_ask}
 
 def _model_selection_intent(answer: str) -> str:
     """识别用户在机型选型节点的意图（关键词兜底，主判定走 LLM resolve_intent）。
@@ -253,38 +314,185 @@ def _model_reason_matches(baselines: list) -> list:
     } for b in baselines]
 
 
-async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
-    # 机型选型三态（由 AI 意图驱动，抽屉 selection_mode 仅作兜底偏好）：
-    # - recommend：出候选卡并等待用户确认选择，确认后锁定推进配件/BOM
-    # - ai_config：用户明确委托“你推荐/帮我选好并继续”，自动锁定一台进入下游
-    # - self_config：用户明确“我自己配”，跳过下游 BOM 进详情页
-    from app.services.capabilities import run_model_reason, run_select_baseline_rule
-    ext = ctx.get("ext") or {}
-    agent_model = str(ext.get("server_model") or "").strip()
-    answer = str(ctx.get("last_user_answer") or "").strip()
-    # 意图已由角色层 _decide_plan_turn 统一判定（存 ctx["plan_intent"]），节点不再重复分类。
-    _pi = str(ctx.get("plan_intent") or "").strip().lower()
-    intent = {
+def _model_reason_display(config: dict) -> dict:
+    """机型展示白盒参：按系列分组 / 每组限量 / 介绍字数 / 是否附详情页链接。"""
+    cfg = dict(config or {})
+    return {
+        "group_by_series": bool(cfg.get("group_by_series", True)),
+        "per_series_limit": max(1, int(cfg.get("per_series_limit") or 2)),
+        "intro_max_chars": max(0, int(cfg.get("intro_max_chars") or 180)),
+        "show_detail_link": bool(cfg.get("show_detail_link", True)),
+        "model_ask_phrase": str(cfg.get("model_ask_phrase") or "").strip(),
+        "detail_link_phrase": str(cfg.get("detail_link_phrase") or "").strip(),
+    }
+
+
+def _model_intent_from_plan(pi: str, answer: str, llm_enabled: bool) -> str:
+    """把角色层 plan_intent 映射成机型节点动作；仅 LLM 不可用时用关键词兜底。"""
+    plan = {
         "auto_recommend": "auto_pick",
         "self_config": "self_config",
+        "cancel": "cancel",
         "confirm_choice": "choose",
         "choose": "choose",
         "refine": "refine",
         "reselect": "reselect",
-        "cancel": "cancel",
-    }.get(_pi, _model_selection_intent(answer) if answer else "")
-    if intent == "choose" and _pi == "confirm_choice":
-        ctx["_confirm_choice"] = True
-    selection_mode = await _resolve_selection_mode(ctx, config, answer)
-    clarity = str(ctx.get("clarity") or "partial").strip().lower()
+    }.get(str(pi or "").strip().lower())
+    if plan:
+        return plan
+    if not llm_enabled:
+        return _model_selection_intent(str(answer or "").strip())
+    return ""
 
-    if selection_mode == "self_config" or intent == "self_config":
+
+def _group_baselines(baselines: list, display: dict) -> list:
+    """按系列分组、每组限量；保留原排序，去重，不改机型字段。"""
+    if not display.get("group_by_series", True):
+        return list(baselines or [])
+    limit = int(display.get("per_series_limit") or 2)
+    order: list[str] = []
+    by_series: dict[str, list] = {}
+    for b in baselines or []:
+        name = str(b.get("name") or "").strip()
+        if not name:
+            continue
+        series = str(b.get("series") or "其他").strip() or "其他"
+        if series not in by_series:
+            by_series[series] = []
+            order.append(series)
+        if len(by_series[series]) < limit:
+            by_series[series].append(b)
+    out: list[dict] = []
+    for s in order:
+        out.extend(by_series.get(s) or [])
+    return out
+
+
+async def _model_detail_intro(ctx: dict, baseline: dict, display: dict) -> str:
+    """从真实目录数据组装机型介绍（字数与是否附链接由节点配置，不写死文案）。"""
+    name = str((baseline or {}).get("name") or "")
+    series = str((baseline or {}).get("series") or "")
+    form = str((baseline or {}).get("form") or "")
+    _bc = baseline.get("base_config") or {}
+    detail: dict = {}
+    try:
+        from app.services.catalog_guide import load_catalog
+        _types, _models_by_type = load_catalog()
+        for _ms in (_models_by_type or {}).values():
+            for _m in (_ms or []):
+                if str(_m.get("name") or "") == name or str(_m.get("id") or "") == str((baseline or {}).get("id") or ""):
+                    detail = _m if isinstance(_m, dict) else {}
+                    _bc = detail.get("base_config") or _bc
+                    break
+            if detail:
+                break
+    except Exception:
+        detail = {}
+    _parts = [name]
+    if series:
+        _parts.append("系列 " + series)
+    if form:
+        _parts.append("形态 " + form)
+    for k in ("cpus", "cpu_model", "max_memory", "max_disk", "drive_bays", "gpu_cnt"):
+        _v = _bc.get(k) or detail.get(k)
+        if _v:
+            _parts.append(f"{k}={_v}")
+    _summary = (_bc.get("summary") or detail.get("summary") or "").strip()
+    _limit = int(display.get("intro_max_chars") or 180)
+    if _summary:
+        _parts.append(_summary if len(_summary) <= _limit else _summary[:_limit] + "…")
+    out = "；".join(p for p in _parts if p)
+    if display.get("show_detail_link", True) and str((baseline or {}).get("id") or ""):
+        _lp = str(display.get("detail_link_phrase") or "").strip()
+        out += "\n" + (_lp if _lp else "可进入详情页查看完整参数。")
+    return out
+
+
+async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, display: dict) -> dict:
+    """一次性列出候选（按系列分组、每组限量），只广播一次候选卡。"""
+    _baselines = _group_baselines(baselines, display)
+    if not _baselines:
+        return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
+    grouped: dict[str, list] = {}
+    order: list[str] = []
+    for b in _baselines:
+        s = str(b.get("series") or "其他").strip() or "其他"
+        if s not in grouped:
+            grouped[s] = []
+            order.append(s)
+        grouped[s].append(b)
+    _lines = []
+    for s in order:
+        _lines.append(f"{s}：")
+        for b in grouped[s]:
+            _lines.append("  " + str(b.get("name") or "") + "（" + str(b.get("form") or "") + "）")
+    _preamble = await _natural_preamble(ctx, "我根据你的需求整理了以下候选机型，按系列给你列出来：")
+    body = _preamble + "\n" + "\n".join(_lines)
+    question = body
+    ctx["awaiting_input"] = True
+    ctx["current_target"] = "model_reason"
+    ctx["model_phase"] = "await_choice"
+    ctx["_locked_baseline"] = {}
+    ctx.pop("model_selection", None)
+    ctx["last_ask_question"] = question
+    ctx["model_reason"] = {"source": "recommend", "baselines": _baselines,
+                           "reason": "等待用户确认候选机型"}
+    if broadcast:
+        try:
+            await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
+                             "options": [f"{i + 1}. {b.get('name')}" for i, b in enumerate(_baselines)],
+                             "why": "机型选型需要用户确认或选择自己配置",
+                             "candidates": _baselines})
+        except Exception:
+            pass
+    return {**rule_res, "source": "recommend", "matches": _model_reason_matches(_baselines),
+            "question": question, "reason": "等待用户确认候选机型"}
+
+
+async def _ask_model_intro(ctx: dict, baseline: dict, rule_res: dict, broadcast: BroadcastFn, display: dict) -> dict:
+    """用户已选机型：介绍详情 + 问自配/智能配；不推候选卡，只发一次文字。"""
+    _intro = await _model_detail_intro(ctx, baseline, display)
+    _preamble = await _natural_preamble(ctx, "这台机器的特点如下：")
+    _ask_phrase = str(display.get("model_ask_phrase") or "").strip()
+    _ask = _ask_phrase if _ask_phrase else "你可以自己配置，也可以让我帮你系统智能配。"
+    question = _preamble + "\n" + _intro + "\n" + _ask
+    ctx["awaiting_input"] = True
+    ctx["current_target"] = "model_reason"
+    ctx["model_phase"] = "await_mode"
+    ctx["last_ask_question"] = question
+    ctx["model_reason"] = {"source": "intro", "baseline": baseline,
+                           "reason": "等待用户选择自配或智能配"}
+    if broadcast:
+        try:
+            await broadcast({"type": "need_confirm", "step": "model_reason", "question": question,
+                             "options": ["我自己配置", "智能配", "取消"], "why": "请选择配置方式"})
+        except Exception:
+            pass
+    return {"count": 1, "matches": _model_reason_matches([baseline]), "source": "intro",
+            "question": question, "reason": "等待用户选择自配或智能配"}
+
+
+async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
+    """方案A：机型选型节点不再起独立 LLM（run_model_reason 已弃用）。节点只做：
+    真实候选（select_models）按系列分组列出 -> 用户选机后介绍详情并问“自配/智能配”；
+    出口（自配/取消/智能配）由角色层 plan_intent 判定，关键词仅在 LLM 不可用时兜底。
+    """
+    from app.services.capabilities import run_select_baseline_rule, _model_reason_config
+    ext = dict(ctx.get("ext") or {})
+    answer = str(ctx.get("last_user_answer") or "").strip()
+    pi = str(ctx.get("plan_intent") or "").strip().lower()
+    cfg = _model_reason_config(config or {})
+    display = _model_reason_display(config or {})
+    llm_on = bool(ctx.get("llm_enabled", True))
+    intent = _model_intent_from_plan(pi, answer, llm_on)
+
+    if intent == "self_config":
         ctx["flow_exit"] = "self_config"
+        ctx["awaiting_input"] = False
         ctx["baselines"] = []
         ctx["model_reason"] = {"source": "self_config", "reason": "用户选择自己配置"}
         return {"count": 0, "matches": [], "source": "self_config",
                 "reason": "用户选择自己配置，下游 BOM 节点已跳过"}
-
     if intent == "cancel":
         ctx["flow_exit"] = "cancelled"
         ctx["awaiting_input"] = False
@@ -292,153 +500,67 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         ctx["model_reason"] = {"source": "cancelled", "reason": "用户取消方案配置"}
         return {"count": 0, "matches": [], "source": "cancelled", "reason": "已取消方案配置"}
 
-    _existing = list(ctx.get("baselines") or [])
-    # 多轮续跑时（用户在等候选确认、回答“1/型号/你推荐吧”），候选人已在 slot_state.baselines 里，
-    # 绝不能在这里重新 select_models——委托场景下信号未回写，重新查询会清空候选导致“找不到机型”。
-    _preserve = bool(_existing) and intent in ("choose", "auto_pick")
-    if _preserve:
-        rule_res = {"count": len(_existing), "matches": _model_reason_matches(_existing), "preserved": True}
-    else:
+    phase = str(ctx.get("model_phase") or "").strip()
+
+    # 已锁机型、正等“自配/智能配”：用户说智能配就交下游，说自配/取消就走出口。
+    if phase == "await_mode":
+        _locked = ctx.get("_locked_baseline") or {}
+        if intent == "self_config":
+            ctx["flow_exit"] = "self_config"
+            ctx["awaiting_input"] = False
+            ctx["baselines"] = []
+            ctx["model_reason"] = {"source": "self_config", "reason": "用户选择自己配置"}
+            return {"count": 0, "matches": [], "source": "self_config",
+                    "reason": "用户选择自己配置，下游 BOM 节点已跳过"}
+        if intent == "cancel":
+            ctx["flow_exit"] = "cancelled"
+            ctx["awaiting_input"] = False
+            ctx["baselines"] = []
+            ctx["model_reason"] = {"source": "cancelled", "reason": "用户取消方案配置"}
+            return {"count": 0, "matches": [], "source": "cancelled", "reason": "已取消方案配置"}
+        if intent in ("auto_pick", "choose", "confirm_choice") and _locked:
+            ctx["baselines"] = [_locked]
+            ctx["model_selection"] = {"id": _locked.get("id"), "name": _locked.get("name") or ""}
+            ctx["model_reason"] = {"source": "user_pick", "baseline": _locked,
+                                   "reason": "用户选择智能配，已锁定机型 " + (_locked.get("name") or "")}
+            ctx["awaiting_input"] = False
+            return {"count": 1, "matches": _model_reason_matches([_locked]),
+                    "source": "user_pick", "reason": "已按你的选择锁定机型，继续配件选配"}
         rule_res = run_select_baseline_rule(ctx, config)
-    baselines = list(ctx.get("baselines") or [])
-    try:
-        from app.services.feasibility_guard import check_feasibility
-        _fz = check_feasibility(ext, config)
-        if _fz.get("warnings") or _fz.get("hints"):
-            ctx["feasibility"] = _fz
-    except Exception:
-        pass
+        return await _ask_model_intro(ctx, _locked, rule_res, broadcast, display)
 
-    if clarity == "unclear" and not ctx.get("delegated"):
-        ctx["awaiting_input"] = True
-        ctx["current_target"] = "model_reason"
-        ctx["baselines"] = []
-        ctx["model_reason"] = {"source": "unclear", "reason": "需求信息不足，暂不硬猜机型"}
-        question = await _natural_preamble(ctx, "需求信息还不够具体。你可以补充场景/类型/系列/形态等关键信息，我再帮你缩小候选。")
-        ctx["last_ask_question"] = question
-        if broadcast:
-            try:
-                await broadcast({"type": "need_confirm", "step": "model_reason",
-                                 "question": question, "options": ["我自己配置", "取消"],
-                                 "why": "需求信息不足，无法精确推荐"})
-            except Exception:
-                pass
-        return {**rule_res, "source": "unclear", "matches": [],
-                "question": question, "reason": "等待用户补充信息或选择自己配置"}
-
+    # 首次 / await_choice：用户明确委托“你推荐/帮我选好并继续”，直接锁首台交下游 BOM。
     if intent == "auto_pick":
-        ctx["delegated"] = True
-    if intent == "auto_pick" and baselines:
-        locked = baselines[0]
+        rule_res = run_select_baseline_rule(ctx, config)
+        _baselines = _group_baselines(ctx.get("baselines") or [], display)
+        if not _baselines:
+            return await _ask_model_choice_grouped(ctx, [], rule_res, broadcast, display)
+        locked = _baselines[0]
         ctx["baselines"] = [locked]
         ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
         ctx["model_reason"] = {"source": "auto_pick", "baseline": locked,
-                               "reason": "按用户委托锁定推荐机型 " + (locked.get("name") or "")}
+                               "reason": "用户委托智能选配，已锁定推荐机型 " + (locked.get("name") or "")}
+        ctx["awaiting_input"] = False
         return {"count": 1, "matches": _model_reason_matches([locked]),
-                "source": "auto_pick", "reason": "已按你的委托锁定推荐机型"}
+                "source": "auto_pick", "reason": "已按你的委托锁定机型，继续配件选配"}
 
-    # 客户指定型号 → 不再自动锁定：在售就放到候选首位，仍让用户确认/自配/重选；
-    # 不在售则推最接近候选，绝不硬猜。
-    if agent_model and not ctx.get("awaiting_input") and not ctx.get("delegated"):
-        idx = next((i for i, b in enumerate(baselines)
-                    if (b.get("name") or "") == agent_model
-                    or str(b.get("id") or "") == agent_model
-                    or str(b.get("server_model_id") or "") == agent_model), None)
-        if idx is not None:
-            locked = baselines[idx]
-            ordered = [locked] + [b for i, b in enumerate(baselines) if i != idx]
-            ctx["baselines"] = ordered
-            ctx["model_reason"] = {"source": "customer_specified", "baseline": locked,
-                                   "reason": "客户指定机型在售，已放入候选首位等待确认"}
-            return await _ask_model_choice(
-                ctx, ordered, rule_res, broadcast,
-                str(locked.get("name") or "") + " 在售，已放在候选首位，你看看这台是否合适：")
-        if baselines:
-            return await _ask_model_choice(ctx, baselines, rule_res, broadcast,
-                                           "你指定的机型暂不在在售目录，这些是当前最接近的候选，你看看：")
-        ctx["awaiting_input"] = True
-        ctx["current_target"] = "model_reason"
-        ctx["baselines"] = []
-        ctx["model_reason"] = {"source": "customer_specified_missing",
-                               "reason": "客户指定机型不在目录，且无接近候选"}
-        question = await _natural_preamble(ctx, "你指定的机型暂不在在售目录，我可以推荐接近机型，你也可以去详情页自己配置。")
-        ctx["last_ask_question"] = question
-        if broadcast:
-            try:
-                await broadcast({"type": "need_confirm", "step": "model_reason",
-                                 "question": question, "options": ["我自己配置", "取消"],
-                                 "why": "客户指定机型不在目录"})
-            except Exception:
-                pass
-        return {**rule_res, "source": "customer_specified_missing", "matches": [],
-                "question": question, "reason": "等待用户选择处理方式"}
-
-    if selection_mode == "ai_config":
-        # AI 智能选配：没有明确回复时走 LLM/规则锁定一台；有回复则按回复锁定。
-        if answer and intent == "choose":
-            locked = _lock_model_from_answer(answer, baselines)
-            if locked:
-                ctx["baselines"] = [locked]
-                ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
-                ctx["model_reason"] = {"source": "user_pick", "baseline": locked,
-                                       "reason": f"已按用户选择锁定机型 {locked.get('name') or ''}"}
-                return {"count": 1, "matches": _model_reason_matches([locked]),
-                        "source": "user_pick", "reason": "已按用户选择锁定机型"}
-        res = await run_model_reason(ctx, config, broadcast)
-        if res.get("ok") and res.get("baseline"):
-            cid = (res.get("baseline") or {}).get("config_id") or (res.get("baseline") or {}).get("id")
-            keep = [b for b in baselines if b.get("id") == cid or b.get("server_model_id") == cid]
-            if keep:
-                ctx["baselines"] = keep
-                ctx["model_selection"] = {"id": keep[0].get("id"), "name": keep[0].get("name") or ""}
-                ctx["model_reason"] = res
-                return {"count": 1, "matches": _model_reason_matches(keep),
-                        "source": "llm", "reason": res.get("reason") or "",
-                        "trace": res.get("trace") or []}
-        # 规则兜底锁定第一台
-        if baselines:
-            ctx["baselines"] = baselines[:1]
-            ctx["model_selection"] = {"id": baselines[0].get("id"), "name": baselines[0].get("name") or ""}
-            ctx["model_reason"] = {"source": "rule_lock", "baseline": baselines[0],
-                                   "reason": "AI 智能选配降级规则，已锁定首台候选"}
-        return {**rule_res, "source": "ai_config", "matches": _model_reason_matches(ctx.get("baselines") or []),
-                "reason": "已按线索登记完成机型智能选配"}
-
-    # recommend 默认：给候选卡片，等待用户确认；无候选时直接交给下游。
-    if answer and intent == "choose":
-        locked = _lock_model_from_answer(answer, baselines)
+    if intent == "choose" and pi == "confirm_choice":
+        ctx["_confirm_choice"] = True
+    rule_res = run_select_baseline_rule(ctx, config)
+    _baselines = _group_baselines(ctx.get("baselines") or [], display)
+    if _baselines:
+        # 用户点名具体机型（如“介绍下 ES22V3”/“选第 1 个”）→ 锁定该机型并进入介绍；
+        # 仅当明确“确认当前候选”且没给序号时才锁首台；否则按系列重新列候选。
+        locked = _lock_model_from_answer(answer, _baselines)
+        if not locked and intent == "choose" and ctx.get("_confirm_choice"):
+            locked = _baselines[0]
         if locked:
             ctx["baselines"] = [locked]
-            ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
-            ctx["model_reason"] = {"source": "user_pick", "baseline": locked,
-                                   "reason": f"已按用户选择锁定机型 {locked.get('name') or ''}"}
-            return {"count": 1, "matches": _model_reason_matches([locked]),
-                    "source": "user_pick", "reason": "已按用户选择锁定机型"}
-        if ctx.get("_confirm_choice") and baselines:
-            # 用户已确认“就这个/选当前这个”但没给序号：默认锁当前推荐首位，放行配件/BOM，避免无限重发卡片。
-            locked = baselines[0]
-            ctx["baselines"] = [locked]
-            ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
-            ctx["model_reason"] = {"source": "user_pick", "baseline": locked,
-                                   "reason": "已按用户确认锁定机型 " + (locked.get("name") or "")}
-            return {"count": 1, "matches": _model_reason_matches([locked]),
-                    "source": "user_pick", "reason": "已按用户选择锁定机型"}
-        if not ctx.get("force_complete"):
-            # 用户本轮提供了补充信息而非有效型号：不误报“没识别到机型”，直接给出目录候选卡片。
-            return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
+            ctx["_locked_baseline"] = locked
+            return await _ask_model_intro(ctx, locked, rule_res, broadcast, display)
 
-    if not baselines:
-        # 空候选：绝不静默放行到下游（否则会自由编造/产出假 BOM），改为暂停并给兜底选项。
-        return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
-
-    ctx["baselines"] = baselines
-    ctx["model_reason"] = {"source": "recommend", "baselines": baselines,
-                           "reason": "已从服务器目录生成候选机型"}
-    if not ctx.get("force_complete"):
-        return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
-    return {**rule_res, "source": "recommend", "matches": _model_reason_matches(baselines),
-            "reason": "已从服务器目录生成候选机型"}
-
+    # 默认：列出候选（按系列分组、每组限量），一次广播候选卡。
+    return await _ask_model_choice_grouped(ctx, _baselines, rule_res, broadcast, display)
 
 async def _natural_preamble(ctx: dict, fallback: str) -> str:
     """让 LLM 生成自然、带个性的引导语；不可用时返回中性 fallback（不含固定选项句）。
@@ -554,12 +676,28 @@ async def _resolve_kp_intent(ctx: dict, answer: str) -> str:
     return _kp_reply_intent(text)
 
 
+def _kp_part_reason(p: dict) -> str:
+    """从真实配件数据构造选择理由（规则/契约/规格），不背固定话术。"""
+    for k in ("reason", "unmatched_reason", "matched_spec"):
+        _v = str(p.get(k) or "").strip()
+        if _v:
+            return _v
+    _spec = p.get("specs")
+    if isinstance(_spec, dict) and _spec:
+        return "规格 " + "、".join(f"{k}={v}" for k, v in _spec.items())
+    return ""
+
+
 def _kp_summary_lines(parts: list) -> list:
     out: list = []
-    for p in (parts or [])[:8]:
+    for p in (parts or [])[:12]:
         name = p.get("name") or p.get("model") or p.get("pn") or ""
         qty = p.get("qty")
-        out.append(f"- {name}" + (f" × {qty}" if qty is not None else ""))
+        line = f"- {name}" + (f" × {qty}" if qty is not None else "")
+        _r = _kp_part_reason(p)
+        if _r:
+            line += f"｜{_r}"
+        out.append(line)
     return out
 
 
@@ -624,6 +762,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
     rule_res = run_match_kp_rule(ctx, config)
     parts = ctx.get("kp_parts") or []
     ctx["kp_reason"] = {**rule_res, "source": "confirmed"}
+    ctx["awaiting_input"] = False
     return {**rule_res, "source": "confirmed", "reason": "配件方案已确认", "kp_count": len(parts)}
 
 async def _handle_compose(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:

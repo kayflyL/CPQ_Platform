@@ -18,6 +18,12 @@ const MODEL_REASON_DEFAULTS = {
   grounding_result_key: 'candidates',
   choice_id_pattern: 'id=(\\d+)',
   choice_fields: ['config_id', 'server_model_id', 'id'],
+  group_by_series: true,
+  per_series_limit: 2,
+  intro_max_chars: 180,
+  show_detail_link: true,
+  model_ask_phrase: '',
+  detail_link_phrase: '',
 }
 const KP_REASON_DEFAULTS = {
   temperature: 0.2,
@@ -203,6 +209,12 @@ watch(() => props.open, async (v) => {
     mr_choice_fields: Array.isArray(c.choice_fields)
       ? [...c.choice_fields]
       : [...MODEL_REASON_DEFAULTS.choice_fields],
+    mr_group_by_series: c.group_by_series ?? MODEL_REASON_DEFAULTS.group_by_series,
+    mr_per_series_limit: c.per_series_limit ?? MODEL_REASON_DEFAULTS.per_series_limit,
+    mr_intro_max_chars: c.intro_max_chars ?? MODEL_REASON_DEFAULTS.intro_max_chars,
+    mr_show_detail_link: c.show_detail_link ?? MODEL_REASON_DEFAULTS.show_detail_link,
+    mr_model_ask_phrase: c.model_ask_phrase ?? MODEL_REASON_DEFAULTS.model_ask_phrase,
+    mr_detail_link_phrase: c.detail_link_phrase ?? MODEL_REASON_DEFAULTS.detail_link_phrase,
     kr_temperature: c.temperature ?? KP_REASON_DEFAULTS.temperature,
     kr_timeout: c.timeout ?? KP_REASON_DEFAULTS.timeout,
     kr_max_attempts: c.max_attempts ?? KP_REASON_DEFAULTS.max_attempts,
@@ -264,6 +276,12 @@ function buildConfig(): Record<string, any> | null {
     config.grounding_result_key = form.value.mr_grounding_result_key || MODEL_REASON_DEFAULTS.grounding_result_key
     config.choice_id_pattern = form.value.mr_choice_id_pattern || MODEL_REASON_DEFAULTS.choice_id_pattern
     config.choice_fields = Array.isArray(form.value.mr_choice_fields) ? [...form.value.mr_choice_fields] : []
+    config.group_by_series = form.value.mr_group_by_series ?? MODEL_REASON_DEFAULTS.group_by_series
+    config.per_series_limit = +form.value.mr_per_series_limit || MODEL_REASON_DEFAULTS.per_series_limit
+    config.intro_max_chars = +form.value.mr_intro_max_chars || MODEL_REASON_DEFAULTS.intro_max_chars
+    config.show_detail_link = form.value.mr_show_detail_link ?? MODEL_REASON_DEFAULTS.show_detail_link
+    config.model_ask_phrase = form.value.mr_model_ask_phrase || ''
+    config.detail_link_phrase = form.value.mr_detail_link_phrase || ''
   }
   if (runtimeType.value === 'kp_reason') {
     const proposalSchema = parseJsonObject(form.value.kr_proposal_schema_text)
@@ -672,7 +690,7 @@ async function save() {
             <div class="node-section-title">机型候选来源（AI 选型读取候选清单）</div>
             <a-form-item label="候选来源工具">
               <a-select v-model:value="form.mr_grounding_tool" :options="agentToolOptions" placeholder="选择提供候选清单的工具" style="width:100%" />
-              <p class="rf-hint">节点会从该工具的调用结果中读取候选清单，再由 LLM 选择。</p>
+              <p class="rf-hint">从该工具的真实候选清单中按系列分组列出（白盒数据驱动，节点内不再另起 LLM 决策）。</p>
             </a-form-item>
             <a-form-item label="候选结果字段">
               <a-input v-model:value="form.mr_grounding_result_key" placeholder="candidates" />
@@ -687,6 +705,28 @@ async function save() {
                 { value: 'server_model_id', label: 'server_model_id' },
                 { value: 'id', label: 'id' },
               ]" placeholder="config_id, server_model_id, id" style="width:100%" />
+            </a-form-item>
+            <div class="node-section-title" style="margin-top:14px;">机型展示与介绍（白盒，AI 按真实数据生成）</div>
+            <a-form-item label="按系列分组">
+              <a-switch v-model:checked="form.mr_group_by_series" />
+              <p class="rf-hint">开启后候选按系列分组展示，每组限量。</p>
+            </a-form-item>
+            <a-form-item label="每组机型数（上限）">
+              <a-input-number v-model:value="form.mr_per_series_limit" :min="1" :max="10" style="width:100%" />
+            </a-form-item>
+            <a-form-item label="机型介绍字数（上限）">
+              <a-input-number v-model:value="form.mr_intro_max_chars" :min="0" :max="1000" style="width:100%" />
+            </a-form-item>
+            <a-form-item label="附详情页链接文案">
+              <a-switch v-model:checked="form.mr_show_detail_link" />
+              <p class="rf-hint">关闭则不提示可进入详情页查看完整参数。</p>
+            </a-form-item>
+            <a-form-item label="详情页链接提示语">
+              <a-input v-model:value="form.mr_detail_link_phrase" placeholder="可进入详情页查看完整参数。" />
+            </a-form-item>
+            <a-form-item label="自配/智能配引导语">
+              <a-textarea v-model:value="form.mr_model_ask_phrase" :rows="2" placeholder="你可以自己配置，也可以让我帮你系统智能配。" />
+              <p class="rf-hint">留空则 AI 按真实需求自然引导；填写后作为该节点的引导语。</p>
             </a-form-item>
           </a-form>
 

@@ -16,6 +16,7 @@ from typing import Any, Callable, Optional
 
 from app.services import llm_client
 from app.services.reasoning_executor import _dispatch, _eval_condition
+from app.services.capabilities import extract_requirement_slots
 
 logger = logging.getLogger(__name__)
 
@@ -279,6 +280,24 @@ async def run_fixed_workflow(
         if _sup and _sup not in _base:
             ctx["requirement_text"] = (_base + "\n" + _sup).strip()
         ctx.pop("last_user_answer", None)
+    # 方案A：外层 AI 角色抽槽（填表层）。只在已有需求但尚未结构化落槽时执行一次；
+    # 断点续跑（resume_from in nodes）已有 ctx.ext 时跳过，避免重复抽取/覆盖。
+    if not resume_from or resume_from not in nodes:
+        try:
+            if not (ctx.get("requirement") or {}).get("requirement_text") and not (ctx.get("ext") or {}).get("server_type_name"):
+                _af_cfg = node_configs.get("agent_fill") or {}
+                _af_cfg.setdefault("llm_enabled", ctx.get("llm_enabled", True))
+                _af_res = await extract_requirement_slots(ctx, _af_cfg, broadcast)
+                if _af_res.get("ok") or _af_res.get("missing_critical"):
+                    # 缺关键槽：交给 agent_fill 节点自然反问；否则继续走主链。
+                    ctx["agent_fill_missing"] = _af_res.get("missing_critical") or []
+                    ctx["agent_fill_done"] = bool(_af_res.get("done", True))
+                    ctx["agent_fill_ask"] = str(_af_res.get("ask") or "").strip()
+                    if _af_res.get("delegated"):
+                        ctx["delegated"] = True
+        except Exception as _afexc:
+            logger.warning("外层需求抽取失败，转入节点处理: %s", _afexc)
+
     queue: list[str] = sorted([nid for nid, degree in indeg.items() if degree == 0])
     if resume_from and resume_from in nodes:
         # 多轮能力会话：用户回答后从暂停节点继续，避免重跑 input/agent_fill 后把
