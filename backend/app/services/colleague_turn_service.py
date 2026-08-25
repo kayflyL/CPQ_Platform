@@ -817,9 +817,6 @@ async def _run_tool_turn(
                 return
             if event_type == "need_confirm":
                 question = str(payload.get("question") or "").strip()
-                await _broadcast_chat_progress(
-                    thread_id, colleague, "need_confirm", "question", question,
-                )
                 _candidates = payload.get("candidates") or []
                 if isinstance(_candidates, list) and _candidates:
                     try:
@@ -852,6 +849,10 @@ async def _run_tool_turn(
                                 })
                     except Exception:
                         logger.exception("broadcast model_candidates card failed")
+                else:
+                    await _broadcast_chat_progress(
+                        thread_id, colleague, "need_confirm", "question", question,
+                    )
                 return
             if event_type in ("handoff_ready",):
                 return

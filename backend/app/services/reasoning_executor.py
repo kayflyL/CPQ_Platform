@@ -508,6 +508,27 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         ctx["_confirm_choice"] = True
     rule_res = run_select_baseline_rule(ctx, config)
     _baselines = _group_baselines(ctx.get("baselines") or [], display)
+    if _baselines and len(_baselines) == 1 and not answer:
+        locked = _baselines[0]
+        ctx["baselines"] = [locked]
+        ctx["_locked_baseline"] = locked
+        ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
+        ctx["model_reason"] = {"source": "single_pick", "baseline": locked,
+                               "reason": "唯一候选，已锁定机型 " + (locked.get("name") or "")}
+        ctx["awaiting_input"] = False
+        if broadcast:
+            try:
+                await broadcast({"type": "need_confirm", "step": "model_reason",
+                                 "question": (str(display.get("candidate_lede") or "") + "\n" +
+                                              (locked.get("name") or "")),
+                                 "options": [locked.get("name") or ""],
+                                 "why": "",
+                                 "candidates": _baselines,
+                                 "auto_locked": True})
+            except Exception:
+                pass
+        return {"count": 1, "matches": _model_reason_matches([locked]),
+                "source": "single_pick", "reason": "已锁定唯一候选机型，继续配件选配"}
     if _baselines:
         # 用户点名具体机型（如“介绍下 ES22V3”/“选第 1 个”）→ 锁定该机型并进入介绍；
         # 仅当明确“确认当前候选”且没给序号时才锁首台；否则按系列重新列候选。
