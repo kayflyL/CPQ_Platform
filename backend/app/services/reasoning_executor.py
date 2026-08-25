@@ -426,7 +426,7 @@ async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, 
         _lines.append(f"{s}：")
         for b in grouped[s]:
             _lines.append("  " + str(b.get("name") or "") + "（" + str(b.get("form") or "") + "）")
-    _preamble = await _natural_preamble(ctx, "我根据你的需求整理了以下候选机型，按系列给你列出来：")
+    _preamble = "我根据你的需求整理了以下候选机型，按系列给你列出来："
     body = _preamble + "\n" + "\n".join(_lines)
     question = body
     ctx["awaiting_input"] = True
@@ -452,7 +452,7 @@ async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, 
 async def _ask_model_intro(ctx: dict, baseline: dict, rule_res: dict, broadcast: BroadcastFn, display: dict) -> dict:
     """用户已选机型：介绍详情 + 问自配/智能配；不推候选卡，只发一次文字。"""
     _intro = await _model_detail_intro(ctx, baseline, display)
-    _preamble = await _natural_preamble(ctx, "这台机器的特点如下：")
+    _preamble = "这台机器的特点如下："
     _ask_phrase = str(display.get("model_ask_phrase") or "").strip()
     _ask = _ask_phrase if _ask_phrase else "你可以自己配置，也可以让我帮你系统智能配。"
     question = _preamble + "\n" + _intro + "\n" + _ask
@@ -562,24 +562,6 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     # 默认：列出候选（按系列分组、每组限量），一次广播候选卡。
     return await _ask_model_choice_grouped(ctx, _baselines, rule_res, broadcast, display)
 
-async def _natural_preamble(ctx: dict, fallback: str) -> str:
-    """让 LLM 生成自然、带个性的引导语；不可用时返回中性 fallback（不含固定选项句）。
-
-    fallback 由调用方按纯数据情境给出（如“这些是当前在售机型”），代不代表 AI 口吻，
-    只保证错峰断电时仍有可读输出；具体推荐理由不写死在 py。
-    """
-    from app.services.workflow_intent import reply_with_context
-    try:
-        ctx_lines = str(ctx.get("last_ask_question") or "").strip()
-        req = str(ctx.get("requirement_text") or "").strip()
-        if req:
-            ctx_lines = (ctx_lines + "\n客户已表达需求：" + req[:300]) if ctx_lines else ("客户已表达需求：" + req[:300])
-        reply = await reply_with_context(str(fallback or "这些是在售机型"), ctx_lines)
-    except Exception:
-        reply = ""
-    return str(reply or fallback or "").strip()
-
-
 async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, fallback: str) -> dict:
     """发候选卡，等用户确认。用户能看到的文字由 LLM 生成，py 只留纯数据与流转。"""
     _fz = ctx.get("feasibility") or {}
@@ -603,7 +585,7 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
             baselines = _browse
             ctx["baselines"] = baselines
             rule_res = {**rule_res, "count": len(baselines)}
-            _preamble = await _natural_preamble(ctx, "按你的需求，当前目录里没有精确命中的机型，我重新给了这些真实在售选项：")
+            _preamble = "按你的需求，当前目录里没有精确命中的机型，我重新给了这些真实在售选项："
         else:
             question = _fz_block + "当前在售目录里没有可匹配的机型，请补充更具体的需求后再试。"
             ctx["awaiting_input"] = True
@@ -621,7 +603,7 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
 
     options = [f"{i + 1}. {b.get('name') or ''}（{b.get('series') or ''}/{b.get('form') or ''}）"
                for i, b in enumerate(baselines[:5])]
-    _preamble = await _natural_preamble(ctx, fallback or "我根据你的需求整理了几个在售机型，你看看哪个合适：")
+    _preamble = fallback or "我根据你的需求整理了几个在售机型，你看看哪个合适："
     body = _preamble + "\n" + "\n".join(options)
     question = _fz_block + body
     ctx["awaiting_input"] = True
@@ -717,7 +699,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         # 回到上一节点重新挑机型：本轮先暂停，pending 的 current_target 会保存为 model_reason。
         ctx["awaiting_input"] = True
         ctx["current_target"] = "model_reason"
-        ctx["last_ask_question"] = await _natural_preamble(ctx, "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。")
+        ctx["last_ask_question"] = "好的，我们重新选机型。请描述新的机型要求，或等待我重新给出候选。"
         ctx["model_selection"] = None
         ctx["baselines"] = []
         ctx["kp_reason"] = {"source": "reselect_model", "reason": "用户要求重新选择机型"}
@@ -745,7 +727,7 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         if ctx.get("force_complete") or ctx.get("delegated"):
             return {**rule_res, "source": "confirmed", "reason": "配件方案已确认", "kp_count": len(parts)}
         lines = _kp_summary_lines(parts)
-        _lede = await _natural_preamble(ctx, "我按你的需求整理了一份配件清单，你看看是否合适：")
+        _lede = "我按你的需求整理了一份配件清单，你看看是否合适："
         question = _lede + "\n" + ("\n".join(lines) if lines else "（暂未匹配到明确配件）")
         ctx["awaiting_input"] = True
         ctx["current_target"] = "kp_reason"
