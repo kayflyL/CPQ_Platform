@@ -19,7 +19,7 @@ export interface RuleTypeMeta {
 }
 
 export const RULE_GROUPS: RuleGroup[] = [
-  { key: 'understand', label: '需求引导', hint: '判断明确度、映射预算、识别委托与用户意图', types: ['clarity', 'budget', 'delegation_phrases', 'model_action_phrases', 'kp_action_phrases'] },
+  { key: 'understand', label: '需求引导', hint: '判断明确度、映射预算、识别用户意图', types: ['clarity', 'budget', 'model_action_phrases', 'kp_action_phrases'] },
   { key: 'dictionary', label: '语义字典', hint: '把客户表达归一化为平台、品类、内存代际与厂商/单位', types: ['category_alias', 'platform_series_map', 'cpu_mem_generation', 'cpu_vendor_map', 'type_alias', 'gpu_brand_map', 'spec_unit_patterns'] },
   { key: 'strategy', label: '选型策略', hint: '机型套餐、规格边界、方案校验与功耗/合规策略', types: ['type_package', 'spec_rule', 'raid_level_map', 'capacity_match', 'fallback_order', 'check_rule', 'workload_map', 'compliance_map', 'gpu_form_map', 'power_calibration'] },
 ]
@@ -44,7 +44,6 @@ export const RULE_TYPE_META: Record<RuleType, RuleTypeMeta> = {
   compliance_map: { key: 'compliance_map', label: '合规映射', group: 'strategy', hint: '国产化/合规→平台与配件白名单/排除', layout: 'table' },
   gpu_form_map: { key: 'gpu_form_map', label: 'GPU 形态映射', group: 'strategy', hint: 'GPU 数量→机箱形态（单卡→2U，多卡→4U）', layout: 'table' },
   power_calibration: { key: 'power_calibration', label: '功耗/电源校准', group: 'strategy', hint: 'CPU TDP、常项功耗、标准 PSU 档位与高功耗 GPU 词表', layout: 'table' },
-  delegation_phrases: { key: 'delegation_phrases', label: '委托话术', group: 'understand', hint: '客户委托词（你推荐/随便/不懂/帮我选）', layout: 'table' },
   model_action_phrases: { key: 'model_action_phrases', label: '机型意图词', group: 'understand', hint: '自己配/推荐/重选/取消 判定词', layout: 'table' },
   kp_action_phrases: { key: 'kp_action_phrases', label: '配件意图词', group: 'understand', hint: '确认/重选/取消 判定词', layout: 'table' },
 }

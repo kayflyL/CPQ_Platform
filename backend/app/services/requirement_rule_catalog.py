@@ -322,11 +322,6 @@ def fallback_order(enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
     return dict(rows[0]) if rows else {"order": ["exact", "same_series", "same_form", "all"], "no_signal_strategy": "return_empty"}
 
 
-def delegation_phrases(enabled_types: Optional[list[str]] = None) -> list[dict]:
-    """客户委托话术（你推荐/随便/我不太懂等）→ 可配置的委托判定词。"""
-    return [dict(x) for x in active_bodies("delegation_phrases", enabled_types) if x]
-
-
 def check_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
     """方案自检默认规则。"""
     rows = active_bodies("check_rule", enabled_types)

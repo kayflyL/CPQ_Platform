@@ -16,7 +16,7 @@ _VALID_TYPE = {
     "clarity", "budget", "cpu_mem_generation", "category_alias",
     "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
     "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map", "gpu_form_map",
-    "type_alias", "delegation_phrases", "model_action_phrases", "kp_action_phrases",
+    "type_alias", "model_action_phrases", "kp_action_phrases",
     "gpu_brand_map", "spec_unit_patterns", "power_calibration",
 }
 
@@ -239,12 +239,6 @@ DEFAULT_RULES: list[dict] = [
 
     {"type": "gpu_form_map", "name": "1-4卡 → 2U", "body": {"gpu_count_min": 1, "gpu_count_max": 4, "form": "2U"}},
     {"type": "gpu_form_map", "name": "5-16卡 → 4U", "body": {"gpu_count_min": 5, "gpu_count_max": 16, "form": "4U"}},
-
-    {"type": "delegation_phrases", "name": "客户委托话术词表", "body": {
-        "keywords": ["你推荐", "你选", "随便", "都行", "听你的", "你定", "你看着办", "你决定", "你来定",
-                     "推荐一个", "帮我推荐", "帮我选", "帮我挑", "好用的", "你拿主意", "听你安排", "看着办",
-                     "不清楚", "拿不准", "我不太懂", "我不懂", "懂了，你定", "你看着决定"]
-    }},
 
     {"type": "model_action_phrases", "name": "机型选型用户意图词表", "body": {
         "self_config": ["我自己配", "自己配", "去详情页", "去服务器详情", "手动配", "不要你配"],

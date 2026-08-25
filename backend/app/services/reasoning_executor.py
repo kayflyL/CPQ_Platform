@@ -104,57 +104,6 @@ def _extract_grounding(tool_calls_log: list) -> dict:
             grounding["series"] = args["series"]
     return grounding
 
-
-def _delegation_terms(config: dict = None) -> tuple:
-    """委托判定词：只读节点配置 + 策略中心 delegation_phrases 规则库，不内置默认。
-
-    规则库空缺时返回空 tuple，是否委托完全交给 AI 的 semantic.delegated 判定。
-    """
-    terms = []
-    if config:
-        extra = config.get("delegation_phrases") or []
-        if isinstance(extra, str):
-            extra = [extra]
-        terms.extend(str(x).strip().lower() for x in extra if str(x).strip())
-    try:
-        from app.services import requirement_rule_catalog as _rc
-        for r in _rc.delegation_phrases():
-            p = r.get("phrase") or r.get("keywords") or []
-            if isinstance(p, str):
-                p = [p]
-            terms.extend(str(x).strip().lower() for x in p if str(x).strip())
-    except Exception:
-        pass
-    return tuple(dict.fromkeys(x for x in terms if x))
-
-
-def _is_delegation(text: str, config: dict = None, ext: dict = None) -> bool:
-    """判断用户是否把决定权委托给系统。
-
-    优先信任 AI 语义层 semantic.delegated；规则词表仅作关键词兜底，不为空则不强判。
-    """
-    _sem = ((ext or {}).get("semantic") or {})
-    if _sem.get("delegated") is True:
-        return True
-    t = str(text or "").strip().lower()
-    if not t:
-        return False
-    return any(k in t for k in _delegation_terms(config))
-
-
-def _latest_user_utterance(ctx: dict) -> str:
-    """取本轮实际最新用户原话：补答优先（last_user_answer），其次会话里最后一条用户消息，最后需求正文。"""
-    ans = str(ctx.get("last_user_answer") or "").strip()
-    if ans:
-        return ans
-    hist = ctx.get("history") or []
-    if isinstance(hist, list):
-        for m in reversed(hist):
-            if isinstance(m, dict) and str(m.get("role") or "") == "user":
-                return str(m.get("content") or "")
-    return str(ctx.get("requirement_text") or "").strip()
-
-
 async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     # 方案A：agent_fill 不再起独立 LLM（理解/措辞已由外层 AI 角色 extract_requirement_slots 完成）。
     # 本节点只读已抽好的需求槽位，做契约校验 + 缺失反问 + 落表，保证不重复思考、不再套壳。
@@ -174,10 +123,6 @@ async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) ->
     req_keys = {s.get("key") for s in slot_spec() if s.get("src_type") != "kp" and s.get("key") != "server_model"}
     prev_missing = list(ctx.get("missing_fields") or [])
     missing = [m for m in _missing_critical(ext) if m in req_keys and not is_confirmed(ext, m)]
-
-    # 委托兜底：客户明确委托时不再追问缺失字段，交给下游推荐。
-    if not ctx.get("delegated") and _is_delegation(_latest_user_utterance(ctx), config, ext=ext):
-        ctx["delegated"] = True
 
     ctx["missing_fields"] = missing
     # 反问收敛：用户答了但缺口完全一致 → 停止机械重复，按 partial 交下游。
@@ -261,31 +206,6 @@ def _model_selection_intent(answer: str) -> str:
     return ""
 
 
-async def _resolve_selection_mode(ctx: dict, config: dict, answer: str) -> str:
-    """用 LLM 判断当前应走推荐 / AI 智能选配 / 用户自配（决策权交给 AI）。
-
-    返回:
-      - recommend  : 出候选卡让用户选（默认，AI 拿不准时）
-      - ai_config  : 用户明确委托“你推荐/帮我选好并继续”，自动锁定并推进下游
-      - self_config: 用户明确“我自己配”，跳过 BOM 直接进详情页
-      抽屉的 selection_mode 只作为兜底偏好，AI 意图优先；py 不写死流程路径。
-    """
-    # 意图由角色层统一判定；这里只做映射，不再二次调 LLM。
-    pi = str(ctx.get("plan_intent") or "").strip().lower()
-    if pi == "auto_recommend":
-        return "ai_config"
-    if pi == "self_config":
-        return "self_config"
-    if pi in ("confirm_choice", "choose", "refine", "reselect"):
-        return "recommend"
-    kw = _model_selection_intent(str(answer or "").strip())
-    if kw == "auto_pick":
-        return "ai_config"
-    if kw == "self_config":
-        return "self_config"
-    return str(config.get("selection_mode") or "recommend").strip().lower()
-
-
 def _lock_model_from_answer(answer: str, baselines: list) -> dict:
     """把用户回复解析为机型选择；匹配不到返回空 dict。"""
     text = str(answer or "").strip()
@@ -315,7 +235,7 @@ def _model_reason_matches(baselines: list) -> list:
 
 
 def _model_reason_display(config: dict) -> dict:
-    """机型展示白盒参：按系列分组 / 每组限量 / 介绍字数 / 是否附详情页链接。"""
+    """机型展示白盒参：按系列分组 / 每组限量 / 候选与询问文案。"""
     cfg = dict(config or {})
     try:
         from app.services import prompt_store
@@ -325,15 +245,10 @@ def _model_reason_display(config: dict) -> dict:
     return {
         "group_by_series": bool(cfg.get("group_by_series", True)),
         "per_series_limit": max(1, int(cfg.get("per_series_limit") or 2)),
-        "intro_max_chars": max(0, int(cfg.get("intro_max_chars") or 180)),
-        "show_detail_link": bool(cfg.get("show_detail_link", True)),
-        "model_ask_phrase": str(cfg.get("model_ask_phrase") or "").strip(),
-        "detail_link_phrase": str(cfg.get("detail_link_phrase") or "").strip(),
         "candidate_lede": str(cfg.get("candidate_lede") or _defaults.get("candidate_lede") or "").strip(),
         "choice_lede": str(cfg.get("choice_lede") or _defaults.get("choice_lede") or "").strip(),
         "no_exact_lede": str(cfg.get("no_exact_lede") or _defaults.get("no_exact_lede") or "").strip(),
         "no_match_question": str(cfg.get("no_match_question") or _defaults.get("no_match_question") or "").strip(),
-        "self_config_lede": str(cfg.get("self_config_lede") or _defaults.get("self_config_lede") or "").strip(),
     }
 
 
@@ -378,51 +293,11 @@ def _group_baselines(baselines: list, display: dict) -> list:
     return out
 
 
-async def _model_detail_intro(ctx: dict, baseline: dict, display: dict) -> str:
-    """从真实目录数据组装机型介绍（字数与是否附链接由节点配置，不写死文案）。"""
-    name = str((baseline or {}).get("name") or "")
-    series = str((baseline or {}).get("series") or "")
-    form = str((baseline or {}).get("form") or "")
-    _bc = baseline.get("base_config") or {}
-    detail: dict = {}
-    try:
-        from app.services.catalog_guide import load_catalog
-        _types, _models_by_type = load_catalog()
-        for _ms in (_models_by_type or {}).values():
-            for _m in (_ms or []):
-                if str(_m.get("name") or "") == name or str(_m.get("id") or "") == str((baseline or {}).get("id") or ""):
-                    detail = _m if isinstance(_m, dict) else {}
-                    _bc = detail.get("base_config") or _bc
-                    break
-            if detail:
-                break
-    except Exception:
-        detail = {}
-    _parts = [name]
-    if series:
-        _parts.append("系列 " + series)
-    if form:
-        _parts.append("形态 " + form)
-    for k in ("cpus", "cpu_model", "max_memory", "max_disk", "drive_bays", "gpu_cnt"):
-        _v = _bc.get(k) or detail.get(k)
-        if _v:
-            _parts.append(f"{k}={_v}")
-    _summary = (_bc.get("summary") or detail.get("summary") or "").strip()
-    _limit = int(display.get("intro_max_chars") or 180)
-    if _summary:
-        _parts.append(_summary if len(_summary) <= _limit else _summary[:_limit] + "…")
-    out = "；".join(p for p in _parts if p)
-    if display.get("show_detail_link", True) and str((baseline or {}).get("id") or ""):
-        _lp = str(display.get("detail_link_phrase") or "").strip()
-        out += "\n" + (_lp if _lp else "可进入详情页查看完整参数。")
-    return out
-
-
 async def _ask_model_choice_grouped(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, display: dict) -> dict:
     """一次性列出候选（按系列分组、每组限量），只广播一次候选卡。"""
     _baselines = _group_baselines(baselines, display)
     if not _baselines:
-        return await _ask_model_choice(ctx, baselines, rule_res, broadcast, "")
+        return await _ask_model_choice(ctx, baselines, rule_res, broadcast, display, "")
     grouped: dict[str, list] = {}
     order: list[str] = []
     for b in _baselines:
@@ -466,11 +341,10 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     真实候选（select_models）按系列分组列出 -> 用户确认机型后锁定并继续配件/BOM；
     出口（自配/取消）由角色层 plan_intent 判定，关键词仅在 LLM 不可用时兜底。
     """
-    from app.services.capabilities import run_select_baseline_rule, _model_reason_config
+    from app.services.capabilities import run_select_baseline_rule
     ext = dict(ctx.get("ext") or {})
     answer = str(ctx.get("last_user_answer") or "").strip()
     pi = str(ctx.get("plan_intent") or "").strip().lower()
-    cfg = _model_reason_config(config or {})
     display = _model_reason_display(config or {})
     llm_on = bool(ctx.get("llm_enabled", True))
     intent = _model_intent_from_plan(pi, answer, llm_on)
@@ -548,7 +422,7 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     # 默认：列出候选（按系列分组、每组限量），一次广播候选卡。
     return await _ask_model_choice_grouped(ctx, _baselines, rule_res, broadcast, display)
 
-async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, fallback: str) -> dict:
+async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcast: BroadcastFn, display: dict, fallback: str = "") -> dict:
     """发候选卡，等用户确认。用户能看到的文字由 LLM 生成，py 只留纯数据与流转。"""
     _fz = ctx.get("feasibility") or {}
     _fz_lines = [("⚠️ " + w) for w in (_fz.get("warnings") or [])] + [("提示：" + h) for h in (_fz.get("hints") or [])]

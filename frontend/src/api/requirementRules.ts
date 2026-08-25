@@ -25,7 +25,6 @@ export type RuleType =
   | 'workload_map'
   | 'compliance_map'
   | 'gpu_form_map'
-  | 'delegation_phrases'
   | 'model_action_phrases'
   | 'kp_action_phrases'
   | 'gpu_brand_map'
@@ -50,7 +49,6 @@ export const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
   { value: 'workload_map', label: '工作负载映射' },
   { value: 'compliance_map', label: '合规映射' },
   { value: 'gpu_form_map', label: 'GPU 形态映射' },
-  { value: 'delegation_phrases', label: '委托话术' },
   { value: 'model_action_phrases', label: '机型意图词' },
   { value: 'kp_action_phrases', label: '配件意图词' },
   { value: 'gpu_brand_map', label: 'GPU 品牌词表' },
