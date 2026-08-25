@@ -280,11 +280,17 @@ async def run_fixed_workflow(
         if _sup and _sup not in _base:
             ctx["requirement_text"] = (_base + "\n" + _sup).strip()
         ctx.pop("last_user_answer", None)
-    # 方案A：外层 AI 角色抽槽（填表层）。只在已有需求但尚未结构化落槽时执行一次；
-    # 断点续跑（resume_from in nodes）已有 ctx.ext 时跳过，避免重复抽取/覆盖。
-    if not resume_from or resume_from not in nodes:
+    # 方案A：外层 AI 角色抽槽（填表层）。
+    # 首轮：已有需求但尚未结构化落槽时执行一次，避免重复抽取/覆盖。
+    # 续跑 refine/grasp（resume_from in nodes 且 plan_intent 为需求补全）：用户补了真需求，
+    #   需重新抽槽把新信息落入结构化字段，否则下游反复重问。
+    _resume_refine = bool(resume_from and resume_from in nodes and _pi in ("refine", "grasp"))
+    if (not resume_from or resume_from not in nodes) or _resume_refine:
         try:
-            if not (ctx.get("requirement") or {}).get("requirement_text") and not (ctx.get("ext") or {}).get("server_type_name"):
+            _skip = (not _resume_refine) and (
+                (ctx.get("requirement") or {}).get("requirement_text")
+                or (ctx.get("ext") or {}).get("server_type_name"))
+            if not _skip:
                 _af_cfg = node_configs.get("agent_fill") or {}
                 _af_cfg.setdefault("llm_enabled", ctx.get("llm_enabled", True))
                 _af_res = await extract_requirement_slots(ctx, _af_cfg, broadcast)
