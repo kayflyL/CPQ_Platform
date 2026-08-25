@@ -518,9 +518,19 @@ async function save() {
             </a-form-item>
           </a-form>
 
-          <!-- 机型决策节点：只保留任务契约；选型模式由 AI 角色按用户意图实时判断，不作为可配目标 -->
+          <!-- 机型决策节点：只保留任务契约；三个入口为只读标注，实际模式由 AI 角色按用户意图实时判断，不作为可配目标 -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <p class="rf-hint">本节点只负责按需求生成候选，并给出「推荐 / 自配 / 智能选配」入口；最终走哪种模式由 AI 角色根据用户意图判断，不在节点里固定。</p>
+            <div class="node-behavior-card">
+              <div class="node-behavior-row">
+                <span class="node-behavior-label">选型出口</span>
+              </div>
+              <div class="rf-wl-row">
+                <span class="node-behavior-chip ghost">系统推荐</span>
+                <span class="node-behavior-chip ghost">我自己配置</span>
+                <span class="node-behavior-chip ghost">取消</span>
+              </div>
+            </div>
+            <p class="rf-hint">三个入口为只读标注，不可配置；实际走哪种由 AI 角色按用户意图实时判断，不在节点里固定。</p>
           </a-form>
 
           <!-- 配件决策节点：LLM 结构化提议的 schema、提示词模板、合并映射全部可配 -->
@@ -732,6 +742,7 @@ async function save() {
   vertical-align: middle;
 }
 .node-behavior-chip { background: rgba(22, 119, 255, 0.14); color: #6ea8ff; }
+.node-behavior-chip.ghost { background: var(--cpq-glass-1-bg); color: var(--cpq-text-secondary); border: 1px dashed var(--cpq-border-primary); }
 .node-behavior-badge { background: rgba(250, 173, 20, 0.14); color: #ffc53d; }
 .node-behavior-config { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
 .node-behavior-label { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }

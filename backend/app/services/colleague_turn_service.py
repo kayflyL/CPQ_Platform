@@ -385,7 +385,7 @@ async def mark_self_config_flow(thread_id: str, colleague: Optional[dict]) -> Op
     if not pending:
         return None
     _clear_pending_workflow(thread_id)
-    self_text = "好的，你可以前往服务器详情页自行配置。配置完成后如需我继续组装 BOM，请回来告诉我。"
+    self_text = "已切换为自行配置。可在服务器详情页完成配置；如需继续组装 BOM，再回来告知。"
     _add_assistant_message(thread_id, colleague, self_text)
     role_key = str((colleague or {}).get("role_key") or "assistant")
     await assistant_hub.broadcast(thread_id, {
@@ -915,7 +915,7 @@ async def _run_tool_turn(
             return "系统已向用户发起澄清提问，请等待用户补充信息后再继续。"
         if ctx.get("flow_exit") == "cancelled":
             _clear_pending_workflow(thread_id)
-            cancel_text = "好的，已取消本次方案配置。你可以重新描述需求，或告诉我继续哪一步。"
+            cancel_text = "本次方案配置已取消。可重新描述需求，或继续其他步骤。"
             _add_assistant_message(thread_id, colleague, cancel_text)
             await raw_broadcast({"type": "analysis_cancelled", "message": cancel_text})
             await publish_office_event(role_key, "done", "已取消方案配置", thread_id=thread_id)
@@ -923,7 +923,7 @@ async def _run_tool_turn(
             return "已取消本次方案配置。"
         if ctx.get("flow_exit") == "self_config":
             _clear_pending_workflow(thread_id)
-            self_text = "好的，你可以前往服务器详情页自行配置。配置完成后如需我继续组装 BOM，请回来告诉我。"
+            self_text = "已切换为自行配置。可在服务器详情页完成配置；如需继续组装 BOM，再回来告知。"
             _add_assistant_message(thread_id, colleague, self_text)
             await raw_broadcast({"type": "analysis_finished", "message": self_text, "exit": "self_config"})
             await publish_office_event(role_key, "done", "用户选择自行配置机型", thread_id=thread_id)
