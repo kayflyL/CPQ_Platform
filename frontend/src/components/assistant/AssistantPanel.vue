@@ -93,6 +93,19 @@
           </div>
         </transition>
 
+        <!-- 计划进度条：Skill 工作流执行时展示当前/已完成/卡住的步骤（纯对话时隐藏） -->
+        <div v-if="nodeTraces.length" class="ap-plan-bar">
+          <template v-for="(t, i) in nodeTraces" :key="t.step">
+            <span class="ap-plan-step" :class="`ap-plan-step--${t.status}`">
+              <span class="ap-plan-dot" />
+              <span class="ap-plan-label">{{ t.label }}</span>
+              <span v-if="t.artifact" class="ap-plan-artifact">{{ t.artifact.title }}</span>
+            </span>
+            <span v-if="i < nodeTraces.length - 1" class="ap-plan-arrow">→</span>
+          </template>
+          <span v-if="waitingAI" class="ap-plan-waiting">等待补充信息…</span>
+        </div>
+
         <!-- 消息列表 -->
         <div class="ap-messages" ref="messagesEl">
           <a-spin v-if="loading" size="small" class="ap-spin" />
@@ -646,6 +659,34 @@ function onDeleteThread(id: string) {
 .thread-opt-del:hover {
   color: var(--cpq-accent-danger);
 }
+
+.ap-plan-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--cpq-overlay-w4);
+  background: var(--cpq-overlay-a6, rgba(0, 0, 0, 0.03));
+  font-size: 12px;
+}
+.ap-plan-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cpq-overlay-w6);
+  color: var(--cpq-text-secondary, #666);
+}
+.ap-plan-step--done { color: #16a34a; border-color: #16a34a44; background: #16a34a0d; }
+.ap-plan-step--running { color: var(--cpq-accent-primary, #1677ff); border-color: var(--cpq-accent-primary, #1677ff); background: #1677ff0d; }
+.ap-plan-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.ap-plan-step--running .ap-plan-dot { animation: ap-pulse 1s ease-in-out infinite; }
+.ap-plan-arrow { color: var(--cpq-text-tertiary, #aaa); }
+.ap-plan-artifact { font-size: 11px; opacity: 0.8; }
+.ap-plan-waiting { margin-left: auto; color: #b45309; }
+@keyframes ap-pulse { 0%, 100% { transform: scale(0.8); opacity: 0.6; } 50% { transform: scale(1.2); opacity: 1; } }
 
 .ap-messages {
   flex: 1;

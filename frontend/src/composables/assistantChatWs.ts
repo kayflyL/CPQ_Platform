@@ -74,8 +74,18 @@ export function handleAssistantChatWsEvent(
       if (data.message) state.messages.push(data.message as AssistantMessage)
       return true
     case 'analysis_finished':
+      // 正常完成保留计划条展示全部步骤；用户主动退出自配时清空，回到普通聊天。
+      if (data?.exit === 'self_config') state.nodeTraces = []
+      state.waiting = false
+      state.statusText = ''
+      return true
     case 'pipeline_done':
     case 'pipeline_paused':
+      state.waiting = false
+      state.statusText = ''
+      return true
+    case 'analysis_cancelled':
+      state.nodeTraces = []
       state.waiting = false
       state.statusText = ''
       return true
