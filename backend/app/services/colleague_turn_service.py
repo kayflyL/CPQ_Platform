@@ -527,6 +527,7 @@ async def _run_tool_turn(
     trace_sink: Optional[Callable[..., None]],
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
+    option_slot: Optional[str] = None,
 ) -> None:
     role_key = (colleague or {}).get("role_key") or "assistant"
     history = _short_term_history(colleague, history)
@@ -826,6 +827,13 @@ async def _run_tool_turn(
         restored_slot = (args or {}).get("slot_state") or {}
         restored_ext = dict(restored_slot.get("ext") or {})
         restored_target = str((args or {}).get("current_target") or restored_slot.get("current_target") or "").strip()
+        selected_slot = str(option_slot or "").strip()
+        if selected_slot and selected_slot != "general" and last_user_answer:
+            try:
+                from app.services.capabilities import _apply_extracted_slots
+                _apply_extracted_slots(restored_ext, {selected_slot: last_user_answer}, allow_overwrite=True)
+            except Exception:
+                logger.exception("结构化选项落槽失败 slot=%s", selected_slot)
         ctx = await run_fixed_workflow(
             thread_id,
             full_text,
@@ -1177,6 +1185,7 @@ async def run_colleague_turn(
     trace_sink: Optional[Callable[..., None]] = None,
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
+    option_slot: Optional[str] = None,
 ) -> None:
     """Route one colleague message through the unified runtime."""
     role_key = (colleague or {}).get("role_key") or "assistant"
@@ -1199,6 +1208,7 @@ async def run_colleague_turn(
                 trace_sink=trace_sink,
                 user=user,
                 opportunity_id=opportunity_id,
+                option_slot=option_slot,
             )
         else:
             await _run_plain_turn(

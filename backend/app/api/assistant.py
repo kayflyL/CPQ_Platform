@@ -124,6 +124,7 @@ class PostMessageBody(BaseModel):
     context_summary: Optional[str] = None  # 前端多域 provider 拼的当前上下文摘要
     role_key: Optional[str] = None  # 可选：直接指定某位 AI 同事（不传则按分派规则自动决定）
     entry_point: Optional[str] = None
+    option_slot: Optional[str] = None  # 用户点击结构化选项时，明确该选项对应的槽位
 
 
 class DispatchPreviewBody(BaseModel):
@@ -319,6 +320,7 @@ async def _run_office_turn(
     user_id: Optional[str] = None,
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
+    option_slot: Optional[str] = None,
 ) -> None:
     """后台处理 AI Office 会话：空间指令优先，其余走普通聊天/LLM 意图识别。"""
     try:
@@ -348,6 +350,7 @@ async def _run_office_turn(
             trace_sink=lambda **kw: _record_assistant_tool_trace(user_id=user_id, **kw),
             user=user,
             opportunity_id=opportunity_id,
+            option_slot=option_slot,
         ))
     except Exception:
         logger.exception("AI Office 消息后台处理失败")
@@ -405,6 +408,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         user_id=user["user_id"],
         user=user,
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
+        option_slot=body.option_slot,
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
 

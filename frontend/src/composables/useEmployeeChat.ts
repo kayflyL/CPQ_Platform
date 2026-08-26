@@ -216,7 +216,7 @@ async function open(colleague: any, context?: AssistantContext) {
   return state
 }
 
-async function send(roleKey: string, content: string, contextSummary?: string, context?: AssistantContext) {
+async function send(roleKey: string, content: string, contextSummary?: string, context?: AssistantContext, optionSlot?: string) {
   const text = (content || '').trim()
   if (!text) return
 
@@ -252,6 +252,7 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
       context?.opportunityId || null,
       context?.quotationId || null,
       context?.entryPoint,
+      optionSlot || null,
     )
     const idx = state.messages.findIndex((message) => message.message_id === localId)
     if (idx >= 0) {

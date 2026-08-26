@@ -162,6 +162,7 @@ export const assistantApi = {
       opportunityId?: string | null,
       quotationId?: string | null,
       entryPoint?: string,
+      optionSlot?: string | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -173,6 +174,7 @@ export const assistantApi = {
             opportunity_id: opportunityId || null,
             quotation_id: quotationId || null,
             entry_point: entryPoint || null,
+            option_slot: optionSlot || null,
           },
         )
         .then((r) => r.data),

@@ -37,7 +37,7 @@
               :key="opt.value"
               type="button"
               class="am-option-chip"
-              @click="emit('select-option', opt.value)"
+              @click="emit('select-option', opt.value, group.slot)"
             >
               {{ opt.label }}
             </button>
@@ -79,7 +79,7 @@ const props = withDefaults(defineProps<{
   thinkingActive: false,
 })
 
-const emit = defineEmits<{ (e: 'select-option', value: string): void }>()
+const emit = defineEmits<{ (e: 'select-option', value: string, slot?: string): void }>()
 
 const thinkingCollapsed = ref(false)
 const role = computed(() => props.message?.role === 'user' ? 'user' : 'assistant')

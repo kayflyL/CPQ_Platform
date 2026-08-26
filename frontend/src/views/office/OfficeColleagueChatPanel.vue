@@ -291,10 +291,10 @@ async function onStop() {
   await stop()
 }
 
-async function sendOption(value: string) {
+async function sendOption(value: string, slot?: string) {
   if (!value || !props.colleague?.role_key) return
   try {
-    await send(props.colleague.role_key, value, props.contextSummary, chatContext.value)
+    await send(props.colleague.role_key, value, props.contextSummary, chatContext.value, slot)
   } catch {
     message.error(chatState.value?.error || '发送失败')
   }
