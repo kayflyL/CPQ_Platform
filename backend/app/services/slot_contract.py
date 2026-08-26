@@ -168,7 +168,7 @@ def _slot_filled(ext: dict, key: str) -> bool:
         "storage": ["drive_groups"],
         "gpu": ["gpu_groups"],
         "nic": ["multi_spec_filters"],
-        "raid": ["raid_groups", "raid_signal"],
+        "raid": ["raid_groups"],
         "psu": ["psu_signal"],
     }
     return any(_has(ext.get(k)) for k in mapping.get(key, []))

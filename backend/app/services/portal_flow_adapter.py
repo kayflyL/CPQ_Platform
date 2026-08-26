@@ -221,11 +221,6 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         row = {k: v for k, v in group.items() if v not in (None, "")}
         if row.get("model") or row.get("raid_levels"):
             raid_rows.append(row)
-    if not raid_rows:
-        raid_signal = ext.get("raid_signal") if isinstance(ext.get("raid_signal"), dict) else {}
-        raid = {k: v for k, v in raid_signal.items() if v not in (None, "")}
-        if raid.get("model") or raid.get("raid_levels"):
-            raid_rows.append(raid)
     if raid_rows:
         slots["raid"] = raid_rows
 

@@ -466,17 +466,11 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                 if t not in keywords:
                     keywords.append(t)
                     changes.append(f"keywords+{t}")
-            ext["raid_signal"] = {"model": raid_model, "qty": raid_qty}
             if not any((g or {}).get("model") == raid_model for g in _rg):
                 _rg.append({"model": raid_model, "qty": raid_qty, "cache": raid.get("cache")})
                 changes.append(f"raid_groups+{raid_model}×{raid_qty}")
         else:
             # 只写 RAID 级别未写型号（如 RAID 0,1,10）：不臆造型号，保留级别信号，下游按兼容机型选件。
-            sig = dict(ext.get("raid_signal") or {})
-            if not sig.get("model"):
-                sig["raid_levels"] = raid_levels
-                sig["qty"] = raid_qty
-                ext["raid_signal"] = sig
             if not any((g or {}).get("raid_levels") for g in _rg):
                 _rg.append({"raid_levels": raid_levels, "qty": raid_qty})
                 changes.append(f"raid_groups+RAID {'/'.join(raid_levels)}×{raid_qty}")

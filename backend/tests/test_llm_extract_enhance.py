@@ -287,9 +287,9 @@ def test_merge_fills_sparse_requirement():
     ]
     assert nic_lines[0]["qty"] == 2
     assert "光模块" in nic_lines[0]["name_contains"]
-    # RAID：补型号 token + raid_signal
+    # RAID：补型号 token + 单真值源 raid_groups（不再写旧 raid_signal）
     assert "9560-8i" in ext["keywords"]
-    assert ext["raid_signal"] == {"model": "LSI 9560-8i", "qty": 1}
+    assert ext["raid_groups"] == [{"model": "LSI 9560-8i", "qty": 1, "cache": None}]
     assert "Raid card" in ext["categories"]
 
 
@@ -344,9 +344,8 @@ def test_merge_agent_primary_fills_all_essential_keys():
     assert ext["multi_spec_filters"]["Network(NIC) requirement"][0]["qty"] == 2
     # 电源
     assert ext["psu_signal"]["wattage"] == 2700
-    # RAID 组（P1.2 补丁：形状 {model,qty,cache}，对齐 _extract_raid_groups）
+    # RAID 组（P1.2 补丁：形状 {model,qty,cache}，对齐 _extract_raid_groups；只保留单真值源 raid_groups）
     assert ext["raid_groups"] == [{"model": "LSI 9560-16i", "qty": 1, "cache": None}]
-    assert ext["raid_signal"] == {"model": "LSI 9560-16i", "qty": 1}
     # 形态 + 服务器类型（P1.2：catalog 锚定）
     assert ext["form"] == "4U"
     assert ext["server_type_name"] == "AI / 加速计算服务器"

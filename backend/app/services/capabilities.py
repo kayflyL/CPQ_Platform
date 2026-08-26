@@ -144,9 +144,10 @@ def _ext_digest_for_kp(ext: dict) -> str:
     nics = mf.get("Network(NIC) requirement") or []
     if nics:
         parts.append(f"网卡规格{len(nics)}组")
-    rs = ext.get("raid_signal") or {}
-    if rs.get("model"):
-        parts.append(f"RAID={rs['model']}")
+    rs_groups = ext.get("raid_groups") or []
+    _raid_labels = [str(g.get("model") or "/".join(g.get("raid_levels") or []) or "") for g in rs_groups if isinstance(g, dict)]
+    if _raid_labels:
+        parts.append("RAID=" + "、".join(x for x in _raid_labels if x))
     return "；".join(parts) or "（空）"
 
 
@@ -299,7 +300,7 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     _kp_ext = ctx.get("ext") or {}
     # 只在客户用自然语言提住真正模糊的配件诉求（吐需更多内存/架 raid/万兆网卡）时才让 LLM 提议；
     # 结构化 gpu_groups/mem_groups/raid_groups/drive_groups 等是事实，由 pick_kp_parts 规则直接利用，不再走慢 LLM，避免 GPU/内存场景卡数十秒。
-    _need_llm = any(_kp_ext.get(k) for k in ("mem_signal", "raid_signal", "nic_signal", "psu_signal"))
+    _need_llm = any(_kp_ext.get(k) for k in ("mem_signal", "psu_signal"))
     if _need_llm:
         prop = await _kp_llm_propose(ctx, cfg, broadcast)
         if prop.get("ok"):
