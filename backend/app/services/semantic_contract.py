@@ -156,12 +156,6 @@ def is_slot_required(ext: dict, spec_item: dict) -> bool:
     return bool(spec_item.get("required", False))
 
 
-def gpu_requirement(ext: dict) -> dict:
-    """workload → GPU 需求（显存/卡数），供模型形态/配件取舍；无则空。"""
-    wl = workload(ext)
-    return {k: wl[k] for k in ("total_vram_gb", "gpu_count", "model") if wl.get(k) is not None}
-
-
 def schema() -> dict:
     """把语义契约 dimensions 转成 clean_by_schema 可用的 JSON schema。
 

@@ -326,7 +326,6 @@ class ColleagueUpdate(BaseModel):
     model_override: Optional[str] = None
     tool_ids: Optional[list] = None
     data_sources: Optional[list] = None
-    entry_points: Optional[list] = None
     permission_policy: Optional[str] = None
     dispatchable: Optional[bool] = None
     capabilities: Optional[list] = None
@@ -635,7 +634,6 @@ def _default_colleague(role_key: str) -> dict:
         "model_override": None,
         "tool_ids": [],
         "data_sources": [],
-        "entry_points": [],
         "permission_policy": "readonly",
         "dispatchable": True,
         "capabilities": [],

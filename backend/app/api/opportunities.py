@@ -113,6 +113,7 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
             sales_person=sales_person,
             owner_user_id=None,
             owner_sales_person=None,
+            has_committed_requirement=True,
             sort_by=sort_by, sort_order=sort_order,
         )
         return {"items": items, "total": total}
@@ -131,7 +132,7 @@ def list_sales_options(user: dict = Depends(get_current_user)):
 @router.get("/business-options")
 def list_business_options(user: dict = Depends(get_current_user)):
     """业务账户下拉：从 feed_users 中取启用中的业务角色账号。"""
-    if not user_has_permission(user, "page.opportunities"):
+    if not user_has_permission(user, "page.opportunities_all"):
         return {"items": []}
     return {"items": _active_business_accounts()}
 
@@ -151,6 +152,17 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
         # 这些字段已迁移到需求单 slots，商机基本信息更新不再落库到 opportunities.extra_fields。
         for key in ("platform_type", "chassis_form", "purchase_qty", "warranty_years"):
             updates.pop(key, None)
+
+        # 商机级角色字段锁定：对应角色登录时该字段强制为当前登录人，不可修改。
+        role = user.get("role")
+        current_name = user.get("name") or ""
+        if role == "business":
+            updates["sales_person"] = current_name
+        elif role == "te":
+            updates["fae"] = current_name
+        elif role == "quote":
+            updates["quotation_person"] = current_name
+
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
             updates.pop("created_at", None)
@@ -226,6 +238,14 @@ def save_opportunity(data: dict, user: dict = Depends(get_current_user)):
         config_quantities = data.get("config_quantities", {})
         opportunity_id = str(opportunity_info.get("opportunity_id") or "").strip()
         view_all = user_has_permission(user, "page.opportunities_all")
+        role = user.get("role")
+        current_name = user.get("name") or ""
+        if role == "business":
+            opportunity_info["sales_person"] = current_name
+        elif role == "te":
+            opportunity_info["fae"] = current_name
+        elif role == "quote":
+            opportunity_info["quotation_person"] = current_name
         if opportunity_id:
             ensure_opportunity_access(opportunity_id, user)
             opportunity_info.pop("owner_user_id", None)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import type { CostConfig, FlowCard, PortalBoard } from '@/api/portal'
+import type { CostConfig, FlowCard, PortalBoard, QuoteContext } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { portalApi } from '@/api/portal'
@@ -12,6 +12,7 @@ import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadBut
 
 const props = withDefaults(defineProps<{
   board: PortalBoard
+  quoteContext: QuoteContext
   quotations: Quotation[]
   quotePriceVisible?: boolean
   quoteSelectMode?: boolean
@@ -44,12 +45,9 @@ const emit = defineEmits<{
 
 const opportunityId = computed(() => props.board.opportunity?.opportunity_id || '')
 
-const bomConfigs = computed(() => {
-  const bom = props.board.bom?.configs || []
-  return bom.length ? bom : props.board.sheet?.configs || []
-})
-const costConfigs = computed(() => props.board.cost?.configs || [])
-const worktableQuotationId = computed(() => props.board.bom?.quotation_id || props.board.sheet?.quotation_id || '')
+const bomConfigs = computed(() => props.quoteContext?.bom_configs || [])
+const costConfigs = computed(() => props.quoteContext?.cost_configs || [])
+const worktableQuotationId = computed(() => props.quoteContext?.worktable_quotation_id || '')
 const convertedQuotation = computed(() =>
   props.quotations.find((q) => q.quotation_id === worktableQuotationId.value && (q as any).source !== 'worktable'),
 )
@@ -59,7 +57,7 @@ const visibleQuotations = computed(() =>
 const canConvert = computed(() => !!worktableQuotationId.value && costConfigs.value.length > 0 && !convertedQuotation.value)
 const configDetail = ref<CostConfig | null>(null)
 const costTotals = computed(() => {
-  const snap = props.board.cost?.snapshot?.totals
+  const snap = props.quoteContext?.cost_snapshot?.totals
   if (snap) return { totalCost: snap.totalCost || 0 }
   if (!costConfigs.value.length) return null
   let totalCost = 0

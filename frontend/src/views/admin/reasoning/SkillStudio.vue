@@ -35,7 +35,7 @@ const outputKind = computed(() => {
 const CFG_TYPES = REASONING_CFG_TYPES
 const NODE_GROUPS = REASONING_NODE_GROUPS
 const nodeMeta = (t: string) => reasoningNodeMeta(t)
-const GENERIC_NODE_TYPES = new Set(['agent', 'rule', 'transform', 'branch', 'assemble', 'output', 'orchestrator'])
+const GENERIC_NODE_TYPES = new Set(['agent', 'output'])
 function runtimeForType(type: string): string | undefined {
   return GENERIC_NODE_TYPES.has(type) ? undefined : type
 }
@@ -75,26 +75,23 @@ function onPaletteDrop(e: DragEvent) {
 }
 
 // ── 连线染色（2026-08 通用能力编辑器：由节点 kind 派生，不再维护逐节点路由表）──
-// agent=蓝（LLM 决策 / 工具调用）/ rule=紫（确定性校验 / 兜底）/ output=灰绿（组装 / 最终产出）
+// agent=蓝（LLM 决策 / 工具调用）/ output=灰绿（组装 / 最终产出）
 const ROUTE_META: Record<string, { label: string; sub: string; cls: string }> = {
   ai: { label: '智能体节点', sub: 'LLM 决策 / 工具调用', cls: 'rf-edge--ai' },
-  local: { label: '规则节点', sub: '确定性校验 / 兜底', cls: 'rf-edge--local' },
   shared: { label: '输出节点', sub: '组装 / 最终产出', cls: 'rf-edge--shared' },
 }
-function routeOf(stepType?: string): 'ai' | 'local' | 'shared' {
+function routeOf(stepType?: string): 'ai' | 'shared' {
   const kind = reasoningNodeKind(stepType)
   if (kind === 'agent') return 'ai'
-  if (kind === 'rule') return 'local'
   return 'shared'
 }
-/** 边 route：任一端 ai→ai；否则任一端 local→local；否则 shared */
-function edgeRoute(e: { source: string; target: string }): 'ai' | 'local' | 'shared' {
+/** 边 route：任一端 ai→ai；否则 shared */
+function edgeRoute(e: { source: string; target: string }): 'ai' | 'shared' {
   const sn = nodes.value.find((n) => n.id === e.source)
   const tn = nodes.value.find((n) => n.id === e.target)
   const sr = routeOf(sn?.data?.stepType)
   const tr = routeOf(tn?.data?.stepType)
   if (sr === 'ai' || tr === 'ai') return 'ai'
-  if (sr === 'local' || tr === 'local') return 'local'
   return 'shared'
 }
 function routeClass(e: { source: string; target: string }): string {
@@ -186,18 +183,10 @@ function applyNodeState(id: string | null, state: any) {
   // 对话 node_trace → 画布节点产出/下游交接 + 线索登记表进度
   watch(() => assistantRef.value?.nodeTraces, (traces) => {
     if (!Array.isArray(traces)) return
-    const fresh = traces.length === 0
-    nodes.value = nodes.value.map((n) => {
-      const isInputNode = String(n.data?.stepType) === 'input'
-      if (fresh && !isInputNode) {
-        return { ...n, data: { ...n.data, execState: null, badge: undefined, input: undefined, output: undefined, summary: undefined, artifact: undefined } }
-      }
-      return n
-    })
     for (const t of traces) {
       if (!t?.step) continue
       applyNodeState(t.step, {
-        execState: t.status === 'running' ? 'running' : 'done',
+        execState: t.status === 'running' ? 'running' : (t.status === 'done' ? 'done' : null),
         badge: undefined,
         input: t.input,
         output: t.output,
@@ -613,7 +602,7 @@ function onSaved() { load() }
       <main class="center-panel">
         <!-- 能力节点图例：连线颜色由节点 kind 派生（智能体 / 规则 / 输出） -->
         <div class="rf-legend">
-          <span v-for="r in (['ai','local','shared'] as const)" :key="r" class="rf-leg-item">
+          <span v-for="r in (['ai','shared'] as const)" :key="r" class="rf-leg-item">
             <i class="rf-leg-dot" :class="ROUTE_META[r].cls"></i>{{ ROUTE_META[r].label }}<span class="rf-leg-sub">{{ ROUTE_META[r].sub }}</span>
           </span>
         </div>

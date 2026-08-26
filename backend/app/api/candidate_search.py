@@ -21,7 +21,6 @@ router = APIRouter(prefix="/api/candidate-search", tags=["candidate-search"])
 
 PER_KEYWORD_LIMIT = 30  # 每个关键词每个数据源最多取多少条，避免爆炸
 MAX_PER_SOURCE = 100    # 单数据源去重后上限
-MAX_PLANS = 6           # 整机方案组合最多产出几张（R20：多机型都推荐让用户选，含 ESA/ZSA 各变体）
 MODEL_TOKEN_RE = re.compile(r"^(?=.*[0-9])([A-Za-z]{2,}[0-9A-Za-z\-]{2,}|[A-Za-z][0-9]{3,}|[0-9]{4,}|[0-9][0-9A-Za-z.\-]{2,})$")  # 型号 token（必含数字）：字母开头混合/单字母+3位数字(H100/A100/B200)/纯数字≥4/数字开头混合(960G/7.68T/9560-8i)
 
 
@@ -358,8 +357,7 @@ def _variant_short_name(cfg_name: str) -> str:
 
 def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                   series: Optional[str] = None, form: Optional[str] = None,
-                  limit: int = MAX_PLANS,
-                  recommend_strategy_id: Optional[int] = None,
+                  limit: Optional[int] = None,
                   no_signal_strategy: Optional[str] = "return_empty",
                   variant_signals: Optional[dict] = None,
                   fallback_order: Optional[list] = None) -> list[dict]:
@@ -444,7 +442,7 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
         variants = [v for v in variants if v]
         variants.sort(key=lambda v: (-_rank_base_config_variant(v, variant_signals, bc_id), v.get("id") or 0))
         for bc in variants:
-            if len(out) >= limit:
+            if limit is not None and len(out) >= limit:
                 break
             bc_embed = m.get("base_config") or {}
             _name = m.get("name") or ""
@@ -483,8 +481,8 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                 "is_published": m.get("is_published"),
                 "base_config": m.get("base_config"),
             })
-    results = out[:limit]
-    _annotate_recommend(results, recommend_strategy_id)
+    results = out if limit is None else out[:limit]
+    _annotate_recommend(results)
     return results
 
 
@@ -509,11 +507,11 @@ def _fallback_note(stage: Optional[str], relaxed: list, series: Optional[str], f
     return f"按{'/'.join(relaxed) or '最接近'}给出候选"
 
 
-def _annotate_recommend(baselines: list[dict], strategy_id: Optional[int] = None) -> None:
+def _annotate_recommend(baselines: list[dict]) -> None:
     """S1: 读 selection.model_recommend 策略，按 scope.series 给 baseline 附加
     recommend_level（recommend/avoid/neutral）+ selling_points（包装点）。仅标注，不改检索。
     series 维度与 KP 配件适用系列、base_config.series 同源（system_config.server_series）。
-    strategy_id：可选，只用指定策略；None=读全部 active。"""
+    自动读取全部 active 规则，不做单策略筛选。"""
     try:
         from app.repository.strategy_repo import StrategyRepository
         repo = StrategyRepository()
@@ -521,8 +519,6 @@ def _annotate_recommend(baselines: list[dict], strategy_id: Optional[int] = None
         repo.close()
     except Exception:
         return
-    if strategy_id:
-        rules = [r for r in rules if r.get('id') == strategy_id]
     if not rules:
         return
     for b in baselines:

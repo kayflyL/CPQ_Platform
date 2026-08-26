@@ -21,7 +21,6 @@ const showTypeLabel = computed(() => Boolean(instanceMeta.value) && instanceType
 const isCondition = computed(() => runtime.value === 'condition')
 const isInput = computed(() => stepType.value === 'input')
 const isAgentFill = computed(() => runtime.value === 'agent_fill')
-const isModelReason = computed(() => runtime.value === 'model_reason')
 const { open: openArtifact } = useNodeArtifact()
 const sharedReq = inject<Ref<string> | null>('studioReqText', null)
 const studioRun = inject<(() => Promise<void>) | null>('studioRun', null)
@@ -162,13 +161,6 @@ const runtimeCard = computed(() => {
       </div>
     </div>
     <div v-if="meta?.desc" class="rf-desc">{{ meta.desc }}</div>
-    <!-- 机型选型唯一人工分叉：只读标注，不驱动逻辑；实际走哪种由 AI 按用户意图实时判断 -->
-    <div v-if="isModelReason" class="rf-fork-tags nodrag" @click.stop>
-      <span class="rf-fork-label">选型分叉</span>
-      <span class="rf-fork-tag">推荐</span>
-      <span class="rf-fork-tag">自配</span>
-      <span class="rf-fork-tag">取消</span>
-    </div>
     <textarea
       v-if="isInput"
       v-model="draftInput"
@@ -270,9 +262,6 @@ const runtimeCard = computed(() => {
 /* 路径回溯：生成链节点高亮特写，其余变暗 */
 .rf-node--trace { border-color: var(--cpq-accent-primary) !important; box-shadow: 0 0 20px var(--cpq-overlay-a20); }
 .rf-node--dim { opacity: 0.3; }
-.rf-fork-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-top: 8px; }
-.rf-fork-label { font-size: 10px; color: var(--cpq-text-muted); font-weight: 600; }
-.rf-fork-tag { font-size: 10px; line-height: 1.4; padding: 2px 8px; border-radius: 999px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w10); border: 1px dashed var(--cpq-border-primary); }
 .rf-desc {
   font-size: 12px; color: var(--cpq-text-secondary); margin-top: 7px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;

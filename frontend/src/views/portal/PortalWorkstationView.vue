@@ -5,7 +5,7 @@
         <h1>{{ pageTitle }}</h1>
         <p>{{ pageDesc }}</p>
       </div>
-      <button v-if="view === 'business'" class="primary-btn" @click="openCreate">+ 新建商机</button>
+      <button v-if="view === 'business'" class="primary-btn" @click="createOpen = true">+ 新建商机</button>
       <button v-else-if="isTaskView" class="ghost-btn" :disabled="!taskItems.length" @click="openTransfer()">{{ pageTransferText }}</button>
       <button v-else-if="view === 'dispatch'" class="primary-btn" @click="openRuleModal()">+ 新增分派规则</button>
     </div>
@@ -136,22 +136,7 @@
         </div>
       </div>
     </template>
-    <a-modal
-      v-model:open="createOpen"
-      title="新建商机"
-      ok-text="创建并进入详情"
-      cancel-text="取消"
-      :confirm-loading="creating"
-      :mask-style="{ background: 'rgba(2, 6, 23, 0.62)', 'backdrop-filter': 'blur(2px)' }"
-      :body-style="{ background: 'var(--cpq-bg-secondary)' }"
-      wrap-class-name="portal-modal"
-      @ok="submitCreate"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="客户名称" required><a-input v-model:value="newCustomer" placeholder="例如：云峰智算" /></a-form-item>
-        <a-form-item v-if="isAdmin" label="所属业务"><a-select v-model:value="newSales" :options="businessSelectOptions" placeholder="请选择业务" /></a-form-item>
-      </a-form>
-    </a-modal>
+    <CreateOpportunityModal v-model:open="createOpen" from="portal-business" />
 
     <a-modal
       v-model:open="transferOpen"
@@ -195,8 +180,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { projectApi } from '@/api'
 import { portalApi, type PortalDispatchData, type PortalTaskItem } from '@/api/portal'
+import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
 import { useAuthStore } from '@/store/auth'
 
 type ViewKey = 'business' | 'te' | 'cost' | 'quote' | 'dispatch'
@@ -257,7 +242,6 @@ const transferColumns: TableColumn[] = [
 const businessCards = ref<any[]>([])
 const businessLoading = ref(false)
 const businessSummary = ref({ total: 0, returned: 0, in_progress: 0, done: 0 })
-const businessOptions = ref<Array<{ user_id: string; name: string }>>([])
 const businessPage = ref(1)
 const businessPageSize = ref(10)
 const businessTotal = ref(0)
@@ -291,12 +275,7 @@ function onBusinessSearch() {
     loadBusiness()
   }, 300)
 }
-const businessSelectOptions = computed(() => businessOptions.value.map(b => ({ label: b.name, value: b.name })))
-
 const createOpen = ref(false)
-const creating = ref(false)
-const newCustomer = ref('')
-const newSales = ref(auth.user?.name || '')
 
 const businessRows = computed(() => businessCards.value.map(c => ({
   ...c,
@@ -319,43 +298,13 @@ async function loadBusiness() {
     businessCards.value = res.cards || []
     businessSummary.value = res.summary || { total: res.total || 0, returned: 0, in_progress: 0, done: 0 }
     businessTotal.value = res.total || 0
-    if (isAdmin.value) {
-      const opts = await projectApi.businessOptions()
-      businessOptions.value = opts || []
-    }
   } catch (e: any) {
     message.error('加载商机失败：' + (e?.message || e))
   } finally {
     businessLoading.value = false
   }
 }
-async function openCreate() {
-  if (isAdmin.value && !businessOptions.value.length) {
-    try { businessOptions.value = await projectApi.businessOptions() } catch { /* ignore */ }
-  }
-  newCustomer.value = ''
-  newSales.value = isAdmin.value ? (businessOptions.value[0]?.name || '') : (auth.user?.name || '')
-  createOpen.value = true
-}
-async function submitCreate() {
-  if (!newCustomer.value.trim()) {
-    message.warning('客户名称不能为空')
-    return
-  }
-  creating.value = true
-  try {
-    const payload: { customer_name: string; sales_person?: string } = { customer_name: newCustomer.value.trim() }
-    if (isAdmin.value) payload.sales_person = newSales.value || undefined
-    const res = await projectApi.create(payload)
-    message.success('商机创建成功')
-    createOpen.value = false
-    router.push({ path: `/opportunities/${res.opportunity_id}`, query: { from: 'portal-business' } })
-  } catch (e: any) {
-    message.error('创建失败：' + (e?.message || e))
-  } finally {
-    creating.value = false
-  }
-}
+
 // 角色任务页
 const taskItems = ref<PortalTaskItem[]>([])
 const taskLoading = ref(false)

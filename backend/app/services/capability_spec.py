@@ -26,7 +26,7 @@ SPECS: dict[str, CapabilitySpec] = {
     "input": CapabilitySpec("input", "入口", "input", None, ()),
     "agent_fill": CapabilitySpec(
         "agent_fill", "智能对话填表 Agent", "agent_fill", "agent_fill",
-        ("list_server_types",),
+        ("list_server_types", "list_server_models", "get_server_model"),
         serves_slot=True,
     ),
     "model_reason": CapabilitySpec(

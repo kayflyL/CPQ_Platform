@@ -18,6 +18,11 @@ const OUTPUT_KIND_OPTIONS = [
   { value: 'data_answer', label: '数据结论' },
   { value: 'generic', label: '通用 JSON' },
 ]
+const CAPABILITY_DEFAULT_TOOLS: Record<string, string[]> = {
+  agent_fill: ['list_server_types', 'list_server_models', 'get_server_model'],
+  model_reason: ['select_models'],
+  kp_reason: ['pick_kp_parts'],
+}
 function defaultOutputTarget(kind: string): string {
   if (kind === 'bom_scheme_draft') return 'bom_scheme'
   if (kind === 'requirement_draft') return 'requirement'
@@ -51,14 +56,14 @@ const title = computed(() => {
 const configurable = computed(() => Boolean(props.nodeType && CONFIGURABLE.includes(props.nodeType)) || Boolean(props.nodeRuntime && CONFIGURABLE.includes(props.nodeRuntime)))
 const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.nodeRuntime || ''))
 const runtimeType = computed(() => props.nodeRuntime || props.nodeType || '')
-const showSystemPrompt = computed(() => ['agent', 'agent_fill', 'kp_reason'].includes(runtimeType.value))
+const showSystemPrompt = computed(() => ['agent', 'agent_fill', 'kp_reason', 'model_reason'].includes(runtimeType.value))
 const ruleCatalogRuntimes = new Set(['model_reason', 'kp_reason', 'agent_fill'])
 const fillRuleTypes = computed<RuleType[] | undefined>(() => {
   if (runtimeType.value !== 'agent_fill') return undefined
   return ['platform_series_map', 'category_alias']
 })
 const showRuleCatalog = computed(() => ruleCatalogRuntimes.has(runtimeType.value))
-const toolsEnabled = computed(() => runtimeType.value === 'agent')
+const toolsEnabled = computed(() => ['agent', 'agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value))
 const systemPromptValue = computed({
   get: () => runtimeType.value === 'agent_fill'
     ? (form.value?.prompt?.system_prompt ?? '')
@@ -75,6 +80,7 @@ const toolCatalog = ref<any[]>([])
 const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   value: tool.name,
   label: `${tool.name} · ${tool.description || ''}`,
+  dataSources: Array.isArray(tool.data_sources) ? tool.data_sources.map((s: any) => String(s)) : [],
 })))
 async function loadToolCatalog() {
   try {
@@ -118,16 +124,8 @@ watch(() => props.open, async (v) => {
     label: props.nodeLabel ?? '',
     enabled_tools: Array.isArray(c.enabled_tools)
       ? [...c.enabled_tools]
-      : [...(NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
+      : [...(CAPABILITY_DEFAULT_TOOLS[runtimeType.value] || NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
     max_iterations: c.max_iterations ?? (NODE_DEFAULT_CONFIG[activeNodeType.value]?.max_iterations ?? 6),
-    mr_group_by_series: c.group_by_series ?? true,
-    mr_per_series_limit: c.per_series_limit ?? 2,
-    mr_max_plans: c.max_plans ?? null,
-    mr_recommend_strategy_id: c.recommend_strategy_id ?? '',
-    mr_candidate_lede: c.candidate_lede ?? '',
-    mr_choice_lede: c.choice_lede ?? '',
-    mr_no_exact_lede: c.no_exact_lede ?? '',
-    mr_no_match_question: c.no_match_question ?? '',
     kr_proposal_enabled: c.proposal_enabled ?? true,
     kr_proposal_schema_text: safeJsonString(c.proposal_schema ?? {}),
     kr_user_prompt_template: c.user_prompt_template ?? '',
@@ -171,14 +169,7 @@ function buildConfig(): Record<string, any> | null {
     config.system_prompt = form.value.system_prompt || ''
   }
   if (runtimeType.value === 'model_reason') {
-    config.group_by_series = form.value.mr_group_by_series ?? true
-    config.per_series_limit = +form.value.mr_per_series_limit || 2
-    config.max_plans = form.value.mr_max_plans ? +form.value.mr_max_plans : null
-    config.recommend_strategy_id = form.value.mr_recommend_strategy_id || ''
-    config.candidate_lede = form.value.mr_candidate_lede || ''
-    config.choice_lede = form.value.mr_choice_lede || ''
-    config.no_exact_lede = form.value.mr_no_exact_lede || ''
-    config.no_match_question = form.value.mr_no_match_question || ''
+    config.system_prompt = form.value.system_prompt || ''
   }
   if (runtimeType.value === 'kp_reason') {
     const proposalSchema = parseJsonObject(form.value.kr_proposal_schema_text)
@@ -264,7 +255,7 @@ async function persist(config: Record<string, any>): Promise<boolean> {
       delete merged.enabled_tools
       delete merged.max_iterations
       delete merged.max_rounds
-      if (runtimeType.value !== 'kp_reason') {
+      if (!['kp_reason', 'model_reason'].includes(runtimeType.value)) {
         delete merged.system_prompt
       }
     }
@@ -330,15 +321,13 @@ async function save() {
         </div>
         <div class="node-zone-body">
           <a-form layout="vertical" class="node-config-form node-common-form">
-            <div class="rf-inline-fields">
-              <a-form-item label="节点名称">
-                <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
-                <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
-              </a-form-item>
-              <a-form-item v-if="showSystemPrompt" label="System Prompt">
-                <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认提示词" />
-              </a-form-item>
-            </div>
+            <a-form-item label="节点名称">
+              <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
+              <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
+            </a-form-item>
+            <a-form-item v-if="showSystemPrompt" label="System Prompt">
+              <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认提示词" />
+            </a-form-item>
           </a-form>
 
 
@@ -394,34 +383,18 @@ async function save() {
           </a-form>
 
 
-          <!-- 机型决策节点：确定性候选 + 展示文案，全部白盒可配 -->
+          <!-- 机型决策节点：只读输出契约；候选措辞与展示数量由 AI 层提示词处理 -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <a-form-item label="按系列分组">
-              <a-switch v-model:checked="form.mr_group_by_series" />
-              <p class="rf-hint">开启后候选按系列分组展示，每组限量。</p>
-            </a-form-item>
-            <a-form-item label="每组机型数（上限）">
-              <a-input-number v-model:value="form.mr_per_series_limit" :min="1" :max="10" style="width:100%" />
-            </a-form-item>
-            <a-form-item label="候选数量上限">
-              <a-input-number v-model:value="form.mr_max_plans" :min="0" :max="50" placeholder="留空使用系统默认" style="width:100%" />
-            </a-form-item>
-            <a-form-item label="推荐策略 ID">
-              <a-input v-model:value="form.mr_recommend_strategy_id" placeholder="留空使用默认策略" />
-            </a-form-item>
-            <a-divider orientation="left" class="rf-sec">候选文案</a-divider>
-            <a-form-item label="候选引言">
-              <a-textarea v-model:value="form.mr_candidate_lede" :rows="2" placeholder="留空使用系统默认" />
-            </a-form-item>
-            <a-form-item label="选择引言">
-              <a-textarea v-model:value="form.mr_choice_lede" :rows="2" placeholder="留空使用系统默认" />
-            </a-form-item>
-            <a-form-item label="无精确命中引言">
-              <a-textarea v-model:value="form.mr_no_exact_lede" :rows="2" placeholder="留空使用系统默认" />
-            </a-form-item>
-            <a-form-item label="无匹配提问">
-              <a-textarea v-model:value="form.mr_no_match_question" :rows="2" placeholder="留空使用系统默认" />
-            </a-form-item>
+            <div class="node-section-title">本节点完成什么</div>
+            <p class="rf-hint">根据上游已登记的类型、系列、形态、GPU 与合规信息，从在售目录筛出候选机型并锁定一台骨架交给下游。</p>
+            <div class="node-section-title">交给下游的内容</div>
+            <ul class="rf-output-list">
+              <li><b>已锁定机型</b>：机型名 + 内部 ID，供配件选型使用。</li>
+              <li><b>候选机型骨架</b>：机型名、系列、形态、盘位、BOM 模板，供配件选型使用。</li>
+              <li><b>机型能力边界</b>：电源档位、CPU 上限、内存条数上限、每路通道数，供配件选型使用。</li>
+              <li><b>选型说明</b>：命中级别、放宽原因，供白盒展示使用。</li>
+              <li><b>推荐标注</b>：推荐等级、卖点；只有配置了 model_recommend 策略时才有。</li>
+            </ul>
           </a-form>
 
           <!-- 配件决策节点：LLM 结构化提议的 schema、提示词模板、合并映射全部可配 -->
@@ -588,7 +561,7 @@ async function save() {
 .node-io-var.out { border: 1px solid #d9f0e4; }
 .node-io-empty { font-size: 12px; color: var(--cpq-text-muted); }
 .rf-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 4px 0 0; }
-.rf-inline-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 18px; }
+.rf-output-list { margin: 4px 0 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--cpq-text-primary); line-height: 1.6; }
 .rc-check-list { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
 .rf-wl-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .rf-json { font-family: ui-monospace, monospace; font-size: 12px; }

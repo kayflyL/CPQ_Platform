@@ -112,15 +112,15 @@ def test_slot_coverage_complete_ai_explicit():
     assert explain["coverage"] == "13/13"
 
 def test_slot_coverage_sparse_partial():
-    # 只给 2U+CPU → L0 缺 服务器类型/机型/数量/内存 ≥ ask_threshold(2) → partial 反问
+    # 只给 2U+CPU → L0 缺 服务器类型/数量 ≥ ask_threshold(2) → partial 反问
     from app.services.clarity_evaluator import evaluate_slot_coverage
     ext = {"categories": ["CPU"], "qty_map": {"CPU": 2}, "series": "Orion", "form": "2U"}
     level, missing, explain = evaluate_slot_coverage(ext)
     assert level == "partial"
-    assert "服务器类型" in missing and "内存" in missing
+    assert "服务器类型" in missing and "数量" in missing
 
-def test_slot_coverage_storage_default_ok():
-    # 通用 2U 无盘：存储 default_ok → 不计数，explicit（系统给默认盘）
+def test_slot_coverage_storage_not_l0_explicit():
+    # 通用 2U 无盘：存储不是 L0，不计入 missing → explicit
     from app.services.clarity_evaluator import evaluate_slot_coverage
     ext = {"categories": ["CPU", "Memory"], "qty_map": {"CPU": 2, "Memory": 8},
            "series": "Orion", "form": "2U",

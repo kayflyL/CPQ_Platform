@@ -78,12 +78,17 @@ class ToolRegistry:
 async def _tool_select_models(args: dict) -> Any:
     """select_models → 候选机型 digest（名称/系列/形态/盘位/卖点，给 LLM 推理）。"""
     from app.api.candidate_search import select_models
+    _limit_arg = args.get("limit")
+    try:
+        limit = int(_limit_arg) if _limit_arg not in (None, "", 0) else None
+    except (TypeError, ValueError):
+        limit = None
     baselines = select_models(
         usage=args.get("usage") or "",
         server_type_name=args.get("server_type_name"),
         series=args.get("series"),
         form=args.get("form"),
-        limit=int(args.get("limit") or 6),
+        limit=limit,
         fallback_order=args.get("fallback_order") or ["exact", "same_series", "same_form", "all"],
     )
     if not baselines:
@@ -897,6 +902,7 @@ def tool_catalog() -> List[dict]:
         "description": spec["description"],
         "parameters": spec["parameters"],
         "default_enabled": bool(spec.get("default_enabled", True)),
+        "data_sources": [str(item) for item in (spec.get("data_sources") or []) if str(item)],
     } for name, spec in _TOOL_SPECS.items()]
 
 

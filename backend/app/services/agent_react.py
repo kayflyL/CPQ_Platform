@@ -602,12 +602,27 @@ async def run_react_loop(
     event_sink: Optional[Any] = None,
     history: Optional[list] = None,
     tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
+    prefer_text_react: bool = False,
     final_only: bool = False,
     final_only_contract: Optional[str] = None,
     llm_timeout: float = 90.0,
     llm_max_attempts: int = 2,
 ) -> dict:
     """Agent loop: native tools first, text-ReAct fallback only before side effects."""
+    if prefer_text_react:
+        return await _run_text_react_loop(
+            requirement_text=requirement_text,
+            config=config,
+            extra_context=extra_context,
+            max_iterations=max_iterations,
+            system_prompt=system_prompt,
+            allowed_tool_ids=allowed_tool_ids,
+            allowed_data_sources=allowed_data_sources,
+            model=model,
+            event_sink=event_sink,
+            history=history,
+            tool_guard=tool_guard,
+        )
     # final_only = 单次流式（无工具）：不进入 native tool 循环，也不走多轮工具回退，
     # 直接走流式单次 JSON 输出，避免模型支持原生工具时被错误挂上工具目录。
     if final_only or not llm_client.model_supports_native_tools(model):

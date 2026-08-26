@@ -26,14 +26,28 @@ export function handleAssistantChatWsEvent(
   data: any,
 ): boolean {
   switch (data?.type) {
-    case 'pipeline_start':
-      state.nodeTraces = []
+    case 'pipeline_start': {
+      // 由后端算好的完整步骤骨架预置计划条，避免「只显示已跑节点」的闪烁/截断。
+      state.nodeTraces = (Array.isArray(data.steps) ? data.steps : []).map((s: any) => ({
+        step: String(s.key || s.step || ''),
+        label: String(s.label || s.key || s.step || ''),
+        status: 'pending',
+      }))
       state.thinkingText = ''
       return true
-    case 'step_start':
+    }
+    case 'step_start': {
+      const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
+      if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: 'running', label: String(data.label || state.nodeTraces[idx].label || data.step) })
+      else state.nodeTraces.push({ step: String(data.step), label: String(data.label || data.step), status: 'running' })
       return true
-    case 'step_done':
+    }
+    case 'step_done': {
+      const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
+      if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: 'done', label: String(data.label || state.nodeTraces[idx].label || data.step) })
+      else state.nodeTraces.push({ step: String(data.step), label: String(data.label || data.step), status: 'done' })
       return true
+    }
     case 'node_trace':
       if (data.step) {
         const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
@@ -74,8 +88,6 @@ export function handleAssistantChatWsEvent(
       if (data.message) state.messages.push(data.message as AssistantMessage)
       return true
     case 'analysis_finished':
-      // 正常完成保留计划条展示全部步骤；用户主动退出自配时清空，回到普通聊天。
-      if (data?.exit === 'self_config') state.nodeTraces = []
       state.waiting = false
       state.statusText = ''
       return true

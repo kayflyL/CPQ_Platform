@@ -117,18 +117,8 @@
             />
           </label>
           <label class="em-field">
-            <span>负责页面</span>
-            <a-select
-              v-model:value="draft.entry_points"
-              mode="multiple"
-              :options="pageScopeOptions"
-              placeholder="选择负责页面"
-              style="width: 100%"
-            />
-          </label>
-          <label class="em-field">
             <span>数据来源</span>
-            <a-select v-model:value="draft.data_sources" mode="multiple" placeholder="选择数据来源" style="width: 100%" @change="onDataSourcesChange">
+            <a-select v-model:value="draft.data_sources" mode="multiple" placeholder="选择数据来源" style="width: 100%">
               <a-select-option v-for="item in scopeOptions.data_sources" :key="item.key" :value="item.key">
                 <span :title="item.description">{{ item.key }}</span>
               </a-select-option>
@@ -432,7 +422,6 @@ import { computed, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { assistantApi, type AssistantMessage, type AssistantThread } from '@/api/assistant'
 import { officeApi } from '@/api/office'
-import { deriveDataSources, manualDataSources as getManualDataSources, reconcileDataSources } from '@/utils/scopeOptions'
 
 const props = defineProps<{
   colleagues: any[]
@@ -498,53 +487,14 @@ const normalThreads = computed(() => allThreads.value.filter((t) => !t.deleted_a
 const deletedThreads = computed(() => allThreads.value.filter((t) => t.deleted_at))
 
 const scopeOptions = ref<{ data_sources: any[]; page_scopes: any[] }>({ data_sources: [], page_scopes: [] })
-const manualSourcesRef = ref<string[]>([])
-const pageScopeOptions = computed(() => scopeOptions.value.page_scopes.map((item) => ({ value: item.key, label: item.label || item.key })))
 async function loadScopeOptions() {
   try {
     scopeOptions.value = await officeApi.scopeOptions()
   } catch {
     scopeOptions.value = { data_sources: [], page_scopes: [] }
-  } finally {
-    initializeManualDataSources()
-    applyDataSources()
   }
 }
 loadScopeOptions()
-
-function initializeManualDataSources() {
-  if (!draft.value) return
-  manualSourcesRef.value = getManualDataSources(draft.value.data_sources, draft.value.entry_points, scopeOptions.value)
-}
-
-function applyDataSources() {
-  if (!draft.value) return
-  const derived = deriveDataSources(draft.value.entry_points, scopeOptions.value)
-  draft.value.data_sources = Array.from(new Set([...manualSourcesRef.value, ...derived]))
-}
-
-function onDataSourcesChange() {
-  if (!draft.value) return
-  manualSourcesRef.value = getManualDataSources(draft.value.data_sources, draft.value.entry_points, scopeOptions.value)
-}
-
-watch(
-  () => draft.value?.entry_points,
-  (newPages, oldPages) => {
-    if (!draft.value) return
-    draft.value.data_sources = reconcileDataSources(
-      draft.value.data_sources,
-      oldPages,
-      newPages,
-      scopeOptions.value,
-    )
-    manualSourcesRef.value = getManualDataSources(
-      draft.value.data_sources,
-      newPages,
-      scopeOptions.value,
-    )
-  },
-)
 
 function defaultDraft(source: any = {}) {
   return {
@@ -565,7 +515,6 @@ function defaultDraft(source: any = {}) {
     model_override: source.model_override || null,
     tool_ids: Array.isArray(source.tool_ids) ? [...source.tool_ids] : [],
     data_sources: Array.isArray(source.data_sources) ? [...source.data_sources] : [],
-    entry_points: Array.isArray(source.entry_points) ? [...source.entry_points] : [],
     permission_policy: source.permission_policy || 'readonly',
     dispatchable: source.dispatchable ?? true,
     behavior_profile: {
@@ -620,8 +569,6 @@ watch(
   (roleKey) => {
     const colleague = props.colleagues.find((c) => c.role_key === roleKey)
     draft.value = colleague ? defaultDraft(colleague) : null
-    initializeManualDataSources()
-    applyDataSources()
     loadMemorySummary()
   },
   { immediate: true },

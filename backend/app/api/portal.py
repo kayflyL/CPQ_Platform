@@ -231,6 +231,7 @@ def list_portal_opps(page: int = 1, page_size: int = 20, search: str = "",
     """
     view_all = user_has_permission(user, "page.opportunities_all")
     user_id = user.get("user_id") or ""
+    personal_name = user.get("name") or ""
     opp_repo = OpportunityRepository()
     try:
         opps, total = opp_repo.list_opportunities(
@@ -300,6 +301,150 @@ def get_portal_opp(opp_id: str, user: dict = Depends(get_current_user)):
     return {
         "opportunity": _opp_summary(opp, current),
         "flow": flow,
+    }
+
+
+def _current_cost_sheet_for_quote(cost_sheets, selected):
+    """挑选报价工作台应展示的当前成本表。
+
+    优先选与当前报价单同源的 current 成本表；没有匹配时退回第一张 current 成本表。
+    历史/手工报价单没有成本表时返回 None，由旧报价单预览作为兜底。
+    """
+    if not cost_sheets:
+        return None
+    selected_id = getattr(selected, "quotation_id", None)
+    for sheet in cost_sheets:
+        if sheet.get("status") != "current":
+            continue
+        if selected_id and sheet.get("quotation_id") == selected_id:
+            return sheet
+    return next((s for s in cost_sheets if s.get("status") == "current"), None)
+
+
+def _current_bom_scheme_for_sheet(bom_schemes, cost_sheet):
+    """根据成本表回找其 BOM 方案；找不到时退回第一张 current 方案。"""
+    if not bom_schemes:
+        return None
+    bom_id = cost_sheet.get("bom_scheme_id") if cost_sheet else None
+    if bom_id:
+        for scheme in bom_schemes:
+            if scheme.get("id") == bom_id:
+                return scheme
+    return next((s for s in bom_schemes if s.get("status") == "current"), None)
+
+
+def _sheet_config_to_bom_config(cfg):
+    """把成本表/BOM 表 config 转成报价工作台 BOM 摘要结构。"""
+    if not isinstance(cfg, dict):
+        return {
+            "name": "", "server_model": "", "description": "",
+            "qty": 1, "l6_rows": [], "kp_rows": [],
+        }
+    return {
+        "name": cfg.get("name") or "",
+        "server_model": cfg.get("server_model") or "",
+        "description": cfg.get("description") or "",
+        "qty": int(cfg.get("qty") or 1),
+        "l6_rows": [
+            {
+                "catalogue": row.get("catalogue") or "",
+                "description": row.get("description") or "",
+                "qty": int(row.get("qty") or 0),
+            }
+            for row in (cfg.get("l6_rows") or [])
+            if isinstance(row, dict)
+        ],
+        "kp_rows": [
+            {
+                "part_category": row.get("part_category") or "",
+                "catalogue": row.get("catalogue") or "",
+                "description": row.get("description") or "",
+                "qty": int(row.get("qty") or 0),
+            }
+            for row in (cfg.get("kp_rows") or [])
+            if isinstance(row, dict)
+        ],
+    }
+
+
+def _sheet_config_to_cost_config(cfg):
+    """把成本表 config 转成报价工作台成本摘要结构，并由成本表自身字段重算 totals。"""
+    if not isinstance(cfg, dict):
+        return {
+            "name": "", "server_model": "", "description": "", "qty": 1,
+            "totals": _empty_sheet_totals(), "l6_items": [], "kp_items": [],
+        }
+    l6_rows = [dict(row) for row in (cfg.get("l6_rows") or []) if isinstance(row, dict)]
+    kp_rows = [dict(row) for row in (cfg.get("kp_rows") or []) if isinstance(row, dict)]
+    l6_cost = float(cfg.get("l6_cost") or 0)
+    l6_margin = float(cfg.get("l6_margin") or 0)
+    l6_sales = l6_cost * (1 + l6_margin / 100) if l6_cost else sum(
+        float(row.get("final_price") or 0) * int(row.get("qty") or 0)
+        for row in l6_rows
+    )
+    kp_cost = sum(float(row.get("base_price") or 0) * int(row.get("qty") or 0) for row in kp_rows)
+    kp_sales = sum(float(row.get("final_price") or 0) * int(row.get("qty") or 0) for row in kp_rows)
+    total_cost = l6_cost + kp_cost
+    total_sales = l6_sales + kp_sales
+    totals = {
+        "l6Cost": l6_cost,
+        "l6Sales": l6_sales,
+        "kpCost": kp_cost,
+        "kpSales": kp_sales,
+        "warrantyCost": 0,
+        "warrantySales": 0,
+        "totalCost": total_cost,
+        "totalSales": total_sales,
+        "profit": total_sales - total_cost,
+        "marginPct": (total_sales - total_cost) / total_cost * 100 if total_cost else 0,
+    }
+    return {
+        "name": cfg.get("name") or "",
+        "server_model": cfg.get("server_model") or "",
+        "description": cfg.get("description") or "",
+        "qty": int(cfg.get("qty") or 1),
+        "totals": totals,
+        "l6_items": [
+            {
+                "catalogue": row.get("catalogue") or "",
+                "description": row.get("description") or "",
+                "qty": int(row.get("qty") or 0),
+                "base_price": row.get("base_price") or 0,
+                "final_price": row.get("final_price") or 0,
+                "profit_margin": row.get("profit_margin") or 0,
+            }
+            for row in l6_rows
+        ],
+        "kp_items": [
+            {
+                "item_id": row.get("item_id"),
+                "cat": row.get("part_category") or "",
+                "name": row.get("catalogue") or "",
+                "description": row.get("description") or "",
+                "qty": int(row.get("qty") or 0),
+                "cost": row.get("base_price") or 0,
+                "sales": row.get("final_price") or 0,
+                "margin": row.get("profit_margin") or 0,
+                "currency": row.get("currency") or "RMB",
+                "note": row.get("note") or "",
+            }
+            for row in kp_rows
+        ],
+    }
+
+
+def _empty_sheet_totals():
+    return {
+        "l6Cost": 0,
+        "l6Sales": 0,
+        "kpCost": 0,
+        "kpSales": 0,
+        "warrantyCost": 0,
+        "warrantySales": 0,
+        "totalCost": 0,
+        "totalSales": 0,
+        "profit": 0,
+        "marginPct": 0,
     }
 
 
@@ -555,6 +700,39 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
             },
         })
 
+    flow_cost_sheet = _current_cost_sheet_for_quote(cost_sheets, selected)
+    flow_bom_scheme = _current_bom_scheme_for_sheet(bom_schemes, flow_cost_sheet)
+    if flow_cost_sheet:
+        cost_source = flow_cost_sheet.get("configs") or []
+        bom_source = (flow_bom_scheme or {}).get("configs") or cost_source
+        context_bom_configs = [_sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)]
+        context_cost_configs = [_sheet_config_to_cost_config(c) for c in cost_source if isinstance(c, dict)]
+        context_sheet_configs = [dict(c) for c in cost_source if isinstance(c, dict)]
+        context_worktable_quotation_id = flow_cost_sheet.get("quotation_id") or (selected.quotation_id if selected else "")
+        context_legacy_fallback = False
+    elif flow_bom_scheme:
+        bom_source = flow_bom_scheme.get("configs") or []
+        context_bom_configs = [_sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)]
+        context_cost_configs = []
+        context_sheet_configs = [dict(c) for c in bom_source if isinstance(c, dict)]
+        context_worktable_quotation_id = selected.quotation_id if selected else ""
+        context_legacy_fallback = False
+    else:
+        context_bom_configs = bom_configs
+        context_cost_configs = cost_configs
+        context_sheet_configs = sheet_configs
+        context_worktable_quotation_id = selected.quotation_id if selected else ""
+        context_legacy_fallback = bool(selected)
+
+    quote_context = {
+        "bom_configs": [] if not bom_visible else context_bom_configs,
+        "cost_configs": [] if not cost_visible else context_cost_configs,
+        "sheet_configs": [] if not (bom_visible if sheet_stage == "boming" else cost_visible) else context_sheet_configs,
+        "worktable_quotation_id": context_worktable_quotation_id or None,
+        "cost_snapshot": cost_snapshot if context_legacy_fallback else None,
+        "legacy_fallback": context_legacy_fallback,
+    }
+
     return {
         "opportunity": _opp_summary(opp, current),
         "flow": flow,
@@ -567,21 +745,22 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
         "cost_sheets": [] if not field_visible(user, "field.flow.cost") else cost_sheets,
         "bom": {
             "locked": bom_locked,
-            "quotation_id": selected.quotation_id if selected else None,
+            "quotation_id": quote_context["worktable_quotation_id"],
             "quotation_name": selected.quotation_name if selected else "",
-            "configs": [] if not bom_visible else bom_configs,
+            "configs": quote_context["bom_configs"],
         },
         "cost": {
             "locked": cost_locked,
-            "snapshot": cost_snapshot,
-            "configs": [] if not cost_visible else cost_configs,
+            "snapshot": quote_context["cost_snapshot"],
+            "configs": quote_context["cost_configs"],
         },
         "sheet": {
             "stage": sheet_stage,
             "locked": sheet_locked,
-            "quotation_id": selected.quotation_id if selected else None,
-            "configs": [] if not (bom_visible if sheet_stage == "boming" else cost_visible) else sheet_configs,
+            "quotation_id": quote_context["worktable_quotation_id"],
+            "configs": quote_context["sheet_configs"],
         },
+        "quote_context": quote_context,
         "quote": final_dict,
         "approvals": _approvals(flow, _lock_nodes(nodes, user), current),
         "flow_cards": flow_cards,
@@ -875,6 +1054,10 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
                 if "l6_cost" in cfg:
                     pick["l6_custom_price"] = float(cfg.get("l6_cost") or 0)
                     pick["l6_price_manual"] = True
+
+                if not pick.get("bom_source"):
+                    pick["bom_source"] = "excel"
+                    pick["bom_excel_rows"] = []
 
                 l6_rows = cfg.get("l6_rows")
                 if isinstance(l6_rows, list) and l6_rows:
@@ -1867,6 +2050,19 @@ def portal_assign_options(user: dict = Depends(get_current_user)):
         return {"businesses": businesses, "assignees": assignees}
     finally:
         user_repo.close()
+
+
+@router.get("/api/portal/assignment-rules/{business_user_id}")
+def portal_assignment_rules(business_user_id: str, user: dict = Depends(get_current_user)):
+    """单业务默认分派规则：业务本人（自动填充商机字段）或管理员可读。"""
+    if not (_portal_is_admin(user) or (user.get("user_id") and user.get("user_id") == business_user_id)):
+        raise HTTPException(status_code=403, detail="无权查看该业务分派配置")
+    flow_repo = FlowRepository()
+    try:
+        rules = flow_repo.get_assignment_rules(business_user_id)
+    finally:
+        flow_repo.close()
+    return {"rules": rules}
 
 
 class AssignmentRuleBody(BaseModel):

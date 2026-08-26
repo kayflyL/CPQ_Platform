@@ -376,55 +376,6 @@ def _add_assistant_message(
         repo.close()
 
 
-def _catalog_model_cards() -> list:
-    """从在售目录构造可跳转自配的机型候选卡（只取数据，不决定选哪个）。"""
-    try:
-        from app.services.catalog_guide import load_catalog
-        _types, _models_by_type = load_catalog()
-    except Exception:
-        return []
-    cards = []
-    for _t in (_types or []):
-        for _m in (_models_by_type.get(str(_t.get("name") or "")) or []):
-            if not isinstance(_m, dict):
-                continue
-            _bc = _m.get("base_config") or {}
-            cards.append({
-                "config_id": _m.get("id"),
-                "name": _m.get("name") or "",
-                "series": _bc.get("series") or _m.get("series") or "",
-                "form": _bc.get("form") or _m.get("form") or "",
-            })
-    return cards
-
-
-async def mark_self_config_flow(thread_id: str, colleague: Optional[dict]) -> Optional[dict]:
-    """候选卡“去配置这台服务器”点击后，把当前待机型 workflow 置为 self_config 并跳过下游 BOM。
-
-    只处理挂在 model_reason 候选确认上的 pending；无 pending 时返回 None（调用方转 409）。
-    """
-    pending = _load_pending_workflow(thread_id)
-    if not pending:
-        return None
-    _clear_pending_workflow(thread_id)
-    try:
-        from app.services import prompt_store
-        self_text = str(prompt_store.get_prompt_defaults("model_reason").get("self_config_lede") or "")
-    except Exception:
-        self_text = ""
-    _add_assistant_message(thread_id, colleague, self_text)
-    role_key = str((colleague or {}).get("role_key") or "assistant")
-    await assistant_hub.broadcast(thread_id, {
-        "type": "analysis_finished",
-        "message": self_text,
-        "exit": "self_config",
-        "thread_id": thread_id,
-        "opportunity_id": str(pending.get("opportunity_id") or ""),
-    })
-    await publish_office_event(role_key, "done", "用户选择自行配置机型", thread_id=thread_id)
-    return pending
-
-
 async def _trace(trace_sink: Optional[Callable[..., None]], **kwargs: Any) -> None:
     if not trace_sink:
         return
@@ -481,10 +432,13 @@ async def _broadcast_chat_progress(
     step: str,
     status: str,
     text: str,
+    *,
+    kind: str = "text",
+    data: Optional[str] = None,
 ) -> None:
     if not text:
         return
-    message = _add_assistant_message(thread_id, colleague, text)
+    message = _add_assistant_message(thread_id, colleague, text, kind=kind, data=data)
     await assistant_hub.broadcast(thread_id, {
         "type": "chat_progress",
         "step": step,
@@ -759,6 +713,26 @@ async def _run_tool_turn(
         flow_node_configs = flow.get("node_configs") or {}
         ctx_holder: dict = {}
 
+        def _model_node_prompt(step: str) -> str:
+            ctx = ctx_holder.get("ctx") or {}
+            node_cfg = ((ctx.get("flow_configs") or {}).get(step) or {})
+            return str(node_cfg.get("system_prompt") or "").strip()
+
+        async def _compose_model_text(fallback_question: str, step: str = "model_reason") -> str:
+            from app.services.workflow_intent import reply_with_context
+            prompt = _model_node_prompt(step)
+            if not prompt:
+                return fallback_question
+            try:
+                reply = await reply_with_context(
+                    "请生成一句自然中文回复。",
+                    "【节点要求】\n" + prompt,
+                    str(chat_cfg.get("chat_system_prompt") or "").strip(),
+                )
+            except Exception:
+                reply = ""
+            return reply or fallback_question
+
         async def raw_broadcast(payload: dict) -> None:
             payload.setdefault("thread_id", thread_id)
             payload.setdefault("opportunity_id", opportunity_id or "")
@@ -769,6 +743,10 @@ async def _run_tool_turn(
             ctx = ctx_holder.get("ctx") or {}
 
             if event_type == "pipeline_start":
+                await raw_broadcast({
+                    "type": "pipeline_start",
+                    "steps": payload.get("steps") or [],
+                })
                 return
             if event_type in ("step_start", "step_done"):
                 node_id = str(payload.get("step") or "")
@@ -805,54 +783,34 @@ async def _run_tool_turn(
             if event_type == "need_input":
                 question = str(payload.get("question") or "").strip()
                 options = payload.get("options") or []
+                slot_options = payload.get("slot_options") or {}
                 why = str(payload.get("why") or "").strip()
-                lines = [question] if question else []
-                if options:
-                    lines.append("可选：" + "、".join(str(item) for item in options))
+                if str(payload.get("source") or "").strip() == "model_reason":
+                    question = await _compose_model_text(question, "model_reason")
+                    if ctx_holder.get("ctx") is not None:
+                        ctx_holder["ctx"]["last_ask_question"] = question
+                text = question
                 if why:
-                    lines.append(why)
+                    text = (text + "\n" + why).strip()
+                option_data = json.dumps({
+                    "question": question,
+                    "options": options,
+                    "slot_options": slot_options,
+                    "why": why,
+                }, ensure_ascii=False, default=str)
                 await _broadcast_chat_progress(
-                    thread_id, colleague, "need_input", "question", "\n".join(lines),
+                    thread_id, colleague, "need_input", "question", text,
+                    kind="input_options", data=option_data,
                 )
                 return
             if event_type == "need_confirm":
                 question = str(payload.get("question") or "").strip()
-                _candidates = payload.get("candidates") or []
-                if isinstance(_candidates, list) and _candidates:
-                    try:
-                        _cards = [c for c in _candidates if c]
-                        if _cards:
-                            _card_data = {
-                                "entity_type": "model_candidates",
-                                "entity": {"candidates": _cards, "question": question},
-                                "opportunity_id": opportunity_id or "",
-                                "target": "model_reason",
-                            }
-                            _card_lede = str(question or "").strip()
-                            if not _card_lede:
-                                _names = "、".join(str((c or {}).get("name") or "") for c in _cards if c)
-                                _card_lede = (("候选机型：" + _names) if _names else "候选机型")
-
-                            _card_msg = _add_assistant_message(
-                                thread_id, colleague,
-                                _card_lede,
-                                kind="business_artifact",
-                                data=json.dumps(_card_data, ensure_ascii=False, default=str),
-                            )
-                            if _card_msg:
-                                await assistant_hub.broadcast(thread_id, {
-                                    "type": "business_entity_ready",
-                                    "entity_type": "model_candidates",
-                                    "entity": _card_data,
-                                    "opportunity_id": opportunity_id or "",
-                                    "message": _card_msg,
-                                })
-                    except Exception:
-                        logger.exception("broadcast model_candidates card failed")
-                else:
-                    await _broadcast_chat_progress(
-                        thread_id, colleague, "need_confirm", "question", question,
-                    )
+                _composed = await _compose_model_text(question, str(payload.get("step") or "model_reason"))
+                if ctx_holder.get("ctx") is not None:
+                    ctx_holder["ctx"]["last_ask_question"] = _composed
+                await _broadcast_chat_progress(
+                    thread_id, colleague, "need_confirm", "question", _composed,
+                )
                 return
             if event_type in ("handoff_ready",):
                 return
@@ -879,6 +837,7 @@ async def _run_tool_turn(
                 "output_kind": skill_output_kind,
                 "opportunity_id": opportunity_id or thread_id,
                 "operator_name": operator_name,
+                "chat_system_prompt": str(chat_cfg.get("chat_system_prompt") or "").strip(),
                 "last_ask_question": last_ask_question,
                 "last_user_answer": last_user_answer,
                 "ext": dict(restored_ext),
@@ -896,6 +855,8 @@ async def _run_tool_turn(
                 "current_target": restored_target,
                 "business_mode": "opportunity_flow" if opportunity_id else "conversation",
                 "history": history,
+                "allowed_tool_ids": [str(t) for t in (allowed_tool_ids or []) if str(t)],
+                "allowed_data_sources": _effective_data_sources(colleague, allowed_tool_ids),
             },
             ctx_ref=ctx_holder,
         )
@@ -947,50 +908,18 @@ async def _run_tool_turn(
         if ctx.get("flow_exit") == "cancelled":
             _clear_pending_workflow(thread_id)
             try:
-                from app.services import prompt_store
-                cancel_text = str(prompt_store.get_prompt_defaults("model_reason").get("cancel_lede") or "")
+                from app.services.workflow_intent import reply_with_context
+                cancel_text = await reply_with_context(
+                    "用户取消了方案配置，请给一句自然、简短的收尾回复。", "",
+                    str(chat_cfg.get("chat_system_prompt") or "").strip(),
+                ) or "已取消本次方案配置。"
             except Exception:
-                cancel_text = ""
+                cancel_text = "已取消本次方案配置。"
             _add_assistant_message(thread_id, colleague, cancel_text)
             await raw_broadcast({"type": "analysis_cancelled", "message": cancel_text})
             await publish_office_event(role_key, "done", "已取消方案配置", thread_id=thread_id)
             workflow_result_sent["value"] = True
             return "已取消本次方案配置。"
-        if ctx.get("flow_exit") == "self_config":
-            _clear_pending_workflow(thread_id)
-            try:
-                from app.services import prompt_store
-                self_text = str(prompt_store.get_prompt_defaults("model_reason").get("self_config_lede") or "")
-            except Exception:
-                self_text = ""
-            _add_assistant_message(thread_id, colleague, self_text)
-            _cards = _catalog_model_cards()
-            if _cards:
-                try:
-                    _card_data = {
-                        "entity_type": "model_candidates",
-                        "entity": {"candidates": _cards, "question": self_text},
-                        "opportunity_id": opportunity_id or "",
-                        "target": "server_config",
-                    }
-                    _card_msg = _add_assistant_message(
-                        thread_id, colleague, self_text,
-                        kind="business_artifact",
-                        data=json.dumps(_card_data, ensure_ascii=False, default=str),
-                    )
-                    await assistant_hub.broadcast(thread_id, {
-                        "type": "business_entity_ready",
-                        "entity_type": "model_candidates",
-                        "entity": _card_data,
-                        "opportunity_id": opportunity_id or "",
-                        "message": _card_msg,
-                    })
-                except Exception:
-                    logger.exception("self_config catalog card broadcast failed")
-            await raw_broadcast({"type": "analysis_finished", "message": self_text, "exit": "self_config"})
-            await publish_office_event(role_key, "done", "用户选择自行配置机型", thread_id=thread_id)
-            workflow_result_sent["value"] = True
-            return "用户选择自行配置机型。"
         downstream = await downstream_guard(handoff)
         if downstream:
             target_role = str(downstream.get("target_role") or "更高权限的 AI 角色")

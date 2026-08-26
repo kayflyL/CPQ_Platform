@@ -48,18 +48,12 @@ def _canonical_data_source(key: Any) -> str:
 
 
 def effective_data_sources(colleague: Optional[dict]) -> list:
-    """实际数据权限 = 负责页面派生的数据域 + 额外配置的数据域。"""
+    """实际数据权限 = 配置的数据域。"""
     sources: set = set()
     if isinstance(colleague, dict):
         raw = colleague.get("data_sources")
         if isinstance(raw, list):
             sources.update(_canonical_data_source(item) for item in raw if str(item or "").strip())
-        entry_points = colleague.get("entry_points")
-        if isinstance(entry_points, list):
-            page_keys = {str(item or "").strip() for item in entry_points if str(item or "").strip()}
-            for page in PAGE_SCOPE_CATALOG:
-                if page["key"] in page_keys:
-                    sources.update(page.get("data_sources") or [])
     return sorted(item for item in sources if item)
 
 logger = logging.getLogger(__name__)
@@ -245,7 +239,7 @@ def resolve_dispatch_target(
 ) -> Optional[dict]:
     """按配置解析要分派到的 AI 同事。
 
-    优先级：显式 role_key > dispatch_rules 命中 > entry_point 兜底。
+    优先级：显式 role_key > dispatch_rules 命中。
     只返回 enabled 且 dispatchable 的同事；找不到返回 None（调用方按总助原行为处理）。
     """
     config = _load_config()
@@ -273,13 +267,6 @@ def resolve_dispatch_target(
     team_graph_target = _resolve_team_graph_target(config, text, context_summary)
     if team_graph_target:
         return team_graph_target
-
-    # entry_point 兜底：用于没有自然语言、但明确属于某类入口的调用。
-    if entry_point:
-        for c in colleagues:
-            if c.get("enabled", True) and c.get("dispatchable", True):
-                if entry_point in (c.get("entry_points") or []):
-                    return c
     return None
 
 

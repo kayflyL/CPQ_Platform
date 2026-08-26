@@ -227,10 +227,14 @@ class FlowRepository:
                 FlowAssignmentRule.business_user_id == business_user_id
             ).all()
         }
-        if not rules:
-            return
+        # 商机级角色字段优先于任务调度默认规则（fae→boming、报价人→quoting；成本核算无字段走规则）。
         current = flow.current_node
-        target = rules.get(current)
+        prefer_field = {
+            "boming": (opp.fae or "").strip(),
+            "costing": "",
+            "quoting": (opp.quotation_person or "").strip(),
+        }.get(current, "")
+        target = prefer_field or rules.get(current) or ""
         assignees = {**(flow.assignees or {})}
         if target and not assignees.get(current):
             assignees[current] = target

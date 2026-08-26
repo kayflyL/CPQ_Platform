@@ -125,10 +125,6 @@ class PostMessageBody(BaseModel):
     entry_point: Optional[str] = None
 
 
-class SelfConfigBody(BaseModel):
-    model_id: Optional[Union[str, int]] = None
-
-
 class DispatchPreviewBody(BaseModel):
     content: str
     context_summary: Optional[str] = None
@@ -410,28 +406,6 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
-
-
-@router.post("/threads/{thread_id}/self-config")
-async def mark_self_config(thread_id: str, body: SelfConfigBody, user: dict = Depends(current_user)):
-    """候选卡“去配置这台服务器”点击后，把当前待机型的 workflow 置为 self_config 并跳过下游 BOM。
-
-    纯确定性状态迁移，不启动 LLM 回合；无待机型流程时返回 409。
-    """
-    repo = AssistantRepository()
-    try:
-        thread = _thread_for_user(repo, thread_id, user)
-    finally:
-        repo.close()
-    role_key = str(thread.get("colleague_role_key") or "").strip()
-    colleague = get_colleague(role_key) if role_key else None
-    if colleague and not _user_can_chat_with_role(user, str(colleague.get("role_key") or "")):
-        raise HTTPException(status_code=403, detail="无权与该 AI 角色聊天")
-    from app.services.colleague_turn_service import mark_self_config_flow
-    done = await mark_self_config_flow(thread_id, colleague)
-    if not done:
-        raise HTTPException(status_code=409, detail="当前没有等待机型的流程")
-    return {"ok": True, "model_id": body.model_id}
 
 
 @router.post("/threads/{thread_id}/dispatch-preview")

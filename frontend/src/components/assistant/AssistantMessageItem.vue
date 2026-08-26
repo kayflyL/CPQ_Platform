@@ -29,6 +29,20 @@
           </template>
           <template v-else>{{ content }}<span v-if="streaming" class="am-cursor">▍</span></template>
         </div>
+        <div v-if="optionGroups.length" class="am-options">
+          <div v-for="group in optionGroups" :key="group.slot" class="am-option-group">
+            <span v-if="group.label" class="am-option-group-label">{{ group.label }}</span>
+            <button
+              v-for="opt in group.options"
+              :key="opt.value"
+              type="button"
+              class="am-option-chip"
+              @click="emit('select-option', opt.value)"
+            >
+              {{ opt.label }}
+            </button>
+          </div>
+        </div>
       </div>
     </template>
     <div v-else class="am-bubble">{{ content }}</div>
@@ -42,6 +56,8 @@ const props = withDefaults(defineProps<{
   message?: {
     role?: string
     content?: string
+    kind?: string
+    data?: string
   }
   author?: {
     name?: string
@@ -63,9 +79,39 @@ const props = withDefaults(defineProps<{
   thinkingActive: false,
 })
 
+const emit = defineEmits<{ (e: 'select-option', value: string): void }>()
+
 const thinkingCollapsed = ref(false)
 const role = computed(() => props.message?.role === 'user' ? 'user' : 'assistant')
 const content = computed(() => props.message?.content || '')
+
+const optionGroups = computed<Array<{ slot: string; label: string; options: Array<{ label: string; value: string }> }>>(() => {
+  if (props.message?.kind !== 'input_options' || !props.message?.data) return []
+  try {
+    const data = JSON.parse(props.message.data)
+    const slotOptions: Record<string, Array<{ label?: string; value?: string; group?: string }>> = data?.slot_options || {}
+    const groups = Object.entries(slotOptions)
+      .map(([slot, opts]) => {
+        const arr = Array.isArray(opts) ? opts : []
+        const options = arr.map((o: any) => ({
+          label: String(o?.label ?? o?.value ?? ''),
+          value: String(o?.value ?? o?.label ?? ''),
+        })).filter((o: { label: string; value: string }) => o.label)
+        const groupLabel = String(arr.find((o: any) => o?.group)?.group || '')
+        return { slot, label: groupLabel, options }
+      })
+      .filter((g) => g.options.length)
+    if (groups.length) return groups
+    const flat = Array.isArray(data?.options) ? data.options : []
+    const options = flat.map((o: any) => ({
+      label: String(o?.label ?? o ?? ''),
+      value: String(o?.value ?? o?.label ?? o ?? ''),
+    })).filter((o: { label: string; value: string }) => o.label)
+    return options.length ? [{ slot: 'general', label: '', options }] : []
+  } catch {
+    return []
+  }
+})
 
 function avatarInitial(name?: string): string {
   const text = (name || 'AI').trim()
@@ -225,6 +271,39 @@ function avatarInitial(name?: string): string {
 
 @keyframes am-blink {
   to { visibility: hidden; }
+}
+
+.am-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.am-option-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.am-option-group-label {
+  min-width: 68px;
+  font-size: 12px;
+  color: var(--cpq-text-muted, #8c8c8c);
+}
+.am-option-chip {
+  border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.12));
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--cpq-text-secondary, #a6adb4);
+  background: var(--cpq-overlay-w4, rgba(255,255,255,.05));
+  cursor: pointer;
+  transition: border-color .15s ease, color .15s ease, background .15s ease;
+}
+.am-option-chip:hover {
+  border-color: var(--cpq-accent-primary, #1677ff);
+  color: var(--cpq-accent-primary, #1677ff);
+  background: var(--cpq-overlay-a8, rgba(22,119,255,.10));
 }
 
 .am-typing {

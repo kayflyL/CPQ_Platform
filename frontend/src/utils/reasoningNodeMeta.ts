@@ -7,8 +7,7 @@
 import type { Component } from 'vue'
 import {
   DesktopOutlined, ToolOutlined, BuildOutlined,
-  FileDoneOutlined, BranchesOutlined,
-  ControlOutlined, SafetyCertificateOutlined, FileTextOutlined, MessageOutlined,
+  FileDoneOutlined, FileTextOutlined, MessageOutlined,
 } from '@ant-design/icons-vue'
 
 export type NodeTone = 'blue' | 'purple' | 'green' | 'orange' | 'cyan' | 'gray'
@@ -31,14 +30,12 @@ export interface ReasoningNodeMeta {
   optional?: boolean
 }
 
-export type ReasoningNodeType = 'input' | 'agent' | 'rule' | 'branch' | 'assemble' | 'output' | 'orchestrator'
+export type ReasoningNodeType = 'input' | 'agent' | 'assemble' | 'output'
 
 export const REASONING_NODE_GROUPS: Array<{ name: string; types: string[] }> = [
   { name: '输入输出节点', types: ['input', 'output'] },
   { name: '智能体节点', types: ['agent_fill', 'model_reason', 'kp_reason', 'agent'] },
-  { name: '规则与转换节点', types: ['rule', 'branch'] },
-  { name: '组装节点', types: ['compose', 'assemble'] },
-  { name: '编排节点', types: ['orchestrator'] },
+  { name: '组装节点', types: ['compose'] },
 ]
 
 export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
@@ -52,30 +49,10 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
     desc: '接收用户输入并注入技能上下文',
     sources: ['用户输入'],
   },
-  rule: {
-    type: 'rule', name: '规则节点', icon: SafetyCertificateOutlined, tone: 'green',
-    desc: '按规则校验或匹配',
-    sources: ['规则目录'],
-  },
-  branch: {
-    type: 'branch', name: '条件分支节点', icon: BranchesOutlined, tone: 'orange',
-    desc: '按条件选择真 / 假分支',
-    sources: ['表达式'],
-  },
-  assemble: {
-    type: 'assemble', name: '组装节点', icon: BuildOutlined, tone: 'green',
-    desc: '把上游结果组装成结构化数据',
-    sources: ['模板', '数据来源'],
-  },
   output: {
     type: 'output', name: '输出节点', icon: FileDoneOutlined, tone: 'green',
     desc: '生成最终输出',
     sources: ['输出模板'],
-  },
-  orchestrator: {
-    type: 'orchestrator', name: '编排节点', icon: ControlOutlined, tone: 'gray',
-    desc: '编排全局策略',
-    sources: ['编排策略'],
   },
   agent_fill: {
     type: 'agent_fill', name: '智能对话填表 Agent', icon: MessageOutlined, tone: 'blue',
@@ -99,54 +76,46 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
   },
 }
 
-export type ReasoningNodeKind = 'agent' | 'rule' | 'output' | 'orchestrator'
+export type ReasoningNodeKind = 'agent' | 'output'
 
 export const RUNTIME_TYPE_TO_GENERIC: Record<string, ReasoningNodeType> = {
   agent_fill: 'agent',
   model_reason: 'agent',
   kp_reason: 'agent',
   compose: 'assemble',
-  condition: 'branch',
 }
 
 export const REASONING_NODE_KIND: Record<string, ReasoningNodeKind> = {
   input: 'output',
   agent: 'agent',
-  rule: 'rule',
-  branch: 'rule',
   assemble: 'output',
   output: 'output',
-  orchestrator: 'orchestrator',
   agent_fill: 'agent',
   model_reason: 'agent',
   kp_reason: 'agent',
   compose: 'output',
-  condition: 'rule',
 }
 
 export const NODE_DEFAULT_CONFIG: Record<ReasoningNodeType, Record<string, any>> = {
   input: {},
   agent: { enabled_tools: [], max_iterations: 6, system_prompt: '', rule_types: [] },
-  rule: { rule_types: [], on_fail: 'mark' },
-  branch: { expr: '' },
   assemble: { rule_types: [], template: '', output_schema: {} },
   output: { rule_types: [], template: '', output_schema: {} },
-  orchestrator: { budgets: {}, memory: {}, parallel_enabled: false },
 }
 
 export function nodeArchetype(type?: string): ReasoningNodeType {
-  if (!type) return 'rule'
+  if (!type) return 'agent'
   return RUNTIME_TYPE_TO_GENERIC[type] || (type as ReasoningNodeType)
 }
 
 export function reasoningNodeKind(type?: string): ReasoningNodeKind {
-  if (!type) return 'rule'
-  return REASONING_NODE_KIND[type] || 'rule'
+  if (!type) return 'output'
+  return REASONING_NODE_KIND[type] || 'output'
 }
 
 export const REASONING_CFG_TYPES: string[] = [
   'input',
-  'agent', 'rule', 'branch', 'assemble', 'output', 'orchestrator',
+  'agent', 'output',
   'agent_fill', 'model_reason', 'kp_reason', 'compose',
 ]
 

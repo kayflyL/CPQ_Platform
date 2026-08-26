@@ -30,12 +30,12 @@ FORM_WHITELIST = ["1U", "2U", "4U", "5U", "6U", "8U"]
 
 # 基本信息兜底（权威源 = system_config.requirement_slots；读失败用，与 seed 一致）
 _FALLBACK_BASIC_SLOTS = [
-    {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
-    {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "catalog"},
-    {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
-    {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息", "required": False, "ask": True, "candidate_source": "catalog"},
-    {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息", "required": True, "ask": False, "candidate_source": "free"},
-    {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "free"},
+    {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息", "candidate_source": "free"},
+    {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息", "candidate_source": "free"},
 ]
 
 # 部件兜底（读 KP 大类失败时用；动态来源不落 requirement_slots）
@@ -50,6 +50,15 @@ _FALLBACK_KP_SLOTS = [
 ]
 
 _FALLBACK_SLOTS = [dict(x) for x in _FALLBACK_BASIC_SLOTS + _FALLBACK_KP_SLOTS]
+
+# 部件槽位唯一中文展示名来源（与前端 PART_OPTIONS 一致；kp_slot_group_map 不再存 label）
+_PART_SLOT_LABELS = {x["key"]: x["label"] for x in _FALLBACK_KP_SLOTS}
+
+
+def _part_slot_label(key: str) -> str:
+    return _PART_SLOT_LABELS.get(key, key)
+
+
 
 _ALIAS_KEY = {"scene": "server_type", "series": "platform_type", "form": "chassis_form"}
 _BASIC_KEYS = {"server_type", "server_model", "platform_type", "chassis_form", "purchase_qty", "warranty_years"}
@@ -112,8 +121,6 @@ def _load_basic_slots() -> list:
             d.setdefault("group", "基本信息")
             d.setdefault("label", k)
             d.setdefault("level", "L2")
-            d.setdefault("required", d.get("level") == "L0")
-            d.setdefault("ask", d.get("level") != "L2")
             d.setdefault("candidate_source",
                          "catalog" if k in ("server_type", "platform_type", "chassis_form", "server_model") else "free")
             out.append(d)
@@ -148,7 +155,7 @@ def _load_kp_slots() -> list:
         d["src_key"] = key
         d["src_type"] = "kp"
         d["group"] = str(rule.get("group") or "部件")
-        d.setdefault("label", key)
+        d["label"] = _part_slot_label(key)
         d.setdefault("candidate_source", "catalog")
         for _k in ("level", "required", "ask", "default_ok"):
             d.pop(_k, None)
@@ -567,7 +574,7 @@ def compute_coverage(data: dict, catalog: Optional[dict] = None) -> dict:
         filled = _slot_filled(data, key)
         label = s.get("label") or key
         detail.append({"key": key, "label": label, "level": s.get("level"), "filled": filled})
-        if not filled and not s.get("default_ok") and s.get("level") == "L0":
+        if not filled and s.get("level") == "L0":
             missing_l0.append(label)
     filled = sum(1 for d in detail if d["filled"])
     total = len(detail)

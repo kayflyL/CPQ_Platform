@@ -134,6 +134,7 @@
                   v-if="artifactFor(m)"
                   :entity-type="artifactFor(m)!.entityType"
                   :entity="artifactFor(m)!.entity"
+                  :target="artifactFor(m)!.target"
                   :thread-id="currentThreadId"
                   class="ap-artifact-card"
                 />
@@ -143,6 +144,7 @@
                 v-else
                 :message="m"
                 :author="colleagueForRole(m.colleague_role_key)"
+                @select-option="sendText"
               />
             </template>
             <AssistantMessageItem
@@ -248,13 +250,13 @@ const {
 
 const { contextLabel, summarize, visibleQuickActions } = useAssistantContext()
 
-function artifactFor(m: { kind?: string; data?: string }): { entityType: string; entity: any } | null {
+function artifactFor(m: { kind?: string; data?: string }): { entityType: string; entity: any; target?: string } | null {
   if (m.kind !== 'business_artifact' || !m.data) return null
   try {
     const d = JSON.parse(m.data)
     const entity = d?.entity || d?.bom_scheme
     if (!entity || !d?.entity_type) return null
-    return { entityType: String(d.entity_type), entity }
+    return { entityType: String(d.entity_type), entity, target: d.target ? String(d.target) : undefined }
   } catch {
     return null
   }
@@ -474,7 +476,6 @@ async function onSend() {
 
 // 供父组件（SkillStudio 输入节点「运行」）注入文本到真实 AI 对话
 async function sendText(text: string) {
-  nodeTraces.value = []
   const content = (text || '').trim()
   if (!content || sending.value) return
   if (props.embedded && props.preview && !currentThreadId.value) {
@@ -681,6 +682,7 @@ function onDeleteThread(id: string) {
 }
 .ap-plan-step--done { color: #16a34a; border-color: #16a34a44; background: #16a34a0d; }
 .ap-plan-step--running { color: var(--cpq-accent-primary, #1677ff); border-color: var(--cpq-accent-primary, #1677ff); background: #1677ff0d; }
+.ap-plan-step--pending { color: var(--cpq-text-muted, #8c8c8c); border-color: var(--cpq-overlay-w10, rgba(255,255,255,.12)); background: transparent; }
 .ap-plan-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
 .ap-plan-step--running .ap-plan-dot { animation: ap-pulse 1s ease-in-out infinite; }
 .ap-plan-arrow { color: var(--cpq-text-tertiary, #aaa); }

@@ -83,10 +83,25 @@ class OpportunityRepository:
                       result: str = None, industry: str = None, order_type: str = None,
                       sales_person: str = None, owner_user_id: str = None,
                       owner_sales_person: str = None,
+                      has_committed_requirement: bool = False,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
         # AI Office 内部商机只在转真实商机后进入业务列表。
         q = q.filter(Opportunity.status != "ai_office")
+        if has_committed_requirement:
+            # 商机线索页只显示已提交需求单的商机：有 current 需求单，或流程已推进出 requirement。
+            from app.models.flow import OpportunityRequirement, OpportunityFlow
+            from sqlalchemy import exists
+            q = q.filter(
+                exists().where(
+                    OpportunityRequirement.opportunity_id == Opportunity.opportunity_id,
+                    OpportunityRequirement.status == "current",
+                )
+                | exists().where(
+                    OpportunityFlow.opportunity_id == Opportunity.opportunity_id,
+                    OpportunityFlow.current_node != "requirement",
+                )
+            )
         if not include_deleted:
             q = q.filter(Opportunity.status != "deleted")
         if status and status != "all":

@@ -112,6 +112,16 @@ const basicEditing = ref(false)
 const basicSaving = ref(false)
 const fieldHistory = ref<Record<string, string[]>>({})
 const businessOptions = ref<{ value: string; label: string }[]>([])
+// 商机级角色字段锁定：对应角色登录时该字段强制为当前登录人，不可修改。
+const roleLock = computed<Record<string, string>>(() => {
+  const role = auth.user?.role
+  const name = auth.user?.name || ''
+  const map: Record<string, string> = {}
+  if (role === 'business') map.sales_person = name
+  else if (role === 'te') map.fae = name
+  else if (role === 'quote') map.quotation_person = name
+  return map
+})
 const basicForm = reactive({
   customer_name: '',
   sales_person: '',
@@ -243,6 +253,28 @@ const activeNodeEmptyText = computed(() => {
   if (key === 'costing') return '暂无成本数据'
   return '暂无数据'
 })
+function applyRoleLock() {
+  for (const [k, v] of Object.entries(roleLock.value)) {
+    ;(basicForm as any)[k] = v || ''
+  }
+}
+
+async function fillAssignedRoles() {
+  if (auth.user?.role !== 'business') return
+  const uid = auth.user?.user_id
+  if (!uid) return
+  try {
+    const res = await portalApi.assignmentRules(uid)
+    const rules = (res.rules || [])
+    const boming = rules.find((r) => r.node_key === 'boming')?.assignee_name || ''
+    const quoting = rules.find((r) => r.node_key === 'quoting')?.assignee_name || ''
+    if (!basicForm.fae && boming) basicForm.fae = boming
+    if (!basicForm.quotation_person && quoting) basicForm.quotation_person = quoting
+  } catch {
+    /* ignore */
+  }
+}
+
 function syncBasicForm() {
   const o = board.value?.opportunity
   if (!o) return
@@ -254,6 +286,8 @@ function syncBasicForm() {
   basicForm.delivery_region = o.delivery_region || ''
   basicForm.delivery_cycle = o.delivery_cycle || ''
   basicForm.order_type = o.order_type || ''
+  applyRoleLock()
+  void fillAssignedRoles()
 }
 
 async function loadFieldHistory(fieldKey: string) {
@@ -267,6 +301,7 @@ async function loadFieldHistory(fieldKey: string) {
 }
 
 async function loadBusinessOptions() {
+  if (!isAdmin.value) return
   if (businessOptions.value.length) return
   try {
     businessOptions.value = (await projectApi.businessOptions()).map((u: any) => ({
@@ -620,16 +655,19 @@ defineExpose({ reload: loadBoard })
       </header>
             <a-form v-if="basicEditing" layout="vertical" class="basic-form-grid">
                       <a-form-item label="业务">
-                        <a-select v-model:value="basicForm.sales_person" show-search option-filter-prop="label" :options="businessOptions" allow-clear placeholder="请选择业务" @focus="loadBusinessOptions" @keydown.enter="saveBasic" />
+                        <a-input v-if="roleLock.sales_person" v-model:value="basicForm.sales_person" disabled />
+                        <a-auto-complete v-else v-model:value="basicForm.sales_person" :options="businessOptions" allow-clear :default-active-first-option="false" placeholder="输入或搜索业务名（可自由输入）" @focus="loadBusinessOptions" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="客户名称" required>
                         <a-auto-complete v-model:value="basicForm.customer_name" :options="getFilteredOptions('customer_name')" :default-active-first-option="false" placeholder="请输入客户名称" @focus="loadFieldHistory('customer_name')" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="FAE">
-                        <a-auto-complete v-model:value="basicForm.fae" :options="getFilteredOptions('fae')" :default-active-first-option="false" placeholder="请输入 FAE" @focus="loadFieldHistory('fae')" @keydown.enter="saveBasic" />
+                        <a-input v-if="roleLock.fae" v-model:value="basicForm.fae" disabled />
+                        <a-auto-complete v-else v-model:value="basicForm.fae" :options="getFilteredOptions('fae')" :default-active-first-option="false" placeholder="请输入 FAE" @focus="loadFieldHistory('fae')" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="报价人">
-                        <a-auto-complete v-model:value="basicForm.quotation_person" :options="getFilteredOptions('quotation_person')" :default-active-first-option="false" placeholder="请输入报价人" @focus="loadFieldHistory('quotation_person')" @keydown.enter="saveBasic" />
+                        <a-input v-if="roleLock.quotation_person" v-model:value="basicForm.quotation_person" disabled />
+                        <a-auto-complete v-else v-model:value="basicForm.quotation_person" :options="getFilteredOptions('quotation_person')" :default-active-first-option="false" placeholder="请输入报价人" @focus="loadFieldHistory('quotation_person')" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="行业">
                         <a-auto-complete v-model:value="basicForm.industry" :options="getFilteredOptions('industry')" :default-active-first-option="false" placeholder="如 教育/政府/金融/制造" @focus="loadFieldHistory('industry')" @keydown.enter="saveBasic" />
@@ -799,6 +837,7 @@ defineExpose({ reload: loadBoard })
         <QuoteWorkbench
           v-else-if="activeNode === 'quoting' && board"
           :board="board"
+          :quote-context="board.quote_context"
           :quotations="quotations"
           :quote-price-visible="quotePriceVisible"
           :quote-select-mode="quoteSelectMode"

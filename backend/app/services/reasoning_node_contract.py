@@ -15,14 +15,6 @@ from typing import Any, Optional
 
 _SEED_PATH = Path(__file__).with_name("reasoning_node_defaults.json")
 
-MODEL_REASON_PROMPT_KEYS = (
-    "candidate_lede",
-    "choice_lede",
-    "no_exact_lede",
-    "no_match_question",
-)
-
-
 def _load_seed() -> dict:
     try:
         return json.loads(_SEED_PATH.read_text(encoding="utf-8"))
@@ -112,9 +104,8 @@ def _defaults_for_node(node_key: str) -> dict:
             base["user_prompt_template"] = prompt_defaults["user_prompt_template"]
     elif node_key == "model_reason":
         prompt_defaults = _prompt_defaults("model_reason")
-        for key in MODEL_REASON_PROMPT_KEYS:
-            if prompt_defaults.get(key):
-                base[key] = prompt_defaults[key]
+        if prompt_defaults.get("system_prompt"):
+            base["system_prompt"] = prompt_defaults["system_prompt"]
     return base
 
 

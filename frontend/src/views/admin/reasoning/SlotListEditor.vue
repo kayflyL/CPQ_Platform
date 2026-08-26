@@ -41,12 +41,11 @@ const props = defineProps<{
   /** 反问节点聚焦：只展示「字段 / 反问 / 候选来源」，隐藏层级/必填/默认与排序增删 */
   askFocus?: boolean
 }>()
-const slots = ref<Array<{ key: string; label: string; level: string; default_ok: boolean; required: boolean; ask: boolean; candidate_source: string }>>([])
+const slots = ref<Array<{ key: string; label: string; level: string; candidate_source: string }>>([])
 const askThreshold = ref(2)
 interface KpRow {
   category: string
   key: string
-  label: string
   candidate_source: string
 }
 const kpRows = ref<KpRow[]>([])
@@ -62,9 +61,6 @@ const PART_OPTIONS = [
   { value: 'psu', label: '电源' },
   { value: 'free', label: '不映射（自由行）' },
 ]
-const PART_OPTION_LABELS: Record<string, string> = {
-  cpu: 'CPU', memory: '内存', storage: '存储', gpu: 'GPU', nic: '网卡', raid: '阵列卡', psu: '电源', free: '',
-}
 const loading = ref(false)
 const saving = ref(false)
 
@@ -87,7 +83,7 @@ function removeRow(idx: number) {
 }
 
 function addRow() {
-  slots.value.push({ key: '', label: '', level: 'L1', default_ok: false, required: false, ask: true, candidate_source: 'free' })
+  slots.value.push({ key: '', label: '', level: 'L1', candidate_source: 'free' })
 }
 
 async function load() {
@@ -100,8 +96,7 @@ async function load() {
         const srcKey = s.key || ''
         const key = KEY_ALIAS_TO_CANONICAL[srcKey] || srcKey
         return {
-          key, label: CANONICAL_LABELS[key] || s.label || key, level: s.level || 'L2', default_ok: !!s.default_ok,
-          required: !!s.required, ask: !!s.ask,
+          key, label: CANONICAL_LABELS[key] || s.label || key, level: s.level || 'L2',
           candidate_source: s.candidate_source || (CATALOG_KEYS.has(key) ? 'catalog' : 'free'),
         }
       })
@@ -161,7 +156,6 @@ async function loadKpMap() {
       return {
         category: name,
         key,
-        label: String(rule.label || PART_OPTION_LABELS[key] || name),
         candidate_source: String(rule.candidate_source || 'catalog'),
       }
     })
@@ -181,7 +175,6 @@ async function saveKpMap() {
       if (!r.key || r.key === 'free') continue
       map[r.category] = {
         key: r.key,
-        label: r.label || PART_OPTION_LABELS[r.key] || r.category,
         candidate_source: r.candidate_source || 'catalog',
         group: '部件',
       }
@@ -222,10 +215,7 @@ onMounted(() => { load(); loadKpMap() })
       <span class="slot-key">字段 key</span>
       <span class="slot-label">中文名 / 类型</span>
       <span v-if="!props.askFocus" class="slot-level">层级</span>
-      <span v-if="!props.askFocus" class="slot-req">必填</span>
-      <span v-if="!props.askFocus" class="slot-ask2">反问</span>
       <span class="slot-src">候选来源</span>
-      <span v-if="!props.askFocus" class="slot-ok">缺了给默认</span>
       <span v-if="!props.askFocus" class="slot-acts">顺序</span>
     </div>
     <div v-for="(s, i) in slots" :key="s.key || i" class="slot-row">
@@ -235,10 +225,7 @@ onMounted(() => { load(); loadKpMap() })
         <span class="slot-type">{{ typeHint(s) }}</span>
       </div>
       <a-select v-if="!props.askFocus" v-model:value="s.level" size="small" class="slot-level" :options="LEVELS" :disabled="props.readonly" />
-      <a-switch v-if="!props.askFocus" v-model:checked="s.required" size="small" class="slot-req" :disabled="props.readonly" />
-      <a-switch v-if="!props.askFocus" v-model:checked="s.ask" size="small" class="slot-ask2" :disabled="props.readonly" />
       <a-select v-model:value="s.candidate_source" size="small" class="slot-src" :options="CANDIDATE_SOURCES" :disabled="props.readonly" />
-      <a-switch v-if="!props.askFocus" v-model:checked="s.default_ok" size="small" class="slot-ok" :disabled="props.readonly" />
       <span v-if="!props.askFocus && !props.readonly" class="slot-acts">
         <a-button type="link" size="small" :disabled="i === 0" @click="moveRow(i, -1)">↑</a-button>
         <a-button type="link" size="small" :disabled="i === slots.length - 1" @click="moveRow(i, 1)">↓</a-button>
@@ -262,13 +249,11 @@ onMounted(() => { load(); loadKpMap() })
           <div class="slot-row slot-head">
             <span class="slot-key">KP 大类</span>
             <span class="slot-kp-map">映射字段</span>
-            <span class="slot-label">中文名</span>
             <span class="slot-src">候选来源</span>
           </div>
           <div v-for="r in kpRows" :key="r.category" class="slot-row" :class="{ 'slot-row-free': r.key === 'free' }">
             <span class="slot-key">{{ r.category }}</span>
             <a-select v-model:value="r.key" size="small" class="slot-kp-map" :options="PART_OPTIONS" :disabled="props.readonly || r.key === 'free'" />
-            <a-input v-model:value="r.label" size="small" class="slot-label" :disabled="props.readonly || r.key === 'free'" :placeholder="r.category" />
             <a-select v-model:value="r.candidate_source" size="small" class="slot-src" :options="CANDIDATE_SOURCES" :disabled="props.readonly || r.key === 'free'" />
           </div>
           <div v-if="!kpRows.length" class="slot-hint" style="padding:6px 0">暂无可配置的 KP 大类。</div>

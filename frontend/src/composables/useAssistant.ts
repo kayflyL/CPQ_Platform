@@ -220,7 +220,6 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     streamingText.value = ''
     thinkingText.value = ''
     waitingAI.value = true
-    nodeTraces.value = []
     try {
       const res = await assistantApi.threads.postMessage(
         currentThreadId.value!,

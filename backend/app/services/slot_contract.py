@@ -51,7 +51,7 @@ def slot_spec() -> list:
     """线索登记表字段契约（唯一权威源 = system_config.requirement_slots 基本信息 + KP 大类动态部件）。
 
     这是全链路「要填哪些字段 / 反问问哪些」的唯一来源：理解节点、反问节点、前端进度卡都按它对齐。
-    每项含 key/label/level/group/required/ask/candidate_source/default_ok/src_type/order。
+    每项含 key/label/level/group/candidate_source/src_type/order（部件槽位无 level，按 L2 系统推导处理）。
     部件字段不再写死在 requirement_slots，改由 KP 大类动态合成（见 requirement_slots.combined_slot_spec）。
     """
     try:
@@ -104,13 +104,13 @@ def _slot_filled(ext: dict, key: str) -> bool:
         "purchase_qty": ["purchase_qty", "n"],
         "n": ["n", "purchase_qty"],
         "server_model": ["server_model", "model", "baseline_model"],
-        "cpu": ["cpu_signal", "cpu"],
-        "memory": ["mem_signal", "mem_groups", "memory"],
-        "storage": ["drive_groups", "drives", "storage"],
-        "gpu": ["gpu_groups", "gpu"],
-        "nic": ["nic_groups", "nic_signal", "nic", "multi_spec_filters"],
-        "raid": ["raid_groups", "raid_signal", "raid"],
-        "psu": ["psu_signal", "psu"],
+        "cpu": ["cpu_signal"],
+        "memory": ["mem_signal", "mem_groups"],
+        "storage": ["drive_groups"],
+        "gpu": ["gpu_groups"],
+        "nic": ["multi_spec_filters"],
+        "raid": ["raid_groups", "raid_signal"],
+        "psu": ["psu_signal"],
     }
     return any(_has(ext.get(k)) for k in mapping.get(key, []))
 
@@ -118,7 +118,7 @@ def _slot_filled(ext: dict, key: str) -> bool:
 def _missing_critical(ext: dict) -> list:
     """缺哪些关键字段（供反问/进度卡用）——返回线索登记契约的 slot key，与前端字段一致。
 
-    按字段契约的 ask/default_ok 驱动：default_ok 缺省给默认不反问，ask=false 不反问；
+    按字段契约的 level 驱动：L0 缺了必问；L1 提示可补；L2 系统推导；
     类型或「系列+形态」至少要有一个（否则无法选型）。
     """
     spec = slot_spec()
@@ -128,8 +128,6 @@ def _missing_critical(ext: dict) -> list:
     from app.services import semantic_contract as _sc
     miss = []
     for s in spec:
-        if s.get("default_ok"):
-            continue
         key = s["key"]
         if key == "server_type" and has_series_form and not has_type:
             continue
@@ -137,12 +135,7 @@ def _missing_critical(ext: dict) -> list:
             continue
         if _sc.absent_confirmed(ext, key):
             continue
-        # 可空槽位：按类型/意图决定是否必问；不必问则直接跳过。
-        if isinstance(s.get("allow_absent"), bool) and s.get("allow_absent"):
-            if not _sc.is_slot_required(ext, s):
-                continue
-        ask_raw = s.get("ask", s.get("level", "L2") != "L2")
-        if ask_raw is False:
+        if s.get("level", "L2") != "L0":
             continue
         miss.append(key)
     return miss

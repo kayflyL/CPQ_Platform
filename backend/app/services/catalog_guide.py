@@ -26,3 +26,26 @@ def load_catalog() -> tuple:
     finally:
         pass
     return types, models_by_type
+
+
+async def catalog_digest() -> str:
+    """把在售目录读成紧凑事实文本（只列真实数据，不写死推荐话术）。"""
+    lines: list[str] = []
+    try:
+        types, models_by_type = load_catalog()
+    except Exception:
+        return ""
+    for t in types or []:
+        tname = str(t.get("name") or "").strip()
+        if not tname:
+            continue
+        models = models_by_type.get(tname) or []
+        lines.append(tname + ":")
+        for m in models[:30]:
+            bc = m.get("base_config") or {}
+            series = str(bc.get("series") or m.get("series") or "").strip()
+            form = str(bc.get("form") or m.get("form") or "").strip()
+            extra = "/".join(x for x in (series, form) if x)
+            nm = str(m.get("name") or m.get("id") or "").strip()
+            lines.append("  - " + nm + (("(" + extra + ")") if extra else ""))
+    return "\n".join(lines)

@@ -16,13 +16,13 @@ _SLOT_KEYS = {
     "purchase_qty": ["purchase_qty", "n"],
     "n": ["n", "purchase_qty"],
     "server_model": ["server_model", "model", "baseline_model"],
-    "cpu": ["cpu_signal", "cpu"],
-    "memory": ["mem_signal", "mem_groups", "memory"],
-    "storage": ["drive_groups", "drives", "storage"],
-    "gpu": ["gpu_groups", "gpu"],
-    "nic": ["nic_groups", "nic_signal", "nic", "multi_spec_filters"],
-    "raid": ["raid_groups", "raid_signal", "raid"],
-    "psu": ["psu_signal", "psu"],
+    "cpu": ["cpu_signal"],
+    "memory": ["mem_signal", "mem_groups"],
+    "storage": ["drive_groups"],
+    "gpu": ["gpu_groups"],
+    "nic": ["multi_spec_filters"],
+    "raid": ["raid_groups", "raid_signal"],
+    "psu": ["psu_signal"],
 }
 
 

@@ -189,26 +189,21 @@ async def _decide_plan_turn(ctx: dict, message: str, broadcast: Callable[..., An
         ctx["flow_exit"] = "cancelled"
         ctx["awaiting_input"] = False
         return True
-    if intent == "self_config":
-        ctx["flow_exit"] = "self_config"
-        ctx["awaiting_input"] = False
-        return True
     if intent in ("noise", "ask", "list_catalog", "explain"):
         ctx_lines = _intent_context(ctx)
         try:
-            from app.services.workflow_intent import catalog_digest
+            from app.services.catalog_guide import catalog_digest
             cat = await catalog_digest()
         except Exception:
             cat = ""
         if cat and intent == "list_catalog":
             ctx_lines += "\n\n【在售目录】\n" + cat
+        persona = str(ctx.get("chat_system_prompt") or "").strip()
         try:
             from app.services.workflow_intent import reply_with_context
-            reply = await reply_with_context(text, ctx_lines)
+            reply = await reply_with_context(text, ctx_lines, persona)
         except Exception:
             reply = ""
-        if not reply:
-            reply = str((idata or {}).get("reply") or "").strip()
         if not reply and intent == "list_catalog" and cat:
             reply = str(cat or "")
         if not reply:
@@ -355,7 +350,7 @@ async def run_fixed_workflow(
             return ctx
         if ctx.get("awaiting_input"):
             return ctx
-        if ctx.get("flow_exit") in ("self_config", "cancelled"):
+        if ctx.get("flow_exit") == "cancelled":
             return ctx
         enqueue([str(edge.get("target") or "") for edge in adj.get(node_id) or []])
 

@@ -17,8 +17,6 @@ _CACHE: dict = {"ts": 0.0, "value": {}}
 
 _PARSE_KEYS = {
     "kp_reason": ("system_prompt", "user_prompt_template"),
-    "model_reason": ("system_prompt",),
-    "orchestrator": ("system_prompt",),
 }
 
 
@@ -90,6 +88,9 @@ def get_prompt_defaults(node: str) -> dict:
     raw = dict(raw) if isinstance(raw, dict) else {}
     if node == "agent_fill":
         raw = _migrate_agent_fill(raw, node)
+    elif node == "model_reason":
+        # 机型选型已不背候选话术；AI 层只保留 system_prompt，旧 DB 残留键不再生效。
+        raw = {"system_prompt": raw.get("system_prompt")}
     out = dict(_seed_file().get(node) or {})
     for key, value in raw.items():
         if value is not None and (not isinstance(value, str) or value.strip()):

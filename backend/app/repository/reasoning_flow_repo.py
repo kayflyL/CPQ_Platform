@@ -13,7 +13,7 @@ from ..models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig
 
 
 GENERIC_NODE_TYPES = {
-    "agent", "rule", "transform", "branch", "assemble", "output", "orchestrator", "input"
+    "agent", "output", "input"
 }
 
 
@@ -66,61 +66,9 @@ DEFAULT_GENERIC_GRAPH = {
 
 
 def _requirement_analysis_node_configs() -> dict:
-    """需求分析 Skill 的默认节点契约，只保留真实业务链：输入 → 线索登记 → 方案配置 → 输出。"""
-    return {
-        "input": {
-            "description": "接收客户自然语言需求与商机上下文",
-            "deterministic": True,
-        },
-        "agent_fill": {
-            "description": "会对话、会查目录确认在售/系列、边答边填线索登记表；信息不足自然反问，一个回合可批量填多个槽；机型与配件的最终选型交给下游节点",
-            "data_sources": ["server_catalog", "demand_analysis_docs"],
-            "rule_types": ["platform_series_map", "category_alias", "workload_map", "compliance_map", "gpu_form_map", "type_package"],
-            "conflict_strategy": "auto_resolve",
-            "enabled_tools": ["list_server_types", "list_server_models", "get_server_model"],
-        },
-        "model_reason": {
-            "description": "按线索登记字段推荐或智能选配在售机型骨架",
-            "selection_mode": "recommend",
-            "grounding_tool": "select_models",
-            "grounding_result_key": "candidates",
-            "choice_id_pattern": "id=(\d+)",
-            "choice_fields": ["config_id", "server_model_id", "id"],
-            "group_by_series": True,
-            "per_series_limit": 2,
-            "intro_max_chars": 180,
-            "show_detail_link": True,
-            "model_ask_phrase": "你可以自己配置，也可以让我帮你系统智能配。",
-            "detail_link_phrase": "点击卡片或回复“我自己配置”可进入详情页查看完整参数。",
-            "rule_types": ["fallback_order", "gpu_form_map", "compliance_map", "type_package"],
-        },
-        "kp_reason": {
-            "description": "按线索登记字段选择关键配件",
-            "proposal_enabled": True,
-            "proposal_schema": {},
-            "user_prompt_template": "",
-            "proposal_mapping": {},
-            "reason_template": "配件规划：已确认 {{items}}",
-            "rule_types": ["type_package", "category_alias", "spec_rule", "cpu_mem_generation", "capacity_match", "raid_level_map", "compliance_map", "workload_map"],
-        },
-        "compose": {
-            "description": "按真实 BOM 模板组装 bom_scheme.configs",
-            "kp_source": "per_baseline",
-            "psu_override_enabled": True,
-            "psu_wattage_source": "ext.psu_signal.wattage",
-            "psu_qty_source": "ext.psu_signal.qty",
-            "deterministic": True,
-        },
-        "output": {
-            "description": "写回真实 requirement + bom_scheme，并交付给 AI Office/商机详情页",
-            "output_kind": "bom_scheme_draft",
-            "target": "bom_scheme",
-            "payload_map": {"plans": "ctx.plans", "ext": "ctx.ext"},
-            "actions": [],
-            "deterministic": True,
-        },
-    }
-
+    """需求分析 Skill 的默认节点契约（种子源：reasoning_node_defaults.json）。"""
+    from app.services import reasoning_node_contract
+    return reasoning_node_contract.node_defaults_seed()
 
 def _normalize_graph(g: dict) -> dict:
     """图结构归一化到 v2（vue flow 兼容）。v1: nodes{key,label}, edges{from,to}；
@@ -163,7 +111,7 @@ def _normalize_graph(g: dict) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
-_PROMPT_NODE_TYPES = {"agent_fill", "kp_reason", "model_reason", "orchestrator"}
+_PROMPT_NODE_TYPES = {"agent_fill", "kp_reason"}
 
 
 def _prompt_node_type(node_key: str) -> Optional[str]:
@@ -204,16 +152,24 @@ class ReasoningFlowRepository:
             ReasoningNodeConfig.flow_id == f.id
         ).all()
         cfg_map = {n.node_key: (json.loads(n.config) if n.config else {}) for n in nodes}
-        # 提示词/话术不在 DB 里复制全量默认：读取时把 system_config.reasoning_prompts
-        # 的默认值合入（只填空缺字段），前端抽屉回显生效值，用户编辑后仍以其覆盖子集为准。
-        try:
-            from app.services.prompt_store import merge_node_prompt
-            for nk, cfg in list(cfg_map.items()):
-                ptype = _prompt_node_type(nk)
-                if ptype:
-                    cfg_map[nk] = merge_node_prompt(ptype, cfg)
-        except Exception:
-            pass
+        flow_skill = str(f.skill_key or f.name or skill_key or "")
+        # 需求分析主链：把默认值 + 提示词/规则词表 + 用户覆盖值合并成生效配置，抽屉直接回显。
+        if flow_skill == "requirement_analysis":
+            try:
+                from app.services import reasoning_node_contract
+                for nk, cfg in list(cfg_map.items()):
+                    cfg_map[nk] = reasoning_node_contract.effective_config(nk, cfg)
+            except Exception:
+                pass
+        else:
+            try:
+                from app.services.prompt_store import merge_node_prompt
+                for nk, cfg in list(cfg_map.items()):
+                    ptype = _prompt_node_type(nk)
+                    if ptype:
+                        cfg_map[nk] = merge_node_prompt(ptype, cfg)
+            except Exception:
+                pass
         d = f.to_dict()
         d["graph"] = _normalize_graph(d.get("graph") or {"nodes": [], "edges": []})
         d["node_configs"] = cfg_map
@@ -466,20 +422,19 @@ class ReasoningFlowRepository:
                 if not cfg.get("description") and default.get("description"):
                     cfg["description"] = default["description"]
                     dirty = True
+                prompt = dict(cfg.get("prompt") or {})
+                default_prompt = str((default.get("prompt") or {}).get("system_prompt") or "")
+                if prompt.get("system_prompt") and "登记范围" in str(prompt.get("system_prompt")):
+                    prompt["system_prompt"] = default_prompt
+                    cfg["prompt"] = prompt
+                    dirty = True
 
             if node_key in ("agent_fill", "model_reason", "kp_reason"):
                 if not cfg.get("rule_types") and default.get("rule_types"):
                     cfg["rule_types"] = list(default["rule_types"])
                     dirty = True
-
-            if node_key == "model_reason":
-                for field in ("grounding_tool", "grounding_result_key",
-                              "choice_id_pattern"):
-                    if not cfg.get(field) and default.get(field):
-                        cfg[field] = default[field]
-                        dirty = True
-                if not cfg.get("choice_fields") and default.get("choice_fields"):
-                    cfg["choice_fields"] = list(default["choice_fields"])
+                if "enabled_tools" not in cfg and default.get("enabled_tools"):
+                    cfg["enabled_tools"] = list(default["enabled_tools"])
                     dirty = True
 
             if node_key == "kp_reason":
@@ -495,10 +450,13 @@ class ReasoningFlowRepository:
                     if not cfg.get(field) and default.get(field):
                         cfg[field] = default[field]
                         dirty = True
-                for field in ("temperature", "timeout", "max_attempts"):
-                    if cfg.get(field) is None and default.get(field) is not None:
+                for field in ("representative_pick", "fallback_strategy"):
+                    if not cfg.get(field) and default.get(field):
                         cfg[field] = default[field]
                         dirty = True
+                if "drive_spec_substitute" not in cfg and "drive_spec_substitute" in default:
+                    cfg["drive_spec_substitute"] = bool(default["drive_spec_substitute"])
+                    dirty = True
 
             if node_key == "compose":
                 for field in ("kp_source", "psu_wattage_source", "psu_qty_source"):
@@ -508,35 +466,6 @@ class ReasoningFlowRepository:
                 if "psu_override_enabled" not in cfg and "psu_override_enabled" in default:
                     cfg["psu_override_enabled"] = bool(default["psu_override_enabled"])
                     dirty = True
-
-            if node_key == "agent_fill":
-                for legacy_key in ("system_prompt", "user_prompt_template", "output_schema",
-                                   "option_scopes", "fallback_forms", "fallback_series",
-                                   "ask_skill_key", "show_why", "max_rounds",
-                                   "strategy", "max_ask_rounds", "target", "entry_points"):
-                    if legacy_key in cfg:
-                        cfg.pop(legacy_key)
-                        dirty = True
-                if not cfg.get("data_sources") and default.get("data_sources"):
-                    cfg["data_sources"] = list(default["data_sources"])
-                    dirty = True
-                if not cfg.get("rule_types") and default.get("rule_types"):
-                    cfg["rule_types"] = list(default["rule_types"])
-                    dirty = True
-                if not cfg.get("enabled_tools") and default.get("enabled_tools"):
-                    cfg["enabled_tools"] = list(default["enabled_tools"])
-                    dirty = True
-                # 方案A(2026-08)：agent_fill 只做理解/查证/填表；把 select_models/pick_kp_parts
-                # 两个选型/配件决策工具交回 model_reason/kp_reason，避免 Agent 一把梭定方案。
-                _dtools = list(cfg.get("enabled_tools") or [])
-                _norm = [t for t in _dtools if t not in ("select_models", "pick_kp_parts")]
-                for _t in (default.get("enabled_tools") or []):
-                    if _t not in _norm:
-                        _norm.append(_t)
-                if _norm != _dtools:
-                    cfg["enabled_tools"] = _norm
-                    dirty = True
-
 
             if dirty:
                 self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")

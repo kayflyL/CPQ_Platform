@@ -15,7 +15,7 @@ from ..models.requirement_rule import RequirementRule, RequirementSample
 _VALID_TYPE = {
     "clarity", "budget", "cpu_mem_generation", "category_alias",
     "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
-    "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map", "gpu_form_map",
+    "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map",
     "type_alias", "model_action_phrases", "kp_action_phrases",
     "gpu_brand_map", "spec_unit_patterns", "power_calibration",
 }
@@ -237,11 +237,7 @@ DEFAULT_RULES: list[dict] = [
 
     {"type": "compliance_map", "name": "国产化 → Polaris + 国产件", "body": {"domestic_only": True, "platform_series": ["Polaris"], "cpu_keywords": ["KH", "兆芯", "开胜"], "allowed_manufacturers": ["兆芯", "海光"], "excluded_manufacturers": ["AMD", "Intel", "NVIDIA"], "gpu_policy": "exclude_foreign"}},
 
-    {"type": "gpu_form_map", "name": "1-4卡 → 2U", "body": {"gpu_count_min": 1, "gpu_count_max": 4, "form": "2U"}},
-    {"type": "gpu_form_map", "name": "5-16卡 → 4U", "body": {"gpu_count_min": 5, "gpu_count_max": 16, "form": "4U"}},
-
     {"type": "model_action_phrases", "name": "机型选型用户意图词表", "body": {
-        "self_config": ["我自己配", "自己配", "去详情页", "去服务器详情", "手动配", "不要你配"],
         "auto_pick": ["你推荐", "你选", "随便", "都行", "听你的", "你定", "推荐一个"],
         "reselect": ["重选", "重新选", "换一台", "换机型", "再看", "别的机型"],
         "cancel": ["算了", "不要了", "取消", "中止", "结束", "退出"]

@@ -480,7 +480,12 @@ def ensure_bootstrap_admin():
 
 
 def backfill_bom_schemes_from_quotations():
-    """存量报价单回填为 BOM 方案卡片 / 成本核算卡片（幂等，仅处理无方案的商机）。"""
+    """一次性历史迁移：把尚无流程实体的旧报价单回填为 BOM/成本卡片。
+
+    仅处理「既没有 BOM 方案、也没有成本表」的商机；已有任一流程实体时跳过，
+    避免把下游报价单反向生成为上游成本表。该函数不再在每次启动时自动运行，
+    应由显式迁移脚本按需执行。
+    """
     from datetime import datetime
     from app.models.flow import OpportunityBomScheme, OpportunityCostSheet
     from app.models.quotation import Quotation
@@ -488,6 +493,8 @@ def backfill_bom_schemes_from_quotations():
     from app.models.base import Opportunity_SessionLocal
 
     db = Opportunity_SessionLocal()
+    created = 0
+    skipped = 0
     try:
         opp_rows = db.query(Quotation.opportunity_id).filter(
             Quotation.status == "active",
@@ -497,7 +504,11 @@ def backfill_bom_schemes_from_quotations():
             existing = db.query(OpportunityBomScheme).filter(
                 OpportunityBomScheme.opportunity_id == opp_id
             ).first()
-            if existing:
+            existing_sheet = db.query(OpportunityCostSheet).filter(
+                OpportunityCostSheet.opportunity_id == opp_id
+            ).first()
+            if existing or existing_sheet:
+                skipped += 1
                 continue
             quote = db.query(Quotation).filter(
                 Quotation.opportunity_id == opp_id,
@@ -609,7 +620,9 @@ def backfill_bom_schemes_from_quotations():
                 updated_at=quote.updated_at or now,
             )
             db.add(sheet)
+            created += 1
         db.commit()
+        return {"created": created, "skipped": skipped}
     finally:
         db.close()
 
@@ -992,11 +1005,8 @@ def init_rules_db():
         print("✅ Premature done flows backfilled to running")
     except Exception as e:
         print(f"⚠️ Premature done flows backfill failed: {e}")
-    try:
-        backfill_bom_schemes_from_quotations()
-        print("✅ Legacy quotations backfilled to BOM/cost cards")
-    except Exception as e:
-        print(f"⚠️ BOM/cost card backfill failed: {e}")
+    # 反向回填已改为显式迁移脚本，不再随启动自动执行。
+    # 见 backend/scripts/migrate_legacy_flow_artifacts.py。
     try:
         repair_bom_scheme_l6_rows()
         print("✅ Legacy BOM/cost L6 rows repaired")

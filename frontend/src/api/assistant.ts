@@ -176,13 +176,6 @@ export const assistantApi = {
           },
         )
         .then((r) => r.data),
-    /** 候选卡“去配置这台服务器”：通知后端进入自配并跳过下游 BOM */
-    selfConfig: (id: string, modelId?: string | number) =>
-      http
-        .post<{ ok: boolean; model_id?: string | number }>(`/api/assistant/threads/${id}/self-config`, {
-          model_id: modelId ?? null,
-        })
-        .then((r) => r.data),
     /** 发送前预览总助推荐同事（不落库） */
     resolveTarget: (id: string, content: string, contextSummary?: string) =>
       http

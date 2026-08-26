@@ -54,33 +54,12 @@ def _safe_broadcast(broadcast, step_id: Optional[str], kind: str, text: str) -> 
 
 
 
-# ── model_reason：机型推理（ReAct + select_models）────────────────────
-
-
-DEFAULT_MODEL_REASON_CONFIG = {
-    "grounding_tool": "select_models",
-    "grounding_result_key": "candidates",
-    "choice_id_pattern": r"id=(\d+)",
-    "choice_fields": ["config_id", "server_model_id", "id"],
-    "group_by_series": True,
-    "per_series_limit": 2,
-    "intro_max_chars": 180,
-    "show_detail_link": True,
-    "model_ask_phrase": "",
-    "detail_link_phrase": "",
-}
-
-DEFAULT_COMPOSE_CONFIG = {
-    "kp_source": "per_baseline",
-    "psu_override_enabled": True,
-    "psu_wattage_source": "ext.psu_signal.wattage",
-    "psu_qty_source": "ext.psu_signal.qty",
-}
-
 def _compose_config(config: Optional[dict]) -> dict:
     """归一化 compose 节点配置；配件来源与电源覆盖策略不再写死。"""
     cfg = dict(config or {})
-    for key, value in DEFAULT_COMPOSE_CONFIG.items():
+    from app.services import reasoning_node_contract
+    defaults = reasoning_node_contract.node_defaults().get("compose", {})
+    for key, value in defaults.items():
         cfg.setdefault(key, value)
     return cfg
 def _get_nested(data: dict, path: str, default=None):
@@ -91,23 +70,6 @@ def _get_nested(data: dict, path: str, default=None):
             return default
         cur = cur[part]
     return cur
-
-
-def _model_reason_config(config: Optional[dict]) -> dict:
-    """归一化 model_reason 节点配置；默认值集中在这里，不在执行逻辑中散落业务常量。"""
-    cfg = dict(config or {})
-    for key, value in DEFAULT_MODEL_REASON_CONFIG.items():
-        if isinstance(value, list):
-            cfg.setdefault(key, list(value))
-        else:
-            cfg.setdefault(key, value)
-    d = prompt_store.get_prompt_defaults("model_reason")
-    cur = cfg.get("system_prompt")
-    if cur is None or (isinstance(cur, str) and not cur.strip()):
-        cfg["system_prompt"] = d.get("system_prompt", "")
-    return cfg
-
-
 
 
 # ── KP「LLM 提议 + 库校验」（2026-08 改革·Phase1 核心）──────────────────
@@ -349,34 +311,12 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
 
 
 
-DEFAULT_KP_REASON_CONFIG = {
-    "proposal_enabled": False,
-    "proposal_schema": KP_PROPOSE_SCHEMA,
-    "temperature": 0.2,
-    "timeout": 60,
-    "max_attempts": 1,
-    "proposal_mapping": {
-        "memory": {
-            "fields": ["per_stick_gb", "qty", "type", "speed_mt", "comparison", "total_gb"],
-            "required_any": ["per_stick_gb", "total_gb"],
-        },
-        "raid": {
-            "fields": ["model", "qty"],
-            "required_any": ["model"],
-        },
-        "nic": {
-            "fields": ["speed_g", "ports", "qty", "with_optical_module"],
-            "required_any": ["speed_g", "ports", "qty"],
-        },
-    },
-    "reason_template": "配件规划：已确认 {{items}}",
-}
-
-
 def _kp_config(config: Optional[dict]) -> dict:
     """归一化 kp_reason 节点配置；LLM 提议的 schema/提示词/映射全部可编辑。"""
     cfg = dict(config or {})
-    for key, value in DEFAULT_KP_REASON_CONFIG.items():
+    from app.services import reasoning_node_contract
+    defaults = reasoning_node_contract.node_defaults().get("kp_reason", {})
+    for key, value in defaults.items():
         if isinstance(value, dict):
             cfg.setdefault(key, dict(value))
         elif isinstance(value, list):
@@ -394,9 +334,8 @@ def _kp_config(config: Optional[dict]) -> dict:
 
 
 def _ask_config(config: Optional[dict]) -> dict:
-    """归一化 agent_fill/model_reason 等节点配置：数据来源与规则目录可配，不再含反问状态机字段。"""
+    """归一化 agent_fill/model_reason 等节点配置：规则目录可配，不再含反问状态机字段。"""
     cfg = dict(config or {})
-    cfg.setdefault("data_sources", ["server_catalog"])
     cfg.setdefault("rule_types", ["platform_series_map"])
     return cfg
 
@@ -546,6 +485,8 @@ def _apply_extracted_slots(ext: dict, slots: dict, allow_overwrite: bool = False
             v = str(value).strip()
             if not v:
                 continue
+            if key == "server_type" and v.isdigit():
+                continue
             if allow_overwrite or not _slot_now_filled(ext, "server_type"):
                 ext["server_type"] = ext["server_type_name"] = v
                 changed = True
@@ -679,37 +620,10 @@ def _ground_fill_from_tools(answer: str, tool_calls_log: list, ext: dict,
 
 
 def _semantic_ref_text(config: Optional[dict], req_text: Optional[str]) -> str:
-    """把语义契约参考（workload_map/compliance_map/gpu_form_map）注入 agent 上下文，供它按规则推断。"""
+    """把语义契约参考（workload_map/compliance_map）注入 agent 上下文，供它按规则推断。"""
     from app.services import requirement_rule_catalog as _rc
     rule_types = (config or {}).get("rule_types")
     chunks = []
-    # 真实在售目录（数据源）：模型只按目录里实际存在的类型/系列/形态归一化，禁用死词表。
-    try:
-        from app.services.catalog_guide import load_catalog
-        _c_types, _c_by_type = load_catalog()
-    except Exception:
-        _c_types, _c_by_type = [], {}
-    if _c_types:
-        _tnames = [str(t.get("name") or "").strip() for t in _c_types if str(t.get("name") or "").strip()]
-        if _tnames:
-            chunks.append("在售服务器类型目录（只能填这些 server_type_name）：\n" + "\n".join("  - " + n for n in _tnames))
-        _series_order: list = []
-        _form_order: list = []
-        for _tn, _ms in (_c_by_type or {}).items():
-            for _m in _ms or []:
-                _b = _m.get("base_config") or {}
-                for _s in (_b.get("series"), _m.get("series")):
-                    _s = str(_s or "").strip()
-                    if _s and _s not in _series_order:
-                        _series_order.append(_s)
-                for _f in (_b.get("form"), _m.get("form")):
-                    _f = str(_f or "").strip()
-                    if _f and _f not in _form_order:
-                        _form_order.append(_f)
-        if _series_order:
-            chunks.append("在售平台系列目录（只能填这些 series/platform_type）：\n" + "\n".join("  - " + s for s in _series_order))
-        if _form_order:
-            chunks.append("在售机箱形态目录（只能填这些 form/chassis_form）：\n" + "\n".join("  - " + f for f in _form_order))
     ta = _rc.type_alias(rule_types)
     if ta:
         lines = ["  %s → %s" % (r.get("keyword"), r.get("type_name")) for r in ta if r.get("keyword") and r.get("type_name")]
@@ -736,10 +650,6 @@ def _semantic_ref_text(config: Optional[dict], req_text: Optional[str]) -> str:
         chunks.append("国产化参考：系列=%s 排除厂商=%s 允许厂商=%s GPU策略=%s" % (
             c.get("platform_series"), c.get("excluded_manufacturers"),
             c.get("allowed_manufacturers"), c.get("gpu_policy")))
-    gm = _rc.gpu_form_map(rule_types)
-    if gm:
-        lines = ["  %s-%s卡 → %s" % (r.get("gpu_count_min"), r.get("gpu_count_max"), r.get("form")) for r in gm]
-        chunks.append("GPU卡数→机箱形态：\n" + "\n".join(lines))
     return "\n\n" + "\n".join(chunks) if chunks else ""
 
 
@@ -752,7 +662,8 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     # 模型输出的 semantic 已经过 schema 收口，此处作为 advisor；侧重在“事实确定性”。
     # 量化事实（gpu_count/total_vram_gb）来源：模型 semantic > 规则库 workload_map（规则赢模型的数值）。
     wl = dict(_sc.workload(ext))
-    # 2) 规则库 workload_map：命中关键词即按规则补总显存/卡数/意图（规则赢模型的数值）。
+    rule_gpu_count = int(wl.get("gpu_count") or 0)
+    # 规则库 workload_map：命中关键词即按规则补意图/显存/卡数（规则赢模型的数值）。
     for r in _rc.workload_map(rule_types):
         kw = str(r.get("workload_keyword") or "").lower()
         if kw and kw in rtext:
@@ -760,9 +671,10 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
                 wl["kind"] = str(r.get("intent"))
             if r.get("total_vram_gb") is not None and "total_vram_gb" not in wl:
                 wl["total_vram_gb"] = r.get("total_vram_gb")
-            if r.get("gpu_count") is not None and "gpu_count" not in wl:
-                wl["gpu_count"] = r.get("gpu_count")
+            if r.get("gpu_count") is not None and rule_gpu_count <= 0:
+                rule_gpu_count = int(r.get("gpu_count"))
             break
+    wl.pop("gpu_count", None)
     if wl:
         _sc.set_value(ext, "workload", wl)
         if wl.get("kind") and _sc.intent(ext) in (None, "general"):
@@ -771,10 +683,9 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     if comp.get("domestic_only"):
         if _sc.intent(ext) in (None, "general"):
             _sc.set_value(ext, "intent", "domestic_compliance")
-    # GPU 卡数保存到 gpu_groups：量化事实来自模型 semantic 与规则库 workload_map。
-    gc = int(wl.get("gpu_count") or 0)
-    if gc > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu_groups") and not ext.get("gpu"):
-        ext["gpu_groups"] = [{"qty": gc}]
+    # GPU 卡数只落 gpu_groups（模型 semantic / 规则 workload_map 的卡数统一在此归一）。
+    if rule_gpu_count > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu_groups"):
+        ext["gpu_groups"] = [{"qty": rule_gpu_count}]
 
 def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     """把 agent_fill 落地的需求事实固化为「线索登记表」快照 ctx.requirement。
@@ -844,8 +755,13 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
     from app.services.slot_contract import _missing_critical, slot_label, slot_spec
     from app.services import prompt_store
     from app.services.agent_react import run_react_loop
+    from app.services.capability_spec import default_tools as _default_tools
 
     config = prompt_store.merge_node_prompt("agent_fill", config or {})
+    if isinstance(config.get("enabled_tools"), list):
+        node_tools = [str(t) for t in config.get("enabled_tools") if str(t)]
+    else:
+        node_tools = list(_default_tools("agent_fill"))
     req_text = str(ctx.get("requirement_text") or ctx.get("normalized_text") or "").strip()
     ext = dict(ctx.get("ext") or {})
 
@@ -862,34 +778,6 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
     )
     extra += _semantic_ref_text(config, req_text)
 
-    # 在售目录参考：把类型/系列/形态喂给模型，让它把用户需求映射到在售字段。
-    _cat_block = ""
-    try:
-        from app.services.catalog_guide import load_catalog
-        _types, _models_by_type = load_catalog()
-        _type_names = [str(t.get("name") or "") for t in (_types or []) if t.get("name")]
-        _props = []
-        _series, _forms = [], []
-        for _ms in (_models_by_type or {}).values():
-            for _m in (_ms or []):
-                _bc = _m.get("base_config") or {}
-                _s = str(_bc.get("series") or _m.get("series") or "").strip()
-                _f = str(_bc.get("form") or _m.get("form") or "").strip()
-                if _s and _s not in _series:
-                    _series.append(_s)
-                if _f and _f not in _forms:
-                    _forms.append(_f)
-        if _type_names:
-            _props.append("在售服务器类型：" + "、".join(_type_names))
-        if _series:
-            _props.append("可用平台系列：" + "、".join(_series))
-        if _forms:
-            _props.append("可用机箱形态：" + "、".join(_forms))
-        if _props:
-            _cat_block = "\n\n【在售目录参考】" + "\n".join(_props)
-    except Exception:
-        _cat_block = ""
-
     _prompt = config.get("prompt") or {}
     sys_prompt = str(_prompt.get("system_prompt") or "").strip() or str(
         prompt_store.get_prompt_defaults("agent_fill").get("system_prompt") or "")
@@ -904,13 +792,16 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
 
     result = await run_react_loop(
         requirement_text=req_text or "（无需求原文）",
-        config={**config, "enabled_tools": []},
+        config={**config, "enabled_tools": node_tools},
         system_prompt=sys_prompt,
         history=ctx.get("history") or [],
-        extra_context=extra + _cat_block,
-        max_iterations=1,
+        extra_context=extra,
+        max_iterations=min(int(config.get("max_iterations") or 4), 6),
         event_sink=_sink,
-        final_only=True,
+        allowed_tool_ids=ctx.get("allowed_tool_ids"),
+        allowed_data_sources=ctx.get("allowed_data_sources"),
+        prefer_text_react=True,
+        final_only=False,
         final_only_contract=AGENT_FILL_FINAL_CONTRACT,
     )
     raw_answer = result.get("answer") or ""
@@ -962,6 +853,18 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
     return await extract_requirement_slots(ctx, config, broadcast)
 
 
+def _gpu_qty_from_ext(ext: dict) -> int:
+    """GPU 卡数唯一真值源：汇总 ext.gpu_groups 的 qty。不读 semantic.workload.gpu_count（已收口删除）。"""
+    total = 0
+    for g in (ext.get("gpu_groups") or []):
+        if isinstance(g, dict):
+            try:
+                total += int(g.get("qty") or 0)
+            except (TypeError, ValueError):
+                pass
+    return total
+
+
 def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     """机型选型规则本体：四级兜底（exact/same_series/same_form/all，fallback_order 可配）+ model_recommend 标注。"""
     from app.api.candidate_search import select_models, build_variant_signals
@@ -979,7 +882,7 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
                   or (scene.get("scene_name") if scene.get("determined") else None)
                   or ext.get("server_type_name"))
     from app.services import semantic_contract as _sc
-    from app.services.requirement_rule_catalog import compliance_map as _compliance_map, gpu_form_map as _gpu_form_map
+    from app.services.requirement_rule_catalog import compliance_map as _compliance_map
     _series = scene.get("series") or ext.get("series") or None
     _form = scene.get("form") or ext.get("form") or None
     # 客户已委托（你推荐/随便/都行）且完全没给类型/系列/形态线索 → 默认到目录里排序第一的
@@ -1001,20 +904,12 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
         _domestic_series = set(_cms[0].get("platform_series") or ["Polaris"])
         if _series not in _domestic_series:
             _series = next(iter(_domestic_series), _series)
-    # GPU 数量（来自 workload/exclusion 卡数）→ 机箱形态约束
-    _gpu_count = int((_sc.gpu_requirement(ext) or {}).get("gpu_count") or 0)
-    if _gpu_count > 0:
-        for _rule in _gpu_form_map(enabled_types=cfg.get("rule_types")):
-            _lo = int(_rule.get("gpu_count_min") or 0)
-            _hi = int(_rule.get("gpu_count_max") or (1 << 31))
-            if _lo <= _gpu_count <= _hi and _rule.get("form"):
-                _form = str(_rule.get("form") or _form)
-                break
-    from app.api.candidate_search import MAX_PLANS
+    # GPU 卡数：唯一真值源 = ext.gpu_groups（需求侧结构化事实）。不再读 semantic.workload.gpu_count，
+    # 也不再按 gpu_form_map 死区间猜形态；真实槽位能力由 base_config.gpu_slots 在选型后过滤。
+    _gpu_count = _gpu_qty_from_ext(ext)
     baselines = select_models(
         ext.get("usage"), _type_name, _series, _form,
-        limit=cfg.get("max_plans") or MAX_PLANS,
-        recommend_strategy_id=cfg.get("recommend_strategy_id"),
+        limit=None,
         no_signal_strategy=_no_signal_strategy,
         variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),
         # 多级放宽（用户可配 fallback_order；未配则读规则目录）：
@@ -1027,12 +922,22 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
             # 放宽被过滤后无结果：保留系列但标注
             baselines = [b for b in select_models(
                 ext.get("usage"), _type_name, _series, _form,
-                limit=cfg.get("max_plans") or MAX_PLANS,
-                recommend_strategy_id=cfg.get("recommend_strategy_id"),
+                limit=None,
                 no_signal_strategy=_no_signal_strategy,
                 variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),
                 fallback_order=_fallback_order,
             ) if b.get("series") in _domestic_series]
+    # 真实 GPU 槽位能力过滤（事实源 = base_config.gpu_slots，非死区间）：卡数需求>0 时只保留能装下的机型；
+    # 一个能装的都没有则保留原候选并白盒标注槽位不足，交下游说明，不静默丢卡。
+    if _gpu_count > 0:
+        _capable = [b for b in baselines
+                    if int((b.get("base_config") or {}).get("gpu_slots") or 0) >= _gpu_count]
+        if _capable:
+            baselines = _capable
+        else:
+            for b in baselines:
+                b["gpu_capacity_note"] = f"当前候选机型 GPU 槽位不足 {_gpu_count} 卡"
+
     _cat_model_id = ctx.get("catalog_model_id")
     if _cat_model_id:
         _keep = [b for b in baselines

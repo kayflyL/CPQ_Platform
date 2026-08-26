@@ -281,7 +281,6 @@ def evaluate_slot_coverage(ext: dict, config: Optional[dict] = None) -> tuple:
     level ∈ {"explicit", "partial"}：
       • L0 缺 ≥ ask_threshold 项 → partial（反问，missing 列缺的槽位）；
       • AI 场景（有 GPU 信号）缺 GPU → partial（ai_gpu_required，R28 口径）；
-      • storage default_ok → 缺存储不计数（系统给默认盘）；
       • 其余（L1/L2 缺）→ explicit（场景分析/系统推导补），不反问。
     explain 带 coverage 明细（白盒：每个槽位 已填/缺失）。
     """
@@ -295,8 +294,7 @@ def evaluate_slot_coverage(ext: dict, config: Optional[dict] = None) -> tuple:
     for s in slots:
         key = s.get("key")
         filled = _slot_filled(key, ext)
-        default_ok = bool(s.get("default_ok"))
-        if not filled and not default_ok:
+        if not filled:
             detail.append({"key": key, "label": s.get("label") or key, "level": s.get("level"), "filled": False})
             if s.get("level") == "L0":
                 missing_l0.append(s.get("label") or key)

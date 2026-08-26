@@ -8,7 +8,7 @@ import type { Plan } from '@/api/reasoning'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
-export type ReasoningNodeKey = 'input' | 'agent_fill' | 'model_reason' | 'kp_reason' | 'compose' | 'output' | 'agent' | 'rule' | 'branch' | 'assemble' | 'orchestrator' | 'condition'
+export type ReasoningNodeKey = 'input' | 'agent_fill' | 'model_reason' | 'kp_reason' | 'compose' | 'output' | 'agent' | 'condition'
 
 export interface ReasoningNodeMeta {
   id: string

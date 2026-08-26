@@ -176,6 +176,15 @@ export interface PortalSheet {
   configs: PortalSheetConfig[]
 }
 
+export interface QuoteContext {
+  bom_configs: BomConfig[]
+  cost_configs: CostConfig[]
+  sheet_configs: PortalSheetConfig[]
+  worktable_quotation_id: string | null
+  cost_snapshot: Record<string, any> | null
+  legacy_fallback: boolean
+}
+
 export interface BomScheme {
   id: number
   opportunity_id: string
@@ -250,6 +259,7 @@ export interface PortalBoard {
     configs: CostConfig[]
   }
   sheet: PortalSheet
+  quote_context: QuoteContext
   quote: FinalQuote | null
   approvals: ApprovalItem[]
   flow_cards: FlowCard[]
@@ -435,6 +445,9 @@ export const portalApi = {
   assignOptions: () =>
     RESP<{ businesses: Array<{ user_id: string; name: string }>; assignees: Record<string, string[]> }>(
       axios.get('/api/portal/assign-options')),
+  assignmentRules: (businessUserId: string) =>
+    RESP<{ rules: PortalAssignmentRule[] }>(
+      axios.get(`/api/portal/assignment-rules/${encodeURIComponent(businessUserId)}`)),
   saveAssignmentRule: (data: { business_user_id: string; node_key: string; assignee_name: string }) =>
     RESP<{ rule: PortalAssignmentRule }>(axios.put('/api/portal/assignment-rules', data)),
   deleteAssignmentRule: (data: { business_user_id: string; node_key: string }) =>

@@ -35,14 +35,23 @@ def _load_reasoning_prompt_defaults() -> dict:
         return {}
 
 
+def _load_reasoning_node_defaults() -> dict:
+    """读取打包的需求分析节点默认配置种子（不依赖业务 service，避免循环 import）。"""
+    try:
+        p = Path(__file__).resolve().parents[1] / "services" / "reasoning_node_defaults.json"
+        return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
 
 _DEFAULT_REQUIREMENT_SLOTS: list = [
-    {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
-    {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "catalog"},
-    {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息", "required": True, "ask": True, "candidate_source": "catalog"},
-    {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息", "required": False, "ask": True, "candidate_source": "catalog"},
-    {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息", "required": True, "ask": False, "candidate_source": "free"},
-    {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息", "required": False, "ask": False, "candidate_source": "free"},
+    {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "platform_type", "label": "平台/系列", "level": "L0", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "chassis_form", "label": "机箱形态", "level": "L1", "group": "基本信息", "candidate_source": "catalog"},
+    {"key": "purchase_qty", "label": "数量", "level": "L0", "group": "基本信息", "candidate_source": "free"},
+    {"key": "warranty_years", "label": "保修年限", "level": "L2", "group": "基本信息", "candidate_source": "free"},
 ]
 
 
@@ -50,20 +59,20 @@ _DEFAULT_REQUIREMENT_SLOTS: list = [
 
 
 _DEFAULT_KP_SLOT_GROUP_MAP: dict = {
-    "CPU": {"key": "cpu", "label": "CPU", "candidate_source": "catalog"},
-    "Memory": {"key": "memory", "label": "内存", "candidate_source": "catalog"},
-    "HDD/SSD": {"key": "storage", "label": "存储", "candidate_source": "catalog"},
-    "GPU": {"key": "gpu", "label": "GPU", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "GPU card": {"key": "gpu", "label": "GPU", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "GPU Card": {"key": "gpu", "label": "GPU", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "NIC card": {"key": "nic", "label": "网卡", "candidate_source": "catalog"},
-    "NIC": {"key": "nic", "label": "网卡", "candidate_source": "catalog"},
-    "Network(NIC) requirement": {"key": "nic", "label": "网卡", "candidate_source": "catalog"},
-    "RAID": {"key": "raid", "label": "阵列卡", "candidate_source": "catalog"},
-    "Raid card": {"key": "raid", "label": "阵列卡", "candidate_source": "catalog"},
-    "Raid Card": {"key": "raid", "label": "阵列卡", "candidate_source": "catalog"},
-    "RAID Card": {"key": "raid", "label": "阵列卡", "candidate_source": "catalog"},
-    "Power Supply": {"key": "psu", "label": "电源", "candidate_source": "catalog"},
+    "CPU": {"key": "cpu", "candidate_source": "catalog"},
+    "Memory": {"key": "memory", "candidate_source": "catalog"},
+    "HDD/SSD": {"key": "storage", "candidate_source": "catalog"},
+    "GPU": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
+    "GPU card": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
+    "GPU Card": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
+    "NIC card": {"key": "nic", "candidate_source": "catalog"},
+    "NIC": {"key": "nic", "candidate_source": "catalog"},
+    "Network(NIC) requirement": {"key": "nic", "candidate_source": "catalog"},
+    "RAID": {"key": "raid", "candidate_source": "catalog"},
+    "Raid card": {"key": "raid", "candidate_source": "catalog"},
+    "Raid Card": {"key": "raid", "candidate_source": "catalog"},
+    "RAID Card": {"key": "raid", "candidate_source": "catalog"},
+    "Power Supply": {"key": "psu", "candidate_source": "catalog"},
 }
 
 
@@ -210,8 +219,6 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "data_sources": ["opportunities"],
 
-        "entry_points": [],
-
         "permission_policy": "readonly",
 
         "dispatchable": False,
@@ -247,8 +254,6 @@ _DEFAULT_AI_COLLEAGUES = [
         "tool_ids": ["query_cpq_data"],
 
         "data_sources": ["opportunities", "dashboard"],
-
-        "entry_points": ["Opportunities"],
 
         "permission_policy": "readonly",
 
@@ -286,8 +291,6 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "data_sources": ["kp_price", "bom", "cost"],
 
-        "entry_points": ["StrategySelection"],
-
         "permission_policy": "readonly",
 
         "dispatchable": True,
@@ -324,11 +327,10 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "pick_kp_parts", "build_plan", "search_cases"],
+        "tool_ids": ["select_models", "pick_kp_parts", "build_plan", "search_cases",
+                     "list_server_types", "list_server_models", "get_server_model"],
 
-        "data_sources": ["requirement", "candidate_search", "bom"],
-
-        "entry_points": ["AiOffice", "StrategySelection"],
+        "data_sources": ["requirement", "candidate_search", "bom", "server_catalog", "server_product_content"],
 
         "permission_policy": "readonly",
 
@@ -365,8 +367,6 @@ _DEFAULT_AI_COLLEAGUES = [
         "tool_ids": ["query_cpq_data", "cost_breakdown", "quote_draft"],
 
         "data_sources": ["quotation", "opportunity"],
-
-        "entry_points": ["Workspace", "OpportunityDetail"],
 
         "permission_policy": "readonly",
 
@@ -757,6 +757,8 @@ class SystemConfigRepository:
 
             {"key": "reasoning_prompts", "value": json.dumps(_load_reasoning_prompt_defaults(), ensure_ascii=False), "type": "json", "description": "需求分析节点提示词/话术默认值（用户可在节点抽屉覆盖）"},
 
+            {"key": "reasoning_node_defaults", "value": json.dumps(_load_reasoning_node_defaults(), ensure_ascii=False), "type": "json", "description": "需求分析节点非提示词默认配置（白盒回显与保存去重时唯一权威源）"},
+
 
             {"key": "bom_category_aliases", "value": json.dumps({
                 "heatsink": ["散热器", "散热"],
@@ -939,29 +941,11 @@ class SystemConfigRepository:
 
                     changed = True
 
-                if isinstance(colleague.get("entry_points"), list):
+                if "entry_points" in colleague:
 
-                    migrated = []
+                    colleague.pop("entry_points", None)
 
-                    entry_changed = False
-
-                    for entry_point in colleague["entry_points"]:
-
-                        next_entry = _ENTRY_POINT_MIGRATIONS.get(entry_point, entry_point)
-
-                        if next_entry not in migrated:
-
-                            migrated.append(next_entry)
-
-                        if next_entry != entry_point:
-
-                            entry_changed = True
-
-                    if entry_changed:
-
-                        colleague["entry_points"] = migrated
-
-                        changed = True
+                    changed = True
 
                 role_key = colleague.get("role_key")
 
@@ -977,11 +961,24 @@ class SystemConfigRepository:
 
                             changed = True
 
-                    if role_key == "support_engineer" and colleague.get("tool_ids") == ["select_models", "query_cpq_data"]:
+                    if role_key == "support_engineer":
 
-                        colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
+                        cur_tools = colleague.get("tool_ids") or []
 
-                        changed = True
+                        if colleague.get("tool_ids") == ["select_models", "query_cpq_data"] or not all(
+                                t in cur_tools for t in ("list_server_types", "list_server_models", "get_server_model")):
+
+                            colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
+
+                            changed = True
+
+                        cur_sources = colleague.get("data_sources") or []
+
+                        if not all(s in cur_sources for s in ("server_catalog", "server_product_content")):
+
+                            colleague["data_sources"] = deepcopy(default_colleague["data_sources"])
+
+                            changed = True
 
                     if role_key == "cost_analyst" and colleague.get("tool_ids") == ["select_models", "pick_kp_parts", "build_plan"]:
 
@@ -1075,7 +1072,7 @@ class SystemConfigRepository:
         """幂等：把 DB 的 requirement_slots 收敛为「基本信息 6 项」（部件不再落库，动态来自 KP）。
 
         部件 slot（cpu/memory/storage/gpu/nic/raid/psu 等）一律剔除；基本信息保留用户编辑
-        （label/level/required/ask/candidate_source/default_ok），缺失补齐。不覆盖用户编辑。
+        （label/level/candidate_source），缺失补齐。不覆盖用户编辑。
         """
         cfg = self.get_value("requirement_slots")
         if not isinstance(cfg, dict):
@@ -1111,12 +1108,12 @@ class SystemConfigRepository:
                     seen.add(k)
                 continue
             merged = dict(base)
-            for attr in ("label", "level", "required", "ask", "candidate_source", "default_ok"):
+            for attr in ("label", "level", "candidate_source"):
                 v = s.get(attr)
                 if v not in (None, ""):
                     merged[attr] = v
             if k == "server_model":
-                merged.update({"level": "L2", "required": False, "ask": False})
+                merged.update({"level": "L2"})
             new_slots.append(merged)
             seen.add(k)
         for base in _DEFAULT_REQUIREMENT_SLOTS:
@@ -1140,7 +1137,7 @@ class SystemConfigRepository:
         for v in cfg.values():
             if not isinstance(v, dict):
                 continue
-            for _k in ("level", "required", "ask", "default_ok"):
+            for _k in ("level", "required", "ask", "default_ok", "label"):
                 if _k in v:
                     v.pop(_k, None)
                     changed = True

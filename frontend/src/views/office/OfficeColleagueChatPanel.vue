@@ -16,6 +16,13 @@
     </div>
 
     <template v-if="expanded">
+      <div v-if="chatState?.nodeTraces?.length" class="oc-plan-bar">
+        <span v-for="t in chatState.nodeTraces" :key="t.step" class="oc-plan-step" :class="`oc-plan-step--${t.status}`">
+          <span class="oc-plan-dot" />
+          <span>{{ t.label }}</span>
+        </span>
+        <span v-if="chatState?.waiting" class="oc-plan-waiting">等待补充信息…</span>
+      </div>
       <div ref="messagesEl" class="chat-messages">
         <div v-if="chatState?.loading" class="chat-empty">正在建立会话…</div>
         <div
@@ -39,6 +46,7 @@
             v-else
             :message="item"
             :author="colleagueAuthor"
+            @select-option="sendOption"
           />
         </template>
 
@@ -271,6 +279,15 @@ async function onSend() {
   try {
     await send(props.colleague.role_key, text, props.contextSummary, chatContext.value)
     draft.value = ''
+  } catch {
+    message.error(chatState.value?.error || '发送失败')
+  }
+}
+
+async function sendOption(value: string) {
+  if (!value || !props.colleague?.role_key) return
+  try {
+    await send(props.colleague.role_key, value, props.contextSummary, chatContext.value)
   } catch {
     message.error(chatState.value?.error || '发送失败')
   }
@@ -791,4 +808,28 @@ onBeforeUnmount(close)
   background: var(--cpq-accent-success, #22c55e);
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
 }
+.oc-plan-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,.1));
+  font-size: 12px;
+}
+.oc-plan-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.12));
+  color: var(--cpq-text-secondary, #a6adb4);
+}
+.oc-plan-step--done { color: #16a34a; border-color: #16a34a44; background: #16a34a0d; }
+.oc-plan-step--running { color: var(--cpq-accent-primary, #1677ff); border-color: var(--cpq-accent-primary, #1677ff); background: #1677ff0d; }
+.oc-plan-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.oc-plan-step--running .oc-plan-dot { animation: oc-pulse 1s ease-in-out infinite; }
+.oc-plan-waiting { margin-left: auto; color: #b45309; }
+@keyframes oc-pulse { 0%, 100% { transform: scale(.8); opacity: .6; } 50% { transform: scale(1.2); opacity: 1; } }
 </style>

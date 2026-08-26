@@ -107,17 +107,8 @@
               style="width: 100%"
             />
 
-            <label class="tm-label">负责页面</label>
-            <a-select
-              v-model:value="draftColleague.entry_points"
-              mode="multiple"
-              :options="pageScopeOptions"
-              placeholder="选择负责页面"
-              style="width: 100%"
-            />
-
             <label class="tm-label">数据来源</label>
-            <a-select v-model:value="draftColleague.data_sources" mode="multiple" placeholder="选择数据来源" style="width: 100%" @change="onDataSourcesChange">
+            <a-select v-model:value="draftColleague.data_sources" mode="multiple" placeholder="选择数据来源" style="width: 100%">
               <a-select-option v-for="item in scopeOptions.data_sources" :key="item.key" :value="item.key">
                 <span :title="item.description">{{ item.key }}</span>
               </a-select-option>
@@ -468,7 +459,6 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import { CloseOutlined, DeleteOutlined, EditOutlined, PlusOutlined, SaveOutlined, SettingOutlined, UserOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeAccessPolicy, type OfficeConfig } from '@/api/office'
-import { deriveDataSources, manualDataSources as getManualDataSources, reconcileDataSources } from '@/utils/scopeOptions'
 import { assistantApi } from '@/api/assistant'
 import OfficeFlowNode from './OfficeFlowNode.vue'
 import OfficeSpaceEditor from './OfficeSpaceEditor.vue'
@@ -575,53 +565,15 @@ const headerSaveText = computed(() => {
   return '保存团队'
 })
 const scopeOptions = ref<{ data_sources: any[]; page_scopes: any[] }>({ data_sources: [], page_scopes: [] })
-const manualSourcesRef = ref<string[]>([])
 const pageScopeOptions = computed(() => scopeOptions.value.page_scopes.map((item) => ({ value: item.key, label: item.label || item.key })))
 async function loadScopeOptions() {
   try {
     scopeOptions.value = await officeApi.scopeOptions()
   } catch {
     scopeOptions.value = { data_sources: [], page_scopes: [] }
-  } finally {
-    initializeManualDataSources()
-    applyDataSources()
   }
 }
 loadScopeOptions()
-
-function initializeManualDataSources() {
-  if (!draftColleague.value) return
-  manualSourcesRef.value = getManualDataSources(draftColleague.value.data_sources, draftColleague.value.entry_points, scopeOptions.value)
-}
-
-function applyDataSources() {
-  if (!draftColleague.value) return
-  const derived = deriveDataSources(draftColleague.value.entry_points, scopeOptions.value)
-  draftColleague.value.data_sources = Array.from(new Set([...manualSourcesRef.value, ...derived]))
-}
-
-function onDataSourcesChange() {
-  if (!draftColleague.value) return
-  manualSourcesRef.value = getManualDataSources(draftColleague.value.data_sources, draftColleague.value.entry_points, scopeOptions.value)
-}
-
-watch(
-  () => draftColleague.value?.entry_points,
-  (newPages, oldPages) => {
-    if (!draftColleague.value) return
-    draftColleague.value.data_sources = reconcileDataSources(
-      draftColleague.value.data_sources,
-      oldPages,
-      newPages,
-      scopeOptions.value,
-    )
-    manualSourcesRef.value = getManualDataSources(
-      draftColleague.value.data_sources,
-      newPages,
-      scopeOptions.value,
-    )
-  },
-)
 const leadName = computed(() => {
   const current = managedColleagues.value.find((colleague) => colleague.role_key === draftLeadRoleKey.value)
   return current?.name || draftLeadRoleKey.value || '未设置'
@@ -640,8 +592,6 @@ watch(
     }
     draftColleague.value = { ...colleague }
     toolIdsText.value = Array.isArray(colleague.tool_ids) ? colleague.tool_ids.join(', ') : ''
-    initializeManualDataSources()
-    applyDataSources()
   },
   { immediate: true },
 )
@@ -1160,7 +1110,6 @@ async function saveTeamTab() {
       model_override: draftColleague.value.model_override || null,
       tool_ids: Array.isArray(draftColleague.value.tool_ids) ? draftColleague.value.tool_ids : [],
       data_sources: Array.isArray(draftColleague.value.data_sources) ? draftColleague.value.data_sources : [],
-      entry_points: Array.isArray(draftColleague.value.entry_points) ? draftColleague.value.entry_points : [],
       permission_policy: draftColleague.value.permission_policy || 'readonly',
       dispatchable: Boolean(draftColleague.value.dispatchable),
     })

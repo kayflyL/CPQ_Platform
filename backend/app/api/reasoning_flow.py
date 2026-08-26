@@ -94,6 +94,9 @@ def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(defa
         if isinstance(label, str) and label.strip():
             if repo.update_node_label(f["id"], node_key, label.strip(), operator=data.get("operator", "system")) is None:
                 raise HTTPException(404, f"Node not found in active graph: {node_key}")
+        if str(f.get("skill_key") or f.get("name") or "") == "requirement_analysis":
+            from app.services import reasoning_node_contract
+            config = reasoning_node_contract.override_only(node_key, config)
         return repo.upsert_node_config(f["id"], node_key, config, operator=data.get("operator", "system"))
     finally:
         repo.close()

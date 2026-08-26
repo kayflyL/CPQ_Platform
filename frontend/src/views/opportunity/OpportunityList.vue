@@ -91,7 +91,7 @@
         <div class="list-actions">
           <button class="action-btn" @click="goToRecycleBin"><span>🗑</span> 回收站</button>
           <button v-if="!selectMode" class="action-btn" @click="enterSelectMode"><span>☐</span> 批量选择</button>
-          <button class="action-btn create-btn" @click="openCreate"><span>+</span> 新建商机</button>
+          <button class="action-btn create-btn" @click="showCreateModal = true"><span>+</span> 新建商机</button>
         </div>
       </div>
 
@@ -195,12 +195,7 @@
       </aside>
 
     <!-- Create Modal -->
-    <a-modal v-model:open="showCreateModal" title="新建商机" @ok="handleCreate" :confirmLoading="creating">
-      <a-form layout="vertical">
-        <a-form-item label="客户名称" required><a-input v-model:value="newProject.customer_name" placeholder="请输入客户名称" /></a-form-item>
-        <a-form-item v-if="canViewAll" label="业务"><a-select v-model:value="newProject.sales_person" :options="salesOptions" placeholder="选择业务（可输入搜索）" allow-clear show-search option-filter-prop="label" style="width: 100%" /></a-form-item>
-      </a-form>
-    </a-modal>
+    <CreateOpportunityModal v-model:open="showCreateModal" />
   </div>
 </template>
 
@@ -210,8 +205,8 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { RightOutlined, LeftOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
-import { projectApi } from '@/api'
 import CountNumber from '@/components/common/CountNumber.vue'
+import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
 import dayjs from 'dayjs'
 import { useSeriesStore } from '@/stores/series'
 import { useAuthStore } from '@/store/auth'
@@ -598,32 +593,6 @@ function syncListState() {
 
 // Create modal（保留）
 const showCreateModal = ref(false)
-const creating = ref(false)
-const newProject = ref({ customer_name: '', sales_person: '' })
-function openCreate() {
-  newProject.value = { customer_name: '', sales_person: canViewAll.value ? '' : (auth.user?.name || '') }
-  showCreateModal.value = true
-}
-async function handleCreate() {
-  const customerName = newProject.value.customer_name.trim()
-  const salesPerson = canViewAll.value ? newProject.value.sales_person.trim() : (auth.user?.name || '')
-  if (!customerName) {
-    message.warning('请输入客户名称')
-    return
-  }
-  creating.value = true
-  try {
-    const res = await projectApi.create({ customer_name: customerName, sales_person: salesPerson })
-    message.success('创建成功')
-    showCreateModal.value = false
-    newProject.value = { customer_name: '', sales_person: '' }
-    router.push(`/opportunities/${res.opportunity_id}`)
-  } catch (e: any) {
-    message.error(e?.response?.data?.detail || '创建失败，请稍后重试')
-  } finally {
-    creating.value = false
-  }
-}
 
 // Data loading（保留）
 async function loadSummary() {

@@ -33,6 +33,28 @@
 - `backend/app/services/skill_router.py`：路由提示词改为仅在明确要求配置并产出 BOM 时触发需求分析。
 - `backend/app/services/reasoning_prompt_defaults.json`：新增 model_reason/kp_reason 的可配置话术键。
 
+## 本轮整改（已批准并落地）
+
+- `agent_fill` System Prompt 重写：只描述本节点职责，不再复制下游目标层；context 删除平铺目录文本，改为调用目录工具查询。
+- 字段配置收拢为「层级」单一开关：移除 `required / ask / default_ok` 三列及相关运行时逻辑；`L0` 必问、`L1` 提示可补、`L2` 系统推导。
+- 资源与权限层补回真实工具/数据源：`agent_fill` 默认 `list_server_types/list_server_models/get_server_model`；运行时传入 `enabled_tools`、角色 `allowed_tool_ids/allowed_data_sources`；`support_engineer` 增加 `server_catalog/server_product_content` 及三个目录工具。
+- 校验闸门改为目录事实 + 层级判定：AI 服务器目录只有 4U，不再出现 2U；仅未填 `L0` 才反问，`L1/L2` 不卡流程。
+- 修复节点 trace 重开时清空已完成节点输出的问题；修复 BOM 后仍推「自己配置」卡片（仅 `target === 'server_config'` 显示）。
+
+## 本轮验证
+
+- `pytest backend/tests/test_requirement_intel.py backend/tests/test_requirement_slots.py backend/tests/test_agent_tools.py backend/tests/test_agent_fill_smoke.py -q` → 36 passed。
+- 真实抽取「我需要AI服务器，预算10万」：`server_type_name=AI / 加速计算服务器`、`purchase_qty=1`、`missing_critical=["platform_type","chassis_form"]`，无伪造 2U。
+- 后端需重启进程加载新代码；当前 8000 端口可能仍是旧进程。
+
+## 交互层刚落地（未提交）
+
+- 后端 `_handle_agent_fill` 反问改为生成真实目录选项：`server_type/platform_type/chassis_form/server_model` 取 `_catalog_whitelist()`，`purchase_qty` 给常用档位；`need_input` 事件携带 `options + slot_options`。
+- `colleague_turn_service` 把 `need_input` 持久化为 `kind=input_options` 消息（含结构化选项），重放历史也能渲染。
+- 前端 `AssistantMessageItem` 渲染可点击选项条，点选项回填发送，仍允许自由输入。
+- 计划条改为由 `pipeline_start.steps` 预置整条链路（pending→running→done），`useAssistant.postSend` / `AssistantPanel.sendText` 不再清空，只有取消/自配退出才清。
+- 验证：backend 相关单测 35 passed；`vue-tsc -b` 通过；`_agent_fill_options` 冒烟输出正确目录值。
+
 ## 待办（后续）
 
 - 清理 `colleague_turn_service.py` / `reasoning_executor.py` 中仍残留的非配置话术与退出固定句。

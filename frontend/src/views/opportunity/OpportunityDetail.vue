@@ -17,6 +17,17 @@
             @change="onResultChange"
           />
         </span>
+        <span v-if="opportunity && canViewAll" class="header-created-date">
+          创建于
+          <a-date-picker
+            :value="createdDateValue"
+            size="small"
+            format="YYYY-MM-DD"
+            value-format="YYYY-MM-DD"
+            style="width: 120px"
+            @change="onCreatedDateChange"
+          />
+        </span>
       </div>
       <div class="header-right" v-if="opportunity">
         <a-button size="small" @click="showRecycleBin = true" v-if="deletedQuotations.length > 0">
@@ -275,11 +286,13 @@ import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { formatDate, formatPrice, marginBadgeClass as getMarginBadgeClass } from '@/utils/quoteCommon'
+import dayjs from 'dayjs'
 
 const route = useRoute()
 const auth = useAuthStore()
 /** 商机详情报价单价格可见性（字段级权限，配置驱动） */
 const quotePriceVisible = computed(() => auth.can('field.opportunity.quote_price'))
+const canViewAll = computed(() => auth.can('page.opportunities_all'))
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
 const opportunityIdRef = computed(() => opportunityId)
@@ -488,6 +501,30 @@ async function onResultChange(val: string) {
     await projectApi.updateMeta(opportunityId, { result: val })
     await loadProject()
     message.success('已更新商机状态')
+  } catch (err: any) {
+    message.error('更新失败: ' + (err.message || err))
+  }
+}
+
+// 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker，仅管理员可见）
+const createdDateValue = computed(() => {
+  const dateStr = opportunity.value?.created_at
+  if (!dateStr) return null
+  const slice = dateStr.slice(0, 10)
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(slice)) return null
+  return dayjs(slice)
+})
+
+async function onCreatedDateChange(date: dayjs.Dayjs | string | null) {
+  if (!date) return
+  const newDateStr = typeof date === 'string' ? date : date.format('YYYY-MM-DD')
+  const oldDateStr = formatDate(opportunity.value?.created_at || '')
+  if (newDateStr === oldDateStr) return
+  try {
+    const newFull = `${newDateStr} 00:00:00`
+    await projectApi.update(opportunityId, { created_at: newFull })
+    if (opportunity.value) opportunity.value.created_at = newFull
+    message.success('创建日期已更新')
   } catch (err: any) {
     message.error('更新失败: ' + (err.message || err))
   }
@@ -793,6 +830,15 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 6px;
   margin-left: 4px;
+}
+
+.header-created-date {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--cpq-text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .status-dot {

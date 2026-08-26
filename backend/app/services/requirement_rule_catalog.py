@@ -295,11 +295,6 @@ def compliance_map(enabled_types: Optional[list[str]] = None) -> list[dict]:
     return [dict(x) for x in active_bodies("compliance_map", enabled_types) if x]
 
 
-def gpu_form_map(enabled_types: Optional[list[str]] = None) -> list[dict]:
-    """GPU 数量 → 机箱形态（单卡→2U，多卡→4U）。"""
-    return [dict(x) for x in active_bodies("gpu_form_map", enabled_types) if x]
-
-
 def type_packages(enabled_types: Optional[list[str]] = None) -> list[dict]:
     """机型类型关键词 → 标准 KP 品类套餐。"""
     return [dict(x) for x in active_bodies("type_package", enabled_types) if x]
