@@ -234,7 +234,6 @@ def build_variant_signals(ext: dict, requirement_text: str = "") -> dict:
     此处只做组合读取，不内联业务词；缺省回退默认值保证行为不变。
     """
     ext = ext or {}
-    qty_map = ext.get("qty_map") or {}
     cats = ext.get("categories") or []
     low = (requirement_text or "").lower()
 
@@ -273,13 +272,11 @@ def build_variant_signals(ext: dict, requirement_text: str = "") -> dict:
     raid_cats = _lst(rules.get("raid_cats"))
     raid_words = _lst(rules.get("raid_words"))
     has_raid = bool(any(c in cats for c in raid_cats) or any(w in low for w in raid_words))
-    # GPU/CPU 品类名（默认 GPU/CPU）
-    gpu_cats = _lst(rules.get("gpu_cats"))
+    # CPU 品类名（默认 CPU）
     cpu_cats = _lst(rules.get("cpu_cats"))
-    # GPU 数量：qty_map 可能缺 GPU（"显卡:AMD R9700*8" 只在 gpu_groups）→ 用 gpu_groups 兜底
-    gpu_key = str(rules.get("gpu_qty_key") or "GPU")
+    # GPU 数量唯一真值源：gpu_groups（不再读 qty_map.GPU）
     gpu_gq = str(rules.get("gpu_group_qty_key") or "qty")
-    gpu_qty = int(qty_map.get(gpu_key) or 0)
+    gpu_qty = 0
     for _g in ext.get("gpu_groups") or []:
         gpu_qty = max(gpu_qty, int(_g.get(gpu_gq) or 0))
 
@@ -1575,8 +1572,12 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             # CPU：用户指定具体型号但库无（stage-1 unmatched）且无核数约束 → 不做代表件回退（R13/I65）。
             # 防跨平台错误：KX40000（兆芯）库无时不能回退到 AMD EPYC 9124；R6 9254 有核数约束仍走 spec 回退。
             if db_cat == "CPU":
-                _cpu_line = re.search(r"(?:cpu|处理器)[:：]?\s*([^\n，,。]+)", requirement_text or "", re.I)
-                if _cpu_line and any(o.get("unmatched") for o in out) and not _cpu_cores_need(effective_rules):
+                _cpu_toks = {t.lower() for t in _cpu_model_tokens(cpu_signal)}
+                _cpu_unmatched = any(
+                    o.get("unmatched") and str(o.get("requested_token") or "").lower() in _cpu_toks
+                    for o in out
+                )
+                if _cpu_unmatched and not _cpu_cores_need(effective_rules):
                     matched_categories.add(db_cat)
                     continue
             _is_multi = bool(multi_spec_filters and db_cat in multi_spec_filters)
