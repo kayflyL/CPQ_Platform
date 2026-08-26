@@ -65,9 +65,9 @@
               <h4>动态区域</h4>
               <a-collapse v-model:activeKey="expandedDynamicRegions" :bordered="false">
                 <a-collapse-panel
-                  v-for="(items, regionName) in parseResult.dynamic_regions"
-                  :key="regionName"
-                  :header="`${regionName} (${items.length} 行)`"
+                  v-for="(items, regionKey) in parseResult.dynamic_regions"
+                  :key="regionKey"
+                  :header="`${getRegionLabel(regionKey)} (${items.length} 行)`"
                 >
                   <a-table
                     :dataSource="items.map((item: Record<string, any>, idx: number) => ({ ...item, _key: idx }))"
@@ -136,9 +136,19 @@ import { useExcelParser } from '@/composables/useExcelParser'
 
 const {
   previewData, parseResult, parsing, loadingRules,
+  parseRegions,
   expandedDynamicRegions, getDynamicColumns,
   loadRules, loadBusinessFields, loadMappings, handleFileUpload
 } = useExcelParser()
+
+function getRegionLabel(regionKey: string | number): string {
+  const key = String(regionKey)
+  const region = parseRegions.value.find((r: any) =>
+    (r.region_key || '').toLowerCase() === key.toLowerCase() ||
+    r.name === key
+  )
+  return region?.name || key
+}
 
 onMounted(() => {
   loadRules()

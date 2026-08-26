@@ -44,6 +44,7 @@ const editingFieldRule = ref<any>(null)
 // ── 表单 ──
 const regionForm = reactive({
   name: '',
+  region_type: 'dynamic',
   startKeywordsList: [] as string[],
   endKeywordsList: [] as string[],
   skip_header_rows: 0,
@@ -53,6 +54,7 @@ const regionForm = reactive({
 const fieldRuleForm = reactive({
   field_key: '',
   region: '',
+  region_id: null as number | null,
   source_type: 'column',
   source_config: {
     keywords: [] as string[],
@@ -233,10 +235,17 @@ async function refreshPreview() {
 }
 
 // ── 区域 CRUD ──
+function openAddRegionModal() {
+  editingRegion.value = null
+  cancelEditRegion()
+  showAddRegionModal.value = true
+}
+
 function editRegion(region: any) {
   editingRegion.value = region
   Object.assign(regionForm, {
     name: region.name,
+    region_type: region.region_type || (region.name?.toLowerCase() === 'header' ? 'static' : 'dynamic'),
     startKeywordsList: parseKeywords(region.start_keywords || ''),
     endKeywordsList: parseKeywords(region.end_keywords || ''),
     skip_header_rows: region.skip_header_rows,
@@ -249,6 +258,7 @@ function cancelEditRegion() {
   editingRegion.value = null
   Object.assign(regionForm, {
     name: '',
+    region_type: 'dynamic',
     startKeywordsList: [],
     endKeywordsList: [],
     skip_header_rows: 0,
@@ -264,6 +274,8 @@ async function saveRegion() {
 
   const payload = {
     name: regionForm.name,
+    region_key: editingRegion.value?.region_key || regionForm.name.trim().toLowerCase(),
+    region_type: regionForm.region_type,
     start_keywords: joinKeywords(regionForm.startKeywordsList),
     end_keywords: joinKeywords(regionForm.endKeywordsList),
     skip_header_rows: regionForm.skip_header_rows,
@@ -275,7 +287,7 @@ async function saveRegion() {
       await axios.put(`/api/rules/parse-regions/${editingRegion.value.id}`, payload)
       message.success('更新成功')
     } else {
-      await axios.post('/api/rules/parse-regions', { regions: [...parseRegions.value, payload] })
+      await axios.post('/api/rules/parse-regions', payload)
       message.success('添加成功')
     }
     showAddRegionModal.value = false
@@ -303,13 +315,24 @@ async function deleteRegion(regionId: number) {
 // ── 字段规则 CRUD ──
 function editFieldRule(rule: any) {
   editingFieldRule.value = rule
+  const matchedRegion = rule.region_id
+    ? parseRegions.value.find(r => r.id === rule.region_id)
+    : parseRegions.value.find(r =>
+        (r.region_key || '').toLowerCase() === (rule.region || '').toLowerCase() ||
+        (r.name || '').toLowerCase() === (rule.region || '').toLowerCase()
+      )
   Object.assign(fieldRuleForm, {
-    ...rule,
+    field_key: rule.field_key,
+    region: rule.region,
+    region_id: rule.region_id ?? matchedRegion?.id ?? null,
+    source_type: rule.source_type,
     source_config: {
       keywords: rule.source_config.keywords || [],
       col: rule.source_config.col || '',
       value_offset: rule.source_config.value_offset || 1
-    }
+    },
+    enabled: rule.enabled,
+    sort_order: rule.sort_order
   })
   showAddFieldRuleModal.value = true
 }
@@ -319,6 +342,7 @@ function cancelEditFieldRule() {
   Object.assign(fieldRuleForm, {
     field_key: '',
     region: '',
+    region_id: null,
     source_type: 'column',
     source_config: {
       keywords: [],
@@ -331,17 +355,23 @@ function cancelEditFieldRule() {
 }
 
 async function saveFieldRule() {
-  if (!fieldRuleForm.field_key || !fieldRuleForm.region) {
+  if (!fieldRuleForm.field_key || !fieldRuleForm.region_id) {
     message.warning('请填写必填字段')
     return
   }
 
+  const region = parseRegions.value.find(r => r.id === fieldRuleForm.region_id)
+  const payload = {
+    ...fieldRuleForm,
+    region: region?.name || fieldRuleForm.region || ''
+  }
+
   try {
     if (editingFieldRule.value) {
-      await axios.put(`/api/rules/parse-field-rules/${editingFieldRule.value.id}`, fieldRuleForm)
+      await axios.put(`/api/rules/parse-field-rules/${editingFieldRule.value.id}`, payload)
       message.success('更新成功')
     } else {
-      await axios.post('/api/rules/parse-field-rules', { rules: [...parseFieldRules.value, fieldRuleForm] })
+      await axios.post('/api/rules/parse-field-rules', payload)
       message.success('添加成功')
     }
     showAddFieldRuleModal.value = false
@@ -367,6 +397,11 @@ async function deleteFieldRule(ruleId: number) {
 }
 
 // ── 辅助函数 ──
+function regionNameById(regionId: number | null): string {
+  if (regionId == null) return ''
+  return parseRegions.value.find(r => r.id === regionId)?.name || ''
+}
+
 function filterOption(input: string, option: any) {
   return option.label?.toLowerCase().includes(input.toLowerCase())
 }
@@ -405,12 +440,12 @@ export function useExcelParser() {
     handleFileUpload, refreshPreview,
     // 区域 CRUD
     expandedRegions, showAddRegionModal, editingRegion, regionForm,
-    editRegion, cancelEditRegion, saveRegion, deleteRegion,
+    editRegion, openAddRegionModal, cancelEditRegion, saveRegion, deleteRegion,
     // 字段规则 CRUD
     showAddFieldRuleModal, editingFieldRule, fieldRuleForm, fieldRuleColumns,
     editFieldRule, cancelEditFieldRule, saveFieldRule, deleteFieldRule,
     // 辅助
-    filterOption, getDynamicColumns, expandedDynamicRegions,
+    filterOption, regionNameById, getDynamicColumns, expandedDynamicRegions,
     parseKeywords, joinKeywords
   }
 }

@@ -75,7 +75,8 @@ class ExcelParser:
     def _rule_matches_region(self, rule: dict, region: dict) -> bool:
         """True when a field rule binds to a region by region_id or legacy string."""
         if rule.get("region_id") is not None:
-            return rule["region_id"] == region.get("id")
+            region_id = region.get("id", region.get("region_id"))
+            return rule["region_id"] == region_id
         ref = (rule.get("region") or "").strip().lower()
         return ref in {
             (region.get("region_key") or "").strip().lower(),
@@ -138,9 +139,10 @@ class ExcelParser:
                         })
 
         # 3. 提取动态区域字段：静态区域跳过，字段规则按 region_id/key 绑定
-        for region_name, bounds in region_bounds.items():
+        for region_key, bounds in region_bounds.items():
             if bounds.get("region_type") == "static" or bounds["start_row"] < 0:
                 continue
+            region_name = bounds.get("region_name") or region_key
 
             region_rules = [r for r in self._parse_field_rules
                             if r.get("enabled") and self._rule_matches_region(r, bounds)]
@@ -190,11 +192,12 @@ class ExcelParser:
                     region_items.append(item)
 
             if region_items:
-                result["dynamic_regions"][region_name] = region_items
+                result["dynamic_regions"][region_key] = region_items
                 if return_trace:
                     result["trace"].append({
                         "type": "dynamic_region",
                         "region": region_name,
+                        "region_key": region_key,
                         "bounds": bounds,
                         "item_count": len(region_items)
                     })
@@ -257,9 +260,11 @@ class ExcelParser:
                 end_row = next_start if next_start is not None and next_start > start_row else len(df)
 
             region_name = (region.get("name") or "").strip()
-            bounds[region_name] = {
+            region_key = (region.get("region_key") or "").strip() or region_name.lower()
+            bounds[region_key] = {
                 "region_id": region.get("id"),
-                "region_key": region.get("region_key") or region_name.lower(),
+                "region_key": region_key,
+                "region_name": region_name,
                 "region_type": region.get("region_type") or ("static" if region_name.lower() == "header" else "dynamic"),
                 "start_row": start_row,
                 "end_row": end_row,
@@ -432,12 +437,13 @@ class ExcelParser:
                     })
         
         # 标记动态区域
-        for region_name, bounds in region_bounds.items():
+        for region_key, bounds in region_bounds.items():
             if bounds.get("region_type") == "static" or bounds["start_row"] < 0:
                 continue
+            region_name = bounds.get("region_name") or region_key
             
             # 标记区域起始行
-            region_color = f"{region_name.lower()}_region"
+            region_color = f"{region_key.lower()}_region"
             start_row = bounds["start_row"]
             if start_row < rows:
                 for c in range(min(10, cols)):

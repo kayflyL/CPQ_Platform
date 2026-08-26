@@ -23,10 +23,9 @@
     <!-- 图例 -->
     <div class="legend">
       <a-space>
-        <span class="legend-item"><span class="legend-color header-region"></span>Header</span>
-        <span class="legend-item"><span class="legend-color l6-region"></span>L6</span>
-        <span class="legend-item"><span class="legend-color kp-region"></span>KP</span>
-        <span class="legend-item"><span class="legend-color warranty-region"></span>Warranty</span>
+        <span v-for="item in regionLegend" :key="item.name" class="legend-item">
+          <span class="legend-color" :style="{ backgroundColor: item.color }"></span>{{ item.name }}
+        </span>
         <span class="legend-item"><span class="legend-color keyword"></span>关键词</span>
         <span class="legend-item"><span class="legend-color extracted"></span>提取值</span>
       </a-space>
@@ -43,6 +42,19 @@ import { computed } from 'vue'
 const props = defineProps<{ previewData: any }>()
 
 // 动态颜色映射：内置 4 个区域色 + 备用色板兜底新增区域
+const regionColorStyles: Record<string, string> = {
+  'cell-header': '#e7f3ff',
+  'cell-l6': '#fff4e6',
+  'cell-kp': '#f3e5f5',
+  'cell-warranty': '#e8f5e9',
+  'cell-region-1': '#fce4ec',
+  'cell-region-2': '#e0f7fa',
+  'cell-region-3': '#fff8e1',
+  'cell-region-4': '#ede7f6',
+  'cell-region-5': '#e8eaf6',
+  'cell-region-6': '#efebe9'
+}
+
 const regionColorMap = computed(() => {
   const map: Record<string, string> = {
     'header': 'cell-header',
@@ -58,8 +70,8 @@ const regionColorMap = computed(() => {
   let paletteIdx = 0
 
   if (props.previewData?.region_bounds) {
-    for (const regionName of Object.keys(props.previewData.region_bounds)) {
-      const key = regionName.toLowerCase()
+    for (const regionKey of Object.keys(props.previewData.region_bounds)) {
+      const key = regionKey.toLowerCase()
       if (!(key in map)) {
         map[key] = palette[paletteIdx % palette.length]
         paletteIdx++
@@ -68,6 +80,14 @@ const regionColorMap = computed(() => {
   }
 
   return map
+})
+
+const regionLegend = computed(() => {
+  const bounds = props.previewData?.region_bounds || {}
+  return Object.keys(bounds).map(key => ({
+    name: bounds[key]?.region_name || key,
+    color: regionColorStyles[regionColorMap.value[key.toLowerCase()]] || '#eeeeee'
+  }))
 })
 
 function getCellClass(row: number, col: number): string {

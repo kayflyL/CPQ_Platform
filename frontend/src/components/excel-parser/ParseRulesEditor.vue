@@ -5,7 +5,7 @@
   <div class="parse-rules-editor">
     <a-card title="解析规则" size="small">
       <template #extra>
-        <a-button size="small" @click="showAddRegionModal = true">+ 区域</a-button>
+        <a-button size="small" @click="openAddRegionModal">+ 区域</a-button>
       </template>
 
       <!-- 区域定义 -->
@@ -22,6 +22,7 @@
               </a-space>
             </template>
             <a-descriptions :column="1" size="small">
+              <a-descriptions-item label="类型">{{ region.region_type === 'static' ? '静态' : '动态' }}</a-descriptions-item>
               <a-descriptions-item label="起始关键词">{{ region.start_keywords || '—' }}</a-descriptions-item>
               <a-descriptions-item label="结束关键词">{{ region.end_keywords || '—' }}</a-descriptions-item>
               <a-descriptions-item label="跳过行数">{{ region.skip_header_rows }}</a-descriptions-item>
@@ -181,6 +182,12 @@
         <a-form-item label="区域名称" required>
           <a-input v-model:value="regionForm.name" placeholder="如: header, L6, KP, Warranty" />
         </a-form-item>
+        <a-form-item label="区域类型" required>
+          <a-select v-model:value="regionForm.region_type" style="width: 100%;">
+            <a-select-option value="static">静态区域（header 类字段）</a-select-option>
+            <a-select-option value="dynamic">动态区域（表格行）</a-select-option>
+          </a-select>
+        </a-form-item>
         <a-form-item label="起始关键词">
           <a-select
             v-model:value="regionForm.startKeywordsList"
@@ -225,8 +232,8 @@
           </a-select>
         </a-form-item>
         <a-form-item label="所属区域" required>
-          <a-select v-model:value="fieldRuleForm.region" placeholder="选择区域">
-            <a-select-option v-for="region in parseRegions" :key="region.name" :value="region.name">
+          <a-select v-model:value="fieldRuleForm.region_id" placeholder="选择区域">
+            <a-select-option v-for="region in parseRegions" :key="region.id" :value="region.id">
               {{ region.name }}
             </a-select-option>
           </a-select>
@@ -294,7 +301,7 @@ const {
   handleSaveMappingEdit, handleDeleteMapping,
   // 区域 CRUD
   expandedRegions, showAddRegionModal, editingRegion, regionForm,
-  editRegion, cancelEditRegion, saveRegion, deleteRegion,
+  editRegion, openAddRegionModal, cancelEditRegion, saveRegion, deleteRegion,
   // 字段规则 CRUD
   showAddFieldRuleModal, editingFieldRule, fieldRuleForm,
   editFieldRule, cancelEditFieldRule, saveFieldRule, deleteFieldRule,
