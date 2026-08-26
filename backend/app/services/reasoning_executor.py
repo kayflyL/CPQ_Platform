@@ -585,7 +585,14 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         # 或节点配置为“手动确认”时才停下。
         confirm_mode = str((config or {}).get("confirm_mode") or "auto").strip()
         _auto_continue = bool(rule_res.get("kp_count")) and not rule_res.get("unmatched_count")
-        if (ctx.get("force_complete") or ctx.get("delegated")) or (_auto_continue and confirm_mode != "manual"):
+        if ctx.get("force_complete"):
+            # 批量/试运行契约：跳反问、一键出方案。未命中配件不能阻断下游 compose，
+            # 只在 payload 里保留 unmatched_count，供回放/审计对照技术员 BOM。
+            ctx["kp_reason"] = {**ctx["kp_reason"], "source": "confirmed_force"}
+            ctx["awaiting_input"] = False
+            return {**rule_res, "source": "confirmed_force",
+                    "reason": "配件方案已强制确认（含未命中项）", "kp_count": len(parts)}
+        if ctx.get("delegated") or (_auto_continue and confirm_mode != "manual"):
             if not rule_res.get("unmatched_count"):
                 ctx["kp_reason"] = {**ctx["kp_reason"], "source": "confirmed"}
                 ctx["awaiting_input"] = False
