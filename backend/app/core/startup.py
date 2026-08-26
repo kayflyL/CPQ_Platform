@@ -723,6 +723,36 @@ def ensure_skill_catalog_routing_columns():
         c.execute(text("UPDATE rules.skill_catalog SET hit_count = 0 WHERE hit_count IS NULL"))
 
 
+def ensure_excel_parser_region_model():
+    """Excel 解析规则：为 parse_regions/parse_field_rules 增加系统化列并回填（幂等）。"""
+    from sqlalchemy import text
+    statements = [
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS region_key VARCHAR(80)",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS region_type VARCHAR(20) NOT NULL DEFAULT 'dynamic'",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS enabled INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS start_mode VARCHAR(20) NOT NULL DEFAULT 'keyword'",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS end_mode VARCHAR(20) NOT NULL DEFAULT 'eof'",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS start_config TEXT",
+        "ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS end_config TEXT",
+        "ALTER TABLE rules.parse_field_rules ADD COLUMN IF NOT EXISTS region_id INTEGER",
+    ]
+    with rules_engine.begin() as c:
+        for statement in statements:
+            c.execute(text(statement))
+        c.execute(text("UPDATE rules.parse_regions SET region_key = lower(name) WHERE region_key IS NULL"))
+        c.execute(text("UPDATE rules.parse_regions SET region_type = 'static' WHERE lower(name) = 'header' AND (region_type IS NULL OR region_type = '')"))
+        c.execute(text("UPDATE rules.parse_regions SET region_type = 'dynamic' WHERE region_type IS NULL OR region_type = ''"))
+        c.execute(text("UPDATE rules.parse_regions SET enabled = 1 WHERE enabled IS NULL"))
+        c.execute(text(
+            "UPDATE rules.parse_field_rules f SET region_id = r.id "
+            "FROM rules.parse_regions r "
+            "WHERE lower(f.region) = lower(r.name) AND f.region_id IS NULL"
+        ))
+        c.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_parse_regions_region_key "
+            "ON rules.parse_regions(region_key) WHERE region_key IS NOT NULL"
+        ))
+
 def cleanup_legacy_skill_library_mirror():
     """删除 system_config.ai_colleagues.skill_library JSON 镜像；Skill 定义只保留 rules.skill_catalog。"""
     repo = SystemConfigRepository()
@@ -759,6 +789,11 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Skill catalog routing columns migration failed: {e}")
     
+    try:
+        ensure_excel_parser_region_model()
+    except Exception as e:
+        print(f"⚠️ Excel parser region model migration failed: {e}")
+
     # Initialize default rules if empty
     rules_repo = RulesRepository()
 

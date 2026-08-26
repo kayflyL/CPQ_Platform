@@ -1,7 +1,7 @@
 """
 Rules database models for configurable business logic.
 """
-from sqlalchemy import Column, Integer, String, Float, Text
+from sqlalchemy import Column, Integer, String, Float, Text, ForeignKey
 from app.models.base import Base
 
 
@@ -38,6 +38,13 @@ class ParseRegion(Base):
     end_keywords = Column(String(200), nullable=True, comment='结束关键词（逗号分隔）')
     skip_header_rows = Column(Integer, default=0, comment='区域内跳过几行')
     sort_order = Column(Integer, default=0, comment='区域排列顺序')
+    region_key = Column(String(80), nullable=True, unique=True, comment='区域稳定标识')
+    region_type = Column(String(20), nullable=False, default='dynamic', comment='static/dynamic')
+    enabled = Column(Integer, nullable=False, default=1, comment='是否启用')
+    start_mode = Column(String(20), nullable=False, default='keyword', comment='起始定位方式')
+    end_mode = Column(String(20), nullable=False, default='eof', comment='结束定位方式')
+    start_config = Column(Text, nullable=True, comment='起始定位参数 JSON')
+    end_config = Column(Text, nullable=True, comment='结束定位参数 JSON')
 
 
 class ParseFieldRule(Base):
@@ -48,6 +55,7 @@ class ParseFieldRule(Base):
     id = Column(Integer, primary_key=True)
     field_key = Column(String(100), nullable=False, comment='关联 business_fields.key')
     region = Column(String(50), nullable=False, comment='所属区域：header/L6/KP/Warranty')
+    region_id = Column(Integer, ForeignKey('rules.parse_regions.id', ondelete='SET NULL'), nullable=True, comment='关联区域 ID')
     source_type = Column(String(20), nullable=False, comment='提取方式：keyword/column')
     source_config = Column(Text, nullable=False, comment='提取参数 JSON')
     fallback_config = Column(Text, nullable=True, comment='兜底方案 JSON')

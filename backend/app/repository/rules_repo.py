@@ -2,6 +2,7 @@
 Repository for rules database operations.
 """
 from sqlalchemy.orm import Session
+from sqlalchemy import or_, func
 from app.models.rules import KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule
 from app.models.base import Rules_SessionLocal
 import json
@@ -203,6 +204,27 @@ class RulesRepository:
 
     # ========== Parse Regions ==========
 
+    def _region_defaults(self, data: dict) -> dict:
+        """Normalize a region payload, deriving stable key and region type."""
+        name = (data.get("name") or "").strip()
+        key = (data.get("region_key") or "").strip() or name.lower()
+        region_type = (data.get("region_type") or "").strip() or ("static" if name.lower() == "header" else "dynamic")
+        end_keywords = (data.get("end_keywords") or "").strip()
+        return {
+            "name": name,
+            "region_key": key,
+            "region_type": region_type,
+            "start_keywords": (data.get("start_keywords") or "").strip(),
+            "end_keywords": end_keywords,
+            "skip_header_rows": data.get("skip_header_rows", 0) or 0,
+            "sort_order": data.get("sort_order", 0) if data.get("sort_order") is not None else 0,
+            "enabled": 1 if data.get("enabled", 1) else 0,
+            "start_mode": (data.get("start_mode") or "").strip() or "keyword",
+            "end_mode": (data.get("end_mode") or "").strip() or ("keyword" if end_keywords else "eof"),
+            "start_config": data.get("start_config"),
+            "end_config": data.get("end_config"),
+        }
+
     def get_parse_regions(self) -> list[dict]:
         """Get all parse regions ordered by sort_order."""
         with self.session_factory() as session:
@@ -211,40 +233,54 @@ class RulesRepository:
                 {
                     "id": r.id,
                     "name": r.name,
+                    "region_key": r.region_key or (r.name or "").lower(),
+                    "region_type": r.region_type or ("static" if (r.name or "").lower() == "header" else "dynamic"),
                     "start_keywords": r.start_keywords or "",
                     "end_keywords": r.end_keywords or "",
                     "skip_header_rows": r.skip_header_rows,
-                    "sort_order": r.sort_order
+                    "sort_order": r.sort_order,
+                    "enabled": bool(r.enabled),
+                    "start_mode": r.start_mode or "keyword",
+                    "end_mode": r.end_mode or "eof",
+                    "start_config": json.loads(r.start_config) if r.start_config else None,
+                    "end_config": json.loads(r.end_config) if r.end_config else None,
                 }
                 for r in regions
             ]
 
     def save_parse_regions(self, regions: list[dict]) -> dict:
-        """Bulk save parse regions (replace all)."""
+        """Upsert parse regions by id/region_key; unlisted regions are preserved."""
+        created = 0
+        updated = 0
         with self.session_factory() as session:
-            session.query(ParseRegion).delete()
             for i, data in enumerate(regions):
-                region = ParseRegion(
-                    name=data.get("name", ""),
-                    start_keywords=data.get("start_keywords", ""),
-                    end_keywords=data.get("end_keywords", ""),
-                    skip_header_rows=data.get("skip_header_rows", 0),
-                    sort_order=data.get("sort_order", i)
-                )
-                session.add(region)
+                values = self._region_defaults(data)
+                if "sort_order" in data:
+                    values["sort_order"] = data.get("sort_order", i)
+                else:
+                    values["sort_order"] = i
+                region = None
+                region_id = data.get("id")
+                if region_id:
+                    region = session.query(ParseRegion).filter_by(id=region_id).first()
+                if region is None and values["region_key"]:
+                    region = session.query(ParseRegion).filter_by(region_key=values["region_key"]).first()
+                if region is None:
+                    region = ParseRegion(**values)
+                    session.add(region)
+                    created += 1
+                else:
+                    for key, value in values.items():
+                        setattr(region, key, value)
+                    updated += 1
             session.commit()
-            return {"status": "success", "count": len(regions)}
+            return {"status": "success", "count": len(regions), "created": created, "updated": updated}
 
     def add_parse_region(self, data: dict) -> int:
         """Add a single parse region."""
         with self.session_factory() as session:
-            region = ParseRegion(
-                name=data.get("name", ""),
-                start_keywords=data.get("start_keywords", ""),
-                end_keywords=data.get("end_keywords", ""),
-                skip_header_rows=data.get("skip_header_rows", 0),
-                sort_order=data.get("sort_order", 0)
-            )
+            values = self._region_defaults(data)
+            region = ParseRegion(**values)
             session.add(region)
             session.commit()
             return region.id
@@ -255,23 +291,60 @@ class RulesRepository:
             region = session.query(ParseRegion).filter_by(id=region_id).first()
             if not region:
                 return False
-            for key in ["name", "start_keywords", "end_keywords", "skip_header_rows", "sort_order"]:
+            if "name" in data and not data.get("region_key"):
+                region.region_key = (data.get("name") or "").strip().lower()
+            for key in ["name", "region_key", "region_type", "start_keywords", "end_keywords",
+                        "skip_header_rows", "sort_order", "enabled", "start_mode", "end_mode",
+                        "start_config", "end_config"]:
                 if key in data:
-                    setattr(region, key, data[key])
+                    if key == "enabled":
+                        setattr(region, key, 1 if data[key] else 0)
+                    else:
+                        setattr(region, key, data[key])
             session.commit()
             return True
 
     def delete_parse_region(self, region_id: int) -> bool:
-        """Delete a parse region by ID."""
+        """Delete a parse region by ID, detaching its field rules first."""
         with self.session_factory() as session:
             region = session.query(ParseRegion).filter_by(id=region_id).first()
             if not region:
                 return False
+            session.query(ParseFieldRule).filter_by(region_id=region_id).update({"region_id": None})
             session.delete(region)
             session.commit()
             return True
 
+
+
     # ========== Parse Field Rules ==========
+
+    def _resolve_region(self, session, data: dict):
+        """Resolve a region reference by region_id first, then legacy name/key."""
+        region_id = data.get("region_id")
+        if region_id:
+            return session.query(ParseRegion).filter_by(id=region_id).first()
+        ref = (data.get("region") or "").strip()
+        if not ref:
+            return None
+        lowered = ref.lower()
+        return session.query(ParseRegion).filter(
+            or_(func.lower(ParseRegion.region_key) == lowered,
+                func.lower(ParseRegion.name) == lowered)
+        ).first()
+
+    @staticmethod
+    def _field_values(data: dict) -> dict:
+        sc = data.get("source_config", {})
+        fc = data.get("fallback_config")
+        return {
+            "field_key": data.get("field_key", ""),
+            "source_type": data.get("source_type", "column"),
+            "source_config": json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc,
+            "fallback_config": json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
+            "enabled": 1 if data.get("enabled", True) else 0,
+            "sort_order": data.get("sort_order", 0),
+        }
 
     def get_parse_field_rules(self) -> list[dict]:
         """Get all parse field rules ordered by sort_order."""
@@ -282,6 +355,7 @@ class RulesRepository:
                     "id": r.id,
                     "field_key": r.field_key,
                     "region": r.region,
+                    "region_id": r.region_id,
                     "source_type": r.source_type,
                     "source_config": json.loads(r.source_config) if r.source_config else {},
                     "fallback_config": json.loads(r.fallback_config) if r.fallback_config else None,
@@ -292,39 +366,39 @@ class RulesRepository:
             ]
 
     def save_parse_field_rules(self, rules: list[dict]) -> dict:
-        """Bulk save parse field rules (replace all)."""
+        """Upsert parse field rules by id; resolve region_id from id or legacy name/key."""
+        created = 0
+        updated = 0
         with self.session_factory() as session:
-            session.query(ParseFieldRule).delete()
             for i, data in enumerate(rules):
-                sc = data.get("source_config", {})
-                fc = data.get("fallback_config")
-                rule = ParseFieldRule(
-                    field_key=data.get("field_key", ""),
-                    region=data.get("region", ""),
-                    source_type=data.get("source_type", "column"),
-                    source_config=json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc,
-                    fallback_config=json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
-                    enabled=1 if data.get("enabled", True) else 0,
-                    sort_order=data.get("sort_order", i)
-                )
-                session.add(rule)
+                values = self._field_values(data)
+                values["sort_order"] = data.get("sort_order", i)
+                region = self._resolve_region(session, data)
+                rule = None
+                rule_id = data.get("id")
+                if rule_id:
+                    rule = session.query(ParseFieldRule).filter_by(id=rule_id).first()
+                if rule is None:
+                    rule = ParseFieldRule(**values)
+                    session.add(rule)
+                    created += 1
+                else:
+                    for key, value in values.items():
+                        setattr(rule, key, value)
+                    updated += 1
+                rule.region_id = region.id if region else data.get("region_id")
+                rule.region = (data.get("region") or "").strip() or (region.name if region else "")
             session.commit()
-            return {"status": "success", "count": len(rules)}
+            return {"status": "success", "count": len(rules), "created": created, "updated": updated}
 
     def add_parse_field_rule(self, data: dict) -> int:
         """Add a single parse field rule."""
         with self.session_factory() as session:
-            sc = data.get("source_config", {})
-            fc = data.get("fallback_config")
-            rule = ParseFieldRule(
-                field_key=data.get("field_key", ""),
-                region=data.get("region", ""),
-                source_type=data.get("source_type", "column"),
-                source_config=json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc,
-                fallback_config=json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
-                enabled=1 if data.get("enabled", True) else 0,
-                sort_order=data.get("sort_order", 0)
-            )
+            values = self._field_values(data)
+            region = self._resolve_region(session, data)
+            rule = ParseFieldRule(**values)
+            rule.region_id = region.id if region else data.get("region_id")
+            rule.region = (data.get("region") or "").strip() or (region.name if region else "")
             session.add(rule)
             session.commit()
             return rule.id
@@ -335,12 +409,18 @@ class RulesRepository:
             rule = session.query(ParseFieldRule).filter_by(id=rule_id).first()
             if not rule:
                 return False
+            region = self._resolve_region(session, data) if ("region" in data or "region_id" in data) else None
             for key in ["field_key", "region", "source_type", "enabled", "sort_order"]:
                 if key in data:
                     if key == "enabled":
                         setattr(rule, key, 1 if data[key] else 0)
                     else:
                         setattr(rule, key, data[key])
+            if region is not None:
+                rule.region_id = region.id
+                rule.region = data.get("region") or region.name
+            elif "region_id" in data:
+                rule.region_id = data["region_id"]
             if "source_config" in data:
                 sc = data["source_config"]
                 rule.source_config = json.dumps(sc, ensure_ascii=False) if isinstance(sc, dict) else sc
