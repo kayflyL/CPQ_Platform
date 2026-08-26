@@ -199,9 +199,11 @@
         <AssistantComposer
           v-model="draft"
           placeholder="输入消息…"
-          :disabled="sending"
+          :disabled="sending || running"
           :sending="sending"
+          :running="running"
           @send="onSend"
+          @stop="onStop"
         />
       </div>
     </transition>
@@ -239,10 +241,10 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const {
-  threads, currentThreadId, messages, loading, sending, streamingText, thinkingText, waitingAI, statusText, nodeTraces,
+  threads, currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, nodeTraces,
   pendingDispatch, confirmDispatch, cancelDispatch,
   loadThreads, selectThread, newThread, send, removeThread, connectWs, disconnectWs,
-  activeRoleKey, switchRole, createPreviewThread, destroyPreview,
+  activeRoleKey, switchRole, createPreviewThread, destroyPreview, stop,
 } = useAssistant(props.entryPoint || 'floating_assistant', {
   preview: props.preview,
   initialRoleKey: props.initialRoleKey || null,
@@ -469,15 +471,19 @@ function scrollToBottom() {
 
 async function onSend() {
   const text = draft.value
-  if (!text.trim() || sending.value) return
+  if (!text.trim() || sending.value || running.value) return
   draft.value = ''
   await sendText(text)
+}
+
+async function onStop() {
+  await stop()
 }
 
 // 供父组件（SkillStudio 输入节点「运行」）注入文本到真实 AI 对话
 async function sendText(text: string) {
   const content = (text || '').trim()
-  if (!content || sending.value) return
+  if (!content || sending.value || running.value) return
   if (props.embedded && props.preview && !currentThreadId.value) {
     await createPreviewThread()
   }
@@ -489,7 +495,7 @@ defineExpose({ sendText, nodeTraces, busy })
 
 // 快捷指令：prompt 可为函数（动态读配置，如趋势分析）；context 缺省走通用 provider 摘要
 async function onQuickAction(action: QuickAction) {
-  if (sending.value) return
+  if (sending.value || running.value) return
   const prompt = typeof action.prompt === 'function' ? await action.prompt() : action.prompt
   const ctx = action.context ? await action.context() : await summarize()
   await send(prompt, ctx)

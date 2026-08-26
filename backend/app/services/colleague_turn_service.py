@@ -689,7 +689,8 @@ async def _run_tool_turn(
 
         budget = (args or {}).get("budget")
         last_ask_question = str((args or {}).get("last_ask_question") or "").strip()
-        last_user_answer = str((args or {}).get("supplement_text") or "").strip() if last_ask_question else ""
+        _supplement_text = str((args or {}).get("supplement_text") or "").strip()
+        last_user_answer = _supplement_text if (last_ask_question or (args or {}).get("is_resume")) else ""
         operator_name = str((user or {}).get("name") or (user or {}).get("user_id") or "")
         full_text = text
         # AI Office 会话没有商机上下文时，创建一条隐藏内部商机，让真实四步表单可以落库。
@@ -1028,6 +1029,7 @@ async def _run_tool_turn(
             "requirement_text": str(pending.get("requirement_text") or user_text).strip() or user_text,
             "skill_key": pending.get("skill_key"),
             "supplement_text": user_text,
+            "is_resume": True,
             "force_complete": bool(pending.get("force_complete")),
             "max_ask_rounds": pending.get("max_ask_rounds"),
             "last_ask_question": pending.get("last_ask_question") or "",

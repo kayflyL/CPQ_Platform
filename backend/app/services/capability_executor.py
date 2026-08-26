@@ -12,6 +12,7 @@ Only one graph-level behavior is special-cased:
 from __future__ import annotations
 
 import logging
+import asyncio
 from typing import Any, Callable, Optional
 
 from app.services import llm_client
@@ -19,6 +20,21 @@ from app.services.reasoning_executor import _dispatch, _eval_condition
 from app.services.capabilities import extract_requirement_slots
 
 logger = logging.getLogger(__name__)
+
+_WORKFLOW_STOP_EVENTS: dict[str, asyncio.Event] = {}
+
+
+def request_workflow_stop(thread_id: str) -> None:
+    """请求暂停当前工作流：协作式停止，节点边界处落 pending 再退出。"""
+    _WORKFLOW_STOP_EVENTS.setdefault(thread_id, asyncio.Event()).set()
+
+
+def _workflow_stop_event(thread_id: str) -> asyncio.Event:
+    return _WORKFLOW_STOP_EVENTS.setdefault(thread_id, asyncio.Event())
+
+
+def _clear_workflow_stop(thread_id: str) -> None:
+    _WORKFLOW_STOP_EVENTS.pop(thread_id, None)
 
 
 def _graph_maps(flow: dict) -> tuple[dict[str, dict], dict[str, list[dict]], dict[str, int], dict[str, int]]:
@@ -245,12 +261,22 @@ async def run_fixed_workflow(
     if ctx_ref is not None:
         ctx_ref["ctx"] = ctx
 
+    stop_event = _workflow_stop_event(thread_id)
+    stop_event.clear()
+
     steps = [
         {"key": node_id, "label": (node.get("label") or node_id)}
         for node_id, node in sorted(nodes.items(), key=lambda item: order.get(item[0], 9999))
         if (node.get("runtime") or node.get("type")) not in ("condition", "extract")
     ]
     await broadcast({"type": "pipeline_start", "steps": steps})
+
+    if stop_event.is_set():
+        ctx["stop_requested"] = True
+        ctx["awaiting_input"] = True
+        ctx["current_target"] = resume_from if (resume_from and resume_from in nodes) else "input"
+        ctx["last_ask_question"] = "任务已暂停，等待你的下一步指令。"
+        return ctx
 
     # 首轮意图预判（非断点续跑）：用户若只是闲聊/普通提问/问目录，直接给自然回复并停，
     # 不跑完整选型链路，避免“我就想聊天”被塞进选型流程。
@@ -259,6 +285,12 @@ async def run_fixed_workflow(
     # 提问/闲聊/看目录/解释 → 自然回答并停在原地；取消/自配 → 退出计划。
     _pause_target = resume_from if (resume_from and resume_from in nodes) else "input"
     _msg = str(ctx.get("last_user_answer") or "").strip() or str(ctx.get("requirement_text") or "").strip()
+    if stop_event.is_set():
+        ctx["stop_requested"] = True
+        ctx["awaiting_input"] = True
+        ctx["current_target"] = _pause_target
+        ctx["last_ask_question"] = "任务已暂停，等待你的下一步指令。"
+        return ctx
     if _msg and await _decide_plan_turn(ctx, _msg, broadcast, _pause_target):
         return ctx
     # 从“入口/问答暂停”续跑：current_target 若不属于任何节点（如旧的 __entry_reply__ 或空串），
@@ -315,6 +347,12 @@ async def run_fixed_workflow(
 
     while queue:
         node_id = queue.pop(0)
+        if stop_event.is_set():
+            ctx["stop_requested"] = True
+            ctx["awaiting_input"] = True
+            ctx["current_target"] = node_id
+            ctx["last_ask_question"] = "任务已暂停，等待你的下一步指令。"
+            return ctx
         if node_id in visited:
             continue
         visited.add(node_id)

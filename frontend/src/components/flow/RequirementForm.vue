@@ -1,15 +1,14 @@
 <script setup lang="ts">
 /**
- * 结构化需求表单（共享组件）——基本信息 + 部件清单 + 需求原文。
+ * 结构化需求表单（共享组件）——基本信息 + 需求原文 + 多配置（部件清单）。
  *
  * 双形态：桌面表格（≥769px，类别/规格/数量/匹配横向铺开）/ 手机卡片列表（≤768px，
  * 每部件一张小卡）——同一数据两套渲染，CSS 断点切换。
  *
  * 数据模型 = RequirementSlots 契约（后端可直接消费）：
- * - 单值：platform_type/chassis_form/server_type/purchase_qty（基本信息）；cpu/memory（部件清单各一行锁定）
- * - 数组：storage/gpu/nic（多行可删，「+添加」加行）
- * - 平台类型/机箱形态下拉允许手输自由值（a-auto-complete，库外值不拦截——见 memory: requirement-gap-match-grading）
- * - 匹配度为提交后后端回填（编辑态不显示）
+ * - 基本信息：platform_type/chassis_form/server_type/warranty_years
+ * - 多配置：configs[]，每个配置含机型/数量/说明与独立部件清单 kp_rows
+ * - 兼容旧单配置：提交时仍同步 server_model/purchase_qty/首配置 kp_rows 到顶层槽位
  */
 import { ref, computed, reactive } from 'vue'
 import { useSeries } from '@/composables/useSeries'
@@ -53,14 +52,25 @@ async function loadDefaultKpCategories() {
     defaultKpCategories.value = []
   }
   // 目录异步到位后补一次播种（KpPartsEditor 挂载时 defaultCategories 仍为空，不会自动播种）
-  if (!props.readonly && !kpRows.value.length) seedKpRows()
+  if (!props.readonly && !configs.value.length) {
+    configs.value = [blankConfig('CFG1')]
+    activeKey.value = 'CFG1'
+  }
 }
+// ── 表单状态（v-model 式：父组件经 ref 取 formState 组装 slots）──
+const basic = reactive({ platform_type: '', chassis_form: '', server_type: '', warranty_years: '' })
+const configs = ref<RequirementConfig[]>([])
+const activeKey = ref('')
+const reqText = defineModel<string>('reqText', { default: '' })
 loadDefaultKpCategories()
 
-// ── 表单状态（v-model 式：父组件经 ref 取 formState 组装 slots）──
-const basic = reactive({ server_model: '', platform_type: '', chassis_form: '', server_type: '', purchase_qty: undefined as number | undefined, warranty_years: '' })
-const kpRows = ref<PortalSheetRow[]>([])
-const reqText = defineModel<string>('reqText', { default: '' })
+interface RequirementConfig {
+  name: string
+  server_model: string
+  description: string
+  qty: number
+  kp_rows: PortalSheetRow[]
+}
 
 function blankKpRow(partCategory = ''): PortalSheetRow {
   return {
@@ -77,52 +87,90 @@ function blankKpRow(partCategory = ''): PortalSheetRow {
   }
 }
 
-function seedKpRows() {
-  kpRows.value = defaultKpCategories.value.map((cat) => blankKpRow(cat))
+function blankConfig(name: string): RequirementConfig {
+  return {
+    name,
+    server_model: '',
+    description: '',
+    qty: 1,
+    kp_rows: defaultKpCategories.value.map((cat) => blankKpRow(cat)),
+  }
+}
+
+function nextConfigName() {
+  const nums = configs.value.map((c) => {
+    const m = /^CFG(\d+)$/.exec(c.name)
+    return m ? Number(m[1]) : 0
+  })
+  const max = nums.length ? Math.max(...nums) : 0
+  return `CFG${max + 1}`
+}
+
+const activeConfig = computed(() => configs.value.find((c) => c.name === activeKey.value) || configs.value[0] || null)
+
+const activeKpRows = computed<PortalSheetRow[]>({
+  get: () => activeConfig.value?.kp_rows ?? [],
+  set: (v) => {
+    if (activeConfig.value) activeConfig.value.kp_rows = v
+  },
+})
+
+function addConfig() {
+  const cfg = blankConfig(nextConfigName())
+  configs.value.push(cfg)
+  activeKey.value = cfg.name
+}
+
+function removeConfig(cfg: RequirementConfig) {
+  if (configs.value.length <= 1) return
+  const idx = configs.value.findIndex((c) => c.name === cfg.name)
+  configs.value = configs.value.filter((c) => c.name !== cfg.name)
+  activeKey.value = (configs.value[Math.min(idx, configs.value.length - 1)] || configs.value[0])?.name || ''
 }
 
 function addKpRow() {
-  kpRows.value.push(blankKpRow())
+  if (!activeConfig.value) return
+  activeConfig.value.kp_rows.push(blankKpRow())
 }
 
 // ── RequirementSlots 组装/回填 ──
 
-/** 表单 → RequirementSlots（平台类型/机箱形态/数量归需求单基本信息） */
+/** 表单 → RequirementSlots（共享字段 + 多配置） */
 function toSlots(): RequirementSlots {
   const slots: RequirementSlots = {}
-  if (basic.server_model) slots.server_model = basic.server_model
   if (basic.platform_type) slots.platform_type = basic.platform_type
   if (basic.chassis_form) slots.chassis_form = basic.chassis_form
   if (basic.server_type) slots.server_type = basic.server_type
-  if (basic.purchase_qty) slots.purchase_qty = basic.purchase_qty
   if (basic.warranty_years) slots.warranty_years = basic.warranty_years
-  const kp = kpRows.value
-    .filter(r => (r.catalogue || '').trim())
-    .map(r => ({
+
+  const cfgList = configs.value.map((c) => ({
+    name: c.name,
+    server_model: c.server_model,
+    description: c.description,
+    qty: Number(c.qty) || 1,
+    kp_rows: (c.kp_rows || []).filter((r) => (r.catalogue || '').trim()).map((r) => ({
       category: r.category || 'Key Parts',
       part_category: r.part_category || '',
       catalogue: r.catalogue || '',
       description: r.description || '',
       qty: Number(r.qty) || 1,
       note: r.note || '',
-    }))
-  if (kp.length) slots.kp_rows = kp
+    })),
+  }))
+  slots.configs = cfgList
+
+  const totalQty = cfgList.reduce((sum, c) => sum + (Number(c.qty) || 0), 0)
+  if (totalQty) slots.purchase_qty = totalQty
+
+  const first = cfgList[0]
+  if (first) {
+    if (first.server_model) slots.server_model = first.server_model
+    if (first.kp_rows.length) slots.kp_rows = first.kp_rows
+  }
   return slots
 }
 
-/** RequirementSlots → 表单（加载历史版本） */
-function fromSlots(slots: RequirementSlots) {
-  basic.server_model = slots.server_model || ''
-  basic.platform_type = slots.platform_type || ''
-  basic.chassis_form = slots.chassis_form || ''
-  basic.server_type = slots.server_type || ''
-  basic.purchase_qty = slots.purchase_qty
-  basic.warranty_years = slots.warranty_years || ''
-  if (Array.isArray(slots.kp_rows) && slots.kp_rows.length) {
-    kpRows.value = slots.kp_rows.map((r: any) => ({ ...blankKpRow(r.part_category || ''), ...r }))
-    return
-  }
-
+function legacyKpRows(slots: RequirementSlots): PortalSheetRow[] {
   const rows: PortalSheetRow[] = []
   if (slots.cpu?.model || slots.cpu?.brand || slots.cpu?.qty) {
     rows.push({ ...blankKpRow('CPU'), catalogue: [slots.cpu.model, slots.cpu.brand].filter(Boolean).join(' '), qty: slots.cpu.qty || 1 })
@@ -135,11 +183,7 @@ function fromSlots(slots: RequirementSlots) {
     })
   }
   for (const s of slots.storage || []) {
-    rows.push({
-      ...blankKpRow('HDD/SSD'),
-      catalogue: [s.capacity, s.interface, s.brand].filter(Boolean).join(' '),
-      qty: s.qty || 1,
-    })
+    rows.push({ ...blankKpRow('HDD/SSD'), catalogue: [s.capacity, s.interface, s.brand].filter(Boolean).join(' '), qty: s.qty || 1 })
   }
   for (const g of slots.gpu || []) {
     rows.push({ ...blankKpRow('GPU'), catalogue: [g.model, g.brand].filter(Boolean).join(' '), qty: g.qty || 1 })
@@ -162,15 +206,50 @@ function fromSlots(slots: RequirementSlots) {
       qty: slots.psu.qty || 1,
     })
   }
-  kpRows.value = rows.length ? rows : defaultKpCategories.value.map((cat) => blankKpRow(cat))
+  return rows.length ? rows : defaultKpCategories.value.map((cat) => blankKpRow(cat))
+}
+
+function rowsFromConfig(cfg: any): PortalSheetRow[] {
+  return (cfg.kp_rows || []).map((r: any) => ({ ...blankKpRow(r.part_category || ''), ...r }))
+}
+
+/** RequirementSlots → 表单（加载历史版本；兼容旧单配置与新的 configs） */
+function fromSlots(slots: RequirementSlots) {
+  basic.platform_type = slots.platform_type || ''
+  basic.chassis_form = slots.chassis_form || ''
+  basic.server_type = slots.server_type || ''
+  basic.warranty_years = slots.warranty_years || ''
+
+  const rawConfigs = Array.isArray(slots.configs) && slots.configs.length ? slots.configs : null
+  if (rawConfigs) {
+    configs.value = rawConfigs.map((c: any, i: number) => ({
+      name: (c.name || '').trim() || `CFG${i + 1}`,
+      server_model: c.server_model || '',
+      description: c.description || '',
+      qty: Number(c.qty) || 1,
+      kp_rows: rowsFromConfig(c),
+    }))
+  } else {
+    const legacyKp = Array.isArray(slots.kp_rows) && slots.kp_rows.length
+      ? slots.kp_rows.map((r: any) => ({ ...blankKpRow(r.part_category || ''), ...r }))
+      : legacyKpRows(slots)
+    configs.value = [{
+      name: 'CFG1',
+      server_model: slots.server_model || '',
+      description: '',
+      qty: Number(slots.purchase_qty) || 1,
+      kp_rows: legacyKp,
+    }]
+  }
+  activeKey.value = configs.value[0]?.name || ''
 }
 
 /** 是否填了任何部件（空表单禁止提交由父组件判断） */
 const hasAnyPart = computed(() =>
-  !!(basic.server_model || basic.platform_type || basic.chassis_form || basic.server_type || basic.purchase_qty || basic.warranty_years ||
-     kpRows.value.some(r => (r.catalogue || '').trim())))
+  !!(basic.platform_type || basic.chassis_form || basic.server_type || basic.warranty_years ||
+     configs.value.some((c) => (c.server_model || '').trim() || Number(c.qty) || (c.kp_rows || []).some((r) => (r.catalogue || '').trim()))))
 
-defineExpose({ toSlots, fromSlots, hasAnyPart, basic, seedKpRows, addKpRow })
+defineExpose({ toSlots, fromSlots, hasAnyPart })
 </script>
 
 <template>
@@ -179,21 +258,6 @@ defineExpose({ toSlots, fromSlots, hasAnyPart, basic, seedKpRows, addKpRow })
     <section class="rf-sec">
       <h4 class="rf-sec-title">基本信息</h4>
       <div class="rf-grid">
-        <div class="rf-field">
-          <label>服务器型号</label>
-          <a-auto-complete
-            v-model:value="basic.server_model"
-            :options="modelOptions"
-            :disabled="readonly"
-            placeholder="可输入或选择"
-            :allow-clear="false"
-            :default-active-first-option="false"
-            :backfill="false"
-            @keydown.enter.prevent
-            @change="emit('change')"
-            style="width: 100%"
-          />
-        </div>
         <div class="rf-field">
           <label>平台类型</label>
           <a-auto-complete
@@ -223,40 +287,8 @@ defineExpose({ toSlots, fromSlots, hasAnyPart, basic, seedKpRows, addKpRow })
           <a-input v-model:value="basic.server_type" :disabled="readonly" placeholder="如 通用计算服务器" @change="emit('change')" />
         </div>
         <div class="rf-field">
-          <label>数量（台）</label>
-          <a-input-number v-model:value="basic.purchase_qty" :min="1" :disabled="readonly" style="width: 100%" placeholder="整机台数" />
-        </div>
-        <div class="rf-field">
           <label>维保年限</label>
           <a-input v-model:value="basic.warranty_years" :disabled="readonly" placeholder="如 3年" @change="emit('change')" />
-        </div>
-      </div>
-    </section>
-
-    <!-- ── 部件清单：KP 共享编辑器 ── -->
-    <section class="rf-sec">
-      <h4 class="rf-sec-title">部件清单<span class="rf-hint">从配件库选择，类别/配件与方案配置一致</span></h4>
-      <div class="rf-kp-editor">
-        <div class="sheet-scroll">
-          <table class="rf-table">
-            <thead>
-              <tr>
-                <th class="col-group">分组</th>
-                <th class="col-cat">类别</th>
-                <th>配件</th>
-                <th class="col-qty">数量</th>
-              </tr>
-            </thead>
-            <KpPartsEditor
-              v-model:rows="kpRows"
-              :can-edit="!readonly"
-              :show-drag="!readonly"
-              :default-categories="defaultKpCategories"
-            />
-          </table>
-        </div>
-        <div v-if="!readonly" class="rf-adds">
-          <a-button size="small" @click="addKpRow">+ 添加 KP 行</a-button>
         </div>
       </div>
     </section>
@@ -265,6 +297,84 @@ defineExpose({ toSlots, fromSlots, hasAnyPart, basic, seedKpRows, addKpRow })
     <section class="rf-sec">
       <h4 class="rf-sec-title">需求原文<span class="rf-hint">客户原话，保留自由文本（后端仅辅助交叉校验）</span></h4>
       <a-textarea v-model:value="reqText" :disabled="readonly" :rows="3" placeholder="客户做超融合，要求 256G 内存，有 4 块 4TB NVMe 做缓存盘，双电源…" />
+    </section>
+
+    <!-- ── 配置：多配置页签 + 部件清单 ── -->
+    <section class="rf-sec">
+      <div class="rf-config-head">
+        <h4 class="rf-sec-title">配置<span class="rf-hint">每个配置独立机型/数量/部件清单</span></h4>
+        <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
+      </div>
+
+      <div v-if="configs.length" class="rf-config-tabs">
+        <button
+          v-for="cfg in configs"
+          :key="cfg.name"
+          type="button"
+          class="rf-config-tab"
+          :class="{ active: cfg.name === activeConfig?.name }"
+          @click="activeKey = cfg.name"
+        >
+          <span>{{ cfg.name }}</span>
+          <span v-if="!readonly" class="rf-config-tab-close" @click.stop="removeConfig(cfg)">×</span>
+        </button>
+      </div>
+
+      <div v-if="activeConfig" class="rf-config">
+        <div class="rf-config-grid">
+          <div class="rf-field">
+            <label>配置名</label>
+            <a-input v-model:value="activeConfig.name" :disabled="readonly" />
+          </div>
+          <div class="rf-field">
+            <label>机型型号</label>
+            <a-auto-complete
+              v-model:value="activeConfig.server_model"
+              :options="modelOptions"
+              :disabled="readonly"
+              placeholder="可输入或选择"
+              :allow-clear="false"
+              :default-active-first-option="false"
+              :backfill="false"
+              @keydown.enter.prevent
+              style="width: 100%"
+            />
+          </div>
+          <div class="rf-field">
+            <label>数量（台）</label>
+            <a-input-number v-model:value="activeConfig.qty" :min="1" :disabled="readonly" style="width: 100%" placeholder="整机台数" />
+          </div>
+          <div class="rf-field">
+            <label>配置说明</label>
+            <a-input v-model:value="activeConfig.description" :disabled="readonly" placeholder="配置说明/需求摘要" />
+          </div>
+        </div>
+
+        <h5 class="rf-kp-title">部件清单<span class="rf-hint">从配件库选择，类别/配件与方案配置一致</span></h5>
+        <div class="rf-kp-editor">
+          <div class="sheet-scroll">
+            <table class="rf-table">
+              <thead>
+                <tr>
+                  <th class="col-group">分组</th>
+                  <th class="col-cat">类别</th>
+                  <th>配件</th>
+                  <th class="col-qty">数量</th>
+                </tr>
+              </thead>
+              <KpPartsEditor
+                v-model:rows="activeKpRows"
+                :can-edit="!readonly"
+                :show-drag="!readonly"
+                :default-categories="defaultKpCategories"
+              />
+            </table>
+          </div>
+          <div v-if="!readonly" class="rf-adds">
+            <a-button size="small" @click="addKpRow">+ 添加 KP 行</a-button>
+          </div>
+        </div>
+      </div>
     </section>
   </div>
 </template>
@@ -278,6 +388,57 @@ defineExpose({ toSlots, fromSlots, hasAnyPart, basic, seedKpRows, addKpRow })
   color: var(--cpq-text-secondary);
 }
 .rf-hint { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--cpq-text-muted); }
+
+.rf-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.rf-config-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 12px;
+}
+.rf-config-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--cpq-border-secondary);
+  border-radius: 999px;
+  background: var(--cpq-bg-secondary);
+  color: var(--cpq-text-secondary);
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.rf-config-tab.active {
+  border-color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a10);
+  color: var(--cpq-accent-primary);
+}
+.rf-config-tab-close {
+  color: var(--cpq-text-muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.rf-config-tab-close:hover {
+  color: var(--cpq-color-danger, #ff4d4f);
+}
+.rf-config-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px 14px;
+  margin-bottom: 14px;
+}
+.rf-kp-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cpq-text-secondary);
+}
 
 .req-form { container-type: inline-size; }
 

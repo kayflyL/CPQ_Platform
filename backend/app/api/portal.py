@@ -448,6 +448,55 @@ def _empty_sheet_totals():
     }
 
 
+def _configs_from_requirement_slots(current, opp):
+    """需求单 slots → 报价工作台空 sheet configs（优先多配置，兼容旧单配置）。"""
+    slots = (current or {}).get("slots") or {}
+    description = (current or {}).get("requirement_text") or ""
+    raw_configs = slots.get("configs") or []
+    if isinstance(raw_configs, list) and raw_configs:
+        configs = []
+        for cfg in raw_configs:
+            if not isinstance(cfg, dict):
+                continue
+            kp_rows = [
+                {
+                    "part_category": row.get("part_category") or "",
+                    "catalogue": row.get("catalogue") or "",
+                    "description": row.get("description") or "",
+                    "qty": row.get("qty") or 0,
+                }
+                for row in (cfg.get("kp_rows") or [])
+                if isinstance(row, dict)
+            ]
+            configs.append({
+                "name": cfg.get("name") or "CFG1",
+                "server_model": cfg.get("server_model") or opp.get("platform_type") or "",
+                "description": cfg.get("description") or description,
+                "qty": int(cfg.get("qty") or 1),
+                "l6_cost": 0,
+                "l6_margin": 0,
+                "l6_rows": [],
+                "kp_rows": kp_rows,
+                "totals": _empty_sheet_totals(),
+            })
+        if configs:
+            return configs
+
+    server_model = slots.get("server_model") or opp.get("platform_type") or ""
+    qty = int(slots.get("purchase_qty") or opp.get("purchase_qty") or 1)
+    return [{
+        "name": "CFG1",
+        "server_model": server_model,
+        "description": description,
+        "qty": qty,
+        "l6_cost": 0,
+        "l6_margin": 0,
+        "l6_rows": [],
+        "kp_rows": [],
+        "totals": _empty_sheet_totals(),
+    }]
+
+
 @router.get("/api/portal/opp/{opp_id}/board")
 def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     """三栏流程看板：商机、需求、BOM、成本、报价、审批状态一次取齐。
@@ -630,32 +679,7 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
                     "totals": totals,
                 })
         else:
-            slots = (current or {}).get("slots") or {}
-            server_model = slots.get("server_model") or opp.get("platform_type") or ""
-            description = (current or {}).get("requirement_text") or ""
-            qty = int(slots.get("purchase_qty") or opp.get("purchase_qty") or 1)
-            sheet_configs.append({
-                "name": "CFG1",
-                "server_model": server_model,
-                "description": description,
-                "qty": qty,
-                "l6_cost": 0,
-                "l6_margin": 0,
-                "l6_rows": [],
-                "kp_rows": [],
-                "totals": {
-                    "l6Cost": 0,
-                    "l6Sales": 0,
-                    "kpCost": 0,
-                    "kpSales": 0,
-                    "warrantyCost": 0,
-                    "warrantySales": 0,
-                    "totalCost": 0,
-                    "totalSales": 0,
-                    "profit": 0,
-                    "marginPct": 0,
-                },
-            })
+            sheet_configs.extend(_configs_from_requirement_slots(current, opp))
     finally:
         quote_repo.close()
 
@@ -673,32 +697,7 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     sheet_locked = bom_locked if sheet_stage == "boming" else cost_locked
 
     if not sheet_configs and not sheet_locked:
-        slots = (current or {}).get("slots") or {}
-        server_model = slots.get("server_model") or opp.get("platform_type") or ""
-        description = (current or {}).get("requirement_text") or ""
-        qty = int(slots.get("purchase_qty") or opp.get("purchase_qty") or 1)
-        sheet_configs.append({
-            "name": "CFG1",
-            "server_model": server_model,
-            "description": description,
-            "qty": qty,
-            "l6_cost": 0,
-            "l6_margin": 0,
-            "l6_rows": [],
-            "kp_rows": [],
-            "totals": {
-                "l6Cost": 0,
-                "l6Sales": 0,
-                "kpCost": 0,
-                "kpSales": 0,
-                "warrantyCost": 0,
-                "warrantySales": 0,
-                "totalCost": 0,
-                "totalSales": 0,
-                "profit": 0,
-                "marginPct": 0,
-            },
-        })
+        sheet_configs.extend(_configs_from_requirement_slots(current, opp))
 
     flow_cost_sheet = _current_cost_sheet_for_quote(cost_sheets, selected)
     flow_bom_scheme = _current_bom_scheme_for_sheet(bom_schemes, flow_cost_sheet)

@@ -18,6 +18,7 @@ export interface AssistantChatWsState {
   statusText: string
   error: string
   nodeTraces: NodeTrace[]
+  running: boolean
 }
 
 /** 方案助手与 AI 办公室共用：把 chunk/done/error 收口到同一份聊天状态。 */
@@ -34,8 +35,12 @@ export function handleAssistantChatWsEvent(
         status: 'pending',
       }))
       state.thinkingText = ''
+      state.running = true
       return true
     }
+    case 'stopping':
+      state.statusText = data.message || '正在暂停当前任务…'
+      return true
     case 'step_start': {
       const idx = state.nodeTraces.findIndex((t) => t.step === String(data.step))
       if (idx >= 0) state.nodeTraces.splice(idx, 1, { ...state.nodeTraces[idx], status: 'running', label: String(data.label || state.nodeTraces[idx].label || data.step) })
@@ -85,21 +90,25 @@ export function handleAssistantChatWsEvent(
     case 'business_entity_ready':
       state.waiting = false
       state.statusText = ''
+      state.running = false
       if (data.message) state.messages.push(data.message as AssistantMessage)
       return true
     case 'analysis_finished':
       state.waiting = false
       state.statusText = ''
+      state.running = false
       return true
     case 'pipeline_done':
     case 'pipeline_paused':
       state.waiting = false
       state.statusText = ''
+      state.running = false
       return true
     case 'analysis_cancelled':
       state.nodeTraces = []
       state.waiting = false
       state.statusText = ''
+      state.running = false
       return true
     case 'chat_status':
       state.statusText = data.text || ''
@@ -115,6 +124,7 @@ export function handleAssistantChatWsEvent(
     case 'done':
       state.waiting = false
       state.statusText = ''
+      state.running = false
       if (data.message) state.messages.push(data.message as AssistantMessage)
       state.streamingText = ''
       return true
@@ -123,6 +133,7 @@ export function handleAssistantChatWsEvent(
       state.statusText = ''
       state.error = data.message || '回复异常'
       state.streamingText = ''
+      state.running = false
       return true
     default:
       return false

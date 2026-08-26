@@ -176,6 +176,8 @@ export const assistantApi = {
           },
         )
         .then((r) => r.data),
+    stop: (id: string) =>
+      http.post<{ status: string }>(`/api/assistant/threads/${encodeURIComponent(id)}/stop`).then((r) => r.data),
     /** 发送前预览总助推荐同事（不落库） */
     resolveTarget: (id: string, content: string, contextSummary?: string) =>
       http

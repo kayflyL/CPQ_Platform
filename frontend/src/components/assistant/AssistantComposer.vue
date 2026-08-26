@@ -10,33 +10,39 @@
     />
     <a-button
       type="primary"
-      :loading="sending"
-      :disabled="disabled || !modelValue.trim()"
-      @click="$emit('send')"
+      :disabled="disabled || (!busy && !modelValue.trim())"
+      @click="busy ? $emit('stop') : $emit('send')"
     >
-      {{ buttonText }}
+      {{ busy ? '停止' : buttonText }}
     </a-button>
   </div>
 </template>
 
 <script setup lang="ts">
-withDefaults(defineProps<{
+import { computed } from 'vue'
+
+const props = withDefaults(defineProps<{
   modelValue: string
   placeholder?: string
   disabled?: boolean
   sending?: boolean
+  running?: boolean
   buttonText?: string
 }>(), {
   placeholder: '输入消息…',
   disabled: false,
   sending: false,
+  running: false,
   buttonText: '发送',
 })
 
 const emit = defineEmits<{
   (e: 'update:modelValue', value: string): void
   (e: 'send'): void
+  (e: 'stop'): void
 }>()
+
+const busy = computed(() => props.sending || props.running)
 
 function onEnter(event: KeyboardEvent) {
   if (event.shiftKey) return

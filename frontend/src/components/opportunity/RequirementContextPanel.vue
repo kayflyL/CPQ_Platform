@@ -103,6 +103,11 @@ const requirementText = computed(() => props.requirement?.requirement_text || ''
         </div>
       </section>
 
+      <section v-if="requirementText" class="ctx-sec">
+        <h5>需求描述</h5>
+        <p class="ctx-text">{{ requirementText }}</p>
+      </section>
+
       <section v-if="partRows.length" class="ctx-sec">
         <h5>部件清单</h5>
         <table class="ctx-table">
@@ -118,11 +123,6 @@ const requirementText = computed(() => props.requirement?.requirement_text || ''
             </tr>
           </tbody>
         </table>
-      </section>
-
-      <section v-if="requirementText" class="ctx-sec">
-        <h5>需求描述</h5>
-        <p class="ctx-text">{{ requirementText }}</p>
       </section>
     </div>
     <div v-else class="panel-empty">暂无需求单</div>

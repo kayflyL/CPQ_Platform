@@ -26,6 +26,20 @@ export interface RequirementSlots {
     qty?: number
     note?: string
   }>
+  configs?: Array<{
+    name?: string
+    server_model?: string
+    description?: string
+    qty?: number
+    kp_rows?: Array<{
+      category?: string
+      part_category?: string
+      catalogue?: string
+      description?: string
+      qty?: number
+      note?: string
+    }>
+  }>
   raid?: Array<{ model?: string; qty?: number; cache?: string | number | null }>
   psu?: { wattage?: number; qty?: number; redundancy?: string }
   [key: string]: any

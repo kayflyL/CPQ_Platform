@@ -68,7 +68,9 @@
         placeholder="直接告诉 TA 你想做什么…"
         :disabled="chatState?.loading"
         :sending="chatState?.sending"
+        :running="chatState?.running"
         @send="onSend"
+        @stop="onStop"
       />
 
       <transition name="chat-drawer">
@@ -148,6 +150,7 @@ const {
   open,
   close,
   send,
+  stop,
   openThread,
   startNewThread,
   loadThreads,
@@ -282,6 +285,10 @@ async function onSend() {
   } catch {
     message.error(chatState.value?.error || '发送失败')
   }
+}
+
+async function onStop() {
+  await stop()
 }
 
 async function sendOption(value: string) {

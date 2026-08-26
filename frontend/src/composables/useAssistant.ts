@@ -22,6 +22,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const activeRoleKey = ref<string | null>(null)
   const loading = ref(false)
   const sending = ref(false)
+  const running = ref(false)
   const streamingText = ref('') // 当前正在流式输出的 assistant 文本(临时,done 后清空并入 messages)
   const thinkingText = ref('') // 当前需求分析 Agent 的流式思考（白盒展示，发消息/流程开始清空）
   const waitingAI = ref(false) // 已发送、等首个 chunk 到来前的等待态(显示 typing 指示)
@@ -52,6 +53,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     set error(_value: string) {},
     get nodeTraces() { return nodeTraces.value },
     set nodeTraces(value: NodeTrace[]) { nodeTraces.value = value },
+    get running() { return running.value },
+    set running(value: boolean) { running.value = value },
   }
   function handleWsData(data: any) {
     handleAssistantChatWsEvent(chatWsState, data)
@@ -217,6 +220,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
 
   async function postSend(content: string, contextSummary?: string, roleKey?: string) {
     sending.value = true
+    running.value = true
     streamingText.value = ''
     thinkingText.value = ''
     waitingAI.value = true
@@ -239,10 +243,25 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     } catch {
       waitingAI.value = false
       streamingText.value = ''
+      running.value = false
       antMessage.error('发送失败')
     } finally {
       sending.value = false
     }
+  }
+
+  async function stop() {
+    if (!currentThreadId.value) return
+    try {
+      await assistantApi.threads.stop(currentThreadId.value)
+    } catch {
+      /* ignore */
+    }
+    sending.value = false
+    running.value = false
+    waitingAI.value = false
+    streamingText.value = ''
+    statusText.value = '已请求暂停'
   }
 
   async function send(content: string, contextSummary?: string) {
@@ -304,9 +323,9 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   }
 
   return {
-    threads, currentThreadId, currentThread, messages, loading, sending,
+    threads, currentThreadId, currentThread, messages, loading, sending, running,
     streamingText, thinkingText, waitingAI, statusText, nodeTraces, pendingDispatch, loadThreads, selectThread, newThread, send,
     confirmDispatch, cancelDispatch, removeThread, colleagues, activeRoleKey, switchRole,
-    connectWs, disconnectWs, createPreviewThread, destroyPreview,
+    connectWs, disconnectWs, createPreviewThread, destroyPreview, stop,
   }
 }

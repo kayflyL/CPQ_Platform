@@ -9,6 +9,7 @@ export interface EmployeeChatState {
   streamingText: string
   thinkingText: string
   sending: boolean
+  running: boolean
   waiting: boolean
   statusText: string
   loading: boolean
@@ -32,6 +33,7 @@ function ensureState(roleKey: string): EmployeeChatState {
       streamingText: '',
       thinkingText: '',
       sending: false,
+      running: false,
       waiting: false,
       statusText: '',
       loading: false,
@@ -222,6 +224,7 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
   if (!state.threadId) return
 
   state.sending = true
+  state.running = true
   state.waiting = true
   state.streamingText = ''
   state.thinkingText = ''
@@ -258,6 +261,7 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
     const idx = state.messages.findIndex((message) => message.message_id === localId)
     if (idx >= 0) state.messages.splice(idx, 1)
     state.waiting = false
+    state.running = false
     state.error = '发送失败，请稍后重试'
     throw error
   } finally {
@@ -268,6 +272,23 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
 function close() {
   activeRoleKey.value = null
   disconnect()
+}
+
+async function stop() {
+  const roleKey = activeRoleKey.value
+  if (!roleKey) return
+  const state = states[roleKey]
+  if (!state?.threadId) return
+  try {
+    await assistantApi.threads.stop(state.threadId)
+  } catch {
+    /* ignore */
+  }
+  state.sending = false
+  state.running = false
+  state.waiting = false
+  state.streamingText = ''
+  state.statusText = '已请求暂停'
 }
 
 const activeState = computed(() => {
@@ -282,6 +303,7 @@ export function useEmployeeChat() {
     open,
     close,
     send,
+    stop,
     ensureState,
     loadThreads,
     openThread,

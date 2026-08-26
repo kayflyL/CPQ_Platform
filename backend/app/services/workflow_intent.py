@@ -60,8 +60,9 @@ async def resolve_intent(message: Optional[str], context: Optional[str] = None) 
             [{"role": "system", "content": system}, {"role": "user", "content": text}],
             schema=_INTENT_SCHEMA,
             temperature=0.0,
-            timeout=60.0,
+            timeout=20.0,
             max_attempts=1,
+            max_tokens=1024,
         )
     except Exception as exc:
         logger.debug("workflow intent LLM 判定失败，按 grasp 处理: %s", exc)
@@ -84,8 +85,9 @@ async def reply_with_context(message: str, context: str, persona: str = "") -> s
             [{"role": "system", "content": system}, {"role": "user", "content": str(message or "")}],
             schema=_REPLY_SCHEMA,
             temperature=0.7,
-            timeout=60.0,
+            timeout=20.0,
             max_attempts=1,
+            max_tokens=1200,
         )
     except Exception as exc:
         logger.debug("workflow intent reply LLM 失败: %s", exc)

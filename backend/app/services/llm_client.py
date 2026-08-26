@@ -274,6 +274,7 @@ async def chat_json(
     temperature: Optional[float] = None,
     timeout: float = 90.0,
     max_attempts: int = 2,
+    max_tokens: Optional[int] = None,
 ) -> dict:
     """非流式 JSON 模式调用 —— 结构化抽槽专用（LLM 节点 extract_enhance / best_fit 用）。
 
@@ -307,7 +308,7 @@ async def chat_json(
                 "model": model or config["model"],
                 "messages": messages,  # type: ignore[arg-type]
                 "temperature": config["temperature"] if temperature is None else temperature,
-                "max_tokens": config["max_tokens"],
+                "max_tokens": max_tokens if max_tokens is not None else config["max_tokens"],
             }
             if use_json_mode:
                 request_kwargs["response_format"] = {"type": "json_object"}

@@ -28,6 +28,7 @@ from app.services.office_memory import office_memory
 from app.services.agent_tools import tool_catalog
 from app.services.office_access import allowed_chat_role_keys
 from app.services.colleague_turn_service import run_colleague_turn
+from app.services.capability_executor import request_workflow_stop
 from app.services.ai_colleague_service import (
     get_colleague,
     resolve_assistant_message_dispatch,
@@ -406,6 +407,19 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
+
+
+@router.post("/threads/{thread_id}/stop")
+async def stop_workflow(thread_id: str, user: dict = Depends(current_user)):
+    """请求暂停当前 AI 角色任务；工作流在下一个节点边界落 pending 后暂停。"""
+    repo = AssistantRepository()
+    try:
+        _thread_for_user(repo, thread_id, user)
+    finally:
+        repo.close()
+    request_workflow_stop(thread_id)
+    await assistant_hub.broadcast(thread_id, {"type": "stopping", "message": "正在暂停当前任务…"})
+    return {"status": "stopping"}
 
 
 @router.post("/threads/{thread_id}/dispatch-preview")
