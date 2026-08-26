@@ -430,7 +430,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         psu_sig["qty"] = int(q)
         changes.append(f"psu.qty={q}")
 
-    # ── 阵列卡：补型号 token 进 keywords（无专属 group 机制，靠 stage-1 精确匹配）──
+    # ── 阵列卡：唯一真值源 raid_groups（型号由 _pick_raid_groups 精确匹配，不再双写 keywords）──
     # 兼容单对象与数组：多张 RAID 卡（如 9560 + 9364）分别进入 raid_groups，不覆盖第一张。
     raid_raw = cleaned.get("raid") or {}
     raid_items = raid_raw if isinstance(raid_raw, list) else ([raid_raw] if isinstance(raid_raw, dict) else [])
@@ -447,15 +447,6 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         if not raid_model and not raid_levels:
             continue
         if raid_model:
-            toks = _model_tokens_of(raid_model)
-            keywords = ext.get("keywords")
-            if keywords is None:
-                keywords = []
-                ext["keywords"] = keywords
-            for t in toks:
-                if t not in keywords:
-                    keywords.append(t)
-                    changes.append(f"keywords+{t}")
             if not any((g or {}).get("model") == raid_model for g in _rg):
                 _rg.append({"model": raid_model, "qty": raid_qty, "cache": raid.get("cache")})
                 changes.append(f"raid_groups+{raid_model}×{raid_qty}")

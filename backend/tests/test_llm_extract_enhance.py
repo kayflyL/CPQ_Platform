@@ -287,8 +287,8 @@ def test_merge_fills_sparse_requirement():
     ]
     assert nic_lines[0]["qty"] == 2
     assert "光模块" in nic_lines[0]["name_contains"]
-    # RAID：补型号 token + 单真值源 raid_groups（不再写旧 raid_signal）
-    assert "9560-8i" in ext["keywords"]
+    # RAID：单真值源 raid_groups（不再写旧 raid_signal，也不再向 keywords 双写型号 token）
+    assert "9560-8i" not in ext.get("keywords", [])
     assert ext["raid_groups"] == [{"model": "LSI 9560-8i", "qty": 1, "cache": None}]
     assert "Raid card" in ext["categories"]
 
@@ -348,7 +348,7 @@ def test_merge_agent_primary_fills_all_essential_keys():
         assert c in cats, f"缺品类 {c}"
     # CPU 型号唯一真值源 cpu_signal；不再注入 keywords（pick 阶段自行推导检索）
     assert ext["cpu_signal"]["model"] == "AMD EPYC 9124"
-    assert "9124" not in ext["keywords"]
+    assert "9124" not in ext.get("keywords", [])
     # 内存：单真值源 mem_signal；数量与单条容量都在信号内，不再写 mem_groups
     assert ext["mem_signal"]["type"] == "DDR5"
     assert ext["mem_signal"]["per_stick_gb"] == 32
