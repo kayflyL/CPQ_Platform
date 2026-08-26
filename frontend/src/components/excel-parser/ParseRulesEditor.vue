@@ -263,6 +263,13 @@
               placeholder="关键词右侧第几列取值"
             />
           </a-form-item>
+          <a-form-item label="值清洗正则（可选）">
+            <a-input
+              v-model:value="fieldRuleForm.source_config.value_pattern"
+              placeholder="如: ^([^(]+)"
+              style="width: 100%;"
+            />
+          </a-form-item>
         </template>
 
         <!-- 列提取配置 -->

@@ -125,3 +125,23 @@ def test_api_create_field_rule_uses_single_create(monkeypatch):
     payload = {"field_key": "model", "region_id": 2, "source_type": "column", "source_config": {"col": "A"}}
     assert rules_mod.save_parse_field_rules(payload) == {"status": "success", "id": 9}
     fake.add_parse_field_rule.assert_called_once_with(payload)
+
+def test_keyword_extract_applies_value_pattern():
+    parser = _parser([])
+    df = pd.DataFrame({0: ["Model Name&Required quantity"], 1: ["ZS22V2-P(1pcs)"]})
+    value, _ = parser._extract_by_keyword(df, {
+        "keywords": ["Model Name&Required quantity"],
+        "value_offset": 1,
+        "value_pattern": "^([^\\(]+)",
+    })
+    assert value == "ZS22V2-P"
+
+
+def test_keyword_extract_keeps_raw_value_without_pattern():
+    parser = _parser([])
+    df = pd.DataFrame({0: ["Model Name&Required quantity"], 1: ["ZS22V2-P(1pcs)"]})
+    value, _ = parser._extract_by_keyword(df, {
+        "keywords": ["Model Name&Required quantity"],
+        "value_offset": 1,
+    })
+    assert value == "ZS22V2-P(1pcs)"

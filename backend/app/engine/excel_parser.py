@@ -352,6 +352,7 @@ class ExcelParser:
         """
         keywords = source_config.get("keywords", [])
         value_offset = source_config.get("value_offset", 1)
+        value_pattern = source_config.get("value_pattern")
         
         for keyword in keywords:
             keyword_lower = keyword.lower()
@@ -366,13 +367,21 @@ class ExcelParser:
                             if pd.notna(val):
                                 extracted = str(val).strip()
                                 if extracted and extracted.lower() not in ['', 'nan', 'none']:
-                                    source = {
-                                        "row": r,
-                                        "col": target_col,
-                                        "keyword": keyword,
-                                        "keyword_col": c
-                                    }
-                                    return extracted, source
+                                    if value_pattern:
+                                        try:
+                                            match = re.search(value_pattern, extracted)
+                                            if match:
+                                                extracted = (match.group(1) if match.groups() else match.group(0)).strip()
+                                        except re.error:
+                                            pass
+                                    if extracted and extracted.lower() not in ['', 'nan', 'none']:
+                                        source = {
+                                            "row": r,
+                                            "col": target_col,
+                                            "keyword": keyword,
+                                            "keyword_col": c
+                                        }
+                                        return extracted, source
         return None, None
     
     def _col_letter_to_index(self, letter: str) -> int:
