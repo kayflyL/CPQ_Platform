@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import asyncio
+import time
 from typing import Any, Callable, Optional
 
 from app.services import llm_client
@@ -373,14 +374,17 @@ async def run_fixed_workflow(
 
         label = node.get("label") or node_id
         input_preview, _, _, _ = _trace_preview(node_type, ctx)
+        _t0 = time.perf_counter()
         await broadcast({"type": "step_start", "step": node_id, "label": label, "input": input_preview})
         try:
             payload = await _dispatch(node_type, ctx, config, broadcast)
         except Exception as exc:
             logger.exception("capability node failed node=%s type=%s", node_id, node_type)
             payload = {"error": str(exc)}
+        _duration_ms = round((time.perf_counter() - _t0) * 1000, 1)
         _, output_preview, artifact, summary = _trace_preview(node_type, ctx, payload)
         await broadcast({"type": "step_done", "step": node_id, "payload": payload,
+                         "duration_ms": _duration_ms,
                          "input": input_preview, "output": output_preview, "artifact": artifact, "summary": summary})
 
         if payload.get("error") or ctx.get("agent_fill_error"):
