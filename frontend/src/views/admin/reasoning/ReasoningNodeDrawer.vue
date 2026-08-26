@@ -58,10 +58,12 @@ const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.node
 const runtimeType = computed(() => props.nodeRuntime || props.nodeType || '')
 const showSystemPrompt = computed(() => ['agent', 'agent_fill', 'kp_reason', 'model_reason'].includes(runtimeType.value))
 const ruleCatalogRuntimes = new Set(['model_reason', 'kp_reason', 'agent_fill'])
-const fillRuleTypes = computed<RuleType[] | undefined>(() => {
-  if (runtimeType.value !== 'agent_fill') return undefined
-  return ['platform_series_map', 'category_alias']
-})
+const NODE_RULE_TYPES: Record<string, RuleType[]> = {
+  agent_fill: ['platform_series_map', 'category_alias', 'workload_map', 'compliance_map'],
+  model_reason: ['fallback_order', 'compliance_map'],
+  kp_reason: ['type_package', 'category_alias', 'spec_rule', 'cpu_mem_generation', 'capacity_match', 'raid_level_map', 'compliance_map'],
+}
+const nodeRuleTypes = computed<RuleType[] | undefined>(() => NODE_RULE_TYPES[runtimeType.value])
 const showRuleCatalog = computed(() => ruleCatalogRuntimes.has(runtimeType.value))
 const toolsEnabled = computed(() => ['agent', 'agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value))
 const systemPromptValue = computed({
@@ -76,6 +78,28 @@ const systemPromptValue = computed({
     }
   },
 })
+const systemPromptLabel = computed(() => (
+  ['agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value) ? '节点任务说明' : 'System Prompt'
+))
+const MODEL_INTRO_LENGTH_OPTIONS = [
+  { value: 'short', label: '简短（一句话）' },
+  { value: 'medium', label: '适中（规格 + 适用场景）' },
+  { value: 'full', label: '完整（含槽位能力与限制）' },
+]
+const MODEL_SORT_OPTIONS = [
+  { value: 'match_stage', label: '按匹配精度' },
+  { value: 'price', label: '按价格' },
+  { value: 'catalog_order', label: '按目录排序' },
+]
+const KP_CONFIRM_MODE_OPTIONS = [
+  { value: 'auto', label: '匹配完整自动继续' },
+  { value: 'manual', label: '生成后等用户确认' },
+]
+const PSU_SOURCE_OPTIONS = [
+  { value: 'ext.psu_signal.wattage', label: '需求电源信号 · 瓦数' },
+  { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
+  { value: 'auto', label: '自动推断（build_plan）' },
+]
 const toolCatalog = ref<any[]>([])
 const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   value: tool.name,
@@ -125,15 +149,15 @@ watch(() => props.open, async (v) => {
     enabled_tools: Array.isArray(c.enabled_tools)
       ? [...c.enabled_tools]
       : [...(CAPABILITY_DEFAULT_TOOLS[runtimeType.value] || NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
-    max_iterations: c.max_iterations ?? (NODE_DEFAULT_CONFIG[activeNodeType.value]?.max_iterations ?? 6),
-    kr_proposal_enabled: c.proposal_enabled ?? true,
-    kr_proposal_schema_text: safeJsonString(c.proposal_schema ?? {}),
-    kr_user_prompt_template: c.user_prompt_template ?? '',
-    kr_proposal_mapping_text: safeJsonString(c.proposal_mapping ?? {}),
+    kr_confirm_mode: c.confirm_mode ?? 'auto',
     kr_reason_template: c.reason_template ?? '',
     kr_representative_pick: c.representative_pick ?? 'auto',
     kr_fallback_strategy: c.fallback_strategy ?? 'fallback_representative',
     kr_drive_spec_substitute: c.drive_spec_substitute ?? true,
+    mr_series_limit: c.series_limit ?? 3,
+    mr_detail_link_enabled: c.detail_link_enabled ?? true,
+    mr_intro_length: c.intro_length ?? 'medium',
+    mr_sort_by: c.sort_by ?? 'match_stage',
     cp_kp_source: c.kp_source ?? 'per_baseline',
     cp_psu_override_enabled: c.psu_override_enabled ?? true,
     cp_psu_wattage_source: c.psu_wattage_source ?? 'ext.psu_signal.wattage',
@@ -165,27 +189,17 @@ function buildConfig(): Record<string, any> | null {
 
   if (runtimeType.value === 'agent') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
-    config.max_iterations = +form.value.max_iterations || 6
     config.system_prompt = form.value.system_prompt || ''
   }
   if (runtimeType.value === 'model_reason') {
     config.system_prompt = form.value.system_prompt || ''
+    config.series_limit = Math.max(1, Math.min(20, Number(form.value.mr_series_limit) || 3))
+    config.detail_link_enabled = form.value.mr_detail_link_enabled !== false
+    config.intro_length = form.value.mr_intro_length || 'medium'
+    config.sort_by = form.value.mr_sort_by || 'match_stage'
   }
   if (runtimeType.value === 'kp_reason') {
-    const proposalSchema = parseJsonObject(form.value.kr_proposal_schema_text)
-    if (proposalSchema === null) {
-      message.error('配件提议输出 schema 不是合法 JSON 对象')
-      return null
-    }
-    const proposalMapping = parseJsonObject(form.value.kr_proposal_mapping_text)
-    if (proposalMapping === null) {
-      message.error('配件提议合并映射不是合法 JSON 对象')
-      return null
-    }
-    config.proposal_enabled = form.value.kr_proposal_enabled !== false
-    config.proposal_schema = proposalSchema
-    config.user_prompt_template = form.value.kr_user_prompt_template || ''
-    config.proposal_mapping = proposalMapping
+    config.confirm_mode = form.value.kr_confirm_mode || 'auto'
     config.system_prompt = form.value.system_prompt || ''
     config.reason_template = form.value.kr_reason_template || ''
     config.representative_pick = form.value.kr_representative_pick || 'auto'
@@ -249,7 +263,6 @@ async function persist(config: Record<string, any>): Promise<boolean> {
     }
     if (runtimeType.value === 'agent') {
       merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
-      merged.max_iterations = +form.value.max_iterations || (NODE_DEFAULT_CONFIG[activeNodeType.value]?.max_iterations ?? 5)
       merged.system_prompt = form.value.system_prompt || ''
     } else {
       delete merged.enabled_tools
@@ -258,6 +271,12 @@ async function persist(config: Record<string, any>): Promise<boolean> {
       if (!['kp_reason', 'model_reason'].includes(runtimeType.value)) {
         delete merged.system_prompt
       }
+    }
+    if (runtimeType.value === 'kp_reason') {
+      delete merged.proposal_enabled
+      delete merged.proposal_schema
+      delete merged.proposal_mapping
+      delete merged.user_prompt_template
     }
     if (runtimeType.value === 'compose') {
       delete merged.template
@@ -325,8 +344,9 @@ async function save() {
               <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
               <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
             </a-form-item>
-            <a-form-item v-if="showSystemPrompt" label="System Prompt">
-              <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认提示词" />
+            <a-form-item v-if="showSystemPrompt" :label="systemPromptLabel">
+              <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
+              <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
             </a-form-item>
           </a-form>
 
@@ -346,7 +366,7 @@ async function save() {
           <template v-if="runtimeType === 'agent_fill'">
             <div class="node-section-title">字段配置 <span class="node-behavior-chip">对齐线索登记表 schema</span></div>
             <SlotListEditor embedded />
-            <p class="rf-hint">线索登记字段和部件映射在此维护；部件字段由 AI 填写，这里只保留映射关系。Agent 一边对话一边据此填表；机型与配件的最终选型交给下游「机型选型」「配件选型」节点。</p>
+            <p class="rf-hint">这里是全链路唯一登记表 schema；AI 角色只负责理解与填表，不背字段、不背映射。机型与配件的最终选型交给下游「机型选配」「配件选配」节点。</p>
           </template>
           <!-- 输出节点：交接契约 -->
           <a-form v-else-if="activeNodeType === 'output'" layout="vertical">
@@ -362,59 +382,58 @@ async function save() {
               <a-input v-model:value="form.output_target" placeholder="plan_draft / conversation_reply / artifact" />
               <p class="rf-hint">目标为业务实体键或对话回执键，由后端据此落草稿/转审批/回显。</p>
             </a-form-item>
-            <a-form-item label="交接映射（JSON 对象）">
-              <a-textarea v-model:value="form.output_payload_map_text" :rows="8" placeholder='{"plans":"ctx.plans","keywords":"ctx.ext.keywords"}' style="font-family: ui-monospace, monospace;" />
-              <p class="rf-hint">把 ctx 点分路径映射到交接 payload；未配置时使用 output_kind 的默认字段。</p>
-            </a-form-item>
-            <a-form-item label="交接动作（JSON 数组）">
-              <a-textarea v-model:value="form.output_actions_text" :rows="8" placeholder='[{"action":"submit_approval","target":"cost_bom"}]' style="font-family: ui-monospace, monospace;" />
-              <p class="rf-hint">产出后的下游动作，例如转审批；留空表示交回当前对话。</p>
-            </a-form-item>
-            <template v-if="form.output_kind === 'generic'">
-              <a-divider orientation="left" class="rf-sec">通用格式</a-divider>
-              <a-form-item label="输出模板">
-                <a-textarea v-model:value="form.output_template" :rows="6" placeholder="可留空；例如 Markdown/文本模板" />
-              </a-form-item>
-              <a-form-item label="输出 schema（JSON 对象）">
-                <a-textarea v-model:value="form.output_schema_text" :rows="10" placeholder="{}" style="font-family: ui-monospace, monospace;" />
-                <p class="rf-hint">定义该节点产出结构；留空 = {}。执行器只透传 schema，不内嵌业务字段。</p>
-              </a-form-item>
-            </template>
+            <a-collapse :bordered="false" class="node-advanced-fields">
+              <a-collapse-panel key="advanced" header="高级交接配置（可选，一般不手写 JSON）">
+                <a-form-item label="交接映射（JSON 对象）">
+                  <a-textarea v-model:value="form.output_payload_map_text" :rows="8" placeholder='{"plans":"ctx.plans","keywords":"ctx.ext.keywords"}' style="font-family: ui-monospace, monospace;" />
+                  <p class="rf-hint">把 ctx 点分路径映射到交接 payload；未配置时使用 output_kind 的默认字段。</p>
+                </a-form-item>
+                <a-form-item label="交接动作（JSON 数组）">
+                  <a-textarea v-model:value="form.output_actions_text" :rows="8" placeholder='[{"action":"submit_approval","target":"cost_bom"}]' style="font-family: ui-monospace, monospace;" />
+                  <p class="rf-hint">产出后的下游动作，例如转审批；留空表示交回当前对话。</p>
+                </a-form-item>
+                <template v-if="form.output_kind === 'generic'">
+                  <a-divider orientation="left" class="rf-sec">通用格式</a-divider>
+                  <a-form-item label="输出模板">
+                    <a-textarea v-model:value="form.output_template" :rows="6" placeholder="可留空；例如 Markdown/文本模板" />
+                  </a-form-item>
+                  <a-form-item label="输出 schema（JSON 对象）">
+                    <a-textarea v-model:value="form.output_schema_text" :rows="10" placeholder="{}" style="font-family: ui-monospace, monospace;" />
+                    <p class="rf-hint">定义该节点产出结构；留空 = {}。执行器只透传 schema，不内嵌业务字段。</p>
+                  </a-form-item>
+                </template>
+              </a-collapse-panel>
+            </a-collapse>
           </a-form>
 
 
-          <!-- 机型决策节点：只读输出契约；候选措辞与展示数量由 AI 层提示词处理 -->
+          <!-- 机型选配节点：筛选策略与推荐展示量可配置，措辞由 AI 角色层生成 -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <div class="node-section-title">本节点完成什么</div>
-            <p class="rf-hint">根据上游已登记的类型、系列、形态、GPU 与合规信息，从在售目录筛出候选机型并锁定一台骨架交给下游。</p>
-            <div class="node-section-title">交给下游的内容</div>
-            <ul class="rf-output-list">
-              <li><b>已锁定机型</b>：机型名 + 内部 ID，供配件选型使用。</li>
-              <li><b>候选机型骨架</b>：机型名、系列、形态、盘位、BOM 模板，供配件选型使用。</li>
-              <li><b>机型能力边界</b>：电源档位、CPU 上限、内存条数上限、每路通道数，供配件选型使用。</li>
-              <li><b>选型说明</b>：命中级别、放宽原因，供白盒展示使用。</li>
-              <li><b>推荐标注</b>：推荐等级、卖点；只有配置了 model_recommend 策略时才有。</li>
-            </ul>
+            <p class="rf-hint">根据上游已登记的类型、系列、形态、GPU 与合规信息，从在售目录筛出候选机型；是否推荐、怎么措辞、是否继续由 AI 角色层判断。</p>
+            <a-form-item label="每个系列最多推荐几台">
+              <a-input-number v-model:value="form.mr_series_limit" :min="1" :max="20" style="width:100%" />
+              <p class="rf-hint">收敛候选数量，避免一次铺满整个目录；AI 仍可在此基础上做语义筛选。</p>
+            </a-form-item>
+            <a-form-item label="推荐语长度">
+              <a-select v-model:value="form.mr_intro_length" :options="MODEL_INTRO_LENGTH_OPTIONS" style="width:100%" />
+            </a-form-item>
+            <a-form-item label="候选排序依据">
+              <a-select v-model:value="form.mr_sort_by" :options="MODEL_SORT_OPTIONS" style="width:100%" />
+            </a-form-item>
+            <a-form-item label="推荐时附带详情页链接">
+              <a-switch v-model:checked="form.mr_detail_link_enabled" />
+              <p class="rf-hint">开启后，AI 在介绍候选机型时可附带服务器详情页链接。</p>
+            </a-form-item>
           </a-form>
 
-          <!-- 配件决策节点：LLM 结构化提议的 schema、提示词模板、合并映射全部可配 -->
+          <!-- 配件选配节点：确定性选件 + 业务策略可配，不再暴露 JSON 黑盒 -->
           <a-form v-else-if="runtimeType === 'kp_reason'" layout="vertical">
-            <p class="rf-hint">配件方案由 AI 按需求提议，规则库校验兜底；关闭 LLM 提议后只走规则库。</p>
-            <a-form-item label="启用 LLM 提议">
-              <a-switch v-model:checked="form.kr_proposal_enabled" />
+            <p class="rf-hint">本节点优先走确定性的 pick_kp_parts 与规则库；AI 只做合理性审核与必要修正，不再生成黑盒 JSON 方案。</p>
+            <a-form-item label="配件确认模式">
+              <a-select v-model:value="form.kr_confirm_mode" :options="KP_CONFIRM_MODE_OPTIONS" style="width:100%" />
+              <p class="rf-hint">完整匹配时默认自动继续；只有在未匹配或需要用户拍板时才停下。</p>
             </a-form-item>
-            <a-form-item label="提议提示词模板">
-              <a-textarea v-model:value="form.kr_user_prompt_template" :rows="10" placeholder="留空使用后端默认模板" style="font-family: ui-monospace, monospace;" />
-              <p class="rf-hint">可用占位符：<code v-pre>{{requirement_text}}</code>、<code v-pre>{{understood}}</code>、<code v-pre>{{baseline_capability}}</code>。</p>
-            </a-form-item>
-            <a-form-item label="提议输出 schema（JSON 对象）">
-              <a-textarea v-model:value="form.kr_proposal_schema_text" :rows="12" placeholder="{}" style="font-family: ui-monospace, monospace;" />
-            </a-form-item>
-            <a-form-item label="提议合并映射（JSON 对象）">
-              <a-textarea v-model:value="form.kr_proposal_mapping_text" :rows="12" placeholder="{}" style="font-family: ui-monospace, monospace;" />
-              <p class="rf-hint">描述 LLM 输出字段如何确定性合入需求理解槽位；规则已有内容不覆盖。</p>
-            </a-form-item>
-            <a-form-item label="白盒说明模板">
+            <a-form-item label="推荐理由模板">
               <a-input v-model:value="form.kr_reason_template" placeholder="配件规划：已确认 {{items}}" />
             </a-form-item>
             <a-divider orientation="left" class="rf-sec">规则匹配</a-divider>
@@ -452,10 +471,10 @@ async function save() {
               <p class="rf-hint">开启时，需求中明确给出的电源瓦数/数量会覆盖 build_plan 的负载推断结果。</p>
             </a-form-item>
             <a-form-item label="电源瓦数读取路径">
-              <a-input v-model:value="form.cp_psu_wattage_source" placeholder="ext.psu_signal.wattage" />
+              <a-select v-model:value="form.cp_psu_wattage_source" :options="PSU_SOURCE_OPTIONS" style="width:100%" />
             </a-form-item>
             <a-form-item label="电源数量读取路径">
-              <a-input v-model:value="form.cp_psu_qty_source" placeholder="ext.psu_signal.qty" />
+              <a-select v-model:value="form.cp_psu_qty_source" :options="PSU_SOURCE_OPTIONS" style="width:100%" />
             </a-form-item>
           </a-form>
 
@@ -475,13 +494,12 @@ async function save() {
           <NodeResourceBindings
             v-model:rule-types="form.rule_types"
             v-model:tools="form.enabled_tools"
-            v-model:max-iterations="form.max_iterations"
             :tool-options="agentToolOptions"
             :rules-enabled="showRuleCatalog"
             :tools-enabled="toolsEnabled"
-            :show-max-iterations="toolsEnabled"
-            :rule-available="fillRuleTypes"
-            :rule-defaults="fillRuleTypes"
+            :tools-readonly="true"
+            :rule-available="nodeRuleTypes"
+            :rule-defaults="nodeRuleTypes"
           />
         </div>
       </div>

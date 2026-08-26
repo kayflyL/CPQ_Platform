@@ -16,7 +16,7 @@ _VALID_TYPE = {
     "clarity", "budget", "cpu_mem_generation", "category_alias",
     "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
     "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map",
-    "type_alias", "model_action_phrases", "kp_action_phrases",
+    "type_alias",
     "gpu_brand_map", "spec_unit_patterns", "power_calibration",
 }
 
@@ -237,16 +237,6 @@ DEFAULT_RULES: list[dict] = [
 
     {"type": "compliance_map", "name": "国产化 → Polaris + 国产件", "body": {"domestic_only": True, "platform_series": ["Polaris"], "cpu_keywords": ["KH", "兆芯", "开胜"], "allowed_manufacturers": ["兆芯", "海光"], "excluded_manufacturers": ["AMD", "Intel", "NVIDIA"], "gpu_policy": "exclude_foreign"}},
 
-    {"type": "model_action_phrases", "name": "机型选型用户意图词表", "body": {
-        "auto_pick": ["你推荐", "你选", "随便", "都行", "听你的", "你定", "推荐一个"],
-        "reselect": ["重选", "重新选", "换一台", "换机型", "再看", "别的机型"],
-        "cancel": ["算了", "不要了", "取消", "中止", "结束", "退出"]
-    }},
-    {"type": "kp_action_phrases", "name": "配件选配用户意图词表", "body": {
-        "cancel": ["算了", "不要了", "取消", "中止", "结束", "退出"],
-        "reselect_model": ["重选机型", "重新选机型", "换机型", "换一台", "重新选服务器", "改机型"],
-        "confirm": ["你推荐", "随便", "都行", "听你的", "你定", "推荐吧", "可以", "确认", "没问题", "继续", "就这个", "行", "好"]
-    }},
 ]
 
 class RequirementRuleRepository:

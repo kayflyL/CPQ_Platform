@@ -151,6 +151,8 @@ _DRIVE_CONFIG_RE = re.compile(
     re.I)
 _DRIVE_FIELD_RE = re.compile(
     r"(?:硬盘|磁盘|存储|ssd|hdd)\s*[:：][^\n，。]{0,20}\d+(?:\.\d+)?\s*[GT]", re.I)
+_GPU_CAPABILITY_RE = re.compile(
+    r"(?:支持|最多|最大|可(?:支持|扩展|扩)?)\s*\d+\s*(?:个|张|块)?\s*(?:GPU|卡)", re.I)
 
 
 def _has_drive_config_signal(text: str) -> bool:
@@ -347,7 +349,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         cap = g.get("capacity_gb")
         cmpv = g.get("comparison")
         brand_tokens = re.findall(r"[\u4e00-\u9fff]{2,}", model or "")
-        if not model and cap is None:
+        if not model and cap is None and qty is None:
             continue
         if qty is not None and not (1 <= int(qty) <= 64):
             continue
@@ -371,15 +373,21 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                     _gg["comparison"] = cmpv
             ggroups.append(_gg)
             changes.append(f"gpu_groups+{model}×{qty or 1}")
-        else:
+        elif cap is not None and 1 <= int(cap) <= 512:
             # 纯显存需求（无型号）："48G以上显存" → 只带 cap + comparison，无 tokens
-            if cap is None or not (1 <= int(cap) <= 512):
-                continue
             _gg = {"tokens": [], "qty": int(qty or 1), "cap": int(cap)}
             if cmpv in ("gte", "lte"):
                 _gg["comparison"] = cmpv
             ggroups.append(_gg)
             changes.append(f"gpu_groups+显存{cap}G×{qty or 1}")
+        else:
+            # 仅给数量、无型号无显存（如“4张GPU卡，型号你推荐”）：
+            # 卡数本身也是需求事实，必须落 gpu_groups 供下游唯一真值源读取。
+            if _GPU_CAPABILITY_RE.search(requirement_text or ""):
+                continue
+            _gg = {"tokens": [], "qty": int(qty or 1)}
+            ggroups.append(_gg)
+            changes.append(f"gpu_groups+数量×{qty or 1}")
         _add_cat("GPU")
 
     # ── 网卡：仅当规则没抽到任何网卡行时按 LLM 槽位补行 ──
@@ -484,4 +492,3 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         if cleaned.get(k) is not None
     }
     return changes
-

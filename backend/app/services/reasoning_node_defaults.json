@@ -7,79 +7,22 @@
     },
     "agent_fill": {
       "description": "会对话、会查目录确认在售/系列、边答边填线索登记表；信息不足自然反问，一个回合可批量填多个槽；机型与配件的最终选型交给下游节点",
-      "rule_types": ["platform_series_map", "category_alias", "workload_map", "compliance_map", "gpu_form_map"],
+      "rule_types": ["platform_series_map", "category_alias", "workload_map", "compliance_map"],
       "enabled_tools": ["list_server_types", "list_server_models", "get_server_model"]
     },
     "model_reason": {
       "description": "按线索登记字段推荐或智能选配在售机型骨架",
-      "rule_types": ["fallback_order", "gpu_form_map", "compliance_map"],
-      "enabled_tools": ["select_models"]
+      "rule_types": ["fallback_order", "compliance_map"],
+      "enabled_tools": ["select_models"],
+      "series_limit": 3,
+      "detail_link_enabled": true,
+      "intro_length": "medium",
+      "sort_by": "match_stage"
     },
     "kp_reason": {
       "description": "按线索登记字段选择关键配件",
-      "proposal_enabled": true,
       "enabled_tools": ["pick_kp_parts"],
-      "proposal_schema": {
-        "type": "object",
-        "properties": {
-          "memory": {
-            "type": "object",
-            "properties": {
-              "per_stick_gb": { "type": "integer" },
-              "qty": { "type": "integer" },
-              "type": { "type": "string" },
-              "speed_mt": { "type": "integer" },
-              "total_gb": { "type": "integer" },
-              "reason": { "type": "string" }
-            }
-          },
-          "raid": {
-            "type": "object",
-            "properties": {
-              "model": { "type": "string" },
-              "qty": { "type": "integer" },
-              "reason": { "type": "string" }
-            }
-          },
-          "nic": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "speed_g": { "type": "integer" },
-                "ports": { "type": "integer" },
-                "qty": { "type": "integer" },
-                "with_optical_module": { "type": "boolean" },
-                "reason": { "type": "string" }
-              }
-            }
-          },
-          "psu": {
-            "type": "object",
-            "properties": {
-              "wattage": { "type": "integer" },
-              "qty": { "type": "integer" },
-              "reason": { "type": "string" }
-            }
-          },
-          "notes": { "type": "array", "items": { "type": "string" } }
-        }
-      },
-      "user_prompt_template": "",
-      "proposal_mapping": {
-        "memory": {
-          "fields": ["per_stick_gb", "qty", "type", "speed_mt", "comparison", "total_gb"],
-          "required_any": ["per_stick_gb", "total_gb"]
-        },
-        "raid": {
-          "fields": ["model", "qty"],
-          "required_any": ["model"]
-        },
-        "nic": {
-          "fields": ["speed_g", "ports", "qty", "with_optical_module"],
-          "required_any": ["speed_g", "ports", "qty"]
-        }
-      },
+      "confirm_mode": "auto",
       "reason_template": "配件规划：已确认 {{items}}",
       "representative_pick": "auto",
       "fallback_strategy": "fallback_representative",

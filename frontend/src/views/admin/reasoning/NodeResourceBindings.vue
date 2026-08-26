@@ -13,17 +13,17 @@
 
     <section v-if="toolsEnabled" class="nrb-section nrb-card">
       <div class="nrb-section-title">可用工具</div>
+      <div v-if="toolsReadonly" class="nrb-tool-tags">
+        <span v-for="tool in readonlyToolOptions" :key="tool.value" class="nrb-tool-tag">{{ tool.label }}</span>
+      </div>
       <a-select
+        v-else
         v-model:value="toolModel"
         mode="multiple"
         :options="toolOptions"
         placeholder="选择该节点可调用的工具"
         style="width:100%"
       />
-      <div v-if="showMaxIterations" class="nrb-field">
-        <span class="nrb-field-label">最多执行步数</span>
-        <a-input-number v-model:value="maxIterationsModel" :min="1" :max="20" style="width:100%" />
-      </div>
       <div v-if="selectedDataSources.length" class="nrb-field">
         <span class="nrb-field-label">本节点将查询的数据源</span>
         <div class="nrb-data-source-list">
@@ -31,7 +31,8 @@
         </div>
         <p class="nrb-hint">数据源由已选工具自动派生，不由节点单独填写。</p>
       </div>
-      <p class="nrb-hint">工具列表来自全系统 AI 工具目录，不由节点写死；可多选、可清空。</p>
+      <p v-if="toolsReadonly" class="nrb-hint">工具由节点类型固定，避免误选导致链路失效；数据源由工具自动派生。</p>
+      <p v-else class="nrb-hint">工具列表来自全系统 AI 工具目录，不由节点写死；可多选、可清空。</p>
     </section>
   </div>
 </template>
@@ -49,8 +50,7 @@ const props = withDefaults(defineProps<{
   ruleDefaults?: RuleType[]
   rulesEnabled?: boolean
   toolsEnabled?: boolean
-  showMaxIterations?: boolean
-  maxIterations?: number
+  toolsReadonly?: boolean
 }>(), {
   ruleTypes: () => [],
   tools: () => [],
@@ -59,14 +59,12 @@ const props = withDefaults(defineProps<{
   ruleDefaults: () => [],
   rulesEnabled: true,
   toolsEnabled: true,
-  showMaxIterations: false,
-  maxIterations: 6,
+  toolsReadonly: false,
 })
 
 const emit = defineEmits<{
   'update:ruleTypes': [RuleType[]]
   'update:tools': [string[]]
-  'update:maxIterations': [number]
 }>()
 
 const ruleModel = computed({
@@ -77,10 +75,11 @@ const toolModel = computed({
   get: () => props.tools,
   set: (value: string[]) => emit('update:tools', value || []),
 })
-const maxIterationsModel = computed({
-  get: () => props.maxIterations,
-  set: (value: number) => emit('update:maxIterations', Number(value) || 6),
-})
+const readonlyToolOptions = computed(() => (props.tools || []).map((tool) => {
+  const name = String(tool)
+  const found = props.toolOptions.find((o) => String(o.value) === name)
+  return { value: name, label: found?.label || name }
+}))
 
 const selectedDataSources = computed(() => {
   const selected = new Set((props.tools || []).map((tool) => String(tool)))
@@ -110,6 +109,16 @@ const selectedDataSources = computed(() => {
 .nrb-field { display: flex; flex-direction: column; gap: 6px; }
 .nrb-field-label { font-size: 12px; color: var(--cpq-text-secondary); }
 .nrb-data-source-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.nrb-tool-tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.nrb-tool-tag {
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--cpq-text-primary);
+  background: var(--cpq-glass-1-bg, rgba(255, 255, 255, 0.06));
+  border: 1px solid var(--cpq-border-primary);
+}
 .nrb-data-source-tag {
   padding: 3px 8px;
   border-radius: 999px;

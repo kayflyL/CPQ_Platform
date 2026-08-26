@@ -1008,8 +1008,7 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
         qty = int(g.get("qty") or 1)
         _cap = g.get("cap")          # 显存容量（GB，R10/I50；2026-08 支持纯显存组）
         _cmp = g.get("comparison")   # gte/lte（AI 识别"以上/以下"）
-        if not toks and not _cap:
-            continue
+        _spec_label = f"型号 {toks[0]}" if toks else (f"显存 {_cap}G" if _cap is not None else f"{qty}×GPU")
         hit = None
         if toks:
             for t in toks:
@@ -1060,7 +1059,7 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     "category": db_cat,
                     "unit_price": hit.get("price"),
                     "currency": hit.get("currency") or "RMB",
-                    "matched_spec": f"型号 {toks[0]}" if toks else f"显存 {_cap}G",
+                    "matched_spec": _spec_label,
                     "qty": qty,
                 })
             produced += 1
@@ -1091,7 +1090,8 @@ def _pick_gpu_groups(gpu_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
                     "unit_price": 0, "currency": "RMB",
                     "unmatched": True,
                     "unmatched_reason": (f"GPU 型号 {toks[0]} 在 KP 库未命中，需手填" if toks
-                                         else f"显存 {_cap}G 的 GPU 未命中，需手填"),
+                                         else f"显存 {_cap}G 的 GPU 未命中，需手填" if _cap is not None
+                                         else "GPU 未命中，需手填"),
                     "qty": qty,
                 })
             produced += 1

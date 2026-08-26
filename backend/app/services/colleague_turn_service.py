@@ -1043,12 +1043,35 @@ async def _run_tool_turn(
             await assistant_hub.broadcast(thread_id, {"type": "error", "message": "需求分析续跑未完成，请稍后重试。"})
         return
 
-    routed = await route_skill_llm(
-        _resolved_skills(colleague),
-        user_text,
-        conversation_text(history),
-        model=(colleague or {}).get("model_override") or None,
-    )
+    # Skill Studio 预览：右侧测试窗口第一条用户消息就直接进入需求分析流水线，
+    # 不走普通聊天意图路由，避免“我需要一台服务器”被当成闲聊卡在入口。
+    thread_entry_point = ""
+    try:
+        entry_repo = AssistantRepository()
+        try:
+            _entry_thread = entry_repo.get_thread(thread_id)
+            thread_entry_point = str((_entry_thread or {}).get("entry_point") or "").strip()
+        finally:
+            entry_repo.close()
+    except Exception:
+        logger.exception("读取会话入口失败 thread=%s", thread_id)
+
+    routed = None
+    if thread_entry_point == "skill_studio_preview":
+        _preview_skill = next(
+            (s for s in _resolved_skills(colleague)
+             if str(s.get("workflow_key") or s.get("key") or "").strip() == "requirement_analysis"),
+            None,
+        )
+        if _preview_skill:
+            routed = {"skill": _preview_skill, "rule": {"action": {"requirement_source": "current"}}}
+    if not routed:
+        routed = await route_skill_llm(
+            _resolved_skills(colleague),
+            user_text,
+            conversation_text(history),
+            model=(colleague or {}).get("model_override") or None,
+        )
     if routed:
         routed_skill = routed.get("skill") if isinstance(routed.get("skill"), dict) else {}
         routed_rule = routed.get("rule") if isinstance(routed.get("rule"), dict) else {}

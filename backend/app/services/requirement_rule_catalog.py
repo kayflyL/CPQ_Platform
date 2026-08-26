@@ -323,29 +323,3 @@ def check_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
     return dict(rows[0]) if rows else {}
 
 
-def model_action_phrases(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
-    """机型选型节点用户意图词表（自己配/推荐/重选/取消）→ 每组关键词。
-
-    规则 body 即 action → keywords 映射；可多条合并。
-    """
-    out: dict[str, list[str]] = {}
-    for row in active_bodies("model_action_phrases", enabled_types):
-        for action, words in row.items():
-            if not action or not isinstance(words, list):
-                continue
-            out[action] = [str(x) for x in words if str(x).strip()]
-    return out
-
-
-def kp_action_phrases(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
-    """配件选配节点用户意图词表（确认/重选机型/取消）→ 每组关键词。
-
-    规则 body 即 action → keywords 映射；可多条合并。
-    """
-    out: dict[str, list[str]] = {}
-    for row in active_bodies("kp_action_phrases", enabled_types):
-        for action, words in row.items():
-            if not action or not isinstance(words, list):
-                continue
-            out[action] = [str(x) for x in words if str(x).strip()]
-    return out

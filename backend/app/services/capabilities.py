@@ -296,7 +296,7 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
     # 只在客户用自然语言提住真正模糊的配件诉求（吐需更多内存/架 raid/万兆网卡）时才让 LLM 提议；
     # 结构化 gpu_groups/mem_groups/raid_groups/drive_groups 等是事实，由 pick_kp_parts 规则直接利用，不再走慢 LLM，避免 GPU/内存场景卡数十秒。
     _need_llm = any(_kp_ext.get(k) for k in ("mem_signal", "raid_signal", "nic_signal", "psu_signal"))
-    if bool(cfg.get("proposal_enabled", True)) and _need_llm:
+    if _need_llm:
         prop = await _kp_llm_propose(ctx, cfg, broadcast)
         if prop.get("ok"):
             proposal_note = prop.get("reason") or ""
@@ -312,7 +312,7 @@ async def run_kp_reason(ctx: dict, config: dict, broadcast=None) -> dict:
 
 
 def _kp_config(config: Optional[dict]) -> dict:
-    """归一化 kp_reason 节点配置；LLM 提议的 schema/提示词/映射全部可编辑。"""
+    """归一化 kp_reason 节点配置；只暴露业务策略，不再让前端手写 schema/映射黑盒。"""
     cfg = dict(config or {})
     from app.services import reasoning_node_contract
     defaults = reasoning_node_contract.node_defaults().get("kp_reason", {})
@@ -660,9 +660,10 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     rule_types = (config or {}).get("rule_types")
     rtext = str(req_text or "").lower()
     # 模型输出的 semantic 已经过 schema 收口，此处作为 advisor；侧重在“事实确定性”。
-    # 量化事实（gpu_count/total_vram_gb）来源：模型 semantic > 规则库 workload_map（规则赢模型的数值）。
+    # GPU 卡数唯一真值源 = ext.gpu_groups；此处只用规则库 workload_map 的数值做归一，
+    # 不再把 semantic.workload.gpu_count 当作第二真值源。
     wl = dict(_sc.workload(ext))
-    rule_gpu_count = int(wl.get("gpu_count") or 0)
+    rule_gpu_count = 0
     # 规则库 workload_map：命中关键词即按规则补意图/显存/卡数（规则赢模型的数值）。
     for r in _rc.workload_map(rule_types):
         kw = str(r.get("workload_keyword") or "").lower()
@@ -674,7 +675,6 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
             if r.get("gpu_count") is not None and rule_gpu_count <= 0:
                 rule_gpu_count = int(r.get("gpu_count"))
             break
-    wl.pop("gpu_count", None)
     if wl:
         _sc.set_value(ext, "workload", wl)
         if wl.get("kind") and _sc.intent(ext) in (None, "general"):
@@ -865,6 +865,26 @@ def _gpu_qty_from_ext(ext: dict) -> int:
     return total
 
 
+def filter_models_by_gpu_capacity(baselines: list, gpu_count: int):
+    """按 GPU 槽位统一过滤候选机型，唯一能力过滤点（事实源 = base_config.gpu_slots）。
+
+    能装下的机型全部保留；一个都装不下时保留原候选并给每条打 gpu_capacity_note，
+    由上层决定是否自动升级/询问，不再静默锁机型。
+    """
+    if not gpu_count or not baselines:
+        return list(baselines or []), []
+    _capable = [b for b in baselines
+                if int((b.get("base_config") or {}).get("gpu_slots") or 0) >= gpu_count]
+    if _capable:
+        return _capable, []
+    notes = []
+    for b in baselines:
+        note = f"当前候选机型 GPU 槽位不足 {gpu_count} 卡"
+        b.setdefault("gpu_capacity_note", note)
+        notes.append(note)
+    return list(baselines), notes
+
+
 def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     """机型选型规则本体：四级兜底（exact/same_series/same_form/all，fallback_order 可配）+ model_recommend 标注。"""
     from app.api.candidate_search import select_models, build_variant_signals
@@ -930,13 +950,7 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     # 真实 GPU 槽位能力过滤（事实源 = base_config.gpu_slots，非死区间）：卡数需求>0 时只保留能装下的机型；
     # 一个能装的都没有则保留原候选并白盒标注槽位不足，交下游说明，不静默丢卡。
     if _gpu_count > 0:
-        _capable = [b for b in baselines
-                    if int((b.get("base_config") or {}).get("gpu_slots") or 0) >= _gpu_count]
-        if _capable:
-            baselines = _capable
-        else:
-            for b in baselines:
-                b["gpu_capacity_note"] = f"当前候选机型 GPU 槽位不足 {_gpu_count} 卡"
+        baselines, _gpu_capacity_notes = filter_models_by_gpu_capacity(baselines, _gpu_count)
 
     _cat_model_id = ctx.get("catalog_model_id")
     if _cat_model_id:
@@ -944,7 +958,29 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
                  if b.get("server_model_id") == _cat_model_id or b.get("id") == _cat_model_id]
         if _keep:
             baselines = _keep
+    # 每个系列最多保留 N 台（可配），避免“用户说 Orion 却把 Polaris 也一起铺出来”：
+    # 收敛只作用于候选展示；确定性匹配精度仍由 match_stage 负责。
+    try:
+        series_limit = int(cfg.get("series_limit") or 3)
+    except (TypeError, ValueError):
+        series_limit = 3
+    if series_limit > 0 and baselines:
+        _seen_series: dict = {}
+        _limited = []
+        for _b in baselines:
+            _s = str(_b.get("series") or "")
+            if _seen_series.get(_s, 0) >= series_limit:
+                continue
+            _seen_series[_s] = _seen_series.get(_s, 0) + 1
+            _limited.append(_b)
+        baselines = _limited
     ctx["baselines"] = baselines
+    ctx["model_reason_cfg"] = {
+        "series_limit": series_limit,
+        "detail_link_enabled": bool(cfg.get("detail_link_enabled", True)),
+        "intro_length": str(cfg.get("intro_length") or "medium"),
+        "sort_by": str(cfg.get("sort_by") or "match_stage"),
+    }
     return {
         "count": len(baselines),
         "match_stage": (baselines[0].get("match_stage") if baselines else None),

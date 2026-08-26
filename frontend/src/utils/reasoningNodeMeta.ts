@@ -34,7 +34,7 @@ export type ReasoningNodeType = 'input' | 'agent' | 'assemble' | 'output'
 
 export const REASONING_NODE_GROUPS: Array<{ name: string; types: string[] }> = [
   { name: '输入输出节点', types: ['input', 'output'] },
-  { name: '智能体节点', types: ['agent_fill', 'model_reason', 'kp_reason', 'agent'] },
+  { name: '需求分析节点', types: ['agent_fill', 'model_reason', 'kp_reason', 'agent'] },
   { name: '组装节点', types: ['compose'] },
 ]
 
@@ -55,22 +55,22 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
     sources: ['输出模板'],
   },
   agent_fill: {
-    type: 'agent_fill', name: '智能对话填表 Agent', icon: MessageOutlined, tone: 'blue',
-    desc: '会对话、会查目录确认在售/系列、边答边填线索登记表；选型交给下游',
+    type: 'agent_fill', name: '线索登记', icon: MessageOutlined, tone: 'blue',
+    desc: '按商机线索登记表收口需求，信息不足时只问缺的字段',
     sources: ['对话', '工具目录', '线索登记表'],
   },
   model_reason: {
-    type: 'model_reason', name: '机型选型', icon: DesktopOutlined, tone: 'blue',
+    type: 'model_reason', name: '机型选配', icon: DesktopOutlined, tone: 'blue',
     desc: '按需求与在售目录匹配，选定机型',
     sources: ['在售机型', '规则目录'],
   },
   kp_reason: {
-    type: 'kp_reason', name: '配件选型', icon: ToolOutlined, tone: 'blue',
+    type: 'kp_reason', name: '配件选配', icon: ToolOutlined, tone: 'blue',
     desc: '按需求与机型能力，匹配内存/盘/网卡/RAID/电源等',
     sources: ['配件库', '规格规则', '需求摘要'],
   },
   compose: {
-    type: 'compose', name: '方案组装·BOM', icon: BuildOutlined, tone: 'green',
+    type: 'compose', name: 'BOM 组装', icon: BuildOutlined, tone: 'green',
     desc: '把机型 + KP 组装成整机 BOM 方案草稿',
     sources: ['build_plan'],
   },

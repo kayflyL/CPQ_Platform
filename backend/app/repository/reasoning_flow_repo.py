@@ -437,20 +437,17 @@ class ReasoningFlowRepository:
                     cfg["enabled_tools"] = list(default["enabled_tools"])
                     dirty = True
 
-            if node_key == "kp_reason":
-                for field in ("proposal_enabled",):
-                    if field not in cfg and field in default:
-                        cfg[field] = bool(default[field])
-                        dirty = True
-                for field in ("proposal_schema", "proposal_mapping"):
-                    if not cfg.get(field) and default.get(field):
-                        cfg[field] = dict(default[field])
-                        dirty = True
-                for field in ("user_prompt_template", "reason_template"):
+            if node_key == "model_reason":
+                for field in ("series_limit", "intro_length", "sort_by"):
                     if not cfg.get(field) and default.get(field):
                         cfg[field] = default[field]
                         dirty = True
-                for field in ("representative_pick", "fallback_strategy"):
+                if "detail_link_enabled" not in cfg and "detail_link_enabled" in default:
+                    cfg["detail_link_enabled"] = bool(default["detail_link_enabled"])
+                    dirty = True
+
+            if node_key == "kp_reason":
+                for field in ("confirm_mode", "reason_template", "representative_pick", "fallback_strategy"):
                     if not cfg.get(field) and default.get(field):
                         cfg[field] = default[field]
                         dirty = True

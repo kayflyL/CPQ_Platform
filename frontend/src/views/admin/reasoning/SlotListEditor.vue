@@ -40,6 +40,8 @@ const props = defineProps<{
   readonly?: boolean
   /** 反问节点聚焦：只展示「字段 / 反问 / 候选来源」，隐藏层级/必填/默认与排序增删 */
   askFocus?: boolean
+  /** 隐藏 KP 大类映射（线索登记节点只保留字段 schema，不做映射旁路） */
+  hideKpMap?: boolean
 }>()
 const slots = ref<Array<{ key: string; label: string; level: string; candidate_source: string }>>([])
 const askThreshold = ref(2)
@@ -237,7 +239,7 @@ onMounted(() => { load(); loadKpMap() })
       <span class="slot-hint">字段清单从此处增删排序，不再写死在代码里</span>
     </div>
     </div>
-        <a-collapse v-if="!props.askFocus" class="slot-kp-collapse" :bordered="false">
+        <a-collapse v-if="!props.askFocus && !props.hideKpMap" class="slot-kp-collapse" :bordered="false">
       <a-collapse-panel key="kp" header="部件字段映射（KP 大类 → 进度卡 / 反问题目）">
         <div class="slot-kp-toolbar">
           <a-spin :spinning="kpLoading" size="small" />

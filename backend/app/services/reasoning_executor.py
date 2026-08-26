@@ -172,6 +172,7 @@ async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) ->
         import uuid
         rid = f"agent_{uuid.uuid4().hex[:12]}"
         ctx["awaiting_input"] = True
+        ctx["current_target"] = "agent_fill"
         ctx["last_reply_id"] = rid
         ctx["last_ask_question"] = question
         _fz = ctx.get("feasibility") or {}
@@ -219,45 +220,61 @@ async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) ->
     return {"ok": True, "source": "agent_fill", "sufficient": bool(not missing),
             "missing_critical": missing, "done": not need_ask}
 
-def _model_selection_intent(answer: str) -> str:
-    """识别用户在机型选型节点的意图（关键词兜底，主判定走 LLM resolve_intent）。
-
-    意图词表外置到 rules.requirement_rules 的 model_action_phrases；规则库空缺时不强判，
-    只返回默认 choose。型号匹配由 baselines 的确定性字段完成，本函数不承担。
-    仅在 LLM 不可用/超时时作为保守兜底，避免断网时把“确认/推荐”误判成自配。
-    """
-    text = str(answer or "").strip().lower()
-    if not text:
-        return ""
-    try:
-        from app.services import requirement_rule_catalog as _rc
-        phrases = _rc.model_action_phrases()
-    except Exception:
-        phrases = {}
-    for action in ("auto_pick", "reselect", "cancel"):
-        if any(k in text for k in phrases.get(action) or []):
-            return action
-    return ""
-
-
 def _lock_model_from_answer(answer: str, baselines: list) -> dict:
-    """把用户回复解析为机型选择；匹配不到返回空 dict。"""
+    """把用户回复解析为机型选择；匹配不到返回空 dict。
+
+    匹配优先级：型号名/ID 精确命中 > 明确序号（第N个/选N/纯数字N）> 宽松包含。
+    严禁在型号名内部抓数字当序号（如 ESA24V3-P 的 4 会被误判成第 4 个）。
+    """
     text = str(answer or "").strip()
     if not baselines or not text:
         return {}
     low = text.lower()
-    # 优先“第 1 个 / 1 / 选 2”
-    m = re.search(r"(?:第\s*)?([1-9])[、.．\s]*(?:个|台|项)?", text)
-    if m:
-        idx = int(m.group(1)) - 1
+    # 1. 精确命中：型号名或配置 ID 与用户输入完全一致（不区分大小写）。
+    for b in baselines:
+        name = str(b.get("name") or "").strip()
+        mid = str(b.get("id") or b.get("server_model_id") or "").strip()
+        if name and low == name.lower():
+            return b
+        if mid and low == mid.lower():
+            return b
+    # 2. 明确序号：只接受整句是“第N个/选N/就N/纯数字N”，避免误吞型号名里的数字。
+    ordinal = re.fullmatch(r"(?:第\s*)?([1-9])\s*(?:个|台|项)?", text)
+    if not ordinal:
+        ordinal = re.fullmatch(r"(?:选|选择|就|要)\s*(?:第\s*)?([1-9])\s*(?:个|台|项)?", text)
+    if ordinal:
+        idx = int(ordinal.group(1)) - 1
         if 0 <= idx < len(baselines):
             return baselines[idx]
-    # 其次型号名/ID 精确包含
+    # 3. 宽松包含：用户口语描述（如“介绍下 ES22V3”）也能定位到具体机型。
     for b in baselines:
         hay = " ".join(str(b.get(k) or "") for k in ("name", "id", "server_model_id")).lower()
-        if hay and (low in hay or (hay and len(low) >= 3 and hay in low)):
+        if hay and len(low) >= 3 and (low in hay or hay in low):
             return b
     return {}
+
+
+def _gpu_capacity_notes(baselines: list) -> list:
+    """返回候选机型中带 GPU 槽位不足标注的提示，供上层不静默锁定。"""
+    return [str(b.get("gpu_capacity_note")) for b in (baselines or []) if b.get("gpu_capacity_note")]
+
+
+def _selected_baseline(ctx: dict):
+    """当前已锁机型对应的完整 baseline；无则 None。"""
+    baselines = ctx.get("baselines") or []
+    if not baselines:
+        return None
+    if len(baselines) == 1:
+        return baselines[0]
+    sel = ctx.get("model_selection") or {}
+    sel_name = str(sel.get("name") or "").strip()
+    sel_id = sel.get("id")
+    for b in baselines:
+        if sel_name and str(b.get("name") or "").strip() == sel_name:
+            return b
+        if sel_id and (b.get("id") == sel_id or b.get("server_model_id") == sel_id):
+            return b
+    return baselines[0] if baselines else None
 
 
 def _model_reason_matches(baselines: list) -> list:
@@ -269,7 +286,8 @@ def _model_reason_matches(baselines: list) -> list:
 
 
 def _model_intent_from_plan(pi: str, answer: str, llm_enabled: bool) -> str:
-    """把角色层 plan_intent 映射成机型节点动作；仅 LLM 不可用时用关键词兜底。"""
+    """把角色层 plan_intent 映射成机型节点动作；不在此做关键词兜底。"""
+    del answer, llm_enabled
     plan = {
         "auto_recommend": "auto_pick",
         "cancel": "cancel",
@@ -280,8 +298,6 @@ def _model_intent_from_plan(pi: str, answer: str, llm_enabled: bool) -> str:
     }.get(str(pi or "").strip().lower())
     if plan:
         return plan
-    if not llm_enabled:
-        return _model_selection_intent(str(answer or "").strip())
     return ""
 
 
@@ -307,6 +323,12 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
         _baselines = ctx.get("baselines") or []
         if not _baselines:
             return await _ask_model_choice(ctx, [], rule_res, broadcast)
+        _cap_notes = _gpu_capacity_notes(_baselines)
+        if _cap_notes:
+            _fz = dict(ctx.get("feasibility") or {})
+            _fz["hints"] = list(dict.fromkeys((_fz.get("hints") or []) + _cap_notes))
+            ctx["feasibility"] = _fz
+            return await _ask_model_choice(ctx, _baselines, rule_res, broadcast)
         locked = _baselines[0]
         ctx["baselines"] = [locked]
         ctx["model_selection"] = {"id": locked.get("id"), "name": locked.get("name") or ""}
@@ -321,6 +343,12 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     rule_res = run_select_baseline_rule(ctx, config)
     _baselines = ctx.get("baselines") or []
     if _baselines and len(_baselines) == 1 and not answer:
+        _cap_notes = _gpu_capacity_notes(_baselines)
+        if _cap_notes:
+            _fz = dict(ctx.get("feasibility") or {})
+            _fz["hints"] = list(dict.fromkeys((_fz.get("hints") or []) + _cap_notes))
+            ctx["feasibility"] = _fz
+            return await _ask_model_choice(ctx, _baselines, rule_res, broadcast)
         locked = _baselines[0]
         ctx["baselines"] = [locked]
         ctx["_locked_baseline"] = locked
@@ -365,10 +393,19 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
                     _bc = _m.get("base_config") or {}
                     _browse.append({"id": _m.get("id"), "name": _m.get("name") or "",
                                     "series": _bc.get("series") or _m.get("series") or "",
-                                    "form": _bc.get("form") or _m.get("form") or ""})
+                                    "form": _bc.get("form") or _m.get("form") or "",
+                                    "base_config": _bc})
         except Exception:
             _browse = []
         if _browse:
+            from app.services.capabilities import _gpu_qty_from_ext, filter_models_by_gpu_capacity
+            _gcount = _gpu_qty_from_ext(ctx.get("ext") or {})
+            if _gcount > 0:
+                _browse, _gpu_notes = filter_models_by_gpu_capacity(_browse, _gcount)
+                if _gpu_notes:
+                    _fz = dict(ctx.get("feasibility") or {})
+                    _fz["hints"] = list(dict.fromkeys((_fz.get("hints") or []) + _gpu_notes))
+                    ctx["feasibility"] = _fz
             baselines = _browse
             ctx["baselines"] = baselines
             rule_res = {**rule_res, "count": len(baselines)}
@@ -417,24 +454,8 @@ async def _ask_model_choice(ctx: dict, baselines: list, rule_res: dict, broadcas
             "question": question, "reason": "等待用户确认候选机型"}
 
 
-def _kp_reply_intent(answer: str) -> str:
-    """识别用户在配件选配节点的意图（关键词兜底，主判定走 LLM resolve_intent）。"""
-    text = str(answer or "").strip().lower()
-    if not text:
-        return "confirm"
-    try:
-        from app.services import requirement_rule_catalog as _rc
-        phrases = _rc.kp_action_phrases()
-    except Exception:
-        phrases = {}
-    for action in ("cancel", "reselect_model", "confirm"):
-        if any(k in text for k in phrases.get(action) or []):
-            return action
-    return "adjust"
-
-
 async def _resolve_kp_intent(ctx: dict, answer: str) -> str:
-    """配件节点意图映射：角色层已统一判定，这里只按 plan_intent 映射，关键词仅作兜底。"""
+    """配件节点意图映射：角色层已统一判定，这里只按 plan_intent 映射。"""
     text = str(answer or "").strip()
     pi = str(ctx.get("plan_intent") or "").strip().lower()
     if pi == "cancel":
@@ -449,7 +470,7 @@ async def _resolve_kp_intent(ctx: dict, answer: str) -> str:
         return "confirm"
     if not text:
         return "confirm"
-    return _kp_reply_intent(text)
+    return "adjust"
 
 
 def _kp_part_reason(p: dict) -> str:
@@ -480,7 +501,7 @@ def _kp_summary_lines(parts: list) -> list:
 async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     # 配件推理（AI 路）：LLM 提议 + 规则校验后先让用户确认；用户可改口、重选机型或取消。
     # 精确执行仍由规则保证（compose 需要完整字段），LLM 输出确认 + 理由。
-    from app.services.capabilities import run_kp_reason, run_match_kp_rule
+    from app.services.capabilities import run_kp_reason, run_match_kp_rule, _gpu_qty_from_ext
     try:
         from app.services import prompt_store
         _kp_defaults = prompt_store.get_prompt_defaults("kp_reason")
@@ -494,6 +515,27 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         ctx["awaiting_input"] = False
         ctx["kp_reason"] = {"source": "cancelled", "reason": "用户取消方案配置"}
         return {"source": "cancelled", "reason": "已取消方案配置"}
+
+    # 已锁机型 GPU 槽位门禁：需求要 GPU，但已锁机型装不下时，不继续出配件/BOM，
+    # 退回 model_reason 重选，避免“卡数写进槽位、BOM 又掉卡”。
+    _gpu_count = _gpu_qty_from_ext(ctx.get("ext") or {})
+    if _gpu_count > 0:
+        _sel = _selected_baseline(ctx)
+        if _sel and int((_sel.get("base_config") or {}).get("gpu_slots") or 0) < _gpu_count:
+            ctx["awaiting_input"] = True
+            ctx["current_target"] = "model_reason"
+            ctx["model_selection"] = None
+            ctx["baselines"] = []
+            ctx["kp_reason"] = {"source": "gpu_capacity_gate", "reason": "已锁机型 GPU 槽位不足"}
+            question = str(_kp_defaults.get("reselect_question") or "请重新选择机型")
+            if broadcast:
+                try:
+                    await broadcast({"type": "need_confirm", "step": "kp_reason", "question": question,
+                                     "options": [], "why": "已锁机型 GPU 槽位不足"})
+                except Exception:
+                    pass
+            return {"source": "gpu_capacity_gate", "reason": "已锁机型 GPU 槽位不足"}
+
     if intent == "reselect_model":
         # 回到上一节点重新挑机型：本轮先暂停，pending 的 current_target 会保存为 model_reason。
         ctx["awaiting_input"] = True
@@ -523,8 +565,11 @@ async def _handle_kp_reason(ctx: dict, config: dict, broadcast: BroadcastFn) -> 
         parts = ctx.get("kp_parts") or []
         ctx["kp_reason"] = {**rule_res, "source": "llm+rule" if res.get("ok") else "rule",
                             "proposal_reason": res.get("reason") or ""}
-        # 确定性选件完成后直接交给 compose 组装 BOM；只有完全没匹配到、或出现未匹配项时才停下。
-        if ctx.get("force_complete") or ctx.get("delegated") or rule_res.get("kp_count"):
+        # 确定性选件完成后直接交给 compose 组装 BOM；只有完全没匹配到、出现未匹配项、
+        # 或节点配置为“手动确认”时才停下。
+        confirm_mode = str((config or {}).get("confirm_mode") or "auto").strip()
+        _auto_continue = bool(rule_res.get("kp_count")) and not rule_res.get("unmatched_count")
+        if (ctx.get("force_complete") or ctx.get("delegated")) or (_auto_continue and confirm_mode != "manual"):
             if not rule_res.get("unmatched_count"):
                 ctx["kp_reason"] = {**ctx["kp_reason"], "source": "confirmed"}
                 ctx["awaiting_input"] = False
