@@ -67,13 +67,35 @@ class ExcelParser:
         if self._parse_field_rules is None:
             self._parse_field_rules = self.rules_repo.get_parse_field_rules()
     
+
+    def _region_by_id(self) -> dict:
+        """Build an id -> region map for stable field-rule binding."""
+        return {r["id"]: r for r in self._parse_regions if r.get("id") is not None}
+
+    def _rule_matches_region(self, rule: dict, region: dict) -> bool:
+        """True when a field rule binds to a region by region_id or legacy string."""
+        if rule.get("region_id") is not None:
+            return rule["region_id"] == region.get("id")
+        ref = (rule.get("region") or "").strip().lower()
+        return ref in {
+            (region.get("region_key") or "").strip().lower(),
+            (region.get("name") or "").strip().lower(),
+        }
+
+    def _is_static_rule(self, rule: dict, region_map: dict) -> bool:
+        """A rule is static when its region has region_type=static, with legacy header fallback."""
+        region_id = rule.get("region_id")
+        if region_id is not None and region_id in region_map:
+            return region_map[region_id].get("region_type") == "static"
+        return (rule.get("region") or "").strip().lower() == "header"
+
     def parse(self, df: pd.DataFrame, return_trace: bool = True) -> dict:
         """解析 Excel DataFrame，返回结构化数据 + 溯源信息
-        
+
         Args:
             df: Excel 工作表转换的 DataFrame
             return_trace: 是否返回溯源信息（白盒化）
-        
+
         Returns:
             {
                 "static_fields": {field_key: {"value": ..., "source": {...}}},
@@ -82,22 +104,24 @@ class ExcelParser:
             }
         """
         self._load_rules()
-        
+
         result = {
             "static_fields": {},
             "dynamic_regions": {},
             "trace": []
         }
-        
+
         # 1. 定位所有区域
         region_bounds = self._locate_regions(df)
-        
-        # 2. 提取静态字段（header 区域）
-        header_rules = [r for r in self._parse_field_rules if r["region"] == "header" and r["enabled"]]
-        for rule in sorted(header_rules, key=lambda x: x["sort_order"]):
+        region_map = self._region_by_id()
+
+        # 2. 提取静态字段：按 region_type=static 判断，保留 legacy header 兜底
+        static_rules = [r for r in self._parse_field_rules
+                        if r.get("enabled") and self._is_static_rule(r, region_map)]
+        for rule in sorted(static_rules, key=lambda x: x.get("sort_order", 0)):
             field_key = rule["field_key"]
             source_config = rule["source_config"]
-            
+
             if rule["source_type"] == "keyword":
                 value, source = self._extract_by_keyword(df, source_config, max_rows=10)
                 if value:
@@ -112,29 +136,29 @@ class ExcelParser:
                             "value": value,
                             "source": source
                         })
-        
-        # 3. 提取动态区域字段（L6/KP/Warranty）
+
+        # 3. 提取动态区域字段：静态区域跳过，字段规则按 region_id/key 绑定
         for region_name, bounds in region_bounds.items():
-            if region_name == "header" or bounds["start_row"] < 0:
+            if bounds.get("region_type") == "static" or bounds["start_row"] < 0:
                 continue
-            
-            region_rules = [r for r in self._parse_field_rules 
-                          if r["region"] == region_name and r["enabled"]]
+
+            region_rules = [r for r in self._parse_field_rules
+                            if r.get("enabled") and self._rule_matches_region(r, bounds)]
             if not region_rules:
                 continue
-            
+
             region_items = []
             start_row = bounds["start_row"] + bounds["skip_rows"]
             end_row = bounds["end_row"] if bounds["end_row"] > start_row else len(df)
-            
+
             for r in range(start_row, end_row):
                 item = {}
                 item_trace = []
-                
-                for rule in sorted(region_rules, key=lambda x: x["sort_order"]):
+
+                for rule in sorted(region_rules, key=lambda x: x.get("sort_order", 0)):
                     field_key = rule["field_key"]
                     source_config = rule["source_config"]
-                    
+
                     if rule["source_type"] == "column":
                         col_letter = source_config.get("col", "A")
                         col_idx = self._col_letter_to_index(col_letter)
@@ -150,7 +174,7 @@ class ExcelParser:
                                             value = str(_safe_eval_math(cell_val[1:]))
                                         except:
                                             pass
-                                    
+
                                     item[field_key] = value
                                     source = {"row": r, "col": col_idx, "col_letter": col_letter}
                                     item_trace.append({
@@ -158,13 +182,13 @@ class ExcelParser:
                                         "value": value,
                                         "source": source
                                     })
-                
+
                 # 只添加有内容的行
                 if item:
                     item["_row"] = r
                     item["_trace"] = item_trace
                     region_items.append(item)
-            
+
             if region_items:
                 result["dynamic_regions"][region_name] = region_items
                 if return_trace:
@@ -174,54 +198,76 @@ class ExcelParser:
                         "bounds": bounds,
                         "item_count": len(region_items)
                     })
-        
+
         return result
-    
+
     def _locate_regions(self, df: pd.DataFrame) -> dict:
-        """定位所有区域边界
-        
+        """定位所有区域边界。
+
         Returns:
-            {region_name: {"start_row": int, "end_row": int, "skip_rows": int}}
+            {region_name: {"region_id", "region_key", "region_type", "start_row", "end_row", "skip_rows"}}
         """
+        sorted_regions = sorted(
+            (r for r in self._parse_regions if r.get("enabled", True)),
+            key=lambda x: x.get("sort_order", 0)
+        )
+
+        # First pass: resolve region starts sequentially.
+        starts = {}
+        search_from = 0
+        for idx, region in enumerate(sorted_regions):
+            start_mode = (region.get("start_mode") or "keyword").strip()
+            start_keywords = (region.get("start_keywords") or "").strip()
+            start_config = region.get("start_config") or {}
+
+            if start_mode == "row":
+                start_row = int(start_config.get("row", search_from))
+            elif start_keywords:
+                start_row = self._find_region_row(df, start_keywords, start_row=search_from)
+            else:
+                start_row = search_from
+
+            starts[idx] = start_row
+            if start_row >= 0:
+                search_from = start_row + 1
+
         bounds = {}
-        
-        # 按 sort_order 排序区域
-        sorted_regions = sorted(self._parse_regions, key=lambda x: x["sort_order"])
-        
-        prev_end_row = 0
-        for region in sorted_regions:
-            region_name = region["name"]
-            start_keywords = region["start_keywords"]
-            end_keywords = region["end_keywords"]
-            skip_rows = region["skip_header_rows"]
-            
-            # 定位起始行
-            if start_keywords:
-                start_row = self._find_region_row(df, start_keywords, start_row=prev_end_row)
+        for idx, region in enumerate(sorted_regions):
+            start_row = starts[idx]
+            next_start = starts.get(idx + 1)
+            end_keywords = (region.get("end_keywords") or "").strip()
+            end_mode = (region.get("end_mode") or ("keyword" if end_keywords else "eof")).strip()
+            end_config = region.get("end_config") or {}
+
+            if start_row < 0:
+                end_row = start_row
+            elif end_mode == "row":
+                end_row = int(end_config.get("row", len(df)))
+            elif end_mode == "next_region":
+                end_row = next_start if next_start is not None and next_start > start_row else len(df)
+            elif end_keywords:
+                found = self._find_region_row(df, end_keywords, start_row=start_row + 1)
+                end_row = found if found >= 0 else (
+                    next_start if next_start is not None and next_start > start_row else len(df)
+                )
             else:
-                # header 区域从第 0 行开始
-                start_row = 0
-            
-            # 定位结束行
-            if end_keywords and start_row >= 0:
-                end_row = self._find_region_row(df, end_keywords, start_row=start_row + 1)
-            else:
-                end_row = len(df)
-            
+                end_row = next_start if next_start is not None and next_start > start_row else len(df)
+
+            if end_row <= start_row:
+                end_row = next_start if next_start is not None and next_start > start_row else len(df)
+
+            region_name = (region.get("name") or "").strip()
             bounds[region_name] = {
+                "region_id": region.get("id"),
+                "region_key": region.get("region_key") or region_name.lower(),
+                "region_type": region.get("region_type") or ("static" if region_name.lower() == "header" else "dynamic"),
                 "start_row": start_row,
                 "end_row": end_row,
-                "skip_rows": skip_rows
+                "skip_rows": region.get("skip_header_rows", 0) or 0
             }
-            
-            # 更新下一区域的起始位置
-            if end_row > start_row:
-                prev_end_row = end_row
-            else:
-                prev_end_row = start_row + 1
-        
+
         return bounds
-    
+
     def _find_region_row(self, df: pd.DataFrame, keywords_str: str, start_row: int = 0) -> int:
         """查找包含任一关键词的首行
         
@@ -358,13 +404,14 @@ class ExcelParser:
         
         # 定位区域
         region_bounds = self._locate_regions(df)
+        region_map = self._region_by_id()
         
         # 生成 cell_marks
         cell_marks = []
         
         # 标记静态字段
-        header_rules = [r for r in self._parse_field_rules if r["region"] == "header" and r["enabled"]]
-        for rule in header_rules:
+        static_rules = [r for r in self._parse_field_rules if r.get("enabled") and self._is_static_rule(r, region_map)]
+        for rule in static_rules:
             source_config = rule["source_config"]
             if rule["source_type"] == "keyword":
                 value, source = self._extract_by_keyword(df, source_config, max_rows=10)
@@ -386,7 +433,7 @@ class ExcelParser:
         
         # 标记动态区域
         for region_name, bounds in region_bounds.items():
-            if region_name == "header" or bounds["start_row"] < 0:
+            if bounds.get("region_type") == "static" or bounds["start_row"] < 0:
                 continue
             
             # 标记区域起始行
@@ -405,8 +452,8 @@ class ExcelParser:
                         })
             
             # 标记数据行
-            region_rules = [r for r in self._parse_field_rules 
-                          if r["region"] == region_name and r["enabled"]]
+            region_rules = [r for r in self._parse_field_rules
+                            if r.get("enabled") and self._rule_matches_region(r, bounds)]
             
             data_start = start_row + bounds["skip_rows"]
             data_end = bounds["end_row"] if bounds["end_row"] > data_start else len(df)

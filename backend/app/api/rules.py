@@ -155,10 +155,12 @@ def get_parse_regions():
 
 @router.post("/parse-regions")
 def save_parse_regions(data: dict):
-    """批量保存解析区域（替换所有）"""
-    regions = data.get("regions", [])
-    result = rules_repo.save_parse_regions(regions)
-    return result
+    """创建解析区域；兼容旧前端的 {regions:[...]} 批量路径。"""
+    if "regions" in data and isinstance(data.get("regions"), list):
+        result = rules_repo.save_parse_regions(data["regions"])
+        return result
+    region_id = rules_repo.add_parse_region(data)
+    return {"status": "success", "id": region_id}
 
 
 @router.put("/parse-regions/{region_id}")
@@ -190,10 +192,12 @@ def get_parse_field_rules():
 
 @router.post("/parse-field-rules")
 def save_parse_field_rules(data: dict):
-    """批量保存字段规则（替换所有）"""
-    rules = data.get("rules", [])
-    result = rules_repo.save_parse_field_rules(rules)
-    return result
+    """创建字段规则；兼容旧前端的 {rules:[...]} 批量路径。"""
+    if "rules" in data and isinstance(data.get("rules"), list):
+        result = rules_repo.save_parse_field_rules(data["rules"])
+        return result
+    rule_id = rules_repo.add_parse_field_rule(data)
+    return {"status": "success", "id": rule_id}
 
 
 @router.put("/parse-field-rules/{rule_id}")
