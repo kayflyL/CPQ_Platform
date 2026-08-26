@@ -226,23 +226,20 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             ext["purchase_qty"] = int(purchase_qty)
             changes.append(f"purchase_qty={purchase_qty}")
 
-    # ── CPU：合并进 cpu_signal（duality/qty/cores/tdp_w/model），规则已抽到的键不覆盖 ──
+    # ── CPU：单真值源 cpu_signal（duality/qty/cores/tdp_w/model）。
+    #    不再双写 qty_map.CPU，也不再额外塞 CPU 型号 keywords；pick 阶段按 cpu_signal 推导。──
     cpu = cleaned.get("cpu") or {}
     if cpu:
         _add_cat("CPU")
         sig = dict(ext.get("cpu_signal") or {})
         qty = cpu.get("qty")
         if qty and 1 <= int(qty) <= 64:
+            sig["qty"] = int(qty)
             if int(qty) >= 2:
                 sig.setdefault("duality", True)
-                sig["qty"] = int(qty)
-            qty_map = ext.get("qty_map")
-            if qty_map is None:
-                qty_map = {}
-                ext["qty_map"] = qty_map
-            if "CPU" not in qty_map and int(qty) >= 1:
-                qty_map["CPU"] = int(qty)
-                changes.append(f"qty_map.CPU={qty}")
+                changes.append(f"cpu.qty={qty}")
+            elif not (sig.get("duality") is True):
+                changes.append(f"cpu.qty={qty}")
         cores = cpu.get("cores")
         if cores and 1 <= int(cores) <= 512:
             sig.setdefault("cores", int(cores))
@@ -257,17 +254,6 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             changes.append(f"cpu.model={model}")
         if sig:
             ext["cpu_signal"] = sig
-        # CPU 型号 token 进 keywords（stage-1 型号精确命中需要；agent 主理解路 ext 从空起步时关键，
-        # 否则只靠 cpu_signal.model，pick 的通用关键词匹配路径够不到 CPU 型号）
-        if model:
-            _kw = ext.get("keywords")
-            if _kw is None:
-                _kw = []
-                ext["keywords"] = _kw
-            for _t in _model_tokens_of(model):
-                if _t not in _kw:
-                    _kw.append(_t)
-                    changes.append(f"keywords+{_t}")
 
     # ── 内存：单真值源 mem_signal（type/speed/total_gb/per_stick_gb/qty）。
     #    不再双写 mem_groups；下游需要分组时由 _mem_groups_from_signal 确定性派生。──

@@ -258,7 +258,7 @@ def _slot_filled(key: str, ext: dict) -> bool:
     if key == "warranty_years":
         return bool(ext.get("warranty_years"))
     if key == "cpu":
-        return bool(ext.get("cpu_signal")) or bool(qty.get("CPU")) or "CPU" in cats
+        return bool(ext.get("cpu_signal")) or "CPU" in cats
     if key == "memory":
         return bool(ext.get("mem_signal")) or bool(qty.get("Memory")) or "Memory" in cats
     if key == "storage":

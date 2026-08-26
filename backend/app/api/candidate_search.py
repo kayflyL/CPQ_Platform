@@ -1284,6 +1284,42 @@ def _pick_mem_groups(mem_groups: list, db_cat: str, kp_repo, _pick_rep, out: lis
     return produced
 
 
+def _cpu_qty_from_signal(cpu_signal: Optional[dict]) -> int:
+    """CPU 数量唯一真值源：cpu_signal.qty；duality（双路）兜底 2；默认 1。"""
+    if not isinstance(cpu_signal, dict):
+        return 1
+    qty = cpu_signal.get("qty")
+    try:
+        qty = int(qty)
+    except (TypeError, ValueError):
+        qty = 0
+    if qty >= 1:
+        return qty
+    if cpu_signal.get("duality"):
+        return 2
+    return 1
+
+
+def _cpu_model_tokens(cpu_signal: Optional[dict]) -> list:
+    """从 cpu_signal.model 推导型号 token（供 stage-1 精确命中用，不落盘 ext）。
+
+    CPU 型号唯一真值源是 cpu_signal.model；此处只做确定性 token 拆解，
+    过滤容量/速率碎片，供 pick_kp_parts 的库检索阶段使用，不回写 keywords。
+    """
+    model = (cpu_signal or {}).get("model")
+    if not model:
+        return []
+    out: list = []
+    for t in re.findall(r"[0-9A-Za-z][0-9A-Za-z.\-]{1,}", str(model)):
+        if not re.search(r"\d", t) or len(t) < 3:
+            continue
+        if re.match(r"^\d+(?:\.\d+)?[GT]B?$", t, re.I):
+            continue
+        if t.lower() not in (x.lower() for x in out):
+            out.append(t)
+    return out
+
+
 def pick_kp_parts(categories: list[str], keywords: list[str],
                   category_aliases: Optional[dict] = None,
                   representative_pick: str = "min_price",
@@ -1370,9 +1406,14 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             return parts[0]
         return min(with_price, key=lambda p: p["price"]) if with_price else parts[0]
 
-    # CPU 双路（全套/双路/满配 → 2 颗）：写入 qty_map 供末尾注入
-    if cpu_signal and cpu_signal.get("duality"):
-        qty_map = {**(qty_map or {}), "CPU": max(2, (qty_map or {}).get("CPU", 1))}
+    # CPU 数量：从 cpu_signal 推导（唯一真值源），不再向 qty_map 双写 CPU 键。
+    cpu_qty = _cpu_qty_from_signal(cpu_signal)
+    # 型号 token 精确命中来源：显式 keywords + cpu_signal.model 推导（CPU 唯一真值源），
+    # 只在本次检索阶段合并，不回写 ext["keywords"]。
+    _stage1_keywords = list(keywords or [])
+    for _t in _cpu_model_tokens(cpu_signal):
+        if _t.lower() not in (k.lower() for k in _stage1_keywords):
+            _stage1_keywords.append(_t)
 
     out: list[dict] = []
     kp_repo = KPRepository()
@@ -1381,7 +1422,7 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
         matched_categories: set[str] = set()
 
         # 1. 型号 token 精确命中（用户写明具体型号时优先用）；未命中标 unmatched 提示替换
-        for kw in keywords or []:
+        for kw in _stage1_keywords:
             if not kw or not _mt_re.match(kw):
                 continue
             # R-8: 跳过规格碎片——容量(480G/7.68T)、瓦数(360W)、内存速率(5600B/DDR5-5600B)、
@@ -1592,10 +1633,9 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
                 if mem_parts:
                     # 目标条数/上限按机型能力驱动（mem_channels×CPU 路数、max_dimm）；
                     # 基准配置未配时保持旧行为（目标 8 / 上限 32），拒绝硬编码平台通道数
-                    _cpu_qty = int((qty_map or {}).get("CPU") or 1)
                     mem_row = _pick_memory_part(
                         mem_parts, mem_signal, _pick_rep,
-                        target_sticks=(default_mem_channels or 12) * max(1, _cpu_qty) if default_mem_channels else None,
+                        target_sticks=(default_mem_channels or 12) * max(1, cpu_qty) if default_mem_channels else None,
                         max_sticks=default_max_dimm,
                     )
                     if mem_row:
@@ -1775,7 +1815,8 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
             matched_categories.add(db_cat)
     finally:
         kp_repo.close()
-    # 注入数量：型号 token 命中件用 qty_per_token（精确到件），代表件用 qty_map（品类级），默认 1
+    # 注入数量：型号 token 命中件用 qty_per_token（精确到件），代表件用 qty_map（品类级），默认 1；
+    # CPU 数量来自 cpu_signal（唯一真值源），不再依赖 qty_map。
     # 已显式设 qty 的（如 Memory 容量反推）保留，不被 qty_map 覆盖。
     for kp in out:
         if kp.get("qty"):
@@ -1783,6 +1824,8 @@ def pick_kp_parts(categories: list[str], keywords: list[str],
         _tok = (kp.get("matched_token") or "").lower()
         if _tok and (qty_per_token or {}).get(_tok):
             kp["qty"] = qty_per_token[_tok]
+        elif kp.get("category") == "CPU" and cpu_qty != 1:
+            kp["qty"] = cpu_qty
         else:
             kp["qty"] = (qty_map or {}).get(kp.get("category") or "", 1)
     return out

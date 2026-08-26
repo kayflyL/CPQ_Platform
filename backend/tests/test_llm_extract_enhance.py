@@ -254,9 +254,9 @@ def test_merge_r7_capability_never_becomes_config():
     assert not ext.get("mem_groups")
     assert ext["mem_signal"]["type"] == "DDR5"
     assert ext["mem_signal"]["speed"] == 6400
-    # CPU：qty=2 → duality + qty_map.CPU=2
+    # CPU：qty=2 → duality + cpu_signal.qty=2（唯一真值源，不再双写 qty_map）
     assert ext["cpu_signal"]["duality"] is True
-    assert ext["qty_map"]["CPU"] == 2
+    assert ext["cpu_signal"]["qty"] == 2
     # 电源：规则没有 → 补 2700W
     assert ext["psu_signal"]["wattage"] == 2700
     # 形态：补 4U
@@ -330,9 +330,9 @@ def test_merge_agent_primary_fills_all_essential_keys():
     cats = ext["categories"]
     for c in ("CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement", "Raid card"):
         assert c in cats, f"缺品类 {c}"
-    # CPU 信号 + 型号 token 进 keywords（P1.2 补丁）
+    # CPU 型号唯一真值源 cpu_signal；不再注入 keywords（pick 阶段自行推导检索）
     assert ext["cpu_signal"]["model"] == "AMD EPYC 9124"
-    assert "9124" in ext["keywords"]
+    assert "9124" not in ext["keywords"]
     # 内存：单真值源 mem_signal；数量与单条容量都在信号内，不再写 mem_groups
     assert ext["mem_signal"]["type"] == "DDR5"
     assert ext["mem_signal"]["per_stick_gb"] == 32
@@ -370,12 +370,14 @@ def test_merge_server_type_catalog_anchored():
 
 
 def test_merge_cpu_model_token_enters_keywords_dedup():
-    """P1.2：CPU 型号 token 进 keywords（stage-1 精确命中），重复同型号去重。"""
+    """P1.2：CPU 型号唯一真值源 cpu_signal.model（不再注入 keywords）；重复同型号去重。"""
     ext: dict = {}
     merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
-    assert "KH50000" in ext["keywords"]
+    assert ext["cpu_signal"]["model"] == "KH50000"
+    assert "KH50000" not in ext.get("keywords", [])
     merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
-    assert ext["keywords"].count("KH50000") == 1
+    assert ext["cpu_signal"]["model"] == "KH50000"
+    assert "KH50000" not in ext.get("keywords", [])
 
 
 def test_merge_raid_groups_shape_matches_extract():

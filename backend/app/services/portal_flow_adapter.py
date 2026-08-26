@@ -109,8 +109,9 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         for key in ("model", "brand", "cores", "tdp_w"):
             if cpu_signal.get(key) is not None:
                 cpu[key] = cpu_signal[key]
-        qty_map = ext.get("qty_map") if isinstance(ext.get("qty_map"), dict) else {}
-        qty = _first(qty_map.get("CPU"), cpu_signal.get("qty"))
+        qty = cpu_signal.get("qty")
+        if qty is None and cpu_signal.get("duality"):
+            qty = 2
         if qty is not None:
             cpu["qty"] = _as_int(qty, 0) or None
         cpu = {k: v for k, v in cpu.items() if v not in (None, "")}
