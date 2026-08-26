@@ -161,6 +161,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
         "plans": ctx.get("plans") or [],
         "bom_scheme": build_preview_bom_scheme(ctx),
         "awaiting_input": bool(ctx.get("awaiting_input")),
+        "timings": ctx.get("timings") or {},
     }
 
 

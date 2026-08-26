@@ -223,6 +223,21 @@ async def _decide_plan_turn(ctx: dict, message: str, broadcast: Callable[..., An
             reply = ""
         if not reply and intent == "list_catalog" and cat:
             reply = str(cat or "")
+        if intent == "noise":
+            # 闲聊即使没有 persona/自然回复，也必须停住，不进入选型流程。
+            # persona 缺失只影响回复文案，不应影响“不跑节点”这个决策。
+            ctx["awaiting_input"] = True
+            ctx["plan_pause"] = True
+            ctx["current_target"] = pause_target
+            if reply:
+                ctx["last_ask_question"] = reply
+            if broadcast:
+                try:
+                    await broadcast({"type": "need_confirm", "step": pause_target, "question": reply,
+                                     "options": [], "why": "plan_reply"})
+                except Exception:
+                    pass
+            return True
         if not reply:
             return False
         ctx["awaiting_input"] = True
@@ -261,6 +276,7 @@ async def run_fixed_workflow(
         ctx.update(initial_ctx)
     if ctx_ref is not None:
         ctx_ref["ctx"] = ctx
+    timings = ctx.setdefault("timings", {})
 
     stop_event = _workflow_stop_event(thread_id)
     stop_event.clear()
@@ -292,8 +308,11 @@ async def run_fixed_workflow(
         ctx["current_target"] = _pause_target
         ctx["last_ask_question"] = "任务已暂停，等待你的下一步指令。"
         return ctx
+    _t_intent0 = time.perf_counter()
     if _msg and await _decide_plan_turn(ctx, _msg, broadcast, _pause_target):
+        timings["intent_ms"] = round((time.perf_counter() - _t_intent0) * 1000, 1)
         return ctx
+    timings["intent_ms"] = round((time.perf_counter() - _t_intent0) * 1000, 1)
     # 从“入口/问答暂停”续跑：current_target 若不属于任何节点（如旧的 __entry_reply__ 或空串），
     # 说明尚未进入节点，继续时应重置为入口，让计划从起点开始。
     if resume_from and resume_from not in nodes:
@@ -313,6 +332,7 @@ async def run_fixed_workflow(
     # 续跑 refine/grasp（resume_from in nodes 且 plan_intent 为需求补全）：用户补了真需求，
     #   需重新抽槽把新信息落入结构化字段，否则下游反复重问。
     _resume_refine = bool(resume_from and resume_from in nodes and _pi in ("refine", "grasp"))
+    _t_extract0 = time.perf_counter()
     if (not resume_from or resume_from not in nodes) or _resume_refine:
         try:
             _skip = (not _resume_refine) and (
@@ -331,6 +351,7 @@ async def run_fixed_workflow(
                         ctx["delegated"] = True
         except Exception as _afexc:
             logger.warning("外层需求抽取失败，转入节点处理: %s", _afexc)
+    timings["extract_ms"] = round((time.perf_counter() - _t_extract0) * 1000, 1)
 
     queue: list[str] = sorted([nid for nid, degree in indeg.items() if degree == 0])
     if resume_from and resume_from in nodes:
