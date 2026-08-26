@@ -22,6 +22,8 @@ import logging
 import re
 from typing import Optional
 
+from app.services.slot_contract import canonical_get, canonical_set
+
 logger = logging.getLogger(__name__)
 
 # ── 槽位 schema（canonical slots）──────────────────────────────────────
@@ -207,14 +209,13 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
 
     # ── 服务器类型：catalog 锚定（命中在售类型白名单才写 server_type_name/usage，防 LLM 编造类型）──
     stype = (cleaned.get("server_type") or "").strip()
-    if stype and not ext.get("server_type_name"):
+    if stype and not canonical_get(ext, "server_type"):
         known_types = [str(t).lower() for t in ((catalog or {}).get("server_types") or []) if t]
         hit = stype.lower() in known_types or \
             any(stype.lower() in t or t in stype.lower() for t in known_types)
         if hit:
-            ext["server_type_name"] = stype
-            ext["usage"] = stype
-            changes.append(f"server_type_name={stype}")
+            canonical_set(ext, "server_type", stype)
+            changes.append(f"server_type={stype}")
         else:
             changes.append(f"server_type 跳过(不在在售白名单): {stype}")
 

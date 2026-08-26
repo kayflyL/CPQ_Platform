@@ -13,6 +13,8 @@ import re
 import logging
 from typing import Optional, List, Tuple, Dict, Any
 
+from app.services.slot_contract import canonical_get
+
 logger = logging.getLogger(__name__)
 
 # 型号 token：含字母且长度>=3 的混合串（EPYC9354 / RTX4090 / DDR5 / H100 等；含单字母+3位数字以匹配 H100/A100/B200）
@@ -126,14 +128,14 @@ def _snapshot_signals(ext: dict, budget: Optional[float]) -> dict:
     keywords = ext.get("keywords") or []
     model_tokens = [k for k in keywords if _MODEL_TOKEN_PATTERN.match(k)]
     usage_inferred = bool(ext.get("usage_inferred"))  # 系统兜底猜的用途（非用户明说）
-    has_usage_raw = bool(ext.get("usage"))
+    has_usage_raw = bool(canonical_get(ext, "server_type"))
     return {
         "_family_words": ext.get("_family_words"),
-        "series": ext.get("series"),
-        "form": ext.get("form"),
-        "has_series": bool(ext.get("series")),
-        "has_form": bool(ext.get("form")),
-        "usage": ext.get("usage"),
+        "series": canonical_get(ext, "series"),
+        "form": canonical_get(ext, "form"),
+        "has_series": bool(canonical_get(ext, "series")),
+        "has_form": bool(canonical_get(ext, "form")),
+        "usage": canonical_get(ext, "server_type"),
         "has_usage": has_usage_raw and not usage_inferred,  # 用户【明说】的用途（兜底猜的不算）
         "no_usage_inferred": usage_inferred,  # 兼容：是否被系统兜底
         "has_budget": budget is not None and float(budget) > 0,
@@ -242,15 +244,15 @@ def _slot_filled(key: str, ext: dict) -> bool:
     if key in ("scene", "server_type"):
         # 应用场景：模型已按目录锚定用途/类型，或已实例化 GPU（可信确定性信号）；
         # 不再用代码关键词猜场景——语义由模型/规则库负责。
-        if ext.get("usage") or ext.get("server_type_name"):
+        if canonical_get(ext, "server_type"):
             return True
         if ext.get("gpu_groups"):
             return True
         return False
     if key in ("series", "platform_type"):
-        return bool(ext.get("series") or ext.get("platform_type"))
+        return bool(canonical_get(ext, "series"))
     if key == "server_model":
-        return bool(ext.get("server_model") or ext.get("model") or ext.get("baseline_model"))
+        return bool(canonical_get(ext, "server_model"))
     if key == "purchase_qty":
         return bool(ext.get("purchase_qty") or ext.get("server_qty") or ext.get("whole_qty"))
     if key == "warranty_years":
@@ -262,7 +264,7 @@ def _slot_filled(key: str, ext: dict) -> bool:
     if key == "storage":
         return bool(ext.get("drive_groups")) or bool(qty.get("HDD/SSD")) or "HDD/SSD" in cats
     if key in ("form", "chassis_form"):
-        return bool(ext.get("form") or ext.get("chassis_form"))
+        return bool(canonical_get(ext, "form"))
     if key == "gpu":
         return bool(ext.get("gpu_groups")) or bool(qty.get("GPU"))
     if key == "nic":

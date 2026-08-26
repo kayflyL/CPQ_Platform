@@ -47,6 +47,69 @@ _CANONICAL_SLOT_LABELS = {
 }
 
 
+# ── 唯一真值源：canonical ext 字段 → 历史别名（只在此处维护，禁止散落双写）────────
+# 规则：AI 角色只读写 canonical 字段；旧别名仅在过渡期读取时兜底，写入时一律清除别名。
+CANONICAL_ALIASES: dict[str, list[str]] = {
+    "server_type": ["server_type_name", "usage", "scene"],
+    "series": ["platform_type"],
+    "form": ["chassis_form"],
+    "server_model": ["model", "baseline_model"],
+    "purchase_qty": ["n"],
+}
+
+
+def canonical_key(key: str) -> str:
+    """把任意槽位 key 归一为 canonical ext 字段名。"""
+    key = (key or "").strip()
+    if not key:
+        return key
+    if key in CANONICAL_ALIASES:
+        return key
+    for canon, aliases in CANONICAL_ALIASES.items():
+        if key in aliases:
+            return canon
+    return key
+
+
+def _canonical_present(v) -> bool:
+    if v is None:
+        return False
+    if isinstance(v, str) and not v.strip():
+        return False
+    if isinstance(v, (list, dict)) and not v:
+        return False
+    return True
+
+
+def canonical_get(ext: dict, key: str):
+    """按 canonical 口径读取：先读 canonical，再退历史别名（过渡期兼容）。"""
+    if not isinstance(ext, dict):
+        return None
+    canon = canonical_key(key)
+    v = ext.get(canon)
+    if _canonical_present(v):
+        return v
+    for alias in CANONICAL_ALIASES.get(canon, []):
+        v = ext.get(alias)
+        if _canonical_present(v):
+            return v
+    return None
+
+
+def canonical_set(ext: dict, key: str, value) -> None:
+    """写 canonical 字段，并把历史别名作为过渡期投影同步写入。
+
+    映射唯一收口在此处（不再散落双写）；旧读取器/旧测试仍可读别名。
+    待旧正则选型器删除后，再一并移除 alias 投影，只保留 canonical。
+    """
+    if not isinstance(ext, dict):
+        return
+    canon = canonical_key(key)
+    ext[canon] = value
+    for alias in CANONICAL_ALIASES.get(canon, []):
+        ext[alias] = value
+
+
 def slot_spec() -> list:
     """线索登记表字段契约（唯一权威源 = system_config.requirement_slots 基本信息 + KP 大类动态部件）。
 
@@ -97,13 +160,9 @@ def _slot_filled(ext: dict, key: str) -> bool:
         if isinstance(v, (list, tuple)):
             return any(_has(x) for x in v)
         return bool(v)
+    if key in CANONICAL_ALIASES or any(key in aliases for aliases in CANONICAL_ALIASES.values()):
+        return _has(canonical_get(ext, key))
     mapping = {
-        "server_type": ["server_type_name", "server_type"],
-        "platform_type": ["series", "platform_type"],
-        "chassis_form": ["form", "chassis_form"],
-        "purchase_qty": ["purchase_qty", "n"],
-        "n": ["n", "purchase_qty"],
-        "server_model": ["server_model", "model", "baseline_model"],
         "cpu": ["cpu_signal"],
         "memory": ["mem_signal", "mem_groups"],
         "storage": ["drive_groups"],

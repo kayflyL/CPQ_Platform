@@ -18,6 +18,7 @@ from typing import Any, Optional
 
 from app.services import capability_spec
 from app.services import prompt_store
+from app.services.slot_contract import canonical_get, canonical_key, canonical_set
 
 logger = logging.getLogger(__name__)
 
@@ -116,12 +117,15 @@ KP_FINAL_CONTRACT = (
 def _ext_digest_for_kp(ext: dict) -> str:
     """理解摘要（紧凑，给 KP 提议 LLM 看）。"""
     parts = []
-    if ext.get("server_type_name"):
-        parts.append(f"类型={ext['server_type_name']}")
-    if ext.get("series"):
-        parts.append(f"系列={ext['series']}")
-    if ext.get("form"):
-        parts.append(f"形态={ext['form']}")
+    _st = canonical_get(ext, "server_type")
+    if _st:
+        parts.append(f"类型={_st}")
+    _series = canonical_get(ext, "series")
+    if _series:
+        parts.append(f"系列={_series}")
+    _form = canonical_get(ext, "form")
+    if _form:
+        parts.append(f"形态={_form}")
     cs = ext.get("cpu_signal") or {}
     if cs.get("model"):
         parts.append(f"CPU={cs['model']}×{cs.get('qty') or 1}")
@@ -371,9 +375,9 @@ def _catalog_whitelist(config: Optional[dict] = None, ext: Optional[dict] = None
         logger.warning("读反问候选目录失败: %s", e)
         return out
 
-    confirmed_type = (ext.get("server_type_name") or "").strip()
-    confirmed_series = (ext.get("series") or "").strip() or _infer_series_from_requirement(requirement_text, cfg) or ""
-    confirmed_form = (ext.get("form") or "").strip()
+    confirmed_type = str(canonical_get(ext, "server_type") or "").strip()
+    confirmed_series = str(canonical_get(ext, "series") or "").strip() or _infer_series_from_requirement(requirement_text, cfg) or ""
+    confirmed_form = str(canonical_get(ext, "form") or "").strip()
     type_names = [str(t.get("name") or "") for t in (types or []) if t.get("name")]
     type_names = [tn for tn in type_names if (models_by_type or {}).get(tn)]
 
@@ -435,29 +439,32 @@ def _infer_series_from_selected_model(ext: dict, whitelist: dict, cfg: dict,
     if not model:
         return
     meta = (whitelist.get("model_meta") or {}).get(model) or {}
-    if not ext.get("server_type_name") and meta.get("type"):
-        ext["server_type_name"] = meta["type"]
-    if not (ext.get("series") or ext.get("platform_type")) and meta.get("series"):
-        ext["series"] = meta["series"]
-        ext["platform_type"] = meta["series"]
-    if not (ext.get("form") or ext.get("chassis_form")) and meta.get("form"):
-        ext["form"] = meta["form"]
-        ext["chassis_form"] = meta["form"]
+    if not canonical_get(ext, "server_type") and meta.get("type"):
+        canonical_set(ext, "server_type", meta["type"])
+    if not canonical_get(ext, "series") and meta.get("series"):
+        canonical_set(ext, "series", meta["series"])
+    if not canonical_get(ext, "form") and meta.get("form"):
+        canonical_set(ext, "form", meta["form"])
 
 
 def _confirmed_text(ext: dict) -> str:
     """把已确认的选型要点拼成一行（只做状态展示，不做话术）。"""
     parts = []
-    if ext.get("server_type_name"):
-        parts.append(f"服务器类型={ext['server_type_name']}")
-    if ext.get("series"):
-        parts.append(f"平台系列={ext['series']}")
-    if ext.get("form"):
-        parts.append(f"机箱形态={ext['form']}")
-    if ext.get("server_model"):
-        parts.append(f"机型={ext['server_model']}")
-    if ext.get("purchase_qty"):
-        parts.append(f"数量={ext['purchase_qty']}")
+    _st = canonical_get(ext, "server_type")
+    if _st:
+        parts.append(f"服务器类型={_st}")
+    _series = canonical_get(ext, "series")
+    if _series:
+        parts.append(f"平台系列={_series}")
+    _form = canonical_get(ext, "form")
+    if _form:
+        parts.append(f"机箱形态={_form}")
+    _model = canonical_get(ext, "server_model")
+    if _model:
+        parts.append(f"机型={_model}")
+    _qty = canonical_get(ext, "purchase_qty")
+    if _qty:
+        parts.append(f"数量={_qty}")
     return "；".join(parts) or "（暂无明确约束）"
 
 def _apply_extracted_slots(ext: dict, slots: dict, allow_overwrite: bool = False) -> bool:
@@ -481,44 +488,43 @@ def _apply_extracted_slots(ext: dict, slots: dict, allow_overwrite: bool = False
             continue
         if isinstance(value, (dict, list)):
             continue
-        if key in ("server_type", "server_type_name"):
+        if canonical_key(key) == "server_type":
             v = str(value).strip()
             if not v:
                 continue
-            if key == "server_type" and v.isdigit():
+            if v.isdigit():
                 continue
             if allow_overwrite or not _slot_now_filled(ext, "server_type"):
-                ext["server_type"] = ext["server_type_name"] = v
+                canonical_set(ext, "server_type", v)
                 changed = True
-        elif key in ("platform_type", "series"):
+        elif canonical_key(key) == "series":
             v = str(value).strip()
             if not v:
                 continue
-            if allow_overwrite or not _slot_now_filled(ext, "platform_type"):
-                ext["platform_type"] = ext["series"] = v
+            if allow_overwrite or not _slot_now_filled(ext, "series"):
+                canonical_set(ext, "series", v)
                 changed = True
-        elif key in ("chassis_form", "form"):
+        elif canonical_key(key) == "form":
             v = str(value).strip()
             if not v:
                 continue
-            if allow_overwrite or not _slot_now_filled(ext, "chassis_form"):
-                ext["chassis_form"] = ext["form"] = v
+            if allow_overwrite or not _slot_now_filled(ext, "form"):
+                canonical_set(ext, "form", v)
                 changed = True
-        elif key in ("server_model", "model", "baseline_model"):
+        elif canonical_key(key) == "server_model":
             v = str(value).strip()
             if not v:
                 continue
             if allow_overwrite or not _slot_now_filled(ext, "server_model"):
-                ext["server_model"] = v
-                ext.pop("model", None)
+                canonical_set(ext, "server_model", v)
                 changed = True
-        elif key in ("purchase_qty", "n"):
+        elif canonical_key(key) == "purchase_qty":
             try:
                 qty = int(float(value))
             except Exception:
                 continue
-            if allow_overwrite or (not _slot_now_filled(ext, "n") and not _slot_now_filled(ext, "purchase_qty")):
-                ext["n"] = ext["purchase_qty"] = qty
+            if allow_overwrite or not _slot_now_filled(ext, "purchase_qty"):
+                canonical_set(ext, "purchase_qty", qty)
                 changed = True
         else:
             if allow_overwrite or not _slot_now_filled(ext, key):
@@ -606,15 +612,14 @@ def _ground_fill_from_tools(answer: str, tool_calls_log: list, ext: dict,
     picks.sort(key=len, reverse=True)
     name = picks[0]
     meta = cands[name]
-    ext.setdefault("server_model", name)
-    if meta.get("type") and not ext.get("server_type_name"):
-        ext["server_type_name"] = meta["type"]
-    if meta.get("series") and not ext.get("series"):
-        ext["series"] = meta["series"]
-        ext.setdefault("platform_type", meta["series"])
-    if meta.get("form") and not ext.get("form"):
-        ext["form"] = meta["form"]
-        ext.setdefault("chassis_form", meta["form"])
+    if not canonical_get(ext, "server_model"):
+        canonical_set(ext, "server_model", name)
+    if meta.get("type") and not canonical_get(ext, "server_type"):
+        canonical_set(ext, "server_type", meta["type"])
+    if meta.get("series") and not canonical_get(ext, "series"):
+        canonical_set(ext, "series", meta["series"])
+    if meta.get("form") and not canonical_get(ext, "form"):
+        canonical_set(ext, "form", meta["form"])
     whitelist = _catalog_whitelist(config, ext=ext, requirement_text=req_text)
     _infer_series_from_selected_model(ext, whitelist, config, requirement_text=req_text)
 
@@ -696,13 +701,14 @@ def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     """
     import copy as _copy
     import re as _re
-    model = str(ext.get("server_model") or ext.get("model") or "").strip()
+    model = str(canonical_get(ext, "server_model") or "").strip()
     if model:
         norm_model = _re.sub(r"\s+", "", model)
         norm_text = _re.sub(r"\s+", "", str(req_text or ""))
         if norm_model not in norm_text:
             ext.pop("server_model", None)
             ext.pop("model", None)
+            ext.pop("baseline_model", None)
     ctx["requirement"] = _copy.deepcopy(ext)
     ctx["requirement_text_snapshot"] = str(req_text or "")
 
@@ -715,14 +721,12 @@ def _has_recommend_signal(ext: dict) -> bool:
         return False
     # 类型 + （系列 或 形态 任一）：已能选型，缺的维度由下游 select_models 逐级放宽补齐，
     # 不因缺单个维度在 agent_fill 反复反问（否则给“2U+预算”也会被问缺系列）。
-    has_type = bool(ext.get("server_type_name") or ext.get("server_type"))
-    has_form_or_series = bool((ext.get("series") or ext.get("platform_type"))
-                              or (ext.get("form") or ext.get("chassis_form")))
+    has_type = bool(canonical_get(ext, "server_type"))
+    has_form_or_series = bool(canonical_get(ext, "series") or canonical_get(ext, "form"))
     if has_type and has_form_or_series:
         return True
     # 点名机型：强信号，交给下游按名称确认/找最近似
-    if any(str(v or "").strip() for v in (ext.get("server_model"), ext.get("model"),
-                                           ext.get("baseline_model"))):
+    if canonical_get(ext, "server_model"):
         return True
     try:
         from app.services.slot_contract import _slot_filled
@@ -900,11 +904,11 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     scene = ctx.get("scene") or {}
     _type_name = (ctx.get("catalog_type_name")
                   or (scene.get("scene_name") if scene.get("determined") else None)
-                  or ext.get("server_type_name"))
+                  or canonical_get(ext, "server_type"))
     from app.services import semantic_contract as _sc
     from app.services.requirement_rule_catalog import compliance_map as _compliance_map
-    _series = scene.get("series") or ext.get("series") or None
-    _form = scene.get("form") or ext.get("form") or None
+    _series = scene.get("series") or canonical_get(ext, "series") or None
+    _form = scene.get("form") or canonical_get(ext, "form") or None
     # 客户已委托（你推荐/随便/都行）且完全没给类型/系列/形态线索 → 默认到目录里排序第一的
     # “通用”类型，让推荐有抓手，而不是返回“找不到机型”。数据来自目录 sort_order，非硬编码词。
     if not _type_name and not _series and not _form and ctx.get("delegated"):
@@ -928,7 +932,7 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
     # 也不再按 gpu_form_map 死区间猜形态；真实槽位能力由 base_config.gpu_slots 在选型后过滤。
     _gpu_count = _gpu_qty_from_ext(ext)
     baselines = select_models(
-        ext.get("usage"), _type_name, _series, _form,
+        canonical_get(ext, "server_type"), _type_name, _series, _form,
         limit=None,
         no_signal_strategy=_no_signal_strategy,
         variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),
@@ -941,7 +945,7 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
         if not baselines and _series in _domestic_series:
             # 放宽被过滤后无结果：保留系列但标注
             baselines = [b for b in select_models(
-                ext.get("usage"), _type_name, _series, _form,
+                canonical_get(ext, "server_type"), _type_name, _series, _form,
                 limit=None,
                 no_signal_strategy=_no_signal_strategy,
                 variant_signals=build_variant_signals(ext, ctx.get("requirement_text")),

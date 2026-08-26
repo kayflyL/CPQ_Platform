@@ -316,7 +316,7 @@ async def run_fixed_workflow(
         try:
             _skip = (not _resume_refine) and (
                 (ctx.get("requirement") or {}).get("requirement_text")
-                or (ctx.get("ext") or {}).get("server_type_name"))
+                or (ctx.get("ext") or {}).get("server_type") or (ctx.get("ext") or {}).get("server_type_name"))
             if not _skip:
                 _af_cfg = node_configs.get("agent_fill") or {}
                 _af_cfg.setdefault("llm_enabled", ctx.get("llm_enabled", True))

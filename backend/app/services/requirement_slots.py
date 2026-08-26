@@ -23,6 +23,8 @@ import logging
 import re
 from typing import Optional
 
+from app.services.slot_contract import canonical_get, canonical_set
+
 logger = logging.getLogger(__name__)
 
 # 机箱形态白名单（与 extract 形态词表一致）
@@ -683,13 +685,13 @@ def apply_llm_merge(ext: dict, data: dict, requirement_text: str = "", catalog: 
     # server_type（在售类型白名单）——规则没抽到才补；严格相等优先，否则模糊（"AI" 命中 "AI / 加速计算服务器"）
     try:
         st = _slot_value(data, "server_type")
-        if st and not ext.get("server_type_name"):
+        if st and not canonical_get(ext, "server_type"):
             known = [str(t) for t in (catalog or {}).get("server_types") or []]
             _exact = str(st) if str(st) in known else None
             _fuzzy = next((k for k in known if str(st) in k or k in str(st)), None) if not _exact else None
             _hit = _exact or _fuzzy
             if _hit:
-                ext["server_type_name"] = _hit
+                canonical_set(ext, "server_type", _hit)
                 changes.append(f"server_type={_hit}")
     except Exception as e:
         logger.warning("server_type 合并失败: %s", e)
@@ -730,15 +732,15 @@ def validate_pipeline_slots(ext: dict, llm_slots: dict, requirement_text: str = 
     if form and str(form).strip().upper() not in (catalog.get("forms") or []):
         issues.append(f"规则抽取形态「{form}」不在白名单，已丢弃")
         ext["form"] = None
-    server_type = ext.get("server_type_name")
+    server_type = canonical_get(ext, "server_type")
     if server_type and str(server_type) not in {str(t) for t in catalog.get("server_types") or []}:
         issues.append(f"规则抽取类型「{server_type}」不在在售白名单，已丢弃")
-        ext["server_type_name"] = None
+        canonical_set(ext, "server_type", None)
 
     # LLM vs 规则冲突 / 低置信度 → 人工确认项（P2 confirm 面板）
     for key, label, ext_key in (("series", "系列", "series"),
                                 ("form", "形态", "form"),
-                                ("server_type", "服务器类型", "server_type_name")):
+                                ("server_type", "服务器类型", "server_type")):
         rule_v = ext.get(ext_key)
         llm_v = _slot_value(llm_slots, key)
         if rule_v and llm_v and str(rule_v) != str(llm_v):

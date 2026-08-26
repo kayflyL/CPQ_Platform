@@ -14,6 +14,7 @@ from typing import Any, Awaitable, Callable
 
 from app.api.candidate_search import (select_models, pick_kp_parts, build_plan,
                            kp_categories_for_type, build_variant_signals)
+from app.services.slot_contract import canonical_get, canonical_set
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +192,7 @@ async def _handle_agent_fill(ctx: dict, config: dict, broadcast: BroadcastFn) ->
 
     # 校验 + 落表：无关键缺口（或已委托/已收敛），固化需求快照并推进下游。
     ctx["awaiting_input"] = False
-    _has_model = bool(ext.get("server_model") or ext.get("model"))
+    _has_model = bool(canonical_get(ext, "server_model"))
     if ctx.get("delegated"):
         ctx["clarity"] = "delegated"
     elif ctx.get("converged"):

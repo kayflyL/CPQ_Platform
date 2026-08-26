@@ -10,6 +10,8 @@
 from __future__ import annotations
 from typing import Any, Optional
 
+from app.services.slot_contract import canonical_get
+
 
 def _load_contract() -> dict:
     try:
@@ -124,7 +126,7 @@ def absent_confirmed(ext: dict, slot_key: str) -> bool:
 
 
 def _type_blob(ext: dict) -> str:
-    typ = str(ext.get("server_type_name") or ext.get("server_type") or "").lower()
+    typ = str(canonical_get(ext, "server_type") or "").lower()
     it = (intent(ext) or "").lower()
     return (typ + " " + it).strip()
 
