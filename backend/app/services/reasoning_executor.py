@@ -306,7 +306,9 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
     """机型选型节点：确定性 select_models 出候选；用户确认/锁定交给上层 AI 角色措辞。"""
     from app.services.capabilities import run_select_baseline_rule
     ext = dict(ctx.get("ext") or {})
-    answer = str(ctx.get("last_user_answer") or "").strip()
+    # 结构化选项点选（server_model）已经由外层写入 ext.server_model；当 resume 分支把
+    # last_user_answer 清掉后，仍按 ext 中已确认的机型名锁定，避免重新弹候选。
+    answer = str(ctx.get("last_user_answer") or canonical_get(ext, "server_model") or "").strip()
     pi = str(ctx.get("plan_intent") or "").strip().lower()
     llm_on = bool(ctx.get("llm_enabled", True))
     intent = _model_intent_from_plan(pi, answer, llm_on)
@@ -341,6 +343,19 @@ async def _handle_model_reason(ctx: dict, config: dict, broadcast: BroadcastFn) 
 
     if intent == "choose" and pi == "confirm_choice":
         ctx["_confirm_choice"] = True
+    # 结构化候选点选：pending 恢复时 baselines 已由 slot_state 带上；用户点的是上一轮
+    # 列出的具体型号，就直接按该型号锁定，不要再跑一遍 select_models 并重新弹候选。
+    if ctx.get("model_phase") == "await_choice" and answer and intent not in ("cancel", "auto_pick"):
+        _locked = _lock_model_from_answer(answer, ctx.get("baselines") or [])
+        if _locked:
+            ctx["baselines"] = [_locked]
+            ctx["_locked_baseline"] = _locked
+            ctx["model_selection"] = {"id": _locked.get("id"), "name": _locked.get("name") or ""}
+            ctx["model_reason"] = {"source": "user_pick", "baseline": _locked,
+                                   "reason": "用户已锁定机型 " + (_locked.get("name") or "")}
+            ctx["awaiting_input"] = False
+            return {"count": 1, "matches": _model_reason_matches([_locked]),
+                    "source": "user_pick", "reason": "已按你的选择锁定机型，继续配件选配"}
     rule_res = run_select_baseline_rule(ctx, config)
     _baselines = ctx.get("baselines") or []
     if _baselines and len(_baselines) == 1 and not answer:
