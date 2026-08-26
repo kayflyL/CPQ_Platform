@@ -870,6 +870,30 @@ def _gpu_qty_from_ext(ext: dict) -> int:
     return total
 
 
+def _mem_groups_from_signal(mem_signal: Optional[dict]) -> list:
+    """从单真值源 mem_signal 确定性派生候选内存组（不写回 ext，避免双真值源）。"""
+    if not isinstance(mem_signal, dict):
+        return []
+    per = mem_signal.get("per_stick_gb")
+    try:
+        per = int(per) if per is not None else None
+    except (TypeError, ValueError):
+        per = None
+    if not per or not (4 <= per <= 1024):
+        return []
+    qty = mem_signal.get("qty")
+    try:
+        qty = int(qty) if qty is not None else 1
+    except (TypeError, ValueError):
+        qty = 1
+    if not (1 <= qty <= 64):
+        qty = 1
+    group = {"term": f"{per}G", "qty": qty}
+    if mem_signal.get("comparison") in ("gte", "lte"):
+        group["comparison"] = mem_signal["comparison"]
+    return [group]
+
+
 def filter_models_by_gpu_capacity(baselines: list, gpu_count: int):
     """按 GPU 槽位统一过滤候选机型，唯一能力过滤点（事实源 = base_config.gpu_slots）。
 
@@ -1100,7 +1124,7 @@ def run_match_kp_rule(ctx: dict, config: Optional[dict] = None) -> dict:
             drive_groups=ext.get("drive_groups"),
             raid_groups=ext.get("raid_groups"),
             gpu_groups=_eff_gpu_groups,
-            mem_groups=ext.get("mem_groups"),
+            mem_groups=_mem_groups_from_signal(ext.get("mem_signal")),
             platform_series=bl.get("series"),
             drive_spec_substitute=cfg.get("drive_spec_substitute", True),
             default_mem_speed=_base_config_std_mem_speed(bl.get("id")),

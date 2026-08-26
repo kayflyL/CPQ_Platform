@@ -164,7 +164,7 @@ def _slot_filled(ext: dict, key: str) -> bool:
         return _has(canonical_get(ext, key))
     mapping = {
         "cpu": ["cpu_signal"],
-        "memory": ["mem_signal", "mem_groups"],
+        "memory": ["mem_signal"],
         "storage": ["drive_groups"],
         "gpu": ["gpu_groups"],
         "nic": ["multi_spec_filters"],

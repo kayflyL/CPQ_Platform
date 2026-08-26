@@ -17,7 +17,7 @@ _SLOT_KEYS = {
     "n": ["n", "purchase_qty"],
     "server_model": ["server_model", "model", "baseline_model"],
     "cpu": ["cpu_signal"],
-    "memory": ["mem_signal", "mem_groups"],
+    "memory": ["mem_signal"],
     "storage": ["drive_groups"],
     "gpu": ["gpu_groups"],
     "nic": ["multi_spec_filters"],

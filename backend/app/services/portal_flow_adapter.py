@@ -118,8 +118,7 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
             slots["cpu"] = cpu
 
     mem_signal = ext.get("mem_signal") if isinstance(ext.get("mem_signal"), dict) else {}
-    mem_groups = ext.get("mem_groups") if isinstance(ext.get("mem_groups"), list) else []
-    if mem_signal or mem_groups:
+    if mem_signal:
         memory: dict[str, Any] = {}
         if mem_signal.get("per_stick_gb") is not None:
             memory["per_stick_gb"] = mem_signal["per_stick_gb"]
@@ -130,7 +129,7 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         if mem_signal.get("brand"):
             memory["brand"] = mem_signal["brand"]
         per_stick = mem_signal.get("per_stick_gb")
-        mem_qty = _first((mem_groups[0] or {}).get("qty") if mem_groups else None, mem_signal.get("qty"))
+        mem_qty = mem_signal.get("qty")
         if mem_qty is None and per_stick and mem_signal.get("total_gb"):
             try:
                 total = int(mem_signal["total_gb"])

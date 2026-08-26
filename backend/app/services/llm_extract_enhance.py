@@ -269,8 +269,8 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                     _kw.append(_t)
                     changes.append(f"keywords+{_t}")
 
-    # ── 内存：合并 mem_signal（type/speed/total_gb/per_stick_gb）；mem_groups 仅当
-    #    规则没抽到任何内存组且 LLM 明确给了单条容量（R7：插槽数/未知容量绝不臆造）──
+    # ── 内存：单真值源 mem_signal（type/speed/total_gb/per_stick_gb/qty）。
+    #    不再双写 mem_groups；下游需要分组时由 _mem_groups_from_signal 确定性派生。──
     mem = cleaned.get("memory") or {}
     if mem:
         _add_cat("Memory")
@@ -289,27 +289,25 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         if per and 4 <= int(per) <= 1024:
             if not sig.get("per_stick_gb"):
                 sig["per_stick_gb"] = int(per)
-            if mqty and 1 <= int(mqty) <= 64 and not sig.get("total_gb"):
-                sig["total_gb"] = int(per) * int(mqty)
-                changes.append(f"mem.total_gb={sig['total_gb']}")
+            if mqty and 1 <= int(mqty) <= 64:
+                sig["qty"] = int(mqty)
+                if not sig.get("total_gb"):
+                    sig["total_gb"] = int(per) * int(mqty)
+                    changes.append(f"mem.total_gb={sig['total_gb']}")
             # 单条 + 总量都给了但没条数 → 反推条数（32G×? = 256G → 8）
             if total and 128 <= int(total) <= 32768 and mqty is None:
                 _q = int(total) // int(per)
                 if 1 <= _q <= 64 and _q * int(per) == int(total):
                     mqty = _q
+                    sig["qty"] = int(mqty)
         elif total and 128 <= int(total) <= 32768:
             # 只给总量：保留 mem_signal.total_gb，条数由配件规划（kp LLM 提议）按通道拆
             sig["total_gb"] = int(total)
             changes.append(f"mem.total_gb={int(total)}")
+        if mem.get("comparison") in ("gte", "lte"):
+            sig["comparison"] = mem["comparison"]
         if sig:
             ext["mem_signal"] = sig
-        if per and 4 <= int(per) <= 1024 and not (ext.get("mem_groups") or []):
-            n = int(mqty) if mqty and 1 <= int(mqty) <= 64 else 1
-            _mg = {"term": f"{int(per)}G", "qty": n}
-            if mem.get("comparison") in ("gte", "lte"):
-                _mg["comparison"] = mem["comparison"]
-            ext["mem_groups"] = [_mg]
-            changes.append(f"mem_groups+{per}G×{n}")
 
     # ── 盘：仅当文本含显式能力声明（支持/最多/最大 N 盘位）且无强配置信号时跳过（R7：能力≠配置）；
     # 否则信任 LLM 已按 prompt 过滤能力声明。"2块960G SSD 系统盘" 无能力词，是实际配置，应进 drive_groups

@@ -333,9 +333,10 @@ def test_merge_agent_primary_fills_all_essential_keys():
     # CPU 信号 + 型号 token 进 keywords（P1.2 补丁）
     assert ext["cpu_signal"]["model"] == "AMD EPYC 9124"
     assert "9124" in ext["keywords"]
-    # 内存信号 + 组
+    # 内存：单真值源 mem_signal；数量与单条容量都在信号内，不再写 mem_groups
     assert ext["mem_signal"]["type"] == "DDR5"
-    assert ext["mem_groups"] == [{"term": "32G", "qty": 16}]
+    assert ext["mem_signal"]["per_stick_gb"] == 32
+    assert ext["mem_signal"]["qty"] == 16
     # 盘组（两种盘）
     assert sorted(g["term"] for g in ext["drive_groups"]) == ["3.84T", "480G"]
     # GPU 组
