@@ -304,6 +304,22 @@ def test_merge_rule_wins_on_psu_and_mem():
     assert ext["mem_signal"]["speed"] == 4800
 
 
+def test_merge_psu_qty_only_is_preserved():
+    """只有电源数量、没瓦数：也要落 psu_signal.qty，避免下游 compose 静默退回负载推断。"""
+    ext: dict = {}
+    merge_into_ext(ext, {"psu": {"qty": 2}}, requirement_text="配 2 个电源")
+    assert ext["psu_signal"] == {"qty": 2}
+
+
+def test_merge_nic_qty_only_is_dropped():
+    """网卡只有数量、无速度/端口/型号：是无意义行，不产 multi_spec_filters 行。"""
+    ext: dict = {}
+    merge_into_ext(ext, {"nic": [{"qty": 2}]}, requirement_text="配 2 个网卡")
+    msf = ext.get("multi_spec_filters") or {}
+    assert not msf.get("Network(NIC) requirement")
+    assert "Network(NIC) requirement" not in ext.get("categories", [])
+
+
 
 # ============================================================
 # agent 主理解路（P1.2）：ext 从空起步，LLM 槽位确定性全填

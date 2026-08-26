@@ -396,11 +396,13 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                 name_terms.append("光模块")
             if name_terms:
                 line["name_contains"] = name_terms
+            # 只有数量、没有任何规格/型号线索的网卡行是无意义行（会退化成品类代表件），丢弃。
+            if not (filters or name_terms):
+                continue
             q = n.get("qty")
             if q and 1 <= int(q) <= 64:
                 line["qty"] = int(q)
-            if line:
-                lines.append(line)
+            lines.append(line)
         if lines:
             if msf is None:
                 msf = {}
@@ -409,18 +411,22 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             changes.append(f"multi_spec_filters[NIC]+{len(lines)} 行")
             _add_cat("Network(NIC) requirement")
 
-    # ── 电源：规则没抽到才整条补；已抽到只补缺 qty ──
+    # ── 电源：唯一真值源 psu_signal（wattage/qty）。只补缺；只有数量、没瓦数也要保留 qty，
+    #    避免下游 compose 的 psu_qty_source 读不到值而静默退回负载推断。──
     psu = cleaned.get("psu") or {}
     psu_sig = ext.get("psu_signal")
     w = psu.get("wattage")
     q = psu.get("qty")
-    if not psu_sig and w and 200 <= int(w) <= 3000:
-        sig = {"wattage": int(w)}
+    if not psu_sig:
+        sig: dict = {}
+        if w and 200 <= int(w) <= 3000:
+            sig["wattage"] = int(w)
         if q and 1 <= int(q) <= 8:
             sig["qty"] = int(q)
-        ext["psu_signal"] = sig
-        changes.append(f"psu_signal+{w}W×{q or '?'}")
-    elif psu_sig and q and not psu_sig.get("qty") and 1 <= int(q) <= 8:
+        if sig:
+            ext["psu_signal"] = sig
+            changes.append(f"psu_signal+{sig.get('wattage') or '?'}W×{sig.get('qty') or '?'}")
+    elif q and not psu_sig.get("qty") and 1 <= int(q) <= 8:
         psu_sig["qty"] = int(q)
         changes.append(f"psu.qty={q}")
 
