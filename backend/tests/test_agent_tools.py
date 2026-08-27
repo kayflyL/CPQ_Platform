@@ -33,7 +33,7 @@ def test_build_tool_registry_filtering():
     from app.services.agent_tools import build_tool_registry
     full = build_tool_registry({})
     all_names = set(full.names())
-    # 默认启用全集（含 select_models / pick_kp_parts / build_plan / search_cases）
+    # 默认启用全集（含 select_models / select_parts / build_plan / search_cases）
     assert "select_models" in all_names and "search_cases" in all_names
     # enabled_tools 过滤：只留选中的
     only_sel = build_tool_registry({"enabled_tools": ["select_models"]})

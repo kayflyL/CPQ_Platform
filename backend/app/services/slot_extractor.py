@@ -31,8 +31,18 @@ def _coerce_single(key: str, value: Any) -> Any:
     if not isinstance(value, str) or not value.strip():
         return None
     s = value.strip()
-    if key in ("cpu", "raid"):
+    if key == "cpu":
         return {"model": s, "qty": 1}
+    if key == "raid":
+        qty = 1
+        qm = re.search(r"[×*x]\s*(\d+)", s, re.I)
+        if qm:
+            qty = int(qm.group(1))
+        # 只写级别没写卡型号（RAID 0,1,10 / RAID0/1/10）：留级别信号，不臆造型号。
+        levels = re.findall(r"\d+", s) if re.search(r"raid", s, re.I) else []
+        if levels:
+            return {"raid_levels": [str(int(x)) for x in levels], "qty": qty}
+        return {"model": s, "qty": qty}
     if key == "memory":
         v: dict[str, Any] = {"qty": 1}
         gb = _parse_gb(s)
@@ -41,6 +51,12 @@ def _coerce_single(key: str, value: Any) -> Any:
         m = re.search(r"DDR\d", s, re.I)
         if m:
             v["type"] = m.group(0)
+        sp = re.search(r"DDR\d\s*-?\s*(\d{4})", s, re.I)
+        if sp:
+            v["speed_mt"] = int(sp.group(1))
+        qm = re.search(r"[×*x]\s*(\d+)\s*(?:条|根)?", s, re.I)
+        if qm:
+            v["qty"] = int(qm.group(1))
         if not gb and not m:
             v["term"] = s
         return v

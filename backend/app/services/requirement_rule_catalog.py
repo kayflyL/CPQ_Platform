@@ -9,6 +9,38 @@ from typing import Any, Optional
 from app.repository.requirement_rule_repo import RequirementRuleRepository
 
 
+DEFAULT_PART_SELECTION_POLICY: dict[str, dict[str, Any]] = {
+    "cpu": {
+        "search_field": "model",
+    },
+    "memory": {
+        "allow_speed_relax_without_comparison": False,
+        "capacity_split": "largest_divisor",
+    },
+    "drive": {
+        "kind_filter": True,
+        "capacity_tolerance_ratio": 0.05,
+    },
+    "gpu": {
+        "match_model_tokens_first": True,
+        "allow_capacity_fallback_when_model_missing": False,
+        "check_capacity_after_model_match": True,
+        "capacity_tolerance_ratio": 0.05,
+    },
+    "raid": {
+        "model_match_first": True,
+        "require_level_support": True,
+    },
+    "nic": {
+        "spec_filter": True,
+        "name_contains": True,
+    },
+    "generic": {
+        "search_field": "keyword",
+    },
+}
+
+
 def active_bodies(rule_type: str, enabled_types: Optional[list[str]] = None) -> list[dict]:
     """按类型取 active 规则的 body 列表；enabled_types 为节点引用白名单。"""
     if enabled_types is not None and rule_type not in enabled_types:
@@ -27,6 +59,44 @@ def active_bodies(rule_type: str, enabled_types: Optional[list[str]] = None) -> 
             repo.close()
     except Exception:
         return []
+
+
+def part_selection_policy(category_key: Optional[str] = None,
+                          enabled_types: Optional[list[str]] = None) -> dict[str, Any]:
+    """配件选型策略：默认值 + rules.part_selection 规则覆盖。
+
+    body 形如 {"gpu": {"allow_capacity_fallback_when_model_missing": False}}；
+    多条规则按 category_key 合并，后出现者覆盖前值。category_key 为空返回全量策略。
+    """
+    out: dict[str, Any] = {}
+    for key, policy in DEFAULT_PART_SELECTION_POLICY.items():
+        out[str(key)] = dict(policy)
+    for row in active_bodies("part_selection", enabled_types):
+        if not isinstance(row, dict):
+            continue
+        for key, policy in row.items():
+            if isinstance(policy, dict) and str(key).strip():
+                slot = out.setdefault(str(key), {})
+                slot.update(policy)
+    if category_key is not None:
+        key = str(category_key).strip().lower()
+        return out.get(key, {})
+    return out
+
+
+def part_aliases(enabled_types: Optional[list[str]] = None) -> dict[str, list[str]]:
+    """配件别名/同义术语 → 库内型号关键词（如「兆芯」→ [KH40000, KH50000]）。
+
+    规则类型 part_alias，body 形如 {"term":"兆芯","skus":["KH40000","KH50000"]}。
+    """
+    out: dict[str, list[str]] = {}
+    for row in active_bodies("part_alias", enabled_types):
+        term = str(row.get("term") or "").strip()
+        skus = row.get("skus") or row.get("keywords") or []
+        if not term or not isinstance(skus, list):
+            continue
+        out[term] = [str(x) for x in skus if str(x).strip()]
+    return out
 
 
 def cpu_mem_type_rules(enabled_types: Optional[list[str]] = None) -> list[dict]:
@@ -186,7 +256,7 @@ def kp_signal_rules(enabled_types: Optional[list[str]] = None) -> dict[str, Any]
 
 
 
-# KP 候选检索 stage-1 上下文词表（pick_kp_parts 用）：系列号/风扇/电源/GPU/RAID 品类词。
+# KP 候选检索 stage-1 上下文词表（配件选型用）：系列号/风扇/电源/GPU/RAID 品类词。
 # 默认来自这里，可被 kp_token_context 规则覆盖；candidate_search 只读不内联。
 DEFAULT_KP_TOKEN_CONTEXT: dict[str, list[str]] = {
     "series_words": ["系列", "series"],

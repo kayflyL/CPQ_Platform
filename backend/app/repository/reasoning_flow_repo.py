@@ -111,18 +111,6 @@ def _normalize_graph(g: dict) -> dict:
     return {"nodes": nodes, "edges": edges}
 
 
-_PROMPT_NODE_TYPES = {"agent_fill", "kp_reason"}
-
-
-def _prompt_node_type(node_key: str) -> Optional[str]:
-    """节点 id → 可回显提示词的节点类型（兼容后缀 id，如 agent_fill_2）。"""
-    nk = str(node_key or "")
-    if nk in _PROMPT_NODE_TYPES:
-        return nk
-    base = nk.rsplit("_", 1)[0]
-    return base if base in _PROMPT_NODE_TYPES else None
-
-
 class ReasoningFlowRepository:
     def __init__(self):
         self.session: Session = Rules_SessionLocal()
@@ -159,15 +147,6 @@ class ReasoningFlowRepository:
                 from app.services import reasoning_node_contract
                 for nk, cfg in list(cfg_map.items()):
                     cfg_map[nk] = reasoning_node_contract.effective_config(nk, cfg)
-            except Exception:
-                pass
-        else:
-            try:
-                from app.services.prompt_store import merge_node_prompt
-                for nk, cfg in list(cfg_map.items()):
-                    ptype = _prompt_node_type(nk)
-                    if ptype:
-                        cfg_map[nk] = merge_node_prompt(ptype, cfg)
             except Exception:
                 pass
         d = f.to_dict()
@@ -407,8 +386,7 @@ class ReasoningFlowRepository:
                 if node_key == "agent_fill":
                     # 画布已收敛到 agent_fill 但 DB 无配置行：补建默认配置并回填提示词，
                     # 保证抽屉打开即回显默认 system_prompt。
-                    from app.services.prompt_store import merge_node_prompt
-                    cfg = merge_node_prompt("agent_fill", dict(default))
+                    cfg = dict(default)
                     self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")
                     changed += 1
                 continue
@@ -424,7 +402,7 @@ class ReasoningFlowRepository:
                     dirty = True
                 prompt = dict(cfg.get("prompt") or {})
                 default_prompt = str((default.get("prompt") or {}).get("system_prompt") or "")
-                if prompt.get("system_prompt") and "登记范围" in str(prompt.get("system_prompt")):
+                if not prompt.get("system_prompt") or "登记范围" in str(prompt.get("system_prompt")):
                     prompt["system_prompt"] = default_prompt
                     cfg["prompt"] = prompt
                     dirty = True
@@ -445,6 +423,18 @@ class ReasoningFlowRepository:
                 if "detail_link_enabled" not in cfg and "detail_link_enabled" in default:
                     cfg["detail_link_enabled"] = bool(default["detail_link_enabled"])
                     dirty = True
+                # 旧节点级遗留决策字段清掉；system_prompt 现在是正式节点提示词，保留并补默认。
+                for legacy in ("selection_mode", "grounding_tool",
+                               "grounding_result_key", "choice_id_pattern", "choice_fields"):
+                    if legacy in cfg:
+                        cfg.pop(legacy, None)
+                        dirty = True
+                if not cfg.get("system_prompt") and default.get("system_prompt"):
+                    cfg["system_prompt"] = default["system_prompt"]
+                    dirty = True
+                if cfg.get("enabled_tools") != default.get("enabled_tools"):
+                    cfg["enabled_tools"] = list(default.get("enabled_tools") or [])
+                    dirty = True
 
             if node_key == "kp_reason":
                 for field in ("confirm_mode", "reason_template", "representative_pick", "fallback_strategy"):
@@ -453,6 +443,19 @@ class ReasoningFlowRepository:
                         dirty = True
                 if "drive_spec_substitute" not in cfg and "drive_spec_substitute" in default:
                     cfg["drive_spec_substitute"] = bool(default["drive_spec_substitute"])
+                    dirty = True
+                # 清除旧 JSON proposal 提示词与已删除的 pick_kp_parts 工具引用；
+                # system_prompt 现在是正式节点提示词，保留并补默认。
+                for legacy in ("user_prompt_template",
+                               "proposal_enabled", "proposal_schema", "proposal_mapping"):
+                    if legacy in cfg:
+                        cfg.pop(legacy, None)
+                        dirty = True
+                if not cfg.get("system_prompt") and default.get("system_prompt"):
+                    cfg["system_prompt"] = default["system_prompt"]
+                    dirty = True
+                if cfg.get("enabled_tools") != default.get("enabled_tools"):
+                    cfg["enabled_tools"] = list(default.get("enabled_tools") or [])
                     dirty = True
 
             if node_key == "compose":

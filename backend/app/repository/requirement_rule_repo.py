@@ -18,6 +18,7 @@ _VALID_TYPE = {
     "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map",
     "type_alias",
     "gpu_brand_map", "spec_unit_patterns", "power_calibration",
+    "part_selection",
 }
 
 DEFAULT_RULES: list[dict] = [
@@ -236,6 +237,18 @@ DEFAULT_RULES: list[dict] = [
     {"type": "workload_map", "name": "Qwen-72B → 2卡 146G", "body": {"workload_keyword": "Qwen-72B", "intent": "llm_inference", "total_vram_gb": 146, "gpu_count": 2}},
 
     {"type": "compliance_map", "name": "国产化 → Polaris + 国产件", "body": {"domestic_only": True, "platform_series": ["Polaris"], "cpu_keywords": ["KH", "兆芯", "开胜"], "allowed_manufacturers": ["兆芯", "海光"], "excluded_manufacturers": ["AMD", "Intel", "NVIDIA"], "gpu_policy": "exclude_foreign"}},
+
+    {"type": "part_alias", "name": "兆芯 → KH40000/KH50000", "body": {"term": "兆芯", "skus": ["KH40000", "KH50000"]}},
+
+    {"type": "part_selection", "name": "配件选型默认策略", "body": {
+        "cpu": {"search_field": "model"},
+        "memory": {"allow_speed_relax_without_comparison": False, "capacity_split": "largest_divisor"},
+        "drive": {"kind_filter": True, "capacity_tolerance_ratio": 0.05},
+        "gpu": {"match_model_tokens_first": True, "allow_capacity_fallback_when_model_missing": False, "check_capacity_after_model_match": True, "capacity_tolerance_ratio": 0.05},
+        "raid": {"model_match_first": True, "require_level_support": True},
+        "nic": {"spec_filter": True, "name_contains": True},
+        "generic": {"search_field": "keyword"},
+    }},
 
 ]
 

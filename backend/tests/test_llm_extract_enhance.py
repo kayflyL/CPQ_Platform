@@ -326,7 +326,7 @@ def test_merge_nic_qty_only_is_dropped():
 # ============================================================
 
 def test_merge_agent_primary_fills_all_essential_keys():
-    """agent 主理解路：ext 从空起步，LLM 槽位合并后 pick_kp_parts/build_plan 所需全键齐全。"""
+    """agent 主理解路：ext 从空起步，LLM 槽位合并后 select_parts/build_plan 所需全键齐全。"""
     ext: dict = {}
     cleaned = {
         "cpu": {"model": "AMD EPYC 9124", "cores": 16, "qty": 1},

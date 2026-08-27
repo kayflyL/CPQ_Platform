@@ -20,21 +20,6 @@ from ..models.system_config import SystemConfig
 
 
 
-def _load_reasoning_prompt_defaults() -> dict:
-
-    """读取打包的默认提示词/话术种子（不依赖 prompt_store，避免循环 import）。"""
-
-    try:
-
-        p = Path(__file__).resolve().parents[1] / "services" / "reasoning_prompt_defaults.json"
-
-        return json.loads(p.read_text(encoding="utf-8"))
-
-    except Exception:
-
-        return {}
-
-
 def _load_reasoning_node_defaults() -> dict:
     """读取打包的需求分析节点默认配置种子（不依赖业务 service，避免循环 import）。"""
     try:
@@ -287,7 +272,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "pick_kp_parts", "build_plan", "cost_breakdown"],
+        "tool_ids": ["select_models", "select_parts", "build_plan", "cost_breakdown"],
 
         "data_sources": ["kp_price", "bom", "cost"],
 
@@ -327,7 +312,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "pick_kp_parts", "build_plan", "search_cases",
+        "tool_ids": ["select_models", "select_parts", "list_kp_categories", "build_plan", "search_cases",
                      "list_server_types", "list_server_models", "get_server_model"],
 
         "data_sources": ["requirement", "candidate_search", "bom", "server_catalog", "server_product_content"],
@@ -755,7 +740,6 @@ class SystemConfigRepository:
 
              }, ensure_ascii=False), "type": "json", "description": "AI 同事配置（角色/人设/工具/入口/权限/团队/布局，业务代码从 system_config 读取）"},
 
-            {"key": "reasoning_prompts", "value": json.dumps(_load_reasoning_prompt_defaults(), ensure_ascii=False), "type": "json", "description": "需求分析节点提示词/话术默认值（用户可在节点抽屉覆盖）"},
 
             {"key": "reasoning_node_defaults", "value": json.dumps(_load_reasoning_node_defaults(), ensure_ascii=False), "type": "json", "description": "需求分析节点非提示词默认配置（白盒回显与保存去重时唯一权威源）"},
 
@@ -803,6 +787,22 @@ class SystemConfigRepository:
 
         self.session.query(SystemConfig).filter(SystemConfig.key == "scene_mapping").delete()
 
+        # 退役并行提示词库：reasoning_prompts 已并入 reasoning_node_defaults，删除旧行。
+        self.session.query(SystemConfig).filter(SystemConfig.key == "reasoning_prompts").delete()
+
+        # reasoning_node_defaults 为系统管理默认值（无用户编辑入口），同步到打包种子：
+        # 补齐节点提示词并清除旧字段。
+        node_defaults_row = self.session.query(SystemConfig).filter(SystemConfig.key == "reasoning_node_defaults").first()
+        if node_defaults_row:
+            try:
+                current = json.loads(node_defaults_row.value) if node_defaults_row.value else {}
+            except Exception:
+                current = {}
+            seed = _load_reasoning_node_defaults()
+            if current != seed:
+                node_defaults_row.value = json.dumps(seed, ensure_ascii=False)
+                node_defaults_row.updated_at = datetime.now().isoformat()
+                node_defaults_row.updated_by = "system"
         self.session.commit()
 
         self._ensure_ai_colleagues_dispatch_defaults()
@@ -980,7 +980,7 @@ class SystemConfigRepository:
 
                             changed = True
 
-                    if role_key == "cost_analyst" and colleague.get("tool_ids") == ["select_models", "pick_kp_parts", "build_plan"]:
+                    if role_key == "cost_analyst" and colleague.get("tool_ids") == ["select_models", "select_parts", "build_plan"]:
 
                         colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
 

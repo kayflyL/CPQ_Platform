@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services import case_provider as cp
 # 提前导入规则库模块，避免 test 的 Rules_SessionLocal mock 在惰性首次导入时
-# 污染 requirement_rule_repo 的会话类绑定（否则后续 pick_kp_parts 规则读取会拿到 mock 返回空）。
+# 污染 requirement_rule_repo 的会话类绑定（否则后续配件工具规则读取会拿到 mock 返回空）。
 import app.services.requirement_rule_catalog  # noqa: F401
 
 

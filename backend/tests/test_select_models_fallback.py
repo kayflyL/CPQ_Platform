@@ -74,3 +74,35 @@ def test_all_stage_drops_series_and_form():
     assert len(bl) == 1
     assert bl[0]["match_stage"] == "all"
     assert "平台系列" in bl[0]["fallback_note"]
+
+
+def test_type_mismatch_returns_empty_not_other_type():
+    """某类型 0 机型时返空反问，不丢弃 type 混入其他类型（N3 回归）。"""
+    def lm(type_id=None, series=None, form=None):
+        if type_id == 1:
+            return []
+        return [MODEL]
+
+    class _Cat:
+        def list_types(self):
+            return [{"id": 1, "name": "存储服务器"}, {"id": 2, "name": "AI / 加速计算服务器"}]
+
+        def list_models(self, type_id=None, series=None, form=None, published_only=False):
+            return lm(type_id=type_id, series=series, form=form)
+
+        def close(self):
+            pass
+
+    class _Bc:
+        def list(self):
+            return [BC]
+
+        def close(self):
+            pass
+
+    with patch("app.api.candidate_search.ServerCatalogRepository", _Cat), \
+         patch("app.api.candidate_search.BaseConfigRepository", _Bc):
+        from app.api.candidate_search import select_models
+        bl = select_models(None, "存储服务器", series="Orion", form="4U",
+                           fallback_order=["exact", "same_series", "same_form", "all"])
+    assert bl == []

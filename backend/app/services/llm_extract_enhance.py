@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """LLM 抽取增强 —— 需求理解/选型节点共用的 LLM 增强实现（schema 收口 + 规则兜底）。
 
-设计铁律（reasoning_executor._dispatch 的 llm 节点注释）：
+设计铁律（ai_plan_executor 的 LLM 决策节点约束）：
   • LLM 输出绝不裸进 match_kp/compose（碰料号/价格/兼容必须 100% 确定性）；
   • 只以 schema 校验过的结果喂回 ext，规则始终兜底；
   • 任何失败（网络/超时/解析/schema）→ 静默降级，ctx 不变，不阻塞主流程。
@@ -439,6 +439,11 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             continue
         raid_model = (raid.get("model") or "").strip()
         raid_levels = [str(x).strip() for x in (raid.get("raid_levels") or []) if str(x).strip()]
+        # 模型字段里写了 RAID 级别（如 "RAID 0,1,10"）→ 归入级别信号，不当作卡型号。
+        if raid_model and not _model_tokens_of(raid_model):
+            level_scan = [str(int(x)) for x in re.findall(r"\d+", raid_model)]
+            raid_levels = list(dict.fromkeys([*raid_levels, *level_scan]))
+            raid_model = ""
         raid_qty = int(raid.get("qty") or 1)
         _rg = ext.get("raid_groups")
         if _rg is None:

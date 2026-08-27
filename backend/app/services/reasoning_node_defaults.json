@@ -7,27 +7,45 @@
     },
     "agent_fill": {
       "description": "会对话、会查目录确认在售/系列、边答边填线索登记表；信息不足自然反问，一个回合可批量填多个槽；机型与配件的最终选型交给下游节点",
-      "rule_types": ["platform_series_map", "category_alias", "workload_map", "compliance_map"],
-      "enabled_tools": ["list_server_types", "list_server_models", "get_server_model"]
+      "rule_types": [
+        "platform_series_map",
+        "category_alias",
+        "workload_map",
+        "compliance_map"
+      ],
+      "enabled_tools": [
+        "list_server_types",
+        "list_server_models",
+        "get_server_model"
+      ],
+      "prompt": {
+        "system_prompt": "你在「智能对话填表」节点。职责：把用户原话中已明确表达的字段如实登记进线索登记表，然后交给下游节点；你不判断是否继续/退出，也不做机型选型。只依据用户原话和下方《在售目录参考》填表，不要调用任何工具，不要编造目录外值；用户没说且目录不唯一的字段留空并反问。\n\n类型判定（只能从目录真实类型里选）：出现 GPU/AI训练/AI推理/大模型/深度学习等，server_type 必须选目录中的「AI/加速计算服务器」，不要写成通用计算；只出现存储/备份/文件/容量盘等，选「存储服务器」；其余默认「通用计算服务器」。"
+      }
     },
     "model_reason": {
       "description": "按线索登记字段推荐或智能选配在售机型骨架",
-      "rule_types": ["fallback_order", "compliance_map"],
-      "enabled_tools": ["select_models"],
+      "rule_types": [
+        "fallback_order",
+        "compliance_map"
+      ],
+      "enabled_tools": [
+        "select_models"
+      ],
       "series_limit": 3,
       "detail_link_enabled": true,
       "intro_length": "medium",
-      "sort_by": "match_stage"
+      "sort_by": "match_stage",
+      "system_prompt": "你是服务器选型决策器。根据需求原文和线索登记表，先确定正确的服务器类型，再调用 select_models 查询在售候选，只能从工具返回的候选中选一台，禁止编造型号。若需求提到 GPU 卡数/AI训练/推理/大模型，必须把服务器类型定为「AI/加速计算服务器」，不要把 GPU 需求归到通用计算。"
     },
     "kp_reason": {
-      "description": "按线索登记字段选择关键配件",
-      "enabled_tools": ["pick_kp_parts"],
-      "confirm_mode": "auto",
-      "reason_template": "配件规划：已确认 {{items}}",
-      "representative_pick": "auto",
-      "fallback_strategy": "fallback_representative",
-      "drive_spec_substitute": true,
-      "rule_types": ["type_package", "category_alias", "spec_rule", "cpu_mem_generation", "capacity_match", "raid_level_map", "compliance_map"]
+      "description": "AI 按结构化需求信号调用配件工具落地真实料号",
+      "enabled_tools": [
+        "list_kp_categories",
+        "select_parts",
+        "resolve_part_alias",
+        "compose_memory"
+      ],
+      "system_prompt": "你是配件选型编排器。客户需求原文决定必须覆盖哪些配件类别，线索登记表只是已归一化值缓存。先调 list_kp_categories 查看真实配件类目；再逐项对照原文与登记表，把原文提到的每类配件都补进 select_parts 的结构化信号（cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/multi_spec_filters），登记表缺失或与原文冲突时以原文为准。只在模糊处补全：内存只给 total_gb 时补 per_stick_gb/qty，盘只给容量时补 kind，GPU 只给数量时补型号，然后重调 select_parts。内存必须保留并传 speed_mt，缺速度时不要自行补 6400；RAID 只给级别时用 raid_levels，不要写成 model。只采用工具返回的料号/价格，工具未命中就保留 unmatched，规格与需求不一致就保留 spec_mismatch，禁止编造料号。最后输出 final 说明已配项、未匹配项与规格漂移项。"
     },
     "compose": {
       "description": "按真实 BOM 模板组装 bom_scheme.configs",
@@ -41,7 +59,10 @@
       "description": "写回真实 requirement + bom_scheme，并交付给 AI Office/商机详情页",
       "output_kind": "bom_scheme_draft",
       "target": "bom_scheme",
-      "payload_map": { "plans": "ctx.plans", "ext": "ctx.ext" },
+      "payload_map": {
+        "plans": "ctx.plans",
+        "ext": "ctx.ext"
+      },
       "actions": [],
       "deterministic": true
     }

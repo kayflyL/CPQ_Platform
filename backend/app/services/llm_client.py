@@ -275,6 +275,8 @@ async def chat_json(
     timeout: float = 90.0,
     max_attempts: int = 2,
     max_tokens: Optional[int] = None,
+    thinking: Optional[dict] = None,
+    reasoning_effort: Optional[str] = None,
 ) -> dict:
     """非流式 JSON 模式调用 —— 结构化抽槽专用（LLM 节点 extract_enhance / best_fit 用）。
 
@@ -312,6 +314,13 @@ async def chat_json(
             }
             if use_json_mode:
                 request_kwargs["response_format"] = {"type": "json_object"}
+            _extra_body: dict = {}
+            if thinking is not None:
+                _extra_body["thinking"] = thinking
+            if reasoning_effort is not None:
+                _extra_body["reasoning_effort"] = reasoning_effort
+            if _extra_body:
+                request_kwargs["extra_body"] = _extra_body
             resp = await client.chat.completions.create(**request_kwargs)
             content = ""
             try:

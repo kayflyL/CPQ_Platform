@@ -1,8 +1,7 @@
 """需求分析节点配置契约（DB-first）。
 
 节点默认值权威源：system_config.reasoning_node_defaults（缺失时回退
-reasoning_node_defaults.json 种子）。提示词/话术默认值来自
-system_config.reasoning_prompts；规则词表默认值来自 rules.requirement_rules。
+reasoning_node_defaults.json 种子）。规则词表默认值来自 rules.requirement_rules。
 本模块只负责把「默认值 + 用户覆盖值」合并成生效配置，并在保存时剥掉等于默认值的字段。
 """
 from __future__ import annotations
@@ -59,14 +58,6 @@ def node_defaults_seed() -> dict:
     return _node_defaults_from_value(_load_seed())
 
 
-def _prompt_defaults(node_key: str) -> dict:
-    try:
-        from app.services import prompt_store
-        return dict(prompt_store.get_prompt_defaults(node_key) or {})
-    except Exception:
-        return {}
-
-
 def _is_empty(value: Any) -> bool:
     if value is None:
         return True
@@ -90,23 +81,10 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def _defaults_for_node(node_key: str) -> dict:
-    defaults = node_defaults()
-    base = dict(defaults.get(node_key) or {})
-    if node_key == "agent_fill":
-        prompt_defaults = _prompt_defaults("agent_fill")
-        base.setdefault("prompt", {})
-        base["prompt"] = _merge(base["prompt"], {"system_prompt": prompt_defaults.get("system_prompt", "")})
-    elif node_key == "kp_reason":
-        prompt_defaults = _prompt_defaults("kp_reason")
-        if prompt_defaults.get("system_prompt"):
-            base["system_prompt"] = prompt_defaults["system_prompt"]
-        if prompt_defaults.get("user_prompt_template"):
-            base["user_prompt_template"] = prompt_defaults["user_prompt_template"]
-    elif node_key == "model_reason":
-        prompt_defaults = _prompt_defaults("model_reason")
-        if prompt_defaults.get("system_prompt"):
-            base["system_prompt"] = prompt_defaults["system_prompt"]
-    return base
+    """节点生效默认值：以打包种子为底，DB reasoning_node_defaults 覆盖；提示词默认也来自种子。"""
+    seed = node_defaults_seed()
+    db = node_defaults()
+    return _merge(seed.get(node_key) or {}, db.get(node_key) or {})
 
 
 def _base_node_key(node_key: str) -> str:

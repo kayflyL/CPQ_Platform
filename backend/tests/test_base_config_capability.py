@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """基准配置「机箱能力约束」消费链路单测（2026-08-08）：
 PSU 档位收敛到机型支持范围（_clamp_psu_wattage / _infer_psu_wattage）、
-CPU TDP 数据驱动（配件库 specs.tdp 优先于型号表兜底）、
-内存容量反推按机型通道数/条数上限选（_pick_memory_part target/max）。
+CPU TDP 数据驱动（配件库 specs.tdp 优先于型号表兜底）。
 
 跑法（backend 目录）：
   python -X utf8 -m pytest tests/test_base_config_capability.py -q
 """
 from app.api.candidate_search import (
-    _clamp_psu_wattage, _infer_psu_wattage, _estimate_system_load, _pick_memory_part,
+    _clamp_psu_wattage, _infer_psu_wattage, _estimate_system_load,
 )
 
 
@@ -56,32 +55,3 @@ def test_estimate_system_load_uses_part_tdp_spec():
 def test_estimate_system_load_fallback_map_when_no_spec():
     rows = [{"category": "CPU", "name": "AMD EPYC 9124", "qty": 1}]  # 无 specs → 型号表 200W
     assert _estimate_system_load(rows) == 260 + 200
-
-
-def _mem_parts(*caps):
-    return [{"model": f"{c}G DDR5 RDIMM", "price": 10 * c, "currency": "RMB", "matched_spec": f"{c}G"}
-            for c in caps]
-
-
-def _pick(parts):
-    return min(parts, key=lambda p: p["price"])
-
-
-# ── 内存容量反推：目标条数/上限按机型通道数驱动（EPYC 12ch/路 → 双路 24）──
-def test_pick_memory_old_behavior_target_8():
-    parts = _mem_parts(64, 32, 16)
-    row = _pick_memory_part(parts, {"total_gb": 768}, _pick)
-    assert row["qty"] == 12 and row["matched_spec"].endswith("64G")   # 旧默认：目标 8 → 64G×12
-
-
-def test_pick_memory_target_24_by_channels():
-    parts = _mem_parts(64, 32, 16)
-    row = _pick_memory_part(parts, {"total_gb": 768}, _pick, target_sticks=24, max_sticks=24)
-    assert row["qty"] == 24 and row["matched_spec"].endswith("32G")   # 双路 24 通道 → 32G×24
-
-
-def test_pick_memory_max_sticks_respected():
-    # total=800：32G×25 超 24 上限 → 该容量跳过，退回 64G×13（≤24）
-    parts = _mem_parts(64, 32)
-    row = _pick_memory_part(parts, {"total_gb": 800}, _pick, target_sticks=24, max_sticks=24)
-    assert row["qty"] == 13 and row["matched_spec"].endswith("64G")

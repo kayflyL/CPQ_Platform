@@ -271,6 +271,8 @@ async def _run_thinking_loop(
     final_only_contract: Optional[str] = None,
     llm_timeout: float = 90.0,
     llm_max_attempts: int = 2,
+    llm_thinking: Optional[dict] = None,
+    llm_reasoning_effort: Optional[str] = None,
 ) -> dict:
     """智能体主循环（ChatGPT 式）：流式思考 + 工具调用 + 必反问。
 
@@ -350,7 +352,8 @@ async def _run_thinking_loop(
         if final_only:
             try:
                 data = await llm_client.chat_json(messages, model=model,
-                                                  timeout=llm_timeout, max_attempts=llm_max_attempts)
+                                                  timeout=llm_timeout, max_attempts=llm_max_attempts,
+                                                  thinking=llm_thinking, reasoning_effort=llm_reasoning_effort)
             except llm_client.LLMError as e:
                 logger.warning("agent final_only LLM 失败（降级）: %s", e)
                 return "", "", None
@@ -607,6 +610,8 @@ async def run_react_loop(
     final_only_contract: Optional[str] = None,
     llm_timeout: float = 90.0,
     llm_max_attempts: int = 2,
+    llm_thinking: Optional[dict] = None,
+    llm_reasoning_effort: Optional[str] = None,
 ) -> dict:
     """Agent loop: native tools first, text-ReAct fallback only before side effects."""
     if prefer_text_react:
@@ -642,6 +647,8 @@ async def run_react_loop(
             final_only_contract=final_only_contract,
             llm_timeout=llm_timeout,
             llm_max_attempts=llm_max_attempts,
+            llm_thinking=llm_thinking,
+            llm_reasoning_effort=llm_reasoning_effort,
         )
 
     native = await _run_native_tool_loop(
@@ -682,4 +689,6 @@ async def run_react_loop(
         final_only_contract=final_only_contract,
         llm_timeout=llm_timeout,
         llm_max_attempts=llm_max_attempts,
+        llm_thinking=llm_thinking,
+        llm_reasoning_effort=llm_reasoning_effort,
     )

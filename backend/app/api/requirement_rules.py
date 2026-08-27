@@ -14,6 +14,7 @@ _VALID_TYPE = {
     "clarity", "budget", "cpu_mem_generation", "category_alias",
     "type_package", "spec_rule", "capacity_match", "fallback_order", "check_rule",
     "platform_series_map", "raid_level_map", "workload_map", "compliance_map",
+    "part_selection",
 }
 
 

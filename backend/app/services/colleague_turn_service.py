@@ -702,7 +702,6 @@ async def _run_tool_turn(
             supplement_text = str((args or {}).get("supplement_text") or "").strip()
             full_text = build_requirement_text(opportunity_id, text, supplement_text)
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-        from app.services.capability_executor import run_fixed_workflow
         from app.services.ai_plan_executor import run_ai_skill_plan
 
         repo = ReasoningFlowRepository()
@@ -835,8 +834,7 @@ async def _run_tool_turn(
                 _apply_extracted_slots(restored_ext, {selected_slot: last_user_answer}, allow_overwrite=True)
             except Exception:
                 logger.exception("结构化选项落槽失败 slot=%s", selected_slot)
-        executor_mode = str((args or {}).get("executor") or "").strip().lower()
-        plan_runner = run_ai_skill_plan if executor_mode == "ai_plan" else run_fixed_workflow
+        plan_runner = run_ai_skill_plan
         ctx = await plan_runner(
             thread_id,
             full_text,

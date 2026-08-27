@@ -21,7 +21,7 @@ const OUTPUT_KIND_OPTIONS = [
 const CAPABILITY_DEFAULT_TOOLS: Record<string, string[]> = {
   agent_fill: ['list_server_types', 'list_server_models', 'get_server_model'],
   model_reason: ['select_models'],
-  kp_reason: ['pick_kp_parts'],
+  kp_reason: ['list_kp_categories', 'select_parts'],
 }
 function defaultOutputTarget(kind: string): string {
   if (kind === 'bom_scheme_draft') return 'bom_scheme'

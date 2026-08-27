@@ -2,7 +2,7 @@
 
 把需求分析推理流参数化（AI-first 单路能力链：
 input→agent_fill→model_reason→kp_reason→compose→output）：ReasoningFlow 存图结构（节点+边），ReasoningNodeConfig 存每步可配参数。
-run_pipeline 读 active flow 的 config 驱动执行；DB 异常或无 active 回退模块常量（三层兜底）。
+run_ai_skill_plan 读 active flow 的 config 驱动执行；DB 异常或无 active 回退模块常量（三层兜底）。
 
 语义独立于 Strategy（Strategy=业务规则，Flow=执行图），但照搬其 to_dict / JSON 序列化模式。
 """
