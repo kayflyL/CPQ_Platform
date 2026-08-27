@@ -23,6 +23,7 @@ from app.repository.quotation_repo import QuotationRepository
 from app.services.feed_hub import hub
 from app.services.preview_data_loader import load_preview_data
 from app.services.quote_service import QuoteService
+from app.services.storage_adapter import get_storage, build_object_id, StorageError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["portal"])
@@ -1329,6 +1330,10 @@ async def upload_cost_sheet(
 
     service = QuoteService()
     flow_repo = FlowRepository()
+    feed_repo = FeedRepository()
+    storage = get_storage()
+    storage_key = None
+    sheet_id = None
     try:
         result = service.process_upload(content, filename)
         if result.get("status") == "error":
@@ -1343,12 +1348,75 @@ async def upload_cost_sheet(
                 opp_id, None, name, configs, bom_scheme_id=None,
                 quotation_id="", created_by=user.get("name") or "",
             )
+            sheet_id = sheet["id"]
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc))
-        return {"sheet": sheet, "cost_sheets": flow_repo.list_cost_sheets(opp_id)}
+
+        card = _attach_entity_card(
+            opp_id,
+            "cost",
+            sheet["id"],
+            origin_node="costing",
+            current_node="costing",
+            flow_status="draft",
+            created_by=user.get("name") or "",
+            card_id=None,
+            visible_upstream=False,
+        )
+
+        ext = Path(filename).suffix.lower()
+        try:
+            storage_key = storage.save_bytes(
+                opp_id,
+                build_object_id(filename),
+                content,
+                ext,
+                customer_name=opp.get("customer_name") or "",
+                subfolder="成本核算",
+            )
+        except StorageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        mime = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            if ext == ".xlsx"
+            else "application/vnd.ms-excel"
+        )
+        att = feed_repo.add_attachment(
+            opportunity_id=opp_id,
+            uploader_user_id=user["user_id"],
+            original_filename=filename,
+            storage_key=storage_key,
+            file_size=len(content),
+            mime_type=mime,
+            kind="upload",
+            quotation_id="",
+            category="requirement",
+            flow_card_id=card["id"],
+        )
+        await hub.broadcast(opp_id, {"type": "attachment", "attachment": att})
+        return {
+            "sheet": sheet,
+            "attachment": att,
+            "cost_sheets": flow_repo.list_cost_sheets(opp_id),
+        }
+    except Exception:
+        if storage_key:
+            try:
+                storage.delete(storage_key)
+            except Exception:
+                pass
+        if sheet_id is not None:
+            try:
+                flow_repo.delete_cost_sheet_draft(opp_id, sheet_id)
+                _unlink_entity_card(opp_id, "cost", sheet_id)
+            except Exception:
+                pass
+        raise
     finally:
         service.close()
         flow_repo.close()
+        feed_repo.close()
 
 
 @router.post("/api/portal/opp/{opp_id}/cost-sheets/draft")
