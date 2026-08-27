@@ -61,3 +61,51 @@ class TestParseFile:
         }
         configs, first_meta = engine.parse_file(sheets)
         assert 'EmptySheet' not in configs
+
+
+class TestRegionKeyCompatibility:
+    """ExcelParser 将 dynamic_regions 键统一为小写 region_key 后，计价引擎仍需兼容读取。"""
+
+    def test_convert_parser_items_reads_lowercase_region_keys(
+        self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+    ):
+        engine = PricingEngine(
+            mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+        )
+        dynamic_regions = {
+            "kp": [
+                {"kp_category": "CPU", "kp_model": "AMD EPYC 9654", "kp_price": "1000", "qty": 2}
+            ],
+            "warranty": [
+                {"part_name": "Warranty", "description": "3 years onsite"}
+            ],
+        }
+
+        items = engine._convert_parser_items(dynamic_regions)
+
+        assert len(items) == 2
+        assert items.iloc[0]["catalogue"] == "AMD EPYC 9654"
+        assert items.iloc[0]["part_category"] == "CPU"
+        assert items.iloc[0]["qty"] == 2
+        assert items.iloc[1]["category"] == "Warranty"
+
+    def test_convert_l6_rows_reads_lowercase_region_key(
+        self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+    ):
+        engine = PricingEngine(
+            mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+        )
+        dynamic_regions = {
+            "l6": [
+                {"l6_chassis": "2U Server", "spec": "2*KH-50000", "qty": 1}
+            ],
+        }
+
+        rows = engine._convert_l6_rows(dynamic_regions)
+
+        assert rows == [
+            {"category": "L6", "catalogue": "2U Server", "description": "2*KH-50000", "qty": 1}
+        ]
+
+    def test_get_region_rows_returns_empty_for_missing_region(self):
+        assert PricingEngine._get_region_rows({}, "L6", "l6") == []

@@ -156,9 +156,10 @@ class PricingEngine:
         # L6 region - SKIPPED (stored in config_l6_picks.bom_excel_rows instead)
         # This prevents data duplication when loading preview
 
-        # KP region
-        if "KP" in dynamic_regions:
-            for item in dynamic_regions["KP"]:
+        # KP region（region_key 可能为 KP/kp/Keyparts 等，统一按不区分大小写匹配）
+        kp_rows = self._get_region_rows(dynamic_regions, "KP", "kp", "Keyparts", "Keypats")
+        if kp_rows:
+            for item in kp_rows:
                 catalogue = item.get("kp_category", "")
                 model = item.get("kp_model", "")
                 qty = 1
@@ -193,9 +194,10 @@ class PricingEngine:
                     'currency': 'USD' if is_usd else 'RMB'
                 })
         
-        # Warranty region
-        if "Warranty" in dynamic_regions:
-            for item in dynamic_regions["Warranty"]:
+        # Warranty region（region_key 可能为 Warranty/warranty）
+        warranty_rows = self._get_region_rows(dynamic_regions, "Warranty", "warranty")
+        if warranty_rows:
+            for item in warranty_rows:
                 warranty_type = item.get("part_name", "")
                 description = item.get("description", "")
                 
@@ -229,7 +231,7 @@ class PricingEngine:
         标签扫描）都因频繁定位错列已移除——如不同模板 L6 列偏移，在解析规则页按模板配列即可。
         """
         rows = []
-        for item in dynamic_regions.get("L6", []):
+        for item in self._get_region_rows(dynamic_regions, "L6", "l6"):
             catalogue = str(item.get("l6_chassis", "")).strip()
             if not catalogue or catalogue.lower() in ('nan', 'none', '', 'catalogue', 'description', 'qty', 'quantity'):
                 continue
@@ -249,6 +251,19 @@ class PricingEngine:
             })
         return rows
 
+    @staticmethod
+    def _get_region_rows(dynamic_regions: dict, *keys: str) -> list:
+        """按区域标识兼容查找行数据，忽略大小写与首尾空格。
+
+        ExcelParser 新版本把 dynamic_regions 的键统一小写为 region_key（如 kp/l6），
+        而计价引擎历史上按 KP/L6/Warranty 大写键读取。这里保留一个兼容层，避免
+        区域键命名策略调整时再次出现「解析成功但 items 为空」的隐性断链。
+        """
+        target = {str(k).strip().lower() for k in keys}
+        for key, rows in (dynamic_regions or {}).items():
+            if (str(key or "")).strip().lower() in target:
+                return rows or []
+        return []
     # ==================== 2. Price Enrichment (via Repository) ====================
 
     @staticmethod
