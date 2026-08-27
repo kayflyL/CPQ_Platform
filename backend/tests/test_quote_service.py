@@ -74,3 +74,29 @@ class TestProcessUpload:
             with patch('app.services.quote_service.pd.read_excel', return_value={}):
                 result = service.process_upload(b"dummy excel content", "test.xlsx")
             assert isinstance(result, dict)
+
+    def test_process_upload_exposes_meta_per_config(self):
+        with _repo_and_sys_ctx():
+            service = QuoteService()
+            service.engine.parse_file = MagicMock(return_value=(
+                {
+                    "CFG1": {
+                        "items": pd.DataFrame(columns=["category"]),
+                        "meta": {"server_model": "ZSA24V2-P", "description": "spec"},
+                        "l6_rows": [],
+                    }
+                },
+                {"server_model": "ZSA24V2-P"},
+            ))
+            service.engine.enrich_config = MagicMock(
+                return_value=pd.DataFrame(columns=["profit_margin", "base_price"])
+            )
+            service.kp_repo.get_latest_prices = MagicMock(return_value=[])
+            with patch('app.services.quote_service.pd.read_excel', return_value={"CFG1": pd.DataFrame()}):
+                result = service.process_upload(b"dummy", "test.xlsx")
+
+            assert result["status"] == "success"
+            assert result["configs"]["CFG1"]["meta"] == {
+                "server_model": "ZSA24V2-P",
+                "description": "spec",
+            }

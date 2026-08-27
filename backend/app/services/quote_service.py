@@ -143,6 +143,7 @@ class QuoteService:
 
                 result_configs[cfg_name] = {
                     "items": items_list,
+                    "meta": cfg_data.get("meta") or {},
                     "bom_excel_rows": l6_rows + kp_rows,
                     "summary": {
                         "l6_total": round(l6_total, 2),

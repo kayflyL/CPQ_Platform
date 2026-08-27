@@ -109,3 +109,37 @@ class TestRegionKeyCompatibility:
 
     def test_get_region_rows_returns_empty_for_missing_region(self):
         assert PricingEngine._get_region_rows({}, "L6", "l6") == []
+
+
+class TestParserMetaMapping:
+    """静态字段应归一成 service 层可消费的 meta 契约。"""
+
+    def test_server_model_and_description_are_normalized(
+        self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+    ):
+        engine = PricingEngine(
+            mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+        )
+        static_fields = {
+            "server_model": {"value": "ZSA24V2-P(1pcs)"},
+            "description": {"value": "1*4U KH50000 switch机型"},
+        }
+
+        meta = engine._convert_parser_meta(static_fields)
+
+        assert meta["server_model"] == "ZSA24V2-P"
+        assert meta["model_qty"] == 1
+        assert meta["description"] == "1*4U KH50000 switch机型"
+        assert meta["l6_desc"] == meta["description"]
+
+    def test_legacy_model_name_still_maps_to_server_model(
+        self, mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+    ):
+        engine = PricingEngine(
+            mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
+        )
+        meta = engine._convert_parser_meta({"model_name": {"value": "KH50000-2U(2pcs)"}})
+
+        assert meta["server_model"] == "KH50000-2U"
+        assert meta["model_name"] == "KH50000-2U"
+        assert meta["model_qty"] == 2

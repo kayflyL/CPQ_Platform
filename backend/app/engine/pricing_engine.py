@@ -119,29 +119,45 @@ class PricingEngine:
         return configs, first_meta
     
     def _convert_parser_meta(self, static_fields: dict) -> dict:
-        """Convert ExcelParser static_fields to legacy meta format."""
+        """Convert ExcelParser static_fields to the service meta contract.
+
+        Parser field_key 是用户可配置的（当前模板使用 server_model/description），
+        这里统一归一为上层消费方都能识别的字段：server_model、description、
+        model_qty，同时保留 model_name/l6_desc 等历史别名，避免链路另一端再各写映射。
+        """
         meta = {}
-        
-        # Map field keys to legacy meta keys
+
+        # 非机型字段直接透传；机型字段统一收敛到 server_model。
         field_mapping = {
             "model_name": "model_name",
+            "server_model": "server_model",
             "fae": "fae",
             "quotation_date": "date",
-            "description": "l6_desc"
+            "description": "description",
         }
-        
+
         for parser_key, meta_key in field_mapping.items():
-            if parser_key in static_fields:
-                value = static_fields[parser_key]["value"]
-                meta[meta_key] = value
-                
-                # Special handling for model_name (extract qty from parentheses)
-                if parser_key == "model_name" and value:
-                    m = re.search(r'\((\d+)', value)
-                    if m:
-                        meta['model_qty'] = m.group(1)
-                        meta['model_name'] = value.split('(')[0].strip()
-        
+            if parser_key not in static_fields:
+                continue
+            value = static_fields[parser_key].get("value")
+            if value is None:
+                continue
+
+            if parser_key in ("model_name", "server_model"):
+                raw = str(value).strip()
+                clean_model = raw.split("(")[0].strip()
+                meta["server_model"] = clean_model
+                if parser_key == "model_name":
+                    meta["model_name"] = clean_model
+                m = re.search(r'\((\d+)', raw)
+                if m:
+                    meta["model_qty"] = int(m.group(1))
+            else:
+                meta[meta_key] = str(value).strip()
+
+        if meta.get("description"):
+            meta["l6_desc"] = meta["description"]
+
         return meta
     
     def _convert_parser_items(self, dynamic_regions: dict) -> pd.DataFrame:

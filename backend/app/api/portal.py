@@ -1239,6 +1239,13 @@ def _parse_result_to_cost_configs(result_configs: dict) -> list:
     """把上传解析结果映射为成本核算表 configs（L6/KP 分离，含成本价）。"""
     configs = []
     for cfg_name, cfg_data in result_configs.items():
+        meta = cfg_data.get("meta") or {}
+        server_model = str(meta.get("server_model") or "").strip()
+        description = str(meta.get("description") or "").strip()
+        try:
+            qty = int(meta.get("model_qty") or 1)
+        except (TypeError, ValueError):
+            qty = 1
         items = cfg_data.get("items") or []
         l6_rows = []
         kp_rows = []
@@ -1290,9 +1297,9 @@ def _parse_result_to_cost_configs(result_configs: dict) -> list:
             l6_cost += float(brow["final_price"] or brow["base_price"] or 0) * int(brow["qty"] or 1)
         configs.append({
             "name": cfg_name,
-            "server_model": "",
-            "description": "",
-            "qty": 1,
+            "server_model": server_model,
+            "description": description,
+            "qty": qty if qty > 0 else 1,
             "l6_cost": round(l6_cost, 2),
             "l6_margin": 0,
             "l6_rows": l6_rows,
