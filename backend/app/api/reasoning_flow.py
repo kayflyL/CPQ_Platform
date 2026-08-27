@@ -1,7 +1,7 @@
 """API endpoints for reasoning flow (推理流可视化配置).
 
 P0：直接改 active 流的 node_config（立即生效）；版本切版 API 预留给二期 draft 试错流程。
-三层兜底在 run_ai_skill_plan（DB 异常回退模块常量），API 层不兜底。
+三层兜底在 run_skill_plan（DB 异常回退模块常量），API 层不兜底。
 """
 import asyncio
 import logging
@@ -120,7 +120,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
     返回每步事件 + ext/kp_by_model/plans 明细。供策略中心画布编辑器交互测试。
 
     - 不绑商机（opportunity_id 传占位 "test-run"）。
-    - 走 run_ai_skill_plan（AI 角色计划执行器）：AI 按计划调工具，节点只做进度/契约/校验。
+    - 走 run_skill_plan（单主循环计划执行器）：AI 按计划调工具，节点只做进度/契约/校验。
     - force_complete 默认 True（跳过反问、一键出方案）；前端可传 False 测反问补全。
     - 不回退 linear fallback：调试工具，报错原样暴露给用户看（仅包一层 except 返回 error+events）。
     - 明细全从 ctx 取（step_done 的 payload 是摘要级，明细在 ctx.kp_by_model / ctx.plans）。
@@ -143,7 +143,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
     async def _collect(payload: dict):
         events.append(payload)
 
-    from app.services.ai_plan_executor import run_ai_skill_plan
+    from app.services.skill_plan_executor import run_skill_plan
     from app.services.portal_flow_adapter import build_preview_bom_scheme
     initial_ctx = {
         "budget": budget,
@@ -154,7 +154,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
         "history": [],
     }
     try:
-        ctx = await run_ai_skill_plan(
+        ctx = await run_skill_plan(
             "test-run", text, flow, _collect, initial_ctx=initial_ctx
         )
     except Exception as e:
@@ -187,7 +187,7 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
         await assistant_hub.broadcast(run_id, payload)
 
     try:
-        from app.services.ai_plan_executor import run_ai_skill_plan
+        from app.services.skill_plan_executor import run_skill_plan
         from app.services.portal_flow_adapter import build_preview_bom_scheme
         initial_ctx = {
             "budget": budget,
@@ -197,7 +197,7 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
             "operator_name": "test-run",
             "history": [],
         }
-        ctx = await run_ai_skill_plan("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
+        ctx = await run_skill_plan("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
         awaiting = bool(ctx.get("awaiting_input"))
         await _broadcast({
             "type": "pipeline_paused" if awaiting else "pipeline_done",

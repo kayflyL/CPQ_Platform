@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """共享能力执行辅助：图映射、节点 trace 预览、协作式停止信号。
 
-需求分析 skill 的正式执行入口在 ai_plan_executor.run_ai_skill_plan；
+需求分析 skill 的正式执行入口在 skill_plan_runtime / skill_plan_executor；
 本模块不再包含固定图执行器，只提供无决策的只读辅助函数。
 """
 from __future__ import annotations

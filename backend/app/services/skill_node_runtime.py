@@ -3,7 +3,7 @@
 
 铁律：本模块是「节点只读层」，只做契约校验、产物组装、事件广播与落库；
 绝不 import agent_react / llm_client，不发起任何 LLM 调用。唯一决策循环在
-ai_plan_executor 里完成，这里只承接决策结果并做确定性校验/落库。
+AI 角色主循环里完成，这里只承接决策结果并做确定性校验/落库。
 """
 import logging
 from typing import Any, Awaitable, Callable

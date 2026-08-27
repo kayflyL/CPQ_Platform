@@ -702,7 +702,13 @@ async def _run_tool_turn(
             supplement_text = str((args or {}).get("supplement_text") or "").strip()
             full_text = build_requirement_text(opportunity_id, text, supplement_text)
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-        from app.services.ai_plan_executor import run_ai_skill_plan
+        from app.services.skill_plan_runtime import (
+            apply_skill_decision,
+            build_skill_plan_prompt,
+            finalize_skill_artifacts,
+            make_skill_tool_guard,
+            skill_allowed_tools,
+        )
 
         repo = ReasoningFlowRepository()
         try:
@@ -834,42 +840,89 @@ async def _run_tool_turn(
                 _apply_extracted_slots(restored_ext, {selected_slot: last_user_answer}, allow_overwrite=True)
             except Exception:
                 logger.exception("结构化选项落槽失败 slot=%s", selected_slot)
-        plan_runner = run_ai_skill_plan
-        ctx = await plan_runner(
-            thread_id,
-            full_text,
-            flow,
-            chat_broadcast,
-            initial_ctx={
-                "budget": budget,
-                "force_complete": force_complete,
-                "max_ask_rounds": max_ask_rounds,
-                "output_kind": skill_output_kind,
-                "opportunity_id": opportunity_id or thread_id,
-                "operator_name": operator_name,
-                "chat_system_prompt": str(chat_cfg.get("chat_system_prompt") or "").strip(),
-                "last_ask_question": last_ask_question,
-                "last_user_answer": last_user_answer,
-                "ext": dict(restored_ext),
-                "requirement": dict(restored_slot.get("requirement") or {}),
-                "requirement_text_snapshot": restored_slot.get("requirement_text_snapshot") or "",
-                "baselines": list(restored_slot.get("baselines") or []),
-                "kp_parts": list(restored_slot.get("kp_parts") or []),
-                "kp_by_model": dict(restored_slot.get("kp_by_model") or {}),
-                "model_selection": restored_slot.get("model_selection"),
-                "model_phase": restored_slot.get("model_phase") or "",
-                "_locked_baseline": restored_slot.get("_locked_baseline") or {},
-                "missing_fields": list(restored_slot.get("missing_fields") or []),
-                "feasibility": restored_slot.get("feasibility"),
-                "turn_count": int(restored_slot.get("turn_count") or 0),
-                "current_target": restored_target,
-                "business_mode": "opportunity_flow" if opportunity_id else "conversation",
-                "history": history,
-                "allowed_tool_ids": [str(t) for t in (allowed_tool_ids or []) if str(t)],
-                "allowed_data_sources": _effective_data_sources(colleague, allowed_tool_ids),
-            },
-            ctx_ref=ctx_holder,
-        )
+        ctx = {
+            "requirement_text": full_text,
+            "normalized_text": full_text,
+            "opportunity_id": opportunity_id or thread_id,
+            "flow_configs": flow_node_configs,
+            "llm_enabled": True,
+            "budget": budget,
+            "force_complete": force_complete,
+            "max_ask_rounds": max_ask_rounds,
+            "output_kind": skill_output_kind,
+            "operator_name": operator_name,
+            "chat_system_prompt": str(chat_cfg.get("chat_system_prompt") or "").strip(),
+            "last_ask_question": last_ask_question,
+            "last_user_answer": last_user_answer,
+            "ext": dict(restored_ext),
+            "requirement": dict(restored_slot.get("requirement") or {}),
+            "requirement_text_snapshot": restored_slot.get("requirement_text_snapshot") or "",
+            "baselines": list(restored_slot.get("baselines") or []),
+            "kp_parts": list(restored_slot.get("kp_parts") or []),
+            "kp_by_model": dict(restored_slot.get("kp_by_model") or {}),
+            "model_selection": restored_slot.get("model_selection"),
+            "model_phase": restored_slot.get("model_phase") or "",
+            "_locked_baseline": restored_slot.get("_locked_baseline") or {},
+            "missing_fields": list(restored_slot.get("missing_fields") or []),
+            "feasibility": restored_slot.get("feasibility"),
+            "turn_count": int(restored_slot.get("turn_count") or 0),
+            "current_target": restored_target,
+            "business_mode": "opportunity_flow" if opportunity_id else "conversation",
+            "history": history,
+            "allowed_tool_ids": [str(t) for t in (allowed_tool_ids or []) if str(t)],
+            "allowed_data_sources": _effective_data_sources(colleague, allowed_tool_ids),
+        }
+        ctx_holder["ctx"] = ctx
+
+        plan_prompt = build_skill_plan_prompt(flow)
+        plan_system_prompt = system_prompt + "\n\n" + plan_prompt
+        skill_tools = skill_allowed_tools(flow)
+        if not skill_tools:
+            skill_tools = [str(t) for t in (allowed_tool_ids or []) if str(t)]
+        plan_guard = make_skill_tool_guard(flow, ctx_holder, chat_broadcast, thread_id)
+
+        async def combined_guard(name: str, args: dict, result: Any) -> Any:
+            result = await governance_guard(name, args, result)
+            result = await plan_guard(name, args, result)
+            return result
+
+        async def _run_phase(prompt: str, tools: list[str], max_iterations: int) -> dict:
+            return await run_react_loop(
+                full_text or user_text,
+                {"enabled_tools": tools},
+                extra_context=context_summary or "",
+                system_prompt=prompt,
+                allowed_tool_ids=tools,
+                allowed_data_sources=_effective_data_sources(colleague, tools),
+                model=(colleague or {}).get("model_override") or None,
+                event_sink=event_sink,
+                history=history,
+                tool_guard=combined_guard,
+                max_iterations=max_iterations,
+                llm_reasoning_effort="low",
+            )
+
+        react_result = await _run_phase(plan_system_prompt, skill_tools, max(8, max_ask_rounds + 4))
+        answer = str((react_result or {}).get("answer") or "") if isinstance(react_result, dict) else str(react_result or "")
+        if isinstance(react_result, dict) and react_result.get("ok") is False:
+            ctx["fatal_error"] = str(react_result.get("error") or "需求分析主循环未收敛")[:200]
+        else:
+            apply_skill_decision(ctx, answer)
+            if not ctx.get("awaiting_input") and ctx.get("baselines") and not ctx.get("kp_parts"):
+                phase_tools = [t for t in skill_tools if t in ("list_kp_categories", "select_parts", "resolve_part_alias", "compose_memory")]
+                phase_prompt = plan_system_prompt + "\n\n当前已锁定机型，必须继续执行配件选型阶段：调用 select_parts，把原文中的每一类配件、每个盘组/GPU 组都逐行覆盖，禁止只配部分盘。完成后按最终回复约束输出 JSON。"
+                react_result = await _run_phase(phase_prompt, phase_tools, max(8, max_ask_rounds + 4))
+                answer = str((react_result or {}).get("answer") or "") if isinstance(react_result, dict) else str(react_result or "")
+                if isinstance(react_result, dict) and react_result.get("ok") is False:
+                    ctx["fatal_error"] = str(react_result.get("error") or "配件选型阶段未收敛")[:200]
+                else:
+                    apply_skill_decision(ctx, answer)
+            if not ctx.get("awaiting_input") and not ctx.get("fatal_error"):
+                try:
+                    await finalize_skill_artifacts(ctx, flow, chat_broadcast)
+                except Exception as exc:
+                    logger.exception("确定性组装/落库失败 thread=%s", thread_id)
+                    ctx["fatal_error"] = str(exc)[:200]
         if ctx.get("fatal_error"):
             error = str(ctx.get("fatal_error") or "需求分析执行失败")
             await raw_broadcast({"type": "error", "message": error})

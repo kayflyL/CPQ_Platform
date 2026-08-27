@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from check_generalization import CASES
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-from app.services.ai_plan_executor import run_ai_skill_plan
+from app.services.skill_plan_executor import run_skill_plan
 from app.services import llm_client
 
 _G_T0 = None
@@ -86,7 +86,7 @@ async def main(label):
         "operator_name": "trace",
         "history": [],
     }
-    ctx = await run_ai_skill_plan("trace", text, flow, broadcast, initial_ctx=initial_ctx)
+    ctx = await run_skill_plan("trace", text, flow, broadcast, initial_ctx=initial_ctx)
     total = round(time.perf_counter() - t0, 1)
     print(f"TOTAL {total}s timings={ctx.get('timings')}", flush=True)
     ext = ctx.get("ext") or {}

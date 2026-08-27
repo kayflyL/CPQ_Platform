@@ -2,7 +2,7 @@
 
 - 只负责：需求抽槽、字段契约、规则检索、确定性组装输入。
 - 不做：固定选料兜底、节点内独立 ReAct、模型/配件决策。
-- 决策由 ai_plan_executor 的 AI 角色完成；工具（select_models/select_parts）负责事实落地。
+- 决策由 AI 角色主循环完成；工具（select_models/select_parts）负责事实落地。
 """
 import json
 import logging
