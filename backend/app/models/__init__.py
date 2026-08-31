@@ -13,6 +13,7 @@ from .flow import (
 )
 from .office_event import OfficeEvent
 from .office_governance import OfficeGovernanceItem
+from .colleague_memory import ColleagueMemory, MEMORY_TYPES, TYPE_LABELS
 from .skill import SkillCatalog
 
 __all__ = [
@@ -32,5 +33,8 @@ __all__ = [
     "FlowAssignmentRule",
     "OfficeEvent",
     "OfficeGovernanceItem",
+    "ColleagueMemory",
+    "MEMORY_TYPES",
+    "TYPE_LABELS",
     "SkillCatalog",
 ]

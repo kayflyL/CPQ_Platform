@@ -1,44 +1,26 @@
 <script setup lang="ts">
 /** 报价策略工作台(/strategies/pricing)—— 模块工作台 shell。
- *  头部:← 策略中心 + 报价策略 + [📄 文档库 | 🛠 定价引擎] 模式开关。
- *  文档库模式:挂 PolicyLibrary(分类目录+卡片网格),点卡 → DocReaderOverlay 呼吸浮窗。
+ *  头部:← 解决方案 + 报价策略 + 定价引擎（文档库已迁至解决方案区）。
  *  定价引擎模式:挂现有 PricingFlowCanvas(画布+演算器,零改)。 */
-import { ref } from 'vue'
 import { useRouter } from 'vue-router'
-import type { PolicyDoc } from '@/api/strategies'
-import PolicyLibrary from './PolicyLibrary.vue'
 import PricingFlowCanvas from './PricingFlowCanvas.vue'
-import DocReaderOverlay from './DocReaderOverlay.vue'
 
 const router = useRouter()
-const mode = ref<'docs' | 'engine'>('engine')  // 三个模块工作台统一默认进主视图（引擎/规则），文档库为辅
-const readerDoc = ref<PolicyDoc | null>(null)
-
-function openReader(d: PolicyDoc) { readerDoc.value = d }
 </script>
 
 <template>
   <div class="pw">
     <div class="pw-bar glass-light">
       <a class="pw-back" @click="router.push('/strategies')">
-        <span class="pw-arrow">←</span> 策略中心
+        <span class="pw-arrow">←</span> 解决方案
       </a>
       <span class="pw-sep">/</span>
       <span class="pw-title">报价策略</span>
-      <div class="pw-toggle">
-        <a-radio-group v-model:value="mode" button-style="solid" size="small">
-          <a-radio-button value="docs">📄 文档库</a-radio-button>
-          <a-radio-button value="engine">🛠 定价引擎</a-radio-button>
-        </a-radio-group>
-      </div>
     </div>
 
     <div class="pw-body">
-      <PolicyLibrary v-if="mode === 'docs'" module="pricing" @open-doc="openReader" />
-      <PricingFlowCanvas v-else-if="mode === 'engine'" />
+      <PricingFlowCanvas />
     </div>
-
-    <DocReaderOverlay :doc="readerDoc" @close="readerDoc = null" />
   </div>
 </template>
 

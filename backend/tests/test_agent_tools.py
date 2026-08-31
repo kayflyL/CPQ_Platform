@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ── ToolRegistry ──────────────────────────────────────────────────────
 
 def test_tool_registry_register_schemas_execute():
-    from app.services.agent_tools import ToolRegistry
+    from app.services.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
     async def h(args): return {"got": args}
     reg.register("foo", "foo tool", {"type": "object", "properties": {"x": {"type": "string"}}}, h)
@@ -30,7 +30,7 @@ def test_tool_registry_register_schemas_execute():
 
 
 def test_build_tool_registry_filtering():
-    from app.services.agent_tools import build_tool_registry
+    from app.services.agent_tool_specs import build_tool_registry
     full = build_tool_registry({})
     all_names = set(full.names())
     # 默认启用全集（含 select_models / select_parts / build_plan / search_cases）
@@ -42,7 +42,7 @@ def test_build_tool_registry_filtering():
 
 def test_search_cases_handler_off_returns_empty():
     """case_source=off → get_caseProvider 返回空 CaseProvider → retrieve [] 。"""
-    from app.services.agent_tools import _search_cases_handler
+    from app.services.agent_tool_handlers import _search_cases_handler
     h = _search_cases_handler({"case_source": "off", "case_top_k": 2, "case_match": "tags_keyword"})
     out = asyncio.run(h({"query": "AI 服务器"}))
     assert out["count"] == 0 and out["cases"] == []
@@ -50,7 +50,7 @@ def test_search_cases_handler_off_returns_empty():
 
 def test_search_cases_handler_uses_provider(monkeypatch=None):
     """case_source=internal → 调 InternalBomCaseProvider.retrieve（这里 mock 掉 DB）。"""
-    from app.services import agent_tools
+    from app.services import agent_tool_handlers as agent_tools
     fake_provider = MagicMock()
     fake_provider.retrieve.return_value = [{"requirement": "r", "scenario_tags": ["AI"], "l6_config": []}]
     with patch("app.services.case_provider.get_case_provider", return_value=fake_provider):
@@ -65,7 +65,7 @@ def test_search_cases_handler_uses_provider(monkeypatch=None):
 
 
 def test_cost_breakdown_tool():
-    from app.services.agent_tools import _tool_cost_breakdown
+    from app.services.agent_tool_handlers import _tool_cost_breakdown
     out = asyncio.run(_tool_cost_breakdown({
         "plan": {
             "name": "4U AI 服务器",
@@ -85,7 +85,7 @@ def test_cost_breakdown_tool():
 
 
 def test_quote_draft_tool():
-    from app.services.agent_tools import _tool_quote_draft
+    from app.services.agent_tool_handlers import _tool_quote_draft
     out = asyncio.run(_tool_quote_draft({
         "plan": {
             "name": "4U AI 服务器",
@@ -145,8 +145,9 @@ def test_react_final_no_tools():
 
 def test_react_calls_tool_then_final():
     """LLM 先 call_tool → 执行（mock registry 的 fake 工具）→ 喂回 → 再 final。"""
-    from app.services import agent_react, agent_tools, llm_client
-    reg = agent_tools.ToolRegistry()
+    from app.services import agent_react, llm_client
+    from app.services.agent_tool_registry import ToolRegistry
+    reg = ToolRegistry()
     seen = []
     async def fake_h(args):
         seen.append(args)

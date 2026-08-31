@@ -19,7 +19,8 @@ import logging
 from typing import Any, Awaitable, Callable, Optional
 
 from app.services import llm_client
-from app.services.agent_tools import ToolRegistry, build_tool_registry
+from app.services.agent_tool_registry import ToolRegistry
+from app.services.agent_tool_specs import build_tool_registry
 
 logger = logging.getLogger(__name__)
 
@@ -95,10 +96,12 @@ def _format_catalog(registry: ToolRegistry) -> str:
         params = t.get("parameters") or {}
         props = params.get("properties") or {}
         req = params.get("required") or []
-        pstr = ", ".join(
-            f'{k}{"?" if k not in req else ""}: {(v or {}).get("type", "any")}'
-            for k, v in props.items()
-        )
+        def _param_text(k: str, v: dict) -> str:
+            typ = (v or {}).get("type", "any")
+            desc = str((v or {}).get("description") or "").strip()
+            suffix = f" — {desc}" if desc else ""
+            return f'{k}{"?" if k not in req else ""}: {typ}{suffix}'
+        pstr = ", ".join(_param_text(k, v) for k, v in props.items())
         lines.append(f"- {t['name']}({pstr})：{t['description']}")
     return "【可用工具】\n" + "\n".join(lines)
 
@@ -115,6 +118,12 @@ async def _run_text_react_loop(
     event_sink: Optional[Any] = None,
     history: Optional[list] = None,
     tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
+    llm_timeout: float = 90.0,
+    llm_max_attempts: int = 2,
+    llm_thinking: Optional[dict] = None,
+    llm_reasoning_effort: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+    llm_max_tokens: Optional[int] = None,
 ) -> dict:
     """文本式 ReAct 主循环。
 
@@ -187,10 +196,10 @@ async def _run_text_react_loop(
         try:
             # 不传 schema：clean_by_schema 会按 schema.properties 收口，args 是自由对象（无
             # 声明属性）会被清成 {}。ReAct 契约简单（action∈{call_tool,final}），下面手验。
-            if model:
-                data = await llm_client.chat_json(messages, model=model)
-            else:
-                data = await llm_client.chat_json(messages)
+            data = await llm_client.chat_json(
+                messages, model=model, timeout=llm_timeout, max_attempts=llm_max_attempts,
+                thinking=llm_thinking, reasoning_effort=llm_reasoning_effort,
+                temperature=llm_temperature, max_tokens=llm_max_tokens)
         except llm_client.LLMError as e:
             logger.warning("react loop LLM 失败（降级）: %s", e)
             await _emit("error", f"ReAct LLM 失败：{e}")
@@ -273,6 +282,8 @@ async def _run_thinking_loop(
     llm_max_attempts: int = 2,
     llm_thinking: Optional[dict] = None,
     llm_reasoning_effort: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+    llm_max_tokens: Optional[int] = None,
 ) -> dict:
     """智能体主循环（ChatGPT 式）：流式思考 + 工具调用 + 必反问。
 
@@ -353,7 +364,8 @@ async def _run_thinking_loop(
             try:
                 data = await llm_client.chat_json(messages, model=model,
                                                   timeout=llm_timeout, max_attempts=llm_max_attempts,
-                                                  thinking=llm_thinking, reasoning_effort=llm_reasoning_effort)
+                                                  thinking=llm_thinking, reasoning_effort=llm_reasoning_effort,
+                                                  temperature=llm_temperature, max_tokens=llm_max_tokens)
             except llm_client.LLMError as e:
                 logger.warning("agent final_only LLM 失败（降级）: %s", e)
                 return "", "", None
@@ -593,6 +605,294 @@ async def _run_native_tool_loop(
     return base
 
 
+# ── v2 流式对话协议（标签交错）：prose 默认流式外推，工具走 ```tool 围栏块 ──────────
+# 仅接聊天路径（skill_chat）；旧三循环（text/thinking/native）服务流程节点，行为不动。
+
+STREAM_CHAT_CONTRACT = (
+    "\n\n【输出格式（流式对话）】\n"
+    "- 你的正文会实时展示给用户：直接面向用户写自然中文，不要输出 JSON，不要用 action/final 等字段包装。\n"
+    "- 需要调用工具时：先用一两句话告诉用户你要做什么，然后另起一行输出工具块，"
+    "工具块必须是本轮输出的最后内容（其后不要再写字）：\n"
+    "```tool\n{\"name\": \"工具名\", \"args\": {}}\n```\n"
+    "- 工具结果会以「工具 X 返回：{...}」回传，据此继续：可以再调工具，也可以直接写最终回复。\n"
+    "- 最终回复要完整成段、面向用户；工具未返回的数据（型号/价格/规格）严禁编造。\n"
+)
+
+_TOOL_FENCE_OPEN = "```tool"
+_FENCE_CLOSE = "```"
+
+
+def _partial_suffix_len(buf: str, marker: str) -> int:
+    """buf 尾部与 marker 真前缀匹配的最长长度（围栏标记可能被流式 chunk 边界劈断）。"""
+    for k in range(min(len(marker) - 1, len(buf)), 0, -1):
+        if buf.endswith(marker[:k]):
+            return k
+    return 0
+
+
+class _InterleavedParser:
+    """增量解析交错协议：围栏外正文立即外推（流式），围栏内工具 JSON 攒齐执行。
+
+    流式 chunk 边界可能把围栏标记劈成两半（如 "```to|ol"）：尾部疑似半个标记时先挂起，
+    下一段增量证明不是围栏再放出——保证推给用户的正文与最终落库文本严格一致。
+    locked 态：本轮已见过完整工具块，其后的一切丢弃（防「双工具块/围栏后杂文」泄给用户）。
+    """
+
+    def __init__(self) -> None:
+        self.mode = "prose"          # prose | fence | locked
+        self.prose_parts: list = []
+        self.fence_parts: list = []
+        self.tail = ""
+
+    def feed(self, delta: str) -> str:
+        """喂入一段增量，返回本段应立即推给用户的正文增量（可能为空串）。"""
+        out: list = []
+        buf = self.tail + delta
+        self.tail = ""
+        while buf:
+            if self.mode == "prose":
+                idx = buf.find(_TOOL_FENCE_OPEN)
+                if idx >= 0:
+                    out.append(buf[:idx])
+                    buf = buf[idx + len(_TOOL_FENCE_OPEN):]
+                    self.mode = "fence"
+                    continue
+                hold = _partial_suffix_len(buf, _TOOL_FENCE_OPEN)
+                if hold:
+                    out.append(buf[:-hold])
+                    self.tail = buf[-hold:]
+                else:
+                    out.append(buf)
+                buf = ""
+            elif self.mode == "fence":
+                idx = buf.find(_FENCE_CLOSE)
+                if idx >= 0:
+                    self.fence_parts.append(buf[:idx])
+                    buf = buf[idx + len(_FENCE_CLOSE):]
+                    self.mode = "locked"
+                    continue
+                hold = _partial_suffix_len(buf, _FENCE_CLOSE)
+                if hold:
+                    self.fence_parts.append(buf[:-hold])
+                    self.tail = buf[-hold:]
+                else:
+                    self.fence_parts.append(buf)
+                buf = ""
+            else:  # locked
+                buf = ""
+        text = "".join(out)
+        if text:
+            self.prose_parts.append(text)
+        return text
+
+    def close(self) -> None:
+        """流结束收尾：挂起的尾部按当前模式归位（未闭合围栏也照常参与解析）。"""
+        if self.tail:
+            (self.fence_parts if self.mode == "fence" else self.prose_parts).append(self.tail)
+            self.tail = ""
+
+    @property
+    def prose(self) -> str:
+        return "".join(self.prose_parts)
+
+    @property
+    def fence_text(self) -> str:
+        return "".join(self.fence_parts).strip()
+
+
+async def run_stream_chat_loop(
+    user_text: str,
+    config: dict,
+    system_prompt: str,
+    allowed_tool_ids: Optional[list] = None,
+    model: Optional[str] = None,
+    event_sink: Optional[Any] = None,
+    history: Optional[list] = None,
+    tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
+    max_iterations: int = 6,
+    llm_timeout: float = 60.0,
+    llm_reasoning_effort: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+) -> dict:
+    """聊天专用流式循环（v2 交错协议）。
+
+    与旧循环的本质差异：正文默认流式外推（event_sink 推 chunk 事件），工具调用走 ```tool
+    围栏块——没有 JSON 憋整包、没有模式切换，用户在模型生成的同时看到文字。
+    事件词汇（step_progress.step=react）：sub.kind=thinking(text)/chunk(delta)/tool(text,tool)。
+    返回契约与 run_react_loop 一致；answer=已推送给用户的全部正文（落库与流式严格一致）。
+    断流降级：中途中转断死时已流出的正文保留并按终答返回（半截回答好过黑屏重发）。
+    """
+    base: dict = {"ok": False, "answer": "", "tool_calls_log": [], "thought_log": [],
+                  "thinking": [], "iterations": 0}
+    cfg = config or {}
+    try:
+        if not llm_client.is_llm_enabled():
+            base["answer"] = "AI 未启用"
+            return base
+    except Exception:
+        pass
+
+    registry = build_tool_registry(cfg, allowed_tool_ids=allowed_tool_ids)
+    if not registry.names():
+        base["answer"] = "未启用任何工具"
+        return base
+
+    sys_prompt = (system_prompt or REACT_SYSTEM_PROMPT) \
+        + STREAM_CHAT_CONTRACT \
+        + "\n\n" + _format_catalog(registry) \
+        + f"\n\n最多 {max_iterations} 次工具调用，尽快收敛。"
+
+    messages: list = [{"role": "system", "content": sys_prompt}]
+    if history:
+        for m in history[-12:]:
+            role = (m or {}).get("role") if isinstance(m, dict) else None
+            content = (m or {}).get("content") if isinstance(m, dict) else None
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": str(content)})
+    messages.append({"role": "user", "content": str(user_text or "").strip()})
+
+    try:
+        max_iter = max(1, int(max_iterations))
+    except (TypeError, ValueError):
+        max_iter = 6
+
+    async def _emit(kind: str, **kv) -> None:
+        if not event_sink:
+            return
+        try:
+            await event_sink({"type": "step_progress", "step": "react",
+                              "sub": {"kind": kind, **kv}})
+        except Exception:
+            pass
+
+    async def _stream_round() -> tuple:
+        """跑一轮流式生成，返回 (本轮已外推正文, 工具调用 dict|None, 是否有坏围栏)。
+
+        reasoning 增量边收边推 thinking 事件；正文经解析器边收边推 chunk 事件。
+        失败语义：还没有任何正文时抛 LLMError（上层重试/终止）；已有正文后断流
+        → 返回已有内容按终答处理（断流降级，半截答案也可见）。
+        """
+        parser = _InterleavedParser()
+        try:
+            async for item in llm_client.stream_agent_chat(
+                    messages, model=model, timeout=llm_timeout,
+                    temperature=llm_temperature, reasoning_effort=llm_reasoning_effort):
+                t = item.get("type")
+                d = item.get("delta") or ""
+                if t == "reasoning":
+                    if d:
+                        await _emit("thinking", text=d)
+                elif t == "content":
+                    chunk_out = parser.feed(str(d))
+                    if chunk_out:
+                        await _emit("chunk", delta=chunk_out)
+        except llm_client.LLMError as e:
+            if not parser.prose:
+                raise
+            logger.warning("stream chat 中途断流，保留已生成正文（%s 字）: %s", len(parser.prose), e)
+        parser.close()
+        call = None
+        fence = parser.fence_text
+        if fence:
+            try:
+                data = llm_client._parse_json_content(fence)
+            except Exception:
+                data = None
+            if isinstance(data, dict) and str(data.get("name") or "").strip():
+                call = data
+        bad_fence = bool(fence) and call is None
+        return parser.prose, call, bad_fence
+
+    async def _stream_round_retry() -> tuple:
+        try:
+            return await _stream_round()
+        except llm_client.LLMError:
+            # 空手失败才重试一次；已有正文流出的断流在 _stream_round 内已按半截答案兜底
+            return await _stream_round()
+
+    # 不变量：answer = 已推给用户的全部正文（跨轮累积），与 chunk 事件流严格一致——
+    # done 后落库的消息必须与用户在流式气泡里看到的逐字相同
+    all_prose: list = []
+    for i in range(max_iter):
+        base["iterations"] = i + 1
+        try:
+            prose, call, bad_fence = await _stream_round_retry()
+        except llm_client.LLMError as e:
+            # 两连空手失败：已流出过正文则按断流降级保留（不变量优先），否则报错终态
+            partial = "".join(all_prose)
+            if partial.strip():
+                logger.warning("stream chat LLM 失败，保留已流出正文（%s 字）: %s", len(partial), e)
+                base["ok"] = True
+                base["answer"] = partial
+            else:
+                logger.warning("stream chat LLM 失败（降级）: %s", e)
+                await _emit("error", text=f"流式对话失败：{e}")
+            return base
+        all_prose.append(prose)
+
+        if call is not None:
+            name = str(call.get("name") or "").strip()
+            args = call.get("args") if isinstance(call.get("args"), dict) else {}
+            # 历史自洽：assistant 消息 = 已推给用户的正文 + 围栏块（围栏后内容已在解析器丢弃）
+            intent = (prose.rstrip() + "\n" if prose.strip() else "") \
+                + "```tool\n" + json.dumps(call, ensure_ascii=False) + "\n```"
+            messages.append({"role": "assistant", "content": intent})
+            await _emit("tool", text=f"正在调用 {name}…", tool=name)
+            try:
+                result = await registry.execute(name, args)
+            except Exception as exc:
+                logger.exception("stream chat 工具执行异常 name=%s", name)
+                result = {"ok": False, "error": f"工具执行异常：{exc}"}
+            if tool_guard is not None:
+                try:
+                    result = await tool_guard(name, args, result)
+                except Exception:
+                    logger.exception("stream chat tool_guard 异常 name=%s", name)
+            try:
+                result_str = result if isinstance(result, str) else \
+                    json.dumps(result, ensure_ascii=False, default=str)
+            except Exception:
+                result_str = str(result)
+            # 压缩工具回传：防上下文随轮次滚大（与旧循环同口径）
+            if len(result_str) > 1500:
+                result_str = result_str[:1500] + "…(截断)"
+            await _emit("tool", text=f"{name} 完成", tool=name)
+            base["tool_calls_log"].append({"name": name, "args": args, "result": result})
+            messages.append({"role": "user",
+                             "content": f"工具 {name} 返回：{result_str}\n"
+                                        "请据此继续（可再调工具，或直接面向用户写最终回复）。"})
+            continue
+
+        if bad_fence:
+            # 围栏存在但不是合法工具调用：纠正重试（narration 不能被误当终答）
+            messages.append({"role": "user",
+                             "content": "上一轮工具块不是合法 JSON（需含 name/args）。"
+                                        "请重新输出工具块，或直接面向用户写最终回复。"})
+            continue
+
+        if prose.strip():
+            base["ok"] = True
+            base["answer"] = "".join(all_prose)
+            return base
+
+        # 空轮（无正文无工具）：纠正重试
+        messages.append({"role": "user", "content": "请面向用户直接写回复，不要输出空内容。"})
+
+    # 超轮强制收尾：最后一轮禁止工具
+    messages.append({"role": "user",
+                     "content": "已达到工具调用次数上限。请直接面向用户写最终回复，不要再输出工具块。"})
+    try:
+        prose, _call, _bad = await _stream_round()
+        all_prose.append(prose)
+    except llm_client.LLMError as e:
+        logger.warning("stream chat 收尾轮失败: %s", e)
+    answer = "".join(all_prose)
+    if answer.strip():
+        base["ok"] = True
+        base["answer"] = answer
+    return base
+
+
 async def run_react_loop(
     requirement_text: str,
     config: dict,
@@ -612,6 +912,8 @@ async def run_react_loop(
     llm_max_attempts: int = 2,
     llm_thinking: Optional[dict] = None,
     llm_reasoning_effort: Optional[str] = None,
+    llm_temperature: Optional[float] = None,
+    llm_max_tokens: Optional[int] = None,
 ) -> dict:
     """Agent loop: native tools first, text-ReAct fallback only before side effects."""
     if prefer_text_react:
@@ -627,6 +929,12 @@ async def run_react_loop(
             event_sink=event_sink,
             history=history,
             tool_guard=tool_guard,
+            llm_timeout=llm_timeout,
+            llm_max_attempts=llm_max_attempts,
+            llm_thinking=llm_thinking,
+            llm_reasoning_effort=llm_reasoning_effort,
+            llm_temperature=llm_temperature,
+            llm_max_tokens=llm_max_tokens,
         )
     # final_only = 单次流式（无工具）：不进入 native tool 循环，也不走多轮工具回退，
     # 直接走流式单次 JSON 输出，避免模型支持原生工具时被错误挂上工具目录。
@@ -649,6 +957,8 @@ async def run_react_loop(
             llm_max_attempts=llm_max_attempts,
             llm_thinking=llm_thinking,
             llm_reasoning_effort=llm_reasoning_effort,
+            llm_temperature=llm_temperature,
+            llm_max_tokens=llm_max_tokens,
         )
 
     native = await _run_native_tool_loop(
@@ -691,4 +1001,6 @@ async def run_react_loop(
         llm_max_attempts=llm_max_attempts,
         llm_thinking=llm_thinking,
         llm_reasoning_effort=llm_reasoning_effort,
+        llm_temperature=llm_temperature,
+        llm_max_tokens=llm_max_tokens,
     )

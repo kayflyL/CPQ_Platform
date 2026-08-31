@@ -201,6 +201,64 @@ class OpportunityRepository:
 
         return result, total
 
+    def list_ai_office_opportunities(self, page: int = 1, page_size: int = 50,
+                                     search: str = None,
+                                     owner_user_id: str = None,
+                                     owner_sales_person: str = None) -> tuple[List[dict], int]:
+        """AI 办公室隐藏商机（status=ai_office）列表，供 AI 线索页使用。"""
+        q = self.session.query(Opportunity).filter(Opportunity.status == "ai_office")
+        if owner_user_id:
+            owner_cond = [Opportunity.owner_user_id == owner_user_id]
+            if owner_sales_person:
+                owner_cond.append(
+                    and_(Opportunity.owner_user_id.is_(None), Opportunity.sales_person == owner_sales_person)
+                )
+            q = q.filter(or_(*owner_cond))
+        elif owner_sales_person:
+            q = q.filter(Opportunity.sales_person == owner_sales_person)
+        if search:
+            q = q.filter(Opportunity.customer_name.ilike(f"%{search}%"))
+        q = q.order_by(Opportunity.updated_at.desc())
+        total = q.count()
+        rows = q.offset((page - 1) * page_size).limit(page_size).all()
+        return [r.to_dict() for r in rows], total
+
+    def ai_lead_content_flags(self, opp_ids: List[str]) -> dict:
+        """AI 线索内容标记：是否已登记需求单 / 是否已出 BOM 方案。"""
+        from app.models.flow import OpportunityRequirement, OpportunityBomScheme
+        ids = [i for i in opp_ids if i]
+        if not ids:
+            return {}
+        req_ids = {
+            r[0] for r in self.session.query(OpportunityRequirement.opportunity_id).filter(
+                OpportunityRequirement.opportunity_id.in_(ids)
+            ).all()
+        }
+        bom_ids = {
+            r[0] for r in self.session.query(OpportunityBomScheme.opportunity_id).filter(
+                OpportunityBomScheme.opportunity_id.in_(ids)
+            ).all()
+        }
+        return {oid: {"has_requirement": oid in req_ids, "has_bom_scheme": oid in bom_ids} for oid in ids}
+
+    def hard_delete_ai_lead(self, opportunity_id: str) -> bool:
+        """级联物理删除 AI 线索（需求单/BOM 方案/商机行；会话与消息由调用方清理）。仅限 ai_office。"""
+        opp = self.session.query(Opportunity).filter(
+            Opportunity.opportunity_id == opportunity_id,
+            Opportunity.status == "ai_office",
+        ).first()
+        if not opp:
+            return False
+        from app.models.flow import OpportunityRequirement, OpportunityBomScheme
+        self.session.execute(delete(OpportunityRequirement).where(
+            OpportunityRequirement.opportunity_id == opportunity_id))
+        self.session.execute(delete(OpportunityBomScheme).where(
+            OpportunityBomScheme.opportunity_id == opportunity_id))
+        self.session.execute(delete(Opportunity).where(
+            Opportunity.opportunity_id == opportunity_id))
+        self.session.commit()
+        return True
+
     def get_opportunity(self, opportunity_id: str) -> Optional[dict]:
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id

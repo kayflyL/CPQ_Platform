@@ -16,12 +16,13 @@
       </a-form-item>
       <a-form-item label="业务">
         <a-input v-if="!canViewAll" v-model:value="form.sales_person" disabled />
-        <a-auto-complete
-          v-else
-          v-model:value="form.sales_person"
-          :options="candidates"
-          placeholder="输入或搜索业务名（可自由输入）"
-          allow-clear
+        <a-auto-complete
+          v-else
+          v-model:value="form.sales_person"
+          :options="candidates"
+          :filter-option="filterBusinessOption"
+          placeholder="输入或搜索业务名（可自由输入）"
+          allow-clear
           :default-active-first-option="false"
           style="width: 100%"
           @focus="loadCandidates"
@@ -47,8 +48,12 @@ const auth = useAuthStore()
 const router = useRouter()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
 const saving = ref(false)
-const candidates = ref<{ value: string; label: string }[]>([])
-const form = reactive({ customer_name: '', sales_person: '' })
+const candidates = ref<{ value: string; label: string }[]>([])
+const form = reactive({ customer_name: '', sales_person: '' })
+
+function filterBusinessOption(input: string, option: any) {
+  return String(option?.value || '').toLowerCase().includes(String(input || '').toLowerCase())
+}
 
 watch(open, (v) => {
   if (!v) return

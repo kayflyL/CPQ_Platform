@@ -48,7 +48,7 @@ def _get_llm_config() -> dict:
         "api_key": config.get("api_key") or _settings.LLM_API_KEY,
         "model": config.get("model") or _settings.LLM_MODEL,
         "temperature": config.get("temperature", 0.7),
-        "max_tokens": config.get("max_tokens", 8000),
+        "max_tokens": config.get("max_tokens", 16000),
         "capabilities_override": config.get("capabilities_override")
         if isinstance(config.get("capabilities_override"), dict)
         else {},
@@ -195,7 +195,7 @@ def _is_native_tools_unsupported(error: Exception) -> bool:
     return any(marker in msg for marker in markers)
 
 
-def _client(base_url: str, api_key: str, timeout: float = 600.0) -> AsyncOpenAI:
+def _client(base_url: str, api_key: str, timeout: float = 180.0) -> AsyncOpenAI:
     if not api_key:
         raise LLMError("LLM_API_KEY 未配置(见 .env 或 system_config.llm_config)")
     return AsyncOpenAI(
@@ -731,7 +731,8 @@ async def stream_agent_chat(
     model: Optional[str] = None,
     temperature: Optional[float] = None,
     max_tokens: Optional[int] = None,
-    timeout: float = 600.0,
+    timeout: float = 180.0,
+    reasoning_effort: Optional[str] = None,
 ) -> AsyncGenerator[Dict[str, str], None]:
     """流式 Agent 聊天：把模型的 reasoning 与正文逐段吐出来（ChatGPT 式白盒）。
 
@@ -766,6 +767,8 @@ async def stream_agent_chat(
     }
     if use_tools:
         request_kwargs["tools"] = tools
+    if reasoning_effort is not None:
+        request_kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
 
     try:
         stream = await client.chat.completions.create(**request_kwargs)

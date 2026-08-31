@@ -543,10 +543,10 @@ class FlowRepository:
             row = self.session.query(OpportunityCostSheet).filter(
                 OpportunityCostSheet.opportunity_id == opportunity_id,
                 OpportunityCostSheet.id == sheet_id,
-                OpportunityCostSheet.status == "draft",
+                OpportunityCostSheet.status.in_(("draft", "current")),
             ).first()
             if not row:
-                raise ValueError("仅草稿成本表可编辑")
+                raise ValueError("仅草稿或当前成本表可编辑")
             row.name = name
             row.configs = configs or []
             row.bom_scheme_id = bom_scheme_id
@@ -593,12 +593,6 @@ class FlowRepository:
             raise ValueError("草稿成本表不存在或已提交")
         if not row.configs:
             raise ValueError("成本表内容为空，无法提交")
-
-        for old in self.session.query(OpportunityCostSheet).filter(
-            OpportunityCostSheet.opportunity_id == opportunity_id,
-            OpportunityCostSheet.status == "current",
-        ).all():
-            old.status = "archived"
 
         row.status = "current"
         if quotation_id:

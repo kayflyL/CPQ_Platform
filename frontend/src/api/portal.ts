@@ -29,6 +29,10 @@ export interface RequirementSlots {
   configs?: Array<{
     name?: string
     server_model?: string
+    platform_type?: string
+    server_type?: string
+    chassis_form?: string
+    warranty_years?: string
     description?: string
     qty?: number
     kp_rows?: Array<{
@@ -183,20 +187,22 @@ export interface PortalSheetConfig {
   totals: Record<string, any>
 }
 
-export interface PortalSheet {
-  stage: 'boming' | 'costing'
-  locked: boolean
-  quotation_id: string | null
-  configs: PortalSheetConfig[]
+export interface WorktableCostSheet {
+  sheet_id: number
+  sheet_name: string
+  status: string
+  quotation_id: string
+  quotation_exported: boolean
+  bom_configs: BomConfig[]
+  cost_configs: CostConfig[]
 }
 
 export interface QuoteContext {
   bom_configs: BomConfig[]
   cost_configs: CostConfig[]
-  sheet_configs: PortalSheetConfig[]
   worktable_quotation_id: string | null
   cost_snapshot: Record<string, any> | null
-  legacy_fallback: boolean
+  worktable_cost_sheets?: WorktableCostSheet[]
 }
 
 export interface BomScheme {
@@ -246,6 +252,7 @@ export interface CostSheet {
   status: 'draft' | 'current' | 'archived'
   configs: PortalSheetConfig[]
   quotation_id: string
+  quotation_exported?: boolean
   created_by: string
   created_at: string
   updated_at: string
@@ -272,7 +279,6 @@ export interface PortalBoard {
     snapshot: Record<string, any> | null
     configs: CostConfig[]
   }
-  sheet: PortalSheet
   quote_context: QuoteContext
   quote: FinalQuote | null
   approvals: ApprovalItem[]

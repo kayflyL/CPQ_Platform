@@ -16,8 +16,13 @@ from app.repository.feed_user_repo import FeedUserRepository
 from app.repository.role_repo import RoleRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.repository.skill_catalog_repo import SkillCatalogRepository
-from app.services.agent_tools import tool_required_data_sources
+from app.services.agent_tool_specs import tool_required_data_sources
 from app.services.ai_colleague_service import _canonical_data_source
+from app.services.data_boundary import (
+    apply_price_access,
+    normalize_boundary,
+    normalize_colleague,
+)
 from app.services.skill_registry import (
     DEFAULT_SKILL_BINDINGS as _DEFAULT_SKILL_BINDINGS,
 )
@@ -28,6 +33,17 @@ router = APIRouter(prefix="/api/ai-colleagues", tags=["ai-colleagues"])
 require_ai_office_manage = require_perms("ai.office.manage")
 
 _CONFIG_KEY = "ai_colleagues"
+
+# 桌宠虚拟形象白名单：与 frontend/public/live2d/<key> 一一对应
+PET_MODEL_KEYS = {"koharu", "hibiki", "shizuku", "nico", "izumi"}
+DEFAULT_PET_MODEL = "koharu"
+
+
+def _clamp_pet_model(colleague: dict) -> None:
+    """形象 key 必须落在白名单；非法/缺省一律回落到默认形象，避免任意路径拼进 L2D 加载。"""
+    if (colleague.get("pet_model") or "") not in PET_MODEL_KEYS:
+        colleague["pet_model"] = DEFAULT_PET_MODEL
+
 
 _DEFAULT_TEAM_META = {
     "name": "CPQ AI 团队",
@@ -326,17 +342,15 @@ class ColleagueUpdate(BaseModel):
     model_override: Optional[str] = None
     tool_ids: Optional[list] = None
     data_sources: Optional[list] = None
-    permission_policy: Optional[str] = None
     dispatchable: Optional[bool] = None
+    price_access: Optional[bool] = None
+    data_boundary: Optional[dict] = None
     capabilities: Optional[list] = None
     behavior_profile: Optional[dict] = None
-    memory: Optional[dict] = None
-    mood: Optional[dict] = None
-    schedule: Optional[dict] = None
     relations: Optional[dict] = None
-    preferences: Optional[dict] = None
     skills: Optional[list] = None
     memory_policy: Optional[dict] = None
+    pet_model: Optional[str] = None
 
 
 class ColleagueCreate(ColleagueUpdate):
@@ -544,6 +558,8 @@ def _read_config(repo: SystemConfigRepository) -> dict:
                 if key not in colleague:
                     colleague[key] = copy.deepcopy(default_value)
                     config_changed = True
+            # 数据边界读侧归一化：price_access 永远是派生值（单一事实源=masked_fields）
+            normalize_colleague(colleague)
     if not isinstance(cfg.get("team_meta"), dict):
         cfg["team_meta"] = dict(_DEFAULT_TEAM_META)
     if not isinstance(cfg.get("protected_role_keys"), list):
@@ -621,6 +637,7 @@ def _default_colleague(role_key: str) -> dict:
         "name": role_key,
         "color": "#1677ff",
         "avatar_url": "",
+        "pet_model": DEFAULT_PET_MODEL,
         "enabled": True,
         "system_prompt": "",
         "opening_message": "",
@@ -634,39 +651,19 @@ def _default_colleague(role_key: str) -> dict:
         "model_override": None,
         "tool_ids": [],
         "data_sources": [],
-        "permission_policy": "readonly",
         "dispatchable": True,
         "capabilities": [],
         "behavior_profile": copy.deepcopy(_DEFAULT_BEHAVIOR_PROFILE),
-        "memory": {
-            "short_term_ttl_seconds": 3600,
-            "long_term_store": "office_memory",
-        },
         "memory_policy": {
             "enabled": True,
             "short_term_max_turns": 12,
-            "long_term_store": "office_memory",
             "query_recent": 6,
             "save_after_turn": True,
             "auto_memory": True,
         },
-        "mood": {
-            "enabled": True,
-            "state": "calm",
-            "decay_seconds": 900,
-        },
-        "schedule": {
-            "timezone": "Asia/Shanghai",
-            "work_hours": "09:00-18:00",
-            "preferred_meeting_time": "10:00-11:30",
-        },
         "relations": {
-            "default": "colleague",
-            "peers": [],
-        },
-        "preferences": {
-            "prefers_async": True,
-            "meeting_max_minutes": 25,
+            "team_role": "",
+            "reports_to": "",
         },
         "skills": [],
     }
@@ -782,10 +779,22 @@ def create_colleague(data: ColleagueCreate, manager: dict = Depends(require_ai_o
             raise HTTPException(status_code=409, detail=f"AI 同事 '{role_key}' 已存在")
         patch = data.model_dump(exclude_unset=True)
         patch.pop("role_key", None)
+        bool_flag = patch.pop("price_access", None)
+        raw_boundary = patch.pop("data_boundary", None)
         colleague = _default_colleague(role_key)
         colleague.update({k: v for k, v in patch.items() if v is not None})
+        # 新同事默认拒绝（不能靠 _default_colleague 的默认回填——那会给存量同事
+        # 抢先塞 deny_all，把旧 price_access=True 的懒迁移顶掉）
+        colleague.setdefault("data_boundary", {"mode": "deny_all", "schemas": [],
+                                               "tables_allow": [], "masked_fields": ["price"]})
+        if isinstance(raw_boundary, dict):
+            colleague["data_boundary"] = normalize_boundary({"data_boundary": raw_boundary})
+        elif bool_flag is not None:
+            colleague["data_boundary"] = apply_price_access(colleague.get("data_boundary") or {}, bool(bool_flag))
         if "skills" in patch or "tool_ids" in patch:
             colleague = _merge_skill_data_sources(colleague)
+        _clamp_pet_model(colleague)
+        normalize_colleague(colleague)
         cfg["colleagues"] = colleagues + [colleague]
         _write_config(repo, cfg)
         return colleague
@@ -892,15 +901,12 @@ def _sync_team_graph(cfg: dict, layout: dict, edges: list, lead_role_key_overrid
         relations = colleague.get("relations")
         if not isinstance(relations, dict):
             relations = {}
-        relations.setdefault("peers", [])
         if role_key == lead_role_key:
             relations["team_role"] = "lead"
-            relations["subagent_role_keys"] = subagent_role_keys
             relations.pop("reports_to", None)
         elif role_key in subagent_role_keys:
             relations["team_role"] = "subagent"
             relations["reports_to"] = lead_role_key
-            relations.pop("subagent_role_keys", None)
         else:
             relations.setdefault("team_role", "member")
         colleague["relations"] = relations
@@ -1073,6 +1079,80 @@ def _merge_skill_data_sources(colleague: dict) -> dict:
     return colleague
 
 
+class MemoryCreate(BaseModel):
+    type: str = "business_fact"
+    content: str = ""
+    pinned: bool = False
+
+
+class MemoryUpdate(BaseModel):
+    type: Optional[str] = None
+    content: Optional[str] = None
+    pinned: Optional[bool] = None
+
+
+@router.get("/{role_key}/memories")
+def list_colleague_memories(
+    role_key: str,
+    keyword: Optional[str] = None,
+    limit: int = 100,
+    manager: dict = Depends(require_ai_office_manage),
+):
+    from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    items = ColleagueMemoryRepository().list_by_role(
+        role_key, keyword=str(keyword or ""), limit=max(1, min(int(limit or 100), 500)))
+    return {"memories": items, "total": len(items)}
+
+
+@router.post("/{role_key}/memories")
+def create_colleague_memory(role_key: str, data: MemoryCreate, manager: dict = Depends(require_ai_office_manage)):
+    from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    item = ColleagueMemoryRepository().add(
+        role_key, data.type, data.content,
+        source="manual", pinned=bool(data.pinned),
+        created_by=str((manager or {}).get("name") or (manager or {}).get("id") or ""))
+    if not item:
+        raise HTTPException(status_code=400, detail="记忆内容不能为空")
+    return {"memory": item}
+
+
+@router.put("/{role_key}/memories/{memory_id}")
+def update_colleague_memory(
+    role_key: str,
+    memory_id: int,
+    data: MemoryUpdate,
+    manager: dict = Depends(require_ai_office_manage),
+):
+    from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    repo = ColleagueMemoryRepository()
+    existing = repo.get(memory_id)
+    if not existing or existing.get("role_key") != role_key:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    patch = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
+    updated = repo.update(memory_id, patch)
+    if not updated:
+        raise HTTPException(status_code=400, detail="记忆内容不能为空")
+    return {"memory": updated}
+
+
+@router.delete("/{role_key}/memories/{memory_id}")
+def delete_colleague_memory(role_key: str, memory_id: int, manager: dict = Depends(require_ai_office_manage)):
+    from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    repo = ColleagueMemoryRepository()
+    existing = repo.get(memory_id)
+    if not existing or existing.get("role_key") != role_key:
+        raise HTTPException(status_code=404, detail="记忆不存在")
+    repo.delete(memory_id)
+    return {"deleted": memory_id}
+
+
+@router.delete("/{role_key}/memories")
+def clear_colleague_memories(role_key: str, manager: dict = Depends(require_ai_office_manage)):
+    from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    deleted = ColleagueMemoryRepository().delete_by_role(role_key)
+    return {"deleted": deleted, "role_key": role_key}
+
+
 @router.put("/{role_key}")
 def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depends(require_ai_office_manage)):
     repo = SystemConfigRepository()
@@ -1082,9 +1162,21 @@ def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depen
         for i, colleague in enumerate(colleagues):
             if colleague.get("role_key") == role_key:
                 patch = data.model_dump(exclude_unset=True)
+                # 数据边界编辑糖：price_access 布尔/裸 data_boundary 一律折算进边界再落库
+                bool_flag = patch.pop("price_access", None)
+                raw_boundary = patch.pop("data_boundary", None)
+                if isinstance(raw_boundary, dict):
+                    patch["data_boundary"] = normalize_boundary({"data_boundary": raw_boundary})
+                elif bool_flag is not None:
+                    patch["data_boundary"] = apply_price_access(
+                        colleague.get("data_boundary") if isinstance(colleague.get("data_boundary"), dict) else {},
+                        bool(bool_flag))
                 merged = {**colleague, **patch, "role_key": role_key}
+                merged.pop("price_access", None)  # 派生值不落库（读侧归一化返回）
                 if "skills" in patch or "tool_ids" in patch:
                     merged = _merge_skill_data_sources(merged)
+                _clamp_pet_model(merged)
+                normalize_colleague(merged)
                 colleagues[i] = merged
                 cfg["colleagues"] = colleagues
                 _write_config(repo, cfg)

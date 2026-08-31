@@ -563,7 +563,7 @@ class ReasoningFlowRepository:
                 node_configs = {
                     "input": {},
                     "agent": {
-                        "enabled_tools": ["query_cpq_data"],
+                        "enabled_tools": ["query_data"],
                         "max_iterations": 6,
                         "system_prompt": "",
                         "rule_types": [],

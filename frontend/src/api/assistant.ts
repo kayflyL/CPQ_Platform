@@ -74,8 +74,10 @@ export const assistantApi = {
       http.get<{ tools: AssistantToolInfo[] }>('/api/assistant/tools').then((r) => r.data.tools),
   },
   threads: {
-    list: () =>
-      http.get<{ threads: AssistantThread[] }>('/api/assistant/threads').then((r) => r.data.threads),
+    list: (opts?: { includeDeleted?: boolean }) =>
+      http.get<{ threads: AssistantThread[] }>('/api/assistant/threads', {
+        params: { include_deleted: opts?.includeDeleted ? 1 : undefined },
+      }).then((r) => r.data.threads),
     listOffice: (
       roleKey: string,
       options?: { includeDeleted?: boolean; includePreview?: boolean },
@@ -116,6 +118,13 @@ export const assistantApi = {
         })
         .then((r) => r.data.thread),
     remove: (id: string) => http.delete(`/api/assistant/threads/${id}`),
+    /** 团队群会话（未绑定同事的总助线程）get-or-create */
+    groupResolve: (payload?: { entry_point?: string }) =>
+      http
+        .post<{ thread: AssistantThread }>('/api/assistant/threads/group-resolve', {
+          entry_point: payload?.entry_point || null,
+        })
+        .then((r) => r.data),
     /** AI 设置·会话记录：管理员列全部会话（含回收站 + 消息数） */
     listAll: (filters?: {
       thread_kind?: string
@@ -128,8 +137,11 @@ export const assistantApi = {
           params: { scope: 'all', ...(filters || {}) },
         })
         .then((r) => r.data.threads),
-    /** 回收站恢复 */
-    restore: (id: string) => http.post(`/api/assistant/threads/${id}/restore`),
+    /** 回收站恢复（同角色当前活跃会话自动归档换位） */
+    restore: (id: string) =>
+      http
+        .post<{ thread: AssistantThread }>(`/api/assistant/threads/${encodeURIComponent(id)}/restore`)
+        .then((r) => r.data.thread),
     /** 彻底删除（消息+状态一起物理清） */
     purge: (id: string) => http.delete(`/api/assistant/threads/${id}`, { params: { hard: 1 } }),
     /** 一键清理空会话（0 消息，硬删除） */
@@ -154,6 +166,16 @@ export const assistantApi = {
           params: limit ? { limit } : undefined,
         })
         .then((r) => r.data.messages),
+    /** 会话消息 + 上下文水位（估算 token 占比） */
+    messagesFull: (id: string, limit?: number) =>
+      http
+        .get<{
+          messages: AssistantMessage[]
+          context_usage?: { chars: number; est_tokens: number; limit_tokens: number; ratio: number }
+        }>(`/api/assistant/threads/${id}/messages`, {
+          params: limit ? { limit } : undefined,
+        })
+        .then((r) => r.data),
     postMessage: (
       id: string,
       content: string,
@@ -163,6 +185,7 @@ export const assistantApi = {
       quotationId?: string | null,
       entryPoint?: string,
       optionSlot?: string | null,
+      cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -175,20 +198,35 @@ export const assistantApi = {
             quotation_id: quotationId || null,
             entry_point: entryPoint || null,
             option_slot: optionSlot || null,
+            card_selections: cardSelections && cardSelections.length
+              ? cardSelections.map((s) => ({
+                  slot: s.slot, value: s.value, label: s.label || null,
+                  ...(s.qty ? { qty: s.qty } : {}),
+                }))
+              : null,
           },
         )
         .then((r) => r.data),
     stop: (id: string) =>
       http.post<{ status: string }>(`/api/assistant/threads/${encodeURIComponent(id)}/stop`).then((r) => r.data),
+    /** 配件库自选候选：服务端按留底卡 pick_meta 生成并登记，选项与发卡同格式（含 slot/value/label） */
+    cardPick: (id: string, slot: string, roleKey?: string) =>
+      http
+        .get<{ slot: string; options: Array<{ label: string; value: string; desc?: string; slot: string; group?: string }> }>(
+          `/api/assistant/threads/${id}/card-pick`,
+          { params: { slot, ...(roleKey ? { role_key: roleKey } : {}) } },
+        )
+        .then((r) => r.data),
     /** 发送前预览总助推荐同事（不落库） */
     resolveTarget: (id: string, content: string, contextSummary?: string) =>
       http
-        .post<{ colleague?: any; matched_rule?: any }>(
+        .post<{ colleague?: any; reason?: string }>(
           `/api/assistant/threads/${id}/dispatch-preview`,
           { content, context_summary: contextSummary || null },
         )
         .then((r) => r.data),
   },
+
 }
 
 /** WS 订阅某会话的 LLM token 流(chunk / done 由后端 _stream_llm_reply 广播)。 */

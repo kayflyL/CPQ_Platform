@@ -317,6 +317,8 @@ export interface KpPart {
   specs?: Record<string, any>
   applicable?: { series?: string[] } | null
   unit_price?: number
+  unit_currency?: string
+  latest_price_date?: string
 }
 
 // ---------- 后面板配置类型 ----------

@@ -47,6 +47,7 @@ class AssistantThread(Base):
             "created_by": self.created_by or "",
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
+            "deleted_at": self.deleted_at or "",
         }
 
 

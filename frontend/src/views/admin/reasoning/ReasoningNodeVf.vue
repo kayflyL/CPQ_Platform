@@ -108,6 +108,32 @@ const runtimeCard = computed(() => {
     const v = studioReqSlotsView?.value
     return v ? { ...v, title: '线索登记表', progressLabel: '已填' } : null
   }
+  const art = runtimeArtifact.value
+  if (art && (art.kind === 'l6_chassis' || art.kind === 'kp_table')) {
+    const isKp = art.kind === 'kp_table'
+    const rows = Array.isArray(art.data?.rows) ? art.data.rows : []
+    const fields = rows.map((r: any, i: number) => {
+      const name = isKp ? (r.name || r.category || '') : (r.catalogue || '')
+      const spec = isKp ? (r.description || r.name || '') : (r.description || '')
+      const qty = Number(r.qty || 1)
+      const detail = [spec, qty > 1 ? `× ${qty}` : ''].filter(Boolean).join(' ')
+      return { key: 'row' + i, label: name, value: detail || '1', status: r.unmatched ? 'asked' : 'filled' }
+    })
+    const unmatchedN = rows.filter((r: any) => r.unmatched).length
+    return {
+      cold: false,
+      title: art.title || (isKp ? 'KP表' : '机箱表'),
+      badgeText: rows.length ? '已生成' : '未生成',
+      badgeClass: rows.length ? 'done' : 'idle',
+      filled: rows.length,
+      total: rows.length,
+      pctText: rows.length ? '100%' : '0%',
+      missingCount: unmatchedN,
+      rows: [{ title: isKp ? '配件清单' : '机箱配置', fields }],
+      showValue: true,
+      progressLabel: '项',
+    }
+  }
   if (!runtimeArtifact.value) return null
   const out = runtimeOutput.value
   if (!out || typeof out !== 'object' || Array.isArray(out)) return null
@@ -132,6 +158,18 @@ const runtimeCard = computed(() => {
     showValue: true,
     progressLabel: '项',
   }
+})
+
+// 运行时字段卡是否展示：agent_fill 以「确有登记内容 / 节点已执行 / 有产物」为准，
+// 与角色思考 busy（studio running 顶起 !cold）解耦，避免空卡显示「填充中」闪断。
+const runtimeCardVisible = computed(() => {
+  const rc = runtimeCard.value
+  if (!rc) return false
+  if (isAgentFill.value) {
+    const v = studioReqSlotsView?.value
+    return !!(v?.filled || v?.missingCount) || !!props.data?.execState || !!runtimeArtifact.value
+  }
+  return !rc.cold || !!props.data?.execState || !!runtimeArtifact.value
 })
 </script>
 
@@ -184,7 +222,7 @@ const runtimeCard = computed(() => {
     </div>
     <div v-if="runtimeArtifact && !runtimeCard" class="rf-artifact-chip" title="点击查看结果" @click.stop="openRuntimeArtifact">{{ runtimeArtifact.title }}</div>
     <!-- 运行时字段卡：需求理解节点用「线索登记表」，其余产出节点用「字段预览」，点「查看完整」看完整内容 -->
-    <div v-if="runtimeCard && !runtimeCard.cold" class="rf-node-reg">
+    <div v-if="runtimeCard && runtimeCardVisible" class="rf-node-reg">
       <div class="nr-head">
         <span class="nr-name">{{ runtimeCard.title }}</span>
         <span class="nr-badge" :class="runtimeCard?.badgeClass">{{ runtimeCard?.badgeText }}</span>
@@ -193,6 +231,7 @@ const runtimeCard = computed(() => {
         <div class="nr-row"><span>{{ runtimeCard?.filled }} / {{ runtimeCard?.total }} {{ runtimeCard?.progressLabel || '已填' }}</span><span v-if="runtimeCard?.missingCount">{{ runtimeCard?.missingCount }} 关键缺失</span></div>
         <div class="nr-bar"><i :style="{ width: runtimeCard?.pctText }"></i></div>
       </div>
+      <div v-if="runtimeCard.cold" class="nr-cold">暂无可展示的登记字段，等待模型理解需求…</div>
       <div ref="fieldsEl" class="nr-fields">
         <div v-for="group in runtimeCard?.rows || []" :key="group.title" class="rf-fg">
           <div class="rf-fg-title">{{ group.title }}</div>
@@ -321,6 +360,7 @@ const runtimeCard = computed(() => {
 .rf-node-reg .nr-badge.fill { background: rgba(250,173,20,.14); color: var(--cpq-accent-warning, #fa8c16); }
 .rf-node-reg .nr-badge.idle { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
 .rf-node-reg .nr-prog { margin-top: 6px; }
+.rf-node-reg .nr-cold { margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
 .rf-node-reg .nr-row { display: flex; justify-content: space-between; gap: 6px; font-size: 9px; color: var(--cpq-text-secondary); }
 .rf-node-reg .nr-bar { margin-top: 4px; height: 4px; border-radius: 999px; background: var(--cpq-overlay-w10); overflow: hidden; }
 .rf-node-reg .nr-bar i { display: block; height: 100%; border-radius: 999px; background: var(--cpq-accent-primary); transition: width .3s; }

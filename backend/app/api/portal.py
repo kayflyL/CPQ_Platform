@@ -449,55 +449,6 @@ def _empty_sheet_totals():
     }
 
 
-def _configs_from_requirement_slots(current, opp):
-    """需求单 slots → 报价工作台空 sheet configs（优先多配置，兼容旧单配置）。"""
-    slots = (current or {}).get("slots") or {}
-    description = (current or {}).get("requirement_text") or ""
-    raw_configs = slots.get("configs") or []
-    if isinstance(raw_configs, list) and raw_configs:
-        configs = []
-        for cfg in raw_configs:
-            if not isinstance(cfg, dict):
-                continue
-            kp_rows = [
-                {
-                    "part_category": row.get("part_category") or "",
-                    "catalogue": row.get("catalogue") or "",
-                    "description": row.get("description") or "",
-                    "qty": row.get("qty") or 0,
-                }
-                for row in (cfg.get("kp_rows") or [])
-                if isinstance(row, dict)
-            ]
-            configs.append({
-                "name": cfg.get("name") or "CFG1",
-                "server_model": cfg.get("server_model") or opp.get("platform_type") or "",
-                "description": cfg.get("description") or description,
-                "qty": int(cfg.get("qty") or 1),
-                "l6_cost": 0,
-                "l6_margin": 0,
-                "l6_rows": [],
-                "kp_rows": kp_rows,
-                "totals": _empty_sheet_totals(),
-            })
-        if configs:
-            return configs
-
-    server_model = slots.get("server_model") or opp.get("platform_type") or ""
-    qty = int(slots.get("purchase_qty") or opp.get("purchase_qty") or 1)
-    return [{
-        "name": "CFG1",
-        "server_model": server_model,
-        "description": description,
-        "qty": qty,
-        "l6_cost": 0,
-        "l6_margin": 0,
-        "l6_rows": [],
-        "kp_rows": [],
-        "totals": _empty_sheet_totals(),
-    }]
-
-
 @router.get("/api/portal/opp/{opp_id}/board")
 def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     """三栏流程看板：商机、需求、BOM、成本、报价、审批状态一次取齐。
@@ -529,11 +480,15 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     quote_repo = QuotationRepository()
     try:
         quotes = quote_repo.get_by_opportunity(opp_id)
+        exported_quote_ids = {q.quotation_id for q in quotes if getattr(q, "exported_at", None)}
+        for sheet in cost_sheets:
+            sheet["quotation_exported"] = bool(
+                sheet.get("quotation_id") and sheet["quotation_id"] in exported_quote_ids
+            )
         final = next((q for q in quotes if getattr(q, "exported_at", None)), None)
         selected = final or (quotes[0] if quotes else None)
         bom_configs = []
         cost_configs = []
-        sheet_configs = []
         if selected:
             preview = load_preview_data(opp_id, selected.quotation_id)
             preview_configs = preview.get("configs") or []
@@ -668,24 +623,9 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
                         for row in kp_rows
                     ],
                 })
-                sheet_configs.append({
-                    "name": name,
-                    "server_model": server_model,
-                    "description": description,
-                    "qty": qty,
-                    "l6_cost": l6_cost,
-                    "l6_margin": l6_margin,
-                    "l6_rows": l6_rows,
-                    "kp_rows": kp_rows,
-                    "totals": totals,
-                })
-        else:
-            sheet_configs.extend(_configs_from_requirement_slots(current, opp))
     finally:
         quote_repo.close()
 
-    current_node = flow.get("current_node") or "requirement"
-    current_node = "requirement" if current_node == "assign" else current_node
     bom_visible = field_visible(user, "field.flow.bom")
     cost_visible = field_visible(user, "field.flow.cost")
     bom_editable = bom_visible
@@ -694,11 +634,6 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     cost_locked = not cost_editable
     final_dict = _mask_quote_if_needed(final.to_dict(), user) if final else None
     cost_snapshot = None if not cost_visible else (selected.cost_snapshot if selected else None)
-    sheet_stage = "boming" if current_node in {"requirement", "boming"} else "costing"
-    sheet_locked = bom_locked if sheet_stage == "boming" else cost_locked
-
-    if not sheet_configs and not sheet_locked:
-        sheet_configs.extend(_configs_from_requirement_slots(current, opp))
 
     flow_cost_sheet = _current_cost_sheet_for_quote(cost_sheets, selected)
     flow_bom_scheme = _current_bom_scheme_for_sheet(bom_schemes, flow_cost_sheet)
@@ -707,30 +642,47 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
         bom_source = (flow_bom_scheme or {}).get("configs") or cost_source
         context_bom_configs = [_sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)]
         context_cost_configs = [_sheet_config_to_cost_config(c) for c in cost_source if isinstance(c, dict)]
-        context_sheet_configs = [dict(c) for c in cost_source if isinstance(c, dict)]
         context_worktable_quotation_id = flow_cost_sheet.get("quotation_id") or (selected.quotation_id if selected else "")
         context_legacy_fallback = False
     elif flow_bom_scheme:
         bom_source = flow_bom_scheme.get("configs") or []
         context_bom_configs = [_sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)]
         context_cost_configs = []
-        context_sheet_configs = [dict(c) for c in bom_source if isinstance(c, dict)]
         context_worktable_quotation_id = selected.quotation_id if selected else ""
         context_legacy_fallback = False
     else:
         context_bom_configs = bom_configs
         context_cost_configs = cost_configs
-        context_sheet_configs = sheet_configs
         context_worktable_quotation_id = selected.quotation_id if selected else ""
         context_legacy_fallback = bool(selected)
+
+    worktable_cost_sheets = []
+    for sheet in cost_sheets:
+        if sheet.get("status") == "draft" or not sheet.get("quotation_id"):
+            continue
+        sheet_bom = _current_bom_scheme_for_sheet(bom_schemes, sheet)
+        cost_source = sheet.get("configs") or []
+        bom_source = (sheet_bom or {}).get("configs") or cost_source
+        worktable_cost_sheets.append({
+            "sheet_id": sheet.get("id"),
+            "sheet_name": sheet.get("name") or "",
+            "status": sheet.get("status"),
+            "quotation_id": sheet.get("quotation_id"),
+            "quotation_exported": bool(sheet.get("quotation_exported")),
+            "bom_configs": [
+                _sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)
+            ],
+            "cost_configs": [
+                _sheet_config_to_cost_config(c) for c in cost_source if isinstance(c, dict)
+            ],
+        })
 
     quote_context = {
         "bom_configs": [] if not bom_visible else context_bom_configs,
         "cost_configs": [] if not cost_visible else context_cost_configs,
-        "sheet_configs": [] if not (bom_visible if sheet_stage == "boming" else cost_visible) else context_sheet_configs,
         "worktable_quotation_id": context_worktable_quotation_id or None,
         "cost_snapshot": cost_snapshot if context_legacy_fallback else None,
-        "legacy_fallback": context_legacy_fallback,
+        "worktable_cost_sheets": [] if not cost_visible else worktable_cost_sheets,
     }
 
     return {
@@ -753,12 +705,6 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
             "locked": cost_locked,
             "snapshot": quote_context["cost_snapshot"],
             "configs": quote_context["cost_configs"],
-        },
-        "sheet": {
-            "stage": sheet_stage,
-            "locked": sheet_locked,
-            "quotation_id": quote_context["worktable_quotation_id"],
-            "configs": quote_context["sheet_configs"],
         },
         "quote_context": quote_context,
         "quote": final_dict,
@@ -952,11 +898,11 @@ def reject_withdraw_portal_card(opp_id: str, card_id: int, body: CardApproveBody
 
 
 def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
-                             stage: str, configs: List[dict]) -> str:
-    """把 BOM/成本工作底表同步到 opportunities.quotations。
+                             configs: List[dict], sheet_name: str = "") -> str:
+    """把成本工作底表同步到 opportunities.quotations（回写 L6 整机成本与 KP 成本价）。
 
-    boming：写配置头、L6 picks 与 KP 行。
-    costing：在 boming 基础上回写 L6 成本/利润率与 KP 成本价。
+    sheet_name（成本表名）用于在新建报价单时生成可区分的名称，避免多张成本表
+    生成同名的「方案-客户」报价单导致无法分辨。
     """
     quote_repo = QuotationRepository()
     try:
@@ -966,7 +912,19 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
                 raise HTTPException(status_code=404, detail="报价单不存在或不属于该商机")
         else:
             customer = opp.get("customer_name") or "工作表"
-            quotation = quote_repo.create(opp.get("opportunity_id"), quotation_name=f"方案-{customer}")
+            base = (sheet_name or "").strip()
+            if base.startswith("成本-"):
+                base = base[3:].strip() or base
+            base = base or "成本表"
+            quotation = quote_repo.create(
+                opp.get("opportunity_id"),
+                quotation_name=f"报价-{customer}-{base}",
+            )
+            # 同一成本表重复提交会生成新版本，附版本号避免重名
+            quote_repo.update(
+                quotation.quotation_id,
+                quotation_name=f"报价-{customer}-{base}-{quotation.version}",
+            )
         quote_repo.update(quotation.quotation_id, source="worktable")
 
         normalized_configs = []
@@ -1015,73 +973,65 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
             picks = {}
         submitted_names = set(config_quantities.keys())
 
-        if stage == "boming":
-            for cfg in normalized_configs:
-                name = cfg["name"]
-                pick = picks.get(name) or {}
-                if not isinstance(pick, dict):
-                    pick = {}
-                l6_rows = []
-                for row in cfg.get("l6_rows") or []:
-                    l6_rows.append({
-                        "category": "L6",
-                        "catalogue": row.get("catalogue") or "",
-                        "description": row.get("description") or "",
-                        "part_category": row.get("part_category") or "",
-                        "qty": int(row.get("qty") or 0),
-                    })
+        def _kp_snapshot_rows(cfg: dict) -> list:
+            rows = []
+            for row in cfg.get("kp_rows") or []:
+                if not isinstance(row, dict):
+                    continue
+                rows.append({
+                    "item_id": row.get("item_id"),
+                    "category": "Key Parts",
+                    "catalogue": row.get("catalogue") or "",
+                    "description": row.get("description") or "",
+                    "part_category": row.get("part_category") or "",
+                    "qty": int(row.get("qty") or 0),
+                    "base_price": row.get("base_price") or 0,
+                    "final_price": row.get("final_price") or 0,
+                    "profit_margin": row.get("profit_margin") or 0,
+                    "currency": row.get("currency") or "RMB",
+                    "note": row.get("note") or "",
+                })
+            return rows
+
+        for cfg in normalized_configs:
+            name = cfg["name"]
+            pick = picks.get(name) or {}
+            if not isinstance(pick, dict):
+                pick = {}
+            if "l6_cost" in cfg:
+                pick["l6_custom_price"] = float(cfg.get("l6_cost") or 0)
+                pick["l6_price_manual"] = True
+
+            if not pick.get("bom_source"):
                 pick["bom_source"] = "excel"
-                pick["bom_excel_rows"] = l6_rows
-                picks[name] = pick
-            for name in list(picks.keys()):
-                if name not in submitted_names:
-                    del picks[name]
-            quote_repo.update(quotation.quotation_id, config_l6_picks=picks)
-            for cfg in normalized_configs:
-                for row in cfg.get("kp_rows") or []:
-                    row.setdefault("category", "Key Parts")
-                    row.pop("base_price", None)
-                    row.pop("final_price", None)
-                    row.pop("profit_margin", None)
-            quote_repo.patch_items(quotation.quotation_id, normalized_configs, delete_missing=True)
+                pick["bom_excel_rows"] = []
 
-        if stage == "costing":
-            for cfg in normalized_configs:
-                name = cfg["name"]
-                pick = picks.get(name) or {}
-                if not isinstance(pick, dict):
-                    pick = {}
-                if "l6_cost" in cfg:
-                    pick["l6_custom_price"] = float(cfg.get("l6_cost") or 0)
-                    pick["l6_price_manual"] = True
-
-                if not pick.get("bom_source"):
-                    pick["bom_source"] = "excel"
-                    pick["bom_excel_rows"] = []
-
+            if pick.get("bom_source") == "excel":
+                l6_existing = [
+                    row for row in (pick.get("bom_excel_rows") or [])
+                    if isinstance(row, dict) and (row.get("category") or "") in ("L6", "整机")
+                ]
                 l6_rows = cfg.get("l6_rows")
                 if isinstance(l6_rows, list) and l6_rows:
-                    if pick.get("bom_source") == "excel":
-                        existing = pick.get("bom_excel_rows") or []
-                        for idx, row in enumerate(l6_rows):
-                            if idx < len(existing) and isinstance(existing[idx], dict):
-                                for key in ("base_price", "final_price", "profit_margin", "note"):
-                                    if key in row:
-                                        existing[idx][key] = row[key]
-                            else:
-                                existing.append(row)
-                        pick["bom_excel_rows"] = existing
-                picks[name] = pick
-            for name in list(picks.keys()):
-                if name not in submitted_names:
-                    del picks[name]
-            quote_repo.update(quotation.quotation_id, config_l6_picks=picks)
-            for cfg in normalized_configs:
-                for row in cfg.get("kp_rows") or []:
-                    row.setdefault("category", "Key Parts")
-                    row.pop("final_price", None)
-                    row.pop("profit_margin", None)
-            quote_repo.patch_items(quotation.quotation_id, normalized_configs, delete_missing=False)
+                    for idx, row in enumerate(l6_rows):
+                        if idx < len(l6_existing) and isinstance(l6_existing[idx], dict):
+                            for key in ("base_price", "final_price", "profit_margin", "note"):
+                                if key in row:
+                                    l6_existing[idx][key] = row[key]
+                        else:
+                            l6_existing.append(row)
+                pick["bom_excel_rows"] = l6_existing + _kp_snapshot_rows(cfg)
+            picks[name] = pick
+        for name in list(picks.keys()):
+            if name not in submitted_names:
+                del picks[name]
+        quote_repo.update(quotation.quotation_id, config_l6_picks=picks)
+        for cfg in normalized_configs:
+            for row in cfg.get("kp_rows") or []:
+                row.setdefault("category", "Key Parts")
+                row.pop("final_price", None)
+                row.pop("profit_margin", None)
+        quote_repo.patch_items(quotation.quotation_id, normalized_configs, delete_missing=False)
 
         return quotation.quotation_id
     finally:
@@ -1422,8 +1372,8 @@ async def upload_cost_sheet(
 @router.post("/api/portal/opp/{opp_id}/cost-sheets/draft")
 def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
                           user: dict = Depends(get_current_user)):
-    """新建或更新一张成本核算草稿表（由已提交 BOM 方案生成）。"""
-    _svc(opp_id, user)
+    """新建或更新一张成本核算草稿/当前表（由已提交 BOM 方案生成）。"""
+    opp, _ = _svc(opp_id, user)
     if not field_visible(user, "field.flow.cost"):
         raise HTTPException(status_code=403, detail="当前角色无权编辑成本核算")
     if not body.configs:
@@ -1431,6 +1381,22 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
 
     flow_repo = FlowRepository()
     try:
+        linked_quotation_id = body.quotation_id or ""
+        existing_status = None
+        if body.sheet_id:
+            existing = flow_repo.get_cost_sheet(opp_id, body.sheet_id)
+            linked_quotation_id = linked_quotation_id or (existing or {}).get("quotation_id") or ""
+            existing_status = (existing or {}).get("status")
+        if linked_quotation_id:
+            quote_repo = QuotationRepository()
+            try:
+                linked_quote = quote_repo.get_by_id(linked_quotation_id)
+                if not linked_quote or linked_quote.opportunity_id != opp.get("opportunity_id"):
+                    raise HTTPException(status_code=404, detail="关联报价单不存在或不属于该商机")
+                if linked_quote.exported_at:
+                    raise HTTPException(status_code=409, detail="关联报价单已导出或定稿，成本表不可再修改")
+            finally:
+                quote_repo.close()
         sheet = flow_repo.save_cost_sheet_draft(
             opp_id,
             body.sheet_id,
@@ -1448,17 +1414,42 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
                 card_id = parent["id"] if parent else None
             finally:
                 card_repo.close()
-        _attach_entity_card(
-            opp_id,
-            "cost",
-            sheet["id"],
-            origin_node="costing",
-            current_node="costing",
-            flow_status="processing" if card_id else "draft",
-            created_by=user.get("name") or "",
-            card_id=card_id,
-            visible_upstream=card_id is not None,
-        )
+        if existing_status == "current":
+            card_repo = FlowCardRepository()
+            try:
+                cost_card = card_repo.get_card_for_entity(opp_id, "cost", sheet["id"])
+                if cost_card:
+                    card_repo.link_entity(cost_card["id"], "cost", sheet["id"], opportunity_id=opp_id)
+                elif card_id:
+                    card_repo.link_entity(card_id, "cost", sheet["id"], opportunity_id=opp_id)
+                else:
+                    card = card_repo.ensure_card(
+                        opp_id,
+                        origin_node="costing",
+                        current_node="costing",
+                        created_by=user.get("name") or "",
+                        visible_upstream=False,
+                        flow_status="processing",
+                    )
+                    card_repo.link_entity(card["id"], "cost", sheet["id"], opportunity_id=opp_id)
+            finally:
+                card_repo.close()
+        else:
+            _attach_entity_card(
+                opp_id,
+                "cost",
+                sheet["id"],
+                origin_node="costing",
+                current_node="costing",
+                flow_status="processing" if card_id else "draft",
+                created_by=user.get("name") or "",
+                card_id=card_id,
+                visible_upstream=card_id is not None,
+            )
+        if linked_quotation_id:
+            _sync_sheet_to_quotation(
+                opp, linked_quotation_id, body.configs, body.name
+            )
         return {"sheet": sheet, "cost_sheets": flow_repo.list_cost_sheets(opp_id)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1495,7 +1486,7 @@ def submit_cost_sheet(opp_id: str, sheet_id: int, user: dict = Depends(get_curre
             # 历史回填/已定稿报价单不再复用，提交时新建独立工作底表报价单草稿
             reuse_quotation_id = None
         quotation_id = _sync_sheet_to_quotation(
-            opp, reuse_quotation_id, "costing", sheet.get("configs") or []
+            opp, reuse_quotation_id, sheet.get("configs") or [], sheet.get("name") or ""
         )
         submitted = flow_repo.submit_cost_sheet(
             opp_id, sheet_id, quotation_id, user.get("name") or ""

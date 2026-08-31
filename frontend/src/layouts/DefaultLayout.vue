@@ -40,7 +40,7 @@
         </a-menu-item>
         <a-menu-item v-if="auth.can('page.strategies')" key="/strategies">
           <template #icon><ThunderboltOutlined /></template>
-          <span>策略中心</span>
+          <span>解决方案</span>
         </a-menu-item>
         <a-sub-menu v-if="showSettings" key="settings">
           <template #icon><SettingOutlined /></template>
@@ -117,7 +117,7 @@
           <template #icon><DollarOutlined /></template><span>配件</span>
         </a-menu-item>
         <a-menu-item v-if="auth.can('page.strategies')" key="/strategies">
-          <template #icon><ThunderboltOutlined /></template><span>策略中心</span>
+          <template #icon><ThunderboltOutlined /></template><span>解决方案</span>
         </a-menu-item>
         <a-sub-menu v-if="showSettings" key="settings">
           <template #icon><SettingOutlined /></template><template #title>设置</template>
@@ -143,7 +143,7 @@
     </main>
 
     <!-- 全局浮动「方案助手」入口(右下角,所有页面常驻) -->
-    <AssistantFloatingButton v-model:open="assistantOpen" />
+    <AssistantFloatingButton v-model:open="assistantOpen" :model-key="petModel.activePetModel" />
     <AssistantPanel v-model:open="assistantOpen" />
   </div>
 </template>
@@ -157,11 +157,13 @@ import { useThemeStore } from '@/store/theme'
 import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
+import { usePetModelStore } from '@/store/petModel'
 
 const router = useRouter()
 const route = useRoute()
 const themeStore = useThemeStore()
 const auth = useAuthStore()
+const petModel = usePetModelStore()
 const selectedKeys = ref<string[]>([route.path])
 const openKeys = ref<string[]>([])
 

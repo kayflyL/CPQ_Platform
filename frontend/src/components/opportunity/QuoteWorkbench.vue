@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import type { CostConfig, FlowCard, PortalBoard, QuoteContext } from '@/api/portal'
+import type { BomConfig, CostConfig, FlowCard, PortalBoard, QuoteContext } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { portalApi } from '@/api/portal'
@@ -55,6 +55,46 @@ const visibleQuotations = computed(() =>
   props.quotations.filter((q) => (q as any).source !== 'worktable'),
 )
 const canConvert = computed(() => !!worktableQuotationId.value && costConfigs.value.length > 0 && !convertedQuotation.value)
+interface WorktableSheetView {
+  sheet_id: number
+  sheet_name: string
+  quotation_id: string
+  quotation_exported: boolean
+  converted: boolean
+  canConvert: boolean
+  configNames: string
+  totalQty: number
+  totalCost: number | null
+  bom_configs: BomConfig[]
+  cost_configs: CostConfig[]
+}
+const worktableCostSheets = computed(() => props.quoteContext?.worktable_cost_sheets || [])
+const worktableSheetViews = computed<WorktableSheetView[]>(() =>
+  worktableCostSheets.value.map((s) => {
+    const bom = s.bom_configs || []
+    const cost = s.cost_configs || []
+    const converted = props.quotations.some(
+      (q) => q.quotation_id === s.quotation_id && (q as any).source !== 'worktable',
+    )
+    let totalCost: number | null = null
+    if (cost.length) {
+      totalCost = cost.reduce((sum, cfg) => sum + Number(cfg.totals?.totalCost || 0) * Number(cfg.qty || 0), 0)
+    }
+    return {
+      sheet_id: s.sheet_id,
+      sheet_name: s.sheet_name,
+      quotation_id: s.quotation_id,
+      quotation_exported: s.quotation_exported,
+      converted,
+      canConvert: !!s.quotation_id && cost.length > 0 && !converted,
+      configNames: bom.map((c) => c.name).filter(Boolean).join(' / ') || '—',
+      totalQty: bom.reduce((sum, cfg) => sum + Number(cfg.qty || 0), 0),
+      totalCost,
+      bom_configs: bom,
+      cost_configs: cost,
+    }
+  }),
+)
 const configDetail = ref<CostConfig | null>(null)
 const costTotals = computed(() => {
   const snap = props.quoteContext?.cost_snapshot?.totals
@@ -177,7 +217,7 @@ function openConfigDetail(cfg: CostConfig) {
         <header class="panel-head">
           <span>上游成本与 BOM 摘要</span>
           <a-button
-            v-if="worktableQuotationId"
+            v-if="!worktableSheetViews.length && worktableQuotationId"
             size="small"
             type="primary"
             :disabled="!canConvert"
@@ -186,26 +226,64 @@ function openConfigDetail(cfg: CostConfig) {
             {{ convertedQuotation ? '已生成报价草稿' : '转为报价草稿' }}
           </a-button>
         </header>
-        <div class="qw-summary">
-          <div><small>配置</small><b>{{ bomConfigs.map((c) => c.name).join(' / ') || '—' }}</b></div>
-          <div><small>总台数</small><b>{{ totalQty }}</b></div>
-          <div><small>整机成本</small><b>{{ costTotals ? money(costTotals.totalCost) : '—' }}</b></div>
-        </div>
 
-        <table v-if="costConfigs.length" class="qw-cost-table">
-          <thead>
-            <tr><th>Config</th><th>Quantity</th><th>Total Cost</th><th>Details</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="cfg in costConfigs" :key="cfg.name" class="qw-config-row" @click="openConfigDetail(cfg)">
-              <td>{{ cfg.name }}</td>
-              <td>{{ cfg.qty }}</td>
-              <td>{{ money(cfg.totals?.totalCost) }}</td>
-              <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="panel-empty">成本核算尚未完成，暂无可用于报价的成本表。</div>
+        <!-- 多张已提交成本表：每张独立渲染，逐张可转正式报价 -->
+        <template v-if="worktableSheetViews.length">
+          <div v-for="sheet in worktableSheetViews" :key="sheet.sheet_id" class="qw-sheet-block">
+            <div class="qw-sheet-head">
+              <span class="qw-sheet-title">{{ sheet.sheet_name }}</span>
+              <a-button
+                size="small"
+                type="primary"
+                :disabled="!sheet.canConvert"
+                @click="emit('convert-cost-to-quotation', sheet.quotation_id)"
+              >
+                {{ sheet.quotation_exported ? '已正式报价' : (sheet.converted ? '已生成报价草稿' : '转为报价草稿') }}
+              </a-button>
+            </div>
+            <div class="qw-summary">
+              <div><small>配置</small><b>{{ sheet.configNames }}</b></div>
+              <div><small>总台数</small><b>{{ sheet.totalQty }}</b></div>
+              <div><small>整机成本</small><b>{{ sheet.totalCost != null ? money(sheet.totalCost) : '—' }}</b></div>
+            </div>
+            <table v-if="sheet.cost_configs.length" class="qw-cost-table">
+              <thead>
+                <tr><th>Config</th><th>Quantity</th><th>Total Cost</th><th>Details</th></tr>
+              </thead>
+              <tbody>
+                <tr v-for="cfg in sheet.cost_configs" :key="cfg.name" class="qw-config-row" @click="openConfigDetail(cfg)">
+                  <td>{{ cfg.name }}</td>
+                  <td>{{ cfg.qty }}</td>
+                  <td>{{ money(cfg.totals?.totalCost) }}</td>
+                  <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </template>
+
+        <!-- 旧版兜底：无 worktable 成本表时展示单一当前成本摘要 -->
+        <template v-else>
+          <div class="qw-summary">
+            <div><small>配置</small><b>{{ bomConfigs.map((c) => c.name).join(' / ') || '—' }}</b></div>
+            <div><small>总台数</small><b>{{ totalQty }}</b></div>
+            <div><small>整机成本</small><b>{{ costTotals ? money(costTotals.totalCost) : '—' }}</b></div>
+          </div>
+          <table v-if="costConfigs.length" class="qw-cost-table">
+            <thead>
+              <tr><th>Config</th><th>Quantity</th><th>Total Cost</th><th>Details</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="cfg in costConfigs" :key="cfg.name" class="qw-config-row" @click="openConfigDetail(cfg)">
+                <td>{{ cfg.name }}</td>
+                <td>{{ cfg.qty }}</td>
+                <td>{{ money(cfg.totals?.totalCost) }}</td>
+                <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-else class="panel-empty">成本核算尚未完成，暂无可用于报价的成本表。</div>
+        </template>
       </section>
 
       <section class="qw-editor panel">
@@ -432,6 +510,17 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .qw-summary small { display: block; color: var(--cpq-text-muted); font-size: 10px; margin-bottom: 3px; }
 .qw-summary b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-primary); font-size: 12px; }
+.qw-sheet-block { border-bottom: 1px solid var(--cpq-glass-border); }
+.qw-sheet-block:last-child { border-bottom: none; }
+.qw-sheet-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-overlay-w4);
+}
+.qw-sheet-title {
+  font-size: 13px; font-weight: 600; color: var(--cpq-text-primary);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 .qw-cost-table { width: calc(100% - 26px); margin: 12px 13px; border-collapse: collapse; font-size: 12px; }
 .qw-cost-table th, .qw-cost-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
 .qw-cost-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }

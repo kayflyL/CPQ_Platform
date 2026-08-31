@@ -2,10 +2,48 @@
 """agent_tool_specs —— 工具元数据 + registry 构建。声明 schema，不含业务实现。"""
 from typing import List, Optional
 from app.services.agent_tool_registry import ToolRegistry
-from app.services.agent_tool_handlers import _DATA_FOCUS, _DATA_PERIODS, _search_cases_handler, _tool_build_plan, _tool_compose_memory, _tool_cost_breakdown, _tool_get_server_model, _tool_list_kp_categories, _tool_list_server_models, _tool_list_server_types, _tool_query_cpq_data, _tool_quote_draft, _tool_resolve_part_alias, _tool_select_models, _tool_select_parts, _tool_update_server_model, _tool_update_server_type
+from app.services.agent_tool_handlers import _search_cases_handler, _tool_build_plan, _tool_catalog_search, _tool_compose_memory, _tool_cost_breakdown, _tool_list_kp_categories, _tool_query_data, _tool_quote_draft, _tool_resolve_part_alias, _tool_select_models, _tool_select_parts, _tool_submit_registration, _tool_update_requirement_slots, _tool_update_server_model, _tool_update_server_type
 
 # ── 工具元数据全集（name/description/parameters + handler）—— 画布可勾选启用 ──
 _TOOL_SPECS = {
+    "update_requirement_slots": {
+        "description": "把客户明确表达的需求当轮逐项写进线索登记表（只登记客户说过的话，禁止臆测；一句话里点名的每个配件型号/数量/容量都不能漏）",
+        "default_enabled": False,
+        "handler": _tool_update_requirement_slots,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "fill": {"type": "object", "description": ("要登记的字段（键名：server_type_name/series/form/purchase_qty/cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/kp_mode）。"
+                                                           "配件信号槽必须给结构化对象/数组（如 gpu_groups=[{\"tokens\":[\"智铠100\"],\"qty\":4}]、"
+                                                           "mem_signal={\"total_gb\":256}、drive_groups=[{\"term\":\"2048G\",\"qty\":2,\"kind\":\"SSD\"}]），禁止一句话文本")},
+            },
+            "required": ["fill"],
+        },
+    },
+    "submit_registration": {
+        "description": "线索登记表信息足够（场景已明确）时提交，触发配置引擎自动出方案",
+        "default_enabled": False,
+        "handler": _tool_submit_registration,
+        "parameters": {"type": "object", "properties": {}},
+    },
+    "catalog_search": {
+        "description": ("查询在售目录：kind=types 查类型清单；kind=models 按类型/系列/形态查机型（含价格）；"
+                        "kind=parts 按品类查配件清单（可带 series 过滤适配平台）——推荐的事实来源"),
+        "default_enabled": False,
+        "handler": _tool_catalog_search,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string", "enum": ["types", "models", "parts"], "description": "查询种类"},
+                "type_name": {"type": "string", "description": "服务器类型全名（kind=models 时可选）"},
+                "category": {"type": "string", "description": "配件品类（kind=parts 时必填，如 CPU/Memory/GPU/HDD SSD/Raid card）"},
+                "series": {"type": "string", "description": "平台系列（可选；kind=parts 时按适配过滤）"},
+                "form": {"type": "string", "description": "机箱形态如 2U/4U（可选）"},
+                "limit": {"type": "integer", "description": "返回条数上限，默认 8"},
+            },
+            "required": ["kind"],
+        },
+    },
     "select_models": {
         "category": "selection",
         "data_sources": ["candidate_search"],
@@ -37,12 +75,12 @@ _TOOL_SPECS = {
                 "categories": {"type": "array", "items": {"type": "string"}, "description": "要匹配的配件类目（可选；不给则按信号自动推导）"},
                 "server_type_name": {"type": "string", "description": "服务器类型全名（可选，用于推断标准类目）"},
                 "cpu_signal": {"type": "object", "description": "CPU 信号 {qty, model?, cores?, tdp_w?}"},
-                "mem_signal": {"type": "object", "description": "内存信号 {type?, speed?, total_gb?, per_stick_gb?, qty?}"},
-                "drive_groups": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term, qty, kind?, comparison?}]"},
-                "gpu_groups": {"type": "array", "items": {"type": "object"}, "description": "GPU 组 [{tokens, qty, cap?}]"},
+                "mem_signal": {"type": "object", "description": "内存信号 {type?, speed?, total_gb?: '总容量，如 128G；优先填 total_gb，工具会按库存自动拆条', per_stick_gb?: '仅客户明确单条容量时填', qty?}"},
+                "drive_groups": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term:'容量+接口+介质，如 16T SATA HDD / 960G SATA SSD', qty, kind?:'可选接口/介质，如 SATA/NVMe/SAS/SSD/HDD', comparison?}]"},
+                "gpu_groups": {"type": "array", "items": {"type": "object"}, "description": "GPU 组 [{tokens: ['GPU 型号，如 RTX PRO 4500'], qty, cap?: '显存，如 32G'}]；tokens 必填，禁止只传 cap"},
                 "raid_groups": {"type": "array", "items": {"type": "object"}, "description": "阵列卡组 [{model?, raid_levels?, qty}]"},
                 "psu_signal": {"type": "object", "description": "电源信号 {wattage?, qty?}（电源由整机底盘推断，此处可省略）"},
-                "multi_spec_filters": {"type": "object", "description": "多规格过滤，如 {Network(NIC) requirement: [{filters, name_contains, qty}]}"},
+                "multi_spec_filters": {"type": "object", "description": "网卡等多规格过滤；key 固定用 \"Network(NIC) requirement\"，每项 {filters?, name_contains?: ['客户原文关键修饰词，如 10G/双口/光模块'], qty}"},
                 "representative_pick": {"type": "string", "description": "min_price/max_price/first，默认 min_price"},
             },
         },
@@ -152,65 +190,24 @@ _TOOL_SPECS = {
         # handler 由 build_tool_registry 按 case 配置（case_source/top_k/match）注入
         "handler": None,
     },
-    "query_cpq_data": {
+    "query_data": {
         "category": "data",
-        "data_sources": ["opportunities", "dashboard"],
         "default_enabled": False,
-        "description": ("查询 CPQ 平台的商机/配置业务数据：按周期（本周/上周/本月/近半年/今年/自定义区间）"
-                        "或聚焦维度（核心指标/平台分布/机箱分布/销售排行/逐期趋势/近期重点商机/机型利润率/商机列表）返回真实数据。"
-                        "回答业务数据类问题（商机数、配置数、平台/机箱分布、销售排行、趋势、重点大单、利润率、商机列表）时调用。"),
+        "description": (
+            "在数据边界内执行只读 SELECT，返回列名与行数据。规则：只写单条 SELECT（支持 WITH/CTE，"
+            "禁止任何写操作与注释）；先用 information_schema.tables / information_schema.columns "
+            "查看可读表与列结构；表不在白名单会返回错误（可用 information_schema 自查可读范围）；"
+            "SQL 报错信息原样返回，据此修正重试；价格等敏感列可能被自动脱敏（该列不返回）。"
+        ),
         "parameters": {
             "type": "object",
             "properties": {
-                "period": {"type": "string", "enum": list(_DATA_PERIODS),
-                           "description": "周期，必须原样使用英文枚举：week=本周、last_week=上周（周一至周日）、month=本月、half_year=近半年（180 天）、year=今年（年初至今）、custom=自定义区间。‘8.16之前/从上周开始算’优先用 last_week；custom 必须同时给 start 和 end。"},
-                "start": {"type": "string", "description": "自定义区间开始日期 YYYY-MM-DD（period=custom 时必填，其他周期不要传）"},
-                "end": {"type": "string", "description": "自定义区间结束日期 YYYY-MM-DD（period=custom 时必填，其他周期不要传）"},
-                "focus": {"type": "string", "enum": list(_DATA_FOCUS),
-                          "description": "聚焦维度，必须原样使用英文枚举（默认 all）：kpi=核心指标、platform=平台分布、chassis=机箱分布、rank=销售排行、trend=逐期趋势、highlights=近期重点商机、profit=机型利润率、opportunities=商机列表、all=全量"},
-                "limit": {"type": "integer", "description": "focus=highlights 时的重点商机条数（缺省 10，最多 50）"},
+                "sql": {"type": "string", "description": "单条只读 SELECT 语句（PostgreSQL 方言）"},
+                "limit": {"type": "integer", "description": "返回行数上限，默认 50（硬上限 200）"},
             },
-            "required": ["period"],
+            "required": ["sql"],
         },
-        "handler": _tool_query_cpq_data,
-    },
-    "list_server_types": {
-        "category": "data",
-        "data_sources": ["server_catalog"],
-        "default_enabled": False,
-        "description": "查询服务器类型目录，返回类型 id/名称/简介。回答“有哪些服务器类型”时调用。",
-        "parameters": {"type": "object", "properties": {}},
-        "handler": _tool_list_server_types,
-    },
-    "list_server_models": {
-        "category": "data",
-        "data_sources": ["server_catalog"],
-        "default_enabled": False,
-        "description": "查询服务器机型目录，可按服务器类型/系列/形态过滤，返回机型名称、系列、形态、盘位、生命周期状态。回答“有哪些服务器产品/机型”时调用。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "server_type_id": {"type": "integer", "description": "服务器类型 id（可选）"},
-                "series": {"type": "string", "description": "产品系列，如 Polaris/Orion/Intel（可选）"},
-                "form": {"type": "string", "description": "机箱形态 1U/2U/4U（可选）"},
-                "published_only": {"type": "boolean", "description": "是否只返回已发布机型，默认 false"},
-            },
-        },
-        "handler": _tool_list_server_models,
-    },
-    "get_server_model": {
-        "category": "data",
-        "data_sources": ["server_catalog", "server_product_content"],
-        "default_enabled": False,
-        "description": "查询单个机型详情，返回名称/用途/描述/生命周期/系列形态盘位/产品介绍内容/配置变体。回答某个机型介绍或机型详情时调用。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "server_model_id": {"type": "integer", "description": "机型 id（必填）"},
-            },
-            "required": ["server_model_id"],
-        },
-        "handler": _tool_get_server_model,
+        "handler": _tool_query_data,
     },
     "update_server_type": {
         "category": "content",
@@ -310,7 +307,7 @@ def build_tool_registry(config: dict, allowed_tool_ids: list = None, allowed_dat
     传 [] 表示同事不允许任何工具。
     """
     cfg = config or {}
-    # 默认全集 = default_enabled=True 的工具；default_enabled=False（如 query_cpq_data）
+    # 默认全集 = default_enabled=True 的工具；default_enabled=False（如 query_data）
     # 不进任何节点默认配置，需要时由调用方显式启用（避免改变现有推理流行为）
     enabled = cfg.get("enabled_tools") or [
         name for name, spec in _TOOL_SPECS.items() if spec.get("default_enabled", True)

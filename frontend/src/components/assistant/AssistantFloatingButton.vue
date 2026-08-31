@@ -1,52 +1,104 @@
 <template>
-  <button
+  <div
     v-show="!open"
-    ref="btnRef"
-    class="assistant-fab"
+    ref="petRef"
+    class="assistant-pet"
     :class="{ dragging: isDragging }"
-    :style="fabStyle"
-    @click="onClick"
-    @pointerdown="onPointerDown"
+    :style="petStyle"
     title="方案助手 · 可拖动"
+    @pointerdown="onPointerDown"
+    @click="onClick"
   >
-    <span class="fab-mark">助</span>
-    <span class="fab-label">方案助手</span>
-  </button>
+    <span v-if="failed" class="fab-mark">助</span>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useAssistantFab } from '@/composables/useAssistantFab'
+import { petModelPath } from '@/store/petModel'
 
-const props = defineProps<{ open: boolean }>()
+const props = defineProps<{ open: boolean; modelKey?: string }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const { pos, moveClamped, refitToViewport, setFabEl, FAB_DRAG_THRESHOLD } = useAssistantFab()
 
-const btnRef = ref<HTMLButtonElement | null>(null)
+const PET_SIZE = 300
+const petRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+const failed = ref(false)
+let widget: any = null
 
-let startX = 0, startY = 0
-let originX = 0, originY = 0
-let moved = false
-let active = false
+let startX = 0, startY = 0, originX = 0, originY = 0
+let moved = false, active = false
 let suppressClick = false
 let suppressTimer: number | undefined
 
-const fabStyle = computed(() => {
-  // 无保存位置时回落到 CSS 默认（right/bottom 锚定）
+const petStyle = computed(() => {
+  // 无保存位置时回落 CSS 默认（right/bottom 锚定）；有位置则用 left/top
   if (!pos.value) return undefined
-  return {
-    left: pos.value.x + 'px',
-    top: pos.value.y + 'px',
-    right: 'auto',
-    bottom: 'auto',
-  }
+  return { left: pos.value.x + "px", top: pos.value.y + "px", right: "auto", bottom: "auto" }
 })
 
+function loadL2D(): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const w = window as any
+    if (w.L2D_WIDGET) return resolve(w.L2D_WIDGET)
+    if (w.__l2dLoading) { w.__l2dPending = resolve; return }
+    w.__l2dLoading = true
+    const s = document.createElement("script")
+    s.src = "/vendor/l2d-widget.min.js"
+    s.onload = () => {
+      w.__l2dLoading = false
+      if (w.L2D_WIDGET) { resolve(w.L2D_WIDGET); if (w.__l2dPending) w.__l2dPending(w.L2D_WIDGET) }
+      else reject(new Error("L2D_WIDGET is not defined"))
+    }
+    s.onerror = () => { w.__l2dLoading = false; reject(new Error("l2d-widget load failed")) }
+    document.head.appendChild(s)
+  })
+}
+
+async function initPet() {
+  try {
+    const lib = await loadL2D()
+    if (!petRef.value) return
+    const before = new Set<Element>(Array.from(document.body.children))
+    widget = lib.createWidget({
+      model: { path: petModelPath(props.modelKey), tips: false },
+      position: "bottom-right",
+      size: PET_SIZE,
+      transitionType: "fade",
+      transitionDuration: 800,
+      menus: { items: [] },
+    })
+    // createWidget 生成的画布容器是固定右下角、z-index 9999 的 div
+    const appended = Array.from(document.body.children).filter((el) => !before.has(el))
+    const root = appended.find((el) =>
+      el instanceof HTMLElement && el.style.position === "fixed" && el.style.zIndex === "9999"
+    ) as HTMLElement | undefined
+    if (root) {
+      root.style.position = "absolute"
+      root.style.left = "0"
+      root.style.top = "0"
+      root.style.right = "auto"
+      root.style.bottom = "auto"
+      root.style.width = "100%"
+      root.style.height = "100%"
+      root.style.pointerEvents = "auto"
+      root.style.zIndex = "1"
+      petRef.value.appendChild(root)
+    }
+    // 隐藏其余 chrome（菜单/状态栏）
+    appended.filter((el): el is HTMLElement => el !== root && el instanceof HTMLElement).forEach((el) => { el.style.display = "none" })
+  } catch (e) {
+    failed.value = true
+    console.error("[assistant-pet] l2d init failed", e)
+  }
+}
+
 function onPointerDown(e: PointerEvent) {
-  if (e.pointerType === 'mouse' && e.button !== 0) return
-  const el = btnRef.value
+  if (e.pointerType === "mouse" && e.button !== 0) return
+  const el = petRef.value
   if (!el) return
   const rect = el.getBoundingClientRect()
   startX = e.clientX
@@ -56,33 +108,28 @@ function onPointerDown(e: PointerEvent) {
   moved = false
   active = true
   isDragging.value = false
-  window.addEventListener('pointermove', onPointerMove)
-  window.addEventListener('pointerup', onPointerUp)
-  window.addEventListener('pointercancel', onPointerUp)
+  window.addEventListener("pointermove", onPointerMove)
+  window.addEventListener("pointerup", onPointerUp)
+  window.addEventListener("pointercancel", onPointerUp)
 }
 
 function onPointerMove(e: PointerEvent) {
   if (!active) return
   const dx = e.clientX - startX
   const dy = e.clientY - startY
-  if (!moved && Math.hypot(dx, dy) > FAB_DRAG_THRESHOLD) {
-    moved = true
-    isDragging.value = true
-  }
-  if (moved && btnRef.value) {
-    const el = btnRef.value
-    moveClamped(originX + dx, originY + dy, el.offsetWidth, el.offsetHeight)
+  if (!moved && Math.hypot(dx, dy) > FAB_DRAG_THRESHOLD) { moved = true; isDragging.value = true }
+  if (moved && petRef.value) {
+    moveClamped(originX + dx, originY + dy, petRef.value.offsetWidth, petRef.value.offsetHeight)
   }
 }
 
 function onPointerUp() {
   if (!active) return
   active = false
-  window.removeEventListener('pointermove', onPointerMove)
-  window.removeEventListener('pointerup', onPointerUp)
-  window.removeEventListener('pointercancel', onPointerUp)
+  window.removeEventListener("pointermove", onPointerMove)
+  window.removeEventListener("pointerup", onPointerUp)
+  window.removeEventListener("pointercancel", onPointerUp)
   if (moved) {
-    // 抑制紧随其后的 click，避免拖完就把面板打开了
     suppressClick = true
     window.clearTimeout(suppressTimer)
     suppressTimer = window.setTimeout(() => { suppressClick = false }, 150)
@@ -91,90 +138,96 @@ function onPointerUp() {
 }
 
 function onClick() {
-  if (suppressClick) {
-    suppressClick = false
-    window.clearTimeout(suppressTimer)
-    return
-  }
+  if (suppressClick) { suppressClick = false; window.clearTimeout(suppressTimer); return }
   emit('update:open', !props.open)
 }
 
+function destroyWidget(w: any) {
+  if (!w) return
+  let c: HTMLCanvasElement | null = null
+  try {
+    c = (w.canvas?.parentElement?.querySelector?.('canvas') || w.canvas || null) as HTMLCanvasElement | null
+  } catch {
+    /* ignore */
+  }
+  try {
+    w.destroy()
+  } catch {
+    /* ignore */
+  }
+  if (c) {
+    try {
+      const c2 = c.getContext('webgl2')
+      if (c2) {
+        c2.getExtension('WEBGL_lose_context')?.loseContext()
+      } else {
+        c.getContext('webgl')?.getExtension('WEBGL_lose_context')?.loseContext()
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+function rebuildPet() {
+  if (widget) {
+    destroyWidget(widget)
+    widget = null
+  }
+  const el = petRef.value
+  if (el) el.replaceChildren()
+  failed.value = false
+  initPet()
+}
+
+watch(() => props.modelKey, (n, o) => {
+  if (o !== undefined && n !== o) rebuildPet()
+})
+
 function onResize() {
-  if (!btnRef.value) return
-  refitToViewport(btnRef.value.offsetWidth, btnRef.value.offsetHeight)
+  if (!petRef.value) return
+  refitToViewport(petRef.value.offsetWidth, petRef.value.offsetHeight)
 }
 
 onMounted(() => {
-  setFabEl(btnRef.value)
-  if (btnRef.value) {
-    refitToViewport(btnRef.value.offsetWidth, btnRef.value.offsetHeight)
-  }
-  window.addEventListener('resize', onResize)
+  setFabEl(petRef.value)
+  if (petRef.value) refitToViewport(petRef.value.offsetWidth, petRef.value.offsetHeight)
+  window.addEventListener("resize", onResize)
+  initPet()
 })
+
 onBeforeUnmount(() => {
   setFabEl(null)
-  window.removeEventListener('resize', onResize)
+  window.removeEventListener("resize", onResize)
   window.clearTimeout(suppressTimer)
+  if (widget) {
+    destroyWidget(widget)
+  }
 })
 </script>
 
 <style scoped>
-.assistant-fab {
+.assistant-pet {
   position: fixed;
   right: 24px;
   bottom: 24px;
-  height: 52px;
-  min-width: 52px;
-  padding: 0 20px;
-  border-radius: 26px;
-  border: 1px solid var(--cpq-overlay-a30, transparent);
-  background: var(--cpq-accent-primary);
-  color: #fff;
-  cursor: grab;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 22px;
+  width: 300px;
+  height: 300px;
   z-index: 1550;
+  cursor: grab;
   user-select: none;
-  touch-action: none; /* 拖动时不触发移动端滚动/手势 */
-  box-shadow: 0 8px 24px var(--cpq-shadow-color-strong, rgba(0, 0, 0, 0.25));
-  transition: transform var(--cpq-transition-fast, 0.2s), box-shadow var(--cpq-transition-fast, 0.2s);
+  touch-action: none;
+  filter: drop-shadow(0 12px 24px rgba(0,0,0,.35));
+  transition: transform .2s, filter .2s;
 }
-.assistant-fab:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.3), 0 0 24px var(--cpq-overlay-a40, transparent);
-}
-.assistant-fab.dragging {
-  cursor: grabbing;
-  transform: none;
-  transition: none; /* 拖动期间 1:1 跟手，不补间 */
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
-}
-.fab-label {
-  font-size: 14px;
-  font-weight: 600;
-}
+.assistant-pet:hover { filter: drop-shadow(0 16px 32px rgba(0,0,0,.45)); transform: translateY(-2px); }
+.assistant-pet.dragging { cursor: grabbing; transform: none; transition: none; }
 .fab-mark {
-  font-size: 16px;
-  font-weight: 700;
-  line-height: 1;
+  position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--cpq-accent-primary); color: #fff; font-size: 20px; font-weight: 700;
 }
-
-/* 窄屏：FAB 缩成圆形图标按钮，藏文字，上移避开列表抽屉 FAB */
 @media (max-width: 768px) {
-  .assistant-fab {
-    right: 16px;
-    bottom: 80px; /* 抬高，给下方列表抽屉 FAB 让位 */
-    height: 48px;
-    min-width: 48px;
-    width: 48px;
-    padding: 0;
-    border-radius: 50%;
-    font-size: 20px;
-    justify-content: center; /* 单图标精确居中（label 已藏，去 gap） */
-    gap: 0;
-  }
-  .fab-label { display: none; }
+  .assistant-pet { right: 16px; bottom: 80px; transform: scale(.7); transform-origin: bottom right; }
 }
 </style>

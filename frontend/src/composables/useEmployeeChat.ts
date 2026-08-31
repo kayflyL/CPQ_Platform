@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { assistantApi, assistantWsUrl, type AssistantContext, type AssistantMessage } from '@/api/assistant'
-import { handleAssistantChatWsEvent, type NodeTrace } from '@/composables/assistantChatWs'
+import { handleAssistantChatWsEvent, resetTaskUI, type NodeTrace } from '@/composables/assistantChatWs'
 
 export interface EmployeeChatState {
   threadId: string | null
@@ -16,6 +16,8 @@ export interface EmployeeChatState {
   connected: boolean
   error: string
   nodeTraces: NodeTrace[]
+  taskTitle: string
+  taskPhase: '' | 'running' | 'paused' | 'done'
 }
 
 const states = reactive<Record<string, EmployeeChatState>>({})
@@ -40,6 +42,8 @@ function ensureState(roleKey: string): EmployeeChatState {
       connected: false,
       error: '',
       nodeTraces: [],
+      taskTitle: '',
+      taskPhase: '',
     }
   }
   return states[roleKey]
@@ -172,6 +176,14 @@ async function startNewThread(roleKey: string, context?: AssistantContext) {
   if (!roleKey) return
   const state = ensureState(roleKey)
   activeRoleKey.value = roleKey
+  // 先归档当前线程再 resolve（resolve 是 get-or-create，不归档会拿回同一条，新对话等于没点）
+  if (state.threadId) {
+    try {
+      await assistantApi.threads.remove(state.threadId)
+    } catch {
+      /* ignore */
+    }
+  }
   state.threadId = null
   state.messages = []
   state.streamingText = ''
@@ -216,13 +228,15 @@ async function open(colleague: any, context?: AssistantContext) {
   return state
 }
 
-async function send(roleKey: string, content: string, contextSummary?: string, context?: AssistantContext, optionSlot?: string) {
+async function send(roleKey: string, content: string, contextSummary?: string, context?: AssistantContext,
+                    optionSlot?: string, cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
   const text = (content || '').trim()
   if (!text) return
 
   const state = await ensureThread(roleKey, context)
   if (!state.threadId) return
 
+  resetTaskUI(state)
   state.sending = true
   state.running = true
   state.waiting = true
@@ -253,6 +267,7 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
       context?.quotationId || null,
       context?.entryPoint,
       optionSlot || null,
+      cardSelections || null,
     )
     const idx = state.messages.findIndex((message) => message.message_id === localId)
     if (idx >= 0) {

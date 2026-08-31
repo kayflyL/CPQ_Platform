@@ -21,7 +21,7 @@ export interface RuleTypeMeta {
 export const RULE_GROUPS: RuleGroup[] = [
   { key: 'understand', label: '需求引导', hint: '判断明确度、映射预算、识别用户意图', types: ['clarity', 'budget', 'model_action_phrases', 'kp_action_phrases'] },
   { key: 'dictionary', label: '语义字典', hint: '把客户表达归一化为平台、品类、内存代际与厂商/单位', types: ['category_alias', 'platform_series_map', 'cpu_mem_generation', 'cpu_vendor_map', 'type_alias', 'gpu_brand_map', 'spec_unit_patterns'] },
-  { key: 'strategy', label: '选型策略', hint: '机型套餐、规格边界、方案校验与功耗/合规策略', types: ['type_package', 'spec_rule', 'raid_level_map', 'capacity_match', 'fallback_order', 'check_rule', 'workload_map', 'compliance_map', 'gpu_form_map', 'power_calibration'] },
+  { key: 'strategy', label: '选型策略', hint: '机型套餐、规格边界、方案校验与功耗/合规策略', types: ['type_package', 'spec_rule', 'raid_level_map', 'capacity_match', 'fallback_order', 'check_rule', 'workload_map', 'compliance_map', 'gpu_form_map', 'power_calibration', 'capability_declaration'] },
 ]
 
 export const RULE_TYPE_META: Record<RuleType, RuleTypeMeta> = {
@@ -44,6 +44,7 @@ export const RULE_TYPE_META: Record<RuleType, RuleTypeMeta> = {
   compliance_map: { key: 'compliance_map', label: '合规映射', group: 'strategy', hint: '国产化/合规→平台与配件白名单/排除', layout: 'table' },
   gpu_form_map: { key: 'gpu_form_map', label: 'GPU 形态映射', group: 'strategy', hint: 'GPU 数量→机箱形态（单卡→2U，多卡→4U）', layout: 'table' },
   power_calibration: { key: 'power_calibration', label: '功耗/电源校准', group: 'strategy', hint: 'CPU TDP、常项功耗、标准 PSU 档位与高功耗 GPU 词表', layout: 'table' },
+  capability_declaration: { key: 'capability_declaration', label: '能力声明拦截', group: 'strategy', hint: '判定机箱能力声明（支持/最多 N 盘位、N 卡）vs 实际配置；正则存规则库，可覆盖', layout: 'table' },
   model_action_phrases: { key: 'model_action_phrases', label: '机型意图词', group: 'understand', hint: '自己配/推荐/重选/取消 判定词', layout: 'table' },
   kp_action_phrases: { key: 'kp_action_phrases', label: '配件意图词', group: 'understand', hint: '确认/重选/取消 判定词', layout: 'table' },
 }
@@ -93,6 +94,13 @@ export function ruleSummary(r: RequirementRule): string {
       const checks = b.checks || {}
       const enabled = Object.entries(checks).filter(([, v]) => v).map(([k]) => k)
       return enabled.length ? enabled.join('、') : '未启用自检'
+    }
+    case 'capability_declaration': {
+      const parts: string[] = []
+      if (Array.isArray(b.drive_capability) && b.drive_capability.length) parts.push(`盘能力词 ${b.drive_capability.length}`)
+      if (Array.isArray(b.drive_strong) && b.drive_strong.length) parts.push(`强配信号 ${b.drive_strong.length}`)
+      if (Array.isArray(b.gpu_capability) && b.gpu_capability.length) parts.push(`GPU能力词 ${b.gpu_capability.length}`)
+      return parts.length ? parts.join(' · ') : '—'
     }
     default:
       return oneLine(b)

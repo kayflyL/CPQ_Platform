@@ -1,14 +1,11 @@
 <script setup lang="ts">
-/** 策略中心门户(/strategies)—— 模块卡片入口,对标服务器配置门户(ServerModelCard 同款白玻璃卡)。
- *  点卡进入各模块:选型配置 / 需求分析 / 报价策略。
- *  卡片统一白玻璃 + hover 蓝边,不分模块配色(Glass Console:色彩只给语义态)。 */
-import { ref, onMounted } from 'vue'
+/** 解决方案门户(/strategies)—— 两排结构。
+ *  第一排:需求分析 / 选型配置 / 报价策略 模块卡;
+ *  第二排:解决方案库(按场景分类的方案卡片 + 独立详情页)。 */
 import { useRouter } from 'vue-router'
-import { policyDocApi } from '@/api/strategies'
-import { readDocBody } from '@/constants/policyMeta'
+import SolutionLibrary from './strategy/SolutionLibrary.vue'
 
 const router = useRouter()
-const docCounts = ref<Record<string, number>>({})
 
 interface ModuleCard {
   key: string
@@ -22,46 +19,34 @@ const MODULES: ModuleCard[] = [
   {
     key: 'requirement',
     title: '需求分析',
-    desc: '需求明确度、平台系列、RAID/规格等规则目录 + 需求分析文档库',
-    tags: ['需求分析规则目录', '文档库', '固定专家流程'],
+    desc: '需求明确度、平台系列、RAID/规格等规则目录，固定专家流程',
+    tags: ['业务输入', '场景定义'],
     to: '/strategies/requirement',
   },
   {
     key: 'selection',
     title: '选型配置',
     desc: '配件互斥 / 依赖 / 派生硬规则 + BOM案例库(典型配置方案,按系列/平台/机型分类,需求分析可作推荐参考)',
-    tags: ['CRE 规则引擎', 'BOM案例库', '声明式'],
+    tags: ['规则校验', '多平台匹配'],
     to: '/strategies/selection',
   },
   {
     key: 'pricing',
     title: '报价策略',
-    desc: '加法定价引擎(平台+行业+区域×订单×成本×台数)+ 策略文档库定价手册',
-    tags: ['画布 + 演算器', '策略文档库', '加法引擎'],
+    desc: '加法定价引擎(平台+行业+区域×订单×成本×台数)',
+    tags: ['成本定价', '批量报价'],
     to: '/strategies/pricing',
   },
 ]
 
 function enter(m: ModuleCard) { router.push(m.to) }
-
-onMounted(async () => {
-  try {
-    const res = await policyDocApi.list()
-    const counts: Record<string, number> = {}
-    for (const d of res.docs || []) {
-      const m = readDocBody(d.body).module
-      counts[m] = (counts[m] || 0) + 1
-    }
-    docCounts.value = counts
-  } catch { /* 文档数非关键,失败静默 */ }
-})
 </script>
 
 <template>
   <div class="portal">
     <header class="portal-head">
-      <h1 class="portal-title">策略中心</h1>
-      <p class="portal-sub">选型配置 → 报价策略链路，规则统一治理。点卡片进入对应模块。</p>
+      <h1 class="portal-title">解决方案</h1>
+      <p class="portal-sub">从需求到报价，按场景沉淀可复用的服务器方案。</p>
     </header>
 
     <div class="portal-grid">
@@ -74,9 +59,6 @@ onMounted(async () => {
         <div class="mc-head">
           <div class="mc-title-block">
             <div class="mc-title">{{ m.title }}</div>
-            <div v-if="docCounts[m.key] != null" class="mc-badge">
-              {{ docCounts[m.key] }} 篇文档
-            </div>
           </div>
         </div>
         <p class="mc-desc">{{ m.desc }}</p>
@@ -86,6 +68,8 @@ onMounted(async () => {
         <div class="mc-enter">进入 <span class="mc-arrow">→</span></div>
       </div>
     </div>
+
+    <SolutionLibrary />
   </div>
 </template>
 
@@ -101,7 +85,6 @@ onMounted(async () => {
   gap: 18px;
 }
 
-/* 卡片:镜像 ServerModelCard 白玻璃配方(统一服务器那边) */
 .mod-card {
   position: relative;
   display: flex;
@@ -126,15 +109,6 @@ onMounted(async () => {
 .mc-head { display: flex; align-items: center; gap: 14px; }
 .mc-title-block { min-width: 0; }
 .mc-title { font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); }
-.mc-badge {
-  display: inline-block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-a10);
-  padding: 1px 8px;
-  border-radius: 8px;
-}
 .mc-desc {
   font-size: 13px;
   color: var(--cpq-text-secondary);

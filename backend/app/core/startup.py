@@ -27,64 +27,9 @@ from app.models.flow import (  # 协作流程 BOM/成本卡片（注册 metadata
     FlowAssignmentRule,
 )
 from app.models.role import Role  # RBAC 角色（注册 metadata 供 create_all 建表）
-from app.models.policy_doc import PolicyDoc  # 策略文档库独立表（注册 metadata 供 create_all 建表）
 from app.repository.rules_repo import RulesRepository
 from app.repository.system_config_repo import SystemConfigRepository
 import json
-
-
-def ensure_policy_docs_table_and_migrate():
-    """策略文档库独立表 rules.policy_docs（幂等自愈，boot 时执行）：
-
-    1) 建表 + 唯一索引 (module, created_at) —— 时间戳定位的稳定性保证；
-    2) 一次性把 rules.strategies 里旧文档（domain=policy, type=document）搬进新表
-       （保留 created_at/updated_at/version/创建人），搬完从 strategies 删除——
-       文档不再与定价/选型规则混表，不再有自增数字 id，增删改查用「创建时间戳」定位。
-    """
-    from sqlalchemy import text
-    from app.models.base import rules_engine
-    with rules_engine.begin() as c:
-        c.execute(text("""
-            CREATE TABLE IF NOT EXISTS rules.policy_docs (
-                doc_key varchar(36) PRIMARY KEY,
-                module varchar NOT NULL,
-                name varchar NOT NULL,
-                category varchar NOT NULL DEFAULT '总览',
-                sort_order integer NOT NULL DEFAULT 1,
-                content_markdown text NOT NULL DEFAULT '',
-                description text,
-                status varchar NOT NULL DEFAULT 'active',
-                version integer NOT NULL DEFAULT 1,
-                created_at timestamptz NOT NULL DEFAULT now(),
-                updated_at timestamptz NOT NULL DEFAULT now(),
-                created_by varchar NOT NULL DEFAULT 'system',
-                updated_by varchar NOT NULL DEFAULT 'system'
-            )
-        """))
-        c.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS uq_policy_docs_module_created "
-            "ON rules.policy_docs(module, created_at)"
-        ))
-        c.execute(text("CREATE INDEX IF NOT EXISTS idx_policy_docs_module ON rules.policy_docs(module)"))
-        # 一次性迁移旧 strategies 文档（幂等：ON CONFLICT 跳过已搬的；搬完删 strategies 文档行）
-        c.execute(text("""
-            INSERT INTO rules.policy_docs
-                (doc_key, module, name, category, sort_order, content_markdown,
-                 description, status, version, created_at, updated_at, created_by, updated_by)
-            SELECT
-                md5(name || '|' || COALESCE(created_at::text, ''))::varchar(36),
-                COALESCE(body::jsonb->>'module', 'pricing'),
-                name,
-                COALESCE(NULLIF(body::jsonb->>'category', ''), '总览'),
-                COALESCE((body::jsonb->>'sort_order')::int, 1),
-                COALESCE(body::jsonb->>'content_markdown', ''),
-                description, status, version,
-                created_at::timestamptz, updated_at::timestamptz, created_by, updated_by
-            FROM rules.strategies
-            WHERE domain='policy' AND type='document'
-            ON CONFLICT (module, created_at) DO NOTHING
-        """))
-        c.execute(text("DELETE FROM rules.strategies WHERE domain='policy' AND type='document'"))
 
 
 def ensure_parts_master_columns():
@@ -326,6 +271,22 @@ def ensure_opportunity_owner_column():
     with opp_engine.begin() as c:
         if "owner_user_id" not in cols:
             c.execute(text("ALTER TABLE opportunities.opportunities ADD COLUMN owner_user_id TEXT"))
+
+
+def drop_pet_settings_column():
+    """清理旧桌宠设置死列（幂等 DDL，boot 时自愈）：
+    opportunities.feed_users.pet_settings 已被「按 AI 同事角色统一形象」取代，
+    ORM/启动/前端均已无引用；旧数据（每账号 default_model/by_role）按方案有意丢弃。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='feed_users'"
+        ))}
+    with opp_engine.begin() as c:
+        if "pet_settings" in cols:
+            c.execute(text("ALTER TABLE opportunities.feed_users DROP COLUMN pet_settings"))
 
 
 def ensure_quotation_submission_columns():
@@ -940,14 +901,6 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Compatibility rules init failed: {e}")
 
-    # 策略文档库：独立表 rules.policy_docs（无数字 id，增删改查用创建时间戳定位）。
-    # 无任何硬编码种子（曾用 DEFAULT_DOCS 补种导致"前端删除的文档被重启复活"，已彻底移除）。
-    try:
-        ensure_policy_docs_table_and_migrate()
-        print("✅ Policy docs table ensured (no id, timestamp-keyed)")
-    except Exception as e:
-        print(f"⚠️ Policy docs table init failed: {e}")
-
     # BOM案例库：独立表（rules.bom_cases，无数字 id，时间戳业务键；kp_lines 只引用 kp_parts）。
     try:
         from app.services.case_library_init import ensure_bom_cases_table
@@ -1015,6 +968,13 @@ def init_rules_db():
         print("✅ Feed user auth columns ensured (password_hash/is_active)")
     except Exception as e:
         print(f"⚠️ Feed user auth columns migrate failed: {e}")
+
+    # 旧桌宠设置死列清理：feed_users.pet_settings 已废弃（改为按 AI 同事角色统一形象）
+    try:
+        drop_pet_settings_column()
+        print("✅ Feed user pet_settings dead column dropped")
+    except Exception as e:
+        print(f"⚠️ Feed user pet_settings dead column drop failed: {e}")
 
     # 评论节点归属：opportunity_messages 加 node_key（审批节点内评论线程）
     try:

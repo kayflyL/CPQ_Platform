@@ -1760,14 +1760,13 @@ onMounted(() => {
 /* ============ 卡片网格 ============ */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
 }
 .model-card {
   position: relative;
   overflow: hidden;
-  padding: 16px;
-  border-radius: 0;
+  padding: 18px;
   cursor: pointer;
   transition: transform 0.25s var(--cpq-ease-out-expo), box-shadow 0.25s var(--cpq-ease-out-expo);
   animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards;
@@ -1798,7 +1797,7 @@ onMounted(() => {
 }
 .card-edit-btn:hover { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
 .card-edit-btn :deep(svg) { width: 15px; height: 15px; }
-.card-name { font-size: 14.5px; font-weight: 600; line-height: 1.35; margin-bottom: 7px; word-break: break-all; }
+.card-name { font-size: 16px; font-weight: 700; line-height: 1.35; margin-bottom: 7px; word-break: break-all; }
 .card-sku { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; font-size: 11.5px; }
 .sku-label { color: var(--cpq-text-muted); font-weight: 500; }
 .sku-value { color: var(--cpq-text-secondary); cursor: pointer; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }

@@ -137,7 +137,6 @@
               :layout-edges="layoutEdges"
               :office-config="officeConfig"
               :behavior-config="behaviorConfig"
-              :access-policy="accessPolicy"
               :initial-role-key="selectedRoleKey"
               :lead-role-key="teamGraph?.lead_role_key || null"
               @close="manageOpen = false"
@@ -186,7 +185,7 @@ import { useAuthStore } from '@/store/auth'
 import { DownOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
-import { officeApi, type BehaviorConfig, type OfficeAccessPolicy, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
+import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
 import { useAssistantContext } from '@/composables/assistantContext'
 import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import AiOfficeManagement from './AiOfficeManagement.vue'
@@ -204,7 +203,6 @@ const layoutEdges = ref<any[]>([])
 const officeConfig = ref<OfficeConfig>({})
 const teamGraph = ref<{ lead_role_key?: string; subagent_role_keys?: string[] }>({})
 const behaviorConfig = ref<BehaviorConfig>({})
-const accessPolicy = ref<OfficeAccessPolicy>({})
 const manageOpen = ref(false)
 const governanceOpen = ref(false)
 const selectedRoleKey = ref<string | null>(null)
@@ -322,7 +320,6 @@ async function loadConfig() {
     officeConfig.value = data.layout?.office || {}
     teamGraph.value = data.layout?.team_graph || {}
     behaviorConfig.value = data.behavior || {}
-    accessPolicy.value = data.access_policy || {}
   } catch (error: any) {
     colleagues.value = []
     message.error(error?.response?.data?.detail || 'AI 团队配置加载失败，请重新登录后再试')

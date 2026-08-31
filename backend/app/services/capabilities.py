@@ -4,7 +4,6 @@
 - 不做：固定选料兜底、节点内独立 ReAct、模型/配件决策。
 - 决策由 AI 角色主循环完成；工具（select_models/select_parts）负责事实落地。
 """
-import json
 import logging
 from typing import Any, Optional
 
@@ -225,57 +224,6 @@ def _apply_extracted_slots(ext: dict, slots: dict, allow_overwrite: bool = False
                 ext[key] = value
                 changed = True
     return changed
-def _extract_agent_fill_json(text: str) -> dict:
-    """从 agent final 消息里抽取含 fill/ask/done/edit 的 JSON 对象（取键最全的那个）。"""
-    s = str(text or "")
-    import json
-
-    def balanced_end(start: int) -> int:
-        depth = 0
-        in_str = False
-        esc = False
-        for j in range(start, len(s)):
-            ch = s[j]
-            if in_str:
-                if esc:
-                    esc = False
-                elif ch == "\\":
-                    esc = True
-                elif ch == '"':
-                    in_str = False
-                continue
-            if ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    return j
-        return -1
-
-    best: dict = {}
-    best_score = -1
-    for i, ch in enumerate(s):
-        if ch != "{":
-            continue
-        end = balanced_end(i)
-        if end == -1:
-            continue
-        try:
-            obj = json.loads(s[i:end + 1])
-        except Exception:
-            continue
-        if not isinstance(obj, dict):
-            continue
-        if not any(k in obj for k in ("fill", "ask", "done", "edit")):
-            continue
-        score = sum(1 for k in ("fill", "ask", "done", "edit") if k in obj)
-        if score > best_score:
-            best = obj
-            best_score = score
-    return best
-
 
 def _ground_fill_from_tools(answer: str, tool_calls_log: list, ext: dict,
                             config: dict, req_text: str) -> None:
@@ -283,8 +231,7 @@ def _ground_fill_from_tools(answer: str, tool_calls_log: list, ext: dict,
     ans = str(answer or "")
     cands: dict = {}
     for call in (tool_calls_log or []):
-        if not isinstance(call, dict) or call.get("name") not in (
-                "select_models", "get_server_model", "list_server_models"):
+        if not isinstance(call, dict) or call.get("name") not in ("select_models",):
             continue
         result = call.get("result")
         items = []
@@ -386,6 +333,31 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     if rule_gpu_count > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu_groups"):
         ext["gpu_groups"] = [{"qty": rule_gpu_count}]
 
+def _apply_domestic_by_cpu(ext: dict, config: Optional[dict] = None) -> list:
+    """确定性规则：登记到的 CPU 是国产 → 产品=国产化/信创（compliance.domestic_only）。词表来自规则库 compliance_map。"""
+    from app.services import semantic_contract as _sc
+    from app.services import requirement_rule_catalog as _rc
+    rule_types = (config or {}).get("rule_types")
+    cpu = ext.get("cpu_signal") if isinstance(ext.get("cpu_signal"), dict) else {}
+    cpu_text = " ".join(str(cpu.get(k) or "") for k in ("model", "brand")).lower()
+    if not cpu_text and isinstance(ext.get("cpu"), dict):
+        cpu_text = str((ext.get("cpu") or {}).get("model") or "").lower()
+    if not cpu_text:
+        return []
+    kws = _rc.domestic_cpu_keywords(rule_types)
+    if not any(k and k in cpu_text for k in kws if k):
+        return []
+    comp = dict(_sc.compliance(ext))
+    changed: list = []
+    if not comp.get("domestic_only"):
+        comp["domestic_only"] = True
+        _sc.set_value(ext, "compliance", comp)
+        changed.append("compliance.domestic_only=True(国产CPU)")
+    if _sc.intent(ext) in (None, "general"):
+        _sc.set_value(ext, "intent", "domestic_compliance")
+        changed.append("intent=domestic_compliance")
+    return changed
+
 def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     """把 agent_fill 落地的需求事实固化为「线索登记表」快照 ctx.requirement。
 
@@ -406,46 +378,27 @@ def _freeze_requirement(ctx: dict, ext: dict, req_text: str = "") -> None:
     ctx["requirement"] = _copy.deepcopy(ext)
     ctx["requirement_text_snapshot"] = str(req_text or "")
 
-def _has_recommend_signal(ext: dict) -> bool:
-    """编排层判断：客户是否已给足【机型/机箱/任一硬件】信号，足以让下游给候选，无需再反向补问。
-    单独的 server_type_name（类型）不算足够——它只是第一层粗筛，还缺系列/形态/预算等关键字段；
-    只有「系列+形态齐全」「点名机型」「已填任一硬件」「用户明确委托」才算足够。这样缺关键字段时
-    agent_fill 会继续自然追问，而不是过早下沉出卡。"""
-    if not ext:
-        return False
-    # 类型 + （系列 或 形态 任一）：已能选型，缺的维度由下游 select_models 逐级放宽补齐，
-    # 不因缺单个维度在 agent_fill 反复反问（否则给“2U+预算”也会被问缺系列）。
-    has_type = bool(canonical_get(ext, "server_type"))
-    has_form_or_series = bool(canonical_get(ext, "series") or canonical_get(ext, "form"))
-    if has_type and has_form_or_series:
-        return True
-    # 点名机型：强信号，交给下游按名称确认/找最近似
-    if canonical_get(ext, "server_model"):
-        return True
-    try:
-        from app.services.slot_contract import _slot_filled
-        return any(_slot_filled(ext, k) for k in ("cpu", "memory", "storage", "gpu",
-                                                   "nic", "raid", "psu"))
-    except Exception:
-        return False
-
 
 AGENT_FILL_FINAL_CONTRACT = (
-    "\n\n【输出要求：只输出一个 JSON 对象，不要 Markdown 代码块，不要调用任何工具，不要分步。"
-    "基于客户原话与下方《在售目录参考/草稿/缺口》把客户已明确表达的字段登记为结构化需求\u3002\n"
-    "JSON 顶层字段\uff1a\n"
-    '  - "fill"\uff1a对象，只含客户已明确表达的字段（键使用给定字段名，如 server_type_name/series/form/cpu/memory/gpu_count），未提到的不要填\u3002\n'
-    '  - "fill" 中配件用结构化对象/数组，不要只写一句话：cpu{model,qty}、memory{per_stick_gb,qty,type,speed_mt,total_gb}、'
-    'drives[{capacity,interface,qty}]、gpu[{model,qty,capacity_gb}]、nic[{speed_g,ports,qty,with_optical_module}]、'
-    'raid[{model,qty,cache}]（只给 RAID 级别时用 raid_levels:["0","1","10"]，不要写成 model）\u3002\n'
-    '  - "ask"\uff1a字符串。若缺“必填且客户未委托”的关键字段，用一句自然中文只问最关键的那个；已足够则给空字符串\u3002\n'
-    '  - "done"\uff1a布尔。客户已委托、点名机型、或关键字段足够时为 true，否则 false\u3002\n'
-    '  - "edit"\uff1a布尔。客户在改口/覆盖之前需求时为 true，否则 false\u3002\n'
-    '  - "semantic"\uff1a对象。仅当客户提到 workload 时填结构化对象（kind/gpu_count/total_vram_gb 等），不要写成字符串\u3002\n'
+    "\n\n【输出要求】只输出一个 JSON 对象，不要 Markdown 代码块，不要调用任何工具，不要分步。"
+    "基于客户原话与下方《在售目录参考/草稿/缺口》，把客户已明确表达的字段登记为结构化需求。\n"
+    "JSON 顶层字段：\n"
+    '  - "fill"：对象，只含客户已明确表达的字段（键名用：server_type_name/series/form/purchase_qty/cpu/memory/drives/gpu/nic/raid/psu；采购数量一律用 purchase_qty，禁止 qty/quantity/n 等变体）；客户没提到的不要填。\n'
+    '  - "fill" 中配件用结构化对象/数组，不要只写一句话：\n'
+    '      cpu{model,cores,tdp_w,qty}、memory{per_stick_gb,qty,type,speed_mt,total_gb}\n'
+    '      drives[{capacity,capacity_gb,interface,qty,type,comparison}]：capacity 是带单位的原文容量串（写 "1.92T"/"48T"/"960G"，禁止写纯数字 1.92）；capacity_gb 可选（数字 GB）；type 必填 "SSD" 或 "HDD"（固态→SSD，机械→HDD）；comparison 用 "gte"（≥）/ "lte"（≤）；客户提到硬盘/固态/机械/存储/SSD/HDD 时，必须逐条登记进 drives，不要漏\n'
+    '      gpu[{model,qty,capacity_gb}]、nic[{speed_g,ports,qty,with_optical_module}]\n'
+    '      raid[{model,qty,cache}]（只给 RAID 级别时用 raid_levels:["0","1","10"]，不要写成 model）\n'
+    '      psu{wattage,qty}：电源必须写瓦数 wattage（数字 W）+ 数量 qty；客户提到电源（如 3000W*2）就要登记\n'
+    '  - "ask"：字符串。若缺"必填且客户未委托"的关键字段，用一句自然中文只问最关键的那个；已足够则给空字符串。\n'
+    '  - "done"：布尔。客户已委托、点名机型、或关键字段足够时为 true，否则 false。\n'
+    '  - "edit"：布尔。客户在改口/覆盖之前需求时为 true，否则 false。\n'
+    '  - "semantic"：对象。仅当客户提到 workload 时填结构化对象（kind/gpu_count/total_vram_gb 等），不要写成字符串。\n'
     "不得编造客户没说的型号/规格/数量/预算；数值只取客户原话明确给出的。"
-    "server_type_name 必须从 list_server_types 返回的在售类型里选，不要自己造类型名；"
-    "内存 speed_mt、盘 interface 与数量、RAID 级别这类规格原样保留客户给出的值，不得改数字/单位\u3002"
+    "server_type_name 必须从《在售目录参考》里选（未给出时留空并向客户确认），不要自己造类型名；"
+    "内存 speed_mt、盘 interface 与数量、RAID 级别、硬盘容量单位这类规格原样保留客户给出的值，不得改数字/单位。"
 )
+
 
 
 async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> dict:
@@ -456,13 +409,9 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
     这是「AI 角色填表 + 节点纯工具/契约/校验」的填表层。
     """
     from app.services.slot_contract import _missing_critical, slot_label, slot_spec
-    from app.services.agent_react import run_react_loop
-    from app.services.capability_spec import default_tools as _default_tools
 
-    if isinstance(config.get("enabled_tools"), list):
-        node_tools = [str(t) for t in config.get("enabled_tools") if str(t)]
-    else:
-        node_tools = list(_default_tools("agent_fill"))
+    config = dict(config or {})
+    config["rule_types"] = []
     req_text = str(ctx.get("requirement_text") or ctx.get("normalized_text") or "").strip()
     ext = dict(ctx.get("ext") or {})
 
@@ -477,14 +426,6 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
         "\n\n还缺（参考，不必按顺序问）：" + ("、".join(missing_labels) or "无") +
         "\n\n任务：只登记客户已明确表达的需求层字段；缺的只反问“必填且未委托”的字段；客户委托（你随便/都行）就留空交下游；客户改口就覆盖草稿。"
     )
-    extra += _semantic_ref_text(config, req_text)
-
-    _wl = _catalog_whitelist(config, ext, req_text)
-    if _wl.get("types") or _wl.get("series") or _wl.get("forms"):
-        extra += ("\n\n在售目录（server_type_name 只能从中选，不要调用工具）："
-                  "\n类型：" + "、".join(_wl.get("types") or []) +
-                  "\n系列：" + "、".join(_wl.get("series") or []) +
-                  "\n形态：" + "、".join(_wl.get("forms") or []))
 
     _prompt = config.get("prompt") or {}
     sys_prompt = str(_prompt.get("system_prompt") or "").strip()
@@ -493,38 +434,34 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
         default_prompt = (reasoning_node_contract.node_defaults_seed().get("agent_fill") or {}).get("prompt") or {}
         sys_prompt = str(default_prompt.get("system_prompt") or "").strip()
 
-    async def _sink(ev: dict) -> None:
-        if not broadcast:
-            return
+    if broadcast:
         try:
-            await broadcast({"type": "step_progress", "step": "agent_fill", "sub": ev.get("sub") or {}})
+            await broadcast({"type": "step_progress", "step": "agent_fill", "sub": {"phase": "fill"}})
         except Exception:
             pass
 
-    result = await run_react_loop(
-        requirement_text=req_text or "（无需求原文）",
-        config={**config, "enabled_tools": node_tools},
-        system_prompt=sys_prompt,
-        history=ctx.get("history") or [],
-        extra_context=extra,
-        max_iterations=min(int(config.get("max_iterations") or 4), 6),
-        event_sink=_sink,
-        allowed_tool_ids=ctx.get("allowed_tool_ids"),
-        allowed_data_sources=ctx.get("allowed_data_sources"),
-        prefer_text_react=False,
-        final_only=True,
-        final_only_contract=AGENT_FILL_FINAL_CONTRACT,
-        llm_reasoning_effort="low",
-    )
-    raw_answer = result.get("answer") or ""
-    agent_answer = raw_answer if isinstance(raw_answer, str) else (
-        json.dumps(raw_answer, ensure_ascii=False)
-        if isinstance(raw_answer, (dict, list)) else str(raw_answer))
-    if not result.get("ok"):
-        return {"ok": False, "error": str(result.get("error") or (agent_answer if agent_answer else "需求抽取不可用"))[:200],
-                "missing_critical": missing, "sufficient": False, "source": "agent_fill"}
+    from app.services.llm_client import chat_json as _chat_json
+    user_content = (req_text or "（无需求原文）") + "\n\n" + extra + AGENT_FILL_FINAL_CONTRACT
+    try:
+        parsed = await _chat_json(
+            messages=[
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_content},
+            ],
+            schema=None,
+            model=ctx.get("llm_model"),
+            temperature=0.0,
+            reasoning_effort="low",
+            max_tokens=int(config.get("max_tokens") or 8192),
+            timeout=float(config.get("llm_timeout") or 90.0),
+        )
+    except Exception as e:
+        return {"ok": False, "error": str(e)[:200], "missing_critical": missing,
+                "sufficient": False, "source": "agent_fill"}
 
-    parsed = agent_answer if isinstance(agent_answer, dict) else _extract_agent_fill_json(agent_answer)
+    if not isinstance(parsed, dict):
+        return {"ok": False, "error": "LLM 返回 JSON 非对象", "missing_critical": missing,
+                "sufficient": False, "source": "agent_fill"}
     fill = parsed.get("fill") if isinstance(parsed.get("fill"), dict) else {}
     ask = str(parsed.get("ask") or "").strip()
     done = bool(parsed.get("done", True))
@@ -537,14 +474,17 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
         _sem_raw, _sem_dropped = clean_by_schema(_sem_raw, _sc.schema())
     _sc.merge(ext, _sem_raw)
 
+    _slot_notes: list = []
     if fill:
         _apply_extracted_slots(ext, fill, allow_overwrite=edit)
         try:
             from app.services.slot_extractor import apply_structured_slots
-            apply_structured_slots(ext, fill, req_text)
-        except Exception:
-            pass
+            _slot_notes = apply_structured_slots(ext, fill, req_text) or []
+        except Exception as _e:
+            logger.warning("agent_fill 结构化槽位合并失败: %s", _e, exc_info=True)
+            _slot_notes = []
     _enrich_agent_semantic(ext, config, req_text)
+    _slot_notes.extend(_apply_domestic_by_cpu(ext, config))
     _freeze_requirement(ctx, ext, req_text)
     ctx["ext"] = ext
 
@@ -553,6 +493,7 @@ async def extract_requirement_slots(ctx: dict, config: dict, broadcast=None) -> 
         "ok": True, "source": "agent_fill", "done": done, "ask": ask,
         "fill": fill, "missing_critical": new_missing, "sufficient": not new_missing,
         "delegated": bool((ext.get("semantic") or {}).get("delegated")),
+        "audit": _slot_notes,
     }
 
 

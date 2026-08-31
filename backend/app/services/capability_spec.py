@@ -24,7 +24,8 @@ SPECS: dict[str, CapabilitySpec] = {
     "input": CapabilitySpec("input", "入口", "input", ()),
     "agent_fill": CapabilitySpec(
         "agent_fill", "智能对话填表 Agent", "agent_fill",
-        ("list_server_types", "list_server_models", "get_server_model"),
+        # 目录接地改为提示词注入（_catalog_whitelist），不再挂浏览工具（2026-08-29 步骤2 退役）
+        (),
         serves_slot=True,
     ),
     "model_reason": CapabilitySpec(
@@ -51,8 +52,8 @@ def default_tools(key: str) -> tuple[str, ...]:
 def validate_specs() -> list[str]:
     """启动自检：默认工具均已注册。"""
     errors: list[str] = []
-    from app.services import agent_tools
-    known_tools = set(agent_tools.registered_tool_ids())
+    from app.services.agent_tool_specs import registered_tool_ids
+    known_tools = set(registered_tool_ids())
     for key, spec in SPECS.items():
         for tid in spec.default_tools:
             if tid not in known_tools:

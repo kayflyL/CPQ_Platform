@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Modal, message } from 'ant-design-vue'
 import type { PortalSheetConfig, PortalSheetRow } from '@/api/portal'
-import { formatPrice as money } from '@/utils/quoteCommon'
+import type { KpPart } from '@/api/serverConfig'
+import { calcUnitCost, formatPrice as money } from '@/utils/quoteCommon'
+import { matchKpPart, suggestKpParts } from '@/utils/partNameMatch'
 
 const props = defineProps<{
   configs: PortalSheetConfig[]
   saving?: boolean
   showToolbar?: boolean
   readonly?: boolean
+  parts?: KpPart[]
+  exchangeRate?: number
+  taxRate?: number
 }>()
 
 const emit = defineEmits<{
@@ -18,11 +22,44 @@ const emit = defineEmits<{
 const configs = ref<PortalSheetConfig[]>([])
 const activeKey = ref<string>('')
 
-const DEFAULT_KP_CATEGORIES = ['CPU', 'Memory', 'HDD/SSD', 'GPU', 'NIC']
-
-const canEditStructure = computed(() => false)
 const showCostColumns = computed(() => true)
 const canEditCost = computed(() => !props.readonly)
+const partsList = computed(() => props.parts || [])
+
+function computeMatchInfo(row: PortalSheetRow) {
+  if (!partsList.value.length) {
+    return { kind: 'none' as const, part: undefined, candidates: [] as KpPart[], pending: true }
+  }
+  const match = matchKpPart(row, partsList.value)
+  if (match.part) return { ...match, candidates: [] as KpPart[], pending: false }
+  return { ...match, candidates: suggestKpParts(row, partsList.value, 3), pending: false }
+}
+
+let matchCache: WeakMap<object, ReturnType<typeof computeMatchInfo>> = new WeakMap()
+
+function matchInfo(row: PortalSheetRow) {
+  const cached = matchCache.get(row)
+  if (cached) return cached
+  const result = computeMatchInfo(row)
+  matchCache.set(row, result)
+  return result
+}
+
+watch(partsList, () => {
+  matchCache = new WeakMap()
+})
+
+function adoptPart(row: PortalSheetRow, part: KpPart) {
+  if (part.id != null) row.item_id = part.id
+  row.part_category = part.category
+  row.catalogue = part.name
+  const price = Number(part.unit_price)
+  if (Number.isFinite(price) && price > 0) {
+    row.base_price = Math.round(calcUnitCost(price, part.unit_currency || row.currency || 'RMB', props.exchangeRate ?? 7, props.taxRate ?? 0.13) * 100) / 100
+    row.currency = 'RMB'
+  }
+  matchCache.delete(row)
+}
 
 watch(
   () => props.configs,
@@ -48,73 +85,6 @@ function configCost(cfg: PortalSheetConfig) {
 
 function rowCost(row: PortalSheetRow) {
   return Number(row.base_price || 0) * Number(row.qty || 0)
-}
-
-function blankKpRow(partCategory = ''): PortalSheetRow {
-  return {
-    category: 'Key Parts',
-    part_category: partCategory,
-    catalogue: '',
-    description: '',
-    qty: 1,
-    base_price: 0,
-    final_price: 0,
-    profit_margin: 10,
-    currency: 'RMB',
-    note: '',
-  }
-}
-
-function seedKpRows(): PortalSheetRow[] {
-  return DEFAULT_KP_CATEGORIES.map((cat) => blankKpRow(cat))
-}
-
-function nextConfigName() {
-  let max = 0
-  for (const cfg of configs.value) {
-    const match = /^CFG(\d+)$/.exec(cfg.name)
-    if (match) max = Math.max(max, Number(match[1]))
-  }
-  return `CFG${max + 1}`
-}
-
-function blankConfig(name: string): PortalSheetConfig {
-  return {
-    name,
-    server_model: '',
-    description: '',
-    qty: 1,
-    l6_cost: 0,
-    l6_margin: 0,
-    l6_rows: [],
-    kp_rows: seedKpRows(),
-    totals: {},
-  }
-}
-
-function addConfig() {
-  const cfg = blankConfig(nextConfigName())
-  configs.value.push(cfg)
-  activeKey.value = cfg.name
-}
-
-function removeConfig(cfg: PortalSheetConfig) {
-  if (configs.value.length <= 1) {
-    message.warning('至少保留一个配置')
-    return
-  }
-  Modal.confirm({
-    title: `删除配置 ${cfg.name}？`,
-    content: '该配置下的 L6 / KP 行会一并删除。',
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
-    onOk() {
-      const idx = configs.value.findIndex((c) => c.name === cfg.name)
-      configs.value = configs.value.filter((c) => c.name !== cfg.name)
-      activeKey.value = (configs.value[Math.min(idx, configs.value.length - 1)] || configs.value[0])?.name || ''
-    },
-  })
 }
 
 function buildPayload() {
@@ -153,19 +123,7 @@ defineExpose({ saveDraft, submit, getConfigs })
           @click="activeKey = cfg.name"
         >
           <span>{{ cfg.name }}</span>
-          <a-button
-            v-if="canEditStructure"
-            type="text"
-            size="small"
-            class="fs-tab-close"
-            @click.stop="removeConfig(cfg)"
-          >
-            ×
-          </a-button>
         </button>
-        <a-button v-if="canEditStructure" size="small" class="fs-add-config" @click="addConfig">
-          + 配置
-        </a-button>
       </div>
 
       <div v-for="cfg in configs" v-show="cfg.name === activeKey" :key="cfg.name" class="fs-config">
@@ -197,6 +155,7 @@ defineExpose({ saveDraft, submit, getConfigs })
                 <th class="sheet-col-group">分组</th>
                 <th class="sheet-col-cat">Catalogue</th>
                 <th class="sheet-col-desc">Configuration Description</th>
+                <th class="sheet-col-match"></th>
                 <th class="sheet-col-qty">Quantity</th>
                 <th class="sheet-col-cost">Unit Cost</th>
                 <th class="sheet-col-cost">Total Cost</th>
@@ -211,6 +170,9 @@ defineExpose({ saveDraft, submit, getConfigs })
                 </td>
                 <td class="sheet-cell">
                   <span class="sheet-plain sheet-wrap">{{ row.description || '—' }}</span>
+                </td>
+                <td class="sheet-cell sheet-match">
+                  <span class="sheet-plain sheet-match-blank">—</span>
                 </td>
                 <td class="sheet-cell sheet-qty">
                   <span class="sheet-plain sheet-num">{{ row.qty || 0 }}</span>
@@ -230,6 +192,52 @@ defineExpose({ saveDraft, submit, getConfigs })
                 </td>
                 <td class="sheet-cell">
                   <span class="sheet-plain sheet-wrap">{{ row.catalogue || '—' }}</span>
+                </td>
+                <td class="sheet-cell sheet-match">
+                  <template v-if="matchInfo(row).part">
+                    <a-tooltip placement="topLeft">
+                      <template #title>
+                        <div class="match-tip">用户输入：{{ row.catalogue || row.description || '—' }}</div>
+                        <div class="match-tip">匹配库件：{{ matchInfo(row).part?.name }}</div>
+                        <div class="match-tip">PN：{{ matchInfo(row).part?.pn || '—' }}</div>
+                        <div class="match-tip">价格日期：{{ matchInfo(row).part?.latest_price_date || '无' }}</div>
+                      </template>
+                      <div class="match-pill">
+                        <a-tag :color="matchInfo(row).kind === 'fuzzy' ? 'blue' : 'green'" class="match-tag">
+                          {{ matchInfo(row).kind === 'fuzzy' ? '模糊' : (matchInfo(row).kind === 'item_id' ? '料号' : '名称') }}
+                        </a-tag>
+                      </div>
+                    </a-tooltip>
+                  </template>
+                  <template v-else>
+                    <div v-if="matchInfo(row).pending" class="match-pill">
+                      <span class="match-hint">未取价</span>
+                    </div>
+                    <a-popover v-else trigger="click" placement="bottomLeft">
+                      <template #content>
+                        <div class="match-candidates">
+                          <div class="match-candidates-title">未匹配，可点击候选采用</div>
+                          <div v-if="matchInfo(row).candidates.length" class="match-candidate-list">
+                            <button
+                              v-for="candidate in matchInfo(row).candidates"
+                              :key="`${candidate.id || candidate.pn}-${candidate.name}`"
+                              type="button"
+                              class="match-candidate"
+                              @click="adoptPart(row, candidate)"
+                            >
+                              <span class="match-candidate-name">{{ candidate.name }}</span>
+                              <span class="match-candidate-meta">{{ candidate.pn || '—' }} · {{ candidate.category }}</span>
+                              <span class="match-candidate-date">{{ candidate.latest_price_date || '无日期' }}</span>
+                            </button>
+                          </div>
+                          <div v-else class="match-candidates-empty">配件库无可用候选</div>
+                        </div>
+                      </template>
+                      <div class="match-pill match-miss">
+                        <a-tag color="orange" class="match-tag">未匹配</a-tag>
+                      </div>
+                    </a-popover>
+                  </template>
                 </td>
                 <td class="sheet-cell sheet-qty">
                   <span class="sheet-plain sheet-num">{{ row.qty || 0 }}</span>
@@ -324,13 +332,6 @@ defineExpose({ saveDraft, submit, getConfigs })
   color: var(--cpq-accent-primary);
   background: var(--sheet-focus);
 }
-.fs-tab-close {
-  color: var(--cpq-text-muted);
-  padding: 0 2px;
-}
-.fs-add-config {
-  flex-shrink: 0;
-}
 .fs-config {
   display: flex;
   flex-direction: column;
@@ -373,8 +374,9 @@ defineExpose({ saveDraft, submit, getConfigs })
 }
 .sheet-table {
   width: 100%;
+  min-width: 900px;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
   font-size: 12px;
 }
 .sheet-table th,
@@ -405,25 +407,33 @@ defineExpose({ saveDraft, submit, getConfigs })
   border-bottom: 1px solid var(--sheet-line-strong);
 }
 .sheet-col-group {
-  width: 76px;
+  width: 60px;
   text-align: center;
 }
 .sheet-col-cat {
-  width: 150px;
+  width: auto;
+  min-width: 140px;
+  max-width: 200px;
+}
+.sheet-col-match {
+  width: auto;
+  min-width: 72px;
 }
 .sheet-col-desc {
   width: auto;
+  min-width: 220px;
 }
 .sheet-col-qty {
-  width: 80px;
+  width: 64px;
   text-align: right;
 }
 .sheet-col-cost {
-  width: 120px;
+  width: 110px;
   text-align: right;
 }
 .sheet-col-note {
-  width: 150px;
+  width: auto;
+  min-width: 120px;
 }
 .sheet-group {
   position: sticky;
@@ -532,6 +542,96 @@ defineExpose({ saveDraft, submit, getConfigs })
 .sheet-table :deep(.ant-select-selection-search-input) {
   height: 36px !important;
 }
+.sheet-match {
+  padding: 0 6px;
+}
+.sheet-match-blank {
+  text-align: center;
+  color: var(--cpq-text-muted);
+}
+.match-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.match-tag {
+  flex-shrink: 0;
+  margin: 0;
+  font-size: 11px;
+}
+.match-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.match-date {
+  flex-shrink: 0;
+  color: var(--cpq-text-muted);
+  font-size: 11px;
+}
+.match-hint {
+  color: var(--cpq-accent-warning, #d46b08);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.match-miss {
+  cursor: pointer;
+}
+.match-tip {
+  line-height: 1.5;
+  white-space: nowrap;
+}
+.match-candidates {
+  width: 320px;
+  max-width: 80vw;
+}
+.match-candidates-title {
+  margin-bottom: 8px;
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+}
+.match-candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.match-candidate {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  width: 100%;
+  padding: 7px 8px;
+  border: 1px solid var(--cpq-border-secondary);
+  border-radius: 8px;
+  background: var(--cpq-bg-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+.match-candidate:hover {
+  border-color: var(--cpq-accent-primary);
+}
+.match-candidate-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.match-candidate-meta {
+  color: var(--cpq-text-secondary);
+  font-size: 11px;
+}
+.match-candidate-date {
+  grid-column: 1 / -1;
+  color: var(--cpq-text-muted);
+  font-size: 11px;
+}
+.match-candidates-empty {
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+}
+
 .sheet-plain {
   display: block;
   padding: 0 8px;

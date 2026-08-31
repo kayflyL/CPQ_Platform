@@ -6,7 +6,7 @@ not team activity.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import select, func, or_
+from sqlalchemy import select, func, or_, delete
 import uuid
 
 from app.models.assistant import AssistantThread, AssistantMessage
@@ -205,6 +205,42 @@ class AssistantRepository:
                 "role_counts": counts,
             }
         return out
+
+    def list_threads_by_opportunity_ids(self, opportunity_ids: List[str], with_meta: bool = False) -> dict:
+        """按商机反查会话（AI 线索列表用）：{opportunity_id: [thread dict, 更新时间倒序]}。"""
+        ids = [str(i) for i in opportunity_ids if i]
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(AssistantThread)
+            .where(
+                AssistantThread.opportunity_id.in_(ids),
+                AssistantThread.deleted_at.is_(None),
+            )
+            .order_by(AssistantThread.updated_at.desc())
+        ).scalars().all()
+        meta = self.threads_message_meta([t.thread_id for t in rows]) if (with_meta and rows) else {}
+        out: dict = {}
+        for t in rows:
+            d = t.to_dict()
+            if with_meta:
+                d["msg_count"] = meta.get(t.thread_id, {}).get("msg_count", 0)
+            out.setdefault(t.opportunity_id, []).append(d)
+        return out
+
+    def hard_delete_threads_by_opportunity(self, opportunity_id: str) -> int:
+        """物理删除该商机名下全部会话及消息（AI 线索清理用）。返回删除的会话数。"""
+        thread_ids = [
+            r[0] for r in self.session.execute(
+                select(AssistantThread.thread_id).where(AssistantThread.opportunity_id == opportunity_id)
+            ).all()
+        ]
+        if not thread_ids:
+            return 0
+        self.session.execute(delete(AssistantMessage).where(AssistantMessage.thread_id.in_(thread_ids)))
+        self.session.execute(delete(AssistantThread).where(AssistantThread.thread_id.in_(thread_ids)))
+        self.session.commit()
+        return len(thread_ids)
 
     def soft_delete_thread(self, thread_id: str, created_by: Optional[str] = None) -> bool:
         query = select(AssistantThread).where(AssistantThread.thread_id == thread_id)

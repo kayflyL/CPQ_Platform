@@ -8,7 +8,6 @@ import { bomCaseApi, type BomKpLine } from '@/api/bomCases'
 
 const props = defineProps<{
   configs: PortalSheetConfig[]
-  stage: 'boming' | 'costing'
   saving?: boolean
   structureLocked?: boolean
   showToolbar?: boolean
@@ -42,8 +41,8 @@ function rowKeyFor(row: PortalSheetRow) {
 
 const DEFAULT_KP_CATEGORIES = ['CPU', 'Memory', 'HDD/SSD', 'GPU', 'NIC']
 
-const canEditBom = computed(() => props.stage === 'boming' && !props.readonly)
-const canEditStructure = computed(() => props.stage === 'boming' && !props.structureLocked && !props.readonly)
+const canEditBom = computed(() => !props.readonly)
+const canEditStructure = computed(() => !props.structureLocked && !props.readonly)
 const kpCategoryOptions = computed(() => kpCategories.value.map((c) => ({ value: c.name, label: c.name })))
 const kpAllParts = computed(() => kpCategories.value.flatMap((c) => kpCatalog.value[c.name] || []))
 const serverModelOptions = computed(() =>
@@ -496,7 +495,7 @@ defineExpose({ saveDraft, submit, getConfigs })
       <div v-if="showToolbar !== false" class="fs-toolbar">
         <a-button v-if="canEditBom" :loading="saving" @click="saveDraft">保存方案配置</a-button>
         <a-button type="primary" :loading="saving" @click="submit">
-          {{ canEditBom ? '提交方案配置' : '保存成本表' }}
+          提交方案配置
         </a-button>
       </div>
     </template>

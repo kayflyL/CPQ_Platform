@@ -1,8 +1,10 @@
 """AI office memory service.
 
-Keeps a lightweight, process-local memory of recent office events and role
-relations. Only long-term memories are persisted into the rules schema;
-runtime status events stay process-local for live visualization.
+Process-local registry of recent office events, role relations, and role
+facts for live visualization (3D office / observability feeds). Long-term
+colleague memory now lives in rules.colleague_memories via
+app.services.colleague_memory_service — this module no longer stores
+chat snapshots.
 """
 from __future__ import annotations
 
@@ -23,7 +25,6 @@ class OfficeMemory:
         self._events: Dict[str, deque] = {}
         self._relations: Dict[str, Dict[str, Any]] = {}
         self._facts: Dict[str, Dict[str, Any]] = {}
-        self._memories: Dict[str, deque] = {}
         self._all_events: deque = deque(maxlen=300)
         self._persist_queue: asyncio.Queue = asyncio.Queue(maxsize=1000)
         self._persist_count = 0
@@ -42,8 +43,6 @@ class OfficeMemory:
             event = await self._persist_queue.get()
             try:
                 await asyncio.to_thread(repo.create, event)
-                if (event.get("event_type") or event.get("type")) == "memory":
-                    await asyncio.to_thread(repo.prune_memories, event.get("role_key") or "unknown")
                 self._persist_count += 1
                 if self._persist_count % 100 == 0:
                     await asyncio.to_thread(repo.prune_runtime_events)
@@ -86,145 +85,6 @@ class OfficeMemory:
             })
             self._all_events.append(dict(record))
 
-    async def remember(
-        self,
-        role_key: Optional[str],
-        content: str,
-        kind: str = "episodic",
-        importance: float = 0.5,
-        ttl_seconds: Optional[int] = None,
-        pinned: bool = False,
-        source: str = "assistant_chat",
-    ) -> None:
-        """记录一条员工长期记忆（情景/语义），进程内即时可见并异步持久化。"""
-        role = self._role(role_key)
-        text = (content or "").strip()
-        if not text:
-            return
-        record = {
-            "role_key": role,
-            "event_type": "memory",
-            "status": "remembered",
-            "source": source,
-            "activity": f"memory:{kind}",
-            "message": text,
-            "ts": time.time(),
-            "payload": {
-                "kind": kind,
-                "importance": float(importance),
-                "pinned": bool(pinned),
-                "ttl_seconds": ttl_seconds,
-                "expires_at": (time.time() + ttl_seconds) if ttl_seconds else None,
-            },
-        }
-        async with self._lock:
-            if role not in self._memories:
-                self._memories[role] = deque(maxlen=100)
-            self._memories[role].append(dict(record))
-        await self._enqueue_persist(record)
-
-    async def remember_manual(
-        self,
-        role_key: Optional[str],
-        content: str,
-        kind: str = "semantic",
-        importance: float = 0.5,
-        pinned: bool = False,
-    ) -> dict:
-        """手动创建长期记忆：同步写 DB 并立即进入进程内缓存。"""
-        role = self._role(role_key)
-        text = (content or "").strip()
-        if not text:
-            raise ValueError("记忆内容不能为空")
-        record = {
-            "role_key": role,
-            "event_type": "memory",
-            "status": "remembered",
-            "source": "manual",
-            "activity": f"memory:{kind}",
-            "message": text,
-            "ts": time.time(),
-            "payload": {
-                "kind": kind,
-                "importance": float(importance),
-                "pinned": bool(pinned),
-                "ttl_seconds": None,
-                "expires_at": None,
-            },
-        }
-        async with self._lock:
-            if role not in self._memories:
-                self._memories[role] = deque(maxlen=100)
-            self._memories[role].append(dict(record))
-        repo = OfficeEventRepository()
-        await asyncio.to_thread(repo.create, record)
-        try:
-            await asyncio.to_thread(repo.prune_memories, role)
-        except Exception:
-            # Memory pruning must not block manual memory creation.
-            pass
-        return dict(record)
-
-    async def retrieve_memories(
-        self,
-        role_key: Optional[str],
-        query: str = "",
-        limit: int = 8,
-    ) -> List[Dict[str, Any]]:
-        """获取员工长期记忆：进程内近期记忆 + 数据库持久化记忆，按时间倒序去重。"""
-        role = self._role(role_key)
-        safe_limit = max(1, min(int(limit or 8), 20))
-        in_memory = list(self._memories.get(role, []))[-safe_limit:]
-        try:
-            repo = OfficeEventRepository()
-            persisted = await asyncio.to_thread(
-                repo.query,
-                page=1,
-                page_size=200,
-                role_key=role,
-                event_type="memory",
-            )
-        except Exception:
-            persisted = {"items": []}
-        persisted_items = sorted(
-            persisted.get("items") or [],
-            key=lambda item: (
-                -int(bool((item.get("payload") or {}).get("pinned"))),
-                -float((item.get("payload") or {}).get("importance") or 0),
-                -float(item.get("ts") or 0),
-            ),
-        )
-        merged: List[Dict[str, Any]] = []
-        seen: set = set()
-        for item in list(reversed(in_memory)) + persisted_items:
-            key = f"{item.get('ts') or ''}::{item.get('message') or ''}"
-            if key in seen:
-                continue
-            seen.add(key)
-            merged.append(item)
-        if query:
-            lowered = str(query or "").lower()
-            merged = [item for item in merged if lowered in str(item.get("message") or "").lower()]
-        return merged[:safe_limit]
-
-    async def memory_prompt(
-        self,
-        role_key: Optional[str],
-        query: str = "",
-        limit: int = 6,
-    ) -> str:
-        """把长期记忆整理成可注入 LLM 的短文本块。"""
-        items = await self.retrieve_memories(role_key, query=query, limit=limit)
-        if not items:
-            return ""
-        lines = []
-        for item in items:
-            kind = str((item.get("payload") or {}).get("kind") or "episodic")
-            text = str(item.get("message") or "").strip()
-            if text:
-                lines.append(f"- [{kind}] {text}")
-        return "员工长期记忆：\n" + "\n".join(lines[:limit])
-
     async def update_relation(
         self,
         role_key: Optional[str],
@@ -264,14 +124,12 @@ class OfficeMemory:
                 self._events.clear()
                 self._relations.clear()
                 self._facts.clear()
-                self._memories.clear()
                 self._all_events.clear()
                 return
             role = self._role(role_key)
             self._events.pop(role, None)
             self._relations.pop(role, None)
             self._facts.pop(role, None)
-            self._memories.pop(role, None)
 
 
 office_memory = OfficeMemory()

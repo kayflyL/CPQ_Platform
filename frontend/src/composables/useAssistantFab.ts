@@ -1,13 +1,16 @@
 /** 方案助手浮动入口的位置共享。
- * FAB 拖动时写入 pos（+ localStorage），Panel 打开时读 FAB 实时 rect 贴边定位。
- * 单例（模块级 ref），FAB / Panel / DefaultLayout 共用同一份状态。 */
+ * FAB 与面板各自持久化独立位置（模块级单例，FAB / Panel / DefaultLayout 共用）：
+ *  - FAB：拖动按钮时写入 pos（+ localStorage）。
+ *  - 面板：自己持有 panelPos（+ localStorage），拖动窗口直接改面板位置，不再耦合到 FAB；
+ *    避免“只能整块放 FAB 上方/下方”的锚定算法在面板过大时把窗口钉死在屏幕底部。 */
 import { ref } from 'vue'
 
 const STORAGE_KEY = 'cpq:assistant-fab-pos'
+const PANEL_STORAGE_KEY = 'cpq:assistant-panel-pos'
 
 export const FAB_EDGE_MARGIN = 8
 export const FAB_DRAG_THRESHOLD = 4
-export const PANEL_WIDTH = 390
+export const PANEL_WIDTH = 680
 export const PANEL_MAX_HEIGHT = 680
 export const PANEL_GAP = 12
 
@@ -21,9 +24,9 @@ export interface FabRect {
   height: number
 }
 
-function loadPos(): FabPos | null {
+function loadPos(key: string): FabPos | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY)
+    const raw = localStorage.getItem(key)
     if (!raw) return null
     const p = JSON.parse(raw)
     if (typeof p?.x === 'number' && typeof p?.y === 'number') return p
@@ -31,7 +34,8 @@ function loadPos(): FabPos | null {
   return null
 }
 
-const pos = ref<FabPos | null>(loadPos())
+const pos = ref<FabPos | null>(loadPos(STORAGE_KEY))
+const panelPos = ref<FabPos | null>(loadPos(PANEL_STORAGE_KEY))
 const fabEl = ref<HTMLElement | null>(null)
 
 function clampPos(x: number, y: number, w: number, h: number): FabPos {
@@ -41,6 +45,44 @@ function clampPos(x: number, y: number, w: number, h: number): FabPos {
     x: Math.min(Math.max(FAB_EDGE_MARGIN, x), maxX),
     y: Math.min(Math.max(FAB_EDGE_MARGIN, y), maxY),
   }
+}
+
+function clampPanelPos(x: number, y: number, w: number, h: number, vw: number, vh: number): FabPos {
+  const maxX = Math.max(FAB_EDGE_MARGIN, vw - w - FAB_EDGE_MARGIN)
+  const maxY = Math.max(FAB_EDGE_MARGIN, vh - h - FAB_EDGE_MARGIN)
+  return {
+    x: Math.min(Math.max(FAB_EDGE_MARGIN, x), maxX),
+    y: Math.min(Math.max(FAB_EDGE_MARGIN, y), maxY),
+  }
+}
+
+/** 面板实际渲染尺寸：宽度对齐 CSS `min(680px, 100vw - 32px)`，
+ * 高度对齐旧锚定算法 `min(680px, 100vh - 16px)`，保证拖拽夹取与渲染一致。 */
+export function panelSize(vw: number, vh: number) {
+  return {
+    width: Math.min(PANEL_WIDTH, Math.max(280, vw - 32)),
+    height: Math.min(PANEL_MAX_HEIGHT, Math.max(280, vh - 2 * FAB_EDGE_MARGIN)),
+  }
+}
+
+/** 面板首次打开时的锚定位置：优先 FAB 左上方，放不下再换侧/下方，并夹进视口。
+ * 无有效 FAB 位置（未挂载/被隐藏）时回落到右下角默认位（对齐 CSS right:24 / bottom:88）。 */
+export function anchorPanel(fabRect: FabRect | null, vw: number, vh: number): FabPos {
+  const { width, height } = panelSize(vw, vh)
+  if (!fabRect || fabRect.width === 0) {
+    return clampPanelPos(vw - width - 24, vh - height - 88, width, height, vw, vh)
+  }
+  // 水平：默认 panel 右边对齐 FAB 右边（panel 在 FAB 左侧）
+  let left = fabRect.right - width
+  if (left < FAB_EDGE_MARGIN) left = fabRect.left
+  if (left + width > vw - FAB_EDGE_MARGIN) left = vw - FAB_EDGE_MARGIN - width
+  if (left < FAB_EDGE_MARGIN) left = FAB_EDGE_MARGIN
+  // 垂直：默认 panel 在 FAB 上方（panel 底 = FAB 顶 - gap）
+  let top = fabRect.top - PANEL_GAP - height
+  if (top < FAB_EDGE_MARGIN) top = fabRect.bottom + PANEL_GAP
+  if (top + height > vh - FAB_EDGE_MARGIN) top = vh - FAB_EDGE_MARGIN - height
+  if (top < FAB_EDGE_MARGIN) top = FAB_EDGE_MARGIN
+  return clampPanelPos(left, top, width, height, vw, vh)
 }
 
 export function useAssistantFab() {
@@ -77,8 +119,25 @@ export function useAssistantFab() {
     persist(clampPos(pos.value.x, pos.value.y, w, h))
   }
 
+  // ── 面板独立位置（与 FAB 解耦） ──
+  function persistPanel(p: FabPos | null) {
+    panelPos.value = p
+    if (p) localStorage.setItem(PANEL_STORAGE_KEY, JSON.stringify(p))
+    else localStorage.removeItem(PANEL_STORAGE_KEY)
+  }
+  /** 面板拖动中调用：夹进视口并落库。 */
+  function movePanelClamped(x: number, y: number, w: number, h: number) {
+    persistPanel(clampPos(x, y, w, h))
+  }
+  /** 窗口缩放时：把已存面板位置夹进当前视口。 */
+  function refitPanelToViewport(w: number, h: number) {
+    if (!panelPos.value) return
+    persistPanel(clampPos(panelPos.value.x, panelPos.value.y, w, h))
+  }
+
   return {
     pos,
+    panelPos,
     FAB_EDGE_MARGIN,
     FAB_DRAG_THRESHOLD,
     PANEL_WIDTH,
@@ -89,32 +148,9 @@ export function useAssistantFab() {
     persist,
     moveClamped,
     refitToViewport,
+    panelSize,
+    persistPanel,
+    movePanelClamped,
+    refitPanelToViewport,
   }
-}
-
-/** 给 Panel 用的定位算法：在 FAB 当前位置附近找一块塞得下的区域。
- * 优先 FAB 左上方；左边不够放右侧，上边不够放下方。 */
-export function computePanelAnchor(fabRect: FabRect, vw: number, vh: number) {
-  const panelH = Math.min(PANEL_MAX_HEIGHT, vh - 2 * FAB_EDGE_MARGIN)
-  // 水平：默认 panel 右边对齐 FAB 右边（panel 在 FAB 左侧）
-  let left = fabRect.right - PANEL_WIDTH
-  if (left < FAB_EDGE_MARGIN) {
-    // 左侧放不下 → 改放 FAB 右侧（左对齐 FAB 左边）
-    left = fabRect.left
-  }
-  if (left + PANEL_WIDTH > vw - FAB_EDGE_MARGIN) {
-    left = vw - FAB_EDGE_MARGIN - PANEL_WIDTH
-  }
-  if (left < FAB_EDGE_MARGIN) left = FAB_EDGE_MARGIN
-  // 垂直：默认 panel 在 FAB 上方（panel 底 = FAB 顶 - gap）
-  let top = fabRect.top - PANEL_GAP - panelH
-  if (top < FAB_EDGE_MARGIN) {
-    // 上方放不下 → 放 FAB 下方
-    top = fabRect.bottom + PANEL_GAP
-  }
-  if (top + panelH > vh - FAB_EDGE_MARGIN) {
-    top = vh - FAB_EDGE_MARGIN - panelH
-  }
-  if (top < FAB_EDGE_MARGIN) top = FAB_EDGE_MARGIN
-  return { left, top, height: panelH }
 }

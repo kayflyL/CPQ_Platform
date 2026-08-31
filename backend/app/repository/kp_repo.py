@@ -291,6 +291,7 @@ class KPRepository:
         q = self.session.query(
             KPPart.id,
             KPPart.name,
+            KPPart.applicable,
             KPCategory.name.label("category_name"),
             KPPriceHistory.price,
             KPPriceHistory.currency,
@@ -333,6 +334,7 @@ class KPRepository:
                 "date": r.price_date.isoformat() if r.price_date else "",
                 "note": r.note or "",
                 "record_count": record_count,
+                "applicable": r.applicable,
             })
         return result
 
@@ -577,6 +579,7 @@ class KPRepository:
                 "note": latest.note if latest else "",
                 "record_count": record_count,
                 "matched_spec": hit,
+                "applicable": part.applicable,  # 系列适配过滤（引擎锁定机型后按 applicable 过滤候选）
             })
         return out
 

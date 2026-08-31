@@ -1,105 +1,115 @@
-# AI Office 需求分析 Skill 改革执行状态
+# AI Office 需求分析 Skill 执行状态
 
-> 用途：本会话上下文固化。新会话/后续执行先读本文件，再读 AGENTS.md。
-> 当前分支：main。最近状态：AI 角色计划执行器主链、选件规则化、model_reason/kp_reason 工具通道均已真实落地并跑通 N1/N2/C1；提示词已单源化到 reasoning_node_defaults.json（prompt_store/reasoning_prompt_defaults.json 已退役）；剩余为 LLM 延迟调优（用户暂缓批准）与 agent_fill 抽取波动兜底。
+> 最后更新：2026-08-31（机型/配件 AI 接地：phase_model_reason 与 phase_kp_reason 均走受约束库内候选选型，见「2026-08-31 定案」节）。本文件描述"当前真实代码"，不是历史快照；每次架构变化后必须同步更新。
+> 当前分支：`codex/skill-plan-refactor`（未提交）。⚠️ 2026-08-27 起由新会话接管维护；此前版本对"已跑通/280 passed"的描述与实测不符，勿引用。
 
-## 已拍板目标
+## ⚡ 设计宪法（任何会话改代码前强制自查，用户可拿三条否决任何 PR）
 
-- AI 角色是唯一会话大脑：负责意图、引导、措辞、卡片生成。
-- Skill 节点只做进度广播、产物保存、契约校验，不自己起 LLM 决策。
-- 进入需求分析 Skill = 必然产出 BOM；Skill 主链无“自己配/智能配”分叉。
-- 料号/价格/兼容性全部来自工具返回；LLM 只决定“选哪个/怎么配”。
+1. **同一时刻整个系统只有一个会思考的脑袋**：对话期=AI 角色（skill_chat 驱动的 ReAct 循环），执行期=引擎（skill_plan_runtime 硬阶段机）。永不并存、永不嵌套。角色给引擎的是填好的登记表，引擎给角色的是产物或缺口数据。
+2. **凡是模型能理解的事，禁止用数据表替代**：话术、关键词、意图猜测、措辞模板一律禁止。数据表只允许存业务事实（目录/案例/规格/规则/价格）。
+3. **新增任何机构前必须先回答：删掉了什么、合并了什么。** 没有删的部分方案不完整。
 
-## Skill 主链
+## 两器官架构（2026-08-28，本版真实架构）
 
-`input → agent_fill → model_reason → kp_reason → compose → output`
+```
+AI 角色（对话脑：skill_chat.handle_skill_chat_turn，run_react_loop 循环）
+  手里三样东西：update_requirement_slots / submit_registration / catalog_search
+  职责：对话、理解、推荐（目录+价格+理由）、接闲聊拉回、登记需求、判断何时提交
+    │ 场景已明 → submit_registration（门槛=model_signals_ready）
+    ▼
+Skill 引擎（纯执行：run_skill_plan_core，六阶段固定，零对话能力）
+  normalize(对话路径零LLM) → model(受约束选型) → kp_gate → kp(确定性) → compose → output
+  产出：done(bom_scheme) 或 gaps([{slot, options, reason_code}] 纯数据)
+    │ 缺口 → 角色用自己的话问（结构=缺口数据，文案=模型转述，chat_json）
+    ▼
+  产物 → business_artifact 卡 + 商机落库（与旧版一致）
+```
 
-- `input`：只接收并保存 `skill_context`。
-- `agent_fill`：AI 结构化填线索登记表 + 契约校验，只问缺失必填字段。
-- `model_reason`：AI 调 `select_models/get_server_model`，只从工具返回候选中选机型。
-- `kp_reason`：AI 调 `list_kp_categories/select_parts`，料号从工具返回回收，禁止编造。
-- `compose/output`：不调 LLM，用已锁定机型+配件调 `build_plan`，落 BOM 草稿并交接。
+- **角色线程记忆**：`reasoning_state.skill_chat.{ext}`（登记表跨轮持久）；旧 pending workflow/slot_state 大快照机器已删。
+- **触发**：绑定了 requirement_analysis 的角色，全部消息走对话脑（含 Skill Studio 右侧栏——entry bypass 已删）；信息够格由角色自己提交，独立路由 LLM（skill_router.py）已删。
+- **守卫语义**：场景臆测守卫（_strip_invented_scene）只跑在试运行抽取路径；对话路径的类型由角色确认登记后不再剥。kp_mode 业务选项值必须原样（parse_kp_mode 精确匹配两个业务值）。
+- **试运行**：`/test-run` 仍是引擎直跑（force_complete 默认 False→返回 gaps 数据；True→带标注推荐出方案），响应含 `engine_result`。
 
-## 当前状态（未提交，主链与工具通道已真实落地）
+关键文件：`skill_phases.py`（引擎阶段+缺口构造，22 函数零话术）、`skill_plan_runtime.py`（编排+engine_result_of 协议）、`skill_chat.py`（对话脑接线+三工具实现）、`colleague_turn_service._run_skill_chat`（路由+收尾）。
 
-- 新建唯一执行器 `backend/app/services/ai_plan_executor.py`：`run_ai_skill_plan` 按图声明步骤执行。
-- 删除旧固定图执行器 `capability_executor.run_fixed_workflow` 及其意图/节点决策逻辑；该模块仅保留 `_graph_maps/_trace_preview/停止信号`。
-- 删除旧配件规则选料 `candidate_search.pick_kp_parts` 及 33 个配套辅助函数；新选料工具为 `part_selector.select_parts`。
-- 删除 `reasoning_executor` 中旧 `_handle_model_reason/_handle_kp_reason/run_graph_executor` 等节点级 LLM 流程，`_dispatch` 只作为单节点动作分发。
-- `colleague_turn_service` / `reasoning_flow` 试运行统一走 `run_ai_skill_plan`，不再引用 `run_fixed_workflow`。
-- 更新 `reasoning_node_defaults.json`：`kp_reason.enabled_tools` 改为 `list_kp_categories/select_parts`。
-- `part_selector` 增加型号归一化（空格/连字符），保证 LLM 输出“9560 16i”能命中真实料号。
-- 2026-08-27 选件规则化 + 工具分层（已批准并落地）：
-  - `requirement_rule_catalog` 增加 `part_selection_policy`；`rules.requirement_rules` 新增 `part_selection` 规则类型，`part_selector` 读取策略目录而非内联 `A100→A800` 兜底。
-  - `part_selector._ground_gpu` 改为：型号 token 命中失败时白盒 `unmatched`，禁止按显存容量静默替换；容量只作为无型号信号时的合法匹配和型号命中后的二次校验。
-  - `agent_tools.py` 拆薄为 `agent_tool_registry.py`（注册/执行门面）、`agent_tool_handlers.py`（参数适配+digest）、`agent_tool_specs.py`（schema+registry 构建），旧模块保留兼容门面。
-- 2026-08-27 架构修正（已批准）：
-  - 机型字段锁定：`model_reason` 锁定候选后，把 `server_type_name/series/form` 回写到 `ext/requirement`，下游不再读 LLM 抽槽自由值；`model_reason` 增加 `list_server_types` 工具并要求先查目录类型。
-  - 抽取契约收紧：`AGENT_FILL_FINAL_CONTRACT`/`agent_fill` prompt 要求结构化 `memory.speed_mt / drives.interface+qty / raid_levels`；`slot_extractor` 解析字符串形式的 `DDR5-4800×16` 与 `RAID 0,1,10`。
-  - `select_parts`：内存速度默认精确匹配（`comparison=gte/lte` 才放宽），不静默 4800→6400；RAID 级别不再任取代表件；GPU/RAID 型号匹配改为双向 token；所有落地件回传 `request_spec/grounded_spec/spec_mismatch`。
-  - `agent_tools._tool_select_parts` / `_kp_reason_step` 透传并统计 `spec_mismatch`。
-- 2026-08-27 本轮真实落地（校对后，均已运行验证）：
-  - 根因一（旧配置误导）：`reasoning_node_contract._defaults_for_node` 曾把旧 `model_reason`/`kp_reason` 节点提示词注入生效配置，导致 `model_reason` 用「只做确认与引导，不决定」话术在推理阶段无限绕圈、`kp_reason.enabled_tools` 仍指向已删除的 `pick_kp_parts`。已改为只注入 `model_reason_ai`/`kp_reason_ai`，并在 `reasoning_flow_repo.self_heal_agent_node_configs` 清除 DB 遗留 `system_prompt/selection_mode/grounding_tool/…/proposal_*/pick_kp_parts` 等旧字段。
-  - 根因二（执行器读旧配置）：`ai_plan_executor` 的 `model_reason`/`kp_reason` 强制使用 `*_ai` 提示词与固定工具集，不再 `config.get("system_prompt")`/`config.get("enabled_tools")`。
-  - 根因三（AI 少传字段丢配件）：`kp_reason` 改为「完整结构化 slots 打底 + AI select_parts 参数只补缺」深合并，避免 AI 漏传整类配件；`part_selector.select_parts` 改为按在场信号字段补齐类目（不再仅依赖 categories）；`_ground_drives` 兼容 `capacity`/`interface` 别名。
-  - `capability_spec` 的 `model_reason`/`kp_reason` 提示词源改为 `*_ai`；前端 `ReasoningNodeDrawer` 的 kp_reason 默认工具由 `pick_kp_parts` 改为 `list_kp_categories/select_parts`。
+## 验证（2026-08-28 晚，真实 LLM 全旅程，277 passed）
 
-- 2026-08-27 提示词单源化（已批准并落地，替代此前 reasoning_prompt_defaults.json + prompt_store 平行库）：
-  - 删除 `backend/app/services/prompt_store.py` 与 `backend/app/services/reasoning_prompt_defaults.json`；DB `system_config.reasoning_prompts` 行在 `init_defaults` 中幂等退役删除。
-  - 提示词并入 `reasoning_node_defaults.json`：`agent_fill.prompt.system_prompt`、`model_reason.system_prompt`、`kp_reason.system_prompt`（内容即原 `*_ai`）。
-  - `reasoning_node_contract._defaults_for_node` 改为「种子 JSON 为底 + DB 覆盖」，`effective_config` 直接给抽屉回显提示词。
-  - `ai_plan_executor._model_reason_step/_kp_reason_step` 改为读 `config["system_prompt"]`，抽屉改的提示词现在真正生效。
-  - `capability_spec` 移除 `prompt_node`；`self_heal` 不再删节点 `system_prompt`，改为缺失时补默认，并继续清理 `selection_mode/grounding_tool/proposal_*` 等旧字段。
-  - 验证：`pytest -q backend/tests` → 265 passed；拦截验证 `effective_config` 默认/覆盖生效，且 `model_reason`/`kp_reason` 的 LLM 调用实参 `system_prompt` 等于抽屉传入值。
-## 验证
+- 泛指「我需要一台服务器」→ 角色自然语言问场景（13.5s，非模板）。
+- 「你能给我推荐一个吗」→ **角色查目录推荐**：ES22V3-P（Orion，¥11537）vs ZS22V2-P（Polaris，¥15604）+性价比理由+顺势问场景（28s）——"只会问不会推荐"根治。
+- 「就 ES22V3-P 吧，跑数据库用」→ 角色登记+提交 → 引擎（零抽取调用）锁定 → kp_mode 缺口 → 角色转述（56s）。
+- 点「只要整机底座（L6）」→ ✅ BOM（l6:9 / kp:0 / ¥11536.83，28.5s）。
+- 硬编码普查：skill 链路零话术表/零关键词表；唯一残句=转述失败时的数据拼装兜底（非话术）。
 
-- 全量后端测试：`pytest -q backend/tests` → `260 passed`（含新增 `test_part_selector` 型号/速度/RAID 用例）。
-- mock 垂直切片 `backend/scripts/_verify_ai_plan2.py`：6 个真实料号、`unmatched_count=0`、机型 `ESA24V3-P`、总价 `516813.63`。
-- 全量测试收集无旧符号残留：`pick_kp_parts/run_match_kp_rule/run_fixed_workflow` 等 rg 为空。
-- 真实 LLM 5 案例 E2E（2026-08-27，低频串行，未通过）：
-  - case1 机型漂移：抽成 `ES22V3-P`，预期 `ESA24V3-P`；`server_type_name=GPU计算服务器`（应为 AI/加速计算服务器）、`form=机架式`（应为 4U）。CPU/内存/盘/GPU/NIC 命中真实料号；`LSI 9560 16i 8G缓存` 因归一化方向未命中，1 个空 RAID 料号。
-  - case2 CPU 错选 `AMD EPYC 9124`；GPU `RTX PRO 4500 Server 32G` 冗余词未命中。
-  - case3 CPU 错选 `AMD EPYC 9334`；`raid_groups=[{"model":"RAID 0,1,10"}]` 未映射兼容卡，RAID 未命中。
-  - case4 `480G SATA×4` 被抽成 `960G×2`；内存 64G 5600 落成 64G 6400；HDD 错成 960G NVMe。
-  - case5 内存 32G 4800 丢 `speed` 后落成 32G 6400；`7680G U.2 NVME` 库无未命中。
-- 2026-08-27 本次落地回归：`pytest -q backend/tests` → `265 passed`。
-- 真实 `select_parts` 快速验证：`gpu_groups=[{"tokens":["A100"],"qty":8,"cap":"80G"}]` 返回 `unmatched=True`，不再静默落 A800。
-- 2026-08-27 进程内真实 LLM 三案例（`scripts/run_one_trace.py`，非打地鼠对照）：
-  - `N1-A100x8`：机型 `ESA24V3-P / AI·加速计算服务器 / 4U / Orion`；CPU/1.92T SATA/7.68T NVMe/25G 网卡/9560-16i 全部命中；128G 单条内存与 A100 白盒 `UNMATCH`（不落 A800），共 7 件，总耗时 42.8s。
-  - `N2-9334`：机型 `ES22V3-P / 通用计算服务器 / 2U / Orion`；CPU/32G 4800 内存/480G SATA/25G 网卡/9540-8i 全部命中，总耗时 121.7s（kp_reason 108s，属延迟问题）。
-  - `C1-A800x2`：机型 `ESA24V3-P / AI·加速计算服务器 / 4U / Orion`（不再漂移 ES22V3-P）；CPU/64G 4800/1.92T SATA/3.84T NVMe/A800/10G 网卡/9560-16i/9364-8i 双 RAID 全部命中，0 未命中，总耗时 49.9s。
+## 本轮删除清单（两器官改造）
 
-## 2026-08-27 本轮（阶段2/3）真实落地（已回看核对）
+- 引擎话术层：`_SLOT_ASK/_SLOT_WHY/_slot_ask/kp_mode_ask/kp_recommend_ask/kp_desc_ask/pause_for_ask/apply_skill_decision 遗族`——引擎只产缺口数据。
+- 对话机制：收敛计数器（_no_progress_streak）、delegate 机制（_delegate_slots/DELEGATE_OPTION_VALUE）、kp_desc_rounds、点击快速路特判——全部由角色对话自然吸收。
+- 路由与装配：`skill_router.py`（独立路由 LLM）及其测试、entry_point bypass、pending workflow 三函数+大快照搬运、`_run_tool_turn` 内 461 行 skill 分支。
+- 工具合并起点：catalog_search 入列（旧 4 个浏览类工具仍在 specs 供其他角色，待退役）。
 
-- 阶段 2 验证：`resolve_part_alias`/`compose_memory` 已注册并可用；全量测试通过。`兆芯` 初始为空（规则未入库），已补种子规则并 `seed_missing_defaults` 入真实库。
-- 阶段 3 删静默兜底（白盒化，不回退严格 1:1）：
-  - `candidate_search.py` 删除「去掉 type 再试」旧兜底：某类型 0 机型返空，不再混入其他类型；`_fallback_note` 不再把放宽谎报为精确匹配。
-  - `part_selector._ground_cpu` 删除 `fallback_all` 静默代表件分支：型号给到但库无命中 → `unmatched` 白盒；未给型号才允许代表件。
-  - `requirement_rule_catalog.py` / `requirement_rule_repo.py` 移除 `cpu.fallback_all`。
-  - 新增回归：`test_select_models_fallback.test_type_mismatch_returns_empty_not_other_type`。
-- 语义归一下沉到落地层（不依赖 AI 工具参数回填）：
-  - `part_selector._alias_rows`：part_alias 规则 → 名称检索 → 型号 token 归一；`resolve_part_alias` 与 `_ground_cpu` 共用。
-  - 真实库验证：`Intel Xeon 6430` → `Intel 6430`（白盒 reason）；`兆芯` → `KH50000 48C`（别名规则）。
-  - 新增回归：`test_part_selector.test_cpu_token_normalization_matches_short_model`、`test_cpu_alias_rule_resolves_semantic_term`。
-- 数据修正（阶段 4 部分）：存储机型 `ZS25V2-P` 原 `is_published=False` 被 `select_models(published_only=True)` 过滤；已置为 `True`。`select_models(存储服务器, series=Intel, form=4U)` 现正确返回 `ZS25V2-P` 并白盒标注「放宽平台系列、机箱形态」。
-- 全量测试：`pytest -q backend/tests` → `271 passed`。
+## 真实剩余
 
-## 本轮待完成（真实剩余项）
+- 中转通道（cc-switch）不稳：本轮实测多次 httpx 10054；角色对工具失败的诚实话术（"拉不到数据，不编造"）行为正确。
+- 缺口转述偶发走兜底句（chat_json 指令已对齐，需观测）。
+- 闲聊拉回：提示词规则已给角色，未做专项 E2E（待用户实测）。
+- 待修：数据分析师 query_cpq_data 报 `'Query' object has no attribute 'split'`；旧 4 浏览工具退役；ReasoningNodeDrawer 的 fallback_order 字段说明更新。
+- P1：run 表+回放、eval harness（用户出题→案例库金标准）、Langfuse、试运行路径抽取降延迟、双聊天面板合一。
+- 临时观测点（稳定后清理）：assistant.py 的 `GET /api/assistant/_debug/event-loop`（dump 挂起协程栈）与回合出口 INFO 日志。
 
-- LLM 延迟调优：`kp_reason` 单节点 27–108s、整案 42–122s，主因 deepseek-v4-flash 推理模型在工具循环里产生大量 reasoning token 才收敛；用户已明确暂缓，待架构稳定后再决定调优方案。
-- agent_fill 抽取波动已按「原文为真相源、登记表仅作缓存」处理（2026-08-27）：`kp_reason` 现在注入需求原文，AI 对照原文补全缺失/冲突信号，`select_parts` 参数改为 AI 补全优先、登记表缺省兜底，落地后回写 `ctx.ext/ctx.requirement`。旧“登记表唯一事实源/冻结快照”文案已退役；仍禁止离线正则兜底（正则覆盖不了 `NMVE` 等任意拼写变体）。
-- 前端抽屉 `ReasoningNodeDrawer.vue` 仍保留旧文案（“优先走 pick_kp_parts/JSON 黑盒”等）与旧字段表单，需后续对齐，避免再次把旧配置写回。
-- 数据完整性：AI 类型还有一台 `ESA25V3-P` 未发布；CPU 目录仍为 `Intel 6430`（缺 `Xeon`，现由 token 归一兜底，但目录名仍建议修正）；`兆芯/开胜/海光` 别名建议补全进策略中心。
+## 2026-08-30 任务模型：Claude Code 式（同意制入口 / 底部任务胶囊 / 中途消息排队）
 
-## 待办（后续）
+对齐 Claude Code 的任务语义，三件事全部机制层，判断全部归 LLM（唯一大脑）：
 
-- 真实 LLM 低频复验：先跑 case1 确认机型/类型/形态稳定，再对照 5 案例，重点看 `spec_mismatch_count` 与未命中项。
-- 已清理 `backend/scripts/_*.py` 遗留临时脚本（87 个，跟踪中文件已删除）。
-- 后端需重启进程加载新代码；当前 8000 端口可能仍是旧进程。
+1. **入口同意制**（requirement_prompt 规则 2，三分支）：
+   - a) 客户明确要求出方案（「帮我配一台」）→ 当轮登记完直接提交，同意已给出；
+   - b) 咨询式对话信息渐齐 → 角色**主动提议**（复述已登记需求 + 自然预告流程步骤 + 问是否开始）→ 客户确认后提交；
+   - c) 任务进行中客户的回答 = 继续任务（先登记再直接提交，禁止重新提议）。
+   同意判断纯语义（LLM），程序零字符串匹配；流程预告素材来自画布节点 label/description（数据驱动）。
+2. **步骤单源 `skill_steps_view(flow_configs)`**：pipeline_start 事件与角色提议话术共用同一份步骤清单；画布上改节点 label/description，提议话术与任务胶囊两处同步变。客户可见里程碑只含 model_reason/kp_reason/compose/output（input/agent_fill 在对话里自然发生）。
+3. **前端任务胶囊 TaskStepper**：替换原顶部进度条。收起态=输入框上方小胶囊（状态图标+任务名+完成数/总数+当前步骤）；点击展开浮层看全部步骤（状态/摘要/耗时）。状态机 taskPhase ''|running|paused|done 由 WS 事件驱动（pipeline_start/paused/done、analysis_finished、business_entity_ready、analysis_cancelled）；done 后下一条消息发送时自动复位。双面板（AssistantPanel + OfficeColleagueChatPanel）统一接入。
+4. **中途消息排队**：per-thread lock 分支从"拒绝并提示等待"改为排队（保存完整回合参数），当前回合 finally spawn drain 串行续跑；stop/取消清空队列。排队时只广播 chat_status 提示，不落库拒绝消息。
+
+黑盒边界（回答"requirement_prompt 是不是不可配置黑盒"）三层：
+- **DB 可配层**：人设、步骤 label、节点 description、工具勾选——画布改了就变；
+- **代码契约层**：requirement_prompt 的机制规则（同意门槛、登记完整性、禁编造）——等价于 Claude Code 的产品 system prompt + 工具 description，测试锚定（test_task_model.py）；
+- **数据驱动接线**：代码只负责把画布数据注入提示词（flow_steps 块有则注入无则不出现），不做内容决策。
+
+E2E（干净线程全绿）：T1「我想要一台服务器」→问场景（无任务启动）；T2「主要跑数据库」→查目录确认类型（无任务启动）；T3「好，开始吧」→pipeline_start（title=需求分析，6 步）→机型缺口卡（带价格选项）；T4 点选机型→任务继续不重新提议 + 中途补预算消息排队提示。353 passed（新增 4 契约测试）。
+
+## 2026-08-30 定案：转接只在群里（绑定会话永不转接）
+
+用户拍板：**系统级转接只发生在团队群**；与方案助手（或任何同事）私聊时锁定身份——角色自己能办的事自己办，只有请求超出其 skill/工具/数据范围时，由**角色在对话里口头建议**找哪位同事（LLM 语义判断），客户决定。
+
+- **路由机制**（`ai_colleague_service.resolve_chat_target`，post_message 调用）：thread 绑定了 colleague_role_key（含 `assistant`）→ 锁定身份，判官零调用；只有未绑定线程（团队群，group-resolve 创建）→ @点名确定性路由 / LLM 判官按名册转接（落 handoff 可见标记）。旧 bug：绑定 `assistant` 的私聊线程因判别条件写成 `!= "assistant"` 落进判官分支，是「我想要一台服务器被转给技术支持工程师」的根因。
+- **口头提议提示**（`colleague_turn_service._handoff_hint`，三个 persona 装配点注入）：名册摘要（`colleague_roster_digest`，与判官共用 `_dispatch_roster` 单源——DB 业务数据）+ 规则契约（能覆盖的请求一律自己完成；超出能力范围才建议**一位**合适同事，由客户决定；禁止来回推）。
+- **前端**：浮动助手默认进方案助手 1:1（原默认团队群）；团队群从侧栏显式进入。Portal 经 `ensureActiveRole` 本就偏好 assistant，随路由修复一并受益。
+- **skill 绑定 = 能力（2026-08-30 用户铁律）**：需求分析（方案配置）本职属技术支持工程师，方案助手绑这个 skill 只是数据配置——**群内配置请求判给技术支持工程师是正确转接**（判官按名册 skills/职责）。给谁绑定 skill 谁就会，解绑即失去（回落普通对话，超出能力时按提示词口头提议转接）。禁止把「角色↔技能」写死在代码：能力路由全走 `colleagues[].skills`（DB），`DEFAULT_SKILL_BINDINGS` 仅新库种子不覆盖已有配置；测试锚 test_capability_follows_skill_binding。
+
+E2E：私聊方案助手「我想要一台服务器，主要跑数据库」→ colleague=assistant 不劫持 ✓；群内「帮我算一下成本」→ 判官正确选 cost_analyst（带理由）✓。357 passed。
+
+## 2026-08-29 定案：「卡住不回话」根因链（已修复）
+
+1. **uvicorn --reload 重启窗口杀回合**（主因，铁证）：`--reload` 监听 backend 全树，任何代码编辑触发进程重启（本应用带全套启动迁移，重启 20-60s）；重启瞬间所有在途回合任务被无声杀掉（POST 已 200、用户消息已落库，回复蒸发）。此前"边改边测"的轮次全中此招——包括更早会话里用户「反复测不通」的体感。**纪律：用户测试期间禁止改 backend 任何文件；测试前确认日志无 reloading。**
+2. **错误上报只有 WS 广播 + 应用日志黑洞**（已修）：main.py 接通 basicConfig；回合各失败路径（含取消）全部落日志；错误消息必达终态（落库，不再只广播）。
+3. **空间意图前置分类器串在聊天主路**（已摘除）：办公室头像走位的 LLM 分类器曾挡在每条消息前面（误判即吞消息、多一跳 25s 延迟）；聊天主路现直达对话脑，office_intent.py 保留待画布入口重接。
+4. **自由文本场景答非目录类型→提交死循环**（已修）：submit_registration 提交口前置目录词表校验，非目录类型拒绝并列出目录选项让模型当轮纠正；提示词同步「口语场景登记到信号槽或与客户确认目录类型」。实测全链路 68s：模糊输入→目录引导澄清→「深度学习训练」映射为「AI / 加速计算服务器」→选型→配件闸门选项卡。
+5. react 循环 LLM 调用从默认 90s×2 收紧为 60s×2 + low 推理档（断连止损）；`_run_text_react_loop` 参数透传补齐。
+6. 选项卡式追问（gaps）按设计只走 WS 推送不落普通消息——无 WS 客户端的脚本观测不到属预期，非卡死。
 
 ## 环境/红线
 
-- Python：`D:\CPQ_Platform_V1\backend\.venv\Scripts\python.exe`；设置 `PYTHONUTF8=1`、`PYTHONPATH=D:\CPQ_Platform_V1\backend`。
+- Python：`D:\CPQ_Platform_V1\backend\.venv\Scripts\python.exe`；`PYTHONUTF8=1`、`PYTHONPATH=D:\CPQ_Platform_V1\backend`。
 - 登录：admin / fA5zXkyWv_RyrAqe（不得删除/重置）。
-- CC Switch 上限约 30-40 req/min；禁止并行大扇出。
-- 动手改代码前先说明原因+方案并等批准；用户手改文件不要动。
+- CC Switch 上限约 30-40 req/min；禁止并行大扇出；重任务一次只一个会话。
+- 改动代码前先说明原因+方案并等批准；未获批准不提交。
+- 诊断脚本：仓库根 `_diag_turn.py`（角色对话旅程 E2E，支持 JSON 旅程与 option_slot 点击）、`_diag_testrun.py`（引擎 test-run）。
+- ⚠️ 后端**已去 `--reload` 稳定模式运行**（2026-08-29 起，launch.json）：改代码不再自动生效，必须**显式重启**后端才加载新代码；重启会杀在途回合，所以只在无测试进行时重启、每次重启要告知用户。重启=preview_stop+preview_start（端口占用时先 `netstat -ano | findstr :8000` 查 PID→taskkill //T //F）。
+
+
+## 2026-08-31 定案：机型/配件 AI 接地（引擎语义层，阶段2/3）
+
+- **动机（根因）**：kp_reason 节点配置了 list_kp_categories/select_parts/resolve_part_alias/compose_memory 等语义工具，但 `phase_kp_reason` 先前只跑确定性 `select_parts`——命中不了一律留 unmatched/spec_mismatch 当缺口，工具「只配不用」。
+- **机型（已完成，phase_model_reason）**：force_complete 下把硬件信号拓宽到库内候选，交由 `_llm_pick_model` 受约束选型，落 `model_pool_broadened` 标注。
+- **配件（本轮，phase_kp_reason）**：确定性 select_parts 之后，force_complete 下收集未命中/规格偏差行 → 按品类查 `KPRepository.get_by_category_with_specs`（series 适配池）→ 拼「需求原文+线索登记表+机箱能力+当前清单」事实喂 `_llm_pick_kp`（单次受约束，只许从候选 id 里选）→ `_apply_kp_ground` 校验 id 属候选、价格/数量取库值并写 `replacement_note`；无候选/非法 id/LLM 失败一律保留缺口，绝不硬顶。对话路径（force_complete=False）保持缺口交角色/用户决策。
+- **验证**：backend 全量 372 passed（新增 7 条：`_kp_gap_rows`/`_apply_kp_ground` 缺口语义与非法 id 守卫、`_llm_pick_kp` chat_json 契约、`_kp_ai_ground`、`phase_kp_reason` force_complete 接地与对话路径保留缺口）。
+- **待回退关注**：AI 接地为 LLM 旁路，失败/无候选是安全路径（保留缺口）；未在对话路径开启，行为可预期。

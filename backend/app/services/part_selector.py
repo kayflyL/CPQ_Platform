@@ -16,6 +16,11 @@ from typing import Optional
 
 from app.repository.kp_repo import KPRepository
 
+def _placeholder(db_cat, qty, want):
+    """确定性占位缺口行：把客户登记的需求原样呈现给 AI 选型，引擎不做预测。"""
+    return _row(db_cat, None, int(qty or 1), unmatched=True,
+                reason="交由 AI 语义选型（引擎仅检索候选、不预判）",
+                request_spec=str(want or ""))
 
 def _capacity_mismatch(grounded_cap: Optional[float], need_cap: Optional[float],
                        cmp: str, tolerance_ratio: float) -> bool:
@@ -28,48 +33,9 @@ def _capacity_mismatch(grounded_cap: Optional[float], need_cap: Optional[float],
         return grounded_cap > need_cap
     return abs(grounded_cap - need_cap) > max(1.0, need_cap * tolerance_ratio)
 
-
 def _norm_model(value) -> str:
     """料号/型号文本归一：忽略大小写、空格、连字符，便于 LLM 输出与库内料号对齐。"""
     return re.sub(r"[\s\-_]+", "", str(value or "")).lower()
-
-
-def _model_tokens(value) -> list:
-    """提取型号里有区分度的 token（含数字的字母数字片段，过滤纯容量词）。
-
-    'NVIDIA RTX PRO 4500 Server 32G' -> ['4500']；'LSI 9560-16i' -> ['9560-16i']。
-    这是双向匹配的基础：AI 给的冗长型号与库内短型号也能按 token 对齐。
-    """
-    toks: list = []
-    for m in re.finditer(r"[0-9A-Za-z][0-9A-Za-z.\-]{1,}", str(value or "")):
-        t = m.group()
-        if not re.search(r"\d", t) or len(t) < 3:
-            continue
-        if re.match(r"^\d+(?:\.\d+)?[GT]B?$", t, re.I):
-            continue
-        if t.lower() not in (x.lower() for x in toks):
-            toks.append(t)
-    return toks
-
-
-def _model_match(needle, haystack) -> bool:
-    """型号对齐：归一化双向包含 或 token 集合互相包含（至少一个非空 token）。
-
-    解决 LLM 输出 'LSI 9560 16i 8G缓存' 或 'RTX PRO 4500 Server 32G' 与库内短型号
-    无法按整串子串命中，但 token 同源的情况。
-    """
-    if not needle or not haystack:
-        return False
-    nn = _norm_model(needle)
-    hn = _norm_model(haystack)
-    if nn and hn and (nn in hn or hn in nn):
-        return True
-    nt = {t.lower() for t in _model_tokens(needle)}
-    ht = {t.lower() for t in _model_tokens(haystack)}
-    if not nt or not ht:
-        return False
-    return nt.issubset(ht) or ht.issubset(nt)
-
 
 def _num_of(value) -> Optional[float]:
 
@@ -77,7 +43,6 @@ def _num_of(value) -> Optional[float]:
         return None
     m = re.search(r"[\d.]+", str(value))
     return float(m.group()) if m else None
-
 
 def _gb_of(value) -> Optional[float]:
     """容量词 → GB：'960G'/'32 GB'→960/32；'1.92T'/'1.92 TB'→1966.08。"""
@@ -93,6 +58,76 @@ def _gb_of(value) -> Optional[float]:
         n /= 1024
     return n
 
+def _series_ok(applicable, series: str) -> bool:
+    """机型适配判定（与 kp_config API 同一语义）：applicable 缺省/无 series 键=通用件；
+    series 列表含目标系列=适配；空列表=对全部系列隐藏。"""
+    if not series or not isinstance(applicable, dict):
+        return True
+    lst = applicable.get("series")
+    if lst is None:
+        return True
+    if isinstance(lst, list):
+        return any(str(x).strip() == series for x in lst)
+    return True
+
+class _SeriesScopedRepo:
+    """系列作用域包装：机型锁定后，配件候选池只剩适配件（含通用件）。
+    过滤发生在取数边界，_ground_* 各 grounding 无需各自感知兼容性。"""
+
+    def __init__(self, repo, series: str):
+        self._repo = repo
+        self._series = (series or "").strip()
+
+    def __getattr__(self, name):
+        return getattr(self._repo, name)
+
+    def _f(self, rows):
+        if not self._series:
+            return rows
+        return [r for r in rows if _series_ok(r.get("applicable"), self._series)]
+
+    def get_by_category(self, category, search=""):
+        return self._f(self._repo.get_by_category(category, search))
+
+    def get_by_category_with_specs(self, category):
+        return self._f(self._repo.get_by_category_with_specs(category))
+
+    def get_by_category_with_spec_filter(self, category, spec_filters):
+        return self._f(self._repo.get_by_category_with_spec_filter(category, spec_filters))
+
+    def get_latest_prices(self, **kw):
+        return self._f(self._repo.get_latest_prices(**kw))
+
+def _cap_disp(gb: float) -> str:
+    g = int(round(gb))
+    if g % 1024 == 0:
+        return f"{g // 1024}T"
+    if g >= 1024:
+        t = g / 1024
+        s = f"{t:.2f}".rstrip("0").rstrip(".")
+        return f"{s}T"
+    return f"{g}G"
+
+def _drive_media_label(row: dict) -> str:
+    """盘介质标签：优先取目录规格 Type+Media（如 'SATA SSD'/'NVMe HDD'），
+    无规格时按型号关键词兜底 SSD/HDD，保证展示与目录事实一致、不丢子类型。"""
+    specs = row.get("specs") or {}
+    bits = [str(specs.get("Type") or "").strip(), str(specs.get("Media") or "").strip()]
+    label = " ".join(b for b in bits if b).upper()
+    if label:
+        return label
+    hay = str(row.get("model") or "").upper()
+    if "SSD" in hay:
+        return "SSD"
+    return "HDD"
+
+def _drive_display(row: dict) -> str:
+    """硬盘展示名：目录真实型号 + 介质子类型（如 '8T SATA SSD'），绝不改成 '2x 8T SSD'。"""
+    model = str(row.get("model") or "").strip()
+    media = _drive_media_label(row)
+    if model and media.lower() not in model.lower():
+        return f"{model} {media}"
+    return model or media
 
 def _spec_hit(specs: dict, filters: list) -> str:
     """规格 AND 过滤；全中返回标签串，否则 ''。"""
@@ -125,7 +160,6 @@ def _spec_hit(specs: dict, filters: list) -> str:
             hits.append(f"{sk}={sv}")
     return " · ".join(hits)
 
-
 def _pick(rows, mode):
     if not rows:
         return None
@@ -134,7 +168,6 @@ def _pick(rows, mode):
     if mode == "first":
         return rows[0]
     return min(rows, key=lambda r: float(r.get("price") or 0))
-
 
 def _row(db_cat, rep, qty, matched_spec="", unmatched=False, reason="",
          request_spec="", grounded_spec="", spec_mismatch=False):
@@ -153,10 +186,8 @@ def _row(db_cat, rep, qty, matched_spec="", unmatched=False, reason="",
         "spec_mismatch": bool(spec_mismatch),
     }
 
-
 def _unmatched(db_cat, qty, reason):
     return _row(db_cat, None, qty, unmatched=True, reason=reason)
-
 
 def _category_index(repo):
     from app.services.requirement_rule_catalog import category_aliases
@@ -201,7 +232,6 @@ def _category_index(repo):
         }
     return {"by_key": by_key, "db_lower": set(db.keys())}
 
-
 def list_kp_categories():
     """返回真实配件类目（规则键 + 库类目 + 数量），供 AI 查真实类目而非猜词。"""
     repo = KPRepository()
@@ -211,10 +241,8 @@ def list_kp_categories():
     finally:
         repo.close()
 
-
 def _search_category_names(repo, index):
     return [info["db_category"] for info in index["by_key"].values() if info.get("db_category")]
-
 
 def _dedupe_rows(rows):
     out = []
@@ -227,56 +255,21 @@ def _dedupe_rows(rows):
         out.append(r)
     return out
 
-
-def _alias_rows(repo, index, term, db_cat=None):
-    """语义别名/名称/型号 token 归一 → 库内行列表 + 命中原因（落地层共用）。
-
-    1) 策略中心 part_alias 规则优先（如「兆芯」→ KH40000/KH50000）；
-    2) 名称 ILIKE 检索兜底；
-    3) 型号 token 归一兜底（长型号 vs 短型号，如 Intel Xeon 6430 → Intel 6430）。
-    只返回库内真实行，不静默顶替、不编造料号。
-    """
-    from app.services.requirement_rule_catalog import part_aliases
-    term = str(term or "").strip()
-    if not term:
-        return [], "缺少术语"
-    aliases = part_aliases()
-    keys = aliases.get(term) or []
-    if keys:
-        rows = []
-        cats = [db_cat] if db_cat else _search_category_names(repo, index)
-        for k in keys:
-            for cat in cats:
-                rows.extend(repo.get_by_category(cat, search=k))
-        return _dedupe_rows(rows), f"别名规则 {term}"
-    if db_cat:
-        rows = repo.get_by_category(db_cat, search=term)
-    else:
-        rows = []
-        for cat in _search_category_names(repo, index):
-            rows.extend(repo.get_by_category(cat, search=term))
-    if rows:
-        return _dedupe_rows(rows), f"名称搜索 {term}"
-    if db_cat:
-        hits = [r for r in repo.get_by_category(db_cat)
-                if _model_match(term, str(r.get("model") or ""))]
-        if hits:
-            return _dedupe_rows(hits), f"型号 token 归一 {term}"
-    return [], f"名称搜索 {term}"
-
-
 def resolve_part_alias(term, category=None):
-    """语义别名/同义术语 → 库内料号候选（数据驱动 + 名称检索兜底）。
-
-    优先读策略中心 part_alias（如「兆芯」→ KH40000/KH50000）；未命中则按术语
-    在指定类目做名称 ILIKE 检索。返回候选 + 命中原因，不静默顶替，不编造料号。
-    """
+    """自由术语 → 目录候选（仅名称检索；别名/模型 token 等语义判断一律交由 AI 角色）。
+    返回库内真实候选，不做静默顶替，不编造料号。"""
     repo = KPRepository()
     try:
         index = _category_index(repo)
         db_cat = _resolve_db_category(category, index) if category else None
         term = str(term or "").strip()
-        rows, reason = _alias_rows(repo, index, term, db_cat)
+        rows = []
+        if db_cat:
+            rows = repo.get_by_category(db_cat, search=term)
+        else:
+            for c in _search_category_names(repo, index):
+                rows.extend(repo.get_by_category(c, search=term))
+        rows = _dedupe_rows(rows)
         out = []
         for r in rows:
             out.append({
@@ -285,12 +278,11 @@ def resolve_part_alias(term, category=None):
                 "name": r.get("model") or "",
                 "unit_price": float(r.get("price") or 0),
                 "currency": r.get("currency") or "RMB",
-                "reason": reason,
+                "reason": "名称检索",
             })
-        return {"count": len(out), "candidates": out[:10], "reason": reason}
+        return {"count": len(out), "candidates": out[:10], "reason": "名称检索"}
     finally:
         repo.close()
-
 
 def compose_memory(total_gb, slots=None):
     """内存容量组合求解：total_gb → 库内可行单条容量组合（如 128G → 64G×2 / 32G×4）。"""
@@ -315,6 +307,82 @@ def compose_memory(total_gb, slots=None):
     finally:
         repo.close()
 
+def _candidate_desc(c: dict) -> str:
+    """把候选的规格字典压成一行可读能力描述，供 AI 做语义匹配（非词表穷举）。"""
+    model = str(c.get("model") or c.get("pn") or "").strip()
+    specs = c.get("specs")
+    bits = [model]
+    if isinstance(specs, dict):
+        for k, v in specs.items():
+            if v in (None, "", []):
+                continue
+            bits.append(f"{k}:{v}")
+    elif isinstance(specs, list):
+        for item in specs:
+            if isinstance(item, dict):
+                for k, v in item.items():
+                    if v not in (None, "", []):
+                        bits.append(f"{k}:{v}")
+    return "；".join(b for b in bits if b)
+
+def retrieve_part_candidates(categories=None, server_type_name: str = "", series: str = "",
+                             signals: Optional[dict] = None) -> dict:
+    """按类目从 KP 库检索候选配件（只检索、不做语义/别名/规格匹配）。
+
+    候选=库内真实件：id/model/desc(可读能力)/specs/price/applicable。series 只在候选池过滤，
+    不参与型号/规格匹配。返回 {db_category: [candidate, ...]}；类目来自 categories 或
+    signals（cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/multi_spec_filters）。
+    """
+    raw = KPRepository()
+    try:
+        repo = _SeriesScopedRepo(raw, series)
+        index = _category_index(repo)
+        db_cats: list = []
+
+        def _add(raw_cat: str) -> None:
+            dbc = _resolve_db_category(str(raw_cat), index)
+            if dbc and dbc not in db_cats:
+                db_cats.append(dbc)
+
+        for c in (categories or []):
+            _add(c)
+        sig = signals or {}
+        _exists = lambda v: isinstance(v, (list, dict)) and len(v) > 0
+        if _exists(sig.get("cpu_signal")):
+            _add("CPU")
+        if _exists(sig.get("mem_signal")):
+            _add("Memory")
+        if _exists(sig.get("drive_groups")):
+            _add("HDD/SSD")
+        if _exists(sig.get("gpu_groups")):
+            _add("GPU")
+        if _exists(sig.get("raid_groups")):
+            _add("Raid card")
+        if _exists(sig.get("multi_spec_filters")):
+            _add("NIC")
+        if not db_cats and server_type_name:
+            from app.services.requirement_rule_catalog import type_packages
+            for pkg in type_packages() or []:
+                kw = str(pkg.get("type_keyword") or "")
+                if kw and kw in server_type_name:
+                    for c in (pkg.get("categories") or []):
+                        _add(c)
+                    break
+        out: dict = {}
+        for dbc in db_cats:
+            rows = repo.get_by_category_with_specs(dbc) or []
+            cands = []
+            for r in rows:
+                cand = dict(r)
+                cand["pn"] = str(cand.get("model") or "")
+                cand["name"] = str(cand.get("model") or "")
+                cand["unit_price"] = float(cand.get("price") or 0)
+                cand["desc"] = _candidate_desc(cand)
+                cands.append(cand)
+            out[dbc] = cands
+        return out
+    finally:
+        raw.close()
 
 def _resolve_db_category(need_cat, index):
     n = str(need_cat or "").strip()
@@ -336,334 +404,121 @@ def _resolve_db_category(need_cat, index):
             return e["db_category"]
     return None
 
-
 def _ground_cpu(repo, db_cat, sig, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("cpu")
-    search_field = str(policy.get("search_field") or "model")
-    qty = int((sig or {}).get("qty") or 1)
-    model = str((sig or {}).get(search_field) or "").strip()
-    if model:
-        index = _category_index(repo)
-        rows, reason = _alias_rows(repo, index, model, db_cat)
-        rep = pick(rows)
-        if not rep:
-            return [_unmatched(db_cat, qty, f"库无 {model} CPU 件，未静默顶替")]
-        return [_row(db_cat, rep, qty, reason)]
-    rows = repo.get_by_category(db_cat)
-    rep = pick(rows)
-    if not rep:
-        return [_unmatched(db_cat, qty, f"库无 {db_cat} 代表件")]
-    return [_row(db_cat, rep, qty, "代表件")]
-
-
-def _ground_memory(repo, db_cat, sig, pick):
+    """CPU：不做型号/别名/规格匹配（旧解析器已删除），只把登记信号转成「交由 AI 选型」缺口行。"""
     if not isinstance(sig, dict) or not sig:
         return []
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("memory")
-    allow_relax = bool(policy.get("allow_speed_relax_without_comparison", False))
-    capacity_split = str(policy.get("capacity_split") or "largest_divisor")
-    qty = int(sig.get("qty") or 0)
-    per = int(sig.get("per_stick_gb") or 0) or None
-    total = int(sig.get("total_gb") or 0) or None
-    mtype = str(sig.get("type") or "").strip()
-    speed = sig.get("speed")
-    comparison = str(sig.get("comparison") or "").strip()
-    if comparison in ("gte", "lte"):
-        speed_op = comparison
-    elif allow_relax:
-        speed_op = "gte"
-    else:
-        speed_op = "="
-    filters = []
-    request_bits = []
-    if mtype:
-        filters.append({"spec_key": "Type", "op": "=", "value": mtype})
-        request_bits.append(mtype)
-    if speed:
-        filters.append({"spec_key": "Speed", "op": speed_op, "value": speed})
-        request_bits.append(f"{speed_op} {speed}")
-    else:
-        request_bits.append("speed 未给")
-    if per:
-        request_bits.append(f"{per}G")
-    rows = repo.get_by_category_with_specs(db_cat)
-    pool = [r for r in rows if _spec_hit(r.get("specs") or {}, filters)] if filters else list(rows)
-    if filters and not pool:
-        # 规格不满足就白盒未命中，不静默放宽类型/速度（避免 4800 漂成 6400）。
-        return [_unmatched(db_cat, qty or 1, f"库无 匹配 {(' '.join(request_bits)).strip() or db_cat} 内存件")]
-    if not pool:
-        return [_unmatched(db_cat, qty or 1, f"库无 {db_cat} 内存件")]
+    qty = int((sig or {}).get("qty") or 1)
+    model = str((sig or {}).get("model") or "").strip()
+    cores = sig.get("cores")
+    tdp = sig.get("tdp_w")
+    bits = [model] if model else ["未指定型号"]
+    if cores:
+        bits.append(f"{int(cores)}C")
+    if tdp:
+        bits.append(f"{int(tdp)}W")
+    return [_placeholder(db_cat, qty, " ".join(bits))]
 
-    def cap_of(r):
-        return _gb_of((r.get("specs") or {}).get("Capacity"))
-
-    if per:
-        cand = [r for r in pool if cap_of(r) is not None and abs(cap_of(r) - per) < 1e-6]
-        if not cand:
-            return [_unmatched(db_cat, qty or 1, f"库无 {per}G 单条内存")]
-        pool = cand
-    elif total:
-        caps = sorted({int(c) for c in (cap_of(r) for r in pool if cap_of(r)) if c >= 4})
-        chosen = None
-        if capacity_split == "largest_divisor":
-            chosen = next((c for c in reversed(caps) if total % c == 0), None)
-        if chosen:
-            per = chosen
-            qty = qty or int(total // chosen)
-            cand = [r for r in pool if cap_of(r) is not None and abs(cap_of(r) - chosen) < 1e-6]
-            pool = cand or pool
-    rep = pick(pool)
-    if not rep:
-        return [_unmatched(db_cat, qty or 1, f"库无 {db_cat} 内存件")]
-    matched = _spec_hit(rep.get("specs") or {}, filters)
-    if per:
-        matched = (matched + " · " if matched else "") + f"容量 {per}G"
-    grounded = rep.get("specs") or {}
-    gspeed = _num_of(grounded.get("Speed"))
-    gtype = str(grounded.get("Type") or "").strip()
-    gcap = _gb_of(grounded.get("Capacity"))
-    grounded_bits = [b for b in (gtype, (f"{int(gspeed)}" if gspeed is not None else ""),
-                                  (f"{int(gcap)}G" if gcap is not None else "")) if b]
-    mismatch = False
-    if speed is None and gspeed is not None:
-        mismatch = True
-    elif speed is not None and gspeed is not None:
-        if speed_op == "gte":
-            mismatch = gspeed < float(speed)
-        elif speed_op == "lte":
-            mismatch = gspeed > float(speed)
-        else:
-            mismatch = abs(gspeed - float(speed)) > 1e-9
-    return [_row(db_cat, rep, qty or 1, matched,
-                 request_spec=" ".join(request_bits).strip(),
-                 grounded_spec=" ".join(grounded_bits).strip(),
-                 spec_mismatch=mismatch)]
-
+def _ground_memory(repo, db_cat, sig, pick):
+    """内存：只把登记信号（容量/类型/速度）转成缺口行，由 AI 从候选选条。"""
+    if not isinstance(sig, dict) or not sig:
+        return []
+    qty = int(sig.get("qty") or 1)
+    bits = []
+    if sig.get("per_stick_gb"):
+        bits.append(f"{int(sig['per_stick_gb'])}G")
+    if sig.get("total_gb"):
+        bits.append(f"共{int(sig['total_gb'])}G")
+    if sig.get("type"):
+        bits.append(str(sig["type"]))
+    if sig.get("speed"):
+        bits.append(str(sig["speed"]))
+    return [_placeholder(db_cat, qty, " ".join(bits) or "内存")]
 
 def _ground_drives(repo, db_cat, groups, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    drive_policy = part_selection_policy("drive")
-    tolerance_ratio = float(drive_policy.get("capacity_tolerance_ratio") or 0.05)
-    kind_filter = bool(drive_policy.get("kind_filter", True))
-    rows = repo.get_by_category_with_specs(db_cat)
+    """硬盘：每个盘组 → 一行缺口（容量/接口/介质），由 AI 从候选按需求语义选型。"""
     out = []
     for g in groups or []:
-        term = str(g.get("term") or g.get("capacity") or "").strip()
         qty = int(g.get("qty") or 1)
-        kind = str(g.get("kind") or g.get("interface") or "").strip()
-        cmp = str(g.get("comparison") or "").strip()
-        need = _gb_of(term)
-
-        def hit(r):
-            sp = r.get("specs") or {}
-            hay = (str(sp.get("Type") or "") + " " + str(sp.get("Media") or "")).upper()
-            if kind_filter and kind and kind.upper() not in hay:
-                return False
-            if need is None:
-                return True
-            cap = _gb_of(sp.get("Capacity"))
-            if cap is None:
-                return False
-            if cmp == "gte":
-                return cap >= need
-            if cmp == "lte":
-                return cap <= need
-            return abs(cap - need) <= max(1.0, need * tolerance_ratio)
-
-        cand = [r for r in rows if hit(r)]
-        rep = pick(cand) if cand else None
-        if not rep:
-            out.append(_unmatched(db_cat, qty, f"库无 {term or '未知容量'} {kind or '盘'}"))
-            continue
-        grounded = rep.get("specs") or {}
-        gcap = _gb_of(grounded.get("Capacity"))
-        gkind = (str(grounded.get("Type") or "") + " " + str(grounded.get("Media") or "")).strip()
-        mismatch = False
-        if need is not None and gcap is not None:
-            if cmp == "gte":
-                mismatch = gcap < need
-            elif cmp == "lte":
-                mismatch = gcap > need
-            else:
-                mismatch = abs(gcap - need) > max(1.0, need * tolerance_ratio)
-        if kind and kind.upper() not in str(grounded.get("Type") or "").upper() + " " + str(grounded.get("Media") or "").upper():
-            mismatch = True
-        out.append(_row(db_cat, rep, qty, f"{term} {kind}".strip() or "代表件",
-                         request_spec=f"{term} {kind}".strip(),
-                         grounded_spec=gkind + (f" {int(gcap)}G" if gcap is not None else "").strip(),
-                         spec_mismatch=mismatch))
+        capacity = str(g.get("capacity") or g.get("term") or "").strip()
+        interface = str(g.get("interface") or g.get("kind") or "").strip()
+        media = str(g.get("media") or "").strip()
+        want = " ".join(b for b in (capacity, interface, media) if b) or "硬盘"
+        out.append(_placeholder(db_cat, qty, want))
     return out
-
 
 def _ground_gpu(repo, db_cat, groups, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("gpu")
-    allow_capacity_fallback = bool(policy.get("allow_capacity_fallback_when_model_missing", False))
-    check_capacity = bool(policy.get("check_capacity_after_model_match", True))
-    tolerance_ratio = float(policy.get("capacity_tolerance_ratio") or 0.05)
-    rows = repo.get_by_category_with_specs(db_cat)
+    """GPU：每个 GPU 组 → 一行缺口（型号 token/显存），由 AI 从候选按需求语义选型。"""
     out = []
     for g in groups or []:
         qty = int(g.get("qty") or 1)
-        toks = [t for t in (g.get("tokens") or []) if str(t).strip()]
-        cap = g.get("cap")
-        cmp = str(g.get("comparison") or "").strip()
-        rep = None
-        matched = ""
-        request_spec = " ".join(str(t).strip() for t in toks)
-        requested_cap = _gb_of(cap) if cap is not None else None
-        if toks:
-            match_tokens = sorted(toks, key=len, reverse=True) if policy.get("match_model_tokens_first", True) else list(toks)
-            for tok in match_tokens:
-                hits = [r for r in rows if _model_match(tok, r.get("model") or "")]
-                if hits:
-                    rep = pick(hits)
-                    matched = f"型号 {tok}"
-                    break
-            if rep is None and not allow_capacity_fallback:
-                out.append(_unmatched(
-                    db_cat, qty,
-                    f"库无型号 {request_spec or 'GPU'}；禁止按显存容量静默替换为其他型号"))
-                continue
-        if rep is None and cap is not None and (not toks or allow_capacity_fallback):
-            def gh(r):
-                c = _gb_of((r.get("specs") or {}).get("Capacity"))
-                return c is not None and not _capacity_mismatch(c, requested_cap, cmp, tolerance_ratio)
-            hits = [r for r in rows if gh(r)]
-            if hits:
-                rep = pick(hits)
-                matched = f"显存 {cap}G"
-        if rep is None:
-            out.append(_unmatched(db_cat, qty, f"库无 {toks[0] if toks else 'GPU'} 件"))
-            continue
-        grounded = rep.get("specs") or {}
-        grounded_cap = _gb_of(grounded.get("Capacity"))
-        mismatch = False
-        if check_capacity and requested_cap is not None and grounded_cap is not None:
-            mismatch = _capacity_mismatch(grounded_cap, requested_cap, cmp, tolerance_ratio)
-        grounded_bits = [str(rep.get("model") or "").strip()]
-        if grounded_cap is not None:
-            grounded_bits.append(f"{int(grounded_cap)}G")
-        out.append(_row(db_cat, rep, qty, matched,
-                         request_spec=request_spec,
-                         grounded_spec=" ".join(grounded_bits).strip(),
-                         spec_mismatch=mismatch))
+        tokens = [str(t) for t in (g.get("tokens") or []) if str(t).strip()]
+        cap = g.get("cap") if g.get("cap") is not None else g.get("capacity_gb")
+        want = " ".join(tokens) or "未指定型号"
+        if cap is not None:
+            want = f"{want} {cap}G显存"
+        out.append(_placeholder(db_cat, qty, want))
     return out
 
-
 def _ground_raid(repo, db_cat, groups, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("raid")
-    model_first = bool(policy.get("model_match_first", True))
-    require_level = bool(policy.get("require_level_support", True))
-    rows = repo.get_by_category_with_specs(db_cat)
+    """RAID：只登记卡需求（型号/缓存/级别），由 AI 从阵列卡候选选型；不做 RAID Level 词表匹配。"""
     out = []
     for g in groups or []:
         qty = int(g.get("qty") or 1)
         model = str(g.get("model") or "").strip()
+        cache = g.get("cache")
         levels = g.get("raid_levels") or []
-        rep = None
-        matched = ""
-        request_spec = model or ("RAID " + "/".join(str(x) for x in (levels or [])))
-        # 模型字段里写了 RAID 级别（如 "RAID 0,1,10"）：这是级别信号，不是卡型号。
-        if model and not _model_tokens(model):
-            level_scan = re.findall(r"\d+", model)
-            levels = [x for x in level_scan if x not in (levels or [])]
-            model = ""
-
-        def match_levels():
-            nonlocal rep, matched
-            level_hits = []
-            for r in rows:
-                specs = r.get("specs") or {}
-                if any(str(level) in str(specs.get(key) or "") for level in levels
-                       for key in ("RAID Level", "Raid Level", "Levels", "Supported RAID")):
-                    level_hits.append(r)
-                    break
-            if level_hits:
-                rep = pick(level_hits)
-                matched = "RAID " + "/".join(str(x) for x in levels)
-
-        if model_first and model:
-            hits = [r for r in rows if _model_match(model, r.get("model") or "")]
-            if hits:
-                rep = pick(hits)
-                matched = f"型号 {model}"
-        if rep is None and levels:
-            match_levels()
-            if rep is None and require_level:
-                # RAID 级别必须来自目录事实；库内未登记支持级别时不得任取一条代表件。
-                out.append(_unmatched(db_cat, qty, f"库内未登记 RAID {'/'.join(str(x) for x in levels)} 支持，无法自动选卡"))
-                continue
-            if rep is None and not require_level:
-                rep = pick(rows)
-                matched = "RAID 代表件"
-        if rep is None and model and not model_first:
-            hits = [r for r in rows if _model_match(model, r.get("model") or "")]
-            if hits:
-                rep = pick(hits)
-                matched = f"型号 {model}"
-        if rep is None:
-            out.append(_unmatched(db_cat, qty, f"库无 {model or 'RAID'} 件"))
-            continue
-        out.append(_row(db_cat, rep, qty, matched,
-                         request_spec=request_spec,
-                         grounded_spec=str(rep.get("model") or "")))
+        bits = [model] if model else ["RAID 阵列卡"]
+        if cache:
+            bits.append(f"{cache}缓存")
+        if levels:
+            bits.append("支持" + "/".join(str(x) for x in levels))
+        out.append(_placeholder(db_cat, qty, " ".join(bits)))
     return out
 
-
 def _ground_nic(repo, db_cat, msf, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("nic")
-    use_spec_filter = bool(policy.get("spec_filter", True))
-    use_name_contains = bool(policy.get("name_contains", True))
-    rows = repo.get_by_category_with_specs(db_cat)
-    lines = (msf or {}).get("Network(NIC) requirement") or (msf or {}).get(db_cat) or []
+    """网卡：把多规格需求转成缺口行（含修饰词），由 AI 从候选选型。"""
+    if isinstance(msf, dict):
+        lines = msf.get("Network(NIC) requirement") or msf.get(db_cat) or []
+    elif isinstance(msf, list):
+        lines = msf
+    else:
+        lines = []
+    if isinstance(lines, dict):
+        lines = [lines]
+    if not isinstance(lines, list):
+        lines = []
     out = []
     for line in lines:
         if not isinstance(line, dict):
             continue
-        filters = line.get("filters") or []
         qty = int(line.get("qty") or 1)
-        ncontains = line.get("name_contains") or []
-        cand = [r for r in rows if _spec_hit(r.get("specs") or {}, filters)] if (use_spec_filter and filters) else list(rows)
-        terms = ncontains if isinstance(ncontains, list) else [ncontains]
-        terms = [t for t in terms if str(t).strip()]
-        if use_name_contains and terms:
-            cand = [r for r in cand if all(str(t).strip().lower() in str(r.get("model") or "").lower() for t in terms)]
-        rep = pick(cand)
-        if not rep:
-            out.append(_unmatched(db_cat, qty, "库无匹配网卡"))
-            continue
-        out.append(_row(db_cat, rep, qty, _spec_hit(rep.get("specs") or {}, filters)))
+        terms = line.get("name_contains") or []
+        if not isinstance(terms, list):
+            terms = [terms]
+        want = " ".join(str(t) for t in terms if str(t).strip()) or "网卡"
+        out.append(_placeholder(db_cat, qty, want))
     return out
 
-
 def _ground_generic(repo, db_cat, search, qty_map, search_map, pick):
-    from app.services.requirement_rule_catalog import part_selection_policy
-    policy = part_selection_policy("generic")
-    search_field = str(policy.get("search_field") or "keyword")
+    """通用类（电源等）：把关键词/数量转成缺口行，由 AI 从候选选型。"""
     qty = int((qty_map or {}).get(db_cat) or 1)
-    if search_field == "keyword":
-        kw = str((search_map or {}).get(db_cat) or search or "").strip()
-    else:
-        kw = str(search or "").strip()
-    rows = repo.get_latest_prices(search=kw, category=db_cat, sort_by="price", sort_order="asc", include_record_count=False)
-    rep = pick(rows)
-    if not rep:
-        return [_unmatched(db_cat, qty, f"库无 {db_cat} 代表件")]
-    return [_row(db_cat, rep, qty, f"关键词 {kw}" if kw else "代表件")]
-
+    kw = str((search_map or {}).get(db_cat) or search or "").strip()
+    return [_placeholder(db_cat, qty, kw or str(db_cat))]
 
 def select_parts(categories=None, server_type_name=None, search=None, qty_map=None, search_map=None,
                  representative_pick="min_price",
                  cpu_signal=None, mem_signal=None, drive_groups=None,
-                 gpu_groups=None, raid_groups=None, psu_signal=None, multi_spec_filters=None):
-    """按结构化信号落地真实料号；AI 补全信号（怎么配），工具只检索落地。"""
+                 gpu_groups=None, raid_groups=None, psu_signal=None, multi_spec_filters=None,
+                 series: str = ""):
+    """按结构化信号落地真实料号；AI 补全信号（怎么配），工具只检索落地。
+
+    series：机型平台系列——已锁机型时传入，候选池过滤到适配件（applicable 语义），
+    不兼容件进 BOM 是硬错误；未锁机型/未知系列传空。
+    """
     pick = lambda rows: _pick(rows, representative_pick)
-    repo = KPRepository()
+    raw_repo = KPRepository()
+    repo = _SeriesScopedRepo(raw_repo, series)
     try:
         index = _category_index(repo)
         db_cats = []
@@ -716,5 +571,369 @@ def select_parts(categories=None, server_type_name=None, search=None, qty_map=No
             else:
                 parts.extend(_ground_generic(repo, db_cat, search, qty_map, search_map, pick))
         return parts
+    finally:
+        raw_repo.close()
+
+# ── 场景化配件推荐（要了配件但零信号时的缺口选项；全部目录事实）──────────────────
+
+_SCENARIO_SLOT_OF_DB_CAT = [
+    (("gpu",), "gpu_groups", "GPU 加速卡"),
+    (("cpu",), "cpu_signal", "CPU"),
+    (("memory", "mem"), "mem_signal", "内存"),
+    (("hdd/ssd", "ssd", "storage", "drive"), "drive_groups", "硬盘"),
+    (("raid", "hba"), "raid_groups", "阵列卡"),
+]
+
+def _scenario_slot_for(db_cat: str) -> tuple[str, str]:
+    low = db_cat.lower()
+    for keys, slot, label in _SCENARIO_SLOT_OF_DB_CAT:
+        if any(k in low for k in keys):
+            return slot, label
+    return "", ""
+
+def _scenario_categories(server_type_name: str) -> list:
+    """场景包命中的品类（数据源=system_config 规则目录 type_packages，与 select_parts 同判定）。"""
+    n = str(server_type_name or "").strip()
+    if not n:
+        return []
+    from app.services.requirement_rule_catalog import type_packages
+    for pkg in type_packages() or []:
+        kw = str(pkg.get("type_keyword") or "")
+        if kw and kw in n:
+            return [str(c) for c in (pkg.get("categories") or [])]
+    return []
+
+def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
+                            include_price: bool = True, only_unfilled: bool = False) -> tuple:
+    """场景化配件推荐缺口数据（逐组问）：(reason_code, options) 只含第一个
+    未填且未跳过的组；选完一组续跑引擎，下一组自然接上。无场景包/组全空 → ("", [])。
+
+    选项全部来自目录事实：品类=场景包；型号/容量=KP 目录并按机型系列过滤（applicable）；
+    数量上限=机箱能力（GPU 槽/内存槽/CPU 路）。每个选项附带结构化 signal 载荷
+    （apply_structured_slots 直传形态）+ 数量元数据（qty/qty_max/unit_gb 供前端
+    stepper 与实时总量显示），点击即原样落信号槽，客户端不解析文本。
+    逃生项：「先跳过这组」登记 scenario_skips（引擎后续不再问该组）；
+    only_unfilled=True 时另附「就这些」终止补齐项。
+    """
+    baseline = baseline or {}
+    ext = ext or {}
+    series = str(baseline.get("series") or "").strip()
+    cats = _scenario_categories(server_type_name)
+    if not cats:
+        return "", []
+    reason = "scenario_incomplete" if only_unfilled else "scenario_recommend"
+
+    def _price_note(row, qty=1):
+        if not include_price or not row:
+            return ""
+        try:
+            v = float(row.get("price") or 0) * qty
+        except (TypeError, ValueError):
+            return ""
+        return f"¥{v:,.0f}" if v > 0 else ""
+
+    repo = KPRepository()
+    try:
+        srepo = _SeriesScopedRepo(repo, series)
+        index = _category_index(srepo)
+        db_cats = []
+        for c in cats:
+            dbc = _resolve_db_category(c, index)
+            if dbc and dbc not in db_cats:
+                db_cats.append(dbc)
+        compat = f"{series} 适配" if series else ""
+        skips = {str(s).strip() for s in (ext.get("scenario_skips") or []) if str(s).strip()}
+        out: list[dict] = []
+        cur_slot, cur_label = "", ""
+        for dbc in db_cats:
+            slot, label = _scenario_slot_for(dbc)
+            if not slot or slot in skips or (only_unfilled and ext.get(slot)):
+                continue
+            rows = srepo.get_by_category_with_specs(dbc)
+
+            def specs_of(r):
+                return r.get("specs") or {}
+
+            if slot == "gpu_groups":
+                def gcap(r):
+                    return _gb_of(specs_of(r).get("Capacity"))
+                ranked = sorted((r for r in rows if gcap(r)), key=lambda r: -gcap(r))
+                if not ranked:
+                    continue
+                # 候选多样性：取前 2 个**不同型号**（只出"最大显存件"单一候选像兜底，
+                # 客户没得挑）；数量档（满配/半配）跟在型号后面
+                top_models: list = []
+                _seen: set = set()
+                for r in ranked:
+                    m = str(r.get("model") or "")
+                    if m and m not in _seen:
+                        _seen.add(m)
+                        top_models.append(r)
+                    if len(top_models) >= 2:
+                        break
+                slots_n = int(baseline.get("gpu_slots") or 0)
+                for top in top_models:
+                    tiers = sorted({q2 for q2 in (slots_n, slots_n // 2) if q2 >= 1}) if slots_n else [1]
+                    for q in tiers[:2]:
+                        note = " ".join(b for b in (f"{int(gcap(top))}G 显存", compat, _price_note(top, q)) if b)
+                        out.append({"label": f"{q}× {top.get('model')}", "value": f"{q}×{top.get('model')}",
+                                    "desc": note, "slot": slot, "group": label,
+                                    "qty": int(q), "qty_max": slots_n or 8, "unit_gb": int(gcap(top)),
+                                    "signal": {"gpu": [{"model": str(top.get("model") or ""), "qty": int(q)}]}})
+            elif slot == "cpu_signal":
+                def cores(r):
+                    return _num_of(specs_of(r).get("Cores"))
+                ranked = sorted((r for r in rows if cores(r)), key=lambda r: -cores(r)) \
+                    or sorted(rows, key=lambda r: -float(r.get("price") or 0))
+                if not ranked:
+                    continue
+                # 前 3 个不同型号（平台适配范围内核数降序），客户可挑性价比而非只有"最多核"
+                best_models: list = []
+                _seen2: set = set()
+                for r in ranked:
+                    m = str(r.get("model") or "")
+                    if m and m not in _seen2:
+                        _seen2.add(m)
+                        best_models.append(r)
+                    if len(best_models) >= 3:
+                        break
+                q = int(baseline.get("max_cpu") or 1)
+                for best in best_models:
+                    note = " ".join(b for b in (f"{int(cores(best))} 核" if cores(best) else "",
+                                                compat, _price_note(best, q)) if b)
+                    out.append({"label": f"{q}× {best.get('model')}", "value": f"{q}×{best.get('model')}",
+                                "desc": note, "slot": slot, "group": label,
+                                "signal": {"cpu": {"model": str(best.get("model") or ""), "qty": int(q)}}})
+            elif slot == "mem_signal":
+                def mcap(r):
+                    return _gb_of(specs_of(r).get("Capacity"))
+                caps = sorted({int(c) for c in (mcap(r) for r in rows) if c}, reverse=True)[:2]
+                if not caps:
+                    continue
+                dimm = int(baseline.get("max_dimm") or 0)
+                for c in caps:
+                    n = dimm if dimm else 8
+                    stick = next((r for r in rows if mcap(r) == c), None)
+                    note = " ".join(b for b in (
+                        f"插满 {dimm} 槽" if dimm else "按 8 条估（机型未登记内存槽数）",
+                        str((specs_of(stick) or {}).get("Type") or "").strip(),
+                        compat, _price_note(stick, n)) if b)
+                    out.append({"label": f"{n}× {c}G（共 {n * c}G）", "value": f"{n}×{c}G",
+                                "desc": note, "slot": slot, "group": label,
+                                "qty": int(n), "qty_max": dimm or 8, "unit_gb": int(c),
+                                "signal": {"memory": {"per_stick_gb": int(c), "qty": int(n)}}})
+            elif slot == "drive_groups":
+                def dcap(r):
+                    return _gb_of(specs_of(r).get("Capacity"))
+                is_ssd = [r for r in rows if "SSD" in (
+                    str(specs_of(r).get("Media") or "") + str(specs_of(r).get("Type") or "")).upper()]
+                pool = is_ssd or rows
+                caps = sorted({int(c) for c in (dcap(r) for r in pool) if c}, reverse=True)[:2]
+                for c in caps:
+                    def cap_of(r):
+                        v = dcap(r)
+                        return int(round(v)) if v else None
+                    stick = next((r for r in pool if cap_of(r) == c), None)
+                    if stick is None:
+                        continue
+                    disp = _drive_display(stick)
+                    media = _drive_media_label(stick)
+                    sig_item = {"capacity_gb": int(c), "qty": 1, "media": media}
+                    out.append({"label": disp,
+                                "value": disp,
+                                "desc": " ".join(b for b in (media, compat,
+                                                             _price_note(stick, 1)) if b),
+                                "slot": slot, "group": label,
+                                "qty": 1, "qty_max": 16, "unit_gb": int(c),
+                                "signal": {"drives": [sig_item]}})
+            elif slot == "raid_groups":
+                if not rows:
+                    continue
+                card = min(rows, key=lambda r: float(r.get("price") or 0))
+                out.append({"label": "RAID 10 阵列卡", "value": "RAID 10",
+                            "desc": " ".join(b for b in ("数据安全镜像", compat, _price_note(card)) if b),
+                            "slot": slot, "group": label,
+                            "signal": {"raid": [{"raid_levels": ["10"]}]}})
+            if out:
+                cur_slot, cur_label = slot, label
+                break
+        if not out:
+            return "", []
+        out.append({"label": f"先跳过这组（暂不配{cur_label}）", "value": "skip_group",
+                    "desc": "跳过本组推荐，继续确认下一项", "slot": "kp_scenario_skip",
+                    "group": "", "signal": {"scenario_skips": [cur_slot]}})
+        if only_unfilled:
+            out.append({"label": "就这些，按已选的出方案", "value": "scenario_complete",
+                        "desc": "跳过剩余推荐项，直接生成方案", "slot": "kp_scenario_done",
+                        "group": ""})
+        return reason, out
+    finally:
+        repo.close()
+
+def manual_pick_options(slot: str, server_type_name: str, baseline=None,
+                        include_price: bool = True, limit: int = 40) -> list:
+    """配件库自选候选：槽位品类在平台系列适配内的全部件（带 signal 载荷）。
+
+    场景推荐只出 top-N 启发式候选（客户没得挑）；自选=全目录平铺按容量/核数
+    降序，客户按型号/价格自己定。候选由服务端生成并登记进 last_card（与发卡
+    选项同源同格式），后续点击仍走 (slot,value) 留底匹配，客户端不携带 signal。
+    内存/硬盘按容量去重（信号就是容量），同容量取最便宜型号做代表。
+    """
+    baseline = baseline or {}
+    series = str(baseline.get("series") or "").strip()
+    meta = next(((keys, s, label) for keys, s, label in _SCENARIO_SLOT_OF_DB_CAT if s == slot), None)
+    if not meta or slot == "raid_groups":
+        return []
+    keys, _, label = meta
+    repo = KPRepository()
+    try:
+        srepo = _SeriesScopedRepo(repo, series)
+        index = _category_index(srepo)
+        db_cats = []
+        for c in (repo.get_categories() or []):
+            name = str(c.get("category") or "").strip()
+            if name and any(k in name.lower() for k in keys):
+                dbc = _resolve_db_category(name, index)
+                if dbc and dbc not in db_cats:
+                    db_cats.append(dbc)
+        compat = f"{series} 适配" if series else ""
+
+        def _price_note(row, qty=1):
+            if not include_price or not row:
+                return ""
+            try:
+                v = float(row.get("price") or 0) * qty
+            except (TypeError, ValueError):
+                return ""
+            return f"¥{v:,.0f}" if v > 0 else ""
+
+        def specs_of(r):
+            return r.get("specs") or {}
+
+        out: list[dict] = []
+        for dbc in db_cats:
+            rows = srepo.get_by_category_with_specs(dbc)
+            if slot == "gpu_groups":
+                slots_n = int(baseline.get("gpu_slots") or 0)
+                tiers = sorted({q for q in (slots_n, slots_n // 2, 1) if q >= 1})[-2:] if slots_n else [1]
+                ranked = sorted(rows, key=lambda r: -(_gb_of(specs_of(r).get("Capacity")) or 0))
+                seen: set = set()
+                for r in ranked:
+                    m = str(r.get("model") or "")
+                    if not m or m in seen:
+                        continue
+                    seen.add(m)
+                    cap = _gb_of(specs_of(r).get("Capacity"))
+                    for q in tiers:
+                        note = " ".join(b for b in (
+                            f"{int(cap)}G 显存" if cap else "", compat, _price_note(r, q)) if b)
+                        out.append({"label": f"{q}× {m}", "value": f"{q}×{m}",
+                                    "desc": note, "slot": slot, "group": label,
+                                    "signal": {"gpu": [{"model": m, "qty": int(q)}]}})
+            elif slot == "cpu_signal":
+                q = int(baseline.get("max_cpu") or 1)
+                ranked = sorted(rows, key=lambda r: -(_num_of(specs_of(r).get("Cores")) or 0))
+                seen = set()
+                for r in ranked:
+                    m = str(r.get("model") or "")
+                    if not m or m in seen:
+                        continue
+                    seen.add(m)
+                    cores_v = _num_of(specs_of(r).get("Cores"))
+                    note = " ".join(b for b in (
+                        f"{int(cores_v)} 核" if cores_v else "", compat, _price_note(r, q)) if b)
+                    out.append({"label": f"{q}× {m}", "value": f"{q}×{m}",
+                                "desc": note, "slot": slot, "group": label,
+                                "signal": {"cpu": {"model": m, "qty": int(q)}}})
+            elif slot == "mem_signal":
+                dimm = int(baseline.get("max_dimm") or 0) or 8
+                by_cap: dict[int, dict] = {}
+                for r in rows:
+                    c = _gb_of(specs_of(r).get("Capacity"))
+                    if not c:
+                        continue
+                    k = int(c)
+                    if k not in by_cap or float(r.get("price") or 1e9) < float(by_cap[k].get("price") or 1e9):
+                        by_cap[k] = r
+                for c, r in sorted(by_cap.items(), key=lambda kv: -kv[0]):
+                    note = " ".join(b for b in (
+                        f"插满 {dimm} 槽" if int(baseline.get("max_dimm") or 0) else "按 8 条估（机型未登记内存槽数）",
+                        str(specs_of(r).get("Type") or "").strip(),
+                        str(specs_of(r).get("Speed") or "").strip(), compat,
+                        _price_note(r, dimm)) if b)
+                    out.append({"label": f"{dimm}× {c}G（共 {dimm * c}G）", "value": f"{dimm}×{c}G",
+                                "desc": note, "slot": slot, "group": label,
+                                "signal": {"memory": {"per_stick_gb": int(c), "qty": int(dimm)}}})
+            elif slot == "drive_groups":
+                by_cap: dict[tuple, dict] = {}
+                for r in rows:
+                    c = _gb_of(specs_of(r).get("Capacity"))
+                    if not c:
+                        continue
+                    media = "SSD" if "SSD" in (str(specs_of(r).get("Media") or "") +
+                                              str(specs_of(r).get("Type") or "")).upper() else "HDD"
+                    k = (int(c), media)
+                    if k not in by_cap or float(r.get("price") or 1e9) < float(by_cap[k].get("price") or 1e9):
+                        by_cap[k] = r
+                for (c, _mk), r in sorted(by_cap.items(), key=lambda kv: -kv[0][0]):
+                    disp = _drive_display(r)
+                    media = _drive_media_label(r)
+                    note = " ".join(b for b in (media, compat, _price_note(r, 1)) if b)
+                    out.append({"label": disp, "value": disp,
+                                "desc": note, "slot": slot, "group": label,
+                                "qty": 1, "qty_max": 16, "unit_gb": int(c),
+                                "signal": {"drives": [{"capacity_gb": int(c), "qty": 1,
+                                                       "media": media}]}})
+        return out[:limit]
+    finally:
+        repo.close()
+
+def manual_signal_for_text(slot: str, text: str, server_type_name: str,
+                           baseline=None) -> Optional[dict]:
+    """自由输入型号 → 目录匹配构造 signal（逐项卡「手动输入型号」入口）。
+
+    系列适配内全目录按 归一化型号检索 对**型号原文**匹配（型号级命中，不经容量去重代表）；
+    数量取该槽默认档（GPU=满配 / CPU=路数 / 内存=插满 / 硬盘=1，前端 stepper 可再调）。
+    未命中返回 None——调用方走登记表路径白盒处理（库外项不拦截）。
+    """
+    text = str(text or "").strip()
+    meta = next(((keys, s, label) for keys, s, label in _SCENARIO_SLOT_OF_DB_CAT if s == slot), None)
+    if not meta or not text or slot not in ("gpu_groups", "cpu_signal", "mem_signal", "drive_groups"):
+        return None
+    keys, _, _label = meta
+    baseline = baseline or {}
+    series = str(baseline.get("series") or "").strip()
+    repo = KPRepository()
+    try:
+        srepo = _SeriesScopedRepo(repo, series)
+        index = _category_index(srepo)
+        for c in (repo.get_categories() or []):
+            name = str(c.get("category") or "").strip()
+            if not name or not any(k in name.lower() for k in keys):
+                continue
+            dbc = _resolve_db_category(name, index)
+            if not dbc:
+                continue
+            for r in (srepo.get_by_category_with_specs(dbc) or []):
+                m = str(r.get("model") or "")
+                nm = _norm_model(m)
+                nt = _norm_model(text)
+                if not (nt and (nt in nm or nm in nt)):
+                    continue
+                specs = r.get("specs") or {}
+                if slot == "gpu_groups":
+                    return {"gpu": [{"model": m, "qty": int(baseline.get("gpu_slots") or 0) or 1}]}
+                if slot == "cpu_signal":
+                    return {"cpu": {"model": m, "qty": int(baseline.get("max_cpu") or 0) or 1}}
+                cap = _gb_of(specs.get("Capacity"))
+                if not cap:
+                    continue
+                if slot == "mem_signal":
+                    return {"memory": {"per_stick_gb": int(cap),
+                                       "qty": int(baseline.get("max_dimm") or 0) or 8}}
+                media = _drive_media_label({"specs": specs, "model": m})
+                item = {"capacity_gb": int(cap), "qty": 1, "media": media or "SSD"}
+                return {"drives": [item]}
+        return None
     finally:
         repo.close()

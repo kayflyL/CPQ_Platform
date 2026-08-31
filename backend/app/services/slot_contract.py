@@ -54,7 +54,7 @@ CANONICAL_ALIASES: dict[str, list[str]] = {
     "series": ["platform_type"],
     "form": ["chassis_form"],
     "server_model": ["model", "baseline_model"],
-    "purchase_qty": ["n"],
+    "purchase_qty": ["n", "qty", "quantity"],
 }
 
 

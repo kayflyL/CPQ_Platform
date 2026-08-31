@@ -113,7 +113,7 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
             sales_person=sales_person,
             owner_user_id=None,
             owner_sales_person=None,
-            has_committed_requirement=True,
+            has_committed_requirement=False,
             sort_by=sort_by, sort_order=sort_order,
         )
         return {"items": items, "total": total}
@@ -135,6 +135,182 @@ def list_business_options(user: dict = Depends(get_current_user)):
     if not user_has_permission(user, "page.opportunities_all"):
         return {"items": []}
     return {"items": _active_business_accounts()}
+
+
+# ── AI 线索（AI 办公室对话自动登记的隐藏商机；转正前不进业务列表）──
+
+_STALE_DAYS = 7
+
+
+def _split_ai_lead_name(opp: dict) -> dict:
+    """customer_name 形如「用户名 · 需求摘要」，拆开展示。"""
+    name = opp.get("customer_name") or ""
+    if " · " in name:
+        owner, snippet = name.split(" · ", 1)
+    else:
+        owner, snippet = "", name
+    return {"owner_name": owner.strip(), "snippet": snippet.strip()}
+
+
+def _parse_dt(s) -> Optional[datetime]:
+    try:
+        return datetime.fromisoformat(str(s))
+    except (ValueError, TypeError):
+        return None
+
+
+@router.get("/ai-leads")
+def list_ai_leads(page: int = 1, page_size: int = 50, search: str = None,
+                  user: dict = Depends(get_current_user)):
+    """AI 线索列表：全量权限看所有，普通用户只看自己的（owner/业务名匹配）。"""
+    view_all = user_has_permission(user, "page.opportunities_all")
+    repo = OpportunityRepository()
+    try:
+        items, total = repo.list_ai_office_opportunities(
+            page, page_size, search=search,
+            owner_user_id=None if view_all else (user.get("user_id") or None),
+            owner_sales_person=None if view_all else (user.get("name") or None),
+        )
+        ids = [it.get("opportunity_id") for it in items if it.get("opportunity_id")]
+        flags = repo.ai_lead_content_flags(ids) if ids else {}
+    finally:
+        repo.close()
+
+    thread_map: dict = {}
+    if ids:
+        from app.repository.assistant_repo import AssistantRepository
+        arepo = AssistantRepository()
+        try:
+            thread_map = arepo.list_threads_by_opportunity_ids(ids, with_meta=True)
+        finally:
+            arepo.close()
+
+    now = datetime.now()
+    out = []
+    for it in items:
+        oid = it.get("opportunity_id") or ""
+        threads = thread_map.get(oid) or []
+        main = threads[0] if threads else {}
+        flag = flags.get(oid) or {}
+        has_req = bool(flag.get("has_requirement"))
+        has_bom = bool(flag.get("has_bom_scheme"))
+        last_activity = main.get("updated_at") or it.get("updated_at") or ""
+        stale = False
+        dt = _parse_dt(last_activity)
+        if dt and not has_req and (now - dt).days >= _STALE_DAYS:
+            stale = True
+        out.append({
+            "opportunity_id": oid,
+            "customer_name": it.get("customer_name") or "",
+            **_split_ai_lead_name(it),
+            "sales_person": it.get("sales_person") or "",
+            "created_at": it.get("created_at") or "",
+            "updated_at": it.get("updated_at") or "",
+            "thread_id": main.get("thread_id") or "",
+            "thread_count": len(threads),
+            "colleague_role_key": main.get("colleague_role_key") or "",
+            "created_by": main.get("created_by") or "",
+            "msg_count": main.get("msg_count") or 0,
+            "last_activity": last_activity,
+            "has_requirement": has_req,
+            "has_bom_scheme": has_bom,
+            "progress": "plan" if has_bom else ("registered" if has_req else "chatting"),
+            "stale": stale,
+        })
+    return {"items": out, "total": total}
+
+
+class BatchOpportunityRequest(BaseModel):
+    opportunity_ids: List[str]
+
+
+class PromoteAiLeadRequest(BaseModel):
+    customer_name: str
+    sales_person: str = ""
+
+
+@router.post("/{opportunity_id}/promote")
+def promote_ai_lead(opportunity_id: str, req: PromoteAiLeadRequest,
+                    user: dict = Depends(get_current_user)):
+    """AI 线索转正：改 status=active + 补客户名/业务归属，之后进入商机列表。"""
+    repo = OpportunityRepository()
+    try:
+        opp = repo.get_opportunity(opportunity_id)
+        if not opp:
+            raise HTTPException(status_code=404, detail="线索不存在")
+        if opp.get("status") != "ai_office":
+            raise HTTPException(status_code=400, detail="该商机不是 AI 线索")
+        view_all = user_has_permission(user, "page.opportunities_all")
+        if not view_all:
+            uid = user.get("user_id") or ""
+            name = user.get("name") or ""
+            if not ((uid and opp.get("owner_user_id") == uid) or
+                    (not opp.get("owner_user_id") and name and opp.get("sales_person") == name)):
+                raise HTTPException(status_code=403, detail="无权操作他人的 AI 线索")
+
+        customer_name = (req.customer_name or "").strip()
+        if not customer_name:
+            raise HTTPException(status_code=400, detail="客户名不能为空")
+
+        sales_person = (req.sales_person or "").strip()
+        owner_user_id = opp.get("owner_user_id")
+        if not view_all:
+            sales_person = user.get("name") or sales_person
+        elif sales_person:
+            target = next((u for u in _active_business_accounts() if u["name"] == sales_person), None)
+            if target:
+                owner_user_id = target["user_id"]
+
+        repo.update_meta(opportunity_id, {
+            "customer_name": customer_name,
+            "sales_person": sales_person or user.get("name") or "",
+            "owner_user_id": owner_user_id,
+            "status": "active",
+        })
+        flags = repo.ai_lead_content_flags([opportunity_id]).get(opportunity_id, {})
+        return {
+            "status": "success",
+            "opportunity_id": opportunity_id,
+            "has_requirement": bool(flags.get("has_requirement")),
+            "message": "AI 线索已转正" if flags.get("has_requirement")
+                       else "已转正（该线索尚未登记需求单，需在商机详情页补交后才出现在商机列表）",
+        }
+    finally:
+        repo.close()
+
+
+@router.post("/ai-leads/purge")
+def purge_ai_leads(req: BatchOpportunityRequest, user: dict = Depends(get_current_user)):
+    """批量清理 AI 线索：级联删除会话/消息/需求单/BOM 方案/商机行（物理删除，不可恢复）。"""
+    from app.repository.assistant_repo import AssistantRepository
+    view_all = user_has_permission(user, "page.opportunities_all")
+    repo = OpportunityRepository()
+    results = {"success": [], "failed": []}
+    try:
+        for pid in req.opportunity_ids:
+            try:
+                opp = repo.get_opportunity(pid)
+                if not opp or opp.get("status") != "ai_office":
+                    raise ValueError("不是 AI 线索")
+                if not view_all:
+                    uid = user.get("user_id") or ""
+                    name = user.get("name") or ""
+                    if not ((uid and opp.get("owner_user_id") == uid) or
+                            (not opp.get("owner_user_id") and name and opp.get("sales_person") == name)):
+                        raise PermissionError("无权操作他人的 AI 线索")
+                arepo = AssistantRepository()
+                try:
+                    arepo.hard_delete_threads_by_opportunity(pid)
+                finally:
+                    arepo.close()
+                if not repo.hard_delete_ai_lead(pid):
+                    raise ValueError("删除失败")
+                results["success"].append(pid)
+            except Exception as e:
+                results["failed"].append({"id": pid, "error": str(e)})
+        return results
+    finally:
+        repo.close()
 
 
 @router.put("/{opportunity_id}")
@@ -407,10 +583,6 @@ def update_opportunity_meta(opportunity_id: str, updates: dict,
 
 
 # ── Batch Operations ──
-
-class BatchOpportunityRequest(BaseModel):
-    opportunity_ids: List[str]
-
 
 @router.post("/batch-trash")
 def batch_move_to_trash(req: BatchOpportunityRequest, user: dict = Depends(get_current_user)):

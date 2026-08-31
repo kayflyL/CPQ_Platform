@@ -23,16 +23,14 @@ from app.repository.assistant_repo import AssistantRepository
 from app.services import llm_client
 from app.services.assistant_hub import assistant_hub
 from app.services.office_events import publish_office_event
-from app.services.office_intent import resolve_office_spatial_intent
-from app.services.office_memory import office_memory
-from app.services.agent_tools import tool_catalog
+from app.services.agent_tool_specs import tool_catalog
 from app.services.office_access import allowed_chat_role_keys
 from app.services.colleague_turn_service import run_colleague_turn
-from app.services.capability_executor import request_workflow_stop
 from app.services.ai_colleague_service import (
     get_colleague,
-    resolve_assistant_message_dispatch,
-    resolve_assistant_message_target,
+    get_team_lead_role_key,
+    resolve_assistant_message_target_async,
+    resolve_chat_target,
 )
 
 logger = logging.getLogger(__name__)
@@ -117,6 +115,13 @@ class RenameThreadBody(BaseModel):
     title: str
 
 
+class CardSelectionBody(BaseModel):
+    slot: str
+    value: str
+    label: Optional[str] = None  # 仅审计展示用；落槽以服务端留底的 (slot,value) 匹配为准
+    qty: Optional[int] = None    # stepper 数量参数（服务端按机箱能力 clamp 后克隆 signal）
+
+
 class PostMessageBody(BaseModel):
     content: str
     opportunity_id: Optional[str] = None
@@ -125,6 +130,7 @@ class PostMessageBody(BaseModel):
     role_key: Optional[str] = None  # 可选：直接指定某位 AI 同事（不传则按分派规则自动决定）
     entry_point: Optional[str] = None
     option_slot: Optional[str] = None  # 用户点击结构化选项时，明确该选项对应的槽位
+    card_selections: Optional[list[CardSelectionBody]] = None  # 表单模式：一次提交多组缺口选择
 
 
 class DispatchPreviewBody(BaseModel):
@@ -227,6 +233,48 @@ def resolve_employee_thread(body: ResolveThreadBody, user: dict = Depends(curren
         repo.close()
 
 
+class GroupResolveBody(BaseModel):
+    entry_point: Optional[str] = None
+
+
+@router.post("/threads/group-resolve")
+def group_thread_resolve(body: GroupResolveBody, user: dict = Depends(current_user)):
+    """团队群会话（未绑定同事的总助线程）get-or-create。
+
+    群聊是 leader 调度与 @ 点名的唯一场所；与方案助手 1:1（office_colleague 绑定线程）是两个窗口。
+    """
+    if not _user_can_chat_with_role(user, "assistant"):
+        raise HTTPException(status_code=403, detail="无权访问团队群")
+    repo = AssistantRepository()
+    try:
+        existing = [
+            t for t in repo.list_threads(user["user_id"], thread_kind="assistant", limit=5)
+            if not str(t.get("colleague_role_key") or "").strip()
+        ]
+        if existing:
+            thread = existing[0]
+            if body.entry_point:
+                updated = repo.update_thread_entry_point(thread["thread_id"], body.entry_point)
+                if updated:
+                    thread = updated
+            return {"thread": thread}
+        thread = repo.create_thread(
+            created_by=user["user_id"],
+            title="配置团队",
+            thread_kind="assistant",
+            entry_point=body.entry_point,
+        )
+        opening = str((get_colleague("assistant") or {}).get("opening_message") or "").strip()
+        if opening:
+            repo.add_message(
+                thread_id=thread["thread_id"], role="assistant", content=opening,
+                kind="opening", colleague_role_key="assistant",
+            )
+        return {"thread": thread}
+    finally:
+        repo.close()
+
+
 @router.post("/threads")
 def create_thread(body: CreateThreadBody, user: dict = Depends(current_user)):
     opening_role_key = (body.opening_role_key or "").strip() or None
@@ -306,9 +354,49 @@ def list_messages(thread_id: str, limit: int = 50, user: dict = Depends(current_
     repo = AssistantRepository()
     try:
         _thread_for_user(repo, thread_id, user)
-        return {"messages": repo.list_messages(thread_id, limit=limit)}
+        msgs = repo.list_messages(thread_id, limit=limit)
+        # 上下文水位：估算送入 LLM 的历史规模（中文约 0.6 token/字符；上限按 64k 保守显示）
+        chars = sum(len(str(m.get("content") or "")) for m in msgs)
+        est_tokens = int(chars * 0.6)
+        limit_tokens = 65536
+        return {
+            "messages": msgs,
+            "context_usage": {
+                "chars": chars,
+                "est_tokens": est_tokens,
+                "limit_tokens": limit_tokens,
+                "ratio": round(min(1.0, est_tokens / limit_tokens), 3),
+            },
+        }
     finally:
         repo.close()
+
+
+@router.post("/threads/{thread_id}/restore")
+def restore_thread(thread_id: str, user: dict = Depends(current_user)):
+    """从归档恢复会话：同（类型，角色）的当前活跃会话先归档换位（每角色仅一个活跃会话）。"""
+    repo = AssistantRepository()
+    try:
+        thread = _thread_for_user(repo, thread_id, user)
+        if not str(thread.get("deleted_at") or "").strip():
+            return {"thread": thread}
+        role_key = str(thread.get("colleague_role_key") or "").strip() or None
+        kind = thread.get("thread_kind") or "assistant"
+        for t in repo.list_threads(user["user_id"], thread_kind=kind, colleague_role_key=role_key, limit=1):
+            if t.get("thread_id") != thread_id:
+                repo.soft_delete_thread(t["thread_id"], created_by=user["user_id"])
+        restored = repo.restore_thread(thread_id, created_by=user["user_id"])
+        if not restored:
+            raise HTTPException(status_code=404, detail="会话不存在")
+        fresh = repo.list_threads(user["user_id"], thread_kind=kind, colleague_role_key=role_key, limit=5)
+        target = next((t for t in fresh if t.get("thread_id") == thread_id), None)
+        return {"thread": target or thread}
+    finally:
+        repo.close()
+
+
+# 每线程在跑的后台任务注册表：stop 端点据此真正取消任务（旧 stop 事件无消费者=安慰剂，已废）。
+_ACTIVE_TURN_TASKS: dict[str, "asyncio.Task"] = {}
 
 
 async def _run_office_turn(
@@ -321,22 +409,11 @@ async def _run_office_turn(
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
     option_slot: Optional[str] = None,
+    card_selections: Optional[list] = None,
 ) -> None:
     """后台处理 AI Office 会话：空间指令优先，其余走普通聊天/LLM 意图识别。"""
     try:
         colleague_role_key = (colleague or {}).get("role_key") or "assistant"
-        await office_memory.remember(
-            colleague_role_key,
-            f"用户消息：{content}",
-            kind="episodic",
-            importance=0.4,
-        )
-
-        spatial = await resolve_office_spatial_intent(content, colleague_role_key, colleague=colleague)
-
-        if spatial:
-            await _reply_spatial_action(thread_id, content, colleague, spatial)
-            return
 
         await publish_office_event(
             colleague_role_key,
@@ -345,17 +422,32 @@ async def _run_office_turn(
             message=content or "",
             thread_id=thread_id,
         )
-        asyncio.create_task(run_colleague_turn(
+        task = asyncio.create_task(run_colleague_turn(
             thread_id, content, context_summary, history, colleague,
             trace_sink=lambda **kw: _record_assistant_tool_trace(user_id=user_id, **kw),
             user=user,
             opportunity_id=opportunity_id,
             option_slot=option_slot,
+            card_selections=card_selections,
         ))
+        _ACTIVE_TURN_TASKS[thread_id] = task
+        task.add_done_callback(lambda _t: _ACTIVE_TURN_TASKS.pop(thread_id, None))
     except Exception:
         logger.exception("AI Office 消息后台处理失败")
+        # 必达终态：失败必须落一条持久化消息——只广播的话，无 WS 客户端时用户看到的就是石沉大海。
         try:
-            await assistant_hub.broadcast(thread_id, {"type": "error", "message": "回复处理失败，请稍后重试"})
+            repo = AssistantRepository()
+            try:
+                repo.add_message(
+                    thread_id=thread_id, role="assistant",
+                    content="这一条处理失败了，请重新发送一次。", kind="error",
+                )
+            finally:
+                repo.close()
+        except Exception:
+            logger.exception("落库终态错误消息失败")
+        try:
+            await assistant_hub.broadcast(thread_id, {"type": "error", "message": "这一条处理失败了，请重新发送一次。"})
         except Exception:
             pass
 @router.post("/threads/{thread_id}/messages")
@@ -376,10 +468,11 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
             updated_thread = repo.update_thread_entry_point(thread_id, body.entry_point)
             if updated_thread:
                 thread = updated_thread
-        if requested_role_key:
-            colleague = get_colleague(requested_role_key)
-        else:
-            colleague = resolve_assistant_message_target(body.content, body.context_summary)
+        # 绑定会话（1:1，含方案助手自己）永不转接；只有未绑定线程=团队群才 @点名/判官转接（2026-08-30 定调）
+        bound_role = str(thread.get("colleague_role_key") or "").strip() or (requested_role_key or "").strip()
+        colleague, dispatch_target = await resolve_chat_target(
+            bound_role or None, body.content, body.context_summary,
+        )
 
         if colleague and not _user_can_chat_with_role(user, str(colleague.get("role_key") or "")):
             raise HTTPException(status_code=403, detail="无权与该 AI 角色聊天")
@@ -392,6 +485,16 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
             thread_id=thread_id, role="user", content=body.content,
             opportunity_id=body.opportunity_id, quotation_id=body.quotation_id,
         )
+        if dispatch_target is not None:
+            # 转接可见化：用户消息之后落一条转接标记（leader 名义），专家随后的回复带自己的头像身份
+            name = str(dispatch_target.get("name") or dispatch_target.get("role_key") or "")
+            reason = str(dispatch_target.get("_dispatch_reason") or "").strip()
+            marker = repo.add_message(
+                thread_id=thread_id, role="assistant",
+                content=f"转给 {name}" + (f"（{reason}）" if reason else ""),
+                kind="handoff", colleague_role_key="assistant",
+            )
+            await assistant_hub.broadcast(thread_id, {"type": "done", "message": marker})
         # auto-title: 首条用户消息前 24 字作为标题
         if not thread.get("title") or thread["title"] == "新会话":
             snippet = (body.content or "").strip().replace("\n", " ")[:24]
@@ -409,39 +512,83 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         user=user,
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
         option_slot=body.option_slot,
+        card_selections=[s.model_dump() for s in body.card_selections] if body.card_selections else None,
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
 
 
 @router.post("/threads/{thread_id}/stop")
 async def stop_workflow(thread_id: str, user: dict = Depends(current_user)):
-    """请求暂停当前 AI 角色任务；工作流在下一个节点边界落 pending 后暂停。"""
+    """停止当前线程正在运行的后台任务：直接取消任务并把取消事件广播给前端。"""
     repo = AssistantRepository()
     try:
         _thread_for_user(repo, thread_id, user)
     finally:
         repo.close()
-    request_workflow_stop(thread_id)
-    await assistant_hub.broadcast(thread_id, {"type": "stopping", "message": "正在暂停当前任务…"})
-    return {"status": "stopping"}
+    task = _ACTIVE_TURN_TASKS.pop(thread_id, None)
+    if task is not None and not task.done():
+        task.cancel()
+    # 排队中的引导消息一并作废（用户按停=不要了；原话仍在会话历史里）
+    from app.services.colleague_turn_service import _clear_thread_queue
+    _clear_thread_queue(thread_id)
+    await assistant_hub.broadcast(thread_id, {"type": "analysis_cancelled", "message": "已取消当前任务。"})
+    return {"status": "cancelled" if task is not None else "idle"}
 
 
 @router.post("/threads/{thread_id}/dispatch-preview")
-def dispatch_preview(thread_id: str, body: DispatchPreviewBody, user: dict = Depends(current_user)):
-    """发送前预览推荐同事：不落库、不启动任务，只返回命中的同事与规则。"""
+async def dispatch_preview(thread_id: str, body: DispatchPreviewBody, user: dict = Depends(current_user)):
+    """发送前预览转接对象：不落库、不启动任务，由 AI 按员工名册判断（leader 专属）。"""
     repo = AssistantRepository()
     try:
-        _thread_for_user(repo, thread_id, user)
+        thread = _thread_for_user(repo, thread_id, user)
     finally:
         repo.close()
-    result = resolve_assistant_message_dispatch(body.content, body.context_summary)
-    colleague = result.get("colleague")
+    # 与 post_message 同一套门控：绑定会话永不转接；总助会话仅 leader=方案助手时转接
+    colleague = None
+    if not str(thread.get("colleague_role_key") or "").strip() and get_team_lead_role_key() == "assistant":
+        colleague = await resolve_assistant_message_target_async(body.content, body.context_summary)
     if colleague and not _user_can_chat_with_role(user, str(colleague.get("role_key") or "")):
         colleague = None
     return {
         "colleague": colleague,
-        "matched_rule": result.get("matched_rule") if colleague else None,
+        "reason": str(colleague.get("_dispatch_reason") or "") if colleague else "",
     }
+
+
+@router.get("/threads/{thread_id}/card-pick")
+def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
+              role_key: Optional[str] = Query(None), user: dict = Depends(current_user)):
+    """配件库自选候选：按当前留底卡的 pick_meta 生成与发卡同格式的选项（含 signal），
+    并登记进 last_card.options——后续点击仍走 (slot,value) 服务端留底匹配，
+    客户端回传不携带 signal，服务端留底原则不破。"""
+    from app.services.skill_chat import _load_mem, _save_mem
+    from app.services.part_selector import manual_pick_options
+    from app.services.data_boundary import colleague_price_ok
+    from app.services.ai_colleague_service import get_colleague
+
+    repo = AssistantRepository()
+    try:
+        thread = _thread_for_user(repo, thread_id, user)
+    finally:
+        repo.close()
+    rk = (role_key or "").strip() or str(thread.get("colleague_role_key") or "").strip() or "assistant"
+    mem = _load_mem(thread_id, rk)
+    last_card = mem.get("last_card") or {}
+    meta = last_card.get("pick_meta") or {}
+    if not meta:
+        raise HTTPException(status_code=409, detail="当前选项卡不支持自选（任务进行中的配件推荐卡才可）")
+    opts = manual_pick_options(
+        slot, str(meta.get("server_type_name") or ""),
+        baseline={"series": meta.get("series"), "gpu_slots": meta.get("gpu_slots"),
+                  "max_cpu": meta.get("max_cpu"), "max_dimm": meta.get("max_dimm")},
+        include_price=colleague_price_ok(get_colleague(rk) or {}))
+    if not opts:
+        raise HTTPException(status_code=404, detail="配件库该类别没有平台适配候选")
+    keep = [o for o in (last_card.get("options") or [])
+            if not (str(o.get("slot") or "") == slot and o.get("_manual"))]
+    merged = keep + [{**o, "_manual": True} for o in opts]
+    _save_mem(thread_id, rk, {**mem, "last_card": {**last_card, "options": merged}})
+    return {"slot": slot, "options": [{k: v for k, v in o.items() if k != "signal"} for o in opts]}
 
 
 _DEFAULT_OPENING = (
@@ -500,39 +647,6 @@ def _record_assistant_tool_trace(tool_name: str, status: str, duration_ms: int, 
         logger.warning("写助手工具审计 trace 失败: %s", e)
 
 
-async def _reply_spatial_action(thread_id: str, user_text: str, colleague: Optional[dict], spatial: dict) -> None:
-    """Persist a short spatial confirmation and publish the office event immediately."""
-    colleague_role_key = (colleague or {}).get("role_key") or "assistant"
-    reply = str(spatial.get("reply") or "好的。").strip()
-    repo = AssistantRepository()
-    try:
-        asst = repo.add_message(
-            thread_id=thread_id, role="assistant", content=reply,
-            colleague_role_key=(colleague or {}).get("role_key"),
-        )
-    except Exception:
-        logger.exception("space instruction reply persistence failed")
-        asst = None
-    finally:
-        repo.close()
-
-    try:
-        await publish_office_event(
-            spatial.get("role_key") or colleague_role_key,
-            spatial.get("status") or "meeting",
-            spatial.get("activity") or "前往目标区域",
-            message=reply,
-            zone=spatial.get("zone"),
-            intent=spatial.get("intent"),
-            thread_id=thread_id,
-            priority="user",
-            source="assistant_chat",
-        )
-    except Exception:
-        logger.exception("办公室空间指令事件发布失败")
-
-    await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": reply})
-    await assistant_hub.broadcast(thread_id, {"type": "done", "message": asst})
 @router.get("/tools")
 def list_tools():
     """AI 工具目录（只读）：全系统已注册 LLM 工具（名称/分类/描述/参数/默认启用）。

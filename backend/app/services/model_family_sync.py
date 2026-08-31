@@ -26,11 +26,36 @@ def _candidate_words(name: str) -> set:
     return out
 
 
+def load_family_words() -> dict:
+    """读型号家族词表（system_config.model_family_words），缺失/异常回退常量。
+
+    （原 clarity_evaluator.load_family_words：该模块退役后词表读取收编至此。）
+    """
+    from app.repository.system_config_repo import SystemConfigRepository
+
+    fallback = {
+        "CPU": ["epyc", "xeon", "至强", "kh-", "kh50"],
+        "GPU": ["h100", "a100", "h200", "h800", "a800", "b200", "b100", "l40", "l20",
+                "mi300", "mi250", "mi100", "rtx", "r9700", "w7900", "w7800", "w6600",
+                "tesla", "quadro", "radeon", "instinct", "v100", "a30", "a10"],
+    }
+    try:
+        repo = SystemConfigRepository()
+        try:
+            cfg = repo.get_value("model_family_words")
+        finally:
+            repo.close()
+        if isinstance(cfg, dict) and cfg:
+            return {**fallback, **cfg}
+    except Exception:
+        pass
+    return {k: list(v) for k, v in fallback.items()}
+
+
 def sync_model_family_words() -> int:
     """从 kp 库 CPU/GPU 件名自动补齐家族词表。返回新增词数（幂等）。"""
     from app.repository.kp_repo import KPRepository
     from app.repository.system_config_repo import SystemConfigRepository
-    from app.services.clarity_evaluator import load_family_words
 
     kp = KPRepository()
     try:

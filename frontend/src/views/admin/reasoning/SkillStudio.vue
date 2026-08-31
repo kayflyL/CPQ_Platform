@@ -142,22 +142,6 @@ function applyNodeState(id: string | null, state: any) {
   const bomScheme = ref<any>(null)
   const assistantRef = ref<InstanceType<typeof AssistantPanel> | null>(null)
 
-  function clearRunState() {
-    nodes.value = nodes.value.map((n) => ({
-      ...n,
-      data: {
-        ...n.data,
-        execState: null,
-        badge: undefined,
-        input: undefined,
-        output: undefined,
-        summary: undefined,
-        artifact: undefined,
-        askQuestion: undefined,
-      },
-    }))
-  }
-
   // ── 产出物窗口（需求理解节点）：捕获 requirement_slots，逐字段展示填充状态 ──
   const reqFormSlots = ref<any>(null)
   function normalizeRequirementSlots(data: any) {
@@ -187,7 +171,7 @@ function applyNodeState(id: string | null, state: any) {
       if (!t?.step) continue
       applyNodeState(t.step, {
         execState: t.status === 'running' ? 'running' : (t.status === 'done' ? 'done' : null),
-        badge: undefined,
+        badge: typeof t.duration_ms === 'number' ? `${(t.duration_ms / 1000).toFixed(1)}s` : undefined,
         input: t.input,
         output: t.output,
         summary: t.summary,
@@ -219,12 +203,35 @@ onUnmounted(() => { document.body.style.cursor = ''; document.body.style.userSel
 async function onRun() {
   const text = reqText.value.trim()
   if (!text || running.value) return
-  clearRunState()
+  // 不清空上一轮节点产物：新一轮的 node_trace 会逐节点覆盖；运行中旧产物保留可对照。
   const inputNode = nodes.value.find((n) => String(n.data?.stepType) === 'input')
   if (inputNode) {
     applyNodeState(inputNode.id, { execState: 'done', badge: undefined, input: text, output: text })
   }
   await assistantRef.value?.sendText?.(text)
+}
+
+/** 重置测试：purge 预览线程 + 清聊天/节点轨迹/画布运行态/输入框（显式重置才全清）。 */
+async function onResetTest() {
+  if (running.value) return
+  await assistantRef.value?.resetPreview?.()
+  nodes.value = nodes.value.map((n) => ({
+    ...n,
+    data: {
+      ...n.data,
+      execState: null,
+      badge: undefined,
+      input: undefined,
+      output: undefined,
+      summary: undefined,
+      artifact: undefined,
+      askQuestion: undefined,
+    },
+  }))
+  reqFormSlots.value = null
+  bomScheme.value = null
+  missingFields.value = []
+  reqText.value = ''
 }
 
 // ── 画布节点注入：运行按钮（input 节点）──
@@ -632,6 +639,10 @@ function onSaved() { load() }
 
       <!-- 右栏：复用真实 AI 角色对话（内嵌·预览·默认支持工程师） -->
       <aside class="right-panel">
+        <div class="rp-head">
+          <span class="rp-title">试运行</span>
+          <a-button size="small" :disabled="running" @click="onResetTest">重置测试</a-button>
+        </div>
         <AssistantPanel
           ref="assistantRef"
           embedded
@@ -711,6 +722,8 @@ function onSaved() { load() }
 .center-panel :deep(.vue-flow__controls-button:hover) { background: var(--cpq-overlay-a8); }
 .center-panel :deep(.vue-flow__controls-button svg) { fill: var(--cpq-text-primary); }
 .right-panel { width: 380px; position: relative; background: var(--cpq-overlay-w4); border-left: 1px solid var(--cpq-overlay-w10); display: flex; flex-direction: column; overflow: hidden; border-radius: 0 var(--cpq-radius-md, 12px) var(--cpq-radius-md, 12px) 0; }
+.rp-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--cpq-overlay-w8); flex-shrink: 0; }
+.rp-title { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary); letter-spacing: 1px; }
 .rf-tr-slots { border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-md, 10px); overflow: hidden; }
 .rf-tr-slots-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--cpq-text-primary); border-bottom: 1px solid var(--cpq-glass-border); }
 .rf-tr-slots-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }

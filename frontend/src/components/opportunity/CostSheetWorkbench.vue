@@ -4,6 +4,10 @@ import { message, Modal } from 'ant-design-vue'
 import DocumentCard from '@/components/flow/DocumentCard.vue'
 import CostSheetEditor from '@/components/opportunity/CostSheetEditor.vue'
 import { portalApi, type BomScheme, type CostSheet, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
+import { kpPartsApi, baseConfigApi, type KpPart, type BaseConfigCost } from '@/api/serverConfig'
+import { systemConfigApi } from '@/api/systemConfig'
+import { calcUnitCost } from '@/utils/quoteCommon'
+import { matchKpPart } from '@/utils/partNameMatch'
 
 const props = defineProps<{
   board: PortalBoard
@@ -75,9 +79,15 @@ const editorSheetId = ref<number | null>(null)
 const editorBomSchemeId = ref<number | null>(null)
 const editorName = ref('')
 const editorConfigs = ref<PortalSheetConfig[]>([])
+const editorQuotationId = ref('')
+const editorSheetStatus = ref<CostSheet['status']>('draft')
 const editorReadonly = ref(false)
 const editorRef = ref<InstanceType<typeof CostSheetEditor> | null>(null)
 const saving = ref(false)
+const refreshingPrices = ref(false)
+const kpPartsForMatch = ref<KpPart[]>([])
+const priceExchangeRate = ref(7)
+const priceTaxRate = ref(0.13)
 
 function cloneConfigs(configs: PortalSheetConfig[]) {
   return JSON.parse(JSON.stringify(configs || [])) as PortalSheetConfig[]
@@ -91,6 +101,109 @@ function ensureCostFields(configs: PortalSheetConfig[]) {
     l6_rows: (cfg.l6_rows || []).map((row) => ({ ...row, base_price: row.base_price ?? 0 })),
     kp_rows: (cfg.kp_rows || []).map((row) => ({ ...row, base_price: row.base_price ?? 0 })),
   }))
+}
+
+function normalizeModel(value: string | number | null | undefined) {
+  return String(value ?? '').trim().toLowerCase()
+}
+
+function buildL6Lookup(configs: BaseConfigCost[]) {
+  const lookup = new Map<string, BaseConfigCost>()
+  for (const cfg of configs || []) {
+    const modelName = normalizeModel(cfg.model_name)
+    const configName = normalizeModel(cfg.name)
+    if (modelName) lookup.set(modelName, cfg)
+    if (configName && configName !== modelName) lookup.set(configName, cfg)
+  }
+  return lookup
+}
+
+async function refreshLatestPrices() {
+  if (!editorConfigs.value.length) {
+    message.warning('成本表内没有配置，无法获取最新价格')
+    return
+  }
+  refreshingPrices.value = true
+  try {
+    const [kpParts, l6Costs, usdToRmb, taxRateValue] = await Promise.all([
+      kpPartsApi.listAll(),
+      baseConfigApi.costAnalysis(),
+      systemConfigApi.getValue<any>('usd_to_rmb').catch(() => 7),
+      systemConfigApi.getValue<any>('tax_rate').catch(() => 0.13),
+    ])
+    const exchangeRate = Number(usdToRmb) || 7
+    const taxRate = Number(taxRateValue) || 0.13
+    kpPartsForMatch.value = kpParts || []
+    priceExchangeRate.value = exchangeRate
+    priceTaxRate.value = taxRate
+    const l6Lookup = buildL6Lookup(l6Costs?.configs || [])
+    let kpUpdated = 0
+    let kpUnmatched = 0
+    let l6Updated = 0
+    let l6Unmatched = 0
+    let l6MissingModel = 0
+
+    const next = editorConfigs.value.map((cfg) => {
+      const copy = { ...cfg, kp_rows: (cfg.kp_rows || []).map((row) => ({ ...row })) }
+      for (const row of copy.kp_rows) {
+        const part = matchKpPart(row, kpParts || []).part
+        const price = part ? Number(part.unit_price) : NaN
+        if (!part || !Number.isFinite(price) || price <= 0) {
+          kpUnmatched += 1
+          continue
+        }
+        row.base_price = Math.round(calcUnitCost(price, part.unit_currency || row.currency || 'RMB', exchangeRate, taxRate) * 100) / 100
+        row.currency = 'RMB'
+        kpUpdated += 1
+      }
+
+      const model = normalizeModel(cfg.server_model)
+      const l6Cost = model ? l6Lookup.get(model) : undefined
+      const total = l6Cost ? Number(l6Cost.total) : NaN
+      if (!model) {
+        l6MissingModel += 1
+      } else if (l6Cost && Number.isFinite(total) && total > 0) {
+        copy.l6_cost = total
+        l6Updated += 1
+      } else {
+        l6Unmatched += 1
+      }
+      return copy
+    })
+
+    editorConfigs.value = next
+    const problems = [
+      kpUnmatched ? `${kpUnmatched} 个 KP 未匹配` : '',
+      l6Unmatched ? `${l6Unmatched} 个 L6 未匹配` : '',
+      l6MissingModel ? `${l6MissingModel} 个配置未填机型，无法获取 L6 最新价` : '',
+    ].filter(Boolean)
+    if (!kpUpdated && !l6Updated) {
+      message.warning(problems.join('；') || '未匹配到可更新的最新价格，请检查机型/KP 型号是否与配件库一致')
+    } else {
+      message.success(
+        `已更新 ${kpUpdated} 个 KP 价格、${l6Updated} 个 L6 机箱价格${problems.length ? `；${problems.join('；')}` : ''}`,
+      )
+    }
+  } catch (e: any) {
+    message.error('获取最新价格失败：' + (e?.response?.data?.detail || e?.message || e))
+  } finally {
+    refreshingPrices.value = false
+  }
+}
+
+async function loadPartsForMatch() {
+  try {
+    const [kpParts, usdToRmb, taxRateValue] = await Promise.all([
+      kpPartsApi.listAll(),
+      systemConfigApi.getValue<any>('usd_to_rmb').catch(() => 7),
+      systemConfigApi.getValue<any>('tax_rate').catch(() => 0.13),
+    ])
+    kpPartsForMatch.value = kpParts || []
+    priceExchangeRate.value = Number(usdToRmb) || 7
+    priceTaxRate.value = Number(taxRateValue) || 0.13
+  } catch {
+    kpPartsForMatch.value = []
+  }
 }
 
 function openNew() {
@@ -113,8 +226,11 @@ function openNewForBom(bom: BomScheme) {
   editorBomSchemeId.value = bom.id
   editorName.value = `成本-${bom.name}`
   editorConfigs.value = ensureCostFields(bom.configs)
+  editorQuotationId.value = ''
+  editorSheetStatus.value = 'draft'
   editorReadonly.value = false
   editorOpen.value = true
+  void loadPartsForMatch()
 }
 
 function openSheet(sheet: CostSheet) {
@@ -122,12 +238,15 @@ function openSheet(sheet: CostSheet) {
   editorBomSchemeId.value = sheet.bom_scheme_id
   editorName.value = sheet.name
   editorConfigs.value = cloneConfigs(sheet.configs)
-  editorReadonly.value = !editable.value || sheet.status !== 'draft'
+  editorQuotationId.value = sheet.quotation_id || ''
+  editorSheetStatus.value = sheet.status
+  editorReadonly.value = !editable.value || !!sheet.quotation_exported || (sheet.status !== 'draft' && sheet.status !== 'current')
   editorOpen.value = true
+  void loadPartsForMatch()
 }
 
 function statusLabel(status: CostSheet['status']) {
-  return { draft: '草稿', current: '当前成本表', archived: '已归档' }[status]
+  return { draft: '草稿', current: '已提交', archived: '已归档' }[status]
 }
 
 function sheetMeta(sheet: CostSheet) {
@@ -141,6 +260,10 @@ function sheetMeta(sheet: CostSheet) {
 }
 
 async function saveDraft() {
+  if (refreshingPrices.value) {
+    message.warning('正在获取最新价格，请稍候再保存')
+    return
+  }
   if (!editorName.value.trim()) {
     message.warning('请填写成本表名称')
     return
@@ -158,8 +281,9 @@ async function saveDraft() {
       name: editorName.value.trim(),
       configs,
       bom_scheme_id: editorBomSchemeId.value,
+      quotation_id: editorQuotationId.value || undefined,
     })
-    message.success('成本表草稿已保存')
+    message.success('成本表已保存')
     editorOpen.value = false
     emit('changed')
   } catch (e: any) {
@@ -181,7 +305,7 @@ async function submitSheet() {
   }
   Modal.confirm({
     title: '提交当前成本表？',
-    content: '提交后将生成报价单草稿并进入报价单节点，其他成本表保留为草稿/归档。',
+    content: '提交后将生成报价单草稿并进入报价单节点；可继续提交多张成本表，均可在报价节点独立转为正式报价。',
     okText: '提交成本表',
     cancelText: '取消',
     async onOk() {
@@ -193,6 +317,7 @@ async function submitSheet() {
           name: editorName.value.trim(),
           configs,
           bom_scheme_id: editorBomSchemeId.value,
+          quotation_id: editorQuotationId.value || undefined,
         })
         await portalApi.submitCostSheet(oppId.value, saved.sheet.id)
         message.success('成本表已提交，流程进入报价单节点')
@@ -330,7 +455,8 @@ function returnSheet(sheet: CostSheet) {
           <span class="cw-footer-link danger" @click.stop="deleteSheet(sheet)">删除草稿</span>
         </template>
         <template v-else-if="editable && sheet.status === 'current'" #footer>
-          <span class="cw-footer-link" @click.stop="openSheet(sheet)">查看成本表</span>
+          <span v-if="sheet.quotation_exported" class="cw-muted">报价单已定稿，成本表只读</span>
+          <span v-else class="cw-footer-link" @click.stop="openSheet(sheet)">编辑成本表</span>
           <span v-if="cardForSheet(sheet)?.current_node === 'quoting'" class="cw-footer-link" @click.stop="requestWithdrawSheet(sheet)">申请撤回</span>
           <span v-if="cardForSheet(sheet)?.current_node === 'costing' && cardForSheet(sheet)?.flow_status === 'returned'" class="cw-footer-link danger" @click.stop="returnSheet(sheet)">退回成本表</span>
           <span class="cw-footer-link danger" @click.stop="deleteSheet(sheet)">删除当前成本表</span>
@@ -362,11 +488,15 @@ function returnSheet(sheet: CostSheet) {
           :configs="editorConfigs"
           :readonly="editorReadonly"
           :show-toolbar="false"
+          :parts="kpPartsForMatch"
+          :exchange-rate="priceExchangeRate"
+          :tax-rate="priceTaxRate"
         />
         <div v-if="!editorReadonly" class="cost-actions">
           <a-button @click="editorOpen = false">取消</a-button>
-          <a-button :loading="saving" @click="saveDraft">保存草稿</a-button>
-          <a-button type="primary" :loading="saving" @click="submitSheet">提交成本表</a-button>
+          <a-button :loading="refreshingPrices" @click="refreshLatestPrices">获取最新价</a-button>
+          <a-button :loading="saving" :disabled="refreshingPrices" @click="saveDraft">{{ editorSheetStatus === 'draft' ? '保存草稿' : '保存成本表' }}</a-button>
+          <a-button v-if="editorSheetStatus === 'draft'" type="primary" :loading="saving" :disabled="refreshingPrices" @click="submitSheet">提交成本表</a-button>
         </div>
       </div>
     </a-modal>

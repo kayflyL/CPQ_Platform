@@ -16,13 +16,6 @@
     </div>
 
     <template v-if="expanded">
-      <div v-if="chatState?.nodeTraces?.length" class="oc-plan-bar">
-        <span v-for="t in chatState.nodeTraces" :key="t.step" class="oc-plan-step" :class="`oc-plan-step--${t.status}`">
-          <span class="oc-plan-dot" />
-          <span>{{ t.label }}</span>
-        </span>
-        <span v-if="chatState?.waiting" class="oc-plan-waiting">等待补充信息…</span>
-      </div>
       <div ref="messagesEl" class="chat-messages">
         <div v-if="chatState?.loading" class="chat-empty">正在建立会话…</div>
         <div
@@ -46,7 +39,11 @@
             v-else
             :message="item"
             :author="colleagueAuthor"
+            :option-interactive="optionInteractive(item)"
+            :thread-id="chatState?.threadId || ''"
+            :pick-role="item.colleague_role_key || ''"
             @select-option="sendOption"
+            @submit-selections="sendSelections"
           />
         </template>
 
@@ -62,6 +59,12 @@
         />
         <div v-if="chatState?.error" class="chat-error">{{ chatState.error }}</div>
       </div>
+
+      <TaskStepper
+        :traces="chatState?.nodeTraces || []"
+        :title="chatState?.taskTitle"
+        :phase="chatState?.taskPhase"
+      />
 
       <AssistantComposer
         v-model="draft"
@@ -127,6 +130,7 @@ import type { AssistantContext, AssistantThread } from '@/api/assistant'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
+import TaskStepper from '@/components/assistant/TaskStepper.vue'
 import { useEmployeeChat } from '@/composables/useEmployeeChat'
 
 const props = defineProps<{
@@ -203,9 +207,8 @@ async function openHistory() {
   historyOpen.value = true
   historyLoading.value = true
   try {
-    historyThreads.value = await loadThreads(props.colleague.role_key, {
-      includePreview: true,
-    })
+    // 预览线程（skill_studio_preview）是一次性测试会话，不进正常历史（曾混入 60+ 条残留）
+    historyThreads.value = await loadThreads(props.colleague.role_key)
   } catch {
     message.error('会话历史加载失败')
   } finally {
@@ -298,6 +301,32 @@ async function sendOption(value: string, slot?: string) {
   } catch {
     message.error(chatState.value?.error || '发送失败')
   }
+}
+
+// 逐项卡提交：一条消息带 (slot,value,qty)，用户气泡只展示可读文案（数量跟在型号后）
+async function sendSelections(selections: Array<{ slot: string; value: string; label: string; qty?: number }>) {
+  if (!selections.length || !props.colleague?.role_key) return
+  try {
+    await send(props.colleague.role_key,
+               '已选：' + selections.map((s) => (s.qty ? `${s.label} ×${s.qty}` : s.label)).join('；'),
+               props.contextSummary, chatContext.value, undefined, selections)
+  } catch {
+    message.error(chatState.value?.error || '发送失败')
+  }
+}
+
+// 问题面板可交互判定：非发送中，且该卡之后没有更新的选项卡（提交后仍可改选重提，
+// 只有新卡取代才锁定——旧规则「后面有用户消息即锁」会把表单卡点一次就焊死）
+function optionInteractive(m: any): boolean {
+  if (m?.kind !== 'input_options') return true
+  if (chatState.value?.sending || chatState.value?.running) return false
+  const arr = chatState.value?.messages || []
+  const idx = arr.indexOf(m)
+  if (idx === -1) return false
+  for (let j = idx + 1; j < arr.length; j++) {
+    if (arr[j]?.kind === 'input_options') return false
+  }
+  return true
 }
 
 onBeforeUnmount(close)
@@ -815,28 +844,4 @@ onBeforeUnmount(close)
   background: var(--cpq-accent-success, #22c55e);
   box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.12);
 }
-.oc-plan-bar {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 14px;
-  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,.1));
-  font-size: 12px;
-}
-.oc-plan-step {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.12));
-  color: var(--cpq-text-secondary, #a6adb4);
-}
-.oc-plan-step--done { color: #16a34a; border-color: #16a34a44; background: #16a34a0d; }
-.oc-plan-step--running { color: var(--cpq-accent-primary, #1677ff); border-color: var(--cpq-accent-primary, #1677ff); background: #1677ff0d; }
-.oc-plan-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.oc-plan-step--running .oc-plan-dot { animation: oc-pulse 1s ease-in-out infinite; }
-.oc-plan-waiting { margin-left: auto; color: #b45309; }
-@keyframes oc-pulse { 0%, 100% { transform: scale(.8); opacity: .6; } 50% { transform: scale(1.2); opacity: 1; } }
 </style>

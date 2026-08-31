@@ -80,7 +80,7 @@
             <div class="form-row">
               <label class="form-label">最大 Tokens</label>
               <div class="form-control">
-                <a-input-number v-model:value="llmConfig.max_tokens" :min="100" :max="32000" :step="100" style="width: 140px" />
+                <a-input-number v-model:value="llmConfig.max_tokens" :min="8000" :max="64000" :step="100" style="width: 140px" />
                 <span class="form-hint">reasoning(思考)类模型的思考也占此预算,建议 ≥ 8000</span>
               </div>
             </div>
@@ -473,7 +473,7 @@ const DEFAULT_LLM_CONFIG = {
   api_key: '',
   model: '',
   temperature: 0.7,
-  max_tokens: 8000,
+  max_tokens: 16000,
   capabilities_override: {} as Record<string, Record<string, boolean>>,
 }
 
@@ -1023,7 +1023,7 @@ watch(activeTab, (k) => {
   if (k === 'threads') loadThreads()
   if (k === 'audit') loadAudit()
   if (k === 'access') loadAccessRoles()
-})
+}, { immediate: true })  // 嵌入模式 section=threads/audit 时初始 activeTab 即目标页，无变更事件，必须 immediate 才会加载
 
 watch(publicTab, (k) => {
   if (k === 'capabilities') loadCapabilities()

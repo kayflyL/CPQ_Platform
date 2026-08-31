@@ -9,26 +9,25 @@ must be confirmed before continuing.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import json
 import time
 from typing import Any, Callable, Optional
 
 from app.repository.assistant_repo import AssistantRepository
-from app.repository.system_config_repo import SystemConfigRepository
 from app.repository.skill_catalog_repo import SkillCatalogRepository
+from app.repository.system_config_repo import SystemConfigRepository
 from app.services import llm_client
 from app.services.agent_react import run_react_loop
-from app.services.agent_tools import tool_requires_approval, tool_required_data_sources
+from app.services.agent_tool_specs import tool_requires_approval, tool_required_data_sources
 from app.services.ai_colleague_service import colleague_tool_ids, effective_data_sources, get_ai_colleague_config
 from app.services.assistant_hub import assistant_hub
 from app.services.llm_client import LLMError
 from app.services.office_events import publish_office_event
 from app.services.office_governance import office_governance
-from app.services.office_memory import office_memory
 from app.services.office_mission import record_mission
 from app.services.office_access import allowed_chat_role_keys
-from app.services.skill_router import conversation_text, route_skill_llm
 
 logger = logging.getLogger(__name__)
 
@@ -39,51 +38,6 @@ _DEFAULT_CHAT_SYSTEM_PROMPT = (
     "要求：用中文回复；对料号、价格、库存、具体型号等易变信息不要编造，"
     "不确定时明确说明并请用户确认。"
 )
-
-
-def _load_pending_workflow(thread_id: str) -> Optional[dict]:
-    """读取暂停在反问环节的 workflow 会话；无有效状态时返回 None。"""
-    try:
-        repo = AssistantRepository()
-        try:
-            raw = repo.get_reasoning_state(thread_id)
-        finally:
-            repo.close()
-    except Exception:
-        logger.exception("load pending workflow failed thread=%s", thread_id)
-        return None
-    if not raw:
-        return None
-    try:
-        data = json.loads(raw)
-    except Exception:
-        return None
-    if not isinstance(data, dict):
-        return None
-    session = data.get("skill_workflow")
-    if (
-        isinstance(session, dict)
-        and session.get("status") == "awaiting_input"
-        and str(session.get("skill_key") or "").strip()
-    ):
-        return session
-    return None
-
-
-def _save_pending_workflow(thread_id: str, session: Optional[dict]) -> None:
-    """写入（或清除）暂停中的 workflow 会话状态，统一走 reasoning_state 列。"""
-    try:
-        repo = AssistantRepository()
-        try:
-            repo.update_reasoning_state(thread_id, {"skill_workflow": session})
-        finally:
-            repo.close()
-    except Exception:
-        logger.exception("save pending workflow failed thread=%s", thread_id)
-
-
-def _clear_pending_workflow(thread_id: str) -> None:
-    _save_pending_workflow(thread_id, None)
 
 
 def _skill_library() -> dict:
@@ -208,25 +162,41 @@ def _skill_prompt(colleague: Optional[dict]) -> str:
     return "同事已启用技能：\n" + "\n".join(lines)
 
 
+def _handoff_hint(colleague: Optional[dict]) -> str:
+    """私聊转接建议提示（2026-08-30 定调：系统转接只发生在团队群；私聊由角色口头提议）。
+
+    名册=DB 业务数据（colleague_roster_digest，与转接判官共用单源）；
+    规则=提示词契约层——自己能办的自己办，缺 skill/工具/数据时建议一位合适同事，由客户决定。
+    """
+    from app.services.ai_colleague_service import colleague_roster_digest
+    self_key = str((colleague or {}).get("role_key") or "").strip()
+    lines = []
+    for c in colleague_roster_digest():
+        if str(c.get("role_key") or "") == self_key:
+            continue
+        duty = str(c.get("职责") or "").strip()
+        skills = "、".join(str(s) for s in (c.get("skills") or []) if str(s))
+        desc = "；".join(x for x in (duty, skills) if x)
+        lines.append(f"- {c.get('name') or c.get('role_key')}" + (f"：{desc}" if desc else ""))
+    if not lines:
+        return ""
+    return (
+        "【同事转接建议】在册同事（转接建议参考）：\n" + "\n".join(lines) + "\n"
+        "你的 skill、工具、数据能覆盖的请求一律自己完成，不要推给同事。"
+        "只有请求确实超出你的能力范围（没有对应的 skill、工具或数据）时，才说明哪部分你办不了，"
+        "并按名册职责建议一位更合适的同事，由客户决定（团队群里 @ 点名，或从通讯录直接找 TA）；"
+        "一次最多建议一位，禁止把客户推来推去。"
+    )
+
+
 def _memory_policy(colleague: Optional[dict]) -> dict:
     if isinstance(colleague, dict):
         policy = colleague.get("memory_policy")
         if isinstance(policy, dict):
-            return policy
-        legacy = colleague.get("memory")
-        if isinstance(legacy, dict):
-            return {
-                "enabled": True,
-                "short_term_max_turns": None,
-                "long_term_store": legacy.get("long_term_store") or "office_memory",
-                "query_recent": 6,
-                "save_after_turn": True,
-                "auto_memory": True,
-            }
+            return {k: v for k, v in policy.items() if k != "long_term_store"}
     return {
         "enabled": True,
         "short_term_max_turns": 12,
-        "long_term_store": "office_memory",
         "query_recent": 6,
         "save_after_turn": True,
         "auto_memory": True,
@@ -264,22 +234,25 @@ async def _memory_block(colleague: Optional[dict], user_text: str) -> str:
     except (TypeError, ValueError):
         limit = 6
     role_key = (colleague or {}).get("role_key") or "assistant"
-    return await office_memory.memory_prompt(role_key, query=user_text, limit=limit)
+    from app.services import colleague_memory_service
+    return await asyncio.to_thread(colleague_memory_service.memory_block, role_key, limit)
 
 
-async def _remember_reply(colleague: Optional[dict], final_text: str) -> None:
+def _user_name(user: Optional[dict]) -> str:
+    return str((user or {}).get("name") or (user or {}).get("user_id") or "用户").strip() or "用户"
+
+
+def _schedule_memory_extraction(colleague: Optional[dict], user_name: str,
+                                user_text: str, final_text: str) -> None:
+    """回复完成后后台抽取结构化记忆（fire-and-forget，失败静默不影响主流程）。"""
     policy = _memory_policy(colleague)
     if policy.get("enabled") is False or policy.get("save_after_turn") is False:
         return
     if policy.get("auto_memory") is False:
         return
     role_key = (colleague or {}).get("role_key") or "assistant"
-    await office_memory.remember(
-        role_key,
-        f"我回复：{str(final_text or '')[:400]}",
-        kind="episodic",
-        importance=0.35,
-    )
+    from app.services import colleague_memory_service
+    colleague_memory_service.schedule_extraction(role_key, user_name, user_text, final_text)
 
 
 def _base_messages(
@@ -295,6 +268,9 @@ def _base_messages(
     skill_prompt = _skill_prompt(colleague)
     if skill_prompt:
         parts.append(skill_prompt)
+    handoff = _handoff_hint(colleague)
+    if handoff:
+        parts.append(handoff)
     if memory_block:
         parts.append(memory_block)
     messages: list = [{"role": "system", "content": "\n\n".join(parts)}]
@@ -456,6 +432,7 @@ async def _run_plain_turn(
     memory_block: str,
     final_office_event: Optional[dict],
     trace_sink: Optional[Callable[..., None]],
+    user: Optional[dict] = None,
 ) -> None:
     role_key = (colleague or {}).get("role_key") or "assistant"
     messages = _base_messages(colleague, user_text, context_summary, history, memory_block)
@@ -497,7 +474,7 @@ async def _run_plain_turn(
         await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": final_text})
         await publish_office_event(role_key, "error", "模型调用失败", message=final_text[:160], thread_id=thread_id)
 
-    await _remember_reply(colleague, final_text or "")
+    _schedule_memory_extraction(colleague, _user_name(user), user_text, final_text or "")
     await publish_office_event(role_key, "done", "回复完成", message=final_text[:160], thread_id=thread_id)
     await _trace(
         trace_sink,
@@ -536,6 +513,9 @@ async def _run_tool_turn(
     skill_prompt = _skill_prompt(colleague)
     if skill_prompt:
         system_prompt += "\n\n" + skill_prompt
+    handoff = _handoff_hint(colleague)
+    if handoff:
+        system_prompt += "\n\n" + handoff
     if memory_block:
         system_prompt += "\n\n" + memory_block
 
@@ -648,541 +628,18 @@ async def _run_tool_turn(
                 return {"status": "pending_approval", "governance_id": None, "target_role": target_role}
         return None
 
-    workflow_result_sent = {"value": False}
-    workflow_started = False
-
-    async def workflow_runner(args: dict) -> dict:
-        nonlocal opportunity_id
-        nonlocal workflow_started
-        if workflow_started:
-            return {
-                "status": "already_processed",
-                "message": "当前 Skill 工作流本轮已执行，请基于已有结果继续回复用户，不要重复运行。",
-            }
-        workflow_started = True
-        _clear_pending_workflow(thread_id)
-        text = str((args or {}).get("requirement_text") or "").strip()
-        if not text:
-            return {"error": "缺少 requirement_text"}
-        skill_key = str((args or {}).get("skill_key") or "").strip()
-        if not skill_key:
-            for resolved in _resolved_skills(colleague):
-                workflow_key = str(resolved.get("workflow_key") or "").strip()
-                if resolved.get("type") == "workflow" and workflow_key:
-                    skill_key = workflow_key
-                    break
-        if not skill_key:
-            return {"error": "当前同事未绑定可执行的工作流型 Skill"}
-
-        skill_output_kind = ""
-        for resolved in _resolved_skills(colleague):
-            key = str(resolved.get("workflow_key") or resolved.get("key") or "").strip()
-            if key == skill_key:
-                skill_output_kind = str(resolved.get("output_kind") or "").strip()
-                break
-        if skill_key == "requirement_analysis":
-            skill_output_kind = "bom_scheme_draft"
-        if not skill_output_kind:
-            skill_output_kind = {
-                "requirement_analysis": "bom_scheme_draft",
-                "trend_analysis": "data_answer",
-            }.get(skill_key, "generic")
-
-        budget = (args or {}).get("budget")
-        last_ask_question = str((args or {}).get("last_ask_question") or "").strip()
-        _supplement_text = str((args or {}).get("supplement_text") or "").strip()
-        last_user_answer = _supplement_text if (last_ask_question or (args or {}).get("is_resume")) else ""
-        operator_name = str((user or {}).get("name") or (user or {}).get("user_id") or "")
-        full_text = text
-        # AI Office 会话没有商机上下文时，创建一条隐藏内部商机，让真实四步表单可以落库。
-        if not opportunity_id and skill_output_kind == "bom_scheme_draft":
-            opportunity_id = _ensure_ai_office_opportunity(thread_id, user, text)
-        if opportunity_id:
-            from app.services.portal_flow_adapter import build_requirement_text
-            supplement_text = str((args or {}).get("supplement_text") or "").strip()
-            full_text = build_requirement_text(opportunity_id, text, supplement_text)
-        from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-        from app.services.skill_plan_runtime import (
-            apply_skill_decision,
-            build_skill_plan_prompt,
-            finalize_skill_artifacts,
-            make_skill_tool_guard,
-            skill_allowed_tools,
-        )
-
-        repo = ReasoningFlowRepository()
-        try:
-            flow = repo.ensure_skill_flow(skill_key, name=skill_key)
-        finally:
-            repo.close()
-        if not flow:
-            return {"error": f"Skill '{skill_key}' 没有可执行的工作流"}
-
-        flow_node_configs = flow.get("node_configs") or {}
-        ctx_holder: dict = {}
-
-        def _model_node_prompt(step: str) -> str:
-            ctx = ctx_holder.get("ctx") or {}
-            node_cfg = ((ctx.get("flow_configs") or {}).get(step) or {})
-            return str(node_cfg.get("system_prompt") or "").strip()
-
-        async def _compose_model_text(fallback_question: str, step: str = "model_reason") -> str:
-            from app.services.workflow_intent import reply_with_context
-            prompt = _model_node_prompt(step)
-            if not prompt:
-                return fallback_question
-            try:
-                reply = await reply_with_context(
-                    "请生成一句自然中文回复。",
-                    "【节点要求】\n" + prompt,
-                    str(chat_cfg.get("chat_system_prompt") or "").strip(),
-                )
-            except Exception:
-                reply = ""
-            return reply or fallback_question
-
-        async def raw_broadcast(payload: dict) -> None:
-            payload.setdefault("thread_id", thread_id)
-            payload.setdefault("opportunity_id", opportunity_id or "")
-            await assistant_hub.broadcast(thread_id, payload)
-
-        async def chat_broadcast(payload: dict) -> None:
-            event_type = payload.get("type")
-            ctx = ctx_holder.get("ctx") or {}
-
-            if event_type == "pipeline_start":
-                await raw_broadcast({
-                    "type": "pipeline_start",
-                    "steps": payload.get("steps") or [],
-                })
-                return
-            if event_type in ("step_start", "step_done"):
-                node_id = str(payload.get("step") or "")
-                label = str(payload.get("label") or node_id)
-                done = event_type == "step_done"
-                if not done:
-                    await assistant_hub.broadcast(thread_id, {
-                        "type": "chat_status",
-                        "step": node_id,
-                        "text": "思考中…",
-                    })
-                # 对话不渲染节点卡（前端已删 NodeTraceList），但画布节点依赖 node_trace
-                # 回填「产出/下游交接」与线索登记表（requirement_slots）等 artifact。
-                await assistant_hub.broadcast(thread_id, {
-                    "type": "node_trace",
-                    "step": node_id,
-                    "label": label,
-                    "status": "running" if not done else "done",
-                    "input": payload.get("input"),
-                    "output": payload.get("output") if done else None,
-                    "summary": payload.get("summary") if done else None,
-                    "artifact": payload.get("artifact") if done else None,
-                })
-                return
-            if event_type == "step_progress":
-                sub = payload.get("sub") or {}
-                if (sub.get("kind") or "") == "thinking":
-                    await assistant_hub.broadcast(thread_id, {
-                        "type": "thinking",
-                        "step": payload.get("step") or "agent_fill",
-                        "text": sub.get("text") or "",
-                    })
-                return
-            if event_type == "need_input":
-                question = str(payload.get("question") or "").strip()
-                options = payload.get("options") or []
-                slot_options = payload.get("slot_options") or {}
-                why = str(payload.get("why") or "").strip()
-                if str(payload.get("source") or "").strip() == "model_reason":
-                    question = await _compose_model_text(question, "model_reason")
-                    if ctx_holder.get("ctx") is not None:
-                        ctx_holder["ctx"]["last_ask_question"] = question
-                text = question
-                if why:
-                    text = (text + "\n" + why).strip()
-                option_data = json.dumps({
-                    "question": question,
-                    "options": options,
-                    "slot_options": slot_options,
-                    "why": why,
-                }, ensure_ascii=False, default=str)
-                await _broadcast_chat_progress(
-                    thread_id, colleague, "need_input", "question", text,
-                    kind="input_options", data=option_data,
-                )
-                return
-            if event_type == "need_confirm":
-                question = str(payload.get("question") or "").strip()
-                _composed = await _compose_model_text(question, str(payload.get("step") or "model_reason"))
-                if ctx_holder.get("ctx") is not None:
-                    ctx_holder["ctx"]["last_ask_question"] = _composed
-                await _broadcast_chat_progress(
-                    thread_id, colleague, "need_confirm", "question", _composed,
-                )
-                return
-            if event_type in ("handoff_ready",):
-                return
-            await raw_broadcast(payload)
-
-        force_complete = bool((args or {}).get("force_complete"))
-        max_ask_rounds = (args or {}).get("max_ask_rounds")
-        try:
-            max_ask_rounds = int(max_ask_rounds) if max_ask_rounds is not None else 0
-        except (TypeError, ValueError):
-            max_ask_rounds = 0
-        restored_slot = (args or {}).get("slot_state") or {}
-        restored_ext = dict(restored_slot.get("ext") or {})
-        restored_target = str((args or {}).get("current_target") or restored_slot.get("current_target") or "").strip()
-        selected_slot = str(option_slot or "").strip()
-        if selected_slot and selected_slot != "general" and last_user_answer:
-            try:
-                from app.services.capabilities import _apply_extracted_slots
-                _apply_extracted_slots(restored_ext, {selected_slot: last_user_answer}, allow_overwrite=True)
-            except Exception:
-                logger.exception("结构化选项落槽失败 slot=%s", selected_slot)
-        ctx = {
-            "requirement_text": full_text,
-            "normalized_text": full_text,
-            "opportunity_id": opportunity_id or thread_id,
-            "flow_configs": flow_node_configs,
-            "llm_enabled": True,
-            "budget": budget,
-            "force_complete": force_complete,
-            "max_ask_rounds": max_ask_rounds,
-            "output_kind": skill_output_kind,
-            "operator_name": operator_name,
-            "chat_system_prompt": str(chat_cfg.get("chat_system_prompt") or "").strip(),
-            "last_ask_question": last_ask_question,
-            "last_user_answer": last_user_answer,
-            "ext": dict(restored_ext),
-            "requirement": dict(restored_slot.get("requirement") or {}),
-            "requirement_text_snapshot": restored_slot.get("requirement_text_snapshot") or "",
-            "baselines": list(restored_slot.get("baselines") or []),
-            "kp_parts": list(restored_slot.get("kp_parts") or []),
-            "kp_by_model": dict(restored_slot.get("kp_by_model") or {}),
-            "model_selection": restored_slot.get("model_selection"),
-            "model_phase": restored_slot.get("model_phase") or "",
-            "_locked_baseline": restored_slot.get("_locked_baseline") or {},
-            "missing_fields": list(restored_slot.get("missing_fields") or []),
-            "feasibility": restored_slot.get("feasibility"),
-            "turn_count": int(restored_slot.get("turn_count") or 0),
-            "current_target": restored_target,
-            "business_mode": "opportunity_flow" if opportunity_id else "conversation",
-            "history": history,
-            "allowed_tool_ids": [str(t) for t in (allowed_tool_ids or []) if str(t)],
-            "allowed_data_sources": _effective_data_sources(colleague, allowed_tool_ids),
-        }
-        ctx_holder["ctx"] = ctx
-
-        plan_prompt = build_skill_plan_prompt(flow)
-        plan_system_prompt = system_prompt + "\n\n" + plan_prompt
-        skill_tools = skill_allowed_tools(flow)
-        if not skill_tools:
-            skill_tools = [str(t) for t in (allowed_tool_ids or []) if str(t)]
-        plan_guard = make_skill_tool_guard(flow, ctx_holder, chat_broadcast, thread_id)
-
-        async def combined_guard(name: str, args: dict, result: Any) -> Any:
-            result = await governance_guard(name, args, result)
-            result = await plan_guard(name, args, result)
-            return result
-
-        async def _run_phase(prompt: str, tools: list[str], max_iterations: int) -> dict:
-            return await run_react_loop(
-                full_text or user_text,
-                {"enabled_tools": tools},
-                extra_context=context_summary or "",
-                system_prompt=prompt,
-                allowed_tool_ids=tools,
-                allowed_data_sources=_effective_data_sources(colleague, tools),
-                model=(colleague or {}).get("model_override") or None,
-                event_sink=event_sink,
-                history=history,
-                tool_guard=combined_guard,
-                max_iterations=max_iterations,
-                llm_reasoning_effort="low",
-            )
-
-        react_result = await _run_phase(plan_system_prompt, skill_tools, max(8, max_ask_rounds + 4))
-        answer = str((react_result or {}).get("answer") or "") if isinstance(react_result, dict) else str(react_result or "")
-        if isinstance(react_result, dict) and react_result.get("ok") is False:
-            ctx["fatal_error"] = str(react_result.get("error") or "需求分析主循环未收敛")[:200]
-        else:
-            apply_skill_decision(ctx, answer)
-            if not ctx.get("awaiting_input") and ctx.get("baselines") and not ctx.get("kp_parts"):
-                phase_tools = [t for t in skill_tools if t in ("list_kp_categories", "select_parts", "resolve_part_alias", "compose_memory")]
-                phase_prompt = plan_system_prompt + "\n\n当前已锁定机型，必须继续执行配件选型阶段：调用 select_parts，把原文中的每一类配件、每个盘组/GPU 组都逐行覆盖，禁止只配部分盘。完成后按最终回复约束输出 JSON。"
-                react_result = await _run_phase(phase_prompt, phase_tools, max(8, max_ask_rounds + 4))
-                answer = str((react_result or {}).get("answer") or "") if isinstance(react_result, dict) else str(react_result or "")
-                if isinstance(react_result, dict) and react_result.get("ok") is False:
-                    ctx["fatal_error"] = str(react_result.get("error") or "配件选型阶段未收敛")[:200]
-                else:
-                    apply_skill_decision(ctx, answer)
-            if not ctx.get("awaiting_input") and not ctx.get("fatal_error"):
-                try:
-                    await finalize_skill_artifacts(ctx, flow, chat_broadcast)
-                except Exception as exc:
-                    logger.exception("确定性组装/落库失败 thread=%s", thread_id)
-                    ctx["fatal_error"] = str(exc)[:200]
-        if ctx.get("fatal_error"):
-            error = str(ctx.get("fatal_error") or "需求分析执行失败")
-            await raw_broadcast({"type": "error", "message": error})
-            workflow_result_sent["value"] = True
-            return f"需求分析执行失败：{error}"
-        handoff = ctx.get("handoff") if isinstance(ctx.get("handoff"), dict) else {}
-        payload = handoff.get("payload") if isinstance(handoff.get("payload"), dict) else {}
-        output_kind = str(handoff.get("output_kind") or ctx.get("output_kind") or skill_output_kind).strip() or "generic"
-        plans = payload.get("plans") or ctx.get("plans") or []
-        ext = payload.get("ext") or ctx.get("ext") or {}
-        if ctx.get("awaiting_input"):
-            try:
-                from app.services.portal_flow_adapter import persist_requirement_from_ctx
-                persist_requirement_from_ctx(ctx, operator_name)
-            except Exception:
-                logger.exception("AI Office 反问暂停前写需求草稿失败 thread=%s", thread_id)
-            slot_state = dict(ctx.get("slot_state") or {})
-            slot_state.update({
-                "ext": dict(ctx.get("ext") or {}),
-                "requirement": dict(ctx.get("requirement") or {}),
-                "requirement_text_snapshot": ctx.get("requirement_text_snapshot") or "",
-                "baselines": list(ctx.get("baselines") or []),
-                "kp_parts": list(ctx.get("kp_parts") or []),
-                "kp_by_model": dict(ctx.get("kp_by_model") or {}),
-                "model_selection": ctx.get("model_selection"),
-                "model_phase": ctx.get("model_phase") or "",
-                "_locked_baseline": dict(ctx.get("_locked_baseline") or {}),
-                "missing_fields": list(ctx.get("missing_fields") or []),
-                "feasibility": ctx.get("feasibility"),
-                "turn_count": int(ctx.get("turn_count") or 0) + 1,
-            })
-            _save_pending_workflow(thread_id, {
-                "status": "awaiting_input",
-                "skill_key": skill_key,
-                "opportunity_id": opportunity_id or "",
-                "requirement_text": full_text,
-                "force_complete": force_complete,
-                "max_ask_rounds": max_ask_rounds,
-                "last_ask_question": ctx.get("last_ask_question") or "",
-                "slot_state": slot_state,
-                "current_target": ctx.get("current_target") or "",
-            })
-            await raw_broadcast({"type": "pipeline_paused"})
-            workflow_result_sent["value"] = True
-            return "系统已向用户发起澄清提问，请等待用户补充信息后再继续。"
-        if ctx.get("flow_exit") == "cancelled":
-            _clear_pending_workflow(thread_id)
-            try:
-                from app.services.workflow_intent import reply_with_context
-                cancel_text = await reply_with_context(
-                    "用户取消了方案配置，请给一句自然、简短的收尾回复。", "",
-                    str(chat_cfg.get("chat_system_prompt") or "").strip(),
-                ) or "已取消本次方案配置。"
-            except Exception:
-                cancel_text = "已取消本次方案配置。"
-            _add_assistant_message(thread_id, colleague, cancel_text)
-            await raw_broadcast({"type": "analysis_cancelled", "message": cancel_text})
-            await publish_office_event(role_key, "done", "已取消方案配置", thread_id=thread_id)
-            workflow_result_sent["value"] = True
-            return "已取消本次方案配置。"
-        downstream = await downstream_guard(handoff)
-        if downstream:
-            target_role = str(downstream.get("target_role") or "更高权限的 AI 角色")
-            approval_text = f"草稿已生成。下一步需要 {target_role} 处理，系统已提交审批。审批通过后我会继续。"
-            approval_msg = _add_assistant_message(
-                thread_id,
-                colleague,
-                approval_text,
-                kind="approval_required",
-                data=json.dumps({
-                    "governance_id": downstream.get("governance_id"),
-                    "target_role": downstream.get("target_role"),
-                    "handoff": handoff,
-                }, ensure_ascii=False, default=str),
-            )
-            await raw_broadcast({
-                "type": "approval_required",
-                "governance_id": downstream.get("governance_id"),
-                "target_role": downstream.get("target_role"),
-                "handoff": handoff,
-                "message": approval_msg,
-            })
-            workflow_result_sent["value"] = True
-            return "已生成草稿，但下一步需要更高权限的 AI 角色，系统已提交审批。"
-        if output_kind == "bom_scheme_draft" and payload.get("bom_scheme"):
-            bom_scheme = payload.get("bom_scheme") or {}
-            config_count = len((bom_scheme.get("configs") or []))
-            _fz = ctx.get("feasibility") or {}
-            _fz_lines = [f"⚠️ {w}" for w in (_fz.get("warnings") or [])] + [f"提示：{h}" for h in (_fz.get("hints") or [])]
-            _fz_suffix = ("\n" + "\n".join(_fz_lines)) if _fz_lines else ""
-            result_data = {
-                "bom_scheme": bom_scheme,
-                "entity_type": "bom_scheme",
-                "opportunity_id": opportunity_id or "",
-                "target": handoff.get("target") or "bom_scheme",
-            }
-            result_msg = _add_assistant_message(
-                thread_id,
-                colleague,
-                f"✅ 需求分析完成，已生成 BOM 方案草稿（{config_count} 个配置页签）。{_fz_suffix}",
-                kind="business_artifact",
-                data=json.dumps(result_data, ensure_ascii=False, default=str),
-            )
-            await assistant_hub.broadcast(thread_id, {
-                "type": "business_entity_ready",
-                "entity_type": "bom_scheme",
-                "entity": bom_scheme,
-                "opportunity_id": opportunity_id or "",
-                "message": result_msg,
-            })
-            await assistant_hub.broadcast(thread_id, {"type": "analysis_finished"})
-            try:
-                record_mission(
-                    f"{skill_key}：{text[:80]}" if text else skill_key,
-                    created_by=(user or {}).get("name") or (user or {}).get("user_id") or "user",
-                    owner_role_key=role_key,
-                    opportunity_id=opportunity_id or "",
-                    flow_node=handoff.get("target") or "bom_scheme",
-                    skill_key=skill_key,
-                    artifacts=[{
-                        "type": "bom_scheme_draft",
-                        "title": "方案 / BOM 草稿",
-                        "content": f"已生成 {config_count} 个配置页签，点击查看或转成本核算。",
-                        "data": result_data,
-                    }],
-                    status="done",
-                )
-            except Exception:
-                logger.exception("record AI office mission artifact failed")
-            workflow_result_sent["value"] = True
-            return "需求分析已完成，BOM 方案草稿已写入商机流程。请告知用户可查看方案草稿，确认后转成本核算。"
-
-        agent_result = ctx.get("agent_result") if isinstance(ctx.get("agent_result"), dict) else {}
-        answer = str(payload.get("answer") or agent_result.get("answer") or "").strip()
-        if answer:
-            try:
-                record_mission(
-                    f"{skill_key}：{text[:80]}" if text else skill_key,
-                    created_by=(user or {}).get("name") or (user or {}).get("user_id") or "user",
-                    owner_role_key=role_key,
-                    opportunity_id=opportunity_id or "",
-                    flow_node=handoff.get("target") or "conversation_reply",
-                    skill_key=skill_key,
-                    artifacts=[{
-                        "type": "data_answer",
-                        "title": "数据结论",
-                        "content": answer[:500],
-                    }],
-                    status="done",
-                )
-            except Exception:
-                logger.exception("record AI office mission data_answer failed")
-            return {"skill_key": skill_key, "answer": answer}
-        return {
-            "skill_key": skill_key,
-            "awaiting_input": bool(ctx.get("awaiting_input")),
-            "result": payload.get("result") if isinstance(payload.get("result"), dict) else (ctx.get("assembled") if isinstance(ctx.get("assembled"), dict) else {}),
-        }
-
-    pending = _load_pending_workflow(thread_id)
-    if pending:
-        pending_opportunity_id = str(pending.get("opportunity_id") or "").strip()
-        if pending_opportunity_id:
-            opportunity_id = pending_opportunity_id
-        await workflow_runner({
-            "requirement_text": str(pending.get("requirement_text") or user_text).strip() or user_text,
-            "skill_key": pending.get("skill_key"),
-            "supplement_text": user_text,
-            "is_resume": True,
-            "force_complete": bool(pending.get("force_complete")),
-            "max_ask_rounds": pending.get("max_ask_rounds"),
-            "last_ask_question": pending.get("last_ask_question") or "",
-            "slot_state": pending.get("slot_state") or {},
-            "current_target": pending.get("current_target") or "",
-        })
-        if workflow_result_sent.get("value"):
-            await publish_office_event(role_key, "done", "Skill 工作流已处理", thread_id=thread_id)
-        else:
-            await publish_office_event(role_key, "error", "需求分析续跑未完成", thread_id=thread_id)
-            await assistant_hub.broadcast(thread_id, {"type": "error", "message": "需求分析续跑未完成，请稍后重试。"})
-        return
-
-    # Skill Studio 预览：右侧测试窗口第一条用户消息就直接进入需求分析流水线，
-    # 不走普通聊天意图路由，避免“我需要一台服务器”被当成闲聊卡在入口。
-    thread_entry_point = ""
-    try:
-        entry_repo = AssistantRepository()
-        try:
-            _entry_thread = entry_repo.get_thread(thread_id)
-            thread_entry_point = str((_entry_thread or {}).get("entry_point") or "").strip()
-        finally:
-            entry_repo.close()
-    except Exception:
-        logger.exception("读取会话入口失败 thread=%s", thread_id)
-
-    routed = None
-    if thread_entry_point == "skill_studio_preview":
-        _preview_skill = next(
-            (s for s in _resolved_skills(colleague)
-             if str(s.get("workflow_key") or s.get("key") or "").strip() == "requirement_analysis"),
-            None,
-        )
-        if _preview_skill:
-            routed = {"skill": _preview_skill, "rule": {"action": {"requirement_source": "current"}}}
-    if not routed:
-        routed = await route_skill_llm(
-            _resolved_skills(colleague),
-            user_text,
-            conversation_text(history),
-            model=(colleague or {}).get("model_override") or None,
-        )
-    if routed:
-        routed_skill = routed.get("skill") if isinstance(routed.get("skill"), dict) else {}
-        routed_rule = routed.get("rule") if isinstance(routed.get("rule"), dict) else {}
-        routed_key = str(routed_skill.get("workflow_key") or routed_skill.get("key") or "").strip()
-        if routed_key:
-            action = routed_rule.get("action") if isinstance(routed_rule.get("action"), dict) else {}
-            conversation_input = conversation_text(history)
-            requirement_source = str(action.get("requirement_source") or "current_or_conversation").strip()
-            if routed_key == "requirement_analysis":
-                # 进入 BOM 流水线前，优先用完整会话上下文预填线索登记表；当前这句话作为补充信息合并。
-                requirement_text = conversation_input or user_text
-                supplement_text = "" if requirement_text == conversation_input else user_text
-            elif requirement_source == "conversation":
-                requirement_text = conversation_input or user_text
-                supplement_text = "" if requirement_text == conversation_input else user_text
-            elif requirement_source in {"current_or_conversation", "conversation_or_current"}:
-                requirement_text = user_text or conversation_input
-                supplement_text = "" if requirement_text == conversation_input else conversation_input
-            else:
-                requirement_text = user_text or conversation_input
-                supplement_text = "" if requirement_text == conversation_input else conversation_input
-            await workflow_runner({
-                "requirement_text": requirement_text,
-                "skill_key": routed_key,
-                "supplement_text": supplement_text,
-                "force_complete": bool(action.get("force_complete")),
-                "max_ask_rounds": action.get("max_ask_rounds"),
-            })
-            if workflow_result_sent.get("value"):
-                try:
-                    repo = SkillCatalogRepository()
-                    try:
-                        repo.increment_hit(str(routed_skill.get("key") or routed_key).strip())
-                    finally:
-                        repo.close()
-                except Exception:
-                    logger.exception("record skill trigger hit failed for %s", routed_key)
-                await publish_office_event(role_key, "done", "Skill 工作流已处理", thread_id=thread_id)
-                return
-
     started = time.perf_counter()
     if not allowed_tool_ids:
         await publish_office_event(role_key, "thinking", "切换普通对话", thread_id=thread_id)
         await _run_plain_turn(
             thread_id, user_text, context_summary, history, colleague, memory_block,
-            final_office_event=final_office_event, trace_sink=trace_sink,
+            final_office_event=final_office_event, trace_sink=trace_sink, user=user,
         )
         return
 
+    profile = build_chat_config(colleague).get("response_profile") or {}
+    profile_temperature = profile.get("temperature")
+    profile_max_tokens = profile.get("max_tokens")
     result = await run_react_loop(
         user_text,
         {"enabled_tools": allowed_tool_ids},
@@ -1194,10 +651,9 @@ async def _run_tool_turn(
         event_sink=event_sink,
         history=history,
         tool_guard=governance_guard,
+        llm_temperature=profile_temperature if isinstance(profile_temperature, (int, float)) else None,
+        llm_max_tokens=profile_max_tokens if isinstance(profile_max_tokens, int) and profile_max_tokens > 0 else None,
     )
-    if workflow_result_sent.get("value"):
-        await publish_office_event(role_key, "done", "Skill 工作流已处理", thread_id=thread_id)
-        return
     if result.get("ok") and str(result.get("answer") or "").strip():
         final_text = str(result["answer"]).strip()
         trace_status = "ok"
@@ -1206,12 +662,12 @@ async def _run_tool_turn(
         await publish_office_event(role_key, "thinking", "工具流程未收敛，切换普通对话", thread_id=thread_id)
         await _run_plain_turn(
             thread_id, user_text, context_summary, history, colleague, memory_block,
-            final_office_event=final_office_event, trace_sink=trace_sink,
+            final_office_event=final_office_event, trace_sink=trace_sink, user=user,
         )
         return
 
     await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": final_text})
-    await _remember_reply(colleague, final_text)
+    _schedule_memory_extraction(colleague, _user_name(user), user_text, final_text)
     await publish_office_event(role_key, "done", "回复完成", message=final_text[:160], thread_id=thread_id)
     await _trace(
         trace_sink,
@@ -1229,6 +685,178 @@ async def _run_tool_turn(
     await _persist_and_broadcast(thread_id, colleague, final_text, final_office_event=final_office_event)
 
 
+# ── Skill 对话路径（两器官架构）：角色=对话脑（skill_chat），引擎=纯执行 ──────────
+
+def _skill_chat_memory_active(thread_id: str, role_key: str) -> bool:
+    from app.services.skill_chat import _load_mem
+    return bool(_load_mem(thread_id, role_key))
+
+
+async def _run_skill_chat(thread_id, user_text, context_summary, history, colleague, memory_block,
+                          final_office_event=None, trace_sink=None, user=None,
+                          opportunity_id=None, option_slot=None, card_selections=None) -> None:
+    """绑定工作流 Skill 的 AI 角色：全部消息走对话脑，登记表够格时由角色提交引擎。"""
+    from app.services.skill_chat import _load_mem, handle_skill_chat_turn
+
+    role_key = (colleague or {}).get("role_key") or "assistant"
+    started = time.perf_counter()
+    chat_cfg = build_chat_config(colleague)
+    persona = "\n\n".join([chat_cfg["chat_system_prompt"], _style_hint(chat_cfg)])
+    handoff = _handoff_hint(colleague)
+    if handoff:
+        persona += "\n\n" + handoff
+    if memory_block:
+        persona += "\n\n" + memory_block
+
+    async def raw_broadcast(payload: dict) -> None:
+        payload.setdefault("thread_id", thread_id)
+        payload.setdefault("opportunity_id", opportunity_id or "")
+        await assistant_hub.broadcast(thread_id, payload)
+
+    async def emit_input_card(question: str, data: dict) -> None:
+        option_data = json.dumps(data, ensure_ascii=False, default=str)
+        await _broadcast_chat_progress(thread_id, colleague, "need_input", "question", question,
+                                       kind="input_options", data=option_data)
+
+    async def event_sink(payload: dict) -> None:
+        sub = (payload or {}).get("sub") or {}
+        kind = (sub.get("kind") or "")
+        if kind == "thinking" and sub.get("text"):
+            await assistant_hub.broadcast(thread_id, {"type": "thinking", "text": sub.get("text")})
+        elif kind == "chunk" and isinstance(sub.get("delta"), str):
+            # v2 流式对话：正文增量直推（前端 streamingText 逐字增长），落库文本与之严格一致
+            await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": sub.get("delta")})
+        elif kind == "tool" and sub.get("text"):
+            await assistant_hub.broadcast(thread_id, {"type": "chat_status", "text": str(sub.get("text"))})
+        if (payload or {}).get("type") in ("node_trace", "pipeline_start", "pipeline_paused", "pipeline_done", "error"):
+            await raw_broadcast(payload)
+
+    if not opportunity_id:
+        opportunity_id = _ensure_ai_office_opportunity(thread_id, user, user_text)
+
+    await publish_office_event(role_key, "working", "接收新任务", message=user_text or "", thread_id=thread_id)
+
+    try:
+        # 整轮硬超时护栏：中转半死连接（只挂不断）会绕过 LLM 客户端超时，把回合拖到无限。
+        outcome = await asyncio.wait_for(
+            handle_skill_chat_turn(
+                thread_id=thread_id, user_text=user_text, colleague=colleague,
+                chat_system_prompt=persona, history=history, user=user,
+                opportunity_id=opportunity_id, option_slot=option_slot,
+                event_sink=event_sink, emit_input_card=emit_input_card,
+                card_selections=card_selections,
+            ),
+            timeout=300.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("skill chat turn 超时(300s) thread=%s", thread_id)
+        outcome = {"kind": "error", "reply": "这一轮处理超时了（模型服务暂时无响应），请重发一次或稍后再试。"}
+    except Exception as exc:
+        logger.exception("skill chat turn failed thread=%s", thread_id)
+        outcome = {"kind": "error", "reply": f"回复处理失败：{exc}"}
+
+    kind = outcome.get("kind")
+    reply = str(outcome.get("reply") or "").strip()
+    logger.info("skill chat outcome kind=%s reply_len=%s thread=%s", kind, len(reply), thread_id)
+
+    if kind == "done":
+        engine_ctx = outcome.get("engine_ctx") or {}
+        # v2：提交前的 narration 已流式播出，这里落库定稿（done 事件清前端 streamingText），
+        # 历史会话里 narration 与方案产物上下文完整；随后再广播方案产物
+        if reply:
+            await _persist_and_broadcast(thread_id, colleague, reply)
+        payload = engine_ctx.get("output_payload") or {}
+        plans = engine_ctx.get("plans") or []
+        bom_entity = (engine_ctx.get("business_entity") or {}).get("entity")
+        bom_view = payload.get("bom_scheme") if isinstance(payload.get("bom_scheme"), dict) else {}
+        config_count = len(bom_view.get("configs") or []) or len(plans) or 1
+        result_msg = f"✅ 需求分析完成，已生成 BOM 方案草稿（{config_count} 个配置页签）。"
+        result_data = {"bom_scheme": bom_entity or payload.get("bom_scheme"), "entity_type": "bom_scheme",
+                       "opportunity_id": opportunity_id or "", "target": "bom_scheme"}
+        _add_assistant_message(thread_id, colleague, result_msg, kind="business_artifact",
+                               data=json.dumps(result_data, ensure_ascii=False, default=str))
+        await raw_broadcast({"type": "business_entity_ready", "entity_type": "bom_scheme",
+                             "entity": bom_entity, "opportunity_id": opportunity_id or "", "message": result_msg})
+        await raw_broadcast({"type": "analysis_finished"})
+        try:
+            record_mission(
+                f"requirement_analysis：{user_text[:80]}" if user_text else "requirement_analysis",
+                created_by=(user or {}).get("name") or (user or {}).get("user_id") or "user",
+                owner_role_key=role_key, opportunity_id=opportunity_id or "",
+                flow_node="bom_scheme", skill_key="requirement_analysis",
+                artifacts=[{"type": "bom_scheme_draft", "title": "方案 / BOM 草稿",
+                            "content": f"已生成 {config_count} 个配置页签，点击查看或转成本核算。",
+                            "data": result_data}],
+                status="done",
+            )
+        except Exception:
+            logger.exception("record AI office mission artifact failed")
+        _schedule_memory_extraction(colleague, _user_name(user), user_text, result_msg)
+        await publish_office_event(role_key, "done", "需求分析完成", message=result_msg[:160], thread_id=thread_id)
+        await _trace(trace_sink, tool_name="skill_chat", status="ok",
+                     duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
+                     node_type="skill_chat", role_key=role_key)
+        return
+
+    if kind == "error":
+        msg = str(outcome.get("reply") or "需求分析执行失败")
+        await raw_broadcast({"type": "error", "message": msg})
+        _add_assistant_message(thread_id, colleague, msg, kind="error")
+        await publish_office_event(role_key, "error", "需求分析失败", thread_id=thread_id)
+        return
+
+    # chat / gaps：正常对话回复；缺口时问题文本已随选项卡发出，不再重复存普通消息
+    if not reply and kind != "gaps":
+        reply = "我在的，继续说说你的需求～"
+    if kind == "gaps":
+        # 问题文本已随选项卡广播（handle_skill_chat_turn 内 emit_input_card）；
+        # 卡没发出去（异常/通道缺失）时必须落普通消息，绝不让用户面对静默
+        if not outcome.get("card_emitted") and reply:
+            await _persist_and_broadcast(thread_id, colleague, reply)
+        # 此处发裸 done 只为清掉前端还挂着的流式 narration 气泡，不重复落消息
+        await assistant_hub.broadcast(thread_id, {"type": "done"})
+        await publish_office_event(role_key, "waiting", "等待客户补充", thread_id=thread_id)
+        await _trace(trace_sink, tool_name="skill_chat", status="ok",
+                     duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
+                     node_type="skill_chat", role_key=role_key)
+        return
+    _schedule_memory_extraction(colleague, _user_name(user), user_text, reply)
+    await publish_office_event(role_key, "done", "回复完成", message=reply[:160], thread_id=thread_id)
+    await _trace(trace_sink, tool_name="skill_chat", status="ok",
+                 duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
+                 node_type="skill_chat", role_key=role_key)
+    # v2 真流式：正文在生成期间已经过 chunk 通道逐字推出，这里只落库定稿（done），
+    # 不再做生成完后的打字机回放（假流式已删除）。
+    await _persist_and_broadcast(thread_id, colleague, reply, final_office_event=final_office_event)
+
+
+# 每线程互斥锁：重发消息不再叠加并行流水线（互踩 pending state 的根因）。
+_THREAD_TURN_LOCKS: dict[str, asyncio.Lock] = {}
+# Claude Code 语义：任务执行中用户仍可发消息引导——排队等当前回合结束串行续跑，
+# 不再拒绝。参数原样保存，drain 时按到达顺序重放进同一入口。
+_THREAD_TURN_QUEUE: dict[str, list[dict]] = {}
+
+
+async def _drain_thread_queue(thread_id: str) -> None:
+    """当前回合结束后串行处理排队消息；锁被占/队列空即退出（多个 drain 并存安全收敛）。"""
+    while True:
+        lock = _THREAD_TURN_LOCKS.get(thread_id)
+        if lock is None or lock.locked():
+            return
+        queue = _THREAD_TURN_QUEUE.get(thread_id)
+        if not queue:
+            _THREAD_TURN_QUEUE.pop(thread_id, None)
+            return
+        item = queue.pop(0)
+        if not queue:
+            _THREAD_TURN_QUEUE.pop(thread_id, None)
+        await run_colleague_turn(**item)
+
+
+def _clear_thread_queue(thread_id: str) -> None:
+    _THREAD_TURN_QUEUE.pop(thread_id, None)
+
+
 async def run_colleague_turn(
     thread_id: str,
     user_text: str,
@@ -1240,41 +868,69 @@ async def run_colleague_turn(
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
     option_slot: Optional[str] = None,
+    card_selections: Optional[list] = None,
 ) -> None:
     """Route one colleague message through the unified runtime."""
     role_key = (colleague or {}).get("role_key") or "assistant"
+    lock = _THREAD_TURN_LOCKS.setdefault(thread_id, asyncio.Lock())
+    if lock.locked():
+        # 同线程已有回合在跑：排队（串行防互踩），当前回合结束后自动续跑，
+        # 用户中途补充的话会作为下一轮输入进角色登记表——引导而非打断。
+        _THREAD_TURN_QUEUE.setdefault(thread_id, []).append({
+            "thread_id": thread_id, "user_text": user_text, "context_summary": context_summary,
+            "history": history, "colleague": colleague, "final_office_event": final_office_event,
+            "trace_sink": trace_sink, "user": user, "opportunity_id": opportunity_id,
+            "option_slot": option_slot, "card_selections": card_selections,
+        })
+        msg = "已收到，这条会排在当前任务完成后处理。"
+        await assistant_hub.broadcast(thread_id, {"type": "chat_status", "text": msg})
+        return
     try:
-        await publish_office_event(role_key, "thinking", "正在思考回复", thread_id=thread_id)
-        memory_block = await _memory_block(colleague, user_text)
-        allowed_tool_ids = _effective_tool_ids(colleague)
-        # 无论如何，只要已存在追问中的 workflow（pending），必须回到 _run_tool_turn 续跑，
-        # 不能因为本轮 colleague 绑定/解析不同而落入 _run_plain_turn 自由对话（否则 AI 会“自由总结”绕过图）。
-        if allowed_tool_ids or _has_workflow_skills(colleague) or _load_pending_workflow(thread_id):
-            await _run_tool_turn(
-                thread_id,
-                user_text,
-                context_summary,
-                history,
-                colleague,
-                memory_block,
-                allowed_tool_ids,
-                final_office_event=final_office_event,
-                trace_sink=trace_sink,
-                user=user,
-                opportunity_id=opportunity_id,
-                option_slot=option_slot,
-            )
-        else:
-            await _run_plain_turn(
-                thread_id,
-                user_text,
-                context_summary,
-                history,
-                colleague,
-                memory_block,
-                final_office_event=final_office_event,
-                trace_sink=trace_sink,
-            )
+        async with lock:
+            await publish_office_event(role_key, "thinking", "正在思考回复", thread_id=thread_id)
+            memory_block = await _memory_block(colleague, user_text)
+            allowed_tool_ids = _effective_tool_ids(colleague)
+            # 无论如何，只要已存在追问中的 workflow（pending），必须回到 _run_tool_turn 续跑，
+            # 不能因为本轮 colleague 绑定/解析不同而落入 _run_plain_turn 自由对话（否则 AI 会“自由总结”绕过图）。
+            if _has_workflow_skills(colleague) or _skill_chat_memory_active(thread_id, role_key):
+                await _run_skill_chat(
+                    thread_id, user_text, context_summary, history, colleague, memory_block,
+                    final_office_event=final_office_event, trace_sink=trace_sink,
+                    user=user, opportunity_id=opportunity_id, option_slot=option_slot,
+                    card_selections=card_selections,
+                )
+            else:
+                await _run_plain_turn(
+                    thread_id,
+                    user_text,
+                    context_summary,
+                    history,
+                    colleague,
+                    memory_block,
+                    final_office_event=final_office_event,
+                    trace_sink=trace_sink,
+                    user=user,
+                )
+    except asyncio.CancelledError:
+        # stop 端点取消任务：广播终态即可（登记表记忆保留，用户可继续）。
+        # 用户按停=不要了：排队中的引导消息一并清掉（历史里仍可看到原话）。
+        logger.warning("colleague turn 被取消 thread=%s", thread_id)
+        _clear_thread_queue(thread_id)
+        try:
+            await assistant_hub.broadcast(thread_id, {"type": "analysis_cancelled", "message": "已取消当前任务。"})
+        except Exception:
+            pass
+        raise
     except Exception as e:
         logger.exception("colleague turn runtime failed")
-        await assistant_hub.broadcast(thread_id, {"type": "error", "message": f"回复处理失败：{e}"})
+        msg = f"回复处理失败：{e}"
+        # 必达终态：错误必须落库，不能只广播（无 WS 客户端时广播蒸发=用户看到"卡住"）。
+        try:
+            _add_assistant_message(thread_id, colleague, msg, kind="error")
+        except Exception:
+            logger.exception("落库终态错误消息失败")
+        await assistant_hub.broadcast(thread_id, {"type": "error", "message": msg})
+    finally:
+        # 回合收尾：有排队消息则串行续跑（Claude Code 式执行中引导）。
+        if _THREAD_TURN_QUEUE.get(thread_id):
+            asyncio.create_task(_drain_thread_queue(thread_id))

@@ -191,7 +191,7 @@ const roleForm = ref<{ role_key: string; name: string; description: string; perm
 })
 
 const permissionGroups = computed(() => {
-  const moduleOrder = ['工作台', '商机线索', '服务器', '配件', '策略中心', '设置']
+  const moduleOrder = ['工作台', '商机线索', '服务器', '配件', '解决方案', '设置']
   const keyword = permSearch.value.trim().toLowerCase()
   const groups: { group: string; label: string; items: PermissionItem[] }[] = []
   const used = new Set<string>()
@@ -223,7 +223,7 @@ function moduleOf(p: PermissionItem): string {
     ['page.opportunities', '商机线索'],
     ['page.servers', '服务器'],
     ['page.parts', '配件'],
-    ['page.strategies', '策略中心'],
+    ['page.strategies', '解决方案'],
     ['page.settings', '设置'],
     ['field.quote', '工作台'],
     ['field.opportunity', '商机线索'],

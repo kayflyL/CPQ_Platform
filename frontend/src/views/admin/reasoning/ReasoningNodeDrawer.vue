@@ -56,16 +56,16 @@ const title = computed(() => {
 const configurable = computed(() => Boolean(props.nodeType && CONFIGURABLE.includes(props.nodeType)) || Boolean(props.nodeRuntime && CONFIGURABLE.includes(props.nodeRuntime)))
 const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.nodeRuntime || ''))
 const runtimeType = computed(() => props.nodeRuntime || props.nodeType || '')
-const showSystemPrompt = computed(() => ['agent', 'agent_fill', 'kp_reason', 'model_reason'].includes(runtimeType.value))
-const ruleCatalogRuntimes = new Set(['model_reason', 'kp_reason', 'agent_fill'])
+const showSystemPrompt = computed(() => ['agent', 'agent_fill'].includes(runtimeType.value))
+const ruleCatalogRuntimes = new Set(['model_reason', 'kp_reason'])
 const NODE_RULE_TYPES: Record<string, RuleType[]> = {
-  agent_fill: ['platform_series_map', 'category_alias', 'workload_map', 'compliance_map'],
+  agent_fill: [],
   model_reason: ['fallback_order', 'compliance_map'],
   kp_reason: ['type_package', 'category_alias', 'spec_rule', 'cpu_mem_generation', 'capacity_match', 'raid_level_map', 'compliance_map'],
 }
 const nodeRuleTypes = computed<RuleType[] | undefined>(() => NODE_RULE_TYPES[runtimeType.value])
 const showRuleCatalog = computed(() => ruleCatalogRuntimes.has(runtimeType.value))
-const toolsEnabled = computed(() => ['agent', 'agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value))
+const toolsEnabled = computed(() => ['agent'].includes(runtimeType.value))
 const systemPromptValue = computed({
   get: () => runtimeType.value === 'agent_fill'
     ? (form.value?.prompt?.system_prompt ?? '')
@@ -81,20 +81,6 @@ const systemPromptValue = computed({
 const systemPromptLabel = computed(() => (
   ['agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value) ? '节点任务说明' : 'System Prompt'
 ))
-const MODEL_INTRO_LENGTH_OPTIONS = [
-  { value: 'short', label: '简短（一句话）' },
-  { value: 'medium', label: '适中（规格 + 适用场景）' },
-  { value: 'full', label: '完整（含槽位能力与限制）' },
-]
-const MODEL_SORT_OPTIONS = [
-  { value: 'match_stage', label: '按匹配精度' },
-  { value: 'price', label: '按价格' },
-  { value: 'catalog_order', label: '按目录排序' },
-]
-const KP_CONFIRM_MODE_OPTIONS = [
-  { value: 'auto', label: '匹配完整自动继续' },
-  { value: 'manual', label: '生成后等用户确认' },
-]
 const PSU_SOURCE_OPTIONS = [
   { value: 'ext.psu_signal.wattage', label: '需求电源信号 · 瓦数' },
   { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
@@ -149,15 +135,6 @@ watch(() => props.open, async (v) => {
     enabled_tools: Array.isArray(c.enabled_tools)
       ? [...c.enabled_tools]
       : [...(CAPABILITY_DEFAULT_TOOLS[runtimeType.value] || NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
-    kr_confirm_mode: c.confirm_mode ?? 'auto',
-    kr_reason_template: c.reason_template ?? '',
-    kr_representative_pick: c.representative_pick ?? 'auto',
-    kr_fallback_strategy: c.fallback_strategy ?? 'fallback_representative',
-    kr_drive_spec_substitute: c.drive_spec_substitute ?? true,
-    mr_series_limit: c.series_limit ?? 3,
-    mr_detail_link_enabled: c.detail_link_enabled ?? true,
-    mr_intro_length: c.intro_length ?? 'medium',
-    mr_sort_by: c.sort_by ?? 'match_stage',
     cp_kp_source: c.kp_source ?? 'per_baseline',
     cp_psu_override_enabled: c.psu_override_enabled ?? true,
     cp_psu_wattage_source: c.psu_wattage_source ?? 'ext.psu_signal.wattage',
@@ -176,6 +153,7 @@ watch(() => props.open, async (v) => {
     prompt: (c.prompt && typeof c.prompt === 'object') ? {
       system_prompt: c.prompt.system_prompt || '',
     } : { system_prompt: '' },
+    af_signal_backfill: c.signal_backfill ?? true,
   }
 })
 
@@ -190,21 +168,6 @@ function buildConfig(): Record<string, any> | null {
   if (runtimeType.value === 'agent') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
     config.system_prompt = form.value.system_prompt || ''
-  }
-  if (runtimeType.value === 'model_reason') {
-    config.system_prompt = form.value.system_prompt || ''
-    config.series_limit = Math.max(1, Math.min(20, Number(form.value.mr_series_limit) || 3))
-    config.detail_link_enabled = form.value.mr_detail_link_enabled !== false
-    config.intro_length = form.value.mr_intro_length || 'medium'
-    config.sort_by = form.value.mr_sort_by || 'match_stage'
-  }
-  if (runtimeType.value === 'kp_reason') {
-    config.confirm_mode = form.value.kr_confirm_mode || 'auto'
-    config.system_prompt = form.value.system_prompt || ''
-    config.reason_template = form.value.kr_reason_template || ''
-    config.representative_pick = form.value.kr_representative_pick || 'auto'
-    config.fallback_strategy = form.value.kr_fallback_strategy || 'fallback_representative'
-    config.drive_spec_substitute = form.value.kr_drive_spec_substitute !== false
   }
   if (runtimeType.value === 'compose') {
     config.kp_source = form.value.cp_kp_source || 'per_baseline'
@@ -246,6 +209,7 @@ function buildConfig(): Record<string, any> | null {
       system_prompt: (form.value.prompt?.system_prompt ?? '') || '',
     }
     config.rule_types = Array.isArray(form.value.rule_types) ? [...form.value.rule_types] : []
+    config.signal_backfill = form.value.af_signal_backfill !== false
   }
   return config
 }
@@ -268,9 +232,20 @@ async function persist(config: Record<string, any>): Promise<boolean> {
       delete merged.enabled_tools
       delete merged.max_iterations
       delete merged.max_rounds
-      if (!['kp_reason', 'model_reason'].includes(runtimeType.value)) {
-        delete merged.system_prompt
-      }
+      delete merged.system_prompt
+    }
+    if (runtimeType.value === 'kp_reason' || runtimeType.value === 'model_reason') {
+      // 清理旧内核遗留字段：新阶段机不读这些键，留着会误导"配置已生效"。
+      delete merged.confirm_mode
+      delete merged.reason_template
+      delete merged.representative_pick
+      delete merged.fallback_strategy
+      delete merged.drive_spec_substitute
+      delete merged.series_limit
+      delete merged.detail_link_enabled
+      delete merged.intro_length
+      delete merged.sort_by
+      delete merged.system_prompt
     }
     if (runtimeType.value === 'kp_reason') {
       delete merged.proposal_enabled
@@ -348,6 +323,10 @@ async function save() {
               <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
               <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
             </a-form-item>
+            <a-form-item v-if="runtimeType === 'agent_fill'" label="信号补抽（漏登记自愈）">
+              <a-switch v-model:checked="form.af_signal_backfill" />
+              <p class="rf-hint">开启时，对话中角色漏登记的配件信号（用户原话已点名但登记表缺失）会在需求理解阶段自动补抽一次；只补缺、不覆盖已点选项，信号齐全时零额外 LLM 调用。</p>
+            </a-form-item>
           </a-form>
 
 
@@ -407,55 +386,14 @@ async function save() {
           </a-form>
 
 
-          <!-- 机型选配节点：筛选策略与推荐展示量可配置，措辞由 AI 角色层生成 -->
+          <!-- 机型选配节点：查询/选型契约固定，无需手工配置 -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <p class="rf-hint">根据上游已登记的类型、系列、形态、GPU 与合规信息，从在售目录筛出候选机型；是否推荐、怎么措辞、是否继续由 AI 角色层判断。</p>
-            <a-form-item label="每个系列最多推荐几台">
-              <a-input-number v-model:value="form.mr_series_limit" :min="1" :max="20" style="width:100%" />
-              <p class="rf-hint">收敛候选数量，避免一次铺满整个目录；AI 仍可在此基础上做语义筛选。</p>
-            </a-form-item>
-            <a-form-item label="推荐语长度">
-              <a-select v-model:value="form.mr_intro_length" :options="MODEL_INTRO_LENGTH_OPTIONS" style="width:100%" />
-            </a-form-item>
-            <a-form-item label="候选排序依据">
-              <a-select v-model:value="form.mr_sort_by" :options="MODEL_SORT_OPTIONS" style="width:100%" />
-            </a-form-item>
-            <a-form-item label="推荐时附带详情页链接">
-              <a-switch v-model:checked="form.mr_detail_link_enabled" />
-              <p class="rf-hint">开启后，AI 在介绍候选机型时可附带服务器详情页链接。</p>
-            </a-form-item>
+            <p class="rf-hint">按结构化信号查在售目录：无信号时逐项反问（类型/系列/形态），多候选时单次受约束 AI 选型或交用户点选；锁定后回写结构化字段。全程白盒，无节点级可调项。</p>
           </a-form>
 
-          <!-- 配件选配节点：确定性选件 + 业务策略可配，不再暴露 JSON 黑盒 -->
+          <!-- 配件选配节点：纯确定性落地，无需手工配置 -->
           <a-form v-else-if="runtimeType === 'kp_reason'" layout="vertical">
-            <p class="rf-hint">本节点优先走确定性的 pick_kp_parts 与规则库；AI 只做合理性审核与必要修正，不再生成黑盒 JSON 方案。</p>
-            <a-form-item label="配件确认模式">
-              <a-select v-model:value="form.kr_confirm_mode" :options="KP_CONFIRM_MODE_OPTIONS" style="width:100%" />
-              <p class="rf-hint">完整匹配时默认自动继续；只有在未匹配或需要用户拍板时才停下。</p>
-            </a-form-item>
-            <a-form-item label="推荐理由模板">
-              <a-input v-model:value="form.kr_reason_template" placeholder="配件规划：已确认 {{items}}" />
-            </a-form-item>
-            <a-divider orientation="left" class="rf-sec">规则匹配</a-divider>
-            <a-form-item label="代表件策略">
-              <a-select v-model:value="form.kr_representative_pick" style="width:100%">
-                <a-select-option value="auto">按预算规则自动</a-select-option>
-                <a-select-option value="min_price">最低价</a-select-option>
-                <a-select-option value="max_price">最高价</a-select-option>
-                <a-select-option value="first">第一件</a-select-option>
-              </a-select>
-            </a-form-item>
-            <a-form-item label="未命中兜底策略">
-              <a-select v-model:value="form.kr_fallback_strategy" style="width:100%">
-                <a-select-option value="fallback_representative">回退代表件</a-select-option>
-                <a-select-option value="mark_unmatched">标记未匹配</a-select-option>
-                <a-select-option value="raise">中断报错</a-select-option>
-              </a-select>
-            </a-form-item>
-            <a-form-item label="盘规格可替代">
-              <a-switch v-model:checked="form.kr_drive_spec_substitute" />
-              <p class="rf-hint">未精确命中时，允许用同规格替代盘；关闭则严格按规格匹配。</p>
-            </a-form-item>
+            <p class="rf-hint">纯确定性选件：参数只来自线索登记表的结构化槽位，落地只来自配件检索工具——未命中一律白盒标注（可手补），禁止静默顶替。无节点级可调项。</p>
           </a-form>
 
           <!-- 方案组装节点：配件来源与电源信号覆盖策略可配 -->

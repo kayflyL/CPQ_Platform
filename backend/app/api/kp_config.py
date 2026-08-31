@@ -63,11 +63,13 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
               '{}'::jsonb
             ) AS specs,
             p.applicable,
-            COALESCE(ph.price, 0) AS unit_price
+            COALESCE(ph.price, 0) AS unit_price,
+            ph.currency AS unit_currency,
+            ph.price_date AS latest_price_date
         FROM kp.kp_parts p
         JOIN kp.kp_categories c ON p.category_id = c.id
         LEFT JOIN LATERAL (
-            SELECT price
+            SELECT price, currency, price_date
             FROM kp.kp_price_history
             WHERE part_id = p.id
             ORDER BY price_date DESC
@@ -111,11 +113,13 @@ def get_part_by_pn(pn: str):
               '{}'::jsonb
             ) AS specs,
             p.applicable,
-            COALESCE(ph.price, 0) AS unit_price
+            COALESCE(ph.price, 0) AS unit_price,
+            ph.currency AS unit_currency,
+            ph.price_date AS latest_price_date
         FROM kp.kp_parts p
         JOIN kp.kp_categories c ON p.category_id = c.id
         LEFT JOIN LATERAL (
-            SELECT price
+            SELECT price, currency, price_date
             FROM kp.kp_price_history
             WHERE part_id = p.id
             ORDER BY price_date DESC

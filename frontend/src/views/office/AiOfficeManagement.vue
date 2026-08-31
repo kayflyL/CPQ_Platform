@@ -57,7 +57,6 @@
         :layout-edges="layoutEdges"
         :office-config="officeConfig"
         :behavior-config="behaviorConfig"
-        :access-policy="accessPolicy"
         :initial-role-key="initialRoleKey"
         :lead-role-key="leadRoleKey"
         @saved="emit('saved')"
@@ -75,7 +74,6 @@
         :layout-edges="layoutEdges"
         :office-config="officeConfig"
         :behavior-config="behaviorConfig"
-        :access-policy="accessPolicy"
         :initial-role-key="initialRoleKey"
         :lead-role-key="leadRoleKey"
         @saved="emit('saved')"
@@ -150,7 +148,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { officeApi, type BehaviorConfig, type OfficeAccessPolicy, type OfficeConfig } from '@/api/office'
+import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
 import { useAuthStore } from '@/store/auth'
 import TeamManager from './TeamManager.vue'
 import EmployeeManager from './EmployeeManager.vue'
@@ -168,7 +166,6 @@ const props = defineProps<{
   layoutEdges: any[]
   officeConfig?: OfficeConfig
   behaviorConfig?: BehaviorConfig
-  accessPolicy?: OfficeAccessPolicy
   initialRoleKey?: string | null
   leadRoleKey?: string | null
 }>()

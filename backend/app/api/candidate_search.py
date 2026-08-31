@@ -389,6 +389,8 @@ def select_models(usage: Optional[str], server_type_name: Optional[str] = None,
                 "max_cpu": bc.get("max_cpu") or None,
                 "max_dimm": bc.get("max_dimm") or None,
                 "mem_channels": bc.get("mem_channels") or None,
+                "gpu_slots": bc.get("gpu_slots") or None,
+                "max_tdp": bc.get("max_tdp") or None,
                 "parts_count": int(bc.get("parts_count") or 0),
                 "total_price": float(bc.get("total_price") or 0),
                 # 机型卡片渲染所需顶层字段（候选卡/详情页自配入口用；下游仍按 id/series/form 消费，不破坏）
@@ -802,7 +804,8 @@ def build_plan(baseline: dict, kp_parts: list[dict], psu_wattage: Optional[str] 
     kp_rows = [{
         "category": "Key Parts",
         "catalogue": kp.get("pn") or "",
-        "description": (kp.get("name") or "") + (f" · {kp['matched_spec']}" if kp.get("matched_spec") else ""),
+        "description": (kp.get("name") or "") + (f" · {kp['matched_spec']}" if kp.get("matched_spec") else "")
+                      + (f" · {kp['replacement_note']}" if kp.get("replacement_note") else ""),
         "part_category": kp.get("category") or "",
         "qty": kp.get("qty") or 1,
         "base_price": kp.get("unit_price") or 0,

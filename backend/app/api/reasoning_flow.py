@@ -120,8 +120,8 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
     返回每步事件 + ext/kp_by_model/plans 明细。供策略中心画布编辑器交互测试。
 
     - 不绑商机（opportunity_id 传占位 "test-run"）。
-    - 走 run_skill_plan（单主循环计划执行器）：AI 按计划调工具，节点只做进度/契约/校验。
-    - force_complete 默认 True（跳过反问、一键出方案）；前端可传 False 测反问补全。
+    - 走 run_skill_plan（硬编排内核）：固定阶段推进，节点内单次受约束 LLM 调用。
+    - force_complete 默认 False：缺信号一律结构化反问；传 True 才跳过追问按目录推荐出方案。
     - 不回退 linear fallback：调试工具，报错原样暴露给用户看（仅包一层 except 返回 error+events）。
     - 明细全从 ctx 取（step_done 的 payload 是摘要级，明细在 ctx.kp_by_model / ctx.plans）。
     """
@@ -129,7 +129,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
     if not text:
         raise HTTPException(400, "Missing requirement_text")
     budget = (body or {}).get("explicit_budget")
-    force_complete = bool((body or {}).get("force_complete", True))
+    force_complete = bool((body or {}).get("force_complete", False))
     repo = ReasoningFlowRepository()
     try:
         flow = _flow_for_skill(repo, skill_key)
@@ -161,6 +161,8 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
         logger.exception("test-run orchestrator 执行失败")
         return {"error": str(e), "events": events}
 
+    from app.services.skill_plan_runtime import engine_result_of
+
     return {
         "events": events,
         "ext": ctx.get("ext") or {},
@@ -168,6 +170,7 @@ async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
         "plans": ctx.get("plans") or [],
         "bom_scheme": build_preview_bom_scheme(ctx),
         "awaiting_input": bool(ctx.get("awaiting_input")),
+        "engine_result": engine_result_of(ctx),
         "timings": ctx.get("timings") or {},
     }
 
@@ -189,6 +192,7 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
     try:
         from app.services.skill_plan_executor import run_skill_plan
         from app.services.portal_flow_adapter import build_preview_bom_scheme
+        from app.services.skill_plan_runtime import engine_result_of
         initial_ctx = {
             "budget": budget,
             "force_complete": force_complete,
@@ -206,6 +210,7 @@ async def _stream_test_run(run_id: str, text: str, budget: float, force_complete
             "plans": ctx.get("plans") or [],
             "bom_scheme": build_preview_bom_scheme(ctx),
             "awaiting_input": awaiting,
+            "engine_result": engine_result_of(ctx),
         })
     except Exception as e:
         logger.exception("流式试运行失败 run_id=%s", run_id)
@@ -220,7 +225,7 @@ async def test_run_start(body: dict, skill_key: Optional[str] = Query(default=No
     if not text:
         raise HTTPException(400, "Missing requirement_text")
     budget = (body or {}).get("explicit_budget")
-    force_complete = bool((body or {}).get("force_complete", True))
+    force_complete = bool((body or {}).get("force_complete", False))
     repo = ReasoningFlowRepository()
     try:
         flow = _flow_for_skill(repo, skill_key)

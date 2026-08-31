@@ -30,6 +30,7 @@ export type RuleType =
   | 'gpu_brand_map'
   | 'spec_unit_patterns'
   | 'power_calibration'
+  | 'capability_declaration'
 export type RuleStatus = 'draft' | 'testing' | 'active' | 'archived'
 
 export const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
@@ -54,6 +55,7 @@ export const RULE_TYPE_OPTIONS: Array<{ value: RuleType; label: string }> = [
   { value: 'gpu_brand_map', label: 'GPU 品牌词表' },
   { value: 'spec_unit_patterns', label: '规格单位正则' },
   { value: 'power_calibration', label: '功耗/电源校准' },
+  { value: 'capability_declaration', label: '能力声明拦截' },
 ]
 
 export interface RequirementRule {

@@ -120,7 +120,9 @@ def _term_from_capacity(capacity: Optional[str], capacity_gb: Optional[int]) -> 
     if capacity_gb is not None and 1 <= int(capacity_gb) <= 65536:
         return f"{int(capacity_gb)}G"
     if capacity:
-        m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*([GT])(?:B)?\s*$", str(capacity), re.I)
+        # 前导比较符（≥/≤/>/<=等）是需求的比较语义，不是容量一部分：剥离后取数值，不再静默丢盘。
+        cap = re.sub(r"^\s*(?:>=|<=|>|<|≥|≤|＝|=|不低于|不少于)\s*", "", str(capacity), flags=re.I)
+        m = re.match(r"^\s*(\d+(?:\.\d+)?)\s*([GT])(?:B)?\s*$", cap, re.I)
         if m:
             return f"{m.group(1)}{m.group(2).upper()}"
     return None
@@ -138,33 +140,22 @@ def _interface_norm(kind: Optional[str]) -> Optional[str]:
     return None
 
 
-# 盘「实际配置 vs 能力声明」判定（merge 的确定性闸门，R7 教训）：
-#   • 强信号（N*容量 / 容量*N）→ 一定是实际配置（R6 "1* 960G NMVE"、R2 "2* 480GB"）；
-#   • 文本含能力词（支持/最多/最大/可…盘位）→ 一律不当实际配置（R7 "支持12个3.5英寸硬盘"、
-#     R4 "12/24 bays HDDSupport"）；
-#   • 其余靠「配/装/需/含 N 块…盘」或「硬盘：…容量」字段行兜底。
-_DRIVE_STRONG_RE = re.compile(
-    r"\d+\s*[*×]\s*\d+(?:\.\d+)?\s*[GT]|\d+(?:\.\d+)?\s*[GT]\s*[*×]\s*\d+", re.I)
-_DRIVE_CAPABILITY_RE = re.compile(
-    r"支持\s*\d|最多\s*\d|最大\s*\d|可\s*(?:支持|扩展|扩)?\s*\d|\d+\s*(?:个|块)?\s*(?:盘位|插槽|bays?)",
-    re.I)
-_DRIVE_CONFIG_RE = re.compile(
-    r"(?:配|装|用|需要|需|含)\s*\d+\s*(?:块|个|片|颗)?\s*(?:[^\n，。]{0,15}?)(?:ssd|hdd|盘|nvme|sata|sas)",
-    re.I)
-_DRIVE_FIELD_RE = re.compile(
-    r"(?:硬盘|磁盘|存储|ssd|hdd)\s*[:：][^\n，。]{0,20}\d+(?:\.\d+)?\s*[GT]", re.I)
-_GPU_CAPABILITY_RE = re.compile(
-    r"(?:支持|最多|最大|可(?:支持|扩展|扩)?)\s*\d+\s*(?:个|张|块)?\s*(?:GPU|卡)", re.I)
-
-
-def _has_drive_config_signal(text: str) -> bool:
-    """需求文本是否在描述「实际盘配置」（而非机箱盘位能力）。"""
-    low = (text or "")
-    if _DRIVE_STRONG_RE.search(low):
-        return True
-    if _DRIVE_CAPABILITY_RE.search(low):
-        return False
-    return bool(_DRIVE_CONFIG_RE.search(low) or _DRIVE_FIELD_RE.search(low))
+# 能力声明 vs 实际配置 的判定正则来自规则库（capability_declaration，策略中心/配置规则可编辑），
+# py 只读不内联；默认值兜底在 requirement_rule_catalog.DEFAULT_CAPABILITY_DECLARATION。
+def _capability_patterns() -> dict[str, list]:
+    """读取并编译能力声明拦截正则（规则库优先，默认兜底）。"""
+    from app.services.requirement_rule_catalog import capability_declaration_patterns
+    raw = capability_declaration_patterns()
+    out: dict[str, list] = {}
+    for key in ("drive_capability", "drive_strong", "gpu_capability"):
+        pats = []
+        for rx in raw.get(key) or []:
+            try:
+                pats.append(re.compile(str(rx), re.I))
+            except Exception:
+                continue
+        out[key] = pats
+    return out
 
 
 # ── 确定性合并：只补缺、规则赢 ─────────────────────────────────────────
@@ -286,7 +277,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                 if 1 <= _q <= 64 and _q * int(per) == int(total):
                     mqty = _q
                     sig["qty"] = int(mqty)
-        elif total and 128 <= int(total) <= 32768:
+        elif total and 8 <= int(total) <= 32768:
             # 只给总量：保留 mem_signal.total_gb，条数由配件规划（kp LLM 提议）按通道拆
             sig["total_gb"] = int(total)
             changes.append(f"mem.total_gb={int(total)}")
@@ -299,24 +290,35 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
     # 否则信任 LLM 已按 prompt 过滤能力声明。"2块960G SSD 系统盘" 无能力词，是实际配置，应进 drive_groups
     # （旧 _has_drive_config_signal 对无"配/装/需"前缀的格式误判为非配置，丢盘——已弃用该文本 guard）。
     _text = requirement_text or ""
-    _cap_only = bool(_DRIVE_CAPABILITY_RE.search(_text)) and not bool(_DRIVE_STRONG_RE.search(_text))
+    _caps = _capability_patterns()
+    _cap_only = bool(any(p.search(_text) for p in _caps["drive_capability"])) and not bool(any(p.search(_text) for p in _caps["drive_strong"]))
     if _cap_only and cleaned.get("drives"):
         changes.append("drives 跳过：需求为能力声明/盘位描述，非实际盘配置")
     else:
         existing = [(g.get("term"), g.get("kind")) for g in (ext.get("drive_groups") or [])]
         for d in (cleaned.get("drives") or [])[:16]:
             term = _term_from_capacity(d.get("capacity"), d.get("capacity_gb"))
-            kind = _interface_norm(d.get("interface"))
+            # kind = 接口优先；接口缺失时必须保留介质（SSD/HDD），否则 480G 这种容量
+            # 会脱离介质约束选件（SSD 需求可能静默落成 HDD）。
+            kind = _interface_norm(d.get("interface")) or str(d.get("type") or d.get("media") or "").strip().upper() or None
             qty = d.get("qty")
             if not term:
+                changes.append(f"drives 跳过(容量无法识别): {d.get('capacity')!r}")
                 continue
             if qty is not None and not (1 <= int(qty) <= 64):
                 continue
             if (term, kind) in existing:
                 continue
             _dg = {"term": term, "qty": int(qty or 1), "kind": kind}
-            if d.get("comparison") in ("gte", "lte"):
-                _dg["comparison"] = d["comparison"]
+            _cmp = d.get("comparison")
+            if _cmp not in ("gte", "lte"):
+                _cap_s = str(d.get("capacity") or "")
+                if re.match(r"^\s*(?:>=|≥|>)", _cap_s):
+                    _cmp = "gte"
+                elif re.match(r"^\s*(?:<=|≤|<)", _cap_s):
+                    _cmp = "lte"
+            if _cmp in ("gte", "lte"):
+                _dg["comparison"] = _cmp
             ext.setdefault("drive_groups", []).append(_dg)
             existing.append((term, kind))
             changes.append(f"drive_groups+{term}×{qty or 1} {kind or ''}".strip())
@@ -338,9 +340,10 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             continue
         if qty is not None and not (1 <= int(qty) <= 64):
             continue
-        toks = _model_tokens_of(model) if model else []
-        if model and not toks:
-            continue
+        if model:
+            toks = _model_tokens_of(model) or [model]
+        else:
+            toks = []
         if toks:
             hit = next((gg for gg in ggroups if any(t in (gg.get("tokens") or []) for t in toks)), None)
             if hit:
@@ -368,7 +371,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         else:
             # 仅给数量、无型号无显存（如“4张GPU卡，型号你推荐”）：
             # 卡数本身也是需求事实，必须落 gpu_groups 供下游唯一真值源读取。
-            if _GPU_CAPABILITY_RE.search(requirement_text or ""):
+            if any(p.search(requirement_text or "") for p in _caps["gpu_capability"]):
                 continue
             _gg = {"tokens": [], "qty": int(qty or 1)}
             ggroups.append(_gg)
@@ -415,7 +418,8 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
     #    避免下游 compose 的 psu_qty_source 读不到值而静默退回负载推断。──
     psu = cleaned.get("psu") or {}
     psu_sig = ext.get("psu_signal")
-    w = psu.get("wattage")
+    # 瓦数键名归一：契约统一用 wattage；兼容 LLM 偶发 watt/w（字段别名，非语义猜测）。
+    w = psu.get("wattage", psu.get("watt", psu.get("w")))
     q = psu.get("qty")
     if not psu_sig:
         sig: dict = {}
@@ -439,11 +443,6 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             continue
         raid_model = (raid.get("model") or "").strip()
         raid_levels = [str(x).strip() for x in (raid.get("raid_levels") or []) if str(x).strip()]
-        # 模型字段里写了 RAID 级别（如 "RAID 0,1,10"）→ 归入级别信号，不当作卡型号。
-        if raid_model and not _model_tokens_of(raid_model):
-            level_scan = [str(int(x)) for x in re.findall(r"\d+", raid_model)]
-            raid_levels = list(dict.fromkeys([*raid_levels, *level_scan]))
-            raid_model = ""
         raid_qty = int(raid.get("qty") or 1)
         _rg = ext.get("raid_groups")
         if _rg is None:
@@ -458,7 +457,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
         else:
             # 只写 RAID 级别未写型号（如 RAID 0,1,10）：不臆造型号，保留级别信号，下游按兼容机型选件。
             if not any((g or {}).get("raid_levels") for g in _rg):
-                _rg.append({"raid_levels": raid_levels, "qty": raid_qty})
+                _rg.append({"raid_levels": raid_levels, "qty": raid_qty, "cache": raid.get("cache")})
                 changes.append(f"raid_groups+RAID {'/'.join(raid_levels)}×{raid_qty}")
         _add_cat("Raid card")
 

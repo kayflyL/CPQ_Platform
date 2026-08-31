@@ -12,7 +12,6 @@
         <div class="ba-scheme-editor">
           <SchemeEditor
             :configs="configs"
-            stage="boming"
             readonly
             :show-toolbar="false"
           />
@@ -48,7 +47,6 @@
         <div class="ba-scheme-editor">
           <SchemeEditor
             :configs="configs"
-            stage="boming"
             readonly
             :show-toolbar="false"
           />

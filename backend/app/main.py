@@ -7,6 +7,14 @@ if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8")
     sys.stderr.reconfigure(encoding="utf-8")
 
+# uvicorn 只给 uvicorn.* 配日志 handler，app.* 的 logger.exception/info 不落任何输出，
+# 出错不留痕（2026-08-29「消息被静默吞掉」排障最大障碍）。接通根 handler 使应用日志可见。
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+)
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -41,7 +49,7 @@ from app.api import feed as feed_api
 from app.api import assistant as assistant_api
 from app.api import candidate_search as candidate_search_api
 from app.api import strategies as strategies_api
-from app.api import policy_docs as policy_docs_api
+from app.api import solutions as solutions_api
 from app.api import bom_cases as bom_cases_api
 from app.api import reasoning_flow as reasoning_flow_api
 from app.api import requirement_rules as requirement_rules_api
@@ -111,7 +119,7 @@ app.include_router(feed_api.router)
 app.include_router(assistant_api.router)
 app.include_router(candidate_search_api.router)
 app.include_router(strategies_api.router)
-app.include_router(policy_docs_api.router)
+app.include_router(solutions_api.router)
 app.include_router(bom_cases_api.router)
 app.include_router(reasoning_flow_api.router)
 app.include_router(requirement_rules_api.router)

@@ -8,6 +8,7 @@ export interface NodeTrace {
   output?: any
   summary?: string
   artifact?: { kind: string; title: string; data?: any } | null
+  duration_ms?: number
 }
 
 export interface AssistantChatWsState {
@@ -19,6 +20,17 @@ export interface AssistantChatWsState {
   error: string
   nodeTraces: NodeTrace[]
   running: boolean
+  /** 任务胶囊（Claude Code 式计步器）：标题来自 pipeline_start.title，phase 由管线事件驱动 */
+  taskTitle: string
+  taskPhase: '' | 'running' | 'paused' | 'done'
+}
+
+/** 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行） */
+export function resetTaskUI(state: AssistantChatWsState) {
+  if (state.taskPhase !== 'done') return
+  state.nodeTraces = []
+  state.taskPhase = ''
+  state.taskTitle = ''
 }
 
 /** 方案助手与 AI 办公室共用：把 chunk/done/error 收口到同一份聊天状态。 */
@@ -36,6 +48,8 @@ export function handleAssistantChatWsEvent(
       }))
       state.thinkingText = ''
       state.running = true
+      state.taskTitle = String(data.title || '配置任务')
+      state.taskPhase = 'running'
       return true
     }
     case 'stopping':
@@ -64,6 +78,7 @@ export function handleAssistantChatWsEvent(
           output: data.output,
           summary: data.summary || '',
           artifact: data.artifact || null,
+          duration_ms: typeof data.duration_ms === 'number' ? data.duration_ms : undefined,
         }
         if (idx >= 0) state.nodeTraces.splice(idx, 1, next)
         else state.nodeTraces.push(next)
@@ -91,24 +106,34 @@ export function handleAssistantChatWsEvent(
       state.waiting = false
       state.statusText = ''
       state.running = false
+      state.taskPhase = 'done'
       if (data.message) state.messages.push(data.message as AssistantMessage)
       return true
     case 'analysis_finished':
       state.waiting = false
       state.statusText = ''
       state.running = false
+      state.taskPhase = 'done'
       return true
     case 'pipeline_done':
+      state.waiting = false
+      state.statusText = ''
+      state.running = false
+      state.taskPhase = 'done'
+      return true
     case 'pipeline_paused':
       state.waiting = false
       state.statusText = ''
       state.running = false
+      state.taskPhase = 'paused'
       return true
     case 'analysis_cancelled':
       state.nodeTraces = []
       state.waiting = false
       state.statusText = ''
       state.running = false
+      state.taskPhase = ''
+      state.taskTitle = ''
       return true
     case 'chat_status':
       state.statusText = data.text || ''

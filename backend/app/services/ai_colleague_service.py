@@ -10,16 +10,16 @@ from typing import Any, Optional
 _CONFIG_KEY = "ai_colleagues"
 
 DATA_SOURCE_CATALOG = [
-    {"key": "opportunities", "label": "opportunities", "description": "商机线索与商机详情数据"},
-    {"key": "dashboard", "label": "dashboard", "description": "商机/配置统计、分布、排行与趋势"},
-    {"key": "kp_price", "label": "kp_price", "description": "KP 配件价格与料号"},
-    {"key": "bom", "label": "bom", "description": "整机方案与 BOM 配置"},
-    {"key": "cost", "label": "cost", "description": "方案成本与利润分析"},
-    {"key": "requirement", "label": "requirement", "description": "需求理解与需求分析流程"},
-    {"key": "candidate_search", "label": "candidate_search", "description": "候选机型检索与选型"},
-    {"key": "quotation", "label": "quotation", "description": "报价单与报价策略"},
-    {"key": "server_catalog", "label": "server_catalog", "description": "服务器类型与机型目录"},
-    {"key": "server_product_content", "label": "server_product_content", "description": "服务器介绍页与机型详情内容"},
+    {"key": "opportunities", "label": "商机数据", "description": "商机线索与商机详情数据"},
+    {"key": "dashboard", "label": "经营看板", "description": "商机/配置统计、分布、排行与趋势"},
+    {"key": "kp_price", "label": "配件价格库", "description": "KP 配件价格与料号"},
+    {"key": "bom", "label": "整机方案/BOM", "description": "整机方案与 BOM 配置"},
+    {"key": "cost", "label": "成本利润", "description": "方案成本与利润分析"},
+    {"key": "requirement", "label": "需求分析", "description": "需求理解与需求分析流程"},
+    {"key": "candidate_search", "label": "机型选型", "description": "候选机型检索与选型"},
+    {"key": "quotation", "label": "报价单", "description": "报价单与报价策略"},
+    {"key": "server_catalog", "label": "机型目录", "description": "服务器类型与机型目录"},
+    {"key": "server_product_content", "label": "产品内容", "description": "服务器介绍页与机型详情内容"},
 ]
 
 PAGE_SCOPE_CATALOG = [
@@ -97,6 +97,8 @@ def _load_config() -> dict:
             repo.close()
         cfg = _as_config(value)
         _migrate_runtime_office_layout(cfg)
+        from app.services.data_boundary import normalize_colleague
+        cfg["colleagues"] = [normalize_colleague(c) for c in cfg.get("colleagues") or [] if isinstance(c, dict)]
         return cfg
     except Exception:
         logger.exception("读取 AI 同事配置失败")
@@ -175,121 +177,175 @@ def filter_tool_ids_by_colleague(colleague_or_role_key: Any, tool_ids: list) -> 
 
 
 def build_colleague_tool_registry(colleague_or_role_key: Any):
-    from app.services.agent_tools import build_tool_registry
+    from app.services.agent_tool_specs import build_tool_registry
     allowed = colleague_tool_ids(colleague_or_role_key)
     config = {"enabled_tools": allowed} if allowed is not None else {}
     return build_tool_registry(config, allowed_tool_ids=allowed)
 
 
-def _dispatch_rules(config: dict) -> list:
-    rules = (config or {}).get("dispatch_rules")
-    return rules if isinstance(rules, list) else []
+# ── 智能转接（LLM 判官，2026-08-29 取代关键词规则）────────────────────────
+# 宪法：判断依据 = 员工名册（职责/技能，业务数据）；判断本身 = 模型理解。
+# 任何关键词清单都是旧世界的遗产，禁止回来。
+
+_DISPATCH_SYSTEM_PROMPT = (
+    "你是 CPQ AI 办公室的转接判官。根据用户消息，从在册 AI 同事名册中选出最合适的一位接手；"
+    "没有合适的专业同事、或消息只是闲聊/问候/与业务无关时，colleague_role_key 留空字符串（由总助自己回复）。"
+    "用户明确点名某位同事（姓名）时，直接选那位。判断依据只能是名册中的职责描述与技能清单。"
+    "只能输出 JSON：{\"colleague_role_key\": \"名册中的 role_key 或空字符串\", \"reason\": \"一句话中文理由\"}"
+)
 
 
-def _rule_matches(rule: dict, text: Optional[str], context_summary: Optional[str]) -> bool:
-    keywords = rule.get("keywords")
-    if not isinstance(keywords, list):
-        return False
-    if not keywords:
-        return False
-    hay = f"{(text or '')}\n{(context_summary or '')}".lower()
-    return any(str(k).strip().lower() in hay for k in keywords if str(k).strip())
+def _skill_names(colleague: dict) -> list:
+    names = []
+    for item in colleague.get("skills") or []:
+        name = item if isinstance(item, str) else str((item or {}).get("name") or "")
+        if name.strip():
+            names.append(name.strip())
+    return names
 
 
-def _mentions_colleague(colleague: dict, haystack: str) -> bool:
-    if not haystack:
-        return False
-    for field in ("name", "role_key"):
-        value = colleague.get(field)
-        if value and str(value).strip().lower() in haystack:
-            return True
-    return False
+def _dispatch_roster(config: dict) -> list:
+    """可转派同事名册：名字/职责/技能，转接判断的唯一事实来源。"""
+    roster = []
+    for c in (config.get("colleagues") or []):
+        if not c.get("enabled", True) or not c.get("dispatchable", True):
+            continue
+        duty = str(c.get("system_prompt") or c.get("opening_message") or "").strip()
+        roster.append({
+            "role_key": c.get("role_key"),
+            "name": c.get("name") or c.get("role_key"),
+            "skills": _skill_names(c),
+            "职责": duty[:120],
+        })
+    return roster
 
 
-def _resolve_team_graph_target(config: dict, text: Optional[str], context_summary: Optional[str]) -> Optional[dict]:
-    """画布团队拓扑兜底：自然语言点名 Lead/Subagent 时优先转给该同事。"""
-    layout = config.get("layout") or {}
-    graph = layout.get("team_graph")
-    if not isinstance(graph, dict):
+_DISPATCH_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "colleague_role_key": {"type": "string", "description": "名册中的 role_key，无合适人选时留空"},
+        "reason": {"type": "string", "description": "一句话中文理由"},
+    },
+}
+
+
+def find_mentioned_colleague(text: str, config: Optional[dict] = None) -> Optional[dict]:
+    """解析消息里的 @点名（@名字 / @role_key），确定性路由，优先于 AI 判断。
+
+    用户自己点的名就是路由结果，不再走 LLM 判官；点名不匹配任何在册同事时返回 None
+    （消息按普通文本处理）。
+    """
+    import re
+    config = config or _load_config()
+    match = re.search(r"@([^\s@，。,；;：:！!？?·…\"'（）()]+)", str(text or ""))
+    if not match:
         return None
-    haystack = f"{(text or '')}\n{(context_summary or '')}".lower()
-    if not haystack:
+    token = match.group(1).strip()
+    if not token:
         return None
-    role_keys = list(graph.get("subagent_role_keys") or [])
-    lead_role_key = graph.get("lead_role_key")
-    if lead_role_key:
-        role_keys.append(lead_role_key)
-    colleagues = config.get("colleagues") or []
-    for role_key in role_keys:
-        for colleague in colleagues:
-            if colleague.get("role_key") != role_key:
-                continue
-            if not colleague.get("enabled", True) or not colleague.get("dispatchable", True):
-                continue
-            if _mentions_colleague(colleague, haystack):
-                return colleague
+    low = token.lower()
+    for c in (config.get("colleagues") or []):
+        if not c.get("enabled", True) or not c.get("dispatchable", True):
+            continue
+        name = str(c.get("name") or "").strip()
+        rk = str(c.get("role_key") or "").strip()
+        if (name and (name == token or name in token or token in name)) or (rk and rk.lower() == low):
+            return c
+    return None
+
+
+def get_team_lead_role_key() -> str:
+    """团队 leader 的 role_key（画布 team_graph 设置，默认方案助手）。调度权只属于 leader。"""
+    config = _load_config()
+    graph = (config.get("layout") or {}).get("team_graph") or {}
+    return str(graph.get("lead_role_key") or "assistant").strip() or "assistant"
+
+
+def colleague_roster_digest() -> list:
+    """在册同事名册摘要（名字/职责/技能）。转接判官与私聊转接建议提示共用的单源（DB 业务数据）。"""
+    return _dispatch_roster(_load_config())
+
+
+async def resolve_assistant_message_target_async(
+    text: Optional[str],
+    context_summary: Optional[str] = None,
+    model: Optional[str] = None,
+) -> Optional[dict]:
+    """总助消息转接：LLM 按名册判断该谁接手；失败/超时/无合适人选一律 None（总助自己接）。"""
+    config = _load_config()
+    if not (text or context_summary) or not bool(config.get("dispatch_enabled", True)):
+        return None
+    roster = _dispatch_roster(config)
+    if not roster:
+        return None
+    import json as _json
+    from app.services import llm_client
+    messages = [
+        {"role": "system", "content": _DISPATCH_SYSTEM_PROMPT},
+        {"role": "user", "content": (
+            "在册同事名册：\n" + _json.dumps(roster, ensure_ascii=False) +
+            "\n\n上下文摘要：" + (str(context_summary or "") or "无")[:400] +
+            "\n\n用户消息：" + str(text or "")[:800]
+        )},
+    ]
+    try:
+        data = await llm_client.chat_json(
+            messages,
+            schema=_DISPATCH_SCHEMA,
+            model=model or None,
+            temperature=0.0,
+            timeout=8.0,
+            max_attempts=1,
+            reasoning_effort="low",
+        )
+    except Exception as exc:
+        logger.debug("dispatch LLM 判断失败（总助自己接）: %s", exc)
+        return None
+    role_key = str((data or {}).get("colleague_role_key") or "").strip()
+    if not role_key:
+        return None
+    for c in (config.get("colleagues") or []):
+        if c.get("role_key") == role_key and c.get("enabled", True) and c.get("dispatchable", True):
+            out = dict(c)
+            out["_dispatch_reason"] = str((data or {}).get("reason") or "")
+            return out
     return None
 
 
 def resolve_dispatch_target(
     role_key: Optional[str] = None,
-    text: Optional[str] = None,
-    context_summary: Optional[str] = None,
-    entry_point: Optional[str] = None,
 ) -> Optional[dict]:
-    """按配置解析要分派到的 AI 同事。
-
-    优先级：显式 role_key > dispatch_rules 命中。
-    只返回 enabled 且 dispatchable 的同事；找不到返回 None（调用方按总助原行为处理）。
-    """
-    config = _load_config()
-    colleagues = config.get("colleagues") or []
-
-    if role_key:
-        for c in colleagues:
-            if c.get("role_key") == role_key and c.get("enabled", True) and c.get("dispatchable", True):
-                return c
+    """显式指定 role_key 时解析同事；自然语言转接走 resolve_assistant_message_target_async（AI 判断）。"""
+    if not role_key:
         return None
-
-    if (text or context_summary) and bool(config.get("dispatch_enabled", True)):
-        for rule in _dispatch_rules(config):
-            if rule.get("enabled", True) is False:
-                continue
-            if not _rule_matches(rule, text, context_summary):
-                continue
-            if entry_point and entry_point not in (rule.get("entry_points") or []):
-                continue
-            target_key = rule.get("role_key")
-            for c in colleagues:
-                if c.get("role_key") == target_key and c.get("enabled", True) and c.get("dispatchable", True):
-                    return c
-
-    team_graph_target = _resolve_team_graph_target(config, text, context_summary)
-    if team_graph_target:
-        return team_graph_target
+    config = _load_config()
+    for c in (config.get("colleagues") or []):
+        if c.get("role_key") == role_key and c.get("enabled", True) and c.get("dispatchable", True):
+            return c
     return None
 
 
-def resolve_assistant_message_dispatch(text: str, context_summary: Optional[str] = None) -> dict:
-    """解析总助消息应转接的同事，并同时返回命中的规则（供前端展示“由谁接管”）。"""
-    config = _load_config()
-    colleagues = config.get("colleagues") or []
-    if (text or context_summary) and bool(config.get("dispatch_enabled", True)):
-        for rule in _dispatch_rules(config):
-            if rule.get("enabled", True) is False:
-                continue
-            if not _rule_matches(rule, text, context_summary):
-                continue
-            target_key = rule.get("role_key")
-            for c in colleagues:
-                if c.get("role_key") == target_key and c.get("enabled", True) and c.get("dispatchable", True):
-                    return {"colleague": c, "matched_rule": rule}
-        team_graph_colleague = _resolve_team_graph_target(config, text, context_summary)
-        if team_graph_colleague:
-            return {"colleague": team_graph_colleague, "matched_rule": None}
-    return {"colleague": None, "matched_rule": None}
+async def resolve_chat_target(
+    bound_role_key: Optional[str],
+    text: str,
+    context_summary: Optional[str] = None,
+    model: Optional[str] = None,
+) -> tuple[Optional[dict], Optional[dict]]:
+    """回合路由（2026-08-30 定调：转接只在群里）。
 
-
-def resolve_assistant_message_target(text: str, context_summary: Optional[str] = None) -> Optional[dict]:
-    """总助收到自然语言消息后，按 dispatch_rules 解析要转派的同事。"""
-    return resolve_assistant_message_dispatch(text, context_summary).get("colleague")
+    - 绑定会话（thread.colleague_role_key 有值，含方案助手自己）→ 锁定身份，永不转接；
+      自己能办的事自己办，超出能力范围由角色在对话里口头建议找谁（提示词规则，不走本机制）。
+    - 未绑定线程 = 团队群 → @点名确定性路由；无 @ 时 LLM 判官按名册判断（仅 leader=方案助手时启用）。
+    返回 (colleague, dispatch_target)；dispatch_target 非 None 表示群内转接（调用方落可见标记）。
+    """
+    if bound_role_key:
+        return get_colleague(bound_role_key), None
+    mentioned = find_mentioned_colleague(text)
+    if mentioned is not None:
+        return mentioned, None
+    colleague = None
+    if get_team_lead_role_key() == "assistant":
+        colleague = await resolve_assistant_message_target_async(text, context_summary, model=model)
+    if colleague is not None:
+        return colleague, colleague
+    return get_colleague("assistant"), None

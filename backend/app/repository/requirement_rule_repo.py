@@ -18,7 +18,7 @@ _VALID_TYPE = {
     "platform_series_map", "cpu_vendor_map", "raid_level_map", "workload_map", "compliance_map",
     "type_alias",
     "gpu_brand_map", "spec_unit_patterns", "power_calibration",
-    "part_selection",
+    "part_selection", "capability_declaration",
 }
 
 DEFAULT_RULES: list[dict] = [
@@ -248,6 +248,19 @@ DEFAULT_RULES: list[dict] = [
         "raid": {"model_match_first": True, "require_level_support": True},
         "nic": {"spec_filter": True, "name_contains": True},
         "generic": {"search_field": "keyword"},
+    }},
+    {"type": "capability_declaration", "name": "能力声明拦截默认", "body": {
+        "drive_capability": [
+            r"支持\s*\d", r"最多\s*\d", r"最大\s*\d", r"可\s*(?:支持|扩展|扩)?\s*\d",
+            r"\d+\s*(?:个|块)?\s*(?:盘位|插槽|bays?)",
+        ],
+        "drive_strong": [
+            r"\d+\s*[*×]\s*\d+(?:\.\d+)?\s*[GT]",
+            r"\d+(?:\.\d+)?\s*[GT]\s*[*×]\s*\d+",
+        ],
+        "gpu_capability": [
+            r"(?:支持|最多|最大|可(?:支持|扩展|扩)?)\s*\d+\s*(?:个|张|块)?\s*(?:GPU|卡)",
+        ],
     }},
 
 ]

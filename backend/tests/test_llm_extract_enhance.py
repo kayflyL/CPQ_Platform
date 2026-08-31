@@ -12,7 +12,6 @@ import pytest
 from app.services import llm_client
 from app.services.llm_extract_enhance import (
     EXTRACT_ENHANCE_SCHEMA,
-    _has_drive_config_signal,
     _interface_norm,
     _model_tokens_of,
     _term_from_capacity,
@@ -166,22 +165,6 @@ def test_term_from_capacity_and_interface_norm():
     assert _interface_norm("u3") == "NVMe"
     assert _interface_norm("SATA") == "SATA"
     assert _interface_norm("PCIe") is None
-
-
-def test_has_drive_config_signal_capability_vs_config():
-    # R6：N*容量 → 强配置信号
-    assert _has_drive_config_signal("1* 960G NMVE")
-    # R2：容量*N
-    assert _has_drive_config_signal("2* 480GB SATA SSD")
-    assert _has_drive_config_signal("4* 7.68 TB Enterprise-class SSD")
-    # R7：能力声明 → 不是配置
-    assert not _has_drive_config_signal("支持12个3.5英寸硬盘(前置8*SATA+4*NVMEU.2)")
-    # R4：盘位能力
-    assert not _has_drive_config_signal("12/24 bays HDDSupport of NVMe")
-    # 字段行（R3）
-    assert _has_drive_config_signal("系统固态硬盘:960GB企业级SSD，2.5寸热插拔*2")
-    # 配N块…盘
-    assert _has_drive_config_signal("配 2 块 800G 傲腾 NVMe 缓存盘")
 
 
 # ============================================================
@@ -461,3 +444,20 @@ def test_merge_gpu_vram_only_comparison():
     assert g[0]["tokens"] == [] and g[0]["cap"] == 48
     assert g[0]["comparison"] == "gte" and g[0]["qty"] == 2
     assert "GPU" in ext["categories"]
+
+
+# ============================================================
+# 能力声明拦截 —— 规则来自规则目录（capability_declaration），py 只读
+# ============================================================
+
+def test_capability_declaration_patterns_available():
+    """能力声明拦截正则来自规则目录；默认可命中"支持12盘位/支持8个GPU"这类能力声明。"""
+    import re as _re
+    from app.services.requirement_rule_catalog import capability_declaration_patterns
+    raw = capability_declaration_patterns()
+    assert "drive_capability" in raw and raw["drive_capability"]
+    assert "drive_strong" in raw and raw["drive_strong"]
+    assert "gpu_capability" in raw and raw["gpu_capability"]
+    assert any(_re.search(rx, "支持12个3.5英寸硬盘", _re.I) for rx in raw["drive_capability"])
+    assert any(_re.search(rx, "支持8个GPU卡", _re.I) for rx in raw["gpu_capability"])
+

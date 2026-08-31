@@ -249,6 +249,19 @@ export interface BehaviorProfile {
   }
 }
 
+export interface OfficeColleagueMemory {
+  id: number
+  role_key: string
+  type: string
+  type_label?: string
+  content: string
+  source?: 'auto' | 'manual'
+  pinned?: boolean
+  created_by?: string
+  created_at?: string
+  updated_at?: string
+}
+
 export interface OfficeDeliverable {
   type: string
   title?: string
@@ -370,16 +383,16 @@ export const officeApi = {
     http.put<{ layout: any }>('/api/ai-colleagues/layout', payload).then((r) => r.data),
   updateBehavior: (payload: BehaviorConfig) =>
     http.put<{ behavior: any }>('/api/ai-colleagues/behavior', { behavior: payload }).then((r) => r.data),
-  listMemories: (params: { role_key?: string; keyword?: string; limit?: number } = {}) =>
-    http.get<{ memories: any[]; total: number }>('/api/office/memories', { params }).then((r) => r.data),
-  createMemory: (payload: { role_key: string; content: string; kind?: string; importance?: number; pinned?: boolean }) =>
-    http.post<{ memory: any }>('/api/office/memories', payload).then((r) => r.data),
-  updateMemory: (memoryId: number, payload: { content?: string; kind?: string; importance?: number; pinned?: boolean }) =>
-    http.put<{ memory: any }>(`/api/office/memories/${memoryId}`, payload).then((r) => r.data),
-  deleteMemory: (memoryId: number) =>
-    http.delete<{ deleted: number }>(`/api/office/memories/${memoryId}`).then((r) => r.data),
-  clearMemories: (roleKey: string) =>
-    http.delete<{ deleted: number; role_key: string }>(`/api/office/memories/by-role/${encodeURIComponent(roleKey)}`).then((r) => r.data),
+  listColleagueMemories: (roleKey: string, params: { keyword?: string; limit?: number } = {}) =>
+    http.get<{ memories: OfficeColleagueMemory[]; total: number }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories`, { params }).then((r) => r.data),
+  createColleagueMemory: (roleKey: string, payload: { type?: string; content: string; pinned?: boolean }) =>
+    http.post<{ memory: OfficeColleagueMemory }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories`, payload).then((r) => r.data),
+  updateColleagueMemory: (roleKey: string, memoryId: number, payload: { type?: string; content?: string; pinned?: boolean }) =>
+    http.put<{ memory: OfficeColleagueMemory }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories/${memoryId}`, payload).then((r) => r.data),
+  deleteColleagueMemory: (roleKey: string, memoryId: number) =>
+    http.delete<{ deleted: number }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories/${memoryId}`).then((r) => r.data),
+  clearColleagueMemories: (roleKey: string) =>
+    http.delete<{ deleted: number; role_key: string }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories`).then((r) => r.data),
   createMission: (payload: {
     prompt: string
     owner_role_key?: string | null

@@ -38,6 +38,26 @@ watch(artifact, async (a) => {
 }, { immediate: true })
 
 const artifactData = computed(() => artifact.value?.data)
+const l6Cols = [
+  { title: '件名', dataIndex: 'catalogue', key: 'catalogue' },
+  { title: '料号 · 规格', dataIndex: 'description', key: 'description' },
+  { title: '数量', dataIndex: 'qty', key: 'qty', width: 64 },
+]
+const kpCols = [
+  { title: '类别', dataIndex: 'category', key: 'category', width: 96 },
+  { title: '型号', dataIndex: 'name', key: 'name' },
+  { title: '规格', dataIndex: 'description', key: 'description' },
+  { title: '数量', dataIndex: 'qty', key: 'qty', width: 64 },
+  { title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110 },
+  { title: '状态', key: 'status', width: 130 },
+]
+const kpRows = computed(() => {
+  const rows = Array.isArray(artifactData.value?.rows) ? artifactData.value.rows : []
+  return rows.map((r: any) => ({
+    ...r,
+    status: r.unmatched ? ('未命中：' + (r.unmatched_reason || '库内无对应件')) : (r.spec_mismatch ? '规格偏差' : '匹配'),
+  }))
+})
 </script>
 
 <template>
@@ -51,7 +71,7 @@ const artifactData = computed(() => artifact.value?.data)
   >
     <template v-if="artifact?.kind === 'bom_scheme'">
       <div v-if="bomScheme" class="artifact-scheme">
-        <SchemeEditor :configs="bomSchemeConfigs" stage="boming" readonly :show-toolbar="false" />
+        <SchemeEditor :configs="bomSchemeConfigs" readonly :show-toolbar="false" />
       </div>
       <div v-else class="artifact-empty">BOM 方案尚未生成完整实体，请重新试运行。</div>
     </template>
@@ -78,6 +98,24 @@ const artifactData = computed(() => artifact.value?.data)
       <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
     </template>
 
+    <template v-else-if="artifact?.kind === 'l6_chassis'">
+      <div v-if="artifactData?.chosen" class="artifact-hint">锁定机型：{{ artifactData.chosen }}</div>
+      <div v-if="artifactData?.reason" class="artifact-hint">推荐理由：{{ artifactData.reason }}</div>
+      <a-table v-if="Array.isArray(artifactData?.rows) && artifactData.rows.length" :data-source="artifactData.rows" :columns="l6Cols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" />
+      <div v-else class="artifact-empty">暂无机箱表数据。</div>
+    </template>
+
+    <template v-else-if="artifact?.kind === 'kp_table'">
+      <div v-if="artifactData?.summary" class="artifact-hint">KP 落地 {{ artifactData.summary.kp_count ?? 0 }} 项，未命中 {{ artifactData.summary.unmatched_count ?? 0 }} 项，规格偏差 {{ artifactData.summary.spec_mismatch_count ?? 0 }} 项</div>
+      <a-table v-if="kpRows.length" :data-source="kpRows" :columns="kpCols" size="small" :row-key="(_: any, i: number) => i" :pagination="false">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'unit_price'"><span>¥{{ (record.unit_price ?? 0).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span></template>
+          <template v-else-if="column.key === 'status'"><a-tag :color="record.unmatched ? 'red' : (record.spec_mismatch ? 'orange' : 'green')">{{ record.status }}</a-tag></template>
+        </template>
+      </a-table>
+      <div v-else class="artifact-empty">暂无明显配件数据。</div>
+    </template>
+
     <template v-else>
       <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
     </template>
@@ -90,4 +128,5 @@ const artifactData = computed(() => artifact.value?.data)
 .artifact-raw { white-space: pre-wrap; font-size: 12px; color: var(--cpq-text-secondary); }
 .missing-title { font-weight: 600; margin-bottom: 8px; }
 .plans-count { font-weight: 600; margin-bottom: 8px; }
+.artifact-hint { font-weight: 600; margin-bottom: 8px; color: var(--cpq-text-secondary); }
 </style>

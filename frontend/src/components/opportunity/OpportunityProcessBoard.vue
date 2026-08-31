@@ -314,6 +314,10 @@ async function loadBusinessOptions() {
   }
 }
 
+function filterBusinessOption(input: string, option: any) {
+  return String(option?.value || '').toLowerCase().includes(String(input || '').toLowerCase())
+}
+
 function getFilteredOptions(fieldKey: string) {
   const history = fieldHistory.value[fieldKey] || []
   const keyword = ((basicForm as any)[fieldKey]?.toString() || '').toLowerCase()
@@ -522,7 +526,7 @@ async function saveDraft() {
   }
   const slots = formRef.value.toSlots()
   if (!formRef.value.hasAnyPart) {
-    message.warning('请至少填写一项需求（平台/CPU/内存/硬盘/网卡/GPU）')
+    message.warning('请至少填写机型型号、平台类型、服务器类型或机箱形态')
     return
   }
   draftSaving.value = true
@@ -546,7 +550,7 @@ async function submitDraft() {
   }
   const slots = formRef.value.toSlots()
   if (!formRef.value.hasAnyPart) {
-    message.warning('请至少填写一项需求（平台/CPU/内存/硬盘/网卡/GPU）')
+    message.warning('请至少填写机型型号、平台类型、服务器类型或机箱形态')
     return
   }
   submitting.value = true
@@ -656,7 +660,7 @@ defineExpose({ reload: loadBoard })
             <a-form v-if="basicEditing" layout="vertical" class="basic-form-grid">
                       <a-form-item label="业务">
                         <a-input v-if="roleLock.sales_person" v-model:value="basicForm.sales_person" disabled />
-                        <a-auto-complete v-else v-model:value="basicForm.sales_person" :options="businessOptions" allow-clear :default-active-first-option="false" placeholder="输入或搜索业务名（可自由输入）" @focus="loadBusinessOptions" @keydown.enter="saveBasic" />
+                        <a-auto-complete v-else v-model:value="basicForm.sales_person" :options="businessOptions" :filter-option="filterBusinessOption" allow-clear :default-active-first-option="false" placeholder="输入或搜索业务名（可自由输入）" @focus="loadBusinessOptions" @keydown.enter="saveBasic" />
                       </a-form-item>
                       <a-form-item label="客户名称" required>
                         <a-auto-complete v-model:value="basicForm.customer_name" :options="getFilteredOptions('customer_name')" :default-active-first-option="false" placeholder="请输入客户名称" @focus="loadFieldHistory('customer_name')" @keydown.enter="saveBasic" />

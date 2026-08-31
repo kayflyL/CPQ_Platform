@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "note": "黄金对话冒烟集：行为级宽松断言（抓崩溃/静默/价格泄漏/职责错乱四大回归）。全量跑会真调 LLM 并写内部商机，报告会列出 thread/opportunity id 便于清理。",
+  "cases": [
+    {
+      "id": "g01-fuzzy-requirement",
+      "desc": "模糊需求只说要服务器 → 期望反问而非硬编",
+      "role_key": "assistant",
+      "turns": ["我要买台服务器"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "asks_question"}
+      ]
+    },
+    {
+      "id": "g02-full-requirement",
+      "desc": "完整需求 → 登记并推进（反问细节或出方案）",
+      "role_key": "assistant",
+      "turns": ["客户要一台2U机架式双路服务器做虚拟化，256G内存，4块2.4T SAS盘，双口万兆网卡，双电源"],
+      "asserts": [
+        {"type": "error_free"},
+        {"any_of": [
+          {"type": "asks_question"},
+          {"type": "artifact"},
+          {"type": "handoff_any"}
+        ]}
+      ]
+    },
+    {
+      "id": "g03-missing-cpu",
+      "desc": "半完整需求缺关键槽位 → 反问",
+      "role_key": "assistant",
+      "turns": ["要一台2U的服务器，内存128G就够了"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "asks_question"}
+      ]
+    },
+    {
+      "id": "g04-catalog-query",
+      "desc": "查询类问题 → 转接专职角色（现状锁定：方案助手不自答数据查询）",
+      "role_key": "assistant",
+      "turns": ["系统里现在有哪些在售的2U机型？"],
+      "asserts": [
+        {"type": "error_free"},
+        {"any_of": [
+          {"type": "handoff_any"},
+          {"type": "mentions_any", "keywords": ["2U", "机型"]}
+        ]}
+      ]
+    },
+    {
+      "id": "g05-stats-query",
+      "desc": "商机统计 → 转数据分析师或诚实回复",
+      "role_key": "assistant",
+      "turns": ["现在商机库里有几个商机？都是哪些客户？"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "handoff_any"}
+      ]
+    },
+    {
+      "id": "g06-analyst-price",
+      "desc": "无价角色（数据分析师）问价格 → 不得泄漏价格数字",
+      "role_key": "data_analyst",
+      "turns": ["最近的商机里配置大概什么价格水平？"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "no_price_digits"}
+      ]
+    },
+    {
+      "id": "g07-support-config",
+      "desc": "技术支持工程师完整配置需求 → 登记推进",
+      "role_key": "support_engineer",
+      "turns": ["客户需要2颗CPU、64G内存、2块960G SSD的服务器，做数据库用"],
+      "asserts": [
+        {"type": "error_free"},
+        {"any_of": [
+          {"type": "asks_question"},
+          {"type": "artifact"},
+          {"type": "handoff_any"}
+        ]}
+      ]
+    },
+    {
+      "id": "g08-support-price",
+      "desc": "无价角色（技术支持）问价格 → 不得泄漏价格数字",
+      "role_key": "support_engineer",
+      "turns": ["这个配置大概多少钱？"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "no_price_digits"}
+      ]
+    },
+    {
+      "id": "g09-cost-priced",
+      "desc": "有价角色（成本分析师）成本问题 → 正常回复",
+      "role_key": "cost_analyst",
+      "turns": ["帮我看看最新商机BOM的成本构成"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g10-quote-draft",
+      "desc": "报价专员报价请求 → 正常回复",
+      "role_key": "quote_specialist",
+      "turns": ["帮我出一份报价单草稿"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g11-market-catalog",
+      "desc": "市场专员目录问询 → 不崩（编造风险观察案例，人工复核回复内容）",
+      "role_key": "market_specialist",
+      "turns": ["现在系统里在售的机型都有哪些？"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g12-market-write-ask",
+      "desc": "市场专员写操作问询 → 不崩不乱写",
+      "role_key": "market_specialist",
+      "turns": ["能不能帮我把某款机型的描述改一下？先别改，告诉我流程"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g13-greeting",
+      "desc": "闲聊问候 → 正常回复不转接",
+      "role_key": "assistant",
+      "turns": ["你好，在吗？"],
+      "asserts": [
+        {"type": "error_free"},
+        {"type": "no_handoff"}
+      ]
+    },
+    {
+      "id": "g14-out-of-domain",
+      "desc": "越域请求（写代码）→ 诚实处理不编造",
+      "role_key": "assistant",
+      "turns": ["帮我写一个Python爬虫脚本"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g15-long-input",
+      "desc": "超长输入 → 不崩",
+      "role_key": "assistant",
+      "turns": ["我们要采购服务器，具体要求如下：2U机架式，双路至强处理器，每颗32核以上，内存256GB DDR4/DDR5，硬盘8块2.4T SAS 10K转速，带RAID卡支持RAID5，网卡双口万兆加单口千兆管理口，电源双冗余800W以上，另外还要一台同样的备用机，预算整体控制在40万以内，交期一个月，客户是金融行业对可靠性要求高，需要原厂质保三年，另外机房在异地需要上架服务，麻烦整体评估一下给出配置方案和报价。"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g16-multi-turn-fill",
+      "desc": "多轮补全：先模糊再补信息 → 第二轮推进",
+      "role_key": "assistant",
+      "turns": ["我要配台服务器", "2U的，双路，内存256G，做虚拟化用"],
+      "asserts": [
+        {"type": "error_free"},
+        {"any_of": [
+          {"type": "asks_question"},
+          {"type": "artifact"},
+          {"type": "handoff_any"}
+        ]}
+      ]
+    },
+    {
+      "id": "g17-english",
+      "desc": "英文需求 → 不崩",
+      "role_key": "assistant",
+      "turns": ["We need a 2U rack server with dual CPUs, 256GB RAM for virtualization"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g18-mixed-punct",
+      "desc": "混合标点/emoji → 不崩",
+      "role_key": "assistant",
+      "turns": ["你好！😊 帮忙配个2U服务器~~ 要256G内存的，谢谢！！"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g19-sequential-sends",
+      "desc": "同线程连发两条 → 并发锁不崩",
+      "role_key": "assistant",
+      "turns": ["帮我登记个需求：1U服务器", "补充：内存64G就行"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    },
+    {
+      "id": "g20-support-direct",
+      "desc": "技术支持直接路由（群聊@等价路径）→ 正常处理",
+      "role_key": "support_engineer",
+      "turns": ["@技术支持 帮我查下这个需求要配什么配件：4块2.4T SAS盘"],
+      "asserts": [
+        {"type": "error_free"}
+      ]
+    }
+  ]
+}

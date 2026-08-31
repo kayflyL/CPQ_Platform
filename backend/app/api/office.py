@@ -55,36 +55,6 @@ class MissionClearRequest(BaseModel):
     statuses: Optional[list] = None
 
 
-class MemoryCreateRequest(BaseModel):
-    role_key: str
-    content: str
-    kind: str = "semantic"
-    importance: float = 0.5
-    pinned: bool = False
-
-
-class MemoryUpdateRequest(BaseModel):
-    content: Optional[str] = None
-    kind: Optional[str] = None
-    importance: Optional[float] = None
-    pinned: Optional[bool] = None
-
-
-def _memory_sort_key(item: dict) -> tuple:
-    payload = item.get("payload") if isinstance(item.get("payload"), dict) else {}
-    return (
-        -int(bool(payload.get("pinned"))),
-        -float(payload.get("importance") or 0),
-        -float(item.get("id") or 0),
-    )
-
-
-def _ensure_office_role(user: dict, role_key: str) -> None:
-    allowed = allowed_office_role_keys(user)
-    if allowed and role_key not in allowed:
-        raise HTTPException(status_code=403, detail="无权管理该 AI 员工的记忆")
-
-
 def _merge_office_events(db_items: list, memory_items: list) -> list:
     """Merge the newest persisted page with process-local events that may not be flushed yet."""
     merged: list = []
@@ -151,98 +121,6 @@ def office_events(limit: int = 100, user: dict = Depends(get_current_user)):
         "page": 1,
         "page_size": len(events),
     }
-
-
-@router.get("/memories")
-def office_list_memories(
-    role_key: Optional[str] = None,
-    keyword: Optional[str] = None,
-    limit: int = 50,
-    user: dict = Depends(get_current_user),
-):
-    """员工长期记忆管理列表。"""
-    allowed = allowed_office_role_keys(user)
-    safe_limit = max(1, min(int(limit or 50), 200))
-    repo = OfficeEventRepository()
-    result = repo.query(
-        page=1,
-        page_size=safe_limit,
-        role_key=role_key,
-        event_type="memory",
-        keyword=keyword,
-        allowed_role_keys=allowed,
-    )
-    items = sorted(result.get("items") or [], key=_memory_sort_key)[:safe_limit]
-    return {"memories": items, "total": result.get("total", len(items))}
-
-
-@router.post("/memories")
-async def office_create_memory(data: MemoryCreateRequest, user: dict = Depends(get_current_user)):
-    role_key = (data.role_key or "").strip()
-    if not role_key:
-        raise HTTPException(status_code=400, detail="role_key 不能为空")
-    _ensure_office_role(user, role_key)
-    try:
-        item = await office_memory.remember_manual(
-            role_key,
-            data.content,
-            kind=data.kind or "semantic",
-            importance=float(data.importance if data.importance is not None else 0.5),
-            pinned=bool(data.pinned),
-        )
-        return {"memory": item}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@router.delete("/memories/by-role/{role_key}")
-async def office_clear_role_memories(role_key: str, user: dict = Depends(get_current_user)):
-    """清空指定 AI 员工的全部长期记忆。"""
-    role_key = (role_key or "").strip()
-    if not role_key:
-        raise HTTPException(status_code=400, detail="role_key 不能为空")
-    _ensure_office_role(user, role_key)
-    repo = OfficeEventRepository()
-    deleted = repo.delete_memories_by_role(role_key)
-    await office_memory.clear(role_key)
-    return {"deleted": deleted, "role_key": role_key}
-
-
-@router.put("/memories/{memory_id}")
-async def office_update_memory(memory_id: int, data: MemoryUpdateRequest, user: dict = Depends(get_current_user)):
-    repo = OfficeEventRepository()
-    existing = repo.get(memory_id)
-    if not existing or existing.get("event_type") != "memory":
-        raise HTTPException(status_code=404, detail="记忆不存在")
-    _ensure_office_role(user, str(existing.get("role_key") or ""))
-    payload_patch = {}
-    if data.kind is not None:
-        payload_patch["kind"] = data.kind
-    if data.importance is not None:
-        payload_patch["importance"] = float(data.importance)
-    if data.pinned is not None:
-        payload_patch["pinned"] = bool(data.pinned)
-    patch = {
-        "message": data.content,
-        "activity": f"memory:{data.kind}" if data.kind is not None else None,
-        "payload": payload_patch,
-    }
-    updated = repo.update(memory_id, {k: v for k, v in patch.items() if v is not None})
-    await office_memory.clear(str(existing.get("role_key") or ""))
-    return {"memory": updated}
-
-
-@router.delete("/memories/{memory_id}")
-async def office_delete_memory(memory_id: int, user: dict = Depends(get_current_user)):
-    repo = OfficeEventRepository()
-    existing = repo.get(memory_id)
-    if not existing or existing.get("event_type") != "memory":
-        raise HTTPException(status_code=404, detail="记忆不存在")
-    _ensure_office_role(user, str(existing.get("role_key") or ""))
-    if not repo.delete(memory_id):
-        raise HTTPException(status_code=404, detail="记忆不存在")
-    await office_memory.clear(str(existing.get("role_key") or ""))
-    return {"deleted": memory_id}
 
 
 @router.post("/intent")

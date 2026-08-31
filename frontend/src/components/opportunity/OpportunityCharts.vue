@@ -30,7 +30,7 @@
         <button v-if="rankExpanded" class="rank-toggle" @click="rankExpanded = false">收起其他 ▲</button>
       </div>
       <div class="rank-body" :class="{ 'rank-body-scroll': rankExpanded }">
-        <v-chart v-if="topSales.length" class="chart-inner" :style="rankExpanded ? { height: rankBodyHeight + 'px', flex: 'none' } : null" :option="rankOpt" autoresize @click="onRankClick" />
+        <v-chart v-if="topSales.length" class="chart-inner" :option="rankOpt" autoresize @click="onRankClick" />
         <div v-else class="chart-empty">暂无排行数据</div>
       </div>
     </div>
@@ -125,8 +125,6 @@ const othersSales = ref<{ count: number; rate: number; people: number } | null>(
 const othersList = ref<SalesRank[]>([])
 const rankExpanded = ref(false)
 const wonExpanded = ref(false)
-const RANK_ROW_H = 30
-const rankBodyHeight = computed(() => Math.max((topSales.value.length + othersList.value.length) * RANK_ROW_H, 120))
 
 function computeSalesRank() {
   const data = (props.summary as any).sales_rank
@@ -430,13 +428,9 @@ const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.val
 </script>
 
 <style scoped>
-.chart-deck { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); grid-template-rows: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-areas: "rank won" "trend dist"; gap: 14px; flex: 1 1 0; min-height: 380px; }
-.chart-deck.personal-chart-deck { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); grid-template-areas: "trend dist"; }
-.chart-card { padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
-.chart-card-won { grid-area: won; }
-.chart-card-rank { grid-area: rank; }
-.chart-card-trend { grid-area: trend; }
-.chart-card-dist { grid-area: dist; }
+/* 左栏单列堆叠：每张卡占满栏宽、纵向排列，整栏上下滑动（移动端保留网格） */
+.chart-deck { display: flex; flex-direction: column; gap: 12px; padding: 2px 2px 6px; }
+.chart-card { flex: none; width: 100%; height: 276px; padding: 14px 16px; border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
 .won-list { flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
 .won-branch { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .profit-box-wrap { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
@@ -470,11 +464,6 @@ const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.val
 .rank-body-scroll::-webkit-scrollbar-thumb { background: var(--cpq-overlay-a20); border-radius: 3px; }
 .rank-body-scroll::-webkit-scrollbar-track { background: transparent; }
 
-@media (max-width: 1200px) {
-  .chart-deck { grid-template-columns: 1fr 1fr; grid-template-areas: "trend trend" "rank won" "dist dist"; }
-  .chart-deck.personal-chart-deck { grid-template-columns: 1fr; grid-template-areas: "trend" "dist"; }
-}
-
 @media (max-width: 768px) {
   .chart-deck {
     display: grid; gap: 8px; min-height: 0;
@@ -487,7 +476,7 @@ const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.val
     grid-template-rows: 220px 240px;
     grid-template-areas: "dist listtile" "trend trend";
   }
-  .chart-card { min-height: 0; border-radius: 8px; padding: 12px 14px; }
+  .chart-card { height: auto; min-height: 0; border-radius: 8px; padding: 12px 14px; }
   .chart-card-trend { grid-area: trend; }
   .chart-card-dist { grid-area: dist; }
   .chart-card-rank { grid-area: rank; }

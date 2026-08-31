@@ -6,12 +6,9 @@ import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import draggable from 'vuedraggable'
 import { bomTemplateApi, type BomTemplate, type BomTemplateRow, type BomRule } from '@/api/serverConfig'
-import { policyDocApi } from '@/api/strategies'
-import { readDocBody } from '@/constants/policyMeta'
 import { evalBomContext } from '@/utils/bomRuleEngine'
 import { loadBomCategoryAliases, getBomCategoryAliases, invalidateBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { systemConfigApi } from '@/api/systemConfig'
-import MarkdownView from '@/components/common/MarkdownView.vue'
 import BomRuleSourceEditor from './BomRuleSourceEditor.vue'
 
 type EditableRow = BomTemplateRow & { uid: number }
@@ -64,28 +61,6 @@ const RECOMMENDED_RULES: Record<string, BomRule> = {
   raid_slot: { desc: { kind: 'manual' }, qty: { kind: 'manual' } },
 }
 
-// ---- 模板说明（抽屉）：内容以文档库《BOM 模板配置指南》为唯一数据源，实时拉取渲染 ----
-const helpOpen = ref(false)
-const helpMarkdown = ref('')
-const helpLoading = ref(false)
-const helpMissing = ref(false)
-const HELP_DOC_NAME = 'BOM 模板配置指南'
-async function openHelp() {
-  helpOpen.value = true
-  helpMarkdown.value = ''
-  helpMissing.value = false
-  helpLoading.value = true
-  try {
-    const res = await policyDocApi.list('selection')
-    const doc = (res.docs || []).find(d => d.name === HELP_DOC_NAME)
-    if (doc) helpMarkdown.value = readDocBody(doc.body).content_markdown
-    else helpMissing.value = true
-  } catch {
-    helpMissing.value = true
-  } finally {
-    helpLoading.value = false
-  }
-}
 
 // ---- 行规则编辑(primary + 可选 fallback)----
 const expanded = ref<Set<number>>(new Set())
@@ -308,7 +283,6 @@ defineExpose({ load })
       <h3>BOM 模板</h3>
       <span class="lib-actions">
         <a-button size="small" @click="openAliasModal()">⚙️ 品别名</a-button>
-        <a-button size="small" @click="openHelp()">📖 模板说明</a-button>
         <a-button type="primary" size="small" @click="openNew">+ 新建模板</a-button>
       </span>
     </div>
@@ -448,16 +422,7 @@ defineExpose({ load })
       </a-form>
     </a-modal>
 
-    <a-drawer v-model:open="helpOpen" title="BOM 模板说明" width="880" :destroy-on-close="true">
-      <div class="bh">
-        <p class="bh-lead">内容以「策略中心 → 选型配置 → 📄 文档库」的《BOM 模板配置指南》为唯一数据源（文档库中可编辑，此处每次打开实时同步展示）。</p>
-        <a-spin :spinning="helpLoading">
-          <MarkdownView v-if="!helpLoading && helpMarkdown" :content="helpMarkdown" />
-          <a-empty v-else-if="!helpLoading && helpMissing" description="文档库暂无《BOM 模板配置指南》，请到 策略中心 → 选型配置 → 📄 文档库 新建" />
-        </a-spin>
-      </div>
-    </a-drawer>
-    <a-modal v-model:open="aliasModalOpen" title="BOM 品类别名（system_config.bom_category_aliases）" width="720" :confirm-loading="aliasSaving" @ok="saveAliasModal()">
+        <a-modal v-model:open="aliasModalOpen" title="BOM 品类别名（system_config.bom_category_aliases）" width="720" :confirm-loading="aliasSaving" @ok="saveAliasModal()">
       <p class="tpl-hint">模板 row 常填英文 category（heatsink/fan/rail/chassis/backplane/cable/psu），底盘件 parts_master category 多为中文；此处维护中英别名用于跨语言匹配零件。格式：{ "heatsink": ["散热器"] }。</p>
       <a-textarea v-model:value="aliasText" :rows="12" spellcheck="false" />
     </a-modal>

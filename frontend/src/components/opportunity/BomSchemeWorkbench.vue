@@ -386,7 +386,6 @@ function requestWithdrawScheme(scheme: BomScheme) {
           <SchemeEditor
             ref="editorRef"
             :configs="editorConfigs"
-            stage="boming"
             :readonly="editorReadonly"
             :show-toolbar="false"
           />

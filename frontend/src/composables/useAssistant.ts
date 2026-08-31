@@ -7,7 +7,7 @@
 import { ref, computed, watch } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
 import { assistantApi, assistantWsUrl } from '@/api/assistant'
-import { handleAssistantChatWsEvent } from '@/composables/assistantChatWs'
+import { handleAssistantChatWsEvent, resetTaskUI } from '@/composables/assistantChatWs'
 import type { NodeTrace } from '@/composables/assistantChatWs'
 import type { AssistantThread, AssistantMessage } from '@/api/assistant'
 
@@ -28,6 +28,10 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const waitingAI = ref(false) // 已发送、等首个 chunk 到来前的等待态(显示 typing 指示)
   const statusText = ref('') // 流程节点实时状态（机型选型/配件选型等），非聊天台词
   const nodeTraces = ref<NodeTrace[]>([]) // 工作流 Skill 的节点执行卡（仅在触发需求分析等流程时出现）
+  const taskTitle = ref('') // 任务胶囊标题（pipeline_start.title，如「需求分析」）
+  const taskPhase = ref<'' | 'running' | 'paused' | 'done'>('') // 任务胶囊阶段
+  /** 上下文水位（估算 token 占比，随 selectThread 刷新） */
+  const contextUsage = ref<{ chars: number; est_tokens: number; limit_tokens: number; ratio: number } | null>(null)
   const pendingDispatch = ref<{ colleague: any; content: string; contextSummary?: string } | null>(null)
 
   const currentThread = computed(
@@ -55,6 +59,10 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     set nodeTraces(value: NodeTrace[]) { nodeTraces.value = value },
     get running() { return running.value },
     set running(value: boolean) { running.value = value },
+    get taskTitle() { return taskTitle.value },
+    set taskTitle(value: string) { taskTitle.value = value },
+    get taskPhase() { return taskPhase.value },
+    set taskPhase(value: '' | 'running' | 'paused' | 'done') { taskPhase.value = value },
   }
   function handleWsData(data: any) {
     handleAssistantChatWsEvent(chatWsState, data)
@@ -169,7 +177,9 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     nodeTraces.value = []
     loading.value = true
     try {
-      messages.value = await assistantApi.threads.messages(id)
+      const data = await assistantApi.threads.messagesFull(id)
+      messages.value = data.messages
+      contextUsage.value = data.context_usage || null
     } finally {
       loading.value = false
     }
@@ -218,7 +228,9 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     }
   }
 
-  async function postSend(content: string, contextSummary?: string, roleKey?: string) {
+  async function postSend(content: string, contextSummary?: string, roleKey?: string, optionSlot?: string | null,
+                          cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
+    resetTaskUI(chatWsState)
     sending.value = true
     running.value = true
     streamingText.value = ''
@@ -233,6 +245,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         undefined,
         undefined,
         entryPoint,
+        optionSlot || null,
+        cardSelections || null,
       )
       messages.value.push(res.user_message)
       if (res.thread) {
@@ -264,14 +278,15 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     statusText.value = '已请求暂停'
   }
 
-  async function send(content: string, contextSummary?: string) {
+  async function send(content: string, contextSummary?: string, optionSlot?: string | null,
+                      cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
     const text = content.trim()
     if (!text) return
     if (!currentThreadId.value) {
       const t = await newThread()
       if (!t) return
     }
-    await postSend(text, contextSummary, activeRoleKey.value || undefined)
+    await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null, cardSelections || null)
   }
 
   async function confirmDispatch() {
@@ -322,10 +337,25 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     }
   }
 
+  /** 预览会话整体重置（Skill Studio「重置测试」）：purge 线程 + 清消息/节点轨迹/状态。 */
+  async function resetPreview() {
+    if (!preview) return
+    await destroyPreview()
+    nodeTraces.value = []
+    streamingText.value = ''
+    thinkingText.value = ''
+    statusText.value = ''
+    waitingAI.value = false
+    running.value = false
+    taskTitle.value = ''
+    taskPhase.value = ''
+  }
+
   return {
     threads, currentThreadId, currentThread, messages, loading, sending, running,
-    streamingText, thinkingText, waitingAI, statusText, nodeTraces, pendingDispatch, loadThreads, selectThread, newThread, send,
+    streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase,
+    contextUsage, loadThreads, selectThread, newThread, send,
     confirmDispatch, cancelDispatch, removeThread, colleagues, activeRoleKey, switchRole,
-    connectWs, disconnectWs, createPreviewThread, destroyPreview, stop,
+    connectWs, disconnectWs, createPreviewThread, destroyPreview, resetPreview, stop,
   }
 }

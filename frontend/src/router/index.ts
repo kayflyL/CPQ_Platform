@@ -49,6 +49,12 @@ const routes = [
         meta: { title: '商机线索', perm: 'page.opportunities_all', aiEntryPoint: true }
       },
       {
+        path: '/ai-leads',
+        name: 'AiLeads',
+        component: () => import('@/views/opportunity/AiLeads.vue'),
+        meta: { title: 'AI 线索', perm: 'page.opportunities' }
+      },
+      {
         path: '/opportunities/:opportunityId',
         name: 'OpportunityDetail',
         component: () => import('@/views/opportunity/OpportunityDetail.vue'),
@@ -139,12 +145,12 @@ const routes = [
         meta: { title: 'Excel 解析', perm: 'page.settings.excel' }
       },
 
-      // 策略中心（门户 + 3 模块：对标服务器模块的真路由下钻）
+      // 解决方案（门户 + 3 模块：对标服务器模块的真路由下钻）
       {
         path: '/strategies',
         name: 'StrategyPortal',
         component: () => import('@/views/admin/StrategyPortal.vue'),
-        meta: { title: '策略中心', perm: 'page.strategies' }
+        meta: { title: '解决方案', perm: 'page.strategies' }
       },
       {
         path: '/strategies/pricing',
@@ -163,6 +169,24 @@ const routes = [
         name: 'StrategyRequirement',
         component: () => import('@/views/admin/requirement/RequirementWorkspace.vue'),
         meta: { title: '需求分析', perm: 'page.strategies' }
+      },
+      {
+        path: '/strategies/solutions/:key',
+        name: 'SolutionDetail',
+        component: () => import('@/views/admin/strategy/SolutionDetailPage.vue'),
+        meta: { title: '解决方案详情', perm: 'page.strategies' }
+      },
+      {
+        path: '/strategies/solutions/new',
+        name: 'SolutionNew',
+        component: () => import('@/views/admin/strategy/SolutionEditorPage.vue'),
+        meta: { title: '新建解决方案', perm: 'page.strategies' }
+      },
+      {
+        path: '/strategies/solutions/:key/edit',
+        name: 'SolutionEdit',
+        component: () => import('@/views/admin/strategy/SolutionEditorPage.vue'),
+        meta: { title: '编辑解决方案', perm: 'page.strategies' }
       },
       // 导出模板（统一入口）
       {

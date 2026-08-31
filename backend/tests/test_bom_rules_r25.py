@@ -69,8 +69,8 @@ def test_riser_10g_nic_no_upgrade():
 
 
 def test_raid_groups_pick_exact_models():
-    """R28（ESA24V3-P）：需求显式 LSI 9560-16i / LSI 9364-8i → 精确落地真实料号。"""
-    from app.services.part_selector import select_parts
+    """R28（ESA24V3-P）：需求显式 LSI 9560-16i / LSI 9364-8i → 引擎只产缺口行，候选池确含真实料号。"""
+    from app.services.part_selector import retrieve_part_candidates, select_parts
     out = select_parts(
         categories=["Raid card"],
         raid_groups=[
@@ -78,14 +78,16 @@ def test_raid_groups_pick_exact_models():
             {"model": "9364-8i", "qty": 1},
         ],
     )
-    models = {r.get("pn") or "" for r in out}
-    assert any("LSI 9560-16i" in m for m in models), out
-    assert any("LSI 9364-8i" in m for m in models), out
-    assert all(r.get("unmatched") is not True for r in out)
+    assert len(out) == 2 and all(r.get("unmatched") for r in out)
+    pools = retrieve_part_candidates(categories=["Raid card"])
+    models = {c.get("model") or "" for rows in pools.values() for c in rows}
+    assert any("LSI 9560-16i" in m for m in models), sorted(models)[:5]
+    assert any("LSI 9364-8i" in m for m in models), sorted(models)[:5]
+
 
 
 def test_gpu_missing_model_does_not_silently_fallback():
-    """GPU 型号库内缺失时，白盒未命中，不允许按显存容量替换成别的可售型号。"""
+    """GPU 型号库内缺失时，引擎不按显存容量替换成别的可售型号，只交还 AI 选型缺口。"""
     from app.services.part_selector import select_parts
     out = select_parts(
         categories=["GPU"],
@@ -95,4 +97,6 @@ def test_gpu_missing_model_does_not_silently_fallback():
     assert gpu, out
     assert gpu[0].get("unmatched") is True
     assert gpu[0].get("pn") == ""
-    assert "rtxpro4500" in (gpu[0].get("unmatched_reason") or "")
+    assert "rtxpro4500" in (gpu[0].get("request_spec") or "")
+
+

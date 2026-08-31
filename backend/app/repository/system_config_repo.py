@@ -168,6 +168,10 @@ _ENTRY_POINT_MIGRATIONS = {
 
 }
 
+# 2026-08-29 步骤2 退役：query_cpq_data（坏）→ query_data（映射）；服务器浏览三件套直接剔除
+
+_RETIRED_TOOL_IDS = {"list_server_types", "list_server_models", "get_server_model"}
+
 
 
 
@@ -200,11 +204,26 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["query_cpq_data"],
+        "tool_ids": ["query_data"],
+
+        "data_boundary": {
+            "mode": "allow_read",
+            "schemas": [],
+            "tables_allow": [
+                "opportunities.opportunities",
+                "opportunities.opportunity_requirements",
+                "opportunities.opportunity_bom_schemes",
+                "opportunities.quotations",
+                "opportunities.quotation_items",
+                "l6.server_types",
+                "l6.server_models",
+                "l6.base_configs",
+            ],
+            "masked_fields": [],
+        },
 
         "data_sources": ["opportunities"],
 
-        "permission_policy": "readonly",
 
         "dispatchable": False,
 
@@ -236,11 +255,10 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["query_cpq_data"],
+        "tool_ids": [],
 
         "data_sources": ["opportunities", "dashboard"],
 
-        "permission_policy": "readonly",
 
         "dispatchable": True,
 
@@ -276,7 +294,6 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "data_sources": ["kp_price", "bom", "cost"],
 
-        "permission_policy": "readonly",
 
         "dispatchable": True,
 
@@ -312,12 +329,10 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "select_parts", "list_kp_categories", "build_plan", "search_cases",
-                     "list_server_types", "list_server_models", "get_server_model"],
+        "tool_ids": ["select_models", "select_parts", "list_kp_categories", "build_plan", "search_cases"],
 
         "data_sources": ["requirement", "candidate_search", "bom", "server_catalog", "server_product_content"],
 
-        "permission_policy": "readonly",
 
         "dispatchable": True,
 
@@ -349,11 +364,10 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["query_cpq_data", "cost_breakdown", "quote_draft"],
+        "tool_ids": ["cost_breakdown", "quote_draft"],
 
         "data_sources": ["quotation", "opportunity"],
 
-        "permission_policy": "readonly",
 
         "dispatchable": True,
 
@@ -636,16 +650,6 @@ class SystemConfigRepository:
                 ),
 
                 "response_style": "detailed",
-
-                "data_query_triggers": (
-
-                    "商机,配置,平台,机箱,排行,排名,趋势,走势,重点,统计,新增,分布,环比,"
-
-                    "query_cpq_data,利润,上周,本周,这周,本月,这个月,上月,上个月,"
-
-                    "近半年,半年,近一年,今年,去年,季度"
-
-                ),
 
                 # 上下文 Provider 配置（拒绝硬编码；启用 + 显示名，不再存简要/详细）
 
@@ -963,15 +967,6 @@ class SystemConfigRepository:
 
                     if role_key == "support_engineer":
 
-                        cur_tools = colleague.get("tool_ids") or []
-
-                        if colleague.get("tool_ids") == ["select_models", "query_cpq_data"] or not all(
-                                t in cur_tools for t in ("list_server_types", "list_server_models", "get_server_model")):
-
-                            colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
-
-                            changed = True
-
                         cur_sources = colleague.get("data_sources") or []
 
                         if not all(s in cur_sources for s in ("server_catalog", "server_product_content")):
@@ -986,11 +981,54 @@ class SystemConfigRepository:
 
                         changed = True
 
-                    if role_key == "quote_specialist" and colleague.get("tool_ids") == ["query_cpq_data"]:
+                # 2026-08-29 步骤2：query_data 原语上线，退役 query_cpq_data 与服务器浏览三件套。
+                # 名字映射 + 剔除退役项；方案助手（试点）同时补白名单表进数据边界。
 
-                        colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
+                if isinstance(colleague.get("tool_ids"), list):
+
+                    mapped = []
+
+                    touched = False
+
+                    for t in colleague["tool_ids"]:
+
+                        t = str(t or "").strip()
+
+                        if not t:
+                            continue
+
+                        # 试点只开方案助手：query_cpq_data→query_data 映射仅限 assistant，其余角色直接剔除
+                        next_t = "query_data" if (t == "query_cpq_data" and role_key == "assistant") else t
+
+                        if next_t != t or t in _RETIRED_TOOL_IDS:
+
+                            touched = True
+
+                        if next_t not in _RETIRED_TOOL_IDS and next_t not in mapped:
+
+                            mapped.append(next_t)
+
+                    if touched:
+
+                        colleague["tool_ids"] = mapped
 
                         changed = True
+
+                        if role_key == "assistant":
+
+                            boundary = colleague.get("data_boundary")
+
+                            if isinstance(boundary, dict) and boundary.get("mode") == "allow_read":
+
+                                allow = [str(x) for x in (boundary.get("tables_allow") or [])]
+
+                                for table in (default_map.get("assistant") or {}).get("data_boundary", {}).get("tables_allow", []):
+
+                                    if table not in allow:
+
+                                        allow.append(table)
+
+                                boundary["tables_allow"] = allow
 
         existing_keys = {c.get("role_key") for c in colleagues if isinstance(c, dict)}
 

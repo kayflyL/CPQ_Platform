@@ -1,314 +1,281 @@
 # -*- coding: utf-8 -*-
-"""需求分析 Skill 的确定性计划运行时（skill plan runtime）。
+"""需求分析 Skill 的硬编排引擎（skill plan runtime）。
 
-本模块是主 AI 角色的“计划约束层”，不是另一个 LLM Agent：
-- 把画布节点图转成系统提示词里的固定计划；
-- 把节点配置的 enabled_tools 转成主 Agent 可用工具清单；
-- 在主 Agent 的工具调用边界保存产物、广播进度、回放真实数据；
-- 完成后确定性地组装 BOM 并落库。
-
-铁律：本模块不得 import llm_client / agent_react，不发起任何 LLM 调用。
+两器官架构（2026-08-28 宪法）：
+- 引擎没有对话能力。它接收结构化登记表，产出**产物**（BOM 方案）或**缺口数据**
+  （{slot, options, reason_code} 列表）；"怎么向用户要"属于 AI 角色，不属于这里。
+- 阶段顺序由代码固定：normalize → model → kp_gate → kp → compose → output；
+- 本模块不 import agent_react；唯一的 LLM 调用点封装在 skill_phases（试运行抽取/受约束选型）；
+- 对前端广播 pipeline_start / node_trace(真实产物+真实耗时) / pipeline_paused。
 """
 from __future__ import annotations
 
-import json
 import logging
-import re
 import time
-from typing import Any, Callable, Optional
+from typing import Any, Awaitable, Callable
 
-from app.services.capability_executor import _graph_maps
 from app.services.skill_node_runtime import compose_plans, finalize_output
 
 logger = logging.getLogger(__name__)
 
-BroadcastFn = Callable[[dict], Any]
+BroadcastFn = Callable[[dict], Awaitable[None]]
+
+PHASE_TABLE = [
+    {"key": "input", "label": "需求接收"},
+    {"key": "agent_fill", "label": "需求理解填表"},
+    {"key": "model_reason", "label": "机型选型"},
+    {"key": "kp_reason", "label": "配件选型"},
+    {"key": "compose", "label": "BOM 组装"},
+    {"key": "output", "label": "产出交接"},
+]
+
+# 对客户有意义的里程碑阶段（input/agent_fill 在对话里自然发生，不出现在流程预告里）
+USER_FACING_PHASES = {"model_reason", "kp_reason", "compose", "output"}
 
 
-def _ordered_nodes(flow: dict) -> list[dict]:
-    nodes, _adj, _indeg, order = _graph_maps(flow)
-    return [
-        node for node in sorted(nodes.values(), key=lambda n: order.get(n.get("id"), 9999))
-        if (node.get("runtime") or node.get("type")) not in ("condition", "extract")
-    ]
+def skill_steps_view(flow_configs: dict, user_facing_only: bool = False) -> list[dict]:
+    """步骤清单单源：角色提议话术与 pipeline_start 共用，画布改 label/description 两处同步变。"""
+    steps = []
+    for ph in PHASE_TABLE:
+        if user_facing_only and ph["key"] not in USER_FACING_PHASES:
+            continue
+        cfg = flow_configs.get(ph["key"]) if isinstance(flow_configs.get(ph["key"]), dict) else {}
+        item = {"step": ph["key"], "label": str((cfg or {}).get("label") or ph["label"])}
+        desc = str((cfg or {}).get("description") or "").strip()
+        if desc:
+            item["description"] = desc
+        steps.append(item)
+    return steps
 
 
-def _node_key(node: dict) -> str:
-    return str(node.get("id") or node.get("runtime") or node.get("type") or "")
+def _graph_maps(flow: dict) -> tuple[dict[str, dict], dict[str, list[dict]], dict[str, int], dict[str, int]]:
+    """画布 graph JSON → (nodes, adj, indeg, order)；extract 节点不进执行序。"""
+    graph = flow.get("graph") or {}
+    nodes: dict[str, dict] = {}
+    order: dict[str, int] = {}
+    for index, node in enumerate(graph.get("nodes") or []):
+        if not isinstance(node, dict):
+            continue
+        nid = node.get("id")
+        runtime = node.get("runtime") or node.get("type")
+        if not nid or runtime == "extract":
+            continue
+        nodes[str(nid)] = node
+        order[str(nid)] = index
+    adj: dict[str, list[dict]] = {nid: [] for nid in nodes}
+    indeg: dict[str, int] = {nid: 0 for nid in nodes}
+    for edge in graph.get("edges") or []:
+        if not isinstance(edge, dict):
+            continue
+        source, target = str(edge.get("source") or ""), str(edge.get("target") or "")
+        if source in nodes and target in nodes:
+            adj[source].append(edge)
+            indeg[target] = indeg.get(target, 0) + 1
+    return nodes, adj, indeg, order
 
 
-def _node_label(node: dict, key: str) -> str:
-    return str(node.get("label") or key or "节点")
+async def _emit(broadcast: BroadcastFn, payload: dict) -> None:
+    if broadcast is None:
+        return
+    try:
+        await broadcast(payload)
+    except Exception:
+        logger.exception("skill engine broadcast failed type=%s", payload.get("type"))
 
 
-def _node_config(flow: dict, key: str) -> dict:
-    return dict((flow.get("node_configs") or {}).get(key) or {})
+def _node_cfg(ctx: dict, key: str) -> dict:
+    cfg = (ctx.get("flow_configs") or {}).get(key)
+    return dict(cfg) if isinstance(cfg, dict) else {}
 
 
-def build_skill_plan_prompt(flow: dict) -> str:
-    """把画布节点图转成给主 AI 角色的固定计划说明，不产生独立节点提示词。"""
-    lines = ["你现在按以下固定计划完成需求分析，节点图只是这个计划的可视化，不要另起一套流程。"]
-    for idx, node in enumerate(_ordered_nodes(flow), 1):
-        key = _node_key(node)
-        cfg = _node_config(flow, key)
-        goal = str(cfg.get("goal") or cfg.get("description") or "").strip()
-        tools = [str(t) for t in (cfg.get("enabled_tools") or []) if str(t)]
-        artifact = str(cfg.get("output_artifact") or "").strip()
-        tool_text = "、".join(tools) if tools else "无工具"
-        line = f"{idx}. {_node_label(node, key)}：{goal or '执行该阶段'}"
-        if tool_text != "无工具":
-            line += f"；可调用工具：{tool_text}"
-        if artifact:
-            line += f"；产出：{artifact}"
-        lines.append(line)
-    output_cfg = _node_config(flow, "output")
-    final_contract = str(output_cfg.get("final_contract") or "").strip()
-    if final_contract:
-        lines.append("\n最终回复约束：\n" + final_contract)
-    return "\n".join(lines)
+def _trace(key: str, label: str, status: str, **extra) -> dict:
+    payload = {"type": "node_trace", "step": key, "label": label, "status": status,
+               "input": extra.get("input"), "output": extra.get("output"),
+               "summary": extra.get("summary") or "", "artifact": extra.get("artifact")}
+    if extra.get("duration_ms") is not None:
+        payload["duration_ms"] = extra["duration_ms"]
+    return payload
 
 
-def skill_allowed_tools(flow: dict) -> list[str]:
-    """汇总节点配置声明的工具；顺序按节点顺序去重。"""
-    seen: list[str] = []
-    for node in _ordered_nodes(flow):
-        cfg = _node_config(flow, _node_key(node))
-        for tool in (cfg.get("enabled_tools") or []):
-            tool = str(tool).strip()
-            if tool and tool not in seen:
-                seen.append(tool)
-    return seen
+def engine_result_of(ctx: dict) -> dict:
+    """引擎终态协议：done（含产物）或 gaps（结构化缺口数据，无话术）。"""
+    gaps = list(ctx.get("engine_gaps") or [])
+    if gaps:
+        return {"status": "gaps", "gaps": gaps, "assumptions": list(ctx.get("assumptions") or [])}
+    return {"status": "done",
+            "artifact": (ctx.get("business_entity") or {}).get("entity"),
+            "payload": ctx.get("output_payload") or {},
+            "assumptions": list(ctx.get("assumptions") or [])}
 
 
-def tool_phase_map(flow: dict) -> dict[str, str]:
-    """工具 -> 节点阶段映射，完全来自节点配置，不硬编码工具名。"""
-    mapping: dict[str, str] = {}
-    for node in _ordered_nodes(flow):
-        key = _node_key(node)
-        cfg = _node_config(flow, key)
-        for tool in (cfg.get("enabled_tools") or []):
-            tool = str(tool).strip()
-            if tool and tool not in mapping:
-                mapping[tool] = key
-    return mapping
+async def run_skill_plan_core(ctx: dict, flow_configs: dict, broadcast: BroadcastFn, title: str = "") -> dict:
+    """引擎唯一入口。ctx 契约：requirement_text/ext（对话路径由角色预填并置 slots_provided=True）/
+    history/force_complete/llm_model/business_mode/output_kind/flow_configs。
+    返回 ctx：engine_result=done|gaps；awaiting_input=True 表示有缺口待角色补齐。
+    title：任务名（前端任务胶囊展示），缺省「配置任务」。
+    """
+    from app.services.portal_flow_adapter import requirement_slots_from_ext
+    from app.services.skill_phases import (
+        kp_args_from_ext,
+        kp_gate_gap,
+        phase_kp_reason,
+        phase_model_reason,
+        phase_normalize_slots,
+    )
 
+    ctx["flow_configs"] = flow_configs
+    steps_meta = skill_steps_view(flow_configs)
+    labels = {s["step"]: s["label"] for s in steps_meta}
+    await _emit(broadcast, {"type": "pipeline_start", "title": str(title or "配置任务"), "steps": steps_meta})
 
-def _extract_last_json(text: str) -> dict:
-    """从模型最终文本中提取最后一个 JSON 对象；失败返回空 dict。"""
+    timings = ctx.setdefault("timings", {})
+    t0 = time.perf_counter()
+
+    def _fail(step: str, message: str) -> dict:
+        ctx["fatal_error"] = message[:200]
+        _emit_sync(broadcast, _trace(step, labels.get(step, step), "failed", summary=str(message)[:120]))
+        _emit_sync(broadcast, {"type": "error", "message": ctx["fatal_error"]})
+        return ctx
+
+    def _pause_with_gap(gap: dict) -> dict:
+        ctx["engine_gaps"] = [gap]
+        ctx["awaiting_input"] = True
+        timings["elapsed_ms"] = round((time.perf_counter() - t0) * 1000)
+        _emit_sync(broadcast, {"type": "pipeline_paused", "gaps": [gap]})
+        return ctx
+
+    def _emit_sync(broadcast_, payload):
+        # 同步包装：失败/暂停路径里也要发事件（异常仅记日志）。
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_emit(broadcast_, payload))
+        except RuntimeError:
+            pass
+
+    # ── input ──
+    text = str(ctx.get("requirement_text") or "").strip()
+    await _emit(broadcast, _trace("input", labels["input"], "running"))
     if not text:
-        return {}
-    start = max(int(text.rfind("{")), int(text.rfind("[")))
-    if start < 0:
-        return {}
-    # 从最后一个起始符开始向后找匹配终点，避免嵌套对象/数组漏掉。
-    stack: list[str] = []
-    openers = {"{": "}", "[": "]"}
-    closers = {")": "(", "}": "{", "]": "["}
-    close_for = {"{": "}", "[": "]"}
-    for i in range(start, len(text)):
-        ch = text[i]
-        if ch in openers:
-            stack.append(ch)
-        elif ch in closers:
-            if not stack:
-                continue
-            if close_for.get(stack[-1]) == ch:
-                stack.pop()
-                if not stack:
-                    snippet = text[start:i + 1]
-                    try:
-                        obj = json.loads(snippet)
-                    except Exception:
-                        obj = {}
-                    return obj if isinstance(obj, dict) else {}
-            else:
-                # 括号不匹配，退回空结果。
-                return {}
-    return {}
+        return _fail("input", "缺少需求文本")
+    await _emit(broadcast, _trace("input", labels["input"], "done", input=text, output=text,
+                                  summary="已接收需求原文", duration_ms=0))
+
+    # ── normalize（槽位规范化；试运行路径在此做 LLM 抽取）──
+    key = "agent_fill"
+    await _emit(broadcast, _trace(key, labels[key], "running"))
+    try:
+        started = time.perf_counter()
+        await phase_normalize_slots(ctx, _node_cfg(ctx, key), broadcast)
+        slots = requirement_slots_from_ext(dict(ctx.get("ext") or {}))
+        await _emit(broadcast, _trace(
+            key, labels[key], "done",
+            output={"missing_critical": list(ctx.get("blockers") or [])},
+            summary="线索登记表已更新",
+            artifact={"kind": "requirement_slots", "title": "线索登记表", "data": {**slots, "requirement_text": text}},
+            duration_ms=round((time.perf_counter() - started) * 1000)))
+    except Exception as exc:
+        logger.exception("normalize 阶段失败")
+        return _fail(key, f"需求理解阶段失败：{exc}")
+
+    # ── model（机型选型）──
+    key = "model_reason"
+    await _emit(broadcast, _trace(key, labels[key], "running"))
+    try:
+        started = time.perf_counter()
+        gap = await phase_model_reason(ctx, _node_cfg(ctx, key), broadcast)
+        chosen = str(((ctx.get("_locked_baseline") or {}).get("name")) or "")
+        pool = [compact_candidate(b) for b in (ctx.get("baselines_pool") or [])][:10]
+        from app.repository.bom_case_repo import _l6_rows_from_base_config
+        base_id = ((ctx.get("_locked_baseline") or {}).get("id"))
+        l6_rows = _l6_rows_from_base_config(base_id) if base_id else []
+        await _emit(broadcast, _trace(
+            key, labels[key], "done",
+            output={"chosen": chosen, "reason": ctx.get("lock_reason") or ""},
+            summary=(f"锁定机型 {chosen}" if chosen else "未锁定机型"),
+            artifact={"kind": "l6_chassis", "title": "机箱表",
+                      "data": {"rows": l6_rows, "chosen": chosen, "reason": ctx.get("lock_reason") or "",
+                               "candidates": pool}},
+            duration_ms=round((time.perf_counter() - started) * 1000)))
+    except Exception as exc:
+        logger.exception("model 阶段失败")
+        return _fail(key, f"机型选型阶段失败：{exc}")
+    if gap is not None:
+        return _pause_with_gap(gap)
+
+    # ── kp gate（配件意向缺口，业务选项数据）──
+    key = "kp_reason"
+    if not bool(ctx.get("force_complete")):
+        gate_gap = kp_gate_gap(ctx)
+        if gate_gap is not None:
+            return _pause_with_gap(gate_gap)
+    else:
+        if not (ctx.get("kp_parts") or (ctx.get("ext") or {}).get("kp_mode")) and \
+                not kp_args_from_ext(dict(ctx.get("ext") or {})):
+            ctx.setdefault("assumptions", []).append({
+                "code": "kp_skipped", "slot": "kp_mode",
+                "reason": "需求未指定配件：仅按整机底座出方案，可在配置页添加配件"})
+
+    # ── kp（确定性落地）──
+    started = time.perf_counter()
+    await _emit(broadcast, _trace(key, labels[key], "running"))
+    await phase_kp_reason(ctx, _node_cfg(ctx, key), broadcast)
+    summary_map = dict(ctx.get("kp_summary") or {})
+    unmatched_rows = [{"category": p.get("category"), "reason": p.get("unmatched_reason")}
+                      for p in (ctx.get("kp_parts") or []) if p.get("unmatched")]
+    await _emit(broadcast, _trace(
+        key, labels[key], "done", output=dict(summary_map),
+        summary=f"落地配件 {summary_map.get('kp_count', 0)} 项"
+                + (f"（未命中 {summary_map.get('unmatched_count')}）" if summary_map.get("unmatched_count") else ""),
+        artifact={"kind": "kp_table", "title": "KP表",
+                  "data": {"rows": [
+                      {"category": p.get("category"), "name": p.get("name") or p.get("pn") or "",
+                       "description": p.get("matched_spec") or "", "qty": p.get("qty") or 1,
+                       "unit_price": p.get("unit_price") or 0, "unmatched": bool(p.get("unmatched")),
+                       "unmatched_reason": p.get("unmatched_reason") or "",
+                       "spec_mismatch": bool(p.get("spec_mismatch"))}
+                      for p in (ctx.get("kp_parts") or [])
+                  ], "summary": summary_map, "unmatched": unmatched_rows}},
+        duration_ms=round((time.perf_counter() - started) * 1000)))
+
+    # ── compose ──
+    key = "compose"
+    await _emit(broadcast, _trace(key, labels[key], "running"))
+    started = time.perf_counter()
+    await compose_plans(ctx, _node_cfg(ctx, key), broadcast)
+    plans = ctx.get("plans") or []
+    await _emit(broadcast, _trace(
+        key, labels[key], "done", output={"plans_count": len(plans)},
+        summary=f"组装 {len(plans)} 个整机配置" if plans else "无可组装的整机基准",
+        artifact={"kind": "compose", "title": "BOM 组装结果",
+                  "data": [{"model": (p.get("model") or ""), "total_cost": ((p.get("summary") or {}).get("total_cost"))} for p in plans]},
+        duration_ms=round((time.perf_counter() - started) * 1000)))
+
+    # ── output ──
+    key = "output"
+    await _emit(broadcast, _trace(key, labels[key], "running"))
+    started = time.perf_counter()
+    out_payload = await finalize_output(ctx, _node_cfg(ctx, key), broadcast)
+    bom_entity = (ctx.get("business_entity") or {}).get("entity")
+    await _emit(broadcast, _trace(
+        key, labels[key], "done", output=out_payload if isinstance(out_payload, dict) else {},
+        summary="已生成交接产物" if bom_entity is not None else "会话模式产出预览",
+        artifact=None, duration_ms=round((time.perf_counter() - started) * 1000)))
+    timings["plan_total_ms"] = round((time.perf_counter() - t0) * 1000)
+    ctx["awaiting_input"] = False
+    return ctx
 
 
-def _match_baseline_name(answer: str, baselines: list[dict]) -> Optional[dict]:
-    text = str(answer or "").lower()
-    for baseline in baselines:
-        name = str(baseline.get("name") or "").strip()
-        mid = str(baseline.get("id") or baseline.get("server_model_id") or "").strip()
-        if name and name.lower() in text:
-            return baseline
-        if mid and mid.lower() in text:
-            return baseline
-    return None
-
-
-def parse_skill_decision(answer: str, baselines: list[dict]) -> dict:
-    """从主 AI 回复中解析完成/待澄清与机型选择，只做确定性回读。"""
-    decision = _extract_last_json(answer or "")
-    selected_name = str(decision.get("selected_model_name") or decision.get("model_name") or "").strip()
-    question = str(decision.get("question") or decision.get("need_input") or "").strip()
-    done = bool(decision.get("done", not question))
-    locked = None
-    if selected_name:
-        low = selected_name.lower()
-        for baseline in baselines:
-            name = str(baseline.get("name") or "").strip()
-            mid = str(baseline.get("id") or baseline.get("server_model_id") or "").strip()
-            if (name and name.lower() == low) or (mid and mid.lower() == low):
-                locked = baseline
-                break
-        if locked is None:
-            for baseline in baselines:
-                name = str(baseline.get("name") or "").strip()
-                if name and name.lower() in low:
-                    locked = baseline
-                    break
-    if locked is None:
-        locked = _match_baseline_name(answer or "", baselines)
-    if locked is None and baselines:
-        locked = baselines[0]
+def compact_candidate(candidate: dict) -> dict:
     return {
-        "done": done,
-        "question": question,
-        "locked": locked,
-        "raw": decision,
+        "id": str(candidate.get("server_model_id") or candidate.get("id") or ""),
+        "name": str(candidate.get("name") or ""),
+        "type": str(candidate.get("server_type_name") or ""),
+        "series": str(candidate.get("series") or ""),
+        "form": str(candidate.get("form") or ""),
+        "price": candidate.get("total_price"),
     }
 
 
-def apply_skill_decision(ctx: dict, answer: str) -> dict:
-    """把主 AI 最终回复写入 ctx，并锁定机型。"""
-    baselines = list(ctx.get("baselines") or [])
-    decision = parse_skill_decision(answer, baselines)
-    ctx["skill_final"] = decision
-    if decision["locked"]:
-        ctx["baselines"] = [decision["locked"]]
-        ctx["model_selection"] = {
-            "id": decision["locked"].get("id"),
-            "name": decision["locked"].get("name") or "",
-            "server_type_name": decision["locked"].get("server_type_name") or "",
-            "series": decision["locked"].get("series") or "",
-            "form": decision["locked"].get("form") or "",
-        }
-        ext = dict(ctx.get("ext") or {})
-        for field in ("server_type_name", "server_type", "series", "form"):
-            value = decision["locked"].get(field)
-            if value:
-                ext[field] = value
-        ctx["ext"] = ext
-        req = dict(ctx.get("requirement") or {})
-        for field in ("server_type_name", "series", "form"):
-            value = decision["locked"].get(field)
-            if value:
-                req[field] = value
-        ctx["requirement"] = req
-    question = str(decision["question"] or "").strip()
-    if question and not decision["done"]:
-        ctx["awaiting_input"] = True
-        ctx["current_target"] = "agent_fill"
-        ctx["last_ask_question"] = question
-    return decision
-
-
-def make_skill_tool_guard(
-    flow: dict,
-    ctx_holder: dict,
-    broadcast: BroadcastFn,
-    thread_id: str,
-) -> Callable[[str, dict, Any], Any]:
-    """构造工具调用后置守卫：只广播节点进度、保存真实产物，不发起 LLM。"""
-    phase_map = tool_phase_map(flow)
-    seen: set = set()
-
-    async def _broadcast_step(phase: str, node: dict, payload: dict) -> None:
-        if broadcast is None:
-            return
-        label = _node_label(node, phase)
-        try:
-            await broadcast({
-                "type": "step_done",
-                "step": phase,
-                "label": label,
-                "payload": payload,
-                "duration_ms": 0,
-                "input": {},
-                "output": {},
-                "artifact": payload.get("artifact") or {},
-                "summary": payload.get("summary") or "",
-            })
-        except Exception:
-            logger.exception("skill plan broadcast failed phase=%s", phase)
-
-    async def guard(name: str, args: dict, result: Any) -> Any:
-        ctx = ctx_holder.get("ctx") or {}
-        phase = phase_map.get(name)
-        if not phase:
-            return result
-        node = next((n for n in _ordered_nodes(flow) if _node_key(n) == phase), {})
-        payload: dict = {}
-        try:
-            if name == "select_models":
-                from app.api.candidate_search import select_models
-                baselines = select_models(
-                    usage=(args or {}).get("usage") or "",
-                    server_type_name=(args or {}).get("server_type_name"),
-                    series=(args or {}).get("series"),
-                    form=(args or {}).get("form"),
-                    limit=(args or {}).get("limit") or None,
-                    fallback_order=(args or {}).get("fallback_order") or ["exact", "same_series", "same_form", "all"],
-                )
-                ctx["baselines"] = list(baselines or [])
-                payload = {"count": len(ctx["baselines"]), "matches": [
-                    {"name": b.get("name") or "", "server_type_name": b.get("server_type_name") or "",
-                     "series": b.get("series") or "", "form": b.get("form") or ""}
-                    for b in ctx["baselines"]
-                ]}
-                seen.add(phase)
-            elif name == "select_parts":
-                from app.services.part_selector import select_parts
-                parts = select_parts(
-                    categories=(args or {}).get("categories"),
-                    server_type_name=(args or {}).get("server_type_name"),
-                    cpu_signal=(args or {}).get("cpu_signal"),
-                    mem_signal=(args or {}).get("mem_signal"),
-                    drive_groups=(args or {}).get("drive_groups"),
-                    gpu_groups=(args or {}).get("gpu_groups"),
-                    raid_groups=(args or {}).get("raid_groups"),
-                    psu_signal=(args or {}).get("psu_signal"),
-                    multi_spec_filters=(args or {}).get("multi_spec_filters"),
-                )
-                ctx["kp_parts"] = list(parts or [])
-                baseline = (ctx.get("baselines") or [{}])[0] if ctx.get("baselines") else {}
-                mid = baseline.get("server_model_id") or baseline.get("id")
-                if mid is not None:
-                    ctx["kp_by_model"] = {str(mid): list(parts or [])}
-                by_category: dict[str, int] = {}
-                for part in (parts or []):
-                    cat = str(part.get("category") or "其他")
-                    by_category[cat] = by_category.get(cat, 0) + 1
-                payload = {
-                    "kp_count": len(parts or []),
-                    "by_category": by_category,
-                    "unmatched_count": sum(1 for p in (parts or []) if p.get("unmatched")),
-                    "spec_mismatch_count": sum(1 for p in (parts or []) if p.get("spec_mismatch")),
-                }
-                seen.add(phase)
-            elif name in ("list_server_types", "list_server_models", "get_server_model", "list_kp_categories"):
-                payload = {"called": True}
-                seen.add(phase)
-            elif name in ("resolve_part_alias", "compose_memory"):
-                payload = {"called": True}
-                seen.add(phase)
-        except Exception as exc:
-            logger.exception("skill tool guard failed tool=%s phase=%s", name, phase)
-            payload = {"error": str(exc)}
-        ctx_holder["ctx"] = ctx
-        await _broadcast_step(phase, node, payload)
-        return result
-
-    return guard
-
-
-async def finalize_skill_artifacts(ctx: dict, flow: dict, broadcast: BroadcastFn) -> dict:
-    """确定性执行 compose/output：只组装真实 BOM 并落库，不调用 LLM。"""
-    compose_cfg = _node_config(flow, "compose")
-    output_cfg = _node_config(flow, "output")
-    await compose_plans(ctx, compose_cfg, broadcast)
-    payload = await finalize_output(ctx, output_cfg, broadcast)
-    return payload
+# scene_gap/kp_mode_gap 从 skill_phases 引用（re-export 供旧调用兼容）
+from app.services.skill_phases import kp_mode_gap, scene_gap  # noqa: E402,F401

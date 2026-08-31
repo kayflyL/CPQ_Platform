@@ -127,24 +127,12 @@ class OfficeEventRepository:
             session.commit()
             return True
 
-    def delete_memories_by_role(self, role_key: str) -> int:
-        """Delete all persisted long-term memories for one role."""
-        role_key = str(role_key or "").strip() or "unknown"
-        with Rules_SessionLocal() as session:
-            result = session.execute(
-                OfficeEvent.__table__.delete().where(
-                    OfficeEvent.role_key == role_key,
-                    OfficeEvent.event_type == "memory",
-                )
-            )
-            session.commit()
-            return int(result.rowcount or 0)
-
     def prune_runtime_events(self, max_age_seconds: int = 90 * 24 * 3600) -> int:
         """清理普通办公室运行事件，保留 90 天内的可观测流水。
 
-        长期记忆（event_type=memory）由 prune_memories 单独治理；治理审批历史
-        由 OfficeGovernanceRepository.prune_resolved 单独治理。
+        治理审批历史由 OfficeGovernanceRepository.prune_resolved 单独治理；
+        员工长期记忆已迁 rules.colleague_memories（上限治理在
+        ColleagueMemoryRepository.enforce_cap）。
         """
         cutoff = time.time() - int(max_age_seconds)
         with Rules_SessionLocal() as session:
@@ -156,57 +144,3 @@ class OfficeEventRepository:
             )
             session.commit()
             return int(result.rowcount or 0)
-
-    def prune_memories(self, role_key: str) -> int:
-        """按上限清理员工长期记忆：自动情景记忆 TTL/数量、长期语义记忆总量。"""
-        role_key = str(role_key or "").strip() or "unknown"
-        max_auto = 200
-        max_long = 500
-        auto_ttl_seconds = 30 * 24 * 3600
-        now = time.time()
-        with Rules_SessionLocal() as session:
-            rows = session.scalars(
-                select(OfficeEvent)
-                .where(
-                    OfficeEvent.role_key == role_key,
-                    OfficeEvent.event_type == "memory",
-                )
-                .order_by(OfficeEvent.id.desc())
-            ).all()
-            if not rows:
-                return 0
-            pinned: List[OfficeEvent] = []
-            auto: List[OfficeEvent] = []
-            long_term: List[OfficeEvent] = []
-            for row in rows:
-                payload = row.payload or {}
-                if payload.get("pinned"):
-                    pinned.append(row)
-                elif str(payload.get("kind") or "") == "episodic" and str(row.source or "") != "manual":
-                    auto.append(row)
-                else:
-                    long_term.append(row)
-
-            delete_ids: List[int] = []
-            for row in auto:
-                ts = float(row.ts or 0)
-                if ts and ts < now - auto_ttl_seconds:
-                    delete_ids.append(row.id)
-
-            keep_auto = [row for row in auto if row.id not in delete_ids][:max_auto]
-            keep_auto_ids = {row.id for row in keep_auto}
-            for row in auto:
-                if row.id not in delete_ids and row.id not in keep_auto_ids:
-                    delete_ids.append(row.id)
-
-            allowed_long = max(0, max_long - len(pinned))
-            keep_long_ids = {row.id for row in long_term[:allowed_long]}
-            for row in long_term[allowed_long:]:
-                delete_ids.append(row.id)
-
-            if not delete_ids:
-                return 0
-            ids = list(dict.fromkeys(delete_ids))
-            session.execute(OfficeEvent.__table__.delete().where(OfficeEvent.id.in_(ids)))
-            session.commit()
-            return len(ids)
