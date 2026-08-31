@@ -154,13 +154,13 @@ function applyNodeState(id: string | null, state: any) {
       server_model: d.server_model || d.model || d.baseline_model || '',
       purchase_qty: d.purchase_qty,
       warranty_years: d.warranty_years || '',
-      cpu: d.cpu_signal || d.cpu,
-      memory: d.mem_signal || d.mem_groups || d.memory,
-      storage: d.drive_groups || d.drives || d.storage,
-      gpu: d.gpu_groups || d.gpu,
-      nic: d.nic_groups || d.nic_signal || d.nic,
-      raid: d.raid_groups || d.raid_signal || d.raid,
-      psu: d.psu_signal || d.psu,
+      cpu: d.cpu,
+      memory: d.memory,
+      storage: d.drives || d.storage,
+      gpu: d.gpu,
+      nic: d.nic,
+      raid: d.raid,
+      psu: d.psu,
     }
   }
 

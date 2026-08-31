@@ -64,17 +64,17 @@ def test_apply_domestic_by_cpu_marks_domestic():
     from app.services import semantic_contract as sc
     from app.services.capabilities import _apply_domestic_by_cpu
 
-    ext = {"cpu_signal": {"model": "兆芯 KH50000", "qty": 2}}
+    ext = {"cpu": {"model": "兆芯 KH50000", "qty": 2}}
     notes = _apply_domestic_by_cpu(ext, {})
     assert sc.compliance(ext).get("domestic_only") is True
     assert sc.intent(ext) == "domestic_compliance"
     assert notes
 
-    ext2 = {"cpu_signal": {"model": "海光C86 7390"}}
+    ext2 = {"cpu": {"model": "海光C86 7390"}}
     _apply_domestic_by_cpu(ext2, {})
     assert sc.compliance(ext2).get("domestic_only") is True
 
-    ext3 = {"cpu_signal": {"model": "AMD EPYC 9254"}}
+    ext3 = {"cpu": {"model": "AMD EPYC 9254"}}
     _apply_domestic_by_cpu(ext3, {})
     assert not sc.compliance(ext3).get("domestic_only")
     assert sc.intent(ext3) != "domestic_compliance"

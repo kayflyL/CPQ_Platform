@@ -306,7 +306,7 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     rule_types = (config or {}).get("rule_types")
     rtext = str(req_text or "").lower()
     # 模型输出的 semantic 已经过 schema 收口，此处作为 advisor；侧重在“事实确定性”。
-    # GPU 卡数唯一真值源 = ext.gpu_groups；此处只用规则库 workload_map 的数值做归一，
+    # GPU 卡数唯一真值源 = ext.gpu；此处只用规则库 workload_map 的数值做归一，
     # 不再把 semantic.workload.gpu_count 当作第二真值源。
     wl = dict(_sc.workload(ext))
     rule_gpu_count = 0
@@ -329,16 +329,16 @@ def _enrich_agent_semantic(ext: dict, config: Optional[dict], req_text: Optional
     if comp.get("domestic_only"):
         if _sc.intent(ext) in (None, "general"):
             _sc.set_value(ext, "intent", "domestic_compliance")
-    # GPU 卡数只落 gpu_groups（模型 semantic / 规则 workload_map 的卡数统一在此归一）。
-    if rule_gpu_count > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu_groups"):
-        ext["gpu_groups"] = [{"qty": rule_gpu_count}]
+    # GPU 卡数只落 gpu（模型 semantic / 规则 workload_map 的卡数统一在此归一）。
+    if rule_gpu_count > 0 and not _sc.absent_confirmed(ext, "gpu") and not ext.get("gpu"):
+        ext["gpu"] = [{"qty": rule_gpu_count}]
 
 def _apply_domestic_by_cpu(ext: dict, config: Optional[dict] = None) -> list:
     """确定性规则：登记到的 CPU 是国产 → 产品=国产化/信创（compliance.domestic_only）。词表来自规则库 compliance_map。"""
     from app.services import semantic_contract as _sc
     from app.services import requirement_rule_catalog as _rc
     rule_types = (config or {}).get("rule_types")
-    cpu = ext.get("cpu_signal") if isinstance(ext.get("cpu_signal"), dict) else {}
+    cpu = ext.get("cpu") if isinstance(ext.get("cpu"), dict) else {}
     cpu_text = " ".join(str(cpu.get(k) or "") for k in ("model", "brand")).lower()
     if not cpu_text and isinstance(ext.get("cpu"), dict):
         cpu_text = str((ext.get("cpu") or {}).get("model") or "").lower()
@@ -507,9 +507,9 @@ async def run_agent_fill(ctx: dict, config: dict, broadcast=None, step_id: str =
 
 
 def _gpu_qty_from_ext(ext: dict) -> int:
-    """GPU 卡数唯一真值源：汇总 ext.gpu_groups 的 qty。不读 semantic.workload.gpu_count（已收口删除）。"""
+    """GPU 卡数唯一真值源：汇总 ext.gpu 的 qty。不读 semantic.workload.gpu_count（已收口删除）。"""
     total = 0
-    for g in (ext.get("gpu_groups") or []):
+    for g in (ext.get("gpu") or []):
         if isinstance(g, dict):
             try:
                 total += int(g.get("qty") or 0)
@@ -577,7 +577,7 @@ def run_select_baseline_rule(ctx: dict, config: dict) -> dict:
         _domestic_series = set(_cms[0].get("platform_series") or ["Polaris"])
         if _series not in _domestic_series:
             _series = next(iter(_domestic_series), _series)
-    # GPU 卡数：唯一真值源 = ext.gpu_groups（需求侧结构化事实）。不再读 semantic.workload.gpu_count，
+    # GPU 卡数：唯一真值源 = ext.gpu（需求侧结构化事实）。不再读 semantic.workload.gpu_count，
     # 也不再按 gpu_form_map 死区间猜形态；真实槽位能力由 base_config.gpu_slots 在选型后过滤。
     _gpu_count = _gpu_qty_from_ext(ext)
     baselines = select_models(

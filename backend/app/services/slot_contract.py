@@ -163,13 +163,13 @@ def _slot_filled(ext: dict, key: str) -> bool:
     if key in CANONICAL_ALIASES or any(key in aliases for aliases in CANONICAL_ALIASES.values()):
         return _has(canonical_get(ext, key))
     mapping = {
-        "cpu": ["cpu_signal"],
-        "memory": ["mem_signal"],
-        "storage": ["drive_groups"],
-        "gpu": ["gpu_groups"],
-        "nic": ["multi_spec_filters"],
-        "raid": ["raid_groups"],
-        "psu": ["psu_signal"],
+        "cpu": ["cpu"],
+        "memory": ["memory"],
+        "storage": ["drives"],
+        "gpu": ["gpu"],
+        "nic": ["nic"],
+        "raid": ["raid"],
+        "psu": ["psu"],
     }
     return any(_has(ext.get(k)) for k in mapping.get(key, []))
 

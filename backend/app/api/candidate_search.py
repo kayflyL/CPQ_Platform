@@ -196,10 +196,10 @@ def build_variant_signals(ext: dict, requirement_text: str = "") -> dict:
     has_raid = bool(any(c in cats for c in raid_cats) or any(w in low for w in raid_words))
     # CPU 品类名（默认 CPU）
     cpu_cats = _lst(rules.get("cpu_cats"))
-    # GPU 数量唯一真值源：gpu_groups（不再读 qty_map.GPU）
+    # GPU 数量唯一真值源：gpu（不再读 qty_map.GPU）
     gpu_gq = str(rules.get("gpu_group_qty_key") or "qty")
     gpu_qty = 0
-    for _g in ext.get("gpu_groups") or []:
+    for _g in ext.get("gpu") or []:
         gpu_qty = max(gpu_qty, int(_g.get(gpu_gq) or 0))
 
     return {

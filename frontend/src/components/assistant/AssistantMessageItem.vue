@@ -229,7 +229,7 @@ function avatarInitial(name?: string): string {
 }
 
 // ── 逐项配件卡：单组选项=选择→（可调数量时）stepper→提交；组头挂配件库下拉 ──
-const pickableSlots = new Set(['gpu_groups', 'cpu_signal', 'mem_signal', 'drive_groups'])
+const pickableSlots = new Set(['gpu', 'cpu', 'memory', 'drives'])
 
 const picked = ref<QOption | null>(null)
 const qtyVal = ref(0)
@@ -307,7 +307,7 @@ const totalText = computed(() => {
   const unit = picked.value?.unit_gb
   if (!unit) return ''
   const total = (qtyVal.value || 0) * unit
-  const suffix = partsSlot.value === 'gpu_groups' ? ' 显存' : partsSlot.value === 'mem_signal' ? ' 内存' : ''
+  const suffix = partsSlot.value === 'gpu' ? ' 显存' : partsSlot.value === 'memory' ? ' 内存' : ''
   return `共 ${fmtGB(total)}${suffix}`
 })
 
@@ -381,7 +381,7 @@ function onPickSelect(slot: string, value: any) {
   const o = (pickOptions.value[slot] || []).find((x) => x.value === value)
   if (!o) return
   picked.value = o
-  qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'drive_groups' ? 2 : qtyMax.value)
+  qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'drives' ? 2 : qtyMax.value)
 }
 </script>
 

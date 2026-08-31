@@ -11,10 +11,6 @@ import re
 from typing import Any
 
 _STRUCTURED_KEYS = {"cpu", "memory", "drives", "storage", "gpu", "nic", "raid", "psu"}
-# 角色已按 ext 同构信号键名给的结构化配件信号：_apply_extracted_slots 会跳过 dict/list，
-# 这里直接落 ext（只收结构，字符串/空值忽略），避免干净键/信号键两套契约导致静默丢弃。
-_DIRECT_SIGNAL_KEYS = ("cpu_signal", "mem_signal", "drive_groups", "gpu_groups",
-                       "raid_groups", "psu_signal", "nic_signal", "nic_groups", "kp_mode")
 
 
 def _parse_gb(text: str) -> int | None:
@@ -37,7 +33,10 @@ def _as_dicts(value: Any) -> list[dict]:
 
 
 def apply_structured_slots(ext: dict, slots: dict, requirement_text: str = "") -> list:
-    """把结构化配件槽位（对象/数组形态）合并进 ext，返回变更说明。"""
+    """把结构化配件槽位（对象/数组形态）合并进 ext，返回变更说明。
+
+    ext 只存一张契约表（cpu/memory/drives/gpu/nic/raid/psu），不再有第二套信号键名。
+    """
     if not isinstance(slots, dict):
         return []
     from app.services.llm_extract_enhance import merge_into_ext
@@ -54,17 +53,6 @@ def apply_structured_slots(ext: dict, slots: dict, requirement_text: str = "") -
         if merged != pre:
             notes.append("scenario_skips=" + ",".join(merged))
         ext["scenario_skips"] = merged
-
-    # 信号键名（ext 同构）直落：角色按契约给的结构化配件信号直接落 ext，不二次解析，防静默丢弃。
-    for _k in _DIRECT_SIGNAL_KEYS:
-        _v = slots.get(_k)
-        if _v is None or _v == "" or _v == [] or _v == {}:
-            continue
-        if isinstance(_v, str):
-            notes.append(f"{_k} 跳过(字符串非结构化)")
-            continue
-        ext[_k] = _v
-        notes.append(f"{_k} 直落")
 
     cleaned: dict[str, Any] = {}
     for key in _STRUCTURED_KEYS:

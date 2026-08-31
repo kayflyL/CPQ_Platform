@@ -63,13 +63,13 @@ async def _tool_select_parts(args: dict) -> Any:
         qty_map=args.get("qty_map"),
         search_map=args.get("search_map"),
         representative_pick=args.get("representative_pick") or "min_price",
-        cpu_signal=args.get("cpu_signal"),
-        mem_signal=args.get("mem_signal"),
-        drive_groups=args.get("drive_groups"),
-        gpu_groups=args.get("gpu_groups"),
-        raid_groups=args.get("raid_groups"),
-        psu_signal=args.get("psu_signal"),
-        multi_spec_filters=args.get("multi_spec_filters"),
+        cpu=args.get("cpu"),
+        memory=args.get("memory"),
+        drives=args.get("drives"),
+        gpu=args.get("gpu"),
+        raid=args.get("raid"),
+        psu=args.get("psu"),
+        nic=args.get("nic"),
     )
     if not picks:
         return {"count": 0, "parts": [], "note": "无品类/无常可配，请补 categories 或 server_type_name"}

@@ -68,12 +68,12 @@ def test_riser_10g_nic_no_upgrade():
     assert d == {"IO1": "1*X8 FHFL", "IO2": "1*X8 FHFL"}
 
 
-def test_raid_groups_pick_exact_models():
+def test_raid_pick_exact_models():
     """R28（ESA24V3-P）：需求显式 LSI 9560-16i / LSI 9364-8i → 引擎只产缺口行，候选池确含真实料号。"""
     from app.services.part_selector import retrieve_part_candidates, select_parts
     out = select_parts(
         categories=["Raid card"],
-        raid_groups=[
+        raid=[
             {"model": "9560-16i", "qty": 1},
             {"model": "9364-8i", "qty": 1},
         ],
@@ -91,7 +91,7 @@ def test_gpu_missing_model_does_not_silently_fallback():
     from app.services.part_selector import select_parts
     out = select_parts(
         categories=["GPU"],
-        gpu_groups=[{"tokens": ["rtxpro4500"], "qty": 1, "cap": 32}],
+        gpu=[{"tokens": ["rtxpro4500"], "qty": 1, "cap": 32}],
     )
     gpu = [r for r in out if (r.get("category") or "") == "GPU"]
     assert gpu, out

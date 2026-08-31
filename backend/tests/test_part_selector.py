@@ -66,7 +66,7 @@ def _stub(monkeypatch):
 def test_select_parts_emits_ai_ground_placeholder_for_cpu(monkeypatch):
     """CPU 不再静态匹配：引擎只产缺口行（含 cores/型号），选中交 AI。"""
     _stub(monkeypatch)
-    parts = ps.select_parts(categories=["CPU"], cpu_signal={"model": "兆芯50000", "cores": 96, "qty": 2})
+    parts = ps.select_parts(categories=["CPU"], cpu={"model": "兆芯50000", "cores": 96, "qty": 2})
     assert len(parts) == 1
     assert parts[0]["unmatched"] is True
     assert parts[0]["request_spec"] == "兆芯50000 96C"
@@ -78,7 +78,7 @@ def test_select_parts_emits_ai_ground_placeholder_for_raid_no_fake_fail(monkeypa
     """RAID 不再做 RAID Level 词表匹配，也不再输出「库内未登记 RAID 级别」误导。"""
     _stub(monkeypatch)
     parts = ps.select_parts(categories=["Raid card"],
-                            raid_groups=[{"raid_levels": ["0", "1", "5", "6", "JBOD"], "qty": 1}])
+                            raid=[{"raid_levels": ["0", "1", "5", "6", "JBOD"], "qty": 1}])
     assert len(parts) == 1
     assert parts[0]["unmatched"] is True
     assert "无法自动选卡" not in (parts[0].get("unmatched_reason") or "")
@@ -88,7 +88,7 @@ def test_select_parts_emits_ai_ground_placeholder_for_raid_no_fake_fail(monkeypa
 def test_select_parts_emits_placeholder_per_drive_group(monkeypatch):
     """多个盘组各产一行缺口（容量×介质），交 AI 从候选选型。"""
     _stub(monkeypatch)
-    parts = ps.select_parts(categories=["HDD/SSD"], drive_groups=[
+    parts = ps.select_parts(categories=["HDD/SSD"], drives=[
         {"term": "480G", "qty": 2, "kind": "SSD"},
         {"term": "6T", "qty": 4, "kind": "HDD"},
     ])

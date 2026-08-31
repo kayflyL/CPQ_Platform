@@ -22,7 +22,7 @@ def _catalogue_models(*categories):
 
 def test_raid_qty_not_doubled():
     """单个显式 RAID 型号只出一条「交由 AI 选型」缺口行；目录含 LSI 9361-8i 候选。"""
-    out = select_parts(categories=["Raid card"], raid_groups=[{"model": "LSI 9361-8i", "qty": 1}])
+    out = select_parts(categories=["Raid card"], raid=[{"model": "LSI 9361-8i", "qty": 1}])
     raids = _raids(out)
     assert len(raids) == 1, f"RAID 应只出一条，实际 {len(raids)}: {raids}"
     assert raids[0]["qty"] == 1
@@ -33,7 +33,7 @@ def test_raid_qty_not_doubled():
 
 def test_raid_space_model_matches_hyphen_part():
     """候选池含连字符料号；select_parts 为每个组各产一行缺口，不再静态归一化。"""
-    out = select_parts(categories=["Raid card"], raid_groups=[
+    out = select_parts(categories=["Raid card"], raid=[
         {"model": "LSI 9560 16i", "qty": 1},
         {"model": "LSI 9364 8i", "qty": 1},
     ])
@@ -48,7 +48,7 @@ def test_raid_space_model_matches_hyphen_part():
 def test_memory_per_stick_lands_real_pn():
     """显式 32G×8 内存信号转成缺口行；目录含 32G DDR5 候选。"""
     out = select_parts(categories=["Memory"],
-                       mem_signal={"type": "DDR5", "speed": 4800, "per_stick_gb": 32, "qty": 8})
+                       memory={"type": "DDR5", "speed": 4800, "per_stick_gb": 32, "qty": 8})
     mems = [r for r in out if "mem" in (r.get("category") or "").lower()]
     assert mems, out
     assert mems[0]["qty"] == 8

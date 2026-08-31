@@ -65,7 +65,7 @@ def _slots_view(ext: dict) -> dict:
     """登记表可读视图（角色提示词里展示的当前状态）：即需求表（RequirementSlots 干净键）。
 
     与引擎 normalize 产出的 artifact 同构，让角色「看到的表 = 要填的表 = 下游读的表」。
-    旧 ext 信号键名（cpu_signal/…）不再作为写契约暴露给角色。
+    旧 ext 信号键名（cpu/…）不再作为写契约暴露给角色。
     """
     from app.services.portal_flow_adapter import requirement_slots_from_ext
     view = dict(requirement_slots_from_ext(ext or {}))
@@ -89,7 +89,7 @@ def _match_card_signal(mem: dict, slot: str, value: str) -> Optional[dict]:
 
 
 # 逐项配件卡可手动输入型号的槽（raid 无型号契约不开放）
-_PART_PICK_SLOTS = {"gpu_groups", "cpu_signal", "mem_signal", "drive_groups"}
+_PART_PICK_SLOTS = {"gpu", "cpu", "memory", "drives"}
 
 
 def _signal_with_qty(signal: dict, qty: int, pick_meta: dict) -> dict:
@@ -159,9 +159,7 @@ def tool_update_requirement_slots(args: dict) -> dict:
     fill = args.get("fill") if isinstance(args.get("fill"), dict) else (args or {})
     # 类型契约：信号槽只收结构（对象/数组）。字符串填入=违约，当场退回并给正确形状，
     # 让模型 ReAct 当轮自纠——语义理解归模型，引擎不做字符串解析。
-    _fill_obj_keys = {"cpu", "memory", "drives", "storage", "gpu", "nic", "raid", "psu",
-                      "cpu_signal", "mem_signal", "drive_groups", "gpu_groups",
-                      "raid_groups", "psu_signal", "multi_spec_filters", "nic_signal"}
+    _fill_obj_keys = {"cpu", "memory", "drives", "storage", "gpu", "nic", "raid", "psu"}
     bad = [k for k, v in (fill or {}).items()
            if k in _fill_obj_keys and isinstance(v, str) and str(v).strip()]
     if bad:

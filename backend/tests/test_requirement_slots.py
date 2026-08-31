@@ -245,3 +245,28 @@ def test_model_grounded_variants():
     assert _model_grounded("RTX 4090", "游戏渲染", CATALOG) is True               # 家族词 rtx
     assert _model_grounded("XYZ-9000X", "一台服务器", CATALOG) is False           # 编造
     assert _model_grounded("", "随便", CATALOG) is True                           # 空 = 不校验
+
+def test_requirement_slots_from_ext_keeps_clean_keys():
+    """登记表视图必须从干净键(cpu/memory/drives/gpu/nic/raid/psu)读取，
+    不能因内部信号键改名而丢 CPU/内存等字段。"""
+    from app.services.portal_flow_adapter import requirement_slots_from_ext
+    ext = {
+        "server_type_name": "AI训练", "series": "Orion", "form": "4U", "purchase_qty": 1,
+        "cpu": {"model": "兆芯 KH50000", "qty": 2, "duality": True},
+        "memory": {"per_stick_gb": 64, "qty": 8, "total_gb": 512, "type": "DDR5", "speed": 4800},
+        "drives": [{"term": "2048G", "qty": 2, "kind": "SSD"}],
+        "gpu": [{"tokens": ["智铠100"], "qty": 4}],
+        "nic": {"Network(NIC) requirement": [{"filters": [{"spec_key": "Link Speed", "value": "25G"}], "name_contains": ["万兆"], "qty": 4}]},
+        "raid": [{"model": "LSI 9361-8i", "qty": 1}],
+        "psu": {"wattage": 3000, "qty": 2},
+    }
+    slots = requirement_slots_from_ext(ext)
+    assert slots["cpu"]["model"] == "兆芯 KH50000"
+    assert slots["memory"]["per_stick_gb"] == 64
+    assert slots["memory"].get("speed_mt") == 4800
+    assert slots["storage"][0]["capacity"] == "2048G"
+    assert slots["gpu"][0]["qty"] == 4
+    assert slots["nic"][0]["speed_g"] == 25
+    assert slots["raid"][0]["model"] == "LSI 9361-8i"
+    assert slots["psu"]["wattage"] == 3000
+

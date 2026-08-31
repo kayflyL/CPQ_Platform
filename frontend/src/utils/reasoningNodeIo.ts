@@ -51,7 +51,7 @@ export const NODE_IO: Record<string, NodeIo> = {
     in: [
       { name: 'baselines', from: 'model_reason', desc: '机型骨架' },
       { name: 'kp_by_model', from: 'kp_reason', desc: '配件清单' },
-      { name: 'ext.psu_signal', from: 'agent_fill', desc: '电源信号' },
+      { name: 'ext.psu', from: 'agent_fill', desc: '电源信号' },
     ],
     out: [
       { name: 'plans', desc: '按真实 BOM 模板组装后的 bom_scheme 配置数据' },

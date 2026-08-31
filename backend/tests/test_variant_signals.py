@@ -39,7 +39,7 @@ def test_raid_via_category_and_word():
 
 
 def test_gpu_qty_fallback_groups():
-    s = _sig("显卡 AMD R9700*8", categories=["GPU"], qty_map={}, gpu_groups=[{"qty": 8}])
+    s = _sig("显卡 AMD R9700*8", categories=["GPU"], qty_map={}, gpu=[{"qty": 8}])
     assert s["gpu_qty"] == 8
 
 
@@ -48,6 +48,6 @@ def test_has_config_quantities():
     assert s["has_config_quantities"] is True
 
 
-def test_has_cpu_signal():
+def test_has_cpu():
     s = _sig("8核 32G", categories=["CPU"])
     assert s["has_cpu"] is True

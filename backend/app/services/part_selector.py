@@ -2,8 +2,8 @@
 """part_selector —— 需求分析 skill 的唯一配件选型工具（AI 决策，工具落地）。
 
 AI-first 原则：
-- AI 决定“要什么/怎么配”：cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/
-  multi_spec_filters 是唯一真值源（llm_extract_enhance 产出，slot_contract 对齐）。
+- AI 决定“要什么/怎么配”：cpu/memory/drives/gpu/raid/
+  nic 是唯一真值源（llm_extract_enhance 产出，slot_contract 对齐）。
   AI 在调用 select_parts 前补全模糊项（内存拆条、硬盘接口、GPU 型号等）。
 - 工具只做“检索 + 落地”：料号/价格/规格全部来自 KP 库真实返回；未命中白盒 unmatched，
   绝不静默回退固定规则。
@@ -331,7 +331,7 @@ def retrieve_part_candidates(categories=None, server_type_name: str = "", series
 
     候选=库内真实件：id/model/desc(可读能力)/specs/price/applicable。series 只在候选池过滤，
     不参与型号/规格匹配。返回 {db_category: [candidate, ...]}；类目来自 categories 或
-    signals（cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/multi_spec_filters）。
+    signals（cpu/memory/drives/gpu/raid/nic）。
     """
     raw = KPRepository()
     try:
@@ -348,17 +348,17 @@ def retrieve_part_candidates(categories=None, server_type_name: str = "", series
             _add(c)
         sig = signals or {}
         _exists = lambda v: isinstance(v, (list, dict)) and len(v) > 0
-        if _exists(sig.get("cpu_signal")):
+        if _exists(sig.get("cpu")):
             _add("CPU")
-        if _exists(sig.get("mem_signal")):
+        if _exists(sig.get("memory")):
             _add("Memory")
-        if _exists(sig.get("drive_groups")):
+        if _exists(sig.get("drives")):
             _add("HDD/SSD")
-        if _exists(sig.get("gpu_groups")):
+        if _exists(sig.get("gpu")):
             _add("GPU")
-        if _exists(sig.get("raid_groups")):
+        if _exists(sig.get("raid")):
             _add("Raid card")
-        if _exists(sig.get("multi_spec_filters")):
+        if _exists(sig.get("nic")):
             _add("NIC")
         if not db_cats and server_type_name:
             from app.services.requirement_rule_catalog import type_packages
@@ -508,8 +508,8 @@ def _ground_generic(repo, db_cat, search, qty_map, search_map, pick):
 
 def select_parts(categories=None, server_type_name=None, search=None, qty_map=None, search_map=None,
                  representative_pick="min_price",
-                 cpu_signal=None, mem_signal=None, drive_groups=None,
-                 gpu_groups=None, raid_groups=None, psu_signal=None, multi_spec_filters=None,
+                 cpu=None, memory=None, drives=None,
+                 gpu=None, raid=None, psu=None, nic=None,
                  series: str = ""):
     """按结构化信号落地真实料号；AI 补全信号（怎么配），工具只检索落地。
 
@@ -531,17 +531,17 @@ def select_parts(categories=None, server_type_name=None, search=None, qty_map=No
         for c in (categories or []):
             _add_cat(c)
         # 信号字段是唯一真值源：categories 只是编排辅助，漏了某项也不能把该类配件丢掉。
-        if isinstance(cpu_signal, dict) and cpu_signal:
+        if isinstance(cpu, dict) and cpu:
             _add_cat("CPU")
-        if mem_signal:
+        if memory:
             _add_cat("Memory")
-        if drive_groups:
+        if drives:
             _add_cat("HDD/SSD")
-        if gpu_groups:
+        if gpu:
             _add_cat("GPU")
-        if raid_groups:
+        if raid:
             _add_cat("Raid card")
-        if multi_spec_filters:
+        if nic:
             _add_cat("NIC")
         if not db_cats and server_type_name:
             from app.services.requirement_rule_catalog import type_packages
@@ -557,17 +557,17 @@ def select_parts(categories=None, server_type_name=None, search=None, qty_map=No
         for db_cat in db_cats:
             low = db_cat.lower()
             if low == "cpu":
-                parts.extend(_ground_cpu(repo, db_cat, cpu_signal, pick))
+                parts.extend(_ground_cpu(repo, db_cat, cpu, pick))
             elif low == "memory":
-                parts.extend(_ground_memory(repo, db_cat, mem_signal, pick))
+                parts.extend(_ground_memory(repo, db_cat, memory, pick))
             elif low in ("hdd/ssd", "ssd", "storage hdd/ssd"):
-                parts.extend(_ground_drives(repo, db_cat, drive_groups, pick))
+                parts.extend(_ground_drives(repo, db_cat, drives, pick))
             elif low in ("gpu", "gpu card"):
-                parts.extend(_ground_gpu(repo, db_cat, gpu_groups, pick))
+                parts.extend(_ground_gpu(repo, db_cat, gpu, pick))
             elif "raid" in low or "hba" in low:
-                parts.extend(_ground_raid(repo, db_cat, raid_groups, pick))
+                parts.extend(_ground_raid(repo, db_cat, raid, pick))
             elif "nic" in low or "network" in low:
-                parts.extend(_ground_nic(repo, db_cat, multi_spec_filters, pick))
+                parts.extend(_ground_nic(repo, db_cat, nic, pick))
             else:
                 parts.extend(_ground_generic(repo, db_cat, search, qty_map, search_map, pick))
         return parts
@@ -577,11 +577,11 @@ def select_parts(categories=None, server_type_name=None, search=None, qty_map=No
 # ── 场景化配件推荐（要了配件但零信号时的缺口选项；全部目录事实）──────────────────
 
 _SCENARIO_SLOT_OF_DB_CAT = [
-    (("gpu",), "gpu_groups", "GPU 加速卡"),
-    (("cpu",), "cpu_signal", "CPU"),
-    (("memory", "mem"), "mem_signal", "内存"),
-    (("hdd/ssd", "ssd", "storage", "drive"), "drive_groups", "硬盘"),
-    (("raid", "hba"), "raid_groups", "阵列卡"),
+    (("gpu",), "gpu", "GPU 加速卡"),
+    (("cpu",), "cpu", "CPU"),
+    (("memory", "mem"), "memory", "内存"),
+    (("hdd/ssd", "ssd", "storage", "drive"), "drives", "硬盘"),
+    (("raid", "hba"), "raid", "阵列卡"),
 ]
 
 def _scenario_slot_for(db_cat: str) -> tuple[str, str]:
@@ -654,7 +654,7 @@ def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
             def specs_of(r):
                 return r.get("specs") or {}
 
-            if slot == "gpu_groups":
+            if slot == "gpu":
                 def gcap(r):
                     return _gb_of(specs_of(r).get("Capacity"))
                 ranked = sorted((r for r in rows if gcap(r)), key=lambda r: -gcap(r))
@@ -680,7 +680,7 @@ def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
                                     "desc": note, "slot": slot, "group": label,
                                     "qty": int(q), "qty_max": slots_n or 8, "unit_gb": int(gcap(top)),
                                     "signal": {"gpu": [{"model": str(top.get("model") or ""), "qty": int(q)}]}})
-            elif slot == "cpu_signal":
+            elif slot == "cpu":
                 def cores(r):
                     return _num_of(specs_of(r).get("Cores"))
                 ranked = sorted((r for r in rows if cores(r)), key=lambda r: -cores(r)) \
@@ -704,7 +704,7 @@ def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
                     out.append({"label": f"{q}× {best.get('model')}", "value": f"{q}×{best.get('model')}",
                                 "desc": note, "slot": slot, "group": label,
                                 "signal": {"cpu": {"model": str(best.get("model") or ""), "qty": int(q)}}})
-            elif slot == "mem_signal":
+            elif slot == "memory":
                 def mcap(r):
                     return _gb_of(specs_of(r).get("Capacity"))
                 caps = sorted({int(c) for c in (mcap(r) for r in rows) if c}, reverse=True)[:2]
@@ -722,7 +722,7 @@ def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
                                 "desc": note, "slot": slot, "group": label,
                                 "qty": int(n), "qty_max": dimm or 8, "unit_gb": int(c),
                                 "signal": {"memory": {"per_stick_gb": int(c), "qty": int(n)}}})
-            elif slot == "drive_groups":
+            elif slot == "drives":
                 def dcap(r):
                     return _gb_of(specs_of(r).get("Capacity"))
                 is_ssd = [r for r in rows if "SSD" in (
@@ -746,7 +746,7 @@ def scenario_parts_gap_data(server_type_name: str, baseline=None, ext=None,
                                 "slot": slot, "group": label,
                                 "qty": 1, "qty_max": 16, "unit_gb": int(c),
                                 "signal": {"drives": [sig_item]}})
-            elif slot == "raid_groups":
+            elif slot == "raid":
                 if not rows:
                     continue
                 card = min(rows, key=lambda r: float(r.get("price") or 0))
@@ -782,7 +782,7 @@ def manual_pick_options(slot: str, server_type_name: str, baseline=None,
     baseline = baseline or {}
     series = str(baseline.get("series") or "").strip()
     meta = next(((keys, s, label) for keys, s, label in _SCENARIO_SLOT_OF_DB_CAT if s == slot), None)
-    if not meta or slot == "raid_groups":
+    if not meta or slot == "raid":
         return []
     keys, _, label = meta
     repo = KPRepository()
@@ -813,7 +813,7 @@ def manual_pick_options(slot: str, server_type_name: str, baseline=None,
         out: list[dict] = []
         for dbc in db_cats:
             rows = srepo.get_by_category_with_specs(dbc)
-            if slot == "gpu_groups":
+            if slot == "gpu":
                 slots_n = int(baseline.get("gpu_slots") or 0)
                 tiers = sorted({q for q in (slots_n, slots_n // 2, 1) if q >= 1})[-2:] if slots_n else [1]
                 ranked = sorted(rows, key=lambda r: -(_gb_of(specs_of(r).get("Capacity")) or 0))
@@ -830,7 +830,7 @@ def manual_pick_options(slot: str, server_type_name: str, baseline=None,
                         out.append({"label": f"{q}× {m}", "value": f"{q}×{m}",
                                     "desc": note, "slot": slot, "group": label,
                                     "signal": {"gpu": [{"model": m, "qty": int(q)}]}})
-            elif slot == "cpu_signal":
+            elif slot == "cpu":
                 q = int(baseline.get("max_cpu") or 1)
                 ranked = sorted(rows, key=lambda r: -(_num_of(specs_of(r).get("Cores")) or 0))
                 seen = set()
@@ -845,7 +845,7 @@ def manual_pick_options(slot: str, server_type_name: str, baseline=None,
                     out.append({"label": f"{q}× {m}", "value": f"{q}×{m}",
                                 "desc": note, "slot": slot, "group": label,
                                 "signal": {"cpu": {"model": m, "qty": int(q)}}})
-            elif slot == "mem_signal":
+            elif slot == "memory":
                 dimm = int(baseline.get("max_dimm") or 0) or 8
                 by_cap: dict[int, dict] = {}
                 for r in rows:
@@ -864,7 +864,7 @@ def manual_pick_options(slot: str, server_type_name: str, baseline=None,
                     out.append({"label": f"{dimm}× {c}G（共 {dimm * c}G）", "value": f"{dimm}×{c}G",
                                 "desc": note, "slot": slot, "group": label,
                                 "signal": {"memory": {"per_stick_gb": int(c), "qty": int(dimm)}}})
-            elif slot == "drive_groups":
+            elif slot == "drives":
                 by_cap: dict[tuple, dict] = {}
                 for r in rows:
                     c = _gb_of(specs_of(r).get("Capacity"))
@@ -898,7 +898,7 @@ def manual_signal_for_text(slot: str, text: str, server_type_name: str,
     """
     text = str(text or "").strip()
     meta = next(((keys, s, label) for keys, s, label in _SCENARIO_SLOT_OF_DB_CAT if s == slot), None)
-    if not meta or not text or slot not in ("gpu_groups", "cpu_signal", "mem_signal", "drive_groups"):
+    if not meta or not text or slot not in ("gpu", "cpu", "memory", "drives"):
         return None
     keys, _, _label = meta
     baseline = baseline or {}
@@ -921,14 +921,14 @@ def manual_signal_for_text(slot: str, text: str, server_type_name: str,
                 if not (nt and (nt in nm or nm in nt)):
                     continue
                 specs = r.get("specs") or {}
-                if slot == "gpu_groups":
+                if slot == "gpu":
                     return {"gpu": [{"model": m, "qty": int(baseline.get("gpu_slots") or 0) or 1}]}
-                if slot == "cpu_signal":
+                if slot == "cpu":
                     return {"cpu": {"model": m, "qty": int(baseline.get("max_cpu") or 0) or 1}}
                 cap = _gb_of(specs.get("Capacity"))
                 if not cap:
                     continue
-                if slot == "mem_signal":
+                if slot == "memory":
                     return {"memory": {"per_stick_gb": int(cap),
                                        "qty": int(baseline.get("max_dimm") or 0) or 8}}
                 media = _drive_media_label({"specs": specs, "model": m})

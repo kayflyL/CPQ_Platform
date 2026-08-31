@@ -82,7 +82,7 @@ const systemPromptLabel = computed(() => (
   ['agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value) ? '节点任务说明' : 'System Prompt'
 ))
 const PSU_SOURCE_OPTIONS = [
-  { value: 'ext.psu_signal.wattage', label: '需求电源信号 · 瓦数' },
+  { value: 'ext.psu.wattage', label: '需求电源信号 · 瓦数' },
   { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
   { value: 'auto', label: '自动推断（build_plan）' },
 ]
@@ -137,8 +137,8 @@ watch(() => props.open, async (v) => {
       : [...(CAPABILITY_DEFAULT_TOOLS[runtimeType.value] || NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
     cp_kp_source: c.kp_source ?? 'per_baseline',
     cp_psu_override_enabled: c.psu_override_enabled ?? true,
-    cp_psu_wattage_source: c.psu_wattage_source ?? 'ext.psu_signal.wattage',
-    cp_psu_qty_source: c.psu_qty_source ?? 'ext.psu_signal.qty',
+    cp_psu_wattage_source: c.psu_wattage_source ?? 'ext.psu.wattage',
+    cp_psu_qty_source: c.psu_qty_source ?? 'ext.psu.qty',
     system_prompt: c.system_prompt ?? '',
     rule_types: Array.isArray(c.rule_types)
       ? [...c.rule_types]
@@ -172,8 +172,8 @@ function buildConfig(): Record<string, any> | null {
   if (runtimeType.value === 'compose') {
     config.kp_source = form.value.cp_kp_source || 'per_baseline'
     config.psu_override_enabled = form.value.cp_psu_override_enabled !== false
-    config.psu_wattage_source = form.value.cp_psu_wattage_source || 'ext.psu_signal.wattage'
-    config.psu_qty_source = form.value.cp_psu_qty_source || 'ext.psu_signal.qty'
+    config.psu_wattage_source = form.value.cp_psu_wattage_source || 'ext.psu.wattage'
+    config.psu_qty_source = form.value.cp_psu_qty_source || 'ext.psu.qty'
   }
   if (showRuleCatalog.value) {
     config.rule_types = Array.isArray(form.value.rule_types) ? [...form.value.rule_types] : []

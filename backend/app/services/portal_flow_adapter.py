@@ -103,14 +103,14 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
     if form:
         slots["chassis_form"] = str(form).upper()
 
-    cpu_signal = ext.get("cpu_signal") if isinstance(ext.get("cpu_signal"), dict) else {}
-    if cpu_signal:
+    cpu_src = ext.get("cpu") if isinstance(ext.get("cpu"), dict) else {}
+    if cpu_src:
         cpu: dict[str, Any] = {}
         for key in ("model", "brand", "cores", "tdp_w"):
-            if cpu_signal.get(key) is not None:
-                cpu[key] = cpu_signal[key]
-        qty = cpu_signal.get("qty")
-        if qty is None and cpu_signal.get("duality"):
+            if cpu_src.get(key) is not None:
+                cpu[key] = cpu_src[key]
+        qty = cpu_src.get("qty")
+        if qty is None and cpu_src.get("duality"):
             qty = 2
         if qty is not None:
             cpu["qty"] = _as_int(qty, 0) or None
@@ -118,22 +118,25 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         if cpu:
             slots["cpu"] = cpu
 
-    mem_signal = ext.get("mem_signal") if isinstance(ext.get("mem_signal"), dict) else {}
-    if mem_signal:
+    mem_src = ext.get("memory") if isinstance(ext.get("memory"), dict) else {}
+    if mem_src:
         memory: dict[str, Any] = {}
-        if mem_signal.get("per_stick_gb") is not None:
-            memory["per_stick_gb"] = mem_signal["per_stick_gb"]
-        if mem_signal.get("type"):
-            memory["type"] = mem_signal["type"]
-        if mem_signal.get("speed_mt") is not None:
-            memory["speed_mt"] = mem_signal["speed_mt"]
-        if mem_signal.get("brand"):
-            memory["brand"] = mem_signal["brand"]
-        per_stick = mem_signal.get("per_stick_gb")
-        mem_qty = mem_signal.get("qty")
-        if mem_qty is None and per_stick and mem_signal.get("total_gb"):
+        if mem_src.get("per_stick_gb") is not None:
+            memory["per_stick_gb"] = mem_src["per_stick_gb"]
+        if mem_src.get("type"):
+            memory["type"] = mem_src["type"]
+        speed_val = mem_src.get("speed_mt")
+        if speed_val is None:
+            speed_val = mem_src.get("speed")
+        if speed_val is not None:
+            memory["speed_mt"] = speed_val
+        if mem_src.get("brand"):
+            memory["brand"] = mem_src["brand"]
+        per_stick = mem_src.get("per_stick_gb")
+        mem_qty = mem_src.get("qty")
+        if mem_qty is None and per_stick and mem_src.get("total_gb"):
             try:
-                total = int(mem_signal["total_gb"])
+                total = int(mem_src["total_gb"])
                 per = int(per_stick)
                 if per > 0 and total % per == 0:
                     mem_qty = total // per
@@ -146,7 +149,7 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
             slots["memory"] = memory
 
     drives = []
-    for group in ext.get("drive_groups") or []:
+    for group in ext.get("drives") or []:
         if not isinstance(group, dict):
             continue
         term = group.get("term") or ""
@@ -160,7 +163,7 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         slots["storage"] = drives
 
     gpus = []
-    for group in ext.get("gpu_groups") or []:
+    for group in ext.get("gpu") or []:
         if not isinstance(group, dict):
             continue
         tokens = group.get("tokens") or []
@@ -173,7 +176,7 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
         slots["gpu"] = gpus
 
     nic_rows = []
-    msf = ext.get("multi_spec_filters") if isinstance(ext.get("multi_spec_filters"), dict) else {}
+    msf = ext.get("nic") if isinstance(ext.get("nic"), dict) else {}
     for line in msf.get("Network(NIC) requirement") or []:
         if not isinstance(line, dict):
             continue
@@ -207,15 +210,15 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
     if nic_rows:
         slots["nic"] = nic_rows
 
-    psu_signal = ext.get("psu_signal") if isinstance(ext.get("psu_signal"), dict) else {}
-    if psu_signal:
-        psu = {k: v for k, v in psu_signal.items() if v not in (None, "")}
+    psu = ext.get("psu") if isinstance(ext.get("psu"), dict) else {}
+    if psu:
+        psu = {k: v for k, v in psu.items() if v not in (None, "")}
         if psu:
             slots["psu"] = psu
 
-    raid_groups = ext.get("raid_groups") if isinstance(ext.get("raid_groups"), list) else []
+    raid = ext.get("raid") if isinstance(ext.get("raid"), list) else []
     raid_rows = []
-    for group in raid_groups:
+    for group in raid:
         if not isinstance(group, dict):
             continue
         row = {k: v for k, v in group.items() if v not in (None, "")}

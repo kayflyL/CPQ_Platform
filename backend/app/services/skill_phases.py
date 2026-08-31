@@ -52,13 +52,13 @@ def kp_args_from_ext(ext: dict, server_type_name: str = "") -> dict:
     args: dict[str, Any] = {}
     if server_type_name:
         args["server_type_name"] = server_type_name
-    for key in ("cpu_signal", "mem_signal", "drive_groups", "gpu_groups", "raid_groups", "psu_signal"):
+    for key in ("cpu", "memory", "drives", "gpu", "raid", "psu"):
         val = ext.get(key)
         if isinstance(val, (list, dict)) and val:
             args[key] = val
-    nic = ext.get("multi_spec_filters")
+    nic = ext.get("nic")
     if isinstance(nic, dict) and nic:
-        args["multi_spec_filters"] = nic
+        args["nic"] = nic
     return args
 
 
@@ -174,9 +174,9 @@ async def phase_normalize_slots(ctx: dict, cfg: dict, broadcast: BroadcastFn) ->
     except Exception as _e:
         logger.warning("_freeze_requirement 失败: %s", _e, exc_info=True)
 _PART_SIGNAL_SLOT = {
-    "CPU": "cpu_signal", "Memory": "mem_signal", "HDD/SSD": "drive_groups",
-    "GPU": "gpu_groups", "NIC": "multi_spec_filters", "Raid card": "raid_groups",
-    "Power": "psu_signal",
+    "CPU": "cpu", "Memory": "memory", "HDD/SSD": "drives",
+    "GPU": "gpu", "NIC": "nic", "Raid card": "raid",
+    "Power": "psu",
 }
 
 
@@ -279,7 +279,7 @@ def _model_cpu_hint(candidate: dict) -> str:
 def _has_hw_signal(ctx: dict) -> bool:
     """需求是否含硬件选件信号（CPU/内存/盘/GPU/RAID/电源/网卡），用于决定是否强制 AI 语义选型。"""
     ext = dict(ctx.get("ext") or {})
-    for k in ("cpu_signal", "mem_signal", "drive_groups", "gpu_groups", "raid_groups", "psu_signal", "multi_spec_filters"):
+    for k in ("cpu", "memory", "drives", "gpu", "raid", "psu", "nic"):
         v = ext.get(k)
         if isinstance(v, (list, dict)) and len(v):
             return True
@@ -305,7 +305,7 @@ async def _llm_pick_model(ctx: dict, candidates: list[dict], include_price: bool
                                      "\n\n线索登记表：\n" + _json.dumps(
                                          {k: (ctx.get("ext") or {}).get(k) for k in
                                           ("server_type_name", "series", "form", "purchase_qty",
-                                           "cpu_signal", "mem_signal", "drive_groups", "gpu_groups", "raid_groups")},
+                                           "cpu", "memory", "drives", "gpu", "raid")},
                                          ensure_ascii=False, default=str) +
                                      "\n\n候选整机：\n" + _json.dumps(short, ensure_ascii=False))},
     ]
@@ -560,8 +560,8 @@ async def _llm_pick_kp(ctx: dict, baseline: dict, gap_rows: dict[str, list[dict]
     }
     ext = dict(ctx.get("ext") or {})
     ext_facts = {k: v for k, v in ext.items() if k in (
-        "server_type_name", "series", "form", "purchase_qty", "cpu_signal", "mem_signal",
-        "drive_groups", "gpu_groups", "raid_groups", "psu_signal", "multi_spec_filters", "kp_mode")}
+        "server_type_name", "series", "form", "purchase_qty", "cpu", "memory",
+        "drives", "gpu", "raid", "psu", "nic", "kp_mode")}
     messages = [
         {"role": "system", "content": ("你是配件选型助手。只能输出 JSON：" +
             '{"selections":[{"gap_id":"品类#序号","category":"品类","selected_id":"候选中的id或空","qty":1,"reason":"简短理由"}]}。' +

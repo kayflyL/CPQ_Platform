@@ -41,8 +41,8 @@
       "output_artifact": "plans",
       "kp_source": "per_baseline",
       "psu_override_enabled": true,
-      "psu_wattage_source": "ext.psu_signal.wattage",
-      "psu_qty_source": "ext.psu_signal.qty",
+      "psu_wattage_source": "ext.psu.wattage",
+      "psu_qty_source": "ext.psu.qty",
       "deterministic": true
     },
     "output": {

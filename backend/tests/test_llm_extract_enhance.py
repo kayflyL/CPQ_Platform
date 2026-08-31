@@ -176,12 +176,12 @@ def test_merge_r6_like_confirms_and_enriches():
     ext = {
         "categories": ["CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement"],
         "keywords": ["9254", "32G", "960G", "4500"],
-        "cpu_signal": {"duality": True},
-        "mem_signal": {"type": "DDR5", "speed": 4800, "total_gb": 64},
+        "cpu": {"duality": True},
+        "memory": {"type": "DDR5", "speed": 4800, "total_gb": 64},
         "mem_groups": [{"term": "32G", "qty": 2}],
-        "drive_groups": [{"term": "960G", "qty": 1, "kind": "NVMe"}],
-        "gpu_groups": [{"tokens": ["4500"], "qty": 1}],
-        "psu_signal": {"wattage": 1300, "qty": 2},
+        "drives": [{"term": "960G", "qty": 1, "kind": "NVMe"}],
+        "gpu": [{"tokens": ["4500"], "qty": 1}],
+        "psu": {"wattage": 1300, "qty": 2},
     }
     cleaned = {
         "cpu": {"model": "AMD EPYC 9254", "cores": 24, "tdp_w": 200, "qty": 2},
@@ -194,19 +194,19 @@ def test_merge_r6_like_confirms_and_enriches():
     changes = merge_into_ext(ext, cleaned, requirement_text="2* AMD EPYC 9254\n1* 960G NMVE")
     joined = " ".join(changes)
     # CPU：补 cores/tdp/model（duality 规则已有不覆盖）
-    assert ext["cpu_signal"]["cores"] == 24
-    assert ext["cpu_signal"]["tdp_w"] == 200
-    assert ext["cpu_signal"]["model"] == "AMD EPYC 9254"
-    assert ext["cpu_signal"]["duality"] is True
+    assert ext["cpu"]["cores"] == 24
+    assert ext["cpu"]["tdp_w"] == 200
+    assert ext["cpu"]["model"] == "AMD EPYC 9254"
+    assert ext["cpu"]["duality"] is True
     # 内存：规则已抽到 → 不覆盖、不重复成组
-    assert ext["mem_signal"]["total_gb"] == 64
+    assert ext["memory"]["total_gb"] == 64
     assert len(ext["mem_groups"]) == 1
     # 盘：已有同 term+kind → 不重复
-    assert len(ext["drive_groups"]) == 1
+    assert len(ext["drives"]) == 1
     # GPU：token 4500 已有 → 前置完整型号（更精确匹配）
-    assert ext["gpu_groups"][0]["tokens"] == ["NVIDIA RTX PRO 4500", "4500"]
+    assert ext["gpu"][0]["tokens"] == ["NVIDIA RTX PRO 4500", "4500"]
     # 电源：规则已有 → 不动
-    assert ext["psu_signal"] == {"wattage": 1300, "qty": 2}
+    assert ext["psu"] == {"wattage": 1300, "qty": 2}
     # 形态：规则没有 → 补
     assert ext["form"] == "2U"
     assert "cpu.cores=24" in joined
@@ -228,20 +228,20 @@ def test_merge_r7_capability_never_becomes_config():
         ext, cleaned,
         requirement_text="2个AMD EPYC 9004/9005系列处理器\n支持12个3.5英寸硬盘\n支持8个GPU卡\n2700W电源")
     # 盘：能力声明 → 不产盘组、不补 HDD/SSD 品类
-    assert not ext.get("drive_groups")
+    assert not ext.get("drives")
     assert "HDD/SSD" not in ext["categories"]
     # GPU：无具体型号 → 不产 GPU 组
-    assert not ext.get("gpu_groups")
+    assert not ext.get("gpu")
     assert "GPU" not in ext["categories"]
     # 内存：无单条容量 → 不产内存组；但 type/speed 补进信号
     assert not ext.get("mem_groups")
-    assert ext["mem_signal"]["type"] == "DDR5"
-    assert ext["mem_signal"]["speed"] == 6400
-    # CPU：qty=2 → duality + cpu_signal.qty=2（唯一真值源，不再双写 qty_map）
-    assert ext["cpu_signal"]["duality"] is True
-    assert ext["cpu_signal"]["qty"] == 2
+    assert ext["memory"]["type"] == "DDR5"
+    assert ext["memory"]["speed"] == 6400
+    # CPU：qty=2 → duality + cpu.qty=2（唯一真值源，不再双写 qty_map）
+    assert ext["cpu"]["duality"] is True
+    assert ext["cpu"]["qty"] == 2
     # 电源：规则没有 → 补 2700W
-    assert ext["psu_signal"]["wattage"] == 2700
+    assert ext["psu"]["wattage"] == 2700
     # 形态：补 4U
     assert ext["form"] == "4U"
     # 系列：非平台系列 → 拒绝
@@ -259,46 +259,46 @@ def test_merge_fills_sparse_requirement():
         "raid": {"model": "LSI 9560-8i", "qty": 1},
     }
     merge_into_ext(ext, cleaned, requirement_text="配 2 块 800G 傲腾 NVMe 缓存盘")
-    assert ext["drive_groups"] == [{"term": "800G", "qty": 2, "kind": "NVMe"}]
+    assert ext["drives"] == [{"term": "800G", "qty": 2, "kind": "NVMe"}]
     assert "HDD/SSD" in ext["categories"]
     assert "CPU" in ext["categories"]
     # 网卡：规则没抽到 → 补行
-    nic_lines = ext["multi_spec_filters"]["Network(NIC) requirement"]
+    nic_lines = ext["nic"]["Network(NIC) requirement"]
     assert nic_lines[0]["filters"] == [
         {"spec_key": "Link Speed", "op": "=", "value": "25G"},
         {"spec_key": "Ports", "op": "=", "value": "2"},
     ]
     assert nic_lines[0]["qty"] == 2
     assert "光模块" in nic_lines[0]["name_contains"]
-    # RAID：单真值源 raid_groups（不再写旧 raid_signal，也不再向 keywords 双写型号 token）
+    # RAID：单真值源 raid（不再写旧 raid_signal，也不再向 keywords 双写型号 token）
     assert "9560-8i" not in ext.get("keywords", [])
-    assert ext["raid_groups"] == [{"model": "LSI 9560-8i", "qty": 1, "cache": None}]
+    assert ext["raid"] == [{"model": "LSI 9560-8i", "qty": 1, "cache": None}]
     assert "Raid card" in ext["categories"]
 
 
 def test_merge_rule_wins_on_psu_and_mem():
-    ext = {"psu_signal": {"wattage": 2000}, "mem_signal": {"speed": 4800}}
+    ext = {"psu": {"wattage": 2000}, "memory": {"speed": 4800}}
     cleaned = {"psu": {"wattage": 1300, "qty": 2}, "memory": {"speed_mt": 6400}}
     merge_into_ext(ext, cleaned, requirement_text="1300W 电源")
     # 规则已有 wattage → LLM 不能覆盖；只补缺 qty
-    assert ext["psu_signal"]["wattage"] == 2000
-    assert ext["psu_signal"]["qty"] == 2
+    assert ext["psu"]["wattage"] == 2000
+    assert ext["psu"]["qty"] == 2
     # 内存 speed 已有 → 不覆盖
-    assert ext["mem_signal"]["speed"] == 4800
+    assert ext["memory"]["speed"] == 4800
 
 
 def test_merge_psu_qty_only_is_preserved():
-    """只有电源数量、没瓦数：也要落 psu_signal.qty，避免下游 compose 静默退回负载推断。"""
+    """只有电源数量、没瓦数：也要落 psu.qty，避免下游 compose 静默退回负载推断。"""
     ext: dict = {}
     merge_into_ext(ext, {"psu": {"qty": 2}}, requirement_text="配 2 个电源")
-    assert ext["psu_signal"] == {"qty": 2}
+    assert ext["psu"] == {"qty": 2}
 
 
 def test_merge_nic_qty_only_is_dropped():
-    """网卡只有数量、无速度/端口/型号：是无意义行，不产 multi_spec_filters 行。"""
+    """网卡只有数量、无速度/端口/型号：是无意义行，不产 nic 行。"""
     ext: dict = {}
     merge_into_ext(ext, {"nic": [{"qty": 2}]}, requirement_text="配 2 个网卡")
-    msf = ext.get("multi_spec_filters") or {}
+    msf = ext.get("nic") or {}
     assert not msf.get("Network(NIC) requirement")
     assert "Network(NIC) requirement" not in ext.get("categories", [])
 
@@ -329,23 +329,23 @@ def test_merge_agent_primary_fills_all_essential_keys():
     cats = ext["categories"]
     for c in ("CPU", "Memory", "HDD/SSD", "GPU", "Network(NIC) requirement", "Raid card"):
         assert c in cats, f"缺品类 {c}"
-    # CPU 型号唯一真值源 cpu_signal；不再注入 keywords（pick 阶段自行推导检索）
-    assert ext["cpu_signal"]["model"] == "AMD EPYC 9124"
+    # CPU 型号唯一真值源 cpu；不再注入 keywords（pick 阶段自行推导检索）
+    assert ext["cpu"]["model"] == "AMD EPYC 9124"
     assert "9124" not in ext.get("keywords", [])
-    # 内存：单真值源 mem_signal；数量与单条容量都在信号内，不再写 mem_groups
-    assert ext["mem_signal"]["type"] == "DDR5"
-    assert ext["mem_signal"]["per_stick_gb"] == 32
-    assert ext["mem_signal"]["qty"] == 16
+    # 内存：单真值源 memory；数量与单条容量都在信号内，不再写 mem_groups
+    assert ext["memory"]["type"] == "DDR5"
+    assert ext["memory"]["per_stick_gb"] == 32
+    assert ext["memory"]["qty"] == 16
     # 盘组（两种盘）
-    assert sorted(g["term"] for g in ext["drive_groups"]) == ["3.84T", "480G"]
+    assert sorted(g["term"] for g in ext["drives"]) == ["3.84T", "480G"]
     # GPU 组
-    assert ext["gpu_groups"][0]["qty"] == 8
+    assert ext["gpu"][0]["qty"] == 8
     # 网卡多规格行
-    assert ext["multi_spec_filters"]["Network(NIC) requirement"][0]["qty"] == 2
+    assert ext["nic"]["Network(NIC) requirement"][0]["qty"] == 2
     # 电源
-    assert ext["psu_signal"]["wattage"] == 2700
-    # RAID 组（P1.2 补丁：形状 {model,qty,cache}，对齐 _extract_raid_groups；只保留单真值源 raid_groups）
-    assert ext["raid_groups"] == [{"model": "LSI 9560-16i", "qty": 1, "cache": None}]
+    assert ext["psu"]["wattage"] == 2700
+    # RAID 组（P1.2 补丁：形状 {model,qty,cache}，对齐 _extract_raid；只保留单真值源 raid）
+    assert ext["raid"] == [{"model": "LSI 9560-16i", "qty": 1, "cache": None}]
     # 形态 + 服务器类型（P1.2：catalog 锚定）
     assert ext["form"] == "4U"
     assert ext["server_type_name"] == "AI / 加速计算服务器"
@@ -369,23 +369,23 @@ def test_merge_server_type_catalog_anchored():
 
 
 def test_merge_cpu_model_token_enters_keywords_dedup():
-    """P1.2：CPU 型号唯一真值源 cpu_signal.model（不再注入 keywords）；重复同型号去重。"""
+    """P1.2：CPU 型号唯一真值源 cpu.model（不再注入 keywords）；重复同型号去重。"""
     ext: dict = {}
     merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
-    assert ext["cpu_signal"]["model"] == "KH50000"
+    assert ext["cpu"]["model"] == "KH50000"
     assert "KH50000" not in ext.get("keywords", [])
     merge_into_ext(ext, {"cpu": {"model": "KH50000", "qty": 2}}, requirement_text="KH50000")
-    assert ext["cpu_signal"]["model"] == "KH50000"
+    assert ext["cpu"]["model"] == "KH50000"
     assert "KH50000" not in ext.get("keywords", [])
 
 
-def test_merge_raid_groups_shape_matches_extract():
-    """P1.2：raid_groups 形状对齐 _extract_raid_groups（{model,qty,cache}），_pick_raid_groups 可消费；同型号去重。"""
+def test_merge_raid_shape_matches_extract():
+    """P1.2：raid 形状对齐 _extract_raid（{model,qty,cache}），_pick_raid 可消费；同型号去重。"""
     ext: dict = {}
     merge_into_ext(ext, {"raid": {"model": "9560-8i", "qty": 1}}, requirement_text="RAID卡 9560-8i")
-    assert ext["raid_groups"] == [{"model": "9560-8i", "qty": 1, "cache": None}]
+    assert ext["raid"] == [{"model": "9560-8i", "qty": 1, "cache": None}]
     merge_into_ext(ext, {"raid": {"model": "9560-8i", "qty": 1}}, requirement_text="RAID卡 9560-8i")
-    assert len(ext["raid_groups"]) == 1
+    assert len(ext["raid"]) == 1
 
 def test_merge_drive_capacity_gb_ai_first():
     """AI-first（2026-08 修）：LLM 把"1T以上的硬盘"归一成 capacity_gb=1024 →
@@ -397,7 +397,7 @@ def test_merge_drive_capacity_gb_ai_first():
         {"drives": [{"capacity": "1T以上", "capacity_gb": 1024, "qty": 1}]},
         requirement_text="配1T以上的硬盘",
     )
-    assert ext["drive_groups"] == [{"term": "1024G", "qty": 1, "kind": None}]
+    assert ext["drives"] == [{"term": "1024G", "qty": 1, "kind": None}]
     assert "HDD/SSD" in ext["categories"]
 
     # 缺 capacity_gb（AI 没归一）→ 比较短语不猜，保持跳过（不产错误盘）
@@ -407,20 +407,20 @@ def test_merge_drive_capacity_gb_ai_first():
         {"drives": [{"capacity": "1T以上", "qty": 1}]},
         requirement_text="配1T以上的硬盘",
     )
-    assert not ext2.get("drive_groups")
+    assert not ext2.get("drives")
     assert "HDD/SSD" not in ext2.get("categories", [])
 
 
 def test_merge_drive_comparison_gte_carried():
-    """AI comparison（gte/lte）从 LLM 契约透传到 drive_groups（2026-08 可配置化）。"""
+    """AI comparison（gte/lte）从 LLM 契约透传到 drives（2026-08 可配置化）。"""
     ext: dict = {}
     merge_into_ext(
         ext,
         {"drives": [{"capacity": "1T以上", "capacity_gb": 1024, "comparison": "gte", "qty": 1}]},
         requirement_text="配1T以上的硬盘",
     )
-    assert ext["drive_groups"][0]["term"] == "1024G"
-    assert ext["drive_groups"][0]["comparison"] == "gte"
+    assert ext["drives"][0]["term"] == "1024G"
+    assert ext["drives"][0]["comparison"] == "gte"
     # 无比较 → 不写 comparison 键
     ext2: dict = {}
     merge_into_ext(
@@ -428,7 +428,7 @@ def test_merge_drive_comparison_gte_carried():
         {"drives": [{"capacity": "960G", "capacity_gb": 960, "qty": 1}]},
         requirement_text="配960G硬盘",
     )
-    assert "comparison" not in ext2["drive_groups"][0]
+    assert "comparison" not in ext2["drives"][0]
 
 
 def test_merge_gpu_vram_only_comparison():
@@ -439,7 +439,7 @@ def test_merge_gpu_vram_only_comparison():
         {"gpu": [{"capacity_gb": 48, "comparison": "gte", "qty": 2}]},
         requirement_text="配2张48G以上显存的显卡",
     )
-    g = ext["gpu_groups"]
+    g = ext["gpu"]
     assert len(g) == 1
     assert g[0]["tokens"] == [] and g[0]["cap"] == 48
     assert g[0]["comparison"] == "gte" and g[0]["qty"] == 2

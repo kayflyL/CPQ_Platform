@@ -13,9 +13,9 @@ _TOOL_SPECS = {
         "parameters": {
             "type": "object",
             "properties": {
-                "fill": {"type": "object", "description": ("要登记的字段（键名：server_type_name/series/form/purchase_qty/cpu_signal/mem_signal/drive_groups/gpu_groups/raid_groups/kp_mode）。"
-                                                           "配件信号槽必须给结构化对象/数组（如 gpu_groups=[{\"tokens\":[\"智铠100\"],\"qty\":4}]、"
-                                                           "mem_signal={\"total_gb\":256}、drive_groups=[{\"term\":\"2048G\",\"qty\":2,\"kind\":\"SSD\"}]），禁止一句话文本")},
+                "fill": {"type": "object", "description": ("要登记的字段（键名：server_type_name/series/form/purchase_qty/cpu/memory/drives/gpu/raid/kp_mode）。"
+                                                           "配件信号槽必须给结构化对象/数组（如 gpu=[{\"tokens\":[\"智铠100\"],\"qty\":4}]、"
+                                                           "memory={\"total_gb\":256}、drives=[{\"term\":\"2048G\",\"qty\":2,\"kind\":\"SSD\"}]），禁止一句话文本")},
             },
             "required": ["fill"],
         },
@@ -66,21 +66,21 @@ _TOOL_SPECS = {
         "category": "selection",
         "data_sources": ["kp_price"],
         "default_enabled": True,
-        "description": ("按结构化信号从配件库落地真实料号。信号字段（cpu_signal/mem_signal/drive_groups/"
-                        "gpu_groups/raid_groups/multi_spec_filters）由 AI 依据客户需求原文补全，登记表只作缓存；"
+        "description": ("按结构化信号从配件库落地真实料号。信号字段（cpu/memory/drives/"
+                        "gpu/raid/nic）由 AI 依据客户需求原文补全，登记表只作缓存；"
                         "AI 负责把原文中每类配件转为信号，工具只检索落地，料号/价格/规格由工具返回，禁止编造。"),
         "parameters": {
             "type": "object",
             "properties": {
                 "categories": {"type": "array", "items": {"type": "string"}, "description": "要匹配的配件类目（可选；不给则按信号自动推导）"},
                 "server_type_name": {"type": "string", "description": "服务器类型全名（可选，用于推断标准类目）"},
-                "cpu_signal": {"type": "object", "description": "CPU 信号 {qty, model?, cores?, tdp_w?}"},
-                "mem_signal": {"type": "object", "description": "内存信号 {type?, speed?, total_gb?: '总容量，如 128G；优先填 total_gb，工具会按库存自动拆条', per_stick_gb?: '仅客户明确单条容量时填', qty?}"},
-                "drive_groups": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term:'容量+接口+介质，如 16T SATA HDD / 960G SATA SSD', qty, kind?:'可选接口/介质，如 SATA/NVMe/SAS/SSD/HDD', comparison?}]"},
-                "gpu_groups": {"type": "array", "items": {"type": "object"}, "description": "GPU 组 [{tokens: ['GPU 型号，如 RTX PRO 4500'], qty, cap?: '显存，如 32G'}]；tokens 必填，禁止只传 cap"},
-                "raid_groups": {"type": "array", "items": {"type": "object"}, "description": "阵列卡组 [{model?, raid_levels?, qty}]"},
-                "psu_signal": {"type": "object", "description": "电源信号 {wattage?, qty?}（电源由整机底盘推断，此处可省略）"},
-                "multi_spec_filters": {"type": "object", "description": "网卡等多规格过滤；key 固定用 \"Network(NIC) requirement\"，每项 {filters?, name_contains?: ['客户原文关键修饰词，如 10G/双口/光模块'], qty}"},
+                "cpu": {"type": "object", "description": "CPU 信号 {qty, model?, cores?, tdp_w?}"},
+                "memory": {"type": "object", "description": "内存信号 {type?, speed?, total_gb?: '总容量，如 128G；优先填 total_gb，工具会按库存自动拆条', per_stick_gb?: '仅客户明确单条容量时填', qty?}"},
+                "drives": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term:'容量+接口+介质，如 16T SATA HDD / 960G SATA SSD', qty, kind?:'可选接口/介质，如 SATA/NVMe/SAS/SSD/HDD', comparison?}]"},
+                "gpu": {"type": "array", "items": {"type": "object"}, "description": "GPU 组 [{tokens: ['GPU 型号，如 RTX PRO 4500'], qty, cap?: '显存，如 32G'}]；tokens 必填，禁止只传 cap"},
+                "raid": {"type": "array", "items": {"type": "object"}, "description": "阵列卡组 [{model?, raid_levels?, qty}]"},
+                "psu": {"type": "object", "description": "电源信号 {wattage?, qty?}（电源由整机底盘推断，此处可省略）"},
+                "nic": {"type": "object", "description": "网卡等多规格过滤；key 固定用 \"Network(NIC) requirement\"，每项 {filters?, name_contains?: ['客户原文关键修饰词，如 10G/双口/光模块'], qty}"},
                 "representative_pick": {"type": "string", "description": "min_price/max_price/first，默认 min_price"},
             },
         },

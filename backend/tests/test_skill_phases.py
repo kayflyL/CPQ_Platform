@@ -20,9 +20,9 @@ def test_model_signal_gate_requires_type_or_series_form():
 
 
 def test_kp_args_only_from_structured_signals():
-    ext = {"mem_signal": {"total_gb": 128}, "gpu_groups": [{"qty": 4}], "requirement_text": "随便"}
+    ext = {"memory": {"total_gb": 128}, "gpu": [{"qty": 4}], "requirement_text": "随便"}
     args = kp_args_from_ext(ext)
-    assert set(args) == {"mem_signal", "gpu_groups"}
+    assert set(args) == {"memory", "gpu"}
     assert kp_args_from_ext({}) == {}
 
 
@@ -51,7 +51,7 @@ def test_kp_gate_requires_signals_or_decision():
     assert kp_gate_gap({"ext": {}}) is not None  # 零信号+未决策 → 缺口
     assert kp_gate_gap({"ext": {"kp_mode": "只要整机底座（L6）"}}) is None
     assert kp_gate_gap({"kp_parts": [{"pn": "x"}]}) is None
-    assert kp_gate_gap({"ext": {"mem_signal": {"total_gb": 64}}}) is None
+    assert kp_gate_gap({"ext": {"memory": {"total_gb": 64}}}) is None
 
 
 def test_cpu_without_model_never_invents_representative():
@@ -135,17 +135,17 @@ def test_option_signal_direct_apply():
     apply_structured_slots(ext, {"memory": {"per_stick_gb": 32, "qty": 24}}, "AI训练")
     apply_structured_slots(ext, {"drives": [{"capacity_gb": 2048, "qty": 2, "media": "SSD"}]}, "AI训练")
     apply_structured_slots(ext, {"raid": [{"raid_levels": ["10"]}]}, "AI训练")
-    assert isinstance(ext["gpu_groups"], list) and ext["gpu_groups"][0]["qty"] == 4
-    assert "智铠" in str(ext["gpu_groups"][0].get("model") or ext["gpu_groups"][0].get("tokens"))
-    assert ext["cpu_signal"]["qty"] == 2 and "EPYC" in str(ext["cpu_signal"].get("model"))
-    assert ext["mem_signal"]["qty"] == 24 and ext["mem_signal"]["per_stick_gb"] == 32
-    dg = ext["drive_groups"]
+    assert isinstance(ext["gpu"], list) and ext["gpu"][0]["qty"] == 4
+    assert "智铠" in str(ext["gpu"][0].get("model") or ext["gpu"][0].get("tokens"))
+    assert ext["cpu"]["qty"] == 2 and "EPYC" in str(ext["cpu"].get("model"))
+    assert ext["memory"]["qty"] == 24 and ext["memory"]["per_stick_gb"] == 32
+    dg = ext["drives"]
     assert dg[0]["qty"] == 2 and dg[0].get("term") == "2048G" and dg[0].get("kind") == "SSD"
-    assert ext["raid_groups"][0].get("raid_levels") == ["10"]
+    assert ext["raid"][0].get("raid_levels") == ["10"]
     # 字符串形态的信号值不解析（语义归 LLM）：原样丢弃，不产生半结构
-    ext2 = {"gpu_groups": []}
+    ext2 = {"gpu": []}
     apply_structured_slots(ext2, {"gpu": "4张智铠100", "memory": "256G"}, "AI训练")
-    assert ext2["gpu_groups"] == [] and "mem_signal" not in ext2
+    assert ext2["gpu"] == [] and "memory" not in ext2
 
 
 def test_decimal_capacity_parsing():
@@ -219,13 +219,13 @@ def test_scenario_gap_options_carry_signal_slots():
             opt = next(o for o in opts if o["slot"] == slot)
             assert opt.get("value") and opt.get("group")
             assert isinstance(opt.get("signal"), dict) and opt["signal"]
-            if slot in ("gpu_groups", "mem_signal", "drive_groups"):
+            if slot in ("gpu", "memory", "drives"):
                 assert 1 <= opt["qty"] <= opt["qty_max"] and opt["unit_gb"] >= 1
             probe_keys_before = set(ext.keys())
             apply_structured_slots(ext, opt["signal"], "场景推荐")
             assert ext.get(slot), f"signal 载荷未落到 {slot}"
             assert set(ext.keys()) >= probe_keys_before  # 就地合并不清已填组
-        assert {"gpu_groups", "cpu_signal", "mem_signal", "drive_groups"} <= set(seen)
+        assert {"gpu", "cpu", "memory", "drives"} <= set(seen)
         # 跳过逃生项：signal 登记 scenario_skips，后续同组不再被问
         _, opts = scenario_parts_gap_data(
             "AI / 加速计算服务器", baseline=baseline, ext={}, include_price=True)
@@ -235,7 +235,7 @@ def test_scenario_gap_options_carry_signal_slots():
         assert probe["scenario_skips"] == skip["signal"]["scenario_skips"]
         _, opts2 = scenario_parts_gap_data(
             "AI / 加速计算服务器", baseline=baseline, ext=dict(probe), include_price=True)
-        assert not any(o["slot"] == "cpu_signal" for o in opts2), "被跳过的组不应再被问"
+        assert not any(o["slot"] == "cpu" for o in opts2), "被跳过的组不应再被问"
     finally:
         ps.KPRepository = orig
 
@@ -310,7 +310,7 @@ def test_kp_llm_pick_kp_respects_chat_json_contract(monkeypatch):
         return {"selections": [{"category": "HDD/SSD", "selected_id": "4", "qty": 4, "reason": "最接近"}]}
 
     monkeypatch.setattr("app.services.llm_client.chat_json", fake_chat)
-    ctx = {"requirement_text": "配1块1.92T SATA硬盘", "ext": {"drive_groups": [{"qty": 1}]}}
+    ctx = {"requirement_text": "配1块1.92T SATA硬盘", "ext": {"drives": [{"qty": 1}]}}
     baseline = {"server_type_name": "存储服务器", "series": "Orion", "form": "2U", "max_dimm": 16, "gpu_slots": 0}
     gap_rows = {"HDD/SSD": [{"category": "HDD/SSD", "unmatched": True, "qty": 1, "request_spec": "1.92T"}]}
     cands = {"HDD/SSD": [{"id": 4, "model": "SATA SSD 1.92T",
@@ -358,7 +358,7 @@ def test_phase_kp_reason_grounds_gap_in_force_complete(monkeypatch):
                         lambda gap_rows, series: {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 9000.0, "currency": "RMB"}]})
     monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
     ctx = {"force_complete": True,
-           "ext": {"cpu_signal": {"model": "KH50000", "qty": 2}},
+           "ext": {"cpu": {"model": "KH50000", "qty": 2}},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
@@ -384,7 +384,7 @@ def test_phase_kp_reason_grounds_gap_in_dialogue_path(monkeypatch):
     monkeypatch.setattr(skill_phases, "_kp_candidates_for",
                         lambda gap_rows, series: {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 3500.0, "currency": "RMB"}]})
     monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
-    ctx = {"ext": {"cpu_signal": {"model": "KH50000", "qty": 2}},
+    ctx = {"ext": {"cpu": {"model": "KH50000", "qty": 2}},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
@@ -423,8 +423,8 @@ def test_golden_dialog_path_grounds_cpu_and_raid(monkeypatch):
                                            "specs": {"Cache": "1 GB", "Ports": "8", "电容": "无"}}],
                         })
     monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
-    ctx = {"ext": {"cpu_signal": {"model": "KH50000", "qty": 2},
-                   "raid_groups": [{"qty": 1, "level": "0/1/5/6/JBOD"}]},
+    ctx = {"ext": {"cpu": {"model": "KH50000", "qty": 2},
+                   "raid": [{"qty": 1, "level": "0/1/5/6/JBOD"}]},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     by_cat = {p["category"]: p for p in ctx["kp_parts"]}
