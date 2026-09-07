@@ -78,6 +78,7 @@
             <span v-for="(meta, status) in statusMetaEntries" :key="status">
               <i class="legend-dot" :style="{ background: meta.color || '#9aa4b2' }"></i>{{ meta.label || status }}
             </span>
+            <a-button v-if="canManageOffice" size="small" type="primary" ghost class="legend-reset-btn" @click="onResetOfficeSample">恢复样板</a-button>
           </div>
         </div>
 
@@ -87,7 +88,9 @@
           :selected-role-key="selectedRoleKey"
           :office-config="officeConfig"
           :behavior-config="behaviorConfig"
+          :editable="canManageOffice"
           @select="selectColleague"
+          @save-config="onSaveOfficeConfig"
         />
         <div v-if="!roomColleagues.length" class="office-empty-state">
           暂无 AI 同事，请在 Manage Teams 中添加或切换团队。
@@ -127,7 +130,7 @@
 
     <Teleport to="body">
       <Transition name="office-fade">
-        <div v-if="manageOpen" class="manager-backdrop" @click.self="manageOpen = false">
+        <div v-if="manageOpen" class="manager-backdrop manager-backdrop--full" @click.self="manageOpen = false">
           <section class="manager-shell">
             <AiOfficeManagement
               :colleagues="colleagues"
@@ -179,13 +182,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { DownOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
+import { normalizeOfficeConfig } from '@/composables/officeLayout'
 import { useAssistantContext } from '@/composables/assistantContext'
 import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import AiOfficeManagement from './AiOfficeManagement.vue'
@@ -193,6 +197,8 @@ import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
 import OfficeColleagueChatPanel from './OfficeColleagueChatPanel.vue'
 import TaskBoard from './TaskBoard.vue'
+
+defineOptions({ name: 'AiOfficeView' })
 
 const teamMeta = ref<{ name?: string; description?: string; color?: string }>({})
 const colleagues = ref<any[]>([])
@@ -222,7 +228,7 @@ const officeChatContext = computed<AssistantContext>(() => ({
   quotationId: (route.query.quotationId as string) || null,
 }))
 
-const { statusMap, connected, connect } = useOfficeSocket()
+const { statusMap, connected, connect, disconnect } = useOfficeSocket()
 
 const emptyStatus: OfficeColleagueStatus = {
   type: 'colleague_status',
@@ -317,12 +323,32 @@ async function loadConfig() {
     }
     layoutNodes.value = Array.isArray(data.layout?.nodes) ? data.layout.nodes : []
     layoutEdges.value = Array.isArray(data.layout?.edges) ? data.layout.edges : []
-    officeConfig.value = data.layout?.office || {}
+    officeConfig.value = normalizeOfficeConfig(data.layout?.office || {})
     teamGraph.value = data.layout?.team_graph || {}
     behaviorConfig.value = data.behavior || {}
   } catch (error: any) {
     colleagues.value = []
     message.error(error?.response?.data?.detail || 'AI 团队配置加载失败，请重新登录后再试')
+  }
+}
+
+async function onSaveOfficeConfig(config: OfficeConfig) {
+  try {
+    await officeApi.updateLayout({ office: config })
+    officeConfig.value = normalizeOfficeConfig(config)
+    message.success('空间已保存')
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || '空间保存失败')
+  }
+}
+
+async function onResetOfficeSample() {
+  try {
+    const res = await officeApi.resetOfficeSample()
+    officeConfig.value = normalizeOfficeConfig(res.layout?.office || {})
+    message.success('已恢复为默认精装修样板办公室')
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || '恢复样板失败')
   }
 }
 
@@ -356,6 +382,8 @@ async function loadMissions() {
 function startMissionPolling() {
   if (missionPollTimer) return
   missionPollTimer = setInterval(() => {
+    // 页面不可见时不轮询，避免后台空跑造成网络与重绘开销。
+    if (document.visibilityState !== 'visible') return
     loadMissions()
   }, 4000)
 }
@@ -395,6 +423,27 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  if (missionPollTimer) {
+    clearInterval(missionPollTimer)
+    missionPollTimer = null
+  }
+})
+
+// KeepAlive：切走时断 WS + 停轮询，切回时重连并刷新，避免后台连接泄漏
+let _aiOfficeActivated = false
+onActivated(() => {
+  if (!_aiOfficeActivated) {
+    _aiOfficeActivated = true
+    return
+  }
+  connect()
+  loadConfig()
+  loadMissions()
+  startMissionPolling()
+  refreshOfficeContext()
+})
+onDeactivated(() => {
+  disconnect()
   if (missionPollTimer) {
     clearInterval(missionPollTimer)
     missionPollTimer = null
@@ -784,6 +833,10 @@ onBeforeUnmount(() => {
   font-size: 11px;
 }
 
+.legend-reset-btn {
+  margin-left: 10px;
+}
+
 .mission-command-bar {
   min-height: 48px;
   flex-shrink: 0;
@@ -1004,7 +1057,7 @@ onBeforeUnmount(() => {
 }
 
 .manager-shell {
-  width: min(1440px, 100%);
+  width: 100%;
   height: 100%;
   min-height: 0;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.10));
@@ -1014,6 +1067,15 @@ onBeforeUnmount(() => {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* Manage Teams over-the-top: use the entire viewport so the Open3D canvas is truly full-screen. */
+.manager-backdrop--full {
+  padding: 0;
+}
+
+.manager-backdrop--full .manager-shell {
+  border-radius: 0;
 }
 
 .office-fade-enter-active,
@@ -1082,5 +1144,3 @@ onBeforeUnmount(() => {
   }
 }
 </style>
-
-

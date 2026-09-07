@@ -330,7 +330,7 @@ def plan_rule_context(kp_parts: list, baseline: Optional[dict] = None) -> dict:
                 sata += qty
                 drive_kinds.add("SATA")
     if has_drive and not drive_kinds:
-        drive_kinds.add("SATA")  # 协议不明默认 SATA（2U 最常见，与 candidate_search._kp_signals 一致）
+        drive_kinds.add("SATA")  # 协议不明默认 SATA（2U 最常见）
     config = {
         "sata_qty": sata,
         "sas_qty": sas,

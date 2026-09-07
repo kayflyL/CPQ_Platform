@@ -96,13 +96,6 @@ export const REASONING_NODE_KIND: Record<string, ReasoningNodeKind> = {
   compose: 'output',
 }
 
-export const NODE_DEFAULT_CONFIG: Record<ReasoningNodeType, Record<string, any>> = {
-  input: {},
-  agent: { enabled_tools: [], max_iterations: 6, system_prompt: '', rule_types: [] },
-  assemble: { rule_types: [], template: '', output_schema: {} },
-  output: { rule_types: [], template: '', output_schema: {} },
-}
-
 export function nodeArchetype(type?: string): ReasoningNodeType {
   if (!type) return 'agent'
   return RUNTIME_TYPE_TO_GENERIC[type] || (type as ReasoningNodeType)

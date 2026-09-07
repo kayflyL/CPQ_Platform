@@ -17,5 +17,5 @@ if not defined PYTHON_CMD (
     exit /b 1
 )
 echo Using Python: %PYTHON_CMD%
-"%PYTHON_CMD%" -m uvicorn app.main:app --reload --port 8000
+"%PYTHON_CMD%" -m uvicorn app.main:app --host :: --reload --port 8000
 pause

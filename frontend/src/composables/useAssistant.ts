@@ -7,11 +7,11 @@
 import { ref, computed, watch } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
 import { assistantApi, assistantWsUrl } from '@/api/assistant'
-import { handleAssistantChatWsEvent, resetTaskUI } from '@/composables/assistantChatWs'
+import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking } from '@/composables/assistantChatWs'
 import type { NodeTrace } from '@/composables/assistantChatWs'
 import type { AssistantThread, AssistantMessage } from '@/api/assistant'
 
-export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null } = {}) {
+export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null; getEnableClarity?: () => boolean | null | undefined } = {}) {
   const entryPoint = defaultEntryPoint || 'portal'
   const preview = !!options.preview
   const initialRoleKey = options.initialRoleKey || null
@@ -68,6 +68,21 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     handleAssistantChatWsEvent(chatWsState, data)
   }
 
+  // 终态事件丢失兜底：WS 断线窗口里回合已完成 → 拉服务端消息采纳差异并清 waiting
+  // （否则三点假死到用户手动发消息为止）。没有新消息 = 回合仍在跑，继续等。
+  async function resyncThreadState(): Promise<boolean> {
+    const id = currentThreadId.value
+    if (!id) return false
+    const data = await assistantApi.threads.messagesFull(id)
+    const server: AssistantMessage[] = data.messages || []
+    const known = new Set(messages.value.map((m) => m.message_id))
+    if (!server.some((m) => !known.has(m.message_id))) return false
+    messages.value = server
+    contextUsage.value = data.context_usage || null
+    return true
+  }
+  createTurnWatchdog(chatWsState, resyncThreadState)
+
   /** WS 意外断开后延迟重连（防重复定时器；disconnectWs 会清掉） */
   function scheduleWsReconnect() {
     if (wsReconnectTimer || !currentThreadId.value) return
@@ -85,6 +100,14 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     } catch {
       ws = null
       return
+    }
+    ws.onopen = () => {
+      // 重连即对账：断线窗口里终态事件已丢，回合可能早已完成并落库——立即拉取采纳
+      if (chatWsState.waiting) {
+        void resyncThreadState().then((adopted) => {
+          if (adopted) adoptTurnEnd(chatWsState)
+        }).catch(() => { /* 对账失败交给看门狗 */ })
+      }
     }
     ws.onmessage = (ev) => {
       let data: any
@@ -208,7 +231,13 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     try {
       if (preview) {
         const oldId = currentThreadId.value
-        if (oldId) { try { await assistantApi.threads.purge(oldId) } catch { /* ignore */ } }
+        if (oldId) {
+          // Esc 语义：purge 前先中断在途回合（同 destroyPreview）
+          if (running.value || waitingAI.value) {
+            try { await stop() } catch { /* ignore */ }
+            statusText.value = ''
+          }
+          try { await assistantApi.threads.purge(oldId) } catch { /* ignore */ } }
         currentThreadId.value = null
         messages.value = []
         await newThread()
@@ -234,7 +263,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     sending.value = true
     running.value = true
     streamingText.value = ''
-    thinkingText.value = ''
+    clearThinking(chatWsState)
     waitingAI.value = true
     try {
       const res = await assistantApi.threads.postMessage(
@@ -247,6 +276,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         entryPoint,
         optionSlot || null,
         cardSelections || null,
+        options.getEnableClarity?.() ?? null,
       )
       messages.value.push(res.user_message)
       if (res.thread) {
@@ -331,6 +361,11 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     if (!preview) return
     const id = currentThreadId.value
     if (id) {
+      // Esc 语义：purge 是硬删线程，在途回合先请求服务端中断再删，避免杀掉正在产出的大脑回合
+      if (running.value || waitingAI.value) {
+        try { await stop() } catch { /* ignore */ }
+        statusText.value = ''
+      }
       try { await assistantApi.threads.purge(id) } catch { /* ignore */ }
       currentThreadId.value = null
       messages.value = []

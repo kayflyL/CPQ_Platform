@@ -131,6 +131,7 @@ class PostMessageBody(BaseModel):
     entry_point: Optional[str] = None
     option_slot: Optional[str] = None  # 用户点击结构化选项时，明确该选项对应的槽位
     card_selections: Optional[list[CardSelectionBody]] = None  # 表单模式：一次提交多组缺口选择
+    enable_clarity: Optional[bool] = None  # 试运行反问开关（仅 skill_studio_preview 消费）：False=跳过策略反问一键出方案
 
 
 class DispatchPreviewBody(BaseModel):
@@ -410,6 +411,8 @@ async def _run_office_turn(
     opportunity_id: Optional[str] = None,
     option_slot: Optional[str] = None,
     card_selections: Optional[list] = None,
+    entry_point: Optional[str] = None,
+    enable_clarity: Optional[bool] = None,
 ) -> None:
     """后台处理 AI Office 会话：空间指令优先，其余走普通聊天/LLM 意图识别。"""
     try:
@@ -429,6 +432,8 @@ async def _run_office_turn(
             opportunity_id=opportunity_id,
             option_slot=option_slot,
             card_selections=card_selections,
+            entry_point=entry_point,
+            enable_clarity=enable_clarity,
         ))
         _ACTIVE_TURN_TASKS[thread_id] = task
         task.add_done_callback(lambda _t: _ACTIVE_TURN_TASKS.pop(thread_id, None))
@@ -481,6 +486,9 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
             if allowed is not None:
                 raise HTTPException(status_code=403, detail="请选择可用的 AI 角色")
 
+        # history 必须先于本轮落库读取（history=之前的消息）：组 prompt/需求原文时当前消息
+        # 由各消费方显式追加，混入会造成双发双写（2026-09-05 需求原文双 Polaris 实测）。
+        history = repo.list_messages(thread_id)
         user_msg = repo.add_message(
             thread_id=thread_id, role="user", content=body.content,
             opportunity_id=body.opportunity_id, quotation_id=body.quotation_id,
@@ -502,7 +510,6 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
                 updated = repo.update_thread_title(thread_id, snippet)
                 if updated:
                     thread = updated
-        history = repo.list_messages(thread_id)
     finally:
         repo.close()
 
@@ -513,6 +520,8 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
         option_slot=body.option_slot,
         card_selections=[s.model_dump() for s in body.card_selections] if body.card_selections else None,
+        entry_point=body.entry_point or thread.get("entry_point"),
+        enable_clarity=body.enable_clarity,
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
 
@@ -577,6 +586,68 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     meta = last_card.get("pick_meta") or {}
     if not meta:
         raise HTTPException(status_code=409, detail="当前选项卡不支持自选（任务进行中的配件推荐卡才可）")
+
+    # 行绑定卡（kp_reason 确认卡，2026-09-06 插头化）：自选候选=该行数据源重跑
+    # （注册表解析，放宽 limit），选项带 kp_manual_pick 信号（价格服务端留底，
+    # 客户端不携带）；登记进 last_card 供后续 (slot,value) 留底匹配。
+    if meta.get("row"):
+        from app.services.skill_chat import _load_mem as _lm, _save_mem as _sm  # noqa: F401
+        from app.services.part_selector import resolve_kp_pools
+        from app.services.data_boundary import colleague_price_ok
+        from app.services.ai_colleague_service import get_colleague
+        binding = {}
+        try:
+            from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+            fr = ReasoningFlowRepository()
+            try:
+                flow = fr.get_active_flow("requirement_analysis")
+                kcfg = (flow.get("node_configs") or {}).get("kp_reason") or {}
+                binding = (kcfg.get("data_bindings") or {}).get("kp_pool") or {}
+            finally:
+                fr.close()
+        except Exception:
+            binding = {}
+        series = str(meta.get("series") or "")
+        row_qty = int(meta.get("row_qty") or 1)
+        pools, _src = resolve_kp_pools(
+            binding,
+            [{"category": str(meta.get("category") or ""), "request_spec": str(meta.get("request_spec") or ""),
+              "qty": row_qty, "unmatched": True}],
+            series=series, default_limit=50)
+        pool = next(iter(pools.values()), {}) if pools else {}
+        cands = [c for c in (pool.get("candidates") or [])
+                 if isinstance(c, dict) and str(c.get("name") or "").strip()]
+        recalled = bool(cands)
+        if not recalled:
+            # 行描述零召回（库内无对应词）：自选下拉回落类目全量，但如实标注「未按行
+            # 规格过滤」，与发卡兜底组「宁缺毋滥」不同——客户主动要全库就该给全库。
+            from app.services.data_tools import part_query
+            _q = part_query(str(meta.get("category") or ""), series=series, limit=50)
+            cands = (_q.get("rows") or []) if _q.get("ok") else []
+        price_ok = colleague_price_ok(get_colleague(rk) or {})
+        opts = []
+        for c in cands:
+            if not isinstance(c, dict) or not str(c.get("name") or "").strip():
+                continue
+            desc = " · ".join(f"{k}:{v}" for k, v in (c.get("specs") or {}).items())[:80]
+            o = {"label": str(c.get("name") or ""), "value": str(c.get("name") or ""),
+                 "desc": desc, "slot": slot,
+                 "group": "配件库候选" if recalled else "配件库全部·未按行规格过滤",
+                 "qty": row_qty, "qty_max": max(row_qty, 24),
+                 "signal": {"kp_manual_pick": {"row": str(meta.get("row")),
+                                               "part_id": str(c.get("part_id") or ""),
+                                               "name": str(c.get("name") or ""),
+                                               **({"price": c.get("price")} if price_ok else {}),
+                                               "currency": str(c.get("currency") or "RMB")}}}
+            opts.append(o)
+        if not opts:
+            raise HTTPException(status_code=404, detail="该行数据源暂无候选")
+        keep = [o for o in (last_card.get("options") or [])
+                if not (str(o.get("slot") or "") == slot and o.get("_manual"))]
+        merged = keep + [{**o, "_manual": True} for o in opts]
+        _save_mem(thread_id, rk, {**mem, "last_card": {**last_card, "options": merged}})
+        return {"slot": slot, "options": [{k: v for k, v in o.items() if k != "signal"} for o in opts]}
+
     opts = manual_pick_options(
         slot, str(meta.get("server_type_name") or ""),
         baseline={"series": meta.get("series"), "gpu_slots": meta.get("gpu_slots"),
@@ -734,22 +805,6 @@ def cleanup_trace(body: dict, admin: dict = Depends(require_perms("ai.office.adm
     finally:
         repo.close()
     return {"deleted": deleted}
-
-
-@router.post("/admin/cleanup/samples")
-def cleanup_samples(body: dict, admin: dict = Depends(require_perms("ai.office.admin"))):
-    """需求反馈样本清理：保留最近 keep_n 条（0=全清）。"""
-    try:
-        keep_n = int((body or {}).get("keep_n") or 0)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="keep_n 需为数字")
-    repo = AssistantRepository()
-    try:
-        deleted = repo.prune_requirement_samples(keep_n)
-    finally:
-        repo.close()
-    return {"deleted": deleted}
-
 
 # ── WS: subscribe to a thread's LLM token stream ──
 

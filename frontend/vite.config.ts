@@ -17,7 +17,20 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: ['exceljs'],
+    include: [
+      'exceljs',
+      'three',
+      'pixi.js',
+      'echarts',
+      'vue-echarts',
+      '@univerjs/core',
+      '@univerjs/preset-sheets-core',
+      'ant-design-vue',
+      '@vue-flow/core',
+      '@vue-flow/background',
+      '@vue-flow/controls',
+      '@vue-flow/minimap',
+    ],
   },
   build: {
     rollupOptions: {
@@ -26,6 +39,10 @@ export default defineConfig({
           const normalized = id.replace(/\\/g, '/')
           if (normalized.includes('node_modules/exceljs')) return 'exceljs'
           if (normalized.includes('node_modules/three')) return 'three'
+          if (normalized.includes('node_modules/pixi.js')) return 'pixi'
+          if (normalized.includes('node_modules/echarts')) return 'echarts'
+          if (normalized.includes('node_modules/@univerjs')) return 'univer'
+          if (normalized.includes('node_modules/ant-design-vue')) return 'antd'
           if (normalized.includes('@vue-flow')) return 'vueflow'
           return undefined
         },
@@ -41,6 +58,20 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+    },
+    warmup: {
+      clientFiles: [
+        'src/views/portal/Portal.vue',
+        'src/views/office/AiOfficeView.vue',
+        'src/views/opportunity/OpportunityList.vue',
+        'src/views/ServerConfig.vue',
+        'src/views/admin/Parts.vue',
+        'src/views/admin/StrategyPortal.vue',
+        'src/views/ExcelParser.vue',
+        'src/views/export-templates/ExportTemplateList.vue',
+        'src/views/admin/UserRoleManagement.vue',
+        'src/views/ServerAdminPage.vue',
+      ],
     },
   },
 })

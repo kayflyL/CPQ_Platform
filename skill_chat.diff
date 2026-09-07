@@ -1,0 +1,259 @@
+diff --git a/backend/app/services/skill_chat.py b/backend/app/services/skill_chat.py
+index d848799..7d27990 100644
+--- a/backend/app/services/skill_chat.py
++++ b/backend/app/services/skill_chat.py
+@@ -3,8 +3,8 @@
+ 
+ 宪法（2026-08-28）：
+ - 全系统同一时刻只有一个会思考的脑袋：对话期是角色（本模块驱动的 ReAct 循环），执行期是引擎；
+-- 角色手里只有四样东西：登记表读写（update_requirement_slots）、提交开关（submit_registration）、
+-  目录查询（catalog_search）、数据边界内的只读查询原语（query_data）；
++- 角色手里只有三样东西：提交开关（submit_registration）、目录查询（catalog_search）、
++  数据边界内的只读查询原语（query_data）；登记表不在聊天期读写，由引擎 agent_fill 从对话原文抽取；
+   引擎返回的缺口是纯数据，怎么问由角色组织语言；
+ - 本模块不含任何话术表/关键词清单；业务选项（kp_mode 两个值等）全部来自引擎缺口数据。
+ - query_data 的权限不在提示词里：物理强制在 data_boundary.execute_read（步骤1），
+@@ -88,10 +88,6 @@ def _match_card_signal(mem: dict, slot: str, value: str) -> Optional[dict]:
+     return None
+ 
+ 
+-# 逐项配件卡可手动输入型号的槽（raid 无型号契约不开放）
+-_PART_PICK_SLOTS = {"gpu", "cpu", "memory", "drives"}
+-
+-
+ def _signal_with_qty(signal: dict, qty: int, pick_meta: dict) -> dict:
+     """数量覆盖（前端 stepper 参数）：克隆留底 signal 改数量，按机箱能力 clamp。
+     数量是参数不是信号语义——服务端单点收口，客户端只传数字。"""
+@@ -109,8 +105,8 @@ def _signal_with_qty(signal: dict, qty: int, pick_meta: dict) -> dict:
+             sig["cpu"]["qty"] = min(qty, cpu_cap)
+         elif isinstance(sig.get("memory"), dict):
+             sig["memory"]["qty"] = min(qty, dimm_cap)
+-        elif isinstance(sig.get("drives"), list) and sig["drives"]:
+-            sig["drives"][0]["qty"] = min(qty, 16)
++        elif isinstance(sig.get("storage"), list) and sig["storage"]:
++            sig["storage"][0]["qty"] = min(qty, 16)
+         else:
+             return signal
+     except Exception:
+@@ -133,66 +129,13 @@ def _manual_model_signal(mem: dict, slot: str, text: str) -> Optional[dict]:
+         return None
+ 
+ 
+-# ── 三个角色动作（注册进全局工具表，经 _TOOL_CTX 取线程状态）────────────────
+-
+-def _emit_slots_sync(sink, slots: dict, requirement_text: str = "") -> None:
+-    """登记表被角色更新后，异步广播一次「线索登记表」卡片（与引擎 normalize 同格式）。
+-    放在同步工具里用 create_task 派发，绝不阻塞 ReAct 循环；sink 不可用则静默降级。"""
+-    if not callable(sink):
+-        return
+-    payload = {"type": "node_trace", "step": "agent_fill", "label": "需求理解填表",
+-               "status": "running",
+-               "artifact": {"kind": "requirement_slots", "title": "线索登记表", "data": {**slots, "requirement_text": requirement_text}}}
+-    try:
+-        import asyncio
+-        loop = asyncio.get_running_loop()
+-        loop.create_task(sink(payload))
+-    except Exception:
+-        logger.exception("广播需求槽失败")
+-
+-
+-def tool_update_requirement_slots(args: dict) -> dict:
+-    ctx = _TOOL_CTX.get()
+-    ext = ctx.get("ext")
+-    if ext is None:
+-        return {"ok": False, "error": "会话上下文缺失"}
+-    fill = args.get("fill") if isinstance(args.get("fill"), dict) else (args or {})
+-    # 类型契约：信号槽只收结构（对象/数组）。字符串填入=违约，当场退回并给正确形状，
+-    # 让模型 ReAct 当轮自纠——语义理解归模型，引擎不做字符串解析。
+-    _fill_obj_keys = {"cpu", "memory", "drives", "storage", "gpu", "nic", "raid", "psu"}
+-    bad = [k for k, v in (fill or {}).items()
+-           if k in _fill_obj_keys and isinstance(v, str) and str(v).strip()]
+-    if bad:
+-        return {"ok": False, "error": "signal_slots_require_objects",
+-                "hint": "配件槽必须用结构化值（对象/数组），不能是一句话文本。"
+-                        "正确形状示例：gpu=[{\"model\":\"智铠100\",\"qty\":4}]；"
+-                        "cpu={\"model\":\"EPYC 9745\",\"qty\":2}；"
+-                        "memory={\"total_gb\":256} 或 {\"per_stick_gb\":64,\"qty\":8}；"
+-                        "drives=[{\"capacity\":\"2048G\",\"qty\":2,\"type\":\"SSD\"}]；"
+-                        "raid=[{\"model\":\"9460-8i\",\"qty\":1}]；"
+-                        "psu={\"wattage\":1200,\"qty\":2}。"
+-                        f"请把 {'、'.join(bad)} 按上述形状重新登记。"}
+-    from app.services.capabilities import _apply_extracted_slots
+-    from app.services.slot_extractor import apply_structured_slots
+-    changed = _apply_extracted_slots(ext, fill or {}, allow_overwrite=True)
+-    _slot_notes: list = []
+-    try:
+-        _slot_notes = apply_structured_slots(ext, fill or {}, str(ctx.get("user_text") or "")) or []
+-    except Exception:
+-        logger.exception("结构化槽位补充失败")
+-    ctx.get("save")()
+-    _emit_slots_sync(ctx.get("event_sink"), _slots_view(ext), str(ctx.get("user_text") or ""))
+-    return {"ok": True, "changed": changed, "slots": _slots_view(ext), "audit": _slot_notes}
+-
+-
++# ── 角色动作（注册进全局工具表，经 _TOOL_CTX 取线程状态）────────────────
+ def tool_submit_registration(args: dict) -> dict:
+     ctx = _TOOL_CTX.get()
+     ext = ctx.get("ext") or {}
+-    from app.services.skill_phases import model_signals_ready
+-    if not model_signals_ready(ext):
+-        return {"ok": False, "error": "scene_missing",
+-                "hint": "场景（服务器类型）还不明确，先弄清客户业务场景再提交"}
+-    # 目录词表校验前置到提交口：非目录类型提交后引擎必拒（词表失配→场景缺口），会形成
++    # 不再在提交口硬拦 scene_missing：信息可能不齐，交给引擎 agent_fill 的
++    # 目标层缺口统一弹卡反问（反问项=抽屉目标层配置，选项=目录，保留自由输入）。
++    # 目录词表校验仍前置：非目录类型提交后引擎必拒（词表失配→场景缺口），会形成
+     # 「问→答→再问」循环；在这里拒绝并列出目录选项，模型当轮即可纠正或向客户确认。
+     filled = str(ext.get("server_type_name") or ext.get("server_type") or "").strip()
+     if filled:
+@@ -200,8 +143,7 @@ def tool_submit_registration(args: dict) -> dict:
+         catalog = [str(t.get("name") or "").strip() for t in ServerCatalogRepository().list_types() if t.get("name")]
+         if catalog and filled not in catalog:
+             return {"ok": False, "error": "invalid_scene",
+-                    "hint": f"「{filled}」不是在售目录里的服务器类型，不能提交。向客户确认后改用目录类型登记"
+-                            f"（目录类型：{'、'.join(catalog)}），或把该表述登记到对应信号槽位。"}
++                    "hint": f"「{filled}」不是在售目录里的服务器类型，不能提交。在售目录类型：{'、'.join(catalog)}。"}
+     on_submit = ctx.get("on_submit")
+     if callable(on_submit):
+         on_submit()
+@@ -309,19 +251,11 @@ def tool_query_data(args: dict) -> dict:
+ 
+ def requirement_prompt(slots: dict, price_ok: bool = True, query_data_ok: bool = False,
+                        flow_steps: Optional[list] = None) -> str:
+-    price_rule = (
+-        "推荐必须带理由（价格/形态/场景匹配），不知道就查，禁止编造型号价格。"
+-        if price_ok else
+-        "你没有价格查看权限：目录查询结果不含价格，回复中禁止出现任何价格、金额、报价数字（凭记忆编造也不行）；"
+-        "推荐理由基于产品定位/形态/场景匹配。客户主动问价时，引导其联系成本核算或方案助手。"
+-    )
+-    data_rule = (
+-        "\n7. 需要业务数据（商机/报价/目录明细）时，用 query_data 执行只读 SELECT："
+-        "先查 information_schema.tables / information_schema.columns 看清可读表与列，再写查询；"
+-        "工具返回的报错信息是修正提示，改 SQL 重试；被数据边界拒绝的表不要反复尝试。"
+-        if query_data_ok else ""
+-    )
+-    # 流程步骤块（数据驱动：来自 Skill 画布节点的 label/description，画布编辑即变）
++    from app.services.skill_prompts import load_skill_prompts
++    prompts = load_skill_prompts()
++    price_rule = str(prompts.get("price_rule_ok") or "") if price_ok else str(prompts.get("price_rule_no") or "")
++    data_rule = str(prompts.get("data_rule") or "") if query_data_ok else ""
++    # 流程步骤块（可配置：来自 Skill 画布里节点的 label/description，可编辑支配）
+     plan_rule = ""
+     if flow_steps:
+         step_lines = []
+@@ -329,50 +263,13 @@ def requirement_prompt(slots: dict, price_ok: bool = True, query_data_ok: bool =
+             label = str(s.get("label") or "").strip()
+             desc = str(s.get("description") or "").strip()
+             step_lines.append(f"- {label}：{desc}" if desc else f"- {label}")
+-        plan_rule = ("\n8. 【配置流程步骤】客户确认开始后引擎按固定流程执行：\n" +
+-                     "\n".join(step_lines) +
+-                     "\n提议时用一两句自然预告这个流程（画布描述是你的素材，不必逐字罗列），"
+-                     "让客户知道接下来会发生什么。\n")
+-    return (
+-        "\n\n【需求收集模式】当前线索登记表：\n" + json.dumps(slots, ensure_ascii=False) +
+-        "\n你是客户的服务器配置顾问。规则：\n"
+-        "1. 客户表达服务器配置需求时，把**客户明确表达的**信息当轮逐项用 update_requirement_slots 登记"
+-        "（fill 键名：server_type_name/series/form/server_model/purchase_qty/cpu/memory/drives/gpu/nic/raid/psu/kp_mode）。"
+-        "**一句话里点名的每个配件（型号/数量/容量）都不能漏登**——漏登会被引擎当成没说过，推荐会背离客户原话。"
+-        "首次提交前自检：客户原话点名的每个配件是否都已登成结构化信号；有漏登先补登再提交，"
+-        "绝不留到引擎逐组反问（引擎只对『确实没登记』的组发选项卡）。"
+-        "配件信号必须用结构化值，禁止一句话字符串："
+-        "gpu=[{\"model\":\"智铠100\",\"qty\":4}]、cpu={\"model\":\"EPYC 9745\",\"qty\":2}、"
+-        "memory={\"total_gb\":256}（只知总量）或 {\"per_stick_gb\":64,\"qty\":8}（知单条）、"
+-        "drives=[{\"capacity\":\"2048G\",\"qty\":2,\"type\":\"SSD\"}]、raid=[{\"model\":\"9460-8i\",\"qty\":1}]。"
+-        "禁止臆测：客户只说「服务器」没提场景时，server_type_name 必须留空。"
+-        "server_type_name 只能是在售目录里的类型名；客户用口语描述场景（如某类计算任务）时，"
+-        "不要硬填类型，登记到 cpu 等对应配件槽，或向客户确认对应哪个目录类型。\n"
+-        "2. 提交时机（submit_registration）= 客户已同意开始配置流程：\n"
+-        "   a) 客户明确要求出方案/配置（如「帮我配一台」「出个方案」）——当轮登记完就提交，"
+-        "同意已经给出，不要再追问，缺口由引擎判定并以选项卡让客户点选；\n"
+-        "   b) 咨询式对话中信息渐齐——场景（服务器类型）明确后**主动提议**：一两句复述你已理解的需求"
+-        "（以登记表为准，只引用客户真实说过的内容）+ 自然预告配置流程步骤 + 问客户是否现在开始；"
+-        "客户回复确认（确认的同时又补充了新信息 → 先登记补充再提交）后提交。"
+-        "客户只补充不确认 → 照常登记，下一轮再提议。\n"
+-        "   c) 任务已在进行中（你上一轮转述过引擎缺口、或引擎正在等答案）——客户的回答（点选或文字）"
+-        "就是继续任务：先把新信息登记进表，再直接 submit_registration。**禁止此时重新提议流程**——"
+-        "同意在任务开始时已经给过，再次询问等于把客户当外人。\n"
+-        "   禁止客户未同意就提交；禁止「没问题吧/如果没问题我就开始了」式无信息空轮——"
+-        "提议轮本身必须带需求复述和流程预告。提交后等引擎结果，按结果汇报，不要自己编造配置。\n"
+-        "2a. 工具纪律=说到做到：回复里说出「已登记/已提交/我查一下/稍等」就必须在**同一轮**真的调用对应工具；"
+-        "没有调用工具就不得声称做过，更不许只口头宣布「已提交，稍等结果」然后结束回合。"
+-        "每轮结束前自检：这轮说过要做的事，工具调用做了吗？\n"
+-        "3. 引擎返回缺口（gaps）时，用一两句自然中文向客户要**第一个缺口**的信息，选项值原样引用 gap 的 options，"
+-        "不要一次问多件事，不要编造选项。\n"
+-        "4. 客户问「有什么/推荐/该配什么」时，先用 catalog_search 查在售目录，再基于返回数据回答；"
+-        "问机型用 kind=models，问配件/选件用 kind=parts（可带 series 只看适配当前平台的件）；" + price_rule + "\n"
+-        "4b. 引擎以『库无某规格/容量偏差』白盒提示时（说明库里没有恰好型号），先把提示原样转给客户，"
+-        "再用 catalog_search(kind=parts) 找最接近的合法替代组合（如 8T→2×4T），说明替代方案、影响与价差，"
+-        "客户确认后才用 update_requirement_slots 登记；禁止悄悄换型号、禁止背过引擎替你编造。\n"
+-        "5. 客户闲聊或跑题：正常回应，一两句内自然拉回服务器配置话题。\n"
+-        "6. 客户改口/纠正时，用 update_requirement_slots 覆盖登记（fill 允许覆盖）。" + data_rule + plan_rule
+-    )
++        plan_rule = str(prompts.get("plan_rule") or "").replace("<<STEPS>>", "\n".join(step_lines))
++    role_prompt = str(prompts.get("role_prompt") or "")
++    return (role_prompt
++            .replace("<<SLOTS>>", json.dumps(slots, ensure_ascii=False))
++            .replace("<<PRICE_RULE>>", price_rule)
++            .replace("<<DATA_RULE>>", data_rule)
++            .replace("<<PLAN_RULE>>", plan_rule))
+ 
+ 
+ # ── 主入口：一条用户消息 → 角色 ReAct 循环（→ 引擎 → 缺口转述/产物汇报）──────
+@@ -445,7 +342,7 @@ async def handle_skill_chat_turn(
+     for selected, value, want_qty in raw_selections:
+         try:
+             signal = _match_card_signal(mem, selected, value)
+-            if signal is None and selected in _PART_PICK_SLOTS:
++            if signal is None:
+                 signal = _manual_model_signal(mem, selected, value)
+             if signal:
+                 if want_qty:
+@@ -478,7 +375,7 @@ async def handle_skill_chat_turn(
+         requirement_prompt(_slots_view(ext), price_ok=price_ok, query_data_ok=has_query_data,
+                            flow_steps=skill_steps_view(flow_configs, user_facing_only=True)),
+     ]).strip()
+-    loop_tools = ["update_requirement_slots", "submit_registration", "catalog_search"]
++    loop_tools = ["submit_registration", "catalog_search"]
+     if has_query_data:
+         loop_tools.append("query_data")
+ 
+@@ -533,7 +430,7 @@ async def handle_skill_chat_turn(
+     engine_ctx = {
+         "requirement_text": full_text,
+         "ext": ext,
+-        "slots_provided": True,
++        "slots_provided": False,
+         "history": history,
+         "business_mode": "opportunity_flow" if opportunity_id else "conversation",
+         "opportunity_id": opportunity_id or thread_id,
+@@ -577,23 +474,19 @@ async def handle_skill_chat_turn(
+     hist_tail = [dict(m) for m in (history or [])[-6:]
+                  if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+                  and str(m.get("content") or "").strip()]
++    from app.services.skill_prompts import load_skill_prompts
++    prompts = load_skill_prompts()
+     ack_rule = ""
+     if click_labels:
+-        ack_rule = ("客户刚在选项卡上点选确认了：" + "、".join(click_labels) +
+-                    "。请先用一句话自然确认收到（像「收到，GPU 就定 10× 曙云C550」），"
+-                    "然后再转入下面的缺口确认，两段话合成一次回复。")
++        ack_rule = str(prompts.get("gap_ack_template") or "").replace("<<CLICKS>>", "、".join(click_labels))
++    gap_prompt = str(prompts.get("gap_ask_prompt") or "")
+     ask_messages = [
+         {"role": "system", "content": chat_system_prompt},
+         *hist_tail,
+         {"role": "assistant", "content": reply or ""},
+-        {"role": "user", "content": ("（系统消息）配置引擎返回缺口数据，请以你的顾问口吻用一两句自然中文向客户确认第一个缺口，"
+-                    + ack_rule +
+-                    "结合对话上下文自然措辞（例如客户做的是什么场景、已锁定什么机型），不要模板腔。"
+-                    "只引用客户真实说过的场景/用途，禁止从历史闲聊里抓别的场景安到客户头上。"
+-                    "转述选项一律用 label 文案（用户要点的就是它）；value 是机器代号"
+-                    "（如 scenario_complete），禁止出现在话术里。不要一次问多件事。"
+-                    "只能输出 JSON：{\"reply\": \"你要发给客户的那句话\"}。缺口数据：\n"
+-                    + json.dumps(gap, ensure_ascii=False))},
++        {"role": "user", "content": (gap_prompt
++                    .replace("<<ACK_RULE>>", ack_rule)
++                    .replace("<<GAP_DATA>>", json.dumps(gap, ensure_ascii=False)))},
+     ]
+     try:
+         from app.services import llm_client

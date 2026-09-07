@@ -63,18 +63,70 @@ class OpportunityRepository:
             out[oid] = current.get(oid) or draft.get(oid) or {}
         return out
 
+    def _current_scheme_map(self, ids: List[str]) -> dict:
+        """每个商机「当前/最新」BOM 方案的 config_relation/primary_config。
+        方案配置从需求单继承默认模式，本方案可独立修改（不回写需求单）。"""
+        from app.models.flow import OpportunityBomScheme
+        if not ids:
+            return {}
+        rows = self.session.query(OpportunityBomScheme).filter(
+            OpportunityBomScheme.opportunity_id.in_(ids)
+        ).all()
+        rank = {"current": 0, "draft": 1, "archived": 2}
+        out: dict = {}
+        for r in rows:
+            rel = (r.config_relation or "").strip()
+            if not rel:
+                continue
+            oid = r.opportunity_id
+            key = (rank.get(r.status, 9), -(r.id or 0))
+            cur = out.get(oid)
+            if cur is None or key < cur[0]:
+                out[oid] = (key, rel, (r.primary_config or "").strip())
+        return {oid: {"config_relation": v[1], "primary_config": v[2]} for oid, v in out.items()}
+
+    def _active_quote_map(self, ids: List[str]) -> dict:
+        """每个商机「当前版本」报价单的 config_relation/primary_config（工作台本地值优先）。"""
+        from app.models.quotation import Quotation
+        if not ids:
+            return {}
+        rows = self.session.query(Quotation).filter(
+            Quotation.opportunity_id.in_(ids),
+            Quotation.status == "active",
+        ).order_by(Quotation.opportunity_id, Quotation.version.desc(), Quotation.created_at.desc()).all()
+        out: dict = {}
+        for r in rows:
+            oid = r.opportunity_id
+            if oid in out:
+                continue
+            rel = (r.config_relation or "").strip()
+            if not rel:
+                continue
+            out[oid] = {"config_relation": rel, "primary_config": (r.primary_config or "").strip()}
+        return out
+
     def _merge_requirement_fields(self, opp_dicts: List[dict]) -> None:
         """把当前需求单派生字段合并到 Opportunity dict，保持旧 API 字段兼容。"""
         if not opp_dicts:
             return
         ids = [d.get("opportunity_id") for d in opp_dicts if d.get("opportunity_id")]
         slot_map = self._current_slot_map(ids)
+        scheme_map = self._current_scheme_map(ids)
+        quote_map = self._active_quote_map(ids)
         for d in opp_dicts:
+            oid = d.get("opportunity_id")
             slots = slot_map.get(d.get("opportunity_id"), {})
             d["platform_type"] = slots.get("platform_type") or ""
             d["chassis_form"] = slots.get("chassis_form") or ""
             d["purchase_qty"] = slots.get("purchase_qty") or 0
             d["warranty_years"] = slots.get("warranty_years") or ""
+            # 配置关系（compose=组合拆分 / alternative=方案备选对比）+ 主推配置名：
+            # 链路：报价单(工作台) > BOM方案(方案配置) > 需求单(线索登记)，
+            # 下游只在“新建/进入下一环”时拷贝当时上游值，随后独立存储，不反向写回。
+            _quote = quote_map.get(oid) or {}
+            _scheme = scheme_map.get(oid) or {}
+            d["config_relation"] = _scheme.get("config_relation") or _quote.get("config_relation") or slots.get("config_relation") or "compose"
+            d["primary_config"] = _scheme.get("primary_config") or _quote.get("primary_config") or slots.get("primary_config") or ""
 
     def list_opportunities(self, include_deleted: bool = False,
                       page: int = 1, page_size: int = 50,
@@ -132,7 +184,8 @@ class OpportunityRepository:
         if search:
             q = q.filter(
                 Opportunity.customer_name.ilike(f"%{search}%") |
-                Opportunity.sales_person.ilike(f"%{search}%")
+                Opportunity.sales_person.ilike(f"%{search}%") |
+                Opportunity.opportunity_id.ilike(f"%{search}%")
             )
         if platform or chassis:
             # 旧列已迁移到需求单 slots，列表筛选改为基于当前需求单派生值过滤。
@@ -177,6 +230,8 @@ class OpportunityRepository:
                     partition_by=Quotation.opportunity_id
                 ).label("quotation_count"),
                 Quotation.config_count.label("cc"),
+                Quotation.config_relation.label("crel"),
+                Quotation.primary_config.label("pcfg"),
                 _rn,
             ).filter(
                 Quotation.opportunity_id.in_(opp_ids),
@@ -188,6 +243,8 @@ class OpportunityRepository:
                     stats_map[s.oid] = {"quotation_count": s.quotation_count, "config_count": 0}
                 if s.rn == 1:
                     stats_map[s.oid]["config_count"] = s.cc or 0
+                    stats_map[s.oid]["config_relation"] = s.crel or "compose"
+                    stats_map[s.oid]["primary_config"] = s.pcfg or ""
 
         result = []
         for r in rows:
@@ -195,6 +252,8 @@ class OpportunityRepository:
             stats = stats_map.get(r.opportunity_id, {})
             opp_dict["quotation_count"] = stats.get("quotation_count", 0)
             opp_dict["config_count"] = stats.get("config_count", 0)
+            opp_dict["config_relation"] = stats.get("config_relation", "compose")
+            opp_dict["primary_config"] = stats.get("primary_config", "")
             result.append(opp_dict)
 
         self._merge_requirement_fields(result)

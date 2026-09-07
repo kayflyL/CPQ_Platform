@@ -59,8 +59,17 @@ export interface OfficeFurnitureItem {
   type: string
   position: { x: number; z: number }
   rotation_y: number
+  /** 所属房间（房间 id）；null / 缺省 = 独立家具。由“家具中心是否在某房间内”实时决定。 */
+  zoneId?: string | null
+  /** 绑定的同事角色 key（可坐人/落座用）。 */
+  role_key?: string | null
+  /** 是否为座位（同事可落座的目标）。 */
+  seat?: boolean
   variant?: string
   scale?: number
+  /** 覆盖默认 catalog 尺寸（米）；缺省时用 furniture_catalog 里对应 type 的 width/depth。 */
+  width?: number
+  depth?: number
   meta?: Record<string, any>
 }
 
@@ -89,8 +98,12 @@ export interface OfficeZone {
   width?: number
   depth?: number
   room?: boolean
+  glass?: boolean
   door?: OfficeDoorConfig
-  slots: OfficeZoneSlot[]
+  /** 当房间门紧贴建筑外墙时才画“门→外墙”走廊；内部会议室/办公室可设为 false。 */
+  door_to_wall?: boolean
+  /** 兼容字段：旧的座位定义。新模型下座位也是 furniture（带 seat/zoneId），本字段可由前端归一化后清空。 */
+  slots?: OfficeZoneSlot[]
 }
 
 export interface OfficeEnvironmentTheme {
@@ -132,6 +145,7 @@ export interface OfficeConfig {
   status_zone_map?: Record<string, string>
   character_models?: string[]
   environment_theme?: OfficeEnvironmentTheme
+  plan?: unknown
 }
 
 export interface BehaviorConfig {
@@ -381,6 +395,8 @@ export const officeApi = {
     http.get<{ users: Array<{ user_id: string; name: string; role?: string; is_active?: boolean }> }>('/api/ai-colleagues/manage-users').then((r) => r.data),
   updateLayout: (payload: { nodes?: any[]; edges?: any[]; office?: OfficeConfig; lead_role_key?: string }) =>
     http.put<{ layout: any }>('/api/ai-colleagues/layout', payload).then((r) => r.data),
+  resetOfficeSample: () =>
+    http.post<{ layout: { office?: OfficeConfig } }>('/api/ai-colleagues/layout/reset-office').then((r) => r.data),
   updateBehavior: (payload: BehaviorConfig) =>
     http.put<{ behavior: any }>('/api/ai-colleagues/behavior', { behavior: payload }).then((r) => r.data),
   listColleagueMemories: (roleKey: string, params: { keyword?: string; limit?: number } = {}) =>

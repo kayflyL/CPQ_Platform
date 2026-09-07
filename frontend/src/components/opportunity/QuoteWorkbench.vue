@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { CalculatorOutlined, DownOutlined, FileDoneOutlined, UpOutlined } from '@ant-design/icons-vue'
 import type { BomConfig, CostConfig, FlowCard, PortalBoard, QuoteContext } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { portalApi } from '@/api/portal'
 import { useAuthStore } from '@/store/auth'
 import { fmtTime, formatDate as formatQuoteDate, money } from '@/utils/quoteCommon'
-import DocumentCard from '@/components/flow/DocumentCard.vue'
+import RecordTable from '@/components/opportunity/RecordTable.vue'
 import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
 
 const props = withDefaults(defineProps<{
@@ -31,12 +32,12 @@ const emit = defineEmits<{
   (e: 'set-primary', quotation: Quotation): void
   (e: 'rename-quotation', quotation: Quotation): void
   (e: 'delete-quotation', quotationId: string): void
-  (e: 'cost-quotation', quotation: Quotation): void
   (e: 'toggle-quote-select', quotationId: string): void
   (e: 'enter-quote-batch'): void
   (e: 'exit-quote-batch'): void
   (e: 'batch-delete-quotes'): void
   (e: 'convert-cost-to-quotation', quotationId: string): void
+  (e: 'delete-cost-sheet', sheetId: number): void
   (e: 'open-archive', payload: { categories: string[]; title: string }): void
   (e: 'card-updated', card: FlowCard): void
   (e: 'refresh-quotations'): void
@@ -60,6 +61,7 @@ interface WorktableSheetView {
   sheet_name: string
   quotation_id: string
   quotation_exported: boolean
+  quotation_deleted: boolean
   converted: boolean
   canConvert: boolean
   configNames: string
@@ -85,8 +87,9 @@ const worktableSheetViews = computed<WorktableSheetView[]>(() =>
       sheet_name: s.sheet_name,
       quotation_id: s.quotation_id,
       quotation_exported: s.quotation_exported,
+      quotation_deleted: s.quotation_deleted === true,
       converted,
-      canConvert: !!s.quotation_id && cost.length > 0 && !converted,
+      canConvert: !!s.quotation_id && cost.length > 0 && !converted && s.quotation_deleted !== true,
       configNames: bom.map((c) => c.name).filter(Boolean).join(' / ') || '—',
       totalQty: bom.reduce((sum, cfg) => sum + Number(cfg.qty || 0), 0),
       totalCost,
@@ -107,6 +110,8 @@ const costTotals = computed(() => {
   return { totalCost }
 })
 const totalQty = computed(() => bomConfigs.value.reduce((sum, cfg) => sum + Number(cfg.qty || 0), 0))
+const upstreamOpen = ref(true)
+const quoteOpen = ref(true)
 const selectedIds = computed<Set<string>>(() => new Set(props.quoteSelectedIds || []))
 
 const auth = useAuthStore()
@@ -117,21 +122,12 @@ function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: st
   if (!entityId) return undefined
   return flowCards.value.find((card) => card.entities.some((e) => e.entity_type === type && e.entity_id === String(entityId)))
 }
-function canClaimQuote(q: Quotation): boolean {
-  const card = cardFor('quote', q.quotation_id)
-  return Boolean(card?.can_claim)
-}
-async function claimQuote(q: Quotation) {
-  const card = cardFor('quote', q.quotation_id)
-  if (!card) return
-  try {
-    const res = await portalApi.claimCard(opportunityId.value, card.id)
-    message.success('已认领该报价卡')
-    emit('card-updated', res.card)
-    emit('refresh-quotations')
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '认领失败')
-  }
+function onQuoteMore(key: string, q: Quotation) {
+  if (key === 'send') { openSend(q); return }
+  if (key === 'view') { openQuotation(q); return }
+  if (key === 'primary') { emit('set-primary', q); return }
+  if (key === 'rename') { emit('rename-quotation', q); return }
+  if (key === 'delete') { emit('delete-quotation', q.quotation_id); return }
 }
 function quoteState(q: Quotation): string {
   if (q.submitted_at) return '报价单已出'
@@ -185,11 +181,11 @@ async function submitSend() {
 function openQuotation(q: Quotation) {
   emit('view-quotation', q)
 }
-function returnQuote(q: Quotation) {
-  const card = cardFor('quote', q.quotation_id)
+function returnQuoteToCost(quotationId: string, label: string) {
+  const card = cardFor('quote', quotationId)
   if (!card) return
   Modal.confirm({
-    title: `退回报价单「${q.quotation_name || '未命名报价单'}」？`,
+    title: `退回「${label}」？`,
     content: '退回后这张卡会回到成本核算节点，需要重新核价后再提交。',
     okText: '退回',
     okType: 'danger',
@@ -197,7 +193,7 @@ function returnQuote(q: Quotation) {
     async onOk() {
       try {
         await portalApi.returnCard(opportunityId.value, card.id)
-        message.success('报价卡已退回')
+        message.success('已退回成本核算')
         emit('refresh-quotations')
       } catch (e: any) {
         message.error(e.response?.data?.detail || '退回失败')
@@ -214,18 +210,38 @@ function openConfigDetail(cfg: CostConfig) {
   <div class="quote-workbench">
     <div class="qw-body">
       <section class="qw-context panel">
-        <header class="panel-head">
-          <span>上游成本与 BOM 摘要</span>
-          <a-button
-            v-if="!worktableSheetViews.length && worktableQuotationId"
-            size="small"
-            type="primary"
-            :disabled="!canConvert"
-            @click="emit('convert-cost-to-quotation', worktableQuotationId)"
-          >
-            {{ convertedQuotation ? '已生成报价草稿' : '转为报价草稿' }}
-          </a-button>
+        <header class="card-shell-head">
+          <div class="card-shell-title">
+            <span class="rich-icon-badge"><CalculatorOutlined /></span>
+            <div>
+              <span class="card-shell-eyebrow">成本引用</span>
+              <h3>上游成本与 BOM 摘要</h3>
+            </div>
+          </div>
+          <div class="qw-shell-actions">
+            <a-button
+              v-if="!worktableSheetViews.length && worktableQuotationId"
+              size="small"
+              type="primary"
+              :disabled="!canConvert"
+              @click="emit('convert-cost-to-quotation', worktableQuotationId)"
+            >
+              {{ convertedQuotation ? '已生成报价草稿' : '转为报价草稿' }}
+            </a-button>
+            <a-button
+              v-if="!worktableSheetViews.length && worktableQuotationId && !convertedQuotation && cardFor('quote', worktableQuotationId)?.current_node === 'quoting'"
+              size="small"
+              @click="returnQuoteToCost(worktableQuotationId, '当前成本表')"
+            >
+              退回成本表
+            </a-button>
+            <button class="card-chevron" :class="{ collapsed: !upstreamOpen }" type="button" @click="upstreamOpen = !upstreamOpen">
+              <UpOutlined />
+            </button>
+          </div>
         </header>
+        <div class="card-collapse" :class="{ collapsed: !upstreamOpen }">
+          <div class="card-collapse-inner">
 
         <!-- 多张已提交成本表：每张独立渲染，逐张可转正式报价 -->
         <template v-if="worktableSheetViews.length">
@@ -233,6 +249,14 @@ function openConfigDetail(cfg: CostConfig) {
             <div class="qw-sheet-head">
               <span class="qw-sheet-title">{{ sheet.sheet_name }}</span>
               <a-button
+                v-if="sheet.quotation_deleted"
+                size="small"
+                disabled
+              >
+                报价单已删
+              </a-button>
+              <a-button
+                v-else
                 size="small"
                 type="primary"
                 :disabled="!sheet.canConvert"
@@ -240,11 +264,14 @@ function openConfigDetail(cfg: CostConfig) {
               >
                 {{ sheet.quotation_exported ? '已正式报价' : (sheet.converted ? '已生成报价草稿' : '转为报价草稿') }}
               </a-button>
-            </div>
-            <div class="qw-summary">
-              <div><small>配置</small><b>{{ sheet.configNames }}</b></div>
-              <div><small>总台数</small><b>{{ sheet.totalQty }}</b></div>
-              <div><small>整机成本</small><b>{{ sheet.totalCost != null ? money(sheet.totalCost) : '—' }}</b></div>
+              <a-button
+                v-if="!sheet.converted && cardFor('quote', sheet.quotation_id)?.current_node === 'quoting'"
+                size="small"
+                @click="returnQuoteToCost(sheet.quotation_id, sheet.sheet_name)"
+              >
+                退回成本表
+              </a-button>
+              <span v-if="sheet.quotation_deleted" class="qw-delete-link" @click="emit('delete-cost-sheet', sheet.sheet_id)">删除成本表</span>
             </div>
             <table v-if="sheet.cost_configs.length" class="qw-cost-table">
               <thead>
@@ -258,6 +285,13 @@ function openConfigDetail(cfg: CostConfig) {
                   <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
                 </tr>
               </tbody>
+              <tfoot v-if="sheet.cost_configs.length > 1">
+                <tr class="qw-total-row">
+                  <td colspan="2">合计 {{ sheet.totalQty }} 台</td>
+                  <td>{{ sheet.totalCost != null ? money(sheet.totalCost) : '—' }}</td>
+                  <td></td>
+                </tr>
+              </tfoot>
             </table>
           </div>
         </template>
@@ -284,20 +318,35 @@ function openConfigDetail(cfg: CostConfig) {
           </table>
           <div v-else class="panel-empty">成本核算尚未完成，暂无可用于报价的成本表。</div>
         </template>
+          </div>
+        </div>
       </section>
 
       <section class="qw-editor panel">
-        <header class="panel-head">
-          <span>报价单工作区</span>
-          <div class="qw-actions">
-            <a-button size="small" @click="quoteSelectMode ? emit('exit-quote-batch') : emit('enter-quote-batch')">
-              {{ quoteSelectMode ? '取消' : '批量操作' }}
-            </a-button>
-            <AttachmentUploadButton :opportunity-id="opportunityId" category="sent_quote" label="上传报价" />
-            <a-button size="small" @click="emit('open-archive', { categories: ['sent_quote'], title: '报价附件' })">报价附件</a-button>
-            <a-button size="small" type="primary" @click="emit('new-quotation')">新增报价</a-button>
+        <header class="card-shell-head">
+          <div class="card-shell-title">
+            <span class="rich-icon-badge"><FileDoneOutlined /></span>
+            <div>
+              <span class="card-shell-eyebrow">市场报价</span>
+              <h3>报价单工作区</h3>
+            </div>
+          </div>
+          <div class="qw-shell-actions">
+            <div class="qw-actions">
+              <a-button size="small" @click="quoteSelectMode ? emit('exit-quote-batch') : emit('enter-quote-batch')">
+                {{ quoteSelectMode ? '取消' : '批量操作' }}
+              </a-button>
+              <AttachmentUploadButton :opportunity-id="opportunityId" category="sent_quote" label="上传报价" />
+              <a-button size="small" @click="emit('open-archive', { categories: ['sent_quote'], title: '报价附件' })">报价附件</a-button>
+              <a-button size="small" type="primary" @click="emit('new-quotation')">新增报价</a-button>
+            </div>
+            <button class="card-chevron" :class="{ collapsed: !quoteOpen }" type="button" @click="quoteOpen = !quoteOpen">
+              <UpOutlined />
+            </button>
           </div>
         </header>
+        <div class="card-collapse" :class="{ collapsed: !quoteOpen }">
+          <div class="card-collapse-inner">
 
         <div v-if="quoteSelectMode" class="qw-batch">
           <a-button danger size="small" @click="emit('batch-delete-quotes')">
@@ -305,76 +354,61 @@ function openConfigDetail(cfg: CostConfig) {
           </a-button>
         </div>
 
-        <div v-if="!visibleQuotations.length" class="qw-empty">
-          暂无报价单，请上传或新增报价。
-        </div>
-        <div v-else class="qw-list qw-doc-list">
-          <DocumentCard
+        <RecordTable
+          title="报价单"
+          :empty="!visibleQuotations.length"
+          empty-text="暂无报价单，请上传或新增报价。"
+          :columns="[
+            { label: '报价单', width: '240px' },
+            { label: '单号', width: '160px' },
+            { label: '状态', width: '110px' },
+            { label: '总价', width: '110px', align: 'right' },
+            { label: '利润率', width: '90px', align: 'right' },
+            { label: '配置', width: '80px', align: 'right' },
+            { label: '创建日期', width: '120px' },
+            { label: '操作', width: '90px', align: 'right' },
+          ]"
+        >
+          <tr
             v-for="q in visibleQuotations"
             :key="q.quotation_id"
-            :title="q.quotation_name || '未命名报价单'"
-            :doc-no="q.quotation_id"
-            :status="quoteState(q)"
-            :status-tone="quoteStateClass(q)"
-            doc-type="quote"
-            class="qw-doc-card"
             @click="quoteSelectMode ? emit('toggle-quote-select', q.quotation_id) : openQuotation(q)"
           >
-            <template #meta>
-              <div class="quote-doc-meta">
-                <div><small>总价</small><b>{{ quotePriceVisible ? money(q.total_price) : '***' }}</b></div>
-                <div v-if="quotePriceVisible"><small>利润率</small><b>{{ Number(q.profit_margin || 0).toFixed(2) }}%</b></div>
-                <div><small>配置</small><b>{{ q.config_count || 0 }} 配置</b></div>
-                <div><small>创建</small><b>{{ formatQuoteDate(q.created_at) }}</b></div>
+            <td>
+              <span class="rt-strong rt-q-title" :title="q.quotation_name || '未命名报价单'">{{ q.quotation_name || '未命名报价单' }}</span>
+              <span v-if="q.is_primary" class="rt-sub">当前为主推报价单</span>
+            </td>
+            <td class="rt-dim"><span class="rt-q-id" :title="q.quotation_id">{{ q.quotation_id }}</span></td>
+            <td><span class="rt-badge" :class="`rt-badge-${quoteStateClass(q)}`">{{ quoteState(q) }}</span></td>
+            <td class="rt-num">{{ quotePriceVisible ? money(q.total_price) : '***' }}</td>
+            <td class="rt-num">{{ quotePriceVisible ? Number(q.profit_margin || 0).toFixed(2) + '%' : '***' }}</td>
+            <td class="rt-num">{{ q.config_count || 0 }} 配置</td>
+            <td class="rt-dim">{{ formatQuoteDate(q.created_at) }}</td>
+            <td>
+              <div class="rt-actions">
+                <a-checkbox
+                  v-if="quoteSelectMode"
+                  :checked="selectedIds.has(q.quotation_id)"
+                  @click.stop
+                  @change="emit('toggle-quote-select', q.quotation_id)"
+                />
+                <a-dropdown v-if="!quoteSelectMode" @click.stop>
+                  <a-button size="small" type="link" class="qw-more">更多<DownOutlined /></a-button>
+                  <template #overlay>
+                    <a-menu @click="({ key }: { key: string }) => onQuoteMore(key, q)">
+                      <a-menu-item v-if="canSubmitQuote && q.exported_at && !q.submitted_at" key="send">发送</a-menu-item>
+                      <a-menu-item key="view">{{ q.submitted_at ? '查看已发送' : (q.exported_at ? '查看成本' : '编辑') }}</a-menu-item>
+                      <a-menu-item key="primary">{{ q.is_primary ? '取消主推' : '设为主推' }}</a-menu-item>
+                      <a-menu-item key="rename">重命名</a-menu-item>
+                      <a-menu-item key="delete" danger>删除</a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
               </div>
-            </template>
-            <template v-if="q.is_primary" #summary>
-              当前为主推报价单。
-            </template>
-            <template #footer>
-              <a-checkbox
-                v-if="quoteSelectMode"
-                :checked="selectedIds.has(q.quotation_id)"
-                @click.stop
-                @change="emit('toggle-quote-select', q.quotation_id)"
-              />
-              <div v-if="!quoteSelectMode" class="qw-row-actions" @click.stop>
-                <a-button
-                  v-if="canClaimQuote(q)"
-                  size="small"
-                  type="link"
-                  class="qw-claim"
-                  @click="claimQuote(q)"
-                >认领</a-button>
-                <a-button
-                  v-if="canSubmitQuote && q.exported_at && !q.submitted_at"
-                  size="small"
-                  type="link"
-                  class="qw-send"
-                  @click="openSend(q)"
-                >发送</a-button>
-                <a-button
-                  v-if="auth.can('action.flow.return.quoting') && cardFor('quote', q.quotation_id)?.current_node === 'quoting'"
-                  size="small"
-                  type="link"
-                  danger
-                  @click="returnQuote(q)"
-                >退回成本</a-button>
-                <a-button size="small" type="link" @click="emit('set-primary', q)">{{ q.is_primary ? '取消主推' : '设为主推' }}</a-button>
-                <a-button size="small" type="link" @click="openQuotation(q)">{{ q.submitted_at ? '查看已发送' : (q.exported_at ? '查看成本' : '编辑') }}</a-button>
-                <a-button
-                  v-if="quotePriceVisible && (!q.has_cost_snapshot || q.has_manual_cost)"
-                  size="small"
-                  type="link"
-                  @click="emit('cost-quotation', q)"
-                >
-                  {{ q.has_manual_cost ? '编辑成本' : '补录成本' }}
-                </a-button>
-                <a-button size="small" type="link" @click="emit('rename-quotation', q)">重命名</a-button>
-                <a-button size="small" type="link" danger @click="emit('delete-quotation', q.quotation_id)">删除</a-button>
-              </div>
-            </template>
-          </DocumentCard>
+            </td>
+          </tr>
+        </RecordTable>
+          </div>
         </div>
       </section>
     </div>
@@ -471,7 +505,7 @@ function openConfigDetail(cfg: CostConfig) {
 
 .qw-body {
   display: grid;
-  grid-template-columns: minmax(360px, 440px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   min-height: 0;
 }
@@ -479,19 +513,91 @@ function openConfigDetail(cfg: CostConfig) {
   border: 1px solid var(--cpq-glass-border);
   border-radius: 14px;
   background: var(--cpq-glass-card-bg);
+  box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
 }
-.panel-head {
+.card-shell-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  padding: 11px 13px;
+  gap: 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--cpq-glass-border);
   background: var(--cpq-overlay-w4);
-  font-size: 13px;
+}
+.card-shell-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.card-shell-title > div {
+  min-width: 0;
+}
+.card-shell-eyebrow {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--cpq-text-muted);
+}
+.card-shell-title h3 {
+  margin: 3px 0 0;
+  font-size: 15px;
   font-weight: 600;
   color: var(--cpq-text-primary);
+}
+.qw-shell-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.rich-icon-badge {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
+  color: #fff;
+  font-size: 18px;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
+}
+.card-chevron {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 8px;
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+}
+.card-chevron:hover {
+  background: var(--cpq-overlay-w8);
+  color: var(--cpq-text-primary);
+}
+.card-chevron.collapsed {
+  transform: rotate(180deg);
+}
+.card-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.card-collapse.collapsed {
+  grid-template-rows: 0fr;
+}
+.card-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 .qw-snapshot-body { padding: 12px 13px; }
 .qw-summary {
@@ -517,6 +623,10 @@ function openConfigDetail(cfg: CostConfig) {
   padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border);
   background: var(--cpq-overlay-w4);
 }
+.qw-delete-link {
+  color: var(--cpq-color-danger, #ff4d4f); font-size: 12px; cursor: pointer; white-space: nowrap;
+}
+.qw-delete-link:hover { text-decoration: underline; }
 .qw-sheet-title {
   font-size: 13px; font-weight: 600; color: var(--cpq-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -526,6 +636,7 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-cost-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
 .qw-config-row { cursor: pointer; }
 .qw-config-row:hover { background: var(--cpq-overlay-w4); }
+.qw-total-row td { background: var(--cpq-overlay-w4); color: var(--cpq-text-secondary); font-weight: 600; }
 .panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
 .qw-actions { display: flex; align-items: center; gap: 6px; }
 .qw-batch { padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border); }
@@ -536,6 +647,28 @@ function openConfigDetail(cfg: CostConfig) {
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 12px;
   padding: 12px;
+}
+.row-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
+  color: var(--cpq-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.row-meta-item b {
+  font-weight: 500;
+  color: var(--cpq-text-muted);
+}
+.row-meta-item.muted {
+  color: var(--cpq-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
 }
 .quote-doc-meta {
   display: grid;
@@ -604,6 +737,9 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .qw-detail-table th, .qw-detail-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
 .qw-detail-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
+
+.rt-num { text-align: right; }
+.rt-q-title, .rt-q-id { display: block; word-break: break-word; white-space: normal; min-width: 0; }
 
 @media (max-width: 900px) {
   .qw-body { grid-template-columns: 1fr; }

@@ -14,6 +14,9 @@ const props = defineProps<{
   readonly?: boolean
 }>()
 
+const configRelation = defineModel<'compose' | 'alternative'>('configRelation', { default: 'compose' })
+const primaryConfig = defineModel<string>('primaryConfig', { default: '' })
+
 const emit = defineEmits<{
   (e: 'save', payload: { configs: PortalSheetConfig[]; submit?: boolean }): void
 }>()
@@ -43,6 +46,8 @@ const DEFAULT_KP_CATEGORIES = ['CPU', 'Memory', 'HDD/SSD', 'GPU', 'NIC']
 
 const canEditBom = computed(() => !props.readonly)
 const canEditStructure = computed(() => !props.structureLocked && !props.readonly)
+const isAlternative = computed(() => configRelation.value === 'alternative')
+const activeConfig = computed(() => configs.value.find((c) => c.name === activeKey.value) || configs.value[0] || null)
 const kpCategoryOptions = computed(() => kpCategories.value.map((c) => ({ value: c.name, label: c.name })))
 const kpAllParts = computed(() => kpCategories.value.flatMap((c) => kpCatalog.value[c.name] || []))
 const serverModelOptions = computed(() =>
@@ -254,8 +259,26 @@ function blankConfig(name: string): PortalSheetConfig {
   }
 }
 
+function demandQty() { return Number(configs.value[0]?.qty) || 1 }
+
+function onConfigRelationChange(mode: 'compose' | 'alternative') {
+  configRelation.value = mode
+  if (mode === 'alternative') {
+    const first = activeConfig.value?.name || configs.value[0]?.name || ''
+    if (first && !primaryConfig.value) primaryConfig.value = first
+    const d = demandQty()
+    for (const cfg of configs.value) { if (!cfg.qty || cfg.qty <= 0) cfg.qty = d }
+  }
+}
+
+function markPrimary(name: string) { primaryConfig.value = name }
+
 function addConfig() {
   const cfg = blankConfig(nextConfigName())
+  if (configRelation.value === 'alternative') {
+    cfg.qty = demandQty()
+    if (!primaryConfig.value) primaryConfig.value = cfg.name
+  }
   configs.value.push(cfg)
   activeKey.value = cfg.name
 }
@@ -274,6 +297,9 @@ function removeConfig(cfg: PortalSheetConfig) {
     onOk() {
       const idx = configs.value.findIndex((c) => c.name === cfg.name)
       configs.value = configs.value.filter((c) => c.name !== cfg.name)
+      if (configRelation.value === 'alternative' && primaryConfig.value === cfg.name) {
+        primaryConfig.value = configs.value[0]?.name || ''
+      }
       activeKey.value = (configs.value[Math.min(idx, configs.value.length - 1)] || configs.value[0])?.name || ''
     },
   })
@@ -351,7 +377,27 @@ defineExpose({ saveDraft, submit, getConfigs })
         </a-button>
       </div>
 
+      <div class="fs-relation">
+        <a-radio-group
+          :value="configRelation"
+          size="small"
+          :disabled="!canEditStructure"
+          @change="(e: any) => onConfigRelationChange(e.target.value)"
+        >
+          <a-radio-button value="compose">组合拆分</a-radio-button>
+          <a-radio-button value="alternative">方案备选</a-radio-button>
+        </a-radio-group>
+        <span v-if="isAlternative" class="fs-relation-hint">方案备选：多配置不求和，面向同一需求多方案，请为各配置设主推。</span>
+      </div>
+
       <div v-for="cfg in configs" v-show="cfg.name === activeKey" :key="cfg.name" class="fs-config">
+        <button
+          v-if="isAlternative && canEditStructure"
+          type="button"
+          class="fs-primary-btn"
+          :class="{ active: primaryConfig === cfg.name }"
+          @click="markPrimary(cfg.name)"
+        >{{ primaryConfig === cfg.name ? '☆ 主推方案' : '设为主推方案' }}</button>
         <div class="fs-config-bar">
           <div class="fs-config-grid">
             <label class="fs-grid-cell fs-grid-name">
@@ -394,6 +440,7 @@ defineExpose({ saveDraft, submit, getConfigs })
                 <th class="sheet-col-cat">Catalogue</th>
                 <th class="sheet-col-desc">Configuration Description</th>
                 <th class="sheet-col-qty">Quantity</th>
+                <th class="sheet-col-note">Note</th>
               </tr>
             </thead>
             <draggable
@@ -426,6 +473,10 @@ defineExpose({ saveDraft, submit, getConfigs })
                   <td class="sheet-cell sheet-qty">
                     <a-input-number :controls="false" v-if="canEditStructure" v-model:value="row.qty" :min="0" :precision="0" class="sheet-input" />
                     <span v-else class="sheet-plain sheet-num">{{ row.qty || 0 }}</span>
+                  </td>
+                  <td class="sheet-cell">
+                    <a-input v-if="canEditStructure" v-model:value="row.note" class="sheet-input" placeholder="备注" />
+                    <span v-else class="sheet-plain sheet-wrap">{{ row.note || '—' }}</span>
                   </td>
                 </tr>
               </template>
@@ -479,6 +530,10 @@ defineExpose({ saveDraft, submit, getConfigs })
                   <td class="sheet-cell sheet-qty">
                     <a-input-number :controls="false" v-if="canEditStructure" v-model:value="row.qty" :min="0" :precision="0" class="sheet-input" />
                     <span v-else class="sheet-plain sheet-num">{{ row.qty || 0 }}</span>
+                  </td>
+                  <td class="sheet-cell">
+                    <a-input v-if="canEditStructure" v-model:value="row.note" class="sheet-input" placeholder="备注" />
+                    <span v-else class="sheet-plain sheet-wrap">{{ row.note || '—' }}</span>
                   </td>
                 </tr>
               </template>
@@ -560,6 +615,35 @@ defineExpose({ saveDraft, submit, getConfigs })
 }
 .fs-add-config {
   flex-shrink: 0;
+}
+.fs-relation {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fs-relation .ant-radio-button-wrapper {
+  font-size: 12px;
+  padding: 0 12px;
+}
+.fs-relation-hint {
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+}
+.fs-primary-btn {
+  align-self: flex-start;
+  border: 1px dashed var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.fs-primary-btn.active {
+  background: var(--cpq-accent-primary);
+  color: #fff;
+  border-style: solid;
 }
 .fs-config {
   display: flex;
@@ -647,6 +731,9 @@ defineExpose({ saveDraft, submit, getConfigs })
 .sheet-col-qty {
   width: 80px;
   text-align: right;
+}
+.sheet-col-note {
+  width: 150px;
 }
 .sheet-group {
   position: sticky;

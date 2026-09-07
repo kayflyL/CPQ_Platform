@@ -1,0 +1,15 @@
+{
+  "name": "中等需求-2U双路",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "enable_clarity": true,
+  "input": "2U机架式通用计算服务器，2颗CPU，内存256G，需要万兆网卡，双电源。",
+  "answers": {
+    "server_type": "通用计算服务器",
+    "platform_type": "Polaris",
+    "server_model": "@pick:Polaris",
+    "brain_ask": "@recommend",
+    "GPU": "@absent"
+  },
+  "max_turns": 10
+}

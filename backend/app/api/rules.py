@@ -244,17 +244,14 @@ async def excel_parser_preview(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"无法解析 Excel 文件: {str(e)}")
     
+    valid_sheet_names = [sn for sn in xl.sheet_names if '原始需求' not in sn and 'Reference' not in sn]
+
     # Find target sheet
-    if sheet_name and sheet_name in xl.sheet_names:
+    if sheet_name and sheet_name in valid_sheet_names:
         target_sheet = sheet_name
     else:
-        # Find first valid sheet (skip 原始需求/Reference)
-        target_sheet = None
-        for sn in xl.sheet_names:
-            if '原始需求' not in sn and 'Reference' not in sn:
-                target_sheet = sn
-                break
-    
+        target_sheet = valid_sheet_names[0] if valid_sheet_names else None
+
     if not target_sheet:
         raise HTTPException(status_code=400, detail="未找到有效的报价 Sheet")
     
@@ -273,6 +270,7 @@ async def excel_parser_preview(
         
         return {
             "sheet_name": target_sheet,
+            "sheet_names": valid_sheet_names,
             "parse_result": parse_result,
             "preview": preview_result
         }

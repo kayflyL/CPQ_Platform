@@ -167,8 +167,8 @@ const routes = [
       {
         path: '/strategies/requirement',
         name: 'StrategyRequirement',
-        component: () => import('@/views/admin/requirement/RequirementWorkspace.vue'),
-        meta: { title: '需求分析', perm: 'page.strategies' }
+        component: () => import('@/views/admin/CompatibilityRuleEditor.vue'),
+        meta: { title: '需求分析规则', perm: 'page.strategies' }
       },
       {
         path: '/strategies/solutions/:key',
@@ -203,7 +203,6 @@ const routes = [
         component: () => import('@/views/office/AiOfficeView.vue'),
         meta: { title: 'AI 办公室', aiEntryPoint: true }
       },
-      
       // Univer 模板编辑器（Excel）
       {
         path: '/export-templates/excel/:id/edit',

@@ -37,7 +37,7 @@ def _ok_rows():
         _kp("HDD/SSD", "960G SATA SSD", 2),
         _kp("HDD/SSD", "7.68T NVMe U.2 SSD", 2),
         _kp("Raid card", "LSI 9560-8i", 1),
-        _kp("Network(NIC) requirement", "25G 2port CX5+光模块", 2),
+        _kp("NIC", "25G 2port CX5+光模块", 2),
     ]
 
 
@@ -58,7 +58,7 @@ def _case_rows():
         _kp("HDD/SSD", "960G SATA SSD", 2),
         _kp("HDD/SSD", "7.68T NVMe", 2),
         _kp("Raid card", "LSI 9560-8I 4G cache", 1),
-        _kp("Network(NIC) requirement", "Dual port 25G network card + optical module", 2),
+        _kp("NIC", "Dual port 25G network card + optical module", 2),
     ]
 
 
@@ -155,31 +155,6 @@ def test_unmatched_data_gap():
                           requirement="CPU：AMD 9654 * 2",
                           system_unmatched=[{"category": "GPU", "reason": "需求 GPU 型号库中无料"}])
     assert any(c["signal"] == "unmatched" and c["status"] == "data_gap" for c in report["requirement_checks"])
-
-
-def test_psu_inference_memory_capacity_aware():
-    """I15/I61 R24：电源纯性能推算，内存按容量计功耗——64G×24 高配推断 1600W（原 10W/条 低估到 1300W）。"""
-    from app.api.candidate_search import _estimate_system_load, _suggest_psu_wattage
-    # LLW：2×9554(360W) + 24×64G(15W) + 2×SATA + 1×RAID + 3×NIC
-    kp = [
-        {"category": "CPU", "name": "AMD 9554", "qty": 2},
-        {"category": "Memory", "name": "64G 5600 DDR5 RDIMM", "qty": 24},
-        {"category": "HDD/SSD", "name": "960G SATA SSD", "qty": 2},
-        {"category": "Raid card", "name": "LSI 9560-8i", "qty": 1},
-        {"category": "Network(NIC) requirement", "name": "10G 2port", "qty": 3},
-    ]
-    load = _estimate_system_load(kp)
-    assert _suggest_psu_wattage(load) == "1600"
-    # BI：2×9654(360W) + 16×32G(10W) → 1300W
-    kp2 = [
-        {"category": "CPU", "name": "AMD 9654", "qty": 2},
-        {"category": "Memory", "name": "32G 4800 DDR5 RDIMM", "qty": 16},
-        {"category": "HDD/SSD", "name": "960G SATA SSD", "qty": 2},
-        {"category": "HDD/SSD", "name": "7.68T NVMe U.2", "qty": 2},
-        {"category": "Raid card", "name": "LSI 9560-8i", "qty": 1},
-        {"category": "Network(NIC) requirement", "name": "25G 2port", "qty": 2},
-    ]
-    assert _suggest_psu_wattage(_estimate_system_load(kp2)) == "1300"
 
 
 def test_drive_iface_ignores_raid_line():

@@ -37,6 +37,10 @@ class Quotation(Base):
     config_descriptions: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的描述
     config_server_models: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的服务器型号
     config_warranty_info: Mapped[Optional[dict]] = mapped_column(JSON, default=None)  # 每个配置的维保信息（年限/费率/描述）
+    # 配置关系：compose=组合/并行（各配置台数相加，旧行为）/ alternative=方案备选对比（不求和）
+    config_relation: Mapped[Optional[str]] = mapped_column(String, default="compose")
+    # 方案备选模式下的主推配置名（default=第一个配置）；compose 模式忽略
+    primary_config: Mapped[Optional[str]] = mapped_column(String, default="")
 
     # 计算字段
     total_price: Mapped[Optional[float]] = mapped_column(Float, default=0.0)
@@ -89,6 +93,8 @@ class Quotation(Base):
             "config_descriptions": self.config_descriptions or {},
             "config_server_models": self.config_server_models or {},
             "config_warranty_info": self.config_warranty_info or {},
+            "config_relation": self.config_relation or "compose",
+            "primary_config": self.primary_config or "",
             "total_price": self.total_price or 0.0,
             "profit_margin": self.profit_margin or 0.0,
             "is_primary": self.is_primary or False,

@@ -4,7 +4,6 @@
  * 改节点 config 立即生效（下次推理用新参数）；三层兜底在 run_pipeline（DB 异常回退模块常量）。
  */
 import axios from 'axios'
-import type { Plan } from '@/api/reasoning'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
@@ -39,24 +38,6 @@ export interface ReasoningFlow {
   node_configs?: Partial<Record<ReasoningNodeKey, Record<string, any>>>  // 仅 get_active 返回
 }
 
-/** 试运行事件（按执行顺序：pipeline_start / step_start / step_done / candidates_ready / pipeline_done / need_input） */
-export interface TestRunEvent {
-  type: string
-  step?: string
-  label?: string
-  payload?: any
-  [k: string]: any
-}
-/** 试运行结果：每步事件 + ext/kp_by_model/plans 明细（全从 ctx 取） */
-export interface TestRunResult {
-  events: TestRunEvent[]
-  ext: Record<string, any>
-  kp_by_model: Record<string, any[]>
-  plans: Plan[]
-  awaiting_input: boolean
-  error?: string
-}
-
 export const reasoningFlowApi = {
   get: (skillKey?: string) =>
     RESP<{ flow: ReasoningFlow | null }>(axios.get('/api/reasoning-flow/', {
@@ -76,17 +57,4 @@ export const reasoningFlowApi = {
     })),
   activate: (flowId: number) =>
     RESP<ReasoningFlow>(axios.post(`/api/reasoning-flow/versions/${flowId}/activate`, {})),
-  testRun: (text: string, budget?: number, forceComplete?: boolean, skillKey?: string) =>
-    RESP<TestRunResult>(axios.post('/api/reasoning-flow/test-run', {
-      requirement_text: text,
-      explicit_budget: budget,
-      force_complete: forceComplete ?? true,
-    }, { params: skillKey ? { skill_key: skillKey } : undefined })),
-  /** 流式试运行：注册 run_id，事件经 WS /api/reasoning-flow/test-run-ws/{run_id} 实时推送 */
-  testRunStart: (text: string, budget?: number, forceComplete?: boolean, skillKey?: string) =>
-    RESP<{ run_id: string }>(axios.post('/api/reasoning-flow/test-run/start', {
-      requirement_text: text,
-      explicit_budget: budget,
-      force_complete: forceComplete ?? true,
-    }, { params: skillKey ? { skill_key: skillKey } : undefined })),
 }

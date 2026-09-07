@@ -16,7 +16,7 @@ const categories = ref<string[]>([])      // 全部细类别（编辑表单的 c
 const majorCat = ref<string>('all')       // 一级大类筛选（主导航）
 const cat2 = ref<string>('all')           // 段内子类二级筛选
 const chassisFilter = ref<string>('all')   // 适用机型筛选（all / series名 / common / unclassified）
-// 全平台系列权威源（system_config.server_series）：侧栏机型筛选 + chassis 字段下拉候选都读这里
+// 全平台系列权威源（l6.server_types（设置-服务器管理-产品系列））：侧栏机型筛选 + chassis 字段下拉候选都读这里
 const seriesStore = useSeriesStore()
 const search = ref('')
 const viewMode = ref<'card' | 'list'>('card')   // 卡片 / 列表 视图切换

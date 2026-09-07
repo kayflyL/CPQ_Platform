@@ -3,10 +3,9 @@
  * 两种数据形态：
  *  - 完整快照（导出冻结）：{totals, configs, rates}。多配置时「每个配置一个整机汇总」
  *    （各配置利润率独立，不再跨配置混算）；totals 仅作项目总计（Σ 单台 × qty）备用。
- *  - 手工补录快照：{manual:true, captured_at, totals} → 只渲染一个整机汇总（无 configs）。
- * 无快照时（历史导入单）切换为录入模式。 */
-import { ref, computed, watch } from 'vue'
-import { message } from 'ant-design-vue'
+ *  - 手工补录快照（旧数据）：{manual:true, captured_at, totals} → 只渲染一个整机汇总（无 configs）。
+ * 仅保留只读展示；不再支持补录/编辑。 */
+import { computed } from 'vue'
 import { money } from '@/utils/quoteCommon'
 
 const props = defineProps<{
@@ -14,13 +13,11 @@ const props = defineProps<{
   quotation: any
   excelLoading?: boolean
   reparseLoading?: boolean
-  saveLoading?: boolean
 }>()
 const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
   (e: 'view-excel'): void
   (e: 'reparse'): void
-  (e: 'save-cost', snapshot: Record<string, any>): void
 }>()
 
 const snap = computed<any>(() => props.quotation?.cost_snapshot || null)
@@ -50,33 +47,7 @@ function formatStratBody(s: any): string {
 const totals = computed(() => snap.value?.totals || {})
 const cfgNames = computed<string[]>(() => (snap.value?.configs ? Object.keys(snap.value.configs) : []))
 
-// 手工录入态
-const inputCost = ref<number | null>(null)
-const inputSales = ref<number | null>(null)
-// 已有手工补录时点「编辑」切回录入态；保存成功（snap 变化）后自动切回展示
-const editing = ref(false)
-const previewProfit = computed(() => (inputSales.value ?? 0) - (inputCost.value ?? 0))
-const previewMargin = computed(() => {
-  const c = inputCost.value ?? 0
-  if (c <= 0) return 0
-  return (previewProfit.value / c) * 100
-})
 
-// 切换报价单 → 清空输入 + 回到展示态
-watch(() => props.quotation?.quotation_id, () => {
-  inputCost.value = null
-  inputSales.value = null
-  editing.value = false
-})
-
-// 保存成功后 snap 引用变化 → 退出编辑态（失败时保持编辑，方便再改）
-watch(snap, () => { editing.value = false })
-
-function requestEdit() {
-  inputCost.value = totals.value.totalCost ?? null
-  inputSales.value = totals.value.totalSales ?? null
-  editing.value = true
-}
 
 function pct(n: any): string {
   const v = Number(n || 0)
@@ -89,21 +60,6 @@ function marginOf(cost: any, sales: any): number {
 }
 function close() {
   emit('update:open', false)
-}
-function saveSnapshot() {
-  const cost = Number(inputCost.value || 0)
-  const sales = Number(inputSales.value || 0)
-  if (cost <= 0 && sales <= 0) {
-    message.warning('请至少输入整机成本或整机售价')
-    return
-  }
-  const profit = sales - cost
-  const marginPct = cost > 0 ? Math.round((profit / cost) * 10000) / 100 : 0
-  emit('save-cost', {
-    manual: true,
-    captured_at: new Date().toISOString(),
-    totals: { totalCost: cost, totalSales: sales, profit, marginPct }
-  })
 }
 </script>
 
@@ -121,41 +77,18 @@ function saveSnapshot() {
         <span class="dt-tag">
           <template v-if="hasSnapshot && isManual">手工补录 · {{ snap.captured_at?.slice(0, 10) || '—' }}</template>
           <template v-else-if="hasSnapshot">已导出 · {{ quotation?.exported_at?.slice(0, 10) || '—' }}</template>
-          <template v-else>待补录成本</template>
+          <template v-else>无成本数据</template>
         </span>
       </div>
     </template>
 
-    <!-- 录入模式：无快照，或对已有手工补录点「编辑」后 -->
-    <div v-if="!hasSnapshot || (isManual && editing)" class="manual-form glass">
-      <p class="mf-hint">{{ editing ? '修改整机成本与售价，保存后将覆盖原补录数据。' : '该报价单无成本数据。手动录入整机级成本与售价，利润额 / 利润率自动计算。' }}</p>
-      <div class="mf-row">
-        <label>整机成本</label>
-        <a-input-number v-model:value="inputCost" :min="0" :step="1000" placeholder="如 120000" style="width:100%">
-          <template #prefix>¥</template>
-        </a-input-number>
-      </div>
-      <div class="mf-row">
-        <label>整机售价</label>
-        <a-input-number v-model:value="inputSales" :min="0" :step="1000" placeholder="如 150000" style="width:100%">
-          <template #prefix>¥</template>
-        </a-input-number>
-      </div>
-      <div class="mf-preview">
-        <div class="kpi">
-          <span class="kpi-label">利润额</span>
-          <span class="kpi-value">{{ money(previewProfit) }}</span>
-        </div>
-        <div class="kpi kpi-accent">
-          <span class="kpi-label">利润率</span>
-          <span class="kpi-value">{{ pct(previewMargin) }}</span>
-        </div>
-      </div>
+    <!-- 无成本数据（历史导入或未导出）：仅提示，不再支持补录 -->
+    <div v-if="!hasSnapshot" class="manual-form glass">
+      <p class="mf-hint">该报价单暂无成本快照数据。</p>
     </div>
 
-    <template v-else>
-      <!-- 手工补录快照：只有项目级 totals，无 configs -->
-      <section v-if="isManual" class="snap-block glass">
+    <!-- 手工补录快照：只有项目级 totals，无 configs -->
+    <section v-else-if="isManual" class="snap-block glass">
         <header class="sb-head"><h4>整机汇总</h4></header>
         <div class="kpi-row">
           <div class="kpi">
@@ -258,17 +191,11 @@ function saveSnapshot() {
           </details>
         </section>
       </template>
-    </template>
 
     <template #footer>
       <div class="drawer-footer">
-        <template v-if="!hasSnapshot || (isManual && editing)">
-          <a-button v-if="editing" @click="editing = false">取消</a-button>
-          <a-button type="primary" :loading="saveLoading" @click="saveSnapshot">保存成本</a-button>
-        </template>
-        <template v-else>
+        <template v-if="hasSnapshot">
           <a-button :loading="excelLoading" @click="emit('view-excel')">查看 Excel</a-button>
-          <a-button v-if="isManual" type="primary" ghost @click="requestEdit">编辑</a-button>
           <a-button v-if="!isManual" type="primary" ghost :loading="reparseLoading" @click="emit('reparse')">复制为草稿</a-button>
         </template>
         <a-button @click="close">关闭</a-button>

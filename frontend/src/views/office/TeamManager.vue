@@ -8,7 +8,6 @@
 
       <a-radio-group v-model:value="editorTab" button-style="solid" size="small" class="tm-editor-tabs">
         <a-radio-button value="team">团队</a-radio-button>
-        <a-radio-button value="space">空间</a-radio-button>
         <a-radio-button value="behavior">行为</a-radio-button>
         <a-radio-button value="character">员工</a-radio-button>
       </a-radio-group>
@@ -156,13 +155,6 @@
       </aside>
       </div>
 
-      <OfficeSpaceEditor ref="spaceEditorRef"
-        v-else-if="editorTab === 'space'"
-        class="tm-editor-pane"
-        :office-config="officeConfig"
-        :colleagues="managedColleagues"
-        @saved="handleChildSaved"
-      />
       <OfficeBehaviorEditor ref="behaviorEditorRef"
         v-else-if="editorTab === 'behavior'"
         class="tm-editor-pane"
@@ -219,7 +211,6 @@ import '@vue-flow/controls/dist/style.css'
 import { CloseOutlined, EditOutlined, PlusOutlined, SaveOutlined, SettingOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
 import OfficeFlowNode from './OfficeFlowNode.vue'
-import OfficeSpaceEditor from './OfficeSpaceEditor.vue'
 import OfficeBehaviorEditor from './OfficeBehaviorEditor.vue'
 import EmployeeManager from './EmployeeManager.vue'
 
@@ -234,7 +225,7 @@ const props = defineProps<{
   initialRoleKey?: string | null
   leadRoleKey?: string | null
   embedded?: boolean
-  initialEditorTab?: 'team' | 'space' | 'behavior' | 'character'
+  initialEditorTab?: 'team' | 'behavior' | 'character'
 }>()
 
 const emit = defineEmits<{
@@ -246,11 +237,10 @@ const edges = shallowRef<Edge[]>([])
 const nodeTypes = markRaw({ agent: OfficeFlowNode, user: OfficeFlowNode }) as any
 
 const mode = ref<'view' | 'edit'>('view')
-const editorTab = ref<'team' | 'space' | 'behavior' | 'character'>(props.initialEditorTab || 'team')
+const editorTab = ref<'team' | 'behavior' | 'character'>(props.initialEditorTab || 'team')
 const draftLeadRoleKey = ref<string | null>(props.leadRoleKey || null)
 const leadDirty = ref(false)
 const savingTab = ref(false)
-const spaceEditorRef = ref<any>(null)
 const behaviorEditorRef = ref<any>(null)
 const employeeEditorRef = ref<any>(null)
 const savingRooms = ref(false)
@@ -279,7 +269,6 @@ const colleagueOptions = computed(() =>
   })),
 )
 const headerSaveText = computed(() => {
-  if (editorTab.value === 'space') return '保存空间'
   if (editorTab.value === 'behavior') return '保存行为'
   if (editorTab.value === 'character') return '保存员工'
   return '保存团队'
@@ -601,13 +590,6 @@ async function handleHeaderSave() {
   try {
     if (editorTab.value === 'team') {
       await saveTeamTab()
-    } else if (editorTab.value === 'space') {
-      const editor = spaceEditorRef.value
-      if (!editor || typeof editor.save !== 'function') {
-        message.error('空间编辑器保存功能未就绪')
-        return
-      }
-      await editor.save()
     } else if (editorTab.value === 'behavior') {
       const editor = behaviorEditorRef.value
       if (!editor || typeof editor.save !== 'function') {

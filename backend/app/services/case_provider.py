@@ -43,18 +43,8 @@ _TAG_KEYWORDS = {
 
 
 def _series_tag_keywords() -> dict:
-    """平台系列 → 检索标签关键词：读规则目录 platform_series_map，不内嵌厂商正则。"""
-    try:
-        from app.services.requirement_rule_catalog import platform_series_map as _psm
-        out: dict = {}
-        for r in _psm():
-            series = str(r.get("series") or "").strip()
-            kws = [str(k).strip().lower() for k in (r.get("keywords") or []) if str(k).strip()]
-            if series and kws:
-                out[series] = kws
-        return out
-    except Exception:
-        return {}
+    """平台系列 → 检索标签关键词（platform_series_map 规则已随“策略中心-需求分析”移除，返回空）。"""
+    return {}
 
 
 def _infer_tags(query: str) -> list:

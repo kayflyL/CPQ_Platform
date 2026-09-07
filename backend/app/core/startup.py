@@ -10,8 +10,8 @@ from app.models.feed_user import FeedUser
 from app.models.feed_message import FeedMessage
 from app.models.feed_attachment import FeedAttachment
 from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推理流可视化配置（注册 metadata 供 create_all 建表）
+from app.models.skill_config import SkillPromptTemplate, ReasoningNodeDefault  # 技能提示词/推理节点默认契约（DB 唯一权威，注册 metadata 供 create_all 建表）
 from app.models.skill import SkillCatalog  # Skill 元数据独立表（注册 metadata 供 create_all 建表）
-from app.models.requirement_rule import RequirementRule, RequirementSample  # 需求分析规则库
 from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标）（注册 metadata 供 create_all 建表）
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
 from app.models.office_event import OfficeEvent  # AI 办公室事件审计（注册 metadata 供 create_all 建表）
@@ -307,6 +307,42 @@ def ensure_quotation_submission_columns():
             c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN submitted_by TEXT"))
         if "submitted_attachment_id" not in cols:
             c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN submitted_attachment_id TEXT"))
+
+
+def ensure_quotation_config_relation_columns():
+    """报价单配置关系（幂等 DDL，boot 时自愈）：
+    opportunities.quotations 加 config_relation（compose/alternative）与 primary_config（主推配置名）。
+    方案备选模式（alternative）下配置不求和，total_qty 取需求台数。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='quotations'"
+        ))}
+    with opp_engine.begin() as c:
+        if "config_relation" not in cols:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN config_relation TEXT DEFAULT 'compose'"))
+        if "primary_config" not in cols:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN primary_config TEXT DEFAULT ''"))
+
+
+def ensure_bom_scheme_config_relation_columns():
+    """BOM 方案配置关系（幂等 DDL，boot 时自愈）：
+    opportunities.opportunity_bom_schemes 加 config_relation（compose/alternative）与 primary_config（主推配置名）。
+    方案配置从需求单继承默认模式，本方案可独立修改，不回写需求单。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_bom_schemes'"
+        ))}
+    with opp_engine.begin() as c:
+        if "config_relation" not in cols:
+            c.execute(text("ALTER TABLE opportunities.opportunity_bom_schemes ADD COLUMN config_relation TEXT DEFAULT 'compose'"))
+        if "primary_config" not in cols:
+            c.execute(text("ALTER TABLE opportunities.opportunity_bom_schemes ADD COLUMN primary_config TEXT DEFAULT ''"))
 
 
 def backfill_premature_done_flows():
@@ -786,13 +822,18 @@ def init_rules_db():
     
     print("✅ Rules database initialized")
 
-    # Initialize system_config defaults
-    config_repo = SystemConfigRepository()
+    # system_config 无启动种子（2026-09-02 定调：DB 是唯一来源，代码不存默认值）。
+    # 技能提示词 & 推理节点默认契约 → DB 唯一权威（空库播种；运行后只读新表，无种子/兜底）
     try:
-        config_repo.init_defaults()
-        print("✅ System config initialized")
-    finally:
-        config_repo.close()
+        from app.services.skill_config_bootstrap import ensure_skill_prompt_templates, ensure_reasoning_node_defaults
+        _pn = ensure_skill_prompt_templates()
+        _nd = ensure_reasoning_node_defaults()
+        if _pn or _nd:
+            print(f"✅ Skill config bootstrapped (prompts {_pn}, node_defaults {_nd})")
+        else:
+            print("✅ Skill config already seeded in DB")
+    except Exception as e:
+        print(f"⚠️ Skill config bootstrap failed: {e}")
 
     try:
         cleanup_legacy_skill_library_mirror()
@@ -807,14 +848,6 @@ def init_rules_db():
         try:
             # 首次部署建默认流；已有流则不动。
             rf_repo.seed_default_if_empty()
-            # 一次性把旧需求分析图迁移到真实业务四步图（input→agent_fill→model_reason→kp_reason→compose→output）。
-            if rf_repo.migrate_requirement_analysis_to_business_graph():
-                print("✅ Reasoning flow migrated to business graph")
-            if rf_repo.active_is_current():
-                healed = rf_repo.self_heal_agent_node_configs()
-                print(f"✅ Reasoning flow current（补齐 {healed} 个可编辑节点配置）")
-            else:
-                print("⚠️ Reasoning flow 非最新代，已尝试迁移但仍未对齐")
         finally:
             rf_repo.close()
     except Exception as e:
@@ -832,44 +865,6 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Capability spec validation failed: {e}")
 
-    # Skill Catalog 主存储：只补代码默认缺失项，不覆盖用户已编辑技能。
-    try:
-        from app.services.skill_registry import default_skill_library
-        from app.repository.skill_catalog_repo import SkillCatalogRepository
-        sk_repo = SkillCatalogRepository()
-        try:
-            changed = sk_repo.sync_defaults(default_skill_library())
-            print(f"✅ Skill catalog synced ({changed} new)")
-            normalized = sk_repo.normalize_workflow_tools()
-            if normalized:
-                print(f"✅ Skill catalog workflow tools normalized ({normalized})")
-        finally:
-            sk_repo.close()
-    except Exception as e:
-        print(f"⚠️ Skill catalog init failed: {e}")
-
-    # Requirement rules default seed (需求分析规则库：clarity/budget)
-    try:
-        from app.repository.requirement_rule_repo import RequirementRuleRepository
-        rr_repo = RequirementRuleRepository()
-        try:
-            n = rr_repo.seed_default_if_empty()
-            if n:
-                print(f"✅ Requirement rules initialized ({n} rules)")
-            else:
-                print("✅ Requirement rules already present")
-            # 按名非破坏补种新增默认项（新 clarity/rebuttal 规则随迭代自动补上，不动用户已有改动）
-            m = rr_repo.seed_missing_defaults()
-            if m:
-                print(f"   + {m} new requirement rule(s) appended (non-destructive)")
-            # 目录驱动引导上线：删除已废弃的 rebuttal/workload 旧规则与样本（幂等）
-            d = rr_repo.cleanup_obsolete_rules()
-            if d:
-                print(f"   🧹 removed {d} obsolete requirement rule(s) (rebuttal/workload)")
-        finally:
-            rr_repo.close()
-    except Exception as e:
-        print(f"⚠️ Requirement rules init failed: {e}")
 
     # 兼容规则分类列 DDL（必须在 ORM seed/backfill 前跑，确保列存在）
     try:
@@ -1000,6 +995,16 @@ def init_rules_db():
         print("✅ Premature done flows backfilled to running")
     except Exception as e:
         print(f"⚠️ Premature done flows backfill failed: {e}")
+    try:
+        ensure_quotation_config_relation_columns()
+        print("✅ Quotation config_relation/primary_config columns ensured")
+    except Exception as e:
+        print(f"⚠️ Quotation config_relation migrate failed: {e}")
+    try:
+        ensure_bom_scheme_config_relation_columns()
+        print("✅ BOM scheme config_relation/primary_config columns ensured")
+    except Exception as e:
+        print(f"⚠️ BOM scheme config_relation migrate failed: {e}")
     # 反向回填已改为显式迁移脚本，不再随启动自动执行。
     # 见 backend/scripts/migrate_legacy_flow_artifacts.py。
     try:

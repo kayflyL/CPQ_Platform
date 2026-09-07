@@ -90,7 +90,7 @@
 
         <div class="table-card glass">
           <div class="filter-row">
-            <input v-model="filters.search" class="search-input dark-input" placeholder="搜索客户 / 业务" @input="debounceFilter" />
+            <input v-model="filters.search" class="search-input dark-input" placeholder="搜索客户 / 业务 / 商机号" @input="debounceFilter" />
             <a-select v-model:value="filters.status" size="small" class="dark-select" style="width: 104px" @change="onFilterChange">
               <a-select-option value="all">全部状态</a-select-option>
               <a-select-option value="pending">进行中</a-select-option>
@@ -220,7 +220,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, defineAsyncComponent } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import { BarChartOutlined, RobotOutlined, RestOutlined, PlusOutlined, MoreOutlined } from '@ant-design/icons-vue'
@@ -232,10 +232,12 @@ import { useAuthStore } from '@/store/auth'
 
 const OpportunityCharts = defineAsyncComponent(() => import('@/components/opportunity/OpportunityCharts.vue'))
 
+defineOptions({ name: 'OpportunityList' })
+
 const router = useRouter()
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
-// 全平台系列权威源（system_config.server_series）：筛选下拉读这里，不再硬编码 Orion/Polaris
+// 全平台系列权威源（l6.server_types（设置-服务器管理-产品系列））：筛选下拉读这里，不再硬编码 Orion/Polaris
 const seriesStore = useSeriesStore()
 
 // 图表延迟挂载：左栏默认展开，空闲时再挂载 ECharts
@@ -735,6 +737,15 @@ onBeforeUnmount(() => {
   if (resizeTimer) clearTimeout(resizeTimer)
   window.removeEventListener('resize', onViewportResize)
   if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
+})
+// KeepAlive：切回时刷新数据（首次挂载由 onMounted 加载，避免重复请求）
+let _oppActivated = false
+onActivated(() => {
+  if (!_oppActivated) {
+    _oppActivated = true
+    return
+  }
+  reloadAll()
 })
 watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage: true }))
 </script>

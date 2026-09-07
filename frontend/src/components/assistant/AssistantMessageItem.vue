@@ -11,16 +11,15 @@
       </div>
       <div class="am-content">
         <span v-if="showAuthor && author.name" class="am-author">{{ author.name }}</span>
-        <!-- 思考内容：默认收起为一行，点开看全程 -->
-        <div v-if="thinking" class="am-thinking">
-          <button type="button" class="am-thinking-head" @click="thinkingExpanded = !thinkingExpanded">
-            <span class="am-thinking-caret">{{ thinkingExpanded ? '▾' : '▸' }}</span>
-            <span class="am-thinking-label">思考过程</span>
-          </button>
-          <div v-if="thinkingExpanded" class="am-thinking-body">{{ thinking }}</div>
+        <!-- 思考过程：Claude Code 式多行增长暗色块——限高内部滚动自动跟底 -->
+        <div v-if="thinking" class="am-thinking" :class="{ 'am-thinking--live': thinkingActive }">
+          <span class="am-thinking-dot" />
+          <span ref="thinkTextEl" class="am-thinking-text">{{ thinkingTail }}</span>
         </div>
-        <!-- 结构化问题面板：任务进行中向用户要决定（选项卡数据=引擎缺口，文案=角色） -->
-        <div v-if="question" class="am-q" :class="{ 'am-q--locked': !optionInteractive }">
+        <!-- 结构化问题面板：任务进行中向用户要决定（选项卡数据=引擎缺口，文案=角色）。
+             答完即收（Claude Code 语义）：未答时渲染整卡（回合进行中渲染但禁点，卡到达即可见）；
+             已答/被取代 → 塌成一行静态记录（问题 + 已选答案），选项列表不留在聊天流里。 -->
+        <div v-if="question && !optionAnswered" class="am-q" :class="{ 'am-q--locked': !optionInteractive }">
           <div class="am-q-head">
             <span class="am-q-badge">?</span>
             <span class="am-q-text">{{ question.text }}</span>
@@ -29,32 +28,34 @@
             <div v-if="isGroupStart(i)" class="am-q-group-label">
               <span>{{ opt.group }}</span>
               <a-select
-                v-if="isPartsCard && optionInteractive && props.threadId && pickableSlots.has(opt.slot)"
+                v-if="isPartsCard && props.threadId"
                 class="am-q-pick-select"
                 size="small"
                 show-search
                 allow-clear
+                :disabled="!optionInteractive"
                 placeholder="从配件库自选…"
                 :value="undefined"
-                :open="pickOpen[opt.slot] || undefined"
+                :open="pickOpen[opt.slot]"
                 :loading="!!pickLoading[opt.slot]"
                 :options="pickSelectOptions(opt.slot)"
                 :filter-option="filterPickOption"
-                @dropdownVisibleChange="(o: boolean) => o && loadPick(opt.slot)"
+                @dropdownVisibleChange="(o: boolean) => setPickOpen(opt.slot, o)"
                 @change="(v: any) => onPickSelect(opt.slot, v)"
+                @blur="setPickOpen(opt.slot, false)"
               />
             </div>
             <div v-if="isGroupStart(i) && pickError[opt.slot]" class="am-q-pick-err">{{ pickError[opt.slot] }}</div>
             <button
               type="button"
               class="am-q-opt"
-              :class="{ 'am-q-opt--picked': isPicked(opt), 'am-q-opt--escape': isEscape(opt) }"
+              :class="{ 'am-q-opt--picked': isPicked(opt), 'am-q-opt--escape': isEscape(opt), 'am-q-opt--rec': opt.recommended }"
               :disabled="!optionInteractive"
               @click="onOptClick(opt)"
             >
               <span class="am-q-key">{{ isPicked(opt) ? '✓' : i + 1 }}</span>
               <span class="am-q-body">
-                <span class="am-q-label">{{ opt.label }}</span>
+                <span class="am-q-label">{{ opt.label }}<span v-if="opt.recommended" class="am-q-rec">推荐</span></span>
                 <span v-if="opt.desc" class="am-q-desc">{{ opt.desc }}</span>
               </span>
             </button>
@@ -75,17 +76,17 @@
             <span v-if="totalText" class="am-q-stepper-total">{{ totalText }}</span>
           </div>
           <!-- 手动输入型号：自由型号走服务端目录模糊匹配，库外型号白盒提交 -->
-          <div v-if="isPartsCard && optionInteractive" class="am-q-manual">
+          <div v-if="isPartsCard" class="am-q-manual">
             <input
               v-model="manualText"
               class="am-q-manual-input"
+              :disabled="!optionInteractive"
               placeholder="手动输入型号（库外型号也可提交）"
               @keyup.enter="submitParts"
             />
           </div>
           <div class="am-q-foot">
-            <template v-if="!optionInteractive">已处理</template>
-            <template v-else-if="isPartsCard && question.options.length">
+            <template v-if="isPartsCard && question.options.length">
               <span class="am-q-form-hint">{{ partsHint }}</span>
               <button
                 type="button"
@@ -98,6 +99,12 @@
             <template v-else>直接输入你的回答</template>
           </div>
         </div>
+        <!-- 已答/被取代：一行静态记录，聊天流只留问题与答案 -->
+        <div v-else-if="question" class="am-q-done">
+          <span class="am-q-done-check">✓</span>
+          <span class="am-q-done-text">{{ question.text || '问题' }}</span>
+          <span class="am-q-done-answer">{{ collapsedAnswer }}</span>
+        </div>
         <!-- 实时气泡：流式正文 > 状态行 > 呼吸点；正文已流出时若工具在跑，状态行挂在正文下方 -->
         <div v-else class="am-bubble am-bubble--live">
           <template v-if="content || streaming">
@@ -106,6 +113,9 @@
           </template>
           <template v-else-if="statusText">
             <span class="am-status-line"><span class="am-status-dot"></span>{{ statusText }}</span>
+          </template>
+          <template v-else-if="idleText">
+            <span class="am-status-line"><span class="am-status-dot"></span>{{ idleText }}</span>
           </template>
           <template v-else>
             <span class="am-typing"><i></i><i></i><i></i></span>
@@ -118,7 +128,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { assistantApi } from '@/api/assistant'
 
 const props = withDefaults(defineProps<{
@@ -136,10 +146,15 @@ const props = withDefaults(defineProps<{
   streaming?: boolean
   typing?: boolean
   statusText?: string
+  /** 静默心跳文案（父组件计时）：三条流全空时替呼吸点显示「模型思考中 Ns…」 */
+  idleText?: string
   thinking?: string
   thinkingActive?: boolean
-  /** 问题面板是否可交互：仅最新未取代的选项卡可点（父组件按消息序计算） */
+  /** 问题面板是否可点：已答/被取代或回合进行中为 false（父组件按消息序+运行态计算） */
   optionInteractive?: boolean
+  /** 选项卡是否已被回答/取代（父组件按消息序计算）：塌成一行静态记录。
+   *  与 optionInteractive 分离：回合进行中卡片可见但禁点，不再整卡消失 */
+  optionAnswered?: boolean
   /** 当前会话 ID：配件库自选候选按它查询（card-pick 端点读留底卡） */
   threadId?: string
   /** 发卡角色（浮动面板会话可被分派，记忆按角色存）：留空走线程默认 */
@@ -152,9 +167,11 @@ const props = withDefaults(defineProps<{
   streaming: false,
   typing: false,
   statusText: '',
+  idleText: '',
   thinking: '',
   thinkingActive: false,
   optionInteractive: true,
+  optionAnswered: false,
   threadId: '',
   pickRole: '',
   showAuthor: true,
@@ -165,7 +182,18 @@ const emit = defineEmits<{
   (e: 'submit-selections', selections: Array<{ slot: string; value: string; label: string; qty?: number }>): void
 }>()
 
-const thinkingExpanded = ref(false)
+// Claude Code 式思考块：多行增长（保留换行），限长尾部 + 块内自动跟底
+const thinkingTail = computed(() => {
+  const t = (props.thinking || '').trim()
+  if (!t) return '思考中…'
+  return t.length > 1600 ? '…' + t.slice(-1600) : t
+})
+const thinkTextEl = ref<HTMLElement | null>(null)
+watch(() => props.thinking, async () => {
+  await nextTick()
+  const el = thinkTextEl.value
+  if (el) el.scrollTop = el.scrollHeight
+})
 const role = computed(() => props.message?.role === 'user' ? 'user' : 'assistant')
 const content = computed(() => props.message?.content || '')
 
@@ -178,12 +206,15 @@ interface QOption {
   qty?: number
   qty_max?: number
   unit_gb?: number
+  recommended?: boolean
 }
 
 const question = computed<null | {
   text: string
   slot: string
   options: QOption[]
+  partsCard: boolean
+  unitLabel: string
 }>(() => {
   if (props.message?.kind !== 'input_options' || !props.message?.data) return null
   try {
@@ -203,6 +234,7 @@ const question = computed<null | {
         qty: Number.isFinite(o?.qty) && o.qty > 0 ? Number(o.qty) : undefined,
         qty_max: Number.isFinite(o?.qty_max) && o.qty_max > 0 ? Number(o.qty_max) : undefined,
         unit_gb: Number.isFinite(o?.unit_gb) && o.unit_gb > 0 ? Number(o.unit_gb) : undefined,
+        recommended: !!o?.recommended,
       })))
     }
     if (!options.length && Array.isArray(data?.options)) {
@@ -217,7 +249,10 @@ const question = computed<null | {
     }
     options = options.filter((o) => o.label)
     if (!text && !options.length) return null
-    return { text, slot: options[0]?.slot || 'general', options }
+    // 卡能力声明制（2026-09-06 插头化）：是否表单卡（自选/步进/手动/提交）由后端
+    // payload 声明驱动，前端不再枚举业务槽位词
+    return { text, slot: options[0]?.slot || 'general', options,
+             partsCard: !!data?.parts_card, unitLabel: String(data?.unit_label || '') }
   } catch {
     return null
   }
@@ -229,15 +264,15 @@ function avatarInitial(name?: string): string {
 }
 
 // ── 逐项配件卡：单组选项=选择→（可调数量时）stepper→提交；组头挂配件库下拉 ──
-const pickableSlots = new Set(['gpu', 'cpu', 'memory', 'drives'])
-
+// 卡能力声明制（2026-09-06 插头化）：表单模式由 payload 的 parts_card 声明驱动，
+// 前端不再枚举业务槽位词（旧 pickableSlots gpu/cpu/memory/storage 已删）。
 const picked = ref<QOption | null>(null)
 const qtyVal = ref(0)
 const manualText = ref('')
 
-/** 单一可配组且组内有数量元数据 → 逐项表单卡（选中+可调+提交）；否则即点即发 */
 const partsSlot = computed<string>(() => {
-  const slots = new Set(question.value?.options.filter((o) => pickableSlots.has(o.slot)).map((o) => o.slot) || [])
+  if (!question.value?.partsCard) return ''
+  const slots = new Set(question.value?.options.map((o) => o.slot) || [])
   return slots.size === 1 ? [...slots][0] : ''
 })
 
@@ -270,6 +305,18 @@ function isPicked(o: QOption): boolean {
   return !!picked.value && picked.value.slot === o.slot && picked.value.value === o.value
 }
 
+// 已答卡的一行记录：优先显示选了什么（含数量）；未被本卡作答（答了兄弟卡/打字
+// 覆盖、记忆丢失刷新后）退「已收起」——不能说「已处理」，用户没碰过这张卡
+const collapsedAnswer = computed(() => {
+  const t = manualText.value.trim()
+  if (t) return `已选：${t}`
+  if (picked.value) {
+    const qty = adjustable.value && qtyVal.value > 1 ? ` ×${qtyVal.value}` : ''
+    return `已选：${picked.value.label}${qty}`
+  }
+  return '已收起'
+})
+
 const partsHint = computed(() => {
   if (manualText.value.trim()) return '按输入型号提交（服务端自动匹配目录）'
   if (picked.value) return adjustable.value ? '已选，可调数量后提交' : '已选，确认提交'
@@ -282,7 +329,9 @@ const canSubmitParts = computed(() =>
 function onOptClick(o: QOption) {
   if (!props.optionInteractive) return
   if (!isPartsCard.value || isEscape(o) || !adjustable.value) {
-    // 非逐项卡/逃生项/无数量维度：即点即发（点击=回答）
+    // 非逐项卡/逃生项/无数量维度：即点即发（点击=回答）。先记下 picked——
+    // 答完即锁后卡上仍能看到选了哪项（✓ 留在原卡，Claude Code 答案留痕）
+    picked.value = o
     emit('select-option', o.value, o.slot)
     return
   }
@@ -307,7 +356,7 @@ const totalText = computed(() => {
   const unit = picked.value?.unit_gb
   if (!unit) return ''
   const total = (qtyVal.value || 0) * unit
-  const suffix = partsSlot.value === 'gpu' ? ' 显存' : partsSlot.value === 'memory' ? ' 内存' : ''
+  const suffix = question.value?.unitLabel ? ` ${question.value.unitLabel}` : ''
   return `共 ${fmtGB(total)}${suffix}`
 })
 
@@ -356,13 +405,20 @@ async function loadPick(slot: string) {
       desc: String(o.desc || ''),
       slot: String(o.slot || slot),
       group: String(o.group || ''),
+      qty: Number.isFinite(o?.qty) && Number(o.qty) > 0 ? Number(o.qty) : undefined,
+      qty_max: Number.isFinite(o?.qty_max) && Number(o.qty_max) > 0 ? Number(o.qty_max) : undefined,
     }))
-    pickOpen.value[slot] = true
   } catch (e: any) {
     pickError.value[slot] = e?.response?.data?.detail || '配件库查询失败，请稍后再试'
   } finally {
     pickLoading.value[slot] = false
   }
+}
+
+/** 自选下拉开合受控：点外/blur/选中后关闭（旧版 :open 永远钉死 true=关不上） */
+function setPickOpen(slot: string, open: boolean) {
+  pickOpen.value[slot] = open
+  if (open) void loadPick(slot)
 }
 
 function pickSelectOptions(slot: string) {
@@ -381,7 +437,8 @@ function onPickSelect(slot: string, value: any) {
   const o = (pickOptions.value[slot] || []).find((x) => x.value === value)
   if (!o) return
   picked.value = o
-  qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'drives' ? 2 : qtyMax.value)
+  qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'storage' ? 2 : qtyMax.value)
+  pickOpen.value[slot] = false
 }
 </script>
 
@@ -442,49 +499,48 @@ function onPickSelect(slot: string, value: any) {
   margin-bottom: 4px;
 }
 
+/* 思考过程：Claude Code 式单行动态刷新（实时显示思考尾部片段） */
 .am-thinking {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: 82%;
   margin-bottom: 6px;
+  padding: 8px 10px;
   border-radius: 8px;
   background: var(--cpq-overlay-w4, rgba(255,255,255,.05));
   border: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.12));
-  overflow: hidden;
-  max-width: 82%;
-}
-
-.am-thinking-head {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  white-space: nowrap;
-  width: 100%;
-  padding: 6px 10px;
-  border: 0;
-  background: transparent;
   font-size: 12px;
-  color: var(--cpq-text-muted, #8c8c8c);
-  cursor: pointer;
-  text-align: left;
+  line-height: 18px;
+  color: var(--cpq-text-secondary, #a6adb4);
+  opacity: .9;
 }
-
-.am-thinking-caret {
-  font-size: 10px;
-  width: 12px;
+.am-thinking-dot {
   flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
-.am-thinking-label {
-  font-weight: 500;
-  color: var(--cpq-text-secondary, #a6adb4);
+.am-thinking--live .am-thinking-dot {
+  animation: am-think-pulse 1.2s ease-in-out infinite;
 }
-
-.am-thinking-body {
-  padding: 0 10px 8px 10px;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--cpq-text-secondary, #a6adb4);
+.am-thinking--live {
+  opacity: 1;
+}
+.am-thinking-text {
+  min-width: 0;
+  display: block;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 160px;
+  max-height: 138px;
   overflow-y: auto;
+  scrollbar-width: thin;
+}
+@keyframes am-think-pulse {
+  0%, 100% { opacity: .35; transform: scale(.85); }
+  50% { opacity: 1; transform: scale(1.1); }
 }
 
 /* ── 结构化问题面板（Claude Code 式：题头 + 竖排选项 + 序号 + 描述） ── */
@@ -497,6 +553,10 @@ function onPickSelect(slot: string, value: any) {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+/* 回合进行中：卡可见但禁点（半透明提示稍候），与已答塌行是两个语义 */
+.am-q--locked {
+  opacity: .62;
 }
 .am-q-head {
   display: flex;
@@ -560,18 +620,15 @@ function onPickSelect(slot: string, value: any) {
   cursor: pointer;
   transition: background .15s ease;
 }
-.am-q:not(.am-q--locked) .am-q-opt + .am-q-opt,
+.am-q-opt + .am-q-opt,
 .am-q-group-label + .am-q-opt {
   border-top: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.08));
 }
-.am-q:not(.am-q--locked) .am-q-opt:hover {
+.am-q-opt:hover {
   background: var(--cpq-overlay-a8, rgba(22,119,255,.10));
 }
 .am-q-opt:disabled {
   cursor: default;
-}
-.am-q--locked .am-q-opt {
-  opacity: .55;
 }
 /* 逐项卡选中态：蓝边 + 微底色，勾选符在 am-q-key 里 */
 .am-q-opt--picked {
@@ -585,6 +642,22 @@ function onPickSelect(slot: string, value: any) {
 /* 逃生项（「就这些」/「先跳过这组」）：收尾动作非单选，弱化为文字按钮观感 */
 .am-q-opt--escape .am-q-label {
   color: var(--cpq-text-secondary, #a6adb4);
+}
+/* 大脑推荐标记（推荐制）：AI 给出推断倾向的选项 */
+.am-q-rec {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 18px;
+  vertical-align: middle;
+  color: #6ea8ff;
+  background: rgba(22, 119, 255, 0.14);
+  border: 1px solid rgba(22, 119, 255, 0.35);
+}
+.am-q-opt--rec {
+  border-color: rgba(22, 119, 255, 0.45);
 }
 /* 数量 stepper + 实时总量 */
 .am-q-stepper {
@@ -673,9 +746,46 @@ function onPickSelect(slot: string, value: any) {
   justify-content: space-between;
   gap: 10px;
 }
-.am-q--locked .am-q-foot {
-  color: var(--cpq-text-muted, #8c8c8c);
-  opacity: .7;
+/* 已答卡：一行静态记录（问题 + 已选答案），不占聊天流 */
+.am-q-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
+  background: var(--cpq-overlay-w06, rgba(255, 255, 255, .06));
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--cpq-text-secondary, #a6adb4);
+}
+.am-q-done-check {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: #16a34a;
+  border: 1px solid #16a34a55;
+}
+.am-q-done-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.am-q-done-answer {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cpq-text-primary, inherit);
+  font-weight: 600;
 }
 .am-q-form-hint {
   min-width: 0;
@@ -710,7 +820,7 @@ function onPickSelect(slot: string, value: any) {
   font-weight: 600;
   color: var(--cpq-text-secondary, #a6adb4);
 }
-.am-q:not(.am-q--locked) .am-q-opt:hover .am-q-key {
+.am-q-opt:hover .am-q-key {
   border-color: var(--cpq-accent-primary, #1677ff);
   color: var(--cpq-accent-primary, #1677ff);
 }

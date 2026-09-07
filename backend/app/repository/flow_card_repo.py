@@ -2,8 +2,6 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import or_
-
 from app.models.base import Opportunity_SessionLocal
 from app.models.flow import (
     OpportunityFlowCard,
@@ -196,38 +194,6 @@ class FlowCardRepository:
                     row.updated_at = _now()
 
         self.session.commit()
-
-    def claim_card(self, card_id: int, assignee_name: str) -> Optional[dict]:
-        affected = (
-            self.session.query(OpportunityFlowCard)
-            .filter(
-                OpportunityFlowCard.id == card_id,
-                or_(
-                    OpportunityFlowCard.assignee_name.is_(None),
-                    OpportunityFlowCard.assignee_name == "",
-                    OpportunityFlowCard.assignee_name == assignee_name,
-                ),
-            )
-            .update(
-                {
-                    OpportunityFlowCard.assignee_name: assignee_name,
-                    OpportunityFlowCard.flow_status: "processing",
-                    OpportunityFlowCard.updated_at: _now(),
-                },
-                synchronize_session=False,
-            )
-        )
-        if not affected:
-            card = self.get_card(card_id)
-            if not card:
-                return None
-            if card.get("assignee_name") and card.get("assignee_name") != assignee_name:
-                raise ValueError("该卡已指定其他处理人")
-            raise ValueError("认领失败，请刷新后重试")
-        self.session.commit()
-        self.session.expire_all()
-        return self.get_card(card_id)
-
     def request_withdraw(self, card_id: int, reason: str = "") -> Optional[dict]:
         card = self.get_card(card_id)
         if not card:

@@ -250,7 +250,8 @@ def get_dashboard_summary(
         if search_q:
             base_conds.append(
                 Opportunity.customer_name.ilike(f"%{search_q}%") |
-                Opportunity.sales_person.ilike(f"%{search_q}%")
+                Opportunity.sales_person.ilike(f"%{search_q}%") |
+                Opportunity.opportunity_id.ilike(f"%{search_q}%")
             )
 
         slot_filter_ids = None

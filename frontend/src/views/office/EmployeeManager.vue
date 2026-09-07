@@ -122,20 +122,17 @@
             </div>
             <div class="em-slider-field">
               <div class="em-slider-head">
-                <span>最大 Tokens</span>
-                <a v-if="tokenCustomized" class="em-slider-reset" @click="draft.response_profile.max_tokens = null">跟随全局</a>
+                <span>推理档位（思考强度 + 输出预算）</span>
               </div>
-              <a-slider
-                v-model:value="tokenValue"
-                :min="8000"
-                :max="64000"
-                :step="1000"
-                :marks="TOKEN_MARKS"
-                :tip-formatter="(v: number) => String(v)"
-              />
+              <a-radio-group v-model:value="reasonTier" class="em-radio-tiers">
+                <a-radio-button value="default">跟随全局</a-radio-button>
+                <a-radio-button value="low">低（快）</a-radio-button>
+                <a-radio-button value="medium">中</a-radio-button>
+                <a-radio-button value="high">高（深）</a-radio-button>
+              </a-radio-group>
               <div class="em-slider-hint">
-                <a-tag :color="tokenHint.color">{{ tokenHint.label }}</a-tag>
-                <span>{{ tokenHint.text }}</span>
+                <a-tag :color="reasonHint.color">{{ reasonHint.label }}</a-tag>
+                <span>{{ reasonHint.text }}</span>
               </div>
             </div>
           </div>
@@ -514,7 +511,12 @@ loadScopeOptions()
 const GLOBAL_TEMP = 0.7
 const GLOBAL_TOKENS = 16000
 const TEMP_MARKS = { 0: '0', 0.7: '0.7', 1.5: '1.5' }
-const TOKEN_MARKS = { 8000: '8k', 16000: '16k', 32000: '32k', 64000: '64k' }
+// 推理档位 = 思考强度(reasoning_effort) + 输出预算(max_tokens) 一个旋钮，避免两处可设项打架。
+const REASON_TIERS: Record<string, { reasoning_effort: string; max_tokens: number; label: string; color: string; text: string }> = {
+  low:    { reasoning_effort: 'low',    max_tokens: 16000, label: '低档', color: 'blue',   text: '思考档 low · 输出 16k，快速，常规选型' },
+  medium: { reasoning_effort: 'medium', max_tokens: 24000, label: '中档', color: 'green',  text: '思考档 medium · 输出 24k，复杂配置更稳' },
+  high:   { reasoning_effort: 'high',   max_tokens: 32000, label: '高档', color: 'orange', text: '思考档 high · 输出 32k，深度推理，耗时与成本上升' },
+}
 
 watch(() => draft.value?.response_profile?.style_mode, (mode) => {
   if (!mode || !draft.value?.response_profile) return
@@ -538,17 +540,37 @@ const tempHint = computed(() => {
   return { label: '发散', color: 'orange', text: '表述多变，慎用于严谨场景' }
 })
 
-const tokenCustomized = computed(() => draft.value?.response_profile?.max_tokens != null)
-const tokenValue = computed({
-  get: () => draft.value?.response_profile?.max_tokens ?? GLOBAL_TOKENS,
-  set: (v: any) => { if (draft.value?.response_profile) draft.value.response_profile.max_tokens = Number(v) },
+const reasonTier = computed({
+  get: () => {
+    const p = draft.value?.response_profile
+    if (!p) return 'default'
+    const eff = p.reasoning_effort
+    if (eff && REASON_TIERS[eff]) return eff
+    const mt = p.max_tokens
+    if (mt == null) return 'default'
+    if (mt >= 32000) return 'high'
+    if (mt >= 24000) return 'medium'
+    return 'low'
+  },
+  set: (v: any) => {
+    if (!draft.value?.response_profile) return
+    if (v === 'default') {
+      draft.value.response_profile.reasoning_effort = null
+      draft.value.response_profile.max_tokens = null
+      return
+    }
+    const t = REASON_TIERS[v]
+    if (t) {
+      draft.value.response_profile.reasoning_effort = t.reasoning_effort
+      draft.value.response_profile.max_tokens = t.max_tokens
+    }
+  },
 })
-const tokenHint = computed(() => {
-  const v = draft.value?.response_profile?.max_tokens
-  if (v == null) return { label: '跟随全局', color: 'default', text: `全局默认 ${GLOBAL_TOKENS}` }
-  if (v <= 6000) return { label: '常规', color: 'blue', text: '日常对话够用，长方案或截断' }
-  if (v <= 10000) return { label: '长文', color: 'green', text: '详细方案与报告（全局默认档）' }
-  return { label: '超长', color: 'orange', text: '极长输出，token 成本上升' }
+const reasonHint = computed(() => {
+  const eff = draft.value?.response_profile?.reasoning_effort
+  const t = eff && REASON_TIERS[eff] ? REASON_TIERS[eff] : null
+  if (!t) return { label: '跟随全局', color: 'default', text: `全局默认 low / ${GLOBAL_TOKENS}` }
+  return t
 })
 
 function defaultDraft(source: any = {}) {
@@ -567,6 +589,7 @@ function defaultDraft(source: any = {}) {
       style_mode: source.response_profile?.style_mode
         || (source.response_profile?.style_prompt?.trim() ? 'custom' : (source.response_profile?.style || source.response_style || 'detailed')),
       max_tokens: source.response_profile?.max_tokens ?? null,
+      reasoning_effort: source.response_profile?.reasoning_effort ?? null,
       temperature: source.response_profile?.temperature ?? null,
       style_prompt: source.response_profile?.style_prompt || '',
     },
@@ -1378,4 +1401,3 @@ defineExpose({ openCreate, save })
 :global(.em-editor-modal .ant-modal-body) { max-height: 74vh; overflow: auto; }
 :global(.em-editor-modal .em-form) { height: auto; overflow: visible; border: 0; background: transparent; padding: 0; }
 </style>
-

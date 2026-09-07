@@ -88,150 +88,46 @@ def _attach_entity_card(
 
 
 def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
+    """线索登记表唯一视图：把 ext 收口为 RequirementSlots 契约。
+
+    配置：server_type/platform_type/chassis_form/server_model/purchase_qty/warranty_years
+    部件：kp_rows[{part_category, description, qty, catalogue, note}]
+    登记表只有这一套：Catalogue(part_category) + Configuration Description(description) + qty。
+    """
+    from app.services.slot_contract import canonical_get
     ext = ext or {}
     slots: dict[str, Any] = {}
+    for key in ("server_type", "platform_type", "chassis_form", "server_model"):
+        v = canonical_get(ext, key)
+        if v:
+            slots[key] = str(v)
     purchase_qty = _first(ext.get("purchase_qty"), ext.get("server_qty"), ext.get("whole_qty"))
     if purchase_qty:
         slots["purchase_qty"] = _as_int(purchase_qty, 1) or 1
-    server_type = _first(ext.get("server_type_name"), ext.get("usage"))
-    if server_type:
-        slots["server_type"] = str(server_type)
-    series = _first(ext.get("series"), ext.get("platform_type"))
-    if series:
-        slots["platform_type"] = str(series)
-    form = _first(ext.get("form"), ext.get("chassis_form"))
-    if form:
-        slots["chassis_form"] = str(form).upper()
-
-    cpu_src = ext.get("cpu") if isinstance(ext.get("cpu"), dict) else {}
-    if cpu_src:
-        cpu: dict[str, Any] = {}
-        for key in ("model", "brand", "cores", "tdp_w"):
-            if cpu_src.get(key) is not None:
-                cpu[key] = cpu_src[key]
-        qty = cpu_src.get("qty")
-        if qty is None and cpu_src.get("duality"):
-            qty = 2
-        if qty is not None:
-            cpu["qty"] = _as_int(qty, 0) or None
-        cpu = {k: v for k, v in cpu.items() if v not in (None, "")}
-        if cpu:
-            slots["cpu"] = cpu
-
-    mem_src = ext.get("memory") if isinstance(ext.get("memory"), dict) else {}
-    if mem_src:
-        memory: dict[str, Any] = {}
-        if mem_src.get("per_stick_gb") is not None:
-            memory["per_stick_gb"] = mem_src["per_stick_gb"]
-        if mem_src.get("type"):
-            memory["type"] = mem_src["type"]
-        speed_val = mem_src.get("speed_mt")
-        if speed_val is None:
-            speed_val = mem_src.get("speed")
-        if speed_val is not None:
-            memory["speed_mt"] = speed_val
-        if mem_src.get("brand"):
-            memory["brand"] = mem_src["brand"]
-        per_stick = mem_src.get("per_stick_gb")
-        mem_qty = mem_src.get("qty")
-        if mem_qty is None and per_stick and mem_src.get("total_gb"):
-            try:
-                total = int(mem_src["total_gb"])
-                per = int(per_stick)
-                if per > 0 and total % per == 0:
-                    mem_qty = total // per
-            except (TypeError, ValueError):
-                mem_qty = None
-        if mem_qty is not None:
-            memory["qty"] = _as_int(mem_qty, 0) or None
-        memory = {k: v for k, v in memory.items() if v not in (None, "")}
-        if memory:
-            slots["memory"] = memory
-
-    drives = []
-    for group in ext.get("drives") or []:
-        if not isinstance(group, dict):
-            continue
-        term = group.get("term") or ""
-        if not term:
-            continue
-        row = {"capacity": str(term), "qty": _as_int(group.get("qty"), 1) or 1}
-        if group.get("kind"):
-            row["interface"] = group["kind"]
-        drives.append(row)
-    if drives:
-        slots["storage"] = drives
-
-    gpus = []
-    for group in ext.get("gpu") or []:
-        if not isinstance(group, dict):
-            continue
-        tokens = group.get("tokens") or []
-        qty = group.get("qty")
-        if not tokens and not qty:
-            continue
-        model = " ".join(str(t) for t in tokens[:2]).strip()
-        gpus.append({"model": model, "qty": _as_int(qty, 1) or 1})
-    if gpus:
-        slots["gpu"] = gpus
-
-    nic_rows = []
-    msf = ext.get("nic") if isinstance(ext.get("nic"), dict) else {}
-    for line in msf.get("Network(NIC) requirement") or []:
-        if not isinstance(line, dict):
-            continue
-        filters = line.get("filters") or []
-        speed = None
-        ports = None
-        for item in filters:
-            if not isinstance(item, dict):
+    if ext.get("warranty_years"):
+        slots["warranty_years"] = str(ext["warranty_years"])
+    kp = ext.get("kp_rows")
+    if isinstance(kp, list):
+        rows = []
+        for r in kp:
+            if not isinstance(r, dict):
                 continue
-            spec_key = str(item.get("spec_key") or "")
-            value = str(item.get("value") or "")
-            if spec_key == "Link Speed" and value:
-                try:
-                    speed = int(value.rstrip("G"))
-                except ValueError:
-                    speed = None
-            elif spec_key == "Ports" and value:
-                try:
-                    ports = int(value)
-                except ValueError:
-                    ports = None
-        names = line.get("name_contains") or []
-        row: dict[str, Any] = {"model": str(names[0] if names else "") or None, "qty": _as_int(line.get("qty"), 1) or 1}
-        if speed is not None:
-            row["speed_g"] = speed
-        if ports is not None:
-            row["ports"] = ports
-        row = {k: v for k, v in row.items() if v not in (None, "")}
-        if row:
-            nic_rows.append(row)
-    if nic_rows:
-        slots["nic"] = nic_rows
-
-    psu = ext.get("psu") if isinstance(ext.get("psu"), dict) else {}
-    if psu:
-        psu = {k: v for k, v in psu.items() if v not in (None, "")}
-        if psu:
-            slots["psu"] = psu
-
-    raid = ext.get("raid") if isinstance(ext.get("raid"), list) else []
-    raid_rows = []
-    for group in raid:
-        if not isinstance(group, dict):
-            continue
-        row = {k: v for k, v in group.items() if v not in (None, "")}
-        if row.get("model") or row.get("raid_levels"):
-            raid_rows.append(row)
-    if raid_rows:
-        slots["raid"] = raid_rows
-
-    if ext.get("budget") is not None:
-        try:
-            slots["budget"] = float(ext["budget"])
-        except (TypeError, ValueError):
-            pass
+            part_category = str(r.get("part_category") or r.get("category") or "").strip()
+            if not part_category:
+                continue
+            row: dict[str, Any] = {
+                "part_category": part_category,
+                "description": str(r.get("description") or "").strip(),
+                "catalogue": str(r.get("catalogue") or "").strip(),
+                "note": str(r.get("note") or "").strip(),
+            }
+            try:
+                row["qty"] = int(float(r.get("qty", 1) or 1))
+            except (TypeError, ValueError):
+                row["qty"] = 1
+            rows.append(row)
+        if rows:
+            slots["kp_rows"] = rows
     return slots
 
 
@@ -375,7 +271,8 @@ def build_preview_bom_scheme(ctx: dict, config: Optional[dict] = None) -> Option
         "slots": slots,
     }
 
-def save_bom_scheme_draft(opportunity_id: str, configs: list, created_by: str = "", name: Optional[str] = None) -> Optional[dict]:
+def save_bom_scheme_draft(opportunity_id: str, configs: list, created_by: str = "", name: Optional[str] = None,
+                          config_relation: str = "compose", primary_config: str = "") -> Optional[dict]:
     if not opportunity_id:
         raise ValueError("缺少 opportunity_id，无法写入 BOM 方案草稿")
     if not configs:
@@ -385,7 +282,10 @@ def save_bom_scheme_draft(opportunity_id: str, configs: list, created_by: str = 
     try:
         existing = next((scheme for scheme in repo.list_bom_schemes(opportunity_id) if scheme.get("name") == scheme_name and scheme.get("status") == "draft"), None)
         scheme_id = existing.get("id") if existing else None
-        scheme = repo.save_bom_scheme_draft(opportunity_id, scheme_id, scheme_name, configs, created_by or "")
+        scheme = repo.save_bom_scheme_draft(
+            opportunity_id, scheme_id, scheme_name, configs, created_by or "",
+            config_relation, primary_config,
+        )
     finally:
         repo.close()
     if scheme:
@@ -453,7 +353,9 @@ def persist_requirement_and_bom_from_ctx(ctx: dict, operator: str = "", config: 
         if not configs:
             return None
         name = (config or {}).get("name") if isinstance(config, dict) else None
-        return save_bom_scheme_draft(opportunity_id, configs, operator, name)
+        return save_bom_scheme_draft(opportunity_id, configs, operator, name,
+                                     slots.get("config_relation") or "compose",
+                                     slots.get("primary_config") or "")
     except Exception:
         logger.exception("持久化需求单/BOM 方案失败 opp=%s", opportunity_id)
         return None
@@ -469,7 +371,9 @@ def persist_bom_scheme_from_ctx(ctx: dict, operator: str = "", config: Optional[
         if not configs:
             return None
         name = (config or {}).get("name") if isinstance(config, dict) else None
-        return save_bom_scheme_draft(opportunity_id, configs, operator, name)
+        return save_bom_scheme_draft(opportunity_id, configs, operator, name,
+                                     slots.get("config_relation") or "compose",
+                                     slots.get("primary_config") or "")
     except Exception:
         logger.exception("持久化 BOM 方案草稿失败 opp=%s", opportunity_id)
         return None

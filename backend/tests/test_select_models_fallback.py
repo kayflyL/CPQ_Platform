@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
-"""select_models 多级放宽（fallback_order）单测：严格条件无机型时按配置逐级放宽 + 白盒说明。
+"""select_models 严格匹配单测：引擎只按信号条件精确查候选，放宽交由调用方/AI 角色，
+不自动逐级放宽；无信号默认返空（空数据交角色反问）。
 
 全 mock（不碰 DB），可 pytest 跑。
 """
@@ -29,55 +30,47 @@ def _fake_repos(list_models_fn):
             return [BC]
         def close(self):
             pass
-    return patch("app.api.candidate_search.ServerCatalogRepository", _Cat), \
-           patch("app.api.candidate_search.BaseConfigRepository", _Bc)
+    return patch("app.services.model_candidates.ServerCatalogRepository", _Cat), \
+           patch("app.services.model_candidates.BaseConfigRepository", _Bc)
 
 
-def _select(series="Intel", fallback_order=None):
-    from app.api.candidate_search import select_models
-    req_series = series
+def _select(series=None, no_signal_strategy=None, type_name="AI / 加速计算服务器"):
+    from app.services.model_candidates import select_models
     def lm(type_id=None, series=None, form=None):
-        # 只有 Orion 系列有 AI 机型；Intel 无
         if series == "Intel":
             return []
         return [MODEL]
     with _fake_repos(lm)[0], _fake_repos(lm)[1]:
-        return select_models(None, "AI / 加速计算服务器", series=req_series, form=None,
-                             fallback_order=fallback_order or ["exact", "same_series", "same_form", "all"])
+        return select_models(None, type_name, series=series, form=None,
+                             no_signal_strategy=no_signal_strategy)
 
 
-def test_exact_match_stage():
-    """严格命中（系列=Orion 有货）→ match_stage=exact，note=精确匹配。"""
+def test_exact_match_returns_candidate():
+    """严格命中（系列=Orion）→ 返回候选，标注精确匹配。"""
     bl = _select(series="Orion")
     assert len(bl) == 1
     assert bl[0]["match_stage"] == "exact"
     assert bl[0]["fallback_note"] == "精确匹配"
 
 
-def test_series_mismatch_relaxes_with_note():
-    """库内无 Intel 平台 AI 机型 → 逐级放宽到同类型（same_form 命中），白盒标注放宽了平台系列。"""
-    bl = _select(series="Intel")
+def test_mismatch_series_returns_empty_no_auto_relax():
+    """库内无 Intel 平台 AI 机型 → 返空，引擎不自动放宽到其他系列（交给 AI/角色决策）。"""
+    assert _select(series="Intel") == []
+
+
+def test_no_signal_returns_empty():
+    """无类型/系列/形态信号且未配置 fallback_all → 返空（交 clarity_check 反问）。"""
+    assert _select(type_name=None) == []
+
+
+def test_no_signal_fallback_all_queries_all():
+    """no_signal_strategy=fallback_all → 无信号也按全量候选给 AI（专用 AI 接地路径）。"""
+    bl = _select(type_name=None, no_signal_strategy="fallback_all")
     assert len(bl) == 1
-    assert bl[0]["match_stage"] == "same_form"      # exact/same_series 都空，same_form(去系列) 命中
-    assert "平台系列" in bl[0]["fallback_note"]       # 数据驱动：说明放宽了平台系列
-
-
-def test_strict_no_fallback_returns_empty():
-    """fallback_order 只配 exact → 严格匹配，无 Intel 机型返空（不擅自替换）。"""
-    bl = _select(series="Intel", fallback_order=["exact"])
-    assert bl == []
-
-
-def test_all_stage_drops_series_and_form():
-    """fallback_order 只含 all → 直接从只保类型开始，命中且标注放宽。"""
-    bl = _select(series="Intel", fallback_order=["all"])
-    assert len(bl) == 1
-    assert bl[0]["match_stage"] == "all"
-    assert "平台系列" in bl[0]["fallback_note"]
 
 
 def test_type_mismatch_returns_empty_not_other_type():
-    """某类型 0 机型时返空反问，不丢弃 type 混入其他类型（N3 回归）。"""
+    """某类型 0 机型时返空反问，不丢弃 type 混入其他类型。"""
     def lm(type_id=None, series=None, form=None):
         if type_id == 1:
             return []
@@ -86,23 +79,19 @@ def test_type_mismatch_returns_empty_not_other_type():
     class _Cat:
         def list_types(self):
             return [{"id": 1, "name": "存储服务器"}, {"id": 2, "name": "AI / 加速计算服务器"}]
-
         def list_models(self, type_id=None, series=None, form=None, published_only=False):
             return lm(type_id=type_id, series=series, form=form)
-
         def close(self):
             pass
 
     class _Bc:
         def list(self):
             return [BC]
-
         def close(self):
             pass
 
-    with patch("app.api.candidate_search.ServerCatalogRepository", _Cat), \
-         patch("app.api.candidate_search.BaseConfigRepository", _Bc):
-        from app.api.candidate_search import select_models
-        bl = select_models(None, "存储服务器", series="Orion", form="4U",
-                           fallback_order=["exact", "same_series", "same_form", "all"])
+    with patch("app.services.model_candidates.ServerCatalogRepository", _Cat), \
+         patch("app.services.model_candidates.BaseConfigRepository", _Bc):
+        from app.services.model_candidates import select_models
+        bl = select_models(None, "存储服务器", series="Orion", form="4U")
     assert bl == []

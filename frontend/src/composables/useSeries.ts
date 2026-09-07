@@ -1,8 +1,8 @@
 /**
  * 全平台系列唯一权威源 composable。
- * 数据来自 system_config.server_series（经 /api/base-configs/series）。
+ * 数据来自 l6.server_types（设置-服务器管理-产品系列）（经 /api/base-configs/series）。
  * 所有需要"系列/平台类型"枚举的地方——商机筛选、基准配置编辑、料号库适用机型、图表分组——
- * 都应读这里，避免各自硬编码 Orion/Polaris。改名/新增系列只改 server_series 一处即可全站生效。
+ * 都应读这里，避免各自硬编码 Orion/Polaris。改名/新增系列只改产品系列(l6.server_types)一处即可全站生效。
  * 模块级缓存，跨组件共享，整个会话只请求一次。
  */
 import { ref, computed } from 'vue'

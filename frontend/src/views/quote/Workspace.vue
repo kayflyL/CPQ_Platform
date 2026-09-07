@@ -37,6 +37,13 @@
           </div>
         </div>
         <a-button size="small" class="cfg-add-btn" @click="addConfig">+ 添加配置</a-button>
+        <div class="cfg-relation">
+          <span class="cfg-relation-label">配置关系</span>
+          <a-radio-group :value="configRelation" size="small" @change="(e: any) => onConfigRelationChange(e.target.value)">
+            <a-radio-button value="compose">组合拆分</a-radio-button>
+            <a-radio-button value="alternative">方案备选</a-radio-button>
+          </a-radio-group>
+        </div>
       </div>
 
       <!-- 配置 Tab 右键菜单 -->
@@ -56,9 +63,18 @@
       <template v-for="(cfg, name) in store.configs" :key="name">
         <div v-if="activeCfg === name" class="three-col-layout">
 
-          <!-- 左栏：BOM 表格 (≈22%) -->
-          <div class="col-left">
-            <BomTable :cfg="cfg" />
+          <!-- 左栏：BOM 表格 (≈22%)，可折叠收窄 -->
+          <div class="col-left" :class="{ collapsed: leftCollapsed }">
+            <template v-if="!leftCollapsed">
+              <BomTable :cfg="cfg" />
+            </template>
+            <!-- 右边缘垂直居中把手 -->
+            <button class="left-collapse-btn" :title="leftCollapsed ? '展开左栏' : '收起左栏'" @click="leftCollapsed = !leftCollapsed">
+              <span class="lc-icon">
+                <RightOutlined v-if="leftCollapsed" />
+                <LeftOutlined v-else />
+              </span>
+            </button>
           </div>
 
           <!-- 中栏：服务器配置 (≈50%) -->
@@ -78,7 +94,7 @@
                   />
                 </div>
                 <div class="basic-field">
-                  <label class="basic-label">数量</label>
+                  <label class="basic-label">{{ isAlternative ? '该方案台数' : '数量' }}</label>
                   <a-input-number
                     v-model:value="store.configQuantities[String(name)]"
                     :min="1"
@@ -88,6 +104,13 @@
                     addon-after="台"
                   />
                 </div>
+                <button
+                  v-if="isAlternative"
+                  class="primary-btn"
+                  :class="{ active: primaryConfig === name }"
+                  @click="markPrimary(name)"
+                  :title="primaryConfig === name ? '当前主推方案' : '点击设为主推方案'"
+                >{{ primaryConfig === name ? '☆ 主推' : '设为主推' }}</button>
               </div>
 
               <div class="desc-header" @click="descExpanded[name] = !descExpanded[name]">
@@ -139,9 +162,12 @@
               <!-- ① 机箱卡：ChassisCard 本体 + 卡尾价格三联（利润率/成本/售价进卡内）-->
               <div class="l6-section">
                 <ChassisCard
+                  flat
                   :model="chassisModel"
                   :series="chassisSeries"
                   :base-config-name="chassisBaseName"
+                  :form="chassisForm"
+                  :bays="chassisBays"
                   :l6-total="cfg.l6_custom_price || 0"
                   :hero-price="l6FinalPrice(cfg)"
                   @open="chassisModalOpen = true"
@@ -191,75 +217,57 @@
 
                 <!-- KP 行：excel 模式 = 平铺卡片(比价/同步/历史)；新建模式 = 按类别分卡(料号库挑选+利润率) -->
                 <!-- ① Excel 上传模式：保留平铺卡片 + match_status + 单条同步 + 历史 -->
-                <div v-if="cfg.bom_source === 'excel'" class="kp-grid">
-                  <div v-for="(item, idx) in cfg.items.filter((i: any) => i.category === 'Key Parts')" :key="idx" class="kp-card">
-                    <div class="kp-card-header">
-                      <span class="kp-name">{{ item.part_category }}</span>
-                      <span class="kp-spec" v-if="item.catalogue">{{ item.catalogue }}</span>
-                      <span class="kp-match" v-if="item.match_status" :class="matchClass(item.match_status)">{{ item.match_status }}</span>
-                    </div>
-
-                    <div class="kp-inputs">
-                      <div class="input-group">
-                        <label>数量</label>
-                        <a-input-number v-model:value="item.qty" size="small" style="width:100%" :min="1" @blur="store.recalculateAll()" />
-                      </div>
-                      <div class="input-group">
-                        <label>利润率%</label>
-                        <a-input-number v-model:value="item.profit_margin" size="small" style="width:100%" :min="0" :disabled="!priceVisible" @blur="store.recalculateAll()" />
-                      </div>
-                      <div class="input-group">
-                        <label>原始单价</label>
-                        <a-input-number v-model:value="item.base_price" size="small" style="width:100%" :precision="2" :disabled="!priceVisible" @change="() => onKpPriceChange(item)" />
-                      </div>
-                      <div class="input-group">
-                        <label>币种</label>
-                        <a-select v-model:value="item.currency" size="small" style="width:100%" :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]" @change="() => store.recalculateAll()" />
-                      </div>
-                    </div>
-
-                    <div class="kp-footer">
-                      <div class="kp-price">
-                        <template v-if="priceVisible">最终售价：<span class="price-val">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</span></template>
-                        <span v-else class="price-hidden">价格不可见</span>
-                      </div>
-                      <a-button
-                        v-if="kpSyncable(item)"
-                        size="small"
-                        type="primary"
-                        ghost
-                        class="sync-btn"
-                        @click="openSyncModal(item)"
-                      >
-                        {{ isNewPart(item) ? '入库新配件' : '同步价格' }}
-                      </a-button>
-                    </div>
-
-                    <!-- KP 历史价格 (懒加载折叠面板) -->
-                    <a-collapse class="kp-history-collapse" v-model:activeKey="item._histActiveKeys" @change="(keys: string[]) => onHistoryExpand(item, keys)">
-                      <a-collapse-panel key="hist">
-                        <template #header>
-                          <span class="kp-hist-header">历史价格 <span v-if="item._histLoaded">({{ item._history?.length || 0 }}条)</span><span v-else>…</span></span>
-                        </template>
-                        <div v-if="item._histLoading" class="kp-hist-loading"><a-spin size="small" /></div>
-                        <div v-else-if="item._histLoaded && item._history?.length" class="kp-hist-list">
-                          <div v-for="(h, hi) in item._history" :key="hi" class="kp-hist-item">
-                            <div class="kp-hist-dot"></div>
-                            <div class="kp-hist-content">
-                              <div class="kp-hist-row">
-                                <span class="kp-hist-date">{{ h.date }}</span>
-                                <span class="kp-hist-price" :class="{ usd: h.currency === 'USD' }">
-                                  {{ h.currency === 'USD' ? '$' : '¥' }} {{ settingsStore.formatNumber(h.price || 0) }}
-                                </span>
+                <div v-if="cfg.bom_source === 'excel'" class="kp-table-wrap">
+                  <table v-if="kpExcelRows(cfg).length" class="kp-table">
+                    <thead>
+                      <tr>
+                        <th>类别</th>
+                        <th>型号 / 名称</th>
+                        <th class="num">数量</th>
+                        <th class="num">原始单价</th>
+                        <th>币种</th>
+                        <th class="num">利润率%</th>
+                        <th class="num">含税售价</th>
+                        <th class="ops">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <template v-for="(item, idx) in kpExcelRows(cfg)" :key="item.item_id ?? idx">
+                        <tr class="kp-tr">
+                          <td>
+                            <span class="kp-name">{{ item.part_category }}</span>
+                          </td>
+                          <td class="cat break">{{ item.catalogue || '—' }}</td>
+                          <td class="num"><a-input-number v-model:value="item.qty" size="small" class="inp-num" :min="1" :controls="false" @blur="store.recalculateAll()" /></td>
+                          <td class="num"><a-input-number v-model:value="item.base_price" size="small" class="inp-num" :precision="2" :controls="false" :disabled="!priceVisible" @change="() => onKpPriceChange(item)" /></td>
+                          <td>
+                            <a-select v-model:value="item.currency" size="small" class="inp-cur" :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]" @change="() => store.recalculateAll()" />
+                          </td>
+                          <td class="num"><a-input-number v-model:value="item.profit_margin" size="small" class="inp-num" :min="0" :controls="false" :disabled="!priceVisible" @blur="store.recalculateAll()" /></td>
+                          <td class="num price">
+                            <template v-if="priceVisible">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</template>
+                            <span v-else class="price-hidden">***</span>
+                          </td>
+                          <td class="ops">
+                            <div class="ops-inner">
+                              <span v-if="item.match_status" class="kp-match" :class="matchClass(item.match_status)">
+                                {{ item.match_status }}
+                              </span>
+                              <div class="ops-btns">
+                                <a-button v-if="kpSyncable(item)" size="small" type="primary" ghost @click="openSyncModal(item)">
+                                  {{ isNewPart(item) ? '入库新配件' : '同步价格' }}
+                                </a-button>
+                                <a-button size="small" type="link" class="hist-btn" @click="openKpHistory(item)">
+                                  历史价格 <span v-if="item._histLoaded">({{ item._history?.length || 0 }})</span>
+                                </a-button>
                               </div>
-                              <div v-if="h.note" class="kp-hist-note">{{ h.note }}</div>
                             </div>
-                          </div>
-                        </div>
-                        <div v-else class="kp-hist-empty">暂无历史价格</div>
-                      </a-collapse-panel>
-                    </a-collapse>
-                  </div>
+                          </td>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                  <div v-else class="panel-empty">暂无 Key Parts 配件</div>
                 </div>
 
                 <!-- ② 新建模式：按类别分卡（复用 server-config KpCategoryCard，启用 quoteMode 带利润率）-->
@@ -419,9 +427,9 @@
 
               <!-- 含税总价（主指标） -->
               <div class="fin-hero">
-                <div class="hero-label">含税总价</div>
+                <div class="hero-label">{{ isAlternative && primaryConfig !== name ? '主推方案含税总价' : '含税总价' }}</div>
                 <div class="hero-val">
-                  <template v-if="priceVisible">¥<CountNumber :value="configTotals.totalSales" /></template>
+                  <template v-if="priceVisible">¥<CountNumber :value="heroTotalSales" /></template>
                   <span v-else class="price-hidden">***</span>
                 </div>
               </div>
@@ -430,15 +438,33 @@
               <div class="fin-rows">
                 <div class="fin-row">
                   <span class="fin-label">整机总成本</span>
-                  <span class="fin-val"><template v-if="priceVisible">¥<CountNumber :value="configTotals.totalCost" /></template><span v-else class="price-hidden">***</span></span>
+                  <span class="fin-val"><template v-if="priceVisible">¥<CountNumber :value="heroTotalCost" /></template><span v-else class="price-hidden">***</span></span>
                 </div>
                 <div class="fin-row">
                   <span class="fin-label">总利润额</span>
-                  <span class="fin-val" :class="configTotals.profit >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">¥<CountNumber :value="configTotals.profit" /></template><span v-else class="price-hidden">***</span></span>
+                  <span class="fin-val" :class="heroProfit >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">¥<CountNumber :value="heroProfit" /></template><span v-else class="price-hidden">***</span></span>
                 </div>
                 <div class="fin-row">
                   <span class="fin-label">综合毛利率</span>
-                  <span class="fin-val" :class="configTotals.marginPct >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">{{ configTotals.marginPct.toFixed(settingsStore.numberPrecision) }}%</template><span v-else class="price-hidden">***</span></span>
+                  <span class="fin-val" :class="heroMarginPct >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">{{ heroMarginPct.toFixed(settingsStore.numberPrecision) }}%</template><span v-else class="price-hidden">***</span></span>
+                </div>
+              </div>
+
+              <!-- 方案备选对比：列出各方案型号/单台价/主推标记（仅 alternative 模式） -->
+              <div v-if="isAlternative" class="alt-panel">
+                <div class="fin-settings-title">方案对比</div>
+                <div
+                  v-for="altName in cfgNames"
+                  :key="altName"
+                  class="alt-row"
+                  :class="{ primary: primaryConfig === altName }"
+                  @click="markPrimary(altName)"
+                >
+                  <span class="alt-radio">{{ primaryConfig === altName ? '●' : '○' }}</span>
+                  <span class="alt-name">{{ altName }}</span>
+                  <span class="alt-model">{{ store.configs[altName]?.server_model || '—' }}</span>
+                  <span class="alt-price"><template v-if="priceVisible">¥<CountNumber :value="store.getConfigTotals(altName)?.totalSales || 0" /></template><span v-else class="price-hidden">***</span></span>
+                  <span class="alt-primary-tag">{{ primaryConfig === altName ? '主推' : '' }}</span>
                 </div>
               </div>
 
@@ -519,9 +545,6 @@
       </div>
     </div>
 
-    <!-- 右侧抽屉：商机文件 + 评论 -->
-    <OpportunitySidebar :opportunity-id="currentOpportunityId" />
-
     <!-- 预览弹窗（使用 Univer 渲染） -->
     <a-modal
       v-model:open="previewVisible"
@@ -544,6 +567,8 @@
         <div v-else-if="previewType === 'spec'" class="spec-preview-scroll">
           <SpecSheet
             :configs="specPreviewConfigs"
+            :config-relation="specConfigRelation"
+            :primary-config="specPrimaryConfig"
             :branding="previewSpecBranding"
             :business-person="specBusinessPerson"
             :display-options="previewSpecDisplayOptions"
@@ -559,6 +584,8 @@
           <SpecSheet
             class="spec-sheet-root"
             :configs="specPreviewConfigs"
+            :config-relation="specConfigRelation"
+            :primary-config="specPrimaryConfig"
             :branding="previewSpecBranding"
             :business-person="specBusinessPerson"
             :display-options="previewSpecDisplayOptions"
@@ -603,6 +630,10 @@
           <span class="sync-label">类别</span>
           <span class="sync-val">{{ syncTarget.part_category || 'Key Parts' }}</span>
         </div>
+        <div v-if="syncTargetCategory && syncTargetCategory !== (syncTarget.part_category || 'Key Parts')" class="sync-row">
+          <span class="sync-label">实际入库分类</span>
+          <span class="sync-val">{{ syncTargetCategory }}</span>
+        </div>
         <div class="sync-row">
           <span class="sync-label">型号</span>
           <span class="sync-val">{{ syncTarget.catalogue || syncTarget.part_category }}</span>
@@ -627,6 +658,37 @@
         <div class="sync-hint" v-else>确认后将把以上价格与备注写入配件库该型号的价格历史。</div>
       </div>
     </a-modal>
+
+    <!-- KP 历史价格弹窗 -->
+    <a-modal
+      v-model:open="kpHistoryVisible"
+      :title="`历史价格 — ${kpHistoryItem?.catalogue || kpHistoryItem?.part_category || ''}`"
+      :width="520"
+      :footer="null"
+    >
+      <div class="kp-history-modal" v-if="kpHistoryItem">
+        <div class="kp-hist-meta">
+          <span class="kp-hist-meta-cat">{{ kpHistoryItem.part_category }}</span>
+          <span class="kp-hist-meta-name">{{ kpHistoryItem.catalogue }}</span>
+        </div>
+        <div v-if="kpHistoryItem._histLoading" class="kp-hist-loading"><a-spin size="small" /></div>
+        <div v-else-if="kpHistoryItem._history?.length" class="kp-hist-list">
+          <div v-for="(h, hi) in kpHistoryItem._history" :key="hi" class="kp-hist-item">
+            <div class="kp-hist-dot"></div>
+            <div class="kp-hist-content">
+              <div class="kp-hist-row">
+                <span class="kp-hist-date">{{ h.date }}</span>
+                <span class="kp-hist-price" :class="{ usd: h.currency === 'USD' }">
+                  {{ h.currency === 'USD' ? '$' : '¥' }} {{ settingsStore.formatNumber(h.price || 0) }}
+                </span>
+              </div>
+              <div v-if="h.note" class="kp-hist-note">{{ h.note }}</div>
+            </div>
+          </div>
+        </div>
+        <div v-else class="kp-hist-empty">暂无历史价格</div>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -640,19 +702,19 @@ import { normalizeDriveKind } from '@/stores/selectionEngine'
 import { alertIcon } from '@/constants/ruleMeta'
 import { useSettingsStore } from '@/store/settings'
 import { useAuthStore } from '@/store/auth'
-import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import PriceTriple from '@/components/common/PriceTriple.vue'
 import BomTable from '@/components/BomTable.vue'
 import CountNumber from '@/components/common/CountNumber.vue'
 import { message, Modal } from 'ant-design-vue'
+import { LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
 import { univerTemplateApi } from '@/api/univerTemplate'
 import { specTemplateApi } from '@/api/specTemplate'
 import type { SpecTemplate, PreviewConfig } from '@/types/specTemplate'
 import { DEFAULT_BRANDING } from '@/utils/defaultTemplateConfig'
 import { partsApi } from '@/api/serverConfig'
-import { syncKpPrice, getKpHistory } from '@/api/quote'
+import { syncKpPrice, getKpHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
 import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
 import { downloadBlob } from '@/utils/download'
@@ -679,6 +741,7 @@ const priceVisible = computed(() => auth.can('field.quote.price'))
 const route = useRoute()
 const router = useRouter()
 const activeCfg = ref('CFG1')
+const leftCollapsed = ref(false)
 
 // 导出模板相关（Excel + 规格书两套，选择器合并；value 编码 'excel:5' / 'spec:3' 消歧 id 重叠）
 const templates = ref<any[]>([])
@@ -698,6 +761,8 @@ const previewSnapshot = ref<Record<string, any> | null>(null)
 // 规格书预览：后端 preview-data 喂 configs + 选中模板的 branding/display_options 驱动 SpecSheet
 const previewType = ref<'excel' | 'spec'>('excel')
 const specPreviewConfigs = ref<PreviewConfig[]>([])
+const specConfigRelation = ref<'compose' | 'alternative'>('compose')
+const specPrimaryConfig = ref<string>('')
 const specPreviewTemplate = ref<SpecTemplate | null>(null)
 const specBusinessPerson = ref('')
 const previewSpecBranding = computed(() => specPreviewTemplate.value?.branding || DEFAULT_BRANDING)
@@ -707,8 +772,13 @@ const printMode = ref(false)
 // KP 同步价格弹窗
 const syncVisible = ref(false)
 const syncTarget = ref<any>(null)
+const syncTargetCategory = ref('')
 const syncNote = ref('')
 const syncLoading = ref(false)
+
+// KP 历史价格弹窗
+const kpHistoryVisible = ref(false)
+const kpHistoryItem = ref<Item | null>(null)
 
 // 当前激活配置（机箱卡 + 弹窗引用；v-for 内只有 active config 渲染，故单一 modal 即可）
 const activeConfig = computed(() => store.configs[activeCfg.value])
@@ -721,6 +791,8 @@ const {
   chassisModel,
   chassisSeries,
   chassisBaseName,
+  chassisForm,
+  chassisBays,
   chassisMatched,
   serverModelOptions,
   onServerModelSelect,
@@ -815,6 +887,8 @@ const handlePreview = async () => {
         specTemplateApi.getById(sel.id),
       ])
       specPreviewConfigs.value = data.configs || []
+      specConfigRelation.value = (data.config_relation || 'compose') as 'compose' | 'alternative'
+      specPrimaryConfig.value = data.primary_config || ''
       specBusinessPerson.value = data.business_person || ''
       specPreviewTemplate.value = tpl
       if (!specPreviewConfigs.value.length) {
@@ -923,7 +997,7 @@ async function handleDownloadExport() {
 function buildCostSnapshot(): Record<string, any> {
   const cfgNames = Object.keys(store.configs)
   const cfgSnap: Record<string, any> = {}
-  // 项目总计按各配置台数加权（Σ 单台 × qty）；cfgSnap[name].totals 仍是单台（每配置独立整机汇总）
+  // 项目总计：compose 按各配置台数加权（Σ 单台 × qty）；alternative 只取主推方案 × 需求台数（不求和）
   const projSum = { totalCost: 0, totalSales: 0, profit: 0 }
   for (const name of cfgNames) {
     const cfg: ConfigData = store.configs[name]
@@ -956,14 +1030,24 @@ function buildCostSnapshot(): Record<string, any> {
       })
     }
     cfgSnap[name] = { qty, totals: t, kp_items: kpItems }
-    projSum.totalCost += (t.totalCost || 0) * qty
-    projSum.totalSales += (t.totalSales || 0) * qty
-    projSum.profit += (t.profit || 0) * qty
+    if (isAlternative.value) {
+      if (name === primaryConfig.value) {
+        projSum.totalCost += (t.totalCost || 0) * demandQty.value
+        projSum.totalSales += (t.totalSales || 0) * demandQty.value
+        projSum.profit += (t.profit || 0) * demandQty.value
+      }
+    } else {
+      projSum.totalCost += (t.totalCost || 0) * qty
+      projSum.totalSales += (t.totalSales || 0) * qty
+      projSum.profit += (t.profit || 0) * qty
+    }
   }
   const marginPct = projSum.totalCost > 0 ? (projSum.profit / projSum.totalCost) * 100 : 0
   return {
     captured_at: new Date().toISOString(),
     rates: { usd_to_rmb: store.exchangeRate, tax_rate: store.taxRate },
+    config_relation: store.opportunityInfo.config_relation || 'compose',
+    primary_config: store.opportunityInfo.primary_config || '',
     totals: { ...projSum, marginPct: Math.round(marginPct * 100) / 100 },
     configs: cfgSnap,
   }
@@ -1083,12 +1167,6 @@ const goBack = () => {
   }
 }
 
-// 当前商机 ID（用于评论关联）
-// 报价单 ID 唯一，直接用 opportunity_id，无则 'default'
-const currentOpportunityId = computed(() => {
-  return store.opportunityInfo?.opportunity_id || 'default'
-})
-
 // 每个配置页的栏目状态（独立维护）
 const sectionState = reactive<Record<string, string>>({})
 
@@ -1180,6 +1258,11 @@ const deleteConfig = (cfgName: string) => {
   delete store.configQuantities[cfgName]  // 同步删除配置数量
   delete sectionState[cfgName]
 
+  // 方案备选：删除主推配置时回退到首个剩余配置
+  if (isAlternative.value && store.opportunityInfo.primary_config === cfgName) {
+    store.opportunityInfo.primary_config = Object.keys(store.configs)[0] || ''
+  }
+
   // 如果删除的是当前激活的配置，切换到第一个
   const remainingKeys = Object.keys(store.configs)
   if (activeCfg.value === cfgName) {
@@ -1242,6 +1325,11 @@ const addConfig = () => {
   if (serverModels.value[0]?.base_config_id) loadBaseInfo(serverModels.value[0].base_config_id)
   activeCfg.value = newName
   sectionState[newName] = 'hardware'
+  if (isAlternative.value) {
+    if (!store.opportunityInfo.primary_config) store.opportunityInfo.primary_config = newName
+    const eq = Number(store.configQuantities[newName])
+    if (!eq || eq <= 0) store.configQuantities[newName] = demandQty.value
+  }
   message.success(`已添加配置页 ${newName}`)
 }
 
@@ -1368,6 +1456,71 @@ const handleSave = async () => {
 // 当前配置页的财务数据（随 tab 切换动态变化，使用 computed 确保响应式）
 const configTotals = computed(() => store.getConfigTotals(activeCfg.value))
 
+// ---- 方案备选对比模式（config_relation） ----
+// compose=组合/并行（存量默认，多配置数量求和）；alternative=方案备选对比（不求和，主推方案总价×需求台数）
+const configRelation = computed(() => store.opportunityInfo.config_relation || 'compose')
+const isAlternative = computed(() => configRelation.value === 'alternative')
+const cfgNames = computed(() => Object.keys(store.configs))
+// 需求台数：alternative 下每个方案覆盖同批需求，单台方案价 × 需求台数 = 总价
+const demandQty = computed(() => {
+  const t = Number(store.opportunityInfo.total_qty)
+  return Number.isFinite(t) && t > 0 ? t : 1
+})
+// 主推配置：优先用户指定；否则默认第一个配置
+const primaryConfig = computed(() => {
+  const prefer = store.opportunityInfo.primary_config
+  if (prefer && store.configs[prefer]) return prefer
+  return cfgNames.value[0] || ''
+})
+const primaryConfigTotals = computed(() => {
+  return primaryConfig.value ? store.getConfigTotals(primaryConfig.value) : null
+})
+// 右侧主指标：alternative 显示主推方案总价（×需求台数）；compose 仍显示当前配置总价
+const heroTotalSales = computed(() => {
+  if (isAlternative.value && primaryConfigTotals.value) {
+    return Math.round((primaryConfigTotals.value.totalSales || 0) * demandQty.value * 100) / 100
+  }
+  return configTotals.value.totalSales || 0
+})
+const heroTotalCost = computed(() => {
+  if (isAlternative.value && primaryConfigTotals.value) {
+    return Math.round((primaryConfigTotals.value.totalCost || 0) * demandQty.value * 100) / 100
+  }
+  return configTotals.value.totalCost || 0
+})
+const heroProfit = computed(() => {
+  if (isAlternative.value && primaryConfigTotals.value) {
+    return Math.round((primaryConfigTotals.value.profit || 0) * demandQty.value * 100) / 100
+  }
+  return configTotals.value.profit || 0
+})
+const heroMarginPct = computed(() => {
+  if (isAlternative.value && primaryConfigTotals.value) return primaryConfigTotals.value.marginPct || 0
+  return configTotals.value.marginPct || 0
+})
+// 切换配置关系：alternative 时把每个方案台数兜底成需求台数、主推默认第一个配置
+function onConfigRelationChange(mode: 'compose' | 'alternative') {
+  store.opportunityInfo.config_relation = mode
+  if (mode === 'alternative') {
+    const first = cfgNames.value[0]
+    if (first && !store.opportunityInfo.primary_config) store.opportunityInfo.primary_config = first
+    const qtys = cfgNames.value.map(n => Number(store.configQuantities[n]) || 0)
+    const firstQty = qtys[0] || 0
+    // 方案备选：需求台数 = 每方案台数（各配置一致时）；total_qty 不再等于 Σ 配置台数
+    if (firstQty > 0 && qtys.every(q => q === firstQty)) store.opportunityInfo.total_qty = firstQty
+    for (const name of cfgNames.value) {
+      const q = Number(store.configQuantities[name])
+      if (!q || q <= 0) store.configQuantities[name] = demandQty.value
+    }
+  }
+  store.saveProject()
+}
+// 设为主推方案
+function markPrimary(name: string) {
+  store.opportunityInfo.primary_config = name
+  store.saveProject()
+}
+
 // 兼容性规则引擎：构建当前配置 context（KP 按 category 聚合 + kpPartByPn enrich specs + 平台/系列/SATA 数），跑 WHEN→THEN
 function buildRuleContext(cfg: ConfigData) {
   const kpItems = (cfg.items || []).filter((i: Item) => i.category === 'Key Parts')
@@ -1480,6 +1633,18 @@ async function refreshKpDbPrices() {
   await Promise.all(tasks)
 }
 
+// Excel 模式 KP 行（表格渲染源）
+function kpExcelRows(cfg: any) {
+  return (cfg.items || []).filter((i: any) => i.category === 'Key Parts')
+}
+
+// 打开某行历史价格弹窗（复用懒加载）
+function openKpHistory(item: Item) {
+  kpHistoryItem.value = item
+  kpHistoryVisible.value = true
+  void onHistoryExpand(item, ['hist'])
+}
+
 // 打开同步弹窗：校验型号与价格后，载入当前 KP 行作为同步目标
 function openSyncModal(item: Item) {
   const model = item.catalogue
@@ -1487,7 +1652,19 @@ function openSyncModal(item: Item) {
   if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
   syncTarget.value = item
   syncNote.value = ''
+  syncTargetCategory.value = ''
   syncVisible.value = true
+  void resolveSyncCategory(item)
+}
+
+async function resolveSyncCategory(item: Item) {
+  const raw = item.part_category || 'Key Parts'
+  try {
+    const res = await normalizeKpCategory(raw)
+    syncTargetCategory.value = res?.category || raw
+  } catch {
+    syncTargetCategory.value = raw
+  }
 }
 
 // 确认同步：把价格 + 用户备注写入配件库历史，并就地刷新该行的 db_price / match_status / 历史
@@ -1561,12 +1738,15 @@ onMounted(async () => {
       total_qty: 0,
       platform_type: '',
       chassis_form: '',
+      config_relation: 'compose',
+      primary_config: '',
       order_type: ''
     }
     // 在已有商机下新建报价：回填该商机元数据，避免保存时把名字等覆盖成空（→ 显示"未命名"）
     if (opportunityId) {
       try {
-        const { data: opp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
+        const { data: resp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
+        const opp = resp.meta || resp
         store.opportunityInfo = {
           opportunity_id: opp.opportunity_id || opportunityId,
           sales_person: opp.sales_person || '',
@@ -1577,6 +1757,8 @@ onMounted(async () => {
           total_qty: opp.purchase_qty ?? opp.total_qty ?? 0,
           platform_type: opp.platform_type || '',
           chassis_form: opp.chassis_form || '',
+          config_relation: opp.config_relation || 'compose',
+          primary_config: opp.primary_config || '',
           order_type: opp.order_type || ''
         }
       } catch { /* 读取失败回退空白，不阻塞新建 */ }
@@ -1606,6 +1788,10 @@ onMounted(async () => {
       }
     }
     if (firstModel?.base_config_id) loadBaseInfo(firstModel.base_config_id)
+    // 方案备选：从需求单带入模式时，主推默认第一个配置
+    if (store.opportunityInfo.config_relation === 'alternative' && !store.opportunityInfo.primary_config) {
+      store.opportunityInfo.primary_config = 'CFG1'
+    }
     activeCfg.value = 'CFG1'
   } else if (quotationId) {
     // 从后端加载已有报价单
@@ -1700,6 +1886,8 @@ onMounted(async () => {
         total_qty: quotation.total_qty || 0,
         platform_type: (quotation as any).platform_type || '',
         chassis_form: (quotation as any).chassis_form || '',
+        config_relation: (quotation as any).config_relation || 'compose',
+        primary_config: (quotation as any).primary_config || '',
       }
 
       // 传递 config_quantities 到 store
@@ -1710,9 +1898,12 @@ onMounted(async () => {
       // edit 模式补拉商机 platform_type/chassis_form（兼容性 filter 规则依赖；报价单可能未存该字段）
       if (opportunityId && !store.opportunityInfo.platform_type) {
         try {
-          const { data: opp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
+          const { data: resp }: any = await axios.get(`/api/opportunities/${opportunityId}`)
+          const opp = resp.meta || resp
           if (opp.platform_type) store.opportunityInfo.platform_type = opp.platform_type
           if (opp.chassis_form) store.opportunityInfo.chassis_form = opp.chassis_form
+          if (opp.config_relation) store.opportunityInfo.config_relation = opp.config_relation
+          if (opp.primary_config) store.opportunityInfo.primary_config = opp.primary_config
         } catch { /* 不阻塞加载 */ }
       }
       message.success("已加载报价单数据")
@@ -1785,8 +1976,15 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   margin-bottom: 24px;
   gap: 16px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 4px 0;
+  background: linear-gradient(180deg, var(--cpq-bg-secondary, #101217) 78%, transparent);
+  backdrop-filter: blur(8px);
 }
 
 .cfg-pills {
@@ -1865,6 +2063,27 @@ onMounted(async () => {
   background: var(--cpq-overlay-a10) !important;
 }
 
+.cfg-relation {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  padding: 2px 0;
+}
+
+.cfg-relation-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cpq-text-secondary);
+}
+
+.cfg-relation .ant-radio-button-wrapper {
+  font-size: 12px;
+  padding: 0 12px;
+}
+
 /* ============================================
    2. 右键菜单
    ============================================ */
@@ -1924,8 +2143,59 @@ onMounted(async () => {
   min-width: 0;
   position: sticky;
   top: 16px;
+  min-height: calc(100vh - 32px);
   max-height: calc(100vh - 32px);
   overflow-y: auto;
+  transition: flex .25s ease;
+}
+
+.col-left.collapsed {
+  flex: 0 0 30px;
+  min-height: calc(100vh - 32px);
+  overflow: visible;
+}
+
+.left-collapse-btn {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 76px;
+  padding: 0;
+  border: 1.5px solid var(--cpq-border-primary);
+  border-radius: 10px 0 0 10px;
+  background: var(--cpq-bg-elevated);
+  box-shadow: 0 3px 12px var(--cpq-overlay-a20);
+  color: var(--cpq-text-secondary);
+  cursor: pointer;
+  transition: all .2s;
+}
+.left-collapse-btn:hover {
+  color: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+  box-shadow: 0 0 0 3px var(--cpq-accent-soft, var(--cpq-overlay-a20)), 0 4px 14px var(--cpq-overlay-a30);
+  transform: translateY(-50%) scale(1.04);
+}
+.left-collapse-btn:active {
+  transform: translateY(-50%) scale(.95);
+}
+.left-collapse-btn .lc-icon {
+  display: inline-flex;
+  font-size: 15px;
+  font-weight: 600;
+  color: inherit;
+}
+
+.col-left.collapsed .left-collapse-btn {
+  right: 0;
+  width: 22px;
+  height: 60px;
+  border-radius: 0 10px 10px 0;
 }
 
 .col-middle {
@@ -1973,6 +2243,24 @@ onMounted(async () => {
   color: var(--cpq-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.primary-btn {
+  border: 1px dashed var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.primary-btn.active {
+  background: var(--cpq-accent-primary);
+  color: #fff;
+  border-style: solid;
 }
 
 /* ============================================
@@ -2126,11 +2414,51 @@ onMounted(async () => {
   border-radius: 10px;
 }
 
-.kp-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 16px;
+/* KP Excel 模式：带框线表格（一行一配件，风格对齐 qw-detail-table / bom-detail-table）*/
+.kp-table-wrap { width: 100%; overflow: hidden; }
+.kp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: fixed;
 }
+.kp-table th {
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-muted);
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid var(--cpq-glass-border);
+  white-space: nowrap;
+}
+table.kp-table th:nth-child(1) { width: 16%; }
+table.kp-table th:nth-child(2) { width: 24%; }
+table.kp-table th:nth-child(3) { width: 8%; }
+table.kp-table th:nth-child(4) { width: 18%; }
+table.kp-table th:nth-child(5) { width: 9%; }
+table.kp-table th:nth-child(6) { width: 8%; }
+table.kp-table th:nth-child(7) { width: 12%; }
+table.kp-table th:nth-child(8) { width: 21%; }
+.kp-table td {
+  padding: 7px 10px;
+  border: 1px solid var(--cpq-glass-border);
+  color: var(--cpq-text-primary);
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+.kp-table th.num, .kp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.kp-table td.price { color: var(--cpq-accent-primary); font-weight: 700; }
+.kp-table th.ops, .kp-table td.ops { text-align: center; }
+.kp-table tbody tr.kp-tr:hover td { background: var(--cpq-overlay-w6); }
+.kp-table .cat { min-width: 0; }
+.kp-table .cat.break { word-break: break-word; }
+.kp-table .hist-btn { font-size: 11px; padding: 0 4px; }
+.kp-table .kp-name { font-weight: 600; font-size: 12px; margin-right: 8px; }
+.kp-table :deep(.inp-num) { width: 100%; }
+.kp-table :deep(.inp-cur) { width: 100%; }
+.kp-table .ops-inner { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.kp-table .ops-btns { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.kp-table .kp-match { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; line-height: 1.4; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* KP 新建模式：按类别分卡纵向堆叠 */
 .kp-new-grid {
@@ -2163,44 +2491,13 @@ onMounted(async () => {
   background: var(--cpq-overlay-a8);
 }
 
-/* KP excel 卡：扁平分段（降级去玻璃，融入 KP 大卡避免嵌套发灰）*/
-.kp-card {
-  position: relative;
-  padding: 14px 16px;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 0;
-  transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth);
-  overflow: hidden;
-  background: var(--cpq-overlay-w4);
-}
-
-.kp-card:hover {
-  border-color: var(--cpq-glass-border-strong);
-}
-
-.kp-card-header {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  margin-bottom: 12px;
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--cpq-border-secondary);
-}
-
 .kp-name {
   color: var(--cpq-text-primary);
   font-weight: 600;
-  font-size: 14px;
-}
-
-.kp-spec {
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-  font-weight: normal;
+  font-size: 12px;
 }
 
 .kp-match {
-  margin-left: auto;
   font-size: 10px;
   padding: 2px 6px;
   border-radius: 4px;
@@ -2212,39 +2509,6 @@ onMounted(async () => {
 .kp-match.ok { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
 .kp-match.warn { color: #fa8c16; background: rgba(250,140,22,.14); }
 .kp-match.new { color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); }
-
-.kp-inputs {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  margin-bottom: 12px;
-}
-
-.input-group {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.input-group label {
-  font-size: 10px;
-  color: var(--cpq-text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.kp-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding-top: 10px;
-  border-top: 1px dashed var(--cpq-border-secondary);
-}
-
-.kp-price {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
 
 .price-val {
   color: var(--cpq-accent-primary) !important;
@@ -2260,29 +2524,6 @@ onMounted(async () => {
 .sync-btn {
   font-size: 11px;
   padding: 0 8px;
-}
-
-/* KP 历史价格折叠面板 */
-.kp-history-collapse {
-  margin-top: 12px;
-}
-
-.kp-history-collapse :deep(.ant-collapse) {
-  background: transparent;
-  border: none;
-}
-
-.kp-history-collapse :deep(.ant-collapse-header) {
-  padding: 6px 0 !important;
-  font-size: 11px;
-  color: var(--cpq-text-muted) !important;
-}
-
-.kp-history-collapse :deep(.ant-collapse-content-box) {
-  padding: 8px 0 !important;
-  background: var(--cpq-overlay-b15);
-  border-radius: 6px;
-  margin-top: 4px;
 }
 
 .kp-hist-header {
@@ -2359,6 +2600,32 @@ onMounted(async () => {
   color: var(--cpq-text-muted);
   text-align: center;
   padding: 12px 0;
+}
+
+/* KP 历史价格弹窗 */
+.kp-history-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.kp-hist-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--cpq-overlay-w8);
+}
+.kp-hist-meta-cat {
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: var(--cpq-overlay-w6);
+}
+.kp-hist-meta-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
 }
 
 /* KP 同步价格弹窗 */
@@ -2586,6 +2853,65 @@ onMounted(async () => {
   font-weight: 600;
   color: var(--cpq-text-secondary);
   margin-bottom: 12px;
+}
+
+.alt-panel {
+  padding: 16px 20px;
+  border-top: 1px solid var(--cpq-overlay-w6);
+}
+
+.alt-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  margin-bottom: 4px;
+  transition: background 0.2s;
+}
+
+.alt-row:hover {
+  background: var(--cpq-overlay-a10);
+}
+
+.alt-row.primary {
+  background: var(--cpq-overlay-a10);
+  outline: 1px solid var(--cpq-accent-primary);
+}
+
+.alt-radio {
+  color: var(--cpq-accent-primary);
+  font-size: 12px;
+}
+
+.alt-name {
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 42px;
+}
+
+.alt-model {
+  flex: 1;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.alt-price {
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.alt-primary-tag {
+  color: var(--cpq-accent-primary);
+  font-size: 11px;
+  font-weight: 600;
+  min-width: 28px;
+  text-align: right;
 }
 
 .fin-setting-row {

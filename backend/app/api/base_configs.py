@@ -15,11 +15,10 @@ def list_configs(series: Optional[str] = None, form: Optional[str] = None, bays:
 
 @router.get("/series")
 def list_series():
-    """返回所有机型系列（从 system_config.server_series 读取，全平台唯一权威源）。
+    """返回所有机型系列（读取 l6.base_configs.series DISTINCT，全平台唯一权威源）。
     items 带 label 供下拉显示；series 为纯 value 数组，向后兼容老调用方。"""
-    from app.repository.system_config_repo import SystemConfigRepository
-    raw = SystemConfigRepository().get_value("server_series", [])
-    items = [it for it in raw if isinstance(it, dict) and "value" in it] if isinstance(raw, list) else []
+    series = BaseConfigRepository().list_series()
+    items = [{"value": s, "label": s} for s in series]
     return {"series": [it["value"] for it in items], "items": items}
 
 

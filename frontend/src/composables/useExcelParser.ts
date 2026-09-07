@@ -16,6 +16,8 @@ const parseFieldRules = ref<any[]>([])
 const businessFields = ref<any[]>([])
 const previewData = ref<any>(null)
 const parseResult = ref<any>(null)
+const sheetNames = ref<string[]>([])
+const activeSheetName = ref<string | null>(null)
 const loadingRules = ref(false)
 const parsing = ref(false)
 const uploadedFile = ref<File | null>(null)
@@ -180,7 +182,7 @@ async function loadBusinessFields() {
 }
 
 // ── 文件上传 + 预览（不落库，纯解析） ──
-async function handleFileUpload(file: File, silent = false) {
+async function handleFileUpload(file: File, silent = false, sheetName?: string) {
   if (!file.name.match(/\.xlsx?$/i)) {
     message.error('仅支持 .xlsx 格式')
     return false
@@ -190,6 +192,7 @@ async function handleFileUpload(file: File, silent = false) {
   try {
     const formData = new FormData()
     formData.append('file', file)
+    if (sheetName) formData.append('sheet_name', sheetName)
 
     const res = await axios.post('/api/rules/excel-parser-preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -198,6 +201,8 @@ async function handleFileUpload(file: File, silent = false) {
     uploadedFile.value = file
     previewData.value = res.data.preview
     parseResult.value = res.data.parse_result
+    sheetNames.value = res.data.sheet_names || []
+    activeSheetName.value = res.data.sheet_name || sheetName || sheetNames.value[0] || null
 
     if (parseResult.value?.dynamic_regions) {
       expandedDynamicRegions.value = Object.keys(parseResult.value.dynamic_regions)
@@ -214,17 +219,20 @@ async function handleFileUpload(file: File, silent = false) {
 }
 
 // 用缓存文件刷新预览（规则改动后重算）
-async function refreshPreview() {
+async function refreshPreview(sheetName?: string) {
   if (!uploadedFile.value) return
   parsing.value = true
   try {
     const formData = new FormData()
     formData.append('file', uploadedFile.value)
+    if (sheetName) formData.append('sheet_name', sheetName)
     const res = await axios.post('/api/rules/excel-parser-preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     previewData.value = res.data.preview
     parseResult.value = res.data.parse_result
+    sheetNames.value = res.data.sheet_names || sheetNames.value
+    activeSheetName.value = res.data.sheet_name || sheetName || sheetNames.value[0] || null
     if (parseResult.value?.dynamic_regions) {
       expandedDynamicRegions.value = Object.keys(parseResult.value.dynamic_regions)
     }
@@ -430,7 +438,7 @@ export function useExcelParser() {
   return {
     // 数据状态
     parseRegions, parseFieldRules, businessFields,
-    previewData, parseResult, loadingRules, parsing, uploadedFile,
+    previewData, parseResult, sheetNames, activeSheetName, loadingRules, parsing, uploadedFile,
     // KP 映射
     kpMappings, loadingMappings, adding, newKeyword, newCategory,
     editingMappingId, mappingColumns,

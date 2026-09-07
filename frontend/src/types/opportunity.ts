@@ -52,10 +52,6 @@ export interface Quotation {
   submitted_by?: string
   submitted_attachment_id?: string
   cost_snapshot?: Record<string, any> | null
-  // 列表轻量标志（list 端点剥离完整 snapshot，留布尔供行内判断）
-  has_cost_snapshot?: boolean
-  // 手工补录过（manual:true，未冻结）→ 列表给「编辑成本」入口可二次进抽屉改
-  has_manual_cost?: boolean
 
   // WIP fields (primary-quotation flag + platform classification)
   is_primary?: boolean

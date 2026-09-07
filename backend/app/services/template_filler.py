@@ -251,9 +251,12 @@ def _fill_static_binding(sheet: dict, binding: dict, data: dict, config_name: st
     if value == "":
         try:
             sys_repo = SystemConfigRepository()
-            fallback = sys_repo.get_value(field_key, "")
-            if fallback:
-                value = fallback
+            try:
+                fallback = sys_repo.get_value(field_key, "")
+                if fallback:
+                    value = fallback
+            finally:
+                sys_repo.close()
         except Exception:
             pass
     

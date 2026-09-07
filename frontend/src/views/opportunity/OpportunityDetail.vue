@@ -34,10 +34,6 @@
           <template #icon><DeleteOutlined /></template>
           回收站 ({{ deletedQuotations.length }})
         </a-button>
-        <a-button size="small" @click="showSidebar = !showSidebar">
-          <template #icon><MessageOutlined /></template>
-          协作动态
-        </a-button>
         <a-popconfirm
           title="确定要删除此商机吗？"
           @confirm="handleDeleteProject"
@@ -53,12 +49,15 @@
       </div>
     </div>
 
-    <!-- 加载骨架：数据未到先占位，避免白屏/无响应感 -->
-    <div v-if="loading && !opportunity" class="detail-skeleton">
-      <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 4 }" /></div>
-      <div class="sk-grid">
-        <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 12 }" /></div>
-        <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 12 }" /></div>
+    <!-- 加载骨架：按流程看板三栏布局（左时间线/中工作台/右审批）占位，避免与真实布局跳变；主数据或看板任一未就绪都显示 -->
+    <div v-if="!projectLoadError && (!boardSettled || !opportunity)" class="detail-skeleton">
+      <div class="sk-board">
+        <div class="sk-card sk-rail glass"><a-skeleton active :paragraph="{ rows: 6 }" /></div>
+        <div class="sk-main">
+          <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 3 }" /></div>
+          <div class="sk-card glass"><a-skeleton active :paragraph="{ rows: 10 }" /></div>
+        </div>
+        <div class="sk-card sk-aside glass"><a-skeleton active :paragraph="{ rows: 8 }" /></div>
       </div>
     </div>
 
@@ -67,10 +66,10 @@
       <a-button type="primary" size="small" @click="loadProject">重试</a-button>
     </div>
 
-    <!-- 商机全生命周期流程看板 -->
+    <!-- 商机全生命周期流程看板：与详情主数据(loadProject)并行加载，去掉串行等待 -->
     <OpportunityProcessBoard
       ref="boardRef"
-      v-if="opportunity"
+      v-if="!projectLoadError"
       :opportunity-id="opportunityId"
       :legacy-requirement-text="legacyRequirementText"
       :attachments="feedAttachments"
@@ -86,13 +85,13 @@
       @set-primary="setAsPrimary"
       @rename-quotation="startRenameQuotation"
       @delete-quotation="deleteQuotation"
-      @cost-quotation="openCostForBackfill"
       @toggle-quote-select="toggleActiveSelect"
       @enter-quote-batch="enterActiveSelect"
       @exit-quote-batch="exitActiveSelect"
       @batch-delete-quotes="handleBatchQuotationDelete"
       @refresh-meta="loadProject"
       @refresh-quotations="loadProject"
+      @board-settled="boardSettled = true"
     />
 
     <!-- 回收站抽屉 -->
@@ -211,9 +210,6 @@
       </a-form>
     </a-modal>
 
-    <!-- 右侧抽屉：商机协作流（消息 + 文件 + 在线状态） -->
-    <OpportunitySidebar :opportunity-id="opportunityId" v-model:show-sidebar="showSidebar" />
-
     <!-- 文件在线预览（图片 / PDF / Excel 在线编辑）-->
     <AttachmentPreviewModal v-model:open="previewOpen" :attachment="previewAttachment" @saved="onPreviewSaved" />
 
@@ -256,10 +252,8 @@
       :quotation="costDrawerQuotation"
       :excel-loading="excelLoading"
       :reparse-loading="reparseLoading"
-      :save-loading="saveLoading"
       @view-excel="handleViewExcel"
       @reparse="handleReparse"
-      @save-cost="handleSaveCost"
     />
   </div>
 </template>
@@ -267,17 +261,16 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
-  DeleteOutlined, RightOutlined, MessageOutlined,
+  DeleteOutlined, RightOutlined,
   UndoOutlined
 } from '@ant-design/icons-vue'
 import { portalApi } from '@/api/portal'
 import { projectApi, quotationApi } from '@/api'
 import { feedApi } from '@/api/feed'
 import { useAuthStore } from '@/store/auth'
-import OpportunitySidebar from '@/components/quote/OpportunitySidebar.vue'
 import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
 import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
 import OpportunityProcessBoard from '@/components/opportunity/OpportunityProcessBoard.vue'
@@ -331,9 +324,8 @@ const legacyRequirementText = ref('')
 const opportunity = ref<Opportunity | null>(null)
 const quotations = ref<Quotation[]>([])
 const deletedQuotations = ref<Quotation[]>([])
-const loading = ref(false)
+const boardSettled = ref(false)
 const projectLoadError = ref('')
-const showSidebar = ref(false)
 const showRecycleBin = ref(false)
 
 // Active quotation selection
@@ -371,17 +363,26 @@ const exitActiveSelect = () => {
 
 const handleBatchQuotationDelete = async () => {
   if (activeSelectedIds.value.size === 0) return
-  try {
-    const result = await quotationApi.batchDelete([...activeSelectedIds.value])
-    const ok = result.success?.length || 0
-    const fail = result.failed?.length || 0
-    message.success(`已删除 ${ok} 个报价单` + (fail > 0 ? `，${fail} 个失败` : ''))
-    exitActiveSelect()
-    await loadProject()
-    await reloadBoard()
-  } catch (err: any) {
-    message.error('批量删除失败: ' + (err.message || err))
-  }
+  Modal.confirm({
+    title: `删除选中的 ${activeSelectedIds.value.size} 个报价单？`,
+    content: '删除后不可恢复；关联的成本表仍会保留，可在报价节点或成本节点删除。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        const result = await quotationApi.batchDelete([...activeSelectedIds.value])
+        const ok = result.success?.length || 0
+        const fail = result.failed?.length || 0
+        message.success(`已删除 ${ok} 个报价单` + (fail > 0 ? `，${fail} 个失败` : ''))
+        exitActiveSelect()
+        await loadProject()
+        await reloadBoard()
+      } catch (err: any) {
+        message.error('批量删除失败: ' + (err.message || err))
+      }
+    },
+  })
 }
 
 // Deleted quotation selection helpers
@@ -442,7 +443,6 @@ const handleBatchPermanentDeleteQuotations = async () => {
 }
 
 const loadProject = async () => {
-  loading.value = true
   projectLoadError.value = ''
   try {
     const data = await projectApi.getById(opportunityId)
@@ -470,8 +470,6 @@ const loadProject = async () => {
     }
     projectLoadError.value = '加载商机详情失败，请重试'
     message.error('加载商机详情失败')
-  } finally {
-    loading.value = false
   }
 }
 
@@ -542,7 +540,6 @@ const costDrawerOpen = ref(false)
 const costDrawerQuotation = ref<any>(null)
 const excelLoading = ref(false)
 const reparseLoading = ref(false)
-const saveLoading = ref(false)
 
 // 找该报价单在 feed 里归档的 sent_quote 导出件
 const findExportAttachment = (quotationId: string) => {
@@ -597,34 +594,6 @@ const handleReparse = async () => {
   }
 }
 
-// 补录成本入口：无快照的历史报价单，开抽屉录整机级成本
-const openCostForBackfill = async (quotation: Quotation) => {
-  costDrawerQuotation.value = quotation
-  costDrawerOpen.value = true
-  try {
-    const full = await quotationApi.getById(quotation.quotation_id)
-    costDrawerQuotation.value = full
-  } catch (e) {
-    // 保留列表数据兜底
-  }
-}
-
-const handleSaveCost = async (snapshot: Record<string, any>) => {
-  const quo = costDrawerQuotation.value
-  if (!quo) return
-  saveLoading.value = true
-  try {
-    const res = await quotationApi.saveCostSnapshot(quo.quotation_id, snapshot)
-    message.success('成本已保存')
-    costDrawerQuotation.value = res.quotation
-    await loadProject()
-    await reloadBoard()
-  } catch (e: any) {
-    message.error('保存失败：' + (e?.message || e))
-  } finally {
-    saveLoading.value = false
-  }
-}
 
 const loadDeletedQuotations = async () => {
   try {
@@ -649,7 +618,12 @@ const restoreQuotation = async (quotationId: string) => {
 
 const permanentDeleteQuotation = async (quotationId: string) => {
   try {
-    await quotationApi.batchPermanentDelete([quotationId])
+    const result = await quotationApi.batchPermanentDelete([quotationId])
+    const fail = result.failed?.length || 0
+    if (fail > 0) {
+      message.error('删除失败: ' + (result.failed[0].error || '未知原因'))
+      return
+    }
     message.success('报价单已永久删除')
     await loadDeletedQuotations()
     await reloadBoard()
@@ -659,15 +633,24 @@ const permanentDeleteQuotation = async (quotationId: string) => {
 }
 
 const deleteQuotation = async (quotationId: string) => {
-  try {
-    await quotationApi.delete(quotationId)
-    message.success('报价单已删除')
-    await loadProject()
-    await loadDeletedQuotations()
-    await reloadBoard()
-  } catch (err: any) {
-    message.error('删除失败: ' + (err.message || err))
-  }
+  Modal.confirm({
+    title: '删除报价单？',
+    content: '删除后不可恢复；关联的成本表仍会保留，可在报价节点或成本节点删除。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        await quotationApi.delete(quotationId)
+        message.success('报价单已删除')
+        await loadProject()
+        await loadDeletedQuotations()
+        await reloadBoard()
+      } catch (err: any) {
+        message.error('删除失败: ' + (err.message || err))
+      }
+    },
+  })
 }
 
 // 重命名报价单
@@ -1340,11 +1323,24 @@ onBeforeUnmount(() => {
 .text-btn.restore:hover {
   background: var(--cpq-overlay-a10);
 }
-.detail-skeleton { display: flex; flex-direction: column; gap: 16px; padding: 16px 0; }
+.detail-skeleton { display: flex; flex-direction: column; min-width: 0; }
 .detail-load-error { display: flex; align-items: center; gap: 12px; padding: 24px 0; color: var(--cpq-text-muted); }
-.sk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.sk-card { padding: 16px; border-radius: 12px; }
-@media (max-width: 900px) { .sk-grid { grid-template-columns: 1fr; } }
+/* 骨架镜像流程看板三栏布局，避免加载完成后的跳变 */
+.sk-board {
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(280px, 320px);
+  gap: 14px;
+  align-items: stretch;
+  padding: 14px 20px 24px;
+  min-height: calc(100vh - 200px);
+  min-width: 0;
+}
+.sk-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.sk-card { min-width: 0; padding: 16px; border-radius: 12px; }
+@media (max-width: 1080px) {
+  .sk-board { grid-template-columns: 1fr; }
+  .sk-rail, .sk-aside { display: none; }
+}
 /* ── 窄屏适配：信息卡列数收窄，避免行内输入被裁切；头部/操作区允许换行 ── */
 @media (max-width: 1100px) {
   .info-card { grid-template-columns: 1fr 1fr; }

@@ -13,6 +13,8 @@ export interface RequirementSlots {
   chassis_form?: string
   purchase_qty?: number
   warranty_years?: string
+  config_relation?: string   // compose=组合拆分 / alternative=方案备选对比
+  primary_config?: string    // 方案备选下的主推配置名（默认第一个配置）
   cpu?: { model?: string; brand?: string; qty?: number; cores?: number; tdp_w?: number }
   memory?: { per_stick_gb?: number; qty?: number; type?: string; speed_mt?: number; brand?: string }
   storage?: Array<{ capacity?: string; interface?: string; brand?: string; qty?: number }>
@@ -193,6 +195,7 @@ export interface WorktableCostSheet {
   status: string
   quotation_id: string
   quotation_exported: boolean
+  quotation_deleted?: boolean
   bom_configs: BomConfig[]
   cost_configs: CostConfig[]
 }
@@ -211,6 +214,8 @@ export interface BomScheme {
   name: string
   status: 'draft' | 'current' | 'archived'
   configs: PortalSheetConfig[]
+  config_relation?: string   // compose=组合拆分 / alternative=方案备选对比
+  primary_config?: string    // 方案备选下的主推配置名
   created_by: string
   created_at: string
   updated_at: string
@@ -231,7 +236,6 @@ export interface FlowCard {
   origin_node: string
   current_node: string
   flow_status: string
-  can_claim?: boolean
   assignee_name: string
   visible_upstream: boolean
   withdraw_status: string
@@ -253,6 +257,7 @@ export interface CostSheet {
   configs: PortalSheetConfig[]
   quotation_id: string
   quotation_exported?: boolean
+  quotation_deleted?: boolean
   created_by: string
   created_at: string
   updated_at: string
@@ -394,23 +399,23 @@ export const portalApi = {
   saveRequirementDraft: (oppId: string, slots: RequirementSlots, requirement_text: string) =>
     RESP<{ requirement: RequirementVersion }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/requirements/draft`, { slots, requirement_text })),
-  submitRequirementDraft: (oppId: string, version: number) =>
+  submitRequirementDraft: (oppId: string, version: number, assignee_name = '') =>
     RESP<{ requirement: RequirementVersion }>(
-      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/requirements/${version}/submit`)),
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/requirements/${version}/submit`, { assignee_name })),
   deleteRequirementDraft: (oppId: string, version: number) =>
     RESP<{ ok: boolean }>(axios.delete(`/api/portal/opp/${encodeURIComponent(oppId)}/requirements/${version}`)),
-  initiate: (oppId: string, opportunity: Record<string, any>, slots: RequirementSlots, requirement_text: string) =>
+  initiate: (oppId: string, opportunity: Record<string, any>, slots: RequirementSlots, requirement_text: string, assignee_name = '') =>
     RESP<{ requirement: RequirementVersion }>(
-      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/initiate`, { opportunity, slots, requirement_text })),
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/initiate`, { opportunity, slots, requirement_text, assignee_name })),
   listBomSchemes: (oppId: string) =>
     RESP<{ bom_schemes: BomScheme[] }>(
       axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes`)),
-  saveBomSchemeDraft: (oppId: string, data: { scheme_id?: number | null; flow_card_id?: number | null; name: string; configs: PortalSheetConfig[] }) =>
+  saveBomSchemeDraft: (oppId: string, data: { scheme_id?: number | null; flow_card_id?: number | null; name: string; configs: PortalSheetConfig[]; config_relation?: string; primary_config?: string }) =>
     RESP<{ scheme: BomScheme; bom_schemes: BomScheme[] }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/draft`, data)),
-  submitBomScheme: (oppId: string, schemeId: number) =>
+  submitBomScheme: (oppId: string, schemeId: number, assignee_name = '') =>
     RESP<{ scheme: BomScheme; bom_schemes: BomScheme[]; flow: FlowInfo; nodes: FlowNode[] }>(
-      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/${schemeId}/submit`)),
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/${schemeId}/submit`, { assignee_name })),
   deleteBomScheme: (oppId: string, schemeId: number) =>
     RESP<{ ok: boolean; bom_schemes: BomScheme[] }>(
       axios.delete(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/${schemeId}`)),
@@ -427,9 +432,9 @@ export const portalApi = {
   }) =>
     RESP<{ sheet: CostSheet; cost_sheets: CostSheet[] }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/draft`, data)),
-  submitCostSheet: (oppId: string, sheetId: number) =>
+  submitCostSheet: (oppId: string, sheetId: number, assignee_name = '') =>
     RESP<{ sheet: CostSheet; cost_sheets: CostSheet[]; flow: FlowInfo; nodes: FlowNode[]; quotation_id: string }>(
-      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/${sheetId}/submit`)),
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/${sheetId}/submit`, { assignee_name })),
   deleteCostSheet: (oppId: string, sheetId: number) =>
     RESP<{ ok: boolean; cost_sheets: CostSheet[] }>(
       axios.delete(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/${sheetId}`)),
@@ -443,8 +448,6 @@ export const portalApi = {
   },
   listCards: (oppId: string) =>
     RESP<{ cards: FlowCard[] }>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/cards`)),
-  claimCard: (oppId: string, cardId: number) =>
-    RESP<{ card: FlowCard }>(axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cards/${cardId}/claim`)),
   returnCard: (oppId: string, cardId: number, comment = '') =>
     RESP<{ card: FlowCard }>(axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cards/${cardId}/return`, { comment })),
   requestWithdrawCard: (oppId: string, cardId: number, comment = '') =>

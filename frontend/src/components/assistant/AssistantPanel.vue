@@ -42,9 +42,11 @@
 
         <!-- 主区：当前会话（群聊或 1:1） -->
         <div class="ap-main" @click="onMainAreaClick">
-        <!-- 顶栏：仅留拖动手柄 + 团队/联系人开关（角色信息已在左侧选中行体现，去掉重复） -->
+        <!-- 顶栏：仅留拖动手柄 + 团队/联系人开关（角色信息已在左侧选中行体现，去掉重复）。
+             试运行预览：单线程单角色，无团队/联系人侧栏，隐藏开关（2026-09-06 用户指正） -->
         <div class="ap-header" @mousedown="startDrag">
           <button
+            v-if="!props.preview"
             type="button"
             class="ap-contacts-toggle"
             :title="contactsCollapsed ? '展开团队' : '收起团队'"
@@ -102,6 +104,7 @@
                 :message="m"
                 :author="colleagueForRole(m.colleague_role_key)"
                 :option-interactive="optionInteractive(m)"
+                :option-answered="optionAnswered(m)"
                 :thread-id="currentThreadId || ''"
                 :pick-role="m.colleague_role_key || ''"
                 :show-author="view === 'group' || m.colleague_role_key !== activeRoleKey"
@@ -118,6 +121,7 @@
               :status-text="statusText"
               :thinking="thinkingText"
               :thinking-active="thinkingActive"
+              :idle-text="idleText"
               :show-author="view === 'group'"
             />
           </div>
@@ -139,15 +143,16 @@
         <!-- 任务计步器（Claude Code 式）：任务执行中收起胶囊，点击展开步骤明细 -->
         <TaskStepper :traces="nodeTraces" :title="taskTitle" :phase="taskPhase" />
 
-        <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill）；群聊窗口才有 @ 点名 -->
+        <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill）；群聊窗口才有 @ 点名。
+             试运行预览：单线程单角色，无点名对象，隐藏 @（2026-09-06 用户指正） -->
         <AssistantComposer
           ref="composerRef"
           v-model="draft"
-          :placeholder="view === 'group' ? '输入消息…（@ 可点名同事）' : `输入消息…`"
+          :placeholder="view === 'group' && !preview ? '输入消息…（@ 可点名同事）' : '输入消息…'"
           :disabled="sending || running"
           :sending="sending"
           :running="running"
-          :members="view === 'group' ? contacts : []"
+          :members="preview ? [] : (view === 'group' ? contacts : [])"
           :skills="composerSkills"
           :show-skills="!preview"
           :context-usage="contextUsage"
@@ -240,7 +245,6 @@
   </Teleport>
 </template>
 
-
 <script setup lang="ts">
 import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import {
@@ -249,13 +253,13 @@ import {
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
 import { useAssistantFab, anchorPanel } from '@/composables/useAssistantFab'
+import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
 import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
 import TaskStepper from '@/components/assistant/TaskStepper.vue'
 import { assistantApi, type AssistantThread } from '@/api/assistant'
 import { officeApi } from '@/api/office'
-import { message as antMessage } from 'ant-design-vue'
 import { usePetModelStore } from '@/store/petModel'
 
 const props = withDefaults(defineProps<{
@@ -266,6 +270,8 @@ const props = withDefaults(defineProps<{
   entryPoint?: string
   inset?: boolean
   assistant?: ReturnType<typeof useAssistant> | null
+  /** 试运行反问开关（Skill Studio 传入）：false=跳过策略反问一键出方案；null/true=按策略反问 */
+  enableClarity?: boolean | null
 }>(), {
   embedded: false,
   preview: false,
@@ -273,6 +279,7 @@ const props = withDefaults(defineProps<{
   entryPoint: 'floating_assistant',
   inset: false,
   assistant: null,
+  enableClarity: null,
 })
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
@@ -281,6 +288,7 @@ const ownAssistant = !props.assistant
   ? useAssistant(props.entryPoint || 'floating_assistant', {
       preview: props.preview,
       initialRoleKey: props.initialRoleKey || null,
+      getEnableClarity: () => props.enableClarity ?? null,
     })
   : null
 const chat = props.assistant || ownAssistant!
@@ -308,6 +316,7 @@ function artifactFor(m: { kind?: string; data?: string }): { entityType: string;
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+const { scrollToBottom } = useChatAutoScroll(messagesEl)
 const composerRef = ref<InstanceType<typeof AssistantComposer> | null>(null)
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 760)
 const contactsCollapsed = ref(typeof window !== 'undefined' && isMobile.value)
@@ -319,6 +328,13 @@ watch([activeRoleKey, () => chat.colleagues?.value], () => {
 // 技能流程是否运行中（用于画布 input 节点「运行」状态）
 const busy = computed(() => waitingAI.value || !!statusText.value || !!streamingText.value)
 const thinkingActive = computed(() => waitingAI.value && (!!thinkingText.value || !streamingText.value))
+
+// ── 静默心跳：waiting 且思考/正文/状态三条流全空超 5s → 「模型思考中 Ns…」 ──
+// 纯前端兜底：后端首字节看门狗/重试状态会以 statusText 到位，这里只兜「什么事件都没来」的空窗。
+const silentSec = ref(0)
+let silentTimer: ReturnType<typeof setInterval> | null = null
+const idleText = computed(() =>
+  silentSec.value >= 5 ? `模型思考中 ${silentSec.value}s…` : '')
 
 // ── AI 同事身份：群聊式头像/昵称 + 发送前转接确认 ──
 // 联系人/同事名单：复用共享 useAssistant 实例的 colleagues（门户挂载时已加载，左栏首帧即现，不再闪）；
@@ -420,7 +436,6 @@ const contacts = computed(() => colleaguePool.value)
 const showRightBar = computed(() => !props.preview && (props.inset || !props.embedded))
 const showContacts = computed(() => !props.preview && (props.inset || !props.embedded) && contacts.value.length >= 2)
 
-
 async function openGroup(forceNew = false) {
   view.value = 'group'
   if (isMobile.value) contactsCollapsed.value = true
@@ -473,7 +488,6 @@ async function startNewConversation() {
 // ── 会话记录（含归档）：切换 / 恢复换位 / 删除 ──
 const historyOpen = ref(false)
 const historyItems = ref<AssistantThread[]>([])
-
 
 async function toggleHistory() {
   historyOpen.value = !historyOpen.value
@@ -630,9 +644,17 @@ function onResize() {
 }
 onMounted(() => {
   window.addEventListener('resize', onResize)
+  silentTimer = setInterval(() => {
+    const silent = waitingAI.value && !thinkingText.value && !streamingText.value && !statusText.value
+    silentSec.value = silent ? silentSec.value + 1 : 0
+  }, 1000)
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  if (silentTimer) {
+    clearInterval(silentTimer)
+    silentTimer = null
+  }
   if (props.embedded && props.preview) {
     destroyPreview()
   }
@@ -742,17 +764,8 @@ watch(
   { immediate: true },
 )
 
-watch(() => messages.value.length, async () => {
-  await nextTick(scrollToBottom)
-})
-watch(streamingText, async () => {
-  await nextTick(scrollToBottom)
-})
-
-function scrollToBottom() {
-  const el = messagesEl.value
-  if (el) el.scrollTop = el.scrollHeight
-}
+watch(() => messages.value.length, () => scrollToBottom(true))
+watch(streamingText, () => scrollToBottom())
 
 async function onSend() {
   const text = draft.value
@@ -789,18 +802,27 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   sendText('已选：' + selections.map((s) => (s.qty ? `${s.label} ×${s.qty}` : s.label)).join('；'), null, selections)
 }
 
-// 问题面板可交互判定：非发送中，且该卡之后没有更新的选项卡（提交后仍可改选重提，
-// 只有新卡取代才锁定——旧规则「后面有用户消息即锁」会把表单卡点一次就焊死）
-function optionInteractive(m: any): boolean {
-  if (m?.kind !== 'input_options') return true
-  if (sending.value || running.value) return false
+// 问题面板答过判定（Claude Code 语义：答完即收，回合粒度）：本卡之后出现用户消息
+// （提交气泡/自由输入）→ 本轮已收，塌成一行静态记录；未答的兄弟卡也一并收起，
+// 新一轮会对剩余缺口重发新卡。同轮多卡（S1 缺口一次问全）互不塌——旧版把
+// 「更新的选项卡」也当已答条件，同轮第二张卡一落列第一张就秒塌「已处理」
+// （2026-09-06 实机复现）。重问卡必有用户消息在前，无需单列该条件。
+// 要改选就打字说明，角色按改口覆盖。表单卡本地点选不发消息，不受影响。
+// 「已答塌行」与「回合进行中禁点」是两个语义：running 时卡必须可见（AI 已预告
+// 选项卡，整卡消失=用户对着三个点等一张不存在的卡，2026-09-05 实测）。
+function optionAnswered(m: any): boolean {
+  if (m?.kind !== 'input_options') return false
   const arr = messages.value || []
   const idx = arr.indexOf(m)
-  if (idx === -1) return false
+  if (idx === -1) return true
   for (let j = idx + 1; j < arr.length; j++) {
-    if (arr[j]?.kind === 'input_options') return false
+    if (arr[j]?.role === 'user') return true
   }
-  return true
+  return false
+}
+function optionInteractive(m: any): boolean {
+  if (m?.kind !== 'input_options') return true
+  return !optionAnswered(m) && !sending.value && !running.value
 }
 
 /** 预览会话重置（Skill Studio「重置测试」用）：purge 线程并清空聊天/轨迹/状态。 */
@@ -1485,6 +1507,7 @@ async function onQuickAction(action: QuickAction) {
   overflow-y: auto;
   padding: 12px 14px;
   min-height: 0;
+  scroll-behavior: smooth;
 }
 .ap-quick {
   display: flex;
@@ -1978,9 +2001,6 @@ async function onQuickAction(action: QuickAction) {
   color: var(--cpq-accent-danger);
   background: var(--cpq-overlay-danger10, rgba(255, 77, 79, 0.10));
 }
-
-
-
 
 .assistant-panel-enter-active,
 .assistant-panel-leave-active {

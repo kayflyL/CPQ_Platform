@@ -47,12 +47,10 @@ from app.api import bom_templates as bom_templates_api
 from app.api import spec_templates as spec_templates_api
 from app.api import feed as feed_api
 from app.api import assistant as assistant_api
-from app.api import candidate_search as candidate_search_api
 from app.api import strategies as strategies_api
 from app.api import solutions as solutions_api
 from app.api import bom_cases as bom_cases_api
 from app.api import reasoning_flow as reasoning_flow_api
-from app.api import requirement_rules as requirement_rules_api
 from app.api import compatibility_rules as compatibility_rules_api
 from app.api import auth as auth_api
 from app.api import roles as roles_api
@@ -117,12 +115,10 @@ app.include_router(bom_templates_api.router)
 app.include_router(spec_templates_api.router)
 app.include_router(feed_api.router)
 app.include_router(assistant_api.router)
-app.include_router(candidate_search_api.router)
 app.include_router(strategies_api.router)
 app.include_router(solutions_api.router)
 app.include_router(bom_cases_api.router)
 app.include_router(reasoning_flow_api.router)
-app.include_router(requirement_rules_api.router)
 app.include_router(compatibility_rules_api.router)
 app.include_router(auth_api.router)
 app.include_router(roles_api.router)

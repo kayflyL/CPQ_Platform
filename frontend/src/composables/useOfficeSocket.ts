@@ -47,16 +47,20 @@ export function useOfficeSocket() {
   function applySnapshot(snapshot: Record<string, OfficeColleagueStatus>) {
     if (!snapshot) return
     const nextMap = { ...statusMap.value }
+    let changed = false
 
     for (const [roleKey, status] of Object.entries(snapshot)) {
       const nextRevision = Number(status?.revision ?? 0)
       const previousRevision = currentRevision(roleKey)
       if (nextRevision < previousRevision) continue
+      // 已是相同/更新版本且本地已有该角色数据：跳过替换，避免无意义地触发 statusMap 深度 watcher。
+      if (nextRevision === previousRevision && statusMap.value[roleKey]) continue
       nextMap[roleKey] = status
       revisionByRole.set(roleKey, nextRevision)
+      changed = true
     }
 
-    statusMap.value = nextMap
+    if (changed) statusMap.value = nextMap
   }
 
   async function loadSnapshotFallback() {

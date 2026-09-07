@@ -10,6 +10,8 @@ from app.api.deps import get_current_user, field_visible, require_perms, ensure_
 from app.utils.price_mask import mask_price_fields
 from app.repository.quotation_repo import QuotationRepository
 from app.repository.opportunity_repo import OpportunityRepository
+from app.repository.feed_repo import FeedRepository
+from app.repository.flow_card_repo import FlowCardRepository
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"])
 
@@ -54,21 +56,14 @@ def list_quotations(opportunity_id: Optional[str] = None, include_deleted: bool 
             quotations = query.order_by(Quotation.created_at.desc()).all()
         finally:
             session.close()
-        # 列表保持精简：剥离 cost_snapshot（抽屉按需走 GET /{id} 取），但留标志供行内判断
-        # - has_cost_snapshot：有任何成本快照（手工补录 / 导出冻结）
-        # - has_manual_cost：手工补录过的（manual:true，未冻结，列表给「编辑成本」入口再进抽屉改）
+        # 列表保持精简：剥离 cost_snapshot（抽屉按需走 GET /{id} 取）
         show_price = field_visible(user, "field.opportunity.quote_price")
         items_list = []
         for q in quotations:
             d = q.to_dict()
-            snap = d.get("cost_snapshot") or {}
-            d["has_cost_snapshot"] = bool(d.get("cost_snapshot"))
-            d["has_manual_cost"] = d["has_cost_snapshot"] and snap.get("manual") is True
             d.pop("cost_snapshot", None)
             if not show_price:
                 d = mask_price_fields(d)
-                d["has_cost_snapshot"] = False
-                d["has_manual_cost"] = False
             items_list.append(d)
         return {"quotations": items_list}
     finally:
@@ -202,15 +197,40 @@ def update_quotation(quotation_id: str, req: QuotationUpdate,
 
 @router.delete("/{quotation_id}")
 def delete_quotation(quotation_id: str, _user: dict = Depends(require_quotation_access)):
-    """Soft delete a quotation."""
+    """Permanently delete a quotation (with items, archive attachments & flow-card refs)."""
     repo = QuotationRepository()
+    feed_repo = FeedRepository()
+    flow_card_repo = FlowCardRepository()
     try:
-        success = repo.delete(quotation_id)
-        if not success:
+        opp_id = repo.permanent_delete(quotation_id)
+        if not opp_id:
             raise HTTPException(status_code=404, detail="Quotation not found")
+        _cleanup_quotation_refs(opp_id, quotation_id, feed_repo, flow_card_repo)
         return {"message": "Quotation deleted"}
     finally:
         repo.close()
+        feed_repo.close()
+        flow_card_repo.close()
+
+
+def _cleanup_quotation_refs(opp_id: str, quotation_id: str, feed_repo, flow_card_repo) -> Optional[dict]:
+    """清理报价单关联：归档附件与流程卡 quote 实体引用（失败不阻断主删除）。
+    返回附件删除信息（opportunity_id + attachment_ids），供 WebSocket 广播使用。"""
+    att_info = None
+    try:
+        del_info = feed_repo.soft_delete_attachments_by_quotation(quotation_id)
+        if del_info:
+            att_info = {"opportunity_id": del_info[0], "attachment_ids": del_info[1:]}
+    except Exception:
+        pass
+    try:
+        card = flow_card_repo.get_card_for_entity(opp_id, "quote", quotation_id)
+        if card:
+            flow_card_repo.unlink_entity(card["id"], "quote", quotation_id, opportunity_id=opp_id)
+            flow_card_repo.delete_card_if_empty(card["id"])
+    except Exception:
+        pass
+    return att_info
 
 
 @router.post("/{quotation_id}/set-primary")
@@ -246,21 +266,6 @@ def export_quotation(quotation_id: str, req: CostSnapshotRequest,
     finally:
         repo.close()
 
-
-@router.put("/{quotation_id}/cost-snapshot")
-def save_cost_snapshot(quotation_id: str, req: CostSnapshotRequest,
-                       _user: dict = Depends(require_quotation_access)):
-    """Manually backfill a cost snapshot for a historical quotation. Writes cost_snapshot
-    ONLY — exported_at stays untouched (keeps 'manually backfilled' distinct from 'exported')."""
-    repo = QuotationRepository()
-    try:
-        quotation = repo.get_by_id(quotation_id)
-        if not quotation:
-            raise HTTPException(status_code=404, detail="Quotation not found")
-        updated = repo.save_cost_snapshot(quotation_id, req.cost_snapshot)
-        return {"quotation": updated.to_dict()}
-    finally:
-        repo.close()
 
 
 @router.post("/{quotation_id}/reparse")
@@ -335,6 +340,9 @@ def save_quotation_items(quotation_id: str, data: dict,
             config_server_models = data.get("config_server_models")
             config_warranty_info = data.get("config_warranty_info")
             config_l6_picks = data.get("config_l6_picks")
+            config_relation = data.get("config_relation")
+            primary_config = data.get("primary_config")
+            top_total_qty = data.get("total_qty")
 
         # 先更新 config-level 字段（config_warranty_info / config_l6_picks 等），再 save_items。
         update_kwargs = {}
@@ -348,6 +356,17 @@ def save_quotation_items(quotation_id: str, data: dict,
             update_kwargs["config_warranty_info"] = config_warranty_info
         if config_l6_picks:
             update_kwargs["config_l6_picks"] = config_l6_picks
+        if config_relation:
+            update_kwargs["config_relation"] = config_relation
+        if primary_config is not None:
+            update_kwargs["primary_config"] = primary_config
+        # 设备数量：方案备选取需求台数（total_qty 由前端算好透传），组合拆分取各配置台数之和
+        if config_quantities:
+            if (config_relation or "compose") == "alternative":
+                total_qty = int(top_total_qty or 0) or sum(int(q) for q in config_quantities.values() if q)
+            else:
+                total_qty = sum(int(q) for q in config_quantities.values() if q)
+            update_kwargs["total_qty"] = total_qty
         if update_kwargs:
             repo.update(quotation_id, **update_kwargs)
 
@@ -379,20 +398,26 @@ class BatchQuotationRequest(BaseModel):
 
 @router.post("/batch-delete")
 def batch_delete_quotations(req: BatchQuotationRequest, user: dict = Depends(get_current_user)):
-    """批量软删除报价单"""
+    """批量永久删除报价单（含明细、归档附件与流程卡引用）。"""
     repo = QuotationRepository()
+    feed_repo = FeedRepository()
+    flow_card_repo = FlowCardRepository()
     results = {"success": [], "failed": []}
     try:
         for qid in req.quotation_ids:
             try:
                 ensure_quotation_access(qid, user)
-                repo.delete(qid)
+                opp_id = repo.permanent_delete(qid)
+                if opp_id:
+                    _cleanup_quotation_refs(opp_id, qid, feed_repo, flow_card_repo)
                 results["success"].append(qid)
             except Exception as e:
                 results["failed"].append({"id": qid, "error": str(e)})
         return results
     finally:
         repo.close()
+        feed_repo.close()
+        flow_card_repo.close()
 
 
 @router.post("/batch-restore")
@@ -416,13 +441,10 @@ def batch_restore_quotations(req: BatchQuotationRequest, user: dict = Depends(ge
 @router.post("/batch-permanent-delete")
 async def batch_permanent_delete_quotations(req: BatchQuotationRequest,
                                              user: dict = Depends(get_current_user)):
-    """批量永久删除报价单，同时删除关联的 Feed 附件（sent_quote 归档）"""
-    from app.models.quotation import Quotation
-    from app.models.quotation_item import QuotationItem
-    from app.models.base import Opportunity_SessionLocal
-    from sqlalchemy import delete
-
-    session = Opportunity_SessionLocal()
+    """批量永久删除报价单（含明细、归档附件与流程卡引用）"""
+    repo = QuotationRepository()
+    feed_repo = FeedRepository()
+    flow_card_repo = FlowCardRepository()
     results = {"success": [], "failed": []}
     # 收集需要广播的删除事件
     attachment_deletions: List[dict] = []
@@ -430,33 +452,15 @@ async def batch_permanent_delete_quotations(req: BatchQuotationRequest,
         for qid in req.quotation_ids:
             try:
                 ensure_quotation_access(qid, user)
-                # 1. 先删关联的 Feed 附件（sent_quote 归档）
-                from app.repository.feed_repo import FeedRepository
-                feed_repo = FeedRepository()
-                try:
-                    del_info = feed_repo.soft_delete_attachments_by_quotation(qid)
-                    if del_info:
-                        opp_id = del_info[0]
-                        att_ids = del_info[1:]
-                        attachment_deletions.append({
-                            "opportunity_id": opp_id,
-                            "attachment_ids": att_ids,
-                        })
-                finally:
-                    feed_repo.close()
-
-                # 2. Delete items first
-                session.execute(
-                    delete(QuotationItem).where(QuotationItem.quotation_id == qid)
-                )
-                # 3. Delete quotation
-                session.execute(
-                    delete(Quotation).where(Quotation.quotation_id == qid)
-                )
+                opp_id = repo.permanent_delete(qid)
+                if not opp_id:
+                    raise HTTPException(status_code=404, detail="报价单不存在")
+                att_info = _cleanup_quotation_refs(opp_id, qid, feed_repo, flow_card_repo)
+                if att_info:
+                    attachment_deletions.append(att_info)
                 results["success"].append(qid)
             except Exception as e:
                 results["failed"].append({"id": qid, "error": str(e)})
-        session.commit()
 
         # 广播附件删除事件（让已连接的客户端同步更新）
         from app.services.feed_hub import hub
@@ -469,4 +473,6 @@ async def batch_permanent_delete_quotations(req: BatchQuotationRequest,
 
         return results
     finally:
-        session.close()
+        repo.close()
+        feed_repo.close()
+        flow_card_repo.close()

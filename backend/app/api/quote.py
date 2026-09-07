@@ -166,6 +166,13 @@ class KpSyncPriceRequest(BaseModel):
     note: str = "报价工作台手动同步"
 
 
+@router.get("/kp/normalize-category")
+async def normalize_kp_category(category: str):
+    """返回实际会写入配件库的分类名（用于同步弹窗提示）。"""
+    from app.repository.kp_repo import canonical_category_name
+    return {"category": canonical_category_name(category)}
+
+
 @router.post("/kp/sync-price")
 async def sync_kp_price(payload: KpSyncPriceRequest):
     """单条手动同步：把当前 KP 配件价格写入 kp_parts 价格历史。

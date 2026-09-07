@@ -21,7 +21,17 @@
     <div class="preview-layout">
       <div class="preview-main">
         <a-card title="Excel 预览" size="small" :loading="parsing">
-          <ParseHeatmapPreview :previewData="previewData" />
+          <a-tabs
+            v-if="sheetNames.length"
+            v-model:activeKey="activeSheetName"
+            size="small"
+            @change="handleSheetChange"
+          >
+            <a-tab-pane v-for="name in sheetNames" :key="name" :tab="name">
+              <ParseHeatmapPreview :previewData="previewData" />
+            </a-tab-pane>
+          </a-tabs>
+          <ParseHeatmapPreview v-else :previewData="previewData" />
         </a-card>
       </div>
       <div class="preview-side">
@@ -64,8 +74,13 @@ const emit = defineEmits<{
 
 const {
   previewData, parsing,
-  loadRules, loadBusinessFields, loadMappings, handleFileUpload
+  sheetNames, activeSheetName,
+  loadRules, loadBusinessFields, loadMappings, handleFileUpload, refreshPreview
 } = useExcelParser()
+
+function handleSheetChange(name: string) {
+  void refreshPreview(name)
+}
 
 // 打开弹窗时：加载规则（幂等）+ 用传入文件触发预览。
 // 规则改动后在 ParseRulesEditor 内保存会自动 refreshPreview（用 uploadedFile 重算）。

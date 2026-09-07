@@ -139,7 +139,11 @@
 
     <!-- 下方：唯一滚动区域 (内部承载所有页面内容) -->
     <main class="main-scroll">
-      <router-view />
+      <router-view v-slot="{ Component, route }">
+        <KeepAlive :include="keepAliveNames">
+          <component :is="Component" :key="route.path" />
+        </KeepAlive>
+      </router-view>
     </main>
 
     <!-- 全局浮动「方案助手」入口(右下角,所有页面常驻) -->
@@ -158,6 +162,15 @@ import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import { usePetModelStore } from '@/store/petModel'
+
+// KeepAlive 缓存名单：顶级菜单页，避免切换时反复卸载/重挂载、重新初始化场景与拉数据
+const keepAliveNames = [
+  'AiOfficeView',
+  'OpportunityList',
+  'ServerConfig',
+  'Parts',
+  'StrategyPortal',
+]
 
 const router = useRouter()
 const route = useRoute()

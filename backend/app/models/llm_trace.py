@@ -2,7 +2,7 @@
 """LLM 调用审计 trace —— rules.llm_trace（P3：证明 LLM 节点价值，指标数据源）。
 
 记录每次 LLM 节点调用：状态/耗时/合并/问题数/重试，
-配合 requirement_samples（llm_feedback）算「采纳率/修订率」。
+衡量 LLM 节点有效性与人工干预率。
 """
 from typing import Optional
 from sqlalchemy import Integer, String, Boolean, DateTime, Text, func

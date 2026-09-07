@@ -1,10 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { NodeTrace } from '@/composables/assistantChatWs'
 
 /**
- * Claude Code 式任务计步器：聊天底部收起胶囊（标题 + 进度计数 + 当前步骤），
+ * Claude Code 式任务计步器：聊天底部收起胶囊（标题 + 进度计数 + 当前步骤 + 已运行时长），
  * 点击展开完整步骤列表（状态 + 耗时）。替代旧的顶部横排进度条。
+ * 展示口径（2026-09-02）：登记环节的两半（input 需求接收 / agent_fill 需求理解填表）
+ * 合并显示为一步「需求分析」——用户视角五步：需求分析→机型→配件→BOM→输出；
+ * 画布试运行回放仍按节点逐个显示，不受此影响。
+ * 计时（2026-09-05）：running 期间本地每秒 tick（pipeline_start 到终态持续可见，
+ * 杜绝「像卡住了」的体感），paused/done 冻结；时长不依赖节点事件——引擎静默期也一直在走。
  */
 const props = defineProps<{
   traces: NodeTrace[]
@@ -14,8 +19,39 @@ const props = defineProps<{
 
 const open = ref(false)
 
-const doneCount = computed(() => props.traces.filter((t) => t.status === 'done').length)
-const currentStep = computed(() => props.traces.find((t) => t.status === 'running'))
+const FILL_STEPS = new Set(['input', 'agent_fill'])
+interface DisplayStep {
+  key: string
+  label: string
+  status: string
+  summary: string
+  duration_ms?: number
+}
+
+const displaySteps = computed<DisplayStep[]>(() => {
+  const fill = props.traces.filter((t) => FILL_STEPS.has(t.step))
+  const out: DisplayStep[] = []
+  if (fill.length) {
+    const status = fill.some((t) => t.status === 'failed') ? 'failed'
+      : fill.some((t) => t.status === 'running') ? 'running' : 'done'
+    out.push({
+      key: 'agent_fill',
+      label: fill.find((t) => t.step === 'agent_fill')?.label || '需求分析',
+      status,
+      summary: fill.map((t) => t.summary || '').filter(Boolean).slice(-1)[0] || '',
+      duration_ms: fill.reduce((n, t) => n + (t.duration_ms || 0), 0),
+    })
+  }
+  for (const t of props.traces) {
+    if (FILL_STEPS.has(t.step)) continue
+    out.push({ key: t.step, label: t.label, status: t.status, summary: t.summary || '', duration_ms: t.duration_ms })
+  }
+  return out
+})
+
+const doneCount = computed(() => displaySteps.value.filter((s) => s.status === 'done').length)
+const totalCount = computed(() => displaySteps.value.length)
+const currentStep = computed(() => displaySteps.value.find((s) => s.status === 'running'))
 const state = computed(() => props.phase || (currentStep.value ? 'running' : 'done'))
 
 const headline = computed(() => {
@@ -28,6 +64,43 @@ function fmtDuration(ms?: number) {
   if (!ms || ms <= 0) return ''
   return `${(ms / 1000).toFixed(1)}s`
 }
+
+// ── 活计时（Claude Code 体感核心）：running 每秒走字，静默等待也有生命感 ──
+const startedAt = ref<number | null>(null)
+const elapsedMs = ref(0)
+let tickTimer: number | null = null
+
+function stopTick() {
+  if (tickTimer !== null) {
+    clearInterval(tickTimer)
+    tickTimer = null
+  }
+}
+
+watch(state, (s) => {
+  if (s === 'running') {
+    if (startedAt.value === null) startedAt.value = Date.now()
+    if (tickTimer === null) {
+      elapsedMs.value = Date.now() - startedAt.value
+      tickTimer = window.setInterval(() => {
+        elapsedMs.value = Date.now() - (startedAt.value ?? Date.now())
+      }, 1000)
+    }
+  } else {
+    stopTick()
+  }
+}, { immediate: true })
+
+onBeforeUnmount(stopTick)
+
+function fmtElapsed(ms: number) {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`
+  const h = Math.floor(m / 60)
+  return `${h}h ${String(m % 60).padStart(2, '0')}m`
+}
 </script>
 
 <template>
@@ -39,22 +112,23 @@ function fmtDuration(ms?: number) {
         <span v-else class="ts-check">✓</span>
       </span>
       <span class="ts-title">{{ title || '配置任务' }}</span>
-      <span class="ts-count">{{ doneCount }}/{{ traces.length }}</span>
+      <span class="ts-count">{{ doneCount }}/{{ totalCount }}</span>
+      <span v-if="elapsedMs > 0" class="ts-elapsed">{{ fmtElapsed(elapsedMs) }}</span>
       <span class="ts-headline">{{ headline }}</span>
       <span class="ts-caret" :class="{ 'is-open': open }">▾</span>
     </button>
     <transition name="ts-pop">
       <div v-if="open" class="ts-pop">
         <div
-          v-for="t in traces"
-          :key="t.step"
+          v-for="s in displaySteps"
+          :key="s.key"
           class="ts-step"
-          :class="`ts-step--${t.status}`"
+          :class="`ts-step--${s.status}`"
         >
           <span class="ts-step-icon" />
-          <span class="ts-step-label">{{ t.label }}</span>
-          <span v-if="t.summary" class="ts-step-summary">{{ t.summary }}</span>
-          <span class="ts-step-dur">{{ fmtDuration(t.duration_ms) }}</span>
+          <span class="ts-step-label">{{ s.label }}</span>
+          <span v-if="s.summary" class="ts-step-summary">{{ s.summary }}</span>
+          <span class="ts-step-dur">{{ fmtDuration(s.duration_ms) }}</span>
         </div>
       </div>
     </transition>
@@ -109,6 +183,12 @@ function fmtDuration(ms?: number) {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.ts-elapsed {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: .85;
+}
+.task-stepper--running .ts-elapsed { color: var(--cpq-accent-primary, #1677ff); }
 .ts-headline {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -6,21 +6,25 @@ import CountNumber from '@/components/common/CountNumber.vue'
 import type { ServerModel } from '@/api/serverConfig'
 
 const props = defineProps<{
-  model: ServerModel | { name: string; base_config?: ServerModel['base_config']; use?: string }
+  model: ServerModel | { name: string; base_config?: ServerModel['base_config'] }
   series?: string
   baseConfigName?: string
+  form?: string
+  bays?: number
   l6Total?: number
   /** 卡头金额：传则显示售价(报价页)，不传回退 l6Total 成本(配置页) */
   heroPrice?: number
   /** 是否显示默认卡头金额：serverconfig 统一无价传 false；报价页走 header-extra 不受影响 */
   priceVisible?: boolean
+  /** 扁平透明模式：报价工作台用，去玻璃渐变/模糊/阴影，与 Key Parts 容器一致 */
+  flat?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'open'): void }>()
 </script>
 
 <template>
-  <div id="chassis-card" class="sc-panel chassis-card">
+  <div id="chassis-card" class="sc-panel chassis-card" :class="{ flat }">
     <div class="sc-phead">
       <span class="num">1</span>
       <h2>机箱</h2>
@@ -33,9 +37,9 @@ const emit = defineEmits<{ (e: 'open'): void }>()
     <div class="sc-pbody">
       <div class="chassis-grid">
         <div class="ci"><span class="k">型号</span><span class="v name">{{ model.name }}</span></div>
-        <div class="ci"><span class="k">机箱形态</span><span class="v">{{ model.base_config?.form || '—' }}</span></div>
-        <div class="ci"><span class="k">芯片类型</span><span class="v arch">{{ series || '—' }}</span></div>
-        <div class="ci"><span class="k">用途</span><span class="v">{{ model.use || '—' }}</span></div>
+        <div class="ci"><span class="k">机箱形态</span><span class="v">{{ model.base_config?.form || form || '—' }}</span></div>
+        <div class="ci"><span class="k">盘位</span><span class="v">{{ model.base_config?.bays ?? bays ?? '—' }}</span></div>
+        <div class="ci"><span class="k">系列</span><span class="v arch">{{ series || '—' }}</span></div>
       </div>
       <div class="chassis-foot">
         <div class="chassis-bc" v-if="baseConfigName">
@@ -55,7 +59,13 @@ const emit = defineEmits<{ (e: 'open'): void }>()
   border: 1px solid var(--cpq-overlay-a15); border-radius: 18px; overflow: hidden;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
-.sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
+.sc-panel.flat {
+  background: transparent;
+  backdrop-filter: none;
+  box-shadow: none;
+  border-color: var(--cpq-glass-border);
+}
+.sc-phead { display: flex; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: transparent; }
 .sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; flex-shrink: 0; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); white-space: nowrap; }
 .sc-phead-right { margin-left: auto; display: flex; align-items: center; gap: 14px; min-width: 0; }

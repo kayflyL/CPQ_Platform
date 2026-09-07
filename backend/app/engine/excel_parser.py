@@ -353,6 +353,8 @@ class ExcelParser:
         keywords = source_config.get("keywords", [])
         value_offset = source_config.get("value_offset", 1)
         value_pattern = source_config.get("value_pattern")
+        # 关键词右侧最大查找跨度：兼容不同模板的空列 / 偏移差异
+        max_right_scan = max(int(value_offset or 1), 1) + 3
         
         for keyword in keywords:
             keyword_lower = keyword.lower()
@@ -360,9 +362,9 @@ class ExcelParser:
                 for c in range(min(10, df.shape[1])):
                     cell_val = str(df.iloc[r, c]).strip() if pd.notna(df.iloc[r, c]) else ''
                     if keyword_lower in cell_val.lower():
-                        # 提取右侧值
-                        target_col = c + value_offset
-                        if target_col < df.shape[1]:
+                        # 提取关键词右侧第一个非空单元格，避免模板间空列/偏移不一致导致取值落空
+                        target_col = self._first_nonempty_col_right(df, r, c, max_right_scan)
+                        if target_col is not None:
                             val = df.iloc[r, target_col]
                             if pd.notna(val):
                                 extracted = str(val).strip()
@@ -383,6 +385,18 @@ class ExcelParser:
                                         }
                                         return extracted, source
         return None, None
+
+    def _first_nonempty_col_right(self, df: pd.DataFrame, row: int, col: int, max_scan: int):
+        """返回关键词右侧第一个非空单元格的列索引；找不到返回 None。"""
+        for d in range(1, max_scan + 1):
+            target_col = col + d
+            if target_col >= df.shape[1]:
+                break
+            cell = df.iloc[row, target_col]
+            value = str(cell).strip() if pd.notna(cell) else ''
+            if value and value.lower() not in ['', 'nan', 'none']:
+                return target_col
+        return None
     
     def _col_letter_to_index(self, letter: str) -> int:
         """列字母转索引（A=0, B=1, ..., Z=25, AA=26）"""

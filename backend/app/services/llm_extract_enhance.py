@@ -24,12 +24,13 @@ from typing import Optional
 
 from app.services.slot_contract import canonical_get, canonical_set
 
+
 logger = logging.getLogger(__name__)
 
 # ── 槽位 schema（canonical slots）──────────────────────────────────────
 # 与规则 ext 结构不同：这是给 LLM 看的"人能读的槽位"，merge 时再确定性翻译成
-# ext 的 drives/gpu/memory… 结构。interface 里的 U.2/U.3 在
-# merge 归一为 NVMe；drives.capacity 是原文容量写法（"960G"/"7.68T"），
+# ext 的 storage/gpu/memory… 结构。interface 里的 U.2/U.3 在
+# merge 归一为 NVMe；storage.capacity 是原文容量写法（"960G"/"7.68T"），
 # capacity_gb 是可选数字（GB），merge 优先取 capacity。
 EXTRACT_ENHANCE_SCHEMA: dict = {
     "type": "object",
@@ -48,7 +49,7 @@ EXTRACT_ENHANCE_SCHEMA: dict = {
             "comparison": {"type": "string", "enum": ["gte", "lte"]},
             "total_gb": {"type": "integer"},   # 需求只给总容量（如 256GB DDR5-4800）时填，单条/条数交给配件规划拆
         }},
-        "drives": {"type": "array", "items": {"type": "object", "properties": {
+        "storage": {"type": "array", "items": {"type": "object", "properties": {
             "capacity": {"type": "string"},
             "capacity_gb": {"type": "integer"},
             "interface": {"type": "string", "enum": ["SATA", "SAS", "NVMe", "U.2", "U.3"]},
@@ -140,12 +141,9 @@ def _interface_norm(kind: Optional[str]) -> Optional[str]:
     return None
 
 
-# 能力声明 vs 实际配置 的判定正则来自规则库（capability_declaration，策略中心/配置规则可编辑），
-# py 只读不内联；默认值兜底在 requirement_rule_catalog.DEFAULT_CAPABILITY_DECLARATION。
-def _capability_patterns() -> dict[str, list]:
-    """读取并编译能力声明拦截正则（规则库优先，默认兜底）。"""
-    from app.services.requirement_rule_catalog import capability_declaration_patterns
-    raw = capability_declaration_patterns()
+def _capability_patterns(rules: Optional[dict] = None) -> dict[str, list]:
+    """读取并编译能力声明拦截正则（来自节点规则体；无规则 → 全空，由 LLM schema 收口）。"""
+    raw = rules or {}
     out: dict[str, list] = {}
     for key in ("drive_capability", "drive_strong", "gpu_capability"):
         pats = []
@@ -161,12 +159,13 @@ def _capability_patterns() -> dict[str, list]:
 # ── 确定性合并：只补缺、规则赢 ─────────────────────────────────────────
 
 def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
-                   catalog: Optional[dict] = None) -> list:
+                   catalog: Optional[dict] = None, rules: Optional[dict] = None) -> list:
     """把 schema 收口后的 LLM 槽位确定性合并进 ext（就地修改）。
 
     规则赢：已存在的字段/组绝不覆盖，只补缺；能力声明不当配置。
     catalog：可选的目录白名单上下文（build_catalog_context 产出），提供时用于 server_type/系列
     锚定校验（agent 主理解路传入；增强路不传则 series 仍走 _load_series_values）。
+    rules：节点资源与权限层绑定的规则体（read_node_rules 合并结果）。
     返回变更说明列表（step_done payload / 日志用）。
     """
     if not cleaned:
@@ -182,18 +181,18 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             categories.append(cat)
 
     # ── 形态：仅当规则没抽到，且 LLM 值合规 ──
-    form = (cleaned.get("form") or "").strip().upper()
-    if form and not ext.get("form") and re.match(r"^[1-8]U$", form):
-        ext["form"] = form
+    form = (cleaned.get("chassis_form") or cleaned.get("form") or "").strip().upper()
+    if form and not canonical_get(ext, "chassis_form") and re.match(r"^[1-8]U$", form):
+        canonical_set(ext, "chassis_form", form)
         changes.append(f"form={form}")
 
     # ── 系列：仅当命中平台系列白名单（避免 "9004/9005" 这种 CPU 系列号误当机型系列路由）──
-    series = (cleaned.get("series") or "").strip()
-    if series and not ext.get("series"):
+    series = (cleaned.get("platform_type") or cleaned.get("series") or "").strip()
+    if series and not canonical_get(ext, "platform_type"):
         from app.services.requirement_intel_service import _load_series_values
         known = [str(s).lower() for s in _load_series_values()]
         if series.lower() in known:
-            ext["series"] = series
+            canonical_set(ext, "platform_type", series)
             changes.append(f"series={series}")
         else:
             changes.append(f"series 跳过(非平台系列): {series}")
@@ -287,23 +286,23 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             ext["memory"] = sig
 
     # ── 盘：仅当文本含显式能力声明（支持/最多/最大 N 盘位）且无强配置信号时跳过（R7：能力≠配置）；
-    # 否则信任 LLM 已按 prompt 过滤能力声明。"2块960G SSD 系统盘" 无能力词，是实际配置，应进 drives
+    # 否则信任 LLM 已按 prompt 过滤能力声明。"2块960G SSD 系统盘" 无能力词，是实际配置，应进 storage
     # （旧 _has_drive_config_signal 对无"配/装/需"前缀的格式误判为非配置，丢盘——已弃用该文本 guard）。
     _text = requirement_text or ""
-    _caps = _capability_patterns()
+    _caps = _capability_patterns(rules)
     _cap_only = bool(any(p.search(_text) for p in _caps["drive_capability"])) and not bool(any(p.search(_text) for p in _caps["drive_strong"]))
-    if _cap_only and cleaned.get("drives"):
-        changes.append("drives 跳过：需求为能力声明/盘位描述，非实际盘配置")
+    if _cap_only and cleaned.get("storage"):
+        changes.append("storage 跳过：需求为能力声明/盘位描述，非实际盘配置")
     else:
-        existing = [(g.get("term"), g.get("kind")) for g in (ext.get("drives") or [])]
-        for d in (cleaned.get("drives") or [])[:16]:
+        existing = [(g.get("term"), g.get("kind")) for g in (ext.get("storage") or [])]
+        for d in (cleaned.get("storage") or [])[:16]:
             term = _term_from_capacity(d.get("capacity"), d.get("capacity_gb"))
             # kind = 接口优先；接口缺失时必须保留介质（SSD/HDD），否则 480G 这种容量
             # 会脱离介质约束选件（SSD 需求可能静默落成 HDD）。
             kind = _interface_norm(d.get("interface")) or str(d.get("type") or d.get("media") or "").strip().upper() or None
             qty = d.get("qty")
             if not term:
-                changes.append(f"drives 跳过(容量无法识别): {d.get('capacity')!r}")
+                changes.append(f"storage 跳过(容量无法识别): {d.get('capacity')!r}")
                 continue
             if qty is not None and not (1 <= int(qty) <= 64):
                 continue
@@ -319,9 +318,9 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
                     _cmp = "lte"
             if _cmp in ("gte", "lte"):
                 _dg["comparison"] = _cmp
-            ext.setdefault("drives", []).append(_dg)
+            ext.setdefault("storage", []).append(_dg)
             existing.append((term, kind))
-            changes.append(f"drives+{term}×{qty or 1} {kind or ''}".strip())
+            changes.append(f"storage+{term}×{qty or 1} {kind or ''}".strip())
             _add_cat("HDD/SSD")
 
     # ── GPU：无具体型号（能力声明）不产组；已有组含同型号 token → 仅前置完整型号
@@ -381,7 +380,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
     # ── 网卡：仅当规则没抽到任何网卡行时按 LLM 槽位补行 ──
     nics = (cleaned.get("nic") or [])[:8]
     msf = ext.get("nic")
-    if nics and not (msf or {}).get("Network(NIC) requirement"):
+    if nics and not (msf or {}).get("NIC"):
         lines: list = []
         for n in nics:
             line: dict = {}
@@ -410,9 +409,9 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
             if msf is None:
                 msf = {}
                 ext["nic"] = msf
-            msf["Network(NIC) requirement"] = lines
+            msf["NIC"] = lines
             changes.append(f"nic[NIC]+{len(lines)} 行")
-            _add_cat("Network(NIC) requirement")
+            _add_cat("NIC")
 
     # ── 电源：唯一真值源 psu（wattage/qty）。只补缺；只有数量、没瓦数也要保留 qty，
     #    避免下游 compose 的 psu_qty_source 读不到值而静默退回负载推断。──
@@ -467,7 +466,7 @@ def merge_into_ext(ext: dict, cleaned: dict, requirement_text: str = "",
 
     # 透明记录：LLM 主张的槽位（含被 merge 拒绝的，如能力声明盘/非平台系列），便于排查
     ext["llm_enhanced"] = {
-        k: cleaned.get(k) for k in ("cpu", "memory", "drives", "gpu", "nic", "psu", "raid",
+        k: cleaned.get(k) for k in ("cpu", "memory", "storage", "gpu", "nic", "psu", "raid",
                                     "form", "series")
         if cleaned.get(k) is not None
     }

@@ -1,6 +1,6 @@
 """Compatibility rule repository — 兼容性规则引擎 CRUD + seed（schema=rules）。
 
-照 requirement_rule_repo 模式。声明式 WHEN→THEN 规则，type:
+声明式规则仓库。声明式 WHEN→THEN 规则，type:
 require/exclude/derive/filter/recommend。seed_default_if_empty 幂等，由 startup 自动触发。
 """
 import json

@@ -86,12 +86,15 @@ async def main(label):
         "operator_name": "trace",
         "history": [],
     }
-    ctx = await run_skill_plan("trace", text, flow, broadcast, initial_ctx=initial_ctx)
+    # 登记节点 = 唯一大脑显式回合（无隐藏二次 LLM）：脚本里用无界面的 make_fill_brain
+    from app.services.skill_chat import make_fill_brain
+    brain = make_fill_brain(persona="", history=[], event_sink=broadcast)
+    ctx = await run_skill_plan("trace", text, flow, broadcast, initial_ctx=initial_ctx, brain=brain)
     total = round(time.perf_counter() - t0, 1)
     print(f"TOTAL {total}s timings={ctx.get('timings')}", flush=True)
     ext = ctx.get("ext") or {}
     print("MODEL", ext.get("server_type_name"), ext.get("form"), ext.get("series"), flush=True)
-    print("FILL_MISSING", ctx.get("agent_fill_missing"), flush=True)
+    print("FILL_MISSING", ctx.get("blockers"), "source=", ctx.get("fill_source"), flush=True)
     print("MODEL_SELECTION", json.dumps(ctx.get("model_selection") or {}, ensure_ascii=False), flush=True)
     for k in ("server_type_name", "series", "form", "purchase_qty", "categories",
               "cpu_signal", "mem_signal", "drive_groups", "gpu_groups",

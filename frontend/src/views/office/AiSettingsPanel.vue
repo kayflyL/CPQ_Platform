@@ -80,8 +80,8 @@
             <div class="form-row">
               <label class="form-label">最大 Tokens</label>
               <div class="form-control">
-                <a-input-number v-model:value="llmConfig.max_tokens" :min="8000" :max="64000" :step="100" style="width: 140px" />
-                <span class="form-hint">reasoning(思考)类模型的思考也占此预算,建议 ≥ 8000</span>
+                <a-input-number v-model:value="llmConfig.max_tokens" :min="16000" :max="64000" :step="100" style="width: 140px" />
+                <span class="form-hint">reasoning(思考)类模型的思考也占此预算,重节点建议 ≥ 16000</span>
               </div>
             </div>
           </div>

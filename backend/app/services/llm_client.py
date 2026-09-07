@@ -5,6 +5,7 @@ providers later without touching callers.
 
 Config priority: system_config (llm_config) > .env > defaults
 """
+import asyncio
 import json
 from typing import Any, AsyncGenerator, List, Dict, Optional
 
@@ -198,11 +199,17 @@ def _is_native_tools_unsupported(error: Exception) -> bool:
 def _client(base_url: str, api_key: str, timeout: float = 180.0) -> AsyncOpenAI:
     if not api_key:
         raise LLMError("LLM_API_KEY 未配置(见 .env 或 system_config.llm_config)")
+    import httpx
+    # 直连（trust_env=False）：LLM 流量绕开系统代理——2026-09-06 实测本地代理
+    # （127.0.0.1:10809）对流式连接间歇黑洞（有连接、无数据、不断开），是 kp 阶段
+    # 卡死/慢轮的根因之一；relay 国内直连 0.07s 可达，无需代理。
+    http_client = httpx.AsyncClient(trust_env=False)
     return AsyncOpenAI(
         base_url=base_url,
         api_key=api_key,
         timeout=timeout,
         max_retries=0,
+        http_client=http_client,
     )
 
 
@@ -733,6 +740,7 @@ async def stream_agent_chat(
     max_tokens: Optional[int] = None,
     timeout: float = 180.0,
     reasoning_effort: Optional[str] = None,
+    first_token_timeout: Optional[float] = None,
 ) -> AsyncGenerator[Dict[str, str], None]:
     """流式 Agent 聊天：把模型的 reasoning 与正文逐段吐出来（ChatGPT 式白盒）。
 
@@ -745,6 +753,15 @@ async def stream_agent_chat(
       - 模型能力档案为 reasoning 时，优先读取 delta.reasoning_content（思考）与 delta.content（正文）。
       - 传入 tools 且模型支持原生工具时，走 native function-calling 流；
         通道不支持时抛 LLMNativeToolsUnsupported，由上层回退文本循环（不重复触发副作用）。
+      - timeout 是字节间隔超时（慢而流动的生成不受影响，挂死连接按 gap 断）；
+        first_token_timeout 是「到首个输出」的看门狗（建连 + 排队 + 首 token），
+        超时即断开交上层重试——对无数据的流快速放弃，对流动的慢生成保持耐心。
+        首 token 之后【每个 chunk 间隔】同样受 first_token_timeout 约束（间隔看门狗）：
+        黑洞连接常被 keepalive 字节"养着"导致 httpx read 超时不触发（read 只测"任一
+        字节到达"，keepalive 会让它永不超时），按内容 chunk 间隔主动断开（litellm #29767 同源）。
+      - reasoning 耗尽 max_tokens 导致正文为空时，yield 一条带 truncated 标记的兜底文案：
+        单发消费方（普通对话）照常展示提示，Agent 循环则据标记作废该轮并重试，
+        不让警告文本混进旁白/落库正文。
       - 失败统一抛 LLMError，绝不静默返回空串。
     """
     config = _get_llm_config()
@@ -770,8 +787,17 @@ async def stream_agent_chat(
     if reasoning_effort is not None:
         request_kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
 
+    async def _create():
+        return await client.chat.completions.create(**request_kwargs)
+
     try:
-        stream = await client.chat.completions.create(**request_kwargs)
+        if first_token_timeout:
+            stream = await asyncio.wait_for(_create(), timeout=first_token_timeout)
+        else:
+            stream = await _create()
+    except asyncio.TimeoutError:
+        raise LLMError(
+            f"LLM 首字节超时：{first_token_timeout:.0f}s 内无响应（连接挂死或排队过久），已主动断开")
     except Exception as e:
         if use_tools and _is_native_tools_unsupported(e):
             raise LLMNativeToolsUnsupported(_format_err(e)) from e
@@ -780,7 +806,29 @@ async def stream_agent_chat(
     try:
         has_content = False
         finish_reason: Optional[str] = None
-        async for chunk in stream:
+        aiter = stream.__aiter__()
+        pending_first = bool(first_token_timeout)
+        # 间隔看门狗（2026-09-06，参照 litellm #29767）：首 token 后每个 chunk 也要超时
+        guard = first_token_timeout if first_token_timeout else None
+        while True:
+            try:
+                if pending_first:
+                    # 首个输出看门狗：响应头已到但模型一直不吐字 = 队列挂死，快速放弃交上层重试
+                    chunk = await asyncio.wait_for(aiter.__anext__(), timeout=first_token_timeout)
+                    pending_first = False
+                elif guard:
+                    # 间隔看门狗：模型已吐过字但中间卡死（keepalive 养连接、无内容 chunk）
+                    chunk = await asyncio.wait_for(aiter.__anext__(), timeout=guard)
+                else:
+                    chunk = await aiter.__anext__()
+            except StopAsyncIteration:
+                break
+            except asyncio.TimeoutError:
+                if pending_first:
+                    raise LLMError(
+                        f"LLM 首字节超时：{first_token_timeout:.0f}s 内无任何输出（连接挂死），已主动断开")
+                raise LLMError(
+                    f"LLM 流式间隔超时：{guard:.0f}s 内未收到下一个数据块（连接挂死），已主动断开")
             try:
                 choice = chunk.choices[0]
             except (AttributeError, IndexError):
@@ -795,13 +843,17 @@ async def stream_agent_chat(
             if content:
                 has_content = True
                 yield {"type": "content", "delta": str(content)}
-        # 流式结束却无正文：reasoning 阶段耗尽 max_tokens，正文被 length 截断
+        # 流式结束却无正文：reasoning 阶段耗尽 max_tokens，正文被 length 截断。
+        # truncated 标记交消费方分流：普通对话展示提示，Agent 循环作废该轮重试。
         if not has_content and finish_reason == "length":
             yield {
                 "type": "content",
                 "delta": ("⚠️ 模型未给出正文：reasoning（思考）阶段耗尽了 max_tokens 预算，"
                           "正式回复被截断（finish_reason=length）。请到「AI 设置」调大 "
                           "max_tokens（reasoning 模型建议 ≥ 8000）后重试。"),
+                "truncated": True,
             }
+    except LLMError:
+        raise
     except Exception as e:
         raise LLMError(f"LLM 流式调用失败: {e}") from e

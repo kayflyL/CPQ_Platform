@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { assistantApi, assistantWsUrl, type AssistantContext, type AssistantMessage } from '@/api/assistant'
-import { handleAssistantChatWsEvent, resetTaskUI, type NodeTrace } from '@/composables/assistantChatWs'
+import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking, type NodeTrace } from '@/composables/assistantChatWs'
 
 export interface EmployeeChatState {
   threadId: string | null
@@ -26,6 +26,16 @@ const activeRoleKey = ref<string | null>(null)
 let socket: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
+/** 拉服务端消息比对：有本地未见的新消息 = 回合已结束（采纳），否则仍在跑。 */
+async function resyncStateMessages(state: EmployeeChatState): Promise<boolean> {
+  if (!state.threadId) return false
+  const server = await assistantApi.threads.messages(state.threadId, 50)
+  const known = new Set(state.messages.map((m) => m.message_id))
+  if (!server.some((m) => !known.has(m.message_id))) return false
+  state.messages = server
+  return true
+}
+
 function ensureState(roleKey: string): EmployeeChatState {
   if (!states[roleKey]) {
     states[roleKey] = {
@@ -45,6 +55,10 @@ function ensureState(roleKey: string): EmployeeChatState {
       taskTitle: '',
       taskPhase: '',
     }
+    // 终态事件丢失兜底（切换角色会断开旧角色 socket，在途回合的终态事件全丢）：
+    // waiting 且长时间无事件 → 拉服务端消息比对，有新消息=回合已结束，采纳并清假死。
+    const state = states[roleKey]
+    createTurnWatchdog(state, () => resyncStateMessages(state))
   }
   return states[roleKey]
 }
@@ -94,6 +108,13 @@ function connect(roleKey: string): Promise<void> {
     socket.onopen = () => {
       state.connected = true
       resolve()
+      // 重连即对账：断线窗口里终态事件（done/卡片广播）已永久丢失，回合可能早已
+      // 完成并落库——waiting 还挂着就立即拉服务端消息采纳，不再干等看门狗。
+      if (state.waiting) {
+        void resyncStateMessages(state).then((adopted) => {
+          if (adopted) adoptTurnEnd(state)
+        }).catch(() => { /* 对账失败交给看门狗 */ })
+      }
     }
     socket.onmessage = (event) => {
       let data: any
@@ -241,7 +262,7 @@ async function send(roleKey: string, content: string, contextSummary?: string, c
   state.running = true
   state.waiting = true
   state.streamingText = ''
-  state.thinkingText = ''
+  clearThinking(state)
   state.error = ''
 
   const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2)}`

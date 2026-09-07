@@ -1,0 +1,11 @@
+{
+  "name": "机型大脑-多候选AI选定",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "enable_clarity": false,
+  "input": "客户要采购一台通用计算服务器，2U 机架式，预算三万以内，其余没提。",
+  "answers": {
+    "server_type": "通用计算服务器"
+  },
+  "max_turns": 6
+}

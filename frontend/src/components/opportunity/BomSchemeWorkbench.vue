@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import DocumentCard from '@/components/flow/DocumentCard.vue'
+import RecordTable from '@/components/opportunity/RecordTable.vue'
 import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
 import RequirementContextPanel from '@/components/opportunity/RequirementContextPanel.vue'
 import { portalApi, type BomScheme, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
 import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
+import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
+import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 
 const props = defineProps<{
   board: PortalBoard
@@ -24,29 +26,14 @@ const editable = computed(() => !props.readonly)
 const requirements = computed(() => props.board.requirements || [])
 const requirement = computed(() => props.board.requirement || props.board.requirements?.find((r) => r.status === 'current') || null)
 const flowCards = computed(() => props.board.flow_cards || [])
+const {
+  pickerOpen, pickerTitle, pickerOptions, pickerChosen,
+  promptAssignee, confirmPicker, cancelPicker,
+} = useDownstreamAssignee()
 
 function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: number | string | null | undefined): FlowCard | undefined {
   if (entityId === null || entityId === undefined || entityId === '') return undefined
   return flowCards.value.find((card) => card.entities.some((e) => e.entity_type === type && e.entity_id === String(entityId)))
-}
-
-function canClaim(card: FlowCard | undefined): boolean {
-  return Boolean(card?.can_claim)
-}
-
-async function claimCard(card: FlowCard) {
-  try {
-    const res = await portalApi.claimCard(oppId.value, card.id)
-    message.success('已认领该卡')
-    emit('card-updated', res.card)
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '认领失败')
-  }
-}
-
-function claimRequirement(req: { version: number }) {
-  const card = cardFor('requirement', req.version)
-  if (card) claimCard(card)
 }
 
 const requirementCardId = computed(() => cardFor('requirement', requirement.value?.version)?.id || null)
@@ -80,6 +67,8 @@ const editorSchemeId = ref<number | null>(null)
 const editorSourceRequirementId = ref<number | null>(null)
 const editorName = ref('')
 const editorConfigs = ref<PortalSheetConfig[]>([])
+const editorConfigRelation = ref<'compose' | 'alternative'>('compose')
+const editorPrimaryConfig = ref('')
 const editorReadonly = ref(false)
 const editorRef = ref<InstanceType<typeof SchemeEditor> | null>(null)
 const saving = ref(false)
@@ -115,6 +104,16 @@ function cloneConfigs(configs: PortalSheetConfig[]) {
   return JSON.parse(JSON.stringify(configs || [])) as PortalSheetConfig[]
 }
 
+function inheritRequirementRelation(req?: { version: number }) {
+  const r = requirements.value.find((item) => item.version === req?.version)
+  const slots = (r || requirement.value)?.slots || {}
+  editorConfigRelation.value = slots.config_relation === 'alternative' ? 'alternative' : 'compose'
+  editorPrimaryConfig.value = slots.primary_config || ''
+  if (editorConfigRelation.value === 'alternative' && !editorPrimaryConfig.value) {
+    editorPrimaryConfig.value = editorConfigs.value[0]?.name || ''
+  }
+}
+
 function openNew() {
   if (!editable.value) return
   editorSchemeId.value = null
@@ -122,6 +121,8 @@ function openNew() {
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
   editorReadonly.value = false
+  // 新建方案：从当前需求单继承「组合拆分/方案备选」模式（只拷贝，不回写需求单）
+  inheritRequirementRelation()
   editorOpen.value = true
 }
 
@@ -132,6 +133,7 @@ function openNewForRequirement(req: { version: number }) {
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
   editorReadonly.value = false
+  inheritRequirementRelation(req)
   editorOpen.value = true
 }
 
@@ -141,6 +143,11 @@ function openScheme(scheme: BomScheme) {
   editorName.value = scheme.name
   editorConfigs.value = cloneConfigs(scheme.configs)
   editorReadonly.value = !editable.value || scheme.status !== 'draft'
+  editorConfigRelation.value = scheme.config_relation === 'alternative' ? 'alternative' : 'compose'
+  editorPrimaryConfig.value = scheme.primary_config || ''
+  if (editorConfigRelation.value === 'alternative' && !editorPrimaryConfig.value) {
+    editorPrimaryConfig.value = editorConfigs.value[0]?.name || ''
+  }
   editorOpen.value = true
 }
 
@@ -172,6 +179,8 @@ async function saveDraft() {
       flow_card_id: editorFlowCardId(),
       name: editorName.value.trim(),
       configs,
+      config_relation: editorConfigRelation.value,
+      primary_config: editorPrimaryConfig.value,
     })
     message.success('方案草稿已保存')
     editorOpen.value = false
@@ -193,30 +202,41 @@ async function submitScheme() {
     message.warning('方案内容为空，无法提交')
     return
   }
+  async function doSubmit(assigneeName: string) {
+    const saved = await portalApi.saveBomSchemeDraft(oppId.value, {
+      scheme_id: editorSchemeId.value,
+      flow_card_id: editorFlowCardId(),
+      name: editorName.value.trim(),
+      configs,
+      config_relation: editorConfigRelation.value,
+      primary_config: editorPrimaryConfig.value,
+    })
+    editorSchemeId.value = saved.scheme.id
+    await portalApi.submitBomScheme(oppId.value, saved.scheme.id, assigneeName)
+  }
+  async function runSubmit(assigneeName: string) {
+    saving.value = true
+    try {
+      await doSubmit(assigneeName)
+      message.success('方案已提交，流程进入成本核算')
+      editorOpen.value = false
+      emit('changed')
+    } catch (e: any) {
+      if (e?.response?.data?.detail === ASSIGNEE_REQUIRED_DETAIL) {
+        promptAssignee('costing', '选择成本核算处理人', (name) => { runSubmit(name) })
+        return
+      }
+      message.error(e.response?.data?.detail || '提交方案失败')
+    } finally {
+      saving.value = false
+    }
+  }
   Modal.confirm({
     title: '提交当前方案？',
     content: '提交后该方案进入成本核算，其他方案保留为草稿/归档；后续可回退重新编辑。',
     okText: '提交方案',
     cancelText: '取消',
-    async onOk() {
-      saving.value = true
-      try {
-        const saved = await portalApi.saveBomSchemeDraft(oppId.value, {
-          scheme_id: editorSchemeId.value,
-          flow_card_id: editorFlowCardId(),
-          name: editorName.value.trim(),
-          configs,
-        })
-        await portalApi.submitBomScheme(oppId.value, saved.scheme.id)
-        message.success('方案已提交，流程进入成本核算')
-        editorOpen.value = false
-        emit('changed')
-      } catch (e: any) {
-        message.error(e.response?.data?.detail || '提交方案失败')
-      } finally {
-        saving.value = false
-      }
-    },
+    onOk: () => runSubmit(''),
   })
 }
 
@@ -306,65 +326,74 @@ function requestWithdrawScheme(scheme: BomScheme) {
       </div>
     </header>
 
-    <div class="bw-grid">
-      <DocumentCard
+    <RecordTable
+      title="方案"
+      :empty="!schemes.length"
+      empty-text="尚无方案，点击“新建方案”开始配置。"
+      :columns="[
+        { label: '方案', width: '200px' },
+        { label: '编号', width: '120px' },
+        { label: '状态', width: '120px' },
+        { label: '配置 / 台数 / 型号' },
+        { label: '创建人 / 时间', width: '180px' },
+        { label: '操作', width: '200px', align: 'right' },
+      ]"
+    >
+      <tr
         v-for="req in pendingRequirements"
         :key="`pending-req-${req.version}`"
-        :title="`待配方案 · 需求单 v${req.version}`"
-        doc-no="待处理 · 来自线索登记"
-        status="待配方案"
-        status-tone="current"
-        doc-type="requirement"
-        :active="editorSourceRequirementId === cardFor('requirement', req.version)?.id"
       >
-        <template #summary>
-          <div class="bw-summary">来自线索登记节点，提交后进入成本核算</div>
-          <div class="bw-muted">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</div>
-        </template>
-        <template v-if="editable" #footer>
-          <span v-if="canClaim(cardFor('requirement', req.version))" class="bw-footer-link" @click.stop="claimRequirement(req)">认领</span>
-          <span class="bw-footer-link primary" @click.stop="openSchemeForRequirement(req)">
-            {{ schemeForRequirement(req) ? '查看方案' : '新建方案' }}
-          </span>
-        </template>
-      </DocumentCard>
+        <td>
+          <span class="rt-strong">待配方案 · 需求单 v{{ req.version }}</span>
+          <span class="rt-sub">来自线索登记</span>
+        </td>
+        <td class="rt-dim">REQ-{{ req.version }}</td>
+        <td><span class="rt-badge rt-badge-current">待配方案</span></td>
+        <td class="rt-dim">提交后进入成本核算</td>
+        <td class="rt-dim">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+        <td>
+          <div v-if="editable" class="rt-actions">
+            <span class="rt-link" @click.stop="openSchemeForRequirement(req)">
+              {{ schemeForRequirement(req) ? '查看方案' : '新建方案' }}
+            </span>
+          </div>
+        </td>
+      </tr>
 
-      <DocumentCard
+      <tr
         v-for="scheme in schemes"
         :key="scheme.id"
-        :title="scheme.name"
-        :doc-no="`BOM-${scheme.id}`"
-        :status="statusLabel(scheme.status)"
-        :status-tone="scheme.status === 'current' ? 'current' : scheme.status === 'draft' ? 'draft' : 'done'"
-        doc-type="bom"
-        :active="scheme.status === 'current'"
         @click="openScheme(scheme)"
       >
-        <template #summary>
-          <div class="bw-summary">{{ schemeMeta(scheme) }}</div>
-          <div class="bw-muted">{{ scheme.created_by || '—' }} · {{ (scheme.updated_at || scheme.created_at || '').slice(5, 16) }}</div>
-        </template>
-        <template v-if="editable && scheme.status === 'draft'" #footer>
-          <span class="bw-footer-link" @click.stop="openScheme(scheme)">继续编辑</span>
-          <span class="bw-footer-link primary" @click.stop="openScheme(scheme)">提交方案</span>
-          <span class="bw-footer-link danger" @click.stop="deleteScheme(scheme)">删除草稿</span>
-        </template>
-        <template v-else-if="editable && scheme.status === 'current'" #footer>
-          <span class="bw-footer-link" @click.stop="openScheme(scheme)">查看方案</span>
-          <span v-if="cardForScheme(scheme)?.current_node === 'costing'" class="bw-footer-link" @click.stop="requestWithdrawScheme(scheme)">申请撤回</span>
-          <span v-if="cardForScheme(scheme)?.current_node === 'boming' && cardForScheme(scheme)?.flow_status === 'returned'" class="bw-footer-link danger" @click.stop="returnScheme(scheme)">退回方案</span>
-          <span class="bw-footer-link danger" @click.stop="deleteScheme(scheme)">删除当前方案</span>
-        </template>
-        <template v-else-if="editable && scheme.status === 'archived'" #footer>
-          <span class="bw-footer-link" @click.stop="openScheme(scheme)">查看归档</span>
-          <span class="bw-footer-link danger" @click.stop="deleteScheme(scheme)">删除归档</span>
-        </template>
-      </DocumentCard>
+        <td><span class="rt-strong">{{ scheme.name }}</span></td>
+        <td class="rt-dim">BOM-{{ scheme.id }}</td>
+        <td>
+          <span class="rt-badge"
+            :class="scheme.status === 'current' ? 'rt-badge-current' : scheme.status === 'draft' ? 'rt-badge-draft' : 'rt-badge-done'"
+          >{{ statusLabel(scheme.status) }}</span>
+        </td>
+        <td>{{ schemeMeta(scheme) }}</td>
+        <td class="rt-dim">{{ scheme.created_by || '—' }} · {{ (scheme.updated_at || scheme.created_at || '').slice(5, 16) }}</td>
+        <td>
+          <div v-if="editable && scheme.status === 'draft'" class="rt-actions">
+            <span class="rt-link" @click.stop="openScheme(scheme)">继续编辑</span>
+            <span class="rt-link" @click.stop="openScheme(scheme)">提交方案</span>
+            <span class="rt-link danger" @click.stop="deleteScheme(scheme)">删除草稿</span>
+          </div>
+          <div v-else-if="editable && scheme.status === 'current'" class="rt-actions">
+            <span class="rt-link" @click.stop="openScheme(scheme)">查看方案</span>
+            <span v-if="cardForScheme(scheme)?.current_node === 'costing'" class="rt-link" @click.stop="requestWithdrawScheme(scheme)">申请撤回</span>
+            <span v-if="cardForScheme(scheme)?.current_node === 'boming' && cardForScheme(scheme)?.flow_status === 'returned'" class="rt-link danger" @click.stop="returnScheme(scheme)">退回方案</span>
+            <span class="rt-link danger" @click.stop="deleteScheme(scheme)">删除当前方案</span>
+          </div>
+          <div v-else-if="editable && scheme.status === 'archived'" class="rt-actions">
+            <span class="rt-link" @click.stop="openScheme(scheme)">查看归档</span>
+            <span class="rt-link danger" @click.stop="deleteScheme(scheme)">删除归档</span>
+          </div>
+        </td>
+      </tr>
 
-      <div v-if="!schemes.length" class="bw-empty">
-        尚无方案，点击“新建方案”开始配置。
-      </div>
-    </div>
+    </RecordTable>
 
     <a-modal
       v-model:open="editorOpen"
@@ -388,6 +417,8 @@ function requestWithdrawScheme(scheme: BomScheme) {
             :configs="editorConfigs"
             :readonly="editorReadonly"
             :show-toolbar="false"
+            v-model:config-relation="editorConfigRelation"
+            v-model:primary-config="editorPrimaryConfig"
           />
           <div v-if="!editorReadonly" class="scheme-actions">
             <a-button @click="editorOpen = false">取消</a-button>
@@ -397,6 +428,14 @@ function requestWithdrawScheme(scheme: BomScheme) {
         </div>
       </div>
     </a-modal>
+    <AssigneePickerModal
+      v-model:value="pickerChosen"
+      :open="pickerOpen"
+      :title="pickerTitle"
+      :options="pickerOptions"
+      @confirm="confirmPicker()"
+      @cancel="cancelPicker()"
+    />
   </div>
 </template>
 
@@ -459,6 +498,28 @@ function requestWithdrawScheme(scheme: BomScheme) {
 .bw-footer-link.danger {
   color: var(--cpq-color-danger, #ff4d4f);
 }
+.row-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
+  color: var(--cpq-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.row-meta-item b {
+  font-weight: 500;
+  color: var(--cpq-text-muted);
+}
+.row-meta-item.muted {
+  color: var(--cpq-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
+}
 .bw-empty {
   grid-column: 1 / -1;
   padding: 40px 16px;
@@ -470,7 +531,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
 }
 .scheme-layout {
   display: grid;
-  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   align-items: start;
   width: 100%;

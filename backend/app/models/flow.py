@@ -143,6 +143,8 @@ class OpportunityBomScheme(Base):
     name: Mapped[str] = mapped_column(String)
     status: Mapped[str] = mapped_column(String, default="draft")  # draft / current / archived
     configs: Mapped[Optional[list]] = mapped_column(JSON, default=list)
+    config_relation: Mapped[Optional[str]] = mapped_column(String, default="compose")  # compose=组合拆分 / alternative=方案备选对比
+    primary_config: Mapped[Optional[str]] = mapped_column(String, default="")  # 方案备选下的主推配置名
     created_by: Mapped[Optional[str]] = mapped_column(String, default=None)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -154,6 +156,8 @@ class OpportunityBomScheme(Base):
             "name": self.name or "",
             "status": self.status or "draft",
             "configs": self.configs or [],
+            "config_relation": self.config_relation or "compose",
+            "primary_config": self.primary_config or "",
             "created_by": self.created_by or "",
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",

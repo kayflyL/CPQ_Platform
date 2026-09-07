@@ -40,6 +40,7 @@
             :message="item"
             :author="colleagueAuthor"
             :option-interactive="optionInteractive(item)"
+            :option-answered="optionAnswered(item)"
             :thread-id="chatState?.threadId || ''"
             :pick-role="item.colleague_role_key || ''"
             @select-option="sendOption"
@@ -65,6 +66,8 @@
         :title="chatState?.taskTitle"
         :phase="chatState?.taskPhase"
       />
+
+      
 
       <AssistantComposer
         v-model="draft"
@@ -123,7 +126,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CloseOutlined, DeleteOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext, AssistantThread } from '@/api/assistant'
@@ -132,6 +135,7 @@ import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vu
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
 import TaskStepper from '@/components/assistant/TaskStepper.vue'
 import { useEmployeeChat } from '@/composables/useEmployeeChat'
+import { useChatAutoScroll } from '@/composables/useChatAutoScroll'
 
 const props = defineProps<{
   colleague: any
@@ -141,6 +145,7 @@ const props = defineProps<{
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+const { scrollToBottom } = useChatAutoScroll(messagesEl)
 const expanded = ref(false)
 const historyOpen = ref(false)
 const historyLoading = ref(false)
@@ -221,7 +226,7 @@ async function selectThread(thread: AssistantThread) {
   historyOpen.value = false
   expanded.value = true
   await openThread(props.colleague.role_key, thread.thread_id)
-  await scrollToBottom()
+  await scrollToBottom(true)
 }
 
 async function newConversation() {
@@ -229,7 +234,7 @@ async function newConversation() {
   await startNewThread(props.colleague.role_key, chatContext.value)
   historyOpen.value = false
   expanded.value = true
-  await scrollToBottom()
+  await scrollToBottom(true)
 }
 
 async function toggleDelete(thread: AssistantThread) {
@@ -243,20 +248,13 @@ async function toggleDelete(thread: AssistantThread) {
   }
 }
 
-async function scrollToBottom() {
-  await nextTick()
-  if (messagesEl.value) {
-    messagesEl.value.scrollTop = messagesEl.value.scrollHeight
-  }
-}
-
 async function toggleExpanded() {
   if (!expanded.value) {
     expanded.value = true
     historyOpen.value = false
     if (props.colleague?.role_key) {
       await open(props.colleague, chatContext.value)
-      await scrollToBottom()
+      await scrollToBottom(true)
     }
   } else {
     expanded.value = false
@@ -274,8 +272,13 @@ watch(
   },
 )
 
+// 新消息/流式增量的跟随滚动：离散消息强制回底，流式增量仅在用户处于底部时跟随
 watch(
-  () => [chatState.value?.messages.length, chatState.value?.streamingText, chatState.value?.waiting],
+  () => chatState.value?.messages.length,
+  () => scrollToBottom(true),
+)
+watch(
+  () => chatState.value?.streamingText,
   () => scrollToBottom(),
 )
 
@@ -315,18 +318,26 @@ async function sendSelections(selections: Array<{ slot: string; value: string; l
   }
 }
 
-// 问题面板可交互判定：非发送中，且该卡之后没有更新的选项卡（提交后仍可改选重提，
-// 只有新卡取代才锁定——旧规则「后面有用户消息即锁」会把表单卡点一次就焊死）
-function optionInteractive(m: any): boolean {
-  if (m?.kind !== 'input_options') return true
-  if (chatState.value?.sending || chatState.value?.running) return false
+// 问题面板可交互判定（Claude Code 语义：答完即收，回合粒度）：本卡之后出现用户消息
+// （提交气泡/自由输入）→ 本轮已收，锁定灰显；未答兄弟卡也一并收起，新一轮对剩余
+// 缺口重发新卡。同轮多卡（S1 缺口一次问全）互不塌——旧版把「更新的选项卡」也当
+// 已答条件，同轮第二张卡一落列第一张就秒塌「已处理」（2026-09-06 实机复现）。
+// 要改选就打字说明，角色按改口覆盖——不让答过的卡继续可点。
+// 表单卡的本地点选不发消息，不受影响。
+// 「已答塌行」与「回合进行中禁点」分离：running 时卡可见但禁点，不整卡消失。
+function optionAnswered(m: any): boolean {
+  if (m?.kind !== 'input_options') return false
   const arr = chatState.value?.messages || []
   const idx = arr.indexOf(m)
-  if (idx === -1) return false
+  if (idx === -1) return true
   for (let j = idx + 1; j < arr.length; j++) {
-    if (arr[j]?.kind === 'input_options') return false
+    if (arr[j]?.role === 'user') return true
   }
-  return true
+  return false
+}
+function optionInteractive(m: any): boolean {
+  if (m?.kind !== 'input_options') return true
+  return !optionAnswered(m) && !chatState.value?.sending && !chatState.value?.running
 }
 
 onBeforeUnmount(close)
@@ -469,6 +480,7 @@ onBeforeUnmount(close)
   display: flex;
   flex-direction: column;
   gap: 10px;
+  scroll-behavior: smooth;
 }
 
 .chat-empty,

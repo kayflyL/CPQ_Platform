@@ -8,7 +8,8 @@
  */
 import { ref, computed } from 'vue'
 import { useSeries } from '@/composables/useSeries'
-import { catalogApi, kpPartsApi, type ServerModel } from '@/api/serverConfig'
+import axios from 'axios'
+import { catalogApi, kpPartsApi, baseConfigApi, type ServerModel } from '@/api/serverConfig'
 import type { RequirementSlots, PortalSheetRow } from '@/api/portal'
 import KpPartsEditor from '@/components/opportunity/KpPartsEditor.vue'
 
@@ -21,7 +22,7 @@ const emit = defineEmits<{ change: [] }>()
 const { items: seriesItems, ensureSeries } = useSeries()
 ensureSeries()
 
-const FORMS = ['1U', '2U', '4U', '5U', '6U', '8U']
+const formOptions = ref<{ value: string; label: string }[]>([])
 
 const defaultKpCategories = ref<string[]>([])
 const seriesOptions = computed(() => seriesItems.value.map((s) => ({ value: s.value, label: s.label })))
@@ -39,6 +40,8 @@ interface RequirementConfig {
   qty: number
   warranty_years: number
   kp_rows: PortalSheetRow[]
+  /** 表单定义驱动的动态字段绑定（schema 渲染按 key 写入） */
+  [field: string]: any
 }
 
 function blankKpRow(partCategory = ''): PortalSheetRow {
@@ -73,6 +76,29 @@ const configs = ref<RequirementConfig[]>([])
 const activeKey = ref('')
 const reqText = defineModel<string>('reqText', { default: '' })
 
+// 配置关系：compose=组合拆分（默认，多配置数量求和）/ alternative=方案备选对比（不求和，同一需求多方案）
+const configRelation = ref<'compose' | 'alternative'>('compose')
+const primaryConfig = ref<string>('')
+
+function onConfigRelationChange(mode: 'compose' | 'alternative') {
+  configRelation.value = mode
+  if (mode === 'alternative') {
+    const first = activeConfig.value?.name || configs.value[0]?.name || ''
+    if (first && !primaryConfig.value) primaryConfig.value = first
+    // 方案备选：每个方案台数默认为需求台数（取第一个配置），同一批需求多方案
+    const demand = Number(configs.value[0]?.qty) || 1
+    for (const cfg of configs.value) {
+      if (!cfg.qty || cfg.qty <= 0) cfg.qty = demand
+    }
+  }
+  emit('change')
+}
+
+function markPrimary(name: string) {
+  primaryConfig.value = name
+  emit('change')
+}
+
 async function loadModelOptions() {
   try {
     const res = await catalogApi.listModels()
@@ -100,6 +126,15 @@ async function loadServerTypes() {
   }
 }
 
+async function loadFormOptions() {
+  try {
+    const res = await baseConfigApi.listForms()
+    formOptions.value = (res.forms || []).map((f) => ({ value: f, label: f }))
+  } catch {
+    formOptions.value = []
+  }
+}
+
 async function loadDefaultKpCategories() {
   try {
     const cats = await kpPartsApi.categories()
@@ -114,9 +149,35 @@ async function loadDefaultKpCategories() {
   }
 }
 
+// 表单定义（DB requirement_sheet_form）：字段/中文名/顺序/控件的唯一权威。
+// 商机详情页这张表与 agent_fill 目标层预览消费同一份定义——改定义，两处同步变。
+interface FormFieldDef {
+  key: string
+  label: string
+  control: string
+  placeholder?: string
+  min?: number
+  unit?: string
+  /** 定义 key 与配置对象属性名不一致时的绑定桥（如 purchase_qty → qty） */
+  bind?: string
+}
+const configFields = ref<FormFieldDef[]>([])
+
+async function loadFormDefinition() {
+  try {
+    const { data } = await axios.get('/api/system-config/requirement_sheet_form/value')
+    const fields = data?.value?.config_fields
+    configFields.value = Array.isArray(fields) ? fields : []
+  } catch {
+    configFields.value = []
+  }
+}
+
 loadModelOptions()
 loadServerTypes()
 loadDefaultKpCategories()
+loadFormOptions()
+loadFormDefinition()
 
 function nextConfigName() {
   const nums = configs.value.map((c) => {
@@ -128,6 +189,7 @@ function nextConfigName() {
 }
 
 const activeConfig = computed(() => configs.value.find((c) => c.name === activeKey.value) || configs.value[0] || null)
+const isAlternative = computed(() => configRelation.value === 'alternative')
 
 const activeKpRows = computed<PortalSheetRow[]>({
   get: () => activeConfig.value?.kp_rows ?? [],
@@ -138,6 +200,11 @@ const activeKpRows = computed<PortalSheetRow[]>({
 
 function addConfig() {
   const cfg = blankConfig(nextConfigName())
+  if (configRelation.value === 'alternative') {
+    const demand = Number(configs.value[0]?.qty) || 1
+    cfg.qty = demand
+    if (!primaryConfig.value) primaryConfig.value = cfg.name
+  }
   configs.value.push(cfg)
   activeKey.value = cfg.name
 }
@@ -146,6 +213,9 @@ function removeConfig(cfg: RequirementConfig) {
   if (configs.value.length <= 1) return
   const idx = configs.value.findIndex((c) => c.name === cfg.name)
   configs.value = configs.value.filter((c) => c.name !== cfg.name)
+  if (configRelation.value === 'alternative' && primaryConfig.value === cfg.name) {
+    primaryConfig.value = configs.value[0]?.name || ''
+  }
   activeKey.value = (configs.value[Math.min(idx, configs.value.length - 1)] || configs.value[0])?.name || ''
 }
 
@@ -183,7 +253,7 @@ function toSlots(): RequirementSlots {
     chassis_form: c.chassis_form || '',
     qty: Number(c.qty) || 1,
     warranty_years: String(Number(c.warranty_years) || 1),
-    kp_rows: (c.kp_rows || []).filter((r) => (r.catalogue || '').trim()).map((r) => ({
+    kp_rows: (c.kp_rows || []).filter((r) => (r.catalogue || '').trim() || (r.description || '').trim()).map((r) => ({
       category: r.category || 'Key Parts',
       part_category: r.part_category || '',
       catalogue: r.catalogue || '',
@@ -194,8 +264,16 @@ function toSlots(): RequirementSlots {
   }))
   slots.configs = cfgList
 
-  const totalQty = cfgList.reduce((sum, c) => sum + (Number(c.qty) || 0), 0)
-  if (totalQty) slots.purchase_qty = totalQty
+  // 配置关系透传：compose 数量 = Σ配置数量；alternative 数量 = 需求台数（取首配置，不求和）
+  slots.config_relation = configRelation.value || 'compose'
+  if (configRelation.value === 'alternative') {
+    const demand = Number(cfgList[0]?.qty) || 1
+    slots.purchase_qty = demand
+    slots.primary_config = primaryConfig.value || (cfgList[0]?.name || '')
+  } else {
+    const totalQty = cfgList.reduce((sum, c) => sum + (Number(c.qty) || 0), 0)
+    if (totalQty) slots.purchase_qty = totalQty
+  }
 
   const first = cfgList[0]
   if (first) {
@@ -209,50 +287,13 @@ function toSlots(): RequirementSlots {
   return slots
 }
 
-function legacyKpRows(slots: RequirementSlots): PortalSheetRow[] {
-  const rows: PortalSheetRow[] = []
-  if (slots.cpu?.model || slots.cpu?.brand || slots.cpu?.qty) {
-    rows.push({ ...blankKpRow('CPU'), catalogue: [slots.cpu.model, slots.cpu.brand].filter(Boolean).join(' '), qty: slots.cpu.qty || 1 })
-  }
-  if (slots.memory?.per_stick_gb || slots.memory?.qty || slots.memory?.type || slots.memory?.brand) {
-    rows.push({
-      ...blankKpRow('Memory'),
-      catalogue: [slots.memory.per_stick_gb ? `${slots.memory.per_stick_gb}GB` : '', slots.memory.type, slots.memory.brand].filter(Boolean).join(' '),
-      qty: slots.memory.qty || 1,
-    })
-  }
-  for (const s of slots.storage || []) {
-    rows.push({ ...blankKpRow('HDD/SSD'), catalogue: [s.capacity, s.interface, s.brand].filter(Boolean).join(' '), qty: s.qty || 1 })
-  }
-  for (const g of slots.gpu || []) {
-    rows.push({ ...blankKpRow('GPU'), catalogue: [g.model, g.brand].filter(Boolean).join(' '), qty: g.qty || 1 })
-  }
-  for (const n of slots.nic || []) {
-    rows.push({
-      ...blankKpRow('NIC'),
-      catalogue: [n.model, n.speed_g ? `${n.speed_g}G` : '', n.ports ? `${n.ports}口` : '', n.brand].filter(Boolean).join(' '),
-      qty: n.qty || 1,
-    })
-  }
-  const raids = Array.isArray(slots.raid) ? slots.raid : (slots.raid ? [slots.raid] : [])
-  for (const r of raids) {
-    rows.push({ ...blankKpRow('Raid card'), catalogue: [r.model, r.cache ? `${r.cache}缓存` : ''].filter(Boolean).join(' '), qty: r.qty || 1 })
-  }
-  if (slots.psu?.wattage || slots.psu?.qty) {
-    rows.push({
-      ...blankKpRow('Power Supply'),
-      catalogue: [slots.psu.wattage ? `${slots.psu.wattage}W` : '', slots.psu.redundancy].filter(Boolean).join(' '),
-      qty: slots.psu.qty || 1,
-    })
-  }
-  return rows.length ? rows : defaultKpCategories.value.map((cat) => blankKpRow(cat))
-}
-
 function rowsFromConfig(cfg: any): PortalSheetRow[] {
   return (cfg.kp_rows || []).map((r: any) => ({ ...blankKpRow(r.part_category || ''), ...r }))
 }
 
 function fromSlots(slots: RequirementSlots) {
+  configRelation.value = slots.config_relation === 'alternative' ? 'alternative' : 'compose'
+  primaryConfig.value = slots.primary_config || ''
   const rawConfigs = Array.isArray(slots.configs) && slots.configs.length ? slots.configs : null
   if (rawConfigs) {
     configs.value = rawConfigs.map((c: any, i: number) => ({
@@ -265,10 +306,14 @@ function fromSlots(slots: RequirementSlots) {
       warranty_years: warrantyNumber(c.warranty_years ?? slots.warranty_years),
       kp_rows: rowsFromConfig(c),
     }))
+    // 方案备选：主推默认第一个配置
+    if (configRelation.value === 'alternative' && !primaryConfig.value) {
+      primaryConfig.value = configs.value[0]?.name || ''
+    }
   } else {
     const legacyKp = Array.isArray(slots.kp_rows) && slots.kp_rows.length
       ? slots.kp_rows.map((r: any) => ({ ...blankKpRow(r.part_category || ''), ...r }))
-      : legacyKpRows(slots)
+      : defaultKpCategories.value.map((cat) => blankKpRow(cat))
     configs.value = [{
       name: 'CFG1',
       server_model: slots.server_model || '',
@@ -289,7 +334,7 @@ const hasAnyPart = computed(() =>
     || (c.platform_type || '').trim()
     || (c.server_type || '').trim()
     || (c.chassis_form || '').trim()
-    || (c.kp_rows || []).some((r) => (r.catalogue || '').trim())
+    || (c.kp_rows || []).some((r) => (r.catalogue || '').trim() || (r.description || '').trim())
   )),
 )
 
@@ -311,7 +356,18 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
     <section class="rf-sec">
       <div class="rf-config-head">
         <h4 class="rf-sec-title">配置<span class="rf-hint">每个配置独立机型/类型/数量/维保年限/部件清单</span></h4>
-        <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
+        <div class="rf-config-head-actions">
+          <a-radio-group
+            :value="configRelation"
+            size="small"
+            :disabled="readonly"
+            @change="(e: any) => onConfigRelationChange(e.target.value)"
+          >
+            <a-radio-button value="compose">组合拆分</a-radio-button>
+            <a-radio-button value="alternative">方案备选</a-radio-button>
+          </a-radio-group>
+          <a-button v-if="!readonly" size="small" @click="addConfig">+ 配置</a-button>
+        </div>
       </div>
 
       <div v-if="configs.length" class="rf-config-tabs">
@@ -329,14 +385,22 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
       </div>
 
       <div v-if="activeConfig" class="rf-config">
+        <button
+          v-if="isAlternative && !readonly"
+          type="button"
+          class="rf-primary-btn"
+          :class="{ active: primaryConfig === activeConfig.name }"
+          @click="markPrimary(activeConfig.name)"
+        >{{ primaryConfig === activeConfig.name ? '☆ 主推方案' : '设为主推方案' }}</button>
         <div class="rf-config-grid">
-          <div class="rf-field">
-            <label>机型型号</label>
+          <div v-for="f in configFields" :key="f.key" class="rf-field">
+            <label>{{ f.label }}</label>
             <a-auto-complete
+              v-if="f.control === 'model_select'"
               v-model:value="activeConfig.server_model"
               :options="modelOptions"
               :disabled="readonly"
-              placeholder="可输入或选择"
+              :placeholder="f.placeholder"
               :allow-clear="false"
               :default-active-first-option="false"
               :backfill="false"
@@ -344,72 +408,60 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
               @select="onModelSelect"
               @change="emit('change')"
             />
-          </div>
-          <div class="rf-field">
-            <label>平台类型</label>
             <a-auto-complete
+              v-else-if="f.control === 'series_select'"
               v-model:value="activeConfig.platform_type"
               :options="seriesOptions"
               :disabled="readonly"
-              placeholder="如 Orion（可手输）"
+              :placeholder="f.placeholder"
               :allow-clear="false"
               style="width: 100%"
               @change="emit('change')"
             />
-          </div>
-          <div class="rf-field">
-            <label>服务器类型</label>
             <a-auto-complete
+              v-else-if="f.control === 'type_select'"
               v-model:value="activeConfig.server_type"
               :options="serverTypeOptions"
               :disabled="readonly"
-              placeholder="如 通用计算服务器"
+              :placeholder="f.placeholder"
               :allow-clear="false"
               style="width: 100%"
               @change="emit('change')"
             />
-          </div>
-          <div class="rf-field">
-            <label>机箱形态</label>
             <a-auto-complete
+              v-else-if="f.control === 'form_select'"
               v-model:value="activeConfig.chassis_form"
-              :options="FORMS.map((f) => ({ value: f, label: f }))"
+              :options="formOptions"
               :disabled="readonly"
-              placeholder="如 2U"
+              :placeholder="f.placeholder"
               :allow-clear="false"
               style="width: 100%"
               @change="emit('change')"
             />
-          </div>
-          <div class="rf-field">
-            <label>数量</label>
-            <a-input-number
-              v-model:value="activeConfig.qty"
-              :min="1"
-              :precision="0"
-              :disabled="readonly"
-              style="width: 100%"
-              placeholder="整机台数"
-              @change="emit('change')"
-            />
-          </div>
-          <div class="rf-field">
-            <label>维保年限</label>
-            <div class="rf-number-unit">
+            <div v-else-if="f.control === 'number'" class="rf-number-unit">
               <a-input-number
-                v-model:value="activeConfig.warranty_years"
-                :min="1"
+                v-model:value="activeConfig[f.bind || f.key]"
+                :min="f.min || 1"
                 :precision="0"
                 :disabled="readonly"
                 style="width: 100%"
+                :placeholder="f.placeholder"
                 @change="emit('change')"
               />
-              <span class="rf-unit">年</span>
+              <span v-if="f.unit" class="rf-unit">{{ f.unit }}</span>
             </div>
+            <a-input
+              v-else
+              v-model:value="activeConfig[f.bind || f.key]"
+              :disabled="readonly"
+              :placeholder="f.placeholder"
+              style="width: 100%"
+              @change="emit('change')"
+            />
           </div>
         </div>
 
-        <h5 class="rf-kp-title">部件清单<span class="rf-hint">从配件库选择，类别/配件与方案配置一致</span></h5>
+        <h5 class="rf-kp-title">部件清单<span class="rf-hint">按 Catalogue 分类登记客户需求，可直接选择或输入配件</span></h5>
         <div class="rf-kp-editor">
           <div class="sheet-scroll">
             <table class="sheet-table unified-sheet">
@@ -419,6 +471,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
                   <th class="sheet-col-cat">Catalogue</th>
                   <th class="sheet-col-desc">Configuration Description</th>
                   <th class="sheet-col-qty">Quantity</th>
+                  <th class="sheet-col-note">Note</th>
                 </tr>
               </thead>
               <KpPartsEditor
@@ -469,6 +522,31 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+}
+.rf-config-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rf-config-head-actions .ant-radio-button-wrapper {
+  font-size: 12px;
+  padding: 0 12px;
+}
+.rf-primary-btn {
+  border: 1px dashed var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+  background: transparent;
+  border-radius: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  margin: 0 0 12px;
+  transition: all 0.2s;
+}
+.rf-primary-btn.active {
+  background: var(--cpq-accent-primary);
+  color: #fff;
+  border-style: solid;
 }
 .rf-config-tabs {
   display: flex;
@@ -564,12 +642,12 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 .sheet-table thead th:last-child {
   border-right: 0;
 }
+.sheet-col-cat {
+  width: 150px;
+}
 .sheet-col-group {
   width: 76px;
   text-align: center;
-}
-.sheet-col-cat {
-  width: 150px;
 }
 .sheet-col-desc {
   width: auto;
@@ -577,6 +655,9 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 .sheet-col-qty {
   width: 80px;
   text-align: right;
+}
+.sheet-col-note {
+  width: 150px;
 }
 .sheet-table :deep(.ant-input),
 .sheet-table :deep(.ant-input-number),

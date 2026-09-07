@@ -24,7 +24,7 @@ SPECS: dict[str, CapabilitySpec] = {
     "input": CapabilitySpec("input", "入口", "input", ()),
     "agent_fill": CapabilitySpec(
         "agent_fill", "智能对话填表 Agent", "agent_fill",
-        # 目录接地改为提示词注入（_catalog_whitelist），不再挂浏览工具（2026-08-29 步骤2 退役）
+        # 目录接地改为提示词注入（catalog_options.catalog_whitelist），不再挂浏览工具（2026-08-29 步骤2 退役）
         (),
         serves_slot=True,
     ),

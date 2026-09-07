@@ -113,8 +113,8 @@ const runtimeCard = computed(() => {
     const isKp = art.kind === 'kp_table'
     const rows = Array.isArray(art.data?.rows) ? art.data.rows : []
     const fields = rows.map((r: any, i: number) => {
-      const name = isKp ? (r.name || r.category || '') : (r.catalogue || '')
-      const spec = isKp ? (r.description || r.name || '') : (r.description || '')
+      const name = isKp ? (r.catalogue || r.part_category || '') : (r.catalogue || '')
+      const spec = isKp ? '' : (r.description || '')
       const qty = Number(r.qty || 1)
       const detail = [spec, qty > 1 ? `× ${qty}` : ''].filter(Boolean).join(' ')
       return { key: 'row' + i, label: name, value: detail || '1', status: r.unmatched ? 'asked' : 'filled' }

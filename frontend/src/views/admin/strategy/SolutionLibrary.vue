@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onActivated } from 'vue'
 import { useRouter } from 'vue-router'
 import { solutionApi, type Solution, type SolutionScene } from '@/api/solutions'
 
@@ -14,7 +14,7 @@ const list = computed(() => activeScene.value === 'all'
   ? solutions.value
   : solutions.value.filter(s => s.scene_key === activeScene.value))
 
-onMounted(async () => {
+async function load() {
   loading.value = true
   try {
     const [solRes, sceneRes] = await Promise.all([solutionApi.list(), solutionApi.scenes()])
@@ -25,6 +25,18 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+}
+
+onMounted(load)
+
+// KeepAlive：切回时刷新（首次挂载由 onMounted 加载，避免重复请求）
+let _solLibActivated = false
+onActivated(() => {
+  if (!_solLibActivated) {
+    _solLibActivated = true
+    return
+  }
+  load()
 })
 
 function setScene(k: string) { activeScene.value = k }

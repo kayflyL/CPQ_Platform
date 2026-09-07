@@ -2,29 +2,128 @@
 """agent_tool_specs —— 工具元数据 + registry 构建。声明 schema，不含业务实现。"""
 from typing import List, Optional
 from app.services.agent_tool_registry import ToolRegistry
-from app.services.agent_tool_handlers import _search_cases_handler, _tool_build_plan, _tool_catalog_search, _tool_compose_memory, _tool_cost_breakdown, _tool_list_kp_categories, _tool_query_data, _tool_quote_draft, _tool_resolve_part_alias, _tool_select_models, _tool_select_parts, _tool_submit_registration, _tool_update_requirement_slots, _tool_update_server_model, _tool_update_server_type
+from app.services.agent_tool_handlers import _search_cases_handler, _tool_ask_user, _tool_build_plan, _tool_catalog_search, _tool_compose_memory, _tool_cost_breakdown, _tool_fill_requirement, _tool_list_kp_categories, _tool_query_data, _tool_quote_draft, _tool_resolve_part_alias, _tool_search_kp_parts, _tool_select_kp_parts, _tool_select_model, _tool_select_models, _tool_select_parts, _tool_submit_registration, _tool_update_server_model, _tool_update_server_type
 
 # ── 工具元数据全集（name/description/parameters + handler）—— 画布可勾选启用 ──
 _TOOL_SPECS = {
-    "update_requirement_slots": {
-        "description": "把客户明确表达的需求当轮逐项写进线索登记表（只登记客户说过的话，禁止臆测；一句话里点名的每个配件型号/数量/容量都不能漏）",
+    "fill_requirement": {
+        "description": ("【任务期工具·登记环节】把客户已明确表达的需求逐项登记到线索登记表："
+                        "基础字段（服务器类型/系列/形态/机型/数量/保修）与部件清单 kp_rows。"
+                        "只登记客户原话里真实说过的信息，禁止编造或默认填充；"
+                        "客户改口过的项带 replace=true。普通对话阶段不可用。"),
         "default_enabled": False,
-        "handler": _tool_update_requirement_slots,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "fill": {"type": "object", "description": ("要登记的字段（键名：server_type_name/series/form/purchase_qty/cpu/memory/drives/gpu/raid/kp_mode）。"
-                                                           "配件信号槽必须给结构化对象/数组（如 gpu=[{\"tokens\":[\"智铠100\"],\"qty\":4}]、"
-                                                           "memory={\"total_gb\":256}、drives=[{\"term\":\"2048G\",\"qty\":2,\"kind\":\"SSD\"}]），禁止一句话文本")},
-            },
-            "required": ["fill"],
-        },
+        "handler": _tool_fill_requirement,
+        # 参数 schema 从登记表字段契约动态生成（前端改登记表配置这里自动跟随，不写死字段词表）
+        "parameters_factory": "app.services.skill_chat.fill_tool_parameters",
+        "parameters": {"type": "object", "properties": {
+            "slots": {"type": "object", "description": "登记表字段 → 客户已明确表达的原话信息"},
+            "replace": {"type": "boolean", "description": "客户改口/修正时 true，默认 false 只填空槽"},
+        }},
     },
     "submit_registration": {
         "description": "线索登记表信息足够（场景已明确）时提交，触发配置引擎自动出方案",
         "default_enabled": False,
         "handler": _tool_submit_registration,
         "parameters": {"type": "object", "properties": {}},
+    },
+    "select_model": {
+        "description": ("【任务期工具·机型选配环节】从系统提供的候选机型池中锁定一个机型，"
+                        "并说明选定理由。model/model_id 必须取候选池内的值，池外型号一律拒绝；"
+                        "无法决断时不要调用，直接说明需要客户确认。普通对话阶段不可用。"),
+        "default_enabled": False,
+        "handler": _tool_select_model,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "model": {"type": "string", "description": "候选池中的机型名（与 model_id 二选一）"},
+                "model_id": {"type": "string", "description": "候选池中的机型 id（优先）"},
+                "reason": {"type": "string", "description": "选定理由（一句话，面向客户）"},
+            },
+            "required": ["reason"],
+        },
+    },
+    "search_kp_parts": {
+        "description": ("【任务期工具·配件选配环节】按类目+关键词检索配件库真实候选（按需拉取，"
+                        "不要等候选推送）。category 必填（行类目），keywords 取行描述里的型号/规格词；"
+                        "从检索结果中选定后用 select_kp_parts 提交。普通对话阶段不可用。"),
+        "default_enabled": False,
+        "handler": _tool_search_kp_parts,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "category": {"type": "string", "description": "行类目（如 Memory/NIC/CPU，取行清单里的 category）"},
+                "keywords": {"type": "string", "description": "型号/规格关键词（如「50000」「DDR5」「6T」；可空=类目全量）"},
+                "spec_filters": {"type": "array", "description": "结构化规格过滤（AND），每项 {spec_key, op, value}；"
+                                                             "op 支持 >= <= > < = in；数值型自动提数比较（Cores>=96/容量等）",
+                                 "items": {"type": "object", "properties": {
+                                     "spec_key": {"type": "string", "description": "库内 specs 字段（如 Cores/Link Speed/Capacity/Type/Media）"},
+                                     "op": {"type": "string", "enum": [">=", "<=", ">", "<", "=", "in"], "description": "比较符"},
+                                     "value": {"description": "比较值（数值/字符串/数组 in）"},
+                                 }}},
+                "limit": {"type": "integer", "description": "返回条数上限（默认 8）"},
+                "refresh": {"type": "boolean", "description": "true=强制重新去库检索；默认复用已检索索引"},
+            },
+            "required": ["category"],
+        },
+    },
+    "select_kp_parts": {
+        "description": ("【任务期工具·配件选配环节】把登记表中未匹配的部件行批量锁定为库内真实料号。"
+                        "row 用系统提供的行键原文，part_id/name 必须取该行候选池内的值，池外一律拒绝；"
+                        "多根/多块组合需求（如 768G=64G×12）选对单件规格并给 qty；"
+                        "无精确匹配但有近替代时给 substitute=true 并在 reason 写明『原需求→替代』；"
+                        "候选池为空或连近替代都没有的行不提交，如实说明库内暂无匹配。普通对话阶段不可用。"),
+        "default_enabled": False,
+        "handler": _tool_select_kp_parts,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "picks": {
+                    "type": "array",
+                    "description": "逐行选定：一行一项",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "row": {"type": "string", "description": "该行的行键（候选池里给出的 row 原文）"},
+                            "part_id": {"type": "string", "description": "该行候选池中的料号 id（优先）"},
+                            "name": {"type": "string", "description": "该行候选池中的料号名（与 part_id 二选一）"},
+                            "reason": {"type": "string", "description": "该行匹配依据（一句话）"},
+                            "qty": {"type": "integer", "description": "该行件数（组合需求必填，如 64G×12 → qty=12；缺省沿用行数量）"},
+                            "substitute": {"type": "boolean", "description": "近替代申报：true=非精确匹配的替代件（⚠️ 标记，客户可见）"},
+                        },
+                        "required": ["row", "reason"],
+                    },
+                },
+            },
+            "required": ["picks"],
+        },
+    },
+    "ask_user": {
+        "description": ("【任务期工具·大脑回合】把需要客户决策的问题升格为结构化选项卡"
+                        "（question 一句话 + options 2-4 个 label）。问题绑定某一部件行时带 row=行键原文，"
+                        "客户点击后答案会自动更新该行并重新选型；一回合一卡，纯说明不弹卡。"
+                        "普通对话阶段不可用。"),
+        "default_enabled": False,
+        "handler": _tool_ask_user,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "question": {"type": "string", "description": "向客户确认的问题（一句话，用客户的语言）"},
+                "options": {
+                    "type": "array",
+                    "description": "2-4 个互斥选项",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "label": {"type": "string", "description": "选项文案（客户点选的值）"},
+                            "description": {"type": "string", "description": "选项补充说明（可选）"},
+                        },
+                        "required": ["label"],
+                    },
+                },
+                "row": {"type": "string", "description": "该问题绑定的部件行键（可选；候选池里给出的 row 原文）"},
+            },
+            "required": ["question", "options"],
+        },
     },
     "catalog_search": {
         "description": ("查询在售目录：kind=types 查类型清单；kind=models 按类型/系列/形态查机型（含价格）；"
@@ -66,7 +165,7 @@ _TOOL_SPECS = {
         "category": "selection",
         "data_sources": ["kp_price"],
         "default_enabled": True,
-        "description": ("按结构化信号从配件库落地真实料号。信号字段（cpu/memory/drives/"
+        "description": ("按结构化信号从配件库落地真实料号。信号字段（cpu/memory/storage/"
                         "gpu/raid/nic）由 AI 依据客户需求原文补全，登记表只作缓存；"
                         "AI 负责把原文中每类配件转为信号，工具只检索落地，料号/价格/规格由工具返回，禁止编造。"),
         "parameters": {
@@ -76,11 +175,11 @@ _TOOL_SPECS = {
                 "server_type_name": {"type": "string", "description": "服务器类型全名（可选，用于推断标准类目）"},
                 "cpu": {"type": "object", "description": "CPU 信号 {qty, model?, cores?, tdp_w?}"},
                 "memory": {"type": "object", "description": "内存信号 {type?, speed?, total_gb?: '总容量，如 128G；优先填 total_gb，工具会按库存自动拆条', per_stick_gb?: '仅客户明确单条容量时填', qty?}"},
-                "drives": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term:'容量+接口+介质，如 16T SATA HDD / 960G SATA SSD', qty, kind?:'可选接口/介质，如 SATA/NVMe/SAS/SSD/HDD', comparison?}]"},
+                "storage": {"type": "array", "items": {"type": "object"}, "description": "盘组 [{term:'容量+接口+介质，如 16T SATA HDD / 960G SATA SSD', qty, kind?:'可选接口/介质，如 SATA/NVMe/SAS/SSD/HDD', comparison?}]"},
                 "gpu": {"type": "array", "items": {"type": "object"}, "description": "GPU 组 [{tokens: ['GPU 型号，如 RTX PRO 4500'], qty, cap?: '显存，如 32G'}]；tokens 必填，禁止只传 cap"},
                 "raid": {"type": "array", "items": {"type": "object"}, "description": "阵列卡组 [{model?, raid_levels?, qty}]"},
                 "psu": {"type": "object", "description": "电源信号 {wattage?, qty?}（电源由整机底盘推断，此处可省略）"},
-                "nic": {"type": "object", "description": "网卡等多规格过滤；key 固定用 \"Network(NIC) requirement\"，每项 {filters?, name_contains?: ['客户原文关键修饰词，如 10G/双口/光模块'], qty}"},
+                "nic": {"type": "object", "description": "网卡等多规格过滤；key 固定用 \"NIC\"，每项 {filters?, name_contains?: ['客户原文关键修饰词，如 10G/双口/光模块'], qty}"},
                 "representative_pick": {"type": "string", "description": "min_price/max_price/first，默认 min_price"},
             },
         },
@@ -269,6 +368,21 @@ def tool_required_data_sources(tool_ids: Optional[list] = None) -> list:
     return sorted(sources)
 
 
+def _spec_parameters(spec: dict) -> dict:
+    """取工具参数 schema：带 parameters_factory 的惰性解析（如 fill_requirement 的 schema
+    从登记表字段契约实时生成——导入期不读 DB，每次取用拿最新配置），否则用静态声明。"""
+    factory_path = str(spec.get("parameters_factory") or "").strip()
+    if factory_path:
+        try:
+            import importlib
+            module_name, _, func_name = factory_path.rpartition(".")
+            return getattr(importlib.import_module(module_name), func_name)()
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("工具参数工厂解析失败 %s", factory_path)
+    return spec.get("parameters") or {"type": "object", "properties": {}}
+
+
 def tool_requires_approval(tool_name: str) -> bool:
     """工具级审批开关：只有真实写库/出报价类工具才需要审批。
 
@@ -287,7 +401,7 @@ def tool_catalog() -> List[dict]:
         "name": name,
         "category": spec.get("category") or "selection",
         "description": spec["description"],
-        "parameters": spec["parameters"],
+        "parameters": _spec_parameters(spec),
         "default_enabled": bool(spec.get("default_enabled", True)),
         "data_sources": [str(item) for item in (spec.get("data_sources") or []) if str(item)],
     } for name, spec in _TOOL_SPECS.items()]
@@ -326,5 +440,5 @@ def build_tool_registry(config: dict, allowed_tool_ids: list = None, allowed_dat
             handler = _search_cases_handler(cfg)
         if handler is None:
             continue
-        reg.register(name, spec["description"], spec["parameters"], handler, data_sources=spec.get("data_sources"))
+        reg.register(name, spec["description"], _spec_parameters(spec), handler, data_sources=spec.get("data_sources"))
     return reg

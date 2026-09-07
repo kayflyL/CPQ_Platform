@@ -9,6 +9,53 @@
 """
 from __future__ import annotations
 
+from dataclasses import asdict, dataclass, field
+from typing import Optional
+
+# 唯一大脑回合输出契约：后续 skill_chat / colleague_turn_service 都要收敛到这个形状。
+@dataclass
+class BrainTurnOutput:
+    kind: str
+    reply: str = ""
+    skill_key: Optional[str] = None
+    slots: dict = field(default_factory=dict)
+    gaps: list = field(default_factory=list)
+    assumptions: list = field(default_factory=list)
+    card_emitted: bool = False
+    engine_ctx: Optional[dict] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+# 确定性引擎结果契约：引擎只返回数据，不返回话术。
+@dataclass
+class EngineOutput:
+    status: str
+    artifact: Optional[dict] = None
+    payload: dict = field(default_factory=dict)
+    gaps: list = field(default_factory=list)
+    assumptions: list = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+SKILL_SESSION_IDLE = "idle"
+SKILL_SESSION_PROPOSING = "proposing"
+SKILL_SESSION_ACTIVE = "active"
+SKILL_SESSION_ENGINE_RUNNING = "engine_running"
+SKILL_SESSION_AWAITING_INPUT = "awaiting_input"
+SKILL_SESSION_DONE = "done"
+
+SKILL_SESSION_PHASES = (
+    SKILL_SESSION_IDLE,
+    SKILL_SESSION_PROPOSING,
+    SKILL_SESSION_ACTIVE,
+    SKILL_SESSION_ENGINE_RUNNING,
+    SKILL_SESSION_AWAITING_INPUT,
+    SKILL_SESSION_DONE,
+)
 
 def grounding_envelope(parts: list) -> dict:
     """把 part_selector.select_parts 的扁平结果包成统一落地契约。"""

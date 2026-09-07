@@ -1,61 +1,35 @@
-"""需求分析节点配置契约（DB-first）。
+"""需求分析节点配置契约（DB-first，无种子文件）。
 
-节点默认值权威源：system_config.reasoning_node_defaults（缺失时回退
-reasoning_node_defaults.json 种子）。规则词表默认值来自 rules.requirement_rules。
-本模块只负责把「默认值 + 用户覆盖值」合并成生效配置，并在保存时剥掉等于默认值的字段。
+节点默认值权威源：rules.reasoning_node_default（仅 DB，前端节点抽屉可编辑）。
+本模块只负责把「DB 默认值 + 用户覆盖值」合并成生效配置，并在保存时剥掉等于默认值的字段。
 """
 from __future__ import annotations
 
-import json
 from copy import deepcopy
-from pathlib import Path
 from typing import Any, Optional
 
+DEFAULT_SKILL_KEY = "requirement_analysis"
 
-_SEED_PATH = Path(__file__).with_name("reasoning_node_defaults.json")
 
-def _load_seed() -> dict:
+def node_defaults(skill_key: str = DEFAULT_SKILL_KEY) -> dict:
+    """需求分析主链节点的默认配置（仅 DB reasoning_node_default；缺失返回空，不回退种子）。"""
+    from app.models.base import Rules_SessionLocal
+    from app.models.skill_config import ReasoningNodeDefault
+    import json
+    s = Rules_SessionLocal()
+    out: dict = {}
     try:
-        return json.loads(_SEED_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-def _db_value(key: str) -> Any:
-    try:
-        from app.repository.system_config_repo import SystemConfigRepository
-        repo = SystemConfigRepository()
-        try:
-            return repo.get_value(key, None)
-        finally:
-            repo.close()
-    except Exception:
-        return None
-
-
-def _node_defaults_from_value(value: Any) -> dict:
-    if not isinstance(value, dict):
-        return {}
-    nodes = value.get("requirement_analysis")
-    if isinstance(nodes, dict):
-        return deepcopy(nodes)
-    if value.get("nodes") and isinstance(value["nodes"], dict):
-        return deepcopy(value["nodes"])
-    return deepcopy(value)
-
-
-def node_defaults() -> dict:
-    """需求分析主链节点的默认配置（DB 优先，种子兜底）。"""
-    value = _db_value("reasoning_node_defaults")
-    if value is not None:
-        return _node_defaults_from_value(value)
-    seed = _load_seed()
-    return _node_defaults_from_value(seed)
-
-
-def node_defaults_seed() -> dict:
-    """直接从打包种子读取需求分析主链节点默认配置（不读 DB）。"""
-    return _node_defaults_from_value(_load_seed())
+        rows = s.query(ReasoningNodeDefault).filter(
+            ReasoningNodeDefault.skill_key == skill_key
+        ).all()
+        for r in rows:
+            try:
+                out[r.node_key] = json.loads(r.config) if r.config else {}
+            except Exception:
+                out[r.node_key] = {}
+    finally:
+        s.close()
+    return out
 
 
 def _is_empty(value: Any) -> bool:
@@ -81,10 +55,8 @@ def _merge(base: dict, override: dict) -> dict:
 
 
 def _defaults_for_node(node_key: str) -> dict:
-    """节点生效默认值：以打包种子为底，DB reasoning_node_defaults 覆盖；提示词默认也来自种子。"""
-    seed = node_defaults_seed()
-    db = node_defaults()
-    return _merge(seed.get(node_key) or {}, db.get(node_key) or {})
+    """节点生效默认值：DB reasoning_node_default 中该节点的配置。"""
+    return deepcopy(node_defaults().get(node_key) or {})
 
 
 def _base_node_key(node_key: str) -> str:
@@ -98,7 +70,7 @@ def _base_node_key(node_key: str) -> str:
 
 
 def effective_config(node_key: str, stored_config: Optional[dict] = None, skill_key: Optional[str] = None) -> dict:
-    """返回节点生效配置：默认值 + 用户覆盖值（空值不覆盖默认）。"""
+    """返回节点生效配置：DB 默认值 + 用户覆盖值（空值不覆盖默认）。"""
     del skill_key
     base_key = _base_node_key(node_key)
     if base_key not in node_defaults():

@@ -4,6 +4,7 @@
 延迟 import requirement_intel_service / candidate_search 的模块常量（避免循环 import）。
 """
 import json
+from copy import deepcopy
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import or_
@@ -65,10 +66,39 @@ DEFAULT_GENERIC_GRAPH = {
 }
 
 
-def _requirement_analysis_node_configs() -> dict:
-    """需求分析 Skill 的默认节点契约（种子源：reasoning_node_defaults.json）。"""
+def _node_defaults_for(skill_key: Optional[str] = None) -> dict:
+    """按 skill_key 取节点默认契约（DB 源：rules.reasoning_node_default，仅 DB）。"""
     from app.services import reasoning_node_contract
-    return reasoning_node_contract.node_defaults_seed()
+    return reasoning_node_contract.node_defaults(skill_key or "requirement_analysis")
+
+
+def _requirement_analysis_node_configs() -> dict:
+    """需求分析 Skill 的默认节点契约（DB 源：rules.reasoning_node_default，仅 DB）。"""
+    return _node_defaults_for("requirement_analysis")
+
+def _merge_config(base: dict, override: dict) -> dict:
+    """深合并：以默认值为底，用覆盖值（非空）覆盖；用于「默认契约 + 增量」合成生效配置。"""
+    out = deepcopy(base or {})
+    for k, v in (override or {}).items():
+        if v is None or v == "" or v == [] or v == {}:
+            continue
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge_config(out[k], v)
+        else:
+            out[k] = deepcopy(v)
+    return out
+
+
+def _legacy_node_keys(node_key: str) -> list:
+    """节点配置里应被清掉的遗留键（旧一次性节点级提示词/决策字段）。"""
+    if node_key == "agent_fill":
+        return ["prompt", "system_prompt", "user_prompt_template"]
+    if node_key == "model_reason":
+        return ["selection_mode", "grounding_tool", "grounding_result_key", "choice_id_pattern", "choice_fields"]
+    if node_key == "kp_reason":
+        return ["user_prompt_template", "proposal_enabled", "proposal_schema", "proposal_mapping"]
+    return []
+
 
 def _normalize_graph(g: dict) -> dict:
     """图结构归一化到 v2（vue flow 兼容）。v1: nodes{key,label}, edges{from,to}；
@@ -139,111 +169,21 @@ class ReasoningFlowRepository:
         nodes = self.session.query(ReasoningNodeConfig).filter(
             ReasoningNodeConfig.flow_id == f.id
         ).all()
-        cfg_map = {n.node_key: (json.loads(n.config) if n.config else {}) for n in nodes}
-        flow_skill = str(f.skill_key or f.name or skill_key or "")
-        # 需求分析主链：把默认值 + 提示词/规则词表 + 用户覆盖值合并成生效配置，抽屉直接回显。
-        if flow_skill == "requirement_analysis":
-            try:
-                from app.services import reasoning_node_contract
-                for nk, cfg in list(cfg_map.items()):
-                    cfg_map[nk] = reasoning_node_contract.effective_config(nk, cfg)
-            except Exception:
-                pass
+        delta_map = {n.node_key: (json.loads(n.config) if n.config else {}) for n in nodes}
+
         d = f.to_dict()
-        d["graph"] = _normalize_graph(d.get("graph") or {"nodes": [], "edges": []})
-        d["node_configs"] = cfg_map
+        g = _normalize_graph(d.get("graph") or {"nodes": [], "edges": []})
+        d["graph"] = g
+        # 生效值 = 默认契约（DB reasoning_node_default）+ 增量（存量只存覆盖字段）
+        defaults = _node_defaults_for(f.skill_key or f.name)
+        effective = {}
+        for node in g.get("nodes") or []:
+            key = node.get("id") or node.get("type")
+            if not key:
+                continue
+            effective[key] = _merge_config(defaults.get(key) or {}, delta_map.get(key, {}))
+        d["node_configs"] = effective
         return d
-
-    def active_is_current(self) -> bool:
-        """active 流是否已是真实业务四步对齐图（含 output 节点）。
-
-        防护 migrate 膨胀：active 已最新 → startup 跳过所有建流 migrate，绝不新建。
-        """
-        query = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True)
-        f = query.filter(ReasoningFlow.skill_key == "requirement_analysis").first()
-        if not f:
-            f = query.filter(ReasoningFlow.name == "requirement_analysis").first()
-        if not f:
-            f = query.first()
-        if not f:
-            return False
-        graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
-        active_ids = {n.get("id") for n in graph.get("nodes") or []}
-        expected_ids = {n.get("id") for n in DEFAULT_REQUIREMENT_ANALYSIS_GRAPH.get("nodes") or []}
-        return active_ids == expected_ids
-
-    def migrate_requirement_analysis_to_business_graph(self, operator: str = "migrate") -> bool:
-        """一次性把旧需求分析图重置为真实业务四步图，并重写节点配置。
-
-        当前图节点与默认业务图完全一致时跳过；否则重置，避免旧节点持续污染执行链。
-        """
-        query = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True)
-        f = query.filter(ReasoningFlow.skill_key == "requirement_analysis").first()
-        if not f:
-            f = query.filter(ReasoningFlow.name == "requirement_analysis").first()
-        if not f:
-            return False
-        graph = _normalize_graph(json.loads(f.graph) if f.graph else {"nodes": [], "edges": []})
-        active_ids = {n.get("id") for n in graph.get("nodes") or []}
-        expected_ids = {n.get("id") for n in DEFAULT_REQUIREMENT_ANALYSIS_GRAPH.get("nodes") or []}
-        default_nodes = {n.get("id"): n for n in DEFAULT_REQUIREMENT_ANALYSIS_GRAPH.get("nodes") or []}
-        now = datetime.now().isoformat()
-        label_dirty = False
-        for node in graph.get("nodes") or []:
-            nid = node.get("id")
-            expected = default_nodes.get(nid)
-            if not expected:
-                continue
-            current_label = str(node.get("label") or "").strip()
-            if current_label and current_label != nid:
-                continue
-            expected_label = str(expected.get("label") or "").strip()
-            if expected_label and current_label != expected_label:
-                node["label"] = expected_label
-                label_dirty = True
-        if label_dirty:
-            f.graph = json.dumps(graph, ensure_ascii=False)
-            f.updated_at = now
-            f.updated_by = operator
-            self.session.commit()
-        if active_ids == expected_ids:
-            # 图已对齐但 node_configs 键未对齐（缺 agent_fill 或存在主链外旧键残留）
-            # 时不可直接跳过，需交给自愈补齐/清理，避免抽屉回显空白。
-            cfg_keys = {n.node_key for n in self.session.query(ReasoningNodeConfig).filter(
-                ReasoningNodeConfig.flow_id == f.id
-            ).all()}
-            expected_cfg_keys = set(_requirement_analysis_node_configs().keys())
-            if cfg_keys != expected_cfg_keys:
-                self.self_heal_agent_node_configs(flow_id=f.id)
-                return True
-            return label_dirty
-
-        f.name = "requirement_analysis"
-        f.skill_key = "requirement_analysis"
-        f.graph = json.dumps(DEFAULT_REQUIREMENT_ANALYSIS_GRAPH, ensure_ascii=False)
-        f.version = (f.version or 1) + 1
-        f.description = "真实业务四步对齐：input→agent_fill→model_reason→kp_reason→compose→output"
-        f.updated_at = now
-        f.updated_by = operator
-        self.session.commit()
-
-        for n in self.session.query(ReasoningNodeConfig).filter(
-            ReasoningNodeConfig.flow_id == f.id
-        ).all():
-            self.session.delete(n)
-        self.session.commit()
-
-        for node_key, cfg in _requirement_analysis_node_configs().items():
-            self.session.add(ReasoningNodeConfig(
-                flow_id=f.id,
-                node_key=str(node_key),
-                config=json.dumps(cfg or {}, ensure_ascii=False),
-                version=1,
-                updated_at=now,
-                updated_by=operator,
-            ))
-        self.session.commit()
-        return True
 
     def get(self, flow_id: int) -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
@@ -351,22 +291,29 @@ class ReasoningFlowRepository:
 
 
     def self_heal_agent_node_configs(self, flow_id: Optional[int] = None) -> int:
-        """自愈：为 agent_fill 补齐可编辑职责文案与子任务提示词。
+        """把存量 requirement_analysis 节点配置收敛为「增量」（相对 rules.reasoning_node_default）。
 
-        只补缺失字段，不覆盖用户已保存的 enabled/system_prompt/label 等值。
-        保证旧 active flow 打开抽屉时也能看到完整默认提示词，而不是前端另写一份硬编码。
+        只处理主链 canonical 节点；删主链外旧行；缺行补空增量 {}；已有行清遗留键
+        并用 override_only 剥掉等于默认值的字段落回增量。幂等，重复跑无副作用。
+        生效值由 get_active_flow 用「默认契约 + 增量」合成。
         """
+        from app.services import reasoning_node_contract
         query = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True)
         if flow_id is not None:
             query = query.filter(ReasoningFlow.id == flow_id)
         f = query.first()
         if not f:
             return 0
-        defaults = _requirement_analysis_node_configs()
+        if (f.skill_key or f.name or "requirement_analysis") != "requirement_analysis":
+            return 0
+        defaults = reasoning_node_contract.node_defaults("requirement_analysis")
+        if not defaults:
+            return 0
+        canonical = ["input", "agent_fill", "model_reason", "kp_reason", "compose", "output"]
+        now = datetime.now().isoformat()
         changed = 0
 
-        # 只保留主链节点配置；其余不在主链的旧键直接删除，避免干扰后续接管与回显。
-        canonical = {"input", "agent_fill", "model_reason", "kp_reason", "compose", "output"}
+        # 删主链外旧配置行
         for n in self.session.query(ReasoningNodeConfig).filter(
             ReasoningNodeConfig.flow_id == f.id
         ).all():
@@ -376,103 +323,35 @@ class ReasoningFlowRepository:
         if changed:
             self.session.commit()
 
-        for node_key in ("input", "agent_fill", "model_reason", "kp_reason", "compose", "output"):
-            default = defaults.get(node_key) or {}
+        for node_key in canonical:
+            if node_key not in defaults:
+                continue
             n = self.session.query(ReasoningNodeConfig).filter(
                 ReasoningNodeConfig.flow_id == f.id,
                 ReasoningNodeConfig.node_key == node_key,
             ).first()
             if not n:
-                if node_key == "agent_fill":
-                    # 画布已收敛到 agent_fill 但 DB 无配置行：补建默认配置并回填提示词，
-                    # 保证抽屉打开即回显默认 system_prompt。
-                    cfg = dict(default)
-                    self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")
-                    changed += 1
+                self.upsert_node_config(f.id, node_key, {}, operator="self-heal")
+                changed += 1
                 continue
             try:
                 cfg = json.loads(n.config) if n.config else {}
             except Exception:
                 cfg = {}
             dirty = False
-
-            if node_key == "agent_fill":
-                if not cfg.get("description") and default.get("description"):
-                    cfg["description"] = default["description"]
+            for k in _legacy_node_keys(node_key):
+                if k in cfg:
+                    cfg.pop(k, None)
                     dirty = True
-                prompt = dict(cfg.get("prompt") or {})
-                default_prompt = str((default.get("prompt") or {}).get("system_prompt") or "")
-                if not prompt.get("system_prompt") or "登记范围" in str(prompt.get("system_prompt")):
-                    prompt["system_prompt"] = default_prompt
-                    cfg["prompt"] = prompt
-                    dirty = True
-
-            if node_key in ("agent_fill", "model_reason", "kp_reason"):
-                if not cfg.get("rule_types") and default.get("rule_types"):
-                    cfg["rule_types"] = list(default["rule_types"])
-                    dirty = True
-                if "enabled_tools" not in cfg and default.get("enabled_tools"):
-                    cfg["enabled_tools"] = list(default["enabled_tools"])
-                    dirty = True
-
-            if node_key == "model_reason":
-                for field in ("series_limit", "intro_length", "sort_by"):
-                    if not cfg.get(field) and default.get(field):
-                        cfg[field] = default[field]
-                        dirty = True
-                if "detail_link_enabled" not in cfg and "detail_link_enabled" in default:
-                    cfg["detail_link_enabled"] = bool(default["detail_link_enabled"])
-                    dirty = True
-                # 旧节点级遗留决策字段清掉；system_prompt 现在是正式节点提示词，保留并补默认。
-                for legacy in ("selection_mode", "grounding_tool",
-                               "grounding_result_key", "choice_id_pattern", "choice_fields"):
-                    if legacy in cfg:
-                        cfg.pop(legacy, None)
-                        dirty = True
-                if not cfg.get("system_prompt") and default.get("system_prompt"):
-                    cfg["system_prompt"] = default["system_prompt"]
-                    dirty = True
-                if cfg.get("enabled_tools") != default.get("enabled_tools"):
-                    cfg["enabled_tools"] = list(default.get("enabled_tools") or [])
-                    dirty = True
-
-            if node_key == "kp_reason":
-                for field in ("confirm_mode", "reason_template", "representative_pick", "fallback_strategy"):
-                    if not cfg.get(field) and default.get(field):
-                        cfg[field] = default[field]
-                        dirty = True
-                if "drive_spec_substitute" not in cfg and "drive_spec_substitute" in default:
-                    cfg["drive_spec_substitute"] = bool(default["drive_spec_substitute"])
-                    dirty = True
-                # 清除旧 JSON proposal 提示词与已删除的 pick_kp_parts 工具引用；
-                # system_prompt 现在是正式节点提示词，保留并补默认。
-                for legacy in ("user_prompt_template",
-                               "proposal_enabled", "proposal_schema", "proposal_mapping"):
-                    if legacy in cfg:
-                        cfg.pop(legacy, None)
-                        dirty = True
-                if not cfg.get("system_prompt") and default.get("system_prompt"):
-                    cfg["system_prompt"] = default["system_prompt"]
-                    dirty = True
-                if cfg.get("enabled_tools") != default.get("enabled_tools"):
-                    cfg["enabled_tools"] = list(default.get("enabled_tools") or [])
-                    dirty = True
-
-            if node_key == "compose":
-                for field in ("kp_source", "psu_wattage_source", "psu_qty_source"):
-                    if not cfg.get(field) and default.get(field):
-                        cfg[field] = default[field]
-                        dirty = True
-                if "psu_override_enabled" not in cfg and "psu_override_enabled" in default:
-                    cfg["psu_override_enabled"] = bool(default["psu_override_enabled"])
-                    dirty = True
-
-            if dirty:
-                self.upsert_node_config(f.id, node_key, cfg, operator="self-heal")
+            delta = reasoning_node_contract.override_only(node_key, cfg)
+            if dirty or delta != cfg:
+                n.config = json.dumps(delta, ensure_ascii=False)
+                n.version = (n.version or 1) + 1
+                n.updated_at = now
+                n.updated_by = "self-heal"
                 changed += 1
+        self.session.commit()
         return changed
-
-
     def activate(self, flow_id: int, operator: str = "system") -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
         if not f:
@@ -531,8 +410,6 @@ class ReasoningFlowRepository:
                 self.session.commit()
             if not f.is_active:
                 self.activate(f.id, operator="seed")
-            if skill_key == "requirement_analysis":
-                self.migrate_requirement_analysis_to_business_graph(operator="ensure")
             return self.get_active_flow(skill_key) or f.to_dict()
 
         # 历史库只有一个全局 active flow（需求分析），name 可能是中文旧名。把该旧 flow
@@ -546,7 +423,6 @@ class ReasoningFlowRepository:
                 legacy.skill_key = skill_key
                 self.session.commit()
                 self.session.refresh(legacy)
-                self.migrate_requirement_analysis_to_business_graph(operator="ensure")
                 return self.get_active_flow(skill_key) or legacy.to_dict()
 
         if graph is None:
@@ -595,10 +471,11 @@ class ReasoningFlowRepository:
         self.session.commit()
         self.session.refresh(flow)
         for node_key, cfg in (node_configs or {}).items():
+            _store_cfg = {} if skill_key == "requirement_analysis" else (cfg or {})
             self.session.add(ReasoningNodeConfig(
                 flow_id=flow.id,
                 node_key=str(node_key),
-                config=json.dumps(cfg or {}, ensure_ascii=False),
+                config=json.dumps(_store_cfg, ensure_ascii=False),
                 version=1,
                 updated_at=now,
                 updated_by="seed",
@@ -627,7 +504,7 @@ class ReasoningFlowRepository:
         for node_key, cfg in _requirement_analysis_node_configs().items():
             self.session.add(ReasoningNodeConfig(
                 flow_id=f.id, node_key=node_key,
-                config=json.dumps(cfg, ensure_ascii=False),
+                config=json.dumps({}, ensure_ascii=False),
                 version=1, updated_at=now, updated_by="seed",
             ))
         self.session.commit()

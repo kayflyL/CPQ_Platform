@@ -22,8 +22,13 @@ async def run_skill_plan(
     broadcast: BroadcastFn,
     initial_ctx: Optional[dict] = None,
     ctx_ref: Optional[dict] = None,
+    brain=None,
 ) -> dict:
-    """试运行入口：与 AI 角色对话共用同一硬编排内核。"""
+    """试运行入口：与 AI 角色对话共用同一硬编排内核。
+
+    brain：agent_fill 登记节点的大脑回调（make_agent_brain 构造）；登记环节由唯一大脑
+    显式落表（流式可见），引擎本体零 LLM。调用方已结构化落槽时可传 slots_provided=True。
+    """
     flow_configs = dict(flow.get("node_configs") or {})
     ctx: dict = {
         "requirement_text": str(requirement_text or "").strip(),
@@ -44,4 +49,4 @@ async def run_skill_plan(
     if ctx_ref is not None:
         ctx_ref["ctx"] = ctx
 
-    return await run_skill_plan_core(ctx, flow_configs, broadcast)
+    return await run_skill_plan_core(ctx, flow_configs, broadcast, brain=brain)

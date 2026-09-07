@@ -73,16 +73,30 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
     return user
 
 
+def _user_permissions(user: Optional[dict]) -> list:
+    """按请求惰性解析用户权限并缓存到 user dict，避免同一次请求内反复查库。
+    user 由 get_current_user 每次请求重建，权限仍是（该请求时刻）最新值。"""
+    if not user:
+        return []
+    cached = user.get("_permissions")
+    if cached is not None:
+        return cached
+    from app.repository.role_repo import RoleRepository
+    repo = RoleRepository()
+    try:
+        perms = repo.permissions_of(user.get("role"))
+    finally:
+        repo.close()
+    if isinstance(user, dict):
+        user["_permissions"] = perms
+    return perms
+
+
 def require_perms(*keys: str):
     """页面级权限依赖工厂：用户角色需含 keys 中任意一个权限 key（any 语义）。
     权限来自 rules.roles（配置驱动，非硬编码）。"""
     def checker(user: dict = Depends(get_current_user)) -> dict:
-        from app.repository.role_repo import RoleRepository
-        repo = RoleRepository()
-        try:
-            perms = set(repo.permissions_of(user.get("role")))
-        finally:
-            repo.close()
+        perms = set(_user_permissions(user))
         if keys and not any(k in perms for k in keys):
             raise HTTPException(status_code=403, detail="无权限执行此操作")
         return user
@@ -96,12 +110,7 @@ def field_visible(user: Optional[dict], key: str) -> bool:
         return True
     if not user:
         return False
-    from app.repository.role_repo import RoleRepository
-    repo = RoleRepository()
-    try:
-        return key in repo.permissions_of(user.get("role"))
-    finally:
-        repo.close()
+    return key in _user_permissions(user)
 
 
 def user_has_permission(user: Optional[dict], key: str) -> bool:
@@ -113,12 +122,7 @@ def user_has_permission(user: Optional[dict], key: str) -> bool:
     from app.core.config import get_settings
     if not get_settings().AUTH_ENABLED:
         return True
-    from app.repository.role_repo import RoleRepository
-    repo = RoleRepository()
-    try:
-        return key in repo.permissions_of(user.get("role"))
-    finally:
-        repo.close()
+    return key in _user_permissions(user)
 
 
 def user_can_access_opportunity(user: Optional[dict], opportunity: Optional[dict]) -> bool:
@@ -181,7 +185,7 @@ def ensure_quotation_access(quotation_id: str, user: Optional[dict]):
     from app.repository.quotation_repo import QuotationRepository
     repo = QuotationRepository()
     try:
-        quotation = repo.get_by_id(quotation_id)
+        quotation = repo.get_raw_by_id(quotation_id)
     finally:
         repo.close()
     if not quotation:

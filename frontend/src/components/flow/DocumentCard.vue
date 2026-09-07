@@ -8,12 +8,14 @@ const props = withDefaults(defineProps<{
   statusTone?: 'current' | 'draft' | 'done' | 'pending' | 'exported' | 'released'
   docType?: 'requirement' | 'bom' | 'cost' | 'quote'
   active?: boolean
+  variant?: 'card' | 'row'
 }>(), {
   docNo: '',
   status: '',
   statusTone: 'current',
   docType: 'requirement',
   active: false,
+  variant: 'card',
 })
 
 const emit = defineEmits<{ (e: 'click'): void }>()
@@ -24,7 +26,7 @@ const toneClass = computed(() => `doc-${props.statusTone || 'current'}`)
 <template>
   <article
     class="doc-card"
-    :class="[`doc-type-${docType}`, { active }]"
+    :class="[`doc-type-${docType}`, `variant-${variant}`, { active }]"
     role="button"
     tabindex="0"
     @click="emit('click')"
@@ -196,5 +198,90 @@ const toneClass = computed(() => `doc-${props.statusTone || 'current'}`)
   margin-top: auto;
   padding: 11px 16px;
   border-top: 1px solid var(--cpq-glass-border);
+}
+
+/* ---- row 行模式：单行表格行 ---- */
+.doc-card.variant-row {
+  height: auto;
+}
+.doc-card.variant-row::before,
+.doc-card.variant-row::after {
+  display: none;
+}
+.doc-card.variant-row:hover {
+  transform: none;
+}
+.doc-card.variant-row .doc-sheet {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr auto;
+  align-items: center;
+  min-height: 0;
+  gap: 14px;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+.doc-card.variant-row:hover .doc-sheet {
+  background: var(--cpq-overlay-w4);
+}
+.doc-card.variant-row.active .doc-sheet {
+  box-shadow: inset 3px 0 0 var(--cpq-accent-primary);
+}
+.doc-card.variant-row .doc-head {
+  grid-column: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  border-bottom: none;
+  min-width: 0;
+}
+.doc-card.variant-row .doc-title h3 {
+  font-size: 13px;
+  margin-bottom: 0;
+}
+.doc-card.variant-row .doc-title p {
+  font-size: 10px;
+}
+.doc-card.variant-row .doc-stamp {
+  flex-shrink: 0;
+}
+.doc-card.variant-row .doc-body {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+  padding: 0;
+}
+.doc-card.variant-row .doc-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 0;
+}
+.doc-card.variant-row .doc-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+.doc-card.variant-row .doc-footer {
+  grid-column: 3;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 0 0 0 8px;
+  border-top: none;
 }
 </style>

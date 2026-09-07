@@ -205,38 +205,42 @@ class FlowRepository:
         start = (page - 1) * page_size
         return items[start:start + page_size], total
 
+    def resolve_node_assignee(self, opportunity_id: str, node_key: str) -> str:
+        """计算某节点默认处理人：商机角色字段优先（fae→boming、报价人→quoting），否则走业务默认规则。"""
+        from app.models.opportunity import Opportunity
+        opp = self.session.query(Opportunity).filter(
+            Opportunity.opportunity_id == opportunity_id
+        ).first()
+        if not opp:
+            return ""
+        business_user_id = opp.owner_user_id or ""
+        prefer_field = {
+            "boming": (opp.fae or "").strip(),
+            "costing": "",
+            "quoting": (opp.quotation_person or "").strip(),
+        }.get(node_key, "")
+        rule = ""
+        if business_user_id:
+            row = self.session.query(FlowAssignmentRule).filter(
+                FlowAssignmentRule.business_user_id == business_user_id,
+                FlowAssignmentRule.node_key == node_key,
+            ).first()
+            rule = (row.assignee_name if row else "") or ""
+        return (prefer_field or rule or "").strip()
+
     def apply_default_assignments(self, flow_id: str, opportunity_id: str) -> None:
         """按业务账号默认规则补齐当前流程节点的 assignees（只补缺失，不覆盖手动转交）。"""
-        from app.models.opportunity import Opportunity
         flow = self.session.query(OpportunityFlow).filter(
             OpportunityFlow.flow_id == flow_id
         ).first()
         if not flow:
             return
-        opp = self.session.query(Opportunity).filter(
-            Opportunity.opportunity_id == opportunity_id
-        ).first()
-        if not opp:
-            return
-        business_user_id = opp.owner_user_id or ""
-        if not business_user_id:
-            return
-        rules = {
-            r.node_key: r.assignee_name
-            for r in self.session.query(FlowAssignmentRule).filter(
-                FlowAssignmentRule.business_user_id == business_user_id
-            ).all()
-        }
-        # 商机级角色字段优先于任务调度默认规则（fae→boming、报价人→quoting；成本核算无字段走规则）。
         current = flow.current_node
-        prefer_field = {
-            "boming": (opp.fae or "").strip(),
-            "costing": "",
-            "quoting": (opp.quotation_person or "").strip(),
-        }.get(current, "")
-        target = prefer_field or rules.get(current) or ""
+        target = self.resolve_node_assignee(opportunity_id, current)
+        if not target:
+            return
         assignees = {**(flow.assignees or {})}
-        if target and not assignees.get(current):
+        if not assignees.get(current):
             assignees[current] = target
             flow.assignees = assignees
             flow.updated_at = _now()
@@ -413,7 +417,9 @@ class FlowRepository:
         return row.to_dict() if row else None
 
     def save_bom_scheme_draft(self, opportunity_id: str, scheme_id: Optional[int],
-                              name: str, configs: list, created_by: str = "") -> dict:
+                              name: str, configs: list, created_by: str = "",
+                              config_relation: str = "compose",
+                              primary_config: str = "") -> dict:
         name = (name or "").strip()
         if not name:
             raise ValueError("方案名称不能为空")
@@ -436,6 +442,8 @@ class FlowRepository:
                 raise ValueError("仅草稿方案可编辑")
             row.name = name
             row.configs = configs or []
+            row.config_relation = config_relation or "compose"
+            row.primary_config = primary_config or ""
             row.created_by = created_by
             row.updated_at = _now()
         else:
@@ -444,6 +452,8 @@ class FlowRepository:
                 name=name,
                 status="draft",
                 configs=configs or [],
+                config_relation=config_relation or "compose",
+                primary_config=primary_config or "",
                 created_by=created_by,
                 created_at=_now(),
                 updated_at=_now(),
@@ -574,7 +584,6 @@ class FlowRepository:
         row = self.session.query(OpportunityCostSheet).filter(
             OpportunityCostSheet.opportunity_id == opportunity_id,
             OpportunityCostSheet.id == sheet_id,
-            OpportunityCostSheet.status == "draft",
         ).first()
         if not row:
             return False

@@ -44,102 +44,113 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
     """
     opp_repo = OpportunityRepository()
     quote_repo = QuotationRepository()
-    
-    # 1. 加载商机数据
-    opportunity = opp_repo.get_opportunity(opportunity_id)
-    if not opportunity:
-        raise ValueError(f"Opportunity not found: {opportunity_id}")
-    
-    # 直接使用 opportunity dict（已经是 to_dict() 的结果，包含所有字段）
-    # 这样新增字段自动包含，不需要手动同步
-    data = dict(opportunity)
-    
-    # 补充系统字段和占位字段
-    data.update({
-        "l6_spec": "",
-        "business_person": opportunity.get("sales_person", ""),  # 别名
-        "export_date": datetime.now().strftime("%Y-%m-%d"),
-        "export_time": datetime.now().strftime("%H:%M"),
-        "l6_count": 0,
-        "kp_count": 0,
-    })
-    
-    # 2. 加载报价单数据
-    if quotation_id:
-        quotation = quote_repo.get_by_id(quotation_id)
-        if quotation:
-            data["quotation_date"] = quotation.quotation_date or (quotation.created_at or "")[:10]
-            data["version"] = quotation.version or ""
-            data["l6_price"] = quotation.l6_price or 0
-            data["total_price"] = quotation.total_price or 0
-            data["profit_margin"] = quotation.profit_margin or 0
-            # 暴露配置级字段供静态绑定使用（保留整个字典，按配置页取值）
-            data["config_descriptions"] = quotation.config_descriptions or {}
-            data["server_model"] = quotation.config_server_models or {}
-            data["quantity"] = quotation.config_quantities or {}
-            
-            # 暴露维保描述（per-config，静态字段）
-            config_warranty_info = quotation.config_warranty_info or {}
-            
-            # 获取系统默认值作为 fallback
-            sys_repo = SystemConfigRepository()
-            default_l6_desc = sys_repo.get_value("warranty_desc_l6", "")
-            default_kp_desc = sys_repo.get_value("warranty_desc_kp", "")
-            try:
-                exchange_rate = float(sys_repo.get_value("usd_to_rmb", "7.0") or 7.0)
-            except (TypeError, ValueError):
-                exchange_rate = 7.0
-            try:
-                tax_rate = float(sys_repo.get_value("tax_rate", "0.13") or 0.13)
-            except (TypeError, ValueError):
-                tax_rate = 0.13
-            data["exchange_rate"] = exchange_rate
-            data["tax_rate"] = tax_rate
-            
-            # 构建 warranty_desc_l6 和 warranty_desc_kp
-            warranty_desc_l6 = {}
-            warranty_desc_kp = {}
-            
-            # 从 config_warranty_info 获取值
-            for cfg_name, warr in config_warranty_info.items():
-                l6_desc = warr.get("l6", {}).get("description", "")
-                kp_desc = warr.get("kp", {}).get("description", "")
-                warranty_desc_l6[cfg_name] = l6_desc or default_l6_desc
-                warranty_desc_kp[cfg_name] = kp_desc or default_kp_desc
-            
-            # 如果 config_warranty_info 为空，从其他配置字段获取配置名，用默认值填充
-            if not warranty_desc_l6:
-                all_config_names = set()
-                all_config_names.update((quotation.config_descriptions or {}).keys())
-                all_config_names.update((quotation.config_server_models or {}).keys())
-                all_config_names.update((quotation.config_quantities or {}).keys())
-                
-                for cfg_name in all_config_names:
-                    warranty_desc_l6[cfg_name] = default_l6_desc
-                    warranty_desc_kp[cfg_name] = default_kp_desc
-            
-            data["warranty_desc_l6"] = warranty_desc_l6
-            data["warranty_desc_kp"] = warranty_desc_kp
-            
-            # 从 DB 加载完整配置项明细（包含单价、数量、final_price 等）
-            db_items = quote_repo.get_items(quotation_id)
-            items = []
-            for item in db_items:
-                items.append({
-                    "config_name": item.config_name or "Default",
-                    "category": item.category or "",
-                    "catalogue": item.catalogue or "",
-                    "description": item.description or "",
-                    "part_category": item.part_category or "",
-                    "qty": item.qty or 0,
-                    "base_price": item.base_price or 0.0,
-                    "final_price": item.final_price or 0.0,
-                    "profit_margin": item.profit_margin or 0.0,
-                    "currency": item.currency or "RMB",
-                })
-            _load_item_details(data, items, quotation, bindings)
-    
-    return data
+    sys_repo = None
+    try:
+
+        # 1. 加载商机数据
+        opportunity = opp_repo.get_opportunity(opportunity_id)
+        if not opportunity:
+            raise ValueError(f"Opportunity not found: {opportunity_id}")
+
+        # 直接使用 opportunity dict（已经是 to_dict() 的结果，包含所有字段）
+        # 这样新增字段自动包含，不需要手动同步
+        data = dict(opportunity)
+
+        # 补充系统字段和占位字段
+        data.update({
+            "l6_spec": "",
+            "business_person": opportunity.get("sales_person", ""),  # 别名
+            "export_date": datetime.now().strftime("%Y-%m-%d"),
+            "export_time": datetime.now().strftime("%H:%M"),
+            "l6_count": 0,
+            "kp_count": 0,
+        })
+
+        # 2. 加载报价单数据
+        if quotation_id:
+            quotation = quote_repo.get_by_id(quotation_id)
+            if quotation:
+                data["quotation_date"] = quotation.quotation_date or (quotation.created_at or "")[:10]
+                data["version"] = quotation.version or ""
+                data["l6_price"] = quotation.l6_price or 0
+                data["total_price"] = quotation.total_price or 0
+                data["profit_margin"] = quotation.profit_margin or 0
+                # 配置关系：compose=组合并行 / alternative=方案备选对比（SpecSheet/Excel 据此区分展示）
+                data["config_relation"] = quotation.config_relation or "compose"
+                data["primary_config"] = quotation.primary_config or ""
+                # 暴露配置级字段供静态绑定使用（保留整个字典，按配置页取值）
+                data["config_descriptions"] = quotation.config_descriptions or {}
+                data["server_model"] = quotation.config_server_models or {}
+                data["quantity"] = quotation.config_quantities or {}
+
+                # 暴露维保描述（per-config，静态字段）
+                config_warranty_info = quotation.config_warranty_info or {}
+
+                # 获取系统默认值作为 fallback
+                sys_repo = SystemConfigRepository()
+                default_l6_desc = sys_repo.get_value("warranty_desc_l6", "")
+                default_kp_desc = sys_repo.get_value("warranty_desc_kp", "")
+                try:
+                    exchange_rate = float(sys_repo.get_value("usd_to_rmb", "7.0") or 7.0)
+                except (TypeError, ValueError):
+                    exchange_rate = 7.0
+                try:
+                    tax_rate = float(sys_repo.get_value("tax_rate", "0.13") or 0.13)
+                except (TypeError, ValueError):
+                    tax_rate = 0.13
+                data["exchange_rate"] = exchange_rate
+                data["tax_rate"] = tax_rate
+
+                # 构建 warranty_desc_l6 和 warranty_desc_kp
+                warranty_desc_l6 = {}
+                warranty_desc_kp = {}
+
+                # 从 config_warranty_info 获取值
+                for cfg_name, warr in config_warranty_info.items():
+                    l6_desc = warr.get("l6", {}).get("description", "")
+                    kp_desc = warr.get("kp", {}).get("description", "")
+                    warranty_desc_l6[cfg_name] = l6_desc or default_l6_desc
+                    warranty_desc_kp[cfg_name] = kp_desc or default_kp_desc
+
+                # 如果 config_warranty_info 为空，从其他配置字段获取配置名，用默认值填充
+                if not warranty_desc_l6:
+                    all_config_names = set()
+                    all_config_names.update((quotation.config_descriptions or {}).keys())
+                    all_config_names.update((quotation.config_server_models or {}).keys())
+                    all_config_names.update((quotation.config_quantities or {}).keys())
+
+                    for cfg_name in all_config_names:
+                        warranty_desc_l6[cfg_name] = default_l6_desc
+                        warranty_desc_kp[cfg_name] = default_kp_desc
+
+                data["warranty_desc_l6"] = warranty_desc_l6
+                data["warranty_desc_kp"] = warranty_desc_kp
+
+                # 从 DB 加载完整配置项明细（包含单价、数量、final_price 等）
+                db_items = quote_repo.get_items(quotation_id)
+                items = []
+                for item in db_items:
+                    items.append({
+                        "config_name": item.config_name or "Default",
+                        "category": item.category or "",
+                        "catalogue": item.catalogue or "",
+                        "description": item.description or "",
+                        "part_category": item.part_category or "",
+                        "qty": item.qty or 0,
+                        "base_price": item.base_price or 0.0,
+                        "final_price": item.final_price or 0.0,
+                        "profit_margin": item.profit_margin or 0.0,
+                        "currency": item.currency or "RMB",
+                    })
+                _load_item_details(data, items, quotation, bindings)
+
+        return data
+
+    finally:
+        opp_repo.close()
+        quote_repo.close()
+        if sys_repo is not None:
+            sys_repo.close()
 
 def _load_l6_from_template(quotation):
     """从 quotation.extra_fields.config_l6_picks 读 L6 预览行——对齐左栏 BomTable 的渲染。
@@ -256,10 +267,57 @@ def _calc_cost_sum(items: list, exchange_rate: float, tax_rate: float, category:
     return total
 
 
+def _canonical_config_order(quotation, items):
+    """返回 {规范化配置key: 位置} 的规范配置序。
+
+    优先级：config_quantities -> config_descriptions -> config_server_models ->
+    config_warranty_info -> config_l6_picks -> items 出现顺序。key 用 strip().upper() 归一。
+    """
+    keys = []
+    if quotation is not None:
+        for attr in ("config_quantities", "config_descriptions", "config_server_models", "config_warranty_info"):
+            src = getattr(quotation, attr, None) or {}
+            if src:
+                keys = list(src.keys())
+                break
+        if not keys and getattr(quotation, "extra_fields", None):
+            try:
+                extra = json.loads(quotation.extra_fields)
+            except (json.JSONDecodeError, TypeError):
+                extra = None
+            if extra:
+                picks = extra.get("config_l6_picks") or {}
+                if picks:
+                    keys = list(picks.keys())
+    if not keys:
+        keys = []
+        seen = set()
+        for it in items:
+            name = it.get("config_name", "Default")
+            if name == "Default":
+                continue
+            key = name.strip().upper()
+            if key not in seen:
+                seen.add(key)
+                keys.append(name)
+    rank = {}
+    for i, raw in enumerate(keys):
+        key = str(raw).strip().upper()
+        if key and key not in rank:
+            rank[key] = i
+    return rank
+
+
 def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     """加载配置项明细到 data"""
     l6_items = []
     kp_items = []
+
+    # 配置规范序：以 config_quantities 等存储序为准，保证预览/导出与工作台一致。
+    _cfg_rank = _canonical_config_order(quotation, items)
+
+    def _order_index(cfg_name):
+        return _cfg_rank.get(str(cfg_name or "").strip().upper(), len(_cfg_rank))
 
     # L6 优先按基准配置绑定的 BOM 模板 / excel 快照展开（对齐左栏 BomTable）；
     # 已被覆盖的 cfg 不再走扁平料号行。
@@ -281,7 +339,9 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
         elif category == "Key Parts":
             kp_items.append(item_with_no)
 
-    l6_items = tpl_l6_rows + l6_items
+    tpl_l6_rows = sorted(tpl_l6_rows, key=lambda it: _order_index(it.get("config_name", "")))
+    l6_items = tpl_l6_rows + sorted(l6_items, key=lambda it: _order_index(it.get("config_name", "")))
+    kp_items = sorted(kp_items, key=lambda it: _order_index(it.get("config_name", "")))
     data["l6_details"] = l6_items
     data["kp_details"] = kp_items
     data["all_items"] = items
@@ -327,7 +387,7 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
 
     config_summary = []
     seq = 1
-    for cfg_key, group in config_groups.items():
+    for cfg_key, group in sorted(config_groups.items(), key=lambda kv: _order_index(kv[0])):
         cfg_name = group["name"]
         cfg_items = group["items"]
         # 计算 unit_price = L6 + KP + Warranty（售价口径：final_price × qty）
@@ -583,14 +643,15 @@ def _build_description(cfg_items: list, selected_parts: list = None, separator: 
     # Key Parts 在 items 里排在 L6 之后，全集遍历会先命中散热器，故必须限定类别。
     search_pool = [it for it in cfg_items if it.get("category") == "Key Parts"]
 
-    parts = []
+    groups = []
     consumed = [False] * len(search_pool)  # 已被更早的类型认领的 item，避免 hdd/ssd 关键词域重叠时重复抓取
 
     # 按用户在模板里排定的类型顺序遍历（顺序由 selectedParts 决定，不在此写死）
     for part_type in selected_parts:
         keywords = type_keywords.get(part_type.lower(), [part_type])
 
-        # 收齐该类型的所有匹配件：同一品类常有多件（2 块 SSD / 2 张网卡），都要列出
+        # 收齐该类型的所有匹配件：同一品类常有多件（2 块 SSD / 2 张网卡），留在同一行用 ", " 连接
+        group_parts = []
         for idx, item in enumerate(search_pool):
             if consumed[idx]:
                 continue
@@ -603,7 +664,10 @@ def _build_description(cfg_items: list, selected_parts: list = None, separator: 
                 display = item.get("catalogue", "") or item.get("part_category", "")
                 qty = item.get("quantity", 0) or item.get("qty", 0) or 0
                 if display:
-                    parts.append(f"{display} × {qty}" if qty > 1 else display)
+                    group_parts.append(f"{display} × {qty}" if qty else display)
                 consumed[idx] = True
+        if group_parts:
+            groups.append(separator.join(group_parts))
 
-    return separator.join(parts)
+    # 不同部件类型（CPU/HDD/GPU/内存…）各占一行；行内用 separator（", "），行间用 ",\n"
+    return ",\n".join(groups)

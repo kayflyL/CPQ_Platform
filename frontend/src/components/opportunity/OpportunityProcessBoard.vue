@@ -6,13 +6,24 @@
  */
 import { ref, reactive, computed, onMounted, nextTick, watch, defineAsyncComponent } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import {
+  CheckCircleFilled,
+  IdcardOutlined,
+  FileTextOutlined,
+  ToolOutlined,
+  CalculatorOutlined,
+  UpOutlined,
+} from '@ant-design/icons-vue'
 import { portalApi } from '@/api/portal'
 import { projectApi } from '@/api'
 import type { FlowCard, PortalBoard, RequirementVersion, RequirementSlots } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import type { ProcessNodeDef } from '@/types/flow'
-import DocumentCard from '@/components/flow/DocumentCard.vue'
+import RecordTable from '@/components/opportunity/RecordTable.vue'
+// 弹窗为按需打开，懒加载避免进入详情页首屏就拉取该组件
+const AssigneePickerModal = defineAsyncComponent(() => import('@/components/opportunity/AssigneePickerModal.vue'))
+import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 import { useAuthStore } from '@/store/auth'
 
 const RequirementForm = defineAsyncComponent(() => import('@/components/flow/RequirementForm.vue'))
@@ -22,6 +33,7 @@ const BomSchemeWorkbench = defineAsyncComponent(() => import('@/components/oppor
 const CostSheetWorkbench = defineAsyncComponent(() => import('@/components/opportunity/CostSheetWorkbench.vue'))
 const QuoteWorkbench = defineAsyncComponent(() => import('@/components/opportunity/QuoteWorkbench.vue'))
 const ApprovalFlowPanel = defineAsyncComponent(() => import('@/components/opportunity/ApprovalFlowPanel.vue'))
+const OpportunityProcessRail = defineAsyncComponent(() => import('@/components/opportunity/OpportunityProcessRail.vue'))
 
 interface RequirementFormExpose {
   toSlots(): RequirementSlots
@@ -46,7 +58,6 @@ const emit = defineEmits<{
   (e: 'set-primary', quotation: Quotation): void
   (e: 'rename-quotation', quotation: Quotation): void
   (e: 'delete-quotation', quotationId: string): void
-  (e: 'cost-quotation', quotation: Quotation): void
   (e: 'toggle-quote-select', quotationId: string): void
   (e: 'enter-quote-batch'): void
   (e: 'exit-quote-batch'): void
@@ -55,10 +66,16 @@ const emit = defineEmits<{
   (e: 'delete-attachment', attachment: FeedAttachment): void
   (e: 'refresh-meta'): void
   (e: 'refresh-quotations'): void
+  /** 看板首次加载完成（成功或失败），通知父级收起全局骨架 */
+  (e: 'board-settled'): void
 }>()
 const oppId = props.opportunityId
 const auth = useAuthStore()
 const isAdmin = computed(() => auth.user?.role === 'admin' || auth.can('page.opportunities_all'))
+const {
+  pickerOpen, pickerTitle, pickerOptions, pickerChosen,
+  promptAssignee, confirmPicker, cancelPicker,
+} = useDownstreamAssignee()
 
 const PROCESS_NODES = [
   { key: 'requirement', label: '业务', title: '线索登记', subtitle: '填写需求单并提交' },
@@ -76,6 +93,10 @@ const draftSaving = ref(false)
 const deletingDraft = ref(false)
 const activeRequirementVersion = ref<number | null>(null)
 const activeNode = ref<string>('requirement')
+const reqInfoOpen = ref(true)
+const requirementOpen = ref(true)
+const bomingOpen = ref(true)
+const costingOpen = ref(true)
 const activeNodeKey = 'cpq:opportunity:active-node:' + oppId
 let nodeInitialized = false
 watch(activeNode, (node) => {
@@ -183,19 +204,6 @@ const infoRows = computed(() => {
   ]
 })
 
-function requirementSummaryRows(req: RequirementVersion | null): [string, string][] {
-  if (!req) return []
-  const slots = req.slots || {}
-  const rows: [string, string][] = []
-  if (slots.server_model) rows.push(['服务器型号', slots.server_model])
-  if (slots.platform_type) rows.push(['平台类型', slots.platform_type])
-  if (slots.chassis_form) rows.push(['机箱形态', slots.chassis_form])
-  if (slots.server_type) rows.push(['服务器类型', slots.server_type])
-  if (slots.purchase_qty) rows.push(['数量', `${slots.purchase_qty} 台`])
-  if (slots.warranty_years) rows.push(['维保年限', slots.warranty_years])
-  return rows
-}
-
 const processNodes = computed<ProcessNodeDef[]>(() =>
   PROCESS_NODES.map((node) => {
     const ap = approvals.value.find((a) => a.key === node.key)
@@ -235,6 +243,7 @@ const currentFlowIndex = computed(() => {
   return index < 0 ? 0 : index
 })
 const lockedNodeKeys = computed(() => new Set((board.value?.nodes || []).filter((n) => n.locked).map((n) => n.node_key)))
+const disabledNodeKeys = computed(() => [...new Set(PROCESS_NODES.filter((n) => nodeDisabled(n.key)).map((n) => n.key))] as string[])
 function nodeReached(key: string) {
   const index = NODE_ORDER.indexOf(key as (typeof NODE_ORDER)[number])
   return index >= 0 && index <= currentFlowIndex.value
@@ -402,14 +411,34 @@ async function loadBoard() {
   } finally {
     if (requestSeq === boardLoadSeq) {
       loading.value = false
+      emit('board-settled')
     }
   }
 }
 
 function scrollToNode(key: string) {
+  const sameNode = activeNode.value === key
   activeNode.value = key
-  nextTick(() => {
+  const doScroll = () => {
     document.querySelector('.process-workbench')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  nextTick(() => {
+    if (sameNode) doScroll()
+    else setTimeout(doScroll, 200)
+  })
+}
+
+function scrollToSubstep(key: string, index: number) {
+  const sameNode = activeNode.value === key
+  activeNode.value = key
+  const doScroll = () => {
+    const target = document.querySelector(`[data-substep~="${key}.${index}"]`)
+    const el = target || document.querySelector('.process-workbench')
+    el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+  nextTick(() => {
+    if (sameNode) doScroll()
+    else setTimeout(doScroll, 200)
   })
 }
 
@@ -553,28 +582,36 @@ async function submitDraft() {
     message.warning('请至少填写机型型号、平台类型、服务器类型或机箱形态')
     return
   }
-  submitting.value = true
-  try {
-    let res: { requirement: RequirementVersion }
+  async function doSubmit(assigneeName: string) {
     if (draftReq.value) {
       await projectApi.update(oppId, basicPayload())
       await portalApi.saveRequirementDraft(oppId, slots, reqText.value)
-      res = await portalApi.submitRequirementDraft(oppId, draftReq.value.version)
-    } else {
-      res = await portalApi.initiate(oppId, basicPayload(), slots, reqText.value)
+      return portalApi.submitRequirementDraft(oppId, draftReq.value.version, assigneeName)
     }
-    message.success(`需求单 v${res.requirement.version} 已提交，流程进入 BOM 环节`)
-    editing.value = false
-    basicEditing.value = false
-    activeRequirementVersion.value = null
-    await loadBoard()
-    activeNode.value = 'boming'
-    scrollToNode('boming')
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '提交失败')
-  } finally {
-    submitting.value = false
+    return portalApi.initiate(oppId, basicPayload(), slots, reqText.value, assigneeName)
   }
+  async function runSubmit(assigneeName: string) {
+    submitting.value = true
+    try {
+      const res = await doSubmit(assigneeName)
+      message.success(`需求单 v${res.requirement.version} 已提交，流程进入 BOM 环节`)
+      editing.value = false
+      basicEditing.value = false
+      activeRequirementVersion.value = null
+      await loadBoard()
+      activeNode.value = 'boming'
+      scrollToNode('boming')
+    } catch (e: any) {
+      if (e?.response?.data?.detail === ASSIGNEE_REQUIRED_DETAIL) {
+        promptAssignee('boming', '选择技术支持处理人', (name) => { runSubmit(name) })
+        return
+      }
+      message.error(e.response?.data?.detail || '提交失败')
+    } finally {
+      submitting.value = false
+    }
+  }
+  await runSubmit('')
 }
 
 const archivedRequirementCards = computed(() =>
@@ -621,6 +658,26 @@ async function convertCosting(quotationId: string) {
   }
 }
 
+async function deleteCostSheet(sheetId: number) {
+  Modal.confirm({
+    title: '删除对应成本表？',
+    content: '删除后不可恢复；仅当对应报价单已删除时允许删除该成本表。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        await portalApi.deleteCostSheet(oppId, sheetId)
+        message.success('成本表已删除')
+        await loadBoard()
+        emit('refresh-quotations')
+      } catch (e: any) {
+        message.error(e.response?.data?.detail || '删除成本表失败')
+      }
+    },
+  })
+}
+
 const archiveOpen = ref(false)
 const archiveCategories = ref<string[]>([])
 const archiveTitle = ref('附件')
@@ -643,20 +700,46 @@ defineExpose({ reload: loadBoard })
 
 <template>
   <div class="bod-page">
-    <section v-if="opp" class="opp-info-panel">
+    
+
+    <div v-if="board" class="board-body">
+      <OpportunityProcessRail
+        class="board-rail"
+        :nodes="stepperNodes"
+        :active-node="activeNode"
+        :disabled-keys="disabledNodeKeys"
+        @select="scrollToNode"
+        @select-substep="scrollToSubstep"
+      />
+
+      <a-spin :spinning="loading" class="board-spin">
+        <Transition name="node-fade" mode="out-in">
+          <div :key="activeNode" class="process-workbench">
+            <template v-if="activeNode === 'requirement'">
+
+<section v-if="opp" class="opp-info-panel rich-card" data-substep="requirement.0">
       <header class="opp-info-head">
         <div class="opp-info-title">
-          <span class="opp-info-eyebrow">商机信息</span>
-          <h4>{{ opp.customer_name || '未命名商机' }}</h4>
+          <span class="rich-icon-badge"><IdcardOutlined /></span>
+          <div class="opp-info-title-text">
+            <span class="opp-info-eyebrow">商机信息</span>
+            <h4>{{ opp.customer_name || '未命名商机' }}</h4>
+          </div>
         </div>
         <div class="opp-info-tools">
+          <span v-if="!basicEditing" class="rich-status-check"><CheckCircleFilled /> 已填写</span>
           <template v-if="basicEditing">
             <a-button size="small" @click="cancelBasicEdit">取消</a-button>
             <a-button size="small" type="primary" :loading="basicSaving" @click="saveBasic">保存</a-button>
           </template>
           <a-button v-else size="small" @click="startBasicEdit">编辑商机信息</a-button>
+          <button class="card-chevron" :class="{ collapsed: !reqInfoOpen }" type="button" @click="reqInfoOpen = !reqInfoOpen">
+            <UpOutlined />
+          </button>
         </div>
       </header>
+      <div class="card-collapse" :class="{ collapsed: !reqInfoOpen }">
+        <div class="card-collapse-inner">
             <a-form v-if="basicEditing" layout="vertical" class="basic-form-grid">
                       <a-form-item label="业务">
                         <a-input v-if="roleLock.sales_person" v-model:value="basicForm.sales_person" disabled />
@@ -692,192 +775,233 @@ defineExpose({ reload: loadBoard })
           <dd :title="String(v)">{{ v }}</dd>
         </div>
       </dl>
-    </section>
-
-    <div v-if="board" class="board-body">
-      <div class="bod-stepper">
-      <button
-        v-for="(node, idx) in stepperNodes"
-        :key="node.key"
-        type="button"
-        class="step"
-        :class="[node.state, { active: node.key === activeNode, locked: nodeDisabled(node.key) }]"
-        :disabled="nodeDisabled(node.key)"
-        @click="scrollToNode(node.key)"
-      >
-        <b>{{ String(idx + 1).padStart(2, '0') }} · {{ node.title }}</b>
-        <span>{{ node.subtitle }}</span>
-      </button>
+        </div>
       </div>
-
-    <a-spin :spinning="loading">
-      <div class="process-workbench">
-        <template v-if="activeNode === 'requirement'">
-          <section class="requirement-workbench">
+    </section>
+          <section class="requirement-workbench" data-substep="requirement.1">
             <header class="rw-head">
-              <div>
-                <span class="rw-eyebrow">线索登记</span>
-                <h3>需求单工作台</h3>
+              <div class="rw-head-title">
+                <span class="rich-icon-badge"><FileTextOutlined /></span>
+                <div>
+                  <span class="rw-eyebrow">线索登记</span>
+                  <h3>需求单工作台</h3>
+                </div>
               </div>
               <div class="rw-head-actions">
+                <span v-if="currentReq" class="rich-status-check"><CheckCircleFilled /> 已发起</span>
                 <AttachmentUploadButton :opportunity-id="oppId" category="lead_requirement" label="上传附件" />
                 <a-button size="small" @click="openArchive(['lead_requirement'], '我的附件')">我的附件</a-button>
                 <a-button type="primary" size="small" @click="startNewDraft">新建需求</a-button>
+                <button class="card-chevron" :class="{ collapsed: !requirementOpen }" type="button" @click="requirementOpen = !requirementOpen">
+                  <UpOutlined />
+                </button>
               </div>
             </header>
 
-            <div class="rw-grid">
-              <DocumentCard
+            <div class="card-collapse" :class="{ collapsed: !requirementOpen }">
+              <div class="card-collapse-inner">
+              <RecordTable
+                title="需求单"
+                :empty="!currentReq && !draftReq && !archivedRequirementCards.length"
+                empty-text="尚无需求单，点击“新建需求”开始填写。"
+                :columns="[
+                  { label: '版本', width: '150px' },
+                  { label: '状态', width: '120px' },
+                  { label: '服务器型号' },
+                  { label: '平台类型' },
+                  { label: '数量', width: '90px' },
+                  { label: '维保年限', width: '100px' },
+                  { label: '创建人 / 时间', width: '180px' },
+                  { label: '操作', width: '130px', align: 'right' },
+                ]"
+              >
+              <tr
                 v-if="currentReq"
-                :title="`需求单 v${currentReq.version}`"
-                doc-no="需求单 · 线索登记"
-                :status="requirementCardStatus(currentReq)"
-                status-tone="current"
-                doc-type="requirement"
-                :active="activeRequirementVersion === currentReq.version || !activeRequirementVersion"
                 @click="openRequirementDetail(currentReq.version)"
               >
-                <template #meta>
-                  <span v-if="requirementSummaryRows(currentReq).length" class="req-info-grid">
-                    <span v-for="[k, v] in requirementSummaryRows(currentReq)" :key="k" class="summary-cell">
-                      <b>{{ k }}</b><span>{{ v }}</span>
-                    </span>
-                  </span>
-                  <span v-else class="summary-row muted">尚未填写需求</span>
-                </template>
-                <template #footer>
-                  <span
-                    v-if="cardForRequirement(currentReq)?.current_node === 'boming' && cardForRequirement(currentReq)?.flow_status === 'submitted'"
-                    class="draft-delete-link"
-                    @click.stop="requestWithdrawRequirement(currentReq)"
-                  >申请撤回</span>
-                </template>
-              </DocumentCard>
+                <td>
+                  <span class="rt-strong">需求单 v{{ currentReq.version }}</span>
+                  <span class="rt-sub">线索登记</span>
+                </td>
+                <td><span class="rt-badge rt-badge-current">{{ requirementCardStatus(currentReq) }}</span></td>
+                <td>{{ currentReq.slots?.server_model || '—' }}</td>
+                <td>{{ currentReq.slots?.platform_type || '—' }}</td>
+                <td>{{ currentReq.slots?.purchase_qty ? `${currentReq.slots.purchase_qty} 台` : '—' }}</td>
+                <td>{{ currentReq.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
+                <td>
+                  <div class="rt-actions">
+                    <span
+                      v-if="cardForRequirement(currentReq)?.current_node === 'boming' && cardForRequirement(currentReq)?.flow_status === 'submitted'"
+                      class="rt-link"
+                      @click.stop="requestWithdrawRequirement(currentReq)"
+                    >申请撤回</span>
+                  </div>
+                </td>
+              </tr>
 
-              <DocumentCard
+              <tr
                 v-if="draftReq && draftReq.version !== currentReq?.version"
-                :title="`需求草稿 v${draftReq.version}`"
-                doc-no="需求草稿 · 未提交"
-                status="草稿"
-                status-tone="draft"
-                doc-type="requirement"
-                :active="activeRequirementVersion === draftReq.version"
                 @click="openRequirementDetail(draftReq.version)"
               >
-                <template #meta>
-                  <span v-if="requirementSummaryRows(draftReq).length" class="req-info-grid">
-                    <span v-for="[k, v] in requirementSummaryRows(draftReq)" :key="k" class="summary-cell">
-                      <b>{{ k }}</b><span>{{ v }}</span>
+                <td>
+                  <span class="rt-strong">需求草稿 v{{ draftReq.version }}</span>
+                  <span class="rt-sub">未提交</span>
+                </td>
+                <td><span class="rt-badge rt-badge-draft">草稿</span></td>
+                <td>{{ draftReq.slots?.server_model || '—' }}</td>
+                <td>{{ draftReq.slots?.platform_type || '—' }}</td>
+                <td>{{ draftReq.slots?.purchase_qty ? `${draftReq.slots.purchase_qty} 台` : '—' }}</td>
+                <td>{{ draftReq.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
+                <td>
+                  <div class="rt-actions">
+                    <span class="rt-link danger" @click.stop="deleteDraft(draftReq.version)">
+                      {{ deletingDraft ? '删除中...' : '删除草稿' }}
                     </span>
-                  </span>
-                  <span v-else class="summary-row muted">尚未填写需求</span>
-                </template>
-                <template #summary>
-                  <span class="summary-row muted">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</span>
-                </template>
-                <template #footer>
-                  <span class="draft-delete-link" @click.stop="deleteDraft(draftReq.version)">
-                    {{ deletingDraft ? '删除中...' : '删除草稿' }}
-                  </span>
-                </template>
-              </DocumentCard>
+                  </div>
+                </td>
+              </tr>
 
-              <DocumentCard
+              <tr
                 v-for="req in archivedRequirementCards"
                 :key="req.version"
-                :title="`需求单 v${req.version}`"
-                :doc-no="`REQ-${req.version}`"
-                :status="requirementCardStatus(req)"
-                status-tone="done"
-                doc-type="requirement"
-                :active="activeRequirementVersion === req.version"
                 @click="openRequirementDetail(req.version)"
               >
-                <template #meta>
-                  <span v-if="requirementSummaryRows(req).length" class="req-info-grid">
-                    <span v-for="[k, v] in requirementSummaryRows(req)" :key="k" class="summary-cell">
-                      <b>{{ k }}</b><span>{{ v }}</span>
-                    </span>
-                  </span>
-                  <span v-else class="summary-row muted">尚未填写需求</span>
-                </template>
-                <template #summary>
-                  <span class="summary-row muted">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</span>
-                </template>
-                <template #footer>
-                  <span
-                    v-if="cardForRequirement(req)?.flow_status === 'submitted' && cardForRequirement(req)?.current_node !== 'requirement'"
-                    class="draft-delete-link"
-                    @click.stop="requestWithdrawRequirement(req)"
-                  >申请撤回</span>
-                </template>
-              </DocumentCard>
+                <td>
+                  <span class="rt-strong">需求单 v{{ req.version }}</span>
+                  <span class="rt-sub">REQ-{{ req.version }}</span>
+                </td>
+                <td><span class="rt-badge rt-badge-done">{{ requirementCardStatus(req) }}</span></td>
+                <td>{{ req.slots?.server_model || '—' }}</td>
+                <td>{{ req.slots?.platform_type || '—' }}</td>
+                <td>{{ req.slots?.purchase_qty ? `${req.slots.purchase_qty} 台` : '—' }}</td>
+                <td>{{ req.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+                <td>
+                  <div class="rt-actions">
+                    <span
+                      v-if="cardForRequirement(req)?.flow_status === 'submitted' && cardForRequirement(req)?.current_node !== 'requirement'"
+                      class="rt-link"
+                      @click.stop="requestWithdrawRequirement(req)"
+                    >申请撤回</span>
+                  </div>
+                </td>
+              </tr>
 
-              <div v-if="!currentReq && !draftReq && !archivedRequirementCards.length" class="rw-empty">
-                尚无需求单，点击“新建需求”开始填写。
+            </RecordTable>
               </div>
             </div>
           </section>
 
         </template>
 
-        <BomSchemeWorkbench
+        <section
           v-else-if="activeNode === 'boming' && board && (isAdmin || !bomLocked || bomSchemes.length)"
-          :board="board"
-          :readonly="isAdmin ? false : bomLocked"
-          @card-updated="upsertFlowCard"
-          @changed="loadBoard"
-          @open-archive="openArchiveFromNode"
-        />
-        <CostSheetWorkbench
+          class="rich-card card-collapsible"
+          data-substep="boming.0 boming.1"
+        >
+          <header class="card-shell-head">
+            <div class="card-shell-title">
+              <span class="rich-icon-badge"><ToolOutlined /></span>
+              <div>
+                <span class="card-shell-eyebrow">技术支持</span>
+                <h3>方案配置</h3>
+              </div>
+            </div>
+            <button class="card-chevron" :class="{ collapsed: !bomingOpen }" type="button" @click="bomingOpen = !bomingOpen">
+              <UpOutlined />
+            </button>
+          </header>
+          <div class="card-collapse" :class="{ collapsed: !bomingOpen }">
+            <div class="card-collapse-inner">
+              <BomSchemeWorkbench
+                :board="board"
+                :readonly="isAdmin ? false : bomLocked"
+                @card-updated="upsertFlowCard"
+                @changed="loadBoard"
+                @open-archive="openArchiveFromNode"
+              />
+            </div>
+          </div>
+        </section>
+        <section
           v-else-if="activeNode === 'costing' && board && (isAdmin || !costLocked || costSheets.length)"
-          :board="board"
-          :readonly="isAdmin ? false : costLocked"
-          @card-updated="upsertFlowCard"
-          @changed="loadBoard"
-          @open-archive="openArchiveFromNode"
-          @upload-cost-sheet="emit('upload-cost-sheet')"
-        />
-        <QuoteWorkbench
+          class="rich-card card-collapsible"
+          data-substep="costing.0 costing.1"
+        >
+          <header class="card-shell-head">
+            <div class="card-shell-title">
+              <span class="rich-icon-badge"><CalculatorOutlined /></span>
+              <div>
+                <span class="card-shell-eyebrow">成本核算</span>
+                <h3>成本核算</h3>
+              </div>
+            </div>
+            <button class="card-chevron" :class="{ collapsed: !costingOpen }" type="button" @click="costingOpen = !costingOpen">
+              <UpOutlined />
+            </button>
+          </header>
+          <div class="card-collapse" :class="{ collapsed: !costingOpen }">
+            <div class="card-collapse-inner">
+              <CostSheetWorkbench
+                :board="board"
+                :readonly="isAdmin ? false : costLocked"
+                @card-updated="upsertFlowCard"
+                @changed="loadBoard"
+                @open-archive="openArchiveFromNode"
+                @upload-cost-sheet="emit('upload-cost-sheet')"
+              />
+            </div>
+          </div>
+        </section>
+        <div
           v-else-if="activeNode === 'quoting' && board"
-          :board="board"
-          :quote-context="board.quote_context"
-          :quotations="quotations"
-          :quote-price-visible="quotePriceVisible"
-          :quote-select-mode="quoteSelectMode"
-          :quote-selected-ids="quoteSelectedIds"
-          :attachments="attachments"
-          @new-quotation="emit('new-quotation')"
-          @view-quotation="emit('view-quotation', $event)"
-          @set-primary="emit('set-primary', $event)"
-          @rename-quotation="emit('rename-quotation', $event)"
-          @delete-quotation="emit('delete-quotation', $event)"
-          @cost-quotation="emit('cost-quotation', $event)"
-          @toggle-quote-select="emit('toggle-quote-select', $event)"
-          @enter-quote-batch="emit('enter-quote-batch')"
-          @exit-quote-batch="emit('exit-quote-batch')"
-          @batch-delete-quotes="emit('batch-delete-quotes')"
-          @convert-cost-to-quotation="convertCosting"
-          @card-updated="upsertFlowCard"
-          @open-archive="openArchiveFromNode"
-          @refresh-quotations="handleQuoteRefresh"
-          @close="activeNode = 'costing'"
-        />
+          class="node-quote-shell"
+          data-substep="quoting.0 quoting.1"
+        >
+          <QuoteWorkbench
+                :board="board"
+                :quote-context="board.quote_context"
+                :quotations="quotations"
+                :quote-price-visible="quotePriceVisible"
+                :quote-select-mode="quoteSelectMode"
+                :quote-selected-ids="quoteSelectedIds"
+                :attachments="attachments"
+                @new-quotation="emit('new-quotation')"
+                @view-quotation="emit('view-quotation', $event)"
+                @set-primary="emit('set-primary', $event)"
+                @rename-quotation="emit('rename-quotation', $event)"
+                @delete-quotation="emit('delete-quotation', $event)"
+                @toggle-quote-select="emit('toggle-quote-select', $event)"
+                @enter-quote-batch="emit('enter-quote-batch')"
+                @exit-quote-batch="emit('exit-quote-batch')"
+                @batch-delete-quotes="emit('batch-delete-quotes')"
+                @convert-cost-to-quotation="convertCosting"
+                @delete-cost-sheet="deleteCostSheet"
+                @card-updated="upsertFlowCard"
+                @open-archive="openArchiveFromNode"
+                @refresh-quotations="handleQuoteRefresh"
+                @close="activeNode = 'costing'"
+              />
+        </div>
         <div v-else class="node-empty">{{ activeNodeEmptyText }}</div>
+          </div>
+        </Transition>
+      </a-spin>
 
+      <aside class="board-aside">
         <section class="timeline">
           <div class="tl-head">审批与流转记录</div>
           <ApprovalFlowPanel :opportunity-id="oppId" :nodes="board?.nodes || []" :current-node="currentFlowNode" :flow-cards="board?.flow_cards || []" />
         </section>
-      </div>
-      </a-spin>
+      </aside>
     </div>
 
     <section v-else-if="boardLoadError" class="node-empty board-load-error">
       <span>看板加载失败，请重试</span>
       <a-button size="small" @click="loadBoard">重试</a-button>
     </section>
-    <section v-else class="node-empty">正在加载看板...</section>
 
     <a-modal
       :open="detailOpen"
@@ -958,6 +1082,14 @@ defineExpose({ reload: loadBoard })
         @delete="(a: FeedAttachment) => emit('delete-attachment', a)"
       />
     </a-modal>
+    <AssigneePickerModal
+      v-model:value="pickerChosen"
+      :open="pickerOpen"
+      :title="pickerTitle"
+      :options="pickerOptions"
+      @confirm="confirmPicker()"
+      @cancel="cancelPicker()"
+    />
   </div>
 </template>
 
@@ -978,46 +1110,43 @@ defineExpose({ reload: loadBoard })
   padding: 12px 20px 0;
 }
 
-.bod-stepper {
-  display: flex;
-  gap: 8px;
-  margin: 16px 20px 0;
-}
-.bod-stepper .step {
-  flex: 1;
+.board-body {
+  display: grid;
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(280px, 320px);
+  gap: 14px;
+  align-items: stretch;
+  padding: 14px 20px 24px;
+  min-height: calc(100vh - 200px);
   min-width: 0;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: var(--cpq-overlay-w4);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  color: var(--cpq-text-muted);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
 }
-.bod-stepper .step b {
-  display: block;
-  margin-bottom: 3px;
-  font-size: 14px;
-  font-weight: 600;
-  color: inherit;
+.board-rail {
+  min-width: 0;
 }
-.bod-stepper .step.active {
-  border-color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-a10);
-  color: var(--cpq-accent-primary);
+.board-spin {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
-.bod-stepper .step.done {
-  background: var(--cpq-overlay-success15);
-  border-color: var(--cpq-color-success);
-  color: var(--cpq-color-success);
+.board-spin :deep(.ant-spin-container) {
+  width: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
 }
-.bod-stepper .step.locked,
-.bod-stepper .step:disabled {
-  cursor: not-allowed;
-  opacity: 0.62;
+.board-aside {
+  min-width: 0;
+  display: flex;
+}
+.board-aside .timeline {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.board-aside .timeline > :last-child {
+  flex: 1;
+}
+.board-rail :deep(.process-rail) {
+  height: 100%;
 }
 
 .board-workbench {
@@ -1031,7 +1160,20 @@ defineExpose({ reload: loadBoard })
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 0 20px 24px;
+  padding: 0;
+  flex: 1;
+}
+.node-fade-enter-active,
+.node-fade-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.node-fade-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.node-fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 .requirement-workbench {
   border: 1px solid var(--cpq-glass-border);
@@ -1056,6 +1198,12 @@ defineExpose({ reload: loadBoard })
   display: flex;
   align-items: center;
   gap: 8px;
+}
+.rw-head-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 .rw-eyebrow {
   display: none;
@@ -1146,21 +1294,26 @@ defineExpose({ reload: loadBoard })
 }
 
 .opp-info-panel {
-  margin: 14px 20px 0;
-  padding: 16px;
+  margin: 0;
+  padding: 0;
   border: 1px solid var(--cpq-glass-border);
   border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
+  overflow: hidden;
 }
 .opp-info-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
+  padding: 14px 16px;
+  margin-bottom: 0;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--cpq-overlay-w10);
+}
+.opp-info-panel .card-collapse-inner {
+  padding: 0 16px 16px;
 }
 .opp-info-tools {
   display: flex;
@@ -1169,7 +1322,105 @@ defineExpose({ reload: loadBoard })
   flex-shrink: 0;
 }
 .opp-info-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
   min-width: 0;
+}
+.opp-info-title-text {
+  min-width: 0;
+}
+.rich-icon-badge {
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
+  color: #fff;
+  font-size: 18px;
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.28);
+}
+.rich-status-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cpq-color-success, #52c41a);
+  white-space: nowrap;
+}
+.rich-card {
+  box-shadow: var(--cpq-glass-card-shadow);
+}
+.card-collapsible {
+  overflow: hidden;
+}
+.card-shell-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-overlay-w4);
+}
+.card-shell-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.card-shell-title > div {
+  min-width: 0;
+}
+.card-shell-eyebrow {
+  display: block;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--cpq-text-muted);
+}
+.card-shell-title h3 {
+  margin: 3px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.card-chevron {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 8px;
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+}
+.card-chevron:hover {
+  background: var(--cpq-overlay-w8);
+  color: var(--cpq-text-primary);
+}
+.card-chevron.collapsed {
+  transform: rotate(180deg);
+}
+.card-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows 0.22s ease;
+}
+.card-collapse.collapsed {
+  grid-template-rows: 0fr;
+}
+.card-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
 }
 .opp-info-eyebrow {
   display: block;
@@ -1196,21 +1447,30 @@ defineExpose({ reload: loadBoard })
 }
 .opp-info-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px 16px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 24px;
   margin: 0;
 }
 .opp-info-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--cpq-overlay-w5);
   min-width: 0;
 }
 .opp-info-item dt {
+  flex-shrink: 0;
+  min-width: 72px;
   font-size: 11px;
   color: var(--cpq-text-muted);
 }
 .opp-info-item dd {
-  margin: 3px 0 0;
+  flex: 1;
+  margin: 0;
   font-size: 13px;
   color: var(--cpq-text-primary);
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1239,6 +1499,34 @@ defineExpose({ reload: loadBoard })
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.row-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.row-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
+  color: var(--cpq-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.row-meta-item b {
+  font-weight: 500;
+  color: var(--cpq-text-muted);
+}
+.row-meta-item.muted {
+  color: var(--cpq-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
 }
 .draft-delete-link {
   font-size: 12px;
@@ -1467,6 +1755,10 @@ defineExpose({ reload: loadBoard })
   }
   .opp-info-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .board-body {
+    grid-template-columns: 1fr;
+    min-height: auto;
   }
 }
 

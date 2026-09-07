@@ -207,18 +207,9 @@ class QuoteService:
                 if hasattr(latest, 'config_warranty_info') and latest.config_warranty_info:
                     meta['config_warranty_info'] = latest.config_warranty_info
 
-            configs = {}
-            # 一次 IN 查询取全部报价单 items（消除逐单查询的 N+1）
-            items_by_quo = q_repo.get_items_by_quotation_ids([q.quotation_id for q in quotations])
-            for quo in quotations:
-                cfg_items = [item.to_dict() for item in items_by_quo.get(quo.quotation_id, [])]
-                for item in cfg_items:
-                    cfg_name = item.get('config_name', 'CFG1')
-                    configs.setdefault(cfg_name, []).append(item)
-            if not configs:
-                configs['CFG1'] = []
-
-            return {"status": "success", 'meta': meta, 'configs': configs,
+            # configs 明细已由细节页的 board 接口按需加载；此处不再取全部行项目，
+            # 仅保留空占位以满足旧响应契约，减少首屏额外的大查询/大 JSON。
+            return {"status": "success", 'meta': meta, 'configs': {},
                     'quotations': [q.to_dict() for q in quotations]}
         finally:
             q_repo.close()
@@ -288,17 +279,47 @@ class QuoteService:
                         item.setdefault('currency', 'RMB')
                     all_items.extend(items)
 
-                l6_total = sum(i.get('final_price', 0) for i in all_items if i.get('category') == 'L6')
-                kp_total = sum(i.get('final_price', 0) for i in all_items if i.get('category') == 'Key Parts')
-                grand_total = l6_total + kp_total
-                if config_quantities:
-                    total_qty = sum(int(q) for q in config_quantities.values() if q)
+                def _sum_config_qty() -> int:
+                    if config_quantities:
+                        return sum(int(q) for q in config_quantities.values() if q)
+                    return sum(i.get('qty', 0) for i in all_items if i.get('category') == 'L6')
+
+                config_relation = str(opportunity_info.get("config_relation") or "compose")
+                primary_config = str(opportunity_info.get("primary_config") or "")
+                if config_relation == "alternative":
+                    # 方案备选：按配置分组单方案合计，取主推方案总额 × 需求台数，不跨配置求和
+                    from collections import defaultdict
+                    cfg_totals = defaultdict(lambda: {"l6": 0.0, "kp": 0.0, "w": 0.0})
+                    for i in all_items:
+                        c = i.get("config_name", "CFG1")
+                        fp = float(i.get("final_price", 0) or 0)
+                        cat = i.get("category")
+                        if cat in ("L6", "整机"):
+                            cfg_totals[c]["l6"] += fp
+                        elif cat == "Warranty":
+                            cfg_totals[c]["w"] += fp
+                        else:
+                            cfg_totals[c]["kp"] += fp
+                    primary = primary_config if primary_config in cfg_totals else (list(cfg_totals.keys())[0] if cfg_totals else "CFG1")
+                    pt = cfg_totals.get(primary, {"l6": 0.0, "kp": 0.0, "w": 0.0})
+                    total_qty = int(opportunity_info.get("total_qty") or _sum_config_qty())
+                    l6_total = round(pt["l6"], 2)
+                    kp_total = round(pt["kp"], 2)
+                    grand_total = round(pt["l6"] + pt["kp"] + pt["w"], 2)
+                    l6_price = round(l6_total * total_qty, 2)
+                    total_price = round(grand_total * total_qty, 2)
                 else:
-                    total_qty = sum(i.get('qty', 0) for i in all_items if i.get('category') == 'L6')
+                    l6_total = sum(i.get('final_price', 0) for i in all_items if i.get('category') == 'L6')
+                    kp_total = sum(i.get('final_price', 0) for i in all_items if i.get('category') == 'Key Parts')
+                    grand_total = l6_total + kp_total
+                    total_qty = _sum_config_qty()
+                    l6_price = l6_total
+                    total_price = grand_total
                 config_count = len(set(i.get('config_name', 'CFG1') for i in all_items))
 
-                q_repo.update(quotation_id, l6_price=l6_total, total_price=grand_total,
-                              total_qty=total_qty, config_count=config_count)
+                q_repo.update(quotation_id, l6_price=l6_price, total_price=total_price,
+                              total_qty=total_qty, config_count=config_count,
+                              config_relation=config_relation, primary_config=primary_config)
                 if config_descriptions:
                     q_repo.update(quotation_id, config_descriptions=config_descriptions)
                 if config_quantities:

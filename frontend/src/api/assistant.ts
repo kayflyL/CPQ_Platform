@@ -186,6 +186,7 @@ export const assistantApi = {
       entryPoint?: string,
       optionSlot?: string | null,
       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
+      enableClarity?: boolean | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -198,6 +199,7 @@ export const assistantApi = {
             quotation_id: quotationId || null,
             entry_point: entryPoint || null,
             option_slot: optionSlot || null,
+            enable_clarity: enableClarity ?? null,
             card_selections: cardSelections && cardSelections.length
               ? cardSelections.map((s) => ({
                   slot: s.slot, value: s.value, label: s.label || null,
@@ -212,7 +214,7 @@ export const assistantApi = {
     /** 配件库自选候选：服务端按留底卡 pick_meta 生成并登记，选项与发卡同格式（含 slot/value/label） */
     cardPick: (id: string, slot: string, roleKey?: string) =>
       http
-        .get<{ slot: string; options: Array<{ label: string; value: string; desc?: string; slot: string; group?: string }> }>(
+        .get<{ slot: string; options: Array<{ label: string; value: string; desc?: string; slot: string; group?: string; qty?: number; qty_max?: number }> }>(
           `/api/assistant/threads/${id}/card-pick`,
           { params: { slot, ...(roleKey ? { role_key: roleKey } : {}) } },
         )

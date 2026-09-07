@@ -55,7 +55,7 @@ class Test库内件specs优先:
 
 
 class Test非硬盘品类用归一名:
-    CAT = "Network(NIC) requirement"
+    CAT = "NIC"
     def test_大小写(self):
         assert K("1G I350 2Port", self.CAT) == K("1G I350 2port", self.CAT)
     def test_空格(self):

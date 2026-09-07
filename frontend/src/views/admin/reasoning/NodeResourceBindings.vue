@@ -1,29 +1,24 @@
 <template>
   <div class="node-resource-bindings">
-    <section class="nrb-section nrb-card">
-      <div v-if="!rulesEnabled" class="nrb-section-title">规则</div>
-      <RuleCatalogRef
-        v-if="rulesEnabled"
-        v-model="ruleModel"
-        :available="ruleAvailable"
-        :defaults="ruleDefaults"
-      />
-      <div v-else class="nrb-disabled">当前节点不使用规则目录</div>
-    </section>
-
     <section v-if="toolsEnabled" class="nrb-section nrb-card">
       <div class="nrb-section-title">可用工具</div>
-      <div v-if="toolsReadonly" class="nrb-tool-tags">
-        <span v-for="tool in readonlyToolOptions" :key="tool.value" class="nrb-tool-tag">{{ tool.label }}</span>
+      <div v-if="lockedTools.length" class="nrb-locked-block">
+        <span class="nrb-field-label">机制必需（节点机制依赖，不可取消）</span>
+        <div class="nrb-tool-tags">
+          <span v-for="tool in lockedToolOptions" :key="tool.value" class="nrb-tool-tag nrb-tool-tag--locked">🔒 {{ tool.label }}</span>
+        </div>
       </div>
       <a-select
-        v-else
+        v-if="!toolsReadonly"
         v-model:value="toolModel"
         mode="multiple"
-        :options="toolOptions"
-        placeholder="选择该节点可调用的工具"
+        :options="selectableOptions"
+        placeholder="选择该节点可调用的增强工具"
         style="width:100%"
       />
+      <div v-else-if="readonlyToolOptions.length" class="nrb-tool-tags">
+        <span v-for="tool in readonlyToolOptions" :key="tool.value" class="nrb-tool-tag">{{ tool.label }}</span>
+      </div>
       <div v-if="selectedDataSources.length" class="nrb-field">
         <span class="nrb-field-label">本节点将查询的数据源</span>
         <div class="nrb-data-source-list">
@@ -32,57 +27,54 @@
         <p class="nrb-hint">数据源由已选工具自动派生，不由节点单独填写。</p>
       </div>
       <p v-if="toolsReadonly" class="nrb-hint">工具由节点类型固定，避免误选导致链路失效；数据源由工具自动派生。</p>
-      <p v-else class="nrb-hint">工具列表来自全系统 AI 工具目录，不由节点写死；可多选、可清空。</p>
+      <p v-else class="nrb-hint">工具真源 = 此处勾选（存 DB，运行期按此执行）；机制工具锁定不可取消，增强工具可自由增删。</p>
     </section>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import RuleCatalogRef from './RuleCatalogRef.vue'
-import { RULE_TYPE_OPTIONS, type RuleType } from '@/api/requirementRules'
 
 const props = withDefaults(defineProps<{
-  ruleTypes?: RuleType[]
   tools?: string[]
   toolOptions?: Array<{ value: string; label: string; dataSources?: string[] }>
-  ruleAvailable?: RuleType[]
-  ruleDefaults?: RuleType[]
-  rulesEnabled?: boolean
   toolsEnabled?: boolean
   toolsReadonly?: boolean
+  /** 机制工具：节点机制必需，锁定勾选不可取消（后端也会保底补回） */
+  lockedTools?: string[]
 }>(), {
-  ruleTypes: () => [],
   tools: () => [],
   toolOptions: () => [],
-  ruleAvailable: () => RULE_TYPE_OPTIONS.map((o) => o.value),
-  ruleDefaults: () => [],
-  rulesEnabled: true,
   toolsEnabled: true,
   toolsReadonly: false,
+  lockedTools: () => [],
 })
 
 const emit = defineEmits<{
-  'update:ruleTypes': [RuleType[]]
   'update:tools': [string[]]
 }>()
 
-const ruleModel = computed({
-  get: () => props.ruleTypes,
-  set: (value: RuleType[]) => emit('update:ruleTypes', value || []),
-})
+const findOption = (name: string) => props.toolOptions.find((o) => String(o.value) === name)
+const toOption = (name: string) => {
+  const found = findOption(name)
+  return { value: name, label: found?.label || name, dataSources: found?.dataSources || [] }
+}
+
+const lockedToolOptions = computed(() => (props.lockedTools || []).map(toOption))
+
+/** 可编辑的增强工具 = 勾选集 − 机制工具（机制工具不可被勾选操作增删） */
 const toolModel = computed({
-  get: () => props.tools,
-  set: (value: string[]) => emit('update:tools', value || []),
+  get: () => (props.tools || []).filter((t) => !(props.lockedTools || []).includes(String(t))),
+  set: (value: string[]) => emit('update:tools', (value || []).filter((t) => !(props.lockedTools || []).includes(String(t)))),
 })
-const readonlyToolOptions = computed(() => (props.tools || []).map((tool) => {
-  const name = String(tool)
-  const found = props.toolOptions.find((o) => String(o.value) === name)
-  return { value: name, label: found?.label || name }
-}))
+
+const selectableOptions = computed(() =>
+  props.toolOptions.filter((o) => !(props.lockedTools || []).includes(String(o.value))))
+
+const readonlyToolOptions = computed(() => (props.tools || []).map((t) => toOption(String(t))))
 
 const selectedDataSources = computed(() => {
-  const selected = new Set((props.tools || []).map((tool) => String(tool)))
+  const selected = new Set([...(props.tools || []), ...(props.lockedTools || [])].map((t) => String(t)))
   const sources = new Set<string>()
   for (const option of props.toolOptions) {
     if (!selected.has(option.value)) continue
@@ -108,6 +100,7 @@ const selectedDataSources = computed(() => {
 .nrb-section-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
 .nrb-field { display: flex; flex-direction: column; gap: 6px; }
 .nrb-field-label { font-size: 12px; color: var(--cpq-text-secondary); }
+.nrb-locked-block { display: flex; flex-direction: column; gap: 6px; }
 .nrb-data-source-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .nrb-tool-tags { display: flex; flex-wrap: wrap; gap: 6px; }
 .nrb-tool-tag {
@@ -119,6 +112,10 @@ const selectedDataSources = computed(() => {
   background: var(--cpq-glass-1-bg, rgba(255, 255, 255, 0.06));
   border: 1px solid var(--cpq-border-primary);
 }
+.nrb-tool-tag--locked {
+  border-style: dashed;
+  color: var(--cpq-text-secondary);
+}
 .nrb-data-source-tag {
   padding: 3px 8px;
   border-radius: 999px;
@@ -129,5 +126,4 @@ const selectedDataSources = computed(() => {
   border: 1px solid var(--cpq-border-primary);
 }
 .nrb-hint { margin: 0; font-size: 12px; line-height: 1.6; color: var(--cpq-text-muted); }
-.nrb-disabled { padding: 9px 11px; border: 1px dashed var(--cpq-border-color, rgba(255, 255, 255, 0.18)); border-radius: 9px; font-size: 12px; color: var(--cpq-text-muted); }
 </style>

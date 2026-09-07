@@ -13,6 +13,8 @@ export interface ProjectInfo {
   date: string
   model_name: string
   total_qty: number
+  config_relation?: string       // compose=组合/并行 / alternative=方案备选对比
+  primary_config?: string        // 方案备选下的主推配置名（默认第一个配置）
   platform_type: string
   chassis_form: string
   order_type?: string
@@ -113,7 +115,8 @@ export const useQuoteStore = defineStore('quote', () => {
   // --- State ---
   const opportunityInfo = ref<ProjectInfo>({
     opportunity_id: '', sales_person: '', fae: '', customer_name: '',
-    date: '', model_name: '', total_qty: 0, platform_type: '', chassis_form: ''
+    date: '', model_name: '', total_qty: 0, platform_type: '', chassis_form: '',
+    config_relation: 'compose', primary_config: ''
   })
 
   const configs = ref<Record<string, ConfigData>>({})
@@ -572,6 +575,7 @@ export const useQuoteStore = defineStore('quote', () => {
         const payload = {
           items: items,
           config_quantities: configQuantities.value,
+          total_qty: opportunityInfo.value.total_qty || 0,
           config_descriptions: Object.fromEntries(
             Object.entries(configs.value).map(([name, cfg]) => [name, cfg.description])
           ),
@@ -600,16 +604,29 @@ export const useQuoteStore = defineStore('quote', () => {
             }])
           ),
           config_selected_parts: configSelectedParts.value,
+          // 配置关系：compose=组合并行求和 / alternative=方案备选对比（不求和，主推方案总价×需求台数）
+          config_relation: opportunityInfo.value.config_relation || 'compose',
+          primary_config: opportunityInfo.value.primary_config || '',
           // 顶层 total_price/profit_margin/l6_price = 主配置(第一个)，只给列表/卡片快览；
           // 与工作台 getConfigTotals(activeCfg) 同源（默认激活首配置 → 列表 = 工作台首屏）。
           // 导出/预览 Excel 走 config_summary（逐配置）+ cost_snapshot，不读这三个字段。
           ...((): Record<string, number> => {
-            const first = Object.keys(configs.value)[0]
-            const t = first ? configTotalsMap.value[first] : null
+            const relation = opportunityInfo.value.config_relation || 'compose'
+            const cfgNamesArr = Object.keys(configs.value)
+            let target = cfgNamesArr[0]
+            let qtyFactor = 1
+            if (relation === 'alternative') {
+              // 方案备选：顶层快照 = 主推方案 × 需求台数（不求和）
+              const prefer = opportunityInfo.value.primary_config
+              if (prefer && configs.value[prefer]) target = prefer
+              const dq = Number(opportunityInfo.value.total_qty)
+              qtyFactor = Number.isFinite(dq) && dq > 0 ? dq : 1
+            }
+            const t = target ? configTotalsMap.value[target] : null
             return {
-              total_price: Math.round((t?.totalSales || 0) * 100) / 100,
+              total_price: Math.round((t?.totalSales || 0) * qtyFactor * 100) / 100,
               profit_margin: Math.round((t?.marginPct || 0) * 100) / 100,
-              l6_price: Math.round((t?.l6Sales || 0) * 100) / 100,
+              l6_price: Math.round((t?.l6Sales || 0) * qtyFactor * 100) / 100,
             }
           })(),
         }

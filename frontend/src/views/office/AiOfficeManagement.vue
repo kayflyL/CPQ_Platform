@@ -62,23 +62,6 @@
         @saved="emit('saved')"
       />
 
-      <TeamManager
-        v-else-if="activeNav === 'space'"
-        ref="spaceManagerRef"
-        embedded
-        :initial-editor-tab="'space'"
-        :colleagues="colleagues"
-        :rooms="rooms"
-        :team-meta="teamMeta"
-        :layout-nodes="layoutNodes"
-        :layout-edges="layoutEdges"
-        :office-config="officeConfig"
-        :behavior-config="behaviorConfig"
-        :initial-role-key="initialRoleKey"
-        :lead-role-key="leadRoleKey"
-        @saved="emit('saved')"
-      />
-
       <div v-else-if="activeNav === 'capability'" class="aom-panel">
         <div v-if="editingSkill" class="aom-legacy-editor">
           <div class="aom-legacy-head">
@@ -113,6 +96,9 @@
           <a-tab-pane v-if="canAdmin" key="tools" tab="工具目录">
             <AiSettingsPanel embedded section="tools" />
           </a-tab-pane>
+            <a-tab-pane v-if="canAdmin" key="prompts" tab="提示词">
+              <SkillPromptsPanel />
+            </a-tab-pane>
         </a-tabs>
       </div>
 
@@ -157,6 +143,7 @@ import AiSettingsPanel from './AiSettingsPanel.vue'
 import CapabilityCard from '@/components/office/CapabilityCard.vue'
 import SkillRoutePolicyModal from '@/components/office/SkillRoutePolicyModal.vue'
 import SkillStudio from '../admin/reasoning/SkillStudio.vue'
+import SkillPromptsPanel from '../admin/reasoning/SkillPromptsPanel.vue'
 
 const props = defineProps<{
   colleagues: any[]
@@ -175,7 +162,7 @@ const emit = defineEmits<{
   saved: []
 }>()
 
-type NavKey = 'employee' | 'team' | 'space' | 'capability' | 'model' | 'runtime'
+type NavKey = 'employee' | 'team' | 'capability' | 'model' | 'runtime'
 const auth = useAuthStore()
 const canManage = computed(() => auth.can('ai.office.manage'))
 const canAdmin = computed(() => auth.can('ai.office.admin'))
@@ -184,7 +171,6 @@ const navItems = computed<Array<{ key: NavKey; label: string }>>(() => {
   if (canManage.value) {
     items.push({ key: 'employee', label: '员工' })
     items.push({ key: 'team', label: '团队' })
-    items.push({ key: 'space', label: '空间' })
     items.push({ key: 'capability', label: 'Skill Studio' })
   }
   if (canAdmin.value) {
@@ -201,7 +187,6 @@ const runtimeTab = ref('audit')
 const employeeManagerRef = ref<any>(null)
 const behaviorEditorRef = ref<any>(null)
 const teamManagerRef = ref<any>(null)
-const spaceManagerRef = ref<any>(null)
 const skills = ref<any[]>([])
 const skillsLoading = ref(false)
 const editingSkill = ref<any | null>(null)
@@ -243,7 +228,7 @@ function removeSkill(skill: any) {
 }
 
 
-const canSaveCurrent = computed(() => activeNav.value === 'employee' || activeNav.value === 'team' || activeNav.value === 'space')
+const canSaveCurrent = computed(() => activeNav.value === 'employee' || activeNav.value === 'team')
 
 async function loadSkills() {
   skillsLoading.value = true
@@ -262,8 +247,6 @@ function saveCurrent() {
     else employeeManagerRef.value?.save()
   } else if (activeNav.value === 'team') {
     teamManagerRef.value?.save()
-  } else if (activeNav.value === 'space') {
-    spaceManagerRef.value?.save()
   }
 }
 

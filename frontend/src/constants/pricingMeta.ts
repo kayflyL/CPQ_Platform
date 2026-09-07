@@ -14,7 +14,7 @@
  *   mult  = 乘（订单系数 / 成本阶梯系数）
  *   clamp = 夹取（保底封顶）
  *
- * 注意：platform 枚举应与 system_config.server_series 对齐（[[series-ssot]]）；
+ * 注意：platform 枚举应与 l6.server_types（设置-服务器管理-产品系列） 对齐（[[series-ssot]]）；
  *       此处集中定价用到的展示枚举，是消除 seed_strategy_fields / 旧画布 / 模型注释三处不一致的落点。
  */
 
@@ -60,7 +60,7 @@ export const PIPELINE_ORDER: DimensionKey[] = DIMENSION_DEFS.map(d => d.key)
 
 // ── ② 维度枚举选项（演算器/抽屉下拉用；与商机字段值对齐）──
 
-/** 平台类型（对齐 system_config.server_series：[[series-ssot]]）*/
+/** 平台类型（对齐 l6.server_types（设置-服务器管理-产品系列）：[[series-ssot]]）*/
 export const PLATFORM_OPTIONS = [
   { value: 'Polaris', label: 'Polaris（兆芯）' },
   { value: 'Orion', label: 'Orion（AMD）' },

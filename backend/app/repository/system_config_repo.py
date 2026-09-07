@@ -20,16 +20,6 @@ from ..models.system_config import SystemConfig
 
 
 
-def _load_reasoning_node_defaults() -> dict:
-    """读取打包的需求分析节点默认配置种子（不依赖业务 service，避免循环 import）。"""
-    try:
-        p = Path(__file__).resolve().parents[1] / "services" / "reasoning_node_defaults.json"
-        return json.loads(p.read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-
-
-
 _DEFAULT_REQUIREMENT_SLOTS: list = [
     {"key": "server_type", "label": "服务器类型", "level": "L0", "group": "基本信息", "candidate_source": "catalog"},
     {"key": "server_model", "label": "机型", "level": "L2", "group": "基本信息", "candidate_source": "catalog"},
@@ -48,16 +38,8 @@ _DEFAULT_KP_SLOT_GROUP_MAP: dict = {
     "Memory": {"key": "memory", "candidate_source": "catalog"},
     "HDD/SSD": {"key": "storage", "candidate_source": "catalog"},
     "GPU": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "GPU card": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "GPU Card": {"key": "gpu", "candidate_source": "catalog", "allow_absent": True, "absent_value_enum": ["none", "self_provided"], "required_by_type": {"llm_inference": True, "ai": True, "ai_accelerated": True, "domestic_compliance": False}},
-    "NIC card": {"key": "nic", "candidate_source": "catalog"},
     "NIC": {"key": "nic", "candidate_source": "catalog"},
-    "Network(NIC) requirement": {"key": "nic", "candidate_source": "catalog"},
-    "RAID": {"key": "raid", "candidate_source": "catalog"},
     "Raid card": {"key": "raid", "candidate_source": "catalog"},
-    "Raid Card": {"key": "raid", "candidate_source": "catalog"},
-    "RAID Card": {"key": "raid", "candidate_source": "catalog"},
-    "Power Supply": {"key": "psu", "candidate_source": "catalog"},
 }
 
 
@@ -553,269 +535,6 @@ class SystemConfigRepository:
 
 
 
-    def init_defaults(self):
-
-        """Initialize default configs if not exist"""
-
-        defaults = [
-
-            {"key": "tax_rate", "value": "0.13", "type": "number", "description": "税率"},
-
-            {"key": "usd_to_rmb", "value": "7.0", "type": "number", "description": "美元兑人民币汇率"},
-
-            {"key": "profit_margin", "value": "0.1", "type": "number", "description": "默认利润率（成本加成的默认目标利润率，非告警阈值）"},
-
-            {"key": "default_markup_coefficient", "value": "0.10", "type": "number", "description": "默认成本加成系数（一期固定简易加成；精细化客户分层/阶梯加成二期补）"},
-
-            {"key": "warranty_fee_rate", "value": "0.02", "type": "number", "description": "质保费率"},
-
-            {"key": "warranty_desc_l6", "value": "质保3年，非人为及不可抗力引起的故障，软件FW问题支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "L6 默认质保条款"},
-
-            {"key": "warranty_desc_kp", "value": "质保1年，非人为及不可抗力引起的故障，支持远程Debug，硬件损坏支持免费寄修，其他需上门维护参考上门服务政策及收费标准。", "type": "string", "description": "KP 默认质保条款"},
-
-            {"key": "server_series", "value": json.dumps([{"value": "Orion", "label": "Orion"}, {"value": "Polaris", "label": "Polaris"}, {"value": "Intel", "label": "Intel"}, {"value": "工作站", "label": "工作站"}], ensure_ascii=False), "type": "json", "description": "服务器系列选项（全平台唯一权威源：基准配置/机型/料件适用机型/商机平台类型）"},
-
-            # KP 配件库筛选白名单：每品类只显业内关键 spec（不堆全部），Brand 另算（kp_parts.brand），管理面可改，拒绝硬编码
-
-            {"key": "kp_filter_dims", "value": json.dumps({
-
-                "HDD/SSD": ["Capacity", "Type", "Form Factor", "Media"],
-
-                "Memory": ["Capacity", "Type", "Speed"],
-
-                "GPU": ["Capacity", "Architecture", "tdp"],
-
-                "CPU": ["Cores", "tdp", "Socket"],
-
-                "Network(NIC) requirement": ["Link Speed", "Ports", "接口"],
-
-                "Raid card": ["Ports", "Cache", "电容"]
-
-            }, ensure_ascii=False), "type": "json", "description": "KP 筛选白名单：每品类只显这些 spec 维度（业内关键，不堆全部）；Brand 另算（kp_parts.brand 并进第一组）；管理面 system-config 可改"},
-
-            # 需求分析：电源瓦数推断（技术员按 GPU 功耗选电源的自动化规则，可调，拒绝硬编码）
-
-            {"key": "psu_inference", "value": json.dumps({
-
-                "high_tdp_gpus": ["H100", "A100", "H200", "B200", "B100", "L40", "MI300",
-
-                                  "RTX PRO", "RTX 6000", "RTX 5090"],
-
-                "tiers": [
-
-                    {"min_gpu": 8, "high_tdp": True, "wattage": "2700"},
-
-                    {"min_gpu": 1, "high_tdp": False, "wattage": "2000"},
-
-                ],
-
-                "no_gpu_wattage": "1600",
-
-            }, ensure_ascii=False), "type": "json", "description": "电源瓦数推断配置（high_tdp_gpus 高功耗 GPU 关键词；tiers 档位：满足 min_gpu+high_tdp 用 wattage；无 GPU 用 no_gpu_wattage）"},
-
-            # 需求分析：CPU/GPU 型号家族词（clarity「型号双命中→明确」判定的词法分类词表，可编辑；
-
-            # 由 startup 的 model_family_sync 从 kp 库自动补齐新型号，只加不删）
-
-            {"key": "model_family_words", "value": json.dumps({
-
-                "CPU": ["epyc", "xeon", "至强", "kh-", "kh50"],
-
-                "GPU": ["h100", "a100", "h200", "h800", "a800", "b200", "b100", "l40", "l20",
-
-                        "mi300", "mi250", "mi100", "rtx", "r9700", "w7900", "w7800", "w6600",
-
-                        "tesla", "quadro", "radeon", "instinct", "v100", "a30", "a10"],
-
-            }, ensure_ascii=False), "type": "json", "description": "CPU/GPU 型号家族词表（型号 token 词法归类用；startup 自动从 kp 库补齐新型号）"},
-
-            {"key": "server_form_factor", "value": json.dumps([{"value": "2U", "label": "2U"}, {"value": "4U", "label": "4U"}, {"value": "4.5U", "label": "4.5U"}, {"value": "5U", "label": "5U"}], ensure_ascii=False), "type": "json", "description": "服务器形态选项"},
-
-            # AI 设置
-
-            {"key": "ai_assistant_config", "value": json.dumps({
-
-                "chat_system_prompt": (
-
-                    "你是 CPQ 平台的「方案助手」，辅助销售/FAE 做服务器配置与报价。"
-
-                    "你有业务数据查询能力，可通过系统数据工具按需查询商机/配置/平台/机箱/排行/趋势/统计等数据；"
-
-                    "用户当前所在页面的业务上下文会以「当前上下文」形式提供给你，作答时优先基于它。"
-
-                    "要求:1) 用中文回复;2) 对料号价格、库存、具体型号编号等易变信息，不要编造——"
-
-                    "不确定时请用户在配置页确认或查料号库;3) 回答简洁、分点。"
-
-                ),
-
-                "response_style": "detailed",
-
-                # 上下文 Provider 配置（拒绝硬编码；启用 + 显示名，不再存简要/详细）
-
-                "providers": {
-
-                    "quote": {"enabled": True, "label": "报价工作台"},
-
-                    "opportunity": {"enabled": True, "label": "商机详情"},
-
-                    "opportunity-list": {"enabled": True, "label": "商机线索"}
-
-                }
-
-            }, ensure_ascii=False), "type": "json", "description": "AI 方案助手设置"},
-
-            {"key": "requirement_slots", "value": json.dumps({"version": 1, "ask_threshold": 2, "slots": _DEFAULT_REQUIREMENT_SLOTS}, ensure_ascii=False), "type": "json", "description": "需求期望槽位清单/线索登记表字段（唯一权威源：理解/反问/前端进度卡/编辑器统一按此配置；部件动态来自 KP，不在此清单内）"},
-            {"key": "kp_slot_group_map", "value": json.dumps(_DEFAULT_KP_SLOT_GROUP_MAP, ensure_ascii=False), "type": "json", "description": "KP 大类 → 归一部件槽位映射（动态生成「部件」进度卡/反问题目；未映射的大类作为自由行不进强制统计）"},
-
-            # LLM API 配置（支持前端可视化修改，优先级高于 .env）
-
-            {"key": "llm_config", "value": json.dumps({
-
-                "enabled": True,  # 统一 AI 引擎开关（设置-AI 设置-启用 AI）；关闭后所有 AI 能力走规则/不调 LLM
-
-                "base_url": "",  # 留空则用 .env 的 LLM_BASE_URL
-
-                "api_key": "",   # 留空则用 .env 的 LLM_API_KEY
-
-                "model": "",     # 留空则用 .env 的 LLM_MODEL
-
-                "temperature": 0.7,
-
-                "max_tokens": 8000,
-
-            }, ensure_ascii=False), "type": "json", "description": "LLM API 配置（base_url/api_key/model 留空则用 .env 环境变量）"},
-
-             # AI 同事配置：角色化 AI 能力（总助/专业同事）。
-
-             # 注意：角色列表、工具、入口均来自 system_config，业务代码不做角色硬编码。
-
-             {"key": "ai_colleagues", "value": json.dumps({
-
-                 "version": 1,
-
-                 "team_meta": {
-
-                     "name": "CPQ AI 团队",
-
-                     "description": "负责商机、选型、成本与报价的 AI 团队",
-
-                     "color": "#1677ff",
-
-                 },
-
-                 "dispatch_enabled": True,
-
-                 "dispatch_rules": _DEFAULT_AI_COLLEAGUE_DISPATCH_RULES,
-
-                 "colleagues": _DEFAULT_AI_COLLEAGUES,
-
-                 "access_policy": {
-
-                     "enabled": True,
-
-                     "default_room_ids": ["default"],
-
-                     "role_room_map": {"member": ["default"]},
-
-                     "user_room_map": {},
-
-                     "default_chat_role_keys": ["assistant"],
-
-                     "role_chat_role_keys": {
-
-                         "business": ["assistant"],
-
-                         "te": ["support_engineer"],
-
-                         "cost": ["cost_analyst"],
-
-                         "quote": ["quote_specialist"],
-
-                         "member": ["assistant"],
-
-                     },
-
-                     "user_chat_role_keys": {},
-
-                 },
-
-                 "layout": {"nodes": [], "edges": []},
-
-             }, ensure_ascii=False), "type": "json", "description": "AI 同事配置（角色/人设/工具/入口/权限/团队/布局，业务代码从 system_config 读取）"},
-
-
-            {"key": "reasoning_node_defaults", "value": json.dumps(_load_reasoning_node_defaults(), ensure_ascii=False), "type": "json", "description": "需求分析节点非提示词默认配置（白盒回显与保存去重时唯一权威源）"},
-
-
-            {"key": "bom_category_aliases", "value": json.dumps({
-                "heatsink": ["散热器", "散热"],
-                "fan": ["风扇"],
-                "rail": ["滑轨", "导轨", "rail", "slide"],
-                "chassis": ["机箱"],
-                "backplane": ["背板"],
-                "cable": ["线缆", "cable"],
-                "psu": ["电源", "psu", "power supply"],
-            }, ensure_ascii=False), "type": "json", "description": "BOM 模板品类中英别名：模板 row 常填英文 category（heatsink/fan/rail/chassis/backplane/cable/psu），底盘件 parts_master category 多为中文，用此别名跨语言匹配零件；仅作为零件匹配用词表，可编辑。"},
-        ]
-
-        
-
-        for d in defaults:
-
-            existing = self.session.query(SystemConfig).filter(SystemConfig.key == d["key"]).first()
-
-            if not existing:
-
-                config = SystemConfig(
-
-                    key=d["key"],
-
-                    value=d["value"],
-
-                    type=d["type"],
-
-                    description=d["description"],
-
-                    updated_at=datetime.now().isoformat(),
-
-                    updated_by="system"
-
-                )
-
-                self.session.add(config)
-
-        
-
-        # 已废弃：scene_analysis 节点下线，清理 scene_mapping 脏数据（幂等）
-
-        self.session.query(SystemConfig).filter(SystemConfig.key == "scene_mapping").delete()
-
-        # 退役并行提示词库：reasoning_prompts 已并入 reasoning_node_defaults，删除旧行。
-        self.session.query(SystemConfig).filter(SystemConfig.key == "reasoning_prompts").delete()
-
-        # reasoning_node_defaults 为系统管理默认值（无用户编辑入口），同步到打包种子：
-        # 补齐节点提示词并清除旧字段。
-        node_defaults_row = self.session.query(SystemConfig).filter(SystemConfig.key == "reasoning_node_defaults").first()
-        if node_defaults_row:
-            try:
-                current = json.loads(node_defaults_row.value) if node_defaults_row.value else {}
-            except Exception:
-                current = {}
-            seed = _load_reasoning_node_defaults()
-            if current != seed:
-                node_defaults_row.value = json.dumps(seed, ensure_ascii=False)
-                node_defaults_row.updated_at = datetime.now().isoformat()
-                node_defaults_row.updated_by = "system"
-        self.session.commit()
-
-        self._ensure_ai_colleagues_dispatch_defaults()
-
-        self._ensure_requirement_slots()
-        self._ensure_kp_slot_group_map()
-        self._ensure_semantic_contract()
-
-
 
     def _ensure_ai_colleagues_dispatch_defaults(self):
 
@@ -1190,7 +909,6 @@ class SystemConfigRepository:
             return
         self.set("semantic_contract", dict(_DEFAULT_SEMANTIC_CONTRACT), "json",
                  "需求语义契约：intent/exclusions/compliance/workload 维度定义（可配），驱动智能填表与下游契约优先选配", "system")
-
     def reset_kp_slot_group_map(self):
         """重置 kp_slot_group_map 为规范映射。"""
         return self.set("kp_slot_group_map", dict(_DEFAULT_KP_SLOT_GROUP_MAP), "json",
@@ -1204,11 +922,6 @@ class SystemConfigRepository:
         cfg = {"version": 1, "ask_threshold": 2, "slots": [dict(s) for s in _DEFAULT_REQUIREMENT_SLOTS]}
 
         return self.set("requirement_slots", cfg, "json", "需求期望槽位清单/线索登记表字段（唯一权威源：理解/反问/前端进度卡/编辑器统一按此配置；L0 底线缺≥2 反问 / L1 重要提示可补 / L2 系统推导）", "system")
-
-
-
-
-
     def close(self):
 
         self.session.close()

@@ -1,9 +1,9 @@
 <script setup lang="ts">
-/** 推理流可视化编排画布（策略中心·需求分析域）—— 三栏布局（参考导出模板页 UniverTemplateEditor）：
- *  左节点 palette（点击添加）/ 中 vue flow 画布（编排+连线）/ 右试运行 playground。
- *  P2 vue flow 编排（拖拽/连线/加删节点/配置抽屉）+ 图驱动 executor（后端）。
- *  试运行：输入需求 → 复用线上图执行器（POST /test-run）→ 节点逐步高亮 + 步骤明细 + 候选方案。
- *  三栏而非上下叠/两栏：画布吃滚轮缩放，放下方时下滑找入口会误缩放；左 palette 常驻加节点更顺手。 */
+/** 推理流可视化编排画布（策略中心·需求分析域）—— 两栏布局：
+ *  中 vue flow 画布（编排+连线）/ 右试运行 playground。
+ *  P2 vue flow 编排（连线/删节点/配置抽屉）+ 图驱动 executor（后端）。
+ *  试运行：右栏由内嵌 AssistantPanel 对话驱动，节点逐步高亮 + 步骤明细 + 候选方案。
+ *  画布吃滚轮缩放，放下方时下滑找入口会误缩放，故画布与试运行左右并列。 */
 import { ref, shallowRef, onMounted, onUnmounted, markRaw, watch, computed, provide } from 'vue'
 import { VueFlow, useVueFlow, type Edge } from '@vue-flow/core'
 import { Background } from '@vue-flow/background'
@@ -14,14 +14,14 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import { message } from 'ant-design-vue'
-import { NodeIndexOutlined, UndoOutlined, RedoOutlined } from '@ant-design/icons-vue'
+import { UndoOutlined, RedoOutlined } from '@ant-design/icons-vue'
 import { reasoningFlowApi, type ReasoningFlow as RFlow } from '@/api/reasoningFlow'
 import ReasoningNodeVf from './ReasoningNodeVf.vue'
 import ReasoningNodeDrawer from './ReasoningNodeDrawer.vue'
 import NodeArtifactModal from './NodeArtifactModal.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import { systemConfigApi } from '@/api/systemConfig'
-import { REASONING_NODE_GROUPS, REASONING_CFG_TYPES, reasoningNodeMeta, reasoningNodeKind, nodeArchetype } from '@/utils/reasoningNodeMeta'
+import { REASONING_CFG_TYPES, reasoningNodeKind, nodeArchetype } from '@/utils/reasoningNodeMeta'
 
 const props = defineProps<{ skill?: any }>()
 const skillKey = computed(() => String(props.skill?.workflow_key || props.skill?.key || '').trim())
@@ -31,47 +31,11 @@ const outputKind = computed(() => {
   return props.skill?.key === 'requirement_analysis' ? 'bom_scheme_draft' : 'generic'
 })
 
-/** 节点元数据统一读 utils/reasoningNodeMeta（palette / 节点卡 / 抽屉 / 时间线共用真源） */
+/** 节点元数据统一读 utils/reasoningNodeMeta（节点卡 / 抽屉 / 时间线共用真源） */
 const CFG_TYPES = REASONING_CFG_TYPES
-const NODE_GROUPS = REASONING_NODE_GROUPS
-const nodeMeta = (t: string) => reasoningNodeMeta(t)
 const GENERIC_NODE_TYPES = new Set(['agent', 'output'])
 function runtimeForType(type: string): string | undefined {
   return GENERIC_NODE_TYPES.has(type) ? undefined : type
-}
-
-// ── palette 搜索 + 拖拽添加 ──
-const paletteQuery = ref('')
-const paletteGroups = computed(() => {
-  const q = paletteQuery.value.trim().toLowerCase()
-  if (!q) return NODE_GROUPS
-  return NODE_GROUPS
-    .map((g) => ({ ...g, types: g.types.filter((t) => {
-      const m = nodeMeta(t)
-      return !m || m.name.toLowerCase().includes(q) || t.toLowerCase().includes(q) || m.desc.toLowerCase().includes(q)
-    }) }))
-    .filter((g) => g.types.length)
-})
-const usedCount = (type: string) => nodes.value.filter((n) => {
-  const raw = n.data?.stepType || ''
-  const runtime = n.data?.runtime || raw
-  return raw === type || runtime === type || nodeArchetype(raw) === type
-}).length
-const dragType = ref<string | null>(null)
-function onPaletteDragStart(type: string, e: DragEvent) {
-  dragType.value = type
-  if (e.dataTransfer) {
-    e.dataTransfer.setData('text/plain', type)
-    e.dataTransfer.effectAllowed = 'copy'
-  }
-}
-function onPaletteDragEnd() { dragType.value = null }
-function onPaletteDrop(e: DragEvent) {
-  const type = dragType.value || e.dataTransfer?.getData('text/plain')
-  dragType.value = null
-  if (!type || !nodeMeta(type)) return
-  const pt = screenToFlowCoordinate({ x: e.clientX, y: e.clientY })
-  addNode(type, { x: pt.x - 110, y: pt.y - 44 })
 }
 
 // ── 连线染色（2026-08 通用能力编辑器：由节点 kind 派生，不再维护逐节点路由表）──
@@ -111,7 +75,7 @@ const drawerNodeRuntime = ref<string | null>(null)
 const drawerNodeLabel = ref<string | null>(null)
 const drawerConfig = ref<Record<string, any> | null>(null)
 
-const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, getSelectedEdges, screenToFlowCoordinate } = useVueFlow()
+const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, getSelectedEdges } = useVueFlow()
 
 // ── 试运行 playground（右栏）──
 // 试运行输入默认清空（历史曾预填演示需求，2026-08-05 移除：避免误以为是系统内置需求）
@@ -154,13 +118,6 @@ function applyNodeState(id: string | null, state: any) {
       server_model: d.server_model || d.model || d.baseline_model || '',
       purchase_qty: d.purchase_qty,
       warranty_years: d.warranty_years || '',
-      cpu: d.cpu,
-      memory: d.memory,
-      storage: d.drives || d.storage,
-      gpu: d.gpu,
-      nic: d.nic,
-      raid: d.raid,
-      psu: d.psu,
     }
   }
 
@@ -240,7 +197,7 @@ provide('studioRunning', running)
 provide('studioEnableClarity', enableClarity)
 
 // ── 线索登记表：字段契约（RequirementSlots 同构）→ 逐字段填充状态 ──
-const reqGroups = ref<{ title: string; fields: { key: string; label: string }[] }[]>([])
+const reqGroups = ref<{ title: string; fields: { key: string; label: string; srcType: string; category: string }[] }[]>([])
 async function loadReqGroups() {
   try {
     // 线索登记表字段契约 = 基本信息(requirement_slots 配置) + 部件(KP 大类动态合成)
@@ -248,11 +205,16 @@ async function loadReqGroups() {
     const slots = Array.isArray(cfg?.slots)
       ? cfg.slots.filter((s: any) => s?.key && s?.free_row !== true)
       : []
-    const map = new Map<string, { title: string; fields: { key: string; label: string }[] }>()
+    const map = new Map<string, { title: string; fields: { key: string; label: string; srcType: string; category: string }[] }>()
     for (const s of slots) {
       const title = String(s.group || '其他')
       const g = map.get(title) || { title, fields: [] }
-      g.fields.push({ key: String(s.key), label: String(s.label || s.key) })
+      g.fields.push({
+        key: String(s.key),
+        label: String(s.label || s.key),
+        srcType: String(s.src_type || s.srcType || ''),
+        category: String(s.category || ''),
+      })
       map.set(title, g)
     }
     reqGroups.value = Array.from(map.values())
@@ -269,6 +231,15 @@ function hasContent(v: any): boolean {
   if (typeof v === 'object') return Object.values(v).some(hasContent)
   return Boolean(v)
 }
+function kpFieldFilled(s: any, f: { category: string }): boolean {
+  const rows = Array.isArray(s?.kp_rows) ? s.kp_rows : []
+  if (!f.category) return false
+  const cat = String(f.category).trim().toLowerCase()
+  return rows.some((r: any) => {
+    const pc = String(r?.part_category || r?.category || '').trim().toLowerCase()
+    return pc === cat && String(r?.description || r?.catalogue || '').trim() !== ''
+  })
+}
 type FieldStatus = 'filled' | 'optional' | 'asked'
 const reqTotal = computed(() => reqGroups.value.reduce((n, g) => n + g.fields.length, 0))
 const reqFieldRows = computed(() => {
@@ -277,7 +248,7 @@ const reqFieldRows = computed(() => {
   return reqGroups.value.map((group) => ({
     title: group.title,
     fields: group.fields.map((f) => {
-      const filled = hasContent(s[f.key])
+      const filled = f.srcType === 'kp' ? kpFieldFilled(s, f) : hasContent(s[f.key])
       const status: FieldStatus = filled ? 'filled' : (missing.has(f.key) ? 'asked' : 'optional')
       return { key: f.key, label: f.label, status }
     }),
@@ -483,25 +454,6 @@ function onKeydown(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKeydown))
 onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
-function addNode(type: string, position?: { x: number; y: number }) {
-  recordHistory()
-  const sameTypeCount = nodes.value.filter(n => n.data?.stepType === type).length
-  const id = `${type}_${sameTypeCount + 1}`
-  const meta = nodeMeta(type)
-  nodes.value = [...nodes.value, {
-    id,
-    type: 'rf',
-    position: position || { x: 250 + sameTypeCount * 30, y: 120 + sameTypeCount * 40 },
-    data: {
-      stepType: type,
-      runtime: runtimeForType(type),
-      label: meta?.name || type,
-      configurable: CFG_TYPES.includes(type),
-    },
-  }]
-  debouncePersist()
-}
-
 onConnect(params => {
   recordHistory()
   edges.value = [...edges.value, {
@@ -553,7 +505,7 @@ function onSaved() { load() }
 <template>
   <div class="rf-canvas">
     <div class="rf-toolbar">
-      <span class="rf-tip">左侧拖/点添加节点 · 画布连线（点边删线）· 单击节点开配置 · 右栏试运行验证</span>
+      <span class="rf-tip">画布连线（点边删线）· 单击节点开配置 · 右栏试运行验证</span>
       <div class="rf-actions">
         <a-button size="small" :disabled="!undoStack.length" @click="undo" title="撤销（Ctrl+Z）">
           <template #icon><UndoOutlined /></template>撤销
@@ -566,45 +518,6 @@ function onSaved() { load() }
     </div>
 
     <div class="main-content">
-      <!-- 左栏：节点 palette（拖拽/点击添加到画布） -->
-      <aside class="left-panel">
-        <div class="panel-title">节点</div>
-        <a-input v-model:value="paletteQuery" size="small" allow-clear placeholder="搜索节点（名称/类型/职能）" class="palette-search" />
-        <div class="node-palette">
-          <details
-            v-for="g in paletteGroups"
-            :key="g.name"
-            class="node-group"
-            :open="true"
-          >
-            <summary class="node-group-name">
-              {{ g.name }}
-            </summary>
-            <div
-              v-for="t in g.types"
-              :key="t"
-              class="node-item"
-              :class="{ 'node-item--used': usedCount(t) > 0 }"
-              draggable="true"
-              title="拖到画布或点击添加"
-              @click="addNode(t)"
-              @dragstart="onPaletteDragStart(t, $event)"
-              @dragend="onPaletteDragEnd"
-            >
-              <span class="node-item-icon ni-chip" :class="`ni--${nodeMeta(t)?.tone || 'gray'}`">
-                <component :is="nodeMeta(t)?.icon || NodeIndexOutlined" />
-              </span>
-              <span class="node-item-body">
-                <span class="node-item-title">{{ nodeMeta(t)?.name || t }}</span>
-                <span class="node-item-desc">{{ nodeMeta(t)?.desc }}</span>
-              </span>
-              <span v-if="usedCount(t) > 0" class="node-item-count">{{ usedCount(t) }}</span>
-            </div>
-          </details>
-          <p v-if="!paletteGroups.length" class="palette-empty">没有匹配的节点</p>
-        </div>
-      </aside>
-
       <!-- 中栏：vue flow 画布（编排 + 试运行时节点逐步高亮） -->
       <main class="center-panel">
         <!-- 能力节点图例：连线颜色由节点 kind 派生（智能体 / 规则 / 输出） -->
@@ -614,7 +527,7 @@ function onSaved() { load() }
           </span>
         </div>
         <a-spin :spinning="loading" class="center-spin">
-          <div class="rf-flow-wrap" :class="{ 'rf-drop-target': !!dragType }" @dragover.prevent @drop="onPaletteDrop">
+          <div class="rf-flow-wrap">
             <VueFlow
               v-model:nodes="nodes"
               v-model:edges="edges"
@@ -631,7 +544,7 @@ function onSaved() { load() }
             </VueFlow>
             <div v-if="!loading && !nodes.length" class="rf-empty-state">
               <div class="rf-empty-title">画布还是空的</div>
-              <p>从左侧<b>拖拽</b>或<b>点击</b>节点添加到画布，连好线后点右栏「运行」验证。<br/>通常以「智能体节点」为起点、「输出节点」为终点。</p>
+              <p>当前推理流没有节点，请检查 active 版本。</p>
             </div>
           </div>
         </a-spin>
@@ -649,6 +562,7 @@ function onSaved() { load() }
           preview
           entry-point="skill_studio_preview"
           initial-role-key="support_engineer"
+          :enable-clarity="enableClarity"
           :open="true"
         />
       </aside>
@@ -675,14 +589,12 @@ function onSaved() { load() }
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 三栏主区（参考 UniverTemplateEditor）── */
+/* ── 两栏主区（中画布 + 右试运行）── */
 .main-content { flex: 1; display: flex; overflow: hidden; min-height: 0; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md, 12px); background: var(--cpq-overlay-w3, transparent); }
-.left-panel { width: 240px; background: var(--cpq-overlay-w4); border-right: 1px solid var(--cpq-overlay-w10); display: flex; flex-direction: column; overflow: hidden; border-radius: var(--cpq-radius-md, 12px) 0 0 var(--cpq-radius-md, 12px); }
 .center-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .center-panel :deep(.ant-spin-nested-loading) { flex: 1; display: flex; }
 .center-panel :deep(.ant-spin-container) { flex: 1; display: flex; }
 .rf-flow-wrap { flex: 1; min-width: 0; min-height: 0; overflow: hidden; position: relative; }
-.rf-drop-target { outline: 2px dashed var(--cpq-accent-primary); outline-offset: -2px; }
 .rf-empty-state {
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 6px; pointer-events: none; text-align: center; color: var(--cpq-text-muted);
@@ -728,59 +640,6 @@ function onSaved() { load() }
 .rf-tr-slots-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--cpq-text-primary); border-bottom: 1px solid var(--cpq-glass-border); }
 .rf-tr-slots-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
 .rf-tr-slots :deep(.req-form) { padding: 10px; }
-
-/* ── panel 标题 ── */
-.panel-title {
-  display: flex; align-items: center; gap: 6px;
-  padding: 12px 14px; font-weight: 600; font-size: 13px; color: var(--cpq-text-primary);
-  border-bottom: 1px solid var(--cpq-overlay-w8); flex-shrink: 0;
-}
-.panel-title .anticon { color: var(--cpq-accent-primary); }
-.panel-sub { margin-left: auto; font-size: 11px; color: var(--cpq-text-muted); font-weight: 400; }
-
-/* ── 左栏节点 palette ── */
-.node-palette { flex: 1; overflow-y: auto; padding: 6px 0; }
-.node-group { margin-bottom: 4px; }
-.node-group-name {
-  font-size: 10px; font-weight: 600; color: var(--cpq-text-muted);
-  text-transform: uppercase; letter-spacing: .5px; padding: 8px 14px 3px;
-  list-style: none; cursor: default; user-select: none;
-}
-.node-group-name::-webkit-details-marker { display: none; }
-.palette-search { margin: 6px 10px 2px; width: calc(100% - 20px); }
-.node-item {
-  display: flex; align-items: flex-start; gap: 10px; padding: 8px 12px;
-  cursor: grab; transition: background var(--cpq-transition-fast);
-  border-left: 2px solid transparent; position: relative;
-  border-radius: var(--cpq-radius-sm, 8px);
-}
-.node-item:hover { background: var(--cpq-overlay-a5); border-left-color: var(--cpq-accent-primary); box-shadow: var(--cpq-shadow-sm); }
-.node-item:active { background: var(--cpq-overlay-a10); cursor: grabbing; }
-.node-item--used { background: var(--cpq-overlay-a4); }
-.node-item-icon { flex-shrink: 0; margin-top: 1px; }
-.node-item-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
-.node-item-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); line-height: 1.4; }
-.node-item-desc { font-size: 11px; color: var(--cpq-text-muted); line-height: 1.45; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.node-item-count {
-  position: absolute; right: 10px; top: 10px;
-  font-size: 10px; min-width: 18px; height: 18px; line-height: 18px; text-align: center;
-  border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.palette-empty { font-size: 12px; color: var(--cpq-text-muted); text-align: center; padding: 16px 0; margin: 0; }
-
-/* 节点图标软底色块（AntD 线性图标 + 站点色板色调） */
-.ni-chip {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: var(--cpq-radius-sm, 8px);
-  font-size: 15px; flex-shrink: 0;
-}
-.ni-chip.ni--blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
-.ni-chip.ni--purple { background: rgba(168, 85, 247, 0.12); color: var(--cpq-color-purple, #a855f7); }
-.ni-chip.ni--green { background: var(--cpq-overlay-success15); color: var(--cpq-color-success, #52C9A0); }
-.ni-chip.ni--orange { background: rgba(250, 140, 22, 0.12); color: var(--cpq-color-orange, #fa8c16); }
-.ni-chip.ni--cyan { background: var(--cpq-overlay-cyan15); color: var(--cpq-accent-cyan, #36CFCF); }
-.ni-chip.ni--gray { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
 
 /* ── 右栏试运行 ── */
 .rf-testrun { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
@@ -957,6 +816,3 @@ function onSaved() { load() }
 
 
 </style>
-
-
-

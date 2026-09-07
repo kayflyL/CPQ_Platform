@@ -10,22 +10,23 @@ const props = withDefaults(defineProps<{
   canEditCost?: boolean
   showCostColumns?: boolean
   showDrag?: boolean
-  groupLabel?: string
   defaultCategories?: string[]
+  groupLabel?: string
 }>(), {
   canEdit: true,
   canEditCost: false,
   showCostColumns: false,
   showDrag: true,
-  groupLabel: 'KP',
   defaultCategories: () => [],
+  groupLabel: 'KP',
 })
 
 const rows = defineModel<PortalSheetRow[]>('rows', { default: () => [] })
 
 const kpCategories = ref<{ id: number; name: string }[]>([])
+let kpCategoriesLoaded = false
 const kpCatalog = ref<Record<string, KpPart[]>>({})
-const kpCatalogLoading = ref(false)
+const kpAllParts = ref<KpPart[]>([])
 let kpCatalogLoaded = false
 
 const rowKeys = new WeakMap<object, string>()
@@ -54,26 +55,42 @@ function blankKpRow(partCategory = ''): PortalSheetRow {
   }
 }
 
-async function loadKpCatalog() {
-  if (kpCatalogLoaded) return
-  kpCatalogLoading.value = true
+async function loadKpCategories() {
+  if (kpCategoriesLoaded) return
   try {
-    const cats = await kpPartsApi.categories()
-    kpCategories.value = cats
-    const results = await Promise.all(cats.map((c) => kpPartsApi.listByCategory(c.id)))
-    const catalog: Record<string, KpPart[]> = {}
-    cats.forEach((c, i) => { catalog[c.name] = results[i] || [] })
-    kpCatalog.value = catalog
-    kpCatalogLoaded = true
+    kpCategories.value = await kpPartsApi.categories()
+    kpCategoriesLoaded = true
   } catch (error) {
     console.warn('加载配件库目录失败', error)
-  } finally {
-    kpCatalogLoading.value = false
   }
 }
 
 const kpCategoryOptions = computed(() => kpCategories.value.map((c) => ({ value: c.name, label: c.name })))
-const kpAllParts = computed(() => kpCategories.value.flatMap((c) => kpCatalog.value[c.name] || []))
+
+function onKpCategoryChange(row: PortalSheetRow, value: string | undefined) {
+  row.part_category = value || ''
+  const parts = kpPartsFor(row.part_category)
+  if (row.catalogue && parts.length && !parts.some((part) => part.name === row.catalogue)) {
+    row.catalogue = ''
+    row.base_price = 0
+  }
+}
+
+async function loadKpCatalog() {
+  if (kpCatalogLoaded) return
+  try {
+    if (!kpCategoriesLoaded) await loadKpCategories()
+    const cats = kpCategories.value
+    const results = await Promise.all(cats.map((c) => kpPartsApi.listByCategory(c.id)))
+    const catalog: Record<string, KpPart[]> = {}
+    cats.forEach((c, i) => { catalog[c.name] = results[i] || [] })
+    kpCatalog.value = catalog
+    kpAllParts.value = Object.values(catalog).flat()
+    kpCatalogLoaded = true
+  } catch (error) {
+    console.warn('加载配件库目录失败', error)
+  }
+}
 
 function kpPartsFor(category?: string): KpPart[] {
   if (!category) return kpAllParts.value
@@ -110,15 +127,6 @@ function onKpCatalogueChange(row: PortalSheetRow, value: string | undefined) {
   if (part.unit_price != null) row.base_price = part.unit_price
 }
 
-function onKpCategoryChange(row: PortalSheetRow, value: string | undefined) {
-  row.part_category = value || ''
-  const parts = kpPartsFor(row.part_category)
-  if (row.catalogue && parts.length && !parts.some((part) => part.name === row.catalogue)) {
-    row.catalogue = ''
-    row.base_price = 0
-  }
-}
-
 function rowCost(row: PortalSheetRow) {
   return Number(row.base_price || 0) * Number(row.qty || 0)
 }
@@ -127,7 +135,8 @@ function removeRow(idx: number) {
   rows.value.splice(idx, 1)
 }
 
-onMounted(() => {
+onMounted(async () => {
+  await loadKpCategories()
   loadKpCatalog()
   if (!rows.value.length && props.defaultCategories.length) {
     rows.value = props.defaultCategories.map((cat) => blankKpRow(cat))
@@ -147,7 +156,7 @@ onMounted(() => {
     class="sheet-tbody"
   >
     <template #item="{ element: row, index: idx }">
-      <tr class="sheet-row" :class="{ 'sheet-group-start-row': idx === 0 }">
+      <tr class="sheet-row">
         <td class="sheet-group">{{ idx === 0 ? groupLabel : '' }}</td>
         <td class="sheet-cell">
           <div class="sheet-cell-inline">
@@ -186,16 +195,16 @@ onMounted(() => {
           <a-input-number :controls="false" v-if="canEdit" v-model:value="row.qty" :min="0" :precision="0" class="sheet-input" />
           <span v-else class="sheet-plain sheet-num">{{ row.qty || 0 }}</span>
         </td>
+        <td class="sheet-cell">
+          <a-input v-if="canEdit" v-model:value="row.note" class="sheet-input" placeholder="备注" />
+          <span v-else class="sheet-plain sheet-wrap">{{ row.note || '—' }}</span>
+        </td>
         <template v-if="showCostColumns">
           <td class="sheet-cell sheet-cost">
             <a-input-number :controls="false" v-if="canEditCost" v-model:value="row.base_price" :min="0" :precision="2" class="sheet-input" />
             <span v-else class="sheet-plain sheet-num">{{ money(row.base_price) }}</span>
           </td>
           <td class="sheet-cell sheet-cost sheet-derived">¥{{ money(rowCost(row)) }}</td>
-          <td class="sheet-cell">
-            <a-input v-if="canEditCost" v-model:value="row.note" class="sheet-input" placeholder="备注" />
-            <span v-else class="sheet-plain sheet-wrap">{{ row.note || '—' }}</span>
-          </td>
         </template>
       </tr>
     </template>
@@ -203,25 +212,22 @@ onMounted(() => {
 </template>
 
 <style scoped>
+.sheet-cell {
+  height: 36px;
+  padding: 0;
+  transition: background 0.15s ease;
+}
 .sheet-group {
   position: sticky;
   left: 0;
   z-index: 2;
-  background: var(--cpq-bg-tertiary);
+  background: var(--sheet-head);
   color: var(--cpq-accent-primary);
   text-align: center;
   font-size: 11px;
   font-weight: 650;
   vertical-align: middle;
   border-bottom: 0;
-}
-.sheet-row.sheet-group-start-row .sheet-group {
-  box-shadow: inset 0 1px 0 var(--cpq-border-primary);
-}
-.sheet-cell {
-  height: 36px;
-  padding: 0;
-  transition: background 0.15s ease;
 }
 .sheet-tbody td {
   border-right: 1px solid var(--cpq-border-secondary);

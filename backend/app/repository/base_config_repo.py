@@ -78,6 +78,16 @@ class BaseConfigRepository:
             )).fetchall()
         return [r[0] for r in rows]
 
+    def list_series(self) -> list:
+        """DISTINCT series（产品系列，数据驱动，与 form 同口径）。
+        平台类型下拉的权威源：取自 l6.base_configs.series，而非 l6.server_types。"""
+        with l6_engine.connect() as c:
+            rows = c.execute(text(
+                "SELECT DISTINCT series FROM l6.base_configs "
+                "WHERE series IS NOT NULL AND series <> '' ORDER BY series"
+            )).fetchall()
+        return [r[0] for r in rows]
+
     def cost_analysis(self) -> List[dict]:
         """全量基准配置的裸机成本分析（编辑器右侧「机型成本对比」卡数据源，与前端面板同口径）：
         底盘件 + 后面板默认卡(每槽1套，PN 与底盘件去重防双计) + 前面板默认线缆(每盘类1根)

@@ -2,6 +2,7 @@
 """引擎（两器官架构）纯逻辑回归：信号门槛 / 无发明选件 / 场景守卫 / 缺口数据协议。"""
 from app.services import part_selector as ps
 from app.services.skill_phases import (
+    inferred_confirm_gaps,
     kp_args_from_ext,
     kp_gate_gap,
     kp_mode_gap,
@@ -36,19 +37,88 @@ def test_parse_kp_mode_exact_match_only():
 
 
 
+def test_part_query_spec_filters_are_deterministic():
+    """AI=配置器检索层：spec_filters 确定性收窄（Cores>=96→96 核、Capacity=480 GB、Media=HDD），
+    不做排序/推荐——命中与否完全由库内真实 specs 决定，不再靠结构化 need 打分。"""
+    from app.services.data_tools import part_query
+
+    class _Repo:
+        def get_categories(self):
+            return [{"category": "CPU"}, {"category": "HDD/SSD"}]
+
+        def get_by_category_with_specs(self, cat):
+            cpu = [
+                {"id": 1, "model": "KH50000 48C", "price": 1.0, "currency": "RMB",
+                 "specs": {"Cores": "48", "Base Clock": "2.2 GHz"}},
+                {"id": 2, "model": "KH50000 96C", "price": 2.0, "currency": "RMB",
+                 "specs": {"Cores": "96", "Base Clock": "2.7 GHz"}},
+                {"id": 3, "model": "AMD 9654", "price": 3.0, "currency": "RMB",
+                 "specs": {"Cores": "96"}},
+            ]
+            hdd = [
+                {"id": 4, "model": "480G SATA SSD", "price": 4.0, "currency": "RMB",
+                 "specs": {"Capacity": "480 GB", "Media": "SSD"}},
+                {"id": 5, "model": "6T SATA HDD", "price": 5.0, "currency": "RMB",
+                 "specs": {"Capacity": "6 TB", "Media": "HDD"}},
+            ]
+            return {"CPU": cpu, "HDD/SSD": hdd}.get(cat, [])
+
+    q = part_query("CPU", spec_filters=[{"spec_key": "Cores", "op": ">=", "value": 96}], _repo=_Repo())
+    assert q["ok"] is True
+    assert {r["name"] for r in q["rows"]} == {"KH50000 96C", "AMD 9654"}
+    # 无关键词/无过滤 = 全量直出（确定性，不做排序/推荐）
+    q2 = part_query("HDD/SSD", spec_filters=[{"spec_key": "Media", "op": "=", "value": "HDD"}], _repo=_Repo())
+    assert [r["name"] for r in q2["rows"]] == ["6T SATA HDD"]
+    q3 = part_query("HDD/SSD", _repo=_Repo())
+    assert [r["name"] for r in q3["rows"]] == ["480G SATA SSD", "6T SATA HDD"]
+
 
 def test_gap_protocol_is_data_only():
     """引擎缺口=纯数据（slot/reason_code/options），不含任何话术句子。"""
     gap = scene_gap({})
-    assert gap["reason_code"] == "scene_missing"
+    assert gap["reason_code"] == "server_type_missing"
     assert gap["options"] and all(isinstance(o, dict) and o.get("value") for o in gap["options"])
     kgap = kp_mode_gap()
     assert kgap["reason_code"] == "kp_mode_undecided"
     assert set(kgap["options"]) == {"需要配配件", "只要整机底座（L6）"}
 
 
+# ── 推断求证（2026-09-06）：凡推断必让客户确认 ─────────────────────────────
+
+_CORPUS = "CPU：2颗兆芯50000 处理器\n内存：768GB DDR5\n服务：3年专业支持"
+
+
+def test_inferred_slot_without_corpus_hit_gets_confirm_gap():
+    ext = {"server_type": "通用计算服务器", "warranty_years": "3年"}
+    gaps = inferred_confirm_gaps(ext, _CORPUS)
+    assert len(gaps) == 1                       # warranty 原文有 → 只求证 server_type
+    g = gaps[0]
+    assert g["slot"] == "server_type" and g["reason_code"] == "inferred_confirm"
+    assert g["current"] == "通用计算服务器"
+    assert g["options"] and any(o.get("value") == "通用计算服务器" for o in g["options"])
+
+
+def test_inferred_confirm_respects_marker_and_corpus():
+    ext = {"server_type": "通用计算服务器",
+           "confirmed_slots": {"server_type": "通用计算服务器"}}
+    assert inferred_confirm_gaps(ext, _CORPUS) == []      # 点选确认过 → 不再问
+    assert inferred_confirm_gaps({"server_type": "通用计算服务器"},
+                                 _CORPUS + "\n就用通用计算服务器") == []  # 客户口头说过 → 不问
+    # 值被大脑改写 → 确认标记失效，重新求证
+    ext2 = {"server_type": "存储服务器", "confirmed_slots": {"server_type": "通用计算服务器"}}
+    gaps2 = inferred_confirm_gaps(ext2, _CORPUS)
+    assert gaps2 and gaps2[0]["current"] == "存储服务器"
+
+
+def test_inferred_confirm_skips_qty_and_structured_slots():
+    """purchase_qty 是引擎白盒默认；结构化值（list/dict）走部件表呈现，都不弹确认。"""
+    ext = {"purchase_qty": 1, "memory": {"total_gb": 768}}
+    assert inferred_confirm_gaps(ext, _CORPUS) == []
+
+
 def test_kp_gate_requires_signals_or_decision():
-    assert kp_gate_gap({"ext": {}}) is not None  # 零信号+未决策 → 缺口
+    # AI=配置器：零信号/未决策不再拦截（交由大脑生成配置）；仅 l6_only 明确不放配件
+    assert kp_gate_gap({"ext": {}}) is None
     assert kp_gate_gap({"ext": {"kp_mode": "只要整机底座（L6）"}}) is None
     assert kp_gate_gap({"kp_parts": [{"pn": "x"}]}) is None
     assert kp_gate_gap({"ext": {"memory": {"total_gb": 64}}}) is None
@@ -75,23 +145,24 @@ def test_cpu_without_model_never_invents_representative():
 
 # ── 2026-08-30 回归：多轮对话机型重弹 + 字符串信号瘫死 ────────────────────
 
-def test_freeze_guard_keeps_model_named_in_prior_turn():
-    """冻结守卫按需求文本剥臆造机型：多轮证据基准（含早前轮次原话）里点名的机型不能剥。
+def test_platform_not_derived_without_rule_store():
+    """平台推导不在代码里（规则归策略中心，规则页待单独设计）：
+    登记表只有 CPU 部件行时引擎不猜平台——platform_type 留空，交由用户/AI 选定。"""
+    import asyncio
+    from app.services.skill_phases import phase_normalize_slots
 
-    回放：用户上轮点选 ESA24V3-P，本轮只说"256G内存"——只用本句会把已确认机型
-    当臆造剥掉，机型问题无限重弹。
-    """
-    from app.services.capabilities import _freeze_requirement
-    ext = {"server_model": "ESA24V3-P", "model": "ESA24V3-P", "baseline_model": "ESA24V3-P"}
-    ctx: dict = {}
-    # 本句不含机型名 + 无历史 → 剥（守卫对纯臆造仍生效）
-    stripped = dict(ext)
-    _freeze_requirement(ctx, stripped, "256G内存")
-    assert not stripped.get("server_model")
-    # 累计证据（近期用户原话并入后）含机型名 → 保留
-    kept = dict(ext)
-    _freeze_requirement(ctx, kept, "我想要一台服务器\nESA24V3-P\n256G内存，2块2TB SSD硬盘")
-    assert kept.get("server_model") == "ESA24V3-P"
+    async def _run():
+        ctx = {"ext": {"kp_rows": [{"part_category": "CPU",
+                                    "description": "2颗AMD EPYC 处理器", "qty": 2}]},
+               "requirement_text": "2颗AMD EPYC"}
+        gaps = await phase_normalize_slots(ctx, {}, None)
+        return ctx, gaps
+
+    ctx, gaps = asyncio.run(_run())
+    assert not ctx["ext"].get("platform_type")
+    assert not any(a.get("code") == "platform_derived" for a in ctx.get("assumptions") or [])
+    # S1 一次问全：缺口以列表返回（空=放行；CPU-only 需求必有缺口，形状校验）
+    assert isinstance(gaps, list)
 
 
 
@@ -128,18 +199,18 @@ def test_series_scoped_repo_filters_rows():
 def test_option_signal_direct_apply():
     """场景推荐选项自带结构化 signal 载荷：点击直传 apply_structured_slots，
     不经过「构造字符串→再解析」的反序列化环。"""
-    from app.services.slot_extractor import apply_structured_slots
+    from app.services.slot_contract import apply_structured_slots
     ext = {}
     apply_structured_slots(ext, {"gpu": [{"model": "智铠100", "qty": 4}]}, "AI训练")
     apply_structured_slots(ext, {"cpu": {"model": "EPYC 9745", "qty": 2}}, "AI训练")
     apply_structured_slots(ext, {"memory": {"per_stick_gb": 32, "qty": 24}}, "AI训练")
-    apply_structured_slots(ext, {"drives": [{"capacity_gb": 2048, "qty": 2, "media": "SSD"}]}, "AI训练")
+    apply_structured_slots(ext, {"storage": [{"capacity_gb": 2048, "qty": 2, "media": "SSD"}]}, "AI训练")
     apply_structured_slots(ext, {"raid": [{"raid_levels": ["10"]}]}, "AI训练")
     assert isinstance(ext["gpu"], list) and ext["gpu"][0]["qty"] == 4
     assert "智铠" in str(ext["gpu"][0].get("model") or ext["gpu"][0].get("tokens"))
     assert ext["cpu"]["qty"] == 2 and "EPYC" in str(ext["cpu"].get("model"))
     assert ext["memory"]["qty"] == 24 and ext["memory"]["per_stick_gb"] == 32
-    dg = ext["drives"]
+    dg = ext["storage"]
     assert dg[0]["qty"] == 2 and dg[0].get("term") == "2048G" and dg[0].get("kind") == "SSD"
     assert ext["raid"][0].get("raid_levels") == ["10"]
     # 字符串形态的信号值不解析（语义归 LLM）：原样丢弃，不产生半结构
@@ -149,95 +220,18 @@ def test_option_signal_direct_apply():
 
 
 def test_decimal_capacity_parsing():
-    from app.services.slot_extractor import _parse_gb
-    assert _parse_gb("1.92T") == 1966  # 不是 92T=94208
-    assert _parse_gb("3.84TB") == 3932
-    assert _parse_gb("2TB") == 2048
-    assert _parse_gb("256G") == 256
+    # 容量解析统一收敛到 part_selector._gb_of（单一真值源，不再多份重复）
+    from app.services.part_selector import _gb_of
+    assert round(_gb_of("1.92T")) == 1966  # 不是 92T=94208
+    assert round(_gb_of("3.84TB")) == 3932
+    assert round(_gb_of("2TB")) == 2048
+    assert round(_gb_of("256G")) == 256
 
 
 
 
 
 
-
-
-def test_scenario_gap_options_carry_signal_slots():
-    """场景推荐缺口（逐组问）：一次只出第一个未填组，选项各落自己的信号槽
-    并带数量元数据（qty/qty_max/unit_gb），跳过逃生项登记 scenario_skips。"""
-    from app.services.part_selector import scenario_parts_gap_data
-
-    class FakeRepo:
-        def close(self):
-            pass
-
-        def get_categories(self):
-            return [{"category": c, "count": 1} for c in
-                    ("CPU", "Memory", "GPU", "HDD/SSD", "Raid card")]
-
-        def get_by_category_with_specs(self, cat):
-            data = {
-                "GPU": [{"model": "智铠100", "price": 20000.0, "applicable": None,
-                         "specs": {"Capacity": "32G"}}],
-                "CPU": [{"model": "EPYC 9124", "price": 9000.0, "applicable": None,
-                         "specs": {"Cores": "16"}}],
-                "Memory": [{"model": "DDR5-5600-64G", "price": 3000.0, "applicable": None,
-                            "specs": {"Capacity": "64G", "Type": "DDR5"}}],
-                "HDD/SSD": [{"model": "NVMe 1.92T", "price": 5200.0, "applicable": None,
-                             "specs": {"Capacity": "1.92T", "Media": "SSD"}}],
-                "Raid card": [{"model": "RAID-9460", "price": 4000.0, "applicable": None,
-                               "specs": {}}],
-            }
-            return data.get(cat, [])
-
-    from app.services import part_selector as ps
-    from app.services.slot_extractor import apply_structured_slots
-    orig = ps.KPRepository
-    ps.KPRepository = lambda: FakeRepo()
-    try:
-        if not ps._scenario_categories("AI / 加速计算服务器"):
-            import pytest
-            pytest.skip("本地 system_config 无 AI 场景包（依赖种子数据）")
-        baseline = {"series": "Orion", "gpu_slots": 10, "max_dimm": 24, "max_cpu": 2}
-        # 逐组推进：每轮只应有一个信号槽 + 跳过/终止逃生项；点击落槽后下一组接上
-        seen: list[str] = []
-        ext: dict = {}
-        for _ in range(8):
-            code, opts = scenario_parts_gap_data(
-                "AI / 加速计算服务器", baseline=baseline, ext=dict(ext),
-                include_price=True, only_unfilled=True)
-            sig_slots = {o["slot"] for o in opts} - {"kp_scenario_skip", "kp_scenario_done"}
-            if not sig_slots:
-                break  # 全组填完 → 空缺口（code=""），逐组问自然终止
-            assert code == "scenario_incomplete"
-            assert len(sig_slots) == 1, f"逐组问一次只出第一个未填组：{sig_slots}"
-            assert any(o["slot"] == "kp_scenario_skip" for o in opts)
-            assert any(o["slot"] == "kp_scenario_done" for o in opts)
-            slot = sig_slots.pop()
-            assert slot not in seen
-            seen.append(slot)
-            opt = next(o for o in opts if o["slot"] == slot)
-            assert opt.get("value") and opt.get("group")
-            assert isinstance(opt.get("signal"), dict) and opt["signal"]
-            if slot in ("gpu", "memory", "drives"):
-                assert 1 <= opt["qty"] <= opt["qty_max"] and opt["unit_gb"] >= 1
-            probe_keys_before = set(ext.keys())
-            apply_structured_slots(ext, opt["signal"], "场景推荐")
-            assert ext.get(slot), f"signal 载荷未落到 {slot}"
-            assert set(ext.keys()) >= probe_keys_before  # 就地合并不清已填组
-        assert {"gpu", "cpu", "memory", "drives"} <= set(seen)
-        # 跳过逃生项：signal 登记 scenario_skips，后续同组不再被问
-        _, opts = scenario_parts_gap_data(
-            "AI / 加速计算服务器", baseline=baseline, ext={}, include_price=True)
-        skip = next(o for o in opts if o["slot"] == "kp_scenario_skip")
-        probe = {}
-        apply_structured_slots(probe, skip["signal"], "")
-        assert probe["scenario_skips"] == skip["signal"]["scenario_skips"]
-        _, opts2 = scenario_parts_gap_data(
-            "AI / 加速计算服务器", baseline=baseline, ext=dict(probe), include_price=True)
-        assert not any(o["slot"] == "cpu" for o in opts2), "被跳过的组不应再被问"
-    finally:
-        ps.KPRepository = orig
 
 
 def test_signal_with_qty_clamped_by_chassis():
@@ -252,185 +246,98 @@ def test_signal_with_qty_clamped_by_chassis():
     mem = {"memory": {"per_stick_gb": 64, "qty": 24}}
     assert _signal_with_qty(mem, 17, meta)["memory"]["qty"] == 17
     assert _signal_with_qty(mem, 48, meta)["memory"]["qty"] == 24
-    drives = {"drives": [{"capacity_gb": 2048, "qty": 2, "media": "SSD"}]}
-    assert _signal_with_qty(drives, 4, meta)["drives"][0]["qty"] == 4
-    assert _signal_with_qty(drives, 99, meta)["drives"][0]["qty"] == 16
+    drives = {"storage": [{"capacity_gb": 2048, "qty": 2, "media": "SSD"}]}
+    assert _signal_with_qty(drives, 4, meta)["storage"][0]["qty"] == 4
+    assert _signal_with_qty(drives, 99, meta)["storage"][0]["qty"] == 16
     cpu = {"cpu": {"model": "EPYC 9745", "qty": 2}}
     assert _signal_with_qty(cpu, 1, meta)["cpu"]["qty"] == 1
     assert _signal_with_qty(cpu, 8, meta)["cpu"]["qty"] == 2
 
 
-# ── 2026-08-31 回归：阶段3 配件 AI 接地（未命中/规格偏差 → 库内候选受约束选型）────────────────
+# ── 阶段3：配件确定性落地（引擎不再二次 AI 选型；未命中保持缺口交 AI 角色/用户决策）────────────────
 
-def test_kp_gap_rows_groups_unmatched_and_spec_mismatch():
-    from app.services.skill_phases import _kp_gap_rows
-    parts = [
-        {"category": "CPU", "unmatched": True, "spec_mismatch": False, "qty": 2, "unmatched_reason": "库无", "request_spec": "KH50000"},
-        {"category": "HDD/SSD", "unmatched": False, "spec_mismatch": True, "qty": 4, "request_spec": "1.92T SATA"},
-        {"category": "HDD/SSD", "unmatched": False, "spec_mismatch": False, "qty": 1},
-    ]
-    gaps = _kp_gap_rows(parts)
-    assert set(gaps) == {"CPU", "HDD/SSD"}
-    assert len(gaps["CPU"]) == 1 and len(gaps["HDD/SSD"]) == 1
-    assert gaps["CPU"][0] is parts[0]  # 保留原 dict 引用，便于替换
-
-
-def test_kp_apply_ground_replaces_gap_with_lib_candidate():
-    from app.services.skill_phases import _kp_gap_rows, _apply_kp_ground
-    parts = [{"category": "HDD/SSD", "unmatched": True, "qty": 4, "request_spec": "1.92T SATA", "unmatched_reason": "库无"}]
-    gaps = _kp_gap_rows(parts)
-    cands = {"HDD/SSD": [{"id": 4, "model": "SATA SSD 1.92T", "price": 1200.0, "currency": "RMB", "specs": {}}]}
-    n = _apply_kp_ground(parts, gaps, cands, [{"category": "HDD/SSD", "selected_id": "4", "qty": 4, "reason": "库内最接近"}])
-    assert n == 1
-    row = parts[0]
-    assert row["pn"] == "SATA SSD 1.92T" and not row["unmatched"]
-    assert float(row["unit_price"]) == 1200.0 and row["qty"] == 4
-    assert "库内最接近" in row["replacement_note"]
-
-
-def test_kp_apply_ground_keeps_gap_on_invalid_or_empty_id():
-    from app.services.skill_phases import _kp_gap_rows, _apply_kp_ground
-    parts = [{"category": "CPU", "unmatched": True, "qty": 2, "request_spec": "KH50000", "unmatched_reason": "库无"}]
-    gaps = _kp_gap_rows(parts)
-    cands = {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 9000.0}]}
-    assert _apply_kp_ground(parts, gaps, cands, [{"category": "CPU", "selected_id": "999", "qty": 2, "reason": "x"}]) == 0
-    assert parts[0]["unmatched"]
-    assert _apply_kp_ground(parts, gaps, cands, [{"category": "CPU", "selected_id": "", "qty": 2, "reason": "x"}]) == 0
-    assert parts[0]["unmatched"]
-
-
-def test_kp_llm_pick_kp_respects_chat_json_contract(monkeypatch):
-    import asyncio
-    from app.services import skill_phases
-    captured = {}
-
-    async def fake_chat(messages, **kw):
-        captured["sys"] = messages[0]["content"]
-        captured["user"] = messages[1]["content"]
-        return {"selections": [{"category": "HDD/SSD", "selected_id": "4", "qty": 4, "reason": "最接近"}]}
-
-    monkeypatch.setattr("app.services.llm_client.chat_json", fake_chat)
-    ctx = {"requirement_text": "配1块1.92T SATA硬盘", "ext": {"drives": [{"qty": 1}]}}
-    baseline = {"server_type_name": "存储服务器", "series": "Orion", "form": "2U", "max_dimm": 16, "gpu_slots": 0}
-    gap_rows = {"HDD/SSD": [{"category": "HDD/SSD", "unmatched": True, "qty": 1, "request_spec": "1.92T"}]}
-    cands = {"HDD/SSD": [{"id": 4, "model": "SATA SSD 1.92T",
-                          "specs": {"Capacity": "1.92 TB", "Media": "SSD", "Type": "SATA"},
-                          "price": 1200.0}]}
-    out = asyncio.run(skill_phases._llm_pick_kp(ctx, baseline, gap_rows, cands))
-    assert out[0]["selected_id"] == "4"
-    assert "候选" in captured["user"]
-    # 可读能力描述进入候选，供 AI 语义匹配（非词表穷举）
-    assert '"desc"' in captured["user"]
-    assert "Capacity:1.92 TB" in captured["user"]
-
-
-def test_kp_ai_ground_upgrades_gap_and_reports_count(monkeypatch):
+def test_phase_kp_reason_surfaces_unmatched_as_gap(monkeypatch):
+    """登记表已有 kp_rows 时：phase_kp_reason 只做占位落地，绝不虚构料号、绝不调 select_parts 预判。"""
     import asyncio
     from app.services import skill_phases
 
-    async def fake_llm(ctx, baseline, gap_rows, cands):
-        return [{"category": "CPU", "selected_id": "128", "qty": 2, "reason": "库内最接近"}]
+    def boom_select_parts(**kw):
+        raise AssertionError("kp_rows 已存在时不应调 select_parts")
 
-    monkeypatch.setattr(skill_phases, "_kp_candidates_for",
-                        lambda gap_rows, series: {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 9000.0, "currency": "RMB"}]})
-    monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
-    parts = [{"category": "CPU", "unmatched": True, "qty": 2, "request_spec": "KH50000", "unmatched_reason": "库无"}]
-    n = asyncio.run(skill_phases._kp_ai_ground({}, {"series": "Orion"}, parts, series="Orion"))
-    assert n == 1
-    assert parts[0]["pn"] == "KH50000 96C" and not parts[0]["unmatched"]
-    assert "replacement_note" in parts[0]
-
-
-def test_phase_kp_reason_grounds_gap_in_force_complete(monkeypatch):
-    import asyncio
-    from app.services import skill_phases
-    from app.services import part_selector
-
-    def fake_select_parts(**kw):
-        return [{"category": "CPU", "unmatched": True, "qty": 2, "request_spec": "KH50000",
-                 "unmatched_reason": "库无", "unit_price": 0.0, "spec_mismatch": False}]
-
-    async def fake_llm(ctx, baseline, gap_rows, cands):
-        return [{"category": "CPU", "selected_id": "128", "qty": 2, "reason": "库内最接近"}]
-
-    monkeypatch.setattr(part_selector, "select_parts", fake_select_parts)
-    monkeypatch.setattr(skill_phases, "_kp_candidates_for",
-                        lambda gap_rows, series: {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 9000.0, "currency": "RMB"}]})
-    monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
+    monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
     ctx = {"force_complete": True,
-           "ext": {"cpu": {"model": "KH50000", "qty": 2}},
+           "ext": {"kp_rows": [{"part_category": "CPU", "description": "KH50000", "qty": 2}]},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
-    assert not row["unmatched"] and row["pn"] == "KH50000 96C"
-    assert ctx["kp_summary"]["unmatched_count"] == 0
-    assert any(a.get("code") == "kp_ai_grounded" for a in ctx["assumptions"])
+    assert row["category"] == "CPU"
+    assert row["pn"] == ""                       # 不虚构料号
+    assert row["unmatched"] is True
+    assert row["request_spec"] == "KH50000"      # 需求原样交给下游选型
+    assert row["unmatched_reason"] == "交由 AI 语义选型（引擎仅检索候选、不预判）"
+    # AI=配置器：缺的必须反问类目补齐为占位骨架（CPU 已登记 + Memory/HDD-SSD/Raid/NIC/GPU）
+    cats = {str(p.get("category")) for p in ctx["kp_parts"]}
+    assert {"CPU", "Memory", "HDD/SSD", "Raid card", "NIC", "GPU"} <= cats
+    assert ctx["kp_summary"]["unmatched_count"] == 6
+    assert not any(a.get("code") == "kp_ai_grounded" for a in (ctx.get("assumptions") or []))
 
 
-def test_phase_kp_reason_grounds_gap_in_dialogue_path(monkeypatch):
-    """对话路径（force_complete 缺省=False）也走 AI 接地：语义判断交回 AI 角色，不再静默留缺口。"""
+def test_phase_kp_reason_lands_matched_parts(monkeypatch):
+    """登记表已有 kp_rows 时：占位行先落地，真实 SKU 由下游 AI 选型（引擎不做二次预判）。"""
     import asyncio
     from app.services import skill_phases
-    from app.services import part_selector
 
-    def fake_select_parts(**kw):
-        return [{"category": "CPU", "unmatched": True, "qty": 2, "request_spec": "KH50000",
-                 "unmatched_reason": "库无", "unit_price": 0.0, "spec_mismatch": False}]
+    def boom_select_parts(**kw):
+        raise AssertionError("kp_rows 已存在时不应调 select_parts")
 
-    async def fake_llm(ctx, baseline, gap_rows, cands):
-        return [{"category": "CPU", "selected_id": "128", "qty": 2, "reason": "库内最接近"}]
-
-    monkeypatch.setattr(part_selector, "select_parts", fake_select_parts)
-    monkeypatch.setattr(skill_phases, "_kp_candidates_for",
-                        lambda gap_rows, series: {"CPU": [{"id": 128, "model": "KH50000 96C", "price": 3500.0, "currency": "RMB"}]})
-    monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
-    ctx = {"ext": {"cpu": {"model": "KH50000", "qty": 2}},
+    monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
+    ctx = {"force_complete": True,
+           "ext": {"kp_rows": [{"part_category": "HDD/SSD", "description": "1.92T SSD", "qty": 4}]},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
     row = ctx["kp_parts"][0]
-    assert not row["unmatched"] and row["pn"] == "KH50000 96C"
-    assert ctx["kp_summary"]["unmatched_count"] == 0
-    assert any(a.get("code") == "kp_ai_grounded" for a in ctx["assumptions"])
+    assert row["category"] == "HDD/SSD"
+    assert row["pn"] == ""                       # 占位：不伪造料号
+    assert row["unmatched"] is True
+    assert row["request_spec"] == "1.92T SSD"
+    cats = {str(p.get("category")) for p in ctx["kp_parts"]}
+    assert {"CPU", "Memory", "HDD/SSD", "Raid card", "NIC", "GPU"} <= cats
+    assert ctx["kp_summary"]["unmatched_count"] == 6
 
 
-def test_golden_dialog_path_grounds_cpu_and_raid(monkeypatch):
-    """原始需求（兆芯50000 96C + Raid 卡 1G缓存）走真实对话路径：
-    CPU/RAID 不再静默丢弃，由 AI 从库内候选接地；无法命中则如实报缺口。"""
-    import asyncio
-    from app.services import skill_phases
-    from app.services import part_selector
+def test_build_plan_keeps_unmatched_out_of_kp_rows(monkeypatch):
+    """方案配置表 KP 部分=纯库内料（2026-09-06 用户定调）：未匹配占位行不落表——
+    客户原话/空描述混进配件表=黑盒污染；缺配信息由 plan.unmatched 载荷承载
+    （硬门征询卡与汇报旁白消费）。"""
+    from app.services import plan_builder as cs
 
-    def fake_select_parts(**kw):
-        return [
-            {"category": "CPU", "unmatched": True, "qty": 2, "request_spec": "兆芯50000 96C",
-             "unmatched_reason": "库无", "unit_price": 0.0, "spec_mismatch": False},
-            {"category": "Raid card", "unmatched": True, "qty": 1, "request_spec": "Raid卡 1G缓存/RAID0-6/JBOD",
-             "unmatched_reason": "库无", "unit_price": 0.0, "spec_mismatch": False},
-        ]
+    class FakeBaseConfigRepository:
+        def __init__(self):
+            pass
 
-    async def fake_llm(ctx, baseline, gap_rows, cands):
-        return [
-            {"category": "CPU", "selected_id": "128", "qty": 2, "reason": "库内最接近"},
-            {"category": "Raid card", "selected_id": "192", "qty": 1, "reason": "库内最接近"},
-        ]
+        def get_with_parts(self, _id):
+            return {"parts": []}
 
-    monkeypatch.setattr(part_selector, "select_parts", fake_select_parts)
-    monkeypatch.setattr(skill_phases, "_kp_candidates_for",
-                        lambda gap_rows, series: {
-                            "CPU": [{"id": 128, "model": "KH50000 96C", "price": 3500.0, "currency": "RMB"}],
-                            "Raid card": [{"id": 192, "model": "LSI 9361-8i 1G cache",
-                                           "price": 2200.0, "currency": "RMB",
-                                           "specs": {"Cache": "1 GB", "Ports": "8", "电容": "无"}}],
-                        })
-    monkeypatch.setattr(skill_phases, "_llm_pick_kp", fake_llm)
-    ctx = {"ext": {"cpu": {"model": "KH50000", "qty": 2},
-                   "raid": [{"qty": 1, "level": "0/1/5/6/JBOD"}]},
-           "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
-    asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
-    by_cat = {p["category"]: p for p in ctx["kp_parts"]}
-    cpu = by_cat["CPU"]
-    raid = by_cat["Raid card"]
-    assert cpu["pn"] == "KH50000 96C" and cpu["qty"] == 2 and not cpu["unmatched"]
-    assert raid["pn"] == "LSI 9361-8i 1G cache" and raid["qty"] == 1 and not raid["unmatched"]
-    assert ctx["kp_summary"]["unmatched_count"] == 0
-    assert any(a.get("code") == "kp_ai_grounded" for a in ctx["assumptions"])
+    monkeypatch.setattr(cs, "BaseConfigRepository", FakeBaseConfigRepository)
+    monkeypatch.setattr(
+        "app.services.plan_rule_apply.apply_plan_selection_rules",
+        lambda *args, **kwargs: None,
+    )
+    monkeypatch.setattr(cs, "_sync_plan_backplane", lambda *args, **kwargs: None)
+
+    plan = cs.build_plan(
+        {"id": None, "total_price": 0},
+        [{
+            "category": "CPU",
+            "request_spec": "KH50000",
+            "qty": 2,
+            "unmatched": True,
+            "unmatched_reason": "交由 AI 语义选型（引擎仅检索候选、不预判）",
+        }],
+    )
+    kp_rows = [r for r in plan["cfg"]["bom_excel_rows"] if r.get("category") == "Key Parts"]
+    assert kp_rows == []
+    assert plan["unmatched"] == [{
+        "category": "CPU",
+        "reason": "交由 AI 语义选型（引擎仅检索候选、不预判）",
+    }]

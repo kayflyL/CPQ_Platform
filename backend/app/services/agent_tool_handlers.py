@@ -8,7 +8,7 @@ from app.services.agent_tool_registry import _truncate
 
 async def _tool_select_models(args: dict) -> Any:
     """select_models → 候选机型 digest（名称/系列/形态/盘位/卖点，给 LLM 推理）。"""
-    from app.api.candidate_search import select_models
+    from app.services.model_candidates import select_models
     _limit_arg = args.get("limit")
     try:
         limit = int(_limit_arg) if _limit_arg not in (None, "", 0) else None
@@ -20,7 +20,6 @@ async def _tool_select_models(args: dict) -> Any:
         series=args.get("series"),
         form=args.get("form"),
         limit=limit,
-        fallback_order=args.get("fallback_order") or ["exact", "same_series", "same_form", "all"],
     )
     if not baselines:
         return {"count": 0, "candidates": [],
@@ -65,7 +64,7 @@ async def _tool_select_parts(args: dict) -> Any:
         representative_pick=args.get("representative_pick") or "min_price",
         cpu=args.get("cpu"),
         memory=args.get("memory"),
-        drives=args.get("drives"),
+        storage=args.get("storage"),
         gpu=args.get("gpu"),
         raid=args.get("raid"),
         psu=args.get("psu"),
@@ -112,7 +111,7 @@ async def _tool_compose_memory(args: dict) -> Any:
 
 async def _tool_build_plan(args: dict) -> Any:
     """build_plan → 整机方案 digest（机型/成本/未匹配件，给 LLM 推荐理由用）。"""
-    from app.api.candidate_search import build_plan
+    from app.services.plan_builder import build_plan
     baseline = args.get("baseline")
     kp_parts = args.get("kp_parts")
     if not baseline or kp_parts is None:
@@ -341,18 +340,61 @@ async def _tool_update_server_model(args: dict) -> Any:
 
 
 
-# ── Skill 对话脑三动作（实现在 skill_chat，经线程上下文取登记表状态）──────────
-
-async def _tool_update_requirement_slots(args: dict) -> Any:
-    """角色把客户明确表达的需求写进线索登记表（会话级记忆，非业务库）。"""
-    from app.services.skill_chat import tool_update_requirement_slots
-    return tool_update_requirement_slots(args or {})
-
-
+# ── Skill 对话脑动作（实现在 skill_chat，经线程上下文取状态）──────────
 async def _tool_submit_registration(args: dict) -> Any:
     """角色判断信息足够后提交登记表，触发配置引擎。"""
     from app.services.skill_chat import tool_submit_registration
     return tool_submit_registration(args or {})
+
+
+async def _tool_fill_requirement(args: dict) -> Any:
+    """【任务期工具】agent_fill 登记回合专用：大脑亲自把客户需求逐项落进线索登记表。
+
+    普通对话回合不挂载这个工具（进任务前不填表）；落表语义确定性（默认只填空槽）。
+    """
+    from app.services.skill_chat import tool_fill_requirement
+    return tool_fill_requirement(args or {})
+
+
+async def _tool_select_model(args: dict) -> Any:
+    """【任务期工具】model_reason 机型选配回合专用：大脑从引擎候选池锁定一个机型。
+
+    接地（B2）：候选池由引擎确定性构建（登记表信号 × 在售目录），工具只接受池内
+    型号（id/名称皆可命中），池外一律拒绝——大脑无权凭空指定机型。
+    """
+    from app.services.skill_chat import tool_select_model
+    return tool_select_model(args or {})
+
+
+async def _tool_select_kp_parts(args: dict) -> Any:
+    """【任务期工具】kp_reason 配件选配回合专用：大脑把未匹配部件行批量锁定为库内真实料号。
+
+    接地（B2，按需检索版）：只认 search_kp_parts 检索登记过的料号（服务端索引），
+    索引外一律拒绝——大脑无权凭空指定料号。同步 DB 落 pick 走线程池，防慢查询堵死事件循环。
+    """
+    from app.services.skill_chat import tool_select_kp_parts
+    return await asyncio.to_thread(tool_select_kp_parts, args or {})
+
+
+async def _tool_search_kp_parts(args: dict) -> Any:
+    """【任务期工具】kp_reason 配件选配回合专用：按类目+关键词检索配件库真实候选。
+
+    按需检索（progressive disclosure）：大脑上下文只带行清单，候选逐行按需拉取；
+    结果由服务端登记进检索索引（select 的接地取值域），价格按数据边界裁剪。
+    同步 DB 检索走线程池，防慢查询堵死事件循环（300s/900s 超时兜底依赖循环能跑）。
+    """
+    from app.services.skill_chat import tool_search_kp_parts
+    return await asyncio.to_thread(tool_search_kp_parts, args or {})
+
+
+async def _tool_ask_user(args: dict) -> Any:
+    """【任务期工具】大脑回合专用：把需要客户决策的问题升格为结构化选项卡。
+
+    大脑自由文本提问没有交互通道（2026-09-05 实测：问了但没卡可点）；此工具把
+    问题+选项登记进回合上下文，由 skill_chat 在引擎结束后统一弹卡。
+    """
+    from app.services.skill_chat import tool_ask_user
+    return tool_ask_user(args or {})
 
 
 async def _tool_catalog_search(args: dict) -> Any:

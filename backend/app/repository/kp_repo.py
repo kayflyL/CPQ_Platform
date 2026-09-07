@@ -58,7 +58,10 @@ def _spec_match_all(spec_map: dict, parsed: list) -> str:
             hits.append(f"{sk}∈{{{','.join(str(v) for v in vals)}}}")
         else:
             sv_s = str(sv).strip()
-            if not (sv_s == str(val).strip() or _spec_num(sv) == _spec_num(val)):
+            v_s = str(val).strip()
+            sv_n = _spec_num(sv)
+            v_n = _spec_num(val) if not isinstance(val, list) else None
+            if not (sv_s == v_s or (sv_n is not None and v_n is not None and abs(sv_n - v_n) < 1e-9)):
                 return ""
             hits.append(f"{sk}={sv_s}")  # 显示真实 spec_value（DDR5 / 1G / 32 GB）
     return " · ".join(hits)
@@ -180,9 +183,9 @@ CATEGORY_FAMILIES = {
     'CPU': ['CPU'],
     'Memory': ['Memory'],
     'HDD/SSD': ['HDD/SSD'],
-    'GPU': ['GPU', 'GPU card'],
-    'Raid card': ['Raid card', 'Raid Card'],
-    'Network(NIC) requirement': ['Network(NIC) requirement'],
+    'GPU': ['GPU'],
+    'Raid card': ['Raid card'],
+    'NIC': ['NIC'],
     'HBA': ['HBA'],
     'Bridge': ['Bridge'],
     'NVSwitch': ['NVSwitch'],
@@ -195,8 +198,8 @@ CATEGORY_FAMILIES = {
 
 _CATEGORY_KEYWORDS = (
     ('raid', 'Raid card'),
-    ('network', 'Network(NIC) requirement'),
-    ('nic', 'Network(NIC) requirement'),
+    ('network', 'NIC'),
+    ('nic', 'NIC'),
     ('gpu', 'GPU'),
     ('memory', 'Memory'),
     ('ram', 'Memory'),
@@ -234,6 +237,17 @@ def category_family_members(family: str) -> List[str]:
     if not family:
         return []
     return CATEGORY_FAMILIES.get(family, [family])
+
+def canonical_category_name(raw: str) -> str:
+    """把零散分类写法归一到分类族里的正式名称；未知分类保留原样，避免误降级/误新建。"""
+    name = (raw or "").strip()
+    if not name:
+        return "Key Parts"
+    family = category_family(name)
+    members = category_family_members(family)
+    if family in CATEGORY_FAMILIES and members:
+        return members[0]
+    return name
 
 def part_identity_key(name: str, category: str, specs: Optional[dict] = None) -> tuple:
     """同一性键。HDD/SSD 用结构化 spec（缺则从 name 解析，含形态默认推断）+ name 差异词；
@@ -445,6 +459,8 @@ class KPRepository:
     def insert_price(self, category: str, model: str, price: float,
                      currency: str = "RMB", date: str = None, note: str = "") -> bool:
         """插入价格记录（兼容旧接口）"""
+        # 归一化到分类族，避免 "GPU card"/"Raid Card" 这类零散写法新建出同义分类
+        category = canonical_category_name(category)
         # 查找或创建配件
         part = self.session.query(KPPart).filter(KPPart.name == model).first()
         if not part:

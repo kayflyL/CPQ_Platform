@@ -4,7 +4,7 @@ import type { ConfigData } from '@/store/quote'
 
 export function useQuoteServerModels(activeConfig: ComputedRef<ConfigData | undefined>) {
   const serverModels = ref<ServerModel[]>([])
-  const baseInfoCache = ref<Record<number, { series: string; name: string; model_id?: number | null }>>({})
+  const baseInfoCache = ref<Record<number, { series: string; name: string; form?: string; bays?: number; model_id?: number | null }>>({})
   const chassisModalOpen = ref(false)
 
   async function loadServerModels() {
@@ -24,6 +24,8 @@ export function useQuoteServerModels(activeConfig: ComputedRef<ConfigData | unde
       baseInfoCache.value[baseConfigId] = {
         series: (bc as any).series || '',
         name: (bc as any).name || '',
+        form: (bc as any).form || '',
+        bays: (bc as any).bays ?? undefined,
         model_id: (bc as any).model_id ?? null,
       }
     } catch {
@@ -66,6 +68,21 @@ export function useQuoteServerModels(activeConfig: ComputedRef<ConfigData | unde
     const cfg = activeConfig.value
     const id = cfg?.base_config_id
     return id ? (baseInfoCache.value[id]?.name || '') : ''
+  })
+
+  const chassisForm = computed(() => {
+    const cfg = activeConfig.value
+    const id = cfg?.base_config_id
+    if (id && baseInfoCache.value[id]?.form) return baseInfoCache.value[id]!.form
+    return (chassisModel.value as any)?.base_config?.form || ''
+  })
+
+  const chassisBays = computed(() => {
+    const cfg = activeConfig.value
+    const id = cfg?.base_config_id
+    if (id && baseInfoCache.value[id]?.bays != null) return baseInfoCache.value[id]!.bays
+    const bays = (chassisModel.value as any)?.base_config?.bays
+    return bays != null ? bays : undefined
   })
 
   const chassisMatched = computed(() => !!activeConfig.value?.server_model_id)
@@ -127,6 +144,8 @@ export function useQuoteServerModels(activeConfig: ComputedRef<ConfigData | unde
     chassisModel,
     chassisSeries,
     chassisBaseName,
+    chassisForm,
+    chassisBays,
     chassisMatched,
     serverModelOptions,
     onServerModelSelect,

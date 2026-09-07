@@ -2,7 +2,7 @@
 /** 服务器配置门户主体 — 旭日舞台 banner + 类型胶囊快捷入口 + 全部机型货架。
  *  banner 场景配方复用机型详情页 hero（天空渐变/水印/旭日/地平线光带），固定深蓝「银河 · 擎天」主题；
  *  胶囊=导航（跳类型目录页，配方同详情页底部配色胶囊）；货架只展示上架机型（published_only）。 */
-import { ref, computed, nextTick, onMounted, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onActivated, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel, type PortalBanner } from '@/api/serverConfig'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
@@ -80,6 +80,16 @@ function goToDetail(m: ServerModel) {
 }
 
 onMounted(load)
+
+// KeepAlive：切回时刷新机型数据（首次挂载由 onMounted 加载）
+let _catalogActivated = false
+onActivated(() => {
+  if (!_catalogActivated) {
+    _catalogActivated = true
+    return
+  }
+  load()
+})
 </script>
 
 <template>

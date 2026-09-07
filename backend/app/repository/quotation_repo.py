@@ -86,6 +86,12 @@ class QuotationRepository:
             Quotation.status == "active"
         ).first()
 
+    def get_raw_by_id(self, quotation_id: str) -> Optional[Quotation]:
+        """Get quotation by ID regardless of status（用于区分已删除报价单）。"""
+        return self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id,
+        ).first()
+
     def get_by_opportunity(self, opportunity_id: str) -> List[Quotation]:
         """Get all quotations for an opportunity"""
         return self.db.query(Quotation).filter(
@@ -99,7 +105,7 @@ class QuotationRepository:
         "l6_price", "total_qty", "config_count", "created_at", "updated_at", "status",
         "exported_at", "submitted_at", "submitted_by", "submitted_attachment_id", "cost_snapshot",
         "quotation_date", "config_quantities", "config_descriptions", "config_server_models",
-        "config_warranty_info", "total_price", "profit_margin", "extra_fields", "tenant_id",
+        "config_warranty_info", "config_relation", "primary_config", "total_price", "profit_margin", "extra_fields", "tenant_id",
         "is_primary", "source", "strategy_snapshot",
     }
 
@@ -144,6 +150,21 @@ class QuotationRepository:
         self._touch_opportunity(quotation.opportunity_id)
         self.db.commit()
         return True
+
+    def permanent_delete(self, quotation_id: str) -> Optional[str]:
+        """Permanently delete a quotation and its items. Returns opportunity_id or None."""
+        quotation = self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id,
+        ).first()
+        if not quotation:
+            return None
+        opp_id = quotation.opportunity_id
+        self.db.query(QuotationItem).filter(
+            QuotationItem.quotation_id == quotation_id
+        ).delete()
+        self.db.delete(quotation)
+        self.db.commit()
+        return opp_id
 
     def restore(self, quotation_id: str) -> bool:
         """Restore a soft-deleted quotation"""
@@ -269,7 +290,7 @@ class QuotationRepository:
         """Get all items for a quotation"""
         return self.db.query(QuotationItem).filter(
             QuotationItem.quotation_id == quotation_id
-        ).all()
+        ).order_by(QuotationItem.item_id).all()
 
     def patch_items(self, quotation_id: str, configs: List[dict], delete_missing: bool = False) -> int:
         """按 item_id 更新或新增 KP/Warranty 行。
@@ -332,7 +353,7 @@ class QuotationRepository:
             return {}
         items = self.db.query(QuotationItem).filter(
             QuotationItem.quotation_id.in_(quotation_ids)
-        ).all()
+        ).order_by(QuotationItem.item_id).all()
         out: dict = {}
         for it in items:
             out.setdefault(it.quotation_id, []).append(it)
@@ -384,22 +405,6 @@ class QuotationRepository:
         self.db.refresh(quotation)
         return quotation
 
-    def save_cost_snapshot(self, quotation_id: str, cost_snapshot: dict) -> Optional[Quotation]:
-        """Persist a manually-entered cost snapshot for a historical quotation backfill.
-        Writes cost_snapshot ONLY — exported_at stays untouched, keeping 'manually
-        backfilled' distinct from 'exported/frozen'."""
-        quotation = self.db.query(Quotation).filter(
-            Quotation.quotation_id == quotation_id
-        ).first()
-        if not quotation:
-            return None
-        quotation.cost_snapshot = cost_snapshot
-        self._sync_totals_from_snapshot(quotation, cost_snapshot)
-        quotation.updated_at = datetime.now().isoformat()
-        self._touch_opportunity(quotation.opportunity_id)
-        self.db.commit()
-        self.db.refresh(quotation)
-        return quotation
 
     def copy_quotation_state(self, source_id: str, target_id: str) -> Optional[Quotation]:
         """Clone a source quotation's structured state (config-level fields + items +

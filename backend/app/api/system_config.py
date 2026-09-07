@@ -64,9 +64,9 @@ def get_requirement_slots_spec():
 
     前端进度卡 / 编辑器统一按此清单对齐，避免前端自行拼接两处来源。
     """
-    from app.services.requirement_slots import combined_slot_spec
+    from app.services.requirement_slots import combined_slot_spec, slot_map_options
     spec = combined_slot_spec()
-    return {"slots": spec, "version": 1, "ask_threshold": 2}
+    return {"slots": spec, "slot_map_options": slot_map_options(), "version": 1, "ask_threshold": 2}
 
 
 @router.post("/kp_slot_group_map/reset")
@@ -78,6 +78,29 @@ def reset_kp_slot_group_map(admin: dict = Depends(require_admin)):
         return {"success": True, "value": value}
     finally:
         repo.close()
+
+
+@router.get("/skill-prompts")
+def list_skill_prompts():
+    """返回需求分析 Skill 提示词模板行（rules.skill_prompt_template，DB 唯一权威；前端按行渲染/编辑）。"""
+    from app.services.skill_prompts import list_prompt_templates
+    return {"items": list_prompt_templates()}
+
+
+@router.put("/skill-prompts/{slot_key}")
+def upsert_skill_prompt(slot_key: str, data: dict, admin: dict = Depends(require_admin)):
+    """按 slot_key 单行保存提示词模板（直接落库 rules.skill_prompt_template）。"""
+    from app.services.skill_prompts import upsert_prompt_template
+    template = data.get("template")
+    if template is None:
+        raise HTTPException(status_code=400, detail="Missing 'template' field")
+    return upsert_prompt_template(
+        slot_key,
+        template,
+        name=data.get("name"),
+        enabled=data.get("enabled"),
+        operator=data.get("operator", "system"),
+    )
 
 
 @router.get("/{key}")
@@ -212,23 +235,17 @@ def reset_requirement_slots(admin: dict = Depends(require_admin)):
 
 
 
-@router.post("/init-defaults")
 
-def init_defaults(admin: dict = Depends(require_admin)):
 
-    """Initialize default configs"""
+@router.get("/skill_prompts/effective")
 
-    repo = SystemConfigRepository()
+def get_skill_prompts_effective():
 
-    try:
+    """返回需求分析 Skill 提示词有效值（rules.skill_prompt_template，DB 唯一权威）。"""
 
-        repo.init_defaults()
+    from app.services.skill_prompts import load_skill_prompts
 
-        return {"success": True, "message": "Default configs initialized"}
-
-    finally:
-
-        repo.close()
+    return {"key": "skill_prompts", "value": load_skill_prompts()}
 
 
 

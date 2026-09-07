@@ -115,7 +115,7 @@ export function formDefaults(form?: string): { psu_bays: number; gpu_slots: numb
 /**
  * 系列 → 后面板选项桶映射。rear-io 选项按 bucket 查（rear_io_api），不同系列可能走不同选项集。
  * 未在表里的系列走 DEFAULT_REAR_IO_BUCKET。未来 Intel/工作站 有独立 rear-IO 时在此加映射，
- * 或改造为按 server_series 动态分发（数据驱动）。
+ * 或改造为按产品系列(l6.server_types)动态分发（数据驱动）。
  */
 export const SERIES_REAR_IO_BUCKET: Record<string, string> = {
   Polaris: 'Polaris',

@@ -108,7 +108,7 @@
             <div class="assign-cell pool"><small>业务</small><b>公共池 / 未指派</b></div>
             <div class="assign-cell pool" v-for="n in nodeCols" :key="'pool-' + n">
               <small>{{ nodeShort(n) }}</small>
-              <b class="muted">{{ dispatchData.unassigned[n] || 0 }} 条待认领</b>
+              <b class="muted">{{ dispatchData.unassigned[n] || 0 }} 条待分派</b>
             </div>
           </div>
         </div>

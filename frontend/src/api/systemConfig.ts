@@ -30,6 +30,15 @@ export const systemConfigApi = {
     RESP<{ slots: any[]; version: number; ask_threshold: number }>(
       axios.get('/api/system-config/requirement_slots_spec')
     ),
+  getSkillPromptsEffective: () =>
+    RESP<{ key: string; value: Record<string, any> }>(
+      axios.get('/api/system-config/skill_prompts/effective')
+    ).then(r => r.value),
+  listSkillPrompts: () =>
+    RESP<{ items: any[] }>(axios.get('/api/system-config/skill-prompts')).then(r => r.items),
+  updateSkillPrompt: (slotKey: string, payload: { template: string; name?: string; enabled?: boolean }) =>
+    RESP<any>(axios.put(`/api/system-config/skill-prompts/${encodeURIComponent(slotKey)}`, payload)),
+
   set: (key: string, value: any, type?: string, description?: string) =>
     RESP<SystemConfigItem>(
       axios.put(`/api/system-config/${encodeURIComponent(key)}`, { value, type, description })

@@ -8,7 +8,7 @@ AI 角色主循环里完成，这里只承接决策结果并做确定性校验/�
 import logging
 from typing import Any, Awaitable, Callable
 
-from app.api.candidate_search import build_plan
+from app.services.plan_builder import build_plan
 
 logger = logging.getLogger(__name__)
 
@@ -28,13 +28,13 @@ async def compose_plans(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict
     # 每个机型取自己的 KP（match_kp per-机型配的），fallback 到全局 kp_parts；来源策略由节点配置决定。
     plans = []
     _ext = ctx.get("ext") or {}
-    # 电源：需求文本显式瓦数/数量 > build_plan 按负载推断；是否启用和读取路径均由节点配置决定。
+    # 电源：瓦数/数量一律取 AI 语义层（ext.psu.*）显式值，引擎不做功耗推断；
+    # 是否启用和读取路径均由节点配置决定（psu_override_enabled / psu_*_source）。
     _sig_w = _get_nested(ctx, cfg.get("psu_wattage_source"), None) if cfg.get("psu_override_enabled", True) else None
     _sig_q = _get_nested(ctx, cfg.get("psu_qty_source"), None) if cfg.get("psu_override_enabled", True) else None
     for bl in baselines:
         mid = bl.get("server_model_id") or bl.get("id")
         bl_kp = (ctx.get("kp_parts") or []) if cfg.get("kp_source") == "global" else (kp_by_model.get(mid) or ctx.get("kp_parts") or [])
-        # 需求文本功率/数量优先覆盖 build_plan 推断，并让覆盖值在 L6 模板求值前生效（模板行直接显示正确瓦数）。
         _p = build_plan(bl, bl_kp, psu_wattage=_sig_w, psu_qty=_sig_q)
         plans.append(_p)
     ctx["plans"] = plans

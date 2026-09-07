@@ -64,6 +64,10 @@ interface WarrantyItem {
 const props = defineProps<{
   /** 新接口：多配置模式 */
   configs?: ConfigItem[]
+  /** 配置关系：compose=组合并行 / alternative=方案备选对比 */
+  configRelation?: string
+  /** 方案备选下的主推配置名 */
+  primaryConfig?: string
   branding: Branding
   businessPerson?: string
   displayOptions?: {
@@ -88,6 +92,11 @@ const props = defineProps<{
   priceOf?: (pn: string) => number
   series?: string
 }>()
+
+const isAlternative = computed(() => props.configRelation === 'alternative')
+function isPrimaryCfg(cfg: ConfigItem) {
+  return isAlternative.value && props.primaryConfig === cfg.config_name
+}
 
 // 判断模式：有 configs prop 则走新模式（即使为空数组），否则走旧模式
 const isLegacyMode = computed(() => {
@@ -476,6 +485,7 @@ function groupByCategory(items: KpItem[]) {
             <div class="ss-title-left">
               <div class="ss-title-name">{{ cfg.server_model || cfg.config_name }}</div>
               <span class="ss-chip">{{ cfg.chassis_series || '' }}</span>
+              <span v-if="isPrimaryCfg(cfg)" class="ss-primary-tag">主推方案</span>
             </div>
             <div class="ss-title-right">
               <span v-if="businessPerson" class="ss-to-business">To 业务：{{ businessPerson }}</span>
@@ -588,7 +598,7 @@ function groupByCategory(items: KpItem[]) {
 
           <!-- 含税总价（本配置：含税单价 × 数量） -->
           <section v-if="opts.show_grand_total" class="ss-grand">
-            <span class="ss-grand-label">{{ labels.grand_total }}</span>
+            <span class="ss-grand-label">{{ labels.grand_total }}<template v-if="isPrimaryCfg(cfg)">（主推）</template></span>
             <span class="ss-grand-val">{{ money(cfg.total_price) }}</span>
             <span class="ss-grand-qty">（{{ cfg.quantity }}台）</span>
           </section>
@@ -685,6 +695,8 @@ function groupByCategory(items: KpItem[]) {
 .ss-title-right { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .ss-chip { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 600;
   color: var(--ss-accent, #1668C0); background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: 999px; }
+.ss-primary-tag { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 700;
+  color: #fff; background: var(--ss-accent, #1668C0); border-radius: 999px; }
 .ss-to-business { font-size: 12px; color: #64748b; margin-left: 8px; }
 .ss-qty-badge { font-size: 12px; color: #64748b; }
 

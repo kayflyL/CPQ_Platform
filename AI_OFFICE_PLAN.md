@@ -1,11 +1,11 @@
 # AI Office 需求分析 Skill 执行状态
 
-> 最后更新：2026-08-31（机型/配件 AI 接地：phase_model_reason 与 phase_kp_reason 均走受约束库内候选选型，见「2026-08-31 定案」节）。本文件描述"当前真实代码"，不是历史快照；每次架构变化后必须同步更新。
+> 最后更新：2026-09-01（提示词/节点契约已改 DB 唯一权威并删除种子文件，见「2026-09-01 定案」节）（机型/配件 AI 接地：phase_model_reason 与 phase_kp_reason 均走受约束库内候选选型，见「2026-08-31 定案」节）。本文件描述"当前真实代码"，不是历史快照；每次架构变化后必须同步更新。
 > 当前分支：`codex/skill-plan-refactor`（未提交）。⚠️ 2026-08-27 起由新会话接管维护；此前版本对"已跑通/280 passed"的描述与实测不符，勿引用。
 
 ## ⚡ 设计宪法（任何会话改代码前强制自查，用户可拿三条否决任何 PR）
 
-1. **同一时刻整个系统只有一个会思考的脑袋**：对话期=AI 角色（skill_chat 驱动的 ReAct 循环），执行期=引擎（skill_plan_runtime 硬阶段机）。永不并存、永不嵌套。角色给引擎的是填好的登记表，引擎给角色的是产物或缺口数据。
+1. **同一时刻整个系统只有一个会思考的脑袋**：AI 角色（skill_chat 驱动的 ReAct 循环与 agent_fill）。进入六步后由确定性引擎（skill_plan_runtime 硬阶段机，零 LLM）执行。永不并存、永不嵌套。角色给引擎的是填好的登记表，引擎给角色的是产物或缺口数据。
 2. **凡是模型能理解的事，禁止用数据表替代**：话术、关键词、意图猜测、措辞模板一律禁止。数据表只允许存业务事实（目录/案例/规格/规则/价格）。
 3. **新增任何机构前必须先回答：删掉了什么、合并了什么。** 没有删的部分方案不完整。
 
@@ -26,9 +26,9 @@ Skill 引擎（纯执行：run_skill_plan_core，六阶段固定，零对话能�
 ```
 
 - **角色线程记忆**：`reasoning_state.skill_chat.{ext}`（登记表跨轮持久）；旧 pending workflow/slot_state 大快照机器已删。
-- **触发**：绑定了 requirement_analysis 的角色，全部消息走对话脑（含 Skill Studio 右侧栏——entry bypass 已删）；信息够格由角色自己提交，独立路由 LLM（skill_router.py）已删。
-- **守卫语义**：场景臆测守卫（_strip_invented_scene）只跑在试运行抽取路径；对话路径的类型由角色确认登记后不再剥。kp_mode 业务选项值必须原样（parse_kp_mode 精确匹配两个业务值）。
-- **试运行**：`/test-run` 仍是引擎直跑（force_complete 默认 False→返回 gaps 数据；True→带标注推荐出方案），响应含 `engine_result`。
+- **触发**：绑定了 requirement_analysis 的角色，全部消息走对话脑（含 Skill Studio 右侧栏——entry bypass 已删）。普通聊天阶段不读 Skill 节点内容；检测到配置服务器需求后先总结上下文、等用户确认，确认后同一大脑调用 submit_registration，再由 agent_fill 抽槽后进入引擎。独立路由 LLM（skill_router.py）已删。
+- **守卫语义**：登记表在提交时由 AI 角色 agent_fill 一次性抽取；kp_mode 业务选项值必须原样（parse_kp_mode 精确匹配两个业务值）。
+- **试运行**：Skill Studio 试运行/画布预览先走 AI 角色 agent_fill，再进入同一确定性引擎；force_complete 默认 False→返回 gaps 数据；True→带标注推荐出方案，响应含 `engine_result`。
 
 关键文件：`skill_phases.py`（引擎阶段+缺口构造，22 函数零话术）、`skill_plan_runtime.py`（编排+engine_result_of 协议）、`skill_chat.py`（对话脑接线+三工具实现）、`colleague_turn_service._run_skill_chat`（路由+收尾）。
 
@@ -113,3 +113,42 @@ E2E：私聊方案助手「我想要一台服务器，主要跑数据库」→ c
 - **配件（本轮，phase_kp_reason）**：确定性 select_parts 之后，force_complete 下收集未命中/规格偏差行 → 按品类查 `KPRepository.get_by_category_with_specs`（series 适配池）→ 拼「需求原文+线索登记表+机箱能力+当前清单」事实喂 `_llm_pick_kp`（单次受约束，只许从候选 id 里选）→ `_apply_kp_ground` 校验 id 属候选、价格/数量取库值并写 `replacement_note`；无候选/非法 id/LLM 失败一律保留缺口，绝不硬顶。对话路径（force_complete=False）保持缺口交角色/用户决策。
 - **验证**：backend 全量 372 passed（新增 7 条：`_kp_gap_rows`/`_apply_kp_ground` 缺口语义与非法 id 守卫、`_llm_pick_kp` chat_json 契约、`_kp_ai_ground`、`phase_kp_reason` force_complete 接地与对话路径保留缺口）。
 - **待回退关注**：AI 接地为 LLM 旁路，失败/无候选是安全路径（保留缺口）；未在对话路径开启，行为可预期。
+
+## 2026-09-01 定案：提示词/节点契约 DB 唯一权威（去种子化）
+
+- 已删除种子文件：`skill_prompts_defaults.json`、`reasoning_node_defaults.json`、`workflow_intent_classifier.txt`（含旧 `office_intent.py` 死模块）。
+- 新表（rules schema，DB 唯一权威）：
+  - `skill_prompt_template`：一行一个提示词（role_prompt/extract_contract/gap_ask_prompt/price_rule_ok/price_rule_no/data_rule/plan_rule/gap_ack_template/stream_chat_contract）。前端「提示词」面板按行 GET /system-config/skill-prompts / PUT /system-config/skill-prompts/{slot} 直接落库。
+  - `reasoning_node_default`：一行一个推理节点默认契约（input/agent_fill/model_reason/kp_reason/compose/output）。
+- 读取端：`skill_prompts.load_skill_prompts()`、`reasoning_node_contract.node_defaults()` 只读这两张表，无种子回退、无模块常量兜底。
+- 节点配置 delta-only：`reasoning_node_config` 只存相对默认的增量；`get_active_flow` 返回默认+增量合成生效值；`override_only` 保存时剥掉等于默认的字段。存量已一次性收敛，默认基线已提升为该部署真实生效配置。
+- 启动：`init_rules_db` 调 `skill_config_bootstrap` 仅空表播种；运行后 DB 唯一权威、前端修改直接落库。
+- `system_config.skill_prompts` / `reasoning_node_defaults` 两把 blob 已删除，代码零读取。
+
+### 补记（2026-09-01）：功耗链家族关键词/校准字典彻底移除（引擎不做功率推断）
+
+`candidate_search.py` 的引擎功率推断链（`_kp_signals` / `_estimate_system_load` /
+`_suggest_psu_wattage` / `_infer_psu_wattage` 及 `_drive_kind`）已整体删除。它们用
+`high_tdp_gpus` / `gpu_tdp_by_model` / `high_tdp_threshold_w` / `cpu_tdp_map` /
+`mem_stick_w` / `mem_stick_w_by_cap` / `sata_drive_w` / `nvme_drive_w` / `nic_w` /
+`raid_w` / `sys_base_w` / `default_cpu_tdp` / `psu_standard_w` / `tiers` /
+`no_gpu_wattage` 等词表/校准字典来“猜”整机功耗与 PSU 瓦数，违反“AI 唯一大脑 +
+数据表只存业务事实”宪法。
+
+- 现在 `build_plan` 的 PSU 瓦数只取 AI 语义层/人工传入的 `psu_wattage`（来自
+  `ext.psu.wattage`，经 `psu_override_enabled`/`psu_wattage_source` 控制），再按
+  `baseline.psu_wattages`（机型物理支持档位，业务事实）用 `_clamp_psu_wattage` 收敛；
+  未给值 → 留空（`bom_template_eval` 明确“PSU 瓦数未给 → 留空手填”）。
+- `compose_plans`（`skill_node_runtime.py`）不再调用 `read_node_rules` 组装功耗规则，
+  `build_plan` 签名去掉 `rules` 参数。
+- 测试：删除 `test_kp_signals.py`（测已删 `_kp_signals`）；`test_base_config_capability.py`
+  重写为只测 `_clamp_psu_wattage`；`test_bom_compare.py` 删除 `POWER_RULES` 与
+  `test_psu_inference_memory_capacity_aware`。
+- 保留：`_clamp_psu_wattage`（把传入值收敛到机型支持范围，属业务事实）。
+
+### 补记（2026-09-01）：去种子化丢失的 6 个提示词槽已回填
+
+`price_rule_ok/price_rule_no/data_rule/plan_rule/gap_ack_template/stream_chat_contract` 六个槽在旧代码里是
+`skill_chat.py`/`agent_react.py` 的**硬编码字符串**（不在旧 `system_config.skill_prompts` blob 中），去种子化后误留空。
+已从 git HEAD 恢复原文并回填 DB；`skill_config_bootstrap.SKILL_PROMPT_SLOTS` 同步携带这 6 份模板作空库播种。
+验证：`tests/` 全量 334 passed, 1 skipped；前端 `npm run build` 通过。

@@ -3,13 +3,10 @@
 P0：直接改 active 流的 node_config（立即生效）；版本切版 API 预留给二期 draft 试错流程。
 三层兜底在 run_skill_plan（DB 异常回退模块常量），API 层不兜底。
 """
-import asyncio
 import logging
-import uuid
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, HTTPException, Query
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-from app.services.assistant_hub import assistant_hub
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"])
@@ -39,6 +36,113 @@ def _is_valid_node_key(key: str) -> bool:
 def _flow_for_skill(repo: ReasoningFlowRepository, skill_key: Optional[str]) -> Optional[dict]:
     """取指定技能的 active flow；若技能 flow 尚不存在，则按默认图建一份。"""
     return repo.ensure_skill_flow(skill_key or "requirement_analysis")
+
+
+@router.get("/l6-preview")
+def l6_preview(model: str = Query("")):
+    """机型选配节点目标层预览：指定机型的 BOM 模板求值 → 基础机箱 L6 配置行（真实求值链路）。
+
+    与方案配置页 L6 部分同源（同一模板求值代码）；机型阶段无配件无信号 = 基础机箱，
+    配件选配与选型规则调整后，L6 在 BOM 组装阶段会变化（最终以组装节点为准）。
+    模板缺失回退基准配置行并标注来源。"""
+    name = (model or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="model 不能为空")
+    from app.repository.server_catalog_repo import ServerCatalogRepository
+    from app.repository.base_config_repo import BaseConfigRepository
+    cat_repo = ServerCatalogRepository()
+    try:
+        target = next((m for m in cat_repo.list_models() if m.get("name") == name), None)
+    finally:
+        pass  # ServerCatalogRepository 无需关闭（与 skill_chat 用法一致）
+    if not target:
+        raise HTTPException(status_code=404, detail=f"机型不存在：{name}")
+    base_id = target.get("base_config_id")
+    bc_repo = BaseConfigRepository()
+    bc = next((c for c in bc_repo.list() if c.get("id") == base_id), None)
+    template_id = (bc or {}).get("bom_template_id")
+    rows, source = [], "基准配置行"
+    if template_id and base_id:
+        try:
+            from app.services.bom_template_eval import eval_l6_rows
+            rows = eval_l6_rows(int(template_id), int(base_id), [], {}) or []
+            source = f"BOM 模板求值（模板 {template_id}）· 基础机箱"
+        except Exception:
+            logger.exception("机箱表模板求值失败 model=%s", name)
+            rows = []
+    if not rows and base_id:
+        from app.repository.bom_case_repo import _l6_rows_from_base_config
+        rows = _l6_rows_from_base_config(base_id)
+    return {"model": name, "base_config_id": base_id, "template_id": template_id,
+            "source": source, "rows": rows}
+
+
+@router.get("/candidate-resolvers")
+def candidate_resolvers():
+    """候选池数据源注册表（抽屉资源与权限层"数据源"下拉的数据源）。"""
+    from app.services.part_selector import CANDIDATE_RESOLVERS, DEFAULT_RESOLVER
+    return {"resolvers": [{"name": name, "description": str(e.get("description") or ""),
+                           "is_default": name == DEFAULT_RESOLVER}
+                          for name, e in CANDIDATE_RESOLVERS.items()]}
+
+
+@router.get("/_debug/asyncio-tasks")
+async def debug_asyncio_tasks():
+    """临时诊断（挂死排查）：转储主事件循环上所有未完成任务的协程挂起点。稳定后删。"""
+    import asyncio
+    import traceback
+    out = []
+    for task in asyncio.all_tasks():
+        if task.done():
+            continue
+        try:
+            stack = task.get_stack()
+            frames = "".join(traceback.format_list(stack))[-1600:] if stack else ""
+        except Exception:
+            frames = "<stack unavailable>"
+        fut = getattr(task, "_fut_waiter", None)
+        out.append({"task": repr(task)[:120],
+                    "fut_waiter": type(fut).__name__ if fut is not None else "",
+                    "frames": frames})
+    return {"count": len(out), "tasks": out}
+
+
+@router.get("/kp-preview")
+def kp_preview(limit_per_category: int = Query(2)):
+    """配件选配节点目标层预览：KP 配件库真实料号样例行（按类目轮询取样）。
+
+    行形状 = 登记占位行（category/name/request_spec/qty/specs），前端按目标层列契约
+    （from/fallback）即时整形——改契约列，预览表头/取值即时跟随，所见即所出。
+    """
+    from app.services.part_selector import list_kp_categories
+    from app.repository.kp_repo import KPRepository
+    try:
+        per = max(1, min(5, int(limit_per_category or 2)))
+    except (TypeError, ValueError):
+        per = 2
+    repo = KPRepository()
+    rows: list = []
+    try:
+        for cat in list_kp_categories():
+            db_cat = str(cat.get("db_category") or "")
+            if not db_cat:
+                continue
+            try:
+                parts = repo.get_by_category_with_specs(db_cat) or []
+            except Exception:
+                continue
+            for p in parts[:per]:
+                specs = p.get("specs")
+                rows.append({
+                    "category": db_cat,
+                    "name": str(p.get("model") or ""),
+                    "request_spec": "",
+                    "qty": 1,
+                    "specs": specs if isinstance(specs, dict) else {},
+                })
+    finally:
+        repo.close()
+    return {"source": "KP 配件库样例（真实料号，非运行数据）", "rows": rows}
 
 
 @router.get("/")
@@ -112,148 +216,3 @@ def activate(flow_id: int, data: dict = None):
         return f
     finally:
         repo.close()
-
-
-@router.post("/test-run")
-async def test_run(body: dict, skill_key: Optional[str] = Query(default=None)):
-    """试运行 playground：输入需求文本（+可选预算），同步跑 active flow 图执行器，
-    返回每步事件 + ext/kp_by_model/plans 明细。供策略中心画布编辑器交互测试。
-
-    - 不绑商机（opportunity_id 传占位 "test-run"）。
-    - 走 run_skill_plan（硬编排内核）：固定阶段推进，节点内单次受约束 LLM 调用。
-    - force_complete 默认 False：缺信号一律结构化反问；传 True 才跳过追问按目录推荐出方案。
-    - 不回退 linear fallback：调试工具，报错原样暴露给用户看（仅包一层 except 返回 error+events）。
-    - 明细全从 ctx 取（step_done 的 payload 是摘要级，明细在 ctx.kp_by_model / ctx.plans）。
-    """
-    text = (body or {}).get("requirement_text")
-    if not text:
-        raise HTTPException(400, "Missing requirement_text")
-    budget = (body or {}).get("explicit_budget")
-    force_complete = bool((body or {}).get("force_complete", False))
-    repo = ReasoningFlowRepository()
-    try:
-        flow = _flow_for_skill(repo, skill_key)
-    finally:
-        repo.close()
-    if not flow:
-        raise HTTPException(400, "无 active 推理流，请先在画布配置节点")
-
-    events: list = []
-
-    async def _collect(payload: dict):
-        events.append(payload)
-
-    from app.services.skill_plan_executor import run_skill_plan
-    from app.services.portal_flow_adapter import build_preview_bom_scheme
-    initial_ctx = {
-        "budget": budget,
-        "force_complete": force_complete,
-        "output_kind": "bom_scheme_draft",
-        "business_mode": "conversation",
-        "operator_name": "test-run",
-        "history": [],
-    }
-    try:
-        ctx = await run_skill_plan(
-            "test-run", text, flow, _collect, initial_ctx=initial_ctx
-        )
-    except Exception as e:
-        logger.exception("test-run orchestrator 执行失败")
-        return {"error": str(e), "events": events}
-
-    from app.services.skill_plan_runtime import engine_result_of
-
-    return {
-        "events": events,
-        "ext": ctx.get("ext") or {},
-        "kp_by_model": ctx.get("kp_by_model") or {},
-        "plans": ctx.get("plans") or [],
-        "bom_scheme": build_preview_bom_scheme(ctx),
-        "awaiting_input": bool(ctx.get("awaiting_input")),
-        "engine_result": engine_result_of(ctx),
-        "timings": ctx.get("timings") or {},
-    }
-
-
-# ── 流式试运行（2026-08：画布右侧栏「完成一步显示一步」）─────────────────────
-# 复用 assistant_hub 房间：POST /test-run/start 只注册 run_id（不立即跑），
-# 第一个 WS 订阅者连上 /test-run-ws/{run_id} 后才启动后台任务——保证首个节点 step_start
-# 不被 WS 连接竞态漏掉；随后 step_start/step_done/need_input/candidates_ready 实时推送，
-# 结束后广播终态（ext/kp_by_model/plans/awaiting_input）。
-
-_pending_runs: dict = {}  # run_id -> {text, budget, force_complete, flow}
-
-
-async def _stream_test_run(run_id: str, text: str, budget: float, force_complete: bool, flow: dict) -> None:
-    async def _broadcast(payload: dict):
-        payload.setdefault("run_id", run_id)
-        await assistant_hub.broadcast(run_id, payload)
-
-    try:
-        from app.services.skill_plan_executor import run_skill_plan
-        from app.services.portal_flow_adapter import build_preview_bom_scheme
-        from app.services.skill_plan_runtime import engine_result_of
-        initial_ctx = {
-            "budget": budget,
-            "force_complete": force_complete,
-            "output_kind": "bom_scheme_draft",
-            "business_mode": "conversation",
-            "operator_name": "test-run",
-            "history": [],
-        }
-        ctx = await run_skill_plan("test-run", text, flow, _broadcast, initial_ctx=initial_ctx)
-        awaiting = bool(ctx.get("awaiting_input"))
-        await _broadcast({
-            "type": "pipeline_paused" if awaiting else "pipeline_done",
-            "ext": ctx.get("ext") or {},
-            "kp_by_model": ctx.get("kp_by_model") or {},
-            "plans": ctx.get("plans") or [],
-            "bom_scheme": build_preview_bom_scheme(ctx),
-            "awaiting_input": awaiting,
-            "engine_result": engine_result_of(ctx),
-        })
-    except Exception as e:
-        logger.exception("流式试运行失败 run_id=%s", run_id)
-        await _broadcast({"type": "error", "message": f"试运行失败：{e}"})
-
-
-@router.post("/test-run/start")
-async def test_run_start(body: dict, skill_key: Optional[str] = Query(default=None)):
-    """流式试运行：注册 run_id 并后台启动图执行器，事件经 WS /test-run-ws/{run_id} 实时推送。
-    返回 {run_id}；与旧 /test-run（一次性返回）并存，画布试运行改用本端点逐步显示。"""
-    text = (body or {}).get("requirement_text")
-    if not text:
-        raise HTTPException(400, "Missing requirement_text")
-    budget = (body or {}).get("explicit_budget")
-    force_complete = bool((body or {}).get("force_complete", False))
-    repo = ReasoningFlowRepository()
-    try:
-        flow = _flow_for_skill(repo, skill_key)
-    finally:
-        repo.close()
-    if not flow:
-        raise HTTPException(400, "无 active 推理流，请先在画布配置节点")
-    run_id = f"tr_{uuid.uuid4().hex[:12]}"
-    _pending_runs[run_id] = {
-        "text": text, "budget": budget, "force_complete": force_complete, "flow": flow,
-    }
-    return {"run_id": run_id}
-
-
-@router.websocket("/test-run-ws/{run_id}")
-async def test_run_ws(ws: WebSocket, run_id: str):
-    """订阅某次流式试运行的事件（连接即收，入站消息忽略）。
-    首个订阅者连上时启动后台任务，确保从头订阅（不漏首个 step_start）。"""
-    await assistant_hub.connect(ws, run_id)
-    params = _pending_runs.pop(run_id, None)
-    if params:
-        asyncio.create_task(_stream_test_run(
-            run_id, params["text"], params["budget"], params["force_complete"], params["flow"],
-        ))
-    try:
-        while True:
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        pass
-    finally:
-        await assistant_hub.disconnect(ws)

@@ -730,7 +730,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+defineOptions({ name: 'Parts' })
+import { ref, onMounted, onActivated, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
@@ -1476,6 +1477,21 @@ onMounted(() => {
   loadSpecFacets()
   loadParts()
   loadStats()
+  loadDuplicates()
+})
+// KeepAlive：切回时刷新数据（首次挂载由 onMounted 加载，避免重复请求）
+let _partsActivated = false
+onActivated(() => {
+  if (!_partsActivated) {
+    _partsActivated = true
+    return
+  }
+  loadParts()
+  loadStats()
+  loadCategories()
+  loadFilterDims()
+  loadBrands()
+  loadSpecFacets()
   loadDuplicates()
 })
 </script>

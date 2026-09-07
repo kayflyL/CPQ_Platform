@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import DocumentCard from '@/components/flow/DocumentCard.vue'
+import RecordTable from '@/components/opportunity/RecordTable.vue'
 import CostSheetEditor from '@/components/opportunity/CostSheetEditor.vue'
+import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
+import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 import { portalApi, type BomScheme, type CostSheet, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
 import { kpPartsApi, baseConfigApi, type KpPart, type BaseConfigCost } from '@/api/serverConfig'
 import { systemConfigApi } from '@/api/systemConfig'
@@ -26,29 +28,14 @@ const sheets = computed(() => props.board.cost_sheets || [])
 const bomSchemes = computed(() => props.board.bom_schemes || [])
 const editable = computed(() => !props.readonly)
 const flowCards = computed(() => props.board.flow_cards || [])
+const {
+  pickerOpen, pickerTitle, pickerOptions, pickerChosen,
+  promptAssignee, confirmPicker, cancelPicker,
+} = useDownstreamAssignee()
 
 function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: number | string | null | undefined): FlowCard | undefined {
   if (entityId === null || entityId === undefined || entityId === '') return undefined
   return flowCards.value.find((card) => card.entities.some((e) => e.entity_type === type && e.entity_id === String(entityId)))
-}
-
-function canClaim(card: FlowCard | undefined): boolean {
-  return Boolean(card?.can_claim)
-}
-
-async function claimCard(card: FlowCard) {
-  try {
-    const res = await portalApi.claimCard(oppId.value, card.id)
-    message.success('已认领该卡')
-    emit('card-updated', res.card)
-  } catch (e: any) {
-    message.error(e.response?.data?.detail || '认领失败')
-  }
-}
-
-function claimBom(bom: BomScheme) {
-  const card = cardFor('bom', bom.id)
-  if (card) claimCard(card)
 }
 
 function editorFlowCardId() {
@@ -303,52 +290,66 @@ async function submitSheet() {
     message.warning('成本表内容为空，无法提交')
     return
   }
+  async function doSubmit(assigneeName: string) {
+    const saved = await portalApi.saveCostSheetDraft(oppId.value, {
+      sheet_id: editorSheetId.value,
+      flow_card_id: editorFlowCardId(),
+      name: editorName.value.trim(),
+      configs,
+      bom_scheme_id: editorBomSchemeId.value,
+      quotation_id: editorQuotationId.value || undefined,
+    })
+    await portalApi.submitCostSheet(oppId.value, saved.sheet.id, assigneeName)
+  }
+  async function runSubmit(assigneeName: string) {
+    saving.value = true
+    try {
+      await doSubmit(assigneeName)
+      message.success('成本表已提交，流程进入报价单节点')
+      editorOpen.value = false
+      emit('changed')
+    } catch (e: any) {
+      if (e?.response?.data?.detail === ASSIGNEE_REQUIRED_DETAIL) {
+        promptAssignee('quoting', '选择报价处理人', (name) => { runSubmit(name) })
+        return
+      }
+      message.error(e.response?.data?.detail || '提交成本表失败')
+    } finally {
+      saving.value = false
+    }
+  }
   Modal.confirm({
     title: '提交当前成本表？',
     content: '提交后将生成报价单草稿并进入报价单节点；可继续提交多张成本表，均可在报价节点独立转为正式报价。',
     okText: '提交成本表',
     cancelText: '取消',
-    async onOk() {
-      saving.value = true
-      try {
-        const saved = await portalApi.saveCostSheetDraft(oppId.value, {
-          sheet_id: editorSheetId.value,
-          flow_card_id: editorFlowCardId(),
-          name: editorName.value.trim(),
-          configs,
-          bom_scheme_id: editorBomSchemeId.value,
-          quotation_id: editorQuotationId.value || undefined,
-        })
-        await portalApi.submitCostSheet(oppId.value, saved.sheet.id)
-        message.success('成本表已提交，流程进入报价单节点')
-        editorOpen.value = false
-        emit('changed')
-      } catch (e: any) {
-        message.error(e.response?.data?.detail || '提交成本表失败')
-      } finally {
-        saving.value = false
-      }
-    },
+    onOk: () => runSubmit(''),
   })
 }
 
 function deleteSheet(sheet: CostSheet) {
   Modal.confirm({
-    title: `删除成本表草稿「${sheet.name}」？`,
-    content: '删除后不可恢复；已提交或已归档成本表不会提供删除入口。',
+    title: `删除成本表「${sheet.name}」？`,
+    content: canDeleteOrphanSheet(sheet)
+      ? '删除后不可恢复；因对应报价单已删除，该成本表可被删除。'
+      : '删除后不可恢复。',
     okText: '删除',
     okType: 'danger',
     cancelText: '取消',
     async onOk() {
       try {
         await portalApi.deleteCostSheet(oppId.value, sheet.id)
-        message.success('成本表草稿已删除')
+        message.success('成本表已删除')
         emit('changed')
       } catch (e: any) {
-        message.error(e.response?.data?.detail || '删除成本表草稿失败')
+        message.error(e.response?.data?.detail || '删除成本表失败')
       }
     },
   })
+}
+
+function canDeleteOrphanSheet(sheet: CostSheet): boolean {
+  return sheet.quotation_deleted === true || !sheet.quotation_id
 }
 
 function cardForSheet(sheet: CostSheet) {
@@ -411,62 +412,76 @@ function returnSheet(sheet: CostSheet) {
       </div>
     </header>
 
-    <div class="cw-grid">
-      <DocumentCard
+    <RecordTable
+      title="成本表"
+      :empty="!sheets.length"
+      :empty-text="pendingBomSchemes.length ? '尚无成本表，点击“新建成本表”从待核价 BOM 方案生成。' : '尚无成本表；请先在方案配置节点提交一个 BOM 方案。'"
+      :columns="[
+        { label: '成本表', width: '220px' },
+        { label: '单号', width: '110px' },
+        { label: '状态', width: '110px' },
+        { label: '配置 / 台数 / 成本' },
+        { label: '创建人 / 时间', width: '180px' },
+        { label: '操作', width: '230px', align: 'right' },
+      ]"
+    >
+      <tr
         v-for="bom in pendingBomSchemes"
         :key="`pending-bom-${bom.id}`"
-        :title="`待核价 · ${bom.name}`"
-        doc-no="待处理 · 来自方案配置"
-        status="待核价"
-        status-tone="current"
-        doc-type="bom"
-        :active="editorBomSchemeId === bom.id"
       >
-        <template #summary>
-          <div class="cw-summary">{{ bom.configs?.length || 0 }} 个配置页签 · 来自方案配置节点</div>
-          <div class="cw-muted">{{ bom.created_by || '—' }} · {{ (bom.updated_at || bom.created_at || '').slice(5, 16) }}</div>
-        </template>
-        <template v-if="editable" #footer>
-          <span v-if="canClaim(cardFor('bom', bom.id))" class="cw-footer-link" @click.stop="claimBom(bom)">认领</span>
-          <span class="cw-footer-link primary" @click.stop="openCostForBom(bom)">
-            {{ costSheetForBom(bom.id) ? '继续核算' : '新建成本表' }}
-          </span>
-        </template>
-      </DocumentCard>
+        <td>
+          <span class="rt-strong">待核价 · {{ bom.name }}</span>
+          <span class="rt-sub">来自方案配置</span>
+        </td>
+        <td class="rt-dim">BOM-{{ bom.id }}</td>
+        <td><span class="rt-badge rt-badge-current">待核价</span></td>
+        <td>{{ bom.configs?.length || 0 }} 个配置页签</td>
+        <td class="rt-dim">{{ bom.created_by || '—' }} · {{ (bom.updated_at || bom.created_at || '').slice(5, 16) }}</td>
+        <td>
+          <div v-if="editable" class="rt-actions">
+            <span class="rt-link" @click.stop="openCostForBom(bom)">
+              {{ costSheetForBom(bom.id) ? '继续核算' : '新建成本表' }}
+            </span>
+          </div>
+        </td>
+      </tr>
 
-      <DocumentCard
+      <tr
         v-for="sheet in sheets"
         :key="sheet.id"
-        :title="sheet.name"
-        :doc-no="`COST-${sheet.id}`"
-        :status="statusLabel(sheet.status)"
-        :status-tone="sheet.status === 'current' ? 'current' : sheet.status === 'draft' ? 'draft' : 'done'"
-        doc-type="cost"
-        :active="sheet.status === 'current'"
         @click="openSheet(sheet)"
       >
-        <template #summary>
-          <div class="cw-summary">{{ sheetMeta(sheet) }}</div>
-          <div class="cw-muted">{{ sheet.created_by || '—' }} · {{ (sheet.updated_at || sheet.created_at || '').slice(5, 16) }}</div>
-        </template>
-        <template v-if="editable && sheet.status === 'draft'" #footer>
-          <span class="cw-footer-link" @click.stop="openSheet(sheet)">继续编辑</span>
-          <span class="cw-footer-link primary" @click.stop="openSheet(sheet)">提交成本表</span>
-          <span class="cw-footer-link danger" @click.stop="deleteSheet(sheet)">删除草稿</span>
-        </template>
-        <template v-else-if="editable && sheet.status === 'current'" #footer>
-          <span v-if="sheet.quotation_exported" class="cw-muted">报价单已定稿，成本表只读</span>
-          <span v-else class="cw-footer-link" @click.stop="openSheet(sheet)">编辑成本表</span>
-          <span v-if="cardForSheet(sheet)?.current_node === 'quoting'" class="cw-footer-link" @click.stop="requestWithdrawSheet(sheet)">申请撤回</span>
-          <span v-if="cardForSheet(sheet)?.current_node === 'costing' && cardForSheet(sheet)?.flow_status === 'returned'" class="cw-footer-link danger" @click.stop="returnSheet(sheet)">退回成本表</span>
-          <span class="cw-footer-link danger" @click.stop="deleteSheet(sheet)">删除当前成本表</span>
-        </template>
-      </DocumentCard>
+        <td><span class="rt-strong">{{ sheet.name }}</span></td>
+        <td class="rt-dim">COST-{{ sheet.id }}</td>
+        <td>
+          <span class="rt-badge"
+            :class="sheet.status === 'current' ? 'rt-badge-current' : sheet.status === 'draft' ? 'rt-badge-draft' : 'rt-badge-done'"
+          >{{ statusLabel(sheet.status) }}</span>
+        </td>
+        <td>{{ sheetMeta(sheet) }}</td>
+        <td class="rt-dim">{{ sheet.created_by || '—' }} · {{ (sheet.updated_at || sheet.created_at || '').slice(5, 16) }}</td>
+        <td>
+          <div v-if="editable && sheet.status === 'draft'" class="rt-actions">
+            <span class="rt-link" @click.stop="openSheet(sheet)">继续编辑</span>
+            <span class="rt-link" @click.stop="openSheet(sheet)">提交成本表</span>
+            <span class="rt-link danger" @click.stop="deleteSheet(sheet)">删除草稿</span>
+          </div>
+          <div v-else-if="editable && sheet.status === 'current'" class="rt-actions">
+            <span v-if="sheet.quotation_exported" class="rt-link muted">报价单已定稿，成本表只读</span>
+            <span v-else-if="!canDeleteOrphanSheet(sheet)" class="rt-link" @click.stop="openSheet(sheet)">编辑成本表</span>
+            <span v-if="cardForSheet(sheet)?.current_node === 'quoting'" class="rt-link" @click.stop="requestWithdrawSheet(sheet)">申请撤回</span>
+            <span v-if="cardForSheet(sheet)?.current_node === 'costing' && cardForSheet(sheet)?.flow_status === 'returned'" class="rt-link danger" @click.stop="returnSheet(sheet)">退回成本表</span>
+            <span v-if="canDeleteOrphanSheet(sheet)" class="rt-link danger" @click.stop="deleteSheet(sheet)">删除成本表</span>
+            <span v-else-if="!sheet.quotation_exported" class="rt-link muted">需先删除对应报价单</span>
+          </div>
+          <div v-else-if="editable && sheet.status === 'archived' && canDeleteOrphanSheet(sheet)" class="rt-actions">
+            <span class="rt-link muted">对应报价单已删除</span>
+            <span class="rt-link danger" @click.stop="deleteSheet(sheet)">删除成本表</span>
+          </div>
+        </td>
+      </tr>
 
-      <div v-if="!sheets.length" class="cw-empty">
-        {{ pendingBomSchemes.length ? '尚无成本表，点击“新建成本表”从待核价 BOM 方案生成。' : '尚无成本表；请先在方案配置节点提交一个 BOM 方案。' }}
-      </div>
-    </div>
+    </RecordTable>
 
     <a-modal
       v-model:open="editorOpen"
@@ -500,6 +515,14 @@ function returnSheet(sheet: CostSheet) {
         </div>
       </div>
     </a-modal>
+    <AssigneePickerModal
+      v-model:value="pickerChosen"
+      :open="pickerOpen"
+      :title="pickerTitle"
+      :options="pickerOptions"
+      @confirm="confirmPicker()"
+      @cancel="cancelPicker()"
+    />
   </div>
 </template>
 
@@ -561,6 +584,28 @@ function returnSheet(sheet: CostSheet) {
 }
 .cw-footer-link.danger {
   color: var(--cpq-color-danger, #ff4d4f);
+}
+.row-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
+  color: var(--cpq-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.row-meta-item b {
+  font-weight: 500;
+  color: var(--cpq-text-muted);
+}
+.row-meta-item.muted {
+  color: var(--cpq-text-muted);
+  background: transparent;
+  border: none;
+  padding: 0 2px;
 }
 .cw-empty {
   grid-column: 1 / -1;

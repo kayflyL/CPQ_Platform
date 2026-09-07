@@ -93,7 +93,8 @@ def _install(monkeypatch, rounds, calls=None):
     it = iter(rounds)
 
     async def fake_stream(messages, tools=None, model=None, temperature=None,
-                          max_tokens=None, timeout=180.0, reasoning_effort=None):
+                          max_tokens=None, timeout=180.0, first_token_timeout=None,
+                          reasoning_effort=None):
         if calls is not None:
             calls.append(list(messages))
         try:
@@ -228,3 +229,36 @@ def test_max_iterations_forces_final(monkeypatch):
     assert out["answer"] == _chunks(events)
     assert len(reg.executed) == 4
     assert any("次数上限" in m["content"] for m in calls[-1])
+
+
+def test_truncated_marker_never_reaches_user(monkeypatch):
+    """length 截断：⚠️ 假正文不外推不落库，标记触发纠正重试。"""
+    rounds = [
+        [{"type": "reasoning", "delta": "思考烧完了"},
+         {"type": "content", "delta": "⚠️ 本轮输出因 token 上限被截断", "truncated": True}],
+        [{"type": "content", "delta": "精简思考后的正式回答。"}],
+    ]
+    calls = []
+    out, events, reg = _run(monkeypatch, rounds, calls=calls)
+    assert out["ok"] is True
+    assert out["answer"] == "精简思考后的正式回答。"
+    assert out["answer"] == _chunks(events)                 # ⚠️ 假正文没进 chunk 流
+    assert "⚠️" not in out["answer"]
+    tool_texts = [e["sub"]["text"] for e in events
+                  if e["type"] == "step_progress" and e["sub"].get("kind") == "tool"]
+    assert any("token 预算耗尽" in t for t in tool_texts)    # 截断状态对用户可见
+    assert any("预算耗尽" in m["content"] for m in calls[1])  # 纠正提示喂回模型（措辞覆盖 token/思考两种触发源）
+
+
+def test_retry_emits_visible_status(monkeypatch):
+    """空手失败重试：第二次尝试前先推「连接中断，正在重试」状态。"""
+    rounds = [
+        [llm.LLMError("proxy stall")],
+        [{"type": "content", "delta": "重试成功的回答。"}],
+    ]
+    out, events, reg = _run(monkeypatch, rounds)
+    assert out["ok"] is True
+    assert out["answer"] == "重试成功的回答。"
+    tool_texts = [e["sub"]["text"] for e in events
+                  if e["type"] == "step_progress" and e["sub"].get("kind") == "tool"]
+    assert any("连接中断" in t and "重试" in t for t in tool_texts)

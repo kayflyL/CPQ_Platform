@@ -16,6 +16,7 @@
 """
 import json
 import logging
+import time
 from typing import Any, Awaitable, Callable, Optional
 
 from app.services import llm_client
@@ -608,15 +609,14 @@ async def _run_native_tool_loop(
 # ── v2 流式对话协议（标签交错）：prose 默认流式外推，工具走 ```tool 围栏块 ──────────
 # 仅接聊天路径（skill_chat）；旧三循环（text/thinking/native）服务流程节点，行为不动。
 
-STREAM_CHAT_CONTRACT = (
-    "\n\n【输出格式（流式对话）】\n"
-    "- 你的正文会实时展示给用户：直接面向用户写自然中文，不要输出 JSON，不要用 action/final 等字段包装。\n"
-    "- 需要调用工具时：先用一两句话告诉用户你要做什么，然后另起一行输出工具块，"
-    "工具块必须是本轮输出的最后内容（其后不要再写字）：\n"
-    "```tool\n{\"name\": \"工具名\", \"args\": {}}\n```\n"
-    "- 工具结果会以「工具 X 返回：{...}」回传，据此继续：可以再调工具，也可以直接写最终回复。\n"
-    "- 最终回复要完整成段、面向用户；工具未返回的数据（型号/价格/规格）严禁编造。\n"
-)
+def _stream_chat_contract() -> str:
+    """需求分析聊天路径的系统提示词片段（流式输出协议）。
+
+    权威值在 system_config.skill_prompts（DB-first），前端「提示词」面板可编辑；
+    权威值在 system_config.skill_prompts（DB），前端「提示词」面板可编辑。
+    """
+    from app.services.skill_prompts import get_stream_chat_contract
+    return get_stream_chat_contract()
 
 _TOOL_FENCE_OPEN = "```tool"
 _FENCE_CLOSE = "```"
@@ -711,8 +711,15 @@ async def run_stream_chat_loop(
     tool_guard: Optional[Callable[[str, dict, Any], Awaitable[Any]]] = None,
     max_iterations: int = 6,
     llm_timeout: float = 60.0,
+    llm_first_token_timeout: float = 30.0,
     llm_reasoning_effort: Optional[str] = None,
     llm_temperature: Optional[float] = None,
+    llm_max_tokens: Optional[int] = None,
+    context_block: Optional[str] = None,
+    # 思考看门狗阈值（字符）：deepseek 类 reasoning 模型健康思考常达数千字符，
+    # 2500 会把健康轮误判为「思考超预算」→ 走压缩重试 churn。抬到 6000 覆盖正常思考，
+    # 只拦真正病态（>6k 且零正文）的深思考轮；配合节点 180s 墙钟兜底，不会反而更慢。
+    llm_thinking_budget: int = 6000,
 ) -> dict:
     """聊天专用流式循环（v2 交错协议）。
 
@@ -721,6 +728,11 @@ async def run_stream_chat_loop(
     事件词汇（step_progress.step=react）：sub.kind=thinking(text)/chunk(delta)/tool(text,tool)。
     返回契约与 run_react_loop 一致；answer=已推送给用户的全部正文（落库与流式严格一致）。
     断流降级：中途中转断死时已流出的正文保留并按终答返回（半截回答好过黑屏重发）。
+    llm_max_tokens：单轮生成护栏——2026-09-06 E2E 实测 kp 大脑偶发单轮跑飞（52k 字符/
+    120s，生成循环直到供应商上限），传 cap 后截断标记触发既有「压缩重试」路径止血。
+    context_block：每轮变化的数据（登记表/候选池 JSON）走这里拼进尾部 user 消息，
+    system_prompt 必须逐字节稳定——同构造的调用共享最长前缀，上游 KV 缓存才能命中
+    （ChatGPT/Claude 的标准 prompt 结构：静态 system + 追加式上下文）。
     """
     base: dict = {"ok": False, "answer": "", "tool_calls_log": [], "thought_log": [],
                   "thinking": [], "iterations": 0}
@@ -738,7 +750,7 @@ async def run_stream_chat_loop(
         return base
 
     sys_prompt = (system_prompt or REACT_SYSTEM_PROMPT) \
-        + STREAM_CHAT_CONTRACT \
+        + _stream_chat_contract() \
         + "\n\n" + _format_catalog(registry) \
         + f"\n\n最多 {max_iterations} 次工具调用，尽快收敛。"
 
@@ -749,7 +761,10 @@ async def run_stream_chat_loop(
             content = (m or {}).get("content") if isinstance(m, dict) else None
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": str(content)})
-    messages.append({"role": "user", "content": str(user_text or "").strip()})
+    user_tail = str(user_text or "").strip()
+    if context_block and context_block.strip():
+        user_tail = context_block.strip() + "\n\n" + user_tail
+    messages.append({"role": "user", "content": user_tail})
 
     try:
         max_iter = max(1, int(max_iterations))
@@ -766,30 +781,65 @@ async def run_stream_chat_loop(
             pass
 
     async def _stream_round() -> tuple:
-        """跑一轮流式生成，返回 (本轮已外推正文, 工具调用 dict|None, 是否有坏围栏)。
+        """跑一轮流式生成，返回 (本轮已外推正文, 工具调用 dict|None, 是否有坏围栏, 是否token耗尽截断)。
 
         reasoning 增量边收边推 thinking 事件；正文经解析器边收边推 chunk 事件。
         失败语义：还没有任何正文时抛 LLMError（上层重试/终止）；已有正文后断流
         → 返回已有内容按终答处理（断流降级，半截答案也可见）。
+        length 截断：finish_reason=length 时 llm 层会补一条带 truncated 标记的 ⚠️
+        假正文——这里拦下不进解析器（不落库不外推），只留标记交给上层纠正重试。
+        思考看门狗：思考流超预算（llm_thinking_budget 字符）且正文未开始 → 主动断流
+        置 truncated 走同一条「压缩思考重试」路。2026-09-06 实测代理对流式请求的
+        reasoning_effort ~50% 被忽略，随机掉进深思考档（8-10k 字符思考文本），
+        健康思考只有几百字符——阈值切在两者之间，unlucky 轮从 ~40s 砍到 ~15s。
         """
         parser = _InterleavedParser()
+        truncated = False
+        thinking_over = False
+        # O0 逐调用可观测：单轮 LLM 调用的墙钟/字符量（skill 链路有 trace 上下文才落库）
+        _t0 = time.perf_counter()
+        _prompt_chars = sum(len(str((m or {}).get("content") or "")) for m in messages)
+        _gen_chars = 0
+        _think_chars = 0
+        _err = ""
         try:
-            async for item in llm_client.stream_agent_chat(
+            stream = llm_client.stream_agent_chat(
                     messages, model=model, timeout=llm_timeout,
-                    temperature=llm_temperature, reasoning_effort=llm_reasoning_effort):
+                    first_token_timeout=llm_first_token_timeout,
+                    temperature=llm_temperature, reasoning_effort=llm_reasoning_effort,
+                    max_tokens=llm_max_tokens)
+            async for item in stream:
                 t = item.get("type")
                 d = item.get("delta") or ""
                 if t == "reasoning":
                     if d:
+                        _gen_chars += len(str(d))
+                        _think_chars += len(str(d))
                         await _emit("thinking", text=d)
+                        if _think_chars > llm_thinking_budget and not parser.prose:
+                            thinking_over = True
+                            break
                 elif t == "content":
+                    if item.get("truncated"):
+                        truncated = True
+                        await _emit("tool", text="模型本轮 token 预算耗尽，正在重试…")
+                        continue
+                    _gen_chars += len(str(d))
                     chunk_out = parser.feed(str(d))
                     if chunk_out:
                         await _emit("chunk", delta=chunk_out)
+            await stream.aclose()
         except llm_client.LLMError as e:
+            _err = str(e)
             if not parser.prose:
+                from app.services.llm_trace import trace_llm_call
+                trace_llm_call((time.perf_counter() - _t0) * 1000, _prompt_chars,
+                               _gen_chars, status="error", error=_err)
                 raise
             logger.warning("stream chat 中途断流，保留已生成正文（%s 字）: %s", len(parser.prose), e)
+        if thinking_over:
+            truncated = True
+            await _emit("tool", text="思考超预算，正在压缩后重试…")
         parser.close()
         call = None
         fence = parser.fence_text
@@ -801,22 +851,27 @@ async def run_stream_chat_loop(
             if isinstance(data, dict) and str(data.get("name") or "").strip():
                 call = data
         bad_fence = bool(fence) and call is None
-        return parser.prose, call, bad_fence
+        from app.services.llm_trace import trace_llm_call
+        trace_llm_call((time.perf_counter() - _t0) * 1000, _prompt_chars, _gen_chars,
+                       status="error" if _err else "ok", error=_err)
+        return parser.prose, call, bad_fence, truncated
 
     async def _stream_round_retry() -> tuple:
         try:
             return await _stream_round()
         except llm_client.LLMError:
             # 空手失败才重试一次；已有正文流出的断流在 _stream_round 内已按半截答案兜底
+            await _emit("tool", text="模型连接中断，正在重试（1/2）…")
             return await _stream_round()
 
     # 不变量：answer = 已推给用户的全部正文（跨轮累积），与 chunk 事件流严格一致——
     # done 后落库的消息必须与用户在流式气泡里看到的逐字相同
     all_prose: list = []
+    trunc_streak = 0  # 连续「截断且零产出」轮计数：预算固定时重试不收敛，两连即止损
     for i in range(max_iter):
         base["iterations"] = i + 1
         try:
-            prose, call, bad_fence = await _stream_round_retry()
+            prose, call, bad_fence, truncated = await _stream_round_retry()
         except llm_client.LLMError as e:
             # 两连空手失败：已流出过正文则按断流降级保留（不变量优先），否则报错终态
             partial = "".join(all_prose)
@@ -829,6 +884,8 @@ async def run_stream_chat_loop(
                 await _emit("error", text=f"流式对话失败：{e}")
             return base
         all_prose.append(prose)
+        if not truncated or prose.strip():
+            trunc_streak = 0
 
         if call is not None:
             name = str(call.get("name") or "").strip()
@@ -870,6 +927,23 @@ async def run_stream_chat_loop(
                                         "请重新输出工具块，或直接面向用户写最终回复。"})
             continue
 
+        if truncated and not prose.strip():
+            # token 预算耗尽/思考超预算整轮空手：要求模型压缩思考直接给结果（⚠️假正文已拦下未落库）。
+            # 两连空手截断即止损返回：「压缩思考」纠正指令压不住 relay 忽略 effort 的深思考，
+            # 继续重试只是烧调用（2026-09-06 实测 31s 烧 10 轮调用零产出）。
+            trunc_streak += 1
+            if trunc_streak >= 2:
+                logger.warning("stream chat 连续 %d 轮空手截断，止损退出（思考预算内无法收敛）", trunc_streak)
+                partial = "".join(all_prose)
+                if partial.strip():
+                    base["ok"] = True
+                    base["answer"] = partial
+                return base
+            messages.append({"role": "user",
+                             "content": "上一轮因预算耗尽（思考过长）没有产出任何内容。"
+                                        "请大幅精简思考过程，直接给出最终结果。"})
+            continue
+
         if prose.strip():
             base["ok"] = True
             base["answer"] = "".join(all_prose)
@@ -882,7 +956,7 @@ async def run_stream_chat_loop(
     messages.append({"role": "user",
                      "content": "已达到工具调用次数上限。请直接面向用户写最终回复，不要再输出工具块。"})
     try:
-        prose, _call, _bad = await _stream_round()
+        prose, _call, _bad, _trunc = await _stream_round()
         all_prose.append(prose)
     except llm_client.LLMError as e:
         logger.warning("stream chat 收尾轮失败: %s", e)

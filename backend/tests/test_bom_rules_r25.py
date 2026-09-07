@@ -57,14 +57,14 @@ def test_riser_gpu_all_x16():
 def test_riser_100g_nic_io1_x16():
     """R26：无 GPU 但有 100G 网卡（x16 卡）→ IO1 升级 x16、IO2 按标准（YC-0722 样本）。"""
     _set_cc({"standard_riser": _STD, "riser_x16": _X16})
-    d = _io_rows([{"category": "Network(NIC) requirement", "qty": 1, "hint": "100G 2port"}])
+    d = _io_rows([{"category": "NIC", "qty": 1, "hint": "100G 2port"}])
     assert d["IO1"] == "1*X16+1*X8 FHFL"
     assert d["IO2"] == "1*X8 FHFL"
 
 
 def test_riser_10g_nic_no_upgrade():
     _set_cc({"standard_riser": _STD, "riser_x16": _X16})
-    d = _io_rows([{"category": "Network(NIC) requirement", "qty": 1, "hint": "10G 2port"}])
+    d = _io_rows([{"category": "NIC", "qty": 1, "hint": "10G 2port"}])
     assert d == {"IO1": "1*X8 FHFL", "IO2": "1*X8 FHFL"}
 
 

@@ -42,6 +42,17 @@ def test_requirement_prompt_consent_contract():
     assert "客户已同意" in p2                       # 同意制不依赖步骤块存在
 
 
+def test_requirement_prompt_pre_task_hides_target_form():
+    """进任务前不碰目标表：slots=None（普通聊天/提议轮）不暴露登记表内容。"""
+    from app.services.skill_chat import requirement_prompt
+    p = requirement_prompt(None)
+    assert "存储服务器" not in p and "ES22V3-P" not in p
+    assert "禁止提前登记或填表" in p                 # 白盒声明：任务未开始没有登记表
+    # 任务回合（slots 传入）才暴露登记表视图
+    p_task = requirement_prompt({"server_type": "存储服务器", "server_model": "ES22V3-P"})
+    assert "存储服务器" in p_task and "ES22V3-P" in p_task
+
+
 def test_midrun_message_queued_not_rejected(monkeypatch):
     """任务执行中的消息=排队引导（串行续跑），不再是「请等它完成」式拒绝。"""
     from app.services import colleague_turn_service as svc

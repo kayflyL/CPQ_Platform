@@ -1,0 +1,15 @@
+{
+  "name": "模糊需求-AMD通用计算",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "enable_clarity": true,
+  "input": "需要通用计算服务器，AMD平台的。",
+  "answers": {
+    "server_type": "通用计算服务器",
+    "platform_type": "Polaris",
+    "server_model": "@pick:Polaris",
+    "brain_ask": "@recommend",
+    "GPU": "@absent"
+  },
+  "max_turns": 6
+}

@@ -43,3 +43,8 @@ export async function syncKpPrice(payload: { category: string; model: string; pr
   })
   return r.data
 }
+
+export async function normalizeKpCategory(category: string) {
+  const r = await api.get('/quote/kp/normalize-category', { params: { category } })
+  return r.data
+}

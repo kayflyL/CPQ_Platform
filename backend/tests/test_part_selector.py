@@ -5,7 +5,6 @@
 信号转成「交由 AI 选型」的缺口行；retrieve_part_candidates 返回库内真实候选池。
 """
 from app.services import part_selector as ps
-from app.services import requirement_rule_catalog as rc
 
 
 class _FakeRepo:
@@ -54,13 +53,6 @@ class _FakeRepo:
 
 def _stub(monkeypatch):
     monkeypatch.setattr(ps, "KPRepository", _FakeRepo)
-    monkeypatch.setattr(rc, "category_aliases", lambda *a, **k: {
-        "CPU": ["CPU", "处理器"],
-        "Memory": ["Memory", "内存"],
-        "HDD/SSD": ["HDD", "SSD", "硬盘", "存储"],
-        "GPU": ["GPU", "显卡"],
-        "Raid card": ["Raid", "RAID", "阵列卡"],
-    })
 
 
 def test_select_parts_emits_ai_ground_placeholder_for_cpu(monkeypatch):
@@ -88,7 +80,7 @@ def test_select_parts_emits_ai_ground_placeholder_for_raid_no_fake_fail(monkeypa
 def test_select_parts_emits_placeholder_per_drive_group(monkeypatch):
     """多个盘组各产一行缺口（容量×介质），交 AI 从候选选型。"""
     _stub(monkeypatch)
-    parts = ps.select_parts(categories=["HDD/SSD"], drives=[
+    parts = ps.select_parts(categories=["HDD/SSD"], storage=[
         {"term": "480G", "qty": 2, "kind": "SSD"},
         {"term": "6T", "qty": 4, "kind": "HDD"},
     ])
@@ -119,9 +111,6 @@ def test_resolve_part_alias_is_pure_name_search(monkeypatch):
 
 def test_list_kp_categories_returns_db_mapping(monkeypatch):
     monkeypatch.setattr(ps, "KPRepository", _FakeRepo)
-    monkeypatch.setattr(rc, "category_aliases", lambda *a, **k: {
-        "Memory": ["Memory", "内存"],
-    })
     cats = ps.list_kp_categories()
     memory = next(c for c in cats if c["key"] == "Memory")
     assert memory["db_category"] == "Memory"

@@ -23,9 +23,6 @@ from app.services.data_boundary import (
     normalize_boundary,
     normalize_colleague,
 )
-from app.services.skill_registry import (
-    DEFAULT_SKILL_BINDINGS as _DEFAULT_SKILL_BINDINGS,
-)
 from app.services.office_access import allowed_chat_role_keys
 
 router = APIRouter(prefix="/api/ai-colleagues", tags=["ai-colleagues"])
@@ -78,93 +75,112 @@ _DEFAULT_ROOMS = [
 ]
 
 _DEFAULT_OFFICE = {
-    "floor": {"width": 24, "depth": 16},
-    "workspace": {"width": 44, "depth": 26},
+    "floor": {"width": 22, "depth": 24},
+    "workspace": {"width": 24, "depth": 26},
     "zones": [
-        {
-            "id": "desk_zone",
-            "type": "desk",
-            "label": "工位区",
-            "aliases": ["工位", "座位", "自己的座位"],
-            "walk_target": "home",
-            "slots": [
-                {"id": "desk_1", "role_key": None, "position": {"x": -4.6, "z": -2.4}, "rotation_y": 0},
-                {"id": "desk_2", "role_key": None, "position": {"x": 0.0, "z": -2.4}, "rotation_y": 0},
-                {"id": "desk_3", "role_key": None, "position": {"x": 4.6, "z": -2.4}, "rotation_y": 0},
-                {"id": "desk_4", "role_key": None, "position": {"x": -4.6, "z": 2.4}, "rotation_y": 0},
-                {"id": "desk_5", "role_key": None, "position": {"x": 0.0, "z": 2.4}, "rotation_y": 0},
-                {"id": "desk_6", "role_key": None, "position": {"x": 4.6, "z": 2.4}, "rotation_y": 0},
-            ],
-        },
-        {
-            "id": "meeting_room",
-            "type": "meeting",
-            "label": "会议室",
-            "aliases": ["会议室", "会议区"],
-            "walk_target": "meeting",
-            "position": {"x": 18.5, "z": 0},
-            "radius": 4.2,
-            "capacity": 8,
-            "width": 10.5,
-            "depth": 6.2,
-            "room": True,
-            "door": {"side": "left", "offset": 0, "width": 1.4},
-            "slots": [
-                {"id": "meeting_1", "role_key": None, "position": {"x": 16.0, "z": 1.5}},
-                {"id": "meeting_2", "role_key": None, "position": {"x": 17.6, "z": 1.5}},
-                {"id": "meeting_3", "role_key": None, "position": {"x": 19.2, "z": 1.5}},
-                {"id": "meeting_4", "role_key": None, "position": {"x": 20.8, "z": 1.5}},
-                {"id": "meeting_5", "role_key": None, "position": {"x": 16.0, "z": -1.5}},
-                {"id": "meeting_6", "role_key": None, "position": {"x": 17.6, "z": -1.5}},
-                {"id": "meeting_7", "role_key": None, "position": {"x": 19.2, "z": -1.5}},
-                {"id": "meeting_8", "role_key": None, "position": {"x": 20.8, "z": -1.5}},
-            ],
-        },
-        {
-            "id": "public_zone",
-            "type": "public",
-            "label": "办公室公共区",
-            "aliases": ["办公室", "公共区", "办公区"],
-            "walk_target": "center",
-            "shape": "circle",
-            "position": {"x": 0, "z": 0},
-            "radius": 3.2,
-            "slots": [],
-        },
+        {"id": "desk_zone", "type": "desk", "label": "开放办公区", "aliases": ["办公区", "工位", "座位", "自己的座位"], "walk_target": "home", "position": {"x": 2.5, "z": -1.4}, "width": 17, "depth": 11.2},
+        {"id": "meeting_room", "type": "meeting", "label": "会议室", "aliases": ["会议室", "会议区"], "walk_target": "meeting", "position": {"x": 6, "z": 8.1}, "radius": 4.2, "capacity": 8, "width": 10, "depth": 7.8, "room": True, "glass": True, "door_to_wall": False, "door": {"side": "back", "offset": 0, "width": 1.6}},
+        {"id": "public_zone", "type": "public", "label": "接待区", "aliases": ["接待区", "前台", "公共区", "办公区"], "walk_target": "center", "shape": "rect", "position": {"x": -5, "z": 8.1}, "width": 12, "depth": 7.8, "room": True},
+        {"id": "tea", "type": "lounge", "label": "茶水间", "aliases": ["茶水间"], "walk_target": "center", "position": {"x": -8, "z": -10.2}, "width": 6, "depth": 3.6, "room": True},
+        {"id": "rest", "type": "lounge", "label": "休息区", "aliases": ["休息区"], "walk_target": "center", "position": {"x": 3, "z": -10.2}, "width": 16, "depth": 3.6, "room": True},
+        {"id": "off1", "type": "office", "label": "办公室1", "aliases": ["办公室1"], "walk_target": "center", "position": {"x": -8.5, "z": -5.2}, "width": 5, "depth": 3.6, "room": True, "door": {"side": "right", "offset": 0, "width": 1.2}},
+        {"id": "off2", "type": "office", "label": "办公室2", "aliases": ["办公室2"], "walk_target": "center", "position": {"x": -8.5, "z": -1.6}, "width": 5, "depth": 3.6, "room": True, "door": {"side": "right", "offset": 0, "width": 1.2}},
+        {"id": "off3", "type": "office", "label": "办公室3", "aliases": ["办公室3"], "walk_target": "center", "position": {"x": -8.5, "z": 2.2}, "width": 5, "depth": 4.0, "room": True, "door": {"side": "right", "offset": 0, "width": 1.2}}
     ],
     "furniture_catalog": [
-        {"type": "desk", "label": "办公桌", "category": "desk", "width": 1.75, "depth": 0.95, "height": 1.45, "rotatable": True},
-        {"type": "office_chair", "label": "办公椅", "category": "chair", "width": 0.6, "depth": 0.62, "height": 1.1, "rotatable": True},
-        {"type": "meeting_table", "label": "会议长桌", "category": "meeting", "width": 6.0, "depth": 1.4, "height": 0.72, "rotatable": True},
-        {"type": "meeting_chair", "label": "会议椅", "category": "chair", "width": 0.55, "depth": 0.55, "height": 0.95, "rotatable": True},
-        {"type": "plant", "label": "绿植", "category": "plant", "width": 0.55, "depth": 0.55, "height": 1.4, "rotatable": False},
-        {"type": "bookshelf", "label": "书架", "category": "storage", "width": 1.4, "depth": 0.5, "height": 2.1, "rotatable": True},
-        {"type": "coffee_bar", "label": "茶水吧台", "category": "storage", "width": 1.6, "depth": 0.72, "height": 1.3, "rotatable": True},
-        {"type": "lounge_sofa", "label": "休息沙发", "category": "lounge", "width": 2.0, "depth": 0.9, "height": 0.9, "rotatable": True},
-        {"type": "whiteboard", "label": "白板", "category": "meeting", "width": 2.1, "depth": 0.08, "height": 1.25, "rotatable": True},
-        {"type": "art", "label": "装饰画", "category": "decor", "width": 0.95, "depth": 0.06, "height": 0.7, "rotatable": True}
+    {"type":"desk","label":"办公桌","category":"desk","width":1.75,"depth":0.95,"height":1.45,"rotatable":True},
+    {"type":"office_chair","label":"办公椅","category":"chair","width":0.6,"depth":0.62,"height":1.1,"rotatable":True},
+    {"type":"meeting_table","label":"会议长桌","category":"meeting","width":4,"depth":1.2,"height":0.72,"rotatable":True},
+    {"type":"meeting_chair","label":"会议椅","category":"chair","width":0.55,"depth":0.55,"height":0.95,"rotatable":True},
+    {"type":"plant","label":"绿植","category":"plant","width":0.55,"depth":0.55,"height":1.4,"rotatable":False},
+    {"type":"bookshelf","label":"书架","category":"storage","width":1.4,"depth":0.5,"height":2.1,"rotatable":True},
+    {"type":"coffee_bar","label":"茶水吧台","category":"storage","width":1.6,"depth":0.72,"height":1.3,"rotatable":True},
+    {"type":"lounge_sofa","label":"休息沙发","category":"lounge","width":2,"depth":0.9,"height":0.9,"rotatable":True},
+    {"type":"whiteboard","label":"白板","category":"meeting","width":2.1,"depth":0.08,"height":1.25,"rotatable":True},
+    {"type":"art","label":"装饰画","category":"decor","width":0.95,"depth":0.06,"height":0.7,"rotatable":True},
+    {"type":"rug","label":"地毯","category":"decor","width":2.4,"depth":1.8,"height":0.02,"rotatable":True},
+    {"type":"partition","label":"工位隔断","category":"desk","width":0.9,"depth":0.12,"height":1.4,"rotatable":True},
+    {"type":"fridge","label":"冰箱","category":"storage","width":0.9,"depth":0.9,"height":1.9,"rotatable":True},
+    {"type":"coffee_table","label":"茶几","category":"lounge","width":0.8,"depth":0.8,"height":0.45,"rotatable":True},
+    {"type":"round_table","label":"圆桌","category":"lounge","width":1.1,"depth":1.1,"height":0.75,"rotatable":True},
+    {"type":"stool","label":"高脚凳","category":"chair","width":0.4,"depth":0.4,"height":0.7,"rotatable":True},
+    {"type":"reception_desk","label":"前台","category":"furniture","width":2.2,"depth":0.9,"height":1.1,"rotatable":True},
+    {"type":"coat_rack","label":"衣帽架","category":"decor","width":0.5,"depth":0.5,"height":1.8,"rotatable":True},
+    {"type":"tv","label":"电视","category":"decor","width":1.4,"depth":0.12,"height":0.9,"rotatable":True},
+    {"type":"file_cabinet","label":"文件柜","category":"storage","width":0.6,"depth":0.6,"height":1.1,"rotatable":True}
     ],
     "furniture": [
-        {"id": "plant_corner_bl", "type": "plant", "position": {"x": -10.8, "z": -6.8}, "rotation_y": 0},
-        {"id": "plant_corner_br", "type": "plant", "position": {"x": 10.8, "z": -6.8}, "rotation_y": 0},
-        {"id": "plant_corner_tl", "type": "plant", "position": {"x": -10.8, "z": 6.8}, "rotation_y": 0},
-        {"id": "plant_corner_tr", "type": "plant", "position": {"x": 10.8, "z": 6.8}, "rotation_y": 0},
-        {"id": "bookshelf_left_back", "type": "bookshelf", "position": {"x": -11.0, "z": -2.6}, "rotation_y": 0},
-        {"id": "bookshelf_left_front", "type": "bookshelf", "position": {"x": -11.0, "z": 2.6}, "rotation_y": 0},
-        {"id": "coffee_bar_right", "type": "coffee_bar", "position": {"x": 11.0, "z": 3.1}, "rotation_y": -1.57079632679},
-        {"id": "lounge_sofa_right", "type": "lounge_sofa", "position": {"x": 10.5, "z": -4.2}, "rotation_y": -1.57079632679},
-        {"id": "whiteboard_meeting", "type": "whiteboard", "position": {"x": 18.5, "z": -2.85}, "rotation_y": 0},
-        {"id": "art_meeting", "type": "art", "position": {"x": 23.4, "z": 0}, "rotation_y": 1.57079632679}
+    {"id": "desk_o1", "type": "desk", "position": {"x": -3, "z": -5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o2", "type": "desk", "position": {"x": 0.5, "z": -5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o3", "type": "desk", "position": {"x": 4, "z": -5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o4", "type": "desk", "position": {"x": 7.5, "z": -5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o5", "type": "desk", "position": {"x": -3, "z": -1.5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o6", "type": "desk", "position": {"x": 0.5, "z": -1.5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o7", "type": "desk", "position": {"x": 4, "z": -1.5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o8", "type": "desk", "position": {"x": 7.5, "z": -1.5}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o9", "type": "desk", "position": {"x": -3, "z": 2}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o10", "type": "desk", "position": {"x": 0.5, "z": 2}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o11", "type": "desk", "position": {"x": 4, "z": 2}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "desk_o12", "type": "desk", "position": {"x": 7.5, "z": 2}, "rotation_y": 0, "zoneId": "desk_zone", "seat": True, "role_key": None},
+    {"id": "wb_o1", "type": "whiteboard", "position": {"x": 10.6, "z": -5}, "rotation_y": -1.5708, "zoneId": "desk_zone"},
+    {"id": "wb_o2", "type": "whiteboard", "position": {"x": 10.6, "z": -1.5}, "rotation_y": -1.5708, "zoneId": "desk_zone"},
+    {"id": "wb_o3", "type": "whiteboard", "position": {"x": 10.6, "z": 2}, "rotation_y": -1.5708, "zoneId": "desk_zone"},
+    {"id": "plant_o1", "type": "plant", "position": {"x": -5.5, "z": -6.5}, "rotation_y": 0, "zoneId": "desk_zone"},
+    {"id": "plant_o2", "type": "plant", "position": {"x": 10.5, "z": -6.5}, "rotation_y": 0, "zoneId": "desk_zone"},
+    {"id": "plant_o3", "type": "plant", "position": {"x": -5.5, "z": 3.6}, "rotation_y": 0, "zoneId": "desk_zone"},
+    {"id": "plant_o4", "type": "plant", "position": {"x": 10.5, "z": 3.6}, "rotation_y": 0, "zoneId": "desk_zone"},
+    {"id": "meeting_table", "type": "meeting_table", "position": {"x": 6, "z": 8.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": False},
+    {"id": "meeting_chair_1", "type": "meeting_chair", "position": {"x": 4.8, "z": 7.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_2", "type": "meeting_chair", "position": {"x": 6, "z": 7.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_3", "type": "meeting_chair", "position": {"x": 7.2, "z": 7.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_4", "type": "meeting_chair", "position": {"x": 4.8, "z": 9.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_5", "type": "meeting_chair", "position": {"x": 6, "z": 9.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_6", "type": "meeting_chair", "position": {"x": 7.2, "z": 9.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_7", "type": "meeting_chair", "position": {"x": 3.3, "z": 8.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "meeting_chair_8", "type": "meeting_chair", "position": {"x": 8.7, "z": 8.1}, "rotation_y": 0, "zoneId": "meeting_room", "seat": True, "role_key": None},
+    {"id": "whiteboard_meeting", "type": "whiteboard", "position": {"x": 10.6, "z": 8.1}, "rotation_y": -1.5708, "zoneId": "meeting_room"},
+    {"id": "coffee_bar_tea", "type": "coffee_bar", "position": {"x": -9.9, "z": -9.4}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "fridge_tea", "type": "fridge", "position": {"x": -10.3, "z": -11.2}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "round_table_tea", "type": "round_table", "position": {"x": -7.2, "z": -10.0}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "stool_tea_1", "type": "stool", "position": {"x": -6.55, "z": -9.35}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "stool_tea_2", "type": "stool", "position": {"x": -7.85, "z": -9.35}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "stool_tea_3", "type": "stool", "position": {"x": -6.55, "z": -10.65}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "stool_tea_4", "type": "stool", "position": {"x": -7.85, "z": -10.65}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "plant_tea", "type": "plant", "position": {"x": -10.4, "z": -11.4}, "rotation_y": 0, "zoneId": "tea"},
+    {"id": "lounge_sofa_rest_1", "type": "lounge_sofa", "position": {"x": -2.5, "z": -9.8}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "coffee_table_rest_1", "type": "coffee_table", "position": {"x": -2.5, "z": -9.0}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "lounge_sofa_rest_2", "type": "lounge_sofa", "position": {"x": 5.5, "z": -9.8}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "coffee_table_rest_2", "type": "coffee_table", "position": {"x": 5.5, "z": -9.0}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "round_table_rest", "type": "round_table", "position": {"x": 3, "z": -9.6}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "stool_rest_1", "type": "stool", "position": {"x": 3.65, "z": -9.0}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "stool_rest_2", "type": "stool", "position": {"x": 2.35, "z": -9.0}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "stool_rest_3", "type": "stool", "position": {"x": 3.65, "z": -10.2}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "stool_rest_4", "type": "stool", "position": {"x": 2.35, "z": -10.2}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "tv_rest", "type": "tv", "position": {"x": 10.7, "z": -10.2}, "rotation_y": -1.5708, "zoneId": "rest"},
+    {"id": "plant_rest_1", "type": "plant", "position": {"x": -4.6, "z": -11.6}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "plant_rest_2", "type": "plant", "position": {"x": 1.0, "z": -11.6}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "plant_rest_3", "type": "plant", "position": {"x": 7.5, "z": -11.5}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "plant_rest_4", "type": "plant", "position": {"x": 10.6, "z": -8.9}, "rotation_y": 0, "zoneId": "rest"},
+    {"id": "desk_off1", "type": "desk", "position": {"x": -8.5, "z": -6.2}, "rotation_y": 0, "zoneId": "off1", "seat": True, "role_key": None},
+    {"id": "whiteboard_off1", "type": "whiteboard", "position": {"x": -8.5, "z": -6.85}, "rotation_y": 0, "zoneId": "off1"},
+    {"id": "desk_off2", "type": "desk", "position": {"x": -8.5, "z": -2.55}, "rotation_y": 0, "zoneId": "off2", "seat": True, "role_key": None},
+    {"id": "whiteboard_off2", "type": "whiteboard", "position": {"x": -8.5, "z": -3.25}, "rotation_y": 0, "zoneId": "off2"},
+    {"id": "desk_off3", "type": "desk", "position": {"x": -8.5, "z": 1.25}, "rotation_y": 0, "zoneId": "off3", "seat": True, "role_key": None},
+    {"id": "whiteboard_off3", "type": "whiteboard", "position": {"x": -8.5, "z": 0.35}, "rotation_y": 0, "zoneId": "off3"},
+    {"id": "reception_desk", "type": "reception_desk", "position": {"x": -4.0, "z": 9.4}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "chair_reception", "type": "office_chair", "position": {"x": -4.0, "z": 8.4}, "rotation_y": 0, "zoneId": "public_zone", "seat": True, "role_key": None},
+    {"id": "brand_wall", "type": "tv", "position": {"x": -4.0, "z": 6.6}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "rug_reception", "type": "rug", "position": {"x": -7.6, "z": 9.4}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "lounge_sofa_reception", "type": "lounge_sofa", "position": {"x": -8.7, "z": 9.4}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "coffee_table_reception", "type": "coffee_table", "position": {"x": -7.1, "z": 9.4}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "coat_rack_reception", "type": "coat_rack", "position": {"x": -10.6, "z": 11.3}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "plant_rec_1", "type": "plant", "position": {"x": -10.5, "z": 4.7}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "plant_rec_2", "type": "plant", "position": {"x": 0.6, "z": 4.7}, "rotation_y": 0, "zoneId": "public_zone"},
+    {"id": "plant_rec_3", "type": "plant", "position": {"x": 0.6, "z": 11.4}, "rotation_y": 0, "zoneId": "public_zone"},
     ],
     "status_zone_map": {
-        "working": "desk_zone",
-        "thinking": "desk_zone",
-        "waiting_input": "desk_zone",
-        "done": "desk_zone",
-        "idle": "desk_zone",
-        "meeting": "meeting_room",
-    "public": "public_zone",
-        "error": "desk_zone",
+        "working": "desk_zone", "thinking": "desk_zone", "waiting_input": "desk_zone", "done": "desk_zone", "idle": "desk_zone",
+        "meeting": "meeting_room", "public": "public_zone", "error": "desk_zone"
     },
     "character_models": [
         "/models/ai-colleagues/kenney-mini/character-male-a.glb",
@@ -172,10 +188,9 @@ _DEFAULT_OFFICE = {
         "/models/ai-colleagues/kenney-mini/character-male-b.glb",
         "/models/ai-colleagues/kenney-mini/character-female-b.glb",
         "/models/ai-colleagues/kenney-mini/character-male-c.glb",
-        "/models/ai-colleagues/kenney-mini/character-female-c.glb",
-    ],
+        "/models/ai-colleagues/kenney-mini/character-female-c.glb"
+    ]
 }
-
 _DEFAULT_MEETING_ZONE = copy.deepcopy(_DEFAULT_OFFICE["zones"][1])
 _DEFAULT_PUBLIC_ZONE = copy.deepcopy(_DEFAULT_OFFICE["zones"][2])
 
@@ -455,6 +470,37 @@ def _migrate_office_layout(office: dict) -> None:
     if isinstance(status_zone_map, dict):
         status_zone_map.setdefault("public", "public_zone")
 
+    _migrate_meeting_room_furniture(office)
+
+
+
+def _migrate_meeting_room_furniture(office: dict) -> None:
+    """把旧的超大会议桌布局（6m 桌 + 椅子在 x=4/8 桌头）收敛为 4m 桌布局。
+
+    只在检测到与旧默认完全一致的椅子摆法时迁移，避免覆盖用户后续的自定义编辑。
+    """
+    furniture = office.get("furniture")
+    if not isinstance(furniture, list):
+        return
+    meeting = [item for item in furniture if isinstance(item, dict) and item.get("zoneId") == "meeting_room"]
+    chairs = [item for item in meeting if item.get("type") == "meeting_chair"]
+    if len(chairs) < 6:
+        return
+    # 旧默认：两排椅子分别位于 z=-7 / z=-4，x 取 4/6/8
+    xs = {(round(c.get("position", {}).get("x") or 0), round(c.get("position", {}).get("z") or 0)) for c in chairs}
+    legacy_near = {(4, -7), (6, -7), (8, -7)}
+    legacy_far = {(4, -4), (6, -4), (8, -4)}
+    if not (legacy_near.issubset(xs) and legacy_far.issubset(xs)):
+        return
+    # 新默认：端头椅子内收到 5/7，与 4m 桌长边对齐
+    xmap = {4: 5, 8: 7}
+    for chair in chairs:
+        pos = chair.get("position")
+        if not isinstance(pos, dict):
+            continue
+        x = round(pos.get("x") or 0)
+        if x in xmap and round(pos.get("z") or 0) in (-7, -4):
+            pos["x"] = xmap[x]
 
 def _normalize_behavior_profile(profile: Any) -> dict:
     default_profile = copy.deepcopy(_DEFAULT_BEHAVIOR_PROFILE)
@@ -535,21 +581,6 @@ def _read_config(repo: SystemConfigRepository) -> dict:
     if not isinstance(cfg.get("colleagues"), list):
         cfg["colleagues"] = []
     config_changed = False
-    cfg_version = int(cfg.get("version") or 1)
-    if cfg_version < 2:
-        for colleague in cfg.get("colleagues", []):
-            if not isinstance(colleague, dict):
-                continue
-            role_key = str(colleague.get("role_key") or "").strip()
-            refs = colleague.get("skills")
-            if isinstance(refs, list) and refs:
-                continue
-            defaults = _DEFAULT_SKILL_BINDINGS.get(role_key)
-            if defaults:
-                colleague["skills"] = list(defaults)
-                config_changed = True
-        cfg["version"] = 2
-        config_changed = True
     for colleague in cfg.get("colleagues", []):
         if isinstance(colleague, dict):
             if _migrate_colleague_legacy(colleague):
@@ -585,6 +616,11 @@ def _read_config(repo: SystemConfigRepository) -> dict:
         if key not in office:
             office[key] = copy.deepcopy(default_value)
     _migrate_office_layout(office)
+    # 家具 catalog 以代码内默认值为单一事实源：读取时始终刷新，避免 DB 遗留旧尺寸导致前后端渲染/编辑/寻路不一致。
+    default_catalog = copy.deepcopy(_DEFAULT_OFFICE.get("furniture_catalog") or [])
+    if office.get("furniture_catalog") != default_catalog:
+        office["furniture_catalog"] = default_catalog
+        config_changed = True
     colleague_keys = {c.get("role_key") for c in (cfg.get("colleagues") or []) if isinstance(c, dict) and c.get("role_key")}
     team_graph = cfg["layout"].get("team_graph")
     if not isinstance(team_graph, dict):
@@ -942,6 +978,17 @@ def update_layout(data: LayoutUpdate, manager: dict = Depends(require_ai_office_
     finally:
         repo.close()
 
+
+@router.post("/layout/reset-office")
+def reset_layout_office(manager: dict = Depends(require_ai_office_manage)):
+    repo = SystemConfigRepository()
+    try:
+        cfg = _read_config(repo)
+        cfg.setdefault("layout", {})["office"] = copy.deepcopy(_DEFAULT_OFFICE)
+        _write_config(repo, cfg)
+        return {"layout": cfg["layout"]}
+    finally:
+        repo.close()
 
 @router.put("/behavior")
 def update_behavior(data: BehaviorUpdate, manager: dict = Depends(require_ai_office_manage)):

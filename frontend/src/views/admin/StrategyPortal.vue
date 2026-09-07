@@ -1,4 +1,5 @@
 <script setup lang="ts">
+defineOptions({ name: 'StrategyPortal' })
 /** 解决方案门户(/strategies)—— 两排结构。
  *  第一排:需求分析 / 选型配置 / 报价策略 模块卡;
  *  第二排:解决方案库(按场景分类的方案卡片 + 独立详情页)。 */

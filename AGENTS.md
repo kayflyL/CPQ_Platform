@@ -48,8 +48,3 @@ This repository is indexed by CodeGraph — `.codegraph/` exists at the repo roo
 - 会话断了不丢上下文：重开发「继续」接上即可，勿重建会话。
 - 已在 `~/.claude/settings.json` 落地：`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`（砍后台非必要调用）、`API_TIMEOUT_MS=600000`（防长思考被客户端误杀）。
 - failover 尚无备胎：claude / claude-desktop 应用仅有 cloudprime 一家（codex 已配「公司→公司 copy」自动切换可参照）；完整根因调研存于 Claude 记忆 `cc-switch-502-root-causes`。
-
-
-## 当前执行计划（每次会话先读）
-
-AI Office 整改方案与执行清单已写入 `AI_OFFICE_PLAN.md`。开工前先读取该文件，按其中步骤执行；用户已要求“先记录再执行”，但具体代码改动仍按本文件协作规则逐项确认后推进。

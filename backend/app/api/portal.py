@@ -61,6 +61,8 @@ _APPROVAL_NODES = [
     {"key": "quoting", "label": "报价单", "default_assignee": "市场报价"},
 ]
 
+_ASSIGNEE_REQUIRED_DETAIL = "下游处理人未配置，请选择"
+
 
 def _svc(opp_id: str, user: Optional[dict] = None) -> tuple[dict, dict]:
     """商机 + 流程（无流程自动建）；404 早退。"""
@@ -472,7 +474,6 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
         for card in card_repo.list_cards(opp_id):
             if not _card_visible_to_user(card, user):
                 continue
-            card["can_claim"] = _can_claim_card(card, user)
             flow_cards.append(card)
     finally:
         card_repo.close()
@@ -481,15 +482,26 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     try:
         quotes = quote_repo.get_by_opportunity(opp_id)
         exported_quote_ids = {q.quotation_id for q in quotes if getattr(q, "exported_at", None)}
+        active_quote_ids = {q.quotation_id for q in quotes}
         for sheet in cost_sheets:
             sheet["quotation_exported"] = bool(
                 sheet.get("quotation_id") and sheet["quotation_id"] in exported_quote_ids
             )
+            sheet["quotation_deleted"] = bool(
+                sheet.get("quotation_id") and sheet["quotation_id"] not in active_quote_ids
+            )
         final = next((q for q in quotes if getattr(q, "exported_at", None)), None)
         selected = final or (quotes[0] if quotes else None)
+
+        # 报价/成本/BOM 段是否走“旧报价单兜底”分支：只有完全没有成本表、也没有
+        # BOM 方案时，才需要用 load_preview_data 从明细重新汇总；否则直接用成本表/
+        # BOM 方案里已存的快照，避免每次进详情页都全量白算报价段。
+        flow_cost_sheet = _current_cost_sheet_for_quote(cost_sheets, selected)
+        flow_bom_scheme = _current_bom_scheme_for_sheet(bom_schemes, flow_cost_sheet)
+
         bom_configs = []
         cost_configs = []
-        if selected:
+        if selected and flow_cost_sheet is None and flow_bom_scheme is None:
             preview = load_preview_data(opp_id, selected.quotation_id)
             preview_configs = preview.get("configs") or []
             summary_by_name = {
@@ -635,8 +647,6 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
     final_dict = _mask_quote_if_needed(final.to_dict(), user) if final else None
     cost_snapshot = None if not cost_visible else (selected.cost_snapshot if selected else None)
 
-    flow_cost_sheet = _current_cost_sheet_for_quote(cost_sheets, selected)
-    flow_bom_scheme = _current_bom_scheme_for_sheet(bom_schemes, flow_cost_sheet)
     if flow_cost_sheet:
         cost_source = flow_cost_sheet.get("configs") or []
         bom_source = (flow_bom_scheme or {}).get("configs") or cost_source
@@ -669,6 +679,7 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
             "status": sheet.get("status"),
             "quotation_id": sheet.get("quotation_id"),
             "quotation_exported": bool(sheet.get("quotation_exported")),
+            "quotation_deleted": bool(sheet.get("quotation_deleted")),
             "bom_configs": [
                 _sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)
             ],
@@ -725,6 +736,36 @@ class CardApproveBody(BaseModel):
     reason: str = ""
 
 
+class SubmitAssigneeBody(BaseModel):
+    assignee_name: str = ""
+
+
+def _assign_if_unset(flow_repo: FlowRepository, opp_id: str,
+                     node_key: str, assignee_name: str, actor: str) -> None:
+    """提交推进后，若下游节点未配置处理人且调用方提供了人选，则写入指派。"""
+    if not assignee_name:
+        return
+    flow = flow_repo.get_flow(opp_id) or {}
+    if (flow.get("current_node") or "") != node_key:
+        return
+    if (flow.get("assignees") or {}).get(node_key):
+        return
+    flow_repo.assign_task(flow["flow_id"], node_key, assignee_name, actor=actor)
+
+
+def _ensure_downstream_assignee(flow_repo: FlowRepository, opp_id: str,
+                                node_key: str, assignee_name: str) -> None:
+    """提交前校验：下游节点默认处理人为空且调用方未提供人选时，要求先选择。"""
+    if assignee_name:
+        return
+    flow = flow_repo.get_flow(opp_id) or {}
+    if (flow.get("assignees") or {}).get(node_key):
+        return
+    if flow_repo.resolve_node_assignee(opp_id, node_key):
+        return
+    raise HTTPException(status_code=409, detail=_ASSIGNEE_REQUIRED_DETAIL)
+
+
 def _card_visible_to_user(card: dict, user: dict) -> bool:
     if _portal_is_admin(user):
         return True
@@ -737,19 +778,6 @@ def _card_visible_to_user(card: dict, user: dict) -> bool:
         return role == _CARD_NODE_ROLE.get(current)
     return role == _CARD_NODE_ROLE.get(origin) or role == _CARD_NODE_ROLE.get(current)
 
-
-def _can_claim_card(card: dict, user: dict) -> bool:
-    """认领权限只由后端判定，前端不复制角色-节点映射。"""
-    if not user or card.get("assignee_name"):
-        return False
-    if card.get("flow_status") not in {"submitted", "processing"}:
-        return False
-    if _portal_is_admin(user):
-        return True
-    node = card.get("current_node") or card.get("origin_node") or "requirement"
-    return user.get("role") == _CARD_NODE_ROLE.get(node)
-
-
 @router.get("/api/portal/opp/{opp_id}/cards")
 def list_portal_cards(opp_id: str, user: dict = Depends(get_current_user)):
     """商机卡片队列：路由元数据；业务内容仍由各交付物接口按权限裁剪。"""
@@ -761,27 +789,6 @@ def list_portal_cards(opp_id: str, user: dict = Depends(get_current_user)):
         repo.close()
     cards = [c for c in cards if _card_visible_to_user(c, user)]
     return {"cards": cards}
-
-
-@router.post("/api/portal/opp/{opp_id}/cards/{card_id}/claim")
-def claim_portal_card(opp_id: str, card_id: int, user: dict = Depends(get_current_user)):
-    _svc(opp_id, user)
-    repo = FlowCardRepository()
-    try:
-        card = repo.get_card(card_id)
-        if not card or card.get("opportunity_id") != opp_id:
-            raise HTTPException(status_code=404, detail="流转卡不存在")
-        required_role = _CARD_NODE_ROLE.get(card.get("current_node") or "requirement")
-        if not _portal_is_admin(user) and user.get("role") != required_role:
-            raise HTTPException(status_code=403, detail="当前角色无权认领该卡")
-        updated = repo.claim_card(card_id, user.get("name") or "")
-        if updated:
-            updated["can_claim"] = _can_claim_card(updated, user)
-        return {"card": updated}
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-    finally:
-        repo.close()
 
 
 @router.post("/api/portal/opp/{opp_id}/cards/{card_id}/return")
@@ -802,9 +809,20 @@ def return_portal_card(opp_id: str, card_id: int, body: CardReturnBody,
             raise HTTPException(status_code=400, detail="当前节点不支持退回")
         if not user_has_permission(user, _RETURN_PERMS.get(from_node, "")):
             raise HTTPException(status_code=403, detail="无权限退回该卡")
+        if from_node == "quoting":
+            quote_entities = [e.get("entity_id") for e in card.get("entities") or [] if e.get("entity_type") == "quote"]
+            if quote_entities:
+                quote_repo = QuotationRepository()
+                try:
+                    raw_quote = quote_repo.get_raw_by_id(str(quote_entities[0]))
+                finally:
+                    quote_repo.close()
+                if raw_quote and raw_quote.status == "active" and raw_quote.source != "worktable":
+                    raise HTTPException(
+                        status_code=409,
+                        detail="该报价单已转为正式报价单，请先删除报价单再退回成本表",
+                    )
         updated = repo.return_card(card_id, target_node, user.get("name") or "", body.comment)
-        if updated:
-            updated["can_claim"] = _can_claim_card(updated, user)
         repo.revert_card_deliverables(card_id, from_node)
 
         flow_repo = FlowRepository()
@@ -840,8 +858,6 @@ def request_withdraw_portal_card(opp_id: str, card_id: int, body: CardWithdrawBo
         if not _portal_is_admin(user) and card.get("created_by") not in {"", user.get("name") or ""}:
             raise HTTPException(status_code=403, detail="只有该卡发起人可申请撤回")
         updated = repo.request_withdraw(card_id, body.comment)
-        if updated:
-            updated["can_claim"] = _can_claim_card(updated, user)
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -865,8 +881,6 @@ def approve_withdraw_portal_card(opp_id: str, card_id: int, user: dict = Depends
         if not target_node:
             raise HTTPException(status_code=400, detail="当前节点不支持撤回")
         updated = repo.approve_withdraw(card_id, target_node)
-        if updated:
-            updated["can_claim"] = _can_claim_card(updated, user)
         repo.revert_card_deliverables(card_id, from_node)
         return {"card": updated}
     except ValueError as exc:
@@ -888,8 +902,6 @@ def reject_withdraw_portal_card(opp_id: str, card_id: int, body: CardApproveBody
         if not _portal_is_admin(user) and user.get("role") != required_role:
             raise HTTPException(status_code=403, detail="当前角色无权处理撤回申请")
         updated = repo.reject_withdraw(card_id, body.reason)
-        if updated:
-            updated["can_claim"] = _can_claim_card(updated, user)
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -925,7 +937,10 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
                 quotation.quotation_id,
                 quotation_name=f"报价-{customer}-{base}-{quotation.version}",
             )
-        quote_repo.update(quotation.quotation_id, source="worktable")
+        # 仅在新建工作底表或当前仍为工作底表时标记 worktable；
+        # 已转正式报价单（source 非 worktable）不降级，避免正式单被隐藏。
+        if not quotation_id or quotation.source in (None, "", "worktable"):
+            quote_repo.update(quotation.quotation_id, source="worktable")
 
         normalized_configs = []
         config_quantities = {}
@@ -953,13 +968,22 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
         if not normalized_configs:
             raise HTTPException(status_code=400, detail="至少保留一个配置")
 
+        config_relation = str(opp.get("config_relation") or "compose")
+        primary_config = str(opp.get("primary_config") or "")
+        # 方案备选：设备数量取需求台数(purchase_qty)，不把各配置台数相加
+        if config_relation == "alternative":
+            total_qty = int(opp.get("purchase_qty") or 0) or sum(config_quantities.values())
+        else:
+            total_qty = sum(config_quantities.values())
         quote_repo.update(
             quotation.quotation_id,
             config_quantities=config_quantities,
             config_server_models=config_server_models,
             config_descriptions=config_descriptions,
             config_count=len(config_quantities),
-            total_qty=sum(config_quantities.values()),
+            total_qty=total_qty,
+            config_relation=config_relation,
+            primary_config=primary_config,
         )
 
         extra = {}
@@ -1031,7 +1055,9 @@ def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
                 row.setdefault("category", "Key Parts")
                 row.pop("final_price", None)
                 row.pop("profit_margin", None)
-        quote_repo.patch_items(quotation.quotation_id, normalized_configs, delete_missing=False)
+        # 幂等同步：成本表→报价单每次全量替换 KP 行（先删旧再插入），
+        # 避免同一批 komponent 多次同步时缺失 item_id 而累积重复行。
+        quote_repo.patch_items(quotation.quotation_id, normalized_configs, delete_missing=True)
 
         return quotation.quotation_id
     finally:
@@ -1043,6 +1069,8 @@ class BomSchemeDraftBody(BaseModel):
     flow_card_id: Optional[int] = None
     name: str
     configs: List[dict] = []
+    config_relation: str = "compose"  # compose=组合拆分 / alternative=方案备选对比
+    primary_config: str = ""
 
 
 class CostSheetDraftBody(BaseModel):
@@ -1079,7 +1107,8 @@ def save_bom_scheme_draft(opp_id: str, body: BomSchemeDraftBody,
     flow_repo = FlowRepository()
     try:
         scheme = flow_repo.save_bom_scheme_draft(
-            opp_id, body.scheme_id, body.name, body.configs, user.get("name") or ""
+            opp_id, body.scheme_id, body.name, body.configs, user.get("name") or "",
+            body.config_relation, body.primary_config,
         )
         _attach_entity_card(
             opp_id,
@@ -1100,7 +1129,9 @@ def save_bom_scheme_draft(opp_id: str, body: BomSchemeDraftBody,
 
 
 @router.post("/api/portal/opp/{opp_id}/bom-schemes/{scheme_id}/submit")
-def submit_bom_scheme(opp_id: str, scheme_id: int, user: dict = Depends(get_current_user)):
+def submit_bom_scheme(opp_id: str, scheme_id: int,
+                      body: SubmitAssigneeBody = None,
+                      user: dict = Depends(get_current_user)):
     """提交一个 BOM 方案：转为 current，其他方案保留/归档，并推进到成本核算。"""
     _svc(opp_id, user)
     if not field_visible(user, "field.flow.bom"):
@@ -1108,7 +1139,11 @@ def submit_bom_scheme(opp_id: str, scheme_id: int, user: dict = Depends(get_curr
 
     flow_repo = FlowRepository()
     try:
+        _ensure_downstream_assignee(flow_repo, opp_id, "costing",
+                                    (body.assignee_name if body else "") or "")
         scheme = flow_repo.submit_bom_scheme(opp_id, scheme_id, user.get("name") or "")
+        _assign_if_unset(flow_repo, opp_id, "costing",
+                         (body.assignee_name if body else "") or "", user.get("name") or "")
         flow = flow_repo.get_flow(opp_id) or {}
         nodes = flow_repo.list_nodes(flow.get("flow_id") or "")
         _attach_entity_card(
@@ -1390,9 +1425,13 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
         if linked_quotation_id:
             quote_repo = QuotationRepository()
             try:
-                linked_quote = quote_repo.get_by_id(linked_quotation_id)
-                if not linked_quote or linked_quote.opportunity_id != opp.get("opportunity_id"):
+                linked_quote = quote_repo.get_raw_by_id(linked_quotation_id)
+                if not linked_quote:
                     raise HTTPException(status_code=404, detail="关联报价单不存在或不属于该商机")
+                if linked_quote.opportunity_id != opp.get("opportunity_id"):
+                    raise HTTPException(status_code=404, detail="关联报价单不存在或不属于该商机")
+                if linked_quote.status != "active":
+                    raise HTTPException(status_code=409, detail="对应报价单已删除，该成本表只能删除")
                 if linked_quote.exported_at:
                     raise HTTPException(status_code=409, detail="关联报价单已导出或定稿，成本表不可再修改")
             finally:
@@ -1456,21 +1495,10 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
     finally:
         flow_repo.close()
 
-
-def _quotation_is_finalized(quotation_id: str) -> bool:
-    """判断报价单是否已定稿（已导出）。历史回填/已发送报价单不应被成本提交再次复用。"""
-    if not quotation_id:
-        return False
-    repo = QuotationRepository()
-    try:
-        q = repo.get_by_id(quotation_id)
-        return bool(q and q.exported_at)
-    finally:
-        repo.close()
-
-
 @router.post("/api/portal/opp/{opp_id}/cost-sheets/{sheet_id}/submit")
-def submit_cost_sheet(opp_id: str, sheet_id: int, user: dict = Depends(get_current_user)):
+def submit_cost_sheet(opp_id: str, sheet_id: int,
+                      body: SubmitAssigneeBody = None,
+                      user: dict = Depends(get_current_user)):
     """提交成本表：同步生成报价单草稿，并把流程推进到报价单节点。"""
     opp, flow = _svc(opp_id, user)
     if not field_visible(user, "field.flow.cost"):
@@ -1478,19 +1506,29 @@ def submit_cost_sheet(opp_id: str, sheet_id: int, user: dict = Depends(get_curre
 
     flow_repo = FlowRepository()
     try:
+        _ensure_downstream_assignee(flow_repo, opp_id, "quoting",
+                                    (body.assignee_name if body else "") or "")
         sheet = flow_repo.get_cost_sheet(opp_id, sheet_id)
         if not sheet or sheet.get("status") != "draft":
             raise HTTPException(status_code=400, detail="仅草稿成本表可提交")
         reuse_quotation_id = sheet.get("quotation_id") or None
-        if reuse_quotation_id and _quotation_is_finalized(reuse_quotation_id):
-            # 历史回填/已定稿报价单不再复用，提交时新建独立工作底表报价单草稿
-            reuse_quotation_id = None
+        if reuse_quotation_id:
+            quote_repo = QuotationRepository()
+            try:
+                raw_quote = quote_repo.get_raw_by_id(reuse_quotation_id)
+            finally:
+                quote_repo.close()
+            # 报价单不存在/已删除/已定稿均不复用，提交时新建独立工作底表报价单草稿
+            if not raw_quote or raw_quote.status != "active" or raw_quote.exported_at:
+                reuse_quotation_id = None
         quotation_id = _sync_sheet_to_quotation(
             opp, reuse_quotation_id, sheet.get("configs") or [], sheet.get("name") or ""
         )
         submitted = flow_repo.submit_cost_sheet(
             opp_id, sheet_id, quotation_id, user.get("name") or ""
         )
+        _assign_if_unset(flow_repo, opp_id, "quoting",
+                         (body.assignee_name if body else "") or "", user.get("name") or "")
         flow = flow_repo.get_flow(opp_id) or flow
         nodes = flow_repo.list_nodes(flow["flow_id"])
         card_id = None
@@ -1542,16 +1580,31 @@ def submit_cost_sheet(opp_id: str, sheet_id: int, user: dict = Depends(get_curre
 @router.delete("/api/portal/opp/{opp_id}/cost-sheets/{sheet_id}")
 def delete_cost_sheet_draft(opp_id: str, sheet_id: int,
                             user: dict = Depends(get_current_user)):
-    """删除成本核算草稿表。"""
+    """删除成本核算表。已提交表仅在关联报价单已删除（孤儿）时才允许删除。"""
     _svc(opp_id, user)
     if not field_visible(user, "field.flow.cost"):
         raise HTTPException(status_code=403, detail="当前角色无权删除成本核算")
 
     flow_repo = FlowRepository()
     try:
+        sheet = flow_repo.get_cost_sheet(opp_id, sheet_id)
+        quotation_id = (sheet or {}).get("quotation_id") or ""
+        if sheet and sheet.get("status") != "draft" and quotation_id:
+            quote_repo = QuotationRepository()
+            try:
+                active_quote = quote_repo.get_by_id(quotation_id)
+            finally:
+                quote_repo.close()
+            if active_quote:
+                raise HTTPException(
+                    status_code=409,
+                    detail="成本表仍关联有效报价单，请先在报价单节点删除对应报价单再删除成本表",
+                )
         ok = flow_repo.delete_cost_sheet_draft(opp_id, sheet_id)
         if ok:
             _unlink_entity_card(opp_id, "cost", sheet_id)
+            if quotation_id:
+                _unlink_entity_card(opp_id, "quote", quotation_id)
         return {"ok": ok, "cost_sheets": flow_repo.list_cost_sheets(opp_id)}
     finally:
         flow_repo.close()
@@ -1766,6 +1819,7 @@ class InitiateBody(BaseModel):
     opportunity: dict = {}
     slots: dict = {}
     requirement_text: str = ""
+    assignee_name: str = ""
 
 
 @router.post("/api/portal/opp/{opp_id}/initiate")
@@ -1775,6 +1829,7 @@ def initiate_opportunity(opp_id: str, body: InitiateBody,
     _svc(opp_id, user)
     flow_repo = FlowRepository()
     try:
+        _ensure_downstream_assignee(flow_repo, opp_id, "boming", body.assignee_name or "")
         req = flow_repo.initiate_requirement(
             opp_id,
             body.opportunity or {},
@@ -1782,6 +1837,8 @@ def initiate_opportunity(opp_id: str, body: InitiateBody,
             body.requirement_text,
             created_by=user.get("name") or "",
         )
+        _assign_if_unset(flow_repo, opp_id, "boming",
+                         body.assignee_name or "", user.get("name") or "")
     finally:
         flow_repo.close()
     if not req:
@@ -1850,12 +1907,17 @@ def save_requirement_draft(opp_id: str, body: RequirementBody,
 
 @router.post("/api/portal/opp/{opp_id}/requirements/{version}/submit")
 def submit_requirement_draft(opp_id: str, version: int,
+                             body: SubmitAssigneeBody = None,
                              user: dict = Depends(get_current_user)):
     """提交需求草稿：草稿转当前快照，旧当前归档，流程推进到 BOM。"""
     _svc(opp_id, user)
     flow_repo = FlowRepository()
     try:
+        _ensure_downstream_assignee(flow_repo, opp_id, "boming",
+                                    (body.assignee_name if body else "") or "")
         req = flow_repo.submit_requirement_draft(opp_id, version)
+        _assign_if_unset(flow_repo, opp_id, "boming",
+                         (body.assignee_name if body else "") or "", user.get("name") or "")
     finally:
         flow_repo.close()
     if not req:

@@ -6,10 +6,10 @@ import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { reasoningFlowApi, type ReasoningNodeKey } from '@/api/reasoningFlow'
 import { assistantApi } from '@/api/assistant'
-import type { RuleType } from '@/api/requirementRules'
 import NodeResourceBindings from './NodeResourceBindings.vue'
-import SlotListEditor from './SlotListEditor.vue'
-import { REASONING_CFG_TYPES, NODE_DEFAULT_CONFIG, nodeArchetype, reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
+import TargetLayerModal from './TargetLayerModal.vue'
+import axios from 'axios'
+import { REASONING_CFG_TYPES, nodeArchetype, reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
 
 const OUTPUT_KIND_OPTIONS = [
   { value: 'bom_scheme_draft', label: 'BOM 方案草稿' },
@@ -18,11 +18,6 @@ const OUTPUT_KIND_OPTIONS = [
   { value: 'data_answer', label: '数据结论' },
   { value: 'generic', label: '通用 JSON' },
 ]
-const CAPABILITY_DEFAULT_TOOLS: Record<string, string[]> = {
-  agent_fill: ['list_server_types', 'list_server_models', 'get_server_model'],
-  model_reason: ['select_models'],
-  kp_reason: ['list_kp_categories', 'select_parts'],
-}
 function defaultOutputTarget(kind: string): string {
   if (kind === 'bom_scheme_draft') return 'bom_scheme'
   if (kind === 'requirement_draft') return 'requirement'
@@ -56,31 +51,12 @@ const title = computed(() => {
 const configurable = computed(() => Boolean(props.nodeType && CONFIGURABLE.includes(props.nodeType)) || Boolean(props.nodeRuntime && CONFIGURABLE.includes(props.nodeRuntime)))
 const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.nodeRuntime || ''))
 const runtimeType = computed(() => props.nodeRuntime || props.nodeType || '')
-const showSystemPrompt = computed(() => ['agent', 'agent_fill'].includes(runtimeType.value))
-const ruleCatalogRuntimes = new Set(['model_reason', 'kp_reason'])
-const NODE_RULE_TYPES: Record<string, RuleType[]> = {
-  agent_fill: [],
-  model_reason: ['fallback_order', 'compliance_map'],
-  kp_reason: ['type_package', 'category_alias', 'spec_rule', 'cpu_mem_generation', 'capacity_match', 'raid_level_map', 'compliance_map'],
-}
-const nodeRuleTypes = computed<RuleType[] | undefined>(() => NODE_RULE_TYPES[runtimeType.value])
-const showRuleCatalog = computed(() => ruleCatalogRuntimes.has(runtimeType.value))
-const toolsEnabled = computed(() => ['agent'].includes(runtimeType.value))
+const showSystemPrompt = computed(() => ['agent'].includes(runtimeType.value))
+const toolsEnabled = computed(() => ['agent', 'agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value))
 const systemPromptValue = computed({
-  get: () => runtimeType.value === 'agent_fill'
-    ? (form.value?.prompt?.system_prompt ?? '')
-    : (form.value?.system_prompt ?? ''),
-  set: (v: string) => {
-    if (runtimeType.value === 'agent_fill') {
-      if (form.value?.prompt) form.value.prompt.system_prompt = v
-    } else if (form.value) {
-      form.value.system_prompt = v
-    }
-  },
+  get: () => (form.value?.system_prompt ?? ''),
+  set: (v: string) => { if (form.value) form.value.system_prompt = v },
 })
-const systemPromptLabel = computed(() => (
-  ['agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value) ? '节点任务说明' : 'System Prompt'
-))
 const PSU_SOURCE_OPTIONS = [
   { value: 'ext.psu.wattage', label: '需求电源信号 · 瓦数' },
   { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
@@ -92,11 +68,73 @@ const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   label: `${tool.name} · ${tool.description || ''}`,
   dataSources: Array.isArray(tool.data_sources) ? tool.data_sources.map((s: any) => String(s)) : [],
 })))
+
+// 机制工具（节点机制必需，锁定勾选不可取消）：与后端 MECHANISM_TOOLS 口径一致
+const MECHANISM_TOOLS_BY_RUNTIME: Record<string, string[]> = {
+  agent_fill: ['fill_requirement'],
+  model_reason: ['select_model'],
+  kp_reason: ['select_kp_parts', 'search_kp_parts'],
+}
+const mechanismTools = computed(() => MECHANISM_TOOLS_BY_RUNTIME[runtimeType.value] || [])
+
+// 候选池数据源（kp_reason 资源层"插头"）：换源 → 大脑候选上下文/确认卡自选候选/问句倾向
+// 随之变化（白盒标注 pool_source）。选项来自注册表端点；params.limit 可调。
+const poolResolvers = ref<Array<{ name: string; description: string; is_default?: boolean }>>([])
+const cpPoolResolver = ref('')
+const cpPoolLimit = ref<number | null>(20)
+async function loadPoolResolvers() {
+  try {
+    const { data } = await axios.get('/api/reasoning-flow/candidate-resolvers')
+    poolResolvers.value = Array.isArray(data?.resolvers) ? data.resolvers : []
+    if (!cpPoolResolver.value) {
+      const d = poolResolvers.value.find(r => r.is_default)
+      const cfg0: any = props.initialConfig || {}
+      cpPoolResolver.value = cfg0?.data_bindings?.kp_pool?.resolver || d?.name || ''
+      cpPoolLimit.value = Number(cfg0?.data_bindings?.kp_pool?.params?.limit) || 20
+    }
+  } catch {
+    poolResolvers.value = []
+  }
+}
 async function loadToolCatalog() {
   try {
     toolCatalog.value = await assistantApi.tools.catalog()
   } catch {
     toolCatalog.value = []
+  }
+}
+
+// ── 目标层输出物卡片（agent_fill 样板）：读节点配置的 target 描述符（DB node_configs）──
+// 字段数/必填数从 requirement_slots schema 实时统计（同源，不双写）；大表不塞抽屉，点卡片进弹窗。
+const tlOpen = ref(false)
+const slotStats = ref({ fields: 0, required: 0 })
+const targetArtifacts = computed<any[]>(() => {
+  const t = (props.initialConfig as any)?.target?.artifacts
+  return Array.isArray(t) ? t : []
+})
+const kindLabel = (k: string) => ({ form: '表单', document: '文档', media: '媒体', table: '表格', sheet_section: '配置表切片' }[k] || k)
+
+async function onSaveTarget(arts: any[]) {
+  if (!props.nodeKey) return
+  try {
+    const cfg = { ...(props.initialConfig || {}), target: { ...(props.initialConfig?.target || {}), artifacts: arts } }
+    await reasoningFlowApi.updateNode(props.nodeKey as any, cfg, props.nodeLabel || undefined, props.skillKey || undefined)
+    message.success('目标层已保存（下次推理生效）')
+    emit('saved')
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '目标层保存失败')
+  }
+}
+async function loadSlotStats() {
+  try {
+    const { data } = await axios.get('/api/system-config/requirement_slots/value')
+    const list = Array.isArray(data?.value?.slots) ? data.value.slots : []
+    slotStats.value = {
+      fields: list.length,
+      required: list.filter((s: any) => String(s.level || '') === 'L0').length,
+    }
+  } catch {
+    slotStats.value = { fields: 0, required: 0 }
   }
 }
 
@@ -128,21 +166,21 @@ watch(() => props.open, async (v) => {
   if (!v) return
   if (!props.nodeType && !props.nodeRuntime) return
   loadToolCatalog()
+  if (runtimeType.value === 'agent_fill') loadSlotStats()
+  if (runtimeType.value === 'kp_reason') loadPoolResolvers()
   const c = props.initialConfig || {}
   const outputKind = c.output_kind || props.skillOutputKind || (props.skillKey === 'requirement_analysis' ? 'bom_scheme_draft' : props.skillKey === 'trend_analysis' ? 'data_answer' : 'generic')
   form.value = {
     label: props.nodeLabel ?? '',
-    enabled_tools: Array.isArray(c.enabled_tools)
-      ? [...c.enabled_tools]
-      : [...(CAPABILITY_DEFAULT_TOOLS[runtimeType.value] || NODE_DEFAULT_CONFIG[activeNodeType.value]?.enabled_tools || [])],
+    enabled_tools: Array.isArray(c.enabled_tools) ? [...c.enabled_tools] : [],
     cp_kp_source: c.kp_source ?? 'per_baseline',
     cp_psu_override_enabled: c.psu_override_enabled ?? true,
     cp_psu_wattage_source: c.psu_wattage_source ?? 'ext.psu.wattage',
     cp_psu_qty_source: c.psu_qty_source ?? 'ext.psu.qty',
+    cp_pool_resolver: c.data_bindings?.kp_pool?.resolver || '',
+    cp_pool_limit: Number(c.data_bindings?.kp_pool?.params?.limit) || 20,
     system_prompt: c.system_prompt ?? '',
-    rule_types: Array.isArray(c.rule_types)
-      ? [...c.rule_types]
-      : [...(NODE_DEFAULT_CONFIG[activeNodeType.value]?.rule_types || [])],
+    description: c.description ?? '',
     output_name: c.name ?? '',
     output_kind: outputKind,
     output_target: c.target || defaultOutputTarget(outputKind),
@@ -150,10 +188,6 @@ watch(() => props.open, async (v) => {
     output_actions_text: safeJsonString(c.actions),
     output_template: c.template || '',
     output_schema_text: safeJsonString(c.output_schema),
-    prompt: (c.prompt && typeof c.prompt === 'object') ? {
-      system_prompt: c.prompt.system_prompt || '',
-    } : { system_prompt: '' },
-    af_signal_backfill: c.signal_backfill ?? true,
   }
 })
 
@@ -175,8 +209,20 @@ function buildConfig(): Record<string, any> | null {
     config.psu_wattage_source = form.value.cp_psu_wattage_source || 'ext.psu.wattage'
     config.psu_qty_source = form.value.cp_psu_qty_source || 'ext.psu.qty'
   }
-  if (showRuleCatalog.value) {
-    config.rule_types = Array.isArray(form.value.rule_types) ? [...form.value.rule_types] : []
+  if (runtimeType.value === 'model_reason' || runtimeType.value === 'kp_reason') {
+    config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
+    config.description = (form.value.description || '').trim()
+  }
+  if (runtimeType.value === 'kp_reason') {
+    // 数据绑定插头（资源与权限层"数据源"）：换源 → 大脑候选上下文/确认卡自选候选/
+    // 问句倾向随之变化（node_trace 白盒标注 pool_source 验证）
+    config.data_bindings = {
+      kp_pool: {
+        source: 'kp_library',
+        resolver: String(form.value.cp_pool_resolver || 'category_series_search'),
+        params: { limit: Number(form.value.cp_pool_limit) || 20 },
+      },
+    }
   }
   if (t === 'output') {
     config.name = form.value.output_name || ''
@@ -205,11 +251,10 @@ function buildConfig(): Record<string, any> | null {
     }
   }
   if (rt === 'agent_fill') {
-    config.prompt = {
-      system_prompt: (form.value.prompt?.system_prompt ?? '') || '',
-    }
-    config.rule_types = Array.isArray(form.value.rule_types) ? [...form.value.rule_types] : []
-    config.signal_backfill = form.value.af_signal_backfill !== false
+    config.description = (form.value.description || '').trim()
+    config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
+    // 目标层输出物描述符（卡片数据源）：随节点配置持久化（DB node_configs）
+    config.target = { artifacts: targetArtifacts.value }
   }
   return config
 }
@@ -220,14 +265,22 @@ async function persist(config: Record<string, any>): Promise<boolean> {
     const isLegacyRuntime = Boolean(props.nodeRuntime && props.nodeRuntime !== props.nodeType)
     const base = isLegacyRuntime ? { ...(props.initialConfig || {}) } : {}
     const merged = { ...base, ...config }
-    if (showRuleCatalog.value) {
-      merged.rule_types = Array.isArray(form.value.rule_types) ? [...form.value.rule_types] : []
-    } else {
-      delete merged.rule_types
-    }
+    delete merged.prompt
     if (runtimeType.value === 'agent') {
       merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
       merged.system_prompt = form.value.system_prompt || ''
+    } else if (runtimeType.value === 'model_reason' || runtimeType.value === 'kp_reason') {
+      merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
+      delete merged.max_iterations
+      delete merged.max_rounds
+      delete merged.system_prompt
+    } else if (runtimeType.value === 'agent_fill') {
+      // 登记节点：AI 层=节点任务说明，工具=资源层勾选（fill_requirement 由登记回合按需挂载）
+      merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
+      delete merged.max_iterations
+      delete merged.max_rounds
+      delete merged.system_prompt
+      delete merged.signal_backfill   // 2026-09-02 死配置清理：后端已无消费者
     } else {
       delete merged.enabled_tools
       delete merged.max_iterations
@@ -319,13 +372,13 @@ async function save() {
               <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
               <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
             </a-form-item>
-            <a-form-item v-if="showSystemPrompt" :label="systemPromptLabel">
+            <a-form-item v-if="showSystemPrompt" label="System Prompt">
               <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
               <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
             </a-form-item>
-            <a-form-item v-if="runtimeType === 'agent_fill'" label="信号补抽（漏登记自愈）">
-              <a-switch v-model:checked="form.af_signal_backfill" />
-              <p class="rf-hint">开启时，对话中角色漏登记的配件信号（用户原话已点名但登记表缺失）会在需求理解阶段自动补抽一次；只补缺、不覆盖已点选项，信号齐全时零额外 LLM 调用。</p>
+            <a-form-item v-if="runtimeType === 'agent_fill' || runtimeType === 'model_reason' || runtimeType === 'kp_reason'" label="节点任务说明">
+              <a-textarea v-model:value="form.description" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
+              <p class="rf-hint">这是本节点 AI 层的唯一真源：填写后经画布步骤说明下发到 AI 角色，留空则由后端默认兜底。角色性格与说话语气不在此层。</p>
             </a-form-item>
           </a-form>
 
@@ -342,10 +395,37 @@ async function save() {
           <span class="node-zone-note">要输出的目标（字段表 / 输出物）</span>
         </div>
         <div class="node-zone-body">
-          <template v-if="runtimeType === 'agent_fill'">
-            <div class="node-section-title">字段配置 <span class="node-behavior-chip">对齐线索登记表 schema</span></div>
-            <SlotListEditor embedded />
-            <p class="rf-hint">这里是全链路唯一登记表 schema；AI 角色只负责理解与填表，不背字段、不背映射。机型与配件的最终选型交给下游「机型选配」「配件选配」节点。</p>
+          <template v-if="targetArtifacts.length">
+            <div class="node-section-title">输出物 <span class="node-behavior-chip">要产出的目标</span></div>
+            <div class="tl-card-list">
+              <div v-for="art in targetArtifacts" :key="art.view || art.name" class="tl-card" @click="tlOpen = true">
+                <div class="tl-card-head">
+                  <span class="tl-card-icon">📋</span>
+                  <span class="tl-card-name">{{ art.name }}</span>
+                  <span class="tl-card-kind">{{ kindLabel(art.kind) }}</span>
+                </div>
+                <div class="tl-card-meta">
+                  <template v-if="runtimeType === 'agent_fill'">
+                    <span>字段 {{ slotStats.fields }}</span>
+                    <span>必填 {{ slotStats.required }}</span>
+                  </template>
+                  <template v-else-if="(art.columns || []).length">
+                    <span>列：{{ (art.columns || []).map((c: any) => c.label || c.key).join(' / ') }}</span>
+                  </template>
+                  <span v-if="art.view">视图 {{ art.view }}</span>
+                </div>
+              </div>
+              <div v-if="runtimeType === 'agent_fill'" class="tl-card tl-card--add" title="更多输出物类型后续版本开放"
+                   @click.stop="message.info('方案配置表 / 文档 / 媒体类输出物将在后续版本开放')">
+                ＋ 添加输出物
+              </div>
+            </div>
+            <p class="rf-hint">点卡片查看输出物详情；字段/中文名/顺序的权威是下游页面表单定义，此处自动跟随。</p>
+            <TargetLayerModal v-model:open="tlOpen" :artifact="targetArtifacts[0] || null"
+                              :node-key="nodeKey" :skill-key="skillKey" @save-target="onSaveTarget" />
+          </template>
+          <template v-else-if="runtimeType === 'agent_fill'">
+            <p class="rf-hint">目标层未配置输出物描述符（target.artifacts）。</p>
           </template>
           <!-- 输出节点：交接契约 -->
           <a-form v-else-if="activeNodeType === 'output'" layout="vertical">
@@ -386,14 +466,32 @@ async function save() {
           </a-form>
 
 
-          <!-- 机型选配节点：查询/选型契约固定，无需手工配置 -->
+          <!-- 机型选配节点：目标 = 方案配置表 L6 配置单（与商机详情页一致） -->
           <a-form v-else-if="runtimeType === 'model_reason'" layout="vertical">
-            <p class="rf-hint">按结构化信号查在售目录：无信号时逐项反问（类型/系列/形态），多候选时单次受约束 AI 选型或交用户点选；锁定后回写结构化字段。全程白盒，无节点级可调项。</p>
+            <div class="node-section-title">目标表 <span class="node-behavior-chip">对齐商机详情页 · 方案配置表 L6 部分</span></div>
+            <table class="l6-target-table">
+              <thead>
+                <tr><th>Catalogue</th><th>Description</th><th>Qty</th><th>Cost</th></tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="4" class="l6-target-empty">行内容由所机型族 BOM 模板 + 选配结果生成</td></tr>
+              </tbody>
+            </table>
+            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 L6 部分：选定机型后，按该机型族的 BOM 模板（骨架行）与选配结果生成 Catalogue / Description / Qty。行骨架与取值来自「资源与权限」层的在售机型、基准配置与规则目录（工具：select_models → 数据源 candidate_search），不在此处硬编码。</p>
           </a-form>
 
-          <!-- 配件选配节点：纯确定性落地，无需手工配置 -->
+          <!-- 配件选配节点：目标 = 方案配置表 KP 配置单（与商机详情页一致） -->
           <a-form v-else-if="runtimeType === 'kp_reason'" layout="vertical">
-            <p class="rf-hint">纯确定性选件：参数只来自线索登记表的结构化槽位，落地只来自配件检索工具——未命中一律白盒标注（可手补），禁止静默顶替。无节点级可调项。</p>
+            <div class="node-section-title">目标表 <span class="node-behavior-chip">对齐商机详情页 · 方案配置表 KP 部分</span></div>
+            <table class="l6-target-table">
+              <thead>
+                <tr><th>Catalogue</th><th>Configuration Description</th><th>Qty</th></tr>
+              </thead>
+              <tbody>
+                <tr><td colspan="3" class="l6-target-empty">行内容由需求摘要 + 已选机型选配方案生成</td></tr>
+              </tbody>
+            </table>
+            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 KP 部分：按需求摘要与已锁定机型，从配件库逐类匹配配件（CPU/内存/盘/GPU/RAID/网卡/电源），生成 Catalogue / Configuration Description / Qty，并落地真实 SKU。行骨架与取值来自「资源与权限」层的配件库、规格规则与需求摘要（工具：list_kp_categories → select_parts → resolve_part_alias → compose_memory），不在此处硬编码。</p>
           </a-form>
 
           <!-- 方案组装节点：配件来源与电源信号覆盖策略可配 -->
@@ -430,15 +528,27 @@ async function save() {
         </div>
         <div class="node-zone-body">
           <NodeResourceBindings
-            v-model:rule-types="form.rule_types"
             v-model:tools="form.enabled_tools"
             :tool-options="agentToolOptions"
-            :rules-enabled="showRuleCatalog"
             :tools-enabled="toolsEnabled"
-            :tools-readonly="true"
-            :rule-available="nodeRuleTypes"
-            :rule-defaults="nodeRuleTypes"
+            :tools-readonly="false"
+            :locked-tools="mechanismTools"
           />
+          <!-- 候选池数据源（kp_reason 资源层"数据源"插头）：换源可观测（pool_source 白盒） -->
+          <div v-if="runtimeType === 'kp_reason'" class="node-section">
+            <div class="node-section-title">候选池数据源</div>
+            <a-select
+              v-model:value="form.cp_pool_resolver"
+              :options="poolResolvers.map(r => ({ value: r.name, label: `${r.name} · ${r.description}` }))"
+              placeholder="选择候选池数据源"
+              style="width:100%"
+            />
+            <div class="node-section" style="margin-top: 8px; padding: 8px 10px;">
+              <span class="rf-hint">检索候选上限</span>
+              <a-input-number v-model:value="form.cp_pool_limit" :min="1" :max="80" size="small" style="width: 100%; margin-top: 4px;" />
+            </div>
+            <p class="rf-hint">换源后下一轮推理生效：大脑候选上下文、确认卡自选候选、node_trace 标注的数据源随之变化。</p>
+          </div>
         </div>
       </div>
 
@@ -517,6 +627,11 @@ async function save() {
 .node-io-var.out { border: 1px solid #d9f0e4; }
 .node-io-empty { font-size: 12px; color: var(--cpq-text-muted); }
 .rf-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 4px 0 0; }
+.l6-target-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 2px 0 10px; }
+.l6-target-table th, .l6-target-table td { border: 1px solid var(--cpq-border-primary); padding: 6px 8px; text-align: left; }
+.l6-target-table th { background: var(--cpq-glass-2-bg); font-weight: 600; color: var(--cpq-text-secondary); }
+.l6-target-table td { color: var(--cpq-text-primary); }
+.l6-target-empty { text-align: center; color: var(--cpq-text-muted); }
 .rf-output-list { margin: 4px 0 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--cpq-text-primary); line-height: 1.6; }
 .rc-check-list { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
 .rf-wl-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
@@ -558,4 +673,24 @@ async function save() {
 .node-zone-title { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary); }
 .node-zone-note { margin-left: auto; font-size: 11px; color: var(--cpq-text-muted); }
 .node-zone-body { padding: 13px 14px; }
+
+/* ── 目标层输出物卡片（大表不塞抽屉：点卡片进弹窗看全表）── */
+.tl-card-list { display: flex; flex-direction: column; gap: 8px; }
+.tl-card {
+  border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
+  border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  background: var(--cpq-overlay-w06, rgba(255, 255, 255, .04));
+  transition: border-color .18s ease, transform .18s ease;
+}
+.tl-card:hover { border-color: var(--cpq-accent-primary, #1677ff); transform: translateY(-1px); }
+.tl-card--add {
+  border-style: dashed; color: var(--cpq-text-secondary, #a6adb4);
+  text-align: center; font-size: 12px; padding: 8px;
+  background: transparent; cursor: pointer;
+}
+.tl-card--add:hover { color: var(--cpq-accent-primary, #1677ff); transform: none; }
+.tl-card-head { display: flex; align-items: center; gap: 8px; }
+.tl-card-name { font-weight: 600; color: var(--cpq-text-primary); font-size: 13px; }
+.tl-card-kind { margin-left: auto; font-size: 11px; color: var(--cpq-text-secondary); }
+.tl-card-meta { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
 </style>

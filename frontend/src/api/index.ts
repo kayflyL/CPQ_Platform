@@ -191,11 +191,6 @@ export const quotationApi = {
     return response.data
   },
 
-  // 手工补录历史报价单成本（只写 cost_snapshot，不动 exported_at）
-  saveCostSnapshot: async (quotationId: string, costSnapshot: Record<string, any>) => {
-    const response = await api.put(`/quotations/${quotationId}/cost-snapshot`, { cost_snapshot: costSnapshot })
-    return response.data
-  }
 }
 
 // Export Template API (removed - template config system deleted)

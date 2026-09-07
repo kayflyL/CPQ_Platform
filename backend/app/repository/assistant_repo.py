@@ -364,31 +364,6 @@ class AssistantRepository:
         finally:
             session.close()
 
-    def prune_requirement_samples(self, keep_n: int) -> int:
-        """需求反馈样本：保留最近 keep_n 条（按 id 倒序），删除其余；keep_n=0 → 全清。"""
-        from app.models.base import Rules_SessionLocal
-        from app.models.requirement_rule import RequirementSample
-        if keep_n < 0:
-            keep_n = 0
-        session = Rules_SessionLocal()
-        try:
-            if keep_n == 0:
-                res = session.execute(RequirementSample.__table__.delete())
-            else:
-                keep_ids = session.execute(
-                    select(RequirementSample.id).order_by(RequirementSample.id.desc()).limit(keep_n)
-                ).scalars().all()
-                if keep_ids:
-                    res = session.execute(
-                        RequirementSample.__table__.delete().where(RequirementSample.id.not_in(keep_ids))
-                    )
-                else:
-                    res = None
-            session.commit()
-            return res.rowcount if res is not None else 0
-        finally:
-            session.close()
-
     # ── messages ──
 
     def list_messages(self, thread_id: str, limit: int = 50) -> List[dict]:
