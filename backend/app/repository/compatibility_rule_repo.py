@@ -77,6 +77,17 @@ DEFAULT_RULES: list[dict] = [
               "then": {"action": "recommend", "target": "Memory", "severity": "warning",
                        "desc": "内存条数超过机型上限（基准配置 max_dimm，EPYC 双路默认 24）——需换平台或减配"},
               "desc": "内存条数 > 机型上限 → 告警（如 24 DIMM 上限，超配不点亮/不开机）"}},
+    # ⑪ 平台适配（登记阶段平台推导，S4）：客户 CPU 原话含兆芯/KH 信号 → 平台只能 Polaris。
+    #     消费端 = agent_fill prepare 摆桌（plan_rule_apply.catalog_derivations_for_registration）；
+    #     ctx 由 selection_engine.registration_rule_context 从线索登记表构建（kp.CPU.spec.text = CPU 行客户原话）。
+    #     只命中兆芯：AMD→Orion / Intel / 海光 无目录证据，待业务确认后由策略中心补规则。
+    {"type": "derive", "category": "平台适配", "status": "active", "name": "平台：CPU 兆芯/KH → Polaris",
+     "body": {"when": {"any": [
+                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "兆芯"},
+                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "KH"},
+                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "kh"}]},
+              "then": {"action": "derive", "field": "opportunity.platform_type", "value": "Polaris"},
+              "desc": "客户点名兆芯（KH 系列）CPU → 整机平台推导为 Polaris（实测：兆芯 KH50000 库存只适配 Polaris）；推导值属推断，须经客户确认"}},
     # ⚠️ 已知表达力缺口（本期不做，避免产出死规则）：
     #   - SAS/SATA 盘 → HBA 或 RAID 卡：require 需跨品类「或」语义，单条 require 表达不了；
     #   - PSU↔GPU 功率匹配：电源(PSU)是机箱件(parts_master)，不在 ctx.kp，CRE 无法寻址；

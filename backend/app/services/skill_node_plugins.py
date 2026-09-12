@@ -119,6 +119,24 @@ class _FillNode(DefaultNodePlugin):
         """登记表契约走通用目标层插头解释（slot=requirement_slots），不再有 kind=form 特判。"""
         return fill_contract_brief(node_cfg)
 
+    async def prepare(self, ctx: dict, cfg: dict, broadcast=None) -> dict:
+        """步骤就绪 + 选型规则推导值（事实摆桌）：登记事实（如 CPU 行兆芯信号）命中 CRE
+        赋值型 derive 时，把空缺目录槽的推导值放进步骤提示。怎么用住在任务规则
+        （19：推断值须经客户确认；13：不既填又追问）——这里只报事实，不写指令。
+        """
+        ext = ctx.get("ext") or {}
+        hint = "步骤就绪"
+        try:
+            from app.services.plan_rule_apply import catalog_derivations_for_registration
+            derived = catalog_derivations_for_registration(ext)
+            if derived:
+                from app.services.slot_contract import slot_label
+                hint += "；选型规则推导值：" + "；".join(
+                    f"{slot_label(s)}({s})={v}" for s, v in derived) + "（推断值）"
+        except Exception:
+            logger.exception("登记阶段目录推导失败（降级：不带推导值继续）")
+        return {"ok": True, "step": self.key, "hint": hint}
+
     def wire_result(self, engine: dict, result: dict) -> None:
         """登记回合结束后做语义契约后处理（工作负载/国产化等确定性补全）+ 写回需求草稿。
 

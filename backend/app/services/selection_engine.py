@@ -347,3 +347,35 @@ def plan_rule_context(kp_parts: list, baseline: Optional[dict] = None) -> dict:
         if baseline.get("max_dimm"):
             config["max_dimm"] = int(baseline["max_dimm"])
     return {"kp": kp, "config": config, "opportunity": {}}
+
+
+def registration_rule_context(ext: dict) -> dict:
+    """线索登记表 → CRE 求值 ctx（agent_fill 阶段的平台推导等）。
+
+    与 plan_rule_context 同一寻址口径，输入换成登记表（客户原话行）：
+    - kp.<大类>：qty 合计 + items（行客户原话）+ spec.text（该类全部原话拼接，供 contains 类规则寻址）
+    - config：已登记的目录字段（platform_type/server_type/chassis_form）
+    - opportunity：空（登记阶段没有商机维度；derive 规则的 then.field 只作命名约定）
+    """
+    kp: dict = {}
+    for row in (ext.get("kp_rows") or []):
+        if not isinstance(row, dict):
+            continue
+        cat = _canonical_kp_cat(row.get("part_category") or row.get("category") or "")
+        if not cat:
+            continue
+        node = kp.setdefault(cat, {"qty": 0, "items": [], "spec": {}})
+        try:
+            qty = int(row.get("qty") or 1)
+        except (TypeError, ValueError):
+            qty = 1
+        node["qty"] += qty
+        desc = " ".join(str(row.get(k) or "").strip()
+                        for k in ("request_spec", "description", "note")
+                        if str(row.get(k) or "").strip())
+        node["items"].append({"pn": "", "name": desc})
+        if desc:
+            node["spec"]["text"] = f"{node['spec'].get('text') or ''} {desc}".strip()
+    config = {k: ext[k] for k in ("platform_type", "server_type", "chassis_form")
+              if str(ext.get(k) or "").strip()}
+    return {"kp": kp, "config": config, "opportunity": {}}

@@ -104,3 +104,29 @@ def apply_plan_selection_rules(plan: dict, kp_parts: list, baseline: dict = None
     if record_hits:
         _record_hits([i for i in fired_ids if i])
     return plan
+
+
+# 登记阶段目录字段接线：CRE 赋值字段 → 线索登记表槽位（机制映射，登记表插头属性）
+REGISTRATION_DERIVE_FIELDS = (("opportunity.platform_type", "platform_type"),)
+
+
+def catalog_derivations_for_registration(ext: dict, rules: list = None) -> list:
+    """登记阶段目录字段推导（agent_fill 摆桌用）：对空缺目录槽跑 CRE 赋值型 derive 首命中。
+
+    返回 [(slot, value)]；只推导空缺槽（已登记值以登记表为准），规则读取失败降级为空
+    （登记回合不带推导值继续，不阻塞）。推导值属推断，确认口径住在任务规则 19 + 前提闸门。
+    """
+    from app.services.selection_engine import eval_assign_value, registration_rule_context
+    if rules is None:
+        rules = load_active_rules()
+    if not rules:
+        return []
+    ctx = registration_rule_context(ext)
+    out = []
+    for cre_field, slot in REGISTRATION_DERIVE_FIELDS:
+        if str((ext.get(slot) or "")).strip():
+            continue
+        val = eval_assign_value(rules, ctx, cre_field)
+        if val not in (None, ""):
+            out.append((slot, str(val)))
+    return out
