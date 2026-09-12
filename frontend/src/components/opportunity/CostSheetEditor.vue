@@ -199,8 +199,7 @@ defineExpose({ saveDraft, submit, getConfigs })
                       <template #title>
                         <div class="match-tip">用户输入：{{ row.catalogue || row.description || '—' }}</div>
                         <div class="match-tip">匹配库件：{{ matchInfo(row).part?.name }}</div>
-                        <div class="match-tip">PN：{{ matchInfo(row).part?.pn || '—' }}</div>
-                        <div class="match-tip">价格日期：{{ matchInfo(row).part?.latest_price_date || '无' }}</div>
+                        <div class="match-tip">最新价格：{{ matchInfo(row).part?.latest_price_date || '无' }}</div>
                       </template>
                       <div class="match-pill">
                         <a-tag :color="matchInfo(row).kind === 'fuzzy' ? 'blue' : 'green'" class="match-tag">
@@ -226,7 +225,7 @@ defineExpose({ saveDraft, submit, getConfigs })
                               @click="adoptPart(row, candidate)"
                             >
                               <span class="match-candidate-name">{{ candidate.name }}</span>
-                              <span class="match-candidate-meta">{{ candidate.pn || '—' }} · {{ candidate.category }}</span>
+                              <span class="match-candidate-meta">{{ candidate.category }}{{ candidate.brand ? ' · ' + candidate.brand : '' }}</span>
                               <span class="match-candidate-date">{{ candidate.latest_price_date || '无日期' }}</span>
                             </button>
                           </div>

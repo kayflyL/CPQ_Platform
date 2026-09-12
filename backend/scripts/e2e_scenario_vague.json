@@ -2,14 +2,16 @@
   "name": "模糊需求-AMD通用计算",
   "role_key": "support_engineer",
   "entry_point": "skill_studio_preview",
-  "enable_clarity": true,
   "input": "需要通用计算服务器，AMD平台的。",
   "answers": {
     "server_type": "通用计算服务器",
+    "chassis_form": "2U",
     "platform_type": "Polaris",
     "server_model": "@pick:Polaris",
     "brain_ask": "@recommend",
-    "GPU": "@absent"
+    "GPU": "@absent",
+    "NIC": "@recommend",
+    "__text__": "CPU 用 9654，内存 512G，系统盘两块 480G SSD，RAID 卡就按你推荐的那款（8 口 4G 缓存），双电源，网卡按通用计算标配。"
   },
-  "max_turns": 6
+  "max_turns": 14
 }

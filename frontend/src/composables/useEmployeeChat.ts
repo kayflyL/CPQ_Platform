@@ -1,6 +1,6 @@
 import { computed, reactive, ref } from 'vue'
 import { assistantApi, assistantWsUrl, type AssistantContext, type AssistantMessage } from '@/api/assistant'
-import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking, type NodeTrace } from '@/composables/assistantChatWs'
+import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking, type NodeTrace, type PauseFacts } from '@/composables/assistantChatWs'
 
 export interface EmployeeChatState {
   threadId: string | null
@@ -18,6 +18,8 @@ export interface EmployeeChatState {
   nodeTraces: NodeTrace[]
   taskTitle: string
   taskPhase: '' | 'running' | 'paused' | 'done'
+  /** 中断点事实（P5-B2）：后端 pause 载荷原样透传 */
+  taskPause: PauseFacts | null
 }
 
 const states = reactive<Record<string, EmployeeChatState>>({})
@@ -54,6 +56,7 @@ function ensureState(roleKey: string): EmployeeChatState {
       nodeTraces: [],
       taskTitle: '',
       taskPhase: '',
+      taskPause: null,
     }
     // 终态事件丢失兜底（切换角色会断开旧角色 socket，在途回合的终态事件全丢）：
     // waiting 且长时间无事件 → 拉服务端消息比对，有新消息=回合已结束，采纳并清假死。
@@ -182,6 +185,8 @@ async function openThread(roleKey: string, threadId: string) {
   activeRoleKey.value = roleKey
   state.loading = true
   state.error = ''
+  state.nodeTraces = []
+  state.taskPause = null
   try {
     state.threadId = threadId
     state.nodeTraces = []
@@ -207,6 +212,8 @@ async function startNewThread(roleKey: string, context?: AssistantContext) {
   }
   state.threadId = null
   state.messages = []
+  state.nodeTraces = []
+  state.taskPause = null
   state.streamingText = ''
   state.waiting = false
   state.error = ''
@@ -232,9 +239,10 @@ async function softDeleteThread(roleKey: string, threadId: string) {
   if (state.threadId === threadId) {
     state.threadId = null
     state.messages = []
+    state.nodeTraces = []
+    state.taskPause = null
     state.streamingText = ''
     state.waiting = false
-    state.nodeTraces = []
     disconnect()
   }
 }

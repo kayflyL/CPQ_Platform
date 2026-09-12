@@ -131,7 +131,7 @@ class PostMessageBody(BaseModel):
     entry_point: Optional[str] = None
     option_slot: Optional[str] = None  # 用户点击结构化选项时，明确该选项对应的槽位
     card_selections: Optional[list[CardSelectionBody]] = None  # 表单模式：一次提交多组缺口选择
-    enable_clarity: Optional[bool] = None  # 试运行反问开关（仅 skill_studio_preview 消费）：False=跳过策略反问一键出方案
+    workflow_key: Optional[str] = None  # 方案助手「+」显式唤醒的工作流 key（直接 ACTIVE）
 
 
 class DispatchPreviewBody(BaseModel):
@@ -295,13 +295,9 @@ def create_thread(body: CreateThreadBody, user: dict = Depends(current_user)):
             colleague_role_key=opening_role_key,
             entry_point=body.entry_point,
         )
-        # 指定 AI 同事开场时使用该同事配置的开场白；否则沿用全局方案助手开场白。
-        opening_role_key = "assistant"
-        opening = _opening_message()
-        if body.opening_role_key:
-            colleague = get_colleague(body.opening_role_key)
-            opening_role_key = body.opening_role_key
-            opening = str((colleague or {}).get("opening_message") or "").strip()
+        # 开场白唯一出处 = 员工配置（Manage Teams · 员工 · 开场白）；未点名同事即方案助手本人。
+        opening_role_key = opening_role_key or "assistant"
+        opening = str((get_colleague(opening_role_key) or {}).get("opening_message") or "").strip()
         if opening:
             repo.add_message(
                 thread_id=thread["thread_id"], role="assistant", content=opening, kind="opening",
@@ -412,7 +408,7 @@ async def _run_office_turn(
     option_slot: Optional[str] = None,
     card_selections: Optional[list] = None,
     entry_point: Optional[str] = None,
-    enable_clarity: Optional[bool] = None,
+    workflow_key: Optional[str] = None,
 ) -> None:
     """后台处理 AI Office 会话：空间指令优先，其余走普通聊天/LLM 意图识别。"""
     try:
@@ -433,7 +429,7 @@ async def _run_office_turn(
             option_slot=option_slot,
             card_selections=card_selections,
             entry_point=entry_point,
-            enable_clarity=enable_clarity,
+            workflow_key=workflow_key,
         ))
         _ACTIVE_TURN_TASKS[thread_id] = task
         task.add_done_callback(lambda _t: _ACTIVE_TURN_TASKS.pop(thread_id, None))
@@ -469,7 +465,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
     repo = AssistantRepository()
     try:
         thread = _thread_for_user(repo, thread_id, user)
-        if body.entry_point:
+        if body.entry_point and (body.entry_point or "").strip() != "workflow_launcher":
             updated_thread = repo.update_thread_entry_point(thread_id, body.entry_point)
             if updated_thread:
                 thread = updated_thread
@@ -521,7 +517,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         option_slot=body.option_slot,
         card_selections=[s.model_dump() for s in body.card_selections] if body.card_selections else None,
         entry_point=body.entry_point or thread.get("entry_point"),
-        enable_clarity=body.enable_clarity,
+        workflow_key=body.workflow_key,
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
 
@@ -570,7 +566,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     """配件库自选候选：按当前留底卡的 pick_meta 生成与发卡同格式的选项（含 signal），
     并登记进 last_card.options——后续点击仍走 (slot,value) 服务端留底匹配，
     客户端回传不携带 signal，服务端留底原则不破。"""
-    from app.services.skill_chat import _load_mem, _save_mem
+    from app.services.skill_memory import _load_mem, _save_mem
     from app.services.part_selector import manual_pick_options
     from app.services.data_boundary import colleague_price_ok
     from app.services.ai_colleague_service import get_colleague
@@ -591,7 +587,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     # （注册表解析，放宽 limit），选项带 kp_manual_pick 信号（价格服务端留底，
     # 客户端不携带）；登记进 last_card 供后续 (slot,value) 留底匹配。
     if meta.get("row"):
-        from app.services.skill_chat import _load_mem as _lm, _save_mem as _sm  # noqa: F401
+        from app.services.skill_memory import _load_mem as _lm, _save_mem as _sm  # noqa: F401
         from app.services.part_selector import resolve_kp_pools
         from app.services.data_boundary import colleague_price_ok
         from app.services.ai_colleague_service import get_colleague
@@ -660,35 +656,6 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     merged = keep + [{**o, "_manual": True} for o in opts]
     _save_mem(thread_id, rk, {**mem, "last_card": {**last_card, "options": merged}})
     return {"slot": slot, "options": [{k: v for k, v in o.items() if k != "signal"} for o in opts]}
-
-
-_DEFAULT_OPENING = (
-    "Hi！我是你的服务器配置顾问 🎉\n\n"
-    "请告诉我你的工作负载，我来推荐合适的平台，再陪你一步步配置：\n\n"
-    "- 🖥️ 虚拟化 / 云主机（运行多少台虚拟机？）\n"
-    "- 🗄️ 数据库（SQL/NoSQL？数据量多大？）\n"
-    "- 🤖 AI / 机器学习（训练还是推理？需要几块 GPU？）\n"
-    "- 🌐 Web / 应用服务器\n"
-    "- 💾 文件 / 备份存储\n"
-    "- 🏢 边缘 / 分支机构\n\n"
-    "也可以直接描述你的需求。"
-)
-
-
-def _opening_message() -> str:
-    """新会话开场引导文案（system_config.assistant_opening 可配，默认内置）。"""
-    try:
-        from app.repository.system_config_repo import SystemConfigRepository
-        repo = SystemConfigRepository()
-        try:
-            v = repo.get_value("assistant_opening")
-        finally:
-            repo.close()
-        if isinstance(v, str) and v.strip():
-            return v.strip()
-    except Exception:
-        pass
-    return _DEFAULT_OPENING
 
 
 def _record_assistant_tool_trace(tool_name: str, status: str, duration_ms: int, thread_id: Optional[str],

@@ -7,8 +7,11 @@ export interface PickerItem {
   category?: string
   specs?: Record<string, any>
   unit_price?: number
+  currency?: string
   brand?: string
   supplier?: string
+  /** 最近一次价格日期（KP 源）；L6/PSU 无此字段 */ 
+  price_date?: string
   description?: string
   applicable?: Record<string, any> | { series?: string[] } | null
   source: 'kp' | 'l6' | 'psu'

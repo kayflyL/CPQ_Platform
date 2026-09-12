@@ -40,7 +40,7 @@ def _fields_for(categories):
         seen.add(name)
         out.append({
             "key": f"kp_parts:{name}", "label": name,
-            "hint": "配件行 · 必须反问=AI 提供候选+推荐并交客户确认（含自选/数量）；关=AI 从候选池代选",
+            "hint": "配件行 · 必填=该行必须落在最终方案；客户已明确登记具体型号→AI 直接锁定；未登记/仅类目名→AI 推荐并调 ask_user 确认（含自选/数量）；关=非必填，AI 可选配",
             "group": "部件行 · 本节点要填的配件",
             "ask": name in MUST_ASK,
         })
@@ -61,7 +61,7 @@ def _set_fields(art, categories):
             f = existing.get(name)
             if not isinstance(f, dict):
                 f = {"key": f"kp_parts:{name}", "label": name,
-                     "hint": "配件行 · 必须反问=AI 提供候选+推荐并交客户确认（含自选/数量）；关=AI 从候选池代选",
+                     "hint": "配件行 · 必填=该行必须落在最终方案；客户已明确登记具体型号→AI 直接锁定；未登记/仅类目名→AI 推荐并调 ask_user 确认（含自选/数量）；关=非必填，AI 可选配",
                      "group": "部件行 · 本节点要填的配件"}
             f["ask"] = name in MUST_ASK
             f.setdefault("key", f"kp_parts:{name}")

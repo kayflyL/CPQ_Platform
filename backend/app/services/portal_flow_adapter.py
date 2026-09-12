@@ -113,6 +113,13 @@ def requirement_slots_from_ext(ext: Optional[dict]) -> dict:
             if not isinstance(r, dict):
                 continue
             part_category = str(r.get("part_category") or r.get("category") or "").strip()
+            if part_category:
+                from app.services.part_selector import resolve_kp_category
+                resolved = resolve_kp_category(part_category)
+                if not resolved:
+                    # 非 KP 大类（如「电源」属机箱）不入登记表 KP 行，保留在需求原文
+                    continue
+                part_category = resolved
             if not part_category:
                 continue
             row: dict[str, Any] = {
@@ -305,9 +312,78 @@ def _requirement_snapshot_slots(ctx: dict) -> dict:
     return requirement_slots_from_ext(ctx.get("ext") or {})
 
 
+def _write_mode(ctx: dict) -> str:
+    """落库写模式（2026-09-12 B1，去死判）：由入口显式决定，不看全仓从不写入的 business_mode。
+
+    入口口径（colleague_turn_service）：试运行入口 → preview（不落库）；带商机 → draft；
+    两者都没有 → none（不落库，出试运行预览）。历史 ctx 没有该字段时按「有商机才落草稿」兜底。
+    """
+    ctx = ctx or {}
+    mode = str(ctx.get("write_mode") or "").strip().lower()
+    if mode in ("preview", "draft", "none"):
+        return mode
+    return "draft" if str(ctx.get("opportunity_id") or "").strip() else "none"
+
+
+def _can_persist_draft(ctx: dict) -> bool:
+    """写模式 = draft 且确有商机时，才允许落库（preview / none 一律只出预览）。"""
+    return (_write_mode(ctx) == "draft"
+            and bool(str((ctx or {}).get("opportunity_id") or "").strip()))
+
+
+def seed_ext_from_requirement_draft(ext: dict, opportunity_id: str) -> bool:
+    """2026-09-12 B2 读回：把该商机的需求草稿（真相表）播种回本轮工作副本 ext。
+
+    草稿里没有的键一律不动（不拿空表覆盖本轮现场）；草稿里有的以**库为准**——客户在
+    商机详情页手改过线索登记表，对话下一轮就按改后的走。ext 仍是当轮工作副本。
+    """
+    if not isinstance(ext, dict) or not str(opportunity_id or "").strip():
+        return False
+    draft = load_requirement_draft(str(opportunity_id).strip())
+    slots = draft.get("slots") if isinstance((draft or {}).get("slots"), dict) else {}
+    if not slots:
+        return False
+    from app.services.slot_contract import canonical_set
+    for key in ("server_type", "platform_type", "chassis_form", "server_model",
+                "purchase_qty", "warranty_years"):
+        value = slots.get(key)
+        if value not in (None, "", [], {}):
+            canonical_set(ext, key, value)
+    rows = slots.get("kp_rows")
+    if isinstance(rows, list) and rows:
+        ext["kp_rows"] = [dict(r) for r in rows if isinstance(r, dict)]
+    return True
+
+
+def save_scheme_progress_from_ctx(ctx: dict, operator: str = "",
+                                  name: Optional[str] = None) -> Optional[dict]:
+    """2026-09-12 B3：模型/配件节点把**当前进度**原地写回该商机的方案配置草稿。
+
+    机型已锁 → 用现成组装器组出 L6 段（未落地配件按既定口径不进 kp_rows）；配件已落 →
+    同一份里带出 KP 段。走现成 save_bom_scheme_draft：同商机同名唯一、已有草稿原地更新
+    （不新开版本），所以中途写与交付写落在同一张卡上。写模式非 draft 时只读不写。
+    """
+    if not _can_persist_draft(ctx):
+        return None
+    try:
+        from app.services.skill_node_runtime import build_plans
+        cfg = (ctx.get("flow_configs") or {}).get("compose")
+        plans = build_plans(ctx, cfg if isinstance(cfg, dict) else {})
+        slots = _requirement_snapshot_slots(ctx)
+        configs = plans_to_portal_configs(plans, slots)
+        if not configs:
+            return None
+        return save_bom_scheme_draft(
+            str(ctx.get("opportunity_id") or "").strip(), configs, operator, name,
+            slots.get("config_relation") or "compose", slots.get("primary_config") or "")
+    except Exception:
+        logger.exception("写方案配置草稿失败 opp=%s", (ctx or {}).get("opportunity_id"))
+        return None
+
+
 def persist_requirement_from_ctx(ctx: dict, operator: str = "") -> Optional[dict]:
     opportunity_id = str(ctx.get("opportunity_id") or "").strip()
-    if not opportunity_id or ctx.get("business_mode") != "opportunity_flow":
+    if not opportunity_id or not _can_persist_draft(ctx):
         return None
     try:
         slots = _requirement_snapshot_slots(ctx)
@@ -319,24 +395,23 @@ def persist_requirement_from_ctx(ctx: dict, operator: str = "") -> Optional[dict
 
 
 def persist_requirement_and_bom_from_ctx(ctx: dict, operator: str = "", config: Optional[dict] = None) -> Optional[dict]:
-    """AI Office / 商机流共用：先落线索登记表（需求单），再落方案配置（BOM 草稿）。"""
+    """AI Office / 商机流共用：先原地落线索登记表（需求单），再落方案配置（BOM 草稿）。
+
+    2026-09-12 B4：交付 = 原地把对话期间那张需求草稿提交成 current（submit_requirement_draft），
+    不再 initiate_requirement 新开一版——一商机一需求，对话期间与详情页看到的始终是同一条。
+    """
     opportunity_id = str(ctx.get("opportunity_id") or "").strip()
-    if not opportunity_id or ctx.get("business_mode") != "opportunity_flow":
+    if not opportunity_id or not _can_persist_draft(ctx):
         return None
     try:
         slots = _requirement_snapshot_slots(ctx)
         _req_text = str(ctx.get("requirement_text_snapshot") or ctx.get("requirement_text") or "")
-        repo = FlowRepository()
-        try:
-            requirement = repo.initiate_requirement(
-                opportunity_id,
-                {},
-                slots,
-                _req_text,
-                created_by=operator,
-            )
-        finally:
-            repo.close()
+        # 先写回草稿（保证提交的就是本轮内容），再原地提交那张草稿。
+        draft = save_requirement_draft(opportunity_id, slots, _req_text, operator)
+        requirement = submit_requirement_draft(
+            opportunity_id, int((draft or {}).get("version") or 0), operator) if draft else None
+        if not requirement:
+            logger.warning("需求草稿提交失败（无草稿可提交）opp=%s", opportunity_id)
         if requirement:
             _attach_entity_card(
                 opportunity_id,
@@ -363,7 +438,7 @@ def persist_requirement_and_bom_from_ctx(ctx: dict, operator: str = "", config: 
 
 def persist_bom_scheme_from_ctx(ctx: dict, operator: str = "", config: Optional[dict] = None) -> Optional[dict]:
     opportunity_id = str(ctx.get("opportunity_id") or "").strip()
-    if not opportunity_id or ctx.get("business_mode") != "opportunity_flow":
+    if not opportunity_id or not _can_persist_draft(ctx):
         return None
     try:
         slots = requirement_slots_from_ext(ctx.get("ext") or {})

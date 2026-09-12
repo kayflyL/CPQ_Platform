@@ -1,0 +1,31 @@
+{
+ "thread_id": "62c8d30fa2064329a438cf0eae75bf94",
+ "turns": 2,
+ "finished": false,
+ "turns_log": [
+  {
+   "turn": 1,
+   "input": "CPU：2颗兆芯50000   处理器（2.2GHz/96C）\n内存：768GB DDR5\n硬盘：2块480G   SSD+1块1.92T SSD+4块6T H",
+   "dur": 48.14372777938843,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 1,
+   "n_chunks": 172,
+   "first_event_s": 1.1383910179138184,
+   "narration_len": 259
+  },
+  {
+   "turn": 2,
+   "input": "[{\"slot\": \"brain_ask\", \"value\": \"通用计算服务器\"}]",
+   "dur": 68.31795930862427,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 5,
+   "n_chunks": 55,
+   "first_event_s": 0.2335658073425293,
+   "narration_len": 93
+  }
+ ]
+}

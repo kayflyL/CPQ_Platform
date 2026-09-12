@@ -364,6 +364,7 @@ class ColleagueUpdate(BaseModel):
     behavior_profile: Optional[dict] = None
     relations: Optional[dict] = None
     skills: Optional[list] = None
+    workflows: Optional[list] = None
     memory_policy: Optional[dict] = None
     pet_model: Optional[str] = None
 
@@ -411,7 +412,7 @@ class BehaviorUpdate(BaseModel):
 class SkillUpsert(BaseModel):
     key: str
     id: Optional[str] = None
-    type: Optional[str] = "tool_prompt"
+    type: Optional[str] = "skill"
     workflow_key: Optional[str] = None
     name: Optional[str] = None
     description: Optional[str] = None
@@ -827,7 +828,7 @@ def create_colleague(data: ColleagueCreate, manager: dict = Depends(require_ai_o
             colleague["data_boundary"] = normalize_boundary({"data_boundary": raw_boundary})
         elif bool_flag is not None:
             colleague["data_boundary"] = apply_price_access(colleague.get("data_boundary") or {}, bool(bool_flag))
-        if "skills" in patch or "tool_ids" in patch:
+        if "skills" in patch or "workflows" in patch or "tool_ids" in patch:
             colleague = _merge_skill_data_sources(colleague)
         _clamp_pet_model(colleague)
         normalize_colleague(colleague)
@@ -1010,7 +1011,7 @@ def _normalize_skill(payload: dict) -> dict:
     skill = {
         "key": key,
         "id": skill_id,
-        "type": str(payload.get("type") or "tool_prompt").strip() or "tool_prompt",
+        "type": str(payload.get("type") or "skill").strip() or "skill",
         "workflow_key": str(payload.get("workflow_key") or "").strip() or None,
         "name": str(payload.get("name") or key).strip() or key,
         "description": str(payload.get("description") or "").strip(),
@@ -1097,8 +1098,12 @@ def delete_skill(skill_key: str, manager: dict = Depends(require_ai_office_manag
 
 def _merge_skill_data_sources(colleague: dict) -> dict:
     """给员工绑定 Skill 时自动落该 Skill 所需的数据域，运行时仍会再做一次兜底合并。"""
-    refs = colleague.get("skills")
-    if not isinstance(refs, list):
+    refs = []
+    for name in ("skills", "workflows"):
+        raw = colleague.get(name)
+        if isinstance(raw, list):
+            refs.extend(raw)
+    if not refs:
         return colleague
     try:
         repo = SkillCatalogRepository()
@@ -1220,7 +1225,7 @@ def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depen
                         bool(bool_flag))
                 merged = {**colleague, **patch, "role_key": role_key}
                 merged.pop("price_access", None)  # 派生值不落库（读侧归一化返回）
-                if "skills" in patch or "tool_ids" in patch:
+                if "skills" in patch or "workflows" in patch or "tool_ids" in patch:
                     merged = _merge_skill_data_sources(merged)
                 _clamp_pet_model(merged)
                 normalize_colleague(merged)

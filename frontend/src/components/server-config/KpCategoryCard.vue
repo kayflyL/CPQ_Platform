@@ -10,10 +10,11 @@ import { computed } from 'vue'
 import PartPicker from '@/components/common/PartPicker.vue'
 import type { PickerItem } from '@/types/picker'
 import { useAuthStore } from '@/store/auth'
+import { calcUnitCost } from '@/utils/quoteCommon'
 
 interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number; currency?: string; final_price?: number }
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   cat: string
   stepNum: number
   // 行源两种：server-config 的 kpLines({cat,pn,qty}) 与 报价 cfg.items KP 行(含 base_price/profit_margin/pn)。
@@ -30,7 +31,13 @@ const props = defineProps<{
   quoteMode?: boolean
   /** 报价页 KP 大卡内降级为扁平分段(去玻璃)，配置页不传保持原样玻璃卡 */
   flat?: boolean
-}>()
+  /** 报价工作台只显示人民币：USD 件按汇率+税折算成 RMB，RMB 件原值（已含税） */
+  exchangeRate?: number
+  taxRate?: number
+}>(), {
+  exchangeRate: 7,
+  taxRate: 0.13,
+})
 
 const emit = defineEmits<{
   (e: 'set-line', index: number, patch: Partial<KpLine>): void
@@ -48,15 +55,23 @@ const priceVisible = computed(() => props.quoteMode && auth.can('field.quote.pri
 const lineCost = (l: KpLine) => (props.priceOf(l.pn) || 0) * (l.qty || 0)
 // quote 模式：含税售价/行 = 原始单价 × (1 + 利率/100) × 数量
 const quoteLineSales = (l: KpLine) => (Number(l.final_price) || 0) * (l.qty || 0)
+// 报价工作台只显示人民币：原始单价显示折算后 RMB（USD 件按汇率+税，RMB 件原值已含税）
+const rmbUnitCost = (l: KpLine) =>
+  Math.round(calcUnitCost(l.base_price, l.currency || 'RMB', props.exchangeRate, props.taxRate) * 100) / 100
 const cardTotal = () => props.quoteMode
   ? props.lines.reduce((s, l) => s + quoteLineSales(l), 0)
   : props.lines.reduce((s, l) => s + lineCost(l), 0)
 
-// 选新 pn：quote 模式顺带把原始单价带成料号库单价（遵循 [[derive-must-have-manual-fallback]]：之后仍可手改）
+// 选新 pn：quote 模式把原始单价带成料号库单价 + 记录原币种（视为源数据；单价锁定，展示折算人民币）
 function onPick(i: number, pn: any) {
   const p = typeof pn === 'string' ? pn : ''
-  if (props.quoteMode) emit('set-line', i, { pn: p, base_price: props.priceOf(p) || 0 })
-  else emit('set-line', i, { pn: p })
+  const item = props.pickerItems.find((x: PickerItem) => x.pn === p)
+  const patch: Partial<KpLine> = { pn: p }
+  if (props.quoteMode) {
+    patch.base_price = props.priceOf(p) || 0
+    if (item?.currency) patch.currency = item.currency
+  }
+  emit('set-line', i, patch)
 }
 </script>
 
@@ -113,14 +128,7 @@ function onPick(i: number, pn: any) {
           <div class="qm-fields" :class="{ 'qm-fields-noprice': !priceVisible }">
             <div v-if="priceVisible" class="qm-field">
               <label>原始单价</label>
-              <a-input-number :value="l.base_price" @change="(v:any)=>emit('set-line', i, { base_price: Number(v) || 0 })"
-                size="small" :precision="2" style="width:100%" />
-            </div>
-            <div class="qm-field">
-              <label>币种</label>
-              <a-select :value="l.currency || 'RMB'" size="small" style="width:100%"
-                :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]"
-                @change="(v:any)=>emit('set-line', i, { currency: v })" />
+              <span class="qm-raw">¥ {{ rmbUnitCost(l).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
             </div>
             <div class="qm-field">
               <label>利率%</label>
@@ -192,9 +200,9 @@ function onPick(i: number, pn: any) {
 /* ---- quote 模式（报价工作台新建模式）行布局 ---- */
 .sc-kp-line.qm-line { grid-template-columns: minmax(0, 1fr) 130px 32px; margin-bottom: 6px; }
 .qm-picker { min-width: 0; }
-.qm-fields.qm-fields-noprice { grid-template-columns: repeat(2, 1fr); }
+.qm-fields.qm-fields-noprice { grid-template-columns: repeat(1, 1fr); }
 .qm-fields {
-  display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
   align-items: center; margin-bottom: 12px; padding: 9px 12px;
   background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 10px;
 }
@@ -203,6 +211,10 @@ function onPick(i: number, pn: any) {
 .qm-final {
   font-size: 14px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF);
   font-variant-numeric: tabular-nums; line-height: 28px;
+}
+.qm-raw {
+  font-size: 13px; font-variant-numeric: tabular-nums; line-height: 28px;
+  color: var(--cpq-text-primary,#E8ECEF);
 }
 .qm-fields :deep(.ant-input-number) { width: 100%; }
 .qm-fields :deep(.ant-input-number-input) {

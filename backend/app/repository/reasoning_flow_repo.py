@@ -76,6 +76,18 @@ def _requirement_analysis_node_configs() -> dict:
     """需求分析 Skill 的默认节点契约（DB 源：rules.reasoning_node_default，仅 DB）。"""
     return _node_defaults_for("requirement_analysis")
 
+def _normalize_node_tool_names(cfg: dict) -> dict:
+    """节点生效配置里工具名归一（旧名→现行名，剔除退役项）。幂等。"""
+    if not isinstance(cfg, dict):
+        return cfg
+    raw = cfg.get("enabled_tools")
+    if isinstance(raw, list):
+        from ..services.tool_names import normalize_tool_ids
+        cfg = dict(cfg)
+        cfg["enabled_tools"] = normalize_tool_ids(raw)
+    return cfg
+
+
 def _merge_config(base: dict, override: dict) -> dict:
     """深合并：以默认值为底，用覆盖值（非空）覆盖；用于「默认契约 + 增量」合成生效配置。"""
     out = deepcopy(base or {})
@@ -138,7 +150,11 @@ def _normalize_graph(g: dict) -> dict:
             if k in e:
                 ee[k] = e[k]
         edges.append(ee)
-    return {"nodes": nodes, "edges": edges}
+    out = {"nodes": nodes, "edges": edges}
+    # flow 级字段透传（SkillStudio 左栏任务规则；画布整存不丢）
+    if isinstance(g.get("manual_rules"), str):
+        out["manual_rules"] = g["manual_rules"]
+    return out
 
 
 class ReasoningFlowRepository:
@@ -181,7 +197,7 @@ class ReasoningFlowRepository:
             key = node.get("id") or node.get("type")
             if not key:
                 continue
-            effective[key] = _merge_config(defaults.get(key) or {}, delta_map.get(key, {}))
+            effective[key] = _normalize_node_tool_names(_merge_config(defaults.get(key) or {}, delta_map.get(key, {})))
         d["node_configs"] = effective
         return d
 
@@ -201,6 +217,28 @@ class ReasoningFlowRepository:
             ).count()
             out.append(d)
         return out
+
+    def update_manual_rules(self, flow_id: int, rules: str, operator: str = "system") -> Optional[dict]:
+        """更新 flow 级任务规则（graph.manual_rules）。只动这一个键，不升版本、
+        不走画布归一——规则是文字微调，不该让画布版本号抖动。"""
+        f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
+        if not f:
+            return None
+        try:
+            g = json.loads(f.graph or "{}")
+        except Exception:
+            g = {}
+        g = dict(g) if isinstance(g, dict) else {}
+        if str(rules).strip():
+            g["manual_rules"] = str(rules)
+        else:
+            g.pop("manual_rules", None)
+        f.graph = json.dumps(g, ensure_ascii=False)
+        f.updated_at = datetime.now().isoformat()
+        f.updated_by = operator
+        self.session.commit()
+        self.session.refresh(f)
+        return f.to_dict()
 
     def upsert_graph(self, flow_id: int, graph: dict, operator: str = "system") -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
@@ -350,6 +388,46 @@ class ReasoningFlowRepository:
                 n.updated_at = now
                 n.updated_by = "self-heal"
                 changed += 1
+        self.session.commit()
+        return changed
+
+    def migrate_legacy_tool_names(self) -> int:
+        """把存量节点配置里的旧工具名就地改写为现行名（幂等启动迁移）。
+
+        覆盖两张表：reasoning_node_default（作者基准）与 reasoning_node_config（增量覆盖）。
+        只改 enabled_tools，其它键不动；改完才写回并 bump version。返回改动行数。
+        """
+        from app.services.tool_names import normalize_tool_ids
+        now = datetime.now().isoformat()
+        changed = 0
+
+        def _normalize_row(obj, attr: str):
+            nonlocal changed
+            try:
+                cfg = json.loads(getattr(obj, attr)) if getattr(obj, attr) else {}
+            except Exception:
+                cfg = {}
+            if not isinstance(cfg, dict):
+                return
+            raw = cfg.get("enabled_tools")
+            if not isinstance(raw, list):
+                return
+            cur = [str(x).strip() for x in raw if str(x).strip()]
+            norm = normalize_tool_ids(cur)
+            if norm == cur:
+                return
+            cfg["enabled_tools"] = norm
+            setattr(obj, attr, json.dumps(cfg, ensure_ascii=False))
+            obj.version = (obj.version or 1) + 1
+            obj.updated_at = now
+            obj.updated_by = "self-heal"
+            changed += 1
+
+        from app.models.skill_config import ReasoningNodeDefault
+        for d in self.session.query(ReasoningNodeDefault).all():
+            _normalize_row(d, "config")
+        for n in self.session.query(ReasoningNodeConfig).all():
+            _normalize_row(n, "config")
         self.session.commit()
         return changed
     def activate(self, flow_id: int, operator: str = "system") -> Optional[dict]:

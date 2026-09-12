@@ -6,6 +6,7 @@ providers later without touching callers.
 Config priority: system_config (llm_config) > .env > defaults
 """
 import asyncio
+import copy
 import json
 from typing import Any, AsyncGenerator, List, Dict, Optional
 
@@ -16,12 +17,10 @@ from app.repository.system_config_repo import SystemConfigRepository
 
 _settings = get_settings()
 
-# 默认 System Prompt（被 system_config 覆盖）
-DEFAULT_SYSTEM_PROMPT = (
-    "你是 CPQ 平台的「方案助手」,辅助销售/FAE 做服务器配置与报价。"
-    "用户当前所在页面的业务上下文会以「当前上下文」形式提供给你,作答时优先基于它。"
-    "要求:1) 用中文回复;2) 对料号价格、库存、具体型号编号等易变信息,不要编造——"
-    "不确定时请用户在配置页确认或查料号库;3) 回答简洁、分点。"
+# reasoning 类模型把 max_tokens 预算耗尽在思考阶段时的诊断文案（面向操作员的事实说明）。
+TRUNCATED_NOTICE = (
+    "⚠️ 模型未给出正文：reasoning（思考）阶段耗尽了 max_tokens 预算，"
+    "正式回复被截断（finish_reason=length）。请到「AI 设置」把 max_tokens 调到 ≥ 8000 后重试。"
 )
 
 
@@ -33,6 +32,17 @@ class LLMError(Exception):
 class LLMNativeToolsUnsupported(LLMError):
     """Native function calling is not supported by the current provider/proxy."""
     pass
+
+
+# 单轮整体墙钟上限（秒）的通道级默认：调用方可收紧，不能放开——「管道永远有上限」
+# 是通道自己的性质，不该靠每个调用方各记得传一次（漏一个就是一次静默长跑）。
+DEFAULT_OVERALL_TIMEOUT_S = 240.0
+
+
+def _overall_timeout_msg(overall_timeout: float) -> str:
+    """单轮模型调用整体超时的统一文案（引擎事实，非提示词；只进 trace/错误出口）。"""
+    return (f"LLM 单轮生成整体超时：超过 {float(overall_timeout):.0f}s 仍未收敛"
+            f"（长时间持续输出思考、不产出结论），已主动断开")
 
 
 def _get_llm_config() -> dict:
@@ -53,6 +63,7 @@ def _get_llm_config() -> dict:
         "capabilities_override": config.get("capabilities_override")
         if isinstance(config.get("capabilities_override"), dict)
         else {},
+        "upstream_format": str(config.get("upstream_format") or "openai").lower(),
     }
 
 
@@ -71,26 +82,31 @@ BUILTIN_MODEL_CAPABILITIES: Dict[str, Dict[str, bool]] = {
     "deepseek-v4-flash": {
         "supports_json_mode": False,
         "supports_native_tools": False,
+        "supports_strict_tools": False,
         "reasoning_model": True,
     },
     "deepseek-v4-pro": {
         "supports_json_mode": False,
         "supports_native_tools": False,
+        "supports_strict_tools": False,
         "reasoning_model": True,
     },
     "deepseek": {
         "supports_json_mode": False,
         "supports_native_tools": False,
+        "supports_strict_tools": False,
         "reasoning_model": True,
     },
     "qwen": {
         "supports_json_mode": True,
         "supports_native_tools": True,
+        "supports_strict_tools": False,
         "reasoning_model": False,
     },
     "gpt": {
         "supports_json_mode": True,
         "supports_native_tools": True,
+        "supports_strict_tools": False,
         "reasoning_model": False,
     },
 }
@@ -98,6 +114,7 @@ BUILTIN_MODEL_CAPABILITIES: Dict[str, Dict[str, bool]] = {
 DEFAULT_MODEL_CAPABILITIES: Dict[str, bool] = {
     "supports_json_mode": False,
     "supports_native_tools": False,
+    "supports_strict_tools": False,
     "reasoning_model": False,
 }
 
@@ -115,6 +132,11 @@ def get_model_capabilities(model: Optional[str] = None, config: Optional[dict] =
     config = config if config is not None else _get_llm_config()
     model = (model or config.get("model") or "").strip()
     caps = _builtin_capabilities(model)
+    # 上游为 Anthropic Messages 时，原生 function calling 天然可用（/chat/completions 不认
+    # type:function，但 /messages 认）。这里把 supports_native_tools 抬为 True，供 auto/native
+    # 通道决策；仍允许 capabilities_override 显式关闭，作为 Operator 的最终开关。
+    if str(config.get("upstream_format") or "openai").lower() == "anthropic":
+        caps["supports_native_tools"] = True
 
     overrides = config.get("capabilities_override") or {}
     if isinstance(overrides, dict):
@@ -139,16 +161,88 @@ def model_supports_native_tools(model: Optional[str] = None) -> bool:
     return bool(get_model_capabilities(model).get("supports_native_tools"))
 
 
+def model_supports_strict_tools(model: Optional[str] = None) -> bool:
+    return bool(get_model_capabilities(model).get("supports_strict_tools"))
+
+
+_STRICT_FORBIDDEN_KEYS = ("default", "minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                          "minLength", "maxLength", "pattern", "minItems", "maxItems",
+                          "multipleOf", "minProperties", "maxProperties", "uniqueItems", "format")
+
+
+def _is_strict_compatible(schema: Any) -> bool:
+    """OpenAI strict 兼容性：要求所有 object 字段必填，且不含 strict 拒绝的约束键。
+
+    不满足即返回 False，由 _strictify_tools 原样保留 schema（不置 strict），避免 400。
+    """
+    if not isinstance(schema, dict):
+        return True
+    if any(key in schema for key in _STRICT_FORBIDDEN_KEYS):
+        return False
+    typ = schema.get("type")
+    if typ == "object":
+        props = schema.get("properties") or {}
+        req = schema.get("required") or []
+        for key in props:
+            if key not in req:
+                return False
+        for value in props.values():
+            if not _is_strict_compatible(value):
+                return False
+    elif typ == "array":
+        return _is_strict_compatible(schema.get("items") or {})
+    return True
+
+
+def _strictify_tools(tools: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """把 tool schema 追加 additionalProperties:false 并给 function 置 strict:true。
+
+    仅当所有 object 层级的每个 property 都必填时开启 strict（OpenAI 要求 required 齐全，
+    否则请求被 400 拒绝）。不满足即原样返回，避免我们自己的可选参数 schema 反把原生通道打挂。
+    """
+    if not tools:
+        return tools
+    for tool in tools:
+        if not isinstance(tool, dict):
+            return tools
+        fn = tool.get("function") or {}
+        params = fn.get("parameters") if isinstance(fn, dict) else None
+        if not _is_strict_compatible(params):
+            return tools
+
+    out: List[Dict[str, Any]] = []
+    for tool in tools:
+        fn = dict(tool.get("function") or {})
+        params = copy.deepcopy(fn.get("parameters") or {})
+
+        def _add(obj: Any) -> None:
+            if not isinstance(obj, dict):
+                return
+            typ = obj.get("type")
+            if typ == "object":
+                obj.setdefault("additionalProperties", False)
+                for value in (obj.get("properties") or {}).values():
+                    _add(value)
+            elif typ == "array":
+                _add(obj.get("items") or {})
+
+        _add(params)
+        fn["parameters"] = params
+        fn["strict"] = True
+        out.append({**tool, "function": fn})
+    return out
+
+
 def _ensure_json_instruction(messages: List[Dict[str, str]]) -> List[Dict[str, str]]:
     """Ensure the prompt contains the literal 'json' word required by json_object mode."""
     msgs = [dict(m) for m in messages]
     if not msgs:
         msgs = [{"role": "system", "content": "请只输出 JSON 对象。"}]
     if msgs[0].get("role") != "system":
-        msgs.insert(0, {"role": "system", "content": DEFAULT_SYSTEM_PROMPT})
+        msgs.insert(0, {"role": "system", "content": ""})
     content = str(msgs[0].get("content") or "")
     if "json" not in content.lower():
-        content += "\n请只输出 JSON 对象，不要输出 Markdown 代码块。"
+        content += "\n输出格式契约：只回一个 JSON 对象（纯 JSON 文本，非 Markdown 代码块）。"
     msgs[0]["content"] = content
     return msgs
 
@@ -228,10 +322,6 @@ async def stream_chat(
         raise LLMError("AI 引擎未启用（设置 → AI 设置 → 启用 AI）")
     client = _client(config["base_url"], config["api_key"])
 
-    # 如果 messages 没有 system prompt，插入配置的 system prompt
-    if messages and messages[0].get("role") != "system":
-        messages = [{"role": "system", "content": DEFAULT_SYSTEM_PROMPT}] + messages
-
     try:
         stream = await client.chat.completions.create(
             model=model or config["model"],
@@ -259,12 +349,7 @@ async def stream_chat(
         # 显示无意义的"(空回复)"。
         if not has_content:
             if finish_reason == "length":
-                yield (
-                    "⚠️ 模型未给出正文:reasoning(思考)阶段耗尽了 max_tokens 预算,"
-                    "正式回复被截断(finish_reason=length)。这是 reasoning 类模型"
-                    "(如 step-3.x)在复杂任务上的典型现象。请到「AI 设置」调大 "
-                    "max_tokens(reasoning 模型建议 ≥ 8000)后重试。"
-                )
+                yield TRUNCATED_NOTICE
             else:
                 yield (
                     f"⚠️ 模型返回为空(content 为空,finish_reason={finish_reason or 'none'})。"
@@ -376,16 +461,32 @@ async def chat_with_tools(
     config = _get_llm_config()
     if not config.get("enabled", True):
         raise LLMError("AI 引擎未启用（设置 → AI 设置 → 启用 AI）")
-    if not get_model_capabilities(model or config["model"], config).get("supports_native_tools"):
+    caps = get_model_capabilities(model or config["model"], config)
+    if not caps.get("supports_native_tools"):
         raise LLMNativeToolsUnsupported(f"模型 {config.get('model')} 的能力档案禁用了原生工具调用")
+    if str(config.get("upstream_format") or "openai").lower() == "anthropic":
+        from app.services import anthropic_channel
+        anthropic_messages = list(messages or [])
+        try:
+            return await anthropic_channel.chat(
+                anthropic_messages,
+                tools=tools,
+                model=model or config["model"],
+                base_url=config["base_url"],
+                api_key=config["api_key"],
+                max_tokens=config["max_tokens"] if max_tokens is None else max_tokens,
+                temperature=config["temperature"] if temperature is None else temperature,
+                timeout=timeout,
+            )
+        except anthropic_channel.AnthropicChannelError as e:
+            raise LLMNativeToolsUnsupported(str(e)) from e
     client = _client(config["base_url"], config["api_key"], timeout=timeout)
-    if messages and messages[0].get("role") != "system":
-        messages = [{"role": "system", "content": DEFAULT_SYSTEM_PROMPT}] + messages
+    request_tools = _strictify_tools(tools) if caps.get("supports_strict_tools") else tools
     try:
         resp = await client.chat.completions.create(
             model=model or config["model"],
             messages=messages,
-            tools=tools,
+            tools=request_tools,
             tool_choice="auto",
             temperature=config["temperature"] if temperature is None else temperature,
             max_tokens=config["max_tokens"] if max_tokens is None else max_tokens,
@@ -741,6 +842,7 @@ async def stream_agent_chat(
     timeout: float = 180.0,
     reasoning_effort: Optional[str] = None,
     first_token_timeout: Optional[float] = None,
+    overall_timeout: Optional[float] = DEFAULT_OVERALL_TIMEOUT_S,
 ) -> AsyncGenerator[Dict[str, str], None]:
     """流式 Agent 聊天：把模型的 reasoning 与正文逐段吐出来（ChatGPT 式白盒）。
 
@@ -759,6 +861,8 @@ async def stream_agent_chat(
         首 token 之后【每个 chunk 间隔】同样受 first_token_timeout 约束（间隔看门狗）：
         黑洞连接常被 keepalive 字节"养着"导致 httpx read 超时不触发（read 只测"任一
         字节到达"，keepalive 会让它永不超时），按内容 chunk 间隔主动断开（litellm #29767 同源）。
+      - overall_timeout 是「单轮总时长」的墙钟上限：间隔看门狗管不住「一直在吐字但迟迟
+        不收敛」的慢速生成，单轮总时长必须另有兜底，否则一轮可以静默跑几十分钟（实测 1605s）。
       - reasoning 耗尽 max_tokens 导致正文为空时，yield 一条带 truncated 标记的兜底文案：
         单发消费方（普通对话）照常展示提示，Agent 循环则据标记作废该轮并重试，
         不让警告文本混进旁白/落库正文。
@@ -768,12 +872,33 @@ async def stream_agent_chat(
     if not config.get("enabled", True):
         raise LLMError("AI 引擎未启用（设置 → AI 设置 → 启用 AI）")
     client = _client(config["base_url"], config["api_key"], timeout=timeout)
-    if messages and messages[0].get("role") != "system":
-        messages = [{"role": "system", "content": DEFAULT_SYSTEM_PROMPT}] + messages
 
     model_name = model or config["model"]
     caps = get_model_capabilities(model_name, config)
     use_tools = bool(tools) and bool(caps.get("supports_native_tools"))
+    if use_tools and str(config.get("upstream_format") or "openai").lower() == "anthropic":
+        from app.services import anthropic_channel
+        try:
+            async for item in anthropic_channel.stream(
+                messages,
+                tools=tools,
+                model=model_name,
+                base_url=config["base_url"],
+                api_key=config["api_key"],
+                max_tokens=max_tokens if max_tokens is not None else config["max_tokens"],
+                temperature=config["temperature"] if temperature is None else temperature,
+                timeout=timeout,
+                first_token_timeout=first_token_timeout,
+                overall_timeout=overall_timeout,
+            ):
+                yield item
+            return
+        except anthropic_channel.AnthropicTimeoutError as e:
+            # 超时不是「通道不支持原生 tools」：误报会让上层白白降级掉工具通道，
+            # 必须收口成 LLMError，让上层按「可重试 / 可如实失败」处理。
+            raise LLMError(str(e)) from e
+        except anthropic_channel.AnthropicChannelError as e:
+            raise LLMNativeToolsUnsupported(str(e)) from e
 
     request_kwargs: Dict[str, Any] = {
         "model": model_name,
@@ -783,12 +908,21 @@ async def stream_agent_chat(
         "max_tokens": max_tokens if max_tokens is not None else config["max_tokens"],
     }
     if use_tools:
-        request_kwargs["tools"] = tools
+        request_kwargs["tools"] = _strictify_tools(tools) if caps.get("supports_strict_tools") else tools
     if reasoning_effort is not None:
         request_kwargs["extra_body"] = {"reasoning_effort": reasoning_effort}
+    # 末块 usage（prefill/生成 token 数与缓存命中）：诊断「慢在哪」的数据源；个别代理不认
+    # 该参数报 400 时降级去掉重试一次（不牺牲主流程）。
+    request_kwargs["stream_options"] = {"include_usage": True}
 
     async def _create():
-        return await client.chat.completions.create(**request_kwargs)
+        try:
+            return await client.chat.completions.create(**request_kwargs)
+        except Exception as e:
+            if "stream_options" in _format_err(e) and "stream_options" in request_kwargs:
+                request_kwargs.pop("stream_options", None)
+                return await client.chat.completions.create(**request_kwargs)
+            raise
 
     try:
         if first_token_timeout:
@@ -806,29 +940,59 @@ async def stream_agent_chat(
     try:
         has_content = False
         finish_reason: Optional[str] = None
+        last_usage: Dict[str, int] = {}
         aiter = stream.__aiter__()
         pending_first = bool(first_token_timeout)
         # 间隔看门狗（2026-09-06，参照 litellm #29767）：首 token 后每个 chunk 也要超时
         guard = first_token_timeout if first_token_timeout else None
+        # 整体墙钟上限（2026-09-11）：间隔看门狗只约束「两次输出之间的空隙」，慢速持续吐
+        # reasoning 的模型会把看门狗无限重置 → 单轮永不收敛（实测 1605s 静默空转）。
+        # 单轮总时长按墙钟兜底：到点即断，交上层按失败处理，绝不让回合无限挂起。
+        loop = asyncio.get_running_loop()
+        overall_deadline = (loop.time() + float(overall_timeout)) if overall_timeout else None
+        # 流式原生 function calling：按 index 累积 tool_calls 增量（id/name/arguments 可能分片）
+        tool_calls_acc: Dict[int, dict] = {}
+        has_tool_calls = False
         while True:
             try:
-                if pending_first:
-                    # 首个输出看门狗：响应头已到但模型一直不吐字 = 队列挂死，快速放弃交上层重试
-                    chunk = await asyncio.wait_for(aiter.__anext__(), timeout=first_token_timeout)
-                    pending_first = False
-                elif guard:
-                    # 间隔看门狗：模型已吐过字但中间卡死（keepalive 养连接、无内容 chunk）
-                    chunk = await asyncio.wait_for(aiter.__anext__(), timeout=guard)
-                else:
+                # 首/间隔看门狗（建连、黑洞挂死）+ 整体墙钟上限（慢速长跑）三者取最小值，谁先到谁断
+                budget = first_token_timeout if pending_first else guard
+                over = False    # 本次等待是否由「整体墙钟上限」卡住 → 断连原因要如实，不能张冠李戴
+                if overall_deadline is not None:
+                    left = overall_deadline - loop.time()
+                    if left <= 0:
+                        raise LLMError(_overall_timeout_msg(overall_timeout))
+                    if budget is None or left < budget:
+                        budget = left
+                        over = True
+                if budget is None:
                     chunk = await aiter.__anext__()
+                else:
+                    chunk = await asyncio.wait_for(aiter.__anext__(), timeout=budget)
+                pending_first = False
             except StopAsyncIteration:
                 break
             except asyncio.TimeoutError:
+                if over:
+                    raise LLMError(_overall_timeout_msg(overall_timeout))
                 if pending_first:
                     raise LLMError(
-                        f"LLM 首字节超时：{first_token_timeout:.0f}s 内无任何输出（连接挂死），已主动断开")
+                        f"LLM 首字节超时：{float(first_token_timeout or 0):.0f}s 内无任何输出（连接挂死），已主动断开")
                 raise LLMError(
-                    f"LLM 流式间隔超时：{guard:.0f}s 内未收到下一个数据块（连接挂死），已主动断开")
+                    f"LLM 流式间隔超时：{float(guard or 0):.0f}s 内未收到下一个数据块（连接挂死），已主动断开")
+            usage_obj = getattr(chunk, "usage", None)
+            if usage_obj is not None:
+                # DeepSeek: prompt_cache_hit_tokens；OpenAI 系: prompt_tokens_details.cached_tokens
+                _det = getattr(usage_obj, "prompt_tokens_details", None)
+                last_usage.update({
+                    "prompt_tokens": getattr(usage_obj, "prompt_tokens", 0) or 0,
+                    "completion_tokens": getattr(usage_obj, "completion_tokens", 0) or 0,
+                    "cache_hit_tokens": (getattr(usage_obj, "prompt_cache_hit_tokens", None)
+                                         or getattr(_det, "cached_tokens", None) or 0),
+                })
+                _comp_det = getattr(usage_obj, "completion_tokens_details", None)
+                if _comp_det is not None:
+                    last_usage["reasoning_tokens"] = getattr(_comp_det, "reasoning_tokens", 0) or 0
             try:
                 choice = chunk.choices[0]
             except (AttributeError, IndexError):
@@ -843,14 +1007,49 @@ async def stream_agent_chat(
             if content:
                 has_content = True
                 yield {"type": "content", "delta": str(content)}
+            tool_call_deltas = getattr(delta, "tool_calls", None)
+            if tool_call_deltas:
+                has_tool_calls = True
+                for tcd in tool_call_deltas:
+                    tcd_index = int(getattr(tcd, "index", 0) or 0)
+                    acc = tool_calls_acc.setdefault(tcd_index, {"id": None, "name": "", "arguments": ""})
+                    tcd_id = getattr(tcd, "id", None)
+                    if tcd_id:
+                        acc["id"] = str(tcd_id)
+                    fn = getattr(tcd, "function", None)
+                    if fn is not None:
+                        fn_name = getattr(fn, "name", None)
+                        if fn_name:
+                            acc["name"] = str(acc.get("name") or "") + str(fn_name)
+                        fn_args = getattr(fn, "arguments", None)
+                        if fn_args:
+                            acc["arguments"] = str(acc.get("arguments") or "") + str(fn_args)
         # 流式结束却无正文：reasoning 阶段耗尽 max_tokens，正文被 length 截断。
         # truncated 标记交消费方分流：普通对话展示提示，Agent 循环作废该轮重试。
-        if not has_content and finish_reason == "length":
+        if last_usage:
+            yield {"type": "usage", "usage": dict(last_usage)}
+        if has_tool_calls and tool_calls_acc:
+            parsed_tool_calls = []
+            for idx in sorted(tool_calls_acc):
+                acc = tool_calls_acc[idx]
+                args_raw = acc.get("arguments") or ""
+                try:
+                    args = json.loads(args_raw) if args_raw.strip() else {}
+                except Exception:
+                    args = {}
+                if not isinstance(args, dict):
+                    args = {}
+                parsed_tool_calls.append({
+                    "id": acc.get("id") or f"call_{idx}",
+                    "name": acc.get("name") or "",
+                    "arguments": args,
+                    "arguments_raw": args_raw,
+                })
+            yield {"type": "tool_calls", "tool_calls": parsed_tool_calls}
+        if not has_content and not tool_calls_acc and finish_reason == "length":
             yield {
                 "type": "content",
-                "delta": ("⚠️ 模型未给出正文：reasoning（思考）阶段耗尽了 max_tokens 预算，"
-                          "正式回复被截断（finish_reason=length）。请到「AI 设置」调大 "
-                          "max_tokens（reasoning 模型建议 ≥ 8000）后重试。"),
+                "delta": TRUNCATED_NOTICE,
                 "truncated": True,
             }
     except LLMError:

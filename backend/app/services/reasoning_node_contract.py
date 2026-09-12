@@ -76,7 +76,13 @@ def effective_config(node_key: str, stored_config: Optional[dict] = None, skill_
     if base_key not in node_defaults():
         return deepcopy(stored_config or {})
     base = _defaults_for_node(base_key)
-    return _merge(base, stored_config or {})
+    out = _merge(base, stored_config or {})
+    # 产物槽（target.artifacts）是节点插头，形状只由抽屉声明：默认值是物件时，
+    # 非物件的覆盖值一律忽略。历史字段 config.target 曾是「交接目标字符串」，
+    # 同名不同义——一旦覆盖成功，resolve_kind 就找不到槽，节点下产物凭空消失。
+    if isinstance(base.get("target"), dict) and not isinstance(out.get("target"), dict):
+        out["target"] = deepcopy(base["target"])
+    return out
 
 
 def override_only(node_key: str, config: dict, skill_key: Optional[str] = None) -> dict:

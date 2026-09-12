@@ -11,6 +11,32 @@ export interface NodeTrace {
   duration_ms?: number
 }
 
+/**
+ * 中断点事实（P5-B2）：后端 pause 载荷（skill_plan_runtime.pause_payload）里与展示相关的字段。
+ * 只有事实与原因码——怎么措辞是 UI 的事，载荷本身不带话术。
+ */
+export interface PauseFacts {
+  kind: string
+  step: string
+  label: string
+  reason_code: string
+  resumable: boolean
+}
+
+export function pauseFactsOf(payload: unknown): PauseFacts | null {
+  const p = (payload || null) as Record<string, any> | null
+  if (!p || typeof p !== 'object') return null
+  const kind = String(p.kind || '')
+  if (!kind) return null
+  return {
+    kind,
+    step: String(p.step || ''),
+    label: String(p.label || ''),
+    reason_code: String(p.reason_code || ''),
+    resumable: p.resumable !== false,
+  }
+}
+
 export interface AssistantChatWsState {
   messages: AssistantMessage[]
   streamingText: string
@@ -23,6 +49,8 @@ export interface AssistantChatWsState {
   /** 任务胶囊（Claude Code 式计步器）：标题来自 pipeline_start.title，phase 由管线事件驱动 */
   taskTitle: string
   taskPhase: '' | 'running' | 'paused' | 'done'
+  /** 中断点事实（P5-B2）：原样来自后端 pause 载荷，UI 只按事实显示，不加工 */
+  taskPause: PauseFacts | null
 }
 
 /** 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行） */
@@ -30,6 +58,7 @@ export function resetTaskUI(state: AssistantChatWsState) {
   if (state.taskPhase !== 'done') return
   state.nodeTraces = []
   state.taskPhase = ''
+  state.taskPause = null
   state.taskTitle = ''
 }
 
@@ -141,6 +170,7 @@ export function handleAssistantChatWsEvent(
       state.running = true
       state.taskTitle = String(data.title || '配置任务')
       state.taskPhase = 'running'
+      state.taskPause = null
       return true
     }
     case 'stopping':
@@ -230,6 +260,7 @@ export function handleAssistantChatWsEvent(
       state.running = false
       state.streamingText = ''
       state.taskPhase = 'done'
+      state.taskPause = null
       return true
     case 'pipeline_paused':
       state.waiting = false
@@ -237,6 +268,17 @@ export function handleAssistantChatWsEvent(
       state.running = false
       state.streamingText = ''
       state.taskPhase = 'paused'
+      state.taskPause = pauseFactsOf(data.pause)
+      return true
+    case 'pipeline_waiting':
+      // 问问题/弹卡时任务仍视为进行中（Claude Code 式：有问才停，但任务未结束）。
+      state.waiting = false
+      state.taskPhase = 'running'
+      state.taskPause = pauseFactsOf(data.pause)
+      // running=false 让卡片可点（两处 optionInteractive 均以 !running 判定）；
+      // taskPhase='running' 让胶囊仍显示「执行中」而非「已暂停」。
+      state.running = false
+      state.streamingText = ''
       return true
     case 'analysis_cancelled':
       state.nodeTraces = []

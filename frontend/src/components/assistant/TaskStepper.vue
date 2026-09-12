@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
-import type { NodeTrace } from '@/composables/assistantChatWs'
+import type { NodeTrace, PauseFacts } from '@/composables/assistantChatWs'
 
 /**
  * Claude Code 式任务计步器：聊天底部收起胶囊（标题 + 进度计数 + 当前步骤 + 已运行时长），
@@ -15,6 +15,8 @@ const props = defineProps<{
   traces: NodeTrace[]
   title?: string
   phase?: '' | 'running' | 'paused' | 'done'
+  /** 中断点事实（P5-B2）：来自后端 pause 载荷，只按事实显示，不加工文案 */
+  pause?: PauseFacts | null
 }>()
 
 const open = ref(false)
@@ -54,8 +56,32 @@ const totalCount = computed(() => displaySteps.value.length)
 const currentStep = computed(() => displaySteps.value.find((s) => s.status === 'running'))
 const state = computed(() => props.phase || (currentStep.value ? 'running' : 'done'))
 
+/** 原因码 → 界面文案（UI 层本地映射，不复制后端任何话术；未登记的码回退到 kind） */
+const REASON_LABEL: Record<string, string> = {
+  brain_ask: '需要你补充信息',
+  delivery_gap: '交付信息不完整',
+  final_gate: '终检未通过',
+  stuck: '本步没有产出',
+  failure: '本步执行失败',
+  turn_timeout: '响应超时',
+  llm_timeout: '模型响应超时',
+  kp_timeout: '选型查询超时',
+  kp_pick: '需要你挑一行',
+  approval: '等待你审批',
+}
+
+const pauseHeadline = computed(() => {
+  const p = props.pause
+  const why = p ? (REASON_LABEL[p.reason_code] || REASON_LABEL[p.kind] || '') : ''
+  const where = p ? (p.label || p.step || '') : ''
+  if (where && why) return `中断在 ${where} · ${why}`
+  if (where) return `中断在 ${where}`
+  if (why) return `已中断 · ${why}`
+  return '等待你补充信息'
+})
+
 const headline = computed(() => {
-  if (state.value === 'paused') return '等待你补充信息'
+  if (state.value === 'paused') return pauseHeadline.value
   if (state.value === 'running') return currentStep.value?.label || '执行中'
   return '已完成'
 })

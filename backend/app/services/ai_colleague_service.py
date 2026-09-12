@@ -187,20 +187,13 @@ def build_colleague_tool_registry(colleague_or_role_key: Any):
 # 宪法：判断依据 = 员工名册（职责/技能，业务数据）；判断本身 = 模型理解。
 # 任何关键词清单都是旧世界的遗产，禁止回来。
 
-_DISPATCH_SYSTEM_PROMPT = (
-    "你是 CPQ AI 办公室的转接判官。根据用户消息，从在册 AI 同事名册中选出最合适的一位接手；"
-    "没有合适的专业同事、或消息只是闲聊/问候/与业务无关时，colleague_role_key 留空字符串（由总助自己回复）。"
-    "用户明确点名某位同事（姓名）时，直接选那位。判断依据只能是名册中的职责描述与技能清单。"
-    "只能输出 JSON：{\"colleague_role_key\": \"名册中的 role_key 或空字符串\", \"reason\": \"一句话中文理由\"}"
-)
-
-
 def _skill_names(colleague: dict) -> list:
     names = []
-    for item in colleague.get("skills") or []:
-        name = item if isinstance(item, str) else str((item or {}).get("name") or "")
-        if name.strip():
-            names.append(name.strip())
+    for list_name in ("skills", "workflows"):
+        for item in colleague.get(list_name) or []:
+            name = item if isinstance(item, str) else str((item or {}).get("name") or "")
+            if name.strip():
+                names.append(name.strip())
     return names
 
 
@@ -280,14 +273,18 @@ async def resolve_assistant_message_target_async(
         return None
     import json as _json
     from app.services import llm_client
-    messages = [
-        {"role": "system", "content": _DISPATCH_SYSTEM_PROMPT},
-        {"role": "user", "content": (
+    # 判官用的就是总助自己的提示词（Manage Teams · 员工 · 方案助手）；JSON 契约由 _DISPATCH_SCHEMA 结构化传入。
+    lead = next((c for c in (config.get("colleagues") or [])
+                 if c.get("role_key") == "assistant"), None) or {}
+    system_prompt = str(lead.get("system_prompt") or "").strip()
+    messages: list = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": (
             "在册同事名册：\n" + _json.dumps(roster, ensure_ascii=False) +
             "\n\n上下文摘要：" + (str(context_summary or "") or "无")[:400] +
             "\n\n用户消息：" + str(text or "")[:800]
-        )},
-    ]
+        )})
     try:
         data = await llm_client.chat_json(
             messages,

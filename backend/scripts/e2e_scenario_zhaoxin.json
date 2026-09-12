@@ -2,7 +2,6 @@
   "name": "兆芯需求-反问开-全旅程",
   "role_key": "support_engineer",
   "entry_point": "skill_studio_preview",
-  "enable_clarity": true,
   "input": "CPU：2颗兆芯50000 处理器（2.2GHz/96C）\n内存：768GB DDR5\n硬盘：2块480G SSD+1块1.92T SSD+4块6T HDD\nRaid：Raid卡（1GB缓存，支持超融合，RAID0/1/5/6和JBOD）\n网卡：4个千兆，2个万兆\n电源：双电源\n服务：3年专业支持和关键任务 (7x24)",
   "answers": {
     "platform_type": "Polaris",

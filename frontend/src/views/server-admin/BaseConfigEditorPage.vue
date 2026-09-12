@@ -496,7 +496,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                       <span class="line-idx">{{ commonLines.indexOf(l) + 1 }}</span>
                       <PartPicker style="flex:1" :items="partsForSection(1).map(fromPartMaster)" :model-value="l.pn" placeholder="🔍 选机箱/辅料/线缆件"
                                   @update:model-value="(pn:any)=>onPartPick(l, typeof pn==='string'?pn:'')">
-                        <template #option="{ item }"><div class="bcb-opt"><div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div><div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span class="bcb-opt-pn">{{ item.pn }}</span></div></div></template>
+                        <template #option="{ item }"><div class="bcb-opt"><div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div><div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div></div></template>
                       </PartPicker>
                       <a-input-number v-model:value="l.qty" :min="1" style="width:72px" />
                       <a-button danger size="small" @click="delLine(l)">✕</a-button>
@@ -541,7 +541,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                         <template #option="{ item }">
                           <div class="bcb-opt">
                             <div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div>
-                            <div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span class="bcb-opt-pn">{{ item.pn }}</span></div>
+                            <div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div>
                           </div>
                         </template>
                       </PartPicker>
@@ -696,5 +696,5 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .bcb-opt-price { font-size: 13px; color: var(--cpq-accent-primary); font-weight: 600; white-space: nowrap; }
 .bcb-opt-sub { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: 12px; }
 .bcb-opt-cat { color: var(--cpq-accent-primary); }
-.bcb-opt-pn { color: var(--cpq-text-muted, #6E7582); margin-left: auto; font-family: monospace; }
+.bcb-opt-brand { color: var(--cpq-text-muted, #6E7582); margin-left: auto; }
 </style>

@@ -151,8 +151,8 @@ _ENTRY_POINT_MIGRATIONS = {
 }
 
 # 2026-08-29 步骤2 退役：query_cpq_data（坏）→ query_data（映射）；服务器浏览三件套直接剔除
-
-_RETIRED_TOOL_IDS = {"list_server_types", "list_server_models", "get_server_model"}
+# 工具名唯一真源迁移到 services/tool_names.py，此处只引用共享版，避免散落双写。
+from ..services.tool_names import TOOL_RENAME_MAP as _TOOL_RENAME_MAP, RETIRED_TOOL_IDS as _RETIRED_TOOL_IDS
 
 
 
@@ -272,7 +272,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "select_parts", "build_plan", "cost_breakdown"],
+        "tool_ids": ["choose_model"],
 
         "data_sources": ["kp_price", "bom", "cost"],
 
@@ -311,7 +311,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["select_models", "select_parts", "list_kp_categories", "build_plan", "search_cases"],
+        "tool_ids": ["choose_model", "search_cases"],
 
         "data_sources": ["requirement", "candidate_search", "bom", "server_catalog", "server_product_content"],
 
@@ -346,7 +346,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "model_override": None,
 
-        "tool_ids": ["cost_breakdown", "quote_draft"],
+        "tool_ids": [],
 
         "data_sources": ["quotation", "opportunity"],
 
@@ -694,7 +694,7 @@ class SystemConfigRepository:
 
                             changed = True
 
-                    if role_key == "cost_analyst" and colleague.get("tool_ids") == ["select_models", "select_parts", "build_plan"]:
+                    if role_key == "cost_analyst" and colleague.get("tool_ids") == ["choose_model", "build_plan", "cost_breakdown"]:
 
                         colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
 
@@ -716,8 +716,10 @@ class SystemConfigRepository:
                         if not t:
                             continue
 
+                        next_t = _TOOL_RENAME_MAP.get(t, t)
                         # 试点只开方案助手：query_cpq_data→query_data 映射仅限 assistant，其余角色直接剔除
-                        next_t = "query_data" if (t == "query_cpq_data" and role_key == "assistant") else t
+                        if t == "query_cpq_data" and role_key == "assistant":
+                            next_t = "query_data"
 
                         if next_t != t or t in _RETIRED_TOOL_IDS:
 

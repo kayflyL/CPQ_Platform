@@ -1,0 +1,55 @@
+{
+ "thread_id": "d635500245cd4be18051ad13dbfe8531",
+ "turns": 4,
+ "finished": false,
+ "turns_log": [
+  {
+   "turn": 1,
+   "input": "",
+   "dur": 33.85268497467041,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 13,
+   "n_chunks": 84,
+   "first_event_s": 1.9473440647125244,
+   "narration_len": 131
+  },
+  {
+   "turn": 2,
+   "input": "[{\"slot\": \"brain_ask\", \"value\": \"通用计算服务器\"}]",
+   "dur": 49.0012149810791,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 16,
+   "n_chunks": 132,
+   "first_event_s": 0.20505619049072266,
+   "narration_len": 198
+  },
+  {
+   "turn": 3,
+   "input": "[{\"slot\": \"brain_ask\", \"value\": \"通用计算服务器\"}]",
+   "dur": 54.25917315483093,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 16,
+   "n_chunks": 169,
+   "first_event_s": 0.22947382926940918,
+   "narration_len": 251
+  },
+  {
+   "turn": 4,
+   "input": "[{\"slot\": \"brain_ask\", \"value\": \"通用计算服务器\"}]",
+   "dur": 129.7508511543274,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 19,
+   "n_chunks": 237,
+   "first_event_s": 0.22568392753601074,
+   "narration_len": 356
+  }
+ ]
+}

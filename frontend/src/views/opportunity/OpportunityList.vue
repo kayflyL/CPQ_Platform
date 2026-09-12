@@ -415,7 +415,7 @@ const tableColumns = [
   { title: '形态', dataIndex: 'chassis_form', key: 'chassis', width: 84 },
   { title: '数量', dataIndex: 'purchase_qty', width: 80 },
   { title: '配置', dataIndex: 'config_count', width: 72 },
-  { title: '创建时间', dataIndex: 'created_at', width: 116 },
+  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 116, sorter: true },
   { title: '更新时间', dataIndex: 'updated_at', width: 116, sorter: true, defaultSortOrder: 'descend' as const },
   { title: '', key: 'actions', width: 60, align: 'center' as const },
 ]
@@ -607,6 +607,14 @@ async function loadTable() {
   tableLoading.value = true
   try {
     const params: any = { page: tablePage.value, page_size: tablePageSize.value }
+    if (drill.value.active) {
+      if (customRange.value) {
+        params.start = customRange.value.start
+        params.end = customRange.value.end
+      } else {
+        params.period = period.value
+      }
+    }
     if (filters.value.search) params.search = filters.value.search
     if (filters.value.status !== 'all') {
       params.result = filters.value.status

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models.base import Rules_SessionLocal
 from ..models.skill import SkillCatalog
+from ..services.skill_types import normalize_skill_type
 
 
 
@@ -40,7 +41,7 @@ class SkillCatalogRepository:
         values = {
             "key": key,
             "name": str(payload.get("name") or key).strip() or key,
-            "type": str(payload.get("type") or "tool_prompt").strip() or "tool_prompt",
+            "type": normalize_skill_type(payload.get("type") or "skill"),
             "workflow_key": str(payload.get("workflow_key") or "").strip() or None,
             "description": str(payload.get("description") or "").strip(),
             "prompt": str(payload.get("prompt") or "").strip(),

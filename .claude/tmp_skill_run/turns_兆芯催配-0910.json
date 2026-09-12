@@ -1,0 +1,19 @@
+{
+ "thread_id": "d635500245cd4be18051ad13dbfe8531",
+ "turns": 1,
+ "finished": false,
+ "turns_log": [
+  {
+   "turn": 1,
+   "input": "",
+   "dur": 125.30810403823853,
+   "finished": false,
+   "paused": true,
+   "errors": [],
+   "n_nodes": 0,
+   "n_chunks": 89,
+   "first_event_s": 1.220228910446167,
+   "narration_len": 147
+  }
+ ]
+}

@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Set
 
 from fastapi import WebSocket
 
+from app.services.room_hub import send_bounded
+
 
 class OfficeHub:
     """Process-local connection registry + latest colleague status map."""
@@ -42,9 +44,9 @@ class OfficeHub:
         for ws, allowed in clients:
             if allowed is not None and role_key not in allowed and role_key != "unknown":
                 continue
-            try:
-                await ws.send_text(text)
-            except Exception:
+            # 有界发送：半死连接（页面重载/网络瞬断/客户端停止读取）会因 TCP 背压永久
+            # 阻塞，进而拖死整个回合任务。与 assistant/feed 链路同一处修复（room_hub）。
+            if not await send_bounded(ws, text):
                 dead.append(ws)
         for ws in dead:
             await self.disconnect(ws)
@@ -79,6 +81,8 @@ class OfficeHub:
             "summary": payload.get("summary"),
             "assignments": payload.get("assignments"),
             "conclusion": payload.get("conclusion"),
+            # 暂停载荷对象（P4-1）：结构化事实原样带给看板，不靠话术字段还原中断点
+            "pause": payload.get("pause"),
             "actor": payload.get("actor"),
             "source": payload.get("source") or "system",
             "ts": payload.get("ts"),

@@ -228,19 +228,6 @@ def get_dashboard_summary(
             Opportunity.status != "ai_office",
             Opportunity.status != "deleted",
         ]
-        # 看板统一口径：只统计已提交需求单的商机（有 current 需求单，或流程已推进出 requirement）。
-        from sqlalchemy import exists
-        from app.models.flow import OpportunityFlow
-        base_conds.append(
-            exists().where(
-                OpportunityRequirement.opportunity_id == Opportunity.opportunity_id,
-                OpportunityRequirement.status == "current",
-            )
-            | exists().where(
-                OpportunityFlow.opportunity_id == Opportunity.opportunity_id,
-                OpportunityFlow.current_node != "requirement",
-            )
-        )
         if owner_user_id:
             base_conds.append(Opportunity.owner_user_id == owner_user_id)
         if sales_persons:

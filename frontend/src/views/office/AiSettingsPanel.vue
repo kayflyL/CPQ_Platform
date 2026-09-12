@@ -50,6 +50,17 @@
             </div>
 
             <div class="form-row">
+              <label class="form-label">上游格式</label>
+              <div class="form-control" style="flex-direction: column; align-items: flex-start;">
+                <a-select v-model:value="llmConfig.upstream_format" style="width: 280px">
+                  <a-select-option value="openai">OpenAI Chat Completions</a-select-option>
+                  <a-select-option value="anthropic">Anthropic Messages</a-select-option>
+                </a-select>
+                <span class="form-hint">Anthropic Messages 用于供应商只认 /v1/messages 的场景，可让原生 function calling 走通；OpenAI Chat Completions 为默认。</span>
+              </div>
+            </div>
+
+            <div class="form-row">
               <label class="form-label">模型</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start; gap: 6px;">
                 <div style="display: flex; gap: 8px; width: 100%; flex-wrap: wrap; align-items: center;">
@@ -154,6 +165,16 @@
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'category'">
                   <a-tag :color="record.category === 'data' ? 'blue' : 'purple'">{{ categoryLabel(record.category) }}</a-tag>
+                </template>
+                <template v-else-if="column.key === 'summary'">
+                  <a-tooltip :title="record.summary || record.description">
+                    <span class="tool-summary">{{ record.summary || record.description }}</span>
+                  </a-tooltip>
+                </template>
+                <template v-else-if="column.key === 'description'">
+                  <a-tooltip :title="record.description">
+                    <span class="tool-desc">{{ record.description }}</span>
+                  </a-tooltip>
                 </template>
                 <template v-else-if="column.key === 'parameters'">
                   <span class="tool-params">{{ summarizeParams(record.parameters) }}</span>
@@ -472,6 +493,7 @@ const DEFAULT_LLM_CONFIG = {
   base_url: '',
   api_key: '',
   model: '',
+  upstream_format: 'openai',
   temperature: 0.7,
   max_tokens: 16000,
   capabilities_override: {} as Record<string, Record<string, boolean>>,
@@ -527,7 +549,7 @@ const testResult = ref<{ success: boolean; message: string } | null>(null)
 // ── 模型能力档案（模型与接入 → 模型能力档案 tab）──
 const capabilityFields = [
   { key: 'supports_json_mode', label: 'JSON Mode（response_format=json_object）', hint: '关闭后走「提示词要求 JSON + 解析器」，适配不支持 JSON mode 的模型' },
-  { key: 'supports_native_tools', label: '原生工具调用（function calling）', hint: '关闭后 ReAct 直接走文本协议，避免原生 tools 不稳定' },
+  { key: 'supports_native_tools', label: '原生工具调用（function calling）', hint: '仅原生 function calling（OpenAI / Anthropic Messages 通道）；关闭后不再走文本式 ReAct 兜底，改为普通对话降级' },
   { key: 'reasoning_model', label: 'Reasoning 模型', hint: '思考预算会占用 max_tokens；开启后空正文会按 reasoning 截断诊断' },
 ]
 const capabilityLoading = ref(false)
@@ -983,7 +1005,8 @@ const toolsLoading = ref(false)
 const toolColumns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 170 },
   { title: '分类', dataIndex: 'category', key: 'category', width: 100 },
-  { title: '说明', dataIndex: 'description', key: 'description' },
+  { title: '摘要', dataIndex: 'summary', key: 'summary', ellipsis: true },
+  { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
   { title: '参数', dataIndex: 'parameters', key: 'parameters', width: 300 },
   { title: '默认启用', dataIndex: 'default_enabled', key: 'default_enabled', width: 100 },
 ]
@@ -1229,6 +1252,8 @@ onMounted(loadAccessRoles)
 .thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: bottom; }
 .thread-msg-empty { color: var(--cpq-text-muted); }
 .tool-params { font-size: 12px; color: var(--cpq-text-secondary); word-break: break-all; }
+.tool-summary { font-size: 12px; color: var(--cpq-text-primary); word-break: break-all; }
+.tool-desc { font-size: 12px; color: var(--cpq-text-secondary); word-break: break-all; }
 .thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px 10px; }
 .thread-msg.role-user { border-left: 3px solid var(--cpq-accent-primary); }

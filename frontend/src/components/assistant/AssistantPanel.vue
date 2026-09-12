@@ -141,12 +141,11 @@
         </div>
 
         <!-- 任务计步器（Claude Code 式）：任务执行中收起胶囊，点击展开步骤明细 -->
-        <TaskStepper :traces="nodeTraces" :title="taskTitle" :phase="taskPhase" />
+        <TaskStepper :traces="nodeTraces" :title="taskTitle" :phase="taskPhase" :pause="taskPause" />
 
         <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill）；群聊窗口才有 @ 点名。
              试运行预览：单线程单角色，无点名对象，隐藏 @（2026-09-06 用户指正） -->
         <AssistantComposer
-          ref="composerRef"
           v-model="draft"
           :placeholder="view === 'group' && !preview ? '输入消息…（@ 可点名同事）' : '输入消息…'"
           :disabled="sending || running"
@@ -246,7 +245,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import {
   PlusOutlined, CloseOutlined, HistoryOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
 } from '@ant-design/icons-vue'
@@ -270,8 +269,6 @@ const props = withDefaults(defineProps<{
   entryPoint?: string
   inset?: boolean
   assistant?: ReturnType<typeof useAssistant> | null
-  /** 试运行反问开关（Skill Studio 传入）：false=跳过策略反问一键出方案；null/true=按策略反问 */
-  enableClarity?: boolean | null
 }>(), {
   embedded: false,
   preview: false,
@@ -279,7 +276,6 @@ const props = withDefaults(defineProps<{
   entryPoint: 'floating_assistant',
   inset: false,
   assistant: null,
-  enableClarity: null,
 })
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
@@ -288,15 +284,15 @@ const ownAssistant = !props.assistant
   ? useAssistant(props.entryPoint || 'floating_assistant', {
       preview: props.preview,
       initialRoleKey: props.initialRoleKey || null,
-      getEnableClarity: () => props.enableClarity ?? null,
     })
   : null
 const chat = props.assistant || ownAssistant!
 const petModel = usePetModelStore()
 
 const {
-  currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase,
+  currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase, taskPause,
   loadThreads, selectThread, send, contextUsage, disconnectWs,
+  launchWorkflow,
   activeRoleKey, switchRole, createPreviewThread, destroyPreview, resetPreview: resetChatPreview, stop,
 } = chat
 
@@ -317,7 +313,6 @@ function artifactFor(m: { kind?: string; data?: string }): { entityType: string;
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const { scrollToBottom } = useChatAutoScroll(messagesEl)
-const composerRef = ref<InstanceType<typeof AssistantComposer> | null>(null)
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 760)
 const contactsCollapsed = ref(typeof window !== 'undefined' && isMobile.value)
 watch([activeRoleKey, () => chat.colleagues?.value], () => {
@@ -358,7 +353,10 @@ async function loadSkillCatalog() {
   }
 }
 function resolveColleagueSkills(colleague: any): { key: string; name: string; description: string }[] {
-  const refs = Array.isArray(colleague?.skills) ? colleague.skills : []
+  const refs = [
+    ...(Array.isArray(colleague?.workflows) ? colleague.workflows : []),
+    ...(Array.isArray(colleague?.skills) ? colleague.skills : []),
+  ]
   const keys = new Set(
     refs
       .map((r: any) => (typeof r === 'string' ? r : r?.key || r?.skill_key || ''))
@@ -368,6 +366,7 @@ function resolveColleagueSkills(colleague: any): { key: string; name: string; de
   if (!keys.size) return []
   return skillCatalog.value
     .filter((sk: any) => keys.has(String(sk?.key || '').trim()))
+    .filter((sk: any) => sk?.type === 'workflow')
     .map((sk: any) => ({
       key: String(sk.key || '').trim(),
       name: String(sk.name || sk.key || '').trim(),
@@ -391,9 +390,7 @@ const groupSkills = computed<any[]>(() => {
 const composerSkills = computed<any[]>(() => (view.value === 'group' ? groupSkills.value : boundSkills.value))
 function onPickSkill(skill: any) {
   if (!skill?.key) return
-  const name = skill.name || skill.key
-  draft.value = `请使用【${name}】技能分析：`
-  nextTick(() => composerRef.value?.focus())
+  launchWorkflow(skill.key, skill.name || skill.key)
 }
 function colleagueForRole(roleKey?: string): {
   name: string

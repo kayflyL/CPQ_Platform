@@ -65,9 +65,11 @@
 
           <!-- 左栏：BOM 表格 (≈22%)，可折叠收窄 -->
           <div class="col-left" :class="{ collapsed: leftCollapsed }">
-            <template v-if="!leftCollapsed">
-              <BomTable :cfg="cfg" />
-            </template>
+            <div class="col-left-scroll">
+              <template v-if="!leftCollapsed">
+                <BomTable :cfg="cfg" />
+              </template>
+            </div>
             <!-- 右边缘垂直居中把手 -->
             <button class="left-collapse-btn" :title="leftCollapsed ? '展开左栏' : '收起左栏'" @click="leftCollapsed = !leftCollapsed">
               <span class="lc-icon">
@@ -225,7 +227,6 @@
                         <th>型号 / 名称</th>
                         <th class="num">数量</th>
                         <th class="num">原始单价</th>
-                        <th>币种</th>
                         <th class="num">利润率%</th>
                         <th class="num">含税售价</th>
                         <th class="ops">操作</th>
@@ -239,13 +240,10 @@
                           </td>
                           <td class="cat break">{{ item.catalogue || '—' }}</td>
                           <td class="num"><a-input-number v-model:value="item.qty" size="small" class="inp-num" :min="1" :controls="false" @blur="store.recalculateAll()" /></td>
-                          <td class="num"><a-input-number v-model:value="item.base_price" size="small" class="inp-num" :precision="2" :controls="false" :disabled="!priceVisible" @change="() => onKpPriceChange(item)" /></td>
-                          <td>
-                            <a-select v-model:value="item.currency" size="small" class="inp-cur" :options="[{ value: 'RMB', label: '¥ RMB' }, { value: 'USD', label: '$ USD' }]" @change="() => store.recalculateAll()" />
-                          </td>
+                          <td class="num"><span class="kp-raw-price">¥ {{ settingsStore.formatNumber(calcUnitCost(Number(item.base_price) || 0, item.currency, store.exchangeRate, store.taxRate)) }}</span></td>
                           <td class="num"><a-input-number v-model:value="item.profit_margin" size="small" class="inp-num" :min="0" :controls="false" :disabled="!priceVisible" @blur="store.recalculateAll()" /></td>
                           <td class="num price">
-                            <template v-if="priceVisible">{{ currencySymbol(item.currency) }} {{ settingsStore.formatNumber(item.final_price) }}</template>
+                            <template v-if="priceVisible">¥ {{ settingsStore.formatNumber(item.final_price) }}</template>
                             <span v-else class="price-hidden">***</span>
                           </td>
                           <td class="ops">
@@ -285,6 +283,8 @@
                     :gpu-cable-pn="cfg.l6_bom_picks?.overrides?.gpuCablePn || ''"
                     :gpu-cable-qty="cfg.l6_bom_picks?.overrides?.gpuCableQty || 0"
                     :gpu-cable-items="gpuCableItems"
+                    :exchange-rate="store.exchangeRate"
+                    :tax-rate="store.taxRate"
                     quote-mode
                     flat
                     @set-line="(idx: number, patch: any) => onKpSetLine(cfg, cat, idx, patch)"
@@ -718,7 +718,7 @@ import { syncKpPrice, getKpHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
 import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
 import { downloadBlob } from '@/utils/download'
-import { computeKpMatch, currencySymbol, isNewPart, kpSyncable, matchClass, safeServerModelFilename } from '@/utils/quoteCommon'
+import { calcUnitCost, computeKpMatch, currencySymbol, isNewPart, kpSyncable, matchClass, safeServerModelFilename } from '@/utils/quoteCommon'
 import { feedApi } from '@/api/feed'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
@@ -1333,11 +1333,12 @@ const addConfig = () => {
   message.success(`已添加配置页 ${newName}`)
 }
 
-// KP 成本合计：Σ(base_price × qty)，对称 L6 合计卡的成本口径
+// KP 成本合计：Σ(原币单价 × qty)，USD 项按汇率+税折算人民币，与 store.calcKpCost / summary 同口径
 function kpCostTotal(cfg: ConfigData): number {
   return (cfg.items || [])
     .filter((i: any) => i.category === 'Key Parts')
-    .reduce((s: number, i: any) => s + (Number(i.base_price) || 0) * (Number(i.qty) || 0), 0)
+    .reduce((s: number, i: any) =>
+      s + calcUnitCost(Number(i.base_price) || 0, i.currency, store.exchangeRate, store.taxRate) * (Number(i.qty) || 1), 0)
 }
 
 // KP 整体利润率框的显示值：所有 KP 一致 → 该值；不一致/无 KP → undefined（框显示 placeholder「多种」）
@@ -1475,22 +1476,22 @@ const primaryConfig = computed(() => {
 const primaryConfigTotals = computed(() => {
   return primaryConfig.value ? store.getConfigTotals(primaryConfig.value) : null
 })
-// 右侧主指标：alternative 显示主推方案总价（×需求台数）；compose 仍显示当前配置总价
+// 右侧主指标：alternative 显示主推方案单台金额；compose 仍显示当前配置总价
 const heroTotalSales = computed(() => {
   if (isAlternative.value && primaryConfigTotals.value) {
-    return Math.round((primaryConfigTotals.value.totalSales || 0) * demandQty.value * 100) / 100
+    return Math.round((primaryConfigTotals.value.totalSales || 0) * 100) / 100
   }
   return configTotals.value.totalSales || 0
 })
 const heroTotalCost = computed(() => {
   if (isAlternative.value && primaryConfigTotals.value) {
-    return Math.round((primaryConfigTotals.value.totalCost || 0) * demandQty.value * 100) / 100
+    return Math.round((primaryConfigTotals.value.totalCost || 0) * 100) / 100
   }
   return configTotals.value.totalCost || 0
 })
 const heroProfit = computed(() => {
   if (isAlternative.value && primaryConfigTotals.value) {
-    return Math.round((primaryConfigTotals.value.profit || 0) * demandQty.value * 100) / 100
+    return Math.round((primaryConfigTotals.value.profit || 0) * 100) / 100
   }
   return configTotals.value.profit || 0
 })
@@ -1601,11 +1602,6 @@ const onHistoryExpand = async (item: Item, keys: string[]) => {
   } finally {
     item._histLoading = false
   }
-}
-
-function onKpPriceChange(item: Item) {
-  computeKpMatch(item)
-  store.recalculateAll()
 }
 
 // 加载报价单后：并行刷新所有 KP 行的配件库最新价（db_price）。
@@ -2143,23 +2139,28 @@ onMounted(async () => {
   min-width: 0;
   position: sticky;
   top: 16px;
-  min-height: calc(100vh - 32px);
-  max-height: calc(100vh - 32px);
-  overflow-y: auto;
+  height: calc(100vh - 88px);
+  display: flex;
+  flex-direction: column;
+  overflow: visible;
   transition: flex .25s ease;
+}
+
+.col-left-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .col-left.collapsed {
   flex: 0 0 30px;
-  min-height: calc(100vh - 32px);
   overflow: visible;
 }
 
 .left-collapse-btn {
   position: absolute;
-  top: 50%;
-  right: 0;
-  transform: translateY(-50%);
+  top: calc(50% - 38px);
+  right: -11px;
   z-index: 6;
   display: flex;
   align-items: center;
@@ -2179,10 +2180,6 @@ onMounted(async () => {
   color: var(--cpq-accent-primary);
   border-color: var(--cpq-accent-primary);
   box-shadow: 0 0 0 3px var(--cpq-accent-soft, var(--cpq-overlay-a20)), 0 4px 14px var(--cpq-overlay-a30);
-  transform: translateY(-50%) scale(1.04);
-}
-.left-collapse-btn:active {
-  transform: translateY(-50%) scale(.95);
 }
 .left-collapse-btn .lc-icon {
   display: inline-flex;
@@ -2192,9 +2189,7 @@ onMounted(async () => {
 }
 
 .col-left.collapsed .left-collapse-btn {
-  right: 0;
   width: 22px;
-  height: 60px;
   border-radius: 0 10px 10px 0;
 }
 
@@ -2435,10 +2430,9 @@ table.kp-table th:nth-child(1) { width: 16%; }
 table.kp-table th:nth-child(2) { width: 24%; }
 table.kp-table th:nth-child(3) { width: 8%; }
 table.kp-table th:nth-child(4) { width: 18%; }
-table.kp-table th:nth-child(5) { width: 9%; }
-table.kp-table th:nth-child(6) { width: 8%; }
-table.kp-table th:nth-child(7) { width: 12%; }
-table.kp-table th:nth-child(8) { width: 21%; }
+table.kp-table th:nth-child(5) { width: 8%; }
+table.kp-table th:nth-child(6) { width: 12%; }
+table.kp-table th:nth-child(7) { width: 21%; }
 .kp-table td {
   padding: 7px 10px;
   border: 1px solid var(--cpq-glass-border);
@@ -2454,6 +2448,7 @@ table.kp-table th:nth-child(8) { width: 21%; }
 .kp-table .cat.break { word-break: break-word; }
 .kp-table .hist-btn { font-size: 11px; padding: 0 4px; }
 .kp-table .kp-name { font-weight: 600; font-size: 12px; margin-right: 8px; }
+.kp-table .kp-raw-price { font-variant-numeric: tabular-nums; }
 .kp-table :deep(.inp-num) { width: 100%; }
 .kp-table :deep(.inp-cur) { width: 100%; }
 .kp-table .ops-inner { display: flex; flex-direction: column; align-items: center; gap: 6px; }

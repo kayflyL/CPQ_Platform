@@ -14,7 +14,8 @@ from sqlalchemy import text, select, func, exists, and_, Date
 from sqlalchemy.orm import Session, joinedload
 from app.models.base import KP_SessionLocal
 from app.models.kp import (
-    KPCategory, KPPart, KPPartSpec, KPPriceHistory, KPPartCompat, KPPartRelated
+    KPCategory, KPPart, KPPartSpec, KPPriceHistory, KPPartCompat, KPPartRelated,
+    KPSearchAlias
 )
 
 _NUM_SPEC_OPS = {">=", "<=", ">", "<"}
@@ -620,12 +621,48 @@ class KPRepository:
                 "id": part.id,
                 "category": category,
                 "model": part.name,
+                "brand": part.brand,
+                "short_desc": part.short_desc,
                 "applicable": part.applicable,
                 "price": latest.price if latest else 0.0,
                 "currency": latest.currency if latest else "RMB",
                 "specs": {sp.spec_key: sp.spec_value for sp in (part.specs or [])},
             })
         return out
+
+    # ── 检索别名（kp.kp_search_aliases；part_lexicon 词法引擎的唯一别名来源） ──
+
+    def list_search_aliases(self, *, enabled_only: bool = True) -> List[Dict[str, Any]]:
+        q = self.session.query(KPSearchAlias)
+        if enabled_only:
+            q = q.filter(KPSearchAlias.enabled == 1)  # type: ignore[arg-type]
+        rows = q.order_by(KPSearchAlias.alias).all()
+        return [r.to_dict() for r in rows]
+
+    def upsert_search_alias(self, alias: str, expansion: str, note: Optional[str] = None) -> Dict[str, Any]:
+        a = str(alias or "").strip()
+        e = str(expansion or "").strip()
+        if not a or not e:
+            raise ValueError("alias/expansion 必填")
+        row = self.session.query(KPSearchAlias).filter(KPSearchAlias.alias == a).first()
+        if row:
+            row.expansion = e
+            if note is not None:
+                row.note = note
+        else:
+            row = KPSearchAlias(alias=a, expansion=e, note=note, enabled=1)
+            self.session.add(row)
+        self.session.commit()
+        return row.to_dict()
+
+    def delete_search_alias(self, alias: str) -> bool:
+        a = str(alias or "").strip()
+        row = self.session.query(KPSearchAlias).filter(KPSearchAlias.alias == a).first()
+        if not row:
+            return False
+        self.session.delete(row)
+        self.session.commit()
+        return True
 
     def rename_model(self, old_model: str, new_model: str) -> bool:
         """重命名配件（兼容旧接口）"""

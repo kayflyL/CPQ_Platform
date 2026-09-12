@@ -224,7 +224,7 @@ def eval_then(ctx: dict, rule: dict) -> list[dict]:
         if have_qty < qty:
             return [{**base, "action": "derive", "severity": "info",
                      "deriveTarget": cat, "deriveQty": qty, "derivePer": per,
-                     "desc": then.get("desc") or f"{cat} 建议配 {qty}（现有 {have_qty}）"}]
+                     "desc": then.get("desc") or f"{cat} 需配 {qty}（现有 {have_qty}）"}]
         return []
 
     if action == "filter":

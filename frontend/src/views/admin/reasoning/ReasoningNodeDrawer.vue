@@ -9,7 +9,7 @@ import { assistantApi } from '@/api/assistant'
 import NodeResourceBindings from './NodeResourceBindings.vue'
 import TargetLayerModal from './TargetLayerModal.vue'
 import axios from 'axios'
-import { REASONING_CFG_TYPES, nodeArchetype, reasoningNodeMeta } from '@/utils/reasoningNodeMeta'
+import { REASONING_CFG_TYPES, nodeArchetype } from '@/utils/reasoningNodeMeta'
 
 const OUTPUT_KIND_OPTIONS = [
   { value: 'bom_scheme_draft', label: 'BOM 方案草稿' },
@@ -18,14 +18,6 @@ const OUTPUT_KIND_OPTIONS = [
   { value: 'data_answer', label: '数据结论' },
   { value: 'generic', label: '通用 JSON' },
 ]
-function defaultOutputTarget(kind: string): string {
-  if (kind === 'bom_scheme_draft') return 'bom_scheme'
-  if (kind === 'requirement_draft') return 'requirement'
-  if (kind === 'plans') return 'plan_draft'
-  if (kind === 'data_answer') return 'conversation_reply'
-  return 'artifact'
-}
-
 const CONFIGURABLE = REASONING_CFG_TYPES
 
 const props = defineProps<{
@@ -45,8 +37,7 @@ const form = ref<any>({})
 const saving = ref(false)
 
 const title = computed(() => {
-  const m = reasoningNodeMeta(props.nodeRuntime || props.nodeType || '')
-  return m ? `配置节点 · ${m.name}` : (props.nodeType ? `配置节点 · ${props.nodeType}` : '配置')
+  return '配置节点'
 })
 const configurable = computed(() => Boolean(props.nodeType && CONFIGURABLE.includes(props.nodeType)) || Boolean(props.nodeRuntime && CONFIGURABLE.includes(props.nodeRuntime)))
 const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.nodeRuntime || ''))
@@ -60,22 +51,36 @@ const systemPromptValue = computed({
 const PSU_SOURCE_OPTIONS = [
   { value: 'ext.psu.wattage', label: '需求电源信号 · 瓦数' },
   { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
-  { value: 'auto', label: '自动推断（build_plan）' },
+  { value: 'auto', label: '自动推断（引擎）' },
 ]
 const toolCatalog = ref<any[]>([])
 const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   value: tool.name,
-  label: `${tool.name} · ${tool.description || ''}`,
+  label: tool.name,
+  desc: tool.summary || tool.description || '',
+  detail: tool.description || '',
   dataSources: Array.isArray(tool.data_sources) ? tool.data_sources.map((s: any) => String(s)) : [],
 })))
 
-// 机制工具（节点机制必需，锁定勾选不可取消）：与后端 MECHANISM_TOOLS 口径一致
-const MECHANISM_TOOLS_BY_RUNTIME: Record<string, string[]> = {
-  agent_fill: ['fill_requirement'],
-  model_reason: ['select_model'],
-  kp_reason: ['select_kp_parts', 'search_kp_parts'],
+// 机制工具（节点机制必需，锁定勾选不可取消）：唯一真源 = 后端 capability_spec，
+// 由 /api/reasoning-flow/capabilities 下发；此处不自存副本。
+const capabilityCatalog = ref<any[]>([])
+const mechanismTools = computed(() => {
+  // 画布新增节点可能是 agent_fill_2 这类后缀 id：回退到基础类型取声明（与后端同口径）
+  const rt = String(runtimeType.value || "")
+  const base = rt.includes("_") ? rt.slice(0, rt.lastIndexOf("_")) : rt
+  const spec = capabilityCatalog.value.find((c: any) => c?.key === rt)
+    || capabilityCatalog.value.find((c: any) => c?.key === base)
+  return Array.isArray(spec?.mechanism_tools) ? spec.mechanism_tools.map((t: any) => String(t)) : []
+})
+async function loadCapabilities() {
+  try {
+    const { data } = await axios.get('/api/reasoning-flow/capabilities')
+    capabilityCatalog.value = Array.isArray(data?.capabilities) ? data.capabilities : []
+  } catch {
+    capabilityCatalog.value = []
+  }
 }
-const mechanismTools = computed(() => MECHANISM_TOOLS_BY_RUNTIME[runtimeType.value] || [])
 
 // 候选池数据源（kp_reason 资源层"插头"）：换源 → 大脑候选上下文/确认卡自选候选/问句倾向
 // 随之变化（白盒标注 pool_source）。选项来自注册表端点；params.limit 可调。
@@ -166,6 +171,7 @@ watch(() => props.open, async (v) => {
   if (!v) return
   if (!props.nodeType && !props.nodeRuntime) return
   loadToolCatalog()
+  loadCapabilities()
   if (runtimeType.value === 'agent_fill') loadSlotStats()
   if (runtimeType.value === 'kp_reason') loadPoolResolvers()
   const c = props.initialConfig || {}
@@ -183,7 +189,6 @@ watch(() => props.open, async (v) => {
     description: c.description ?? '',
     output_name: c.name ?? '',
     output_kind: outputKind,
-    output_target: c.target || defaultOutputTarget(outputKind),
     output_payload_map_text: safeJsonString(c.payload_map),
     output_actions_text: safeJsonString(c.actions),
     output_template: c.template || '',
@@ -211,7 +216,6 @@ function buildConfig(): Record<string, any> | null {
   }
   if (runtimeType.value === 'model_reason' || runtimeType.value === 'kp_reason') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
-    config.description = (form.value.description || '').trim()
   }
   if (runtimeType.value === 'kp_reason') {
     // 数据绑定插头（资源与权限层"数据源"）：换源 → 大脑候选上下文/确认卡自选候选/
@@ -237,7 +241,7 @@ function buildConfig(): Record<string, any> | null {
       return null
     }
     config.output_kind = form.value.output_kind || 'generic'
-    config.target = form.value.output_target || defaultOutputTarget(config.output_kind)
+    // 交接去向由 output_kind 决定；target 是产物槽（插头），不在这里写。
     config.payload_map = payloadMap
     config.actions = actions
     if (form.value.output_kind === 'generic') {
@@ -251,7 +255,6 @@ function buildConfig(): Record<string, any> | null {
     }
   }
   if (rt === 'agent_fill') {
-    config.description = (form.value.description || '').trim()
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
     // 目标层输出物描述符（卡片数据源）：随节点配置持久化（DB node_configs）
     config.target = { artifacts: targetArtifacts.value }
@@ -317,6 +320,10 @@ async function persist(config: Record<string, any>): Promise<boolean> {
         delete merged.template
         delete merged.output_schema
       }
+      // config.target 旧语义是「交接目标字符串」，现语义是产物槽（target.artifacts，插头）。
+      // 名字相同含义不同：一旦被写成字符串，resolve_kind 就找不到槽 → 节点下产物消失。
+      // 这里直接剔除非物件 target，交回节点默认产物槽（同时自愈历史写坏的数据）。
+      if (!(merged.target && typeof merged.target === 'object')) delete merged.target
     }
     if (runtimeType.value !== 'agent') {
       delete merged.max_rounds
@@ -360,37 +367,27 @@ async function save() {
         <template v-if="configurable">
             
 
-      <div class="node-zone">
-        <div class="node-zone-head">
-          <span class="node-zone-index">1</span>
-          <span class="node-zone-title">AI 层</span>
-          <span class="node-zone-note">Agent 怎么思考与回答</span>
-        </div>
+      <!-- 节点名称：独立字段（AI 指令唯一入口 = Skill Studio 左栏「使用说明」；抽屉只留机制配置） -->
+      <div class="node-zone node-zone--name">
         <div class="node-zone-body">
           <a-form layout="vertical" class="node-config-form node-common-form">
             <a-form-item label="节点名称">
               <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
               <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
             </a-form-item>
-            <a-form-item v-if="showSystemPrompt" label="System Prompt">
-              <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
-              <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
-            </a-form-item>
-            <a-form-item v-if="runtimeType === 'agent_fill' || runtimeType === 'model_reason' || runtimeType === 'kp_reason'" label="节点任务说明">
-              <a-textarea v-model:value="form.description" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
-              <p class="rf-hint">这是本节点 AI 层的唯一真源：填写后经画布步骤说明下发到 AI 角色，留空则由后端默认兜底。角色性格与说话语气不在此层。</p>
-            </a-form-item>
+            <a-collapse v-if="showSystemPrompt" :bordered="false" class="node-advanced-fields">
+              <a-collapse-panel key="sys" header="节点提示（System Prompt，可选）">
+                <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
+                <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
+              </a-collapse-panel>
+            </a-collapse>
           </a-form>
-
-
-
-
         </div>
       </div>
 
       <div class="node-zone">
         <div class="node-zone-head">
-          <span class="node-zone-index">2</span>
+          <span class="node-zone-index">1</span>
           <span class="node-zone-title">目标层</span>
           <span class="node-zone-note">要输出的目标（字段表 / 输出物）</span>
         </div>
@@ -437,10 +434,6 @@ async function save() {
             <a-form-item label="输出类型">
               <a-select v-model:value="form.output_kind" :options="OUTPUT_KIND_OPTIONS" style="width:100%" />
             </a-form-item>
-            <a-form-item label="交接目标">
-              <a-input v-model:value="form.output_target" placeholder="plan_draft / conversation_reply / artifact" />
-              <p class="rf-hint">目标为业务实体键或对话回执键，由后端据此落草稿/转审批/回显。</p>
-            </a-form-item>
             <a-collapse :bordered="false" class="node-advanced-fields">
               <a-collapse-panel key="advanced" header="高级交接配置（可选，一般不手写 JSON）">
                 <a-form-item label="交接映射（JSON 对象）">
@@ -477,7 +470,7 @@ async function save() {
                 <tr><td colspan="4" class="l6-target-empty">行内容由所机型族 BOM 模板 + 选配结果生成</td></tr>
               </tbody>
             </table>
-            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 L6 部分：选定机型后，按该机型族的 BOM 模板（骨架行）与选配结果生成 Catalogue / Description / Qty。行骨架与取值来自「资源与权限」层的在售机型、基准配置与规则目录（工具：select_models → 数据源 candidate_search），不在此处硬编码。</p>
+            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 L6 部分：选定机型后，按该机型族的 BOM 模板（骨架行）与选配结果生成 Catalogue / Description / Qty。行骨架与取值来自「工具层」的在售机型、基准配置与规则目录（工具：choose_model → 数据源 candidate_search），不在此处硬编码。</p>
           </a-form>
 
           <!-- 配件选配节点：目标 = 方案配置表 KP 配置单（与商机详情页一致） -->
@@ -491,7 +484,7 @@ async function save() {
                 <tr><td colspan="3" class="l6-target-empty">行内容由需求摘要 + 已选机型选配方案生成</td></tr>
               </tbody>
             </table>
-            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 KP 部分：按需求摘要与已锁定机型，从配件库逐类匹配配件（CPU/内存/盘/GPU/RAID/网卡/电源），生成 Catalogue / Configuration Description / Qty，并落地真实 SKU。行骨架与取值来自「资源与权限」层的配件库、规格规则与需求摘要（工具：list_kp_categories → select_parts → resolve_part_alias → compose_memory），不在此处硬编码。</p>
+            <p class="rf-hint">本节点要填的是商机详情页「方案配置表」的 KP 部分：按需求摘要与已锁定机型，从配件库逐类匹配配件（CPU/内存/盘/GPU/RAID/网卡/电源），生成 Catalogue / Configuration Description / Qty，并落地真实 SKU。行骨架与取值来自「工具层」的配件库、规格规则与需求摘要（工具：query_parts 检索、select_parts 锁定），不在此处硬编码。</p>
           </a-form>
 
           <!-- 方案组装节点：配件来源与电源信号覆盖策略可配 -->
@@ -504,7 +497,7 @@ async function save() {
             </a-form-item>
             <a-form-item label="需求电源信号覆盖">
               <a-switch v-model:checked="form.cp_psu_override_enabled" />
-              <p class="rf-hint">开启时，需求中明确给出的电源瓦数/数量会覆盖 build_plan 的负载推断结果。</p>
+              <p class="rf-hint">开启时，需求中明确给出的电源瓦数/数量会覆盖 引擎的负载推断结果。</p>
             </a-form-item>
             <a-form-item label="电源瓦数读取路径">
               <a-select v-model:value="form.cp_psu_wattage_source" :options="PSU_SOURCE_OPTIONS" style="width:100%" />
@@ -522,9 +515,9 @@ async function save() {
 
       <div class="node-zone">
         <div class="node-zone-head">
-          <span class="node-zone-index">3</span>
-          <span class="node-zone-title">资源与权限</span>
-          <span class="node-zone-note">能读什么、能调什么</span>
+          <span class="node-zone-index">2</span>
+          <span class="node-zone-title">工具层</span>
+          <span class="node-zone-note">能调什么（数据随工具派生）</span>
         </div>
         <div class="node-zone-body">
           <NodeResourceBindings
@@ -656,6 +649,12 @@ async function save() {
   padding: 11px 14px;
   border-bottom: 1px solid var(--cpq-border-primary);
   background: var(--cpq-glass-2-bg);
+}
+.node-zone--name {
+  margin-bottom: 10px;
+  border: none;
+  background: transparent;
+  box-shadow: none;
 }
 .node-zone-index {
   width: 22px;

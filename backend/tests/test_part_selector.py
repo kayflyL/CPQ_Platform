@@ -7,6 +7,24 @@
 from app.services import part_selector as ps
 
 
+def test_resolve_kp_category_aligns_to_library_name():
+    """任意写法（中文/分隔符差异）解析为配件库现行 canonical；未知不猜，返回 None。"""
+    from app.services.requirement_slots import _load_kp_categories
+    cats = {str(c).strip() for c in (_load_kp_categories() or []) if str(c).strip()}
+    assert ps.resolve_kp_category("") is None
+    # 库内 canonical 原样命中（大小写等价）
+    for c in list(cats)[:4]:
+        if c:
+            assert ps.resolve_kp_category(c) == c
+            assert ps.resolve_kp_category(c.lower()) == c
+    # 分隔符等价：HDD SSD / HDD-SSD 都归到 HDD/SSD
+    if "HDD/SSD" in cats:
+        assert ps.resolve_kp_category("HDD SSD") == "HDD/SSD"
+        assert ps.resolve_kp_category("hdd-ssd") == "HDD/SSD"
+    # 未知类目不猜
+    assert ps.resolve_kp_category("一个不存在的类目xyz") is None
+
+
 class _FakeRepo:
     _mu = {
         "CPU": [
@@ -120,3 +138,15 @@ def test_norm_search_matches_manual_model_input():
     # 手动输入型号入口用归一化包含检索（非 token 拆分）
     assert ps._norm_model("LSI 9560 16i") in ps._norm_model("LSI 9560-16i")
     assert ps._norm_model("9364 8i") in ps._norm_model("LSI 9364-8i")
+
+
+def test_memory_total_gb_accepts_unit_suffix(monkeypatch):
+    """内存登记信号带单位（'256G'/'256GB'）不再触发 int() 越界；产出缺口行交 AI 选型。"""
+    _stub(monkeypatch)
+    parts = ps.select_parts(categories=["Memory"], memory={"total_gb": "256G", "qty": 2})
+    assert len(parts) == 1
+    assert "共256G" in parts[0]["request_spec"]
+    assert ps._gb_of("256GB") == 256.0
+    assert ps._gb_of("1.92T") == 1966.08
+
+

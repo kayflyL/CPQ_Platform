@@ -368,14 +368,7 @@ async def _plan_lead_steps(mission: dict, settings: dict) -> List[dict]:
     roster = _lead_roster(config)
     dispatch_rules = config.get("dispatch_rules") if isinstance(config.get("dispatch_rules"), list) else []
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是 AI Office 团队负责人 Lead。请根据任务目标和团队能力，决定由自己处理还是拆给一个或多个下属。"
-                "只能从给定团队列表中选择 role_key，不能虚构角色。每个 task 必须是该角色具体可执行的任务，"
-                "不得把原始任务原样复制给多个角色。若无法拆分或信息不足，assignments 只返回自己。"
-            ),
-        },
+        {"role": "system", "content": str((lead or {}).get("system_prompt") or "")},
         {
             "role": "user",
             "content": (
@@ -589,6 +582,7 @@ async def _run_step(mission: dict, step: dict, settings: dict) -> None:
                 step.get("task") or "",
                 {"enabled_tools": allowed} if allowed is not None else {},
                 max_iterations=int(settings["max_iterations"]),
+                system_prompt=str((ai_colleague_service.get_colleague(role_key) or {}).get("system_prompt") or ""),
                 allowed_tool_ids=allowed,
                 event_sink=_react_event_sink,
             )

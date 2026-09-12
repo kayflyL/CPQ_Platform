@@ -99,12 +99,3 @@ def fill_dropdown_options() -> dict:
         "FORM": _lines("forms"),
         "KP_CATEGORIES": "、".join(kp) if kp else "（暂无）",
     }
-
-
-def agent_fill_contract() -> str:
-    """把契约里的类型/系列/形态占位符替换为真实目录下拉选项。"""
-    from app.services.skill_prompts import get_extract_contract
-    contract = get_extract_contract()
-    for key, value in fill_dropdown_options().items():
-        contract = contract.replace("@@" + key + "@@", value)
-    return contract

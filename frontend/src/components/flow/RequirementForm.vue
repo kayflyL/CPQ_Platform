@@ -7,7 +7,7 @@
  * KP 部件清单保留：从配件库选择。
  */
 import { ref, computed } from 'vue'
-import { useSeries } from '@/composables/useSeries'
+import { useSeriesStore } from '@/stores/series'
 import axios from 'axios'
 import { catalogApi, kpPartsApi, baseConfigApi, type ServerModel } from '@/api/serverConfig'
 import type { RequirementSlots, PortalSheetRow } from '@/api/portal'
@@ -19,13 +19,13 @@ const props = withDefaults(defineProps<{
 
 const emit = defineEmits<{ change: [] }>()
 
-const { items: seriesItems, ensureSeries } = useSeries()
-ensureSeries()
+const seriesStore = useSeriesStore()
+seriesStore.ensureSeries()
 
 const formOptions = ref<{ value: string; label: string }[]>([])
 
 const defaultKpCategories = ref<string[]>([])
-const seriesOptions = computed(() => seriesItems.value.map((s) => ({ value: s.value, label: s.label })))
+const seriesOptions = computed(() => seriesStore.items.map((s) => ({ value: s.value, label: s.label })))
 const modelOptions = ref<{ value: string; label: string }[]>([])
 const serverTypeOptions = ref<{ value: string; label: string }[]>([])
 const modelRecords = ref<ServerModel[]>([])

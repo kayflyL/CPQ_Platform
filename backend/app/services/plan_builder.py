@@ -4,8 +4,7 @@
 能力归属（树干-枝叶）：compose/BOM 组装节点的执行核心。内部惰性接入两类枝叶——
 策略规则（plan_rule_apply.apply_plan_selection_rules，规则存策略中心）与
 BOM 模板（bom_template_eval.eval_l6_rows，模板存 DB）；背板对齐/电源档位钳制/
-货币折算为组装机制。消费方：skill_node_runtime.compose_plans（引擎）、
-agent tool build_plan（AI 角色工具）。
+货币折算为组装机制。消费方：skill_node_runtime.compose_plans（BOM 组装节点引擎）。
 2026-09-02 自 app/api/candidate_search.py 原样迁入（纯搬移零行为变化）。
 """
 import logging

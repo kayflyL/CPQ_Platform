@@ -136,10 +136,15 @@ class OpportunityRepository:
                       sales_person: str = None, owner_user_id: str = None,
                       owner_sales_person: str = None,
                       has_committed_requirement: bool = False,
+                      created_start: str = None, created_end: str = None,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
         q = self.session.query(Opportunity)
         # AI Office 内部商机只在转真实商机后进入业务列表。
         q = q.filter(Opportunity.status != "ai_office")
+        if created_start:
+            q = q.filter(Opportunity.created_at >= created_start)
+        if created_end:
+            q = q.filter(Opportunity.created_at < created_end)
         if has_committed_requirement:
             # 商机线索页只显示已提交需求单的商机：有 current 需求单，或流程已推进出 requirement。
             from app.models.flow import OpportunityRequirement, OpportunityFlow

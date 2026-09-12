@@ -145,6 +145,7 @@ async def publish_pipeline_office_event(
         activity = ""
         message = ""
         tool = None
+        pause = None
 
         if event_type == "pipeline_start":
             activity = "开始需求分析"
@@ -184,10 +185,17 @@ async def publish_pipeline_office_event(
             status = "waiting_input"
             activity = "等待用户补充"
             message = payload.get("question") or "需要用户确认或补充信息"
-        elif event_type == "pipeline_paused":
+        elif event_type in ("pipeline_paused", "pipeline_waiting"):
+            # 展示文字由暂停载荷派生（P4-1）：载荷只说事实（kind/step/reason_code），
+            # 这里只做「事实 → 状态词」的映射，不复制任何一句话术，也不新增文案来源。
+            pause = payload.get("pause") if isinstance(payload.get("pause"), dict) else {}
+            if str(pause.get("kind") or "") == "failure":
+                activity = "流程暂停"
+                message = "等待用户回复后继续"
+            else:
+                activity = "任务进行中"
+                message = "等待用户补充信息后继续"
             status = "waiting_input"
-            activity = "流程暂停"
-            message = "等待用户回复后继续"
         elif event_type == "pipeline_done":
             status = "done"
             activity = "需求分析完成"
@@ -204,6 +212,7 @@ async def publish_pipeline_office_event(
             status,
             activity,
             message=message,
+            pause=(pause if isinstance(pause, dict) and pause else None),
             tool=tool,
             thread_id=payload.get("thread_id"),
             opportunity_id=opportunity_id or payload.get("opportunity_id"),

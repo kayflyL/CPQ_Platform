@@ -67,6 +67,8 @@ const unmatchedRows = computed(() => {
   const list = Array.isArray(artifactData.value?.unmatched) ? artifactData.value.unmatched : []
   return list
 })
+// 白盒第三结局：库内无料、客户已知悉并保持原需求的行（保留在表里 + 标注，不当已落地料号）
+const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 </script>
 
 <template>
@@ -94,10 +96,6 @@ const unmatchedRows = computed(() => {
       <a-tag v-for="(f, i) in artifactData?.missing_fields || []" :key="i" style="margin-right:8px">{{ f }}</a-tag>
     </template>
 
-    <template v-else-if="artifact?.kind === 'model_choice'">
-      <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
-    </template>
-
     <template v-else-if="artifact?.kind === 'parts_proposal'">
       <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
     </template>
@@ -117,7 +115,10 @@ const unmatchedRows = computed(() => {
 
     <template v-else-if="artifact?.kind === 'kp_table'">
       <div v-if="artifactData?.summary" class="artifact-hint">KP 落地 {{ artifactData.summary.kp_count ?? 0 }} 项，未命中 {{ artifactData.summary.unmatched_count ?? 0 }} 项，规格偏差 {{ artifactData.summary.spec_mismatch_count ?? 0 }} 项</div>
-      <a-table v-if="kpRows.length" :data-source="kpRows" :columns="kpTableCols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" :row-class-name="(record: any) => (record.unmatched ? 'kp-row-unmatched' : '')" />
+      <a-table v-if="kpRows.length" :data-source="kpRows" :columns="kpTableCols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" :row-class-name="(record: any) => (record.waived ? 'kp-row-waived' : (record.unmatched ? 'kp-row-unmatched' : ''))" />
+      <div v-if="waivedRows.length" class="artifact-hint">
+        其中 {{ waivedRows.length }} 行库内无料（客户已知悉、按原需求留白）：{{ waivedRows.map((r: any) => r.catalogue).join('、') }}
+      </div>
       <div v-else class="artifact-empty">暂无明显配件数据。</div>
       <div v-if="unmatchedRows.length" class="artifact-unmatched">
         <div class="artifact-unmatched-title">未匹配 / 待确认（未能从配件库锁定真实料号，不作 KP 配置表行）</div>
@@ -144,6 +145,7 @@ const unmatchedRows = computed(() => {
 .missing-title { font-weight: 600; margin-bottom: 8px; }
 .plans-count { font-weight: 600; margin-bottom: 8px; }
 .artifact-hint { font-weight: 600; margin-bottom: 8px; color: var(--cpq-text-secondary); }
+:deep(.kp-row-waived td) { color: var(--cpq-text-warning, #d48806); }
 :deep(.kp-row-unmatched td) { color: var(--cpq-text-muted); font-style: italic; }
 .artifact-unmatched { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--cpq-border-color, #d9d9d9); border-radius: 6px; background: var(--cpq-bg-secondary, #fafafa); }
 .artifact-unmatched-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--cpq-text-warning, #d48806); }

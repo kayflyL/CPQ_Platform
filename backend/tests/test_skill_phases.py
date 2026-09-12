@@ -1,15 +1,34 @@
 # -*- coding: utf-8 -*-
 """引擎（两器官架构）纯逻辑回归：信号门槛 / 无发明选件 / 场景守卫 / 缺口数据协议。"""
+from app.services import skill_signals
+from unittest.mock import patch
+
 from app.services import part_selector as ps
-from app.services.skill_phases import (
-    inferred_confirm_gaps,
-    kp_args_from_ext,
-    kp_gate_gap,
-    kp_mode_gap,
-    model_signals_ready,
-    parse_kp_mode,
-    scene_gap,
-)
+from app.services.skill_phases import model_signals_ready
+
+
+def test_prepare_model_step_platform_suffices_when_type_unaligned():
+    """通用服务器 + Polaris（缺形态）不再被当成场景缺口，直接查候选。"""
+    from app.services.skill_phases import prepare_model_step
+
+    class _Cat:
+        def list_types(self):
+            return [{"id": 1, "name": "通用计算服务器"},
+                    {"id": 2, "name": "AI / 加速计算服务器"}]
+
+    cand = {"server_model_id": 1, "id": 1, "name": "Polaris 2U 12盘",
+            "server_type_name": "通用计算服务器", "series": "Polaris",
+            "form": "2U", "total_price": 100.0}
+    wl = {"types": ["通用计算服务器", "AI / 加速计算服务器", "存储服务器"],
+          "series": ["Polaris", "Orion"], "forms": ["2U", "4U"]}
+    with patch("app.repository.server_catalog_repo.ServerCatalogRepository", _Cat), \
+         patch("app.services.catalog_options.catalog_whitelist", return_value=wl), \
+         patch("app.services.model_candidates.select_models", return_value=[cand]):
+        ctx = {"ext": {"server_type": "通用服务器", "platform_type": "Polaris"},
+               "price_access": True}
+        info = prepare_model_step(ctx)
+    assert info.get("invalid_scene") is not True
+    assert info.get("pool") == 1
 
 
 def test_model_signal_gate_requires_type_or_series_form():
@@ -18,23 +37,6 @@ def test_model_signal_gate_requires_type_or_series_form():
     assert model_signals_ready({"server_type_name": "通用计算服务器"})
     assert model_signals_ready({"series": "Orion", "form": "2U"})
     assert not model_signals_ready({"series": "Orion"})
-
-
-def test_kp_args_only_from_structured_signals():
-    ext = {"memory": {"total_gb": 128}, "gpu": [{"qty": 4}], "requirement_text": "随便"}
-    args = kp_args_from_ext(ext)
-    assert set(args) == {"memory", "gpu"}
-    assert kp_args_from_ext({}) == {}
-
-
-def test_parse_kp_mode_exact_match_only():
-    assert parse_kp_mode("只要整机底座（L6）") == "l6_only"
-    assert parse_kp_mode("需要配配件") == "need_parts"
-    assert parse_kp_mode("不要配件") == ""  # 非业务选项值不猜（防关键词清单膨胀）
-    assert parse_kp_mode("") == ""
-
-
-
 
 
 def test_part_query_spec_filters_are_deterministic():
@@ -73,57 +75,6 @@ def test_part_query_spec_filters_are_deterministic():
     assert [r["name"] for r in q3["rows"]] == ["480G SATA SSD", "6T SATA HDD"]
 
 
-def test_gap_protocol_is_data_only():
-    """引擎缺口=纯数据（slot/reason_code/options），不含任何话术句子。"""
-    gap = scene_gap({})
-    assert gap["reason_code"] == "server_type_missing"
-    assert gap["options"] and all(isinstance(o, dict) and o.get("value") for o in gap["options"])
-    kgap = kp_mode_gap()
-    assert kgap["reason_code"] == "kp_mode_undecided"
-    assert set(kgap["options"]) == {"需要配配件", "只要整机底座（L6）"}
-
-
-# ── 推断求证（2026-09-06）：凡推断必让客户确认 ─────────────────────────────
-
-_CORPUS = "CPU：2颗兆芯50000 处理器\n内存：768GB DDR5\n服务：3年专业支持"
-
-
-def test_inferred_slot_without_corpus_hit_gets_confirm_gap():
-    ext = {"server_type": "通用计算服务器", "warranty_years": "3年"}
-    gaps = inferred_confirm_gaps(ext, _CORPUS)
-    assert len(gaps) == 1                       # warranty 原文有 → 只求证 server_type
-    g = gaps[0]
-    assert g["slot"] == "server_type" and g["reason_code"] == "inferred_confirm"
-    assert g["current"] == "通用计算服务器"
-    assert g["options"] and any(o.get("value") == "通用计算服务器" for o in g["options"])
-
-
-def test_inferred_confirm_respects_marker_and_corpus():
-    ext = {"server_type": "通用计算服务器",
-           "confirmed_slots": {"server_type": "通用计算服务器"}}
-    assert inferred_confirm_gaps(ext, _CORPUS) == []      # 点选确认过 → 不再问
-    assert inferred_confirm_gaps({"server_type": "通用计算服务器"},
-                                 _CORPUS + "\n就用通用计算服务器") == []  # 客户口头说过 → 不问
-    # 值被大脑改写 → 确认标记失效，重新求证
-    ext2 = {"server_type": "存储服务器", "confirmed_slots": {"server_type": "通用计算服务器"}}
-    gaps2 = inferred_confirm_gaps(ext2, _CORPUS)
-    assert gaps2 and gaps2[0]["current"] == "存储服务器"
-
-
-def test_inferred_confirm_skips_qty_and_structured_slots():
-    """purchase_qty 是引擎白盒默认；结构化值（list/dict）走部件表呈现，都不弹确认。"""
-    ext = {"purchase_qty": 1, "memory": {"total_gb": 768}}
-    assert inferred_confirm_gaps(ext, _CORPUS) == []
-
-
-def test_kp_gate_requires_signals_or_decision():
-    # AI=配置器：零信号/未决策不再拦截（交由大脑生成配置）；仅 l6_only 明确不放配件
-    assert kp_gate_gap({"ext": {}}) is None
-    assert kp_gate_gap({"ext": {"kp_mode": "只要整机底座（L6）"}}) is None
-    assert kp_gate_gap({"kp_parts": [{"pn": "x"}]}) is None
-    assert kp_gate_gap({"ext": {"memory": {"total_gb": 64}}}) is None
-
-
 def test_cpu_without_model_never_invents_representative():
     rows = [{"model": "CheapCPU-1", "price": 1.0, "specs": {}},
             {"model": "AMD EPYC 9124", "price": 9999.0, "specs": {}}]
@@ -141,30 +92,6 @@ def test_cpu_without_model_never_invents_representative():
     # 只给数量没型号：白盒缺口行，价 0，可手补
     parts = ps._ground_cpu(R(), "CPU", {"qty": 2}, lambda r: min(r, key=lambda x: x["price"]))
     assert len(parts) == 1 and parts[0]["unmatched"] and float(parts[0]["unit_price"]) == 0.0
-
-
-# ── 2026-08-30 回归：多轮对话机型重弹 + 字符串信号瘫死 ────────────────────
-
-def test_platform_not_derived_without_rule_store():
-    """平台推导不在代码里（规则归策略中心，规则页待单独设计）：
-    登记表只有 CPU 部件行时引擎不猜平台——platform_type 留空，交由用户/AI 选定。"""
-    import asyncio
-    from app.services.skill_phases import phase_normalize_slots
-
-    async def _run():
-        ctx = {"ext": {"kp_rows": [{"part_category": "CPU",
-                                    "description": "2颗AMD EPYC 处理器", "qty": 2}]},
-               "requirement_text": "2颗AMD EPYC"}
-        gaps = await phase_normalize_slots(ctx, {}, None)
-        return ctx, gaps
-
-    ctx, gaps = asyncio.run(_run())
-    assert not ctx["ext"].get("platform_type")
-    assert not any(a.get("code") == "platform_derived" for a in ctx.get("assumptions") or [])
-    # S1 一次问全：缺口以列表返回（空=放行；CPU-only 需求必有缺口，形状校验）
-    assert isinstance(gaps, list)
-
-
 
 
 # ── 2026-08-30 回归：系列适配过滤 + 场景推荐选项值回程解析 ──────────────────
@@ -236,7 +163,7 @@ def test_decimal_capacity_parsing():
 
 def test_signal_with_qty_clamped_by_chassis():
     """stepper 数量参数：服务端克隆留底 signal 改数量，按机箱能力 clamp（客户端只传数字）。"""
-    from app.services.skill_chat import _signal_with_qty
+    from app.services.skill_signals import _signal_with_qty
     meta = {"gpu_slots": 10, "max_dimm": 24, "max_cpu": 2}
     gpu = {"gpu": [{"model": "曙云C550", "qty": 10}]}
     sig = _signal_with_qty(gpu, 6, meta)
@@ -265,7 +192,7 @@ def test_phase_kp_reason_surfaces_unmatched_as_gap(monkeypatch):
         raise AssertionError("kp_rows 已存在时不应调 select_parts")
 
     monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
-    ctx = {"force_complete": True,
+    ctx = {
            "ext": {"kp_rows": [{"part_category": "CPU", "description": "KH50000", "qty": 2}]},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
@@ -274,11 +201,15 @@ def test_phase_kp_reason_surfaces_unmatched_as_gap(monkeypatch):
     assert row["pn"] == ""                       # 不虚构料号
     assert row["unmatched"] is True
     assert row["request_spec"] == "KH50000"      # 需求原样交给下游选型
-    assert row["unmatched_reason"] == "交由 AI 语义选型（引擎仅检索候选、不预判）"
-    # AI=配置器：缺的必须反问类目补齐为占位骨架（CPU 已登记 + Memory/HDD-SSD/Raid/NIC/GPU）
+    assert row["unmatched_reason"] == "待 AI 语义选型（引擎仅检索候选、不预判）"
+    # AI=配置器：只认「客户已登记/AI 已声明」的行；目标层未登记类目（如这条需求没要 GPU）
+    # 不作为占用行，交给 AI 看着目标表自己判断要不要配（引擎不再预判/替 AI 加行）。
+    assert len(ctx["kp_parts"]) == 1
+    assert ctx["kp_parts"][0]["category"] == "CPU"
+    assert ctx["kp_summary"]["unmatched_count"] == 1
+    # 未登记类目不得被自动注入成幽灵行
     cats = {str(p.get("category")) for p in ctx["kp_parts"]}
-    assert {"CPU", "Memory", "HDD/SSD", "Raid card", "NIC", "GPU"} <= cats
-    assert ctx["kp_summary"]["unmatched_count"] == 6
+    assert cats == {"CPU"}
     assert not any(a.get("code") == "kp_ai_grounded" for a in (ctx.get("assumptions") or []))
 
 
@@ -291,7 +222,7 @@ def test_phase_kp_reason_lands_matched_parts(monkeypatch):
         raise AssertionError("kp_rows 已存在时不应调 select_parts")
 
     monkeypatch.setattr("app.services.part_selector.select_parts", boom_select_parts)
-    ctx = {"force_complete": True,
+    ctx = {
            "ext": {"kp_rows": [{"part_category": "HDD/SSD", "description": "1.92T SSD", "qty": 4}]},
            "baselines": [{"server_model_id": 1, "id": 1, "series": "Orion", "server_type_name": "通用计算服务器"}]}
     asyncio.run(skill_phases.phase_kp_reason(ctx, {}, None))
@@ -300,9 +231,10 @@ def test_phase_kp_reason_lands_matched_parts(monkeypatch):
     assert row["pn"] == ""                       # 占位：不伪造料号
     assert row["unmatched"] is True
     assert row["request_spec"] == "1.92T SSD"
-    cats = {str(p.get("category")) for p in ctx["kp_parts"]}
-    assert {"CPU", "Memory", "HDD/SSD", "Raid card", "NIC", "GPU"} <= cats
-    assert ctx["kp_summary"]["unmatched_count"] == 6
+    # 只认已登记/AI 声明行；未登记类目不注入
+    assert len(ctx["kp_parts"]) == 1
+    assert ctx["kp_parts"][0]["category"] == "HDD/SSD"
+    assert ctx["kp_summary"]["unmatched_count"] == 1
 
 
 def test_build_plan_keeps_unmatched_out_of_kp_rows(monkeypatch):
@@ -332,12 +264,51 @@ def test_build_plan_keeps_unmatched_out_of_kp_rows(monkeypatch):
             "request_spec": "KH50000",
             "qty": 2,
             "unmatched": True,
-            "unmatched_reason": "交由 AI 语义选型（引擎仅检索候选、不预判）",
+            "unmatched_reason": "待 AI 语义选型（引擎仅检索候选、不预判）",
         }],
     )
     kp_rows = [r for r in plan["cfg"]["bom_excel_rows"] if r.get("category") == "Key Parts"]
     assert kp_rows == []
     assert plan["unmatched"] == [{
         "category": "CPU",
-        "reason": "交由 AI 语义选型（引擎仅检索候选、不预判）",
+        "reason": "待 AI 语义选型（引擎仅检索候选、不预判）",
     }]
+
+
+def test_part_query_offset_pagination():
+    """检索分页：offset 跳过、truncated/total/next_offset，默认 offset=0 行为不变。"""
+    from app.services.data_tools import part_query
+    class _Repo:
+        def get_categories(self):
+            return [{"category": "CPU"}]
+        def get_by_category_with_specs(self, cat):
+            return [{"id": i, "model": f"CPU-{i}", "price": float(i),
+                     "currency": "RMB", "specs": {"Cores": str(i * 8)}}
+                    for i in range(1, 6)]
+    q = part_query("CPU", limit=2, offset=0, _repo=_Repo())
+    assert [r["name"] for r in q["rows"]] == ["CPU-1", "CPU-2"]
+    assert q["truncated"] is True
+    assert q["total"] == 5
+    assert q["next_offset"] == 2
+    q2 = part_query("CPU", limit=2, offset=4, _repo=_Repo())
+    assert [r["name"] for r in q2["rows"]] == ["CPU-5"]
+    assert q2["truncated"] is False
+    assert q2["total"] == 5
+    assert q2["next_offset"] is None
+    q3 = part_query("CPU", _repo=_Repo())
+    assert len(q3["rows"]) == 5
+    assert q3["truncated"] is False
+
+def test_lock_baseline_records_own_artifact_not_registration():
+    """B1：机型自动锁定写 model_reason 自己的产物（baseline/_locked_baseline/model_selection），
+    不回填登记表 ext.server_model；跨轮持久化走 mem.locked_baseline。"""
+    from app.services.skill_phases import _lock_baseline
+    ctx = {"ext": {}}
+    baseline = {"server_model_id": 1, "id": 1, "name": "ZS22V2-P",
+                "server_type_name": "通用计算服务器", "series": "Polaris", "form": "2U"}
+    _lock_baseline(ctx, baseline, "目录唯一命中")
+    assert ctx.get("_locked_baseline") is baseline
+    assert ctx["baselines"][0]["name"] == "ZS22V2-P"
+    assert ctx["model_selection"]["name"] == "ZS22V2-P"
+    assert str((ctx.get("ext") or {}).get("server_model") or "").strip() == ""
+

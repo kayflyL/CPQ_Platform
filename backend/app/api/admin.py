@@ -761,22 +761,3 @@ def import_business_fields(data: dict, operator: str = "system"):
         return result
     finally:
         repo.close()
-
-
-# ================== Deprecated Endpoints ==================
-# The following endpoints are kept for backend tool-layer use only.
-# The frontend no longer calls them.
-
-# @router.get("/business-fields/{field_key}/references")      # deprecated
-# @router.post("/business-fields/{field_key}/references")     # deprecated
-# @router.delete("/business-fields/{field_key}/references/..")# deprecated
-# @router.post("/business-fields/check-references")           # deprecated
-# @router.get("/business-fields/{field_key}/history")         # deprecated
-# @router.post("/business-fields/{field_key}/validate")       # deprecated
-# @router.post("/business-fields/validate-batch")             # deprecated
-# @router.get("/business-fields/{field_key}/stats")           # deprecated
-# @router.get("/business-fields-usage-stats")                 # deprecated
-# @router.post("/business-fields/{field_key}/record-usage")   # deprecated
-# @router.post("/business-fields/record-usage-batch")         # deprecated
-# @router.put("/business-fields/sort-order")                  # deprecated
-# @router.delete("/business-fields/{field_key}/force")        # deprecated

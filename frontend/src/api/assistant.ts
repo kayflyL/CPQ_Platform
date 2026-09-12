@@ -52,6 +52,7 @@ export interface AssistantContext {
 export interface AssistantToolInfo {
   name: string
   category: 'selection' | 'data' | 'cost' | 'quote'
+  summary?: string
   description: string
   parameters: Record<string, any>
   default_enabled: boolean
@@ -186,7 +187,7 @@ export const assistantApi = {
       entryPoint?: string,
       optionSlot?: string | null,
       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
-      enableClarity?: boolean | null,
+      workflowKey?: string | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -199,13 +200,13 @@ export const assistantApi = {
             quotation_id: quotationId || null,
             entry_point: entryPoint || null,
             option_slot: optionSlot || null,
-            enable_clarity: enableClarity ?? null,
             card_selections: cardSelections && cardSelections.length
               ? cardSelections.map((s) => ({
                   slot: s.slot, value: s.value, label: s.label || null,
                   ...(s.qty ? { qty: s.qty } : {}),
                 }))
               : null,
+            workflow_key: workflowKey || null,
           },
         )
         .then((r) => r.data),

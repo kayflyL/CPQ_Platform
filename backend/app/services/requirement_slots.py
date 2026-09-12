@@ -17,8 +17,23 @@ def slot_map_options() -> list:
     return opts + [{"value": "free", "label": "不映射（自由行）"}]
 
 
-_ALIAS_KEY = {"scene": "server_type", "series": "platform_type", "form": "chassis_form"}
 _BASIC_KEYS = {"server_type", "server_model", "platform_type", "chassis_form", "purchase_qty", "warranty_years"}
+
+# catalog 字段 → 在售目录维度 key（catalog_whitelist 的 types/series/forms/models）。
+# 这是「插座」契约：声明某目录字段取值来自哪一维，候选值仍由 catalog_search/catalog_whitelist 提供；
+# 前端可在字段配置里显式配 catalog_dimension 覆盖，这里只是数据驱动兜底，不写业务规则。
+_CATALOG_FIELD_DIMENSION: dict = {
+    "server_type": "types",
+    "platform_type": "series",
+    "chassis_form": "forms",
+    "server_model": "models",
+}
+
+# 非目录字段缺失时的兜底默认值（保证流程可通、允许填错，正确性后续由规则层扭转）。
+# 前端可在字段配置里显式配 default_value 覆盖；这里只是数据驱动兜底，不写业务规则。
+_SLOT_DEFAULT: dict = {
+    "purchase_qty": 1,
+}
 
 
 def _load_kp_categories() -> list:
@@ -57,6 +72,7 @@ def _load_basic_slots() -> list:
     """
     try:
         from app.repository.system_config_repo import SystemConfigRepository
+        from app.services.slot_contract import canonical_key
         repo = SystemConfigRepository()
         try:
             cfg = repo.get_value("requirement_slots", {})
@@ -72,7 +88,7 @@ def _load_basic_slots() -> list:
             if not isinstance(s, dict):
                 continue
             k = str(s.get("key") or s.get("name") or "").strip()
-            k = _ALIAS_KEY.get(k, k)
+            k = canonical_key(k)
             if not k or k not in _BASIC_KEYS or k in seen:
                 continue
             d = dict(s)
@@ -84,6 +100,10 @@ def _load_basic_slots() -> list:
             d.setdefault("level", "L2")
             d.setdefault("candidate_source",
                          "catalog" if k in ("server_type", "platform_type", "chassis_form", "server_model") else "free")
+            if d.get("candidate_source") == "catalog":
+                d.setdefault("catalog_dimension", _CATALOG_FIELD_DIMENSION.get(k))
+            if d.get("candidate_source") != "catalog":
+                d.setdefault("default_value", _SLOT_DEFAULT.get(k))
             out.append(d)
             seen.add(k)
         order_map: dict = {}

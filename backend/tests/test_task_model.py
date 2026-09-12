@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 """Claude Code 式任务模型契约：入口同意制提示词 / 步骤单源 / 中途消息排队。"""
+from app.services import skill_tools_fill
 import asyncio
 import os
 import sys
@@ -23,31 +24,29 @@ def test_skill_steps_view_single_source():
 
 
 def test_requirement_prompt_consent_contract():
-    """同意制契约：提交必须以客户同意为前提；流程步骤块数据驱动（有则注入，无则不出现）。"""
-    from app.services.skill_chat import requirement_prompt
-    p = requirement_prompt(
-        {}, flow_steps=[{"step": "model_reason", "label": "机型选型",
-                         "description": "按需求从在售目录中选定机型骨架"},
-                        {"step": "kp_reason", "label": "配件选型"},
-                        {"step": "compose", "label": "BOM 组装"},
-                        {"step": "output", "label": "产出交接"}])
-    assert "客户已同意" in p                      # 提交门槛=同意
-    assert "主动提议" in p                          # 咨询式对话须提议而非自作主张
-    assert "【配置流程步骤】" in p and "机型选型" in p and "产出交接" in p
-    assert "按需求从在售目录中选定机型骨架" in p    # 画布 description 进提议素材
-    assert "机型选型：配件选型" not in p.replace("机型选型：按需求", "")  # 无描述的步骤不带空冒号尾巴
-    # 未给步骤（如配置缺失）时不应出现空流程块
-    p2 = requirement_prompt({})
-    assert "【配置流程步骤】" not in p2
-    assert "客户已同意" in p2                       # 同意制不依赖步骤块存在
+    """同意制契约已移除：requirement_prompt 不再背着说服/提交散文；阶段提示只留 ACTIVE 任务态。"""
+    from app.services import colleague_turn_service as svc
+    from app.services.skill_tools_fill import requirement_prompt
+    # 阶段提示（ACTIVE）：任务态指令，不再有提交/确认轮
+    manifest = {"node_configs": {}}
+    hint = svc._skill_phase_hint(manifest, svc.SKILL_SESSION_ACTIVE)
+    assert "直接推进流程" in hint
+    # 无 IDLE/PROPOSING 阶段：非 ACTIVE 一律不产出提示
+    assert svc._skill_phase_hint(manifest, "proposing") == ""
+    # requirement_prompt 只剩登记表视图+价格守卫，不再重复说服/提交散文
+    p = requirement_prompt({})
+    assert "客户已同意" not in p
+    assert "主动提议" not in p
+    assert "【配置流程步骤】" not in p
 
 
 def test_requirement_prompt_pre_task_hides_target_form():
-    """进任务前不碰目标表：slots=None（普通聊天/提议轮）不暴露登记表内容。"""
-    from app.services.skill_chat import requirement_prompt
+    """进任务前不碰目标表：slots=None（任务未开始）不暴露登记表内容。"""
+    from app.services.skill_tools_fill import requirement_prompt
     p = requirement_prompt(None)
     assert "存储服务器" not in p and "ES22V3-P" not in p
-    assert "禁止提前登记或填表" in p                 # 白盒声明：任务未开始没有登记表
+    assert "本轮没有登记表" in p                     # 只报事实：任务未开始，本轮无登记表
+    assert "禁止" not in p                          # 纪律属于左栏提示词，不回代码
     # 任务回合（slots 传入）才暴露登记表视图
     p_task = requirement_prompt({"server_type": "存储服务器", "server_model": "ES22V3-P"})
     assert "存储服务器" in p_task and "ES22V3-P" in p_task

@@ -72,7 +72,7 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
             SELECT price, currency, price_date
             FROM kp.kp_price_history
             WHERE part_id = p.id
-            ORDER BY price_date DESC
+            ORDER BY price_date DESC NULLS LAST, id DESC
             LIMIT 1
         ) ph ON true
     """
@@ -122,7 +122,7 @@ def get_part_by_pn(pn: str):
             SELECT price, currency, price_date
             FROM kp.kp_price_history
             WHERE part_id = p.id
-            ORDER BY price_date DESC
+            ORDER BY price_date DESC NULLS LAST, id DESC
             LIMIT 1
         ) ph ON true
         WHERE p.oem_sku = :pn
@@ -132,3 +132,42 @@ def get_part_by_pn(pn: str):
     if not row:
         return None
     return dict(row)
+
+
+# ── 检索别名（kp.kp_search_aliases；part_lexicon 词法引擎的口语词→库内词形映射） ──
+
+@router.get("/search-aliases")
+def list_search_aliases(enabled: Optional[bool] = Query(None)):
+    """全部检索别名（enabled=None 全量，True 只看生效行）。"""
+    from app.repository.kp_repo import KPRepository
+    repo = KPRepository()
+    try:
+        return repo.list_search_aliases(enabled_only=bool(enabled))
+    finally:
+        repo.close()
+
+
+@router.put("/search-aliases")
+def upsert_search_alias(body: dict):
+    """新增/更新别名：{alias, expansion, note?}。expansion 为空格分隔 token（万兆→"10G"）。"""
+    from app.repository.kp_repo import KPRepository
+    repo = KPRepository()
+    try:
+        return repo.upsert_search_alias(str(body.get("alias") or ""),
+                                        str(body.get("expansion") or ""),
+                                        body.get("note"))
+    except ValueError as e:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=str(e))
+    finally:
+        repo.close()
+
+
+@router.delete("/search-aliases/{alias}")
+def delete_search_alias(alias: str):
+    from app.repository.kp_repo import KPRepository
+    repo = KPRepository()
+    try:
+        return {"ok": repo.delete_search_alias(alias)}
+    finally:
+        repo.close()

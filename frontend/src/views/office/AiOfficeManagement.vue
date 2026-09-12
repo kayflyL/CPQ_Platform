@@ -77,12 +77,32 @@
             <div class="aom-section-head">
               <div>
                 <h3>Skills</h3>
-                <span class="aom-hint">点击 Skill 卡进入编辑器；工具型 Skill 在右侧“工具目录”维护。</span>
+                <span class="aom-hint">能力包：静默增强 AI 角色，模型按描述判断调用；无节点画布。</span>
               </div>
             </div>
             <a-spin :spinning="skillsLoading">
               <div class="aom-skill-grid">
-                <div v-for="skill in skills" :key="skill.key" class="aom-skill-cell">
+                <div v-for="skill in capabilitySkills" :key="skill.key" class="aom-skill-cell">
+                  <CapabilityCard :skill="skill" @detail="openSkill" />
+                  <div class="aom-skill-actions">
+                    <a-button type="text" size="small" @click="openPolicy(skill)">调用策略</a-button>
+                    <a-button type="text" size="small" @click="openSkill(skill)">编辑</a-button>
+                    <a-button type="text" size="small" danger @click="removeSkill(skill)">删除</a-button>
+                  </div>
+                </div>
+              </div>
+            </a-spin>
+          </a-tab-pane>
+          <a-tab-pane key="workflows" tab="Workflows">
+            <div class="aom-section-head">
+              <div>
+                <h3>Workflows</h3>
+                <span class="aom-hint">任务流：可见多步编排，用户通过“+”或模型建议显式发起；点击进入节点画布。</span>
+              </div>
+            </div>
+            <a-spin :spinning="skillsLoading">
+              <div class="aom-skill-grid">
+                <div v-for="skill in workflowSkills" :key="skill.key" class="aom-skill-cell">
                   <CapabilityCard :skill="skill" @detail="openSkill" />
                   <div class="aom-skill-actions">
                     <a-button type="text" size="small" @click="openPolicy(skill)">调用策略</a-button>
@@ -96,9 +116,6 @@
           <a-tab-pane v-if="canAdmin" key="tools" tab="工具目录">
             <AiSettingsPanel embedded section="tools" />
           </a-tab-pane>
-            <a-tab-pane v-if="canAdmin" key="prompts" tab="提示词">
-              <SkillPromptsPanel />
-            </a-tab-pane>
         </a-tabs>
       </div>
 
@@ -143,7 +160,6 @@ import AiSettingsPanel from './AiSettingsPanel.vue'
 import CapabilityCard from '@/components/office/CapabilityCard.vue'
 import SkillRoutePolicyModal from '@/components/office/SkillRoutePolicyModal.vue'
 import SkillStudio from '../admin/reasoning/SkillStudio.vue'
-import SkillPromptsPanel from '../admin/reasoning/SkillPromptsPanel.vue'
 
 const props = defineProps<{
   colleagues: any[]
@@ -191,6 +207,8 @@ const skills = ref<any[]>([])
 const skillsLoading = ref(false)
 const editingSkill = ref<any | null>(null)
 const policySkill = ref<any | null>(null)
+const capabilitySkills = computed(() => skills.value.filter((s: any) => s?.type !== 'workflow'))
+const workflowSkills = computed(() => skills.value.filter((s: any) => s?.type === 'workflow'))
 
 function openPolicy(skill: any) {
   policySkill.value = skill
@@ -206,7 +224,7 @@ function openSkill(skill: any) {
     editingSkill.value = skill
     return
   }
-  message.info('工具型 Skill 无需节点画布，请在员工页绑定工具后使用')
+  message.info('能力包 Skill 无需节点画布：它在角色提示里静默生效，绑定到员工后由模型按描述调用')
 }
 
 function removeSkill(skill: any) {

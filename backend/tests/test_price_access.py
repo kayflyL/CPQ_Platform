@@ -4,7 +4,12 @@
 定调：价格机密，AI 角色默认无价权；关闭角色的全部工具/提示词/引擎产物不得出现价格。
 """
 from app.services import skill_chat
-from app.services.skill_chat import _TOOL_CTX, requirement_prompt, tool_catalog_search
+from app.services import skill_tool_context
+from app.services import skill_tools_fill
+from app.services import skill_tools_misc
+from app.services.skill_tool_context import TOOL_CTX
+from app.services.skill_tools_fill import requirement_prompt
+from app.services.skill_tools_misc import tool_catalog_search
 from app.services.skill_phases import catalog_models_option_data, model_option_desc
 
 
@@ -14,7 +19,7 @@ def _types_available() -> list[str]:
 
 
 def _with_tool_ctx(price_ok: bool):
-    _TOOL_CTX.set({"ext": {}, "price_ok": price_ok})
+    TOOL_CTX.set({"ext": {}, "price_ok": price_ok})
 
 
 # ── 工具层：catalog_search 价格剥离 ─────────────────────────────────────
@@ -44,16 +49,20 @@ def test_catalog_search_keeps_price_with_access():
 
 # ── 提示词层：禁价规则 ──────────────────────────────────────────────────
 
-def test_requirement_prompt_forbids_price_without_access():
+def test_requirement_prompt_carries_price_fact_not_the_rule():
+    """价格纪律住在左栏（任务规则 20，由 test_constitution 的搬迁锚点守卫）。
+
+    代码里只许出现**事实**：本角色无价格查看权限（price_access=false）。
+    具体话术（禁价格数字、问价引导）是提示词，写回代码就是第二套提示词。
+    """
     prompt = requirement_prompt({}, price_ok=False)
-    assert "禁止出现任何价格" in prompt
-    assert "成本核算或方案助手" in prompt  # 问价引导
+    assert "price_access=false" in prompt
+    assert "禁止" not in prompt and "引导" not in prompt
 
 
-def test_requirement_prompt_allows_price_with_access():
+def test_requirement_prompt_omits_price_fact_with_access():
     prompt = requirement_prompt({}, price_ok=True)
-    assert "禁止出现任何价格" not in prompt
-    assert "价格/形态/场景匹配" in prompt
+    assert "price_access" not in prompt
 
 
 # ── 引擎层：机型选项/描述价格门控（label=机型名，desc=形态/系列/价格）────────
@@ -89,7 +98,7 @@ def test_default_is_visible_for_engine_entry():
 
 def test_price_ok_default_in_tool_ctx():
     # 工具上下文未设置 price_ok 时默认可见（与引擎默认一致）
-    _TOOL_CTX.set({"ext": {}})
+    TOOL_CTX.set({"ext": {}})
     types = _types_available()
     if not types:
         return

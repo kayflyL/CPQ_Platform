@@ -16,20 +16,6 @@ logger = logging.getLogger(__name__)
 PROMPT_LIMIT = 30
 MAX_PER_ROLE = 100
 
-_EXTRACT_SYSTEM = """你是同事记忆管理员。从一段对话里判断是否产生了值得长期记住的信息，并对该同事现有的记忆清单做归并。
-
-只记（分四类）：
-- user_profile 用户画像：客户/用户是谁、角色、公司、团队结构等稳定事实
-- preference 偏好反馈：用户明确表达的喜好或纠正（如"以后方案默认按国产化平台配"、"别再推荐8T盘"）
-- business_fact 业务事实：业务规则/约束/背景（如"报价默认含三年质保"、"主力推 Orion 系列"）
-- guide 行为指引：对该同事行为方式的要求（如"先给结论再展开"）
-
-不记：闲聊、寒暄、一次性的过程信息（本轮在配什么型号）、对话里已存在的重复信息。
-
-归并规则：新信息与现有条目语义相同→noop 或 update（改写得更准）；矛盾→update 旧条目；用户明确收回/否定→delete。
-输出只能是 JSON：{"ops": [{"op": "add|update|delete|noop", "id": 现有条目id(update/delete必填), "type": 四类之一, "content": "一句压缩事实(≤80字)"}]}，无值得记的输出 {"ops": []}。"""
-
-
 def memory_block(role_key: str, limit: int = PROMPT_LIMIT) -> str:
     """同事记忆 → system prompt 注入块；置顶优先、按类型分组。"""
     rows = ColleagueMemoryRepository().list_by_role(role_key, limit=limit)
@@ -63,15 +49,23 @@ async def extract_and_reconcile(role_key: str, user_name: str,
     existing = repo.list_by_role(role_key, limit=200)
     try:
         from app.services import llm_client
+        from app.services.ai_colleague_service import get_colleague
+        # 抽取用的是这位同事自己的提示词（Manage Teams · 员工），代码只声明取值枚举。
+        system_prompt = str((get_colleague(role_key) or {}).get("system_prompt") or "").strip()
+        if not system_prompt:
+            return
         existing_lines = "\n".join(
             f"- #{m['id']} [{m.get('type')}] {m.get('content')}" for m in existing
         ) or "（暂无）"
+        type_options = "、".join(f"{key}={label}" for key, label in TYPE_LABELS.items())
         messages = [
-            {"role": "system", "content": _EXTRACT_SYSTEM},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": (
                 f"同事 role_key={role_key}\n用户：{user_name or '未知用户'}\n\n"
                 f"现有记忆清单：\n{existing_lines}\n\n"
-                f"本轮对话：\n用户说：{u[:2000]}\n同事回复：{a[:2000]}\n\n请输出归并 ops。"
+                f"本轮对话：\n用户说：{u[:2000]}\n同事回复：{a[:2000]}\n\n"
+                f"记忆类型取值：{type_options}；op 取值：add/update/delete/noop。\n"
+                "请输出归并 ops。"
             )},
         ]
         result = await llm_client.chat_json(

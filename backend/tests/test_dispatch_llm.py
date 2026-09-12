@@ -10,13 +10,14 @@ TEST_CFG = {
     "dispatch_enabled": True,
     "colleagues": [
         {"role_key": "assistant", "name": "方案助手", "enabled": True, "dispatchable": False,
-         "opening_message": "总助", "skills": []},
+         "system_prompt": "你是 CPQ 平台的方案助手，负责理解用户意图并分派给合适的 AI 同事。", "skills": []},
         {"role_key": "cost_analyst", "name": "成本核算", "enabled": True, "dispatchable": True,
          "system_prompt": "负责整机成本测算、成本结构与利润分析", "skills": ["cost"]},
         {"role_key": "support_engineer", "name": "技术支持工程师", "enabled": True, "dispatchable": True,
          "opening_message": "需求分析与服务器选型", "skills": ["requirement_analysis"]},
         {"role_key": "sleepy", "name": "停用同事", "enabled": False, "dispatchable": True},
     ],
+    # 判官用总助自己的提示词（Manage Teams · 员工），不再有 behavior.charter 桶
 }
 
 
@@ -168,16 +169,15 @@ def test_unbound_judge_none_falls_back_to_leader(monkeypatch):
 
 
 def test_handoff_hint_contract(monkeypatch):
-    """私聊转接建议提示：名册含其他同事职责（与判官共用单源）、不含自己；规则=自己办的自己办。"""
+    """私聊转接建议提示：只列名册事实（与判官共用单源），不含自己；转接纪律归员工自身提示词。"""
     from app.services import colleague_turn_service as turns
     _patch_cfg(monkeypatch)
     hint = turns._handoff_hint({"role_key": "assistant"})
-    assert "【同事转接建议】" in hint
+    assert "【同事转接】" in hint
     assert "成本核算" in hint and "整机成本测算" in hint      # 名册职责进提示
     assert "技术支持工程师" in hint
     assert "总助" not in hint                                   # 自己（assistant 开场白）不进建议名单
-    assert "一律自己完成" in hint and "超出你的能力范围" in hint
-    assert "一次最多建议一位" in hint
+    assert "一律自己完成" not in hint   # 纪律句已随「提示词（高级）」退役，不再从配置桶注入
     # 孤单角色（名册只有自己）→ 不出现空提示块
     _patch_cfg(monkeypatch, {"colleagues": [
         {"role_key": "solo", "name": "独行侠", "enabled": True, "dispatchable": True}]})
@@ -191,8 +191,9 @@ def test_capability_follows_skill_binding(monkeypatch):
     解绑即失去能力（回落普通对话）——不许出现「某角色天生会配置」的代码定制。
     """
     from app.services import colleague_turn_service as turns
+    from app.services import colleague_prompt
     monkeypatch.setattr(
-        turns, "_skill_library",
+        colleague_prompt, "_skill_library",
         lambda: {"requirement_analysis": {
             "key": "requirement_analysis", "type": "workflow", "workflow_key": "requirement_analysis"}})
     bound = {"role_key": "assistant", "skills": ["requirement_analysis"]}
@@ -207,6 +208,6 @@ def test_capability_follows_skill_binding(monkeypatch):
         {"role_key": "support_engineer", "skills": ["nonexistent"]}) is False
     # 非 workflow 类型技能（纯 prompt 技能）不触发对话脑
     monkeypatch.setattr(
-        turns, "_skill_library",
+        colleague_prompt, "_skill_library",
         lambda: {"prompt_only": {"key": "prompt_only", "type": "prompt"}})
     assert turns._has_workflow_skills({"role_key": "x", "skills": ["prompt_only"]}) is False

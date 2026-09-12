@@ -12,8 +12,9 @@ logger = logging.getLogger(__name__)
 
 _TRACE_FIELDS = {
     "node_type", "opportunity_id", "pipeline_id", "model", "status", "called",
-    "merged", "duration_ms", "prompt_chars", "response_chars", "plans_checked",
-    "issue_count", "retried", "error", "user_id", "role_key", "tool_name",
+    "merged", "duration_ms", "prompt_chars", "response_chars", "thinking_chars",
+    "prompt_tokens", "completion_tokens", "cache_hit_tokens",
+    "plans_checked", "issue_count", "retried", "error", "user_id", "role_key", "tool_name",
 }
 
 # 逐调用 trace 上下文（O0）：调用方（skill_chat 等）set，LLM 收口层（agent_react 流式轮/

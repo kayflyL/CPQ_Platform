@@ -15,7 +15,8 @@ function assertPn(x: PickerItem): PickerItem {
 export const fromKpPart = (p: KpPart): PickerItem =>
   assertPn({
     pn: p.pn, name: p.name, category: p.category,
-    specs: p.specs, unit_price: p.unit_price, brand: p.brand,
+    specs: p.specs, unit_price: p.unit_price, currency: p.unit_currency, brand: p.brand,
+    price_date: p.latest_price_date,
     applicable: p.applicable, source: 'kp',
   })
 

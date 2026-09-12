@@ -25,6 +25,43 @@ import { REASONING_CFG_TYPES, reasoningNodeKind, nodeArchetype } from '@/utils/r
 
 const props = defineProps<{ skill?: any }>()
 const skillKey = computed(() => String(props.skill?.workflow_key || props.skill?.key || '').trim())
+
+// ── 左栏：大脑视角单框（浏览=实际说明书；编辑=使用说明全文，保存即 AI 下一回合读到）──
+const manualRules = ref('')
+const manualSaving = ref(false)
+const manualEditing = ref(false)
+
+async function loadManual() {
+  try {
+    const r = await reasoningFlowApi.getManual(skillKey.value)
+    if (!manualEditing.value) manualRules.value = r.rules || ''
+  } catch {
+    message.warning('使用说明加载失败，请稍后重试')
+  }
+}
+
+function onEditManual() {
+  manualEditing.value = true
+}
+
+function onCancelManualEdit() {
+  manualEditing.value = false
+  loadManual()
+}
+
+async function onSaveManualRules() {
+  manualSaving.value = true
+  try {
+    await reasoningFlowApi.saveManualRules(manualRules.value, skillKey.value)
+    message.success('已保存：大脑下一回合读到新规则')
+    manualEditing.value = false
+    await loadManual()
+  } catch {
+    message.error('保存失败，请重试')
+  } finally {
+    manualSaving.value = false
+  }
+}
 const outputKind = computed(() => {
   const raw = String(props.skill?.output_kind || '').trim()
   if (raw) return raw
@@ -81,7 +118,6 @@ const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, g
 // 试运行输入默认清空（历史曾预填演示需求，2026-08-05 移除：避免误以为是系统内置需求）
 const reqText = ref('')
 provide('studioReqText', reqText)
-const enableClarity = ref(true)  // 允许反问补全：模糊需求会暂停反问；关掉则跳过反问一键出方案
 /** 把对话 node_trace 的执行状态/产出写回画布 nodes（按 node id 精确匹配，id=null 清全部） */
 function applyNodeState(id: string | null, state: any) {
   nodes.value = nodes.value.map((n) => (id === null || n.id === id
@@ -194,7 +230,6 @@ async function onResetTest() {
 // ── 画布节点注入：运行按钮（input 节点）──
 provide('studioRun', onRun)
 provide('studioRunning', running)
-provide('studioEnableClarity', enableClarity)
 
 // ── 线索登记表：字段契约（RequirementSlots 同构）→ 逐字段填充状态 ──
 const reqGroups = ref<{ title: string; fields: { key: string; label: string; srcType: string; category: string }[] }[]>([])
@@ -231,12 +266,14 @@ function hasContent(v: any): boolean {
   if (typeof v === 'object') return Object.values(v).some(hasContent)
   return Boolean(v)
 }
+// 部件「已填」判定 = 目标登记表（kp_rows）是否真落了该大类的非空行。
+// 不做任何别名/正则映射：AI 填的就是目标表大类（填表契约已约束），前端只读落库结果。
 function kpFieldFilled(s: any, f: { category: string }): boolean {
   const rows = Array.isArray(s?.kp_rows) ? s.kp_rows : []
-  if (!f.category) return false
-  const cat = String(f.category).trim().toLowerCase()
+  const cat = String(f.category || '').trim()
+  if (!cat) return false
   return rows.some((r: any) => {
-    const pc = String(r?.part_category || r?.category || '').trim().toLowerCase()
+    const pc = String(r?.part_category || r?.category || '').trim()
     return pc === cat && String(r?.description || r?.catalogue || '').trim() !== ''
   })
 }
@@ -497,7 +534,7 @@ function onRemove(nodeKey: string) {
 watch(() => nodes.value.length, () => debouncePersist())
 watch(() => edges.value.length, () => debouncePersist())
 
-onMounted(() => { load(); loadReqGroups() })
+onMounted(() => { load(); loadReqGroups(); loadManual() })
 function onSaved() { load() }
 
 </script>
@@ -518,6 +555,31 @@ function onSaved() { load() }
     </div>
 
     <div class="main-content">
+      <!-- 左栏：使用说明——单框单内容（浏览/编辑同一份文本），随会话自动下发大脑 -->
+      <aside class="left-panel">
+        <div class="lp-block lp-grow">
+          <div class="lp-head">
+            <span class="lp-title">使用说明<span class="lp-readonly-tag">{{ manualEditing ? '编辑中' : '已生效' }}</span></span>
+            <span class="lp-actions">
+              <template v-if="manualEditing">
+                <a-button size="small" @click="onCancelManualEdit">取消</a-button>
+                <a-button size="small" type="primary" :loading="manualSaving" @click="onSaveManualRules">保存</a-button>
+              </template>
+              <a-button v-else size="small" type="primary" @click="onEditManual">编辑</a-button>
+            </span>
+          </div>
+          <textarea
+            v-if="manualEditing"
+            v-model="manualRules"
+            class="lp-preview lp-editing"
+            :rows="16"
+            placeholder="编写全程遵循的使用说明。各步骤的工具与产物契约在中间画布的节点抽屉里配置，系统会自动随说明一并发给大脑。"
+          />
+          <pre v-else class="lp-preview">{{ manualRules || '暂无使用说明，点「编辑」编写。' }}</pre>
+          <div class="lp-hint">此规则随每轮会话自动下发大脑；节点抽屉改的工具/契约无需在这里重复维护。</div>
+        </div>
+      </aside>
+
       <!-- 中栏：vue flow 画布（编排 + 试运行时节点逐步高亮） -->
       <main class="center-panel">
         <!-- 能力节点图例：连线颜色由节点 kind 派生（智能体 / 规则 / 输出） -->
@@ -562,7 +624,6 @@ function onSaved() { load() }
           preview
           entry-point="skill_studio_preview"
           initial-role-key="support_engineer"
-          :enable-clarity="enableClarity"
           :open="true"
         />
       </aside>
@@ -591,6 +652,17 @@ function onSaved() { load() }
 
 /* ── 两栏主区（中画布 + 右试运行）── */
 .main-content { flex: 1; display: flex; overflow: hidden; min-height: 0; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md, 12px); background: var(--cpq-overlay-w3, transparent); }
+.left-panel { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px; overflow-y: auto; border-right: 1px solid var(--cpq-glass-border); background: var(--cpq-overlay-w3, transparent); }
+.lp-block { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.lp-grow { flex: 1; }
+.lp-head { display: flex; align-items: center; justify-content: space-between; }
+.lp-title { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); }
+.lp-actions { display: inline-flex; gap: 6px; }
+.lp-readonly-tag { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 10px; font-weight: 500; border: 1px solid var(--cpq-glass-border); border-radius: 999px; color: var(--cpq-text-secondary); }
+.lp-rules { font-size: 12px; line-height: 1.6; resize: vertical; }
+.lp-editing { width: 100%; font-family: inherit; }
+.lp-hint { font-size: 11px; opacity: 0.6; line-height: 1.5; color: var(--cpq-text-secondary); }
+.lp-preview { flex: 1; overflow: auto; margin: 0; padding: 8px; font-size: 11px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--cpq-glass-border); border-radius: 8px; background: var(--cpq-overlay-w3, transparent); color: var(--cpq-text-secondary); font-family: inherit; }
 .center-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .center-panel :deep(.ant-spin-nested-loading) { flex: 1; display: flex; }
 .center-panel :deep(.ant-spin-container) { flex: 1; display: flex; }

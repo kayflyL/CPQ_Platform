@@ -10,6 +10,16 @@ from unittest.mock import MagicMock
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+@pytest.fixture(autouse=True)
+def _no_llm_trace_writes(monkeypatch):
+    """单测不写真库 rules.llm_trace。
+
+    agent_react 逐轮留痕（_record_round）是横切副作用，mock LLM 的循环同样触发；
+    不隔离的话每次跑套件都会把 fake_tool 噪音写进真实 trace 数据（2026-09-12 实锤）。
+    """
+    monkeypatch.setattr("app.services.llm_trace.record_llm_trace", lambda **fields: None)
+
+
 @pytest.fixture
 def mock_kp_repo():
     """Mock KPRepository."""

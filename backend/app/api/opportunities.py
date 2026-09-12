@@ -10,7 +10,7 @@ from app.repository.feed_user_repo import FeedUserRepository
 from app.api.deps import get_current_user, user_has_permission, require_opportunity_access, ensure_opportunity_access
 import os
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta
 from pydantic import BaseModel
 
 # === File upload security constants ===
@@ -98,14 +98,35 @@ def create_empty_opportunity(req: CreateOpportunityRequest, user: dict = Depends
         repo.close()
 
 
+def _resolve_list_date_range(period: Optional[str], start: Optional[str], end: Optional[str]):
+    """把图表下钻传来的周期参数转成 created_at 的字符串比较区间。"""
+    if not period and not (start and end):
+        return None, None
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if start and end:
+        s = datetime.strptime(start, "%Y-%m-%d")
+        e = datetime.strptime(end, "%Y-%m-%d")
+    elif period == "year":
+        s = datetime(today.year, 1, 1)
+        e = today
+    elif period == "month":
+        s = datetime(today.year, today.month, 1)
+        e = today
+    else:
+        s = today - timedelta(days=today.weekday())
+        e = today
+    return s.strftime("%Y-%m-%d %H:%M:%S"), (e + timedelta(days=1)).strftime("%Y-%m-%d %H:%M:%S")
+
+
 @router.get("/list")
-def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, order_type: str = None, sales_person: str = None, sort_by: str = "updated_at", sort_order: str = "desc", user: dict = Depends(get_current_user)):
+def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, order_type: str = None, sales_person: str = None, period: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, sort_by: str = "updated_at", sort_order: str = "desc", user: dict = Depends(get_current_user)):
     from app.repository.opportunity_repo import OpportunityRepository
     repo = OpportunityRepository()
     try:
         view_all = user_has_permission(user, "page.opportunities_all")
         if not view_all:
             raise HTTPException(status_code=403, detail="无权查看商机线索")
+        created_start, created_end = _resolve_list_date_range(period, start, end)
         items, total = repo.list_opportunities(
             include_deleted, page, page_size,
             search=search, status=status, platform=platform, chassis=chassis,
@@ -114,6 +135,8 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
             owner_user_id=None,
             owner_sales_person=None,
             has_committed_requirement=False,
+            created_start=created_start,
+            created_end=created_end,
             sort_by=sort_by, sort_order=sort_order,
         )
         return {"items": items, "total": total}

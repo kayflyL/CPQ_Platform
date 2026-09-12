@@ -185,6 +185,7 @@ export interface BehaviorConfig {
     generate_assignments?: boolean
     generate_conclusion?: boolean
   }
+
   autonomous?: {
     enabled?: boolean
     tick_seconds?: number

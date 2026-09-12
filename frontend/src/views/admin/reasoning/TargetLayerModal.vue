@@ -5,7 +5,7 @@
  *    （RequirementForm 商机详情页同款组件，schema 同源）。字段/中文名/顺序权威 = requirement_sheet_form。
  *  - table（机型选配等）：左 = 输出字段契约（存节点配置 target.artifacts[].fields，经 save-target 持久化），
  *    右 = 该节点输出物实时预览（机箱下拉 → L6 配置表真实求值）。
- * 统一大脑：每个节点的执行者都是 AI 角色（节点 prompt 驱动），「AI 反问」是所有节点字段的策略位。 */
+ * 统一大脑：每个节点的执行者都是 AI 角色（节点 prompt 驱动），「必填」是所有节点字段的策略位。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import axios from 'axios'
@@ -233,7 +233,7 @@ async function seedFieldRows() {
       tableFieldRows.value = cats.map(name => ({
         key: `kp_parts:${name}`,
         label: name,
-        hint: '配件行 · 必须反问=AI 提供候选+推荐并交客户确认（含自选/数量）；关=AI 从候选池代选',
+        hint: '配件行 · 必填=该行必须落在最终方案；客户已明确登记具体型号且库内有精确料→AI 直接锁定；已登记但库无精确料/仅类目名（模糊）→AI 推荐并调 ask_user 确认（含自选/数量）；关=非必填，AI 可选配',
         group: '部件行 · 本节点要填的配件',
         ask: DEFAULT_MUST_ASK.includes(name),
       }))
@@ -325,7 +325,7 @@ defineExpose({ load })
         <a-tag>schema：{{ artifact?.schema_ref }}</a-tag>
         <a-tag v-if="artifact?.view">view：{{ artifact?.view }}</a-tag>
         <a-tag v-if="artifact?.rows_from">rows_from：{{ artifact?.rows_from }}</a-tag>
-        <span class="tlm-auth">统一大脑：AI 角色按各节点提示执行——「AI 反问」是每个输出字段的策略位</span>
+        <span class="tlm-auth">统一大脑：AI 角色按各节点提示执行——「必填」是每个输出字段的策略位</span>
       </div>
 
       <!-- form：左=登记策略字段契约，右=需求登记表真实预览 -->
@@ -355,7 +355,7 @@ defineExpose({ load })
       <TargetTwoPane v-else-if="artifact?.kind === 'table'"
                      :fields="tableFieldRows"
                      :left-title="isKpView ? '配件行 · 本节点要填的配件' : '字段 · 本节点要填什么'"
-                     left-hint="「必须反问」开=AI 提供候选+推荐并交客户确认（含自选配件/数量）；关=AI 从资源层候选池代选"
+                     left-hint="必填=该行必须落在最终方案；客户已明确登记且库内有精确料→AI 直接锁定；已登记但库无精确料/模糊→AI 推荐并问客户确认（含自选配方/数量）；关=非必填，AI 可选配"
                      :right-title="isKpView ? 'KP 配件真实预览' : 'L6 配置表预览'"
                      :right-hint="isKpView ? 'KP 库真实料号样例（非运行数据）· 按共享表格式整形' : '真实求值结果 · 与商机详情页方案配置 L6 部分同源'"
                      @ask-change="onFieldAskChange">

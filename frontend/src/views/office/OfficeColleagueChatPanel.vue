@@ -65,6 +65,7 @@
         :traces="chatState?.nodeTraces || []"
         :title="chatState?.taskTitle"
         :phase="chatState?.taskPhase"
+        :pause="chatState?.taskPause"
       />
 
       

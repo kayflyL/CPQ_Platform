@@ -80,29 +80,6 @@ def reset_kp_slot_group_map(admin: dict = Depends(require_admin)):
         repo.close()
 
 
-@router.get("/skill-prompts")
-def list_skill_prompts():
-    """返回需求分析 Skill 提示词模板行（rules.skill_prompt_template，DB 唯一权威；前端按行渲染/编辑）。"""
-    from app.services.skill_prompts import list_prompt_templates
-    return {"items": list_prompt_templates()}
-
-
-@router.put("/skill-prompts/{slot_key}")
-def upsert_skill_prompt(slot_key: str, data: dict, admin: dict = Depends(require_admin)):
-    """按 slot_key 单行保存提示词模板（直接落库 rules.skill_prompt_template）。"""
-    from app.services.skill_prompts import upsert_prompt_template
-    template = data.get("template")
-    if template is None:
-        raise HTTPException(status_code=400, detail="Missing 'template' field")
-    return upsert_prompt_template(
-        slot_key,
-        template,
-        name=data.get("name"),
-        enabled=data.get("enabled"),
-        operator=data.get("operator", "system"),
-    )
-
-
 @router.get("/{key}")
 
 def get_config(key: str):
@@ -232,20 +209,6 @@ def reset_requirement_slots(admin: dict = Depends(require_admin)):
         repo.close()
 
 
-
-
-
-
-
-@router.get("/skill_prompts/effective")
-
-def get_skill_prompts_effective():
-
-    """返回需求分析 Skill 提示词有效值（rules.skill_prompt_template，DB 唯一权威）。"""
-
-    from app.services.skill_prompts import load_skill_prompts
-
-    return {"key": "skill_prompts", "value": load_skill_prompts()}
 
 
 
@@ -428,4 +391,3 @@ def get_branding_logo():
         headers={"Cache-Control": "no-cache, must-revalidate"},
 
     )
-

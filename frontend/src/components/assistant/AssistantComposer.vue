@@ -1,12 +1,12 @@
 <template>
   <div class="ac-composer">
     <div class="ac-row">
-      <!-- 技能入口：私聊=当前角色绑定技能；群聊=全员技能并集。点击仅插入输入框（不直接发送） -->
+      <!-- 工作流入口：私聊=当前角色绑定工作流；群聊=全员工作流并集。点击直接发起（显式 ACTIVE） -->
       <span v-if="showSkills && skillOptions.length" class="ac-skill-anchor">
         <button
           type="button"
           class="ac-plus-btn"
-          title="选择技能"
+          title="发起工作流"
           :disabled="disabled"
           @click="skillOpen = !skillOpen"
         >
@@ -14,7 +14,7 @@
         </button>
         <transition name="ac-mention">
           <div v-if="skillOpen" class="ac-skill-pop" @mousedown.prevent @click.stop>
-            <div class="ac-skill-head">技能</div>
+            <div class="ac-skill-head">工作流</div>
             <button
               v-for="s in skillOptions"
               :key="s.key"

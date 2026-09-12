@@ -226,6 +226,7 @@
         </label>
       </div>
     </div>
+
   </div>
 </template>
 
@@ -246,6 +247,7 @@ const draftStatusZoneMap = ref<Record<string, string>>({})
 const autonomous = ref<NonNullable<BehaviorConfig['autonomous']>>(defaultAutonomous())
 const brain = ref<NonNullable<BehaviorConfig['brain']>>(defaultBrain())
 const mission = ref<NonNullable<BehaviorConfig['mission']>>(defaultMission())
+
 const animationOptions = [
   { value: 'idle', label: '空闲' },
   { value: 'working', label: '工作' },
@@ -372,6 +374,7 @@ function syncDraft() {
   autonomous.value = normalizeAutonomous(next.autonomous)
   brain.value = normalizeBrain(next.brain)
   mission.value = normalizeMission(next.mission)
+
   draftStatusZoneMap.value = { ...(props.officeConfig?.status_zone_map || {}) }
 }
 
@@ -426,6 +429,7 @@ async function save() {
       autonomous: autonomous.value,
       brain: brain.value,
       mission: mission.value,
+
     })
     await officeApi.updateLayout({
       office: {
@@ -445,6 +449,7 @@ defineExpose({ save })
 </script>
 
 <style scoped>
+
 .behavior-editor {
   padding: 16px;
   height: 100%;

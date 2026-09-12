@@ -89,17 +89,22 @@ export function useQuoteKpCatalog(store: QuoteStore, activeConfig: ComputedRef<C
       base_price: part?.unit_price || 0,
       profit_margin: 10,
       final_price: 0,
-      currency: 'RMB',
+      currency: part?.unit_currency || 'RMB',
     }
   }
 
   function onKpSetLine(cfg: ConfigData, cat: string, localIdx: number, patch: Partial<Item>) {
     const gi = kpGlobalIndex(cfg, cat, localIdx)
     if (gi < 0) return
-    Object.assign(cfg.items[gi], patch)
+    const item = cfg.items[gi]
+    Object.assign(item, patch)
     if (patch.pn) {
       const part = kpPartByPn(patch.pn)
-      if (part) cfg.items[gi].catalogue = part.name
+      if (part) {
+        item.catalogue = part.name
+        if (patch.base_price == null && part.unit_price != null) item.base_price = part.unit_price
+        if (patch.currency == null && part.unit_currency) item.currency = part.unit_currency
+      }
     }
     store.recalculateAll()
   }

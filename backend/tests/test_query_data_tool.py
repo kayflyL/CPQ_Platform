@@ -6,12 +6,16 @@
 """
 import pytest
 
-from app.services.skill_chat import tool_query_data, requirement_prompt
+from app.services.skill_tools_fill import requirement_prompt
+from app.services.skill_tools_misc import tool_query_data
+from app.services import skill_tool_context
 
 
 def _ctx(boundary, role="assistant"):
     from app.services import skill_chat
-    return skill_chat._TOOL_CTX.set({
+    from app.services import skill_tools_fill
+    from app.services import skill_tools_misc
+    return skill_tool_context.TOOL_CTX.set({
         "boundary": boundary, "role_key": role, "price_ok": True,
         "ext": {}, "save": lambda: None, "user_text": "",
     })
@@ -30,17 +34,17 @@ def test_query_data_deny_all_boundary():
         assert out["ok"] is False and "拒绝模式" in out["error"]
     finally:
         from app.services import skill_chat
-        skill_chat._TOOL_CTX.reset(token)
+        skill_tool_context.TOOL_CTX.reset(token)
 
 
 def test_query_data_no_context_fails_closed():
     from app.services import skill_chat
-    token = skill_chat._TOOL_CTX.set({})  # 引擎路径：无边界上下文
+    token = skill_tool_context.TOOL_CTX.set({})  # 引擎路径：无边界上下文
     try:
         out = tool_query_data({"sql": "SELECT 1"})
         assert out["ok"] is False
     finally:
-        skill_chat._TOOL_CTX.reset(token)
+        skill_tool_context.TOOL_CTX.reset(token)
 
 
 def test_query_data_missing_sql():
@@ -50,7 +54,7 @@ def test_query_data_missing_sql():
         assert out["ok"] is False and "sql" in out["error"]
     finally:
         from app.services import skill_chat
-        skill_chat._TOOL_CTX.reset(token)
+        skill_tool_context.TOOL_CTX.reset(token)
 
 
 def test_query_data_whitelisted_table_executes(monkeypatch):
@@ -71,7 +75,7 @@ def test_query_data_whitelisted_table_executes(monkeypatch):
         assert calls == [("SELECT count(*) AS n FROM opportunities.opportunities", 30)]
     finally:
         from app.services import skill_chat
-        skill_chat._TOOL_CTX.reset(token)
+        skill_tool_context.TOOL_CTX.reset(token)
 
 
 def test_query_data_bad_limit_falls_back():
@@ -91,7 +95,7 @@ def test_query_data_bad_limit_falls_back():
         tool_query_data({"sql": "SELECT 1", "limit": "abc"})
         assert seen["limit"] == 50
     finally:
-        sc._TOOL_CTX.reset(token)
+        skill_tool_context.TOOL_CTX.reset(token)
         data_boundary.execute_read = orig
 
 
@@ -123,10 +127,12 @@ def test_capability_specs_no_retired_defaults():
     assert validate_specs() == []
 
 
-# ── 提示词门控 ───────────────────────────────────────────────────────────────
+# ── 数据查询规则下沉到工具描述（不再由 requirement_prompt 门控注入）─────────────
 
-def test_requirement_prompt_data_rule_gated():
-    with_line = requirement_prompt({}, price_ok=True, query_data_ok=True)
-    without_line = requirement_prompt({}, price_ok=True, query_data_ok=False)
-    assert "query_data" in with_line and "information_schema" in with_line
-    assert "query_data" not in without_line
+def test_data_rule_lives_in_query_data_tool_description():
+    """data_rule 已进入 query_data 工具 schema；requirement_prompt 不再注入数据查询规则。"""
+    from app.services import agent_tool_specs as ats
+    desc = ats._TOOL_SPECS["query_data"]["description"]
+    assert "information_schema" in desc and "只读 SELECT" in desc
+    p = requirement_prompt({}, price_ok=True)
+    assert "query_data" not in p and "information_schema" not in p

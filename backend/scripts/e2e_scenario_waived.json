@@ -1,0 +1,16 @@
+{
+  "name": "库内无料-保持原需求（豁免行）",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "通用计算服务器，AMD平台，2U机架式，双路CPU，GPU 用 NVIDIA B200 192G 两张，双电源，3年 7x24 专业支持。",
+  "answers": {
+    "server_type": "通用计算服务器",
+    "platform_type": "Orion",
+    "chassis_form": "2U",
+    "server_model": "@pick:Orion",
+    "GPU": "@waived",
+    "CPU": "@recommend",
+    "brain_ask": "库里没有 B200 的话，就按原需求留白，我要的就是 B200。"
+  },
+  "max_turns": 10
+}

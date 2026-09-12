@@ -84,9 +84,7 @@ async def generate_meeting_output(
         context_lines.append("上下文：办公室协作事件")
 
     prompt = (
-        "你是 CPQ 平台 AI 办公室的协作记录员。请根据以下 AI 同事的人设和最近状态，"
-        "生成一次协作会议的简短记录。不要虚构业务数据；信息不足时保持概括。"
-        "\n\n参与者：\n"
+        "参与者：\n"
         + "\n".join(persona_lines)
         + "\n\n背景：\n"
         + "\n".join(context_lines)
@@ -409,9 +407,8 @@ async def generate_autonomous_action(
         "偏好空闲动作：" + "、".join(str(item) for item in profile.get("preferred_idle_actions") or []),
     ]
 
+    config = brain_config or {}
     prompt_lines = [
-        "你是 CPQ 平台 AI 办公室中的一位数字同事。现在要决定你接下来很短时间内的自然行为。",
-        "不要处理真实业务，也不要虚构业务数据；只给出一个简短的下一步动作。",
         f"当前时间：{_autonomous_current_clock(timezone)}",
         f"你的角色：{name}",
         f"人设：{persona}",
@@ -427,20 +424,8 @@ async def generate_autonomous_action(
         *recent_all_lines,
         "请输出 JSON：status（idle/thinking/working/meeting/public）、intent（work/review/move/discuss/meeting/public/wait）、zone、activity、message、target_role_key（可为 null）。",
     ]
-    prompt = "\n".join(prompt_lines)
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "你是 AI 办公室的自主行动决策器。输出必须保持简短、自然、安全；"
-                "不要频繁发起会议，优先待在工位工作，偶尔去公共区或会议室。"
-            ),
-        },
-        {"role": "user", "content": prompt},
-    ]
-
-    config = brain_config or {}
+    prompt = "\n".join(line for line in prompt_lines if line)
+    messages = [{"role": "user", "content": prompt}]
     model_override = config.get("model_override") or None
     max_attempts = int(config.get("max_attempts") or 1)
     try:

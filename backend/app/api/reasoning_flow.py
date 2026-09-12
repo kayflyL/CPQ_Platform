@@ -4,6 +4,7 @@ P0：直接改 active 流的 node_config（立即生效）；版本切版 API �
 三层兜底在 run_skill_plan（DB 异常回退模块常量），API 层不兜底。
 """
 import logging
+import json
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
@@ -36,6 +37,42 @@ def _is_valid_node_key(key: str) -> bool:
 def _flow_for_skill(repo: ReasoningFlowRepository, skill_key: Optional[str]) -> Optional[dict]:
     """取指定技能的 active flow；若技能 flow 尚不存在，则按默认图建一份。"""
     return repo.ensure_skill_flow(skill_key or "requirement_analysis")
+
+
+@router.get("/manual")
+def manual_preview(skill_key: str = Query("requirement_analysis")):
+    """任务规则读取（SkillStudio 左栏）。AI 实际下发内容 = 此规则原文 +
+    节点结构化清单（steps_payload，来自抽屉）+ 系统协议常量——无转译层。"""
+    repo = ReasoningFlowRepository()
+    try:
+        f = repo.get_active_flow(skill_key or "requirement_analysis")
+        if not f:
+            raise HTTPException(404, f"skill {skill_key} 没有 active flow")
+        graph = f.get("graph") or {}
+        return {"rules": str(graph.get("manual_rules") or ""), "version": f.get("version")}
+    finally:
+        repo.close()
+
+
+@router.put("/manual-rules")
+def save_manual_rules(data: dict = None):
+    """保存 flow 级任务规则（graph.manual_rules）。只动这一个键，不升画布版本。"""
+    body = data or {}
+    skill_key = str(body.get("skill_key") or "requirement_analysis")
+    rules = str(body.get("rules") or "")
+    repo = ReasoningFlowRepository()
+    try:
+        f = repo.get_active_flow(skill_key)
+        if not f:
+            raise HTTPException(404, f"skill {skill_key} 没有 active flow")
+        fid = f.get("id") or f.get("flow_id")
+        out = repo.update_manual_rules(fid, rules,
+                                       operator=str(body.get("operator") or "system"))
+        if not out:
+            raise HTTPException(404, f"Flow {fid} not found")
+        return {"ok": True, "rules": rules, "version": out.get("version")}
+    finally:
+        repo.close()
 
 
 @router.get("/l6-preview")
@@ -85,6 +122,15 @@ def candidate_resolvers():
                            "is_default": name == DEFAULT_RESOLVER}
                           for name, e in CANDIDATE_RESOLVERS.items()]}
 
+
+@router.get("/capabilities")
+def capabilities():
+    """节点能力目录（唯一真源 = capability_spec）：抽屉「工具层」的勾选与锁定依据。
+
+    后端不再各处自存工具清单；前端也不再自存 MECHANISM_TOOLS 副本。
+    """
+    from app.services.capability_spec import capabilities_catalog
+    return {"capabilities": capabilities_catalog()}
 
 @router.get("/_debug/asyncio-tasks")
 async def debug_asyncio_tasks():
@@ -166,7 +212,10 @@ def list_versions(skill_key: Optional[str] = Query(default=None)):
 
 @router.put("/graph")
 def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
-    """改 active 流图结构（一期改坐标/标签；二期拖拽编排接 stencil+dnd）。"""
+    """改 active 流图结构（一期改坐标/标签；二期拖拽编排接 stencil+dnd）。
+
+    manual_rules 是左栏单独编辑的 flow 级字段：前端画布的内存 graph 不携带它，
+    这里合并保留 DB 现值——否则每次画布保存都会把任务规则洗掉（2026-09-07 实测）。"""
     graph = data.get("graph")
     if not isinstance(graph, dict):
         raise HTTPException(400, "Missing graph")
@@ -175,6 +224,12 @@ def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
         f = _flow_for_skill(repo, skill_key)
         if not f:
             raise HTTPException(404, "No active reasoning flow")
+        if "manual_rules" not in graph:
+            # to_dict() 已把 graph 反序列化为 dict（不再需要 loads——曾因对 dict 二次
+            # loads 抛 TypeError 被静默吞掉，画布保存反复洗掉任务规则）
+            existing = f.get("graph") if isinstance(f.get("graph"), dict) else {}
+            if isinstance(existing.get("manual_rules"), str):
+                graph["manual_rules"] = existing["manual_rules"]
         return repo.upsert_graph(f["id"], graph, operator=data.get("operator", "system"))
     finally:
         repo.close()

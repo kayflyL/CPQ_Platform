@@ -97,36 +97,6 @@ function kpPartsFor(category?: string): KpPart[] {
   return kpCatalog.value[category] || []
 }
 
-function kpCatalogueOptions(category?: string) {
-  return kpPartsFor(category).map((part) => ({
-    label: category ? part.name : `${part.category} · ${part.name}`,
-    value: part.name,
-    part,
-  }))
-}
-
-function kpCatalogueFilter(input: string, option: any) {
-  const text = [option?.value, option?.part?.pn, option?.part?.category]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase()
-  return text.includes((input || '').toLowerCase())
-}
-
-function kpPartByName(category: string | undefined, name: string) {
-  return kpPartsFor(category).find((part) => part.name === name)
-}
-
-function onKpCatalogueChange(row: PortalSheetRow, value: string | undefined) {
-  const name = value || ''
-  row.catalogue = name
-  if (!name) return
-  const part = kpPartByName(row.part_category, name) || kpPartByName(undefined, name)
-  if (!part) return
-  row.part_category = part.category
-  if (part.unit_price != null) row.base_price = part.unit_price
-}
-
 function rowCost(row: PortalSheetRow) {
   return Number(row.base_price || 0) * Number(row.qty || 0)
 }
@@ -178,18 +148,13 @@ onMounted(async () => {
           </div>
         </td>
         <td class="sheet-cell">
-          <a-auto-complete
+          <a-input
             v-if="canEdit"
-            v-model:value="row.catalogue"
-            :options="kpCatalogueOptions(row.part_category)"
-            :filter-option="kpCatalogueFilter"
-            :default-active-first-option="false"
-            :allow-clear="false"
-            placeholder="选择或输入配件"
-            style="width: 100%"
-            @select="(value: string) => onKpCatalogueChange(row, value)"
+            v-model:value="row.description"
+            class="sheet-input"
+            placeholder="输入配件/规格"
           />
-          <span v-else class="sheet-plain sheet-wrap">{{ row.catalogue || '—' }}</span>
+          <span v-else class="sheet-plain sheet-wrap">{{ row.description || row.catalogue || '—' }}</span>
         </td>
         <td class="sheet-cell sheet-qty">
           <a-input-number :controls="false" v-if="canEdit" v-model:value="row.qty" :min="0" :precision="0" class="sheet-input" />

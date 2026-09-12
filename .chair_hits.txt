@@ -1,7 +1,0 @@
-frontend/src\composables\useOfficeEdit.ts:  { type: 'ln', label: '办公椅', category: 'chair', width: 0.6, depth: 0.62, height: 1.1, rotatable: true },
-frontend/src\composables\useOfficeEdit.ts:  { type: 'ln', label: '前台', category: 'furniture', width: 2.2, depth: 0.9, height: 1.1, rotatable: true },
-frontend/src\views\office\Office3DCanvas.vue:  ln: { width: 0.6, depth: 0.6 },
-frontend/src\views\office\Office3DCanvas.vue:  ln: { width: 2.2, depth: 0.9 },
-frontend/src\views\office\Office3DCanvas.vue:    case 'ln':
-frontend/src\views\office\Office3DCanvas.vue:    case 'ln':
-frontend/src\views\office\Office3DCanvas.vue:  'ln',

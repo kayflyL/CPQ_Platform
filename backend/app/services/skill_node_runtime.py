@@ -16,15 +16,18 @@ logger = logging.getLogger(__name__)
 BroadcastFn = Callable[[dict], Awaitable[None]]
 
 
-async def compose_plans(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
-    """compose 的确定性组装：按真实 BOM 模板把已锁机型 + 配件组装成 plans。"""
+def build_plans(ctx: dict, config: dict) -> list:
+    """compose 的确定性组装（同步版）：按真实 BOM 模板把已锁机型 + 配件组装成 plans。
+
+    唯一组装口径：compose 步（异步 compose_plans）与「中途把进度写回方案配置草稿」
+    （portal_flow_adapter.save_scheme_progress_from_ctx）共用本函数，不各写一套。
+    """
     from app.services.capabilities import _compose_config, _get_nested
     cfg = _compose_config(config)
     baselines = ctx.get("baselines") or []
     kp_by_model = ctx.get("kp_by_model") or {}
     if not baselines:
-        ctx["plans"] = []
-        return {"plans_count": 0, "warning": "无匹配的整机基准配置，请调整需求后重试"}
+        return []
     # 每个机型取自己的 KP（match_kp per-机型配的），fallback 到全局 kp_parts；来源策略由节点配置决定。
     plans = []
     _ext = ctx.get("ext") or {}
@@ -37,6 +40,16 @@ async def compose_plans(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict
         bl_kp = (ctx.get("kp_parts") or []) if cfg.get("kp_source") == "global" else (kp_by_model.get(mid) or ctx.get("kp_parts") or [])
         _p = build_plan(bl, bl_kp, psu_wattage=_sig_w, psu_qty=_sig_q)
         plans.append(_p)
+    return plans
+
+
+async def compose_plans(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
+    """compose 步的组装：无匹配基准时如实回缺（不落穿），否则按 build_plans 组装。"""
+    plan_cfg = config if isinstance(config, dict) else {}
+    if not (ctx.get("baselines") or []):
+        ctx["plans"] = []
+        return {"plans_count": 0, "warning": "无匹配的整机基准配置，请调整需求后重试"}
+    plans = build_plans(ctx, plan_cfg)
     ctx["plans"] = plans
     return {"plans_count": len(plans)}
 
@@ -79,7 +92,9 @@ def _apply_payload_map(payload_map: dict, ctx: dict) -> dict:
 async def finalize_output(ctx: dict, config: dict, broadcast: BroadcastFn) -> dict:
     """output 的确定性交接契约：把上游 ctx 结果映射成下游业务实体/对话文本并返回回执。"""
     output_kind = str(config.get("output_kind") or ctx.get("output_kind") or "generic").strip() or "generic"
-    target = str(config.get("target") or _default_output_target(output_kind)).strip() or _default_output_target(output_kind)
+    # 交付去向由 output_kind 决定（唯一权威）。历史上这里读的是 config["target"] 字符串，
+    # 与节点配置里的目标层插头（target.artifacts）同名不同义，已收口：target 只表示插头。
+    target = _default_output_target(output_kind)
     payload = _apply_payload_map(config.get("payload_map") or {}, ctx)
 
     entity = None

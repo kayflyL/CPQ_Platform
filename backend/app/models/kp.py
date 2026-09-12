@@ -199,6 +199,72 @@ class KPPartRelated(Base):
         }
 
 
+class KPSearchAlias(Base):
+    """检索别名：口语词 → 库内词形扩展（万兆→10G、千兆→1G、智凯→智铠）。
+
+    part_lexicon 词法引擎的别名数据唯一来源（DB 权威源，startup 空表种子）；
+    expansion 是空格分隔的 token 串，命中 alias 子串后全部并入查询 token。
+    """
+    __tablename__ = "kp_search_aliases"
+    __table_args__ = (
+        UniqueConstraint("alias"),
+        {"schema": "kp"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    alias: Mapped[str] = mapped_column(String(100), nullable=False)
+    expansion: Mapped[str] = mapped_column(String(500), nullable=False)
+    note: Mapped[Optional[str]] = mapped_column(Text)
+    enabled: Mapped[bool] = mapped_column(Integer, default=1)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "alias": self.alias,
+            "expansion": self.expansion,
+            "note": self.note,
+            "enabled": bool(self.enabled),
+        }
+
+
+class KPPartSearchIndex(Base):
+    """配件语义索引：料 → 检索文档 → 向量（BAAI/bge-small-zh-v1.5，本地 fastembed）。
+
+    embedding 存 JSON 数组（512 维）；万件级内存余弦即可，不依赖 pgvector。
+    content_hash 防重复嵌入（文档没变不重算）；applicable 快照供语义通道做系列作用域。
+    新鲜度由 part_search 的 COUNT/MAX(updated_at) 对账保证——料增改后检索自动触发重建。
+    """
+    __tablename__ = "kp_part_search_index"
+    __table_args__ = (
+        UniqueConstraint("part_id"),
+        {"schema": "kp"},
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    part_id: Mapped[int] = mapped_column(Integer, ForeignKey("kp.kp_parts.id", ondelete="CASCADE"))
+    category: Mapped[Optional[str]] = mapped_column(String(100))
+    doc_text: Mapped[Optional[str]] = mapped_column(Text)
+    embedding: Mapped[Optional[dict]] = mapped_column(JSON)
+    applicable: Mapped[Optional[dict]] = mapped_column(JSON)
+    model_name: Mapped[Optional[str]] = mapped_column(String(100))
+    dim: Mapped[Optional[int]] = mapped_column(Integer)
+    content_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "part_id": self.part_id,
+            "category": self.category,
+            "doc_text": self.doc_text,
+            "applicable": self.applicable,
+            "model_name": self.model_name,
+            "dim": self.dim,
+            "content_hash": self.content_hash,
+        }
+
+
 # ============================================================
 # 旧模型保留（向后兼容，不再新增数据）
 # ============================================================

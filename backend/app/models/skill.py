@@ -18,7 +18,7 @@ class SkillCatalog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     key: Mapped[str] = mapped_column(String(80), unique=True, nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False, default="")
-    type: Mapped[str] = mapped_column(String(24), nullable=False, default="tool_prompt")  # workflow / tool_prompt
+    type: Mapped[str] = mapped_column(String(24), nullable=False, default="skill")  # skill / workflow
     workflow_key: Mapped[Optional[str]] = mapped_column(String(80), nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False, default="")
     prompt: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -43,7 +43,7 @@ class SkillCatalog(Base):
             "id": self.id,
             "key": self.key,
             "name": self.name,
-            "type": self.type,
+            "type": "skill" if str(self.type or "").strip() == "tool_prompt" else str(self.type or "skill").strip(),
             "workflow_key": self.workflow_key,
             "description": self.description or "",
             "prompt": self.prompt or "",

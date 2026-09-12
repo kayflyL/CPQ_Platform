@@ -152,6 +152,16 @@
             />
           </label>
           <label class="em-field">
+            <span>工作流</span>
+            <a-select
+              v-model:value="draft.workflows"
+              mode="multiple"
+              :options="workflowOptions"
+              placeholder="选择该员工可发起的工作流（方案助手「+」显式选择）"
+              style="width: 100%"
+            />
+          </label>
+          <label class="em-field">
             <span>可用工具</span>
             <a-select
               v-model:value="draft.tool_ids"
@@ -493,7 +503,14 @@ const threadColumns = [
 const idleActionOptions = ['sit_idle', 'look_around', 'check_notes', 'window', 'stand', 'wave'].map((value) => ({ value, label: value }))
 const toolOptions = computed(() => tools.value.map((tool) => ({ value: tool.name, label: tool.name })))
 const skillOptions = computed(() =>
-  skills.value.map((skill) => ({ value: skill.key, label: skill.name || skill.key })),
+  skills.value
+    .filter((skill) => skill?.type !== 'workflow')
+    .map((skill) => ({ value: skill.key, label: skill.name || skill.key })),
+)
+const workflowOptions = computed(() =>
+  skills.value
+    .filter((skill) => skill?.type === 'workflow')
+    .map((skill) => ({ value: skill.key, label: skill.name || skill.key })),
 )
 const normalThreads = computed(() => allThreads.value.filter((t) => !t.deleted_at))
 const deletedThreads = computed(() => allThreads.value.filter((t) => t.deleted_at))
@@ -618,6 +635,9 @@ function defaultDraft(source: any = {}) {
     },
     skills: Array.isArray(source.skills)
       ? source.skills.map((item: any) => (typeof item === 'string' ? item : item?.key)).filter(Boolean)
+      : [],
+    workflows: Array.isArray(source.workflows)
+      ? source.workflows.map((item: any) => (typeof item === 'string' ? item : item?.key)).filter(Boolean)
       : [],
   }
 }

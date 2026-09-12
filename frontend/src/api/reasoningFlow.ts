@@ -57,4 +57,12 @@ export const reasoningFlowApi = {
     })),
   activate: (flowId: number) =>
     RESP<ReasoningFlow>(axios.post(`/api/reasoning-flow/versions/${flowId}/activate`, {})),
+  getManual: (skillKey?: string) =>
+    RESP<{ rules: string; manual: string; version: number }>(axios.get('/api/reasoning-flow/manual', {
+      params: { skill_key: skillKey || 'requirement_analysis' },
+    })),
+  saveManualRules: (rules: string, skillKey?: string) =>
+    RESP<{ ok: boolean; rules: string }>(axios.put('/api/reasoning-flow/manual-rules', {
+      rules, skill_key: skillKey || 'requirement_analysis',
+    })),
 }

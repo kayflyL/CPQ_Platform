@@ -10,7 +10,7 @@ from app.models.feed_user import FeedUser
 from app.models.feed_message import FeedMessage
 from app.models.feed_attachment import FeedAttachment
 from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推理流可视化配置（注册 metadata 供 create_all 建表）
-from app.models.skill_config import SkillPromptTemplate, ReasoningNodeDefault  # 技能提示词/推理节点默认契约（DB 唯一权威，注册 metadata 供 create_all 建表）
+from app.models.skill_config import ReasoningNodeDefault  # 推理节点默认契约（注册 metadata 供 create_all 建表）
 from app.models.skill import SkillCatalog  # Skill 元数据独立表（注册 metadata 供 create_all 建表）
 from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标）（注册 metadata 供 create_all 建表）
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
@@ -763,6 +763,38 @@ def cleanup_legacy_skill_library_mirror():
         repo.close()
 
 
+def ensure_kp_search_alias_seed():
+    """kp.kp_search_aliases 空表种子（口语词→库内词形，part_lexicon 词法引擎的唯一别名来源）。
+
+    表由 ORM create_all 建（KPSearchAlias 已注册 metadata）；只在空表时插入——
+    有数据就跳过，管理员后续增删不被覆盖。
+    """
+    from app.models.kp import KPSearchAlias
+    from app.models.base import KP_SessionLocal
+    s = KP_SessionLocal()
+    try:
+        if s.query(KPSearchAlias).count() > 0:
+            return
+        defaults = [
+            ("万兆", "10G", "网卡速率口语词→Link Speed/名称词形"),
+            ("千兆", "1G", "网卡速率口语词→Link Speed/名称词形"),
+            ("百兆", "100M", "网卡速率口语词"),
+            ("兆芯", "KH", "国产 CPU 品牌（brand 列亦有值，双保险）"),
+            ("智凯", "智铠", "常见错写归一（库内写作 智铠）"),
+            ("固态硬盘", "SSD", "盘种口语词→Media 值"),
+            ("固态", "SSD", "盘种口语词→Media 值"),
+            ("机械硬盘", "HDD", "盘种口语词→Media 值"),
+            ("机械盘", "HDD", "盘种口语词→Media 值"),
+            ("核显", "iGPU 集成显卡", "CPU 集成显卡（库内暂无对应字段，先占位）"),
+            ("核心显卡", "iGPU 集成显卡", "同核显"),
+        ]
+        s.add_all([KPSearchAlias(alias=a, expansion=e, note=n, enabled=1) for a, e, n in defaults])
+        s.commit()
+        print(f"✅ KP search aliases seeded ({len(defaults)})")
+    finally:
+        s.close()
+
+
 def init_rules_db():
     """Create rules database tables and initialize default rules if empty."""
     # Create all tables for rules DB
@@ -790,6 +822,11 @@ def init_rules_db():
         ensure_excel_parser_region_model()
     except Exception as e:
         print(f"⚠️ Excel parser region model migration failed: {e}")
+
+    try:
+        ensure_kp_search_alias_seed()
+    except Exception as e:
+        print(f"⚠️ KP search alias seed failed: {e}")
 
     # Initialize default rules if empty
     rules_repo = RulesRepository()
@@ -823,13 +860,23 @@ def init_rules_db():
     print("✅ Rules database initialized")
 
     # system_config 无启动种子（2026-09-02 定调：DB 是唯一来源，代码不存默认值）。
-    # 技能提示词 & 推理节点默认契约 → DB 唯一权威（空库播种；运行后只读新表，无种子/兜底）
+    # 节点能力声明自检：capability_spec 里声明的工具必须都已注册（把「用了但没定义」
+    # 这类运行时崩溃提前到启动期）。
     try:
-        from app.services.skill_config_bootstrap import ensure_skill_prompt_templates, ensure_reasoning_node_defaults
-        _pn = ensure_skill_prompt_templates()
+        from app.services.capability_spec import validate_specs
+        _spec_errs = validate_specs()
+        if _spec_errs:
+            print("⚠️ capability_spec 自检未通过：" + "；".join(_spec_errs))
+        else:
+            print("✅ capability_spec 工具声明自检通过")
+    except Exception as e:
+        print(f"⚠️ capability_spec 自检失败: {e}")
+    # 推理节点默认契约 → DB 唯一权威（空库播种；运行后只读新表，无种子/兜底）
+    try:
+        from app.services.skill_config_bootstrap import ensure_reasoning_node_defaults
         _nd = ensure_reasoning_node_defaults()
-        if _pn or _nd:
-            print(f"✅ Skill config bootstrapped (prompts {_pn}, node_defaults {_nd})")
+        if _nd:
+            print(f"✅ Skill config bootstrapped (node_defaults {_nd})")
         else:
             print("✅ Skill config already seeded in DB")
     except Exception as e:
@@ -848,6 +895,11 @@ def init_rules_db():
         try:
             # 首次部署建默认流；已有流则不动。
             rf_repo.seed_default_if_empty()
+            _tool_migrated = rf_repo.migrate_legacy_tool_names()
+            if _tool_migrated:
+                print(f"✅ Legacy tool names migrated ({_tool_migrated} rows)")
+            else:
+                print("✅ Legacy tool names already normalized")
         finally:
             rf_repo.close()
     except Exception as e:

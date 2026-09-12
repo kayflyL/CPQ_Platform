@@ -1,10 +1,10 @@
 <script setup lang="ts">
 /** 节点目标层双栏面板（公共组件）：凡输出物是表格/表单的节点统一调用。
  * 左栏 = 该节点输出给下游的字段契约：字段名只读（权威在表单定义/节点配置），
- *        可配「AI 是否反问」开关与候选来源；字段与开关状态均由父组件持有，本组件零状态。
+ *        可配「必填」开关与候选来源；字段与开关状态均由父组件持有，本组件零状态。
  * 右栏 = 输出物实时预览（具名插槽注入，预览即真实页，不造演示皮）。
  * 统一大脑原则：每个节点的执行者都是同一个 AI 角色，节点 prompt 驱动——
- * 「AI 反问」是所有节点字段共有的策略位，不只是登记节点特权。 */
+ * 「必填」是所有节点字段共有的策略位，不只是登记节点特权。 */
 export interface TargetFieldRow {
   key: string
   label: string
@@ -33,7 +33,7 @@ const emit = defineEmits<{
   <div class="ttp">
     <div class="ttp-pane ttp-left">
       <h4 class="ttp-title">{{ leftTitle || '输出字段' }}<span v-if="leftHint" class="ttp-hint">{{ leftHint }}</span></h4>
-      <div class="ttp-row ttp-head"><span>字段</span><span>说明 / 来源</span><span>必须反问</span></div>
+      <div class="ttp-row ttp-head"><span>字段</span><span>说明 / 来源</span><span>必填</span></div>
       <template v-for="(f, i) in fields" :key="f.key">
         <div v-if="f.group && f.group !== fields[i - 1]?.group" class="ttp-group">{{ f.group }}</div>
         <div class="ttp-row">

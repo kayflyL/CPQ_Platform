@@ -3,7 +3,7 @@
 背景：kp_reason/model_reason 的目标层描述符与资源层是"样子货"——
   ① columns 无 from/fallback 产源映射 → 执行器行键硬编码，改描述符不生效；
   ② 默认契约 reasoning_node_default 里挂着旧内核死工具（select_parts/compose_memory 等），
-     资源层抽屉展示的是死工具，实际大脑硬编码跑 select_kp_parts/ask_user；
+     资源层抽屉展示的是死工具，实际大脑硬编码跑 query_parts/select_parts/ask_user；
   ③ 工具真源未落 DB。
 
 动作（幂等，可重复执行）：
@@ -70,7 +70,7 @@ def model_target():
 DEFAULTS = {
     "kp_reason": {
         "description": "AI 按登记行语义从该行候选池锁定库内真实料号；池外拒绝、空池如实说明",
-        "enabled_tools": ["select_kp_parts", "ask_user"],
+        "enabled_tools": ["query_parts", "select_parts", "ask_user"],
         "target": kp_target(),
     },
     "model_reason": {

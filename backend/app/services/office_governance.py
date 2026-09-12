@@ -15,39 +15,6 @@ from app.services.office_hub import office_hub
 from app.services.office_memory import office_memory
 
 
-_SERVER_WRITE_TOOLS = {"update_server_type", "update_server_model"}
-
-
-def _apply_server_write(payload: Dict[str, Any]) -> None:
-    """审批通过后，把服务器内容草稿真正写入 server_catalog。"""
-    tool = str(payload.get("tool") or "")
-    draft = payload.get("draft")
-    if not isinstance(draft, dict):
-        raise ValueError("写入草稿缺失")
-    from app.repository.server_catalog_repo import ServerCatalogRepository
-
-    repo = ServerCatalogRepository()
-    if tool == "update_server_type":
-        type_id = draft.get("server_type_id")
-        updates = draft.get("updates")
-        if type_id is None or not isinstance(updates, dict):
-            raise ValueError("update_server_type 草稿缺少必要字段")
-        if not repo.get_type(type_id):
-            raise ValueError("服务器类型不存在")
-        repo.update_type(int(type_id), updates)
-        return
-    if tool == "update_server_model":
-        model_id = draft.get("server_model_id")
-        updates = draft.get("updates")
-        if model_id is None or not isinstance(updates, dict):
-            raise ValueError("update_server_model 草稿缺少必要字段")
-        if not repo.get_model(model_id):
-            raise ValueError("机型不存在")
-        repo.update_model(int(model_id), updates)
-        return
-    raise ValueError(f"未知的写入工具: {tool}")
-
-
 class OfficeGovernance:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
@@ -127,8 +94,6 @@ class OfficeGovernance:
             item["resolved_by"] = actor or "system"
             item["resolution"] = "approved"
             payload = dict(item.get("payload") or {})
-            if str(payload.get("tool") or "") in _SERVER_WRITE_TOOLS:
-                await asyncio.to_thread(_apply_server_write, payload)
             snapshot = dict(item)
 
         role_key = str(payload.get("role_key") or "unknown")

@@ -25,7 +25,6 @@ const { open: openArtifact } = useNodeArtifact()
 const sharedReq = inject<Ref<string> | null>('studioReqText', null)
 const studioRun = inject<(() => Promise<void>) | null>('studioRun', null)
 const studioRunning = inject<Ref<boolean> | null>('studioRunning', null)
-const studioEnableClarity = inject<Ref<boolean> | null>('studioEnableClarity', null)
 const studioReqSlotsView = inject<Ref<Record<string, any> | null> | null>('studioReqSlotsView', null)
 const fieldsEl = ref<HTMLElement | null>(null)
 const followKey = ref('')
@@ -50,10 +49,6 @@ const draftInput = computed({
   set: (value: string) => {
     if (sharedReq) sharedReq.value = value
   },
-})
-const clarifyChecked = computed({
-  get: () => studioEnableClarity?.value ?? true,
-  set: (v: boolean) => { if (studioEnableClarity) studioEnableClarity.value = v },
 })
 const canRun = computed(() => !!studioRun && !!draftInput.value.trim() && !studioRunning?.value)
 const runtimeInput = computed(() => props.data?.input)
@@ -81,6 +76,7 @@ function fmtVal(v: any): string {
 function statusText(s: string) {
   if (s === 'filled') return '已填'
   if (s === 'asked') return '缺 · 反问'
+  if (s === 'waived') return '库内无料 · 已知悉'
   return '未填 · 可选'
 }
 const FIELD_LABELS: Record<string, string> = {
@@ -117,7 +113,8 @@ const runtimeCard = computed(() => {
       const spec = isKp ? '' : (r.description || '')
       const qty = Number(r.qty || 1)
       const detail = [spec, qty > 1 ? `× ${qty}` : ''].filter(Boolean).join(' ')
-      return { key: 'row' + i, label: name, value: detail || '1', status: r.unmatched ? 'asked' : 'filled' }
+      const st = r.waived ? 'waived' : (r.unmatched ? 'asked' : 'filled')
+      return { key: 'row' + i, label: name, value: detail || '1', status: st }
     })
     const unmatchedN = rows.filter((r: any) => r.unmatched).length
     return {
@@ -209,7 +206,6 @@ const runtimeCardVisible = computed(() => {
       @click.stop
     />
     <div v-if="isInput" class="rf-node-run nodrag" @mousedown.stop @click.stop>
-      <a-checkbox v-model:checked="clarifyChecked" size="small">允许反问</a-checkbox>
       <a-button type="primary" size="small" :loading="!!studioRunning" :disabled="!canRun" @click.stop="studioRun?.()">
         <template #icon><PlayCircleOutlined /></template>
         {{ studioRunning ? '运行中…' : '运行' }}

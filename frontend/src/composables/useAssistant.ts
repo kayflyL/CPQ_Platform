@@ -8,10 +8,10 @@ import { ref, computed, watch } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
 import { assistantApi, assistantWsUrl } from '@/api/assistant'
 import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking } from '@/composables/assistantChatWs'
-import type { NodeTrace } from '@/composables/assistantChatWs'
+import type { NodeTrace, PauseFacts } from '@/composables/assistantChatWs'
 import type { AssistantThread, AssistantMessage } from '@/api/assistant'
 
-export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null; getEnableClarity?: () => boolean | null | undefined } = {}) {
+export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null } = {}) {
   const entryPoint = defaultEntryPoint || 'portal'
   const preview = !!options.preview
   const initialRoleKey = options.initialRoleKey || null
@@ -30,6 +30,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const nodeTraces = ref<NodeTrace[]>([]) // 工作流 Skill 的节点执行卡（仅在触发需求分析等流程时出现）
   const taskTitle = ref('') // 任务胶囊标题（pipeline_start.title，如「需求分析」）
   const taskPhase = ref<'' | 'running' | 'paused' | 'done'>('') // 任务胶囊阶段
+  const taskPause = ref<PauseFacts | null>(null) // 中断点事实（后端 pause 载荷原样透传）
   /** 上下文水位（估算 token 占比，随 selectThread 刷新） */
   const contextUsage = ref<{ chars: number; est_tokens: number; limit_tokens: number; ratio: number } | null>(null)
   const pendingDispatch = ref<{ colleague: any; content: string; contextSummary?: string } | null>(null)
@@ -63,6 +64,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     set taskTitle(value: string) { taskTitle.value = value },
     get taskPhase() { return taskPhase.value },
     set taskPhase(value: '' | 'running' | 'paused' | 'done') { taskPhase.value = value },
+    get taskPause() { return taskPause.value },
+    set taskPause(value: PauseFacts | null) { taskPause.value = value },
   }
   function handleWsData(data: any) {
     handleAssistantChatWsEvent(chatWsState, data)
@@ -258,7 +261,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   }
 
   async function postSend(content: string, contextSummary?: string, roleKey?: string, optionSlot?: string | null,
-                          cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
+                          cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
+                          entryPointOverride?: string, workflowKey?: string | null) {
     resetTaskUI(chatWsState)
     sending.value = true
     running.value = true
@@ -273,10 +277,10 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         roleKey,
         undefined,
         undefined,
-        entryPoint,
+        entryPointOverride || entryPoint,
         optionSlot || null,
         cardSelections || null,
-        options.getEnableClarity?.() ?? null,
+        workflowKey || null,
       )
       messages.value.push(res.user_message)
       if (res.thread) {
@@ -317,6 +321,19 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
       if (!t) return
     }
     await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null, cardSelections || null)
+  }
+
+  /** 方案助手「+」显式发起某工作流：直接进入 ACTIVE，不再走 IDLE→PROPOSING。 */
+  async function launchWorkflow(workflowKey: string, displayName?: string) {
+    const key = (workflowKey || '').trim()
+    if (!key) return
+    if (!currentThreadId.value) {
+      const t = await newThread()
+      if (!t) return
+    }
+    const label = (displayName || key).trim()
+    await postSend(`请开始【${label}】工作流。`, undefined, activeRoleKey.value || undefined,
+      null, null, 'workflow_launcher', key)
   }
 
   async function confirmDispatch() {
@@ -380,16 +397,18 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     streamingText.value = ''
     thinkingText.value = ''
     statusText.value = ''
+    taskPhase.value = ''
+    taskPause.value = null
     waitingAI.value = false
     running.value = false
     taskTitle.value = ''
-    taskPhase.value = ''
   }
 
   return {
     threads, currentThreadId, currentThread, messages, loading, sending, running,
-    streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase,
+    streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase, taskPause,
     contextUsage, loadThreads, selectThread, newThread, send,
+    launchWorkflow,
     confirmDispatch, cancelDispatch, removeThread, colleagues, activeRoleKey, switchRole,
     connectWs, disconnectWs, createPreviewThread, destroyPreview, resetPreview, stop,
   }

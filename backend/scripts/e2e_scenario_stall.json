@@ -1,0 +1,8 @@
+{
+  "name": "停滞-需求不全且不补答（统一暂停载荷取证）",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "要一台服务器，预算先不管。",
+  "answers": {},
+  "max_turns": 3
+}
