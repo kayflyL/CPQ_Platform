@@ -19,7 +19,7 @@ OWNERS = {
     "skill_memory": ["_load_mem", "_save_mem", "_slots_view", "_kp_status_rows", "_brain_note_summary"],
     "skill_signals": ["_match_card_signal", "_signal_with_qty", "_apply_registration_signal",
                       "_brain_ask_manual_signal", "_manual_model_signal"],
-    "skill_step_runtime": ["_engine_begin_step", "node_mission", "_node_done_payload",
+    "skill_step_runtime": ["_engine_begin_step", "_node_done_payload",
                            "_emit_step_trace", "_emit_brain_status"],
     "skill_tools_fill": ["requirement_prompt", "_normalize_fill_keys", "tool_fill_requirement",
                          "fill_tool_parameters", "_fill_contract_brief"],

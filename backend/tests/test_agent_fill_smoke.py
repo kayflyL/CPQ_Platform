@@ -89,9 +89,11 @@ def test_fill_tool_parameters_generated_from_slot_contract():
         assert isinstance(props[k].get("enum"), list) and props[k]["enum"], k
         assert "ask_user" not in props[k]["description"]
     assert "enum" not in props["server_model"]
-    from app.services.reasoning_node_contract import node_defaults
-    drawer = str((node_defaults().get("agent_fill") or {}).get("description") or "")
-    assert "服务器类型" in drawer, "目录缺口的确认优先级必须写在左栏节点抽屉里"
+    # 目录缺口的确认优先级写在左栏任务规则（2026-09-12 起节点层不承载指令 prose）
+    from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+    flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
+    left = str(((flow or {}).get("graph") or {}).get("manual_rules") or "")
+    assert "优先确认「服务器类型」" in left, "目录缺口的确认优先级必须写在左栏任务规则里"
     assert "系统自动向客户弹目录候选卡" not in props["server_type"]["description"]
 
 

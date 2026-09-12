@@ -6,7 +6,7 @@
 与回合执行器（colleague_turn_runners）都从这里取事实，不各自重算。
 
 注意：提示词**文本**不在这里——只做组装；文本唯一出处=员工自身 system_prompt
-+ 编辑器左栏任务规则 / 节点抽屉（见 docs 宪法条款 C1）。
++ 编辑器左栏任务规则（见 docs 宪法条款 C1；节点抽屉 2026-09-12 起只留机制配置）。
 """
 from __future__ import annotations
 

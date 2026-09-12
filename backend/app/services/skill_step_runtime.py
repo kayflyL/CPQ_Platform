@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
-"""步进管线：节点自动 begin、节点使命取抽屉、完成产物打包、步骤轨迹广播。
+"""步进管线：节点自动 begin、完成产物打包、步骤轨迹广播。
 
 2026-09-10 自 skill_chat.py 拆出（纯搬运，零行为变更）。
+2026-09-12 node_mission 退役：指令唯一出处=左栏 manual_rules，节点层不再有第二套。
 """
 from __future__ import annotations
 
@@ -40,31 +41,6 @@ async def _engine_begin_step(args: dict) -> dict:
         plugin_for(key).bridge_ctx(engine, ctx)
     return res
 
-
-def node_mission(node_key: str, node_cfg: dict) -> str:
-    """节点使命文案：唯一权威 = 节点抽屉配置（description / goal）。
-
-    「换插头」要求：节点干什么活由抽屉里写，主循环只负责把它原样交给大脑，
-    不在代码里为任何节点准备专属指令。抽屉为空时回退 DB 默认契约
-    （rules.reasoning_node_default）；仍为空则返回空串——不编造文案。
-    """
-    cfg = node_cfg if isinstance(node_cfg, dict) else {}
-    desc = str(cfg.get("description") or "").strip()
-    goal = str(cfg.get("goal") or "").strip()
-    if not desc and not goal:
-        try:
-            from app.services.reasoning_node_contract import node_defaults
-            d = node_defaults().get(str(node_key)) or {}
-            desc = str(d.get("description") or "").strip()
-            goal = str(d.get("goal") or "").strip()
-        except Exception:
-            logger.exception("节点默认契约回读失败 node=%s", node_key)
-    out = []
-    if desc:
-        out.append("【本节点使命（配置者编写，全程遵守）】" + desc)
-    if goal:
-        out.append("【本节点目标】" + goal)
-    return "\n".join(out)
 
 
 def manual_rules_block(manual_rules: str) -> str:

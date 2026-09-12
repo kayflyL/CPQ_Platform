@@ -120,22 +120,14 @@ def test_done_summary_comes_from_artifact_not_node_name():
     assert "ZS22V2-P" in locked and "1 行" in locked
     # 未注册产物的节点：如实说不装懂，不编「已完成」
     assert "未注册产物" in done_summary({}, "whatever", None)
-def test_node_mission_comes_from_drawer_with_db_fallback():
-    """节点使命文案唯一权威 = 抽屉；抽屉空了才回退 DB 默认契约，不编造。"""
-    from app.services.skill_step_runtime import node_mission
-    out = node_mission("kp_reason", {"description": "抽屉写的使命", "goal": "抽屉写的目标"})
-    assert "抽屉写的使命" in out and "抽屉写的目标" in out
-    fallback = node_mission("kp_reason", {})
-    assert "query_parts" in fallback, "抽屉空 → 回退 DB 默认契约（kp_reason 使命）"
-    assert node_mission("不存在的节点", {}) == ""
 def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
-    """主循环不再有节点专属文案：使命来自抽屉；行清单带客户补充回答。"""
+    """主循环不再有节点专属文案：指令来自左栏任务规则；行清单带客户补充回答。"""
     from app.services import skill_chat
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow, "需求分析 active flow 未播种"
-    drawer = (flow.get("node_configs") or {}).get("kp_reason") or {}
-    assert drawer.get("description"), "kp_reason 抽屉使命为空，本用例前提不成立"
+    assert str((flow.get("graph") or {}).get("manual_rules") or "").strip(), \
+        "左栏任务规则为空，本用例前提不成立（指令唯一出处=左栏）"
     seen: dict = {}
     calls = {"n": 0}
     async def fake_loop(msg, **kwargs):
@@ -162,7 +154,7 @@ def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
                 price_ok=True, opportunity_id="o_mission")
     engine = asyncio.run(scenario())
     assert calls["n"] >= 1
-    # 抽屉使命进了 system（Step5 接线生效）
+    # 左栏任务规则进了 system（指令唯一出处；query_parts 等协议句在规则 15）
     assert "query_parts" in seen["sys"]
     # 主循环里的节点专属硬编码文案已退役
     assert "【配件选配的落地方式】" not in seen["sys"]

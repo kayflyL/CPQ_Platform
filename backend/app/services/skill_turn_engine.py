@@ -14,7 +14,7 @@ from app.services.agent_react import run_stream_chat_loop
 from app.services.skill_memory import _brain_note_summary, _slots_view
 from app.services.skill_node_state import DOC_SNAPSHOT_KEY, NODE_STATE_KEY, doc_freeze_violation, freeze_snapshot, mark_doc_frozen
 from app.services.skill_plan_runtime import effective_node_tools, steps_payload
-from app.services.skill_step_runtime import _emit_brain_status, _emit_step_trace, _engine_begin_step, _node_done_payload, manual_rules_block, node_mission
+from app.services.skill_step_runtime import _emit_brain_status, _emit_step_trace, _engine_begin_step, _node_done_payload, manual_rules_block
 from app.services.skill_tool_context import TOOL_CTX
 from typing import Optional
 
@@ -454,7 +454,7 @@ class _SkillTurnRuntime:
             logger.exception("pipeline_start emit failed thread=%s", self.thread_id)
 
     def _build_step_call(self, step_key: str, node_cfg: dict, b_res: dict) -> tuple:
-        """本步一次大脑调用的全部入参：system（人设/规则/节点契约/当前步骤）+ 上下文块 + 循环 kwargs。"""
+        """本步一次大脑调用的全部入参：system（人设/任务规则/当前步骤）+ 上下文块 + 循环 kwargs。"""
         begin_note = ""
         b_hint = str(b_res.get("hint") or "").strip()
         if b_hint:
@@ -466,7 +466,6 @@ class _SkillTurnRuntime:
         sys_prompt = "\n\n".join([p for p in (
             self.persona,
             manual_rules_block(self.manual_rules),
-            node_mission(step_key, node_cfg),
             "当前步骤（steps 清单里的这一条）：\n" + step_scope + begin_note,
             "steps 清单（原样来自节点抽屉）：\n"
             + json.dumps(self.steps, ensure_ascii=False),

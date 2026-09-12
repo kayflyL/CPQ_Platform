@@ -99,11 +99,11 @@ MOVED_RULES = [
     ("客户决策一回合一卡", "一次只问一个", "任务规则 12"),
     ("零召回不等于库里没有", "禁止断言库里没有", "任务规则 15"),
     ("机型从候选池内取值", "池内取值", "任务规则 14"),
-    ("登记不既填又追问", "既填又追问", "agent_fill 节点抽屉"),
+    ("登记不既填又追问", "既填又追问", "任务规则 13"),
     ("登记严格按客户原话", "按客户原话", "任务规则 13"),
     ("按 steps 顺序推进（引擎硬校验）", "无法收口推进", "任务规则 18"),
     ("推断的前提字段须先经客户确认", "才能进配件选型", "任务规则 19"),
-    ("目录缺口优先确认服务器类型", "优先确认「服务器类型」", "agent_fill 节点抽屉"),
+    ("目录缺口优先确认服务器类型", "优先确认「服务器类型」", "任务规则 13"),
     ("无价权角色的价格纪律", "成本核算或方案助手", "任务规则 20"),
     ("缺口转述的顾问口吻与上下文措辞", "以顾问口吻用一两句自然中文确认第一个缺口", "任务规则 21"),
     ("机器代号不得出现在对客户的话里", "系统内部代号不得出现在对客户的话里", "任务规则 21"),
@@ -113,7 +113,7 @@ MOVED_RULES = [
     ("库内确无该行要的料 → 客户三选一拍板", "「改平台／换料／保持原需求」", "任务规则 23"),
     ("检索不全类目浏览", "不全类目浏览", "任务规则 15"),
     ("其余目录字段可推断登记但须说明依据", "其余目录字段可依据", "任务规则 19"),
-    ("收尾汇报纪律", "收尾汇报纪律", "rules.reasoning_node_default.output"),
+    ("收尾汇报纪律", "收尾汇报纪律", "任务规则 24"),
     ("同名料号多命中回候选", "同名料号", "任务规则 15"),
 ]
 
@@ -121,10 +121,10 @@ MOVED_RULES = [
 CLAUSES = [
     {
         "id": "C1",
-        "text": "唯一 AI 大脑：模型看到的「怎么做」只来自左栏（任务规则 + 节点抽屉），代码不备第二套",
+        "text": "唯一 AI 大脑：模型看到的「怎么做」只来自左栏任务规则，代码不备第二套",
         "guards": [
             "test_no_injected_protocol_constants_in_code",
-            "test_node_mission_reads_db_only_and_stays_overridable",
+            "test_node_prose_layers_are_purged",
             "test_no_reverse_writer_pushes_prompt_text_into_db",
             "test_live_system_prompt_is_built_from_db_text",
             "test_mechanism_prose_only_shrinks",
@@ -153,9 +153,8 @@ CLAUSES = [
     },
     {
         "id": "C4",
-        "text": "前端可配置、拒绝黑盒：节点使命/任务规则改抽屉即生效，引擎只摆事实",
+        "text": "前端可配置、拒绝黑盒：任务规则改左栏即生效，引擎只摆事实",
         "guards": [
-            "test_node_mission_comes_from_drawer_with_db_fallback",
             "test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers",
             "test_pause_payload_is_facts_only",
             "test_every_pause_broadcast_goes_through_single_emitter",

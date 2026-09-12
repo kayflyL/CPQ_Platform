@@ -186,7 +186,6 @@ watch(() => props.open, async (v) => {
     cp_pool_resolver: c.data_bindings?.kp_pool?.resolver || '',
     cp_pool_limit: Number(c.data_bindings?.kp_pool?.params?.limit) || 20,
     system_prompt: c.system_prompt ?? '',
-    description: c.description ?? '',
     output_name: c.name ?? '',
     output_kind: outputKind,
     output_payload_map_text: safeJsonString(c.payload_map),

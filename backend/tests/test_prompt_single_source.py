@@ -2,19 +2,18 @@
 """提示词唯一出处守卫（2026-09-11 合规整改的报警器）。
 
 宪法（docs/skill studio设计思路.md 第 1 行）：唯一 AI 大脑；拒绝硬编码；前端可配置。
-所以提示词只能住在 Skill Studio 左栏（flow.graph.manual_rules + rules.reasoning_node_default
-的 description / goal）。这四条断言就是「代码里又冒出第二套」的报警器：
+提示词只能住在 Skill Studio 左栏（flow.graph.manual_rules）。2026-09-12 起节点抽屉/
+默认契约不再承载指令 prose（node_mission 退役）。这四条断言就是「代码里又冒出第二套」的报警器：
 
 1. 代码里不许再有 AGENT_PROTOCOL 之类注入式「系统协议」常量；
 2. 空库播种契约只留结构，description / goal / prompt 一律为空；
-3. 运行时节点使命**只从 DB 读**（抽屉 > DB 默认契约 > 空串），代码不编文案；
+3. 节点层 prose（description/goal）必须保持清除状态，node_mission 不许复活；
 4. 没有任何脚本/代码把提示词反向写回 DB（那是平行第二套的实证）。
 """
 import pathlib
 import re
 
 from app.services import skill_config_bootstrap
-from app.services.skill_step_runtime import node_mission
 from app.services.skill_tool_context import TOOL_CTX
 
 BACKEND = pathlib.Path(skill_config_bootstrap.__file__).resolve().parents[2]
@@ -46,15 +45,16 @@ def test_db_seed_contract_carries_structure_only():
         assert not leaked, f"播种契约 {node_key} 又带上提示词键：{leaked}"
 
 
-def test_node_mission_reads_db_only_and_stays_overridable():
-    """节点使命：抽屉配置 > DB 默认契约 > 空串（不编造）。"""
+def test_node_prose_layers_are_purged():
+    """指令唯一出处=左栏：节点层不再有 description/goal prose，node_mission 不许复活。"""
+    from app.services import skill_step_runtime
     from app.services.reasoning_node_contract import node_defaults
-    db = node_defaults().get("kp_reason") or {}
-    db_desc = str(db.get("description") or "").strip()
-    assert db_desc, "DB 里 kp_reason 使命为空，左栏提示词丢了"
-    assert db_desc in node_mission("kp_reason", {})
-    assert "抽屉原话" in node_mission("kp_reason", {"description": "抽屉原话"})
-    assert node_mission("no_such_node", {}) == ""
+    assert not hasattr(skill_step_runtime, "node_mission"), \
+        "node_mission 复活（指令第二套：节点层 prose 注入）"
+    leaked = {k: sorted(key for key in cfg if key in _PROMPT_KEYS)
+              for k, cfg in node_defaults().items()}
+    leaked = {k: v for k, v in leaked.items() if v}
+    assert not leaked, "节点默认契约又带上指令 prose（唯一出处是左栏）：" + repr(leaked)
 
 
 def test_no_reverse_writer_pushes_prompt_text_into_db():
@@ -74,17 +74,15 @@ def test_no_reverse_writer_pushes_prompt_text_into_db():
 
 
 def test_live_system_prompt_is_built_from_db_text():
-    """活证明：编排壳交给大脑的 system prompt 里，节点使命逐字来自 DB（左栏），无隐藏协议。"""
+    """活证明：编排壳交给大脑的 system prompt 里，指令逐字来自左栏 manual_rules，无节点层第二套。"""
     from app.services import skill_turn_engine
-    from app.services.reasoning_node_contract import node_defaults
-    db_desc = str((node_defaults().get("kp_reason") or {}).get("description") or "").strip()
     rt = skill_turn_engine._SkillTurnRuntime(
         thread_id="t_prompt", role_key="tech", persona="你是测试同事", full_text="需要一台服务器",
         history=[], ext={}, mem={}, flow={})
     rt.engine = {"steps_done": set(), "node_labels": {}}
     rt.flow_configs = {"kp_reason": {}}
     rt.steps = [{"step": "kp_reason", "label": "配件选型"}]
-    rt.manual_rules = ""
+    rt.manual_rules = "左栏哨兵规则：测试指令逐字注入"
     rt._cur_step = {"key": "kp_reason", "label": "配件选型"}
     TOOL_CTX.set({"ext": {}, "engine": rt.engine})
     try:
@@ -92,6 +90,7 @@ def test_live_system_prompt_is_built_from_db_text():
     finally:
         TOOL_CTX.set({})
     sys_prompt = kwargs["system_prompt"]
-    assert db_desc in sys_prompt, "节点使命没从 DB 注入（提示词第二套回来了？）"
+    assert "左栏哨兵规则：测试指令逐字注入" in sys_prompt, "左栏任务规则没进 system（提示词丢了？）"
+    assert "【本节点使命" not in sys_prompt, "节点层使命注入复活（第二套回来了）"
     for marker in ("系统协议", "AGENT_PROTOCOL"):
         assert marker not in sys_prompt, f"system prompt 里又夹了代码常量：{marker}"
