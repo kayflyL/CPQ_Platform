@@ -1,0 +1,16 @@
+{
+  "name": "模拟D2-闲聊跑题问价",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "最近天气不错哈。对了想再上一台 2U 的，2 颗兆芯 50000，64G 内存先凑合用。对了你们公司在哪？",
+  "answers": {
+    "server_type": "通用计算服务器",
+    "platform_type": "Polaris，对了这套下来大概多少钱？",
+    "chassis_form": "2U",
+    "purchase_qty": "1台",
+    "warranty_years": "3年",
+    "server_model": "@pick:Polaris",
+    "brain_ask": "@recommend"
+  },
+  "max_turns": 12
+}

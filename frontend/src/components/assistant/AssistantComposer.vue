@@ -25,7 +25,7 @@
               <span class="ac-skill-name">{{ s.name || s.key }}</span>
               <span v-if="s.description" class="ac-skill-desc">{{ s.description }}</span>
             </button>
-            <div v-if="!skillOptions.length" class="ac-skill-empty">暂无可用技能</div>
+            <div v-if="!skillOptions.length" class="ac-skill-empty">暂无可用工作流</div>
           </div>
         </transition>
       </span>
@@ -82,6 +82,11 @@
         <slot name="actions" />
       </div>
     </div>
+    <!-- 排队可见化：回合执行中再发的消息被串行扣住，这里给出可数凭据（queue_state 事件驱动） -->
+    <div v-if="queued > 0" class="ac-queue">
+      <span class="ac-queue-dot"></span>
+      <span>已排队 {{ queued }} 条，当前任务完成后自动处理</span>
+    </div>
     <!-- 上下文水位：细进度条 + xx%（绿→黄→红） -->
     <div v-if="contextUsage" class="ac-ctx" :class="'ac-ctx--' + ctxLevel">
       <div class="ac-ctx-track"><i class="ac-ctx-fill" :style="{ width: ctxPct + '%' }"></i></div>
@@ -105,6 +110,8 @@ const props = withDefaults(defineProps<{
   skills?: any[]
   /** 是否显示技能入口（+） */
   showSkills?: boolean
+  /** 排队中消息数（>0 时显示排队徽标）：宿主把 queue_state 事件的深度传进来 */
+  queued?: number
   /** 上下文水位（{ ratio }），传入则显示水位条 */
   contextUsage?: { ratio?: number } | null
 }>(), {
@@ -116,6 +123,7 @@ const props = withDefaults(defineProps<{
   members: () => [],
   skills: () => [],
   showSkills: false,
+  queued: 0,
   contextUsage: null,
 })
 
@@ -388,6 +396,13 @@ defineExpose({ focus })
   white-space: nowrap;
 }
 
+/* 手机端（≤768）：动作区换行到输入区下方整行，输入区不再被发送/展开按钮挤压 */
+@media (max-width: 768px) {
+  .ac-row { flex-wrap: wrap; }
+  .ac-input-wrap { flex: 1 1 100%; }
+  .ac-actions { flex: 1 1 100%; justify-content: flex-end; }
+}
+
 .ac-mention-enter-active,
 .ac-mention-leave-active {
   transition: opacity 0.12s ease, transform 0.12s ease;
@@ -396,6 +411,28 @@ defineExpose({ focus })
 .ac-mention-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+/* 排队徽标：蓝点呼吸 + 一行说明（queued prop 驱动） */
+.ac-queue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  font-size: 11px;
+  color: var(--cpq-accent-primary, #1677ff);
+}
+.ac-queue-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cpq-accent-primary, #1677ff);
+  flex: none;
+  animation: ac-queue-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ac-queue-pulse {
+  0%, 100% { opacity: 0.35; }
+  50% { opacity: 1; }
 }
 
 /* 上下文水位：细进度条 + xx%（绿→黄→红） */

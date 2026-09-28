@@ -256,6 +256,12 @@ def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(defa
         if str(f.get("skill_key") or f.get("name") or "") == "requirement_analysis":
             from app.services import reasoning_node_contract
             config = reasoning_node_contract.override_only(node_key, config)
+        # 三道闸之保存期（方案五）：wiring 引用不在注册表/工具集 → 400 白盒错误，
+        # 把断口掐在配置保存时（不是聊到一半才发现落锁不发生）。
+        from app.services.skill_node_plugins import wiring_contract_errors
+        _wiring_errs = wiring_contract_errors(node_key, config)
+        if _wiring_errs:
+            raise HTTPException(400, "wiring 契约校验失败：" + "；".join(_wiring_errs))
         return repo.upsert_node_config(f["id"], node_key, config, operator=data.get("operator", "system"))
     finally:
         repo.close()

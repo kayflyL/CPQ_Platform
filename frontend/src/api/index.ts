@@ -191,6 +191,12 @@ export const quotationApi = {
     return response.data
   },
 
+  // 解冻已导出报价单（清 exported_at 回草稿态，可再进工作台编辑）：需 action.quote.unfreeze 权限
+  unfreeze: async (quotationId: string) => {
+    const response = await api.post(`/quotations/${quotationId}/unfreeze`)
+    return response.data
+  },
+
 }
 
 // Export Template API (removed - template config system deleted)

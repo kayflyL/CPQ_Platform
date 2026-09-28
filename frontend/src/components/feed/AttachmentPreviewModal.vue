@@ -44,14 +44,16 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { FileOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import UniverSheet from '@/components/UniverSheet.vue'
+// Univer 体积巨大（dev 预打包 33MB / prod chunk 10MB），只在真正预览 Excel 时才拉，
+// 避免挂进商机详情页首屏关键路径（曾导致进详情页先卡数十秒）
+const UniverSheet = defineAsyncComponent(() => import('@/components/UniverSheet.vue'))
 import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
 import { univerTemplateApi } from '@/api/univerTemplate'
-import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
+import { fetchAuthedBlob, downloadOfficeFile, previewOfficeFileUrl } from '@/utils/fileDownload'
 
 const props = defineProps<{ attachment: FeedAttachment | null; open: boolean }>()
 const emit = defineEmits<{
@@ -64,7 +66,17 @@ const saving = ref(false)
 const snapshot = ref<Record<string, any> | null>(null)
 const univerRef = ref<InstanceType<typeof UniverSheet> | null>(null)
 
-const url = computed(() => (props.attachment ? feedApi.attachments.downloadUrl(props.attachment.attachment_id) : ''))
+// 下载端点挂了 current_user 鉴权，img/iframe/fetch 直链都会 401：
+// 统一走带 Authorization 的 blob 拉取；image/pdf 用 objectURL 展示
+const rawUrl = computed(() => (props.attachment ? feedApi.attachments.downloadUrl(props.attachment.attachment_id) : ''))
+const url = ref('')
+
+function revokeUrl() {
+  if (url.value) {
+    URL.revokeObjectURL(url.value)
+    url.value = ''
+  }
+}
 
 function extOf(name: string): string {
   return (name.toLowerCase().split('.').pop() || '').trim()
@@ -82,8 +94,7 @@ async function loadExcel() {
   loading.value = true
   snapshot.value = null
   try {
-    const resp = await fetch(url.value)
-    const blob = await resp.blob()
+    const blob = await fetchAuthedBlob(rawUrl.value)
     const file = new File([blob], props.attachment.original_filename, {
       type: props.attachment.mime_type || 'application/vnd.ms-excel',
     })
@@ -102,6 +113,7 @@ async function saveVersion() {
   saving.value = true
   try {
     const resolved = univerRef.value.getResolvedWorkbook()
+    const { resolvedWorkbookToXlsx } = await import('@/utils/xlsx-exporter')
     const blob = await resolvedWorkbookToXlsx(resolved)
     const file = new File([blob], props.attachment.original_filename, {
       type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -118,16 +130,35 @@ async function saveVersion() {
   }
 }
 
-function download() {
-  if (props.attachment) window.open(url.value, '_blank')
+async function download() {
+  if (props.attachment) {
+    try {
+      await downloadOfficeFile(rawUrl.value, props.attachment.original_filename)
+    } catch {
+      message.error('下载失败')
+    }
+  }
 }
 
-// when opening a new attachment, reset + load excel snapshot
+// when opening a new attachment, reset + load excel snapshot / objectURL
 watch(
   () => [props.open, props.attachment?.attachment_id],
-  ([isOpen]) => {
-    if (isOpen && kind.value === 'excel') loadExcel()
-    else snapshot.value = null
+  async ([isOpen]) => {
+    revokeUrl()
+    snapshot.value = null
+    if (isOpen && kind.value === 'excel') {
+      await loadExcel()
+    } else if (isOpen && (kind.value === 'image' || kind.value === 'pdf')) {
+      loading.value = true
+      try {
+        url.value = await previewOfficeFileUrl(rawUrl.value)
+      } catch (e) {
+        console.error('加载预览失败', e)
+        message.error('加载失败，请下载查看')
+      } finally {
+        loading.value = false
+      }
+    }
   },
 )
 </script>

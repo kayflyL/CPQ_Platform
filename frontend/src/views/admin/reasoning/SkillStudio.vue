@@ -624,6 +624,7 @@ function onSaved() { load() }
           preview
           entry-point="skill_studio_preview"
           initial-role-key="support_engineer"
+          :workflow-key="skillKey"
           :open="true"
         />
       </aside>

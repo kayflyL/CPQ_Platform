@@ -49,12 +49,15 @@ from app.api import feed as feed_api
 from app.api import assistant as assistant_api
 from app.api import strategies as strategies_api
 from app.api import solutions as solutions_api
+from app.api import gpu_sizing_api  # AI 推理配置器（显存门禁计算）
 from app.api import bom_cases as bom_cases_api
 from app.api import reasoning_flow as reasoning_flow_api
 from app.api import compatibility_rules as compatibility_rules_api
 from app.api import auth as auth_api
 from app.api import roles as roles_api
 from app.api import portal as portal_api
+from app.api import notifications as notifications_api
+from app.api import artifact_templates as artifact_templates_api
 from app.core.startup import init_rules_db
 from app.services.office_clock import office_clock
 
@@ -117,12 +120,15 @@ app.include_router(feed_api.router)
 app.include_router(assistant_api.router)
 app.include_router(strategies_api.router)
 app.include_router(solutions_api.router)
+app.include_router(gpu_sizing_api.router)
 app.include_router(bom_cases_api.router)
 app.include_router(reasoning_flow_api.router)
 app.include_router(compatibility_rules_api.router)
 app.include_router(auth_api.router)
 app.include_router(roles_api.router)
 app.include_router(portal_api.router)
+app.include_router(notifications_api.router)
+app.include_router(artifact_templates_api.router)
 
 # 注册后面板配置 API
 from app.api import rear_io

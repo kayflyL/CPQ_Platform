@@ -3,7 +3,7 @@
     <header class="aom-header">
       <div class="aom-heading">
         <h2>AI 办公室管理</h2>
-        <span class="aom-subtitle">员工、团队、空间、Skill Studio、模型与运行治理</span>
+        <span class="aom-subtitle">员工、团队、空间、工作流、产出物、模型与运行治理</span>
       </div>
       <nav class="aom-nav">
         <button
@@ -23,7 +23,7 @@
       </div>
     </header>
 
-    <div class="aom-body" :class="{ 'aom-body--editor': activeNav === 'capability' && editingSkill }">
+    <div class="aom-body" :class="{ 'aom-body--editor': activeNav === 'workflow' && editingSkill }">
       <template v-if="activeNav === 'employee'">
         <a-tabs v-model:activeKey="employeeTab" class="aom-inner-tabs">
           <a-tab-pane key="profile" tab="员工配置">
@@ -39,8 +39,12 @@
               ref="behaviorEditorRef"
               :behavior-config="behaviorConfig"
               :office-config="officeConfig"
+              :colleagues="colleagues"
               @saved="emit('saved')"
             />
+          </a-tab-pane>
+          <a-tab-pane key="access" tab="访问权限">
+            <ColleagueAccessPanel :colleagues="colleagues" @saved="emit('saved')" />
           </a-tab-pane>
         </a-tabs>
       </template>
@@ -62,53 +66,43 @@
         @saved="emit('saved')"
       />
 
-      <div v-else-if="activeNav === 'capability'" class="aom-panel">
+      <div v-else-if="activeNav === 'workflow'" class="aom-panel">
         <div v-if="editingSkill" class="aom-legacy-editor">
           <div class="aom-legacy-head">
-            <a-button size="small" @click="editingSkill = null">← 返回 Skill Studio</a-button>
+            <a-button size="small" @click="editingSkill = null">← 返回工作流</a-button>
             <span>{{ editingSkill.name || editingSkill.key }}</span>
           </div>
           <div class="aom-legacy-body">
             <SkillStudio :skill="editingSkill" />
           </div>
         </div>
-        <a-tabs v-else v-model:activeKey="capabilityTab" class="aom-inner-tabs">
-          <a-tab-pane key="skills" tab="Skills">
+        <a-tabs v-else v-model:activeKey="workflowTab" class="aom-inner-tabs">
+          <a-tab-pane key="workflows" tab="工作流">
             <div class="aom-section-head">
               <div>
-                <h3>Skills</h3>
-                <span class="aom-hint">能力包：静默增强 AI 角色，模型按描述判断调用；无节点画布。</span>
-              </div>
-            </div>
-            <a-spin :spinning="skillsLoading">
-              <div class="aom-skill-grid">
-                <div v-for="skill in capabilitySkills" :key="skill.key" class="aom-skill-cell">
-                  <CapabilityCard :skill="skill" @detail="openSkill" />
-                  <div class="aom-skill-actions">
-                    <a-button type="text" size="small" @click="openPolicy(skill)">调用策略</a-button>
-                    <a-button type="text" size="small" @click="openSkill(skill)">编辑</a-button>
-                    <a-button type="text" size="small" danger @click="removeSkill(skill)">删除</a-button>
-                  </div>
-                </div>
-              </div>
-            </a-spin>
-          </a-tab-pane>
-          <a-tab-pane key="workflows" tab="Workflows">
-            <div class="aom-section-head">
-              <div>
-                <h3>Workflows</h3>
                 <span class="aom-hint">任务流：可见多步编排，用户通过“+”或模型建议显式发起；点击进入节点画布。</span>
               </div>
             </div>
             <a-spin :spinning="skillsLoading">
               <div class="aom-skill-grid">
-                <div v-for="skill in workflowSkills" :key="skill.key" class="aom-skill-cell">
-                  <CapabilityCard :skill="skill" @detail="openSkill" />
-                  <div class="aom-skill-actions">
-                    <a-button type="text" size="small" @click="openPolicy(skill)">调用策略</a-button>
-                    <a-button type="text" size="small" @click="openSkill(skill)">编辑</a-button>
-                    <a-button type="text" size="small" danger @click="removeSkill(skill)">删除</a-button>
-                  </div>
+                <div v-for="skill in workflowSkills" :key="skill.key">
+                  <CapabilityCard :skill="skill" @detail="openSkill">
+                    <template #actions>
+                      <a-dropdown :trigger="['click']">
+                        <a-button class="cc-menu-btn" type="text" size="small" @click.stop>
+                          <MoreOutlined />
+                        </a-button>
+                        <template #overlay>
+                          <a-menu @click="(info: any) => onSkillMenu(info.key, skill)">
+                            <a-menu-item key="policy">调用策略</a-menu-item>
+                            <a-menu-item key="edit">编辑</a-menu-item>
+                            <a-menu-divider />
+                            <a-menu-item key="delete" danger>删除</a-menu-item>
+                          </a-menu>
+                        </template>
+                      </a-dropdown>
+                    </template>
+                  </CapabilityCard>
                 </div>
               </div>
             </a-spin>
@@ -117,6 +111,10 @@
             <AiSettingsPanel embedded section="tools" />
           </a-tab-pane>
         </a-tabs>
+      </div>
+
+      <div v-else-if="activeNav === 'artifacts'" class="aom-panel">
+        <ArtifactTemplateCenter />
       </div>
 
       <div v-else-if="activeNav === 'model'" class="aom-panel">
@@ -149,17 +147,20 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { MoreOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
 import { useAuthStore } from '@/store/auth'
 import TeamManager from './TeamManager.vue'
 import EmployeeManager from './EmployeeManager.vue'
 import OfficeBehaviorEditor from './OfficeBehaviorEditor.vue'
+import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import CapabilityCard from '@/components/office/CapabilityCard.vue'
 import SkillRoutePolicyModal from '@/components/office/SkillRoutePolicyModal.vue'
 import SkillStudio from '../admin/reasoning/SkillStudio.vue'
+import ArtifactTemplateCenter from './ArtifactTemplateCenter.vue'
 
 const props = defineProps<{
   colleagues: any[]
@@ -178,7 +179,7 @@ const emit = defineEmits<{
   saved: []
 }>()
 
-type NavKey = 'employee' | 'team' | 'capability' | 'model' | 'runtime'
+type NavKey = 'employee' | 'team' | 'workflow' | 'artifacts' | 'model' | 'runtime'
 const auth = useAuthStore()
 const canManage = computed(() => auth.can('ai.office.manage'))
 const canAdmin = computed(() => auth.can('ai.office.admin'))
@@ -187,7 +188,8 @@ const navItems = computed<Array<{ key: NavKey; label: string }>>(() => {
   if (canManage.value) {
     items.push({ key: 'employee', label: '员工' })
     items.push({ key: 'team', label: '团队' })
-    items.push({ key: 'capability', label: 'Skill Studio' })
+    items.push({ key: 'workflow', label: '工作流' })
+    items.push({ key: 'artifacts', label: '产出物' })
   }
   if (canAdmin.value) {
     items.push({ key: 'model', label: '模型与接入' })
@@ -195,10 +197,16 @@ const navItems = computed<Array<{ key: NavKey; label: string }>>(() => {
   }
   return items
 })
-
+// 只授 ai.office.admin 的账号左栏没有「员工」：默认页落到第一个可用项，避免空白面板
 const activeNav = ref<NavKey>('employee')
+watch(navItems, (items) => {
+  if (items.length && !items.some((i) => i.key === activeNav.value)) {
+    activeNav.value = items[0].key
+  }
+}, { immediate: true })
+
 const employeeTab = ref('profile')
-const capabilityTab = ref('skills')
+const workflowTab = ref('workflows')
 const runtimeTab = ref('audit')
 const employeeManagerRef = ref<any>(null)
 const behaviorEditorRef = ref<any>(null)
@@ -207,7 +215,6 @@ const skills = ref<any[]>([])
 const skillsLoading = ref(false)
 const editingSkill = ref<any | null>(null)
 const policySkill = ref<any | null>(null)
-const capabilitySkills = computed(() => skills.value.filter((s: any) => s?.type !== 'workflow'))
 const workflowSkills = computed(() => skills.value.filter((s: any) => s?.type === 'workflow'))
 
 function openPolicy(skill: any) {
@@ -220,17 +227,19 @@ function onPolicySaved(updated: any) {
 }
 
 function openSkill(skill: any) {
-  if (skill?.type === 'workflow' || skill?.workflow_key) {
-    editingSkill.value = skill
-    return
-  }
-  message.info('能力包 Skill 无需节点画布：它在角色提示里静默生效，绑定到员工后由模型按描述调用')
+  editingSkill.value = skill
+}
+
+function onSkillMenu(key: string | number, skill: any) {
+  if (key === 'policy') openPolicy(skill)
+  else if (key === 'edit') openSkill(skill)
+  else if (key === 'delete') removeSkill(skill)
 }
 
 function removeSkill(skill: any) {
   Modal.confirm({
-    title: `删除 Skill“${skill.name || skill.key}”？`,
-    content: '删除后将从 Skill Studio 移除，并解除员工侧对它的绑定。',
+    title: `删除工作流“${skill.name || skill.key}”？`,
+    content: '删除后将从工作流目录移除，并解除员工侧对它的绑定。',
     okText: '删除', okType: 'danger', cancelText: '取消',
     onOk: async () => {
       try {
@@ -246,14 +255,16 @@ function removeSkill(skill: any) {
 }
 
 
-const canSaveCurrent = computed(() => activeNav.value === 'employee' || activeNav.value === 'team')
+// 访问权限面板自带「保存权限」按钮，不共用页头的「保存当前」
+const canSaveCurrent = computed(() =>
+  (activeNav.value === 'employee' && employeeTab.value !== 'access') || activeNav.value === 'team')
 
 async function loadSkills() {
   skillsLoading.value = true
   try {
     skills.value = await officeApi.listSkills()
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || 'Skill Studio 加载失败')
+    message.error(error?.response?.data?.detail || '工作流加载失败')
   } finally {
     skillsLoading.value = false
   }
@@ -415,17 +426,22 @@ onMounted(loadSkills)
   gap: 12px;
 }
 
-.aom-skill-cell {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* 卡片右上角 ⋯ 菜单按钮（调用策略/编辑/删除 收进 dropdown） */
+.cc-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  color: var(--cpq-text-secondary, rgba(255, 255, 255, 0.65));
+  opacity: 0.55;
+  transition: opacity 0.15s ease;
 }
 
-.aom-skill-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
+.cc-menu-btn:hover,
+.cc-menu-btn:active {
+  opacity: 1;
 }
 
 .aom-form-grid {

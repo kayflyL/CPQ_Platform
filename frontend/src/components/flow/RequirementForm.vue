@@ -505,6 +505,17 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   --sheet-focus: var(--cpq-overlay-a10);
   --sheet-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
 }
+/* 浅色主题下的表格调色板，与 SchemeEditor 的 .flow-sheet 保持一致 */
+:root[data-theme='light'] .req-form {
+  --sheet-panel: #ffffff;
+  --sheet-surface: #ffffff;
+  --sheet-head: #f5f8fd;
+  --sheet-line: #e7eef7;
+  --sheet-line-strong: #dce6f3;
+  --sheet-hover: #f5f9ff;
+  --sheet-focus: #eaf3ff;
+  --sheet-shadow: 0 6px 18px rgba(22, 119, 255, 0.06);
+}
 .rf-sec-title {
   margin: 0 0 8px;
   font-size: 13px;

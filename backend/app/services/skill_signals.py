@@ -34,8 +34,15 @@ def _signal_with_qty(signal: dict, qty: int, pick_meta: dict) -> dict:
     sig = copy.deepcopy(signal)
     try:
         if isinstance(sig.get("kp_manual_pick"), dict):
-            # 客户自选（kp 行卡）：数量直接覆盖申报，上限 clamp
-            sig["kp_manual_pick"]["qty"] = min(qty, 999)
+            # 客户自选（kp 行卡）：数量按该行类目的机型物理上限 clamp（GPU 位/内存槽/
+            # 盘位/CPU 路）；类目无物理边界（网卡/RAID）或机型未登记能力退宽上限 999。
+            cap = 0
+            try:
+                from app.services.skill_phases import baseline_qty_cap
+                cap = baseline_qty_cap(str(meta.get("category") or ""), meta)
+            except Exception:
+                cap = 0
+            sig["kp_manual_pick"]["qty"] = min(qty, cap) if cap > 0 else min(qty, 999)
         elif isinstance(sig.get("gpu"), list) and sig["gpu"]:
             sig["gpu"][0]["qty"] = min(qty, gpu_cap)
         elif isinstance(sig.get("cpu"), dict):

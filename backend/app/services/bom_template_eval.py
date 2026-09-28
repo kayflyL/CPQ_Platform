@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 """BOM 模板 L6 求值器 —— BOM案例库的 L6 配置单按模板结构生成。
 
-规则语义移植自前端 bomRuleEngine.ts：fixed / template / part_field / part_quantity /
-struct_count(io_slot, rear_all, gpu_direct, front_cables) / config_calc / config_value + 一层 fallback。
-数据源：l6.bom_templates.rows + l6.base_configs（parts/bays/psu_bays/config_content/背板 bt）+ kp_lines。
+规则语义（2026-09-15 重构，与前端 bomRuleEngine.TYPE_RULES 同口径）：
+模板 rows 只存骨架（type/label/slot/mode），取值语义 = 行类型固定属性，
+不再逐行读规则 JSONB。数据源：l6.bom_templates.rows + l6.base_configs
+（form/parts/bays/psu_bays/config_content/背板 bt）+ kp_lines。
 L6 描述式原则（2026-08-04 R25）：desc 全部是描述/能力文本，不找料号——io_slot riser 用机型标准
-（config_content.standard_riser，装 GPU 升级 x16），rear_all/gpu_direct 按 GPU/NVMe 数量派生。
+（config_content.standard_riser，装 GPU 升级 x16），rear_all 按 GPU/NVMe 数量派生。
 算不出的行（如 IO 槽位 option 类型未存、PSU 瓦数未给）→ 留空，交给用户在 L6 编辑器里手填。
 """
 import json
@@ -19,21 +20,120 @@ from app.models.base import l6_engine, kp_engine
 _IO_SLOT_NAMES = {"io1", "io2", "io3", "io4", "ocp"}
 
 
+def _pf(category: str) -> dict:
+    return {"kind": "part_field", "category": category, "field": "name"}
+
+
+def _pq(category: str) -> dict:
+    return {"kind": "part_quantity", "category": category}
+
+
+# 行类型 → 取值规则（唯一权威定义的前端镜像：frontend/src/utils/bomRuleEngine.ts TYPE_RULES）
+_TYPE_RULES = {
+    "front_backplane": {"desc": {"kind": "template", "template": "${bays}*3.5 ${bp_type_desc}"},
+                        "qty": {"kind": "fixed", "value": 1}},
+    "io_slot": {"desc": {"kind": "struct_count", "scope": "io_slot"}, "qty": {"kind": "fixed", "value": 1}},
+    "rear_summary": {"desc": {"kind": "struct_count", "scope": "rear_all"}, "qty": {"kind": "fixed", "value": 1}},
+    "heatsink": {"desc": _pf("heatsink"), "qty": _pq("heatsink"),
+                 "desc_fallback": {"kind": "fixed", "value": "CPU 散热器"},
+                 "qty_fallback": {"kind": "fixed", "value": 2}},
+    "fan": {"desc": _pf("fan"), "qty": _pq("fan"),
+            "desc_fallback": {"kind": "fixed", "value": "系统风扇"}},
+    "psu_requirement": {"desc": {"kind": "template", "template": "${psu_wattage}W"},
+                        "desc_fallback": {"kind": "config_value", "key": "psu_name"},
+                        "qty": {"kind": "config_calc", "key": "psu_qty"}},
+    "gpu_power_cord": {"desc": {"kind": "config_value", "key": "gpu_power_cord_desc"},
+                       "qty": {"kind": "config_calc", "key": "gpu_cable_qty"}},
+    "power_cord": {"desc": {"kind": "fixed", "value": "国标电源线"},
+                   "qty": {"kind": "config_calc", "key": "psu_qty"}},
+    "rail_kit": {"desc": _pf("rail"), "qty": _pq("rail"),
+                 "qty_fallback": {"kind": "fixed", "value": 1}},
+    "raid_slot": {"desc": {"kind": "manual"}, "qty": {"kind": "manual"}},
+}
+# cable 行不走 _TYPE_RULES（见 _rule_for_row cable 分支）：单行汇总、qty 恒 1、描述按盘型分段。
+
+
+def _default_cable_kinds() -> dict:
+    """Cable 行按盘型分组默认（前端 bomRuleEngine.defaultCableKinds 镜像，用户定调 2026-09-17）：
+    SATA/SAS 每 8 盘 1 组且文案带 RAID 型号前缀；NVMe 每 2 盘 1 组直接写。"""
+    return {
+        "SATA": {"size": 8, "template": "${raid_model} SATA cable*${n}"},
+        "SAS": {"size": 8, "template": "${raid_model} SAS cable*${n}"},
+        "NVMe": {"size": 2, "template": "NVMe cable*${n}"},
+    }
+
+
+def _cable_segments(kinds: Optional[dict], vars_: dict) -> Optional[str]:
+    """Cable 行描述：按盘型分段——数量 = ceil(盘数/分组)；占位符 ${raid_model}(缺省去前缀)/${n}=组数/${count}=盘数。
+    没盘的类型不出现；全没盘 → None（整行隐藏）。"""
+    conf = kinds or _default_cable_kinds()
+    raid = str(vars_.get("raid_model") or "").strip()
+    seg = []
+    for k in ("SATA", "SAS", "NVMe"):
+        c = conf.get(k)
+        if not c:
+            continue
+        count = int(vars_.get(f"{k.lower()}_count") or 0)
+        if count <= 0:
+            continue
+        n = -(-count // max(1, int(c.get("size") or 1)))
+        line = str(c.get("template") or "")
+        for key, val in (("n", n), ("count", count), ("raid_model", raid)):
+            line = line.replace("${%s}" % key, str(val))
+        line = line.lstrip()
+        if line:
+            seg.append(line)
+    return "\n".join(seg) or None
+
+
+def _rule_for_row(row: dict, form) -> dict:
+    """行 → 规则（前端 ruleForRow 镜像）：**逐行 rule 优先**（行上带完整 rule 就按它求值，
+    编辑页从类型默认拷贝改出的自定义）；省略 = 类型默认——OCP 槽位行 qty 跟实际选配走
+    （未选 → 0 → 整行隐藏）；fan 兜底数量跟形态走（2U=6 / 4U=12）；
+    未知类型 → manual 留空手填。"""
+    if row.get("rule"):
+        return row["rule"]
+    t = row.get("type") or ""
+    if t == "io_slot" and str(row.get("slot") or "").upper() == "OCP":
+        return {"desc": {"kind": "struct_count", "scope": "io_slot"},
+                "qty": {"kind": "config_calc", "key": "ocp_qty"}}
+    if t == "fan":
+        r = dict(_TYPE_RULES["fan"])
+        r["qty_fallback"] = {"kind": "fixed", "value": 12 if form == "4U" else 6}
+        return r
+    if t == "cable":
+        return {"desc": {"kind": "cable_groups", "kinds": _default_cable_kinds()},
+                "qty": {"kind": "fixed", "value": 1}}
+    return _TYPE_RULES.get(t) or _TYPE_RULES["raid_slot"]
+
+
 def _norm(s: str) -> str:
     return re.sub(r"[\s\-]", "", (s or "")).lower()
 
 
 def _find_part(parts: list, category: str, category_aliases: Optional[dict] = None) -> Optional[dict]:
-    """按品类查找基准配置的底盘件（别名/名称/品类模糊匹配），取首个命中。
+    """分级匹配基准配置底盘件（与前端 bomRuleEngine.findBomPart 同口径）：
+    ① category 命中（精确/子串/别名）优先 ② 找不到才退 name 子串。
+    防「线缆蹭类」：「风扇背板转接线」（name 含"风扇"）不得抢先于「机箱风扇」类真件。
     category_aliases 来自 system_config.bom_category_aliases（可配置，拒绝硬编码）；
     未配置返回空别名，仅按品类精确匹配，不臆断中文别名。"""
     cl = _norm(category)
     alias_src = (category_aliases or {}).get(cl, []) or []
     aliases = [_norm(a) for a in alias_src]
-    for p in parts:
+
+    def _cat_hit(p: dict) -> bool:
         cat = _norm(p.get("category") or "")
+        return cat == cl or cl in cat or any(a and a in cat for a in aliases)
+
+    def _name_hit(p: dict) -> bool:
         name = _norm(p.get("name") or "")
-        if cat == cl or (aliases and (cat in aliases or any(a and (a in cat or a in name) for a in aliases))):
+        return cl in name or any(a and a in name for a in aliases)
+
+    for p in parts:
+        if _cat_hit(p):
+            return p
+    for p in parts:
+        if _name_hit(p):
             return p
     return None
 
@@ -88,7 +188,7 @@ def _load_template_rows(template_id: int) -> list:
 def _load_base_config(base_config_id: int) -> Optional[dict]:
     with l6_engine.connect() as c:
         bc = c.execute(text(
-            "SELECT id, name, bays, psu_bays, rear_slots, config_content FROM l6.base_configs WHERE id=:id"
+            "SELECT id, name, form, bays, psu_bays, rear_slots, config_content FROM l6.base_configs WHERE id=:id"
         ), {"id": base_config_id}).mappings().first()
         if not bc:
             return None
@@ -128,7 +228,7 @@ def _hydrate_kp(kp_lines: list) -> list:
 
 
 def _raid_model_from_kp(kp_lines: list) -> str:
-    """RAID 卡型号（Cable 行用，对齐前端 cableDescFrom）："LSI 9540-8i 4G" → "9540"。"""
+    """RAID 卡型号（Cable 行 SATA/SAS 文案前缀，对齐前端 raidModelFrom）："LSI 9540-8i 4G" → "9540"。"""
     for l in kp_lines or []:
         cat = _norm(l.get("category") or "")
         if "raid" not in cat and "阵列" not in cat and "hba" not in cat:
@@ -219,16 +319,7 @@ def eval_l6_rows(template_id: int, base_config_id: int,
     psu_wattage = (chassis_signals or {}).get("psu_wattage") or ""
     psu_name = (part_idx["psu"].get("name") if part_idx["psu"] else "") or ""
     gpu_cord_desc = "GPU power cable" if gpu_qty > 0 else ""
-    # 线缆描述：RAID SAS 线（跟 RAID 卡型号走，SAS/SATA 盘按 4 向上取整）+ NVMe 线（按 2 向上取整）。
-    # 2026-08-04 R27 用户确认：Cable 行算上 RAID SAS 线（对齐前端 cableDescFrom）。
-    cable_parts = []
     _raid_model = _raid_model_from_kp(kp)
-    _sas_total = drives["SAS"] + drives["SATA"]
-    if _sas_total > 0 and _raid_model:
-        cable_parts.append(f"{_raid_model} {(-(-_sas_total // 4)) * 4} SAS Cable")
-    if drives["NVMe"]:
-        cable_parts.append(f"{(-(-drives['NVMe'] // 2)) * 2} NVMe Cable")
-    cable_desc = "，".join(cable_parts)
 
     # OCP 网络槽（与前端 defaultRearFrom 同口径）：rear_slots 含 OCP 槽 → 默认 ocp_x8 适配板
     _rear_slots = bc.get("rear_slots") or []
@@ -238,7 +329,7 @@ def eval_l6_rows(template_id: int, base_config_id: int,
         except Exception:
             _rear_slots = []
     # OCP 行只在该基准配置真的装了 OCP 转接适配板（base parts 含 OCP 件）或 OCP 槽带 defaults 时输出；
-    # 仅“有 OCP 槽位”不算（ES22V3-P 有 OCP 槽但未装板，历史回归多出 OCP 3.0 X8 行）。
+    # 仅“有 OCP 槽位”不算（ES220 V3 有 OCP 槽但未装板，历史回归多出 OCP 3.0 X8 行）。
     def _slot_has_defaults(slot: dict) -> bool:
         try:
             return bool((slot or {}).get("defaults"))
@@ -255,6 +346,7 @@ def eval_l6_rows(template_id: int, base_config_id: int,
 
     _cc = bc.get("config_content") or {}
     vars_ = {
+        "form": bc.get("form") or "",
         "bays": bc.get("bays") or "",
         # I6 R25 + R27：L6 描述式——io_slot riser 不找料号、不硬编码。
         # standard_riser（默认，可按槽位）+ riser_x16（GPU/100G 升级规格）均数据驱动，未配置留空手填。
@@ -270,16 +362,22 @@ def eval_l6_rows(template_id: int, base_config_id: int,
         "gpu_cable_qty": gpu_qty,
         "gpu_power_cord_desc": gpu_cord_desc,
         "nvme_count": nvme_count,
-        "cable_desc": cable_desc,
+        # Cable 行按盘型分组（_cable_segments，用户定调 2026-09-17）
+        "raid_model": _raid_model,
+        "sata_count": drives["SATA"],
+        "sas_count": drives["SAS"],
         "ocp_qty": 1 if _has_ocp else 0,
     }
 
     out = []
     for row in rows:
-        rule = row.get("rule") or {}
+        rule = _rule_for_row(row, vars_.get("form"))
         label = row.get("label") or row.get("type") or ""
-        desc = _eval_desc(rule, vars_, part_idx, row, gpu_qty, nvme_count, drives)
+        desc = _eval_desc(rule, vars_, part_idx, row, gpu_qty, nvme_count)
         qty = _eval_qty(rule, vars_, part_idx, gpu_qty)
+        # Cable 行：qty 恒 1，但没盘（描述空）→ 连 qty 一起清空整行隐藏（前端 evalBomContext 同口径）
+        if (row.get("type") or "") == "cable" and not desc:
+            qty = None
         if desc is None and qty is None:
             continue  # 全空行隐藏
         out.append({"catalogue": label, "description": desc or "", "qty": qty})
@@ -287,18 +385,18 @@ def eval_l6_rows(template_id: int, base_config_id: int,
 
 
 def _eval_desc(rule: dict, vars_: dict, part_idx: dict,
-               row: dict, gpu_qty: int, nvme_count: int, drives: dict) -> Optional[str]:
+               row: dict, gpu_qty: int, nvme_count: int) -> Optional[str]:
     src = rule.get("desc") or {}
-    val = _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count, drives)
+    val = _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count)
     if val not in (None, ""):
         return val
     fb = rule.get("desc_fallback")
     if fb:
-        return _desc_from(fb, vars_, part_idx, row, gpu_qty, nvme_count, drives) or None
+        return _desc_from(fb, vars_, part_idx, row, gpu_qty, nvme_count) or None
     return None
 
 
-def _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count, drives) -> Optional[str]:
+def _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count) -> Optional[str]:
     kind = src.get("kind")
     if kind == "fixed":
         return src.get("value")
@@ -327,8 +425,6 @@ def _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count, drives) -> Option
             if vars_.get("high_bw_nic") and slot == "io1":
                 return str(_x16) if _x16 else None
             return _std_riser_for(vars_.get("standard_riser"), slot)
-        if scope == "gpu_direct":
-            return f"{gpu_qty}*GPU" if gpu_qty > 0 else None
         if scope == "rear_all":
             parts = []
             if gpu_qty > 0:
@@ -336,15 +432,8 @@ def _desc_from(src, vars_, part_idx, row, gpu_qty, nvme_count, drives) -> Option
             if nvme_count > 0:
                 parts.append(f"{nvme_count}NVME")
             return "+".join(parts) or None
-        if scope == "front_cables":
-            seg = []
-            if drives["NVMe"]:
-                seg.append(f"{drives['NVMe']}*NVMe")
-            if drives["SAS"]:
-                seg.append(f"{drives['SAS']}*SAS")
-            if drives["SATA"]:
-                seg.append(f"{drives['SATA']}*SATA")
-            return "，".join(seg) or None
+    if kind == "cable_groups":
+        return _cable_segments(src.get("kinds"), vars_)
     return None
 
 

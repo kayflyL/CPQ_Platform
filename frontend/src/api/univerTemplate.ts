@@ -72,15 +72,17 @@ export const univerTemplateApi = {
     return resp.data
   },
 
-  /** 预览（填充数据后返回 snapshot） */
+  /** 预览（填充数据后返回 snapshot）；reveal 揭示敏感分组 sell/cost/margin（后端按权限过滤） */
   async preview(
     templateId: number,
     opportunityId: string,
     quotationId?: string,
-    bindings?: Binding[]
+    bindings?: Binding[],
+    reveal?: string[]
   ): Promise<{
     workbook_snapshot: Record<string, any>
     binding_count: number
+    reveal_effective?: string[]
     data_summary: {
       static_fields: number
       dynamic_regions: number
@@ -90,7 +92,7 @@ export const univerTemplateApi = {
     if (quotationId) {
       params.quotation_id = quotationId
     }
-    const resp = await axios.post(`${API_BASE}/${templateId}/preview`, { bindings }, { params })
+    const resp = await axios.post(`${API_BASE}/${templateId}/preview`, { bindings, reveal }, { params })
     return resp.data
   },
 }

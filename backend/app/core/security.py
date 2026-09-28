@@ -31,6 +31,9 @@ def verify_password(plain: str, hashed: str) -> bool:
 def create_access_token(user_id: str, role: str) -> str:
     """Sign a JWT access token for a user."""
     settings = get_settings()
+    if not settings.JWT_SECRET:
+        # 仓库不再留弱默认（2026-09-14 安全加固）：没配密钥就大声失败，别静默签出可伪造的 token
+        raise ValueError("JWT_SECRET 未配置：请在 backend/.env 设置 JWT_SECRET")
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,

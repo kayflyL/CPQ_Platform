@@ -1,64 +1,76 @@
 <template>
   <div class="opp-page">
-    <!-- 顶栏：标题 + 宽搜索 + 图标按钮 + 新建 -->
-    <header class="page-head glass-strong">
+    <!-- 顶栏：标题 + 周期切换 + 图标按钮 + 新建 -->
+    <header class="page-head">
       <div class="page-title">
         <h1>商机驾驶舱</h1>
         <span class="page-sub">数据区间：{{ summary.period_label || '—' }}</span>
       </div>
+      <div class="period-toggle">
+        <label v-for="p in periods" :key="p.value" class="period-option" :class="{ active: period === p.value && !customRange }" @click="setPeriod(p.value)">
+          <span class="period-dot" :class="{ active: period === p.value && !customRange }"></span>
+          {{ p.label }}
+        </label>
+        <a-popover v-model:open="customOpen" trigger="click" placement="bottomLeft" overlay-class-name="period-custom-pop">
+          <template #content>
+            <div class="custom-panel">
+              <div class="custom-sec">
+                <div class="custom-sec-title">快捷区间</div>
+                <div class="preset-grid">
+                  <button v-for="ps in presets" :key="ps.key" class="preset-btn" :class="{ active: customRange?.key === ps.key }" @click="applyPreset(ps)">{{ ps.label }}</button>
+                </div>
+              </div>
+              <div class="custom-sec">
+                <div class="custom-sec-title">指定月份</div>
+                <a-date-picker v-model:value="monthValue" picker="month" size="small" placeholder="选择月份" @change="onMonthChange" />
+              </div>
+              <div class="custom-sec">
+                <div class="custom-sec-title">自定义区间</div>
+                <a-range-picker v-model:value="rangeValue" size="small" @change="onRangeChange" />
+              </div>
+              <div v-if="customRange" class="custom-foot">
+                <span class="custom-cur">当前：{{ customRange.shortLabel }}</span>
+                <button class="preset-btn ghost" @click="clearCustom">重置</button>
+              </div>
+            </div>
+          </template>
+          <label class="period-option custom-entry" :class="{ active: !!customRange }">
+            <span class="period-dot" :class="{ active: !!customRange }"></span>
+            <span class="custom-text">{{ customRange ? customRange.shortLabel : '自定义' }}</span>
+            <span class="custom-caret">▾</span>
+          </label>
+        </a-popover>
+      </div>
       <div class="head-icons">
-        <a-tooltip title="图表栏">
+        <a-tooltip v-if="!isMobile" title="图表栏">
           <button class="icon-btn" :class="{ active: chartsPanelOpen }" @click="chartsPanelOpen = !chartsPanelOpen"><BarChartOutlined /></button>
         </a-tooltip>
         <a-tooltip title="AI 线索">
           <button class="icon-btn" @click="router.push('/ai-leads')"><RobotOutlined /></button>
         </a-tooltip>
-        <a-tooltip title="回收站">
+        <a-tooltip title="导出 Excel">
+          <button class="icon-btn" :disabled="exporting" @click="exportList"><ExportOutlined /></button>
+        </a-tooltip>
+        <a-tooltip v-if="!isMobile" title="回收站">
           <button class="icon-btn" @click="goToRecycleBin"><RestOutlined /></button>
         </a-tooltip>
         <button class="create-btn" @click="showCreateModal = true"><PlusOutlined /> 新建商机</button>
       </div>
     </header>
 
+    <!-- 手机端 KPI 条：单独渲染在图表区上方（桌面 KPI 仍在右栏，数据同源 summary.kpi） -->
+    <section v-if="isMobile" class="kpi-strip kpi-strip-mobile">
+      <div class="kpi-card glass-light" v-for="k in kpiItems" :key="k.key">
+        <span class="kpi-label">{{ k.label }}</span>
+        <span class="kpi-num">{{ k.value }}</span>
+      </div>
+    </section>
+
     <div class="main-split">
-      <!-- 左栏：KPI + 周期 + 图表单列上下滑 -->
-      <aside v-show="chartsPanelOpen" class="charts-panel glass">
-        <div class="charts-tools">
-          <div class="period-toggle">
-            <label v-for="p in periods" :key="p.value" class="period-option" :class="{ active: period === p.value && !customRange }" @click="setPeriod(p.value)">
-              <span class="period-dot" :class="{ active: period === p.value && !customRange }"></span>
-              {{ p.label }}
-            </label>
-            <a-popover v-model:open="customOpen" trigger="click" placement="bottomRight" overlay-class-name="period-custom-pop">
-              <template #content>
-                <div class="custom-panel">
-                  <div class="custom-sec">
-                    <div class="custom-sec-title">快捷区间</div>
-                    <div class="preset-grid">
-                      <button v-for="ps in presets" :key="ps.key" class="preset-btn" :class="{ active: customRange?.key === ps.key }" @click="applyPreset(ps)">{{ ps.label }}</button>
-                    </div>
-                  </div>
-                  <div class="custom-sec">
-                    <div class="custom-sec-title">指定月份</div>
-                    <a-date-picker v-model:value="monthValue" picker="month" size="small" placeholder="选择月份" @change="onMonthChange" />
-                  </div>
-                  <div class="custom-sec">
-                    <div class="custom-sec-title">自定义区间</div>
-                    <a-range-picker v-model:value="rangeValue" size="small" @change="onRangeChange" />
-                  </div>
-                  <div v-if="customRange" class="custom-foot">
-                    <span class="custom-cur">当前：{{ customRange.shortLabel }}</span>
-                    <button class="preset-btn ghost" @click="clearCustom">重置</button>
-                  </div>
-                </div>
-              </template>
-              <label class="period-option custom-entry" :class="{ active: !!customRange }">
-                <span class="period-dot" :class="{ active: !!customRange }"></span>
-                <span class="custom-text">{{ customRange ? customRange.shortLabel : '自定义' }}</span>
-                <span class="custom-caret">▾</span>
-              </label>
-            </a-popover>
-          </div>
+      <!-- 左栏：图表卡单列上下滑（周期切换已上移页头，桌面/移动共用） -->
+      <aside v-show="chartsPanelOpen" class="charts-panel">
+        <div v-if="partApplied.length" class="part-time-note">
+          <b>配件筛选生效</b>：报价时间 · <b>{{ partTimeLabel }}</b>（按命中报价的创建时间过滤，点上方周期可限定）。
         </div>
         <div class="charts-body">
           <OpportunityCharts
@@ -69,7 +81,7 @@
             :recent-opps="recentOpps"
             :is-mobile="isMobile"
             @drill-on="drillOn"
-            @open-list-drawer="scrollToTable"
+            @open-list-drawer="openListDrawer"
           />
           <div v-else class="charts-loading">图表加载中…</div>
         </div>
@@ -78,7 +90,7 @@
       <!-- 右栏：筛选 + 宽表 -->
       <section class="table-side">
         <div class="kpi-strip">
-          <div class="kpi-card" v-for="k in kpiItems" :key="k.key">
+          <div class="kpi-card glass-light" v-for="k in kpiItems" :key="k.key">
             <span class="kpi-label">{{ k.label }}</span>
             <span class="kpi-num">{{ k.value }}</span>
           </div>
@@ -91,18 +103,18 @@
         <div class="table-card glass">
           <div class="filter-row">
             <input v-model="filters.search" class="search-input dark-input" placeholder="搜索客户 / 业务 / 商机号" @input="debounceFilter" />
-            <a-select v-model:value="filters.status" size="small" class="dark-select" style="width: 104px" @change="onFilterChange">
+            <a-select v-model:value="filters.status" style="width: 104px" @change="onFilterChange">
               <a-select-option value="all">全部状态</a-select-option>
               <a-select-option value="pending">进行中</a-select-option>
               <a-select-option value="won">已中标</a-select-option>
               <a-select-option value="lost">已丢标</a-select-option>
               <a-select-option value="expired">已过期</a-select-option>
             </a-select>
-            <a-select v-model:value="filters.platform" size="small" mode="multiple" placeholder="平台" :maxTagCount="1" class="dark-select" style="min-width: 128px" @change="onFilterChange">
+            <a-select v-model:value="filters.platform" mode="multiple" placeholder="平台" :maxTagCount="1" style="min-width: 128px" @change="onFilterChange">
               <a-select-option v-for="s in seriesStore.items" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
               <a-select-option value="其他">其他</a-select-option>
             </a-select>
-            <a-select v-model:value="filters.chassis" size="small" mode="multiple" placeholder="形态" :maxTagCount="1" class="dark-select" style="min-width: 112px" @change="onFilterChange">
+            <a-select v-model:value="filters.chassis" mode="multiple" placeholder="形态" :maxTagCount="1" style="min-width: 112px" @change="onFilterChange">
               <a-select-option value="2U">2U</a-select-option>
               <a-select-option value="4U">4U</a-select-option>
               <a-select-option value="5U">5U</a-select-option>
@@ -113,8 +125,6 @@
             <a-select
               v-if="canViewAll"
               v-model:value="filters.sales_person"
-              size="small"
-              class="dark-select"
               style="min-width: 120px"
               placeholder="业务"
               allow-clear
@@ -123,92 +133,37 @@
               :options="salesOptions"
               @change="onFilterChange"
             />
+            <OpportunityPartFilter :applied="partAppliedRows" @apply="onPartApply" @clear="onPartClear" />
             <button class="reset-btn" @click="resetFilters">重置</button>
             <span class="filter-count">共 {{ tableTotal }} 条</span>
           </div>
 
-          <a-table
-            :dataSource="tableData"
-            :columns="tableColumns"
-            :pagination="tablePagination"
-            :loading="tableLoading"
-            size="small"
-            class="opp-table"
-            rowKey="opportunity_id"
-            :rowSelection="rowSelectionCfg"
-            :scroll="{ x: 860 }"
-            @change="onTableChange"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.dataIndex === 'customer_name'">
-                <div class="cell-customer">
-                  <div class="name-row">
-                    <a class="opp-name" @click="goToDetail(record.opportunity_id)">{{ record.customer_name || '未命名客户' }}</a>
-                    <a-dropdown :trigger="['click']" placement="bottomLeft">
-                      <a-tag :color="bizTagColor(record)" class="opp-status-pick">{{ bizStatusText(record) }}<span class="opp-caret">▾</span></a-tag>
-                      <template #overlay>
-                        <a-menu @click="(e: any) => changeResult(record, e.key)">
-                          <a-menu-item v-for="o in RESULT_OPTIONS" :key="o.value">
-                            <span :style="{ display:'inline-block', width:'7px', height:'7px', borderRadius:'50%', marginRight:'7px', verticalAlign:'middle', background: o.dot }"></span><span :style="{ fontWeight: o.value === record.result ? 600 : 400 }">{{ o.label }}</span>
-                          </a-menu-item>
-                        </a-menu>
-                      </template>
-                    </a-dropdown>
-                  </div>
-                  <div v-if="oppMetaLine(record)" class="opp-meta">{{ oppMetaLine(record) }}</div>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'platform'">
-                <span class="cell-plat">{{ record.platform_type || '—' }}</span>
-              </template>
-              <template v-else-if="column.key === 'chassis'">
-                <span class="cell-plat">{{ record.chassis_form || '—' }}</span>
-              </template>
-              <template v-else-if="column.dataIndex === 'purchase_qty'">
-                <span class="cell-num"><b>{{ record.purchase_qty || 0 }}</b><i>台</i></span>
-              </template>
-              <template v-else-if="column.dataIndex === 'config_count'">
-                <span class="cell-num"><b>{{ record.config_count ?? 0 }}</b><i>套</i></span>
-              </template>
-              <template v-else-if="column.dataIndex === 'created_at'">
-                <div class="cell-dt">
-                  <span class="dt-main">{{ fmtDateTime(record.created_at) }}</span>
-                  <span class="dt-rel">{{ relTime(record.created_at) }}</span>
-                </div>
-              </template>
-              <template v-else-if="column.dataIndex === 'updated_at'">
-                <div class="cell-dt">
-                  <span class="dt-main">{{ fmtDateTime(record.updated_at) }}</span>
-                  <span class="dt-rel">{{ relTime(record.updated_at) }}</span>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'actions'">
-                <a-dropdown :trigger="['click']" placement="bottomRight">
-                  <button class="row-more"><MoreOutlined /></button>
-                  <template #overlay>
-                    <a-menu @click="(e: any) => onRowMenu(e.key, record)">
-                      <a-menu-item key="open">打开</a-menu-item>
-                      <a-menu-item key="rename">重命名</a-menu-item>
-                      <a-menu-divider />
-                      <a-menu-item key="trash" danger>移至回收站</a-menu-item>
-                    </a-menu>
-                  </template>
-                </a-dropdown>
-              </template>
-            </template>
-          </a-table>
+          <div v-if="partApplied.length" class="part-chip-row">
+            <span v-for="(row, i) in partApplied" :key="i" class="part-chip">
+              <b>{{ row.category || '配件' }}</b>{{ row.keywords.join(' / ') }}<template v-if="row.qtyMin"> ≥{{ row.qtyMin }}</template>
+              <i @click="removePartRow(i)">✕</i>
+            </span>
+            <span class="part-chip-tip">报价时间 · {{ partTimeLabel }}</span>
+            <button class="part-chip-clear" @click="onPartClear">清空</button>
+          </div>
+
+          <div class="table-scroll">
+            <OpportunityTable
+              :rows="tableData"
+              :loading="tableLoading"
+              :pagination="tablePagination"
+              :status-editable="canEditResult"
+              :show-part-hits="partApplied.length > 0"
+              selectable
+              @change="onTableChange"
+              @result-change="changeResult"
+              @row-menu="onRowMenu"
+              @batch-trashed="onBatchTrashed"
+            />
+          </div>
         </div>
       </section>
     </div>
-
-    <!-- 悬浮批量操作条 -->
-    <Transition name="batch-fade">
-      <div v-if="selectedRowKeys.length" class="batch-float glass-strong">
-        <span class="batch-count">已选 <b>{{ selectedRowKeys.length }}</b> 项</span>
-        <button class="batch-btn danger" :disabled="batching" @click="handleBatchTrash">移至回收站</button>
-        <button class="batch-btn" @click="selectedRowKeys = []">取消</button>
-      </div>
-    </Transition>
 
     <!-- 重命名 modal -->
     <a-modal v-model:open="renameOpen" title="重命名商机" ok-text="保存" cancel-text="取消" :confirm-loading="renaming" @ok="confirmRename">
@@ -216,16 +171,98 @@
     </a-modal>
 
     <CreateOpportunityModal v-model:open="showCreateModal" />
+
+    <!-- 手机端商机列表抽屉：右侧滑出、卡式行、粘性筛选、分页吸底（桌面无此入口） -->
+    <a-drawer
+      v-model:open="listDrawerOpen"
+      placement="right"
+      width="92%"
+      root-class-name="opp-list-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="ld-head">
+        <h3>商机列表</h3>
+        <span class="ld-count">{{ tableTotal }} 条</span>
+        <span class="ld-sp"></span>
+        <button class="ld-close" @click="listDrawerOpen = false">✕</button>
+      </div>
+      <div class="ld-filters">
+        <input v-model="filters.search" class="ld-search" placeholder="搜索客户 / 业务 / 商机号" @input="debounceFilter" />
+        <a-select v-model:value="filters.status" class="ld-select" @change="onFilterChange">
+          <a-select-option value="all">全部状态</a-select-option>
+          <a-select-option value="pending">进行中</a-select-option>
+          <a-select-option value="won">已中标</a-select-option>
+          <a-select-option value="lost">已丢标</a-select-option>
+          <a-select-option value="expired">已过期</a-select-option>
+        </a-select>
+        <a-select v-model:value="filters.platform" mode="multiple" placeholder="平台" :maxTagCount="1" class="ld-select" @change="onFilterChange">
+          <a-select-option v-for="s in seriesStore.items" :key="s.value" :value="s.value">{{ s.label }}</a-select-option>
+          <a-select-option value="其他">其他</a-select-option>
+        </a-select>
+        <a-select v-model:value="filters.chassis" mode="multiple" placeholder="形态" :maxTagCount="1" class="ld-select" @change="onFilterChange">
+          <a-select-option value="2U">2U</a-select-option>
+          <a-select-option value="4U">4U</a-select-option>
+          <a-select-option value="5U">5U</a-select-option>
+          <a-select-option value="4.5U">4.5U</a-select-option>
+          <a-select-option value="8U">8U</a-select-option>
+          <a-select-option value="工作站">工作站</a-select-option>
+        </a-select>
+        <a-select
+          v-if="canViewAll"
+          v-model:value="filters.sales_person"
+          class="ld-select ld-select-sales"
+          placeholder="业务"
+          allow-clear
+          show-search
+          option-filter-prop="label"
+          :options="salesOptions"
+          @change="onFilterChange"
+        />
+        <OpportunityPartFilter :applied="partAppliedRows" @apply="onPartApply" @clear="onPartClear" />
+        <button class="ld-reset" @click="resetFilters">重置</button>
+      </div>
+      <div v-if="partApplied.length" class="part-chip-row ld-part-chips">
+        <span v-for="(row, i) in partApplied" :key="i" class="part-chip">
+          <b>{{ row.category || '配件' }}</b>{{ row.keywords.join(' / ') }}<template v-if="row.qtyMin"> ≥{{ row.qtyMin }}</template>
+          <i @click="removePartRow(i)">✕</i>
+        </span>
+        <button class="part-chip-clear" @click="onPartClear">清空</button>
+      </div>
+      <div v-if="drill.active" class="drill-hint ld-drill">
+        <span>已筛选：{{ drill.label }}</span>
+        <button @click="drillOff">清除 ✕</button>
+      </div>
+      <div class="ld-table">
+        <OpportunityTable
+          :rows="tableData"
+          :loading="tableLoading"
+          :pagination="tablePagination"
+          :status-editable="canEditResult"
+          :show-part-hits="partApplied.length > 0"
+          selectable
+          @change="onTableChange"
+          @result-change="changeResult"
+          @row-menu="onRowMenu"
+          @batch-trashed="onBatchTrashed"
+        />
+      </div>
+    </a-drawer>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, onActivated, watch, nextTick, defineAsyncComponent } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { BarChartOutlined, RobotOutlined, RestOutlined, PlusOutlined, MoreOutlined } from '@ant-design/icons-vue'
+import { BarChartOutlined, RobotOutlined, RestOutlined, PlusOutlined, ExportOutlined } from '@ant-design/icons-vue'
 import axios from 'axios'
+import ExcelJS from 'exceljs'
 import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
+import OpportunityTable from '@/components/opportunity/OpportunityTable.vue'
+import OpportunityPartFilter, { type PartFilterRow } from '@/components/opportunity/OpportunityPartFilter.vue'
+import { resultLabel } from '@/constants/opportunityResult'
+import { downloadBlob } from '@/utils/download'
 import dayjs from 'dayjs'
 import { useSeriesStore } from '@/stores/series'
 import { useAuthStore } from '@/store/auth'
@@ -237,6 +274,8 @@ defineOptions({ name: 'OpportunityList' })
 const router = useRouter()
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
+// 商机状态（进行中/已中标…）可改性：后端 update_meta 对 result 键同权限门控
+const canEditResult = computed(() => auth.can('action.opportunity.result'))
 // 全平台系列权威源（l6.server_types（设置-服务器管理-产品系列））：筛选下拉读这里，不再硬编码 Orion/Polaris
 const seriesStore = useSeriesStore()
 
@@ -266,6 +305,14 @@ const periods = [
   { label: '本年', value: 'year' },
 ]
 const period = ref('week')
+// 用户是否动过周期控件：没动过时配件筛选不叠加默认「本周」（默认不限报价时间）
+const periodTouched = ref(false)
+// 配件筛选当前生效的报价时间范围文案
+const partTimeLabel = computed(() => {
+  if (customRange.value) return customRange.value.shortLabel
+  if (!periodTouched.value) return '不限'
+  return periods.find((p) => p.value === period.value)?.label || period.value
+})
 
 // 自定义区间：上周/上月/去年/近30/近90/指定月/任意区间
 type CustomRange = { key: string; start: string; end: string; shortLabel: string }
@@ -289,6 +336,7 @@ function rangeShortLabel(s: string, e: string) {
 }
 function applyRange(key: string, start: dayjs.Dayjs, end: dayjs.Dayjs, shortLabel: string) {
   customRange.value = { key, start: fmt(start), end: fmt(end), shortLabel }
+  periodTouched.value = true
   monthValue.value = null
   rangeValue.value = null
   customOpen.value = false
@@ -327,6 +375,7 @@ function clearCustom() {
   monthValue.value = null
   rangeValue.value = null
   period.value = 'week'
+  periodTouched.value = false
   customOpen.value = false
 }
 
@@ -345,6 +394,31 @@ const kpiItems = computed(() => {
 
 // Filters / drill / batch select
 const filters = ref({ status: 'all', platform: [] as string[], chassis: [] as string[], sales_person: '', search: '' })
+// 配件筛选（按报价单明细）：应用态在父页面，桌面筛选行与手机抽屉共用
+const partRows = ref<PartFilterRow[]>([])
+const partApplied = computed(() => partRows.value.filter((r) => r.keywords.length > 0))
+const partAppliedRows = computed<PartFilterRow[]>(() =>
+  partApplied.value.map((r) => ({ category: r.category || '', keywords: [...r.keywords], qtyMin: r.qtyMin ?? null }))
+)
+function onPartApply(rows: PartFilterRow[]) {
+  partRows.value = rows
+  tablePage.value = 1
+  loadSummary()
+  loadTable()
+}
+function onPartClear() {
+  if (!partRows.value.length) return
+  partRows.value = []
+  tablePage.value = 1
+  loadSummary()
+  loadTable()
+}
+function removePartRow(i: number) {
+  partRows.value.splice(i, 1)
+  tablePage.value = 1
+  loadSummary()
+  loadTable()
+}
 const salesOptions = ref<{ value: string; label: string }[]>([])
 const sortBy = ref('updated_at')
 const sortOrder = ref('desc')
@@ -353,8 +427,6 @@ const drill = ref({ active: false, platform: '', chassis: '', label: '' })
 const isMobile = ref(false)
 function syncMobile() { isMobile.value = window.matchMedia('(max-width: 768px)').matches }
 let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
-const selectedRowKeys = ref<string[]>([])
-const batching = ref(false)
 
 function debounceFilter() {
   if (filterTimer) clearTimeout(filterTimer)
@@ -369,6 +441,7 @@ function onFilterChange() {
 }
 function resetFilters() {
   filters.value = { status: 'all', platform: [], chassis: [], sales_person: '', search: '' }
+  partRows.value = []
   drill.value = { active: false, platform: '', chassis: '', label: '' }
   loadSummary()
   loadTable()
@@ -408,17 +481,6 @@ const recentOpps = computed(() =>
     platform: r.platform_type || '',
   }))
 )
-const tableColumns = [
-  { title: '客户 / 状态', dataIndex: 'customer_name', key: 'customer' },
-  { title: '业务', dataIndex: 'sales_person', width: 100, ellipsis: true },
-  { title: '平台', dataIndex: 'platform_type', key: 'platform', width: 96 },
-  { title: '形态', dataIndex: 'chassis_form', key: 'chassis', width: 84 },
-  { title: '数量', dataIndex: 'purchase_qty', width: 80 },
-  { title: '配置', dataIndex: 'config_count', width: 72 },
-  { title: '创建时间', dataIndex: 'created_at', key: 'created_at', width: 116, sorter: true },
-  { title: '更新时间', dataIndex: 'updated_at', width: 116, sorter: true, defaultSortOrder: 'descend' as const },
-  { title: '', key: 'actions', width: 60, align: 'center' as const },
-]
 const tablePagination = computed(() => ({
   current: tablePage.value, pageSize: tablePageSize.value, total: tableTotal.value,
   showSizeChanger: true, showTotal: (t: number) => `共 ${t} 条`,
@@ -448,9 +510,11 @@ const ADAPTIVE_RESERVED_H = 88 // 表头 + 分页条
 const ADAPTIVE_MIN = 6
 const ADAPTIVE_MAX = 50
 function computeAdaptivePageSize(): number {
-  const card = document.querySelector('.table-card') as HTMLElement | null
-  if (!card || !card.clientHeight) return tablePageSize.value
-  const usable = card.clientHeight - ADAPTIVE_RESERVED_H
+  // 手机端表格隐藏（列表走抽屉），容器高度恒为 0，跳过自适应保持固定每页 10 条
+  if (isMobile.value) return tablePageSize.value
+  const box = document.querySelector('.table-scroll') as HTMLElement | null
+  if (!box || !box.clientHeight) return tablePageSize.value
+  const usable = box.clientHeight - ADAPTIVE_RESERVED_H
   if (usable <= 0) return ADAPTIVE_MIN
   return Math.min(ADAPTIVE_MAX, Math.max(ADAPTIVE_MIN, Math.floor(usable / ADAPTIVE_ROW_H)))
 }
@@ -468,22 +532,6 @@ function onViewportResize() {
   }, 200)
 }
 
-// 业务结果枚举（列表标签 + 内联切换菜单 + 详情页共用口径）
-const RESULT_OPTIONS = [
-  { value: 'pending', label: '进行中', color: 'processing', dot: '#1677FF' },
-  { value: 'won', label: '已中标', color: 'success', dot: '#52C9A0' },
-  { value: 'lost', label: '已丢标', color: 'error', dot: '#FF6B6B' },
-  { value: 'expired', label: '已过期', color: 'warning', dot: '#F4D28A' },
-] as const
-function bizStatusText(r: any) {
-  return RESULT_OPTIONS.find((o) => o.value === r?.result)?.label ?? '进行中'
-}
-function bizTagColor(r: any) {
-  return RESULT_OPTIONS.find((o) => o.value === r?.result)?.color ?? 'default'
-}
-function resultLabel(val: string) {
-  return RESULT_OPTIONS.find((o) => o.value === val)?.label ?? val
-}
 // 列表内联改业务结果：乐观更新标签 → 存库 → 离筛选行本地移除 + 刷新图表（不刷表避免行跳动）
 async function changeResult(record: any, val: string) {
   if (val === record.result) return
@@ -504,57 +552,28 @@ async function changeResult(record: any, val: string) {
     message.error('状态更新失败')
   }
 }
-// 客户单元格第二行元信息：行业 · 订单类型 · 报价份数
-function oppMetaLine(r: any) {
-  const parts: string[] = []
-  if (r.industry) parts.push(r.industry)
-  if (r.order_type) parts.push(r.order_type)
-  if (r.quotation_count > 0) parts.push(`${r.quotation_count} 份报价`)
-  return parts.join(' · ')
-}
-// 时间：同年显示 MM-DD HH:mm，跨年带年份；第二行相对时间
-function fmtDateTime(s: string) {
-  if (!s) return '-'
-  const now = new Date()
-  const sameYear = Number(s.slice(0, 4)) === now.getFullYear()
-  return sameYear ? s.slice(5, 16) : s.slice(0, 10)
-}
-function relTime(s: string) {
-  if (!s) return ''
-  const t = new Date(s.replace(' ', 'T')).getTime()
-  if (Number.isNaN(t)) return ''
-  const diff = Date.now() - t
-  if (diff < 60_000) return '刚刚'
-  const m = Math.floor(diff / 60_000)
-  if (m < 60) return `${m} 分钟前`
-  const h = Math.floor(m / 60)
-  if (h < 24) return `${h} 小时前`
-  const d = Math.floor(h / 24)
-  if (d < 7) return `${d} 天前`
-  if (d < 30) return `${Math.floor(d / 7)} 周前`
-  return `${Math.floor(d / 30)} 个月前`
-}
 function goToDetail(id: string) { router.push(`/opportunities/${id}`) }
 function goToRecycleBin() { router.push('/recycle-bin') }
-// 移动端图表区「商机列表」磁贴：平滑滚到右栏（下方）表格
-function scrollToTable() {
-  document.querySelector('.table-side')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
+// 手机端商机列表抽屉：图表磁贴点击 → 右侧滑出（内联表格在手机端已隐藏，抽屉即唯一列表）
+const listDrawerOpen = ref(false)
+function openListDrawer() { listDrawerOpen.value = true }
+// 离开本页（点行进详情等）时收起抽屉：抽屉是 KeepAlived 页面级状态，不收会盖住详情页；
+// 此关闭是导航性的，不回写 LIST_STATE（保留 list_drawer=true 供返回时恢复，见 onActivated）
+const route = useRoute()
+let _drawerNavClose = false
+watch(() => route.path, (p) => {
+  if (p !== '/opportunities' && listDrawerOpen.value) {
+    _drawerNavClose = true
+    listDrawerOpen.value = false
+  }
+})
+watch(listDrawerOpen, () => {
+  if (_drawerNavClose) { _drawerNavClose = false; return }
+  syncListState()
+})
 
-const rowSelectionCfg = computed(() => ({
-  selectedRowKeys: selectedRowKeys.value,
-  onChange: (keys: any[]) => { selectedRowKeys.value = keys as string[] },
-}))
-async function handleBatchTrash() {
-  if (selectedRowKeys.value.length === 0) return
-  batching.value = true
-  try {
-    await axios.post('/api/opportunities/batch-trash', { opportunity_ids: selectedRowKeys.value })
-    message.success(`已将 ${selectedRowKeys.value.length} 项移至回收站`)
-    selectedRowKeys.value = []
-    reloadAll({ resetPage: true })
-  } finally { batching.value = false }
-}
+// 批量回收站在 OpportunityTable 组件内完成，这里只负责刷新
+function onBatchTrashed() { reloadAll({ resetPage: true }) }
 
 // 行菜单：打开 / 重命名 / 移至回收站
 function onRowMenu(key: string, record: any) {
@@ -602,36 +621,46 @@ async function confirmRename() {
   } finally { renaming.value = false }
 }
 
+// 列表查询参数唯一出处：表格分页加载与 Excel 导出共用，保证导出口径 = 页面所见（筛选与权限范围都在后端 list 接口收口）
+function buildListParams(): Record<string, any> {
+  const params: any = {}
+  // 周期时间窗：图表下钻或「用户动过周期」的配件筛选才传给列表（配件筛选下后端改落报价创建时间）；
+  // 周期没动过时不叠加默认「本周」，配件筛选默认不限报价时间
+  if (drill.value.active || (partApplied.value.length && periodTouched.value)) {
+    if (customRange.value) {
+      params.start = customRange.value.start
+      params.end = customRange.value.end
+    } else {
+      params.period = period.value
+    }
+  } else if (partApplied.value.length) {
+    params.period = 'all'
+  }
+  if (filters.value.search) params.search = filters.value.search
+  if (partApplied.value.length) params.part_filters = JSON.stringify(partAppliedRows.value)
+  if (filters.value.status !== 'all') {
+    params.result = filters.value.status
+  }
+  if (drill.value.platform) {
+    params.platform = drill.value.platform
+  } else if (Array.isArray(filters.value.platform) && filters.value.platform.length > 0) {
+    params.platform = filters.value.platform.join(',')
+  }
+  if (drill.value.chassis) {
+    params.chassis = drill.value.chassis
+  } else if (Array.isArray(filters.value.chassis) && filters.value.chassis.length > 0) {
+    params.chassis = filters.value.chassis.join(',')
+  }
+  if (canViewAll.value && filters.value.sales_person) params.sales_person = filters.value.sales_person
+  params.sort_by = sortBy.value
+  params.sort_order = sortOrder.value
+  return params
+}
+
 async function loadTable() {
-  selectedRowKeys.value = []
   tableLoading.value = true
   try {
-    const params: any = { page: tablePage.value, page_size: tablePageSize.value }
-    if (drill.value.active) {
-      if (customRange.value) {
-        params.start = customRange.value.start
-        params.end = customRange.value.end
-      } else {
-        params.period = period.value
-      }
-    }
-    if (filters.value.search) params.search = filters.value.search
-    if (filters.value.status !== 'all') {
-      params.result = filters.value.status
-    }
-    if (drill.value.platform) {
-      params.platform = drill.value.platform
-    } else if (Array.isArray(filters.value.platform) && filters.value.platform.length > 0) {
-      params.platform = filters.value.platform.join(',')
-    }
-    if (drill.value.chassis) {
-      params.chassis = drill.value.chassis
-    } else if (Array.isArray(filters.value.chassis) && filters.value.chassis.length > 0) {
-      params.chassis = filters.value.chassis.join(',')
-    }
-    if (canViewAll.value && filters.value.sales_person) params.sales_person = filters.value.sales_person
-    params.sort_by = sortBy.value
-    params.sort_order = sortOrder.value
+    const params = { ...buildListParams(), page: tablePage.value, page_size: tablePageSize.value }
     const res = await axios.get('/api/opportunities/list', { params })
     tableData.value = res.data.items || []
     tableTotal.value = res.data.total || 0
@@ -639,6 +668,76 @@ async function loadTable() {
     tableLoading.value = false
   }
   syncListState()
+}
+
+// ── 一键导出 Excel：拉当前筛选全量 → exceljs 前端生成 → 浏览器下载（服务端不落盘）──
+const exporting = ref(false)
+async function exportList() {
+  if (exporting.value) return
+  exporting.value = true
+  try {
+    const res = await axios.get('/api/opportunities/list', {
+      params: { ...buildListParams(), page: 1, page_size: Math.max(tableTotal.value, 1) },
+    })
+    const rows: any[] = res.data.items || []
+    if (!rows.length) { message.warning('当前筛选下没有可导出的商机'); return }
+    await writeOppsXlsx(rows)
+    message.success(`已导出 ${rows.length} 条商机`)
+  } catch {
+    message.error('导出失败，请重试')
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function writeOppsXlsx(rows: any[]) {
+  const wb = new ExcelJS.Workbook()
+  const ws = wb.addWorksheet('商机列表')
+  const withHits = partApplied.value.length > 0
+  ws.columns = [
+    { header: '商机号', key: 'id', width: 20 },
+    { header: '客户名称', key: 'customer', width: 26 },
+    { header: '状态', key: 'status', width: 10 },
+    { header: '业务', key: 'sales', width: 10 },
+    { header: '平台', key: 'platform', width: 10 },
+    { header: '形态', key: 'chassis', width: 9 },
+    { header: '数量', key: 'qty', width: 8 },
+    { header: '配置数', key: 'configs', width: 8 },
+    { header: '报价份数', key: 'quotes', width: 10 },
+    { header: '行业', key: 'industry', width: 14 },
+    { header: '订单类型', key: 'orderType', width: 12 },
+    { header: '创建时间', key: 'created', width: 20 },
+    { header: '更新时间', key: 'updated', width: 20 },
+    ...(withHits ? [{ header: '命中配件', key: 'hits', width: 46 }] : []),
+  ]
+  ws.getRow(1).font = { bold: true }
+  ws.views = [{ state: 'frozen', ySplit: 1 }]
+  for (const r of rows) {
+    const row: Record<string, any> = {
+      id: r.opportunity_id,
+      customer: r.customer_name,
+      status: resultLabel(r.result),
+      sales: r.sales_person,
+      platform: r.platform_type,
+      chassis: r.chassis_form,
+      qty: Number(r.purchase_qty) || 0,
+      configs: Number(r.config_count) || 0,
+      quotes: Number(r.quotation_count) || 0,
+      industry: r.industry || '',
+      orderType: r.order_type || '',
+      created: r.created_at,
+      updated: r.updated_at,
+    }
+    if (withHits) {
+      row.hits = (r.part_hits || [])
+        .map((h: any) => `${h.date}${h.cfg ? ' · ' + h.cfg : ''}：${(h.parts || []).map((p: any) => `${p.name}×${p.qty}`).join('、')}`)
+        .join('\n')
+    }
+    ws.addRow(row)
+  }
+  const buf = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  downloadBlob(blob, `商机列表_${dayjs().format('YYYYMMDD')}.xlsx`)
 }
 
 // 列表分页/筛选状态持久化到 sessionStorage，跳详情再回来可恢复
@@ -653,6 +752,11 @@ function restoreListState() {
   if (Array.isArray(s.platform)) filters.value.platform = s.platform
   if (Array.isArray(s.chassis)) filters.value.chassis = s.chassis
   if (typeof s.search === 'string') filters.value.search = s.search
+  if (Array.isArray(s.part_rows)) {
+    partRows.value = (s.part_rows as any[])
+      .filter((r) => r && Array.isArray(r.keywords) && r.keywords.length)
+      .map((r) => ({ category: String(r.category || ''), keywords: r.keywords.map(String), qtyMin: Number(r.qtyMin) || null }))
+  }
   if (s.drill_platform) drill.value.platform = String(s.drill_platform)
   if (s.drill_chassis) drill.value.chassis = String(s.drill_chassis)
   if (drill.value.platform || drill.value.chassis) {
@@ -663,6 +767,8 @@ function restoreListState() {
     drill.value.label = parts.join(' + ')
   }
   if (s.sort) sortBy.value = String(s.sort)
+  // 手机端抽屉开合态随状态一起恢复（详情页返回后仍在列表抽屉里）
+  if (s.list_drawer && isMobile.value) listDrawerOpen.value = true
 }
 
 function syncListState() {
@@ -673,9 +779,11 @@ function syncListState() {
       platform: filters.value.platform,
       chassis: filters.value.chassis,
       search: filters.value.search,
+      part_rows: partAppliedRows.value,
       drill_platform: drill.value.platform,
       drill_chassis: drill.value.chassis,
       sort: sortBy.value,
+      list_drawer: listDrawerOpen.value,
     }))
   } catch { /* sessionStorage 不可用时静默降级 */ }
 }
@@ -689,6 +797,7 @@ async function loadSummary() {
   try {
     const params: any = {}
     if (customRange.value) { params.start = customRange.value.start; params.end = customRange.value.end }
+    else if (partApplied.value.length && !periodTouched.value) { params.period = 'all' }
     else { params.period = period.value }
     if (filters.value.status !== 'all') params.result = filters.value.status
     if (drill.value.platform) {
@@ -702,6 +811,7 @@ async function loadSummary() {
       params.chassis = filters.value.chassis.join(',')
     }
     if (filters.value.search) params.search = filters.value.search
+    if (partApplied.value.length) params.part_filters = JSON.stringify(partAppliedRows.value)
     if (canViewAll.value && filters.value.sales_person) params.sales_person = filters.value.sales_person
     const res = await axios.get('/api/dashboard/summary', { params })
     summary.value = res.data
@@ -714,7 +824,7 @@ async function reloadAll({ resetPage = false }: { resetPage?: boolean } = {}) {
   await loadTable()
   if (chartsPanelOpen.value) scheduleCharts()
 }
-function setPeriod(p: string) { customRange.value = null; period.value = p }
+function setPeriod(p: string) { customRange.value = null; period.value = p; periodTouched.value = true }
 
 onMounted(async () => {
   seriesStore.ensureSeries()
@@ -754,19 +864,26 @@ onActivated(() => {
     return
   }
   reloadAll()
+  // 从详情页返回：离开时抽屉若开着则恢复（KeepAlive 重激活不走 onMounted 的 restoreListState）
+  if (isMobile.value) {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(LIST_STATE_KEY) || '')
+      if (s && s.list_drawer) listDrawerOpen.value = true
+    } catch { /* sessionStorage 不可用时静默降级 */ }
+  }
 })
 watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage: true }))
 </script>
 
 <style scoped>
-.opp-page { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 16px; height: calc(100vh - 56px); overflow: hidden; }
+.opp-page { display: flex; flex-direction: column; gap: 12px; padding: 14px 20px 16px; height: calc(100vh - var(--cpq-header-clearance, 56px)); overflow: hidden; }
 
 /* 顶栏 */
-.page-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: var(--cpq-radius-lg); flex: none; }
+.page-head { display: flex; align-items: center; gap: 14px; padding: 2px 4px 0; flex: none; }
 .page-title { display: flex; flex-direction: column; gap: 1px; flex: none; }
 .page-title h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); letter-spacing: 1px; }
-.page-sub { font-size: 11px; color: var(--cpq-text-muted); letter-spacing: 0.5px; }
-.search-input { flex: 1 1 150px; min-width: 130px; max-width: 300px; height: 28px; border-radius: 6px; font-size: 12.5px; padding: 0 10px; }
+.page-sub { font-size: 12px; color: var(--cpq-text-muted); letter-spacing: 0.5px; }
+.search-input { flex: 1 1 150px; min-width: 130px; max-width: 300px; height: 32px; }
 .head-icons { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px;
@@ -785,32 +902,21 @@ watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage
 /* 左右两栏 */
 .main-split { flex: 1 1 0; min-height: 0; display: flex; gap: 12px; }
 
-/* 左栏：图表单列上下滑；宽度随视口比例自适应（约 1/3 屏，窄屏收窄宽屏封顶） */
-.charts-panel {
-  flex: 0 0 clamp(360px, 34vw, 660px);
-  display: flex; flex-direction: column; gap: 10px;
-  padding: 12px 12px 14px; border-radius: var(--cpq-radius-lg);
-  overflow: hidden; overscroll-behavior: contain;
-}
-.charts-panel::-webkit-scrollbar { width: 6px; }
-.charts-panel::-webkit-scrollbar-thumb { background: var(--cpq-overlay-a20); border-radius: 3px; }
-.charts-panel::-webkit-scrollbar-track { background: transparent; }
+/* 左栏：透明布局容器（分组不套玻璃，图表卡单层玻璃直坐画布）；宽度随视口比例自适应（约 1/3 屏，窄屏收窄宽屏封顶） */
+.charts-panel { flex: 0 0 clamp(360px, 34vw, 660px); display: flex; flex-direction: column; gap: 12px; min-height: 0; }
 
 .kpi-strip { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; flex: none; }
-.kpi-card {
-  padding: 14px 16px;
-  border-radius: var(--cpq-radius-lg);
-  background: var(--cpq-overlay-w5);
-  border: 1px solid var(--cpq-overlay-w8);
-  display: flex; flex-direction: column; gap: 6px;
-  transition: transform var(--cpq-dur-1) var(--cpq-ease-smooth), box-shadow var(--cpq-dur-1) var(--cpq-ease-smooth);
-}
-.kpi-card:hover { transform: translateY(-2px); box-shadow: var(--cpq-shadow-lg, 0 8px 24px rgba(0,0,0,0.18)); }
+.kpi-card { padding: 14px 16px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .kpi-label { font-size: 12px; color: var(--cpq-text-secondary); white-space: nowrap; }
 .kpi-num { font-size: 28px; font-weight: 700; color: var(--cpq-text-primary); font-variant-numeric: tabular-nums lining-nums; line-height: 1.1; }
 
-.charts-tools { flex: none; display: flex; align-items: center; }
 .period-toggle { display: flex; gap: 6px; flex-wrap: wrap; }
+.part-time-note {
+  font-size: 11px; line-height: 1.6; color: var(--cpq-text-secondary);
+  background: rgba(22, 119, 255, 0.08); border: 1px dashed rgba(22, 119, 255, 0.45);
+  border-radius: 8px; padding: 7px 10px;
+}
+.part-time-note b { color: var(--cpq-accent-primary); }
 .period-option { display: flex; align-items: center; gap: 5px; padding: 5px 11px; border: 1px solid var(--cpq-overlay-w10); border-radius: 999px; cursor: pointer; font-size: 12px; color: var(--cpq-text-secondary); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .period-option.active { color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); border-color: var(--cpq-accent-primary); }
 .period-dot { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid var(--cpq-text-muted); transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
@@ -826,76 +932,53 @@ watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage
 .charts-loading { display: flex; align-items: center; justify-content: center; height: 260px; font-size: 13px; color: var(--cpq-text-muted); }
 
 /* 右栏：筛选 + 表格 */
-.table-side { flex: 1 1 1px; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
-.filter-row { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: 10px 14px; flex-wrap: wrap; flex: none; background: var(--cpq-glass-3-bg); backdrop-filter: blur(var(--cpq-glass-blur-3)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)); border-bottom: 1px solid var(--cpq-overlay-w3); }
+.table-side { flex: 1 1 1px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.filter-row { display: flex; align-items: center; gap: 10px; padding: 10px 16px; flex-wrap: wrap; flex: none; border-bottom: 1px solid var(--cpq-overlay-w3); }
 .reset-btn {
-  padding: 4px 12px; border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary);
-  border-radius: 6px; cursor: pointer; font-size: 12px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
+  height: 32px; padding: 0 14px; display: inline-flex; align-items: center;
+  border: 1px solid var(--cpq-glass-border); background: transparent; color: var(--cpq-text-secondary);
+  border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 12px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .reset-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .filter-count { font-size: 12px; color: var(--cpq-text-muted); margin-left: auto; }
 
-.dark-select :deep(.ant-select-selector) { background: var(--cpq-overlay-w5) !important; border-color: var(--cpq-overlay-w10) !important; color: var(--cpq-text-primary) !important; border-radius: 6px !important; }
-.dark-select :deep(.ant-select-selection-item) { color: var(--cpq-text-primary) !important; }
-.dark-select :deep(.ant-select-arrow) { color: var(--cpq-text-muted) !important; }
-.dark-input { background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-overlay-w10); color: var(--cpq-text-primary); padding: 6px 12px; border-radius: 6px; font-size: 13px; outline: none; transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.dark-input:focus { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 2px var(--cpq-overlay-a10); }
+.dark-input { background: var(--cpq-glass-2-bg); border: 1px solid var(--cpq-glass-border); color: var(--cpq-text-primary); padding: 0 12px; border-radius: var(--cpq-radius-sm); font-size: 13px; outline: none; transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.dark-input:focus { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 2px var(--cpq-overlay-a15); }
 .dark-input::placeholder { color: var(--cpq-text-muted); }
 
 .drill-hint { display: flex; align-items: center; gap: 8px; padding: 7px 14px; background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a15); border-radius: 8px; font-size: 12px; color: var(--cpq-accent-primary); flex: none; }
 .drill-hint button { background: transparent; border: none; color: var(--cpq-text-muted); cursor: pointer; font-size: 12px; margin-left: auto; }
 .drill-hint button:hover { color: var(--cpq-text-primary); }
 
-.table-card { border-radius: var(--cpq-radius-lg); overflow: auto; flex: 1 1 0; min-height: 0; }
+/* 配件筛选 chips 行：条件回显为可删胶囊（桌面筛选行下 / 手机抽屉内共用） */
+.part-chip-row {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: none;
+  padding: 8px 16px; border-bottom: 1px solid var(--cpq-overlay-w3);
+}
+.part-chip {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cpq-text-primary);
+  background: rgba(22, 119, 255, 0.08); border: 1px solid rgba(22, 119, 255, 0.45);
+  border-radius: 999px; padding: 2px 6px 2px 10px; max-width: 100%;
+}
+.part-chip b { color: var(--cpq-accent-primary); font-weight: 600; }
+.part-chip i { font-style: normal; font-size: 10px; color: var(--cpq-text-muted); width: 16px; height: 16px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; }
+.part-chip i:hover { background: rgba(22, 119, 255, 0.15); color: var(--cpq-accent-primary); }
+.part-chip-tip { font-size: 11px; color: var(--cpq-text-muted); }
+.part-chip-clear { background: transparent; border: none; color: var(--cpq-text-muted); cursor: pointer; font-size: 12px; }
+.part-chip-clear:hover { color: var(--cpq-accent-danger); }
 
-.cell-customer { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.name-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
-.opp-name { color: var(--cpq-text-primary); font-size: 13.5px; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-.opp-name:hover { color: var(--cpq-accent-primary); }
-.opp-meta { font-size: 11px; color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
-.opp-status-pick { cursor: pointer; user-select: none; margin-right: 0 !important; transition: filter var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.opp-status-pick:hover { filter: brightness(1.06); }
-.opp-caret { font-size: 9px; margin-left: 3px; opacity: 0.7; }
-.cell-plat { font-size: 12.5px; color: var(--cpq-text-primary); white-space: nowrap; }
-.cell-num { display: inline-flex; align-items: baseline; gap: 3px; }
-.cell-num b { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; }
-.cell-num i { font-style: normal; font-size: 11px; color: var(--cpq-text-muted); }
-.cell-dt { display: flex; flex-direction: column; gap: 1px; }
-.dt-main { font-size: 12px; color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
-.dt-rel { font-size: 10.5px; color: var(--cpq-text-muted); white-space: nowrap; }
-.row-more {
-  display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: 6px; cursor: pointer; font-size: 14px;
-  transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
-}
-.row-more:hover { background: var(--cpq-overlay-w8); color: var(--cpq-text-primary); }
-
-/* 悬浮批量条 */
-.batch-float {
-  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 1000;
-  display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-radius: 999px;
-  box-shadow: var(--cpq-shadow-lg, 0 8px 24px rgba(0,0,0,0.18));
-}
-.batch-count { font-size: 13px; color: var(--cpq-text-secondary); }
-.batch-count b { color: var(--cpq-accent-primary); }
-.batch-btn {
-  padding: 5px 14px; border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary);
-  border-radius: 999px; cursor: pointer; font-size: 12.5px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
-}
-.batch-btn:hover { color: var(--cpq-text-primary); border-color: var(--cpq-text-secondary); }
-.batch-btn.danger { color: var(--cpq-accent-danger); border-color: var(--cpq-overlay-danger30, rgba(255,107,107,0.35)); }
-.batch-btn.danger:hover:not(:disabled) { border-color: var(--cpq-accent-danger); }
-.batch-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.batch-fade-enter-active, .batch-fade-leave-active { transition: opacity var(--cpq-dur-2) var(--cpq-ease-smooth), transform var(--cpq-dur-2) var(--cpq-ease-smooth); }
-.batch-fade-enter-from, .batch-fade-leave-to { opacity: 0; transform: translateX(-50%) translateY(12px); }
+.table-card { border-radius: var(--cpq-radius-lg); display: flex; flex-direction: column; overflow: hidden; flex: 1 1 0; min-height: 0; }
+.table-scroll { flex: 1 1 0; min-height: 0; overflow: auto; }
 
 /* Table dark overrides */
+/* 表格视觉规范（主题感知 token，勿用白色叠加写死——浅色主题下 w4/w6/w8 不可辨） */
 .opp-page :deep(.ant-table-wrapper .ant-table) { background: transparent; color: var(--cpq-text-primary); }
-.opp-page :deep(.ant-table-thead > tr > th) { background: var(--cpq-overlay-w4) !important; color: var(--cpq-text-secondary) !important; font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--cpq-overlay-w6) !important; white-space: nowrap; }
-.opp-page :deep(.ant-table-tbody > tr > td) { border-bottom: 1px solid var(--cpq-overlay-w4) !important; color: var(--cpq-text-primary); }
-.opp-page :deep(.ant-table-tbody > tr:hover > td) { background: var(--cpq-overlay-a5) !important; }
+.opp-page :deep(.ant-table-thead > tr > th) { background: var(--cpq-bg-secondary) !important; color: var(--cpq-text-secondary) !important; font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--cpq-border-secondary) !important; white-space: nowrap; }
+.opp-page :deep(.ant-table-tbody > tr > td) { border-bottom: 1px solid var(--cpq-border-secondary) !important; color: var(--cpq-text-primary); }
+.opp-page :deep(.ant-table-tbody > tr:last-child > td) { border-bottom: none !important; }
+.opp-page :deep(.ant-table-tbody > tr:hover > td) { background: var(--cpq-overlay-a8) !important; }
 .opp-page :deep(.ant-table-cell) { padding: 9px 12px; }
-.opp-page :deep(.ant-table-thead > tr > th.ant-table-column-sort) { background: var(--cpq-overlay-w6) !important; }
+.opp-page :deep(.ant-table-thead > tr > th.ant-table-column-sort) { background: var(--cpq-bg-elevated) !important; }
 .opp-page :deep(.ant-pagination) { padding: 12px 16px; border-top: 1px solid var(--cpq-overlay-w4); }
 .opp-page :deep(.ant-pagination-item), .opp-page :deep(.ant-pagination-prev), .opp-page :deep(.ant-pagination-next) { background: transparent !important; border-color: var(--cpq-overlay-w10) !important; }
 .opp-page :deep(.ant-pagination-item a), .opp-page :deep(.ant-pagination-item-link) { color: var(--cpq-text-secondary) !important; background: transparent !important; border: none !important; }
@@ -903,15 +986,63 @@ watch([() => period.value, () => customRange.value], () => reloadAll({ resetPage
 .opp-page :deep(.ant-pagination-item-active a) { color: var(--cpq-accent-primary) !important; }
 
 @media (max-width: 768px) {
-  .opp-page { height: auto; min-height: calc(100vh - 56px); overflow: visible; padding: 10px 12px 96px; }
+  .opp-page { height: auto; min-height: calc(100vh - var(--cpq-header-clearance, 56px)); overflow: visible; padding: 10px 12px 16px; }
   .page-head { flex-wrap: wrap; gap: 10px; padding: 10px 14px; border-radius: 8px; }
   .head-icons { margin-left: 0; }
   .main-split { flex-direction: column; }
   .kpi-strip { grid-template-columns: repeat(2, 1fr); }
-  .charts-panel { flex: none; min-width: 0; max-width: none; overflow: visible; padding: 10px; }
+  .kpi-strip-mobile .kpi-num { font-size: 22px; }
+  /* 手机端纯驾驶舱：KPI 移到页首（上方独立渲染），筛选+宽表整体让位给「商机列表」抽屉 */
+  .table-side { display: none; }
+  .charts-panel { flex: none; min-width: 0; max-width: none; }
   .charts-body { flex: none; overflow: visible; }
-  .filter-row .search-input { flex-basis: 100%; max-width: none; order: -1; }
-  .filter-count { margin-left: 0; width: 100%; }
   .opp-meta { max-width: 200px; }
 }
+
+/* ── 手机端商机列表抽屉内部（slot 内容带本组件 scope，可正常命中） ── */
+.ld-head { display: flex; align-items: center; gap: 8px; padding: 14px 16px 10px; flex: none; }
+.ld-head h3 { margin: 0; font-size: 16px; font-weight: 700; color: var(--cpq-text-primary); }
+.ld-count { font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); padding: 2px 9px; border-radius: 999px; font-weight: 700; white-space: nowrap; }
+.ld-sp { flex: 1; }
+.ld-close { width: 30px; height: 30px; border-radius: 10px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; }
+.ld-filters { display: flex; align-items: center; gap: 6px; padding: 0 14px 10px; border-bottom: 1px solid var(--cpq-overlay-w6); flex-wrap: wrap; flex: none; }
+.ld-part-chips { padding: 0 14px 8px; }
+.ld-search { flex: 1 1 150px; min-width: 130px; height: 30px; background: var(--cpq-glass-2-bg); border: 1px solid var(--cpq-glass-border); color: var(--cpq-text-primary); padding: 0 10px; border-radius: var(--cpq-radius-sm); font-size: 12.5px; outline: none; }
+.ld-search:focus { border-color: var(--cpq-accent-primary); }
+.ld-search::placeholder { color: var(--cpq-text-muted); }
+.ld-select { flex: none; }
+.ld-select.ant-select-single { width: 96px; }
+.ld-select.ant-select-multiple { min-width: 104px; max-width: 140px; }
+.ld-select-sales { min-width: 110px; max-width: 150px; }
+.ld-reset { height: 30px; padding: 0 12px; border: 1px solid var(--cpq-glass-border); background: transparent; color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm); font-size: 12px; cursor: pointer; flex: none; }
+.ld-drill { margin: 8px 14px 0; flex: none; }
+/* 表格容器：与桌面同一张 OpportunityTable（排序/状态内联改/批量回收站全量可用），窄容器内横向滚动 */
+.ld-table { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 2px 6px; }
+</style>
+
+<style>
+/* 商机列表抽屉外壳：a-drawer portal 到 body，scoped 够不到，走全局（玻璃化对齐全站） */
+.opp-list-drawer .ant-drawer-content {
+  background: var(--cpq-glass-3-bg);
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  border-radius: 18px 0 0 18px;
+  overflow: hidden;
+}
+.opp-list-drawer .ant-drawer-header { display: none; }
+.opp-list-drawer .ant-select-selector { background: var(--cpq-glass-2-bg) !important; border: 1px solid var(--cpq-glass-border) !important; }
+
+/* 抽屉内 OpportunityTable 的视觉规范覆盖：桌面那套走 .opp-page :deep() 命不中 portal，这里同口径补一份（主题感知 token） */
+.opp-list-drawer .ant-table { background: transparent; color: var(--cpq-text-primary); }
+.opp-list-drawer .ant-table-thead > tr > th { background: var(--cpq-bg-secondary) !important; color: var(--cpq-text-secondary) !important; font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--cpq-border-secondary) !important; white-space: nowrap; }
+.opp-list-drawer .ant-table-tbody > tr > td { border-bottom: 1px solid var(--cpq-border-secondary) !important; color: var(--cpq-text-primary); }
+.opp-list-drawer .ant-table-tbody > tr:last-child > td { border-bottom: none !important; }
+.opp-list-drawer .ant-table-tbody > tr:hover > td { background: var(--cpq-overlay-a8) !important; }
+.opp-list-drawer .ant-table-cell { padding: 9px 12px; }
+.opp-list-drawer .ant-table-thead > tr > th.ant-table-column-sort { background: var(--cpq-bg-elevated) !important; }
+.opp-list-drawer .ant-pagination { padding: 12px 16px; border-top: 1px solid var(--cpq-border-secondary); }
+.opp-list-drawer .ant-pagination-item, .opp-list-drawer .ant-pagination-prev, .opp-list-drawer .ant-pagination-next { background: transparent !important; border-color: var(--cpq-overlay-w10) !important; }
+.opp-list-drawer .ant-pagination-item a, .opp-list-drawer .ant-pagination-item-link { color: var(--cpq-text-secondary) !important; background: transparent !important; border: none !important; }
+.opp-list-drawer .ant-pagination-item-active { border-color: var(--cpq-accent-primary) !important; }
+.opp-list-drawer .ant-pagination-item-active a { color: var(--cpq-accent-primary) !important; }
 </style>

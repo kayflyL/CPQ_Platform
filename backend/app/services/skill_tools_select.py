@@ -12,7 +12,7 @@ from typing import Optional
 
 
 def tool_select_parts(args: dict) -> dict:
-    """【任务期工具】kp_reason 配件选配回合专用：把未匹配的登记部件行批量锁定为库内真实料号。
+    """【需求分析流程工具】kp_reason 配件选配回合专用：把未匹配的登记部件行批量锁定为库内真实料号。
 
     落料（2026-09-12 直连库版）：大脑给料号名，服务端按「类目 + 名称」去库里精确核对，
     价格取库里最新值——库里没有业务料号（part_id 只是自增行号），所以名字是唯一凭据；
@@ -22,7 +22,7 @@ def tool_select_parts(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "select_parts 仅在任务期的配件选配环节可用"}
+                "message": "select_parts 仅在需求分析流程的配件选配环节可用"}
     # 行清单为空（登记表里根本没有部件行，如「只说要一台 AI 服务器」这类极模糊需求）时
     # **不能一拒了之**：AI=配置器，它必须能自己声明要配的行（下方 row_info is None 分支写
     # kp_config）。接地照样成立——落行凭据是料号名（按类目回库精确核对，查无此名就拒）；
@@ -38,7 +38,7 @@ def tool_select_parts(args: dict) -> dict:
     engine = ctx.get("engine")
     if not isinstance(engine, dict):
         return {"ok": False, "error": "task_not_active",
-                "message": "select_parts 仅在任务期可用（缺引擎上下文）"}
+                "message": "select_parts 仅在需求分析流程内可用（缺引擎上下文）"}
     ext = ctx.get("ext") if isinstance(ctx.get("ext"), dict) else {}
     st = kp_state(engine)
     kp_picks = dict(st.get(KP_PICKS) or {})
@@ -155,6 +155,16 @@ def tool_select_parts(args: dict) -> dict:
         store_key = pick_key_for_row(row_info)
         row_id = str(row_info.get("row_id") or "")
         cat_name = str(row_info.get("category") or "").strip()
+        if not (name or pid):
+            # 落料凭据=料号名（库内无业务料号，part_id 只是历史 pick 兼容通道）。
+            # 大脑 new_row 铸行时只给 category+spec 不给料号 → 曾一路走到 hit=None
+            # 崩 AttributeError，整次调用报废（同批已铸行也被丢回），下一轮重铸循环。
+            # 放在行契约校验（row_unknown/category_required/spec_required）之后：
+            # 只给类目名的申报先按行契约拒绝，口径与 test_row_identity_minted 一致。
+            results.append({"row": rk_raw or rid, "ok": False, "error": "part_required",
+                            "message": ("落料须给出 name（库内料号名）或 part_id；"
+                                        "只登记需求行不落料走 fill_requirement(kp_rows)")})
+            continue
         hit = None
         if name or pid:
             # 落料凭据 = 料号名（库里没有业务料号）；只有历史 pick 才带 part_id，走兼容通道直读
@@ -197,6 +207,20 @@ def tool_select_parts(args: dict) -> dict:
             if qty > 999:
                 results.append({"row": row_key, "ok": False, "error": "invalid_qty",
                                 "message": "qty 超出合理范围（>999），请核对组合方式"})
+                continue
+            # 物理上限闸（机型能力目录事实）：GPU 位/内存槽/盘位/CPU 路超界直接拒——
+            # 逼大脑换更大单条容量（如 768G 装不进 8 条就换 128G 条）而不是超界硬塞。
+            _cap = 0
+            try:
+                from app.services.skill_phases import baseline_qty_cap
+                _cap = baseline_qty_cap(cat_name, dict(ctx.get("kp_baseline_caps") or {}))
+            except Exception:
+                _cap = 0
+            if _cap > 0 and qty > _cap:
+                results.append({"row": row_key, "ok": False, "error": "qty_over_capacity",
+                                "message": (f"qty={qty} 超出已锁定机型该类目物理上限 {_cap}"
+                                            "（GPU 位/内存槽/盘位/CPU 路）——换更大单条容量的料"
+                                            "凑总量，或与客户确认换机型")})
                 continue
         substitute = bool(p.get("substitute"))
         # 抽屉字段「必填」= 该行必须落在最终方案；是否反问是运行时判定，不是字段静态开关：

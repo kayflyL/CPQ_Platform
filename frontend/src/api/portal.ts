@@ -311,7 +311,9 @@ export interface PortalOppCard {
   chassis_form: string
   purchase_qty: number
   industry: string
+  order_type: string
   config_count: number
+  quotation_count: number
   result: string
   created_at: string
   updated_at: string
@@ -326,32 +328,11 @@ export interface PortalOppSummary {
   done: number
 }
 
-export interface PortalTaskItem {
-  opportunity_id: string
-  customer_name: string
-  sales_person: string
-  source_actor: string
-  summary: string
-  config_summary: string
-  amount_text: string
-  current_node: string
-  current_node_label: string
-  flow_status: string
-  assignee: string
-  updated_at: string
-}
-
-export interface PortalTaskSummary {
+/** 节点任务模式（node=boming|costing|quoting）下 /api/portal/opps 的 summary */
+export interface PortalOppNodeSummary {
   total: number
   today: number
   mine: number
-  pool: number
-}
-
-export interface PortalTasksResponse {
-  items: PortalTaskItem[]
-  total: number
-  summary: PortalTaskSummary
 }
 
 export interface PortalAssignmentRule {
@@ -361,6 +342,20 @@ export interface PortalAssignmentRule {
   assignee_name: string
   created_at: string
   updated_at: string
+}
+
+export interface PricingApproval {
+  id: number
+  opportunity_id: string
+  quotation_id: string
+  margin_pct: number
+  threshold: number
+  status: 'pending' | 'approved' | 'rejected'
+  requested_by: string
+  decided_by: string
+  decided_at: string
+  comment: string
+  created_at: string
 }
 
 export interface PortalTransferRecord {
@@ -374,18 +369,52 @@ export interface PortalTransferRecord {
   actor: string
 }
 
+/** 调度快照：单节点负载（处理人姓名→活跃任务数） */
+export interface DispatchNodeLoad {
+  key: string
+  label: string
+  workload: Array<{ name: string; count: number }>
+  unassigned_count: number
+}
+
+/** 调度快照：无主任务（当前节点无处理人的活跃流程） */
+export interface DispatchStuckItem {
+  opportunity_id: string
+  customer_name: string
+  flow_id: string
+  current_node: string
+  node_label: string
+  updated_at: string
+  stuck_days: number
+  suggest: string
+}
+
 export interface PortalDispatchData {
   businesses: Array<{ user_id: string; name: string }>
   rules: PortalAssignmentRule[]
-  unassigned: Record<string, number>
   transfers: PortalTransferRecord[]
+  nodes: DispatchNodeLoad[]
+  stuck: DispatchStuckItem[]
+  /** owner_user_id → node_key → 活跃任务数 */
+  matrix: Record<string, Record<string, number>>
 }
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
+/** 工作台「待处理事项」单项（后端 /api/portal/todo-summary） */
+export interface TodoSummaryItem {
+  key: string
+  label: string
+  count: number
+  level: 'hot' | 'act' | 'dim'
+  to: string
+}
+
 export const portalApi = {
-  oppCards: (params?: { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: string }) =>
-    RESP<{ cards: PortalOppCard[]; total: number; summary: PortalOppSummary }>(axios.get('/api/portal/opps', { params })),
+  /** 待处理事项：按当前账号角色返回口径化计数（工作台 hero 角标）+ 全局流程阶段分布（流程条） */
+  todoSummary: () => RESP<{ role: string; items: TodoSummaryItem[]; stages?: Record<string, number> }>(axios.get('/api/portal/todo-summary')),
+  oppCards: (params?: { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: string; node?: string; scope?: 'mine' | 'all' }) =>
+    RESP<{ cards: PortalOppCard[]; total: number; summary: PortalOppSummary | PortalOppNodeSummary }>(axios.get('/api/portal/opps', { params })),
   opp: (oppId: string) => RESP<PortalOpp>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}`)),
   board: (oppId: string) => RESP<PortalBoard>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/board`)),
   requirements: (oppId: string) =>
@@ -410,7 +439,7 @@ export const portalApi = {
   listBomSchemes: (oppId: string) =>
     RESP<{ bom_schemes: BomScheme[] }>(
       axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes`)),
-  saveBomSchemeDraft: (oppId: string, data: { scheme_id?: number | null; flow_card_id?: number | null; name: string; configs: PortalSheetConfig[]; config_relation?: string; primary_config?: string }) =>
+  saveBomSchemeDraft: (oppId: string, data: { scheme_id?: number | null; expected_updated_at?: string; flow_card_id?: number | null; name: string; configs: PortalSheetConfig[]; config_relation?: string; primary_config?: string }) =>
     RESP<{ scheme: BomScheme; bom_schemes: BomScheme[] }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/draft`, data)),
   submitBomScheme: (oppId: string, schemeId: number, assignee_name = '') =>
@@ -424,6 +453,7 @@ export const portalApi = {
       axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets`)),
   saveCostSheetDraft: (oppId: string, data: {
     sheet_id?: number | null
+    expected_updated_at?: string
     flow_card_id?: number | null
     name: string
     configs: PortalSheetConfig[]
@@ -438,9 +468,12 @@ export const portalApi = {
   deleteCostSheet: (oppId: string, sheetId: number) =>
     RESP<{ ok: boolean; cost_sheets: CostSheet[] }>(
       axios.delete(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/${sheetId}`)),
-  uploadCostSheet: (oppId: string, file: File) => {
+  uploadCostSheet: (oppId: string, file: File, parseOverrides?: Record<string, any>) => {
     const fd = new FormData()
     fd.append('file', file)
+    if (parseOverrides && Object.keys(parseOverrides).length) {
+      fd.append('parse_overrides', JSON.stringify(parseOverrides))
+    }
     return RESP<{ sheet: CostSheet; cost_sheets: CostSheet[] }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/cost-sheets/upload`, fd, {
         headers: { 'Content-Type': 'multipart/form-data' },
@@ -462,9 +495,16 @@ export const portalApi = {
   submitQuote: (oppId: string, quotationId: string, data: { attachment_id: string; comment?: string }) =>
     RESP<{ ok: boolean; quotation_id: string; submitted_attachment_id: string; message: any }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/quotes/${encodeURIComponent(quotationId)}/submit`, data)),
-  tasks: (params?: { node?: string; scope?: 'mine' | 'pool' | 'all'; page?: number; page_size?: number }) =>
-    RESP<PortalTasksResponse>(axios.get('/api/portal/tasks', { params })),
+  oppPricingApprovals: (oppId: string) =>
+    RESP<{ approvals: PricingApproval[] }>(
+      axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/pricing-approvals`)),
+  decidePricingApproval: (oppId: string, approvalId: number, data: { decision: 'approve' | 'reject'; comment?: string }) =>
+    RESP<{ approval: PricingApproval }>(
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/pricing-approvals/${approvalId}/decide`, data)),
   dispatch: () => RESP<PortalDispatchData>(axios.get('/api/portal/dispatch')),
+  dispatchAutofill: (data?: { opportunity_ids?: string[] }) =>
+    RESP<{ filled: number; unresolved: number; failed: number }>(
+      axios.post('/api/portal/dispatch/autofill', data || {})),
   assignOptions: () =>
     RESP<{ businesses: Array<{ user_id: string; name: string }>; assignees: Record<string, string[]> }>(
       axios.get('/api/portal/assign-options')),
@@ -477,4 +517,6 @@ export const portalApi = {
     RESP<{ ok: boolean }>(axios.delete('/api/portal/assignment-rules', { data })),
   transfer: (oppId: string, data: { node_key: string; assignee_name: string }) =>
     RESP<{ flow: FlowInfo; nodes: FlowNode[] }>(axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/transfer`, data)),
+  assignTask: (oppId: string, data: { node_key: string; assignee_name: string; save_rule?: boolean }) =>
+    RESP<{ flow: FlowInfo; nodes: FlowNode[] }>(axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/assign`, data)),
 }

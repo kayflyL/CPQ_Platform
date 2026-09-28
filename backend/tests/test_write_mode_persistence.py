@@ -24,9 +24,9 @@ OPP = "opp-write-mode-1"
 EXT = {"server_type": "AI服务器", "platform_type": "Polaris", "chassis_form": "4U",
        "purchase_qty": 2, "warranty_years": 3,
        "kp_rows": [{"part_category": "内存", "description": "64G", "qty": 8}]}
-PLAN = {"model": "ZS22V2-P",
+PLAN = {"model": "ZS220 V2",
         "cfg": {"bom_excel_rows": [
-            {"category": "L6", "catalogue": "ZS22V2-P", "description": "整机", "qty": 1},
+            {"category": "L6", "catalogue": "ZS220 V2", "description": "整机", "qty": 1},
             {"category": "Key Parts", "catalogue": "MEM-64G", "description": "64G RDIMM", "qty": 8},
         ]},
         "summary": {"l6_cost": 1000.0, "kp_cost": 200.0, "total_cost": 1200.0}}

@@ -26,6 +26,8 @@ class CapabilitySpec:
     default_tools: tuple[str, ...]
     serves_slot: bool = False
     mechanism_tools: tuple[str, ...] = ()
+    # 机制锁因（抽屉 tooltip 用）：说明这些动词为什么不可摘（承载哪条协议）。
+    mechanism_reason: str = ""
 
     def effective_tools(self) -> tuple[str, ...]:
         """节点实际可用工具 = default_tools ∪ mechanism_tools（去重保序）。"""
@@ -40,22 +42,27 @@ class CapabilitySpec:
             "serves_slot": self.serves_slot,
             "default_tools": list(self.default_tools),
             "mechanism_tools": list(self.mechanism_tools),
+            "mechanism_reason": self.mechanism_reason,
         }
 
 
 SPECS: dict[str, CapabilitySpec] = {
     "input": CapabilitySpec("input", "入口", "input", ()),
+    # 通用智能体节点：workflow 型 skill 的自由大脑（趋势分析等），默认只读数据
+    "agent": CapabilitySpec("agent", "通用智能体", "agent", ("query_data",)),
     "agent_fill": CapabilitySpec(
         "agent_fill", "智能对话填表 Agent", "agent_fill",
         # 目录接地改为提示词注入（catalog_options.catalog_whitelist），不再挂浏览工具（2026-08-29 步骤2 退役）
         (),
         serves_slot=True,
         mechanism_tools=("fill_requirement", "ask_user"),
+        mechanism_reason="登记协议 + 缺口反问协议依赖：摘掉后节点无法登记、也无法把缺口升格成提问",
     ),
     "model_reason": CapabilitySpec(
         "model_reason", "机型选型", "model_reason",
         ("choose_model",), serves_slot=True,
         mechanism_tools=("choose_model",),
+        mechanism_reason="落锁协议依赖：锁定唯一通道，摘掉后机型永远无法落定",
     ),
     "kp_reason": CapabilitySpec(
         "kp_reason", "配件选型", "kp_reason",
@@ -64,6 +71,7 @@ SPECS: dict[str, CapabilitySpec] = {
         ("query_parts", "inspect_parts", "select_parts"),
         serves_slot=True,
         mechanism_tools=("query_parts", "select_parts", "ask_user"),
+        mechanism_reason="找料/落料/行反问协议依赖：摘掉后配件行无法召回、无法落地或无法向客户拍板",
     ),
     "compose": CapabilitySpec("compose", "BOM 组装", "compose", (), serves_slot=True),
     "output": CapabilitySpec("output", "输出", "output", ()),

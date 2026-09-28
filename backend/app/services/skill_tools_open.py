@@ -23,7 +23,7 @@ def _brief_specs(specs, n: int = 6) -> dict:
 
 
 def tool_open_part(args: dict) -> dict:
-    """【任务期工具】open_part：打开一颗料，读它的完整规格（直接回库读，不靠留底）。
+    """【需求分析流程工具】open_part：打开一颗料，读它的完整规格（直接回库读，不靠留底）。
 
     query_parts 的 concise 候选只带前 8 个规格键、值截 28 字符，要点开细看时用本工具。
     name（料号名，可带 category 收窄）或 part_id（库内行号）都能打开；库里没有就如实说没有。
@@ -31,7 +31,7 @@ def tool_open_part(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "inspect_parts(action=\"part\") 仅在任务期的配件选配环节可用"}
+                "message": "inspect_parts(action=\"part\") 仅在需求分析流程的配件选配环节可用"}
     a = args or {}
     part_id = str(a.get("part_id") or "").strip()
     name = str(a.get("name") or "").strip()
@@ -88,7 +88,7 @@ def tool_open_part(args: dict) -> dict:
 
 
 def tool_open_row(args: dict) -> dict:
-    """【任务期工具】open_row：打开一行**待选型行**，回它的状态、库内候选与未决原因。
+    """【需求分析流程工具】open_row：打开一行**待选型行**，回它的状态、库内候选与未决原因。
 
     与 _kp_status_rows 的行状态回传互补：那份只给 row_id/类目/结局（紧凑，每次工具调用都带）；
     这里给**单行**的决策上下文——描述/数量/客户是否写明/当前结局/库内按该行描述召回的候选。
@@ -97,7 +97,7 @@ def tool_open_row(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "inspect_parts(action=\"row\") 仅在任务期的配件选配环节可用"}
+                "message": "inspect_parts(action=\"row\") 仅在需求分析流程的配件选配环节可用"}
     a = args or {}
     rid = str(a.get("row_id") or "").strip()
     rk_arg = str(a.get("row") or "").strip()
@@ -213,7 +213,7 @@ def _spec_profile(rows: list, *, max_keys: int = 12, max_values: int = 5) -> tup
 
 
 def tool_open_category(args: dict) -> dict:
-    """【任务期工具】open_category：打开一个**类目**的「目录页」——库内叫什么、多少件、有哪些 specs
+    """【需求分析流程工具】open_category：打开一个**类目**的「目录页」——库内叫什么、多少件、有哪些 specs
     字段（各出现多少件、取值样例、是数值还是文本）、价格区间、几颗料名样例（认命名习惯用）、
     以及下一步怎么检索。**只读：零写入**——本页返回的料名仅供认路、不是候选；
     要锁定按返回的下一步去检索，再用 select_parts 按料号名落行。
@@ -224,7 +224,7 @@ def tool_open_category(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "inspect_parts(action=\"category\") 仅在任务期的配件选配环节可用"}
+                "message": "inspect_parts(action=\"category\") 仅在需求分析流程的配件选配环节可用"}
     cat = str((args or {}).get("category") or "").strip()
     from app.services.part_selector import (KPRepository, _category_index,
                                             _resolve_db_category, _series_ok)
@@ -325,7 +325,7 @@ def _snippet(text: str, frag: str, *, pad: int = 24, cap: int = 80) -> str:
 
 
 def tool_grep_parts(args: dict) -> dict:
-    """【任务期工具】grep_parts：在配件库里**字面/正则搜索**——扫每颗件的名称与 specs 取值，
+    """【需求分析流程工具】grep_parts：在配件库里**字面/正则搜索**——扫每颗件的名称与 specs 取值，
     回「哪个类目、哪颗料、哪个字段、命中了什么」，用于按型号/编码/接口词找料（9361、CX6、NVMe）。
 
     与 query_parts 的分工：query_parts 是「按类目+规格过滤取候选」；grep 是「拿一个词扫全库，
@@ -340,7 +340,7 @@ def tool_grep_parts(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "inspect_parts(action=\"grep\") 仅在任务期的配件选配环节可用"}
+                "message": "inspect_parts(action=\"grep\") 仅在需求分析流程的配件选配环节可用"}
     a = args or {}
     pattern = str(a.get("pattern") or "").strip()
     if not pattern:

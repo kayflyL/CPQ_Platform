@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from unittest.mock import patch
 
 MODEL = {
-    "id": 1, "name": "ESA24V3-P", "base_config_id": 100,
+    "id": 1, "name": "ESA240 V3", "base_config_id": 100,
     "server_type_id": 1, "use": "AI", "product_content": "x",
 }
 BC = {"id": 100, "model_id": 1, "series": "Orion", "form": "4U",

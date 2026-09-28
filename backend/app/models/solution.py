@@ -2,7 +2,8 @@
 
 解决方案是「按场景沉淀的可复用服务器方案」：每个方案对应一个应用场景。
 正文 content_md 为一段 Markdown（需求要点/配置思路等章节），详情页整段渲染；
-适配平台 platforms 为结构化卡片 [{name, spec, link?}]，带 link 可跳转，均不带价格。
+适配平台 platforms 为结构化卡片 [{name, spec, link?, model_id?}]，model_id 绑定机型目录（l6.server_models），
+详情页优先按 model_id 跳机型详情页 /servers/models/:id；均不带价格。
 key 为稳定业务键（如 ai-infer），供前端路由 /strategies/solutions/:key 使用。
 """
 from typing import Optional

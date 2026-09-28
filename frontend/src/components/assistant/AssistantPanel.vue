@@ -1,7 +1,7 @@
 <template>
   <Teleport :disabled="embedded || inset" to="body">
     <transition name="assistant-panel">
-      <div v-if="embedded || open" class="assistant-panel" :class="{ 'assistant-panel--embedded': embedded, 'assistant-panel--inset': inset, 'ap-two-pane': showContacts, 'ap-mobile': isMobile && !embedded }" :style="panelStyle">
+      <div v-if="embedded || open" class="assistant-panel" :class="{ 'assistant-panel--embedded': embedded, 'assistant-panel--inset': inset, 'ap-two-pane': showContacts, 'ap-mobile': isMobile && !embedded, 'ap-fullscreen': apFullscreen }" :style="panelStyle">
         <!-- 左栏：团队群 + 联系人（按账号权限过滤；可访问 ≥2 个角色才出现） -->
         <aside
           v-if="showContacts"
@@ -98,6 +98,31 @@
                   class="ap-artifact-card"
                 />
               </div>
+              <!-- 文件产物（输出节点 artifacts 渲染的 PDF 报告等）：文件卡 -->
+              <div v-else-if="m.kind === 'file'" class="ap-msg role-assistant ap-msg-result">
+                <div class="ap-msg-head">
+                  <div
+                    class="ap-avatar"
+                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
+                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
+                  >
+                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
+                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
+                  </div>
+                  <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
+                </div>
+                <div class="ap-file-card">
+                  <span class="ap-file-icon">PDF</span>
+                  <span class="ap-file-main">
+                    <span class="ap-file-title">{{ fileOf(m).title || fileOf(m).filename || '报告文件' }}</span>
+                    <span class="ap-file-meta">{{ fileOf(m).filename }}{{ fileSizeText(fileOf(m).size) ? ' · ' + fileSizeText(fileOf(m).size) : '' }}</span>
+                  </span>
+                  <span class="ap-file-actions">
+                    <button type="button" class="ap-file-btn" @click="onDownloadFile(fileOf(m))">下载</button>
+                    <button type="button" class="ap-file-btn" @click="onPreviewFile(fileOf(m))">预览</button>
+                  </span>
+                </div>
+              </div>
               <!-- 普通消息：与 AI 办公室角色聊天共用公共消息组件 -->
               <AssistantMessageItem
                 v-else
@@ -151,6 +176,7 @@
           :disabled="sending || running"
           :sending="sending"
           :running="running"
+          :queued="queuedCount"
           :members="preview ? [] : (view === 'group' ? contacts : [])"
           :skills="composerSkills"
           :show-skills="!preview"
@@ -168,6 +194,17 @@
 
         <!-- 右栏：新增对话 / 会话记录 / 收起（扣子式窄条，随视口伸缩） -->
         <aside v-if="showRightBar" class="ap-right" @mousedown.stop>
+          <!-- 全屏 ⇄ 浮动切换：仅桌面浮动面板出现；Esc 退出 -->
+          <button
+            v-if="canToggleFullscreen"
+            class="ap-icon-btn"
+            type="button"
+            :title="apFullscreen ? '退出全屏（Esc）' : '全屏'"
+            @click="apFullscreen = !apFullscreen"
+          >
+            <FullscreenExitOutlined v-if="apFullscreen" />
+            <FullscreenOutlined v-else />
+          </button>
           <!-- 收起：右上方固定位置（门户/浮动一致） -->
           <button class="ap-icon-btn ap-close" type="button" title="收起" @click="emit('update:open', false)">
             <CloseOutlined />
@@ -186,8 +223,8 @@
           </button>
         </aside>
 
-        <!-- 缩放手柄：仅桌面浮动面板 -->
-        <template v-if="!embedded && !preview && !isMobile && !inset">
+        <!-- 缩放手柄：仅桌面浮动面板（全屏态隐藏） -->
+        <template v-if="!embedded && !preview && !isMobile && !inset && !apFullscreen">
           <span class="ap-resize ap-resize--e" @mousedown.prevent="startResize('e', $event)"></span>
           <span class="ap-resize ap-resize--s" @mousedown.prevent="startResize('s', $event)"></span>
           <span class="ap-resize ap-resize--se" @mousedown.prevent="startResize('se', $event)"></span>
@@ -238,6 +275,19 @@
             </aside>
           </div>
         </transition>
+
+        <!-- 文件预览：PDF 报告 objectURL iframe（鉴权由 blob 拉取承担） -->
+        <transition name="ap-fade">
+          <div v-if="filePreviewUrl" class="ap-file-preview-mask" @click="closeFilePreview">
+            <div class="ap-file-preview" @click.stop>
+              <div class="ap-file-preview-head">
+                <span>报告预览</span>
+                <button type="button" title="关闭" @click="closeFilePreview">✕</button>
+              </div>
+              <iframe :src="filePreviewUrl" class="ap-file-preview-frame" title="报告预览"></iframe>
+            </div>
+          </div>
+        </transition>
       </div>
     </transition>
 
@@ -246,8 +296,10 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { message } from 'ant-design-vue'
 import {
   PlusOutlined, CloseOutlined, HistoryOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
+  FullscreenOutlined, FullscreenExitOutlined,
 } from '@ant-design/icons-vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
@@ -260,6 +312,7 @@ import TaskStepper from '@/components/assistant/TaskStepper.vue'
 import { assistantApi, type AssistantThread } from '@/api/assistant'
 import { officeApi } from '@/api/office'
 import { usePetModelStore } from '@/store/petModel'
+import { downloadOfficeFile, previewOfficeFileUrl } from '@/utils/fileDownload'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -267,6 +320,7 @@ const props = withDefaults(defineProps<{
   preview?: boolean
   initialRoleKey?: string
   entryPoint?: string
+  workflowKey?: string
   inset?: boolean
   assistant?: ReturnType<typeof useAssistant> | null
 }>(), {
@@ -274,6 +328,7 @@ const props = withDefaults(defineProps<{
   preview: false,
   initialRoleKey: '',
   entryPoint: 'floating_assistant',
+  workflowKey: '',
   inset: false,
   assistant: null,
 })
@@ -290,7 +345,7 @@ const chat = props.assistant || ownAssistant!
 const petModel = usePetModelStore()
 
 const {
-  currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase, taskPause,
+  currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, queuedCount, nodeTraces, taskTitle, taskPhase, taskPause,
   loadThreads, selectThread, send, contextUsage, disconnectWs,
   launchWorkflow,
   activeRoleKey, switchRole, createPreviewThread, destroyPreview, resetPreview: resetChatPreview, stop,
@@ -312,13 +367,66 @@ function artifactFor(m: { kind?: string; data?: string }): { entityType: string;
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+
+// ── 文件产物（kind=file 消息卡：PDF 报告等）──
+function fileOf(m: { kind?: string; data?: string }): Record<string, any> {
+  try {
+    const d = typeof m.data === 'string' ? JSON.parse(m.data) : (m.data || {})
+    return d && typeof d === 'object' ? d : {}
+  } catch {
+    return {}
+  }
+}
+function fileSizeText(size: any): string {
+  const n = Number(size)
+  if (!n || n <= 0) return ''
+  return n >= 1048576 ? `${(n / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`
+}
+const filePreviewUrl = ref('')
+async function onDownloadFile(f: Record<string, any>) {
+  if (!f?.url) return
+  try {
+    await downloadOfficeFile(String(f.url), String(f.filename || '报告.pdf'))
+  } catch {
+    message.error('文件下载失败')
+  }
+}
+async function onPreviewFile(f: Record<string, any>) {
+  if (!f?.url) return
+  try {
+    closeFilePreview()
+    filePreviewUrl.value = await previewOfficeFileUrl(String(f.url))
+  } catch {
+    message.error('文件加载失败')
+  }
+}
+function closeFilePreview() {
+  if (filePreviewUrl.value) window.URL.revokeObjectURL(filePreviewUrl.value)
+  filePreviewUrl.value = ''
+}
+
 const { scrollToBottom } = useChatAutoScroll(messagesEl)
 const isMobile = ref(typeof window !== 'undefined' && window.innerWidth <= 760)
 const contactsCollapsed = ref(typeof window !== 'undefined' && isMobile.value)
+
+// ── 桌面全屏形态：浮动面板的整屏展示形态（浮动/内嵌/预览之外的整屏聊天）。
+// 仅浮动面板可切；全屏时禁拖拽/缩放，Esc 或再点一次退出，回浮动不丢会话（同一实例）。
+const apFullscreen = ref(false)
+const canToggleFullscreen = computed(() =>
+  !props.embedded && !props.inset && !props.preview && !isMobile.value)
+const exitFullscreenOnEsc = (e: KeyboardEvent) => {
+  if (e.key === 'Escape' && apFullscreen.value && props.open) apFullscreen.value = false
+}
+watch(() => props.open, (v) => {
+  if (!v) apFullscreen.value = false
+})
 watch([activeRoleKey, () => chat.colleagues?.value], () => {
   const c = (chat.colleagues?.value || []).find((x: any) => x?.role_key === activeRoleKey.value)
   petModel.setActive(activeRoleKey.value ?? null, c?.pet_model)
 }, { immediate: true })
+
+// ── 桌宠气泡：回复中的流式摘录喂给悬浮宠物（面板关着也能看到进度）──
+watch(streamingText, (t) => { petModel.setStreamTail(t || '') })
 
 // 技能流程是否运行中（用于画布 input 节点「运行」状态）
 const busy = computed(() => waitingAI.value || !!statusText.value || !!streamingText.value)
@@ -342,7 +450,7 @@ const activeColleagueName = computed(() =>
   activeColleague.value?.name || '方案助手',
 )
 
-// ── 输入区「+」技能菜单：技能库（Skill Studio）随库自动增减，只显示当前角色绑定项 ──
+// ── 输入区「+」工作流菜单：工作流库随库自动增减，只显示当前角色绑定项 ──
 const skillCatalog = ref<any[]>([])
 async function loadSkillCatalog() {
   try {
@@ -451,7 +559,7 @@ async function openGroup(forceNew = false) {
     }
     activeRoleKey.value = 'assistant'
     if (currentThreadId.value !== groupThread.value.thread_id) {
-      await selectThread(groupThread.value.thread_id)
+      await selectThread(groupThread.value.thread_id, { kind: 'group' })
     }
   } catch {
     /* ignore */
@@ -518,15 +626,19 @@ async function loadHistory() {
 async function openHistoryThread(t: AssistantThread) {
   historyOpen.value = false
   try {
+    // 渠道提示：群线程不带 colleague_role_key，必须显式声明 group，路由进群会话而不是 dm
+    const hint = view.value === 'group'
+      ? { kind: 'group' as const }
+      : { kind: 'dm' as const, roleKey: t.colleague_role_key || activeRoleKey.value }
     if (String(t.deleted_at || '').trim()) {
       // 归档会话恢复：后端自动把同角色当前活跃会话归档换位
       const restored = await assistantApi.threads.restore(t.thread_id)
       if (view.value === 'group') groupThread.value = restored
-      await selectThread(restored.thread_id)
+      await selectThread(restored.thread_id, hint)
       return
     }
     if (view.value === 'group') groupThread.value = t
-    await selectThread(t.thread_id)
+    await selectThread(t.thread_id, hint)
   } catch {
     /* ignore */
   }
@@ -611,8 +723,8 @@ const panelStyle = computed(() => {
   if (props.embedded || props.inset) return {}
   // 依赖 panelPos / viewportTick 触发重算（面板拖动或窗口缩放时跟着挪）
   void viewportTick.value
-  // 窄屏（手机）：面板占满全屏，不再锚定——像原生 App 的全屏聊天
-  if (typeof window !== 'undefined' && window.innerWidth <= 760) {
+  // 手机端与桌面全屏共用占满视口的一支：像原生 App 的全屏聊天
+  if (apFullscreen.value || (typeof window !== 'undefined' && window.innerWidth <= 760)) {
     return { left: '0px', top: '0px', right: 'auto', bottom: 'auto', width: '100vw', height: '100vh', maxHeight: '100vh' }
   }
   // 还没有初始化位置 → 回落 CSS 默认（右下角），避免面板飞到左上角
@@ -630,8 +742,8 @@ const panelStyle = computed(() => {
 function onResize() {
   isMobile.value = typeof window !== 'undefined' && window.innerWidth <= 760
   if (isMobile.value) contactsCollapsed.value = true
-  // 视口变化 → 把当前尺寸夹回新视口，并重夹面板位置
-  if (!props.embedded && !props.inset && panelPos.value) {
+  // 视口变化 → 把当前尺寸/位置夹回新视口，并重夹面板位置（全屏态无自由位，跳过）
+  if (!props.embedded && !props.inset && !apFullscreen.value && panelPos.value) {
     const next = clampPanelSize(panelW.value, panelH.value)
     panelW.value = next.width
     panelH.value = next.height
@@ -641,6 +753,7 @@ function onResize() {
 }
 onMounted(() => {
   window.addEventListener('resize', onResize)
+  window.addEventListener('keydown', exitFullscreenOnEsc)
   silentTimer = setInterval(() => {
     const silent = waitingAI.value && !thinkingText.value && !streamingText.value && !statusText.value
     silentSec.value = silent ? silentSec.value + 1 : 0
@@ -648,6 +761,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   window.removeEventListener('resize', onResize)
+  window.removeEventListener('keydown', exitFullscreenOnEsc)
   if (silentTimer) {
     clearInterval(silentTimer)
     silentTimer = null
@@ -664,7 +778,7 @@ let panelStart = { x: 0, y: 0 }
 let panelDragSize = { w: 680, h: 680 }
 
 function startDrag(e: MouseEvent) {
-  if (props.embedded || props.inset) return
+  if (props.embedded || props.inset || apFullscreen.value) return
   // 忽略关闭按钮点击
   if ((e.target as HTMLElement).closest('.ap-close')) return
   if (!panelPos.value) return
@@ -700,7 +814,7 @@ let resizeSize = { w: 0, h: 0 }
 let resizePanel = { x: 0, y: 0 }
 
 function startResize(edge: string, e: MouseEvent) {
-  if (props.embedded || props.inset || isMobile.value || !panelPos.value) return
+  if (props.embedded || props.inset || apFullscreen.value || isMobile.value || !panelPos.value) return
   resizing = true
   resizeEdge = edge
   resizeStart = { x: e.clientX, y: e.clientY }
@@ -740,11 +854,20 @@ function stopResize() {
   document.body.style.userSelect = ''
 }
 
+// 关面板不断在途回合：回合跑完再断 WS（置位后由流结束回调消费）
+let closeWhenIdle = false
+watch([waitingAI, running, sending], ([a, b, c]) => {
+  if (closeWhenIdle && !a && !b && !c) {
+    closeWhenIdle = false
+    disconnectWs()
+  }
+})
 watch(
   () => props.open,
   async (v) => {
     const active = props.embedded || v
     if (active) {
+      closeWhenIdle = false // 重新打开：撤销延迟断连，连接归面板接管
       ensurePanelPos()
       await Promise.all([loadThreads(), loadSkillCatalog()])
       if (props.embedded && props.preview) {
@@ -755,7 +878,12 @@ watch(
         if (lead) await openDm(lead)
       }
     } else {
-      disconnectWs()
+      // 关面板不断在途回合的连接：回合还在跑就保持 socket（桌宠实时气泡依赖活性流），跑完自动断
+      if (waitingAI.value || running.value || sending.value) {
+        closeWhenIdle = true
+      } else {
+        disconnectWs()
+      }
     }
   },
   { immediate: true },
@@ -784,7 +912,8 @@ async function sendText(text: string, optionSlot?: string | null,
     await createPreviewThread()
   }
   const summary = await summarize()
-  await send(content, summary, optionSlot || null, cardSelections || null)
+  await send(content, summary, optionSlot || null, cardSelections || null,
+             props.workflowKey ? props.workflowKey : null)
 }
 
 // 结构化选项点击：value 作为消息内容，slot 显式传后端落槽（缺失会导致反问重复）
@@ -822,7 +951,7 @@ function optionInteractive(m: any): boolean {
   return !optionAnswered(m) && !sending.value && !running.value
 }
 
-/** 预览会话重置（Skill Studio「重置测试」用）：purge 线程并清空聊天/轨迹/状态。 */
+/** 预览会话重置（工作流画布「重置测试」用）：purge 线程并清空聊天/轨迹/状态。 */
 async function resetPreview() {
   await resetChatPreview()
 }
@@ -856,6 +985,12 @@ async function onQuickAction(action: QuickAction) {
   display: flex;
   flex-direction: row;
   overflow: hidden;
+}
+
+/* 桌面全屏形态：占满视口（panelStyle 内联样式承担定位），只负责去掉浮窗圆角与投影 */
+.assistant-panel.ap-fullscreen {
+  border-radius: 0;
+  box-shadow: none;
 }
 
 /* 上下文水位 */
@@ -1759,6 +1894,118 @@ async function onQuickAction(action: QuickAction) {
   background: var(--cpq-overlay-danger10);
   border-color: var(--cpq-overlay-danger15);
 }
+
+/* ── 文件产物卡（PDF 报告等）── */
+.ap-file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--cpq-border-light, #d9e2f0);
+  border-radius: 10px;
+  background: var(--cpq-bg-glass, #fff);
+}
+.ap-file-icon {
+  flex: none;
+  min-width: 38px;
+  height: 30px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: #fff;
+  background: #d5453c;
+  border-radius: 4px;
+}
+.ap-file-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ap-file-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary, #1f2430);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-file-meta {
+  font-size: 11.5px;
+  color: var(--cpq-text-muted, #8a94a6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ap-file-actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+}
+.ap-file-btn {
+  border: 1px solid var(--cpq-border-light, #c9d6ea);
+  background: transparent;
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 12px;
+  color: var(--cpq-accent-primary, #1677ff);
+  cursor: pointer;
+}
+.ap-file-btn:hover {
+  background: var(--cpq-accent-primary10, rgba(22, 119, 255, 0.08));
+}
+
+/* ── 文件预览（PDF iframe modal）── */
+.ap-file-preview-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+.ap-file-preview {
+  width: min(760px, 92%);
+  height: min(86vh, 760px);
+  display: flex;
+  flex-direction: column;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--cpq-bg-elevated, #fff);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
+}
+.ap-file-preview-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary, #1f2430);
+  border-bottom: 1px solid var(--cpq-border-light, #e5eaf3);
+}
+.ap-file-preview-head button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: var(--cpq-text-muted, #8a94a6);
+  font-size: 14px;
+  line-height: 1;
+}
+.ap-file-preview-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+}
+
 
 /* ── 需求分析：反问回复区 ── */
 .ap-reply-footer {

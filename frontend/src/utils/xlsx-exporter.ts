@@ -51,6 +51,7 @@ export interface ResolvedSheet {
   merges: ResolvedMerge[]
   rowHeights: Record<number, number> // Univer px
   colWidths: Record<number, number> // Univer px
+  hiddenCols?: number[] // 隐藏列（0-indexed，来自快照 columnData.hd，如敏感价格列掩蔽）
 }
 export interface ResolvedWorkbook {
   sheets: ResolvedSheet[]
@@ -188,6 +189,10 @@ export async function resolvedWorkbookToXlsx(wb: ResolvedWorkbook): Promise<Blob
     // 列宽：Univer px → exceljs 字符宽（≈ px / 8.66，与 excel_to_snapshot 的 *8.66 互逆）
     for (const [k, w] of Object.entries(sh.colWidths)) {
       ws.getColumn(Number(k) + 1).width = w / 8.66
+    }
+    // 隐藏列（敏感列掩蔽）：导出文件中保持隐藏
+    for (const col of sh.hiddenCols || []) {
+      ws.getColumn(col + 1).hidden = true
     }
   }
 

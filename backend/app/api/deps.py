@@ -132,27 +132,31 @@ def user_can_access_opportunity(user: Optional[dict], opportunity: Optional[dict
     if user_has_permission(user, "page.opportunities_all"):
         return True
     owner_user_id = opportunity.get("owner_user_id") or ""
-    if owner_user_id:
-        return owner_user_id == (user.get("user_id") or "")
     sales_person = opportunity.get("sales_person") or ""
     personal_name = user.get("name") or ""
-    if sales_person and sales_person == personal_name:
+    if owner_user_id:
+        # owner 命中即放行；未命中继续走指派人判断（否则 te/cost/quote 被挡在详情页外）
+        if owner_user_id == (user.get("user_id") or ""):
+            return True
+    elif sales_person and sales_person == personal_name:
         return True
-    # 流程当前节点处理人（技术/成本/报价）也允许进入统一审批流详情
+    # 流程任一节点的指派人（含历史/被退回的上游）都可进入详情页：
+    # 自己阶段提交后要能回看下游进展，被退回时也要能进来改。
+    # 指派存储为 user_id（迁移期兼容姓名字符串），双格式匹配。
     opportunity_id = opportunity.get("opportunity_id") or ""
     if opportunity_id:
-        from app.repository.flow_repo import FlowRepository
+        from app.repository.flow_repo import FlowRepository, match_assignee
         flow_repo = FlowRepository()
         try:
             flow = flow_repo.get_flow(opportunity_id)
         finally:
             flow_repo.close()
         if flow:
-            current = flow.get("current_node") or "requirement"
-            if current == "assign":
-                current = "requirement"
-            assignee = (flow.get("assignees") or {}).get(current) or ""
-            return bool(assignee and assignee == personal_name)
+            uid = user.get("user_id") or ""
+            return any(
+                match_assignee(v, uid, personal_name)
+                for v in (flow.get("assignees") or {}).values()
+            )
     return False
 
 

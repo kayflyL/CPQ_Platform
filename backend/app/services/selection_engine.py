@@ -2,7 +2,7 @@
 
 声明式 WHEN(条件)→THEN(动作) 规则求值。与前端 selectionEngine **共用同一份规则数据(DB)**，
 求值器双端维护、由对齐的测试（backend/tests/test_selection_engine.py ↔ selectionEngine.test.ts）锁语义一致。
-body schema 见 backend/app/repository/compatibility_rule_repo.DEFAULT_RULES：
+body schema（DB rules.compatibility_rules 唯一来源）：
   when: { all?:[cond], any?:[cond] } | cond     cond = { field, op, value }
   then: { action, ... }     action ∈ require/exclude/derive/filter/recommend
   字段寻址：kp.<category>.qty / kp.<category>.spec.<key> / config.series / config.sata_qty / opportunity.platform_type
@@ -281,7 +281,7 @@ _DRIVE_BLOB_HINTS = ("NVME", "SATA", "SAS")
 
 
 def _canonical_kp_cat(cat: str) -> str:
-    """KP 品类名 → 规则寻址用的标准键（对齐 DEFAULT_RULES 的 target：CPU/Memory/GPU）。"""
+    """KP 品类名 → 规则寻址用的标准键（CPU/Memory/GPU 等，与规则页 body 字段约定一致）。"""
     raw = str(cat or "")
     up = raw.upper()
     if "GPU" in up or "显卡" in raw:

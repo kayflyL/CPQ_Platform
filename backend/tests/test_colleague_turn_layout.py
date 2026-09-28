@@ -19,10 +19,10 @@ import pathlib
 OWNERS = {
     "colleague_prompt": [
         "_skill_library", "_resolved_skills", "_has_workflow_skills",
-        "_effective_tool_ids", "_effective_data_sources", "build_chat_config",
+        "_effective_tool_ids", "build_chat_config",
         "_style_hint", "_skill_prompt", "_workflow_hint", "_handoff_hint",
         "_memory_policy", "_short_term_history", "_skill_for_tool", "_memory_block",
-        "_user_name", "_schedule_memory_extraction", "_base_messages",
+        "_user_name", "_base_messages",
     ],
     "colleague_turn_io": [
         "_persist_and_broadcast", "_add_assistant_message", "_trace",
@@ -39,7 +39,10 @@ OWNERS = {
 }
 
 # 薄壳允许存在的实现（新增 = 你往壳里塞了实现，请搬到语义模块）
-SHELL_ALLOWED_DEFS = {"_drain_thread_queue", "_clear_thread_queue", "run_colleague_turn"}
+# turn_active（2026-09-13）：_THREAD_TURN_ACTIVE 集合的只读访问器，与队列/锁同属
+# 回合运行态事实（排队不算在跑），服务端给前端看门狗判终态用——留在壳里与队列作伴。
+SHELL_ALLOWED_DEFS = {"_drain_thread_queue", "_clear_thread_queue", "run_colleague_turn",
+                      "turn_active"}
 
 # 依赖方向：索引小的不许 import 索引大的
 LAYERS = ["colleague_prompt", "colleague_turn_io", "colleague_turn_runners",

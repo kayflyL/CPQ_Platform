@@ -4,8 +4,9 @@
  * 左栏：可点击流程时间线；中栏：每个节点一张工作卡；右栏：审批人/审批状态。
  * 需求单提交后进入 BOM 节点；BOM/成本/报价完成后由 board 接口自动带出到对应卡片。
  */
-import { ref, reactive, computed, onMounted, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import axios from 'axios'
 import {
   CheckCircleFilled,
   IdcardOutlined,
@@ -13,7 +14,10 @@ import {
   ToolOutlined,
   CalculatorOutlined,
   UpOutlined,
+  LeftOutlined,
+  MenuOutlined,
 } from '@ant-design/icons-vue'
+import dayjs from 'dayjs'
 import { portalApi } from '@/api/portal'
 import { projectApi } from '@/api'
 import type { FlowCard, PortalBoard, RequirementVersion, RequirementSlots } from '@/api/portal'
@@ -43,6 +47,7 @@ interface RequirementFormExpose {
 
 const props = defineProps<{
   opportunityId: string
+  updatedAt?: string
   legacyRequirementText?: string
   attachments?: FeedAttachment[]
   quotations?: Quotation[]
@@ -55,6 +60,7 @@ const emit = defineEmits<{
   (e: 'new-quotation'): void
   (e: 'upload-cost-sheet'): void
   (e: 'view-quotation', quotation: Quotation): void
+  (e: 'unfreeze-quotation', quotation: Quotation): void
   (e: 'set-primary', quotation: Quotation): void
   (e: 'rename-quotation', quotation: Quotation): void
   (e: 'delete-quotation', quotationId: string): void
@@ -93,10 +99,97 @@ const draftSaving = ref(false)
 const deletingDraft = ref(false)
 const activeRequirementVersion = ref<number | null>(null)
 const activeNode = ref<string>('requirement')
-const reqInfoOpen = ref(true)
-const requirementOpen = ref(true)
-const bomingOpen = ref(true)
-const costingOpen = ref(true)
+// 中栏工作卡默认折叠：只展开「当前待办」的卡，其余收起
+type CardKey = 'reqInfo' | 'requirement' | 'boming' | 'costing' | 'quoteUpstream' | 'quoteEditor'
+const cardOpen = reactive<Record<CardKey, boolean>>({
+  reqInfo: false,
+  requirement: false,
+  boming: false,
+  costing: false,
+  quoteUpstream: false,
+  quoteEditor: false,
+})
+const cardTouchedByUser = new Set<CardKey>()
+function toggleCard(key: CardKey) {
+  cardOpen[key] = !cardOpen[key]
+  cardTouchedByUser.add(key)
+}
+// 供受控子组件（QuoteWorkbench 面板）回写折叠态，同样视为用户已手动操作
+function setCardOpen(key: CardKey, value: boolean) {
+  cardOpen[key] = value
+  cardTouchedByUser.add(key)
+}
+
+// 左栏折叠：宽屏下的用户偏好（窄屏由 CSS 强制展开）
+const railCollapsedKey = 'cpq:opportunity:rail-collapsed'
+function readRailCollapsed() {
+  try {
+    return localStorage.getItem(railCollapsedKey) === '1'
+  } catch {
+    return false
+  }
+}
+const railCollapsed = ref(readRailCollapsed())
+
+// ── 手机端（≤768）：三栏 → 双抽屉。左抽屉=流程轨道（切节点导航），右抽屉=协作与动态，
+//     工作台独占全屏；桌面三栏不受影响 ──
+const isMobile = ref(false)
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const openDrawer = ref<null | 'rail' | 'dyn'>(null)
+const railDrawerOpen = computed({
+  get: () => openDrawer.value === 'rail',
+  set: (v: boolean) => { openDrawer.value = v ? 'rail' : null },
+})
+const dynDrawerOpen = computed({
+  get: () => openDrawer.value === 'dyn',
+  set: (v: boolean) => { openDrawer.value = v ? 'dyn' : null },
+})
+// 抽屉内选节点：收抽屉 + 走现有滚动定位链路
+function selectFromDrawer(key: string) {
+  openDrawer.value = null
+  scrollToNode(key)
+}
+function selectSubFromDrawer(key: string, index: number) {
+  openDrawer.value = null
+  scrollToSubstep(key, index)
+}
+// 阶段工具条：四步迷你进度（done/current 判定与 Rail 同源：approvals.state + flow.current_node）
+const stageSteps = computed(() =>
+  PROCESS_NODES.map((n, i) => ({
+    key: n.key,
+    short: ['业务', '技术', '成本', '报价'][i],
+    state: nodeIsDone(n.key) ? 'done' : currentFlowNode.value === n.key ? 'cur' : 'todo',
+  })),
+)
+// 动态未读：该商机未读通知数（notifications 表自带 opportunity_id；只读统计，不代用户标记已读）
+const dynUnread = ref(0)
+async function loadDynUnread() {
+  try {
+    const res = await axios.get('/api/notifications', { params: { unread_only: true, page_size: 100 } })
+    const items: any[] = res.data?.notifications || []
+    dynUnread.value = items.filter((n) => (n?.opportunity_id ?? n?.payload?.opportunity_id) === oppId).length
+  } catch { /* 静默降级：红点不显示 */ }
+}
+watch(openDrawer, (v) => { if (v === 'dyn') loadDynUnread() })
+
+onMounted(() => {
+  isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+  loadDynUnread()
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
+})
+function toggleRail() {
+  railCollapsed.value = !railCollapsed.value
+  try {
+    localStorage.setItem(railCollapsedKey, railCollapsed.value ? '1' : '0')
+  } catch {
+    /* ignore storage errors */
+  }
+}
 const activeNodeKey = 'cpq:opportunity:active-node:' + oppId
 let nodeInitialized = false
 watch(activeNode, (node) => {
@@ -105,6 +198,7 @@ watch(activeNode, (node) => {
   } catch {
     /* ignore storage errors */
   }
+  applyCardDefaults(node)
 })
 const detailOpen = ref(false)
 const detailKey = ref<string>('')
@@ -218,6 +312,63 @@ const processNodes = computed<ProcessNodeDef[]>(() =>
   }),
 )
 
+// 左栏底部信息区
+const railOwnerRows = computed(() => {
+  const o = opp.value
+  if (!o) return []
+  return [
+    { label: '业务', value: o.sales_person || '—' },
+    { label: 'FAE', value: o.fae || '—' },
+    { label: '报价人', value: o.quotation_person || '—' },
+  ]
+})
+
+const railUpdatedText = computed(() => {
+  const ts = props.updatedAt
+  return ts ? dayjs(ts).format('MM-DD HH:mm') : ''
+})
+
+function nodeIsDone(key: string) {
+  return approvals.value.find((a) => a.key === key)?.state === 'done'
+}
+
+// 子步骤完成标记：需求阶段按数据判断，其余阶段跟随节点状态
+const subDoneMap = computed<Record<string, boolean[]>>(() => ({
+  requirement: [!!opp.value?.customer_name, !!currentReq.value],
+  boming: [nodeIsDone('boming'), nodeIsDone('boming')],
+  costing: [nodeIsDone('costing'), nodeIsDone('costing')],
+  quoting: [nodeIsDone('quoting'), nodeIsDone('quoting')],
+}))
+
+// 中栏默认只展开当前待办卡；用户手动折叠过的卡不再被重置
+function applyCardDefaults(nodeKey: string) {
+  const next: Partial<Record<CardKey, boolean>> = {}
+  if (nodeKey === 'requirement') {
+    if (!opp.value?.customer_name) {
+      next.reqInfo = true
+      next.requirement = false
+    } else if (!currentReq.value) {
+      next.reqInfo = false
+      next.requirement = true
+    } else {
+      next.reqInfo = false
+      next.requirement = false
+    }
+  } else if (nodeKey === 'boming') {
+    next.boming = !nodeIsDone('boming')
+  } else if (nodeKey === 'costing') {
+    next.costing = !nodeIsDone('costing')
+  } else if (nodeKey === 'quoting') {
+    // 报价单节点：上游成本摘要 + 报价单工作区两面板同规则（未完成→展开，已完成→收起）
+    const open = !nodeIsDone('quoting')
+    next.quoteUpstream = open
+    next.quoteEditor = open
+  }
+  for (const key of Object.keys(next) as CardKey[]) {
+    if (!cardTouchedByUser.has(key)) cardOpen[key] = next[key] as boolean
+  }
+}
+
 const stepperNodes = computed(() =>
   processNodes.value.map((node) => {
     const isDone = node.state === 'done'
@@ -235,6 +386,13 @@ const stepperNodes = computed(() =>
 
 const bomLocked = computed(() => board.value?.bom?.locked ?? true)
 const costLocked = computed(() => board.value?.cost?.locked ?? true)
+const canWriteRequirement = computed(() => auth.can('action.flow.submit.requirement'))
+const canWriteBom = computed(() => auth.can('action.flow.submit.boming'))
+const canWriteCost = computed(() => auth.can('action.flow.submit.costing'))
+// 卡头的「新建方案/新建成本表」按钮经 expose 远调工作区（编辑器状态在工作区内部）
+interface WorkbenchExpose { openNew(): void }
+const bomWorkbenchRef = ref<WorkbenchExpose | null>(null)
+const costWorkbenchRef = ref<WorkbenchExpose | null>(null)
 const bomSchemes = computed(() => board.value?.bom_schemes || [])
 const costSheets = computed(() => board.value?.cost_sheets || [])
 const NODE_ORDER = ['requirement', 'boming', 'costing', 'quoting'] as const
@@ -352,6 +510,8 @@ function basicPayload() {
 
 function startBasicEdit() {
   syncBasicForm()
+  // 编辑表单渲染在折叠区内：点编辑即展开，否则看不见表单
+  setCardOpen('reqInfo', true)
   basicEditing.value = true
 }
 
@@ -400,6 +560,7 @@ async function loadBoard() {
       activeNode.value = saved && PROCESS_NODES.some((n) => n.key === saved) ? saved : normalizeFlowNode(res.flow?.current_node)
       nodeInitialized = true
     }
+    applyCardDefaults(activeNode.value)
     if (res.requirement) {
       setRequirementSlots(res.requirement?.slots || {})
     }
@@ -428,11 +589,34 @@ function scrollToNode(key: string) {
   })
 }
 
+// 小节点 → 中栏实体映射：第一段=工作卡，第二段=附件抽屉（与卡内「XX附件」按钮同源）
+const SUBSTEP_CARDS: Record<string, CardKey> = {
+  'requirement.0': 'reqInfo',
+  'requirement.1': 'requirement',
+  'boming.0': 'boming',
+  'boming.1': 'boming',
+  'costing.0': 'costing',
+  'costing.1': 'costing',
+  'quoting.0': 'quoteEditor',
+  'quoting.1': 'quoteEditor',
+}
+const SUBSTEP_ARCHIVES: Record<string, { categories: string[]; title: string }> = {
+  'boming.1': { categories: ['technical'], title: '方案附件' },
+  'costing.1': { categories: ['requirement'], title: '成本附件' },
+  'quoting.1': { categories: ['sent_quote'], title: '报价附件' },
+}
 function scrollToSubstep(key: string, index: number) {
   const sameNode = activeNode.value === key
+  const anchor = `${key}.${index}`
+  // 点小节点先展开对应工作卡（并记为用户已操作，避免 applyCardDefaults 折回去）
+  const cardKey = SUBSTEP_CARDS[anchor]
+  if (cardKey && !cardOpen[cardKey]) setCardOpen(cardKey, true)
+  // 附件类小节点：展开卡后直接打开对应附件抽屉
+  const archive = SUBSTEP_ARCHIVES[anchor]
+  if (archive) openArchive(archive.categories, archive.title)
   activeNode.value = key
   const doScroll = () => {
-    const target = document.querySelector(`[data-substep~="${key}.${index}"]`)
+    const target = document.querySelector(`[data-substep~="${anchor}"]`)
     const el = target || document.querySelector('.process-workbench')
     el?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
@@ -700,17 +884,47 @@ defineExpose({ reload: loadBoard })
 
 <template>
   <div class="bod-page">
-    
 
-    <div v-if="board" class="board-body">
+    <!-- 手机端阶段工具条：☰流程 → 左抽屉；①-④ 迷你进度（点击同开左抽屉）；动态 → 右抽屉 -->
+    <div v-if="isMobile && board" class="stagebar">
+      <button class="sb-btn" type="button" @click="railDrawerOpen = true"><MenuOutlined />流程</button>
+      <div class="sb-steps" @click="railDrawerOpen = true">
+        <template v-for="(s, i) in stageSteps" :key="s.key">
+          <span v-if="i > 0" class="sb-line" :class="{ done: stageSteps[i - 1].state === 'done' }"></span>
+          <span class="sb-step" :class="s.state">
+            <i>{{ s.state === 'done' ? '✓' : i + 1 }}</i>
+            <span>{{ s.short }}</span>
+          </span>
+        </template>
+      </div>
+      <button class="sb-btn" type="button" @click="dynDrawerOpen = true">
+        动态<span v-if="dynUnread" class="sb-badge">{{ dynUnread > 99 ? '99+' : dynUnread }}</span>
+      </button>
+    </div>
+
+    <div v-if="board" class="board-body" :class="{ 'rail-collapsed': railCollapsed }">
       <OpportunityProcessRail
+        v-if="!isMobile"
         class="board-rail"
         :nodes="stepperNodes"
         :active-node="activeNode"
         :disabled-keys="disabledNodeKeys"
+        :collapsed="railCollapsed"
+        :owner-rows="railOwnerRows"
+        :updated-text="railUpdatedText"
+        :sub-done="subDoneMap"
         @select="scrollToNode"
         @select-substep="scrollToSubstep"
       />
+      <button
+        v-if="!isMobile"
+        class="rail-toggle"
+        type="button"
+        :title="railCollapsed ? '展开左栏' : '收起左栏'"
+        @click="toggleRail"
+      >
+        <LeftOutlined />
+      </button>
 
       <a-spin :spinning="loading" class="board-spin">
         <Transition name="node-fade" mode="out-in">
@@ -718,7 +932,7 @@ defineExpose({ reload: loadBoard })
             <template v-if="activeNode === 'requirement'">
 
 <section v-if="opp" class="opp-info-panel rich-card" data-substep="requirement.0">
-      <header class="opp-info-head">
+      <header class="opp-info-head card-head-toggle" @click="toggleCard('reqInfo')">
         <div class="opp-info-title">
           <span class="rich-icon-badge"><IdcardOutlined /></span>
           <div class="opp-info-title-text">
@@ -726,19 +940,19 @@ defineExpose({ reload: loadBoard })
             <h4>{{ opp.customer_name || '未命名商机' }}</h4>
           </div>
         </div>
-        <div class="opp-info-tools">
+        <div class="opp-info-tools" @click.stop>
           <span v-if="!basicEditing" class="rich-status-check"><CheckCircleFilled /> 已填写</span>
           <template v-if="basicEditing">
             <a-button size="small" @click="cancelBasicEdit">取消</a-button>
             <a-button size="small" type="primary" :loading="basicSaving" @click="saveBasic">保存</a-button>
           </template>
           <a-button v-else size="small" @click="startBasicEdit">编辑商机信息</a-button>
-          <button class="card-chevron" :class="{ collapsed: !reqInfoOpen }" type="button" @click="reqInfoOpen = !reqInfoOpen">
+          <button class="card-chevron" :class="{ collapsed: !cardOpen.reqInfo }" type="button" @click.stop="toggleCard('reqInfo')">
             <UpOutlined />
           </button>
         </div>
       </header>
-      <div class="card-collapse" :class="{ collapsed: !reqInfoOpen }">
+      <div class="card-collapse" :class="{ collapsed: !cardOpen.reqInfo }">
         <div class="card-collapse-inner">
             <a-form v-if="basicEditing" layout="vertical" class="basic-form-grid">
                       <a-form-item label="业务">
@@ -779,7 +993,7 @@ defineExpose({ reload: loadBoard })
       </div>
     </section>
           <section class="requirement-workbench" data-substep="requirement.1">
-            <header class="rw-head">
+            <header class="rw-head card-head-toggle" @click="toggleCard('requirement')">
               <div class="rw-head-title">
                 <span class="rich-icon-badge"><FileTextOutlined /></span>
                 <div>
@@ -787,18 +1001,18 @@ defineExpose({ reload: loadBoard })
                   <h3>需求单工作台</h3>
                 </div>
               </div>
-              <div class="rw-head-actions">
+              <div class="rw-head-actions" @click.stop>
                 <span v-if="currentReq" class="rich-status-check"><CheckCircleFilled /> 已发起</span>
                 <AttachmentUploadButton :opportunity-id="oppId" category="lead_requirement" label="上传附件" />
                 <a-button size="small" @click="openArchive(['lead_requirement'], '我的附件')">我的附件</a-button>
-                <a-button type="primary" size="small" @click="startNewDraft">新建需求</a-button>
-                <button class="card-chevron" :class="{ collapsed: !requirementOpen }" type="button" @click="requirementOpen = !requirementOpen">
+                <a-button v-if="canWriteRequirement" type="primary" size="small" @click="startNewDraft">新建需求</a-button>
+                <button class="card-chevron" :class="{ collapsed: !cardOpen.requirement }" type="button" @click.stop="toggleCard('requirement')">
                   <UpOutlined />
                 </button>
               </div>
             </header>
 
-            <div class="card-collapse" :class="{ collapsed: !requirementOpen }">
+            <div class="card-collapse" :class="{ collapsed: !cardOpen.requirement }">
               <div class="card-collapse-inner">
               <RecordTable
                 title="需求单"
@@ -901,7 +1115,7 @@ defineExpose({ reload: loadBoard })
           class="rich-card card-collapsible"
           data-substep="boming.0 boming.1"
         >
-          <header class="card-shell-head">
+          <header class="card-shell-head card-head-toggle" @click="toggleCard('boming')">
             <div class="card-shell-title">
               <span class="rich-icon-badge"><ToolOutlined /></span>
               <div>
@@ -909,18 +1123,23 @@ defineExpose({ reload: loadBoard })
                 <h3>方案配置</h3>
               </div>
             </div>
-            <button class="card-chevron" :class="{ collapsed: !bomingOpen }" type="button" @click="bomingOpen = !bomingOpen">
-              <UpOutlined />
-            </button>
+            <div class="card-shell-actions" @click.stop>
+              <AttachmentUploadButton :opportunity-id="oppId" category="technical" label="上传附件" />
+              <a-button size="small" @click="openArchiveFromNode({ categories: ['technical'], title: '方案附件' })">方案附件</a-button>
+              <a-button v-if="canWriteBom" type="primary" size="small" @click="bomWorkbenchRef?.openNew()">新建方案</a-button>
+              <button class="card-chevron" :class="{ collapsed: !cardOpen.boming }" type="button" @click.stop="toggleCard('boming')">
+                <UpOutlined />
+              </button>
+            </div>
           </header>
-          <div class="card-collapse" :class="{ collapsed: !bomingOpen }">
+          <div class="card-collapse" :class="{ collapsed: !cardOpen.boming }">
             <div class="card-collapse-inner">
               <BomSchemeWorkbench
+                ref="bomWorkbenchRef"
                 :board="board"
-                :readonly="isAdmin ? false : bomLocked"
+                :readonly="!canWriteBom"
                 @card-updated="upsertFlowCard"
                 @changed="loadBoard"
-                @open-archive="openArchiveFromNode"
               />
             </div>
           </div>
@@ -930,27 +1149,30 @@ defineExpose({ reload: loadBoard })
           class="rich-card card-collapsible"
           data-substep="costing.0 costing.1"
         >
-          <header class="card-shell-head">
+          <header class="card-shell-head card-head-toggle" @click="toggleCard('costing')">
             <div class="card-shell-title">
               <span class="rich-icon-badge"><CalculatorOutlined /></span>
               <div>
-                <span class="card-shell-eyebrow">成本核算</span>
                 <h3>成本核算</h3>
               </div>
             </div>
-            <button class="card-chevron" :class="{ collapsed: !costingOpen }" type="button" @click="costingOpen = !costingOpen">
-              <UpOutlined />
-            </button>
+            <div class="card-shell-actions" @click.stop>
+              <a-button size="small" @click="openArchiveFromNode({ categories: ['requirement'], title: '成本附件' })">成本附件</a-button>
+              <a-button v-if="canWriteCost" type="primary" size="small" @click="emit('upload-cost-sheet')">上传成本表</a-button>
+              <a-button v-if="canWriteCost" type="primary" size="small" @click="costWorkbenchRef?.openNew()">新建成本表</a-button>
+              <button class="card-chevron" :class="{ collapsed: !cardOpen.costing }" type="button" @click.stop="toggleCard('costing')">
+                <UpOutlined />
+              </button>
+            </div>
           </header>
-          <div class="card-collapse" :class="{ collapsed: !costingOpen }">
+          <div class="card-collapse" :class="{ collapsed: !cardOpen.costing }">
             <div class="card-collapse-inner">
               <CostSheetWorkbench
+                ref="costWorkbenchRef"
                 :board="board"
-                :readonly="isAdmin ? false : costLocked"
+                :readonly="!canWriteCost"
                 @card-updated="upsertFlowCard"
                 @changed="loadBoard"
-                @open-archive="openArchiveFromNode"
-                @upload-cost-sheet="emit('upload-cost-sheet')"
               />
             </div>
           </div>
@@ -958,7 +1180,6 @@ defineExpose({ reload: loadBoard })
         <div
           v-else-if="activeNode === 'quoting' && board"
           class="node-quote-shell"
-          data-substep="quoting.0 quoting.1"
         >
           <QuoteWorkbench
                 :board="board"
@@ -968,8 +1189,13 @@ defineExpose({ reload: loadBoard })
                 :quote-select-mode="quoteSelectMode"
                 :quote-selected-ids="quoteSelectedIds"
                 :attachments="attachments"
+                :upstream-open="cardOpen.quoteUpstream"
+                @update:upstream-open="setCardOpen('quoteUpstream', $event)"
+                :quote-open="cardOpen.quoteEditor"
+                @update:quote-open="setCardOpen('quoteEditor', $event)"
                 @new-quotation="emit('new-quotation')"
                 @view-quotation="emit('view-quotation', $event)"
+                @unfreeze-quotation="emit('unfreeze-quotation', $event)"
                 @set-primary="emit('set-primary', $event)"
                 @rename-quotation="emit('rename-quotation', $event)"
                 @delete-quotation="emit('delete-quotation', $event)"
@@ -990,12 +1216,78 @@ defineExpose({ reload: loadBoard })
         </Transition>
       </a-spin>
 
-      <aside class="board-aside">
+      <aside v-if="!isMobile" class="board-aside">
         <section class="timeline">
-          <div class="tl-head">审批与流转记录</div>
-          <ApprovalFlowPanel :opportunity-id="oppId" :nodes="board?.nodes || []" :current-node="currentFlowNode" :flow-cards="board?.flow_cards || []" />
+          <div class="tl-head">协作与动态</div>
+          <ApprovalFlowPanel
+            :opportunity-id="oppId"
+            :nodes="board?.nodes || []"
+            :current-node="currentFlowNode"
+            :active-node="activeNode"
+            :flow-cards="board?.flow_cards || []"
+            :approvals="board?.approvals || []"
+            :flow="board?.flow || null"
+            :opportunity="board?.opportunity || null"
+          />
         </section>
       </aside>
+
+      <!-- 手机端左抽屉：流程轨道（选节点即切换工作台并收起） -->
+      <a-drawer
+        v-model:open="railDrawerOpen"
+        placement="left"
+        width="82%"
+        root-class-name="opp-detail-drawer"
+        :closable="false"
+        :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+      >
+        <div class="pd-head-row">
+          <h3>流程轨道</h3><span class="pd-chip">4 步审批流</span><span class="pd-sp"></span>
+          <button class="pd-x" type="button" @click="railDrawerOpen = false">✕</button>
+        </div>
+        <div class="pd-scroll">
+          <OpportunityProcessRail
+            v-if="isMobile"
+            :nodes="stepperNodes"
+            :active-node="activeNode"
+            :disabled-keys="disabledNodeKeys"
+            :collapsed="false"
+            :owner-rows="railOwnerRows"
+            :updated-text="railUpdatedText"
+            :sub-done="subDoneMap"
+            @select="selectFromDrawer"
+            @select-substep="selectSubFromDrawer"
+          />
+        </div>
+      </a-drawer>
+
+      <!-- 手机端右抽屉：协作与动态（ApprovalFlowPanel 复用，pending 审批直达） -->
+      <a-drawer
+        v-model:open="dynDrawerOpen"
+        placement="right"
+        width="88%"
+        root-class-name="opp-detail-drawer"
+        :closable="false"
+        :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+      >
+        <div class="pd-head-row">
+          <h3>协作与动态</h3><span class="pd-chip">本商机</span><span class="pd-sp"></span>
+          <button class="pd-x" type="button" @click="dynDrawerOpen = false">✕</button>
+        </div>
+        <div class="pd-scroll">
+          <ApprovalFlowPanel
+            v-if="isMobile"
+            :opportunity-id="oppId"
+            :nodes="board?.nodes || []"
+            :current-node="currentFlowNode"
+            :active-node="activeNode"
+            :flow-cards="board?.flow_cards || []"
+            :approvals="board?.approvals || []"
+            :flow="board?.flow || null"
+            :opportunity="board?.opportunity || null"
+          />
+        </div>
+      </a-drawer>
     </div>
 
     <section v-else-if="boardLoadError" class="node-empty board-load-error">
@@ -1007,6 +1299,7 @@ defineExpose({ reload: loadBoard })
       :open="detailOpen"
       :title="detailTitle"
       :width="detailModalWidth"
+      wrap-class-name="portal-sheet-modal"
       :footer="null"
       :body-style="{ padding: '16px', maxHeight: 'calc(100vh - 180px)', overflow: 'auto' }"
       @cancel="closeDetail"
@@ -1052,7 +1345,7 @@ defineExpose({ reload: loadBoard })
 
               <div v-else>
                 <a-empty description="尚无需求快照">
-                  <a-button type="primary" @click="startNewDraft">新增需求</a-button>
+                  <a-button v-if="canWriteRequirement" type="primary" @click="startNewDraft">新增需求</a-button>
                 </a-empty>
               </div>
             </div>
@@ -1097,10 +1390,10 @@ defineExpose({ reload: loadBoard })
 .bod-page {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  height: auto;
+  flex: 1;
   min-height: 0;
-  overflow-y: auto;
-  padding-bottom: 76px;
+  overflow: hidden;
 }
 
 .bod-toolbar {
@@ -1111,39 +1404,93 @@ defineExpose({ reload: loadBoard })
 }
 
 .board-body {
+  /* 左栏宽度由变量驱动：折叠时 230px → 64px */
+  --rail-w: 230px;
+  position: relative;
+  flex: 1;
   display: grid;
-  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(280px, 320px);
+  grid-template-columns: auto minmax(0, 1fr) clamp(280px, 22vw, 360px);
   gap: 14px;
   align-items: stretch;
-  padding: 14px 20px 24px;
-  min-height: calc(100vh - 200px);
+  height: 100%;
+  min-height: 0;
+  padding: 14px 20px 16px;
   min-width: 0;
 }
+.board-body.rail-collapsed {
+  --rail-w: 64px;
+}
 .board-rail {
+  width: var(--rail-w);
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: width var(--cpq-dur-2, 280ms) var(--cpq-ease-smooth, cubic-bezier(0.4, 0, 0.2, 1));
+}
+
+/* 折叠按钮：跨在左栏右缘，不占布局 */
+.rail-toggle {
+  position: absolute;
+  top: 50%;
+  left: calc(var(--rail-w) + 8px);
+  z-index: 3;
+  width: 24px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid var(--cpq-glass-border);
+  border-left: 0;
+  border-radius: 0 var(--cpq-radius-sm, 8px) var(--cpq-radius-sm, 8px) 0;
+  background: var(--cpq-bg-card);
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  transform: translateY(-50%);
+  box-shadow: var(--cpq-shadow-sm);
+  transition: left var(--cpq-dur-2, 280ms) var(--cpq-ease-smooth, cubic-bezier(0.4, 0, 0.2, 1)),
+    transform var(--cpq-dur-2, 280ms) var(--cpq-ease-smooth, cubic-bezier(0.4, 0, 0.2, 1)),
+    color var(--cpq-dur-1, 160ms) ease, box-shadow var(--cpq-dur-1, 160ms) ease;
+}
+.rail-toggle:hover {
+  color: var(--cpq-accent-primary);
+  box-shadow: var(--cpq-shadow-md);
+}
+.board-body.rail-collapsed .rail-toggle {
+  transform: translateY(-50%) rotate(180deg);
 }
 .board-spin {
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 .board-spin :deep(.ant-spin-container) {
   width: 100%;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
 .board-aside {
   min-width: 0;
+  min-height: 0;
   display: flex;
+  align-self: stretch;
 }
 .board-aside .timeline {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  height: auto;
 }
 .board-aside .timeline > :last-child {
   flex: 1;
+  min-height: 0;
 }
 .board-rail :deep(.process-rail) {
   height: 100%;
@@ -1160,7 +1507,9 @@ defineExpose({ reload: loadBoard })
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 2px 12px 0;
   flex: 1;
 }
 .node-fade-enter-active,
@@ -1388,6 +1737,17 @@ defineExpose({ reload: loadBoard })
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
+.card-shell-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* 整条卡头横条可点击展开/收起；头部操作区 @click.stop 隔离按钮 */
+.card-head-toggle {
+  cursor: pointer;
+}
 .card-chevron {
   width: 30px;
   height: 30px;
@@ -1417,6 +1777,11 @@ defineExpose({ reload: loadBoard })
 }
 .card-collapse.collapsed {
   grid-template-rows: 0fr;
+}
+/* 折叠态必须彻底为 0 高：内层 padding 会撑起网格最小行高，露出内容残影 */
+.card-collapse.collapsed > .card-collapse-inner {
+  padding-top: 0;
+  padding-bottom: 0;
 }
 .card-collapse-inner {
   min-height: 0;
@@ -1746,6 +2111,9 @@ defineExpose({ reload: loadBoard })
 }
 
 @media (max-width: 1080px) {
+  .bod-page {
+    overflow-y: auto;
+  }
   .board-canvas {
     grid-template-columns: repeat(2, minmax(248px, 1fr));
   }
@@ -1757,14 +2125,41 @@ defineExpose({ reload: loadBoard })
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .board-body {
+    flex: none;
+    height: auto;
     grid-template-columns: 1fr;
     min-height: auto;
+  }
+  /* 窄屏单列堆叠时，左栏不折叠、占满整行 */
+  .rail-toggle {
+    display: none;
+  }
+  .board-rail {
+    width: 100%;
+  }
+  .board-rail {
+    overflow: visible;
+  }
+  .board-spin,
+  .board-spin :deep(.ant-spin-container) {
+    overflow: visible;
+  }
+  .process-workbench {
+    min-height: auto;
+    overflow: visible;
+  }
+  .board-aside {
+    position: static;
+    height: auto;
+  }
+  .board-aside .timeline {
+    height: auto;
   }
 }
 
 @media (max-width: 768px) {
   .bod-page {
-    padding-bottom: 72px;
+    padding-bottom: calc(72px + var(--cpq-tabbar-inset, 0px));
   }
   .bod-toolbar {
     flex-direction: column;
@@ -1775,11 +2170,11 @@ defineExpose({ reload: loadBoard })
     display: block;
     padding: 12px;
   }
-  :deep(.stage-column) {
-    display: none;
-  }
-  :deep(.stage-column.active) {
-    display: flex;
+  /* 三栏 → 双抽屉：rail / aside 移入抽屉，工作台独占全屏 */
+  .board-rail,
+  .board-aside,
+  .rail-toggle {
+    display: none !important;
   }
   .opp-info-panel {
     margin: 12px 12px 0;
@@ -1799,7 +2194,7 @@ defineExpose({ reload: loadBoard })
   .bod-sticky-bar {
     display: block;
     position: sticky;
-    bottom: 0;
+    bottom: var(--cpq-tabbar-inset, 0px);
     z-index: 10;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: var(--cpq-glass-card-bg);
@@ -1809,6 +2204,150 @@ defineExpose({ reload: loadBoard })
   .bod-sticky-bar :deep(.ant-btn) {
     min-height: 44px;
   }
+}
+
+/* ── 手机端阶段工具条（仅 isMobile 渲染，样式放顶层避免断点耦合） ── */
+.stagebar {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 12px 9px;
+  padding: 7px 9px;
+  background: var(--cpq-glass-card-bg, var(--cpq-overlay-w5));
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 13px;
+  box-shadow: 0 6px 18px var(--cpq-shadow-color, rgba(31, 42, 61, 0.06));
+}
+.sb-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--cpq-text-secondary);
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-2-bg, transparent);
+  border-radius: 9px;
+  padding: 5px 9px;
+  flex: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.sb-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--cpq-accent-danger);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+.sb-steps {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+  cursor: pointer;
+}
+.sb-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+}
+.sb-step i {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-style: normal;
+  font-weight: 700;
+  border: 1.6px solid var(--cpq-border-secondary);
+  color: var(--cpq-text-muted);
+  background: var(--cpq-glass-2-bg, transparent);
+}
+.sb-step span {
+  font-size: 9px;
+  color: var(--cpq-text-muted);
+  white-space: nowrap;
+}
+.sb-step.done i {
+  background: var(--cpq-accent-success);
+  border-color: var(--cpq-accent-success);
+  color: var(--cpq-accent-on-primary, #fff);
+}
+.sb-step.done span { color: var(--cpq-accent-success); }
+.sb-step.cur i {
+  background: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-on-primary, #fff);
+  box-shadow: 0 0 0 3px var(--cpq-overlay-a15);
+}
+.sb-step.cur span { color: var(--cpq-accent-primary); font-weight: 700; }
+.sb-line {
+  width: 12px;
+  height: 1.6px;
+  background: var(--cpq-border-secondary);
+  margin: 0 2px 12px;
+  flex: none;
+}
+.sb-line.done { background: var(--cpq-accent-success); }
+
+/* 抽屉头与滚动体（slot 内容带本组件 scope） */
+.pd-head-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 15px 10px;
+  flex: none;
+}
+.pd-head-row h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--cpq-text-primary);
+}
+.pd-chip {
+  font-size: 10px;
+  color: var(--cpq-text-secondary);
+  background: var(--cpq-overlay-w6);
+  border-radius: 999px;
+  padding: 2px 8px;
+  white-space: nowrap;
+}
+.pd-sp { flex: 1; }
+.pd-x {
+  width: 29px;
+  height: 29px;
+  border-radius: 10px;
+  border: 1px solid var(--cpq-overlay-w10);
+  background: var(--cpq-overlay-w5);
+  color: var(--cpq-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.pd-scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 0 6px 12px;
 }
 .bom-config-list {
   display: flex;
@@ -2082,4 +2621,17 @@ defineExpose({ reload: loadBoard })
     flex-wrap: wrap;
   }
 }
+</style>
+
+<style>
+/* 详情页手机抽屉外壳：a-drawer portal 到 body，scoped 够不到，走全局（玻璃化对齐全站） */
+.opp-detail-drawer .ant-drawer-content {
+  background: var(--cpq-glass-3-bg);
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  overflow: hidden;
+}
+.opp-detail-drawer .ant-drawer-left .ant-drawer-content { border-radius: 0 18px 18px 0; }
+.opp-detail-drawer .ant-drawer-right .ant-drawer-content { border-radius: 18px 0 0 18px; }
+.opp-detail-drawer .ant-drawer-header { display: none; }
 </style>

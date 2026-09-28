@@ -1,0 +1,17 @@
+{
+  "name": "模拟A2-AI训练-推荐式补全",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "要一台 AI 训练的机器，显卡 8 张，其他你帮我推荐",
+  "answers": {
+    "server_type": "AI / 加速计算服务器",
+    "platform_type": "Orion",
+    "chassis_form": "4U",
+    "purchase_qty": "1台",
+    "warranty_years": "3年",
+    "server_model": "@pick:Orion",
+    "brain_ask": "@recommend",
+    "GPU": "@recommend"
+  },
+  "max_turns": 12
+}

@@ -24,6 +24,11 @@ import json
 import pathlib
 import re
 
+import sys
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+from app.services.constitution_lint import PROSE_MARKERS  # noqa: E402（唯一词表出处，与保存口共用）
+
 BACKEND = pathlib.Path(__file__).resolve().parents[1]
 APP = BACKEND / "app"
 SERVICES = APP / "services"
@@ -47,15 +52,7 @@ MECHANISM_FILES = [
 ]
 
 # 「对大脑说怎么做」的祈使/流程词。事实句与工具参数契约不会命中。
-PROSE_MARKERS = [
-    "先调", "优先调", "先对", "先问", "先查", "才调", "再调", "然后调",
-    "无需再", "不用再", "不再要求", "不必再",
-    "不许", "严禁", "不得", "必须调", "必须用", "禁止",
-    "不要", "别把", "别当成", "别再",
-    "应当", "应该", "建议", "请先", "请把", "请注意", "请据此", "请据",
-    "可据此", "由系统", "交由", "交客户", "交回客户", "让客户", "如实告诉", "如实说明", "如实向",
-    "才能", "即可锁定", "会有", "会自动",
-]
+# 词表本体已抽到 app/services/constitution_lint.py（与工具文案保存口共用，防止分叉）。
 
 # 实测基线（2026-09-11 P5 盘点）。**只许降**：整改掉一条就把这里改成新值；
 # 若实测 > 基线，说明又有人往代码里塞了一套提示词——那正是本守卫要拦的返工。

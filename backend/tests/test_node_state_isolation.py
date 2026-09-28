@@ -29,9 +29,9 @@ def test_partitions_are_isolated():
     model = node_state(container, "model_reason")
     assert kp is not model
     kp[KP_PICKS] = {"CPU|x": {"name": "A"}}
-    model["baseline"] = {"name": "ZS22V2-P"}
+    model["baseline"] = {"name": "ZS220 V2"}
     assert kp_state(container)[KP_PICKS] == {"CPU|x": {"name": "A"}}
-    assert node_state(container, "model_reason")["baseline"] == {"name": "ZS22V2-P"}
+    assert node_state(container, "model_reason")["baseline"] == {"name": "ZS220 V2"}
     assert set(container[NODE_STATE_KEY]) == {"kp_reason", "model_reason"}
 
 

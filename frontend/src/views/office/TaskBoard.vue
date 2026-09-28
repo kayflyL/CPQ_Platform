@@ -101,7 +101,7 @@
             v-for="mission in cell.missions"
             :key="mission.mission_id"
             class="tc-cal-event"
-            :style="{ background: missionColor(mission) }"
+            :style="{ '--status-color': missionColor(mission) }"
             type="button"
             :title="mission.prompt"
             @click="openMission(mission.mission_id)"
@@ -184,7 +184,7 @@
           <div v-for="(artifact, index) in selectedMission.artifacts" :key="index" class="td-report">
             <div class="td-report-title">{{ artifact.title || artifact.type || '产出物' }}</div>
             <div v-if="artifactSummary(artifact)" class="td-report-content">{{ artifactSummary(artifact) }}</div>
-            <a-button type="link" size="small" @click="openArtifact(artifact)">{{ artifactViewFromArtifact(artifact) ? '打开方案' : '查看内容' }}</a-button>
+            <a-button type="link" size="small" @click="openArtifact(artifact)">{{ artifact.type === 'pdf_report' && artifact.url ? '下载报告' : (artifactViewFromArtifact(artifact) ? '打开方案' : '查看内容') }}</a-button>
           </div>
         </div>
 
@@ -307,13 +307,14 @@
   </section>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
 import BomTable from '@/components/BomTable.vue'
 import PlanCard from '@/components/reasoning/PlanCard.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
 import { officeApi, type BehaviorConfig, type OfficeDeliverable, type OfficeMission, type OfficeMissionStep } from '@/api/office'
+import { downloadOfficeFile } from '@/utils/fileDownload'
 import type { Plan } from '@/api/reasoning'
 import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
 
@@ -352,6 +353,9 @@ const props = defineProps<{
   colleagues: any[]
   behaviorConfig: BehaviorConfig
   loading?: boolean
+  /** 点 3D 显示器带入的聚焦：优先直开该任务详情，否则按同事名过滤列表 */
+  focusMissionId?: string | null
+  focusRoleKey?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -574,7 +578,7 @@ function ganttBarStyle(row: TimelineRow): Record<string, string> {
   if (startIdx > 6 || endIdx < 0) return { display: 'none' }
   const left = (startIdx / 7) * 100
   const width = ((endIdx - startIdx + 1) / 7) * 100
-  return { left: `${left}%`, width: `${width}%`, background: row.color }
+  return { left: `${left}%`, width: `${width}%`, '--status-color': row.color }
 }
 
 const calendarCells = computed<CalendarCell[]>(() => {
@@ -657,6 +661,15 @@ function openMission(missionId: string | null | undefined) {
   detailOpen.value = true
 }
 
+// 「点显示器看任务」聚焦：任务板全屏层每次打开都重挂载，挂载时应用一次
+onMounted(() => {
+  if (props.focusMissionId && props.missions.some((m) => m.mission_id === props.focusMissionId)) {
+    openMission(props.focusMissionId)
+  } else if (props.focusRoleKey) {
+    search.value = colleagueName(props.focusRoleKey)
+  }
+})
+
 function plansFromArtifact(artifact: any): Plan[] {
   const data = artifact?.data
   if (Array.isArray(data?.plans)) return data.plans as Plan[]
@@ -685,7 +698,16 @@ function artifactSummary(artifact: any): string {
   return content ? String(content).slice(0, 120) : ''
 }
 
-function openArtifact(artifact: any) {
+async function openArtifact(artifact: any) {
+  // PDF 报告产物：走 blob 下载/预览（鉴权由拉取承担），不进文本预览 modal
+  if (artifact?.type === 'pdf_report' && artifact?.url) {
+    try {
+      await downloadOfficeFile(String(artifact.url), String(artifact.filename || `${artifact.title || '报告'}.pdf`))
+    } catch {
+      message.error('报告下载失败')
+    }
+    return
+  }
   artifactTitle.value = artifact?.title || artifact?.type || '产出物'
   artifactContent.value = artifact?.content || ''
   artifactPlans.value = plansFromArtifact(artifact)
@@ -1037,10 +1059,11 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   top: 12px;
   height: 28px;
   overflow: hidden;
-  border: 0;
+  border: 1px solid color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 32%, transparent);
   border-radius: 7px;
   padding: 0 8px;
-  color: #fff;
+  color: var(--status-color, var(--cpq-text-secondary));
+  background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 18%, var(--cpq-bg-card));
   font-size: 11px;
   font-weight: 700;
   white-space: nowrap;
@@ -1104,8 +1127,10 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   border: 0;
   border-radius: 6px;
   padding: 3px 6px;
-  color: #fff;
+  color: var(--status-color, var(--cpq-text-secondary));
+  background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 16%, var(--cpq-bg-card));
   font-size: 11px;
+  font-weight: 700;
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -5,8 +5,9 @@ import datetime
 import io
 import json
 import psycopg2
+from _localdb import db_password  # 2026-09-14 安全加固：密码不再硬编码
 
-conn = psycopg2.connect(host='localhost', dbname='cpq_platform', user='postgres', password='961216')
+conn = psycopg2.connect(host='localhost', dbname='cpq_platform', user='postgres', password=db_password())
 conn.set_client_encoding('UTF8')
 cur = conn.cursor()
 

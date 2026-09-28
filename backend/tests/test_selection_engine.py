@@ -312,7 +312,7 @@ def test_evaluate_rules_when_gates():
 
 
 def test_evaluate_rules_default_seed_integration():
-    """复刻后端 DEFAULT_RULES（bp_type 赋值 / SATA·SAS·NVMe·GPU线 derive），锁定 seed 与引擎的契约。"""
+    """复刻 DB 里那组核心规则（bp_type 赋值 / SATA·SAS·NVMe·GPU线 derive），锁定规则与引擎的契约。"""
     ctx = {
         "kp": {"GPU": {"qty": 1, "items": [{"pn": "GPU-A", "spec": {}}], "spec": {}}},
         "config": {"sata_qty": 8, "sas_qty": 0, "nvme_qty": 2, "drive_kinds": ["SATA", "NVMe"]},

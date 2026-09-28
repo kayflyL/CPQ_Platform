@@ -46,6 +46,8 @@ export interface AssistantChatWsState {
   error: string
   nodeTraces: NodeTrace[]
   running: boolean
+  /** 排队中消息数（后端 queue_state 事件驱动）：回合执行中再发消息会排队串行续跑 */
+  queuedCount: number
   /** 任务胶囊（Claude Code 式计步器）：标题来自 pipeline_start.title，phase 由管线事件驱动 */
   taskTitle: string
   taskPhase: '' | 'running' | 'paused' | 'done'
@@ -112,7 +114,28 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
   state.running = false
   state.statusText = ''
   state.streamingText = ''
+  state.queuedCount = 0
   if (state.taskPhase === 'running') state.taskPhase = 'done'
+}
+
+/**
+ * 服务端事实重建任务胶囊（2026-09-13）：pipeline 事件只发一次不重放，页面刷新 /
+ * WS 重连空窗 / 中途切会话后骨架已丢——messages 端点随 turn_active / engine_pause
+ * 下发 task_state（引擎 steps_done + 步骤视图），按它重建。与 pipeline_start /
+ * node_trace 事件同形状，展示层零加工。ts 为 null 时不动现有状态。
+ */
+export function applyTaskState(state: AssistantChatWsState, ts: { title?: string; steps?: Array<{ key?: string; step?: string; label?: string }>; done?: string[]; phase?: string; pause?: PauseFacts | Record<string, any> | null } | null | undefined) {
+  const steps = Array.isArray(ts?.steps) ? ts!.steps : []
+  if (!steps.length) return
+  const doneSet = new Set((ts!.done || []).map((k) => String(k)))
+  state.nodeTraces = steps.map((s) => ({
+    step: String(s.key || s.step || ''),
+    label: String(s.label || s.key || s.step || ''),
+    status: doneSet.has(String(s.key || s.step || '')) ? 'done' : 'pending',
+  }))
+  state.taskTitle = String(ts!.title || '配置任务')
+  state.taskPause = (ts!.pause && typeof ts!.pause === 'object' ? ts!.pause : null) as PauseFacts | null
+  state.taskPhase = ts!.phase === 'paused' ? 'paused' : 'running'
 }
 
 /**
@@ -285,11 +308,16 @@ export function handleAssistantChatWsEvent(
       state.waiting = false
       state.statusText = ''
       state.running = false
+      state.queuedCount = 0
       state.taskPhase = ''
       state.taskTitle = ''
       return true
     case 'chat_status':
       state.statusText = data.text || ''
+      return true
+    case 'queue_state':
+      // 排队可见化：被扣住的消息不能看起来和空闲一样（2026-09-13 P0-③）
+      state.queuedCount = Math.max(0, Number(data.depth) || 0)
       return true
     case 'chat_progress':
       pushMessage(state, data.message)
@@ -298,6 +326,10 @@ export function handleAssistantChatWsEvent(
       if (typeof data.delta === 'string') {
         state.streamingText += data.delta
       }
+      return true
+    case 'chunk_reset':
+      // 工具轮覆盖语义（UI 侧）：新一轮正文首字前清空旁白，防止「旁白+最终答案」连拼
+      state.streamingText = ''
       return true
     case 'done':
       state.waiting = false

@@ -5,7 +5,8 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
-import { catalogApi, baseConfigApi, partsApi, bomTemplateApi, rearIOApi, type BomTemplate, type PartMaster, type RearIOSlotOption, type RearIOItem, type ServerType } from '@/api/serverConfig'
+import { UpOutlined } from '@ant-design/icons-vue'
+import { catalogApi, baseConfigApi, partsApi, kpPartsApi, bomTemplateApi, rearIOApi, type BomTemplate, type PartMaster, type RearIOSlotOption, type RearIOItem, type ServerType } from '@/api/serverConfig'
 import { systemConfigApi, type OptionItem } from '@/api/systemConfig'
 import { useSeriesStore } from '@/stores/series'
 import PartPicker from '@/components/common/PartPicker.vue'
@@ -27,6 +28,7 @@ const form = ref<any>({
   psu_bays: 2, gpu_slots: 0, max_tdp: null as number | null, gpu_arch_default: 'none',
   // 机箱能力约束（PSU 档位 / CPU 上限 / 内存条数上限 / 每路通道数）：缺省走全局兜底，拒绝硬编码
   psu_wattages: [] as number[], max_cpu: 2, max_dimm: 24, mem_channels: 12,
+  gpu_default: [] as { part_id?: number; qty: number }[],   // 默认 GPU 卡配置（KP 卡×数量；空=未维护）
   rear_slots: DEFAULT_REAR_SLOTS.map(s => ({ ...s, defaults: [] as string[] })),
   // config_content（riser / 内存速率 / 前面板线缆，数据驱动；description/spec_diff 由机型编辑维护）
   configContent: {
@@ -39,6 +41,19 @@ const form = ref<any>({
 })
 interface Line { uid: number; major: string; pn: string; qty: number }
 const commonLines = ref<Line[]>([])
+// KP GPU 卡下拉（「GPU 默认卡配置」用）：kpPartsApi 取 GPU 类全部卡
+const kpGpuOptions = ref<{ value: number; label: string }[]>([])
+async function loadKpGpu() {
+  try {
+    const cats: any = await kpPartsApi.categories()
+    const gpu = (Array.isArray(cats) ? cats : []).find((c: any) => c.name === 'GPU')
+    if (!gpu?.id) return
+    const parts: any = await kpPartsApi.listByCategory(gpu.id)
+    kpGpuOptions.value = (Array.isArray(parts) ? parts : [])
+      .filter((p: any) => p.id != null)
+      .map((p: any) => ({ value: Number(p.id), label: String(p.name || '') }))
+  } catch { /* KP 目录不可用时下拉为空；已有配置仍正常回显 */ }
+}
 const allParts = ref<PartMaster[]>([])
 const templates = ref<BomTemplate[]>([])
 const seriesStore = useSeriesStore()
@@ -49,16 +64,16 @@ let uidSeq = 1
 
 // 整机解剖分组骨架（视图数据；③后面板已激活，其余待逐节承接）
 const ANATOMY = [
-  { n: 1, title: '机箱主体', hint: '机箱 / 辅料 / 线缆固定件', placeholder: '' },
-  { n: 2, title: '前面板', hint: '硬盘背板连线（默认线缆，配置页可改）', placeholder: '' },
-  { n: 3, title: '后面板', hint: 'PCIe IO + OCP 网络', placeholder: '' },
-  { n: 4, title: '主板', hint: '主板 / 托盘 / BMC / 后IO板', placeholder: '' },
-  { n: 5, title: '处理器', hint: 'CPU 颗数 / TDP 上限 + 散热器固定件', placeholder: '' },
-  { n: 6, title: '内存', hint: '条数上限 / 通道数 / 标准速率', placeholder: '内存条是 KP 配置件（配置页选），这里只存物理边界与标准' },
-  { n: 7, title: '供电', hint: '电源槽位 / PSU 档位 / 默认型号', placeholder: '' },
-  { n: 8, title: '硬盘', hint: '硬盘背板（固定件）', placeholder: '' },
-  { n: 9, title: '扩展', hint: 'GPU 槽上限 / 架构 + Riser 固定件', placeholder: '' },
-  { n: 10, title: '散热', hint: '风扇 / 导风罩（固定件）', placeholder: '' },
+  { n: 1, title: '机箱主体', hint: '机箱 / 辅料 / 线缆固定件' },
+  { n: 2, title: '前面板', hint: '硬盘背板连线（默认线缆，配置页可改）' },
+  { n: 3, title: '后面板', hint: 'PCIe IO + OCP 网络' },
+  { n: 4, title: '主板', hint: '主板 / 托盘 / BMC / 后IO板' },
+  { n: 5, title: '处理器', hint: 'CPU 颗数 / TDP 上限 + 散热器固定件' },
+  { n: 6, title: '内存', hint: '条数上限 / 通道数 / 标准速率 · 内存条是 KP 配置件（配置页选），这里只存物理边界与标准' },
+  { n: 7, title: '供电', hint: '电源槽位 / PSU 档位 / 默认型号' },
+  { n: 8, title: '硬盘', hint: '硬盘背板（固定件）' },
+  { n: 9, title: '扩展', hint: 'GPU 槽上限 / 架构 + Riser 固定件' },
+  { n: 10, title: '散热', hint: '风扇 / 导风罩（固定件）' },
 ] as const
 
 // ---- 后面板选项目录（按 series 分桶，rearIOApi 提供）----
@@ -185,6 +200,7 @@ async function init() {
         max_tdp: full.max_tdp ?? null, gpu_arch_default: full.gpu_arch_default ?? 'none',
         psu_wattages: Array.isArray(full.psu_wattages) ? full.psu_wattages.map((v: any) => Number(v)).filter((n: number) => n > 0) : [],
         max_cpu: full.max_cpu ?? 2, max_dimm: full.max_dimm ?? 24, mem_channels: full.mem_channels ?? 12,
+        gpu_default: Array.isArray(full.gpu_default) ? full.gpu_default.map((g: any) => ({ part_id: g.part_id != null ? Number(g.part_id) : undefined, qty: Number(g.qty) || 1 })) : [],
         // rear_slots：携带 defaults（每槽默认卡多重集，配置页据此播种 rear 只调数量）
         rear_slots: (full.rear_slots?.length ? full.rear_slots : DEFAULT_REAR_SLOTS).map((s: any) => ({ name: s.name, cap: s.cap, defaults: [...(s.defaults || [])] })),
       }
@@ -222,9 +238,55 @@ function onPartPick(l: Line, pn: string) {
 // 大类名与 ANATOMY 标题一一对应（①机箱主体 ②前面板 ③后面板 ④主板 ⑤处理器 ⑥内存 ⑦供电 ⑧硬盘 ⑨扩展 ⑩散热），
 // 料号库左栏大类与编辑页从此同一套数据；②③前面板/后面板、⑥内存、⑦供电为自定义 UI（选择器/能力）。
 const anatomyMajor = (n: number) => ANATOMY.find(a => a.n === n)?.title || ''
-const sectionActive = (n: number) => [2, 3, 6, 7].includes(n) || partsForSection(n).length > 0
 const linesForSection = (n: number) => commonLines.value.filter(l => l.major === anatomyMajor(n))
 const partsForSection = (n: number) => allParts.value.filter(p => p.major_category === anatomyMajor(n))
+
+// ---- 分组折叠 + 头部摘要（学商机详情中部栏：整头可点 + chevron + 0fr 收起动画；进入默认全收起）----
+const infoOpen = ref(true)
+const openSections = ref<Record<number, boolean>>({})
+const tplLabel = computed(() => templates.value.find(t => t.id === form.value.bom_template_id)?.name || '')
+function toggleSection(n: number) { openSections.value[n] = !openSections.value[n] }
+function setAllSections(open: boolean) {
+  const m: Record<number, boolean> = {}
+  for (const s of ANATOMY) m[s.n] = open
+  openSections.value = m
+}
+const EMPTY_SUM = '空 · 点击展开添加'
+/** 该组已选底盘件摘要：N 件 · 合计¥（无件返回空串） */
+function partsSummary(n: number): string {
+  const lines = linesForSection(n).filter(l => l.pn)
+  if (!lines.length) return ''
+  const total = lines.reduce((s, l) => s + (partByPn(l.pn)?.unit_price || 0) * (l.qty || 0), 0)
+  return `${lines.length} 件${total ? ` · ¥${Math.round(total).toLocaleString()}` : ''}`
+}
+/** 折叠态头部摘要：每组一眼看出配了什么；空组引导点开（替代原「待填充」橙标） */
+function sectionSummary(n: number): string {
+  const parts = partsSummary(n)
+  switch (n) {
+    case 2: return CORE_DRIVE_KINDS.map(k => cablePickedPn(k) ? `${k}✓` : `${k}–`).join(' ')
+    case 3: {
+      const segs = form.value.rear_slots
+        .filter((sl: any) => (sl.name || '').trim() && slotSpecSummary(sl) !== '空')
+        .map((sl: any) => `${sl.name} ${slotSpecSummary(sl)}`)
+      return segs.join(' · ') || EMPTY_SUM
+    }
+    case 6: {
+      const c = form.value.configContent
+      return `${form.value.max_dimm} 条上限 · ${form.value.mem_channels} 通道${c.standard_mem_speed ? ` · ${c.standard_mem_speed} MT/s` : ''}`
+    }
+    case 7: {
+      const w = (form.value.psu_wattages || []).length ? ` · 档位 ${form.value.psu_wattages.join('/')}W` : ''
+      return `${form.value.psu_bays} 电源槽${psuPickedPn() ? ` · 默认 ${psuName(psuPickedPn())}` : ''}${w}`
+    }
+    case 5: return [`${form.value.max_cpu} CPU`, form.value.max_tdp ? `TDP≤${form.value.max_tdp}W` : '', parts].filter(Boolean).join(' · ')
+    case 9: {
+      const arch = form.value.gpu_arch_default && form.value.gpu_arch_default !== 'none'
+        ? (gpuArchOptionsFor(form.value.form).find(o => o.value === form.value.gpu_arch_default)?.label || '') : ''
+      return [`${form.value.gpu_slots} GPU 槽`, arch, parts].filter(Boolean).join(' · ')
+    }
+    default: return parts || EMPTY_SUM
+  }
+}
 
 // ---- 后面板槽位行（rear_slots 可增删，命名/容量在槽头编辑；默认卡经 RearPanel 步进器选）----
 function addSlot() { form.value.rear_slots.push({ name: '', cap: 1, defaults: [] as string[] }) }
@@ -253,6 +315,9 @@ async function save() {
       max_cpu: Number(form.value.max_cpu) || 2,
       max_dimm: Number(form.value.max_dimm) || 24,
       mem_channels: Number(form.value.mem_channels) || 12,
+      gpu_default: (form.value.gpu_default || [])
+        .filter((g: any) => g.part_id)
+        .map((g: any) => ({ part_id: Number(g.part_id), qty: Number(g.qty) || 1 })),
       // rear_slots：携带 defaults（每槽默认卡多重集；留空=挡片，配置页该槽回退自由选）
       rear_slots: (form.value.rear_slots || []).filter((s: any) => (s.name || '').trim()).map((s: any) => {
         const out: any = { name: s.name.trim(), cap: Number(s.cap) || 0 }
@@ -304,7 +369,7 @@ watch(() => form.value.form, (nf, of) => {
   form.value.gpu_arch_default = d.gpu_arch
   message.info(`已切换为 ${nf} 标准布局：后面板/电源/GPU 已重置`)
 })
-onMounted(async () => { await Promise.all([init(), loadOptions()]) })
+onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) })
 </script>
 
 <template>
@@ -324,35 +389,48 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
       <div class="two-col">
         <div class="col-left">
 
-          <!-- ① 基准信息卡（原位独立卡）-->
+          <!-- ① 基准信息卡：头部可折叠（收起时头部即摘要）；BOM 模板并入首行字段行 -->
           <div class="bc-card">
-            <div class="bc-card-head"><span class="bc-card-tag">基准信息</span></div>
-            <a-form layout="vertical" :disabled="loading">
-              <a-row :gutter="12">
-                <a-col :span="8"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 Orion-2U-标准型" /></a-form-item></a-col>
-                <a-col :span="6"><a-form-item label="类型"><a-select v-model:value="form.server_type_id" allow-clear placeholder="选择机型类型"><a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option></a-select></a-form-item></a-col>
-                <a-col :span="4"><a-form-item label="系列"><a-select v-model:value="form.series"><a-select-option v-for="o in seriesOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
-                <a-col :span="3"><a-form-item label="形态"><a-select v-model:value="form.form"><a-select-option v-for="o in formOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
-                <a-col :span="3"><a-form-item label="盘位"><a-input-number v-model:value="form.bays" :min="1" style="width:100%" /></a-form-item></a-col>
-              </a-row>
-              <a-form-item label="BOM 模板">
-                <a-select v-model:value="form.bom_template_id" allow-clear placeholder="(可选 — 报价时按模板推导)">
-                  <a-select-option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}（{{ t.rows?.length || 0 }}行）</a-select-option>
-                </a-select>
-              </a-form-item>
-            </a-form>
+            <div class="bc-card-head card-head-toggle" @click="infoOpen = !infoOpen">
+              <span class="bc-card-tag">基准信息</span>
+              <span v-if="!infoOpen" class="head-sum">{{ form.name || '未命名' }} · {{ form.form }} · {{ form.bays }} 盘位<template v-if="tplLabel"> · {{ tplLabel }}</template></span>
+              <button class="card-chevron" :class="{ collapsed: !infoOpen }" type="button" @click.stop="infoOpen = !infoOpen"><UpOutlined /></button>
+            </div>
+            <div class="card-collapse" :class="{ collapsed: !infoOpen }">
+              <div class="card-collapse-inner info-inner">
+                <a-form layout="vertical" :disabled="loading">
+                  <a-row :gutter="12">
+                    <a-col :span="6"><a-form-item label="基准名称" required><a-input v-model:value="form.name" placeholder="如 Orion-2U-标准型" /></a-form-item></a-col>
+                    <a-col :span="5"><a-form-item label="类型"><a-select v-model:value="form.server_type_id" allow-clear placeholder="机型类型"><a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option></a-select></a-form-item></a-col>
+                    <a-col :span="3"><a-form-item label="系列"><a-select v-model:value="form.series"><a-select-option v-for="o in seriesOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
+                    <a-col :span="3"><a-form-item label="形态"><a-select v-model:value="form.form"><a-select-option v-for="o in formOptions" :key="o.value" :value="o.value">{{ o.label }}</a-select-option></a-select></a-form-item></a-col>
+                    <a-col :span="2"><a-form-item label="盘位"><a-input-number v-model:value="form.bays" :min="1" style="width:100%" /></a-form-item></a-col>
+                    <a-col :span="5"><a-form-item label="BOM 模板"><a-select v-model:value="form.bom_template_id" allow-clear placeholder="(可选) 按模板推导"><a-select-option v-for="t in templates" :key="t.id" :value="t.id">{{ t.name }}（{{ t.rows?.length || 0 }}行）</a-select-option></a-select></a-form-item></a-col>
+                  </a-row>
+                </a-form>
+              </div>
+            </div>
           </div>
 
-          <!-- ②~⑪ 整机解剖分组 -->
-          <div class="group-label">整机配置 · 按解剖分组</div>
+          <!-- ②~⑪ 整机解剖分组：头部即摘要，整头可点折叠（学商机详情中部栏）；默认全收起 -->
+          <div class="group-label-row">
+            <div class="group-label">整机配置 · 按解剖分组</div>
+            <a-space :size="4">
+              <a-button size="small" type="text" @click="setAllSections(true)">全部展开</a-button>
+              <a-button size="small" type="text" @click="setAllSections(false)">全部收起</a-button>
+            </a-space>
+          </div>
           <div v-for="s in ANATOMY" :key="s.n" class="anatomy-card">
-            <div class="anatomy-head">
+            <div class="anatomy-head card-head-toggle" @click="toggleSection(s.n)">
               <span class="anatomy-num">{{ s.n }}</span>
               <h3 class="anatomy-title">{{ s.title }}</h3>
-              <span class="anatomy-hint">{{ s.hint }}</span>
-              <span v-if="!sectionActive(s.n)" class="anatomy-scaffold">待填充</span>
+              <span class="anatomy-sum" :title="sectionSummary(s.n)">{{ sectionSummary(s.n) }}</span>
+              <button class="card-chevron" :class="{ collapsed: !openSections[s.n] }" type="button" @click.stop="toggleSection(s.n)"><UpOutlined /></button>
             </div>
-            <div class="anatomy-body">
+            <div class="card-collapse" :class="{ collapsed: !openSections[s.n] }">
+              <div class="card-collapse-inner">
+                <div class="anatomy-body">
+                <div v-if="s.hint" class="anatomy-hint-in">{{ s.hint }}</div>
               <!-- ③ 后面板：每槽列类型卡(X8/X16/SATA/NVMe)；卡内"+加料"下拉逐件选料号(io_slot+option_type 过滤)、
                    多料组成捆绑卡(价=合计)。一槽可多类型。defaults 存 PN 列表；配置页据此算类型卡→只调数量(电源除外)。 -->
               <div v-if="s.n === 3" class="rear-editor">
@@ -466,7 +544,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 <div class="capability-block">
                   <a-row :gutter="12">
                     <a-col :span="6"><div class="cap-item"><span class="cap-lab">电源槽位</span><a-input-number v-model:value="form.psu_bays" :min="0" :max="8" style="width:100%" /></div></a-col>
-                    <a-col :span="18"><div class="cap-item"><span class="cap-lab">PSU 瓦数档位 (W)</span><a-select v-model:value="form.psu_wattages" mode="tags" placeholder="留空=不限（沿用全局档位）；如 ES22V3-P=[1300,1600,2000]" :options="PSU_WATTAGE_OPTIONS.map(v => ({ value: v, label: v + 'W' }))" style="width:100%" /></div></a-col>
+                    <a-col :span="18"><div class="cap-item"><span class="cap-lab">PSU 瓦数档位 (W)</span><a-select v-model:value="form.psu_wattages" mode="tags" placeholder="留空=不限（沿用全局档位）；如 ES220 V3=[1300,1600,2000]" :options="PSU_WATTAGE_OPTIONS.map(v => ({ value: v, label: v + 'W' }))" style="width:100%" /></div></a-col>
                   </a-row>
                 </div>
                 <div class="psu-row-edit">
@@ -488,20 +566,19 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                 </div>
               </div>
 
-              <!-- ① 机箱主体：机箱 / 辅料 / 线缆固定件（能力/约束字段已归各分组） -->
+              <!-- ① 机箱主体：机箱 / 辅料 / 线缆固定件（能力/约束字段已归各分组）；行单行化：选中后规格/单价内联尾随 -->
               <div v-else-if="s.n === 1" class="section-parts">
                 <div class="line-list">
-                  <div class="line-block" v-for="l in linesForSection(1)" :key="l.uid">
-                    <div class="line-row">
-                      <span class="line-idx">{{ commonLines.indexOf(l) + 1 }}</span>
-                      <PartPicker style="flex:1" :items="partsForSection(1).map(fromPartMaster)" :model-value="l.pn" placeholder="🔍 选机箱/辅料/线缆件"
-                                  @update:model-value="(pn:any)=>onPartPick(l, typeof pn==='string'?pn:'')">
-                        <template #option="{ item }"><div class="bcb-opt"><div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div><div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div></div></template>
-                      </PartPicker>
-                      <a-input-number v-model:value="l.qty" :min="1" style="width:72px" />
-                      <a-button danger size="small" @click="delLine(l)">✕</a-button>
-                    </div>
-                    <div class="line-info" v-if="partByPn(l.pn)"><span class="li-desc">{{ partByPn(l.pn)?.spec_text || '（无规格）' }}</span><span class="li-price">¥{{ (partByPn(l.pn)?.unit_price ?? 0).toLocaleString() }}</span></div>
+                  <div class="line-row" v-for="l in linesForSection(1)" :key="l.uid">
+                    <span class="line-idx">{{ commonLines.indexOf(l) + 1 }}</span>
+                    <PartPicker style="flex:1" :items="partsForSection(1).map(fromPartMaster)" :model-value="l.pn" placeholder="🔍 选机箱/辅料/线缆件"
+                                @update:model-value="(pn:any)=>onPartPick(l, typeof pn==='string'?pn:'')">
+                      <template #option="{ item }"><div class="bcb-opt"><div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div><div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div></div></template>
+                    </PartPicker>
+                    <span v-if="partByPn(l.pn)" class="li-spec" :title="partByPn(l.pn)?.spec_text">{{ partByPn(l.pn)?.spec_text || '—' }}</span>
+                    <span v-if="partByPn(l.pn)" class="li-price">¥{{ (partByPn(l.pn)?.unit_price ?? 0).toLocaleString() }}</span>
+                    <a-input-number v-model:value="l.qty" :min="1" style="width:72px" />
+                    <a-button danger size="small" @click="delLine(l)">✕</a-button>
                   </div>
                 </div>
                 <a-button dashed size="small" style="margin-top:6px" @click="addLine(anatomyMajor(1))">+ 添加机箱/辅料/线缆件</a-button>
@@ -531,34 +608,40 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">GPU 槽上限</span><a-input-number v-model:value="form.gpu_slots" :min="0" :max="16" style="width:100%" /></div></a-col>
                     <a-col :span="8"><div class="cap-item"><span class="cap-lab">GPU 架构</span><a-select v-model:value="form.gpu_arch_default" :options="gpuArchOptionsFor(form.form)" style="width:100%" /></div></a-col>
                   </a-row>
+                  <!-- GPU 默认卡配置（KP 卡×数量）：AI 推理配置器「机型装得下判定」的数据输入；空=该机型未维护，配置器诚实降级 -->
+                  <div class="cap-item" style="margin-top:8px">
+                    <span class="cap-lab">GPU 默认卡配置</span>
+                    <div v-for="(g, gi) in form.gpu_default" :key="gi" style="display:flex;gap:6px;align-items:center;margin-top:6px">
+                      <a-select v-model:value="g.part_id" show-search option-filter-prop="label" :options="kpGpuOptions" placeholder="选 KP GPU 卡" style="flex:1" />
+                      <a-input-number v-model:value="g.qty" :min="1" :max="16" style="width:76px" />
+                      <a-button size="small" type="text" danger @click="form.gpu_default.splice(gi, 1)">删</a-button>
+                    </div>
+                    <a-button size="small" type="dashed" block style="margin:6px 0 0" @click="form.gpu_default.push({ qty: 1 })">+ 加默认卡</a-button>
+                  </div>
                 </div>
                 <div class="line-list">
-                  <div class="line-block" v-for="l in linesForSection(s.n)" :key="l.uid">
-                    <div class="line-row">
-                      <span class="line-idx">{{ commonLines.indexOf(l) + 1 }}</span>
-                      <PartPicker style="flex:1" :items="partsForSection(s.n).map(fromPartMaster)" :model-value="l.pn" :placeholder="`🔍 选${s.title}件`"
-                                  @update:model-value="(pn:any)=>onPartPick(l, typeof pn==='string'?pn:'')">
-                        <template #option="{ item }">
-                          <div class="bcb-opt">
-                            <div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div>
-                            <div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div>
-                          </div>
-                        </template>
-                      </PartPicker>
-                      <a-input-number v-model:value="l.qty" :min="1" style="width:72px" />
-                      <a-button danger size="small" @click="delLine(l)">✕</a-button>
-                    </div>
-                    <div class="line-info" v-if="partByPn(l.pn)">
-                      <span class="li-desc">{{ partByPn(l.pn)?.spec_text || '（无规格）' }}</span>
-                      <span class="li-price">¥{{ (partByPn(l.pn)?.unit_price ?? 0).toLocaleString() }}</span>
-                    </div>
+                  <div class="line-row" v-for="l in linesForSection(s.n)" :key="l.uid">
+                    <span class="line-idx">{{ commonLines.indexOf(l) + 1 }}</span>
+                    <PartPicker style="flex:1" :items="partsForSection(s.n).map(fromPartMaster)" :model-value="l.pn" :placeholder="`🔍 选${s.title}件`"
+                                @update:model-value="(pn:any)=>onPartPick(l, typeof pn==='string'?pn:'')">
+                      <template #option="{ item }">
+                        <div class="bcb-opt">
+                          <div class="bcb-opt-row"><span class="bcb-opt-name">{{ item.name }}</span><span v-if="item.unit_price != null" class="bcb-opt-price">¥{{ item.unit_price.toLocaleString() }}</span></div>
+                          <div class="bcb-opt-sub"><span class="bcb-opt-cat">{{ item.category }}</span><span v-if="item.supplier" class="bcb-opt-brand">{{ item.supplier }}</span></div>
+                        </div>
+                      </template>
+                    </PartPicker>
+                    <span v-if="partByPn(l.pn)" class="li-spec" :title="partByPn(l.pn)?.spec_text">{{ partByPn(l.pn)?.spec_text || '—' }}</span>
+                    <span v-if="partByPn(l.pn)" class="li-price">¥{{ (partByPn(l.pn)?.unit_price ?? 0).toLocaleString() }}</span>
+                    <a-input-number v-model:value="l.qty" :min="1" style="width:72px" />
+                    <a-button danger size="small" @click="delLine(l)">✕</a-button>
                   </div>
                 </div>
                 <a-button dashed size="small" style="margin-top:6px" @click="addLine(anatomyMajor(s.n))">+ 添加{{ s.title }}件</a-button>
                 <div v-if="!partsForSection(s.n).length" class="anatomy-placeholder">料号库暂无{{ s.title }}相关分类料号（{{ anatomyMajor(s.n) }}）</div>
               </div>
-
-              <div v-else class="anatomy-placeholder">{{ s.placeholder }}</div>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -582,7 +665,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 </template>
 
 <style scoped>
-.editor-page { min-height: 100vh; }
+.editor-page { min-height: calc(100vh - var(--cpq-header-clearance, 0px)); }
 .content-inner { width: 100%; margin: 0 auto; padding: 24px; }
 .cfg-bar { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 16px; }
 .cfg-bar-left { display: flex; align-items: center; gap: 16px; }
@@ -590,33 +673,49 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .cfg-bar-right { display: flex; gap: 8px; }
 .btn-ghost { background: transparent; border: 1px solid var(--cpq-overlay-w15); }
 .two-col { display: flex; gap: 16px; align-items: flex-start; }
-.col-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 14px; }
-.col-right { flex: 0 0 420px; position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.col-left { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.col-right { flex: 0 0 420px; position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 16px); max-height: calc(100vh - var(--cpq-sticky-top, 0px) - 32px); overflow-y: auto; }
 
-/* —— 通用玻璃卡片（基准信息 / 备份）—— */
-.bc-card { padding: 16px 18px; border-radius: var(--cpq-radius-lg, 14px);
+/* —— 通用玻璃卡片（基准信息 / 备份）—— 头在卡内、体走折叠容器，卡壳零内边距 */
+.bc-card { padding: 0; border-radius: var(--cpq-radius-lg, 14px); overflow: hidden;
   background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-a15); box-shadow: var(--cpq-shadow-md); }
-.bc-card-head { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; }
+.bc-card-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; }
 .bc-card-tag { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF);
-  padding: 3px 10px; border-radius: 6px; background: var(--cpq-overlay-a15); }
+  padding: 3px 10px; border-radius: 6px; background: var(--cpq-overlay-a15); flex-shrink: 0; }
+.info-inner { padding: 4px 16px 14px; transition: padding .25s ease; }
+.card-collapse.collapsed .info-inner { padding-top: 0; padding-bottom: 0; }
+
+/* —— 折叠（学商机详情中部栏）：整头可点 + chevron 旋转 + 0fr 网格收起动画 —— */
+.card-head-toggle { cursor: pointer; user-select: none; }
+.card-head-toggle:hover .anatomy-title, .card-head-toggle:hover .bc-card-tag { color: var(--cpq-accent-primary, #1677FF); }
+.head-sum, .anatomy-sum { flex: 1; min-width: 0; font-size: 12px; color: var(--cpq-text-muted, #6E7582);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-chevron { margin-left: auto; flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: 7px;
+  background: var(--cpq-overlay-a15); color: var(--cpq-text-muted, #6E7582); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 12px;
+  transition: transform .25s ease, background .2s, color .2s; }
+.card-chevron:hover { color: var(--cpq-text-primary, #E8ECEF); background: var(--cpq-overlay-a30, rgba(22,119,255,.3)); }
+.card-chevron.collapsed { transform: rotate(180deg); }
+.card-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows .25s ease; }
+.card-collapse.collapsed { grid-template-rows: 0fr; }
+.card-collapse-inner { overflow: hidden; min-height: 0; }
 
 /* —— 整机解剖分组 —— */
+.group-label-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 2px -2px; }
 .group-label { font-size: 12px; font-weight: 600; letter-spacing: .5px;
-  color: var(--cpq-text-muted, #6E7582); margin: 6px 2px -4px; }
+  color: var(--cpq-text-muted, #6E7582); margin: 0; }
 .anatomy-card { border-radius: var(--cpq-radius-lg, 14px); overflow: hidden;
   background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-w10); }
-.anatomy-head { display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+.anatomy-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
 .anatomy-num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15);
   color: var(--cpq-accent-primary, #1677FF); display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 600; flex-shrink: 0; }
-.anatomy-title { font-size: 15px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
-.anatomy-hint { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
-.anatomy-scaffold { margin-left: auto; font-size: 11px; color: #fa8c16;
-  background: rgba(250, 140, 22, .14); padding: 2px 8px; border-radius: 5px; flex-shrink: 0; }
-.anatomy-body { padding: 16px 20px; }
+.anatomy-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); flex-shrink: 0; }
+.anatomy-hint-in { font-size: 12px; line-height: 1.5; color: var(--cpq-text-muted, #6E7582); margin-bottom: 10px; }
+.anatomy-body { padding: 12px 16px; }
 .anatomy-placeholder { font-size: 13px; line-height: 1.6; color: var(--cpq-text-muted, #6E7582); }
 
 /* —— ③ 后面板：类型卡 + 卡内料号组成 —— */
@@ -676,16 +775,15 @@ onMounted(async () => { await Promise.all([init(), loadOptions()]) })
 .cap-item { display: flex; flex-direction: column; gap: 3px; }
 .cap-lab { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 
-/* —— 各分组底盘件行（料号选择 / 数量 / 信息）—— */
-.line-list { min-height: 40px; }
-.line-block { margin-bottom: 10px; }
+/* —— 各分组底盘件行（单行：选择器 + 规格 + 单价 + 数量，选中后信息内联尾随）—— */
+.line-list { min-height: 40px; display: flex; flex-direction: column; gap: 6px; }
 .line-row { display: flex; gap: 6px; align-items: center; }
 .drag-row { cursor: grab; color: var(--cpq-text-muted, #6E7582); padding: 0 4px; user-select: none; font-size: 16px; line-height: 1; }
 .drag-row:active { cursor: grabbing; }
 .line-idx { font-size: 11px; color: var(--cpq-text-muted, #6E7582); font-variant-numeric: tabular-nums; width: 18px; text-align: center; flex-shrink: 0; }
-.line-info { display: flex; justify-content: space-between; gap: 12px; padding: 4px 4px 0; margin-top: 2px; font-size: 13px; }
-.li-desc { color: var(--cpq-text-secondary, #9BA1AA); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.li-price { color: var(--cpq-accent-primary); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.li-spec { flex: 0 0 170px; font-size: 12px; color: var(--cpq-text-muted, #6E7582);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.li-price { flex-shrink: 0; font-size: 12px; color: var(--cpq-accent-primary); font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style>
 
 <!-- PartPicker 下拉 teleported 到 body，非 scoped；用 .bcb-opt 前缀限定 -->

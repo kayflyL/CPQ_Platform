@@ -10,7 +10,7 @@ from app.services.skill_tool_context import TOOL_CTX
 
 
 def tool_select_model(args: dict) -> dict:
-    """【任务期工具】机型选配节点的大脑回合：从引擎候选池锁定一个机型（接地）。
+    """【需求分析流程工具】机型选配节点的大脑回合：从引擎候选池锁定一个机型（接地）。
 
     候选池由引擎确定性构建（登记表信号 × 在售目录，engine_ctx.baselines_pool 经
     TOOL_CTX 下发），这里只做池内校验 + 落槽：id 精确或名称忽略大小写精确命中，
@@ -20,7 +20,7 @@ def tool_select_model(args: dict) -> dict:
     ctx = TOOL_CTX.get()
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "hint": "配置任务未开始（机型锁定仅在任务期可用）"}
+                "hint": "配置任务未开始（机型锁定仅在需求分析流程内可用）"}
     pool = ctx.get("model_pool")
     if not isinstance(pool, list) or not pool:
         return {"ok": False, "error": "empty_pool",

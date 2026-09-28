@@ -67,7 +67,7 @@ def test_requirement_prompt_omits_price_fact_with_access():
 
 # ── 引擎层：机型选项/描述价格门控（label=机型名，desc=形态/系列/价格）────────
 
-_CANDIDATE = {"name": "ES22V3-P", "form": "2U", "series": "Orion", "total_price": 11536.83}
+_CANDIDATE = {"name": "ES220 V3", "form": "2U", "series": "Orion", "total_price": 11536.83}
 
 
 def test_model_option_desc_without_price():
@@ -83,7 +83,7 @@ def test_model_option_desc_with_price():
 
 def test_catalog_models_option_data_price_gate():
     opts = catalog_models_option_data([_CANDIDATE], include_price=False)
-    assert opts and opts[0]["label"] == "ES22V3-P" and "¥" not in opts[0]["desc"]
+    assert opts and opts[0]["label"] == "ES220 V3" and "¥" not in opts[0]["desc"]
     opts = catalog_models_option_data([_CANDIDATE], include_price=True)
     assert opts and "¥11,537" in opts[0]["desc"]
 

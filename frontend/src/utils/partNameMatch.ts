@@ -9,12 +9,19 @@ export interface KpMatchResult {
 }
 
 const STRIP_RE = /[\s\-_·.()\[\]（）【】/:：,，;；+*×xX]/g
-const SPLIT_RE = /[\s\-_·.()\[\]（）【】/:：,，;；+*×xX]+/g
-const UNIT_MERGE_RE = /(\d+(?:\.\d+)?)\s*(t|tb|g|gb|m|mb|mhz|ghz|w|rpm|v)\b/g
+
+// token 规范化（与后端 kp_repo.semantic_tokens 同口径）：品牌/模块噪声剔除、端口写法、
+// 型号连写（kh-50000→kh50000）、单位归一（64GB→64g、4800MHz→4800）。
+const BRAND_RE = /\b(?:nvidia|geforce|amd|intel|mellanox|broadcom|lsi|samsung|zhaoxin|huawei|hygon|phytium)\b|兆芯|华为|海光|飞腾|国产/g
+const NOISE_RE = /network\s*card|adapter|含模块|含光模块|多模光模块|单模光模块|光模块|光卡|涡轮卡|涡轮|server\s+edition|显卡|处理器|内存条|supercap|超级电容|含电容|含电池|cachevault|掉电保护|支架|网卡|光口|电口|企业级|读取密集型|读密集型|写密集型|混合型|\becc\b|\bcache\b|\bib\b|roce|rdma/g
+const PORT_RE = /双口|二口|双电口|四口|单口|(\d+)\s*口/g
+const PORT_MAP: Record<string, string> = { 双口: '2port', 二口: '2port', 双电口: '2port', 四口: '4port', 单口: '1port' }
+const FUSE_RE = /([a-z])[\-_.·]+([0-9])/g
+const TOKEN_RE = /[a-z0-9]+(?:\.[0-9]+)?/g
 
 const SIGNIFICANT_WORDS = new Set([
   'sata', 'sas', 'nvme', 'ssd', 'hdd', 'gpu', 'cpu', 'ddr', 'dimm',
-  'rdimm', 'lrdimm', 'ecc', 'pcie', 'u.2', 'm.2', 'ocp',
+  'rdimm', 'lrdimm', 'ecc', 'pcie', 'u2', 'm2', 'ocp',
 ])
 
 function normText(value: unknown): string {
@@ -22,11 +29,25 @@ function normText(value: unknown): string {
 }
 
 function tokenize(value: unknown): string[] {
-  const merged = String(value ?? '').toLowerCase().replace(UNIT_MERGE_RE, '$1$2')
-  return merged
-    .split(SPLIT_RE)
-    .map((token) => token.trim())
-    .filter(Boolean)
+  let s = String(value ?? '').toLowerCase().replace(/[（）]/g, ' ')
+  s = s.replace(PORT_RE, (m, d: string | undefined) => ` ${d ? `${d}port` : PORT_MAP[m]} `)
+  s = s.replace(FUSE_RE, '$1$2')
+  s = s.replace(/(\d)\s*gb\b/g, '$1g').replace(/(\d)\s*tb\b/g, '$1t')
+  s = s.replace(/([gt])b\/s/g, '$1')
+  s = s.replace(/(\d{4,5})\s*(?:mts|mt\/s|mhz)\b/g, '$1')
+  s = s.replace(/(\d(?:\.\d+)?)\s*ghz\b/g, '$1')
+  s = s.replace(BRAND_RE, ' ').replace(NOISE_RE, ' ')
+  const out = new Set<string>()
+  for (const t of s.match(TOKEN_RE) || []) {
+    const m = t.match(/^([a-z]+)(\d.+)$/)
+    if (m) {
+      out.add(m[1])
+      out.add(m[2])
+    } else {
+      out.add(t)
+    }
+  }
+  return [...out]
 }
 
 function isSignificant(token: string): boolean {

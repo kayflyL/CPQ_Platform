@@ -16,7 +16,7 @@ from typing import Optional
 
 from app.core.config import get_settings
 
-from app.repository.kp_repo import KPRepository, category_family, _inorm_general, part_identity_key
+from app.repository.kp_repo import KPRepository, category_family, _inorm_general, part_identity_key, semantic_match
 from app.repository.l6_repo import L6Repository
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.rules_repo import RulesRepository
@@ -83,11 +83,12 @@ class PricingEngine:
 
     # ==================== 1. Excel Parsing (pure algorithm) ====================
 
-    def parse_file(self, sheet_dict: dict) -> tuple:
+    def parse_file(self, sheet_dict: dict, template_id: int = None, parse_overrides: dict = None) -> tuple:
         """Parse uploaded Excel into configs + first_meta.
 
         统一走规则驱动的 ExcelParser（解析规则页配置）。不再有旧解析兜底——
         若某 sheet 解析异常会直接抛出，暴露问题而非用旧实现掩盖。
+        template_id/parse_overrides：模板匹配链结果与会话补丁（解析弹窗点着修）。
         """
         configs = {}
         first_meta = None
@@ -99,7 +100,10 @@ class PricingEngine:
             if not self._excel_parser:
                 raise RuntimeError("ExcelParser 未初始化（rules_repo 缺失），无法解析报价单")
 
-            parse_result = self._excel_parser.parse(df, return_trace=False)
+            parse_result = self._excel_parser.parse(
+                df, return_trace=False,
+                template_id=template_id, overrides=parse_overrides,
+            )
             meta = self._convert_parser_meta(parse_result["static_fields"])
             items = self._convert_parser_items(parse_result["dynamic_regions"])
 
@@ -189,11 +193,13 @@ class PricingEngine:
                 raw_price = str(item.get("kp_price", "")).strip().replace(',', '')
                 if raw_price:
                     try:
-                        price = float(raw_price)
+                        price = round(float(raw_price), 2)
                     except ValueError:
                         pass
 
-                if not catalogue or catalogue.lower() in ['nan', 'none', '', 'catalogue', 'keyparts', 'kp']:
+                # 空类别=绑定错列的残行，跳过（区块标记/表头残留已由
+                # parse_regions.exclude_keywords 行级排除词规则在引擎层剔除）
+                if not catalogue:
                     continue
 
                 # 行级货币：型号含 usd/$ → USD，否则 RMB（不限 CPU；上传后可在报价工作台逐行改）
@@ -367,6 +373,12 @@ class PricingEngine:
                             matched = _uniform(sku_hits[0])
                         elif len(key_hits) == 1:
                             matched = _uniform(key_hits[0])
+                        else:
+                            # L1.5 语义 token：输入 token ⊆ 库件 token 且族内唯一
+                            # （对语序/品牌前缀/冗余词/连写差免疫；歧义不匹配，宁缺勿错）
+                            sem_hits = semantic_match(catalogue, family_parts)
+                            if len(sem_hits) == 1:
+                                matched = _uniform(sem_hits[0])
                     else:
                         # 无分类旧单：全局归一名精确兜底，再走旧 fuzzy（不丢已有匹配）
                         hits = exact_all.get(_inorm_general(catalogue)) or []
@@ -425,8 +437,8 @@ class PricingEngine:
 
     # ==================== 3. KP Sync & History (via Repository) ====================
 
-    def get_kp_price_history(self, model: str, limit: int = 10) -> list:
-        return self.kp_repo.get_price_history(model, limit)
+    def get_kp_price_history(self, model: str, limit: int = 10, category: str = "") -> list:
+        return self.kp_repo.get_price_history(model, limit, category=category or None)
 
     def sync_kp_prices_to_db(self, configs_data: dict) -> int:
         """Compare and insert new KP prices into DB if different from latest."""

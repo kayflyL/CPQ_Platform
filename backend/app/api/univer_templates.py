@@ -9,7 +9,7 @@ Univer 导出模板 API（全新，与旧 /api/export-templates 完全独立）
 - 预览：填充数据后返回 snapshot（不保存）
 - 导出：填充数据后生成 Excel 文件
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Body
+from fastapi import APIRouter, HTTPException, UploadFile, File, Query, Body, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List, Any
@@ -17,7 +17,9 @@ import io
 import math
 import openpyxl
 from openpyxl.utils import get_column_letter
+from app.api.deps import get_current_user, field_visible
 from app.repository.univer_template_repo import UniverTemplateRepo
+from app.repository.dynamic_source_field_repo import DynamicSourceFieldRepository
 from app.services.template_filler import fill_snapshot
 from app.services.preview_data_loader import load_preview_data
 from app.services.snapshot_converter import excel_to_snapshot
@@ -44,6 +46,8 @@ repo = UniverTemplateRepo()
 
 class PreviewRequest(BaseModel):
     bindings: Optional[List[Any]] = None
+    # 揭示哪些敏感分组：sell=明细销售价(无权限要求) / cost=成本价 / margin=利润率（后两者需对内导出权限）
+    reveal: Optional[List[str]] = None
 
 class TemplateCreate(BaseModel):
     name: str
@@ -141,43 +145,79 @@ async def upload_excel(file: UploadFile = File(...)):
 
 # ── 预览 ──
 
+def _resolve_masked_fields(user: Optional[dict], requested: Optional[List[str]]) -> tuple[set, dict, dict]:
+    """按权限算有效揭示分组 + 待掩蔽字段表 + 区域聚合字段表。
+
+    sell 无权限要求；cost/margin 需 field.quote.export_internal（服务端强校验，
+    前端开关只是交互层）。
+    掩蔽分档：sell→blank（明细清空、列保留，总计行恒显）；cost/margin→hide（整列隐藏）。
+    返回 (有效分组, {source_key: {field_key: mode}}, {source_key: set(field_key)} scope=region)。
+    """
+    allowed = {"sell"}
+    if field_visible(user, "field.quote.export_internal"):
+        allowed |= {"cost", "margin"}
+    effective = {g for g in (requested or []) if g in allowed}
+    mode_by_group = {"sell": "blank", "cost": "hide", "margin": "hide"}
+
+    masked: dict = {}
+    region_fields: dict = {}
+    repo = DynamicSourceFieldRepository()
+    try:
+        for f in repo.list_all():
+            if f.get("scope") == "region":
+                region_fields.setdefault(f["source_key"], set()).add(f["field_key"])
+            group = f.get("sens_group")
+            if group and group not in effective:
+                masked.setdefault(f["source_key"], {})[f["field_key"]] = mode_by_group.get(group, "hide")
+    finally:
+        repo.close()
+    return effective, masked, region_fields
+
+
 @router.post("/{template_id}/preview")
 def preview_template(
     template_id: int,
     request: PreviewRequest,
     opportunity_id: str = Query(...),
     quotation_id: Optional[str] = Query(None),
+    user: dict = Depends(get_current_user),
 ):
     """
     预览：返回填充数据后的 workbook_snapshot
-    
+
     前端拿到后直接在 Univer 中渲染（不保存到 DB）
     bindings 可选：如果提供，使用传入的 bindings；否则从数据库读取
+    reveal：揭示的敏感分组；越权请求在服务端被静默剥除（cost/margin 需对内导出权限）
     """
     try:
         # 1. 读取模板
         template = repo.get_by_id(template_id)
         if not template:
             raise HTTPException(status_code=404, detail="Template not found")
-        
+
         workbook_snapshot = template["workbook_snapshot"]
         # 优先使用前端传入的 bindings，否则从数据库读取
         bindings = request.bindings if request.bindings is not None else template["bindings"]
         sheet_config = template.get("sheet_config", {})
-        
-        # 2. 加载数据（传入 bindings 以支持 selectedParts）
+
+        # 2. 按权限解析敏感分组：sell=明细清空列保留（总计恒显）；cost/margin=整列隐藏
+        effective_reveal, masked_fields, region_fields = _resolve_masked_fields(user, request.reveal)
+
+        # 3. 加载数据（传入 bindings 以支持 selectedParts）
         data = load_preview_data(opportunity_id, quotation_id, bindings)
-        
-        # 3. 填充 snapshot
-        filled_snapshot = fill_snapshot(workbook_snapshot, bindings, data, sheet_config)
-        
-        # 4. 清洗 NaN/Infinity
+
+        # 4. 填充 snapshot
+        filled_snapshot = fill_snapshot(workbook_snapshot, bindings, data, sheet_config,
+                                        masked_fields=masked_fields, region_fields=region_fields)
+
+        # 5. 清洗 NaN/Infinity
         filled_snapshot = _sanitize_for_json(filled_snapshot)
-        
-        # 5. 返回
+
+        # 6. 返回
         return {
             "workbook_snapshot": filled_snapshot,
             "binding_count": len(bindings),
+            "reveal_effective": sorted(effective_reveal),
             "data_summary": {
                 "static_fields": sum(1 for b in bindings if b.get("dataType") == "static"),
                 "dynamic_regions": sum(1 for b in bindings if b.get("dataType") == "dynamic"),

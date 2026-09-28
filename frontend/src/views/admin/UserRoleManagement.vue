@@ -191,7 +191,7 @@ const roleForm = ref<{ role_key: string; name: string; description: string; perm
 })
 
 const permissionGroups = computed(() => {
-  const moduleOrder = ['工作台', '商机线索', '服务器', '配件', '解决方案', '设置']
+  const moduleOrder = ['商机线索', '商机线索 · 商机详情', '商机线索 · 报价工作台', 'AI 办公室', '服务器', '配件', '解决方案', '设置']
   const keyword = permSearch.value.trim().toLowerCase()
   const groups: { group: string; label: string; items: PermissionItem[] }[] = []
   const used = new Set<string>()
@@ -219,18 +219,21 @@ const permissionGroups = computed(() => {
 
 function moduleOf(p: PermissionItem): string {
   const prefixes: [string, string][] = [
-    ['page.portal', '工作台'],
+    ['page.opportunities_all', '商机线索'],
     ['page.opportunities', '商机线索'],
+    ['field.opportunity', '商机线索 · 商机详情'],
+    ['field.flow', '商机线索 · 商机详情'],
+    ['action.flow.return.quoting', '商机线索 · 报价工作台'],
+    ['action.flow.submit.quoting', '商机线索 · 报价工作台'],
+    ['action.quote', '商机线索 · 报价工作台'],
+    ['field.quote', '商机线索 · 报价工作台'],
+    ['action.flow', '商机线索 · 商机详情'],
+    ['page.office', 'AI 办公室'],
+    ['ai.office', 'AI 办公室'],
     ['page.servers', '服务器'],
     ['page.parts', '配件'],
     ['page.strategies', '解决方案'],
     ['page.settings', '设置'],
-    ['field.quote', '工作台'],
-    ['field.opportunity', '商机线索'],
-    ['field.parts', '配件'],
-    ['field.server', '服务器'],
-    ['field.flow', '商机线索'],
-    ['action.flow.return', '商机线索'],
   ]
   for (const [prefix, module] of prefixes) {
     if (p.key.startsWith(prefix)) return module

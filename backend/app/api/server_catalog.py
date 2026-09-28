@@ -298,6 +298,21 @@ def set_portal_banner(data: dict, admin: dict = Depends(require_admin)):
     return cfg
 
 
+# ---- 性能六维打分锚点表（system_config JSON；配置页雷达消费，管理面改锚点零发版生效）----
+_PERF_SCORE_KEY = "performance_score_config"
+
+
+@router.get("/performance-score-config")
+def get_performance_score_config():
+    """读性能六维打分锚点表；未配置返回空对象（前端回落内置默认锚点）。"""
+    repo = SystemConfigRepository()
+    try:
+        raw = repo.get_value(_PERF_SCORE_KEY, {})
+        return raw if isinstance(raw, dict) else {}
+    finally:
+        repo.close()
+
+
 # ---- 服务器可视化图纸（SVG 上传 + 标注配置，drawing_config JSONB）----
 _DRAWING_VIEWS = {"top", "front", "rear"}
 _DRAWING_MAX = 5 * 1024 * 1024

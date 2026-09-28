@@ -188,23 +188,7 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "tool_ids": ["query_data"],
 
-        "data_boundary": {
-            "mode": "allow_read",
-            "schemas": [],
-            "tables_allow": [
-                "opportunities.opportunities",
-                "opportunities.opportunity_requirements",
-                "opportunities.opportunity_bom_schemes",
-                "opportunities.quotations",
-                "opportunities.quotation_items",
-                "l6.server_types",
-                "l6.server_models",
-                "l6.base_configs",
-            ],
-            "masked_fields": [],
-        },
-
-        "data_sources": ["opportunities"],
+        "price_access": True,
 
 
         "dispatchable": False,
@@ -239,8 +223,6 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "tool_ids": [],
 
-        "data_sources": ["opportunities", "dashboard"],
-
 
         "dispatchable": True,
 
@@ -273,8 +255,6 @@ _DEFAULT_AI_COLLEAGUES = [
         "model_override": None,
 
         "tool_ids": ["choose_model"],
-
-        "data_sources": ["kp_price", "bom", "cost"],
 
 
         "dispatchable": True,
@@ -313,8 +293,6 @@ _DEFAULT_AI_COLLEAGUES = [
 
         "tool_ids": ["choose_model", "search_cases"],
 
-        "data_sources": ["requirement", "candidate_search", "bom", "server_catalog", "server_product_content"],
-
 
         "dispatchable": True,
 
@@ -347,8 +325,6 @@ _DEFAULT_AI_COLLEAGUES = [
         "model_override": None,
 
         "tool_ids": [],
-
-        "data_sources": ["quotation", "opportunity"],
 
 
         "dispatchable": True,
@@ -684,16 +660,6 @@ class SystemConfigRepository:
 
                             changed = True
 
-                    if role_key == "support_engineer":
-
-                        cur_sources = colleague.get("data_sources") or []
-
-                        if not all(s in cur_sources for s in ("server_catalog", "server_product_content")):
-
-                            colleague["data_sources"] = deepcopy(default_colleague["data_sources"])
-
-                            changed = True
-
                     if role_key == "cost_analyst" and colleague.get("tool_ids") == ["choose_model", "build_plan", "cost_breakdown"]:
 
                         colleague["tool_ids"] = deepcopy(default_colleague["tool_ids"])
@@ -701,7 +667,7 @@ class SystemConfigRepository:
                         changed = True
 
                 # 2026-08-29 步骤2：query_data 原语上线，退役 query_cpq_data 与服务器浏览三件套。
-                # 名字映射 + 剔除退役项；方案助手（试点）同时补白名单表进数据边界。
+                # 名字映射 + 剔除退役项（query_data 可读表白名单由 data_boundary.query_tables_allow 自管）。
 
                 if isinstance(colleague.get("tool_ids"), list):
 
@@ -734,22 +700,6 @@ class SystemConfigRepository:
                         colleague["tool_ids"] = mapped
 
                         changed = True
-
-                        if role_key == "assistant":
-
-                            boundary = colleague.get("data_boundary")
-
-                            if isinstance(boundary, dict) and boundary.get("mode") == "allow_read":
-
-                                allow = [str(x) for x in (boundary.get("tables_allow") or [])]
-
-                                for table in (default_map.get("assistant") or {}).get("data_boundary", {}).get("tables_allow", []):
-
-                                    if table not in allow:
-
-                                        allow.append(table)
-
-                                boundary["tables_allow"] = allow
 
         existing_keys = {c.get("role_key") for c in colleagues if isinstance(c, dict)}
 

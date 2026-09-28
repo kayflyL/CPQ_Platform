@@ -10,6 +10,7 @@ import { authApi, AUTH_TOKEN_KEY, type AuthUser } from '@/api/auth'
 export interface MeResult {
   user: AuthUser
   permissions: string[]
+  chat_roles_allowed?: boolean
 }
 
 export const useAuthStore = defineStore('auth', () => {
@@ -17,6 +18,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref<AuthUser | null>(null)
   const permissions = ref<string[]>([])
   const loaded = ref(false)
+  /** 办公室访问策略下还有可聊的 AI 角色（零角色账号隐藏全局浮动助手）。 */
+  const chatRolesAllowed = ref(true)
   /** AUTH_ENABLED 灰度开关：false = 不强制登录、全部权限放行（旧行为）。 */
   const authEnabled = ref(true)
   const configLoaded = ref(false)
@@ -46,6 +49,7 @@ export const useAuthStore = defineStore('auth', () => {
   function applySession(res: MeResult) {
     user.value = res.user
     permissions.value = res.permissions || []
+    chatRolesAllowed.value = res.chat_roles_allowed !== false
   }
 
   async function login(username: string, password: string) {
@@ -59,6 +63,7 @@ export const useAuthStore = defineStore('auth', () => {
     token.value = null
     user.value = null
     permissions.value = []
+    chatRolesAllowed.value = true
     loaded.value = false
     localStorage.removeItem(AUTH_TOKEN_KEY)
   }
@@ -79,5 +84,5 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  return { token, user, permissions, loaded, authEnabled, configLoaded, isAuthenticated, can, ensureConfig, login, logout, loadMe }
+  return { token, user, permissions, loaded, authEnabled, configLoaded, isAuthenticated, chatRolesAllowed, can, ensureConfig, login, logout, loadMe }
 })

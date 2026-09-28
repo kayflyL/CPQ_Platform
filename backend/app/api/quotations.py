@@ -25,13 +25,14 @@ class QuotationCreate(BaseModel):
 
 class QuotationUpdate(BaseModel):
     model_config = {"extra": "allow"}  # 支持动态字段
-    
+
     l6_price: Optional[float] = None
     total_qty: Optional[int] = None
     config_count: Optional[int] = None
     config_quantities: Optional[dict] = None
     quotation_date: Optional[str] = None
     quotation_name: Optional[str] = None
+    expected_updated_at: Optional[str] = None  # 乐观锁基线，不落库
 
 
 @router.get("")
@@ -187,6 +188,13 @@ def update_quotation(quotation_id: str, req: QuotationUpdate,
     repo = QuotationRepository()
     try:
         update_data = req.dict(exclude_unset=True)
+        baseline = (update_data.pop("expected_updated_at", None) or "").strip()
+        if baseline:
+            current = repo.get_raw_by_id(quotation_id)
+            if not current:
+                raise HTTPException(status_code=404, detail="Quotation not found")
+            if (current.updated_at or "") != baseline:
+                raise HTTPException(status_code=409, detail="报价单内容已被他人修改，请刷新后重试")
         quotation = repo.update(quotation_id, **update_data)
         if not quotation:
             raise HTTPException(status_code=404, detail="Quotation not found")
@@ -266,6 +274,26 @@ def export_quotation(quotation_id: str, req: CostSnapshotRequest,
     finally:
         repo.close()
 
+
+@router.post("/{quotation_id}/unfreeze")
+def unfreeze_quotation(quotation_id: str,
+                       admin: dict = Depends(require_perms("action.quote.unfreeze")),
+                       _user: dict = Depends(require_quotation_access)):
+    """解冻已导出报价单（需 action.quote.unfreeze 权限）：清 exported_at 回到草稿态，
+    重新进工作台编辑。已发送（报价单已出）的单不允许解冻，需先退回审批节点。"""
+    repo = QuotationRepository()
+    try:
+        quotation = repo.get_by_id(quotation_id)
+        if not quotation:
+            raise HTTPException(status_code=404, detail="Quotation not found")
+        if not quotation.exported_at:
+            raise HTTPException(status_code=400, detail="该报价单未导出，无需解冻")
+        if quotation.submitted_at:
+            raise HTTPException(status_code=409, detail="该报价单已发送，请先退回审批节点后再解冻")
+        updated = repo.unfreeze(quotation_id)
+        return {"quotation": updated.to_dict()}
+    finally:
+        repo.close()
 
 
 @router.post("/{quotation_id}/reparse")

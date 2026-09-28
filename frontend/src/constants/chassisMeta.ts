@@ -87,7 +87,7 @@ export const BACKPLANE_TYPE_KEYWORDS: Record<'tri' | 'dc', string[]> = {
 export const DEFAULT_PSU_BAYS = 2
 
 /** 全平台标准 PSU 瓦数档位（对应后端 candidate_search._PSU_STANDARD_W；基准配置页「机箱能力」据此多选/可自定义。
- *  每台机箱物理支持的档位不同（如 ES22V3-P=[1300,1600,2000]、4U 8卡机=[2000,2700]）——缺省空=不限沿用全局。 */
+ *  每台机箱物理支持的档位不同（如 ES220 V3=[1300,1600,2000]、4U 8卡机=[2000,2700]）——缺省空=不限沿用全局。 */
 export const PSU_WATTAGE_OPTIONS = [1300, 1600, 2000, 2700, 3200]
 
 /** GPU 架构选项（base_config.gpu_arch_default 用；与 useServerConfig.GpuArch = none/pt/switch 对齐）*/

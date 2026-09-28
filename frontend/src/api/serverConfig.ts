@@ -4,6 +4,7 @@
  */
 import axios from 'axios'
 import type { ShowcaseConfig } from '@/components/server-config/showcase-config'
+import type { PerfScoreConfig } from '@/utils/performanceScore'
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
@@ -79,6 +80,8 @@ export const catalogApi = {
   // 门户 banner 配置（system_config 存储；标题/副标题空=门户用内置默认文案）
   getPortalBanner: () => RESP<PortalBanner>(axios.get('/api/server-catalog/portal-banner')),
   savePortalBanner: (data: PortalBanner) => RESP<PortalBanner>(axios.put('/api/server-catalog/portal-banner', data)),
+  /** 性能六维打分锚点表（system_config；未配置返回 {}，前端回落内置默认锚点） */
+  getPerformanceScoreConfig: () => RESP<PerfScoreConfig>(axios.get('/api/server-catalog/performance-score-config')),
 }
 
 // ---------- 基准配置（引用 parts_master + 底盘件清单）----------
@@ -117,20 +120,20 @@ export interface BaseConfigCost {
 }
 
 // ---------- BOM 模板（左栏 L6 配置单的机型族行骨架）----------
-// ---------- BOM 规则（模板每行 desc/qty 怎么算,跟模板存 JSONB,后端透传）----------
-// 求值跑前端(bomContext 是临时态);算不出 → fallback;manual → 留空手填。
+// ---------- BOM 规则类型（行类型规则的内部形状；定义在 bomRuleEngine.TYPE_RULES，不随模板存）----------
 export type DescSource =
   | { kind: 'fixed'; value: string }                                       // 固定文案
   | { kind: 'part_field'; category: string; field: string }                // 料号库字段(name/pn/specs.xxx)
   | { kind: 'template'; template: string }                                 // ${bays}*3.5 SATA/SAS 变量插值
-  | { kind: 'struct_count'; scope: 'io_slot' | 'rear_all' | 'front_cables' } // 结构计数
+  | { kind: 'struct_count'; scope: 'io_slot' | 'rear_all' }                // 结构计数
   | { kind: 'config_value'; key: string }                                  // 配置参数单值
+  | { kind: 'cable_groups'; kinds?: Record<string, { size: number; template: string }> } // Cable 行专属：按盘型分组拼线缆文字（SATA/SAS/NVMe）
   | { kind: 'manual' }                                                     // 留空,工作台手填
 
 export type QtySource =
   | { kind: 'fixed'; value: number }
   | { kind: 'part_quantity'; category: string }
-  | { kind: 'config_calc'; key: string }   // psu_qty / gpu_cable_qty
+  | { kind: 'config_calc'; key: string }   // psu_qty / gpu_cable_qty / ocp_qty
   | { kind: 'manual' }
 
 export interface BomRule {
@@ -140,7 +143,16 @@ export interface BomRule {
   qty_fallback?: QtySource
 }
 
-export interface BomTemplateRow { type: string; label: string; slot?: string; mode?: string; rule?: BomRule }
+/** 行骨架：rule 可选——省略 = 跟随类型默认（bomRuleEngine.TYPE_RULES，零配置即合理）；
+ *  填了 = 该行完全按自己的规则求值（编辑页点「取值方式」从类型默认拷贝起步可改）。
+ *  相比旧版：rule 不再必填、不预填，默认干净的骨架；编辑能力保留完整。 */
+export interface BomTemplateRow {
+  type: string
+  label: string
+  slot?: string
+  mode?: string
+  rule?: BomRule
+}
 export interface BomTemplate { id: number; name: string; rows: BomTemplateRow[]; sort_order?: number }
 export const bomTemplateApi = {
   list: () => RESP<{ templates: BomTemplate[] }>(axios.get('/api/bom-templates')),
@@ -282,6 +294,7 @@ export interface BaseConfig {
   psu_bays?: number       // 电源槽位数（驱动电源数量上限/默认）
   rear_slots?: RearSlot[] // 后面板槽位布局 [{name, cap}]
   gpu_slots?: number      // 可装 GPU 数上限
+  gpu_default?: { part_id: number; qty: number }[] | null  // 默认 GPU 卡配置（KP 卡 id×数量；AI 推理配置器「机型装得下判定」输入，空=未维护）
   max_tdp?: number | null  // 散热/供电承载 TDP 上限(W)，可空，供 PSU↔GPU 功率规则参考
   // 机箱能力约束（基准配置页可配；缺省 → 推理链路用全局兜底，不硬编码物理边界）：
   psu_wattages?: number[]   // 允许的 PSU 瓦数档位（如 [1300,1600,2000]；空/缺省=不限沿用全局）

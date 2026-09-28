@@ -67,6 +67,12 @@ class BaseConfigRepository:
                     cfg["psu_wattages"] = json.loads(pw)
                 except Exception:
                     cfg["psu_wattages"] = None
+            gd = cfg.get("gpu_default")
+            if isinstance(gd, str):
+                try:
+                    cfg["gpu_default"] = json.loads(gd)
+                except Exception:
+                    cfg["gpu_default"] = None
         return configs
 
     def list_forms(self) -> list:
@@ -206,6 +212,12 @@ class BaseConfigRepository:
                 d["psu_wattages"] = json.loads(pw)
             except Exception:
                 d["psu_wattages"] = None
+        gd = d.get("gpu_default")
+        if isinstance(gd, str):
+            try:
+                d["gpu_default"] = json.loads(gd)
+            except Exception:
+                d["gpu_default"] = None
         return d
 
     def get_with_parts(self, config_id: int) -> Optional[dict]:
@@ -238,7 +250,7 @@ class BaseConfigRepository:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
                    "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
                    "psu_bays", "rear_slots", "gpu_slots", "max_tdp",
-                   "psu_wattages", "max_cpu", "max_dimm", "mem_channels",
+                   "psu_wattages", "max_cpu", "max_dimm", "mem_channels", "gpu_default",
                    "model_id", "config_content"}
         d = {k: v for k, v in data.items() if k in allowed}
         if "name" not in d:
@@ -247,10 +259,12 @@ class BaseConfigRepository:
             d["rear_slots"] = json.dumps(d["rear_slots"], ensure_ascii=False)
         if isinstance(d.get("psu_wattages"), (list, dict)):
             d["psu_wattages"] = json.dumps(d["psu_wattages"], ensure_ascii=False)
+        if isinstance(d.get("gpu_default"), (list, dict)):
+            d["gpu_default"] = json.dumps(d["gpu_default"], ensure_ascii=False)
         if isinstance(d.get("config_content"), (dict, list)):
             d["config_content"] = json.dumps(d["config_content"], ensure_ascii=False)
         cols = list(d.keys())
-        val_list = ",".join(f"CAST(:{k} AS jsonb)" if k == "config_content" else f":{k}" for k in cols)
+        val_list = ",".join(f"CAST(:{k} AS jsonb)" if k in ("config_content", "gpu_default") else f":{k}" for k in cols)
         q = f"INSERT INTO l6.base_configs ({','.join(cols)}) VALUES ({val_list}) RETURNING id"
         with l6_engine.begin() as c:
             return c.execute(text(q), d).scalar()
@@ -259,7 +273,7 @@ class BaseConfigRepository:
         allowed = {"name", "server_type_id", "series", "model", "form", "bays",
                    "bp_tri_pn", "bp_dc_pn", "gpu_arch_default", "sort_order", "bom_template_id",
                    "psu_bays", "rear_slots", "gpu_slots", "max_tdp",
-                   "psu_wattages", "max_cpu", "max_dimm", "mem_channels",
+                   "psu_wattages", "max_cpu", "max_dimm", "mem_channels", "gpu_default",
                    "model_id", "config_content"}
         f, v = [], {}
         for k, val in updates.items():
@@ -271,6 +285,9 @@ class BaseConfigRepository:
             elif k == "psu_wattages" and isinstance(val, (list, dict)):
                 val = json.dumps(val, ensure_ascii=False)
                 f.append("psu_wattages = CAST(:psu_wattages AS jsonb)")
+            elif k == "gpu_default" and isinstance(val, (list, dict)):
+                val = json.dumps(val, ensure_ascii=False)
+                f.append("gpu_default = CAST(:gpu_default AS jsonb)")
             else:
                 f.append(f"{k}=:{k}")
             v[k] = val

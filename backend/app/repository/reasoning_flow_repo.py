@@ -101,6 +101,34 @@ def _merge_config(base: dict, override: dict) -> dict:
     return out
 
 
+def compute_tool_usage(flow_snapshots: list) -> dict:
+    """tool_name → 引用它的节点标签（聚合全部活跃流的生效工具集）。
+
+    生效集与运行时同一合成口径：默认契约 + 增量 + 机制保底
+    （skill_plan_runtime.effective_node_tools），绝不另写一份清单。
+    flow_snapshots 每项 = {"skill_key": str, "graph": dict, "node_deltas": {node_key: cfg}}。
+    """
+    from app.services.capability_spec import SPECS
+    from app.services.skill_plan_runtime import effective_node_tools
+    usage: dict[str, set] = {}
+    for snap in flow_snapshots or []:
+        defaults = _node_defaults_for(snap.get("skill_key"))
+        g = snap.get("graph") or {}
+        deltas = snap.get("node_deltas") or {}
+        for node in (g.get("nodes") or []):
+            key = str(node.get("id") or node.get("type") or "").strip()
+            if not key:
+                continue
+            cfg = _normalize_node_tool_names(
+                _merge_config(defaults.get(key) or {}, deltas.get(key) or {}))
+            base = key[: key.rindex("_")] if "_" in key else key
+            spec = SPECS.get(key) or SPECS.get(base)
+            label = spec.label if spec else str(node.get("label") or key)
+            for t in effective_node_tools(key, cfg):
+                usage.setdefault(t, set()).add(label)
+    return {t: sorted(labels) for t, labels in sorted(usage.items())}
+
+
 def _legacy_node_keys(node_key: str) -> list:
     """节点配置里应被清掉的遗留键（旧一次性节点级提示词/决策字段）。"""
     if node_key == "agent_fill":
@@ -200,6 +228,25 @@ class ReasoningFlowRepository:
             effective[key] = _normalize_node_tool_names(_merge_config(defaults.get(key) or {}, delta_map.get(key, {})))
         d["node_configs"] = effective
         return d
+
+    def tool_usage_map(self) -> dict:
+        """活跃流的 工具→引用节点 聚合（AI 工具目录卡片「被引用」徽标数据源）。"""
+        flows = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True).all()
+        snaps = []
+        for f in flows:
+            rows = self.session.query(ReasoningNodeConfig).filter(
+                ReasoningNodeConfig.flow_id == f.id
+            ).all()
+            try:
+                g = json.loads(f.graph) if isinstance(f.graph, str) else (f.graph or {})
+            except Exception:
+                g = {}
+            snaps.append({
+                "skill_key": f.skill_key or f.name or "",
+                "graph": g if isinstance(g, dict) else {},
+                "node_deltas": {n.node_key: (json.loads(n.config) if n.config else {}) for n in rows},
+            })
+        return compute_tool_usage(snaps)
 
     def get(self, flow_id: int) -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()

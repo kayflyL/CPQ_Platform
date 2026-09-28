@@ -91,15 +91,15 @@ def tool_catalog_search(args: dict) -> dict:
 
 
 def tool_query_data(args: dict) -> dict:
-    """query_data：数据边界内的只读 SELECT 原语（2026-08-29 步骤2）。
+    """query_data：数据边界内的只读 SELECT 原语。
 
-    权限全部在 execute_read（物理校验+只读事务+超时+行数上限+列脱敏）；
-    这里只做上下文接线与审计。SQL 报错原样回传，模型据此自纠。
+    边界由工具自建（2026-09-13 工具即权限）：表白名单来自工具自有配置
+    （system_config.query_data_tables_allow），价格列按同事 price_access 脱敏。
+    物理校验+只读事务+超时+行数上限+列脱敏全在 execute_read；这里只做接线与审计。
     """
     ctx = TOOL_CTX.get()
-    boundary = ctx.get("boundary")
-    if not isinstance(boundary, dict) or boundary.get("mode") != "allow_read":
-        return {"ok": False, "error": "数据边界为拒绝模式（deny_all），无读取权限"}
+    from app.services.data_boundary import tool_boundary
+    boundary = tool_boundary(bool(ctx.get("price_ok")))
     sql = str((args or {}).get("sql") or "").strip()
     if not sql:
         return {"ok": False, "error": "缺 sql 参数（单条只读 SELECT）"}
@@ -117,7 +117,7 @@ def tool_query_data(args: dict) -> dict:
 
 
 def tool_ask_user(args: dict) -> dict:
-    """【任务期工具】大脑回合专用：把需要客户决策的问题升格为结构化选项卡。
+    """【需求分析流程工具】大脑回合专用：把需要客户决策的问题升格为结构化选项卡。
 
     大脑的自由文本提问只能到达聊天区、没有交互通道（2026-09-05 用户实测：锁 4 行后
     问「1.92T 需确认接口」但没有任何可点的卡）。此工具把问题+选项登记进回合上下文，
@@ -132,7 +132,7 @@ def tool_ask_user(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "ask_user 仅在任务期大脑回合可用"}
+                "message": "ask_user 仅在需求分析流程的大脑回合可用"}
     q = str((args or {}).get("question") or "").strip()
     opts_in = (args or {}).get("options")
     if not q or not isinstance(opts_in, list) or not opts_in:
@@ -151,10 +151,18 @@ def tool_ask_user(args: dict) -> dict:
                          ("part_id", "name", "price", "currency", "qty")}
                 if _pick.get("name"):
                     item["pick"] = _pick
+            # 推荐数量随选项白盒落卡（前端步进器默认量）：大脑显式给的 qty/qty_max
+            # 原样透传，没给的由节点插座按行申报量+机型物理边界补。
+            for k in ("qty", "qty_max"):
+                v = o.get(k)
+                if isinstance(v, int) and v > 0:
+                    item[k] = v
             if str(o.get("absent") or "").strip():
                 item["absent"] = str(o["absent"]).strip()
             if o.get("waived"):
                 item["waived"] = True
+            if o.get("pick_all"):
+                item["pick_all"] = True
             # 目录字段确认选项（凡推断必求证）：声明该选项写哪个登记表字段、规范值是什么。
             # 字段 key/值域全部来自登记表契约，这里只是原样透传，不做归一。
             if str(o.get("slot") or "").strip():
@@ -196,4 +204,24 @@ def tool_ask_user(args: dict) -> dict:
                                     + "）已了结（已锁定/已豁免）；重开该行需 reopen=true")}
             row_arg = str(_hit.get("row_id") or _hit.get("row") or row_arg)
     asks.append({"question": q, "options": opts, "row": row_arg, "slot": slot_arg})
+    # 词典卡影子校验标注（确定性、零 LLM、只标注不干预）：确认卡选项带 slot+value 时，
+    # 与 CRE 硬命中比对——一致 = rule_match（「规则推荐」徽标），不一致 = rule_conflict（提示核对）。
+    _slot_opts = [o for o in opts if o.get("slot") and str(o.get("value") or "").strip()]
+    if _slot_opts:
+        try:
+            from app.services.requirement_knowledge import shadow_check_platform
+            _sh = shadow_check_platform(ctx.get("ext") or {})
+            if _sh:
+                for o in _slot_opts:
+                    if o["slot"] != _sh["slot"]:
+                        continue
+                    if str(o["value"]).strip() == _sh["rule_value"]:
+                        o["rule_match"] = True
+                    else:
+                        o["rule_conflict"] = {"rule_value": _sh["rule_value"]}
+        except Exception:
+            logger.warning("确认卡影子校验标注失败（降级：不加标注）", exc_info=True)
+    logger.info("ask_user 卡选项留底 question=%s row=%s opts=%s", q[:40], row_arg,
+                [(o.get("label"), bool(o.get("pick_all")), bool(o.get("pick")),
+                  o.get("absent") or o.get("waived") or "") for o in opts])
     return {"ok": True, "message": "问题已登记，本轮结束后会向客户弹出选项卡"}

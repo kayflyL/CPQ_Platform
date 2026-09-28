@@ -6,11 +6,9 @@
         <p>{{ pageDesc }}</p>
       </div>
       <button v-if="view === 'business'" class="primary-btn" @click="createOpen = true">+ 新建商机</button>
-      <button v-else-if="isTaskView" class="ghost-btn" :disabled="!taskItems.length" @click="openTransfer()">{{ pageTransferText }}</button>
-      <button v-else-if="view === 'dispatch'" class="primary-btn" @click="openRuleModal()">+ 新增分派规则</button>
     </div>
 
-    <div class="stats">
+    <div class="stats" v-if="view !== 'dispatch'">
       <div class="stat" v-for="s in stats" :key="s.label">
         <small>{{ s.label }}</small>
         <b>{{ s.value }}</b>
@@ -18,125 +16,66 @@
       </div>
     </div>
 
+    <!-- 我的商机（业务本人视角；复用商机线索表公共组件） -->
     <div v-if="view === 'business'" class="card">
-      <div class="card-head"><h3>商机线索列表</h3><small>点击进入商机详情 / 审批流</small><div class="card-tools"><input v-model="businessSearch" class="tool-input" placeholder="搜索客户 / 业务" @input="onBusinessSearch" /><a-select v-model:value="businessSortBy" class="tool-select" style="width:130px" placeholder="排序" @change="onBusinessTableChange({ current: businessPage })"><a-select-option value="updated_at">更新时间</a-select-option><a-select-option value="created_at">创建时间</a-select-option></a-select></div></div>
+      <div class="card-head"><h3>商机线索列表</h3><small>点击进入商机详情 / 审批流</small><div class="card-tools"><input v-model="search" class="tool-input" placeholder="搜索客户 / 业务 / 商机号" @input="onSearch" /><a-select v-model:value="sortBy" class="tool-select" style="width:130px" @change="onSortChange"><a-select-option value="updated_at">更新时间</a-select-option><a-select-option value="created_at">创建时间</a-select-option></a-select></div></div>
       <div class="card-body table-body">
-        <a-table
-          :data-source="businessRows"
-          :columns="businessColumns"
-          :pagination="businessPagination"
-          :loading="businessLoading"
-          size="small"
-          row-key="opportunity_id"
-          @change="onBusinessTableChange"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'customer_name'">
-              <b>{{ record.customer_name || '—' }}</b>
-            </template>
-            <template v-else-if="column.key === 'summary'">
-              <span>{{ record.summary || '—' }}</span>
-            </template>
-            <template v-else-if="column.key === 'sales_person'">
-              <span>{{ record.sales_person || '—' }}</span>
-            </template>
-            <template v-else-if="column.key === 'current_node'">
-              <span class="pill" :class="pillClass(record)">{{ nodeLabel(record.current_node) }}</span>
-            </template>
-            <template v-else-if="column.key === 'updated_at'">
-              <span class="muted">{{ record.updated_at || '—' }}</span>
-            </template>
-            <template v-else-if="column.key === 'action'">
-              <button class="link" @click="openTask(record.opportunity_id)">{{ businessAction(record) }}</button>
-            </template>
-          </template>
-        </a-table>
+        <OpportunityTable
+          :rows="cards"
+          :loading="cardsLoading"
+          :pagination="pagination"
+          :status-editable="statusEditable"
+          show-flow-node
+          row-menu
+          selectable
+          from-tag="portal-business"
+          :scroll-x="1024"
+          @change="onTableChange"
+          @result-change="changeResult"
+          @row-menu="onRowMenu"
+          @batch-trashed="onBatchTrashed"
+        />
       </div>
     </div>
+    <!-- 技术 / 成本 / 报价任务队列：node 过滤的商机卡片，同一张表 -->
     <div v-else-if="isTaskView" class="card">
-      <div class="card-head"><h3>{{ taskTableTitle }}</h3><small>当前节点：{{ nodeLabel(node || '') }}</small></div>
+      <div class="card-head"><h3>{{ taskTableTitle }}</h3><small>当前节点：{{ nodeLabel(node || '') }} · 点击客户名进入商机详情</small><div class="card-tools"><input v-model="search" class="tool-input" placeholder="搜索客户 / 业务 / 商机号" @input="onSearch" /></div></div>
       <div class="card-body table-body">
-        <a-table
-          :data-source="taskItems"
-          :columns="taskColumns"
-          :pagination="taskPagination"
-          :loading="taskLoading"
-          size="small"
-          row-key="opportunity_id"
-          @change="onTaskTableChange"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'sales_person'">
-              <span>{{ record.sales_person || '—' }}</span>
-            </template>
-            <template v-else-if="column.key === 'customer_name'">
-              <b>{{ record.customer_name || '—' }}</b>
-            </template>
-            <template v-else-if="column.key === 'summary'">
-              <span>{{ taskCell(record) }}</span>
-            </template>
-            <template v-else-if="column.key === 'source_actor'">
-              <span>{{ taskActor(record) }}</span>
-            </template>
-            <template v-else-if="column.key === 'status'">
-              <span class="pill" :class="taskPill(record)">{{ taskStatus(record) }}</span>
-            </template>
-            <template v-else-if="column.key === 'action'">
-              <button class="link" @click="openTask(record.opportunity_id)">{{ taskAction(record) }}</button>
-            </template>
-          </template>
-        </a-table>
+        <OpportunityTable
+          :rows="cards"
+          :loading="cardsLoading"
+          :pagination="pagination"
+          :status-editable="statusEditable"
+          show-flow-node
+          :sortable="false"
+          row-menu
+          menu-mode="task"
+          :from-tag="fromTag"
+          :scroll-x="964"
+          @change="onTableChange"
+          @result-change="changeResult"
+          @row-menu="onRowMenu"
+        />
       </div>
     </div>
 
-    <template v-else-if="view === 'dispatch'">
-      <div class="card">
-        <div class="card-head"><h3>业务 × 节点负责人</h3><small>同一技术可负责多个业务；支持单条转交覆盖</small></div>
-        <div class="card-body">
-          <div class="assign-grid">
-            <div class="head">业务</div><div class="head">技术支持 / BOM</div><div class="head">成本核算</div><div class="head">报价专员</div>
-            <template v-for="biz in dispatchData.businesses" :key="biz.user_id">
-              <div class="assign-cell"><small>业务</small><b>{{ biz.name }}</b></div>
-              <div class="assign-cell" v-for="n in nodeCols" :key="biz.user_id + n">
-                <small>{{ nodeShort(n) }}</small>
-                <select :value="ruleAssignee(biz.user_id, n)" @change="onRuleChange(biz.user_id, n, $event)">
-                  <option value="">未设置</option>
-                  <option v-for="name in assigneesFor(n)" :key="name" :value="name">{{ name }}</option>
-                </select>
-              </div>
-            </template>
-            <div class="assign-cell pool"><small>业务</small><b>公共池 / 未指派</b></div>
-            <div class="assign-cell pool" v-for="n in nodeCols" :key="'pool-' + n">
-              <small>{{ nodeShort(n) }}</small>
-              <b class="muted">{{ dispatchData.unassigned[n] || 0 }} 条待分派</b>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>转交记录</h3></div>
-        <div class="card-body table-body">
-          <a-table
-            :data-source="dispatchData.transfers"
-            :columns="transferColumns"
-            :loading="dispatchLoading"
-            size="small"
-            :pagination="false"
-            row-key="opportunity_id"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'time'"><span class="muted">{{ record.time }}</span></template>
-              <template v-else-if="column.key === 'customer_name'"><span>{{ record.customer_name || record.opportunity_id }}</span></template>
-              <template v-else-if="column.key === 'node_label'"><span>{{ record.node_label }}</span></template>
-              <template v-else-if="column.key === 'from_assignee'"><span>{{ record.from_assignee || '未指派' }}</span></template>
-              <template v-else-if="column.key === 'to_assignee'"><span>{{ record.to_assignee || '—' }}</span></template>
-              <template v-else-if="column.key === 'actor'"><span>{{ record.actor || '—' }}</span></template>
-            </template>
-          </a-table>
-        </div>
-      </div>
-    </template>
+    <!-- 任务调度页：统计条+人员×节点看板+转交记录，无主清单收在弹窗；面板自管数据 -->
+    <PortalDispatchPanel v-else-if="view === 'dispatch'" />
     <CreateOpportunityModal v-model:open="createOpen" from="portal-business" />
+
+    <a-modal
+      v-model:open="renameOpen"
+      title="重命名商机"
+      ok-text="保存"
+      cancel-text="取消"
+      :confirm-loading="renaming"
+      :mask-style="{ background: 'rgba(2, 6, 23, 0.62)', 'backdrop-filter': 'blur(2px)' }"
+      :body-style="{ background: 'var(--cpq-bg-secondary)' }"
+      wrap-class-name="portal-modal"
+      @ok="confirmRename"
+    >
+      <a-input v-model:value="renameValue" placeholder="客户名称" @press-enter="confirmRename" />
+    </a-modal>
 
     <a-modal
       v-model:open="transferOpen"
@@ -156,36 +95,21 @@
         </a-form-item>
       </a-form>
     </a-modal>
-
-    <a-modal
-      v-model:open="ruleOpen"
-      title="新增 / 修改分派规则"
-      ok-text="保存规则"
-      cancel-text="取消"
-      :confirm-loading="ruleSaving"
-      :mask-style="{ background: 'rgba(2, 6, 23, 0.62)', 'backdrop-filter': 'blur(2px)' }"
-      :body-style="{ background: 'var(--cpq-bg-secondary)' }"
-      wrap-class-name="portal-modal"
-      @ok="saveRule"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="业务"><a-select v-model:value="ruleForm.business_user_id" :options="ruleBusinessOptions" placeholder="请选择业务" /></a-form-item>
-        <a-form-item label="流程节点"><a-select v-model:value="ruleForm.node_key" :options="nodeOptions" /></a-form-item>
-        <a-form-item label="默认处理人"><a-select v-model:value="ruleForm.assignee_name" :options="assigneeOptions(ruleForm.node_key)" placeholder="请选择处理人" /></a-form-item>
-      </a-form>
-    </a-modal>
   </div>
 </template>
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
-import { portalApi, type PortalDispatchData, type PortalTaskItem } from '@/api/portal'
+import { Modal, message } from 'ant-design-vue'
+import axios from 'axios'
+import { portalApi, type PortalOppCard } from '@/api/portal'
+import OpportunityTable from '@/components/opportunity/OpportunityTable.vue'
 import CreateOpportunityModal from '@/components/opportunity/CreateOpportunityModal.vue'
+import PortalDispatchPanel from './PortalDispatchPanel.vue'
+import { resultLabel } from '@/constants/opportunityResult'
 import { useAuthStore } from '@/store/auth'
 
 type ViewKey = 'business' | 'te' | 'cost' | 'quote' | 'dispatch'
-type TableColumn = { title: string; key: string }
 
 const route = useRoute()
 const router = useRouter()
@@ -195,249 +119,195 @@ const view = computed<ViewKey>(() => (route.params.view as ViewKey) || 'business
 const node = computed(() => ({ business: '', te: 'boming', cost: 'costing', quote: 'quoting', dispatch: '' }[view.value] || ''))
 const isAdmin = computed(() => auth.user?.role === 'admin' || auth.can('page.opportunities_all'))
 const isTaskView = computed(() => view.value === 'te' || view.value === 'cost' || view.value === 'quote')
+const canResult = computed(() => auth.can('action.opportunity.result'))
+// 商机状态列：业务/报价员（且持有权限键）可改，技术/成本只读
+const statusEditable = computed(() => (view.value === 'business' || view.value === 'quote') && canResult.value)
+const fromTag = computed(() => (({ business: 'portal-business', te: 'portal-te', cost: 'portal-cost', quote: 'portal-quote' } as Record<ViewKey, string>)[view.value]) || '')
 
-const pageMeta: Record<ViewKey, { title: string; desc: string; short: string; transfer: string }> = {
-  business: { title: '我的商机', desc: '只看自己创建/归属自己的商机，提交需求后进入统一审批流。', short: '业务', transfer: '' },
-  te: { title: '技术支持工作台', desc: '汇总多个业务提交到我名下的 BOM 配置需求。', short: '需求', transfer: '转交给我负责的需求' },
-  cost: { title: '成本核算工作台', desc: '汇总已提交 BOM、待我核价的成本任务。', short: '成本', transfer: '转交成本任务' },
-  quote: { title: '报价专员工作台', desc: '汇总已核价、待转正式报价或需退回的成本表。', short: '报价', transfer: '转交报价任务' },
-  dispatch: { title: '任务调度页', desc: '按业务线或单个需求，配置技术、成本、报价负责人，并支持转交。', short: '调度', transfer: '' },
+const pageMeta: Record<ViewKey, { title: string; desc: string; short: string }> = {
+  business: { title: '我的商机', desc: '只看自己创建/归属自己的商机，提交需求后进入统一审批流。', short: '业务' },
+  te: { title: '技术支持工作台', desc: '汇总多个业务提交到我名下的 BOM 配置需求。', short: '需求' },
+  cost: { title: '成本核算工作台', desc: '汇总已提交 BOM、待我核价的成本任务。', short: '成本' },
+  quote: { title: '报价专员工作台', desc: '汇总已核价、待转正式报价或需退回的成本表。', short: '报价' },
+  dispatch: { title: '任务调度页', desc: '调度台：无主任务弹窗灭火、人员×节点看板、默认承接规则与转交记录。', short: '调度' },
 }
 const pageTitle = computed(() => pageMeta[view.value].title)
 const pageDesc = computed(() => pageMeta[view.value].desc)
-const pageTransferText = computed(() => pageMeta[view.value].transfer)
+const taskTableTitle = computed(() => (({ te: '需求任务队列', cost: '成本任务队列', quote: '报价任务队列' } as Record<string, string>)[view.value]) || '任务队列')
 
-const nodeCols = ['boming', 'costing', 'quoting'] as const
-const nodeShortMap: Record<string, string> = { boming: '技术', costing: '成本', quoting: '报价' }
 const nodeLabelMap: Record<string, string> = { requirement: '需求单', assign: '指派', boming: '方案配置', costing: '成本核算', quoting: '报价单', done: '已定稿' }
-function nodeShort(key: string) { return nodeShortMap[key] || key }
 function nodeLabel(key: string) { return nodeLabelMap[key] || key || '—' }
-function pillClass(row: { current_node?: string; flow_status?: string }) {
-  if (row.flow_status === 'done') return 'green'
-  if (row.flow_status === 'returned') return 'red'
-  if (row.current_node === 'boming') return 'amber'
-  return ''
-}
-function businessAction(row: { current_node?: string; flow_status?: string }) {
-  return row.flow_status === 'returned' ? '处理' : '进入'
-}
 
-const businessColumns: TableColumn[] = [
-  { title: '客户', key: 'customer_name' },
-  { title: '需求摘要', key: 'summary' },
-  { title: '业务', key: 'sales_person' },
-  { title: '当前节点', key: 'current_node' },
-  { title: '更新时间', key: 'updated_at' },
-  { title: '操作', key: 'action' },
-]
-const transferColumns: TableColumn[] = [
-  { title: '时间', key: 'time' },
-  { title: '需求', key: 'customer_name' },
-  { title: '节点', key: 'node_label' },
-  { title: '原处理人', key: 'from_assignee' },
-  { title: '新处理人', key: 'to_assignee' },
-  { title: '操作人', key: 'actor' },
-]
-// 业务页
-const businessCards = ref<any[]>([])
-const businessLoading = ref(false)
-const businessSummary = ref({ total: 0, returned: 0, in_progress: 0, done: 0 })
-const businessPage = ref(1)
-const businessPageSize = ref(10)
-const businessTotal = ref(0)
-const businessUserPickedPageSize = ref(false)
-const businessSearch = ref('')
-const businessSortBy = ref<'updated_at' | 'created_at'>('updated_at')
-let businessSearchTimer: number | undefined
-const businessPagination = computed(() => ({
-  current: businessPage.value,
-  pageSize: businessPageSize.value,
-  total: businessTotal.value,
+// ── 商机列表（business 直查本人 / te·cost·quote 按节点+范围，同一张商机线索表） ──
+const cards = ref<PortalOppCard[]>([])
+const cardsLoading = ref(false)
+const oppSummary = ref<any>({})
+const page = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const userPickedPageSize = ref(false)
+const search = ref('')
+const sortBy = ref<'updated_at' | 'created_at'>('updated_at')
+const sortOrder = ref<'asc' | 'desc'>('desc')
+let searchTimer: number | undefined
+const pagination = computed(() => ({
+  current: page.value,
+  pageSize: pageSize.value,
+  total: total.value,
   showSizeChanger: true,
   showTotal: (t: number) => `共 ${t} 条`,
   pageSizeOptions: ['5', '10', '15', '20', '30', '50'],
 }))
-function onBusinessTableChange(pag: any) {
-  businessPage.value = pag.current || 1
-  if (pag.pageSize && pag.pageSize !== businessPageSize.value) {
-    businessPageSize.value = pag.pageSize
-    businessUserPickedPageSize.value = true
-  }
-  if (pag.sorter && pag.sorter.order) {
-    businessSortBy.value = pag.sorter.order === 'ascend' ? ('created_at' as const) : ('updated_at' as const)
-  }
-  loadBusiness()
-}
-function onBusinessSearch() {
-  if (businessSearchTimer) window.clearTimeout(businessSearchTimer)
-  businessSearchTimer = window.setTimeout(() => {
-    businessPage.value = 1
-    loadBusiness()
-  }, 300)
-}
-const createOpen = ref(false)
 
-const businessRows = computed(() => businessCards.value.map(c => ({
-  ...c,
-  summary: [c.platform_type, c.chassis_form, c.purchase_qty ? `${c.purchase_qty}台` : ''].filter(Boolean).join(' · '),
-})))
-const businessStats = computed(() => {
-  const s = businessSummary.value
-  return [
-    { label: '全部商机', value: s.total, hint: '' },
-    { label: '待我处理', value: s.returned, hint: '需求待修改' },
-    { label: '流转中', value: s.in_progress, hint: 'BOM / 核价 / 报价' },
-    { label: '已定稿', value: s.done, hint: '正式报价可见' },
-  ]
-})
-
-async function loadBusiness() {
-  businessLoading.value = true
+async function loadCards() {
+  cardsLoading.value = true
   try {
-    const res = await portalApi.oppCards({ page: businessPage.value, page_size: businessPageSize.value, search: businessSearch.value?.trim() || undefined, sort_by: businessSortBy.value, sort_order: 'desc' })
-    businessCards.value = res.cards || []
-    businessSummary.value = res.summary || { total: res.total || 0, returned: 0, in_progress: 0, done: 0 }
-    businessTotal.value = res.total || 0
+    // search 两模式同口径（客户/业务/商机ID）；business 走 SQL，node 模式后端内存过滤
+    const params: Record<string, any> = { page: page.value, page_size: pageSize.value, search: search.value.trim() || undefined }
+    if (view.value === 'business') {
+      params.sort_by = sortBy.value
+      params.sort_order = sortOrder.value
+    } else {
+      params.node = node.value
+      params.scope = isAdmin.value ? 'all' : 'mine'
+    }
+    const res = await portalApi.oppCards(params)
+    cards.value = res.cards || []
+    oppSummary.value = res.summary || {}
+    total.value = res.total || 0
   } catch (e: any) {
     message.error('加载商机失败：' + (e?.message || e))
   } finally {
-    businessLoading.value = false
+    cardsLoading.value = false
   }
 }
 
-// 角色任务页
-const taskItems = ref<PortalTaskItem[]>([])
-const taskLoading = ref(false)
-const taskSummary = ref({ total: 0, today: 0, mine: 0, pool: 0 })
-const taskPage = ref(1)
-const taskPageSize = ref(10)
-const taskTotal = ref(0)
-const taskUserPickedPageSize = ref(false)
-const taskPagination = computed(() => ({
-  current: taskPage.value,
-  pageSize: taskPageSize.value,
-  total: taskTotal.value,
-  showSizeChanger: true,
-  showTotal: (t: number) => `共 ${t} 条`,
-  pageSizeOptions: ['5', '10', '15', '20', '30', '50'],
-}))
-function onTaskTableChange(pag: any) {
-  taskPage.value = pag.current || 1
-  if (pag.pageSize && pag.pageSize !== taskPageSize.value) {
-    taskPageSize.value = pag.pageSize
-    taskUserPickedPageSize.value = true
+function onTableChange(pag: any, _filters: any, sorter: any) {
+  page.value = pag.current || 1
+  if (pag.pageSize && pag.pageSize !== pageSize.value) {
+    pageSize.value = pag.pageSize
+    userPickedPageSize.value = true
   }
-  loadTasks()
+  // 节点任务模式后端按流程更新时间倒序，忽略排序参数（排序箭头已关）
+  if (view.value === 'business' && sorter?.order) {
+    sortBy.value = sorter.field === 'created_at' ? 'created_at' : 'updated_at'
+    sortOrder.value = sorter.order === 'ascend' ? 'asc' : 'desc'
+  }
+  loadCards()
 }
-const taskTableTitle = computed(() => {
-  if (view.value === 'te') return '需求任务队列'
-  if (view.value === 'cost') return '成本任务队列'
-  return '报价任务队列'
-})
-const taskColumns = computed<TableColumn[]>(() => {
-  if (view.value === 'te') return [
-    { title: '来源业务', key: 'sales_person' },
-    { title: '客户', key: 'customer_name' },
-    { title: '需求摘要', key: 'summary' },
-    { title: '状态', key: 'status' },
-    { title: '操作', key: 'action' },
-  ]
-  if (view.value === 'cost') return [
-    { title: '来源业务', key: 'sales_person' },
-    { title: '客户', key: 'customer_name' },
-    { title: '配置', key: 'summary' },
-    { title: 'BOM 提交人', key: 'source_actor' },
-    { title: '状态', key: 'status' },
-    { title: '操作', key: 'action' },
-  ]
-  return [
-    { title: '来源业务', key: 'sales_person' },
-    { title: '客户', key: 'customer_name' },
-    { title: '成本表', key: 'summary' },
-    { title: '成本核算人', key: 'source_actor' },
-    { title: '状态', key: 'status' },
-    { title: '操作', key: 'action' },
-  ]
-})
-const taskStats = computed(() => {
-  if (view.value === 'te') return [
-    { label: '待配 BOM', value: taskSummary.value.mine, hint: '' },
-    { label: '今日处理中', value: taskSummary.value.today, hint: '' },
-    { label: '已提交核价', value: taskSummary.value.total, hint: '' },
-    { label: '平均处理时长', value: '—', hint: '' },
-  ]
-  if (view.value === 'cost') return [
-    { label: '待核价', value: taskSummary.value.mine, hint: '' },
-    { label: '今日完成', value: taskSummary.value.today, hint: '' },
-    { label: '待我复核', value: 0, hint: '' },
-    { label: '已进报价', value: taskSummary.value.total, hint: '' },
-  ]
-  return [
-    { label: '待报价', value: taskSummary.value.mine, hint: '' },
-    { label: '今日定稿', value: taskSummary.value.today, hint: '' },
-    { label: '已退回', value: 0, hint: '' },
-    { label: '报价单总数', value: taskSummary.value.total, hint: '' },
-  ]
+function onSearch() {
+  if (searchTimer) window.clearTimeout(searchTimer)
+  searchTimer = window.setTimeout(() => {
+    page.value = 1
+    loadCards()
+  }, 300)
+}
+function onSortChange() {
+  page.value = 1
+  loadCards()
+}
+// 批量回收站在组件内完成，这里刷新列表（整页删空时回退一页）
+function onBatchTrashed(keys: string[]) {
+  if (keys.length >= cards.value.length && page.value > 1) page.value -= 1
+  loadCards()
+}
+const createOpen = ref(false)
+
+const stats = computed(() => {
+  if (view.value === 'business') {
+    const s = oppSummary.value || {}
+    return [
+      { label: '全部商机', value: s.total ?? 0, hint: '' },
+      { label: '待我处理', value: s.returned ?? 0, hint: '需求待修改' },
+      { label: '流转中', value: s.in_progress ?? 0, hint: 'BOM / 核价 / 报价' },
+      { label: '已定稿', value: s.done ?? 0, hint: '正式报价可见' },
+    ]
+  }
+  if (isTaskView.value) {
+    const s = oppSummary.value || {}
+    const firstLabel = view.value === 'te' ? '待配 BOM' : view.value === 'cost' ? '待核价' : '待报价'
+    return [
+      { label: firstLabel, value: s.mine ?? 0, hint: isAdmin.value ? '分派给我' : '' },
+      { label: '今日处理中', value: s.today ?? 0, hint: '' },
+      { label: '队列总数', value: s.total ?? 0, hint: '' },
+      { label: '任务范围', value: isAdmin.value ? '全部' : '仅我的', hint: '管理员可看全部' },
+    ]
+  }
+  return []
 })
 
-async function loadTasks() {
-  taskLoading.value = true
+// 行内改商机状态（业务/报价员）：乐观更新 → 存库，失败回滚
+async function changeResult(record: any, val: string) {
+  if (val === record.result) return
+  const prev = record.result
+  record.result = val
   try {
-    const scope = isAdmin.value ? 'all' : 'mine'
-    const res = await portalApi.tasks({ node: node.value, scope, page: taskPage.value, page_size: taskPageSize.value })
-    taskItems.value = res.items || []
-    taskSummary.value = res.summary || { total: 0, today: 0, mine: 0, pool: 0 }
-    taskTotal.value = res.total || 0
-  } catch (e: any) {
-    message.error('加载任务失败：' + (e?.message || e))
-  } finally {
-    taskLoading.value = false
+    await axios.put(`/api/opportunities/${record.opportunity_id}/meta`, { result: val })
+    message.success(`状态已改为「${resultLabel(val)}」`)
+  } catch {
+    record.result = prev
+    message.error('状态更新失败')
   }
 }
-function taskCell(item: PortalTaskItem) {
-  if (view.value === 'te') return item.summary || '—'
-  if (view.value === 'cost') return item.config_summary || item.summary || '—'
-  return [item.config_summary, item.amount_text].filter(Boolean).join(' · ') || item.summary || '—'
+
+// 行菜单（我的商机）：打开 / 重命名 / 移至回收站
+function goDetail(id: string) {
+  router.push({ path: `/opportunities/${id}`, query: { from: fromTag.value || 'portal-business' } })
 }
-function taskActor(item: PortalTaskItem) {
-  return item.source_actor || '—'
+function onRowMenu(key: string, record: any) {
+  if (key === 'open') goDetail(record.opportunity_id)
+  else if (key === 'rename') openRename(record)
+  else if (key === 'trash') trashOne(record)
+  else if (key === 'transfer') openTransfer(record)
 }
-function taskStatus(item: PortalTaskItem) {
-  if (item.flow_status === 'done') return '已完成'
-  if (item.flow_status === 'returned') return '需退回'
-  return view.value === 'te' ? '待处理' : view.value === 'cost' ? '待核价' : '待转报价'
+function trashOne(record: any) {
+  Modal.confirm({
+    title: '移至回收站',
+    content: `将「${record.customer_name || '未命名客户'}」移至回收站？可在回收站恢复。`,
+    okText: '移至回收站', okType: 'danger', cancelText: '取消',
+    onOk: async () => {
+      await axios.post(`/api/opportunities/${record.opportunity_id}/trash`)
+      message.success('已移至回收站')
+      if (cards.value.length <= 1 && page.value > 1) page.value -= 1
+      loadCards()
+    },
+  })
 }
-function taskPill(item: PortalTaskItem) {
-  if (item.flow_status === 'done') return 'green'
-  if (item.flow_status === 'returned') return 'red'
-  return 'amber'
+const renameOpen = ref(false)
+const renameValue = ref('')
+const renameTarget = ref<any>(null)
+const renaming = ref(false)
+function openRename(record: any) {
+  renameTarget.value = record
+  renameValue.value = record.customer_name || ''
+  renameOpen.value = true
 }
-function taskAction(item: PortalTaskItem) {
-  if (item.flow_status === 'done') return '查看'
-  if (item.flow_status === 'returned') return view.value === 'quote' ? '退回核价' : '处理'
-  if (view.value === 'te') return '开始配 BOM'
-  if (view.value === 'cost') return '开始核价'
-  return '转为报价单'
-}
-function openTask(opportunityId: string) {
-  const from = view.value === 'business' ? 'portal-business' : `portal-${roleByView[view.value]}`
-  router.push({ path: `/opportunities/${opportunityId}`, query: { from } })
+async function confirmRename() {
+  const name = renameValue.value.trim()
+  if (!name) { message.warning('请输入客户名称'); return }
+  if (!renameTarget.value) return
+  renaming.value = true
+  try {
+    await axios.put(`/api/opportunities/${renameTarget.value.opportunity_id}/meta`, { customer_name: name })
+    const idx = cards.value.findIndex(c => c.opportunity_id === renameTarget.value.opportunity_id)
+    if (idx >= 0) cards.value[idx] = { ...cards.value[idx], customer_name: name }
+    message.success('已重命名')
+    renameOpen.value = false
+  } catch {
+    message.error('重命名失败')
+  } finally { renaming.value = false }
 }
 
-// 转交
+// ── 转交（任务视图行菜单） ──
 const transferOpen = ref(false)
-const transferItem = ref<PortalTaskItem | null>(null)
+const transferItem = ref<PortalOppCard | null>(null)
 const transferAssignee = ref('')
 const transferCandidates = ref<string[]>([])
 const transferCandidatesLoading = ref(false)
 const transferSaving = ref(false)
 const transferCandidateOptions = computed(() => transferCandidates.value.map(name => ({ label: name, value: name })))
-async function openTransfer(item?: PortalTaskItem) {
-  if (!taskItems.value.length) {
-    message.warning('当前队列暂无可转交任务')
-    return
-  }
-  transferItem.value = item || taskItems.value[0] || null
+async function openTransfer(item: PortalOppCard) {
+  transferItem.value = item
   transferAssignee.value = ''
   transferCandidates.value = []
   transferCandidatesLoading.value = true
@@ -471,92 +341,8 @@ async function confirmTransfer() {
     transferSaving.value = false
   }
 }
-// 调度页
-const dispatchData = ref<PortalDispatchData>({ businesses: [], rules: [], unassigned: {}, transfers: [] })
-const dispatchLoading = ref(false)
-const optionsMap = ref<Record<string, string[]>>({})
-const ruleOpen = ref(false)
-const ruleSaving = ref(false)
-const ruleForm = ref({ business_user_id: '', node_key: 'boming', assignee_name: '' })
-const nodeOptions = ['boming', 'costing', 'quoting'].map(n => ({ label: nodeShort(n), value: n }))
-const ruleBusinessOptions = computed(() => dispatchData.value.businesses.map(b => ({ label: b.name, value: b.user_id })))
-function assigneeOptions(key: string) {
-  return (optionsMap.value[key] || []).map(name => ({ label: name, value: name }))
-}
 
-const dispatchStats = computed(() => {
-  const today = new Date().toISOString().slice(0, 10)
-  const todayTransfers = dispatchData.value.transfers.filter(t => (t.time || '').startsWith(today)).length
-  return [
-    { label: '覆盖业务', value: dispatchData.value.businesses.length, hint: '' },
-    { label: '待分派任务', value: nodeCols.reduce((sum, n) => sum + (dispatchData.value.unassigned[n] || 0), 0), hint: '' },
-    { label: '今日转交', value: todayTransfers, hint: '' },
-    { label: '公共池', value: dispatchData.value.unassigned['boming'] || 0, hint: 'BOM 未指派' },
-  ]
-})
-
-async function loadDispatch() {
-  dispatchLoading.value = true
-  try {
-    const [data, opts] = await Promise.all([portalApi.dispatch(), portalApi.assignOptions()])
-    dispatchData.value = data || { businesses: [], rules: [], unassigned: {}, transfers: [] }
-    optionsMap.value = opts.assignees || {}
-  } catch (e: any) {
-    message.error('加载调度数据失败：' + (e?.message || e))
-  } finally {
-    dispatchLoading.value = false
-  }
-}
-function ruleAssignee(businessUserId: string, key: string) {
-  return dispatchData.value.rules.find(r => r.business_user_id === businessUserId && r.node_key === key)?.assignee_name || ''
-}
-function assigneesFor(key: string) {
-  return optionsMap.value[key] || []
-}
-async function onRuleChange(businessUserId: string, key: string, event: Event) {
-  const value = (event.target as HTMLSelectElement).value
-  try {
-    if (!value) {
-      await portalApi.deleteAssignmentRule({ business_user_id: businessUserId, node_key: key })
-    } else {
-      await portalApi.saveAssignmentRule({ business_user_id: businessUserId, node_key: key, assignee_name: value })
-    }
-    message.success('规则已更新')
-    await loadDispatch()
-  } catch (e: any) {
-    message.error('保存规则失败：' + (e?.message || e))
-  }
-}
-function openRuleModal(businessUserId = '', key = 'boming') {
-  ruleForm.value = { business_user_id: businessUserId, node_key: key, assignee_name: ruleAssignee(businessUserId, key) }
-  ruleOpen.value = true
-}
-async function saveRule() {
-  if (!ruleForm.value.business_user_id || !ruleForm.value.assignee_name) {
-    message.warning('请选择业务和处理人')
-    return
-  }
-  ruleSaving.value = true
-  try {
-    await portalApi.saveAssignmentRule({
-      business_user_id: ruleForm.value.business_user_id,
-      node_key: ruleForm.value.node_key,
-      assignee_name: ruleForm.value.assignee_name,
-    })
-    message.success('规则已保存')
-    ruleOpen.value = false
-    await loadDispatch()
-  } catch (e: any) {
-    message.error('保存规则失败：' + (e?.message || e))
-  } finally {
-    ruleSaving.value = false
-  }
-}
-const stats = computed(() => {
-  if (view.value === 'business') return businessStats.value
-  if (isTaskView.value) return taskStats.value
-  return dispatchStats.value
-})
+// ── 调度页：已迁出为 PortalDispatchPanel（自管数据加载） ──
 
 const roleByView: Record<ViewKey, string> = {
   business: 'business',
@@ -567,9 +353,8 @@ const roleByView: Record<ViewKey, string> = {
 }
 
 async function load() {
-  if (view.value === 'business') return loadBusiness()
-  if (isTaskView.value) return loadTasks()
-  return loadDispatch()
+  // dispatch 视图由 PortalDispatchPanel 自行加载
+  if (view.value === 'business' || isTaskView.value) return loadCards()
 }
 
 function guardView() {
@@ -595,25 +380,17 @@ function onResize() {
   if (resizeTimer) clearTimeout(resizeTimer)
   resizeTimer = setTimeout(() => {
     const next = computeAdaptivePageSize()
-    let changed = false
-    if (!businessUserPickedPageSize.value && next !== businessPageSize.value) {
-      businessPageSize.value = next
-      businessPage.value = 1
-      changed = true
+    if (!userPickedPageSize.value && next !== pageSize.value) {
+      pageSize.value = next
+      page.value = 1
+      if (guardView()) load()
     }
-    if (!taskUserPickedPageSize.value && next !== taskPageSize.value) {
-      taskPageSize.value = next
-      taskPage.value = 1
-      changed = true
-    }
-    if (changed && guardView()) load()
   }, 200)
 }
 
 onMounted(() => {
   if (guardView()) {
-    businessPageSize.value = computeAdaptivePageSize()
-    taskPageSize.value = computeAdaptivePageSize()
+    pageSize.value = computeAdaptivePageSize()
     load()
   }
   window.addEventListener('resize', onResize)
@@ -623,12 +400,14 @@ onBeforeUnmount(() => {
   if (resizeTimer) clearTimeout(resizeTimer)
 })
 watch(view, () => {
+  page.value = 1
+  search.value = ''
   if (guardView()) load()
 })
 </script>
 <style scoped>
 .workstation {
-  min-height: 100%;
+  min-height: calc(100% - var(--cpq-header-clearance, 0px));
   padding: 22px;
   color: var(--cpq-text-primary);
   background:
@@ -640,11 +419,8 @@ watch(view, () => {
 .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 .hero h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.5px; }
 .hero p { margin: 0; color: var(--cpq-text-secondary); font-size: 14px; }
-.primary-btn, .ghost-btn { border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer; font-weight: 700; font-size: 13px; }
-.primary-btn { color: white; background: linear-gradient(135deg, var(--cpq-accent-primary), #7c5cfc); box-shadow: 0 8px 20px var(--cpq-overlay-a20); }
+.primary-btn { border: 0; border-radius: 12px; padding: 10px 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: white; background: linear-gradient(135deg, var(--cpq-accent-primary), #7c5cfc); box-shadow: 0 8px 20px var(--cpq-overlay-a20); }
 .primary-btn:disabled { opacity: .55; cursor: not-allowed; }
-.ghost-btn { background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-glass-border); color: var(--cpq-text-primary); }
-.ghost-btn:disabled { opacity: .45; cursor: not-allowed; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat { padding: 14px; border: 1px solid var(--cpq-glass-border); border-radius: 16px; background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur, 16px)); }
 .stat small { display: block; color: var(--cpq-text-secondary); font-size: 12px; margin-bottom: 7px; }
@@ -654,27 +430,38 @@ watch(view, () => {
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--cpq-overlay-w8); }
 .card-head h3 { margin: 0; font-size: 16px; }
 .card-head small { color: var(--cpq-text-secondary); font-size: 12px; }
+.card-tools { display: flex; align-items: center; gap: 8px; }
+.tool-input {
+  height: 30px; width: 220px; padding: 0 10px; font-size: 12.5px; outline: none;
+  background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-overlay-w10);
+  color: var(--cpq-text-primary); border-radius: 8px;
+  transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+.tool-input:focus { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 2px var(--cpq-overlay-a10); }
+.tool-input::placeholder { color: var(--cpq-text-muted); }
 .card-body { padding: 4px 8px 8px; }
 .table-body { padding: 0; }
-.table-body :deep(.ant-table-wrapper) { border-radius: 0 0 18px 18px; }
+.table-body :deep(.ant-table-wrapper) { border-radius:  0 0 18px 18px; }
 .table-body :deep(.ant-pagination) { padding: 12px 16px; border-top: 1px solid var(--cpq-overlay-w8); }
-.muted { color: var(--cpq-text-secondary); }
-.pill { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-size: 12px; }
-.pill.amber { background: rgba(217, 119, 6, .14); color: #d97706; }
-.pill.green { background: rgba(22, 163, 74, .14); color: #16a34a; }
-.pill.red { background: rgba(220, 38, 38, .12); color: #dc2626; }
-.link { border: 0; background: none; color: var(--cpq-accent-primary); cursor: pointer; font-size: 13px; }
 
-.assign-grid { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 8px; }
-.assign-grid .head { font-size: 11px; color: var(--cpq-text-secondary); font-weight: 700; padding: 8px 10px; }
-.assign-cell { padding: 9px 10px; border: 1px solid var(--cpq-glass-border); border-radius: 11px; background: var(--cpq-overlay-w4); min-width: 0; }
-.assign-cell small { display: block; color: var(--cpq-text-secondary); font-size: 10px; margin-bottom: 3px; }
-.assign-cell b { font-size: 12px; display: inline-block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.assign-cell.pool { background: var(--cpq-overlay-a8); }
-.assign-cell select { width: 100%; padding: 6px 7px; border-radius: 9px; border: 1px solid var(--cpq-glass-border-strong); background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); font-size: 12px; }
 .modal-tip { color: var(--cpq-text-secondary); font-size: 13px; }
 @media (max-width: 900px) {
   .stats { grid-template-columns: 1fr 1fr; }
-  .assign-grid { grid-template-columns: 1fr 1fr; }
+}
+@media (max-width: 768px) {
+  .workstation { padding: 12px 12px 24px; }
+  .hero { align-items: flex-start; gap: 10px; margin-bottom: 12px; }
+  .hero h1 { font-size: 20px; margin-bottom: 2px; }
+  .hero p { font-size: 12.5px; }
+  .primary-btn { padding: 9px 13px; font-size: 12.5px; }
+  .stats { gap: 8px; margin-bottom: 12px; }
+  .stat { padding: 10px 12px; border-radius: 13px; }
+  .stat b { font-size: 19px; }
+  .card { border-radius: 14px; margin-bottom: 12px; }
+  .card-head { flex-wrap: wrap; align-items: flex-start; padding: 11px 12px; gap: 6px 10px; }
+  .card-head h3 { font-size: 14.5px; }
+  .card-tools { flex-wrap: wrap; width: 100%; }
+  .tool-input { flex: 1 1 150px; width: auto; }
+  .card-body { padding: 2px 4px 6px; }
 }
 </style>

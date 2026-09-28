@@ -3,7 +3,7 @@ Repository for rules database operations.
 """
 from sqlalchemy.orm import Session
 from sqlalchemy import or_, func
-from app.models.rules import KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule
+from app.models.rules import KPCategoryMapping, MatchingRule, ParseRegion, ParseFieldRule, ParseTemplate, ParseScopeBinding
 from app.models.base import Rules_SessionLocal
 import json
 
@@ -202,6 +202,175 @@ class RulesRepository:
             session.commit()
             return True
 
+    # ========== Parse Templates ==========
+
+    @staticmethod
+    def _template_now() -> str:
+        from datetime import datetime
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    def _template_dict(self, t) -> dict:
+        return {
+            "id": t.id,
+            "name": t.name,
+            "is_fallback": bool(t.is_fallback),
+            "std_file_key": t.std_file_key or "",
+            "std_source_key": t.std_source_key or "",
+            "std_version": t.std_version or 0,
+            "std_generated_at": t.std_generated_at or "",
+            "sample_file_key": t.sample_file_key or "",
+            "has_expected": bool(t.expected_snapshot),
+            "selfcheck_status": t.selfcheck_status or "none",
+            "selfcheck_ran_at": t.selfcheck_ran_at or "",
+            "selfcheck_detail": json.loads(t.selfcheck_detail) if t.selfcheck_detail else None,
+            "enabled": bool(t.enabled),
+            "sort_order": t.sort_order,
+            "note": t.note or "",
+        }
+
+    def get_parse_templates(self) -> list[dict]:
+        """所有解析模板（含兜底），按 sort_order。"""
+        with self.session_factory() as session:
+            rows = session.query(ParseTemplate).order_by(ParseTemplate.sort_order, ParseTemplate.id).all()
+            return [self._template_dict(t) for t in rows]
+
+    def get_parse_template(self, template_id: int) -> dict | None:
+        with self.session_factory() as session:
+            t = session.query(ParseTemplate).filter_by(id=template_id).first()
+            return self._template_dict(t) if t else None
+
+    def add_parse_template(self, data: dict) -> int:
+        now = self._template_now()
+        with self.session_factory() as session:
+            t = ParseTemplate(
+                name=(data.get("name") or "").strip(),
+                is_fallback=1 if data.get("is_fallback") else 0,
+                enabled=1 if data.get("enabled", True) else 0,
+                sort_order=data.get("sort_order", 0) or 0,
+                note=data.get("note") or "",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(t)
+            session.commit()
+            return t.id
+
+    _TEMPLATE_UPDATABLE = ["name", "std_file_key", "std_source_key",
+                           "std_version", "std_generated_at", "sample_file_key",
+                           "expected_snapshot", "selfcheck_status", "selfcheck_ran_at",
+                           "selfcheck_detail", "enabled", "sort_order", "note", "is_fallback"]
+
+    def update_parse_template(self, template_id: int, data: dict) -> bool:
+        with self.session_factory() as session:
+            t = session.query(ParseTemplate).filter_by(id=template_id).first()
+            if not t:
+                return False
+            for key in self._TEMPLATE_UPDATABLE:
+                if key not in data:
+                    continue
+                value = data[key]
+                if key in ("expected_snapshot", "selfcheck_detail") and isinstance(value, dict):
+                    value = json.dumps(value, ensure_ascii=False)
+                if key in ("enabled", "is_fallback"):
+                    value = 1 if value else 0
+                setattr(t, key, value)
+            t.updated_at = self._template_now()
+            session.commit()
+            return True
+
+    def delete_parse_template(self, template_id: int) -> bool:
+        """删除模板及其区域/字段规则（FK CASCADE；兜底模板不可删）。"""
+        with self.session_factory() as session:
+            t = session.query(ParseTemplate).filter_by(id=template_id).first()
+            if not t or t.is_fallback:
+                return False
+            session.query(ParseFieldRule).filter_by(template_id=template_id).delete()
+            session.query(ParseRegion).filter_by(template_id=template_id).delete()
+            session.delete(t)
+            session.commit()
+            return True
+
+    # ── 使用位置绑定（入口→模板；scope 注册表在 ParseTemplateService）──
+
+    def get_parse_scope_bindings(self) -> list[dict]:
+        with self.session_factory() as session:
+            rows = session.query(ParseScopeBinding).all()
+            return [{"scope_key": b.scope_key, "template_id": b.template_id} for b in rows]
+
+    def get_parse_scope_binding(self, scope_key: str) -> int | None:
+        with self.session_factory() as session:
+            b = session.query(ParseScopeBinding).filter_by(scope_key=scope_key).first()
+            return b.template_id if b else None
+
+    def set_parse_scope_binding(self, scope_key: str, template_id: int) -> None:
+        now = self._template_now()
+        with self.session_factory() as session:
+            b = session.query(ParseScopeBinding).filter_by(scope_key=scope_key).first()
+            if b:
+                b.template_id = template_id
+                b.updated_at = now
+            else:
+                session.add(ParseScopeBinding(scope_key=scope_key, template_id=template_id, updated_at=now))
+            session.commit()
+
+    def clone_parse_template(self, template_id: int, new_name: str,
+                             extra_template_fields: dict | None = None) -> int | None:
+        """深克隆模板（区域 + 字段规则）；不给指纹/标准文件，从零开始配。"""
+        now = self._template_now()
+        with self.session_factory() as session:
+            src = session.query(ParseTemplate).filter_by(id=template_id).first()
+            if not src:
+                return None
+            if session.query(ParseTemplate).filter_by(name=new_name).first():
+                return None
+            clone = ParseTemplate(
+                name=new_name,
+                is_fallback=0,
+                enabled=1,
+                sort_order=999,
+                note=(extra_template_fields or {}).get("note") or f"克隆自「{src.name}」",
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(clone)
+            session.flush()
+
+            old_regions = session.query(ParseRegion).filter_by(template_id=template_id).order_by(ParseRegion.sort_order).all()
+            region_id_map = {}
+            for r in old_regions:
+                nr = ParseRegion(
+                    name=r.name, region_key=f"{r.region_key}_tpl{clone.id}" if r.region_key else None,
+                    region_type=r.region_type, start_keywords=r.start_keywords,
+                    end_keywords=r.end_keywords, skip_header_rows=r.skip_header_rows,
+                    sort_order=r.sort_order, enabled=r.enabled, start_mode=r.start_mode,
+                    start_config=r.start_config, template_id=clone.id,
+                    exclude_keywords=r.exclude_keywords,
+                )
+                session.add(nr)
+                session.flush()
+                region_id_map[r.id] = nr.id
+
+            for fr in session.query(ParseFieldRule).filter_by(template_id=template_id).order_by(ParseFieldRule.sort_order).all():
+                session.add(ParseFieldRule(
+                    field_key=fr.field_key, region=fr.region,
+                    region_id=region_id_map.get(fr.region_id), source_type=fr.source_type,
+                    source_config=fr.source_config, fallback_config=fr.fallback_config,
+                    enabled=fr.enabled, sort_order=fr.sort_order, template_id=clone.id,
+                ))
+            session.commit()
+            return clone.id
+
+    def mark_template_selfcheck_stale(self, template_id: int | None) -> None:
+        """规则变动后把对应模板自检状态置 stale（有期望快照才有意义）。"""
+        if not template_id:
+            return
+        with self.session_factory() as session:
+            t = session.query(ParseTemplate).filter_by(id=template_id).first()
+            if t and t.expected_snapshot and t.selfcheck_status != "stale":
+                t.selfcheck_status = "stale"
+                t.updated_at = self._template_now()
+                session.commit()
+
     # ========== Parse Regions ==========
 
     def _region_defaults(self, data: dict) -> dict:
@@ -220,15 +389,19 @@ class RulesRepository:
             "sort_order": data.get("sort_order", 0) if data.get("sort_order") is not None else 0,
             "enabled": 1 if data.get("enabled", 1) else 0,
             "start_mode": (data.get("start_mode") or "").strip() or "keyword",
-            "end_mode": (data.get("end_mode") or "").strip() or ("keyword" if end_keywords else "eof"),
-            "start_config": data.get("start_config"),
-            "end_config": data.get("end_config"),
+            "start_config": (json.dumps(data["start_config"], ensure_ascii=False)
+                             if isinstance(data.get("start_config"), dict) else data.get("start_config")),
+            "template_id": data.get("template_id"),
+            "exclude_keywords": (data.get("exclude_keywords") or "").strip(),
         }
 
-    def get_parse_regions(self) -> list[dict]:
-        """Get all parse regions ordered by sort_order."""
+    def get_parse_regions(self, template_id: int = None) -> list[dict]:
+        """Get parse regions ordered by sort_order; template_id 筛选模板作用域。"""
         with self.session_factory() as session:
-            regions = session.query(ParseRegion).order_by(ParseRegion.sort_order).all()
+            q = session.query(ParseRegion).order_by(ParseRegion.sort_order)
+            if template_id is not None:
+                q = q.filter(ParseRegion.template_id == template_id)
+            regions = q.all()
             return [
                 {
                     "id": r.id,
@@ -241,9 +414,9 @@ class RulesRepository:
                     "sort_order": r.sort_order,
                     "enabled": bool(r.enabled),
                     "start_mode": r.start_mode or "keyword",
-                    "end_mode": r.end_mode or "eof",
                     "start_config": json.loads(r.start_config) if r.start_config else None,
-                    "end_config": json.loads(r.end_config) if r.end_config else None,
+                    "template_id": r.template_id,
+                    "exclude_keywords": r.exclude_keywords or "",
                 }
                 for r in regions
             ]
@@ -264,7 +437,11 @@ class RulesRepository:
                 if region_id:
                     region = session.query(ParseRegion).filter_by(id=region_id).first()
                 if region is None and values["region_key"]:
-                    region = session.query(ParseRegion).filter_by(region_key=values["region_key"]).first()
+                    # region_key 唯一性按模板作用域；不带 template_id 会跨模板误吞
+                    region = session.query(ParseRegion).filter(
+                        ParseRegion.region_key == values["region_key"],
+                        ParseRegion.template_id == values.get("template_id"),
+                    ).first()
                 if region is None:
                     region = ParseRegion(**values)
                     session.add(region)
@@ -294,15 +471,19 @@ class RulesRepository:
             if "name" in data and not data.get("region_key"):
                 region.region_key = (data.get("name") or "").strip().lower()
             for key in ["name", "region_key", "region_type", "start_keywords", "end_keywords",
-                        "skip_header_rows", "sort_order", "enabled", "start_mode", "end_mode",
-                        "start_config", "end_config"]:
+                        "skip_header_rows", "sort_order", "enabled", "start_mode",
+                        "start_config", "template_id", "exclude_keywords"]:
                 if key in data:
                     if key == "enabled":
                         setattr(region, key, 1 if data[key] else 0)
+                    elif key == "start_config" and isinstance(data[key], dict):
+                        setattr(region, key, json.dumps(data[key], ensure_ascii=False))
                     else:
                         setattr(region, key, data[key])
+            tpl_id = region.template_id
             session.commit()
-            return True
+        self.mark_template_selfcheck_stale(tpl_id)
+        return True
 
     def delete_parse_region(self, region_id: int) -> bool:
         """Delete a parse region by ID, detaching its field rules first."""
@@ -344,12 +525,16 @@ class RulesRepository:
             "fallback_config": json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None),
             "enabled": 1 if data.get("enabled", True) else 0,
             "sort_order": data.get("sort_order", 0),
+            "template_id": data.get("template_id"),
         }
 
-    def get_parse_field_rules(self) -> list[dict]:
-        """Get all parse field rules ordered by sort_order."""
+    def get_parse_field_rules(self, template_id: int = None) -> list[dict]:
+        """Get parse field rules ordered by sort_order; template_id 筛选模板作用域。"""
         with self.session_factory() as session:
-            rules = session.query(ParseFieldRule).order_by(ParseFieldRule.sort_order).all()
+            q = session.query(ParseFieldRule).order_by(ParseFieldRule.sort_order)
+            if template_id is not None:
+                q = q.filter(ParseFieldRule.template_id == template_id)
+            rules = q.all()
             return [
                 {
                     "id": r.id,
@@ -360,7 +545,8 @@ class RulesRepository:
                     "source_config": json.loads(r.source_config) if r.source_config else {},
                     "fallback_config": json.loads(r.fallback_config) if r.fallback_config else None,
                     "enabled": bool(r.enabled),
-                    "sort_order": r.sort_order
+                    "sort_order": r.sort_order,
+                    "template_id": r.template_id,
                 }
                 for r in rules
             ]
@@ -427,8 +613,12 @@ class RulesRepository:
             if "fallback_config" in data:
                 fc = data["fallback_config"]
                 rule.fallback_config = json.dumps(fc, ensure_ascii=False) if isinstance(fc, dict) and fc else (fc if fc else None)
+            if "template_id" in data:
+                rule.template_id = data["template_id"]
+            tpl_id = rule.template_id
             session.commit()
-            return True
+        self.mark_template_selfcheck_stale(tpl_id)
+        return True
 
     def delete_parse_field_rule(self, rule_id: int) -> bool:
         """Delete a parse field rule by ID."""

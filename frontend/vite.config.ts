@@ -54,7 +54,8 @@ export default defineConfig({
     port: Number(process.env.PORT) || 5173,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8000',
+        // 默认本机 8000；多后端并行时可用 VITE_API_TARGET 覆盖（如临时验证后端 8010）
+        target: process.env.VITE_API_TARGET || 'http://127.0.0.1:8000',
         changeOrigin: true,
         ws: true,
       },

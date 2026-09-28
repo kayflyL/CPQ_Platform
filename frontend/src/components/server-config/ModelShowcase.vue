@@ -18,7 +18,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
 </script>
 
 <template>
-  <section class="glass showcase">
+  <section class="showcase">
     <div class="showcase-grid">
       <div class="showcase-intro">
         <span class="intro-eyebrow">机型总览</span>
@@ -40,9 +40,13 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
 </template>
 
 <style scoped>
+/* 固定暗色面板（只在机型目录页使用；不引用 --cpq-* 主题变量，不受主题切换影响） */
 .showcase {
   padding: 28px;
   margin-bottom: 28px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
 }
 
 .showcase-grid {
@@ -68,21 +72,21 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   letter-spacing: 0.08em;
   padding: 3px 10px;
   border-radius: 6px;
-  color: var(--cpq-accent-cyan, #36CFCF);
-  background: var(--cpq-overlay-cyan15, rgba(54, 207, 207, 0.15));
-  border: 1px solid var(--cpq-overlay-cyan30, rgba(54, 207, 207, 0.3));
+  color: #36CFCF;
+  background: rgba(54, 207, 207, 0.15);
+  border: 1px solid rgba(54, 207, 207, 0.3);
   margin-bottom: 14px;
 }
 .intro-title {
   font-size: 22px;
   font-weight: 600;
-  color: var(--cpq-text-primary, #E8ECEF);
+  color: #f2f8ff;
   margin: 0 0 10px;
 }
 .intro-desc {
   font-size: 14px;
   line-height: 1.7;
-  color: var(--cpq-text-secondary, #9BA1AA);
+  color: rgba(238, 243, 250, 0.72);
   margin: 0 0 18px;
 }
 .intro-bullets {
@@ -97,7 +101,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   position: relative;
   padding-left: 18px;
   font-size: 13.5px;
-  color: var(--cpq-text-secondary, #9BA1AA);
+  color: rgba(238, 243, 250, 0.72);
   line-height: 1.5;
 }
 .intro-bullets li::before {
@@ -108,18 +112,18 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--cpq-accent-primary, #1677FF);
-  box-shadow: 0 0 8px var(--cpq-overlay-a30, rgba(22, 119, 255, 0.3));
+  background: #5BB8FF;
+  box-shadow: 0 0 8px rgba(91, 184, 255, 0.3);
 }
 
 /* 右：3D 舞台 */
 .showcase-stage {
   position: relative;
   min-height: 380px;
-  border-radius: var(--cpq-radius-lg, 16px);
+  border-radius: 16px;
   overflow: hidden;
-  background: var(--cpq-bg-gradient);
-  border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.08));
+  background: linear-gradient(to bottom, #061225, #030b18);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 .stage-canvas {
   position: absolute;
@@ -141,14 +145,14 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   font-size: 12px;
   padding: 4px 12px;
   border-radius: 999px;
-  color: var(--cpq-text-secondary, #9BA1AA);
-  background: var(--cpq-overlay-b40, rgba(0, 0, 0, 0.4));
+  color: rgba(238, 243, 250, 0.72);
+  background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(8px);
-  border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.1);
   pointer-events: none;
   white-space: nowrap;
 }
 .stage-status.is-error {
-  color: var(--cpq-accent-danger, #FF6B6B);
+  color: #FF6B6B;
 }
 </style>

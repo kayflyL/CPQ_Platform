@@ -1,0 +1,42 @@
+[
+ {
+  "id": 6,
+  "name": "ESA220 V3",
+  "lifecycle": "new",
+  "series": "Orion",
+  "form": "2U",
+  "bays": 12,
+  "tagline": "29 盘高密度的 2U 双路通用服务器",
+  "stage_theme": "ocean"
+ },
+ {
+  "id": 16,
+  "name": "ESA240 V3",
+  "lifecycle": "active",
+  "series": "Orion",
+  "form": "4U",
+  "bays": 12,
+  "tagline": "8 卡直连的双路 4U AI 训推服务器",
+  "stage_theme": "ocean"
+ },
+ {
+  "id": 8,
+  "name": "ZS220 V2",
+  "lifecycle": "active",
+  "series": "Polaris",
+  "form": "2U",
+  "bays": 12,
+  "tagline": "兆芯 KH-50000 双路信创通用服务器",
+  "stage_theme": "wine"
+ },
+ {
+  "id": 17,
+  "name": "ZS240 V2",
+  "lifecycle": "active",
+  "series": "Polaris",
+  "form": "4U",
+  "bays": 12,
+  "tagline": "适配国产 GPU 的 4U 双路 AI 服务器",
+  "stage_theme": "ocean"
+ }
+]

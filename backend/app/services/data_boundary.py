@@ -1,12 +1,13 @@
 # -*- coding: utf-8 -*-
-"""数据边界=AI 角色的权限系统（2026-08-29 步骤1）。
+"""query_data 只读物理强制层。
 
-宪法：
-- 单一事实源：价格可见性只由 data_boundary 说了算。price_access 布尔是编辑糖——
-  入参可以传布尔（API/前端开关），落库前一律折算进 data_boundary，读侧派生返回；
-- 默认拒绝：没有 data_boundary 的角色什么都读不了（含价格）；
-- 物理强制：校验+只读事务在执行层（execute_read），提示词只描述不承诺；
-- 纯 AI 层：不碰外层账户系统的价格遮罩（price_mask），外层权限归外层管。
+宪法（2026-09-13 起，工具即权限）：
+- 能力面 = 同事的 tool_ids（绑定 Skill 自动并入其工具）；
+- 价格可见性 = 同事级 price_access 布尔（唯一事实源，员工页权限面板直改）；
+- query_data 可读表 = 工具自有白名单（system_config.query_data_tables_allow），
+  与同事无关——挂上这个工具的人共用同一份业务表白名单；
+- 本模块不再存「按同事编辑的 data_boundary」：边界字典只是 query_data 执行期
+  的内部构造（tool_boundary()），物理强制（校验+只读事务+脱敏）全部保留。
 
 敏感盘点（2026-08-29 实库扫描 information_schema）：
   kp.kp_records.price, kp.kp_price_history.price, l6.l6_records.price,
@@ -25,12 +26,26 @@ MODE_DENY_ALL = "deny_all"
 MODE_ALLOW_READ = "allow_read"
 PRICE_DOMAIN = "price"
 
-DEFAULT_BOUNDARY: dict = {
-    "mode": MODE_DENY_ALL,
-    "schemas": [],
-    "tables_allow": [],
-    "masked_fields": [PRICE_DOMAIN],
-}
+# query_data 白名单缺省（工具自带的业务表；system_config.query_data_tables_allow 可覆盖）
+_DEFAULT_QUERY_TABLES = [
+    "opportunities.opportunities",
+    "opportunities.opportunity_requirements",
+    "opportunities.opportunity_bom_schemes",
+    "opportunities.quotations",
+    "opportunities.quotation_items",
+    "l6.server_types",
+    "l6.server_models",
+    "l6.base_configs",
+]
+
+# 硬排除（2026-09-14 安全加固）：system_config 是配置权威源（含 llm_config 密钥等），
+# 无论缺省还是 query_data_tables_allow 里手配了，一律不给 AI 同事查询。
+_EXCLUDED_TABLES = {"system_config"}
+
+
+def _filter_excluded(tables: list) -> list:
+    return [t for t in tables
+            if str(t).rsplit(".", 1)[-1].strip('"').strip("'").lower() not in _EXCLUDED_TABLES]
 
 # 价格域列模式（masked_fields 含 "price" 时全部命中脱敏）
 _PRICE_COL_RE = re.compile(r"(?:^|_)(?:price|cost|margin|profit)(?:$|_)", re.IGNORECASE)
@@ -57,56 +72,48 @@ MAX_ROWS_HARD_CAP = 200
 DEFAULT_TIMEOUT_SECONDS = 8.0
 
 
-# ── 归一化与派生 ─────────────────────────────────────────────────────────────
+# ── 工具边界构造（query_data 执行期内部使用）─────────────────────────────────
 
-def normalize_boundary(source: Any, *, price_access: Optional[bool] = None) -> dict:
-    """归一化 data_boundary。
-
-    优先级：source 里的 data_boundary dict > price_access 布尔 > 默认拒绝。
-    price_access=True → allow_read 不脱敏价格；False/None → deny_all 屏蔽价格域。
-    """
-    raw = None
-    if isinstance(source, dict):
-        raw = source.get("data_boundary")
-        if price_access is None:
-            price_access = source.get("price_access")
-    if isinstance(raw, dict):
-        mode = str(raw.get("mode") or "").strip()
-        if mode not in (MODE_ALLOW_READ, MODE_DENY_ALL):
-            mode = MODE_DENY_ALL
-        return {
-            "mode": mode,
-            "schemas": _str_list(raw.get("schemas")),
-            "tables_allow": _str_list(raw.get("tables_allow")),
-            "masked_fields": _str_list(raw.get("masked_fields")),
-        }
-    if price_access is True:
-        return {"mode": MODE_ALLOW_READ, "schemas": [], "tables_allow": [], "masked_fields": []}
-    return dict(DEFAULT_BOUNDARY)
+def query_tables_allow() -> list:
+    """query_data 工具白名单：system_config.query_data_tables_allow，缺省用内置业务表。"""
+    try:
+        from app.repository.system_config_repo import SystemConfigRepository
+        repo = SystemConfigRepository()
+        try:
+            raw = repo.get_value("query_data_tables_allow", [])
+        finally:
+            repo.close()
+        if isinstance(raw, list) and raw:
+            return _filter_excluded([str(t).strip() for t in raw if str(t or "").strip()])
+    except Exception:
+        pass
+    return _filter_excluded(list(_DEFAULT_QUERY_TABLES))
 
 
-def boundary_price_ok(boundary: dict) -> bool:
-    """价格可见性唯一判定：读权限开启且价格域未屏蔽。"""
-    if not isinstance(boundary, dict) or boundary.get("mode") != MODE_ALLOW_READ:
-        return False
-    masked = {str(m).strip().lower() for m in boundary.get("masked_fields") or []}
-    return PRICE_DOMAIN not in masked and "*" not in masked
+def tool_boundary(price_ok: bool) -> dict:
+    """query_data 的执行边界：表白名单来自工具配置，价格列按同事 price_access 脱敏。"""
+    return {
+        "mode": MODE_ALLOW_READ,
+        "schemas": [],
+        "tables_allow": query_tables_allow(),
+        "masked_fields": [] if price_ok else [PRICE_DOMAIN],
+    }
 
 
 def colleague_price_ok(colleague: Any) -> bool:
-    """同事级便捷入口：skill_chat / 引擎上下文统一从这里取价格可见性。"""
-    return boundary_price_ok(normalize_boundary(colleague))
+    """价格可见性唯一判定：同事级 price_access 布尔（默认关）。"""
+    return bool((colleague or {}).get("price_access"))
 
 
-_RETIRED_COLLEAGUE_KEYS = ("memory", "mood", "schedule", "preferences", "permission_policy")
+_RETIRED_COLLEAGUE_KEYS = (
+    "memory", "mood", "schedule", "preferences", "permission_policy",
+    "data_boundary", "data_sources",  # 2026-09-13 退役：工具即权限
+)
 _RELATION_KEEP_KEYS = ("team_role", "reports_to")
 
 
 def normalize_colleague(colleague: Any) -> dict:
-    """读侧归一化：确保 data_boundary 物理存在，price_access 永远是派生值。
-
-    存量配置无 data_boundary 时从旧 price_access 布尔懒迁移（随下次配置写盘固化）。
-    同时静默剥离已退役的死键（memory/mood/schedule/preferences 及其派生），
+    """读侧归一化：剥离已退役死键（memory/mood/… 及 data_boundary/data_sources），
     DB 存量 JSON 无需刷库即可在前端消失。
     """
     if not isinstance(colleague, dict):
@@ -119,22 +126,7 @@ def normalize_colleague(colleague: Any) -> dict:
     policy = colleague.get("memory_policy")
     if isinstance(policy, dict):
         policy.pop("long_term_store", None)
-    boundary = normalize_boundary(colleague)
-    colleague["data_boundary"] = boundary
-    colleague["price_access"] = boundary_price_ok(boundary)
     return colleague
-
-
-def apply_price_access(boundary: dict, allow: bool) -> dict:
-    """编辑糖：价格开关折算进边界（保留已有表白名单，只动价格域）。"""
-    base = normalize_boundary({"data_boundary": boundary}) if isinstance(boundary, dict) \
-        else dict(DEFAULT_BOUNDARY)
-    masked = [m for m in base.get("masked_fields") or [] if m.lower() != PRICE_DOMAIN]
-    if not allow:
-        masked = [PRICE_DOMAIN] + masked
-        return {**base, "masked_fields": masked}
-    # 开价格必然要读模式（白名单不动，deny→allow 只解锁白名单本身）
-    return {**base, "mode": MODE_ALLOW_READ, "masked_fields": masked}
 
 
 def _str_list(value: Any) -> list:
@@ -215,10 +207,39 @@ def validate_read_sql(sql: str, boundary: dict) -> dict:
     for schema, table in tables:
         if not _table_allowed(schema, table, boundary):
             shown = f"{schema}.{table}" if schema else table
+            allowed = sorted({str(t) for t in boundary.get("tables_allow") or []})
+            readable = f"可读表：{', '.join(allowed)}" if allowed else "白名单为空"
             return {"ok": False,
-                    "error": f"表 {shown} 不在数据边界白名单内（可用 information_schema.tables/columns 查看可读范围）",
+                    "error": f"表 {shown} 不在数据边界白名单内（{readable}）",
                     "tables": tables}
     return {"ok": True, "error": "", "tables": tables}
+
+
+def _qualify_bare_tables(sql: str, boundary: dict) -> str:
+    """把裸表名补全成白名单唯一匹配的 schema.table 全名。
+
+    白名单放行裸表名（唯一后缀匹配），但 PG 按 search_path 解析裸名会落到 public
+    → UndefinedTable。校验器已算出唯一匹配，这里在执行前做确定性补全，模型写
+    `FROM opportunities` 也能命中 `opportunities.opportunities`。
+    """
+    allowed = {str(t).lower() for t in (boundary or {}).get("tables_allow") or []}
+    if not allowed:
+        return sql
+    cte_names = {m.group(1).lower() for m in _CTE_DEF_RE.finditer(sql)}
+
+    def _sub(m: "re.Match") -> str:
+        schema_part, table = m.group(1), m.group(2)
+        if schema_part:
+            return m.group(0)
+        tl = table.strip('"').lower()
+        if not tl or tl in cte_names or tl in ("select", "lateral", "unnest", "values", "only"):
+            return m.group(0)
+        matches = [t for t in allowed if t.endswith(f".{tl}")]
+        if len(matches) != 1:
+            return m.group(0)
+        return m.group(0)[:-len(table)] + matches[0]
+
+    return _FROM_JOIN_RE.sub(_sub, sql)
 
 
 def _wrap_with_limit(sql: str, limit: int) -> str:
@@ -252,6 +273,7 @@ def execute_read(sql: str, boundary: dict, *, limit: int = 50,
     check = validate_read_sql(sql, boundary)
     if not check["ok"]:
         return {"ok": False, "error": check["error"], "columns": [], "rows": [], "row_count": 0}
+    sql = _qualify_bare_tables(sql, boundary)
     if engine is None:
         from app.models.base import engine as base_engine
         engine = base_engine

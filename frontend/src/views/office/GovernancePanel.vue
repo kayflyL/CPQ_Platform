@@ -2,10 +2,10 @@
   <div class="gov-panel">
     <header class="gov-header">
       <div>
-        <h3>治理与审批</h3>
-        <p>敏感事件先审批，再广播到办公室。</p>
+        <h3>日志与审批</h3>
+        <p>同事行为事件流 + 敏感事件审批。</p>
       </div>
-      <div class="gov-header-actions">
+      <div class="gov-header-actions" v-if="panelTab === 'governance'">
         <a-button v-if="statusFilter === 'pending' && pendingItems.length" size="small" :loading="batchActing" type="primary" @click="batchApprove">
           批量批准 ({{ selectedIds.length }})
         </a-button>
@@ -16,6 +16,8 @@
       </div>
     </header>
 
+    <a-tabs v-model:activeKey="panelTab" class="gov-tabs">
+      <a-tab-pane key="governance" tab="治理审批">
     <div class="gov-toolbar">
       <a-radio-group v-model:value="statusFilter" size="small" class="gov-filter">
         <a-radio-button value="pending">待审批</a-radio-button>
@@ -52,6 +54,11 @@
         </div>
       </div>
     </div>
+      </a-tab-pane>
+      <a-tab-pane key="log" tab="行为日志">
+        <OfficeEventLogPanel :colleagues="colleagues" />
+      </a-tab-pane>
+    </a-tabs>
   </div>
 </template>
 
@@ -59,6 +66,10 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { officeApi } from '@/api/office'
+import OfficeEventLogPanel from './OfficeEventLogPanel.vue'
+
+defineProps<{ colleagues?: Array<{ role_key?: string; name?: string; color?: string }> }>()
+const panelTab = ref('governance')
 
 const items = ref<any[]>([])
 const loading = ref(false)

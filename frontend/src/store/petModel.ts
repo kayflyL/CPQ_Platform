@@ -36,11 +36,18 @@ export function isPetModelKey(key?: string | null): boolean {
 export const usePetModelStore = defineStore('petModel', () => {
   const activeRoleKey = ref<string | null>(null)
   const activePetModel = ref<string>(DEFAULT_PET_MODEL)
+  // 聊天流状态通道：面板把「回复中」的流式摘录写进来，桌宠据此挂头顶气泡（面板关着也能看到进度）
+  const activeStreamTail = ref('')
 
   function setActive(roleKey: string | null, petModel?: string | null) {
     activeRoleKey.value = roleKey
     activePetModel.value = isPetModelKey(petModel) ? petModel! : DEFAULT_PET_MODEL
   }
 
-  return { activeRoleKey, activePetModel, setActive }
+  function setStreamTail(text: string) {
+    // 取尾部（正在生成的最新内容）；按码点切防 emoji 撕裂
+    activeStreamTail.value = Array.from(text || '').slice(-80).join('')
+  }
+
+  return { activeRoleKey, activePetModel, activeStreamTail, setActive, setStreamTail }
 })

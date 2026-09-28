@@ -41,9 +41,9 @@
       </div>
     </div>
     
-    <a-table 
-      :dataSource="projects" 
-      :columns="projectColumns" 
+    <a-table
+      :dataSource="projects"
+      :columns="projectColumns"
       :loading="loading"
       rowKey="opportunity_id"
       :row-class-name="(record: any) => selectedIds.has(record.opportunity_id) ? 'selected-row' : ''"
@@ -51,6 +51,7 @@
       size="small"
       :pagination="{ pageSize: 20 }"
       :row-selection="rowSelection"
+      :scroll="{ x: 880 }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.dataIndex === 'action'">
@@ -188,7 +189,7 @@ onMounted(fetchData)
   padding: 20px; 
   /* 不设整页背景：透出布局网格层，玻璃卡片才有磨砂感 */
   color: var(--cpq-text-primary);
-  min-height: 100vh;
+  min-height: calc(100vh - var(--cpq-header-clearance, 0px));
 }
 .header-actions { 
   display: flex; 
@@ -256,5 +257,15 @@ onMounted(fetchData)
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+@media (max-width: 768px) {
+  .recycle-bin-container { padding: 12px 12px 28px; }
+  .header-actions { flex-wrap: wrap; gap: 8px; }
+  .header-actions h2 { font-size: 17px; }
+  .header-actions .ant-space { flex-wrap: wrap; }
+  .header-actions .ant-space-item button { padding: 0 10px; font-size: 12px; }
+  .batch-bar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
+  .batch-actions { flex-wrap: wrap; }
 }
 </style>

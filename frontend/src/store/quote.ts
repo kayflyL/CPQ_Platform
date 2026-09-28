@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import axios from 'axios'
 import { message } from 'ant-design-vue'
 import { saveProject as saveProjectAPI, quotationApi } from '@/api'
 import { calcUnitCost, calcUnitSales } from '@/utils/quoteCommon'
@@ -120,6 +121,9 @@ export const useQuoteStore = defineStore('quote', () => {
   })
 
   const configs = ref<Record<string, ConfigData>>({})
+
+  // 乐观锁基线：编辑加载时的报价单 updated_at，保存成功后刷新
+  const quotationUpdatedAt = ref('')
   
   // 每个配置的数量（报价单维度）
   const configQuantities = ref<Record<string, number>>({})
@@ -135,20 +139,14 @@ export const useQuoteStore = defineStore('quote', () => {
   const loadFinancialDefaults = async () => {
     try {
       const [taxRes, exchangeRes] = await Promise.all([
-        fetch('/api/system-config/tax_rate'),
-        fetch('/api/system-config/usd_to_rmb')
+        axios.get('/api/system-config/tax_rate'),
+        axios.get('/api/system-config/usd_to_rmb')
       ])
-      if (taxRes.ok) {
-        const taxData = await taxRes.json()
-        // system_config.value 是 TEXT 列，API 返回字符串"0.13"；不转 Number 会让 (1 + taxRate) 拼成 "10.13"
-        const t = Number(taxData.value)
-        taxRate.value = Number.isFinite(t) ? t : 0.13
-      }
-      if (exchangeRes.ok) {
-        const exchangeData = await exchangeRes.json()
-        const e = Number(exchangeData.value)
-        exchangeRate.value = Number.isFinite(e) ? e : 7.0
-      }
+      // system_config.value 是 TEXT 列，API 返回字符串"0.13"；不转 Number 会让 (1 + taxRate) 拼成 "10.13"
+      const t = Number(taxRes.data?.value)
+      taxRate.value = Number.isFinite(t) ? t : 0.13
+      const e = Number(exchangeRes.data?.value)
+      exchangeRate.value = Number.isFinite(e) ? e : 7.0
     } catch (e) {
       console.warn('Failed to load financial defaults:', e)
     }
@@ -631,7 +629,11 @@ export const useQuoteStore = defineStore('quote', () => {
           })(),
         }
 
-        const result = await quotationApi.updateDetails(quotationId, payload)
+        const result = await quotationApi.updateDetails(quotationId, {
+          ...payload,
+          expected_updated_at: quotationUpdatedAt.value,
+        })
+        if (result?.quotation?.updated_at) quotationUpdatedAt.value = result.quotation.updated_at
         console.log('[saveProject] Updated quotation items:', result)
         message.success('报价单已更新')
       } else {
@@ -671,6 +673,7 @@ export const useQuoteStore = defineStore('quote', () => {
 
   return {
     opportunityInfo, configs, configQuantities, configSelectedParts, taxRate, exchangeRate,
+    quotationUpdatedAt,
     l6Total, kpTotal, grandTotal,
     loadData, updateItem,
     setWarrantyRateL6, setWarrantyRateKP,

@@ -107,8 +107,7 @@ def _native_final(answer):
 def test_react_final_no_tools():
     """原生 function calling：无工具调用，LLM 直接给文本 → 返回 answer。"""
     from app.services import agent_react
-    with patch("app.services.llm_client.chat_with_tools", AsyncMock(return_value=_native_final("ok"))), \
-            patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    with patch("app.services.llm_client.chat_with_tools", AsyncMock(return_value=_native_final("ok"))):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "ok" and out["iterations"] == 1
 
@@ -125,8 +124,7 @@ def test_react_calls_tool_then_final():
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": 1}), _native_final("done")]
     with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)), \
-            patch("app.services.llm_client.is_llm_enabled", return_value=True):
+            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "done"
     assert seen == [{"k": 1}]
@@ -136,8 +134,7 @@ def test_react_calls_tool_then_final():
 def test_react_llm_error_degrades():
     """LLM 抛 LLMError → ok=False（上层降级），不抛。"""
     from app.services import agent_react, llm_client
-    with patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMError("boom"))), \
-            patch("app.services.llm_client.is_llm_enabled", return_value=True):
+    with patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMError("boom"))):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is False and out["answer"] == ""
 
@@ -152,8 +149,7 @@ def test_react_max_iterations_cap():
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": i}, call_id=f"call_{i}") for i in range(1, 6)]
     with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)), \
-            patch("app.services.llm_client.is_llm_enabled", return_value=True):
+            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=2))
     assert out["ok"] is False and out["iterations"] == 2
 
@@ -177,7 +173,7 @@ def test_stream_agent_chat_parses_tool_calls():
     fake_client = SimpleNamespace(chat=SimpleNamespace(
         completions=SimpleNamespace(create=AsyncMock(return_value=_stream()))))
     cfg = {"enabled": True, "base_url": "http://x", "api_key": "k", "model": "qwen-plus",
-           "temperature": 0.7, "max_tokens": 1000, "capabilities_override": {}}
+           "temperature": 0.7, "max_tokens": 1000}
     tools = [{"type": "function", "function": {"name": "query_parts", "parameters": {"type": "object", "properties": {}}}}]
     with patch.object(llm_client, "_get_llm_config", return_value=cfg), \
             patch.object(llm_client, "_client", return_value=fake_client):
@@ -222,8 +218,7 @@ def test_run_stream_chat_loop_prefers_native_then_final():
             yield item
 
     with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
-            patch("app.services.llm_client.stream_agent_chat", _ag), \
-            patch("app.services.llm_client.is_llm_enabled", return_value=True):
+            patch("app.services.llm_client.stream_agent_chat", _ag):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
 
@@ -267,15 +262,15 @@ def test_strictify_tools_only_when_required_complete():
     assert "strict" not in _strictify_tools([forbidden_tool])[0]["function"]
 
 
-def test_model_supports_strict_tools_override():
-    """capabilities_override 能把 supports_strict_tools 抬为 True（否则保持保守默认 False）。"""
+def test_model_supports_strict_tools_probed():
+    """实测（probe_capabilities）能把 supports_strict_tools 抬为 True（否则保持保守默认 False）。"""
     from app.services import llm_client
     caps = llm_client.get_model_capabilities("qwen-plus", {
         "model": "qwen-plus",
-        "capabilities_override": {"qwen-plus": {"supports_strict_tools": True}},
+        "probe_capabilities": {"supports_strict_tools": True},
     })
     assert caps["supports_strict_tools"] is True
-    default_caps = llm_client.get_model_capabilities("qwen-plus", {"model": "qwen-plus", "capabilities_override": {}})
+    default_caps = llm_client.get_model_capabilities("qwen-plus", {"model": "qwen-plus"})
     assert default_caps["supports_strict_tools"] is False
 
 
@@ -305,6 +300,82 @@ def test_cap_tool_context_terminates_and_shrinks():
     assert "已压缩" in msgs[0]["content"]      # 最老的被压缩
     assert msgs[-1]["content"] == "x" * 450    # 最近的保持完整
     assert all(len(m["content"]) <= 400 for m in msgs if "已压缩" in m["content"])  # 压缩过的不再可被选中
+
+
+def _stream_rounds(rounds):
+    """把若干轮事件列表包成 stream_agent_chat 假件（逐轮出队）。"""
+    idx = [0]
+
+    async def _ag(messages, model=None, **kw):
+        if idx[0] < len(rounds):
+            r = rounds[idx[0]]
+            idx[0] += 1
+        else:
+            r = rounds[-1]
+        if isinstance(r, Exception):
+            raise r
+        for item in r:
+            yield item
+
+    return _ag
+
+
+def test_stream_loop_intermediate_prose_superseded():
+    """覆盖语义（2026-09-16）：带工具调用轮次的正文=过程旁白，被收口轮覆盖而非拼接——
+    曾把「核对通过：…」旁白粘进最终报告。"""
+    import asyncio
+    from unittest.mock import patch
+    from app.services import agent_react
+    from app.services.agent_tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    async def fake_h(args):
+        return {"ok": True}
+    reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
+
+    rounds = [
+        [{"type": "content", "delta": "核对通过：本月商机 18。继续取数。"},
+         {"type": "tool_calls", "tool_calls": [{"id": "c1", "name": "fake_tool",
+                                                "arguments": {}, "arguments_raw": "{}"}]}],
+        [{"type": "content", "delta": "数据范围：2026.01.01 ~ 2026.09.16\n\n## 一、周数据"}],
+    ]
+    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+            patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
+        out = asyncio.run(agent_react.run_stream_chat_loop(
+            "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
+
+    assert out["ok"] is True
+    assert out["answer"] == "数据范围：2026.01.01 ~ 2026.09.16\n\n## 一、周数据"
+    assert "核对通过" not in out["answer"]
+
+
+def test_stream_loop_llm_error_salvages_latest_prose():
+    """LLM 断流兜底取最近一轮非空正文（旁白），不是历史旁白的拼接。"""
+    import asyncio
+    from unittest.mock import patch
+    from app.services import agent_react, llm_client
+    from app.services.agent_tool_registry import ToolRegistry
+
+    reg = ToolRegistry()
+    async def fake_h(args):
+        return {"ok": True}
+    reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
+
+    rounds = [
+        [{"type": "content", "delta": "旁白一"},
+         {"type": "tool_calls", "tool_calls": [{"id": "c1", "name": "fake_tool",
+                                                "arguments": {}, "arguments_raw": "{}"}]}],
+        [{"type": "content", "delta": "旁白二"},
+         {"type": "tool_calls", "tool_calls": [{"id": "c2", "name": "fake_tool",
+                                                "arguments": {}, "arguments_raw": "{}"}]}],
+        llm_client.LLMError("conn reset"),
+    ]
+    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+            patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
+        out = asyncio.run(agent_react.run_stream_chat_loop(
+            "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
+
+    assert out["ok"] is True and out["answer"] == "旁白二"
 
 
 if __name__ == "__main__":

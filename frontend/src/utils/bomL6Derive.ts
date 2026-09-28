@@ -2,7 +2,7 @@
  * L6 内容推导（纯函数，无依赖）—— 供 usePlanBom 求值 bom_context 前的 vars 派生。
  *
  * 原则：desc 只显示【描述】，绝不显示 pn/料号；线缆等行按盘数/配件型号推导（物理规则
- * 见 docs 里 ESA24V3-P 典型配置推算，SAS 缆按 4 盘取整、NVMe 缆按 2 盘取整）。
+ * 见 docs 里 ESA240 V3 典型配置推算，SAS 缆按 4 盘取整、NVMe 缆按 2 盘取整）。
  */
 export const DRIVE_RE = /hdd|ssd|nvme|sata|sas|硬盘|存储/i
 export const GPU_RE = /gpu|显卡|图形/i
@@ -37,19 +37,4 @@ export function raidModelFrom(items: any[]): string {
   if (!raid) return ''
   const m = /(\d{3,4})-(\d{1,2})\s*[iI]/.exec(`${raid.description || ''} ${raid.name || ''}`)
   return m ? m[1] : ''
-}
-
-/** Cable 行描述（盘数驱动）：SAS/SATA 盘按 4 向上取整 → "{raid型号} {N}SAS Cable"（无 RAID 也输出，不带型号前缀）；
- *  NVMe 盘按 2 向上取整 → "{N}NVMe Cable"。都无 → ''（模板回落盘型分组）。 */
-export function cableDescFrom(counts: { sata: number; sas: number; nvme: number }, raidModel: string): string {
-  const lines: string[] = []
-  const sasTotal = (counts.sata || 0) + (counts.sas || 0)
-  if (sasTotal > 0) {
-    lines.push(`${raidModel ? raidModel + ' ' : ''}${Math.ceil(sasTotal / 4) * 4}SAS Cable`)
-  }
-  const nvme = counts.nvme || 0
-  if (nvme > 0) {
-    lines.push(`${Math.ceil(nvme / 2) * 2}NVMe Cable`)
-  }
-  return lines.join('\n')
 }

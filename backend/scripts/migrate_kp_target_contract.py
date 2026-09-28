@@ -18,9 +18,10 @@ import json
 import sys
 
 import sqlalchemy as sa
+from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 
 ENG = sa.create_engine(
-    "postgresql+psycopg2://postgres:961216@localhost:5432/cpq_platform",
+    db_url(),
     connect_args={"client_encoding": "UTF8"},
 )
 

@@ -134,7 +134,7 @@ def test_phase_kp_reason_keeps_a_waived_row_out_of_the_landed_count():
            "node_state": {"kp_reason": {
                "picks": {"CPU|兆芯50000": {"name": "KH50000 96C", "price": 1.0}},
                "waived": ["GPU|NVIDIA H100 80G"]}},
-           "_locked_baseline": {"name": "ZS22V2-P", "series": "Polaris"}}
+           "_locked_baseline": {"name": "ZS220 V2", "series": "Polaris"}}
     asyncio.run(phase_kp_reason(ctx, {}, None))
     summary = ctx["kp_summary"]
     assert summary["kp_count"] == 1, summary
@@ -157,7 +157,7 @@ def test_phase_kp_reason_still_blocks_a_row_that_is_neither_landed_nor_waived():
            "server_type_name": "通用计算服务器"}
     ctx = {"ext": ext,
            "node_state": {"kp_reason": {"picks": {"CPU|兆芯50000": {"name": "KH50000 96C", "price": 1.0}}}},
-           "_locked_baseline": {"name": "ZS22V2-P", "series": "Polaris"}}
+           "_locked_baseline": {"name": "ZS220 V2", "series": "Polaris"}}
     asyncio.run(phase_kp_reason(ctx, {}, None))
     assert ctx["kp_summary"]["unmatched_count"] == 1
     from app.services.skill_plan_runtime import final_gate

@@ -39,15 +39,39 @@ PHASE_TABLE = [
 USER_FACING_PHASES = {"model_reason", "kp_reason", "compose", "output"}
 
 
-def skill_steps_view(flow_configs: dict, user_facing_only: bool = False) -> list[dict]:
-    """步骤清单单源：角色提议话术与 pipeline_start 共用，画布改 label/description 两处同步变。"""
+def skill_steps_view(flow_configs: dict, user_facing_only: bool = False,
+                     flow: Optional[dict] = None) -> list[dict]:
+    """步骤清单单源：角色提议话术与 pipeline_start 骨架共用，画布改 label/description 两处同步变。
+
+    顺序真源 = 画布 graph 拓扑（传 flow 时启用，与执行序 steps_payload 同一份 _topo_order，
+    杜绝骨架与执行两套顺序）；无 flow/无 graph 的老调用回退 PHASE_TABLE 固定序。
+    label 权威 = 画布节点标签 > 节点配置 label > PHASE_TABLE 兜底 > 键名。
+    """
+    cfg_labels: dict = {}
+    if isinstance(flow_configs, dict):
+        for k, c in flow_configs.items():
+            if isinstance(c, dict) and str(c.get("label") or "").strip():
+                cfg_labels[str(k)] = str(c.get("label")).strip()
+    graph_labels: dict = {}
+    topo: list[str] = []
+    if isinstance(flow, dict):
+        topo = _topo_order(flow)
+        graph_labels = {str(nd.get("id") or ""): str(nd.get("label") or "")
+                        for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
+    order = topo or [ph["key"] for ph in PHASE_TABLE]
+    known = {ph["key"] for ph in PHASE_TABLE} | set(cfg_labels) | set(graph_labels)
     steps = []
-    for ph in PHASE_TABLE:
-        if user_facing_only and ph["key"] not in USER_FACING_PHASES:
+    for k in order:
+        if k not in known:
             continue
-        cfg = flow_configs.get(ph["key"]) if isinstance(flow_configs.get(ph["key"]), dict) else {}
-        item = {"step": ph["key"], "label": str((cfg or {}).get("label") or ph["label"])}
-        desc = str((cfg or {}).get("description") or "").strip()
+        if user_facing_only and k not in USER_FACING_PHASES:
+            continue
+        c = flow_configs.get(k) if isinstance(flow_configs, dict) else None
+        c = c if isinstance(c, dict) else {}
+        item = {"step": k,
+                "label": graph_labels.get(k) or cfg_labels.get(k)
+                or next((ph["label"] for ph in PHASE_TABLE if ph["key"] == k), k)}
+        desc = str(c.get("description") or "").strip()
         if desc:
             item["description"] = desc
         steps.append(item)
@@ -95,25 +119,35 @@ async def _emit(broadcast: BroadcastFn, payload: dict) -> None:
 MECHANISM_TOOLS = mechanism_tools_map()
 
 
+def node_tool_drift(node_key: str, node_cfg: dict) -> list[str]:
+    """DB enabled_tools 相对机制必需集的缺失清单（漂移检测）。
+
+    补回动作在 effective_node_tools；本函数把「缺了什么」单独暴露，
+    供编排壳发 node_trace（配置漂移要让人在试运行里看见，不能只进日志）。
+    """
+    from app.services.tool_names import normalize_tool_ids
+    cfg = node_cfg if isinstance(node_cfg, dict) else {}
+    bound = set(normalize_tool_ids(cfg.get("enabled_tools") or []))
+    return [m for m in (MECHANISM_TOOLS.get(node_key) or []) if m not in bound]
+
+
 def effective_node_tools(node_key: str, node_cfg: dict) -> list:
     """节点实际可用工具 = DB enabled_tools ∪ 机制保底（单一口径，渲染器与执行器共用）。"""
     from app.services.tool_names import normalize_tool_ids
     cfg = node_cfg if isinstance(node_cfg, dict) else {}
     bound = normalize_tool_ids(cfg.get("enabled_tools") or [])
-    mechs = MECHANISM_TOOLS.get(node_key) or []
-    missing = [m for m in mechs if m not in bound]
+    missing = node_tool_drift(node_key, cfg)
     if missing:
         logger.warning("%s enabled_tools 缺机制工具 %s（DB 配置漂移，保底补回）", node_key, missing)
-    return list(dict.fromkeys(bound + mechs))
+    return list(dict.fromkeys(bound + (MECHANISM_TOOLS.get(node_key) or [])))
 
 
-def steps_payload(flow: dict) -> list[dict]:
-    """节点抽屉 → 结构化步骤清单（原样数据，无文本加工；顺序=图拓扑序号）。
+def _topo_order(flow: dict) -> list[str]:
+    """画布 graph → 拓扑序（Kahn，按图内序号稳定排序；环成员按图内序号补尾）。
 
-    编排权移交后大脑的任务卡就是这份清单：AI 角色直接读节点配置。
-    曾有 render_skill_manual 把它转译成散文说明书——被定调为黑盒转译层删除：
-    模型读结构化清单毫无障碍，转译只会引入用户看不见的加工逻辑。"""
-    flow_configs = flow.get("node_configs") if isinstance(flow.get("node_configs"), dict) else {}
+    执行序（steps_payload）与骨架/提议话术（skill_steps_view）共用的唯一排序源——
+    两套顺序从此绝迹（别在补丁上打补丁）。extract 节点已在 _graph_maps 被排除。
+    """
     nodes, adj, indeg, order = _graph_maps(flow)
     topo: list[str] = []
     ready = sorted([k for k, d in indeg.items() if d == 0], key=lambda k: order.get(k, 0))
@@ -131,6 +165,17 @@ def steps_payload(flow: dict) -> list[dict]:
     for k in indeg_work:
         if indeg_work[k] > 0 and k not in topo:
             topo.append(k)
+    return topo
+
+
+def steps_payload(flow: dict) -> list[dict]:
+    """节点抽屉 → 结构化步骤清单（原样数据，无文本加工；顺序=图拓扑序号）。
+
+    编排权移交后大脑的任务卡就是这份清单：AI 角色直接读节点配置。
+    曾有 render_skill_manual 把它转译成散文说明书——被定调为黑盒转译层删除：
+    模型读结构化清单毫无障碍，转译只会引入用户看不见的加工逻辑。"""
+    flow_configs = flow.get("node_configs") if isinstance(flow.get("node_configs"), dict) else {}
+    topo = _topo_order(flow)
     node_label = {str(nd.get("id") or ""): str(nd.get("label") or "")
                   for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
     from app.services.skill_node_plugins import plugin_for
@@ -217,11 +262,15 @@ def _ask_option_signal(row_key: str, o: dict, category: str = "") -> dict:
 def ask_option_signal(row_key: str, o: dict, ask_slot: str = "", category: str = "") -> dict:
     """选项卡选项 → 点击信号（唯一出口：卡怎么发射，信号就怎么解释）。
 
-    两种卡共用这一条口径：
+    三种卡共用这一条口径：
+      * 套装整体接受项（pick_all）：「全部按推荐落定」装不下逐颗料的 pick，走专用
+        批量晋升信号（kp_accept_recommendations），不绑行；
       * 行卡（row_key 非空）：pick=落地料号 / absent=类目不配 / waived=行豁免 / 否则并入行回答；
       * 登记表字段确认卡（选项声明 slot+value）：点选即把该字段登记为 value，并记为「客户已确认」
         （value 是落库值，label 只是给客户看的文案——没给 value 就不绑字段，答案走对话）。
     """
+    if o.get("pick_all"):
+        return {"kp_accept_recommendations": True}
     if row_key:
         return _ask_option_signal(row_key, o, category=category)
     slot = str(o.get("slot") or ask_slot or "").strip()
@@ -239,24 +288,6 @@ def ask_option_signal(row_key: str, o: dict, ask_slot: str = "", category: str =
     # slot 不是登记表字段（如大脑提问卡兜底的 slot brain_ask）＝客户的一次口头回答，
     # 不是字段信号：绝不凭它往登记表里写一个不存在的键。
     return {}
-
-
-def _row_qty_hint(category: str, row_desc: str, row_qty: int, pool_candidates: list) -> dict:
-    """数量建议（纯算术）：从候选 specs 的 Capacity（库内字段）找最大单条容量，若行描述
-    含总容量则反推建议件数（如 768GB ÷ 32G = 24）；算不出 → 行数量。不做语义判断。"""
-    from app.services.part_selector import _gb_of
-    total = float(_gb_of(row_desc) or 0)
-    unit = 0
-    for c in pool_candidates or []:
-        specs = c.get("specs") if isinstance(c.get("specs"), dict) else {}
-        u = _gb_of(specs.get("Capacity"))
-        if u:
-            unit = max(unit, u)
-    if total > 0 and unit > 0:
-        suggest = max(1, -(-int(total) // int(unit)))
-        return {"qty": max(1, row_qty), "qty_max": suggest * 2, "suggested_qty": suggest}
-    return {"qty": max(1, row_qty), "qty_max": max(1, row_qty), "suggested_qty": 0}
-
 
 
 def _trace(key: str, label: str, status: str, **extra) -> dict:
@@ -430,6 +461,48 @@ def final_gate(ctx: dict, composing: bool = False) -> dict:
     if missing:
         return {"ok": False, "hint": f"登记的部件大类 [{'、'.join(missing)}] 没有对应落地行：该行还没有终局（已锁定／客户放弃 absent／客户已知悉库内无料仍保持原需求 waived=true）"}
     return {"ok": True}
+
+
+def _data_answer_gate(ctx: dict) -> dict:
+    """data_answer 型流的终检：非空结论 + 配置数据范围物理核对。
+
+    数据范围核对是确定性拦截，不靠提示词自觉：大脑会复读对话历史里旧报告的
+    自算窗口（锚定效应，2026-09-16 实测同一线程三连犯，试运行新线程则正常）。
+    交付前比对报告首部与 document 目标层配置窗口，不符即打回（reopen 该节点，
+    下一回合重跑并带原因）。
+    """
+    answer = str(((ctx.get("agent_result") or {}).get("answer")) or "").strip()
+    if not answer:
+        return {"ok": False, "hint": "分析尚未产出数据结论"}
+    from app.services.skill_target_contract import _report_window
+    flow_configs = ctx.get("flow_configs") if isinstance(ctx.get("flow_configs"), dict) else {}
+    for key, cfg in flow_configs.items():
+        if not isinstance(cfg, dict):
+            continue
+        target = cfg.get("target")
+        arts = target.get("artifacts") if isinstance(target, dict) else None
+        for art in (arts or []):
+            if not (isinstance(art, dict) and str(art.get("kind") or "") == "document"):
+                continue
+            window, label = _report_window(art)
+            if not window:
+                continue  # auto/未配置起止：无硬边界可核对
+            head = answer[:300]
+            if window not in head:
+                first_line = next((ln for ln in head.splitlines() if ln.strip()), "")[:80]
+                return {"ok": False, "reopen": str(key),
+                        "hint": (f"报告首行数据范围与配置不符：应为「数据范围：{window}（{label}，配置指定）」，"
+                                 f"当前首行「{first_line}」。请严格按配置窗口 {window} 重新查询统计并输出完整报告，"
+                                 f"历史报告或其他口径的窗口一律不沿用")}
+    return {"ok": True}
+
+
+# 交付闸门注册表：流的 output_kind 决定用哪套业务不变量，未登记的走需求分析 final_gate
+DELIVERY_GATES = {"data_answer": _data_answer_gate}
+
+
+def delivery_gate(ctx: dict, output_kind: str = "") -> dict:
+    return DELIVERY_GATES.get(str(output_kind or "").strip(), final_gate)(ctx)
 
 
 async def run_compose(ctx: dict, broadcast: BroadcastFn = None) -> dict:

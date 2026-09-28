@@ -44,7 +44,7 @@ def _find_backplane_part(bt: str) -> Optional[dict]:
 
 def _sync_plan_backplane(plan: dict, base_parts: list) -> None:
     """方案 BOM 背板件与派生 bp_type 对齐（2026-08-03 第一轮训练发现）：
-    bp_type=tri 但基线 BOM 行是直连背板（如 ES22V3-P 基线为 Orion 2U12 直连版）时，
+    bp_type=tri 但基线 BOM 行是直连背板（如 ES220 V3 基线为 Orion 2U12 直连版）时，
     把 bom_excel_rows 背板行换成料号库同 bt 的件并补价差（l6_cost/total_cost）。
     无目标件/解析失败 → 保留原行不阻塞（方案照常出）。"""
     bp_type = (plan.get("chassis_signals") or {}).get("bp_type")
@@ -100,7 +100,7 @@ def _sync_plan_backplane(plan: dict, base_parts: list) -> None:
 
 
 def _clamp_psu_wattage(w: str, allowed_wattages=None) -> str:
-    """把推断瓦数收敛到机型允许档位（基准配置 psu_wattages，如 ES22V3-P=[1300,1600,2000]）。
+    """把推断瓦数收敛到机型允许档位（基准配置 psu_wattages，如 ES220 V3=[1300,1600,2000]）。
     未配置/非法档位列表 → 原样返回（沿用全局档位）；推断值不在档内 →
     取 ≥推断值的最小档，无更高档则取最大档（机型物理上限，宁高勿低）。"""
     try:

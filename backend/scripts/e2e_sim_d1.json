@@ -1,0 +1,17 @@
+{
+  "name": "模拟D1-B200库外复测",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "想配一台 AI 服务器：8 张 B200 GPU，内存 2T",
+  "answers": {
+    "server_type": "AI / 加速计算服务器",
+    "platform_type": "Orion",
+    "chassis_form": "4U",
+    "purchase_qty": "1台",
+    "warranty_years": "3年",
+    "server_model": "@pick:Orion",
+    "brain_ask": "@recommend",
+    "GPU": "@recommend"
+  },
+  "max_turns": 14
+}

@@ -17,7 +17,7 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 
-from app.api.deps import get_current_user as current_user, require_perms, resolve_ws_user, user_has_permission
+from app.api.deps import get_current_user as current_user, require_admin, require_perms, resolve_ws_user, user_has_permission
 from app.core.config import get_settings
 from app.repository.assistant_repo import AssistantRepository
 from app.services import llm_client
@@ -350,14 +350,25 @@ def list_threads(
 def list_messages(thread_id: str, limit: int = 50, user: dict = Depends(current_user)):
     repo = AssistantRepository()
     try:
-        _thread_for_user(repo, thread_id, user)
+        thread = _thread_for_user(repo, thread_id, user)
         msgs = repo.list_messages(thread_id, limit=limit)
         # 上下文水位：估算送入 LLM 的历史规模（中文约 0.6 token/字符；上限按 64k 保守显示）
         chars = sum(len(str(m.get("content") or "")) for m in msgs)
         est_tokens = int(chars * 0.6)
         limit_tokens = 65536
+        # 回合在跑的确定事实：前端看门狗用「无新消息 + turn_active=False」判定终态，
+        # 替代原来「有未见消息才算结束」的猜测（卡片已推到本地、done 丢失时旧逻辑永远卡死）。
+        from app.services.colleague_turn_service import turn_active
+        t_active = turn_active(thread_id)
+        # 任务胶囊对账事实（2026-09-13）：pipeline 事件只发一次不重放，页面刷新/WS 重连
+        # 空窗后前端骨架已丢——这里按引擎状态（steps_done/engine_pause）重建下发。
+        from app.services.skill_memory import task_state_for_thread
+        task_state = task_state_for_thread(
+            thread_id, str(thread.get("colleague_role_key") or "assistant"), turn_active=t_active)
         return {
             "messages": msgs,
+            "turn_active": t_active,
+            "task_state": task_state,
             "context_usage": {
                 "chars": chars,
                 "est_tokens": est_tokens,
@@ -409,6 +420,7 @@ async def _run_office_turn(
     card_selections: Optional[list] = None,
     entry_point: Optional[str] = None,
     workflow_key: Optional[str] = None,
+    channel_kind: Optional[str] = None,
 ) -> None:
     """后台处理 AI Office 会话：空间指令优先，其余走普通聊天/LLM 意图识别。"""
     try:
@@ -430,6 +442,7 @@ async def _run_office_turn(
             card_selections=card_selections,
             entry_point=entry_point,
             workflow_key=workflow_key,
+            channel_kind=channel_kind,
         ))
         _ACTIVE_TURN_TASKS[thread_id] = task
         task.add_done_callback(lambda _t: _ACTIVE_TURN_TASKS.pop(thread_id, None))
@@ -518,6 +531,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         card_selections=[s.model_dump() for s in body.card_selections] if body.card_selections else None,
         entry_point=body.entry_point or thread.get("entry_point"),
         workflow_key=body.workflow_key,
+        channel_kind=None if str(thread.get("colleague_role_key") or "").strip() else "group",
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
 
@@ -536,6 +550,7 @@ async def stop_workflow(thread_id: str, user: dict = Depends(current_user)):
     # 排队中的引导消息一并作废（用户按停=不要了；原话仍在会话历史里）
     from app.services.colleague_turn_service import _clear_thread_queue
     _clear_thread_queue(thread_id)
+    await assistant_hub.broadcast(thread_id, {"type": "queue_state", "depth": 0})
     await assistant_hub.broadcast(thread_id, {"type": "analysis_cancelled", "message": "已取消当前任务。"})
     return {"status": "cancelled" if task is not None else "idle"}
 
@@ -621,6 +636,11 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
             _q = part_query(str(meta.get("category") or ""), series=series, limit=50)
             cands = (_q.get("rows") or []) if _q.get("ok") else []
         price_ok = colleague_price_ok(get_colleague(rk) or {})
+        # 自选候选的数量上限与行卡同口径：机型物理边界（pick_meta 随卡留底的目录事实），
+        # 未登记能力/无边界类目退宽上限 24（旧行卡 pick_meta 没带能力字段同样走兜底）。
+        from app.services.skill_phases import baseline_qty_cap
+        _cap = baseline_qty_cap(str(meta.get("category") or ""), meta)
+        qty_max = max(_cap, row_qty) if _cap > 0 else max(row_qty, 24)
         opts = []
         for c in cands:
             if not isinstance(c, dict) or not str(c.get("name") or "").strip():
@@ -629,7 +649,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
             o = {"label": str(c.get("name") or ""), "value": str(c.get("name") or ""),
                  "desc": desc, "slot": slot,
                  "group": "配件库候选" if recalled else "配件库全部·未按行规格过滤",
-                 "qty": row_qty, "qty_max": max(row_qty, 24),
+                 "qty": row_qty, "qty_max": qty_max,
                  "signal": {"kp_manual_pick": {"row": str(meta.get("row")),
                                                "part_id": str(c.get("part_id") or ""),
                                                "name": str(c.get("name") or ""),
@@ -689,9 +709,94 @@ def _record_assistant_tool_trace(tool_name: str, status: str, duration_ms: int, 
 def list_tools():
     """AI 工具目录（只读）：全系统已注册 LLM 工具（名称/分类/描述/参数/默认启用）。
 
-    数据来源：agent_tools._TOOL_SPECS（唯一注册表）；AI 设置页「方案助手」tab 底部只读表格展示。
+    数据来源：agent_tools._TOOL_SPECS（唯一注册表）；AI 设置页「方案助手」tab 底部
+    只读卡片目录展示。usage = 活跃流里引用该工具的节点（目录卡「被引用」徽标），
+    聚合失败不影响目录本身。
     """
-    return {"tools": tool_catalog()}
+    usage: dict = {}
+    try:
+        from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+        usage = ReasoningFlowRepository().tool_usage_map()
+    except Exception:
+        logger.warning("tool usage map failed", exc_info=True)
+    return {"tools": tool_catalog(), "usage": usage}
+
+
+class ToolTextBody(BaseModel):
+    """工具文案编辑体：四个字段均可选，未传的字段不动。"""
+    display_name: Optional[str] = None
+    one_liner: Optional[str] = None
+    description: Optional[str] = None
+    model_brief: Optional[str] = None
+
+
+@router.put("/tools/{tool_name}/text")
+def update_tool_text(tool_name: str, body: ToolTextBody, admin: dict = Depends(require_admin)):
+    """编辑工具目录文案（rules.agent_tool_text，DB 唯一权威源）。
+    display_name/one_liner/description 为人类展示层；model_brief 是模型 FC 契约
+    （每回合注入大脑）——保存口跑宪法 lint，命中祈使/流程词即拒。清空字段 = 写回种子值。"""
+    from app.services.agent_tool_specs import _TOOL_SPECS, tool_text_seed_rows
+    from app.services.constitution_lint import find_prose_markers
+    from app.repository.agent_tool_text_repo import AgentToolTextRepository
+
+    name = tool_name.strip()
+    if name not in _TOOL_SPECS:
+        raise HTTPException(status_code=404, detail=f"未知工具: {tool_name}")
+    seed = next((r for r in tool_text_seed_rows() if r["name"] == name), None)
+    if not seed:
+        raise HTTPException(status_code=500, detail="工具种子缺失")
+
+    submitted: dict = {}
+    for key in ("display_name", "one_liner", "description", "model_brief"):
+        value = getattr(body, key)
+        if value is None:
+            continue
+        value = value.strip()
+        if len(value) > 4000:
+            raise HTTPException(status_code=400, detail=f"{key} 超长（>{len(value)} 字符，上限 4000）")
+        if key == "model_brief" and value:
+            hits = find_prose_markers(value)
+            if hits:
+                raise HTTPException(
+                    status_code=400,
+                    detail="模型契约里出现祈使/流程词（这类「怎么做」规则属左栏任务规则，不进工具文案）："
+                           + "、".join(hits),
+                )
+        submitted[key] = value
+
+    repo = AgentToolTextRepository()
+    try:
+        # 整行状态 = 种子值 ← 当前行 ← 本次提交；清空字段落回种子值（行不变量：四字段非空）
+        row = {k: seed[k] for k in ("display_name", "one_liner", "description", "model_brief")}
+        row.update(repo.get_override(name))
+        for key, value in submitted.items():
+            row[key] = value or seed[key]
+        repo.write_row(name, row)
+        entry = next((t for t in tool_catalog() if t["name"] == name), None)
+        return {"tool": entry}
+    finally:
+        repo.close()
+
+
+@router.delete("/tools/{tool_name}/text")
+def reset_tool_text(tool_name: str, admin: dict = Depends(require_admin)):
+    """整工具恢复默认文案 = 行内容重置为种子值（DB 单存储，不删行）。"""
+    from app.services.agent_tool_specs import _TOOL_SPECS, tool_text_seed_rows
+    from app.repository.agent_tool_text_repo import AgentToolTextRepository
+
+    name = tool_name.strip()
+    if name not in _TOOL_SPECS:
+        raise HTTPException(status_code=404, detail=f"未知工具: {tool_name}")
+    seed = next((r for r in tool_text_seed_rows() if r["name"] == name), None)
+    if not seed:
+        raise HTTPException(status_code=500, detail="工具种子缺失")
+    repo = AgentToolTextRepository()
+    try:
+        repo.write_row(name, seed)
+    finally:
+        repo.close()
+    entry = next((t for t in tool_catalog() if t["name"] == name), None)
+    return {"tool": entry}
 
 
 @router.patch("/threads/{thread_id}")

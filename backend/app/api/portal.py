@@ -9,17 +9,21 @@ import re
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pathlib import Path
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.api.deps import get_current_user, require_admin, field_visible, user_has_permission, user_can_access_opportunity
-from app.repository.flow_repo import FlowRepository
+from app.repository.flow_repo import FlowRepository, render_flow_assignees, assignee_to_uid
+from app.services.notification_hub import notify_users
 from app.repository.flow_card_repo import FlowCardRepository
 from app.repository.feed_repo import FeedRepository
 from app.repository.feed_user_repo import FeedUserRepository
 from app.repository.opportunity_repo import OpportunityRepository
+from app.repository.opp_caliber_repo import current_slot_map
+from app.repository.pricing_approval_repo import PricingApprovalRepository
 from app.repository.quotation_repo import QuotationRepository
+from app.repository.strategy_repo import StrategyRepository
 from app.services.feed_hub import hub
 from app.services.preview_data_loader import load_preview_data
 from app.services.quote_service import QuoteService
@@ -79,6 +83,8 @@ def _svc(opp_id: str, user: Optional[dict] = None) -> tuple[dict, dict]:
     try:
         flow = flow_repo.get_or_create_flow(opp_id)
         flow_dict = flow.to_dict()
+        # assignees 存储为 user_id，出口统一渲染回姓名（前端零改动）
+        render_flow_assignees(flow_dict)
     finally:
         flow_repo.close()
     return opp, flow_dict
@@ -224,14 +230,49 @@ def _approvals(flow: dict, nodes: List[dict], current_requirement: Optional[dict
     return result
 
 
+def _opp_card(opp: dict, flow: dict, slots: Optional[dict] = None,
+              updated_at: str = "") -> dict:
+    """商机卡片：商机摘要 + 需求单 slots + 流程节点（商机线索表/门户工作台四子页共用口径）。"""
+    slots = slots or {}
+    flow = flow or {}
+    return {
+        "opportunity_id": opp.get("opportunity_id") or "",
+        "customer_name": opp.get("customer_name") or "",
+        "sales_person": opp.get("sales_person") or "",
+        "platform_type": slots.get("platform_type") or "",
+        "chassis_form": slots.get("chassis_form") or "",
+        "purchase_qty": slots.get("purchase_qty") or 0,
+        "industry": opp.get("industry") or "",
+        "order_type": opp.get("order_type") or "",
+        "config_count": opp.get("config_count") or 0,
+        "quotation_count": opp.get("quotation_count") or 0,
+        "result": opp.get("result") or "pending",
+        "created_at": opp.get("created_at") or "",
+        "updated_at": updated_at or opp.get("updated_at") or "",
+        "current_node": flow.get("current_node") or "requirement",
+        "flow_status": flow.get("status") or "running",
+    }
+
+
 @router.get("/api/portal/opps")
 def list_portal_opps(page: int = 1, page_size: int = 20, search: str = "",
                      sort_by: str = "updated_at", sort_order: str = "desc",
+                     node: str = "", scope: str = "",
                      user: dict = Depends(get_current_user)):
-    """门户商机卡片列表：商机摘要 + 流程当前节点（点进 /portal/{opp_id}）。
+    """门户商机卡片列表（工作台四子页共用）：商机摘要 + 流程当前节点（点进 /portal/{opp_id}）。
+
+    - 无 node：「我的商机」——本人（管理员全量）商机分页，支持 search/排序；
+      summary = total/returned/in_progress/done。
+    - node=boming|costing|quoting：角色任务队列（scope=mine|all，all 仅管理员），
+      按流程当前节点 + 节点处理人过滤，按流程更新时间倒序（sort 参数忽略），
+      search 同商机模式口径（客户/业务/商机ID）；summary = total/today/mine 任务统计。
 
     流程/需求单批量查（一次 IN），避免逐商机 N+1；无需求单的商机只给流程节点。
     """
+    if node:
+        return _list_portal_task_opps(node=node, scope=scope, page=page,
+                                      page_size=page_size, user=user, search=search)
+
     view_all = user_has_permission(user, "page.opportunities_all")
     user_id = user.get("user_id") or ""
     personal_name = user.get("name") or ""
@@ -258,7 +299,8 @@ def list_portal_opps(page: int = 1, page_size: int = 20, search: str = "",
     flow_repo = FlowRepository()
     try:
         flows = flow_repo.list_flows_bulk([o["opportunity_id"] for o in all_opps])
-        reqs = flow_repo.list_current_requirements_bulk([o["opportunity_id"] for o in opps])
+        # slots 口径与商机线索列表同一份（current 优先、缺失回退最新 draft）
+        slot_map = current_slot_map(flow_repo.session, [o["opportunity_id"] for o in opps])
     finally:
         flow_repo.close()
     summary = {
@@ -267,28 +309,96 @@ def list_portal_opps(page: int = 1, page_size: int = 20, search: str = "",
         "in_progress": sum(1 for f in flows.values() if f.get("current_node") in {"boming", "costing", "quoting"} and f.get("status") not in {"done", "returned"}),
         "done": sum(1 for f in flows.values() if f.get("status") == "done"),
     }
-    cards = []
-    for o in opps:
-        oid = o["opportunity_id"]
-        flow = flows.get(oid) or {}
-        req = reqs.get(oid) or {}
-        slots = req.get("slots") or {}
-        cards.append({
-            "opportunity_id": oid,
-            "customer_name": o.get("customer_name") or "",
-            "sales_person": o.get("sales_person") or "",
-            "platform_type": slots.get("platform_type") or "",
-            "chassis_form": slots.get("chassis_form") or "",
-            "purchase_qty": slots.get("purchase_qty") or 0,
-            "industry": o.get("industry") or "",
-            "config_count": o.get("config_count") or 0,
-            "result": o.get("result") or "pending",
-            "created_at": o.get("created_at") or "",
-            "updated_at": o.get("updated_at") or "",
-            "current_node": flow.get("current_node") or "requirement",
-            "flow_status": flow.get("status") or "running",
-        })
+    cards = [
+        _opp_card(o, flows.get(o["opportunity_id"]) or {},
+                  slot_map.get(o["opportunity_id"]) or {})
+        for o in opps
+    ]
     return {"cards": cards, "total": total, "summary": summary}
+
+
+def _opp_search_hit(opp: dict, kw: str, opp_id: str) -> bool:
+    """搜索口径与 opportunity_repo.list_opportunities 一致：客户 / 业务 / 商机ID 子串（不分大小写）。"""
+    return (kw in str(opp.get("customer_name") or "").lower()
+            or kw in str(opp.get("sales_person") or "").lower()
+            or kw in (opp_id or "").lower())
+
+
+def _list_portal_task_opps(node: str, scope: str, page: int, page_size: int,
+                           user: dict, search: str = "") -> dict:
+    """node 模式：角色任务队列（当前节点 + 节点处理人过滤），卡片口径与商机模式一致。"""
+    if node not in _NODE_PREV:
+        raise HTTPException(status_code=400, detail="不支持的流程节点")
+    if scope and scope not in {"mine", "all"}:
+        raise HTTPException(status_code=400, detail="不支持的查询范围")
+    is_admin = _portal_is_admin(user)
+    if scope == "all" and not is_admin:
+        raise HTTPException(status_code=403, detail="无权查看该任务范围")
+
+    flow_repo = FlowRepository()
+    opp_repo = OpportunityRepository()
+    try:
+        uid = user.get("user_id") or ""
+        name = user.get("name") or ""
+        mine_only = scope != "all"
+
+        def _fetch(p: int, ps: int):
+            if mine_only:
+                return flow_repo.list_task_flows(
+                    node, assignee_name=name, assignee_user_id=uid, page=p, page_size=ps)
+            return flow_repo.list_task_flows(node, page=p, page_size=ps)
+
+        flows, total = _fetch(page, page_size)
+        all_flows = flows
+        if total > len(flows):
+            all_flows, _ = _fetch(1, max(total, 1))
+
+        ids = [f.get("opportunity_id") for f in all_flows]
+        opp_map = {}
+        if ids:
+            from app.models.opportunity import Opportunity
+            rows = flow_repo.session.query(Opportunity).filter(
+                Opportunity.opportunity_id.in_(ids)
+            ).all()
+            opp_map = {r.opportunity_id: r.to_dict() for r in rows}
+        stats = opp_repo.quotation_stats_for(ids)
+        for oid, s in stats.items():
+            if oid in opp_map:
+                opp_map[oid]["config_count"] = s.get("config_count", 0)
+                opp_map[oid]["quotation_count"] = s.get("quotation_count", 0)
+        # slots 口径与商机线索列表同一份（current 优先、缺失回退最新 draft）
+        slot_map = current_slot_map(flow_repo.session, ids)
+
+        # 搜索与商机列表同口径（客户/业务/商机ID）：内存过滤后重新分页
+        kw = (search or "").strip().lower()
+        if kw:
+            all_flows = [
+                f for f in all_flows
+                if _opp_search_hit(opp_map.get(f.get("opportunity_id") or {}), kw,
+                                   f.get("opportunity_id") or "")
+            ]
+            total = len(all_flows)
+        page_flows = all_flows[(page - 1) * page_size: page * page_size]
+        cards = [
+            _opp_card(opp_map.get(f.get("opportunity_id"), {}), f,
+                      slot_map.get(f.get("opportunity_id")) or {},
+                      # 任务队列的「更新时间」以流程为准（节点流转时间），商机字段兜底
+                      updated_at=f.get("updated_at") or "")
+            for f in page_flows
+        ]
+
+        mine_total = flow_repo.list_task_flows(
+            node, assignee_name=name, assignee_user_id=uid, page=1, page_size=1)[1]
+        today = datetime.now().strftime("%Y-%m-%d")
+        today_count = sum(1 for f in all_flows if (f.get("updated_at") or "").startswith(today))
+        return {
+            "cards": cards,
+            "total": total,
+            "summary": {"total": total, "today": today_count, "mine": mine_total},
+        }
+    finally:
+        flow_repo.close()
+        opp_repo.close()
 
 
 @router.get("/api/portal/opp/{opp_id}")
@@ -725,7 +835,7 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
 
 
 class CardReturnBody(BaseModel):
-    comment: str = ""
+    comment: str = Field(..., min_length=1)  # 退回原因必填：被退回人需要知道改什么
 
 
 class CardWithdrawBody(BaseModel):
@@ -738,6 +848,29 @@ class CardApproveBody(BaseModel):
 
 class SubmitAssigneeBody(BaseModel):
     assignee_name: str = ""
+
+
+def _validate_assignee_role(node_key: str, assignee_name: str) -> None:
+    """被指派人必须是系统用户且角色与节点匹配（外部自由填写不再允许）。"""
+    if not (assignee_name or "").strip():
+        return
+    assignee = assignee_name.strip()
+    user_repo = FeedUserRepository()
+    try:
+        target = next((u for u in user_repo.list_all()
+                       if (u.get("name") or "") == assignee), None)
+    finally:
+        user_repo.close()
+    if not target:
+        raise HTTPException(
+            status_code=409,
+            detail=f"处理人「{assignee}」不是系统用户，请从候选列表选择")
+    expected_role = _ASSIGN_ROLE_BY_NODE.get(node_key)
+    if (target.get("role") or "") != expected_role:
+        raise HTTPException(
+            status_code=409,
+            detail=f"「{_NODE_LABEL.get(node_key, node_key)}」节点处理人必须是 "
+                   f"{expected_role} 角色，「{assignee}」当前是 {target.get('role')} 角色")
 
 
 def _assign_if_unset(flow_repo: FlowRepository, opp_id: str,
@@ -753,10 +886,70 @@ def _assign_if_unset(flow_repo: FlowRepository, opp_id: str,
     flow_repo.assign_task(flow["flow_id"], node_key, assignee_name, actor=actor)
 
 
-def _ensure_downstream_assignee(flow_repo: FlowRepository, opp_id: str,
+# ── 流程事件通知（站内收件箱 + WS 实时推送；失败不阻断流程）──
+
+def _opp_label(opp: Optional[dict]) -> str:
+    return (opp or {}).get("customer_name") or (opp or {}).get("opportunity_id") or "商机"
+
+
+def _uid_by_name(name: str) -> str:
+    """姓名→user_id（卡片 created_by 等仍存姓名；查无此人不通知）。"""
+    if not (name or "").strip():
+        return ""
+    user_repo = FeedUserRepository()
+    try:
+        target = next((u for u in user_repo.list_all()
+                       if (u.get("name") or "") == name.strip()), None)
+    finally:
+        user_repo.close()
+    return (target or {}).get("user_id") or ""
+
+
+def _notify_task_assigned(opp: Optional[dict], opp_id: str, node_key: str,
+                          actor_user: dict) -> None:
+    flow_repo = FlowRepository()
+    try:
+        flow = flow_repo.get_flow(opp_id) or {}
+    finally:
+        flow_repo.close()
+    assignee = assignee_to_uid((flow.get("assignees") or {}).get(node_key) or "")
+    if not assignee:
+        return
+    label = _NODE_LABEL.get(node_key, node_key)
+    notify_users(
+        [assignee], "task_assigned",
+        f"你有新任务：{_opp_label(opp)} · {label}",
+        opportunity_id=(opp or {}).get("opportunity_id") or "",
+        payload={"node_key": node_key},
+        exclude_user_id=(actor_user or {}).get("user_id") or "",
+    )
+
+
+def _notify_owner_advanced(opp: Optional[dict], node_key: str,
+                           actor_user: dict) -> None:
+    owner = (opp or {}).get("owner_user_id") or ""
+    if not owner:
+        return
+    label = _NODE_LABEL.get(node_key, node_key)
+    notify_users(
+        [owner], "stage_advanced",
+        f"{_opp_label(opp)} 已进入「{label}」",
+        body=f"由 {(actor_user or {}).get('name') or ''} 推进",
+        opportunity_id=(opp or {}).get("opportunity_id") or "",
+        payload={"node_key": node_key},
+        exclude_user_id=(actor_user or {}).get("user_id") or "",
+    )
+
+
+def _ensure_downstream_assignee(flow_repo: FlowRepository, user: dict, opp_id: str,
                                 node_key: str, assignee_name: str) -> None:
-    """提交前校验：下游节点默认处理人为空且调用方未提供人选时，要求先选择。"""
+    """提交前校验：下游节点默认处理人为空且调用方未提供人选时，要求先选择。
+
+    管理员跨阶段自由提交：跳过校验，下游节点可后续再转交指派。"""
+    if _portal_is_admin(user):
+        return
     if assignee_name:
+        _validate_assignee_role(node_key, assignee_name)
         return
     flow = flow_repo.get_flow(opp_id) or {}
     if (flow.get("assignees") or {}).get(node_key):
@@ -764,6 +957,77 @@ def _ensure_downstream_assignee(flow_repo: FlowRepository, opp_id: str,
     if flow_repo.resolve_node_assignee(opp_id, node_key):
         return
     raise HTTPException(status_code=409, detail=_ASSIGNEE_REQUIRED_DETAIL)
+
+
+# ── 毛利审批门（低毛利报价须总监批准后才可发送）──
+
+def _margin_gate_config() -> Optional[dict]:
+    """读策略中心 margin_alert（开关 + 审批红线 approval_threshold）。
+
+    未配置/未启用/读库失败 → None（不拦，审批门跟随告警开关）。
+    红线缺省与告警门槛同值：警告线=注意，红线=必须过审。
+    """
+    try:
+        repo = StrategyRepository()
+        try:
+            rows = repo.list(domain="pricing", status="active", type="margin_alert")
+        finally:
+            repo.close()
+    except Exception:
+        return None
+    if not rows:
+        return None
+    body = rows[0].get("body")
+    if not isinstance(body, dict) or not body.get("enabled"):
+        return None
+    raw = body.get("approval_threshold", body.get("threshold"))
+    try:
+        threshold = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return {"approval_threshold": threshold}
+
+
+def _quotation_overall_margin(quotation) -> Optional[float]:
+    """报价单整体毛利率（后端权威）：导出成本快照的综合加权 marginPct，
+    缺快照时回落报价单 profit_margin 列。"""
+    snap = quotation.cost_snapshot if isinstance(quotation.cost_snapshot, dict) else None
+    if snap:
+        try:
+            overall = (snap.get("totals") or {}).get("marginPct")
+            if overall is not None:
+                return float(overall)
+        except (TypeError, ValueError):
+            pass
+    try:
+        return float(quotation.profit_margin) if quotation.profit_margin is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _pricing_approver_uids() -> List[str]:
+    """全体持「低毛利报价审批」权限的用户（director/admin）。"""
+    user_repo = FeedUserRepository()
+    try:
+        users = user_repo.list_all()
+    finally:
+        user_repo.close()
+    return [u.get("user_id") or "" for u in users
+            if user_has_permission(u, "action.flow.approve.pricing")]
+
+
+def _notify_pricing_approvers(opp: dict, approval: dict, requester: dict) -> None:
+    approvers = _pricing_approver_uids()
+    if not approvers:
+        return
+    notify_users(
+        approvers, "pricing_approval_requested",
+        f"低毛利报价待审批：{_opp_label(opp)} · 毛利率 {approval.get('margin_pct', 0):.2f}%",
+        body=f"{requester.get('name') or ''} 请求发送低于红线 {approval.get('threshold', 0):.0f}% 的报价单",
+        opportunity_id=(opp or {}).get("opportunity_id") or "",
+        payload={"approval_id": approval.get("id"), "quotation_id": approval.get("quotation_id")},
+        exclude_user_id=requester.get("user_id") or "",
+    )
 
 
 def _card_visible_to_user(card: dict, user: dict) -> bool:
@@ -777,6 +1041,57 @@ def _card_visible_to_user(card: dict, user: dict) -> bool:
     if card.get("visible_upstream") is False:
         return role == _CARD_NODE_ROLE.get(current)
     return role == _CARD_NODE_ROLE.get(origin) or role == _CARD_NODE_ROLE.get(current)
+
+
+def _stage_open(user: dict, opp_id: str, node_key: str) -> bool:
+    """该流程节点当前是否对写操作开放（阶段校验）。
+
+    权威取流转卡优先：任一卡停在 node_key（含被退回的卡）即开放；
+    否则看全局 flow.current_node。管理员/全量视图放行。
+    """
+    if _portal_is_admin(user):
+        return True
+    flow_repo = FlowRepository()
+    try:
+        flow = flow_repo.get_flow(opp_id) or {}
+        current = flow.get("current_node") or "requirement"
+        if current == "assign":
+            current = "requirement"
+        if current == node_key:
+            return True
+    finally:
+        flow_repo.close()
+    card_repo = FlowCardRepository()
+    try:
+        return any(
+            (c.get("current_node") or "") == node_key
+            for c in card_repo.list_cards(opp_id)
+        )
+    finally:
+        card_repo.close()
+
+
+def _ensure_stage_open(user: dict, opp_id: str, node_key: str) -> None:
+    if not _stage_open(user, opp_id, node_key):
+        label = next((n["label"] for n in _APPROVAL_NODES if n["key"] == node_key), node_key)
+        raise HTTPException(status_code=409, detail=f"流程尚未进入「{label}」阶段，无法执行该操作")
+
+
+def _ensure_requirement_stage(user: dict, opp_id: str, flow: dict) -> None:
+    """需求单提交的阶段校验：首次提交（无 current 版本）放行；
+    重提交要求流程回到需求阶段（含卡被退回）或整个流程已完结（再启新一轮）。"""
+    if _portal_is_admin(user):
+        return
+    flow_repo = FlowRepository()
+    try:
+        has_current = any(r.get("status") == "current" for r in flow_repo.list_requirements(opp_id))
+    finally:
+        flow_repo.close()
+    if not has_current:
+        return
+    if (flow.get("status") or "") == "done":
+        return
+    _ensure_stage_open(user, opp_id, "requirement")
 
 @router.get("/api/portal/opp/{opp_id}/cards")
 def list_portal_cards(opp_id: str, user: dict = Depends(get_current_user)):
@@ -795,7 +1110,7 @@ def list_portal_cards(opp_id: str, user: dict = Depends(get_current_user)):
 def return_portal_card(opp_id: str, card_id: int, body: CardReturnBody,
                        user: dict = Depends(get_current_user)):
     """退回当前卡到上一节点；只影响这一张卡，不再使用全局节点退回。"""
-    _svc(opp_id, user)
+    opp, _ = _svc(opp_id, user)
     repo = FlowCardRepository()
     try:
         card = repo.get_card(card_id)
@@ -809,6 +1124,8 @@ def return_portal_card(opp_id: str, card_id: int, body: CardReturnBody,
             raise HTTPException(status_code=400, detail="当前节点不支持退回")
         if not user_has_permission(user, _RETURN_PERMS.get(from_node, "")):
             raise HTTPException(status_code=403, detail="无权限退回该卡")
+        if not (body.comment or "").strip():
+            raise HTTPException(status_code=422, detail="请填写退回原因，让对方知道需要修改什么")
         if from_node == "quoting":
             quote_entities = [e.get("entity_id") for e in card.get("entities") or [] if e.get("entity_type") == "quote"]
             if quote_entities:
@@ -836,8 +1153,19 @@ def return_portal_card(opp_id: str, card_id: int, body: CardReturnBody,
                 comment=body.comment or "",
                 artifacts={"card_id": card_id, "from_node": from_node},
             )
+            target_assignee = assignee_to_uid(
+                ((flow_repo.get_flow(opp_id) or {}).get("assignees") or {}).get(target_node) or "")
         finally:
             flow_repo.close()
+        if target_assignee:
+            notify_users(
+                [target_assignee], "card_returned",
+                f"被退回：{_opp_label(opp)} · {_NODE_LABEL.get(target_node, target_node)}",
+                body=f"退回原因：{(body.comment or '').strip()}",
+                opportunity_id=opp.get("opportunity_id") or "",
+                payload={"node_key": target_node, "card_id": card_id},
+                exclude_user_id=user.get("user_id") or "",
+            )
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -849,7 +1177,7 @@ def return_portal_card(opp_id: str, card_id: int, body: CardReturnBody,
 def request_withdraw_portal_card(opp_id: str, card_id: int, body: CardWithdrawBody,
                                  user: dict = Depends(get_current_user)):
     """上游申请撤回已提交卡；仅已提交状态可申请。"""
-    _svc(opp_id, user)
+    opp, _ = _svc(opp_id, user)
     repo = FlowCardRepository()
     try:
         card = repo.get_card(card_id)
@@ -858,6 +1186,22 @@ def request_withdraw_portal_card(opp_id: str, card_id: int, body: CardWithdrawBo
         if not _portal_is_admin(user) and card.get("created_by") not in {"", user.get("name") or ""}:
             raise HTTPException(status_code=403, detail="只有该卡发起人可申请撤回")
         updated = repo.request_withdraw(card_id, body.comment)
+        flow_repo = FlowRepository()
+        try:
+            holder = assignee_to_uid(
+                ((flow_repo.get_flow(opp_id) or {}).get("assignees") or {})
+                .get(card.get("current_node") or "") or "")
+        finally:
+            flow_repo.close()
+        if holder:
+            notify_users(
+                [holder], "withdraw_requested",
+                f"撤回申请：{_opp_label(opp)} · {_NODE_LABEL.get(card.get('current_node') or '', '')}",
+                body=f"{user.get('name') or ''} 申请撤回已提交的卡：{body.comment or ''}",
+                opportunity_id=opp.get("opportunity_id") or "",
+                payload={"card_id": card_id},
+                exclude_user_id=user.get("user_id") or "",
+            )
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -867,7 +1211,7 @@ def request_withdraw_portal_card(opp_id: str, card_id: int, body: CardWithdrawBo
 
 @router.post("/api/portal/opp/{opp_id}/cards/{card_id}/withdraw/approve")
 def approve_withdraw_portal_card(opp_id: str, card_id: int, user: dict = Depends(get_current_user)):
-    _svc(opp_id, user)
+    opp, _ = _svc(opp_id, user)
     repo = FlowCardRepository()
     try:
         card = repo.get_card(card_id)
@@ -882,6 +1226,16 @@ def approve_withdraw_portal_card(opp_id: str, card_id: int, user: dict = Depends
             raise HTTPException(status_code=400, detail="当前节点不支持撤回")
         updated = repo.approve_withdraw(card_id, target_node)
         repo.revert_card_deliverables(card_id, from_node)
+        requester = _uid_by_name(card.get("created_by") or "")
+        if requester:
+            notify_users(
+                [requester], "withdraw_approved",
+                f"撤回已通过：{_opp_label(opp)} · {_NODE_LABEL.get(from_node, from_node)}",
+                body=f"{user.get('name') or ''} 同意了你的撤回申请，卡已退回",
+                opportunity_id=opp.get("opportunity_id") or "",
+                payload={"card_id": card_id, "node_key": target_node},
+                exclude_user_id=user.get("user_id") or "",
+            )
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -892,7 +1246,7 @@ def approve_withdraw_portal_card(opp_id: str, card_id: int, user: dict = Depends
 @router.post("/api/portal/opp/{opp_id}/cards/{card_id}/withdraw/reject")
 def reject_withdraw_portal_card(opp_id: str, card_id: int, body: CardApproveBody,
                                 user: dict = Depends(get_current_user)):
-    _svc(opp_id, user)
+    opp, _ = _svc(opp_id, user)
     repo = FlowCardRepository()
     try:
         card = repo.get_card(card_id)
@@ -902,6 +1256,16 @@ def reject_withdraw_portal_card(opp_id: str, card_id: int, body: CardApproveBody
         if not _portal_is_admin(user) and user.get("role") != required_role:
             raise HTTPException(status_code=403, detail="当前角色无权处理撤回申请")
         updated = repo.reject_withdraw(card_id, body.reason)
+        requester = _uid_by_name(card.get("created_by") or "")
+        if requester:
+            notify_users(
+                [requester], "withdraw_rejected",
+                f"撤回被驳回：{_opp_label(opp)} · {_NODE_LABEL.get(card.get('current_node') or '', '')}",
+                body=f"{user.get('name') or ''} 驳回了你的撤回申请：{body.reason or ''}",
+                opportunity_id=opp.get("opportunity_id") or "",
+                payload={"card_id": card_id},
+                exclude_user_id=user.get("user_id") or "",
+            )
         return {"card": updated}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -1071,6 +1435,7 @@ class BomSchemeDraftBody(BaseModel):
     configs: List[dict] = []
     config_relation: str = "compose"  # compose=组合拆分 / alternative=方案备选对比
     primary_config: str = ""
+    expected_updated_at: str = ""  # 乐观锁基线：编辑加载时的 updated_at，不一致 409
 
 
 class CostSheetDraftBody(BaseModel):
@@ -1080,6 +1445,18 @@ class CostSheetDraftBody(BaseModel):
     configs: List[dict] = []
     bom_scheme_id: Optional[int] = None
     quotation_id: Optional[str] = None
+    expected_updated_at: str = ""  # 乐观锁基线：编辑加载时的 updated_at，不一致 409
+
+
+def _ensure_not_stale(existing: Optional[dict], expected_updated_at: str,
+                      label: str) -> None:
+    """乐观锁：客户端带来的 updated_at 基线与库中不一致 → 409（他人已先保存）。"""
+    if not existing or not (expected_updated_at or "").strip():
+        return
+    if (existing.get("updated_at") or "") != expected_updated_at.strip():
+        raise HTTPException(
+            status_code=409,
+            detail=f"{label}内容已被他人修改，请刷新后重试")
 
 
 @router.get("/api/portal/opp/{opp_id}/bom-schemes")
@@ -1099,13 +1476,16 @@ def save_bom_scheme_draft(opp_id: str, body: BomSchemeDraftBody,
                           user: dict = Depends(get_current_user)):
     """新建或更新一个 BOM 方案草稿。一个方案可含多个内部配置页签。"""
     _svc(opp_id, user)
-    if not field_visible(user, "field.flow.bom"):
+    if not user_has_permission(user, "action.flow.submit.boming"):
         raise HTTPException(status_code=403, detail="当前角色无权编辑方案配置")
     if not body.configs:
         raise HTTPException(status_code=400, detail="方案内至少保留一个配置页签")
 
     flow_repo = FlowRepository()
     try:
+        if body.scheme_id:
+            _ensure_not_stale(flow_repo.get_bom_scheme(opp_id, body.scheme_id),
+                              body.expected_updated_at, "方案")
         scheme = flow_repo.save_bom_scheme_draft(
             opp_id, body.scheme_id, body.name, body.configs, user.get("name") or "",
             body.config_relation, body.primary_config,
@@ -1133,18 +1513,23 @@ def submit_bom_scheme(opp_id: str, scheme_id: int,
                       body: SubmitAssigneeBody = None,
                       user: dict = Depends(get_current_user)):
     """提交一个 BOM 方案：转为 current，其他方案保留/归档，并推进到成本核算。"""
-    _svc(opp_id, user)
-    if not field_visible(user, "field.flow.bom"):
+    opp, _ = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.boming"):
         raise HTTPException(status_code=403, detail="当前角色无权提交方案配置")
-
+    _ensure_stage_open(user, opp_id, "boming")
     flow_repo = FlowRepository()
     try:
-        _ensure_downstream_assignee(flow_repo, opp_id, "costing",
+        # 管理员跨阶段自由提交：不强制上游需求单已提交
+        if not _portal_is_admin(user):
+            reqs = flow_repo.list_requirements(opp_id)
+            if not any(r.get("status") == "current" for r in reqs):
+                raise HTTPException(status_code=409, detail="需求单尚未提交，无法提交方案配置")
+        _ensure_downstream_assignee(flow_repo, user, opp_id, "costing",
                                     (body.assignee_name if body else "") or "")
         scheme = flow_repo.submit_bom_scheme(opp_id, scheme_id, user.get("name") or "")
         _assign_if_unset(flow_repo, opp_id, "costing",
                          (body.assignee_name if body else "") or "", user.get("name") or "")
-        flow = flow_repo.get_flow(opp_id) or {}
+        flow = render_flow_assignees(flow_repo.get_flow(opp_id) or {})
         nodes = flow_repo.list_nodes(flow.get("flow_id") or "")
         _attach_entity_card(
             opp_id,
@@ -1156,6 +1541,8 @@ def submit_bom_scheme(opp_id: str, scheme_id: int,
             created_by=user.get("name") or "",
             visible_upstream=False,
         )
+        _notify_task_assigned(opp, opp_id, "costing", user)
+        _notify_owner_advanced(opp, "costing", user)
         return {
             "scheme": scheme,
             "bom_schemes": flow_repo.list_bom_schemes(opp_id),
@@ -1173,7 +1560,7 @@ def delete_bom_scheme(opp_id: str, scheme_id: int,
                       user: dict = Depends(get_current_user)):
     """删除 BOM 方案；当前/归档方案在满足未进入下游且无成本引用时允许删除。"""
     _svc(opp_id, user)
-    if not field_visible(user, "field.flow.bom"):
+    if not user_has_permission(user, "action.flow.submit.boming"):
         raise HTTPException(status_code=403, detail="当前角色无权删除方案配置")
 
     flow_repo = FlowRepository()
@@ -1299,16 +1686,24 @@ def _parse_result_to_cost_configs(result_configs: dict) -> list:
 async def upload_cost_sheet(
     opp_id: str,
     file: UploadFile = File(...),
+    parse_overrides: str = Form(None),
     user: dict = Depends(get_current_user),
 ):
-    """上传成本表：解析 Excel 并生成成本核算草稿表（不生成报价单）。"""
+    """上传成本表：解析 Excel 并生成成本核算草稿表（不生成报价单）。
+
+    模板由「成本核算·上传解析」使用位置绑定决定（设置页配置）；
+    parse_overrides 是解析弹窗的会话补丁，保证「预览看到的=确认生成的」。
+    """
     opp, flow = _svc(opp_id, user)
-    if not field_visible(user, "field.flow.cost"):
+    if not user_has_permission(user, "action.flow.submit.costing"):
         raise HTTPException(status_code=403, detail="当前角色无权上传成本表")
 
     filename = _decode_filename(file.filename or "")
-    if not filename.lower().endswith((".xlsx", ".xls")):
-        raise HTTPException(status_code=400, detail="只支持 .xlsx / .xls 文件")
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=400,
+            detail="只支持 .xlsx 文件；旧版 .xls 请先用 Excel 另存为 .xlsx 再上传",
+        )
     content = await file.read()
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
@@ -1319,8 +1714,16 @@ async def upload_cost_sheet(
     storage = get_storage()
     storage_key = None
     sheet_id = None
+    overrides = None
+    if parse_overrides:
+        import json as _json
+        try:
+            overrides = _json.loads(parse_overrides)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="parse_overrides 不是合法 JSON")
     try:
-        result = service.process_upload(content, filename)
+        result = service.process_upload(content, filename,
+                                        parse_overrides=overrides)
         if result.get("status") == "error":
             raw = result.get("message", "") or "未知错误"
             raise HTTPException(status_code=422, detail=f"成本表解析失败：{raw}")
@@ -1409,7 +1812,7 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
                           user: dict = Depends(get_current_user)):
     """新建或更新一张成本核算草稿/当前表（由已提交 BOM 方案生成）。"""
     opp, _ = _svc(opp_id, user)
-    if not field_visible(user, "field.flow.cost"):
+    if not user_has_permission(user, "action.flow.submit.costing"):
         raise HTTPException(status_code=403, detail="当前角色无权编辑成本核算")
     if not body.configs:
         raise HTTPException(status_code=400, detail="成本表内至少保留一个配置页签")
@@ -1422,6 +1825,7 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
             existing = flow_repo.get_cost_sheet(opp_id, body.sheet_id)
             linked_quotation_id = linked_quotation_id or (existing or {}).get("quotation_id") or ""
             existing_status = (existing or {}).get("status")
+            _ensure_not_stale(existing, body.expected_updated_at, "成本表")
         if linked_quotation_id:
             quote_repo = QuotationRepository()
             try:
@@ -1501,12 +1905,18 @@ def submit_cost_sheet(opp_id: str, sheet_id: int,
                       user: dict = Depends(get_current_user)):
     """提交成本表：同步生成报价单草稿，并把流程推进到报价单节点。"""
     opp, flow = _svc(opp_id, user)
-    if not field_visible(user, "field.flow.cost"):
+    if not user_has_permission(user, "action.flow.submit.costing"):
         raise HTTPException(status_code=403, detail="当前角色无权提交成本核算")
+    _ensure_stage_open(user, opp_id, "costing")
 
     flow_repo = FlowRepository()
     try:
-        _ensure_downstream_assignee(flow_repo, opp_id, "quoting",
+        # 管理员跨阶段自由提交：不强制上游方案配置已提交
+        if not _portal_is_admin(user) and not any(
+            s.get("status") == "current" for s in flow_repo.list_bom_schemes(opp_id)
+        ):
+            raise HTTPException(status_code=409, detail="方案配置尚未提交，无法提交成本核算")
+        _ensure_downstream_assignee(flow_repo, user, opp_id, "quoting",
                                     (body.assignee_name if body else "") or "")
         sheet = flow_repo.get_cost_sheet(opp_id, sheet_id)
         if not sheet or sheet.get("status") != "draft":
@@ -1529,7 +1939,7 @@ def submit_cost_sheet(opp_id: str, sheet_id: int,
         )
         _assign_if_unset(flow_repo, opp_id, "quoting",
                          (body.assignee_name if body else "") or "", user.get("name") or "")
-        flow = flow_repo.get_flow(opp_id) or flow
+        flow = render_flow_assignees(flow_repo.get_flow(opp_id) or flow)
         nodes = flow_repo.list_nodes(flow["flow_id"])
         card_id = None
         card_repo = FlowCardRepository()
@@ -1564,6 +1974,8 @@ def submit_cost_sheet(opp_id: str, sheet_id: int,
                     card_id=card_id,
                     visible_upstream=False,
                 )
+        _notify_task_assigned(opp, opp_id, "quoting", user)
+        _notify_owner_advanced(opp, "quoting", user)
         return {
             "sheet": submitted,
             "cost_sheets": flow_repo.list_cost_sheets(opp_id),
@@ -1582,7 +1994,7 @@ def delete_cost_sheet_draft(opp_id: str, sheet_id: int,
                             user: dict = Depends(get_current_user)):
     """删除成本核算表。已提交表仅在关联报价单已删除（孤儿）时才允许删除。"""
     _svc(opp_id, user)
-    if not field_visible(user, "field.flow.cost"):
+    if not user_has_permission(user, "action.flow.submit.costing"):
         raise HTTPException(status_code=403, detail="当前角色无权删除成本核算")
 
     flow_repo = FlowRepository()
@@ -1622,29 +2034,40 @@ def convert_cost_to_quotation(opp_id: str, body: ConvertCostBody,
     注意：这里只生成草稿，不设置 flow.status=done；只有报价员正式发送后才算报价单已出。
     """
     _, flow = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.quoting"):
+        raise HTTPException(status_code=403, detail="当前角色无权将成本表转为报价单")
+    _ensure_stage_open(user, opp_id, "quoting")
 
     quote_repo = QuotationRepository()
+    flow_repo = FlowRepository()
     try:
         quotation = quote_repo.get_by_id((body.quotation_id or "").strip())
         if not quotation or quotation.opportunity_id != opp_id:
             raise HTTPException(status_code=404, detail="工作底表不存在或不属于该商机")
         if quotation.source != "worktable":
             raise HTTPException(status_code=400, detail="该工作底表已转为报价单")
+        # 公共池已取消：报价单节点必须有处理人，无默认规则时报价员/管理员本人顶上
+        if not ((flow.get("assignees") or {}).get("quoting")):
+            fallback = flow_repo.resolve_node_assignee(opp_id, "quoting")
+            if not fallback and ((user.get("role") or "") == "quote" or _portal_is_admin(user)):
+                fallback = user.get("name") or ""
+            if fallback:
+                flow_repo.assign_task(flow["flow_id"], "quoting", fallback,
+                                      actor=user.get("name") or "")
+            else:
+                raise HTTPException(
+                    status_code=409, detail="报价单节点尚未指派处理人，请先指派报价处理人")
         quote_repo.update(quotation.quotation_id, source="manual")
-
-        flow_repo = FlowRepository()
-        try:
-            flow_repo.advance_current_node_if_later(flow["flow_id"], "quoting", status="running")
-            flow_repo.append_node(
-                flow["flow_id"], "quoting", "draft",
-                actor=user.get("name") or "",
-                comment="成本表已转为报价单草稿",
-                artifacts={"quotation_id": quotation.quotation_id, "version": quotation.version},
-            )
-        finally:
-            flow_repo.close()
+        flow_repo.advance_current_node_if_later(flow["flow_id"], "quoting", status="running")
+        flow_repo.append_node(
+            flow["flow_id"], "quoting", "draft",
+            actor=user.get("name") or "",
+            comment="成本表已转为报价单草稿",
+            artifacts={"quotation_id": quotation.quotation_id, "version": quotation.version},
+        )
         return {"ok": True, "quotation_id": quotation.quotation_id}
     finally:
+        flow_repo.close()
         quote_repo.close()
 
 
@@ -1665,7 +2088,7 @@ async def submit_quote(opp_id: str, quotation_id: str, body: SubmitQuoteBody,
     """
     if not user_has_permission(user, "action.flow.submit.quoting"):
         raise HTTPException(status_code=403, detail="无权限发送报价单")
-    _, flow = _svc(opp_id, user)
+    opp, flow = _svc(opp_id, user)
     card_repo = FlowCardRepository()
     try:
         quote_card = card_repo.get_card_for_entity(opp_id, "quote", quotation_id)
@@ -1703,6 +2126,35 @@ async def submit_quote(opp_id: str, quotation_id: str, body: SubmitQuoteBody,
             or source_att.get("category") != "sent_quote"
         ):
             raise HTTPException(status_code=400, detail="附件无效，请选择该报价单导出的 Excel 文件")
+
+        # ── 毛利审批门：整体毛利率低于审批红线 → 建审批单并拦下发送 ──
+        gate = _margin_gate_config()
+        if gate is not None:
+            margin = _quotation_overall_margin(quotation)
+            if margin is not None and margin < gate["approval_threshold"]:
+                approval_repo = PricingApprovalRepository()
+                try:
+                    latest = approval_repo.latest_for_quotation(quotation_id)
+                    if not latest or latest.get("status") != "approved":
+                        if latest and latest.get("status") == "pending":
+                            approval = latest
+                        else:
+                            approval = approval_repo.create(
+                                opportunity_id=opp_id,
+                                quotation_id=quotation_id,
+                                margin_pct=margin,
+                                threshold=gate["approval_threshold"],
+                                requested_by=user.get("name") or "",
+                            )
+                            _notify_pricing_approvers(opp, approval, user)
+                        raise HTTPException(
+                            status_code=409,
+                            detail=f"综合毛利率 {margin:.2f}% 低于审批红线 "
+                                   f"{gate['approval_threshold']:.0f}%，已提交总监审批"
+                                   f"（单号 {approval.get('id')}），批准后方可发送",
+                        )
+                finally:
+                    approval_repo.close()
 
         now = datetime.now().isoformat()
         actor = user.get("name") or user.get("user_id") or "报价员"
@@ -1774,6 +2226,16 @@ async def submit_quote(opp_id: str, quotation_id: str, body: SubmitQuoteBody,
         messages = feed_repo.list_messages(opp_id)
         created = next((m for m in messages if m.get("message_id") == msg.get("message_id")), msg)
         await hub.broadcast(opp_id, {"type": "message", "message": created})
+        owner = (opp or {}).get("owner_user_id") or ""
+        if owner:
+            notify_users(
+                [owner], "quote_submitted",
+                f"{_opp_label(opp)} 报价单已发出",
+                body=comment_text,
+                opportunity_id=opp.get("opportunity_id") or "",
+                payload={"quotation_id": quotation_id, "attachment_id": attachment_id},
+                exclude_user_id=user.get("user_id") or "",
+            )
         return {
             "ok": True,
             "quotation_id": quotation_id,
@@ -1783,6 +2245,66 @@ async def submit_quote(opp_id: str, quotation_id: str, body: SubmitQuoteBody,
     finally:
         quote_repo.close()
         feed_repo.close()
+
+
+class PricingApprovalDecisionBody(BaseModel):
+    decision: str  # approve | reject
+    comment: str = ""
+
+
+@router.get("/api/portal/opp/{opp_id}/pricing-approvals")
+def list_opp_pricing_approvals(opp_id: str, user: dict = Depends(get_current_user)):
+    """商机内审批单（最新在前）——报价工作台展示「审批中/已批准」徽标。"""
+    _svc(opp_id, user)
+    repo = PricingApprovalRepository()
+    try:
+        return {"approvals": repo.list_for_opportunity(opp_id)}
+    finally:
+        repo.close()
+
+
+@router.post("/api/portal/opp/{opp_id}/pricing-approvals/{approval_id}/decide")
+def decide_pricing_approval(opp_id: str, approval_id: int,
+                            body: PricingApprovalDecisionBody,
+                            user: dict = Depends(get_current_user)):
+    """总监裁决低毛利审批单：approve 放行发送 / rejected 打回改价。"""
+    if not user_has_permission(user, "action.flow.approve.pricing"):
+        raise HTTPException(status_code=403, detail="无权限审批低毛利报价")
+    decision = (body.decision or "").strip().lower()
+    if decision not in {"approve", "reject"}:
+        raise HTTPException(status_code=422, detail="decision 必须是 approve 或 reject")
+    if decision == "reject" and not (body.comment or "").strip():
+        raise HTTPException(status_code=422, detail="驳回时请填写审批意见，让报价员知道如何调整")
+    opp, _ = _svc(opp_id, user)
+    repo = PricingApprovalRepository()
+    try:
+        existing = repo.get(approval_id)
+        if not existing or existing.get("opportunity_id") != opp_id:
+            raise HTTPException(status_code=404, detail="审批单不存在")
+        if existing.get("status") != "pending":
+            raise HTTPException(status_code=409, detail="该审批单已处理过")
+        updated = repo.decide(
+            approval_id,
+            "approved" if decision == "approve" else "rejected",
+            decided_by=user.get("name") or "",
+            comment=(body.comment or "").strip(),
+        )
+    finally:
+        repo.close()
+    requester = _uid_by_name(existing.get("requested_by") or "")
+    if requester:
+        approved = decision == "approve"
+        notify_users(
+            [requester], "pricing_approval_decided",
+            f"低毛利报价审批{'通过' if approved else '被驳回'}：{_opp_label(opp)}",
+            body=(f"{user.get('name') or ''}：{body.comment or ('可发送报价单' if approved else '请调整价格后重新导出发送')}"),
+            opportunity_id=opp.get("opportunity_id") or "",
+            payload={"approval_id": approval_id,
+                     "quotation_id": existing.get("quotation_id"),
+                     "decision": decision},
+            exclude_user_id=user.get("user_id") or "",
+        )
+    return {"approval": updated}
 
 
 @router.get("/api/portal/opp/{opp_id}/requirements")
@@ -1826,10 +2348,13 @@ class InitiateBody(BaseModel):
 def initiate_opportunity(opp_id: str, body: InitiateBody,
                          user: dict = Depends(get_current_user)):
     # 业务发起一步到位：商机信息 + 需求 vN + 推进到 BOM。
-    _svc(opp_id, user)
+    opp, flow = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.requirement"):
+        raise HTTPException(status_code=403, detail="当前角色无权发起需求单")
+    _ensure_requirement_stage(user, opp_id, flow)
     flow_repo = FlowRepository()
     try:
-        _ensure_downstream_assignee(flow_repo, opp_id, "boming", body.assignee_name or "")
+        _ensure_downstream_assignee(flow_repo, user, opp_id, "boming", body.assignee_name or "")
         req = flow_repo.initiate_requirement(
             opp_id,
             body.opportunity or {},
@@ -1852,6 +2377,7 @@ def initiate_opportunity(opp_id: str, body: InitiateBody,
         flow_status="submitted",
         created_by=user.get("name") or "",
     )
+    _notify_task_assigned(opp, opp_id, "boming", user)
     return {"requirement": req}
 
 
@@ -1859,7 +2385,10 @@ def initiate_opportunity(opp_id: str, body: InitiateBody,
 def submit_requirement(opp_id: str, body: RequirementBody,
                        user: dict = Depends(get_current_user)):
     """更新需求再提交：存新版本 + 流程推进到 BOM 节点。"""
-    _svc(opp_id, user)
+    opp, flow = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.requirement"):
+        raise HTTPException(status_code=403, detail="当前角色无权提交需求单")
+    _ensure_requirement_stage(user, opp_id, flow)
     flow_repo = FlowRepository()
     try:
         req = flow_repo.create_requirement(
@@ -1877,6 +2406,7 @@ def submit_requirement(opp_id: str, body: RequirementBody,
         flow_status="submitted",
         created_by=user.get("name") or "",
     )
+    _notify_task_assigned(opp, opp_id, "boming", user)
     return {"requirement": req}
 
 
@@ -1885,6 +2415,8 @@ def save_requirement_draft(opp_id: str, body: RequirementBody,
                            user: dict = Depends(get_current_user)):
     """新增/更新需求草稿：只保存，不推进流程，不影响当前版本。"""
     _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.requirement"):
+        raise HTTPException(status_code=403, detail="当前角色无权编辑需求单")
     flow_repo = FlowRepository()
     try:
         req = flow_repo.create_or_update_requirement_draft(
@@ -1910,10 +2442,13 @@ def submit_requirement_draft(opp_id: str, version: int,
                              body: SubmitAssigneeBody = None,
                              user: dict = Depends(get_current_user)):
     """提交需求草稿：草稿转当前快照，旧当前归档，流程推进到 BOM。"""
-    _svc(opp_id, user)
+    _, flow = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.requirement"):
+        raise HTTPException(status_code=403, detail="当前角色无权提交需求单")
+    _ensure_requirement_stage(user, opp_id, flow)
     flow_repo = FlowRepository()
     try:
-        _ensure_downstream_assignee(flow_repo, opp_id, "boming",
+        _ensure_downstream_assignee(flow_repo, user, opp_id, "boming",
                                     (body.assignee_name if body else "") or "")
         req = flow_repo.submit_requirement_draft(opp_id, version)
         _assign_if_unset(flow_repo, opp_id, "boming",
@@ -1939,6 +2474,8 @@ def delete_requirement_draft(opp_id: str, version: int,
                              user: dict = Depends(get_current_user)):
     """删除需求草稿：仅允许删除 status=draft 的版本。"""
     _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.requirement"):
+        raise HTTPException(status_code=403, detail="当前角色无权删除需求草稿")
     flow_repo = FlowRepository()
     try:
         ok = flow_repo.delete_requirement_draft(opp_id, version)
@@ -1961,151 +2498,9 @@ def _portal_is_admin(user: Optional[dict]) -> bool:
     return (user or {}).get("role") == "admin" or user_has_permission(user, "page.opportunities_all")
 
 
-def _latest_prev_node(nodes: List[dict], prev: str) -> dict:
-    matched = [n for n in nodes if n.get("node_key") == prev and n.get("action") in {"complete", "assign"}]
-    return matched[-1] if matched else {}
-
-
-def _task_item(flow_repo: FlowRepository, opp: dict, flow: dict,
-               reqs: dict) -> dict:
-    node = flow.get("current_node") or "requirement"
-    if node == "assign":
-        node = "requirement"
-    req = reqs.get(opp.get("opportunity_id")) or {}
-    slots = req.get("slots") or {}
-    nodes = flow_repo.list_nodes(flow.get("flow_id") or "")
-    prev_node = _NODE_PREV.get(node)
-    latest = _latest_prev_node(nodes, prev_node) if prev_node else {}
-    source_actor = opp.get("sales_person") or ""
-    config_summary = ""
-    amount_text = ""
-    if prev_node:
-        source_actor = latest.get("actor") or (flow.get("assignees") or {}).get(prev_node) or source_actor
-        artifacts = latest.get("artifacts") or {}
-        if isinstance(artifacts, str):
-            try:
-                artifacts = json.loads(artifacts)
-            except Exception:
-                artifacts = {}
-        config_summary = artifacts.get("config_names") or artifacts.get("configs") or ""
-        amount_text = artifacts.get("amount_text") or artifacts.get("total_amount") or ""
-        if isinstance(config_summary, list):
-            parts = []
-            for x in config_summary:
-                if isinstance(x, dict):
-                    label = str(x.get("name") or "").strip()
-                    model = str(x.get("server_model") or "").strip()
-                    if model and model != label:
-                        label = f"{label}·{model}" if label else model
-                    if label:
-                        parts.append(label)
-                else:
-                    parts.append(str(x))
-            config_summary = " / ".join(parts)
-        elif isinstance(config_summary, dict):
-            label = str(config_summary.get("name") or "").strip()
-            model = str(config_summary.get("server_model") or "").strip()
-            if model and model != label:
-                label = f"{label}·{model}" if label else model
-            config_summary = label
-        else:
-            config_summary = str(config_summary or "")
-    summary = " · ".join(str(x) for x in [
-        slots.get("platform_type"),
-        slots.get("chassis_form"),
-        f"{slots.get('purchase_qty')}台" if slots.get("purchase_qty") else "",
-    ] if x)
-    return {
-        "opportunity_id": opp.get("opportunity_id") or "",
-        "customer_name": opp.get("customer_name") or "",
-        "sales_person": opp.get("sales_person") or "",
-        "source_actor": source_actor,
-        "summary": summary,
-        "config_summary": str(config_summary or ""),
-        "amount_text": str(amount_text or ""),
-        "current_node": node,
-        "current_node_label": _NODE_LABEL.get(node, node),
-        "flow_status": flow.get("status") or "running",
-        "assignee": (flow.get("assignees") or {}).get(node) or "",
-        "updated_at": flow.get("updated_at") or opp.get("updated_at") or "",
-    }
-
-
-@router.get("/api/portal/tasks")
-def list_portal_tasks(node: str = "boming", scope: str = "mine",
-                      page: int = 1, page_size: int = 20,
-                      user: dict = Depends(get_current_user)):
-    """角色任务队列：node=boming|costing|quoting；scope=mine|pool|all。"""
-    if node not in _NODE_PREV:
-        raise HTTPException(status_code=400, detail="不支持的流程节点")
-    if scope not in {"mine", "pool", "all"}:
-        raise HTTPException(status_code=400, detail="不支持的查询范围")
-    is_admin = _portal_is_admin(user)
-    if scope != "mine" and not is_admin:
-        raise HTTPException(status_code=403, detail="无权查看该任务范围")
-
-    flow_repo = FlowRepository()
-    try:
-        if scope == "mine":
-            flows, total = flow_repo.list_task_flows(
-                node, assignee_name=user.get("name") or "", page=page, page_size=page_size)
-        elif scope == "pool":
-            flows, total = flow_repo.list_task_flows(
-                node, include_unassigned=True, page=page, page_size=page_size)
-        else:
-            flows, total = flow_repo.list_task_flows(
-                node, page=page, page_size=page_size)
-
-        if total > len(flows):
-            if scope == "mine":
-                all_flows, _ = flow_repo.list_task_flows(
-                    node, assignee_name=user.get("name") or "", page=1, page_size=max(total, 1))
-            elif scope == "pool":
-                all_flows, _ = flow_repo.list_task_flows(
-                    node, include_unassigned=True, page=1, page_size=max(total, 1))
-            else:
-                all_flows, _ = flow_repo.list_task_flows(
-                    node, page=1, page_size=max(total, 1))
-        else:
-            all_flows = flows
-
-        ids = [f.get("opportunity_id") for f in flows]
-        opp_map = {}
-        if ids:
-            from app.models.opportunity import Opportunity
-            rows = flow_repo.session.query(Opportunity).filter(
-                Opportunity.opportunity_id.in_(ids)
-            ).all()
-            opp_map = {r.opportunity_id: r.to_dict() for r in rows}
-        reqs = flow_repo.list_current_requirements_bulk(ids)
-        items = [_task_item(flow_repo, opp_map.get(f.get("opportunity_id"), {}), f, reqs)
-                 for f in flows]
-
-        pool_total = flow_repo.list_task_flows(
-            node, include_unassigned=True, page=1, page_size=1)[1]
-        mine_total = flow_repo.list_task_flows(
-            node, assignee_name=user.get("name") or "", page=1, page_size=1)[1]
-        if is_admin and scope == "all":
-            mine_total = total
-        today = datetime.now().strftime("%Y-%m-%d")
-        today_count = sum(1 for f in all_flows if (f.get("updated_at") or "").startswith(today))
-        return {
-            "items": items,
-            "total": total,
-            "summary": {
-                "total": total,
-                "today": today_count,
-                "mine": mine_total,
-                "pool": pool_total,
-            },
-        }
-    finally:
-        flow_repo.close()
-
-
 @router.get("/api/portal/dispatch")
 def portal_dispatch(admin: dict = Depends(require_admin)):
-    """任务调度页数据：业务账号、默认分派规则、公共池统计、转交记录。"""
+    """任务调度页数据：业务账号、默认分派规则、转交记录 + 调度快照（节点负载/无主任务/业务×节点活跃数）。"""
     flow_repo = FlowRepository()
     user_repo = FeedUserRepository()
     opp_repo = OpportunityRepository()
@@ -2118,10 +2513,6 @@ def portal_dispatch(admin: dict = Depends(require_admin)):
         ]
         businesses.sort(key=lambda x: x["name"])
         rules = flow_repo.get_assignment_rules()
-        unassigned = {
-            node: flow_repo.list_task_flows(node, include_unassigned=True, page=1, page_size=1)[1]
-            for node in ("boming", "costing", "quoting")
-        }
 
         transfers = []
         for e in flow_repo.list_assignment_events(30):
@@ -2141,15 +2532,64 @@ def portal_dispatch(admin: dict = Depends(require_admin)):
                 "actor": e.get("actor") or "",
             })
 
+        snapshot = flow_repo.dispatch_snapshot()
         return {
             "businesses": businesses,
             "rules": rules,
-            "unassigned": unassigned,
             "transfers": transfers,
+            "nodes": snapshot["nodes"],
+            "stuck": snapshot["stuck"],
+            "matrix": snapshot["matrix"],
         }
     finally:
         flow_repo.close()
         user_repo.close()
+        opp_repo.close()
+
+
+class DispatchAutofillBody(BaseModel):
+    opportunity_ids: List[str] = []
+
+
+@router.post("/api/portal/dispatch/autofill")
+def portal_dispatch_autofill(body: DispatchAutofillBody,
+                             admin: dict = Depends(require_admin)):
+    """一键补齐无主任务：逐条按默认规则 resolve → assign_task（留转交审计事件）→ 通知处理人。
+
+    body.opportunity_ids 非空时只补指定商机（定向补齐）；默认全量。
+    返回 filled（补齐数）/ unresolved（无默认规则可循数）/ failed（单条异常数，不中断其余）。
+    """
+    flow_repo = FlowRepository()
+    opp_repo = OpportunityRepository()
+    actor = admin.get("name") or admin.get("user_id") or "admin"
+    targets = set(body.opportunity_ids or [])
+    filled = unresolved = failed = 0
+    try:
+        for item in flow_repo.dispatch_snapshot()["stuck"]:
+            oid = item["opportunity_id"]
+            if targets and oid not in targets:
+                continue
+            node = item["current_node"]
+            suggest = item.get("suggest") or flow_repo.resolve_node_assignee(oid, node)
+            if not suggest:
+                unresolved += 1
+                continue
+            try:
+                # 与 /assign 端点同校验：legacy 自由填写值（姓名，手机号）等
+                # 非有效用户不落 assignees，按「无有效规则」计
+                _validate_assignee_role(node, suggest)
+            except HTTPException:
+                unresolved += 1
+                continue
+            try:
+                flow_repo.assign_task(item["flow_id"], node, suggest, actor)
+                _notify_task_assigned(opp_repo.get_opportunity(oid), oid, node, admin)
+                filled += 1
+            except Exception:
+                failed += 1
+        return {"filled": filled, "unresolved": unresolved, "failed": failed}
+    finally:
+        flow_repo.close()
         opp_repo.close()
 
 
@@ -2270,6 +2710,8 @@ def assign_portal_task(opp_id: str, body: PortalAssignBody,
         raise HTTPException(status_code=400, detail="不支持的流程节点")
     if not (body.assignee_name or "").strip():
         raise HTTPException(status_code=400, detail="处理人不能为空")
+    _validate_assignee_role(body.node_key, body.assignee_name)
+    assignee = body.assignee_name.strip()
     opp, flow = _svc(opp_id, user)
     if not _can_assign_portal_task(user, flow, body.node_key):
         raise HTTPException(status_code=403, detail="无权指派该节点任务")
@@ -2277,18 +2719,20 @@ def assign_portal_task(opp_id: str, body: PortalAssignBody,
     flow_repo = FlowRepository()
     try:
         updated = flow_repo.assign_task(
-            flow["flow_id"], body.node_key, body.assignee_name.strip(),
+            flow["flow_id"], body.node_key, assignee,
             actor=user.get("name") or "",
         )
         if body.save_rule and _portal_is_admin(user):
             business_user_id = _business_user_id_for_opp(opp)
             if business_user_id:
                 flow_repo.upsert_assignment_rule(
-                    business_user_id, body.node_key, body.assignee_name.strip()
+                    business_user_id, body.node_key, assignee
                 )
-        return {"flow": updated, "nodes": flow_repo.list_nodes(flow["flow_id"])}
+        nodes = flow_repo.list_nodes(flow["flow_id"])
     finally:
         flow_repo.close()
+    _notify_task_assigned(opp, opp_id, body.node_key, user)
+    return {"flow": updated, "nodes": nodes}
 
 
 @router.post("/api/portal/opp/{opp_id}/transfer")
@@ -2297,3 +2741,122 @@ def transfer_portal_task(opp_id: str, body: PortalAssignBody,
     """转交给另一处理人；与 assign 共用权限/记录逻辑，不保存默认规则。"""
     body.save_rule = False
     return assign_portal_task(opp_id, body, user)
+
+
+# ── 工作台磁贴墙「待处理事项」统计 ──
+
+_TODO_ROLE_NODE = {"te": "boming", "cost": "costing", "quote": "quoting"}
+_TODO_NODE_META = {
+    "boming": ("待配置 BOM", "/portal/workstation/te"),
+    "costing": ("待核价", "/portal/workstation/cost"),
+    "quoting": ("待转报价", "/portal/workstation/quote"),
+}
+
+
+@router.get("/api/portal/todo-summary")
+def portal_todo_summary(user: dict = Depends(get_current_user)):
+    """工作台「待处理事项」按账号角色给出口径化计数（磁贴墙待办卡数据源）。
+
+    口径全部由既有流程状态推导，不新增业务字段：
+    - business：本人商机（owner_user_id=当前用户）在办流程按当前节点分布 + 今日新增；
+    - te/cost/quote：本人名下当前节点任务（同 list_task_flows 口径）+ 今日到达数；
+    - admin：无主待指派（dispatch_snapshot.stuck）+ 全局在办任务 + 今日新增商机。
+    """
+    user_id = (user or {}).get("user_id") or ""
+    role = (user or {}).get("role") or ""
+    today = datetime.now().strftime("%Y-%m-%d")
+    items: List[dict] = []
+
+    flow_repo = FlowRepository()
+
+    # 全局阶段分布（工作台流程条口径，所有角色一致；由既有流程状态推导）
+    stages = {"requirement": 0, "assign": 0, "boming": 0, "costing": 0, "quoting": 0}
+    try:
+        from app.models.opportunity import Opportunity
+        opps_all = flow_repo.session.query(Opportunity).filter(
+            ~Opportunity.status.in_(("deleted", "ai_office")),
+        ).all()
+        flows_all = flow_repo.list_flows_bulk([o.opportunity_id for o in opps_all])
+        for o in opps_all:
+            f = flows_all.get(o.opportunity_id)
+            if f and f.get("status") == "running":
+                stages[f.get("current_node") or "requirement"] += 1
+    except Exception:
+        pass
+
+    try:
+        if role == "business":
+            from app.models.opportunity import Opportunity
+            opps = flow_repo.session.query(Opportunity).filter(
+                Opportunity.owner_user_id == user_id,
+                ~Opportunity.status.in_(("deleted", "ai_office")),
+            ).all()
+            flows = flow_repo.list_flows_bulk([o.opportunity_id for o in opps])
+            running = today_new = 0
+            node_count = {"requirement": 0, "assign": 0, "boming": 0, "costing": 0, "quoting": 0}
+            for o in opps:
+                if (o.created_at or "")[:10] == today:
+                    today_new += 1
+                f = flows.get(o.opportunity_id)
+                if f and f.get("status") == "running":
+                    running += 1
+                    node_count[f.get("current_node") or "requirement"] += 1
+            items = [
+                {"key": "opp_running", "label": "在办商机", "count": running, "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "opp_requirement", "label": "待登记需求", "count": node_count["requirement"], "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "opp_boming", "label": "配置中", "count": node_count["boming"], "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "opp_costing", "label": "核价中", "count": node_count["costing"], "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "opp_quoting", "label": "报价中", "count": node_count["quoting"], "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "opp_today", "label": "今日新增", "count": today_new, "level": "dim",
+                 "to": "/portal/workstation/business"},
+            ]
+        elif role in _TODO_ROLE_NODE:
+            node = _TODO_ROLE_NODE[role]
+            label, ws_to = _TODO_NODE_META[node]
+            mine, total = flow_repo.list_task_flows(node, assignee_user_id=user_id,
+                                                    page=1, page_size=200)
+            today_arrived = sum(1 for f in mine if (f.get("updated_at") or "")[:10] == today)
+            items = [
+                {"key": f"task_{node}", "label": label, "count": total, "level": "act", "to": ws_to},
+                {"key": "task_today", "label": "今日到达", "count": today_arrived, "level": "dim", "to": ws_to},
+            ]
+        elif _portal_is_admin(user):
+            from app.models.opportunity import Opportunity
+            opps = flow_repo.session.query(Opportunity).filter(
+                ~Opportunity.status.in_(("deleted", "ai_office")),
+            ).all()
+            flows = flow_repo.list_flows_bulk([o.opportunity_id for o in opps])
+            running = 0
+            node_count = {"requirement": 0, "assign": 0, "boming": 0, "costing": 0, "quoting": 0}
+            for o in opps:
+                f = flows.get(o.opportunity_id)
+                if f and f.get("status") == "running":
+                    running += 1
+                    node_count[f.get("current_node") or "requirement"] += 1
+            snapshot = flow_repo.dispatch_snapshot()
+            stuck = len(snapshot["stuck"])
+            today_new = sum(1 for o in opps if (o.created_at or "")[:10] == today)
+            # admin 可见全部门卡 → 口径按门卡逐一给出（徽标取首个非中性项）
+            items = [
+                {"key": "admin_stuck", "label": "无主待指派", "count": stuck,
+                 "level": "hot" if stuck else "dim", "to": "/portal/workstation/dispatch"},
+                {"key": "admin_running", "label": "在办商机", "count": running, "level": "act",
+                 "to": "/portal/workstation/business"},
+                {"key": "admin_boming", "label": "待配置 BOM", "count": node_count["boming"], "level": "act",
+                 "to": "/portal/workstation/te"},
+                {"key": "admin_costing", "label": "待核价", "count": node_count["costing"], "level": "act",
+                 "to": "/portal/workstation/cost"},
+                {"key": "admin_quoting", "label": "待转报价", "count": node_count["quoting"], "level": "act",
+                 "to": "/portal/workstation/quote"},
+                {"key": "admin_today", "label": "今日新增商机", "count": today_new, "level": "dim",
+                 "to": "/opportunities"},
+            ]
+        # 其余角色（AI 同事等）暂无工作台待办口径 → items 为空，前端隐藏待办卡
+    finally:
+        flow_repo.close()
+    return {"role": role, "items": items, "stages": stages}

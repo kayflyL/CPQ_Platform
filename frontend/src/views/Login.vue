@@ -41,6 +41,7 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(form.username.trim(), form.password)
+    // 根路径现在是星河首页，登录成功后直接进工作台
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } catch (e: any) {
@@ -54,6 +55,7 @@ async function submit() {
 <style scoped>
 .login-page {
   height: 100vh;
+  height: 100dvh;
   width: 100vw;
   display: flex;
   align-items: center;
@@ -62,7 +64,7 @@ async function submit() {
   overflow: hidden;
 }
 .login-card {
-  width: 360px;
+  width: min(360px, calc(100vw - 32px));
   padding: 32px 28px 24px;
   border-radius: 16px;
 }

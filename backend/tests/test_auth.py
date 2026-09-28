@@ -190,3 +190,36 @@ def test_change_password_wrong_old(monkeypatch):
             user=u,
         )
     assert ei.value.status_code == 400
+
+
+def test_me_chat_roles_allowed_reflects_office_policy(monkeypatch):
+    """/me 的 chat_roles_allowed：策略清零该角色可聊 AI 名单 → False，admin 不限 → True。"""
+    import app.services.office_access as oa
+    from app.api.auth import me
+
+    class _Cfg:
+        def __init__(self, cfg):
+            self._cfg = cfg
+
+        def get_value(self, key, default=None):
+            assert key == "ai_colleagues"
+            return self._cfg
+
+        def close(self):
+            pass
+
+    policy_cfg = {
+        "access_policy": {
+            "enabled": True,
+            "role_chat_role_keys": {"te": [], "member": ["assistant"]},
+        }
+    }
+    monkeypatch.setattr(oa, "SystemConfigRepository", lambda: _Cfg(policy_cfg))
+
+    te = _user(name="技术支持", role="te")
+    assert me(user=te)["chat_roles_allowed"] is False
+    member = _user(name="成员", role="member")
+    assert me(user=member)["chat_roles_allowed"] is True
+    monkeypatch.setattr(oa, "allowed_chat_role_keys", lambda u: None)
+    admin = _user(name="管理员", role="admin")
+    assert me(user=admin)["chat_roles_allowed"] is True

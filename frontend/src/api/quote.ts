@@ -26,9 +26,19 @@ export async function saveProject(data: any) {
   return api.post('/opportunities', data)
 }
 
-// KP 价格历史（某型号）
-export async function getKpHistory(model: string) {
-  const r = await api.get('/quote/kp/history', { params: { model } })
+// KP 价格历史（某型号；category 传行上的 part_category，后端解析按分类族限定更准）
+export async function getKpHistory(model: string, category?: string) {
+  const r = await api.get('/quote/kp/history', { params: { model, category: category || '' } })
+  return r.data
+}
+
+// KP 价格历史「最新一条」原地修改（录错价就近修正；后端带乐观锁：仅最新条可改）
+export async function updateKpPriceHistory(historyId: number, payload: { price: number; currency?: string; note?: string }) {
+  const r = await api.put(`/quote/kp/price-history/${historyId}`, {
+    price: payload.price,
+    currency: payload.currency || 'RMB',
+    note: payload.note || '',
+  })
   return r.data
 }
 

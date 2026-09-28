@@ -5,9 +5,9 @@ import type { NodeTrace, PauseFacts } from '@/composables/assistantChatWs'
 /**
  * Claude Code 式任务计步器：聊天底部收起胶囊（标题 + 进度计数 + 当前步骤 + 已运行时长），
  * 点击展开完整步骤列表（状态 + 耗时）。替代旧的顶部横排进度条。
- * 展示口径（2026-09-02）：登记环节的两半（input 需求接收 / agent_fill 需求理解填表）
- * 合并显示为一步「需求分析」——用户视角五步：需求分析→机型→配件→BOM→输出；
- * 画布试运行回放仍按节点逐个显示，不受此影响。
+ * 展示口径（2026-09-16 修正）：步骤与画布节点 1:1 对应（input 需求接收 / 需求理解各自一步）。
+ * 旧版把 input+agent_fill 合并成一步「需求分析」，导致画布走到节点 2（需求理解）时
+ * 计步器仍显示在第一步——用户视角的步骤数以画布节点为准，不再做合并显示。
  * 计时（2026-09-05）：running 期间本地每秒 tick（pipeline_start 到终态持续可见，
  * 杜绝「像卡住了」的体感），paused/done 冻结；时长不依赖节点事件——引擎静默期也一直在走。
  */
@@ -21,7 +21,6 @@ const props = defineProps<{
 
 const open = ref(false)
 
-const FILL_STEPS = new Set(['input', 'agent_fill'])
 interface DisplayStep {
   key: string
   label: string
@@ -30,26 +29,15 @@ interface DisplayStep {
   duration_ms?: number
 }
 
-const displaySteps = computed<DisplayStep[]>(() => {
-  const fill = props.traces.filter((t) => FILL_STEPS.has(t.step))
-  const out: DisplayStep[] = []
-  if (fill.length) {
-    const status = fill.some((t) => t.status === 'failed') ? 'failed'
-      : fill.some((t) => t.status === 'running') ? 'running' : 'done'
-    out.push({
-      key: 'agent_fill',
-      label: fill.find((t) => t.step === 'agent_fill')?.label || '需求分析',
-      status,
-      summary: fill.map((t) => t.summary || '').filter(Boolean).slice(-1)[0] || '',
-      duration_ms: fill.reduce((n, t) => n + (t.duration_ms || 0), 0),
-    })
-  }
-  for (const t of props.traces) {
-    if (FILL_STEPS.has(t.step)) continue
-    out.push({ key: t.step, label: t.label, status: t.status, summary: t.summary || '', duration_ms: t.duration_ms })
-  }
-  return out
-})
+const displaySteps = computed<DisplayStep[]>(() =>
+  props.traces.map((t) => ({
+    key: t.step,
+    label: t.label || t.step,
+    status: t.status,
+    summary: t.summary || '',
+    duration_ms: t.duration_ms,
+  }))
+)
 
 const doneCount = computed(() => displaySteps.value.filter((s) => s.status === 'done').length)
 const totalCount = computed(() => displaySteps.value.length)

@@ -9,53 +9,6 @@ from typing import Any, Optional
 
 _CONFIG_KEY = "ai_colleagues"
 
-DATA_SOURCE_CATALOG = [
-    {"key": "opportunities", "label": "商机数据", "description": "商机线索与商机详情数据"},
-    {"key": "dashboard", "label": "经营看板", "description": "商机/配置统计、分布、排行与趋势"},
-    {"key": "kp_price", "label": "配件价格库", "description": "KP 配件价格与料号"},
-    {"key": "bom", "label": "整机方案/BOM", "description": "整机方案与 BOM 配置"},
-    {"key": "cost", "label": "成本利润", "description": "方案成本与利润分析"},
-    {"key": "requirement", "label": "需求分析", "description": "需求理解与需求分析流程"},
-    {"key": "candidate_search", "label": "机型选型", "description": "候选机型检索与选型"},
-    {"key": "quotation", "label": "报价单", "description": "报价单与报价策略"},
-    {"key": "server_catalog", "label": "机型目录", "description": "服务器类型与机型目录"},
-    {"key": "server_product_content", "label": "产品内容", "description": "服务器介绍页与机型详情内容"},
-]
-
-PAGE_SCOPE_CATALOG = [
-    {"key": "Opportunities", "label": "商机线索", "description": "维护商机线索列表与经营数据", "data_sources": ["opportunities", "dashboard"]},
-    {"key": "OpportunityDetail", "label": "商机详情", "description": "维护商机详情中的 BOM/报价/交付信息", "data_sources": ["opportunities", "quotation"]},
-    {"key": "Workspace", "label": "报价工作台", "description": "维护报价工作台并生成 BOM 与报价", "data_sources": ["quotation", "opportunities", "bom", "kp_price", "cost"]},
-    {"key": "StrategySelection", "label": "选型配置", "description": "维护策略中心的选型配置流程", "data_sources": ["bom", "kp_price", "cost", "candidate_search"]},
-    {"key": "Parts", "label": "配件", "description": "维护配件页与料号库", "data_sources": ["kp_price"]},
-    {"key": "Servers", "label": "服务器配置", "description": "维护服务器类型与配置展示", "data_sources": ["server_catalog"]},
-    {"key": "ServersAdmin", "label": "服务器管理", "description": "维护服务器管理页与产品系列展示", "data_sources": ["server_catalog", "server_product_content"]},
-    {"key": "ServerModels", "label": "机型目录", "description": "维护机型目录列表", "data_sources": ["server_catalog", "server_product_content"]},
-    {"key": "ServerModelDetail", "label": "机型详情", "description": "维护机型详情与产品介绍", "data_sources": ["server_catalog", "server_product_content"]},
-    {"key": "ServerModelEdit", "label": "编辑机型", "description": "维护机型编辑页的产品内容与介绍", "data_sources": ["server_catalog", "server_product_content"]},
-    {"key": "AiOffice", "label": "AI 办公室", "description": "AI 办公室办公区与角色管理", "data_sources": []},
-]
-_DATA_SOURCE_ALIASES = {"opportunity": "opportunities"}
-
-
-def get_scope_catalog() -> dict:
-    """返回数据来源与页面职责注册表。"""
-    return {"data_sources": DATA_SOURCE_CATALOG, "page_scopes": PAGE_SCOPE_CATALOG}
-
-
-def _canonical_data_source(key: Any) -> str:
-    return _DATA_SOURCE_ALIASES.get(str(key or "").strip(), str(key or "").strip())
-
-
-def effective_data_sources(colleague: Optional[dict]) -> list:
-    """实际数据权限 = 配置的数据域。"""
-    sources: set = set()
-    if isinstance(colleague, dict):
-        raw = colleague.get("data_sources")
-        if isinstance(raw, list):
-            sources.update(_canonical_data_source(item) for item in raw if str(item or "").strip())
-    return sorted(item for item in sources if item)
-
 logger = logging.getLogger(__name__)
 
 

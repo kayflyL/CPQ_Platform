@@ -1,7 +1,8 @@
-"""Compatibility rule repository — 兼容性规则引擎 CRUD + seed（schema=rules）。
+"""Compatibility rule repository — 兼容性规则引擎 CRUD（schema=rules）。
 
-声明式规则仓库。声明式 WHEN→THEN 规则，type:
-require/exclude/derive/filter/recommend。seed_default_if_empty 幂等，由 startup 自动触发。
+声明式 WHEN→THEN 规则，type: require/exclude/derive/filter/recommend。
+规则本体住 rules.compatibility_rules（DB 唯一来源，无代码种子）；
+body schema 与寻址约定见 docs/frontend-pages/strategies/strategies.md 与 selection_engine 模块注释。
 """
 import json
 from datetime import datetime
@@ -10,90 +11,6 @@ from sqlalchemy.orm import Session
 
 from app.models.base import Rules_SessionLocal
 from app.models.compatibility_rule import CompatibilityRule
-
-
-# 选型配置默认规则（声明式 WHEN→THEN）。CRE 规则是线缆/背板/筛选的「唯一真相源」（拒绝黑盒：
-# 数量计算方式在选型配置页可视化、可配、改即生效）。
-#
-# 寻址：ctx.kp 聚合 KP 配件库件（GPU/CPU/Memory/HDD-SSD…，按 kp_categories 英文名）；
-#   ctx.config 暴露盘类型计数 config.sata_qty / sas_qty / nvme_qty、盘类型集合 config.drive_kinds、
-#   config.bp_type。规则只产出「某类型线缆要几根」的数量，
-#   target 取线缆类型标签（SATA/SAS/NVMe/GPU线），消费端（L6ChassisConfig）据此填步进器默认值——
-#   具体选哪根 PN 是用户的事，规则不碰料号库。手改数量优先于规则默认（推导仅兜底）。
-DEFAULT_RULES: list[dict] = [
-    # ① derive（赋值型）：配置含 NVMe 盘 → 背板类型=tri。tri-mode 支持 SATA/SAS/NVMe 三协议、
-    #    dc 直连只走 SATA/SAS——故含 NVMe 盘必须 tri；纯 SATA/SAS 或无盘 → dc
-    #    （消费端 bpType() ?? 'dc' 兜底，不 seed dc 规则——CRE 无 not-contains）。
-    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "背板类型：含 NVMe 盘→三模",
-     "body": {"when": {"field": "config.drive_kinds", "op": "contains", "value": "NVMe"},
-              "then": {"action": "derive", "field": "config.bp_type", "value": "tri"},
-              "desc": "配置含 NVMe 盘 → 三模(tri)背板（tri 支持 SATA/SAS/NVMe）；纯 SATA/SAS 或无盘 → dc 直连兜底"}},
-    # ②③④ 前面板线缆：按硬盘类型各算各的，盘数 ÷ 每组盘数 向上取整。
-    #    盘数走 config.sata_qty/sas_qty/nvme_qty（消费端按盘类型分别聚合，不再用全盘总量）。
-    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "SATA 线缆根数",
-     "body": {"when": {"field": "config.sata_qty", "op": ">=", "value": 1},
-              "then": {"action": "derive", "target": "SATA", "basis": "config.sata_qty", "per": 8, "round": "ceil"},
-              "desc": "SATA 盘数 ÷ 8（向上取整）= SATA 线缆根数；改 per 即改每组盘数"}},
-    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "SAS 线缆根数",
-     "body": {"when": {"field": "config.sas_qty", "op": ">=", "value": 1},
-              "then": {"action": "derive", "target": "SAS", "basis": "config.sas_qty", "per": 8, "round": "ceil"},
-              "desc": "SAS 盘数 ÷ 8（向上取整）= SAS 线缆根数；改 per 即改每组盘数"}},
-    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "NVMe 线缆根数",
-     "body": {"when": {"field": "config.nvme_qty", "op": ">=", "value": 1},
-              "then": {"action": "derive", "target": "NVMe", "basis": "config.nvme_qty", "per": 2, "round": "ceil"},
-              "desc": "NVMe 盘数 ÷ 2（向上取整）= NVMe 线缆根数；改 per 即改每组盘数"}},
-    # ⑤ GPU 供电线：每张 GPU 配 1 根（per=1，改 per 可调成每 N 卡 1 根）
-    {"type": "derive", "category": "背板与线缆", "status": "active", "name": "GPU 供电线根数",
-     "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 1},
-              "then": {"action": "derive", "target": "GPU线", "basis": "kp.GPU.qty", "per": 1, "round": "ceil"},
-              "desc": "GPU 数量 ÷ 1（向上取整）= GPU 供电线根数；改 per 即改每 N 卡 1 根"}},
-    # ⑥⑦⑧ exclude（互斥）：核心件同品类不得混插不同型号。target 取 KP 品类真名
-    #    （CPU/Memory/GPU —— 已核对 kp.kp_categories 实际键），unique_field=pn 按料号判同型号。
-    #    engine 仅在 items≥2 且 PN 出现 ≥2 种时才报冲突，单行多件同型号不误报。
-    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "内存同型号不混搭",
-     "body": {"when": {"field": "kp.Memory.qty", "op": ">=", "value": 2},
-              "then": {"action": "exclude", "target": "kp.Memory", "unique_field": "pn",
-                       "desc": "内存须同型号同速率（多通道成对），禁止不同 PN 混插"},
-              "desc": "Memory 出现 ≥2 种 PN → 冲突（RDIMM/LRDIMM 或不同容量/速率混搭会不开机）"}},
-    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "CPU 双路同型号",
-     "body": {"when": {"field": "kp.CPU.qty", "op": ">=", "value": 2},
-              "then": {"action": "exclude", "target": "kp.CPU", "unique_field": "pn",
-                       "desc": "双路 CPU 必须同型号同步进"},
-              "desc": "CPU 出现 ≥2 种 PN → 冲突（双路必须同型号，否则不点亮）"}},
-    {"type": "exclude", "category": "核心件互斥", "status": "active", "name": "GPU 同型号不混搭",
-     "body": {"when": {"field": "kp.GPU.qty", "op": ">=", "value": 2},
-              "then": {"action": "exclude", "target": "kp.GPU", "unique_field": "pn",
-                       "desc": "多卡 GPU 须同型号（驱动/NVLink 兼容）"},
-              "desc": "GPU 出现 ≥2 种 PN → 冲突（多卡混型号影响 NVLink/驱动）"}},
-    # ⑨⑩ 机箱能力校验（基准配置页可配 max_cpu/max_dimm；未配置 → config.* 解析为空不触发）：
-    #    需求超机型物理上限时出告警，提示换平台或手调——不静默产出超能力 BOM。
-    {"type": "recommend", "category": "机箱能力校验", "status": "active", "name": "CPU 颗数不超过机型上限",
-     "body": {"when": {"field": "kp.CPU.qty", "op": ">", "value": "config.max_cpu"},
-              "then": {"action": "recommend", "target": "CPU", "severity": "warning",
-                       "desc": "CPU 颗数超过机型上限（基准配置 max_cpu，双路默认 2）——需换多路平台或手调"},
-              "desc": "CPU 颗数 > 机型上限 → 告警（物理边界，不静默产出超能力 BOM）"}},
-    {"type": "recommend", "category": "机箱能力校验", "status": "active", "name": "内存条数不超过机型上限",
-     "body": {"when": {"field": "kp.Memory.qty", "op": ">", "value": "config.max_dimm"},
-              "then": {"action": "recommend", "target": "Memory", "severity": "warning",
-                       "desc": "内存条数超过机型上限（基准配置 max_dimm，EPYC 双路默认 24）——需换平台或减配"},
-              "desc": "内存条数 > 机型上限 → 告警（如 24 DIMM 上限，超配不点亮/不开机）"}},
-    # ⑪ 平台适配（登记阶段平台推导，S4）：客户 CPU 原话含兆芯/KH 信号 → 平台只能 Polaris。
-    #     消费端 = agent_fill prepare 摆桌（plan_rule_apply.catalog_derivations_for_registration）；
-    #     ctx 由 selection_engine.registration_rule_context 从线索登记表构建（kp.CPU.spec.text = CPU 行客户原话）。
-    #     只命中兆芯：AMD→Orion / Intel / 海光 无目录证据，待业务确认后由策略中心补规则。
-    {"type": "derive", "category": "平台适配", "status": "active", "name": "平台：CPU 兆芯/KH → Polaris",
-     "body": {"when": {"any": [
-                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "兆芯"},
-                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "KH"},
-                  {"field": "kp.CPU.spec.text", "op": "contains", "value": "kh"}]},
-              "then": {"action": "derive", "field": "opportunity.platform_type", "value": "Polaris"},
-              "desc": "客户点名兆芯（KH 系列）CPU → 整机平台推导为 Polaris（实测：兆芯 KH50000 库存只适配 Polaris）；推导值属推断，须经客户确认"}},
-    # ⚠️ 已知表达力缺口（本期不做，避免产出死规则）：
-    #   - SAS/SATA 盘 → HBA 或 RAID 卡：require 需跨品类「或」语义，单条 require 表达不了；
-    #   - PSU↔GPU 功率匹配：电源(PSU)是机箱件(parts_master)，不在 ctx.kp，CRE 无法寻址；
-    #   - 盘→背板(tri-mode)：背板同为机箱件，不进 ctx.kp。
-    #   这些靠 L1 配件适配（partFitsChassis）+ 未来 chassis-rule 扩展承载。
-]
 
 
 class CompatibilityRuleRepository:
@@ -224,85 +141,6 @@ class CompatibilityRuleRepository:
         if not r:
             return {"hit_count": 0, "last_hit_at": None}
         return {"hit_count": r.hit_count or 0, "last_hit_at": r.last_hit_at}
-
-    def reset_to_defaults(self) -> int:
-        """清空并重新 seed 默认规则（规则迭代后让用户一键更新到最新 seed）。"""
-        try:
-            self.session.query(CompatibilityRule).delete()
-            self.session.commit()
-        except Exception:
-            self.session.rollback()
-            raise
-        return self.seed_default_if_empty()
-
-    # ===== Seed =====
-    def seed_default_if_empty(self) -> int:
-        existing = self.session.query(CompatibilityRule).count()
-        if existing > 0:
-            return 0
-        now = datetime.now().isoformat()
-        for item in DEFAULT_RULES:
-            self.session.add(CompatibilityRule(
-                domain="selection",
-                type=item["type"],
-                category=item.get("category"),
-                name=item["name"],
-                body=json.dumps(item["body"], ensure_ascii=False),
-                status=item.get("status", "active"),
-                version=1,
-                hit_count=0,
-                created_at=now,
-                updated_at=now,
-                created_by="seed",
-                updated_by="seed",
-            ))
-        self.session.commit()
-        return len(DEFAULT_RULES)
-
-    def seed_missing_defaults(self) -> int:
-        """按 name 补种 DEFAULT_RULES 里还缺的规则（幂等、绝不覆盖已有）。
-        规则迭代后新加的默认规则自动流到存量库，用户无需「重置默认」清掉自己的改动。
-        startup 在 seed_default_if_empty 之后调用。"""
-        existing = {r["name"] for r in self.list()}
-        now = datetime.now().isoformat()
-        added = 0
-        for item in DEFAULT_RULES:
-            if item["name"] in existing:
-                continue
-            self.session.add(CompatibilityRule(
-                domain="selection",
-                type=item["type"],
-                category=item.get("category"),
-                name=item["name"],
-                body=json.dumps(item["body"], ensure_ascii=False),
-                status=item.get("status", "active"),
-                version=1, hit_count=0,
-                created_at=now, updated_at=now,
-                created_by="seed", updated_by="seed",
-            ))
-            added += 1
-        if added:
-            self.session.commit()
-        return added
-
-    def backfill_default_categories(self) -> int:
-        """按 DEFAULT_RULES 的 name→category 给存量规则补分类（幂等、绝不覆盖用户已设的）。
-        新增 category 列后老规则该列为 NULL，这里按名回填默认分类。startup 在 seed 之后调用。"""
-        name_cat = {item["name"]: item.get("category") for item in DEFAULT_RULES if item.get("category")}
-        if not name_cat:
-            return 0
-        rows = self.session.query(CompatibilityRule).filter(
-            CompatibilityRule.category.is_(None)
-        ).all()
-        n = 0
-        for r in rows:
-            cat = name_cat.get(r.name)
-            if cat:
-                r.category = cat
-                n += 1
-        if n:
-            self.session.commit()
-        return n
 
     def close(self):
         self.session.close()

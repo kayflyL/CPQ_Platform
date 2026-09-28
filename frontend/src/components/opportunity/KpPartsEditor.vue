@@ -204,10 +204,10 @@ onMounted(async () => {
   border-right: 0;
 }
 .sheet-row:hover td {
-  background: var(--cpq-overlay-w4);
+  background: var(--sheet-hover, var(--cpq-overlay-w4));
 }
 .sheet-cell:focus-within {
-  background: var(--cpq-overlay-w4);
+  background: var(--sheet-hover, var(--cpq-overlay-w4));
   box-shadow: inset 0 -1px 0 var(--cpq-accent-primary);
 }
 .sheet-drag {

@@ -44,12 +44,32 @@ def _select_role_keys(rule: Dict[str, Any], colleagues: List[dict]) -> List[str]
     return [c.get("role_key") for c in colleagues if c.get("role_key") in allowed]
 
 
-def _hhmm_and_date(timezone: str) -> tuple[str, str]:
+def _plan_clock(timezone: str) -> tuple[str, str, int]:
     try:
         now = datetime.now(ZoneInfo(timezone or "Asia/Shanghai"))
     except (ZoneInfoNotFoundError, ValueError):
         now = datetime.now()
-    return now.strftime("%H:%M"), now.strftime("%Y-%m-%d")
+    return now.strftime("%H:%M"), now.strftime("%Y-%m-%d"), int(now.isoweekday())
+
+
+def _stable_hash(value: Any) -> int:
+    import hashlib
+    return int(hashlib.md5(str(value).encode("utf-8")).hexdigest(), 16)
+
+
+def _plan_covers_roles(plan: Dict[str, Any], role_key: str) -> bool:
+    roles = plan.get("roles")
+    if not isinstance(roles, list) or not roles:
+        return True
+    return role_key in {str(item).strip() for item in roles}
+
+
+def _render_activity(text: Any, colleague: Dict[str, Any], zone: Any) -> str:
+    name = str((colleague or {}).get("name") or "").strip()
+    role_key = str((colleague or {}).get("role_key") or "").strip()
+    out = str(text or "")
+    out = out.replace("{name}", name or role_key).replace("{role}", role_key).replace("{zone}", str(zone or ""))
+    return out.strip()
 
 
 class OfficeClock:
@@ -112,8 +132,7 @@ class OfficeClock:
         if not colleagues:
             return tick_seconds
 
-        await self._tick_schedule(autonomous, colleagues)
-        await self._tick_idle(autonomous, colleagues)
+        await self._tick_plans(behavior, autonomous, colleagues)
         await self._tick_life(behavior, autonomous, colleagues)
         await self._tick_collaboration(behavior, colleagues)
         return tick_seconds
@@ -170,11 +189,47 @@ class OfficeClock:
         rng = random.Random(f"office-life:{int(now // tick_seconds)}")
         selected = rng.sample(eligible, min(max_actions, len(eligible)))
 
+        timezone = autonomous.get("timezone") or "Asia/Shanghai"
+        hhmm, _today, weekday = _plan_clock(timezone)
+        plans = self._applicable_plans(autonomous, weekday)
+
         for colleague in selected:
             role_key = str(colleague.get("role_key") or "").strip()
             if not role_key:
                 continue
             self._life_last_fired[role_key] = now
+
+            # 日程段是当前时刻的事实源；无段覆盖的时段保持安静，不再编造活动
+            segment = self._current_segment(plans, role_key, hhmm)
+            base_action: Optional[Dict[str, Any]] = None
+            if segment is not None:
+                seg_zone = segment.get("zone")
+                base_action = {
+                    "status": str(segment.get("status") or "working"),
+                    "intent": str(segment.get("intent") or "work"),
+                    "zone": seg_zone,
+                    "activity": _render_activity(segment.get("activity"), colleague, seg_zone) or "按日程活动",
+                    "message": "",
+                    "target_role_key": None,
+                }
+                # 确定性同事互动：低频在段内找人碰一下（冷却桶哈希，非 LLM）
+                interaction_cfg = life.get("interaction_action")
+                interaction_cfg = interaction_cfg if isinstance(interaction_cfg, dict) else {}
+                peers = [
+                    str(item.get("role_key") or "").strip()
+                    for item in colleagues
+                    if str(item.get("role_key") or "").strip() and str(item.get("role_key") or "").strip() != role_key
+                ]
+                bucket = int(now // max(60, int(life.get("interaction_cooldown_seconds") or 300)))
+                if life.get("interaction_enabled", True) and peers and _stable_hash(f"{role_key}:{bucket}") % 6 == 0:
+                    base_action = {
+                        "status": str(interaction_cfg.get("status") or "meeting"),
+                        "intent": str(interaction_cfg.get("intent") or "discuss"),
+                        "zone": str(interaction_cfg.get("zone") or "meeting_room"),
+                        "activity": str(interaction_cfg.get("activity") or "找同事简短沟通"),
+                        "message": str(interaction_cfg.get("message") or "一起去会议室碰一下。"),
+                        "target_role_key": peers[_stable_hash(f"{role_key}:peer:{bucket}") % len(peers)],
+                    }
 
             use_llm = bool(life.get("llm_enabled", False))
             llm_min_interval = int(life.get("llm_min_interval_seconds") or 180)
@@ -196,49 +251,35 @@ class OfficeClock:
                 self._life_llm_calls_this_hour += 1
                 self._life_llm_last_fired[role_key] = now
 
-            llm_timeout = max(3.0, min(15.0, float(life.get("llm_timeout_seconds") or 12.0)))
-            try:
-                action = await asyncio.wait_for(
-                    generate_autonomous_action(
-                        role_key,
-                        colleagues,
-                        brain_config=(behavior or {}).get("brain") or {},
-                        life_config=life,
-                        timezone=autonomous.get("timezone") or "Asia/Shanghai",
-                        office_snapshot=latest,
-                        use_llm=use_llm,
-                        raise_on_llm_error=use_llm,
-                    ),
-                    timeout=llm_timeout,
-                )
-            except asyncio.TimeoutError:
-                if use_llm:
+            action: Optional[Dict[str, Any]] = base_action
+            if use_llm and base_action is not None:
+                llm_timeout = max(3.0, min(15.0, float(life.get("llm_timeout_seconds") or 12.0)))
+                try:
+                    llm_action = await asyncio.wait_for(
+                        generate_autonomous_action(
+                            role_key,
+                            colleagues,
+                            brain_config=(behavior or {}).get("brain") or {},
+                            life_config=life,
+                            timezone=timezone,
+                            office_snapshot=latest,
+                            use_llm=True,
+                            raise_on_llm_error=True,
+                        ),
+                        timeout=llm_timeout,
+                    )
+                except asyncio.TimeoutError:
                     self._life_llm_backoff_until[role_key] = now + llm_backoff_seconds
-                action = await generate_autonomous_action(
-                    role_key,
-                    colleagues,
-                    brain_config={},
-                    life_config=life,
-                    timezone=autonomous.get("timezone") or "Asia/Shanghai",
-                    office_snapshot=latest,
-                    use_llm=False,
-                )
-            except Exception:
-                if use_llm:
+                except Exception:
                     self._life_llm_backoff_until[role_key] = now + llm_backoff_seconds
-                logger.debug("office life action failed", exc_info=True)
-                action = await generate_autonomous_action(
-                    role_key,
-                    colleagues,
-                    brain_config={},
-                    life_config=life,
-                    timezone=autonomous.get("timezone") or "Asia/Shanghai",
-                    office_snapshot=latest,
-                    use_llm=False,
-                )
-            else:
-                if use_llm:
+                    logger.debug("office life llm action failed", exc_info=True)
+                else:
                     self._life_llm_backoff_until.pop(role_key, None)
+                    # 日程段锁定 status/intent/zone，LLM 只贡献措辞与聊天对象
+                    llm_action = llm_action or {}
+                    base_action["activity"] = str(llm_action.get("activity") or "").strip() or base_action["activity"]
+                    base_action["message"] = str(llm_action.get("message") or "").strip()
+                    base_action["target_role_key"] = llm_action.get("target_role_key")
             if not action or not action.get("status"):
                 continue
 
@@ -296,65 +337,76 @@ class OfficeClock:
         )
 
 
-    async def _tick_schedule(self, autonomous: Dict[str, Any], colleagues: List[dict]) -> None:
-        rules = _as_list(autonomous.get("schedule_rules"))
-        if not rules:
-            return
-        timezone = autonomous.get("timezone") or "Asia/Shanghai"
-        current_hhmm, current_date = _hhmm_and_date(timezone)
-        now = time.time()
-        for index, rule in enumerate(rules):
-            rule_time = str(rule.get("time") or "").strip()
-            if not rule_time or rule_time != current_hhmm:
+    def _applicable_plans(self, autonomous: Dict[str, Any], weekday: int) -> List[Dict[str, Any]]:
+        plans = autonomous.get("daily_plans")
+        if not isinstance(plans, list):
+            return []
+        out: List[Dict[str, Any]] = []
+        for plan in plans:
+            if not isinstance(plan, dict):
                 continue
-            rule_id = str(rule.get("id") or f"schedule_{index}")
-            fire_key = f"{rule_id}:{current_date}:{rule_time}"
-            if fire_key in self._last_schedule_fired:
-                continue
-            self._last_schedule_fired[fire_key] = now
-            role_keys = _select_role_keys(rule, colleagues)
-            participants = list(role_keys)
-            intent = rule.get("intent") or rule_id
-            conversation_id = rule.get("conversation_id") or f"office_schedule_{rule_id}"
-            for role_key in role_keys:
-                await publish_office_event(
-                    role_key,
-                    rule.get("status") or "meeting",
-                    rule.get("activity") or "",
-                    message=rule.get("message") or "",
-                    zone=rule.get("zone"),
-                    intent=intent,
-                    participants=participants,
-                    conversation_id=conversation_id,
-                    priority=rule.get("priority") or "normal",
-                )
+            weekdays = plan.get("weekdays")
+            if isinstance(weekdays, list) and weekdays:
+                allowed = {int(d) for d in weekdays if isinstance(d, (int, float))}
+                if allowed and int(weekday) not in allowed:
+                    continue
+            out.append(plan)
+        return out
 
-    async def _tick_idle(self, autonomous: Dict[str, Any], colleagues: List[dict]) -> None:
-        idle = autonomous.get("idle") or {}
-        if not isinstance(idle, dict) or not idle.get("enabled", True):
+    def _current_segment(self, plans: List[Dict[str, Any]], role_key: str, hhmm: str) -> Optional[Dict[str, Any]]:
+        """当前时刻命中的日程段；多计划命中取开始最晚的段（个人段可覆盖全员段）。"""
+        best: Optional[Dict[str, Any]] = None
+        for plan in plans:
+            if not _plan_covers_roles(plan, role_key):
+                continue
+            for segment in plan.get("segments") or []:
+                if not isinstance(segment, dict):
+                    continue
+                start = str(segment.get("start") or "").strip()
+                end = str(segment.get("end") or "").strip()
+                if start and end and start <= hhmm < end:
+                    if best is None or start >= str(best.get("start") or ""):
+                        best = segment
+        return best
+
+    async def _tick_plans(self, behavior: Dict[str, Any], autonomous: Dict[str, Any], colleagues: List[dict]) -> None:
+        """日程段边界触发：段开始时刻（HH:MM 命中）向其角色群发一次事件，每天每段最多一次。"""
+        timezone = autonomous.get("timezone") or "Asia/Shanghai"
+        hhmm, current_date, weekday = _plan_clock(timezone)
+        plans = self._applicable_plans(autonomous, weekday)
+        if not plans:
             return
-        after_seconds = int(idle.get("after_seconds") or 600)
-        latest = office_hub.snapshot()
         now = time.time()
-        for colleague in colleagues:
-            role_key = colleague.get("role_key")
-            if not role_key:
-                continue
-            event = latest.get(role_key)
-            if not event or event.get("status") != "idle":
-                continue
-            last_ts = float(event.get("ts") or 0)
-            if last_ts and now - last_ts < after_seconds:
-                continue
-            await publish_office_event(
-                role_key,
-                idle.get("status") or "thinking",
-                idle.get("activity") or "自主检查待办",
-                message=idle.get("message") or "",
-                zone=idle.get("zone") or "desk_zone",
-                intent=idle.get("intent") or "review_pending_tasks",
-                priority="low",
-            )
+        for plan in plans:
+            plan_id = str(plan.get("id") or f"plan_{len(self._last_schedule_fired)}")
+            segments = [s for s in plan.get("segments") or [] if isinstance(s, dict)]
+            for index, segment in enumerate(segments):
+                if str(segment.get("start") or "").strip() != hhmm:
+                    continue
+                fire_key = f"{plan_id}:{index}:{current_date}"
+                if fire_key in self._last_schedule_fired:
+                    continue
+                role_keys = _select_role_keys(plan, colleagues)
+                if not role_keys:
+                    continue
+                self._last_schedule_fired[fire_key] = now
+                zone = segment.get("zone")
+                status = str(segment.get("status") or "working")
+                intent = str(segment.get("intent") or plan_id)
+                for role_key in role_keys:
+                    colleague = next((item for item in colleagues if item.get("role_key") == role_key), {})
+                    await publish_office_event(
+                        role_key,
+                        status,
+                        _render_activity(segment.get("activity"), colleague, zone),
+                        message="",
+                        zone=zone,
+                        intent=intent,
+                        participants=list(role_keys),
+                        conversation_id=f"office_plan_{plan_id}_{index}",
+                        priority="normal",
+                        source="autonomous",
+                    )
 
     async def _tick_collaboration(self, behavior: Dict[str, Any], colleagues: List[dict]) -> None:
         rules = _as_list(behavior.get("collaboration_rules"))

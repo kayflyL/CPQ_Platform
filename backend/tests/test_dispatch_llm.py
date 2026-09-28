@@ -173,7 +173,7 @@ def test_handoff_hint_contract(monkeypatch):
     from app.services import colleague_turn_service as turns
     _patch_cfg(monkeypatch)
     hint = turns._handoff_hint({"role_key": "assistant"})
-    assert "【同事转接】" in hint
+    assert "在册同事（职责与技能参考）" in hint
     assert "成本核算" in hint and "整机成本测算" in hint      # 名册职责进提示
     assert "技术支持工程师" in hint
     assert "总助" not in hint                                   # 自己（assistant 开场白）不进建议名单

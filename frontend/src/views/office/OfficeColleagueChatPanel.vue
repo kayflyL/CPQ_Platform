@@ -76,6 +76,7 @@
         :disabled="chatState?.loading"
         :sending="chatState?.sending"
         :running="chatState?.running"
+        :queued="chatState?.queuedCount"
         @send="onSend"
         @stop="onStop"
       />
@@ -142,12 +143,14 @@ const props = defineProps<{
   colleague: any
   context?: AssistantContext
   contextSummary?: string
+  /** 手机端全屏聊天层预展开（桌面检查器保持默认收起） */
+  defaultExpanded?: boolean
 }>()
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
 const { scrollToBottom } = useChatAutoScroll(messagesEl)
-const expanded = ref(false)
+const expanded = ref(props.defaultExpanded ?? false)
 const historyOpen = ref(false)
 const historyLoading = ref(false)
 const historyThreads = ref<AssistantThread[]>([])

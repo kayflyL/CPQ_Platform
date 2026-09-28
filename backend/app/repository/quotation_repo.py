@@ -405,6 +405,23 @@ class QuotationRepository:
         self.db.refresh(quotation)
         return quotation
 
+    def unfreeze(self, quotation_id: str) -> Optional[Quotation]:
+        """解冻已导出报价单：清 exported_at 回到草稿态，重新可进工作台编辑。
+
+        仅回退状态位；cost_snapshot 保留（再次导出会整份覆盖），避免误删审计口径的成本依据。
+        """
+        quotation = self.db.query(Quotation).filter(
+            Quotation.quotation_id == quotation_id
+        ).first()
+        if not quotation:
+            return None
+        quotation.exported_at = None
+        quotation.updated_at = datetime.now().isoformat()
+        self._touch_opportunity(quotation.opportunity_id)
+        self.db.commit()
+        self.db.refresh(quotation)
+        return quotation
+
 
     def copy_quotation_state(self, source_id: str, target_id: str) -> Optional[Quotation]:
         """Clone a source quotation's structured state (config-level fields + items +

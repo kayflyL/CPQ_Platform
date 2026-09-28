@@ -24,12 +24,12 @@ def _drawer() -> dict:
 
 def test_model_reason_done_payload_emits_l6_chassis_table():
     """机型选型完成：产物 kind=l6_chassis，data 含 chosen/reason/rows（目标层表格）。"""
-    locked = {"id": 7, "bom_template_id": 3, "name": "ES22V3-P"}
+    locked = {"id": 7, "bom_template_id": 3, "name": "ES220 V3"}
     engine = {
         "_locked_baseline": locked,
         "lock_reason": "目录唯一命中",
-        "baselines_pool": [{"name": "ES22V3-P"}],
-        "ext": {"server_model": "ES22V3-P"},
+        "baselines_pool": [{"name": "ES220 V3"}],
+        "ext": {"server_model": "ES220 V3"},
         "flow_configs": _drawer(),
     }
     rows = [{"catalogue": "Front backplane", "description": "12*3.5 SATA/SAS", "qty": 1},
@@ -39,7 +39,7 @@ def test_model_reason_done_payload_emits_l6_chassis_table():
         payload = _node_done_payload(engine, "model_reason", "机型选型", "已锁定")
     art = payload["artifact"]
     assert art["kind"] == "l6_chassis"
-    assert art["data"]["chosen"] == "ES22V3-P"
+    assert art["data"]["chosen"] == "ES220 V3"
     assert art["data"]["reason"] == "目录唯一命中"
     assert art["data"]["rows"] == rows
     assert payload["output"]["l6_rows_count"] == 2

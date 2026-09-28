@@ -40,12 +40,17 @@ router = APIRouter(
 async def upload_to_opportunity(
     file: UploadFile = File(...),
     opportunity_id: str = Form(...),
+    template_id: int = Form(None),
+    parse_overrides: str = Form(None),
     user: dict = Depends(current_user),
 ):
     """Upload Excel quotation to a specific opportunity.
 
     Parses the file, creates a quotation record, and archives the source Excel
     into the opportunity's file index so it shows up in the archive view.
+
+    template_id / parse_overrides：解析弹窗确认时带回的模板选择与会话补丁，
+    保证「预览看到的=确认生成的」；解析上下文存 quotation.extra_fields.parse_context。
     """
     opportunity = ensure_opportunity_access(opportunity_id, user)
     customer_name = opportunity.get("customer_name", "") or ""
@@ -58,11 +63,20 @@ async def upload_to_opportunity(
     if len(content) > 50 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
 
+    overrides = None
+    if parse_overrides:
+        import json as _json
+        try:
+            overrides = _json.loads(parse_overrides)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="parse_overrides 不是合法 JSON")
+
     service = QuoteService()
     storage = get_storage()
     feed_repo = FeedRepository()
     try:
-        result = service.process_upload(content, filename)
+        result = service.process_upload(content, filename,
+                                        template_id=template_id, parse_overrides=overrides)
         if result.get("status") == "error":
             # 解析失败是业务分支（模板/解析规则不匹配），不是服务器故障：
             # 用 422 而非 500，避免“服务器挂了”的告警语义；附中文友好提示，
@@ -117,6 +131,14 @@ async def upload_to_opportunity(
                     }
             if config_l6_picks:
                 quo_repo.update(quotation.quotation_id, config_l6_picks=config_l6_picks)
+
+            # 解析上下文（模板匹配结果 + 会话补丁）：复算/诊断/规则回溯用
+            parse_context = {"match_info": result.get("match_info")}
+            if template_id is not None:
+                parse_context["template_id"] = template_id
+            if overrides:
+                parse_context["parse_overrides"] = overrides
+            quo_repo.update(quotation.quotation_id, parse_context=parse_context)
         finally:
             quo_repo.close()
 
@@ -148,11 +170,11 @@ async def upload_to_opportunity(
 
 
 @router.get("/kp/history")
-async def get_kp_price_history(model: str):
-    """Get KP price history for a given model."""
+async def get_kp_price_history(model: str, category: str = "", user: dict = Depends(current_user)):
+    """Get KP price history for a given model（型号解析走 resolve_part 阶梯，category 用于家族限定）."""
     service = QuoteService()
     try:
-        history = service.get_kp_history(model)
+        history = service.get_kp_history(model, category)
         return history
     finally:
         service.close()
@@ -167,14 +189,14 @@ class KpSyncPriceRequest(BaseModel):
 
 
 @router.get("/kp/normalize-category")
-async def normalize_kp_category(category: str):
+async def normalize_kp_category(category: str, user: dict = Depends(current_user)):
     """返回实际会写入配件库的分类名（用于同步弹窗提示）。"""
     from app.repository.kp_repo import canonical_category_name
     return {"category": canonical_category_name(category)}
 
 
 @router.post("/kp/sync-price")
-async def sync_kp_price(payload: KpSyncPriceRequest):
+async def sync_kp_price(payload: KpSyncPriceRequest, user: dict = Depends(current_user)):
     """单条手动同步：把当前 KP 配件价格写入 kp_parts 价格历史。
     用户在报价工作台点击某 KP 卡片的「同步」按钮时调用（替代保存时自动批量同步）。"""
     service = QuoteService()
@@ -190,5 +212,35 @@ async def sync_kp_price(payload: KpSyncPriceRequest):
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"同步失败：{e}")
+    finally:
+        service.close()
+
+
+class KpPriceHistoryUpdateRequest(BaseModel):
+    price: float
+    currency: str = "RMB"
+    note: str = ""
+
+
+@router.put("/kp/price-history/{history_id}")
+async def update_kp_price_history(history_id: int, payload: KpPriceHistoryUpdateRequest,
+                                  user: dict = Depends(current_user)):
+    """原地修改该型号价格历史的「最新一条」（金额/币种/备注）——录错价就近修正，免跑去配件库。
+    乐观锁：仅当该 id 仍是排序（price_date DESC, id DESC）下的第一条才允许改，否则 409。"""
+    service = QuoteService()
+    try:
+        repo = service.engine.kp_repo
+        cur = repo.get_price_history_by_id(history_id)
+        if not cur:
+            raise HTTPException(status_code=404, detail="价格记录不存在")
+        latest = repo.get_price_history(cur["model"], limit=1)
+        if not latest or latest[0]["id"] != history_id:
+            raise HTTPException(status_code=409, detail="该记录已不是最新价（期间有新同步），请刷新历史后重试")
+        repo.update_price_history(history_id, float(payload.price), payload.currency, payload.note or "")
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"修改失败：{e}")
     finally:
         service.close()

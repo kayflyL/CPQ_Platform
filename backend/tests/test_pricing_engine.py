@@ -121,13 +121,13 @@ class TestParserMetaMapping:
             mock_kp_repo, mock_l6_repo, mock_project_repo, mock_rules_repo
         )
         static_fields = {
-            "server_model": {"value": "ZSA24V2-P(1pcs)"},
+            "server_model": {"value": "ZSA240 V2(1pcs)"},
             "description": {"value": "1*4U KH50000 switch机型"},
         }
 
         meta = engine._convert_parser_meta(static_fields)
 
-        assert meta["server_model"] == "ZSA24V2-P"
+        assert meta["server_model"] == "ZSA240 V2"
         assert meta["model_qty"] == 1
         assert meta["description"] == "1*4U KH50000 switch机型"
         assert meta["l6_desc"] == meta["description"]

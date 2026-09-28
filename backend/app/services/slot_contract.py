@@ -9,7 +9,7 @@ slot_spec / slot_label / _missing_critical 是全链路字段契约的唯一来�
 import logging
 from typing import Any, Optional
 
-from app.services.skill_node_state import (KP_ABSENT, KP_NODE, KP_PICKS, KP_ROW_IDS,
+from app.services.skill_node_state import (KP_ABSENT, KP_NODE, KP_PICKS, KP_RECOMMEND, KP_ROW_IDS,
                                            add_row_answer, add_waived_rows)
 
 
@@ -193,14 +193,27 @@ def catalog_field_keys() -> set:
         return set()
 
 
+def blanket_delegation(ext: dict) -> bool:
+    """客户明示全权委托（「一切你定/完全按推荐」→ fill_requirement 申报 delegation=full）。
+
+    委托在先时推断值不再逐项求证（2026-09-13 用户定调：不然系统一点智能性都没有了）——
+    确认收敛到最终整体落定卡一次完成（desc 声明类型/平台，点击=客户看见了并确认）。
+    """
+    return str((ext.get("delegation") if isinstance(ext, dict) else "") or "").strip() == "full"
+
+
 def unconfirmed_premise_fields(ext: dict) -> list:
     """「已填、但客户没说过」的前提字段（目录维度 = PREMISE_CATALOG_DIMENSIONS）。
 
     客户确认的口径只有两条，都留痕在 ext.confirmed_slots（值被改写即失效）：
       * 客户点选确认卡（含打字精确命中同一选项）→ 点击通道写入；
       * 大脑申报「这是客户原话」→ fill_requirement(customer_stated=[...]) 走同一把权威源。
+    第三条：整单委托（blanket_delegation）——前提字段由大脑代定，
+    整体落定卡点击时连带确认（confirm_registration_on_bulk_click），不逐项拦。
     返回 [{key,label,value}]（按字段契约顺序）；空列表 = 没有未确认前提，可直接放行。
     """
+    if blanket_delegation(ext):
+        return []
     out: list = []
     spec = slot_spec()
     confirmed = ext.get("confirmed_slots") if isinstance(ext, dict) else None
@@ -218,6 +231,30 @@ def unconfirmed_premise_fields(ext: dict) -> list:
         if str(confirmed.get(key) or "").strip() == cur_s:
             continue  # 客户确认过，且确认之后没被改写
         out.append({"key": key, "label": str(s.get("label") or key), "value": cur_s})
+    return out
+
+
+def confirm_registration_on_bulk_click(ext: dict) -> list:
+    """整体落定卡点击（kp_accept_recommendations）= 客户看见了 desc 里声明的
+    类型/平台并确认——把已填的目录字段（机型维度除外，机型走 choose_model 确认）
+    快照进 confirmed_slots。委托模式的确认收敛点；点后大脑改值即失效重求证。"""
+    if not isinstance(ext, dict):
+        return []
+    conf = ext.get("confirmed_slots")
+    if not isinstance(conf, dict):
+        conf = {}
+        ext["confirmed_slots"] = conf
+    out: list = []
+    for s in slot_spec():
+        key = str(s.get("key") or "").strip()
+        dim = str(s.get("catalog_dimension") or "").strip()
+        if not key or str(s.get("candidate_source") or "") != "catalog" or dim == "models":
+            continue
+        v = canonical_get(ext, key)
+        vs = "" if v is None else str(v).strip()
+        if vs and str(conf.get(key) or "").strip() != vs:
+            conf[key] = vs
+            out.append(key)
     return out
 
 
@@ -355,6 +392,21 @@ def apply_structured_slots(ext: dict, slots: dict, requirement_text: str = "",
             picks[str(ident.get("row_id") or row_key)] = entry
             kp_state[KP_PICKS] = picks
             notes.append("配件已登记：" + name + (f" ×{entry['qty']}" if entry.get("qty") else ""))
+    # 套装整体接受（「全部按推荐落定」）：客户一次点击=对全部推荐态行亲口确认，
+    # 批量晋升 KP_RECOMMEND → KP_PICKS——与逐颗 kp_manual_pick 点击同语义，只是多行。
+    # 推荐态行本来就只能是 AI 代选、待客户拍板（select_parts 对 specified=false 只写推荐），
+    # 晋升后引擎重跑走 apply_kp_picks 同一通路落行。
+    bulk = slots.get("kp_accept_recommendations")
+    if bulk and isinstance(kp_state, dict):
+        recs = kp_state.get(KP_RECOMMEND)
+        if isinstance(recs, dict) and recs:
+            picks = dict(kp_state.get(KP_PICKS) or {})
+            for k, v in recs.items():
+                if isinstance(v, (dict, list)):
+                    picks[k] = v
+            kp_state[KP_PICKS] = picks
+            kp_state[KP_RECOMMEND] = {}
+            notes.append(f"客户整单确认推荐：{len(recs)} 行已批量锁定")
     # 必填类目的「不配/自备」逃生（如 GPU）：把该类目登记为缺席，不再兜底占位。
     absent = slots.get("kp_absent")
     if absent and isinstance(kp_state, dict):

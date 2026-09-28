@@ -148,6 +148,37 @@ export interface OfficeConfig {
   plan?: unknown
 }
 
+export interface PlanSegment {
+  start?: string
+  end?: string
+  status?: string
+  intent?: string
+  zone?: string
+  activity?: string
+}
+
+/** 一日作息计划：roles=[] 表示全员适用；weekdays 为 ISO 编号（1=周一） */
+export interface DailyPlan {
+  id?: string
+  label?: string
+  roles?: string[]
+  weekdays?: number[]
+  segments: PlanSegment[]
+}
+
+export interface OfficeEventItem {
+  id?: number
+  role_key?: string
+  event_type?: string
+  status?: string
+  source?: string
+  activity?: string
+  message?: string
+  ts?: number
+  created_at?: string
+  payload?: Record<string, any>
+}
+
 export interface BehaviorConfig {
   mission?: {
     enabled?: boolean
@@ -195,19 +226,14 @@ export interface BehaviorConfig {
       max_actions_per_tick?: number
       cooldown_seconds?: number
       llm_enabled?: boolean
+      llm_budget_per_hour?: number
       llm_min_interval_seconds?: number
       llm_timeout_seconds?: number
+      llm_backoff_seconds?: number
       interaction_enabled?: boolean
       interaction_cooldown_seconds?: number
       allowed_zones?: string[]
       active_statuses?: string[]
-      fallback_actions: Array<{
-        status?: string
-        intent?: string
-        zone?: string
-        activity?: string
-        message?: string
-      }>
       interaction_action?: {
         status?: string
         intent?: string
@@ -216,26 +242,7 @@ export interface BehaviorConfig {
         message?: string
       }
     }
-    idle: {
-      enabled?: boolean
-      after_seconds?: number
-      status?: string
-      intent?: string
-      activity?: string
-      zone?: string
-    }
-    schedule_rules: Array<{
-      id?: string
-      time?: string
-      status?: string
-      intent?: string
-      activity?: string
-      zone?: string
-      roles?: string[] | string
-      message?: string
-      conversation_id?: string
-      priority?: string
-    }>
+    daily_plans: DailyPlan[]
   }
 }
 
@@ -273,6 +280,13 @@ export interface OfficeColleagueMemory {
   source?: 'auto' | 'manual'
   pinned?: boolean
   created_by?: string
+  /** 记忆域：空=角色公共域（全员共享）；非空=该用户私有域（对话写入，仅本人注入） */
+  user_id?: string
+  valid_from?: string
+  retired_at?: string
+  superseded_by?: number | null
+  last_accessed_at?: string
+  provenance?: string
   created_at?: string
   updated_at?: string
 }
@@ -396,12 +410,16 @@ export const officeApi = {
     http.get<{ users: Array<{ user_id: string; name: string; role?: string; is_active?: boolean }> }>('/api/ai-colleagues/manage-users').then((r) => r.data),
   updateLayout: (payload: { nodes?: any[]; edges?: any[]; office?: OfficeConfig; lead_role_key?: string }) =>
     http.put<{ layout: any }>('/api/ai-colleagues/layout', payload).then((r) => r.data),
-  resetOfficeSample: () =>
-    http.post<{ layout: { office?: OfficeConfig } }>('/api/ai-colleagues/layout/reset-office').then((r) => r.data),
+  getOfficeSample: () =>
+    http.get<{ office: OfficeConfig }>('/api/ai-colleagues/layout/office-sample').then((r) => r.data),
   updateBehavior: (payload: BehaviorConfig) =>
     http.put<{ behavior: any }>('/api/ai-colleagues/behavior', { behavior: payload }).then((r) => r.data),
-  listColleagueMemories: (roleKey: string, params: { keyword?: string; limit?: number } = {}) =>
+  officeEvents: (limit = 60) =>
+    http.get<{ events: OfficeEventItem[]; total: number }>('/api/office/events', { params: { limit } }).then((r) => r.data),
+  listColleagueMemories: (roleKey: string, params: { keyword?: string; limit?: number; include_retired?: boolean; user_id?: string } = {}) =>
     http.get<{ memories: OfficeColleagueMemory[]; total: number }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories`, { params }).then((r) => r.data),
+  consolidateColleagueMemories: (roleKey: string) =>
+    http.post<{ ok: boolean; applied: number; ops: string[]; skipped: string[]; total_before: number }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories/consolidate`).then((r) => r.data),
   createColleagueMemory: (roleKey: string, payload: { type?: string; content: string; pinned?: boolean }) =>
     http.post<{ memory: OfficeColleagueMemory }>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}/memories`, payload).then((r) => r.data),
   updateColleagueMemory: (roleKey: string, memoryId: number, payload: { type?: string; content?: string; pinned?: boolean }) =>
@@ -448,8 +466,6 @@ export const officeApi = {
     http.post<any>('/api/ai-colleagues/', payload).then((r) => r.data),
   deleteColleague: (roleKey: string) =>
     http.delete<any>(`/api/ai-colleagues/${encodeURIComponent(roleKey)}`).then((r) => r.data),
-  scopeOptions: () =>
-    http.get<{ data_sources: Array<{ key: string; label: string; description: string }>; page_scopes: Array<{ key: string; label: string; description: string; data_sources: string[] }> }>('/api/ai-colleagues/scope-options').then((r) => r.data),
   listSkills: () =>
     http.get<{ skills: any[] }>('/api/ai-colleagues/skills').then((r) => r.data.skills),
 

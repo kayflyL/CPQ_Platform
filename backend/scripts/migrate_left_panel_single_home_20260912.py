@@ -15,6 +15,7 @@ import sys
 from datetime import datetime
 
 from sqlalchemy import create_engine, text
+from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 
 FLOW_ID = 125
 SKILL_KEY = "requirement_analysis"
@@ -61,7 +62,7 @@ def _replace_rule(rules_text: str, num: int, new_line: str) -> tuple[str, bool]:
 
 def main() -> int:
     eng = create_engine(
-        "postgresql+psycopg2://postgres:961216@localhost:5432/cpq_platform",
+        db_url(),
         connect_args={"client_encoding": "UTF8"},
     )
     now = datetime.now().isoformat()

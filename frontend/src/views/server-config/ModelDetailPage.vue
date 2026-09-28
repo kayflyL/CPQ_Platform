@@ -1,10 +1,11 @@
 <script setup lang="ts">
 /** 机型产品详情页（配置面展示）— 看介绍/规格 → 点「配置这台」进配置向导。纯展示，无管理入口。 */
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerModel, type ModelScenario } from '@/api/serverConfig'
-import { capIconSvg } from '@/constants/capIcons'
+import CapabilityShowcase from '@/components/server-config/CapabilityShowcase.vue'
 import { useSeriesStore } from '@/stores/series'
+import { STAGE_THEMES, type StageThemeKey } from '@/constants/stageThemes'
 
 const route = useRoute()
 const router = useRouter()
@@ -50,44 +51,7 @@ const seriesLabel = computed(() => {
   return found?.label || seriesRaw.value || 'Polaris'
 })
 
-// 场景主题：天空渐变 + 大地遮罩 + 旭日三色 + 内容区页面/暗带底色，集中管理（四主题整页联动）
-type StageThemeKey = 'wine' | 'ocean' | 'carbon' | 'violet'
-interface StageTheme {
-  key: StageThemeKey; label: string
-  bg: string        // 天空→大地 整体垂直渐变
-  earth: string     // 地平线下方遮罩（盖住太阳下半、加深大地）
-  sun: string       // 地平线 / 太阳主色
-  sunBright: string // 太阳最亮中心
-  glow: string      // 天空光晕扩散
-  page: string      // 内容区整页底色（hero 之下）
-  band: string      // 「产品能力」暗色带底色
-}
-const STAGE_THEMES: StageTheme[] = [
-  { key: 'wine', label: '酒红',
-    bg: 'linear-gradient(to bottom, #1a0509 0%, #4a0e1f 28%, #7a1a2e 58%, #5a1228 70%, #2d0712 100%)',
-    earth: 'linear-gradient(to bottom, transparent 0%, rgba(20,4,10,0.85) 35%, #0a0205 100%)',
-    sun: '#FF7A4D', sunBright: '#FFE0C0', glow: 'rgba(255,122,77,0.55)',
-    page: 'linear-gradient(to bottom, #0d0308 0%, #1c0912 45%, #0f040a 100%)',
-    band: 'linear-gradient(to bottom, #160710 0%, #2d0b1a 55%, #1a0509 100%)' },
-  { key: 'ocean', label: '深蓝',
-    bg: 'linear-gradient(to bottom, #030814 0%, #0a1830 28%, #143a6b 58%, #0e2a52 70%, #06101f 100%)',
-    earth: 'linear-gradient(to bottom, transparent 0%, rgba(3,8,20,0.85) 35%, #020610 100%)',
-    sun: '#5BB8FF', sunBright: '#D6EBFF', glow: 'rgba(91,184,255,0.55)',
-    page: 'linear-gradient(to bottom, #02050f 0%, #071226 45%, #030814 100%)',
-    band: 'linear-gradient(to bottom, #02050f 0%, #0a1c38 55%, #030814 100%)' },
-  { key: 'carbon', label: '纯黑',
-    bg: 'linear-gradient(to bottom, #050505 0%, #1a1a1a 28%, #2e2e2e 58%, #222222 70%, #0a0a0a 100%)',
-    earth: 'linear-gradient(to bottom, transparent 0%, rgba(5,5,5,0.85) 35%, #000000 100%)',
-    sun: '#E8E8E8', sunBright: '#FFFFFF', glow: 'rgba(232,232,232,0.45)',
-    page: 'linear-gradient(to bottom, #060606 0%, #161616 45%, #050505 100%)',
-    band: 'linear-gradient(to bottom, #0a0a0a 0%, #232323 55%, #050505 100%)' },
-  { key: 'violet', label: '暗紫',
-    bg: 'linear-gradient(to bottom, #0a0218 0%, #1e0a3c 28%, #3d1a6b 58%, #2a1252 70%, #120420 100%)',
-    earth: 'linear-gradient(to bottom, transparent 0%, rgba(10,2,24,0.85) 35%, #06010f 100%)',
-    sun: '#B07AFF', sunBright: '#E8D0FF', glow: 'rgba(176,122,255,0.55)',
-    page: 'linear-gradient(to bottom, #070113 0%, #180b30 45%, #0a0218 100%)',
-    band: 'linear-gradient(to bottom, #080114 0%, #20103f 55%, #0a0218 100%)' },
-]
+// 场景主题常量已抽取共享：constants/stageThemes.ts（星河首页弹窗 banner 同源复用）
 const stageThemeKey = computed<StageThemeKey>(() => {
   const key = pc.value?.stage_theme
   return STAGE_THEMES.some(x => x.key === key) ? (key as StageThemeKey) : 'ocean'
@@ -101,6 +65,8 @@ const stageVars = computed(() => {
     '--earth-overlay': t.earth,
     '--page-bg': t.page,
     '--band-bg': t.band,
+    // hero 垫到顶栏下后，让位区纯色延伸带取主题渐变顶色，与天空无缝衔接
+    '--sky-top': t.bg.match(/#[0-9a-f]{3,8}/i)?.[0] || '#0a0508',
   } as Record<string, string>
 })
 
@@ -118,9 +84,30 @@ function back() {
   router.push(tid ? `/servers/types/${tid}` : '/servers')
 }
 function configure() { if (model.value) router.push(`/servers/config/${model.value.id}`) }
+
+// 首屏深色场景垫在透明顶栏下（同机型目录页做法）：声明 hero-dark 换浅色导航文字；
+// 滚动后浮现的玻璃底带用本页主题色（各主题天空顶色），避免固定深蓝压酒红/暗紫天空
+function markHeroDark(on: boolean) {
+  if (on) document.documentElement.dataset.heroDark = '1'
+  else delete document.documentElement.dataset.heroDark
+}
+const HERO_BAND: Record<StageThemeKey, string> = {
+  wine: 'rgba(26, 5, 9, 0.78)',
+  ocean: 'rgba(3, 8, 20, 0.78)',
+  carbon: 'rgba(5, 5, 5, 0.78)',
+  violet: 'rgba(10, 2, 24, 0.78)',
+}
+watch(stageThemeKey, (k) => {
+  document.documentElement.style.setProperty('--hero-band-bg', HERO_BAND[k])
+}, { immediate: true })
 onMounted(() => {
+  markHeroDark(true)
   load()
   seriesStore.ensureSeries()
+})
+onBeforeUnmount(() => {
+  markHeroDark(false)
+  document.documentElement.style.removeProperty('--hero-band-bg')
 })
 </script>
 
@@ -222,34 +209,8 @@ onMounted(() => {
           </section>
         </div>
 
-        <!-- 产品能力（暗色带，全幅，主题联动） -->
-        <section v-if="capList.length" class="band-dark">
-          <div class="page-inner">
-            <div class="sec sec-flush-top">
-              <div class="sec-head">
-                <div><div class="sec-kicker">Capabilities</div><div class="sec-title">产品能力</div></div>
-              </div>
-              <div class="cap-grid">
-                <div v-for="(c, i) in capList" :key="i" class="cap-block">
-                  <div class="cap-ico" v-html="capIconSvg(c.icon)"></div>
-                  <div class="cap-main">
-                    <div class="cap-head">
-                      <span class="cap-dim">{{ c.name }}</span>
-                      <span v-if="c.name_en" class="cap-dim-en">{{ c.name_en }}</span>
-                    </div>
-                    <p v-if="c.desc" class="cap-desc">{{ c.desc }}</p>
-                  </div>
-                  <div v-if="c.metrics?.length" class="cap-metrics">
-                    <span v-for="(m, j) in c.metrics" :key="j" class="metric">
-                      <span class="v">{{ m.v }}</span>
-                      <span class="l">{{ m.l }}</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
+        <!-- 产品能力（暗色带，全幅，主题联动）：左选维度 → 右介绍+硬件插画，见 CapabilityShowcase -->
+        <CapabilityShowcase v-if="capList.length" :capabilities="capList" />
 
         <div class="page-inner">
           <!-- 场景适配（照片卡） -->
@@ -323,23 +284,38 @@ onMounted(() => {
 .detail-page { padding: 0 0 80px; }
 
 /* —— 全宽场景 hero：天空 / 旭日地平线 / 大地 —— */
+/* 垫在透明顶栏下（同机型目录页）：上移让位高度、等量加高，装饰层百分比一律以
+   让位线以下的原舞台盒计算（--sky = 原盒高），地平线/太阳/服务器位置一字不差 */
 /* z 序：背景0 → 水印1 → 天空光晕2 → 太阳3 → 大地4 → 倒影5 → 地平线光带6 → 服务器7 → UI8 */
 .hero-scene {
+  --stg: var(--cpq-header-clearance, 0px);
+  --sky: calc(100% - var(--cpq-header-clearance, 0px));
   position: relative;
   width: 100%;
-  min-height: 640px;
+  min-height: calc(640px + var(--cpq-header-clearance, 0px));
   overflow: hidden;
   background: #0a0508;
   color: #fff;
+  margin-top: calc(-1 * var(--cpq-header-clearance, 0px));
+}
+
+/* 让位区天空延伸带：主题渐变顶色纯色铺（scene-bg 只铺舞台盒，渐变保持原比例） */
+.hero-scene::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: var(--stg);
+  background: var(--sky-top, #0a0508);
+  z-index: 0;
 }
 
 /* 背景：天空→大地 整体渐变（4 主题堆叠） */
-.scene-bg { position: absolute; inset: 0; z-index: 0; }
+.scene-bg { position: absolute; inset: var(--stg) 0 0 0; z-index: 0; }
 .scene-bg-layer { position: absolute; inset: 0; transition: opacity 0.7s ease; }
 
 /* 水印 */
 .scene-watermark {
-  position: absolute; inset: 0; z-index: 1;
+  position: absolute; inset: var(--stg) 0 0 0; z-index: 1;
   display: flex; align-items: center; justify-content: center;
   font-size: clamp(150px, 26vw, 340px);
   font-weight: 900;
@@ -355,8 +331,8 @@ onMounted(() => {
 .scene-sky-glow {
   position: absolute;
   left: 0; right: 0;
-  bottom: 30%;            /* 地平线位置 */
-  height: 55%;
+  bottom: calc(var(--sky) * 0.3);            /* 地平线位置 */
+  height: calc(var(--sky) * 0.55);
   background: radial-gradient(ellipse 60% 100% at 50% 100%, var(--sun-glow) 0%, transparent 62%);
   z-index: 2;
   pointer-events: none;
@@ -366,7 +342,7 @@ onMounted(() => {
 .scene-sun {
   position: absolute;
   left: 50%;
-  bottom: 30%;            /* 中心落于地平线 */
+  bottom: calc(var(--sky) * 0.3);            /* 中心落于地平线 */
   width: 520px;
   height: 200px;
   transform: translate(-50%, 50%);
@@ -383,7 +359,7 @@ onMounted(() => {
   position: absolute;
   left: 0; right: 0;
   bottom: 0;
-  height: 30%;
+  height: calc(var(--sky) * 0.3);
   background: var(--earth-overlay);
   z-index: 4;
   pointer-events: none;
@@ -394,7 +370,7 @@ onMounted(() => {
   position: absolute;
   left: 0; right: 0;
   bottom: 0;
-  height: 30%;
+  height: calc(var(--sky) * 0.3);
   background: radial-gradient(ellipse 55% 95% at 50% 0%, var(--sun-glow) 0%, transparent 62%);
   opacity: 0.6;
   z-index: 4;
@@ -405,7 +381,7 @@ onMounted(() => {
 .scene-reflection {
   position: absolute;
   left: 50%;
-  top: 70%;            /* 倒影顶部 = 地平线 = 服务器底部 */
+  top: calc(var(--stg) + var(--sky) * 0.7);            /* 倒影顶部 = 地平线 = 服务器底部 */
   margin-top: -16px;   /* 上移贴近服务器底部（重叠部分被服务器盖，视觉紧贴） */
   width: 540px;
   max-width: 64vw;
@@ -428,7 +404,7 @@ onMounted(() => {
 .scene-horizon {
   position: absolute;
   left: -8%; right: -8%;
-  bottom: 30%;            /* 地平线 = 服务器站立线 */
+  bottom: calc(var(--sky) * 0.3);            /* 地平线 = 服务器站立线 */
   height: 0;
   z-index: 6;
   pointer-events: none;
@@ -453,7 +429,7 @@ onMounted(() => {
 .scene-product {
   position: absolute;
   left: 50%;
-  bottom: 30%;            /* 底部立于地平线 */
+  bottom: calc(var(--sky) * 0.3);            /* 底部立于地平线 */
   transform: translateX(-50%);
   z-index: 7;
   display: flex;
@@ -480,13 +456,13 @@ onMounted(() => {
 /* —— UI 浮层 —— */
 .scene-back {
   position: absolute;
-  top: 22px; left: 28px;
+  top: calc(22px + var(--stg)); left: 28px;
   z-index: 8;
   color: rgba(255, 255, 255, 0.78) !important;
 }
 .scene-back:hover { color: #fff !important; }
 
-.scene-chip { position: absolute; top: 24px; right: 28px; z-index: 8; }
+.scene-chip { position: absolute; top: calc(24px + var(--stg)); right: 28px; z-index: 8; }
 
 /* —— 内容区：原型 R5.3 暗色数据/技术派（四主题联动，--sun-* 来自根 :style） —— */
 .detail-page {
@@ -540,7 +516,6 @@ onMounted(() => {
 
 /* 章节头（Torra 式 kicker + 大标题） */
 .sec { padding: 72px 0 8px; }
-.sec-flush-top { padding-top: 0; }
 .sec-last { padding-bottom: 8px; }
 .sec-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .sec-kicker {
@@ -567,49 +542,6 @@ onMounted(() => {
 .hl-card:hover { background: rgba(255, 255, 255, 0.03); }
 .hl-card b { font-size: 15px; font-weight: 700; color: #f2f8ff; }
 .hl-card span { font-size: 13px; color: var(--text-2); line-height: 1.7; }
-
-/* 产品能力：暗色带（全幅，主题联动） */
-.band-dark {
-  margin-top: 44px; padding: 52px 0 56px; color: #fff; position: relative;
-  background-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.42), rgba(0, 0, 0, 0.58)), var(--band-bg, #160710);
-}
-.band-dark::before {
-  content: ''; position: absolute; top: 0; left: -8%; right: -8%; height: 0;
-  background: linear-gradient(to right, transparent 0%, var(--sun-color) 22%, var(--sun-bright) 50%, var(--sun-color) 78%, transparent 100%);
-  background-size: 100% 1.5px; background-repeat: no-repeat;
-  box-shadow: 0 0 18px var(--sun-color), 0 4px 46px var(--sun-glow, rgba(255, 122, 77, 0.55));
-}
-.band-dark .sec-kicker { color: var(--primary); }
-.band-dark .sec-title { color: #fff; }
-.band-dark .sec-sub { color: rgba(238, 243, 250, 0.5); }
-.cap-grid {
-  display: grid; grid-template-columns: repeat(2, 1fr);
-  border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, 0.02);
-}
-.cap-block {
-  position: relative; padding: 26px 30px; margin: -1px 0 0 -1px;
-  border-top: 1px solid var(--line-soft); border-left: 1px solid var(--line-soft);
-  background: rgba(255, 255, 255, 0.035); transition: background 0.2s var(--ease);
-  display: grid; grid-template-columns: 58px 1fr auto; column-gap: 22px; align-items: center;
-}
-.cap-block:hover { background: rgba(255, 255, 255, 0.06); }
-.cap-ico { color: rgba(255, 255, 255, 0.42); }
-.cap-ico :deep(svg) { width: 54px; height: auto; display: block; }
-.cap-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 7px; }
-.cap-dim { font-size: 17px; font-weight: 700; color: #f5faff; }
-.cap-dim-en { font-family: var(--font-mono); font-size: 11px; color: rgba(255, 255, 255, 0.5); letter-spacing: 0.14em; text-transform: uppercase; }
-.cap-desc { margin: 0; font-size: 13.5px; color: rgba(238, 243, 250, 0.78); line-height: 1.7; }
-/* 关键数字：小字注脚（值+标签同行右对齐，不再放大做视觉主角） */
-.cap-metrics {
-  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
-  border-left: 1px solid var(--line-soft); padding-left: 20px;
-}
-.metric { display: flex; align-items: baseline; gap: 7px; }
-.metric .v {
-  font-size: 13px; font-weight: 600; color: rgba(240, 246, 255, 0.88);
-  font-variant-numeric: tabular-nums; line-height: 1.5; white-space: nowrap;
-}
-.metric .l { font-size: 11.5px; color: rgba(255, 255, 255, 0.48); white-space: nowrap; }
 
 /* 场景适配：照片卡 */
 .scn-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
@@ -669,19 +601,12 @@ onMounted(() => {
 .note-empty { padding: 56px 0; text-align: center; color: var(--muted); font-size: 14px; }
 
 @media (max-width: 760px) {
-  .hero-scene { min-height: 520px; }
+  .hero-scene { min-height: calc(520px + var(--cpq-header-clearance, 0px)); }
   .product-img, .product-ph, .scene-reflection { width: 78vw; }
   .scene-sun { width: 220px; height: 220px; }
-  .scene-back { top: 14px; left: 14px; }
-  .scene-chip { top: 16px; right: 14px; }
+  .scene-back { top: calc(14px + var(--stg)); left: 14px; }
+  .scene-chip { top: calc(16px + var(--stg)); right: 14px; }
   .meta-specs { gap: 18px; }
-  .cap-grid { grid-template-columns: 1fr; }
-  .cap-block { grid-template-columns: 52px 1fr; row-gap: 14px; }
-  .cap-metrics {
-    grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 18px; align-items: flex-start;
-    border-left: none; padding-left: 0; border-top: 1px solid var(--line-soft); padding-top: 14px;
-  }
-  .metric { align-items: baseline; }
   .hl-layout.has-image { grid-template-columns: 1fr; }
   .hl-photo { max-width: 220px; }
   .hl-card { grid-template-columns: 1fr; row-gap: 2px; }

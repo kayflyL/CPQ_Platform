@@ -12,7 +12,7 @@ def test_cost_configs_use_meta_for_model_description_and_qty():
     result = _parse_result_to_cost_configs({
         "Sheet1": {
             "meta": {
-                "server_model": "ZSA24V2-P",
+                "server_model": "ZSA240 V2",
                 "description": "1*4U KH50000 switch机型",
                 "model_qty": 2,
             },
@@ -22,7 +22,7 @@ def test_cost_configs_use_meta_for_model_description_and_qty():
     })
 
     assert result[0]["name"] == "Sheet1"
-    assert result[0]["server_model"] == "ZSA24V2-P"
+    assert result[0]["server_model"] == "ZSA240 V2"
     assert result[0]["description"] == "1*4U KH50000 switch机型"
     assert result[0]["qty"] == 2
 
@@ -43,7 +43,7 @@ def test_upload_cost_sheet_archives_source_and_attachment():
         "status": "success",
         "configs": {
             "Sheet1": {
-                "meta": {"server_model": "ZSA24V2-P", "description": "spec", "model_qty": 1},
+                "meta": {"server_model": "ZSA240 V2", "description": "spec", "model_qty": 1},
                 "items": [],
                 "bom_excel_rows": [],
             }
@@ -63,12 +63,15 @@ def test_upload_cost_sheet_archives_source_and_attachment():
          patch("app.api.portal.get_storage", return_value=storage), \
          patch("app.api.portal._svc", return_value=({"opportunity_id": "OPP-1", "customer_name": "客户A"}, {})), \
          patch("app.api.portal.field_visible", return_value=True), \
+         patch("app.api.portal.user_has_permission", return_value=True), \
          patch("app.api.portal._attach_entity_card", return_value={"id": 7}), \
          patch("app.api.portal._unlink_entity_card"), \
          patch("app.api.portal.build_object_id", return_value="test_obj"), \
          patch("app.api.portal.hub.broadcast", new=AsyncMock()):
         file = UploadFile(filename="test.xlsx", file=io.BytesIO(b"abc"))
-        result = asyncio.run(upload_cost_sheet("OPP-1", file, {"user_id": "u1", "name": "张三"}))
+        result = asyncio.run(upload_cost_sheet("OPP-1", file=file,
+                                                user={"user_id": "u1", "name": "张三"},
+                                                parse_overrides=None))
 
     assert result["sheet"]["id"] == 42
     assert result["attachment"]["attachment_id"] == "a1"

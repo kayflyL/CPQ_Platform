@@ -2,6 +2,7 @@
 import { computed, nextTick, ref, watch } from 'vue'
 import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
 import { useNodeArtifact } from '@/composables/useNodeArtifact'
+import MarkdownContent from '@/views/admin/strategy/MarkdownContent.vue'
 
 import RequirementForm from '@/components/flow/RequirementForm.vue'
 const { artifact, close } = useNodeArtifact()
@@ -38,6 +39,10 @@ watch([artifact, reqRef], async ([a]) => {
 }, { immediate: true })
 
 const artifactData = computed(() => artifact.value?.data)
+const docMarkdown = computed(() => {
+  const md = artifactData.value?.markdown
+  return typeof md === 'string' && md.trim() ? md : ''
+})
 // 机箱表 = 基础机箱 L6（该机型 BOM 模板求值，与方案配置页 L6 部分同源同形状）
 // 列由目标层定义驱动（artifact.data.columns），无定义时回退默认列
 const l6Cols = computed(() => {
@@ -132,6 +137,13 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
       </div>
     </template>
 
+    <template v-else-if="artifact?.kind === 'document'">
+      <div v-if="docMarkdown" class="artifact-doc">
+        <MarkdownContent :source="docMarkdown" />
+      </div>
+      <div v-else class="artifact-empty">本节点尚未产出报告内容。</div>
+    </template>
+
     <template v-else>
       <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
     </template>
@@ -140,6 +152,7 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 
 <style scoped>
 .artifact-empty { color: var(--cpq-text-muted); font-size: 13px; padding: 12px 0; }
+.artifact-doc { max-height: calc(100vh - 240px); overflow-y: auto; padding: 4px 8px; }
 .artifact-scheme { min-height: 220px; }
 .artifact-raw { white-space: pre-wrap; font-size: 12px; color: var(--cpq-text-secondary); }
 .missing-title { font-weight: 600; margin-bottom: 8px; }

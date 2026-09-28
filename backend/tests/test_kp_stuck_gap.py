@@ -171,3 +171,56 @@ def test_unstamped_rows_still_bind_by_the_row_list_identity():
     gap = plugin_for("kp_reason").stuck_gap(eng)
     assert gap["row"] == expect
     assert gap["options"][0]["signal"]["kp_manual_pick"]["row"] == expect
+
+
+# ── 数量步进（2026-09-14：能选料也要能调数量，上限=机型物理边界）─────────────
+
+
+def test_stuck_gap_qty_max_follows_baseline_capability():
+    """GPU 行 + 机型登记 4 个 GPU 位 → 卡上限=4（不是拍脑袋 24）；未登记能力才退 24。"""
+    from app.services.skill_node_plugins import plugin_for
+    eng = _engine()
+    eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 4}
+    gap = plugin_for("kp_reason").stuck_gap(eng)
+    assert (gap["qty"], gap["qty_max"]) == (2, 4)
+    assert all(o["qty"] == 2 and o["qty_max"] == 4 for o in gap["options"] if o.get("pick"))
+    assert gap["pick_meta"]["gpu_slots"] == 4
+    # 机型未登记该能力（只有 series）→ 宽上限兜底
+    gap2 = plugin_for("kp_reason").stuck_gap(_engine())
+    assert gap2["qty_max"] == 24
+
+
+def test_qty_cap_never_squeezes_the_registered_quantity():
+    """申报量 > 机型物理边界（GPU 位 2、行申报 4）→ 上限抬到申报量：客户登记的量不能被挤掉。"""
+    from app.services.skill_node_plugins import _KpNode
+    qty, qty_max = _KpNode()._qty_bounds({"_locked_baseline": {"gpu_slots": 2}}, "GPU", 4)
+    assert (qty, qty_max) == (4, 4)
+
+
+def test_enrich_ask_gap_tops_up_qty_for_brain_options():
+    """大脑行卡选项常只带型号不带数量 → 插座对全卡选项结构性补 qty/qty_max；
+    大脑显式给的推荐数量不覆盖（setdefault）。这是「能选料不能调数量」实测靶心。"""
+    from app.services.skill_node_plugins import _KpNode
+    eng = _engine()
+    eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 3}
+    gap = {"slot": "brain_ask", "reason_code": "brain_ask", "options": [
+        {"label": "NVIDIA H100 80G", "slot": "kp_row"},
+        {"label": "NVIDIA A800 80G ×2", "slot": "kp_row", "qty": 2},
+    ]}
+    out = _KpNode().enrich_ask_gap(eng, gap, {"row": ROW_ID})
+    assert out["parts_card"] is True and (out["qty"], out["qty_max"]) == (2, 3)
+    by_label = {o["label"]: o for o in out["options"]}
+    assert by_label["NVIDIA H100 80G"]["qty"] == 2 and by_label["NVIDIA H100 80G"]["qty_max"] == 3
+    assert by_label["NVIDIA A800 80G ×2"]["qty"] == 2  # 大脑给的数量保留
+    assert out["pick_meta"]["gpu_slots"] == 3 and out["pick_meta"]["row_qty"] == 2
+
+
+def test_manual_pick_click_qty_clamped_by_category_capability():
+    """行卡自选点击的数量收口：GPU 类目按 gpu_slots clamp；无物理边界的类目（NIC）宽上限。"""
+    from app.services.skill_signals import _signal_with_qty
+    sig = {"kp_manual_pick": {"row": ROW_ID, "part_id": "250", "name": "NVIDIA H100 80G"}}
+    meta = {"category": "GPU", "gpu_slots": 4}
+    assert _signal_with_qty(sig, 6, meta)["kp_manual_pick"]["qty"] == 4
+    assert _signal_with_qty(sig, 2, meta)["kp_manual_pick"]["qty"] == 2
+    nic = {"kp_manual_pick": {"row": "kp-nic0001", "part_id": "300", "name": "X710"}}
+    assert _signal_with_qty(nic, 32, {"category": "NIC"})["kp_manual_pick"]["qty"] == 32

@@ -1,17 +1,17 @@
 # -*- coding: utf-8 -*-
 """anthropic_channel —— Anthropic Messages 上游通道（OpenAI 风格 tools/messages 双向转换）。
 
-背景：经实测，cloudprime 这类供应商的 /v1/chat/completions 只认 web_search_* 工具类型，
-不认 OpenAI 的 type:function；而 /v1/messages 是真正的 Anthropic Messages API。因此要在
-原生 function calling 下跑通，需把平台内部的 OpenAI 风格 tools/messages 端到端转成
-Anthropic Messages（等价于 CC Switch/LiteLLM 所做的格式转换）。
-
-本模块只做转换与传输，不依赖 llm_client；llm_client 在 upstream_format="anthropic" 时
-把「带 tools 的调用」路由到这里，文本/JSON 走原 OpenAI Chat Completions（实测正常）。
+背景：cloudprime 时代 /v1/chat/completions 是主力通道、文本/JSON 实测正常，只有「带
+tools 的调用」因不认 type:function 而绕行本通道——那是一个混合协议代理下的局部补丁。
+2026-09-14 起语义升级：upstream_format=anthropic 表示【整个端点】是 Anthropic Messages
+协议（如智谱 z.ai https://api.z.ai/api/anthropic），llm_client 的文本 / JSON / 流式 /
+工具四条链路【全部】路由到这里；OpenAI SDK 一条都不许再碰该端点（会打错路径拿到
+HTTP 200 包着的 404 → 静默空回复）。
 """
 import asyncio
 import json
 import logging
+import re
 from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import httpx
@@ -20,6 +20,37 @@ logger = logging.getLogger(__name__)
 
 _ANTHROPIC_VERSION = "2023-06-01"
 _CONNECT_TIMEOUT = 15.0
+
+_VERSIONED_RE = re.compile(r"/v\d+$")
+
+
+def messages_base(base_url: Optional[str]) -> str:
+    """归一化 Anthropic Messages base：规范请求路径是 {base}/v1/messages。
+
+    base 已以 /v<数字> 结尾（用户自己带了 /v1）→ 原样；否则补 /v1
+    （z.ai 官方 base 是 https://api.z.ai/api/anthropic，SDK/协议路径都要再挂 /v1）。
+    """
+    base = (base_url or "").rstrip("/")
+    if _VERSIONED_RE.search(base):
+        return base
+    return base + "/v1"
+
+
+def _wrapped_error(data: Any) -> str:
+    """识别包在 HTTP 200 里的错误体（实测 z.ai 对 404 返回 200 + {"code":500,"msg":"404 NOT_FOUND","success":false}）。
+
+    命中则返回错误摘要；正常 Anthropic 响应（type=message/content_block 等）返回空串。
+    """
+    if not isinstance(data, dict):
+        return ""
+    if data.get("success") is False or (
+        isinstance(data.get("code"), int) and data.get("code") >= 400
+    ):
+        return json.dumps(data, ensure_ascii=False)[:300]
+    err = data.get("error")
+    if isinstance(err, dict) and (err.get("type") or err.get("message")):
+        return json.dumps(err, ensure_ascii=False)[:300]
+    return ""
 
 
 class AnthropicChannelError(RuntimeError):
@@ -158,20 +189,30 @@ async def chat(
     temperature: Optional[float] = None,
     timeout: float = 180.0,
     reasoning_effort: Optional[str] = None,
+    thinking: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """非流式 Anthropic 调用，返回与 chat_with_tools 同契约的 dict。
 
     返回：{"message": raw_assistant_message, "tool_calls": [{id,name,arguments}]}
+
+    thinking: 透传 Anthropic thinking 参数（如 {"type":"disabled"}）。GLM 这类模型
+    在该端点默认开思考——不显式关闭，每个工具轮先吐数千字符思考流，慢 5-10 倍。
     """
-    url = (base_url or "").rstrip("/") + "/messages"
+    url = messages_base(base_url) + "/messages"
     system, msgs = to_anthropic_messages(messages)
     payload: Dict[str, Any] = {"model": model, "messages": msgs, "max_tokens": int(max_tokens), "stream": False}
     if system:
         payload["system"] = system
-    if temperature is not None:
-        payload["temperature"] = temperature
     if tools:
         payload["tools"] = anthropic_tools(tools)
+    if isinstance(thinking, dict) and thinking:
+        payload["thinking"] = thinking
+        # Anthropic 规范：thinking enabled 时 temperature 只能为 1 或缺省，
+        # 带自定义 temperature 会被 400 拒掉（换「开思考」模型时的常见翻车点）
+        if str(thinking.get("type") or "").lower() == "enabled":
+            temperature = None
+    if temperature is not None:
+        payload["temperature"] = temperature
     headers = {
         "x-api-key": api_key,
         "anthropic-version": _ANTHROPIC_VERSION,
@@ -181,6 +222,10 @@ async def chat(
         resp = await client.post(url, headers=headers, json=payload)
         await _raise_for_status(resp, url)
         data = resp.json()
+    wrapped = _wrapped_error(data)
+    if wrapped:
+        # 个别上游把错误包在 HTTP 200 里：不拆包就会静默返回空消息
+        raise AnthropicChannelError(f"Anthropic 上游错误 @ {url}: {wrapped}")
     return _parse_nonstream(data)
 
 
@@ -226,21 +271,28 @@ async def stream(
     first_token_timeout: Optional[float] = None,
     reasoning_effort: Optional[str] = None,
     overall_timeout: Optional[float] = None,
+    thinking: Optional[dict] = None,
 ) -> AsyncGenerator[Dict[str, Any], None]:
     """流式 Anthropic 调用，yield 与 stream_agent_chat 一致的归一化事件：
       {type:reasoning,delta} / {type:content,delta} / {type:tool_calls,tool_calls:[...]}
+
+    thinking: 见 chat() 同名参数（GLM 默认思考需显式关闭）。
     """
-    url = (base_url or "").rstrip("/") + "/messages"
+    url = messages_base(base_url) + "/messages"
     system, msgs = to_anthropic_messages(messages)
     payload: Dict[str, Any] = {
         "model": model, "messages": msgs, "max_tokens": int(max_tokens), "stream": True,
     }
     if system:
         payload["system"] = system
-    if temperature is not None:
-        payload["temperature"] = temperature
     if tools:
         payload["tools"] = anthropic_tools(tools)
+    if isinstance(thinking, dict) and thinking:
+        payload["thinking"] = thinking
+        if str(thinking.get("type") or "").lower() == "enabled":
+            temperature = None
+    if temperature is not None:
+        payload["temperature"] = temperature
     headers = {
         "x-api-key": api_key,
         "anthropic-version": _ANTHROPIC_VERSION,
@@ -257,10 +309,17 @@ async def stream(
             if resp.status_code != 200:
                 await _raise_for_status(resp, url)
                 return  # 理论上不达
+            if "text/event-stream" not in (resp.headers.get("content-type") or "").lower():
+                # 上游把错误包在 HTTP 200 里（z.ai 实测 {"code":500,...}）：非 SSE 一律当错误拆包，
+                # 绝不静默走完循环返回空事件
+                body = (await resp.aread()).decode("utf-8", "replace")
+                raise AnthropicChannelError(f"Anthropic 上游错误 @ {url}: {body[:300]}")
             aiter = resp.aiter_lines()
             blocks: Dict[int, Dict[str, Any]] = {}
             # 每个 content_block 的输入 JSON 累积
             pending_tool_inputs: Dict[int, str] = {}
+            stop_reason: Optional[str] = None
+            usage: Dict[str, int] = {}
             while True:
                 try:
                     budget = guard
@@ -325,7 +384,21 @@ async def stream(
                     elif dtype == "input_json_delta":
                         pending_tool_inputs[idx] = str(pending_tool_inputs.get(idx) or "") + str(delta.get("partial_json") or "")
                     continue
-                if etype in ("content_block_stop", "message_delta", "message_stop"):
+                if etype == "message_start":
+                    u = (event.get("message") or {}).get("usage")
+                    if isinstance(u, dict):
+                        usage["input_tokens"] = int(u.get("input_tokens") or 0)
+                        usage["output_tokens"] = int(u.get("output_tokens") or 0)
+                    continue
+                if etype == "message_delta":
+                    d = event.get("delta") or {}
+                    if d.get("stop_reason"):
+                        stop_reason = str(d.get("stop_reason"))
+                    u = event.get("usage")
+                    if isinstance(u, dict) and u.get("output_tokens") is not None:
+                        usage["output_tokens"] = int(u.get("output_tokens") or 0)
+                    continue
+                if etype in ("content_block_stop", "message_stop"):
                     continue
             # 流结束：把累积的 tool_use 块转成 tool_calls 事件
             tool_calls: List[Dict[str, Any]] = []
@@ -348,3 +421,6 @@ async def stream(
                 })
             if tool_calls:
                 yield {"type": "tool_calls", "tool_calls": tool_calls}
+            # 收尾元信息（stop_reason / usage）：上层据此做「思考耗尽预算 → 正文被截」的
+            # 空回复诊断与用量统计；消费方按 type 分流，未知类型天然忽略。
+            yield {"type": "meta", "stop_reason": stop_reason, "usage": dict(usage)}

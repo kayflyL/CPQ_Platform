@@ -18,9 +18,29 @@ from app.services import skill_turn_engine
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 _POOL = [
-    {"server_model_id": 11, "id": 111, "name": "ES22V3-P", "series": "Polaris", "form": "2U"},
-    {"server_model_id": 22, "id": 222, "name": "ESA24V3-P", "series": "Polaris", "form": "2U"},
+    {"server_model_id": 11, "id": 111, "name": "ES220 V3", "series": "Polaris", "form": "2U"},
+    {"server_model_id": 22, "id": 222, "name": "ESA240 V3", "series": "Polaris", "form": "2U"},
 ]
+
+# wiring 生效配置（与 DB reasoning_node_default.model_reason.wiring 同形状）：
+# 接线唯一权威源 = DB（方案一），测试引擎按产品路径（engine.flow_configs）携带。
+_WIRING = {
+    "result_tool": "choose_model",
+    "result_selected_key": "selected",
+    "result_id_key": "model_id",
+    "result_name_key": "name",
+    "result_pool_key": "baselines_pool",
+    "pool_id_keys": ["server_model_id", "id"],
+    "pool_name_key": "name",
+    "default_reason": "AI 按需求在候选池内选定",
+    "lock_handler": "lock_baseline",
+    "progress_handler": "save_scheme_progress",
+}
+
+
+def _wire_engine() -> dict:
+    return {"ext": {}, "baselines_pool": _POOL,
+            "flow_configs": {"model_reason": {"wiring": dict(_WIRING)}}}
 
 
 def _call_select(args: dict, *, task_active: bool = True, pool=None, ext=None) -> dict:
@@ -36,13 +56,13 @@ def _call_select(args: dict, *, task_active: bool = True, pool=None, ext=None) -
 
 def test_select_model_blocked_before_task():
     """进任务前工具不可用：普通对话没有机型锁定权。"""
-    res = _call_select({"model": "ES22V3-P", "reason": "r"}, task_active=False)
+    res = _call_select({"model": "ES220 V3", "reason": "r"}, task_active=False)
     assert res.get("ok") is False
     assert res.get("error") == "task_not_active"
 
 
 def test_select_model_rejects_empty_pool():
-    res = _call_select({"model": "ES22V3-P", "reason": "r"}, pool=[])
+    res = _call_select({"model": "ES220 V3", "reason": "r"}, pool=[])
     assert res.get("ok") is False
     assert res.get("error") == "empty_pool"
 
@@ -52,13 +72,13 @@ def test_select_model_locks_pool_member_by_name_or_id():
     ext = {}
     res = _call_select({"model": "es22v3-p", "reason": "预算内最匹配"}, ext=ext)
     assert res.get("ok") is True
-    assert res["selected"]["name"] == "ES22V3-P"
+    assert res["selected"]["name"] == "ES220 V3"
     assert "server_model" not in ext, "model_reason 只写自己的产物，不回填登记表"
 
     ext2 = {}
     res2 = _call_select({"model_id": "22", "reason": "x"}, ext=ext2)
     assert res2.get("ok") is True
-    assert res2["selected"]["name"] == "ESA24V3-P"
+    assert res2["selected"]["name"] == "ESA240 V3"
     assert "server_model" not in ext2
 
 
@@ -67,7 +87,7 @@ def test_select_model_rejects_out_of_pool():
     res = _call_select({"model": "ZHAOXIN-KH-X99", "reason": "r"})
     assert res.get("ok") is False
     assert res.get("error") == "not_in_pool"
-    assert "ES22V3-P" in res.get("candidates", [])
+    assert "ES220 V3" in res.get("candidates", [])
 
 
 def test_select_model_requires_args():
@@ -108,10 +128,10 @@ def _choose(name: str, reason: str = "r") -> dict:
 
 def test_model_wire_result_locks_own_artifact_not_registration():
     """大脑经 choose_model 选定 → 落本节点产物（baseline/model_selection）并据此锁定。"""
-    res = _choose("ESA24V3-P", "双路更适合虚拟化")
-    engine = {"ext": {}, "baselines_pool": _POOL}
+    res = _choose("ESA240 V3", "双路更适合虚拟化")
+    engine = _wire_engine()
     _wire({"tool_calls_log": [{"name": "choose_model", "result": res}]}, engine)
-    assert engine["_locked_baseline"]["name"] == "ESA24V3-P"
+    assert engine["_locked_baseline"]["name"] == "ESA240 V3"
     assert engine["model_selection"]["series"] == "Polaris"
     assert engine["model_pick_reason"] == "双路更适合虚拟化"
     assert "server_model" not in engine["ext"], "选定结果写进自节点产物，不回填登记表"
@@ -119,13 +139,13 @@ def test_model_wire_result_locks_own_artifact_not_registration():
 
 def test_model_wire_result_ignores_declined_and_out_of_pool():
     """大脑不调工具 / 池外被拒 → 不落锁（引擎回退弹机型候选卡，绝不臆造机型）。"""
-    engine = {"ext": {}, "baselines_pool": _POOL}
+    engine = _wire_engine()
     _wire({"tool_calls_log": []}, engine)
     assert "_locked_baseline" not in engine
 
     bad = _choose("Not-In-Pool")
     assert bad.get("ok") is False
-    engine2 = {"ext": {}, "baselines_pool": _POOL}
+    engine2 = _wire_engine()
     _wire({"tool_calls_log": [{"name": "choose_model", "result": bad}]}, engine2)
     assert "_locked_baseline" not in engine2 and "model_pick" not in engine2
 
@@ -134,13 +154,38 @@ def test_model_wire_result_never_writes_registration_ext():
     """阶段函数 dict(ext) 复制重赋也不丢选定：落锁只看引擎产物，不依赖 ext 对象身份。"""
     from app.services import skill_chat
     stale = {"server_type": "通用计算服务器"}
-    engine = {"ext": dict(stale), "baselines_pool": _POOL}
+    engine = _wire_engine()
+    engine["ext"] = dict(stale)
     skill_tool_context.TOOL_CTX.set({"ext": stale, "task_active": True, "model_pool": _POOL,
                              "save": lambda: None})
-    res = skill_tools_model.tool_select_model({"model": "ES22V3-P", "reason": "r"})
+    res = skill_tools_model.tool_select_model({"model": "ES220 V3", "reason": "r"})
     _wire({"tool_calls_log": [{"name": "choose_model", "result": res}]}, engine)
-    assert engine["_locked_baseline"]["name"] == "ES22V3-P"
+    assert engine["_locked_baseline"]["name"] == "ES220 V3"
     assert not stale.get("server_model") and not engine["ext"].get("server_model")
+
+
+def test_model_wire_miss_pool_whitelists_as_contract_warning():
+    """三道闸之运行期：工具报成功但结果不在引擎候选池（改名漏改/池键漂移）→
+    白盒 contract_warnings 可见 + 不落锁，不再只进日志。"""
+    engine = _wire_engine()
+    ghost = {"ok": True, "selected": {"model_id": "999", "name": "GHOST-MODEL"}, "reason": "r"}
+    _wire({"tool_calls_log": [{"name": "choose_model", "result": ghost}]}, engine)
+    assert "_locked_baseline" not in engine and "model_pick" not in engine
+    warns = [w for w in (engine.get("contract_warnings") or [])
+             if isinstance(w, dict) and w.get("reason_code") == "wire_miss_pool"]
+    assert warns and "GHOST-MODEL" in warns[0]["message"]
+
+
+def test_model_wire_unregistered_lock_handler_visible_not_crash():
+    """wiring.lock_handler 引用名不在注册表 → 白盒告警 + 跳过落锁（不崩、不臆造）。"""
+    engine = _wire_engine()
+    engine["flow_configs"]["model_reason"]["wiring"]["lock_handler"] = "no_such_locker"
+    res = _choose("ES220 V3", "r")
+    _wire({"tool_calls_log": [{"name": "choose_model", "result": res}]}, engine)
+    assert "_locked_baseline" not in engine
+    warns = [w for w in (engine.get("contract_warnings") or [])
+             if isinstance(w, dict) and w.get("reason_code") == "wire_lock_unregistered"]
+    assert warns and "no_such_locker" in warns[0]["message"]
 
 
 def test_brain_attempts_retries_rejected_tool_then_settles_last_round():

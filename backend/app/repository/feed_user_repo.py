@@ -97,12 +97,21 @@ class FeedUserRepository:
         d = u.to_dict()
         d["password_hash"] = u.password_hash
         return d
+    def _name_taken(self, name: str, exclude_user_id: Optional[str] = None) -> bool:
+        stmt = select(FeedUser.user_id).where(FeedUser.name == name)
+        if exclude_user_id:
+            stmt = stmt.where(FeedUser.user_id != exclude_user_id)
+        return self.session.execute(stmt).first() is not None
+
     def create_user(self, name: str, role: str = "member", password_hash: Optional[str] = None,
                     email: Optional[str] = None) -> dict:
         """Create a user with explicit role/password (admin user management / bootstrap)."""
+        name = (name or "").strip() or "匿名"
+        if self._name_taken(name):
+            raise ValueError(f"用户 {name} 已存在")
         user = FeedUser(
             user_id=uuid.uuid4().hex,
-            name=(name or "").strip() or "匿名",
+            name=name,
             email=email,
             role=role or "member",
             password_hash=password_hash,
@@ -150,7 +159,10 @@ class FeedUserRepository:
         ).scalar_one_or_none()
         if not u:
             return False
-        u.name = (name or "").strip() or u.name
+        name = (name or "").strip() or u.name
+        if name != u.name and self._name_taken(name, exclude_user_id=user_id):
+            raise ValueError(f"用户 {name} 已存在")
+        u.name = name
         self.session.commit()
         return True
 

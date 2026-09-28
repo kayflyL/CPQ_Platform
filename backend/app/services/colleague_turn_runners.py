@@ -17,15 +17,15 @@ import time
 from typing import Any, Callable, Optional
 
 from app.services import llm_client
-from app.services.agent_react import run_react_loop
+from app.services.agent_react import run_stream_chat_loop
 from app.services.agent_tool_specs import tool_requires_approval
 from app.services.assistant_hub import assistant_hub
+from app.services.data_boundary import colleague_price_ok
+from app.services.skill_tool_context import TOOL_CTX
 from app.services.colleague_prompt import (
     _base_messages,
-    _effective_data_sources,
     _handoff_hint,
     _resolved_skills,
-    _schedule_memory_extraction,
     _short_term_history,
     _skill_for_tool,
     _skill_prompt,
@@ -44,7 +44,7 @@ from app.services.office_access import allowed_chat_role_keys
 from app.services.office_events import publish_office_event
 from app.services.office_governance import office_governance
 from app.services.office_mission import record_mission
-from app.services.skill_contracts import SKILL_SESSION_ACTIVE
+from app.services.skill_contracts import SKILL_SESSION_ACTIVE, SKILL_SESSION_DONE
 from app.services.skill_types import is_workflow_skill
 
 logger = logging.getLogger(__name__)
@@ -81,9 +81,11 @@ async def _run_plain_turn(
     final_office_event: Optional[dict],
     trace_sink: Optional[Callable[..., None]],
     user: Optional[dict] = None,
+    channel_note: str = "",
 ) -> None:
     role_key = (colleague or {}).get("role_key") or "assistant"
-    messages = _base_messages(colleague, user_text, context_summary, history, memory_block)
+    messages = _base_messages(colleague, user_text, context_summary, history, memory_block,
+                              channel_note=channel_note)
     prompt_chars = sum(len(str(m.get("content") or "")) for m in messages)
     started = time.perf_counter()
     final_text: Optional[str] = None
@@ -122,7 +124,6 @@ async def _run_plain_turn(
         await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": final_text})
         await publish_office_event(role_key, "error", "模型调用失败", message=final_text[:160], thread_id=thread_id)
 
-    _schedule_memory_extraction(colleague, _user_name(user), user_text, final_text or "")
     await publish_office_event(role_key, "done", "回复完成", message=final_text[:160], thread_id=thread_id)
     await _trace(
         trace_sink,
@@ -186,11 +187,14 @@ async def _run_tool_turn(
     user: Optional[dict] = None,
     opportunity_id: Optional[str] = None,
     option_slot: Optional[str] = None,
+    channel_note: str = "",
 ) -> None:
     role_key = (colleague or {}).get("role_key") or "assistant"
     history = _short_term_history(colleague, history)
     chat_cfg = build_chat_config(colleague)
     system_prompt = "\n\n".join([chat_cfg["chat_system_prompt"], _style_hint(chat_cfg)])
+    if channel_note:
+        system_prompt += "\n\n" + channel_note
     skill_prompt = _skill_prompt(colleague)
     if skill_prompt:
         system_prompt += "\n\n" + skill_prompt
@@ -202,22 +206,29 @@ async def _run_tool_turn(
 
     async def event_sink(payload: dict) -> None:
         sub = (payload or {}).get("sub") or {}
+        kind = sub.get("kind") or ""
         tool = sub.get("tool")
-        if (sub.get("kind") or "") == "thinking":
-            _think_text = sub.get("text") or ""
-            if _think_text:
-                await assistant_hub.broadcast(thread_id, {"type": "thinking", "text": _think_text})
-        skill = _skill_for_tool(colleague, str(tool or ""))
-        office_action = skill.get("office_action") if isinstance(skill.get("office_action"), dict) else {}
-        await publish_office_event(
-            role_key,
-            str(office_action.get("status") or "working"),
-            str(office_action.get("activity") or sub.get("text") or "正在调用工具"),
-            tool=tool,
-            thread_id=thread_id,
-            intent=str(office_action.get("intent") or ""),
-            zone=str(office_action.get("zone") or ""),
-        )
+        if kind == "thinking" and sub.get("text"):
+            await assistant_hub.broadcast(thread_id, {"type": "thinking", "text": sub["text"]})
+        elif kind == "chunk_reset":
+            await assistant_hub.broadcast(thread_id, {"type": "chunk_reset"})
+        elif kind == "chunk" and isinstance(sub.get("delta"), str):
+            await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": sub["delta"]})
+        if kind == "tool":
+            if sub.get("text"):
+                await assistant_hub.broadcast(thread_id, {"type": "chat_status", "text": str(sub["text"])})
+            # 办公事件只在工具粒度发（publish 会落库，chunk/thinking 粒度会每 token 一条）
+            skill = _skill_for_tool(colleague, str(tool or ""))
+            office_action = skill.get("office_action") if isinstance(skill.get("office_action"), dict) else {}
+            await publish_office_event(
+                role_key,
+                str(office_action.get("status") or "working"),
+                str(office_action.get("activity") or sub.get("text") or "正在调用工具"),
+                tool=tool,
+                thread_id=thread_id,
+                intent=str(office_action.get("intent") or ""),
+                zone=str(office_action.get("zone") or ""),
+            )
 
     async def governance_guard(name: str, args: dict, result: Any) -> Any:
         if not tool_requires_approval(name):
@@ -324,37 +335,53 @@ async def _run_tool_turn(
         )
         return
 
+    # 记忆工具恒挂：写入者=正在对话的同事（role_key 已在 TOOL_CTX），不在同事工具白名单也可用
+    tools_with_memory = list(dict.fromkeys(list(allowed_tool_ids) + ["colleague_memory"]))
     profile = build_chat_config(colleague).get("response_profile") or {}
     profile_temperature = profile.get("temperature")
     profile_max_tokens = profile.get("max_tokens")
-    result = await run_react_loop(
-        user_text,
-        {"enabled_tools": allowed_tool_ids},
-        extra_context=context_summary or "",
-        system_prompt=system_prompt,
-        allowed_tool_ids=allowed_tool_ids,
-        allowed_data_sources=_effective_data_sources(colleague, allowed_tool_ids),
-        model=(colleague or {}).get("model_override") or None,
-        event_sink=event_sink,
-        history=history,
-        tool_guard=governance_guard,
-        llm_temperature=profile_temperature if isinstance(profile_temperature, (int, float)) else None,
-        llm_max_tokens=profile_max_tokens if isinstance(profile_max_tokens, int) and profile_max_tokens > 0 else None,
-    )
+    # 流式工具循环：与技能流同一台机器（覆盖语义+看门狗+逐轮 trace），
+    # 正文 chunk 直推前端，工具粒度发办公事件；旁白→工具→答案全程可见。
+    # 工具上下文：价格可见性=price_access；不设时 handler 缺省分裂（query_data 过严/catalog_search 漏价）。
+    _ctx_token = TOOL_CTX.set({"role_key": role_key, "price_ok": colleague_price_ok(colleague),
+                               "thread_id": thread_id, "opportunity_id": opportunity_id,
+                               "user_id": str((user or {}).get("user_id") or "").strip() or None})
+    try:
+        result = await run_stream_chat_loop(
+            user_text,
+            {"enabled_tools": tools_with_memory},
+            system_prompt=system_prompt,
+            allowed_tool_ids=tools_with_memory,
+            model=(colleague or {}).get("model_override") or None,
+            event_sink=event_sink,
+            history=history,
+            tool_guard=governance_guard,
+            llm_temperature=profile_temperature if isinstance(profile_temperature, (int, float)) else None,
+            llm_max_tokens=profile_max_tokens if isinstance(profile_max_tokens, int) and profile_max_tokens > 0 else None,
+            context_block=context_summary or "",
+            llm_overall_timeout=120.0,
+            emit_chunk_reset=True,
+        )
+    finally:
+        TOOL_CTX.reset(_ctx_token)
     if result.get("ok") and str(result.get("answer") or "").strip():
         final_text = str(result["answer"]).strip()
         trace_status = "ok"
         trace_error = None
     else:
         await publish_office_event(role_key, "thinking", "工具流程未收敛，切换普通对话", thread_id=thread_id)
+        # 降级纯文本时必须告诉模型本轮没拿到任何工具数据——否则它会把没发生的
+        # 查询演成「查询结果：N 个」（实测编造 1/3 个商机的根因）。
+        fact = "[系统事实：本轮工具查询未收敛，未获得任何数据]"
+        await assistant_hub.broadcast(thread_id, {"type": "chunk_reset"})
         await _run_plain_turn(
-            thread_id, user_text, context_summary, history, colleague, memory_block,
+            thread_id, user_text,
+            "\n".join(x for x in (context_summary, fact) if x),
+            history, colleague, memory_block,
             final_office_event=final_office_event, trace_sink=trace_sink, user=user,
         )
         return
 
-    await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": final_text})
-    _schedule_memory_extraction(colleague, _user_name(user), user_text, final_text)
     await publish_office_event(role_key, "done", "回复完成", message=final_text[:160], thread_id=thread_id)
     await _trace(
         trace_sink,
@@ -375,8 +402,12 @@ async def _run_tool_turn(
 # ── Skill 对话路径（两器官架构）：角色=对话脑（skill_chat），引擎=纯执行 ──────────
 
 def _skill_chat_memory_active(thread_id: str, role_key: str) -> bool:
-    from app.services.skill_memory import _load_mem
-    return bool(_load_mem(thread_id, role_key))
+    from app.services.skill_memory import _load_mem, SKILL_SESSION_KEY
+    mem = _load_mem(thread_id, role_key)
+    # 只认「无 skill_session 字段」的存量记忆（分支注释的本意）：有会话记录的线程按
+    # 会话相位分派（ACTIVE→续跑分支 / DONE→launcher 或普通聊天），不能再落回固定
+    # 需求分析的旧分支——否则任何带会话残留的记忆都会把消息劫持进错误的流。
+    return bool(mem) and not isinstance(mem.get(SKILL_SESSION_KEY), dict)
 
 
 async def _run_skill_chat(thread_id, user_text, context_summary, history, colleague, memory_block,
@@ -424,6 +455,8 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
         kind = (sub.get("kind") or "")
         if kind == "thinking" and sub.get("text"):
             await assistant_hub.broadcast(thread_id, {"type": "thinking", "text": sub.get("text")})
+        elif kind == "chunk_reset":
+            await assistant_hub.broadcast(thread_id, {"type": "chunk_reset"})
         elif kind == "chunk" and isinstance(sub.get("delta"), str):
             # v2 流式对话：正文增量直推（前端 streamingText 逐字增长），落库文本与之严格一致
             await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": sub.get("delta")})
@@ -438,6 +471,8 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
     await publish_office_event(role_key, "working", "接收新任务", message=user_text or "", thread_id=thread_id)
 
     phase_hint = _skill_phase_hint(skill_manifest, session_phase)
+    skill_key = str((skill_manifest or {}).get("skill_key") or "requirement_analysis")
+    skill_name = str((skill_manifest or {}).get("name") or "需求分析")
 
     try:
         # 整轮硬超时护栏：中转半死连接（只挂不断）会绕过 LLM 客户端超时，把回合拖到无限。
@@ -451,7 +486,7 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
             opportunity_id=opportunity_id, option_slot=option_slot,
             event_sink=event_sink, emit_input_card=emit_input_card,
             card_selections=card_selections, force_submit=force_submit,
-            skill_phase_hint=phase_hint, write_mode=write_mode,
+            skill_phase_hint=phase_hint, write_mode=write_mode, skill_key=skill_key,
         ))
         _turn_done, _turn_pending = await asyncio.wait({_turn_task}, timeout=920.0)
         if _turn_pending:
@@ -470,7 +505,10 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
 
     if kind in ("done", "gaps"):
         session = load_skill_session(thread_id, role_key)
-        session["phase"] = SKILL_SESSION_ACTIVE
+        # done=方案已交付 → 会话收口（2026-09-13）：此后消息归普通聊天，
+        # 不再每条都重新进引擎（曾致「交付后闲聊仍按流程应答 + 任务胶囊复活钉死在最后一步」）。
+        # gaps=缺口暂停等用户补充，会话保持 ACTIVE 续跑。
+        session["phase"] = SKILL_SESSION_ACTIVE if kind == "gaps" else SKILL_SESSION_DONE
         if isinstance(skill_manifest, dict):
             session["skill_key"] = str(skill_manifest.get("skill_key") or session.get("skill_key") or "requirement_analysis")
         save_skill_session(thread_id, role_key, session)
@@ -500,7 +538,7 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
                 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
                 _repo = ReasoningFlowRepository()
                 try:
-                    _flow = _repo.ensure_skill_flow("requirement_analysis", name="需求分析")
+                    _flow = _repo.ensure_skill_flow(skill_key, name=skill_name)
                 finally:
                     _repo.close()
                 hint = str(((_flow or {}).get("node_configs") or {}).get("output", {})
@@ -531,6 +569,48 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
 
     if kind == "done":
         engine_ctx = outcome.get("engine_ctx") or {}
+        # data_answer 型交付（趋势分析等）：大脑答复本身就是结论，直接落对话；
+        # 不走 _final_report 二次 LLM 汇总（只会丢数据细节），也不发 BOM 卡
+        if str(engine_ctx.get("output_kind") or "") == "data_answer":
+            _payload = engine_ctx.get("output_payload") or {}
+            answer = str(_payload.get("answer") or "").strip() or reply
+            # 输出节点 artifacts 渲染出的文件产物（PDF 报告等）：文本结论之后逐个落文件卡
+            files = [f for f in (_payload.get("files") or [])
+                     if isinstance(f, dict) and str(f.get("url") or "").strip()]
+            fill_nar = str(outcome.get("narration") or "").strip()
+            if fill_nar and fill_nar != gap_narration_persisted["text"]:
+                await _persist_and_broadcast(thread_id, colleague, fill_nar)
+            if answer:
+                await _persist_and_broadcast(thread_id, colleague, answer)
+            for f in files:
+                file_asst = _add_assistant_message(thread_id, colleague, "", kind="file",
+                                                   data=json.dumps(f, ensure_ascii=False))
+                await raw_broadcast({"type": "done", "message": file_asst})
+            await raw_broadcast({"type": "analysis_finished"})
+            await raw_broadcast({"type": "turn_finished"})
+            try:
+                artifacts = [{"type": "data_answer", "title": "数据结论",
+                              "content": answer[:500], "data": {"answer": answer}}]
+                for f in files:
+                    artifacts.append({"type": "pdf_report", "title": str(f.get("title") or "PDF 报告"),
+                                      "url": str(f.get("url") or ""), "filename": str(f.get("filename") or ""),
+                                      "content": answer[:200]})
+                record_mission(
+                    f"{skill_key}：{user_text[:80]}" if user_text else skill_key,
+                    created_by=(user or {}).get("name") or (user or {}).get("user_id") or "user",
+                    owner_role_key=role_key, opportunity_id=opportunity_id or "",
+                    flow_node="conversation_reply", skill_key=skill_key,
+                    artifacts=artifacts,
+                    status="done",
+                )
+            except Exception:
+                logger.exception("record AI office mission artifact failed")
+            _office_msg = (f"已生成报告文件（{len(files)} 份）。" if files else "") + answer[:160]
+            await publish_office_event(role_key, "done", f"{skill_name}完成", message=_office_msg, thread_id=thread_id)
+            await _trace(trace_sink, tool_name="skill_chat", status="ok",
+                         duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
+                         node_type="skill_chat", role_key=role_key)
+            return
         # 登记回合旁白留痕（不消失）；大脑提问卡路径已随卡前置落库同一份旁白，去重防双写
         fill_nar = str(outcome.get("narration") or "").strip()
         if fill_nar and fill_nar != gap_narration_persisted["text"]:
@@ -548,7 +628,7 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
         await assistant_hub.broadcast(thread_id, {"type": "chat_status", "text": "正在汇总分析结果…"})
         report = await _final_report(engine_ctx)
         result_msg = (report + "\n\n✅ 已生成 BOM 方案草稿（" + str(config_count) + " 个配置页签），点击下方卡片查看。") if report \
-            else "✅ 需求分析完成，已生成 BOM 方案草稿（" + str(config_count) + " 个配置页签）。"
+            else "✅ " + skill_name + "完成，已生成 BOM 方案草稿（" + str(config_count) + " 个配置页签）。"
         result_data = {"bom_scheme": bom_entity or payload.get("bom_scheme"), "entity_type": "bom_scheme",
                        "opportunity_id": opportunity_id or "", "target": "bom_scheme"}
         result_asst = _add_assistant_message(thread_id, colleague, result_msg, kind="business_artifact",
@@ -562,10 +642,10 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
         await raw_broadcast({"type": "turn_finished"})
         try:
             record_mission(
-                f"requirement_analysis：{user_text[:80]}" if user_text else "requirement_analysis",
+                f"{skill_key}：{user_text[:80]}" if user_text else skill_key,
                 created_by=(user or {}).get("name") or (user or {}).get("user_id") or "user",
                 owner_role_key=role_key, opportunity_id=opportunity_id or "",
-                flow_node="bom_scheme", skill_key="requirement_analysis",
+                flow_node="bom_scheme", skill_key=skill_key,
                 artifacts=[{"type": "bom_scheme_draft", "title": "方案 / BOM 草稿",
                             "content": f"已生成 {config_count} 个配置页签，点击查看或转成本核算。",
                             "data": result_data}],
@@ -573,18 +653,17 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
             )
         except Exception:
             logger.exception("record AI office mission artifact failed")
-        _schedule_memory_extraction(colleague, _user_name(user), user_text, result_msg)
-        await publish_office_event(role_key, "done", "需求分析完成", message=result_msg[:160], thread_id=thread_id)
+        await publish_office_event(role_key, "done", f"{skill_name}完成", message=result_msg[:160], thread_id=thread_id)
         await _trace(trace_sink, tool_name="skill_chat", status="ok",
                      duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
                      node_type="skill_chat", role_key=role_key)
         return
 
     if kind == "error":
-        msg = str(outcome.get("reply") or "需求分析执行失败")
+        msg = str(outcome.get("reply") or f"{skill_name}执行失败")
         await raw_broadcast({"type": "error", "message": msg})
         _add_assistant_message(thread_id, colleague, msg, kind="error")
-        await publish_office_event(role_key, "error", "需求分析失败", thread_id=thread_id)
+        await publish_office_event(role_key, "error", f"{skill_name}失败", thread_id=thread_id)
         await raw_broadcast({"type": "turn_finished"})
         return
 
@@ -611,7 +690,6 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
                      duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,
                      node_type="skill_chat", role_key=role_key)
         return
-    _schedule_memory_extraction(colleague, _user_name(user), user_text, reply)
     await publish_office_event(role_key, "done", "回复完成", message=reply[:160], thread_id=thread_id)
     await _trace(trace_sink, tool_name="skill_chat", status="ok",
                  duration_ms=int((time.perf_counter() - started) * 1000), thread_id=thread_id,

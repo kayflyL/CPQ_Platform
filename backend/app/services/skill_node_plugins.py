@@ -25,6 +25,62 @@ logger = logging.getLogger(__name__)
 # 行卡第三结局的出路文案（结构性出口：客户点名了型号、库里没有时由插座补上）
 ROW_KEEP_ORIGINAL_LABEL = "保持原需求（库里暂无此料，本行按原需求留白）"
 
+# ── 接线 handler 注册表（方案一/五）：机制实现清单，代码=唯一出处，DB 只写名字 ──
+# node config 的 wiring 段（lock_handler / progress_handler）只允许引用这里登记的名字；
+# DB 严禁存函数路径（任意 import 路径 = 代码执行面 + 与代码内部结构耦合）。
+# 新增 handler = 在这里登记一行「名字 → module:func」，抽屉 wiring 换名即生效。
+LOCK_HANDLERS: dict = {
+    "lock_baseline": "app.services.skill_phases:_lock_baseline",
+}
+PROGRESS_HANDLERS: dict = {
+    "save_scheme_progress": "app.services.portal_flow_adapter:save_scheme_progress_from_ctx",
+}
+
+
+def _handler_func(registry: dict, name: str):
+    """handler 引用名 → 函数（module:func 懒加载，规避模块环）；未登记返回 None。"""
+    path = (registry or {}).get(str(name or "").strip())
+    if not path:
+        return None
+    import importlib
+    mod_name, _, func_name = path.partition(":")
+    return getattr(importlib.import_module(mod_name), func_name)
+
+
+def node_wiring(node_key: str, engine: dict) -> dict:
+    """节点生效 wiring 段（engine.flow_configs 里该节点的 wiring 声明；缺省 = 不接线）。"""
+    cfg = (engine.get("flow_configs") or {}).get(node_key)
+    w = cfg.get("wiring") if isinstance(cfg, dict) else None
+    return w if isinstance(w, dict) else {}
+
+
+def wiring_contract_errors(node_key: str, cfg: dict) -> list:
+    """wiring 段契约校验（方案五三道闸共用：保存期 400 / 启动期告警）。
+
+    校验项：result_tool 必须是注册工具且 ∈ 该节点生效工具集（机制保底后）；
+    lock_handler / progress_handler 必须在代码注册表里登记过。
+    返回错误文案清单（空 = 通过）。
+    """
+    errors: list = []
+    w = cfg.get("wiring") if isinstance(cfg, dict) else None
+    if not isinstance(w, dict) or not w:
+        return errors
+    from app.services.agent_tool_specs import registered_tool_ids
+    from app.services.skill_plan_runtime import effective_node_tools
+    tool = str(w.get("result_tool") or "").strip()
+    if tool:
+        known = set(registered_tool_ids())
+        if tool not in known:
+            errors.append(f"[{node_key}] wiring.result_tool 未注册: {tool}")
+        elif tool not in set(effective_node_tools(node_key, cfg if isinstance(cfg, dict) else {})):
+            errors.append(f"[{node_key}] wiring.result_tool 未绑定到节点工具集: {tool}")
+    for field, registry, label in (("lock_handler", LOCK_HANDLERS, "落锁"),
+                                   ("progress_handler", PROGRESS_HANDLERS, "进度")):
+        h = str((w or {}).get(field) or "").strip()
+        if h and h not in registry:
+            errors.append(f"[{node_key}] wiring.{field} 未登记（{label} handler 注册表无此名）: {h}")
+    return errors
+
 
 def _row_meta(engine: dict, row_ref: str) -> dict:
     """行引用（row_id / origin / 行键）→ 行身份；解析不到返回 {}（绝不猜文本）。"""
@@ -91,9 +147,77 @@ class DefaultNodePlugin:
         """
         return []
 
-    def wire_result(self, engine: dict, result: dict) -> None:
-        """把大脑本轮的工具结果接进引擎产物（默认什么都不接）。"""
-        return None
+    def wire_result(self, engine: dict, result: dict, node_key: str = "") -> None:
+        """通用结果接线（方案一）：按节点 DB wiring 声明把工具结果接进引擎产物。
+
+        node_key 由编排壳传入（未注册节点共享同一个 DefaultNodePlugin 实例，
+        self.key 是空串，靠参数才知道给谁接线；注册插件缺省回落 self.key）。
+        wiring 字段：result_tool=接哪个工具的结果；result_selected_key/id_key/name_key=
+        结果里选中项与池内命中的字段；result_pool_key/pool_id_keys/pool_name_key=
+        候选池接地；lock_handler/progress_handler=落锁/进度 handler 引用名（代码注册表）。
+        wiring 缺省 = 本节点不接工具结果（声明式空实现）。接线唯一权威源 = DB
+        （reasoning_node_default 种子经 _merge_config 进生效配置），代码里没有
+        per-node 接线常量（_ModelNode 类属性已退役并入 DB 种子）。
+        """
+        key = str(node_key or "").strip() or self.key
+        wiring = node_wiring(key, engine)
+        tool = str(wiring.get("result_tool") or "").strip()
+        if not tool:
+            return
+        pool_key = str(wiring.get("result_pool_key") or "").strip()
+        id_key = str(wiring.get("result_id_key") or "").strip()
+        name_key = str(wiring.get("result_name_key") or "").strip()
+        skey = str(wiring.get("result_selected_key") or "").strip()
+        pool_name_key = str(wiring.get("pool_name_key") or "").strip() or name_key
+        id_keys = tuple(str(k) for k in (wiring.get("pool_id_keys") or ()) if str(k).strip()) or ("id",)
+        pool = [c for c in (engine.get(pool_key) or []) if isinstance(c, dict)]
+        for c in reversed((result or {}).get("tool_calls_log") or []):
+            if (c or {}).get("name") != tool:
+                continue
+            res = c.get("result")
+            if not isinstance(res, dict) or not res.get("ok"):
+                break
+            sel = res.get(skey) if isinstance(res.get(skey), dict) else {}
+            sid = str(sel.get(id_key) or "").strip()
+            sname = str(sel.get(name_key) or "").strip().lower()
+            hit = None
+            for cand in pool:
+                cid = next((str(cand.get(k) or "").strip() for k in id_keys
+                            if str(cand.get(k) or "").strip()), "")
+                cname = str(cand.get(pool_name_key) or "").strip()
+                if (sid and cid and cid == sid) or (sname and cname and cname.lower() == sname):
+                    hit = cand
+                    break
+            if hit is None:
+                # 三道闸之运行期：结果不在候选池 = 断收口前兆（工具改名漏改 / 池键漂移）——
+                # 升格白盒可见，不再只进日志。
+                logger.warning("%s 结果不在候选池，忽略接线 name=%s", tool, sel.get(name_key))
+                engine.setdefault("contract_warnings", []).append({
+                    "step": key, "reason_code": "wire_miss_pool",
+                    "message": f"工具 {tool} 的结果「{sel.get(name_key) or sid or '?'}」"
+                               f"不在候选池 {pool_key}，本轮未接线"})
+                break
+            reason = (str(res.get("reason") or "").strip()
+                      or str(wiring.get("default_reason") or "").strip()
+                      or "AI 按需求在候选池内选定")
+            lock_fn = _handler_func(LOCK_HANDLERS, wiring.get("lock_handler"))
+            if lock_fn is None:
+                logger.error("wiring.lock_handler 未登记: %r（跳过落锁）", wiring.get("lock_handler"))
+                engine.setdefault("contract_warnings", []).append({
+                    "step": key, "reason_code": "wire_lock_unregistered",
+                    "message": f"wiring.lock_handler 未登记: {wiring.get('lock_handler') or '（空）'}，结果未落锁"})
+                break
+            engine["model_pick"] = {id_key: sid, name_key: str(hit.get(pool_name_key) or "")}
+            engine["model_pick_reason"] = reason
+            lock_fn(engine, hit, reason)
+            # B3：机型一锁就把当前进度原地写回该商机的方案配置草稿（L6 段先落，配件段随后补）。
+            prog_fn = _handler_func(PROGRESS_HANDLERS, wiring.get("progress_handler"))
+            if prog_fn is not None:
+                try:
+                    prog_fn(engine, str(engine.get("operator_name") or ""))
+                except Exception:
+                    logger.exception("写方案配置草稿失败 opp=%s", engine.get("opportunity_id"))
+            break
 
     def artifact_contract(self, node_cfg: dict) -> str:
         """该节点产物的输出契约文本（默认取抽屉 target.artifacts 第一条；无则空串）。"""
@@ -119,30 +243,13 @@ class _FillNode(DefaultNodePlugin):
         """登记表契约走通用目标层插头解释（slot=requirement_slots），不再有 kind=form 特判。"""
         return fill_contract_brief(node_cfg)
 
-    async def prepare(self, ctx: dict, cfg: dict, broadcast=None) -> dict:
-        """步骤就绪 + 选型规则推导值（事实摆桌）：登记事实（如 CPU 行兆芯信号）命中 CRE
-        赋值型 derive 时，把空缺目录槽的推导值放进步骤提示。怎么用住在任务规则
-        （19：推断值须经客户确认；13：不既填又追问）——这里只报事实，不写指令。
-        """
-        ext = ctx.get("ext") or {}
-        hint = "步骤就绪"
-        try:
-            from app.services.plan_rule_apply import catalog_derivations_for_registration
-            derived = catalog_derivations_for_registration(ext)
-            if derived:
-                from app.services.slot_contract import slot_label
-                hint += "；选型规则推导值：" + "；".join(
-                    f"{slot_label(s)}({s})={v}" for s, v in derived) + "（推断值）"
-        except Exception:
-            logger.exception("登记阶段目录推导失败（降级：不带推导值继续）")
-        return {"ok": True, "step": self.key, "hint": hint}
-
-    def wire_result(self, engine: dict, result: dict) -> None:
+    def wire_result(self, engine: dict, result: dict, node_key: str = "") -> None:
         """登记回合结束后做语义契约后处理（工作负载/国产化等确定性补全）+ 写回需求草稿。
 
         2026-09-12 B2：登记表属主节点每轮把当轮工作副本原地写回该商机的需求草稿
         （create_or_update_requirement_draft 已保证一商机一草稿），真相因此落在真实表上；
         写模式非 draft（试运行/无商机）时持久化层直接返回 None，不落库、只出预览。
+        node_key 参数见 DefaultNodePlugin.wire_result（未注册节点共享实例靠参数辨节点）。
         """
         ext = engine.get("ext")
         if not isinstance(ext, dict):
@@ -196,7 +303,7 @@ class _FillNode(DefaultNodePlugin):
         if gaps:
             detail = "、".join(f"{g['label']}={g['value']}" for g in gaps)
             # 只报事实（哪些前提字段没有客户确认记录）。申报通道（customer_stated）与
-            # 选项卡参数（slot/value）住在工具契约里，确认时机住在任务规则 19 里。
+            # 选项卡参数（slot/value）住在工具契约里，确认时机住在任务规则 8 里。
             return {"ok": False, "hint": f"前提字段无客户确认记录：{detail}"}
         return {"ok": True}
 
@@ -206,18 +313,9 @@ class _ModelNode(DefaultNodePlugin):
 
     key = "model_reason"
     narration_key = "model_narration"
-    # 结果接线契约：把「哪个工具、结果的哪个字段、落到引擎的哪个候选池」声明在这里，
-    # wire_result 只做通用接线，不出现 choose_model / server_model_id 等业务名。
-    result_tool = "choose_model"
-    result_selected_key = "selected"
-    result_id_key = "model_id"
-    result_name_key = "name"
-    result_pool_key = "baselines_pool"
-    pool_id_keys = ("server_model_id", "id")
-    pool_name_key = "name"
-    default_reason = "AI 按需求在候选池内选定"
-    lock_func_path = "app.services.skill_phases:_lock_baseline"
-    progress_func_path = "app.services.portal_flow_adapter:save_scheme_progress_from_ctx"
+    # 结果接线契约已 DB 化（方案一）：wire_result 读节点配置 wiring 段（DefaultNodePlugin
+    # 通用实现）；种子见 skill_config_bootstrap.DEFAULT_REASONING_NODE_CONTRACT.model_reason，
+    # 换职责工具/落锁器 = 改 DB wiring 一处（保存期/启动期/运行期三道闸护住，见方案五）。
 
     async def prepare(self, ctx: dict, cfg: dict, broadcast=None) -> dict:
         key = self.key
@@ -238,46 +336,7 @@ class _ModelNode(DefaultNodePlugin):
         ctx["model_pool"] = [c for c in (engine.get("baselines_pool") or [])
                              if isinstance(c, dict)][:12]
 
-    def wire_result(self, engine: dict, result: dict) -> None:
-        """大脑 choose_model 的结果落锁：写本节点产物（baseline/model_selection），不回填登记表。"""
-        for c in reversed((result or {}).get("tool_calls_log") or []):
-            if (c or {}).get("name") != self.result_tool:
-                continue
-            res = c.get("result")
-            if not isinstance(res, dict) or not res.get("ok"):
-                break
-            sel = res.get(self.result_selected_key) if isinstance(res.get(self.result_selected_key), dict) else {}
-            sid = str(sel.get(self.result_id_key) or "").strip()
-            sname = str(sel.get(self.result_name_key) or "").strip().lower()
-            hit = None
-            for cand in (engine.get(self.result_pool_key) or []):
-                if not isinstance(cand, dict):
-                    continue
-                cid = next((str(cand.get(k) or "").strip() for k in self.pool_id_keys
-                            if str(cand.get(k) or "").strip()), "")
-                cname = str(cand.get(self.pool_name_key) or "").strip()
-                if (sid and cid and cid == sid) or (sname and cname and cname.lower() == sname):
-                    hit = cand
-                    break
-            if hit is None:
-                logger.warning("%s 结果不在候选池，忽略落锁 name=%s", self.result_tool, sel.get(self.result_name_key))
-                break
-            import importlib
-            mod_name, _, func_name = self.lock_func_path.partition(":")
-            _lock_baseline = getattr(importlib.import_module(mod_name), func_name)
-            reason = str(res.get("reason") or "").strip() or self.default_reason
-            engine["model_pick"] = {self.result_id_key: sid,
-                                    self.result_name_key: str(hit.get(self.pool_name_key) or "")}
-            engine["model_pick_reason"] = reason
-            _lock_baseline(engine, hit, reason)
-            # B3：机型一锁就把当前进度原地写回该商机的方案配置草稿（L6 段先落，配件段随后补）。
-            try:
-                mod_name, _, func_name = self.progress_func_path.partition(":")
-                save_progress = getattr(importlib.import_module(mod_name), func_name)
-                save_progress(engine, str(engine.get("operator_name") or ""))
-            except Exception:
-                logger.exception("写方案配置草稿失败 opp=%s", engine.get("opportunity_id"))
-            break
+    # wire_result 不再覆写：走 DefaultNodePlugin 通用接线（读 DB wiring），声明见类注释。
 
     def delivery_gap(self, engine: dict) -> Optional[dict]:
         """机型候选已就绪但未锁定 → 系统结构化候选卡（可点选/手输）；否则 None。"""
@@ -310,17 +369,19 @@ class _KpNode(DefaultNodePlugin):
         from app.services.skill_phases import phase_kp_reason
         await phase_kp_reason(ctx, cfg, broadcast)
         summary = dict(ctx.get("kp_summary") or {})
+        hint = (f"配件行已就绪：已落地 {summary.get('kp_count')} 行、待选型 "
+                f"{summary.get('unmatched_count')} 行"
+                + (f"、库内无料已获客户知悉 {summary.get('waived_count')} 行"
+                   if summary.get("waived_count") else ""))
         return {"ok": True, "step": key,
                 "kp_parts": ctx.get("kp_parts") or [],
                 "landed": summary.get("kp_count") or 0,
                 "unmatched": summary.get("unmatched_count") or 0,
-                "hint": (f"配件行已就绪：已落地 {summary.get('kp_count')} 行、待选型 "
-                         f"{summary.get('unmatched_count')} 行"
-                         + (f"、库内无料已获客户知悉 {summary.get('waived_count')} 行"
-                            if summary.get("waived_count") else ""))}
+                "hint": hint}
 
     def bridge_ctx(self, engine: dict, ctx: dict) -> None:
         ctx["kp_series"] = str(((engine.get("_locked_baseline") or {}).get("series")) or "")
+        ctx["kp_baseline_caps"] = self._baseline_caps(engine)
         from app.services.part_selector import (kp_row_key, kp_row_id, kp_registered_specified,
                                                pick_for_row, pick_is_stale)
         from app.services.skill_node_state import (KP_ROW_IDS, KP_PICKS, KP_RECOMMEND, kp_state,
@@ -417,6 +478,29 @@ class _KpNode(DefaultNodePlugin):
         except (TypeError, ValueError):
             return 1
 
+    def _qty_bounds(self, engine: dict, category: str, row_qty: int) -> tuple:
+        """行卡数量 (qty, qty_max)：默认量 = 行申报量；上限 = 锁定机型该类目的物理边界
+        （GPU 位/内存槽/盘位/CPU 路），机型未登记或类目无边界（网卡/RAID）退宽上限 24。
+        上限永远 ≥ 申报量——客户登记的数量不能被上限挤掉，只能往上加到物理边界。"""
+        from app.services.skill_phases import baseline_qty_cap
+        qty = max(1, int(row_qty or 1))
+        cap = baseline_qty_cap(category, engine.get("_locked_baseline") or {})
+        return qty, (max(cap, qty) if cap > 0 else max(qty, 24))
+
+    def _baseline_caps(self, engine: dict) -> dict:
+        """锁定机型扩展能力（目录事实）：随 pick_meta 留底给点击数量收口 clamp，
+        也摆上大脑的桌（推荐数量时的物理上限）。未登记的能力不编数、直接缺省。"""
+        b = engine.get("_locked_baseline") or {}
+        caps: dict = {}
+        for k in ("gpu_slots", "max_dimm", "max_cpu", "bays"):
+            try:
+                v = int(b.get(k) or 0)
+            except (TypeError, ValueError):
+                v = 0
+            if v > 0:
+                caps[k] = v
+        return caps
+
     def _row_pick_options(self, engine: dict, row_key: str, qty: int) -> list:
         """该行**库内候选** → 卡选项（数据驱动）。
 
@@ -431,6 +515,7 @@ class _KpNode(DefaultNodePlugin):
         from app.services.data_tools import part_recall
         q = part_recall(cat, desc=desc, series=_series_of(engine), limit=8,
                         price_ok=bool(engine.get("price_access")))
+        qty, qty_max = self._qty_bounds(engine, cat, qty)
         opts: list = []
         for c in ((q.get("rows") or []) if q.get("ok") else [])[:8]:
             if not isinstance(c, dict) or not str(c.get("name") or "").strip():
@@ -442,7 +527,7 @@ class _KpNode(DefaultNodePlugin):
                 pick["price"] = c.get("price")
             brief = " · ".join(f"{k}:{v}" for k, v in (c.get("specs") or {}).items())[:80]
             opts.append({"label": name, "value": name, "pick": pick, "description": brief,
-                         "desc": brief, "qty": qty, "qty_max": max(qty, 24),
+                         "desc": brief, "qty": qty, "qty_max": qty_max,
                          "group": "配件库候选"})
         return opts
 
@@ -484,6 +569,15 @@ class _KpNode(DefaultNodePlugin):
         大脑自己给了可用选项就不抢，只补它漏掉的「保持原需求」。
         """
         if not _row_meta(engine, row_key):
+            brain_opts = [o for o in ((ask or {}).get("options") or []) if isinstance(o, dict)]
+            if not row_key and any(o.get("pick_all") for o in brain_opts):
+                # 整体落定卡常驻自选入口：P2 批量流收口后快乐路上不再出现行卡，客户
+                # 自选料号/调数量的通道不能跟着消失。无信号选项＝点击即口头回答
+                # （skill_chat ask_answers），大脑按左栏规则 7 逐行 ask_user(row=…)
+                # 发行卡，前端自选下拉+数量即回归。
+                label = "我自己逐项挑（自选料号/数量）"
+                return [{"label": label, "value": label, "group": "",
+                         "description": "对每类配件自己从配件库挑料号、自己定数量"}]
             return []
         brain_opts = [o for o in ((ask or {}).get("options") or []) if isinstance(o, dict)]
         usable = any(o.get("pick") or o.get("absent") or o.get("waived") for o in brain_opts)
@@ -495,7 +589,12 @@ class _KpNode(DefaultNodePlugin):
         return out
 
     def enrich_ask_gap(self, engine: dict, gap: dict, ask: dict) -> dict:
-        """行级选件卡：大脑对某条登记行提问时，把该行绑进卡（选项可带 pick 直接落地）。"""
+        """行级选件卡：大脑对某条登记行提问时，把该行绑进卡（选项可带 pick 直接落地）。
+
+        数量步进的数据也在这里收口：大脑给的选项常只带型号不带数量（2026-09-14
+        实测「能选料不能调数量」），前端步进器只认选项上的 qty/qty_max——插座对
+        全卡选项结构性补默认量（=行申报量）与上限（=机型物理边界），大脑显式给的
+        数量不覆盖（setdefault）。"""
         row = str((ask or {}).get("row") or "").strip()
         meta = _row_meta(engine, row) if row else {}
         if meta:
@@ -507,10 +606,19 @@ class _KpNode(DefaultNodePlugin):
             cat, spec = cat.strip(), spec.strip()
         else:
             return gap
+        row_qty = self._row_qty(engine, row)
+        qty, qty_max = self._qty_bounds(engine, cat, row_qty)
+        for o in (gap.get("options") or []):
+            if isinstance(o, dict):
+                o.setdefault("qty", qty)
+                o.setdefault("qty_max", qty_max)
         gap["parts_card"] = True
         gap["row"] = row
+        gap["qty"], gap["qty_max"] = qty, qty_max
         gap["pick_meta"] = {"row": row, "category": cat.strip(), "request_spec": spec.strip(),
                             "series": str(((engine.get("_locked_baseline") or {}).get("series")) or ""),
+                            "row_qty": row_qty,
+                            **self._baseline_caps(engine),
                             "pool": [], "pool_source": "brain_ask"}
         return gap
 
@@ -534,6 +642,7 @@ class _KpNode(DefaultNodePlugin):
         # 卡一律按行身份绑行（P3-3）：身份未铸造（旧线程）才退回复合行键
         ref = str((_row_meta(engine, row_key) or {}).get("row_id") or "").strip() or row_key
         row_qty = self._row_qty(engine, ref)
+        qty, qty_max = self._qty_bounds(engine, cat, row_qty)
         opts = (self._row_pick_options(engine, ref, row_qty)
                 + self._waived_options(engine, ref))
         if not opts:
@@ -549,10 +658,11 @@ class _KpNode(DefaultNodePlugin):
             o.setdefault("slot", "kp_row")
         return {"slot": "kp_row", "reason_code": "kp_pick", "question": "",
                 "row": ref, "parts_card": True,
-                "qty": row_qty, "qty_max": max(row_qty, 24),
+                "qty": qty, "qty_max": qty_max,
                 "pick_meta": {"row": ref, "category": cat, "request_spec": desc,
                               "row_qty": row_qty,
-                              "series": str(((engine.get("_locked_baseline") or {}).get("series")) or "")},
+                              "series": str(((engine.get("_locked_baseline") or {}).get("series")) or ""),
+                              **self._baseline_caps(engine)},
                 "options": opts}
 
     async def validate(self, ctx: dict) -> dict:

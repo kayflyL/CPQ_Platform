@@ -304,11 +304,11 @@ def test_lock_baseline_records_own_artifact_not_registration():
     不回填登记表 ext.server_model；跨轮持久化走 mem.locked_baseline。"""
     from app.services.skill_phases import _lock_baseline
     ctx = {"ext": {}}
-    baseline = {"server_model_id": 1, "id": 1, "name": "ZS22V2-P",
+    baseline = {"server_model_id": 1, "id": 1, "name": "ZS220 V2",
                 "server_type_name": "通用计算服务器", "series": "Polaris", "form": "2U"}
     _lock_baseline(ctx, baseline, "目录唯一命中")
     assert ctx.get("_locked_baseline") is baseline
-    assert ctx["baselines"][0]["name"] == "ZS22V2-P"
-    assert ctx["model_selection"]["name"] == "ZS22V2-P"
+    assert ctx["baselines"][0]["name"] == "ZS220 V2"
+    assert ctx["model_selection"]["name"] == "ZS220 V2"
     assert str((ctx.get("ext") or {}).get("server_model") or "").strip() == ""
 

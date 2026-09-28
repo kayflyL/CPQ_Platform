@@ -21,15 +21,29 @@
         <span class="connection-pill" :class="{ online: connected }">
           <i></i>{{ connected ? 'LIVE' : 'OFFLINE' }}
         </span>
-        <a-button v-if="canManageOffice" type="primary" @click="manageOpen = true">
+        <!-- 手机端任务入口提到顶栏：拇指区只留头像行，场景不再为按钮留空带，也不会被底栏遮挡 -->
+        <button v-if="isMobile" type="button" class="of-taskbtn" @click="tasksOpen = true">
+          <UnorderedListOutlined />任务
+          <span v-if="runningMissionCount" class="of-taskn">{{ runningMissionCount }}</span>
+        </button>
+        <a-button v-if="canOpenOfficeManagement && !isMobile" type="primary" @click="manageOpen = true">
           <template #icon><SettingOutlined /></template>
           Manage Teams
         </a-button>
-        <a-button @click="governanceOpen = true">治理审批</a-button>
+        <a-button v-if="!isMobile" @click="governanceOpen = true">日志审批</a-button>
+        <a-dropdown v-if="isMobile" :trigger="['click']" placement="bottomRight">
+          <button type="button" class="of-more"><EllipsisOutlined /></button>
+          <template #overlay>
+            <a-menu @click="onMobileMoreMenu">
+              <a-menu-item v-if="canOpenOfficeManagement" key="manage"><SettingOutlined /> Manage Teams</a-menu-item>
+              <a-menu-item key="gov">日志审批</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
       </div>
     </header>
 
-    <div class="office-workspace">
+    <div v-if="!isMobile" class="office-workspace">
       <aside class="office-sidebar">
         <section class="sidebar-section sidebar-recent-card sidebar-mission-card">
           <div class="sidebar-section-head">
@@ -78,7 +92,6 @@
             <span v-for="(meta, status) in statusMetaEntries" :key="status">
               <i class="legend-dot" :style="{ background: meta.color || '#9aa4b2' }"></i>{{ meta.label || status }}
             </span>
-            <a-button v-if="canManageOffice" size="small" type="primary" ghost class="legend-reset-btn" @click="onResetOfficeSample">恢复样板</a-button>
           </div>
         </div>
 
@@ -90,6 +103,7 @@
           :behavior-config="behaviorConfig"
           :editable="canManageOffice"
           @select="selectColleague"
+          @open-mission="onOpenMission"
           @save-config="onSaveOfficeConfig"
         />
         <div v-if="!roomColleagues.length" class="office-empty-state">
@@ -128,6 +142,96 @@
       </aside>
     </div>
 
+    <!-- =================== 手机端：3D 全屏 + 同事头像行 =================== -->
+    <template v-if="isMobile">
+      <div class="m-stage">
+        <Office3DCanvas
+          :colleagues="roomColleagues"
+          :status-map="statusMap"
+          :selected-role-key="selectedRoleKey"
+          :office-config="officeConfig"
+          :behavior-config="behaviorConfig"
+          :editable="false"
+          @select="selectColleague"
+          @open-mission="onOpenMission"
+        />
+        <div class="m-legend">
+          <span v-for="(meta, status) in statusMetaEntries" :key="status">
+            <i :style="{ background: meta.color || '#9aa4b2' }"></i>{{ meta.label || status }}
+          </span>
+        </div>
+        <div v-if="!roomColleagues.length" class="m-empty">暂无 AI 同事，请在 Manage Teams 中添加或切换团队。</div>
+      </div>
+
+      <div class="m-peoplebar">
+        <div class="m-people-row">
+          <button
+            v-for="c in roomColleagues"
+            :key="c.role_key"
+            type="button"
+            class="m-pav"
+            :class="{ 'is-active': selectedRoleKey === c.role_key }"
+            @click="openChatMobile(c.role_key)"
+          >
+            <span class="m-av" :style="{ background: deskColor(c) }">
+              <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
+              <span v-else>{{ avatarInitial(c.name) }}</span>
+            </span>
+            <span class="m-nm">{{ c.name || c.role_key }}</span>
+            <span class="m-st" :style="{ background: avatarDotColor(c) }"></span>
+          </button>
+          <span v-if="!roomColleagues.length" class="m-people-empty">暂无同事</span>
+        </div>
+      </div>
+
+      <!-- 全屏聊天层：点同事从底部升起 -->
+      <Transition name="m-chatup">
+        <div v-if="chatLayerOpen && selectedColleague" class="m-chatlayer">
+          <div class="m-cl-head">
+            <span class="m-cl-av" :style="{ background: deskColor(selectedColleague) }">
+              <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
+              <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
+            </span>
+            <div class="m-cl-tt">
+              <div class="m-cl-n">{{ selectedColleague.name || selectedColleague.role_key }}</div>
+              <div class="m-cl-r">
+                <i :style="{ background: avatarDotColor(selectedColleague) }"></i>{{ statusText(selectedStatus.status) }}
+                <template v-if="selectedStatus.activity"> · {{ selectedStatus.activity }}</template>
+              </div>
+            </div>
+            <button class="pd-x" type="button" @click="chatLayerOpen = false">✕</button>
+          </div>
+          <div class="m-cl-body">
+            <OfficeColleagueChatPanel
+              :colleague="selectedColleague"
+              :context="officeChatContext"
+              :context-summary="officeContextSummary"
+              default-expanded
+            />
+          </div>
+        </div>
+      </Transition>
+
+      <!-- 任务看板全屏层（TaskBoard 复用；甘特/清单 min-width 960，全屏 + 双向滚动） -->
+      <Transition name="m-chatup">
+        <div v-if="tasksOpen" class="m-tasklayer">
+          <div class="m-taskscroll">
+            <TaskBoard
+              :missions="missions"
+              :colleagues="colleagues"
+              :behavior-config="behaviorConfig"
+              :loading="missionLoading"
+              :focus-mission-id="missionFocus?.missionId || null"
+              :focus-role-key="missionFocus?.roleKey || null"
+              @close="closeTasksBoard"
+              @refresh="loadMissions"
+              @changed="loadMissions"
+            />
+          </div>
+        </div>
+      </Transition>
+    </template>
+
     <Teleport to="body">
       <Transition name="office-fade">
         <div v-if="manageOpen" class="manager-backdrop manager-backdrop--full" @click.self="manageOpen = false">
@@ -153,23 +257,25 @@
         <div v-if="governanceOpen" class="manager-backdrop" @click.self="governanceOpen = false">
           <section class="manager-shell gov-shell">
             <header class="gov-shell-head">
-              <span>治理与审批</span>
+              <span>日志与审批</span>
               <a-button type="text" @click="governanceOpen = false">关闭</a-button>
             </header>
-            <GovernancePanel />
+            <GovernancePanel :colleagues="colleagues" />
           </section>
         </div>
       </Transition>
 
       <Transition name="office-fade">
-        <div v-if="missionPanelOpen" class="manager-backdrop mission-backdrop" @click.self="missionPanelOpen = false">
+        <div v-if="missionPanelOpen" class="manager-backdrop mission-backdrop" @click.self="closeTasksBoard">
           <section class="manager-shell mission-command-shell">
             <TaskBoard
               :missions="missions"
               :colleagues="colleagues"
               :behavior-config="behaviorConfig"
               :loading="missionLoading"
-              @close="missionPanelOpen = false"
+              :focus-mission-id="missionFocus?.missionId || null"
+              :focus-role-key="missionFocus?.roleKey || null"
+              @close="closeTasksBoard"
               @refresh="loadMissions"
               @changed="loadMissions"
             />
@@ -185,7 +291,7 @@
 import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { DownOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
@@ -220,6 +326,8 @@ let missionPollTimer: ReturnType<typeof setInterval> | null = null
 
 const auth = useAuthStore()
 const canManageOffice = computed(() => auth.can('ai.office.manage'))
+// 管理面任一段可见即可打开（只授 ai.office.admin 的账号也要能进「模型与接入/运行与权限」）
+const canOpenOfficeManagement = computed(() => auth.can('ai.office.manage') || auth.can('ai.office.admin'))
 const route = useRoute()
 const { summarize: summarizeAssistantContext } = useAssistantContext()
 const officeContextSummary = ref('')
@@ -263,6 +371,38 @@ watch(
   },
   { immediate: true },
 )
+
+// ── 手机端（≤860）：3D 全屏 + 底部同事头像行 + 任务左抽屉 + 全屏聊天层 ──
+const isMobile = ref(false)
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const tasksOpen = ref(false)
+const chatLayerOpen = ref(false)
+// 点 3D 显示器带入的任务板聚焦：{ missionId }=直开详情；{ roleKey }=按同事名过滤
+const missionFocus = ref<{ missionId?: string; roleKey?: string } | null>(null)
+const runningMissionCount = computed(
+  () => missions.value.filter((m) => m.status === 'running' || m.status === 'queued').length,
+)
+// 3D 点同事与头像行殊途同归：同一 selectedRoleKey，聊天层从底部升起
+function openChatMobile(roleKey: string) {
+  selectedRoleKey.value = roleKey
+  chatLayerOpen.value = true
+}
+function onMobileMoreMenu({ key }: { key: string | number }) {
+  if (key === 'manage' && canOpenOfficeManagement.value) manageOpen.value = true
+  else if (key === 'gov') governanceOpen.value = true
+}
+function avatarDotColor(c: any) {
+  return behaviorStatusMeta(statusFor(c.role_key).status).color || '#9aa4b2'
+}
+onMounted(() => {
+  isMobile.value = window.matchMedia('(max-width: 860px)').matches
+  const mq = window.matchMedia('(max-width: 860px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 860px)').removeEventListener('change', _mqListener)
+})
 
 function avatarInitial(name?: string): string {
   const text = (name || 'AI').trim()
@@ -342,16 +482,6 @@ async function onSaveOfficeConfig(config: OfficeConfig) {
   }
 }
 
-async function onResetOfficeSample() {
-  try {
-    const res = await officeApi.resetOfficeSample()
-    officeConfig.value = normalizeOfficeConfig(res.layout?.office || {})
-    message.success('已恢复为默认精装修样板办公室')
-  } catch (error: any) {
-    message.error(error?.response?.data?.detail || '恢复样板失败')
-  }
-}
-
 function onRoomMenuClick({ key }: { key: string | number }) {
   activeRoomId.value = String(key)
 }
@@ -389,7 +519,33 @@ function startMissionPolling() {
 }
 
 function openMissionPanel() {
+  missionFocus.value = null
   missionPanelOpen.value = true
+}
+
+// 点 3D 显示器 → 任务板聚焦该同事：运行中任务直开详情 → 名下最新任务按名过滤 → 手头没任务只提示不开板
+function onOpenMission(roleKey: string) {
+  const runningId = statusFor(roleKey).mission_id
+  if (runningId && missions.value.some((m) => m.mission_id === runningId)) {
+    missionFocus.value = { missionId: runningId }
+  } else {
+    const mine = [...missions.value].reverse().find(
+      (m) => m.owner_role_key === roleKey || (m.steps || []).some((s) => s.role_key === roleKey),
+    )
+    if (!mine) {
+      message.info(`${colleagueName(roleKey)} 手头暂无任务`)
+      return
+    }
+    missionFocus.value = { roleKey }
+  }
+  if (isMobile.value) tasksOpen.value = true
+  else missionPanelOpen.value = true
+}
+
+function closeTasksBoard() {
+  missionPanelOpen.value = false
+  tasksOpen.value = false
+  missionFocus.value = null
 }
 
 async function onTeamSaved() {
@@ -452,12 +608,16 @@ onDeactivated(() => {
 </script>
 
 <style scoped>
+/* 满高工作台直接躺在共享画布上：无外层托盘包裹，三栏间 hairline 分隔
+   （3D 场景自带衬底；工具栏/列表面板透明，画布透出与全站同语言） */
 .ai-office-shell {
-  height: 100%;
+  position: relative;
+  height: calc(100% - var(--cpq-header-clearance, 0px));
+  /* 手机端让位全局底栏（桌面 inset=0 无效） */
+  padding-bottom: var(--cpq-tabbar-inset, 0px);
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: var(--cpq-bg-primary);
   color: var(--cpq-text-primary);
   overflow: hidden;
 }
@@ -471,7 +631,6 @@ onDeactivated(() => {
   gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  background: var(--cpq-bg-secondary, rgba(255,255,255,0.04));
 }
 
 .room-picker {
@@ -572,7 +731,6 @@ onDeactivated(() => {
   flex-direction: column;
   gap: 14px;
   border-right: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  background: var(--cpq-bg-secondary, rgba(255,255,255,0.04));
 }
 
 .office-sidebar::-webkit-scrollbar {
@@ -588,15 +746,15 @@ onDeactivated(() => {
   background: var(--cpq-overlay-w15, rgba(255,255,255,0.18));
 }
 
-.sidebar-section {
-  border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 14px;
-  background: var(--cpq-bg-elevated, rgba(255,255,255,0.04));
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.05);
-}
-
+/* 画布上面板卡 = 系统标准玻璃卡（与策略中心模块卡同配方） */
 .sidebar-section {
   padding: 14px;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 14px;
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
 }
 
 .sidebar-section-head {
@@ -679,10 +837,10 @@ onDeactivated(() => {
   flex-direction: column;
   gap: 2px;
   padding: 7px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--cpq-border-secondary);
   border-radius: 9px;
   color: var(--cpq-text-muted);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--cpq-overlay-w4);
   cursor: pointer;
   text-align: left;
 }
@@ -727,7 +885,7 @@ onDeactivated(() => {
   height: 30px;
   flex-shrink: 0;
   border-radius: 10px;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: inset 0 0 0 1px var(--cpq-overlay-w8);
 }
 
 .sidebar-colleague-copy {
@@ -789,7 +947,6 @@ onDeactivated(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--cpq-bg-primary);
 }
 
 .map-toolbar {
@@ -831,10 +988,6 @@ onDeactivated(() => {
   align-items: center;
   gap: 5px;
   font-size: 11px;
-}
-
-.legend-reset-btn {
-  margin-left: 10px;
 }
 
 .mission-command-bar {
@@ -947,7 +1100,6 @@ onDeactivated(() => {
   overflow-y: auto;
   padding: 16px;
   border-left: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  background: var(--cpq-bg-secondary, rgba(255,255,255,0.04));
   display: flex;
   flex-direction: column;
   gap: 14px;
@@ -1007,9 +1159,12 @@ onDeactivated(() => {
 
 .inspector-section {
   padding: 12px;
-  border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
-  background: var(--cpq-bg-elevated, rgba(255,255,255,0.03));
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 14px;
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
 }
 .inspector-chat-section {
   flex: 1;
@@ -1088,59 +1243,313 @@ onDeactivated(() => {
   opacity: 0;
 }
 
+/* ============ 手机端（≤860）：3D 全屏 + 头像行 + 聊天层 + 任务抽屉 ============ */
+.of-more {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+  background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
+  color: var(--cpq-text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+/* 手机端顶栏任务入口（原在底部头像行旁，挪顶栏后不再被遮挡） */
+.of-taskbtn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: none;
+  background: var(--cpq-accent-primary);
+  color: var(--cpq-accent-on-primary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 4px 12px var(--cpq-overlay-a40);
+}
+
+.of-taskbtn .anticon { font-size: 12px; }
+
+.of-taskn {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--cpq-accent-warning, #faad14);
+  color: #1c1408;
+  font-size: 9px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.m-stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  /* 让出左侧同事竖栏宽度 */
+  margin-left: 62px;
+}
+
+.m-legend {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 10px;
+  border-radius: 10px;
+  background: var(--cpq-glass-3-bg, var(--cpq-overlay-w5));
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+}
+
+.m-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 9.5px;
+  color: var(--cpq-text-secondary);
+}
+
+.m-legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.m-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 32px;
+  text-align: center;
+  font-size: 12.5px;
+  color: var(--cpq-text-muted);
+}
+
+.m-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+
+/* 左侧同事竖栏：复用原头像行容器，CSS 重定位到左缘竖排（改模板包裹层会触发 vue-tsc 推断塌陷，故不动模板） */
+.m-peoplebar {
+  position: absolute;
+  left: 0;
+  top: 60px;
+  bottom: var(--cpq-tabbar-inset, 0px);
+  width: 62px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 5px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  background: var(--cpq-glass-3-bg, var(--cpq-overlay-w5));
+  -webkit-backdrop-filter: blur(16px) saturate(1.3);
+  backdrop-filter: blur(16px) saturate(1.3);
+  border-right: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+}
+
+.m-peoplebar::-webkit-scrollbar { display: none; }
+
+.m-people-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.m-pav {
+  position: relative;
+  flex: none;
+  width: 42px;
+  border: none;
+  background: transparent;
+  padding: 0;
+  text-align: center;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.m-pav .m-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  overflow: hidden;
+  border: 2px solid transparent;
+  box-shadow: 0 4px 10px var(--cpq-shadow-color, rgba(31, 42, 61, 0.18));
+}
+
+.m-pav .m-av img { width: 100%; height: 100%; object-fit: cover; }
+
+.m-pav.is-active .m-av { border-color: var(--cpq-accent-primary); }
+
+.m-pav .m-nm {
+  display: block;
+  font-size: 8.5px;
+  color: var(--cpq-text-secondary);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.m-pav .m-st {
+  position: absolute;
+  top: 28px;
+  right: 6px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--cpq-glass-card-bg, #fff);
+}
+
+.m-people-empty { font-size: 11px; color: var(--cpq-text-muted); }
+
+/* 全屏聊天层 */
+.m-chatlayer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  background: var(--cpq-bg-primary);
+}
+
+.m-cl-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 15px 10px;
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+  flex: none;
+}
+
+.m-cl-av {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  flex: none;
+  overflow: hidden;
+}
+
+.m-cl-av img { width: 100%; height: 100%; object-fit: cover; }
+
+.m-cl-tt { flex: 1; min-width: 0; }
+.m-cl-n { font-size: 14.5px; font-weight: 800; }
+.m-cl-r { font-size: 10px; color: var(--cpq-text-muted); display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.m-cl-r i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+
+.m-cl-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 6px 10px 0;
+}
+
+.pd-x { width: 29px; height: 29px; border-radius: 10px; border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+  background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; flex: none; }
+
+.m-cl-body :deep(.colleague-chat) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.m-cl-body :deep(.colleague-chat .chat-messages) { flex: 1; min-height: 0; }
+
+.m-chatup-enter-active,
+.m-chatup-leave-active { transition: transform 0.3s var(--cpq-ease-smooth, ease), opacity 0.3s var(--cpq-ease-smooth, ease); }
+
+.m-chatup-enter-from,
+.m-chatup-leave-to { transform: translateY(100%); opacity: 0.6; }
+
+/* 任务全屏层：TaskBoard 甘特/清单 min-width 960 → 双向滚动；头部折行防炸 */
+.m-tasklayer {
+  position: absolute;
+  inset: 0;
+  z-index: 50;
+  background: var(--cpq-bg-primary);
+}
+
+.m-taskscroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.m-taskscroll :deep(.tc-root) {
+  height: auto;
+  min-height: 100%;
+  overflow: visible;
+}
+
+.m-taskscroll :deep(.tc-header) {
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+
+.m-taskscroll :deep(.tc-heading) {
+  flex: 1 1 100%;
+}
+
+.m-taskscroll :deep(.tc-actions) {
+  flex: 1 1 100%;
+  flex-wrap: wrap;
+}
+
+.m-taskscroll :deep(.tc-search) {
+  flex: 1 1 160px;
+  min-width: 0;
+  max-width: none;
+}
+
+.m-taskscroll :deep(.tc-nav) {
+  flex-wrap: wrap;
+}
+
 @media (max-width: 860px) {
-  .office-toolbar {
-    padding: 0 12px;
-    flex-wrap: wrap;
-    gap: 8px;
-  }
+  .office-toolbar { padding: 0 12px; gap: 8px; }
 
-  .room-picker {
-    width: 100%;
-    max-width: none;
-  }
+  .manager-backdrop { padding: 0; }
 
-  .office-actions {
-    margin-left: auto;
-  }
-
-  .connection-pill {
-    display: none;
-  }
-
-  .office-workspace {
-    flex-direction: column;
-    overflow: auto;
-  }
-
-  .office-map-panel {
-    min-height: 460px;
-  }
-
-
-  .inspector-panel {
-    width: 100%;
-    border-left: none;
-    border-top: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  }
-
-
-
-  .map-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-    height: auto;
-    padding: 10px 12px;
-    gap: 8px;
-  }
-
-  .manager-backdrop {
-    padding: 0;
-  }
-
-  .manager-shell {
-    border-radius: 0;
-    border: none;
-  }
+  .manager-shell { border-radius: 0; border: none; }
 }
 </style>

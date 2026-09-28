@@ -1,0 +1,11 @@
+{
+  "name": "A1自选入口-整体卡点自选",
+  "role_key": "support_engineer",
+  "entry_point": "skill_studio_preview",
+  "input": "帮我配台服务器，跑虚拟化用的",
+  "answers": {
+    "server_model": "@pick:Orion",
+    "brain_ask": "@pick:我自己逐项挑"
+  },
+  "max_turns": 15
+}

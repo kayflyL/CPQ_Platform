@@ -22,7 +22,7 @@ from app.services import anthropic_channel, llm_client, skill_turn_engine  # noq
 
 def _cfg(**kw) -> dict:
     base = {"enabled": True, "base_url": "http://x", "api_key": "k", "model": "qwen-plus",
-            "temperature": 0.7, "max_tokens": 1000, "capabilities_override": {}}
+            "temperature": 0.7, "max_tokens": 1000}
     base.update(kw)
     return base
 
@@ -132,6 +132,70 @@ def test_brain_attempt_passes_tightened_round_timeout():
     _result, action = asyncio.run(scenario())
     assert action == "done"
     assert seen == [60.0], "单轮上限必须下发到流式循环（否则内层仍可无限长跑）"
+
+
+def test_brain_attempt_with_answer_skips_tool_rejection_retry():
+    """大脑已产出收口正文时，日志里的历史工具拒绝不得触发整轮重开。
+
+    探索型步骤（query_data 试错→自我纠正→写报告）的失败调用是常态；一律重开会把
+    已完成的报告丢弃重生成（2026-09-16 趋势分析三份连体报告事故）。
+    """
+    calls = {"n": 0}
+
+    async def loop_with_stale_rejection(msg, **kwargs):
+        calls["n"] += 1
+        return {"answer": "数据范围：2026.01.01 ~ 2026.09.12\n\n## 一、周数据",
+                "tool_calls_log": [
+                    {"name": "query_data", "args": {"sql": "bad"},
+                     "result": {"ok": False, "error": "表不在白名单"}},
+                    {"name": "query_data", "args": {"sql": "good"},
+                     "result": {"ok": True, "rows": []}},
+                ]}
+
+    settles = []
+
+    async def settle(result):
+        settles.append(result)
+        return {"action": "done"}
+
+    async def scenario():
+        with patch.object(skill_turn_engine, "run_stream_chat_loop", loop_with_stale_rejection):
+            return await skill_turn_engine.run_brain_attempts(
+                "发起趋势分析", loop_kwargs={}, settle=settle,
+                deadline_s=420.0, max_attempts=3)
+
+    result, action = asyncio.run(scenario())
+    assert action == "done"
+    assert calls["n"] == 1, "已有正文的尝试不得因历史工具拒绝重开"
+    assert len(settles) == 1, "收口判定必须执行（产物说了算）"
+    assert "数据范围" in result["answer"]
+
+
+def test_brain_attempt_without_answer_still_feeds_rejection_back():
+    """没有收口正文 + 工具被拒：保持回喂重试（原行为，防丢掉纠错线索）。"""
+    calls = {"n": 0}
+
+    async def rejected_then_fixed(msg, **kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"answer": "", "tool_calls_log": [
+                {"name": "query_data", "args": {"sql": "bad"},
+                 "result": {"ok": False, "error": "表不在白名单"}}]}
+        return {"answer": "补好了", "tool_calls_log": []}
+
+    async def settle(result):
+        return {"action": "done"}
+
+    async def scenario():
+        with patch.object(skill_turn_engine, "run_stream_chat_loop", rejected_then_fixed):
+            return await skill_turn_engine.run_brain_attempts(
+                "客户消息", loop_kwargs={}, settle=settle,
+                deadline_s=420.0, max_attempts=3)
+
+    result, action = asyncio.run(scenario())
+    assert action == "done"
+    assert calls["n"] == 2, "无正文时工具拒绝仍要回喂重试一次"
+    assert result["answer"] == "补好了"
 
 
 def test_orphan_step_marks_visible_failure_instead_of_dead_card():

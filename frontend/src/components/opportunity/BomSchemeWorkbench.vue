@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { confirmWithReason } from './confirmWithReason'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
-import RequirementContextPanel from '@/components/opportunity/RequirementContextPanel.vue'
-import { portalApi, type BomScheme, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
-import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
+import RequirementForm from '@/components/flow/RequirementForm.vue'
+import { portalApi, type BomScheme, type FlowCard, type PortalBoard, type PortalSheetConfig, type RequirementSlots } from '@/api/portal'
 import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 
@@ -17,7 +17,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'changed'): void
   (e: 'card-updated', card: FlowCard): void
-  (e: 'open-archive', payload: { categories: string[]; title: string }): void
 }>()
 
 const oppId = computed(() => props.board.opportunity?.opportunity_id || '')
@@ -25,6 +24,26 @@ const schemes = computed(() => props.board.bom_schemes || [])
 const editable = computed(() => !props.readonly)
 const requirements = computed(() => props.board.requirements || [])
 const requirement = computed(() => props.board.requirement || props.board.requirements?.find((r) => r.status === 'current') || null)
+
+// 编辑方案弹窗左侧的需求单只读参考：与上游需求单共用 RequirementForm（含多配置 tab），
+// 打开弹窗时从 current 需求单回填；组件异步挂载晚于回填时由 reqRef watch 补灌。
+interface RequirementFormExpose {
+  toSlots(): RequirementSlots
+  fromSlots(slots: RequirementSlots): void
+  hasAnyPart: boolean
+}
+const reqRef = ref<RequirementFormExpose | null>(null)
+const reqText = ref('')
+let pendingReqSlots: RequirementSlots | null = null
+function flushPendingReqSlots() {
+  const pending = pendingReqSlots
+  if (!reqRef.value || !pending) return
+  reqRef.value.fromSlots(pending)
+  pendingReqSlots = null
+}
+watch(reqRef, (form) => {
+  if (form && pendingReqSlots) flushPendingReqSlots()
+})
 const flowCards = computed(() => props.board.flow_cards || [])
 const {
   pickerOpen, pickerTitle, pickerOptions, pickerChosen,
@@ -63,7 +82,15 @@ function editorFlowCardId() {
 }
 
 const editorOpen = ref(false)
+// 弹窗打开时灌入 current 需求单快照（左侧只读参考）
+watch(editorOpen, (open) => {
+  if (!open) return
+  pendingReqSlots = requirement.value?.slots || {}
+  reqText.value = requirement.value?.requirement_text || ''
+  nextTick(flushPendingReqSlots)
+})
 const editorSchemeId = ref<number | null>(null)
+const editorUpdatedAt = ref('')
 const editorSourceRequirementId = ref<number | null>(null)
 const editorName = ref('')
 const editorConfigs = ref<PortalSheetConfig[]>([])
@@ -117,6 +144,7 @@ function inheritRequirementRelation(req?: { version: number }) {
 function openNew() {
   if (!editable.value) return
   editorSchemeId.value = null
+  editorUpdatedAt.value = ''
   editorSourceRequirementId.value = null
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
@@ -126,9 +154,13 @@ function openNew() {
   editorOpen.value = true
 }
 
+// 卡头的「新建方案」按钮在 OpportunityProcessBoard 的节点卡头上，经 expose 远调
+defineExpose({ openNew })
+
 function openNewForRequirement(req: { version: number }) {
   if (!editable.value) return
   editorSchemeId.value = null
+  editorUpdatedAt.value = ''
   editorSourceRequirementId.value = cardFor('requirement', req.version)?.id || null
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
@@ -139,6 +171,7 @@ function openNewForRequirement(req: { version: number }) {
 
 function openScheme(scheme: BomScheme) {
   editorSchemeId.value = scheme.id
+  editorUpdatedAt.value = scheme.updated_at || ''
   editorSourceRequirementId.value = null
   editorName.value = scheme.name
   editorConfigs.value = cloneConfigs(scheme.configs)
@@ -176,6 +209,7 @@ async function saveDraft() {
   try {
     await portalApi.saveBomSchemeDraft(oppId.value, {
       scheme_id: editorSchemeId.value,
+      expected_updated_at: editorUpdatedAt.value,
       flow_card_id: editorFlowCardId(),
       name: editorName.value.trim(),
       configs,
@@ -205,6 +239,7 @@ async function submitScheme() {
   async function doSubmit(assigneeName: string) {
     const saved = await portalApi.saveBomSchemeDraft(oppId.value, {
       scheme_id: editorSchemeId.value,
+      expected_updated_at: editorUpdatedAt.value,
       flow_card_id: editorFlowCardId(),
       name: editorName.value.trim(),
       configs,
@@ -273,20 +308,15 @@ function cardForScheme(scheme: BomScheme) {
 function returnScheme(scheme: BomScheme) {
   const card = cardForScheme(scheme)
   if (!card) return
-  Modal.confirm({
+  confirmWithReason({
     title: `退回方案「${scheme.name}」？`,
-    content: '退回后这张卡会回到方案配置节点，需要重新编辑并提交。',
+    hint: '退回后这张卡会回到方案配置节点，需要重新编辑并提交。',
     okText: '退回',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        const res = await portalApi.returnCard(oppId.value, card.id)
-        message.success('方案卡已退回')
-        emit('card-updated', res.card)
-      } catch (e: any) {
-        message.error(e.response?.data?.detail || '退回失败')
-      }
+    placeholder: '请填写退回原因（必填），让对方知道需要修改什么',
+    async onOk(reason) {
+      const res = await portalApi.returnCard(oppId.value, card.id, reason)
+      message.success('方案卡已退回')
+      emit('card-updated', res.card)
     },
   })
 }
@@ -314,21 +344,9 @@ function requestWithdrawScheme(scheme: BomScheme) {
 
 <template>
   <div class="bom-workbench">
-    <header class="bw-head">
-      <div>
-        <span class="bw-eyebrow">方案配置</span>
-        <h3>BOM 方案工作区</h3>
-      </div>
-      <div class="bw-head-actions">
-        <AttachmentUploadButton :opportunity-id="oppId" category="technical" label="上传附件" />
-        <a-button size="small" @click="emit('open-archive', { categories: ['technical'], title: '方案附件' })">方案附件</a-button>
-        <a-button v-if="editable" type="primary" size="small" @click="openNew">新建方案</a-button>
-      </div>
-    </header>
-
     <RecordTable
       title="方案"
-      :empty="!schemes.length"
+      :empty="!schemes.length && !pendingRequirements.length"
       empty-text="尚无方案，点击“新建方案”开始配置。"
       :columns="[
         { label: '方案', width: '200px' },
@@ -344,12 +362,12 @@ function requestWithdrawScheme(scheme: BomScheme) {
         :key="`pending-req-${req.version}`"
       >
         <td>
-          <span class="rt-strong">待配方案 · 需求单 v{{ req.version }}</span>
+          <span class="rt-strong">需求单 v{{ req.version }}</span>
           <span class="rt-sub">来自线索登记</span>
         </td>
         <td class="rt-dim">REQ-{{ req.version }}</td>
         <td><span class="rt-badge rt-badge-current">待配方案</span></td>
-        <td class="rt-dim">提交后进入成本核算</td>
+        <td class="rt-dim">{{ req.slots?.server_model || '—' }}</td>
         <td class="rt-dim">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable" class="rt-actions">
@@ -405,7 +423,16 @@ function requestWithdrawScheme(scheme: BomScheme) {
       @cancel="editorOpen = false"
     >
       <div class="scheme-layout">
-        <RequirementContextPanel :requirement="requirement" />
+        <aside class="scheme-req-ref glass-light">
+          <div class="scheme-req-head">
+            <b>上游需求单{{ requirement ? ` v${requirement.version}` : '' }}</b>
+            <span class="scheme-req-chip">只读参考</span>
+          </div>
+          <div v-if="requirement" class="scheme-req-body">
+            <RequirementForm ref="reqRef" v-model:req-text="reqText" :readonly="true" />
+          </div>
+          <div v-else class="scheme-req-empty">暂无需求单</div>
+        </aside>
         <div class="scheme-editor">
           <div class="scheme-name">
             <span>方案名称</span>
@@ -448,32 +475,6 @@ function requestWithdrawScheme(scheme: BomScheme) {
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
-}
-.bw-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-}
-.bw-eyebrow {
-  display: block;
-  color: var(--cpq-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.bw-head h3 {
-  margin: 2px 0 0;
-  color: var(--cpq-text-primary);
-  font-size: 14px;
-}
-.bw-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 .bw-grid {
   display: grid;
@@ -531,7 +532,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
 }
 .scheme-layout {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(340px, 420px) minmax(0, 1fr);
   gap: 14px;
   align-items: start;
   width: 100%;
@@ -539,12 +540,50 @@ function requestWithdrawScheme(scheme: BomScheme) {
 .scheme-layout > * {
   min-width: 0;
 }
+.scheme-req-ref {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 230px);
+  overflow: hidden;
+}
+.scheme-req-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--cpq-border-primary);
+}
+.scheme-req-head b {
+  font-size: 14px;
+  color: var(--cpq-text-primary);
+}
+.scheme-req-chip {
+  border-radius: 999px;
+  padding: 5px 11px;
+  background: var(--cpq-overlay-success15);
+  color: var(--cpq-color-success);
+  font-size: 12px;
+  font-weight: 600;
+}
+.scheme-req-body {
+  padding: 12px 14px;
+  overflow: auto;
+  min-height: 0;
+}
+.scheme-req-empty {
+  padding: 20px 14px;
+  color: var(--cpq-text-muted);
+  font-size: 13px;
+  text-align: center;
+}
 .scheme-editor {
   display: flex;
   flex-direction: column;
   gap: 12px;
   min-width: 0;
-  overflow: hidden;
+  max-height: calc(100vh - 230px);
+  overflow: auto;
 }
 .scheme-name {
   display: flex;

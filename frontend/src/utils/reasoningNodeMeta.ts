@@ -42,7 +42,7 @@ export const REASONING_NODE_META: Record<string, ReasoningNodeMeta> = {
   agent: {
     type: 'agent', name: '智能体节点', icon: ToolOutlined, tone: 'blue',
     desc: '由 LLM 决策并调用工具完成一个子任务',
-    sources: ['工具目录', '数据来源'],
+    sources: ['工具目录'],
   },
   input: {
     type: 'input', name: '输入节点', icon: FileTextOutlined, tone: 'gray',

@@ -102,13 +102,13 @@ def test_fill_node_validate_is_the_required_field_gate():
 def test_model_node_validate_needs_a_locked_baseline():
     plugin = plugin_for("model_reason")
     assert _run(plugin.validate({}))["ok"] is False
-    assert _run(plugin.validate({"ext": {"server_model": "ZS22V2-P"}}))["ok"] is True
+    assert _run(plugin.validate({"ext": {"server_model": "ZS220 V2"}}))["ok"] is True
 
 
 def test_compose_node_validate_needs_plans():
     plugin = plugin_for("compose")
     assert _run(plugin.validate({}))["ok"] is False
-    assert _run(plugin.validate({"plans": [{"model": "ZS22V2-P"}]}))["ok"] is True
+    assert _run(plugin.validate({"plans": [{"model": "ZS220 V2"}]}))["ok"] is True
 
 
 def test_compose_node_refuses_to_skip_predecessors():
@@ -215,3 +215,72 @@ def test_shell_pauses_instead_of_delivering_a_half_done_step():
 def test_node_state_partitions_do_not_leak_between_nodes():
     container: dict = {}
     assert node_state(container, "kp_reason") is not node_state(container, "compose")
+
+
+# ── 5. wiring DB 化契约（方案一/五）：接线声明在 DB，代码只有机制 + handler 注册表 ──
+
+def test_wire_result_hook_signature_accepts_node_key():
+    """接线钩子统一三参（engine, result, node_key）：未注册节点共享默认实例，靠参数辨节点。
+
+    回归锚：曾有覆写保持旧两参签名，编排壳传节点名后当场 TypeError（2026-09-14 实测）。"""
+    import inspect
+    assert len(inspect.signature(DefaultNodePlugin.wire_result).parameters) >= 3
+    for p in all_plugins():
+        assert len(inspect.signature(p.wire_result).parameters) >= 3, f"{p.key} 覆写未带 node_key"
+
+def test_wiring_lives_in_db_seed_not_code_attrs():
+    """接线针脚不得回流成代码类属性：_ModelNode 类属性已退役，种子在 DB 引导模块。"""
+    import pathlib
+    from app.services import skill_config_bootstrap, skill_node_plugins
+    src = pathlib.Path(skill_node_plugins.__file__).read_text(encoding="utf-8")
+    assert 'result_tool = "' not in src, "接线工具名不得作为代码常量存在"
+    assert "lock_func_path" not in src, "DB 严禁存函数路径（handler 注册表只存代码内）"
+    seed = skill_config_bootstrap.DEFAULT_REASONING_NODE_CONTRACT["model_reason"]["wiring"]
+    assert seed["result_tool"] == "choose_model"
+    assert seed["lock_handler"] == "lock_baseline"
+    assert seed["lock_handler"] in skill_node_plugins.LOCK_HANDLERS
+    assert seed["progress_handler"] in skill_node_plugins.PROGRESS_HANDLERS
+
+
+def test_wiring_contract_errors_catches_bad_refs():
+    """三道闸共用校验：工具未注册/未绑定节点、handler 未登记 → 逐条白盒报错。"""
+    from app.services.skill_node_plugins import wiring_contract_errors
+    from tests.test_select_model_tool import _WIRING
+    assert wiring_contract_errors("model_reason", {"wiring": dict(_WIRING)}) == []
+    bad_tool = dict(_WIRING, result_tool="no_such_tool")
+    assert any("未注册" in e for e in wiring_contract_errors("model_reason", {"wiring": bad_tool}))
+    # choose_model 已注册但没绑到 agent_fill 节点工具集（机制∪DB 勾选）
+    unbound = wiring_contract_errors("agent_fill", {"wiring": {"result_tool": "choose_model",
+                                                              "lock_handler": "lock_baseline"}})
+    assert any("未绑定" in e for e in unbound)
+    bad_handler = dict(_WIRING, lock_handler="no_such_locker")
+    assert any("lock_handler" in e and "未登记" in e
+               for e in wiring_contract_errors("model_reason", {"wiring": bad_handler}))
+
+
+def test_default_plugin_wires_new_node_from_declared_wiring():
+    """未注册新节点（DefaultNodePlugin）+ DB wiring → 通用接线直接可用（换插头不碰代码）。"""
+    engine = _plugin_wiring_engine()
+    result = {"tool_calls_log": [{"name": "pick_chassis", "result": {
+        "ok": True,
+        "selected": {"model_id": "22", "name": "ESA240 V3"},
+        "reason": "双路更合适"}}]}
+    plugin_for("brand_new_node").wire_result(engine, result, "brand_new_node")
+    assert engine["_locked_baseline"]["name"] == "ESA240 V3"
+    assert engine["model_pick"]["model_id"] == "22"
+
+
+def _plugin_wiring_engine() -> dict:
+    from tests.test_select_model_tool import _POOL
+    return {"ext": {}, "baselines_pool": _POOL,
+            "flow_configs": {"brand_new_node": {"wiring": {
+                "result_tool": "pick_chassis",
+                "result_selected_key": "selected",
+                "result_id_key": "model_id",
+                "result_name_key": "name",
+                "result_pool_key": "baselines_pool",
+                "pool_id_keys": ["server_model_id", "id"],
+                "pool_name_key": "name",
+                "lock_handler": "lock_baseline",
+            }}}}
+

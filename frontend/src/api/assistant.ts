@@ -27,6 +27,15 @@ export interface AssistantThread {
   deleted_at?: string
   msg_count?: number
 }
+/** 服务端任务态快照（messages 端点随 turn_active 下发，任务胶囊对账重建用，2026-09-13） */
+export interface TaskStateSnapshot {
+  title: string
+  steps: Array<{ key?: string; step?: string; label?: string }>
+  done: string[]
+  phase: 'running' | 'paused'
+  pause: Record<string, any> | null
+}
+
 export interface AssistantMessage {
   message_id: string
   thread_id: string
@@ -48,14 +57,29 @@ export interface AssistantContext {
   entryPoint?: string
 }
 
-/** AI 工具目录条目（全系统唯一注册表 agent_tools._TOOL_SPECS，只读） */
+/** AI 工具目录条目（注册表 agent_tool_specs + 人类展示层 agent_tool_display + DB 覆盖 agent_tool_text） */
 export interface AssistantToolInfo {
   name: string
   category: 'selection' | 'data' | 'cost' | 'quote'
+  /** 中文名（人类层） */
+  display_name?: string
+  /** 一句话（人类层） */
+  one_liner?: string
+  /** 模型 FC 契约（每回合注入大脑；DB 可覆盖，编辑受宪法 lint 约束） */
   summary?: string
+  /** 人话详解（只给人看） */
   description: string
   parameters: Record<string, any>
   default_enabled: boolean
+  /** 被 DB 覆盖的字段名（前端标「已自定义」/提供恢复默认） */
+  custom?: string[]
+}
+
+export interface ToolTextPayload {
+  display_name?: string
+  one_liner?: string
+  description?: string
+  model_brief?: string
 }
 
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
@@ -69,10 +93,22 @@ export const assistantApi = {
         .get<{ colleagues: any[]; dispatch_enabled?: boolean; dispatch_rules?: any[] }>('/api/ai-colleagues/')
         .then((r) => r.data),
   },
-  /** AI 工具目录（GET /api/assistant/tools，只读） */
+  /** AI 工具目录；usage = 工具名 → 引用它的节点标签（活跃流生效集） */
   tools: {
     catalog: () =>
-      http.get<{ tools: AssistantToolInfo[] }>('/api/assistant/tools').then((r) => r.data.tools),
+      http
+        .get<{ tools: AssistantToolInfo[]; usage?: Record<string, string[]> }>('/api/assistant/tools')
+        .then((r) => ({ tools: r.data.tools, usage: r.data.usage || {} })),
+    /** 编辑工具文案（DB 覆盖层；model_brief 保存受宪法 lint 约束，命中会被 400 拒） */
+    updateText: (name: string, payload: ToolTextPayload) =>
+      http
+        .put<{ tool: AssistantToolInfo }>(`/api/assistant/tools/${name}/text`, payload)
+        .then((r) => r.data.tool),
+    /** 整工具恢复默认文案（删 DB 覆盖行） */
+    resetText: (name: string) =>
+      http
+        .delete<{ tool: AssistantToolInfo }>(`/api/assistant/tools/${name}/text`)
+        .then((r) => r.data.tool),
   },
   threads: {
     list: (opts?: { includeDeleted?: boolean }) =>
@@ -172,6 +208,20 @@ export const assistantApi = {
       http
         .get<{
           messages: AssistantMessage[]
+          turn_active?: boolean
+          task_state?: TaskStateSnapshot | null
+          context_usage?: { chars: number; est_tokens: number; limit_tokens: number; ratio: number }
+        }>(`/api/assistant/threads/${id}/messages`, {
+          params: limit ? { limit } : undefined,
+        })
+        .then((r) => r.data),
+    /** 会话消息 + 回合在跑事实（看门狗终态判定：无新消息 + turn_active=false = 回合必已结束） */
+    messagesWithState: (id: string, limit?: number) =>
+      http
+        .get<{
+          messages: AssistantMessage[]
+          turn_active?: boolean
+          task_state?: TaskStateSnapshot | null
           context_usage?: { chars: number; est_tokens: number; limit_tokens: number; ratio: number }
         }>(`/api/assistant/threads/${id}/messages`, {
           params: limit ? { limit } : undefined,

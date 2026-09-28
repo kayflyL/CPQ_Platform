@@ -20,11 +20,13 @@ export interface LoginResult {
   token: string
   user: AuthUser
   permissions: string[]
+  chat_roles_allowed?: boolean
 }
 
 export interface MeResult {
   user: AuthUser
   permissions: string[]
+  chat_roles_allowed?: boolean
 }
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)

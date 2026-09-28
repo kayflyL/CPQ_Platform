@@ -18,12 +18,13 @@ logger = logging.getLogger(__name__)
 CABLE_KINDS = ("SATA", "SAS", "NVMe", "GPU线")
 
 
-def load_active_rules() -> list:
-    """读选型配置 active 规则（失败回退空表：方案不带规则派生/校验，不阻塞出方案）。"""
+def load_active_rules(domain: str = "selection") -> list:
+    """读某域 active 规则（失败回退空表：方案不带规则派生/校验，不阻塞出方案）。
+    domain=selection 选型配置（物理合法性）；domain=requirement 需求分析（业务准确性）。"""
     try:
         repo = CompatibilityRuleRepository()
         try:
-            return repo.list(status="active")
+            return repo.list(status="active", domain=domain)
         finally:
             repo.close()
     except Exception as e:
@@ -111,14 +112,16 @@ REGISTRATION_DERIVE_FIELDS = (("opportunity.platform_type", "platform_type"),)
 
 
 def catalog_derivations_for_registration(ext: dict, rules: list = None) -> list:
-    """登记阶段目录字段推导（agent_fill 摆桌用）：对空缺目录槽跑 CRE 赋值型 derive 首命中。
+    """登记阶段目录字段推导（词典卡求值器）：对空缺目录槽跑 CRE 赋值型 derive 首命中。
 
-    返回 [(slot, value)]；只推导空缺槽（已登记值以登记表为准），规则读取失败降级为空
-    （登记回合不带推导值继续，不阻塞）。推导值属推断，确认口径住在任务规则 19 + 前提闸门。
+    知识化注入后（2026-09-14）地位从「主路径（摆桌）」降为「影子校验器 +
+    LLM 不可用兜底」——主路径见 requirement_knowledge（规则渲染成知识块注入 brain）。
+    返回 [(slot, value)]；只推导空缺槽（已登记值以登记表为准），规则读取失败降级为空。
+    推导值属推断，确认口径住在任务规则 8 + 前提闸门。
     """
     from app.services.selection_engine import eval_assign_value, registration_rule_context
     if rules is None:
-        rules = load_active_rules()
+        rules = load_active_rules(domain="requirement")
     if not rules:
         return []
     ctx = registration_rule_context(ext)

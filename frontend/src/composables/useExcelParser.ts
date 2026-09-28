@@ -1,6 +1,10 @@
 import { ref, reactive } from 'vue'
 import { message } from 'ant-design-vue'
-import axios from 'axios'
+import axiosBase from 'axios'
+import { attachAuthInterceptors } from '@/api/authHttp'
+
+const axios = axiosBase.create()
+attachAuthInterceptors(axios)
 
 // ════════════════════════════════════════════════════════════
 // Excel 解析 composable —— 模块级单例。
@@ -11,6 +15,10 @@ import axios from 'axios'
 // ════════════════════════════════════════════════════════════
 
 // ── 数据状态 ──
+const parseTemplates = ref<any[]>([])
+const activeTemplateId = ref<number | null>(null)
+const matchInfo = ref<any>(null)
+const loadingTemplates = ref(false)
 const parseRegions = ref<any[]>([])
 const parseFieldRules = ref<any[]>([])
 const businessFields = ref<any[]>([])
@@ -21,6 +29,7 @@ const activeSheetName = ref<string | null>(null)
 const loadingRules = ref(false)
 const parsing = ref(false)
 const uploadedFile = ref<File | null>(null)
+const isStdPreview = ref(false)
 
 // ── KP 分类映射 ──
 const kpMappings = ref<any[]>([])
@@ -62,7 +71,8 @@ const fieldRuleForm = reactive({
     keywords: [] as string[],
     col: '',
     value_offset: 1,
-    value_pattern: ''
+    value_pattern: '',
+    header_keywords: [] as string[]
   },
   enabled: true,
   sort_order: 0
@@ -155,12 +165,13 @@ async function handleDeleteMapping(id: number) {
 }
 
 // ── 规则加载 ──
-async function loadRules() {
+async function loadRules(templateId: number | null = activeTemplateId.value) {
   loadingRules.value = true
   try {
+    const qs = templateId != null ? `?template_id=${templateId}` : ''
     const [regionsRes, rulesRes] = await Promise.all([
-      axios.get('/api/rules/parse-regions'),
-      axios.get('/api/rules/parse-field-rules')
+      axios.get(`/api/rules/parse-regions${qs}`),
+      axios.get(`/api/rules/parse-field-rules${qs}`)
     ])
     parseRegions.value = regionsRes.data.regions
     parseFieldRules.value = rulesRes.data.rules
@@ -181,8 +192,105 @@ async function loadBusinessFields() {
   }
 }
 
+// ── 解析模板层（多模板 + 标准文件） ──
+async function loadTemplates() {
+  loadingTemplates.value = true
+  try {
+    const res = await axios.get('/api/rules/parse-templates')
+    parseTemplates.value = res.data.templates || []
+    if (activeTemplateId.value == null && parseTemplates.value.length) {
+      await selectTemplate(parseTemplates.value[0].id)
+    }
+  } catch {
+    message.error('加载解析模板失败')
+  } finally {
+    loadingTemplates.value = false
+  }
+}
+
+async function selectTemplate(id: number) {
+  activeTemplateId.value = id
+  matchInfo.value = null
+  await loadRules(id)
+  if (uploadedFile.value) {
+    // 标准模板预览跟着模板切换；用户上传的文件则用新模板规则重算
+    if (isStdPreview.value) await loadStdPreview()
+    else await refreshPreview()
+  }
+}
+
+async function createTemplate(name: string, note = '') {
+  try {
+    const res = await axios.post('/api/rules/parse-templates', { name, note })
+    message.success('模板已创建')
+    await loadTemplates()
+    if (res.data.id) await selectTemplate(res.data.id)
+    return true
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '创建失败')
+    return false
+  }
+}
+
+// 下载当前模板的标准文件（LLW 版式，发给外部照填）；自检未过时后端 409 拦，可 force
+async function downloadStd(id: number, force = false): Promise<'ok' | 'blocked' | 'error'> {
+  try {
+    const res = await axios.get(`/api/rules/parse-templates/${id}/std-file/download`, {
+      params: force ? { force: 1 } : {},
+      responseType: 'blob'
+    })
+    const url = URL.createObjectURL(res.data)
+    const a = document.createElement('a')
+    a.href = url
+    const disp: string = res.headers?.['content-disposition'] || ''
+    const m = disp.match(/filename\*=UTF-8''([^;]+)/i)
+    a.download = m ? decodeURIComponent(m[1]) : '标准配置表.xlsx'
+    a.click()
+    URL.revokeObjectURL(url)
+    return 'ok'
+  } catch (e: any) {
+    if (e.response?.status === 409) return 'blocked'
+    message.error(e.response?.data?.detail || '下载失败')
+    return 'error'
+  }
+}
+
+// 未上传用户文件时，把标准文件载入预览（设置页中部常驻显示标准模板版式）
+async function loadStdPreview() {
+  const id = activeTemplateId.value
+  if (id == null || parsing.value) return
+  try {
+    const res = await axios.get(`/api/rules/parse-templates/${id}/std-file/download`, { responseType: 'blob' })
+    const file = new File([res.data], '标准模板.xlsx', {
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    })
+    await handleFileUpload(file, true, undefined, { templateId: id })
+    isStdPreview.value = true
+  } catch { /* 无标准文件或自检未过 409：静默不显示 */ }
+}
+
+// 预览请求公共参数：scope=按使用位置绑定裁决（上传弹窗），templateId=显式指定（设置页预览），
+// overrides=会话补丁
+export interface PreviewOpts {
+  scope?: string
+  templateId?: number | null
+  overrides?: Record<string, any>
+}
+
+function _appendPreviewParams(formData: FormData, opts?: PreviewOpts) {
+  if (opts?.scope) {
+    formData.append('scope', opts.scope)
+  } else {
+    const tid = opts && opts.templateId !== undefined ? opts.templateId : activeTemplateId.value
+    if (tid != null && tid >= 0) formData.append('template_id', String(tid))
+  }
+  if (opts?.overrides && Object.keys(opts.overrides).length) {
+    formData.append('parse_overrides', JSON.stringify(opts.overrides))
+  }
+}
+
 // ── 文件上传 + 预览（不落库，纯解析） ──
-async function handleFileUpload(file: File, silent = false, sheetName?: string) {
+async function handleFileUpload(file: File, silent = false, sheetName?: string, opts?: PreviewOpts) {
   if (!file.name.match(/\.xlsx?$/i)) {
     message.error('仅支持 .xlsx 格式')
     return false
@@ -193,6 +301,7 @@ async function handleFileUpload(file: File, silent = false, sheetName?: string) 
     const formData = new FormData()
     formData.append('file', file)
     if (sheetName) formData.append('sheet_name', sheetName)
+    _appendPreviewParams(formData, opts)
 
     const res = await axios.post('/api/rules/excel-parser-preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
@@ -201,6 +310,7 @@ async function handleFileUpload(file: File, silent = false, sheetName?: string) 
     uploadedFile.value = file
     previewData.value = res.data.preview
     parseResult.value = res.data.parse_result
+    matchInfo.value = res.data.match_info || null
     sheetNames.value = res.data.sheet_names || []
     activeSheetName.value = res.data.sheet_name || sheetName || sheetNames.value[0] || null
 
@@ -219,18 +329,20 @@ async function handleFileUpload(file: File, silent = false, sheetName?: string) 
 }
 
 // 用缓存文件刷新预览（规则改动后重算）
-async function refreshPreview(sheetName?: string) {
+async function refreshPreview(sheetName?: string, opts?: PreviewOpts) {
   if (!uploadedFile.value) return
   parsing.value = true
   try {
     const formData = new FormData()
     formData.append('file', uploadedFile.value)
     if (sheetName) formData.append('sheet_name', sheetName)
+    _appendPreviewParams(formData, opts)
     const res = await axios.post('/api/rules/excel-parser-preview', formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     })
     previewData.value = res.data.preview
     parseResult.value = res.data.parse_result
+    matchInfo.value = res.data.match_info || null
     sheetNames.value = res.data.sheet_names || sheetNames.value
     activeSheetName.value = res.data.sheet_name || sheetName || sheetNames.value[0] || null
     if (parseResult.value?.dynamic_regions) {
@@ -281,7 +393,7 @@ async function saveRegion() {
     return
   }
 
-  const payload = {
+  const payload: Record<string, any> = {
     name: regionForm.name,
     region_key: editingRegion.value?.region_key || regionForm.name.trim().toLowerCase(),
     region_type: regionForm.region_type,
@@ -290,6 +402,7 @@ async function saveRegion() {
     skip_header_rows: regionForm.skip_header_rows,
     sort_order: regionForm.sort_order
   }
+  if (!editingRegion.value && activeTemplateId.value != null) payload.template_id = activeTemplateId.value
 
   try {
     if (editingRegion.value) {
@@ -339,7 +452,8 @@ function editFieldRule(rule: any) {
       keywords: rule.source_config.keywords || [],
       col: rule.source_config.col || '',
       value_offset: rule.source_config.value_offset || 1,
-      value_pattern: rule.source_config.value_pattern || ''
+      value_pattern: rule.source_config.value_pattern || '',
+      header_keywords: rule.source_config.header_keywords || []
     },
     enabled: rule.enabled,
     sort_order: rule.sort_order
@@ -357,7 +471,8 @@ function cancelEditFieldRule() {
     source_config: {
       keywords: [],
       col: '',
-      value_offset: 1
+      value_offset: 1,
+      header_keywords: []
     },
     enabled: true,
     sort_order: 0
@@ -371,10 +486,11 @@ async function saveFieldRule() {
   }
 
   const region = parseRegions.value.find(r => r.id === fieldRuleForm.region_id)
-  const payload = {
+  const payload: Record<string, any> = {
     ...fieldRuleForm,
     region: region?.name || fieldRuleForm.region || ''
   }
+  if (!editingFieldRule.value && activeTemplateId.value != null) payload.template_id = activeTemplateId.value
 
   try {
     if (editingFieldRule.value) {
@@ -434,9 +550,36 @@ function getDynamicColumns(items: any[]) {
   ]
 }
 
+// ── 使用位置绑定（入口→模板，设置页配置；上传链路按 scope 取绑定） ──
+const scopeBindings = ref<any[]>([])
+
+async function loadScopeBindings() {
+  try {
+    const res = await axios.get('/api/rules/parse-scope-bindings')
+    scopeBindings.value = res.data?.bindings || []
+  } catch (e) {
+    console.error('Failed to load scope bindings:', e)
+  }
+}
+
+async function setScopeBinding(scopeKey: string, templateId: number) {
+  try {
+    await axios.put(`/api/rules/parse-scope-bindings/${encodeURIComponent(scopeKey)}`, {
+      template_id: templateId
+    })
+    await loadScopeBindings()
+    message.success('使用位置绑定已更新')
+    return true
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '绑定失败')
+    return false
+  }
+}
+
 export function useExcelParser() {
   return {
     // 数据状态
+    parseTemplates, activeTemplateId, matchInfo, loadingTemplates,
     parseRegions, parseFieldRules, businessFields,
     previewData, parseResult, sheetNames, activeSheetName, loadingRules, parsing, uploadedFile,
     // KP 映射
@@ -444,10 +587,13 @@ export function useExcelParser() {
     editingMappingId, mappingColumns,
     loadMappings, handleAddMapping, handleEditMapping,
     handleCancelMappingEdit, handleSaveMappingEdit, handleDeleteMapping,
+    // 解析模板层
+    loadTemplates, selectTemplate, createTemplate,
+    scopeBindings, loadScopeBindings, setScopeBinding,
     // 规则加载
     loadRules, loadBusinessFields,
     // 文件 + 预览
-    handleFileUpload, refreshPreview,
+    handleFileUpload, refreshPreview, downloadStd, loadStdPreview,
     // 区域 CRUD
     expandedRegions, showAddRegionModal, editingRegion, regionForm,
     editRegion, openAddRegionModal, cancelEditRegion, saveRegion, deleteRegion,

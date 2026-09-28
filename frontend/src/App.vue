@@ -45,7 +45,8 @@ const lightToken = {
   colorTextSecondary: '#4e5969',
   colorBorder: 'rgba(22, 119, 255, 0.10)',
   colorBgSpotlight: '#ffffff',
-  colorTextLightSolid: '#1d2129',
+  // 主色实心面上的文字须用白(与 --cpq-accent-on-primary 对齐)；曾误对齐 colorTextBase 导致浅色下主按钮/实心 tab 蓝底深字
+  colorTextLightSolid: '#ffffff',
 }
 
 const themeConfig = computed(() => ({

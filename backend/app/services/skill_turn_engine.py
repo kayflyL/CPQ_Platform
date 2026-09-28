@@ -147,7 +147,11 @@ async def run_brain_attempts(user_msg: str, *, loop_kwargs: dict, settle,
         if isinstance(findings_out, dict):
             findings_out["text"] = _render_findings(findings_map)
         bad = _last_rejection(result)
-        if bad is not None and attempt < total - 1:
+        # 工具拒绝只在「大脑没有收口正文」时才值得回喂重试：探索型步骤（query_data 试错→
+        # 自我纠正）的日志里躺着失败调用是常态，若一律重开，一份已写完的报告会被整个丢弃
+        # 重生成（2026-09-16 趋势分析实测三份连体报告+三倍耗时）。产物已出，收口交给 settle。
+        if (bad is not None and attempt < total - 1
+                and not str(result.get("answer") or "").strip()):
             feedback = json.dumps(bad, ensure_ascii=False)[:500]
             feedback_is_tool = True
             continue
@@ -202,6 +206,7 @@ class _SkillTurnRuntime:
         self._fill_emitted = False
         self._stuck: dict = {"hint": ""}
         self._brain_steps: list = []
+        self._drift_reported: set = set()
 
     def _prepare(self) -> None:
         """引擎容器装配 + 跨轮状态恢复 + 工具上下文注入 + 大脑上下文三件套。"""
@@ -283,7 +288,7 @@ class _SkillTurnRuntime:
         # 大脑节点与旁白键来自节点插件注册表（编排壳不认识任何节点名）。
         # 函数体内 import：插件注册表参与模块环（skill_node_plugins ↔ 本模块）——延后到调用时解析。
         from app.services.skill_node_plugins import (
-            brain_node_keys, first_delivery_gap, first_stuck_gap, narration_key_of, plugin_for)
+            first_delivery_gap, first_stuck_gap, narration_key_of, plugin_for)
         self.plugin_for = plugin_for
         self.first_delivery_gap = first_delivery_gap
         self.first_stuck_gap = first_stuck_gap
@@ -293,7 +298,10 @@ class _SkillTurnRuntime:
         self.engine = engine
         self.steps = steps
         self.manual_rules = manual_rules
-        self._brain_steps = [s for s in steps if str(s.get("step") or "") in brain_node_keys()]
+        # 大脑步 = steps_payload 全量（无工具节点已被剔除）：凡挂了工具的节点都由同一颗
+        # 大脑按节点 prompt 执行一轮——新节点绑工具即获得大脑回合，无需注册插件或改引擎。
+        # （input/extract/compose/output 无工具，天然不进； compose/output 是引擎确定性尾段。）
+        self._brain_steps = list(steps)
 
     async def _capturing_sink(self, payload):
         """流式旁白捕获：既攒本次回合的旁白，也原样转发给上层事件槽。"""
@@ -353,6 +361,17 @@ class _SkillTurnRuntime:
                    "slot": opt_slot or str(a.get("slot") or "") or "brain_ask", "group": "AI 推荐"}
             if o.get("recommended"):
                 opt["recommended"] = True
+            # 词典卡影子校验标注透传（tool_ask_user 标的「规则推荐/与规则不符」徽标数据）
+            if o.get("rule_match"):
+                opt["rule_match"] = True
+            if isinstance(o.get("rule_conflict"), dict):
+                opt["rule_conflict"] = o["rule_conflict"]
+            # 数量元数据透传（前端 stepper 边界，纯展示参数非 signal）：大脑给的数量
+            # 原样过，没给的由节点插座在 enrich_ask_gap 按行申报量+机型边界补
+            for k in ("qty", "qty_max", "unit_gb"):
+                v = o.get(k)
+                if isinstance(v, int) and v > 0:
+                    opt[k] = v
             # 点击信号统一解释（行卡三结局 / 字段确认），见 skill_plan_runtime.ask_option_signal
             from app.services.skill_plan_runtime import ask_option_signal
             sig = ask_option_signal(row, o, str(a.get("slot") or ""), category=_row_cat)
@@ -428,15 +447,18 @@ class _SkillTurnRuntime:
             return
         try:
             from app.services.skill_plan_runtime import skill_steps_view, _trace
-            steps_meta = skill_steps_view(self.flow_configs)
+            # 顺序与执行序同源：传 flow → 画布 graph 拓扑序（无 graph 老流回退 PHASE_TABLE）
+            steps_meta = skill_steps_view(self.flow_configs, flow=self.flow)
             flow_title = str((self.flow or {}).get("name") or (self.flow or {}).get("title") or "配置任务")
             await self.event_sink({"type": "pipeline_start", "title": flow_title, "steps": steps_meta})
             input_step = next((s for s in steps_meta if s.get("step") == "input"), None)
             if input_step:
-                lab = str(input_step.get("label") or "input")
+                lab = str(input_step.get("label") or "需求接收")
                 await self.event_sink(_trace("input", lab, "running"))
-                # 输入节点同样按插头打包产物（需求原文），画布上每个节点下方都有输出物
-                _in_payload = _node_done_payload(self.engine, "input", lab, "")
+                # input 无产物插槽，摘要直接给事实（需求原文字数）——
+                # 留空会落进 done_summary 的「本节点未注册产物」裸键名文案
+                _in_summary = f"需求原文 {len(str(self.full_text or ''))} 字"
+                _in_payload = _node_done_payload(self.engine, "input", lab, _in_summary)
                 _in_payload["input"] = self.full_text
                 _in_payload["duration_ms"] = 0
                 await self.event_sink(_in_payload)
@@ -453,6 +475,21 @@ class _SkillTurnRuntime:
         except Exception:
             logger.exception("pipeline_start emit failed thread=%s", self.thread_id)
 
+    def _knowledge_for(self, step_key: str) -> str:
+        """节点绑定的需求理解知识块（requirement_knowledge 渲染，字节稳定固定段）。
+        回合内按节点缓存；读失败降级空串——不带知识继续，绝不阻塞回合。"""
+        cache = getattr(self, "_knowledge_cache", None)
+        if cache is None:
+            cache = self._knowledge_cache = {}
+        if step_key not in cache:
+            try:
+                from app.services.requirement_knowledge import knowledge_for_node
+                cache[step_key] = knowledge_for_node(step_key)
+            except Exception:
+                logger.exception("知识块注入失败（降级：不带知识继续）step=%s", step_key)
+                cache[step_key] = ""
+        return cache[step_key]
+
     def _build_step_call(self, step_key: str, node_cfg: dict, b_res: dict) -> tuple:
         """本步一次大脑调用的全部入参：system（人设/任务规则/当前步骤）+ 上下文块 + 循环 kwargs。"""
         begin_note = ""
@@ -466,6 +503,7 @@ class _SkillTurnRuntime:
         sys_prompt = "\n\n".join([p for p in (
             self.persona,
             manual_rules_block(self.manual_rules),
+            self._knowledge_for(step_key),
             "当前步骤（steps 清单里的这一条）：\n" + step_scope + begin_note,
             "steps 清单（原样来自节点抽屉）：\n"
             + json.dumps(self.steps, ensure_ascii=False),
@@ -497,6 +535,12 @@ class _SkillTurnRuntime:
             if _required_cats:
                 context_block += ("\n\n本节点目标表候选类目（抽屉勾选）：\n"
                                   + json.dumps(_required_cats, ensure_ascii=False))
+            # 已锁定机型扩展能力（目录事实摆桌）：推荐数量时的物理上限——GPU 位/内存槽/
+            # 盘位/CPU 路。大脑据此把「装多少」随型号一起推荐，而不是只报型号。
+            _caps = TOOL_CTX.get().get("kp_baseline_caps")
+            if isinstance(_caps, dict) and _caps:
+                context_block += ("\n\n已锁定机型扩展能力（推荐配件数量别超物理上限）：\n"
+                                  + json.dumps(_caps, ensure_ascii=False))
         # 跨回合检索战果（本步此前回合/尝试已拿到的工具结论）：续跑直接复用，不再从零重查。
         _sf_text = str(((self.mem.get("step_findings") or {}).get(step_key) or "")).strip()
         if _sf_text:
@@ -504,10 +548,21 @@ class _SkillTurnRuntime:
                               + _sf_text)
 
         user_msg = ("【客户消息】\n" + (self.full_text or "（无）"))
+        # document 产物节点：历史里的旧报告是复读毒源（锚定效应，且统计数字已过期必须重查）。
+        # 生成新报告的上下文里它们只有害没有用——组上下文时确定性剔除（「数据范围：」是
+        # 契约规定的报告首行指纹）。这是该步插座属性驱动的输入卫生，非流类型特判；
+        # 出口终检只作保险丝，不承担清洁上下文的责任。
+        history = self.history or []
+        _tgt = node_cfg.get("target")
+        _arts = _tgt.get("artifacts") if isinstance(_tgt, dict) else None
+        if any(isinstance(a, dict) and str(a.get("kind") or "") == "document" for a in (_arts or [])):
+            history = [m for m in history
+                       if not (isinstance(m, dict) and str(m.get("role") or "") == "assistant"
+                               and "数据范围：" in str(m.get("content") or ""))]
         loop_kwargs = dict(
             config={"enabled_tools": tools},
             system_prompt=sys_prompt, allowed_tool_ids=tools,
-            history=self.history or [], model=self.model, event_sink=self._capturing_sink,
+            history=history, model=self.model, event_sink=self._capturing_sink,
             tool_guard=self.tool_guard, max_iterations=8,
             llm_timeout=120.0, llm_reasoning_effort=self.reasoning_effort,
             llm_max_tokens=self.max_tokens if isinstance(self.max_tokens, int) and self.max_tokens > 0 else None,
@@ -525,9 +580,15 @@ class _SkillTurnRuntime:
         engine = self.engine
         # 大脑本轮的工具结果接进引擎产物（哪个节点接什么是插头属性，主循环不认识节点）
         try:
-            self.plugin_for(step_key).wire_result(engine, result)
+            self.plugin_for(step_key).wire_result(engine, result, step_key)
         except Exception:
             logger.exception("节点产物接线失败 step=%s", step_key)
+        # 通用答复快照：最后一个非空大脑回合的结论，最后写入者胜。
+        # data_answer 型流（趋势分析等）经 payload_map 的 ctx.agent_result.answer 取值；
+        # 需求分析流不读此键，行为不变。
+        if str(result.get("answer") or "").strip():
+            engine["agent_result"] = {"answer": str(result["answer"]),
+                                      "tool_calls_log": result.get("tool_calls_log") or []}
 
         if not self._fill_emitted:
             # 节点回合内的实时产物广播由产物注册表声明（skill_node_artifacts）：
@@ -678,6 +739,27 @@ class _SkillTurnRuntime:
             except Exception:
                 logger.exception("step running trace emit failed step=%s", step_key)
         node_cfg = self.flow_configs.get(step_key) if isinstance(self.flow_configs.get(step_key), dict) else {}
+        # 配置漂移可见化（方案四）：机制工具缺失的保底补回已在 effective_node_tools 发生，
+        # 这里把「DB 丢了什么」升格为 node_trace + contract_warnings——试运行面板看得见，
+        # 不再只进日志。每步每回合只报一次，防多轮刷屏。
+        try:
+            from app.services.skill_plan_runtime import node_tool_drift
+            _drift = node_tool_drift(step_key, node_cfg)
+        except Exception:
+            logger.exception("机制工具漂移检测失败 step=%s", step_key)
+            _drift = []
+        if _drift and step_key not in self._drift_reported:
+            self._drift_reported.add(step_key)
+            _warn = {"step": step_key, "reason_code": "tool_drift",
+                     "message": f"配置漂移：机制工具 {'、'.join(_drift)} 已保底补回"}
+            engine.setdefault("contract_warnings", []).append(_warn)
+            if self.event_sink is not None:
+                try:
+                    from app.services.skill_plan_runtime import _trace
+                    await self.event_sink(_trace(step_key, self._cur_step.get("label") or step_key,
+                                                 "running", summary=_warn["message"]))
+                except Exception:
+                    logger.exception("drift trace emit failed step=%s", step_key)
         # 引擎自动 begin：确定性预处理（候选池/行就绪）+ 上下文桥接，模型无需（也不允许）调 begin。
         b_res = await _engine_begin_step({"step": step_key})
         user_msg, loop_kwargs = self._build_step_call(step_key, node_cfg, b_res)
@@ -755,12 +837,17 @@ class _SkillTurnRuntime:
 
     async def _deliver(self) -> dict:
         """全部 brain 节点推进完毕 → 终检 + 组装 + 交付（不合格则回落成暂停缺口卡）。"""
-        from app.services.skill_plan_runtime import final_gate, run_compose
+        from app.services.skill_plan_runtime import delivery_gate, run_compose
         engine = self.engine
         self._finalize_engine()
         engine["brain_notes"] = list(engine.get("brain_notes") or [])[-3:]
-        gate = final_gate(engine)
-        if gate.get("ok") and not engine.get("plans"):
+        out_cfg = self.flow_configs.get("output") if isinstance(self.flow_configs.get("output"), dict) else {}
+        output_kind = str(out_cfg.get("output_kind") or "")
+        # 终检按流的 output_kind 分派：data_answer 只看结论是否产出，其余走既有 final_gate
+        gate = delivery_gate(engine, output_kind)
+        # data_answer 不组装 BOM plans，过闸即交付
+        needs_finalize = output_kind == "data_answer"
+        if gate.get("ok") and not engine.get("plans") and not needs_finalize:
             composed = await run_compose(engine, self.event_sink)
             if composed.get("ok"):
                 engine["current_step"] = "compose"
@@ -773,31 +860,39 @@ class _SkillTurnRuntime:
                                                "compose", "done", "")
                     except Exception:
                         logger.exception("compose trace emit failed")
-                from app.services.skill_node_runtime import finalize_output
-                out_cfg = self.flow_configs.get("output") if isinstance(self.flow_configs.get("output"), dict) else {}
+                needs_finalize = True
+            else:
+                gate = composed
+        if gate.get("ok") and needs_finalize:
+            from app.services.skill_node_runtime import finalize_output
+            try:
+                # finalize_output 内部自写 ctx["output_kind"/"output_payload"]（真 payload）；
+                # 其返回值是 handoff 信封（payload 嵌在 .payload 里），绝不能再拿回来覆盖 ctx
+                await finalize_output(engine, out_cfg, self.event_sink)
+            except Exception:
+                logger.exception("finalize_output 失败 thread=%s", self.thread_id)
+            if self.event_sink is not None:
                 try:
-                    out_payload = await finalize_output(engine, out_cfg, self.event_sink)
-                    engine["output_payload"] = out_payload if isinstance(out_payload, dict) else {}
+                    from app.services.skill_plan_runtime import skill_steps_view
+                    out_lab = next((s.get("label") for s in skill_steps_view(self.flow_configs,
+                                                                            flow=self.flow)
+                                    if s.get("step") == "output"), "output")
+                    # 交付节点同样按插头打包产物（bom_scheme）：画布上「输出」节点下也要有输出物
+                    _out_payload = _node_done_payload(engine, "output", out_lab, "")
+                    _out_payload["thread_id"] = self.thread_id
+                    await self.event_sink(_out_payload)
                 except Exception:
-                    logger.exception("finalize_output 失败 thread=%s", self.thread_id)
-                if self.event_sink is not None:
-                    try:
-                        from app.services.skill_plan_runtime import skill_steps_view
-                        out_lab = next((s.get("label") for s in skill_steps_view(self.flow_configs)
-                                        if s.get("step") == "output"), "output")
-                        # 交付节点同样按插头打包产物（bom_scheme）：画布上「输出」节点下也要有输出物
-                        _out_payload = _node_done_payload(engine, "output", out_lab, "")
-                        _out_payload["thread_id"] = self.thread_id
-                        await self.event_sink(_out_payload)
-                    except Exception:
-                        logger.exception("output trace emit failed")
-                engine["engine_result"] = "done"
-                engine["awaiting_input"] = False
-                await self._emit_pipeline_phase("pipeline_done")
-                return engine
-            gate = composed
+                    logger.exception("output trace emit failed")
         if not gate.get("ok"):
-            _mg = self._system_gap() or self.first_stuck_gap(engine)
+            # 终检打回且指定 reopen（如数据范围不符）：把该节点从已完成里摘出，
+            # 暂停后下一回合大脑重跑该步——否则 steps_done 已含 agent，续跑无步可跑，
+            # gap 会永远循环（同「answer 空时重开 agent」未根治的近亲，这里先修 data_answer 版）。
+            _reopen = str(gate.get("reopen") or "").strip()
+            if _reopen and isinstance(engine.get("steps_done"), set):
+                engine["steps_done"].discard(_reopen)
+                engine["steps_done_list"] = sorted(engine["steps_done"])
+            # reopen 打回时暂停问题必须是终检原因本身（窗口不符），不被系统缺口抢文本
+            _mg = None if _reopen else (self._system_gap() or self.first_stuck_gap(engine))
             if _mg is not None:
                 engine["engine_result"] = "gaps"
                 engine["awaiting_input"] = True

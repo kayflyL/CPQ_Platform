@@ -3,11 +3,11 @@
  *   node --test src/composables/usePlanBom.test.ts
  *
  * 锁住的是 L6 配置单内容正确性：GPU 型号清洗（desc 显示描述、绝不显示 pn）、
- * RAID 型号提取、Cable 行描述（SAS/NVMe 盘数驱动，物理规则见 ESA24V3-P 典型配置推算）。
+ * RAID 型号提取。Cable 行描述已收口到 bomRuleEngine.cableSegments（见 bomRuleEngine.l6.test.ts）。
  */
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { gpuModelFrom, raidModelFrom, cableDescFrom } from '../utils/bomL6Derive.ts'
+import { gpuModelFrom, raidModelFrom } from '../utils/bomL6Derive.ts'
 
 // items 形状 = kpItemsFromPlan 输出（description = KP 名 + matched_spec，part_category = KP 品类）
 const item = (part_category: string, description: string, qty = 1) => ({
@@ -46,21 +46,4 @@ test('raidModelFrom 从 RAID 名称提取型号数字', () => {
   }
   assert.equal(raidModelFrom([item('GPU', 'AMD R9700')]), '')
   assert.equal(raidModelFrom([]), '')
-})
-
-test('cableDescFrom 按盘数驱动（SAS 按 4 取整 / NVMe 按 2 取整）', () => {
-  // 配置1：2 SATA + 2 NVMe + 9560 → "9560 4SAS Cable\n2NVMe Cable"
-  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 2 }, '9560'), '9560 4SAS Cable\n2NVMe Cable')
-  // 配置2：2 SATA + 2 NVMe + 9361
-  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 2 }, '9361'), '9361 4SAS Cable\n2NVMe Cable')
-  // 配置3：2 SATA、无 NVMe → 只出 SAS
-  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 0 }, '9361'), '9361 4SAS Cable')
-  // 5-8 盘 → 8SAS
-  assert.equal(cableDescFrom({ sata: 6, sas: 0, nvme: 0 }, '9560'), '9560 8SAS Cable')
-  // 3-4 NVMe → 4NVMe（无 SAS/SATA 盘 → 只出 NVMe 缆）
-  assert.equal(cableDescFrom({ sata: 0, sas: 0, nvme: 4 }, '9560'), '4NVMe Cable')
-  // 无 RAID 也出 SAS（不带型号前缀），NVMe 照常
-  assert.equal(cableDescFrom({ sata: 2, sas: 0, nvme: 2 }, ''), '4SAS Cable\n2NVMe Cable')
-  // 都无 → 空（模板回落 front_cables）
-  assert.equal(cableDescFrom({ sata: 0, sas: 0, nvme: 0 }, '9560'), '')
 })

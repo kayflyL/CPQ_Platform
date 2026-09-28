@@ -55,7 +55,7 @@ onMounted(loadModel)
 
 <style scoped>
 .config-page {
-  height: 100%;
+  height: calc(100% - var(--cpq-header-clearance, 0px));
   min-height: 0;
   display: flex;
   flex-direction: column;

@@ -166,3 +166,61 @@ def test_permissions_of_admin_returns_catalog(monkeypatch):
     fake = _FakeRoleRepo({"admin": {"role_key": "admin", "name": "管理员", "permissions": []}})
     # permissions_of 走真实实现，需要真实 session —— 这里直接测 _catalog_keys 与 admin 分支逻辑
     assert rr._catalog_keys() == ["page.a", "page.b"]
+
+
+def test_ensure_permission_catalog_realigns_and_keeps_custom(monkeypatch):
+    """目录种子语义（2026-09-16 对齐菜单）：已知 key 标签强制对齐默认、死键回收、
+    自定义 key 保留、缺 key 补齐（page.office）。"""
+    from app.core import startup as su
+
+    stale = [
+        {"key": "page.strategies", "name": "策略中心", "group": "page", "module": "策略中心"},
+        {"key": "page.opportunities", "name": "商机线索", "group": "page", "module": "商机线索"},
+        {"key": "page.portal", "name": "工作台", "group": "page", "module": "工作台"},
+        {"key": "custom.extra", "name": "管理员自定义", "group": "action", "module": "商机线索"},
+    ]
+    saved = {}
+
+    class _Repo:
+        def get_value(self, key, default=None):
+            return list(stale) if key == "auth.permissions" else default
+
+        def set(self, key, value, type=None, description=None):
+            saved[key] = value
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.repository.system_config_repo.SystemConfigRepository", lambda: _Repo())
+    su.ensure_permission_catalog()
+    catalog = saved["auth.permissions"]
+    by_key = {p["key"]: p for p in catalog}
+    # 已知 key 标签对齐菜单
+    assert by_key["page.strategies"]["name"].startswith("解决方案")
+    assert by_key["page.strategies"]["module"] == "解决方案"
+    assert by_key["page.opportunities"]["module"] == "商机线索"
+    assert "商机详情" in by_key["page.opportunities"]["name"]
+    # 死键回收 + 新 key 补齐
+    assert "page.portal" not in by_key
+    assert "page.settings.ai" not in by_key
+    assert "field.parts.price" not in by_key
+    assert by_key["page.office"]["name"] == "AI 办公室菜单与页面"
+    # 子页层级分组（商机线索 · 商机详情 / 报价工作台）
+    assert by_key["field.flow.bom"]["module"] == "商机线索 · 商机详情"
+    assert by_key["field.quote.price"]["module"] == "商机线索 · 报价工作台"
+    # 管理员自定义 key 不动
+    assert by_key["custom.extra"]["name"] == "管理员自定义"
+
+
+def test_update_role_body_without_role_key(monkeypatch):
+    """前端编辑角色 PUT 不带 role_key（key 走路径参数），不能 422。"""
+    from app.api import roles as roles_mod
+    fake = _FakeRoleRepo({"te": {"role_key": "te", "name": "技术支持", "permissions": ["page.office"]}})
+    monkeypatch.setattr(roles_mod, "RoleRepository", lambda: fake)
+    resp = roles_mod.update_role(
+        "te",
+        roles_mod.RoleBody(name="技术支持工程师", permissions=["page.office", "page.parts"]),
+        admin={"role": "admin"},
+    )
+    assert resp["role"]["name"] == "技术支持工程师"
+    assert fake.roles["te"]["permissions"] == ["page.office", "page.parts"]

@@ -281,6 +281,14 @@
               style="width: 100%;"
             />
           </a-form-item>
+          <a-form-item label="表头关键词（可选）">
+            <a-select
+              v-model:value="fieldRuleForm.source_config.header_keywords"
+              mode="tags"
+              placeholder="如: 数量；命中表头后按表头列取值，弥补不同模板列偏移"
+              style="width: 100%;"
+            />
+          </a-form-item>
         </template>
 
         <a-form-item label="启用">

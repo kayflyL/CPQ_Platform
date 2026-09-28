@@ -8,6 +8,7 @@
  */
 import { computed, ref, type ComputedRef } from 'vue'
 import { useRoute } from 'vue-router'
+import axios from 'axios'
 import { useQuoteStore } from '@/store/quote'
 import { contextProviders, assistantQuickActions } from '@/composables/assistantProviders'
 
@@ -46,8 +47,8 @@ const providerConfig = ref<Record<string, ProviderConfig>>({})
 // 加载 Provider 配置
 async function loadProviderConfig() {
   try {
-    const res = await fetch('/api/system-config/ai_assistant_config/value')
-    const data = await res.json()
+    const res = await axios.get('/api/system-config/ai_assistant_config/value')
+    const data = res.data
     if (data.value?.providers) {
       providerConfig.value = data.value.providers
     }

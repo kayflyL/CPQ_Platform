@@ -18,13 +18,14 @@ import json
 import os
 import pathlib
 import sys
+from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import sqlalchemy as sa
 
 ENG = sa.create_engine(
-    "postgresql+psycopg2://postgres:961216@localhost:5432/cpq_platform",
+    db_url(),
     connect_args={"client_encoding": "UTF8"},
 )
 DRY = os.environ.get("CPQ_DRY") == "1"

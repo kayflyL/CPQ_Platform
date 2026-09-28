@@ -116,6 +116,28 @@ def model_option_desc(c: dict, include_price: bool = True) -> str:
     return " · ".join(bits)
 
 
+def baseline_qty_cap(category: str, baseline: dict) -> int:
+    """类目 → 锁定机型的物理数量上限（0 = 未登记/类目无物理边界，调用方自兜底）。
+
+    GPU→GPU 位、Memory→内存槽、HDD/SSD→盘位、CPU→路数；网卡/RAID 等无单机
+    物理边界的类目返回 0。基准未登记该能力同样返回 0——上限是「装得下多少」的
+    目录事实，缺数据不编数。行卡数量步进与点击数量收口（skill_signals）共用。
+    """
+    c = str(category or "").strip().lower()
+    try:
+        if "gpu" in c:
+            return int((baseline or {}).get("gpu_slots") or 0)
+        if "memory" in c or "dimm" in c or "内存" in c:
+            return int((baseline or {}).get("max_dimm") or 0)
+        if "hdd" in c or "ssd" in c or "storage" in c or "盘" in c:
+            return int((baseline or {}).get("bays") or 0)
+        if c == "cpu":
+            return int((baseline or {}).get("max_cpu") or 0)
+    except (TypeError, ValueError):
+        pass
+    return 0
+
+
 def catalog_models_option_data(candidates: list[dict], limit: int = 6, include_price: bool = True) -> list[dict]:
     """候选机型 → 结构化选项数据（desc=形态/系列/价格，价格按权限），供选项面板与角色话术。"""
     out = []
@@ -274,13 +296,14 @@ async def phase_kp_reason(ctx: dict, cfg: dict, broadcast: BroadcastFn) -> None:
     # 需求是否要该类目由 AI 看着目标表自己定：要配就用 query_parts/select_parts/ask_user 声明进
     # kp_config 或登记行，明确不要就纳入 kp_absent；引擎只兜底，不预判。
     # 归属收口（2026-09-12）：KP_CONFIG 按定义只承载「客户原话未覆盖、AI 判断要配」的类目
-    # （skill_node_state.KP_CONFIG）。已被线索登记表申报的类目——登记表部件槽（CPU/Memory/
-    # HDD/SSD/GPU/Raid card/NIC，由 kp_slot_group_map 配置合成）或登记行里已有的类目——
+    # （skill_node_state.KP_CONFIG）。已被线索登记表申报的类目——登记行里已有的类目——
     # 不许再声明一行，否则同一需求会拿到两条身份（`reg:CPU` 与 `cfg:CPU`），客户后补型号时
-    # 旧行仍在 → 多一行、多问一轮。判定依据是**类目归属**（配置事实 + 登记行），不猜措辞。
-    # 登记表没有的大类（Bridge / HBA / NVSwitch）仍可声明——那才是本字段的本意。
-    from app.services.slot_contract import registration_owned_categories
-    _owned_cats = registration_owned_categories()
+    # 旧行仍在 → 多一行、多问一轮。判定依据是**类目归属**（登记行事实），不猜措辞。
+    # 2026-09-13 放宽：属主类目**登记表没有该类目行时**保留 cfg: 声明行——此前按
+    # registration_owned_categories 全量过滤，AI 铸的属主类目推荐行（客户没提 CPU/内存等）
+    # 下一轮即被丢弃：自选流没有 pick_all 晋升，行就此消失，大脑下轮重铸循环（实测根因）。
+    # 登记表后来出现同类目行时 cfg: 行仍让位（防双身份），其 pick 由 ensure_pick_rows 兜底。
+    # 登记表没有的大类（Bridge / HBA / NVSwitch）不受影响。
     _reg_cats = {str(r.get("part_category") or r.get("category") or "").strip()
                  for r in (ext.get("kp_rows") or []) if isinstance(r, dict)}
     _declared: list = []
@@ -288,7 +311,7 @@ async def phase_kp_reason(ctx: dict, cfg: dict, broadcast: BroadcastFn) -> None:
         if not isinstance(_r, dict):
             continue
         _c = str(_r.get("category") or "").strip()
-        if _c and (_c in _owned_cats or _c in _reg_cats):
+        if _c and _c in _reg_cats:
             continue
         _declared.append(_r)
     parts = []

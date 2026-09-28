@@ -24,6 +24,13 @@ def _permissions_of(role: Optional[str]) -> list:
         repo.close()
 
 
+def _chat_roles_allowed(user: dict) -> bool:
+    """办公室访问策略下是否还有可聊的 AI 角色（None=不限）。"""
+    from app.services.office_access import allowed_chat_role_keys
+    allowed = allowed_chat_role_keys(user)
+    return allowed is None or len(allowed) > 0
+
+
 class LoginBody(BaseModel):
     username: str
     password: str
@@ -53,7 +60,12 @@ def login(body: LoginBody):
             raise HTTPException(status_code=403, detail="账号已禁用")
         token = create_access_token(u["user_id"], u.get("role") or "member")
         u.pop("password_hash", None)  # 永不把哈希返回给客户端
-        return {"token": token, "user": u, "permissions": _permissions_of(u.get("role"))}
+        return {
+            "token": token,
+            "user": u,
+            "permissions": _permissions_of(u.get("role")),
+            "chat_roles_allowed": _chat_roles_allowed(u),
+        }
     finally:
         repo.close()
 
@@ -61,7 +73,11 @@ def login(body: LoginBody):
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)):
     """返回当前登录用户 + 角色权限（前端鉴权层用）。"""
-    return {"user": user, "permissions": _permissions_of(user.get("role"))}
+    return {
+        "user": user,
+        "permissions": _permissions_of(user.get("role")),
+        "chat_roles_allowed": _chat_roles_allowed(user),
+    }
 
 
 @router.put("/password")

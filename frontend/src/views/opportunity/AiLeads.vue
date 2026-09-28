@@ -314,7 +314,7 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.ai-leads-page { display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 24px; min-height: calc(100vh - 56px); }
+.ai-leads-page { display: flex; flex-direction: column; gap: 12px; padding: 16px 24px 24px; min-height: calc(100vh - var(--cpq-header-clearance, 56px)); }
 
 .page-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: var(--cpq-radius-lg); }
 .page-title { display: flex; flex-direction: column; gap: 1px; flex: none; }

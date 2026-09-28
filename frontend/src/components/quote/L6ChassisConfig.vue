@@ -18,7 +18,6 @@ import {
 import { useServerConfig, type GpuArch } from '@/composables/useServerConfig'
 import { useSelectionRulesStore, type RuleContext, type RuleAction } from '@/stores/selectionRules'
 import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
-import { cableDescFrom } from '@/utils/bomL6Derive'
 import { loadBomCategoryAliases, getBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { CORE_DRIVE_KINDS, DEFAULT_REAR_SLOTS, DEFAULT_PSU_BAYS, COMBO_REAR_SLOTS, optionLabel, rearIOBucket } from '@/constants/chassisMeta'
 import { backplaneTypeOf, driveKindOf } from '@/utils/partFit'
@@ -37,6 +36,7 @@ const props = defineProps<{
     gpuArch?: GpuArch
     drivesByKind?: Record<string, number> // {SATA, SAS, NVMe}
     highBwNic?: boolean                    // 含 100G+ 高带宽网卡（x16 卡）→ IO1 riser 升级 x16
+    raidModel?: string                     // RAID 卡型号（Cable 行 SATA/SAS 文案前缀）
   }
   initialPicks?: any
   /** 弹窗模式：左侧步骤条 + 右侧单步内容（堆叠模式为 false，Workspace 行为不变） */
@@ -441,7 +441,7 @@ function applyKpSummary(s: any) {
 }
 
 // ---- 左栏 L6 摘要模板的行值解析（catalogue/desc/qty，无价）----
-// 按 bom_templates.rows[].rule 求值（求值器跑前端，规则跟模板存 JSONB）。组装 ctx + 调 evalBomContext。
+// 按 bom_templates.rows 骨架 + 行类型规则（bomRuleEngine.TYPE_RULES）求值。组装 ctx + 调 evalBomContext。
 // 变量字典在此组装；规则失败(manual/缺数据)→ 留空，工作台手填（[[derive-must-have-manual-fallback]]）。
 function buildBomContext(): Record<string, { desc: string; qty: number | string }> {
   const psuP = psuPicked()
@@ -469,21 +469,15 @@ function buildBomContext(): Record<string, { desc: string; qty: number | string 
       nvme_count: props.kpSummary?.drivesByKind?.NVMe || 0,
       // OCP 转接适配板（模板 OCP 行 qty）：选了 OCP（rear['OCP'] 非空）→ 1，否则 0 → 行自动隐藏
       ocp_qty: (rear['OCP'] || []).filter((t: string) => t !== 'blank').length > 0 ? 1 : 0,
-      // 背板描述 + 前面板线缆总根数（模板 Cable/背板行用；与 buildPlanCfg 同口径）
+      // 背板描述 + 盘数（模板 Cable 行按盘型分组：⌈盘数/分组⌉ 组，bomRuleEngine.cableSegments）
       bp_type_desc: bpType() === 'tri' ? 'NVMe/SATA/SAS' : 'SATA/SAS',
       cable_qty: CORE_DRIVE_KINDS.reduce((s, k) => s + frontCableQty(k), 0),
-      // Cable 行主描述（盘数驱动，desc 只显示描述）：live 路径缺 RAID 型号 → 通用 "12SAS Cable" 可读文案，
-      // 避免回退 front_cables 把裸 pn 拼进描述
-      cable_desc: cableDescFrom({
-        sata: props.kpSummary?.drivesByKind?.SATA || 0,
-        sas: props.kpSummary?.drivesByKind?.SAS || 0,
-        nvme: props.kpSummary?.drivesByKind?.NVMe || 0,
-      }, ''),
+      raid_model: props.kpSummary?.raidModel || '',
+      sata_count: props.kpSummary?.drivesByKind?.SATA || 0,
+      sas_count: props.kpSummary?.drivesByKind?.SAS || 0,
     },
     parts: effectiveBaseParts.value,
     rear,
-    frontCableQty,
-    frontCableInfo,
     categoryAliases: getBomCategoryAliases(),
   }
   return evalBomContext(bomTemplate.value?.rows || [], ctx)

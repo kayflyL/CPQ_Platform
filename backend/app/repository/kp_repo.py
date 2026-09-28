@@ -277,6 +277,231 @@ def part_identity_key(name: str, category: str, specs: Optional[dict] = None) ->
     return (category or '', _inorm_general(name))
 
 
+# ============================================================
+# 语义 token 匹配（L1.5）：报价上传行 vs 库内件的宽松同件判定。
+# 思路同 HDD/SSD 结构化 identity——对语序/冗余词/写法差免疫；
+# 接受从严：输入 token ⊆ 库件 token 且族内唯一，防误合。
+# ============================================================
+_SEM_BRAND_RE = re.compile(
+    r'nvidia|geforce|amd|intel|mellanox|broadcom|lsi|samsung|zhaoxin|huawei|hygon|phytium'
+    r'|兆芯|华为|海光|飞腾|国产')
+_SEM_NOISE_RE = re.compile(
+    r'network\s*card|adapter|含模块|含光模块|多模光模块|单模光模块|光模块|光卡'
+    r'|涡轮卡|涡轮|server\s+edition|显卡|处理器|内存条'
+    r'|supercap|super-capacitor|超级电容|含电容|含电池|cachevault|掉电保护|支架'
+    r'|网卡|涡轮|光口|电口|企业级|读取密集型|读密集型|写密集型|混合型|\becc\b|\bcache\b|\bib\b|roce|rdma')
+_SEM_PORT_RE = re.compile(r'双口|二口|双电口|四口|单口|(\d+)\s*口')
+_SEM_FUSE_RE = re.compile(r'([a-z])[\-_.·]+([0-9])')
+_SEM_TOKEN_RE = re.compile(r'[a-z0-9]+(?:\.[0-9]+)?')
+
+
+def semantic_tokens(text: str) -> set:
+    """配件名 → 规范 token 集：端口/单位/型号连写归一，品牌与模块类噪声剔除；
+    字母数字连写 token 统一拆分（rtx5090/kh50000 → {rtx,5090}/{kh,50000}），连写分写对称。
+    上传行与库名走同一函数，任一侧写法差不敏感；对语序天然免疫（集合语义）。"""
+    s = (text or '').lower().replace('（', ' ').replace('）', ' ')
+    s = _SEM_PORT_RE.sub(lambda m: f" {m.group(1) or {'双口': '2', '二口': '2', '双电口': '2', '四口': '4', '单口': '1'}[m.group(0)]}port ", s)  # 两侧补空格防 2port25g 粘连
+    s = _SEM_FUSE_RE.sub(r'\1\2', s)                      # kh-50000→kh50000
+    s = re.sub(r'(\d)\s*gb\b', r'\1g', s)
+    s = re.sub(r'(\d)\s*tb\b', r'\1t', s)
+    s = re.sub(r'([gt])b/s', r'\1', s)                    # 1792 GB/s → 1792g
+    s = re.sub(r'(\d{4,5})\s*(?:mts|mt/s|mhz)\b', r'\1', s)  # 4800MHz → 4800（对齐库名裸数字）
+    s = re.sub(r'(\d(?:\.\d+)?)\s*ghz\b', r'\1', s)          # 2.6GHz → 2.6（对齐 spec 裸频率）
+    s = _SEM_BRAND_RE.sub(' ', s)
+    s = _SEM_NOISE_RE.sub(' ', s)
+    out = set()
+    for t in _SEM_TOKEN_RE.findall(s):
+        m = re.match(r'^([a-z]+)(\d.+)$', t)
+        out.update(m.groups() if m else {t})              # rtx5090/kh50000 → {rtx,5090}/{kh,50000}，连写分写对称
+    return out
+
+
+def semantic_match(text: str, family_parts: List[dict]) -> List[dict]:
+    """族内语义 token 匹配。候选：输入 tokens ⊆ 库件全 tokens（名字+specs 值，
+    specs 兜底 canonical 名比 alias 短的场景，如 Cache=4 GB 补 4g）；
+    平局裁决：输入与「名字 tokens」完全相等者优先（specs 只扩超集不做相等面，防稀释）。
+    接受：相等候选唯一，或候选本身唯一。歧义返回空（宁可新部件不误合）。"""
+    in_toks = semantic_tokens(text)
+    if not (len(in_toks) >= 2 or any(ch.isdigit() for t in in_toks for ch in t)):
+        return []
+    cands = []
+    for p in family_parts or []:
+        name_toks = semantic_tokens(p.get('name') or '')
+        full_toks = set(name_toks)
+        for v in (p.get('specs') or {}).values():
+            full_toks |= semantic_tokens(str(v))
+        if in_toks and in_toks <= full_toks:
+            cands.append((in_toks == name_toks or in_toks == full_toks, p))
+    exact = [p for eq, p in cands if eq]
+    if len(exact) == 1:
+        return [exact[0]]
+    if len(cands) == 1:
+        return [cands[0][1]]
+    return []
+
+
+# ============================================================
+# 疑似重复检测（display-only 不自动合并）：信号分层 + Union-Find 聚组。
+# 信号强度递减：SKU 精确(1.0) > 结构化 identity 键(0.95) > 语义 token
+# 相等(0.9) / 子集+价格簇<1.3(0.8) > 子集(0.7) > 名称相似兜底(≤0.69)。
+# 判据来自四轮合并战役（287→173）实证；brand 不参与分桶（同件 brand
+# 标注不一致是常见录入噪声，按 category 分桶两两比，百件量级毫秒级）。
+# 聚组只用强信号（≥0.8）：弱信号（子集无价/名称相似）只独立出对，
+# 防同类名（"2T SATA HDD"↔"2T SATA SSD"↔…）经并查集级联成巨组。
+# ============================================================
+_DUP_STRONG_SIM = 0.8
+
+
+def _duplicate_groups(records: List[dict], threshold: float = 0.6) -> dict:
+    """纯函数（无 DB）：records → {total_groups, total_duplicate_parts, groups}。
+    每条 record: {id, name, brand, category_id, category_name, oem_sku, alt_sku,
+    specs: dict, latest_price, latest_currency}。groups[].reasons 为多信号列表。"""
+    if len(records) < 2:
+        return {"total_groups": 0, "total_duplicate_parts": 0, "groups": []}
+    threshold_clamped = max(0.0, min(1.0, float(threshold)))
+
+    def norm(s):
+        return (s or "").strip()
+
+    pre = {}
+    for r in records:
+        name_toks = semantic_tokens(r.get("name") or "")
+        full_toks = set(name_toks)
+        for v in (r.get("specs") or {}).values():
+            full_toks |= semantic_tokens(str(v))
+        pre[r["id"]] = {
+            "identity": part_identity_key(r.get("name") or "", r.get("category_name") or "", r.get("specs") or None),
+            "toks": full_toks,
+        }
+
+    pair_reasons: Dict[tuple, List[str]] = {}
+    pair_sims: Dict[tuple, float] = {}
+
+    def hit(a_id, b_id, reason, sim):
+        key = tuple(sorted((a_id, b_id)))
+        if reason not in pair_reasons.setdefault(key, []):
+            pair_reasons[key].append(reason)
+        pair_sims[key] = max(pair_sims.get(key, 0.0), sim)
+
+    # L1 SKU 精确（全局跨分类）：同值 SKU 聚簇两两出对，天然覆盖 oem/alt 四组合
+    sku_ids: Dict[str, List[Any]] = {}
+    for r in records:
+        for field in ("oem_sku", "alt_sku"):
+            v = norm(r.get(field))
+            if v:
+                sku_ids.setdefault(v, []).append(r["id"])
+    for v, ids in sku_ids.items():
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                hit(ids[i], ids[j], f"SKU 相同 ({v})", 1.0)
+
+    # 分类桶内：L2 identity / L3 语义 token / L4 名称相似
+    cat_buckets: Dict[Any, List[dict]] = {}
+    for r in records:
+        cat_buckets.setdefault(r.get("category_id"), []).append(r)
+    for bucket in cat_buckets.values():
+        m = len(bucket)
+        for i in range(m):
+            a = bucket[i]
+            pa = pre[a["id"]]
+            for j in range(i + 1, m):
+                b = bucket[j]
+                pb = pre[b["id"]]
+                if norm(a.get("name")) and norm(b.get("name")) and pa["identity"] == pb["identity"]:
+                    hit(a["id"], b["id"], "结构化键一致", 0.95)
+                ta, tb = pa["toks"], pb["toks"]
+                if ta and tb:
+                    if ta == tb:
+                        hit(a["id"], b["id"], "语义 token 相等", 0.9)
+                    elif len(ta) >= 2 and len(tb) >= 2 and (ta < tb or tb < ta):
+                        # 单 token 名（"400G多模模块"→{400g}）信息不足，子集只会匹配一切 → 不比
+                        pa_price, pb_price = a.get("latest_price"), b.get("latest_price")
+                        if pa_price and pb_price:
+                            ratio = max(pa_price, pb_price) / min(pa_price, pb_price)
+                            if ratio < 1.3:
+                                hit(a["id"], b["id"], f"语义 token 子集 + 最新价比 {ratio:.2f}", 0.8)
+                            else:
+                                hit(a["id"], b["id"], f"语义 token 子集（价比 {ratio:.2f}，可能真不同件）", 0.7)
+                        else:
+                            hit(a["id"], b["id"], "语义 token 子集", 0.7)
+                # 数字 token 是判件决定性差异（嵌入校准同结论）：一侧独有的含数 token
+                # 直接否决弱信号，防同前缀家族（EPYC 9xxx / PN 码尾字母）刷屏出对
+                da = {x for x in ta if any(c.isdigit() for c in x)}
+                db = {x for x in tb if any(c.isdigit() for c in x)}
+                if not ((da - tb) or (db - ta)):
+                    ratio4 = difflib.SequenceMatcher(None, a.get("name") or "", b.get("name") or "").ratio()
+                    if ratio4 >= threshold_clamped:
+                        # 兜底信号封顶 0.69：近同名对的 difflib 比值常高于语义分层，不封顶会淹没排序
+                        hit(a["id"], b["id"], f"名称相似 ({ratio4:.2f})", min(ratio4, 0.69))
+
+    # Union-Find 聚组
+    parent = {r["id"]: r["id"] for r in records}
+
+    def find(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    for a_id, b_id in pair_reasons:
+        if pair_sims[(a_id, b_id)] >= _DUP_STRONG_SIM:
+            ra, rb = find(a_id), find(b_id)
+            if ra != rb:
+                parent[ra] = rb
+
+    by_id = {r["id"]: r for r in records}
+    comps: Dict[Any, List[Any]] = {}
+    for r in records:
+        comps.setdefault(find(r["id"]), []).append(r["id"])
+
+    # 组 = 强分量 ∪ 未被强分量覆盖的弱对（弱对之间不级联、不并入强分量）
+    group_ids: List[List[Any]] = [ids for ids in comps.values() if len(ids) >= 2]
+    for key in pair_sims:
+        if pair_sims[key] < _DUP_STRONG_SIM and find(key[0]) != find(key[1]):
+            group_ids.append(list(key))
+
+    def part_summary(r):
+        specs = r.get("specs") or {}
+        brief = " · ".join(f"{k}: {v}" for k, v in sorted(specs.items())[:2]) or None
+        return {
+            "id": r["id"],
+            "name": r["name"],
+            "brand": r.get("brand"),
+            "oem_sku": r.get("oem_sku"),
+            "alt_sku": r.get("alt_sku"),
+            "category_name": r.get("category_name"),
+            "specs_brief": brief,
+            "latest_price": r.get("latest_price"),
+            "latest_currency": r.get("latest_currency"),
+        }
+
+    groups = []
+    for ids in group_ids:
+        best_key, best_sim = None, None
+        for i in range(len(ids)):
+            for j in range(i + 1, len(ids)):
+                key = tuple(sorted((ids[i], ids[j])))
+                if key in pair_sims and (best_sim is None or pair_sims[key] > best_sim):
+                    best_key, best_sim = key, pair_sims[key]
+        prices = [by_id[pid].get("latest_price") for pid in ids]
+        prices = [p for p in prices if p]
+        price_ratio = round(max(prices) / min(prices), 2) if len(prices) >= 2 and min(prices) > 0 else None
+        groups.append({
+            "reasons": pair_reasons.get(best_key, ["疑似重复"]) if best_key else ["疑似重复"],
+            "similarity": round(best_sim, 2) if best_sim is not None else 0.0,
+            "price_ratio": price_ratio,
+            "price_warning": price_ratio is not None and price_ratio >= 1.3,
+            "parts": [part_summary(by_id[pid]) for pid in sorted(ids)],
+        })
+
+    groups.sort(key=lambda g: (g["similarity"], len(g["parts"])), reverse=True)
+    return {
+        "total_groups": len(groups),
+        "total_duplicate_parts": sum(len(g["parts"]) for g in groups),
+        "groups": groups,
+    }
+
+
 class KPRepository:
     """配件管理 Repository — 新表 + 旧接口兼容"""
 
@@ -437,9 +662,44 @@ class KPRepository:
             })
         return out
 
-    def get_price_history(self, model: str, limit: int = 20) -> List[dict]:
-        """获取配件价格历史（兼容旧接口）"""
-        part = self.session.query(KPPart).filter(KPPart.name == model).first()
+    def resolve_part(self, model: str, category: Optional[str] = None) -> Optional[KPPart]:
+        """按上传型号解析库内件（工作台历史查询 / 价格入库共用一条阶梯）：
+        精确名 → 归一名唯一 → 分类族 identity 唯一 → 语义 token 唯一；歧义返回 None 不猜。"""
+        name = str(model or '').strip()
+        if not name:
+            return None
+        parts = self.session.query(KPPart)\
+            .options(joinedload(KPPart.specs), joinedload(KPPart.category)).all()
+        for p in parts:
+            if (p.name or '').strip() == name:
+                return p
+        norm = _inorm_general(name)
+        norm_hits = [p for p in parts if _inorm_general(p.name or '') == norm]
+        if len(norm_hits) == 1:
+            return norm_hits[0]
+
+        def as_dict(p: KPPart) -> dict:
+            return {'id': p.id, 'name': p.name,
+                    'specs': {s.spec_key: s.spec_value for s in (p.specs or [])}}
+
+        scoped = parts
+        family = category_family((category or '').lower()) or None
+        if family:
+            fam_names = set(category_family_members(family))
+            scoped = [p for p in parts if (p.category.name if p.category else '') in fam_names]
+            q_key = part_identity_key(name, family)
+            key_hits = [p for p in scoped
+                        if part_identity_key(p.name or '', family, as_dict(p)['specs']) == q_key]
+            if len(key_hits) == 1:
+                return key_hits[0]
+        sem = semantic_match(name, [as_dict(p) for p in scoped])
+        if len(sem) == 1:
+            return next(p for p in parts if p.id == sem[0]['id'])
+        return None
+
+    def get_price_history(self, model: str, limit: int = 20, category: Optional[str] = None) -> List[dict]:
+        """获取配件价格历史（兼容旧接口）。型号解析走 resolve_part 阶梯，不再要求名字精确相等。"""
+        part = self.resolve_part(model, category)
         if not part:
             return []
         rows = self.session.query(KPPriceHistory)\
@@ -462,8 +722,8 @@ class KPRepository:
         """插入价格记录（兼容旧接口）"""
         # 归一化到分类族，避免 "GPU card"/"Raid Card" 这类零散写法新建出同义分类
         category = canonical_category_name(category)
-        # 查找或创建配件
-        part = self.session.query(KPPart).filter(KPPart.name == model).first()
+        # 先走 resolve_part 阶梯找已有件（写法差/别名不再出生重复件），找不到才新建
+        part = self.resolve_part(model, category)
         if not part:
             # 查找或创建分类
             cat = self.session.query(KPCategory).filter(KPCategory.name == category).first()
@@ -493,6 +753,33 @@ class KPRepository:
             note=note
         )
         self.session.add(history)
+        self.session.commit()
+        return True
+
+    def get_price_history_by_id(self, history_id: int) -> dict | None:
+        """按 id 取单条价格历史（含所属型号名，供「改最新一条」的乐观锁校验用）"""
+        r = self.session.query(KPPriceHistory).filter(KPPriceHistory.id == history_id).first()
+        if not r:
+            return None
+        part = self.session.query(KPPart).filter(KPPart.id == r.part_id).first()
+        return {
+            "id": r.id,
+            "model": part.name if part else "",
+            "price": r.price,
+            "currency": r.currency,
+            "date": r.price_date.isoformat() if r.price_date else "",
+            "note": r.note,
+        }
+
+    def update_price_history(self, history_id: int, price: float,
+                             currency: str = "RMB", note: str = "") -> bool:
+        """原地修改一条价格记录（金额/币种/备注；日期不动，历史仍只增不删）"""
+        r = self.session.query(KPPriceHistory).filter(KPPriceHistory.id == history_id).first()
+        if not r:
+            return False
+        r.price = price
+        r.currency = currency
+        r.note = note
         self.session.commit()
         return True
 
@@ -1031,129 +1318,30 @@ class KPRepository:
         return {"days": cutoff_days, "gainers": gainers, "losers": losers}
 
     def detect_duplicates(self, threshold: float = 0.6) -> dict:
-        """疑似重复检测：oem_sku/alt_sku 精确匹配（强信号）+ name difflib 相似度（弱信号）。
-        返回重复组（不做合并，仅展示）。"""
-        parts = self.session.query(KPPart).options(joinedload(KPPart.category)).all()
+        """疑似重复检测（display-only，不做合并）。信号层见 _duplicate_groups：
+        SKU 精确 / 结构化 identity 键 / 语义 token（含价格簇佐证）/ 名称相似兜底。"""
+        parts = self.session.query(KPPart).options(
+            joinedload(KPPart.category), joinedload(KPPart.specs)).all()
         if len(parts) < 2:
             return {"total_groups": 0, "total_duplicate_parts": 0, "groups": []}
 
-        part_ids = [p.id for p in parts]
-        latest_map = self._latest_price_map(part_ids)
-        parts_by_id = {p.id: p for p in parts}
-
-        def summary(p):
+        latest_map = self._latest_price_map([p.id for p in parts])
+        records = []
+        for p in parts:
             lp = latest_map.get(p.id)
-            return {
+            records.append({
                 "id": p.id,
                 "name": p.name,
                 "brand": p.brand,
                 "oem_sku": p.oem_sku,
                 "alt_sku": p.alt_sku,
+                "category_id": p.category_id,
                 "category_name": p.category.name if p.category else None,
+                "specs": {s.spec_key: s.spec_value for s in p.specs},
                 "latest_price": lp.price if lp else None,
                 "latest_currency": lp.currency if lp else None,
-            }
-
-        # Union-Find
-        parent = {p.id: p.id for p in parts}
-
-        def find(x):
-            while parent[x] != x:
-                parent[x] = parent[parent[x]]
-                x = parent[x]
-            return x
-
-        def union(a, b):
-            ra, rb = find(a), find(b)
-            if ra != rb:
-                parent[ra] = rb
-
-        pair_reasons: Dict[tuple, dict] = {}
-
-        def record(a_id, b_id, reason, sim):
-            key = tuple(sorted((a_id, b_id)))
-            prev = pair_reasons.get(key)
-            if not prev or sim > prev["similarity"]:
-                pair_reasons[key] = {"reason": reason, "similarity": sim}
-
-        def norm(s):
-            return (s or "").strip()
-
-        threshold_clamped = max(0.0, min(1.0, float(threshold)))
-
-        # 按 brand 分桶（桶内两两比；桶过大时按 name 前缀再分小桶，防 O(n²) 爆炸）
-        brand_buckets: Dict[str, List[KPPart]] = {}
-        for p in parts:
-            brand_buckets.setdefault(norm(p.brand), []).append(p)
-
-        for bucket in brand_buckets.values():
-            if len(bucket) < 2:
-                continue
-            if len(bucket) > 500:
-                sub: Dict[str, List[KPPart]] = {}
-                for p in bucket:
-                    sub.setdefault(norm(p.name)[:3] or "_", []).append(p)
-                iter_buckets = list(sub.values())
-            else:
-                iter_buckets = [bucket]
-
-            for sub_list in iter_buckets:
-                m = len(sub_list)
-                for i in range(m):
-                    a = sub_list[i]
-                    a_oem, a_alt = norm(a.oem_sku), norm(a.alt_sku)
-                    for j in range(i + 1, m):
-                        b = sub_list[j]
-                        b_oem, b_alt = norm(b.oem_sku), norm(b.alt_sku)
-
-                        hit_reason, hit_sim = None, 0.0
-                        if a_oem and a_oem == b_oem:
-                            hit_reason, hit_sim = f"oem_sku 相同 ({a_oem})", 1.0
-                        elif a_oem and a_oem == b_alt:
-                            hit_reason, hit_sim = f"oem_sku/alt_sku 相同 ({a_oem})", 1.0
-                        elif a_alt and a_alt == b_oem:
-                            hit_reason, hit_sim = f"oem_sku/alt_sku 相同 ({a_alt})", 1.0
-                        elif a_alt and a_alt == b_alt:
-                            hit_reason, hit_sim = f"alt_sku 相同 ({a_alt})", 1.0
-
-                        if not hit_reason and a.category_id == b.category_id:
-                            ratio = difflib.SequenceMatcher(None, a.name or "", b.name or "").ratio()
-                            if ratio >= threshold_clamped:
-                                hit_reason, hit_sim = f"名称相似 ({ratio:.2f})", ratio
-
-                        if hit_reason:
-                            union(a.id, b.id)
-                            record(a.id, b.id, hit_reason, hit_sim)
-
-        # 按 root 聚合
-        groups_map: Dict[int, List[int]] = {}
-        for p in parts:
-            groups_map.setdefault(find(p.id), []).append(p.id)
-
-        result_groups = []
-        for ids in groups_map.values():
-            if len(ids) < 2:
-                continue
-            # 取该组内最强命中原因
-            best = None
-            for i in range(len(ids)):
-                for j in range(i + 1, len(ids)):
-                    pr = pair_reasons.get(tuple(sorted((ids[i], ids[j]))))
-                    if pr and (not best or pr["similarity"] > best["similarity"]):
-                        best = pr
-            result_groups.append({
-                "reason": best["reason"] if best else "疑似重复",
-                "similarity": round(best["similarity"], 2) if best else 0.0,
-                "parts": [summary(parts_by_id[pid]) for pid in sorted(ids)],
             })
-
-        result_groups.sort(key=lambda g: (g["similarity"], len(g["parts"])), reverse=True)
-        total_dup = sum(len(g["parts"]) for g in result_groups)
-        return {
-            "total_groups": len(result_groups),
-            "total_duplicate_parts": total_dup,
-            "groups": result_groups,
-        }
+        return _duplicate_groups(records, threshold)
 
     def create_part(self, data: dict) -> dict:
         """创建配件"""

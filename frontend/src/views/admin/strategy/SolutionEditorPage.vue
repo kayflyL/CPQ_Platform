@@ -3,6 +3,7 @@ import { ref, reactive, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { solutionApi, type SolutionScene } from '@/api/solutions'
+import { catalogApi } from '@/api/serverConfig'
 import MarkdownContent from './MarkdownContent.vue'
 
 const route = useRoute()
@@ -17,6 +18,17 @@ const sceneOptions = ref<SolutionScene[]>([])
 
 const labelOf = (k: string) => sceneOptions.value.find(c => c.key === k)?.label || ''
 
+// 适配平台绑定机型目录（真实机型）：选中自动带出名称 + 机型详情页链接
+const modelOptions = ref<{ value: number; label: string; rawName: string }[]>([])
+function onModelChange(p: { name: string; spec: string; link?: string; model_id?: number }, v?: number) {
+  if (v == null) { p.model_id = undefined; p.link = undefined; return }
+  const m = modelOptions.value.find(m => m.value === v)
+  if (!m) return
+  p.model_id = v
+  p.link = `/servers/models/${v}`
+  p.name = m.rawName
+}
+
 const form = reactive({
   key: '',
   scene_key: '',
@@ -26,7 +38,7 @@ const form = reactive({
   intro: '',
   content_md: '',
   features: [] as string[],
-  platforms: [] as { name: string; spec: string; link?: string }[],
+  platforms: [] as { name: string; spec: string; link?: string; model_id?: number }[],
 })
 
 watch(() => form.scene_key, (k) => { if (k) form.scene = labelOf(k) })
@@ -41,6 +53,12 @@ onMounted(async () => {
   loading.value = true
   try {
     sceneOptions.value = (await solutionApi.scenes()).scenes
+    const modelsRes = await catalogApi.listModels(undefined, { publishedOnly: true })
+    modelOptions.value = (modelsRes.models || []).map(m => ({
+      value: m.id,
+      label: `${m.name}（${m.base_config?.series || '未分系列'}）`,
+      rawName: m.name,
+    }))
     if (isEdit && key) {
       const s = await solutionApi.get(key)
       Object.assign(form, {
@@ -149,21 +167,28 @@ async function save() {
       <!-- 3. 底部：适配平台 -->
       <section class="ed-card ed-plats">
         <h4 class="ed-sec">适配平台（卡片 · 不带价格）</h4>
-        <p class="ed-note">每张卡片：机型名 + 规格 + 可选的跳转链接（留空则不可点击）。</p>
+        <p class="ed-note">适配平台绑定机型目录里的真实机型：选中自动带出机型名，点卡片跳机型详情页；规格为展示文案（按机型实际规格填写）。</p>
         <div v-for="(p, i) in form.platforms" :key="i" class="ed-plat">
-          <a-input v-model:value="p.name" placeholder="机型名，如 Orion ES22V3" />
-          <a-input v-model:value="p.spec" placeholder="规格，如 双路 Xeon · 2×RTX 4090 · 128G" />
-          <a-input v-model:value="p.link" placeholder="跳转链接，如 /strategies/selection" />
+          <a-select
+            :value="p.model_id"
+            show-search
+            allow-clear
+            placeholder="选择机型（自动带出名称与链接）"
+            :options="modelOptions"
+            @change="(v: any) => onModelChange(p, v ?? undefined)"
+          />
+          <a-input v-model:value="p.name" placeholder="机型名（选机型自动带出）" />
+          <a-input v-model:value="p.spec" placeholder="规格，如 2U 双路 · 24× DDR5 · 最高 29 盘位" />
           <a-button size="small" danger type="text" @click="form.platforms.splice(i,1)">删</a-button>
         </div>
-        <a-button size="small" block dashed @click="form.platforms.push({name:'',spec:'',link:''})">+ 添加适配平台</a-button>
+        <a-button size="small" block dashed @click="form.platforms.push({name:'',spec:''})">+ 添加适配平台</a-button>
       </section>
     </div>
   </div>
 </template>
 <style scoped>
 .ed { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
-.ed-bar { display: flex; align-items: center; gap: 12px; margin: 0 -24px 0; padding: 12px 24px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur)); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); position: sticky; top: 0; z-index: 30; box-shadow: 0 6px 18px -12px rgba(0,0,0,.5); }
+.ed-bar { display: flex; align-items: center; gap: 12px; margin: 0 -24px 0; padding: 12px 24px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur)); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); position: sticky; top: var(--cpq-sticky-top, 0px); z-index: 30; box-shadow: 0 6px 18px -12px rgba(0,0,0,.5); }
 .ed-back { color: var(--cpq-accent-primary); cursor: pointer; font-size: 13px; font-weight: 600; background: none; border: none; padding: 0; }
 .ed-bread { color: var(--cpq-text-primary); font-size: 13px; font-weight: 600; }
 .ed-actions { margin-left: auto; display: flex; gap: 8px; }
@@ -184,6 +209,6 @@ async function save() {
 .ed-sub + .ed-sub { border-top: 1px solid var(--cpq-glass-border); padding-top: 22px; }
 .ed-md-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.7; }
 .ed-md-preview { border: 1px dashed var(--cpq-glass-border-strong); border-radius: 10px; padding: 16px; min-height: 300px; max-height: 720px; overflow: auto; background: var(--cpq-overlay-w3); }
-.ed-plat { display: grid; grid-template-columns: 1fr 1.5fr 1.6fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
+.ed-plat { display: grid; grid-template-columns: 1.3fr 1fr 1.5fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 @media (max-width: 800px) { .ed-plat { grid-template-columns: 1fr; } }
 </style>

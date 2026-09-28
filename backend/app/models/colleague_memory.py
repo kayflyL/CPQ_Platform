@@ -30,6 +30,16 @@ class ColleagueMemory(Base):
     source: Mapped[str] = mapped_column(String(16), default="auto")  # auto | manual
     pinned: Mapped[Optional[bool]] = mapped_column(Boolean, default=False)
     created_by: Mapped[Optional[str]] = mapped_column(String(120), default=None)
+    # 双时间轴 lite（Zep 语义，2026-09-27）：失效打戳不删除，矛盾=新条目 supersede 旧条目
+    valid_from: Mapped[Optional[str]] = mapped_column(String(32), default=None)
+    retired_at: Mapped[Optional[str]] = mapped_column(String(32), default=None)
+    superseded_by: Mapped[Optional[int]] = mapped_column(Integer, default=None)
+    last_accessed_at: Mapped[Optional[str]] = mapped_column(String(32), default=None)
+    # 治理来源链：{"via": "memory_tool"|"manual"|"consolidation", "thread_id": ..., "user": ...}
+    provenance: Mapped[Optional[str]] = mapped_column(Text, default=None)
+    # 记忆域（多用户隔离，2026-09-28）：NULL=角色公共域（治理面维护，全员可见）；
+    # 非空=该用户私有域（对话写入，仅该用户与角色的对话注入）
+    user_id: Mapped[Optional[str]] = mapped_column(String(120), index=True, default=None)
     created_at: Mapped[Optional[str]] = mapped_column(String(32), default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String(32), default=None)
 
@@ -43,6 +53,12 @@ class ColleagueMemory(Base):
             "source": self.source or "auto",
             "pinned": bool(self.pinned),
             "created_by": self.created_by or "",
+            "valid_from": self.valid_from or "",
+            "retired_at": self.retired_at or "",
+            "superseded_by": self.superseded_by,
+            "last_accessed_at": self.last_accessed_at or "",
+            "provenance": self.provenance or "",
+            "user_id": self.user_id or "",
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
         }

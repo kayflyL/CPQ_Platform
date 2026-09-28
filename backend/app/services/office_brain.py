@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import copy
 import logging
-import random
 import time
 from typing import Any, Dict, List, Optional
 
@@ -143,18 +142,6 @@ _ALLOWED_ACTION_STATUSES = {"idle", "thinking", "working", "meeting", "public"}
 _ALLOWED_ACTION_ZONES = {"desk_zone", "meeting_room", "public_zone"}
 _ALLOWED_ACTION_INTENTS = {"work", "review", "move", "discuss", "meeting", "public", "wait"}
 
-_DEFAULT_FALLBACK_ACTIONS = [
-    {"status": "working", "intent": "work", "zone": "desk_zone", "activity": "整理方案资料", "message": ""},
-    {"status": "thinking", "intent": "review", "zone": "desk_zone", "activity": "复盘近期商机", "message": ""},
-    {"status": "working", "intent": "work", "zone": "desk_zone", "activity": "检查待办任务", "message": ""},
-    {"status": "public", "intent": "move", "zone": "public_zone", "activity": "去公共区稍作休息", "message": ""},
-]
-
-
-def _autonomous_stable_hash(value: Any) -> int:
-    import hashlib
-    return int(hashlib.md5(str(value).encode("utf-8")).hexdigest(), 16)
-
 
 def _autonomous_current_clock(timezone: str) -> str:
     try:
@@ -202,110 +189,6 @@ def _normalized_behavior_profile(colleague: Optional[dict]) -> Dict[str, Any]:
         else:
             normalized[key] = value
     return normalized
-
-
-def _profile_fallback_action(
-    role_key: str,
-    colleague: Optional[dict],
-    allowed_zones: set,
-) -> Optional[Dict[str, Any]]:
-    profile = _normalized_behavior_profile(colleague)
-    if not profile.get("wander_enabled", True):
-        return {
-            "status": "working",
-            "intent": "work",
-            "zone": "desk_zone",
-            "activity": "在工位处理工作",
-            "message": "",
-            "target_role_key": None,
-        }
-    preferred = [
-        item for item in profile.get("preferred_zones") or []
-        if isinstance(item, dict) and item.get("zone") in allowed_zones
-    ]
-    if not preferred:
-        return None
-    weights = []
-    for item in preferred:
-        try:
-            weight = max(0, float(item.get("weight") or 0))
-        except (TypeError, ValueError):
-            weight = 0
-        weights.append(weight)
-    if sum(weights) <= 0:
-        return None
-    seed = _autonomous_stable_hash(role_key) + int(time.time() // 60)
-    rng = random.Random(seed)
-    chosen = rng.choices(preferred, weights=weights, k=1)[0]
-    zone = str(chosen.get("zone") or "desk_zone").strip()
-    activity = str(chosen.get("activity") or "").strip()
-    if zone == "meeting_room":
-        return {"status": "meeting", "intent": "meeting", "zone": zone, "activity": activity or "去会议室整理资料", "message": "", "target_role_key": None}
-    if zone == "public_zone":
-        return {"status": "public", "intent": "move", "zone": zone, "activity": activity or "去公共区看看", "message": "", "target_role_key": None}
-    if zone == "desk_zone":
-        return {"status": "working", "intent": "work", "zone": zone, "activity": activity or "在工位处理工作", "message": "", "target_role_key": None}
-    return {"status": "thinking", "intent": "review", "zone": zone, "activity": activity or "去偏好区域", "message": "", "target_role_key": None}
-
-
-def _autonomous_rule_action(
-    role_key: str,
-    colleague: Optional[dict],
-    colleagues: List[dict],
-    life_config: Dict[str, Any],
-    office_snapshot: Dict[str, Any],
-) -> Dict[str, Any]:
-    import time as _time
-    now = _time.time()
-    latest = office_snapshot or {}
-    current = latest.get(role_key) or {}
-    current_zone = current.get("zone")
-    peer_keys = _autonomous_peer_keys(role_key, colleagues)
-    allowed_zones = _autonomous_allowed_zones(life_config)
-
-    if current_zone in allowed_zones and current_zone != "desk_zone":
-        return {
-            "status": "thinking",
-            "intent": "review",
-            "zone": "desk_zone",
-            "activity": "回到工位继续工作",
-            "message": "",
-            "target_role_key": None,
-        }
-
-    profile_action = _profile_fallback_action(role_key, colleague, allowed_zones)
-
-    interaction_enabled = bool(life_config.get("interaction_enabled", True))
-    if interaction_enabled and peer_keys:
-        interaction_cooldown = max(60, int(life_config.get("interaction_cooldown_seconds") or 300))
-        bucket = int(now // interaction_cooldown)
-        seed = _autonomous_stable_hash(f"{role_key}:{bucket}")
-        if seed % 4 == 0:
-            target_role_key = peer_keys[seed % len(peer_keys)]
-            interaction_action = life_config.get("interaction_action") or {}
-            if not isinstance(interaction_action, dict):
-                interaction_action = {}
-            return {
-                "status": interaction_action.get("status") or "meeting",
-                "intent": interaction_action.get("intent") or "discuss",
-                "zone": interaction_action.get("zone") or "meeting_room",
-                "activity": interaction_action.get("activity") or "找同事简短沟通",
-                "message": interaction_action.get("message") or "一起去会议室碰一下。",
-                "target_role_key": target_role_key,
-            }
-
-    fallback = life_config.get("fallback_actions")
-    if not isinstance(fallback, list) or not fallback:
-        fallback = _DEFAULT_FALLBACK_ACTIONS
-    valid_actions = [item for item in fallback if isinstance(item, dict)]
-    if not valid_actions:
-        valid_actions = _DEFAULT_FALLBACK_ACTIONS
-    if profile_action:
-        return profile_action
-    index = (_autonomous_stable_hash(role_key) + int(now // 60)) % len(valid_actions)
-    action = dict(valid_actions[index])
-    action["target_role_key"] = None
-    return action
 
 
 def _autonomous_clean_action(
@@ -372,12 +255,8 @@ async def generate_autonomous_action(
         {},
     )
     if not use_llm:
-        return _autonomous_clean_action(
-            _autonomous_rule_action(role_key, colleague, colleagues, life_config, office_snapshot or {}),
-            role_key,
-            peer_keys,
-            allowed_zones,
-        )
+        # 无 LLM 场景由 office_clock 按 daily_plans 直接出动作，这里不再维护兜底文案池。
+        return {}
 
     name = str(colleague.get("name") or role_key or "").strip() or role_key
     persona = str(colleague.get("system_prompt") or "未配置").strip()
@@ -441,11 +320,6 @@ async def generate_autonomous_action(
         logger.debug("office autonomous brain LLM call failed", exc_info=True)
         if raise_on_llm_error:
             raise
-        return _autonomous_clean_action(
-            _autonomous_rule_action(role_key, colleague, colleagues, life_config, office_snapshot or {}),
-            role_key,
-            peer_keys,
-            allowed_zones,
-        )
+        return {}
 
     return _autonomous_clean_action(data, role_key, peer_keys, allowed_zones)

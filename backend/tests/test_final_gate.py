@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def _ctx_with(reg_rows, landed_cats, model="ZS22V2-P"):
+def _ctx_with(reg_rows, landed_cats, model="ZS220 V2"):
     from app.services.skill_plan_runtime import final_gate  # noqa: F401
     kp_parts = [{"category": c, "name": "真实料号", "qty": 1} for c in landed_cats]
     summary = {"kp_count": len(kp_parts),

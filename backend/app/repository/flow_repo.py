@@ -38,6 +38,70 @@ def _now() -> str:
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
+# ── 指派人身份转换：存储统一 user_id，展示统一姓名 ──
+# 姓名在库里查不到（自由填写的外部人名）时保留原字符串，读写两侧都做双格式兼容。
+import time as _time
+
+_assignee_cache: dict = {}
+_ASSIGNEE_CACHE_TTL = 60.0
+
+
+def _load_assignee_maps() -> tuple:
+    now = _time.monotonic()
+    if "ts" not in _assignee_cache or now - _assignee_cache["ts"] > _ASSIGNEE_CACHE_TTL:
+        from app.repository.feed_user_repo import FeedUserRepository
+        repo = FeedUserRepository()
+        try:
+            users = repo.list_all()
+        finally:
+            repo.close()
+        by_name: dict = {}
+        by_uid: dict = {}
+        for u in users:
+            by_uid[u["user_id"]] = u.get("name") or ""
+            by_name.setdefault(u.get("name") or "", []).append(u["user_id"])
+        _assignee_cache.clear()
+        _assignee_cache.update(ts=now, by_name=by_name, by_uid=by_uid)
+    return _assignee_cache["by_name"], _assignee_cache["by_uid"]
+
+
+def reset_assignee_cache() -> None:
+    _assignee_cache.clear()
+
+
+def assignee_to_uid(value: str) -> str:
+    """姓名 → user_id（仅唯一匹配才转）；已是 user_id 或查无此人则原样返回。"""
+    if not value:
+        return value
+    by_name, by_uid = _load_assignee_maps()
+    if value in by_uid:
+        return value
+    hits = by_name.get(value) or []
+    return hits[0] if len(hits) == 1 else value
+
+
+def assignee_to_name(value: str) -> str:
+    """user_id → 姓名；不是 user_id 或查无此人则原样返回。"""
+    if not value:
+        return value
+    _, by_uid = _load_assignee_maps()
+    return by_uid.get(value) or value
+
+
+def match_assignee(value: str, user_id: str, name: str) -> bool:
+    """双格式匹配：存储值等于 user_id 或姓名都算命中（迁移期兼容）。"""
+    return bool(value) and value in (user_id, name)
+
+
+def render_flow_assignees(flow: dict) -> dict:
+    """出口渲染：assignees 的 user_id 值转回姓名（返回原 dict，就地改 assignees）。"""
+    if isinstance(flow, dict) and isinstance(flow.get("assignees"), dict):
+        flow["assignees"] = {
+            k: assignee_to_name(v) for k, v in flow["assignees"].items()
+        }
+    return flow
+
+
 class FlowRepository:
     def __init__(self):
         self._session = None
@@ -178,9 +242,10 @@ class FlowRepository:
         return row.to_dict()
 
     def list_task_flows(self, node_key: str, assignee_name: str = None,
-                        include_unassigned: bool = False,
+                        assignee_user_id: str = None,
                         page: int = 1, page_size: int = 20) -> tuple[List[dict], int]:
-        """当前节点任务流。按 assignees[node_key] 过滤；include_unassigned 时只取未指派。"""
+        """当前节点任务流。按 assignees[node_key] 过滤（user_id/姓名双格式）；
+        不传 assignee 时返回该节点全部（管理员视角）。出口 assignees 渲染为姓名。"""
         q = self.session.query(OpportunityFlow).filter(
             OpportunityFlow.current_node == node_key
         )
@@ -193,12 +258,9 @@ class FlowRepository:
         rows = q.order_by(OpportunityFlow.updated_at.desc()).all()
         items = []
         for r in rows:
-            d = r.to_dict()
-            cur = (d.get("assignees") or {}).get(node_key) or ""
-            if include_unassigned:
-                if cur:
-                    continue
-            elif assignee_name and cur != assignee_name:
+            d = render_flow_assignees(r.to_dict())
+            cur = ((r.assignees or {}).get(node_key)) or ""
+            if assignee_name and not match_assignee(cur, assignee_user_id or "", assignee_name):
                 continue
             items.append(d)
         total = len(items)
@@ -241,7 +303,7 @@ class FlowRepository:
             return
         assignees = {**(flow.assignees or {})}
         if not assignees.get(current):
-            assignees[current] = target
+            assignees[current] = assignee_to_uid(target)
             flow.assignees = assignees
             flow.updated_at = _now()
             self.session.commit()
@@ -294,12 +356,15 @@ class FlowRepository:
         old = ""
         if flow:
             old = (flow.assignees or {}).get(node_key) or ""
-            flow.assignees = {**(flow.assignees or {}), node_key: assignee_name}
+            # 存储统一 user_id；库中无此人的姓名原样保留
+            new_uid = assignee_to_uid(assignee_name)
+            flow.assignees = {**(flow.assignees or {}), node_key: new_uid}
             flow.updated_at = _now()
             self.session.commit()
-        comment = f"由 {old or '未指派'} 转交给 {assignee_name}"
+        comment = (f"由 {assignee_to_name(old) or '未指派'} "
+                   f"转交给 {assignee_to_name(assignee_to_uid(assignee_name)) or assignee_name}")
         self.append_node(flow_id, node_key, "assign", actor=actor, comment=comment)
-        return self.get_flow_by_id(flow_id) or {}
+        return render_flow_assignees(self.get_flow_by_id(flow_id) or {})
 
     def get_flow_by_id(self, flow_id: str) -> Optional[dict]:
         flow = self.session.query(OpportunityFlow).filter(
@@ -320,6 +385,88 @@ class FlowRepository:
                     break
         return out
 
+    # ── 调度台快照（任务调度页：负载 / 无主 / 业务×节点活跃数）──
+
+    _DISPATCH_NODES = ("boming", "costing", "quoting")
+    _DISPATCH_LABELS = {"boming": "方案配置", "costing": "成本核算", "quoting": "报价单"}
+
+    def dispatch_snapshot(self) -> dict:
+        """三条任务节点的一次性聚合：处理人负载、无主（当前节点无处理人）清单、业务×节点活跃数。
+
+        活跃 = current_node 命中且 status != done（报价已发送的流程不算在办负载）；
+        排除软删/ai_office 商机，口径同 list_task_flows。
+        """
+        from app.models.opportunity import Opportunity
+        excluded_subq = self.session.query(Opportunity.opportunity_id).filter(
+            Opportunity.status.in_(("ai_office", "deleted"))
+        )
+        rows = self.session.query(OpportunityFlow).filter(
+            OpportunityFlow.current_node.in_(self._DISPATCH_NODES),
+            OpportunityFlow.status != "done",
+            ~OpportunityFlow.opportunity_id.in_(excluded_subq),
+        ).all()
+
+        opp_map = {}
+        ids = sorted({r.opportunity_id for r in rows})
+        if ids:
+            for o in self.session.query(Opportunity).filter(
+                Opportunity.opportunity_id.in_(ids)
+            ).all():
+                opp_map[o.opportunity_id] = {
+                    "customer_name": o.customer_name or "",
+                    "owner_user_id": o.owner_user_id or "",
+                }
+
+        workload: dict = {n: {} for n in self._DISPATCH_NODES}
+        matrix: dict = {}
+        stuck = []
+        for r in rows:
+            # 孤儿流程（商机行已硬删/从未存在）无业务语义，不进快照；
+            # ai_office/软删已在上方子查询排除
+            if r.opportunity_id not in opp_map:
+                continue
+            node = r.current_node
+            cur = (r.assignees or {}).get(node) or ""
+            if cur:
+                name = assignee_to_name(cur) or cur
+                workload[node][name] = workload[node].get(name, 0) + 1
+            else:
+                updated = r.updated_at or ""
+                days = 0
+                try:
+                    days = max(0, (datetime.now() - datetime.strptime(updated[:10], "%Y-%m-%d")).days)
+                except ValueError:
+                    pass
+                stuck.append({
+                    "opportunity_id": r.opportunity_id,
+                    "customer_name": opp_map.get(r.opportunity_id, {}).get("customer_name") or "",
+                    "flow_id": r.flow_id,
+                    "current_node": node,
+                    "node_label": self._DISPATCH_LABELS.get(node, node),
+                    "updated_at": updated,
+                    "stuck_days": days,
+                    "suggest": self.resolve_node_assignee(r.opportunity_id, node),
+                })
+            owner = opp_map.get(r.opportunity_id, {}).get("owner_user_id") or ""
+            if owner:
+                bucket = matrix.setdefault(owner, {})
+                bucket[node] = bucket.get(node, 0) + 1
+
+        nodes = [
+            {
+                "key": n,
+                "label": self._DISPATCH_LABELS[n],
+                "workload": sorted(
+                    ({"name": k, "count": v} for k, v in workload[n].items()),
+                    key=lambda x: -x["count"],
+                ),
+                "unassigned_count": sum(1 for s in stuck if s["current_node"] == n),
+            }
+            for n in self._DISPATCH_NODES
+        ]
+        stuck.sort(key=lambda s: -s["stuck_days"])
+        return {"nodes": nodes, "stuck": stuck, "matrix": matrix}
+
     # ── 批量查询（门户卡片列表，避免逐商机 N+1）──
 
     def list_flows_bulk(self, opp_ids: List[str]) -> dict:
@@ -327,16 +474,6 @@ class FlowRepository:
             return {}
         rows = self.session.query(OpportunityFlow).filter(
             OpportunityFlow.opportunity_id.in_(opp_ids)
-        ).all()
-        return {r.opportunity_id: r.to_dict() for r in rows}
-
-    def list_current_requirements_bulk(self, opp_ids: List[str]) -> dict:
-        """各商机当前生效需求单。"""
-        if not opp_ids:
-            return {}
-        rows = self.session.query(OpportunityRequirement).filter(
-            OpportunityRequirement.opportunity_id.in_(opp_ids),
-            OpportunityRequirement.status == "current",
         ).all()
         return {r.opportunity_id: r.to_dict() for r in rows}
 

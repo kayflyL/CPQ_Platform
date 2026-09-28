@@ -31,7 +31,19 @@ DEFAULT_REASONING_NODE_CONTRACT: dict = json.loads(r'''{
     "conflict_strategy": "auto_resolve"
   },
   "model_reason": {
-    "output_artifact": "baselines / model_selection"
+    "output_artifact": "baselines / model_selection",
+    "wiring": {
+      "result_tool": "choose_model",
+      "result_selected_key": "selected",
+      "result_id_key": "model_id",
+      "result_name_key": "name",
+      "result_pool_key": "baselines_pool",
+      "pool_id_keys": ["server_model_id", "id"],
+      "pool_name_key": "name",
+      "default_reason": "AI 按需求在候选池内选定",
+      "lock_handler": "lock_baseline",
+      "progress_handler": "save_scheme_progress"
+    }
   },
   "kp_reason": {
     "output_artifact": "kp_parts / kp_by_model"
@@ -135,3 +147,43 @@ def ensure_reasoning_node_defaults(session=None) -> int:
         if own:
             s.close()
     return created
+
+
+def ensure_node_wiring_backfill(session=None) -> int:
+    """存量行补 wiring（方案一迁移，幂等，带 guard）：默认行缺 wiring 段 → 按种子补上。
+
+    只补缺（已有 wiring 的行原样跳过），种子值 = 原 _ModelNode 类属性逐字迁移 →
+    迁移零行为变化。返回更新行数。
+    """
+    own = session is None
+    s = session or Rules_SessionLocal()
+    updated = 0
+    try:
+        now = datetime.now().isoformat()
+        for node_key, cfg in DEFAULT_REASONING_NODE_CONTRACT.items():
+            wiring = (cfg or {}).get("wiring")
+            if not wiring:
+                continue
+            row = s.query(ReasoningNodeDefault).filter(
+                ReasoningNodeDefault.skill_key == DEFAULT_SKILL_KEY,
+                ReasoningNodeDefault.node_key == node_key,
+            ).first()
+            if row is None:
+                continue
+            try:
+                cur = json.loads(row.config or "{}")
+            except Exception:
+                cur = {}
+            if not isinstance(cur, dict) or cur.get("wiring"):
+                continue
+            cur["wiring"] = dict(wiring)
+            row.config = json.dumps(cur, ensure_ascii=False)
+            row.updated_at = now
+            row.updated_by = "wiring_backfill"
+            updated += 1
+        if updated:
+            s.commit()
+    finally:
+        if own:
+            s.close()
+    return updated

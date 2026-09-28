@@ -2,11 +2,16 @@
 /** 能力节点配置抽屉 —— 按通用节点类型渲染参数表单。
  *  通用类型：agent / output；需求分析能力节点（agent_fill/model_reason/kp_reason/compose）按类型白盒展示可编辑参数。
  *  runtime 仅用于兼容当前需求分析能力图，不再暴露业务专属硬编码表单。 */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, reactive } from 'vue'
+import { UpOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { reasoningFlowApi, type ReasoningNodeKey } from '@/api/reasoningFlow'
+import { artifactTemplateApi } from '@/api/artifactTemplates'
 import { assistantApi } from '@/api/assistant'
+import { knowledgeApi, type KnowledgeGroupMeta } from '@/api/compatibilityRules'
 import NodeResourceBindings from './NodeResourceBindings.vue'
+import RuleCard from './RuleCard.vue'
+import RulePickerModal from './RulePickerModal.vue'
 import TargetLayerModal from './TargetLayerModal.vue'
 import axios from 'axios'
 import { REASONING_CFG_TYPES, nodeArchetype } from '@/utils/reasoningNodeMeta'
@@ -42,37 +47,46 @@ const title = computed(() => {
 const configurable = computed(() => Boolean(props.nodeType && CONFIGURABLE.includes(props.nodeType)) || Boolean(props.nodeRuntime && CONFIGURABLE.includes(props.nodeRuntime)))
 const activeNodeType = computed(() => nodeArchetype(props.nodeType || props.nodeRuntime || ''))
 const runtimeType = computed(() => props.nodeRuntime || props.nodeType || '')
-const showSystemPrompt = computed(() => ['agent'].includes(runtimeType.value))
 const toolsEnabled = computed(() => ['agent', 'agent_fill', 'model_reason', 'kp_reason'].includes(runtimeType.value))
-const systemPromptValue = computed({
-  get: () => (form.value?.system_prompt ?? ''),
-  set: (v: string) => { if (form.value) form.value.system_prompt = v },
-})
 const PSU_SOURCE_OPTIONS = [
   { value: 'ext.psu.wattage', label: '需求电源信号 · 瓦数' },
   { value: 'ext.psu.wattage', label: '配件槽位 · 瓦数' },
   { value: 'auto', label: '自动推断（引擎）' },
 ]
 const toolCatalog = ref<any[]>([])
+const pdfTemplates = ref<any[]>([])
+const templateOptions = computed(() =>
+  pdfTemplates.value.map((t: any) => ({ value: t.key, label: `${t.name}（${t.key}）` })))
+artifactTemplateApi.list().then((rows) => { pdfTemplates.value = rows.filter((t) => t.format === 'pdf') }).catch(() => { /* 模板下拉为空即可 */ })
 const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   value: tool.name,
-  label: tool.name,
-  desc: tool.summary || tool.description || '',
+  label: tool.display_name ? `${tool.display_name}（${tool.name}）` : tool.name,
+  desc: tool.one_liner || tool.summary || tool.description || '',
   detail: tool.description || '',
-  dataSources: Array.isArray(tool.data_sources) ? tool.data_sources.map((s: any) => String(s)) : [],
+  display_name: tool.display_name,
+  one_liner: tool.one_liner,
+  custom: tool.custom,
+  category: tool.category,
+  parameters: tool.parameters,
+  default_enabled: tool.default_enabled,
 })))
 
 // 机制工具（节点机制必需，锁定勾选不可取消）：唯一真源 = 后端 capability_spec，
 // 由 /api/reasoning-flow/capabilities 下发；此处不自存副本。
 const capabilityCatalog = ref<any[]>([])
-const mechanismTools = computed(() => {
+const mechanismSpec = computed(() => {
   // 画布新增节点可能是 agent_fill_2 这类后缀 id：回退到基础类型取声明（与后端同口径）
   const rt = String(runtimeType.value || "")
   const base = rt.includes("_") ? rt.slice(0, rt.lastIndexOf("_")) : rt
-  const spec = capabilityCatalog.value.find((c: any) => c?.key === rt)
-    || capabilityCatalog.value.find((c: any) => c?.key === base)
+  return capabilityCatalog.value.find((c: any) => c?.key === rt)
+    || capabilityCatalog.value.find((c: any) => c?.key === base) || null
+})
+const mechanismTools = computed(() => {
+  const spec = mechanismSpec.value as any
   return Array.isArray(spec?.mechanism_tools) ? spec.mechanism_tools.map((t: any) => String(t)) : []
 })
+// 锁因文案：这些动词为什么不可摘（承载哪条协议）——capability_spec.mechanism_reason 单源下发
+const mechanismReason = computed(() => String((mechanismSpec.value as any)?.mechanism_reason || ""))
 async function loadCapabilities() {
   try {
     const { data } = await axios.get('/api/reasoning-flow/capabilities')
@@ -103,9 +117,88 @@ async function loadPoolResolvers() {
 }
 async function loadToolCatalog() {
   try {
-    toolCatalog.value = await assistantApi.tools.catalog()
+    const res = await assistantApi.tools.catalog()
+    toolCatalog.value = res.tools
   } catch {
     toolCatalog.value = []
+  }
+}
+
+// ── 分区折叠：点分区头收起/展开（同商机详情页中部栏 card-chevron / grid-rows 范式）
+const zoneOpen = reactive<Record<string, boolean>>({ target: false, rules: false, tools: false })
+function toggleZone(k: string) { zoneOpen[k] = !zoneOpen[k] }
+
+// ── 规则层：本节点读哪些规则（已选卡 + ＋开弹窗实时选；知识注入 brain 系统提示）。
+// 绑定存 system_config 全局单键，此处只改「本节点」一行；规则本体在策略中心·需求分析
+// 规则页维护，改完下一轮推理生效。未引入任何规则 = 不注入。
+const kbGroups = ref<KnowledgeGroupMeta[]>([])
+const kbSel = ref<{ groups: string[]; ruleIds: number[] }>({ groups: [], ruleIds: [] })
+const kbPickerOpen = ref(false)
+const kbLoading = ref(false)
+/** 有大脑的节点才显示规则层（确定性端点/分支节点无「读规则」可言） */
+const kbZoneVisible = computed(() =>
+  ['agent', 'agent_fill', 'model_reason', 'kp_reason', 'compose'].includes(String(runtimeType.value)))
+
+async function loadKnowledgeBindings() {
+  kbLoading.value = true
+  try {
+    const r = await knowledgeApi.getBindings()
+    kbGroups.value = r.groups || []
+    const mine = r.bindings?.[String(props.nodeKey || '')]
+    kbSel.value = { groups: [...(mine?.groups || [])], ruleIds: [...(mine?.rule_ids || [])] }
+  } catch {
+    kbGroups.value = []
+  } finally {
+    kbLoading.value = false
+  }
+}
+
+/** 已选单条卡（archived 也展示，灰显可移除；注入端只取 active） */
+const kbSelRules = computed(() => {
+  const all = kbGroups.value.flatMap(g => g.rules.map(r => ({ ...r, group: g.name })))
+  return kbSel.value.ruleIds
+    .map(id => all.find(r => r.id === id))
+    .filter((r): r is { id: number; name: string; status: string; group: string } => Boolean(r))
+})
+const kbSelGroups = computed(() => kbGroups.value.filter(g => kbSel.value.groups.includes(g.name)))
+
+/** 弹窗按名整组引入（组 ⊇ 单条：吸收清掉该组已有 rule_ids，不留幽灵单条） */
+function addGroup(name: string) {
+  const g = kbGroups.value.find(x => x.name === name)
+  if (!g) return
+  const gIds = g.rules.map(r => r.id)
+  saveKb({
+    groups: kbSel.value.groups.includes(name) ? kbSel.value.groups : [...kbSel.value.groups, name],
+    ruleIds: kbSel.value.ruleIds.filter(id => !gIds.includes(id)),
+  }, `已引入整组「${name}」，组内新增规则自动跟进`)
+}
+
+function removeGroup(g: KnowledgeGroupMeta) {
+  const gIds = g.rules.map(r => r.id)
+  saveKb({
+    groups: kbSel.value.groups.filter(n => n !== g.name),
+    ruleIds: kbSel.value.ruleIds.filter(id => !gIds.includes(id)),
+  }, `已移除「${g.name}」`)
+}
+
+function addRule(id: number) {
+  if (kbSel.value.ruleIds.includes(id)) return
+  saveKb({ groups: [...kbSel.value.groups], ruleIds: [...kbSel.value.ruleIds, id] })
+}
+
+function removeRule(id: number) {
+  saveKb({ groups: [...kbSel.value.groups], ruleIds: kbSel.value.ruleIds.filter(i => i !== id) })
+}
+
+async function saveKb(next: { groups: string[]; ruleIds: number[] }, okMsg?: string) {
+  const prev = kbSel.value
+  kbSel.value = next
+  try {
+    await knowledgeApi.setNodeBindings(String(props.nodeKey || ''), next.groups, next.ruleIds)
+    if (okMsg) message.success(okMsg)
+  } catch (e: any) {
+    kbSel.value = prev
+    message.error(e?.response?.data?.detail || '绑定保存失败')
   }
 }
 
@@ -129,6 +222,30 @@ async function onSaveTarget(arts: any[]) {
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '目标层保存失败')
   }
+}
+
+/** document 输出物卡片上的数据范围短标签（完整配置在目标层弹窗） */
+const DOC_RANGE_LABELS: Record<string, string> = {
+  last_30: '近30天', last_90: '近90天', half_year: '近半年', this_year: '今年', custom: '自定义',
+}
+
+/** agent 节点添加输出物（v1 开放 document 报告）：建默认章节卡落库，再点卡片进弹窗编辑。 */
+async function addDocumentTarget() {
+  if (!targetArtifacts.value.length) {
+    await onSaveTarget([{
+      kind: 'document', slot: 'data_report', name: '数据报告',
+      data_range: { mode: 'auto' },
+      sections: [
+        { key: 's1', title: '概述', requires: '' },
+        { key: 's2', title: '数据分析', requires: '' },
+      ],
+    }])
+  }
+}
+
+function onAddArtifactClick() {
+  if (runtimeType.value === 'agent') { addDocumentTarget(); return }
+  message.info('方案配置表 / 文档 / 媒体类输出物将在后续版本开放')
 }
 async function loadSlotStats() {
   try {
@@ -158,24 +275,20 @@ function parseJsonObject(text: string): Record<string, any> | null {
   }
 }
 
-function parseJsonArray(text: string): any[] | null {
-  if (!String(text || '').trim()) return []
-  try {
-    const value = JSON.parse(String(text || ''))
-    return Array.isArray(value) ? value : null
-  } catch {
-    return null
-  }
-}
 watch(() => props.open, async (v) => {
   if (!v) return
   if (!props.nodeType && !props.nodeRuntime) return
   loadToolCatalog()
   loadCapabilities()
+  loadKnowledgeBindings()
   if (runtimeType.value === 'agent_fill') loadSlotStats()
   if (runtimeType.value === 'kp_reason') loadPoolResolvers()
   const c = props.initialConfig || {}
-  const outputKind = c.output_kind || props.skillOutputKind || (props.skillKey === 'requirement_analysis' ? 'bom_scheme_draft' : props.skillKey === 'trend_analysis' ? 'data_answer' : 'generic')
+  // 契约优先：绑定 Skill 的画布，output_kind 是分派轴契约（skill 清单），
+  // 节点配置里的陈旧值只配被治愈，不配反向覆盖契约
+  const outputKind = props.skillOutputKind || c.output_kind || 'generic'
+  const outArtifacts = Array.isArray(c.artifacts) ? c.artifacts : []
+  const docArtifact = outArtifacts.find((a: any) => a && a.kind === 'document' && a.format === 'pdf')
   form.value = {
     label: props.nodeLabel ?? '',
     enabled_tools: Array.isArray(c.enabled_tools) ? [...c.enabled_tools] : [],
@@ -185,13 +298,13 @@ watch(() => props.open, async (v) => {
     cp_psu_qty_source: c.psu_qty_source ?? 'ext.psu.qty',
     cp_pool_resolver: c.data_bindings?.kp_pool?.resolver || '',
     cp_pool_limit: Number(c.data_bindings?.kp_pool?.params?.limit) || 20,
-    system_prompt: c.system_prompt ?? '',
     output_name: c.name ?? '',
     output_kind: outputKind,
     output_payload_map_text: safeJsonString(c.payload_map),
-    output_actions_text: safeJsonString(c.actions),
-    output_template: c.template || '',
-    output_schema_text: safeJsonString(c.output_schema),
+    out_file_enabled: Boolean(docArtifact),
+    out_file_format: 'pdf',
+    out_file_title: docArtifact?.title || '数据报告',
+    out_file_template: docArtifact?.template_key || '',
   }
 })
 
@@ -205,7 +318,8 @@ function buildConfig(): Record<string, any> | null {
 
   if (runtimeType.value === 'agent') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
-    config.system_prompt = form.value.system_prompt || ''
+    // 目标层 document 插头随节点配置持久化（大脑结构契约 + 运行时产物 chip 的数据源）
+    config.target = { artifacts: targetArtifacts.value.map((a: any) => ({ ...a })) }
   }
   if (runtimeType.value === 'compose') {
     config.kp_source = form.value.cp_kp_source || 'per_baseline'
@@ -228,30 +342,27 @@ function buildConfig(): Record<string, any> | null {
     }
   }
   if (t === 'output') {
-    config.name = form.value.output_name || ''
     const payloadMap = parseJsonObject(form.value.output_payload_map_text)
     if (payloadMap === null) {
       message.error('交接映射不是合法 JSON 对象')
       return null
     }
-    const actions = parseJsonArray(form.value.output_actions_text)
-    if (actions === null) {
-      message.error('交接动作不是合法 JSON 数组')
-      return null
-    }
     config.output_kind = form.value.output_kind || 'generic'
+    // 方案名称只有业务实体输出读取（需求单/BOM 方案草稿落库时的命名）
+    if (['requirement_draft', 'bom_scheme_draft'].includes(form.value.output_kind)) {
+      config.name = form.value.output_name || ''
+    }
     // 交接去向由 output_kind 决定；target 是产物槽（插头），不在这里写。
     config.payload_map = payloadMap
-    config.actions = actions
-    if (form.value.output_kind === 'generic') {
-      config.template = form.value.output_template || ''
-      const outputSchema = parseJsonObject(form.value.output_schema_text)
-      if (outputSchema === null) {
-        message.error('输出 schema 不是合法 JSON 对象')
-        return null
-      }
-      config.output_schema = outputSchema
-    }
+    // 文件产物插槽：data_answer 交付时确定性渲染，失败不挡交付；其余类型清空
+    config.artifacts = form.value.output_kind === 'data_answer' && form.value.out_file_enabled
+      ? [{
+          kind: 'document',
+          format: form.value.out_file_format || 'pdf',
+          title: form.value.out_file_title || '数据报告',
+          ...(form.value.out_file_template ? { template_key: form.value.out_file_template } : {}),
+        }]
+      : []
   }
   if (rt === 'agent_fill') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
@@ -270,7 +381,8 @@ async function persist(config: Record<string, any>): Promise<boolean> {
     delete merged.prompt
     if (runtimeType.value === 'agent') {
       merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
-      merged.system_prompt = form.value.system_prompt || ''
+      // system_prompt 是死字段（引擎人设恒非空，节点配置兜底走不到）；指令唯一出处=左栏使用说明
+      delete merged.system_prompt
     } else if (runtimeType.value === 'model_reason' || runtimeType.value === 'kp_reason') {
       merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
       delete merged.max_iterations
@@ -288,6 +400,10 @@ async function persist(config: Record<string, any>): Promise<boolean> {
       delete merged.max_iterations
       delete merged.max_rounds
       delete merged.system_prompt
+    }
+    if (props.nodeType === 'output' && !['requirement_draft', 'bom_scheme_draft'].includes(String(merged.output_kind || ''))) {
+      // 方案名称仅业务实体输出读取；非实体输出不残留陈旧 name
+      delete merged.name
     }
     if (runtimeType.value === 'kp_reason' || runtimeType.value === 'model_reason') {
       // 清理旧内核遗留字段：新阶段机不读这些键，留着会误导"配置已生效"。
@@ -315,10 +431,10 @@ async function persist(config: Record<string, any>): Promise<boolean> {
     if (activeNodeType.value === 'output') {
       delete merged.bom_output
       delete merged.recommendation
-      if (form.value.output_kind !== 'generic') {
-        delete merged.template
-        delete merged.output_schema
-      }
+      // 交接动作/输出模板/schema 零消费者（downstream_guard 未接线、generic 流不存在），保存时清残留
+      delete merged.actions
+      delete merged.template
+      delete merged.output_schema
       // config.target 旧语义是「交接目标字符串」，现语义是产物槽（target.artifacts，插头）。
       // 名字相同含义不同：一旦被写成字符串，resolve_kind 就找不到槽 → 节点下产物消失。
       // 这里直接剔除非物件 target，交回节点默认产物槽（同时自愈历史写坏的数据）。
@@ -366,32 +482,29 @@ async function save() {
         <template v-if="configurable">
             
 
-      <!-- 节点名称：独立字段（AI 指令唯一入口 = Skill Studio 左栏「使用说明」；抽屉只留机制配置） -->
+      <!-- 节点名称：独立字段（AI 指令唯一入口 = 工作流画布左栏「使用说明」；抽屉只留机制配置） -->
       <div class="node-zone node-zone--name">
         <div class="node-zone-body">
           <a-form layout="vertical" class="node-config-form node-common-form">
             <a-form-item label="节点名称">
               <a-input v-model:value="form.label" placeholder="填写该节点在当前能力中的名称" maxlength="40" />
-              <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。</p>
+              <p class="rf-hint">节点名称属于实例属性，可随能力复用而改名；不影响节点类型与执行逻辑。任务指令唯一出处 = 左栏「使用说明」。</p>
             </a-form-item>
-            <a-collapse v-if="showSystemPrompt" :bordered="false" class="node-advanced-fields">
-              <a-collapse-panel key="sys" header="节点提示（System Prompt，可选）">
-                <a-textarea v-model:value="systemPromptValue" :rows="4" placeholder="留空使用该节点类型默认任务说明" />
-                <p class="rf-hint">只描述本节点要完成什么、输入输出是什么；角色性格与说话语气由 AI 角色层统一负责。</p>
-              </a-collapse-panel>
-            </a-collapse>
           </a-form>
         </div>
       </div>
 
       <div class="node-zone">
-        <div class="node-zone-head">
+        <div class="node-zone-head node-head-toggle" @click="toggleZone('target')">
           <span class="node-zone-index">1</span>
           <span class="node-zone-title">目标层</span>
           <span class="node-zone-note">要输出的目标（字段表 / 输出物）</span>
+          <button class="node-chevron" :class="{ collapsed: !zoneOpen.target }" type="button" @click.stop="toggleZone('target')"><UpOutlined /></button>
         </div>
+        <div class="node-collapse" :class="{ collapsed: !zoneOpen.target }">
+        <div class="node-collapse-inner">
         <div class="node-zone-body">
-          <template v-if="targetArtifacts.length">
+          <template v-if="targetArtifacts.length || runtimeType === 'agent'">
             <div class="node-section-title">输出物 <span class="node-behavior-chip">要产出的目标</span></div>
             <div class="tl-card-list">
               <div v-for="art in targetArtifacts" :key="art.view || art.name" class="tl-card" @click="tlOpen = true">
@@ -405,18 +518,24 @@ async function save() {
                     <span>字段 {{ slotStats.fields }}</span>
                     <span>必填 {{ slotStats.required }}</span>
                   </template>
+                  <template v-else-if="(art.sections || []).length">
+                    <span>章节 {{ (art.sections || []).length }}</span>
+                    <span v-if="art.data_range && art.data_range.mode !== 'auto'">范围 {{ DOC_RANGE_LABELS[art.data_range.mode] || art.data_range.mode }}</span>
+                  </template>
                   <template v-else-if="(art.columns || []).length">
                     <span>列：{{ (art.columns || []).map((c: any) => c.label || c.key).join(' / ') }}</span>
                   </template>
                   <span v-if="art.view">视图 {{ art.view }}</span>
                 </div>
               </div>
-              <div v-if="runtimeType === 'agent_fill'" class="tl-card tl-card--add" title="更多输出物类型后续版本开放"
-                   @click.stop="message.info('方案配置表 / 文档 / 媒体类输出物将在后续版本开放')">
+              <div v-if="runtimeType === 'agent_fill' || runtimeType === 'agent'" class="tl-card tl-card--add"
+                   @click.stop="onAddArtifactClick">
                 ＋ 添加输出物
               </div>
             </div>
-            <p class="rf-hint">点卡片查看输出物详情；字段/中文名/顺序的权威是下游页面表单定义，此处自动跟随。</p>
+            <p class="rf-hint">{{ runtimeType === 'agent'
+              ? '声明本节点要产出的报告结构（章节），大脑按此契约逐节输出；点卡片编辑章节。'
+              : '点卡片查看输出物详情；字段/中文名/顺序的权威是下游页面表单定义，此处自动跟随。' }}</p>
             <TargetLayerModal v-model:open="tlOpen" :artifact="targetArtifacts[0] || null"
                               :node-key="nodeKey" :skill-key="skillKey" @save-target="onSaveTarget" />
           </template>
@@ -426,12 +545,27 @@ async function save() {
           <!-- 输出节点：交接契约 -->
           <a-form v-else-if="activeNodeType === 'output'" layout="vertical">
             <p class="rf-hint">输出节点只负责把上游结果交给下游业务实体或对话文本；不负责 BOM 展示样式和推荐语。</p>
-            <a-form-item label="方案名称">
+            <a-form-item v-if="['requirement_draft', 'bom_scheme_draft'].includes(form.output_kind)" label="方案名称">
               <a-input v-model:value="form.output_name" placeholder="留空使用系统默认名称" />
               <p class="rf-hint">用于生成 BOM 方案草稿名称；仅业务实体输出会读取。</p>
             </a-form-item>
             <a-form-item label="输出类型">
-              <a-select v-model:value="form.output_kind" :options="OUTPUT_KIND_OPTIONS" style="width:100%" />
+              <a-select v-model:value="form.output_kind" :options="OUTPUT_KIND_OPTIONS"
+                        :disabled="!!props.skillOutputKind" style="width:100%" />
+              <p v-if="props.skillOutputKind" class="rf-hint">由当前 Skill 的输出契约锁定（分派轴：选流 + 定交付语义），改 Skill 配置而非节点。</p>
+            </a-form-item>
+            <a-form-item v-if="form.output_kind === 'data_answer'" label="文件产物">
+              <div class="out-file-row">
+                <a-switch v-model:checked="form.out_file_enabled" size="small" />
+                <a-select v-model:value="form.out_file_format" :disabled="!form.out_file_enabled"
+                          :options="[{ value: 'pdf', label: 'PDF 报告' }]" style="width:130px" />
+                <a-input v-model:value="form.out_file_title" :disabled="!form.out_file_enabled"
+                         placeholder="报告标题" style="flex:1" />
+              </div>
+              <a-select v-model:value="form.out_file_template" :disabled="!form.out_file_enabled"
+                        :options="templateOptions" allow-clear
+                        placeholder="产出物模板（可选，不选=默认排版）" style="width:100%; margin-top:8px" />
+              <p class="rf-hint">选产出物模板后按模板区块渲染（封面指标/图表/明细，图表与商机线索页同源）；不选走默认 reportlab 排版。模板在 AI 办公室 · 产出物 维护。</p>
             </a-form-item>
             <a-collapse :bordered="false" class="node-advanced-fields">
               <a-collapse-panel key="advanced" header="高级交接配置（可选，一般不手写 JSON）">
@@ -439,20 +573,6 @@ async function save() {
                   <a-textarea v-model:value="form.output_payload_map_text" :rows="8" placeholder='{"plans":"ctx.plans","keywords":"ctx.ext.keywords"}' style="font-family: ui-monospace, monospace;" />
                   <p class="rf-hint">把 ctx 点分路径映射到交接 payload；未配置时使用 output_kind 的默认字段。</p>
                 </a-form-item>
-                <a-form-item label="交接动作（JSON 数组）">
-                  <a-textarea v-model:value="form.output_actions_text" :rows="8" placeholder='[{"action":"submit_approval","target":"cost_bom"}]' style="font-family: ui-monospace, monospace;" />
-                  <p class="rf-hint">产出后的下游动作，例如转审批；留空表示交回当前对话。</p>
-                </a-form-item>
-                <template v-if="form.output_kind === 'generic'">
-                  <a-divider orientation="left" class="rf-sec">通用格式</a-divider>
-                  <a-form-item label="输出模板">
-                    <a-textarea v-model:value="form.output_template" :rows="6" placeholder="可留空；例如 Markdown/文本模板" />
-                  </a-form-item>
-                  <a-form-item label="输出 schema（JSON 对象）">
-                    <a-textarea v-model:value="form.output_schema_text" :rows="10" placeholder="{}" style="font-family: ui-monospace, monospace;" />
-                    <p class="rf-hint">定义该节点产出结构；留空 = {}。执行器只透传 schema，不内嵌业务字段。</p>
-                  </a-form-item>
-                </template>
               </a-collapse-panel>
             </a-collapse>
           </a-form>
@@ -510,36 +630,77 @@ async function save() {
             <p class="rf-hint">该节点暂无额外节点专属设置；其执行行为由节点元数据与后端默认配置决定。</p>
           </a-form>
         </div>
+        </div>
+        </div>
+      </div>
+
+      <!-- 规则层（有大脑的节点）：本节点读哪些规则，知识注入 brain 系统提示；选了才显示 -->
+      <div v-if="kbZoneVisible" class="node-zone">
+        <div class="node-zone-head node-head-toggle" @click="toggleZone('rules')">
+          <span class="node-zone-index">2</span>
+          <span class="node-zone-title">规则层</span>
+          <span class="node-zone-note">读什么规则（知识注入 brain 系统提示）</span>
+          <button class="node-chevron" :class="{ collapsed: !zoneOpen.rules }" type="button" @click.stop="toggleZone('rules')"><UpOutlined /></button>
+        </div>
+        <div class="node-collapse" :class="{ collapsed: !zoneOpen.rules }">
+          <div class="node-collapse-inner">
+            <div class="node-zone-body">
+              <div class="node-section">
+                <div class="node-section-title">规则引入 <span class="node-behavior-chip">整组引入或单条添加，不引入则不注入</span></div>
+                <div v-if="kbLoading" class="rf-hint">规则清单加载中…</div>
+                <div v-else-if="kbGroups.length" class="kb-grid">
+                  <RuleCard v-for="g in kbSelGroups" :key="`g-${g.name}`" kind="group" :name="g.name"
+                            :meta="`整组 ${g.count} 条 · 新增自动跟进`" :summary="g.usage"
+                            state="selected" interactive @remove="removeGroup(g)" />
+                  <RuleCard v-for="r in kbSelRules" :key="`r-${r.id}`" kind="rule" :name="r.name"
+                            :meta="r.group" :status="r.status"
+                            state="selected" interactive @remove="removeRule(r.id)" />
+                  <button type="button" class="kb-add-card" @click="kbPickerOpen = true">＋ 添加规则</button>
+                </div>
+                <p v-else class="rf-hint">规则清单加载失败，请检查后端服务后重开抽屉。</p>
+                <p class="rf-hint">规则本体在策略中心 → 需求分析规则页维护；这里决定本节点读哪些（整组或单条），改完下一轮推理生效。</p>
+                <RulePickerModal v-model:open="kbPickerOpen" :selection="kbSel"
+                                 @catalog="gs => kbGroups = gs" @add-group="addGroup" @add-rule="addRule" />
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="node-zone">
-        <div class="node-zone-head">
-          <span class="node-zone-index">2</span>
+        <div class="node-zone-head node-head-toggle" @click="toggleZone('tools')">
+          <span class="node-zone-index">3</span>
           <span class="node-zone-title">工具层</span>
           <span class="node-zone-note">能调什么（数据随工具派生）</span>
+          <button class="node-chevron" :class="{ collapsed: !zoneOpen.tools }" type="button" @click.stop="toggleZone('tools')"><UpOutlined /></button>
         </div>
-        <div class="node-zone-body">
-          <NodeResourceBindings
-            v-model:tools="form.enabled_tools"
-            :tool-options="agentToolOptions"
-            :tools-enabled="toolsEnabled"
-            :tools-readonly="false"
-            :locked-tools="mechanismTools"
-          />
-          <!-- 候选池数据源（kp_reason 资源层"数据源"插头）：换源可观测（pool_source 白盒） -->
-          <div v-if="runtimeType === 'kp_reason'" class="node-section">
-            <div class="node-section-title">候选池数据源</div>
-            <a-select
-              v-model:value="form.cp_pool_resolver"
-              :options="poolResolvers.map(r => ({ value: r.name, label: `${r.name} · ${r.description}` }))"
-              placeholder="选择候选池数据源"
-              style="width:100%"
-            />
-            <div class="node-section" style="margin-top: 8px; padding: 8px 10px;">
-              <span class="rf-hint">检索候选上限</span>
-              <a-input-number v-model:value="form.cp_pool_limit" :min="1" :max="80" size="small" style="width: 100%; margin-top: 4px;" />
+        <div class="node-collapse" :class="{ collapsed: !zoneOpen.tools }">
+          <div class="node-collapse-inner">
+            <div class="node-zone-body">
+              <NodeResourceBindings
+                v-model:tools="form.enabled_tools"
+                :tool-options="agentToolOptions"
+                :tools-enabled="toolsEnabled"
+                :tools-readonly="false"
+                :locked-tools="mechanismTools"
+                :lock-reason="mechanismReason"
+              />
+              <!-- 候选池数据源（kp_reason 资源层"数据源"插头）：换源可观测（pool_source 白盒） -->
+              <div v-if="runtimeType === 'kp_reason'" class="node-section">
+                <div class="node-section-title">候选池数据源</div>
+                <a-select
+                  v-model:value="form.cp_pool_resolver"
+                  :options="poolResolvers.map(r => ({ value: r.name, label: `${r.name} · ${r.description}` }))"
+                  placeholder="选择候选池数据源"
+                  style="width:100%"
+                />
+                <div class="node-section" style="margin-top: 8px; padding: 8px 10px;">
+                  <span class="rf-hint">检索候选上限</span>
+                  <a-input-number v-model:value="form.cp_pool_limit" :min="1" :max="80" size="small" style="width: 100%; margin-top: 4px;" />
+                </div>
+                <p class="rf-hint">换源后下一轮推理生效：大脑候选上下文、确认卡自选候选、node_trace 标注的数据源随之变化。</p>
+              </div>
             </div>
-            <p class="rf-hint">换源后下一轮推理生效：大脑候选上下文、确认卡自选候选、node_trace 标注的数据源随之变化。</p>
           </div>
         </div>
       </div>
@@ -556,6 +717,7 @@ async function save() {
 .node-config-form { padding: 2px 0; }
 .node-common-form { margin-bottom: 12px; }
 .node-advanced-fields { margin-top: 12px; }
+.out-file-row { display: flex; align-items: center; gap: 8px; width: 100%; }
 .node-section {
   margin: 14px 0;
   padding: 12px 14px;
@@ -671,6 +833,28 @@ async function save() {
 .node-zone-title { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary); }
 .node-zone-note { margin-left: auto; font-size: 11px; color: var(--cpq-text-muted); }
 .node-zone-body { padding: 13px 14px; }
+.node-head-toggle { cursor: pointer; }
+.node-chevron {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 8px;
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
+}
+.node-chevron:hover { background: var(--cpq-overlay-w8); color: var(--cpq-text-primary); }
+.node-chevron.collapsed { transform: rotate(180deg); }
+.node-collapse { display: grid; grid-template-rows: 1fr; transition: grid-template-rows 0.22s ease; }
+.node-collapse.collapsed { grid-template-rows: 0fr; }
+/* 折叠态必须彻底为 0 高：内层 padding 会撑起网格最小行高，露出内容残影 */
+.node-collapse-inner { min-height: 0; overflow: hidden; }
 
 /* ── 目标层输出物卡片（大表不塞抽屉：点卡片进弹窗看全表）── */
 .tl-card-list { display: flex; flex-direction: column; gap: 8px; }
@@ -691,4 +875,22 @@ async function save() {
 .tl-card-name { font-weight: 600; color: var(--cpq-text-primary); font-size: 13px; }
 .tl-card-kind { margin-left: auto; font-size: 11px; color: var(--cpq-text-secondary); }
 .tl-card-meta { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
+/* 规则层：已选卡网格 + 虚线尾卡（卡片本体在 RuleCard，语法对齐 ToolCard） */
+.kb-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 8px;
+}
+.kb-add-card {
+  display: flex; align-items: center; justify-content: center;
+  min-height: 128px;
+  border: 1px dashed var(--cpq-border-primary);
+  border-radius: 12px;
+  background: transparent;
+  color: var(--cpq-text-secondary);
+  font-size: 12.5px;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.kb-add-card:hover { border-color: var(--cpq-accent-primary, #1677ff); color: var(--cpq-accent-primary, #1677ff); }
 </style>

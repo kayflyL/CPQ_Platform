@@ -1,6 +1,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
+import json
 from typing import Optional, List
 from fastapi import APIRouter, UploadFile, File, HTTPException, Form, Depends
 from fastapi.responses import FileResponse
@@ -102,6 +103,9 @@ def _resolve_list_date_range(period: Optional[str], start: Optional[str], end: O
     """把图表下钻传来的周期参数转成 created_at 的字符串比较区间。"""
     if not period and not (start and end):
         return None, None
+    if period == "all":
+        # 配件筛选默认窗口：不限时间（用户没动过周期控件时不叠加默认「本周」）
+        return None, None
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     if start and end:
         s = datetime.strptime(start, "%Y-%m-%d")
@@ -119,7 +123,7 @@ def _resolve_list_date_range(period: Optional[str], start: Optional[str], end: O
 
 
 @router.get("/list")
-def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, order_type: str = None, sales_person: str = None, period: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, sort_by: str = "updated_at", sort_order: str = "desc", user: dict = Depends(get_current_user)):
+def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool = False, search: str = None, status: str = None, platform: str = None, chassis: str = None, result: str = None, industry: str = None, order_type: str = None, sales_person: str = None, period: Optional[str] = None, start: Optional[str] = None, end: Optional[str] = None, part_filters: Optional[str] = None, sort_by: str = "updated_at", sort_order: str = "desc", user: dict = Depends(get_current_user)):
     from app.repository.opportunity_repo import OpportunityRepository
     repo = OpportunityRepository()
     try:
@@ -127,6 +131,12 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
         if not view_all:
             raise HTTPException(status_code=403, detail="无权查看商机线索")
         created_start, created_end = _resolve_list_date_range(period, start, end)
+        part_rows = None
+        if part_filters:
+            try:
+                part_rows = json.loads(part_filters)
+            except (json.JSONDecodeError, TypeError):
+                part_rows = None
         items, total = repo.list_opportunities(
             include_deleted, page, page_size,
             search=search, status=status, platform=platform, chassis=chassis,
@@ -137,11 +147,103 @@ def list_opportunities(page: int = 1, page_size: int = 50, include_deleted: bool
             has_committed_requirement=False,
             created_start=created_start,
             created_end=created_end,
+            part_filters=part_rows,
             sort_by=sort_by, sort_order=sort_order,
         )
         return {"items": items, "total": total}
     finally:
         repo.close()
+
+
+@router.get("/part-categories")
+def list_part_categories(user: dict = Depends(get_current_user)):
+    """配件筛选条件行的类别下拉：报价明细里实际出现过的 part_category（按出现次数排序）。
+
+    只统计列表可见商机（排除 AI 办公室/回收站）的报价——建议源与匹配结果同域，
+    避免下拉里出现永远搜不到的类别。
+    """
+    if not user_has_permission(user, "page.opportunities_all"):
+        raise HTTPException(status_code=403, detail="无权查看商机线索")
+    from app.models.opportunity import Opportunity
+    from app.models.quotation import Quotation
+    from app.models.quotation_item import QuotationItem
+    from sqlalchemy import func
+    from app.models.base import Opportunity_SessionLocal
+    session = Opportunity_SessionLocal()
+    try:
+        rows = session.query(
+            QuotationItem.part_category, func.count(QuotationItem.item_id)
+        ).join(
+            Quotation, QuotationItem.quotation_id == Quotation.quotation_id
+        ).join(
+            Opportunity, Quotation.opportunity_id == Opportunity.opportunity_id
+        ).filter(
+            Quotation.status == "active",
+            Opportunity.status.notin_(["ai_office", "deleted"]),
+            QuotationItem.part_category.isnot(None),
+        ).group_by(QuotationItem.part_category).all()
+        # 真实数据里大小写/拼写噪声多（Raid card/RAID Card…）：按小写归并，计数相加，保留组内最高频写法
+        merged: dict = {}
+        for raw, cnt in rows:
+            label = (raw or "").strip()
+            if not label:
+                continue
+            cnt = int(cnt or 0)
+            key = label.lower()
+            cur = merged.get(key)
+            if cur is None:
+                merged[key] = {"value": label, "count": cnt, "_best": cnt}
+            else:
+                cur["count"] += cnt
+                if cnt > cur["_best"]:
+                    cur["value"] = label
+                    cur["_best"] = cnt
+        items = sorted(
+            ({"value": v["value"], "count": v["count"]} for v in merged.values()),
+            key=lambda x: x["count"], reverse=True,
+        )
+        return {"items": items}
+    finally:
+        session.close()
+
+
+@router.get("/part-suggest")
+def part_suggest(category: Optional[str] = None, q: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """配件筛选型号建议：该类别下报价明细中出现过的 catalogue，按使用次数排序。只带型号与次数，不带 PN/价格。
+
+    与 /part-categories 同域：只统计列表可见商机的报价，建议出来即可匹配。
+    """
+    if not user_has_permission(user, "page.opportunities_all"):
+        raise HTTPException(status_code=403, detail="无权查看商机线索")
+    kw = (q or "").strip()
+    if not kw:
+        return {"items": []}
+    from app.models.opportunity import Opportunity
+    from app.models.quotation import Quotation
+    from app.models.quotation_item import QuotationItem
+    from sqlalchemy import func
+    from app.models.base import Opportunity_SessionLocal
+    session = Opportunity_SessionLocal()
+    try:
+        cond = [
+            Quotation.status == "active",
+            Opportunity.status.notin_(["ai_office", "deleted"]),
+            QuotationItem.catalogue.isnot(None),
+            QuotationItem.catalogue.ilike(f"%{kw}%"),
+        ]
+        if category:
+            cond.append(func.lower(QuotationItem.part_category) == category.strip().lower())
+        rows = session.query(
+            QuotationItem.catalogue, func.count(QuotationItem.item_id)
+        ).join(
+            Quotation, QuotationItem.quotation_id == Quotation.quotation_id
+        ).join(
+            Opportunity, Quotation.opportunity_id == Opportunity.opportunity_id
+        ).filter(*cond).group_by(QuotationItem.catalogue).order_by(func.count(QuotationItem.item_id).desc()).limit(8).all()
+        items = [{"value": (r[0] or "").strip(), "count": int(r[1] or 0)} for r in rows if (r[0] or "").strip()]
+        return {"items": items}
+    finally:
+        session.close()
 
 
 @router.get("/sales-options")
@@ -596,8 +698,12 @@ def update_opportunity_meta(opportunity_id: str, updates: dict,
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
             updates.pop("created_at", None)
+        if "result" in updates and not user_has_permission(user, "action.opportunity.result"):
+            raise HTTPException(status_code=403, detail="无权修改商机状态")
         repo.update_meta(opportunity_id, updates)
         return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Unhandled error")
         raise HTTPException(status_code=500, detail="内部服务器错误")

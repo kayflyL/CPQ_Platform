@@ -5,7 +5,7 @@
 - 全系统同一时刻只有一个会思考的脑袋：AI 角色。普通聊天阶段只有说话/查目录/提交开关，
   不读 skill 节点内容、不碰登记表；用户确认后任务交给确定性引擎执行；
 - 登记环节（agent_fill 节点）= 唯一大脑的显式回合：同一个人设、同一条流式循环，
-  大脑亲自调 fill_requirement（任务期工具）结构化落表；缺口判定由引擎确定性完成，
+  大脑亲自调 fill_requirement（需求分析流程工具）结构化落表；缺口判定由引擎确定性完成，
   没有第二次隐藏 LLM；
 - 引擎返回的缺口是纯数据，怎么问由角色组织语言；
 - 本模块不含任何话术表/关键词清单；业务选项（kp_mode 两个值等）全部来自引擎缺口数据。
@@ -81,12 +81,16 @@ class _ChatTurnRuntime:
     def __init__(self, *, thread_id, user_text, colleague, chat_system_prompt, history,
                  opportunity_id=None, option_slot=None, event_sink=None,
                  governance_guard=None, emit_input_card=None, card_selections=None,
-                 force_submit=False, skill_phase_hint="", write_mode=""):
+                 force_submit=False, skill_phase_hint="", write_mode="",
+                 skill_key="requirement_analysis", user_id=None):
         self.thread_id = thread_id
         self.user_text = user_text
         self.colleague = colleague
+        # 记忆域：对话写入归属当前用户（多用户隔离）
+        self.user_id = str(user_id or "").strip() or None
         self.chat_system_prompt = chat_system_prompt
         self.history = history
+        self.skill_key = str(skill_key or "requirement_analysis").strip() or "requirement_analysis"
         self.opportunity_id = opportunity_id
         # 落库写模式（B1）：入口显式给定，向下透传给引擎回合（preview/draft/none）
         self.write_mode = str(write_mode or "").strip().lower()
@@ -104,7 +108,6 @@ class _ChatTurnRuntime:
         self.role_max_tokens = None
         self.task_reasoning_effort = "low"
         self.price_ok = True
-        self.boundary: dict = {}
         self.has_query_data = False
         self.mem: dict = {}
         self.ext: dict = {}
@@ -119,8 +122,8 @@ class _ChatTurnRuntime:
         self.result_ctx: dict = {}
 
     def _prepare(self) -> Optional[dict]:
-        """角色配置档 + 会话记忆 + 数据边界 + Skill 画布配置（回合共同的输入）。"""
-        from app.services.data_boundary import colleague_price_ok, normalize_boundary
+        """角色配置档 + 会话记忆 + Skill 画布配置（回合共同的输入）。"""
+        from app.services.data_boundary import colleague_price_ok
         colleague = self.colleague or {}
         self.role_key = colleague.get("role_key") or "assistant"
         response_profile = colleague.get("response_profile") \
@@ -136,23 +139,36 @@ class _ChatTurnRuntime:
         # low 档 6.9s）。默认低档，员工 response_profile 显式配置仍可覆盖。
         self.task_reasoning_effort = self.role_reasoning_effort or "low"
         self.mem = _load_mem(self.thread_id, self.role_key)
+        # 流程记忆盖章（跨流防污染）：steps_done/中断点/锁定基线都是「某张流」的状态，
+        # 同名步骤键（agent/compose）在别的流里会被误跳过 → 记忆属于别的流时清空重开。
+        _mem_skill = str(self.mem.get("skill_key") or "").strip()
+        if _mem_skill and _mem_skill != self.skill_key:
+            logger.info("skill flow memory switch %s -> %s：重置流程记忆 thread=%s",
+                        _mem_skill, self.skill_key, self.thread_id)
+            from app.services.skill_memory import SKILL_SESSION_KEY
+            _kept_session = self.mem.get(SKILL_SESSION_KEY)
+            _save_mem(self.thread_id, self.role_key,
+                      {SKILL_SESSION_KEY: _kept_session} if isinstance(_kept_session, dict) else {})
+            self.mem = _load_mem(self.thread_id, self.role_key)
+        self.mem["skill_key"] = self.skill_key
         self.ext = dict(self.mem.get("ext") or {})
-        # 数据边界（步骤1）：query_data 的物理权限源；缺省时 normalize 出 deny_all
+        # 价格可见性（同事级 price_access 布尔，唯一事实源）：
+        # query_data 的可读表白名单由工具自管，不再有按同事的 data_boundary。
         self.price_ok = colleague_price_ok(colleague)
-        self.boundary = normalize_boundary(colleague)
         # query_data 试点门控：角色 tool_ids 显式勾选才挂（试点只开方案助手）
         self.has_query_data = isinstance(colleague.get("tool_ids"), list) \
             and "query_data" in colleague.get("tool_ids")
 
-        # Skill 画布配置提前加载：引擎执行与提议预告共用同一份 node_configs（数据驱动）
+        # Skill 画布配置提前加载：引擎执行与提议预告共用同一份 node_configs（数据驱动）。
+        # 流按本回合的 skill_key 取（workflow 型 skill 各有各的图，不再默认需求分析）。
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
         repo = ReasoningFlowRepository()
         try:
-            flow = repo.ensure_skill_flow("requirement_analysis", name="需求分析")
+            flow = repo.ensure_skill_flow(self.skill_key)
         finally:
             repo.close()
         if not flow:
-            return {"kind": "error", "reply": "需求分析流程未配置，请联系管理员。"}
+            return {"kind": "error", "reply": f"工作流 {self.skill_key} 未配置，请联系管理员。"}
         self.flow = flow
         self.flow_configs = dict(flow.get("node_configs") or {})
         self.flow_title = str(flow.get("name") or "") or "配置任务"
@@ -203,16 +219,29 @@ class _ChatTurnRuntime:
                     signal = _manual_model_signal(mem, selected, value)
                 if signal is None and selected == "brain_ask":
                     signal = _brain_ask_manual_signal(mem, value)
+                logger.info("卡片点击匹配 slot=%s value=%s signal=%s", selected, value[:40],
+                            json.dumps(signal, ensure_ascii=False)[:200] if signal else None)
                 if signal:
                     if want_qty:
                         signal = _signal_with_qty(
                             signal, want_qty, (mem.get("last_card") or {}).get("pick_meta") or {})
                     from app.services.slot_contract import apply_structured_slots
-                    apply_structured_slots(ext, signal, value, kp_state=node_state(mem, KP_NODE))
+                    _notes = apply_structured_slots(ext, signal, value, kp_state=node_state(mem, KP_NODE))
                     # 信号里的登记表字段（server_type/platform_type/…）走登记通道落值——
                     # 结构化通道只认部件槽，两条通道共用一套字段契约。
                     _apply_registration_signal(ext, signal, node_state(mem, KP_NODE).get(KP_PICKS))
-                    click_labels.append(canonical_key(selected) + (f"×{want_qty}" if want_qty else ""))
+                    if isinstance(signal, dict) and signal.get("kp_accept_recommendations") \
+                            and any(str(n).startswith("客户整单确认推荐") for n in _notes):
+                        # 整单委托的确认收敛点：整体卡 desc 声明过类型/平台，点击=客户看见了
+                        # 并确认——目录字段快照进 confirmed_slots（改值即失效重求证）
+                        from app.services.slot_contract import (confirm_registration_on_bulk_click,
+                                                                slot_label)
+                        for _k in confirm_registration_on_bulk_click(ext):
+                            _notes.append(f"{slot_label(_k)}已随整体确认")
+                    _lbl = canonical_key(selected) + (f"×{want_qty}" if want_qty else "")
+                    if _notes:
+                        _lbl += "：" + "；".join(str(n) for n in _notes[:2])
+                    click_labels.append(_lbl)
                     # 点选=客户亲口确认：写确认标记（凡推断必求证的求证侧），值被改写即失效
                     ext.setdefault("confirmed_slots", {})[canonical_key(selected)] = value
                 elif selected == "brain_ask":
@@ -257,8 +286,9 @@ class _ChatTurnRuntime:
         save = lambda: _save_mem(self.thread_id, self.role_key, {**mem, "ext": ext})  # noqa: E731
         state = {"submit": False}
         TOOL_CTX.set({"ext": ext, "user_text": self.user_text, "save": save, "price_ok": self.price_ok,
-                      "boundary": self.boundary, "role_key": self.role_key, "event_sink": self.event_sink,
-                      # fill_requirement 是任务期工具：普通对话回合恒不可用（登记回合内由 brain 置 True）
+                      "role_key": self.role_key, "event_sink": self.event_sink,
+                      "user_id": self.user_id,
+                      # fill_requirement 是需求分析流程工具：普通对话回合恒不可用（登记回合内由 brain 置 True）
                       "task_active": False})
 
         # 大脑指令 = 人设 + 登记表视图/价格守卫 + 阶段提示（ACTIVE 任务态）。
@@ -271,7 +301,7 @@ class _ChatTurnRuntime:
         if self.skill_phase_hint:
             system_prompt = system_prompt + "\n\n" + self.skill_phase_hint
         # 工作流显式发起：由入口（「+」/预览/续跑）force_submit 直接进引擎，模型不再有「提交」工具。
-        loop_tools = ["catalog_search"]
+        loop_tools = ["catalog_search", "colleague_memory"]
         if self.has_query_data:
             loop_tools.append("query_data")
 
@@ -305,6 +335,7 @@ class _ChatTurnRuntime:
                     llm_overall_timeout=120.0,
                     llm_reasoning_effort=self.role_reasoning_effort,
                     llm_temperature=self.role_temperature if isinstance(self.role_temperature, (int, float)) else 0.2,
+                    emit_chunk_reset=True,
                 )
             finally:
                 reset_trace_ctx(_tk)
@@ -373,12 +404,17 @@ class _ChatTurnRuntime:
         )
 
         # 回合级放弃式超时（2026-09-06 语义保留）：relay 黑洞挂死时到点 cancel 不等待回收，
-        # 宁可弃任务转入征询暂停，不可无限静默。
+        # 宁可弃任务转入征询暂停，不可无限静默。P0-② 换 TurnBreaker 看护：900s 硬上限语义
+        # 不变，中途加 steering/constrained 观察（observe-only，误报率验证后再武装）。
+        from app.services.turn_breaker import TurnBreaker
+        breaker = TurnBreaker(thread_id=self.thread_id)
+        agent_kwargs["event_sink"] = breaker.wrap_sink(self.event_sink)
         _plan_task = asyncio.ensure_future(run_skill_agent_turn(**agent_kwargs))
-        _done, _pending = await asyncio.wait({_plan_task}, timeout=900.0)
+        _done, _pending, _why = await breaker.supervise(_plan_task)
         if _pending:
             _plan_task.cancel()
-            logger.error("需求分析回合超过 900s 硬上限（relay 黑洞），放弃回合任务并转入缺配暂停")
+            logger.error("需求分析回合被看护中止 reason=%s 观察记录=%s（relay 黑洞或死循环），放弃回合任务并转入缺配暂停",
+                         _why, breaker.observations)
             from app.services.skill_plan_runtime import pause_payload
             result_ctx = {
                 "ext": ext,
@@ -407,6 +443,9 @@ class _ChatTurnRuntime:
                "brain_notes": (result_ctx.get("brain_notes") or mem.get("brain_notes") or []),
                "steps_done": (result_ctx.get("steps_done_list")
                               or sorted(result_ctx.get("steps_done") or [])),
+               # 引擎终态随回合回存：data_answer 型流没有 compose 步，flow_delivered
+               # 只认 engine_result=done 的话，交付后下一条消息会误入旧流程记忆分支
+               "engine_result": str(result_ctx.get("engine_result") or ""),
                "locked_baseline": (result_ctx.get("_locked_baseline") or None),
                "lock_reason": (result_ctx.get("lock_reason") or ""),
                "model_selection": (result_ctx.get("model_selection") or None),
@@ -433,28 +472,26 @@ class _ChatTurnRuntime:
             cards.append({"label": label, "value": label,
                           "desc": str(o.get("description") or ""), "slot": ask_slot,
                           "group": "需要您确认",
-                          **({"recommended": True} if o.get("recommended") else {})})
+                          **({"recommended": True} if o.get("recommended") else {}),
+                          **({"rule_match": True} if o.get("rule_match") else {}),
+                          **({"rule_conflict": o["rule_conflict"]}
+                             if isinstance(o.get("rule_conflict"), dict) else {})})
             entry = {"slot": ask_slot, "value": label}
-            if str(ask.get("row") or "").strip():
-                row_key = str(ask["row"]).strip()
-                # 行卡按行身份绑行（P3-3）：类目由身份解析，不再从 row 文本里切竖线
+            row_key = str(ask.get("row") or "").strip()
+            # 信号派生唯一出口=ask_option_signal（与引擎缺口路同一口径）。两处各写一套
+            # 解释已实际漂移过一次（pick_all 只加了本兜底路，引擎路点击信号全空，
+            # 2026-09-13 A1 实测整段死循环）——这里只做行身份解析后转交，不再自带第二套。
+            _row_cat = ""
+            if row_key:
                 from app.services.part_selector import row_ref_meta
                 from app.services.skill_node_state import KP_ROW_IDS, kp_state
                 _row_cat = str((row_ref_meta(row_key, (self.result_ctx or {}).get("kp_parts"),
                                             kp_state(self.result_ctx or {}).get(KP_ROW_IDS))
                                 or {}).get("category") or "")
-                pk = o.get("pick")
-                if isinstance(pk, dict) and str(pk.get("name") or "").strip():
-                    entry["signal"] = {"kp_manual_pick": {"row": row_key, **{k: v for k, v in pk.items()
-                                                                              if k in ("part_id", "name", "price", "currency", "qty")}}}
-                elif o.get("absent"):
-                    cat = str(o.get("absent") or "").strip() if isinstance(o.get("absent"), str) else ""
-                    cat = cat or _row_cat or (row_key.split("|", 1)[0].strip() if "|" in row_key else "")
-                    entry["signal"] = {"kp_absent": [cat] if cat else []}
-                elif o.get("waived"):
-                    entry["signal"] = {"kp_waived": [row_key]}
-                else:
-                    entry["signal"] = {"kp_row_merge": {"row": row_key, "answer": label}}
+            from app.services.skill_plan_runtime import ask_option_signal
+            sig = ask_option_signal(row_key, o, ask_slot, category=_row_cat)
+            if sig:
+                entry["signal"] = sig
             opts.append(entry)
         if not cards:
             return []
@@ -629,6 +666,11 @@ class _ChatTurnRuntime:
                             opt["recommended"] = True
                         if o.get("recommended"):
                             opt["recommended"] = True
+                        # 词典卡影子校验标注透传（「规则推荐/与规则不符」徽标数据）
+                        if o.get("rule_match"):
+                            opt["rule_match"] = True
+                        if isinstance(o.get("rule_conflict"), dict):
+                            opt["rule_conflict"] = o["rule_conflict"]
                         # 数量元数据透传（前端 stepper 边界+实时总量显示，纯展示参数非 signal）
                         for k in ("qty", "qty_max", "unit_gb"):
                             v = o.get(k)
@@ -767,10 +809,12 @@ async def handle_skill_chat_turn(
     force_submit: bool = False,
     skill_phase_hint: str = "",
     write_mode: str = "",
+    skill_key: str = "requirement_analysis",
 ) -> Optional[dict]:
     """角色对话脑主循环。返回引擎终态 dict（done 时含 artifact 供上层做落库收尾），无引擎时返回 None。
 
     emit_input_card(question_text, gap)：上层把它渲染成结构化选项卡（UI 数据=缺口，文案=角色）。
+    skill_key：本回合执行的 workflow skill（决定引擎加载哪张图）。
     """
     return await _ChatTurnRuntime(
         thread_id=thread_id, user_text=user_text, colleague=colleague,
@@ -778,4 +822,6 @@ async def handle_skill_chat_turn(
         opportunity_id=opportunity_id, option_slot=option_slot, event_sink=event_sink,
         governance_guard=governance_guard, emit_input_card=emit_input_card,
         card_selections=card_selections, force_submit=force_submit,
-        skill_phase_hint=skill_phase_hint, write_mode=write_mode).run()
+        skill_phase_hint=skill_phase_hint, write_mode=write_mode,
+        skill_key=skill_key,
+        user_id=str((user or {}).get("user_id") or "").strip() or None).run()

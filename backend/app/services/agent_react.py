@@ -12,6 +12,7 @@ from typing import Any, Awaitable, Callable, Optional
 
 from app.services import llm_client
 from app.services.agent_tool_specs import build_tool_registry
+from app.services.turn_breaker import ToolRepeatGuard
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,25 @@ def _cap_tool_context(messages: list) -> None:
         victim["content"] = (victim["content"] or "")[:_TOOL_CONTEXT_COMPRESS_TO] + "…（早期检索结果已压缩）"
 
 
+def _record_agent_round(model, messages, round_idx, dur_ms, tool_names,
+                        status: str = "ok", error: str = "") -> None:
+    """非流式工具循环逐轮落 trace（node_type=agent_round）。失败只记日志不阻塞。"""
+    try:
+        from app.services.llm_trace import record_llm_trace
+        record_llm_trace(
+            node_type="agent_round",
+            model=str(model or ""),
+            status=status or "ok",
+            error=(error[:200] if error else None),
+            duration_ms=int(dur_ms),
+            prompt_chars=sum(len(str((m or {}).get("content") or "")) for m in messages),
+            response_chars=0,
+            tool_name=(tool_names or "")[:80],
+        )
+    except Exception:
+        pass
+
+
 async def _run_native_tool_loop(
     requirement_text: str,
     config: dict,
@@ -49,7 +69,6 @@ async def _run_native_tool_loop(
     max_iterations: int,
     system_prompt: Optional[str],
     allowed_tool_ids: Optional[list],
-    allowed_data_sources: Optional[list],
     model: Optional[str],
     event_sink: Optional[Any],
     history: Optional[list],
@@ -61,14 +80,8 @@ async def _run_native_tool_loop(
         "thought_log": [], "iterations": 0,
     }
     cfg = config or {}
-    try:
-        if not llm_client.is_llm_enabled():
-            base["answer"] = "AI 未启用"
-            return base
-    except Exception:
-        pass
 
-    registry = build_tool_registry(cfg, allowed_tool_ids=allowed_tool_ids, allowed_data_sources=allowed_data_sources)
+    registry = build_tool_registry(cfg, allowed_tool_ids=allowed_tool_ids)
     if not registry.names():
         base["answer"] = "未启用任何工具"
         return base
@@ -104,16 +117,26 @@ async def _run_native_tool_loop(
             pass
 
     try:
+        _repeat = ToolRepeatGuard()
         for i in range(max_iter):
             base["iterations"] = i + 1
+            _rt0 = time.perf_counter()
             response = await llm_client.chat_with_tools(messages, tools=registry.schemas(), model=model)
             tool_calls = response.get("tool_calls") or []
+            _record_agent_round(
+                model, messages, i + 1, (time.perf_counter() - _rt0) * 1000,
+                ",".join(str(tc.get("name") or "") for tc in tool_calls),
+            )
             if tool_calls:
                 base["tool_attempted"] = True
                 messages.append(response["message"])
                 for call in tool_calls:
                     name = str(call.get("name") or "").strip()
                     args = call.get("arguments") if isinstance(call.get("arguments"), dict) else {}
+                    if _repeat.record(name, args):
+                        base["error"] = f"repeat_tool:{name}"[:300]
+                        await _emit("tool", f"工具 {name} 连续重复调用达上限，中止本步（模型在原地打转）")
+                        return base
                     await _emit("tool", f"正在调用工具 {name}", name)
                     result = await registry.execute(name, args)
                     if tool_guard is not None:
@@ -139,16 +162,20 @@ async def _run_native_tool_loop(
     except llm_client.LLMNativeToolsUnsupported as e:
         base["unsupported"] = True
         base["error"] = f"native_unsupported:{e}"[:300]
+        _record_agent_round(model, messages, base.get("iterations") or 0, 0, "", status="native_unsupported", error=str(e))
         return base
     except llm_client.LLMError as e:
         base["error"] = f"llm_error:{e}"[:300]
+        _record_agent_round(model, messages, base.get("iterations") or 0, 0, "", status="llm_error", error=str(e))
         return base
     except Exception as e:
         logger.exception("native tool loop unexpected error")
         base["error"] = f"exception:{e}"[:300]
+        _record_agent_round(model, messages, base.get("iterations") or 0, 0, "", status="exception", error=str(e))
         return base
 
     base["answer"] = ""
+    _record_agent_round(model, messages, base.get("iterations") or 0, 0, "", status="no_convergence")
     return base
 
 
@@ -156,13 +183,16 @@ async def _run_native_stream_chat_loop(
     user_text, config, system_prompt, allowed_tool_ids, model, event_sink, history,
     tool_guard, max_iterations, llm_timeout, llm_first_token_timeout, llm_reasoning_effort,
     llm_temperature, llm_max_tokens, context_block, llm_thinking_budget,
-    llm_overall_timeout,
+    llm_overall_timeout, emit_chunk_reset: bool = False,
 ) -> dict:
     """原生 function calling 流式聊天循环：模型直接返回流式 tool_calls，结果以 role:tool 回填。
 
     事件协议与 run_stream_chat_loop 一致（step_progress.step=react，sub.kind=thinking/chunk/tool）。
     返回契约同 run_stream_chat_loop。模型/代理不支持原生 tools 时抛 LLMNativeToolsUnsupported，
     由上层返回 unsupported，由调用方降级为普通对话。
+    emit_chunk_reset=True 时，第 2 次及以后的流式尝试（新回合/断线重试）在正文首字前发
+    sub.kind=chunk_reset——消费者据此清空已收的旁白正文，避免「旁白+最终答案」连拼
+    （DB 侧覆盖语义只保落库干净，UI 侧靠这个标记）。引擎旁白累积场景（brain 回合）保持 False。
     """
     base = {"ok": False, "answer": "", "tool_calls_log": [], "thinking": [], "iterations": 0}
     cfg = config or {}
@@ -198,6 +228,7 @@ async def _run_native_stream_chat_loop(
     # 逐轮诊断留痕（D）：thinking 字数/整包字数/token 与缓存命中 —— 「慢在哪」靠这份数据说话
     round_usage: dict = {}
     round_thinking = 0
+    attempt_seq = {"n": 0}
 
     def _record_round(round_idx: int, dur_ms: int, prose: str, tool_names: str,
                       status: str = "ok", error: str = "") -> None:
@@ -221,10 +252,12 @@ async def _run_native_stream_chat_loop(
     async def _stream_round():
         nonlocal round_thinking
         prose = []
+        prose_started = False
         thinking_chars = 0
         thinking_over = False
         truncated = False
         tool_calls = None
+        attempt_seq["n"] += 1
         try:
             _stream_kwargs = dict(
                 model=model, tools=registry.schemas(), timeout=llm_timeout,
@@ -254,6 +287,10 @@ async def _run_native_stream_chat_loop(
                         truncated = True
                         await _emit("tool", text="模型本轮 token 预算耗尽，正在重试…")
                         continue
+                    if not prose_started:
+                        prose_started = True
+                        if emit_chunk_reset and attempt_seq["n"] > 1:
+                            await _emit("chunk_reset")
                     prose.append(str(d))
                     await _emit("chunk", delta=str(d))
                 elif t == "tool_calls":
@@ -279,8 +316,11 @@ async def _run_native_stream_chat_loop(
             await _emit("tool", text="模型连接中断，正在重试（1/2）…")
             return await _stream_round()
 
-    all_prose = []
+    # 覆盖语义：带工具调用的轮次正文=过程旁白（「正在查…」「核对通过…」），被后续轮次
+    # 覆盖而不是拼接——拼接曾把旁白粘进最终报告（2026-09-16 趋势报告实测）。
+    final_prose = ""
     trunc_streak = 0
+    _repeat = ToolRepeatGuard()
     for i in range(max_iter):
         base["iterations"] = i + 1
         round_thinking = 0
@@ -295,7 +335,7 @@ async def _run_native_stream_chat_loop(
         except llm_client.LLMError as e:
             _record_round(i + 1, (time.perf_counter() - _rt0) * 1000, "", "",
                           status="llm_error", error=str(e))
-            partial = "".join(all_prose)
+            partial = final_prose
             if partial.strip():
                 base["ok"] = True
                 base["answer"] = partial
@@ -304,7 +344,8 @@ async def _run_native_stream_chat_loop(
             return base
         _names = ",".join(str(tc.get("name") or "") for tc in (tool_calls or []))
         _record_round(i + 1, (time.perf_counter() - _rt0) * 1000, prose, _names)
-        all_prose.append(prose)
+        if prose.strip():
+            final_prose = prose
         if not truncated or prose.strip():
             trunc_streak = 0
 
@@ -320,6 +361,14 @@ async def _run_native_stream_chat_loop(
             for tc in tool_calls:
                 name = str(tc.get("name") or "").strip()
                 args = tc.get("arguments") if isinstance(tc.get("arguments"), dict) else {}
+                if _repeat.record(name, args):
+                    partial = final_prose
+                    if partial.strip():
+                        base["ok"] = True
+                        base["answer"] = partial
+                    base["error"] = f"repeat_tool:{name}"[:300]
+                    await _emit("tool", text=f"{name} 连续重复调用达上限，止损收口")
+                    return base
                 await _emit("tool", text=f"正在调用 {name}…", tool=name)
                 try:
                     result = await registry.execute(name, args)
@@ -342,7 +391,7 @@ async def _run_native_stream_chat_loop(
         if truncated and not prose.strip():
             trunc_streak += 1
             if trunc_streak >= 2:
-                partial = "".join(all_prose)
+                partial = final_prose
                 if partial.strip():
                     base["ok"] = True
                     base["answer"] = partial
@@ -354,22 +403,22 @@ async def _run_native_stream_chat_loop(
 
         if prose.strip():
             base["ok"] = True
-            base["answer"] = "".join(all_prose)
+            base["answer"] = final_prose
             return base
         messages.append({"role": "user", "content": "上一轮输出为空。"})
 
     messages.append({"role": "user", "content": "工具调用已达上限。"})
     try:
         prose, _call, _trunc = await _stream_round()
-        all_prose.append(prose)
+        if prose.strip():
+            final_prose = prose
     except llm_client.LLMNativeToolsUnsupported:
         pass
     except llm_client.LLMError:
         pass
-    answer = "".join(all_prose)
-    if answer.strip():
+    if final_prose.strip():
         base["ok"] = True
-        base["answer"] = answer
+        base["answer"] = final_prose
     return base
 
 
@@ -391,19 +440,15 @@ async def run_stream_chat_loop(
     context_block: Optional[str] = None,
     llm_thinking_budget: int = 6000,
     llm_overall_timeout: Optional[float] = None,
+    emit_chunk_reset: bool = False,
 ) -> dict:
     """聊天流式循环（仅原生 function calling；不再有文本式 ReAct 兜底）。
 
-    事件词汇（step_progress.step=react）：sub.kind=thinking(text)/chunk(delta)/tool(text,tool)。
+    事件词汇（step_progress.step=react）：sub.kind=thinking(text)/chunk(delta)/tool(text,tool)/
+    chunk_reset（第2+次尝试的正文首字前，提示消费者清空已收正文）。
     返回契约与 run_react_loop 一致；answer=已推送给用户的全部正文（落库与流式严格一致）。
     """
     base: dict = {"ok": False, "answer": "", "tool_calls_log": [], "thinking": [], "iterations": 0}
-    try:
-        if not llm_client.is_llm_enabled():
-            base["answer"] = "AI 未启用"
-            return base
-    except Exception:
-        pass
     return await _run_native_stream_chat_loop(
         user_text=user_text, config=config, system_prompt=system_prompt,
         allowed_tool_ids=allowed_tool_ids, model=model, event_sink=event_sink,
@@ -411,7 +456,8 @@ async def run_stream_chat_loop(
         llm_timeout=llm_timeout, llm_first_token_timeout=llm_first_token_timeout,
         llm_reasoning_effort=llm_reasoning_effort, llm_temperature=llm_temperature,
         llm_max_tokens=llm_max_tokens, context_block=context_block,
-        llm_thinking_budget=llm_thinking_budget, llm_overall_timeout=llm_overall_timeout)
+        llm_thinking_budget=llm_thinking_budget, llm_overall_timeout=llm_overall_timeout,
+        emit_chunk_reset=emit_chunk_reset)
 
 
 async def run_react_loop(
@@ -421,7 +467,6 @@ async def run_react_loop(
     max_iterations: int = 5,
     system_prompt: Optional[str] = None,
     allowed_tool_ids: Optional[list] = None,
-    allowed_data_sources: Optional[list] = None,
     model: Optional[str] = None,
     event_sink: Optional[Any] = None,
     history: Optional[list] = None,
@@ -441,6 +486,6 @@ async def run_react_loop(
     return await _run_native_tool_loop(
         requirement_text=requirement_text, config=config, extra_context=extra_context,
         max_iterations=max_iterations, system_prompt=system_prompt,
-        allowed_tool_ids=allowed_tool_ids, allowed_data_sources=allowed_data_sources,
+        allowed_tool_ids=allowed_tool_ids,
         model=model, event_sink=event_sink, history=history, tool_guard=tool_guard,
     )

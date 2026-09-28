@@ -19,6 +19,49 @@
       "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
       "runtimeArgs": ["-m", "http.server", "8899", "--directory", "D:/CPQ_Platform_V1/docs/frontend-pages"],
       "port": 8899
+    },
+    {
+      "name": "prototype",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8891", "--directory", "D:/CPQ_Platform_V1/docs"],
+      "port": 8891
+    },
+    {
+      "name": "prototype-verify",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8895", "--directory", "D:/CPQ_Platform_V1/docs"],
+      "port": 8895
+    },
+    {
+      "name": "galaxy-proto",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8892", "--directory", "D:/CPQ_Platform_V1"],
+      "port": 8892
+    },
+    {
+      "name": "by-mirror",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8893", "--directory", "D:/CPQ_Platform_V1/_by_mirror"],
+      "port": 8893
+    },
+    {
+      "name": "galaxy-public",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-m", "http.server", "8894", "--directory", "D:/CPQ_Platform_V1/frontend/public"],
+      "port": 8894
+    },
+    {
+      "name": "backend-verify",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": ["-X", "utf8", "-c", "import os,sys; os.environ['AUTH_ENABLED']='false'; sys.path.insert(0,'D:/CPQ_Platform_V1/backend'); import uvicorn; uvicorn.run('app.main:app', host='127.0.0.1', port=8010)"],
+      "port": 8010
+    },
+    {
+      "name": "frontend-verify",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", "set VITE_API_TARGET=http://127.0.0.1:8010&& npm --prefix D:/CPQ_Platform_V1/frontend run dev"],
+      "port": 5174,
+      "autoPort": true
     }
   ]
 }

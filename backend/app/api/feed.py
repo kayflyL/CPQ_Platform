@@ -22,7 +22,10 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel
 import json
 
-from app.api.deps import get_current_user as current_user, ensure_opportunity_access, resolve_ws_user
+from app.api.deps import (
+    get_current_user as current_user, ensure_opportunity_access, resolve_ws_user,
+    field_visible,
+)
 from app.repository.feed_repo import FeedRepository
 from app.repository.feed_user_repo import FeedUserRepository
 from app.services.storage_adapter import get_storage, build_object_id, StorageError
@@ -49,6 +52,26 @@ _CATEGORY_FOLDER = {
     "requirement": "成本核算",
     "sent_quote": "报价单",
 }
+# 受限类别 → 必需权限 key；未列出的类别对商机内有访问权的用户全开放。
+# 注意 "requirement" 类别是历史命名，实际是「成本附件」桶。
+_CATEGORY_VIEW_PERM = {
+    "requirement": "field.flow.cost",
+    "technical": "field.flow.bom",
+    "internal_quote": "field.quote.export_internal",
+}
+
+
+def _category_visible(user: dict, category: Optional[str]) -> bool:
+    perm = _CATEGORY_VIEW_PERM.get(category or "")
+    if not perm:
+        return True
+    return field_visible(user, perm)
+
+
+def _ensure_category_visible(user: dict, category: Optional[str]) -> None:
+    if not _category_visible(user, category):
+        label = _CATEGORY_FOLDER.get(category or "", category or "该")
+        raise HTTPException(status_code=403, detail=f"无权限访问{label}附件")
 
 
 # ── users (lightweight identity) ──
@@ -84,7 +107,13 @@ def list_messages(opportunity_id: str, user: dict = Depends(current_user)):
     ensure_opportunity_access(opportunity_id, user)
     repo = FeedRepository()
     try:
-        return {"messages": repo.list_messages(opportunity_id)}
+        messages = repo.list_messages(opportunity_id)
+        for m in messages:
+            m["attachments"] = [
+                a for a in (m.get("attachments") or [])
+                if _category_visible(user, a.get("category"))
+            ]
+        return {"messages": messages}
     finally:
         repo.close()
 
@@ -128,6 +157,7 @@ async def post_message(
                 repo, storage, f, opportunity_id, user["user_id"], msg["message_id"],
                 category=_NODE_CATEGORY.get(clean_node_key),
                 flow_card_id=flow_card_id,
+                user=user,
             )
             saved.append(att)
 
@@ -163,7 +193,11 @@ def list_attachments(opportunity_id: str, user: dict = Depends(current_user)):
     ensure_opportunity_access(opportunity_id, user)
     repo = FeedRepository()
     try:
-        return {"attachments": repo.list_attachments(opportunity_id)}
+        visible = [
+            a for a in repo.list_attachments(opportunity_id)
+            if _category_visible(user, a.get("category"))
+        ]
+        return {"attachments": visible}
     finally:
         repo.close()
 
@@ -195,6 +229,7 @@ async def upload_attachment(
             quotation_id=quotation_id,
             category=category,
             flow_card_id=flow_card_id,
+            user=user,
         )
         if category == "sent_quote":
             sys_msg = repo.add_message(
@@ -221,6 +256,7 @@ def download_attachment(attachment_id: str, user: dict = Depends(current_user)):
     if not att:
         raise HTTPException(status_code=404, detail="附件不存在")
     ensure_opportunity_access(att["opportunity_id"], user)
+    _ensure_category_visible(user, att.get("category"))
 
     storage = get_storage()
     local = storage.resolve_local_path(att["storage_key"])
@@ -240,6 +276,7 @@ def attachment_versions(attachment_id: str, user: dict = Depends(current_user)):
         if not att:
             raise HTTPException(status_code=404, detail="附件不存在")
         ensure_opportunity_access(att["opportunity_id"], user)
+        _ensure_category_visible(user, att.get("category"))
         return {"versions": repo.list_versions(att["version_group"]), "current": att}
     finally:
         repo.close()
@@ -259,6 +296,7 @@ async def add_attachment_version(
         if not existing:
             raise HTTPException(status_code=404, detail="附件不存在")
         ensure_opportunity_access(existing["opportunity_id"], user)
+        _ensure_category_visible(user, existing.get("category"))
         next_ver = (repo.latest_version(existing["version_group"]) or 0) + 1
         att = await _save_upload(
             repo, storage, file,
@@ -284,13 +322,18 @@ class UpdateCategoryBody(BaseModel):
 @router.patch("/attachments/{attachment_id}/category")
 async def update_attachment_category(attachment_id: str, body: UpdateCategoryBody,
                                      user: dict = Depends(current_user)):
-    """Move an attachment between archive buckets (requirement/technical/sent_quote)."""
+    """Move an attachment between archive buckets (requirement/technical/sent_quote).
+
+    源与目标类别都必须对当前用户可见，防止把受限附件挪进开放桶绕过门控。
+    """
     repo = FeedRepository()
     try:
         existing = repo.get_attachment(attachment_id)
         if not existing:
             raise HTTPException(status_code=404, detail="附件不存在")
         ensure_opportunity_access(existing["opportunity_id"], user)
+        _ensure_category_visible(user, existing.get("category"))
+        _ensure_category_visible(user, body.category)
         att = repo.update_attachment_category(attachment_id, body.category)
         if not att:
             raise HTTPException(status_code=404, detail="附件不存在")
@@ -308,6 +351,7 @@ async def delete_attachment(attachment_id: str, user: dict = Depends(current_use
         if not att:
             raise HTTPException(status_code=404, detail="附件不存在")
         ensure_opportunity_access(att["opportunity_id"], user)
+        _ensure_category_visible(user, att.get("category"))
         opp = repo.soft_delete_attachment(attachment_id)
         if not opp:
             raise HTTPException(status_code=404, detail="附件不存在")
@@ -333,7 +377,10 @@ async def _save_upload(
     original_name_override: Optional[str] = None,
     category: Optional[str] = None,
     flow_card_id: Optional[int] = None,
+    user: Optional[dict] = None,
 ) -> dict:
+    if user is not None:
+        _ensure_category_visible(user, category)
     original = original_name_override or (f.filename or "file")
     ext = Path(original).suffix.lower()
     if ext not in _ALLOWED_EXTS:

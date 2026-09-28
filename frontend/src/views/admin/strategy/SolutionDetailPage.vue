@@ -32,6 +32,10 @@ function openLink(link?: string) {
   if (/^https?:\/\//i.test(link)) window.open(link, '_blank')
   else router.push(link)
 }
+// 优先按绑定的机型跳详情页（link 仅兜底），链接不随数据漂移写死
+function platformLink(p: { model_id?: number; link?: string }) {
+  return p.model_id ? `/servers/models/${p.model_id}` : (p.link || '')
+}
 function remove() {
   Modal.confirm({
     title: '删除解决方案',
@@ -111,19 +115,19 @@ function isNeeds(h: string) { return /需要|负载需要/.test(h) }
       <section v-if="sol.platforms?.length" class="dk-plat">
         <div class="dk-plat-head">
           <h4 class="dk-h">适配平台</h4>
-          <p class="dk-subnote">以下平台已按本方案负载匹配，点卡片进入配置。</p>
+          <p class="dk-subnote">以下平台绑定机型目录中的真实机型，点卡片查看机型详情。</p>
         </div>
         <div class="dk-cfg">
           <div
             v-for="p in sol.platforms"
             :key="p.name"
             class="dk-cfg-item"
-            :class="{ clickable: !!p.link }"
-            @click="openLink(p.link)"
+            :class="{ clickable: !!platformLink(p) }"
+            @click="openLink(platformLink(p))"
           >
             <span class="dk-cfg-plat">{{ p.name }}</span>
             <span class="dk-cfg-spec">{{ p.spec }}</span>
-            <span v-if="p.link" class="dk-cfg-cta">进入配置 →</span>
+            <span v-if="platformLink(p)" class="dk-cfg-cta">查看机型详情 →</span>
           </div>
         </div>
       </section>
@@ -133,7 +137,7 @@ function isNeeds(h: string) { return /需要|负载需要/.test(h) }
 
 <style scoped>
 .dk { max-width: 1080px; margin: 0 auto; padding: 8px 28px 96px; }
-.dk-bar { display: flex; align-items: center; gap: 10px; margin: 0 -28px 0; padding: 12px 28px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur)); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); position: sticky; top: 0; z-index: 30; box-shadow: 0 6px 18px -12px rgba(0,0,0,.5); }
+.dk-bar { display: flex; align-items: center; gap: 10px; margin: 0 -28px 0; padding: 12px 28px; border-bottom: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur)); -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur)); position: sticky; top: var(--cpq-sticky-top, 0px); z-index: 30; box-shadow: 0 6px 18px -12px rgba(0,0,0,.5); }
 .dk-back { color: var(--cpq-accent-primary); cursor: pointer; font-size: 13px; font-weight: 600; background: none; border: none; padding: 0; }
 .dk-sep { color: var(--cpq-text-muted); }
 .dk-bread { color: var(--cpq-text-primary); font-size: 13px; font-weight: 600; }

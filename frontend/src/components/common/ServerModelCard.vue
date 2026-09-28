@@ -24,6 +24,8 @@ const props = withDefaults(defineProps<{
   showPublish?: boolean
   showTagline?: boolean
   clickable?: boolean
+  /** 固定暗色变体（服务器目录/详情链路专用，不受主题切换影响）；管理面默认主题玻璃 */
+  dark?: boolean
   typeName?: string
   baseConfigName?: string
   configCount?: number
@@ -36,6 +38,7 @@ const props = withDefaults(defineProps<{
   showPublish: false,
   showTagline: false,
   clickable: true,
+  dark: false,
 })
 
 const emit = defineEmits<{
@@ -47,6 +50,7 @@ const emit = defineEmits<{
 const cardClass = computed(() => ({
   'model-card': true,
   'is-clickable': props.clickable,
+  'is-dark': props.dark,
 }))
 </script>
 
@@ -212,4 +216,35 @@ const cardClass = computed(() => ({
   gap: 4px;
   margin-top: 2px;
 }
+
+/* —— 固定暗色变体（服务器目录/详情链路；配方承详情页暗卡，不引用 --cpq-* 主题变量） —— */
+.model-card.is-dark {
+  border-color: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+  box-shadow: none;
+}
+.model-card.is-dark.is-clickable:hover {
+  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.04);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+}
+.is-dark .lc-off {
+  color: rgba(238, 243, 250, 0.52);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.is-dark .m-thumb {
+  background: #0a0d13;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.is-dark .m-thumb-ph {
+  color: rgba(238, 243, 250, 0.52);
+}
+.is-dark .m-name { color: #f2f8ff; }
+.is-dark .m-type,
+.is-dark .m-tagline,
+.is-dark .m-bc { color: rgba(238, 243, 250, 0.72); }
+.is-dark .m-specs { border-top-color: rgba(255, 255, 255, 0.1); }
+.is-dark .m-specs span { color: #e8f3ff; }
+.is-dark .m-specs i { color: rgba(238, 243, 250, 0.52); }
 </style>

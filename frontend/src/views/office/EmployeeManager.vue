@@ -21,143 +21,134 @@
     <a-modal
       v-model:open="editorOpen"
       :footer="null"
-      width="1080"
+      centered
+      width="min(94vw, 1000px)"
       wrap-class-name="em-editor-modal"
-      :title="`编辑员工：${draft?.name || draft?.role_key || ''}`"
+      title="员工档案"
     >
       <div class="em-form">
 
       <template v-if="draft">
-        <div class="em-card">
-          <div class="em-card-title">身份</div>
-          <div class="em-identity-cols">
-            <div class="em-identity-left">
-          <div class="em-grid">
-            <label class="em-field">
-              <span>名称</span>
-              <a-input v-model:value="draft.name" />
-            </label>
-            <label class="em-field">
-              <span>角色标识</span>
-              <a-input :value="draft.role_key" disabled />
-            </label>
-            <label class="em-field">
-              <span>头像 URL</span>
-              <a-input v-model:value="draft.avatar_url" placeholder="https://…，留空显示首字" />
-            </label>
-            <label class="em-field">
-              <span>主题色</span>
-              <input v-model="draft.color" type="color" class="em-color" />
-            </label>
-            <label class="em-field">
-              <span>启用</span>
-              <a-switch v-model:checked="draft.enabled" />
-            </label>
-            <label class="em-field">
-              <span>允许总助分派</span>
-              <a-switch v-model:checked="draft.dispatchable" />
-            </label>
+        <header class="em-cover" :style="{ '--em-accent': draft.color || '#1677ff' }">
+          <div class="em-ring">
+            <img v-if="draft.avatar_url" :src="draft.avatar_url" alt="" />
+            <Live2dPreview v-else :model-key="draft.pet_model" bg-color="transparent" />
           </div>
-
-          <label class="em-field">
-            <span>开场白</span>
-            <a-textarea v-model:value="draft.opening_message" :auto-size="{ minRows: 2, maxRows: 4 }" />
-          </label>
-            </div>
-            <div class="em-identity-right">
-              <label class="em-field">
-                <span>虚拟形象</span>
-                <a-select v-model:value="draft.pet_model" dropdown-class-name="em-pet-select-dropdown" style="width:100%">
-                  <a-select-option v-for="m in PET_MODEL_CATALOG" :key="m.key" :value="m.key">{{ m.label }}</a-select-option>
-                </a-select>
-              </label>
-              <div class="em-pet-preview">
-                <Live2dPreview :model-key="draft.pet_model" :bg-color="draft.color" />
-              </div>
-            </div>
+          <a-input v-model:value="draft.name" class="em-name-input" :bordered="false" placeholder="员工名称" />
+          <div class="em-role-line"><span class="em-role-key">{{ draft.role_key }}</span></div>
+          <div class="em-chips">
+            <button type="button" class="em-chip" :class="{ on: draft.enabled }" @click="draft.enabled = !draft.enabled">
+              <span class="em-chip-dot"></span>{{ draft.enabled ? '在职' : '停用' }}
+            </button>
+            <button type="button" class="em-chip" :class="{ on: draft.dispatchable }" @click="draft.dispatchable = !draft.dispatchable">
+              <span class="em-chip-dot"></span>可被总助分派
+            </button>
+            <a-tooltip title="在『员工 → 访问权限』页签修改">
+              <span class="em-chip is-static" :class="{ on: priceOn }">
+                <span class="em-chip-dot"></span>{{ priceOn ? '价格可见' : '价格不可见' }}
+              </span>
+            </a-tooltip>
           </div>
-        </div>
+          <a-textarea
+            v-model:value="draft.opening_message"
+            class="em-quote"
+            :auto-size="{ minRows: 1, maxRows: 3 }"
+            placeholder="开场白（个人陈述）：这位同事开口的第一句"
+          />
+          <div class="em-blank">
+            <span>主题色</span>
+            <input v-model="draft.color" type="color" class="em-color" />
+          </div>
+          <div class="em-blank">
+            <span>形象</span>
+            <a-select v-model:value="draft.pet_model" class="em-blank-select" :bordered="false" dropdown-class-name="em-pet-select-dropdown" style="width: 100%">
+              <a-select-option v-for="m in PET_MODEL_CATALOG" :key="m.key" :value="m.key">{{ m.label }}</a-select-option>
+            </a-select>
+          </div>
+          <div class="em-blank">
+            <span>头像 URL</span>
+            <a-input v-model:value="draft.avatar_url" class="em-blank-input" :bordered="false" placeholder="https://…，留空显示形象" />
+          </div>
+          <div class="em-blank">
+            <span>3D 模型</span>
+            <a-input v-model:value="draft.model_url" class="em-blank-input" :bordered="false" placeholder="/models/…/*.vrm，留空自动轮换" />
+          </div>
+        </header>
 
-        <div class="em-card">
-          <div class="em-card-title">指令（大脑）</div>
+        <section class="em-sec">
+          <h3 class="em-sec-title">人格与指令</h3>
+          <p class="em-sec-sub">这位同事的大脑——提示词决定ta是谁，风格决定ta怎么说话</p>
           <label class="em-field">
             <span>System Prompt / 人格</span>
             <a-textarea v-model:value="draft.system_prompt" :auto-size="{ minRows: 5, maxRows: 12 }" placeholder="定义这位同事的性格、职责边界和说话方式" />
           </label>
           <div class="em-field">
             <span>回复风格</span>
-            <a-radio-group v-model:value="draft.response_profile.style_mode">
-              <a-radio value="brief">简洁</a-radio>
-              <a-radio value="detailed">详细</a-radio>
-              <a-radio value="custom">自定义</a-radio>
-            </a-radio-group>
+            <div class="em-pills">
+              <button type="button" class="em-pill" :class="{ on: draft.response_profile.style_mode === 'brief' }" @click="draft.response_profile.style_mode = 'brief'">简洁</button>
+              <button type="button" class="em-pill" :class="{ on: draft.response_profile.style_mode === 'detailed' }" @click="draft.response_profile.style_mode = 'detailed'">详细</button>
+              <button type="button" class="em-pill" :class="{ on: draft.response_profile.style_mode === 'custom' }" @click="draft.response_profile.style_mode = 'custom'">自定义</button>
+            </div>
           </div>
           <label v-if="draft.response_profile.style_mode === 'custom'" class="em-field">
             <span>自定义风格提示词</span>
             <a-textarea v-model:value="draft.response_profile.style_prompt" :auto-size="{ minRows: 2, maxRows: 4 }" placeholder="例：先给结论再展开，语气活泼，适度使用表情符号 😊" />
           </label>
 
-          <div class="em-param-head">
-            <span class="em-subtitle">模型参数</span>
-            <a-input v-model:value="draft.model_override" class="em-param-model" placeholder="模型覆盖：留空用全局默认模型" />
-          </div>
           <div class="em-param-grid">
-            <div class="em-slider-field">
-              <div class="em-slider-head">
+            <div>
+              <div class="em-param-head">
                 <span>温度</span>
-                <a v-if="tempCustomized" class="em-slider-reset" @click="draft.response_profile.temperature = null">跟随全局</a>
+                <b class="em-readout">{{ tempValue.toFixed(1) }} · {{ tempHint.label }}</b>
+                <button v-if="tempCustomized" type="button" class="em-reset-btn" @click="draft.response_profile.temperature = null">恢复跟随全局</button>
               </div>
               <a-slider
                 v-model:value="tempValue"
+                class="em-slider"
                 :min="0"
                 :max="1.5"
                 :step="0.1"
-                :marks="TEMP_MARKS"
                 :tip-formatter="(v: number) => v.toFixed(1)"
               />
-              <div class="em-slider-hint">
-                <a-tag :color="tempHint.color">{{ tempHint.label }}</a-tag>
-                <span>{{ tempHint.text }}</span>
-              </div>
+              <div class="em-param-hint">{{ tempHint.text }}</div>
             </div>
-            <div class="em-slider-field">
-              <div class="em-slider-head">
-                <span>推理档位（思考强度 + 输出预算）</span>
+            <div>
+              <div class="em-param-head">
+                <span>推理档位</span>
+                <b class="em-readout">{{ reasonHint.label }}</b>
               </div>
-              <a-radio-group v-model:value="reasonTier" class="em-radio-tiers">
-                <a-radio-button value="default">跟随全局</a-radio-button>
-                <a-radio-button value="low">低（快）</a-radio-button>
-                <a-radio-button value="medium">中</a-radio-button>
-                <a-radio-button value="high">高（深）</a-radio-button>
-              </a-radio-group>
-              <div class="em-slider-hint">
-                <a-tag :color="reasonHint.color">{{ reasonHint.label }}</a-tag>
-                <span>{{ reasonHint.text }}</span>
+              <div class="em-pills">
+                <button type="button" class="em-pill" :class="{ on: reasonTier === 'default' }" @click="reasonTier = 'default'">跟随全局</button>
+                <button type="button" class="em-pill" :class="{ on: reasonTier === 'low' }" @click="reasonTier = 'low'">低（快）</button>
+                <button type="button" class="em-pill" :class="{ on: reasonTier === 'medium' }" @click="reasonTier = 'medium'">中</button>
+                <button type="button" class="em-pill" :class="{ on: reasonTier === 'high' }" @click="reasonTier = 'high'">高（深）</button>
               </div>
+              <div class="em-param-hint">{{ reasonHint.text }}</div>
+            </div>
+            <div>
+              <div class="em-param-head">
+                <span>模型覆盖</span>
+                <b class="em-readout">{{ draft.model_override ? '本员工专属' : '跟随全局' }}</b>
+                <button v-if="draft.model_override" type="button" class="em-reset-btn" @click="draft.model_override = null">清除</button>
+              </div>
+              <a-input v-model:value="draft.model_override" placeholder="模型 id，留空用全局默认" allow-clear />
+              <div class="em-param-hint">仅本员工的对话走此模型</div>
             </div>
           </div>
-          <div class="em-param-note">Skill 业务问答固定低温 0.2，不受以上滑杆影响</div>
-        </div>
+          <div class="em-param-note">工作流业务问答固定低温 0.2，不受以上参数影响</div>
+        </section>
 
-        <div class="em-card">
-          <div class="em-card-title">能力</div>
-          <label class="em-field">
-            <span>Skill</span>
-            <a-select
-              v-model:value="draft.skills"
-              mode="multiple"
-              :options="skillOptions"
-              placeholder="选择该员工可使用的 Skill"
-              style="width: 100%"
-            />
-          </label>
+        <section class="em-sec">
+          <h3 class="em-sec-title">能力</h3>
+          <p class="em-sec-sub">绑定工作流发起任务流；query_data 可读表 = 工具自有白名单</p>
           <label class="em-field">
             <span>工作流</span>
             <a-select
               v-model:value="draft.workflows"
+              class="em-cloud"
               mode="multiple"
               :options="workflowOptions"
-              placeholder="选择该员工可发起的工作流（方案助手「+」显式选择）"
+              placeholder="点此添加工作流"
               style="width: 100%"
             />
           </label>
@@ -165,47 +156,38 @@
             <span>可用工具</span>
             <a-select
               v-model:value="draft.tool_ids"
+              class="em-cloud"
               mode="multiple"
               :options="toolOptions"
-              placeholder="从工具注册表选择"
+              placeholder="点此添加工具"
               style="width: 100%"
             />
           </label>
-          <label class="em-field">
-            <span>数据来源</span>
-            <a-select v-model:value="draft.data_sources" mode="multiple" placeholder="选择数据来源" style="width: 100%">
-              <a-select-option v-for="item in scopeOptions.data_sources" :key="item.key" :value="item.key">
-                <span :title="item.description">{{ item.label || item.key }}</span>
-              </a-select-option>
-            </a-select>
-          </label>
-        </div>
+        </section>
 
-        <div class="em-card">
-          <div class="em-card-title">记忆</div>
-          <div class="em-grid">
-            <label class="em-field">
-              <span>启用长期记忆</span>
-              <a-switch v-model:checked="draft.memory_policy.enabled" />
-            </label>
-            <label class="em-field">
-              <span>对话后自动学习</span>
-              <a-switch v-model:checked="draft.memory_policy.auto_memory" />
-            </label>
+        <section class="em-sec">
+          <h3 class="em-sec-title">记忆</h3>
+          <p class="em-sec-sub">公共域在此维护（全员共享注入）；对话写入的记忆归用户私有域（仅本人可见），上下各 100 条</p>
+          <div class="em-mem-row">
+            <a-switch v-model:checked="draft.memory_policy.enabled" />
+            <span class="em-mem-label">启用长期记忆</span>
+            <span class="em-mem-stats">
+              <a-tag>共 {{ memorySummary.total }} 条</a-tag>
+              <a-tag color="gold">置顶 {{ memorySummary.pinned }}</a-tag>
+              <a-tag v-for="item in memorySummary.byType" :key="item.type" :color="typeMeta(item.type).color">
+                {{ typeMeta(item.type).label }} {{ item.count }}
+              </a-tag>
+            </span>
           </div>
-          <div class="em-memory-stats">
-            <a-tag>共 {{ memorySummary.total }} 条</a-tag>
-            <a-tag color="gold">置顶 {{ memorySummary.pinned }}</a-tag>
-            <a-tag v-for="item in memorySummary.byType" :key="item.type" :color="typeMeta(item.type).color">
-              {{ typeMeta(item.type).label }} {{ item.count }}
-            </a-tag>
+          <div class="em-mem-row">
+            <a-switch v-model:checked="draft.memory_policy.auto_memory" />
+            <span class="em-mem-label">对话后自动学习</span>
           </div>
-          <div class="em-subtitle em-memory-hint">记忆是提炼过的长期事实与偏好（用户画像 / 偏好 / 业务事实 / 行为指引），每轮对话后由后台自动归并，注入后续对话的系统提示。</div>
-          <a-space style="margin-top: 10px">
-            <a-button size="small" @click="openMemories">管理记忆</a-button>
-            <a-button size="small" @click="openThreads">会话管理</a-button>
-          </a-space>
-        </div>
+          <div class="em-mem-links">
+            <a-button type="link" size="small" @click="openMemories">管理记忆 →</a-button>
+            <a-button type="link" size="small" @click="openThreads">会话管理 →</a-button>
+          </div>
+        </section>
 
         <a-collapse class="em-advanced" :bordered="false">
           <a-collapse-panel key="behavior" header="3D 办公室行为">
@@ -247,17 +229,16 @@
         </a-collapse>
 
         <div class="em-actions">
-          <a-button type="primary" :loading="saving" @click="save">保存</a-button>
-          <a-button danger :loading="saving" @click="confirmDelete">删除员工</a-button>
+          <a-button class="em-btn-danger" danger type="text" :loading="saving" @click="confirmDelete">删除员工</a-button>
+          <a-button type="primary" class="em-btn-save" :loading="saving" @click="save">保存</a-button>
         </div>
       </template>
       <div v-else class="em-empty">选择左侧员工，或新建一位 AI 同事</div>
-
-      <ColleagueAccessPanel class="em-access-panel" :colleagues="colleagues" @saved="emit('saved')" />
       </div>
     </a-modal>
 
-    <a-modal v-model:open="memoryOpen" :title="`长期记忆：${draft?.name || draft?.role_key || ''}`" :footer="null" width="720">
+    <a-modal v-model:open="memoryOpen" :title="`长期记忆（公共域）：${draft?.name || draft?.role_key || ''}`" :footer="null" width="min(94vw, 720px)">
+      <p class="em-mem-scope-note">此处维护<b>公共域</b>记忆（全员共享）；对话中同事自主写入的记忆归属对话用户的<b>私有域</b>（仅本人可见），不在此列表。</p>
       <div class="em-memory-toolbar">
         <a-input-search
           v-model:value="memoryKeyword"
@@ -266,7 +247,11 @@
           style="width: 240px"
           @search="loadMemories"
         />
+        <a-checkbox v-model:checked="memoryShowRetired" @change="loadMemories">含已失效</a-checkbox>
         <a-button size="small" @click="loadMemories">刷新</a-button>
+        <a-popconfirm title="让该同事全量复查自己的记忆（去重/归并/清一次性条目）？" @confirm="consolidateMemories">
+          <a-button size="small" :loading="memoryConsolidating">整理</a-button>
+        </a-popconfirm>
         <a-button size="small" type="primary" @click="openMemoryCreate">新建记忆</a-button>
         <a-popconfirm title="确定清空该员工全部长期记忆？" @confirm="clearMemories">
           <a-button size="small" danger>清空</a-button>
@@ -283,12 +268,15 @@
 
       <a-spin :spinning="memoryLoading">
         <div class="em-memory-list">
-          <div v-for="item in memories" :key="item.id" class="em-memory-item" :class="{ pinned: item.pinned }">
+          <div v-for="item in memories" :key="item.id" class="em-memory-item" :class="{ pinned: item.pinned, retired: !!item.retired_at }">
             <a-tag :color="typeMeta(item.type).color" class="em-memory-type">{{ item.type_label || typeMeta(item.type).label }}</a-tag>
             <div class="em-memory-body">
               <div class="em-memory-content">{{ item.content }}</div>
               <div class="em-memory-meta">
-                <span>{{ item.source === 'manual' ? '手动' : '自动学习' }}</span>
+                <span>{{ memoryViaLabel(item) }}</span>
+                <span v-if="item.retired_at" class="em-memory-retired-mark">
+                  已失效{{ item.superseded_by ? `（被 #${item.superseded_by} 取代）` : '' }}
+                </span>
                 <span v-if="item.updated_at">{{ formatMemoryTime(item.updated_at) }}</span>
               </div>
             </div>
@@ -302,7 +290,7 @@
               </a-popconfirm>
             </div>
           </div>
-          <a-empty v-if="!memories.length && !memoryLoading" description="暂无记忆，对话中产生的长期事实与偏好会自动出现在这里" />
+          <a-empty v-if="!memories.length && !memoryLoading" description="暂无公共域记忆。同事在对话中自主记住的归用户私有域（不在此列）；全员共享的事实点「新建记忆」添加。" />
         </div>
       </a-spin>
     </a-modal>
@@ -311,7 +299,7 @@
       v-model:open="threadsOpen"
       :title="`会话管理：${draft?.name || draft?.role_key || ''}`"
       :footer="null"
-      width="880"
+      width="min(94vw, 880px)"
     >
       <div class="em-thread-toolbar">
         <a-button size="small" @click="loadThreads">刷新</a-button>
@@ -382,7 +370,7 @@
       </a-tabs>
     </a-modal>
 
-    <a-modal v-model:open="threadMessagesOpen" title="会话消息" :footer="null" width="640">
+    <a-modal v-model:open="threadMessagesOpen" title="会话消息" :footer="null" width="min(94vw, 640px)">
       <div class="em-thread-messages">
         <div v-for="msg in threadMessages" :key="msg.message_id" class="em-thread-message">
           <span class="em-msg-role">{{ msg.role }}</span>
@@ -395,13 +383,14 @@
     <a-modal
       v-model:open="renameThreadOpen"
       title="重命名会话"
+      width="min(94vw, 520px)"
       :confirm-loading="renameThreadSaving"
       @ok="saveRenameThread"
     >
       <a-input v-model:value="renameThreadForm.title" placeholder="输入会话标题" allow-clear />
     </a-modal>
 
-    <a-modal v-model:open="createOpen" title="新建 AI 同事" :footer="null" width="520">
+    <a-modal v-model:open="createOpen" title="新建 AI 同事" :footer="null" width="min(94vw, 520px)">
       <div class="em-modal-form">
         <label class="em-field">
           <span>角色标识</span>
@@ -434,7 +423,6 @@ import { computed, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { assistantApi, type AssistantMessage, type AssistantThread } from '@/api/assistant'
 import { officeApi, type OfficeColleagueMemory } from '@/api/office'
-import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
 import Live2dPreview from '@/components/assistant/Live2dPreview.vue'
 import RippleRevealCard from '@/components/office/RippleRevealCard.vue'
 import { PET_MODEL_CATALOG } from '@/store/petModel'
@@ -477,6 +465,8 @@ const memoryOpen = ref(false)
 const memoryLoading = ref(false)
 const memorySaving = ref(false)
 const memoryKeyword = ref('')
+const memoryShowRetired = ref(false)
+const memoryConsolidating = ref(false)
 const memories = ref<OfficeColleagueMemory[]>([])
 const memoryEditorOpen = ref(false)
 const editingMemoryId = ref<number | null>(null)
@@ -501,12 +491,9 @@ const threadColumns = [
 ]
 
 const idleActionOptions = ['sit_idle', 'look_around', 'check_notes', 'window', 'stand', 'wave'].map((value) => ({ value, label: value }))
+const priceOn = computed(() =>
+  props.colleagues.find((c: any) => c?.role_key === draft.value?.role_key)?.price_access === true)
 const toolOptions = computed(() => tools.value.map((tool) => ({ value: tool.name, label: tool.name })))
-const skillOptions = computed(() =>
-  skills.value
-    .filter((skill) => skill?.type !== 'workflow')
-    .map((skill) => ({ value: skill.key, label: skill.name || skill.key })),
-)
 const workflowOptions = computed(() =>
   skills.value
     .filter((skill) => skill?.type === 'workflow')
@@ -515,19 +502,8 @@ const workflowOptions = computed(() =>
 const normalThreads = computed(() => allThreads.value.filter((t) => !t.deleted_at))
 const deletedThreads = computed(() => allThreads.value.filter((t) => t.deleted_at))
 
-const scopeOptions = ref<{ data_sources: any[]; page_scopes: any[] }>({ data_sources: [], page_scopes: [] })
-async function loadScopeOptions() {
-  try {
-    scopeOptions.value = await officeApi.scopeOptions()
-  } catch {
-    scopeOptions.value = { data_sources: [], page_scopes: [] }
-  }
-}
-loadScopeOptions()
-
 const GLOBAL_TEMP = 0.7
 const GLOBAL_TOKENS = 16000
-const TEMP_MARKS = { 0: '0', 0.7: '0.7', 1.5: '1.5' }
 // 推理档位 = 思考强度(reasoning_effort) + 输出预算(max_tokens) 一个旋钮，避免两处可设项打架。
 const REASON_TIERS: Record<string, { reasoning_effort: string; max_tokens: number; label: string; color: string; text: string }> = {
   low:    { reasoning_effort: 'low',    max_tokens: 16000, label: '低档', color: 'blue',   text: '思考档 low · 输出 16k，快速，常规选型' },
@@ -596,6 +572,7 @@ function defaultDraft(source: any = {}) {
     name: source.name || source.role_key || '',
     avatar_url: source.avatar_url || '',
     pet_model: source.pet_model || 'koharu',
+    model_url: source.model_url || '',
     color: source.color || '#1677ff',
     enabled: source.enabled ?? true,
     system_prompt: source.system_prompt || '',
@@ -612,7 +589,6 @@ function defaultDraft(source: any = {}) {
     },
     model_override: source.model_override || null,
     tool_ids: Array.isArray(source.tool_ids) ? [...source.tool_ids] : [],
-    data_sources: Array.isArray(source.data_sources) ? [...source.data_sources] : [],
     dispatchable: source.dispatchable ?? true,
     behavior_profile: {
       wander_enabled: source.behavior_profile?.wander_enabled ?? true,
@@ -673,7 +649,8 @@ watch(
 
 async function loadTools() {
   try {
-    tools.value = await assistantApi.tools.catalog()
+    const res = await assistantApi.tools.catalog()
+    tools.value = res.tools
   } catch {
     tools.value = []
   }
@@ -729,6 +706,7 @@ async function loadMemories() {
     const data = await officeApi.listColleagueMemories(draft.value.role_key, {
       keyword: memoryKeyword.value.trim() || undefined,
       limit: 200,
+      include_retired: memoryShowRetired.value || undefined,
     })
     memories.value = Array.isArray(data.memories) ? data.memories : []
     await loadMemorySummary()
@@ -739,9 +717,34 @@ async function loadMemories() {
   }
 }
 
+function memoryViaLabel(item: OfficeColleagueMemory) {
+  if (item.source === 'manual') return '手动'
+  try {
+    const via = JSON.parse(item.provenance || '{}')?.via
+    if (via === 'memory_tool') return '对话记忆'
+    if (via === 'consolidation') return '整理归并'
+  } catch { /* provenance 非法时走历史兜底 */ }
+  return '历史'
+}
+
+async function consolidateMemories() {
+  if (!draft.value?.role_key) return
+  memoryConsolidating.value = true
+  try {
+    const report = await officeApi.consolidateColleagueMemories(draft.value.role_key)
+    message.success(`整理完成：${report.applied} 项生效${report.skipped?.length ? `，${report.skipped.length} 项提案被守卫拦下` : ''}`)
+    await loadMemories()
+  } catch (error: any) {
+    message.error(error?.response?.data?.detail || '整理失败')
+  } finally {
+    memoryConsolidating.value = false
+  }
+}
+
 function openMemories() {
   if (!draft.value?.role_key) return
   memoryKeyword.value = ''
+  memoryShowRetired.value = false
   resetMemoryForm()
   memoryOpen.value = true
   loadMemories()
@@ -1020,8 +1023,6 @@ defineExpose({ openCreate, save })
   display: flex;
   flex-direction: column;
   gap: 16px;
-  height: 100%;
-  min-height: 0;
 }
 
 .em-cards-head {
@@ -1035,26 +1036,10 @@ defineExpose({ openCreate, save })
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: 16px;
-  min-height: 0;
-  overflow: auto;
-  padding: 2px 2px 18px;
+  padding: 2px 2px 4px;
   align-content: start;
 }
 
-.em-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 0;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  overflow: auto;
-}
-
-.em-list-head,
-.em-card-title,
 .em-subtitle {
   font-weight: 800;
 }
@@ -1072,103 +1057,58 @@ defineExpose({ openCreate, save })
   margin: 14px 0 8px;
 }
 
+/* 参数三件套同构：标题行(label+读数+重置) / 控件 / 提示，auto-fit 自适应分列 */
+.em-param-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 14px 36px;
+  align-items: start;
+}
+
 .em-param-head {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 16px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
-.em-param-head .em-param-model {
-  flex: 1;
-  max-width: 240px;
+.em-param-head > span {
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  flex: none;
 }
 
-.em-param-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 4px 20px;
+.em-param-head .em-readout {
+  margin-left: auto;
 }
 
-.em-param-grid .em-slider-field {
-  margin-top: 8px;
+.em-param-hint {
+  margin-top: 4px;
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+}
+
+/* 「恢复跟随全局/清除」：正规小按钮，不再嵌在提示文字里当链接 */
+.em-reset-btn {
+  border: none;
+  background: transparent;
+  padding: 1px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--cpq-accent-primary);
+  cursor: pointer;
+  transition: background var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+
+.em-reset-btn:hover {
+  background: var(--cpq-overlay-a10);
 }
 
 .em-param-note {
-  margin-top: 10px;
+  margin-top: 14px;
   font-size: 11px;
   color: var(--cpq-text-muted);
   opacity: 0.85;
-}
-
-.em-member {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 9px 10px;
-  border: 1px solid transparent;
-  border-radius: 10px;
-  color: var(--cpq-text-primary);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-
-.em-member:hover,
-.em-member.active {
-  border-color: rgba(22, 119, 255, 0.35);
-  background: rgba(22, 119, 255, 0.1);
-}
-
-.em-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 50%;
-}
-
-.em-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.em-role {
-  margin-left: auto;
-  color: var(--cpq-text-muted);
-  font-size: 11px;
-}
-
-.em-form {
-  min-height: 0;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.04);
-  overflow: auto;
-}
-
-.em-access-panel {
-  margin-top: 14px;
-}
-
-.em-card {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px;
-  margin-bottom: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.em-card-title {
-  color: var(--cpq-text-primary);
-  font-size: 13px;
 }
 
 .em-grid {
@@ -1177,20 +1117,358 @@ defineExpose({ openCreate, save })
   gap: 10px;
 }
 
-.em-identity-cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 16px;
-  align-items: start;
+/* ── 员工档案（简历风封面 + 居中分节）────────────────────────── */
+
+.em-cover {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: -20px -24px 0;          /* 抵消 modal body padding(20px 24px)，色带通到纸边 */
+  padding: 26px 24px 18px;
+  background: var(--cpq-overlay-a5);
+  border-bottom: 1px solid var(--cpq-border-primary);
 }
-.em-identity-left { min-width: 0; }
-.em-identity-right { display: flex; flex-direction: column; gap: 10px; }
-.em-identity-right .em-field { margin: 0; }
-.em-pet-preview { width: 100%; height: 240px; }
+
+.em-ring {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  border: 4px solid color-mix(in srgb, var(--em-accent, #1677ff) 28%, transparent);
+  background: color-mix(in srgb, var(--em-accent, #1677ff) 10%, transparent);
+  overflow: hidden;
+}
+
+.em-ring img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Live2dPreview 自带 min-height:220px + 10px 圆角，在 148px 圆环里必须清掉 */
+.em-ring :deep(.l2d-preview-box) {
+  min-height: 0;
+  border-radius: 0;
+}
+
+/* Live2D 全身太远 → 放大 1.45 倍裁上半身：锚点定在头顶附近（10%），完整头部+躯干，腿部裁出圆外 */
+.em-ring :deep(.l2d-preview-box) canvas {
+  transform: scale(1.45);
+  transform-origin: 50% 10%;
+}
+
+/* 大名字 = 输入框，叠双层错位阴影（参考羡辙简历招牌阴影，色值走 cpq token）。
+   a-input 根元素即 input.ant-input（无包裹层），类落在元素自身——自选择器与后代选择器都写上双保险 */
+.em-name-input.ant-input,
+.em-name-input :deep(input.ant-input) {
+  width: min(320px, 92%);
+  margin-top: 16px;
+  text-align: center;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--cpq-text-primary);
+  text-shadow: 1px 2px 0 color-mix(in srgb, var(--em-accent, #1677ff) 30%, transparent),
+    3px 5px 0 color-mix(in srgb, var(--em-accent, #1677ff) 12%, transparent);
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.em-name-input.ant-input::placeholder,
+.em-name-input :deep(input.ant-input::placeholder) {
+  text-shadow: none;
+  font-weight: 400;
+}
+
+.em-role-line {
+  margin-top: 10px;
+}
+
+.em-role-key {
+  display: inline-block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8);
+  padding: 2px 12px;
+  border-radius: 999px;
+}
+
+.em-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.em-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--cpq-border-primary);
+  background: var(--cpq-glass-1-bg, rgba(255, 255, 255, 0.04));
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+button.em-chip:hover {
+  border-color: rgba(22, 119, 255, 0.45);
+}
+
+.em-chip.is-static {
+  cursor: default;
+}
+
+.em-chip-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--cpq-text-muted);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.em-chip.on {
+  color: var(--cpq-text-primary);
+  border-color: rgba(22, 119, 255, 0.4);
+  background: rgba(22, 119, 255, 0.1);
+}
+
+.em-chip.on .em-chip-dot {
+  background: #52c41a;
+  opacity: 1;
+}
+
+/* 开场白：透明纸面 + 虚线填空。a-textarea(auto-size) 根元素即 textarea，类落在自身——
+   旧代码只写 :deep(textarea) 后代选择器从未命中，全局玻璃底色因此透出（用户实测底色显眼的根因） */
+.em-quote.ant-input,
+.em-quote :deep(textarea.ant-input) {
+  width: min(480px, 100%);
+  margin-top: 14px;
+  padding: 6px 4px;
+  border: none !important;
+  border-bottom: 1px dashed var(--cpq-overlay-a20) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: center;
+  color: var(--cpq-text-secondary);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* 封面填空行：纸面横线填空 */
+.em-blank {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(420px, 100%);
+  padding: 7px 2px;
+  border-bottom: 1px solid var(--cpq-border-primary);
+  transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+
+.em-blank:focus-within {
+  border-bottom-color: var(--cpq-glass-border-strong);
+}
+
+.em-blank > span {
+  min-width: 64px;
+  text-align: right;
+  font-size: 12.5px;
+  color: var(--cpq-text-muted);
+  flex: none;
+}
+
+.em-blank-input.ant-input,
+.em-blank-input :deep(input.ant-input) {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  padding-left: 0;
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.em-blank-select :deep(.ant-select-selector) {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent;
+  padding: 0;
+}
+
 .em-pet-select-dropdown { z-index: 3000 !important; }
-@media (max-width: 1100px) {
-  .em-identity-cols { grid-template-columns: 1fr; }
-  .em-identity-right { order: 2; }
+
+/* ══ pill 控件语言（回复风格/推理档位）══════════════════════ */
+.em-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.em-pill {
+  padding: 3px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--cpq-border-primary);
+  background: transparent;
+  color: var(--cpq-text-muted);
+  cursor: pointer;
+  transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+
+.em-pill:hover {
+  color: var(--cpq-accent-primary);
+  border-color: rgba(22, 119, 255, 0.45);
+}
+
+.em-pill.on {
+  color: var(--cpq-accent-primary);
+  border-color: rgba(22, 119, 255, 0.4);
+  background: var(--cpq-overlay-a10);
+  font-weight: 600;
+}
+
+/* 滑杆：粗圆轨道（antd 默认细轨 + marks 已去掉） */
+.em-slider :deep(.ant-slider-rail) {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cpq-overlay-a10);
+}
+
+.em-slider :deep(.ant-slider-track) {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--cpq-accent-primary);
+}
+
+.em-slider :deep(.ant-slider-handle .ant-slider-handle-icon) {
+  box-shadow: 0 1px 4px rgba(22, 119, 255, 0.4);
+}
+
+/* 滑杆/档位右侧蓝色读数 */
+.em-readout {
+  color: var(--cpq-accent-primary);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* 能力区：select 透明化成 pill 云（选中项=蓝 pill，空态 hover 出虚线框） */
+.em-cloud :deep(.ant-select-selector) {
+  background: transparent !important;
+  border: 1px dashed transparent !important;
+  box-shadow: none !important;
+  border-radius: var(--cpq-radius-sm) !important;
+  padding: 2px 6px !important;
+}
+
+.em-cloud:hover :deep(.ant-select-selector),
+.em-cloud :deep(.ant-select-focused .ant-select-selector) {
+  border-color: var(--cpq-border-light) !important;
+}
+
+.em-cloud :deep(.ant-select-selection-item) {
+  background: var(--cpq-overlay-a10) !important;
+  border: 1px solid rgba(22, 119, 255, 0.35) !important;
+  color: var(--cpq-accent-primary) !important;
+  border-radius: 999px !important;
+  padding-inline: 10px !important;
+  line-height: 22px !important;
+  font-size: 12px;
+}
+
+.em-cloud :deep(.ant-select-selection-item-remove) {
+  color: inherit;
+}
+
+/* 记忆：单行 = 开关 + 文案 + 右侧统计 pill */
+.em-mem-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--cpq-border-secondary);
+}
+
+.em-mem-row:last-of-type {
+  border-bottom: none;
+}
+
+.em-mem-label {
+  font-size: 14px;
+  color: var(--cpq-text-primary);
+}
+
+.em-mem-stats {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.em-mem-links {
+  display: flex;
+  gap: 8px;
+  padding-top: 10px;
+}
+
+.em-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 22px 28px 6px;
+}
+
+.em-sec + .em-sec,
+.em-advanced,
+.em-actions {
+  border-top: 1px solid var(--cpq-border-secondary, rgba(255, 255, 255, 0.06));
+}
+
+.em-sec-title {
+  margin: 0;
+  text-align: center;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--cpq-text-primary);
+  text-shadow: 1px 2px 0 var(--cpq-overlay-a15);
+}
+
+.em-sec-sub {
+  margin: -6px 0 2px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+}
+
+.em-color {
+  width: 40px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .em-cover { padding-top: 20px; }
+  .em-ring { width: 116px; height: 116px; }
+  .em-name-input.ant-input,
+  .em-name-input :deep(input) { font-size: 22px; }
+  .em-blank > span { min-width: 56px; }
 }
 
 .em-field {
@@ -1201,45 +1479,6 @@ defineExpose({ openCreate, save })
   font-size: 12px;
 }
 
-.em-slider-field {
-  margin-top: 14px;
-}
-
-.em-slider-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2px;
-}
-
-.em-slider-head > span {
-  color: var(--cpq-text-muted);
-  font-size: 12px;
-}
-
-.em-slider-reset {
-  color: var(--cpq-accent, #1677ff);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.em-slider-hint {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--cpq-text-muted);
-  font-size: 12px;
-}
-
-.em-color {
-  width: 48px;
-  height: 32px;
-  padding: 0;
-  border: none;
-  border-radius: 8px;
-  background: transparent;
-}
-
 .em-zone-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr) auto;
@@ -1248,15 +1487,14 @@ defineExpose({ openCreate, save })
 }
 
 .em-advanced {
-  margin-bottom: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  padding-top: 12px;
 }
 
 .em-advanced :deep(.ant-collapse-header) {
   color: var(--cpq-text-muted);
   font-size: 12px;
   font-weight: 700;
+  padding-left: 0;
 }
 
 .em-advanced :deep(.ant-collapse-content-box) {
@@ -1267,9 +1505,29 @@ defineExpose({ openCreate, save })
 
 .em-actions {
   display: flex;
-  justify-content: flex-end;
-  gap: 10px;
-  padding-top: 12px;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px 28px 10px;
+}
+
+.em-btn-danger {
+  opacity: 0.75;
+}
+
+.em-btn-danger:hover {
+  opacity: 1;
+}
+
+.em-btn-save {
+  min-width: 132px;
+  /* #app .ant-btn-primary(ID级)会碾掉渐变，按 portal-sheet 先例用 !important 夺回 */
+  background: var(--cpq-accent-gradient) !important;
+  border: none !important;
+  box-shadow: 0 6px 18px rgba(22, 119, 255, 0.30);
+}
+
+.em-btn-save:hover {
+  filter: brightness(1.08);
 }
 
 .em-empty {
@@ -1308,9 +1566,9 @@ defineExpose({ openCreate, save })
 
 .em-thread-message {
   padding: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--cpq-border-secondary);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--cpq-overlay-w3);
 }
 
 .em-thread-message p {
@@ -1327,16 +1585,17 @@ defineExpose({ openCreate, save })
   text-transform: uppercase;
 }
 
+.em-mem-scope-note {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
+}
+
 .em-memory-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
   margin-bottom: 10px;
-}
-
-.em-memory-hint {
-  font-weight: 400;
-  line-height: 1.5;
 }
 
 .em-memory-editor {
@@ -1360,13 +1619,23 @@ defineExpose({ openCreate, save })
   align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--cpq-border-secondary);
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--cpq-overlay-w3);
 }
 
 .em-memory-item.pinned {
   border-color: rgba(250, 173, 20, 0.4);
+}
+
+.em-memory-item.retired .em-memory-content {
+  color: var(--cpq-text-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--cpq-text-muted) 55%, transparent);
+}
+
+.em-memory-retired-mark {
+  color: var(--cpq-danger, #cf1322);
 }
 
 .em-memory-type {
@@ -1410,14 +1679,37 @@ defineExpose({ openCreate, save })
   color: #faad14;
 }
 
-.em-memory-stats {
+
+/* 简历纸：实色纸面（glass-3 磨砂会透底噪）+ 宽度 min(94vw,1000px) 随窗口自适应，高度自然生长（超 92vh 内部滚动） */
+:global(.em-editor-modal .ant-modal-content) {
+  max-height: 92vh;
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 2px;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--cpq-bg-card) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--cpq-border-primary) !important;
 }
 
-:global(.em-editor-modal .ant-modal-content) { max-height: 88vh; display: flex; flex-direction: column; }
-:global(.em-editor-modal .ant-modal-body) { max-height: 74vh; overflow: auto; }
-:global(.em-editor-modal .em-form) { height: auto; overflow: visible; border: 0; background: transparent; padding: 0; }
+:global(.em-editor-modal .ant-modal-body) {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+/* 标题栏弱化：纸的感觉不需要粗标题，认得出来即可 */
+:global(.em-editor-modal .ant-modal-header) {
+  background: transparent;
+  border-bottom: none;
+  text-align: center;
+}
+
+:global(.em-editor-modal .ant-modal-title) {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 4px;
+  color: var(--cpq-text-muted);
+}
 </style>

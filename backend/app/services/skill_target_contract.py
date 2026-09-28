@@ -162,6 +162,59 @@ def format_requirement_slots_contract(art: dict) -> str:
     return "\n".join(parts)
 
 
+def _report_window(art: dict) -> tuple[str, str]:
+    """document 报告的数据范围窗口 → (窗口文本, 标签)。auto 返回 ("", 标签)。
+
+    窗口由配置确定性计算（不劳大脑猜）：mode ∈ auto/last_30/last_90/half_year/
+    this_year/custom；custom 需 start/end（YYYY-MM-DD）。
+    """
+    from datetime import date, timedelta
+    dr = art.get("data_range") if isinstance(art.get("data_range"), dict) else {}
+    mode = str(dr.get("mode") or "auto").strip()
+    today = date.today()
+    start = end = ""
+    label = "自动（按数据边界）"
+    if mode == "custom" and dr.get("start") and dr.get("end"):
+        start, end, label = str(dr["start"]), str(dr["end"]), "自定义区间"
+    elif mode in ("last_30", "last_90", "half_year"):
+        days = {"last_30": 30, "last_90": 90, "half_year": 183}[mode]
+        start, end = (today - timedelta(days=days - 1)).isoformat(), today.isoformat()
+        label = {"last_30": "近30天", "last_90": "近90天", "half_year": "近半年"}[mode]
+    elif mode == "this_year":
+        start, end = date(today.year, 1, 1).isoformat(), today.isoformat()
+        label = "今年"
+    window = f"{start.replace('-', '.')} ~ {end.replace('-', '.')}" if start and end else ""
+    return window, label
+
+
+def format_document_contract(art: dict) -> str:
+    """document 插头（报告类）→ 大脑可读的结构契约。
+
+    契约只描述「报告长什么样、每节装什么」——章节与内容要求全部来自
+    target.artifacts[].sections（抽屉可配）；行为纪律（先查数/禁编造/数据范围
+    照抄契约等禁令）归 manual_rules，不在这里复述（职责分离对齐
+    requirement_slots 契约，用户定调：禁令只住左栏说明或抽屉目标层，不进黑盒代码）。
+    数据范围由配置确定性计算（_report_window），契约只陈述窗口形状。
+    """
+    sections = [s for s in (art.get("sections") or []) if isinstance(s, dict)]
+    name = str(art.get("name") or "数据报告")
+    window, label = _report_window(art)
+    if window:
+        range_line = f"首行输出「数据范围：{window}（{label}，配置指定）」，各节统计范围即此窗口"
+    else:
+        range_line = "首行输出「数据范围：YYYY.MM.DD ~ YYYY.MM.DD」（按查询到的实际数据边界）"
+    parts = [f"输出物《{name}》(document 报告) 结构契约：{range_line}，随后按以下章节依序输出，不增节不删节："]
+    for i, s in enumerate(sections, 1):
+        title = str(s.get("title") or "").strip()
+        req = str(s.get("requires") or "").strip()
+        if not title:
+            continue
+        parts.append(f"{'一二三四五六七八九十'[min(i, 10) - 1]}、{title}：{req}。" if req
+                     else f"{'一二三四五六七八九十'[min(i, 10) - 1]}、{title}。")
+    parts.append("数据表用 Markdown 表格语法（| 分隔）。")
+    return "\n".join(parts)
+
+
 def format_generic_contract(art: dict) -> str:
     """未知 kind 的通用契约（注册表未覆盖时白盒降级，不静默装懂）。"""
     return (f"输出物《{art.get('name') or ''}》kind={art.get('kind')} "
@@ -215,6 +268,7 @@ _CONTRACT_FORMATTERS = {
     "table": format_table_contract,
     "sheet_section": format_table_contract,  # 兼容现有描述符 kind
     "requirement_slots": format_requirement_slots_contract,
+    "document": format_document_contract,
 }
 _ROW_SHAPERS = {
     "table": shape_table_rows,

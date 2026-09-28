@@ -1,16 +1,15 @@
 # -*- coding: utf-8 -*-
-"""数据边界（步骤1）单测：归一化/价格派生/编辑糖 + SQL 校验各拒绝路径 + 只读执行器。
+"""数据边界单测：工具即权限（2026-09-13 起）+ SQL 校验各拒绝路径 + 只读执行器。
 
-宪法断言：价格可见性只由 data_boundary 说了算；默认拒绝；物理校验先于执行。
+宪法断言：能力面 = tool_ids；价格可见性 = 同事级 price_access 布尔（默认关）；
+query_data 表白名单 = 工具自有配置；物理校验先于执行。
 """
 from app.services.data_boundary import (
-    DEFAULT_BOUNDARY,
-    apply_price_access,
-    boundary_price_ok,
+    _DEFAULT_QUERY_TABLES,
     colleague_price_ok,
     execute_read,
-    normalize_boundary,
     normalize_colleague,
+    tool_boundary,
     validate_read_sql,
 )
 
@@ -18,58 +17,40 @@ ALLOW = {"mode": "allow_read", "schemas": [], "tables_allow": ["kp.kp_records"],
          "masked_fields": []}
 
 
-# ── 归一化与派生 ─────────────────────────────────────────────────────────────
+# ── 工具即权限 ───────────────────────────────────────────────────────────────
 
-def test_default_deny_when_nothing_configured():
-    b = normalize_boundary({})
-    assert b["mode"] == "deny_all"
-    assert boundary_price_ok(b) is False
+def test_price_access_defaults_to_off():
     assert colleague_price_ok({}) is False
     assert colleague_price_ok(None) is False
+    assert colleague_price_ok({"price_access": False}) is False
+    assert colleague_price_ok({"price_access": True}) is True
 
 
-def test_legacy_price_access_true_migrates_to_readable():
-    b = normalize_boundary({"price_access": True})
-    assert b["mode"] == "allow_read"
-    assert b["masked_fields"] == []
-    assert boundary_price_ok(b) is True
+def test_tool_boundary_masks_price_unless_allowed():
+    off = tool_boundary(False)
+    assert off["mode"] == "allow_read" and off["masked_fields"] == ["price"]
+    on = tool_boundary(True)
+    assert on["masked_fields"] == [] and on["tables_allow"]
 
 
-def test_legacy_price_access_false_masks_price():
-    b = normalize_boundary({"price_access": False})
-    assert b["mode"] == "deny_all"
-    assert "price" in b["masked_fields"]
-    assert boundary_price_ok(b) is False
+def test_query_tables_allow_has_default_business_tables():
+    tables = tool_boundary(True)["tables_allow"]
+    assert set(_DEFAULT_QUERY_TABLES) <= set(tables)
 
 
-def test_boundary_dict_wins_over_legacy_bool():
-    """边界 dict 是事实源：bool 与它冲突时以 dict 为准。"""
-    b = normalize_boundary({"price_access": True,
-                            "data_boundary": {"mode": "allow_read", "masked_fields": ["price"]}})
-    assert boundary_price_ok(b) is False
-
-
-def test_normalize_colleague_sets_derived_flag():
-    c = normalize_colleague({"role_key": "assistant", "price_access": True})
-    assert c["price_access"] is True and c["data_boundary"]["mode"] == "allow_read"
-    c2 = normalize_colleague({"role_key": "x"})  # 无任何配置 → 默认拒绝
-    assert c2["price_access"] is False and c2["data_boundary"]["mode"] == "deny_all"
-
-
-def test_apply_price_access_keeps_table_grants():
-    base = {"mode": "allow_read", "schemas": ["kp"], "tables_allow": ["l6.parts_master"],
-            "masked_fields": []}
-    off = apply_price_access(base, False)
-    assert boundary_price_ok(off) is False
-    assert off["schemas"] == ["kp"] and off["tables_allow"] == ["l6.parts_master"]  # 白名单不动
-    on = apply_price_access(off, True)
-    assert boundary_price_ok(on) is True and on["mode"] == "allow_read"
+def test_normalize_colleague_strips_retired_keys_keeps_bool():
+    c = normalize_colleague({"role_key": "assistant", "price_access": True,
+                             "data_boundary": {"mode": "allow_read"},
+                             "data_sources": ["opportunities"]})
+    assert c["price_access"] is True
+    assert "data_boundary" not in c and "data_sources" not in c
+    assert colleague_price_ok(normalize_colleague({"role_key": "x"})) is False
 
 
 # ── SQL 校验 ─────────────────────────────────────────────────────────────────
 
 def test_deny_all_rejects_everything():
-    out = validate_read_sql("SELECT 1", normalize_boundary({}))
+    out = validate_read_sql("SELECT 1", {"mode": "deny_all", "schemas": [], "tables_allow": [], "masked_fields": []})
     assert out["ok"] is False
 
 
@@ -221,3 +202,41 @@ def test_execute_read_wraps_db_errors_as_result():
 
     out = execute_read("SELECT 1", ALLOW, engine=_Boom())
     assert out["ok"] is False and "connection refused" in out["error"]
+
+
+# ── 硬排除：system_config 永不进 AI 可查白名单（2026-09-14 安全加固）──────────
+
+def test_query_tables_allow_hard_excludes_system_config(monkeypatch):
+    """system_config 是配置权威源（含 llm_config 密钥）：缺省与手配白名单都不得交给 AI。"""
+    from app.repository import system_config_repo
+    from app.services.data_boundary import query_tables_allow
+
+    class _FakeRepo:
+        def get_value(self, key, default=None):
+            return ["rules.system_config", "kp.kp_parts", "system_config"]
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(system_config_repo, "SystemConfigRepository", _FakeRepo)
+    tables = query_tables_allow()
+    assert "kp.kp_parts" in tables, "无关表不受硬排除影响"
+    assert not any(str(t).rsplit(".", 1)[-1].lower() == "system_config" for t in tables), tables
+
+
+def test_query_tables_allow_hard_excludes_when_unset(monkeypatch):
+    """配置键为空回落缺省表时同样过硬排除（缺省本就不含，防将来误加）。"""
+    from app.repository import system_config_repo
+    from app.services.data_boundary import query_tables_allow
+
+    class _FakeRepo:
+        def get_value(self, key, default=None):
+            return []
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(system_config_repo, "SystemConfigRepository", _FakeRepo)
+    tables = query_tables_allow()
+    assert set(_DEFAULT_QUERY_TABLES) <= set(tables)
+    assert not any(str(t).rsplit(".", 1)[-1].lower() == "system_config" for t in tables)

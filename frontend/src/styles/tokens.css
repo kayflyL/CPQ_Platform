@@ -179,6 +179,24 @@
   --cpq-cyan-glow: 0 0 16px rgba(54, 207, 207, 0.45);
   --cpq-led-active-glow: 0 0 8px rgba(82, 201, 160, 0.65);
   --cpq-led-warning-glow: 0 0 8px rgba(250, 173, 20, 0.55);
+
+  /* 通知语义色 —— 暗底前景提亮为马卡龙亮色，tint alpha 加大保可见（SSOT：铃铛/通知中心图标与审批条共用） */
+  --cpq-notif-blue: #4096ff;
+  --cpq-notif-blue-bg: rgba(22, 119, 255, 0.18);
+  --cpq-notif-green: #52C9A0;
+  --cpq-notif-green-bg: rgba(82, 201, 160, 0.18);
+  --cpq-notif-red: #FF6B6B;
+  --cpq-notif-red-bg: rgba(255, 107, 107, 0.16);
+  --cpq-notif-amber: #F4D28A;
+  --cpq-notif-amber-bg: rgba(250, 173, 20, 0.18);
+  --cpq-notif-violet: #9C86FF;
+  --cpq-notif-violet-bg: rgba(140, 113, 255, 0.20);
+  --cpq-notif-cyan: #36CFCF;
+  --cpq-notif-cyan-bg: rgba(49, 196, 214, 0.18);
+
+  /* 警示面（大面积琥珀区如审批裁决条，比图标 tint 更淡） */
+  --cpq-warn-surface: rgba(250, 173, 20, 0.10);
+  --cpq-warn-border: rgba(250, 173, 20, 0.30);
 }
 
 /* ---------- 浅色主题 ---------- */
@@ -269,4 +287,22 @@
   --cpq-cyan-glow: none;
   --cpq-led-active-glow: 0 0 6px rgba(82, 201, 160, 0.4);
   --cpq-led-warning-glow: 0 0 6px rgba(250, 173, 20, 0.35);
+
+  /* 通知语义色 —— 浅底前景用深色调保对比（SSOT：铃铛/通知中心图标与审批条共用） */
+  --cpq-notif-blue: #1677ff;
+  --cpq-notif-blue-bg: rgba(22, 119, 255, 0.10);
+  --cpq-notif-green: #2f9d78;
+  --cpq-notif-green-bg: rgba(82, 201, 160, 0.14);
+  --cpq-notif-red: #e5484d;
+  --cpq-notif-red-bg: rgba(255, 107, 107, 0.12);
+  --cpq-notif-amber: #d48806;
+  --cpq-notif-amber-bg: rgba(250, 173, 20, 0.14);
+  --cpq-notif-violet: #7c5cf0;
+  --cpq-notif-violet-bg: rgba(140, 113, 255, 0.12);
+  --cpq-notif-cyan: #0ea5b7;
+  --cpq-notif-cyan-bg: rgba(49, 196, 214, 0.13);
+
+  /* 警示面（大面积琥珀区如审批裁决条，比图标 tint 更淡） */
+  --cpq-warn-surface: rgba(250, 173, 20, 0.08);
+  --cpq-warn-border: rgba(250, 173, 20, 0.25);
 }

@@ -5,6 +5,7 @@
 
       <!-- 配置 Tab 栏 -->
       <div class="cfg-bar">
+        <button v-if="isMobile" class="ws-back-m" type="button" @click="goBack">‹</button>
         <div class="cfg-pills">
           <div
             v-for="name in Object.keys(store.configs)"
@@ -63,8 +64,8 @@
       <template v-for="(cfg, name) in store.configs" :key="name">
         <div v-if="activeCfg === name" class="three-col-layout">
 
-          <!-- 左栏：BOM 表格 (≈22%)，可折叠收窄 -->
-          <div class="col-left" :class="{ collapsed: leftCollapsed }">
+          <!-- 左栏：BOM 表格 (≈22%)，可折叠收窄（手机端移入左抽屉） -->
+          <div v-if="!isMobile" class="col-left" :class="{ collapsed: leftCollapsed }">
             <div class="col-left-scroll">
               <template v-if="!leftCollapsed">
                 <BomTable :cfg="cfg" />
@@ -90,7 +91,7 @@
                     v-model:value="cfg.server_model"
                     :options="serverModelOptions"
                     @select="(v: string) => onServerModelSelect(v)"
-                    placeholder="选择或输入服务器型号，如：ZS22V2-P"
+                    placeholder="选择或输入服务器型号，如：ZS220 V2"
                     :filter-option="(input: string, option: any) => (option.value || '').toLowerCase().includes((input || '').toLowerCase())"
                     style="flex: 1"
                   />
@@ -420,7 +421,8 @@
           </div>
 
           <!-- 右栏：配置概要 (≈28%) -->
-          <div class="col-right">
+          <!-- 右栏：定价与利润（手机端移入右抽屉） -->
+          <div v-if="!isMobile" class="col-right">
             <div class="glass fin-card cpq-stream-edge">
               <!-- 配置名称 -->
               <div class="fin-name">{{ name }}</div>
@@ -517,8 +519,8 @@
       <div style="height: 80px;"></div>
     </div>
 
-    <!-- 底部悬浮操作栏 -->
-    <div class="action-bar glass">
+    <!-- 底部悬浮操作栏（手机端动作移入摘要条与右抽屉） -->
+    <div v-if="!isMobile" class="action-bar glass">
       <div class="action-bar-inner">
         <a-button @click="goBack" class="btn-ghost">{{ entryLabel || "返回" }}</a-button>
 
@@ -545,6 +547,161 @@
       </div>
     </div>
 
+    <!-- 手机端左抽屉：BOM 对照快照（只读，随开随核） -->
+    <a-drawer
+      v-model:open="bomDrawerOpen"
+      placement="left"
+      width="90%"
+      root-class-name="opp-quote-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="pd-head-row">
+        <h3>BOM 对照</h3><span class="pd-chip">固化快照 · 只读</span><span class="pd-sp"></span>
+        <button class="pd-x" type="button" @click="bomDrawerOpen = false">✕</button>
+      </div>
+      <div class="pd-scroll pd-scroll-bom">
+        <BomTable v-if="isMobile && activeConfig" :cfg="activeConfig" />
+      </div>
+    </a-drawer>
+
+    <!-- 手机端右抽屉：定价与利润（含预览导出；内容与桌面 col-right 同步维护） -->
+    <a-drawer
+      v-model:open="finDrawerOpen"
+      placement="right"
+      width="88%"
+      root-class-name="opp-quote-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="pd-head-row">
+        <h3>定价与利润</h3><span class="pd-chip">{{ activeCfg }}</span><span class="pd-sp"></span>
+        <button class="pd-x" type="button" @click="finDrawerOpen = false">✕</button>
+      </div>
+      <div class="pd-scroll">
+        <div class="glass fin-card cpq-stream-edge">
+          <div class="fin-name">{{ activeCfg }}</div>
+
+          <div class="fin-hero">
+            <div class="hero-label">{{ isAlternative && primaryConfig !== activeCfg ? '主推方案含税总价' : '含税总价' }}</div>
+            <div class="hero-val">
+              <template v-if="priceVisible">¥<CountNumber :value="heroTotalSales" /></template>
+              <span v-else class="price-hidden">***</span>
+            </div>
+          </div>
+
+          <div class="fin-rows">
+            <div class="fin-row">
+              <span class="fin-label">整机总成本</span>
+              <span class="fin-val"><template v-if="priceVisible">¥<CountNumber :value="heroTotalCost" /></template><span v-else class="price-hidden">***</span></span>
+            </div>
+            <div class="fin-row">
+              <span class="fin-label">总利润额</span>
+              <span class="fin-val" :class="heroProfit >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">¥<CountNumber :value="heroProfit" /></template><span v-else class="price-hidden">***</span></span>
+            </div>
+            <div class="fin-row">
+              <span class="fin-label">综合毛利率</span>
+              <span class="fin-val" :class="heroMarginPct >= 0 ? 'pos' : 'neg'"><template v-if="priceVisible">{{ heroMarginPct.toFixed(settingsStore.numberPrecision) }}%</template><span v-else class="price-hidden">***</span></span>
+            </div>
+          </div>
+
+          <div v-if="isAlternative" class="alt-panel">
+            <div class="fin-settings-title">方案对比</div>
+            <div
+              v-for="altName in cfgNames"
+              :key="altName"
+              class="alt-row"
+              :class="{ primary: primaryConfig === altName }"
+              @click="markPrimary(altName)"
+            >
+              <span class="alt-radio">{{ primaryConfig === altName ? '●' : '○' }}</span>
+              <span class="alt-name">{{ altName }}</span>
+              <span class="alt-model">{{ store.configs[altName]?.server_model || '—' }}</span>
+              <span class="alt-price"><template v-if="priceVisible">¥<CountNumber :value="store.getConfigTotals(altName)?.totalSales || 0" /></template><span v-else class="price-hidden">***</span></span>
+              <span class="alt-primary-tag">{{ primaryConfig === altName ? '主推' : '' }}</span>
+            </div>
+          </div>
+
+          <div class="fin-settings">
+            <div class="fin-settings-title">税率 / 汇率</div>
+            <div class="fin-setting-row">
+              <label>增值税率</label>
+              <a-input-number
+                :value="store.taxRate * 100"
+                @change="(v: number) => { store.taxRate = (v || 0) / 100; store.recalculateAll(); persistTaxRate() }"
+                :min="0" :max="30" :step="1"
+                size="small"
+                style="width: 90px"
+                addon-after="%"
+              />
+            </div>
+            <div class="fin-setting-row">
+              <label>美元汇率</label>
+              <a-input-number
+                :value="store.exchangeRate"
+                @change="(v: number) => { store.exchangeRate = v || 7; store.recalculateAll(); persistExchangeRate() }"
+                :min="1" :max="20" :step="0.1"
+                size="small"
+                style="width: 90px"
+              />
+            </div>
+          </div>
+        </div>
+
+        <div class="glass fin-card selection-advice-card">
+          <div class="selection-advice-head">
+            <span class="selection-advice-title">选型建议</span>
+            <span v-if="selectionAlerts.length" class="selection-advice-count">{{ selectionAlerts.length }}</span>
+          </div>
+          <div v-if="selectionAlerts.length" class="selection-alerts">
+            <div v-for="a in selectionAlerts" :key="a.ruleId + '-' + a.action" class="selection-alert" :class="a.severity">
+              <span class="sa-icon">{{ alertIcon(a.severity) }}</span>
+              <span class="sa-text">{{ a.desc }}<span v-if="a.offenders?.length" class="sa-off">（{{ a.offenders.join(' / ') }}）</span></span>
+            </div>
+          </div>
+          <div v-else class="selection-advice-empty">当前配置规则校验通过</div>
+        </div>
+
+        <div class="exp-card-m">
+          <div class="exp-title-m">预览与导出</div>
+          <a-select
+            v-model:value="selectedTemplateValue"
+            style="width: 100%"
+            placeholder="选择导出模板"
+            :disabled="!priceVisible"
+          >
+            <a-select-opt-group v-if="templates.length" label="Excel 模板">
+              <a-select-option v-for="t in templates" :key="'m-excel-' + t.id" :value="'excel:' + t.id">
+                {{ t.display_name }}{{ t.is_default ? ' (默认)' : '' }}
+              </a-select-option>
+            </a-select-opt-group>
+            <a-select-opt-group v-if="specTemplates.length" label="规格书模板">
+              <a-select-option v-for="t in specTemplates" :key="'m-spec-' + t.id" :value="'spec:' + t.id">
+                {{ t.display_name }}{{ t.is_default ? ' (默认)' : '' }}
+              </a-select-option>
+            </a-select-opt-group>
+          </a-select>
+          <a-button block style="margin-top: 8px" :disabled="!priceVisible" :loading="previewLoading" @click="handlePreview">预览</a-button>
+        </div>
+      </div>
+    </a-drawer>
+
+    <!-- 手机端底部 sticky 摘要条：BOM 入口 / 含税总价+毛利 / 保存 -->
+    <div v-if="isMobile" class="sumbar">
+      <button class="sum-ic" type="button" title="BOM 对照" @click="bomDrawerOpen = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h8l4 4v14H7V3zM13 3v6h6M9 13h6M9 17h4"/></svg>
+      </button>
+      <div class="sum-metric" @click="finDrawerOpen = true">
+        <span class="v">
+          <template v-if="priceVisible">¥<CountNumber :value="heroTotalSales" /></template>
+          <span v-else class="price-hidden">***</span>
+        </span>
+        <span v-if="priceVisible" class="l">毛利 <b :class="heroMarginPct >= 0 ? 'pos' : 'neg'">{{ heroMarginPct.toFixed(settingsStore.numberPrecision) }}%</b> · 点看完整定价</span>
+        <span v-else class="l">价格权限受限 · 联系管理员</span>
+      </div>
+      <button class="sum-cta" type="button" :disabled="saveLoading" @click="handleSave()">{{ saveLoading ? '保存中…' : '保存商机' }}</button>
+    </div>
+
     <!-- 预览弹窗（使用 Univer 渲染） -->
     <a-modal
       v-model:open="previewVisible"
@@ -557,23 +714,67 @@
       :destroyOnClose="true"
       style="top: 20px"
     >
-      <div style="height: 85vh">
-        <UniverSheet
-          v-if="previewType === 'excel' && previewSnapshot"
-          ref="previewSheetRef"
-          :workbookData="previewSnapshot"
-          :editable="false"
-        />
-        <div v-else-if="previewType === 'spec'" class="spec-preview-scroll">
-          <SpecSheet
-            :configs="specPreviewConfigs"
-            :config-relation="specConfigRelation"
-            :primary-config="specPrimaryConfig"
-            :branding="previewSpecBranding"
-            :business-person="specBusinessPerson"
-            :display-options="previewSpecDisplayOptions"
+      <div v-if="previewType === 'excel'" class="preview-split">
+        <div class="preview-opts">
+          <div class="po-title">导出选项</div>
+          <div class="po-group">
+            <label class="po-row" :class="{ locked: !internalExportPerm }">
+              <a-checkbox v-model:checked="revealSell" :disabled="revealRefreshing" @change="onRevealChange" />
+              <span class="po-name">明细销售价</span>
+            </label>
+            <div class="po-desc">配置明细行的售价列</div>
+          </div>
+          <div class="po-group">
+            <label class="po-row" :class="{ locked: !internalExportPerm }">
+              <a-checkbox
+                v-model:checked="revealCost"
+                :disabled="!internalExportPerm || revealRefreshing"
+                @change="onRevealChange"
+              />
+              <span class="po-name">成本价<span class="po-lock" v-if="!internalExportPerm">🔒</span></span>
+              <span class="po-tag" v-if="internalExportPerm">对内</span>
+            </label>
+            <div class="po-desc">配置明细行的成本列</div>
+          </div>
+          <div class="po-group">
+            <label class="po-row" :class="{ locked: !internalExportPerm }">
+              <a-checkbox
+                v-model:checked="revealMargin"
+                :disabled="!internalExportPerm || revealRefreshing"
+                @change="onRevealChange"
+              />
+              <span class="po-name">利润率<span class="po-lock" v-if="!internalExportPerm">🔒</span></span>
+              <span class="po-tag" v-if="internalExportPerm">对内</span>
+            </label>
+            <div class="po-desc">逐行利润率 + 配置综合利润率</div>
+          </div>
+          <div class="po-version">
+            <div class="po-version-label">当前版本</div>
+            <span class="po-version-tag" :class="previewVersion.cls">{{ previewVersion.label }}</span>
+            <div class="po-version-hint">{{ previewVersion.hint }}</div>
+          </div>
+          <div class="po-note" v-if="!internalExportPerm">成本价 / 利润率为对内数据，需管理员授予「导出对内版」权限</div>
+          <div class="po-note">价格列由导出模板绑定决定，模板未绑定的分组勾选后无变化</div>
+          <div class="po-refresh" v-if="revealRefreshing">正在刷新预览…</div>
+        </div>
+        <div class="preview-canvas">
+          <UniverSheet
+            v-if="previewSnapshot"
+            ref="previewSheetRef"
+            :workbookData="previewSnapshot"
+            :editable="false"
           />
         </div>
+      </div>
+      <div v-else-if="previewType === 'spec'" class="spec-preview-wrap">
+        <SpecSheet
+          :configs="specPreviewConfigs"
+          :config-relation="specConfigRelation"
+          :primary-config="specPrimaryConfig"
+          :branding="previewSpecBranding"
+          :business-person="specBusinessPerson"
+          :display-options="previewSpecDisplayOptions"
+        />
       </div>
     </a-modal>
 
@@ -640,7 +841,13 @@
         </div>
         <div class="sync-row">
           <span class="sync-label">价格</span>
-          <span class="sync-val sync-price"><template v-if="priceVisible">{{ currencySymbol(syncTarget.currency) }} {{ settingsStore.formatNumber(Number(syncTarget.base_price) || 0) }}</template><span v-else class="price-hidden">***</span></span>
+          <span class="sync-val sync-price-edit">
+            <template v-if="priceVisible">
+              <a-input-number v-model:value="syncPrice" size="small" class="sync-price-inp" :min="0" :precision="2" :controls="false" placeholder="入库价格" />
+              <a-select v-model:value="syncCurrency" size="small" class="sync-cur-sel" :options="SYNC_CURRENCIES" />
+            </template>
+            <span v-else class="price-hidden">***</span>
+          </span>
         </div>
         <div class="sync-row sync-note">
           <span class="sync-label">备注</span>
@@ -673,16 +880,44 @@
         </div>
         <div v-if="kpHistoryItem._histLoading" class="kp-hist-loading"><a-spin size="small" /></div>
         <div v-else-if="kpHistoryItem._history?.length" class="kp-hist-list">
-          <div v-for="(h, hi) in kpHistoryItem._history" :key="hi" class="kp-hist-item">
+          <div v-for="(h, hi) in kpHistoryItem._history" :key="h.id ?? hi" class="kp-hist-item">
             <div class="kp-hist-dot"></div>
             <div class="kp-hist-content">
-              <div class="kp-hist-row">
-                <span class="kp-hist-date">{{ h.date }}</span>
-                <span class="kp-hist-price" :class="{ usd: h.currency === 'USD' }">
-                  {{ h.currency === 'USD' ? '$' : '¥' }} {{ settingsStore.formatNumber(h.price || 0) }}
-                </span>
+              <!-- 最新一条：可原地修改（录错价就近修正，免跑去配件库） -->
+              <template v-if="hi === 0 && priceVisible && histEditingId !== h.id">
+                <div class="kp-hist-row">
+                  <span class="kp-hist-date">{{ h.date }} <span class="kp-hist-latest">最新</span></span>
+                  <span class="kp-hist-head">
+                    <span class="kp-hist-price" :class="{ usd: h.currency === 'USD' }">
+                      {{ h.currency === 'USD' ? '$' : '¥' }} {{ settingsStore.formatNumber(h.price || 0) }}
+                    </span>
+                    <a-button size="small" type="link" class="kp-hist-edit-btn" @click="startHistEdit(h)">修改</a-button>
+                  </span>
+                </div>
+                <div v-if="h.note" class="kp-hist-note">{{ h.note }}</div>
+              </template>
+              <!-- 最新一条编辑态 -->
+              <div v-else-if="histEditingId === h.id" class="kp-hist-edit">
+                <div class="kp-hist-edit-row">
+                  <a-input-number v-model:value="histEditPrice" size="small" class="kp-hist-edit-price" :min="0" :precision="2" :controls="false" placeholder="价格" />
+                  <a-select v-model:value="histEditCurrency" size="small" class="kp-hist-edit-cur" :options="SYNC_CURRENCIES" />
+                </div>
+                <a-input v-model:value="histEditNote" size="small" placeholder="备注（如：价格录错，已更正）" :maxlength="200" />
+                <div class="kp-hist-edit-actions">
+                  <a-button size="small" @click="cancelHistEdit">取消</a-button>
+                  <a-button size="small" type="primary" :loading="histEditSaving" @click="saveHistEdit">保存</a-button>
+                </div>
               </div>
-              <div v-if="h.note" class="kp-hist-note">{{ h.note }}</div>
+              <!-- 历史条目：只读 -->
+              <template v-else>
+                <div class="kp-hist-row">
+                  <span class="kp-hist-date">{{ h.date }}</span>
+                  <span class="kp-hist-price" :class="{ usd: h.currency === 'USD' }">
+                    {{ h.currency === 'USD' ? '$' : '¥' }} {{ settingsStore.formatNumber(h.price || 0) }}
+                  </span>
+                </div>
+                <div v-if="h.note" class="kp-hist-note">{{ h.note }}</div>
+              </template>
             </div>
           </div>
         </div>
@@ -693,7 +928,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, computed, h, nextTick, defineAsyncComponent } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, h, nextTick, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore, type ConfigData, type Item } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
@@ -714,11 +949,10 @@ import { specTemplateApi } from '@/api/specTemplate'
 import type { SpecTemplate, PreviewConfig } from '@/types/specTemplate'
 import { DEFAULT_BRANDING } from '@/utils/defaultTemplateConfig'
 import { partsApi } from '@/api/serverConfig'
-import { syncKpPrice, getKpHistory, normalizeKpCategory } from '@/api/quote'
+import { syncKpPrice, getKpHistory, updateKpPriceHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
-import { resolvedWorkbookToXlsx } from '@/utils/xlsx-exporter'
 import { downloadBlob } from '@/utils/download'
-import { calcUnitCost, computeKpMatch, currencySymbol, isNewPart, kpSyncable, matchClass, safeServerModelFilename } from '@/utils/quoteCommon'
+import { calcUnitCost, computeKpMatch, isNewPart, kpSyncable, matchClass, safeServerModelFilename } from '@/utils/quoteCommon'
 import { feedApi } from '@/api/feed'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
@@ -767,6 +1001,53 @@ const specPreviewTemplate = ref<SpecTemplate | null>(null)
 const specBusinessPerson = ref('')
 const previewSpecBranding = computed(() => specPreviewTemplate.value?.branding || DEFAULT_BRANDING)
 const previewSpecDisplayOptions = computed(() => specPreviewTemplate.value?.display_options)
+
+// 导出选项：敏感分组揭示（服务端按 reveal + 权限二次过滤，前端开关只是交互层）
+const internalExportPerm = computed(() => auth.can('field.quote.export_internal'))
+const revealSell = ref(false)
+const revealCost = ref(false)
+const revealMargin = ref(false)
+const revealRefreshing = ref(false)
+const revealGroups = computed(() => {
+  const g: string[] = []
+  if (revealSell.value) g.push('sell')
+  if (internalExportPerm.value && revealCost.value) g.push('cost')
+  if (internalExportPerm.value && revealMargin.value) g.push('margin')
+  return g
+})
+const isInternalVersion = computed(() => revealGroups.value.includes('cost') || revealGroups.value.includes('margin'))
+const previewVersion = computed(() => {
+  if (isInternalVersion.value) {
+    return { label: '对内版', cls: 'pv-internal', hint: '含成本/利润率，仅供内部使用；导出不冻结报价单' }
+  }
+  if (revealSell.value) {
+    return { label: '客户版 · 含明细价', cls: 'pv-sell', hint: '含明细行售价；导出后冻结报价单' }
+  }
+  return { label: '客户版', cls: 'pv-customer', hint: '不含敏感列；导出后冻结报价单' }
+})
+
+// 按当前导出选项重新拉取 Excel 预览快照（勾选变化 / 首次预览共用）
+async function fetchPreviewSnapshot() {
+  const sel = selectedTemplate.value
+  if (!sel || sel.type === 'spec') return
+  const opportunityId = store.opportunityInfo.opportunity_id
+  const quotationId = store.opportunityInfo.quotation_id || (route.query.quotationId as string)
+  const result = await univerTemplateApi.preview(sel.id, opportunityId, quotationId, undefined, revealGroups.value)
+  previewSnapshot.value = result.workbook_snapshot
+}
+
+async function onRevealChange() {
+  if (previewType.value !== 'excel' || revealRefreshing.value) return
+  revealRefreshing.value = true
+  try {
+    await fetchPreviewSnapshot()
+  } catch (e) {
+    console.error('刷新预览失败', e)
+    message.error('刷新预览失败，请重试')
+  } finally {
+    revealRefreshing.value = false
+  }
+}
 const printMode = ref(false)
 
 // KP 同步价格弹窗
@@ -775,19 +1056,106 @@ const syncTarget = ref<any>(null)
 const syncTargetCategory = ref('')
 const syncNote = ref('')
 const syncLoading = ref(false)
+// 弹窗内可改的入库价格/币种（默认取行上的值，改完写回行再入库）
+const syncPrice = ref(0)
+const syncCurrency = ref('RMB')
+const SYNC_CURRENCIES = [
+  { value: 'RMB', label: '¥ RMB' },
+  { value: 'USD', label: '$ USD' },
+]
 
 // KP 历史价格弹窗
 const kpHistoryVisible = ref(false)
 const kpHistoryItem = ref<Item | null>(null)
 
+// 历史弹窗内原地修改「最新一条」（后端乐观锁：仅最新条可改）
+const histEditingId = ref<number | null>(null)
+const histEditPrice = ref(0)
+const histEditCurrency = ref('RMB')
+const histEditNote = ref('')
+const histEditSaving = ref(false)
+
+function startHistEdit(h: any) {
+  histEditingId.value = h.id
+  histEditPrice.value = Number(h.price) || 0
+  histEditCurrency.value = String(h.currency || 'RMB').toUpperCase() === 'USD' ? 'USD' : 'RMB'
+  histEditNote.value = h.note || ''
+}
+
+function cancelHistEdit() {
+  histEditingId.value = null
+}
+
+// 保存改历史：刷新弹窗列表 + 全配置页同型号的库参考价（db_price/db_currency/match_status）
+async function saveHistEdit() {
+  const item = kpHistoryItem.value
+  const id = histEditingId.value
+  if (!item || id == null) return
+  const price = Number(histEditPrice.value)
+  if (!(price > 0)) { message.warning('请输入大于 0 的价格'); return }
+  histEditSaving.value = true
+  try {
+    await updateKpPriceHistory(id, {
+      price,
+      currency: histEditCurrency.value,
+      note: histEditNote.value.trim(),
+    })
+    item._history = await getKpHistory(item.catalogue, item.part_category)
+    item._histLoaded = true
+    // 行的 db 快照与所有配置页同型号行一并刷新（库里最新价已变；只动库参考价，不动各行报价）
+    const model = item.catalogue
+    const latest = item._history?.[0] || null
+    for (const cfg of Object.values(store.configs)) {
+      for (const it of cfg.items) {
+        if (it.category !== 'Key Parts') continue
+        if ((it.catalogue || '') !== model) continue
+        it.db_price = latest ? Number(latest.price) : null
+        it.db_currency = latest ? (latest.currency || 'RMB') : null
+        computeKpMatch(it)
+      }
+    }
+    histEditingId.value = null
+    message.success('已修改最新价')
+  } catch (e: any) {
+    const detail = e?.response?.data?.detail
+    message.error(typeof detail === 'string' ? detail : '修改失败：' + (e?.message || e))
+  } finally {
+    histEditSaving.value = false
+  }
+}
+
 // 当前激活配置（机箱卡 + 弹窗引用；v-for 内只有 active config 渲染，故单一 modal 即可）
 const activeConfig = computed(() => store.configs[activeCfg.value])
+
+// ── 手机端（≤768）：三栏 → 双抽屉。左抽屉=BOM 对照快照，右抽屉=定价与利润（含预览导出），
+//     主屏=中栏编辑区；底部 sticky 摘要条常驻含税总价/毛利/保存（桌面三栏不受影响） ──
+const isMobile = ref(false)
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const openDrawer = ref<null | 'bom' | 'fin'>(null)
+const bomDrawerOpen = computed({
+  get: () => openDrawer.value === 'bom',
+  set: (v: boolean) => { openDrawer.value = v ? 'bom' : null },
+})
+const finDrawerOpen = computed({
+  get: () => openDrawer.value === 'fin',
+  set: (v: boolean) => { openDrawer.value = v ? 'fin' : null },
+})
+onMounted(() => {
+  isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
+})
 const {
   serverModels,
   chassisModalOpen,
   loadServerModels,
   loadBaseInfo,
   backfillServerModelId,
+  baseInfoCache,
   chassisModel,
   chassisSeries,
   chassisBaseName,
@@ -816,10 +1184,10 @@ const {
   loadKpCatalog,
 } = useQuoteKpCatalog(store, activeConfig)
 function persistTaxRate() {
-  fetch('/api/system-config/tax_rate', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: store.taxRate }) })
+  axios.put('/api/system-config/tax_rate', { value: store.taxRate }).catch(() => {})
 }
 function persistExchangeRate() {
-  fetch('/api/system-config/usd_to_rmb', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ value: store.exchangeRate }) })
+  axios.put('/api/system-config/usd_to_rmb', { value: store.exchangeRate }).catch(() => {})
 }
 
 // GPU 架构（per-config，存 cfg.gpu_arch；kpSummary 优先用它驱动 GPU 线缆推导）
@@ -898,8 +1266,7 @@ const handlePreview = async () => {
       previewType.value = 'spec'
       previewVisible.value = true
     } else {
-      const result = await univerTemplateApi.preview(sel.id, opportunityId, quotationId)
-      previewSnapshot.value = result.workbook_snapshot
+      await fetchPreviewSnapshot()
       previewType.value = 'excel'
       previewVisible.value = true
     }
@@ -975,21 +1342,47 @@ async function handleDownloadExport() {
   }
   exportDownloading.value = true
   try {
+    const { resolvedWorkbookToXlsx } = await import('@/utils/xlsx-exporter')
     const blob = await resolvedWorkbookToXlsx(wb)
     const oid = store.opportunityInfo?.opportunity_id || '报价单'
     const serverModel = safeServerModelFilename(activeConfig.value?.server_model)
-    const fname = `CloudPrime-${serverModel}-${oid}_报价单.xlsx`
+    const fname = `CloudPrime-${serverModel}-${oid}_报价单${isInternalVersion.value ? '_对内版' : ''}.xlsx`
     downloadBlob(blob, fname)
-    message.success('已导出 Excel')
-    // 归档一份到商机存档区(sent_quote),失败不阻断导出
-    void archiveSentQuote(blob, oid, fname)
-    // 冻结草稿为「已导出」+ 落成本快照：失败只警告，不阻断已下载的文件
-    await freezeExportedQuotation()
+    if (isInternalVersion.value) {
+      // 对内版（含成本/利润率）：只归档到内部附件，不冻结报价单、不落策略快照
+      message.success('已导出对内版 Excel（未冻结报价单）')
+      void archiveSentQuote(blob, oid, fname, 'internal_quote')
+    } else {
+      message.success('已导出 Excel')
+      // 归档一份到商机存档区(sent_quote),失败不阻断导出
+      void archiveSentQuote(blob, oid, fname)
+      // 冻结草稿为「已导出」+ 落成本快照：失败只警告，不阻断已下载的文件
+      await freezeExportedQuotation()
+    }
   } catch (e: any) {
     console.error('[handleDownloadExport]', e)
     message.error('导出失败：' + (e?.message || e))
   } finally {
     exportDownloading.value = false
+  }
+}
+
+// 机型信息解析（与机箱卡同源）：机型目录按 server_model_id / 型号名命中 → 取基准配置；
+// 都没命中时用已加载的基准配置信息（base_config_id）。拿不到的字段留空，抽屉显示 —。
+function modelInfoOf(cfg: ConfigData) {
+  const model = serverModels.value.find((m) => m.id === cfg.server_model_id)
+    || serverModels.value.find((m) => m.name === cfg.server_model)
+  const bc = (model as any)?.base_config
+  const cached = cfg.base_config_id ? baseInfoCache.value[cfg.base_config_id] : undefined
+  return {
+    server_model: cfg.server_model || '',
+    server_model_id: cfg.server_model_id ?? null,
+    base_config_id: cfg.base_config_id ?? null,
+    description: cfg.description || '',
+    series: bc?.series || cached?.series || '',
+    form: bc?.form || cached?.form || '',
+    bays: bc?.bays ?? cached?.bays ?? null,
+    base_config_name: bc?.name || cached?.name || '',
   }
 }
 
@@ -1029,7 +1422,8 @@ function buildCostSnapshot(): Record<string, any> {
         margin: marginRaw,
       })
     }
-    cfgSnap[name] = { qty, totals: t, kp_items: kpItems }
+    // 机型信息一并冻结：抽屉只读复核不依赖机型目录（目录后改不影响已冻结单）
+    cfgSnap[name] = { qty, totals: t, kp_items: kpItems, ...modelInfoOf(cfg) }
     if (isAlternative.value) {
       if (name === primaryConfig.value) {
         projSum.totalCost += (t.totalCost || 0) * demandQty.value
@@ -1080,12 +1474,12 @@ async function freezeExportedQuotation() {
 }
 
 // 把导出的报价单 xlsx 归档到商机存档区(sent_quote 类),并自动写一条系统活动。
-// 纯属留底,任何失败都静默 —— 不能影响导出主流程。
-async function archiveSentQuote(blob: Blob, opportunityId: string, fname: string) {
+// 对内版走 internal_quote 类（含成本/利润率的内部留底）。纯属留底,任何失败都静默 —— 不能影响导出主流程。
+async function archiveSentQuote(blob: Blob, opportunityId: string, fname: string, category: string = 'sent_quote') {
   try {
     const quotationId = store.opportunityInfo?.quotation_id || (route.query.quotationId as string)
     const file = new File([blob], fname, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
-    await feedApi.attachments.upload(opportunityId, file, { category: 'sent_quote', quotation_id: quotationId, kind: 'export' })
+    await feedApi.attachments.upload(opportunityId, file, { category, quotation_id: quotationId, kind: 'export' })
   } catch (e) {
     console.warn('归档已发报价失败(不影响导出)', e)
   }
@@ -1101,17 +1495,11 @@ const warrantyDescDefaults = ref<{ l6: string; kp: string }>({
 const loadWarrantyDefaults = async () => {
   try {
     const [l6Res, kpRes] = await Promise.all([
-      fetch('/api/system-config/warranty_desc_l6'),
-      fetch('/api/system-config/warranty_desc_kp')
+      axios.get('/api/system-config/warranty_desc_l6'),
+      axios.get('/api/system-config/warranty_desc_kp')
     ])
-    if (l6Res.ok) {
-      const l6Data = await l6Res.json()
-      warrantyDescDefaults.value.l6 = l6Data.value || ''
-    }
-    if (kpRes.ok) {
-      const kpData = await kpRes.json()
-      warrantyDescDefaults.value.kp = kpData.value || ''
-    }
+    warrantyDescDefaults.value.l6 = l6Res.data?.value || ''
+    warrantyDescDefaults.value.kp = kpRes.data?.value || ''
   } catch (e) {
     console.warn('Failed to load warranty defaults:', e)
   }
@@ -1366,6 +1754,7 @@ function kpSummaryFor(cfg: ConfigData) {
   let cpuPn: string | undefined, cpuQty = 0
   let gpuPn: string | undefined, gpuQty = 0
   let hasGpu = false, highBwNic = false
+  let raidModel = ''
   const drivesByKind: Record<string, number> = {}
   for (const it of items) {
     if (it.category !== 'Key Parts') continue
@@ -1376,6 +1765,10 @@ function kpSummaryFor(cfg: ConfigData) {
       cpuPn = model; cpuQty += (it.qty || 0)
     } else if (cat.includes('gpu')) {
       gpuPn = model; gpuQty += (it.qty || 0); hasGpu = true
+    } else if (/raid|阵列|hba/.test(cat)) {
+      // RAID 卡型号（"LSI 9560-8i 4G" → "9560"，Cable 行 SATA/SAS 文案前缀）
+      const m = /(\d{3,4})[-\s]?(\d{1,2})\s*[iI]/.exec(`${it.description || ''} ${model}`)
+      if (m) raidModel = m[1]
     } else if (/nic|网卡|网络/.test(cat) && /(100|200|400)\s*g/i.test(`${it.description || ''} ${it.catalogue || ''}`)) {
       highBwNic = true  // R26：100G+ 高带宽网卡（x16 卡）→ IO1 riser 升级 x16
     } else {
@@ -1386,7 +1779,7 @@ function kpSummaryFor(cfg: ConfigData) {
       if (k) drivesByKind[k] = (drivesByKind[k] || 0) + (it.qty || 0)
     }
   }
-  return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: (cfg?.gpu_arch as GpuArch) || (hasGpu ? 'pt' : 'none'), drivesByKind, highBwNic }
+  return { cpuPn, cpuQty, gpuPn, gpuQty, gpuArch: (cfg?.gpu_arch as GpuArch) || (hasGpu ? 'pt' : 'none'), drivesByKind, highBwNic, raidModel }
 }
 
 const handleSave = async () => {
@@ -1616,7 +2009,7 @@ async function refreshKpDbPrices() {
       if (!model) continue
       tasks.push((async () => {
         try {
-          const arr = await getKpHistory(model)
+          const arr = await getKpHistory(model, item.part_category)
           const latest = Array.isArray(arr) && arr.length ? arr[0] : null
           const n = latest ? Number(latest.price) : null
           item.db_price = (n == null || !Number.isFinite(n)) ? null : n
@@ -1637,6 +2030,7 @@ function kpExcelRows(cfg: any) {
 // 打开某行历史价格弹窗（复用懒加载）
 function openKpHistory(item: Item) {
   kpHistoryItem.value = item
+  histEditingId.value = null // 换行重开时清残留编辑态
   kpHistoryVisible.value = true
   void onHistoryExpand(item, ['hist'])
 }
@@ -1649,6 +2043,8 @@ function openSyncModal(item: Item) {
   syncTarget.value = item
   syncNote.value = ''
   syncTargetCategory.value = ''
+  syncPrice.value = Number(item.base_price) || 0
+  syncCurrency.value = String(item.currency || 'RMB').toUpperCase() === 'USD' ? 'USD' : 'RMB'
   syncVisible.value = true
   void resolveSyncCategory(item)
 }
@@ -1669,7 +2065,13 @@ async function confirmSync() {
   if (!item) return
   const model = item.catalogue
   if (!model) { message.warning('无型号，无法同步'); return }
-  if (!(Number(item.base_price) > 0)) { message.warning('价格为空，无法同步'); return }
+  // 弹窗内改价/改币种：先写回报价行，再走入库（改价即改行，行价 = 库价）
+  const price = Number(syncPrice.value)
+  if (!(price > 0)) { message.warning('请输入大于 0 的价格'); return }
+  const currency = syncCurrency.value === 'USD' ? 'USD' : 'RMB'
+  item.base_price = price
+  item.currency = currency
+  store.recalculateAll()
   syncLoading.value = true
   try {
     await syncKpPrice({
@@ -1698,7 +2100,7 @@ async function confirmSync() {
       }
     }
     if (item._histLoaded) {
-      try { item._history = await getKpHistory(model) } catch { /* 历史刷新失败不阻塞 */ }
+      try { item._history = await getKpHistory(model, item.part_category) } catch { /* 历史刷新失败不阻塞 */ }
     }
     message.success(`已同步 ${model} → 配件库历史`)
     syncVisible.value = false
@@ -1890,6 +2292,7 @@ onMounted(async () => {
       // Excel 上传报价单判定:file_path 非空 或 从上传页进入 → 左栏快照模式
       const isExcelQuote = !!quotation.file_path || entryFrom.value === 'upload'
       store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities, config_l6_picks: quotation.config_l6_picks, is_excel_quote: isExcelQuote })
+      store.quotationUpdatedAt = (quotation as any).updated_at || ''
       activeCfg.value = Object.keys(store.configs)[0] || 'CFG1'
       // edit 模式补拉商机 platform_type/chassis_form（兼容性 filter 规则依赖；报价单可能未存该字段）
       if (opportunityId && !store.opportunityInfo.platform_type) {
@@ -1941,7 +2344,7 @@ onMounted(async () => {
 .sa-off { color: var(--cpq-text-muted, #86909c); margin-left: 4px; }
 .workspace-page {
   position: relative;
-  min-height: 100vh;
+  min-height: calc(100vh - var(--cpq-header-clearance, 0px));
   /* 不设整页背景：透出布局网格层，玻璃卡片才有磨砂感 */
   color: var(--cpq-text-primary);
 }
@@ -1976,7 +2379,7 @@ onMounted(async () => {
   margin-bottom: 24px;
   gap: 16px;
   position: sticky;
-  top: 0;
+  top: var(--cpq-sticky-top, 0px);
   z-index: 20;
   padding: 4px 0;
   background: linear-gradient(180deg, var(--cpq-bg-secondary, #101217) 78%, transparent);
@@ -2138,8 +2541,8 @@ onMounted(async () => {
   flex: 25;
   min-width: 0;
   position: sticky;
-  top: 16px;
-  height: calc(100vh - 88px);
+  top: calc(var(--cpq-sticky-top, 0px) + 16px);
+  height: calc(100vh - var(--cpq-sticky-top, 0px) - 32px);
   display: flex;
   flex-direction: column;
   overflow: visible;
@@ -2202,8 +2605,8 @@ onMounted(async () => {
   flex: 22;
   min-width: 0;
   position: sticky;
-  top: 16px;
-  max-height: calc(100vh - 32px);
+  top: calc(var(--cpq-sticky-top, 0px) + 16px);
+  max-height: calc(100vh - var(--cpq-sticky-top, 0px) - 32px);
   overflow-y: auto;
 }
 
@@ -2415,7 +2818,7 @@ onMounted(async () => {
   width: 100%;
   border-collapse: collapse;
   font-size: 12px;
-  table-layout: fixed;
+  table-layout: auto;
 }
 .kp-table th {
   background: var(--cpq-overlay-w4);
@@ -2426,13 +2829,14 @@ onMounted(async () => {
   border: 1px solid var(--cpq-glass-border);
   white-space: nowrap;
 }
-table.kp-table th:nth-child(1) { width: 16%; }
-table.kp-table th:nth-child(2) { width: 24%; }
-table.kp-table th:nth-child(3) { width: 8%; }
-table.kp-table th:nth-child(4) { width: 18%; }
+/* auto 布局：以下为建议比例，价格列 nowrap 撑住最小宽，文本列吸收窄屏挤压（不出滚动条） */
+table.kp-table th:nth-child(1) { width: 11%; }
+table.kp-table th:nth-child(2) { width: 26%; }
+table.kp-table th:nth-child(3) { width: 7%; }
+table.kp-table th:nth-child(4) { width: 14%; }
 table.kp-table th:nth-child(5) { width: 8%; }
-table.kp-table th:nth-child(6) { width: 12%; }
-table.kp-table th:nth-child(7) { width: 21%; }
+table.kp-table th:nth-child(6) { width: 14%; }
+table.kp-table th:nth-child(7) { width: 20%; }
 .kp-table td {
   padding: 7px 10px;
   border: 1px solid var(--cpq-glass-border);
@@ -2440,9 +2844,10 @@ table.kp-table th:nth-child(7) { width: 21%; }
   vertical-align: middle;
   overflow-wrap: anywhere;
 }
-.kp-table th.num, .kp-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+/* 全表统一居左；等宽数字保证同位数纵向对齐，价格 nowrap 永不折行 */
+.kp-table th.num, .kp-table td.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .kp-table td.price { color: var(--cpq-accent-primary); font-weight: 700; }
-.kp-table th.ops, .kp-table td.ops { text-align: center; }
+.kp-table th.ops, .kp-table td.ops { text-align: left; }
 .kp-table tbody tr.kp-tr:hover td { background: var(--cpq-overlay-w6); }
 .kp-table .cat { min-width: 0; }
 .kp-table .cat.break { word-break: break-word; }
@@ -2451,8 +2856,8 @@ table.kp-table th:nth-child(7) { width: 21%; }
 .kp-table .kp-raw-price { font-variant-numeric: tabular-nums; }
 .kp-table :deep(.inp-num) { width: 100%; }
 .kp-table :deep(.inp-cur) { width: 100%; }
-.kp-table .ops-inner { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.kp-table .ops-btns { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.kp-table .ops-inner { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; }
+.kp-table .ops-btns { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; }
 .kp-table .kp-match { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 10px; line-height: 1.4; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* KP 新建模式：按类别分卡纵向堆叠 */
@@ -2590,6 +2995,48 @@ table.kp-table th:nth-child(7) { width: 21%; }
   margin-top: 2px;
 }
 
+/* 最新一条：徽标 + 修改入口 */
+.kp-hist-latest {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8);
+}
+.kp-hist-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.kp-hist-edit-btn {
+  padding: 0 4px;
+  height: auto;
+  font-size: 11px;
+}
+
+/* 最新一条编辑态 */
+.kp-hist-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-radius: 8px;
+  background: var(--cpq-overlay-w4);
+}
+.kp-hist-edit-row {
+  display: flex;
+  gap: 8px;
+}
+.kp-hist-edit-price { flex: 1; }
+.kp-hist-edit-cur { width: 100px; }
+.kp-hist-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .kp-hist-empty {
   font-size: 11px;
   color: var(--cpq-text-muted);
@@ -2652,11 +3099,12 @@ table.kp-table th:nth-child(7) { width: 21%; }
   line-height: 22px;
 }
 
-.sync-val.sync-price {
+.sync-price-edit { display: flex; align-items: center; gap: 8px; }
+.sync-price-inp { width: 150px; }
+.sync-cur-sel { width: 100px; }
+.sync-price-edit :deep(.ant-input-number-input) {
   color: var(--cpq-accent-primary);
-  font-weight: 700;
-  font-size: 16px;
-  font-variant-numeric: tabular-nums;
+  font-weight: 600;
 }
 
 .sync-note :deep(.ant-input) {
@@ -2978,7 +3426,8 @@ table.kp-table th:nth-child(7) { width: 21%; }
 /* ============================================
    规格书预览：模态框内滚动容器 + 打印 overlay
    ============================================ */
-.spec-preview-scroll {
+.spec-preview-scroll,
+.spec-preview-wrap {
   height: 100%;
   overflow-y: auto;
   display: flex;
@@ -2986,6 +3435,125 @@ table.kp-table th:nth-child(7) { width: 21%; }
   align-items: center;
   padding: 16px;
   background: var(--cpq-bg-tertiary);
+}
+
+/* 预览弹窗：左导出选项 / 右 Univer 画布（上下空间紧张，采用左右分栏）。
+   模态已是玻璃层，内嵌面板走结构性容器配方（弱白底+发丝边+inset 高光），不叠 backdrop-filter 防玻璃嵌套发雾 */
+.preview-split {
+  display: flex;
+  gap: 12px;
+  height: 85vh;
+}
+.preview-opts {
+  width: 248px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: var(--cpq-radius-lg);
+  background: var(--cpq-overlay-w5);
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: 0 8px 24px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  overflow-y: auto;
+}
+.preview-canvas {
+  flex: 1;
+  min-width: 0;
+  border-radius: var(--cpq-radius-lg);
+  overflow: hidden;
+  border: 1px solid var(--cpq-glass-border);
+  background: #fff;
+}
+.po-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.po-group .po-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  border-radius: var(--cpq-radius-sm);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--cpq-transition-fast);
+}
+.po-group .po-row:hover {
+  background: var(--cpq-overlay-w4);
+}
+.po-group .po-row.locked {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.po-group .po-row.locked:hover {
+  background: transparent;
+}
+.po-name {
+  font-size: 13px;
+  color: var(--cpq-text-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.po-lock { font-size: 11px; }
+.po-tag {
+  font-size: 10px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: var(--cpq-radius-sm);
+  color: #ad6800;
+  background: rgba(250, 173, 20, 0.16);
+}
+.po-desc {
+  margin: 3px 0 0 24px;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+}
+.po-version {
+  border-top: 1px dashed var(--cpq-glass-border);
+  padding-top: 10px;
+}
+.po-version-label {
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  margin-bottom: 6px;
+}
+.po-version-tag {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.po-version-tag.pv-internal {
+  color: #ad6800;
+  background: rgba(250, 173, 20, 0.18);
+}
+.po-version-tag.pv-sell {
+  color: #1c5dd8;
+  background: rgba(22, 119, 255, 0.12);
+}
+.po-version-tag.pv-customer {
+  color: #0f7a5e;
+  background: rgba(82, 201, 160, 0.20);
+}
+.po-version-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cpq-text-secondary);
+}
+.po-note {
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--cpq-text-muted);
+}
+.po-refresh {
+  font-size: 11px;
+  color: var(--cpq-accent-primary);
 }
 
 /* 打印 overlay（Teleport 到 body 仍带本组件 scoped data-v，样式生效）：
@@ -3045,10 +3613,63 @@ table.kp-table th:nth-child(7) { width: 21%; }
 :deep(.ant-input-number-handler-down-inner) {
   color: var(--cpq-text-secondary) !important;
 }
+/* ── 手机端：cfg-bar 瘦身 + 抽屉头/滚动体 + 底部 sticky 摘要条 ── */
+.ws-back-m { width: 30px; height: 30px; border-radius: 9px; border: 1px solid var(--cpq-border-secondary); background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); font-size: 15px; cursor: pointer; flex: none; display: inline-flex; align-items: center; justify-content: center; line-height: 1; padding-bottom: 2px; }
+
+.pd-head-row { display: flex; align-items: center; gap: 8px; padding: 14px 15px 10px; flex: none; }
+.pd-head-row h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
+.pd-chip { font-size: 10px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); border-radius: 999px; padding: 2px 9px; white-space: nowrap; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.pd-sp { flex: 1; }
+.pd-x { width: 29px; height: 29px; border-radius: 10px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.pd-scroll { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+.pd-scroll .fin-card { height: auto; }
+.pd-scroll-bom { display: block; }
+
+.exp-card-m { background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-glass-border); border-radius: 14px; padding: 12px; }
+.exp-title-m { font-size: 12px; font-weight: 700; color: var(--cpq-text-secondary); margin-bottom: 8px; }
+
+.sumbar { position: fixed; left: 0; right: 0; bottom: var(--cpq-tabbar-inset, 0px); z-index: 170;
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--cpq-glass-3-bg, rgba(255, 255, 255, .9));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3, 16px)) saturate(1.3);
+  backdrop-filter: blur(var(--cpq-glass-blur-3, 16px)) saturate(1.3);
+  border-top: 1px solid var(--cpq-glass-border); }
+.sum-ic { width: 38px; height: 38px; border-radius: 12px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); color: var(--cpq-text-secondary); cursor: pointer; padding: 0; }
+.sum-ic svg { width: 17px; height: 17px; }
+.sum-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; cursor: pointer; }
+.sum-metric .v { font-size: 15px; font-weight: 800; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2; }
+.sum-metric .l { font-size: 9.5px; color: var(--cpq-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum-metric .l b.pos { color: var(--cpq-accent-success); }
+.sum-metric .l b.neg { color: var(--cpq-accent-danger); }
+.sum-cta { flex: none; height: 38px; padding: 0 15px; border-radius: 12px; border: none; cursor: pointer;
+  background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-size: 12.5px; font-weight: 700; }
+.sum-cta:disabled { opacity: .6; }
+
+@media (max-width: 768px) {
+  .workspace-page { padding-bottom: calc(76px + var(--cpq-tabbar-inset, 0px)); }
+  .content-inner { padding: 12px 12px 8px; }
+  .cfg-bar { flex-wrap: nowrap; overflow-x: auto; gap: 8px; }
+  .cfg-pills { flex: 1; flex-wrap: nowrap; overflow-x: auto; min-width: 0; }
+  .cfg-relation { flex: none; margin-left: 0; }
+  .cfg-relation-label { display: none; }
+  .three-col-layout { display: block; }
+  .col-middle { max-width: none; width: 100%; }
+}
 </style>
 
 <!-- 机箱配置弹窗渲染到 portal（scoped 之外），用全局样式撑满 L6ChassisConfig（同 ConfigWizard） -->
 <style>
 .chassis-modal-quote .ant-modal-body { padding: 18px 20px; max-height: 82vh; overflow-y: auto; }
 .chassis-modal-quote .ant-modal { top: 30px; }
+/* 报价工作台手机抽屉外壳：portal 到 body，scoped 够不到，走全局（配色走主题 token） */
+.opp-quote-drawer .ant-drawer-content {
+  background: var(--cpq-glass-3-bg);
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3, 16px)) saturate(1.3);
+  backdrop-filter: blur(var(--cpq-glass-blur-3, 16px)) saturate(1.3);
+  overflow: hidden;
+}
+.opp-quote-drawer .ant-drawer-left .ant-drawer-content { border-radius: 0 18px 18px 0; }
+.opp-quote-drawer .ant-drawer-right .ant-drawer-content { border-radius: 18px 0 0 18px; }
+.opp-quote-drawer .ant-drawer-header { display: none; }
 </style>

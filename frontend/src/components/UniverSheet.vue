@@ -57,6 +57,8 @@ const univerInnerRef = ref<HTMLElement | null>(null)
 const uniqueContainerId = `univer-container-${Math.random().toString(36).slice(2, 9)}`
 let univer: Univer | null = null
 let _suppressEdit = false
+// 刷新前的激活 sheet：workbookData 变化重建实例后回到原页（否则勾选导出选项会跳回第一页）
+let _lastActiveSheetId: string | null = null
 
 /**
  * Get FUniver API instance (compatible with old and new versions)
@@ -86,9 +88,13 @@ async function renderUniver() {
   }
   
   _suppressEdit = true
-  
-  // Cleanup old instance
+
+  // Cleanup old instance（先记下激活 sheet，重建后恢复）
   if (univer) {
+    try {
+      const active = getFUniverAPI()?.getActiveWorkbook?.()?.getActiveSheet?.()
+      _lastActiveSheetId = active?.getSheetId?.() || null
+    } catch { /* 实例已失效则按无记录处理 */ }
     univer.dispose()
     univer = null
   }
@@ -152,7 +158,15 @@ async function renderUniver() {
         }
       })
     }
-    
+
+    // 恢复刷新前的激活 sheet（如导出选项勾选后仍停留在配置页）；新工作簿无此页则保持默认
+    try {
+      const wb = univerAPI?.getActiveWorkbook?.()
+      if (wb && _lastActiveSheetId && wb.getSheetBySheetId(_lastActiveSheetId)) {
+        wb.setActiveSheet(_lastActiveSheetId)
+      }
+    } catch { /* 恢复失败不影响渲染 */ }
+
     _suppressEdit = false
   }, 500)
 }
@@ -308,9 +322,11 @@ function getResolvedWorkbook(): ResolvedWorkbook {
       if (typeof h === 'number') rowHeights[Number(k)] = h
     }
     const colWidths: Record<number, number> = {}
+    const hiddenCols: number[] = []
     for (const [k, v] of Object.entries(sd.columnData || {})) {
       const w = (v as any)?.w
       if (typeof w === 'number') colWidths[Number(k)] = w
+      if ((v as any)?.hd) hiddenCols.push(Number(k))
     }
 
     sheets.push({
@@ -319,6 +335,7 @@ function getResolvedWorkbook(): ResolvedWorkbook {
       merges,
       rowHeights,
       colWidths,
+      hiddenCols,
     })
   }
 

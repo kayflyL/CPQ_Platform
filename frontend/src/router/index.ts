@@ -21,10 +21,16 @@ const routes = [
     redirect: '/portal',
     children: [
       {
+        path: '/galaxy',
+        name: 'Galaxy',
+        component: () => import('@/views/GalaxyHome.vue'),
+        meta: { title: '星河首页' }
+      },
+      {
         path: '/portal',
         name: 'Portal',
         component: () => import('@/views/portal/Portal.vue'),
-        meta: { title: '工作台', aiEntryPoint: true }
+        meta: { title: '工作台' }
       },
       {
         path: '/portal/opps',
@@ -34,19 +40,19 @@ const routes = [
         path: '/portal/workstation/:view',
         name: 'PortalWorkstation',
         component: () => import('@/views/portal/PortalWorkstationView.vue'),
-        meta: { title: '门户工作台', perm: 'page.opportunities', aiEntryPoint: true }
+        meta: { title: '门户工作台', perm: 'page.opportunities' }
       },
       {
         path: '/workspace',
         name: 'Workspace',
         component: () => import('@/views/quote/Workspace.vue'),
-        meta: { title: '报价工作台', perm: 'page.opportunities', aiEntryPoint: true }
+        meta: { title: '报价工作台', perm: 'page.opportunities' }
       },
       {
         path: '/opportunities',
         name: 'Opportunities',
         component: () => import('@/views/opportunity/OpportunityList.vue'),
-        meta: { title: '商机线索', perm: 'page.opportunities_all', aiEntryPoint: true }
+        meta: { title: '商机线索', perm: 'page.opportunities_all' }
       },
       {
         path: '/ai-leads',
@@ -58,13 +64,19 @@ const routes = [
         path: '/opportunities/:opportunityId',
         name: 'OpportunityDetail',
         component: () => import('@/views/opportunity/OpportunityDetail.vue'),
-        meta: { title: '商机详情', perm: 'page.opportunities', aiEntryPoint: true }
+        meta: { title: '商机详情', perm: 'page.opportunities' }
       },
       {
         path: '/recycle-bin',
         name: 'RecycleBin',
         component: () => import('@/views/opportunity/RecycleBin.vue'),
         meta: { title: '回收站', perm: 'page.opportunities' }
+      },
+      {
+        path: '/notifications',
+        name: 'NotificationCenter',
+        component: () => import('@/views/notifications/NotificationCenter.vue'),
+        meta: { title: '通知中心' }
       },
       {
         path: '/parts',
@@ -162,12 +174,12 @@ const routes = [
         path: '/strategies/selection',
         name: 'StrategySelection',
         component: () => import('@/views/admin/selection/SelectionWorkspace.vue'),
-        meta: { title: '选型配置', perm: 'page.strategies', aiEntryPoint: true }
+        meta: { title: '选型配置', perm: 'page.strategies' }
       },
       {
         path: '/strategies/requirement',
         name: 'StrategyRequirement',
-        component: () => import('@/views/admin/CompatibilityRuleEditor.vue'),
+        component: () => import('@/views/admin/requirement/RequirementRules.vue'),
         meta: { title: '需求分析规则', perm: 'page.strategies' }
       },
       {
@@ -201,7 +213,7 @@ const routes = [
         path: '/ai-office',
         name: 'AiOffice',
         component: () => import('@/views/office/AiOfficeView.vue'),
-        meta: { title: 'AI 办公室', aiEntryPoint: true }
+        meta: { title: 'AI 办公室', perm: 'page.office' }
       },
       // Univer 模板编辑器（Excel）
       {

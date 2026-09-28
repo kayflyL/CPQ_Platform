@@ -120,12 +120,16 @@ import {
 } from '@ant-design/icons-vue'
 import { feedApi } from '@/api/feed'
 import type { FeedAttachment } from '@/api/feed'
+import { downloadOfficeFile } from '@/utils/fileDownload'
+import { useAuthStore } from '@/store/auth'
 
 const props = defineProps<{ opportunityId: string; attachments: FeedAttachment[]; categories?: string[] }>()
 const emit = defineEmits<{
   (e: 'preview', a: FeedAttachment): void
   (e: 'delete', a: FeedAttachment): void
 }>()
+
+const auth = useAuthStore()
 
 const ALL_COLUMNS = [
   { category: 'requirement', title: '成本附件', icon: '📋' },
@@ -134,12 +138,19 @@ const ALL_COLUMNS = [
   { category: 'lead_requirement', title: '我的附件', icon: '📎' },
 ] as const
 
+// 受限列需对应权限（与后端 _CATEGORY_VIEW_PERM 同步）
+const CATEGORY_PERM: Record<string, string> = {
+  requirement: 'field.flow.cost',
+  technical: 'field.flow.bom',
+}
+
 const columns = computed(() => {
+  const visible = ALL_COLUMNS.filter((c) => !CATEGORY_PERM[c.category] || auth.can(CATEGORY_PERM[c.category]))
   if (props.categories && props.categories.length) {
     const set = new Set(props.categories)
-    return ALL_COLUMNS.filter((c) => set.has(c.category))
+    return visible.filter((c) => set.has(c.category))
   }
-  return [...ALL_COLUMNS]
+  return visible
 })
 
 const sectionHint = computed(() => {
@@ -280,8 +291,13 @@ async function changeCategory(a: FeedAttachment, category: string) {
     message.error('移动失败')
   }
 }
-function download(a: FeedAttachment) {
-  window.open(feedApi.attachments.downloadUrl(a.attachment_id), '_blank')
+async function download(a: FeedAttachment) {
+  // 下载端点需鉴权，window.open 直链 401 → 走带 Authorization 的 blob 下载
+  try {
+    await downloadOfficeFile(feedApi.attachments.downloadUrl(a.attachment_id), a.original_filename)
+  } catch {
+    message.error('下载失败')
+  }
 }
 
 function fileTypeOf(name: string): 'excel' | 'pdf' | 'image' | 'other' {

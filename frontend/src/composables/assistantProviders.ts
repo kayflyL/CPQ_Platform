@@ -7,6 +7,7 @@
  * 未来加策略中心等:在此 export 新 provider,加到 contextProviders 数组即可。
  */
 import type { ContextProvider, QuickAction } from './assistantContext'
+import axios from 'axios'
 
 export const quoteProvider: ContextProvider = {
   key: 'quote',
@@ -35,8 +36,8 @@ export const opportunityProvider: ContextProvider = {
     const oid = ctx.route.params.opportunityId as string
     if (!oid) return ''
     try {
-      const r = await fetch(`/api/opportunities/${oid}`)
-      const data = await r.json()
+      const r = await axios.get(`/api/opportunities/${oid}`)
+      const data = r.data
       const meta = data.meta || {}
       const quos = (data.quotations || []).filter((q: any) => q.status === 'active')
       return [
@@ -68,8 +69,8 @@ export const opportunityListProvider: ContextProvider = {
       }
 
       // 调用驾驶舱摘要接口
-      const r = await fetch(`/api/dashboard/summary?${params}`)
-      const data = await r.json()
+      const r = await axios.get(`/api/dashboard/summary?${params}`)
+      const data = r.data
 
       // 提取关键字段
       const kpi = data.kpi || {}
@@ -97,7 +98,7 @@ export const contextProviders: ContextProvider[] = [
 ]
 
 /**
- * 助手快捷指令 — 已改为 Skill Studio 技能驱动：不再提供“分析本期趋势”等写死指令，
- * 由后端统一运行时按角色绑定的 Skill 智能识别并触发。
+ * 助手快捷指令 — 已改为工作流驱动：不再提供“分析本期趋势”等写死指令，
+ * 由后端统一运行时按角色绑定的工作流智能识别并触发。
  */
 export const assistantQuickActions: QuickAction[] = []

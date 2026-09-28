@@ -86,7 +86,7 @@ def _recs(engine: dict) -> dict:
 
 
 def _call_select(args: dict, *, task_active: bool = True, ext=None, saved=None,
-                 rows=None, required_cats=None, engine=None) -> dict:
+                 rows=None, required_cats=None, engine=None, caps=None) -> dict:
     from app.services import skill_chat
     # ext/engine 都不复制：工具必须原地写引擎共享的同一对象（副本会丢落表，同 fill 的实测坑）
     if saved is None:
@@ -103,9 +103,30 @@ def _call_select(args: dict, *, task_active: bool = True, ext=None, saved=None,
              "description": "DDR5 64G", "qty": 1, "specified": True},
         ],
         "kp_required_cats": set(required_cats or []),
+        "kp_baseline_caps": caps or {},
         "save": lambda: saved.update(done=True),
     })
     return skill_tools_select.tool_select_parts(args)
+
+
+def test_select_parts_rejects_qty_over_machine_capability():
+    """物理上限闸：机型登记 8 内存槽，qty=12 直接拒（qty_over_capacity）并要大脑
+    换更大单条容量；qty=8 放行。无边界类目/未登记能力不设此闸。"""
+    res = _call_select({"picks": [{"row": "Memory|DDR5 64G", "part_id": "201",
+                                   "qty": 12, "reason": "r"}]},
+                       caps={"max_dimm": 8})
+    assert res["results"][0]["error"] == "qty_over_capacity"
+    assert res["results"][0]["ok"] is False
+
+    ok = _call_select({"picks": [{"row": "Memory|DDR5 64G", "part_id": "201",
+                                  "qty": 8, "reason": "r"}]},
+                      caps={"max_dimm": 8})
+    assert ok["results"][0].get("ok") is True
+
+    # 机型没登记内存槽数（上下文无 caps）→ 不拦（缺数据不设闸）
+    no_cap = _call_select({"picks": [{"row": "Memory|DDR5 64G", "part_id": "201",
+                                      "qty": 12, "reason": "r"}]})
+    assert no_cap["results"][0].get("ok") is True
 
 
 def test_select_kp_parts_blocked_before_task():

@@ -12,10 +12,11 @@ from typing import Any
 from app.repository.system_config_repo import SystemConfigRepository
 
 
-def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_config: dict = None) -> dict:
+def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_config: dict = None,
+                  masked_fields: dict = None, region_fields: dict = None) -> dict:
     """
     在 workbook_snapshot 的 cellData 上填充数据
-    
+
     Args:
         workbook_snapshot: Univer workbook 快照
         bindings: 绑定配置列表
@@ -25,7 +26,12 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
             ...
         }
         sheet_config: 可选，sheet 配置信息（含 cover/config 定义）
-    
+        masked_fields: 可选，敏感字段掩蔽 {source_key: {field_key: mode}}——
+            mode='hide' 整列隐藏（columnData hd，成本/利润率对客户不可见列存在）；
+            mode='blank' 仅清空明细值保留列（销售价：明细藏但总计行恒显）
+        region_fields: 可选，区域聚合字段 {source_key: set(field_key)}（scope=region）——
+            值只写区域首行，并按实际行数生成纵向 mergeData（合并单元格）
+
     Returns:
         填充后的 workbook_snapshot（深拷贝，不修改原数据）
     """
@@ -76,12 +82,15 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
     # 每个 sheet 的行偏移表：{after_row_idx: total_inserted_rows}
     # 用于让静态绑定的行号感知动态插入产生的偏移
     sheet_row_offsets = {}
-    
+
+    # 敏感列隐藏登记：{sheet_id: set(col_idx)}，全部绑定处理完后统一写 columnData hd
+    hide_cols: dict = {}
+
     for binding in sorted_bindings:
         sheet_id = binding.get("sheetId")
         if not sheet_id:
             continue
-        
+
         # 如果该 sheet 被拆分为多个配置页，对每个新 sheet 都应用绑定
         if sheet_id in sheet_id_remap:
             for new_id in sheet_id_remap[sheet_id]:
@@ -93,7 +102,10 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
                     row_offsets = sheet_row_offsets.get(new_id, {})
                     _fill_static_binding(sheet, binding, data, config_name=config_name, row_offsets=row_offsets)
                 elif binding.get("dataType") == "dynamic":
-                    inserted = _fill_dynamic_binding(sheet, binding, data, config_name=config_name)
+                    inserted = _fill_dynamic_binding(sheet, binding, data, config_name=config_name,
+                                                     masked_fields=masked_fields, hide_cols=hide_cols,
+                                                     target_sheet_id=new_id,
+                                                     region_fields=region_fields)
                     if inserted > 0:
                         # 记录偏移：在哪个行号之后插入了多少行
                         import re
@@ -115,7 +127,10 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
             row_offsets = sheet_row_offsets.get(sheet_id, {})
             _fill_static_binding(sheet, binding, data, row_offsets=row_offsets)
         elif binding.get("dataType") == "dynamic":
-            inserted = _fill_dynamic_binding(sheet, binding, data)
+            inserted = _fill_dynamic_binding(sheet, binding, data,
+                                             masked_fields=masked_fields, hide_cols=hide_cols,
+                                             target_sheet_id=sheet_id,
+                                             region_fields=region_fields)
             if inserted > 0:
                 import re
                 match = re.match(r"([A-Z]+)(\d+)", binding.get("cellAddress", "").upper())
@@ -125,7 +140,19 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
                         sheet_row_offsets[sheet_id] = {}
                     offsets = sheet_row_offsets[sheet_id]
                     offsets[template_row] = offsets.get(template_row, 0) + inserted
-    
+
+    # 统一应用敏感列隐藏：columnData hd=1（Univer 渲染跳过该列，导出侧同步隐藏）
+    for sid, cols in hide_cols.items():
+        sheet = filled["sheets"].get(sid)
+        if not sheet:
+            continue
+        column_data = sheet.setdefault("columnData", {})
+        for col_idx in cols:
+            col_key = str(col_idx)
+            col_cfg = column_data.get(col_key) or {}
+            col_cfg["hd"] = 1
+            column_data[col_key] = col_cfg
+
     return filled
 
 
@@ -297,12 +324,18 @@ def _clear_cell_binding_marker(sheet: dict, cell_address: str):
         pass  # 解析失败时忽略
 
 
-def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: str = None) -> int:
+def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: str = None,
+                          masked_fields: dict = None, hide_cols: dict = None,
+                          target_sheet_id: str = None, region_fields: dict = None) -> int:
     """填充动态绑定
-    
+
     Args:
         config_name: 如果提供，只填充属于该配置的数据
-    
+        masked_fields: {source_key: {field_key: mode}} 敏感字段掩蔽（mode: hide=整列隐藏 / blank=仅清空值）
+        hide_cols: {sheet_id: set(col_idx)} 隐藏列登记（由 fill_snapshot 统一应用）
+        target_sheet_id: 当前填充的 sheet id（作为 hide_cols 的键）
+        region_fields: {source_key: set(field_key)} 区域聚合字段——值只写首行并纵向合并
+
     Returns:
         插入的行数（用于更新行偏移表）
     """
@@ -368,26 +401,65 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
         _insert_rows(sheet, template_row_idx, extra_rows)
     
     # 填充数据
+    region_masked = (masked_fields or {}).get(region_key) or {}
+    region_scope = set((region_fields or {}).get(region_key) or [])
     for i, row_data in enumerate(data_rows):
         current_row_idx = template_row_idx + i  # 0-indexed
-        
+
         for field_key, col_letter in field_mapping.items():
             col_idx = _column_letter_to_index(col_letter)
-            
+
             row_idx_str = str(current_row_idx)
             col_idx_str = str(col_idx)
-            
+
             if row_idx_str not in sheet["cellData"]:
                 sheet["cellData"][row_idx_str] = {}
-            
+
             if col_idx_str not in sheet["cellData"][row_idx_str]:
                 sheet["cellData"][row_idx_str][col_idx_str] = {}
-            
-            # 获取值
+
+            if field_key in region_masked:
+                # 敏感字段未揭示：清空模板标记/数据；hide 档连表头带列一起消失，
+                # blank 档保留列（销售价：明细藏、总计行恒显）
+                sheet["cellData"][row_idx_str][col_idx_str]["v"] = ""
+                if region_masked[field_key] == "hide" and target_sheet_id is not None and hide_cols is not None:
+                    hide_cols.setdefault(target_sheet_id, set()).add(col_idx)
+                continue
+
+            # 获取值（区域聚合字段只挂首行数据，后续行取不到自然为空）
             value = row_data.get(field_key, "")
-            
+
             sheet["cellData"][row_idx_str][col_idx_str]["v"] = value
-    
+
+    # 区域聚合字段：按实际行数生成纵向合并（值已在首行锚点）
+    # 绑定从下往上处理，上方区域的插行会带着 mergeData 下移，坐标始终正确
+    if len(data_rows) >= 2 and region_scope:
+        merges = sheet.setdefault("mergeData", [])
+        scope_cols = {
+            _column_letter_to_index(col)
+            for field_key, col in field_mapping.items() if field_key in region_scope
+        }
+        region_start = template_row_idx
+        region_end = template_row_idx + len(data_rows) - 1
+
+        # 剔除模板遗留的手工合并（与运行时合并行列重叠时打架，导致合并失效），
+        # 模板作者只需在锚点格设样式，无需也不应手工预画合并
+        merges[:] = [
+            m for m in merges
+            if not (
+                m.get("startRow", 0) <= region_end and m.get("endRow", 0) >= region_start
+                and any(m.get("startColumn", 0) <= c <= m.get("endColumn", 0) for c in scope_cols)
+            )
+        ]
+
+        for col_idx in sorted(scope_cols):
+            merges.append({
+                "startRow": region_start,
+                "endRow": region_end,
+                "startColumn": col_idx,
+                "endColumn": col_idx,
+            })
+
     return max(extra_rows, 0)
 
 

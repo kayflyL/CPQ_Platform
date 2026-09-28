@@ -3,16 +3,18 @@
  *  机箱（基准/前面板/后面板/电源）收进「机箱配置弹窗」（L6ChassisConfig stepper 模式）；
  *  KP 核心配件按 cat 独立成卡（CPU/Memory/HDD-SSD/GPU/NIC 预设 + 用户从 KP 类别新增）。
  *  kpLines 保持扁平 [{cat,pn,qty}]，卡片是渲染期 groupBy 视图 → 推导/持久化链路不动。 */
-import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { isBlockingSeverity } from '@/constants/ruleMeta'
 import axios from 'axios'
-import { kpPartsApi, partsApi, baseConfigApi, type ServerModel, type KpPart } from '@/api/serverConfig'
+import { kpPartsApi, partsApi, baseConfigApi, catalogApi, type ServerModel, type KpPart } from '@/api/serverConfig'
 import { serverDrawingApi, type DrawingView, type DrawingViewType } from '@/api/serverDrawing'
 import L6ChassisConfig from '@/components/quote/L6ChassisConfig.vue'
 import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import KpCategoryCard from '@/components/server-config/KpCategoryCard.vue'
+import PerfRadarChart from '@/components/server-config/PerfRadarChart.vue'
 import SpecSheet from '@/components/server-config/SpecSheet.vue'
+import { computePerformanceScores, type PerfRawInput, type PerfScoreConfig } from '@/utils/performanceScore'
 import ServerAnatomyMap from '@/components/selection-map/ServerAnatomyMap.vue'
 import { ServerAnatomyViewer } from '@/components/server-visualization'
 import { fromKpPart } from '@/composables/usePartAdapter'
@@ -450,6 +452,130 @@ const performanceSummary = computed(() => {
 })
 
 const kpTotal = computed(() => kpLines.value.reduce((s, l) => s + priceOf(l.pn) * l.qty, 0))
+
+// ---- 性能六维：原始值确定性聚合（缺数据 null 不编造）→ 锚点表打分（锚点存 system_config，零发版可调）----
+const SPEC_KEY_CANDIDATES = {
+  memSpeed: ['Speed', 'Memory Speed', '内存速度', '速率'],
+  gpuFp16: ['FP16 TFLOPS', 'FP16 算力', 'FP16(TFLOPS)', 'FP16', 'AI 算力', '算力'],
+}
+function specNumberByKeys(part: any, keys: string[]): number {
+  for (const k of keys) {
+    const v = part?.specs?.[k]
+    if (v !== undefined && v !== null && v !== '') {
+      const s = String(v)
+      // TOPS 是 INT8/FP4 口径，不能当 FP16 TFLOPS 读入（防误标爆分）
+      if (/tops/i.test(s) && !/tflops/i.test(s)) continue
+      const n = typeof v === 'number' ? v : parseFloat(s.replace(/[^0-9.]/g, ''))
+      if (Number.isFinite(n) && n > 0) return n
+    }
+  }
+  return 0
+}
+const perfCfg = ref<PerfScoreConfig | null>(null)
+async function loadPerfConfig() {
+  try { perfCfg.value = await catalogApi.getPerformanceScoreConfig() } catch { perfCfg.value = null }
+}
+const perfRaw = computed<PerfRawInput>(() => {
+  const lines = kpLines.value
+
+  // CPU：核数（FP64 峰值 specs 覆盖低，按核数折算并在明细注明）
+  const cpuCores = catNumeric('CPU', 'Cores')
+
+  // 内存：容量 + 带宽估算 Σ条数×速率×8B（GB/s）；任一行速率缺→整维带宽视为未维护
+  const memGb = catCapacity('Memory')
+  let memBw: number | null = 0
+  const memBits: string[] = []
+  const memLines = lines.filter(l => l.cat === 'Memory')
+  if (!memLines.length) memBw = null
+  for (const l of memLines) {
+    const speed = specNumberByKeys(kpPart(l.pn), SPEC_KEY_CANDIDATES.memSpeed)
+    if (!speed) { memBw = null; break }
+    memBw! += (l.qty || 0) * speed * 8 / 1000
+    memBits.push(`${l.qty}×${speed}MT/s`)
+  }
+
+  // 存储：类型加权盘位（NVMe 1.0 / SAS 0.6 / SATA 0.4 / 其他 0.5）
+  const byKind: Record<string, number> = {}
+  for (const l of lines.filter(l => l.cat === 'HDD/SSD')) {
+    const p = kpPart(l.pn) as any
+    const k = normalizeDriveKind(p?.specs?.interface || p?.specs?.kind || p?.specs?.type)
+      || normalizeDriveKind(p?.name || '') || '其他'
+    byKind[k] = (byKind[k] || 0) + (l.qty || 0)
+  }
+  let storageW: number | null = null
+  const storageBits: string[] = []
+  if (Object.keys(byKind).length) {
+    const W: Record<string, number> = { NVMe: 1, SAS: 0.6, SATA: 0.4 }
+    storageW = 0
+    for (const [k, n] of Object.entries(byKind)) {
+      storageW += n * (W[k] ?? 0.5)
+      storageBits.push(`${n}×${k}`)
+    }
+  }
+
+  // 网络：Σ 口数×端口速率（Gbps）；Link Speed 全缺→null
+  let netGbps: number | null = null
+  const netBits: string[] = []
+  for (const l of lines.filter(l => l.cat === 'NIC')) {
+    const p = kpPart(l.pn) as any
+    const speed = linkSpeedValue(p?.specs?.['Link Speed'])
+    if (!speed) continue
+    const ports = numSpec(p, 'Ports') || 1
+    netGbps = (netGbps || 0) + ports * speed
+    netBits.push(`${ports}×${speed}G`)
+  }
+
+  // GPU：FP16 峰值 Σ卡数×单卡算力（specs 未维护→null，不按显存/瓦数折算）
+  let gpuT: number | null = null
+  const gpuBits: string[] = []
+  for (const l of lines.filter(l => l.cat === 'GPU')) {
+    const t = specNumberByKeys(kpPart(l.pn), SPEC_KEY_CANDIDATES.gpuFp16)
+    if (!t) continue
+    gpuT = (gpuT || 0) + (l.qty || 0) * t
+    gpuBits.push(`${l.qty}×${t}T`)
+  }
+
+  // 可靠性：命中冗余项（PSU≥2 / RAID 卡 / MTBF specs 有维护）；PSU 与 MTBF 全未知→null
+  const psuN = psuQty.value
+  const hasRaid = lines.some(l => /raid/i.test(l.cat))
+  let hasMtbf: boolean | null = null
+  for (const l of lines) {
+    const p = kpPart(l.pn) as any
+    if (p?.specs && 'MTBF' in p.specs) { hasMtbf = !!p.specs['MTBF']; break }
+  }
+  let relCount: number | null = null
+  const relBits: string[] = []
+  if (psuN > 0 || hasMtbf !== null) {
+    relCount = 0
+    if (psuN > 0) {
+      relCount += psuN >= 2 ? 1 : 0
+      relBits.push(psuN >= 2 ? `电源 ${psuN}+ 冗余` : `电源 ${psuN} 无冗余`)
+    }
+    relCount += hasRaid ? 1 : 0
+    relBits.push(hasRaid ? '含 RAID 卡' : '无 RAID 卡')
+    if (hasMtbf !== null) {
+      relCount += hasMtbf ? 1 : 0
+      relBits.push('MTBF 已维护')
+    }
+  }
+
+  return {
+    cpuCores,
+    memCapacityGb: memGb,
+    memBandwidthGbs: memBw,
+    memText: memBits.join(' + '),
+    storageWeighted: storageW,
+    storageText: storageBits.join(' + '),
+    networkGbps: netGbps,
+    networkText: netBits.join(' + '),
+    gpuFp16Tflops: gpuT,
+    gpuText: gpuBits.join(' + '),
+    reliabilityCount: relCount,
+    reliabilityText: relBits.join(' · '),
+  }
+})
+const perfDims = computed(() => computePerformanceScores(perfRaw.value, perfCfg.value))
+
 const l6Total = computed(() => l6Apply.value?.totals?.l6 || 0)
 const grand = computed(() => l6Total.value + kpTotal.value)
 
@@ -535,11 +661,44 @@ function scrollToPanel(panelId: string) {
   scroller.scrollTo({ top: scroller.scrollTop + elTop - 12, behavior: 'smooth' })
 }
 
+// ── 手机端（≤768）：三栏 → 双抽屉。左抽屉=服务器图纸，右抽屉=配置结果，
+//     主屏=配置卡流；底部 sticky 摘要条常驻电源/规则/图纸入口（桌面三栏不受影响） ──
+const isMobile = ref(false)
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const openDrawer = ref<null | 'drawing' | 'result'>(null)
+const drawingDrawerOpen = computed({
+  get: () => openDrawer.value === 'drawing',
+  set: (v: boolean) => { openDrawer.value = v ? 'drawing' : null },
+})
+const resultDrawerOpen = computed({
+  get: () => openDrawer.value === 'result',
+  set: (v: boolean) => { openDrawer.value = v ? 'result' : null },
+})
+// 机箱细配 L6 弹窗优先：开弹窗自动收抽屉
+watch(chassisModalOpen, (v) => { if (v) openDrawer.value = null })
+// 摘要条规则徽标：冲突红优先，其余黄
+const ruleBadge = computed(() => {
+  const acts = selectionActions.value
+  if (!acts.length) return null
+  const conflict = acts.filter((a) => a.severity === 'conflict').length
+  return conflict > 0
+    ? { n: conflict, cls: 'is-conflict' }
+    : { n: acts.length, cls: 'is-warn' }
+})
+
 onMounted(() => {
   init()
   loadSpecTemplate()
   loadDrawing()
   loadMajors()
+  loadPerfConfig()
+  isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
 })
 </script>
 
@@ -550,8 +709,8 @@ onMounted(() => {
       <span class="bm-sub">{{ model.use }} · {{ model.base_config?.form }} · {{ model.base_config?.bays }} 盘位</span>
     </div>
 
-    <!-- 步骤指示器：机箱 + 各 KP 卡片 -->
-    <div class="sc-steps">
+    <!-- 步骤指示器：机箱 + 各 KP 卡片（手机端退役：配置卡自带序号即步骤流） -->
+    <div v-if="!isMobile" class="sc-steps">
       <template v-for="(s, i) in navSteps" :key="s.target">
         <div class="sc-step" @click="scrollToPanel(s.target)"><span class="sn">{{ s.n }}</span><span class="st">{{ s.label }}</span></div>
         <div v-if="i < navSteps.length - 1" class="sc-step-line"></div>
@@ -597,8 +756,8 @@ onMounted(() => {
 
       </div>
 
-      <!-- 中栏：服务器图纸 / 解剖示意图，数量随左栏实时变化 -->
-      <div class="sc-col-map">
+      <!-- 中栏：服务器图纸 / 解剖示意图，数量随左栏实时变化（手机端移入左抽屉） -->
+      <div v-if="!isMobile" class="sc-col-map">
         <div class="sc-map-card">
           <div class="sc-map-head">
             <div class="sc-map-head-left">
@@ -635,8 +794,8 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- 右栏：配置结果 + 保存（只改这里） -->
-      <div class="sc-col-right">
+      <!-- 右栏：配置结果 + 保存（手机端移入右抽屉） -->
+      <div v-if="!isMobile" class="sc-col-right">
         <div class="sc-result-card glass cpq-stream-edge">
           <div class="sc-result-head">
             <span class="sc-result-title">配置结果</span>
@@ -668,8 +827,9 @@ onMounted(() => {
           </section>
 
           <section class="rr-block">
-            <div class="rr-title"><span>📈</span>性能参数</div>
-            <div class="rr-metrics">
+            <div class="rr-title"><span>📈</span>性能参数<span class="rr-title-tail">六维锚点打分 · 相对旗舰线</span></div>
+            <PerfRadarChart :dims="perfDims" />
+            <div class="rr-metrics" style="margin-top: 10px">
               <div class="rr-metric"><span>CPU 核心</span><b>{{ performanceSummary.coresText }}</b></div>
               <div class="rr-metric"><span>CPU 线程</span><b>{{ performanceSummary.threadsText }}</b></div>
               <div class="rr-metric"><span>内存容量</span><b>{{ performanceSummary.memoryText }}</b></div>
@@ -683,6 +843,131 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <!-- 手机端左抽屉：服务器图纸（核对位置与数量，随配置实时联动） -->
+    <a-drawer
+      v-model:open="drawingDrawerOpen"
+      placement="left"
+      width="94%"
+      root-class-name="opp-sc-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="pd-head-row">
+        <h3>服务器图纸</h3><span class="pd-sp"></span>
+        <button class="pd-x" type="button" @click="drawingDrawerOpen = false">✕</button>
+      </div>
+      <div class="pd-scroll">
+        <div class="sc-map-card sc-map-card-drawer">
+          <div class="sc-map-head">
+            <div class="sc-map-head-left">
+              <span class="sc-map-title">服务器图纸</span>
+              <span class="sc-map-sub">{{ drawing?.svg_url ? `上传图纸 · ${currentViewLabel}` : `${anatomyForm} ${currentViewLabel} · 解剖示意图` }}</span>
+            </div>
+            <a-radio-group v-model:value="currentView" size="small" class="sc-view-tabs">
+              <a-radio-button v-for="o in viewOptions" :key="o.value" :value="o.value">{{ o.label }}</a-radio-button>
+            </a-radio-group>
+          </div>
+          <a-spin :spinning="drawingLoading">
+            <ServerAnatomyViewer
+              v-if="drawing?.svg_url"
+              decor-mode="plain"
+              :svg-url="drawing.svg_url"
+              :view-box="drawing.viewBox"
+              :regions="drawing.regions || []"
+              :counts="anatomyCounts"
+              :active-id="null"
+              :highlight-ids="[]"
+              :sandbox-counts="sandboxCounts"
+            />
+            <ServerAnatomyMap
+              v-else
+              decor-mode="plain"
+              :view="currentView"
+              :regions="anatomyRegions"
+              :counts="anatomyCounts"
+              :active-id="null"
+              :highlight-ids="[]"
+              :sandbox-counts="sandboxCounts"
+            />
+          </a-spin>
+        </div>
+      </div>
+    </a-drawer>
+
+    <!-- 手机端右抽屉：配置结果（规则 / 电源 / 性能 / 规格书） -->
+    <a-drawer
+      v-model:open="resultDrawerOpen"
+      placement="right"
+      width="88%"
+      root-class-name="opp-sc-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="pd-head-row">
+        <h3>配置结果</h3><span class="pd-chip">实时计算 · 只读</span><span class="pd-sp"></span>
+        <button class="pd-x" type="button" @click="resultDrawerOpen = false">✕</button>
+      </div>
+      <div class="pd-scroll">
+        <div class="sc-result-card glass cpq-stream-edge">
+          <section class="rr-block">
+            <div class="rr-title"><span>🛡</span>规则结果</div>
+            <div v-if="selectionActions.length" class="rr-rule-list">
+              <div v-for="a in selectionActions" :key="a.ruleId" class="rr-rule" :class="`rr-${a.severity}`">
+                <span class="rr-badge">{{ actionLabel(a.action) }}</span>
+                <span class="rr-desc">{{ a.desc }}</span>
+                <span class="rr-val">{{ resultValueText(a) }}</span>
+              </div>
+            </div>
+            <div v-else class="rr-empty">暂无命中规则</div>
+          </section>
+
+          <section class="rr-block">
+            <div class="rr-title"><span>⚡</span>电源功率</div>
+            <div class="rr-rows">
+              <div class="rr-row"><span>CPU TDP</span><b>{{ powerSummary.cpuText }}</b></div>
+              <div class="rr-row"><span>GPU TDP</span><b>{{ powerSummary.gpuText }}</b></div>
+              <div class="rr-row"><span>整机估算负载</span><b>{{ powerSummary.loadText }}</b></div>
+              <div class="rr-row"><span>建议冗余系数</span><b>{{ powerSummary.redundancyText }}</b></div>
+              <div class="rr-row"><span>建议电源</span><b class="rr-em">{{ powerSummary.psuText }}</b></div>
+            </div>
+            <div class="rr-note">未含内存 / 盘 / 网卡功耗，未维护 specs 显示「未维护」</div>
+          </section>
+
+          <section class="rr-block">
+            <div class="rr-title"><span>📈</span>性能参数<span class="rr-title-tail">六维锚点打分 · 相对旗舰线</span></div>
+            <PerfRadarChart :dims="perfDims" />
+            <div class="rr-metrics" style="margin-top: 10px">
+              <div class="rr-metric"><span>CPU 核心</span><b>{{ performanceSummary.coresText }}</b></div>
+              <div class="rr-metric"><span>CPU 线程</span><b>{{ performanceSummary.threadsText }}</b></div>
+              <div class="rr-metric"><span>内存容量</span><b>{{ performanceSummary.memoryText }}</b></div>
+              <div class="rr-metric"><span>存储容量</span><b>{{ performanceSummary.storageText }}</b></div>
+              <div class="rr-metric"><span>GPU 显存</span><b>{{ performanceSummary.gpuMemText }}</b></div>
+              <div class="rr-metric"><span>高速网口</span><b>{{ performanceSummary.nicText }}</b></div>
+            </div>
+          </section>
+
+          <button class="sc-save" :disabled="saving" @click="generateSpec">{{ saving ? '生成中…' : '生成 / 打印规格书' }}</button>
+        </div>
+      </div>
+    </a-drawer>
+
+    <!-- 手机端底部 sticky 摘要条：规则 / 电源 / 图纸入口 / 完整结果 -->
+    <div v-if="isMobile" class="sumbar">
+      <button class="sum-ic" type="button" title="规则命中" @click="resultDrawerOpen = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 3v5c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>
+        <span v-if="ruleBadge" class="sum-n" :class="ruleBadge.cls">{{ ruleBadge.n }}</span>
+      </button>
+      <div class="sum-metric" @click="resultDrawerOpen = true">
+        <span class="v">{{ powerSummary.psuText }}</span>
+        <span class="l">建议电源 · 负载 {{ powerSummary.loadText }}</span>
+      </div>
+      <button class="sum-ic" type="button" title="服务器图纸" @click="drawingDrawerOpen = true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 10h18M8 5v14"/></svg>
+      </button>
+      <button class="sum-cta" type="button" @click="resultDrawerOpen = true">配置结果</button>
+    </div>
+
     <!-- 机箱配置弹窗：L6 四步（基准 / 前 / 后面板 / 电源）-->
     <a-modal
       v-model:open="chassisModalOpen"
@@ -781,6 +1066,41 @@ onMounted(() => {
 .add-card-sel { width: 100%; max-width: 320px; background: var(--cpq-overlay-b20); color: var(--cpq-text-secondary,#9BA1AA);
   border: 1px dashed var(--cpq-overlay-w20); border-radius: 12px; padding: 11px 14px; font-size: 13px; outline: none; cursor: pointer; transition: all .2s; appearance: none; }
 .add-card-sel:hover { border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); background: var(--cpq-overlay-a8); }
+/* ── 手机端：抽屉头/滚动体 + 底部 sticky 摘要条 ── */
+.pd-head-row { display: flex; align-items: center; gap: 8px; padding: 14px 15px 10px; flex: none; }
+.pd-head-row h3 { margin: 0; font-size: 15px; font-weight: 700; color: var(--cpq-text-primary, #E8ECEF); }
+.pd-chip { font-size: 10px; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-a15); border-radius: 999px; padding: 2px 8px; white-space: nowrap; }
+.pd-sp { flex: 1; }
+.pd-x { width: 29px; height: 29px; border-radius: 10px; border: 1px solid var(--cpq-overlay-w20); background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary, #9BA1AA); cursor: pointer; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.pd-scroll { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 0 12px 14px; }
+.pd-scroll .sc-map-card { height: auto; min-height: 380px; }
+.pd-scroll .sc-result-card { height: auto; }
+
+.sumbar { position: fixed; left: 0; right: 0; bottom: var(--cpq-tabbar-inset, 0px); z-index: 170;
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--cpq-glass-card-bg, rgba(16, 24, 38, .9));
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  border-top: 1px solid var(--cpq-overlay-a15); }
+.sum-ic { position: relative; width: 38px; height: 38px; border-radius: 12px; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-w20); color: var(--cpq-text-secondary, #9BA1AA); cursor: pointer; padding: 0; }
+.sum-ic svg { width: 17px; height: 17px; }
+.sum-n { position: absolute; top: -6px; right: -6px; min-width: 15px; height: 15px; border-radius: 999px;
+  background: var(--cpq-accent-warning, #faad14); color: #1c1408; font-size: 9px; font-weight: 800;
+  display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+.sum-n.is-conflict { background: var(--cpq-accent-danger, #ff4d4f); color: #fff; }
+.sum-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-left: 2px; cursor: pointer; }
+.sum-metric .v { font-size: 14.5px; font-weight: 800; color: var(--cpq-text-primary, #E8ECEF); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum-metric .l { font-size: 9.5px; color: var(--cpq-text-muted, #6E7582); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum-cta { flex: none; height: 38px; padding: 0 14px; border-radius: 12px; border: none; cursor: pointer;
+  background: var(--cpq-accent-primary, #1677FF); color: var(--cpq-accent-on-primary, #fff); font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 4px; }
+.sum-cta::after { content: "›"; font-size: 13px; opacity: .85; }
+
+@media (max-width: 768px) {
+  .sc-layout { display: flex; flex-direction: column; }
+  .sc-banner { margin-bottom: 10px; }
+}
+
 @media (max-width: 1199px) {
   .sc-layout { grid-template-columns: minmax(320px, 360px) minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) auto; grid-template-areas: "config map" "result result"; }
   .sc-col-config { grid-area: config; height: 100%; min-height: 0; }
@@ -800,7 +1120,7 @@ onMounted(() => {
   backdrop-filter: blur(8px); display: flex; flex-direction: row; align-items: flex-start; justify-content: center;
   gap: 16px; padding: 32px 16px; overflow-y: auto; }
 .spec-sheet-scroll { display: flex; flex: 1; max-width: 900px; flex-direction: column; align-items: center; gap: 14px; }
-/* 工具栏：贴规格书右侧边缘，sticky 随滚动停靠（overlay 的直接子元素，scroll context 内生效） */
+/* 工具栏：贴规格书右侧边缘，sticky 随滚动停靠（overlay 自带 overflow 滚动，停靠位=overlay 自身 padding 顶，不吃全局吸顶变量） */
 .spec-sheet-toolbar { position: sticky; top: 32px; align-self: flex-start;
   display: flex; flex-direction: column; gap: 10px; z-index: 10; }
 .ss-tool-btn { padding: 7px 18px; font-size: 13px; font-weight: 600; border-radius: 10px; cursor: pointer;
@@ -820,6 +1140,7 @@ onMounted(() => {
 .rr-block { border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; padding: 12px; background: var(--cpq-overlay-a8); }
 .rr-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--cpq-text-primary,#E8ECEF); margin-bottom: 10px; }
 .rr-title span { font-size: 14px; }
+.rr-title-tail { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--cpq-text-muted,#6E7582); }
 .rr-rule-list { display: flex; flex-direction: column; gap: 8px; }
 .rr-rule { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-b20); }
 .rr-badge { flex: none; font-size: 10px; padding: 2px 6px; border-radius: 5px; font-weight: 700; }
@@ -848,4 +1169,17 @@ onMounted(() => {
 <style>
 .chassis-modal .ant-modal-body { padding: 18px 20px; max-height: 82vh; overflow-y: auto; }
 .chassis-modal .ant-modal { top: 30px; }
+</style>
+
+<style>
+/* 配置向导手机抽屉外壳：portal 到 body，scoped 够不到；本页为固定暗色链路，色值固定不接主题 */
+.opp-sc-drawer .ant-drawer-content {
+  background: rgba(15, 22, 36, 0.97);
+  -webkit-backdrop-filter: blur(20px) saturate(1.2);
+  backdrop-filter: blur(20px) saturate(1.2);
+  overflow: hidden;
+}
+.opp-sc-drawer .ant-drawer-left .ant-drawer-content { border-radius: 0 18px 18px 0; }
+.opp-sc-drawer .ant-drawer-right .ant-drawer-content { border-radius: 18px 0 0 18px; }
+.opp-sc-drawer .ant-drawer-header { display: none; }
 </style>

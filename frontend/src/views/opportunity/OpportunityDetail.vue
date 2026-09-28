@@ -10,12 +10,14 @@
         <span v-if="opportunity" class="status-indicator">
           <span class="status-dot" :class="`status-${opportunity.result || 'pending'}`"></span>
           <a-select
+            v-if="canEditResult"
             :value="opportunity.result || 'pending'"
             size="small"
             class="header-result-select"
             :options="resultOptions"
             @change="onResultChange"
           />
+          <span v-else class="status-text">{{ resultLabel(opportunity.result) }}</span>
         </span>
         <span v-if="opportunity && canViewAll" class="header-created-date">
           创建于
@@ -71,6 +73,7 @@
       ref="boardRef"
       v-if="!projectLoadError"
       :opportunity-id="opportunityId"
+      :updated-at="opportunity?.updated_at"
       :legacy-requirement-text="legacyRequirementText"
       :attachments="feedAttachments"
       :quotations="quotations"
@@ -82,6 +85,7 @@
       @new-quotation="createNewQuotation"
       @upload-cost-sheet="showUploadModal = true"
       @view-quotation="viewQuotation"
+      @unfreeze-quotation="handleUnfreeze"
       @set-primary="setAsPrimary"
       @rename-quotation="startRenameQuotation"
       @delete-quotation="deleteQuotation"
@@ -228,11 +232,11 @@
         name="file"
         :custom-request="handleUploadToProject"
         :show-upload-list="false"
-        accept=".xlsx, .xls"
+        accept=".xlsx"
       >
         <p class="ant-upload-drag-icon"><inbox-outlined /></p>
         <p class="ant-upload-text">点击或拖拽 Excel 成本表到此区域</p>
-        <p class="ant-upload-hint">支持 .xlsx / .xls 格式文件</p>
+        <p class="ant-upload-hint">支持 .xlsx 格式（旧版 .xls 请先另存为 .xlsx）</p>
       </a-upload-dragger>
     </a-modal>
 
@@ -254,6 +258,7 @@
       :reparse-loading="reparseLoading"
       @view-excel="handleViewExcel"
       @reparse="handleReparse"
+      @unfreeze="handleUnfreeze()"
     />
   </div>
 </template>
@@ -270,6 +275,7 @@ import {
 import { portalApi } from '@/api/portal'
 import { projectApi, quotationApi } from '@/api'
 import { feedApi } from '@/api/feed'
+import { downloadOfficeFile } from '@/utils/fileDownload'
 import { useAuthStore } from '@/store/auth'
 import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
 import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
@@ -279,6 +285,7 @@ import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { formatDate, formatPrice, marginBadgeClass as getMarginBadgeClass } from '@/utils/quoteCommon'
+import { RESULT_OPTIONS, resultLabel } from '@/constants/opportunityResult'
 import dayjs from 'dayjs'
 
 const route = useRoute()
@@ -486,12 +493,8 @@ const handleDeleteProject = async () => {
 
 // 归档语义已并入 result（已过期）；以下两个 handler 已移除。
 
-const resultOptions = [
-  { value: 'pending', label: '进行中' },
-  { value: 'won', label: '已中标' },
-  { value: 'lost', label: '已丢标' },
-  { value: 'expired', label: '已过期' },
-]
+const resultOptions = RESULT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
+const canEditResult = computed(() => auth.can('action.opportunity.result'))
 async function onResultChange(val: string) {
   const prev = (opportunity.value as any)?.result
   if (val === prev) return
@@ -573,11 +576,15 @@ const handleViewExcel = async () => {
     message.warning('未找到已导出的 Excel 归档')
     return
   }
-  window.open(feedApi.attachments.downloadUrl(att.attachment_id), '_blank')
+  // 下载端点需鉴权，window.open 直链 401 → 走带 Authorization 的 blob 下载
+  try {
+    await downloadOfficeFile(feedApi.attachments.downloadUrl(att.attachment_id), att.original_filename)
+  } catch {
+    message.error('下载失败')
+  }
 }
 
-const handleReparse = async () => {
-  const quo = costDrawerQuotation.value
+const handleReparse = async () => {  const quo = costDrawerQuotation.value
   if (!quo) return
   reparseLoading.value = true
   try {
@@ -592,6 +599,29 @@ const handleReparse = async () => {
   } finally {
     reparseLoading.value = false
   }
+}
+
+// 解冻已导出报价单并直接进工作台编辑（需 action.quote.unfreeze 权限，后端二次校验）
+const handleUnfreeze = async (quotation?: Quotation) => {
+  const quo: any = quotation || costDrawerQuotation.value
+  if (!quo) return
+  Modal.confirm({
+    title: `解冻「${quo.quotation_name || '未命名报价单'}」？`,
+    content: '解冻后该报价单回到草稿状态，可重新进入工作台编辑；再次导出会重新冻结并覆盖成本快照。',
+    okText: '解冻并编辑',
+    cancelText: '取消',
+    async onOk() {
+      try {
+        await quotationApi.unfreeze(quo.quotation_id)
+        message.success('已解冻，正在打开工作台')
+        costDrawerOpen.value = false
+        await loadProject()
+        router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quo.quotation_id}&mode=edit&from=opportunities`)
+      } catch (e: any) {
+        message.error(e?.response?.data?.detail || '解冻失败')
+      }
+    },
+  })
 }
 
 
@@ -711,12 +741,18 @@ const handleUploadToProject = async (options: any) => {
 }
 
 // 解析预览确认：落库生成成本表草稿（防重入：生成期间按钮 loading/禁用，函数开头二次拦截）
-const onParseConfirm = async () => {
+// 模板由「成本核算·上传解析」使用位置绑定决定（设置页配置）；payload 只带回会话补丁——
+// 预览看到的=确认生成的
+const onParseConfirm = async (payload?: { parseOverrides?: Record<string, any> }) => {
   if (!parsePreviewFile.value || parseConfirming.value) return
   parseConfirming.value = true
   const hide = message.loading('正在生成成本表...', 0)
   try {
-    const result = await portalApi.uploadCostSheet(opportunityId, parsePreviewFile.value)
+    const result = await portalApi.uploadCostSheet(
+      opportunityId,
+      parsePreviewFile.value,
+      payload?.parseOverrides
+    )
     if (result.sheet?.id) {
       message.success('成本表已创建！')
       parsePreviewOpen.value = false
@@ -755,17 +791,29 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .opportunity-detail-page {
-  padding: 0;
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - var(--cpq-header-clearance, 56px));
+  min-height: 0;
+  overflow: hidden;
+  padding: 12px 0 0;
+}
+.opportunity-detail-page :deep(.bod-page) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ── Page Header ── */
 .page-header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 12px;
-  margin-bottom: 24px;
+  padding: 0 20px;
+  margin-bottom: 12px;
 }
 
 .header-left {
@@ -852,6 +900,11 @@ onBeforeUnmount(() => {
 
 .header-result-select {
   width: 108px;
+}
+
+.status-text {
+  font-size: 13px;
+  color: var(--cpq-text-secondary);
 }
 
 .header-right {
@@ -1323,16 +1376,24 @@ onBeforeUnmount(() => {
 .text-btn.restore:hover {
   background: var(--cpq-overlay-a10);
 }
-.detail-skeleton { display: flex; flex-direction: column; min-width: 0; }
+.detail-skeleton {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
 .detail-load-error { display: flex; align-items: center; gap: 12px; padding: 24px 0; color: var(--cpq-text-muted); }
 /* 骨架镜像流程看板三栏布局，避免加载完成后的跳变 */
 .sk-board {
   display: grid;
-  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr) minmax(280px, 320px);
+  grid-template-columns: minmax(190px, 230px) minmax(0, 1fr) clamp(280px, 22vw, 360px);
   gap: 14px;
   align-items: stretch;
-  padding: 14px 20px 24px;
-  min-height: calc(100vh - 200px);
+  height: 100%;
+  min-height: 0;
+  padding: 0 20px 12px;
   min-width: 0;
 }
 .sk-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
@@ -1349,7 +1410,17 @@ onBeforeUnmount(() => {
   .info-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
-  .opportunity-detail-page { padding: 0 12px; }
+  .opportunity-detail-page {
+    height: auto;
+    min-height: calc(100vh - var(--cpq-header-clearance, 56px));
+    overflow: visible;
+    padding: 0 12px;
+  }
+  .opportunity-detail-page :deep(.bod-page) {
+    flex: none;
+    min-height: auto;
+    overflow: visible;
+  }
   .header-right { flex-wrap: wrap; }
   .section-header { flex-wrap: wrap; gap: 8px; }
   .quo-top { flex-wrap: wrap; row-gap: 4px; }

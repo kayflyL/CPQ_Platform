@@ -41,21 +41,21 @@ def _engine_for(key: str) -> dict:
         return {"ext": {"server_type": "通用计算服务器", "purchase_qty": 1}}
     if key == "model_reason":
         # 无 id → L6 行求值不碰库（本用例只验产物形状与 slot 分发）
-        return {"_locked_baseline": {"name": "ZS22V2-P"}, "lock_reason": "目录唯一命中",
-                "baselines_pool": [{"name": "ZS22V2-P"}]}
+        return {"_locked_baseline": {"name": "ZS220 V2"}, "lock_reason": "目录唯一命中",
+                "baselines_pool": [{"name": "ZS220 V2"}]}
     if key == "kp_reason":
         return {"kp_summary": {"kp_count": 1, "unmatched_count": 0},
                 "kp_parts": [{"category": "CPU", "name": "兆芯 KH-50000 96C", "qty": 2,
                               "request_spec": "2颗兆芯50000 96C", "unmatched": False}]}
     if key == "compose":
-        return {"plans": [{"model": "ZS22V2-P",
+        return {"plans": [{"model": "ZS220 V2",
                            "cfg": {"bom_excel_rows": [
-                               {"category": "L6", "catalogue": "ZS22V2-P", "qty": 1},
+                               {"category": "L6", "catalogue": "ZS220 V2", "qty": 1},
                                {"category": "Key Parts", "part_category": "CPU",
                                 "catalogue": "兆芯 KH-50000 96C", "qty": 2}]}}]}
     if key == "output":
-        return {"plans": [{"model": "ZS22V2-P"}],
-                "output_payload": {"ok": True, "configs": [{"server_model": "ZS22V2-P"}]}}
+        return {"plans": [{"model": "ZS220 V2"}],
+                "output_payload": {"ok": True, "configs": [{"server_model": "ZS220 V2"}]}}
     return {}
 
 
@@ -188,7 +188,7 @@ def test_compose_payload_carries_assembled_sheet_rows():
     engine["flow_configs"] = _drawer()
     data = node_payload(engine, "compose", "BOM 组装", "s")["artifact"]["data"]
     assert data["plans_count"] == 1
-    assert [r["catalogue"] for r in data["rows"]] == ["ZS22V2-P", "兆芯 KH-50000 96C"]
+    assert [r["catalogue"] for r in data["rows"]] == ["ZS220 V2", "兆芯 KH-50000 96C"]
     assert [r["qty"] for r in data["rows"]] == [1, 2]
     assert [c["key"] for c in data["columns"]] == ["part_category", "catalogue", "qty"]
 

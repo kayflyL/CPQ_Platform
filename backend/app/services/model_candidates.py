@@ -32,7 +32,7 @@ def _rank_base_config_variant(bc: dict, main_config_id: Optional[int]) -> int:
 def _variant_short_name(cfg_name: str) -> str:
     """变体名 → 短标签："4U-Orion-Switch机型" → "Switch"；"Orion 2U12 直连版…" → "直连版"。”"""
     n = (cfg_name or "").replace("机型", "").strip()
-    for pre in ("4.5U-", "4U-", "2U25-", "2U12-", "Orion ", "Polaris ", "ES22V3-P", "ESA24V3-P"):
+    for pre in ("4.5U-", "4U-", "2U25-", "2U12-", "Orion ", "Polaris ", "ES220 V3", "ESA240 V3"):
         n = n.replace(pre, "").strip()
     return n or (cfg_name or "")
 

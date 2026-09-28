@@ -160,6 +160,7 @@
         class="tm-editor-pane"
         :behavior-config="behaviorConfig"
         :office-config="officeConfig"
+        :colleagues="colleagues"
         @saved="handleChildSaved"
       />
       <EmployeeManager ref="employeeEditorRef"

@@ -2,15 +2,19 @@
 
 from pathlib import Path
 
+import json
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 
 from fastapi.responses import FileResponse
 
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from pydantic import BaseModel
 
-from app.api.deps import require_admin
+from app.api.deps import require_admin, get_current_user
+
+from app.core.config import get_settings
 
 from app.repository.system_config_repo import SystemConfigRepository
 
@@ -30,13 +34,62 @@ _BRANDING_LOGO_EXTS = {".png", ".jpg", ".jpeg", ".svg"}
 
 _BRANDING_LOGO_URL = "/api/system-config/branding/logo"
 
+# ── 密钥出站掩码（2026-09-14 安全加固）：GET 永不返回明文 api_key ──
+
+_LLM_CONFIG_KEY = "llm_config"
+
+_MASK_TOKEN = "****"
+
+
+def _mask_value(value: Any) -> Any:
+    """llm_config 的 value 掩码出站：value 可能是 dict（get_value 已解析）或 JSON 串（行原始值）。"""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return value
+    if not isinstance(value, dict):
+        return value
+    out = dict(value)
+    stored = str(out.get("api_key") or "")
+    out["api_key"] = (_MASK_TOKEN + stored[-4:]) if stored else ""
+    out["api_key_configured"] = bool(stored or get_settings().LLM_API_KEY)
+    return out
+
+
+def _mask_row(key: Any, row: Any) -> Any:
+    """整行出站掩码（GET / 与 GET /{key} 的行字典，value 在 'value' 键里）。"""
+    if key != _LLM_CONFIG_KEY or not isinstance(row, dict):
+        return row
+    masked = dict(row)
+    masked["value"] = _mask_value(masked.get("value"))
+    return masked
+
+
+def _write_only_api_key(repo: SystemConfigRepository, value: dict) -> dict:
+    """api_key 是 write-only：客户端回传掩码=未修改，保留库内原值；显式空串才清除（回退 .env）。"""
+    out = dict(value)
+    out.pop("api_key_configured", None)  # 出站辅助标志，不入库
+    incoming = str(out.get("api_key") or "")
+    if _MASK_TOKEN in incoming:
+        stored = repo.get_value(_LLM_CONFIG_KEY, {})
+        out["api_key"] = str((stored or {}).get("api_key") or "") if isinstance(stored, dict) else ""
+    return out
+
+
+def _drop_masked_key(cfg: dict) -> dict:
+    """实测（test/models/probe）带着掩码值时丢弃该项，让 llm_client 回落库内/.env 已配置值。"""
+    if isinstance(cfg.get("api_key"), str) and _MASK_TOKEN in cfg["api_key"]:
+        return {k: v for k, v in cfg.items() if k != "api_key"}
+    return cfg
+
 
 
 
 
 @router.get("/")
 
-def list_configs():
+def list_configs(user: dict = Depends(get_current_user)):
 
     """Get all system configs (excluding branding, which is now managed via spec templates)"""
 
@@ -46,9 +99,10 @@ def list_configs():
 
         all_configs = repo.get_all()
 
-        # 过滤掉 branding 参数（已迁移至规格书模板管理）
+        # 过滤掉 branding 参数（已迁移至规格书模板管理）；llm_config 密钥掩码出站
 
-        return [c for c in all_configs if c.get("key") != _BRANDING_KEY]
+        return [_mask_row(c.get("key"), c) for c in all_configs
+                if c.get("key") != _BRANDING_KEY]
 
     finally:
 
@@ -82,7 +136,7 @@ def reset_kp_slot_group_map(admin: dict = Depends(require_admin)):
 
 @router.get("/{key}")
 
-def get_config(key: str):
+def get_config(key: str, user: dict = Depends(get_current_user)):
 
     """Get config by key"""
 
@@ -96,7 +150,7 @@ def get_config(key: str):
 
             raise HTTPException(status_code=404, detail=f"Config '{key}' not found")
 
-        return config
+        return _mask_row(key, config)
 
     finally:
 
@@ -108,7 +162,7 @@ def get_config(key: str):
 
 @router.get("/{key}/value")
 
-def get_config_value(key: str, default: Any = None):
+def get_config_value(key: str, default: Any = None, user: dict = Depends(get_current_user)):
 
     """Get config value only"""
 
@@ -117,6 +171,10 @@ def get_config_value(key: str, default: Any = None):
     try:
 
         value = repo.get_value(key, default)
+
+        if key == _LLM_CONFIG_KEY:
+
+            value = _mask_value(value)
 
         return {"key": key, "value": value}
 
@@ -144,7 +202,9 @@ def set_config(key: str, data: dict, admin: dict = Depends(require_admin)):
 
             raise HTTPException(status_code=400, detail="Missing 'value' field")
 
-        
+        if key == _LLM_CONFIG_KEY and isinstance(value, dict):
+
+            value = _write_only_api_key(repo, value)
 
         type = data.get("type", "string")
 
@@ -226,17 +286,19 @@ class LlmTestBody(BaseModel):
 
     model: Optional[str] = None
 
+    upstream_format: Optional[str] = None
+
 
 
 
 
 @router.post("/llm_config/test")
 
-def test_llm(body: LlmTestBody):
+def test_llm(body: LlmTestBody, admin: dict = Depends(require_admin)):
 
     """用给定配置实测一次 chat，返回真实结果/错误（供「测试连接」按钮）。"""
 
-    return llm_client.test_connection(body.model_dump(exclude_none=True))
+    return llm_client.test_connection(_drop_masked_key(body.model_dump(exclude_none=True)))
 
 
 
@@ -244,13 +306,13 @@ def test_llm(body: LlmTestBody):
 
 @router.post("/llm_config/models")
 
-def list_llm_models(body: LlmTestBody):
+def list_llm_models(body: LlmTestBody, admin: dict = Depends(require_admin)):
 
     """拉取 provider 可用模型 id 列表（供「拉取模型列表」按钮）。"""
 
     try:
 
-        ids = llm_client.list_models(body.model_dump(exclude_none=True))
+        ids = llm_client.list_models(_drop_masked_key(body.model_dump(exclude_none=True)))
 
         return {"success": True, "models": ids}
 
@@ -264,7 +326,7 @@ def list_llm_models(body: LlmTestBody):
 
 @router.get("/llm_config/capabilities")
 
-def get_llm_capabilities(model: Optional[str] = None):
+def get_llm_capabilities(model: Optional[str] = None, user: dict = Depends(get_current_user)):
 
     """读取当前/指定模型的能力档案（内置 + 覆盖 + 生效），供「模型能力档案」页展示。"""
 
@@ -282,13 +344,21 @@ def get_llm_capabilities(model: Optional[str] = None):
 
 @router.post("/llm_config/probe")
 
-def probe_llm_capabilities(body: LlmTestBody):
+def probe_llm_capabilities(body: LlmTestBody, admin: dict = Depends(require_admin)):
 
     """实测当前端点的 JSON mode / 原生 tools 支持情况，供「能力探测」按钮使用。"""
 
-    return llm_client.probe_model_capabilities(body.model_dump(exclude_none=True))
+    return llm_client.probe_model_capabilities(_drop_masked_key(body.model_dump(exclude_none=True)))
 
 
+
+@router.get("/llm_config/probe-history")
+
+def llm_probe_history(admin: dict = Depends(require_admin)):
+
+    """实测模型清单：全部探测留档（含失败记录与历史端点），只读事实。"""
+
+    return llm_client.list_probe_history()
 
 
 

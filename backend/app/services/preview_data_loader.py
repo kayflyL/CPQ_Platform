@@ -130,16 +130,22 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                 db_items = quote_repo.get_items(quotation_id)
                 items = []
                 for item in db_items:
+                    base = item.base_price or ""
+                    final = item.final_price or ""
+                    qty = item.qty or 0
                     items.append({
                         "config_name": item.config_name or "Default",
                         "category": item.category or "",
                         "catalogue": item.catalogue or "",
                         "description": item.description or "",
                         "part_category": item.part_category or "",
-                        "qty": item.qty or 0,
-                        "base_price": item.base_price or 0.0,
-                        "final_price": item.final_price or 0.0,
-                        "profit_margin": item.profit_margin or 0.0,
+                        "qty": qty,
+                        "base_price": base,
+                        "final_price": final,
+                        "profit_margin": item.profit_margin or "",
+                        # 总价口径 = 单价×Qty；单价缺失时不显示误导性 0
+                        "cost_total": round(base * qty, 2) if base != "" else "",
+                        "sell_total": round(final * qty, 2) if final != "" else "",
                         "currency": item.currency or "RMB",
                     })
                 _load_item_details(data, items, quotation, bindings)
@@ -210,9 +216,10 @@ def _load_l6_from_template(quotation):
                         "description": r.get("description", "") or "",
                         "part_category": r.get("part_category", "") or "",
                         "qty": 0 if qty_val is None else qty_val,
-                        "base_price": r.get("base_price", 0) or 0,
-                        "final_price": r.get("final_price", 0) or 0,
-                        "profit_margin": r.get("profit_margin", 0) or 0,
+                        # 上传参考行本就没有逐行价格，0 值显示成空白，避免误导
+                        "base_price": r.get("base_price") or "",
+                        "final_price": r.get("final_price") or "",
+                        "profit_margin": r.get("profit_margin") or "",
                         "item_no": 0,
                     })
                 covered.add(cfg_name)
@@ -236,6 +243,8 @@ def _load_l6_from_template(quotation):
             if not desc_val and qty_empty:
                 continue
             # 统一展示列：catalogue=零件名(label)、description=规格(desc)，与左栏 BomTable 及绑定语义一致。
+            # 价格留空（非 0）：live 模式 L6 价格是配置级一口价（l6_custom_price），
+            # 明细行没有逐件价，写 0 会误导客户版报价单
             rows_out.append({
                 "config_name": cfg_name,
                 "category": "L6",
@@ -243,9 +252,9 @@ def _load_l6_from_template(quotation):
                 "description": desc_val,                     # Description = 规格
                 "part_category": "",
                 "qty": "" if qty_val is None else qty_val,
-                "base_price": 0,
-                "final_price": 0,
-                "profit_margin": 0,
+                "base_price": "",
+                "final_price": "",
+                "profit_margin": "",
                 "item_no": 0,
             })
         covered.add(cfg_name)
@@ -342,8 +351,31 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
     tpl_l6_rows = sorted(tpl_l6_rows, key=lambda it: _order_index(it.get("config_name", "")))
     l6_items = tpl_l6_rows + sorted(l6_items, key=lambda it: _order_index(it.get("config_name", "")))
     kp_items = sorted(kp_items, key=lambda it: _order_index(it.get("config_name", "")))
+    # 显示口径：USD 件成本列换算 RMB 含税（与售价列同币种），否则 G=3100 vs F=27463 对不上。
+    # 只改 kp_details 显示行副本；_calc_cost_sum 仍吃原始 base 自行换算，勿在这里双重换算。
+    ex = float(data.get("exchange_rate", 7.0) or 7.0)
+    tx = float(data.get("tax_rate", 0.13) or 0.13)
+    for row in kp_items:
+        base = row.get("base_price")
+        if base not in (None, "") and str(row.get("currency") or "RMB").upper() == "USD":
+            conv = round(float(base) * ex * (1 + tx), 2)
+            row["base_price"] = conv
+            row["cost_total"] = round(conv * (row.get("qty") or 0), 2)
+            row["currency"] = "RMB"
     data["l6_details"] = l6_items
     data["kp_details"] = kp_items
+    # 区域聚合字段（scope=region）：整机单台价挂每个配置 L6 首行，填充器写锚点并纵向合并。
+    # 只挂 live 模板模式（l6_price_map 有值）；excel 模式 L6 仅参考不参与算价，保持空白。
+    _seen_cfg = set()
+    for row in data["l6_details"]:
+        cfg = row.get("config_name")
+        if cfg in l6_price_map and cfg not in _seen_cfg:
+            _seen_cfg.add(cfg)
+            cost = float(l6_price_map.get(cfg) or 0)
+            margin = float(l6_margin_map.get(cfg) or 0)
+            row["l6_base_price"] = round(cost, 2)
+            row["l6_margin_rate"] = round(margin, 1)
+            row["l6_sell_price"] = round(cost * (1 + margin / 100), 2)
     data["all_items"] = items
     data["l6_count"] = len(l6_items)
     data["kp_count"] = len(kp_items)
@@ -424,6 +456,11 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
         kp_rate = float((wi.get("kp") or {}).get("rate") or 0)
         warranty_sum += l6_cost * l6_rate + kp_cost * kp_rate
         unit_price = l6_sum + kp_sum + warranty_sum
+
+        # 综合利润率（%）：成本口径 (售价-成本)/成本，与右面板 calcConfigTotals 同口径；
+        # 成本=L6成本+KP成本（按费率维保费算纯利润，不进成本——2026-09-22 定调以右面板为准）
+        cost_total = l6_cost + kp_cost
+        margin_pct = round((unit_price - cost_total) / cost_total * 100, 2) if cost_total else 0
         
         # 提取 server_model（从 quotation.config_server_models）
         server_model = config_server_models.get(cfg_name, "")
@@ -445,6 +482,11 @@ def _load_item_details(data: dict, items: list, quotation=None, bindings=None):
             "qty": qty,
             "quantity": qty,  # alias
             "total_price": round(unit_price * qty, 2),
+            "margin": margin_pct,  # 综合利润率（%），供对内版模板列绑定
+            # 费率法维保费（进入 unit_price 的两个分量）：供配置页维保行绑定，
+            # 使 Quotation 列 L6+KP+维保 与 Total Price 堆叠闭合；费率为 0 时留空
+            "warranty_l6": round(l6_cost * l6_rate, 2) if l6_rate else "",
+            "warranty_kp": round(kp_cost * kp_rate, 2) if kp_rate else "",
         })
         seq += 1
     

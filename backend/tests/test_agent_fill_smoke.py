@@ -117,10 +117,10 @@ def test_freeze_keeps_catalog_model_and_drops_fabricated():
     """冻结守卫：目录真实机型保留（点选/早前轮次登记不再被误剥）；目录外的按臆造剔除并留痕。"""
     from app.services import capabilities as cap
     ctx: dict = {}
-    ext = {"server_model": "ES22V3-P", "server_type": "通用计算服务器"}
+    ext = {"server_model": "ES220 V3", "server_type": "通用计算服务器"}
     with patch.object(cap, "_model_in_catalog", return_value=True):
         cap._freeze_requirement(ctx, ext, "需求原文")
-    assert ext.get("server_model") == "ES22V3-P"
+    assert ext.get("server_model") == "ES220 V3"
 
     ext2 = {"server_model": " invented-X99 ", "server_type": "通用计算服务器"}
     ctx2: dict = {}

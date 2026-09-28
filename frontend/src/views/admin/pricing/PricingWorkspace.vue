@@ -35,7 +35,7 @@ const router = useRouter()
   border: 1px solid var(--cpq-glass-border);
   margin-bottom: 16px;
   position: sticky;
-  top: 12px;
+  top: calc(var(--cpq-sticky-top, 0px) + 12px);
   z-index: 5;
 }
 .pw-back {

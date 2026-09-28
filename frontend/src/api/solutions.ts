@@ -2,7 +2,7 @@
 import axios from 'axios'
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
 
-export interface SolutionPlatform { name: string; spec: string; link?: string }
+export interface SolutionPlatform { name: string; spec: string; link?: string; model_id?: number }
 export interface SolutionScene { key: string; label: string }
 export interface Solution {
   id?: number

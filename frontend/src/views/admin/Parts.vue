@@ -1,7 +1,7 @@
 <template>
   <div class="parts-page">
-    <!-- =================== Page Header =================== -->
-    <div class="page-header">
+    <!-- =================== Page Header（手机端由磁贴首页接管） =================== -->
+    <div v-if="!isMobile" class="page-header">
       <div class="page-title-group">
         <h1><DatabaseOutlined class="page-title-icon" />配件管理</h1>
         <p class="page-subtitle">共 <span class="num">{{ totalPartCount }}</span> 个配件 · <span class="num">{{ categories.length }}</span> 个分类</p>
@@ -33,8 +33,8 @@
         </a-button>
       </div>
     </div>
-    <!-- =================== 顶部分类胶囊条（分类自左侧栏上移，侧栏只留规格筛选） =================== -->
-    <div class="category-nav-bar glass-light">
+    <!-- =================== 顶部分类胶囊条（分类自左侧栏上移，侧栏只留规格筛选；手机端由磁贴首页接管） =================== -->
+    <div v-if="!isMobile" class="category-nav-bar glass-light">
       <div class="cat-chip-scroll">
         <div :class="['cat-chip', { active: !selectedCategoryId }]" @click="selectCategory(null)">
           全部<span class="cat-chip-count">{{ totalPartCount }}</span>
@@ -64,7 +64,219 @@
       </button>
     </div>
 
-    <div class="main-layout">
+    <!-- =================== 手机端：首页磁贴驾驶舱 =================== -->
+    <template v-if="isMobile && mobileView === 'home'">
+      <div class="m-head">
+        <h2><DatabaseOutlined class="page-title-icon" />配件管理</h2>
+        <span class="m-sp"></span>
+        <a-dropdown :trigger="['click']" placement="bottomRight">
+          <button class="m-icon-btn" type="button"><EllipsisOutlined /></button>
+          <template #overlay>
+            <a-menu @click="onMobileMoreMenu">
+              <a-menu-item key="import"><UploadOutlined /> 导入</a-menu-item>
+              <a-menu-item key="export"><DownloadOutlined /> 导出</a-menu-item>
+              <a-menu-item key="movers"><StockOutlined /> 价格异动</a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
+        <button class="m-icon-btn m-primary" type="button" title="新增配件" @click="openCreatePartModal"><PlusOutlined /></button>
+      </div>
+      <div class="m-sub">共 <b>{{ totalPartCount }}</b> 个配件 · {{ categories.length }} 个分类</div>
+      <div class="m-search">
+        <SearchOutlined class="m-search-ic" />
+        <input
+          v-model="searchText"
+          placeholder="搜索配件名称 / SKU / 品牌…"
+          enterkeyhint="search"
+          @keydown.enter="onMobileHomeSearch"
+        />
+        <span class="m-search-tag">搜全库</span>
+      </div>
+      <div class="m-body">
+        <div class="m-sec"><span class="m-sec-line"></span>库内概览</div>
+        <div class="m-stats">
+          <div class="stat glass-light m-stat">
+            <div class="stat-label">配件总数</div>
+            <div class="stat-value">{{ stats.total ?? '—' }}</div>
+            <VChart v-if="sparkOption" :option="sparkOption" :init-options="{ renderer: 'canvas' }" :autoresize="true" class="m-stat-spark" />
+          </div>
+          <div class="stat glass-light m-stat">
+            <div class="stat-label">本周新增</div>
+            <div class="stat-value">{{ stats.this_week_new ?? '—' }}</div>
+            <div class="stat-foot"><span class="stat-sub">最近 7 天新入库</span></div>
+          </div>
+          <div class="stat glass-light m-stat">
+            <div class="stat-label">有效价格配件</div>
+            <div class="stat-value">{{ stats.valid_price_count ?? '—' }}</div>
+            <div class="stat-foot"><span class="stat-sub">最近两日内有报价</span></div>
+          </div>
+          <div class="stat glass-light m-stat clickable" @click="openDuplicates">
+            <div class="stat-label">疑似重复</div>
+            <div class="stat-value">{{ duplicatesData.total_groups }}<span class="stat-unit"> 组</span></div>
+            <div class="stat-foot"><span class="stat-sub m-go">待核实 →</span></div>
+          </div>
+        </div>
+        <div class="m-sec"><span class="m-sec-line"></span>分类磁贴<span class="m-sec-more">点击进入该分类</span></div>
+        <div class="m-catgrid">
+          <button
+            v-for="(cat, i) in topCategories"
+            :key="cat.id"
+            type="button"
+            class="m-ctile"
+            :style="{ '--tc': tileColor(i) }"
+            @click="openCategoryMobile(cat.id)"
+          >
+            <span class="m-cn"><i></i>{{ cat.name }}</span>
+            <span class="m-cv">{{ cat.count }}<small>件</small></span>
+            <span class="m-arr">›</span>
+          </button>
+          <button v-if="restCategories.length" type="button" class="m-ctile" :style="{ '--tc': tileColor(topCategories.length) }" @click="openCategoryMobile(null)">
+            <span class="m-cn"><i></i>其余 {{ restCategories.length }} 类</span>
+            <span class="m-cv">{{ restCount }}<small>件</small></span>
+            <span class="m-arr">›</span>
+          </button>
+          <button type="button" class="m-add-tile" @click="categoryManageVisible = true"><b>＋</b>管理 / 新增分类</button>
+        </div>
+      </div>
+    </template>
+
+    <!-- =================== 手机端：二级分类列表页 =================== -->
+    <template v-else-if="isMobile && mobileView === 'category'">
+      <div class="m-head">
+        <button class="m-back" type="button" @click="backToHomeMobile"><LeftOutlined /></button>
+        <div class="m-ltt">
+          <h2>{{ selectedCategoryName || '全部配件' }}</h2>
+          <div class="m-lsub">{{ partsTotal }} 件</div>
+        </div>
+        <button class="m-icon-btn m-primary" type="button" title="新增配件" @click="openCreatePartModal"><PlusOutlined /></button>
+      </div>
+      <div class="m-catsearch">
+        <SearchOutlined class="m-search-ic" />
+        <input
+          v-model="searchText"
+          :placeholder="`在「${selectedCategoryName || '全部'}」内搜索…`"
+          enterkeyhint="search"
+          @keydown.enter="onGlobalSearch"
+        />
+      </div>
+      <div class="m-filterbar">
+        <button class="m-fbtn" type="button" @click="filterDrawerOpen = true">
+          筛选<span v-if="selectedTags.length" class="m-fn">{{ selectedTags.length }}</span>
+        </button>
+        <span v-for="t in selectedTags" :key="t.type + t.key + t.value" class="m-ftag" @click="t.remove()">
+          {{ t.label }} <span class="m-ftag-x">✕</span>
+        </span>
+      </div>
+      <div class="m-body">
+        <div class="m-cards">
+          <div
+            v-for="part in parts"
+            :key="part.id"
+            :class="['model-card', 'glass-light', { 'no-price-card': part.latest_price == null }]"
+            @click="openPartDetail(part.id)"
+          >
+            <div class="card-accent-bar"></div>
+            <div class="card-header">
+              <span class="card-category-tag">{{ part.category_name || '未分类' }}</span>
+              <button class="card-edit-btn" @click.stop="openEditPartModal(part)"><EditOutlined /></button>
+            </div>
+            <div class="card-name" :title="part.name">{{ part.name }}</div>
+            <div class="card-sku" v-if="part.oem_sku">
+              <span class="sku-label">SKU</span>
+              <span class="sku-value" @click.stop="copyText(part.oem_sku)">{{ part.oem_sku }}</span>
+            </div>
+            <div class="card-price">
+              <span class="price-value" v-if="part.latest_price != null"><span class="price-sym">{{ currencySymbol(part.latest_currency) }}</span> {{ formatPrice(part.latest_price) }}</span>
+              <span class="price-value no-price" v-else>暂无报价</span>
+              <span class="price-date" v-if="part.latest_date">{{ part.latest_date }}</span>
+            </div>
+            <div class="card-meta" v-if="part.brand || part.condition">
+              <a-tag size="small" v-if="part.brand">{{ part.brand }}</a-tag>
+              <span v-if="part.condition" :class="['cpq-led', conditionClass(part.condition)]">{{ part.condition }}</span>
+            </div>
+          </div>
+        </div>
+        <div v-if="partsTotal > 0" class="m-pgn">
+          <a-pagination
+            v-model:current="pagination.current"
+            :total="partsTotal"
+            :page-size="pagination.pageSize"
+            :page-size-options="['20', '40', '60']"
+            show-size-changer
+            size="small"
+            @change="onCardPageChange"
+          />
+        </div>
+        <div v-if="partsLoading" class="loading-state"><a-spin tip="加载中..." /></div>
+        <div v-if="!partsLoading && parts.length === 0" class="empty-state">
+          <InboxOutlined class="empty-icon" v-if="!searchText" />
+          <SearchOutlined class="empty-icon" v-else />
+          <div class="empty-text">{{ searchText ? '未找到匹配的配件' : '暂无配件数据' }}</div>
+          <a-button v-if="!searchText" type="primary" size="small" @click="openCreatePartModal">
+            <template #icon><PlusOutlined /></template>新增第一个配件
+          </a-button>
+          <a-button v-else size="small" @click="clearSearch">清除搜索</a-button>
+        </div>
+      </div>
+    </template>
+
+    <!-- 手机端筛选左抽屉：Brand / 规格维度（即点即筛，逻辑同桌面侧栏） -->
+    <a-drawer
+      v-model:open="filterDrawerOpen"
+      placement="left"
+      width="84%"
+      root-class-name="opp-parts-drawer"
+      :closable="false"
+      :body-style="{ padding: '0', height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    >
+      <div class="pd-head-row">
+        <h3>筛选{{ selectedCategoryName ? ' · ' + selectedCategoryName : '' }}</h3>
+        <span class="pd-sp"></span>
+        <button class="pd-clr" type="button" @click="clearAllFilters">清空</button>
+        <button class="pd-x" type="button" @click="filterDrawerOpen = false">✕</button>
+      </div>
+      <div class="pd-scroll">
+        <div v-if="brandsList.length || specKeys.length" class="pd-filters">
+          <a-collapse :default-active-key="defaultOpenDims" ghost :bordered="false" expand-icon-position="end" size="small">
+            <a-collapse-panel v-if="brandsList.length" key="Brand">
+              <template #header>Brand <span class="dim-count">{{ brandsList.length }}</span></template>
+              <div class="filter-list">
+                <div v-for="b in visibleBrands" :key="'b_' + b.brand"
+                  :class="['filter-item', { on: selectedBrands.includes(b.brand) }]">
+                  <input type="checkbox" :checked="selectedBrands.includes(b.brand)" @change="toggleBrand(b.brand)" />
+                  <span class="fi-name" :title="'只看 ' + b.brand" @click="switchBrand(b.brand)">{{ b.brand }}</span>
+                  <span class="fi-count">{{ b.count }}</span>
+                </div>
+                <button v-if="brandsList.length > 5" class="filter-more" @click="toggleDimExpand('Brand')">
+                  {{ expandedDims.has('Brand') ? '收起' : '+' + (brandsList.length - 5) }}
+                </button>
+              </div>
+            </a-collapse-panel>
+            <a-collapse-panel v-for="key in specKeys" :key="key">
+              <template #header>{{ key }} <span class="dim-count">{{ (specFacets[key] || []).length }}</span></template>
+              <div class="filter-list">
+                <div v-for="fv in visibleSpec(key)" :key="key + '_' + fv.value"
+                  :class="['filter-item', { on: (selectedSpecs[key] || []).includes(fv.value) }]">
+                  <input type="checkbox" :checked="(selectedSpecs[key] || []).includes(fv.value)" @change="toggleSpec(key, fv.value)" />
+                  <span class="fi-name" :title="'只看 ' + fv.value" @click="switchSpec(key, fv.value)">{{ fv.value }}</span>
+                  <span class="fi-count">{{ fv.count }}</span>
+                </div>
+                <button v-if="(specFacets[key] || []).length > 5" class="filter-more" @click="toggleDimExpand(key)">
+                  {{ expandedDims.has(key) ? '收起' : '+' + ((specFacets[key] || []).length - 5) }}
+                </button>
+              </div>
+            </a-collapse-panel>
+          </a-collapse>
+        </div>
+        <div v-else class="pd-hint">该分类暂无品牌 / 规格筛选维度</div>
+      </div>
+      <div class="pd-foot">
+        <button class="m-ff-ghost" type="button" @click="clearAllFilters">清空全部</button>
+        <button class="m-ff-pri" type="button" @click="filterDrawerOpen = false">查看 {{ partsTotal }} 个结果</button>
+      </div>
+    </a-drawer>
+
+    <div v-if="!isMobile" class="main-layout">
       <!-- =================== Left Sidebar: 规格筛选（分类已移至顶部胶囊条） =================== -->
       <aside v-if="hasSelectedCategory" class="category-sidebar glass">
         <!-- 筛选维度（选中品类才显；业内标准：折叠维度+每维显前5+展开） -->
@@ -292,7 +504,7 @@
     <!-- =================== Part Detail Drawer =================== -->
     <a-drawer
       v-model:open="detailDrawerVisible"
-      width="640"
+      :width="isMobile ? '92%' : 640"
       :destroyOnClose="true"
     >
       <template #title>
@@ -651,11 +863,11 @@
     <a-drawer
       v-model:open="duplicatesDrawerVisible"
       title="疑似重复配件"
-      width="720"
+      :width="isMobile ? '100%' : 720"
       :destroyOnClose="true"
     >
       <template v-if="duplicatesData.groups?.length">
-        <div class="dup-tip">仅展示疑似重复（oem_sku/alt_sku 相同或名称高度相似），<b>不做自动合并</b>。请人工核实后编辑或删除冗余配件。</div>
+        <div class="dup-tip">按 SKU / 结构化键 / 语义 token（价格簇佐证）分层检测，<b>不做自动合并</b>。带价差警示的组可能是真不同件，请人工核实后处理。</div>
         <div class="dup-summary">
           <a-tag color="orange">共 {{ duplicatesData.total_groups }} 组</a-tag>
           <a-tag>{{ duplicatesData.total_duplicate_parts }} 件配件待核实</a-tag>
@@ -663,18 +875,23 @@
         <div class="dup-list">
           <div v-for="(g, gi) in duplicatesData.groups" :key="gi" class="dup-group">
             <div class="dup-group-head">
-              <a-tag color="orange">{{ g.reason }}</a-tag>
+              <a-tag v-for="r in g.reasons" :key="r" color="orange">{{ r }}</a-tag>
               <span class="dup-sim">相似度 {{ (g.similarity * 100).toFixed(0) }}%</span>
               <span class="dup-count">{{ g.parts.length }} 件</span>
+            </div>
+            <div v-if="g.price_warning" class="dup-price-warn">
+              组内最新价比 {{ g.price_ratio }}，价差大——可能是真不同件，请谨慎判断
             </div>
             <div class="dup-cards">
               <div v-for="p in g.parts" :key="p.id" class="dup-card" @click="openPartDetail(p.id)">
                 <div class="dup-card-name" :title="p.name">{{ p.name }}</div>
                 <div class="dup-card-meta">
+                  <span v-if="p.category_name">{{ p.category_name }}</span>
                   <span v-if="p.brand">{{ p.brand }}</span>
                   <span v-if="p.oem_sku" class="dup-sku">SKU: {{ p.oem_sku }}</span>
                   <span v-if="p.alt_sku" class="dup-sku">alt: {{ p.alt_sku }}</span>
                 </div>
+                <div v-if="p.specs_brief" class="dup-card-specs">{{ p.specs_brief }}</div>
                 <div class="dup-card-price" v-if="p.latest_price != null">¥{{ formatPrice(p.latest_price) }}</div>
                 <div class="dup-card-price no-price" v-else>暂无报价</div>
               </div>
@@ -692,7 +909,7 @@
       v-model:open="moversDrawerVisible"
       title="价格异动"
       placement="right"
-      width="680"
+      :width="isMobile ? '100%' : 680"
     >
       <div class="movers-head">
         <a-radio-group :value="priceMoversDays" button-style="solid" size="small" @change="(e:any)=>onMoversDaysChange(e.target.value)">
@@ -731,12 +948,12 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Parts' })
-import { ref, onMounted, onActivated, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, onActivated, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   AppstoreOutlined, UnorderedListOutlined, PlusOutlined, EditOutlined, DeleteOutlined,
   SearchOutlined, InboxOutlined, SettingOutlined, DatabaseOutlined,
-  UploadOutlined, DownloadOutlined, StockOutlined
+  UploadOutlined, DownloadOutlined, StockOutlined, LeftOutlined, EllipsisOutlined
 } from '@ant-design/icons-vue'
 import axios from 'axios'
 import VChart from 'vue-echarts'
@@ -996,6 +1213,44 @@ const clearAllFilters = () => {
   selectedSpecs.value = {}
   applyFilters()
 }
+
+// =================== 手机端（≤768）：两级视图 + 筛选左抽屉 ===================
+// home = 磁贴驾驶舱（大搜索/统计/分类网格），category = 分类列表（筛选 chips + 卡流）；
+// 桌面单页三栏零改动
+const isMobile = ref(false)
+let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const mobileView = ref<'home' | 'category'>('home')
+const filterDrawerOpen = ref(false)
+const CATEGORY_TILE_COLORS = ['#2f6bff', '#22c3a6', '#f5b942', '#8b93ff', '#f4756f', '#6f8bab', '#b08bf0', '#5bc8d8']
+const tileColor = (i: number) => CATEGORY_TILE_COLORS[i % CATEGORY_TILE_COLORS.length]
+const topCategories = computed(() => categories.value.slice(0, 6))
+const restCategories = computed(() => categories.value.slice(6))
+const restCount = computed(() => restCategories.value.reduce((s: number, c: any) => s + (c.count || 0), 0))
+function openCategoryMobile(catId: number | null) {
+  selectCategory(catId)
+  mobileView.value = 'category'
+}
+function backToHomeMobile() { mobileView.value = 'home' }
+// 首页大搜索框：搜全库，回车落「全部 + 关键词」列表
+function onMobileHomeSearch() {
+  selectCategory(null)
+  mobileView.value = 'category'
+  loadParts()
+}
+function onMobileMoreMenu({ key }: { key: string | number }) {
+  if (key === 'import') importModalVisible.value = true
+  else if (key === 'export') exportParts()
+  else if (key === 'movers') openMoversDrawer()
+}
+onMounted(() => {
+  isMobile.value = window.matchMedia('(max-width: 768px)').matches
+  const mq = window.matchMedia('(max-width: 768px)')
+  _mqListener = (e) => { isMobile.value = e.matches }
+  mq.addEventListener('change', _mqListener)
+})
+onBeforeUnmount(() => {
+  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
+})
 
 // =================== Parts List ===================
 const parts = ref<any[]>([])
@@ -1497,6 +1752,103 @@ onActivated(() => {
 </script>
 
 <style scoped>
+/* ============ 手机端：两级磁贴视图 + 筛选抽屉（≤768，isMobile 分支） ============ */
+.m-head { display: flex; align-items: center; gap: 8px; padding: 6px 13px 6px; }
+.m-head h2 { margin: 0; font-size: 17px; font-weight: 800; letter-spacing: .3px; display: inline-flex; align-items: center; gap: 6px; }
+.m-sp { flex: 1; }
+.m-icon-btn { width: 30px; height: 30px; border-radius: 10px; border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20));
+  background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); display: inline-flex; align-items: center; justify-content: center;
+  font-size: 14px; cursor: pointer; flex: none; }
+.m-icon-btn.m-primary { background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); border-color: transparent; }
+.m-back { width: 29px; height: 29px; border-radius: 9px; border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20));
+  background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; cursor: pointer; flex: none; }
+.m-ltt { flex: 1; min-width: 0; }
+.m-ltt h2 { margin: 0; font-size: 15.5px; font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.m-lsub { font-size: 10px; color: var(--cpq-text-muted); }
+.m-sub { padding: 0 13px 8px; font-size: 10.5px; color: var(--cpq-text-muted); }
+.m-sub b { color: var(--cpq-text-secondary); }
+
+.m-search { margin: 0 12px 10px; height: 44px; border-radius: 13px; background: var(--cpq-glass-card-bg, #fff);
+  border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20)); box-shadow: var(--cpq-shadow-sm);
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.m-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 12.5px; color: var(--cpq-text-primary); }
+.m-search input::placeholder { color: var(--cpq-text-muted); }
+.m-search-ic { color: var(--cpq-text-muted); flex: none; }
+.m-search-tag { flex: none; font-size: 9.5px; font-weight: 700; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8);
+  border-radius: 6px; padding: 2px 7px; }
+.m-catsearch { margin: 0 12px 8px; height: 34px; border-radius: 11px; background: var(--cpq-glass-card-bg, #fff);
+  border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20)); display: flex; align-items: center; gap: 7px; padding: 0 10px; }
+.m-catsearch input { flex: 1; min-width: 0; border: none; outline: none; background: transparent; font-size: 11.5px; color: var(--cpq-text-primary); }
+.m-catsearch input::placeholder { color: var(--cpq-text-muted); }
+
+.m-body { padding: 0 12px 16px; display: flex; flex-direction: column; gap: 9px; }
+.m-sec { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 800; color: var(--cpq-text-secondary);
+  letter-spacing: .04em; margin-top: 2px; }
+.m-sec-line { width: 3px; height: 11px; background: var(--cpq-accent-primary); border-radius: 2px; }
+.m-sec-more { margin-left: auto; font-size: 9.5px; color: var(--cpq-text-muted); font-weight: 500; }
+
+.m-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.m-stat { position: relative; overflow: hidden; }
+.m-stat .stat-value { font-size: 19px; }
+.m-stat .stat-foot { min-height: 14px; }
+.m-stat-spark { position: absolute; right: 8px; bottom: 8px; width: 74px; height: 26px; }
+.m-stat.clickable { cursor: pointer; }
+.m-stat .m-go { color: var(--cpq-accent-primary); font-weight: 700; }
+
+.m-catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.m-ctile { position: relative; border: 1px solid var(--cpq-glass-border, var(--cpq-overlay-w20));
+  background: var(--cpq-glass-card-bg, rgba(255,255,255,.74)); border-radius: 14px; padding: 10px 12px 9px;
+  box-shadow: var(--cpq-shadow-sm); display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer;
+  font: inherit; color: inherit; }
+.m-ctile .m-cn { font-size: 11px; font-weight: 700; color: var(--cpq-text-secondary); display: flex; align-items: center; gap: 5px; }
+.m-ctile .m-cn i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc, var(--cpq-accent-primary)); flex: none; }
+.m-ctile .m-cv { font-size: 21px; font-weight: 800; color: var(--cpq-text-primary); line-height: 1.25; font-variant-numeric: tabular-nums; }
+.m-ctile .m-cv small { font-size: 10px; color: var(--cpq-text-muted); font-weight: 600; margin-left: 4px; }
+.m-ctile .m-arr { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: var(--cpq-text-muted); font-size: 14px; }
+.m-add-tile { border: 1.5px dashed var(--cpq-border-light, var(--cpq-overlay-w20)); background: var(--cpq-overlay-w3); border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 11px; color: var(--cpq-text-secondary); cursor: pointer; min-height: 74px; }
+.m-add-tile b { font-size: 16px; color: var(--cpq-text-secondary); }
+
+.m-filterbar { display: flex; align-items: center; gap: 6px; padding: 0 12px 9px; overflow-x: auto; }
+.m-fbtn { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: var(--cpq-accent-primary);
+  border: 1px solid var(--cpq-accent-primary); background: var(--cpq-overlay-a8); border-radius: 999px; padding: 6px 13px;
+  cursor: pointer; flex: none; background-color: var(--cpq-overlay-a8); }
+.m-fn { background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-size: 9px; border-radius: 999px;
+  min-width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+.m-ftag { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: var(--cpq-text-secondary);
+  border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20)); background: var(--cpq-overlay-w5); border-radius: 999px; padding: 5px 10px;
+  cursor: pointer; white-space: nowrap; flex: none; }
+.m-ftag-x { color: var(--cpq-text-muted); }
+.m-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+/* 两列紧凑：卡片字段保持，字号/留白收一档 */
+.m-cards .model-card { padding: 9px 10px; border-radius: 12px; min-width: 0; }
+.m-cards .card-name { font-size: 12px; margin-top: 5px; }
+.m-cards .card-sku { font-size: 8.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-cards .card-price { margin-top: 5px; }
+.m-cards .card-price .price-value { font-size: 13px; }
+.m-cards .card-meta { margin-top: 5px; flex-wrap: wrap; gap: 4px; }
+.m-pgn { display: flex; justify-content: center; padding: 2px 0; }
+
+/* 抽屉头/滚动体/脚（slot 内容带本组件 scope） */
+.pd-head-row { display: flex; align-items: center; gap: 8px; padding: 15px 15px 10px; flex: none; }
+.pd-head-row h3 { margin: 0; font-size: 15.5px; font-weight: 800; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pd-sp { flex: 1; }
+.pd-clr { font-size: 11.5px; color: var(--cpq-text-muted); background: none; border: none; cursor: pointer; flex: none; }
+.pd-x { width: 29px; height: 29px; border-radius: 10px; border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20));
+  background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px;
+  display: inline-flex; align-items: center; justify-content: center; flex: none; }
+.pd-scroll { flex: 1 1 0; min-height: 0; overflow: auto; overscroll-behavior: contain; padding: 2px 13px 10px; }
+.pd-filters { background: var(--cpq-glass-card-bg, transparent); border-radius: 12px; }
+.pd-hint { padding: 24px 0; text-align: center; font-size: 12px; color: var(--cpq-text-muted); }
+.pd-foot { flex: none; display: flex; gap: 8px; padding: 10px 13px calc(12px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--cpq-border-light, var(--cpq-overlay-w10)); }
+.m-ff-ghost { flex: 1; height: 36px; border-radius: 11px; border: 1px solid var(--cpq-border-light, var(--cpq-overlay-w20));
+  color: var(--cpq-text-secondary); background: var(--cpq-overlay-w5); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+.m-ff-pri { flex: 1.4; height: 36px; border-radius: 11px; border: none; background: var(--cpq-accent-primary);
+  color: var(--cpq-accent-on-primary); font-size: 12.5px; font-weight: 700; cursor: pointer; }
+
 /* ============ 批量导入 Modal ============ */
 .import-modal .import-step1 {
   display: flex; flex-direction: column; gap: 12px; align-items: flex-start;
@@ -1513,7 +1865,7 @@ onActivated(() => {
   position: relative;
   padding: 24px;
   /* 不设整页背景：透出 DefaultLayout 的深空渐变 + 固定网格层，玻璃面板才有磨砂感 */
-  min-height: 100vh;
+  min-height: calc(100vh - var(--cpq-header-clearance, 0px));
   color: var(--cpq-text-primary);
 }
 /* 顶部签名光条 */
@@ -1545,8 +1897,8 @@ onActivated(() => {
 }
 .page-title-group h1 {
   margin: 0;
-  font-size: 22px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
   letter-spacing: 0.3px;
   display: flex;
   align-items: center;
@@ -1625,10 +1977,10 @@ onActivated(() => {
   width: 220px;
   flex-shrink: 0;
   padding: 16px 12px;
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - var(--cpq-sticky-top, 0px) - 48px);
   overflow-y: auto;
   position: sticky;
-  top: 24px;
+  top: calc(var(--cpq-sticky-top, 0px) + 24px);
   animation: fadeInUp 0.4s var(--cpq-ease-out-expo) backwards;
   animation-delay: 0.05s;
 }
@@ -1976,17 +2328,35 @@ onActivated(() => {
 .dup-summary { display: flex; gap: 8px; margin-bottom: 14px; }
 .dup-list { display: flex; flex-direction: column; gap: 16px; }
 .dup-group { display: flex; flex-direction: column; gap: 8px; }
-.dup-group-head { display: flex; align-items: center; gap: 8px; }
+.dup-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dup-sim { font-size: 11px; color: var(--cpq-text-muted); }
 .dup-count { font-size: 11px; color: var(--cpq-accent-primary); margin-left: auto; }
+.dup-price-warn { font-size: 12px; color: var(--cpq-accent-warning, #d48806); padding: 6px 10px; background: var(--cpq-overlay-w6); border-radius: 8px; }
 .dup-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
 .dup-card { padding: 10px 12px; border-radius: 10px; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-border-primary); cursor: pointer; transition: all var(--cpq-transition-fast); display: flex; flex-direction: column; gap: 4px; }
 .dup-card:hover { border-color: var(--cpq-overlay-a20); background: var(--cpq-overlay-a4); transform: translateY(-1px); }
 .dup-card-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); line-height: 1.35; word-break: break-all; }
 .dup-card-meta { display: flex; flex-wrap: wrap; gap: 6px; font-size: 11px; color: var(--cpq-text-secondary); }
+.dup-card-specs { font-size: 11px; color: var(--cpq-text-muted); line-height: 1.4; word-break: break-all; }
 .dup-sku { font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
 .dup-card-price { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; }
 .dup-card-price.no-price { font-size: 12px; font-weight: 400; color: var(--cpq-text-muted); }
 .dup-empty { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 60px 0; color: var(--cpq-text-muted); }
 .dup-empty-ico { font-size: 40px; color: var(--cpq-text-muted); }
+@media (max-width: 768px) {
+  .dup-cards { grid-template-columns: 1fr; }
+  .dup-count { margin-left: 0; }
+}
+</style>
+
+<style>
+/* 配件页手机抽屉外壳：portal 到 body，scoped 够不到，走全局（主题 token 玻璃） */
+.opp-parts-drawer .ant-drawer-content {
+  background: var(--cpq-glass-3-bg);
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
+  border-radius: 0 18px 18px 0;
+  overflow: hidden;
+}
+.opp-parts-drawer .ant-drawer-header { display: none; }
 </style>

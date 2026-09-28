@@ -9,15 +9,24 @@ import json
 
 from app.models.opportunity import Opportunity
 from app.models.quotation import Quotation
-from app.models.flow import OpportunityRequirement
 from app.models.base import Opportunity_SessionLocal
 from app.api.deps import get_current_user, user_has_permission
+# 口径核心已下沉到服务层（与商机线索页/AI 统计工具同一份实现），此处别名保持原调用点不变
+from app.services.opp_stats import (
+    bucket as _bucket,
+    fill_dates as _fill_dates,
+    resolve_range as _resolve_range,
+)
+from app.repository.opp_caliber_repo import (
+    current_config_subquery as _current_config_subquery,
+    current_slot_map as _current_slot_map,
+)
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 CHAS_COLORS = {"2U": "#26E2D1", "4U": "#FA8C16", "5U": "#A855F7", "4.5U": "#1890FF", "工作站": "#A855F7", "2U/4U": "#8A94A8", "8U": "#8A94A8"}
 
-# PN 提取：config_server_models 里混存干净 PN（ZSA24V2-P）和整机名（Orion 2U25 标准基准机箱），
+# PN 提取：config_server_models 里混存干净 PN（ZSA240 V2）和整机名（Orion 2U25 标准基准机箱），
 # 用正则把 PN-like 段抠出来归一；提不出来的退化成"其他机型"，不污染机型维度。
 _PN_RE = re.compile(r'([A-Z]{2,4}[\dA-Z]{1,6}(?:[- ][A-Z\d]+)?)')
 
@@ -26,48 +35,6 @@ def _normalize_pn(raw: str) -> str:
     """从 config_server_models 的值里抽出规范 PN（大写、去空格）；提不出返回 ''。"""
     m = _PN_RE.search((raw or '').upper().replace(' ', ''))
     return m.group(1) if m else ''
-
-
-def _slots_dict(raw) -> dict:
-    """统一把需求单 slots 解析为 dict。"""
-    if not raw:
-        return {}
-    if isinstance(raw, str):
-        try:
-            raw = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            return {}
-    return raw if isinstance(raw, dict) else {}
-
-
-def _current_slot_map(session, opp_ids: Optional[list] = None) -> dict:
-    """读取需求单 slots，口径与商机列表一致：current 优先，缺失时回退最新 draft。"""
-    q = session.query(
-        OpportunityRequirement.opportunity_id,
-        OpportunityRequirement.status,
-        OpportunityRequirement.version,
-        OpportunityRequirement.slots,
-    ).filter(OpportunityRequirement.status.in_(["current", "draft"]))
-    if opp_ids:
-        q = q.filter(OpportunityRequirement.opportunity_id.in_(opp_ids))
-    q = q.order_by(
-        OpportunityRequirement.opportunity_id,
-        OpportunityRequirement.version.desc(),
-    )
-
-    current: dict = {}
-    draft: dict = {}
-    for oid, status, _version, raw in q.all():
-        parsed = _slots_dict(raw)
-        if status == "current" and oid not in current:
-            current[oid] = parsed
-        elif status == "draft" and oid not in draft:
-            draft[oid] = parsed
-
-    out: dict = {}
-    for oid in set(current) | set(draft):
-        out[oid] = current.get(oid) or draft.get(oid) or {}
-    return out
 
 
 def _pct_quartiles(values: list) -> dict:
@@ -94,105 +61,6 @@ def _pct_quartiles(values: list) -> dict:
         "scatter": vs,
     }
 
-def _current_config_subquery(session, conds: list):
-    """每个商机取「当前版本」的 config_count（status=active 中 version 最大的一条）。
-
-    与商机列表/工作台的"当前版本"口径一致：一条商机只对应一个配置数，
-    避免把同一商机多个版本报价单的 config_count 重复相加（导致周新增/总配置虚高）。
-    返回子查询列：oid(opportunity_id), cc(config_count), date(商机创建日期), rn(排名)。
-    """
-    rn = func.row_number().over(
-        partition_by=Quotation.opportunity_id,
-        order_by=(Quotation.version.desc(), Quotation.created_at.desc()),
-    ).label("rn")
-    de_q = func.substr(Opportunity.created_at, 1, 10)
-    return session.query(
-        Quotation.opportunity_id.label("oid"),
-        Quotation.config_count.label("cc"),
-        de_q.label("date"),
-        rn,
-    ).join(
-        Opportunity, Quotation.opportunity_id == Opportunity.opportunity_id
-    ).filter(
-        *conds,
-        Quotation.status == "active",
-    ).subquery()
-
-
-PERIODS = {
-    "week": lambda: (datetime.now() - timedelta(days=datetime.now().weekday())).replace(hour=0, minute=0, second=0, microsecond=0),
-    "month": lambda: datetime.now().replace(day=1, hour=0, minute=0, second=0, microsecond=0),
-    "year": lambda: datetime.now().replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0),
-}
-
-
-def _resolve_range(period: str, start: Optional[str], end: Optional[str]):
-    """解析时间区间 → (start_dt, end_dt, granularity, label)。
-
-    给定 start/end(YYYY-MM-DD) 时按自定义区间；否则按 period 枚举(week/month/year)。
-    granularity: 短区间(≤10天)按天，月维度区间(11~90天)按周，长区间(>90天或跨年)按月。
-    end_dt 为闭区间当天 00:00。
-    """
-    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    if start and end:
-        s = datetime.strptime(start, "%Y-%m-%d")
-        e = datetime.strptime(end, "%Y-%m-%d")
-        span = (e - s).days
-        if span > 90 or s.year != e.year:
-            granularity = "month"
-        elif span > 10:
-            granularity = "week"
-        else:
-            granularity = "day"
-        if s.year == e.year:
-            label = f"{s.strftime('%Y.%m.%d')} ~ {e.strftime('%m.%d')}"
-        else:
-            label = f"{s.strftime('%Y.%m.%d')} ~ {e.strftime('%Y.%m.%d')}"
-        return s, e, granularity, label
-    if period == "year":
-        s = PERIODS["year"]()
-        granularity, label = "month", today.strftime("%Y")
-    elif period == "month":
-        s = PERIODS["month"]()
-        granularity, label = "week", today.strftime("%Y.%m")
-    else:  # week
-        s = PERIODS["week"]()
-        granularity = "day"
-        label = f"{s.strftime('%Y.%m.%d')} ~ {today.strftime('%m.%d')}"
-    return s, today, granularity, label
-
-
-def _bucket(date_str: str, granularity: str) -> str:
-    """把按天查询的 'YYYY-MM-DD' 归到显示桶：day=当天，week=所在周一，month=月首。"""
-    if granularity == "day":
-        return date_str
-    d = datetime.strptime(date_str, "%Y-%m-%d")
-    if granularity == "week":
-        return (d - timedelta(days=d.weekday())).strftime("%Y-%m-%d")
-    return d.strftime("%Y-%m")
-
-
-def _fill_dates(start_dt: datetime, end_dt: datetime, granularity: str):
-    dates = []
-    if granularity == "month":
-        c = start_dt.replace(day=1)
-        end_m = end_dt.replace(day=1)
-        while c <= end_m:
-            dates.append(c.strftime("%Y-%m"))
-            c = c.replace(year=c.year + 1, month=1) if c.month == 12 else c.replace(month=c.month + 1)
-    elif granularity == "week":
-        c = start_dt - timedelta(days=start_dt.weekday())
-        last = end_dt - timedelta(days=end_dt.weekday())
-        while c <= last:
-            dates.append(c.strftime("%Y-%m-%d"))
-            c += timedelta(days=7)
-    else:
-        c = start_dt
-        while c <= end_dt:
-            dates.append(c.strftime("%Y-%m-%d"))
-            c += timedelta(days=1)
-    return dates
-
 
 @router.get("/summary")
 def get_dashboard_summary(
@@ -204,6 +72,7 @@ def get_dashboard_summary(
     platform: Optional[str] = Query(default=None),
     chassis: Optional[str] = Query(default=None),
     search: Optional[str] = Query(default=None),
+    part_filters: Optional[str] = Query(default=None),
     user: dict = Depends(get_current_user),
 ):
     """Unified endpoint: KPIs + chart data + structure breakdown."""
@@ -223,6 +92,12 @@ def get_dashboard_summary(
         platforms = [s.strip() for s in (platform or "").split(",") if s.strip()]
         chassis_forms = [s.strip() for s in (chassis or "").split(",") if s.strip()]
         search_q = (search or "").strip()
+        part_rows = None
+        if part_filters:
+            try:
+                part_rows = json.loads(part_filters)
+            except (json.JSONDecodeError, TypeError):
+                part_rows = None
 
         base_conds = [
             Opportunity.status != "ai_office",
@@ -262,10 +137,33 @@ def get_dashboard_summary(
                 candidate_ids = [oid for oid in candidate_ids if _slot_match(oid, "chassis_form", chassis_forms)]
             slot_filter_ids = candidate_ids
 
+        # 配件筛选：匹配 unit=报价单（status=active），周期窗口落报价创建时间，
+        # 命中商机集合与 slot 筛选在 opp_scope 里相与——与商机列表同一份 helper，口径一致。
+        part_filter_ids = None
+        if part_rows:
+            from app.repository.opp_part_filter import match_opportunities_by_parts
+            part_candidates = [
+                r.opportunity_id
+                for r in session.query(Opportunity.opportunity_id).filter(*base_conds).all()
+            ]
+            part_hits = match_opportunities_by_parts(
+                session, part_candidates, part_rows,
+                quote_start=start_str, quote_end=end_str,
+            )
+            part_filter_ids = list(part_hits.keys())
+
+        # 配件筛选生效时时间窗口已落在报价创建时间，商机创建时间窗口不再叠加
+        time_conds = [] if part_filter_ids is not None else [
+            Opportunity.created_at >= start_str, Opportunity.created_at < end_str,
+        ]
+
+        _id_scopes = [s for s in (slot_filter_ids, part_filter_ids) if s is not None]
+
         def opp_scope(*conditions):
             conds = list(base_conds)
-            if slot_filter_ids is not None:
-                conds.append(Opportunity.opportunity_id.in_(slot_filter_ids or [""]))
+            if _id_scopes:
+                inter = set.intersection(*(set(s) for s in _id_scopes))
+                conds.append(Opportunity.opportunity_id.in_(inter or [""]))
             conds.extend(conditions)
             return conds
 
@@ -276,23 +174,22 @@ def get_dashboard_summary(
         _cfg_subq = _current_config_subquery(session, opp_scope())
         total_configs = session.query(func.sum(_cfg_subq.c.cc)).filter(_cfg_subq.c.rn == 1).scalar() or 0
         new_opps = session.query(func.count(Opportunity.opportunity_id)).filter(
-            *opp_scope(Opportunity.status != "deleted", Opportunity.created_at >= start_str, Opportunity.created_at < end_str)
+            *opp_scope(Opportunity.status != "deleted", *time_conds)
         ).scalar() or 0
         # 周新增配置：统计本周新建商机「当前版本」的配置数（按商机创建时间），
         # 同一商机多版本报价单只取最新一版，避免重复相加。
         _cfg_subq_new = _current_config_subquery(session, opp_scope(
             Opportunity.status != "deleted",
-            Opportunity.created_at >= start_str,
-            Opportunity.created_at < end_str,
+            *time_conds,
         ))
         new_configs = session.query(func.sum(_cfg_subq_new.c.cc)).filter(_cfg_subq_new.c.rn == 1).scalar() or 0
 
         # === Chart 1: Opp total + platform trend（按天查，按 granularity 桶聚合）===
         opp_rows = session.query(de.label("date"), func.count(Opportunity.opportunity_id).label("count")).filter(
-            *opp_scope(Opportunity.status != "deleted", Opportunity.created_at >= start_str, Opportunity.created_at < end_str)
+            *opp_scope(Opportunity.status != "deleted", *time_conds)
         ).group_by(de).order_by(de).all()
         period_opps = session.query(Opportunity.opportunity_id, de.label("date")).filter(
-            *opp_scope(Opportunity.status != "deleted", Opportunity.created_at >= start_str, Opportunity.created_at < end_str)
+            *opp_scope(Opportunity.status != "deleted", *time_conds)
         ).all()
         period_slot_map = _current_slot_map(session, [r.opportunity_id for r in period_opps])
 
@@ -315,7 +212,7 @@ def get_dashboard_summary(
 
         # === Chart 2: 机型趋势河流（ThemeRiver）— 月×机型(PN) 报价次数 ===
         # 删原"配置平台趋势"：平台维度已由 chart1 分线覆盖，这里换成细粒度机型(PN)维度。
-        # PN 从 quotations.config_server_models(JSON: {CFG1: "ZSA24V2-P"}) 抽取归一；
+        # PN 从 quotations.config_server_models(JSON: {CFG1: "ZSA240 V2"}) 抽取归一；
         # 一张报价单里出现多个 PN 时各计一次（机型出现即曝光）。
         pn_rows = session.query(
             de.label("date"), Quotation.config_server_models, Quotation.config_count,
@@ -323,7 +220,7 @@ def get_dashboard_summary(
             Opportunity, Quotation.opportunity_id == Opportunity.opportunity_id
         ).filter(
             *opp_scope(Quotation.status != "deleted", Opportunity.status != "deleted",
-            Opportunity.created_at >= start_str, Opportunity.created_at < end_str,
+            *time_conds,
             Quotation.config_server_models.isnot(None)),
         ).all()
 
@@ -366,8 +263,7 @@ def get_dashboard_summary(
         # === Chart 3: Chassis stacked bar（按商机创建时间，与 KPI 口径一致）===
         _cfg_subq_c3 = _current_config_subquery(session, opp_scope(
             Opportunity.status != "deleted",
-            Opportunity.created_at >= start_str,
-            Opportunity.created_at < end_str,
+            *time_conds,
         ))
         quote_chassis_rows = session.query(
             _cfg_subq_c3.c.oid,
@@ -408,7 +304,7 @@ def get_dashboard_summary(
             func.count(Opportunity.opportunity_id).label("count"),
             func.sum(case((Opportunity.result == "won", 1), else_=0)).label("won"),
         ).filter(
-            *opp_scope(Opportunity.status != "deleted", Opportunity.created_at >= start_str, Opportunity.created_at < end_str)
+            *opp_scope(Opportunity.status != "deleted", *time_conds)
         ).group_by(Opportunity.sales_person).order_by(func.count(Opportunity.opportunity_id).desc()).all()
 
         # 过滤空值，取 Top 5；won = 周期内成交（result=won）数，随周期/筛选变化

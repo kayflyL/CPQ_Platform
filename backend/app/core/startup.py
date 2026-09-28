@@ -2,7 +2,7 @@
 Startup event to initialize rules database tables and default rules.
 """
 from app.models.base import rules_engine, l6_history_engine, opp_engine, Base
-from app.models.rules import KPCategoryMapping, MatchingRule
+from app.models.rules import KPCategoryMapping, MatchingRule, ParseTemplate
 from app.models.l6 import L6PriceHistory
 from app.models.spec_template import SpecTemplate
 # Feed (collaboration) models — register with Base.metadata before create_all
@@ -27,6 +27,10 @@ from app.models.flow import (  # 协作流程 BOM/成本卡片（注册 metadata
     FlowAssignmentRule,
 )
 from app.models.role import Role  # RBAC 角色（注册 metadata 供 create_all 建表）
+from app.models.notification import Notification  # 站内通知收件箱（注册 metadata 供 create_all 建表）
+from app.models.pricing_approval import OpportunityPricingApproval  # 低毛利报价审批单（毛利审批门）
+from app.models.artifact_template import ArtifactTemplate  # 产出物模板（注册 metadata 供 create_all 建表）
+from app.models.llm_catalog import LlmModel, InferenceFramework, SceneParam  # LLM 目录三软库（AI 推理配置器；注册 metadata 供 create_all 建表）
 from app.repository.rules_repo import RulesRepository
 from app.repository.system_config_repo import SystemConfigRepository
 import json
@@ -95,7 +99,9 @@ def ensure_base_config_constraint_columns():
     """基准配置「机箱能力约束」字段（幂等 DDL，boot 时自愈）：
     base_configs 加 psu_wattages（允许的 PSU 瓦数档位 JSONB，如 [1300,1600,2000]；
     NULL=不限沿用全局档位）、max_cpu（CPU 颗数上限，默认 2）、max_dimm（内存条数上限，默认 24）、
-    mem_channels（每路内存通道数，默认 12，EPYC 12ch/路，驱动内存选型目标条数）。
+    mem_channels（每路内存通道数，默认 12，EPYC 12ch/路，驱动内存选型目标条数）、
+    gpu_default（默认 GPU 卡配置 JSONB [{part_id(KP卡), qty}]；AI 推理配置器「机型装得下判定」的输入，
+    空=该机型未维护卡配置，配置器诚实降级提示，不猜）。
     全部在基准配置页「机箱能力」可配，缺省用兜底默认——拒绝把机型物理边界散落硬编码。"""
     from app.models.base import l6_engine
     from sqlalchemy import text
@@ -113,6 +119,8 @@ def ensure_base_config_constraint_columns():
             c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN max_dimm INTEGER NOT NULL DEFAULT 24"))
         if "mem_channels" not in cols:
             c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN mem_channels INTEGER NOT NULL DEFAULT 12"))
+        if "gpu_default" not in cols:
+            c.execute(text("ALTER TABLE l6.base_configs ADD COLUMN gpu_default JSONB"))
 
 
 def ensure_server_model_published_column():
@@ -197,7 +205,7 @@ def ensure_assistant_preview_office_index():
 def ensure_compatibility_rule_category():
     """兼容规则加「业务分类」列（幂等 DDL，boot 时自愈）：
     rules.compatibility_rules 加 category TEXT + 索引。用户可自定义的开放标签，引擎不感知。
-    存量行的 NULL 回填由 repo.backfill_default_categories() 按 name→category 完成（数据层）。"""
+    存量行为由页面/DB 维护（规则本体已无代码种子）。"""
     from app.models.base import rules_engine
     from sqlalchemy import text
     with rules_engine.begin() as c:
@@ -220,6 +228,39 @@ def ensure_compatibility_rule_regions():
     with rules_engine.begin() as c:
         c.execute(text(
             "ALTER TABLE rules.compatibility_rules ADD COLUMN IF NOT EXISTS regions TEXT"
+        ))
+
+
+def ensure_colleague_memory_temporal_columns():
+    """同事记忆加双时间轴+治理列（幂等 DDL，boot 时自愈，2026-09-27 记忆重构 B 步）：
+    valid_from/retired_at/superseded_by（失效打戳不删除）+ last_accessed_at（老化排序）
+    + provenance（来源链：哪个工具/哪轮对话写入）
+    + user_id（记忆域，2026-09-28：NULL=角色公共域，非空=该用户私有域）。旧库 ADD COLUMN；新库由 ORM create_all 直接带列。"""
+    from app.models.base import rules_engine
+    from sqlalchemy import text
+    with rules_engine.begin() as c:
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS valid_from VARCHAR(32)"
+        ))
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS retired_at VARCHAR(32)"
+        ))
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS superseded_by INTEGER"
+        ))
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS last_accessed_at VARCHAR(32)"
+        ))
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS provenance TEXT"
+        ))
+        c.execute(text(
+            "ALTER TABLE rules.colleague_memories ADD COLUMN IF NOT EXISTS user_id VARCHAR(120)"
+        ))
+        # 存量条目回填 valid_from（原建表无此列，用 created_at/写入时间兜底）
+        c.execute(text(
+            "UPDATE rules.colleague_memories SET valid_from = COALESCE(valid_from, created_at, NOW()::TEXT) "
+            "WHERE valid_from IS NULL"
         ))
 
 
@@ -365,41 +406,56 @@ def backfill_premature_done_flows():
         """))
 
 
+# 权限目录（模块分组对齐导航菜单：工作台 / AI 办公室 / 商机线索 / 服务器 / 配件 / 解决方案 / 设置）。
+# 名称即菜单标题：page.opportunities 管的是工作台域的商机页面（详情/报价/回收站），
+# 商机线索菜单本体由 page.opportunities_all 门控——两者曾共用「商机线索」名导致勾错。
 _DEFAULT_PERMISSIONS = [
-    {"key": "page.portal", "name": "工作台", "group": "page", "module": "工作台"},
-    {"key": "page.opportunities", "name": "商机线索", "group": "page", "module": "商机线索"},
-    {"key": "page.opportunities_all", "name": "商机线索·全量视图", "group": "page", "module": "商机线索"},
-    {"key": "page.servers", "name": "服务器", "group": "page", "module": "服务器"},
+    # module = 真实导航/页面名，层级用「·」表达；name 写页面里的真实文案（按钮/栏/字段）
+    # 商机线索域：菜单本体 + 两张子页（商机详情 / 报价工作台）
+    {"key": "page.opportunities_all", "name": "商机线索菜单（数据范围 = 全部销售的商机）", "group": "page", "module": "商机线索"},
+    {"key": "page.opportunities", "name": "商机子页面：商机详情 / 报价工作台 / AI 线索 / 回收站 / 门户任务页", "group": "page", "module": "商机线索"},
+    {"key": "field.opportunity.quote_price", "name": "报价金额可见（商机详情/列表的报价单价格）", "group": "field", "module": "商机线索 · 商机详情"},
+    {"key": "field.flow.bom", "name": "存档区 · 方案附件可见", "group": "field", "module": "商机线索 · 商机详情"},
+    {"key": "field.flow.cost", "name": "存档区 · 成本附件可见", "group": "field", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.submit.requirement", "name": "发起/提交需求单", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.opportunity.result", "name": "修改商机状态（进行中/已中标等）", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.submit.boming", "name": "编辑/提交方案配置", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.submit.costing", "name": "编辑/提交成本核算", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.return.costing", "name": "退回成本核算", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.approve.pricing", "name": "低毛利报价审批", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "field.quote.price", "name": "价格字段可见（整机/配件单价）", "group": "field", "module": "商机线索 · 报价工作台"},
+    {"key": "field.quote.export_internal", "name": "导出对内版（含成本/利润率）", "group": "field", "module": "商机线索 · 报价工作台"},
+    {"key": "action.flow.submit.quoting", "name": "发送报价单", "group": "action", "module": "商机线索 · 报价工作台"},
+    {"key": "action.flow.return.quoting", "name": "退回市场报价", "group": "action", "module": "商机线索 · 报价工作台"},
+    {"key": "action.quote.unfreeze", "name": "解冻已导出报价单", "group": "action", "module": "商机线索 · 报价工作台"},
+    # AI 办公室：菜单 + 管理面（Manage Teams 打开的「AI 办公室管理」左栏两段）
+    {"key": "page.office", "name": "AI 办公室菜单与页面", "group": "page", "module": "AI 办公室"},
+    {"key": "ai.office.manage", "name": "AI 办公室管理 · 员工 / 团队 / Skill Studio", "group": "action", "module": "AI 办公室"},
+    {"key": "ai.office.admin", "name": "AI 办公室管理 · 模型与接入 / 运行与权限", "group": "action", "module": "AI 办公室"},
+    {"key": "page.servers", "name": "服务器（机型目录 / 详情 / 配置向导）", "group": "page", "module": "服务器"},
     {"key": "page.parts", "name": "配件", "group": "page", "module": "配件"},
-    {"key": "page.strategies", "name": "策略中心", "group": "page", "module": "策略中心"},
-    {"key": "ai.office.manage", "name": "AI 员工与空间管理", "group": "action", "module": "AI 办公室"},
-    {"key": "ai.office.admin", "name": "AI 运行与管理", "group": "action", "module": "AI 办公室"},
+    {"key": "page.strategies", "name": "解决方案（策略中心全部子页）", "group": "page", "module": "解决方案"},
+    {"key": "page.settings.users", "name": "用户与权限", "group": "page", "module": "设置"},
     {"key": "page.settings.excel", "name": "解析规则", "group": "page", "module": "设置"},
     {"key": "page.settings.templates", "name": "导出模板", "group": "page", "module": "设置"},
     {"key": "page.settings.admin", "name": "服务器管理", "group": "page", "module": "设置"},
-    {"key": "page.settings.users", "name": "用户与权限", "group": "page", "module": "设置"},
-    {"key": "field.quote.price", "name": "报价工作台·价格", "group": "field", "module": "工作台"},
-    {"key": "field.opportunity.quote_price", "name": "商机详情·报价单价格", "group": "field", "module": "商机线索"},
-    {"key": "field.parts.price", "name": "配件页·价格", "group": "field", "module": "配件"},
-    {"key": "field.flow.bom", "name": "流程·中间BOM交付物", "group": "field", "module": "商机线索"},
-    {"key": "field.flow.cost", "name": "流程·成本核价交付物", "group": "field", "module": "商机线索"},
-    {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索"},
-    {"key": "action.flow.return.costing", "name": "退回成本核算", "group": "action", "module": "商机线索"},
-    {"key": "action.flow.return.quoting", "name": "退回市场报价", "group": "action", "module": "商机线索"},
-    {"key": "action.flow.submit.quoting", "name": "发送报价单", "group": "action", "module": "商机线索"},
 ]
 
-_REMOVED_PERMISSION_KEYS = {"field.server.price"}
+# 死键回收：工作台恒开无门控（page.portal）、AI 设置已并入 AI 办公室 Manage Teams
+# （page.settings.ai 由 ai.office.manage 管）、配件页价格遮罩从未接线（field.parts.price）。
+_REMOVED_PERMISSION_KEYS = {"field.server.price", "page.portal", "page.settings.ai", "field.parts.price"}
 
 
 def ensure_permission_catalog():
-    """权限目录种子（幂等，只补缺失 key，不覆盖用户已有配置）。"""
+    """权限目录种子（幂等）：已知 key 的名称/分组强制对齐导航菜单（标签是 canonical，
+    菜单改名后目录自动跟随）；管理员新增的自定义 key 只补缺不动；死键回收。"""
     from app.repository.system_config_repo import SystemConfigRepository
     repo = SystemConfigRepository()
     try:
         catalog = repo.get_value("auth.permissions", None)
         if catalog is None:
-            catalog = _DEFAULT_PERMISSIONS
+            catalog = [dict(item) for item in _DEFAULT_PERMISSIONS]
         elif not isinstance(catalog, list):
             catalog = []
         changed = False
@@ -417,12 +473,12 @@ def ensure_permission_catalog():
             if not isinstance(item, dict) or not item.get("key"):
                 continue
             default = default_by_key.get(item["key"])
-            if default:
-                item.setdefault("module", default["module"])
-                item.setdefault("group", default["group"])
+            if default and any(item.get(f) != default[f] for f in ("name", "module", "group")):
+                item.update({f: default[f] for f in ("name", "module", "group")})
+                changed = True
         for item in _DEFAULT_PERMISSIONS:
-            if item.get("key") not in existing_keys:
-                catalog.append(item)
+            if item["key"] not in existing_keys:
+                catalog.append(dict(item))
                 changed = True
         if catalog is not _DEFAULT_PERMISSIONS or changed:
             repo.set("auth.permissions", catalog, type="json", description="权限目录")
@@ -745,10 +801,52 @@ def ensure_excel_parser_region_model():
             "FROM rules.parse_regions r "
             "WHERE lower(f.region) = lower(r.name) AND f.region_id IS NULL"
         ))
+        # region_key 唯一性按模板作用域（多模板层：每模板各有 l6/kp 区）
+        c.execute(text("DROP INDEX IF EXISTS rules.ux_parse_regions_region_key"))
         c.execute(text(
-            "CREATE UNIQUE INDEX IF NOT EXISTS ux_parse_regions_region_key "
-            "ON rules.parse_regions(region_key) WHERE region_key IS NOT NULL"
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_parse_regions_tpl_key "
+            "ON rules.parse_regions(template_id, region_key) WHERE region_key IS NOT NULL"
         ))
+
+def ensure_parse_template_layer():
+    """解析模板层（幂等 DDL + 带 guard 的一次性种子，boot 时自愈）：
+    - 列：parse_regions 加 template_id/exclude_keywords，parse_field_rules 加 template_id；
+    - 种子（guard：parse_templates 已有行则整体跳过，绝不重复造）：
+      建「通用」兜底并归入存量区域/字段规则；建「方案部配置表」并生成标准文件+自检基线；
+    - 通用 KP 区补行级排除词（顶替 pricing_engine 旧硬编码标记行剔除，幂等集合并集）。
+    """
+    from app.services.parse_template_service import ParseTemplateService
+    from sqlalchemy import text
+    with rules_engine.begin() as c:
+        c.execute(text("ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS template_id INTEGER"))
+        c.execute(text("ALTER TABLE rules.parse_regions ADD COLUMN IF NOT EXISTS exclude_keywords VARCHAR(200)"))
+        c.execute(text("ALTER TABLE rules.parse_field_rules ADD COLUMN IF NOT EXISTS template_id INTEGER"))
+        c.execute(text("""
+            CREATE TABLE IF NOT EXISTS rules.parse_scope_bindings (
+                scope_key VARCHAR(80) PRIMARY KEY,
+                template_id INTEGER NOT NULL,
+                updated_at VARCHAR(40)
+            )
+        """))
+
+    service = ParseTemplateService()
+    templates = service.repo.get_parse_templates()
+    if not templates:
+        service.seed_fallback()
+        print("✅ 解析模板层种子：通用(兜底)")
+    else:
+        print("✅ 解析模板层已存在（guard 跳过种子）")
+    service.seed_fallback_kp_marker_exclusion()
+    # 使用位置绑定：注册表里的 scope 缺绑定时默认绑通用兜底（幂等）
+    from app.services.parse_template_service import PARSE_SCOPES as _PARSE_SCOPES
+    fallback_id = next((t["id"] for t in service.repo.get_parse_templates()
+                        if t.get("is_fallback")), None)
+    if fallback_id is not None:
+        for s in _PARSE_SCOPES:
+            if service.repo.get_parse_scope_binding(s["key"]) is None:
+                service.repo.set_parse_scope_binding(s["key"], fallback_id)
+                print(f"✅ 解析使用位置绑定种子：{s['key']} → 模板#{fallback_id}")
+
 
 def cleanup_legacy_skill_library_mirror():
     """删除 system_config.ai_colleagues.skill_library JSON 镜像；Skill 定义只保留 rules.skill_catalog。"""
@@ -795,6 +893,37 @@ def ensure_kp_search_alias_seed():
         s.close()
 
 
+def ensure_artifact_template_seed():
+    """rules.artifact_template 空表种子：默认「商机经营周报」PDF 模板。
+
+    只在空表时插入；管理员后续增删/编辑不被覆盖。
+    """
+    from app.repository.artifact_template_repo import ArtifactTemplateRepo
+    repo = ArtifactTemplateRepo()
+    try:
+        if repo.count() > 0:
+            return
+        repo.seed_if_empty([
+            {
+                "key": "weekly_opportunity_report",
+                "name": "商机经营周报",
+                "format": "pdf",
+                "description": "封面指标 + 新增趋势（分平台）+ 平台结构 + 最新商机明细 + AI 结论区。图表与商机线索页驾驶舱同源。",
+                "blocks": [
+                    {"type": "title"},
+                    {"type": "kpi", "asset": "cockpit.kpi", "title": "核心指标"},
+                    {"type": "chart", "asset": "cockpit.trend", "title": "新增商机趋势（分平台）"},
+                    {"type": "chart", "asset": "cockpit.dist", "title": "平台结构分布", "height": 220},
+                    {"type": "table", "asset": "cockpit.top_opps", "title": "最新商机明细"},
+                    {"type": "text", "source": "answer", "title": "AI 分析结论"},
+                ],
+            },
+        ])
+        print("✅ Artifact templates seeded (weekly_opportunity_report)")
+    finally:
+        repo.close()
+
+
 def init_rules_db():
     """Create rules database tables and initialize default rules if empty."""
     # Create all tables for rules DB
@@ -824,9 +953,33 @@ def init_rules_db():
         print(f"⚠️ Excel parser region model migration failed: {e}")
 
     try:
+        ensure_parse_template_layer()
+    except Exception as e:
+        print(f"⚠️ Parse template layer migration failed: {e}")
+
+    try:
         ensure_kp_search_alias_seed()
     except Exception as e:
         print(f"⚠️ KP search alias seed failed: {e}")
+
+    try:
+        ensure_artifact_template_seed()
+    except Exception as e:
+        print(f"⚠️ Artifact template seed failed: {e}")
+
+    # AI 工具文案（rules.agent_tool_text）：DB 唯一权威源。启动只补缺行，不动已有编辑。
+    try:
+        from app.services.agent_tool_specs import tool_text_seed_rows
+        from app.repository.agent_tool_text_repo import AgentToolTextRepository
+        _repo = AgentToolTextRepository()
+        try:
+            _n = _repo.seed_defaults(tool_text_seed_rows())
+            if _n:
+                print(f"✅ agent_tool_text 种子回填 {_n} 行")
+        finally:
+            _repo.close()
+    except Exception as e:
+        print(f"⚠️ Agent tool text seed failed: {e}")
 
     # Initialize default rules if empty
     rules_repo = RulesRepository()
@@ -873,14 +1026,46 @@ def init_rules_db():
         print(f"⚠️ capability_spec 自检失败: {e}")
     # 推理节点默认契约 → DB 唯一权威（空库播种；运行后只读新表，无种子/兜底）
     try:
-        from app.services.skill_config_bootstrap import ensure_reasoning_node_defaults
+        from app.services.skill_config_bootstrap import (
+            ensure_node_wiring_backfill, ensure_reasoning_node_defaults)
         _nd = ensure_reasoning_node_defaults()
         if _nd:
             print(f"✅ Skill config bootstrapped (node_defaults {_nd})")
         else:
             print("✅ Skill config already seeded in DB")
+        # 方案一迁移（幂等，带 guard）：存量默认行缺 wiring 段 → 按种子补上（零行为变化）。
+        _wb = ensure_node_wiring_backfill()
+        if _wb:
+            print(f"✅ Node wiring backfilled ({_wb} rows)")
     except Exception as e:
         print(f"⚠️ Skill config bootstrap failed: {e}")
+    # 需求分析知识绑定 bootstrap（幂等，只在键缺失时写默认，不覆盖用户改动）
+    try:
+        from app.services.requirement_knowledge import ensure_knowledge_bindings_bootstrapped
+        if ensure_knowledge_bindings_bootstrapped():
+            print("✅ Requirement knowledge bindings bootstrapped (defaults)")
+    except Exception as e:
+        print(f"⚠️ Requirement knowledge bindings bootstrap failed: {e}")
+
+    # wiring 契约启动期告警（方案五三道闸之一）：active 流生效配置里的 wiring 引用必须在
+    # 注册表/工具集里；只报白盒不改行为——断口在启动时看得见，不等聊到一半。
+    try:
+        from app.services.skill_node_plugins import wiring_contract_errors
+        from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+        _repo = ReasoningFlowRepository()
+        _wiring_errs = []
+        try:
+            _flow = _repo.get_active_flow()
+            for _nk, _nc in ((_flow or {}).get("node_configs") or {}).items():
+                _wiring_errs += wiring_contract_errors(str(_nk), _nc if isinstance(_nc, dict) else {})
+        finally:
+            _repo.close()
+        if _wiring_errs:
+            print("⚠️ wiring 契约自检未通过：" + "；".join(_wiring_errs))
+        else:
+            print("✅ wiring 契约自检通过")
+    except Exception as e:
+        print(f"⚠️ wiring 契约自检失败: {e}")
 
     try:
         cleanup_legacy_skill_library_mirror()
@@ -918,35 +1103,19 @@ def init_rules_db():
         print(f"⚠️ Capability spec validation failed: {e}")
 
 
-    # 兼容规则分类列 DDL（必须在 ORM seed/backfill 前跑，确保列存在）
+    # 兼容规则分类列 DDL（必须在 ORM 使用前跑，确保列存在）。
+    # 注：规则本体无代码种子（DB 唯一来源，2026-09-14 起），这里只保证列结构存在。
     try:
         ensure_compatibility_rule_category()
         ensure_compatibility_rule_regions()
     except Exception as e:
         print(f"⚠️ Compatibility rule category column init failed: {e}")
 
-    # Compatibility rules default seed (兼容性规则引擎：require/exclude/derive/filter/recommend)
+    # 同事记忆双时间轴列（记忆重构 B 步：失效打戳不删除 + 来源链 + 老化排序）
     try:
-        from app.repository.compatibility_rule_repo import CompatibilityRuleRepository
-        cr_repo = CompatibilityRuleRepository()
-        try:
-            n = cr_repo.seed_default_if_empty()
-            if n:
-                print(f"✅ Compatibility rules initialized ({n} rules)")
-            else:
-                print("✅ Compatibility rules already present")
-            # 按名补种 DEFAULT_RULES 新增项（不覆盖用户已有改动）
-            m = cr_repo.seed_missing_defaults()
-            if m:
-                print(f"   + {m} new default rule(s) appended (non-destructive)")
-            # 按 name→category 给存量规则回填默认分类（新增列后老规则该列为 NULL）
-            b = cr_repo.backfill_default_categories()
-            if b:
-                print(f"   + {b} rule(s) categorized by default")
-        finally:
-            cr_repo.close()
+        ensure_colleague_memory_temporal_columns()
     except Exception as e:
-        print(f"⚠️ Compatibility rules init failed: {e}")
+        print(f"⚠️ Colleague memory temporal column init failed: {e}")
 
     # BOM案例库：独立表（rules.bom_cases，无数字 id，时间戳业务键；kp_lines 只引用 kp_parts）。
     try:

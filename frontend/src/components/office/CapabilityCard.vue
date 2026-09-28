@@ -10,7 +10,7 @@
         <a-tag v-if="bound" color="green">已绑定</a-tag>
         <a-tag v-if="skill.runnable" color="blue">可试运行</a-tag>
       </div>
-      <span class="cc-arrow">›</span>
+      <slot name="actions"><span class="cc-arrow">›</span></slot>
     </header>
     <p class="cc-desc">{{ skill.description || '暂无说明' }}</p>
     <div class="cc-tags">

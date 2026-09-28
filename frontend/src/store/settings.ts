@@ -1,6 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import axios from 'axios'
+import axiosBase from 'axios'
+import { attachAuthInterceptors } from '@/api/authHttp'
+
+const axios = axiosBase.create()
+attachAuthInterceptors(axios)
 
 /** 报价/商务条款：每页「合计」与「页脚」之间展示的标准条款文本，留空则不显示该条 */
 export interface CommercialTerms {

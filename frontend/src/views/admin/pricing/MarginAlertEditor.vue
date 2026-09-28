@@ -33,6 +33,9 @@ async function save() {
     const body = {
       enabled: !!form.value.enabled,
       threshold: Number.isFinite(Number(form.value.threshold)) ? Number(form.value.threshold) : DEFAULT_MARGIN_ALERT.threshold,
+      approval_threshold: Number.isFinite(Number(form.value.approval_threshold))
+        ? Number(form.value.approval_threshold)
+        : (Number.isFinite(Number(form.value.threshold)) ? Number(form.value.threshold) : DEFAULT_MARGIN_ALERT.approval_threshold!),
       title: form.value.title.trim(),
       content: form.value.content.trim(),
     }
@@ -57,6 +60,12 @@ const previewContent = computed(() => {
   const c = state.value.body.content
   return c.replace(/\$\{margin\}/g, '5.60').replace(/\$\{threshold\}/g, String(state.value.body.threshold))
 })
+
+// 审批红线展示值：未配置回落门槛值（与后端 _margin_gate_config 同口径）
+const approvalThreshold = computed(() =>
+  Number.isFinite(Number(state.value.body.approval_threshold))
+    ? Number(state.value.body.approval_threshold)
+    : state.value.body.threshold)
 </script>
 
 <template>
@@ -66,14 +75,14 @@ const previewContent = computed(() => {
         <span class="ma-icon">⚠️</span>
         <span>利润率告警</span>
         <a-tag v-if="state.body.enabled" color="orange" class="ma-tag">已启用 · 门槛 {{ state.body.threshold }}%</a-tag>
+        <a-tag v-if="state.body.enabled" color="red" class="ma-tag">审批红线 {{ approvalThreshold }}%</a-tag>
         <a-tag v-else class="ma-tag">已关闭</a-tag>
-      </div>
-      <a-button size="small" type="primary" ghost @click="alertOpen = true">编辑</a-button>
+      </div>      <a-button size="small" type="primary" ghost @click="alertOpen = true">编辑</a-button>
     </div>
     <div class="ma-body">
       <div class="ma-line"><span class="ma-label">标题</span>{{ state.body.title }}</div>
       <div class="ma-line"><span class="ma-label">正文</span>{{ previewContent }}</div>
-      <p class="ma-hint">工作台综合毛利率低于门槛时弹此提示（只警告不锁价、不自动改价）。与保底封顶解耦——保底封顶管引擎目标毛利的夹取区间，这里管弹窗阈值与文案。</p>
+      <p class="ma-hint">工作台综合毛利率低于门槛时弹此提示（只警告不锁价）；低于审批红线时，发送报价单须总监审批通过。与保底封顶解耦——保底封顶管引擎目标毛利的夹取区间，这里管弹窗阈值与审批红线。</p>
     </div>
 
     <a-modal :open="alertOpen" title="配置利润率告警" :width="560" :confirm-loading="saving"
@@ -88,6 +97,12 @@ const previewContent = computed(() => {
             <template #addonAfter>%</template>
           </a-input-number>
           <span class="ma-form-hint">低于此值触发告警</span>
+        </a-form-item>
+        <a-form-item label="审批红线（综合毛利率）">
+          <a-input-number v-model:value="form.approval_threshold" :min="0" :max="80" :step="1" style="width: 200px">
+            <template #addonAfter>%</template>
+          </a-input-number>
+          <span class="ma-form-hint">低于此值发送报价单须总监审批（与告警线分开：告警=注意，红线=必须过审）</span>
         </a-form-item>
         <a-form-item label="告警标题">
           <a-input v-model:value="form.title" placeholder="如：利润率低于告警线" />

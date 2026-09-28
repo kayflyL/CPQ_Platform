@@ -13,23 +13,10 @@
 <a-tabs v-model:activeKey="activeTab" class="ai-settings-outer-tabs">
 <!-- 公共设置 -->
       <a-tab-pane v-if="showModel || showTools" key="public" tab="公共设置">
-        <a-tabs v-model:activeKey="publicTab">
+        <a-tabs v-model:activeKey="publicTab" :class="{ 'single-pane-tabs': singlePublicTab }">
       <!-- 模型与连接 -->
       <a-tab-pane v-if="showModel" key="api" tab="模型与连接">
         <a-spin :spinning="loading">
-          <div class="form-section">
-            <h4 class="section-title">
-              启用 AI 引擎
-            </h4>
-            <div class="form-row">
-              <label class="form-label">启用 AI</label>
-              <div class="form-control">
-                <a-switch v-model:checked="llmConfig.enabled" />
-                <span class="form-hint">{{ llmConfig.enabled ? '已启用' : '已关闭' }}</span>
-              </div>
-            </div>
-          </div>
-
           <div class="form-section">
             <h4 class="section-title">LLM API 配置</h4>
 
@@ -37,15 +24,19 @@
               <label class="form-label">API 端点</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start;">
                 <a-input v-model:value="llmConfig.base_url" placeholder="留空使用 .env 配置" style="width: 100%" />
-                <span class="form-hint">如：https://dashscope.aliyuncs.com/compatible-mode/v1</span>
+                <span class="form-hint">OpenAI 兼容如 https://dashscope.aliyuncs.com/compatible-mode/v1；Anthropic 如 https://api.z.ai/api/anthropic（贴入端点后自动识别协议）</span>
               </div>
             </div>
 
             <div class="form-row">
               <label class="form-label">API Key</label>
               <div class="form-control" style="flex-direction: column; align-items: flex-start;">
-                <a-input-password v-model:value="llmConfig.api_key" placeholder="留空使用 .env 配置" style="width: 100%" />
-                <span class="form-hint">留空则从 .env 的 LLM_API_KEY 读取</span>
+                <a-input-password v-model:value="llmConfig.api_key"
+                  :placeholder="llmConfig.api_key_configured ? '已配置（输入新密钥可更换）' : '留空使用 .env 配置'"
+                  style="width: 100%" />
+                <span class="form-hint">{{ llmConfig.api_key_configured
+                  ? '密钥已配置，仅显示尾4位；保持原样=不修改，清空保存=改用 .env'
+                  : '留空则从 .env 的 LLM_API_KEY 读取' }}</span>
               </div>
             </div>
 
@@ -56,7 +47,7 @@
                   <a-select-option value="openai">OpenAI Chat Completions</a-select-option>
                   <a-select-option value="anthropic">Anthropic Messages</a-select-option>
                 </a-select>
-                <span class="form-hint">Anthropic Messages 用于供应商只认 /v1/messages 的场景，可让原生 function calling 走通；OpenAI Chat Completions 为默认。</span>
+                <span class="form-hint">决定全部 LLM 链路（对话/JSON/流式/工具）的协议；Anthropic Messages 供只认 /v1/messages 的端点（如 z.ai），贴入端点后通常自动识别。</span>
               </div>
             </div>
 
@@ -95,6 +86,24 @@
                 <span class="form-hint">reasoning(思考)类模型的思考也占此预算,重节点建议 ≥ 16000</span>
               </div>
             </div>
+
+            <div class="form-row">
+              <label class="form-label">思考模式</label>
+              <div class="form-control">
+                <a-radio-group v-model:value="thinkingMode" button-style="solid" size="small">
+                  <a-radio-button value="default">跟随模型</a-radio-button>
+                  <a-radio-button value="disabled">关闭</a-radio-button>
+                  <a-radio-button value="enabled">开启</a-radio-button>
+                </a-radio-group>
+                <a-input-number
+                  v-if="thinkingMode === 'enabled'"
+                  v-model:value="thinkingBudget"
+                  :min="1024" :max="32000" :step="500"
+                  style="width: 120px; margin-left: 10px"
+                />
+                <span class="form-hint">仅 Anthropic 协议端点生效。GLM 系在这类端点默认开思考（每个工具轮先吐长思考流，实测慢 5~10 倍），选「关闭」可恢复正常速度；开启时思考预算 ≥1024 tokens，且温度按协议要求忽略</span>
+              </div>
+            </div>
           </div>
 
           <div class="form-actions">
@@ -105,85 +114,142 @@
               {{ testResult.success ? '✅' : '❌' }} {{ testResult.message }}
             </span>
           </div>
+
         </a-spin>
       </a-tab-pane>
       <a-tab-pane v-if="showModel" key="capabilities" tab="模型能力档案">
         <a-spin :spinning="capabilityLoading">
           <div class="form-section">
             <h4 class="section-title">
-              模型能力档案
-              <span class="section-hint">控制 JSON Mode / 原生工具 / Reasoning 策略；未识别模型走保守默认</span>
+              生效能力
+              <span class="section-hint">内置家族默认 + 协议修正 + 实测定论 合成；探测过的项以实测为准</span>
             </h4>
             <div class="form-row">
-              <label class="form-label">当前模型</label>
-              <div class="form-control">
+              <label class="form-label">模型</label>
+              <div class="form-control" style="gap: 8px; align-items: center;">
                 <a-tag color="blue">{{ llmConfig.model || '未配置' }}</a-tag>
+                <a-tag>{{ llmConfig.upstream_format === 'anthropic' ? 'Anthropic Messages' : 'OpenAI 兼容' }}</a-tag>
               </div>
             </div>
-            <div v-for="field in capabilityFields" :key="field.key" class="form-row">
-              <label class="form-label">{{ field.label }}</label>
-              <div class="form-control" style="flex-direction: column; align-items: flex-start; gap: 6px;">
-                <a-radio-group v-model:value="capabilityForm[field.key]" button-style="solid" size="small">
-                  <a-radio-button value="auto">自动（内置）</a-radio-button>
-                  <a-radio-button value="on">开</a-radio-button>
-                  <a-radio-button value="off">关</a-radio-button>
-                </a-radio-group>
-                <span class="form-hint">{{ field.hint }}</span>
-              </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <a-tag :color="capabilityEffective?.supports_native_tools ? 'green' : 'default'">
+                原生工具调用 {{ capabilityEffective?.supports_native_tools ? '已启用' : '未启用' }} · {{ capSource('supports_native_tools') }}
+              </a-tag>
+              <a-tag :color="capabilityEffective?.supports_json_mode ? 'green' : 'default'">
+                JSON 结构化输出 {{ capabilityEffective?.supports_json_mode ? '支持' : '走提示词解析' }} · {{ capSource('supports_json_mode') }}
+              </a-tag>
+              <a-tag :color="capabilityEffective?.reasoning_model ? 'blue' : 'default'">
+                推理模型 {{ capabilityEffective?.reasoning_model ? '是' : '否' }} · 内置
+              </a-tag>
             </div>
-          </div>
-          <div class="form-actions">
-            <a-button type="primary" :loading="capabilitySaving" @click="handleSaveCapabilities">保存能力档案</a-button>
-            <a-button :loading="capabilityProbing" @click="handleProbeCapabilities">能力探测</a-button>
-            <a-button @click="handleResetCapabilities">恢复内置默认</a-button>
-            <span v-if="capabilityProbeResult" class="test-result" :class="capabilityProbeResult.success ? 'test-ok' : 'test-fail'">
-              {{ capabilityProbeResult.success ? '✅' : '❌' }} {{ capabilityProbeMessage }}
+            <span class="form-hint" style="display:block; margin-top:6px;">
+              未实测时的内置家族默认：JSON Mode {{ capabilityBuiltin?.supports_json_mode ? '支持' : '不支持' }} · 原生工具 {{ capabilityBuiltin?.supports_native_tools ? '支持' : '不支持' }} · Reasoning {{ capabilityBuiltin?.reasoning_model ? '是' : '否' }}；要不要让它思考，在「模型与连接 → 思考模式」设置
             </span>
           </div>
-          <a-alert v-if="capabilityBuiltin" type="info" show-icon style="margin-top: 12px">
-            <template #message>
-              内置档案：JSON Mode {{ capabilityBuiltin.supports_json_mode ? '支持' : '不支持' }} · 原生工具 {{ capabilityBuiltin.supports_native_tools ? '支持' : '不支持' }} · Reasoning {{ capabilityBuiltin.reasoning_model ? '是' : '否' }}
+
+          <div class="form-section">
+            <h4 class="section-title">
+              端点实测
+              <span class="section-hint">对当前端点真发请求验证；结果落库留档并直接成为生效能力</span>
+            </h4>
+            <template v-if="capabilityLastProbe">
+              <span class="form-hint">
+                最近实测 {{ String(capabilityLastProbe.tested_at || '').replace('T', ' ') }} ·
+                JSON Mode {{ probeVerdict('supports_json_mode') }} ·
+                原生工具 {{ probeVerdict('supports_native_tools') }} ·
+                默认开思考 {{ capabilityLastProbe.default_thinking ? '是' : '否' }}
+              </span>
+              <div v-if="capabilityLastProbe.notes?.length" class="form-hint" style="margin-top:4px;">
+                备注：{{ capabilityLastProbe.notes.join('；') }}
+              </div>
             </template>
-          </a-alert>
+            <span v-else class="form-hint">尚无实测记录——切换供应商/模型后建议探测一次</span>
+            <div style="display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center;">
+              <a-button :loading="capabilityProbing" @click="handleProbeCapabilities">能力探测</a-button>
+              <span v-if="capabilityProbeResult" class="test-result" :class="capabilityProbeResult.success ? 'test-ok' : 'test-fail'">
+                {{ capabilityProbeResult.success ? '✅' : '❌' }} {{ capabilityProbeMessage }}
+              </span>
+            </div>
+          </div>
+        </a-spin>
+      </a-tab-pane>
+      <a-tab-pane v-if="showModel" key="probe-history" tab="实测模型清单">
+        <a-spin :spinning="probeHistoryLoading">
+          <div class="form-section">
+            <h4 class="section-title">
+              实测模型清单
+              <span class="section-hint">全部能力探测留档（含失败与历史端点）· 只读事实，与档案不符就重新探测</span>
+            </h4>
+            <span class="form-hint" style="display:block; margin-bottom:10px;">
+              只收录实测过的模型（「模型能力档案」tab 的「能力探测」产生记录）；「拉取模型列表」拉到但没测过的不在此列
+            </span>
+            <a-table
+              v-if="probeHistory.length"
+              :data-source="probeHistory"
+              :columns="probeHistoryColumns"
+              :pagination="false"
+              size="small"
+              row-key="tested_at"
+              :row-class-name="(r: any) => (r.success === false ? 'probe-row-failed' : '')"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'model'">
+                  <a-tag v-if="record.is_current" color="blue" style="margin-right:4px;">当前使用</a-tag>
+                  <span style="font-weight:600;">{{ record.model }}</span>
+                </template>
+                <template v-else-if="column.key === 'endpoint'">
+                  <div style="display:flex; flex-direction:column; gap:2px;">
+                    <a-tag :color="record.endpoint_identity_kind === 'official' ? 'green' : record.endpoint_identity_kind === 'local' ? 'default' : 'orange'">
+                      {{ record.endpoint_identity }}
+                    </a-tag>
+                    <span class="probe-url">{{ record.base_url }}</span>
+                  </div>
+                </template>
+                <template v-else-if="column.key === 'fmt'">
+                  {{ record.upstream_format === 'anthropic' ? 'Anthropic' : 'OpenAI' }}
+                </template>
+                <template v-else-if="column.key === 'native_tools'">
+                  {{ historyVerdict(record, 'supports_native_tools', 'native_tools_probed') }}
+                </template>
+                <template v-else-if="column.key === 'json_mode'">
+                  {{ historyVerdict(record, 'supports_json_mode', 'json_mode_probed') }}
+                </template>
+                <template v-else-if="column.key === 'thinking'">
+                  {{ record.default_thinking == null ? '未测' : record.default_thinking ? '是' : '否' }}
+                </template>
+                <template v-else-if="column.key === 'verdict'">
+                  <a-tooltip v-if="record.success === false" :title="record.message || '探测失败'">
+                    <a-tag color="red">失败</a-tag>
+                  </a-tooltip>
+                  <a-tag v-else color="green">成功</a-tag>
+                </template>
+                <template v-else-if="column.key === 'tested_at'">
+                  {{ String(record.tested_at || '').replace('T', ' ') }}
+                </template>
+              </template>
+            </a-table>
+            <span v-else class="form-hint">还没有任何探测留档——去「模型能力档案」tab 点「能力探测」</span>
+          </div>
         </a-spin>
       </a-tab-pane>
       <a-tab-pane v-if="showTools" key="tools" tab="AI 工具目录">
         <a-spin :spinning="toolsLoading">
           <div class="form-section">
-            <h4 class="section-title">
-              AI 工具目录
-              <span class="section-hint">全系统 LLM 工具 · 唯一注册表 agent_tools.py（只读）</span>
-            </h4>
-            <a-table
-              :data-source="tools"
-              :columns="toolColumns"
-              :loading="toolsLoading"
-              :pagination="false"
-              size="small"
-              row-key="name"
-            >
-              <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'category'">
-                  <a-tag :color="record.category === 'data' ? 'blue' : 'purple'">{{ categoryLabel(record.category) }}</a-tag>
-                </template>
-                <template v-else-if="column.key === 'summary'">
-                  <a-tooltip :title="record.summary || record.description">
-                    <span class="tool-summary">{{ record.summary || record.description }}</span>
-                  </a-tooltip>
-                </template>
-                <template v-else-if="column.key === 'description'">
-                  <a-tooltip :title="record.description">
-                    <span class="tool-desc">{{ record.description }}</span>
-                  </a-tooltip>
-                </template>
-                <template v-else-if="column.key === 'parameters'">
-                  <span class="tool-params">{{ summarizeParams(record.parameters) }}</span>
-                </template>
-                <template v-else-if="column.key === 'default_enabled'">
-                  <a-tag :color="record.default_enabled ? 'success' : 'default'">{{ record.default_enabled ? '默认启用' : '需勾选启用' }}</a-tag>
-                </template>
-              </template>
-            </a-table>
+            <div v-for="group in toolGroups" :key="group.key" class="tool-group">
+              <div class="tool-group-title">
+                {{ group.label }}<span class="tool-group-count">{{ group.items.length }}</span>
+              </div>
+              <div class="tool-card-grid">
+                <ToolCard
+                  v-for="t in group.items"
+                  :key="t.name"
+                  :tool="t"
+                  :usage="toolUsage[t.name] || []"
+                  editable
+                  @updated="onToolUpdated"
+                />
+              </div>
+            </div>
           </div>
         </a-spin>
       </a-tab-pane>
@@ -472,6 +538,8 @@ import axios from 'axios'
 import { useRouter } from 'vue-router'
 import { assistantApi, type AssistantThread, type AssistantMessage, type AssistantToolInfo } from '@/api/assistant'
 import { rbacApi, type RoleItem } from '@/api/rbac'
+import ToolCard from '@/components/tools/ToolCard.vue'
+import { toolCategoryLabel, TOOL_CATEGORY_ORDER } from '@/constants/toolMeta'
 
 const router = useRouter()
 
@@ -484,19 +552,20 @@ const embedded = computed(() => props.embedded === true)
 const section = computed(() => props.section || 'all')
 const showModel = computed(() => section.value === 'all' || section.value === 'model')
 const showTools = computed(() => section.value === 'all' || section.value === 'tools')
+// 公共页签只剩「AI 工具目录」一个可见页签（嵌入 section=tools）时隐藏页签条——上层「工具目录」tab 已是标题层，内容区不再自带头；section=model 时仍有模型三页签，条保留
+const singlePublicTab = computed(() => showTools.value && !showModel.value)
 const showAccess = computed(() => section.value === 'all' || section.value === 'access')
 const showThreads = computed(() => section.value === 'all' || section.value === 'threads')
 const showAudit = computed(() => section.value === 'all' || section.value === 'audit')
 
 const DEFAULT_LLM_CONFIG = {
-  enabled: true,
   base_url: '',
   api_key: '',
+  api_key_configured: false,
   model: '',
   upstream_format: 'openai',
   temperature: 0.7,
   max_tokens: 16000,
-  capabilities_override: {} as Record<string, Record<string, boolean>>,
 }
 
 const activeTab = ref(section.value === 'access' ? 'access' : section.value === 'threads' ? 'threads' : section.value === 'audit' ? 'audit' : 'public')
@@ -540,6 +609,33 @@ const loading = ref(true)
 const saving = ref(false)
 const llmConfig = ref({ ...DEFAULT_LLM_CONFIG })
 
+// 思考模式（llm_config.thinking ⇄ 单选控件）：页面是模型行为设置的唯一出口，
+// 不留「只存在 DB 里」的隐藏键
+const thinkingBudget = computed<number>({
+  get() {
+    const t = (llmConfig.value as any).thinking
+    return typeof t?.budget_tokens === 'number' ? t.budget_tokens : 8000
+  },
+  set(v) {
+    const t = (llmConfig.value as any).thinking
+    if (t && t.type === 'enabled') t.budget_tokens = v
+  },
+})
+const thinkingMode = computed<'default' | 'disabled' | 'enabled'>({
+  get() {
+    const t = (llmConfig.value as any).thinking
+    if (t?.type === 'disabled') return 'disabled'
+    if (t?.type === 'enabled') return 'enabled'
+    return 'default'
+  },
+  set(mode) {
+    const cfg = llmConfig.value as any
+    if (mode === 'default') delete cfg.thinking
+    else if (mode === 'disabled') cfg.thinking = { type: 'disabled' }
+    else cfg.thinking = { type: 'enabled', budget_tokens: thinkingBudget.value }
+  },
+})
+
 // 模型拉取 / 连接测试（模型与连接 tab）
 const modelOptions = ref<{ value: string; label: string }[]>([])
 const fetchingModels = ref(false)
@@ -547,29 +643,85 @@ const testing = ref(false)
 const testResult = ref<{ success: boolean; message: string } | null>(null)
 
 // ── 模型能力档案（模型与接入 → 模型能力档案 tab）──
-const capabilityFields = [
-  { key: 'supports_json_mode', label: 'JSON Mode（response_format=json_object）', hint: '关闭后走「提示词要求 JSON + 解析器」，适配不支持 JSON mode 的模型' },
-  { key: 'supports_native_tools', label: '原生工具调用（function calling）', hint: '仅原生 function calling（OpenAI / Anthropic Messages 通道）；关闭后不再走文本式 ReAct 兜底，改为普通对话降级' },
-  { key: 'reasoning_model', label: 'Reasoning 模型', hint: '思考预算会占用 max_tokens；开启后空正文会按 reasoning 截断诊断' },
-]
+// 档案事实源=探测：探测结果落库并直接驱动生效能力；没有手工修正层，档案不符就重新探测
 const capabilityLoading = ref(false)
-const capabilitySaving = ref(false)
 const capabilityProbing = ref(false)
 const capabilityProbeResult = ref<{ success: boolean; message?: string; supports_json_mode?: boolean; supports_native_tools?: boolean; reasoning_model?: boolean } | null>(null)
 const capabilityBuiltin = ref<Record<string, boolean> | null>(null)
-const capabilityForm = ref<Record<string, 'auto' | 'on' | 'off'>>({})
+const capabilityEffective = ref<Record<string, boolean> | null>(null)
+const capabilityLastProbe = ref<Record<string, any> | null>(null)
 const capabilityProbeMessage = computed(() => {
   const r = capabilityProbeResult.value
   if (!r) return ''
   if (!r.success) return r.message || '探测失败'
   return `JSON Mode ${r.supports_json_mode ? '支持' : '不支持'} · 原生工具 ${r.supports_native_tools ? '支持' : '不支持'}`
 })
+// 生效能力的来源标注：最近实测有定论的项 =「实测」，其余 =「内置」家族默认
+function capSource(field: 'supports_native_tools' | 'supports_json_mode') {
+  const flag = field === 'supports_native_tools' ? 'native_tools_probed' : 'json_mode_probed'
+  return capabilityLastProbe.value?.[flag] ? '实测' : '内置'
+}
+function probeVerdict(field: 'supports_json_mode' | 'supports_native_tools') {
+  const flag = field === 'supports_native_tools' ? 'native_tools_probed' : 'json_mode_probed'
+  if (!capabilityLastProbe.value?.[flag]) return '未定论'
+  return capabilityLastProbe.value[field] ? '✅' : '❌'
+}
+
+// ── 实测模型清单（探测留档全集，只读事实）──
+const probeHistoryLoading = ref(false)
+const probeHistory = ref<Record<string, any>[]>([])
+const probeHistoryColumns = [
+  { title: '模型', key: 'model', dataIndex: 'model' },
+  { title: 'API 端点', key: 'endpoint' },
+  { title: '协议', key: 'fmt', dataIndex: 'upstream_format', width: 90 },
+  { title: '原生工具', key: 'native_tools', width: 100 },
+  { title: 'JSON 输出', key: 'json_mode', width: 100 },
+  { title: '默认开思考', key: 'thinking', dataIndex: 'default_thinking', width: 100 },
+  { title: '结论', key: 'verdict', dataIndex: 'success', width: 80 },
+  { title: '实测时间', key: 'tested_at', dataIndex: 'tested_at', width: 160 },
+]
+function historyVerdict(record: Record<string, any>, field: string, flag: string) {
+  if (!record[flag]) return '⚠️ 未定论'
+  return record[field] ? '✅' : '❌'
+}
+async function loadProbeHistory() {
+  probeHistoryLoading.value = true
+  try {
+    const { data } = await axios.get('/api/system-config/llm_config/probe-history')
+    probeHistory.value = data.records || []
+  } catch (err) {
+    console.error('加载实测清单失败:', err)
+    message.error('加载实测清单失败')
+  } finally {
+    probeHistoryLoading.value = false
+  }
+}
 const filterModel = (input: string, option: { value: string }) =>
   option.value.toLowerCase().includes(input.toLowerCase())
 
 function normalizeLlmConfig() {
   delete (llmConfig.value as any).system_prompt
+  delete (llmConfig.value as any).enabled
 }
+
+// 上游格式自动识别（2026-09-14）：贴入端点 URL 时按特征自动切协议，杜绝「换供应商忘切
+// 上游格式 → 全链路打错协议 → 静默空回复」。仅在 base_url 变化时触发；存库配置回显时
+// 若已一致则静默。
+watch(() => llmConfig.value.base_url, (url) => {
+  const u = (url || '').toLowerCase()
+  let detected: 'openai' | 'anthropic' | null = null
+  if (u.includes('/anthropic')) detected = 'anthropic'
+  else if (u.includes('/compatible-mode') || u.includes('/paas/v') || u.includes('/v1')) detected = 'openai'
+  if (detected && detected !== llmConfig.value.upstream_format) {
+    llmConfig.value.upstream_format = detected
+    message.info(`已按端点特征自动切换上游格式：${detected === 'anthropic' ? 'Anthropic Messages' : 'OpenAI Chat Completions'}`)
+  }
+})
+
+// 模型/协议变化 → 生效能力徽标实时刷新（读的是后端 get_model_capabilities，单一事实源）
+watch([() => llmConfig.value.model, () => llmConfig.value.upstream_format], () => {
+  if (llmConfig.value.model) loadCapabilities()
+})
 
 async function loadConfig() {
   loading.value = true
@@ -619,12 +771,8 @@ async function loadCapabilities() {
     })
     if (data.success) {
       capabilityBuiltin.value = data.builtin || null
-      const override = data.override || {}
-      for (const field of capabilityFields) {
-        capabilityForm.value[field.key] = field.key in override
-          ? (override[field.key] ? 'on' : 'off')
-          : 'auto'
-      }
+      capabilityEffective.value = data.effective || null
+      capabilityLastProbe.value = data.last_probe || null
     } else {
       message.error(data.message || '加载能力档案失败')
     }
@@ -633,42 +781,6 @@ async function loadCapabilities() {
     message.error('加载能力档案失败')
   } finally {
     capabilityLoading.value = false
-  }
-}
-
-async function handleSaveCapabilities() {
-  const model = llmConfig.value.model
-  if (!model) {
-    message.warning('请先在「模型与连接」页选择模型')
-    return
-  }
-  const override: Record<string, boolean> = {}
-  for (const field of capabilityFields) {
-    const value = capabilityForm.value[field.key]
-    if (value === 'on') override[field.key] = true
-    else if (value === 'off') override[field.key] = false
-  }
-  const capabilitiesOverride = (llmConfig.value as any).capabilities_override || {}
-  if (Object.keys(override).length) {
-    capabilitiesOverride[model] = override
-  } else {
-    delete capabilitiesOverride[model]
-  }
-  llmConfig.value = { ...llmConfig.value, capabilities_override: capabilitiesOverride }
-  capabilitySaving.value = true
-  try {
-    normalizeLlmConfig()
-    await axios.put('/api/system-config/llm_config', {
-      value: llmConfig.value,
-      type: 'json',
-    })
-    message.success('能力档案已保存')
-    await loadCapabilities()
-  } catch (err) {
-    console.error('保存能力档案失败:', err)
-    message.error('保存失败')
-  } finally {
-    capabilitySaving.value = false
   }
 }
 
@@ -684,13 +796,13 @@ async function handleProbeCapabilities() {
       base_url: llmConfig.value.base_url,
       api_key: llmConfig.value.api_key,
       model: llmConfig.value.model,
+      upstream_format: llmConfig.value.upstream_format,
     })
     capabilityProbeResult.value = data
     if (data.success) {
-      capabilityForm.value.supports_json_mode = data.supports_json_mode ? 'on' : 'off'
-      capabilityForm.value.supports_native_tools = data.supports_native_tools ? 'on' : 'off'
-      capabilityForm.value.reasoning_model = 'auto'
-      message.success('探测完成，请点击保存能力档案生效')
+      await loadCapabilities()
+      loadProbeHistory()
+      message.success('探测完成，结果已留档并生效')
     } else {
       message.error(data.message || '探测失败')
     }
@@ -701,13 +813,6 @@ async function handleProbeCapabilities() {
   } finally {
     capabilityProbing.value = false
   }
-}
-
-function handleResetCapabilities() {
-  for (const field of capabilityFields) {
-    capabilityForm.value[field.key] = 'auto'
-  }
-  message.info('已恢复自动（内置），点击保存能力档案生效')
 }
 
 // 拉取当前端点（base_url + api_key）下的可用模型 id 列表，填入下拉
@@ -723,6 +828,7 @@ async function handleFetchModels() {
       base_url: llmConfig.value.base_url,
       api_key: llmConfig.value.api_key,
       model: llmConfig.value.model,
+      upstream_format: llmConfig.value.upstream_format,
     })
     if (data.success) {
       modelOptions.value = data.models.map((id: string) => ({ value: id, label: id }))
@@ -747,6 +853,7 @@ async function handleTestConnection() {
       base_url: llmConfig.value.base_url,
       api_key: llmConfig.value.api_key,
       model: llmConfig.value.model,
+      upstream_format: llmConfig.value.upstream_format,
     })
     testResult.value = { success: data.success, message: data.message }
     if (data.success) message.success(data.message)
@@ -999,43 +1106,32 @@ async function cleanupSamples() {
     message.error(err.response?.data?.detail || '清理失败')
   }
 }
-// ── AI 工具目录（只读 · 数据源 GET /api/assistant/tools ← agent_tools._TOOL_SPECS）──
+// ── AI 工具目录（数据源 GET /api/assistant/tools；文案编辑走 PUT /tools/{name}/text DB 覆盖层）──
 const tools = ref<AssistantToolInfo[]>([])
+const toolUsage = ref<Record<string, string[]>>({})
 const toolsLoading = ref(false)
-const toolColumns = [
-  { title: '名称', dataIndex: 'name', key: 'name', width: 170 },
-  { title: '分类', dataIndex: 'category', key: 'category', width: 100 },
-  { title: '摘要', dataIndex: 'summary', key: 'summary', ellipsis: true },
-  { title: '说明', dataIndex: 'description', key: 'description', ellipsis: true },
-  { title: '参数', dataIndex: 'parameters', key: 'parameters', width: 300 },
-  { title: '默认启用', dataIndex: 'default_enabled', key: 'default_enabled', width: 100 },
-]
-const CATEGORY_LABELS: Record<string, string> = {
-  selection: '选型决策',
-  data: '数据查询',
-  cost: '成本核算',
-  quote: '报价生成',
-}
-function categoryLabel(category: string): string {
-  return CATEGORY_LABELS[category] || category
-}
-function summarizeParams(parameters: Record<string, any> | undefined): string {
-  if (!parameters || !parameters.properties) return ''
-  const required: string[] = Array.isArray(parameters.required) ? parameters.required : []
-  return Object.entries(parameters.properties)
-    .map(([key, prop]) => {
-      const p = (prop || {}) as Record<string, any>
-      const enums = Array.isArray(p.enum) && p.enum.length ? p.enum.join('|') : ''
-      const type = p.type ? String(p.type) : ''
-      return `${key}${required.includes(key) ? '' : '?'}:${enums || type || ''}`
-    })
-    .join('，')
+const toolGroups = computed(() => {
+  const byCat = new Map<string, AssistantToolInfo[]>()
+  for (const t of tools.value) {
+    const key = String(t.category || 'selection')
+    if (!byCat.has(key)) byCat.set(key, [])
+    byCat.get(key)!.push(t)
+  }
+  const ordered = TOOL_CATEGORY_ORDER.filter((k) => byCat.has(k))
+  for (const k of byCat.keys()) if (!ordered.includes(k)) ordered.push(k)
+  return ordered.map((key) => ({ key, label: toolCategoryLabel(key), items: byCat.get(key)! }))
+})
+function onToolUpdated(updated: any) {
+  const idx = tools.value.findIndex((t) => t.name === updated?.name)
+  if (idx >= 0) tools.value.splice(idx, 1, updated)
 }
 async function loadTools() {
   toolsLoading.value = true
   try {
-    tools.value = await assistantApi.tools.catalog()
-  } catch (err) {
+    const res = await assistantApi.tools.catalog()
+    tools.value = res.tools
+    toolUsage.value = res.usage
+  } catch (err: any) {
     console.error('加载 AI 工具目录失败:', err)
   } finally {
     toolsLoading.value = false
@@ -1050,6 +1146,7 @@ watch(activeTab, (k) => {
 
 watch(publicTab, (k) => {
   if (k === 'capabilities') loadCapabilities()
+  if (k === 'probe-history') loadProbeHistory()
 })
 
 watch(section, (value) => {
@@ -1087,6 +1184,20 @@ onMounted(loadAccessRoles)
 
 .ai-settings-page.is-embedded-section :deep(.ai-settings-outer-tabs > .ant-tabs-nav) {
   display: none;
+}
+
+.ai-settings-page :deep(.single-pane-tabs > .ant-tabs-nav) {
+  display: none;
+}
+
+.probe-url {
+  font-size: 12px;
+  opacity: 0.7;
+  word-break: break-all;
+}
+
+:deep(.probe-row-failed) td {
+  opacity: 0.55;
 }
 
 .page-header {
@@ -1241,6 +1352,7 @@ onMounted(loadAccessRoles)
 .test-result.test-fail {
   color: var(--cpq-error, #ff4d4f);
 }
+
 .threads-wrap { width: 100%; }
 .threads-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .threads-head-right { display: flex; align-items: center; gap: 10px; }
@@ -1251,9 +1363,28 @@ onMounted(loadAccessRoles)
 .thread-meta-line { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; color: var(--cpq-text-secondary); font-size: 12px; }
 .thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: bottom; }
 .thread-msg-empty { color: var(--cpq-text-muted); }
-.tool-params { font-size: 12px; color: var(--cpq-text-secondary); word-break: break-all; }
-.tool-summary { font-size: 12px; color: var(--cpq-text-primary); word-break: break-all; }
-.tool-desc { font-size: 12px; color: var(--cpq-text-secondary); word-break: break-all; }
+.tool-group { margin-bottom: 16px; }
+.tool-group-title {
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.tool-group-count {
+  margin-left: 6px;
+  padding: 0 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--cpq-text-secondary);
+  background: var(--cpq-glass-1-bg);
+  border: 1px solid var(--cpq-border-primary);
+}
+.tool-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
 .thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px 10px; }
 .thread-msg.role-user { border-left: 3px solid var(--cpq-accent-primary); }

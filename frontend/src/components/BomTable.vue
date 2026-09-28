@@ -200,6 +200,7 @@ const kpRows = computed(() => {
 .bom-table thead {
   background: var(--cpq-overlay-w6);
   position: sticky;
+  /* 只在自身滚动容器（工作台右栏/任务卡）内吸顶：继承 --cpq-sticky-top 会悬到列内容 60px 处盖住行 */
   top: 0;
   z-index: 1;
 }

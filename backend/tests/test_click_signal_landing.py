@@ -24,8 +24,8 @@ def _seed():
     return {
         "ext": ext,
         "steps_done": ["agent_fill", "model_reason"],
-        "locked_baseline": {"name": "ES22V3-P", "series": "Orion", "form": "2U", "server_model_id": 6},
-        "model_selection": {"name": "ES22V3-P", "series": "Orion", "form": "2U"},
+        "locked_baseline": {"name": "ES220 V3", "series": "Orion", "form": "2U", "server_model_id": 6},
+        "model_selection": {"name": "ES220 V3", "series": "Orion", "form": "2U"},
         "node_state": {"kp_reason": {"row_answers": {}}},
         "last_card": {"options": [{"slot": "brain_ask", "value": VAL, "signal": {"kp_waived": [ROW]}}],
                       "pick_meta": {"row": ROW, "category": "GPU", "request_spec": "NVIDIA B200 192G 显卡 2 张",

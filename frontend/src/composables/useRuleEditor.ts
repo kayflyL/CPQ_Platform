@@ -168,28 +168,6 @@ export function useRuleEditor(opts: RuleEditorOptions) {
     try { await compatibilityRulesApi.setStatus(r.id, next as any); await opts.afterChange() } catch (e: any) { message.error('操作失败') }
   }
 
-  function downloadCurrentRules() {
-    const blob = new Blob([JSON.stringify(opts.rules(), null, 2)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `compatibility-rules-backup-${new Date().toISOString().replace(/[:.]/g, '-')}.json`
-    a.click()
-    URL.revokeObjectURL(url)
-  }
-
-  function resetDefaults() {
-    Modal.confirm({
-      title: '重置为默认规则？',
-      content: '将先下载当前规则备份，再清空全部兼容性规则并恢复系统 seed。此操作不可撤销。',
-      okText: '重置', okType: 'danger', cancelText: '取消',
-      onOk: async () => {
-        downloadCurrentRules()
-        try { await compatibilityRulesApi.reset(); message.success('已重置'); await opts.afterChange() } catch (e: any) { message.error(e.response?.data?.detail || '重置失败') }
-      },
-    })
-  }
-
   function addCond() { form.value.whenAll.push({ field: '', op: '>=', value: '' }) }
   function delCond(i: number | string) { form.value.whenAll.splice(Number(i), 1) }
 
@@ -198,6 +176,6 @@ export function useRuleEditor(opts: RuleEditorOptions) {
   return {
     fieldOpts, filterFn,
     editing, isNew, saving, form, editModalVisible,
-    openNew, openEdit, closeEdit, save, remove, toggleStatus, resetDefaults, addCond, delCond,
+    openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond,
   }
 }

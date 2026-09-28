@@ -77,8 +77,16 @@ async def _tool_query_data(args: dict) -> Any:
     return await asyncio.to_thread(tool_query_data, args or {})
 
 
+async def _tool_opportunity_stats(args: dict) -> Any:
+    """opportunity_stats → 商机统计口径工具（与商机线索页同一实现，报告数字唯一来源）。"""
+    from app.services.opp_stats import compute_opp_stats
+    _args = args or {}
+    return await asyncio.to_thread(
+        compute_opp_stats, str(_args.get("start") or ""), str(_args.get("end") or ""))
+
+
 async def _tool_fill_requirement(args: dict) -> Any:
-    """【任务期工具】agent_fill 登记回合专用：大脑亲自把客户需求逐项落进线索登记表。
+    """【需求分析流程工具】agent_fill 登记回合专用：大脑亲自把客户需求逐项落进线索登记表。
 
     普通对话回合不挂载这个工具（进任务前不填表）；落表语义确定性（默认只填空槽）。
     """
@@ -87,9 +95,9 @@ async def _tool_fill_requirement(args: dict) -> Any:
 
 
 async def _tool_choose_model(args: dict) -> Any:
-    """【统一模型工具】任务期锁定候选机，或浏览在售机型候选。
+    """【统一模型工具】需求分析流程内锁定候选机，或浏览在售机型候选。
 
-    任务期 model_reason：带 model/model_id 从引擎候选池锁定一个机型（接地，池外拒绝）。
+    需求分析流程内 model_reason：带 model/model_id 从引擎候选池锁定一个机型（接地，池外拒绝）。
     同事对话/参考：带 usage/server_type_name/series/form 浏览在售机型候选 digest。
     """
     if (args or {}).get("model") or (args or {}).get("model_id"):
@@ -99,25 +107,25 @@ async def _tool_choose_model(args: dict) -> Any:
 
 
 async def _tool_query_parts(args: dict) -> Any:
-    """【任务期工具】query_parts → 配件库候选精确检索（按类目+结构化规格/关键词收窄，或多行批量召回）。"""
+    """【需求分析流程工具】query_parts → 配件库候选精确检索（按类目+结构化规格/关键词收窄，或多行批量召回）。"""
     from app.services.skill_tools_kp import tool_query_parts
     return await asyncio.to_thread(tool_query_parts, args or {})
 
 
 async def _tool_inspect_parts(args: dict) -> Any:
-    """【任务期工具】inspect_parts → 统一只读钻取入口（action=part/row/category/grep）。"""
+    """【需求分析流程工具】inspect_parts → 统一只读钻取入口（action=part/row/category/grep）。"""
     from app.services.skill_tools_open import tool_inspect_parts
     return await asyncio.to_thread(tool_inspect_parts, args or {})
 
 
 async def _tool_select_parts(args: dict) -> Any:
-    """【任务期工具】select_parts → 把大脑点名的料号按「类目+料号名」回库核对后锁定（核对不上就拒）。"""
+    """【需求分析流程工具】select_parts → 把大脑点名的料号按「类目+料号名」回库核对后锁定（核对不上就拒）。"""
     from app.services.skill_tools_select import tool_select_parts
     return await asyncio.to_thread(tool_select_parts, args or {})
 
 
 async def _tool_ask_user(args: dict) -> Any:
-    """【任务期工具】大脑回合专用：把需要客户决策的问题升格为结构化选项卡。
+    """【需求分析流程工具】大脑回合专用：把需要客户决策的问题升格为结构化选项卡。
 
     大脑自由文本提问没有交互通道（2026-09-05 实测：问了但没卡可点）；此工具把
     问题+选项登记进回合上下文，由 skill_chat 在引擎结束后统一弹卡。
@@ -130,3 +138,9 @@ async def _tool_catalog_search(args: dict) -> Any:
     """在售目录查询（推荐的事实来源）：types / models。"""
     from app.services.skill_tools_misc import tool_catalog_search
     return tool_catalog_search(args or {})
+
+
+async def _tool_colleague_memory(args: dict) -> Any:
+    """同事长期记忆自管（写入者=对话者）：list / view / write / retire 四动作。"""
+    from app.services.colleague_memory_service import tool_memory_action
+    return await asyncio.to_thread(tool_memory_action, args or {})

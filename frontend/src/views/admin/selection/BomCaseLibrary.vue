@@ -370,7 +370,7 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
         <div class="bc-field">
           <label>L6 Configuration Description（技术员机箱能力声明原文，重放/校验用）</label>
           <a-textarea v-model:value="form.l6_config_desc" :auto-size="{ minRows: 2, maxRows: 5 }"
-            placeholder="如：ES22V3-P支持2颗AMD EPYC 9004/9005代CPU…支持12个3.5/2.5英寸SATA/SAS硬盘或者NVMe…" />
+            placeholder="如：ES220 V3支持2颗AMD EPYC 9004/9005代CPU…支持12个3.5/2.5英寸SATA/SAS硬盘或者NVMe…" />
         </div>
 
         <div class="bc-field">
@@ -435,7 +435,7 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
 
 <style scoped>
 .bc-lib { display: flex; gap: 16px; padding: 4px 2px 40px; align-items: flex-start; }
-.bc-cats { width: 170px; flex-shrink: 0; position: sticky; top: 12px; display: flex; flex-direction: column; gap: 14px; }
+.bc-cats { width: 170px; flex-shrink: 0; position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 12px); display: flex; flex-direction: column; gap: 14px; }
 .bc-cat-group { display: flex; flex-direction: column; gap: 2px; }
 .bc-cat-title { font-size: 12px; font-weight: 700; color: var(--cpq-text-muted); margin-bottom: 4px; }
 .bc-cat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary); transition: background .15s; }

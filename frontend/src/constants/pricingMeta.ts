@@ -151,12 +151,14 @@ export const DEFAULT_DIM_BODIES = {
 export interface MarginAlertBody {
   enabled: boolean       // 是否启用工作台低利润率告警
   threshold: number      // 告警门槛（综合毛利率 %），低于此值弹窗
+  approval_threshold?: number  // 审批红线（%），低于此值发送报价单须总监审批；缺省与告警门槛同值
   title: string          // 弹窗标题
   content: string        // 弹窗正文模板，支持 ${margin}（当前毛利率）与 ${threshold}（门槛）占位符
 }
 export const DEFAULT_MARGIN_ALERT: MarginAlertBody = {
   enabled: true,
   threshold: 7,
+  approval_threshold: 5,
   title: '利润率低于告警线',
   content: '当前综合毛利率 ${margin}% 低于告警线 ${threshold}%，建议线下走特价审批，系统仅作记录。',
 }

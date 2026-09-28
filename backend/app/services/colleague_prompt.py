@@ -15,8 +15,7 @@ from typing import Optional
 
 from app.repository.skill_catalog_repo import SkillCatalogRepository
 from app.repository.system_config_repo import SystemConfigRepository
-from app.services.agent_tool_specs import tool_required_data_sources
-from app.services.ai_colleague_service import colleague_tool_ids, effective_data_sources
+from app.services.ai_colleague_service import colleague_tool_ids
 from app.services.skill_types import is_capability_skill, is_workflow_skill
 
 
@@ -83,13 +82,6 @@ def _effective_tool_ids(colleague: Optional[dict]) -> list:
     if allowed is None:
         return list(dict.fromkeys(skill_tools))
     return list(dict.fromkeys([str(t) for t in allowed if str(t)] + skill_tools))
-
-
-def _effective_data_sources(colleague: Optional[dict], tool_ids: Optional[list] = None) -> list:
-    """数据域 = 角色自身数据权限 + 当前可用工具所需数据权限（绑定 Skill 自动授权）。"""
-    sources = set(effective_data_sources(colleague))
-    sources.update(tool_required_data_sources(tool_ids))
-    return sorted(sources)
 
 
 def build_chat_config(colleague: Optional[dict] = None) -> dict:
@@ -186,7 +178,7 @@ def _handoff_hint(colleague: Optional[dict]) -> str:
         lines.append(f"- {c.get('name') or c.get('role_key')}" + (f"：{desc}" if desc else ""))
     if not lines:
         return ""
-    return "【同事转接】在册同事（转接参考）：\n" + "\n".join(lines)
+    return "在册同事（职责与技能参考）：\n" + "\n".join(lines)
 
 
 def _memory_policy(colleague: Optional[dict]) -> dict:
@@ -198,8 +190,6 @@ def _memory_policy(colleague: Optional[dict]) -> dict:
         "enabled": True,
         "short_term_max_turns": 12,
         "query_recent": 6,
-        "save_after_turn": True,
-        "auto_memory": True,
     }
 
 
@@ -225,7 +215,8 @@ def _skill_for_tool(colleague: Optional[dict], tool_name: str) -> dict:
     return {}
 
 
-async def _memory_block(colleague: Optional[dict], user_text: str) -> str:
+async def _memory_block(colleague: Optional[dict], user_text: str,
+                        user: Optional[dict] = None) -> str:
     policy = _memory_policy(colleague)
     if policy.get("enabled") is False:
         return ""
@@ -234,25 +225,32 @@ async def _memory_block(colleague: Optional[dict], user_text: str) -> str:
     except (TypeError, ValueError):
         limit = 6
     role_key = (colleague or {}).get("role_key") or "assistant"
+    user_id = str((user or {}).get("user_id") or "").strip() or None
     from app.services import colleague_memory_service
-    return await asyncio.to_thread(colleague_memory_service.memory_block, role_key, limit)
+    return await asyncio.to_thread(
+        colleague_memory_service.memory_block, role_key, limit, user_text, user_id)
 
 
 def _user_name(user: Optional[dict]) -> str:
     return str((user or {}).get("name") or (user or {}).get("user_id") or "用户").strip() or "用户"
 
 
-def _schedule_memory_extraction(colleague: Optional[dict], user_name: str,
-                                user_text: str, final_text: str) -> None:
-    """回复完成后后台抽取结构化记忆（fire-and-forget，失败静默不影响主流程）。"""
-    policy = _memory_policy(colleague)
-    if policy.get("enabled") is False or policy.get("save_after_turn") is False:
-        return
-    if policy.get("auto_memory") is False:
-        return
-    role_key = (colleague or {}).get("role_key") or "assistant"
-    from app.services import colleague_memory_service
-    colleague_memory_service.schedule_extraction(role_key, user_name, user_text, final_text)
+def _group_channel_note(user: Optional[dict]) -> str:
+    """团队群渠道事实块（形状陈述，不含指令）：群成员构成让模型可直接回答元问题。
+
+    群=未绑定同事的总助线程（api/assistant.py 判定），人类成员即发起人；
+    AI 同事成员=在册启用全员（含总助自己，与 dispatchable 无关——
+    名册 digest 是「可转派名册」会漏掉组长，不能拿来数人头）。
+    """
+    from app.services.ai_colleague_service import get_ai_colleagues
+    try:
+        count = len(get_ai_colleagues(include_disabled=False)) or 1
+    except Exception:
+        count = 1
+    return (
+        "当前会话形态：团队群（人类成员与多位 AI 同事共用的会话，不是一对一私聊）。\n"
+        f"群内人类成员：{_user_name(user)}。AI 同事成员：在册同事全部 {count} 位（含你）。"
+    )
 
 
 def _base_messages(
@@ -261,10 +259,13 @@ def _base_messages(
     context_summary: Optional[str],
     history: list,
     memory_block: str,
+    channel_note: str = "",
 ) -> list:
     chat_cfg = build_chat_config(colleague)
     history = _short_term_history(colleague, history)
     parts = [chat_cfg["chat_system_prompt"], _style_hint(chat_cfg)]
+    if channel_note:
+        parts.append(channel_note)
     skill_prompt = _skill_prompt(colleague)
     if skill_prompt:
         parts.append(skill_prompt)

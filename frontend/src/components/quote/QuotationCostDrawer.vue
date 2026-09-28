@@ -5,8 +5,10 @@
  *    （各配置利润率独立，不再跨配置混算）；totals 仅作项目总计（Σ 单台 × qty）备用。
  *  - 手工补录快照（旧数据）：{manual:true, captured_at, totals} → 只渲染一个整机汇总（无 configs）。
  * 仅保留只读展示；不再支持补录/编辑。 */
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { money } from '@/utils/quoteCommon'
+import { useAuthStore } from '@/store/auth'
+import { baseConfigApi, catalogApi } from '@/api/serverConfig'
 
 const props = defineProps<{
   open: boolean
@@ -18,7 +20,14 @@ const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
   (e: 'view-excel'): void
   (e: 'reparse'): void
+  (e: 'unfreeze'): void
 }>()
+
+// 解冻已导出报价单：需 action.quote.unfreeze 权限（「用户与权限」页可分配）；
+// 已发送的单需先退回审批节点，前端只置灰，最终以后端 409 为准。
+const auth = useAuthStore()
+const canUnfreeze = computed(() => auth.can('action.quote.unfreeze') && !!props.quotation?.exported_at)
+const unfreezeBlocked = computed(() => !!props.quotation?.submitted_at)
 
 const snap = computed<any>(() => props.quotation?.cost_snapshot || null)
 const hasSnapshot = computed(() => !!snap.value)
@@ -46,6 +55,83 @@ function formatStratBody(s: any): string {
 
 const totals = computed(() => snap.value?.totals || {})
 const cfgNames = computed<string[]>(() => (snap.value?.configs ? Object.keys(snap.value.configs) : []))
+
+// ── 机型信息（服务器型号 / 机箱形态 / 盘位 / 系列）──
+// 新导出单：快照已冻结（见 Workspace.buildCostSnapshot）；旧快照：回退报价单字段 + 机型目录/基准配置现查。
+// 只做展示，不参与任何成本口径。
+const liveInfo = ref<Record<string, { series?: string; form?: string; bays?: number; name?: string }>>({})
+let modelCatalog: any[] | null = null
+
+async function loadModelCatalog(): Promise<any[]> {
+  if (modelCatalog) return modelCatalog
+  try {
+    const res = await catalogApi.listModels()
+    modelCatalog = res.models || []
+  } catch {
+    modelCatalog = []
+  }
+  return modelCatalog
+}
+
+function baseConfigIdOf(name: string): number | null {
+  const fromSnap = snap.value?.configs?.[name]?.base_config_id
+  if (fromSnap) return Number(fromSnap)
+  const fromQuote = props.quotation?.config_l6_picks?.[name]?.base_config_id
+  return fromQuote ? Number(fromQuote) : null
+}
+
+/** 旧快照补齐形态/盘位/系列：机型目录（按 server_model_id/型号名）→ 基准配置（base_config_id）。 */
+async function ensureLiveInfo(name: string) {
+  const c = snap.value?.configs?.[name] || {}
+  if (c.form && c.series && c.bays != null) return  // 快照齐了，不必回查
+  if (liveInfo.value[name]) return
+  const modelId = c.server_model_id ?? props.quotation?.config_l6_picks?.[name]?.server_model_id ?? null
+  const modelName = c.server_model || props.quotation?.config_server_models?.[name] || ''
+  const models = await loadModelCatalog()
+  const model = (modelId ? models.find((m: any) => m.id === Number(modelId)) : null)
+    || models.find((m: any) => m.name === modelName)
+  let info: { series?: string; form?: string; bays?: number; name?: string } = {}
+  if (model?.base_config) {
+    info = {
+      series: model.base_config.series || '',
+      form: model.base_config.form || '',
+      bays: model.base_config.bays ?? undefined,
+      name: model.base_config.name || '',
+    }
+  } else {
+    const bcId = baseConfigIdOf(name)
+    if (bcId) {
+      try {
+        const bc: any = await baseConfigApi.get(bcId)
+        info = { series: bc.series || '', form: bc.form || '', bays: bc.bays ?? undefined, name: bc.name || '' }
+      } catch { /* 机型信息缺失不阻塞成本复核 */ }
+    }
+  }
+  liveInfo.value = { ...liveInfo.value, [name]: info }
+}
+
+watch(
+  [() => props.open, () => props.quotation?.quotation_id],
+  ([open]) => { if (open) cfgNames.value.forEach((n) => void ensureLiveInfo(n)) },
+  { immediate: true },
+)
+
+const modelInfoMap = computed<Record<string, any>>(() => {
+  const out: Record<string, any> = {}
+  for (const name of cfgNames.value) {
+    const c = snap.value?.configs?.[name] || {}
+    const live = liveInfo.value[name] || {}
+    out[name] = {
+      server_model: c.server_model || props.quotation?.config_server_models?.[name] || '',
+      description: c.description || props.quotation?.config_descriptions?.[name] || '',
+      form: c.form || live.form || '',
+      bays: c.bays ?? live.bays ?? null,
+      series: c.series || live.series || '',
+      base_config_name: c.base_config_name || live.name || '',
+    }
+  }
+  return out
+})
 
 
 
@@ -129,6 +215,16 @@ function close() {
             <span class="sb-qty">×{{ snap.configs[name].qty || 0 }} 台</span>
           </header>
 
+          <!-- 机型信息：型号 / 机箱形态 / 盘位 / 系列（快照冻结优先，旧快照现查补齐） -->
+          <div class="mi-grid">
+            <div class="mi"><span class="mi-k">服务器型号</span><span class="mi-v mi-name">{{ modelInfoMap[name].server_model || '—' }}</span></div>
+            <div class="mi"><span class="mi-k">机箱形态</span><span class="mi-v">{{ modelInfoMap[name].form || '—' }}</span></div>
+            <div class="mi"><span class="mi-k">盘位</span><span class="mi-v">{{ modelInfoMap[name].bays ?? '—' }}</span></div>
+            <div class="mi"><span class="mi-k">系列</span><span class="mi-v">{{ modelInfoMap[name].series || '—' }}</span></div>
+          </div>
+          <div v-if="modelInfoMap[name].base_config_name" class="mi-note">基准配置 · {{ modelInfoMap[name].base_config_name }}</div>
+          <div v-if="modelInfoMap[name].description" class="mi-note mi-desc" :title="modelInfoMap[name].description">{{ modelInfoMap[name].description }}</div>
+
           <!-- 整机汇总 KPI（单台） -->
           <div class="kpi-row">
             <div class="kpi">
@@ -175,12 +271,12 @@ function close() {
             <summary>KP 配件明细（{{ snap.configs[name].kp_items.length }} 项）</summary>
             <table class="ct kp-item-table">
               <thead>
-                <tr><th>配件</th><th>分类</th><th>数量</th><th>成本</th><th>售价</th><th>利润率</th></tr>
+                <tr><th>类别</th><th>配件</th><th>数量</th><th>成本</th><th>售价</th><th>利润率</th></tr>
               </thead>
               <tbody>
                 <tr v-for="(it, i) in snap.configs[name].kp_items" :key="i">
+                  <td>{{ it.cat }}</td>
                   <td>{{ it.name || '—' }}</td>
-                  <td class="td-text">{{ it.cat }}</td>
                   <td>{{ it.qty }}</td>
                   <td>{{ money(it.cost) }}</td>
                   <td>{{ money(it.sales) }}</td>
@@ -194,6 +290,12 @@ function close() {
 
     <template #footer>
       <div class="drawer-footer">
+        <template v-if="canUnfreeze">
+          <a-tooltip v-if="unfreezeBlocked" title="该报价单已发送，请先退回审批节点后再解冻">
+            <span><a-button disabled>解冻并编辑</a-button></span>
+          </a-tooltip>
+          <a-button v-else type="primary" @click="emit('unfreeze')">解冻并编辑</a-button>
+        </template>
         <template v-if="hasSnapshot">
           <a-button :loading="excelLoading" @click="emit('view-excel')">查看 Excel</a-button>
           <a-button v-if="!isManual" type="primary" ghost :loading="reparseLoading" @click="emit('reparse')">复制为草稿</a-button>
@@ -230,6 +332,19 @@ function close() {
 .sb-head h4 { margin: 0; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #1f2937); }
 .sb-qty { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 
+/* 机型信息（型号/形态/盘位/系列）：与工作台机箱卡同字段同口径 */
+.mi-grid {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5px 14px;
+  padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px dashed var(--cpq-divider, rgba(0,0,0,0.06));
+}
+.mi { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+.mi-k { font-size: 11px; color: var(--cpq-text-muted, #6E7582); flex-shrink: 0; }
+.mi-v { font-size: 12.5px; color: var(--cpq-text-primary, #1f2937); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi-name { font-weight: 600; }
+.mi-note { font-size: 11.5px; color: var(--cpq-text-muted, #6E7582); line-height: 1.5; margin: -4px 0 8px; }
+.mi-desc { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
 .kpi-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .kpi { display: flex; flex-direction: column; gap: 4px; }
 .kpi-label { font-size: 11px; color: var(--cpq-text-muted, #6E7582); text-transform: uppercase; letter-spacing: 0.4px; }
@@ -243,7 +358,12 @@ function close() {
 .ct td { text-align: right; padding: 5px 6px; color: var(--cpq-text-secondary, #4b5563); }
 .ct td:first-child { text-align: left; color: var(--cpq-text-primary, #1f2937); }
 
-.kp-item-table td.td-text { text-align: left; }
+/* KP 配件明细：类别在第一列，全表（表头+单元格）统一左对齐，避免右对齐数字与左对齐文字混排 */
+.kp-item-table th,
+.kp-item-table td { text-align: left; }
+.kp-item-table th { white-space: nowrap; }
+.kp-item-table td:first-child { color: var(--cpq-text-secondary, #4b5563); }
+.kp-item-table td:nth-child(2) { color: var(--cpq-text-primary, #1f2937); }
 
 .section-drill { margin-top: 10px; }
 .section-drill summary { cursor: pointer; font-size: 12px; color: var(--cpq-text-muted, #6E7582); }

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { confirmWithReason } from './confirmWithReason'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import CostSheetEditor from '@/components/opportunity/CostSheetEditor.vue'
 import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
@@ -19,8 +20,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'changed'): void
   (e: 'card-updated', card: FlowCard): void
-  (e: 'open-archive', payload: { categories: string[]; title: string }): void
-  (e: 'upload-cost-sheet'): void
 }>()
 
 const oppId = computed(() => props.board.opportunity?.opportunity_id || '')
@@ -63,6 +62,7 @@ function openCostForBom(bom: BomScheme) {
 
 const editorOpen = ref(false)
 const editorSheetId = ref<number | null>(null)
+const editorUpdatedAt = ref('')
 const editorBomSchemeId = ref<number | null>(null)
 const editorName = ref('')
 const editorConfigs = ref<PortalSheetConfig[]>([])
@@ -203,6 +203,9 @@ function openNew() {
   openNewForBom(first)
 }
 
+// 卡头的「新建成本表」按钮在 OpportunityProcessBoard 的节点卡头上，经 expose 远调
+defineExpose({ openNew })
+
 function openNewForBom(bom: BomScheme) {
   if (!editable.value) return
   if (!bom.configs?.length) {
@@ -210,6 +213,7 @@ function openNewForBom(bom: BomScheme) {
     return
   }
   editorSheetId.value = null
+  editorUpdatedAt.value = ''
   editorBomSchemeId.value = bom.id
   editorName.value = `成本-${bom.name}`
   editorConfigs.value = ensureCostFields(bom.configs)
@@ -222,6 +226,7 @@ function openNewForBom(bom: BomScheme) {
 
 function openSheet(sheet: CostSheet) {
   editorSheetId.value = sheet.id
+  editorUpdatedAt.value = sheet.updated_at || ''
   editorBomSchemeId.value = sheet.bom_scheme_id
   editorName.value = sheet.name
   editorConfigs.value = cloneConfigs(sheet.configs)
@@ -264,6 +269,7 @@ async function saveDraft() {
   try {
     await portalApi.saveCostSheetDraft(oppId.value, {
       sheet_id: editorSheetId.value,
+      expected_updated_at: editorUpdatedAt.value,
       flow_card_id: editorFlowCardId(),
       name: editorName.value.trim(),
       configs,
@@ -293,6 +299,7 @@ async function submitSheet() {
   async function doSubmit(assigneeName: string) {
     const saved = await portalApi.saveCostSheetDraft(oppId.value, {
       sheet_id: editorSheetId.value,
+      expected_updated_at: editorUpdatedAt.value,
       flow_card_id: editorFlowCardId(),
       name: editorName.value.trim(),
       configs,
@@ -379,20 +386,15 @@ function requestWithdrawSheet(sheet: CostSheet) {
 function returnSheet(sheet: CostSheet) {
   const card = cardForSheet(sheet)
   if (!card) return
-  Modal.confirm({
+  confirmWithReason({
     title: `退回成本表「${sheet.name}」？`,
-    content: '退回后这张卡会回到成本核算节点，需要重新计算并提交。',
+    hint: '退回后这张卡会回到成本核算节点，需要重新计算并提交。',
     okText: '退回',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        const res = await portalApi.returnCard(oppId.value, card.id)
-        message.success('成本卡已退回')
-        emit('card-updated', res.card)
-      } catch (e: any) {
-        message.error(e.response?.data?.detail || '退回失败')
-      }
+    placeholder: '请填写退回原因（必填），让对方知道需要修改什么',
+    async onOk(reason) {
+      const res = await portalApi.returnCard(oppId.value, card.id, reason)
+      message.success('成本卡已退回')
+      emit('card-updated', res.card)
     },
   })
 }
@@ -400,22 +402,10 @@ function returnSheet(sheet: CostSheet) {
 
 <template>
   <div class="cost-workbench">
-    <header class="cw-head">
-      <div>
-        <span class="cw-eyebrow">成本核算</span>
-        <h3>成本核算工作区</h3>
-      </div>
-      <div class="cw-head-actions">
-        <a-button size="small" @click="emit('open-archive', { categories: ['requirement'], title: '成本附件' })">成本附件</a-button>
-        <a-button v-if="editable" type="primary" size="small" @click="emit('upload-cost-sheet')">上传成本表</a-button>
-        <a-button v-if="editable" type="primary" size="small" @click="openNew">新建成本表</a-button>
-      </div>
-    </header>
-
     <RecordTable
       title="成本表"
-      :empty="!sheets.length"
-      :empty-text="pendingBomSchemes.length ? '尚无成本表，点击“新建成本表”从待核价 BOM 方案生成。' : '尚无成本表；请先在方案配置节点提交一个 BOM 方案。'"
+      :empty="!sheets.length && !pendingBomSchemes.length"
+      empty-text="尚无成本表；请先在方案配置节点提交一个 BOM 方案。"
       :columns="[
         { label: '成本表', width: '220px' },
         { label: '单号', width: '110px' },
@@ -535,32 +525,6 @@ function returnSheet(sheet: CostSheet) {
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
-}
-.cw-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-}
-.cw-eyebrow {
-  display: block;
-  color: var(--cpq-text-muted);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.cw-head h3 {
-  margin: 2px 0 0;
-  color: var(--cpq-text-primary);
-  font-size: 14px;
-}
-.cw-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 .cw-grid {
   display: grid;

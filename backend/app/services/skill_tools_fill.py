@@ -24,7 +24,7 @@ def requirement_prompt(slots: Optional[dict] = None, price_ok: bool = True) -> s
     统一由 Skill Studio 左栏「使用说明」（graph.manual_rules）承载，与节点大脑同源。
     data_rule 已下沉到 query_data 工具描述，不再在此注入。
     """
-    # 只摆事实：登记表视图 + 价格权限事实。禁价话术与推荐纪律住在左栏（任务规则 20），
+    # 只摆事实：登记表视图 + 价格权限事实。禁价话术与推荐纪律住在左栏（任务规则 10），
     # 代码里再写一遍就是第二套提示词。
     price_fact = "" if price_ok else "（本角色无价格查看权限 price_access=false）"
     if slots is None:
@@ -67,7 +67,7 @@ def _normalize_fill_keys(slots: dict) -> dict:
 
 
 def tool_fill_requirement(args: dict) -> dict:
-    """【任务期工具】把客户已明确表达的需求逐项登记到线索登记表（结构化落表）。
+    """【需求分析流程工具】把客户已明确表达的需求逐项登记到线索登记表（结构化落表）。
 
     只在 agent_fill 节点的大脑回合挂载；普通对话永远没有这个工具——
     进任务前角色只引导和复述，绝不提前填表。落表本身是确定性的
@@ -76,7 +76,7 @@ def tool_fill_requirement(args: dict) -> dict:
     ctx = TOOL_CTX.get()
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "hint": "配置任务未开始（fill_requirement 仅在任务期可用）"}
+                "hint": "配置任务未开始（fill_requirement 仅在需求分析流程内可用）"}
     args = args or {}
     replace = bool(args.get("replace"))
     # 扁平契约：登记表字段即顶层键（与线索登记表/目标层同构）；兼容旧 slots 包裹。
@@ -91,6 +91,11 @@ def tool_fill_requirement(args: dict) -> dict:
         return {"ok": False, "error": "invalid_args",
                 "hint": "请提供要登记的字段（顶层键=登记表字段/部件清单 kp_rows）"}
     slots = _normalize_fill_keys(slots)
+    # 整单委托申报（delegation=full）：客户原话明示全权委托时大脑自报，与 customer_stated
+    # 同一溯源自报模式——只认申报，不猜。登记后推断的前提字段不再逐项求证（豁免见
+    # slot_contract.unconfirmed_premise_fields），确认收敛到整体落定卡一次完成。
+    delegation = str(slots.pop("delegation", "") or "").strip()
+    delegation_ok = delegation == "full"
     # 值规范化（机制级，非业务词表）：数字字段接受「3年」「2台」等自然语言写法，
     # 否则会被整数守卫静默丢弃（实测：大脑原样转写"3年"→字段丢失）。
     import re as _re
@@ -105,6 +110,8 @@ def tool_fill_requirement(args: dict) -> dict:
     if not isinstance(ext, dict):
         ext = {}
         ctx["ext"] = ext
+    if delegation_ok:
+        ext["delegation"] = "full"
     # 明确放弃部件（kp_absent）：客户答复"不需要某类部件"时登记放弃，
     # 必登记部件策略（kp_required）据此放行，不再追问该大类。
     kp_absent = slots.pop("kp_absent", None)
@@ -142,6 +149,19 @@ def tool_fill_requirement(args: dict) -> dict:
     save = ctx.get("save")
     if callable(save):
         save()
+    # 词典卡影子校验（确定性、零 LLM、永不代填）：AI 本次登记平台值且 CRE 硬命中不一致 →
+    # contract_warning（提示核对，试运行面板可见）。一致 → 推荐标记在确认卡选项上（tool_ask_user）。
+    if "platform_type" in slots:
+        try:
+            from app.services.requirement_knowledge import shadow_check_platform
+            _sh = shadow_check_platform(ext)
+            _ai_v = str(ext.get("platform_type") or "").strip()
+            if _sh and _ai_v and _sh["rule_value"] != _ai_v:
+                (ctx.get("engine") or {}).setdefault("contract_warnings", []).append({
+                    "step": "agent_fill", "reason_code": "platform_shadow_conflict",
+                    "message": f"平台归置规则硬命中 {_sh['rule_value']}，AI 登记 platform_type={_ai_v}，请核对"})
+        except Exception:
+            logger.warning("平台归置影子校验失败（降级：跳过）", exc_info=True)
     from app.services.slot_contract import _missing_critical
     spec = slot_spec()
     valid_keys = {str(s.get("key") or "").strip() for s in spec if str(s.get("key") or "").strip()}
@@ -152,10 +172,12 @@ def tool_fill_requirement(args: dict) -> dict:
     unknown = sorted(k for k in slots if k not in valid_keys)
     frozen = int(ext.get("_kp_rows_frozen") or 0)
     ext.pop("_kp_rows_frozen", None)
-    return {"ok": True, "changed": bool(changed or kp_absent_changed or stated_marks),
+    return {"ok": True, "changed": bool(changed or kp_absent_changed or stated_marks
+                                          or delegation_ok),
             "registered": sorted(str(k) for k in slots.keys() if k in valid_keys)
                           + (["kp_absent"] if kp_absent_changed else []),
             "customer_stated": stated_marks,
+            **({"delegation": "full"} if delegation_ok else {}),
             "unrecognized_keys": unknown,
             "locked_rows_kept": frozen,
             "hint": ("部件信息请改用 kp_rows 数组登记：每项 {part_category, description, qty}，"
@@ -233,6 +255,12 @@ def fill_tool_parameters() -> dict:
     props["replace"] = {
         "type": "boolean",
         "description": "客户改口/修正时 true（允许覆盖已登记值）；默认 false 只填空槽",
+    }
+    props["delegation"] = {
+        "type": "string", "enum": ["full"],
+        "description": ("客户原话明示全权委托（「一切你定/完全按推荐/你看着配」）时传 full："
+                        "推断的类型/平台/形态由你直接定并在复述里说明依据，逐项确认收敛到"
+                        "整体落定卡一次完成；仅限客户原话明示委托时申报"),
     }
     # 客户原话申报：目录字段「客户明说 / 你推断」的溯源自报——引擎只认这一份申报，
     # 推断值带着进下游会让「库里有没有料」的判据失真（见 §前提闸门）。

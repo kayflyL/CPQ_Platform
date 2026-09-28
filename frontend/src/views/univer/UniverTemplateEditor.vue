@@ -179,7 +179,7 @@
                         :key="field.key"
                         :value="field.key"
                       >
-                        {{ field.label }}
+                        {{ field.label }}<span v-if="field.sens" class="sens-badge" :class="`sens-${field.sens}`">{{ sensLabel(field.sens) }}</span><span v-if="field.scope === 'region'" class="sens-badge scope-region">整机</span>
                       </a-select-option>
                     </a-select>
                     <a-select
@@ -257,7 +257,7 @@
                         :key="field.key"
                         :value="field.key"
                       >
-                        {{ field.label }}
+                        {{ field.label }}<span v-if="field.sens" class="sens-badge" :class="`sens-${field.sens}`">{{ sensLabel(field.sens) }}</span><span v-if="field.scope === 'region'" class="sens-badge scope-region">整机</span>
                       </a-select-option>
                     </a-select>
                     <a-select
@@ -335,7 +335,7 @@
                         :key="field.key"
                         :value="field.key"
                       >
-                        {{ field.label }}
+                        {{ field.label }}<span v-if="field.sens" class="sens-badge" :class="`sens-${field.sens}`">{{ sensLabel(field.sens) }}</span><span v-if="field.scope === 'region'" class="sens-badge scope-region">整机</span>
                       </a-select-option>
                     </a-select>
                     <a-select
@@ -719,6 +719,8 @@ async function loadFields() {
         formatted[sourceKey] = (fields as any[]).map(f => ({
           key: f.field_key,
           label: f.field_label || f.field_key,
+          sens: f.sens_group || null,
+          scope: f.scope || null,
         }))
       }
       dataSourceFields.value = formatted
@@ -1137,6 +1139,14 @@ const availableSubFields = computed(() => {
   return dataSourceFields.value[source] || []
 })
 
+// 敏感分组徽标文案：告知该列在预览/导出时受导出选项控制
+function sensLabel(sens: string): string {
+  if (sens === 'cost') return '对内·成本'
+  if (sens === 'margin') return '对内·利润率'
+  if (sens === 'sell') return '明细销售价'
+  return ''
+}
+
 // 判断某列是否已被其他映射占用
 function isColumnMapped(col: string, currentIndex: number): boolean {
   return fieldMappingList.value.some((m, i) => i !== currentIndex && m.colLetter === col)
@@ -1363,10 +1373,35 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 动态子字段敏感分组徽标（下拉选项内联）：提示该列受预览「导出选项」控制 */
+.sens-badge {
+  margin-left: 6px;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 4px;
+  vertical-align: 1px;
+}
+.sens-badge.sens-cost,
+.sens-badge.sens-margin {
+  color: #b45309;
+  background: rgba(245, 158, 11, 0.14);
+}
+.sens-badge.sens-sell {
+  color: #1d4ed8;
+  background: rgba(59, 130, 246, 0.14);
+}
+/* 区域聚合徽标：整机一个值，填充器自动纵向合并 */
+.sens-badge.scope-region {
+  color: #0f7a5e;
+  background: rgba(16, 185, 129, 0.14);
+}
+
 .univer-template-editor {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  /* 滚动容器内有 72px 顶栏让位占位：满高页必须扣掉，否则底部被顶出视口 */
+  height: calc(100% - var(--cpq-header-clearance, 72px));
   position: relative;
   z-index: 1; /* 盖到 DefaultLayout .main-scroll::after 暗角装饰(z-index:0)之上，
                  否则视口边缘的暗角会罩在顶部工具栏/底部 sheet 栏上，泛灰发雾 */

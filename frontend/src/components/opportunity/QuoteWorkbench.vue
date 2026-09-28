@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { message, Modal } from 'ant-design-vue'
-import { CalculatorOutlined, DownOutlined, FileDoneOutlined, UpOutlined } from '@ant-design/icons-vue'
-import type { BomConfig, CostConfig, FlowCard, PortalBoard, QuoteContext } from '@/api/portal'
+import { computed, onMounted, ref, watch } from 'vue'
+import { message } from 'ant-design-vue'
+import { confirmWithReason } from './confirmWithReason'
+import { AuditOutlined, CalculatorOutlined, DownOutlined, FileDoneOutlined, UpOutlined } from '@ant-design/icons-vue'
+import type { BomConfig, CostConfig, FlowCard, PortalBoard, PricingApproval, QuoteContext } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { portalApi } from '@/api/portal'
@@ -19,16 +20,22 @@ const props = withDefaults(defineProps<{
   quoteSelectMode?: boolean
   quoteSelectedIds?: string[] | Set<string>
   attachments?: FeedAttachment[]
+  /** 两个面板的折叠状态由 board 统一管理（按节点待办规则给默认值） */
+  upstreamOpen?: boolean
+  quoteOpen?: boolean
 }>(), {
   quotePriceVisible: false,
   quoteSelectMode: false,
   quoteSelectedIds: () => [],
   attachments: () => [],
+  upstreamOpen: true,
+  quoteOpen: true,
 })
 
 const emit = defineEmits<{
   (e: 'new-quotation'): void
   (e: 'view-quotation', quotation: Quotation): void
+  (e: 'unfreeze-quotation', quotation: Quotation): void
   (e: 'set-primary', quotation: Quotation): void
   (e: 'rename-quotation', quotation: Quotation): void
   (e: 'delete-quotation', quotationId: string): void
@@ -42,6 +49,8 @@ const emit = defineEmits<{
   (e: 'card-updated', card: FlowCard): void
   (e: 'refresh-quotations'): void
   (e: 'close'): void
+  (e: 'update:upstreamOpen', value: boolean): void
+  (e: 'update:quoteOpen', value: boolean): void
 }>()
 
 const opportunityId = computed(() => props.board.opportunity?.opportunity_id || '')
@@ -110,12 +119,21 @@ const costTotals = computed(() => {
   return { totalCost }
 })
 const totalQty = computed(() => bomConfigs.value.reduce((sum, cfg) => sum + Number(cfg.qty || 0), 0))
-const upstreamOpen = ref(true)
-const quoteOpen = ref(true)
+// 面板折叠态受控于 board（按节点待办规则给默认值），本地仅透传变更
+const upstreamOpen = computed({
+  get: () => props.upstreamOpen,
+  set: (v) => emit('update:upstreamOpen', v),
+})
+const quoteOpen = computed({
+  get: () => props.quoteOpen,
+  set: (v) => emit('update:quoteOpen', v),
+})
 const selectedIds = computed<Set<string>>(() => new Set(props.quoteSelectedIds || []))
 
 const auth = useAuthStore()
 const canSubmitQuote = computed(() => auth.can('action.flow.submit.quoting'))
+// 解冻已导出报价单（「用户与权限」页可分配 action.quote.unfreeze）；已发送的单需先退回审批节点
+const canUnfreezeQuote = computed(() => auth.can('action.quote.unfreeze'))
 const flowCards = computed(() => props.board.flow_cards || [])
 
 function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: string | null | undefined): FlowCard | undefined {
@@ -125,18 +143,28 @@ function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: st
 function onQuoteMore(key: string, q: Quotation) {
   if (key === 'send') { openSend(q); return }
   if (key === 'view') { openQuotation(q); return }
+  if (key === 'unfreeze') { emit('unfreeze-quotation', q); return }
   if (key === 'primary') { emit('set-primary', q); return }
   if (key === 'rename') { emit('rename-quotation', q); return }
   if (key === 'delete') { emit('delete-quotation', q.quotation_id); return }
 }
 function quoteState(q: Quotation): string {
   if (q.submitted_at) return '报价单已出'
-  if (q.exported_at) return '已导出'
+  if (q.exported_at) {
+    const ap = latestApprovalFor(q.quotation_id)
+    if (ap?.status === 'pending') return '低毛利审批中'
+    if (ap?.status === 'rejected') return '审批被驳回'
+    return '已导出'
+  }
   return '草稿'
 }
-function quoteStateClass(q: Quotation): 'draft' | 'exported' | 'released' {
+function quoteStateClass(q: Quotation): 'draft' | 'exported' | 'released' | 'approving' {
   if (q.submitted_at) return 'released'
-  if (q.exported_at) return 'exported'
+  if (q.exported_at) {
+    const ap = latestApprovalFor(q.quotation_id)
+    if (ap?.status === 'pending') return 'approving'
+    return 'exported'
+  }
   return 'draft'
 }
 
@@ -144,6 +172,51 @@ const sendTarget = ref<Quotation | null>(null)
 const sendComment = ref('')
 const sendAttachmentId = ref('')
 const sendSaving = ref(false)
+// 低毛利审批：per-quotation 最新审批单状态（pending=审批中拦截发送 / rejected=驳回 / approved=放行）
+const pricingApprovals = ref<PricingApproval[]>([])
+async function loadPricingApprovals() {
+  if (!opportunityId.value) return
+  try {
+    const res = await portalApi.oppPricingApprovals(opportunityId.value)
+    pricingApprovals.value = res.approvals || []
+  } catch {
+    pricingApprovals.value = []
+  }
+}
+onMounted(loadPricingApprovals)
+watch(opportunityId, loadPricingApprovals)
+function latestApprovalFor(quotationId: string): PricingApproval | undefined {
+  return pricingApprovals.value.find((a) => a.quotation_id === quotationId)
+}
+// 审批裁决（总监/管理员）：通知直达详情页后在此批准/驳回
+const canApprovePricing = computed(() => auth.can('action.flow.approve.pricing'))
+const pendingApprovals = computed(() => pricingApprovals.value.filter((a) => a.status === 'pending'))
+const decidingId = ref<number | null>(null)
+async function decidePricing(a: PricingApproval, decision: 'approve' | 'reject') {
+  decidingId.value = a.id
+  try {
+    await portalApi.decidePricingApproval(opportunityId.value, a.id, { decision })
+    message.success(decision === 'approve' ? '已批准，报价员可发送该报价单' : '已驳回并通知报价员')
+    await loadPricingApprovals()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '操作失败')
+  } finally {
+    decidingId.value = null
+  }
+}
+function rejectPricing(a: PricingApproval) {
+  confirmWithReason({
+    title: `驳回低毛利审批（${a.opportunity_id}）？`,
+    hint: `当前毛利率 ${Number(a.margin_pct).toFixed(2)}%，红线 ${a.threshold}%。`,
+    okText: '驳回',
+    placeholder: '请填写驳回意见（必填），让报价员知道如何调整',
+    async onOk(reason: string) {
+      await portalApi.decidePricingApproval(opportunityId.value, a.id, { decision: 'reject', comment: reason })
+      message.success('已驳回并通知报价员')
+      await loadPricingApprovals()
+    },
+  })
+}
 const sendAttachments = computed(() =>
   (props.attachments || []).filter(
     (a) => a.category === 'sent_quote' && a.quotation_id === sendTarget.value?.quotation_id && a.kind === 'export',
@@ -173,7 +246,15 @@ async function submitSend() {
     sendTarget.value = null
     emit('refresh-quotations')
   } catch (e: any) {
-    message.error(e?.response?.data?.detail || '发送失败')
+    const detail: string = e?.response?.data?.detail || '发送失败'
+    if (e?.response?.status === 409) {
+      // 低毛利审批门：审批单已建，刷新徽标并收起发送弹窗
+      message.warning(detail)
+      sendTarget.value = null
+      loadPricingApprovals()
+    } else {
+      message.error(detail)
+    }
   } finally {
     sendSaving.value = false
   }
@@ -184,20 +265,15 @@ function openQuotation(q: Quotation) {
 function returnQuoteToCost(quotationId: string, label: string) {
   const card = cardFor('quote', quotationId)
   if (!card) return
-  Modal.confirm({
+  confirmWithReason({
     title: `退回「${label}」？`,
-    content: '退回后这张卡会回到成本核算节点，需要重新核价后再提交。',
+    hint: '退回后这张卡会回到成本核算节点，需要重新核价后再提交。',
     okText: '退回',
-    okType: 'danger',
-    cancelText: '取消',
-    async onOk() {
-      try {
-        await portalApi.returnCard(opportunityId.value, card.id)
-        message.success('已退回成本核算')
-        emit('refresh-quotations')
-      } catch (e: any) {
-        message.error(e.response?.data?.detail || '退回失败')
-      }
+    placeholder: '请填写退回原因（必填），让对方知道需要修改什么',
+    async onOk(reason) {
+      await portalApi.returnCard(opportunityId.value, card.id, reason)
+      message.success('已退回成本核算')
+      emit('refresh-quotations')
     },
   })
 }
@@ -210,7 +286,7 @@ function openConfigDetail(cfg: CostConfig) {
   <div class="quote-workbench">
     <div class="qw-body">
       <section class="qw-context panel">
-        <header class="card-shell-head">
+        <header class="card-shell-head card-head-toggle" @click="upstreamOpen = !upstreamOpen">
           <div class="card-shell-title">
             <span class="rich-icon-badge"><CalculatorOutlined /></span>
             <div>
@@ -218,9 +294,9 @@ function openConfigDetail(cfg: CostConfig) {
               <h3>上游成本与 BOM 摘要</h3>
             </div>
           </div>
-          <div class="qw-shell-actions">
+          <div class="qw-shell-actions" @click.stop>
             <a-button
-              v-if="!worktableSheetViews.length && worktableQuotationId"
+              v-if="canSubmitQuote && !worktableSheetViews.length && worktableQuotationId"
               size="small"
               type="primary"
               :disabled="!canConvert"
@@ -235,7 +311,7 @@ function openConfigDetail(cfg: CostConfig) {
             >
               退回成本表
             </a-button>
-            <button class="card-chevron" :class="{ collapsed: !upstreamOpen }" type="button" @click="upstreamOpen = !upstreamOpen">
+            <button class="card-chevron" :class="{ collapsed: !upstreamOpen }" type="button" @click.stop="upstreamOpen = !upstreamOpen">
               <UpOutlined />
             </button>
           </div>
@@ -256,7 +332,7 @@ function openConfigDetail(cfg: CostConfig) {
                 报价单已删
               </a-button>
               <a-button
-                v-else
+                v-else-if="canSubmitQuote"
                 size="small"
                 type="primary"
                 :disabled="!sheet.canConvert"
@@ -322,8 +398,9 @@ function openConfigDetail(cfg: CostConfig) {
         </div>
       </section>
 
-      <section class="qw-editor panel">
-        <header class="card-shell-head">
+      <!-- 左栏小节点锚点：quoting.0=报价单工作区 / quoting.1=报价附件（抽屉） -->
+      <section class="qw-editor panel" data-substep="quoting.0 quoting.1">
+        <header class="card-shell-head card-head-toggle" @click="quoteOpen = !quoteOpen">
           <div class="card-shell-title">
             <span class="rich-icon-badge"><FileDoneOutlined /></span>
             <div>
@@ -331,7 +408,7 @@ function openConfigDetail(cfg: CostConfig) {
               <h3>报价单工作区</h3>
             </div>
           </div>
-          <div class="qw-shell-actions">
+          <div class="qw-shell-actions" @click.stop>
             <div class="qw-actions">
               <a-button size="small" @click="quoteSelectMode ? emit('exit-quote-batch') : emit('enter-quote-batch')">
                 {{ quoteSelectMode ? '取消' : '批量操作' }}
@@ -340,7 +417,7 @@ function openConfigDetail(cfg: CostConfig) {
               <a-button size="small" @click="emit('open-archive', { categories: ['sent_quote'], title: '报价附件' })">报价附件</a-button>
               <a-button size="small" type="primary" @click="emit('new-quotation')">新增报价</a-button>
             </div>
-            <button class="card-chevron" :class="{ collapsed: !quoteOpen }" type="button" @click="quoteOpen = !quoteOpen">
+            <button class="card-chevron" :class="{ collapsed: !quoteOpen }" type="button" @click.stop="quoteOpen = !quoteOpen">
               <UpOutlined />
             </button>
           </div>
@@ -352,6 +429,32 @@ function openConfigDetail(cfg: CostConfig) {
           <a-button danger size="small" @click="emit('batch-delete-quotes')">
             删除选中 ({{ selectedIds.size }})
           </a-button>
+        </div>
+
+        <div v-if="canApprovePricing && pendingApprovals.length" class="qw-approval-bar">
+          <div class="qw-approval-info">
+            <AuditOutlined class="qw-approval-icon" />
+            <span class="qw-approval-title">待我审批的低毛利报价</span>
+            <span class="qw-approval-count">{{ pendingApprovals.length }} 单</span>
+          </div>
+          <div class="qw-approval-list">
+            <div v-for="a in pendingApprovals" :key="a.id" class="qw-approval-item">
+              <span class="qw-approval-quotation" :title="a.quotation_id">{{ a.quotation_id }}</span>
+              <span class="qw-approval-margin">毛利率 {{ Number(a.margin_pct).toFixed(2) }}% &lt; 红线 {{ a.threshold }}%</span>
+              <a-button
+                size="small"
+                type="primary"
+                :loading="decidingId === a.id"
+                @click="decidePricing(a, 'approve')"
+              >批准</a-button>
+              <a-button
+                size="small"
+                danger
+                :disabled="decidingId === a.id"
+                @click="rejectPricing(a)"
+              >驳回</a-button>
+            </div>
+          </div>
         </div>
 
         <RecordTable
@@ -398,6 +501,7 @@ function openConfigDetail(cfg: CostConfig) {
                     <a-menu @click="({ key }: { key: string }) => onQuoteMore(key, q)">
                       <a-menu-item v-if="canSubmitQuote && q.exported_at && !q.submitted_at" key="send">发送</a-menu-item>
                       <a-menu-item key="view">{{ q.submitted_at ? '查看已发送' : (q.exported_at ? '查看成本' : '编辑') }}</a-menu-item>
+                      <a-menu-item v-if="canUnfreezeQuote && q.exported_at && !q.submitted_at" key="unfreeze">解冻并编辑</a-menu-item>
                       <a-menu-item key="primary">{{ q.is_primary ? '取消主推' : '设为主推' }}</a-menu-item>
                       <a-menu-item key="rename">重命名</a-menu-item>
                       <a-menu-item key="delete" danger>删除</a-menu-item>
@@ -515,6 +619,10 @@ function openConfigDetail(cfg: CostConfig) {
   background: var(--cpq-glass-card-bg);
   box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
+}
+/* 整条卡头横条可点击展开/收起；头部操作区 @click.stop 隔离按钮 */
+.card-head-toggle {
+  cursor: pointer;
 }
 .card-shell-head {
   display: flex;
@@ -640,6 +748,53 @@ function openConfigDetail(cfg: CostConfig) {
 .panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
 .qw-actions { display: flex; align-items: center; gap: 6px; }
 .qw-batch { padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border); }
+
+.qw-approval-bar {
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--cpq-warn-surface);
+  border: 1px solid var(--cpq-warn-border);
+}
+.qw-approval-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.qw-approval-icon { color: var(--cpq-notif-amber); font-size: 15px; }
+.qw-approval-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
+.qw-approval-count {
+  font-size: 11.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--cpq-notif-amber-bg);
+  color: var(--cpq-notif-amber);
+}
+.qw-approval-list { display: flex; flex-direction: column; gap: 6px; }
+.qw-approval-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: var(--cpq-bg-card);
+  border: 1px solid var(--cpq-border-secondary);
+}
+.qw-approval-quotation {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.qw-approval-margin {
+  flex: 1;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
 .qw-empty { padding: 26px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
 .qw-list { display: flex; flex-direction: column; }
 .qw-doc-list {

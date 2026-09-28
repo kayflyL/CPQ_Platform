@@ -16,13 +16,7 @@ from app.repository.feed_user_repo import FeedUserRepository
 from app.repository.role_repo import RoleRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.repository.skill_catalog_repo import SkillCatalogRepository
-from app.services.agent_tool_specs import tool_required_data_sources
-from app.services.ai_colleague_service import _canonical_data_source
-from app.services.data_boundary import (
-    apply_price_access,
-    normalize_boundary,
-    normalize_colleague,
-)
+from app.services.data_boundary import normalize_colleague
 from app.services.office_access import allowed_chat_role_keys
 
 router = APIRouter(prefix="/api/ai-colleagues", tags=["ai-colleagues"])
@@ -162,11 +156,11 @@ _DEFAULT_OFFICE = {
     {"id": "plant_rest_3", "type": "plant", "position": {"x": 7.5, "z": -11.5}, "rotation_y": 0, "zoneId": "rest"},
     {"id": "plant_rest_4", "type": "plant", "position": {"x": 10.6, "z": -8.9}, "rotation_y": 0, "zoneId": "rest"},
     {"id": "desk_off1", "type": "desk", "position": {"x": -8.5, "z": -6.2}, "rotation_y": 0, "zoneId": "off1", "seat": True, "role_key": None},
-    {"id": "whiteboard_off1", "type": "whiteboard", "position": {"x": -8.5, "z": -6.85}, "rotation_y": 0, "zoneId": "off1"},
+    {"id": "whiteboard_off1", "type": "whiteboard", "position": {"x": -8.5, "z": -3.55}, "rotation_y": 3.1416, "zoneId": "off1"},
     {"id": "desk_off2", "type": "desk", "position": {"x": -8.5, "z": -2.55}, "rotation_y": 0, "zoneId": "off2", "seat": True, "role_key": None},
-    {"id": "whiteboard_off2", "type": "whiteboard", "position": {"x": -8.5, "z": -3.25}, "rotation_y": 0, "zoneId": "off2"},
+    {"id": "whiteboard_off2", "type": "whiteboard", "position": {"x": -8.5, "z": 0.05}, "rotation_y": 3.1416, "zoneId": "off2"},
     {"id": "desk_off3", "type": "desk", "position": {"x": -8.5, "z": 1.25}, "rotation_y": 0, "zoneId": "off3", "seat": True, "role_key": None},
-    {"id": "whiteboard_off3", "type": "whiteboard", "position": {"x": -8.5, "z": 0.35}, "rotation_y": 0, "zoneId": "off3"},
+    {"id": "whiteboard_off3", "type": "whiteboard", "position": {"x": -8.5, "z": 4.05}, "rotation_y": 3.1416, "zoneId": "off3"},
     {"id": "reception_desk", "type": "reception_desk", "position": {"x": -4.0, "z": 9.4}, "rotation_y": 0, "zoneId": "public_zone"},
     {"id": "chair_reception", "type": "office_chair", "position": {"x": -4.0, "z": 8.4}, "rotation_y": 0, "zoneId": "public_zone", "seat": True, "role_key": None},
     {"id": "brand_wall", "type": "tv", "position": {"x": -4.0, "z": 6.6}, "rotation_y": 0, "zoneId": "public_zone"},
@@ -194,6 +188,26 @@ _DEFAULT_OFFICE = {
 _DEFAULT_MEETING_ZONE = copy.deepcopy(_DEFAULT_OFFICE["zones"][1])
 _DEFAULT_PUBLIC_ZONE = copy.deepcopy(_DEFAULT_OFFICE["zones"][2])
 
+# 一日作息（区间化日程，替代旧 schedule_rules/idle/fallback_actions 三套点状规则）：
+# roles=[] 表示全员适用；weekdays 用 ISO 编号（1=周一）；段活动文案支持 {name}/{role}/{zone} 变量。
+_DEFAULT_DAILY_PLANS = [
+    {
+        "id": "weekday_common",
+        "label": "全员 · 工作日",
+        "roles": [],
+        "weekdays": [1, 2, 3, 4, 5],
+        "segments": [
+            {"start": "09:00", "end": "09:30", "status": "meeting", "intent": "morning_sync", "zone": "meeting_room", "activity": "参加晨会同步"},
+            {"start": "09:30", "end": "12:00", "status": "working", "intent": "work", "zone": "desk_zone", "activity": "{name} 进入上午工作块"},
+            {"start": "12:00", "end": "13:30", "status": "idle", "intent": "lunch_break", "zone": "rest", "activity": "午休时间"},
+            {"start": "13:30", "end": "15:00", "status": "working", "intent": "work", "zone": "desk_zone", "activity": "{name} 进入下午工作块"},
+            {"start": "15:00", "end": "15:20", "status": "waiting_input", "intent": "tea_break", "zone": "tea", "activity": "{name} 去茶水间歇口气"},
+            {"start": "15:20", "end": "18:00", "status": "working", "intent": "work", "zone": "desk_zone", "activity": "{name} 继续推进手头任务"},
+            {"start": "18:00", "end": "18:30", "status": "thinking", "intent": "daily_review", "zone": "desk_zone", "activity": "{name} 复盘今日进展与待办"},
+        ],
+    }
+]
+
 _DEFAULT_BEHAVIOR = {
     "status_meta": {
         "idle": {"label": "空闲", "color": "#9aa4b2", "monitor_active": False, "indicator_opacity": 0.9, "animation": "idle"},
@@ -208,6 +222,22 @@ _DEFAULT_BEHAVIOR = {
     "mission": {
         "enabled": True,
         "owner_role_key": "assistant",
+        "status_meta": {
+            "queued": {"label": "排队中", "color": "#9aa4b2"},
+            "running": {"label": "进行中", "color": "#1677ff"},
+            "done": {"label": "已完成", "color": "#52c9a0"},
+            "failed": {"label": "失败", "color": "#ff4d4f"},
+            "cancelled": {"label": "已取消", "color": "#8c8c8c"},
+        },
+        "assignment_status_meta": {
+            "queued": {"label": "排队", "color": "#9aa4b2"},
+            "routed": {"label": "已派发", "color": "#1677ff"},
+            "active": {"label": "进行中", "color": "#1677ff"},
+            "blocked": {"label": "受阻", "color": "#fa8c16"},
+            "done": {"label": "完成", "color": "#52c9a0"},
+            "failed": {"label": "失败", "color": "#ff4d4f"},
+            "cancelled": {"label": "已取消", "color": "#8c8c8c"},
+        },
         "max_steps": 8,
         "max_iterations": 4,
         "route_delay_seconds": 1.2,
@@ -252,12 +282,6 @@ _DEFAULT_BEHAVIOR = {
             "interaction_cooldown_seconds": 300,
             "allowed_zones": ["desk_zone", "meeting_room", "public_zone"],
             "active_statuses": ["working", "meeting", "waiting_input", "error"],
-            "fallback_actions": [
-                {"status": "working", "intent": "work", "zone": "desk_zone", "activity": "整理方案资料", "message": ""},
-                {"status": "thinking", "intent": "review", "zone": "desk_zone", "activity": "复盘近期商机", "message": ""},
-                {"status": "working", "intent": "work", "zone": "desk_zone", "activity": "检查待办任务", "message": ""},
-                {"status": "public", "intent": "move", "zone": "public_zone", "activity": "去公共区稍作休息", "message": ""}
-            ],
             "interaction_action": {
                 "status": "meeting",
                 "intent": "discuss",
@@ -266,34 +290,7 @@ _DEFAULT_BEHAVIOR = {
                 "message": "一起去会议室碰一下。"
             }
         },
-        "idle": {
-            "enabled": True,
-            "after_seconds": 600,
-            "status": "thinking",
-            "intent": "review_pending_tasks",
-            "activity": "自主检查待办",
-            "zone": "desk_zone"
-        },
-        "schedule_rules": [
-            {
-                "id": "morning_sync",
-                "time": "09:00",
-                "status": "meeting",
-                "intent": "morning_sync",
-                "activity": "参加晨会同步",
-                "zone": "meeting_room",
-                "roles": []
-            },
-            {
-                "id": "wrap_up",
-                "time": "18:00",
-                "status": "done",
-                "intent": "wrap_up",
-                "activity": "整理今日工作",
-                "zone": "desk_zone",
-                "roles": []
-            }
-        ]
+        "daily_plans": copy.deepcopy(_DEFAULT_DAILY_PLANS),
     },
 }
 
@@ -356,10 +353,8 @@ class ColleagueUpdate(BaseModel):
     response_profile: Optional[dict] = None
     model_override: Optional[str] = None
     tool_ids: Optional[list] = None
-    data_sources: Optional[list] = None
     dispatchable: Optional[bool] = None
     price_access: Optional[bool] = None
-    data_boundary: Optional[dict] = None
     capabilities: Optional[list] = None
     behavior_profile: Optional[dict] = None
     relations: Optional[dict] = None
@@ -367,6 +362,7 @@ class ColleagueUpdate(BaseModel):
     workflows: Optional[list] = None
     memory_policy: Optional[dict] = None
     pet_model: Optional[str] = None
+    model_url: Optional[str] = None
 
 
 class ColleagueCreate(ColleagueUpdate):
@@ -503,6 +499,121 @@ def _migrate_meeting_room_furniture(office: dict) -> None:
         if x in xmap and round(pos.get("z") or 0) in (-7, -4):
             pos["x"] = xmap[x]
 
+
+# 独立办公室白板：旧默认挂在桌后墙（人正对面、被显示器遮挡），迁移到对面墙（门侧）。
+# 仅当摆位与旧默认完全一致时才搬，避免覆盖用户自定义布局。
+_OFFICE_WHITEBOARD_MIGRATIONS = {
+    "whiteboard_off1": {"from_z": -6.85, "to_z": -3.55},
+    "whiteboard_off2": {"from_z": -3.25, "to_z": 0.05},
+    "whiteboard_off3": {"from_z": 0.35, "to_z": 4.05},
+}
+
+
+def _migrate_office_whiteboards(office: dict) -> bool:
+    furniture = office.get("furniture")
+    if not isinstance(furniture, list):
+        return False
+    changed = False
+    for item in furniture:
+        if not isinstance(item, dict):
+            continue
+        plan = _OFFICE_WHITEBOARD_MIGRATIONS.get(item.get("id"))
+        if not plan:
+            continue
+        pos = item.get("position")
+        if not isinstance(pos, dict):
+            continue
+        try:
+            x = round(float(pos.get("x") or 0), 2)
+            z = round(float(pos.get("z") or 0), 2)
+            rot = float(item.get("rotation_y") or 0)
+        except (TypeError, ValueError):
+            continue
+        if x == -8.5 and z == plan["from_z"] and abs(rot) < 0.01:
+            pos["z"] = plan["to_z"]
+            item["rotation_y"] = 3.1416
+            changed = True
+    return changed
+
+
+def _hhmm_add_minutes(hhmm: str, minutes: int) -> str:
+    try:
+        parts = str(hhmm).strip().split(":")
+        total = (int(parts[0]) * 60 + int(parts[1]) + int(minutes)) % (24 * 60)
+        return f"{total // 60:02d}:{total % 60:02d}"
+    except (ValueError, IndexError):
+        return str(hhmm).strip()
+
+
+def _migrate_behavior_daily_plans(behavior: dict) -> bool:
+    """旧 schedule_rules / idle / life.fallback_actions → daily_plans 区间日程。
+
+    - schedule_rules 逐条转成「旧定时规则（迁移）」计划的段（start=原时刻，时长 30 分钟，每天生效）
+    - idle / fallback_actions 的固定文案职责由日程段承担，直接退役
+    """
+    autonomous = behavior.get("autonomous")
+    if not isinstance(autonomous, dict):
+        return False
+    changed = False
+    legacy_rules = autonomous.pop("schedule_rules", None)
+    if legacy_rules is not None:
+        changed = True
+    if autonomous.pop("idle", None) is not None:
+        changed = True
+    life = autonomous.get("life")
+    if isinstance(life, dict) and life.pop("fallback_actions", None) is not None:
+        changed = True
+
+    plans = autonomous.get("daily_plans")
+    if not isinstance(plans, list):
+        plans = copy.deepcopy(_DEFAULT_DAILY_PLANS)
+        autonomous["daily_plans"] = plans
+        changed = True
+
+    if isinstance(legacy_rules, list):
+        legacy_segments = []
+        for rule in legacy_rules:
+            if not isinstance(rule, dict):
+                continue
+            start = str(rule.get("time") or "").strip()
+            if not start:
+                continue
+            legacy_segments.append({
+                "start": start,
+                "end": _hhmm_add_minutes(start, 30),
+                "status": str(rule.get("status") or "meeting"),
+                "intent": str(rule.get("intent") or "schedule"),
+                "zone": str(rule.get("zone") or "meeting_room"),
+                "activity": str(rule.get("activity") or ""),
+            })
+        if legacy_segments:
+            plans.append({
+                "id": "legacy_schedule",
+                "label": "旧定时规则（迁移）",
+                "roles": [],
+                "weekdays": [1, 2, 3, 4, 5, 6, 7],
+                "segments": legacy_segments,
+            })
+            changed = True
+
+    for index, plan in enumerate(plans):
+        if not isinstance(plan, dict):
+            continue
+        plan.setdefault("id", f"daily_plan_{index}")
+        plan.setdefault("label", "")
+        roles = plan.get("roles")
+        plan["roles"] = [str(r).strip() for r in roles if str(r).strip()] if isinstance(roles, list) else []
+        weekdays = plan.get("weekdays")
+        if isinstance(weekdays, list):
+            plan["weekdays"] = sorted({int(d) for d in weekdays if isinstance(d, (int, float)) and 1 <= int(d) <= 7})
+        else:
+            plan["weekdays"] = [1, 2, 3, 4, 5, 6, 7]
+        segments = [s for s in plan.get("segments") or [] if isinstance(s, dict) and s.get("start") and s.get("end")]
+        segments.sort(key=lambda s: str(s.get("start")))
+        plan["segments"] = segments
+    return changed
+
+
 def _normalize_behavior_profile(profile: Any) -> dict:
     default_profile = copy.deepcopy(_DEFAULT_BEHAVIOR_PROFILE)
     if not isinstance(profile, dict):
@@ -590,7 +701,7 @@ def _read_config(repo: SystemConfigRepository) -> dict:
                 if key not in colleague:
                     colleague[key] = copy.deepcopy(default_value)
                     config_changed = True
-            # 数据边界读侧归一化：price_access 永远是派生值（单一事实源=masked_fields）
+            # 读侧归一化：剥离已退役键（data_boundary/data_sources），price_access 布尔直存
             normalize_colleague(colleague)
     if not isinstance(cfg.get("team_meta"), dict):
         cfg["team_meta"] = dict(_DEFAULT_TEAM_META)
@@ -617,6 +728,8 @@ def _read_config(repo: SystemConfigRepository) -> dict:
         if key not in office:
             office[key] = copy.deepcopy(default_value)
     _migrate_office_layout(office)
+    if _migrate_office_whiteboards(office):
+        config_changed = True
     # 家具 catalog 以代码内默认值为单一事实源：读取时始终刷新，避免 DB 遗留旧尺寸导致前后端渲染/编辑/寻路不一致。
     default_catalog = copy.deepcopy(_DEFAULT_OFFICE.get("furniture_catalog") or [])
     if office.get("furniture_catalog") != default_catalog:
@@ -658,6 +771,18 @@ def _read_config(repo: SystemConfigRepository) -> dict:
                 if key not in life:
                     life[key] = copy.deepcopy(default_value)
                     config_changed = True
+    default_mission = _DEFAULT_BEHAVIOR.get("mission") or {}
+    mission = behavior.get("mission")
+    if not isinstance(mission, dict):
+        behavior["mission"] = copy.deepcopy(default_mission)
+        config_changed = True
+    else:
+        for key, default_value in default_mission.items():
+            if key not in mission:
+                mission[key] = copy.deepcopy(default_value)
+                config_changed = True
+    if _migrate_behavior_daily_plans(behavior):
+        config_changed = True
     if config_changed:
         _write_config(repo, cfg)
     return cfg
@@ -687,7 +812,6 @@ def _default_colleague(role_key: str) -> dict:
         },
         "model_override": None,
         "tool_ids": [],
-        "data_sources": [],
         "dispatchable": True,
         "capabilities": [],
         "behavior_profile": copy.deepcopy(_DEFAULT_BEHAVIOR_PROFILE),
@@ -695,8 +819,6 @@ def _default_colleague(role_key: str) -> dict:
             "enabled": True,
             "short_term_max_turns": 12,
             "query_recent": 6,
-            "save_after_turn": True,
-            "auto_memory": True,
         },
         "relations": {
             "team_role": "",
@@ -719,13 +841,6 @@ def _full_colleague_config(cfg: dict) -> dict:
         "layout": cfg.get("layout", copy.deepcopy(_DEFAULT_LAYOUT)),
         "behavior": cfg.get("behavior", copy.deepcopy(_DEFAULT_BEHAVIOR)),
     }
-
-
-@router.get("/scope-options")
-def scope_options(manager: dict = Depends(require_ai_office_manage)):
-    """作用域注册表：数据来源 / 页面职责的中文预设。"""
-    from app.services.ai_colleague_service import get_scope_catalog
-    return get_scope_catalog()
 
 
 @router.get("/admin-config")
@@ -816,20 +931,15 @@ def create_colleague(data: ColleagueCreate, manager: dict = Depends(require_ai_o
             raise HTTPException(status_code=409, detail=f"AI 同事 '{role_key}' 已存在")
         patch = data.model_dump(exclude_unset=True)
         patch.pop("role_key", None)
-        bool_flag = patch.pop("price_access", None)
-        raw_boundary = patch.pop("data_boundary", None)
         colleague = _default_colleague(role_key)
         colleague.update({k: v for k, v in patch.items() if v is not None})
-        # 新同事默认拒绝（不能靠 _default_colleague 的默认回填——那会给存量同事
-        # 抢先塞 deny_all，把旧 price_access=True 的懒迁移顶掉）
-        colleague.setdefault("data_boundary", {"mode": "deny_all", "schemas": [],
-                                               "tables_allow": [], "masked_fields": ["price"]})
-        if isinstance(raw_boundary, dict):
-            colleague["data_boundary"] = normalize_boundary({"data_boundary": raw_boundary})
-        elif bool_flag is not None:
-            colleague["data_boundary"] = apply_price_access(colleague.get("data_boundary") or {}, bool(bool_flag))
-        if "skills" in patch or "workflows" in patch or "tool_ids" in patch:
-            colleague = _merge_skill_data_sources(colleague)
+        # 价格可见性：同事级布尔，唯一事实源（默认拒绝）
+        if "price_access" in patch and patch["price_access"] is not None:
+            colleague["price_access"] = bool(patch["price_access"])
+        else:
+            colleague["price_access"] = False
+        catalog = _load_skill_catalog_map()
+        colleague = _reclassify_skill_bindings(colleague, catalog)
         _clamp_pet_model(colleague)
         normalize_colleague(colleague)
         cfg["colleagues"] = colleagues + [colleague]
@@ -980,16 +1090,10 @@ def update_layout(data: LayoutUpdate, manager: dict = Depends(require_ai_office_
         repo.close()
 
 
-@router.post("/layout/reset-office")
-def reset_layout_office(manager: dict = Depends(require_ai_office_manage)):
-    repo = SystemConfigRepository()
-    try:
-        cfg = _read_config(repo)
-        cfg.setdefault("layout", {})["office"] = copy.deepcopy(_DEFAULT_OFFICE)
-        _write_config(repo, cfg)
-        return {"layout": cfg["layout"]}
-    finally:
-        repo.close()
+@router.get("/layout/office-sample")
+def get_layout_office_sample(manager: dict = Depends(require_ai_office_manage)):
+    # 只读样板：编辑器用它替换工作副本，落库仍走 PUT /layout（唯一写路径）
+    return {"office": copy.deepcopy(_DEFAULT_OFFICE)}
 
 @router.put("/behavior")
 def update_behavior(data: BehaviorUpdate, manager: dict = Depends(require_ai_office_manage)):
@@ -1096,38 +1200,43 @@ def delete_skill(skill_key: str, manager: dict = Depends(require_ai_office_manag
     return {"deleted": skill_key}
 
 
-def _merge_skill_data_sources(colleague: dict) -> dict:
-    """给员工绑定 Skill 时自动落该 Skill 所需的数据域，运行时仍会再做一次兜底合并。"""
-    refs = []
-    for name in ("skills", "workflows"):
-        raw = colleague.get(name)
-        if isinstance(raw, list):
-            refs.extend(raw)
-    if not refs:
-        return colleague
+def _load_skill_catalog_map() -> dict:
     try:
         repo = SkillCatalogRepository()
         try:
-            catalog = {str(s.get("key") or "").strip(): s for s in repo.list()}
+            return {str(s.get("key") or "").strip(): s for s in repo.list()}
         finally:
             repo.close()
     except Exception:
-        return colleague
-    required: set = set()
-    for ref in refs:
-        key = ref if isinstance(ref, str) else (ref or {}).get("key")
-        skill = catalog.get(str(key or "").strip())
-        if not skill:
-            continue
-        tools = skill.get("tool_ids")
-        if not isinstance(tools, list):
-            continue
-        required.update(_canonical_data_source(item) for item in tool_required_data_sources(tools))
-    if not required:
-        return colleague
-    sources = {str(item).strip() for item in (colleague.get("data_sources") or []) if str(item or "").strip()}
-    sources.update(required)
-    colleague["data_sources"] = sorted(sources)
+        return {}
+
+
+def _reclassify_skill_bindings(colleague: dict, catalog: dict) -> dict:
+    """workflow 类型的 key 只住 workflows 数组、skill 类型只住 skills（存量错位归位）。
+
+    员工页两个下拉按 type 分列选项，错位数组里的 key 匹配不到选项 → 前端显示裸
+    key（如 requirement_analysis 出现在 Skill 栏）。目录外的 key 保持原位（可能是
+    尚未入库的自定义项，不丢数据）；同 key 出现在两个数组只留一份。
+    """
+    def _key(ref):
+        return ref if isinstance(ref, str) else str((ref or {}).get("key") or "").strip()
+
+    out: dict = {"skills": [], "workflows": []}
+    seen: set = set()
+    for field in ("skills", "workflows"):
+        for ref in (colleague.get(field) or []):
+            key = _key(ref)
+            if not key or key in seen:
+                continue
+            skill = catalog.get(key)
+            if skill is not None:
+                dest = "workflows" if str(skill.get("type") or "").strip() == "workflow" else "skills"
+            else:
+                dest = field
+            out[dest].append(ref)
+            seen.add(key)
+    colleague["skills"] = out["skills"]
+    colleague["workflows"] = out["workflows"]
     return colleague
 
 
@@ -1148,12 +1257,28 @@ def list_colleague_memories(
     role_key: str,
     keyword: Optional[str] = None,
     limit: int = 100,
+    include_retired: bool = False,
+    user_id: Optional[str] = None,
     manager: dict = Depends(require_ai_office_manage),
 ):
+    """治理面记忆列表。默认只看公共域（治理面维护对象）；
+    传 user_id 查看该用户的私有域（排查/治理用）。"""
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
+    uid = str(user_id or "").strip()
     items = ColleagueMemoryRepository().list_by_role(
-        role_key, keyword=str(keyword or ""), limit=max(1, min(int(limit or 100), 500)))
+        role_key, keyword=str(keyword or ""), limit=max(1, min(int(limit or 100), 500)),
+        include_retired=bool(include_retired),
+        visible_to=uid or None, public_only=not uid)
     return {"memories": items, "total": len(items)}
+
+
+@router.post("/{role_key}/memories/consolidate")
+async def consolidate_colleague_memories(role_key: str, manager: dict = Depends(require_ai_office_manage)):
+    from app.services.colleague_memory_service import consolidate_role
+    result = await consolidate_role(role_key)
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=str(result.get("error") or "整理失败"))
+    return result
 
 
 @router.post("/{role_key}/memories")
@@ -1189,13 +1314,14 @@ def update_colleague_memory(
 
 @router.delete("/{role_key}/memories/{memory_id}")
 def delete_colleague_memory(role_key: str, memory_id: int, manager: dict = Depends(require_ai_office_manage)):
+    """管理面删除=强制失效打戳（双时间轴：历史可追溯），不物理删。"""
     from app.repository.colleague_memory_repo import ColleagueMemoryRepository
     repo = ColleagueMemoryRepository()
     existing = repo.get(memory_id)
     if not existing or existing.get("role_key") != role_key:
         raise HTTPException(status_code=404, detail="记忆不存在")
-    repo.delete(memory_id)
-    return {"deleted": memory_id}
+    repo.retire(memory_id, force=True)
+    return {"retired": memory_id}
 
 
 @router.delete("/{role_key}/memories")
@@ -1214,19 +1340,12 @@ def update_colleague(role_key: str, data: ColleagueUpdate, manager: dict = Depen
         for i, colleague in enumerate(colleagues):
             if colleague.get("role_key") == role_key:
                 patch = data.model_dump(exclude_unset=True)
-                # 数据边界编辑糖：price_access 布尔/裸 data_boundary 一律折算进边界再落库
-                bool_flag = patch.pop("price_access", None)
-                raw_boundary = patch.pop("data_boundary", None)
-                if isinstance(raw_boundary, dict):
-                    patch["data_boundary"] = normalize_boundary({"data_boundary": raw_boundary})
-                elif bool_flag is not None:
-                    patch["data_boundary"] = apply_price_access(
-                        colleague.get("data_boundary") if isinstance(colleague.get("data_boundary"), dict) else {},
-                        bool(bool_flag))
+                # 价格可见性：同事级布尔直存，唯一事实源
+                if patch.get("price_access") is not None:
+                    patch["price_access"] = bool(patch["price_access"])
                 merged = {**colleague, **patch, "role_key": role_key}
-                merged.pop("price_access", None)  # 派生值不落库（读侧归一化返回）
-                if "skills" in patch or "workflows" in patch or "tool_ids" in patch:
-                    merged = _merge_skill_data_sources(merged)
+                catalog = _load_skill_catalog_map()
+                merged = _reclassify_skill_bindings(merged, catalog)
                 _clamp_pet_model(merged)
                 normalize_colleague(merged)
                 colleagues[i] = merged

@@ -15,6 +15,10 @@ class DynamicSourceField(Base):
     field_label: Mapped[str] = mapped_column(String, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # 敏感分组：sell=明细销售价(无权限要求) / cost=成本价(对内) / margin=利润率(对内)；NULL=公开
+    sens_group: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    # 字段作用域：row=逐行明细(默认) / region=区域聚合(整机一个值，填充器按实际行数纵向合并)
+    scope: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -24,4 +28,6 @@ class DynamicSourceField(Base):
             "field_label": self.field_label,
             "sort_order": self.sort_order,
             "enabled": self.enabled,
+            "sens_group": self.sens_group,
+            "scope": self.scope,
         }

@@ -7,12 +7,49 @@ import { ref } from 'vue'
 
 const STORAGE_KEY = 'cpq:assistant-fab-pos'
 const PANEL_STORAGE_KEY = 'cpq:assistant-panel-pos'
+const PET_SIZE_KEY = 'cpq:assistant-pet-size'
+const PET_DOCK_KEY = 'cpq:assistant-pet-dock'
 
 export const FAB_EDGE_MARGIN = 8
 export const FAB_DRAG_THRESHOLD = 4
 export const PANEL_WIDTH = 680
 export const PANEL_MAX_HEIGHT = 680
 export const PANEL_GAP = 12
+
+/** 桌宠尺寸三档（默认中档 200）。 */
+export const PET_SIZE_TIERS = [
+  { label: '小', px: 160 },
+  { label: '中', px: 200 },
+  { label: '大', px: 280 },
+] as const
+/** 贴边收起时滑出屏幕的比例（保留约 1/3 身子作把手）。 */
+export const PET_DOCK_SLIDE = 0.62
+/** 拖拽中判定「贴边」的触发距离（px）。 */
+export const PET_DOCK_SNAP = 28
+
+/** 手机端（≤768）底部导航栏高度：桌宠 / 面板的视口下界要抬到底栏上方。
+ * 与 DefaultLayout 全局 :root --cpq-tabbar-h 同源，改动需两处同步。 */
+export const MOBILE_TABBAR_INSET = 58
+
+function mobileBottomInset(): number {
+  return window.matchMedia('(max-width: 768px)').matches ? MOBILE_TABBAR_INSET : 0
+}
+
+export type PetDockEdge = 'left' | 'right' | 'top' | 'bottom'
+
+function loadPetSize(): number {
+  try {
+    const raw = localStorage.getItem(PET_SIZE_KEY)
+    const n = raw ? Number(JSON.parse(raw)) : NaN
+    if (PET_SIZE_TIERS.some((t) => t.px === n)) return n
+  } catch { /* ignore */ }
+  return 200
+}
+
+function loadDockEdge(): PetDockEdge | null {
+  const raw = localStorage.getItem(PET_DOCK_KEY)
+  return raw === 'left' || raw === 'right' || raw === 'top' || raw === 'bottom' ? raw : null
+}
 
 export interface FabPos { x: number; y: number }
 export interface FabRect {
@@ -36,11 +73,14 @@ function loadPos(key: string): FabPos | null {
 
 const pos = ref<FabPos | null>(loadPos(STORAGE_KEY))
 const panelPos = ref<FabPos | null>(loadPos(PANEL_STORAGE_KEY))
+const petSize = ref(loadPetSize())
+const dockEdge = ref<PetDockEdge | null>(loadDockEdge())
 const fabEl = ref<HTMLElement | null>(null)
 
 function clampPos(x: number, y: number, w: number, h: number): FabPos {
+  const bottomExtra = mobileBottomInset()
   const maxX = Math.max(FAB_EDGE_MARGIN, window.innerWidth - w - FAB_EDGE_MARGIN)
-  const maxY = Math.max(FAB_EDGE_MARGIN, window.innerHeight - h - FAB_EDGE_MARGIN)
+  const maxY = Math.max(FAB_EDGE_MARGIN, window.innerHeight - h - FAB_EDGE_MARGIN - bottomExtra)
   return {
     x: Math.min(Math.max(FAB_EDGE_MARGIN, x), maxX),
     y: Math.min(Math.max(FAB_EDGE_MARGIN, y), maxY),
@@ -93,7 +133,7 @@ export function useAssistantFab() {
     // FAB 在面板打开时 v-show 隐藏（display:none → getBoundingClientRect 返回零），
     // 改用 pos ref（模块级单例，FAB 挂载/拖动时实时更新）。
     if (pos.value) {
-      const w = 120, h = 52  // FAB 大致尺寸（含 label 展开宽）
+      const w = petSize.value, h = petSize.value // 桌宠容器尺寸（随三档设置变化）
       const fabElReal = fabEl.value
       if (fabElReal) {
         const r = fabElReal.getBoundingClientRect()
@@ -135,14 +175,31 @@ export function useAssistantFab() {
     persistPanel(clampPos(panelPos.value.x, panelPos.value.y, w, h))
   }
 
+  // ── 桌宠尺寸 / 贴边收起（模块级单例，重启还原） ──
+  function setPetSize(px: number) {
+    if (!PET_SIZE_TIERS.some((t) => t.px === px)) return
+    petSize.value = px
+    localStorage.setItem(PET_SIZE_KEY, JSON.stringify(px))
+  }
+  function setDockEdge(edge: PetDockEdge | null) {
+    dockEdge.value = edge
+    if (edge) localStorage.setItem(PET_DOCK_KEY, edge)
+    else localStorage.removeItem(PET_DOCK_KEY)
+  }
+
   return {
     pos,
     panelPos,
+    petSize,
+    dockEdge,
     FAB_EDGE_MARGIN,
     FAB_DRAG_THRESHOLD,
     PANEL_WIDTH,
     PANEL_MAX_HEIGHT,
     PANEL_GAP,
+    PET_SIZE_TIERS,
+    PET_DOCK_SLIDE,
+    PET_DOCK_SNAP,
     setFabEl,
     getFabRect,
     persist,
@@ -152,5 +209,7 @@ export function useAssistantFab() {
     persistPanel,
     movePanelClamped,
     refitPanelToViewport,
+    setPetSize,
+    setDockEdge,
   }
 }

@@ -15,7 +15,7 @@ import { evalBomContext, type BomEvalContext } from '@/utils/bomRuleEngine'
 import { loadBomCategoryAliases } from '@/utils/bomCategoryAliases'
 import { rearSlotsFor, COMBO_REAR_SLOTS, rearIOBucket } from '@/constants/chassisMeta'
 import { normalizeDriveKind } from '@/stores/selectionEngine'
-import { DRIVE_RE, GPU_RE, PSU_RE, gpuModelFrom, raidModelFrom, cableDescFrom , highBwNicFrom } from '@/utils/bomL6Derive'
+import { DRIVE_RE, GPU_RE, PSU_RE, gpuModelFrom, raidModelFrom, highBwNicFrom } from '@/utils/bomL6Derive'
 import type { Plan } from '@/api/reasoning'
 
 /** 前面板线缆每组盘数（镜像 CRE 规则默认：SATA/SAS ÷8、NVMe ÷2；per 可在选型配置页改） */
@@ -157,8 +157,9 @@ function deriveVars(parts: any[], items: any[], plan: Plan, base: any,
     gpu_model: gpuModel,                                  // GPU 型号（去容量/后缀）
     nvme_count: counts.nvme,                              // NVMe 盘数（Direct connected / NVMe 缆用）
     gpu_power_cord_desc: gpuModel ? `${gpuModel} power cord` : '',  // GPU Power cord 行
-    raid_model: raidModel,                                // RAID 型号（Cable 行用）
-    cable_desc: cableDescFrom(counts, raidModel),         // Cable 行（多行，如 "9560 4SAS Cable\n2NVMe Cable"）
+    raid_model: raidModel,                                // RAID 型号（Cable 行 SATA/SAS 文案前缀）
+    sata_count: counts.sata,                              // 盘数（Cable 行按盘型分组，bomRuleEngine.cableSegments）
+    sas_count: counts.sas,
   }
 }
 
@@ -216,7 +217,6 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
       parts.push({ category: '前置硬盘背板', name: bpPn, pn: bpPn, quantity: 1, specs: {} })
     }
     const counts = driveKindCounts(items)
-    const gpuQty = sumQty(items, GPU_RE)
     // 后面板默认选配：槽位布局取 base_config.rear_slots（能力档案），缺失兜底按 form/series 标准布局
     const slotDefs = (base as any)?.rear_slots?.length ? (base as any).rear_slots : rearSlotsFor(plan.form, plan.series)
     // IO 选配优先按机型标准 riser（standard_riser，与 BOM 左栏 IO 行同源），无数据兜底默认组合槽/OCP
@@ -226,11 +226,6 @@ export async function buildPlanCfg(plan: Plan): Promise<PlanLiveCfg> {
       vars: deriveVars(parts, items, plan, base, counts),
       parts,
       rear,
-      frontCableQty: (k) => planCableQty(plan, k, frontCableQtyFor(k, counts, gpuQty)),
-      frontCableInfo: (k) => {
-        const n = planCableQty(plan, k, frontCableQtyFor(k, counts, gpuQty))
-        return { pn: k, n, group: CABLE_PER[k] ?? ('-' as const), price: 0, name: '' }
-      },
       categoryAliases,
     }
     // OCP 转接适配板（模板 OCP 行 qty）：rear 默认含 OCP（rearForPlan/defaultRearFrom 兜底 ocp_x8）→ 1

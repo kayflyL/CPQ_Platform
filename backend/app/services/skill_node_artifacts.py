@@ -224,6 +224,13 @@ def _requirement_slots(engine: dict, art: dict) -> tuple:
                     "data": dict(slots)}
 
 
+def _data_report(engine: dict, art: dict) -> tuple:
+    answer = str(((engine.get("agent_result") or {}).get("answer")) or "")
+    output = {"answer_chars": len(answer)} if answer else {}
+    return output, {"kind": "document", "title": str(art.get("name") or "数据报告"),
+                    "data": {"markdown": answer}}
+
+
 # kind 注册表：新增插头类型 = 注册一个 builder，机制零改动
 BUILDERS = {
     "requirement_text": _requirement_text,
@@ -232,6 +239,7 @@ BUILDERS = {
     "plans": _plans,
     "bom_scheme": _bom_scheme,
     "requirement_slots": _requirement_slots,
+    "data_report": _data_report,
 }
 
 
@@ -293,6 +301,10 @@ def done_summary(engine: dict, key: str, artifact: dict, vres: dict = None) -> s
         filled = len([k for k, v in data.items() if v not in (None, "", [], {})])
         if filled:
             bits.append(str(filled) + " 项已登记")
+    if kind == "document":
+        md = str(data.get("markdown") or "")
+        if md:
+            bits.append(str(len(md)) + " 字")
     if bits:
         return title + " · " + " / ".join(bits)
     return (title + " 已生成") if data else (title + "（产物为空）")

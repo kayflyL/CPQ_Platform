@@ -105,7 +105,7 @@ def _search_kp_parts_by_rows(rows_arg, *, limit, detailed, price_ok, ctx) -> dic
 
 
 def tool_query_parts(args: dict) -> dict:
-    """【任务期工具】kp_reason 配件选配回合专用：按类目+结构化规格(required_specs)/关键词检索配件库真实候选。
+    """【需求分析流程工具】kp_reason 配件选配回合专用：按类目+结构化规格(required_specs)/关键词检索配件库真实候选。
 
     progressive disclosure（2026-09-06）+ 统一数据层：大脑不再吃候选池快照，逐行按需
     query。支持 required_specs（结构化规格过滤，AND）与 keywords；结果就是库里的真实行，
@@ -119,7 +119,7 @@ def tool_query_parts(args: dict) -> dict:
     ctx = TOOL_CTX.get() or {}
     if not ctx.get("task_active"):
         return {"ok": False, "error": "task_not_active",
-                "message": "query_parts 仅在任务期的配件选配环节可用"}
+                "message": "query_parts 仅在需求分析流程的配件选配环节可用"}
     category = str((args or {}).get("category") or "").strip()
     rows_arg = (args or {}).get("rows")
     if not category and rows_arg is not None and rows_arg != "":

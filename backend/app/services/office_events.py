@@ -44,11 +44,16 @@ async def publish_office_event(
 ) -> None:
     """Publish a colleague status event and update the latest snapshot."""
     try:
+        # 多用户（2026-09-28 拍板）：办公室看板/事件流是全局房间，用户消息原文不出会话线程——
+        # message 统一截断 40 字（此为唯一出口，广播与入库共用同一份截断值）。
+        msg = str(message or "")
+        if len(msg) > 40:
+            msg = msg[:40] + "…"
         payload = {
             "role_key": (role_key or "").strip() or "unknown",
             "status": status,
             "activity": activity,
-            "message": message,
+            "message": msg,
             "tool": tool,
             "thread_id": thread_id,
             "opportunity_id": opportunity_id,

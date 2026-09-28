@@ -1,6 +1,7 @@
 <script setup lang="ts">
-/** 机型目录页（/servers/types/:typeId）— 展示某类型下所有机型，点击进入配置向导 */
-import { ref, onMounted, computed } from 'vue'
+/** 机型目录页（/servers/types/:typeId）— 展示某类型下所有机型，点击进详情页。
+ *  整页固定暗色（同详情页：自带 token，不引用 --cpq-* 主题变量），不受主题切换影响 */
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel } from '@/api/serverConfig'
 import ModelShowcase from '@/components/server-config/ModelShowcase.vue'
@@ -39,7 +40,17 @@ function goToDetail(model: ServerModel) {
   router.push(`/servers/models/${model.id}`)
 }
 
-onMounted(loadTypeAndModels)
+// 整页固定暗色垫在透明顶栏下：声明 hero-dark，顶栏切浅色文字（浅色主题下也可读）
+function markHeroDark(on: boolean) {
+  if (on) document.documentElement.dataset.heroDark = '1'
+  else delete document.documentElement.dataset.heroDark
+}
+
+onMounted(() => {
+  markHeroDark(true)
+  loadTypeAndModels()
+})
+onBeforeUnmount(() => markHeroDark(false))
 </script>
 
 <template>
@@ -71,6 +82,7 @@ onMounted(loadTypeAndModels)
           :key="m.id"
           :model="m"
           :show-base-config="false"
+          dark
           @click="goToDetail(m)"
         />
       </div>
@@ -80,8 +92,15 @@ onMounted(loadTypeAndModels)
 </template>
 
 <style scoped>
+/* 整页固定暗色（深海蓝，同详情页 ocean 系）：负 margin 垫到透明顶栏下，padding 等量补回 */
 .models-page {
-  padding: 4px 0 80px;
+  margin-top: calc(-1 * var(--cpq-header-clearance, 0px));
+  padding: calc(var(--cpq-header-clearance, 0px) + 4px) 0 80px;
+  /* 满高：内容少（如类型下仅一两台机型）时也要盖住 .main-scroll 的主题渐变，不露浅色底。
+     负 margin 已把页面顶到 y=0，min-height 直接取整视口 */
+  min-height: 100vh;
+  background: linear-gradient(to bottom, #02050f 0%, #071226 45%, #030814 100%);
+  color: #eef3fa;
 }
 .page-inner {
   max-width: 1180px;
@@ -96,27 +115,31 @@ onMounted(loadTypeAndModels)
   margin-bottom: 24px;
 }
 .back-btn {
-  color: var(--cpq-text-secondary, #9BA1AA);
+  /* 固定暗色页脱离主题体系：!important 压过 antd 按钮文字 token（同详情页 .scene-back） */
+  color: rgba(238, 243, 250, 0.72) !important;
   font-size: 14px;
   padding: 4px 8px;
 }
 .back-btn:hover {
-  color: var(--cpq-accent-primary, #1677FF);
+  color: #8cbdff !important;
 }
 .current-type {
-  color: var(--cpq-text-primary, #E8ECEF);
+  color: #f2f8ff;
   font-size: 14px;
   font-weight: 500;
+}
+.models-page :deep(.ant-divider-vertical) {
+  border-inline-start-color: rgba(255, 255, 255, 0.25);
 }
 
 .page-title {
   font-size: 22px;
   font-weight: 600;
   margin-bottom: 4px;
-  color: var(--cpq-text-primary, #E8ECEF);
+  color: #f2f8ff;
 }
 .page-desc {
-  color: var(--cpq-text-secondary, #9BA1AA);
+  color: rgba(238, 243, 250, 0.72);
   font-size: 14px;
   margin-bottom: 28px;
 }
@@ -127,9 +150,16 @@ onMounted(loadTypeAndModels)
   gap: 20px;
 }
 .sc-empty {
-  color: var(--cpq-text-muted,#6E7582);
+  color: rgba(238, 243, 250, 0.52);
   text-align: center;
   padding: 60px 0;
   font-size: 14px;
+}
+@media (max-width: 640px) {
+  .page-inner { padding: 0 12px; }
+  .breadcrumb { margin-bottom: 14px; }
+  .page-title { font-size: 18px; }
+  .page-desc { margin-bottom: 16px; font-size: 13px; }
+  .models-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 }
 </style>

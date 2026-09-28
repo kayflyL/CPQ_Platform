@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AI 角色访问权限面板（员工页底部，自团队页迁入）。
+ * AI 角色访问权限面板（『员工 → 访问权限』页签，页面级配置对全部同事生效）。
  * 1) 价格可见性：按 AI 角色开关（价格机密，默认关闭）；关闭后该角色的对话与产物不出现价格。
  * 2) 角色访问控制：团队隔离 + 角色→AI角色规则 + 未匹配默认 + 用户例外。
  */
@@ -201,10 +201,10 @@ onMounted(load)
 
 <style scoped>
 .cap-root {
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cpq-border-secondary, rgba(255, 255, 255, 0.1));
   border-radius: 14px;
   padding: 16px;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.04));
 }
 .cap-head {
   display: flex;

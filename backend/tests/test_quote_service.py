@@ -82,11 +82,11 @@ class TestProcessUpload:
                 {
                     "CFG1": {
                         "items": pd.DataFrame(columns=["category"]),
-                        "meta": {"server_model": "ZSA24V2-P", "description": "spec"},
+                        "meta": {"server_model": "ZSA240 V2", "description": "spec"},
                         "l6_rows": [],
                     }
                 },
-                {"server_model": "ZSA24V2-P"},
+                {"server_model": "ZSA240 V2"},
             ))
             service.engine.enrich_config = MagicMock(
                 return_value=pd.DataFrame(columns=["profit_margin", "base_price"])
@@ -97,6 +97,6 @@ class TestProcessUpload:
 
             assert result["status"] == "success"
             assert result["configs"]["CFG1"]["meta"] == {
-                "server_model": "ZSA24V2-P",
+                "server_model": "ZSA240 V2",
                 "description": "spec",
             }

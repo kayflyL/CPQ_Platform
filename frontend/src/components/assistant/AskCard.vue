@@ -36,7 +36,15 @@
         >
           <span class="am-q-key">{{ isPicked(opt) ? '✓' : i + 1 }}</span>
           <span class="am-q-body">
-            <span class="am-q-label">{{ opt.label }}<span v-if="opt.recommended" class="am-q-rec">推荐</span></span>
+            <span class="am-q-label">{{ opt.label }}<span v-if="opt.recommended" class="am-q-rec">推荐</span><span
+              v-if="opt.rule_match"
+              class="am-q-rule am-q-rule--match"
+              title="规则硬命中与该选项一致"
+            >规则推荐</span><span
+              v-if="opt.rule_conflict"
+              class="am-q-rule am-q-rule--conflict"
+              :title="`平台归置规则硬命中 ${opt.rule_conflict.rule_value}，该选项与规则不符，请核对`"
+            >与规则不符</span></span>
             <span v-if="opt.desc" class="am-q-desc">{{ opt.desc }}</span>
           </span>
         </button>
@@ -118,6 +126,10 @@ interface QOption {
   qty_max?: number
   unit_gb?: number
   recommended?: boolean
+  /** 词典卡影子校验（平台归置）：AI 值与规则硬命中一致 */
+  rule_match?: boolean
+  /** 不一致：rule_value = 规则硬命中值（只提示核对，不拦不改） */
+  rule_conflict?: { rule_value: string }
 }
 
 const question = computed<null | { text: string; slot: string; options: QOption[]; partsCard: boolean; unitLabel: string }>(() => {
@@ -139,6 +151,8 @@ const question = computed<null | { text: string; slot: string; options: QOption[
         qty_max: Number.isFinite(o?.qty_max) && o.qty_max > 0 ? Number(o.qty_max) : undefined,
         unit_gb: Number.isFinite(o?.unit_gb) && o.unit_gb > 0 ? Number(o.unit_gb) : undefined,
         recommended: !!o?.recommended,
+        rule_match: !!o?.rule_match,
+        rule_conflict: o?.rule_conflict ? { rule_value: String(o.rule_conflict.rule_value || '') } : undefined,
       })))
     }
     if (!options.length && Array.isArray(data?.options)) {
@@ -435,6 +449,27 @@ function onPickSelect(slot: string, value: any) {
 }
 .am-q-opt--rec {
   border-color: rgba(22, 119, 255, 0.45);
+}
+/* 词典卡影子校验徽标：规则推荐（一致）/ 与规则不符（不一致，提示核对不拦截） */
+.am-q-rule {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 18px;
+  vertical-align: middle;
+  cursor: help;
+}
+.am-q-rule--match {
+  color: var(--cpq-color-success, #52c9a0);
+  background: rgba(82, 201, 160, 0.12);
+  border: 1px solid rgba(82, 201, 160, 0.35);
+}
+.am-q-rule--conflict {
+  color: var(--cpq-color-warning, #faad14);
+  background: rgba(250, 173, 20, 0.12);
+  border: 1px solid rgba(250, 173, 20, 0.4);
 }
 /* 数量 stepper + 实时总量 */
 .am-q-stepper {

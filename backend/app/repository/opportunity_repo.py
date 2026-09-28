@@ -21,47 +21,12 @@ class OpportunityRepository:
     _REQUIREMENT_FIELD_KEYS = ("platform_type", "chassis_form", "purchase_qty", "warranty_years")
 
     def _current_slot_map(self, opp_ids: Optional[List[str]] = None) -> dict:
-        """读取各商机需求单 slots，用于替代 opportunities 旧列派生平台/机箱/数量/维保。
+        """读取各商机需求单 slots：current 优先、缺失回退最新 draft。
 
-        优先级：current 需求单 > 最新 draft 需求单；仅当 current 缺失时才回退 draft。
+        实现已抽到 opp_caliber_repo（与驾驶舱/AI 统计工具同一份），本方法只做会话适配。
         """
-        from app.models.flow import OpportunityRequirement
-        q = self.session.query(
-            OpportunityRequirement.opportunity_id,
-            OpportunityRequirement.status,
-            OpportunityRequirement.version,
-            OpportunityRequirement.slots,
-        ).filter(OpportunityRequirement.status.in_(["current", "draft"]))
-        if opp_ids:
-            q = q.filter(OpportunityRequirement.opportunity_id.in_(opp_ids))
-        q = q.order_by(
-            OpportunityRequirement.opportunity_id,
-            OpportunityRequirement.version.desc(),
-        )
-
-        def _parse(raw):
-            slots = raw or {}
-            if isinstance(slots, str):
-                try:
-                    slots = json.loads(slots)
-                except (json.JSONDecodeError, TypeError):
-                    slots = {}
-            return slots if isinstance(slots, dict) else {}
-
-        current: dict = {}
-        draft: dict = {}
-        for oid, status, _version, raw in q.all():
-            parsed = _parse(raw)
-            if status == "current" and oid not in current:
-                current[oid] = parsed
-            elif status == "draft" and oid not in draft:
-                draft[oid] = parsed
-
-        out: dict = {}
-        all_ids = set(current) | set(draft)
-        for oid in all_ids:
-            out[oid] = current.get(oid) or draft.get(oid) or {}
-        return out
+        from app.repository.opp_caliber_repo import current_slot_map
+        return current_slot_map(self.session, opp_ids)
 
     def _current_scheme_map(self, ids: List[str]) -> dict:
         """每个商机「当前/最新」BOM 方案的 config_relation/primary_config。
@@ -137,13 +102,17 @@ class OpportunityRepository:
                       owner_sales_person: str = None,
                       has_committed_requirement: bool = False,
                       created_start: str = None, created_end: str = None,
+                      part_filters: list = None,
                       sort_by: str = "updated_at", sort_order: str = "desc") -> tuple[List[dict], int]:
+        from app.repository.opp_part_filter import normalize_part_filters, match_opportunities_by_parts
+        part_rows = normalize_part_filters(part_filters)
         q = self.session.query(Opportunity)
         # AI Office 内部商机只在转真实商机后进入业务列表。
         q = q.filter(Opportunity.status != "ai_office")
-        if created_start:
+        # 配件筛选生效时周期改落报价创建时间（helper 内过滤），不再按商机创建时间收窄
+        if created_start and not part_rows:
             q = q.filter(Opportunity.created_at >= created_start)
-        if created_end:
+        if created_end and not part_rows:
             q = q.filter(Opportunity.created_at < created_end)
         if has_committed_requirement:
             # 商机线索页只显示已提交需求单的商机：有 current 需求单，或流程已推进出 requirement。
@@ -209,6 +178,14 @@ class OpportunityRepository:
                 chas = [s.strip() for s in chassis.split(',') if s.strip()]
                 candidate_ids = [oid for oid in candidate_ids if _slot_match(oid, "chassis_form", chas)]
             q = q.filter(Opportunity.opportunity_id.in_(candidate_ids or [""]))
+        part_hits_map: dict = {}
+        if part_rows:
+            cur_ids = [r.opportunity_id for r in q.with_entities(Opportunity.opportunity_id).all()]
+            part_hits_map = match_opportunities_by_parts(
+                self.session, cur_ids, part_rows,
+                quote_start=created_start, quote_end=created_end,
+            )
+            q = q.filter(Opportunity.opportunity_id.in_(list(part_hits_map.keys()) or [""]))
         _SORT_COLS = {"updated_at": Opportunity.updated_at, "created_at": Opportunity.created_at}
         _col = _SORT_COLS.get(sort_by, Opportunity.updated_at)
         q = q.order_by(_col.asc() if sort_order == "asc" else _col.desc())
@@ -216,40 +193,8 @@ class OpportunityRepository:
         total = q.count()
         rows = q.offset((page - 1) * page_size).limit(page_size).all()
 
-        # Batch-query quotation stats to avoid N+1 (single aggregated query)
-        from app.models.quotation import Quotation
-        from sqlalchemy import func
-
         opp_ids = [r.opportunity_id for r in rows]
-        stats_map: dict = {}
-        if opp_ids:
-            # 每商机「当前版本」的 config_count（status=active 中 version 最大的一条），
-            # 与工作台"当前版本"口径一致，避免多版本报价单的 config_count 被重复相加。
-            _rn = func.row_number().over(
-                partition_by=Quotation.opportunity_id,
-                order_by=(Quotation.version.desc(), Quotation.created_at.desc()),
-            ).label("rn")
-            stats_rows = self.session.query(
-                Quotation.opportunity_id.label("oid"),
-                func.count(Quotation.quotation_id).over(
-                    partition_by=Quotation.opportunity_id
-                ).label("quotation_count"),
-                Quotation.config_count.label("cc"),
-                Quotation.config_relation.label("crel"),
-                Quotation.primary_config.label("pcfg"),
-                _rn,
-            ).filter(
-                Quotation.opportunity_id.in_(opp_ids),
-                Quotation.status == "active",
-            ).all()
-            stats_map = {}
-            for s in stats_rows:
-                if s.oid not in stats_map:
-                    stats_map[s.oid] = {"quotation_count": s.quotation_count, "config_count": 0}
-                if s.rn == 1:
-                    stats_map[s.oid]["config_count"] = s.cc or 0
-                    stats_map[s.oid]["config_relation"] = s.crel or "compose"
-                    stats_map[s.oid]["primary_config"] = s.pcfg or ""
+        stats_map = self.quotation_stats_for(opp_ids)
 
         result = []
         for r in rows:
@@ -263,7 +208,47 @@ class OpportunityRepository:
 
         self._merge_requirement_fields(result)
 
+        if part_hits_map:
+            for d in result:
+                d["part_hits"] = part_hits_map.get(d.get("opportunity_id"), [])
+
         return result, total
+
+    def quotation_stats_for(self, opp_ids: list) -> dict:
+        """批量查商机报价单统计（单条聚合查询，避免 N+1）：
+        quotation_count + 「当前版本」config_count/config_relation/primary_config
+        （status=active 中 version 最大的一条，与工作台"当前版本"口径一致）。"""
+        if not opp_ids:
+            return {}
+        from app.models.quotation import Quotation
+        from sqlalchemy import func
+
+        _rn = func.row_number().over(
+            partition_by=Quotation.opportunity_id,
+            order_by=(Quotation.version.desc(), Quotation.created_at.desc()),
+        ).label("rn")
+        stats_rows = self.session.query(
+            Quotation.opportunity_id.label("oid"),
+            func.count(Quotation.quotation_id).over(
+                partition_by=Quotation.opportunity_id
+            ).label("quotation_count"),
+            Quotation.config_count.label("cc"),
+            Quotation.config_relation.label("crel"),
+            Quotation.primary_config.label("pcfg"),
+            _rn,
+        ).filter(
+            Quotation.opportunity_id.in_(opp_ids),
+            Quotation.status == "active",
+        ).all()
+        stats_map: dict = {}
+        for s in stats_rows:
+            if s.oid not in stats_map:
+                stats_map[s.oid] = {"quotation_count": s.quotation_count, "config_count": 0}
+            if s.rn == 1:
+                stats_map[s.oid]["config_count"] = s.cc or 0
+                stats_map[s.oid]["config_relation"] = s.crel or "compose"
+                stats_map[s.oid]["primary_config"] = s.pcfg or ""
+        return stats_map
 
     def list_ai_office_opportunities(self, page: int = 1, page_size: int = 50,
                                      search: str = None,

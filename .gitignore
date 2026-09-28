@@ -76,3 +76,11 @@ backend/tmp_*.json
 
 # docs 目录不再跟踪
 docs/
+
+# DB dump/备份产物（rules.system_config 内含密钥，严禁入库；*.sql 是迁移文件不在此列）
+*.dump
+*.pgdump
+db_dumps/
+
+# Claude 本地调试产物（e2e 事件流等）
+.claude/tmp_skill_run/

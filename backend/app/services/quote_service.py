@@ -56,15 +56,31 @@ class QuoteService:
         finally:
             repo.close()
 
-    def process_upload(self, file_content: bytes, filename: str) -> dict:
-        """Process uploaded Excel: parse 鈫?enrich 鈫?L6 match 鈫?return JSON for frontend."""
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+    def resolve_parse_template(self, template_id: int = None, scope_key: str = None) -> dict:
+        """模板裁决（域逻辑在 ParseTemplateService）：显式 id > scope 绑定 > 通用兜底。"""
+        from app.services.parse_template_service import ParseTemplateService
+        return ParseTemplateService().resolve_scope_template(scope_key, template_id)
+
+    def process_upload(self, file_content: bytes, filename: str,
+                       scope_key: str = "cost_sheet_upload", parse_overrides: dict = None) -> dict:
+        """Process uploaded Excel: parse → enrich → L6 match → return JSON for frontend.
+
+        模板由 scope 绑定决定（设置页配置）；parse_overrides 是弹窗会话补丁，
+        保证「预览看到的=确认生成的」。
+        """
+        ext = os.path.splitext(filename or "")[1].lower() or ".xlsx"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
             tmp.write(file_content)
             tmp_path = tmp.name
 
         try:
             sheet_dict = pd.read_excel(tmp_path, sheet_name=None, header=None)
-            configs, first_meta = self.engine.parse_file(sheet_dict)
+            match_info = self.resolve_parse_template(scope_key=scope_key)
+            configs, first_meta = self.engine.parse_file(
+                sheet_dict,
+                template_id=match_info.get("template_id"),
+                parse_overrides=parse_overrides,
+            )
             if not configs:
                 return {"status": "error", "message": "No valid configs found in file."}
 
@@ -157,6 +173,7 @@ class QuoteService:
             return {
                 "status": "success",
                 "message": "Quotation parsed and enriched successfully",
+                "match_info": match_info,
                 "configs": result_configs
             }
 
@@ -351,8 +368,8 @@ class QuoteService:
             result['opportunity_id'] = opportunity_info.get('opportunity_id', '')
         return result
 
-    def get_kp_history(self, model: str) -> list:
-        return self.engine.get_kp_price_history(model)
+    def get_kp_history(self, model: str, category: str = "") -> list:
+        return self.engine.get_kp_price_history(model, category=category)
 
     def close(self):
         self.kp_repo.close()

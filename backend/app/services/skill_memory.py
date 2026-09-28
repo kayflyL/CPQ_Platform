@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import logging
 import json
+from typing import Optional
+
 from app.repository.assistant_repo import AssistantRepository
+from app.services.skill_contracts import SKILL_SESSION_ACTIVE
 from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
 from app.services.skill_tool_context import TOOL_CTX
 
@@ -64,6 +67,66 @@ def save_skill_session(thread_id: str, role_key: str, session: dict) -> None:
     mem = _load_mem(thread_id, role_key)
     mem[SKILL_SESSION_KEY] = session if isinstance(session, dict) else {}
     _save_mem(thread_id, role_key, mem)
+
+
+def reset_flow_memory(thread_id: str, role_key: str, session: dict) -> None:
+    """显式重新发起工作流：整份流程记忆清掉（ext/进度/中断点），干净重开。
+
+    只允许在「会话非 ACTIVE」时调用（进行中的流程走续跑分支，到不了这里），
+    否则会把正在跑的流程现场抹掉。
+    """
+    _save_mem(thread_id, role_key, {SKILL_SESSION_KEY: dict(session or {})})
+
+
+def flow_delivered(thread_id: str, role_key: str = "assistant") -> bool:
+    """流程是否已交付（方案已出）：之后的消息归普通聊天，不再进引擎。
+
+    compose 步只在 _deliver 成功组装时才入 steps_done，是新旧存量的统一交付标记
+    （存量 mem 没存 engine_result，靠它自愈「交付后会话还挂在 ACTIVE」的老线程）。
+    """
+    mem = _load_mem(thread_id, role_key)
+    if not mem:
+        return False
+    if str(mem.get("engine_result") or "") == "done":
+        return True
+    return "compose" in {str(s) for s in (mem.get("steps_done") or [])}
+
+
+def task_state_for_thread(thread_id: str, role_key: str, turn_active: bool) -> Optional[dict]:
+    """服务端任务态事实（前端任务胶囊对账用，2026-09-13）。
+
+    pipeline 事件只发一次、不重放：页面刷新 / WS 重连空窗 / 中途切会话后前端骨架
+    已丢。消息端点随 turn_active 附带这份事实，前端按引擎状态重建胶囊——与
+    pipeline_start/node_trace 同一形状，展示层零加工。
+
+    返回 None = 无任务态可恢复（会话非 ACTIVE，或既没在跑也没挂起）。
+    """
+    mem = _load_mem(thread_id, role_key)
+    session = mem.get(SKILL_SESSION_KEY)
+    if not isinstance(session, dict) or session.get("phase") != SKILL_SESSION_ACTIVE:
+        return None
+    pause = mem.get("engine_pause") if isinstance(mem.get("engine_pause"), dict) else None
+    if not turn_active and not pause:
+        return None
+    from app.services.skill_registry import resolve_skill_manifest
+    from app.services.skill_plan_runtime import skill_steps_view
+    skill_key = str(session.get("skill_key") or "requirement_analysis")
+    manifest = (resolve_skill_manifest(skill_key)
+                or resolve_skill_manifest("requirement_analysis")) or {}
+    flow_configs = manifest.get("node_configs") if isinstance(manifest.get("node_configs"), dict) else {}
+    steps = skill_steps_view(flow_configs)
+    if not steps:
+        return None
+    done = {str(s) for s in (mem.get("steps_done") or [])}
+    # 回合在跑时 pause 是上一缺口轮的遗留（引擎回存只在回合终态清）——running 态不下发
+    deliver_pause = pause if (pause and not turn_active) else None
+    return {
+        "title": str(manifest.get("name") or manifest.get("title") or "配置任务"),
+        "steps": steps,
+        "done": sorted(done),
+        "phase": "paused" if deliver_pause else "running",
+        "pause": deliver_pause,
+    }
 
 
 def _slots_view(ext: dict) -> dict:

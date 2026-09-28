@@ -80,3 +80,53 @@ class TestMemory属性参与同一性:
         assert K("16GB DDR5-6400 Single Rank x8", "Memory") != K("16GB DDR5-6400 Dual Rank x8", "Memory")
     def test_specs优先(self):
         assert K("32GB DDR5 4800", "Memory", {"DIMM Type": "RDIMM"}) == K("32G 4800 DDR5 RDIMM", "Memory")
+
+
+# ============================================================
+# semantic_tokens / semantic_match（报价上传行 L1.5 宽松同件判定）
+# ============================================================
+from app.repository.kp_repo import semantic_match, semantic_tokens
+
+P = lambda name, id=1, specs=None: {"id": id, "name": name, "specs": specs or {}}
+
+
+class Test_semantic_tokens:
+    def test_连写分写对称(self):
+        assert semantic_tokens("RTX5090 32G") == semantic_tokens("RTX 5090 32G") == semantic_tokens("rtx 5090 32g")
+    def test_连字符型号(self):
+        assert semantic_tokens("兆芯KH-50000 96C") == {"kh", "50000", "96c"}
+    def test_单位归一(self):
+        assert semantic_tokens("64GB DDR5 4800MHz") == {"64g", "ddr5", "4800"}
+    def test_频率归一(self):
+        assert semantic_tokens("兆芯KH-50000 64C 2.6GHz") == {"kh", "50000", "64c", "2.6"}
+    def test_端口归一(self):
+        assert semantic_tokens("2口 100G") == semantic_tokens("双口 100G") == {"2port", "100g"}
+    def test_品牌噪声剔除(self):
+        assert semantic_tokens("NVIDIA RTX 5090") == {"rtx", "5090"}
+        assert "intel" not in semantic_tokens("Intel X710 4port")
+
+
+class Test_semantic_match:
+    def test_语序品牌前缀命中(self):
+        parts = [P("KH50000 96C", 128), P("KH50000 64C", 182)]
+        assert [p["id"] for p in semantic_match("兆芯KH-50000 96C", parts)] == [128]
+    def test_库名多显存后缀(self):
+        parts = [P("NVIDIA RTX 5090 32G", 356)]
+        assert [p["id"] for p in semantic_match("NVIDIA RTX 5090", parts)] == [356]
+    def test_specs兜底短名(self):
+        parts = [P("LSI 9560-8i", 145, {"Cache": "4 GB"})]
+        assert [p["id"] for p in semantic_match("LSI 9560-8i 4G", parts)] == [145]
+    def test_真差异不误合(self):
+        parts = [P("KH50000 96C", 128)]
+        assert semantic_match("KH50000 48C", parts) == []
+        parts = [P("NVIDIA RTX4090 48G 涡轮卡", 160)]
+        assert semantic_match("NVIDIA RTX 4090 24G", parts) == []
+    def test_歧义返回空(self):
+        parts = [P("25G CX6 2port+光模块", 309), P("25G CX4 2Port+光模块", 278)]
+        assert semantic_match("25G 2port 网卡+光模块", parts) == []
+    def test_名字相等优先于超集(self):
+        parts = [P("25G 2port+光模块", 44), P("25G CX6 2port+光模块", 309, {"Ports": "2"})]
+        assert [p["id"] for p in semantic_match("25G 2Port网卡+光模块", parts)] == [44]
+    def test_信息不足不匹配(self):
+        assert semantic_match("NVIDIA", [P("NVIDIA RTX 5090 32G", 356)]) == []
+        assert semantic_match("网卡", [P("100G 2Port", 355)]) == []

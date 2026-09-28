@@ -27,7 +27,7 @@ const {
 } = catalog
 const {
   fieldOpts, filterFn, isNew, saving, form, editModalVisible,
-  openNew, openEdit, closeEdit, save, remove, toggleStatus, resetDefaults, addCond, delCond,
+  openNew, openEdit, closeEdit, save, remove, toggleStatus, addCond, delCond,
 } = editor
 
 </script>
@@ -39,7 +39,6 @@ const {
       <div class="cre-head">
         <span class="cre-hint">声明式兼容性规则 · WHEN 条件 → THEN 动作 · 选配时实时校验</span>
         <a-space>
-          <a-button size="small" @click="resetDefaults">重置默认</a-button>
           <a-button type="primary" size="small" @click="openNew">+ 新建规则</a-button>
         </a-space>
       </div>

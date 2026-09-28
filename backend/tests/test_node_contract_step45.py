@@ -70,9 +70,11 @@ def test_empty_registration_is_not_marked_done_and_hint_is_fed_back():
     assert len(msgs) >= 2, "校验失败要回喂大脑重试，而不是直接收工"
     assert "【系统反馈" in msgs[1] and "还缺" in msgs[1], "机制缺口只回喂大脑，不抛给客户"
 def test_rejected_tool_call_does_not_skip_step_validation():
-    """最后一次尝试仍被工具拒绝也要走引擎校验：步骤是否完成由产物说了算。
+    """工具被拒但已有收口正文：直接交引擎校验，步骤是否完成由产物说了算。
     历史故障：选型已 8/8 落地，只因一次多余的工具调用被拒就跳过校验 → 步骤不标 done →
     终检拿旧快照判缺 → 客户拿到零选项的「死卡」。
+    2026-09-16 收紧：有正文不再回喂重试到上限（趋势分析三份连体报告事故——探索型
+    失败调用是常态，一律重开会把已完成的产物整个丢弃重生成），校验始终执行。
     """
     from app.services import skill_chat
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
@@ -90,7 +92,7 @@ def test_rejected_tool_call_does_not_skip_step_validation():
     mem = {"ext": ext, "steps_done": ["agent_fill", "model_reason"],
            "node_state": {"kp_reason": {"picks": {"CPU|2颗兆芯50000": {
                "name": "兆芯 KH50000 96C", "part_id": "1", "price": 100.0, "currency": "RMB"}}}},
-           "locked_baseline": {"name": "ZS22V2-P", "series": "Polaris", "form": "2U",
+           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
                                "server_model_id": 1}}
     async def sink(payload):
         pass
@@ -101,7 +103,7 @@ def test_rejected_tool_call_does_not_skip_step_validation():
                 history=[], ext=ext, mem=mem, flow=flow, event_sink=sink,
                 price_ok=True, opportunity_id="o_rej")
     engine = asyncio.run(scenario())
-    assert calls["n"] == 3, "被拒仍要重试到上限"
+    assert calls["n"] == 1, "已有收口正文不得因历史工具拒绝重开（产物说了算，不空转）"
     assert "kp_reason" in (engine.get("steps_done") or set()), \
         "产物齐了就该标 done，不能因一次工具被拒而跳过校验"
 def test_done_summary_comes_from_artifact_not_node_name():
@@ -116,8 +118,8 @@ def test_done_summary_comes_from_artifact_not_node_name():
                                          "data": {"rows": [1, 2, 3]}})
     assert "配件表" in rows and "3 行" in rows
     locked = done_summary({}, "model_reason", {"kind": "l6_chassis", "title": "机箱表",
-                                              "data": {"rows": [1]}}, {"locked": "ZS22V2-P"})
-    assert "ZS22V2-P" in locked and "1 行" in locked
+                                              "data": {"rows": [1]}}, {"locked": "ZS220 V2"})
+    assert "ZS220 V2" in locked and "1 行" in locked
     # 未注册产物的节点：如实说不装懂，不编「已完成」
     assert "未注册产物" in done_summary({}, "whatever", None)
 def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
@@ -141,7 +143,7 @@ def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
            "kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     mem = {"ext": ext, "steps_done": ["agent_fill", "model_reason"],
            "node_state": {"kp_reason": {"row_answers": {"CPU|2颗兆芯50000": ["2.2GHz 96C"]}}},
-           "locked_baseline": {"name": "ZS22V2-P", "series": "Polaris", "form": "2U",
+           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
                                "server_model_id": 1}}
     async def sink(payload):
         pass
@@ -210,7 +212,7 @@ def test_downstream_node_turn_gets_readonly_registration_doc():
            "purchase_qty": 1, "warranty_years": 3,
            "kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     mem = {"steps_done": ["agent_fill"],
-           "locked_baseline": {"name": "ZS22V2-P", "series": "Polaris", "form": "2U"}}
+           "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U"}}
     async def scenario():
         with patch.object(skill_turn_engine, "run_stream_chat_loop", fake_loop):
             return await skill_turn_engine.run_skill_agent_turn(

@@ -100,7 +100,7 @@ def _patch_env(mock_client, comp):
     patch("app.services.llm_client._client", return_value=mock_client).start()
     patch("app.services.llm_client._get_llm_config", return_value={
         "base_url": "http://x", "api_key": "k", "model": "m",
-        "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}},
+        "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True},
     }).start()
 
 
@@ -111,7 +111,7 @@ def test_chat_json_json_mode_and_schema_clean():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         data = asyncio.run(llm_client.chat_json(
             [{"role": "user", "content": "hi"}], schema=EXTRACT_ENHANCE_SCHEMA))
     assert data["cpu"]["cores"] == 24
@@ -129,7 +129,7 @@ def test_chat_json_retries_once_then_succeeds():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         data = asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert data["form"] == "4U"
     assert len(comp.calls) == 2
@@ -142,7 +142,7 @@ def test_chat_json_raises_after_retries():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert len(comp.calls) == 2
@@ -153,7 +153,7 @@ def test_chat_json_empty_content_raises():
     with patch("app.services.llm_client._client", return_value=client), \
          patch("app.services.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
-             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "capabilities_override": {"m": {"supports_json_mode": True}}}):
+             "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):
             asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
     assert len(comp.calls) == 2

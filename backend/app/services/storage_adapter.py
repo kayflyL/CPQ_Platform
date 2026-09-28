@@ -33,6 +33,11 @@ class StorageAdapter(Protocol):
         """
         ...
 
+    def save_scoped(self, rel_dir: str, object_id: str, content: bytes, ext: str) -> str:
+        """Persist bytes under an opportunity-neutral bucket (e.g. office reports);
+        return the relative storage_key. Downloads stay API-proxied + authenticated."""
+        ...
+
     def read_bytes(self, storage_key: str) -> bytes: ...
 
     def resolve_local_path(self, storage_key: str) -> Optional[Path]:
@@ -131,6 +136,21 @@ class LocalFileStorage:
             base = f"{base}/{safe_subfolder}"
         rel = f"{base}/{obj}{ext}"
         target = self._safe_join(rel)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return rel
+
+    def save_scoped(self, rel_dir: str, object_id: str, content: bytes, ext: str) -> str:
+        """Save file under a neutral bucket outside the opportunities tree.
+
+        rel_dir may contain "/" grouping (e.g. "office/reports"); each segment and
+        object_id pass through _sanitize, and _safe_join guards traversal.
+        """
+        segs = [self._sanitize(p) for p in str(rel_dir or "").strip("/").strip("\\").split("/") if p]
+        obj = self._sanitize(object_id)
+        ext = ext if ext.startswith(".") else f".{ext}"
+        rel = "/".join([*segs, f"{obj}{ext}"])
+        target = self._safe_join(*rel.split("/"))
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(content)
         return rel

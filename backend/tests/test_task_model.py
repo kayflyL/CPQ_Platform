@@ -44,12 +44,12 @@ def test_requirement_prompt_pre_task_hides_target_form():
     """进任务前不碰目标表：slots=None（任务未开始）不暴露登记表内容。"""
     from app.services.skill_tools_fill import requirement_prompt
     p = requirement_prompt(None)
-    assert "存储服务器" not in p and "ES22V3-P" not in p
+    assert "存储服务器" not in p and "ES220 V3" not in p
     assert "本轮没有登记表" in p                     # 只报事实：任务未开始，本轮无登记表
     assert "禁止" not in p                          # 纪律属于左栏提示词，不回代码
     # 任务回合（slots 传入）才暴露登记表视图
-    p_task = requirement_prompt({"server_type": "存储服务器", "server_model": "ES22V3-P"})
-    assert "存储服务器" in p_task and "ES22V3-P" in p_task
+    p_task = requirement_prompt({"server_type": "存储服务器", "server_model": "ES220 V3"})
+    assert "存储服务器" in p_task and "ES220 V3" in p_task
 
 
 def test_midrun_message_queued_not_rejected(monkeypatch):
@@ -76,7 +76,11 @@ def test_midrun_message_queued_not_rejected(monkeypatch):
             queued = svc._THREAD_TURN_QUEUE["t1"][0]
             assert queued["user_text"] == "补一句：内存要 256G"
             assert queued["option_slot"] is None and queued["colleague"]["role_key"] == "assistant"
-            assert broadcasts and all(p.get("type") == "chat_status" for _, p in broadcasts)
+            assert broadcasts and all(p.get("type") in ("chat_status", "queue_state")
+                                      for _, p in broadcasts)
+            # 排队可见化（P0-③）：入队即广播队列深度，前端显示「已排队 ×N」
+            depths = [p.get("depth") for _, p in broadcasts if p.get("type") == "queue_state"]
+            assert depths == [1]
 
             # 释放锁 → drain 把排队消息原样重放进同一入口
             calls = []

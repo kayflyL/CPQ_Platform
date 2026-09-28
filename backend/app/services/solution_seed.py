@@ -1,4 +1,8 @@
-"""Seed rules.solutions with the baseline 6 solutions (idempotent by key)."""
+"""Seed rules.solutions with the baseline 6 solutions (idempotent by key).
+
+适配平台 platforms 绑定机型目录真实机型（l6.server_models）：model_id + /servers/models/:id 链接，
+规格文案取自机型规格表，绝不写目录里不存在的型号（存量假数据由 scripts/fix_solution_platforms.py 修复）。
+"""
 from app.repository.solution_repo import SolutionRepository
 
 SCENES = [
@@ -7,6 +11,12 @@ SCENES = [
     {"key": "store", "label": "海量存储"},
     {"key": "sim", "label": "工业仿真"},
 ]
+
+# 真实机型锚点（l6.server_models.id）：Orion 双子 = ES220 V3(2U通用)/ESA240 V3(4U AI)，Polaris 信创双子 = ZS220 V2(2U)/ZSA240 V2(4U AI)
+_P_ES220 = {"name": "ES220 V3", "spec": "2U 双路 · AMD 9004/9005 · 24× DDR5 6400 · 最高 29 盘位", "model_id": 6, "link": "/servers/models/6"}
+_P_ZS220 = {"name": "ZS220 V2", "spec": "2U 双路 · 兆芯 KH-50000 信创 · 24× DDR5 5200 · 最高 28 盘位", "model_id": 8, "link": "/servers/models/8"}
+_P_ESA240 = {"name": "ESA240 V3", "spec": "4U 双路 · AMD 9004/9005 · 最高 8× 双宽 GPU 直连（10× 交换）", "model_id": 16, "link": "/servers/models/16"}
+_P_ZSA240 = {"name": "ZSA240 V2", "spec": "4U 双路 · 兆芯 KH-50000 · 适配国产 GPU（天数智芯/沐曦）", "model_id": 17, "link": "/servers/models/17"}
 
 _SEED = [
     {
@@ -32,11 +42,7 @@ _SEED = [
 - 显存是第一瓶颈，先定模型与量化档位，再反推显卡数量与代数。
 - 内存按 `模型权重 + KV cache` 估算，ECC 是 7×24 的底线。
 - 高负载优先机架式 + 专业机房，避开办公室风冷。""",
-        "platforms": [
-            {"name": "Orion ES22V3", "spec": "双路 Xeon · 2×RTX 4090 24G · 128G", "link": "/strategies/selection"},
-            {"name": "Polaris ZS22V2", "spec": "双路 EPYC · 2×RTX 4090 · 256G", "link": "/strategies/selection"},
-            {"name": "Aurora AS01V3", "spec": "单路 Xeon · 2×RTX 4080 · 64G", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ESA240, _P_ZSA240, _P_ES220],
     },
     {
         "key": "ai-train", "scene_key": "ai", "scene": "AI·加速计算",
@@ -60,11 +66,7 @@ _SEED = [
 
 - 全参微调显存需求约为推理的数倍，优先大显存单卡或 NVLink 多卡。
 - 检查点写盘频繁，NVMe 的持续写吞吐比随机读更关键。""",
-        "platforms": [
-            {"name": "Polaris ZS22V2", "spec": "双路 EPYC · 4×RTX PRO 6000 96G · 512G", "link": "/strategies/selection"},
-            {"name": "Orion ES22V3", "spec": "双路 Xeon · 2×A100 80G · 256G", "link": "/strategies/selection"},
-            {"name": "Titan TS33V2", "spec": "双路 EPYC · 8×RTX PRO 96G · 1TB", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ESA240, _P_ZSA240],
     },    {
         "key": "virt-hci", "scene_key": "virt", "scene": "虚拟化·数据库",
         "title": "虚拟化超融合", "sub": "核数与内存决定能装多少台虚拟机",
@@ -87,11 +89,7 @@ _SEED = [
 
 - 优先把内存通道插满，而不是买超大单条；带宽比容量更能撑起并发。
 - 数据盘用企业级 SSD + 硬件 RAID10，别用主板软 RAID。""",
-        "platforms": [
-            {"name": "Polaris ZS22V2", "spec": "双路 EPYC · 128 核 · 256G · RAID10", "link": "/strategies/selection"},
-            {"name": "Orion ES22V3", "spec": "双路 Xeon · 64 核 · 512G · NVMe", "link": "/strategies/selection"},
-            {"name": "Polaris ZS22V2-P", "spec": "单路 EPYC · 32 核 · 128G · 塔式", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ES220, _P_ZS220],
     },
     {
         "key": "db-ha", "scene_key": "virt", "scene": "虚拟化·数据库",
@@ -115,11 +113,7 @@ _SEED = [
 
 - 先看内存命中率再决定是否加内存；命中率高时加盘收益递减。
 - 日志盘与数据盘分离，用高随机写 NVMe 承担日志。""",
-        "platforms": [
-            {"name": "Orion ES22V3", "spec": "双路 Xeon · 32 核 · 256G · NVMe RAID1", "link": "/strategies/selection"},
-            {"name": "Polaris ZS22V2", "spec": "双路 EPYC · 48 核 · 512G · 企业SSD", "link": "/strategies/selection"},
-            {"name": "Nimbus NS12V2", "spec": "单路 Xeon · 16 核 · 128G · 2U", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ES220, _P_ZS220],
     },
     {
         "key": "nas", "scene_key": "store", "scene": "海量存储",
@@ -143,11 +137,7 @@ _SEED = [
 
 - 盘位数量决定扩容上限，先留足盘位再谈容量。
 - 硬件 RAID 卡别省，软 RAID 在重建与掉盘场景可靠性差。""",
-        "platforms": [
-            {"name": "Polaris ZS22V2-P", "spec": "单路 EPYC · 8×18T · RAID6 · 64G", "link": "/strategies/selection"},
-            {"name": "Orion ES22V3", "spec": "双路 Xeon · 12×18T · RAID6 · 128G", "link": "/strategies/selection"},
-            {"name": "Vault VS24V1", "spec": "单路 Xeon · 24×20T · 双RAID · 128G", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ES220, _P_ZS220],
     },
     {
         "key": "cae", "scene_key": "sim", "scene": "工业仿真",
@@ -171,11 +161,7 @@ _SEED = [
 
 - 确认 CPU 支持 AVX2，否则大量求解器无法启动。
 - 内存通道与容量同样重要，建议插满通道再谈主频。""",
-        "platforms": [
-            {"name": "Orion ES22V3", "spec": "双路 EPYC · 96 核 · 512G · NVMe 缓存", "link": "/strategies/selection"},
-            {"name": "Polaris ZS22V2", "spec": "双路 EPYC · 128 核 · 1TB · 冗余2000W", "link": "/strategies/selection"},
-            {"name": "Titan TS33V2", "spec": "双路 Xeon · 64 核 · 512G · 塔式工作站", "link": "/strategies/selection"},
-        ],
+        "platforms": [_P_ES220, _P_ZS220],
     },
 ]
 

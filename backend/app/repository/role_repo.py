@@ -22,11 +22,11 @@ _REMOVED_PERMISSION_KEYS = {"field.server.price"}
 
 _DEFAULT_ROLES = [
     ("admin", "管理员", "拥有全部权限（含用户与权限管理）", None),
-    ("business", "业务", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts"]),
-    ("te", "技术支持工程师", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts", "field.flow.bom", "action.flow.return.boming"]),
-    ("quote", "市场报价专员", "商机线索 + 报价工作台（含价格）", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.flow.bom", "field.flow.cost", "action.flow.return.quoting", "action.flow.submit.quoting"]),
-    ("cost", "成本核算", "商机线索 + 报价/配件价格", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.flow.bom", "field.flow.cost", "action.flow.return.costing"]),
-    ("director", "总监", "看全量页面 + 价格", ["page.opportunities_all", "page.opportunities", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price"]),
+    ("business", "业务", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts", "action.flow.submit.requirement", "action.opportunity.result"]),
+    ("te", "技术支持工程师", "商机线索 + 服务器 + 配件", ["page.opportunities", "page.servers", "page.parts", "field.flow.bom", "action.flow.submit.boming", "action.flow.return.boming"]),
+    ("quote", "市场报价专员", "商机线索 + 报价工作台（含价格）", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.flow.bom", "field.flow.cost", "action.opportunity.result", "action.flow.return.quoting", "action.flow.submit.quoting"]),
+    ("cost", "成本核算", "商机线索 + 报价/配件价格", ["page.opportunities", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.flow.bom", "field.flow.cost", "action.flow.submit.costing", "action.flow.return.costing"]),
+    ("director", "总监", "看全量页面 + 价格 + 中间交付物 + 低毛利审批", ["page.opportunities_all", "page.opportunities", "page.servers", "page.parts", "page.strategies", "field.quote.price", "field.opportunity.quote_price", "field.parts.price", "field.flow.bom", "field.flow.cost", "action.flow.approve.pricing"]),
 ]
 
 

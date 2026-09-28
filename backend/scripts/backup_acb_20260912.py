@@ -3,12 +3,13 @@
 import json
 import os
 from sqlalchemy import create_engine, text
+from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 
 OUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_backup_ACB_20260912")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 eng = create_engine(
-    "postgresql+psycopg2://postgres:961216@localhost:5432/cpq_platform",
+    db_url(),
     connect_args={"client_encoding": "UTF8"},
 )
 

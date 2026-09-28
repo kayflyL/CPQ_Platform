@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     POSTGRES_HOST: str = os.getenv("POSTGRES_HOST", "localhost")
     POSTGRES_PORT: int = int(os.getenv("POSTGRES_PORT", "5432"))
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
-    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "961216")
+    POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "")  # 只从环境/backend/.env 读，仓库零硬编码（2026-09-14 安全加固）
     POSTGRES_DB: str = os.getenv("POSTGRES_DB", "cpq_platform")
 
     # Database URL (auto-constructed from components)
@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     # Auth / JWT（认证闭环）
     # AUTH_ENABLED=false 时回退匿名（灰度开关，便于逐步切换；默认强制登录）
     AUTH_ENABLED: bool = os.getenv("AUTH_ENABLED", "true").lower() == "true"
-    JWT_SECRET: str = os.getenv("JWT_SECRET", "cpq-dev-insecure-secret-change-me")
+    JWT_SECRET: str = os.getenv("JWT_SECRET", "")  # 空值时登录会显式报错（见 security.create_access_token），仓库不留弱默认
     JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
     JWT_EXPIRE_MINUTES: int = int(os.getenv("JWT_EXPIRE_MINUTES", "720"))
 

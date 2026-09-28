@@ -577,7 +577,7 @@ function handleBack() {
 <style scoped>
 .spec-template-editor {
   padding: 24px;
-  height: 100vh;
+  height: calc(100vh - var(--cpq-header-clearance, 0px));
   display: flex;
   flex-direction: column;
 }

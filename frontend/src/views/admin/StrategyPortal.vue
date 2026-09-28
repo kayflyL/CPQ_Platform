@@ -20,8 +20,8 @@ const MODULES: ModuleCard[] = [
   {
     key: 'requirement',
     title: '需求分析',
-    desc: '需求明确度、平台系列、RAID/规格等规则目录，固定专家流程',
-    tags: ['业务输入', '场景定义'],
+    desc: '平台归置 + 场景配置基线：AI 出配置的事实依据（该配什么、配多少）',
+    tags: ['平台归置', '场景基线'],
     to: '/strategies/requirement',
   },
   {
@@ -77,8 +77,8 @@ function enter(m: ModuleCard) { router.push(m.to) }
 <style scoped>
 .portal { max-width: 1180px; margin: 0 auto; padding: 8px 24px 80px; }
 .portal-head { margin-bottom: 28px; padding-top: 8px; }
-.portal-title { font-size: 24px; font-weight: 700; color: var(--cpq-text-primary); margin: 0 0 6px; }
-.portal-sub { font-size: 13.5px; color: var(--cpq-text-muted); margin: 0; }
+.portal-title { font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); margin: 0 0 6px; }
+.portal-sub { font-size: 12px; color: var(--cpq-text-muted); margin: 0; }
 
 .portal-grid {
   display: grid;

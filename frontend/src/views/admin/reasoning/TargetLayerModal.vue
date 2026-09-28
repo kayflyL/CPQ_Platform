@@ -300,9 +300,90 @@ function onSelectModel(name: string) {
   loadPreview(name)
 }
 
+// ── document 分支：报告结构契约（章节可增删排序），大脑按此逐节产出 markdown ─────────
+// 章节行编辑借 BOM 模板编辑器（BomTemplateManager）的设计：拖拽手柄 + grid 表行 + 表头，拖动换行。
+import draggable from 'vuedraggable'
+interface DocSection { key: string; title: string; requires: string }
+const docName = ref('')
+const docSections = ref<DocSection[]>([])
+const docSaving = ref(false)
+let docSeq = 0
+
+const CN_NUM = '一二三四五六七八九十'
+const DOC_RANGE_OPTIONS = [
+  { value: 'auto', label: '自动（按数据实际边界）' },
+  { value: 'last_30', label: '近30天' },
+  { value: 'last_90', label: '近90天' },
+  { value: 'half_year', label: '近半年' },
+  { value: 'this_year', label: '今年' },
+  { value: 'custom', label: '自定义区间' },
+]
+const docRangeMode = ref('auto')
+const docRangeStart = ref('')
+const docRangeEnd = ref('')
+
+/** 与后端 _report_window 同语义的 JS 镜像：右栏预览用，契约权威在后端 */
+function rangeWindowPreview(): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const iso = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const fmt = (s: string) => s.replace(/-/g, '.')
+  const today = new Date()
+  if (docRangeMode.value === 'custom')
+    return (docRangeStart.value && docRangeEnd.value)
+      ? `${fmt(docRangeStart.value)} ~ ${fmt(docRangeEnd.value)}（自定义区间）` : ''
+  if (docRangeMode.value === 'auto') return ''
+  let start = ''
+  if (docRangeMode.value === 'last_30' || docRangeMode.value === 'last_90' || docRangeMode.value === 'half_year') {
+    const days = docRangeMode.value === 'last_30' ? 30 : docRangeMode.value === 'last_90' ? 90 : 183
+    const s = new Date(today); s.setDate(s.getDate() - (days - 1)); start = iso(s)
+  } else if (docRangeMode.value === 'this_year') {
+    start = `${today.getFullYear()}-01-01`
+  }
+  return `${fmt(start)} ~ ${fmt(iso(today))}`
+}
+
+function seedDocument() {
+  const art = (props.artifact as any) || {}
+  docName.value = String(art.name || '数据报告')
+  docSections.value = (Array.isArray(art.sections) ? art.sections : [])
+    .filter((s: any) => s && typeof s === 'object')
+    .map((s: any) => ({ key: String(s.key || `s${++docSeq}`), title: String(s.title || ''), requires: String(s.requires || '') }))
+  const dr = (art.data_range && typeof art.data_range === 'object') ? art.data_range : {}
+  docRangeMode.value = DOC_RANGE_OPTIONS.some(o => o.value === dr.mode) ? String(dr.mode) : 'auto'
+  docRangeStart.value = String(dr.start || '')
+  docRangeEnd.value = String(dr.end || '')
+}
+
+function addDocSection() {
+  docSections.value.push({ key: `s${++docSeq}`, title: '', requires: '' })
+}
+
+function removeDocSection(i: number) {
+  docSections.value.splice(i, 1)
+}
+
+function saveDocument() {
+  if (!props.nodeKey) { message.info('未挂接节点，仅预览'); return }
+  const sections = docSections.value.filter(s => String(s.title || '').trim())
+  if (!sections.length) { message.warning('至少保留一个有标题的章节'); return }
+  if (docRangeMode.value === 'custom' && (!docRangeStart.value || !docRangeEnd.value)) {
+    message.warning('自定义区间需要起止日期'); return
+  }
+  docSaving.value = true
+  try {
+    const data_range = docRangeMode.value === 'custom'
+      ? { mode: 'custom', start: docRangeStart.value, end: docRangeEnd.value }
+      : { mode: docRangeMode.value }
+    emit('save-target', [{ ...(props.artifact || {}), kind: 'document', name: docName.value || '数据报告', data_range, sections }])
+  } finally {
+    docSaving.value = false
+  }
+}
+
 watch(() => props.open, async (v) => {
   if (!v) return
   if (props.artifact?.kind === 'form') { await load(); await seedFormPreview(); return }
+  if (props.artifact?.kind === 'document') { seedDocument(); return }
   if (props.artifact?.kind === 'table') {
     await seedFieldRows()
     if (isKpView.value) {
@@ -385,6 +466,63 @@ defineExpose({ load })
         </template>
       </TargetTwoPane>
 
+      <!-- document：左=报告名称+数据范围+章节契约编辑（BOM 模板编辑器同款拖拽行），右=结构预览 -->
+      <div v-else-if="artifact?.kind === 'document'" class="tlm-doc">
+        <div class="tlm-doc-pane">
+          <h4 class="tl-sec-title">报告结构契约</h4>
+          <div class="tl-doc-basics">
+            <div class="tl-doc-basic">
+              <span class="tl-dim">报告名称</span>
+              <a-input v-model:value="docName" size="small" placeholder="数据报告" />
+            </div>
+            <div class="tl-doc-basic">
+              <span class="tl-dim">数据范围</span>
+              <div class="tl-doc-range">
+                <a-select v-model:value="docRangeMode" size="small" style="width: 172px" :options="DOC_RANGE_OPTIONS" />
+                <template v-if="docRangeMode === 'custom'">
+                  <a-date-picker v-model:value="docRangeStart" size="small" value-format="YYYY-MM-DD" placeholder="起" />
+                  <span class="tl-dim">~</span>
+                  <a-date-picker v-model:value="docRangeEnd" size="small" value-format="YYYY-MM-DD" placeholder="止" />
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <div class="tl-thead">
+            <span class="c-drag"></span><span>#</span><span>章节标题</span><span>内容要求</span><span></span>
+          </div>
+          <draggable v-model="docSections" item-key="key" handle=".tl-drag" :animation="180" class="tl-tbody">
+            <template #item="{ element: s, index: i }">
+              <div class="tl-tr">
+                <span class="c-drag"><span class="tl-drag" title="拖拽排序">⠿</span></span>
+                <span class="tl-idx">{{ i + 1 }}</span>
+                <a-input v-model:value="s.title" size="small" placeholder="如：周数据" />
+                <a-textarea v-model:value="s.requires" size="small" :rows="2" placeholder="该节内容要求（如：本周新增商机数、平台分布、机箱分布）" />
+                <a-button size="small" type="text" danger @click="removeDocSection(i)">删</a-button>
+              </div>
+            </template>
+          </draggable>
+          <div class="tlm-doc-add" @click="addDocSection">＋ 添加章节</div>
+          <div class="tlm-foot tlm-foot-left">
+            <a-button type="primary" size="small" :loading="docSaving" :disabled="!nodeKey" @click="saveDocument">保存结构契约</a-button>
+          </div>
+        </div>
+        <div class="tlm-doc-pane tlm-doc-pane--preview">
+          <h4 class="tl-sec-title">结构预览</h4>
+          <div class="tl-sec">
+            <b>{{ docName || '数据报告' }}</b>
+            <p class="tl-dim">数据范围：{{ rangeWindowPreview() || 'YYYY.MM.DD ~ YYYY.MM.DD（按数据实际边界）' }}</p>
+          </div>
+          <ol class="tlm-doc-outline">
+            <li v-for="(s, i) in docSections.filter(x => String(x.title || '').trim())" :key="s.key">
+              <b>{{ CN_NUM[Math.min(i, 9)] }}、{{ s.title }}</b>
+              <div class="tl-dim tl-note">{{ s.requires || '（未写内容要求）' }}</div>
+            </li>
+          </ol>
+          <p class="tl-dim">大脑按此结构逐节产出 markdown 结论；数据范围与章节改动下一回合即生效，交付时系统自动渲染 PDF 报告。</p>
+        </div>
+      </div>
+
       <!-- sheet_section：配置表切片的说明视图（机箱表/配件表） -->
       <template v-else>
         <div class="tl-sec">
@@ -423,5 +561,29 @@ defineExpose({ load })
 .tl-info-list { margin: 0; padding-left: 18px; }
 .tl-note { margin-top: 2px; }
 .tl-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 16px 0; text-align: center; }
+.tlm-doc { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; }
+.tlm-doc-pane { min-width: 0; }
+.tlm-doc-pane--preview { border-left: 1px solid var(--cpq-overlay-w06, rgba(255,255,255,.06)); padding-left: 16px; }
+.tl-doc-basics { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.tl-doc-basic { display: flex; flex-direction: column; gap: 4px; font-size: 11px; min-width: 180px; flex: 1; }
+.tl-doc-range { display: flex; gap: 6px; align-items: center; }
+/* 章节行：BOM 模板编辑器同款 grid 表行（拖拽手柄 | 序号 | 标题 | 内容要求 | 操作） */
+.tl-thead, .tl-tr { display: grid; grid-template-columns: 22px 26px minmax(150px, 1fr) minmax(220px, 1.6fr) 40px;
+  gap: 6px; align-items: start; padding: 6px 8px; }
+.tl-thead { position: sticky; z-index: 1; font-size: 11px; font-weight: 600; color: var(--cpq-text-muted);
+  border-bottom: 1px solid var(--cpq-overlay-w10, rgba(128,128,128,.18)); }
+.tl-thead span, .tl-idx { align-self: center; }
+.tl-tbody { display: flex; flex-direction: column; }
+.tl-tr:hover { background: var(--cpq-overlay-w06, rgba(128,128,128,.06)); border-radius: 8px; }
+.tl-tr .ant-input, .tl-tr .ant-input:focus, .tl-tr textarea.ant-input { align-self: stretch; }
+.tl-idx { font-size: 12px; color: var(--cpq-text-muted); text-align: center; }
+.tl-drag { cursor: grab; display: inline-block; width: 100%; text-align: center; color: var(--cpq-text-muted);
+  font-size: 13px; line-height: 1; padding-top: 8px; border-radius: 4px; }
+.tl-drag:hover { color: var(--cpq-accent, #3b82f6); }
+.tlm-doc-add { border: 1px dashed var(--cpq-overlay-w20, rgba(128,128,128,.35)); border-radius: 8px;
+  padding: 8px; text-align: center; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; margin: 10px 0; }
+.tlm-doc-add:hover { color: var(--cpq-accent, #3b82f6); }
+.tlm-doc-outline { margin: 0; padding-left: 20px; font-size: 12px; }
+.tlm-doc-outline li { margin-bottom: 6px; }
 .tl-preview-form { border: 1px solid var(--cpq-overlay-w06, rgba(255,255,255,.06)); border-radius: 8px; padding: 4px 12px; }
 </style>

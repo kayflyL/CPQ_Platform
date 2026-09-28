@@ -370,7 +370,7 @@ onMounted(init)
             <!-- 基本信息 -->
             <div class="sec-label">基本信息</div>
             <a-row :gutter="12">
-              <a-col :span="8"><a-form-item label="机型名" required><a-input v-model:value="form.name" placeholder="如 ES22V3-P" /></a-form-item></a-col>
+              <a-col :span="8"><a-form-item label="机型名" required><a-input v-model:value="form.name" placeholder="如 ES220 V3" /></a-form-item></a-col>
               <a-col :span="6"><a-form-item label="类型" required>
                 <a-select v-model:value="form.server_type_id">
                   <a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
@@ -567,11 +567,11 @@ onMounted(init)
 </template>
 
 <style scoped>
-.editor-page { min-height: 100vh; }
+.editor-page { min-height: calc(100vh - var(--cpq-header-clearance, 0px)); }
 .content-inner { width: 100%; margin: 0 auto; padding: 24px; }
 .cfg-bar {
   /* 吸顶：页面很长，滚动中随时可保存/返回（main-scroll 是滚动容器） */
-  position: sticky; top: 8px; z-index: 30;
+  position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 8px); z-index: 30;
   display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; margin-bottom: 16px;
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.18);
 }

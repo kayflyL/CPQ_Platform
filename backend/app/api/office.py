@@ -7,7 +7,8 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.api.deps import get_current_user, require_admin, resolve_ws_user
@@ -215,6 +216,34 @@ def office_governance_list(
 ):
     """Pending/resolved approval queue."""
     return {"items": office_governance.list_items(status)}
+
+
+@router.get("/reports/{object_id}/download")
+def download_office_report(
+    object_id: str,
+    token: Optional[str] = Query(default=None),
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+):
+    """输出节点文件产物（office 中立桶）下载。
+
+    鉴权双通道：axios 走 Authorization 头；iframe / window.open 直链走 ?token=
+    （否则 AUTH_ENABLED 下 401）。object_id 白名单校验防路径穿越。
+    """
+    if get_settings().AUTH_ENABLED:
+        from app.api.deps import _extract_bearer
+        tok = _extract_bearer(authorization) or (token or "").strip()
+        if not tok or not resolve_ws_user(tok):
+            raise HTTPException(status_code=401, detail="未登录或登录已过期")
+    import re as _re
+    if not _re.fullmatch(r"[\w一-鿿\-]+", object_id or ""):
+        raise HTTPException(status_code=404, detail="报告不存在")
+    from app.services.report_pdf import OFFICE_REPORTS_DIR
+    from app.services.storage_adapter import get_storage
+    local = get_storage().resolve_local_path(f"{OFFICE_REPORTS_DIR}/{object_id}.pdf")
+    if not local:
+        raise HTTPException(status_code=404, detail="报告不存在或已清理")
+    return FileResponse(path=str(local), filename=f"{object_id}.pdf",
+                        media_type="application/pdf")
 
 
 @router.post("/governance/batch")

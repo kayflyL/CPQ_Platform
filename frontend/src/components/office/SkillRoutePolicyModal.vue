@@ -1,7 +1,7 @@
 <template>
   <a-modal
     :open="open"
-    :title="`${skill?.name || skill?.key || 'Skill'} · 调用策略`"
+    :title="`${skill?.name || skill?.key || '工作流'} · 调用策略`"
     width="680px"
     :confirm-loading="saving"
     ok-text="保存"
@@ -13,7 +13,7 @@
       <a-alert
         type="info"
         show-icon
-        message="Codex 式路由：由 LLM 根据 Skill 的 name + description 判断是否调用，不设置关键词规则。"
+        message="Codex 式路由：由 LLM 根据工作流的 name + description 判断是否调用，不设置关键词规则。"
       />
       <div class="srp-field">
         <label>调用说明（description）</label>
@@ -24,7 +24,7 @@
           placeholder="例如：当用户需要配置服务器、理解硬件需求、生成候选方案或 BOM 时调用。"
         />
         <span class="srp-hint">
-          这段描述会随当前同事已绑定的 Skill 元数据一起交给路由 LLM，用于判断是否调用该 Skill。
+          这段描述会随当前同事已绑定的工作流元数据一起交给路由 LLM，用于判断是否调用该工作流。
         </span>
       </div>
       <div class="srp-foot">

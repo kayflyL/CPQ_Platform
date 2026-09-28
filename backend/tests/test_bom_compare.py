@@ -42,7 +42,7 @@ def _ok_rows():
 
 
 def _case_rows():
-    """与技术员 BOM 同构（BI-2026-0709 ES22V3-P）。"""
+    """与技术员 BOM 同构（BI-2026-0709 ES220 V3）。"""
     return [
         _l6("Front backplane", "12*3.5 SATA/SAS/NVMe", 1),
         _l6("IO1", "1*X16+1*X8 FHFL", 1),

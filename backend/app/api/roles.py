@@ -61,7 +61,8 @@ def list_roles(admin: dict = Depends(require_admin)):
 
 
 class RoleBody(BaseModel):
-    role_key: str
+    # 更新走路径参数 role_key，正文里的 role_key 仅创建时必填（create_role 自行校验）
+    role_key: Optional[str] = None
     name: str
     description: Optional[str] = None
     permissions: List[str] = []
@@ -176,7 +177,10 @@ def update_user(user_id: str, body: UpdateUserBody, admin: dict = Depends(requir
                 raise HTTPException(status_code=400, detail="密码至少 6 位")
             repo.set_password(user_id, hash_password(body.password))
         if body.name is not None and body.name.strip() and body.name.strip() != current["name"]:
-            repo.update_name(user_id, body.name.strip())
+            try:
+                repo.update_name(user_id, body.name.strip())
+            except ValueError as exc:
+                raise HTTPException(status_code=409, detail=str(exc))
         return {"success": True}
     finally:
         repo.close()

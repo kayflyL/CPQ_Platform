@@ -69,7 +69,7 @@ def test_riser_10g_nic_no_upgrade():
 
 
 def test_raid_pick_exact_models():
-    """R28（ESA24V3-P）：需求显式 LSI 9560-16i / LSI 9364-8i → 引擎只产缺口行，候选池确含真实料号。"""
+    """R28（ESA240 V3）：需求显式 LSI 9560-16i / LSI 9364-8i → 引擎只产缺口行，候选池确含真实料号。"""
     from app.services.part_selector import retrieve_part_candidates, select_parts
     out = select_parts(
         categories=["Raid card"],

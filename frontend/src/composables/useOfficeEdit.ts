@@ -151,6 +151,12 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     exit()
   }
 
+  /** 用一份完整配置（如后端样板）替换当前编辑工作副本：可撤销、不落库，保存走正常 save-config 流程。 */
+  function applySample(sample: OfficeConfig) {
+    pushHistory()
+    applySnapshot(JSON.stringify(normalizeOfficeConfig(sample)))
+  }
+
   function workspace(): { width: number; depth: number } {
     const cfg = opts.config()
     const floorW = cfg.floor?.width ?? 24
@@ -1154,6 +1160,7 @@ export function useOfficeEdit(opts: OfficeEditOptions) {
     canUndo,
     canRedo,
     cancelEdit,
+    applySample,
     zoomIn: () => zoomCenter(1.1),
     zoomOut: () => zoomCenter(0.9),
     fitView,

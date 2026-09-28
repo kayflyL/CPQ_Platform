@@ -110,10 +110,11 @@ MARGIN_ALERT = {
     "body": {
         "enabled": True,
         "threshold": 7,
+        "approval_threshold": 5,
         "title": "利润率低于告警线",
         "content": "当前综合毛利率 ${margin}% 低于告警线 ${threshold}%，建议线下走特价审批，系统仅作记录。",
     },
-    "desc": "工作台综合毛利率低于门槛时的告警弹窗（开关+门槛+标题+正文模板 ${margin}/${threshold}）；与保底封顶解耦",
+    "desc": "工作台综合毛利率低于门槛时的告警弹窗（开关+门槛+审批红线+标题+正文模板 ${margin}/${threshold}）；低于审批红线发送报价单须总监审批；与保底封顶解耦",
 }
 
 LEGACY_TYPES = ("margin_tier", "pricing_scenario")  # 旧查表分类模型，归档

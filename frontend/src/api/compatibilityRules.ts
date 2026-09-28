@@ -29,8 +29,41 @@ export interface CompatibilityRule {
   change_reason?: string | null
 }
 
+/** 规则层组内规则行（archived 仅供灰显，不可勾） */
+export interface KnowledgeRuleMeta {
+  id: number
+  name: string
+  status: string
+}
+
+/** 规则层绑定面板的组元数据（规则明细 + 活跃计数 + 用法行） */
+export interface KnowledgeGroupMeta {
+  name: string
+  usage: string
+  count: number
+  rules: KnowledgeRuleMeta[]
+}
+
+/** 单节点绑定：组绑定 ∪ 单条勾选 */
+export interface NodeKnowledgeBinding {
+  groups: string[]
+  rule_ids: number[]
+}
+
+export const knowledgeApi = {
+  /** 全量知识绑定 + 组清单（编辑入口=推理流画布·节点抽屉·规则层） */
+  getBindings: () =>
+    RESP<{ bindings: Record<string, NodeKnowledgeBinding>; groups: KnowledgeGroupMeta[] }>(
+      axios.get('/api/compatibility-rules/knowledge/bindings')),
+  /** 写单节点绑定：组与单条皆空 = 该节点解绑，其他节点不动 */
+  setNodeBindings: (nodeKey: string, groups: string[], ruleIds: number[]) =>
+    RESP<{ bindings: Record<string, NodeKnowledgeBinding> }>(
+      axios.put('/api/compatibility-rules/knowledge/bindings',
+        { node_key: nodeKey, groups, rule_ids: ruleIds })),
+}
+
 export const compatibilityRulesApi = {
-  list: (params?: { type?: RuleType; status?: RuleStatus; category?: string }) =>
+  list: (params?: { type?: RuleType; status?: RuleStatus; category?: string; domain?: string }) =>
     RESP<{ rules: CompatibilityRule[] }>(axios.get('/api/compatibility-rules/', { params })),
   get: (id: number) => RESP<CompatibilityRule>(axios.get(`/api/compatibility-rules/${id}`)),
   create: (data: Partial<CompatibilityRule> & { type: RuleType; name: string }) =>
@@ -41,8 +74,6 @@ export const compatibilityRulesApi = {
     RESP<CompatibilityRule>(axios.post(`/api/compatibility-rules/${id}/status`, { status })),
   remove: (id: number) =>
     RESP<{ success: boolean }>(axios.delete(`/api/compatibility-rules/${id}`)),
-  reset: () =>
-    RESP<{ reset: boolean; count: number }>(axios.post('/api/compatibility-rules/reset')),
   recordHit: (id: number) =>
     RESP<{ id: number; hit_count: number; last_hit_at: string }>(axios.post(`/api/compatibility-rules/${id}/hit`)),
   stats: (id: number) =>

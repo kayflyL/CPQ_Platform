@@ -1,154 +1,91 @@
 /**
- * useAssistant — 方案助手会话状态 + LLM 流式接收。
+ * useAssistant — 方案助手会话门面（ChatSessionRuntime Step 1/2）。
  *
- * 管理 thread 列表 / 当前 thread / 消息 / 发送 / WS 流式
- * (chunk → streamingText, done → 定稿入 messages)。
+ * 本函数不再持有任何聊天状态：全部会话级状态（消息/流式/瞬态/WS/看门狗）住在
+ * chatRuntime 的会话对象里，按渠道键（dm:{role_key} | group | preview）共享——
+ * 浮动窗、门户、AI 办公室传同一 productionRuntime，同角色即同一份状态；
+ * 工作流画布预览传独立 runtime（preview: true），互不污染。
+ *
+ * 这里只剩：窗口自己的「激活指针」（activeChannelKey）+ 线程列表 + 实例级 UI 态
+ * （pendingDispatch/colleagues/activeRoleKey）。对外 public API 与旧版完全一致，
+ * UI 组件零改动。
  */
-import { ref, computed, watch } from 'vue'
+import { ref, computed, onUnmounted } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
-import { assistantApi, assistantWsUrl } from '@/api/assistant'
-import { handleAssistantChatWsEvent, resetTaskUI, createTurnWatchdog, adoptTurnEnd, clearThinking } from '@/composables/assistantChatWs'
+import { assistantApi } from '@/api/assistant'
+import { resetTaskUI, clearThinking, applyTaskState } from '@/composables/assistantChatWs'
 import type { NodeTrace, PauseFacts } from '@/composables/assistantChatWs'
 import type { AssistantThread, AssistantMessage } from '@/api/assistant'
+import { createChatRuntime, productionRuntime } from '@/composables/chatRuntime'
+import type { ChatRuntime, ChatSession, ChatChannelKind, ChatContextUsage } from '@/composables/chatRuntime'
 
-export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null } = {}) {
+export function useAssistant(defaultEntryPoint: string = 'portal', options: { preview?: boolean; initialRoleKey?: string | null; runtime?: ChatRuntime } = {}) {
   const entryPoint = defaultEntryPoint || 'portal'
   const preview = !!options.preview
   const initialRoleKey = options.initialRoleKey || null
+  const runtime = options.runtime || (preview ? createChatRuntime() : productionRuntime)
+
+  // ── 实例级状态：激活指针 + 列表 + 表单态（会话级状态全部在 runtime.session 里）──
+  const activeChannelKey = ref<string | null>(null)
   const threads = ref<AssistantThread[]>([])
-  const currentThreadId = ref<string | null>(null)
-  const messages = ref<AssistantMessage[]>([])
   const colleagues = ref<any[]>([])
-  const activeRoleKey = ref<string | null>(null)
-  const loading = ref(false)
-  const sending = ref(false)
-  const running = ref(false)
-  const streamingText = ref('') // 当前正在流式输出的 assistant 文本(临时,done 后清空并入 messages)
-  const thinkingText = ref('') // 当前需求分析 Agent 的流式思考（白盒展示，发消息/流程开始清空）
-  const waitingAI = ref(false) // 已发送、等首个 chunk 到来前的等待态(显示 typing 指示)
-  const statusText = ref('') // 流程节点实时状态（机型选型/配件选型等），非聊天台词
-  const nodeTraces = ref<NodeTrace[]>([]) // 工作流 Skill 的节点执行卡（仅在触发需求分析等流程时出现）
-  const taskTitle = ref('') // 任务胶囊标题（pipeline_start.title，如「需求分析」）
-  const taskPhase = ref<'' | 'running' | 'paused' | 'done'>('') // 任务胶囊阶段
-  const taskPause = ref<PauseFacts | null>(null) // 中断点事实（后端 pause 载荷原样透传）
-  /** 上下文水位（估算 token 占比，随 selectThread 刷新） */
-  const contextUsage = ref<{ chars: number; est_tokens: number; limit_tokens: number; ratio: number } | null>(null)
+  const activeRoleKey = ref<string | null>(initialRoleKey)
   const pendingDispatch = ref<{ colleague: any; content: string; contextSummary?: string } | null>(null)
 
+  const activeSession = computed<ChatSession | null>(() =>
+    activeChannelKey.value ? runtime.get(activeChannelKey.value) : null,
+  )
+
+  const currentThreadId = computed<string | null>(() => activeSession.value?.threadId ?? null)
   const currentThread = computed(
     () => threads.value.find((t) => t.thread_id === currentThreadId.value) || null,
   )
 
-  // ── WS:订阅当前 thread 的 token 流 + pipeline 事件 ──
-  let ws: WebSocket | null = null
-  // WS 意外断开后延迟重连（uvicorn reload / 网络抖动会断 WS，自动恢复收流）
-  let wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
-
-  const chatWsState = {
-    get messages() { return messages.value },
-    get streamingText() { return streamingText.value },
-    set streamingText(value: string) { streamingText.value = value },
-    get waiting() { return waitingAI.value },
-    set waiting(value: boolean) { waitingAI.value = value },
-    get statusText() { return statusText.value },
-    set statusText(value: string) { statusText.value = value },
-    get thinkingText() { return thinkingText.value },
-    set thinkingText(value: string) { thinkingText.value = value },
-    get error() { return '' },
-    set error(_value: string) {},
-    get nodeTraces() { return nodeTraces.value },
-    set nodeTraces(value: NodeTrace[]) { nodeTraces.value = value },
-    get running() { return running.value },
-    set running(value: boolean) { running.value = value },
-    get taskTitle() { return taskTitle.value },
-    set taskTitle(value: string) { taskTitle.value = value },
-    get taskPhase() { return taskPhase.value },
-    set taskPhase(value: '' | 'running' | 'paused' | 'done') { taskPhase.value = value },
-    get taskPause() { return taskPause.value },
-    set taskPause(value: PauseFacts | null) { taskPause.value = value },
-  }
-  function handleWsData(data: any) {
-    handleAssistantChatWsEvent(chatWsState, data)
+  /** 激活一个渠道会话（换指针：旧会话解持有，新会话上持有 → socket 引用计数归一）。
+   *  幂等：指针未变且仍在线时不重复 attach；曾被 disconnectWs 冻结则重新 attach。 */
+  function activate(kind: ChatChannelKind, roleKey?: string | null): ChatSession {
+    const s = runtime.session(kind, roleKey, entryPoint)
+    if (activeChannelKey.value !== s.id) {
+      const old = activeChannelKey.value ? runtime.get(activeChannelKey.value) : null
+      if (old) runtime.unpin(old)
+      activeChannelKey.value = s.id
+      runtime.attach(s)
+    } else if (!runtime.isLive(s)) {
+      runtime.attach(s)
+    }
+    return s
   }
 
-  // 终态事件丢失兜底：WS 断线窗口里回合已完成 → 拉服务端消息采纳差异并清 waiting
-  // （否则三点假死到用户手动发消息为止）。没有新消息 = 回合仍在跑，继续等。
-  async function resyncThreadState(): Promise<boolean> {
-    const id = currentThreadId.value
-    if (!id) return false
-    const data = await assistantApi.threads.messagesFull(id)
-    const server: AssistantMessage[] = data.messages || []
-    const known = new Set(messages.value.map((m) => m.message_id))
-    if (!server.some((m) => !known.has(m.message_id))) return false
-    messages.value = server
-    contextUsage.value = data.context_usage || null
-    return true
-  }
-  createTurnWatchdog(chatWsState, resyncThreadState)
+  // 指针解绑：会话级状态不销毁（回合服务端继续跑，回来靠 resync 采纳）
+  onUnmounted(() => {
+    const s = activeChannelKey.value ? runtime.get(activeChannelKey.value) : null
+    if (s) runtime.unpin(s)
+  })
 
-  /** WS 意外断开后延迟重连（防重复定时器；disconnectWs 会清掉） */
-  function scheduleWsReconnect() {
-    if (wsReconnectTimer || !currentThreadId.value) return
-    wsReconnectTimer = setTimeout(() => {
-      wsReconnectTimer = null
-      connectWs(currentThreadId.value)
-    }, 2000)
-  }
-
-  function connectWs(threadId: string | null) {
-    disconnectWs()
-    if (!threadId) return
-    try {
-      ws = new WebSocket(assistantWsUrl(threadId))
-    } catch {
-      ws = null
-      return
-    }
-    ws.onopen = () => {
-      // 重连即对账：断线窗口里终态事件已丢，回合可能早已完成并落库——立即拉取采纳
-      if (chatWsState.waiting) {
-        void resyncThreadState().then((adopted) => {
-          if (adopted) adoptTurnEnd(chatWsState)
-        }).catch(() => { /* 对账失败交给看门狗 */ })
-      }
-    }
-    ws.onmessage = (ev) => {
-      let data: any
-      try {
-        data = JSON.parse(ev.data)
-      } catch {
-        return
-      }
-      handleWsData(data)
-    }
-    ws.onclose = () => {
-      ws = null
-      scheduleWsReconnect()
-    }
-    ws.onerror = () => {
-      /* 静默:REST 已返回 user_message,WS 仅推流式回复 */
-    }
-  }
-
-  function disconnectWs() {
-    if (wsReconnectTimer) {
-      clearTimeout(wsReconnectTimer)
-      wsReconnectTimer = null
-    }
-    if (ws) {
-      ws.onclose = null
-      try {
-        ws.close()
-      } catch {
-        /* ignore */
-      }
-      ws = null
-    }
-    streamingText.value = ''
-  }
-
-  // 切换 thread → 重连 WS
-  watch(currentThreadId, (id) => connectWs(id))
+  // ── 会话级状态的门面（computed 直读激活会话；内部代码一律写 session 本体）──
+  const messages = computed<AssistantMessage[]>({
+    get: () => activeSession.value?.messages ?? [],
+    set: (v) => { if (activeSession.value) activeSession.value.messages = v },
+  })
+  const loading = computed(() => !!activeSession.value?.loading)
+  const sending = computed(() => !!activeSession.value?.sending)
+  const running = computed(() => !!activeSession.value?.running)
+  const streamingText = computed<string>({
+    get: () => activeSession.value?.streamingText ?? '',
+    set: (v) => { if (activeSession.value) activeSession.value.streamingText = v },
+  })
+  const thinkingText = computed<string>(() => activeSession.value?.thinkingText ?? '')
+  const waitingAI = computed(() => !!activeSession.value?.waiting)
+  const statusText = computed<string>({
+    get: () => activeSession.value?.statusText ?? '',
+    set: (v) => { if (activeSession.value) activeSession.value.statusText = v },
+  })
+  const queuedCount = computed(() => activeSession.value?.queuedCount ?? 0)
+  const nodeTraces = computed<NodeTrace[]>(() => activeSession.value?.nodeTraces ?? [])
+  const taskTitle = computed(() => activeSession.value?.taskTitle ?? '')
+  const taskPhase = computed<'' | 'running' | 'paused' | 'done'>(() => activeSession.value?.taskPhase ?? '')
+  const taskPause = computed<PauseFacts | null>(() => activeSession.value?.taskPause ?? null)
+  const contextUsage = computed<ChatContextUsage | null>(() => activeSession.value?.contextUsage ?? null)
 
   async function loadColleagues() {
     try {
@@ -175,6 +112,14 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     }
   }
 
+  /** 从线程元数据猜渠道（列表里的会话带 colleague_role_key/thread_kind）。 */
+  function channelOfThread(t?: AssistantThread): { kind: ChatChannelKind; roleKey: string | null } {
+    const role = String(t?.colleague_role_key || '').trim()
+    if (role) return { kind: 'dm', roleKey: role }
+    if (t?.thread_kind === 'office_colleague') return { kind: 'dm', roleKey: activeRoleKey.value }
+    return { kind: 'group', roleKey: null }
+  }
+
   async function loadThreads() {
     try {
       await loadColleagues()
@@ -189,7 +134,13 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
       const currentStillValid = threads.value.some(
         (t) => t.thread_id === currentThreadId.value && t.colleague_role_key === activeRoleKey.value,
       )
-      if (!currentStillValid) currentThreadId.value = null
+      if (!currentStillValid && activeSession.value) {
+        runtime.setThread(activeSession.value, null)
+      }
+      // 面板重开（曾 disconnectWs 冻结）且指针还在旧线程上：这里是无 selectThread 路径的
+      // 唯一入口，必须补 attach——否则重开窗口没有 socket，done 全靠看门狗兜底（旧假死路径）
+      const cur = activeSession.value
+      if (cur?.threadId && !runtime.isLive(cur)) runtime.attach(cur)
       if (!currentThreadId.value && threads.value.length) {
         await selectThread(threads.value[0].thread_id)
       }
@@ -198,16 +149,37 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     }
   }
 
-  async function selectThread(id: string) {
-    currentThreadId.value = id
-    nodeTraces.value = []
-    loading.value = true
+  /**
+   * 打开一条线程。hint 明确渠道（group 面板/历史抽屉传）；不传则按线程元数据推断，
+   * 推断不出时维持当前渠道（dm 兜底 activeRoleKey）。
+   */
+  async function selectThread(id: string, hint?: { kind?: ChatChannelKind; roleKey?: string | null }) {
+    let kind = hint?.kind
+    let roleKey = hint?.roleKey ?? null
+    if (!kind) {
+      const meta = channelOfThread(threads.value.find((t) => t.thread_id === id))
+      kind = meta.kind
+      roleKey = meta.roleKey
+      if (kind === 'dm' && !roleKey) roleKey = activeRoleKey.value
+    }
+    const s = activate(kind, roleKey)
+    if (kind === 'dm') activeRoleKey.value = roleKey
+    if (s.threadId !== id) runtime.setThread(s, id)
+    // 同线程重选也清执行轨迹（与旧版一致）；瞬态等待态只在换线程时清（同线程回合还在跑）
+    s.nodeTraces = []
+    s.taskPause = null
+    s.loading = true
     try {
       const data = await assistantApi.threads.messagesFull(id)
-      messages.value = data.messages
-      contextUsage.value = data.context_usage || null
+      // 加载途中用户已切走：结果只落回属于这条线程的会话，绝不污染当前激活会话
+      if (s.threadId === id) {
+        s.messages = data.messages
+        s.contextUsage = data.context_usage || null
+        // 任务胶囊对账：回合在跑/缺口暂停的线程按服务端事实重建（刷新/切换后恢复）
+        if (data.task_state) applyTaskState(s, data.task_state)
+      }
     } finally {
-      loading.value = false
+      s.loading = false
     }
   }
 
@@ -221,7 +193,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         ? await assistantApi.threads.create({ entryPoint }, '需求分析预览', roleKey, 'office_colleague')
         : await assistantApi.threads.resolve(roleKey, { entryPoint })
       threads.value = [t, ...threads.value.filter((item) => item.thread_id !== t.thread_id)]
-      await selectThread(t.thread_id)
+      await selectThread(t.thread_id, preview ? { kind: 'preview' } : { kind: 'dm', roleKey })
       return t
     } catch {
       antMessage.error('新建会话失败')
@@ -233,28 +205,31 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     activeRoleKey.value = roleKey
     try {
       if (preview) {
-        const oldId = currentThreadId.value
+        const s = activate('preview')
+        const oldId = s.threadId
         if (oldId) {
           // Esc 语义：purge 前先中断在途回合（同 destroyPreview）
-          if (running.value || waitingAI.value) {
-            try { await stop() } catch { /* ignore */ }
-            statusText.value = ''
+          if (s.running || s.waiting) {
+            try { await runtime.stopTurn(s) } catch { /* ignore */ }
+            s.statusText = ''
           }
-          try { await assistantApi.threads.purge(oldId) } catch { /* ignore */ } }
-        currentThreadId.value = null
-        messages.value = []
+          try { await assistantApi.threads.purge(oldId) } catch { /* ignore */ }
+        }
+        runtime.setThread(s, null)
+        s.messages = []
         await newThread()
         return
       }
+      activate('dm', roleKey)
       const list = await assistantApi.threads.listOffice(roleKey)
       if (list.length) {
         threads.value = list
-        await selectThread(list[0].thread_id)
+        await selectThread(list[0].thread_id, { kind: 'dm', roleKey })
         return
       }
       const t = await assistantApi.threads.resolve(roleKey, { entryPoint })
       threads.value = [t]
-      await selectThread(t.thread_id)
+      await selectThread(t.thread_id, { kind: 'dm', roleKey })
     } catch {
       antMessage.error('切换 AI 角色失败')
     }
@@ -263,15 +238,17 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   async function postSend(content: string, contextSummary?: string, roleKey?: string, optionSlot?: string | null,
                           cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
                           entryPointOverride?: string, workflowKey?: string | null) {
-    resetTaskUI(chatWsState)
-    sending.value = true
-    running.value = true
-    streamingText.value = ''
-    clearThinking(chatWsState)
-    waitingAI.value = true
+    const s = activeSession.value
+    if (!s?.threadId) return
+    resetTaskUI(s)
+    s.sending = true
+    s.running = true
+    s.streamingText = ''
+    clearThinking(s)
+    s.waiting = true
     try {
       const res = await assistantApi.threads.postMessage(
-        currentThreadId.value!,
+        s.threadId,
         content,
         contextSummary,
         roleKey,
@@ -282,45 +259,39 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         cardSelections || null,
         workflowKey || null,
       )
-      messages.value.push(res.user_message)
+      s.messages.push(res.user_message)
       if (res.thread) {
         const i = threads.value.findIndex((t) => t.thread_id === res.thread!.thread_id)
         if (i >= 0) threads.value[i] = res.thread
       }
       // assistant 回复由 WS chunk 流式拼接(streamingText)→ done 定稿入 messages
     } catch {
-      waitingAI.value = false
-      streamingText.value = ''
-      running.value = false
+      s.waiting = false
+      s.streamingText = ''
+      s.running = false
       antMessage.error('发送失败')
     } finally {
-      sending.value = false
+      s.sending = false
     }
   }
 
   async function stop() {
-    if (!currentThreadId.value) return
-    try {
-      await assistantApi.threads.stop(currentThreadId.value)
-    } catch {
-      /* ignore */
-    }
-    sending.value = false
-    running.value = false
-    waitingAI.value = false
-    streamingText.value = ''
-    statusText.value = '已请求暂停'
+    const s = activeSession.value
+    if (!s) return
+    await runtime.stopTurn(s)
   }
 
   async function send(content: string, contextSummary?: string, optionSlot?: string | null,
-                      cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
+                      cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
+                      workflowKey?: string | null) {
     const text = content.trim()
     if (!text) return
     if (!currentThreadId.value) {
       const t = await newThread()
       if (!t) return
     }
-    await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null, cardSelections || null)
+    await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null,
+                   cardSelections || null, undefined, workflowKey || null)
   }
 
   /** 方案助手「+」显式发起某工作流：直接进入 ACTIVE，不再走 IDLE→PROPOSING。 */
@@ -356,10 +327,11 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
       await assistantApi.threads.remove(id)
       threads.value = threads.value.filter((t) => t.thread_id !== id)
       if (currentThreadId.value === id) {
-        currentThreadId.value = threads.value[0]?.thread_id || null
-        if (currentThreadId.value) await selectThread(currentThreadId.value)
-        else {
-          messages.value = []
+        const next = threads.value[0]
+        if (next) await selectThread(next.thread_id)
+        else if (activeSession.value) {
+          runtime.setThread(activeSession.value, null)
+          activeSession.value.messages = []
         }
       }
     } catch {
@@ -376,37 +348,50 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
 
   async function destroyPreview() {
     if (!preview) return
-    const id = currentThreadId.value
+    const s = activate('preview')
+    const id = s.threadId
     if (id) {
       // Esc 语义：purge 是硬删线程，在途回合先请求服务端中断再删，避免杀掉正在产出的大脑回合
-      if (running.value || waitingAI.value) {
-        try { await stop() } catch { /* ignore */ }
-        statusText.value = ''
+      if (s.running || s.waiting) {
+        try { await runtime.stopTurn(s) } catch { /* ignore */ }
+        s.statusText = ''
       }
       try { await assistantApi.threads.purge(id) } catch { /* ignore */ }
-      currentThreadId.value = null
-      messages.value = []
+      runtime.setThread(s, null)
+      s.messages = []
     }
   }
 
-  /** 预览会话整体重置（Skill Studio「重置测试」）：purge 线程 + 清消息/节点轨迹/状态。 */
+  /** 预览会话整体重置（工作流画布「重置测试」）：purge 线程 + 清消息/节点轨迹/状态。 */
   async function resetPreview() {
     if (!preview) return
     await destroyPreview()
-    nodeTraces.value = []
-    streamingText.value = ''
-    thinkingText.value = ''
-    statusText.value = ''
-    taskPhase.value = ''
-    taskPause.value = null
-    waitingAI.value = false
-    running.value = false
-    taskTitle.value = ''
+    const s = activeSession.value
+    if (!s) return
+    s.nodeTraces = []
+    s.streamingText = ''
+    s.thinkingText = ''
+    s.statusText = ''
+    s.taskPhase = ''
+    s.taskPause = null
+    s.waiting = false
+    s.running = false
+    s.taskTitle = ''
+  }
+
+  // ── 兼容旧导出：WS 生命周期已由 runtime 按会话管理，这里只做「激活会话」的持有开关 ──
+  function connectWs(_threadId?: string | null) {
+    const s = activeSession.value
+    if (s && !runtime.isLive(s)) runtime.attach(s)
+  }
+  function disconnectWs() {
+    const s = activeChannelKey.value ? runtime.get(activeChannelKey.value) : null
+    if (s) runtime.detach(s)
   }
 
   return {
     threads, currentThreadId, currentThread, messages, loading, sending, running,
-    streamingText, thinkingText, waitingAI, statusText, nodeTraces, taskTitle, taskPhase, taskPause,
+    streamingText, thinkingText, waitingAI, statusText, queuedCount, nodeTraces, taskTitle, taskPhase, taskPause,
     contextUsage, loadThreads, selectThread, newThread, send,
     launchWorkflow,
     confirmDispatch, cancelDispatch, removeThread, colleagues, activeRoleKey, switchRole,

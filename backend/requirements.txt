@@ -17,3 +17,4 @@ bcrypt>=4.0.1  # 密码哈希（认证）
 PyJWT>=2.8.0  # JWT 签发/校验（认证）
 defusedxml>=0.7.1  # SVG 上传清洗（防 XXE/实体膨胀）
 fastembed>=0.4  # 配件语义检索本地向量（bge-small-zh-v1.5；不可用时检索自动降级纯词法）
+reportlab>=4.0  # 输出节点文件产物（markdown→PDF 报告；中文字体链见 report_pdf.py）

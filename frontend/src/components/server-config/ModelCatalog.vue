@@ -2,7 +2,7 @@
 /** 服务器配置门户主体 — 旭日舞台 banner + 类型胶囊快捷入口 + 全部机型货架。
  *  banner 场景配方复用机型详情页 hero（天空渐变/水印/旭日/地平线光带），固定深蓝「银河 · 擎天」主题；
  *  胶囊=导航（跳类型目录页，配方同详情页底部配色胶囊）；货架只展示上架机型（published_only）。 */
-import { ref, computed, nextTick, onMounted, onActivated, watch } from 'vue'
+import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onBeforeUnmount, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { catalogApi, type ServerType, type ServerModel, type PortalBanner } from '@/api/serverConfig'
 import ServerModelCard from '@/components/common/ServerModelCard.vue'
@@ -79,22 +79,36 @@ function goToDetail(m: ServerModel) {
   router.push(`/servers/models/${m.id}`)
 }
 
-onMounted(load)
+// 首屏深色场景垫在透明顶栏下：声明 hero-dark，顶栏切浅色文字保浅色主题可读
+function markHeroDark(on: boolean) {
+  if (on) document.documentElement.dataset.heroDark = '1'
+  else delete document.documentElement.dataset.heroDark
+}
+
+onMounted(() => {
+  markHeroDark(true)
+  load()
+})
 
 // KeepAlive：切回时刷新机型数据（首次挂载由 onMounted 加载）
 let _catalogActivated = false
 onActivated(() => {
+  markHeroDark(true)
   if (!_catalogActivated) {
     _catalogActivated = true
     return
   }
   load()
 })
+onDeactivated(() => markHeroDark(false))
+onBeforeUnmount(() => markHeroDark(false))
 </script>
 
 <template>
   <div class="sc-portal">
-    <!-- 旭日舞台 banner（全幅；z 序：背景0 → 水印1 → 银河/星野2 → 擎天光柱3 → 太阳4 → 大地6 → 地平线光带7 → 轮播图7 → UI8 → 箭头9） -->
+    <!-- 旭日舞台 banner（全幅；z 序：背景0 → 水印1 → 银河/星野2 → 擎天光柱3 → 太阳4 → 大地6 → 地平线光带7 → 轮播图7 → UI8 → 箭头9）
+         垫在全局胶囊下：装饰天空（背景/水印/银河/星野）铺满整块加高的 hero；舞台内容装进 scene-inner（=原 460px 标准盒，
+         顶到让位线下方），标题/地平线/轮播等百分比节奏与原设计一字不差 -->
     <section class="scene">
       <div class="scene-bg" aria-hidden="true"></div>
       <div class="scene-watermark" aria-hidden="true">SERVERS</div>
@@ -104,64 +118,66 @@ onActivated(() => {
       <div class="galaxy-stars" aria-hidden="true"></div>
       <div class="stars" aria-hidden="true"></div>
 
-      <!-- 擎天 · 自地平线升起的光柱 -->
-      <div class="pillars" aria-hidden="true">
-        <span class="pillar p1"></span>
-        <span class="pillar p2"></span>
-        <span class="pillar p3"></span>
+      <div class="scene-inner">
+        <!-- 擎天 · 自地平线升起的光柱 -->
+        <div class="pillars" aria-hidden="true">
+          <span class="pillar p1"></span>
+          <span class="pillar p2"></span>
+          <span class="pillar p3"></span>
+        </div>
+
+        <div class="scene-sky-glow" aria-hidden="true"></div>
+        <div class="scene-sun" aria-hidden="true"></div>
+
+        <div class="scene-earth" aria-hidden="true"></div>
+        <div class="scene-ground-glow" aria-hidden="true"></div>
+
+        <!-- 轮播倒影层（镜像立于地平线下，随主图同步滑动；z 在大地之上、地平线光带之下） -->
+        <div v-if="slides.length" class="scene-slide-refs" aria-hidden="true">
+          <div
+            v-for="(s, i) in slides"
+            :key="s.url"
+            class="slide-item"
+            :class="{ 'no-anim': pendingIdx === i }"
+            :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))` }"
+          ><img :src="s.url" class="slide-ref-img" draggable="false" alt="" /></div>
+        </div>
+
+        <div class="scene-horizon" aria-hidden="true"></div>
+
+        <!-- 轮播主图层（详情页产品图同款：立地平线 + 投影；从 banner 最边缘滑入/出） -->
+        <div v-if="slides.length" class="scene-slides" aria-hidden="true">
+          <div
+            v-for="(s, i) in slides"
+            :key="s.url"
+            class="slide-item"
+            :class="{ 'no-anim': pendingIdx === i }"
+            :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))`, zIndex: (slideOffsets[i] ?? i) === 0 ? 2 : 1 }"
+          ><img :src="s.url" class="slide-img" draggable="false" alt="" /></div>
+        </div>
+        <template v-if="slides.length > 1">
+          <button type="button" class="slide-arrow sa-left" aria-label="上一张" @click="prevSlide">‹</button>
+          <button type="button" class="slide-arrow sa-right" aria-label="下一张" @click="nextSlide">›</button>
+        </template>
+
+        <div class="scene-copy">
+          <!-- 每张轮播图自己的大标题（没配副标题的图回落 banner 主标题文案）；随切图淡入淡出 -->
+          <Transition name="sub-swap" mode="out-in">
+            <h1 :key="slideIdx" class="scene-title">{{ slideSubtitle || bannerTitle }}</h1>
+          </Transition>
+        </div>
+
+        <!-- 类型胶囊快捷入口（点击跳类型目录页；数字=该类型上架机型数） -->
+        <nav v-if="types.length" class="scene-capsule" aria-label="按类型选机型">
+          <button
+            v-for="t in types"
+            :key="t.id"
+            type="button"
+            class="cap-btn"
+            @click="goToModels(t)"
+          >{{ t.name }}<i v-if="countOfType(t.id)"> · {{ countOfType(t.id) }}</i></button>
+        </nav>
       </div>
-
-      <div class="scene-sky-glow" aria-hidden="true"></div>
-      <div class="scene-sun" aria-hidden="true"></div>
-
-      <div class="scene-earth" aria-hidden="true"></div>
-      <div class="scene-ground-glow" aria-hidden="true"></div>
-
-      <!-- 轮播倒影层（镜像立于地平线下，随主图同步滑动；z 在大地之上、地平线光带之下） -->
-      <div v-if="slides.length" class="scene-slide-refs" aria-hidden="true">
-        <div
-          v-for="(s, i) in slides"
-          :key="s.url"
-          class="slide-item"
-          :class="{ 'no-anim': pendingIdx === i }"
-          :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))` }"
-        ><img :src="s.url" class="slide-ref-img" draggable="false" alt="" /></div>
-      </div>
-
-      <div class="scene-horizon" aria-hidden="true"></div>
-
-      <!-- 轮播主图层（详情页产品图同款：立地平线 + 投影；从 banner 最边缘滑入/出） -->
-      <div v-if="slides.length" class="scene-slides" aria-hidden="true">
-        <div
-          v-for="(s, i) in slides"
-          :key="s.url"
-          class="slide-item"
-          :class="{ 'no-anim': pendingIdx === i }"
-          :style="{ transform: `translateX(calc(-50% + ${(slideOffsets[i] ?? i) * 110}vw))`, zIndex: (slideOffsets[i] ?? i) === 0 ? 2 : 1 }"
-        ><img :src="s.url" class="slide-img" draggable="false" alt="" /></div>
-      </div>
-      <template v-if="slides.length > 1">
-        <button type="button" class="slide-arrow sa-left" aria-label="上一张" @click="prevSlide">‹</button>
-        <button type="button" class="slide-arrow sa-right" aria-label="下一张" @click="nextSlide">›</button>
-      </template>
-
-      <div class="scene-copy">
-        <!-- 每张轮播图自己的大标题（没配副标题的图回落 banner 主标题文案）；随切图淡入淡出 -->
-        <Transition name="sub-swap" mode="out-in">
-          <h1 :key="slideIdx" class="scene-title">{{ slideSubtitle || bannerTitle }}</h1>
-        </Transition>
-      </div>
-
-      <!-- 类型胶囊快捷入口（点击跳类型目录页；数字=该类型上架机型数） -->
-      <nav v-if="types.length" class="scene-capsule" aria-label="按类型选机型">
-        <button
-          v-for="t in types"
-          :key="t.id"
-          type="button"
-          class="cap-btn"
-          @click="goToModels(t)"
-        >{{ t.name }}<i v-if="countOfType(t.id)"> · {{ countOfType(t.id) }}</i></button>
-      </nav>
     </section>
 
     <div class="page-inner">
@@ -179,6 +195,7 @@ onActivated(() => {
             :type-name="typeName(m.server_type_id)"
             :show-base-config="false"
             :show-tagline="true"
+            dark
             @click="goToDetail(m)"
           />
         </div>
@@ -190,24 +207,35 @@ onActivated(() => {
 <style scoped>
 .sc-portal { padding: 0 0 80px; }
 
-/* —— 旭日舞台 banner（深蓝「银河 · 擎天」主题；配方承详情页 hero-scene，无产品/倒影） —— */
+/* —— 旭日舞台 banner（深蓝「银河 · 擎天」主题；配方承详情页 hero-scene，无产品/倒影）
+   垫在全局胶囊下：负 margin 顶格到 y=0，min-height 补上让位高度；装饰天空铺满整块，
+   舞台内容（标题/地平线/轮播/胶囊）装进 scene-inner 标准盒，百分比节奏与原设计一致；
+   底部由背景层（scene-bg/earth/倒影）各自淡出融入共享画布，UI 层（胶囊导航）不参与淡出 —— */
 .scene {
   --sun-color: #5BB8FF;
   --sun-bright: #D6EBFF;
   --sun-glow: rgba(91, 184, 255, 0.5);
-  --earth-overlay: linear-gradient(to bottom, transparent 0%, rgba(2, 6, 16, 0.88) 35%, #010409 100%);
+  --earth-overlay: linear-gradient(to bottom, transparent 0%, rgba(2, 6, 16, 0.88) 35%, rgba(1, 4, 9, 0) 100%);
   position: relative;
   width: 100%;
-  min-height: 460px;
+  min-height: calc(460px + var(--cpq-header-clearance, 0px));
   overflow: hidden;
-  background: #020610;
+  background: transparent;
   color: #fff;
+  margin-top: calc(-1 * var(--cpq-header-clearance, 0px));
+}
+
+/* 舞台内容标准盒：原 460px 舞台原封不动沉到让位线下方（内部百分比参照恢复原尺寸） */
+.scene-inner {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  top: var(--cpq-header-clearance, 0px);
 }
 
 .scene-bg {
   position: absolute; inset: 0; z-index: 0;
   background: linear-gradient(to bottom,
-    #020610 0%, #050f1f 24%, #0a1e3d 48%, #123763 68%, #0a2244 80%, #04101f 100%);
+    #020610 0%, #050f1f 24%, #0a1e3d 48%, #123763 68%, #0a2244 80%, rgba(4, 16, 31, 0.55) 90%, rgba(4, 16, 31, 0) 100%);
 }
 
 .scene-watermark {
@@ -532,20 +560,32 @@ onActivated(() => {
   box-shadow: 0 0 14px rgba(255, 255, 255, 0.22);
 }
 
-/* —— 内容区（跟随系统浅/深主题） —— */
+/* —— 内容区：固定暗色（同详情页/机型目录页，不随主题切换；banner 底部淡出融入此底色） —— */
+.sc-portal {
+  padding: 0 0 80px;
+  background: linear-gradient(to bottom, #02050f 0%, #071226 45%, #030814 100%);
+  color: #eef3fa;
+}
 .page-inner { max-width: 1180px; margin: 0 auto; padding: 36px 24px 0; }
 
 .sc-sec-head {
   display: flex; align-items: baseline; gap: 10px;
   margin: 0 0 16px;
 }
-.sc-sec-title { font-size: 17px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
-.sc-sec-count { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
+.sc-sec-title { font-size: 17px; font-weight: 600; color: #f2f8ff; }
+.sc-sec-count { font-size: 12px; color: rgba(238, 243, 250, 0.52); }
 .sc-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
 
 @media (max-width: 640px) {
-  .scene { min-height: 340px; }
+  .scene { min-height: calc(340px + var(--cpq-header-clearance, 0px)); }
   .scene-copy { top: 10%; }
   .slide-img, .slide-ref-img { max-height: 120px; }
+  /* 类型胶囊：小屏改单行等宽，不再竖叠盖住 banner 主体 */
+  .scene-capsule { left: 12px; right: 12px; transform: none; padding: 0; gap: 6px; }
+  .cap-btn { flex: 1 1 0; padding: 6px 6px; font-size: 11px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cap-btn i { font-style: normal; }
+  /* 机型货架两列 */
+  .sc-models { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .page-inner { padding: 0 12px; }
 }
 </style>
