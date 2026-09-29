@@ -334,7 +334,8 @@
                         :options="[
                           { value: 1, label: '1 年' },
                           { value: 3, label: '3 年' },
-                          { value: 5, label: '5 年' }
+                          { value: 5, label: '5 年' },
+                          { value: 7, label: '7 年' }
                         ]"
                         allowClear
                         placeholder="选择年限"
@@ -385,7 +386,8 @@
                         :options="[
                           { value: 1, label: '1 年' },
                           { value: 3, label: '3 年' },
-                          { value: 5, label: '5 年' }
+                          { value: 5, label: '5 年' },
+                          { value: 7, label: '7 年' }
                         ]"
                         allowClear
                         placeholder="选择年限"
@@ -1513,11 +1515,11 @@ const getWarrantyDesc = (cfg: ConfigData, type: 'l6' | 'kp'): string => {
   if (desc) return desc
   return warrantyDescDefaults.value[type] || ''
 }
-// 维保年限 → 费率映射（%），L6 与 KP 统一：1 年 0%、3 年 3%、5 年 5%。
+// 维保年限 → 费率映射（%），L6 与 KP 统一：1 年 0%、3 年 3%、5 年 5%、7 年 7%。
 // 切年限即按映射重置该类型费率。
 const WARRANTY_RATE_BY_YEARS: Record<'l6' | 'kp', Record<number, number>> = {
-  l6: { 1: 0, 3: 3, 5: 5 },
-  kp: { 1: 0, 3: 3, 5: 5 },
+  l6: { 1: 0, 3: 3, 5: 5, 7: 7 },
+  kp: { 1: 0, 3: 3, 5: 5, 7: 7 },
 }
 function onWarrantyYearsChange(cfgName: string, type: 'l6' | 'kp', years: number | null) {
   // allowClear 清空时 years 为 undefined/null：置空年限，不设费率、不动描述

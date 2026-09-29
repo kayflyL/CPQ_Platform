@@ -49,7 +49,7 @@ function formatStratBody(s: any): string {
     return `${s.body?.description || '(无说明)'}${tier ? ' · ' + tier : ''}`
   }
   if (s.type === 'margin_tier') { const b = s.body || {}; return `底线 ${b.floor}% / 标准 ${b.standard}% / 优质 ${b.premium}%` }
-  if (s.type === 'warranty_markup') { const b = s.body || {}; return `1年${b.y1}% / 3年${b.y3}% / 5年${b.y5}%` }
+  if (s.type === 'warranty_markup') { const b = s.body || {}; const y7 = b.y7 != null ? ` / 7年${b.y7}%` : ''; return `1年${b.y1}% / 3年${b.y3}% / 5年${b.y5}%${y7}` }
   return JSON.stringify(s.body || {})
 }
 

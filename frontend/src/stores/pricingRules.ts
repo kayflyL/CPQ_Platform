@@ -20,7 +20,7 @@ import { PIPELINE_ORDER, DEFAULT_DIM_BODIES, DEFAULT_MARGIN_ALERT, DEFAULT_PART_
 export const usePricingRulesStore = defineStore('pricingRules', () => {
   // 维度策略原始行（type → strategy），未持久化的维度缺失
   const _dimRows = ref<Record<string, any>>({})
-  const _warrantyMarkup = ref<{ y1: number; y3: number; y5: number } | null>(null)
+  const _warrantyMarkup = ref<{ y1: number; y3: number; y5: number; y7?: number } | null>(null)
   // 利润率告警（独立策略 type=margin_alert）
   const _marginAlert = ref<MarginAlertBody>({ ...DEFAULT_MARGIN_ALERT })
   const _marginAlertId = ref<number | null>(null)
@@ -43,7 +43,7 @@ export const usePricingRulesStore = defineStore('pricingRules', () => {
         .then(([wmRes, maRes, pmRes, ...dimReses]) => {
           const wm = wmRes.strategies?.[0]?.body
           if (wm && typeof wm === 'object') {
-            _warrantyMarkup.value = { y1: wm.y1 ?? 0, y3: wm.y3 ?? 0, y5: wm.y5 ?? 0 }
+            _warrantyMarkup.value = { y1: wm.y1 ?? 0, y3: wm.y3 ?? 0, y5: wm.y5 ?? 0, ...(wm.y7 != null ? { y7: Number(wm.y7) } : {}) }
           }
           const maStrat = maRes.strategies?.[0]
           const ma = maStrat?.body
