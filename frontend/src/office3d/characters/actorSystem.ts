@@ -10,7 +10,7 @@ import { zoneSeats } from '../../composables/officeLayout.ts'
 import type { NavWorld } from '../nav/world.ts'
 import { findPath } from '../nav/path.ts'
 import { hashRoleKey, slotForward, slotPhase, slotPosition, slotRight, slotRotationY } from '../nav/slots.ts'
-import { DESK_CHAIR_OFFSET, DESK_IDLE_DISTANCE, DESK_WAIT_DISTANCE, DESK_WAIT_SIDE, DESK_WORK_DISTANCE, MEETING_CHAIR_BACK_REACH, MEETING_STAND_GAP, CHAIR_SEAT_HEIGHT, CHAIR_SEAT_BACK_OFFSET, SIT_HIP_LOCAL_Y, SIT_BACK_LOCAL_Z } from './metrics.ts'
+import { DESK_CHAIR_OFFSET, DESK_IDLE_DISTANCE, DESK_WAIT_DISTANCE, DESK_WAIT_SIDE, DESK_WORK_DISTANCE, MEETING_CHAIR_BACK_REACH, MEETING_STAND_GAP, CHAIR_SEAT_HEIGHT, CHAIR_SEAT_BACK_OFFSET, SIT_BACK_LOCAL_Z } from './metrics.ts'
 import { makeBubbleSprite, makeLabelSprite, drawBubble } from './sprites.ts'
 import { createDesk } from '../environment/furniture.ts'
 import type { CharacterAsset } from '../assets/gltfCache.ts'
@@ -582,9 +582,9 @@ function setHomeDeskTarget(actor: Actor, status: string) {
 
   if (animation === 'working' && actor.sitAction) {
     const chairPosition = base.clone().addScaledVector(forward, DESK_CHAIR_OFFSET)
-    const backReachWorld = SIT_BACK_LOCAL_Z * actor.modelScale
+    const backReachWorld = SIT_BACK_LOCAL_Z
     const backOffset = Math.max(0, CHAIR_SEAT_BACK_OFFSET - backReachWorld)
-    actor.seatY = CHAIR_SEAT_HEIGHT - SIT_HIP_LOCAL_Y * actor.modelScale
+    actor.seatY = CHAIR_SEAT_HEIGHT - 0.02
     actor.targetZoneType = 'desk_work'
     actor.targetPosition = chairPosition
       .clone()
@@ -618,8 +618,8 @@ function setMeetingTarget(actor: Actor, targetZone: OfficeZone) {
 
   actor.targetZoneType = 'meeting'
   if (actor.sitAction) {
-    actor.seatY = CHAIR_SEAT_HEIGHT - SIT_HIP_LOCAL_Y * actor.modelScale
-    const backReachWorld = SIT_BACK_LOCAL_Z * actor.modelScale
+    actor.seatY = CHAIR_SEAT_HEIGHT - 0.02
+    const backReachWorld = SIT_BACK_LOCAL_Z
     actor.targetPosition = chairPosition
       .clone()
       .addScaledVector(away, CHAIR_SEAT_BACK_OFFSET - backReachWorld)
