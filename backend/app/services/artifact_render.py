@@ -8,7 +8,9 @@
   （AI 填充=绿；chart/kpi/table 块走图表资产取数=蓝；meta=系统变量=灰）
 - 图表 option 由 chart_assets 注册表解析（与驾驶舱同源），模板不自带图表定义
 
-主题（theme）：选型期三份并存 business/github/softened，定稿后只留一份。
+主题（theme）：单一「规格书同源」主题 house——视觉 token 镜像导出模板 SpecSheet
+（品牌蓝 #1668C0 抬头细线 / 蓝色小节题+发丝线 / 灰表头 #F7F8FA / 浅灰圆角 KPI 卡），
+无封面直接进正文；历史 theme 取值一律回落 house。
 interactive=True（编辑器预览）：注入区块 data-idx + postMessage 双向协议 +
 A4 分页参考线；PDF 路径恒 False。
 
@@ -28,322 +30,75 @@ _PDF_SEMAPHORE = asyncio.Semaphore(1)
 
 _ECHARTS_DONE_FLAG = "window.__CHARTS_DONE__"
 
-# ─────────────────────────── 主题 CSS（选型期三份，定稿删两份） ───────────────────────────
+# ─────────── 主题 CSS：单一「规格书同源」主题，视觉 token 镜像导出模板 SpecSheet ───────────
 
-_THEME_BUSINESS = """
+_THEME_HOUSE_HEAD = """
 * { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
 body {
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
-  color: #1A1A1A; background: #fff; font-size: 11px; line-height: 1.75;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  color: #1F2329; background: #fff; font-size: 11.5px; line-height: 1.7;
 }
-.masthead {
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 8.5px; letter-spacing: 2px; color: #6B7280;
-  border-bottom: 2.5px solid #111827; padding-bottom: 7px; margin-bottom: 30px;
-}
-h1.rpt-title {
-  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
-  font-size: 25px; font-weight: 700; color: #111827; letter-spacing: 2px; margin-bottom: 8px;
-}
-.rpt-sub {
-  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
-  font-size: 12.5px; color: #4B5563; margin-bottom: 18px;
-}
-.meta-row {
-  display: flex; gap: 20px; flex-wrap: wrap; font-size: 9px; color: #6B7280;
-  border-bottom: 1px solid #E5E7EB; padding-bottom: 8px; margin-bottom: 24px;
-}
-.meta-row b { color: #374151; font-weight: 600; margin-right: 4px; }
+.rpt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+  padding-bottom: 14px; border-bottom: 1.5px solid #1668C0; margin-bottom: 20px; }
+.rpt-brand-name { font-size: 16px; font-weight: 700; color: #1F2329; }
+.rpt-brand-tag { font-size: 10.5px; color: #6B7280; margin-top: 3px; }
+.rpt-doc { text-align: right; }
+.rpt-doc-period { font-size: 12px; font-weight: 700; color: #1668C0; }
+.rpt-doc-meta { font-size: 10.5px; color: #6B7280; margin-top: 4px; }
+.rpt-title-block { padding: 2px 0 2px 14px; border-left: 4px solid #1668C0; margin-bottom: 22px; }
+h1.rpt-title { font-size: 24px; font-weight: 700; color: #111418; line-height: 1.25; }
+.rpt-sub { font-size: 12px; color: #6B7280; margin-top: 6px; }
+"""
+
+
+_THEME_HOUSE_SEC = """
 .blk-sec { margin-bottom: 22px; break-inside: avoid; }
-.blk-title { font-size: 13.5px; font-weight: 700; color: #111827; margin-bottom: 10px; }
-.sec-no {
-  font-family: "Georgia", "Times New Roman", serif;
-  font-size: 11px; font-weight: 400; color: #9CA3AF; margin-right: 8px;
-}
-.md h3.md-h { font-size: 12px; font-weight: 700; color: #1F2430; margin: 10px 0 5px; }
+.blk-title { font-size: 12px; font-weight: 700; letter-spacing: .6px; color: #1668C0;
+  border-bottom: 1px solid #E5E7EB; padding-bottom: 6px; margin-bottom: 12px; }
+.sec-no { font-size: 10.5px; font-weight: 700; color: #9CA3AF; margin-right: 8px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
+.kpi-cell { background: #F7F8FA; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px 14px 10px; }
+.kpi-label { font-size: 10px; color: #6B7280; margin-bottom: 5px; }
+.kpi-value { font-size: 22px; font-weight: 700; color: #1668C0; font-variant-numeric: tabular-nums; }
+.kpi-unit { font-size: 10.5px; color: #6B7280; font-weight: 400; margin-left: 3px; }
+.chart-box { padding: 0; }
+.chart-box .ch { width: 100%; }
+"""
+
+
+_THEME_HOUSE_MD = """
+.md h3.md-h { font-size: 12px; font-weight: 700; color: #1F2329; margin: 10px 0 5px; }
 .md p { margin-bottom: 7px; text-align: justify; }
 .md ul { padding-left: 18px; margin-bottom: 7px; }
 .md li { margin-bottom: 3px; }
 .md hr { border: 0; border-top: 1px solid #E5E7EB; margin: 10px 0; }
-.md table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9.5px; }
-.md th { border-top: 1.5px solid #111827; border-bottom: 1px solid #111827; padding: 5px 8px; text-align: left; font-weight: 600; }
-.md td { border-bottom: 1px solid #E5E7EB; padding: 5px 8px; }
-.md table tr:last-child td { border-bottom: 1.5px solid #111827; }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 16px 20px; }
-.kpi-cell { border-top: 1.5px solid #111827; padding-top: 7px; }
-.kpi-label { font-size: 8.5px; color: #6B7280; letter-spacing: 1px; margin-bottom: 3px; }
-.kpi-value { font-size: 22px; font-weight: 700; color: #111827; font-variant-numeric: tabular-nums; }
-.kpi-unit { font-size: 10px; color: #6B7280; margin-left: 2px; font-weight: 400; }
-.chart-box { padding: 0; }
-.chart-box .ch { width: 100%; }
-.rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.rpt-table thead th {
-  border-top: 1.5px solid #111827; border-bottom: 1px solid #111827;
-  padding: 6px 8px; text-align: left; font-weight: 600; color: #111827; background: none;
-}
-.rpt-table td { border-bottom: 1px solid #E5E7EB; padding: 6px 8px; }
-.rpt-table tbody tr:last-child td { border-bottom: 1.5px solid #111827; }
-.rpt-fields th {
-  width: 168px; text-align: left; font-weight: 600; color: #374151;
-  border-bottom: 1px solid #E5E7EB; padding: 6px 8px; background: none; vertical-align: top;
-}
-.rpt-fields tbody tr:last-child th { border-bottom: 1.5px solid #111827; }
-.foot {
-  margin-top: 26px; padding-top: 8px; border-top: 1px solid #E5E7EB;
-  font-size: 8.5px; color: #9CA3AF; display: flex; justify-content: space-between;
-}
+.md table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 10px; }
+.md th { background: #F7F8FA; border-bottom: 1px solid #E5E7EB; padding: 6px 8px;
+  text-align: left; font-weight: 600; color: #6B7280; }
+.md td { border-bottom: 1px solid #EEF0F3; padding: 6px 8px; }
 """
 
-_THEME_GITHUB = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-body {
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
-  color: #1F2328; background: #fff; font-size: 11px; line-height: 1.65;
-}
-.masthead { display: none; }
-h1.rpt-title { font-size: 22px; font-weight: 600; color: #1F2328; padding-bottom: 8px; border-bottom: 1px solid #D1D9E0; margin-bottom: 12px; }
-.rpt-sub { font-size: 12px; color: #59636E; margin-bottom: 12px; }
-.meta-row {
-  display: flex; gap: 16px; flex-wrap: wrap; font-size: 9px; color: #59636E; margin-bottom: 20px;
-}
-.meta-row b { color: #1F2328; font-weight: 600; margin-right: 4px; }
-.blk-sec { margin-bottom: 18px; break-inside: avoid; }
-.blk-title { font-size: 14px; font-weight: 600; color: #1F2328; padding-bottom: 6px; border-bottom: 1px solid #D1D9E0; margin-bottom: 10px; }
-.sec-no { font-size: 11px; font-weight: 400; color: #8C959F; margin-right: 7px; }
-.md h3.md-h { font-size: 12px; font-weight: 600; color: #1F2328; margin: 10px 0 5px; }
-.md p { margin-bottom: 7px; text-align: justify; }
-.md ul { padding-left: 18px; margin-bottom: 7px; }
-.md li { margin-bottom: 3px; }
-.md hr { border: 0; border-top: 1px solid #D1D9E0; margin: 10px 0; }
-.md table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 9.5px; }
-.md th { border-bottom: 2px solid #D1D9E0; padding: 5px 8px; text-align: left; font-weight: 600; }
-.md td { border-bottom: 1px solid #EFF2F5; padding: 5px 8px; }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 14px 18px; }
-.kpi-cell { border-top: 2px solid #D1D9E0; padding-top: 6px; }
-.kpi-label { font-size: 8.5px; color: #59636E; margin-bottom: 3px; }
-.kpi-value { font-size: 21px; font-weight: 700; color: #1F2328; font-variant-numeric: tabular-nums; }
-.kpi-unit { font-size: 10px; color: #59636E; margin-left: 2px; font-weight: 400; }
-.chart-box { padding: 0; }
-.chart-box .ch { width: 100%; }
-.rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.rpt-table th { border-bottom: 2px solid #D1D9E0; padding: 6px 8px; text-align: left; font-weight: 600; }
-.rpt-fields th { width: 168px; text-align: left; font-weight: 600; border-bottom: 1px solid #EFF2F5; padding: 6px 8px; vertical-align: top; }
-.rpt-table td { border-bottom: 1px solid #EFF2F5; padding: 6px 8px; }
-.foot {
-  margin-top: 24px; padding-top: 8px; border-top: 1px solid #D1D9E0;
-  font-size: 8.5px; color: #8C959F; display: flex; justify-content: space-between;
-}
+
+_THEME_HOUSE_TBL = """
+.rpt-table { width: 100%; border-collapse: collapse; font-size: 10px; }
+.rpt-table thead th { padding: 7px 10px; text-align: left; font-weight: 700; font-size: 10px;
+  letter-spacing: .4px; color: #6B7280; background: #F7F8FA; border-bottom: 1px solid #E5E7EB; }
+.rpt-table td { padding: 7px 10px; border-bottom: 1px solid #EEF0F3; color: #1F2329; line-height: 1.45; }
+.rpt-fields th { width: 168px; text-align: left; font-weight: 500; color: #6B7280;
+  background: none; border-bottom: 1px solid #EEF0F3; padding: 7px 10px; vertical-align: top; }
+.foot { margin-top: 26px; padding-top: 10px; border-top: 1px solid #E5E7EB;
+  font-size: 9px; color: #9CA3AF; display: flex; justify-content: space-between; }
 """
 
-_THEME_SOFTENED = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-body {
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
-  color: #1F2430; background: #fff; font-size: 11px; line-height: 1.7;
-}
-.masthead {
-  display: flex; justify-content: space-between; font-size: 8.5px; letter-spacing: 2px;
-  color: #6B7280; border-bottom: 1px solid #E5E7EB; padding-bottom: 6px; margin-bottom: 24px;
-}
-h1.rpt-title { font-size: 24px; font-weight: 800; color: #111827; letter-spacing: 0.5px; margin-bottom: 4px; }
-.rpt-sub { font-size: 12px; color: #6B7280; margin-bottom: 14px; }
-.meta-row {
-  display: flex; gap: 18px; flex-wrap: wrap; font-size: 9px; color: #6B7280;
-  border-top: 1px solid #E5E7EB; border-bottom: 1px solid #E5E7EB; padding: 6px 0; margin-bottom: 18px;
-}
-.meta-row b { color: #374151; font-weight: 600; margin-right: 4px; }
-.blk-sec { margin-bottom: 16px; break-inside: avoid; }
-.blk-title { font-size: 13px; font-weight: 700; color: #111827; margin-bottom: 8px; }
-.sec-no { font-size: 10.5px; font-weight: 400; color: #9CA3AF; margin-right: 7px; }
-.md h3.md-h { font-size: 11.5px; font-weight: 700; color: #1F2430; margin: 8px 0 4px; }
-.md p { margin-bottom: 6px; text-align: justify; }
-.md ul { padding-left: 18px; margin-bottom: 6px; }
-.md li { margin-bottom: 3px; }
-.md hr { border: 0; border-top: 1px dashed #E5E7EB; margin: 8px 0; }
-.md table { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 9.5px; }
-.md th, .md td { border: 1px solid #E5E7EB; padding: 4px 8px; text-align: left; }
-.md th { background: #F9FAFB; font-weight: 600; }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
-.kpi-cell { border: 1px solid #E5E7EB; padding: 11px 13px; }
-.kpi-label { font-size: 9px; color: #6B7280; margin-bottom: 5px; }
-.kpi-value { font-size: 20px; font-weight: 800; color: #111827; }
-.kpi-unit { font-size: 10px; color: #6B7280; margin-left: 3px; font-weight: 400; }
-.chart-box { border: 1px solid #E5E7EB; padding: 8px 10px 4px; }
-.chart-box .ch { width: 100%; }
-.rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.rpt-table th { background: #F3F4F6; color: #374151; font-weight: 600; padding: 7px 10px; text-align: left; }
-.rpt-fields th { background: #FAFAFA; width: 168px; text-align: left; font-weight: 600; padding: 7px 10px; vertical-align: top; }
-.rpt-table td { border-bottom: 1px solid #E5E7EB; padding: 7px 10px; }
-.foot {
-  margin-top: 20px; padding-top: 8px; border-top: 1px solid #E5E7EB;
-  font-size: 8.5px; color: #9CA3AF; display: flex; justify-content: space-between;
-}
-"""
-
-_THEME_EDITORIAL = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-body {
-  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
-  color: #151515; background: #fff; font-size: 11px; line-height: 1.7;
-}
-.masthead {
-  border-top: 9px solid #E3120B; padding-top: 12px;
-  display: flex; justify-content: space-between; align-items: baseline;
-  font-size: 8.5px; letter-spacing: 2.5px; color: #6E6E6E;
-  border-bottom: 1px solid #151515; padding-bottom: 7px; margin-bottom: 20px;
-}
-h1.rpt-title { font-size: 30px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.25; margin-bottom: 10px; }
-.rpt-sub { font-size: 12.5px; color: #3F3F3F; line-height: 1.55; margin-bottom: 14px; }
-.meta-row {
-  display: flex; gap: 18px; flex-wrap: wrap; font-size: 9px; color: #6E6E6E;
-  border-top: 1px solid #DCDCDC; border-bottom: 1px solid #DCDCDC; padding: 7px 0; margin-bottom: 24px;
-}
-.meta-row b { font-weight: 700; color: #151515; margin-right: 4px; }
-.blk-sec { margin-bottom: 24px; break-inside: avoid; }
-.blk-title { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
-.sec-no { color: #E3120B; font-weight: 800; font-size: 11px; margin-right: 8px; }
-.kpi-grid { display: flex; flex-wrap: wrap; border-top: 2px solid #151515; }
-.kpi-cell { flex: 1 1 0; min-width: 110px; padding: 9px 14px 2px; border-left: 1px solid #DCDCDC; }
-.kpi-cell:first-child { border-left: 0; padding-left: 0; }
-.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #6E6E6E; margin-bottom: 4px; }
-.kpi-value { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
-.kpi-unit { font-size: 10.5px; color: #6E6E6E; font-weight: 400; margin-left: 3px; }
-.chart-box { border-top: 3px solid #E3120B; padding-top: 8px; }
-.chart-box .ch { width: 100%; }
-.exh-cap { font-size: 11.5px; font-weight: 800; margin-bottom: 6px; }
-.exh-no { color: #E3120B; margin-right: 8px; }
-.exh-src { font-size: 8px; color: #8A8A8A; margin-top: 5px; }
-.md h3.md-h { font-size: 12px; font-weight: 800; margin: 10px 0 5px; }
-.md p { margin-bottom: 7px; text-align: justify; }
-.md ul { padding-left: 18px; margin-bottom: 7px; }
-.md li { margin-bottom: 3px; }
-.md hr { border: 0; border-top: 1px solid #DCDCDC; margin: 10px 0; }
-.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.md th, .rpt-table th { border-top: 1.5px solid #151515; border-bottom: 1px solid #151515; padding: 6px 8px; text-align: left; font-weight: 700; }
-.md td, .rpt-table td { border-bottom: 1px solid #E3E3E3; padding: 6px 8px; }
-.md table tr:last-child td, .rpt-table tbody tr:last-child td { border-bottom: 1.5px solid #151515; }
-.rpt-fields th { width: 168px; text-align: left; font-weight: 700; border-bottom: 1px solid #E3E3E3; padding: 6px 8px; vertical-align: top; }
-.foot { margin-top: 26px; padding-top: 8px; border-top: 2px solid #151515; font-size: 8.5px; color: #8A8A8A; display: flex; justify-content: space-between; }
-"""
-
-_THEME_CONSULTING = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-body {
-  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
-  color: #1C2833; background: #fff; font-size: 11px; line-height: 1.75;
-}
-.cover {
-  height: 256mm; display: flex; flex-direction: column; justify-content: space-between;
-  background: #0F2B46; color: #fff; padding: 16mm; page-break-after: always;
-}
-.cover-top {
-  display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 3px;
-  color: rgba(255,255,255,.75); border-bottom: 1px solid rgba(255,255,255,.28); padding-bottom: 7mm;
-}
-.cover-kicker { font-size: 10px; letter-spacing: 4px; color: #39C0B7; margin-bottom: 9mm; }
-h1.cover-title {
-  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
-  font-size: 34px; font-weight: 700; letter-spacing: 2px; line-height: 1.35; margin-bottom: 7mm;
-}
-.cover-sub {
-  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
-  font-size: 13px; color: rgba(255,255,255,.85);
-}
-.cover-period { display: inline-block; border: 1px solid rgba(255,255,255,.4); padding: 5px 14px; margin-bottom: 5mm; font-size: 10px; }
-.cover-gen { color: rgba(255,255,255,.6); font-size: 9px; }
-.masthead, h1.rpt-title, .rpt-sub, .meta-row { display: none; }
-.blk-sec { margin-bottom: 24px; break-inside: avoid; }
-.blk-title {
-  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
-  font-size: 15px; font-weight: 700; margin-bottom: 10px;
-}
-.sec-no {
-  display: inline-block; min-width: 24px; height: 17px; background: #0F2B46; color: #fff;
-  font-size: 10px; font-weight: 700; text-align: center; line-height: 17px; margin-right: 9px;
-}
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 18px 22px; }
-.kpi-cell { border-top: 3px solid #0F2B46; padding-top: 9px; }
-.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #5D6D7E; margin-bottom: 4px; }
-.kpi-value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; color: #0F2B46; }
-.kpi-unit { font-size: 10.5px; color: #5D6D7E; font-weight: 400; margin-left: 3px; }
-.exh-cap { border-top: 2px solid #0F2B46; padding-top: 7px; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
-.exh-no { color: #39C0B7; font-size: 10px; letter-spacing: 1px; font-weight: 800; margin-right: 8px; }
-.exh-src { font-size: 8px; color: #90A0AE; margin-top: 5px; border-bottom: 1px solid #E4E9EE; padding-bottom: 4px; }
-.chart-box { padding: 2px 0 0; }
-.chart-box .ch { width: 100%; }
-.md h3.md-h { font-size: 12px; font-weight: 700; margin: 10px 0 5px; }
-.md p { margin-bottom: 7px; text-align: justify; }
-.md ul { padding-left: 18px; margin-bottom: 7px; }
-.md li { margin-bottom: 3px; }
-.md hr { border: 0; border-top: 1px solid #E4E9EE; margin: 10px 0; }
-.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.md th, .rpt-table th { border-top: 2px solid #0F2B46; border-bottom: 1px solid #0F2B46; padding: 6px 8px; text-align: left; font-weight: 700; }
-.md td, .rpt-table td { border-bottom: 1px solid #E4E9EE; padding: 6px 8px; }
-.rpt-fields th { width: 168px; text-align: left; font-weight: 700; border-bottom: 1px solid #E4E9EE; padding: 6px 8px; vertical-align: top; }
-.foot { margin-top: 26px; padding-top: 8px; border-top: 2px solid #0F2B46; font-size: 8.5px; color: #90A0AE; display: flex; justify-content: space-between; }
-"""
-
-_THEME_MINIMAL = """
-* { box-sizing: border-box; margin: 0; padding: 0; }
-@page { size: A4; margin: 0; }
-body {
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
-  color: #18181B; background: #fff; font-size: 11px; line-height: 1.8;
-}
-.cover { height: 256mm; display: flex; flex-direction: column; justify-content: space-between; padding: 4mm 2mm; page-break-after: always; }
-.cover-top { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2.5px; color: #A1A1AA; }
-.cover-mid { margin-top: 88mm; }
-.cover-kicker { font-size: 10px; letter-spacing: 5px; color: #5E6AD2; margin-bottom: 11mm; }
-h1.cover-title { font-size: 36px; font-weight: 700; letter-spacing: 1px; margin-bottom: 9mm; }
-.cover-rule { width: 26mm; height: 3px; background: #5E6AD2; border-radius: 2px; margin-bottom: 9mm; }
-.cover-sub { font-size: 13px; color: #52525B; }
-.cover-bot { font-size: 10px; color: #A1A1AA; line-height: 2; }
-.masthead, h1.rpt-title, .rpt-sub, .meta-row { display: none; }
-.blk-sec { margin-bottom: 30px; break-inside: avoid; }
-.blk-title { font-size: 12px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid #E4E4E7; margin-bottom: 14px; }
-.sec-no { color: #A1A1AA; font-size: 9px; font-weight: 600; letter-spacing: 1.5px; margin-right: 8px; }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; }
-.kpi-cell { background: #F7F7FA; border-radius: 10px; padding: 16px 16px 13px; }
-.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #71717A; margin-bottom: 6px; }
-.kpi-value { font-size: 30px; font-weight: 700; color: #18181B; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
-.kpi-unit { font-size: 10.5px; color: #71717A; font-weight: 400; margin-left: 3px; }
-.chart-box { background: #F7F7FA; border-radius: 10px; padding: 14px 12px 6px; }
-.chart-box .ch { width: 100%; }
-.exh-cap { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
-.exh-no { color: #5E6AD2; font-weight: 700; margin-right: 8px; font-size: 10px; letter-spacing: 1px; }
-.exh-src { font-size: 8px; color: #A1A1AA; margin-top: 6px; }
-.md h3.md-h { font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
-.md p { margin-bottom: 8px; text-align: justify; }
-.md ul { padding-left: 18px; margin-bottom: 8px; }
-.md li { margin-bottom: 4px; }
-.md hr { border: 0; border-top: 1px solid #E4E4E7; margin: 12px 0; }
-.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
-.md th, .rpt-table th { text-align: left; font-weight: 600; color: #71717A; padding: 7px 8px; border-bottom: 1.5px solid #D4D4D8; }
-.md td, .rpt-table td { border-bottom: 1px solid #E4E4E7; padding: 7px 8px; }
-.rpt-fields th { width: 168px; text-align: left; font-weight: 600; color: #71717A; border-bottom: 1px solid #E4E4E7; padding: 7px 8px; vertical-align: top; }
-.foot { margin-top: 32px; padding-top: 10px; border-top: 1px solid #E4E4E7; font-size: 8.5px; color: #A1A1AA; display: flex; justify-content: space-between; }
-"""
-
-# 主题注册表：css 之外带结构档位——cover（整页封面：dark=深色满版 / light=浅色留白）、
-# exhibit（图表/表格走「图 N / 表 N」展板编号杠 + 来源行）。选型期六份并存，定稿后删。
+# 主题注册表：单一「规格书同源」主题；历史 theme 取值一律回落 house
 _THEME_SPECS = {
-    "business": {"css": _THEME_BUSINESS},
-    "github": {"css": _THEME_GITHUB},
-    "softened": {"css": _THEME_SOFTENED},
-    "editorial": {"css": _THEME_EDITORIAL, "exhibit": True},
-    "consulting": {"css": _THEME_CONSULTING, "cover": "dark", "exhibit": True},
-    "minimal": {"css": _THEME_MINIMAL, "cover": "light"},
+    "house": {"css": _THEME_HOUSE_HEAD + _THEME_HOUSE_SEC + _THEME_HOUSE_MD + _THEME_HOUSE_TBL},
 }
 
 # interactive（编辑器预览）附加样式：选中态 / 分页参考线 / 预览态页边距
 # （PDF 模式页边距由 page.pdf margin 提供，浏览器预览没有 PDF 引擎，用 padding 模拟）
 _INTERACTIVE_CSS = """
-body { padding: 14mm 15mm 16mm; }
+body { padding: 14mm 18mm 16mm; }
 .blk-sec { cursor: pointer; }
 .blk-sec:hover { background: #F8FAFC; }
 .blk-sec.atc-sel { outline: 2px dashed #2563EB; outline-offset: 5px; }
@@ -400,12 +155,12 @@ _INTERACTIVE_JS = """
 """
 
 # chromium page.pdf 页眉/页脚模板：不认外链 CSS，字号必须显式 px
-_PDF_MARGIN = {"top": "20mm", "bottom": "16mm", "left": "15mm", "right": "15mm"}
+_PDF_MARGIN = {"top": "20mm", "bottom": "16mm", "left": "18mm", "right": "18mm"}
 
 
 def _pdf_header_template(title: str, date_str: str) -> str:
     return (
-        f'<div style="font-size:8px;color:#9CA3AF;width:100%;padding:0 15mm;'
+        f'<div style="font-size:8px;color:#9CA3AF;width:100%;padding:0 18mm;'
         f'display:flex;justify-content:space-between;border-bottom:0.75px solid #E5E7EB;'
         f'font-family:Microsoft YaHei,sans-serif;">'
         f"<span>{_esc(title)}</span><span>{_esc(date_str)}</span></div>"
@@ -414,32 +169,10 @@ def _pdf_header_template(title: str, date_str: str) -> str:
 
 def _pdf_footer_template() -> str:
     return (
-        '<div style="font-size:8px;color:#9CA3AF;width:100%;padding:0 15mm;'
+        '<div style="font-size:8px;color:#9CA3AF;width:100%;padding:0 18mm;'
         'display:flex;justify-content:space-between;font-family:Microsoft YaHei,sans-serif;">'
         '<span>CPQ Platform · 内部资料</span>'
         '<span>第 <span class="pageNumber"></span> 页 / 共 <span class="totalPages"></span> 页</span></div>'
-    )
-
-
-def _cover_html(meta: dict, mode: str) -> str:
-    """整页封面（consulting=dark 深色满版 / minimal=light 浅色留白）。"""
-    date_str = datetime.now().strftime("%Y-%m-%d")
-    period = str(meta.get("period_label", "")).replace("统计区间：", "").strip()
-    sub = str(meta.get("subtitle", "") or "").strip()
-    cls = "cover"
-    rule = "" if mode == "dark" else '<div class="cover-rule"></div>'
-    sub_html = f'<div class="cover-sub">{_esc(sub)}</div>' if sub else ""
-    period_html = f'<div class="cover-period">统计区间　{_esc(period)}</div>' if period else ""
-    return (
-        f'<div class="{cls}">'
-        f'<div class="cover-top"><span>CPQ PLATFORM</span><span>{date_str}</span></div>'
-        f'<div class="cover-mid">'
-        f'<div class="cover-kicker">AI WORKFLOW REPORT</div>'
-        f'<h1 class="cover-title">{_esc(meta.get("title", ""))}</h1>{rule}{sub_html}'
-        f"</div>"
-        f'<div class="cover-bot">{period_html}'
-        f'<div class="cover-gen">生成　{_esc(meta.get("generated_by", ""))} · {_esc(meta.get("generated_at", ""))}</div>'
-        f"</div></div>"
     )
 
 
@@ -517,7 +250,7 @@ def render_report_html(
     template_name: str = "",
     echarts_url: Optional[str] = None,
     echarts_inline_js: Optional[str] = None,
-    theme: str = "business",
+    theme: str = "house",
     interactive: bool = False,
     asset_params: Optional[dict] = None,
 ) -> str:
@@ -533,16 +266,10 @@ def render_report_html(
         ]
     p = _default_payload(payload, template_name)
     meta = p["meta"]
-    spec = _THEME_SPECS.get(theme) or _THEME_SPECS["business"]
+    spec = _THEME_SPECS.get(theme) or _THEME_SPECS["house"]
     body: list[str] = []
     charts: list[dict] = []
     sec_no = 0
-    fig_no = 0
-    tab_no = 0
-    cover_html = ""
-    has_title_block = any(b.get("type") == "title" for b in (blocks or []))
-    if spec.get("cover"):
-        cover_html = _cover_html(meta, spec["cover"])
 
     def sec_title(blk: dict) -> str:
         nonlocal sec_no
@@ -551,43 +278,28 @@ def render_report_html(
         sec_no += 1
         return f'<div class="blk-title"><span class="sec-no">{sec_no:02d}</span>{_esc(blk["title"])}</div>'
 
-    def exh_caption(blk: dict, kind: str) -> str:
-        """展板编号杠（consulting/editorial）：图表=图 N，表格=表 N；不占章节号。"""
-        nonlocal fig_no, tab_no
-        if not blk.get("title"):
-            return ""
-        if kind == "fig":
-            fig_no += 1
-            no = f"图 {fig_no}"
-        else:
-            tab_no += 1
-            no = f"表 {tab_no}"
-        return f'<div class="exh-cap"><span class="exh-no">{no}</span>{_esc(blk["title"])}</div>'
-
-    def exh_src() -> str:
-        return '<div class="exh-src">来源：CPQ 业务库 · 自动取数</div>' if spec.get("exhibit") else ""
-
     def sec_open(idx: int) -> str:
         # data-atc-idx = 区块在 blocks 里的下标，与编辑器左栏 selectedIdx 对齐（预览点击反选）
         mark = f' data-atc-idx="{idx}"' if interactive else ""
         return f'<section class="blk-sec"{mark}>'
 
+    # 抬头（镜像 SpecSheet .ss-header：左品牌 / 右文档信息，蓝线收底）+ 标题块（左 4px 蓝杠）
+    period = str(meta.get("period_label", "")).replace("统计区间：", "").strip()
+    period_html = f'<div class="rpt-doc-period">统计区间　{_esc(period)}</div>' if period else ""
+    sub_html = f'<div class="rpt-sub">{_esc(meta.get("subtitle", ""))}</div>' if meta.get("subtitle") else ""
+    head_html = (
+        '<div class="rpt-head">'
+        '<div><div class="rpt-brand-name">CPQ PLATFORM</div>'
+        f'<div class="rpt-brand-tag">{_esc(meta.get("generated_by", ""))}</div></div>'
+        f'<div class="rpt-doc">{period_html}'
+        f'<div class="rpt-doc-meta">生成时间 {_esc(meta.get("generated_at", ""))}</div></div></div>'
+        f'<div class="rpt-title-block"><h1 class="rpt-title">{_esc(meta.get("title", ""))}</h1>{sub_html}</div>'
+    )
+
     for idx, blk in enumerate(blocks or []):
         t = blk.get("type")
         if t == "title":
-            if spec.get("cover"):
-                continue
-            sub = f'<div class="rpt-sub">{_esc(meta.get("subtitle", ""))}</div>' if meta.get("subtitle") else ""
-            date_str = datetime.now().strftime("%Y-%m-%d")
-            body.append(
-                f'<div class="masthead"><span>CPQ PLATFORM</span><span>{date_str}</span></div>'
-                f'<h1 class="rpt-title">{_esc(meta.get("title", ""))}</h1>{sub}'
-                f'<div class="meta-row">'
-                f'<span><b>统计区间</b>{_esc(meta.get("period_label", "").replace("统计区间：", ""))}</span>'
-                f'<span><b>生成</b>{_esc(meta.get("generated_by", ""))}</span>'
-                f'<span><b>时间</b>{_esc(meta.get("generated_at", ""))}</span>'
-                f"</div>"
-            )
+            continue  # 抬头+标题块由 meta 统一构造在 body 头部（规格书同源抬头，无封面）
         elif t == "text":
             src = blk.get("source") or "answer"
             text = ""
@@ -615,11 +327,9 @@ def render_report_html(
             height = int(blk.get("height") or 240)
             dom_id = f"ch-{idx}"
             charts.append({"id": dom_id, "option": option})
-            cap = exh_caption(blk, "fig") if spec.get("exhibit") else sec_title(blk)
             body.append(
-                f'{sec_open(idx)}{cap}'
-                f'<div class="chart-box"><div class="ch" id="{dom_id}" style="height:{height}px"></div></div>'
-                f'{exh_src()}</section>'
+                f'{sec_open(idx)}{sec_title(blk)}'
+                f'<div class="chart-box"><div class="ch" id="{dom_id}" style="height:{height}px"></div></div></section>'
             )
         elif t == "fields":
             fdata = p.get(blk.get("key") or "")
@@ -640,8 +350,7 @@ def render_report_html(
                 f'<tr><th>{_esc(_CELL_LABELS.get(k, k))}</th><td>{_esc(str(v))}</td></tr>'
                 for k, v in flat
             )
-            cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
-            body.append(f'{sec_open(idx)}{cap}<table class="rpt-table rpt-fields"><tbody>{rows}</tbody></table>{exh_src()}</section>')
+            body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table rpt-fields"><tbody>{rows}</tbody></table></section>')
         elif t == "table":
             if blk.get("source") == "payload":
                 prows = p.get(blk.get("key") or "")
@@ -657,8 +366,7 @@ def render_report_html(
                     "<tr>" + "".join(f"<td>{_esc(str(_fmt_cell(r.get(k))))}</td>" for k in keys) + "</tr>"
                     for r in prows
                 )
-                cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
-                body.append(f'{sec_open(idx)}{cap}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table>{exh_src()}</section>')
+                body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
                 continue
             data = chart_assets.resolve_asset_data(blk.get("asset") or "", blk.get("params"))
             if not data:
@@ -668,17 +376,7 @@ def render_report_html(
                 "<tr>" + "".join(f"<td>{_esc(r.get(k, ''))}</td>" for k in ("customer", "platform", "sales", "result", "created")) + "</tr>"
                 for r in data.get("rows", [])
             )
-            cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
-            body.append(f'{sec_open(idx)}{cap}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table>{exh_src()}</section>')
-
-    if not has_title_block and not spec.get("cover"):
-        body.insert(
-            0,
-            f'<div class="masthead"><span>CPQ PLATFORM</span><span>{datetime.now().strftime("%Y-%m-%d")}</span></div>'
-            f'<h1 class="rpt-title">{_esc(meta.get("title", ""))}</h1>'
-            f'<div class="meta-row"><span><b>生成</b>{_esc(meta.get("generated_by", ""))}</span>'
-            f'<span><b>时间</b>{_esc(meta.get("generated_at", ""))}</span></div>',
-        )
+            body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
 
     import json as _json
     chart_js = _json.dumps(charts, ensure_ascii=False)
@@ -701,7 +399,7 @@ def render_report_html(
 <title>{_esc(meta.get('title', ''))}</title>
 <style>{css}</style></head>
 <body>
-{cover_html}{''.join(body)}
+{head_html}{''.join(body)}
 {foot}
 {echarts_tag}
 <script>
@@ -713,7 +411,7 @@ window.__CHARTS__ = {chart_js};
       var el = document.getElementById(c.id);
       if (!el) return;
       var chart = window.echarts && window.echarts.init(el, null, {{renderer: 'canvas'}});
-      if (chart) chart.setOption(c.option);
+      if (chart) {{ var opt = c.option || {{}}; opt.animation = false; chart.setOption(opt); }}
     }});
     window.__CHARTS_DONE__ = true;
   }}
@@ -762,7 +460,7 @@ async def render_report_pdf(
     payload: Optional[dict],
     *,
     template_name: str = "",
-    theme: str = "business",
+    theme: str = "house",
     asset_params: Optional[dict] = None,
 ) -> bytes:
     """HTML → PDF（串行锁：同一时刻至多一个 chromium）。playwright 缺失抛 RuntimeError。

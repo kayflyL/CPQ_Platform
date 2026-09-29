@@ -1375,6 +1375,23 @@ class KPRepository:
                 c = KPPartCompat(part_id=part.id, server_model=model)
                 self.session.add(c)
 
+        # 初始价格（可选）：随创建落第一条价格历史，缺日期记今天
+        if data.get("initial_price") is not None:
+            pd = datetime.now().date()
+            if data.get("initial_price_date"):
+                try:
+                    pd = datetime.strptime(str(data["initial_price_date"])[:10], "%Y-%m-%d").date()
+                except ValueError:
+                    pass
+            self.session.add(KPPriceHistory(
+                part_id=part.id,
+                price=float(data["initial_price"]),
+                currency=data.get("initial_currency") or "RMB",
+                price_date=pd,
+                note="初始价格",
+                source="",
+            ))
+
         self.session.commit()
         self.session.refresh(part)
         return part.to_dict()

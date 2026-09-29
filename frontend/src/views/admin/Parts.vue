@@ -672,6 +672,28 @@
             <a-input v-model:value="partForm.lead_time" placeholder="如: 2-4周" />
           </div>
         </div>
+        <div v-if="!partForm.id" class="form-row-2col">
+          <div class="form-row">
+            <label>初始价格（可留空）</label>
+            <div style="display: flex; gap: 8px;">
+              <a-input-number v-model:value="partForm.initial_price" :min="0" :step="0.01" placeholder="如: 12500" style="flex: 1" />
+              <a-select v-model:value="partForm.initial_currency" style="width: 96px">
+                <a-select-option value="RMB">¥ RMB</a-select-option>
+                <a-select-option value="USD">$ USD</a-select-option>
+                <a-select-option value="EUR">€ EUR</a-select-option>
+              </a-select>
+            </div>
+          </div>
+          <div class="form-row">
+            <label>价格日期</label>
+            <a-date-picker
+              v-model:value="partForm.initial_price_date"
+              value-format="YYYY-MM-DD"
+              placeholder="留空为今天"
+              style="width: 100%"
+            />
+          </div>
+        </div>
         <div class="form-row">
           <label>规格参数</label>
           <div class="specs-editor">

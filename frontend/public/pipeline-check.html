@@ -45,6 +45,9 @@ const play = (name) => {
 }
 play('walk')
 window.__play = play
+window.__mixer = mixer
+window.__asset = asset
+window.__model = model
 
 const clock = new THREE.Clock()
 const cam = new THREE.Vector3(0.9, 1.0, 1.9)
