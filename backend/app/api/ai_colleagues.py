@@ -26,7 +26,7 @@ require_ai_office_manage = require_perms("ai.office.manage")
 _CONFIG_KEY = "ai_colleagues"
 
 # 桌宠虚拟形象白名单：与 frontend/public/live2d/<key> 一一对应
-PET_MODEL_KEYS = {"koharu", "hibiki", "shizuku", "nico", "izumi", "haru", "haruto", "wanko"}
+PET_MODEL_KEYS = {"koharu", "hibiki", "shizuku", "nico", "izumi", "haru", "wanko"}
 DEFAULT_PET_MODEL = "koharu"
 
 
