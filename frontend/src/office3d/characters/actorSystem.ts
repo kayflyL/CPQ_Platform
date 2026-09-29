@@ -33,6 +33,8 @@ type Actor = {
   bubbleTexture: THREE.CanvasTexture
   bubbleCanvas: HTMLCanvasElement
   bubbleCtx: CanvasRenderingContext2D
+  bubbleVisibleUntil: number
+  bubbleOpacity: number
   targetPosition: THREE.Vector3
   walking: boolean
   mixer: THREE.AnimationMixer | null
@@ -437,6 +439,8 @@ function rebuildActors() {
       bubbleTexture: bubble.texture,
       bubbleCanvas: bubble.canvas,
       bubbleCtx: bubble.ctx,
+      bubbleVisibleUntil: 0,
+      bubbleOpacity: 0,
       targetPosition: characterHome.clone(),
       routeZone: null,
       lastPosX: characterHome.x,
@@ -526,6 +530,28 @@ function updateActorStatus(actor: Actor, event?: OfficeColleagueStatus) {
   if (bubbleSig !== actor.bubbleSignature) {
     drawBubble(actor, activity, message, rt.statusColorHex(status), rt.statusTextFor(status))
     actor.bubbleSignature = bubbleSig
+    // 事件气泡：内容变化时闪现 6 秒，由 updateOverheads 淡出
+    actor.bubbleVisibleUntil = performance.now() + 6000
+  }
+}
+
+/** 头顶信息三层策略：事件气泡闪现 6s 淡出；等待输入/异常持续显示；悬停角色常显。状态信标浮动脉冲。 */
+function updateOverheads(now: number) {
+  const hoverKey = rt.hoveredRoleKey()
+  for (const actor of actorMap.values()) {
+    const persistent = actor.status === 'waiting_input' || actor.status === 'error'
+    const target = hoverKey === actor.roleKey || persistent || now < actor.bubbleVisibleUntil ? 1 : 0
+    const next = actor.bubbleOpacity + (target - actor.bubbleOpacity) * 0.14
+    actor.bubbleOpacity = next
+    actor.bubble.material.opacity = next
+    actor.bubble.visible = next > 0.02
+    // 状态信标：悬浮呼吸;等待输入脉冲放大,提示需要人介入
+    actor.indicator.position.y = 1.62 + Math.sin(now / 320) * 0.02
+    if (actor.status === 'waiting_input') {
+      actor.indicator.scale.setScalar(1 + 0.25 * Math.sin(now / 140))
+    } else {
+      actor.indicator.scale.setScalar(1)
+    }
   }
 }
 
@@ -724,6 +750,7 @@ function disposeMaterial(material: THREE.Material) {
     updateActorStatus,
     rebuildActorRoute,
     scheduleRouteRecompute,
+    updateOverheads,
     meetingSlotForActor,
     disposeActor,
     disposeMaterial,

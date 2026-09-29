@@ -33,11 +33,11 @@ export function makeLabelSprite(text: string, color: string) {
   ctx.fillStyle = color
   ctx.fill()
 
-  ctx.font = 'bold 26px "Segoe UI", "Microsoft YaHei", sans-serif'
+  ctx.font = 'bold 22px "Segoe UI", "Microsoft YaHei", sans-serif'
   ctx.fillStyle = '#eaf0f8'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
-  ctx.fillText(text, 40, canvas.height / 2)
+  ctx.fillText(text, 36, canvas.height / 2)
 
   const texture = new THREE.CanvasTexture(canvas)
   texture.colorSpace = THREE.SRGBColorSpace
@@ -46,8 +46,8 @@ export function makeLabelSprite(text: string, color: string) {
   const sprite = new THREE.Sprite(
     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }),
   )
-  sprite.scale.set(1.55, 0.39, 1)
-  sprite.position.y = 2.22
+  sprite.scale.set(1.15, 0.29, 1)
+  sprite.position.y = 2.42
 
   return { sprite, texture, canvas }
 }
@@ -103,10 +103,10 @@ export function drawBubble(actor: BubbleActor, activity: string, message: string
   ctx.quadraticCurveTo(0, 0, radius, 0)
   ctx.closePath()
 
-  ctx.fillStyle = 'rgba(10, 16, 26, 0.86)'
+  ctx.fillStyle = 'rgba(252, 253, 255, 0.94)'
   ctx.fill()
   ctx.strokeStyle = color
-  ctx.lineWidth = 4
+  ctx.lineWidth = 3
   ctx.stroke()
 
   ctx.fillStyle = color
@@ -114,8 +114,8 @@ export function drawBubble(actor: BubbleActor, activity: string, message: string
   ctx.arc(30, canvas.height / 2, 8, 0, Math.PI * 2)
   ctx.fill()
 
-  ctx.font = 'bold 38px "Segoe UI", "Microsoft YaHei", sans-serif'
-  ctx.fillStyle = '#f3f6fb'
+  ctx.font = 'bold 36px "Segoe UI", "Microsoft YaHei", sans-serif'
+  ctx.fillStyle = '#1f2937'
   ctx.textAlign = 'left'
   ctx.textBaseline = 'middle'
   ctx.fillText(text, 52, canvas.height / 2)

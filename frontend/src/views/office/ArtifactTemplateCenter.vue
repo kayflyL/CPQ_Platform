@@ -135,9 +135,40 @@
               <span class="atc-prop-label">类型</span>
               <span>{{ typeLabel(selectedBlock.type) }}</span>
             </div>
-            <div v-if="selectedBlock.type !== 'title'" class="atc-prop-row">
+            <template v-if="selectedBlock.type === 'title'">
+              <div class="atc-prop-row">
+                <span class="atc-prop-label">主标题</span>
+                <a-input v-model:value="selectedBlock.title" size="small" placeholder="留空 = 跟随报告名" />
+              </div>
+              <div class="atc-prop-row">
+                <span class="atc-prop-label">副题</span>
+                <a-input v-model:value="selectedBlock.subtitle" size="small" placeholder="留空 = 跟随文档卡副题" />
+              </div>
+              <div class="atc-prop-row">
+                <span class="atc-prop-label">品牌名</span>
+                <a-input v-model:value="selectedBlock.brand_name" size="small" placeholder="默认 CPQ PLATFORM" />
+              </div>
+              <div class="atc-prop-row">
+                <span class="atc-prop-label">品牌副标</span>
+                <a-input v-model:value="selectedBlock.brand_tag" size="small" placeholder="留空 = 跟随生成方" />
+              </div>
+            </template>
+            <div v-else class="atc-prop-row">
               <span class="atc-prop-label">区块标题</span>
               <a-input v-model:value="selectedBlock.title" size="small" placeholder="（可选）区块小标题" />
+            </div>
+            <div v-if="selectedBlock.type !== 'title'" class="atc-prop-row">
+              <span class="atc-prop-label">宽度</span>
+              <div class="atc-span-chips">
+                <button
+                  v-for="s in SPAN_OPTS"
+                  :key="s.v"
+                  type="button"
+                  class="atc-span-chip"
+                  :class="{ active: spanOf(selectedBlock!) === s.v }"
+                  @click="setSpan(selectedBlock!, s.v)"
+                >{{ s.label }}</button>
+              </div>
             </div>
             <template v-if="selectedBlock.type === 'text'">
               <div class="atc-prop-row">
@@ -145,11 +176,20 @@
                 <a-select v-model:value="selectedBlock.source" size="small" style="width: 100%">
                   <a-select-option value="answer">AI 答复（整段 markdown）</a-select-option>
                   <a-select-option value="payload">payload_map 字段</a-select-option>
+                  <a-select-option value="literal">静态文案（模板自写）</a-select-option>
                 </a-select>
               </div>
               <div v-if="selectedBlock.source === 'payload'" class="atc-prop-row">
                 <span class="atc-prop-label">字段名</span>
                 <a-input v-model:value="selectedBlock.key" size="small" placeholder="如 summary" />
+              </div>
+              <div v-if="selectedBlock.source === 'literal'" class="atc-prop-row atc-prop-stack">
+                <span class="atc-prop-label">文案内容</span>
+                <a-textarea
+                  v-model:value="selectedBlock.text"
+                  :rows="6"
+                  placeholder="支持 markdown 子集：**加粗**、- 列表、1. 编号、表格"
+                />
               </div>
             </template>
             <template v-if="['kpi', 'chart', 'table'].includes(selectedBlock.type)">
@@ -179,6 +219,32 @@
                   style="width: 100%"
                   @change="(v: any) => setParam(selectedBlock!, spec.key, v)"
                 />
+              </div>
+            </template>
+            <template v-if="selectedBlock.type === 'kpi' && kpiCatalog(selectedBlock!).length">
+              <div class="atc-prop-row atc-prop-stack">
+                <span class="atc-prop-label">指标构成</span>
+                <div class="atc-kpi-pick">
+                  <label v-for="m in kpiCatalog(selectedBlock!)" :key="m.key" class="atc-kpi-check">
+                    <input
+                      type="checkbox"
+                      :checked="kpiPicked(selectedBlock!, m.key)"
+                      @change="(e: any) => toggleKpi(selectedBlock!, m.key, e.target.checked)"
+                    />
+                    <span>{{ m.label }}</span>
+                  </label>
+                </div>
+                <div v-for="(m, mi) in selectedBlock.metrics" :key="'row-' + m.key" class="atc-kpi-row">
+                  <span class="atc-kpi-row-name">{{ kpiName(selectedBlock!, m.key) }}</span>
+                  <a-input
+                    :value="m.label"
+                    size="small"
+                    :placeholder="kpiName(selectedBlock!, m.key)"
+                    @change="(e: any) => setKpiLabel(selectedBlock!, m.key, e.target.value)"
+                  />
+                  <button type="button" class="atc-kpi-move" :disabled="mi === 0" @click="moveKpi(selectedBlock!, mi, -1)">↑</button>
+                  <button type="button" class="atc-kpi-move" :disabled="mi === (selectedBlock!.metrics || []).length - 1" @click="moveKpi(selectedBlock!, mi, 1)">↓</button>
+                </div>
               </div>
             </template>
             <div v-if="selectedBlock.type === 'chart'" class="atc-prop-row">
@@ -422,6 +488,66 @@ function setParam(blk: ArtifactBlock, key: string, v: number | null) {
   blk.params[key] = v
 }
 
+// ── 宽度（12 列栅格 span；同宽区块自动并排）──
+
+const SPAN_OPTS = [
+  { v: 12, label: '整行' },
+  { v: 8, label: '2/3 行' },
+  { v: 6, label: '半行' },
+  { v: 4, label: '1/3 行' },
+] as const
+
+function spanOf(blk: ArtifactBlock): number {
+  const n = Number(blk.span)
+  return [4, 6, 8, 12].includes(n) ? n : 12
+}
+
+function setSpan(blk: ArtifactBlock, v: number) {
+  if (v === 12) delete blk.span
+  else blk.span = v
+}
+
+// ── kpi 指标构成（目录=后端资产 metrics；数组序=渲染序）──
+
+function kpiCatalog(blk: ArtifactBlock) {
+  return chartAssets.value.find((a) => a.id === blk.asset)?.metrics || []
+}
+
+function kpiName(blk: ArtifactBlock, key: string): string {
+  return kpiCatalog(blk).find((m) => m.key === key)?.label || key
+}
+
+function kpiPicked(blk: ArtifactBlock, key: string): boolean {
+  return (blk.metrics || []).some((m) => m.key === key)
+}
+
+function toggleKpi(blk: ArtifactBlock, key: string, checked: boolean) {
+  const cur = blk.metrics || kpiCatalog(blk).map((m) => ({ key: m.key }))
+  blk.metrics = checked ? [...cur, { key }] : cur.filter((m) => m.key !== key)
+}
+
+function setKpiLabel(blk: ArtifactBlock, key: string, label: string) {
+  const m = (blk.metrics || []).find((x) => x.key === key)
+  if (!m) return
+  if (label) m.label = label
+  else delete m.label
+}
+
+function moveKpi(blk: ArtifactBlock, i: number, dir: -1 | 1) {
+  const arr = blk.metrics
+  if (!arr) return
+  const j = i + dir
+  if (j < 0 || j >= arr.length) return
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
+
+// 选中 kpi 区块时物化指标构成（未配置=全目录），改名/排序在数组上就地生效
+watch(selectedBlock, (blk) => {
+  if (blk && blk.type === 'kpi' && !Array.isArray(blk.metrics) && kpiCatalog(blk).length) {
+    blk.metrics = kpiCatalog(blk).map((m) => ({ key: m.key }))
+  }
+})
+
 function locateBlock(idx: number) {
   if (idx < 0 || idx >= editing.blocks.length) return
   selectedIdx.value = idx
@@ -479,9 +605,10 @@ const contractRows = computed(() => {
   const rows: Array<{ who: 'ai' | 'tool' | 'sys'; sym: string; note: string; blockIdx: number }> = []
   editing.blocks.forEach((blk, i) => {
     if (blk.type === 'title') {
-      rows.push({ who: 'sys', sym: 'meta.title', note: '系统变量：报告标题/统计区间/生成人/时间', blockIdx: i })
+      rows.push({ who: 'sys', sym: 'meta.title', note: '系统变量：统计区间/生成时间（标题/副题/品牌可在属性钉固定文案）', blockIdx: i })
     } else if (blk.type === 'text') {
-      if (blk.source === 'payload' && blk.key) rows.push({ who: 'ai', sym: `payload.${blk.key}`, note: 'AI 填充：输出节点 payload_map 字段', blockIdx: i })
+      if (blk.source === 'literal') rows.push({ who: 'sys', sym: 'template', note: '模板固定文案：属性里直接编辑', blockIdx: i })
+      else if (blk.source === 'payload' && blk.key) rows.push({ who: 'ai', sym: `payload.${blk.key}`, note: 'AI 填充：输出节点 payload_map 字段', blockIdx: i })
       else rows.push({ who: 'ai', sym: 'answer', note: 'AI 填充：整段 markdown 答复', blockIdx: i })
     } else if (blk.asset) {
       const asset = chartAssets.value.find((a) => a.id === blk.asset)
@@ -850,6 +977,26 @@ onBeforeUnmount(() => {
   padding: 1px 6px;
 }
 .atc-ct-note { color: var(--atc-sub); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ── 宽度 chips / kpi 指标构成 ── */
+.atc-span-chips { display: flex; gap: 6px; }
+.atc-span-chip {
+  flex: 1; padding: 3px 0; font-size: 11px; cursor: pointer;
+  border: 1px solid var(--atc-border); border-radius: 4px;
+  background: transparent; color: var(--atc-sub);
+}
+.atc-span-chip.active { border-color: var(--atc-blue); color: var(--atc-blue); font-weight: 600; background: rgba(29, 78, 216, 0.06); }
+.atc-prop-stack { flex-direction: column; align-items: stretch; gap: 6px; }
+.atc-kpi-pick { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.atc-kpi-check { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; cursor: pointer; color: var(--atc-ink); }
+.atc-kpi-check input { accent-color: var(--atc-blue); }
+.atc-kpi-row { display: flex; align-items: center; gap: 5px; }
+.atc-kpi-row-name { flex: 0 0 76px; font-size: 11px; color: var(--atc-sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.atc-kpi-move {
+  flex: 0 0 20px; height: 22px; font-size: 11px; cursor: pointer; line-height: 1;
+  border: 1px solid var(--atc-border); border-radius: 4px; background: transparent; color: var(--atc-sub);
+}
+.atc-kpi-move:disabled { opacity: 0.35; cursor: default; }
 
 [data-theme='dark'] .atc-root {
   --atc-border: rgba(255, 255, 255, 0.12);

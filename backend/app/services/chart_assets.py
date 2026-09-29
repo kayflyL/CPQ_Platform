@@ -127,15 +127,36 @@ def _fetch_dist(days: int = 56) -> dict:
     return {"items": items, "total": sum(c["value"] for c in items)}
 
 
+# KPI 指标原子目录：kpi 区块 blk.metrics 按 key 挑选/改名/排序；取数一次全量算（都是廉价计数）
+_KPI_METRIC_CATALOG = [
+    {"key": "total", "label": "累计商机", "unit": "条"},
+    {"key": "new_week", "label": "近 7 天新增", "unit": "条"},
+    {"key": "new_month", "label": "近 30 天新增", "unit": "条"},
+    {"key": "won", "label": "累计赢单", "unit": "条"},
+    {"key": "win_rate", "label": "赢单率", "unit": "%"},
+    {"key": "open", "label": "进行中", "unit": "条"},
+]
+
+
+def kpi_metric_catalog() -> list:
+    return [dict(m) for m in _KPI_METRIC_CATALOG]
+
+
 def _fetch_kpi() -> dict:
     session = Opportunity_SessionLocal()
     try:
         base = list(_ACTIVE_CONDS)
         total = session.query(func.count(Opportunity.opportunity_id)).filter(*base).scalar() or 0
         week_start = (date.today() - timedelta(days=7)).isoformat()
+        month_start = (date.today() - timedelta(days=30)).isoformat()
         new_week = (
             session.query(func.count(Opportunity.opportunity_id))
             .filter(*base, Opportunity.created_at >= week_start)
+            .scalar() or 0
+        )
+        new_month = (
+            session.query(func.count(Opportunity.opportunity_id))
+            .filter(*base, Opportunity.created_at >= month_start)
             .scalar() or 0
         )
         won = (
@@ -151,15 +172,12 @@ def _fetch_kpi() -> dict:
     finally:
         session.close()
     rate = round(won / total * 100, 1) if total else 0.0
-    return {
-        "items": [
-            {"key": "total", "label": "累计商机", "value": int(total), "unit": "条"},
-            {"key": "new_week", "label": "近 7 天新增", "value": int(new_week), "unit": "条"},
-            {"key": "won", "label": "累计赢单", "value": int(won), "unit": "条"},
-            {"key": "win_rate", "label": "赢单率", "value": rate, "unit": "%"},
-            {"key": "open", "label": "进行中", "value": int(open_cnt), "unit": "条"},
-        ]
-    }
+    vals = {"total": int(total), "new_week": int(new_week), "new_month": int(new_month),
+            "won": int(won), "win_rate": rate, "open": int(open_cnt)}
+    return {"items": [
+        {"key": m["key"], "label": m["label"], "value": vals[m["key"]], "unit": m["unit"]}
+        for m in _KPI_METRIC_CATALOG
+    ]}
 
 
 def _fetch_top_opps(limit: int = 5) -> dict:
@@ -603,8 +621,9 @@ _ASSET_DEFS: dict = {
         "name": "商机关键指标",
         "kind": "kpi",
         "source_page": "商机线索页",
-        "desc": "累计商机 / 近7天新增 / 累计赢单 / 赢单率 / 进行中（全库口径）",
+        "desc": "指标原子目录：累计商机 / 近7天 / 近30天 / 累计赢单 / 赢单率 / 进行中（区块内勾选组合）",
         "params": [],
+        "metrics": kpi_metric_catalog(),
         "fetch": _fetch_kpi,
     },
     "cockpit.trend": {

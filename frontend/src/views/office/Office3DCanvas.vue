@@ -1539,6 +1539,8 @@ function tick(time: number) {
   }
 
   controls?.update()
+  // 头顶信息:事件气泡淡出、等待输入脉冲、悬停常显
+  actors.updateOverheads(performance.now())
 
   for (const actor of actors.actorMap.values()) {
     const phase = actor.phase

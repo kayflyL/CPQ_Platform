@@ -52,7 +52,8 @@ h1.rpt-title { font-size: 24px; font-weight: 700; color: #111418; line-height: 1
 
 
 _THEME_HOUSE_SEC = """
-.blk-sec { margin-bottom: 22px; break-inside: avoid; }
+.rpt-body { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 16px; align-items: start; }
+.blk-sec { grid-column: span var(--span, 12); min-width: 0; margin-bottom: 22px; break-inside: avoid; }
 .blk-title { font-size: 12px; font-weight: 700; letter-spacing: .6px; color: #1668C0;
   border-bottom: 1px solid #E5E7EB; padding-bottom: 6px; margin-bottom: 12px; }
 .sec-no { font-size: 10.5px; font-weight: 700; color: #9CA3AF; margin-right: 8px; }
@@ -222,6 +223,18 @@ def _default_payload(payload: Optional[dict], template_name: str = "") -> dict:
     return p
 
 
+def _effective_head_texts(blocks: list, meta: dict) -> dict:
+    """抬头生效文案：title 区块钉的 title/subtitle/brand_name/brand_tag 覆盖 meta，留空回落
+    （报告名默认归文档卡，模板显式填写才覆盖——正文标题与 PDF 页眉共用本函数保持一致）。"""
+    tb = next((b for b in (blocks or []) if isinstance(b, dict) and b.get("type") == "title"), {})
+    return {
+        "title": str(tb.get("title") or "") or str(meta.get("title", "")),
+        "subtitle": str(tb.get("subtitle") or "") or str(meta.get("subtitle", "")),
+        "brand_name": str(tb.get("brand_name") or "") or "CPQ PLATFORM",
+        "brand_tag": str(tb.get("brand_tag") or "") or str(meta.get("generated_by", "")),
+    }
+
+
 # payload 行/字段表的列标签（镜像 compose 节点「方案配置表」列契约的既有事实，未覆盖的键显示原键名）
 _CELL_LABELS = {
     "part_category": "Catalogue",
@@ -278,22 +291,33 @@ def render_report_html(
         sec_no += 1
         return f'<div class="blk-title"><span class="sec-no">{sec_no:02d}</span>{_esc(blk["title"])}</div>'
 
-    def sec_open(idx: int) -> str:
+    def sec_open(idx: int, blk: dict) -> str:
         # data-atc-idx = 区块在 blocks 里的下标，与编辑器左栏 selectedIdx 对齐（预览点击反选）
+        # --span = 12 列栅格宽（4/6/8/12，缺省整行），同宽区块自动并排
         mark = f' data-atc-idx="{idx}"' if interactive else ""
-        return f'<section class="blk-sec"{mark}>'
+        try:
+            span = int(blk.get("span") or 12)
+        except (TypeError, ValueError):
+            span = 12
+        if span not in (4, 6, 8, 12):
+            span = 12
+        return f'<section class="blk-sec" style="--span:{span}"{mark}>'
 
     # 抬头（镜像 SpecSheet .ss-header：左品牌 / 右文档信息，蓝线收底）+ 标题块（左 4px 蓝杠）
+    # title 区块可钉固定文案（title/subtitle/brand_name/brand_tag），留空回落 meta——报告名默认归文档卡
+    head_txt = _effective_head_texts(blocks, meta)
+    eff_title, eff_sub = head_txt["title"], head_txt["subtitle"]
+    brand_name, brand_tag = head_txt["brand_name"], head_txt["brand_tag"]
     period = str(meta.get("period_label", "")).replace("统计区间：", "").strip()
     period_html = f'<div class="rpt-doc-period">统计区间　{_esc(period)}</div>' if period else ""
-    sub_html = f'<div class="rpt-sub">{_esc(meta.get("subtitle", ""))}</div>' if meta.get("subtitle") else ""
+    sub_html = f'<div class="rpt-sub">{_esc(eff_sub)}</div>' if eff_sub else ""
     head_html = (
         '<div class="rpt-head">'
-        '<div><div class="rpt-brand-name">CPQ PLATFORM</div>'
-        f'<div class="rpt-brand-tag">{_esc(meta.get("generated_by", ""))}</div></div>'
+        f'<div><div class="rpt-brand-name">{_esc(brand_name)}</div>'
+        f'<div class="rpt-brand-tag">{_esc(brand_tag)}</div></div>'
         f'<div class="rpt-doc">{period_html}'
         f'<div class="rpt-doc-meta">生成时间 {_esc(meta.get("generated_at", ""))}</div></div></div>'
-        f'<div class="rpt-title-block"><h1 class="rpt-title">{_esc(meta.get("title", ""))}</h1>{sub_html}</div>'
+        f'<div class="rpt-title-block"><h1 class="rpt-title">{_esc(eff_title)}</h1>{sub_html}</div>'
     )
 
     for idx, blk in enumerate(blocks or []):
@@ -302,23 +326,37 @@ def render_report_html(
             continue  # 抬头+标题块由 meta 统一构造在 body 头部（规格书同源抬头，无封面）
         elif t == "text":
             src = blk.get("source") or "answer"
-            text = ""
             if src == "payload":
                 text = str(p.get(blk.get("key") or "") or "")
+            elif src == "literal":
+                text = str(blk.get("text") or "")
             else:
                 text = str(p.get("answer") or "")
             if not text.strip():
                 continue
-            body.append(f'{sec_open(idx)}{sec_title(blk)}{_markdown_to_html(text)}</section>')
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}{_markdown_to_html(text)}</section>')
         elif t == "kpi":
             data = chart_assets.resolve_asset_data(blk.get("asset") or "", blk.get("params")) or {"items": []}
+            items = [i for i in data.get("items", []) if isinstance(i, dict)]
+            pick = blk.get("metrics")
+            if isinstance(pick, list) and pick:
+                by_key = {i.get("key"): i for i in items}
+                picked: list = []
+                for m in pick:
+                    mk = m.get("key") if isinstance(m, dict) else m
+                    if mk in by_key:
+                        item = dict(by_key[mk])
+                        if isinstance(m, dict) and m.get("label"):
+                            item["label"] = str(m["label"])
+                        picked.append(item)
+                items = picked
             cells = "".join(
                 f'<div class="kpi-cell"><div class="kpi-label">{_esc(i.get("label", ""))}</div>'
                 f'<span class="kpi-value">{_esc(i.get("value", ""))}</span>'
                 f'<span class="kpi-unit">{_esc(i.get("unit", ""))}</span></div>'
-                for i in data.get("items", [])
+                for i in items
             )
-            body.append(f'{sec_open(idx)}{sec_title(blk)}<div class="kpi-grid">{cells}</div></section>')
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<div class="kpi-grid">{cells}</div></section>')
         elif t == "chart":
             asset_id = blk.get("asset") or ""
             option = chart_assets.resolve_chart_option(asset_id, blk.get("params"))
@@ -328,7 +366,7 @@ def render_report_html(
             dom_id = f"ch-{idx}"
             charts.append({"id": dom_id, "option": option})
             body.append(
-                f'{sec_open(idx)}{sec_title(blk)}'
+                f'{sec_open(idx, blk)}{sec_title(blk)}'
                 f'<div class="chart-box"><div class="ch" id="{dom_id}" style="height:{height}px"></div></div></section>'
             )
         elif t == "fields":
@@ -350,7 +388,7 @@ def render_report_html(
                 f'<tr><th>{_esc(_CELL_LABELS.get(k, k))}</th><td>{_esc(str(v))}</td></tr>'
                 for k, v in flat
             )
-            body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table rpt-fields"><tbody>{rows}</tbody></table></section>')
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<table class="rpt-table rpt-fields"><tbody>{rows}</tbody></table></section>')
         elif t == "table":
             if blk.get("source") == "payload":
                 prows = p.get(blk.get("key") or "")
@@ -366,7 +404,7 @@ def render_report_html(
                     "<tr>" + "".join(f"<td>{_esc(str(_fmt_cell(r.get(k))))}</td>" for k in keys) + "</tr>"
                     for r in prows
                 )
-                body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
+                body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
                 continue
             data = chart_assets.resolve_asset_data(blk.get("asset") or "", blk.get("params"))
             if not data:
@@ -376,7 +414,7 @@ def render_report_html(
                 "<tr>" + "".join(f"<td>{_esc(r.get(k, ''))}</td>" for k in ("customer", "platform", "sales", "result", "created")) + "</tr>"
                 for r in data.get("rows", [])
             )
-            body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
 
     import json as _json
     chart_js = _json.dumps(charts, ensure_ascii=False)
@@ -396,10 +434,10 @@ def render_report_html(
     extra_js_tag = f"<script>{_INTERACTIVE_JS}</script>" if interactive else ""
     return f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8"/>
-<title>{_esc(meta.get('title', ''))}</title>
+<title>{_esc(eff_title)}</title>
 <style>{css}</style></head>
 <body>
-{head_html}{''.join(body)}
+{head_html}<div class="rpt-body">{''.join(body)}</div>
 {foot}
 {echarts_tag}
 <script>
@@ -469,7 +507,8 @@ async def render_report_pdf(
     if js is None:
         raise RuntimeError("echarts vendor missing (backend/app/static/vendor/echarts.min.js)")
     p = _default_payload(payload, template_name)
-    header = _pdf_header_template(p["meta"].get("title", ""), p["meta"].get("generated_at", ""))
+    head_txt = _effective_head_texts(blocks, p["meta"])
+    header = _pdf_header_template(head_txt["title"], p["meta"].get("generated_at", ""))
     doc = render_report_html(
         blocks, payload, template_name=template_name, echarts_inline_js=js, theme=theme,
         interactive=False, asset_params=asset_params,

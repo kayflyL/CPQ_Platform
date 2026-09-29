@@ -6,15 +6,37 @@ import axios from 'axios'
 
 const API_BASE = '/api/artifact-templates'
 
+export interface KpiMetricOption {
+  key: string
+  label: string
+  unit?: string
+}
+
+/** kpi 区块的指标构成（key=目录原子；label=显示名覆盖；数组序=渲染序） */
+export interface KpiMetricPick {
+  key: string
+  label?: string
+}
+
 export interface ArtifactBlock {
   id?: string
   type: 'title' | 'text' | 'kpi' | 'chart' | 'table'
   title?: string
   asset?: string
-  source?: 'answer' | 'payload'
+  source?: 'answer' | 'payload' | 'literal'
   key?: string
   height?: number
   params?: Record<string, unknown>
+  /** 12 列栅格宽（4/6/8/12），缺省=整行 */
+  span?: number
+  /** text/literal：模板自写静态文案（markdown 子集） */
+  text?: string
+  /** title 区块：钉固定文案（留空回落 meta） */
+  subtitle?: string
+  brand_name?: string
+  brand_tag?: string
+  /** kpi 区块：指标构成 */
+  metrics?: KpiMetricPick[]
   [k: string]: unknown
 }
 
@@ -50,6 +72,8 @@ export interface ChartAssetMeta {
   source_page: string
   desc: string
   params?: ChartAssetParamSpec[]
+  /** kpi 资产带指标原子目录（编辑器指标勾选数据源） */
+  metrics?: KpiMetricOption[]
 }
 
 export const artifactTemplateApi = {
