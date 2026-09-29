@@ -1,0 +1,250 @@
+共发现疑似近似重复组: 22 组，涉及配件 222 条
+====================================================================================================
+[CPU-型号] key=cpu|amd|amd epyc
+   107 | AMD          | AMD EPYC 9115                                        | specs=8 prices=1
+   108 | AMD          | AMD EPYC 9255                                        | specs=8 prices=1
+   109 | AMD          | AMD EPYC 9334                                        | specs=8 prices=4
+   111 | AMD          | AMD EPYC 9354                                        | specs=8 prices=4
+   113 | AMD          | AMD EPYC 9355                                        | specs=8 prices=2
+   115 | AMD          | AMD EPYC 9654                                        | specs=2 prices=4
+   198 | AMD          | AMD EPYC 9124                                        | specs=8 prices=2
+   244 | AMD          | AMD EPYC 9745                                        | specs=8 prices=1
+----------------------------------------------------------------------------------------------------
+[CPU-型号] key=cpu|amd|amd epyc c
+   114 | AMD          | AMD EPYC 9554 64C                                    | specs=2 prices=2
+   116 | AMD          | AMD EPYC 9654 96C                                    | specs=2 prices=1
+----------------------------------------------------------------------------------------------------
+[CPU-型号] key=cpu|intel|intel xeon
+   122 | Intel        | Intel Xeon 4416+                                     | specs=8 prices=1
+   123 | Intel        | Intel Xeon 6530                                      | specs=8 prices=6
+   124 | INTEL        | Intel Xeon 8468                                      | specs=8 prices=1
+----------------------------------------------------------------------------------------------------
+[CPU-型号] key=cpu|兆芯|kh c
+   126 | 兆芯           | KH50000 48C                                          | specs=1 prices=1
+   128 | 兆芯           | KH50000 96C                                          | specs=1 prices=1
+   182 | 兆芯           | KH50000 64C                                          | specs=1 prices=1
+   225 | 兆芯           | KH40000 32C                                          | specs=1 prices=2
+   259 | 兆芯           | KH50000 72C                                          | specs=1 prices=1
+----------------------------------------------------------------------------------------------------
+[CPU-型号] key=cpu|amd|amd
+   234 | AMD          | AMD 9654                                             | specs=2 prices=1
+   239 | AMD          | AMD 9554                                             | specs=2 prices=1
+----------------------------------------------------------------------------------------------------
+[CPU-型号] key=cpu|amd|amd c t ghz
+   285 | AMD          | AMD  9354 32C/64T 3.55GHz                            | specs=2 prices=1
+   310 | AMD          | AMD  9334 32C/64T  2.7GHz                            | specs=2 prices=1
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia l g
+   152 | NVIDIA       | NVIDIA L20 48G                                       | specs=7 prices=2
+   312 | NVIDIA       | NVIDIA L4 24G                                        | specs=9 prices=1
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia l
+   153 | NVIDIA       | NVIDIA L40                                           | specs=7 prices=1
+   343 | NVIDIA       | NVIDIA L20                                           | specs=6 prices=2
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia rtx ada g
+   154 | NVIDIA       | NVIDIA RTX 5000 Ada 32G                              | specs=7 prices=1
+   156 | NVIDIA       | NVIDIA RTX 6000 Ada-48G                              | specs=9 prices=1
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia rtx pro g
+   158 | NVIDIA       | NVIDIA RTX PRO5000 48G                               | specs=9 prices=2
+   280 | NVIDIA       | NVIDIA RTX Pro6000 96G                               | specs=11 prices=2
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia rtx g
+   159 | NVIDIA       | NVIDIA RTX4090 24G 涡轮卡                               | specs=8 prices=1
+   160 | NVIDIA       | NVIDIA RTX4090 48G 涡轮卡                               | specs=8 prices=1
+   196 | NVIDIA       | NVIDIA RTX5090 32G 涡轮卡                               | specs=11 prices=5
+   356 | NVIDIA       | NVIDIA RTX 5090 32G                                  | specs=9 prices=2
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|天数智芯|天数智芯 智铠
+   175 | 天数智芯         | 天数智芯 智铠100                                           | specs=1 prices=1
+   176 | 天数智芯         | 天数智芯 智铠100DUO                                        | specs=1 prices=1
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia pro g
+   237 | NVIDIA       | NVIDIA Pro6000 96G server edition                    | specs=6 prices=1
+   332 | NVIDIA       | NVIDIA Pro6000 96G                                   | specs=6 prices=1
+----------------------------------------------------------------------------------------------------
+[GPU-型号] key=gpu|nvidia|nvidia g
+   291 | NVIDIA       | NVIDIA 5090 32G 涡轮                                   | specs=10 prices=1
+   380 | NVIDIA       | NVIDIA 5090涡轮卡 32G                                   | specs=10 prices=1
+----------------------------------------------------------------------------------------------------
+[HDD/SSD-规格] key=storage||||
+     1 | -            | 1.92T NVMe SSD                                       | specs=4 prices=5
+     2 | -            | 1.92T NVMe SSD gen4                                  | specs=4 prices=2
+     4 | -            | 1.92T SATA SSD                                       | specs=4 prices=4
+    17 | -            | 12T SATA HDD 企业级                                     | specs=4 prices=1
+    21 | -            | 16T SATA HDD                                         | specs=4 prices=3
+    33 | -            | 20T SATA HDD 7.2K                                    | specs=5 prices=1
+    48 | -            | 2T SATA HDD                                          | specs=4 prices=3
+    53 | -            | 3.2T NVMe                                            | specs=4 prices=1
+    56 | -            | 3.84T NVMe SSD                                       | specs=4 prices=28
+    59 | -            | 3.84T SATA SSD                                       | specs=4 prices=10
+    74 | -            | 480G SATA SSD                                        | specs=4 prices=26
+    77 | -            | 480G SATA SSD 企业级                                    | specs=4 prices=2
+    79 | -            | 4T NVMe SSD                                          | specs=4 prices=1
+    80 | -            | 4T SATA HDD                                          | specs=4 prices=5
+    91 | -            | 6T HDD SATA                                          | specs=4 prices=2
+    93 | -            | 7.68T NVMe SSD                                       | specs=4 prices=10
+   103 | -            | 960G NVMe SSD                                        | specs=4 prices=6
+   195 | -            | 1T NVMe M.2 2280                                     | specs=4 prices=1
+   210 | -            | 960G SATA SSD                                        | specs=4 prices=30
+   214 | -            | 960G NVMe M.2                                        | specs=4 prices=2
+   247 | -            | 480G SATA SSD 读密集型                                   | specs=4 prices=1
+   263 | -            | 8T SATA SSD                                          | specs=4 prices=1
+   265 | -            | 960G  SATA SSD 读取密集型                                 | specs=4 prices=1
+   266 | -            | 3.84T NVMe 读取密集型                                     | specs=4 prices=1
+   269 | -            | 4TB HDD （国产品牌）                                       | specs=3 prices=1
+   297 | -            | 960 GB SATA SSD  DWPD *2                             | specs=5 prices=1
+   304 | -            | WUS721208BLE604 8T SATA HDD                          | specs=4 prices=4
+   308 | -            | 3.84T NVME SSD Gen5                                  | specs=5 prices=2
+   316 | -            | U.2 NVME SSD 1.92T 企业级 （RAID1）                       | specs=5 prices=1
+   322 | -            | 960G SATA                                            | specs=2 prices=1
+   329 | -            | 8T SATA HDD                                          | specs=3 prices=3
+   333 | -            | 24T SATA HDD                                         | specs=3 prices=1
+   339 | -            | 22T SATA HDD                                         | specs=3 prices=1
+   341 | -            | 3.84T NVMe SSD Raid1                                 | specs=3 prices=1
+   345 | -            | 6T SATA HDD                                          | specs=3 prices=1
+   350 | -            | 1.6T NVME SSD dwpd>=3                                | specs=4 prices=1
+   353 | -            | NVME SSD 1.92T                                       | specs=3 prices=1
+   363 | -            | 4TB SATA HDD                                         | specs=3 prices=1
+   379 | -            | 7.68T NVMe                                           | specs=2 prices=1
+   387 | -            | 480GB SATA SSD                                       | specs=3 prices=1
+   388 | -            | 8TB SATA HDD                                         | specs=3 prices=1
+   401 | -            | 2T SATA SSD                                          | specs=3 prices=1
+----------------------------------------------------------------------------------------------------
+[HDD/SSD-规格] key=storage||sas||
+    29 | -            | 2.4T，15K转速，SAS HDD                                   | specs=5 prices=1
+    96 | -            | 7.68T SAS SSD                                        | specs=4 prices=1
+   199 | -            | 2.4T SAS HDD 10K                                     | specs=5 prices=1
+   260 | -            | 600G SAS SSD                                         | specs=4 prices=1
+   348 | -            | 600G 10K SAS                                         | specs=4 prices=1
+   349 | -            | 1.2T SAS 10K                                         | specs=4 prices=2
+   383 | 华为           | 2.5" SAS SSD  华为960G SAS                             | specs=4 prices=1
+----------------------------------------------------------------------------------------------------
+[HDD/SSD-规格] key=storage|||ssd|
+   336 | -            | 3.84TB NVMe U.2 SSD企业级                               | specs=4 prices=1
+   338 | -            | 960GB SATA SSD企业级                                    | specs=3 prices=1
+   362 | -            | 1.92T SATA SDD                                       | specs=3 prices=1
+----------------------------------------------------------------------------------------------------
+[NIC-规格] key=nic|||
+     5 | -            | 100G 2port+光模块                                       | specs=3 prices=3
+     7 | -            | 10G 2port OCP3.0光口网卡                                 | specs=3 prices=1
+    13 | -            | 10G 2port+光模块                                        | specs=3 prices=16
+    14 | -            | 10G 双电口                                              | specs=3 prices=1
+    23 | Intel        | 1G I350 2port                                        | specs=3 prices=11
+    26 | Intel        | 1G Intel I350 2port OCP3.0                           | specs=3 prices=1
+    28 | Intel        | 1G Intel I350 4port OCP3.0                           | specs=3 prices=6
+    31 | -            | 200G 2port+光模块                                       | specs=3 prices=1
+    32 | Mellanox     | 200G CX7 2port                                       | specs=3 prices=2
+    39 | -            | 25G 2port，支持IB/RoCE + 2个100G多模光模块                    | specs=3 prices=1
+    41 | -            | 25G 2port+光模块 OCP                                    | specs=3 prices=1
+    43 | -            | 25G 2Port网卡+光模块                                      | specs=3 prices=3
+    44 | Mellanox     | 25G 2port+光模块                                        | specs=3 prices=21
+    46 | Mellanox     | 25G Mellanox 2port OCP3.0                            | specs=3 prices=1
+    69 | Mellanox     | 400G 1port MCX75310AAS+光模块                           | specs=3 prices=1
+    70 | Mellanox     | 400G CX7 1port                                       | specs=3 prices=4
+    72 | NVIDIA       | 400G NVIDIA BF3 2port                                | specs=3 prices=3
+    73 | -            | 400G多模模块                                             | specs=2 prices=1
+    81 | Intel        | 4x10GbE NIC, Intel XL710, Quad Port RJ-45            | specs=2 prices=1
+    82 | -            | 4口 25G + 光模块                                         | specs=3 prices=1
+    83 | -            | 4口10G 光口网卡 + 单模光模块                                   | specs=3 prices=1
+   120 | Mellanox     | HCA_1port_NDR400G_MCX75310AAS+光模块                    | specs=3 prices=1
+   202 | Mellanox     | 100G CX5 2port                                       | specs=3 prices=1
+   213 | Intel        | 1G Intel I350 4port                                  | specs=3 prices=4
+   219 | -            | 200G 1Port网卡 InfiniBand HDR/Ethernet适配卡+光模块          | specs=3 prices=3
+   242 | Mellanox     | ConnectX‑6 Dx dual 25G SFP28 + optical module (supportJumbo Frame (MTU) t No less than 9,000 bytes Input/Output Virtualization (SR-IOV) | specs=2 prices=1
+   243 | -            | 10G 2port电口                                          | specs=3 prices=1
+   246 | -            | 25G 2port+光模块 OCP3.0                                 | specs=3 prices=1
+   278 | 联瑞           | 25G CX4 2Port+光模块                                    | specs=3 prices=2
+   279 | Mellanox     | 100G CX6 2Port+光模块                                   | specs=3 prices=1
+   281 | Intel        | 1G Intel I350 2port                                  | specs=3 prices=2
+   282 | Intel        | 10G X710 4port+多模光模块                                 | specs=3 prices=1
+   302 | -            | 25G 2port network card +optical module               | specs=2 prices=1
+   309 | Mellanox     | 25G CX6 2port+光模块                                    | specs=3 prices=2
+   317 | Intel        | 1G Intel I350 4port OCP                              | specs=3 prices=1
+   318 | -            | 10GbE  2port                                         | specs=2 prices=1
+   327 | Intel        | 10G Intel X710 2port+光模块                             | specs=3 prices=1
+   344 | -            | 1G 2port                                             | specs=2 prices=1
+   347 | -            | 10G 4port+光模块 （PCIE半高）                               | specs=4 prices=1
+   355 | -            | 100G 2Port                                           | specs=2 prices=4
+   358 | Intel        | 1G I350 4port                                        | specs=2 prices=1
+   360 | -            | 1G 4port                                             | specs=2 prices=1
+   361 | -            | 10G 4port+光模块                                        | specs=3 prices=1
+   366 | Intel        | 1G I350 4port network card                           | specs=2 prices=2
+   367 | -            | 25G 2port network card+光模块                           | specs=3 prices=1
+   369 | -            | 10G 2port network card+光模块                           | specs=3 prices=2
+   391 | -            | 2端口 10G SFP+（含模块）                                    | specs=3 prices=1
+   392 | -            | 2端口 1G电口                                             | specs=3 prices=1
+   396 | -            | 25G 2Port  IB/RoCE可选，(带光模块)                          | specs=3 prices=1
+   402 | Mellanox     | NVIDIA Mellanox CX6 Lx EN adapter card, 25GbE, 2port SFP28 | specs=3 prices=1
+   405 | Intel        | 1G Intel I350 4port  电口                              | specs=3 prices=1
+   406 | -            | 2光口 10G 网卡 （含模块）                                     | specs=3 prices=1
+   408 | -            | 2口 25G光卡（含模块）                                        | specs=3 prices=1
+----------------------------------------------------------------------------------------------------
+[NIC-规格] key=nic||4|
+    15 | -            | 10G 四口，不含光模块                                         | specs=3 prices=1
+   331 | Intel        | Intel X710，四口 10G （含模块）                              | specs=2 prices=1
+   395 | -            | 千兆四口（OCP）                                            | specs=3 prices=2
+----------------------------------------------------------------------------------------------------
+[NIC-规格] key=nic||2|
+   119 | -            | FC HBA 16GFC 双口+模块                                   | specs=2 prices=1
+   267 | Mellanox     | 双口25G CX4 网卡支持RDMA                                   | specs=3 prices=1
+   275 | -            | 双口1G i350网卡                                          | specs=3 prices=1
+   276 | Intel        | 双口10G  X710 网卡 +光模块                                  | specs=3 prices=2
+   290 | Mellanox     | CX6 25G 双口（含模块）                                      | specs=3 prices=1
+   299 | Intel        | Intel X710，双口 10G （含模块）                              | specs=3 prices=1
+   305 | Mellanox     | 25G双口 Mallanox CX6                                   | specs=3 prices=1
+   313 | -            | 25G 双口网卡（含光模块）                                       | specs=2 prices=1
+   321 | -            | 双口千兆 OCP                                             | specs=2 prices=1
+   377 | -            | 双口100G 网卡                                            | specs=2 prices=1
+   381 | -            | 双口25G SFP28光口卡                                       | specs=3 prices=1
+   397 | -            | 200G 双口                                              | specs=2 prices=1
+----------------------------------------------------------------------------------------------------
+[RAID/HBA-型号] key=raid|lsi|
+   132 | LSI          | LSI 9361-16i                                         | specs=2 prices=2
+   134 | LSI          | LSI 9361-16i 2G                                      | specs=3 prices=2
+   135 | LSI          | LSI 9361-16I 2G cache，含电容                            | specs=3 prices=1
+   136 | LSI          | LSI 9361-8i                                          | specs=2 prices=9
+   137 | LSI          | LSI 9361-8i 1G cache + supercap                      | specs=3 prices=1
+   138 | LSI          | LSI 9361-8i 2G                                       | specs=3 prices=4
+   139 | LSI          | LSI 9361-8I 2G cache，含电容                             | specs=3 prices=1
+   140 | LSI          | LSI 9361-8i 2G+super-capacitor                       | specs=3 prices=1
+   141 | LSI          | LSI 9400-8i                                          | specs=2 prices=3
+   142 | LSI          | LSI 9500-8i                                          | specs=2 prices=1
+   143 | LSI          | LSI 9540-8i                                          | specs=2 prices=6
+   144 | LSI          | LSI 9560-16i 4G                                      | specs=3 prices=1
+   145 | LSI          | LSI 9560-8i                                          | specs=2 prices=8
+   146 | LSI          | LSI 9560-8i 4G                                       | specs=3 prices=1
+   147 | LSI          | LSI 9560-8I 4G+超级电容                                  | specs=3 prices=2
+   148 | LSI          | LSI 9560-8i+super-capacitor                          | specs=2 prices=1
+   192 | LSI          | LSI 9361-8i 1G cache                                 | specs=3 prices=5
+   230 | LSI          | LSI 9560-16i                                         | specs=2 prices=5
+   231 | LSI          | LSI 9364-8i                                          | specs=2 prices=1
+   236 | LSI          | LSI 9560-8I 4G cache                                 | specs=3 prices=2
+   245 | LSI          | LSI 9560-8i 4G+超级电容+支架                               | specs=3 prices=1
+   248 | LSI          | LSI 9361-8i 2G+超级电容                                  | specs=3 prices=1
+   273 | LSI          | LSI 9361-8i 2G cache + supercap                      | specs=3 prices=1
+   289 | LSI          | 9540-8i                                              | specs=1 prices=1
+   294 | LSI          | LSI 9540-8i  for SATA SSD                            | specs=1 prices=1
+   295 | LSI          | LSI 9560-8i 4G cache   for NVMe                      | specs=2 prices=1
+   298 | LSI          | 9560-16i  ≥4G缓存,含电池                                  | specs=2 prices=1
+   300 | LSI          | 9560‑8i 4G缓存，含电池                                     | specs=2 prices=1
+   314 | LSI          | 9560-16i  含超级电容                                      | specs=2 prices=1
+   324 | LSI          | 9361 8i                                              | specs=2 prices=1
+   330 | LSI          | LSI 9361-8i 2G 含掉电保护模块                               | specs=3 prices=1
+   334 | LSI          | 9361-16i  ≥2G缓存,含电池                                  | specs=3 prices=1
+   346 | LSI          | LSI 9361-8i 2G 带超级电容                                 | specs=2 prices=1
+   351 | LSI          | LSI 9361-16i 2G+超级电容                                 | specs=2 prices=1
+   359 | LSI          | LSI 9560-16i 4G 含超级电容                                | specs=3 prices=1
+   389 | LSI          | LSI 9361-8i  1G cache + cachevault(BBU/supercap)     | specs=3 prices=1
+   394 | LSI          | LSI 9361-8i 2G 含超级电容                                 | specs=3 prices=1
+   399 | LSI          | LSI 9560-8i 4G 含超级电容                                 | specs=3 prices=1
+----------------------------------------------------------------------------------------------------
+[内存-规格] key=memory||||
+    18 | -            | 16G DDR4 3200                                        | specs=3 prices=1
+    19 | -            | 16G DDR5 4800MHz                                     | specs=3 prices=1
+    20 | -            | 16GB DDR5-6400 Single Rank x8                        | specs=3 prices=1
+    60 | -            | 32G 3200 DDR4 RDIMM                                  | specs=3 prices=3
+    61 | -            | 32G 4800 DDR4 RDIMM                                  | specs=3 prices=1
+    63 | -            | 32GB DDR5 5600MHz RDIMM                              | specs=3 prices=7
+    86 | -            | 64G 3200 DDR4 RDIMM                                  | specs=3 prices=2

@@ -1,0 +1,1004 @@
+[
+  {
+    "id": 1,
+    "category": "HDD/SSD",
+    "name": "1.92T NVMe SSD",
+    "brand": ""
+  },
+  {
+    "id": 2,
+    "category": "HDD/SSD",
+    "name": "1.92T NVMe SSD gen4",
+    "brand": ""
+  },
+  {
+    "id": 4,
+    "category": "HDD/SSD",
+    "name": "1.92T SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 5,
+    "category": "NIC",
+    "name": "100G 2port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 7,
+    "category": "NIC",
+    "name": "10G 2port OCP3.0光口网卡",
+    "brand": ""
+  },
+  {
+    "id": 13,
+    "category": "NIC",
+    "name": "10G 2port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 14,
+    "category": "NIC",
+    "name": "10G 双电口",
+    "brand": ""
+  },
+  {
+    "id": 15,
+    "category": "NIC",
+    "name": "10G 四口，不含光模块",
+    "brand": ""
+  },
+  {
+    "id": 17,
+    "category": "HDD/SSD",
+    "name": "12T SATA HDD 企业级",
+    "brand": ""
+  },
+  {
+    "id": 18,
+    "category": "Memory",
+    "name": "16G DDR4 3200",
+    "brand": ""
+  },
+  {
+    "id": 19,
+    "category": "Memory",
+    "name": "16G DDR5 4800MHz",
+    "brand": ""
+  },
+  {
+    "id": 20,
+    "category": "Memory",
+    "name": "16GB DDR5-6400 Single Rank x8",
+    "brand": ""
+  },
+  {
+    "id": 21,
+    "category": "HDD/SSD",
+    "name": "16T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 29,
+    "category": "HDD/SSD",
+    "name": "2.4T，15K转速，SAS HDD",
+    "brand": ""
+  },
+  {
+    "id": 31,
+    "category": "NIC",
+    "name": "200G 2port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 33,
+    "category": "HDD/SSD",
+    "name": "20T SATA HDD 7.2K",
+    "brand": ""
+  },
+  {
+    "id": 39,
+    "category": "NIC",
+    "name": "25G 2port，支持IB/RoCE + 2个100G多模光模块",
+    "brand": ""
+  },
+  {
+    "id": 41,
+    "category": "NIC",
+    "name": "25G 2port+光模块 OCP",
+    "brand": ""
+  },
+  {
+    "id": 43,
+    "category": "NIC",
+    "name": "25G 2Port网卡+光模块",
+    "brand": ""
+  },
+  {
+    "id": 48,
+    "category": "HDD/SSD",
+    "name": "2T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 53,
+    "category": "HDD/SSD",
+    "name": "3.2T NVMe",
+    "brand": ""
+  },
+  {
+    "id": 56,
+    "category": "HDD/SSD",
+    "name": "3.84T NVMe SSD",
+    "brand": ""
+  },
+  {
+    "id": 59,
+    "category": "HDD/SSD",
+    "name": "3.84T SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 60,
+    "category": "Memory",
+    "name": "32G 3200 DDR4 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 61,
+    "category": "Memory",
+    "name": "32G 4800 DDR4 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 63,
+    "category": "Memory",
+    "name": "32GB DDR5 5600MHz RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 73,
+    "category": "NIC",
+    "name": "400G多模模块",
+    "brand": ""
+  },
+  {
+    "id": 74,
+    "category": "HDD/SSD",
+    "name": "480G SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 77,
+    "category": "HDD/SSD",
+    "name": "480G SATA SSD 企业级",
+    "brand": ""
+  },
+  {
+    "id": 79,
+    "category": "HDD/SSD",
+    "name": "4T NVMe SSD",
+    "brand": ""
+  },
+  {
+    "id": 80,
+    "category": "HDD/SSD",
+    "name": "4T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 82,
+    "category": "NIC",
+    "name": "4口 25G + 光模块",
+    "brand": ""
+  },
+  {
+    "id": 83,
+    "category": "NIC",
+    "name": "4口10G 光口网卡 + 单模光模块",
+    "brand": ""
+  },
+  {
+    "id": 86,
+    "category": "Memory",
+    "name": "64G 3200 DDR4 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 87,
+    "category": "Memory",
+    "name": "64G 4800 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 88,
+    "category": "Memory",
+    "name": "64G 5600 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 89,
+    "category": "Memory",
+    "name": "64G 6400 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 91,
+    "category": "HDD/SSD",
+    "name": "6T HDD SATA",
+    "brand": ""
+  },
+  {
+    "id": 93,
+    "category": "HDD/SSD",
+    "name": "7.68T NVMe SSD",
+    "brand": ""
+  },
+  {
+    "id": 96,
+    "category": "HDD/SSD",
+    "name": "7.68T SAS SSD",
+    "brand": ""
+  },
+  {
+    "id": 103,
+    "category": "HDD/SSD",
+    "name": "960G NVMe SSD",
+    "brand": ""
+  },
+  {
+    "id": 119,
+    "category": "NIC",
+    "name": "FC HBA 16GFC 双口+模块",
+    "brand": ""
+  },
+  {
+    "id": 195,
+    "category": "HDD/SSD",
+    "name": "1T NVMe M.2 2280",
+    "brand": ""
+  },
+  {
+    "id": 199,
+    "category": "HDD/SSD",
+    "name": "2.4T SAS HDD 10K",
+    "brand": ""
+  },
+  {
+    "id": 206,
+    "category": "Memory",
+    "name": "64G DDR5 4800MHz",
+    "brand": ""
+  },
+  {
+    "id": 210,
+    "category": "HDD/SSD",
+    "name": "960G SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 214,
+    "category": "HDD/SSD",
+    "name": "960G NVMe M.2",
+    "brand": ""
+  },
+  {
+    "id": 219,
+    "category": "NIC",
+    "name": "200G 1Port网卡 InfiniBand HDR/Ethernet适配卡+光模块",
+    "brand": ""
+  },
+  {
+    "id": 243,
+    "category": "NIC",
+    "name": "10G 2port电口",
+    "brand": ""
+  },
+  {
+    "id": 246,
+    "category": "NIC",
+    "name": "25G 2port+光模块 OCP3.0",
+    "brand": ""
+  },
+  {
+    "id": 247,
+    "category": "HDD/SSD",
+    "name": "480G SATA SSD 读密集型",
+    "brand": ""
+  },
+  {
+    "id": 260,
+    "category": "HDD/SSD",
+    "name": "600G SAS SSD",
+    "brand": ""
+  },
+  {
+    "id": 263,
+    "category": "HDD/SSD",
+    "name": "8T SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 265,
+    "category": "HDD/SSD",
+    "name": "960G  SATA SSD 读取密集型",
+    "brand": ""
+  },
+  {
+    "id": 266,
+    "category": "HDD/SSD",
+    "name": "3.84T NVMe 读取密集型",
+    "brand": ""
+  },
+  {
+    "id": 267,
+    "category": "NIC",
+    "name": "双口25G CX4 网卡支持RDMA",
+    "brand": ""
+  },
+  {
+    "id": 268,
+    "category": "Memory",
+    "name": "32G 4800MHz DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 269,
+    "category": "HDD/SSD",
+    "name": "4TB HDD （国产品牌）",
+    "brand": ""
+  },
+  {
+    "id": 270,
+    "category": "GPU",
+    "name": "天数智芯 天垓150",
+    "brand": ""
+  },
+  {
+    "id": 273,
+    "category": "Raid card",
+    "name": "LSI 9361-8i 2G cache + supercap",
+    "brand": ""
+  },
+  {
+    "id": 274,
+    "category": "GPU",
+    "name": "AMD PRO R9700 32G 涡轮卡",
+    "brand": ""
+  },
+  {
+    "id": 275,
+    "category": "NIC",
+    "name": "双口1G i350网卡",
+    "brand": ""
+  },
+  {
+    "id": 276,
+    "category": "NIC",
+    "name": "双口10G  X710 网卡 +光模块",
+    "brand": ""
+  },
+  {
+    "id": 277,
+    "category": "Memory",
+    "name": "32G 4800 DDR5",
+    "brand": ""
+  },
+  {
+    "id": 279,
+    "category": "NIC",
+    "name": "100G CX6 2Port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 280,
+    "category": "GPU",
+    "name": "NVIDIA RTX Pro6000 96G",
+    "brand": ""
+  },
+  {
+    "id": 281,
+    "category": "NIC",
+    "name": "1G Intel I350 2port",
+    "brand": ""
+  },
+  {
+    "id": 282,
+    "category": "NIC",
+    "name": "10G X710 4port+多模光模块",
+    "brand": ""
+  },
+  {
+    "id": 285,
+    "category": "CPU",
+    "name": "AMD  9354 32C/64T 3.55GHz",
+    "brand": ""
+  },
+  {
+    "id": 286,
+    "category": "Memory",
+    "name": "DDR5 4800 64G RDIMM ECC",
+    "brand": ""
+  },
+  {
+    "id": 289,
+    "category": "Raid card",
+    "name": "9540-8i",
+    "brand": ""
+  },
+  {
+    "id": 290,
+    "category": "NIC",
+    "name": "CX6 25G 双口（含模块）",
+    "brand": ""
+  },
+  {
+    "id": 291,
+    "category": "GPU",
+    "name": "NVIDIA 5090 32G 涡轮",
+    "brand": ""
+  },
+  {
+    "id": 294,
+    "category": "Raid card",
+    "name": "LSI 9540-8i  for SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 295,
+    "category": "Raid card",
+    "name": "LSI 9560-8i 4G cache   for NVMe",
+    "brand": ""
+  },
+  {
+    "id": 297,
+    "category": "HDD/SSD",
+    "name": "960 GB SATA SSD  DWPD *2",
+    "brand": ""
+  },
+  {
+    "id": 298,
+    "category": "Raid card",
+    "name": "9560-16i  ≥4G缓存,含电池",
+    "brand": ""
+  },
+  {
+    "id": 299,
+    "category": "NIC",
+    "name": "Intel X710，双口 10G （含模块）",
+    "brand": ""
+  },
+  {
+    "id": 300,
+    "category": "Raid card",
+    "name": "9560‑8i 4G缓存，含电池",
+    "brand": ""
+  },
+  {
+    "id": 302,
+    "category": "NIC",
+    "name": "25G 2port network card +optical module",
+    "brand": ""
+  },
+  {
+    "id": 303,
+    "category": "Memory",
+    "name": "Samsung 32G 6400 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 304,
+    "category": "HDD/SSD",
+    "name": "WUS721208BLE604 8T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 305,
+    "category": "NIC",
+    "name": "25G双口 Mallanox CX6",
+    "brand": ""
+  },
+  {
+    "id": 308,
+    "category": "HDD/SSD",
+    "name": "3.84T NVME SSD Gen5",
+    "brand": ""
+  },
+  {
+    "id": 309,
+    "category": "NIC",
+    "name": "25G CX6 2port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 310,
+    "category": "CPU",
+    "name": "AMD  9334 32C/64T  2.7GHz",
+    "brand": ""
+  },
+  {
+    "id": 311,
+    "category": "Memory",
+    "name": "DDR5 4800 32G RDIMM ECC",
+    "brand": ""
+  },
+  {
+    "id": 312,
+    "category": "GPU",
+    "name": "NVIDIA L4 24G",
+    "brand": ""
+  },
+  {
+    "id": 313,
+    "category": "NIC",
+    "name": "25G 双口网卡（含光模块）",
+    "brand": ""
+  },
+  {
+    "id": 314,
+    "category": "Raid card",
+    "name": "9560-16i  含超级电容",
+    "brand": ""
+  },
+  {
+    "id": 316,
+    "category": "HDD/SSD",
+    "name": "U.2 NVME SSD 1.92T 企业级 （RAID1）",
+    "brand": ""
+  },
+  {
+    "id": 317,
+    "category": "NIC",
+    "name": "1G Intel I350 4port OCP",
+    "brand": ""
+  },
+  {
+    "id": 318,
+    "category": "NIC",
+    "name": "10GbE  2port",
+    "brand": ""
+  },
+  {
+    "id": 320,
+    "category": "GPU",
+    "name": "天数智芯100DUO 单卡64G",
+    "brand": ""
+  },
+  {
+    "id": 321,
+    "category": "NIC",
+    "name": "双口千兆 OCP",
+    "brand": ""
+  },
+  {
+    "id": 322,
+    "category": "HDD/SSD",
+    "name": "960G SATA",
+    "brand": ""
+  },
+  {
+    "id": 324,
+    "category": "Raid card",
+    "name": "9361 8i",
+    "brand": ""
+  },
+  {
+    "id": 326,
+    "category": "Memory",
+    "name": "32G 5600 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 327,
+    "category": "NIC",
+    "name": "10G Intel X710 2port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 328,
+    "category": "Memory",
+    "name": "64GB DDR5 4800MHz RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 329,
+    "category": "HDD/SSD",
+    "name": "8T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 330,
+    "category": "Raid card",
+    "name": "LSI 9361-8i 2G 含掉电保护模块",
+    "brand": ""
+  },
+  {
+    "id": 331,
+    "category": "NIC",
+    "name": "Intel X710，四口 10G （含模块）",
+    "brand": ""
+  },
+  {
+    "id": 332,
+    "category": "GPU",
+    "name": "NVIDIA Pro6000 96G",
+    "brand": ""
+  },
+  {
+    "id": 333,
+    "category": "HDD/SSD",
+    "name": "24T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 334,
+    "category": "Raid card",
+    "name": "9361-16i  ≥2G缓存,含电池",
+    "brand": ""
+  },
+  {
+    "id": 335,
+    "category": "GPU",
+    "name": "5090 32G涡轮",
+    "brand": ""
+  },
+  {
+    "id": 336,
+    "category": "HDD/SSD",
+    "name": "3.84TB NVMe U.2 SSD企业级",
+    "brand": ""
+  },
+  {
+    "id": 337,
+    "category": "Memory",
+    "name": "64GB DDR5 5600MT/s ECC RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 338,
+    "category": "HDD/SSD",
+    "name": "960GB SATA SSD企业级",
+    "brand": ""
+  },
+  {
+    "id": 339,
+    "category": "HDD/SSD",
+    "name": "22T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 340,
+    "category": "Memory",
+    "name": "16G 3200 DDR4 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 341,
+    "category": "HDD/SSD",
+    "name": "3.84T NVMe SSD Raid1",
+    "brand": ""
+  },
+  {
+    "id": 343,
+    "category": "GPU",
+    "name": "NVIDIA L20",
+    "brand": ""
+  },
+  {
+    "id": 344,
+    "category": "NIC",
+    "name": "1G 2port",
+    "brand": ""
+  },
+  {
+    "id": 345,
+    "category": "HDD/SSD",
+    "name": "6T SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 346,
+    "category": "Raid card",
+    "name": "LSI 9361-8i 2G 带超级电容",
+    "brand": ""
+  },
+  {
+    "id": 347,
+    "category": "NIC",
+    "name": "10G 4port+光模块 （PCIE半高）",
+    "brand": ""
+  },
+  {
+    "id": 348,
+    "category": "HDD/SSD",
+    "name": "600G 10K SAS",
+    "brand": ""
+  },
+  {
+    "id": 349,
+    "category": "HDD/SSD",
+    "name": "1.2T SAS 10K",
+    "brand": ""
+  },
+  {
+    "id": 350,
+    "category": "HDD/SSD",
+    "name": "1.6T NVME SSD dwpd>=3",
+    "brand": ""
+  },
+  {
+    "id": 351,
+    "category": "Raid card",
+    "name": "LSI 9361-16i 2G+超级电容",
+    "brand": ""
+  },
+  {
+    "id": 353,
+    "category": "HDD/SSD",
+    "name": "NVME SSD 1.92T",
+    "brand": ""
+  },
+  {
+    "id": 355,
+    "category": "NIC",
+    "name": "100G 2Port",
+    "brand": ""
+  },
+  {
+    "id": 356,
+    "category": "GPU",
+    "name": "NVIDIA RTX 5090 32G",
+    "brand": ""
+  },
+  {
+    "id": 358,
+    "category": "NIC",
+    "name": "1G I350 4port",
+    "brand": ""
+  },
+  {
+    "id": 359,
+    "category": "HBA",
+    "name": "LSI 9560-16i 4G 含超级电容",
+    "brand": ""
+  },
+  {
+    "id": 360,
+    "category": "NIC",
+    "name": "1G 4port",
+    "brand": ""
+  },
+  {
+    "id": 361,
+    "category": "NIC",
+    "name": "10G 4port+光模块",
+    "brand": ""
+  },
+  {
+    "id": 362,
+    "category": "HDD/SSD",
+    "name": "1.92T SATA SDD",
+    "brand": ""
+  },
+  {
+    "id": 363,
+    "category": "HDD/SSD",
+    "name": "4TB SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 364,
+    "category": "GPU",
+    "name": "GeForce 40系列影驰RTX5080 OC16G",
+    "brand": ""
+  },
+  {
+    "id": 366,
+    "category": "NIC",
+    "name": "1G I350 4port network card",
+    "brand": ""
+  },
+  {
+    "id": 367,
+    "category": "NIC",
+    "name": "25G 2port network card+光模块",
+    "brand": ""
+  },
+  {
+    "id": 369,
+    "category": "NIC",
+    "name": "10G 2port network card+光模块",
+    "brand": ""
+  },
+  {
+    "id": 371,
+    "category": "GPU",
+    "name": "天数100duo  64G",
+    "brand": ""
+  },
+  {
+    "id": 372,
+    "category": "GPU",
+    "name": "AMD W7900DS 48G",
+    "brand": ""
+  },
+  {
+    "id": 376,
+    "category": "CPU",
+    "name": "AMD EPYC 9575F 64cores,3.3G(Boost 4.5G),256MB",
+    "brand": ""
+  },
+  {
+    "id": 377,
+    "category": "NIC",
+    "name": "双口100G 网卡",
+    "brand": ""
+  },
+  {
+    "id": 378,
+    "category": "Memory",
+    "name": "32G 4800 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 379,
+    "category": "HDD/SSD",
+    "name": "7.68T NVMe",
+    "brand": ""
+  },
+  {
+    "id": 380,
+    "category": "GPU",
+    "name": "NVIDIA 5090涡轮卡 32G",
+    "brand": ""
+  },
+  {
+    "id": 381,
+    "category": "NIC",
+    "name": "双口25G SFP28光口卡",
+    "brand": ""
+  },
+  {
+    "id": 383,
+    "category": "HDD/SSD",
+    "name": "2.5\" SAS SSD  华为960G SAS",
+    "brand": ""
+  },
+  {
+    "id": 384,
+    "category": "HBA",
+    "name": "双口16G FC HBA+光模块",
+    "brand": ""
+  },
+  {
+    "id": 385,
+    "category": "CPU",
+    "name": "Intel Xeon 6544Y",
+    "brand": ""
+  },
+  {
+    "id": 386,
+    "category": "Memory",
+    "name": "32G 4800MT/s DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 387,
+    "category": "HDD/SSD",
+    "name": "480GB SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 388,
+    "category": "HDD/SSD",
+    "name": "8TB SATA HDD",
+    "brand": ""
+  },
+  {
+    "id": 389,
+    "category": "Raid card",
+    "name": "LSI 9361-8i  1G cache + cachevault(BBU/supercap)",
+    "brand": ""
+  },
+  {
+    "id": 391,
+    "category": "NIC",
+    "name": "2端口 10G SFP+（含模块）",
+    "brand": ""
+  },
+  {
+    "id": 392,
+    "category": "NIC",
+    "name": "2端口 1G电口",
+    "brand": ""
+  },
+  {
+    "id": 393,
+    "category": "Memory",
+    "name": "64GB DDR5 5600MHz RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 394,
+    "category": "Raid card",
+    "name": "LSI 9361-8i 2G 含超级电容",
+    "brand": ""
+  },
+  {
+    "id": 395,
+    "category": "NIC",
+    "name": "千兆四口（OCP）",
+    "brand": ""
+  },
+  {
+    "id": 396,
+    "category": "NIC",
+    "name": "25G 2Port  IB/RoCE可选，(带光模块)",
+    "brand": ""
+  },
+  {
+    "id": 397,
+    "category": "NIC",
+    "name": "200G 双口",
+    "brand": ""
+  },
+  {
+    "id": 398,
+    "category": "GPU",
+    "name": "智铠100DUO 64G",
+    "brand": ""
+  },
+  {
+    "id": 399,
+    "category": "Raid card",
+    "name": "LSI 9560-8i 4G 含超级电容",
+    "brand": ""
+  },
+  {
+    "id": 400,
+    "category": "GPU",
+    "name": "昆仑芯 P800 96G pcie",
+    "brand": ""
+  },
+  {
+    "id": 401,
+    "category": "HDD/SSD",
+    "name": "2T SATA SSD",
+    "brand": ""
+  },
+  {
+    "id": 402,
+    "category": "NIC",
+    "name": "NVIDIA Mellanox CX6 Lx EN adapter card, 25GbE, 2port SFP28",
+    "brand": ""
+  },
+  {
+    "id": 403,
+    "category": "Memory",
+    "name": "48G 5600 DDR5 RDIMM",
+    "brand": ""
+  },
+  {
+    "id": 405,
+    "category": "NIC",
+    "name": "1G Intel I350 4port  电口",
+    "brand": ""
+  },
+  {
+    "id": 406,
+    "category": "NIC",
+    "name": "2光口 10G 网卡 （含模块）",
+    "brand": ""
+  },
+  {
+    "id": 408,
+    "category": "NIC",
+    "name": "2口 25G光卡（含模块）",
+    "brand": ""
+  },
+  {
+    "id": 409,
+    "category": "GPU",
+    "name": "昆仑芯P800",
+    "brand": ""
+  }
+]

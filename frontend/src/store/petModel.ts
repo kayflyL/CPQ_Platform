@@ -14,6 +14,9 @@ export const PET_MODEL_CATALOG: PetModelDef[] = [
   { key: 'shizuku', label: 'Shizuku 白裙', path: '/live2d/shizuku/assets/shizuku.model.json' },
   { key: 'nico', label: 'Nico 妮可', path: '/live2d/nico/assets/nico.model.json' },
   { key: 'izumi', label: 'Izumi 泉水', path: '/live2d/izumi/assets/izumi.model.json' },
+  { key: 'haru', label: 'Haru 长发少女（白裙）', path: '/live2d/haru/01/assets/haru01.model.json' },
+  { key: 'haruto', label: 'Haruto 少年（黄领带）', path: '/live2d/haruto/assets/haruto.model.json' },
+  { key: 'wanko', label: 'Wanko 碗装小白狗', path: '/live2d/wanko/assets/wanko.model.json' },
 ]
 
 /** 无指定角色时的兜底形象（新同事默认值） */

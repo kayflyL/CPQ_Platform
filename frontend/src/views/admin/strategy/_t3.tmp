@@ -1,0 +1,57 @@
+
+    <a-modal v-model:open="modelModal" :title="editingId ? '编辑模型' : '新增模型'" @ok="saveModel" destroy-on-close width="640px">
+      <a-form layout="vertical" class="lca-form">
+        <div class="lca-grid">
+          <a-form-item label="公司" required><a-input v-model:value="mForm.vendor" /></a-form-item>
+          <a-form-item label="模型名" required><a-input v-model:value="mForm.name" /></a-form-item>
+          <a-form-item label="参数量(B)" required><a-input-number v-model:value="mForm.params_b" :min="0.1" style="width:100%" /></a-form-item>
+          <a-form-item label="默认精度(bit)"><a-input-number v-model:value="mForm.default_bits" :min="1" style="width:100%" /></a-form-item>
+          <a-form-item label="注意力类型"><a-select v-model:value="mForm.attn" :options="ATTN_OPTS" /></a-form-item>
+          <a-form-item label="参数置信度"><a-select v-model:value="mForm.confidence" :options="CONF_OPTS" /></a-form-item>
+          <a-form-item label="hidden_dim"><a-input-number v-model:value="mForm.hidden_dim" style="width:100%" /></a-form-item>
+          <a-form-item label="num_layers"><a-input-number v-model:value="mForm.num_layers" style="width:100%" /></a-form-item>
+          <a-form-item label="num_heads"><a-input-number v-model:value="mForm.num_heads" style="width:100%" /></a-form-item>
+          <a-form-item label="kv_heads"><a-input-number v-model:value="mForm.kv_heads" style="width:100%" /></a-form-item>
+          <a-form-item label="原生上下文上限(tokens)"><a-input-number v-model:value="mForm.max_ctx" :min="0" style="width:100%" /></a-form-item>
+          <a-form-item label="实测大小(GB,可选)"><a-input-number v-model:value="mForm.measured_size_gb" :min="0" style="width:100%" /></a-form-item>
+        </div>
+        <a-form-item label="备注"><a-input v-model:value="mForm.note" /></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="fwModal" :title="editingId ? '编辑框架' : '新增框架'" @ok="saveFw" destroy-on-close width="560px">
+      <a-form layout="vertical" class="lca-form">
+        <div class="lca-grid">
+          <a-form-item label="框架名" required><a-input v-model:value="fForm.name" /></a-form-item>
+          <a-form-item label="默认量化"><a-input v-model:value="fForm.default_quant" /></a-form-item>
+          <a-form-item label="4bit 系数"><a-input-number v-model:value="fForm.coeff_4bit" :step="0.01" style="width:100%" /></a-form-item>
+          <a-form-item label="8bit 系数"><a-input-number v-model:value="fForm.coeff_8bit" :step="0.01" style="width:100%" /></a-form-item>
+          <a-form-item label="16bit 系数"><a-input-number v-model:value="fForm.coeff_16bit" :step="0.01" style="width:100%" /></a-form-item>
+          <a-form-item label="额外开销(GB/卡)"><a-input-number v-model:value="fForm.overhead_gb" :step="0.1" style="width:100%" /></a-form-item>
+          <a-form-item label="支持张量并行"><a-switch v-model:checked="fForm.tensor_parallel" /></a-form-item>
+        </div>
+      </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="sceneModal" :title="editingId ? '编辑场景' : '新增场景'" @ok="saveScene" destroy-on-close width="480px">
+      <a-form layout="vertical" class="lca-form">
+        <a-form-item label="场景名" required><a-input v-model:value="sForm.name" /></a-form-item>
+        <a-form-item label="推荐上下文(tokens)"><a-input-number v-model:value="sForm.recommend_ctx" :min="1024" :step="1024" style="width:100%" /></a-form-item>
+        <a-form-item label="最低速度(tok/s)"><a-input-number v-model:value="sForm.min_tok_s" :min="0" style="width:100%" /></a-form-item>
+        <a-form-item label="需多模态"><a-switch v-model:checked="sForm.need_vision" /></a-form-item>
+      </a-form>
+    </a-modal>
+  </div>
+</template>
+
+<style scoped>
+.lca { display: flex; flex-direction: column; }
+.lca-title { font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); margin: 0 0 4px; }
+.lca-sub { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 10px; }
+.lca-tabs :deep(.ant-tabs-tab) { font-size: 13px; }
+.lca-chead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.lca-count { font-size: 12px; color: var(--cpq-text-muted); }
+.lca-ok { color: #16a34a; font-weight: 600; }
+.lca-mid { color: #d97706; }
+.lca-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }
+</style>
