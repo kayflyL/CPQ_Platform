@@ -10,7 +10,7 @@ import { computed } from 'vue'
 import PartPicker from '@/components/common/PartPicker.vue'
 import type { PickerItem } from '@/types/picker'
 import { useAuthStore } from '@/store/auth'
-import { calcUnitCost } from '@/utils/quoteCommon'
+import { calcUnitCost, rmbToBasePrice } from '@/utils/quoteCommon'
 
 interface KpLine { cat: string; pn: string; qty: number; base_price?: number; profit_margin?: number; currency?: string; final_price?: number }
 
@@ -62,7 +62,7 @@ const cardTotal = () => props.quoteMode
   ? props.lines.reduce((s, l) => s + quoteLineSales(l), 0)
   : props.lines.reduce((s, l) => s + lineCost(l), 0)
 
-// 选新 pn：quote 模式把原始单价带成料号库单价 + 记录原币种（视为源数据；单价锁定，展示折算人民币）
+// 选新 pn：quote 模式把原始单价带成料号库单价 + 记录原币种（视为源数据；也可在输入框手工覆盖）
 function onPick(i: number, pn: any) {
   const p = typeof pn === 'string' ? pn : ''
   const item = props.pickerItems.find((x: PickerItem) => x.pn === p)
@@ -128,7 +128,8 @@ function onPick(i: number, pn: any) {
           <div class="qm-fields" :class="{ 'qm-fields-noprice': !priceVisible }">
             <div v-if="priceVisible" class="qm-field">
               <label>原始单价</label>
-              <span class="qm-raw">¥ {{ rmbUnitCost(l).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }}</span>
+              <a-input-number :value="rmbUnitCost(l)" size="small" :min="0" :precision="2" :controls="false" style="width:100%"
+                @change="(v:any) => emit('set-line', i, { base_price: rmbToBasePrice(v, l.currency || 'RMB', props.exchangeRate, props.taxRate) })" />
             </div>
             <div class="qm-field">
               <label>利率%</label>
@@ -211,10 +212,6 @@ function onPick(i: number, pn: any) {
 .qm-final {
   font-size: 14px; font-weight: 700; color: var(--cpq-accent-primary,#1677FF);
   font-variant-numeric: tabular-nums; line-height: 28px;
-}
-.qm-raw {
-  font-size: 13px; font-variant-numeric: tabular-nums; line-height: 28px;
-  color: var(--cpq-text-primary,#E8ECEF);
 }
 .qm-fields :deep(.ant-input-number) { width: 100%; }
 .qm-fields :deep(.ant-input-number-input) {

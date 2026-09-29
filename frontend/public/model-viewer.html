@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>model check</title>
+<style>body{margin:0;background:#202836}#info{position:fixed;left:8px;top:8px;color:#fff;font:14px monospace;z-index:9}</style>
+</head>
+<body>
+<div id="info">loading…</div>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js'
+import { GLTFLoader } from '/node_modules/three/examples/jsm/loaders/GLTFLoader.js'
+import { OrbitControls } from '/node_modules/three/examples/jsm/controls/OrbitControls.js'
+
+const info = document.getElementById('info')
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x202836)
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100)
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+document.body.appendChild(renderer.domElement)
+scene.add(new THREE.AmbientLight(0xffffff, 1.2))
+const dl = new THREE.DirectionalLight(0xffffff, 2)
+dl.position.set(2, 3, 4)
+scene.add(dl)
+const grid = new THREE.GridHelper(2, 20, 0x445566, 0x33404f)
+scene.add(grid)
+
+new GLTFLoader().load('/tmp-model/tripo-v2.glb', (gltf) => {
+  const model = gltf.scene
+  const box = new THREE.Box3().setFromObject(model)
+  const size = new THREE.Vector3(); box.getSize(size)
+  const center = new THREE.Vector3(); box.getCenter(center)
+  let skins = 0
+  model.traverse((c) => { if (c.isSkinnedMesh) skins++ })
+  info.textContent = `size ${size.x.toFixed(3)} x ${size.y.toFixed(3)} x ${size.z.toFixed(3)} | anims ${gltf.animations.length} | skinned ${skins}`
+  model.position.sub(center)
+  scene.add(model)
+  const radius = Math.max(size.x, size.y, size.z) * 0.5
+  const dist = radius / Math.tan((camera.fov * Math.PI) / 360) * 1.35
+  camera.position.set(dist * 0.35, size.y * 0.55, dist * 0.85)
+  camera.lookAt(0, 0, 0)
+  const ctrl = new OrbitControls(camera, renderer.domElement)
+  ctrl.target.set(0, 0, 0)
+  renderer.setAnimationLoop(() => {
+    ctrl.update()
+    renderer.render(scene, camera)
+  })
+}, undefined, (e) => { info.textContent = 'load error: ' + e.message })
+</script>
+</body>
+</html>

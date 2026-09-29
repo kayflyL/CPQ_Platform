@@ -44,10 +44,11 @@ function restWorldPos(bone: VrmBonePose): THREE.Vector3 {
   return bone.restPos.clone().applyQuaternion(bone.parentWorldQuat).add(bone.parentWorldPos)
 }
 
-/** 髋部位置：静止位置加世界系 Y 偏移。 */
-function hipsShiftedPos(bone: VrmBonePose, dy: number): THREE.Vector3 {
+/** 髋部位置：静止位置加世界系 Y 偏移（dy 按世界米制，内部换算模型局部单位）。 */
+function hipsShiftedPos(bone: VrmBonePose, dy: number, height: number): THREE.Vector3 {
+  const s = TARGET_HEIGHT / height
   const inv = bone.parentWorldQuat.clone().invert()
-  return bone.restPos.clone().add(new THREE.Vector3(0, dy, 0).applyQuaternion(inv))
+  return bone.restPos.clone().add(new THREE.Vector3(0, dy / s, 0).applyQuaternion(inv))
 }
 
 /** 坐姿髋部位置：令臀部（缩放后）落在「椅面上方 SIT_HIP_ABOVE_SEAT」的世界高度。 */
@@ -163,7 +164,7 @@ export function measureSkeletonAxes(info: VrmSkeletonInfo): SkeletonAxes {
 }
 
 /** 待机：轻微呼吸/重心摇曳，双臂自然下垂（下拉量按实测臂向计算）。 */
-function bakeIdle(bones: Record<string, VrmBonePose>, ax: SkeletonAxes): THREE.AnimationClip | null {
+function bakeIdle(bones: Record<string, VrmBonePose>, ax: SkeletonAxes, height: number): THREE.AnimationClip | null {
   const b = (key: string) => bones[key]
   if (!b('spine')) return null
   const axq = (axis: THREE.Vector3, deg: number) => new THREE.Quaternion().setFromAxisAngle(axis, d2r(deg))
@@ -182,12 +183,12 @@ function bakeIdle(bones: Record<string, VrmBonePose>, ax: SkeletonAxes): THREE.A
     put('leftLowerArm', axq(ax.rAxis, ax.armSignL * 6))
     put('rightLowerArm', axq(ax.rAxis, ax.armSignR * 6))
     const hips = b('hips')
-    if (hips) p(hips, hipsShiftedPos(hips, 0.004 * breathe))
+    if (hips) p(hips, hipsShiftedPos(hips, 0.004 * breathe, height))
   })
 }
 
 /** 步行：0.9s 一整步态周期，摆动/屈膝/摆臂全部绕实测左右轴。 */
-function bakeWalk(bones: Record<string, VrmBonePose>, ax: SkeletonAxes): THREE.AnimationClip | null {
+function bakeWalk(bones: Record<string, VrmBonePose>, ax: SkeletonAxes, height: number): THREE.AnimationClip | null {
   const b = (key: string) => bones[key]
   if (!b('leftUpperLeg') || !b('rightUpperLeg')) return null
   const axq = (axis: THREE.Vector3, deg: number) => new THREE.Quaternion().setFromAxisAngle(axis, d2r(deg))
@@ -209,7 +210,7 @@ function bakeWalk(bones: Record<string, VrmBonePose>, ax: SkeletonAxes): THREE.A
     put('leftLowerArm', axq(ax.rAxis, ax.armSignL * 4 * Math.sin(w + 0.8)))
     put('rightLowerArm', axq(ax.rAxis, ax.armSignR * 4 * Math.sin(w + 0.8 + Math.PI)))
     const hips = b('hips')
-    if (hips) p(hips, hipsShiftedPos(hips, -0.01 + 0.02 * Math.abs(Math.cos(w))))
+    if (hips) p(hips, hipsShiftedPos(hips, -0.01 + 0.02 * Math.abs(Math.cos(w)), height))
   })
 }
 
@@ -245,6 +246,6 @@ function bakeSit(bones: Record<string, VrmBonePose>, ax: SkeletonAxes, height: n
 /** 烘焙三件套；缺关键骨骼时返回空数组（actor 系统对无动画路径已有兜底）。 */
 export function createVrmClips(info: VrmSkeletonInfo): THREE.AnimationClip[] {
   const ax = measureAxes(info.bones)
-  const clips = [bakeIdle(info.bones, ax), bakeWalk(info.bones, ax), bakeSit(info.bones, ax, info.height)]
+  const clips = [bakeIdle(info.bones, ax, info.height), bakeWalk(info.bones, ax, info.height), bakeSit(info.bones, ax, info.height)]
   return clips.filter((clip): clip is THREE.AnimationClip => clip !== null)
 }

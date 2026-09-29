@@ -864,6 +864,26 @@ class _SkillTurnRuntime:
             else:
                 gate = composed
         if gate.get("ok") and needs_finalize:
+            # 呈现方式桥：内容（报告名/章节/数据范围）从目标层文档卡拿，呈现（render：
+            # 是否出文件/格式/模板）从输出节点 config 拿——形式归输出节点，内容归目标层。
+            # 无文档卡的流（如需求分析）选了 PDF 时，也注入最小文档壳让结构化数据可排版。
+            _doc_art = None
+            for _cfg in self.flow_configs.values():
+                _tgt = _cfg.get("target") if isinstance(_cfg, dict) else None
+                for _a in (_tgt.get("artifacts") or []) if isinstance(_tgt, dict) else []:
+                    # 只认带章节契约的报告文档卡；「需求原文」类 document 插头不是报告
+                    if isinstance(_a, dict) and _a.get("kind") == "document" and _a.get("sections"):
+                        _doc_art = {k: v for k, v in _a.items() if k != "render"}
+                        break
+                if _doc_art is not None:
+                    break
+            _render = (out_cfg.get("render") if isinstance(out_cfg.get("render"), dict) else None)
+            if _render is not None:
+                _shell = {"kind": "document",
+                          "name": str(out_cfg.get("name") or (_doc_art or {}).get("name") or "输出文档")}
+                engine["document_target"] = {**(_doc_art or _shell), "render": _render}
+            elif _doc_art is not None:
+                engine["document_target"] = _doc_art
             from app.services.skill_node_runtime import finalize_output
             try:
                 # finalize_output 内部自写 ctx["output_kind"/"output_payload"]（真 payload）；

@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>pipeline check</title>
+<style>body{margin:0;background:#202836;color:#fff;font:14px monospace}#info{position:fixed;left:8px;top:8px;right:8px;z-index:9;white-space:pre-wrap}</style>
+</head>
+<body>
+<div id="info">loading pipeline…</div>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js'
+import { OrbitControls } from '/node_modules/three/examples/jsm/controls/OrbitControls.js'
+import { loadCharacterAsset } from '/src/office3d/assets/gltfCache.ts'
+
+const info = document.getElementById('info')
+const scene = new THREE.Scene()
+scene.background = new THREE.Color(0x202836)
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.01, 100)
+const renderer = new THREE.WebGLRenderer({ antialias: true })
+renderer.setSize(innerWidth, innerHeight)
+document.body.appendChild(renderer.domElement)
+scene.add(new THREE.AmbientLight(0xffffff, 1.2))
+const dl = new THREE.DirectionalLight(0xffffff, 2)
+dl.position.set(2, 3, 4)
+scene.add(dl)
+scene.add(new THREE.GridHelper(3, 30, 0x445566, 0x33404f))
+
+window.__mode = 'walk'
+const asset = await loadCharacterAsset('/models/ai-colleagues/custom/data-analyst.glb')
+info.textContent = `clips: ${asset.animations.map((c) => c.name).join(',')} | height ${asset.height.toFixed(3)} | frontRotation ${asset.frontRotation.toFixed(2)}`
+const model = asset.scene
+const scale = 1.42 / (asset.height || 1)
+model.scale.setScalar(scale)
+const box = new THREE.Box3().setFromObject(model)
+const center = new THREE.Vector3(); box.getCenter(center)
+model.position.sub(new THREE.Vector3(center.x, 0, center.z))
+scene.add(model)
+
+const mixer = new THREE.AnimationMixer(model)
+const play = (name) => {
+  mixer.stopAllAction()
+  const clip = asset.animations.find((c) => c.name === name)
+  if (clip) mixer.clipAction(clip).play()
+  info.textContent += `\nplaying: ${clip ? name : '(missing ' + name + ')'}`
+}
+play('walk')
+window.__play = play
+
+const clock = new THREE.Clock()
+const cam = new THREE.Vector3(0.9, 1.0, 1.9)
+camera.position.copy(cam)
+const ctrl = new OrbitControls(camera, renderer.domElement)
+ctrl.target.set(0, 0.7, 0)
+renderer.setAnimationLoop(() => {
+  mixer.update(clock.getDelta())
+  ctrl.update()
+  renderer.render(scene, camera)
+})
+const fit = () => {
+  renderer.setSize(innerWidth, innerHeight)
+  camera.aspect = innerWidth / innerHeight
+  camera.updateProjectionMatrix()
+}
+addEventListener('resize', fit)
+setTimeout(fit, 200)
+setTimeout(fit, 1500)
+</script>
+</body>
+</html>

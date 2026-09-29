@@ -5,6 +5,8 @@ export interface PetModelDef {
   key: string
   label: string
   path: string
+  /** 渲染放大倍数：各模型原生出图大小不一，过小的形象在此补偿（默认 1） */
+  scale?: number
 }
 
 /** 桌宠虚拟形象目录：key 与后端白名单一致，路径指向本地 vendor 资源 */
@@ -14,12 +16,16 @@ export const PET_MODEL_CATALOG: PetModelDef[] = [
   { key: 'shizuku', label: 'Shizuku 白裙', path: '/live2d/shizuku/assets/shizuku.model.json' },
   { key: 'nico', label: 'Nico 妮可', path: '/live2d/nico/assets/nico.model.json' },
   { key: 'izumi', label: 'Izumi 泉水', path: '/live2d/izumi/assets/izumi.model.json' },
-  { key: 'haru', label: 'Haru 长发少女（白裙）', path: '/live2d/haru/01/assets/haru01.model.json' },
+  { key: 'haru', label: 'Haru 长发少女（白裙）', path: '/live2d/haru/01/assets/haru01.model.json', scale: 2.6 },
   { key: 'wanko', label: 'Wanko 碗装小白狗', path: '/live2d/wanko/assets/wanko.model.json' },
 ]
 
 /** 无指定角色时的兜底形象（新同事默认值） */
 export const DEFAULT_PET_MODEL = 'koharu'
+
+export function petModelScale(key?: string | null): number {
+  return PET_MODEL_CATALOG.find((m) => m.key === key)?.scale || 1
+}
 
 export function petModelPath(key?: string | null): string {
   const hit = PET_MODEL_CATALOG.find((m) => m.key === key)

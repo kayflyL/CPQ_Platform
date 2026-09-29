@@ -24,6 +24,24 @@ const BONE_NAME_MAP: Record<string, string> = {
   R_Foot: 'rightFoot',
   L_ToeBase: 'leftToes',
   R_ToeBase: 'rightToes',
+  // Mixamo(Blender 导出,冒号已换下划线)
+  mixamorig_Hips: 'hips',
+  mixamorig_Spine: 'spine',
+  mixamorig_Spine1: 'chest',
+  mixamorig_Neck: 'neck',
+  mixamorig_Head: 'head',
+  mixamorig_LeftArm: 'leftUpperArm',
+  mixamorig_LeftForeArm: 'leftLowerArm',
+  mixamorig_RightArm: 'rightUpperArm',
+  mixamorig_RightForeArm: 'rightLowerArm',
+  mixamorig_LeftUpLeg: 'leftUpperLeg',
+  mixamorig_LeftLeg: 'leftLowerLeg',
+  mixamorig_RightUpLeg: 'rightUpperLeg',
+  mixamorig_RightLeg: 'rightLowerLeg',
+  mixamorig_LeftFoot: 'leftFoot',
+  mixamorig_RightFoot: 'rightFoot',
+  mixamorig_LeftToeBase: 'leftToes',
+  mixamorig_RightToeBase: 'rightToes',
 }
 
 function findSkinned(root: THREE.Object3D): THREE.SkinnedMesh | null {

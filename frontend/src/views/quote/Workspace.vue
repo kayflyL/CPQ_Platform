@@ -241,7 +241,10 @@
                           </td>
                           <td class="cat break">{{ item.catalogue || '—' }}</td>
                           <td class="num"><a-input-number v-model:value="item.qty" size="small" class="inp-num" :min="1" :controls="false" @blur="store.recalculateAll()" /></td>
-                          <td class="num"><span class="kp-raw-price">¥ {{ settingsStore.formatNumber(calcUnitCost(Number(item.base_price) || 0, item.currency, store.exchangeRate, store.taxRate)) }}</span></td>
+                          <td class="num">
+                            <a-input-number v-if="priceVisible" :value="calcUnitCost(Number(item.base_price) || 0, item.currency, store.exchangeRate, store.taxRate)" size="small" class="inp-num" :min="0" :precision="2" :controls="false" @change="(v: any) => onKpRawPriceInput(item, v)" />
+                            <span v-else class="price-hidden">***</span>
+                          </td>
                           <td class="num"><a-input-number v-model:value="item.profit_margin" size="small" class="inp-num" :min="0" :controls="false" :disabled="!priceVisible" @blur="store.recalculateAll()" /></td>
                           <td class="num price">
                             <template v-if="priceVisible">¥ {{ settingsStore.formatNumber(item.final_price) }}</template>
@@ -952,7 +955,7 @@ import { partsApi } from '@/api/serverConfig'
 import { syncKpPrice, getKpHistory, updateKpPriceHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
 import { downloadBlob } from '@/utils/download'
-import { calcUnitCost, computeKpMatch, isNewPart, kpSyncable, matchClass, safeServerModelFilename } from '@/utils/quoteCommon'
+import { calcUnitCost, computeKpMatch, isNewPart, kpSyncable, matchClass, rmbToBasePrice, safeServerModelFilename } from '@/utils/quoteCommon'
 import { feedApi } from '@/api/feed'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
@@ -2027,6 +2030,14 @@ function kpExcelRows(cfg: any) {
   return (cfg.items || []).filter((i: any) => i.category === 'Key Parts')
 }
 
+// 手工补/改行原始单价：输入口径=工作台统一的 RMB 含税价（所见即所改），USD 行反解回原币种 base_price；
+// 补价后 match_status 重算（❌ 缺失 → 🆕 新部件，同步按钮随之可用）
+function onKpRawPriceInput(item: Item, v: any) {
+  item.base_price = rmbToBasePrice(v, item.currency, store.exchangeRate, store.taxRate)
+  computeKpMatch(item)
+  store.recalculateAll()
+}
+
 // 打开某行历史价格弹窗（复用懒加载）
 function openKpHistory(item: Item) {
   kpHistoryItem.value = item
@@ -2853,7 +2864,6 @@ table.kp-table th:nth-child(7) { width: 20%; }
 .kp-table .cat.break { word-break: break-word; }
 .kp-table .hist-btn { font-size: 11px; padding: 0 4px; }
 .kp-table .kp-name { font-weight: 600; font-size: 12px; margin-right: 8px; }
-.kp-table .kp-raw-price { font-variant-numeric: tabular-nums; }
 .kp-table :deep(.inp-num) { width: 100%; }
 .kp-table :deep(.inp-cur) { width: 100%; }
 .kp-table .ops-inner { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; justify-content: flex-start; gap: 6px; }

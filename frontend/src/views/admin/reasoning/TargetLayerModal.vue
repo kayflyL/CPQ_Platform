@@ -374,7 +374,9 @@ function saveDocument() {
     const data_range = docRangeMode.value === 'custom'
       ? { mode: 'custom', start: docRangeStart.value, end: docRangeEnd.value }
       : { mode: docRangeMode.value }
-    emit('save-target', [{ ...(props.artifact || {}), kind: 'document', name: docName.value || '数据报告', data_range, sections }])
+    // 呈现（render）已归输出节点，保存时把旧存量一并剥掉
+    const { render: _staleRender, ...rest } = (props.artifact as any) || {}
+    emit('save-target', [{ ...rest, kind: 'document', name: docName.value || '数据报告', data_range, sections }])
   } finally {
     docSaving.value = false
   }
@@ -519,7 +521,7 @@ defineExpose({ load })
               <div class="tl-dim tl-note">{{ s.requires || '（未写内容要求）' }}</div>
             </li>
           </ol>
-          <p class="tl-dim">大脑按此结构逐节产出 markdown 结论；数据范围与章节改动下一回合即生效，交付时系统自动渲染 PDF 报告。</p>
+          <p class="tl-dim">大脑按此结构逐节产出 markdown 结论；数据范围与章节改动下一回合即生效。以什么形式交付（PDF 等）在输出节点配置。</p>
         </div>
       </div>
 
@@ -566,7 +568,7 @@ defineExpose({ load })
 .tlm-doc-pane--preview { border-left: 1px solid var(--cpq-overlay-w06, rgba(255,255,255,.06)); padding-left: 16px; }
 .tl-doc-basics { display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
 .tl-doc-basic { display: flex; flex-direction: column; gap: 4px; font-size: 11px; min-width: 180px; flex: 1; }
-.tl-doc-range { display: flex; gap: 6px; align-items: center; }
+.tl-doc-range { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 /* 章节行：BOM 模板编辑器同款 grid 表行（拖拽手柄 | 序号 | 标题 | 内容要求 | 操作） */
 .tl-thead, .tl-tr { display: grid; grid-template-columns: 22px 26px minmax(150px, 1fr) minmax(220px, 1.6fr) 40px;
   gap: 6px; align-items: start; padding: 6px 8px; }

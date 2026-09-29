@@ -84,6 +84,11 @@ h1.rpt-title {
 }
 .rpt-table td { border-bottom: 1px solid #E5E7EB; padding: 6px 8px; }
 .rpt-table tbody tr:last-child td { border-bottom: 1.5px solid #111827; }
+.rpt-fields th {
+  width: 168px; text-align: left; font-weight: 600; color: #374151;
+  border-bottom: 1px solid #E5E7EB; padding: 6px 8px; background: none; vertical-align: top;
+}
+.rpt-fields tbody tr:last-child th { border-bottom: 1.5px solid #111827; }
 .foot {
   margin-top: 26px; padding-top: 8px; border-top: 1px solid #E5E7EB;
   font-size: 8.5px; color: #9CA3AF; display: flex; justify-content: space-between;
@@ -124,6 +129,7 @@ h1.rpt-title { font-size: 22px; font-weight: 600; color: #1F2328; padding-bottom
 .chart-box .ch { width: 100%; }
 .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
 .rpt-table th { border-bottom: 2px solid #D1D9E0; padding: 6px 8px; text-align: left; font-weight: 600; }
+.rpt-fields th { width: 168px; text-align: left; font-weight: 600; border-bottom: 1px solid #EFF2F5; padding: 6px 8px; vertical-align: top; }
 .rpt-table td { border-bottom: 1px solid #EFF2F5; padding: 6px 8px; }
 .foot {
   margin-top: 24px; padding-top: 8px; border-top: 1px solid #D1D9E0;
@@ -169,6 +175,7 @@ h1.rpt-title { font-size: 24px; font-weight: 800; color: #111827; letter-spacing
 .chart-box .ch { width: 100%; }
 .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
 .rpt-table th { background: #F3F4F6; color: #374151; font-weight: 600; padding: 7px 10px; text-align: left; }
+.rpt-fields th { background: #FAFAFA; width: 168px; text-align: left; font-weight: 600; padding: 7px 10px; vertical-align: top; }
 .rpt-table td { border-bottom: 1px solid #E5E7EB; padding: 7px 10px; }
 .foot {
   margin-top: 20px; padding-top: 8px; border-top: 1px solid #E5E7EB;
@@ -176,7 +183,162 @@ h1.rpt-title { font-size: 24px; font-weight: 800; color: #111827; letter-spacing
 }
 """
 
-_THEMES = {"business": _THEME_BUSINESS, "github": _THEME_GITHUB, "softened": _THEME_SOFTENED}
+_THEME_EDITORIAL = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+@page { size: A4; margin: 0; }
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  color: #151515; background: #fff; font-size: 11px; line-height: 1.7;
+}
+.masthead {
+  border-top: 9px solid #E3120B; padding-top: 12px;
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 8.5px; letter-spacing: 2.5px; color: #6E6E6E;
+  border-bottom: 1px solid #151515; padding-bottom: 7px; margin-bottom: 20px;
+}
+h1.rpt-title { font-size: 30px; font-weight: 800; letter-spacing: -0.3px; line-height: 1.25; margin-bottom: 10px; }
+.rpt-sub { font-size: 12.5px; color: #3F3F3F; line-height: 1.55; margin-bottom: 14px; }
+.meta-row {
+  display: flex; gap: 18px; flex-wrap: wrap; font-size: 9px; color: #6E6E6E;
+  border-top: 1px solid #DCDCDC; border-bottom: 1px solid #DCDCDC; padding: 7px 0; margin-bottom: 24px;
+}
+.meta-row b { font-weight: 700; color: #151515; margin-right: 4px; }
+.blk-sec { margin-bottom: 24px; break-inside: avoid; }
+.blk-title { font-size: 15px; font-weight: 800; margin-bottom: 10px; }
+.sec-no { color: #E3120B; font-weight: 800; font-size: 11px; margin-right: 8px; }
+.kpi-grid { display: flex; flex-wrap: wrap; border-top: 2px solid #151515; }
+.kpi-cell { flex: 1 1 0; min-width: 110px; padding: 9px 14px 2px; border-left: 1px solid #DCDCDC; }
+.kpi-cell:first-child { border-left: 0; padding-left: 0; }
+.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #6E6E6E; margin-bottom: 4px; }
+.kpi-value { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.kpi-unit { font-size: 10.5px; color: #6E6E6E; font-weight: 400; margin-left: 3px; }
+.chart-box { border-top: 3px solid #E3120B; padding-top: 8px; }
+.chart-box .ch { width: 100%; }
+.exh-cap { font-size: 11.5px; font-weight: 800; margin-bottom: 6px; }
+.exh-no { color: #E3120B; margin-right: 8px; }
+.exh-src { font-size: 8px; color: #8A8A8A; margin-top: 5px; }
+.md h3.md-h { font-size: 12px; font-weight: 800; margin: 10px 0 5px; }
+.md p { margin-bottom: 7px; text-align: justify; }
+.md ul { padding-left: 18px; margin-bottom: 7px; }
+.md li { margin-bottom: 3px; }
+.md hr { border: 0; border-top: 1px solid #DCDCDC; margin: 10px 0; }
+.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+.md th, .rpt-table th { border-top: 1.5px solid #151515; border-bottom: 1px solid #151515; padding: 6px 8px; text-align: left; font-weight: 700; }
+.md td, .rpt-table td { border-bottom: 1px solid #E3E3E3; padding: 6px 8px; }
+.md table tr:last-child td, .rpt-table tbody tr:last-child td { border-bottom: 1.5px solid #151515; }
+.rpt-fields th { width: 168px; text-align: left; font-weight: 700; border-bottom: 1px solid #E3E3E3; padding: 6px 8px; vertical-align: top; }
+.foot { margin-top: 26px; padding-top: 8px; border-top: 2px solid #151515; font-size: 8.5px; color: #8A8A8A; display: flex; justify-content: space-between; }
+"""
+
+_THEME_CONSULTING = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+@page { size: A4; margin: 0; }
+body {
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", sans-serif;
+  color: #1C2833; background: #fff; font-size: 11px; line-height: 1.75;
+}
+.cover {
+  height: 256mm; display: flex; flex-direction: column; justify-content: space-between;
+  background: #0F2B46; color: #fff; padding: 16mm; page-break-after: always;
+}
+.cover-top {
+  display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 3px;
+  color: rgba(255,255,255,.75); border-bottom: 1px solid rgba(255,255,255,.28); padding-bottom: 7mm;
+}
+.cover-kicker { font-size: 10px; letter-spacing: 4px; color: #39C0B7; margin-bottom: 9mm; }
+h1.cover-title {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
+  font-size: 34px; font-weight: 700; letter-spacing: 2px; line-height: 1.35; margin-bottom: 7mm;
+}
+.cover-sub {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
+  font-size: 13px; color: rgba(255,255,255,.85);
+}
+.cover-period { display: inline-block; border: 1px solid rgba(255,255,255,.4); padding: 5px 14px; margin-bottom: 5mm; font-size: 10px; }
+.cover-gen { color: rgba(255,255,255,.6); font-size: 9px; }
+.masthead, h1.rpt-title, .rpt-sub, .meta-row { display: none; }
+.blk-sec { margin-bottom: 24px; break-inside: avoid; }
+.blk-title {
+  font-family: "Noto Serif SC", "Source Han Serif SC", "SimSun", "STSong", serif;
+  font-size: 15px; font-weight: 700; margin-bottom: 10px;
+}
+.sec-no {
+  display: inline-block; min-width: 24px; height: 17px; background: #0F2B46; color: #fff;
+  font-size: 10px; font-weight: 700; text-align: center; line-height: 17px; margin-right: 9px;
+}
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 18px 22px; }
+.kpi-cell { border-top: 3px solid #0F2B46; padding-top: 9px; }
+.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #5D6D7E; margin-bottom: 4px; }
+.kpi-value { font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; color: #0F2B46; }
+.kpi-unit { font-size: 10.5px; color: #5D6D7E; font-weight: 400; margin-left: 3px; }
+.exh-cap { border-top: 2px solid #0F2B46; padding-top: 7px; margin-bottom: 8px; font-size: 12px; font-weight: 700; }
+.exh-no { color: #39C0B7; font-size: 10px; letter-spacing: 1px; font-weight: 800; margin-right: 8px; }
+.exh-src { font-size: 8px; color: #90A0AE; margin-top: 5px; border-bottom: 1px solid #E4E9EE; padding-bottom: 4px; }
+.chart-box { padding: 2px 0 0; }
+.chart-box .ch { width: 100%; }
+.md h3.md-h { font-size: 12px; font-weight: 700; margin: 10px 0 5px; }
+.md p { margin-bottom: 7px; text-align: justify; }
+.md ul { padding-left: 18px; margin-bottom: 7px; }
+.md li { margin-bottom: 3px; }
+.md hr { border: 0; border-top: 1px solid #E4E9EE; margin: 10px 0; }
+.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+.md th, .rpt-table th { border-top: 2px solid #0F2B46; border-bottom: 1px solid #0F2B46; padding: 6px 8px; text-align: left; font-weight: 700; }
+.md td, .rpt-table td { border-bottom: 1px solid #E4E9EE; padding: 6px 8px; }
+.rpt-fields th { width: 168px; text-align: left; font-weight: 700; border-bottom: 1px solid #E4E9EE; padding: 6px 8px; vertical-align: top; }
+.foot { margin-top: 26px; padding-top: 8px; border-top: 2px solid #0F2B46; font-size: 8.5px; color: #90A0AE; display: flex; justify-content: space-between; }
+"""
+
+_THEME_MINIMAL = """
+* { box-sizing: border-box; margin: 0; padding: 0; }
+@page { size: A4; margin: 0; }
+body {
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+  color: #18181B; background: #fff; font-size: 11px; line-height: 1.8;
+}
+.cover { height: 256mm; display: flex; flex-direction: column; justify-content: space-between; padding: 4mm 2mm; page-break-after: always; }
+.cover-top { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: 2.5px; color: #A1A1AA; }
+.cover-mid { margin-top: 88mm; }
+.cover-kicker { font-size: 10px; letter-spacing: 5px; color: #5E6AD2; margin-bottom: 11mm; }
+h1.cover-title { font-size: 36px; font-weight: 700; letter-spacing: 1px; margin-bottom: 9mm; }
+.cover-rule { width: 26mm; height: 3px; background: #5E6AD2; border-radius: 2px; margin-bottom: 9mm; }
+.cover-sub { font-size: 13px; color: #52525B; }
+.cover-bot { font-size: 10px; color: #A1A1AA; line-height: 2; }
+.masthead, h1.rpt-title, .rpt-sub, .meta-row { display: none; }
+.blk-sec { margin-bottom: 30px; break-inside: avoid; }
+.blk-title { font-size: 12px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid #E4E4E7; margin-bottom: 14px; }
+.sec-no { color: #A1A1AA; font-size: 9px; font-weight: 600; letter-spacing: 1.5px; margin-right: 8px; }
+.kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 14px; }
+.kpi-cell { background: #F7F7FA; border-radius: 10px; padding: 16px 16px 13px; }
+.kpi-label { font-size: 8.5px; letter-spacing: 1.5px; color: #71717A; margin-bottom: 6px; }
+.kpi-value { font-size: 30px; font-weight: 700; color: #18181B; font-variant-numeric: tabular-nums; letter-spacing: -0.5px; }
+.kpi-unit { font-size: 10.5px; color: #71717A; font-weight: 400; margin-left: 3px; }
+.chart-box { background: #F7F7FA; border-radius: 10px; padding: 14px 12px 6px; }
+.chart-box .ch { width: 100%; }
+.exh-cap { font-size: 12px; font-weight: 600; margin-bottom: 8px; }
+.exh-no { color: #5E6AD2; font-weight: 700; margin-right: 8px; font-size: 10px; letter-spacing: 1px; }
+.exh-src { font-size: 8px; color: #A1A1AA; margin-top: 6px; }
+.md h3.md-h { font-size: 12px; font-weight: 600; margin: 12px 0 6px; }
+.md p { margin-bottom: 8px; text-align: justify; }
+.md ul { padding-left: 18px; margin-bottom: 8px; }
+.md li { margin-bottom: 4px; }
+.md hr { border: 0; border-top: 1px solid #E4E4E7; margin: 12px 0; }
+.md table, .rpt-table { width: 100%; border-collapse: collapse; font-size: 9.5px; }
+.md th, .rpt-table th { text-align: left; font-weight: 600; color: #71717A; padding: 7px 8px; border-bottom: 1.5px solid #D4D4D8; }
+.md td, .rpt-table td { border-bottom: 1px solid #E4E4E7; padding: 7px 8px; }
+.rpt-fields th { width: 168px; text-align: left; font-weight: 600; color: #71717A; border-bottom: 1px solid #E4E4E7; padding: 7px 8px; vertical-align: top; }
+.foot { margin-top: 32px; padding-top: 10px; border-top: 1px solid #E4E4E7; font-size: 8.5px; color: #A1A1AA; display: flex; justify-content: space-between; }
+"""
+
+# 主题注册表：css 之外带结构档位——cover（整页封面：dark=深色满版 / light=浅色留白）、
+# exhibit（图表/表格走「图 N / 表 N」展板编号杠 + 来源行）。选型期六份并存，定稿后删。
+_THEME_SPECS = {
+    "business": {"css": _THEME_BUSINESS},
+    "github": {"css": _THEME_GITHUB},
+    "softened": {"css": _THEME_SOFTENED},
+    "editorial": {"css": _THEME_EDITORIAL, "exhibit": True},
+    "consulting": {"css": _THEME_CONSULTING, "cover": "dark", "exhibit": True},
+    "minimal": {"css": _THEME_MINIMAL, "cover": "light"},
+}
 
 # interactive（编辑器预览）附加样式：选中态 / 分页参考线 / 预览态页边距
 # （PDF 模式页边距由 page.pdf margin 提供，浏览器预览没有 PDF 引擎，用 padding 模拟）
@@ -259,6 +421,28 @@ def _pdf_footer_template() -> str:
     )
 
 
+def _cover_html(meta: dict, mode: str) -> str:
+    """整页封面（consulting=dark 深色满版 / minimal=light 浅色留白）。"""
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    period = str(meta.get("period_label", "")).replace("统计区间：", "").strip()
+    sub = str(meta.get("subtitle", "") or "").strip()
+    cls = "cover"
+    rule = "" if mode == "dark" else '<div class="cover-rule"></div>'
+    sub_html = f'<div class="cover-sub">{_esc(sub)}</div>' if sub else ""
+    period_html = f'<div class="cover-period">统计区间　{_esc(period)}</div>' if period else ""
+    return (
+        f'<div class="{cls}">'
+        f'<div class="cover-top"><span>CPQ PLATFORM</span><span>{date_str}</span></div>'
+        f'<div class="cover-mid">'
+        f'<div class="cover-kicker">AI WORKFLOW REPORT</div>'
+        f'<h1 class="cover-title">{_esc(meta.get("title", ""))}</h1>{rule}{sub_html}'
+        f"</div>"
+        f'<div class="cover-bot">{period_html}'
+        f'<div class="cover-gen">生成　{_esc(meta.get("generated_by", ""))} · {_esc(meta.get("generated_at", ""))}</div>'
+        f"</div></div>"
+    )
+
+
 def _esc(s) -> str:
     return _html.escape(str(s if s is not None else ""))
 
@@ -305,6 +489,27 @@ def _default_payload(payload: Optional[dict], template_name: str = "") -> dict:
     return p
 
 
+# payload 行/字段表的列标签（镜像 compose 节点「方案配置表」列契约的既有事实，未覆盖的键显示原键名）
+_CELL_LABELS = {
+    "part_category": "Catalogue",
+    "catalogue": "Configuration Description",
+    "qty": "Quantity",
+}
+
+
+def _fmt_cell(v) -> str:
+    """结构化单元格 → 文本：列表顿号连接，嵌套 dict 平铺为 k: v，None 空，bool 中文化。"""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "是" if v else "否"
+    if isinstance(v, (list, tuple)):
+        return "、".join(str(x) for x in v)
+    if isinstance(v, dict):
+        return "；".join(f"{k}: {_fmt_cell(x)}" for k, x in v.items())
+    return str(v)
+
+
 def render_report_html(
     blocks: list,
     payload: Optional[dict] = None,
@@ -314,15 +519,30 @@ def render_report_html(
     echarts_inline_js: Optional[str] = None,
     theme: str = "business",
     interactive: bool = False,
+    asset_params: Optional[dict] = None,
 ) -> str:
     """blocks+payload → 完整 HTML 文档。iframe 预览传 echarts_url（相对 /api 由父文档 base 解析）；
     PDF 传 echarts_inline_js（磁盘 echarts.min.js 全文内联）。interactive=True 仅编辑器预览用
-    （区块可点选+分页参考线），PDF 恒 False。"""
+    （区块可点选+分页参考线），PDF 恒 False。asset_params=运行时资产参数覆盖（如报告数据范围
+    推出的 days），按 schema clamp 后不认该参数的资产自动忽略，编辑器预览不传。"""
+    if asset_params:
+        blocks = [
+            ({**b, "params": {**(b.get("params") or {}), **asset_params}}
+             if b.get("type") in ("kpi", "chart", "table") else b)
+            for b in (blocks or [])
+        ]
     p = _default_payload(payload, template_name)
     meta = p["meta"]
+    spec = _THEME_SPECS.get(theme) or _THEME_SPECS["business"]
     body: list[str] = []
     charts: list[dict] = []
     sec_no = 0
+    fig_no = 0
+    tab_no = 0
+    cover_html = ""
+    has_title_block = any(b.get("type") == "title" for b in (blocks or []))
+    if spec.get("cover"):
+        cover_html = _cover_html(meta, spec["cover"])
 
     def sec_title(blk: dict) -> str:
         nonlocal sec_no
@@ -330,6 +550,22 @@ def render_report_html(
             return ""
         sec_no += 1
         return f'<div class="blk-title"><span class="sec-no">{sec_no:02d}</span>{_esc(blk["title"])}</div>'
+
+    def exh_caption(blk: dict, kind: str) -> str:
+        """展板编号杠（consulting/editorial）：图表=图 N，表格=表 N；不占章节号。"""
+        nonlocal fig_no, tab_no
+        if not blk.get("title"):
+            return ""
+        if kind == "fig":
+            fig_no += 1
+            no = f"图 {fig_no}"
+        else:
+            tab_no += 1
+            no = f"表 {tab_no}"
+        return f'<div class="exh-cap"><span class="exh-no">{no}</span>{_esc(blk["title"])}</div>'
+
+    def exh_src() -> str:
+        return '<div class="exh-src">来源：CPQ 业务库 · 自动取数</div>' if spec.get("exhibit") else ""
 
     def sec_open(idx: int) -> str:
         # data-atc-idx = 区块在 blocks 里的下标，与编辑器左栏 selectedIdx 对齐（预览点击反选）
@@ -339,6 +575,8 @@ def render_report_html(
     for idx, blk in enumerate(blocks or []):
         t = blk.get("type")
         if t == "title":
+            if spec.get("cover"):
+                continue
             sub = f'<div class="rpt-sub">{_esc(meta.get("subtitle", ""))}</div>' if meta.get("subtitle") else ""
             date_str = datetime.now().strftime("%Y-%m-%d")
             body.append(
@@ -377,11 +615,51 @@ def render_report_html(
             height = int(blk.get("height") or 240)
             dom_id = f"ch-{idx}"
             charts.append({"id": dom_id, "option": option})
+            cap = exh_caption(blk, "fig") if spec.get("exhibit") else sec_title(blk)
             body.append(
-                f'{sec_open(idx)}{sec_title(blk)}'
-                f'<div class="chart-box"><div class="ch" id="{dom_id}" style="height:{height}px"></div></div></section>'
+                f'{sec_open(idx)}{cap}'
+                f'<div class="chart-box"><div class="ch" id="{dom_id}" style="height:{height}px"></div></div>'
+                f'{exh_src()}</section>'
             )
+        elif t == "fields":
+            fdata = p.get(blk.get("key") or "")
+            if not isinstance(fdata, dict) or not fdata:
+                continue
+            flat: list[tuple[str, object]] = []
+
+            def _flat(d: dict, prefix: str = "") -> None:
+                for k, v in d.items():
+                    name = f"{prefix}.{k}" if prefix else str(k)
+                    if isinstance(v, dict) and v:
+                        _flat(v, name)
+                    else:
+                        flat.append((name, _fmt_cell(v)))
+
+            _flat(fdata)
+            rows = "".join(
+                f'<tr><th>{_esc(_CELL_LABELS.get(k, k))}</th><td>{_esc(str(v))}</td></tr>'
+                for k, v in flat
+            )
+            cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
+            body.append(f'{sec_open(idx)}{cap}<table class="rpt-table rpt-fields"><tbody>{rows}</tbody></table>{exh_src()}</section>')
         elif t == "table":
+            if blk.get("source") == "payload":
+                prows = p.get(blk.get("key") or "")
+                if not isinstance(prows, list) or not prows or not all(isinstance(r, dict) for r in prows):
+                    continue
+                keys: list = []
+                for r in prows:
+                    for k in r.keys():
+                        if k not in keys:
+                            keys.append(k)
+                cols = "".join(f"<th>{_esc(_CELL_LABELS.get(k, k))}</th>" for k in keys)
+                rows = "".join(
+                    "<tr>" + "".join(f"<td>{_esc(str(_fmt_cell(r.get(k))))}</td>" for k in keys) + "</tr>"
+                    for r in prows
+                )
+                cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
+                body.append(f'{sec_open(idx)}{cap}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table>{exh_src()}</section>')
+                continue
             data = chart_assets.resolve_asset_data(blk.get("asset") or "", blk.get("params"))
             if not data:
                 continue
@@ -390,9 +668,10 @@ def render_report_html(
                 "<tr>" + "".join(f"<td>{_esc(r.get(k, ''))}</td>" for k in ("customer", "platform", "sales", "result", "created")) + "</tr>"
                 for r in data.get("rows", [])
             )
-            body.append(f'{sec_open(idx)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
+            cap = exh_caption(blk, "tab") if spec.get("exhibit") else sec_title(blk)
+            body.append(f'{sec_open(idx)}{cap}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table>{exh_src()}</section>')
 
-    if not any(b.get("type") == "title" for b in (blocks or [])):
+    if not has_title_block and not spec.get("cover"):
         body.insert(
             0,
             f'<div class="masthead"><span>CPQ PLATFORM</span><span>{datetime.now().strftime("%Y-%m-%d")}</span></div>'
@@ -413,7 +692,7 @@ def render_report_html(
         echarts_tag = f'<script src="{_esc(echarts_url)}"></script>'
     else:
         echarts_tag = ""
-    css = _THEMES.get(theme, _THEME_BUSINESS)
+    css = spec["css"]
     if interactive:
         css += _INTERACTIVE_CSS
     extra_js_tag = f"<script>{_INTERACTIVE_JS}</script>" if interactive else ""
@@ -422,7 +701,7 @@ def render_report_html(
 <title>{_esc(meta.get('title', ''))}</title>
 <style>{css}</style></head>
 <body>
-{''.join(body)}
+{cover_html}{''.join(body)}
 {foot}
 {echarts_tag}
 <script>
@@ -484,15 +763,18 @@ async def render_report_pdf(
     *,
     template_name: str = "",
     theme: str = "business",
+    asset_params: Optional[dict] = None,
 ) -> bytes:
-    """HTML → PDF（串行锁：同一时刻至多一个 chromium）。playwright 缺失抛 RuntimeError。"""
+    """HTML → PDF（串行锁：同一时刻至多一个 chromium）。playwright 缺失抛 RuntimeError。
+    asset_params 透传 render_report_html（运行时数据范围→图表资产参数覆盖）。"""
     js = _vendor_echarts_js()
     if js is None:
         raise RuntimeError("echarts vendor missing (backend/app/static/vendor/echarts.min.js)")
     p = _default_payload(payload, template_name)
     header = _pdf_header_template(p["meta"].get("title", ""), p["meta"].get("generated_at", ""))
     doc = render_report_html(
-        blocks, payload, template_name=template_name, echarts_inline_js=js, theme=theme, interactive=False
+        blocks, payload, template_name=template_name, echarts_inline_js=js, theme=theme,
+        interactive=False, asset_params=asset_params,
     )
     async with _PDF_SEMAPHORE:
         return await asyncio.to_thread(_pdf_sync, doc, header, _pdf_footer_template())

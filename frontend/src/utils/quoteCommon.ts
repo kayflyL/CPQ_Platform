@@ -59,6 +59,21 @@ export function calcUnitSales(
   return calcUnitCost(basePrice, currency, exchangeRate, taxRate) * (1 + margin / 100)
 }
 
+/** calcUnitCost 的逆变换：把工作台统一显示的 RMB 含税单价还原回行原币种 base_price
+ *  （RMB 行原值即含税价；USD 行 = RMB ÷ 汇率 ÷ (1+税率)）。手工补价入口共用；
+ *  USD 行不取整，保证按显示值回填后再显示不漂。 */
+export function rmbToBasePrice(
+  rmbCost: unknown,
+  currency: unknown,
+  exchangeRate: number,
+  taxRate: number,
+): number {
+  const rmb = toFiniteNumber(rmbCost)
+  if (String(currency || '').toUpperCase() !== 'USD') return Math.round(rmb * 100) / 100
+  const factor = (toFiniteNumber(exchangeRate, 1) || 1) * (1 + toFiniteNumber(taxRate))
+  return factor > 0 ? rmb / factor : 0
+}
+
 export function safeServerModelFilename(model?: string | null): string {
   const cleaned = String(model || '')
     .trim()

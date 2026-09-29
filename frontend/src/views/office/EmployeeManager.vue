@@ -24,8 +24,13 @@
       centered
       width="min(94vw, 1000px)"
       wrap-class-name="em-editor-modal"
-      title="员工档案"
     >
+      <template #title>
+        <div class="em-modal-title">
+          <span class="em-modal-title-text">员工档案</span>
+          <a-button size="small" type="primary" class="em-btn-save-top" :loading="saving" @click="save">保存</a-button>
+        </div>
+      </template>
       <div class="em-form">
 
       <template v-if="draft">
@@ -1711,5 +1716,26 @@ button.em-chip:hover {
   font-weight: 500;
   letter-spacing: 4px;
   color: var(--cpq-text-muted);
+}
+
+/* 标题栏 = 常驻操作栏：保存按钮跟随视口，长表单滚到哪都能存 */
+.em-modal-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  /* 右侧净空留给绝对定位的关闭按钮，避免保存按钮与其叠放 */
+  padding-right: 40px;
+}
+
+.em-modal-title-text {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 4px;
+  color: var(--cpq-text-muted);
+}
+
+.em-btn-save-top {
+  margin-right: 4px;
 }
 </style>

@@ -6,7 +6,7 @@
 
 <script setup lang="ts">
 import { ref, watch, computed, onMounted, onBeforeUnmount } from 'vue'
-import { petModelPath, DEFAULT_PET_MODEL } from '@/store/petModel'
+import { petModelPath, petModelScale, DEFAULT_PET_MODEL } from '@/store/petModel'
 
 const props = defineProps<{ modelKey?: string | null; bgColor?: string }>()
 
@@ -71,7 +71,7 @@ async function render(key: string) {
     if (!root.value) return
     const before = new Set<Element>(Array.from(document.body.children))
     widget = lib.createWidget({
-      model: { path: petModelPath(key), tips: false },
+      model: { path: petModelPath(key), tips: false, scale: petModelScale(key) },
       position: 'bottom-right',
       size: 300,
       transitionType: 'fade',

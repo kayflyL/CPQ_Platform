@@ -187,6 +187,32 @@ def _report_window(art: dict) -> tuple[str, str]:
     return window, label
 
 
+def range_days(art: dict) -> int | None:
+    """document 数据范围 → 图表资产统计天数（运行时参数覆盖用）。
+
+    与 _report_window 同一 mode 语义（custom/this_year 按区间天数），auto=不覆盖
+    （资产回落自己的 schema 默认值，如 trend 的 56 天=近 8 周）。
+    资产 days 语义=起点回退天数（_trend_range: start=today-days，桶含今天共 days+1 个），
+    故「窗口含头含尾 N 天」对应 N-1，保证图表首日与封面口径同一天。
+    """
+    from datetime import date, timedelta
+    dr = art.get("data_range") if isinstance(art.get("data_range"), dict) else {}
+    mode = str(dr.get("mode") or "auto").strip()
+    today = date.today()
+    if mode in ("last_30", "last_90", "half_year"):
+        return {"last_30": 29, "last_90": 89, "half_year": 182}[mode]
+    if mode == "this_year":
+        return max((today - date(today.year, 1, 1)).days, 0)
+    if mode == "custom" and dr.get("start") and dr.get("end"):
+        try:
+            s = date.fromisoformat(str(dr["start"]))
+            e = date.fromisoformat(str(dr["end"]))
+            return max((e - s).days, 0)
+        except ValueError:
+            return None
+    return None
+
+
 def format_document_contract(art: dict) -> str:
     """document 插头（报告类）→ 大脑可读的结构契约。
 

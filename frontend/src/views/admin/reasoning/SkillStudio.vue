@@ -112,6 +112,19 @@ const drawerNodeRuntime = ref<string | null>(null)
 const drawerNodeLabel = ref<string | null>(null)
 const drawerConfig = ref<Record<string, any> | null>(null)
 
+/** 全图目标层报告文档卡（有章节契约的 document，如趋势分析 agent 卡）：输出节点对接提示用 */
+const documentTarget = computed<Record<string, any> | null>(() => {
+  const cfgs = (flow.value?.node_configs || {}) as Record<string, any>
+  for (const cfg of Object.values(cfgs)) {
+    const tgt = cfg?.target
+    for (const a of (tgt?.artifacts || [])) {
+      if (a && a.kind === 'document' && Array.isArray(a.sections) && a.sections.length)
+        return a as Record<string, any>
+    }
+  }
+  return null
+})
+
 const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, getSelectedEdges } = useVueFlow()
 
 // ── 试运行 playground（右栏）──
@@ -631,7 +644,7 @@ function onSaved() { load() }
 
     </div>
 
-    <ReasoningNodeDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" @saved="onSaved" @remove="onRemove" />
+    <ReasoningNodeDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" :document-target="documentTarget" @saved="onSaved" @remove="onRemove" />
 
     <NodeArtifactModal :bom-scheme="bomScheme" />
 

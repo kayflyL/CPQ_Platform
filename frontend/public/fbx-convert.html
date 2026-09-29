@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>fbx convert</title>
+<style>body{margin:0;background:#202836;color:#fff;font:14px monospace}#log{position:fixed;left:8px;top:8px;right:8px;white-space:pre-wrap;z-index:9}</style>
+</head>
+<body>
+<div id="log">init…</div>
+<script type="module">
+import * as THREE from '/node_modules/three/build/three.module.js'
+import { FBXLoader } from '/node_modules/three/examples/jsm/loaders/FBXLoader.js'
+import { GLTFExporter } from '/node_modules/three/examples/jsm/exporters/GLTFExporter.js'
+
+const t0 = performance.now()
+const el = document.getElementById('log')
+const log = (m) => { el.textContent += `\n[${Math.round((performance.now() - t0) / 100) / 10}s] ` + m }
+
+new FBXLoader().load('/tmp-model/tripo-mixamo.fbx', (fbx) => {
+  log('FBX parsed')
+  let skins = 0
+  fbx.traverse((c) => { if (c.isSkinnedMesh) skins++ })
+  log(`skinned meshes: ${skins}, total nodes: ${fbx.children.length}`)
+  const opts = { binary: true, onlyVisible: true, maxTextureSize: 1024 }
+  new GLTFExporter().parse(fbx, (result) => {
+    const blob = new Blob([result], { type: 'model/gltf-binary' })
+    log(`GLB exported: ${blob.size} bytes, posting…`)
+    fetch('http://127.0.0.1:8772/save?key=tripo-mixamo.glb', { method: 'POST', body: blob })
+      .then((r) => r.text())
+      .then((t) => log('sink: ' + t + ' — DONE'))
+      .catch((e) => log('post failed: ' + e.message))
+  }, undefined, opts)
+}, undefined, (e) => log('load error: ' + e.message))
+</script>
+</body>
+</html>

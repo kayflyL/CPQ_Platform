@@ -34,6 +34,7 @@ const props = defineProps<{
   initialConfig: Record<string, any> | null
   skillKey?: string | null      // 当前编辑的 Skill key（多技能共用一个画布时按技能写配置）
   skillOutputKind?: string | null // Skill 的输出类型，作为输出节点默认 output_kind
+  documentTarget?: Record<string, any> | null // 全图目标层文档卡（输出节点只读展示用，SkillStudio 注入）
 }>()
 const emit = defineEmits<{ 'update:open': [boolean]; saved: []; remove: [string] }>()
 
@@ -55,9 +56,66 @@ const PSU_SOURCE_OPTIONS = [
 ]
 const toolCatalog = ref<any[]>([])
 const pdfTemplates = ref<any[]>([])
-const templateOptions = computed(() =>
-  pdfTemplates.value.map((t: any) => ({ value: t.key, label: `${t.name}（${t.key}）` })))
-artifactTemplateApi.list().then((rows) => { pdfTemplates.value = rows.filter((t) => t.format === 'pdf') }).catch(() => { /* 模板下拉为空即可 */ })
+artifactTemplateApi.list().then((rows) => { pdfTemplates.value = rows.filter((t) => t.format === 'pdf') }).catch(() => { /* 模板名缺失即显示 key */ })
+
+// ── 输出节点 · 呈现方式（形式归输出节点；内容归目标层文档卡）──
+const outRenderFmt = ref<'native' | 'pdf'>('native')
+const outRenderTemplate = ref('')
+const outTplOptions = computed(() => [
+  { value: '', label: '默认排版（系统排版引擎）' },
+  ...pdfTemplates.value.map((t: any) => ({ value: t.key, label: `${t.name}（${(t.blocks || []).length} 区块）` })),
+])
+const OUT_NATIVE_DESC: Record<string, string> = {
+  data_answer: '答复直接显示在对话中，不另出文件',
+  requirement_draft: '需求单落库后在商机详情页查看，不另出文件',
+  bom_scheme_draft: '需求单 / BOM 草稿落库后在商机详情页查看，不另出文件',
+  plans: '需求单 / BOM 草稿落库后在商机详情页查看，不另出文件',
+}
+const outNativeDesc = computed(() => OUT_NATIVE_DESC[form.value.output_kind] || '落库后在业务页面查看，不另出文件')
+/** 交接 payload 的键（对接提示用：结构化输出场景知道有哪些数据可灌模板） */
+const outPayloadKeys = computed<string[]>(() => {
+  const parsed = parseJsonObject(form.value.output_payload_map_text)
+  return parsed ? Object.keys(parsed) : []
+})
+/** 数据对接提示（三态，不拦截）：文档卡场景对比「章节 × 文本槽」；结构化场景对比「payload 键 × 字段/明细区块」 */
+const outFitHint = computed<{ tone: 'ok' | 'warn' | 'info'; text: string } | null>(() => {
+  if (outRenderFmt.value !== 'pdf') return null
+  const tk = outRenderTemplate.value
+  const tpl = pdfTemplates.value.find((t: any) => t.key === tk)
+  const doc: any = props.documentTarget
+  if (!tk || !tpl) {
+    if (doc && doc.kind === 'document' && (doc.sections || []).length) {
+      const titles = (doc.sections || []).filter((s: any) => String(s.title || '').trim()).map((s: any) => s.title)
+      const demo = titles.length
+        ? `（一、${titles[0]}${titles[1] ? ` / 二、${titles[1]}` : ''} …）` : ''
+      return { tone: 'info', text: `系统排版引擎按目标层章节直接排版${demo}，无需对接模板槽位。` }
+    }
+    const keys = outPayloadKeys.value
+    if (keys.includes('ext') && keys.includes('plans'))
+      return { tone: 'ok', text: '落库数据自动排版：需求单字段（ext）→ 字段表，BOM 配置行（plans）→ 明细表（Catalogue / Configuration Description / Quantity）。' }
+    if (keys.length)
+      return { tone: 'ok', text: `落库数据自动排版：${keys.join('、')} 按数据形状排为字段表 / 明细表。` }
+    return { tone: 'info', text: '系统按输出数据自动排版。' }
+  }
+  const hasDocSections = !!(doc && doc.kind === 'document' && (doc.sections || []).length)
+  if (hasDocSections) {
+    const secs = (doc.sections || []).filter((s: any) => String(s.title || '').trim())
+    const slotKeys = new Set((tpl.blocks || [])
+      .filter((b: any) => b.type === 'text' && b.source === 'payload' && b.key)
+      .map((b: any) => String(b.key)))
+    if (!slotKeys.size || !secs.length)
+      return { tone: 'warn', text: '该模板没有承接报告章节的文本槽，章节文字不会出现在 PDF 中。' }
+    const missing = secs.filter((s: any) => !slotKeys.has(s.key)).map((s: any) => s.title)
+    return missing.length
+      ? { tone: 'warn', text: `模板未对接章节：${missing.join('、')}（这些章节的文字不会出现在 PDF）。` }
+      : { tone: 'ok', text: `章节与模板文本槽全部对接（${secs.length}/${secs.length}）。` }
+  }
+  const hasStructBlocks = (tpl.blocks || []).some((b: any) => b.type === 'fields'
+    || (b.type === 'table' && b.source === 'payload'))
+  return hasStructBlocks
+    ? { tone: 'ok', text: '模板含字段表 / 明细表区块，可承接本次输出数据。' }
+    : { tone: 'warn', text: '该模板是报告版式（章节文本槽），承接不了结构化输出数据；建议在产出物中心新建含「字段表 / 明细表」区块的模板。' }
+})
 const agentToolOptions = computed(() => toolCatalog.value.map((tool: any) => ({
   value: tool.name,
   label: tool.display_name ? `${tool.display_name}（${tool.name}）` : tool.name,
@@ -287,8 +345,6 @@ watch(() => props.open, async (v) => {
   // 契约优先：绑定 Skill 的画布，output_kind 是分派轴契约（skill 清单），
   // 节点配置里的陈旧值只配被治愈，不配反向覆盖契约
   const outputKind = props.skillOutputKind || c.output_kind || 'generic'
-  const outArtifacts = Array.isArray(c.artifacts) ? c.artifacts : []
-  const docArtifact = outArtifacts.find((a: any) => a && a.kind === 'document' && a.format === 'pdf')
   form.value = {
     label: props.nodeLabel ?? '',
     enabled_tools: Array.isArray(c.enabled_tools) ? [...c.enabled_tools] : [],
@@ -301,11 +357,10 @@ watch(() => props.open, async (v) => {
     output_name: c.name ?? '',
     output_kind: outputKind,
     output_payload_map_text: safeJsonString(c.payload_map),
-    out_file_enabled: Boolean(docArtifact),
-    out_file_format: 'pdf',
-    out_file_title: docArtifact?.title || '数据报告',
-    out_file_template: docArtifact?.template_key || '',
   }
+  const rd = (c.render && typeof c.render === 'object') ? c.render : {}
+  outRenderFmt.value = rd.enabled === false || rd.enabled == null ? 'native' : 'pdf'
+  outRenderTemplate.value = String(rd.template_key || '')
 })
 
 
@@ -354,15 +409,11 @@ function buildConfig(): Record<string, any> | null {
     }
     // 交接去向由 output_kind 决定；target 是产物槽（插头），不在这里写。
     config.payload_map = payloadMap
-    // 文件产物插槽：data_answer 交付时确定性渲染，失败不挡交付；其余类型清空
-    config.artifacts = form.value.output_kind === 'data_answer' && form.value.out_file_enabled
-      ? [{
-          kind: 'document',
-          format: form.value.out_file_format || 'pdf',
-          title: form.value.out_file_title || '数据报告',
-          ...(form.value.out_file_template ? { template_key: form.value.out_file_template } : {}),
-        }]
-      : []
+    // 呈现方式（形式）唯一权威=输出节点：仅选了 PDF 才写 render，随流程呈现=不写字段
+    if (outRenderFmt.value === 'pdf') {
+      config.render = { enabled: true, format: 'pdf',
+        ...(outRenderTemplate.value ? { template_key: outRenderTemplate.value } : {}) }
+    }
   }
   if (rt === 'agent_fill') {
     config.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
@@ -378,6 +429,8 @@ async function persist(config: Record<string, any>): Promise<boolean> {
     const isLegacyRuntime = Boolean(props.nodeRuntime && props.nodeRuntime !== props.nodeType)
     const base = isLegacyRuntime ? { ...(props.initialConfig || {}) } : {}
     const merged = { ...base, ...config }
+    // 呈现方式改回「随流程呈现」时，把旧 render 一并清掉（防 legacy base 残留）
+    if (runtimeType.value === 'output' && outRenderFmt.value !== 'pdf') delete merged.render
     delete merged.prompt
     if (runtimeType.value === 'agent') {
       merged.enabled_tools = Array.isArray(form.value.enabled_tools) ? [...form.value.enabled_tools] : []
@@ -504,7 +557,8 @@ async function save() {
         <div class="node-collapse" :class="{ collapsed: !zoneOpen.target }">
         <div class="node-collapse-inner">
         <div class="node-zone-body">
-          <template v-if="targetArtifacts.length || runtimeType === 'agent'">
+          <!-- 输出节点可能带产物插头（如方案配置卡 table），但抽屉只呈现交接表单（含呈现方式） -->
+          <template v-if="(targetArtifacts.length || runtimeType === 'agent') && activeNodeType !== 'output'">
             <div class="node-section-title">输出物 <span class="node-behavior-chip">要产出的目标</span></div>
             <div class="tl-card-list">
               <div v-for="art in targetArtifacts" :key="art.view || art.name" class="tl-card" @click="tlOpen = true">
@@ -554,18 +608,36 @@ async function save() {
                         :disabled="!!props.skillOutputKind" style="width:100%" />
               <p v-if="props.skillOutputKind" class="rf-hint">由当前 Skill 的输出契约锁定（分派轴：选流 + 定交付语义），改 Skill 配置而非节点。</p>
             </a-form-item>
-            <a-form-item v-if="form.output_kind === 'data_answer'" label="文件产物">
-              <div class="out-file-row">
-                <a-switch v-model:checked="form.out_file_enabled" size="small" />
-                <a-select v-model:value="form.out_file_format" :disabled="!form.out_file_enabled"
-                          :options="[{ value: 'pdf', label: 'PDF 报告' }]" style="width:130px" />
-                <a-input v-model:value="form.out_file_title" :disabled="!form.out_file_enabled"
-                         placeholder="报告标题" style="flex:1" />
+            <a-form-item label="呈现方式">
+              <div class="out-fmt-grid">
+                <div class="out-fmt" :class="{ on: outRenderFmt === 'native' }" @click="outRenderFmt = 'native'">
+                  <div class="out-fmt-name"><span class="ico">💬</span>随流程呈现</div>
+                  <div class="out-fmt-desc">{{ outNativeDesc }}</div>
+                  <span class="out-fmt-badge" v-if="outRenderFmt === 'native'">默认</span>
+                </div>
+                <div class="out-fmt" :class="{ on: outRenderFmt === 'pdf' }" @click="outRenderFmt = 'pdf'">
+                  <div class="out-fmt-name"><span class="ico">📄</span>PDF 文件</div>
+                  <div class="out-fmt-desc">交付时按模板生成 PDF，随答复附带下载</div>
+                </div>
+                <div class="out-fmt dis">
+                  <div class="out-fmt-name"><span class="ico">📊</span>Excel</div>
+                  <div class="out-fmt-desc">复用「设置 · 导出模板」商务导出管线</div>
+                  <span class="out-fmt-badge dim">下期</span>
+                </div>
+                <div class="out-fmt dis">
+                  <div class="out-fmt-name"><span class="ico">🖼</span>PPT</div>
+                  <div class="out-fmt-desc">数据灌入幻灯片版式</div>
+                  <span class="out-fmt-badge dim">下期</span>
+                </div>
               </div>
-              <a-select v-model:value="form.out_file_template" :disabled="!form.out_file_enabled"
-                        :options="templateOptions" allow-clear
-                        placeholder="产出物模板（可选，不选=默认排版）" style="width:100%; margin-top:8px" />
-              <p class="rf-hint">选产出物模板后按模板区块渲染（封面指标/图表/明细，图表与商机线索页同源）；不选走默认 reportlab 排版。模板在 AI 办公室 · 产出物 维护。</p>
+              <div v-if="outRenderFmt === 'pdf'" class="out-pdf-cfg">
+                <div class="out-pdf-row">
+                  <span class="out-pdf-label">模板</span>
+                  <a-select v-model:value="outRenderTemplate" size="small" style="flex: 1" :options="outTplOptions" />
+                </div>
+                <p v-if="outFitHint" class="out-fit" :class="outFitHint.tone">{{ outFitHint.text }}</p>
+              </div>
+              <p class="rf-hint">不选 = 保持该流程现在的原生呈现；内容（章节 / 数据范围）在目标层文档卡配置。</p>
             </a-form-item>
             <a-collapse :bordered="false" class="node-advanced-fields">
               <a-collapse-panel key="advanced" header="高级交接配置（可选，一般不手写 JSON）">
@@ -717,7 +789,38 @@ async function save() {
 .node-config-form { padding: 2px 0; }
 .node-common-form { margin-bottom: 12px; }
 .node-advanced-fields { margin-top: 12px; }
-.out-file-row { display: flex; align-items: center; gap: 8px; width: 100%; }
+/* 输出节点 · 呈现方式四卡（原型 _prototypes/output-artifact-selector.html） */
+.out-fmt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.out-fmt {
+  position: relative; padding: 11px 13px; border-radius: 12px; cursor: pointer;
+  border: 1px solid var(--cpq-border-primary); background: var(--cpq-glass-1-bg);
+  transition: border-color .16s, box-shadow .16s;
+}
+.out-fmt:hover:not(.dis) { border-color: var(--cpq-accent-primary); }
+.out-fmt.on {
+  border-color: var(--cpq-accent-primary);
+  box-shadow: 0 0 0 1px var(--cpq-accent-primary), var(--cpq-shadow-accent, 0 4px 16px rgba(29, 78, 216, .12));
+}
+.out-fmt.dis { opacity: .5; cursor: not-allowed; }
+.out-fmt-name { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary); display: flex; align-items: center; gap: 6px; }
+.out-fmt-name .ico { font-size: 14px; }
+.out-fmt-desc { margin-top: 4px; font-size: 11.5px; color: var(--cpq-text-secondary); line-height: 1.55; }
+.out-fmt-badge {
+  position: absolute; top: 9px; right: 9px; font-size: 10px; padding: 2px 7px;
+  border-radius: 99px; font-weight: 600;
+  background: var(--cpq-accent-primary); color: #fff;
+}
+.out-fmt-badge.dim { background: var(--cpq-warning-bg, #f5efe0); color: var(--cpq-warning-text, #a08a2e); }
+.out-pdf-cfg {
+  margin-top: 10px; padding: 12px 13px; border-radius: 12px;
+  border: 1px solid var(--cpq-border-primary); background: var(--cpq-glass-2-bg);
+}
+.out-pdf-row { display: flex; align-items: center; gap: 10px; }
+.out-pdf-label { font-size: 12.5px; font-weight: 600; color: var(--cpq-text-primary); white-space: nowrap; }
+.out-fit { margin: 10px 0 0; font-size: 11.5px; line-height: 1.65; }
+.out-fit.ok { color: var(--cpq-success-text, #0e9f6e); }
+.out-fit.warn { color: var(--cpq-warning-text, #c77e12); }
+.out-fit.info { color: var(--cpq-text-secondary); }
 .node-section {
   margin: 14px 0;
   padding: 12px 14px;

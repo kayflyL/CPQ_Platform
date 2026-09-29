@@ -90,64 +90,120 @@ def _apply_payload_map(payload_map: dict, ctx: dict) -> dict:
     return payload
 
 
-async def _render_file_artifacts(config: dict, answer: str, payload_fields: dict | None = None) -> list:
-    """输出节点 artifacts 插槽：把已定稿的文本结论渲染成文件产物（当前支持 PDF 报告）。
+_CN_NUM = "一二三四五六七八九十"
 
-    两条渲染路线：
-    - template_key：产出物模板（rules.artifact_template blocks + 图表资产）→ HTML →
-      Playwright PDF；失败回退 legacy reportlab（模板渲染是增强不是闸门）。
-    - legacy：reportlab 直渲 markdown（无模板时的既有链路，保留为兜底）。
 
-    文件产物是增强不是闸门，单个产物失败只记日志跳过，绝不挡交付。answer 为空直接跳过
-    （模板链路里 answer 是 text 块的内容源，空则模板只剩图表，无意义）。
+def split_answer_sections(answer: str, sections: list[dict]) -> dict:
+    """AI 整段 answer 按目标层章节契约头「一、{title}」确定性拆段 → {section_key: 文本}。
+
+    契约头格式由 skill_target_contract.format_document_contract 规定；容忍 AI 偶发
+    markdown # 前缀与标题行尾接「：要求」。首行「数据范围：…」落在第一个契约头之前，
+    天然不进任何槽（PDF 封面口径由配置单源计算，不吃 AI 复述）。没匹配到契约头的
+    章节=槽空，模板对应 text 块自动隐藏，不报错不挡交付。
+    """
+    import re as _re
+
+    out: dict = {}
+    if not answer or not isinstance(sections, list):
+        return out
+    marks: list[tuple[int, int, str]] = []
+    for i, sec in enumerate(sections):
+        if not isinstance(sec, dict):
+            continue
+        title = str(sec.get("title") or "").strip()
+        key = str(sec.get("key") or "").strip()
+        if not title or not key:
+            continue
+        numeral = _CN_NUM[min(i, 9)]
+        pat = _re.compile(rf"^[ \t>#*]*{numeral}[、.．:：]\s*{_re.escape(title)}", _re.M)
+        m = pat.search(answer)
+        if not m:
+            continue
+        # 内容起点=标题正后方（AI 常把正文首句写在标题行「：」之后，不能丢）；
+        # 段首再剥掉残留的分隔符（：/。/空串）
+        marks.append((m.start(), m.end(), key))
+    marks.sort(key=lambda t: t[0])
+    for j, (_start, cstart, key) in enumerate(marks):
+        cend = marks[j + 1][0] if j + 1 < len(marks) else len(answer)
+        text = str(answer[cstart:cend] or "").strip()
+        text = _re.sub(r"^[\s:：.。;；]+", "", text).strip()
+        if text:
+            out[key] = text
+    return out
+
+
+async def _render_file_artifacts(ctx: dict, answer: str, payload_fields: dict | None = None) -> list:
+    """文件产物渲染：内容（报告名/章节/数据范围）来自目标层文档卡，呈现（render：
+    是否出文件/格式/模板）来自输出节点 config——均由 skill_turn_engine 组装进
+    ctx["document_target"]。文件产物是增强不是闸门，失败只记日志跳过，绝不挡交付。
+
+    两条内容路线：answer 文本（章节拆段进文本槽，legacy reportlab 兜底）与
+    结构化 payload（无文档卡的流如需求分析：ext 字段表 + plans 明细表，
+    默认排版按值形状自动组 blocks）。
     """
     files: list = []
-    if not str(answer or "").strip():
+    doc = ctx.get("document_target") if isinstance(ctx.get("document_target"), dict) else {}
+    render = doc.get("render") if isinstance(doc.get("render"), dict) else {}
+    fields = payload_fields or {}
+    has_text = bool(str(answer or "").strip())
+    has_struct = any(bool(v) and isinstance(v, (dict, list)) for v in fields.values())
+    if not doc or not (has_text or has_struct) or render.get("enabled") is not True:
         return files
-    for art in (config.get("artifacts") or []):
-        if not isinstance(art, dict):
-            continue
-        if str(art.get("kind") or "").strip() != "document":
-            continue
-        if str(art.get("format") or "pdf").strip() != "pdf":
-            continue
-        title = str(art.get("title") or "").strip() or "数据报告"
-        template_key = str(art.get("template_key") or "").strip()
-        rendered: bytes | None = None
-        if template_key:
-            rendered = await _render_by_template(template_key, title, answer, payload_fields or {})
-        if rendered is None:
-            try:
-                from app.services.report_pdf import render_markdown_report_pdf, report_meta_now
-
-                rendered = await asyncio.to_thread(
-                    render_markdown_report_pdf, title, answer, meta=report_meta_now())
-            except Exception:
-                logger.exception("PDF 文件产物渲染失败（不挡交付）")
-                continue
+    if str(render.get("format") or "pdf").strip().lower() != "pdf":
+        return files
+    title = str(doc.get("name") or "").strip() or "数据报告"
+    template_key = str(render.get("template_key") or "").strip()
+    rendered: bytes | None = None
+    if template_key:
+        rendered = await _render_by_template(template_key, title, answer, fields, doc)
+    if rendered is None and has_text:
         try:
-            from app.services.report_pdf import save_office_report
-            from app.services.storage_adapter import build_object_id
+            from app.services.report_pdf import render_markdown_report_pdf, report_meta_now
 
-            object_id = build_object_id(f"{title}.pdf")
-            url = save_office_report(object_id, rendered)
-            files.append({
-                "url": url,
-                "filename": f"{object_id}.pdf",
-                "size": len(rendered),
-                "mime": "application/pdf",
-                "title": title,
-            })
+            rendered = await asyncio.to_thread(
+                render_markdown_report_pdf, title, answer, meta=report_meta_now())
         except Exception:
-            logger.exception("PDF 文件产物落盘失败（不挡交付）")
+            logger.exception("PDF 文件产物渲染失败（不挡交付）")
+            return files
+    if rendered is None and has_struct:
+        rendered = await _render_structured_default(title, fields)
+        if rendered is None:
+            return files
+    try:
+        from app.services.report_pdf import save_office_report
+        from app.services.storage_adapter import build_object_id
+
+        object_id = build_object_id(f"{title}.pdf")
+        url = save_office_report(object_id, rendered)
+        files.append({
+            "url": url,
+            "filename": f"{object_id}.pdf",
+            "size": len(rendered),
+            "mime": "application/pdf",
+            "title": title,
+            "template_key": template_key or "default_layout",
+            "rendered_by": "output_node",
+        })
+    except Exception:
+        logger.exception("PDF 文件产物落盘失败（不挡交付）")
     return files
 
 
-async def _render_by_template(template_key: str, title: str, answer: str, payload_fields: dict) -> bytes | None:
-    """产出物模板渲染；任何失败返回 None 让调用方走 legacy reportlab。"""
+async def _render_by_template(template_key: str, title: str, answer: str,
+                              payload_fields: dict, doc: dict | None = None) -> bytes | None:
+    """产出物模板渲染；任何失败返回 None 让调用方走 legacy reportlab。
+
+    三桥（内容侧配置→渲染管线，全部来自目标层文档卡 doc）：
+    - 章节→槽位：answer 按「一、{title}」拆段进 render_payload，模板 text 块
+      source=payload key={章节key} 各取各段；
+    - 数据范围→封面：period_label 由 _report_window 确定性计算（不吃 AI 复述）；
+    - 数据范围→图表：range_days → asset_params，按资产 schema clamp，不认 days 的
+      资产（kpi/profit）自动忽略。
+    """
     try:
         from app.repository.artifact_template_repo import ArtifactTemplateRepo
         from app.services.artifact_render import render_report_pdf
+        from app.services.skill_target_contract import _report_window, range_days
 
         repo = ArtifactTemplateRepo()
         try:
@@ -157,14 +213,51 @@ async def _render_by_template(template_key: str, title: str, answer: str, payloa
         if not tpl:
             logger.warning("产出物模板不存在 key=%s，回退 legacy 渲染", template_key)
             return None
+        doc = doc or {}
+        window, label = _report_window(doc)
         meta = {
             "title": title or tpl.get("name") or tpl.get("key"),
             "generated_by": "AI 办公室 · 工作流输出节点",
         }
-        render_payload = {**payload_fields, "answer": answer, "meta": {**(payload_fields.get("meta") or {}), **meta}}
-        return await render_report_pdf(tpl.get("blocks") or [], render_payload, template_name=tpl.get("name") or "")
+        if window:
+            meta["period_label"] = f"统计区间：{window}（{label}）"
+        slots = split_answer_sections(answer, doc.get("sections") or [])
+        days = range_days(doc)
+        render_payload = {
+            **payload_fields, **slots, "answer": answer,
+            "meta": {**(payload_fields.get("meta") or {}), **meta},
+        }
+        asset_params = {"days": days} if days else None
+        return await render_report_pdf(tpl.get("blocks") or [], render_payload,
+                                       template_name=tpl.get("name") or "",
+                                       asset_params=asset_params)
     except Exception:
         logger.exception("产出物模板渲染失败 key=%s（回退 legacy）", template_key)
+        return None
+
+
+_STRUCT_BLOCK_TITLES = {"ext": "需求单字段", "plans": "BOM 配置行"}
+
+
+async def _render_structured_default(title: str, payload_fields: dict) -> bytes | None:
+    """结构化输出（无 answer 文本）的默认排版：按 payload 值形状自动组 blocks——
+    dict → 字段表区块，list[dict] → 明细表区块，交给产出物渲染管线出 PDF。"""
+    try:
+        from app.services.artifact_render import render_report_pdf
+
+        blocks: list = [{"type": "title"}]
+        for key, val in payload_fields.items():
+            label = _STRUCT_BLOCK_TITLES.get(str(key), str(key))
+            if isinstance(val, dict) and val:
+                blocks.append({"type": "fields", "key": str(key), "title": label})
+            elif isinstance(val, list) and val and all(isinstance(r, dict) for r in val):
+                blocks.append({"type": "table", "source": "payload", "key": str(key), "title": label})
+        if len(blocks) == 1:
+            return None
+        meta = {"title": title, "generated_by": "AI 办公室 · 工作流输出节点"}
+        return await render_report_pdf(blocks, {**payload_fields, "meta": meta}, template_name=title)
+    except Exception:
+        logger.exception("结构化默认排版渲染失败（不挡交付）")
         return None
 
 
@@ -205,8 +298,8 @@ async def finalize_output(ctx: dict, config: dict, broadcast: BroadcastFn) -> di
         answer = str(agent_result.get("answer") or "").strip() or str(_ctx_value(ctx, "assembled.answer") or "").strip()
         payload.setdefault("answer", answer)
         payload.setdefault("data", ctx.get("assembled") if isinstance(ctx.get("assembled"), dict) else {})
-        # 文件产物（输出节点 artifacts 插槽）：确定性渲染 markdown→PDF，失败不挡交付
-        payload["files"] = await _render_file_artifacts(config, answer, payload_fields=payload)
+        # 文件产物：内容配置唯一权威=目标层文档卡（ctx["document_target"]），输出节点零配置
+        payload["files"] = await _render_file_artifacts(ctx, answer, payload_fields=payload)
     else:
         payload.setdefault("result", ctx.get("assembled") if isinstance(ctx.get("assembled"), dict) else {})
         payload.setdefault("template", config.get("template") or "")
