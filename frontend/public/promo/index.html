@@ -1,0 +1,645 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>霄擎算力科技 · CPQ 智能选配报价平台</title>
+<meta name="Description" content="霄擎算力科技 CPQ 平台:一句话需求,一份可签的报价单。需求理解、智能选配、策略核价、报价产出,同一条流水线。" />
+<!-- GSAP:加载失败时页面内容依然完整可见(动效全部 gsap.from,不做 CSS 预隐藏) -->
+<script defer src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/gsap.min.js"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/gsap@3.13.0/dist/ScrollTrigger.min.js"></script>
+<style>
+/* ============ tokens(全部取自星河页品牌资产) ============ */
+:root {
+  --space: #050b18;        /* 深空底 */
+  --panel: #0b1020;        /* 面板底 */
+  --panel-2: #0e1530;      /* 面板亮阶 */
+  --blue: #4676f0;         /* 工业蓝(主 accent) */
+  --violet: #6d48ff;       /* 星紫(品牌渐变端点) */
+  --ink: #eef3fa;          /* 主文本 */
+  --ink-dim: rgba(238, 243, 250, 0.58);
+  --ink-faint: rgba(238, 243, 250, 0.34);
+  --glass-line: rgba(255, 255, 255, 0.10);
+  --glass-line-strong: rgba(255, 255, 255, 0.16);
+  --ok: #35c48d;           /* 语义小点:通过 */
+  --warn: #e8b34b;         /* 语义小点:待确认 */
+  --mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --sans: "Avenir Next", "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  --max: 1180px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  font-family: var(--sans);
+  background: var(--space);
+  color: var(--ink);
+  font-size: 17px;
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+::selection { background: rgba(70, 118, 240, 0.4); }
+a { color: inherit; text-decoration: none; }
+:focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 2px; }
+
+.wrap { max-width: var(--max); margin: 0 auto; padding: 0 32px; }
+section { position: relative; }
+
+/* ============ 导航 ============ */
+.nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 50;
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  background: rgba(5, 11, 24, 0.72);
+  border-bottom: 1px solid var(--glass-line);
+}
+.nav-inner {
+  max-width: var(--max); margin: 0 auto; padding: 0 32px;
+  height: 64px; display: flex; align-items: center; gap: 40px;
+}
+.brand { display: flex; align-items: baseline; gap: 12px; font-weight: 700; font-size: 17px; letter-spacing: 0.02em; }
+.brand .mark {
+  font-family: var(--mono); font-size: 13px; font-weight: 500;
+  background: linear-gradient(100deg, var(--blue), var(--violet));
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+  letter-spacing: 0.06em;
+}
+.nav-links { display: flex; gap: 28px; margin-left: auto; font-size: 15px; color: var(--ink-dim); }
+.nav-links a { transition: color 0.2s; padding: 4px 0; }
+.nav-links a:hover { color: var(--ink); }
+.btn {
+  display: inline-block; padding: 10px 26px; border-radius: 6px;
+  font-size: 15px; font-weight: 600; letter-spacing: 0.04em;
+  transition: transform 0.15s ease, box-shadow 0.2s ease, background 0.2s ease;
+  border: 1px solid transparent; cursor: pointer;
+}
+.btn-primary { background: var(--blue); color: #fff; }
+.btn-primary:hover { background: #5a85f5; box-shadow: 0 4px 24px rgba(70, 118, 240, 0.35); transform: translateY(-1px); }
+.btn-ghost { border-color: var(--glass-line-strong); color: var(--ink-dim); }
+.btn-ghost:hover { color: var(--ink); border-color: rgba(255,255,255,0.3); }
+.nav .btn { padding: 7px 20px; font-size: 14px; }
+
+/* ============ Hero ============ */
+.hero {
+  padding: 168px 0 96px;
+  background:
+    radial-gradient(ellipse 60% 45% at 78% 18%, rgba(70, 118, 240, 0.13), transparent 70%),
+    radial-gradient(ellipse 45% 40% at 15% 80%, rgba(109, 72, 255, 0.08), transparent 70%),
+    var(--space);
+  border-bottom: 1px solid var(--glass-line);
+}
+.hero-grid { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 64px; align-items: center; }
+.hero h1 {
+  font-size: clamp(38px, 4.2vw, 56px);
+  line-height: 1.22; font-weight: 700; letter-spacing: 0.01em;
+  margin-bottom: 26px;
+}
+.hero .lede { font-size: 18px; color: var(--ink-dim); max-width: 34em; margin-bottom: 40px; }
+.hero-cta { display: flex; gap: 16px; align-items: center; }
+.hero-meta {
+  margin-top: 56px; font-family: var(--mono); font-size: 12.5px;
+  color: var(--ink-faint); letter-spacing: 0.04em;
+}
+
+/* —— 配置单玻璃卡(hero 的唯一大胆元素)—— */
+.sheet-wrap { position: relative; }
+.sheet {
+  background: linear-gradient(160deg, rgba(255,255,255,0.055), rgba(255,255,255,0.02));
+  border: 1px solid var(--glass-line-strong);
+  border-radius: 12px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+.sheet-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 14px 22px; border-bottom: 1px solid var(--glass-line);
+  font-family: var(--mono); font-size: 12px; color: var(--ink-faint); letter-spacing: 0.06em;
+}
+.sheet-head .live { display: flex; align-items: center; gap: 7px; color: var(--ink-dim); }
+.sheet-head .live i {
+  width: 6px; height: 6px; border-radius: 50%; background: var(--ok);
+  box-shadow: 0 0 8px rgba(53, 196, 141, 0.8);
+}
+.sheet-body { padding: 20px 22px 22px; }
+.req-line {
+  font-size: 15px; line-height: 1.7; color: var(--ink);
+  background: rgba(70, 118, 240, 0.09);
+  border: 1px solid rgba(70, 118, 240, 0.22);
+  border-radius: 8px; padding: 12px 16px; min-height: 74px;
+}
+.req-line .caret {
+  display: inline-block; width: 2px; height: 1.05em; vertical-align: -0.18em;
+  background: var(--blue); margin-left: 2px;
+}
+.bom { list-style: none; margin-top: 16px; }
+.bom li {
+  display: flex; align-items: baseline; gap: 12px;
+  padding: 9px 2px; border-bottom: 1px dashed rgba(255,255,255,0.07);
+  font-size: 14.5px;
+}
+.bom li:last-child { border-bottom: none; }
+.bom .dot {
+  width: 5px; height: 5px; border-radius: 50%; flex: none;
+  background: var(--glass-line-strong); align-self: center;
+  transition: background 0.3s, box-shadow 0.3s;
+}
+.bom li.done .dot { background: var(--ok); box-shadow: 0 0 6px rgba(53, 196, 141, 0.7); }
+.bom .cat { color: var(--ink-dim); width: 4.5em; flex: none; }
+.bom .spec { font-family: var(--mono); font-size: 13px; color: var(--ink); letter-spacing: 0.01em; }
+.bom .qty { margin-left: auto; font-family: var(--mono); font-size: 12.5px; color: var(--ink-faint); }
+.sheet-foot {
+  display: flex; justify-content: space-between; align-items: baseline;
+  padding: 15px 22px 17px; border-top: 1px solid var(--glass-line);
+  background: rgba(255, 255, 255, 0.02);
+}
+.sheet-foot .label { font-size: 13px; color: var(--ink-dim); }
+.sheet-foot .total {
+  font-family: var(--mono); font-size: 22px; font-weight: 600; letter-spacing: 0.02em;
+  background: linear-gradient(100deg, var(--blue), #9f5ef1);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}
+.sheet-note { margin-top: 12px; font-size: 12.5px; color: var(--ink-faint); text-align: center; }
+
+@media (max-width: 900px) {
+  .wrap, .nav-inner { padding: 0 20px; }
+  .nav-links { display: none; }
+  .hero { padding: 130px 0 72px; }
+  .hero-grid { grid-template-columns: 1fr; gap: 48px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
+/* ===== 章节头 ===== */
+.sec-head { margin-bottom: 64px; }
+.sec-head h2 { font-size: clamp(28px, 3vw, 38px); font-weight: 700; }
+.sec-lede { margin-top: 12px; color: var(--ink-dim); font-size: 16.5px; }
+
+/* ===== 流水线 ===== */
+.pipeline { padding: 104px 0 88px; }
+.rail { position: relative; }
+.rail-line { display: block; width: 100%; height: 90px; }
+.stations {
+  list-style: none; display: grid; grid-template-columns: repeat(6, 1fr);
+  margin-top: -58px; position: relative; z-index: 1;
+}
+.stations li { display: flex; flex-direction: column; gap: 3px; padding: 0 8px; }
+.st-no { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); letter-spacing: 0.08em; transition: color 0.3s; }
+.st-name { font-size: 16.5px; font-weight: 600; }
+.st-sub { font-size: 12.5px; color: var(--ink-faint); }
+.stations li.lit .st-no { color: var(--blue); }
+
+/* ===== 能力区 ===== */
+.caps { padding: 96px 0; border-top: 1px solid var(--glass-line); }
+.cap-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 72px; align-items: center;
+  padding: 56px 0;
+}
+.cap-row + .cap-row { border-top: 1px dashed rgba(255,255,255,0.08); }
+.cap-row.rev .cap-copy { order: 2; }
+.cap-row.rev .cap-visual { order: 1; }
+.cap-copy h3 { font-size: 24px; font-weight: 700; margin-bottom: 14px; }
+.cap-copy p { color: var(--ink-dim); max-width: 26em; }
+.cap-visual { display: flex; justify-content: center; }
+.dag { width: 100%; max-width: 460px; }
+
+/* ===== 气泡+确认卡切片 ===== */
+.chip-demo { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 12px; }
+.bubble {
+  align-self: flex-start; max-width: 88%;
+  background: rgba(255,255,255,0.05); border: 1px solid var(--glass-line);
+  border-radius: 10px 10px 10px 3px; padding: 10px 16px; font-size: 14px;
+}
+.confirm-card {
+  align-self: flex-end; width: 78%;
+  background: var(--panel-2); border: 1px solid rgba(70,118,240,0.35);
+  border-radius: 10px; padding: 14px 16px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.35);
+}
+.cc-title { font-family: var(--mono); font-size: 11px; color: var(--blue); letter-spacing: 0.1em; margin-bottom: 10px; }
+.cc-row { display: flex; justify-content: space-between; font-size: 13.5px; padding: 5px 0; }
+.cc-row span { color: var(--ink-dim); }
+.cc-row b { font-weight: 600; }
+.cc-btn {
+  margin-top: 10px; width: 100%; padding: 8px 0; border: none; border-radius: 6px;
+  background: var(--blue); color: #fff; font-size: 13.5px; font-weight: 600; cursor: pointer;
+  font-family: var(--sans);
+}
+.cc-btn:hover { background: #5a85f5; }
+
+/* ===== AI 团队横幅 ===== */
+.team { padding: 96px 0; border-top: 1px solid var(--glass-line); }
+.team-panel {
+  position: relative; overflow: hidden;
+  background: linear-gradient(160deg, rgba(70,118,240,0.10), rgba(109,72,255,0.06) 55%, transparent), var(--panel);
+  border: 1px solid var(--glass-line-strong); border-radius: 14px;
+  padding: 64px 56px;
+}
+.team-grid-floor {
+  position: absolute; inset: auto 0 0 0; height: 46%;
+  background:
+    linear-gradient(rgba(238,243,250,0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(238,243,250,0.055) 1px, transparent 1px);
+  background-size: 46px 46px;
+  transform: perspective(600px) rotateX(58deg);
+  transform-origin: 50% 100%;
+  opacity: 0.55;
+}
+.team-copy { max-width: 34em; }
+.team-copy h2 { font-size: clamp(26px, 2.8vw, 34px); font-weight: 700; margin-bottom: 16px; }
+.team-copy p { color: var(--ink-dim); }
+.team-roles { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 32px; }
+.role-chip {
+  display: flex; align-items: center; gap: 9px; padding: 9px 18px; border-radius: 999px;
+  border: 1px solid var(--glass-line-strong); background: rgba(255,255,255,0.04); font-size: 14px;
+}
+.role-chip i {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--ok); box-shadow: 0 0 8px rgba(53,196,141,0.8);
+}
+.team-foot { margin-top: 36px; font-size: 12px; color: var(--ink-faint); letter-spacing: 0.08em; }
+
+/* ===== 产品线 ===== */
+.products { padding: 96px 0; border-top: 1px solid var(--glass-line); }
+.prod-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+.prod {
+  background: var(--panel); border: 1px solid var(--glass-line);
+  border-radius: 12px; padding: 34px 34px 30px;
+  transition: border-color 0.25s, background 0.25s;
+}
+.prod:hover { border-color: rgba(70,118,240,0.5); background: var(--panel-2); }
+.prod-hero { grid-column: 1 / -1; }
+.prod-hero .prod-name { font-size: 30px; }
+.prod-name { font-size: 22px; font-weight: 700; margin-bottom: 6px; }
+.prod-en { font-size: 11.5px; color: var(--ink-faint); letter-spacing: 0.22em; margin-bottom: 16px; }
+.prod p { color: var(--ink-dim); font-size: 15px; margin-bottom: 20px; }
+.prod-link { font-size: 14px; color: var(--blue); font-weight: 600; cursor: pointer; }
+.prod-link:hover { color: #7ba2f8; }
+
+/* ===== CTA + footer ===== */
+.cta {
+  padding: 120px 0; text-align: center;
+  background: radial-gradient(ellipse 55% 60% at 50% 100%, rgba(70,118,240,0.12), transparent 70%), var(--space);
+  border-top: 1px solid var(--glass-line);
+}
+.cta h2 { font-size: clamp(30px, 3.4vw, 44px); font-weight: 700; }
+.cta-lede { margin: 18px 0 40px; color: var(--ink-dim); }
+.cta-actions { display: flex; gap: 16px; justify-content: center; }
+.foot { border-top: 1px solid var(--glass-line); padding: 28px 0 34px; }
+.foot-inner { display: flex; gap: 24px; align-items: baseline; flex-wrap: wrap; font-size: 13.5px; color: var(--ink-dim); }
+.foot-note { margin-left: auto; font-size: 12.5px; color: var(--ink-faint); }
+
+/* ===== 移动端 ===== */
+@media (max-width: 900px) {
+  .stations { grid-template-columns: repeat(3, 1fr); gap: 18px 0; margin-top: 0; }
+  .rail-line { display: none; }
+  .cap-row { grid-template-columns: 1fr; gap: 32px; padding: 44px 0; }
+  .cap-row.rev .cap-copy { order: 1; }
+  .cap-row.rev .cap-visual { order: 2; }
+  .team-panel { padding: 44px 28px; }
+  .prod-grid { grid-template-columns: 1fr; }
+  .foot-inner { flex-direction: column; gap: 8px; }
+  .foot-note { margin-left: 0; }
+}
+
+</style>
+</head>
+<body>
+<!-- ===== 导航 ===== -->
+<nav class="nav">
+  <div class="nav-inner">
+    <a class="brand" href="#top">霄擎算力科技 <span class="mark">CPQ</span></a>
+    <div class="nav-links">
+      <a href="#pipeline">工作流程</a>
+      <a href="#capabilities">平台能力</a>
+      <a href="#team">AI 团队</a>
+      <a href="#products">服务器产品线</a>
+    </div>
+    <a class="btn btn-primary" href="#contact">预约演示</a>
+  </div>
+</nav>
+
+<!-- ===== Hero ===== -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div class="hero-copy">
+      <h1>一句话需求，<br />一份可签的报价单。</h1>
+      <p class="lede">
+        霄擎 CPQ 把需求理解、智能选配、策略核价、报价产出搬上同一条流水线——
+        AI 员工跑完全程，人只在关键处做确认。
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#contact">预约演示</a>
+        <a class="btn btn-ghost" href="#pipeline">看看它是怎么跑的</a>
+      </div>
+      <div class="hero-meta">CONFIGURE / PRICE / QUOTE — 算力硬件行业的选配报价流水线</div>
+    </div>
+
+    <!-- 配置单玻璃卡:整页唯一的自演动画 -->
+    <div class="sheet-wrap">
+      <div class="sheet">
+        <div class="sheet-head">
+          <span>配置单 CFG-2026-0901</span>
+          <span class="live"><i></i>推理中</span>
+        </div>
+        <div class="sheet-body">
+          <p class="req-line"><span id="reqText"></span><span class="caret" id="caret"></span></p>
+          <ul class="bom" id="bom">
+            <li><span class="dot"></span><span class="cat">处理器</span><span class="spec">双路 × 32C</span><span class="qty">×2</span></li>
+            <li><span class="dot"></span><span class="cat">内存</span><span class="spec">DDR5 32G</span><span class="qty">×8</span></li>
+            <li><span class="dot"></span><span class="cat">加速卡</span><span class="spec">48G 显存 · 推理</span><span class="qty">×8</span></li>
+            <li><span class="dot"></span><span class="cat">系统盘</span><span class="spec">960G SSD</span><span class="qty">×2</span></li>
+            <li><span class="dot"></span><span class="cat">网卡</span><span class="spec">千兆 + 万兆</span><span class="qty">各×1</span></li>
+            <li><span class="dot"></span><span class="cat">机箱</span><span class="spec">4U 机架</span><span class="qty">×1</span></li>
+            <li><span class="dot"></span><span class="cat">电源</span><span class="spec">2000W 冗余</span><span class="qty">2+2</span></li>
+          </ul>
+        </div>
+        <div class="sheet-foot">
+          <span class="label">报价合计</span>
+          <span class="total" id="sheetTotal">¥ 0</span>
+        </div>
+      </div>
+      <p class="sheet-note">示意数据 · 平台内按真实料号库与策略实时核算</p>
+    </div>
+  </div>
+</header>
+
+<!-- ===== 工作流程(真序列,编号合法;滚动描线) ===== -->
+<section class="pipeline" id="pipeline">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>一条流水线，六道工位</h2>
+      <p class="sec-lede">商机从线索进门到报价出门，全程在平台上流转，每一步在线可见。</p>
+    </div>
+    <div class="rail">
+      <svg class="rail-line" viewBox="0 0 1100 90" fill="none" preserveAspectRatio="none" aria-hidden="true">
+        <path id="railPath" d="M 20 45 H 1080" stroke="rgba(255,255,255,0.12)" stroke-width="2"/>
+        <path id="railGlow" d="M 20 45 H 1080" stroke="url(#railGrad)" stroke-width="2" stroke-dasharray="1060" stroke-dashoffset="1060"/>
+        <defs>
+          <linearGradient id="railGrad" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#4676f0"/><stop offset="1" stop-color="#6d48ff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <ol class="stations">
+        <li><span class="st-no">01</span><span class="st-name">线索进门</span><span class="st-sub">门户 · 商机线索</span></li>
+        <li><span class="st-no">02</span><span class="st-name">需求理解</span><span class="st-sub">槽位化 · 反问确认</span></li>
+        <li><span class="st-no">03</span><span class="st-name">智能选配</span><span class="st-sub">推理流 · 选型规则</span></li>
+        <li><span class="st-no">04</span><span class="st-name">策略核价</span><span class="st-sub">定价策略 · 权限</span></li>
+        <li><span class="st-no">05</span><span class="st-name">报价产出</span><span class="st-sub">工作台 · 规格书</span></li>
+        <li><span class="st-no">06</span><span class="st-name">协作交付</span><span class="st-sub">五角色 · 通知</span></li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 平台能力(交替行) ===== -->
+<section class="caps" id="capabilities">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>每一个环节，都替你把过关</h2>
+      <p class="sec-lede">不是四个功能模块，是同一条推理链上的四道工序。</p>
+    </div>
+
+    <div class="cap-row">
+      <div class="cap-copy">
+        <h3>需求理解</h3>
+        <p>一句中文进来，结构化槽位出去。AI 先推断，推断值必经人工确认；拿不准的，它会逐条反问，问完才动工。</p>
+      </div>
+      <div class="cap-visual">
+        <div class="chip-demo">
+          <div class="bubble ask">GPU 主要用于训练还是推理？</div>
+          <div class="bubble ask">机架空间有没有 4U 限制？</div>
+          <div class="confirm-card">
+            <div class="cc-title">推断待确认</div>
+            <div class="cc-row"><span>双路 CPU</span><b>32 核</b></div>
+            <div class="cc-row"><span>内存容量</span><b>256G</b></div>
+            <button class="cc-btn" type="button">确认无误</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cap-row rev">
+      <div class="cap-copy">
+        <h3>智能选配</h3>
+        <p>推理流像流程图一样编排：硬规则管底线，AI 管权衡，每一次出机型的理由都可以点开看。</p>
+      </div>
+      <div class="cap-visual">
+        <svg class="dag" viewBox="0 0 460 150" fill="none" aria-hidden="true">
+          <path d="M92 40 C 140 40 140 75 188 75" stroke="rgba(70,118,240,0.55)" stroke-width="1.5"/>
+          <path d="M92 110 C 140 110 140 75 188 75" stroke="rgba(70,118,240,0.55)" stroke-width="1.5"/>
+          <path d="M286 75 C 320 75 320 40 354 40" stroke="rgba(109,72,255,0.6)" stroke-width="1.5"/>
+          <path d="M286 75 C 320 75 320 110 354 110" stroke="rgba(109,72,255,0.6)" stroke-width="1.5"/>
+          <g>
+            <rect x="10" y="22" width="82" height="36" rx="6" fill="rgba(70,118,240,0.14)" stroke="rgba(70,118,240,0.5)"/>
+            <text x="51" y="44" text-anchor="middle" fill="#eef3fa" font-size="12.5">需求槽位</text>
+            <rect x="10" y="92" width="82" height="36" rx="6" fill="rgba(70,118,240,0.14)" stroke="rgba(70,118,240,0.5)"/>
+            <text x="51" y="114" text-anchor="middle" fill="#eef3fa" font-size="12.5">选型规则</text>
+            <rect x="188" y="57" width="98" height="36" rx="6" fill="rgba(255,255,255,0.05)" stroke="rgba(255,255,255,0.22)"/>
+            <text x="237" y="79" text-anchor="middle" fill="#eef3fa" font-size="12.5">推理流引擎</text>
+            <rect x="354" y="22" width="96" height="36" rx="6" fill="rgba(109,72,255,0.16)" stroke="rgba(109,72,255,0.55)"/>
+            <text x="402" y="44" text-anchor="middle" fill="#eef3fa" font-size="12.5">整机方案</text>
+            <rect x="354" y="92" width="96" height="36" rx="6" fill="rgba(109,72,255,0.16)" stroke="rgba(109,72,255,0.55)"/>
+            <text x="402" y="114" text-anchor="middle" fill="#eef3fa" font-size="12.5">BOM 明细</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <div class="cap-row">
+      <div class="cap-copy">
+        <h3>策略核价</h3>
+        <p>加价策略就是一张连线画布，改完即生效；价格是字段级权限，谁能看价、单据揭示到哪一档，都由你定义。</p>
+      </div>
+      <div class="cap-visual">
+        <div class="reveal-demo">
+          <div class="rv-row"><span class="rv-name">客户报价</span><span class="rv-val mono">¥ 1,482,000</span><span class="rv-state ok">可见</span></div>
+          <div class="rv-row"><span class="rv-name">成本价</span><span class="rv-val mono">¥ ■■■,■■■</span><span class="rv-state lock">已遮蔽</span></div>
+          <div class="rv-row"><span class="rv-name">综合利润率</span><span class="rv-val mono">■■.■ %</span><span class="rv-state lock">已遮蔽</span></div>
+          <div class="rv-cap">同一张单 · 三种角色各见其份</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="cap-row rev">
+      <div class="cap-copy">
+        <h3>产出物</h3>
+        <p>报价单与规格书同源模板，图表资产同源引用，核价通过后一键出 PDF，不发编号不一致的两份文件。</p>
+      </div>
+      <div class="cap-visual">
+        <div class="pdf-demo">
+          <div class="pdf-page">
+            <div class="pdf-title"></div>
+            <div class="pdf-line w80"></div>
+            <div class="pdf-line w65"></div>
+            <div class="pdf-table">
+              <div class="pt-head"></div>
+              <div class="pt-row"></div>
+              <div class="pt-row"></div>
+              <div class="pt-row"></div>
+            </div>
+            <div class="pdf-chart"></div>
+          </div>
+          <div class="pdf-tag mono">SPEC-2026-0901.pdf</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== AI 团队横幅 ===== -->
+<section class="team" id="team">
+  <div class="wrap">
+    <div class="team-panel">
+      <div class="team-grid-floor" aria-hidden="true"></div>
+      <div class="team-copy">
+        <h2>AI 员工，在办公室里跑商机</h2>
+        <p>
+          平台内置一个 3D 办公室：需求分析师、技术支持工程师、成本分析师、报价调度员各就其位，
+          商机在工位间流转，每一步在线可见。
+        </p>
+      </div>
+      <div class="team-roles">
+        <div class="role-chip"><i></i>需求分析师</div>
+        <div class="role-chip"><i></i>技术支持工程师</div>
+        <div class="role-chip"><i></i>成本分析师</div>
+        <div class="role-chip"><i></i>报价调度员</div>
+      </div>
+      <div class="team-foot mono">OFFICE — 商机在工位间流转，人在关键处确认</div>
+    </div>
+  </div>
+</section>
+
+<!-- ===== 服务器产品线 ===== -->
+<section class="products" id="products">
+  <div class="wrap">
+    <div class="sec-head">
+      <h2>星河目录 · 服务器产品线</h2>
+      <p class="sec-lede">四个系列在售,支持四步配置向导下单,机型详情一键直达。</p>
+    </div>
+    <div class="prod-grid">
+      <article class="prod prod-hero">
+        <div class="prod-name">猎户座系列</div>
+        <div class="prod-en mono">ORION</div>
+        <p>星河目录在售 · 四步配置向导下单</p>
+        <div class="prod-link">查看机型目录</div>
+      </article>
+      <article class="prod">
+        <div class="prod-name">北极星系列</div>
+        <div class="prod-en mono">POLARIS</div>
+        <p>星河目录在售 · 四步配置向导下单</p>
+        <div class="prod-link">查看机型目录</div>
+      </article>
+            <article class="prod">
+        <div class="prod-name">Intel 系列</div>
+        <div class="prod-en mono">INTEL</div>
+        <p>星河目录在售 · 四步配置向导下单</p>
+        <div class="prod-link">查看机型目录</div>
+      </article>
+      <article class="prod">
+        <div class="prod-name">工作站系列</div>
+        <div class="prod-en mono">WORKSTATION</div>
+        <p>星河目录在售 · 四步配置向导下单</p>
+        <div class="prod-link">查看产品线</div>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- ===== CTA + footer ===== -->
+<section class="cta" id="contact">
+  <div class="wrap">
+    <h2>把选配报价交给流水线</h2>
+    <p class="cta-lede">带上一份真实需求来,看它多久变成报价单。</p>
+    <div class="cta-actions">
+      <a class="btn btn-primary" href="mailto:demo@example.com">预约演示</a>
+      <a class="btn btn-ghost" href="/galaxy/index.html">访问星河目录</a>
+    </div>
+  </div>
+</section>
+<footer class="foot">
+  <div class="wrap foot-inner">
+    <span>霄擎算力科技 · CPQ 智能选配报价平台</span>
+    <span class="mono">© 2026</span>
+    <span class="foot-note">页面内配置单为示意数据,平台内按真实料号库与策略实时核算</span>
+  </div>
+</footer>
+
+<script>
+/* 动画守卫:GSAP 未加载或用户偏好减动效时,页面以完整终态静态呈现 */
+var REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* GSAP 走 defer:内联脚本必须等 DOMContentLoaded 后才有 window.gsap */
+function startMotion() {
+  if (typeof window.gsap === 'undefined' || REDUCED) return;
+
+  /* ---- Hero:标题入场 → 需求打字 → BOM 逐行点亮 → 合计揭价 ---- */
+  var REQ_TEXT = '帮我配一台用于大模型推理的 8 卡服务器，预算内给最优。';
+  var bomItems = document.querySelectorAll('#bom li');
+  var totalEl = document.getElementById('sheetTotal');
+  var TOTAL = 1686800;
+
+  var tl = gsap.timeline({ defaults: { ease: 'power2.out' } });
+  tl.from('.hero-copy > *', { opacity: 0, y: 26, duration: 0.7, stagger: 0.09 })
+    .from('.sheet', { opacity: 0, y: 30, duration: 0.7 }, '-=0.45');
+
+  tl.call(function () {
+    var caret = document.getElementById('caret');
+    var i = 0;
+    var timer = setInterval(function () {
+      document.getElementById('reqText').textContent = REQ_TEXT.slice(0, ++i);
+      if (i >= REQ_TEXT.length) {
+        clearInterval(timer);
+        if (caret) caret.style.display = 'none';
+      }
+    }, 46);
+  });
+
+  /* BOM 行:初始压暗,推理到位逐行点亮(绝对时间位:打字约1.4s后开始) */
+  gsap.set(bomItems, { opacity: 0.22 });
+  Array.prototype.forEach.call(bomItems, function (li, i) {
+    tl.to(li, {
+      opacity: 1, duration: 0.35,
+      onStart: function () { li.classList.add('done'); }
+    }, 1.5 + i * 0.22);
+  });
+
+  tl.call(function () {
+    /* 合计揭价:0 → TOTAL 数字滚动 */
+    var obj = { v: 0 };
+    gsap.to(obj, {
+      v: TOTAL, duration: 1.4, ease: 'power1.inOut',
+      onUpdate: function () {
+        totalEl.textContent = '¥ ' + Math.round(obj.v).toLocaleString('en-US');
+      }
+    });
+  }, null, '+=0.2');
+  /* ---- 流水线:滚动描线 + 站点逐个点亮 ---- */
+  if (typeof window.ScrollTrigger !== 'undefined') {
+    gsap.registerPlugin(ScrollTrigger);
+    var glow = document.getElementById('railGlow');
+    var stations = document.querySelectorAll('.stations li');
+    if (glow) {
+      gsap.to(glow, {
+        strokeDashoffset: 0, ease: 'none',
+        scrollTrigger: {
+          trigger: '.rail', start: 'top 78%', end: 'top 30%', scrub: 0.6,
+          onUpdate: function (self) {
+            Array.prototype.forEach.call(stations, function (li, i) {
+              if (self.progress >= (i + 0.5) / stations.length) li.classList.add('lit');
+              else li.classList.remove('lit');
+            });
+          }
+        }
+      });
+    }
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', startMotion);
+} else {
+  startMotion();
+}
+</script>
+
+</body>
+</html>
