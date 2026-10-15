@@ -1,0 +1,22 @@
+# CPQ 后端 systemd 单元（Ubuntu）
+# 安装: sudo cp deploy/cpq-backend.service /etc/systemd/system/ && sudo systemctl daemon-reload && sudo systemctl enable --now cpq-backend
+# 日志: journalctl -u cpq-backend -f
+[Unit]
+Description=CPQ Platform backend (FastAPI + uvicorn)
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cpq
+Group=cpq
+WorkingDirectory=/opt/cpq/backend
+# startup.py 的 emoji print 在非 UTF-8 控制台会崩 lifespan,强制 UTF-8
+Environment=PYTHONUTF8=1
+# 单 worker 铁律: ChatSessionRuntime/notification_hub 是进程内单例,多 worker 聊天与在线状态会错乱
+ExecStart=/opt/cpq/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
