@@ -1,5 +1,5 @@
 <script setup lang="ts">
-/** 性能六维雷达（配置页右栏）— echarts radar，形状承原型 docs/原型/配置页-性能六维雷达-原型.html。
+/** 性能六维雷达（配置页右栏）— echarts radar，形状承原型 docs/prototypes/配置页-性能六维雷达-原型.html。
  *  缺数据维度顶点缩到圆心 + 灰标「未维护」（不编造）；配色走 useChartTheme 真实色值
  *  （canvas 读不到 CSS 变量）；维度 chip hover 出打分明细 popover（echarts 轴名不可交互，chip 代替）。 */
 import { onMounted, onBeforeUnmount, ref, watch } from 'vue'

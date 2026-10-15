@@ -415,7 +415,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 </template>
 
 <style scoped>
-.rrw { padding: 8px 24px 40px; }
+.rrw { max-width: 1228px; margin: 0 auto; padding: 8px 24px 40px; }
 .rr-bar {
   position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 12px); z-index: 5;
   display: flex; align-items: center; gap: 12px;

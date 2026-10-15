@@ -16,3 +16,8 @@
 - 复现/调试的写请求会真写生产库:动手前先备份目标行,或走 fake-repo 单测
 - 并行会话共享工作区:脏文件可能是别人的在途工作,禁用 git restore/checkout 回退
 - 验证过的清理才算完成:改完自己跑构建/测试,别把"应该能跑"交给用户发现
+
+## 前端设计规范(硬性)
+- 布局间距只用 --cpq-space-*(4/8/12/16/24/32),标题只用字阶 token(--cpq-font-size-xl/2xl/3xl);≤4px 光学校正可写字面量
+- 权威顺序:tokens.css=值的唯一来源 → docs/Frontend_Style_Guide.md=材质层(玻璃/overlay/动效) → docs/设计规范.md=用法与理由 → docs/prototypes/设计规范.html=可视对照;改前端页面前先看
+- 存量不专项清洗:改哪页迁哪页;共享面(BomTable/磁贴墙/布局壳)优先迁

@@ -42,6 +42,29 @@ _DEFAULT_QUERY_TABLES = [
 # 无论缺省还是 query_data_tables_allow 里手配了，一律不给 AI 同事查询。
 _EXCLUDED_TABLES = {"system_config"}
 
+# AI 线索隔离（2026-10-11 定调）：opportunities 域对 query_data 只暴露 ai_read 视图
+# （行级排除 status IN ('ai_office','deleted')，与 opp_stats/商机线索页统计口径物理对齐）。
+# 基础表永不进 AI 白名单——手配 query_data_tables_allow 写了基础表也会被强制改道视图，
+# 裸 SQL 因此不可能与统计口径漂移（AI 生成的线索骗不了 AI 自己）。
+_AI_VIEW_MAP = {
+    "opportunities.opportunities": "ai_read.opportunities",
+    "opportunities.opportunity_requirements": "ai_read.opportunity_requirements",
+    "opportunities.opportunity_bom_schemes": "ai_read.opportunity_bom_schemes",
+    "opportunities.quotations": "ai_read.quotations",
+    "opportunities.quotation_items": "ai_read.quotation_items",
+}
+
+
+def _map_ai_views(tables: list) -> list:
+    """白名单条目里的 opportunities 域基础表改道到 ai_read 视图（幂等、保序、去重）。"""
+    out, seen = [], set()
+    for t in tables:
+        v = _AI_VIEW_MAP.get(str(t).strip().lower(), str(t).strip())
+        if v.lower() not in seen:
+            seen.add(v.lower())
+            out.append(v)
+    return out
+
 
 def _filter_excluded(tables: list) -> list:
     return [t for t in tables
@@ -75,7 +98,8 @@ DEFAULT_TIMEOUT_SECONDS = 8.0
 # ── 工具边界构造（query_data 执行期内部使用）─────────────────────────────────
 
 def query_tables_allow() -> list:
-    """query_data 工具白名单：system_config.query_data_tables_allow，缺省用内置业务表。"""
+    """query_data 工具白名单：system_config.query_data_tables_allow，缺省用内置业务表；
+    opportunities 域一律改道 ai_read 视图（AI 线索隔离，见 _AI_VIEW_MAP）。"""
     try:
         from app.repository.system_config_repo import SystemConfigRepository
         repo = SystemConfigRepository()
@@ -84,10 +108,11 @@ def query_tables_allow() -> list:
         finally:
             repo.close()
         if isinstance(raw, list) and raw:
-            return _filter_excluded([str(t).strip() for t in raw if str(t or "").strip()])
+            return _filter_excluded(_map_ai_views(
+                [str(t).strip() for t in raw if str(t or "").strip()]))
     except Exception:
         pass
-    return _filter_excluded(list(_DEFAULT_QUERY_TABLES))
+    return _filter_excluded(_map_ai_views(list(_DEFAULT_QUERY_TABLES)))
 
 
 def tool_boundary(price_ok: bool) -> dict:
@@ -103,6 +128,43 @@ def tool_boundary(price_ok: bool) -> dict:
 def colleague_price_ok(colleague: Any) -> bool:
     """价格可见性唯一判定：同事级 price_access 布尔（默认关）。"""
     return bool((colleague or {}).get("price_access"))
+
+
+# 用户侧价格权限 key：与报价工作台价格字段同源（deps.user_has_permission 语义：
+# AUTH_ENABLED=false 灰度恒真；admin=目录全量天然通过）。
+USER_PRICE_PERM_KEY = "field.quote.price"
+
+
+def user_price_ok(user: Any) -> bool:
+    """发起用户的用户侧价格可见性。user 缺席（定时任务/主动播报等无发起人回合）
+    视为放行——价格仍由同事级 price_access 单独把关。"""
+    if not user:
+        return True
+    from app.api.deps import user_has_permission
+    return user_has_permission(user, USER_PRICE_PERM_KEY)
+
+
+def user_price_ok_by_id(user_id: Any) -> bool:
+    """按 user_id 解析发起用户价格权限（回合运行时只带 id 的路径用）。
+    id 在但人已不在（删除/停用）按无权处理，宁可错杀。"""
+    uid = str(user_id or "").strip()
+    if not uid:
+        return True
+    from app.repository.feed_user_repo import FeedUserRepository
+    repo = FeedUserRepository()
+    try:
+        user = repo.get(uid)
+    finally:
+        repo.close()
+    if not user or not user.get("is_active", True):
+        return False
+    return user_price_ok(user)
+
+
+def effective_price_ok(colleague: Any, user: Any = None, user_id: Any = None) -> bool:
+    """工具轮价格可见性 = 同事级 price_access × 发起用户价格权限，任一关即关。
+    堵「低价格权限用户借高价权同事的对话绕行拿价」：用户 RBAC 传导进 AI 工具轮。"""
+    return colleague_price_ok(colleague) and user_price_ok(user) and user_price_ok_by_id(user_id)
 
 
 _RETIRED_COLLEAGUE_KEYS = (
@@ -220,7 +282,7 @@ def _qualify_bare_tables(sql: str, boundary: dict) -> str:
 
     白名单放行裸表名（唯一后缀匹配），但 PG 按 search_path 解析裸名会落到 public
     → UndefinedTable。校验器已算出唯一匹配，这里在执行前做确定性补全，模型写
-    `FROM opportunities` 也能命中 `opportunities.opportunities`。
+    `FROM opportunities` 也能命中 `ai_read.opportunities`（AI 视图，见 _AI_VIEW_MAP）。
     """
     allowed = {str(t).lower() for t in (boundary or {}).get("tables_allow") or []}
     if not allowed:

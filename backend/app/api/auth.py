@@ -59,6 +59,10 @@ def login(body: LoginBody):
         if not u.get("is_active", True):
             raise HTTPException(status_code=403, detail="账号已禁用")
         token = create_access_token(u["user_id"], u.get("role") or "member")
+        try:
+            repo.update_last_login(u["user_id"])  # 最近活跃（用户管理列）；失败不阻断登录
+        except Exception:
+            pass
         u.pop("password_hash", None)  # 永不把哈希返回给客户端
         return {
             "token": token,

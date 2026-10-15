@@ -19,6 +19,9 @@
           />
           <span v-else class="status-text">{{ resultLabel(opportunity.result) }}</span>
         </span>
+        <a-tooltip v-if="lossReasonTip" :title="lossReasonTip">
+          <a-tag class="header-loss-tag" color="error">{{ lossReasonLabel }}</a-tag>
+        </a-tooltip>
         <span v-if="opportunity && canViewAll" class="header-created-date">
           创建于
           <a-date-picker
@@ -96,6 +99,17 @@
       @refresh-meta="loadProject"
       @refresh-quotations="loadProject"
       @board-settled="boardSettled = true"
+    />
+
+    <!-- 状态变更弹窗：必填一句话说明，丢标/过期附未成单原因（字典可管理） -->
+    <ResultChangeModal
+      v-model:open="resultModalOpen"
+      :opportunity-id="opportunityId"
+      :current="opportunity?.result || 'pending'"
+      :target="pendingResult"
+      :reasons="lossReasons"
+      @changed="onResultChanged"
+      @reasons-updated="lossReasons = $event"
     />
 
     <!-- 回收站抽屉 -->
@@ -281,6 +295,8 @@ import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
 import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
 import OpportunityProcessBoard from '@/components/opportunity/OpportunityProcessBoard.vue'
 import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
+import ResultChangeModal from '@/components/opportunity/ResultChangeModal.vue'
+import { systemConfigApi } from '@/api/systemConfig'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
@@ -495,17 +511,45 @@ const handleDeleteProject = async () => {
 
 const resultOptions = RESULT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
 const canEditResult = computed(() => auth.can('action.opportunity.result'))
-async function onResultChange(val: string) {
-  const prev = (opportunity.value as any)?.result
-  if (val === prev) return
+
+// 状态变更：下拉只负责选中目标，实际变更走 ResultChangeModal（必填一句话，丢标必选原因）
+interface LossReason { key: string; label: string; enabled: boolean }
+const resultModalOpen = ref(false)
+const pendingResult = ref('')
+const lossReasons = ref<LossReason[]>([])
+async function loadLossReasons() {
   try {
-    await projectApi.updateMeta(opportunityId, { result: val })
-    await loadProject()
-    message.success('已更新商机状态')
-  } catch (err: any) {
-    message.error('更新失败: ' + (err.message || err))
-  }
+    const list = await systemConfigApi.getValue<LossReason[]>('opportunity.loss_reasons')
+    if (Array.isArray(list)) lossReasons.value = list
+  } catch { /* 字典加载失败不阻塞页面，标签回退显示 key */ }
 }
+function onResultChange(val: string) {
+  const prev = (opportunity.value as any)?.result || 'pending'
+  if (val === prev) return
+  pendingResult.value = val
+  resultModalOpen.value = true
+}
+function onResultChanged(updated: Record<string, any>) {
+  opportunity.value = { ...(opportunity.value as any), ...updated } as Opportunity
+  message.success('商机状态已变更')
+  feed.load()
+}
+
+// 头部原因标签：丢标/过期显示当前归因（多选拼接），tooltip 带说明与变更日期
+const lossReasonLabel = computed(() => {
+  const r = opportunity.value as any
+  if (!r || !['lost', 'expired'].includes(r.result)) return ''
+  const keys: string[] = Array.isArray(r.loss_reason_keys) ? r.loss_reason_keys : []
+  if (!keys.length) return ''
+  return keys.map(k => lossReasons.value.find(x => x.key === k)?.label || k).join('/')
+})
+const lossReasonTip = computed(() => {
+  if (!lossReasonLabel.value) return ''
+  const r = opportunity.value as any
+  const parts = [r.loss_note].filter(Boolean)
+  if (r.result_changed_at) parts.push(String(r.result_changed_at).slice(0, 10))
+  return parts.join(' · ')
+})
 
 // 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker，仅管理员可见）
 const createdDateValue = computed(() => {
@@ -778,6 +822,7 @@ const onParseCancel = () => {
 
 onMounted(async () => {
   loadDeletedQuotations()
+  loadLossReasons()
   // 详情主数据与 feed（消息/附件）并行加载，互不阻塞；主内容仍等 loadProject 返回后填充
   const projectP = loadProject()
   const feedP = feed.load().then(() => feed.connect()).catch(() => {})
@@ -802,6 +847,14 @@ onBeforeUnmount(() => {
   flex: 1;
   min-height: 0;
   overflow: hidden;
+}
+
+/* ≤1080px 看板切单列、以 .bod-page 为滚动容器；上面这条深选择器（两类名，特异性更高）
+   会压过组件内单类名的媒体查询 overflow-y:auto，这里必须显式放行，否则窄屏内容被裁切且无法滚动 */
+@media (max-width: 1080px) {
+  .opportunity-detail-page :deep(.bod-page) {
+    overflow-y: auto;
+  }
 }
 
 /* ── Page Header ── */
@@ -905,6 +958,11 @@ onBeforeUnmount(() => {
 .status-text {
   font-size: 13px;
   color: var(--cpq-text-secondary);
+}
+
+.header-loss-tag {
+  margin-left: 0;
+  cursor: default;
 }
 
 .header-right {
@@ -1422,6 +1480,7 @@ onBeforeUnmount(() => {
     overflow: visible;
   }
   .header-right { flex-wrap: wrap; }
+  .header-left { flex-wrap: wrap; row-gap: 6px; }
   .section-header { flex-wrap: wrap; gap: 8px; }
   .quo-top { flex-wrap: wrap; row-gap: 4px; }
   .batch-bar { flex-wrap: wrap; gap: 8px; }

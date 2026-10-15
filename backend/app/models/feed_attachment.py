@@ -33,6 +33,9 @@ class FeedAttachment(Base):
     category: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     quotation_id: Mapped[Optional[str]] = mapped_column(String, default=None)
     flow_card_id: Mapped[Optional[int]] = mapped_column(Integer, default=None, index=True)
+    # 需求单版本绑定（线索登记附件随单留档）：NULL=未归版（存量散件/粘贴前未存草稿），
+    # 详情弹窗按 version 匹配或 NULL 一并展示；草稿删除时解绑回 NULL（版本号会被复用）
+    requirement_version: Mapped[Optional[int]] = mapped_column(Integer, default=None)
     version: Mapped[int] = mapped_column(Integer, default=1)
     version_group: Mapped[Optional[str]] = mapped_column(String, default=None)
     created_at: Mapped[str] = mapped_column(String)
@@ -53,6 +56,7 @@ class FeedAttachment(Base):
             "category": self.category or "",
             "quotation_id": self.quotation_id or "",
             "flow_card_id": self.flow_card_id,
+            "requirement_version": self.requirement_version,
             "version": self.version or 1,
             "version_group": self.version_group or "",
             "created_at": self.created_at or "",

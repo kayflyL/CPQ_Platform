@@ -2,7 +2,7 @@
   <Teleport :disabled="embedded || inset" to="body">
     <transition name="assistant-panel">
       <div v-if="embedded || open" class="assistant-panel" :class="{ 'assistant-panel--embedded': embedded, 'assistant-panel--inset': inset, 'ap-two-pane': showContacts, 'ap-mobile': isMobile && !embedded, 'ap-fullscreen': apFullscreen }" :style="panelStyle">
-        <!-- 左栏：团队群 + 联系人（按账号权限过滤；可访问 ≥2 个角色才出现） -->
+        <!-- 左栏：消息中心（原型 conv-list）：筛选签 + 房间/同事分组 + 预览/时间/未读/presence -->
         <aside
           v-if="showContacts"
           class="ap-contacts"
@@ -13,31 +13,59 @@
             <div class="ap-contacts-title">CPQ 配置团队</div>
             <button v-if="isMobile" type="button" class="ap-contacts-close" title="关闭团队抽屉" @click="contactsCollapsed = true">✕</button>
           </div>
-          <button type="button" class="ap-contact" :class="{ active: view === 'group' }" @click="openGroup()">
-            <span class="ap-contact-avatar ap-contact-avatar--group">群</span>
-            <span class="ap-contact-main">
-              <span class="ap-contact-name">团队群</span>
-              <span class="ap-contact-desc">{{ contacts.length }} 位成员 · 可 @ 点名</span>
-            </span>
-          </button>
-          <div class="ap-contacts-sep">联系人</div>
-          <button
-            v-for="c in contacts"
-            :key="c.role_key"
-            type="button"
-            class="ap-contact"
-            :class="{ active: view === 'dm' && activeRoleKey === c.role_key }"
-            @click="openDm(c)"
-          >
-            <span class="ap-contact-avatar" :style="roleAvatarStyle(c)">
-              <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
-              <span v-else>{{ avatarInitial(c.name) }}</span>
-            </span>
-            <span class="ap-contact-main">
-              <span class="ap-contact-name">{{ c.name || c.role_key }}</span>
-              <span class="ap-contact-desc">{{ colleagueDescription(c) }}</span>
-            </span>
-          </button>
+          <div class="ap-contact-scroll">
+            <div class="ap-cgroup">房间</div>
+            <button
+              v-for="r in roomThreads"
+                :key="r.thread_id"
+                type="button"
+                class="ap-contact"
+                :class="{ active: view === 'group' && currentThreadId === r.thread_id }"
+                @click="openRoom(r)"
+              >
+                <span class="ap-contact-avatar ap-contact-avatar--group">群</span>
+                <span class="ap-contact-main">
+                  <span class="ap-contact-namerow">
+                    <span class="ap-contact-name">{{ roomName(r) }}</span>
+                    <span class="ap-contact-time">{{ fmtChatTime(r.updated_at) }}</span>
+                  </span>
+                  <span class="ap-contact-preview">{{ previewOf(r) }}</span>
+                </span>
+                <span v-if="unreadOfThread(r)" class="ap-unread-dot"></span>
+              </button>
+              <input
+                v-if="roomCreating"
+                v-model="roomNameDraft"
+                class="ap-room-input"
+                placeholder="房间名，回车创建"
+                @keydown.enter.prevent="createRoom"
+                @keydown.esc.prevent="roomCreating = false"
+              />
+              <button v-else type="button" class="ap-room-add" @click="roomCreating = true">＋ 新建房间</button>
+            <div class="ap-cgroup">同事</div>
+            <button
+              v-for="c in contacts"
+                :key="c.role_key"
+                type="button"
+                class="ap-contact"
+                :class="{ active: view === 'dm' && activeRoleKey === c.role_key }"
+                @click="openDm(c)"
+              >
+                <span class="ap-contact-avatar" :style="roleAvatarStyle(c)">
+                  <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
+                  <span v-else>{{ avatarInitial(c.name) }}</span>
+                  <i class="ap-presence" :class="{ on: isPresenceOn(c.role_key) }"></i>
+                </span>
+                <span class="ap-contact-main">
+                  <span class="ap-contact-namerow">
+                    <span class="ap-contact-name">{{ c.name || c.role_key }}</span>
+                    <span class="ap-contact-time">{{ fmtChatTime(contactThread(c.role_key)?.updated_at) }}</span>
+                  </span>
+                  <span class="ap-contact-preview">{{ contactPreview(c.role_key) }}</span>
+                </span>
+                <span v-if="contactUnread(c.role_key)" class="ap-unread-dot"></span>
+              </button>
+          </div>
         </aside>
 
         <!-- 主区：当前会话（群聊或 1:1） -->
@@ -56,7 +84,45 @@
             <MenuUnfoldOutlined v-if="contactsCollapsed" />
             <MenuFoldOutlined v-else />
           </button>
+          <!-- 聊天头身份区（原型 chat-head）：头像+presence、名字+私聊/房间 chip、副标 -->
+          <div v-if="!props.preview" class="ap-head-id">
+            <span
+              class="ap-head-avatar ap-head-avatar--click"
+              :class="{ 'ap-head-avatar--group': view === 'group' }"
+              :style="view === 'dm' ? roleAvatarStyle(activeColleague) : undefined"
+              title="查看名片"
+              @click.stop="openHeadPersona($event)"
+            >
+              {{ view === 'group' ? '群' : avatarInitial(activeColleagueName) }}
+              <i class="ap-presence" :class="{ on: isPresenceOn(view === 'group' ? 'assistant' : (activeRoleKey || '')) }"></i>
+            </span>
+            <div class="ap-head-main">
+              <div class="ap-head-name">
+                {{ view === 'group' ? (groupThread?.title?.trim() || '全员大厅') : activeColleagueName }}
+                <span class="ap-head-chip">{{ view === 'group' ? '房间' : '私聊' }}</span>
+              </div>
+              <div class="ap-head-sub">{{ view === 'group' ? `${contacts.length} 位成员 · 可 @ 点名` : colleagueDescription(activeColleague) }}</div>
+            </div>
+          </div>
           <div class="ap-header-spacer"></div>
+          <!-- 手机端动作组：右竖条(ap-right)在手机全屏下破坏对称,动作收进顶栏;桌面保持竖条 -->
+          <div v-if="isMobile && !props.preview" class="ap-header-actions" @mousedown.stop>
+            <button
+              class="ap-icon-btn"
+              type="button"
+              title="新对话（归档当前会话）"
+              :disabled="sending || running"
+              @click="startNewConversation"
+            >
+              <PlusOutlined />
+            </button>
+            <button class="ap-icon-btn" type="button" title="会话记录（含归档）" @click="toggleHistory">
+              <HistoryOutlined />
+            </button>
+            <button class="ap-icon-btn ap-close" type="button" title="收起" @click="emit('update:open', false)">
+              <CloseOutlined />
+            </button>
+          </div>
         </div>
 
         <!-- 消息列表 -->
@@ -123,6 +189,34 @@
                   </span>
                 </div>
               </div>
+              <!-- 工作流发起确认卡（suggest_workflow 产物）：一键以需求原文发起工作流 -->
+              <div v-else-if="m.kind === 'workflow_suggestion'" class="ap-msg role-assistant ap-msg-result">
+                <div class="ap-msg-head">
+                  <div
+                    class="ap-avatar"
+                    :class="{ 'ap-avatar-has-img': !!colleagueForRole(m.colleague_role_key).avatar_url }"
+                    :style="{ background: colleagueForRole(m.colleague_role_key).color || 'var(--cpq-accent-primary, #1677ff)' }"
+                  >
+                    <img v-if="colleagueForRole(m.colleague_role_key).avatar_url" :src="colleagueForRole(m.colleague_role_key).avatar_url" alt="" />
+                    <span v-else class="ap-avatar-initial">{{ avatarInitial(colleagueForRole(m.colleague_role_key).name) }}</span>
+                  </div>
+                  <span class="ap-author">{{ colleagueForRole(m.colleague_role_key).name }}</span>
+                </div>
+                <div v-if="m.content" class="ap-bubble">{{ m.content }}</div>
+                <div class="ap-wf-card">
+                  <div class="ap-wf-title">发起工作流：{{ wfOf(m).name || wfOf(m).workflow_key || '—' }}</div>
+                  <div v-if="wfOf(m).reason" class="ap-wf-reason">{{ wfOf(m).reason }}</div>
+                  <div class="ap-wf-req">{{ wfOf(m).requirement_text }}</div>
+                  <button
+                    type="button"
+                    class="ap-wf-btn"
+                    :disabled="sending || running || wfUsed.has(String(m.message_id || ''))"
+                    @click="onLaunchSuggestion(m)"
+                  >
+                    {{ wfUsed.has(String(m.message_id || '')) ? '已发起' : '一键发起' }}
+                  </button>
+                </div>
+              </div>
               <!-- 普通消息：与 AI 办公室角色聊天共用公共消息组件 -->
               <AssistantMessageItem
                 v-else
@@ -132,21 +226,26 @@
                 :option-answered="optionAnswered(m)"
                 :thread-id="currentThreadId || ''"
                 :pick-role="m.colleague_role_key || ''"
-                :show-author="view === 'group' || m.colleague_role_key !== activeRoleKey"
+                :presence-on="isPresenceOn(m.colleague_role_key)"
+                :self-avatar="selfIdentity"
                 @select-option="onSelectOption"
                 @submit-selections="onSubmitSelections"
+                @reply="onReplyMsg"
+                @persona="(ev: MouseEvent) => openRoomPersona(colleagueForRole(m.colleague_role_key), ev)"
               />
             </template>
             <AssistantMessageItem
               v-if="streamingText || waitingAI"
               :message="{ role: 'assistant', content: streamingText || '' }"
               :author="activeColleague || { name: '方案助手', avatar_url: '', color: '' }"
+              :traces="toolTraces"
               :streaming="!!streamingText"
               :typing="!streamingText && !thinkingActive"
               :status-text="statusText"
               :thinking="thinkingText"
               :thinking-active="thinkingActive"
               :idle-text="idleText"
+              @persona="openHeadPersona($event)"
               :show-author="view === 'group'"
             />
           </div>
@@ -168,11 +267,23 @@
         <!-- 任务计步器（Claude Code 式）：任务执行中收起胶囊，点击展开步骤明细 -->
         <TaskStepper :traces="nodeTraces" :title="taskTitle" :phase="taskPhase" :pause="taskPause" />
 
+        <!-- 引用回复（原型 composer-quote）：悬停消息 ↩ 后挂在这里，随下一条消息发出 -->
+        <div v-if="quoted" class="ap-quote-bar">
+          <span class="ap-quote-text">↩ 引用 <b>{{ quoted.name }}</b>：{{ quoted.text }}</span>
+          <button type="button" class="ap-quote-x" @click="quoted = null">✕</button>
+        </div>
+
+        <!-- 工作流装填条：「+」选中后不发占位消息，输入需求发送即工作流首回合 -->
+        <div v-if="armedWorkflow" class="ap-quote-bar">
+          <span class="ap-quote-text">▶ 待发起 <b>【{{ armedWorkflow.name }}】</b> · 输入需求，发送后开始</span>
+          <button type="button" class="ap-quote-x" title="取消发起" @click="cancelArmedWorkflow">✕</button>
+        </div>
+
         <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill）；群聊窗口才有 @ 点名。
              试运行预览：单线程单角色，无点名对象，隐藏 @（2026-09-06 用户指正） -->
         <AssistantComposer
           v-model="draft"
-          :placeholder="view === 'group' && !preview ? '输入消息…（@ 可点名同事）' : '输入消息…'"
+          :placeholder="composerPlaceholder"
           :disabled="sending || running"
           :sending="sending"
           :running="running"
@@ -181,6 +292,7 @@
           :skills="composerSkills"
           :show-skills="!preview"
           :context-usage="contextUsage"
+          :hint="view === 'group' && !preview ? '@ = 指定该同事接话 · Enter 发送 · 悬停消息可引用' : ''"
           @send="onSend"
           @stop="onStop"
           @pick-skill="onPickSkill"
@@ -192,8 +304,8 @@
           <div v-if="isMobile && !contactsCollapsed" class="ap-contacts-scrim" @mousedown.stop @click="contactsCollapsed = true"></div>
         </transition>
 
-        <!-- 右栏：新增对话 / 会话记录 / 收起（扣子式窄条，随视口伸缩） -->
-        <aside v-if="showRightBar" class="ap-right" @mousedown.stop>
+        <!-- 右栏：新增对话 / 会话记录 / 收起（扣子式窄条，随视口伸缩）；手机端不渲染（动作在顶栏） -->
+        <aside v-if="showRightBar && !isMobile" class="ap-right" @mousedown.stop>
           <!-- 全屏 ⇄ 浮动切换：仅桌面浮动面板出现；Esc 退出 -->
           <button
             v-if="canToggleFullscreen"
@@ -229,6 +341,9 @@
           <span class="ap-resize ap-resize--s" @mousedown.prevent="startResize('s', $event)"></span>
           <span class="ap-resize ap-resize--se" @mousedown.prevent="startResize('se', $event)"></span>
         </template>
+
+        <!-- 同事名片：房间头名册头像点开（Teleport 到 body，不受面板 transform/拖拽影响） -->
+        <ColleaguePersonaCard ref="personaRef" :task-action="false" @dm="onPersonaDm" />
         <transition name="ap-drawer">
           <div v-if="historyOpen" class="ap-history-drawer" @mousedown.stop>
             <div class="ap-history-mask" @click="historyOpen = false"></div>
@@ -295,7 +410,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, CloseOutlined, HistoryOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
@@ -309,6 +424,10 @@ import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
 import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
 import TaskStepper from '@/components/assistant/TaskStepper.vue'
+import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
+import { useOfficeSocket } from '@/composables/useOfficeSocket'
+import { fmtChatTime } from '@/utils/chatTime'
+import { useAuthStore } from '@/store/auth'
 import { assistantApi, type AssistantThread } from '@/api/assistant'
 import { officeApi } from '@/api/office'
 import { usePetModelStore } from '@/store/petModel'
@@ -346,8 +465,9 @@ const petModel = usePetModelStore()
 
 const {
   currentThreadId, messages, loading, sending, running, streamingText, thinkingText, waitingAI, statusText, queuedCount, nodeTraces, taskTitle, taskPhase, taskPause,
+  toolTraces,
   loadThreads, selectThread, send, contextUsage, disconnectWs,
-  launchWorkflow,
+  armedWorkflow, armWorkflow, cancelArmedWorkflow, launchWorkflowNow,
   activeRoleKey, switchRole, createPreviewThread, destroyPreview, resetPreview: resetChatPreview, stop,
 } = chat
 
@@ -367,6 +487,35 @@ function artifactFor(m: { kind?: string; data?: string }): { entityType: string;
 
 const draft = ref('')
 const messagesEl = ref<HTMLElement | null>(null)
+
+const composerPlaceholder = computed(() => {
+  if (armedWorkflow.value) return `描述需求，发送后开始【${armedWorkflow.value.name}】…`
+  return view.value === 'group' && !props.preview ? '输入消息…（@ 可点名同事）' : '输入消息…'
+})
+
+// ── 工作流发起确认卡（kind=workflow_suggestion：一键以需求原文发起） ──
+function wfOf(m: { kind?: string; data?: string }): Record<string, any> {
+  try {
+    const d = typeof m.data === 'string' ? JSON.parse(m.data) : (m.data || {})
+    const wf = d && typeof d === 'object' ? d.workflow_suggestion : null
+    return wf && typeof wf === 'object' ? wf : {}
+  } catch {
+    return {}
+  }
+}
+const wfUsed = ref<Set<string>>(new Set())
+async function onLaunchSuggestion(m: any) {
+  const wf = wfOf(m)
+  const id = String(m?.message_id || '')
+  if (!wf?.workflow_key || !wf?.requirement_text || sending.value || running.value) return
+  await launchWorkflowNow(String(wf.workflow_key), String(wf.requirement_text),
+                          m?.colleague_role_key || activeRoleKey.value || null)
+  if (id) {
+    const next = new Set(wfUsed.value)
+    next.add(id)
+    wfUsed.value = next
+  }
+}
 
 // ── 文件产物（kind=file 消息卡：PDF 报告等）──
 function fileOf(m: { kind?: string; data?: string }): Record<string, any> {
@@ -489,7 +638,8 @@ const groupSkills = computed<any[]>(() => {
     for (const s of resolveColleagueSkills(c)) {
       if (!seen.has(s.key)) {
         seen.add(s.key)
-        out.push(s)
+        // 带上归属同事：群聊装填后发送要钉住这位角色（防判官把 launcher 消息路由给别人）
+        out.push({ ...s, ownerRoleKey: c?.role_key || '', ownerName: c?.name || '' })
       }
     }
   }
@@ -498,7 +648,7 @@ const groupSkills = computed<any[]>(() => {
 const composerSkills = computed<any[]>(() => (view.value === 'group' ? groupSkills.value : boundSkills.value))
 function onPickSkill(skill: any) {
   if (!skill?.key) return
-  launchWorkflow(skill.key, skill.name || skill.key)
+  armWorkflow(skill.key, skill.name || skill.key, skill.ownerRoleKey || activeRoleKey.value || null)
 }
 function colleagueForRole(roleKey?: string): {
   name: string
@@ -534,6 +684,164 @@ function colleagueDescription(c?: any): string {
 function roleAvatarStyle(c?: any) {
   return { background: c?.color || 'var(--cpq-accent-primary, #1677ff)' }
 }
+// ── 房间头名片：名册头像 → 同事名片浮层（发私聊切 DM；聊天窗口里没有任务板，不显「看任务」）──
+const personaRef = ref<InstanceType<typeof ColleaguePersonaCard> | null>(null)
+function openRoomPersona(c: any, ev: MouseEvent) {
+  personaRef.value?.openFor(c, officeStatus.value?.[c?.role_key] || null, null, ev.currentTarget as HTMLElement)
+}
+function openHeadPersona(ev: MouseEvent) {
+  const c = view.value === 'group'
+    ? contacts.value.find((x) => x.role_key === 'assistant') || contacts.value[0] || null
+    : (activeColleague.value || null)
+  if (c) openRoomPersona(c, ev)
+}
+function onPersonaDm(roleKey?: string) {
+  personaRef.value?.close()
+  if (!roleKey) return
+  const c = contacts.value.find((x) => x.role_key === roleKey)
+  if (c) void openDm(c)
+}
+
+// ── 引用回复：悬停消息 ↩ → composer 上方引用条 → 随下一条用户消息发出（快照落库）──
+const quoted = ref<{ name: string; text: string } | null>(null)
+function onReplyMsg(q: { name: string; text: string }) {
+  quoted.value = q
+}
+watch(currentThreadId, (id) => { quoted.value = null; markSeen(id) })
+
+// ── 消息中心侧栏（原型 conv-list）：presence / 筛选签 / 房间 / 预览 / 未读 ──
+const office = useOfficeSocket()
+const officeStatus = office.statusMap
+/** 登录用户身份（人类侧消息：右侧小头像 + 「你 · 人类」meta） */
+const auth = useAuthStore()
+const selfIdentity = computed(() => ({
+  name: String((auth.user as any)?.name || '你'),
+  avatar_url: String((auth.user as any)?.avatar_url || ''),
+}))
+onMounted(() => {
+  office.connect()
+  void refreshThreadIndex(true)
+  // 默认落到默认房间（全员大厅）：原型进入即有选中会话，别停在空态
+  if (view.value === 'group' && !currentThreadId.value) void openGroup()
+})
+onBeforeUnmount(() => { office.disconnect() })
+function isPresenceOn(roleKey?: string | null): boolean {
+  const st = String((roleKey || '').trim() ? officeStatus.value?.[roleKey!]?.status || '' : '')
+  return !!st && st !== 'idle'
+}
+
+/** 全量会话索引（带 last_message/updated_at meta）：侧栏预览与未读的唯一数据源 */
+const threadIndex = ref<AssistantThread[]>([])
+let indexRefreshTimer: ReturnType<typeof setTimeout> | null = null
+async function refreshThreadIndex(initial = false) {
+  try {
+    // allKinds：群线程(assistant) + 同事线程(office_colleague) 一起拿；预览线程不算会话
+    const list = ((await assistantApi.threads.list({ includeDeleted: false, withMeta: true, allKinds: true })) || [])
+      .filter((t) => t.entry_point !== 'skill_studio_preview')
+    // 首次点亮：存量会话记到各自 updated_at（同源格式），此后新动静才计未读
+    if (initial && !localStorage.getItem(SEEN_KEY)) {
+      for (const t of list) seenMap[t.thread_id] = String(t.updated_at || localStamp())
+      persistSeen()
+    }
+    threadIndex.value = list
+  } catch { /* 侧栏索引刷新失败保留旧数据 */ }
+}
+function scheduleIndexRefresh() {
+  if (indexRefreshTimer) clearTimeout(indexRefreshTimer)
+  indexRefreshTimer = setTimeout(() => { indexRefreshTimer = null; void refreshThreadIndex() }, 800)
+}
+
+// ── 未读：本地 lastSeen 时间戳（打开即记已读；首次点亮存量全记已读）──
+// v2：v1 存过 UTC toISOString 戳，与后端本地时间串比大小全错（红点清不掉的根因），弃用
+const SEEN_KEY = 'ap-thread-seen-v2'
+const seenMap = reactive<Record<string, string>>(readSeen())
+function readSeen(): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(SEEN_KEY) || '{}') || {} } catch { return {} }
+}
+function persistSeen() {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(seenMap)) } catch { /* 隐私模式等存不了就弃 */ }
+}
+function markSeen(threadId?: string | null) {
+  if (!threadId) return
+  // 戳必须与后端 now_iso 同格式同钟（本地时间 ISO），否则字符串比大小全错（UTC 坑已踩）
+  seenMap[threadId] = localStamp()
+  persistSeen()
+}
+function localStamp(): string {
+  const d = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+function unreadOfThread(t: AssistantThread): boolean {
+  if (t.thread_id === currentThreadId.value) return false
+  const seen = String(seenMap[t.thread_id] || '')
+  return !!String(t.updated_at || '') && String(t.updated_at) > seen
+}
+
+const roomThreads = computed(() => threadIndex.value.filter((t) => !String(t.colleague_role_key || '').trim()))
+function roomName(t: AssistantThread): string {
+  return String(t.title || '').trim() || '全员大厅'
+}
+function previewOf(t: AssistantThread): string {
+  return String(t.last_message || '').replace(/[*`#_]/g, '').replace(/\s+/g, ' ').trim()
+}
+function contactThread(roleKey?: string): AssistantThread | undefined {
+  const key = String(roleKey || '').trim()
+  if (!key) return undefined
+  return threadIndex.value.find((t) => String(t.colleague_role_key || '') === key)
+}
+function contactPreview(roleKey?: string): string {
+  const t = contactThread(roleKey)
+  if (t && previewOf(t)) return previewOf(t)
+  const c = contacts.value.find((x) => x.role_key === roleKey)
+  return c ? colleagueDescription(c) : 'AI 员工'
+}
+function contactUnread(roleKey?: string): boolean {
+  const t = contactThread(roleKey)
+  return t ? unreadOfThread(t) : false
+}
+
+// ── 房间 = 有名字的群线程（title 即房间名，无 colleague_role_key）；切换/新建零迁移 ──
+async function openRoom(t: AssistantThread) {
+  view.value = 'group'
+  if (isMobile.value) contactsCollapsed.value = true
+  try {
+    let tid = t.thread_id
+    if (String(t.deleted_at || '').trim()) {
+      const restored = await assistantApi.threads.restore(tid)
+      tid = restored.thread_id
+      groupThread.value = restored
+    } else {
+      groupThread.value = t
+    }
+    await selectThread(tid, { kind: 'group' })
+  } catch { /* ignore */ }
+}
+const roomCreating = ref(false)
+const roomNameDraft = ref('')
+async function createRoom() {
+  const name = roomNameDraft.value.trim()
+  if (!name) return
+  try {
+    const t = await assistantApi.threads.create(undefined, name)
+    roomCreating.value = false
+    roomNameDraft.value = ''
+    await refreshThreadIndex()
+    await openRoom(t)
+  } catch {
+    message.error('创建房间失败')
+  }
+}
+
+watch(() => props.open, (v) => {
+  if (!v) return
+  void refreshThreadIndex()
+  if (view.value === 'group' && !currentThreadId.value) void openGroup()
+})
+watch(() => messages.value?.length, () => {
+  markSeen(currentThreadId.value)
+  scheduleIndexRefresh()
+})
 // ── 两栏消息中心：view=group（团队群，可@点名/leader调度）| view=dm（1:1，锁定身份）──
 const view = ref<'group' | 'dm'>('group')
 const groupThread = ref<AssistantThread | null>(null)
@@ -725,7 +1033,9 @@ const panelStyle = computed(() => {
   void viewportTick.value
   // 手机端与桌面全屏共用占满视口的一支：像原生 App 的全屏聊天
   if (apFullscreen.value || (typeof window !== 'undefined' && window.innerWidth <= 760)) {
-    return { left: '0px', top: '0px', right: 'auto', bottom: 'auto', width: '100vw', height: '100vh', maxHeight: '100vh' }
+    // 高度取实时 innerHeight：移动端地址栏伸缩会改可视高度，100vh 会把输入区顶出屏幕；viewportTick 已随 resize 重算
+    const h = typeof window !== 'undefined' ? `${window.innerHeight}px` : '100vh'
+    return { left: '0px', top: '0px', right: 'auto', bottom: 'auto', width: '100vw', height: h, maxHeight: h }
   }
   // 还没有初始化位置 → 回落 CSS 默认（右下角），避免面板飞到左上角
   if (!panelPos.value) return undefined
@@ -896,7 +1206,9 @@ async function onSend() {
   const text = draft.value
   if (!text.trim() || sending.value || running.value) return
   draft.value = ''
-  await sendText(text)
+  const q = quoted.value
+  quoted.value = null
+  await sendText(text, null, null, q)
 }
 
 async function onStop() {
@@ -905,7 +1217,8 @@ async function onStop() {
 
 // 供父组件（SkillStudio 输入节点「运行」）注入文本到真实 AI 对话
 async function sendText(text: string, optionSlot?: string | null,
-                        cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null) {
+                        cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
+                        quote?: { name: string; text: string } | null) {
   const content = (text || '').trim()
   if (!content || sending.value || running.value) return
   if (props.embedded && props.preview && !currentThreadId.value) {
@@ -913,7 +1226,7 @@ async function sendText(text: string, optionSlot?: string | null,
   }
   const summary = await summarize()
   await send(content, summary, optionSlot || null, cardSelections || null,
-             props.workflowKey ? props.workflowKey : null)
+             props.workflowKey ? props.workflowKey : null, quote || null)
 }
 
 // 结构化选项点击：value 作为消息内容，slot 显式传后端落槽（缺失会导致反问重复）
@@ -1133,7 +1446,7 @@ async function onQuickAction(action: QuickAction) {
     max-width: 320px;
     height: 100%;
     border-left: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
-    background: var(--cpq-glass-3-bg, rgba(22, 28, 40, 0.98));
+    background: var(--cpq-glass-3-bg-solid, rgba(22, 28, 40, 0.98));
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
   }
   .ap-drawer-enter-active,
@@ -1215,13 +1528,13 @@ async function onQuickAction(action: QuickAction) {
   flex-direction: row;
 }
 .ap-contacts {
-  width: 200px;
+  width: 280px;
   flex: none;
   min-width: 0;
   border-right: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 10px 8px;
+  padding: 10px 14px 10px 8px;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -1260,20 +1573,12 @@ async function onQuickAction(action: QuickAction) {
   background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
   color: var(--cpq-text-primary, #f5f7fa);
 }
-.ap-contacts-sep {
-  font-size: 11px;
-  color: var(--cpq-text-muted, #9aa4b2);
-  padding: 8px 8px 2px;
-  opacity: 0.8;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
 .ap-contact {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 8px;
+  padding: 8px 6px 8px 8px;
+  width: 100%;
   border: none;
   border-radius: 10px;
   background: transparent;
@@ -1296,12 +1601,13 @@ async function onQuickAction(action: QuickAction) {
   color: #fff;
   font-size: 13px;
   flex: none;
-  overflow: hidden;
+  overflow: visible;
 }
 .ap-contact-avatar img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  border-radius: 50%;
 }
 .ap-contact-avatar--group {
   background: linear-gradient(135deg, #1677ff, #36cfc9);
@@ -1314,15 +1620,11 @@ async function onQuickAction(action: QuickAction) {
   gap: 1px;
 }
 .ap-contact-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
+  font-weight: 600;
   color: var(--cpq-text-primary, #f5f7fa);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ap-contact-desc {
-  font-size: 11px;
-  color: var(--cpq-text-muted, #9aa4b2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1384,10 +1686,18 @@ async function onQuickAction(action: QuickAction) {
   align-items: center;
   gap: 8px;
 }
+/* 手机端顶栏动作组：取代右竖条 */
+.ap-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+/* 手机端全屏聊天：75% 玻璃叠页面底色文字发虚，换近实底档 */
 @media (max-width: 760px) {
-  .ap-right {
-    width: 40px;
-    padding: 10px 4px;
+  .assistant-panel {
+    background: var(--cpq-glass-3-bg-solid, rgba(255, 255, 255, 0.95));
   }
 }
 
@@ -1402,7 +1712,7 @@ async function onQuickAction(action: QuickAction) {
   max-width: 320px;
   height: 100%;
   padding: 12px 10px;
-  background: var(--cpq-glass-3-bg, rgba(22, 28, 40, 0.98));
+  background: var(--cpq-glass-3-bg-solid, rgba(22, 28, 40, 0.98));
   border-left: none;
   border-right: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
   box-shadow: 12px 0 32px rgba(0, 0, 0, 0.35);
@@ -1542,6 +1852,167 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-header-spacer {
   flex: 1;
+}
+/* 聊天头头像可点（查看名片）：悬停出现光环提示 */
+.ap-head-avatar--click { cursor: pointer; }
+.ap-head-avatar--click:hover { box-shadow: 0 0 0 2px var(--cpq-overlay-a15); }
+/* ── 引用回复条（composer 上方）── */
+.ap-quote-bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: var(--cpq-overlay-w4);
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
+.ap-quote-text {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-quote-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--cpq-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 0 2px;
+}
+.ap-quote-x:hover { color: #e5484d; }
+/* ── 消息中心侧栏（原型 conv-list）：筛选签/分组/预览/未读/presence ── */
+.ap-contact-scroll {
+  min-width: 0;
+}
+.ap-cgroup {
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 10px 8px 5px;
+}
+.ap-contact-namerow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.ap-contact-time {
+  flex: none;
+  font-size: 11px;
+  color: var(--cpq-text-disabled);
+}
+.ap-contact-preview {
+  display: block;
+  font-size: 12px;
+  color: var(--cpq-text-muted);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-unread-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ff6b6b;
+}
+/* 头像 presence 点（侧栏/聊天头共用；面板接办公室状态流） */
+.ap-contact-avatar { position: relative; }
+.ap-presence {
+  position: absolute;
+  right: -1px;
+  bottom: -1px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #c9cdd4;
+  border: 2px solid var(--cpq-bg-card, #fff);
+}
+.ap-presence.on { background: #52c9a0; }
+/* ＋ 新建房间：内联输入（回车建，Esc 收） */
+.ap-room-add {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 7px 10px;
+  margin: 2px 0 6px;
+  border: 1px dashed var(--cpq-border-light);
+  border-radius: var(--cpq-radius-md, 10px);
+  background: transparent;
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+.ap-room-add:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.ap-room-input {
+  width: 100%;
+  padding: 6px 10px;
+  margin: 2px 0 6px;
+  border-radius: var(--cpq-radius-md, 10px);
+  border: 1px solid var(--cpq-accent-primary);
+  background: var(--cpq-bg-input);
+  color: var(--cpq-text-primary);
+  font-size: 12px;
+  outline: none;
+}
+/* ── 聊天头身份区（原型 chat-head）── */
+.ap-head-id {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  margin-left: 2px;
+}
+.ap-head-avatar {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  background: var(--cpq-accent-primary);
+}
+.ap-head-main { min-width: 0; }
+.ap-head-name {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--cpq-text-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ap-head-chip {
+  flex: none;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a10);
+  border: 1px solid var(--cpq-overlay-a15);
+}
+.ap-head-sub {
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ap-title {
   display: flex;
@@ -1904,6 +2375,51 @@ async function onQuickAction(action: QuickAction) {
   border: 1px solid var(--cpq-border-light, #d9e2f0);
   border-radius: 10px;
   background: var(--cpq-bg-glass, #fff);
+}
+/* ── 工作流发起确认卡（suggest_workflow）：标题+理由+需求原文+一键发起 ── */
+.ap-wf-card {
+  margin-top: var(--cpq-space-2, 8px);
+  padding: var(--cpq-space-2, 8px) var(--cpq-space-3, 12px);
+  border: 1px solid var(--cpq-border-light, #d9e2f0);
+  border-radius: 8px;
+  background: var(--cpq-bg-glass, #fff);
+  display: flex;
+  flex-direction: column;
+  gap: var(--cpq-space-1, 4px);
+  max-width: 560px;
+}
+.ap-wf-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--cpq-text-primary, #1f2329);
+}
+.ap-wf-reason {
+  font-size: 12px;
+  color: var(--cpq-text-secondary, #646a73);
+}
+.ap-wf-req {
+  font-size: 12px;
+  color: var(--cpq-text-secondary, #646a73);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 120px;
+  overflow: auto;
+}
+.ap-wf-btn {
+  align-self: flex-start;
+  margin-top: var(--cpq-space-1, 4px);
+  padding: 4px var(--cpq-space-3, 12px);
+  border: none;
+  border-radius: 8px;
+  background: var(--cpq-accent-primary, #1677ff);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ap-wf-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 .ap-file-icon {
   flex: none;

@@ -11,6 +11,7 @@ import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm'
 import type { VRMHumanBoneName } from '@pixiv/three-vrm'
 import type { CharacterAsset } from './gltfCache.ts'
 import { createVrmClips, type VrmBonePose, type VrmSkeletonInfo } from './vrmClips.ts'
+import { measurePrecise } from './measureBox.ts'
 
 const ANIMATED_BONES = [
   'hips', 'spine', 'chest', 'neck', 'head',
@@ -46,12 +47,17 @@ export async function loadVrmCharacter(url: string): Promise<CharacterAsset> {
   const gltf = await loader.loadAsync(url)
   const vrm = (gltf.userData as { vrm?: { humanoid: Parameters<typeof extractSkeletonInfo>[1] } }).vrm
   if (!vrm) throw new Error(`VRM 解析失败（userData.vrm 缺失，是否为合法 .vrm 文件？）: ${url}`)
-  VRMUtils.removeUnnecessaryVertices(gltf.scene)
-  VRMUtils.combineSkeletons(gltf.scene)
-  VRMUtils.rotateVRM0(vrm as never)
+  // VRMUtils 的清洗步骤逐个容错：某些 VRM 版本/结构会让个别步骤抛错，
+  // 失败只降级（不清洗/不旋转），绝不打断整个办公室的角色加载链。
+  for (const step of [
+    () => VRMUtils.removeUnnecessaryVertices(gltf.scene),
+    () => VRMUtils.combineSkeletons(gltf.scene),
+    () => VRMUtils.rotateVRM0(vrm as never),
+  ]) {
+    try { step() } catch (e) { console.warn('[vrmLoader] VRMUtils 步骤失败（已跳过）:', e) }
+  }
   const info = extractSkeletonInfo(gltf.scene, vrm.humanoid)
   const animations = createVrmClips(info)
-  const size = new THREE.Vector3()
-  new THREE.Box3().setFromObject(gltf.scene).getSize(size)
-  return { scene: gltf.scene, animations, height: size.y || 1.5, depth: size.z || 0.45, frontRotation: 0 }
+  const { height, depth } = measurePrecise(gltf.scene)
+  return { scene: gltf.scene, animations, height: height || 1.5, depth: depth || 0.45, frontRotation: 0 }
 }

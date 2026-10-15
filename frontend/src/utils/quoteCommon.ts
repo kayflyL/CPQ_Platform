@@ -91,21 +91,31 @@ export function dbPriceOf(item: { db_price?: unknown }): number | null {
   return Number.isFinite(n) ? n : null
 }
 
-export function kpSyncable(item: {
-  catalogue?: string
-  base_price?: number | string | null
-  db_price?: unknown
-}): boolean {
-  const model = item.catalogue
-  if (!model) return false
+/** KP 行价格动作：比较「行价锚点」与「库最新价日期」定方向。
+ * 'new'=库无件可入库 / 'sync'=行价不旧于库（含日期缺失/同日判不了的保守回退），按钮=同步价格/入库新配件；
+ * 'adopt'=库最新价日期比行锚点新 → 行价过时，按钮=采纳库价；'none'=无需动作。
+ * 锚点由调用方给（行级 price_set_at → 单据 exported_at → created_at）。 */
+export function kpPriceAction(
+  item: {
+    catalogue?: string
+    base_price?: number | string | null
+    db_price?: unknown
+    db_price_date?: string | null
+  },
+  anchorIso?: string | null,
+): 'new' | 'sync' | 'adopt' | 'none' {
+  if (!item.catalogue) return 'none'
   const cur = Number(item.base_price) || 0
-  if (cur <= 0) return false
+  if (cur <= 0) return 'none'
   const db = dbPriceOf(item)
-  if (db == null) return true
-  return Math.abs(cur - db) > 0.01
-}
-
-export function isNewPart(item: {
+  if (db == null) return 'new'
+  if (Math.abs(cur - db) <= 0.01) return 'none'
+  // 方向：库最新价日期比行锚点新 → 行价过时，引导采纳；同日/缺日期判不了 → 保守给同步（弹窗里有库价日期兜底）
+  const dbDate = String(item.db_price_date || '').slice(0, 10)
+  const anchor = String(anchorIso || '').slice(0, 10)
+  if (dbDate && anchor && dbDate > anchor) return 'adopt'
+  return 'sync'
+}export function isNewPart(item: {
   base_price?: number | string | null
   db_price?: unknown
 }): boolean {
@@ -115,6 +125,7 @@ export function isNewPart(item: {
 export function matchClass(s: string): string {
   if (s.includes('一致') || s.includes('已同步')) return 'ok'
   if (s.includes('差异') || s.includes('待填') || s.includes('缺失')) return 'warn'
+  if (s.includes('库价已更新') || s.includes('行价新')) return 'warn'
   if (s.includes('新部件') || s.includes('跨币种')) return 'new'
   return ''
 }
@@ -125,7 +136,8 @@ export function computeKpMatch(item: {
   currency?: string | null
   db_currency?: string | null
   match_status?: string
-}): void {
+  db_price_date?: string | null
+}, anchorIso?: string | null): void {
   const db = dbPriceOf(item)
   const cur = Number(item.base_price) || 0
   if (db == null) {
@@ -140,9 +152,20 @@ export function computeKpMatch(item: {
   }
   if (cur === 0) {
     item.match_status = `⚠️ 待填入 [DB=${db}]`
-  } else if (Math.abs(cur - db) > 0.01) {
-    item.match_status = `⚠️ 差异 (当前: ${cur}, DB: ${db})`
-  } else {
+    return
+  }
+  if (Math.abs(cur - db) <= 0.01) {
     item.match_status = `✅ 一致 [DB=${db}]`
+    return
+  }
+  // 差异按方向拆文案（按钮随 kpPriceAction 走）；日期缺失/同日判不了 → 保守回退旧文案
+  const dbDate = String(item.db_price_date || '').slice(0, 10)
+  const anchor = String(anchorIso || '').slice(0, 10)
+  if (dbDate && anchor && dbDate !== anchor) {
+    item.match_status = dbDate > anchor
+      ? `⏬ 库价已更新 [库 ${db} @${dbDate}]`
+      : `📈 行价新 [库 ${db} @${dbDate}]`
+  } else {
+    item.match_status = `⚠️ 差异 (当前: ${cur}, DB: ${db})`
   }
 }

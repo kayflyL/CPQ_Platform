@@ -69,5 +69,11 @@ export const specTemplateApi = {
     if (quotationId) params.quotation_id = quotationId
     const res = await axios.get(`${API_BASE}/preview-data`, { params })
     return res.data
+  },
+
+  /** 打印 PDF：把前端渲染好的打印态 HTML 交服务端 Playwright 出 PDF（返回 Blob） */
+  async printPdf(data: { title: string; html: string }): Promise<Blob> {
+    const res = await axios.post(`${API_BASE}/print-pdf`, data, { responseType: 'blob' })
+    return res.data
   }
 }

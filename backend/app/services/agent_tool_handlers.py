@@ -144,3 +144,30 @@ async def _tool_colleague_memory(args: dict) -> Any:
     """同事长期记忆自管（写入者=对话者）：list / view / write / retire 四动作。"""
     from app.services.colleague_memory_service import tool_memory_action
     return await asyncio.to_thread(tool_memory_action, args or {})
+
+
+async def _tool_suggest_workflow(args: dict) -> Any:
+    """suggest_workflow → 记录一次工作流发起建议（卡面数据随回合消息落库，用户点击确认后才发起）。
+
+    可发起清单由回合层摆进 TOOL_CTX（workflow_offers，来自该角色的 workflow skill 绑定）；
+    建议写回 TOOL_CTX（workflow_suggestion），由 colleague_turn_runners 在回合收尾随消息落库。
+    """
+    from app.services.skill_tool_context import TOOL_CTX
+    ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
+    offers = ctx.get("workflow_offers") if isinstance(ctx.get("workflow_offers"), list) else []
+    key = str((args or {}).get("workflow_key") or "").strip()
+    requirement = str((args or {}).get("requirement_text") or "").strip()
+    offer = next((o for o in offers if isinstance(o, dict) and str(o.get("key") or "").strip() == key), None)
+    if not offer:
+        return {"ok": False, "error": "workflow_key 不在当前角色可发起的工作流清单内",
+                "available": [str(o.get("key") or "") for o in offers if isinstance(o, dict)]}
+    if not requirement:
+        return {"ok": False, "error": "requirement_text 缺失：填对话中用户需求的原文整理"}
+    suggestion = {
+        "workflow_key": key,
+        "name": str(offer.get("name") or key),
+        "requirement_text": requirement[:2000],
+        "reason": str((args or {}).get("reason") or "").strip()[:200],
+    }
+    ctx["workflow_suggestion"] = suggestion
+    return {"ok": True, **suggestion}

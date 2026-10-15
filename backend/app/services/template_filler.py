@@ -27,7 +27,7 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
         }
         sheet_config: 可选，sheet 配置信息（含 cover/config 定义）
         masked_fields: 可选，敏感字段掩蔽 {source_key: {field_key: mode}}——
-            mode='hide' 整列隐藏（columnData hd，成本/利润率对客户不可见列存在）；
+            mode='hide' 整列物理删除（客户版文件里不存在该列，防解除隐藏泄露成本/利润率）；
             mode='blank' 仅清空明细值保留列（销售价：明细藏但总计行恒显）
         region_fields: 可选，区域聚合字段 {source_key: set(field_key)}（scope=region）——
             值只写区域首行，并按实际行数生成纵向 mergeData（合并单元格）
@@ -141,19 +141,67 @@ def fill_snapshot(workbook_snapshot: dict, bindings: list, data: dict, sheet_con
                     offsets = sheet_row_offsets[sheet_id]
                     offsets[template_row] = offsets.get(template_row, 0) + inserted
 
-    # 统一应用敏感列隐藏：columnData hd=1（Univer 渲染跳过该列，导出侧同步隐藏）
+    # 统一应用敏感列摘除：整列物理删除而非 hd=1 隐藏——隐藏列可被收件人一键解除，
+    # 表头/样式仍留在文件里；客户版要求「这列压根不存在」
     for sid, cols in hide_cols.items():
         sheet = filled["sheets"].get(sid)
         if not sheet:
             continue
-        column_data = sheet.setdefault("columnData", {})
-        for col_idx in cols:
-            col_key = str(col_idx)
-            col_cfg = column_data.get(col_key) or {}
-            col_cfg["hd"] = 1
-            column_data[col_key] = col_cfg
+        for col_idx in sorted(cols, reverse=True):  # 从右往左删，左移不打乱待删列号
+            _delete_column(sheet, col_idx)
 
     return filled
+
+
+def _delete_column(sheet: dict, col_idx: int) -> None:
+    """从 snapshot 物理删除一列：该列 cellData 剪掉、右侧列整体左移，mergeData/列宽/columnCount 同步收敛。
+
+    仅当该列只承载 hide 档敏感字段时使用（模板绑定约束：同一列不得再绑非敏感字段，
+    否则会被连带删除）。
+    """
+    cell_data = sheet.get("cellData")
+    if isinstance(cell_data, dict):
+        for r_key, row_obj in cell_data.items():
+            if not isinstance(row_obj, dict):
+                continue
+            rebuilt = {}
+            for c_key, cell in row_obj.items():
+                c = int(c_key)
+                if c == col_idx:
+                    continue
+                rebuilt[str(c - 1 if c > col_idx else c)] = cell
+            cell_data[r_key] = rebuilt
+
+    merges = sheet.get("mergeData")
+    if isinstance(merges, list):
+        kept = []
+        for m in merges:
+            sc, ec = m.get("startColumn", 0), m.get("endColumn", 0)
+            if ec < col_idx:
+                kept.append(m)
+            elif sc > col_idx:
+                m["startColumn"] = sc - 1
+                m["endColumn"] = ec - 1
+                kept.append(m)
+            elif sc == ec:
+                continue  # 合并区正好是被删列
+            else:
+                m["endColumn"] = ec - 1  # 横跨被删列：右端收敛一格
+                kept.append(m)
+        sheet["mergeData"] = kept
+
+    column_data = sheet.get("columnData")
+    if isinstance(column_data, dict):
+        rebuilt = {}
+        for c_key, cfg in column_data.items():
+            c = int(c_key)
+            if c == col_idx:
+                continue
+            rebuilt[str(c - 1 if c > col_idx else c)] = cfg
+        sheet["columnData"] = rebuilt
+
+    if isinstance(sheet.get("columnCount"), int):
+        sheet["columnCount"] = max(1, sheet["columnCount"] - 1)
 
 
 def _duplicate_config_sheets(workbook: dict, sheet_config: dict, data: dict) -> tuple:
@@ -331,8 +379,8 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
 
     Args:
         config_name: 如果提供，只填充属于该配置的数据
-        masked_fields: {source_key: {field_key: mode}} 敏感字段掩蔽（mode: hide=整列隐藏 / blank=仅清空值）
-        hide_cols: {sheet_id: set(col_idx)} 隐藏列登记（由 fill_snapshot 统一应用）
+        masked_fields: {source_key: {field_key: mode}} 敏感字段掩蔽（mode: hide=整列物理删除 / blank=仅清空值）
+        hide_cols: {sheet_id: set(col_idx)} 待删除敏感列登记（由 fill_snapshot 统一物理删列）
         target_sheet_id: 当前填充的 sheet id（作为 hide_cols 的键）
         region_fields: {source_key: set(field_key)} 区域聚合字段——值只写首行并纵向合并
 
@@ -375,15 +423,23 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
     
     # 获取数据源
     data_rows = data.get(region_key, [])
-    
+
     # 如果指定了 config_name，过滤只保留该配置的数据
     if config_name and data_rows:
         data_rows = [r for r in data_rows if r.get("config_name") == config_name]
-    
+
+    # 敏感列登记与数据无关：模板表头是静态文字，空数据时也要摘列，
+    # 否则客户版预览/导出会漏出整列敏感表头（无数据的报价单同样不能见利润率列）
+    region_masked = (masked_fields or {}).get(region_key) or {}
+    if region_masked and target_sheet_id is not None and hide_cols is not None:
+        for field_key, col_letter in field_mapping.items():
+            if region_masked.get(field_key) == "hide":
+                hide_cols.setdefault(target_sheet_id, set()).add(_column_letter_to_index(col_letter))
+
     # 重新编号 item_no（从1开始）
     for idx, row in enumerate(data_rows, 1):
         row["item_no"] = idx
-    
+
     if not data_rows:
         # 数据为空，清除绑定标记
         if binding.get("cellAddress"):
@@ -401,7 +457,6 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
         _insert_rows(sheet, template_row_idx, extra_rows)
     
     # 填充数据
-    region_masked = (masked_fields or {}).get(region_key) or {}
     region_scope = set((region_fields or {}).get(region_key) or [])
     for i, row_data in enumerate(data_rows):
         current_row_idx = template_row_idx + i  # 0-indexed
@@ -419,11 +474,9 @@ def _fill_dynamic_binding(sheet: dict, binding: dict, data: dict, config_name: s
                 sheet["cellData"][row_idx_str][col_idx_str] = {}
 
             if field_key in region_masked:
-                # 敏感字段未揭示：清空模板标记/数据；hide 档连表头带列一起消失，
+                # 敏感字段未揭示：清值；hide 档整列已在上方登记由 fill_snapshot 物理删除（表头随之消失），
                 # blank 档保留列（销售价：明细藏、总计行恒显）
                 sheet["cellData"][row_idx_str][col_idx_str]["v"] = ""
-                if region_masked[field_key] == "hide" and target_sheet_id is not None and hide_cols is not None:
-                    hide_cols.setdefault(target_sheet_id, set()).add(col_idx)
                 continue
 
             # 获取值（区域聚合字段只挂首行数据，后续行取不到自然为空）

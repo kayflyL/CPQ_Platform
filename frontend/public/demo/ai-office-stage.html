@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<title>宣传录制舞台 · AI 办公室（实机快照底稿）</title>
+<style>
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: #08090B; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  display: flex; flex-direction: column; color: #E8ECEF; }
+.brand { flex: none; display: flex; align-items: baseline; gap: 12px; padding: 10px 20px 6px; }
+.brand b { font-size: 14px; font-weight: 700; letter-spacing: 2px; color: #1677FF; }
+.brand span { font-size: 12px; color: #6E7582; }
+.brand .hint { margin-left: auto; font-size: 11.5px; color: #6E7582; }
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px 1fr; gap: 18px; padding: 2px 20px 12px; }
+.rail { display: flex; flex-direction: column; justify-content: center; gap: 34px; min-height: 0; }
+.sc { position: relative; padding: 4px 2px 14px; cursor: pointer; opacity: .3; transition: opacity .5s cubic-bezier(.16,1,.3,1); }
+.sc b { display: block; font-size: 17px; font-weight: 700; color: #E8ECEF; margin-bottom: 5px; }
+.sc .bar { position: absolute; left: 2px; right: 100%; bottom: 0; height: 2px; border-radius: 2px; background: #1677FF; }
+.sc.on { opacity: 1; }
+.sc.on b { color: #1677FF; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.11); box-shadow: 0 24px 70px rgba(0,0,0,.5); background: #F2F6FC; }
+.scaler { position: absolute; transform-origin: top left; }
+.scaler iframe { width: 1600px; height: 1000px; border: 0; display: block; transition: transform 2.4s cubic-bezier(.4,0,.2,1); }
+/* 覆盖层：纱罩 + 镜头洞 + 光标（坐标与 iframe 内真实元素对齐） */
+.overlay { position: absolute; inset: 0; z-index: 300; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.overlay.show { opacity: 1; }
+.lens { position: absolute; border-radius: 16px; box-shadow: 0 0 0 9999px rgba(3, 6, 14, .5), inset 0 0 0 1px rgba(122,167,255,.35), 0 0 26px rgba(122,167,255,.3);
+  transition: left .7s cubic-bezier(.16,1,.3,1), top .7s cubic-bezier(.16,1,.3,1), width .7s cubic-bezier(.16,1,.3,1), height .7s cubic-bezier(.16,1,.3,1); }
+.cursor { position: absolute; z-index: 400; pointer-events: none; opacity: 0; transition: opacity .4s, left .9s cubic-bezier(.16,1,.3,1), top .9s cubic-bezier(.16,1,.3,1); }
+.cursor .ring { position: absolute; left: -9px; top: -9px; width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid rgba(122, 167, 255, .9); opacity: 0; transform: scale(.4); }
+.cursor.click .ring { animation: cring .5s cubic-bezier(.16,1,.3,1); }
+@keyframes cring { 0% { opacity: .95; transform: scale(.35); } 100% { opacity: 0; transform: scale(1.15); } }
+.cursor svg { display: block; width: 21px; height: 21px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+.ctrl { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 500; transition: opacity .6s; }
+.ctrl.fade { opacity: .1; }
+.ctrl button { border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); color: #9BA1AA;
+  border-radius: 99px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+/* 注入 iframe 的演示高亮样式 */
+.demo-pulse { animation: dpulse 1.1s cubic-bezier(.16,1,.3,1) 2; }
+@keyframes dpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(22,119,255,0); } 50% { box-shadow: 0 0 0 6px rgba(22,119,255,.35); } }
+.demo-glow { outline: 2px solid rgba(22,119,255,.55); outline-offset: 2px; border-radius: 4px; }
+.scenetab { font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 99px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.15); color: #9BA1AA; }
+.scenetab:hover { color: #1677FF; border-color: rgba(22,119,255,.4); }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <b>霄擎算力 · CPQ Platform</b>
+  <span>AI 办公室 · 实机快照演示</span>
+  <span class="hint">空格播放/暂停 · R 重播 · 点左侧标题跳步 · 底稿=真实系统渲染快照</span><span class="scenetab" data-go="portal-stage.html">工作台首页</span><span class="scenetab" data-go="ai-office-stage.html" style="opacity:.55;pointer-events:none">AI 办公室</span>
+</div>
+
+<div class="main">
+  <div class="rail l">
+    <div class="sc" data-step="0"><b>任务看板，谁在干什么</b><div class="bar"></div></div>
+    <div class="sc" data-step="1"><b>办公区，六位 AI 同事</b><div class="bar"></div></div>
+    <div class="sc" data-step="2"><b>和 TA 对话，思考看得见</b><div class="bar"></div></div>
+    <div class="sc" data-step="3"><b>Manage Teams，一站管理</b><div class="bar"></div></div>
+  </div>
+  <div class="stage">
+    <div class="scaler" id="scaler">
+      <iframe id="snap" src="ai-office.html"></iframe>
+      <div class="overlay" id="veil"><div class="lens" id="lens"></div></div>
+      <div class="cursor" id="cursor"><span class="ring"></span><svg viewBox="0 0 24 24"><path d="M5 3l13.5 8.2-5.8 1.3 3 6.8-2.7 1.2-3-6.9L5 18z" fill="#fff" stroke="#1c2430" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+    </div>
+  </div>
+</div>
+
+<div class="ctrl" id="ctrl">
+  <button id="playBtn">⏸ 暂停</button>
+  <button onclick="restart()">⟳ 重播</button>
+</div>
+
+<script>
+document.querySelectorAll('.scenetab[data-go]').forEach(function (t) {
+  t.addEventListener('click', function () { location.href = t.dataset.go; });
+});
+var STEPS = [
+  { sel: '.office-sidebar',   title: 0, ms: 7000,
+    cur: [{ t: 300, s: '.sidebar-section b' }, { t: 2100, s: '.sidebar-mission-item' }, { t: 4300, s: '.sidebar-mission-item', click: true }],
+    seq: [{ t: 800, run: pulseCls('.sidebar-mission-item') }, { t: 4600, run: pulseCls('.sidebar-mission-item') }] },
+  { sel: '.office-map-panel', title: 1, ms: 8000,
+    cur: [{ t: 300, s: '.map-title' }, { t: 2100, s: '.legend-dot' }, { t: 4300, s: '.office-map-panel', dx: -100 }, { t: 6100, s: '.office-map-panel', dx: 140, dy: -60 }],
+    seq: [{ t: 1500, run: pulseCls('.legend-dot') }, { t: 5500, run: pulseCls('.legend-dot') }] },
+  { sel: '.inspector-panel',  title: 2, ms: 7500,
+    cur: [{ t: 300, s: '.inspector-tabs' }, { t: 1900, s: '.inspector-name' }, { t: 4100, s: '.chat-head' }, { t: 5900, s: '.chat-head', click: true }],
+    seq: [{ t: 4400, run: pulseCls('.chat-head') }] },
+  { sel: '.office-actions',   title: 3, ms: 6500,
+    cur: [{ t: 300, s: '.connection-pill' }, { t: 2100, s: '.office-actions', click: true }],
+    seq: [{ t: 2400, run: pulseCls('.office-actions .mt-btn, .office-actions button') }] }
+];
+var STEP_MS = 5200;
+
+var scaler = document.getElementById('scaler');
+var frame = document.getElementById('snap');
+var doc = null, win = null;
+
+frame.addEventListener('load', function () {
+  doc = frame.contentDocument; win = frame.contentWindow;
+  /* 注入演示高亮样式到真实页面 */
+  var st = doc.createElement('style');
+  st.textContent = '.demo-pulse { animation: dpulse 1.1s cubic-bezier(.16,1,.3,1) 2; }' +
+    '@keyframes dpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(22,119,255,0); } 50% { box-shadow: 0 0 0 6px rgba(22,119,255,.35); } }' +
+    '.demo-glow { outline: 2px solid rgba(22,119,255,.55); outline-offset: 2px; border-radius: 4px; }';
+  doc.head.appendChild(st);
+  fit();
+  requestAnimationFrame(function(){ requestAnimationFrame(function(){ play(); }); });
+});
+
+window.addEventListener('resize', fit);
+document.addEventListener('visibilitychange', fit);
+
+/* 真实元素 → 舞台坐标（同源：可读 iframe 内部布局） */
+
+function pulseCls(sel) {
+  return function () {
+    var els = doc.querySelectorAll(sel);
+    for (var i = 0; i < els.length; i++) {
+      els[i].classList.remove('demo-pulse');
+      void els[i].offsetWidth;
+      els[i].classList.add('demo-pulse');
+    }
+  };
+}
+
+function q(sel) { return doc ? doc.querySelector(sel) : null; }
+
+var S = 1, stW = 0, stH = 0;
+var CAM = { tx: 0, ty: 0, cx: 800, cy: 500, k: 1 };   /* 相机：平移 + 区域中心(快照坐标) + 总缩放 */
+function fit() {
+  var st = document.querySelector('.stage');
+  stW = st.clientWidth; stH = st.clientHeight;
+  var aw = stW - 4, ah = stH - 4;
+  if (aw <= 0 || ah <= 0) return;
+  S = Math.max(0.1, Math.min(aw / 1600, ah / 1000, 1.15));
+  scaler.style.width = Math.round(1600 * S) + 'px';
+  scaler.style.height = Math.round(1000 * S) + 'px';
+  applyCam();
+}
+function applyCam() {
+  frame.style.transition = 'transform 2.4s cubic-bezier(.4,0,.2,1)';
+  frame.style.transformOrigin = CAM.cx + 'px ' + CAM.cy + 'px';
+  frame.style.transform = 'translate(' + CAM.tx + 'px,' + CAM.ty + 'px) scale(' + CAM.k + ')';
+}
+function unscaled(ox, oy) {
+  return { x: CAM.cx + (ox - CAM.tx - CAM.cx) / CAM.k,
+           y: CAM.cy + (oy - CAM.ty - CAM.cy) / CAM.k };
+}
+function positionLens(el, pad) {
+  pad = pad || 12;
+  var r = el.getBoundingClientRect();
+  var so = scaler.getBoundingClientRect();
+  lens.style.left = (r.left - so.left - pad) + 'px';
+  lens.style.top = (r.top - so.top - pad) + 'px';
+  lens.style.width = (r.width + pad * 2) + 'px';
+  lens.style.height = (r.height + pad * 2) + 'px';
+  veil.classList.add('show');
+}
+
+var veil = document.getElementById('veil'), lens = document.getElementById('lens');
+
+function runCursorTrack(i) {
+  var cur = document.getElementById('cursor');
+  var track = (STEPS[i] && STEPS[i].cur) || [];
+  if (!track.length) { cur.style.opacity = 0; return; }
+  cur.style.opacity = 1;
+  track.forEach(function (wp) {
+    stepTimers.push(setTimeout(function () {
+      var el = q(wp.s);
+      if (!el) return;
+      var rr = el.getBoundingClientRect();
+      if (!rr.width) return;
+      var so = scaler.getBoundingClientRect();
+      var x = rr.left - so.left + rr.width / 2 + (wp.dx || 0), y = rr.top - so.top + rr.height / 2 + (wp.dy || 0);
+      var dx = x - (parseFloat(cur.style.left) || 0), dy = y - (parseFloat(cur.style.top) || 0);
+      cur.style.transitionDuration = Math.max(420, Math.min(1050, Math.sqrt(dx * dx + dy * dy) * 0.9)) + 'ms';
+      cur.style.left = x + 'px'; cur.style.top = y + 'px';
+      if (wp.click) {
+        setTimeout(function () {
+          cur.classList.add('click');
+          el.classList.add('demo-pulse');
+          setTimeout(function () { cur.classList.remove('click'); el.classList.remove('demo-pulse'); }, 900);
+        }, 320);
+      }
+    }, wp.t));
+  });
+}
+
+function pulseFlow() {
+  var nodes = doc.querySelectorAll('.fnodes .fnode');
+  for (var i = 0; i < nodes.length; i++) {
+    nodes[i].classList.remove('demo-pulse');
+    void nodes[i].offsetWidth;
+    nodes[i].classList.add('demo-pulse');
+  }
+}
+
+var cur = -1, timer = null, playing = false, stepTimers = [];
+function clearStepTimers() { stepTimers.forEach(clearTimeout); stepTimers = []; }
+function clearAll() { clearTimeout(timer); clearStepTimers(); }
+
+function showStep(i) {
+  clearAll();
+  fit();
+  cur = i % STEPS.length;
+  var st = STEPS[cur];
+  var el = q(st.sel);
+  if (el) {
+    var rr = el.getBoundingClientRect();
+    var c = unscaled(rr.left + rr.width / 2, rr.top + rr.height / 2);
+    CAM.cx = c.x; CAM.cy = c.y; CAM.k = S;
+    CAM.tx = stW / 2 - c.x; CAM.ty = stH / 2 - c.y;
+    applyCam();
+    positionLens(el);
+  }
+  runCursorTrack(cur);
+  (st.seq || []).forEach(function (it) { stepTimers.push(setTimeout(it.run, it.t)); });
+  var ms = st.ms || STEP_MS;
+  var cards = document.querySelectorAll('.sc');
+  for (var j = 0; j < cards.length; j++) {
+    var on = +cards[j].dataset.step === cur;
+    cards[j].classList.toggle('on', on);
+    var bar = cards[j].querySelector('.bar');
+    bar.style.transition = 'none'; bar.style.right = '100%';
+    if (on) {
+      void bar.offsetWidth;
+      bar.style.transition = 'right ' + ms + 'ms linear';
+      bar.style.right = '0%';
+    }
+  }
+  timer = setTimeout(function () { showStep(cur + 1); }, ms);
+}
+function restart() { showStep(0); }
+function togglePlay() {
+  if (playing) { playing = false; clearTimeout(timer); clearStepTimers();
+    document.getElementById('playBtn').textContent = '▶ 播放'; }
+  else { playing = true; document.getElementById('playBtn').textContent = '⏸ 暂停';
+    timer = setTimeout(function () { showStep(cur + 1); }, 2000); }
+}
+document.getElementById('playBtn').addEventListener('click', togglePlay);
+document.querySelectorAll('.sc').forEach(function (c) {
+  c.addEventListener('click', function () { var was = cur; showStep(+c.dataset.step); if (playing && +c.dataset.step === was) togglePlay(), togglePlay(); });
+});
+document.addEventListener('keydown', function (e) {
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'r' || e.key === 'R') restart();
+});
+var idleT = null, ctrl = document.getElementById('ctrl');
+function wake() { ctrl.classList.remove('fade'); clearTimeout(idleT); idleT = setTimeout(function(){ ctrl.classList.add('fade'); }, 2500); }
+document.addEventListener('mousemove', wake);
+</script>
+</body>
+</html>

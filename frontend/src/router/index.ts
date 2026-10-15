@@ -46,7 +46,7 @@ const routes = [
         path: '/workspace',
         name: 'Workspace',
         component: () => import('@/views/quote/Workspace.vue'),
-        meta: { title: '报价工作台', perm: 'page.opportunities' }
+        meta: { title: '报价工作台', perm: 'field.quote.price' }
       },
       {
         path: '/opportunities',

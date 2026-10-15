@@ -356,6 +356,33 @@ export interface PricingApproval {
   decided_at: string
   comment: string
   created_at: string
+  /** ── M1 外发审批扩展 ── */
+  trigger_reason?: 'low_margin' | 'outbound'
+  content_hash?: string
+  assigned_to?: string
+  assigned_name?: string
+  route_snapshot?: string
+  request_note?: string
+  transfers?: string
+  escalated_at?: string
+  reminded_at?: string
+  /** 队列端点附带的展示字段 */
+  customer_name?: string
+  waited_hours?: number
+}
+
+/** 报价单当前外发审批状态（工作台导出弹窗数据） */
+export interface OutboundApprovalState {
+  state: 'none' | 'pending' | 'approved' | 'stale' | 'rejected'
+  approval: PricingApproval | null
+  content_hash: string
+  margin_pct: number | null
+  threshold: number
+  remind_hours: number
+  waited_hours: number
+  route: { assigned_uid: string; assigned_name: string; basis: string; basis_text: string }
+  /** 当前用户持「报价外发免审批」权限时为 true——闸对其直通 */
+  bypass?: boolean
 }
 
 export interface PortalTransferRecord {
@@ -413,8 +440,8 @@ export interface TodoSummaryItem {
 export const portalApi = {
   /** 待处理事项：按当前账号角色返回口径化计数（工作台 hero 角标）+ 全局流程阶段分布（流程条） */
   todoSummary: () => RESP<{ role: string; items: TodoSummaryItem[]; stages?: Record<string, number> }>(axios.get('/api/portal/todo-summary')),
-  oppCards: (params?: { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: string; node?: string; scope?: 'mine' | 'all' }) =>
-    RESP<{ cards: PortalOppCard[]; total: number; summary: PortalOppSummary | PortalOppNodeSummary }>(axios.get('/api/portal/opps', { params })),
+  oppCards: (params?: { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: string; node?: string; scope?: 'mine' | 'all'; mode?: 'involved' }) =>
+    RESP<{ cards: PortalOppCard[]; total: number; summary: PortalOppSummary | PortalOppNodeSummary & { involved?: number } }>(axios.get('/api/portal/opps', { params })),
   opp: (oppId: string) => RESP<PortalOpp>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}`)),
   board: (oppId: string) => RESP<PortalBoard>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/board`)),
   requirements: (oppId: string) =>
@@ -501,10 +528,36 @@ export const portalApi = {
   decidePricingApproval: (oppId: string, approvalId: number, data: { decision: 'approve' | 'reject'; comment?: string }) =>
     RESP<{ approval: PricingApproval }>(
       axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/pricing-approvals/${approvalId}/decide`, data)),
+  /** 外发审批：当前状态（导出弹窗数据，读取触发懒超时提醒） */
+  outboundApprovalStatus: (oppId: string, quotationId: string) =>
+    RESP<OutboundApprovalState>(
+      axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/quotations/${encodeURIComponent(quotationId)}/outbound-approval`)),
+  /** 外发审批：发起（导出弹窗「提交审批」） */
+  createOutboundApproval: (oppId: string, quotationId: string, note = '') =>
+    RESP<{ approval: PricingApproval }>(
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/quotations/${encodeURIComponent(quotationId)}/outbound-approval`, { note })),
+  /** 外发审批：转交责任总监 */
+  reassignPricingApproval: (oppId: string, approvalId: number, data: { to_name: string; reason?: string }) =>
+    RESP<{ approval: PricingApproval }>(
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/pricing-approvals/${approvalId}/reassign`, data)),
+  /** 外发审批：提交人一键催办（1 小时限速） */
+  remindPricingApproval: (oppId: string, approvalId: number) =>
+    RESP<{ ok: boolean }>(
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/pricing-approvals/${approvalId}/remind`)),
+  /** 审批人名单（转交选择器） */
+  pricingApprovalApprovers: () =>
+    RESP<{ approvers: Array<{ user_id: string; name: string }> }>(
+      axios.get('/api/portal/pricing-approvals/approvers')),
+  /** 调度页待审批队列（admin） */
+  pricingApprovalQueue: () =>
+    RESP<{ approvals: PricingApproval[] }>(axios.get('/api/portal/pricing-approvals/queue')),
   dispatch: () => RESP<PortalDispatchData>(axios.get('/api/portal/dispatch')),
   dispatchAutofill: (data?: { opportunity_ids?: string[] }) =>
     RESP<{ filled: number; unresolved: number; failed: number }>(
       axios.post('/api/portal/dispatch/autofill', data || {})),
+  removeHandler: (data: { node_key: string; handler: string }) =>
+    RESP<{ cleared: number; rules_removed: number }>(
+      axios.post('/api/portal/dispatch/remove-handler', data)),
   assignOptions: () =>
     RESP<{ businesses: Array<{ user_id: string; name: string }>; assignees: Record<string, string[]> }>(
       axios.get('/api/portal/assign-options')),

@@ -1,0 +1,671 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>用户与权限 · 改版原型 — 用户与角色管理</title>
+<style>
+/* ===== Design Tokens（摘自 frontend/src/styles/tokens.css，Glass Console）===== */
+:root {
+  --accent: #1677FF; --accent-light: #4096ff;
+  --accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  --danger: #e5484d; --danger-bg: rgba(255, 107, 107, 0.12);
+  --success: #2f9d78; --success-bg: rgba(82, 201, 160, 0.14);
+  --amber: #d48806; --amber-bg: rgba(250, 173, 20, 0.14);
+  --violet: #7c5cf0; --violet-bg: rgba(140, 113, 255, 0.12);
+  --cyan: #0ea5b7; --cyan-bg: rgba(49, 196, 214, 0.13);
+  --gold: #d4a853;
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+:root[data-theme="light"] {
+  --bg-primary: #F2F6FC; --bg-secondary: #F0F4FA; --bg-card: #ffffff;
+  --text-primary: #1d2129; --text-secondary: #4e5969; --text-muted: #86909c; --text-disabled: #c9cdd4;
+  --border-primary: rgba(22, 119, 255, 0.10); --border-light: rgba(22, 119, 255, 0.16);
+  --glass-bg: rgba(255, 255, 255, 0.55); --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-highlight: rgba(255, 255, 255, 1);
+  --shadow-soft: rgba(22, 119, 255, 0.08); --shadow-strong: rgba(22, 119, 255, 0.14);
+  --row-hover: rgba(22, 119, 255, 0.04); --input-bg: #ffffff;
+  --bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+}
+:root[data-theme="dark"] {
+  --bg-primary: #08090B; --bg-secondary: #101217; --bg-card: #1e1e1e;
+  --text-primary: #E8ECEF; --text-secondary: #9BA1AA; --text-muted: #6E7582; --text-disabled: #3D424D;
+  --border-primary: rgba(255, 255, 255, 0.10); --border-light: rgba(255, 255, 255, 0.15);
+  --glass-bg: rgba(255, 255, 255, 0.06); --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-highlight: rgba(255, 255, 255, 0.18);
+  --shadow-soft: rgba(0, 0, 0, 0.30); --shadow-strong: rgba(0, 0, 0, 0.50);
+  --row-hover: rgba(255, 255, 255, 0.05); --input-bg: #2a2a2a;
+  --danger: #FF6B6B; --success: #52C9A0; --amber: #F4D28A; --violet: #9C86FF; --cyan: #36CFCF;
+  --bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px; color: var(--text-primary); background: var(--bg-gradient) fixed;
+  min-height: 100vh; padding: 24px 32px 80px;
+  transition: background 0.3s var(--ease), color 0.3s var(--ease);
+}
+
+/* ===== 顶栏 ===== */
+.proto-head { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.proto-head h1 { font-size: 20px; font-weight: 700; letter-spacing: 0.5px; }
+.proto-sub { color: var(--text-muted); font-size: 12px; }
+.proto-tools { margin-left: auto; display: flex; gap: 8px; }
+.proto-btn {
+  border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-secondary);
+  border-radius: var(--radius-sm); padding: 5px 12px; font-size: 12px; cursor: pointer;
+  backdrop-filter: blur(10px); transition: all 0.2s var(--ease);
+}
+.proto-btn:hover { border-color: var(--accent); color: var(--accent); }
+.proto-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ===== 玻璃卡容器 ===== */
+.glass {
+  background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px var(--shadow-soft), inset 0 1px 0 var(--glass-highlight);
+}
+
+/* ===== Tabs ===== */
+.page-tabs { display: flex; gap: 4px; padding: 6px; margin-bottom: 16px; width: fit-content; }
+.page-tab {
+  padding: 8px 20px; border-radius: var(--radius-md); cursor: pointer; font-weight: 600;
+  color: var(--text-secondary); font-size: 14px; transition: all 0.2s var(--ease); border: 1px solid transparent;
+}
+.page-tab:hover { color: var(--accent); }
+.page-tab.active {
+  color: var(--accent); background: var(--row-hover); border-color: var(--border-primary);
+  box-shadow: inset 0 1px 0 var(--glass-highlight);
+}
+.page-tab .cnt { font-size: 12px; color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+
+/* ===== 工具行 ===== */
+.toolbar { display: flex; align-items: center; gap: 12px; padding: 16px 20px 12px; }
+.seg { display: flex; background: var(--row-hover); border-radius: var(--radius-sm); padding: 3px; gap: 2px; }
+.seg-item { padding: 5px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; }
+.seg-item.active { background: var(--bg-card); color: var(--accent); font-weight: 600; box-shadow: 0 1px 4px var(--shadow-soft); }
+.search {
+  flex: 0 1 260px; display: flex; align-items: center; gap: 8px; padding: 7px 12px;
+  border: 1px solid var(--border-light); border-radius: var(--radius-sm); background: var(--input-bg);
+  color: var(--text-muted); font-size: 13px;
+}
+.search input { border: none; outline: none; background: transparent; flex: 1; color: var(--text-primary); font-size: 13px; }
+.toolbar .spacer { flex: 1; }
+.btn-primary {
+  background: var(--accent-gradient); color: #fff; border: none; border-radius: var(--radius-sm);
+  padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer;
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.30); transition: all 0.2s var(--ease);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(22, 119, 255, 0.40); }
+
+/* ===== 表格 ===== */
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted);
+  padding: 10px 16px; border-bottom: 1px solid var(--border-primary); white-space: nowrap;
+}
+tbody td { padding: 12px 16px; border-bottom: 1px solid var(--border-primary); font-size: 13px; vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr.rowlink { cursor: pointer; transition: background 0.15s; }
+tbody tr.rowlink:hover { background: var(--row-hover); }
+
+/* 用户列 */
+.cell-user { display: flex; align-items: center; gap: 10px; }
+.avatar {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600; color: #fff; flex-shrink: 0;
+}
+.cell-user .sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; white-space: nowrap; border: 1px solid transparent;
+}
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; }
+.badge.role-business { color: var(--accent); background: var(--row-hover); border-color: var(--border-primary); }
+.badge.role-admin    { color: var(--violet); background: var(--violet-bg); }
+.badge.role-quote    { color: var(--success); background: var(--success-bg); }
+.badge.role-te       { color: var(--cyan); background: var(--cyan-bg); }
+.badge.role-cost     { color: var(--amber); background: var(--amber-bg); }
+.badge.role-director { color: var(--gold); background: rgba(212, 168, 83, 0.14); }
+.badge.builtin { color: var(--text-muted); background: var(--row-hover); }
+.badge.on  { color: var(--success); background: var(--success-bg); }
+.badge.off { color: var(--text-muted); background: var(--row-hover); border-color: var(--border-primary); }
+.stale { color: var(--text-disabled); }
+
+/* ⋯ 菜单 */
+.op-wrap { position: relative; }
+.op-btn {
+  width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent;
+  color: var(--text-muted); font-size: 16px; cursor: pointer; line-height: 1;
+}
+.op-btn:hover { background: var(--row-hover); color: var(--accent); }
+.op-menu {
+  position: absolute; right: 0; top: 32px; min-width: 148px; z-index: 30;
+  background: var(--bg-card); border: 1px solid var(--border-light); border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px var(--shadow-strong); padding: 5px; display: none;
+}
+.op-menu.open { display: block; }
+.op-menu button {
+  display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: none;
+  font-size: 13px; color: var(--text-primary); border-radius: 6px; cursor: pointer;
+}
+.op-menu button:hover { background: var(--row-hover); }
+.op-menu button.danger { color: var(--danger); }
+.op-menu .sep { height: 1px; background: var(--border-primary); margin: 4px 8px; }
+
+/* ===== 角色表 ===== */
+.role-name { font-weight: 600; }
+.role-desc { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.link-num { color: var(--accent); cursor: pointer; font-weight: 600; }
+.link-num:hover { text-decoration: underline; }
+.perm-dots { display: inline-flex; gap: 3px; vertical-align: middle; }
+.perm-dots i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); opacity: 0.5; }
+
+/* ===== 抽屉 ===== */
+.drawer-mask, .modal-mask {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); backdrop-filter: blur(2px);
+  z-index: 90; display: none;
+}
+.drawer-mask.open, .modal-mask.open { display: block; }
+.drawer {
+  position: fixed; top: 0; right: -760px; width: 720px; max-width: 94vw; height: 100vh; z-index: 100;
+  background: var(--bg-secondary); border-left: 1px solid var(--glass-border);
+  box-shadow: -16px 0 48px var(--shadow-strong); transition: right 0.35s var(--ease);
+  display: flex; flex-direction: column;
+}
+.drawer.open { right: 0; }
+.drawer-head { display: flex; align-items: center; gap: 12px; padding: 18px 24px 14px; }
+.drawer-head h3 { font-size: 16px; }
+.drawer-close {
+  margin-left: auto; width: 30px; height: 30px; border-radius: 8px; border: none; background: transparent;
+  color: var(--text-muted); font-size: 18px; cursor: pointer;
+}
+.drawer-close:hover { background: var(--row-hover); color: var(--text-primary); }
+.drawer-body { flex: 1; overflow-y: auto; padding: 0 24px 24px; }
+.drawer-tabs { display: flex; gap: 20px; padding: 0 24px; border-bottom: 1px solid var(--border-primary); }
+.drawer-tab { padding: 10px 2px; font-size: 14px; color: var(--text-secondary); cursor: pointer; border-bottom: 2px solid transparent; font-weight: 500; }
+.drawer-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* 用户抽屉 */
+.profile-sec { padding: 16px 0 4px; }
+.profile-sec h4 { font-size: 12px; color: var(--text-muted); font-weight: 600; letter-spacing: 0.5px; margin-bottom: 10px; }
+.kv { display: grid; grid-template-columns: 96px 1fr; gap: 10px 16px; font-size: 13px; }
+.kv dt { color: var(--text-muted); }
+.kv dd { color: var(--text-primary); }
+.role-pick { display: flex; align-items: center; gap: 10px; }
+.role-pick select {
+  padding: 6px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
+  background: var(--input-bg); color: var(--text-primary); font-size: 13px;
+}
+.role-hint { font-size: 12px; color: var(--text-muted); }
+.danger-zone {
+  margin-top: 20px; border: 1px solid var(--danger); border-radius: var(--radius-md);
+  background: var(--danger-bg); padding: 14px 16px;
+}
+.danger-zone h4 { color: var(--danger); font-size: 13px; margin-bottom: 4px; }
+.danger-zone p { font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; }
+.btn-danger {
+  background: transparent; color: var(--danger); border: 1px solid var(--danger);
+  border-radius: var(--radius-sm); padding: 6px 14px; font-size: 13px; cursor: pointer; font-weight: 600;
+}
+.btn-danger:hover { background: var(--danger); color: #fff; }
+.btn-danger:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* 成员列表（角色抽屉 member tab / 确认弹窗） */
+.member-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--border-primary); font-size: 13px; }
+.member-row:last-child { border-bottom: none; }
+.member-row .mut { color: var(--text-muted); font-size: 12px; }
+.member-row .grow { flex: 1; }
+.mini-btn {
+  border: 1px solid var(--border-light); background: transparent; color: var(--text-secondary);
+  border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.mini-btn:hover { color: var(--accent); border-color: var(--accent); }
+.mini-btn.danger { color: var(--danger); border-color: transparent; }
+.mini-btn.danger:hover { border-color: var(--danger); background: var(--danger-bg); }
+
+/* 权限编辑器 */
+.perm-summary {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 9px 14px;
+  border-radius: var(--radius-sm); background: var(--row-hover); border: 1px solid var(--border-primary);
+  font-size: 13px; color: var(--accent); font-weight: 600;
+}
+.perm-summary .muted { color: var(--text-muted); font-weight: 400; }
+.perm-search {
+  width: 100%; padding: 7px 12px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
+  background: var(--input-bg); color: var(--text-primary); font-size: 13px; margin-bottom: 12px; outline: none;
+}
+.perm-group { border: 1px solid var(--border-primary); border-radius: var(--radius-md); margin-bottom: 10px; overflow: hidden; }
+.perm-group-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+  background: var(--row-hover); font-size: 13px; font-weight: 600;
+}
+.perm-group-head .cnt { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+.perm-group-head .chk { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); font-weight: 400; cursor: pointer; }
+.perm-items { padding: 4px 14px 10px; }
+.perm-item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 4px; cursor: pointer; border-radius: 6px; }
+.perm-item:hover { background: var(--row-hover); }
+.perm-item input { margin-top: 3px; accent-color: var(--accent); }
+.perm-item .label { font-size: 13px; }
+.perm-item .key { font-size: 11px; color: var(--text-disabled); font-family: ui-monospace, Consolas, monospace; margin-top: 1px; }
+
+/* ===== 弹窗 ===== */
+.modal {
+  position: fixed; left: 50%; top: 14vh; transform: translateX(-50%) scale(0.96); width: 520px; max-width: 92vw;
+  z-index: 110; background: var(--bg-secondary); border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg); box-shadow: 0 24px 64px var(--shadow-strong);
+  opacity: 0; pointer-events: none; transition: all 0.25s var(--ease);
+}
+.modal.open { opacity: 1; pointer-events: auto; transform: translateX(-50%) scale(1); }
+.modal-head { padding: 16px 20px 0; font-size: 15px; font-weight: 700; }
+.modal-body { padding: 12px 20px 20px; }
+.modal .muted { color: var(--text-muted); font-size: 12px; }
+.ref-list { margin: 6px 0 12px; padding-left: 18px; font-size: 13px; }
+.ref-list li { margin: 3px 0; }
+.ref-list.mut { color: var(--text-muted); font-size: 12px; }
+.form-item { margin-bottom: 12px; }
+.form-item label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+.form-item input, .form-item select {
+  width: 100%; padding: 8px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
+  background: var(--input-bg); color: var(--text-primary); font-size: 13px; outline: none;
+}
+.modal-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.btn-ghost { background: transparent; border: 1px solid var(--border-light); color: var(--text-secondary); border-radius: var(--radius-sm); padding: 7px 14px; cursor: pointer; font-size: 13px; }
+
+/* toast */
+#toast {
+  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-light);
+  padding: 10px 18px; border-radius: var(--radius-md); font-size: 13px; box-shadow: 0 8px 24px var(--shadow-strong);
+  opacity: 0; pointer-events: none; transition: all 0.3s var(--ease); z-index: 200;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ===== 标注 ===== */
+.note-anchor { position: absolute; z-index: 40; }
+.note-dot {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff;
+  font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: help;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.4); font-weight: 700;
+}
+.note-tip {
+  position: absolute; left: 24px; top: -4px; width: 240px; background: var(--bg-card);
+  border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 12px;
+  font-size: 12px; color: var(--text-secondary); box-shadow: 0 8px 24px var(--shadow-strong);
+  display: none; z-index: 60; line-height: 1.6;
+}
+.note-tip b { color: var(--accent); }
+.note-anchor:hover .note-tip { display: block; }
+body:not(.show-notes) .note-anchor { display: none; }
+.notes-legend { display: none; margin: 0 20px 10px; padding: 10px 14px; font-size: 12px; color: var(--text-secondary); line-height: 1.8; }
+body.show-notes .notes-legend { display: block; }
+.notes-legend b { color: var(--accent); }
+.rel { position: relative; }
+</style>
+</head>
+<body>
+
+<div class="proto-head">
+  <h1>用户与权限 · 改版原型</h1>
+  <span class="proto-sub">Glass Console / 浅色默认 · 数据为 mock，交互可点</span>
+  <div class="proto-tools">
+    <button class="proto-btn" id="notesBtn" onclick="toggleNotes()">标注：关</button>
+    <button class="proto-btn" id="themeBtn" onclick="toggleTheme()">暗色</button>
+  </div>
+</div>
+
+<div class="glass notes-legend">
+  <b>设计依据速查</b>：① 状态过滤器+搜索替代嵌套 tab（Linear）　② 角色徽标代替行内下拉，行点击开详情抽屉　③ Last active 列——需后端加 last_login_at（登录时更新一行代码）　④ 行尾 ⋯ 收纳全部操作，表格不放裸按钮/裸开关（Linear/GitHub）　⑤ 用户详情抽屉：信息+角色（带职责说明）+操作，替代行内 6 控件　⑥ Danger Zone：删除集中红区（GitHub 惯例），复用已上线的「引用清单+转接人」确认流　⑦ 角色表成员数列：点击即看「谁在这个角色」（Auth0/Keycloak 双向视图），前端现算零后端　⑧ 角色抽屉双 tab：权限配置 / 已授权成员　⑨ 汇总条实时反馈勾选　⑩ 权限可读化：动词短语主标签 + key 灰色副文本，按「页面/字段/操作」三类语义分组　⑪ 内置角色徽标，不可删
+</div>
+
+<div class="glass page-tabs">
+  <div class="page-tab active" id="tab-users" onclick="setTab('users')">用户管理 <span class="cnt">12</span></div>
+  <div class="page-tab" id="tab-roles" onclick="setTab('roles')">角色管理 <span class="cnt">6</span></div>
+</div>
+
+<!-- ============ Tab 1 用户管理 ============ -->
+<div class="glass" id="pane-users">
+  <div class="toolbar">
+    <div class="seg">
+      <div class="seg-item active">全部 12</div>
+      <div class="seg-item">已启用 10</div>
+      <div class="seg-item">已停用 2</div>
+    </div>
+    <div class="search">🔍 <input placeholder="搜索姓名 / 企微ID" id="uSearch" oninput="filterUsers()"></div>
+    <div class="spacer"></div>
+    <div class="rel">
+      <button class="btn-primary" onclick="openModal('newUserModal')">＋ 新建用户</button>
+      <div class="note-anchor" style="right:-10px;top:-10px;"><div class="note-dot">1</div><div class="note-tip"><b>① 工具行</b>：状态过滤器（全部/已启用/已停用）+ 搜索替代现在的按角色嵌套 tab；主 CTA 只留一个。</div></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>用户</th><th>角色</th><th>最近活跃</th><th>状态</th><th style="width:52px"></th>
+    </tr></thead>
+    <tbody id="userRows"></tbody>
+  </table>
+</div>
+
+<!-- ============ Tab 2 角色管理 ============ -->
+<div class="glass" id="pane-roles" style="display:none">
+  <div class="toolbar">
+    <span class="muted" style="color:var(--text-muted);font-size:13px">角色 = 一组权限的集合；六个内置角色覆盖日常，需要时从最接近的内置角色复制微调。</span>
+    <div class="spacer"></div>
+    <div class="rel">
+      <button class="btn-primary" onclick="openRole('business')">＋ 新建角色</button>
+      <div class="note-anchor" style="right:-10px;top:-10px;"><div class="note-dot">7</div><div class="note-tip"><b>⑦ 成员数列</b>：点击数字直接看该角色有谁（角色→成员反向视图），数据从用户表现算、零后端改动。</div></div>
+    </div>
+  </div>
+  <table>
+    <thead><tr>
+      <th>角色</th><th>成员</th><th>权限</th><th style="width:52px"></th>
+    </tr></thead>
+    <tbody id="roleRows"></tbody>
+  </table>
+</div>
+
+<!-- ============ 用户详情抽屉 ============ -->
+<div class="drawer-mask" id="userDrawerMask" onclick="closeDrawer('userDrawer')"></div>
+<div class="drawer" id="userDrawer">
+  <div class="drawer-head">
+    <div class="avatar" style="background:var(--accent-gradient)" id="udAvatar">王</div>
+    <div>
+      <h3 id="udName">王瑞</h3>
+      <div style="font-size:12px;color:var(--text-muted)"><span class="badge role-business" style="margin-right:6px"><span class="dot" style="background:var(--accent)"></span>业务</span><span class="badge on"><span class="dot" style="background:var(--success)"></span>启用</span></div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer('userDrawer')">✕</button>
+  </div>
+  <div class="drawer-body">
+    <div class="rel profile-sec">
+      <h4>账号信息</h4>
+      <dl class="kv">
+        <dt>企微 ID</dt><dd>wangrui_8902</dd>
+        <dt>最近活跃</dt><dd>今天 09:41</dd>
+        <dt>创建时间</dt><dd>2026-08-12</dd>
+      </dl>
+      <div class="note-anchor" style="right:0;top:12px;"><div class="note-dot">5</div><div class="note-tip"><b>⑤ 详情抽屉</b>：原行内 6 个控件全部收进这里——信息只读展示，可改项才给控件。</div></div>
+    </div>
+    <div class="profile-sec">
+      <h4>角色</h4>
+      <div class="role-pick">
+        <select>
+          <option>业务 —— 商机线索 + 服务器 + 配件</option>
+          <option>技术支持工程师 —— 方案配置与提交</option>
+          <option>市场报价专员 —— 报价工作台（含价格）</option>
+          <option>成本核算 —— 报价/配件价格 + 成本核算</option>
+          <option>总监 —— 全量页面 + 价格 + 审批</option>
+        </select>
+      </div>
+      <div class="role-hint" style="margin-top:6px">下拉项带一句职责说明，改角色即时生效（保存前浮出影响提示：该用户名下 21 条商机归属不变）。</div>
+    </div>
+    <div class="profile-sec">
+      <h4>操作</h4>
+      <button class="mini-btn" onclick="toast('重置密码弹窗（既有功能）')">重置密码</button>
+      <button class="mini-btn" style="margin-left:6px" onclick="toast('已停用（可逆，状态徽标转灰）')">停用账号</button>
+    </div>
+    <div class="rel danger-zone">
+      <h4>危险区</h4>
+      <p>删除将转移该用户的商机归属、流程指派与通知给指定接手人，操作不可撤销。历史留痕（创建记录/上传记录）保留原文。</p>
+      <button class="btn-danger" onclick="openModal('deleteModal')">删除用户…</button>
+      <div class="note-anchor" style="right:8px;top:-10px;"><div class="note-dot">6</div><div class="note-tip"><b>⑥ Danger Zone</b>（GitHub 惯例）：删除是低频不可逆操作，从表格/菜单里拿掉、集中到红区；点击进入已上线的「引用清单 + 转接人」确认流。</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 角色抽屉 ============ -->
+<div class="drawer-mask" id="roleDrawerMask" onclick="closeDrawer('roleDrawer')"></div>
+<div class="drawer" id="roleDrawer">
+  <div class="drawer-head">
+    <div>
+      <h3>业务 <span class="badge builtin" style="margin-left:6px">内置</span></h3>
+      <div style="font-size:12px;color:var(--text-muted)">商机线索 + 服务器 + 配件 · 13 名成员</div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer('roleDrawer')">✕</button>
+  </div>
+  <div class="drawer-tabs">
+    <div class="drawer-tab active" id="rt-perms" onclick="roleTab('perms')">权限配置</div>
+    <div class="drawer-tab" id="rt-members" onclick="roleTab('members')">已授权成员 <span style="color:var(--text-muted)">13</span></div>
+  </div>
+  <div class="drawer-body" id="rolePane-perms">
+    <div style="height:14px"></div>
+    <div class="rel">
+      <div class="perm-summary">已选 5 项 <span class="muted">· 覆盖 商机线索 / 服务器 / 配件 3 个模块</span></div>
+      <div class="note-anchor" style="right:0;top:-6px;"><div class="note-dot">9</div><div class="note-tip"><b>⑨ 汇总条</b>：勾选实时反馈，替代「保存前不知道这个角色能干什么」。</div></div>
+    </div>
+    <input class="perm-search" placeholder="搜索权限名称或 key…">
+    <div id="permGroups"></div>
+  </div>
+  <div class="drawer-body" id="rolePane-members" style="display:none">
+    <div style="height:14px"></div>
+    <div class="member-row"><div class="avatar" style="background:var(--accent-gradient)">王</div><div class="grow">王瑞 <span class="mut">· 今天活跃</span></div><button class="mini-btn danger" onclick="toast('移除角色（用户转为无角色）')">移除</button></div>
+    <div class="member-row"><div class="avatar" style="background:linear-gradient(135deg,#5B8FF9,#36CFCF)">罗</div><div class="grow">罗练武 <span class="mut">· 3 天前</span></div><button class="mini-btn danger" onclick="toast('移除角色')">移除</button></div>
+    <div class="member-row"><div class="avatar" style="background:linear-gradient(135deg,#a855f7,#5B8FF9)">杨</div><div class="grow">杨亮 <span class="mut">· 12 天前</span></div><button class="mini-btn danger" onclick="toast('移除角色')">移除</button></div>
+    <div class="member-row"><div class="avatar" style="background:linear-gradient(135deg,#52C9A0,#1677FF)">刘</div><div class="grow">刘涛 <span class="mut">· 45 天前</span></div><button class="mini-btn danger" onclick="toast('移除角色')">移除</button></div>
+    <div style="text-align:center;margin-top:12px"><button class="mini-btn" onclick="toast('从用户列表选择成员加入该角色')">＋ 添加成员</button></div>
+  </div>
+  <div style="padding:14px 24px;border-top:1px solid var(--border-primary);display:flex;justify-content:flex-end;gap:8px">
+    <button class="btn-ghost" onclick="closeDrawer('roleDrawer')">取消</button>
+    <button class="btn-primary" onclick="toast('已保存（即时生效）')">保存</button>
+  </div>
+</div>
+
+<!-- ============ 删除确认弹窗 ============ -->
+<div class="modal-mask" id="deleteModalMask" onclick="closeModal('deleteModal')"></div>
+<div class="modal" id="deleteModal">
+  <div class="modal-head">删除用户「刘涛」</div>
+  <div class="modal-body">
+    <span class="badge" style="color:var(--amber);background:var(--amber-bg)">有 13 条功能性引用待转接</span>
+    <ul class="ref-list">
+      <li>商机归属：9 条</li>
+      <li>商机销售人员：9 条</li>
+      <li>通知收件：3 条</li>
+    </ul>
+    <div class="muted">历史留痕保留原文，不转接：需求单创建 125 · 方案创建 7 · 流转卡创建 153</div>
+    <div class="form-item" style="margin-top:12px">
+      <label>转接人 —— 其商机归属 / 流程指派 / 通知将改挂到该用户名下</label>
+      <select><option>王瑞（业务 · 今天活跃）</option><option>罗练武（业务 · 3 天前）</option><option>沈总（业务 · 今天）</option></select>
+    </div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeModal('deleteModal')">取消</button>
+      <button class="btn-danger" onclick="closeModal('deleteModal');toast('已删除 刘涛，21 条引用转接给 王瑞')">确认删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 新建用户弹窗 ============ -->
+<div class="modal-mask" id="newUserModalMask" onclick="closeModal('newUserModal')"></div>
+<div class="modal" id="newUserModal">
+  <div class="modal-head">新建用户</div>
+  <div class="modal-body">
+    <div class="form-item"><label>用户名（登录名）</label><input placeholder="如 wangrui"></div>
+    <div class="form-item"><label>初始密码（至少 6 位，首登后可自行修改）</label><input type="password" placeholder="••••••"></div>
+    <div class="form-item">
+      <label>角色</label>
+      <select><option>业务 —— 商机线索 + 服务器 + 配件</option><option>技术支持工程师 —— 方案配置与提交</option><option>市场报价专员 —— 报价工作台（含价格）</option><option>成本核算 —— 报价/配件价格 + 成本核算</option><option>总监 —— 全量页面 + 价格 + 审批</option></select>
+    </div>
+    <div class="form-item"><label>企微 ID（选填，用于通知推送）</label><input placeholder="企微 userid"></div>
+    <div class="modal-foot">
+      <button class="btn-ghost" onclick="closeModal('newUserModal')">取消</button>
+      <button class="btn-primary" onclick="closeModal('newUserModal');toast('用户已创建')">创建</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ── mock 数据 ── */
+const USERS = [
+  { n:'王瑞',   r:'business', wecom:'wangrui_8902', act:'今天 09:41', stale:false, on:true },
+  { n:'罗练武', r:'business', wecom:'luo_lw',       act:'3 天前',     stale:false, on:true },
+  { n:'kayfly', r:'quote',    wecom:'',             act:'今天 10:02', stale:false, on:true },
+  { n:'沈总',   r:'business', wecom:'shen_z',       act:'今天 08:55', stale:false, on:true },
+  { n:'杨亮',   r:'business', wecom:'yangl',        act:'12 天前',    stale:false, on:true },
+  { n:'周波',   r:'business', wecom:'zhoub',        act:'2 天前',     stale:false, on:true },
+  { n:'陈骁宇', r:'te',       wecom:'',             act:'昨天',       stale:false, on:true },
+  { n:'总监-李',r:'director', wecom:'',             act:'今天 09:12', stale:false, on:true },
+  { n:'核算-赵',r:'cost',     wecom:'',             act:'4 天前',     stale:false, on:true },
+  { n:'admin',  r:'admin',    wecom:'',             act:'今天 10:00', stale:false, on:true, locked:true },
+  { n:'刘涛',   r:'business', wecom:'liutao',       act:'45 天前',    stale:true,  on:true },
+  { n:'测试账号',r:'member',  wecom:'',             act:'—',          stale:true,  on:false },
+];
+const ROLE_COLORS = { business:'#1677FF', admin:'#7c5cf0', quote:'#2f9d78', te:'#0ea5b7', cost:'#d48806', director:'#b8860b', member:'#86909c' };
+const ROLE_NAMES  = { business:'业务', admin:'管理员', quote:'市场报价专员', te:'技术支持工程师', cost:'成本核算', director:'总监', member:'未分配' };
+const ROLES = [
+  { k:'admin',    name:'管理员', desc:'拥有全部权限（含用户与权限管理）', members:1, perms:27, builtin:true },
+  { k:'director', name:'总监',   desc:'看全量页面 + 价格 + 中间交付物 + 低毛利审批', members:1, perms:11, builtin:true },
+  { k:'business', name:'业务',   desc:'商机线索 + 服务器 + 配件', members:13, perms:5, builtin:true },
+  { k:'te',       name:'技术支持工程师', desc:'商机线索 + 服务器 + 配件 + 方案配置', members:1, perms:6, builtin:true },
+  { k:'quote',    name:'市场报价专员', desc:'商机线索 + 报价工作台（含价格）', members:1, perms:8, builtin:true },
+  { k:'cost',     name:'成本核算', desc:'商机线索 + 报价/配件价格 + 成本核算', members:1, perms:8, builtin:true },
+];
+/* 权限目录（27 key，语义三类 × 模块二级） */
+const PERMS = [
+  { cat:'页面权限（page）', icon:'🗂', groups:[
+    { mod:'商机线索', items:[['page.opportunities_all','商机线索菜单（数据范围 = 全部销售的商机）'],['page.opportunities','商机子页面：商机详情 / 报价工作台 / AI 线索 / 回收站']]},
+    { mod:'AI 办公室', items:[['page.office','AI 办公室菜单与页面']]},
+    { mod:'服务器', items:[['page.servers','服务器（机型目录 / 详情 / 配置向导）']]},
+    { mod:'配件', items:[['page.parts','配件（料号库 / KP 配件库）']]},
+    { mod:'解决方案', items:[['page.strategies','解决方案（策略中心全部子页）']]},
+    { mod:'设置', items:[['page.settings.users','用户与权限'],['page.settings.excel','解析规则'],['page.settings.templates','导出模板'],['page.settings.admin','服务器管理']]},
+  ]},
+  { cat:'字段可见（field）', icon:'👁', groups:[
+    { mod:'商机详情', items:[['field.opportunity.quote_price','报价金额可见（商机详情/列表的报价单价格）'],['field.flow.bom','存档区 · 方案附件可见'],['field.flow.cost','存档区 · 成本附件可见']]},
+    { mod:'报价工作台', items:[['field.quote.price','价格字段可见（整机/配件单价）'],['field.quote.export_internal','导出对内版（含成本/利润率）']]},
+  ]},
+  { cat:'操作权限（action）', icon:'⚡', groups:[
+    { mod:'商机流程', items:[['action.flow.submit.requirement','发起/提交需求单'],['action.opportunity.result','修改商机状态（进行中/已中标等）'],['action.flow.submit.boming','编辑/提交方案配置'],['action.flow.return.boming','退回方案配置'],['action.flow.submit.costing','编辑/提交成本核算'],['action.flow.return.costing','退回成本核算'],['action.flow.approve.pricing','低毛利报价审批']]},
+    { mod:'报价工作台', items:[['action.flow.submit.quoting','发送报价单'],['action.flow.return.quoting','退回市场报价'],['action.quote.unfreeze','解冻已导出报价单']]},
+    { mod:'AI 办公室管理', items:[['ai.office.manage','AI 办公室管理 · 员工 / 团队 / Skill Studio'],['ai.office.admin','AI 办公室管理 · 模型与接入 / 运行与权限']]},
+  ]},
+];
+/* business 角色已勾选（mock） */
+const CHECKED = new Set(['page.opportunities','page.servers','page.parts','action.flow.submit.requirement','action.opportunity.result']);
+
+/* ── 渲染 ── */
+function avatarBg(n){ const h=[...n].reduce((a,c)=>a+c.charCodeAt(0),0)%360; return `linear-gradient(135deg, hsl(${h},70%,55%), hsl(${(h+40)%360},70%,45%))`; }
+function initials(n){ return n.slice(0,1); }
+
+function renderUsers(list){
+  document.getElementById('userRows').innerHTML = list.map(u=>`
+  <tr class="rowlink" onclick="openDrawer('userDrawer')">
+    <td><div class="cell-user">
+      <div class="avatar" style="background:${avatarBg(u.n)}">${initials(u.n)}</div>
+      <div><div>${u.n}</div><div class="sub">${u.wecom||'企微未绑定'}</div></div>
+    </div></td>
+    <td><span class="badge role-${u.r}"><span class="dot" style="background:${ROLE_COLORS[u.r]}"></span>${ROLE_NAMES[u.r]}</span></td>
+    <td class="${u.stale?'stale':''}">${u.act}</td>
+    <td><span class="badge ${u.on?'on':'off'}"><span class="dot" style="background:${u.on?'var(--success)':'var(--text-disabled)'}"></span>${u.on?'启用':'停用'}</span></td>
+    <td class="rel op-wrap" onclick="event.stopPropagation()">
+      <button class="op-btn" onclick="toggleMenu(this)">⋯</button>
+      <div class="op-menu">
+        <button onclick="openDrawer('userDrawer')">查看详情</button>
+        <button onclick="toast('重置密码弹窗')">重置密码</button>
+        <button onclick="toast('已${u.on?'停用':'启用'}（可逆）')">${u.on?'停用账号':'启用账号'}</button>
+        <div class="sep"></div>
+        <button class="danger" ${u.locked||u.r==='admin'?'disabled style="opacity:.35;cursor:not-allowed"':''} onclick="openModal('deleteModal')">删除用户…</button>
+      </div>
+    </td>
+  </tr>`).join('');
+}
+function filterUsers(){
+  const q = document.getElementById('uSearch').value.trim();
+  renderUsers(USERS.filter(u=>!q||u.n.includes(q)||(u.wecom||'').includes(q)));
+}
+function renderRoles(){
+  document.getElementById('roleRows').innerHTML = ROLES.map(r=>`
+  <tr class="rowlink" onclick="openRole('${r.k}')">
+    <td><div class="role-name">${r.name}${r.builtin?' <span class="badge builtin">内置</span>':''}${r.k==='admin'?' <span class="badge role-admin">超级管理员</span>':''}</div>
+        <div class="role-desc">${r.desc}</div></td>
+    <td><span class="link-num" onclick="event.stopPropagation();openRoleMembers('${r.k}')">${r.members} 人</span></td>
+    <td>${r.k==='admin'?`<span class="perm-count">全部（27）</span>`:`<span class="perm-dots">${'<i></i>'.repeat(Math.min(r.perms,8))}</span> <span style="font-size:12px;color:var(--text-muted)">${r.perms} 项</span>`}</td>
+    <td class="rel op-wrap" onclick="event.stopPropagation()">
+      <button class="op-btn" onclick="toggleMenu(this)">⋯</button>
+      <div class="op-menu">
+        <button onclick="openRole('${r.k}')">编辑权限</button>
+        <button onclick="openRoleMembers('${r.k}')">查看成员</button>
+        <div class="sep"></div>
+        <button class="danger" ${r.builtin?'disabled style="opacity:.35;cursor:not-allowed" title="内置角色不可删除"':''} onclick="toast('删除角色（需先清空成员）')">删除角色</button>
+      </div>
+    </td>
+  </tr>`).join('');
+}
+function renderPerms(){
+  document.getElementById('permGroups').innerHTML = PERMS.map((cat,ci)=>`
+    <div style="font-size:12px;font-weight:700;color:var(--text-muted);margin:14px 0 8px;letter-spacing:.5px">${cat.icon} ${cat.cat}</div>
+    ${cat.groups.map(g=>`
+    <div class="perm-group">
+      <div class="perm-group-head">${g.mod} <span class="cnt">（${g.items.length}）</span>
+        <label class="chk"><input type="checkbox" style="accent-color:var(--accent)" onchange="toast('组级全选：${g.mod}')" ${g.items.every(i=>CHECKED.has(i[0]))?'checked':''}>全选</label>
+      </div>
+      <div class="perm-items">
+        ${g.items.map(([key,label])=>`
+        <label class="perm-item">
+          <input type="checkbox" ${CHECKED.has(key)?'checked':''} onchange="togglePerm('${key}',this.checked)">
+          <div><div class="label">${label}</div><div class="key">${key}</div></div>
+        </label>`).join('')}
+      </div>
+    </div>`).join('')}`).join('');
+  updateSummary();
+}
+function togglePerm(key,on){ on?CHECKED.add(key):CHECKED.delete(key); updateSummary(); }
+function updateSummary(){
+  const n = CHECKED.size;
+  const mods = new Set();
+  PERMS.forEach(c=>c.groups.forEach(g=>{ if(g.items.some(i=>CHECKED.has(i[0]))) mods.add(g.mod); }));
+  const el = document.querySelector('.perm-summary');
+  if (el) el.innerHTML = `已选 ${n} 项 <span class="muted">· 覆盖 ${[...mods].join(' / ')||'—'} ${mods.size?mods.size+' 个模块':''}</span>`;
+}
+
+/* ── 交互 ── */
+function setTab(t){
+  document.getElementById('tab-users').classList.toggle('active', t==='users');
+  document.getElementById('tab-roles').classList.toggle('active', t==='roles');
+  document.getElementById('pane-users').style.display = t==='users'?'':'none';
+  document.getElementById('pane-roles').style.display = t==='roles'?'':'none';
+}
+function openDrawer(id){ document.getElementById(id).classList.add('open'); document.getElementById(id+'Mask').classList.add('open'); }
+function closeDrawer(id){ document.getElementById(id).classList.remove('open'); document.getElementById(id+'Mask').classList.remove('open'); }
+function openModal(id){ document.getElementById(id).classList.add('open'); document.getElementById(id+'Mask').classList.add('open'); }
+function closeModal(id){ document.getElementById(id).classList.remove('open'); document.getElementById(id+'Mask').classList.remove('open'); }
+function openRoleMembers(){ openRole('business'); roleTab('members'); }
+function openRole(){ openDrawer('roleDrawer'); roleTab('perms'); }
+function roleTab(t){
+  document.getElementById('rt-perms').classList.toggle('active', t==='perms');
+  document.getElementById('rt-members').classList.toggle('active', t==='members');
+  document.getElementById('rolePane-perms').style.display = t==='perms'?'':'none';
+  document.getElementById('rolePane-members').style.display = t==='members'?'':'none';
+}
+function toggleMenu(btn){
+  const menu = btn.nextElementSibling;
+  document.querySelectorAll('.op-menu.open').forEach(m=>{ if(m!==menu) m.classList.remove('open'); });
+  menu.classList.toggle('open');
+}
+document.addEventListener('click', e=>{
+  if(!e.target.closest('.op-wrap')) document.querySelectorAll('.op-menu.open').forEach(m=>m.classList.remove('open'));
+});
+function toggleNotes(){ const b=document.getElementById('notesBtn'); const on=document.body.classList.toggle('show-notes'); b.textContent='标注：'+(on?'开':'关'); b.classList.toggle('active',on); }
+function toggleTheme(){
+  const dark = document.documentElement.getAttribute('data-theme')==='light';
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+  document.getElementById('themeBtn').textContent = dark?'浅色':'暗色';
+}
+let toastTimer;
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+renderUsers(USERS);
+renderRoles();
+renderPerms();
+</script>
+</body>
+</html>

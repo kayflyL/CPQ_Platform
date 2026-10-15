@@ -225,6 +225,33 @@ def test_preview_exhausted_region_does_not_mark_following_rows():
     assert l6_rows == {0}  # 只有起点标记，KP 行不得被标成 L6 数据
 
 
+def test_preview_marks_follow_col_binds_and_skip_rows():
+    """弹窗补丁主链路：热力图数据标注必须跟着 col_binds/skip_rows 走。
+
+    标注=parse 实际取值格（单一定义源）；旧版平行复刻提取只认规则固定列，
+    用户改完绑定热力图仍停在首次解析的旧列/旧行。
+    """
+    rules = [
+        {"id": 1, "field_key": "model", "region_id": 1, "region": "",
+         "source_type": "column", "source_config": {"col": "A"},
+         "fallback_config": None, "enabled": True, "sort_order": 0},
+    ]
+    parser = _parser([_region(1, "KP", "kp", "KP", "dynamic", 0, 1)], rules)
+    df = pd.DataFrame({0: ["KP", "m-01", "m-02"], 1: ["", "a", "b"]})
+
+    # 列绑定 A→B：标注从 A 列移到 B 列
+    bound = [m for m in parser.preview_parse(
+        df, overrides={"col_binds": {"model": "B"}})["cell_marks"]
+        if m["target"].endswith(".model")]
+    assert {(m["row"], m["col"]) for m in bound} == {(1, 1), (2, 1)}
+
+    # 跳过第 2 行（0 基=1）：该行不再有数据标注，余行仍按规则列标
+    skipped = [m for m in parser.preview_parse(
+        df, overrides={"skip_rows": [1]})["cell_marks"]
+        if m["target"].endswith(".model")]
+    assert {(m["row"], m["col"]) for m in skipped} == {(2, 0)}
+
+
 def test_locate_regions_end_keyword_first_match_among_candidates_wins():
     """end_keywords 多候选（中英文模板共存）时，任一关键词命中即结束区域。
 

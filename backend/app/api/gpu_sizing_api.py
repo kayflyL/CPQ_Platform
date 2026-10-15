@@ -3,15 +3,18 @@
   → 机型(l6.server_models) → 基准 gpu_default → KP GPU spec(显存/带宽)。
 计算全在 services/gpu_sizing.py 纯函数（单测锚点=Excel v10 速查表）；本层只做 DB 读取与组装。
 无价格输出，不涉及 price_access。gpu_default 未维护的机型返回 no_gpu_config，不猜。"""
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import text
 
 import json
 
 from app.models.base import rules_engine, l6_engine, kp_engine
 from app.services import gpu_sizing as G
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/gpu-sizing", tags=["gpu-sizing"])
+# 默认登录门槛；admin/* 维护端点收「解决方案」页权限（LLM 目录管理页所在域）。
+router = APIRouter(prefix="/api/gpu-sizing", tags=["gpu-sizing"],
+                   dependencies=[Depends(get_current_user)])
 
 # v1 默认框架口径（Excel 主推行）：系数/开销读 inference_frameworks，找不到走此兜底
 _DEFAULT_FW = {"name": "vLLM", "coeff_4bit": 1.05, "coeff_8bit": 1.0, "coeff_16bit": 1.0,
@@ -191,7 +194,7 @@ def _clean(data: dict, fields: dict) -> dict:
     return out
 
 
-@router.get("/admin/models")
+@router.get("/admin/models", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_models():
     with Rules_SessionLocal() as s:
         rows = s.query(LlmModel).order_by(LlmModel.vendor, LlmModel.id).all()
@@ -205,7 +208,7 @@ def admin_models():
                             "note": r.note} for r in rows]}
 
 
-@router.post("/admin/models")
+@router.post("/admin/models", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_create_model(data: dict = Body(...)):
     d = _clean(data, _MODEL_FIELDS)
     if not d.get("vendor") or not d.get("name") or "params_b" not in d:
@@ -218,7 +221,7 @@ def admin_create_model(data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.put("/admin/models/{mid}")
+@router.put("/admin/models/{mid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_update_model(mid: int, data: dict = Body(...)):
     d = _clean(data, _MODEL_FIELDS)
     with Rules_SessionLocal() as s:
@@ -231,7 +234,7 @@ def admin_update_model(mid: int, data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.delete("/admin/models/{mid}")
+@router.delete("/admin/models/{mid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_delete_model(mid: int):
     with Rules_SessionLocal() as s:
         s.query(LlmModel).filter_by(id=mid).delete()
@@ -239,7 +242,7 @@ def admin_delete_model(mid: int):
     return {"ok": True}
 
 
-@router.get("/admin/frameworks")
+@router.get("/admin/frameworks", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_frameworks():
     with Rules_SessionLocal() as s:
         rows = s.query(InferenceFramework).order_by(InferenceFramework.id).all()
@@ -250,7 +253,7 @@ def admin_frameworks():
                                 "note": r.note} for r in rows]}
 
 
-@router.post("/admin/frameworks")
+@router.post("/admin/frameworks", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_create_framework(data: dict = Body(...)):
     d = _clean(data, _FW_FIELDS)
     if not d.get("name"):
@@ -263,7 +266,7 @@ def admin_create_framework(data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.put("/admin/frameworks/{fid}")
+@router.put("/admin/frameworks/{fid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_update_framework(fid: int, data: dict = Body(...)):
     d = _clean(data, _FW_FIELDS)
     with Rules_SessionLocal() as s:
@@ -276,7 +279,7 @@ def admin_update_framework(fid: int, data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.delete("/admin/frameworks/{fid}")
+@router.delete("/admin/frameworks/{fid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_delete_framework(fid: int):
     with Rules_SessionLocal() as s:
         s.query(InferenceFramework).filter_by(id=fid).delete()
@@ -284,7 +287,7 @@ def admin_delete_framework(fid: int):
     return {"ok": True}
 
 
-@router.get("/admin/scenes")
+@router.get("/admin/scenes", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_scenes():
     with Rules_SessionLocal() as s:
         rows = s.query(SceneParam).order_by(SceneParam.sort_order, SceneParam.id).all()
@@ -292,7 +295,7 @@ def admin_scenes():
                             "min_tok_s": r.min_tok_s, "need_vision": r.need_vision} for r in rows]}
 
 
-@router.post("/admin/scenes")
+@router.post("/admin/scenes", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_create_scene(data: dict = Body(...)):
     d = _clean(data, _SCENE_FIELDS)
     if not d.get("name"):
@@ -305,7 +308,7 @@ def admin_create_scene(data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.put("/admin/scenes/{sid}")
+@router.put("/admin/scenes/{sid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_update_scene(sid: int, data: dict = Body(...)):
     d = _clean(data, _SCENE_FIELDS)
     with Rules_SessionLocal() as s:
@@ -318,7 +321,7 @@ def admin_update_scene(sid: int, data: dict = Body(...)):
     return {"ok": True}
 
 
-@router.delete("/admin/scenes/{sid}")
+@router.delete("/admin/scenes/{sid}", dependencies=[Depends(require_perms("page.strategies"))])
 def admin_delete_scene(sid: int):
     with Rules_SessionLocal() as s:
         s.query(SceneParam).filter_by(id=sid).delete()

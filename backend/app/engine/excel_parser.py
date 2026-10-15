@@ -591,6 +591,12 @@ class ExcelParser:
                       template_id: int = None, overrides: dict = None) -> dict:
         """生成热力图预览数据（用于前端可视化）
 
+        标注单一定义源：数据格标直接取自 parse() 的溯源结果，让热力图与
+        「确认生成」走同一条提取链路——col_binds/skip_rows 会话补丁、表头
+        投票、排除词、示例行全部天然生效。旧版在此平行复刻了一遍提取
+        （只认规则固定列、不看补丁），用户改完绑定热力图仍停在首次解析
+        的样子，即两套实现漂移所致。
+
         Returns:
             {
                 "grid": [[cell_value, ...], ...],
@@ -600,6 +606,8 @@ class ExcelParser:
         """
         template_id = self._resolve_template_id(template_id)
         self._ensure_rules(template_id)
+
+        parsed = self.parse(df, return_trace=True, template_id=template_id, overrides=overrides)
         overrides = overrides or {}
 
         # 构建网格
@@ -614,80 +622,58 @@ class ExcelParser:
                 row_data.append(str(val) if pd.notna(val) else '')
             grid.append(row_data)
 
-        # 定位区域（收口补丁同样生效）
+        # 区域边界（收口补丁在此生效）
         region_bounds = self._locate_regions(df, region_ends=overrides.get("region_ends") or {})
-        region_map = self._region_by_id()
-        
-        # 生成 cell_marks
+
         cell_marks = []
-        
-        # 标记静态字段
-        static_rules = [r for r in self._parse_field_rules if r.get("enabled") and self._is_static_rule(r, region_map)]
-        for rule in static_rules:
-            source_config = rule["source_config"]
-            if rule["source_type"] == "keyword":
-                value, source = self._extract_by_keyword(df, source_config, max_rows=30)
-                if source:
-                    cell_marks.append({
-                        "row": source["keyword_row"] if "keyword_row" in source else source["row"],
-                        "col": source["keyword_col"],
-                        "value": source.get("keyword", ""),
-                        "type": "keyword",
-                        "target": rule["field_key"]
-                    })
-                    cell_marks.append({
-                        "row": source["row"],
-                        "col": source["col"],
-                        "value": value,
-                        "type": "extracted",
-                        "target": rule["field_key"]
-                    })
-        
-        # 标记动态区域
+
+        # 标记静态字段：关键词格 + 提取值格
+        for field_key, v in parsed["static_fields"].items():
+            src = v.get("source") or {}
+            if src.get("keyword_col") is not None:
+                cell_marks.append({
+                    "row": src["row"], "col": src["keyword_col"],
+                    "value": src.get("keyword", ""), "type": "keyword",
+                    "target": field_key
+                })
+            cell_marks.append({
+                "row": src["row"], "col": src["col"], "value": v.get("value", ""),
+                "type": "extracted", "target": field_key
+            })
+
+        # 标记动态区域起始行（无字段规则的区域也标，保持旧版行为）
         for region_key, bounds in region_bounds.items():
             if bounds.get("region_type") == "static" or bounds["start_row"] < 0:
                 continue
-            region_name = bounds.get("region_name") or region_key
-            
-            # 标记区域起始行
-            region_color = f"{region_key.lower()}_region"
             start_row = bounds["start_row"]
-            if start_row < rows:
-                for c in range(min(10, cols)):
-                    cell_val = str(df.iloc[start_row, c]).strip() if pd.notna(df.iloc[start_row, c]) else ''
-                    if cell_val:
-                        cell_marks.append({
-                            "row": start_row,
-                            "col": c,
-                            "value": cell_val,
-                            "type": region_color,
-                            "target": f"{region_name} Start"
-                        })
-            
-            # 标记数据行
-            region_rules = [r for r in self._parse_field_rules
-                            if r.get("enabled") and self._rule_matches_region(r, bounds)]
-            
-            data_start = start_row + bounds["skip_rows"]
-            data_end = bounds["end_row"] if bounds["end_row"] > data_start else data_start
-            
-            for r in range(data_start, min(data_end, rows)):
-                for rule in region_rules:
-                    source_config = rule["source_config"]
-                    if rule["source_type"] == "column":
-                        col_idx = self._col_letter_to_index(source_config.get("col", "A"))
+            if start_row >= rows:
+                continue
+            region_name = bounds.get("region_name") or region_key
+            region_color = f"{region_key.lower()}_region"
+            for c in range(min(10, cols)):
+                cell_val = str(df.iloc[start_row, c]).strip() if pd.notna(df.iloc[start_row, c]) else ''
+                if cell_val:
+                    cell_marks.append({
+                        "row": start_row, "col": c, "value": cell_val,
+                        "type": region_color, "target": f"{region_name} Start"
+                    })
 
-                        if col_idx < cols:
-                            cell_val = str(df.iloc[r, col_idx]).strip() if pd.notna(df.iloc[r, col_idx]) else ''
-                            if cell_val and cell_val.lower() not in ['nan', 'none', '']:
-                                cell_marks.append({
-                                    "row": r,
-                                    "col": col_idx,
-                                    "value": cell_val,
-                                    "type": region_color,
-                                    "target": f"{region_name}.{rule['field_key']}"
-                                })
-        
+        # 标记动态区域数据行 = parse 实际取值格（超出预览视野的裁掉）
+        for region_key, items in parsed["dynamic_regions"].items():
+            region_name = (region_bounds.get(region_key) or {}).get("region_name") or region_key
+            region_color = f"{region_key.lower()}_region"
+            for it in items:
+                for t in it.get("_trace") or []:
+                    src = t.get("source") or {}
+                    r, c = src.get("row"), src.get("col")
+                    if r is None or c is None or r >= rows or c >= cols:
+                        continue
+                    cell_marks.append({
+                        "row": r, "col": c, "value": t.get("value", ""),
+                        "type": region_color,
+                        "target": f"{region_name}.{t.get('field_key', '')}"
+                    })
+
         return {
             "grid": grid,
             "cell_marks": cell_marks,

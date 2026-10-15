@@ -2,7 +2,7 @@
 /** 产品系列管理 — 管理服务器类型及其 3D 展示配置。
  *  列表 + 编辑弹窗（基础信息 + 展示内容 + 渲染参数）。
  */
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import type { ShowcaseConfig } from '@/components/server-config/showcase-config'
 import { catalogApi } from '@/api/serverConfig'
@@ -140,32 +140,41 @@ function addBullet() {
   editForm.value.showcase_config.bullets.push('')
 }
 
+/** 卡片按管理排序（sort_order）升序展示 */
+const sortedTypes = computed(() =>
+  [...types.value].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+)
+
 onMounted(load)
 </script>
 
 <template>
   <div class="series-manager">
-    <div class="sm-head">
-      <h2>产品系列</h2>
-      <a-button type="primary" @click="openCreate">+ 新建系列</a-button>
-    </div>
-
-    <a-table :dataSource="types" :loading="loading" rowKey="id" size="small">
-      <a-table-column title="名称" dataIndex="name" />
-      <a-table-column title="描述" dataIndex="description" />
-      <a-table-column title="3D 展示">
-        <template #default="{ record }">
-          <span v-if="record.showcase_config?.glb_path" class="has-3d">已配置</span>
-          <span v-else class="no-3d">未配置</span>
-        </template>
-      </a-table-column>
-      <a-table-column title="排序" dataIndex="sort_order" width="80" />
-      <a-table-column title="操作" width="100">
-        <template #default="{ record }">
-          <a-button link size="small" @click="openEdit(record)">编辑</a-button>
-        </template>
-      </a-table-column>
-    </a-table>
+      <div class="panel-head">
+        <h2>产品系列</h2>
+        <a-button type="primary" @click="openCreate">+ 新建系列</a-button>
+      </div>
+      <a-spin :spinning="loading">
+        <div v-if="sortedTypes.length" class="sm-list">
+          <div v-for="t in sortedTypes" :key="t.id" class="sm-card glass-light">
+            <div class="sr-thumb">
+              <span v-if="t.showcase_config?.glb_path" class="glb-tag">GLB</span>
+              <span v-else class="glb-tag glb-empty">未配置</span>
+            </div>
+            <div class="sr-main">
+              <div class="sr-name">{{ t.name }}</div>
+              <div class="sr-desc">{{ t.description || '暂无描述' }}</div>
+            </div>
+            <div class="sr-side">
+              <span :class="['chip3d', t.showcase_config?.glb_path ? 'on' : 'off']">
+                {{ t.showcase_config?.glb_path ? '已配 3D 展示' : '未配置展示' }}
+              </span>
+              <a-button @click="openEdit(t)">编辑</a-button>
+            </div>
+          </div>
+        </div>
+        <a-empty v-else description="暂无系列，点「+ 新建系列」添加" />
+      </a-spin>
 
     <!-- 编辑弹窗 -->
     <a-modal
@@ -310,25 +319,33 @@ onMounted(load)
 </template>
 
 <style scoped>
-.series-manager {
-  padding: 16px 0;
+.series-manager { margin-bottom: 18px; }
+.panel-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.panel-head h2 { margin: 0; font-size: 17px; font-weight: 700; }
+.sm-list { display: flex; flex-direction: column; gap: 12px; }
+.sm-card { display: flex; align-items: center; gap: 16px; padding: 14px 16px; }
+.sr-thumb {
+  width: 120px; height: 76px; border-radius: var(--cpq-radius-md); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(145deg, var(--cpq-overlay-a8), var(--cpq-overlay-a4));
+  border: 1px solid var(--cpq-glass-border);
 }
-.sm-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
+.glb-tag {
+  font-size: 11px; letter-spacing: 2px; padding: 4px 10px;
+  color: var(--cpq-text-secondary);
+  border: 1px dashed var(--cpq-glass-border); border-radius: 6px;
 }
-.sm-head h2 {
-  margin: 0;
-  font-size: 16px;
-}
-.has-3d {
-  color: #1f9d6b;
-  font-weight: 600;
-}
-.no-3d {
-  color: var(--cpq-text-muted, #6E7582);
+.glb-tag.glb-empty { color: var(--cpq-text-disabled); }
+.sr-main { flex: 1; min-width: 0; }
+.sr-name { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
+.sr-desc { font-size: 12.5px; color: var(--cpq-text-secondary); margin-top: 4px; }
+.sr-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.chip3d { font-size: 12px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.chip3d.on { color: var(--cpq-color-success); background: var(--cpq-overlay-success15); }
+.chip3d.off { color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); }
+@media (max-width: 768px) {
+  .sm-card { flex-wrap: wrap; }
+  .sr-side { width: 100%; justify-content: flex-end; }
 }
 .bullet-row {
   display: flex;
@@ -342,10 +359,6 @@ onMounted(load)
   font-size: 12px;
   color: var(--cpq-text-muted, #6E7582);
   margin-top: 4px;
-}
-.coming-soon {
-  color: var(--cpq-text-muted, #6E7582);
-  font-style: italic;
 }
 .camera-controls {
   display: flex;

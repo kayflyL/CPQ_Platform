@@ -31,6 +31,7 @@ import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/u
 import { useAuthStore } from '@/store/auth'
 
 const RequirementForm = defineAsyncComponent(() => import('@/components/flow/RequirementForm.vue'))
+const RequirementAttachmentChips = defineAsyncComponent(() => import('@/components/opportunity/RequirementAttachmentChips.vue'))
 const ArchiveSection = defineAsyncComponent(() => import('@/components/opportunity/ArchiveSection.vue'))
 const AttachmentUploadButton = defineAsyncComponent(() => import('@/components/opportunity/AttachmentUploadButton.vue'))
 const BomSchemeWorkbench = defineAsyncComponent(() => import('@/components/opportunity/BomSchemeWorkbench.vue'))
@@ -205,6 +206,17 @@ const detailKey = ref<string>('')
 const board = ref<PortalBoard | null>(null)
 const reqText = ref('')
 const formRef = ref<RequirementFormExpose | null>(null)
+const reqAttRef = ref<{ uploadFiles: (files: File[]) => Promise<void> } | null>(null)
+
+// 需求原文里 Ctrl+V 粘贴截图：clipboard 里的图片文件直接走需求附件上传（编辑态且弹窗打开时）
+function onRequirementPaste(e: ClipboardEvent) {
+  if (!editing.value || !detailOpen.value) return
+  const files = Array.from(e.clipboardData?.files || [])
+  if (files.length) {
+    e.preventDefault()
+    void reqAttRef.value?.uploadFiles(files)
+  }
+}
 const pendingRequirementSlots = ref<RequirementSlots | null>(null)
 
 function setRequirementSlots(slots: RequirementSlots) {
@@ -1003,7 +1015,6 @@ defineExpose({ reload: loadBoard })
               </div>
               <div class="rw-head-actions" @click.stop>
                 <span v-if="currentReq" class="rich-status-check"><CheckCircleFilled /> 已发起</span>
-                <AttachmentUploadButton :opportunity-id="oppId" category="lead_requirement" label="上传附件" />
                 <a-button size="small" @click="openArchive(['lead_requirement'], '我的附件')">我的附件</a-button>
                 <a-button v-if="canWriteRequirement" type="primary" size="small" @click="startNewDraft">新建需求</a-button>
                 <button class="card-chevron" :class="{ collapsed: !cardOpen.requirement }" type="button" @click.stop="toggleCard('requirement')">
@@ -1304,7 +1315,7 @@ defineExpose({ reload: loadBoard })
       :body-style="{ padding: '16px', maxHeight: 'calc(100vh - 180px)', overflow: 'auto' }"
       @cancel="closeDetail"
     >
-      <div class="drawer-body">
+      <div class="drawer-body" @paste="onRequirementPaste">
                                 <template v-if="detailKey === 'requirement'">
           <section class="node-card glass">
             <div class="node-head">
@@ -1320,6 +1331,13 @@ defineExpose({ reload: loadBoard })
               <div v-if="editing">
                 <p class="node-edit-tip">编辑中的需求为草稿，提交后生成新版本快照并进入 BOM 环节。</p>
                 <RequirementForm ref="formRef" v-model:req-text="reqText" />
+                <RequirementAttachmentChips
+                  ref="reqAttRef"
+                  :opportunity-id="oppId"
+                  :version="draftReq?.version ?? null"
+                  :attachments="attachments || []"
+                  @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
+                />
                 <div class="node-actions">
                   <a-button @click="cancelEdit">取消</a-button>
                   <a-button :loading="draftSaving" @click="saveDraft">保存草稿</a-button>
@@ -1337,6 +1355,13 @@ defineExpose({ reload: loadBoard })
                   ref="formRef"
                   v-model:req-text="reqText"
                   :readonly="true"
+                />
+                <RequirementAttachmentChips
+                  :opportunity-id="oppId"
+                  :version="selectedRequirement.version"
+                  :attachments="attachments || []"
+                  :readonly="true"
+                  @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
                 />
                 <div v-if="draftReq && draftReq.version !== selectedRequirement.version" class="node-actions">
                   <a-button @click="startEditDraft">继续编辑草稿</a-button>
@@ -1460,16 +1485,16 @@ defineExpose({ reload: loadBoard })
 .board-body.rail-collapsed .rail-toggle {
   transform: translateY(-50%) rotate(180deg);
 }
-.board-spin {
+/* antdv 的自定义 class 不会落到 .ant-spin-nested-loading 根节点，.board-spin 钩子匹配不到
+   任何元素，高度链在这里断裂 → 中栏内容一长就被 overflow:hidden 的祖先裁掉且无处滚动。
+   直接按 antdv 真实类名挂高度链。 */
+.board-body :deep(.ant-spin-nested-loading) {
   min-width: 0;
   min-height: 0;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
-.board-spin :deep(.ant-spin-container) {
+.board-body :deep(.ant-spin-container) {
   width: 100%;
-  flex: 1;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
   display: flex;
@@ -1511,6 +1536,11 @@ defineExpose({ reload: loadBoard })
   overflow-y: auto;
   padding: 0 2px 12px 0;
   flex: 1;
+}
+/* 卡片 overflow:hidden，flex 里自动最小尺寸归零 → 内容一长卡片被压扁裁切、
+   滚动容器永远不溢出。卡片必须保持自然高度，由 .process-workbench 统一滚。 */
+.process-workbench > * {
+  flex-shrink: 0;
 }
 .node-fade-enter-active,
 .node-fade-leave-active {
@@ -1706,6 +1736,12 @@ defineExpose({ reload: loadBoard })
 }
 .card-collapsible {
   overflow: hidden;
+  /* 卡壳补全配方（与 .opp-info-panel 同待遇）：否则只剩阴影，卡头自刷灰底成方角通条，
+     与内层自带圆角的 .bom-workbench/.cost-workbench 割裂成两块 */
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-lg);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
 }
 .card-shell-head {
   display: flex;
@@ -1713,8 +1749,8 @@ defineExpose({ reload: loadBoard })
   justify-content: space-between;
   gap: 12px;
   padding: 12px 14px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
+  border-bottom: 1px solid var(--cpq-overlay-w10);
+  background: transparent;
 }
 .card-shell-title {
   display: flex;
@@ -2140,8 +2176,9 @@ defineExpose({ reload: loadBoard })
   .board-rail {
     overflow: visible;
   }
-  .board-spin,
-  .board-spin :deep(.ant-spin-container) {
+  .board-body :deep(.ant-spin-nested-loading),
+  .board-body :deep(.ant-spin-container) {
+    height: auto;
     overflow: visible;
   }
   .process-workbench {

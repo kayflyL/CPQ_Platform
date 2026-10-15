@@ -43,7 +43,7 @@ const form = ref<{
 }>({
   lifecycle_status: 'active',
   is_published: true,
-  product_content: { tagline: '', overview: '', stage_theme: 'ocean', highlight_image: '', highlights: [], capabilities: [], specs: [], scenarios: [] },
+  product_content: { tagline: '', overview: '', stage_theme: 'ocean', highlight_image: '', highlights: [], capabilities: [], specs: [], scenarios: [], docs: [] },
 })
 
 const typeName = (id?: number) => types.value.find(t => t.id === id)?.name || '—'
@@ -261,6 +261,26 @@ async function copyScnUrl(s: ModelScenario) {
   }
 }
 
+/** 机型资料 PDF 上传：push 进 product_content.docs，随机型保存落库（新建机型无 id 也可传，落根目录） */
+async function handleDocUpload(file: File): Promise<boolean> {
+  if (!file.name.toLowerCase().endsWith('.pdf')) { message.error('仅支持 PDF 文件'); return false }
+  if (file.size > 20 * 1024 * 1024) { message.error('文件过大（>20MB）'); return false }
+  try {
+    const resp = await catalogApi.uploadModelDoc(file, editingId.value || undefined)
+    const docs = form.value.product_content.docs || (form.value.product_content.docs = [])
+    docs.push(resp)
+    message.success('资料已上传，保存机型后生效')
+  } catch (e: any) {
+    message.error(e.response?.data?.detail || '上传失败')
+  }
+  return false
+}
+
+/** 移除资料：只改本地列表，保存后由后端 diff GC 清理文件 */
+function delDoc(i: number) {
+  form.value.product_content.docs?.splice(i, 1)
+}
+
 async function init() {
   loading.value = true
   try {
@@ -305,6 +325,7 @@ async function init() {
           // 旧结构 string[] → {name} 对象；保存后不再写字符串场景
           scenarios: (Array.isArray(pc?.scenarios) ? pc!.scenarios! : [])
             .map(s => (typeof s === 'string' ? { name: s, fit: '', image: '' } : { ...s })),
+          docs: (pc?.docs || []).map(d => ({ ...d })),
         },
       }
       modelConfigs.value = m.configs || []
@@ -456,6 +477,21 @@ onMounted(init)
               <a-input v-model:value="form.image_url" class="kv-flex" placeholder="或粘贴图片 URL" allowClear />
             </div>
             <img v-if="form.image_url" :src="form.image_url" class="img-preview" alt="预览" />
+
+            <!-- 产品资料（PDF）：详情页铭牌卡「下载资料」入口，读 product_content.docs -->
+            <div class="sec-label">产品资料<span class="sec-hint">详情页「下载资料」入口 · 仅 PDF ≤20MB；删除后点「保存」才真正移除文件</span></div>
+            <div class="doc-list">
+              <div v-for="(d, i) in form.product_content.docs" :key="d.url" class="doc-row">
+                <span class="doc-name" :title="d.name">{{ d.name }}</span>
+                <span class="doc-size">{{ d.size ? (d.size / 1024 / 1024).toFixed(1) + ' MB' : '' }}</span>
+                <a-popconfirm title="从资料列表移除？（保存后生效）" @confirm="delDoc(i)">
+                  <a-button danger size="small">删除</a-button>
+                </a-popconfirm>
+              </div>
+              <a-upload :before-upload="handleDocUpload" :show-upload-list="false" accept="application/pdf,.pdf">
+                <a-button>本地上传</a-button>
+              </a-upload>
+            </div>
 
             <!-- 产品内容：与详情页展示顺序一致（一句话定位 → 概述 → 价值亮点 → 能力 → 场景 → 规格） -->
             <div class="sec-label">一句话定位<span class="sec-hint">详情页铭牌副标题 · 15 字左右，如「AI 训推一体的国产算力底座」</span></div>
@@ -611,6 +647,10 @@ onMounted(init)
 
 .img-row { display: flex; gap: 8px; align-items: center; }
 .img-preview { margin-top: 8px; max-height: 120px; border-radius: 6px; border: 1px solid var(--cpq-overlay-w15); }
+.doc-list { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.doc-row { display: flex; gap: 8px; align-items: center; width: 100%; padding: 8px 12px; border-radius: 10px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
+.doc-name { flex: 1; min-width: 0; font-size: 13px; color: var(--cpq-text-primary, #E8ECEF); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-size { font-size: 12px; color: var(--cpq-text-muted, #6E7582); white-space: nowrap; }
 .hl-editor-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; align-items: start; }
 .hl-editor-photo { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .hl-editor-photo :deep(.ant-upload-select) { display: block; width: 100%; }

@@ -372,16 +372,16 @@ defineExpose({ load })
 </script>
 
 <template>
-  <div class="panel glass">
+  <div class="bom-template-manager">
     <div class="lib-head">
       <h3>BOM 模板</h3>
       <span class="lib-actions">
-        <a-button size="small" @click="openAliasModal()">⚙️ 品别名</a-button>
-        <a-button type="primary" size="small" @click="openNew">+ 新建模板</a-button>
+        <a-button @click="openAliasModal()">⚙️ 品别名</a-button>
+        <a-button type="primary" @click="openNew">+ 新建模板</a-button>
       </span>
     </div>
     <div class="tpl-hint">左栏 L6 配置单的机型族行骨架。标签=行名，类型=行的算法身份；取值方式列常显每行生效值（未自定义=类型默认），点击取值文字展开编辑——改动即自定义，改回默认自动撤销。料件挂基准配置底盘件、riser 在 config_content，基准配置下拉关联模板。</div>
-    <a-table :data-source="templates" :columns="columns" :loading="loading" row-key="id" size="small" :pagination="false">
+    <a-table class="sa-table" :data-source="templates" :columns="columns" :loading="loading" row-key="id" :pagination="false" :scroll="{ x: 640 }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'rows'">{{ record.rows?.length || 0 }} 行</template>
         <template v-else-if="column.key === 'usage'">{{ record._usage ?? 0 }} 个基准</template>
@@ -593,9 +593,8 @@ defineExpose({ load })
 </template>
 
 <style scoped>
-.panel { padding: 16px; margin-bottom: 16px; }
-.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
-.lib-head h3 { margin: 0; font-size: 15px; }
+.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+.lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 .lib-actions { display: inline-flex; gap: 8px; }
 .tpl-hint { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-bottom: 10px; line-height: 1.5; }
 .sec-label { font-size: 12px; color: var(--cpq-text-muted, #6E7582); margin: 4px 0 8px; }

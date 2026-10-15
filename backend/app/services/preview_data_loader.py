@@ -16,20 +16,24 @@ from app.repository.rules_repo import RulesRepository
 from app.repository.system_config_repo import SystemConfigRepository
 
 
-def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, bindings: list = None) -> dict:
+def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, bindings: list = None,
+                      source=None, source_items: Optional[list] = None) -> dict:
     """
     加载预览所需的全部数据
-    
+
+    source/source_items：非报价单实体的投影入口（方案/成本表分享）——source 是形状同构
+    Quotation 的对象（属性访问），source_items 是已成形的明细行 dict 列表。
+
     Returns:
         {
             # 商机级字段
             "customer_name": "XX公司",
             ...
-            
+
             # 报价单级字段
             "quotation_date": "2024-01-15",
             ...
-            
+
             # 动态区域数据
             "l6_details": [
                 {"catalogue": "...", "qty": 1, "unit_price": 100, "final_price": 100, ...},
@@ -66,10 +70,13 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
             "kp_count": 0,
         })
 
-        # 2. 加载报价单数据
+        # 2. 加载报价单数据（或非报价单实体的投影 source）
+        quotation = None
         if quotation_id:
             quotation = quote_repo.get_by_id(quotation_id)
-            if quotation:
+        elif source is not None:
+            quotation = source
+        if quotation:
                 data["quotation_date"] = quotation.quotation_date or (quotation.created_at or "")[:10]
                 data["version"] = quotation.version or ""
                 data["l6_price"] = quotation.l6_price or 0
@@ -126,28 +133,32 @@ def load_preview_data(opportunity_id: str, quotation_id: Optional[str] = None, b
                 data["warranty_desc_l6"] = warranty_desc_l6
                 data["warranty_desc_kp"] = warranty_desc_kp
 
-                # 从 DB 加载完整配置项明细（包含单价、数量、final_price 等）
-                db_items = quote_repo.get_items(quotation_id)
-                items = []
-                for item in db_items:
-                    base = item.base_price or ""
-                    final = item.final_price or ""
-                    qty = item.qty or 0
-                    items.append({
-                        "config_name": item.config_name or "Default",
-                        "category": item.category or "",
-                        "catalogue": item.catalogue or "",
-                        "description": item.description or "",
-                        "part_category": item.part_category or "",
-                        "qty": qty,
-                        "base_price": base,
-                        "final_price": final,
-                        "profit_margin": item.profit_margin or "",
-                        # 总价口径 = 单价×Qty；单价缺失时不显示误导性 0
-                        "cost_total": round(base * qty, 2) if base != "" else "",
-                        "sell_total": round(final * qty, 2) if final != "" else "",
-                        "currency": item.currency or "RMB",
-                    })
+                # 从 DB 加载完整配置项明细（包含单价、数量、final_price 等）；
+                # 投影 source（方案/成本分享）直接吃已成形的明细行
+                if source is not None:
+                    items = [dict(r) for r in (source_items or [])]
+                else:
+                    db_items = quote_repo.get_items(quotation_id)
+                    items = []
+                    for item in db_items:
+                        base = item.base_price or ""
+                        final = item.final_price or ""
+                        qty = item.qty or 0
+                        items.append({
+                            "config_name": item.config_name or "Default",
+                            "category": item.category or "",
+                            "catalogue": item.catalogue or "",
+                            "description": item.description or "",
+                            "part_category": item.part_category or "",
+                            "qty": qty,
+                            "base_price": base,
+                            "final_price": final,
+                            "profit_margin": item.profit_margin or "",
+                            # 总价口径 = 单价×Qty；单价缺失时不显示误导性 0
+                            "cost_total": round(base * qty, 2) if base != "" else "",
+                            "sell_total": round(final * qty, 2) if final != "" else "",
+                            "currency": item.currency or "RMB",
+                        })
                 _load_item_details(data, items, quotation, bindings)
 
         return data

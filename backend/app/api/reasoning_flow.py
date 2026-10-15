@@ -6,11 +6,14 @@ P0：直接改 active 流的 node_config（立即生效）；版本切版 API �
 import logging
 import json
 from typing import Optional
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+from app.api.deps import get_current_user, require_perms
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"])
+# 默认登录门槛；画布/规则写操作收「解决方案」页权限（策略中心所在域）。
+router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"],
+                   dependencies=[Depends(get_current_user)])
 
 _VALID_NODE_KEYS = {
     "input",
@@ -54,7 +57,7 @@ def manual_preview(skill_key: str = Query("requirement_analysis")):
         repo.close()
 
 
-@router.put("/manual-rules")
+@router.put("/manual-rules", dependencies=[Depends(require_perms("page.strategies"))])
 def save_manual_rules(data: dict = None):
     """保存 flow 级任务规则（graph.manual_rules）。只动这一个键，不升画布版本。"""
     body = data or {}
@@ -132,27 +135,6 @@ def capabilities():
     from app.services.capability_spec import capabilities_catalog
     return {"capabilities": capabilities_catalog()}
 
-@router.get("/_debug/asyncio-tasks")
-async def debug_asyncio_tasks():
-    """临时诊断（挂死排查）：转储主事件循环上所有未完成任务的协程挂起点。稳定后删。"""
-    import asyncio
-    import traceback
-    out = []
-    for task in asyncio.all_tasks():
-        if task.done():
-            continue
-        try:
-            stack = task.get_stack()
-            frames = "".join(traceback.format_list(stack))[-1600:] if stack else ""
-        except Exception:
-            frames = "<stack unavailable>"
-        fut = getattr(task, "_fut_waiter", None)
-        out.append({"task": repr(task)[:120],
-                    "fut_waiter": type(fut).__name__ if fut is not None else "",
-                    "frames": frames})
-    return {"count": len(out), "tasks": out}
-
-
 @router.get("/kp-preview")
 def kp_preview(limit_per_category: int = Query(2)):
     """配件选配节点目标层预览：KP 配件库真实料号样例行（按类目轮询取样）。
@@ -210,7 +192,7 @@ def list_versions(skill_key: Optional[str] = Query(default=None)):
         repo.close()
 
 
-@router.put("/graph")
+@router.put("/graph", dependencies=[Depends(require_perms("page.strategies"))])
 def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
     """改 active 流图结构（一期改坐标/标签；二期拖拽编排接 stencil+dnd）。
 
@@ -235,7 +217,7 @@ def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
         repo.close()
 
 
-@router.put("/nodes/{node_key}")
+@router.put("/nodes/{node_key}", dependencies=[Depends(require_perms("page.strategies"))])
 def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(default=None)):
     """改 active 流某节点 config（立即生效：下次推理即用新参数）。
     data 可同时带 label：仅更新图节点展示名，不进入 config。"""
@@ -267,7 +249,7 @@ def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(defa
         repo.close()
 
 
-@router.post("/versions/{flow_id}/activate")
+@router.post("/versions/{flow_id}/activate", dependencies=[Depends(require_perms("page.strategies"))])
 def activate(flow_id: int, data: dict = None):
     repo = ReasoningFlowRepository()
     try:

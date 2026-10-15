@@ -156,8 +156,30 @@ def _workflow_hint(colleague: Optional[dict]) -> str:
         if desc:
             line += f"：{desc}"
         lines.append(line)
-    return ("本角色可发起的工作流（用户通过输入框旁「+」显式选择发起）：\n"
+    return ("本角色可发起的工作流（用户可经输入框旁「+」显式发起；对话中出现完整需求时，"
+            "也可用 suggest_workflow 工具整理需求原文、由用户点击确认卡开始）：\n"
             + "\n".join(lines))
+
+
+def _first_workflow_skill(colleague: Optional[dict]) -> dict:
+    """取当前角色第一个 workflow skill 的本地绑定信息；没有返回空 dict。"""
+    for skill in _resolved_skills(colleague):
+        if is_workflow_skill(skill):
+            return skill
+    return {}
+
+
+def _workflow_offers(colleague: Optional[dict]) -> list:
+    """当前角色可发起的工作流清单（[{key,name}]）：suggest_workflow 的合法取值域。"""
+    offers = []
+    for skill in _resolved_skills(colleague):
+        if not is_workflow_skill(skill):
+            continue
+        key = str(skill.get("workflow_key") or skill.get("key") or "").strip()
+        if key:
+            offers.append({"key": key,
+                           "name": str(skill.get("name") or skill.get("workflow_key") or key).strip()})
+    return offers
 
 
 def _handoff_hint(colleague: Optional[dict]) -> str:

@@ -1659,6 +1659,13 @@ function tick(time: number) {
     actor.character.rotation.y = rotationY
     actor.character.position.y = sitting ? actor.seatY : bobY
     actor.indicator.scale.setScalar(indicatorScale)
+    // 弹性锚定：名牌/气泡/状态球跟随模型实测头顶；坐姿时头部随动画下沉，附加偏移
+    if (Number.isFinite(actor.headY)) {
+      const sitDrop = sitting ? 0.34 : 0
+      if (actor.label) actor.label.position.y = actor.labelY - sitDrop
+      if (actor.bubble) actor.bubble.position.y = actor.bubbleY - sitDrop
+      if (actor.indicator) actor.indicator.position.y = actor.headY + 0.16 - sitDrop
+    }
 
     if (!actor.mixer) {
       const swing = actor.walking ? Math.sin(t * 9) * 0.5 : 0

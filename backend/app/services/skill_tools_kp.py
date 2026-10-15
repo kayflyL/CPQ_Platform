@@ -104,23 +104,96 @@ def _search_kp_parts_by_rows(rows_arg, *, limit, detailed, price_ok, ctx) -> dic
                          if any(not b["candidates"] for b in batch) else ""))}
 
 
-def tool_query_parts(args: dict) -> dict:
-    """【需求分析流程工具】kp_reason 配件选配回合专用：按类目+结构化规格(required_specs)/关键词检索配件库真实候选。
+def _format_part_candidates(rows, *, detailed: bool, price_ok: bool) -> list:
+    """候选行 → 模型视图：part_id/name/match 恒有；price 仅 price_ok 真时出现；
+    specs concise=前 8 键值截断 28 字符，detailed=全量。"""
+    out = []
+    for c in rows:
+        o = {"part_id": c.get("part_id"), "name": c.get("name")}
+        if c.get("match"):
+            o["match"] = c.get("match")
+        if price_ok and c.get("price") is not None:
+            o["price"] = c.get("price")
+        specs = c.get("specs") if isinstance(c.get("specs"), dict) else {}
+        if specs:
+            if detailed:
+                o["specs"] = specs
+            else:
+                o["specs"] = {str(k): str(v)[:28] for k, v in list(specs.items())[:8]
+                              if str(v or "").strip()}
+        out.append(o)
+    return out
 
-    progressive disclosure（2026-09-06）+ 统一数据层：大脑不再吃候选池快照，逐行按需
-    query。支持 required_specs（结构化规格过滤，AND）与 keywords；结果就是库里的真实行，
-    直接在返回里交给大脑比对——同一类目下多条需求行（480G SSD / 6T HDD / 1.92T SSD）
-    各查各的，落料时按料号名回库核对。数据源走节点 data_bindings。
-    offset 分页钻取 + response_format(concise/detailed) 控制返回体量：截断时 AI 可翻页或
-    加 required_specs 收窄，把排在后段的料也捞上来。要看全某个**已命中**的料的规格用
-    inspect_parts(action=part)（直接回库读完整规格）。rows 模式：按行批量有界召回（每行用
-    自己的类目+行描述），AI 主动发起，不做服务端预取。
+
+def _part_query_payload(q, *, category: str, keywords: str, offset: int,
+                        results: list, mode: str, include_status_rows: bool) -> dict:
+    payload = {"ok": True, "mode": mode, "category": category, "keywords": keywords,
+               "total": int(q.get("total") or len(results)), "offset": offset,
+               "next_offset": q.get("next_offset"),
+               "truncated": bool(q.get("truncated")),
+               "source": str(q.get("source") or "kp_library/part_query"),
+               "note": q.get("note"),
+               "spec_keys": q.get("spec_keys") or [],
+               "results": results,
+               "message": (f"检索到 {len(results)} 条候选"
+                           + ("（已截断，可用 required_specs 收窄或 offset 翻页）"
+                              if q.get("truncated") else ""))}
+    if include_status_rows:
+        payload["rows"] = _kp_status_rows()
+    return payload
+
+
+def tool_query_parts(args: dict) -> dict:
+    """配件库候选检索（双模式，2026-10-11 流程锁换权限锁）：按类目+结构化规格(required_specs)/关键词查真实库存候选。
+
+    【需求分析流程内=选配模式】数据源走节点 data_bindings（series 随任务机型收窄），
+    支持 rows 批量按行召回；落料锁定走 select_parts（仅流程内）。
+    【流程外=日常浏览模式】只读检索（series 置空），limit 收窄护上下文；rows 不开放。
+    可见性两档门不变：工具挂载看同事 tool_ids 白名单，价格列看 price_ok
+    （角色 price_access × 发起用户 RBAC，任一关即无价）。
+    offset 分页钻取 + response_format(concise/detailed) 控制返回体量；要看全某个
+    **已命中**的料的完整规格用 inspect_parts(action=part)（直接回库读完整规格）。
     """
+    args = args or {}
     ctx = TOOL_CTX.get() or {}
+    price_ok = bool(ctx.get("price_ok"))
+    category = str(args.get("category") or "").strip()
+    # ── 日常浏览模式（2026-10-11 定调：流程锁换权限锁）──
+    # 流程外=只读检索：KP 库直读（series 置空=不按机型平台收窄），limit 收窄护上下文；
+    # 可见性仍由 tool_ids 白名单 × price_ok（角色 price_access × 用户 RBAC）管。
+    # rows 批量召回依赖流程行清单，属流程语义不开放；落料锁定 select_parts 仍仅流程内。
     if not ctx.get("task_active"):
-        return {"ok": False, "error": "task_not_active",
-                "message": "query_parts 仅在需求分析流程的配件选配环节可用"}
-    category = str((args or {}).get("category") or "").strip()
+        rows_arg = args.get("rows")
+        if rows_arg is not None and rows_arg != "":
+            return {"ok": False, "error": "rows_only_in_task",
+                    "message": "rows 批量召回仅需求分析流程内可用；日常查询请用 category+keywords/required_specs"}
+        if not category:
+            return {"ok": False, "error": "invalid_args",
+                    "message": "category 必填（库内类目，如 Memory/NIC/CPU/SSD/HDD）"}
+        keywords = str(args.get("keywords") or "").strip()
+        spec_filters = args.get("required_specs")
+        if not isinstance(spec_filters, list):
+            spec_filters = args.get("spec_filters")
+        if not isinstance(spec_filters, list):
+            spec_filters = []
+        try:
+            limit = max(1, min(10, int(args.get("limit") or 6)))
+        except (TypeError, ValueError):
+            limit = 6
+        try:
+            offset = max(0, int(args.get("offset") or 0))
+        except (TypeError, ValueError):
+            offset = 0
+        detailed = str(args.get("response_format") or "concise").strip().lower() == "detailed"
+        from app.services.part_search import hybrid_search
+        q = hybrid_search(category, text=keywords, spec_filters=spec_filters,
+                          series="", limit=limit, offset=offset,
+                          price_ok=price_ok, mode="query")
+        if not q.get("ok"):
+            return q
+        results = _format_part_candidates(q.get("rows") or [], detailed=detailed, price_ok=price_ok)
+        return _part_query_payload(q, category=category, keywords=keywords, offset=offset,
+                                   results=results, mode="browse", include_status_rows=False)
     rows_arg = (args or {}).get("rows")
     if not category and rows_arg is not None and rows_arg != "":
         try:
@@ -154,35 +227,9 @@ def tool_query_parts(args: dict) -> dict:
                       price_ok=bool(ctx.get("price_ok")), mode="query")
     if not q.get("ok"):
         return q
-    rows = q.get("rows") or []
-    price_ok = bool(ctx.get("price_ok"))
     save = ctx.get("save")
     if callable(save):
         save()
-    out = []
-    for c in rows:
-        o = {"part_id": c.get("part_id"), "name": c.get("name")}
-        if c.get("match"):
-            o["match"] = c.get("match")
-        if price_ok and c.get("price") is not None:
-            o["price"] = c.get("price")
-        specs = c.get("specs") if isinstance(c.get("specs"), dict) else {}
-        if specs:
-            if detailed:
-                o["specs"] = specs
-            else:
-                o["specs"] = {str(k): str(v)[:28] for k, v in list(specs.items())[:8]
-                              if str(v or "").strip()}
-        out.append(o)
-    return {"ok": True, "category": category, "keywords": keywords,
-            "total": int(q.get("total") or len(out)), "offset": offset,
-            "next_offset": q.get("next_offset"),
-            "truncated": bool(q.get("truncated")),
-            "source": str(q.get("source") or "kp_library/part_query"),
-            "note": q.get("note"),
-            "spec_keys": q.get("spec_keys") or [],
-            "results": out,
-            "rows": _kp_status_rows(),
-            "message": (f"检索到 {len(out)} 条候选" +
-                        "（已截断，可用 required_specs 收窄或 offset 翻页）" if q.get("truncated")
-                        else f"检索到 {len(out)} 条候选")}
+    results = _format_part_candidates(q.get("rows") or [], detailed=detailed, price_ok=price_ok)
+    return _part_query_payload(q, category=category, keywords=keywords, offset=offset,
+                               results=results, mode="task", include_status_rows=True)

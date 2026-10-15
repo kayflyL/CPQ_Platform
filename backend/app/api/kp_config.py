@@ -3,12 +3,15 @@
 从 kp.kp_parts + kp.kp_categories + kp.kp_price_history 查询，
 输出格式对齐 ConfigWizard 和 derive 需要的字段。
 """
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from typing import List, Optional
 from app.models.base import kp_engine
+from app.api.deps import get_current_user, require_admin
 
-router = APIRouter(prefix="/api/kp", tags=["kp"])
+# 默认登录门槛；搜索别名配置无页面入口，仅管理员。
+router = APIRouter(prefix="/api/kp", tags=["kp"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("/categories")
@@ -147,7 +150,7 @@ def list_search_aliases(enabled: Optional[bool] = Query(None)):
         repo.close()
 
 
-@router.put("/search-aliases")
+@router.put("/search-aliases", dependencies=[Depends(require_admin)])
 def upsert_search_alias(body: dict):
     """新增/更新别名：{alias, expansion, note?}。expansion 为空格分隔 token（万兆→"10G"）。"""
     from app.repository.kp_repo import KPRepository
@@ -163,7 +166,7 @@ def upsert_search_alias(body: dict):
         repo.close()
 
 
-@router.delete("/search-aliases/{alias}")
+@router.delete("/search-aliases/{alias}", dependencies=[Depends(require_admin)])
 def delete_search_alias(alias: str):
     from app.repository.kp_repo import KPRepository
     repo = KPRepository()

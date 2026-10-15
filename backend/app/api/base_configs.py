@@ -1,9 +1,12 @@
 """基准配置 API（引用 parts_master + 底盘件清单）"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import Optional, List
 from app.repository.base_config_repo import BaseConfigRepository
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/base-configs", tags=["base-configs"])
+# 默认登录门槛；写操作与成本分析收「服务器管理」页权限。
+router = APIRouter(prefix="/api/base-configs", tags=["base-configs"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("")
@@ -29,7 +32,7 @@ def list_forms():
     return {"forms": BaseConfigRepository().list_forms()}
 
 
-@router.get("/cost-analysis")
+@router.get("/cost-analysis", dependencies=[Depends(require_perms("page.settings.admin"))])
 def get_cost_analysis():
     """全量基准配置裸机成本（编辑器右侧成本分析面板·机型对比卡）。
     口径与前端面板一致：底盘件 + 后面板默认卡 + 前面板默认线缆 + PSU×槽位，缺价只计数。"""
@@ -44,7 +47,7 @@ def get_config(config_id: int):
     return c
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_config(data: dict):
     try:
         return {"id": BaseConfigRepository().insert(data)}
@@ -52,19 +55,19 @@ def create_config(data: dict):
         raise HTTPException(400, str(e))
 
 
-@router.put("/{config_id}")
+@router.put("/{config_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_config(config_id: int, updates: dict):
     BaseConfigRepository().update(config_id, updates)
     return {"ok": True}
 
 
-@router.delete("/{config_id}")
+@router.delete("/{config_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_config(config_id: int):
     BaseConfigRepository().delete(config_id)
     return {"ok": True}
 
 
-@router.put("/{config_id}/parts")
+@router.put("/{config_id}/parts", dependencies=[Depends(require_perms("page.settings.admin"))])
 def set_parts(config_id: int, parts: List[dict]):
     """整体替换底盘件清单（基准配置组装）"""
     BaseConfigRepository().set_parts(config_id, parts)

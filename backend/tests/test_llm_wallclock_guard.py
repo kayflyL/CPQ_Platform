@@ -84,6 +84,60 @@ def test_anthropic_timeout_is_llm_error_not_native_unsupported():
         assert "超时" in str(e)
 
 
+def test_anthropic_transient_channel_error_is_llm_error_not_unsupported():
+    """带 tools 的通道瞬态错误（限流/5xx）≠ 不支持 tools。
+
+    误判代价：run_stream_chat_loop 静默返回 unsupported 空结果、零 trace，大脑重试全灭后
+    引擎只能判「零产出」（2026-10-15 需求分析「本步执行失败」实测根因）。
+    """
+    async def _boom(messages, **kwargs):
+        raise anthropic_channel.AnthropicChannelError("Anthropic 上游错误 @ https://relay: 502 Bad Gateway")
+        yield  # pragma: no cover —— 让它成为 async generator
+
+    tools = [{"type": "function", "function": {"name": "query_parts",
+              "parameters": {"type": "object", "properties": {}}}}]
+
+    async def scenario():
+        with patch.object(llm_client, "_get_llm_config",
+                          return_value=_cfg(upstream_format="anthropic")), \
+                patch.object(anthropic_channel, "stream", _boom):
+            async for _ in llm_client.stream_agent_chat(
+                    [{"role": "user", "content": "hi"}], tools=tools):
+                pass
+
+    try:
+        asyncio.run(scenario())
+        raise AssertionError("应抛出 LLMError")
+    except llm_client.LLMNativeToolsUnsupported as e:
+        raise AssertionError(f"瞬态 502 被误报成 unsupported（整轮静默丢弃零 trace）：{e}")
+    except llm_client.LLMError:
+        pass
+
+
+def test_anthropic_tools_rejection_still_falls_back_to_unsupported():
+    """真正的「上游不认 tools」报错形状仍降级 Unsupported（保住文本回退通道）。"""
+    async def _boom(messages, **kwargs):
+        raise anthropic_channel.AnthropicChannelError("Anthropic 上游错误: tools: unknown parameter")
+        yield  # pragma: no cover —— 让它成为 async generator
+
+    tools = [{"type": "function", "function": {"name": "query_parts",
+              "parameters": {"type": "object", "properties": {}}}}]
+
+    async def scenario():
+        with patch.object(llm_client, "_get_llm_config",
+                          return_value=_cfg(upstream_format="anthropic")), \
+                patch.object(anthropic_channel, "stream", _boom):
+            async for _ in llm_client.stream_agent_chat(
+                    [{"role": "user", "content": "hi"}], tools=tools):
+                pass
+
+    try:
+        asyncio.run(scenario())
+        raise AssertionError("应抛出 LLMNativeToolsUnsupported")
+    except llm_client.LLMNativeToolsUnsupported:
+        pass
+
+
 def test_brain_attempt_wall_clock_caps_hung_round_and_reports_timeout():
     """内层挂死（run_stream_chat_loop 永不返回）：wait_for 兜最后一道，如实交 timeout。"""
     statuses: list = []
@@ -266,7 +320,7 @@ def test_abort_step_sets_structured_failure():
     assert act == "failed"
     assert rt.engine["engine_result"] == "failed"
     fail = rt.engine["engine_failure"]
-    assert fail == {"step": "kp_reason", "reason_code": "llm_timeout", "label": "配件选型"}
+    assert fail == {"step": "kp_reason", "reason_code": "llm_timeout", "label": "配件选型", "detail": ""}
     assert [e.get("type") for e in events] == ["pipeline_paused"]
 
 

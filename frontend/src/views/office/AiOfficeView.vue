@@ -112,14 +112,46 @@
       </main>
 
       <aside class="inspector-panel">
-        <template v-if="selectedColleague">
+        <div class="inspector-tabs">
+          <button
+            type="button"
+            class="inspector-tab"
+            :class="{ active: inspectorTab === 'room' }"
+            @click="inspectorTab = 'room'"
+          >团队群</button>
+          <button
+            type="button"
+            class="inspector-tab"
+            :class="{ active: inspectorTab === 'colleague' }"
+            :disabled="!selectedColleague"
+            @click="inspectorTab = 'colleague'"
+          >同事</button>
+        </div>
+
+        <OfficeRoomChat
+          v-if="inspectorTab === 'room'"
+          :colleagues="roomColleagues"
+          :context="officeChatContext"
+          :context-summary="officeContextSummary"
+          :status-meta="statusMetaEntries"
+          :status-map="statusMap"
+          @open-dm="onRoomOpenDm"
+          @persona="onRoomPersona"
+        />
+
+        <template v-else-if="selectedColleague">
           <div class="inspector-head">
-            <div class="inspector-avatar" :style="{ background: deskColor(selectedColleague) }">
+            <div
+              class="inspector-avatar inspector-avatar--click"
+              :style="{ background: deskColor(selectedColleague) }"
+              title="查看同事名片"
+              @click="openPersonaCard(selectedColleague, $event)"
+            >
               <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
               <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
             </div>
-            <div class="inspector-identity">
-              <div class="inspector-name">{{ selectedColleague.name || selectedColleague.role_key }}</div>
+            <div class="inspector-identity" @click="openPersonaCard(selectedColleague, $event)">
+              <div class="inspector-name inspector-name--click">{{ selectedColleague.name || selectedColleague.role_key }}</div>
               <div class="inspector-role">{{ selectedColleague.role_key }}</div>
             </div>
             <span class="status-pill" :style="statusPillStyle(selectedStatus.status)">{{ statusText(selectedStatus.status) }}</span>
@@ -140,6 +172,13 @@
           点击办公室中的 AI 同事查看详情
         </div>
       </aside>
+      <ColleaguePersonaCard
+        ref="personaRef"
+        :status-meta="statusMetaEntries"
+        :lead-role-key="teamGraph?.lead_role_key || 'assistant'"
+        @dm="onRoomOpenDm"
+        @task="onPersonaTask"
+      />
     </div>
 
     <!-- =================== 手机端：3D 全屏 + 同事头像行 =================== -->
@@ -302,6 +341,8 @@ import AiOfficeManagement from './AiOfficeManagement.vue'
 import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
 import OfficeColleagueChatPanel from './OfficeColleagueChatPanel.vue'
+import OfficeRoomChat from './OfficeRoomChat.vue'
+import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
 import TaskBoard from './TaskBoard.vue'
 
 defineOptions({ name: 'AiOfficeView' })
@@ -335,6 +376,36 @@ const officeChatContext = computed<AssistantContext>(() => ({
   opportunityId: (route.query.opportunityId as string) || null,
   quotationId: (route.query.quotationId as string) || null,
 }))
+
+// ── 检查器双域：团队群（房间聊天）/ 同事（DM 检查器）+ 同事名片浮层 ──
+const inspectorTab = ref<'room' | 'colleague'>('colleague')
+const personaRef = ref<InstanceType<typeof ColleaguePersonaCard> | null>(null)
+
+function missionOf(roleKey?: string | null) {
+  if (!roleKey) return null
+  return (
+    missions.value.find((m) => m.owner_role_key === roleKey && (m.status === 'running' || m.status === 'queued')) ||
+    missions.value.find((m) => (m.steps || []).some((s) => s.role_key === roleKey) && (m.status === 'running' || m.status === 'queued')) ||
+    null
+  )
+}
+
+function openPersonaCard(colleague: any, ev: MouseEvent) {
+  personaRef.value?.openFor(colleague, statusFor(colleague?.role_key), missionOf(colleague?.role_key), ev.currentTarget as HTMLElement)
+}
+
+function onRoomPersona(colleague: any, ev: MouseEvent) {
+  openPersonaCard(colleague, ev)
+}
+
+function onRoomOpenDm(roleKey?: string) {
+  inspectorTab.value = 'colleague'
+  if (roleKey) selectColleague(roleKey)
+}
+
+function onPersonaTask(roleKey?: string) {
+  if (roleKey) onOpenMission(roleKey)
+}
 
 const { statusMap, connected, connect, disconnect } = useOfficeSocket()
 
@@ -1110,6 +1181,38 @@ onDeactivated(() => {
   align-items: center;
   gap: 10px;
 }
+
+/* 检查器双域页签：团队群 / 同事 */
+.inspector-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px 0;
+}
+.inspector-tab {
+  flex: 1;
+  padding: 7px 0;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--cpq-text-secondary);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s var(--ease, cubic-bezier(0.16, 1, 0.3, 1));
+}
+.inspector-tab:hover:not(:disabled) { color: var(--cpq-accent-primary); }
+.inspector-tab.active {
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-w4);
+  border-color: var(--cpq-glass-border);
+}
+.inspector-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* 头像/名字可点 → 同事名片 */
+.inspector-avatar--click,
+.inspector-name--click { cursor: pointer; }
+.inspector-avatar--click:hover { box-shadow: 0 0 0 3px var(--cpq-overlay-w6); }
+.inspector-name--click:hover { color: var(--cpq-accent-primary); }
 
 .inspector-avatar {
   width: 48px;

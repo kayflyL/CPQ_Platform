@@ -20,7 +20,9 @@ export interface KpiMetricPick {
 
 export interface ArtifactBlock {
   id?: string
-  type: 'title' | 'text' | 'kpi' | 'chart' | 'table'
+  type:
+    | 'title' | 'text' | 'kpi' | 'chart' | 'table' | 'fields'
+    | 'heading' | 'callout' | 'divider' | 'image'
   title?: string
   asset?: string
   source?: 'answer' | 'payload' | 'literal'
@@ -29,14 +31,23 @@ export interface ArtifactBlock {
   params?: Record<string, unknown>
   /** 12 列栅格宽（4/6/8/12），缺省=整行 */
   span?: number
-  /** text/literal：模板自写静态文案（markdown 子集） */
+  /** text/callout：模板自写静态文案（markdown 子集） */
   text?: string
   /** title 区块：钉固定文案（留空回落 meta） */
   subtitle?: string
   brand_name?: string
   brand_tag?: string
+  /** title 区块：抬头公司 Logo（/api/artifact-templates/logo/x.png，上传端点返回） */
+  logo_url?: string
   /** kpi 区块：指标构成 */
   metrics?: KpiMetricPick[]
+  /** callout：色调与标题 */
+  tone?: 'blue' | 'green' | 'amber'
+  co_title?: string
+  /** image：图片地址（上传端点产物路径或外链） */
+  src?: string
+  /** title 块：品牌色（#RGB/#RRGGBB），渲染端注入 --rpt-accent */
+  accent?: string
   [k: string]: unknown
 }
 
@@ -76,6 +87,42 @@ export interface ChartAssetMeta {
   metrics?: KpiMetricOption[]
 }
 
+export interface DocContractSection {
+  key: string
+  title: string
+}
+
+/** 文档卡契约（扫活跃推理流节点配置聚合；章节键下拉/对账/AI 生成共用） */
+export interface DocContract {
+  flow_key: string
+  flow_name: string
+  node_key: string
+  doc_name: string
+  data_range: Record<string, unknown>
+  sections: DocContractSection[]
+}
+
+export interface GenerateReport {
+  dropped: string[]
+  fixed: string[]
+  added: string[]
+}
+
+export interface GenerateTraceStep {
+  key: string
+  title: string
+  /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+  items: any
+}
+
+export interface GenerateResult {
+  blocks: ArtifactBlock[]
+  trace: { steps: GenerateTraceStep[] }
+  provenance: { type: string; asset: string; chapter: string; cite: string }[]
+  dropped: string[]
+  contract: DocContract
+}
+
 export const artifactTemplateApi = {
   async list(): Promise<ArtifactTemplate[]> {
     const res = await axios.get(API_BASE)
@@ -89,6 +136,27 @@ export const artifactTemplateApi = {
 
   async listChartAssets(): Promise<ChartAssetMeta[]> {
     const res = await axios.get(`${API_BASE}/chart-assets`)
+    return res.data
+  },
+
+  async listContracts(): Promise<DocContract[]> {
+    const res = await axios.get(`${API_BASE}/contracts`)
+    return res.data
+  },
+
+  /** 按契约对账补齐（确定性）：缺槽追加，未知 key 只报不删 */
+  async reconcile(payload: { blocks: ArtifactBlock[]; flow_key: string; doc_name?: string }): Promise<{
+    blocks: ArtifactBlock[]
+    missing_added: string[]
+    unknown_keys: string[]
+  }> {
+    const res = await axios.post(`${API_BASE}/reconcile`, payload)
+    return res.data
+  },
+
+  /** AI 生成模板骨架（过程可见）：返回六步 trace + blocks；确定性校验兜底；不自动保存 */
+  async generate(payload: { flow_key: string; doc_name?: string }): Promise<GenerateResult> {
+    const res = await axios.post(`${API_BASE}/generate`, payload)
     return res.data
   },
 

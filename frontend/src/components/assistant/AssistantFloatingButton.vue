@@ -7,7 +7,6 @@
     :style="petStyle"
     :title="dock ? '方案助手 · 点击展开，拖开可恢复' : '方案助手 · 拖动移动 / 右键调大小 / 拖到屏幕边缘可收起'"
     @pointerdown="onPointerDown"
-    @click="onClick"
     @contextmenu.prevent="openMenu"
   >
     <!-- 拖拽近边缘时的吸附预览 -->
@@ -53,7 +52,7 @@ const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const {
   pos, petSize, dockEdge, moveClamped, refitToViewport, setFabEl, setPetSize, setDockEdge,
-  FAB_DRAG_THRESHOLD, PET_SIZE_TIERS, PET_DOCK_SLIDE, PET_DOCK_SNAP,
+  FAB_DRAG_THRESHOLD, FAB_DRAG_THRESHOLD_TOUCH, PET_SIZE_TIERS, PET_DOCK_SLIDE, PET_DOCK_SNAP,
 } = useAssistantFab()
 const dock = dockEdge
 const petModel = usePetModelStore()
@@ -69,8 +68,8 @@ let widget: any = null
 
 let startX = 0, startY = 0, originX = 0, originY = 0
 let moved = false, active = false
-let suppressClick = false
-let suppressTimer: number | undefined
+/** 本次按下的指针类型：触屏点按位移天然大，拖拽判定阈值要分档（见 FAB_DRAG_THRESHOLD_TOUCH） */
+let activePointerType = ''
 
 function clampCross(v: number, dim: number, s: number) {
   return Math.max(8, Math.min(v, dim - s - 8))
@@ -174,6 +173,7 @@ async function initPet() {
 
 function onPointerDown(e: PointerEvent) {
   if (e.pointerType === "mouse" && e.button !== 0) return
+  activePointerType = e.pointerType
   const el = petRef.value
   if (!el) return
   menuOpen.value = false
@@ -203,7 +203,8 @@ function onPointerMove(e: PointerEvent) {
   if (!active) return
   const dx = e.clientX - startX
   const dy = e.clientY - startY
-  if (!moved && Math.hypot(dx, dy) > FAB_DRAG_THRESHOLD) { moved = true; isDragging.value = true }
+  const threshold = activePointerType === 'touch' ? FAB_DRAG_THRESHOLD_TOUCH : FAB_DRAG_THRESHOLD
+  if (!moved && Math.hypot(dx, dy) > threshold) { moved = true; isDragging.value = true }
   if (moved && petRef.value) {
     const s = petSize.value
     moveClamped(originX + dx, originY + dy, s, s)
@@ -218,9 +219,6 @@ function onPointerUp() {
   window.removeEventListener("pointerup", onPointerUp)
   window.removeEventListener("pointercancel", onPointerUp)
   if (moved) {
-    suppressClick = true
-    window.clearTimeout(suppressTimer)
-    suppressTimer = window.setTimeout(() => { suppressClick = false }, 150)
     // 松手在边缘吸附区内 → 贴边收起（pos 落到贴边位，dock 状态持久化）
     const edge = dockPreview.value
     dockPreview.value = null
@@ -233,14 +231,12 @@ function onPointerUp() {
       moveClamped(x, y, s, s)
       setDockEdge(edge)
     }
+  } else {
+    // 点按切换不依赖合成 click：手机端浏览器手势接管/事件合成差异会让 click 丢失，
+    // 直接在 pointerup 切（pointercancel 且位移小于阈值的手势也按点按算，同路径覆盖）
+    emit('update:open', !props.open)
   }
   isDragging.value = false
-}
-
-function onClick() {
-  if (suppressClick) { suppressClick = false; window.clearTimeout(suppressTimer); return }
-  menuOpen.value = false
-  emit('update:open', !props.open)
 }
 
 // ── 右键菜单：桌宠大小三档 ──
@@ -338,7 +334,6 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize)
   document.removeEventListener("pointerdown", onDocPointerDown)
   document.removeEventListener("keydown", onDocKeydown)
-  window.clearTimeout(suppressTimer)
   if (widget) {
     destroyWidget(widget)
   }
@@ -361,6 +356,8 @@ onBeforeUnmount(() => {
 }
 .assistant-pet:hover { filter: drop-shadow(0 16px 32px rgba(0,0,0,.45)); }
 .assistant-pet.dragging { cursor: grabbing; transition: none; }
+/* 触摸目标是内部 canvas（运行时注入、无 scoped 属性,普通后代选择器匹配不到）：:deep 穿透 */
+.assistant-pet :deep(canvas) { touch-action: none; }
 
 /* 手机端默认锚点上移：避开底部导航栏（58px + 安全区；拖拽夹取同步见 useAssistantFab.MOBILE_TABBAR_INSET） */
 @media (max-width: 768px) {

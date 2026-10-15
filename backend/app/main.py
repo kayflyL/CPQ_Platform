@@ -28,6 +28,7 @@ from app.core.exception_handlers import (
 )
 from app.api import quote
 from app.api import opportunities
+from app.api import artifact_share
 from app.api import admin
 from app.api import rules
 from app.api import comments
@@ -127,6 +128,7 @@ app.include_router(compatibility_rules_api.router)
 app.include_router(auth_api.router)
 app.include_router(roles_api.router)
 app.include_router(portal_api.router)
+app.include_router(artifact_share.router)
 app.include_router(notifications_api.router)
 app.include_router(artifact_templates_api.router)
 

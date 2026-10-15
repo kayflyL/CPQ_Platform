@@ -87,6 +87,7 @@ function blankSession(id: string, kind: ChatChannelKind, roleKey: string | null,
     taskTitle: '',
     taskPhase: '',
     taskPause: null,
+    toolTraces: [],
     contextUsage: null,
     threads: [],
   }) as ChatSession
@@ -328,6 +329,7 @@ export function createChatRuntime(): ChatRuntime {
     s.running = false
     s.sending = false
     s.error = ''
+    s.toolTraces = []
     s.contextUsage = null
     if (threadId) openSocket(s)
     else closeSocket(s.id)

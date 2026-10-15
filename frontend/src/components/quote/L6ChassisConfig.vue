@@ -684,7 +684,7 @@ onBeforeUnmount(() => {
           <label class="psu-lab">PSU 型号</label>
           <PartPicker :items="psuParts.map(fromPartMaster)" :model-value="effectivePsuPn()" size="small" placeholder="(选择 PSU)" @update:model-value="(pn:any)=>setOverride('psuPn', typeof pn==='string'?pn:'')" />
           <span v-if="priceVisible" class="psu-unit-price">单价 ¥{{ psuUnitPrice().toLocaleString() }}</span>
-          <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', parseInt(e.target.value)||0)" /><button @click="setOverride('psuQty', psuQty() + 1)">+</button></div>
+          <div class="sc-step psu-step"><button @click="setOverride('psuQty', Math.max(0, psuQty() - 1))">−</button><input :value="psuQty()" @change="(e:any)=>setOverride('psuQty', Math.min(basePsuBays, Math.max(0, parseInt(e.target.value)||0)))" /><button :disabled="psuQty() >= basePsuBays" @click="setOverride('psuQty', Math.min(basePsuBays, psuQty() + 1))">+</button></div>
           <span v-if="priceVisible" class="psu-subtotal">¥{{ psuLineTotal.toLocaleString() }}</span>
         </div>
         <div v-if="psuRedundancy.level" class="psu-rd" :class="psuRedundancy.level">{{ psuRedundancy.text }}</div>

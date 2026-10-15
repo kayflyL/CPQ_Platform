@@ -50,11 +50,11 @@ onMounted(load)
   <div class="sdp">
     <div class="sdp-head">
       <p class="sdp-tip">上传机型 SVG 图纸并圈出区域（盘位 / CPU·内存 / 风扇 / 电源 / IO…），选型配置页点击区域可查看相关规则。点卡片进入对应机型的图纸编辑器。</p>
-      <a-radio-group v-model:value="filter" size="small" button-style="solid">
-        <a-radio-button value="all">全部 {{ counts.all }}</a-radio-button>
-        <a-radio-button value="uploaded">已上传 {{ counts.uploaded }}</a-radio-button>
-        <a-radio-button value="empty">未上传 {{ counts.empty }}</a-radio-button>
-      </a-radio-group>
+        <div class="seg2">
+          <div :class="['seg2-item', { active: filter === 'all' }]" @click="filter = 'all'">全部 {{ counts.all }}</div>
+          <div :class="['seg2-item', { active: filter === 'uploaded' }]" @click="filter = 'uploaded'">已上传 {{ counts.uploaded }}</div>
+          <div :class="['seg2-item', { active: filter === 'empty' }]" @click="filter = 'empty'">未上传 {{ counts.empty }}</div>
+        </div>
     </div>
 
     <a-spin :spinning="loading">
@@ -92,7 +92,7 @@ onMounted(load)
   gap: 8px;
   padding: 12px;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -108,9 +108,9 @@ onMounted(load)
 .sdp-thumb {
   position: relative;
   height: 148px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.22);
+  background: var(--cpq-overlay-a5);
   display: flex;
   align-items: center;
   justify-content: center;

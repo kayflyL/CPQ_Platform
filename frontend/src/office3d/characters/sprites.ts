@@ -4,7 +4,7 @@
  */
 import * as THREE from 'three'
 
-export function makeLabelSprite(text: string, color: string) {
+export function makeLabelSprite(text: string, color: string, y: number) {
   const canvas = document.createElement('canvas')
   canvas.width = 320
   canvas.height = 80
@@ -47,12 +47,13 @@ export function makeLabelSprite(text: string, color: string) {
     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }),
   )
   sprite.scale.set(1.15, 0.29, 1)
-  sprite.position.y = 2.42
+  // Y 由调用方按模型实测头顶传入（弹性锚定，勿写死）
+  sprite.position.y = y
 
   return { sprite, texture, canvas }
 }
 
-export function makeBubbleSprite() {
+export function makeBubbleSprite(y: number) {
   const canvas = document.createElement('canvas')
   canvas.width = 512
   canvas.height = 128
@@ -67,7 +68,8 @@ export function makeBubbleSprite() {
     new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false }),
   )
   sprite.scale.set(1.75, 0.44, 1)
-  sprite.position.y = 1.58
+  // Y 由调用方按模型实测头顶传入（弹性锚定，勿写死）
+  sprite.position.y = y
 
   return { sprite, texture, canvas, ctx }
 }

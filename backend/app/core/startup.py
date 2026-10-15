@@ -16,6 +16,7 @@ from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标�
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
 from app.models.office_event import OfficeEvent  # AI 办公室事件审计（注册 metadata 供 create_all 建表）
 from app.models.office_governance import OfficeGovernanceItem  # AI 办公室治理审批（注册 metadata 供 create_all 建表）
+from app.models.artifact_share import ArtifactShareToken  # 产出物分享令牌（注册 metadata 供 create_all 建表；对应 migrations/create_artifact_share_tokens.sql）
 from app.models.flow import (  # 协作流程 BOM/成本卡片（注册 metadata 供 create_all 建表）
     OpportunityFlow,
     OpportunityFlowNode,
@@ -154,7 +155,15 @@ def ensure_assistant_reasoning_columns():
             "SELECT column_name FROM information_schema.columns "
             "WHERE table_schema='opportunities' AND table_name='assistant_messages'"
         ))}
+        f_cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='feed_users'"
+        ))}
     with opp_engine.begin() as c:
+        if "wecom_userid" not in f_cols:
+            c.execute(text("ALTER TABLE opportunities.feed_users ADD COLUMN wecom_userid TEXT"))
+        if "last_login_at" not in f_cols:
+            c.execute(text("ALTER TABLE opportunities.feed_users ADD COLUMN last_login_at TEXT"))
         if "reasoning_state" not in t_cols:
             c.execute(text("ALTER TABLE opportunities.assistant_threads ADD COLUMN reasoning_state TEXT"))
         if "thread_kind" not in t_cols:
@@ -314,6 +323,43 @@ def ensure_opportunity_owner_column():
             c.execute(text("ALTER TABLE opportunities.opportunities ADD COLUMN owner_user_id TEXT"))
 
 
+def ensure_ai_read_views():
+    """AI 可读视图（幂等 DDL，boot 时自愈，2026-10-11 定调）：
+    opportunities 域对 query_data 只暴露 ai_read.* 视图，行级排除
+    status IN ('ai_office','deleted')——AI 线索不进 AI 的任何读取面，
+    与 opp_stats/商机线索页统计口径物理对齐（data_boundary._AI_VIEW_MAP 改道白名单）。
+    每次启动 CREATE OR REPLACE：基表加列后视图随之自愈（ADD COLUMN 追加在列尾，
+    兼容 Postgres 的 OR REPLACE 规则）。对应 migrations/create_ai_read_views.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    stmts = [
+        "CREATE OR REPLACE VIEW ai_read.opportunities AS "
+        "SELECT * FROM opportunities.opportunities "
+        "WHERE status NOT IN ('ai_office', 'deleted')",
+        "CREATE OR REPLACE VIEW ai_read.opportunity_requirements AS "
+        "SELECT r.* FROM opportunities.opportunity_requirements r "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = r.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        "CREATE OR REPLACE VIEW ai_read.opportunity_bom_schemes AS "
+        "SELECT b.* FROM opportunities.opportunity_bom_schemes b "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = b.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        "CREATE OR REPLACE VIEW ai_read.quotations AS "
+        "SELECT qt.* FROM opportunities.quotations qt "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = qt.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        "CREATE OR REPLACE VIEW ai_read.quotation_items AS "
+        "SELECT qi.* FROM opportunities.quotation_items qi "
+        "JOIN opportunities.quotations qt ON qt.quotation_id = qi.quotation_id "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = qt.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+    ]
+    with opp_engine.begin() as c:
+        c.execute(text("CREATE SCHEMA IF NOT EXISTS ai_read"))
+        for s in stmts:
+            c.execute(text(s))
+
+
 def drop_pet_settings_column():
     """清理旧桌宠设置死列（幂等 DDL，boot 时自愈）：
     opportunities.feed_users.pet_settings 已被「按 AI 同事角色统一形象」取代，
@@ -368,6 +414,69 @@ def ensure_quotation_config_relation_columns():
             c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN primary_config TEXT DEFAULT ''"))
 
 
+def ensure_quotation_item_price_set_at():
+    """报价行价时点锚（幂等 DDL，boot 时自愈）：
+    opportunities.quotation_items 加 price_set_at（TEXT，ISO 时间）。base_price 最近一次被人为
+    改动的时点，与配件库最新价日期比新旧，决定 KP 行亮「同步价格」还是「采纳库价」；
+    NULL=从未单独改价，前端回落单据 exported_at/created_at。对应 migrations/add_price_set_at_to_quotation_items.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='quotation_items'"
+        ))}
+    if "price_set_at" not in cols:
+        with opp_engine.begin() as c:
+            c.execute(text("ALTER TABLE opportunities.quotation_items ADD COLUMN price_set_at TEXT"))
+
+
+def ensure_pricing_approval_outbound_fields():
+    """报价外发审批门（幂等 DDL，boot 时自愈）：
+    opportunities.opportunity_pricing_approvals 泛化加列（trigger_reason/content_hash/
+    assigned_to/assigned_name/route_snapshot/request_note/transfers/escalated_at/reminded_at）。
+    批准=对内容指纹的外发许可，改价失配重批。对应 migrations/add_pricing_approval_outbound_fields.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_pricing_approvals'"
+        ))}
+    stmts = {
+        "trigger_reason": "VARCHAR DEFAULT 'outbound'",
+        "content_hash": "VARCHAR",
+        "assigned_to": "VARCHAR",
+        "assigned_name": "VARCHAR",
+        "route_snapshot": "TEXT",
+        "request_note": "TEXT",
+        "transfers": "TEXT",
+        "escalated_at": "VARCHAR",
+        "reminded_at": "VARCHAR",
+    }
+    with opp_engine.begin() as c:
+        for col, ddl in stmts.items():
+            if col not in cols:
+                c.execute(text(f"ALTER TABLE opportunities.opportunity_pricing_approvals ADD COLUMN {col} {ddl}"))
+
+
+def ensure_attachment_requirement_version():
+    """需求单内嵌附件（幂等 DDL，boot 时自愈）：
+    opportunities.opportunity_attachments 加 requirement_version（附件↔需求单版本绑定）。
+    NULL=未归版（存量散件降级合并显示）。草稿删除由 API 层解绑回 NULL（版本号 max+1 会复用）。
+    对应 migrations/add_attachment_requirement_version.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_attachments'"
+        ))}
+    if "requirement_version" not in cols:
+        with opp_engine.begin() as c:
+            c.execute(text("ALTER TABLE opportunities.opportunity_attachments ADD COLUMN requirement_version INTEGER"))
+
+
 def ensure_bom_scheme_config_relation_columns():
     """BOM 方案配置关系（幂等 DDL，boot 时自愈）：
     opportunities.opportunity_bom_schemes 加 config_relation（compose/alternative）与 primary_config（主推配置名）。
@@ -418,17 +527,19 @@ _DEFAULT_PERMISSIONS = [
     {"key": "field.flow.bom", "name": "存档区 · 方案附件可见", "group": "field", "module": "商机线索 · 商机详情"},
     {"key": "field.flow.cost", "name": "存档区 · 成本附件可见", "group": "field", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.requirement", "name": "发起/提交需求单", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.opportunity.create", "name": "新建商机", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.opportunity.result", "name": "修改商机状态（进行中/已中标等）", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.boming", "name": "编辑/提交方案配置", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.costing", "name": "编辑/提交成本核算", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.return.costing", "name": "退回成本核算", "group": "action", "module": "商机线索 · 商机详情"},
-    {"key": "action.flow.approve.pricing", "name": "低毛利报价审批", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.approve.pricing", "name": "报价外发审批（裁决外发许可）", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "field.quote.price", "name": "价格字段可见（整机/配件单价）", "group": "field", "module": "商机线索 · 报价工作台"},
     {"key": "field.quote.export_internal", "name": "导出对内版（含成本/利润率）", "group": "field", "module": "商机线索 · 报价工作台"},
     {"key": "action.flow.submit.quoting", "name": "发送报价单", "group": "action", "module": "商机线索 · 报价工作台"},
     {"key": "action.flow.return.quoting", "name": "退回市场报价", "group": "action", "module": "商机线索 · 报价工作台"},
     {"key": "action.quote.unfreeze", "name": "解冻已导出报价单", "group": "action", "module": "商机线索 · 报价工作台"},
+    {"key": "action.quote.export_bypass_approval", "name": "报价外发免审批（跳过总监审批闸）", "group": "action", "module": "商机线索 · 报价工作台"},
     # AI 办公室：菜单 + 管理面（Manage Teams 打开的「AI 办公室管理」左栏两段）
     {"key": "page.office", "name": "AI 办公室菜单与页面", "group": "page", "module": "AI 办公室"},
     {"key": "ai.office.manage", "name": "AI 办公室管理 · 员工 / 团队 / Skill Studio", "group": "action", "module": "AI 办公室"},
@@ -483,6 +594,36 @@ def ensure_permission_catalog():
         if catalog is not _DEFAULT_PERMISSIONS or changed:
             repo.set("auth.permissions", catalog, type="json", description="权限目录")
         print("✅ Permission catalog ensured (auth.permissions)")
+    finally:
+        repo.close()
+
+
+# 丢标/过期原因字典种子（源自 FAE 进度表真实出现的归因值）。key 落商机 extra_fields，
+# 文案可改、可禁用；禁用不删除，历史商机的 loss_reason_key 永远能解析。
+_DEFAULT_LOSS_REASONS = [
+    {"key": "price_high", "label": "价格高", "enabled": True},
+    {"key": "no_feedback", "label": "无反馈", "enabled": True},
+    {"key": "no_suitable_solution", "label": "无合适方案", "enabled": True},
+    {"key": "project_paused", "label": "项目暂停", "enabled": True},
+    {"key": "over_budget", "label": "超客户预算", "enabled": True},
+    {"key": "sample_not_supported", "label": "样机无法支持", "enabled": True},
+    {"key": "aftersales_unmet", "label": "售后无法满足", "enabled": True},
+    {"key": "cpu_shortage", "label": "CPU缺货", "enabled": True},
+    {"key": "lead_time_too_long", "label": "交期太长", "enabled": True},
+    {"key": "quote_too_slow", "label": "报价时效未跟上", "enabled": True},
+]
+
+
+def ensure_loss_reason_dict():
+    """丢标/过期原因字典种子（幂等，仅缺 key 时写入，之后由状态弹窗管理入口维护）。"""
+    from app.repository.system_config_repo import SystemConfigRepository
+    repo = SystemConfigRepository()
+    try:
+        current = repo.get_value("opportunity.loss_reasons", None)
+        if current is None:
+            repo.set("opportunity.loss_reasons", [dict(item) for item in _DEFAULT_LOSS_REASONS],
+                     type="json", description="商机丢标/过期原因字典")
+            print("✅ Loss reason dict seeded (opportunity.loss_reasons)")
     finally:
         repo.close()
 
@@ -1205,6 +1346,12 @@ def init_rules_db():
         print("✅ Opportunity owner column ensured (owner_user_id)")
     except Exception as e:
         print(f"⚠️ Opportunity owner column migrate failed: {e}")
+    # AI 可读视图：opportunities 域对 query_data 只暴露 ai_read.*（排除 AI 线索/已删）
+    try:
+        ensure_ai_read_views()
+        print("✅ AI read views ensured (ai_read.* excludes ai_office/deleted)")
+    except Exception as e:
+        print(f"⚠️ AI read views migrate failed: {e}")
     # 报价单发送状态：submitted_at/submitted_by/submitted_attachment_id + 旧 done 数据回退
     try:
         ensure_quotation_submission_columns()
@@ -1222,10 +1369,25 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Quotation config_relation migrate failed: {e}")
     try:
+        ensure_quotation_item_price_set_at()
+        print("✅ Quotation item price_set_at column ensured")
+    except Exception as e:
+        print(f"⚠️ Quotation item price_set_at migrate failed: {e}")
+    try:
         ensure_bom_scheme_config_relation_columns()
         print("✅ BOM scheme config_relation/primary_config columns ensured")
     except Exception as e:
         print(f"⚠️ BOM scheme config_relation migrate failed: {e}")
+    try:
+        ensure_attachment_requirement_version()
+        print("✅ Attachment requirement_version column ensured")
+    except Exception as e:
+        print(f"⚠️ Attachment requirement_version migrate failed: {e}")
+    try:
+        ensure_pricing_approval_outbound_fields()
+        print("✅ Pricing approval outbound fields ensured")
+    except Exception as e:
+        print(f"⚠️ Pricing approval outbound fields migrate failed: {e}")
     # 反向回填已改为显式迁移脚本，不再随启动自动执行。
     # 见 backend/scripts/migrate_legacy_flow_artifacts.py。
     try:
@@ -1243,6 +1405,10 @@ def init_rules_db():
         ensure_permission_catalog()
     except Exception as e:
         print(f"⚠️ Permission catalog init failed: {e}")
+    try:
+        ensure_loss_reason_dict()
+    except Exception as e:
+        print(f"⚠️ Loss reason dict init failed: {e}")
     try:
         ensure_roles_table_and_seed()
     except Exception as e:

@@ -31,9 +31,9 @@
       <a class="patch-clear" @click="clearChips">全部撤销</a>
     </div>
 
-    <!-- 主体：左=修正工具（格子档案+字段映射） / 中=网格 / 右=解析结果 -->
+    <!-- 主体：左=修正工具（格子档案+字段映射，可收起） / 中=网格 / 右=解析结果 -->
     <div class="preview-layout">
-      <div class="preview-aside">
+      <div v-if="!asideCollapsed" class="preview-aside">
         <!-- 格子档案：点格看出处 -->
         <a-card v-if="dossierInfo" size="small" title="格子档案" class="side-card">
           <template #extra>
@@ -103,6 +103,16 @@
         </a-card>
       </div>
 
+      <button
+        class="aside-rail"
+        type="button"
+        :title="asideCollapsed ? '展开字段映射' : '收起字段映射'"
+        @click="toggleAside"
+      >
+        <DoubleRightOutlined v-if="asideCollapsed" />
+        <DoubleLeftOutlined v-else />
+      </button>
+
       <div class="preview-main">
         <a-card size="small" :loading="parsing" class="grid-card" :body-style="{ padding: '8px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }">
           <a-tabs
@@ -162,6 +172,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import ParseInteractiveGrid from '@/components/excel-parser/ParseInteractiveGrid.vue'
 import ParseResultPanel from '@/components/excel-parser/ParseResultPanel.vue'
@@ -226,6 +237,18 @@ let chipSeq = 0
 const selectedRows = ref<number[]>([])
 const dossier = ref<{ row: number; col: number } | null>(null)
 const pickField = ref<string | null>(null)
+
+// 左栏（格子档案+字段映射）默认收起，给网格让宽；偏好持久化，点格看档案时自动展开
+const ASIDE_COLLAPSED_KEY = 'cpq:parse-preview:aside-collapsed'
+const asideCollapsed = ref(true)
+try {
+  const saved = localStorage.getItem(ASIDE_COLLAPSED_KEY)
+  if (saved !== null) asideCollapsed.value = saved === '1'
+} catch { /* ignore */ }
+function toggleAside() {
+  asideCollapsed.value = !asideCollapsed.value
+  try { localStorage.setItem(ASIDE_COLLAPSED_KEY, asideCollapsed.value ? '1' : '0') } catch { /* ignore */ }
+}
 
 const engineOverrides = computed<Record<string, any>>(() => {
   const skip_rows = [...new Set(patchChips.value.filter(c => c.kind === 'skip').flatMap(c => c.rows || []))]
@@ -480,6 +503,7 @@ function markRole(mark: any): string {
 
 function onCellClick(cell: { row: number; col: number }) {
   dossier.value = cell
+  if (asideCollapsed.value) toggleAside()
 }
 
 function colLetter(idx: number): string {
@@ -547,8 +571,8 @@ watch(
   padding: 6px 10px;
   margin-bottom: 8px;
   border-radius: 8px;
-  background: var(--cpq-glass-bg, rgba(255, 255, 255, 0.6));
-  border: 1px solid var(--cpq-border-color, rgba(255, 255, 255, 0.6));
+  background: var(--cpq-overlay-w4);
+  border: 1px solid var(--cpq-glass-border);
   font-size: 12px;
   flex-wrap: wrap;
 }
@@ -790,5 +814,24 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+
+/* 左栏收起/展开的细轨：常态收起让宽给网格，点格看档案时自动展开 */
+.aside-rail {
+  flex-shrink: 0;
+  width: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: 8px;
+  background: var(--cpq-overlay-w3);
+  color: var(--cpq-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.aside-rail:hover {
+  color: var(--cpq-accent-primary);
+  border-color: var(--cpq-accent-primary);
 }
 </style>

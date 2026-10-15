@@ -3,10 +3,13 @@
 domain: requirement / selection / pricing / market / policy(策略文档)
 status: draft / testing / active / archived（只有 active 被业务引用）
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.repository.strategy_repo import StrategyRepository
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/strategies", tags=["strategies"])
+# 默认登录门槛；策略写操作收「解决方案」页权限。
+router = APIRouter(prefix="/api/strategies", tags=["strategies"],
+                   dependencies=[Depends(get_current_user)])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
 _VALID_DOMAIN = {"requirement", "selection", "pricing", "market", "policy"}
@@ -33,7 +36,7 @@ def get_strategy(strategy_id: int):
         repo.close()
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_perms("page.strategies"))])
 def create_strategy(data: dict):
     for k in ("domain", "type", "name"):
         if not data.get(k):
@@ -47,7 +50,7 @@ def create_strategy(data: dict):
         repo.close()
 
 
-@router.put("/{strategy_id}")
+@router.put("/{strategy_id}", dependencies=[Depends(require_perms("page.strategies"))])
 def update_strategy(strategy_id: int, data: dict):
     repo = StrategyRepository()
     try:
@@ -59,7 +62,7 @@ def update_strategy(strategy_id: int, data: dict):
         repo.close()
 
 
-@router.post("/{strategy_id}/status")
+@router.post("/{strategy_id}/status", dependencies=[Depends(require_perms("page.strategies"))])
 def set_status(strategy_id: int, data: dict):
     status = data.get("status")
     if status not in _VALID_STATUS:
@@ -74,7 +77,7 @@ def set_status(strategy_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/{strategy_id}")
+@router.delete("/{strategy_id}", dependencies=[Depends(require_perms("page.strategies"))])
 def delete_strategy(strategy_id: int):
     repo = StrategyRepository()
     try:
@@ -85,7 +88,7 @@ def delete_strategy(strategy_id: int):
         repo.close()
 
 
-@router.post("/{strategy_id}/usage")
+@router.post("/{strategy_id}/usage", dependencies=[Depends(require_perms("page.strategies"))])
 def record_usage(strategy_id: int, data: dict):
     """引用埋点：记录某商机/报价引用了这条策略。"""
     repo = StrategyRepository()

@@ -9,16 +9,23 @@
 - 设为默认
 - 获取默认模板（供 ConfigWizard 使用）
 """
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional, List, Any
+from urllib.parse import quote
 import os
 import uuid
 from app.repository.spec_template_repo import SpecTemplateRepo
 from app.services.preview_data_loader import load_preview_data
+from app.services.artifact_render import render_print_pdf
 from app.services.default_spec_template import get_default_template_config
 
-router = APIRouter(prefix="/api/spec-templates", tags=["spec-templates"])
+from app.api.deps import get_current_user, require_perms  # noqa: E402
+
+# 默认登录门槛；模板写操作收「导出模板」页权限（print-pdf 供商机详情/编辑器多页面共用，仅登录）。
+router = APIRouter(prefix="/api/spec-templates", tags=["spec-templates"],
+                   dependencies=[Depends(get_current_user)])
 
 repo = SpecTemplateRepo()
 
@@ -59,6 +66,33 @@ def get_preview_data(opportunity_id: str, quotation_id: Optional[str] = None):
         raise HTTPException(status_code=500, detail=f"加载预览数据失败: {str(e)}")
 
 
+# ── 打印 PDF ──
+
+class PrintPdfIn(BaseModel):
+    title: str = "规格书"
+    html: str
+
+
+@router.post("/print-pdf")
+async def print_pdf(body: PrintPdfIn):
+    """前端渲染好的规格书打印态 HTML（脚本已剥离、含 @page/@media print 样式）→ PDF。
+    直接下载、文件名确定，绕开浏览器「另存为 PDF」的命名不确定性。"""
+    try:
+        pdf = await render_print_pdf(body.html)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=f"PDF 渲染服务不可用：{e}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"PDF 渲染失败：{e}")
+    safe_name = quote(f"{(body.title or '规格书').strip() or '规格书'}.pdf")
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=\"spec-sheet.pdf\"; filename*=UTF-8''{safe_name}"
+        },
+    )
+
+
 # ── CRUD ──
 
 @router.get("")
@@ -85,7 +119,7 @@ def get_template(template_id: int):
     return template
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_perms("page.settings.templates"))])
 def create_template(data: TemplateCreate):
     """创建模板"""
     # 如果未提供配置，使用默认配置
@@ -97,7 +131,7 @@ def create_template(data: TemplateCreate):
     return repo.create(template_data)
 
 
-@router.put("/{template_id}")
+@router.put("/{template_id}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def update_template(template_id: int, data: TemplateUpdate):
     """更新模板"""
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
@@ -107,7 +141,7 @@ def update_template(template_id: int, data: TemplateUpdate):
     return result
 
 
-@router.delete("/{template_id}")
+@router.delete("/{template_id}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def delete_template(template_id: int):
     """删除模板"""
     if not repo.delete(template_id):
@@ -115,7 +149,7 @@ def delete_template(template_id: int):
     return {"message": "Deleted"}
 
 
-@router.post("/{template_id}/set-default")
+@router.post("/{template_id}/set-default", dependencies=[Depends(require_perms("page.settings.templates"))])
 def set_default(template_id: int):
     """设为默认模板"""
     if not repo.set_default(template_id):
@@ -123,7 +157,7 @@ def set_default(template_id: int):
     return {"message": "Set as default"}
 
 
-@router.post("/{template_id}/copy")
+@router.post("/{template_id}/copy", dependencies=[Depends(require_perms("page.settings.templates"))])
 def copy_template(template_id: int):
     """复制模板"""
     template = repo.get_by_id(template_id)
@@ -149,7 +183,7 @@ def copy_template(template_id: int):
 
 # ── Logo 上传 ──
 
-@router.post("/upload-logo")
+@router.post("/upload-logo", dependencies=[Depends(require_perms("page.settings.templates"))])
 async def upload_logo(file: UploadFile = File(...)):
     """上传 Logo 图片，返回 URL"""
     # 生成唯一文件名

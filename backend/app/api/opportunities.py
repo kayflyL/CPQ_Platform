@@ -66,29 +66,38 @@ class UpdateOpportunityRequest(BaseModel):
 @router.post("/")
 def create_empty_opportunity(req: CreateOpportunityRequest, user: dict = Depends(get_current_user)):
     """Create an empty opportunity manually."""
+    if not user_has_permission(user, "action.opportunity.create"):
+        raise HTTPException(status_code=403, detail="无权新建商机")
     repo = OpportunityRepository()
     try:
         customer_name = req.customer_name.strip()
         if not customer_name:
             raise HTTPException(status_code=400, detail="客户名称不能为空")
 
-        view_all = user_has_permission(user, "page.opportunities_all")
-        sales_person = req.sales_person.strip() or user.get("name") or ""
+        is_business_role = user.get("role") == "business"
         owner_user_id = user.get("user_id")
-        if not view_all:
+        if is_business_role:
+            # 业务建档：归属自己
             sales_person = user.get("name") or ""
         else:
-            # 管理员可代业务建档：若销售名已是登录账号，归属该账号；否则归属当前管理员。
+            # 管理员/总监/技术支持等：指定归属业务（必填）；命中在册业务账号则商机归属该账号
+            sales_person = req.sales_person.strip()
+            if not sales_person:
+                raise HTTPException(status_code=400, detail="请填写归属业务")
             target = next((u for u in _active_business_accounts() if u["name"] == sales_person), None)
             if target:
                 owner_user_id = target["user_id"]
         opportunity_id = f"OPP-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
 
-        repo.create_or_update_opportunity(opportunity_id, {
+        payload = {
             "customer_name": customer_name,
             "sales_person": sales_person,
             "owner_user_id": owner_user_id,
-        })
+        }
+        # 技术支持建档：FAE 自动记创建者（FAE 字段=技术支持的归属语义）
+        if user.get("role") == "te":
+            payload["fae"] = user.get("name") or ""
+        repo.create_or_update_opportunity(opportunity_id, payload)
 
         return {
             "status": "success",
@@ -709,6 +718,87 @@ def update_opportunity_meta(opportunity_id: str, updates: dict,
         raise HTTPException(status_code=500, detail="内部服务器错误")
     finally:
         repo.close()
+
+
+@router.post("/{opportunity_id}/result-change")
+async def change_opportunity_result(opportunity_id: str, payload: dict,
+                                    user: dict = Depends(require_opportunity_access)):
+    """商机状态变更唯一入口：写归因字段 + 自动向协作动态发一条【状态变更】评论（审计即跟进流）。
+
+    payload: { result, note(必填一句话), loss_reason_keys?(多选;lost 至少一项 / expired 选填) }
+    归因落在 extra_fields（loss_reason_keys/loss_note/result_changed_at），改回进行中/中标时清空。
+    """
+    from app.repository.feed_repo import FeedRepository
+    from app.services.feed_hub import hub
+    from app.services.storage_adapter import now_iso
+
+    _RESULT_LABELS = {"pending": "进行中", "won": "已中标", "lost": "已丢标", "expired": "已过期"}
+    new_result = str(payload.get("result") or "").strip()
+    if new_result not in _RESULT_LABELS:
+        raise HTTPException(status_code=400, detail="无效的商机状态")
+    if not user_has_permission(user, "action.opportunity.result"):
+        raise HTTPException(status_code=403, detail="无权修改商机状态")
+    note = str(payload.get("note") or "").strip()
+    if not note:
+        raise HTTPException(status_code=400, detail="状态变更必须填写一句话说明")
+    raw_keys = payload.get("loss_reason_keys")
+    loss_reason_keys = [str(k).strip() for k in raw_keys if str(k).strip()] if isinstance(raw_keys, list) else []
+    if new_result == "lost" and not loss_reason_keys:
+        raise HTTPException(status_code=400, detail="已丢标必须选择未成单原因")
+
+    repo = OpportunityRepository()
+    try:
+        opp = repo.get_opportunity(opportunity_id)
+        if not opp:
+            raise HTTPException(status_code=404, detail="商机不存在")
+        prev_result = opp.get("result") or "pending"
+        if new_result == prev_result:
+            raise HTTPException(status_code=400, detail="商机状态未变化")
+
+        # 原因字典解析 label；历史 key 已被删除时回退显示 key 本身
+        reason_labels: list[str] = []
+        if loss_reason_keys:
+            from app.repository.system_config_repo import SystemConfigRepository
+            cfg_repo = SystemConfigRepository()
+            try:
+                reasons = cfg_repo.get_value("opportunity.loss_reasons", []) or []
+            finally:
+                cfg_repo.close()
+            label_by_key = {r.get("key"): (r.get("label") or r.get("key")) for r in reasons if isinstance(r, dict)}
+            reason_labels = [label_by_key.get(k, k) for k in loss_reason_keys]
+
+        updates = {"result": new_result, "result_changed_at": now_iso()}
+        if new_result in ("lost", "expired"):
+            updates["loss_reason_keys"] = loss_reason_keys
+            updates["loss_note"] = note
+        else:
+            # 归因只在丢标/过期时保留；历史归因留在动态流
+            updates["loss_reason_keys"] = []
+            updates["loss_note"] = ""
+        updates["loss_reason_key"] = ""  # 清理早期单选字段残留
+        repo.update_meta(opportunity_id, updates)
+
+        head = f"【状态变更】{_RESULT_LABELS.get(prev_result, prev_result)} → {_RESULT_LABELS[new_result]}"
+        if reason_labels:
+            head += " · " + "/".join(reason_labels)
+        feed_repo = FeedRepository()
+        try:
+            msg = feed_repo.add_message(
+                opportunity_id=opportunity_id,
+                author_user_id=user["user_id"],
+                body=f"{head}\n{note}",
+                kind="comment",
+            )
+            created = next((m for m in feed_repo.list_messages(opportunity_id)
+                            if m["message_id"] == msg["message_id"]), msg)
+        finally:
+            feed_repo.close()
+        updated = repo.get_opportunity(opportunity_id)
+    finally:
+        repo.close()
+
+    await hub.broadcast(opportunity_id, {"type": "message", "message": created})
+    return {"status": "success", "message": created, "opportunity": updated}
 
 
 # ── Batch Operations ──

@@ -140,6 +140,11 @@ def user_can_access_opportunity(user: Optional[dict], opportunity: Optional[dict
             return True
     elif sales_person and sales_person == personal_name:
         return True
+    # fae 角色字段命中也放行：FAE 名下商机（线索登记填 fae=本人），
+    # 与工作台「我经手的」口径同源——能列出就必须能点进详情，字段级可见性由各自权限管。
+    fae = opportunity.get("fae") or ""
+    if fae and fae == personal_name:
+        return True
     # 流程任一节点的指派人（含历史/被退回的上游）都可进入详情页：
     # 自己阶段提交后要能回看下游进展，被退回时也要能进来改。
     # 指派存储为 user_id（迁移期兼容姓名字符串），双格式匹配。

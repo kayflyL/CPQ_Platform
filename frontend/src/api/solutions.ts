@@ -29,4 +29,9 @@ export const solutionApi = {
   update: (key: string, data: Partial<Solution>) =>
     RESP<Solution>(axios.put(`/api/solutions/${key}`, data)),
   remove: (key: string) => RESP<{ success: boolean }>(axios.delete(`/api/solutions/${key}`)),
+  uploadImage: (file: File) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return RESP<{ url: string; filename: string }>(axios.post('/api/solutions/images', fd))
+  },
 }

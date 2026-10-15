@@ -126,6 +126,8 @@ interface QOption {
   qty_max?: number
   unit_gb?: number
   recommended?: boolean
+  /** 自选候选加载失败的占位行：在下拉里就地可见，不再是「没内容」 */
+  disabled?: boolean
   /** 词典卡影子校验（平台归置）：AI 值与规则硬命中一致 */
   rule_match?: boolean
   /** 不一致：rule_value = 规则硬命中值（只提示核对，不拦不改） */
@@ -287,25 +289,37 @@ function isGroupStart(i: number): boolean {
 }
 
 async function loadPick(slot: string) {
-  if (pickLoading.value[slot] || pickOptions.value[slot]?.length || !props.threadId) {
+  const cached = pickOptions.value[slot]
+  if (pickLoading.value[slot] || (cached?.length && !cached.every((o) => o.disabled)) || !props.threadId) {
     pickOpen.value[slot] = true
     return
   }
   pickLoading.value[slot] = true
   pickError.value[slot] = ''
+  const mapOpts = (res: any) => ((res?.options || []) as any[]).map((o) => ({
+    label: String(o.label || o.value || ''),
+    value: String(o.value || o.label || ''),
+    desc: String(o.desc || ''),
+    slot: String(o.slot || slot),
+    group: String(o.group || ''),
+    qty: Number.isFinite(o?.qty) && Number(o.qty) > 0 ? Number(o.qty) : undefined,
+    qty_max: Number.isFinite(o?.qty_max) && Number(o.qty_max) > 0 ? Number(o.qty_max) : undefined,
+  }))
   try {
-    const res = await assistantApi.threads.cardPick(props.threadId, slot, props.pickRole || undefined)
-    pickOptions.value[slot] = (res.options || []).map((o: any) => ({
-      label: String(o.label || o.value || ''),
-      value: String(o.value || o.label || ''),
-      desc: String(o.desc || ''),
-      slot: String(o.slot || slot),
-      group: String(o.group || ''),
-      qty: Number.isFinite(o?.qty) && Number(o.qty) > 0 ? Number(o.qty) : undefined,
-      qty_max: Number.isFinite(o?.qty_max) && Number(o.qty_max) > 0 ? Number(o.qty_max) : undefined,
-    }))
+    let opts: QOption[]
+    try {
+      opts = await mapOpts(await assistantApi.threads.cardPick(props.threadId, slot, props.pickRole || undefined))
+    } catch {
+      // 失败自动重试一次（发卡瞬间的时序竞态/瞬时网络抖动，重试即愈）
+      await new Promise((r) => setTimeout(r, 600))
+      opts = await mapOpts(await assistantApi.threads.cardPick(props.threadId, slot, props.pickRole || undefined))
+    }
+    pickOptions.value[slot] = opts
+    if (!opts.length) pickError.value[slot] = '配件库暂无可选候选'
   } catch (e: any) {
+    // 失败必须落在用户正在看的地方：空下拉+卡下小字曾让人以为「下拉没内容」
     pickError.value[slot] = e?.response?.data?.detail || '配件库查询失败，请稍后再试'
+    pickOptions.value[slot] = [{ value: '__pick_error__', label: `⚠ ${pickError.value[slot]}`, desc: '', slot, group: '', disabled: true }]
   } finally {
     pickLoading.value[slot] = false
   }
@@ -317,7 +331,7 @@ function setPickOpen(slot: string, open: boolean) {
 }
 
 function pickSelectOptions(slot: string) {
-  return (pickOptions.value[slot] || []).map((o) => ({ value: o.value, label: o.label }))
+  return (pickOptions.value[slot] || []).map((o) => ({ value: o.value, label: o.label, disabled: o.disabled }))
 }
 
 function filterPickOption(input: string, option: any): boolean {
@@ -327,7 +341,7 @@ function filterPickOption(input: string, option: any): boolean {
 function onPickSelect(slot: string, value: any) {
   if (!value) return
   const o = (pickOptions.value[slot] || []).find((x) => x.value === value)
-  if (!o) return
+  if (!o || o.disabled) return
   picked.value = o
   qtyVal.value = Math.min(qtyMax.value, partsSlot.value === 'storage' ? 2 : qtyMax.value)
   pickOpen.value[slot] = false

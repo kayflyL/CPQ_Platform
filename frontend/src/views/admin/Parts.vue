@@ -1413,6 +1413,7 @@ const partSaving = ref(false)
 const partForm = ref<any>({
   id: null, name: '', category_id: null, brand: '', oem_sku: '', alt_sku: '',
   short_desc: '', condition: '全新', lead_time: '',
+  initial_price: null, initial_currency: 'RMB', initial_price_date: null,
   specs: [], compat_servers: [], applicable_series: [],
 })
 
@@ -1420,6 +1421,7 @@ const openCreatePartModal = () => {
   partForm.value = {
     id: null, name: '', category_id: selectedCategoryId.value, brand: '', oem_sku: '', alt_sku: '',
     short_desc: '', condition: '全新', lead_time: '',
+    initial_price: null, initial_currency: 'RMB', initial_price_date: null,
     specs: [], compat_servers: [], applicable_series: [],
   }
   partModalVisible.value = true
@@ -1570,6 +1572,13 @@ const savePart = async () => {
       compat_servers: partForm.value.compat_servers || [],
       applicable: partForm.value.applicable_series && partForm.value.applicable_series.length
         ? { series: partForm.value.applicable_series } : null,
+    }
+
+    // 初始价格仅创建时提交；留空/0 视为不录
+    if (partForm.value.id || !partForm.value.initial_price) {
+      delete payload.initial_price
+      delete payload.initial_currency
+      delete payload.initial_price_date
     }
 
     if (partForm.value.id) {

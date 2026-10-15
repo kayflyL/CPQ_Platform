@@ -197,8 +197,9 @@ async def _render_by_template(template_key: str, title: str, answer: str,
     - 章节→槽位：answer 按「一、{title}」拆段进 render_payload，模板 text 块
       source=payload key={章节key} 各取各段；
     - 数据范围→封面：period_label 由 _report_window 确定性计算（不吃 AI 复述）；
-    - 数据范围→图表：range_days → asset_params，按资产 schema clamp，不认 days 的
-      资产（kpi/profit）自动忽略。
+    - 数据范围→图表：range_days → asset_params，只补区块未显式指定的参数（区块显式
+      params 优先=章节固定窗口，如半年图表 days=183；留空才跟随报告数据范围），
+      按资产 schema clamp，不认 days 的资产（kpi/profit）自动忽略。
     """
     try:
         from app.repository.artifact_template_repo import ArtifactTemplateRepo

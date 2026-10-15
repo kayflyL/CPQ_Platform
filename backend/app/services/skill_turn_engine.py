@@ -700,7 +700,7 @@ class _SkillTurnRuntime:
                 return False
         return True
 
-    async def _abort_step(self, step_key: str, reason_code: str) -> str:
+    async def _abort_step(self, step_key: str, reason_code: str, detail: str = "") -> str:
         """本步大脑整轮零产出（超时/空产出重试耗尽/回合异常）：如实置失败终态交回。
 
         不静默留 last_step（客户会对着一个永远转圈的看板干等），也不弹零选项死卡
@@ -712,9 +712,10 @@ class _SkillTurnRuntime:
         engine["engine_result"] = "failed"
         engine["awaiting_input"] = False
         engine["engine_failure"] = {"step": step_key, "reason_code": str(reason_code or "brain_empty"),
-                                    "label": str(self._cur_step.get("label") or step_key)}
-        logger.error("大脑本步零产出，置失败终态 thread=%s step=%s reason=%s",
-                     self.thread_id, step_key, reason_code)
+                                    "label": str(self._cur_step.get("label") or step_key),
+                                    "detail": str(detail or "")[:200]}
+        logger.error("大脑本步零产出，置失败终态 thread=%s step=%s reason=%s detail=%s",
+                     self.thread_id, step_key, reason_code, str(detail or "")[:200])
         await self._emit_pause("failure", step=step_key,
                                reason_code=engine["engine_failure"]["reason_code"],
                                event="pipeline_paused", failure=engine["engine_failure"])
@@ -805,7 +806,8 @@ class _SkillTurnRuntime:
             if _dead_act == "wait":
                 return "wait"
             return await self._abort_step(
-                step_key, "llm_timeout" if _act == "timeout" else "brain_no_output")
+                step_key, "llm_timeout" if _act == "timeout" else "brain_no_output",
+                detail=str((_final_result or {}).get("error") or ""))
 
         pending = [s for s in self._brain_steps if str(s.get("step") or "") not in engine["steps_done"]]
         _verdict = step_gate_verdict(pending, step_key)

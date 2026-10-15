@@ -13,7 +13,8 @@
   草稿乐观锁 409（方案/成本/报价单三处）/ 退回空原因 422 /
   低毛利审批门全链路（拦 409→驳回→新单→批准→放行）/ 通知断言
 - oppE 调度台（第五轮）：dispatch 快照 nodes/stuck/matrix / 无主 suggest /
-  规则矩阵 PUT+DELETE / 定向 autofill（只补测试商机，生产共库不碰真实卡死流程）
+  规则矩阵 PUT+DELETE / 定向 autofill（只补测试商机，生产共库不碰真实卡死流程）/
+  移除处理人（在办转无主+规则连带删+幽灵规则 409，2026-10-14）
 清理：测试用户 is_active=False；测试商机连同流程/方案/成本/报价/卡片/通知硬删
 （共享的是生产库，软删会留残留——2026-09-16 用户点进残留商机踩出 409）
 """
@@ -681,7 +682,35 @@ def run_dispatch(tok, opp_e, user_ids):
     RESULTS.append((ok, "转交记录含 oppE→技术（审计事件）", "in", ok))
     print(f"  [{'PASS' if ok else 'FAIL'}] 转交记录含 oppE→技术（审计事件）")
 
-    # 规则矩阵 DELETE（roundtrip 收尾，同步清掉测试规则）
+    # 移除处理人（2026-10-14：卡级「移除」——在办转无主 + 规则一并删除 + 幽灵规则拦截）
+    api(te, "POST", "/api/portal/dispatch/remove-handler", 403,
+        "非管理员移除处理人 403", json={"node_key": "boming", "handler": TE})
+    api(admin, "PUT", "/api/portal/assignment-rules", 409,
+        "幽灵处理人存规则被拒 409",
+        json={"business_user_id": biz_uid, "node_key": "boming",
+              "assignee_name": "不存在的人，12345678900"})
+    r = api(admin, "POST", "/api/portal/dispatch/remove-handler", 200,
+            "移除处理人(技术) 200", json={"node_key": "boming", "handler": TE})
+    ok = r.json().get("cleared", 0) >= 1 and r.json().get("rules_removed", 0) >= 1
+    RESULTS.append((ok, "移除返回 cleared≥1 且 rules_removed≥1", ">=1/>=1",
+                    f"{r.json().get('cleared')}/{r.json().get('rules_removed')}"))
+    print(f"  [{'PASS' if ok else 'FAIL'}] 移除返回 cleared/rules_removed（实得 "
+          f"{r.json().get('cleared')}/{r.json().get('rules_removed')}）")
+    r = api(admin, "GET", "/api/portal/dispatch", 200, None)
+    data = r.json()
+    ok = any(s.get("opportunity_id") == opp_e for s in data.get("stuck", []))
+    RESULTS.append((ok, "移除后 oppE 重新无主", "in", ok))
+    print(f"  [{'PASS' if ok else 'FAIL'}] 移除后 oppE 重新无主")
+    boming = next((n for n in data.get("nodes", []) if n.get("key") == "boming"), {})
+    ok = not any(w.get("name") == TE for w in boming.get("workload", []))
+    RESULTS.append((ok, "boming 负载不再含技术", "out", ok))
+    print(f"  [{'PASS' if ok else 'FAIL'}] boming 负载不再含技术")
+
+    # 规则矩阵 DELETE（roundtrip 收尾：移除已连带删规则，重设一次再删，保住 DELETE 端点覆盖）
+    api(admin, "PUT", "/api/portal/assignment-rules", 200,
+        "管理员重设默认规则(规则删除roundtrip) 200",
+        json={"business_user_id": biz_uid, "node_key": "boming",
+              "assignee_name": TE})
     api(admin, "DELETE", "/api/portal/assignment-rules", 200,
         "管理员删默认规则 200",
         json={"business_user_id": biz_uid, "node_key": "boming",

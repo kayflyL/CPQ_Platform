@@ -348,7 +348,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
       <a-textarea
         v-model:value="reqText"
         :disabled="readonly"
-        :rows="3"
+        :auto-size="{ minRows: 4, maxRows: 16 }"
         placeholder="客户做超融合，要求 256G 内存，有 4 块 4TB NVMe 做缓存盘，双电源…"
       />
     </section>

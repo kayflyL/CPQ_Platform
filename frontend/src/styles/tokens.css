@@ -46,6 +46,24 @@
   --cpq-font-size-sm: 12px;
   --cpq-font-size-base: 14px;
   --cpq-font-size-lg: 16px;
+  /* 字阶标题档 —— 层级=字号×字重×留白，用法见 docs/设计规范.md §2 */
+  --cpq-font-size-xl: 20px;   /* 卡片/区块标题 */
+  --cpq-font-size-2xl: 24px;  /* 页面标题 */
+  --cpq-font-size-3xl: 30px;  /* KPI 大数字（配 .cpq-reading） */
+  --cpq-font-weight-normal: 400;
+  --cpq-font-weight-medium: 500;
+  --cpq-font-weight-semibold: 600;
+  --cpq-line-height-body: 1.6;     /* 中文正文 */
+  --cpq-line-height-heading: 1.25; /* 标题 */
+
+  /* 间距 —— 封闭六档（4px 基准栅格），布局间距禁用档外值（≤4px 光学校正除外）
+     用法见 docs/设计规范.md §1：区块间 5 / 卡片间 4 / 分组 3 / 元素间 2 / 紧凑 1 */
+  --cpq-space-1: 4px;
+  --cpq-space-2: 8px;
+  --cpq-space-3: 12px;
+  --cpq-space-4: 16px;
+  --cpq-space-5: 24px;
+  --cpq-space-6: 32px;
 
   /* 动效 */
   --cpq-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
@@ -167,6 +185,8 @@
   --cpq-glass-1-bg: rgba(255, 255, 255, 0.06);
   --cpq-glass-2-bg: rgba(255, 255, 255, 0.09);
   --cpq-glass-3-bg: rgba(18, 24, 38, 0.75);
+  /* 近实底变体：手机端全屏浮层（聊天窗/抽屉）用，玻璃叠页底文字发虚时换这档 */
+  --cpq-glass-3-bg-solid: rgba(18, 24, 38, 0.94);
   --cpq-glass-border: rgba(255, 255, 255, 0.11);
   --cpq-glass-border-strong: rgba(22, 119, 255, 0.40);
   --cpq-glass-highlight: rgba(255, 255, 255, 0.18);
@@ -275,6 +295,8 @@
   --cpq-glass-1-bg: rgba(255, 255, 255, 0.40);
   --cpq-glass-2-bg: rgba(255, 255, 255, 0.55);
   --cpq-glass-3-bg: rgba(255, 255, 255, 0.75);
+  /* 近实底变体：手机端全屏浮层（聊天窗/抽屉）用，玻璃叠页底文字发虚时换这档 */
+  --cpq-glass-3-bg-solid: rgba(255, 255, 255, 0.95);
   --cpq-glass-border: rgba(120, 144, 176, 0.38);
   --cpq-glass-border-strong: rgba(22, 119, 255, 0.45);
   --cpq-glass-highlight: rgba(255, 255, 255, 1);

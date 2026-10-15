@@ -247,14 +247,17 @@ class FlowRepository:
         """当前节点任务流。按 assignees[node_key] 过滤（user_id/姓名双格式）；
         不传 assignee 时返回该节点全部（管理员视角）。出口 assignees 渲染为姓名。"""
         q = self.session.query(OpportunityFlow).filter(
-            OpportunityFlow.current_node == node_key
+            OpportunityFlow.current_node == node_key,
+            # 已定稿（报价已发送）的流程不算在办任务，口径与 dispatch_snapshot 一致
+            OpportunityFlow.status != "done",
         )
-        # 排除内部 AI 商机（status=ai_office）与软删商机（status=deleted）：不出现在工作台任务队列。
+        # 只认「活」商机：除内部 AI（ai_office）/软删（deleted）外，商机还须仍存在——
+        # 商机物理删除后残留的孤儿流不排除会变成点不开的死任务。
         from app.models.opportunity import Opportunity
-        excluded_subq = self.session.query(Opportunity.opportunity_id).filter(
-            Opportunity.status.in_(("ai_office", "deleted"))
+        alive_subq = self.session.query(Opportunity.opportunity_id).filter(
+            ~Opportunity.status.in_(("ai_office", "deleted"))
         )
-        q = q.filter(~OpportunityFlow.opportunity_id.in_(excluded_subq))
+        q = q.filter(OpportunityFlow.opportunity_id.in_(alive_subq))
         rows = q.order_by(OpportunityFlow.updated_at.desc()).all()
         items = []
         for r in rows:
@@ -268,7 +271,8 @@ class FlowRepository:
         return items[start:start + page_size], total
 
     def resolve_node_assignee(self, opportunity_id: str, node_key: str) -> str:
-        """计算某节点默认处理人：商机角色字段优先（fae→boming、报价人→quoting），否则走业务默认规则。"""
+        """计算某节点默认处理人：商机角色字段优先（fae→boming、报价人→quoting），
+        其次业务默认规则，最后节点兜底规则（business_user_id='*'，承接全部业务含未来新增）。"""
         from app.models.opportunity import Opportunity
         opp = self.session.query(Opportunity).filter(
             Opportunity.opportunity_id == opportunity_id
@@ -288,6 +292,12 @@ class FlowRepository:
                 FlowAssignmentRule.node_key == node_key,
             ).first()
             rule = (row.assignee_name if row else "") or ""
+        if not rule:
+            fb = self.session.query(FlowAssignmentRule).filter(
+                FlowAssignmentRule.business_user_id == "*",
+                FlowAssignmentRule.node_key == node_key,
+            ).first()
+            rule = (fb.assignee_name if fb else "") or ""
         return (prefer_field or rule or "").strip()
 
     def apply_default_assignments(self, flow_id: str, opportunity_id: str) -> None:
@@ -366,6 +376,34 @@ class FlowRepository:
         self.append_node(flow_id, node_key, "assign", actor=actor, comment=comment)
         return render_flow_assignees(self.get_flow_by_id(flow_id) or {})
 
+    def clear_node_handler(self, node_key: str, handler_name: str, actor: str = "") -> int:
+        """调度台「移除处理人」：该节点在办流程中此人的指派清空（任务转无主），
+        逐条留 assign 审计（转交记录可见「转交给 未指派」）。
+        user_id/姓名双格式匹配，与 assign_task / dispatch_snapshot 同口径；
+        口径同快照：仅活商机、status != done。返回清理的流程条数。"""
+        from app.models.opportunity import Opportunity
+        alive_subq = self.session.query(Opportunity.opportunity_id).filter(
+            ~Opportunity.status.in_(("ai_office", "deleted"))
+        )
+        rows = self.session.query(OpportunityFlow).filter(
+            OpportunityFlow.current_node == node_key,
+            OpportunityFlow.status != "done",
+            OpportunityFlow.opportunity_id.in_(alive_subq),
+        ).all()
+        uid = assignee_to_uid(handler_name)
+        cleared = 0
+        for r in rows:
+            cur = (r.assignees or {}).get(node_key) or ""
+            if not cur or not match_assignee(cur, uid, handler_name):
+                continue
+            r.assignees = {**(r.assignees or {}), node_key: ""}
+            r.updated_at = _now()
+            self.session.commit()
+            self.append_node(r.flow_id, node_key, "assign", actor=actor,
+                             comment=f"由 {assignee_to_name(cur) or '未指派'} 转交给 未指派")
+            cleared += 1
+        return cleared
+
     def get_flow_by_id(self, flow_id: str) -> Optional[dict]:
         flow = self.session.query(OpportunityFlow).filter(
             OpportunityFlow.flow_id == flow_id
@@ -394,16 +432,16 @@ class FlowRepository:
         """三条任务节点的一次性聚合：处理人负载、无主（当前节点无处理人）清单、业务×节点活跃数。
 
         活跃 = current_node 命中且 status != done（报价已发送的流程不算在办负载）；
-        排除软删/ai_office 商机，口径同 list_task_flows。
+        只认活商机（排除软删/ai_office/商机已物理删除的孤儿流），口径同 list_task_flows。
         """
         from app.models.opportunity import Opportunity
-        excluded_subq = self.session.query(Opportunity.opportunity_id).filter(
-            Opportunity.status.in_(("ai_office", "deleted"))
+        alive_subq = self.session.query(Opportunity.opportunity_id).filter(
+            ~Opportunity.status.in_(("ai_office", "deleted"))
         )
         rows = self.session.query(OpportunityFlow).filter(
             OpportunityFlow.current_node.in_(self._DISPATCH_NODES),
             OpportunityFlow.status != "done",
-            ~OpportunityFlow.opportunity_id.in_(excluded_subq),
+            OpportunityFlow.opportunity_id.in_(alive_subq),
         ).all()
 
         opp_map = {}

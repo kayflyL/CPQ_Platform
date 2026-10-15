@@ -60,16 +60,16 @@ watch(() => route.query.refresh, (v) => { if (v === 'models') load() })
 </script>
 
 <template>
-  <div class="model-manager panel glass">
+  <div class="model-manager">
     <div class="lib-head">
       <h3>机型管理</h3>
-      <a-space>
-        <a-select v-model:value="typeFilter" style="width:160px" size="small" placeholder="全部类型">
+      <a-space wrap>
+        <a-select v-model:value="typeFilter" style="width:160px" placeholder="全部类型">
           <a-select-option value="all">全部类型</a-select-option>
           <a-select-option v-for="t in types" :key="t.id" :value="t.id">{{ t.name }}</a-select-option>
         </a-select>
-        <a-input-search v-model:value="search" placeholder="搜机型名" style="width:180px" size="small" allowClear />
-        <a-button type="primary" size="small" @click="goNew">+ 新建机型</a-button>
+        <a-input-search v-model:value="search" placeholder="搜机型名" style="width:180px" allowClear />
+        <a-button type="primary" @click="goNew">+ 新建机型</a-button>
       </a-space>
     </div>
 
@@ -94,9 +94,9 @@ watch(() => route.query.refresh, (v) => { if (v === 'models') load() })
 </template>
 
 <style scoped>
-.panel { padding: 16px; margin-bottom: 16px; }
-.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-.lib-head h3 { margin: 0; font-size: 15px; }
+.model-manager { margin-bottom: 18px; }
+.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; flex-wrap: wrap; gap: 8px; }
+.lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 
-.model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 16px; }
+.model-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 16px; }
 </style>

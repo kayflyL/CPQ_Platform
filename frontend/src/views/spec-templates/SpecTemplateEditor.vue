@@ -48,7 +48,7 @@
         </a-tooltip>
         <a-button size="small" @click="loadPreviewData" :loading="loadingPreview" :disabled="!previewOppId">加载预览</a-button>
       </div>
-      <a-button @click="handlePrint">打印</a-button>
+      <a-button @click="handlePrint" :loading="printing">打印</a-button>
       <a-button type="primary" @click="handleSave" :loading="saving">保存</a-button>
     </div>
 
@@ -304,6 +304,7 @@ import { specTemplateApi } from '@/api/specTemplate'
 import { DEFAULT_SPEC_STYLES } from '@/types/specTemplate'
 import type { SpecTemplate, PreviewConfig, DisplayOptions, SpecStyles } from '@/types/specTemplate'
 import { getDefaultTemplateConfig } from '@/utils/defaultTemplateConfig'
+import { buildPrintTitle, exportSpecPdf } from '@/utils/printExport'
 import SpecSheet from '@/components/server-config/SpecSheet.vue'
 
 const route = useRoute()
@@ -313,6 +314,7 @@ const activeTab = ref('branding')
 const saving = ref(false)
 const uploadingLogo = ref(false)
 const printMode = ref(false)
+const printing = ref(false)
 const template = ref<SpecTemplate>({
   id: 0,
   name: 'new-spec-template',
@@ -449,24 +451,29 @@ async function handlePrint() {
   printMode.value = true
   await nextTick()
   fitPagesForPrint()
-  // 浏览器「另存为 PDF」用 document.title 当文件名：临时改成规格书名，打印后还原
-  const prevTitle = document.title
-  document.title = buildPrintTitle()
-  window.addEventListener('afterprint', () => {
-    document.title = prevTitle
-    printMode.value = false
-  }, { once: true })
-  window.print()
+  const title = buildPrintTitle(template.value.branding)
+  printing.value = true
+  try {
+    // 服务端 Playwright 直出 PDF：文件名确定（标题-公司-日期.pdf），不依赖浏览器「另存为」的命名行为
+    await exportSpecPdf(title)
+    message.success(`已导出 ${title}.pdf`)
+  } catch {
+    // 后端渲染不可用时回退浏览器打印对话框（「另存为 PDF」用 document.title 当文件名）
+    const prevTitle = document.title
+    document.title = title
+    window.addEventListener('afterprint', () => {
+      document.title = prevTitle
+      printMode.value = false
+    }, { once: true })
+    window.print()
+    return
+  } finally {
+    printing.value = false
+  }
+  printMode.value = false
 }
 
-/** 打印文件名：文档标题 - 公司名 - 日期 */
-function buildPrintTitle() {
-  const b = template.value.branding
-  const date = new Date().toLocaleDateString('zh-CN')
-  return [b?.doc_title || '规格书', b?.company_name, date]
-    .filter(s => s && s.trim())
-    .join('-')
-}
+/** 打印文件名逻辑在 utils/printExport（服务端 PDF 文件名与浏览器回退共用） */
 
 /** 打印前按 A4 可打印区缩放每个配置页，保证「一配置一页」、末尾不被挤到下一页。
  *  只写 CSS 变量，真正 scale 只在 @media print 生效，屏内 overlay 不受影响。 */

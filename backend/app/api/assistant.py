@@ -132,6 +132,7 @@ class PostMessageBody(BaseModel):
     option_slot: Optional[str] = None  # 用户点击结构化选项时，明确该选项对应的槽位
     card_selections: Optional[list[CardSelectionBody]] = None  # 表单模式：一次提交多组缺口选择
     workflow_key: Optional[str] = None  # 方案助手「+」显式唤醒的工作流 key（直接 ACTIVE）
+    quote: Optional[dict] = None  # 引用回复快照 {name, text}：随用户消息存 data JSON，原样展示
 
 
 class DispatchPreviewBody(BaseModel):
@@ -336,7 +337,8 @@ def list_threads(
             ))}
         return {"threads": repo.list_threads(
             user["user_id"],
-            thread_kind=thread_kind or "assistant",
+            # thread_kind=all → 群线程+员工线程一起回（侧栏消息中心一次拿全）；缺省仍只回 assistant
+            thread_kind=None if (thread_kind or "") == "all" else (thread_kind or "assistant"),
             colleague_role_key=role_filter,
             include_deleted=include_deleted,
             with_meta=include_preview,
@@ -498,9 +500,17 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         # history 必须先于本轮落库读取（history=之前的消息）：组 prompt/需求原文时当前消息
         # 由各消费方显式追加，混入会造成双发双写（2026-09-05 需求原文双 Polaris 实测）。
         history = repo.list_messages(thread_id)
+        # 引用回复：名字/正文截断快照存 data JSON（不存 message_id——被引用消息删除后引用仍自洽）
+        quote = None
+        if isinstance(body.quote, dict):
+            q_name = str(body.quote.get("name") or "").strip()[:40]
+            q_text = str(body.quote.get("text") or "").strip().replace("\n", " ")[:120]
+            if q_text:
+                quote = {"name": q_name, "text": q_text}
         user_msg = repo.add_message(
             thread_id=thread_id, role="user", content=body.content,
             opportunity_id=body.opportunity_id, quotation_id=body.quotation_id,
+            data=json.dumps({"quote": quote}, ensure_ascii=False) if quote else None,
         )
         if dispatch_target is not None:
             # 转接可见化：用户消息之后落一条转接标记（leader 名义），专家随后的回复带自己的头像身份
@@ -522,8 +532,13 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
     finally:
         repo.close()
 
+    # 引用上下文只给 LLM（用户消息本体保持干净展示）：AI 需要知道「引用的那句」才能接着答
+    turn_text = body.content
+    if quote:
+        turn_text = f"{body.content}\n[引用 {quote['name'] or '消息'}：{quote['text']}]"
+
     asyncio.create_task(_run_office_turn(
-        thread_id, body.content, body.context_summary, history, colleague,
+        thread_id, turn_text, body.context_summary, history, colleague,
         user_id=user["user_id"],
         user=user,
         opportunity_id=body.opportunity_id or thread.get("opportunity_id"),
@@ -583,7 +598,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     客户端回传不携带 signal，服务端留底原则不破。"""
     from app.services.skill_memory import _load_mem, _save_mem
     from app.services.part_selector import manual_pick_options
-    from app.services.data_boundary import colleague_price_ok
+    from app.services.data_boundary import effective_price_ok
     from app.services.ai_colleague_service import get_colleague
 
     repo = AssistantRepository()
@@ -604,7 +619,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     if meta.get("row"):
         from app.services.skill_memory import _load_mem as _lm, _save_mem as _sm  # noqa: F401
         from app.services.part_selector import resolve_kp_pools
-        from app.services.data_boundary import colleague_price_ok
+        from app.services.data_boundary import effective_price_ok
         from app.services.ai_colleague_service import get_colleague
         binding = {}
         try:
@@ -635,7 +650,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
             from app.services.data_tools import part_query
             _q = part_query(str(meta.get("category") or ""), series=series, limit=50)
             cands = (_q.get("rows") or []) if _q.get("ok") else []
-        price_ok = colleague_price_ok(get_colleague(rk) or {})
+        price_ok = effective_price_ok(get_colleague(rk) or {}, user=user)
         # 自选候选的数量上限与行卡同口径：机型物理边界（pick_meta 随卡留底的目录事实），
         # 未登记能力/无边界类目退宽上限 24（旧行卡 pick_meta 没带能力字段同样走兜底）。
         from app.services.skill_phases import baseline_qty_cap
@@ -668,7 +683,7 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
         slot, str(meta.get("server_type_name") or ""),
         baseline={"series": meta.get("series"), "gpu_slots": meta.get("gpu_slots"),
                   "max_cpu": meta.get("max_cpu"), "max_dimm": meta.get("max_dimm")},
-        include_price=colleague_price_ok(get_colleague(rk) or {}))
+        include_price=effective_price_ok(get_colleague(rk) or {}, user=user))
     if not opts:
         raise HTTPException(status_code=404, detail="配件库该类别没有平台适配候选")
     keep = [o for o in (last_card.get("options") or [])
@@ -705,7 +720,7 @@ def _record_assistant_tool_trace(tool_name: str, status: str, duration_ms: int, 
         logger.warning("写助手工具审计 trace 失败: %s", e)
 
 
-@router.get("/tools")
+@router.get("/tools", dependencies=[Depends(current_user)])
 def list_tools():
     """AI 工具目录（只读）：全系统已注册 LLM 工具（名称/分类/描述/参数/默认启用）。
 

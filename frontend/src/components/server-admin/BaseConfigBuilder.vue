@@ -39,12 +39,12 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="panel glass">
+  <div class="base-config-builder">
     <div class="lib-head">
       <h3>基准配置</h3>
-      <a-button type="primary" size="small" @click="openNew">+ 新建基准配置（挑件组装）</a-button>
+      <a-button type="primary" @click="openNew">+ 新建基准配置（挑件组装）</a-button>
     </div>
-    <a-table :data-source="configs" :columns="columns" :loading="loading" row-key="id" size="small" :pagination="false">
+    <a-table class="sa-table" :data-source="configs" :columns="columns" :loading="loading" row-key="id" :pagination="false" :scroll="{ x: 720 }">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'type'"><span>{{ typeMap[record.server_type_id ?? -1] || '-' }}</span></template>
         <template v-else-if="column.key === 'parts_count'"><span class="cell-num">{{ record.parts_count ?? 0 }}</span></template>
@@ -61,9 +61,9 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel { padding: 16px; margin-bottom: 16px; }
-.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-.lib-head h3 { margin: 0; font-size: 15px; }
+.base-config-builder { margin-bottom: 26px; }
+.lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 .cell-num { font-variant-numeric: tabular-nums; color: var(--cpq-text-secondary, #9BA1AA); }
 .cell-price { font-weight: 700; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; }
 </style>

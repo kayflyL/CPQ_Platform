@@ -5,7 +5,8 @@ from app.services.agent_tool_registry import ToolRegistry
 from app.services.agent_tool_handlers import (
     _search_cases_handler, _tool_ask_user, _tool_catalog_search, _tool_choose_model,
     _tool_colleague_memory, _tool_fill_requirement, _tool_inspect_parts,
-    _tool_opportunity_stats, _tool_query_data, _tool_query_parts, _tool_select_parts)
+    _tool_opportunity_stats, _tool_query_data, _tool_query_parts, _tool_select_parts,
+    _tool_suggest_workflow)
 
 # ── 工具元数据全集（name/description/parameters + handler）—— 画布可勾选启用 ──
 _TOOL_SPECS = {
@@ -69,13 +70,32 @@ _TOOL_SPECS = {
             "required": ["action"],
         },
     },
+   "suggest_workflow": {
+        "summary": "把对话中确认的完整需求整理为原文（requirement_text）并指定 workflow_key，向用户发起一张工作流启动确认卡。仅在用户消息构成你职责工作流内的完整需求、且用户尚未显式发起时调用；闲聊、零散提问、信息残缺时不调用。",
+        "description": ("【工作流发起确认】对话中出现属于你职责工作流的完整需求时，把需求整理成原文并发起确认卡。"
+                        "workflow_key 只能取当前角色可发起的工作流（取值不在清单内会被拒绝，结果给出 available 清单）；"
+                        "requirement_text 是工作流首轮的实际输入，保留型号/数量/参数等细节，尽量贴近用户原话，不改写不缩水。"),
+        "default_enabled": False,
+        "handler": _tool_suggest_workflow,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "workflow_key": {"type": "string", "description": "要发起的工作流 key（只能取当前角色可发起清单内的值）"},
+                "requirement_text": {"type": "string", "description": "用户需求的原文整理：保留型号/数量/参数细节，尽量贴近用户原话"},
+                "reason": {"type": "string", "description": "发起理由（一句话，面向用户）"},
+            },
+            "required": ["workflow_key", "requirement_text"],
+        },
+    },
    "query_parts": {
-        "summary": "配件候选精确检索：按品类+结构化规格(required_specs)/关键词收窄，返回有界候选；或按 rows 批量按行召回候选。落料时 select_parts 按料号名回库核对；返回有界候选，不是整库。",
-        "description": ("【需求分析·配件选配】按需取件的精确通道：category 必填（已知要配哪一类件）；"
+        "summary": "配件库候选检索：按品类+结构化规格(required_specs)/关键词收窄，返回有界候选（part_id/name/price/specs，price 按 price_access 门控）。需求分析流程内=选配通道（可 rows 按行批量召回）；流程外=日常只读浏览（limit 收窄）。锁定选料用 select_parts（仅流程内）。",
+        "description": ("配件库取件/查价的精确通道：category 必填（已知要配哪一类件）；"
                         "required_specs 传结构化规格过滤（[{spec_key, op, value}]，AND，op 支持 >= <= > < = in）"
                         "把候选收窄到「真能对上需求」的料；keywords 传型号/规格关键词（如「50000」「DDR5」「6T」「LSI 9361-8i」）。"
-                        "返回 {ok,total,offset,next_offset,truncated,results}，results 只含 part_id/name/price/specs。截断时用 offset 翻页或加 required_specs 再收窄。"
-                        "另一种用法：rows 传行清单里的 row_id（或 \"all\"）一次批量按行召回候选（每行用自己的类目+行描述去库召回）；批量后某行零召回时再用 category+required_specs 对该类目单查收窄。锁定走 select_parts(picks)，按料号名回库核对不上就拒绝。需求分析流程外不可用。"
+                        "返回 {ok,mode,total,offset,next_offset,truncated,results}，results 只含 part_id/name/price/specs。截断时用 offset 翻页或加 required_specs 再收窄。"
+                        "双模式：需求分析流程内=选配模式（mode=task，rows 传行清单 row_id 或 \"all\" 按行批量召回，每行用自己的类目+行描述去库召回）；"
+                        "流程外=日常浏览模式（mode=browse，同参数只读检索，limit 上限 10，rows 不开放，不带回行清单状态）。"
+                        "锁定选料走 select_parts(picks)（仅流程内），按料号名回库核对不上就拒绝。"
                         "库内 specs 字段因类目而异（NIC：Link Speed/Ports/接口；Memory：Capacity/Type/Speed；"
                         "Raid card：Cache/Ports/电容；SSD/HDD：Capacity/Media/Type）。库内带宽词以数值/型号词命名（1G/10G）；返回 spec_keys/note 里给出该类目可用字段。"
                         "命中 0 且返回 scope_note/out_of_scope 时：那是「库里有这个料，但不适配当前机型平台」"
@@ -92,9 +112,9 @@ _TOOL_SPECS = {
                         "required": ["spec_key", "op", "value"]},
                     "description": "结构化规格过滤（AND），如 [{spec_key:'Capacity',op:'>=',value:'6T'}]"},
                 "keywords": {"type": "string", "description": "型号/规格关键词收窄（如「50000」「DDR5」「6T」「LSI 9361-8i」；可空=类目内按规格过滤）"},
-                "series": {"type": "string", "description": "平台系列（默认继承已锁定机箱）"},
-                "rows": {"type": ["string", "array"], "description": "批量按行召回：rows=\"all\" 或行清单 row_id 列表；一次覆盖多行，传 rows 时 category 省略"},
-                "limit": {"type": "integer", "description": "返回条数上限（默认 8，硬上限 20）"},
+                "series": {"type": "string", "description": "平台系列（流程内默认继承已锁定机箱；日常浏览忽略）"},
+                "rows": {"type": ["string", "array"], "description": "批量按行召回（仅需求分析流程内）：rows=\"all\" 或行清单 row_id 列表；一次覆盖多行，传 rows 时 category 省略"},
+                "limit": {"type": "integer", "description": "返回条数上限（流程内默认 8/上限 20；日常浏览默认 6/上限 10）"},
                 "offset": {"type": "integer", "description": "跳过前 N 条用于翻页（默认 0；truncated=true 时翻页或加 required_specs）"},
                 "response_format": {"type": "string", "enum": ["concise", "detailed"], "description": "concise=精简规格（默认），detailed=完整规格"},
             },

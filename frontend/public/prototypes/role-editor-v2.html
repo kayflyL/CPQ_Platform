@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>角色编辑器 V2 · 第二档原型 — 基础档+增量 / 复制新建 / 网格视图</title>
+<style>
+:root {
+  --accent: #1677FF; --accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  --danger: #e5484d; --danger-bg: rgba(255, 107, 107, 0.12);
+  --success: #2f9d78; --success-bg: rgba(82, 201, 160, 0.14);
+  --amber: #d48806; --amber-bg: rgba(250, 173, 20, 0.14);
+  --violet: #7c5cf0; --violet-bg: rgba(140, 113, 255, 0.12);
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+}
+:root[data-theme="light"] {
+  --bg-secondary: #F0F4FA; --bg-card: #ffffff;
+  --text-primary: #1d2129; --text-secondary: #4e5969; --text-muted: #86909c; --text-disabled: #c9cdd4;
+  --border-primary: rgba(22, 119, 255, 0.10); --border-light: rgba(22, 119, 255, 0.16);
+  --glass-bg: rgba(255, 255, 255, 0.55); --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-highlight: rgba(255, 255, 255, 1);
+  --shadow-soft: rgba(22, 119, 255, 0.08); --shadow-strong: rgba(22, 119, 255, 0.14);
+  --row-hover: rgba(22, 119, 255, 0.04); --input-bg: #ffffff;
+  --bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+}
+:root[data-theme="dark"] {
+  --bg-secondary: #101217; --bg-card: #1e1e1e;
+  --text-primary: #E8ECEF; --text-secondary: #9BA1AA; --text-muted: #6E7582; --text-disabled: #3D424D;
+  --border-primary: rgba(255, 255, 255, 0.10); --border-light: rgba(255, 255, 255, 0.15);
+  --glass-bg: rgba(255, 255, 255, 0.06); --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-highlight: rgba(255, 255, 255, 0.18);
+  --shadow-soft: rgba(0, 0, 0, 0.30); --shadow-strong: rgba(0, 0, 0, 0.50);
+  --row-hover: rgba(255, 255, 255, 0.05); --input-bg: #2a2a2a;
+  --danger: #FF6B6B; --success: #52C9A0; --amber: #F4D28A; --violet: #9C86FF;
+  --bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px; color: var(--text-primary); background: var(--bg-gradient) fixed;
+  min-height: 100vh; padding: 24px 32px 80px;
+  transition: background 0.3s var(--ease), color 0.3s var(--ease);
+}
+.proto-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.proto-head h1 { font-size: 20px; font-weight: 700; }
+.proto-sub { color: var(--text-muted); font-size: 12px; }
+.proto-tools { margin-left: auto; display: flex; gap: 8px; }
+.proto-btn {
+  border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-secondary);
+  border-radius: var(--radius-sm); padding: 5px 12px; font-size: 12px; cursor: pointer; backdrop-filter: blur(10px);
+}
+.proto-btn:hover { border-color: var(--accent); color: var(--accent); }
+.proto-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.glass {
+  background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+  box-shadow: 0 10px 30px var(--shadow-soft), inset 0 1px 0 var(--glass-highlight);
+}
+.notes-legend { display: none; margin: 0 0 14px; padding: 10px 16px; font-size: 12px; color: var(--text-secondary); line-height: 1.9; }
+body.show-notes .notes-legend { display: block; }
+.notes-legend b { color: var(--accent); }
+
+/* 上下文条：角色表片段（演示入口） */
+.context-bar { padding: 12px 18px; margin-bottom: 14px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.context-bar .t { font-size: 12px; color: var(--text-muted); margin-right: 4px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 999px;
+  font-size: 12px; border: 1px solid var(--border-light); background: var(--bg-card); color: var(--text-secondary);
+}
+.chip .dot { width: 6px; height: 6px; border-radius: 50%; }
+.chip .mut { color: var(--text-muted); }
+.mini {
+  border: 1px solid var(--border-light); background: var(--bg-card); color: var(--text-secondary);
+  border-radius: 6px; padding: 3px 10px; font-size: 12px; cursor: pointer;
+}
+.mini:hover { color: var(--accent); border-color: var(--accent); }
+.mini.primary { background: var(--accent-gradient); color: #fff; border: none; font-weight: 600; padding: 5px 14px; }
+
+/* 编辑器布局 */
+.editor { display: flex; min-height: 640px; overflow: hidden; }
+.ed-main { flex: 1; padding: 18px 22px; min-width: 0; }
+.ed-side { width: 300px; flex-shrink: 0; border-left: 1px solid var(--border-primary); padding: 18px 18px; background: var(--row-hover); }
+.ed-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.ed-head h3 { font-size: 16px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid transparent; }
+.badge.builtin { color: var(--text-muted); background: var(--row-hover); }
+.steps { display: flex; gap: 8px; margin-bottom: 16px; }
+.step {
+  display: flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-muted);
+  padding: 5px 12px; border-radius: 999px; border: 1px dashed var(--border-light);
+}
+.step .n { width: 16px; height: 16px; border-radius: 50%; background: var(--row-hover); display: flex; align-items: center; justify-content: center; font-size: 11px; }
+.step.done { color: var(--success); border-color: var(--success); border-style: solid; }
+.step.done .n { background: var(--success); color: #fff; }
+.step.cur { color: var(--accent); border-color: var(--accent); border-style: solid; font-weight: 600; }
+.step.cur .n { background: var(--accent); color: #fff; }
+
+/* ① 底版选择 */
+.base-title { font-size: 13px; font-weight: 700; color: var(--text-muted); letter-spacing: .5px; margin-bottom: 10px; }
+.base-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.base-card {
+  border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 12px 14px; cursor: pointer;
+  background: var(--bg-card); transition: all 0.18s var(--ease); position: relative;
+}
+.base-card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 6px 16px var(--shadow-soft); }
+.base-card.sel { border-color: var(--accent); box-shadow: 0 0 0 2px var(--row-hover), 0 6px 16px var(--shadow-soft); }
+.base-card .nm { font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; }
+.base-card .nm .dot { width: 7px; height: 7px; border-radius: 50%; }
+.base-card .ds { font-size: 11px; color: var(--text-muted); margin-top: 4px; line-height: 1.5; min-height: 32px; }
+.base-card .ct { font-size: 11px; color: var(--accent); margin-top: 6px; font-weight: 600; }
+.base-card.blank .nm { color: var(--text-secondary); }
+
+/* 汇总条 + diff chips */
+.diff-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 14px; margin-bottom: 6px;
+  border-radius: var(--radius-sm); background: var(--row-hover); border: 1px solid var(--border-primary);
+  font-size: 13px;
+}
+.diff-bar b { color: var(--accent); }
+.diff-bar .base-name { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; }
+.diff-bar .base-name .dot { width: 7px; height: 7px; border-radius: 50%; }
+.diff-bar .link { color: var(--accent); cursor: pointer; font-size: 12px; margin-left: auto; }
+.diff-bar .link:hover { text-decoration: underline; }
+.diff-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 16px; min-height: 26px; }
+.dchip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-size: 12px; cursor: default;
+}
+.dchip.add { color: var(--success); background: var(--success-bg); }
+.dchip.cut { color: var(--danger); background: var(--danger-bg); text-decoration: line-through; }
+.dchip .x { cursor: pointer; opacity: 0.7; font-style: normal; }
+.dchip .x:hover { opacity: 1; }
+.dchip.none { color: var(--text-muted); background: transparent; border: 1px dashed var(--border-light); }
+
+/* 视图切换 */
+.view-toggle { display: flex; gap: 2px; background: var(--row-hover); border-radius: var(--radius-sm); padding: 3px; margin-bottom: 12px; width: fit-content; }
+.vt { padding: 4px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--text-muted); }
+.vt.active { background: var(--bg-card); color: var(--accent); font-weight: 600; box-shadow: 0 1px 4px var(--shadow-soft); }
+
+/* 三类分组树 */
+.perm-cat-title { font-size: 12px; font-weight: 700; color: var(--text-muted); margin: 12px 0 8px; letter-spacing: .5px; }
+.perm-group { border: 1px solid var(--border-primary); border-radius: var(--radius-md); margin-bottom: 10px; overflow: hidden; }
+.perm-group-head {
+  display: flex; align-items: center; gap: 10px; padding: 9px 14px; font-size: 13px; font-weight: 600;
+  background: var(--row-hover);
+}
+.perm-group-head .cnt { color: var(--text-muted); font-weight: 400; font-size: 12px; }
+.perm-group-head .chk { margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--text-muted); font-weight: 400; cursor: pointer; }
+.perm-items { padding: 4px 14px 10px; }
+.perm-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 4px; cursor: pointer; border-radius: 6px; }
+.perm-item:hover { background: var(--row-hover); }
+.perm-item input { margin-top: 3px; accent-color: var(--accent); }
+.perm-item .label { font-size: 13px; }
+.perm-item.cut .label { text-decoration: line-through; color: var(--text-muted); }
+.perm-item .key { font-size: 11px; color: var(--text-disabled); font-family: ui-monospace, Consolas, monospace; margin-top: 1px; }
+.tag { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+.tag.base { color: var(--text-muted); background: var(--row-hover); border: 1px solid var(--border-primary); }
+.tag.add { color: var(--success); background: var(--success-bg); }
+
+/* 网格视图 */
+.grid-wrap { overflow-x: auto; border: 1px solid var(--border-primary); border-radius: var(--radius-md); }
+table.grid { border-collapse: collapse; width: 100%; min-width: 780px; }
+table.grid th, table.grid td { border-bottom: 1px solid var(--border-primary); border-right: 1px solid var(--border-primary); padding: 8px 10px; font-size: 12px; text-align: left; vertical-align: top; }
+table.grid thead th { background: var(--row-hover); color: var(--text-muted); font-weight: 700; white-space: nowrap; }
+table.grid tbody th { background: var(--row-hover); font-weight: 600; white-space: nowrap; color: var(--text-secondary); }
+table.grid tr:last-child td, table.grid tr:last-child th { border-bottom: none; }
+table.grid td:last-child, table.grid th:last-child { border-right: none; }
+.gitem { display: flex; align-items: flex-start; gap: 6px; padding: 2px 0; }
+.gitem input { margin-top: 2px; accent-color: var(--accent); }
+.gitem .lb { font-size: 12px; line-height: 1.4; }
+.gitem.cut .lb { text-decoration: line-through; color: var(--text-muted); }
+.gcell-none { color: var(--text-disabled); font-size: 11px; }
+
+/* 侧栏（③ 命名 + 影响预览） */
+.ed-side h4 { font-size: 12px; color: var(--text-muted); font-weight: 700; letter-spacing: .5px; margin-bottom: 10px; }
+.form-item { margin-bottom: 12px; }
+.form-item label { display: block; font-size: 12px; color: var(--text-muted); margin-bottom: 5px; }
+.form-item input {
+  width: 100%; padding: 7px 10px; border-radius: var(--radius-sm); border: 1px solid var(--border-light);
+  background: var(--input-bg); color: var(--text-primary); font-size: 13px; outline: none;
+}
+.form-item input:focus { border-color: var(--accent); }
+.preview-card { border: 1px solid var(--border-primary); border-radius: var(--radius-md); padding: 12px 14px; background: var(--bg-card); }
+.preview-card .row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
+.preview-card .row .v { font-weight: 700; color: var(--accent); }
+.side-note { font-size: 11px; color: var(--text-muted); line-height: 1.7; margin-top: 12px; }
+.ed-foot { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 22px; border-top: 1px solid var(--border-primary); }
+.btn-ghost { background: transparent; border: 1px solid var(--border-light); color: var(--text-secondary); border-radius: var(--radius-sm); padding: 7px 14px; cursor: pointer; font-size: 13px; }
+.btn-primary { background: var(--accent-gradient); color: #fff; border: none; border-radius: var(--radius-sm); padding: 8px 18px; font-size: 13px; font-weight: 600; cursor: pointer; }
+
+/* toast + 标注 */
+#toast {
+  position: fixed; left: 50%; bottom: 40px; transform: translateX(-50%) translateY(20px);
+  background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--border-light);
+  padding: 10px 18px; border-radius: var(--radius-md); font-size: 13px; box-shadow: 0 8px 24px var(--shadow-strong);
+  opacity: 0; pointer-events: none; transition: all 0.3s var(--ease); z-index: 200;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.note-anchor { position: absolute; z-index: 40; }
+.note-dot {
+  width: 18px; height: 18px; border-radius: 50%; background: var(--accent); color: #fff;
+  font-size: 11px; display: flex; align-items: center; justify-content: center; cursor: help;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.4); font-weight: 700;
+}
+.note-tip {
+  position: absolute; left: 24px; top: -4px; width: 250px; background: var(--bg-card);
+  border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 10px 12px;
+  font-size: 12px; color: var(--text-secondary); box-shadow: 0 8px 24px var(--shadow-strong);
+  display: none; z-index: 60; line-height: 1.6;
+}
+.note-tip b { color: var(--accent); }
+.note-anchor:hover .note-tip { display: block; }
+body:not(.show-notes) .note-anchor { display: none; }
+.rel { position: relative; }
+</style>
+</head>
+<body>
+
+<div class="proto-head">
+  <h1>角色编辑器 V2 · 第二档原型</h1>
+  <span class="proto-sub">基础档+增量 / 复制新建 / 网格视图 · 数据=真实 27 key，可点</span>
+  <div class="proto-tools">
+    <button class="proto-btn" id="notesBtn" onclick="toggleNotes()">标注：关</button>
+    <button class="proto-btn" id="themeBtn" onclick="toggleTheme()">暗色</button>
+  </div>
+</div>
+
+<div class="glass notes-legend">
+  <b>设计依据速查</b>：① 入口——角色表 ⋯ 菜单新增「复制此角色」，新建=选底版（Stripe 复制心智）　② 底版选择卡：内置角色即基础档，27 个决策降为「1 次选底版 + N 个例外」（GitHub base+increment）　③ Diff 汇总条+增/减 chips：与底版的差异一眼可见，点 × 撤销单项　④ 权限树标注「基础/＋增量」徽标，减项划线——保存的永远是最终集合，底版只是起点　⑤ 网格视图：行=模块 × 列=动作（Auth0 范式），横向比对「谁多了什么」　⑥ 影响预览侧栏：保存前看「这个角色等于谁+差什么」
+</div>
+
+<!-- 上下文条：入口演示 -->
+<div class="glass context-bar rel">
+  <span class="t">角色管理</span>
+  <span class="chip"><span class="dot" style="background:#1677FF"></span>业务 <span class="mut">13人</span></span>
+  <span class="chip"><span class="dot" style="background:#0ea5b7"></span>技术支持工程师 <span class="mut">2人</span></span>
+  <span class="chip"><span class="dot" style="background:#2f9d78"></span>市场报价专员 <span class="mut">1人</span></span>
+  <button class="mini" onclick="toast('⋯ 菜单里的「复制此角色」→ 直接进编辑器（底版=该角色）')">⋯ 复制此角色</button>
+  <button class="mini primary" onclick="resetAll()">＋ 新建角色</button>
+  <div class="note-anchor" style="right:10px;top:-10px;"><div class="note-dot">1</div><div class="note-tip"><b>① 双入口</b>：⋯「复制此角色」=带着权限直接进编辑器；「＋新建角色」=先进底版选择。同一个编辑器，两种起点。</div></div>
+</div>
+
+<!-- 编辑器 -->
+<div class="glass editor">
+  <div class="ed-main">
+    <div class="ed-head rel">
+      <h3 id="edTitle">新建角色</h3>
+      <span class="badge builtin" id="edBadge">基于「业务」</span>
+      <div class="steps" style="margin:0 0 0 auto">
+        <div class="step done" id="st1"><span class="n">✓</span>选底版</div>
+        <div class="step cur" id="st2"><span class="n">2</span>调增量</div>
+        <div class="step" id="st3"><span class="n">3</span>命名保存</div>
+      </div>
+      <div class="note-anchor" style="right:-6px;top:-8px;"><div class="note-dot">2</div><div class="note-tip"><b>② 底版</b>：内置角色=基础档。选完即垫底，之后的勾选都是「相对底版的例外」。换底版=重新垫（原型直接重置，实现时弹确认保调整）。</div></div>
+    </div>
+
+    <!-- ① 底版选择（可随时重开） -->
+    <div id="basePicker" style="display:none">
+      <div class="base-title">选择底版 —— 角色从最接近的内置角色起步</div>
+      <div class="base-grid" id="baseGrid"></div>
+    </div>
+
+    <template id="editorMain">
+      <!-- ② Diff 汇总 -->
+      <div class="rel">
+        <div class="diff-bar" id="diffBar"></div>
+        <div class="diff-chips" id="diffChips"></div>
+        <div class="note-anchor" style="right:0;top:-8px;"><div class="note-dot">3</div><div class="note-tip"><b>③ Diff 条</b>：绿色=相对底版新增，红色=从底版划掉；点 chip 的 × 撤回。勾选树和这里是同一份状态的两个视图。</div></div>
+      </div>
+
+      <!-- 视图切换 -->
+      <div class="view-toggle">
+        <div class="vt active" id="vtList" onclick="setView('list')">列表视图</div>
+        <div class="vt" id="vtGrid" onclick="setView('grid')">网格视图（模块 × 动作）</div>
+      </div>
+
+      <!-- 列表视图 -->
+      <div id="listView"></div>
+
+      <!-- 网格视图 -->
+      <div id="gridView" style="display:none" class="grid-wrap"></div>
+    </template>
+    <div id="editorMount"></div>
+  </div>
+
+  <!-- ③ 侧栏：命名 + 影响预览 -->
+  <div class="ed-side">
+    <h4>角色信息</h4>
+    <div class="form-item"><label>角色 key（英文唯一标识）</label><input id="fKey" placeholder="如 sales_lead"></div>
+    <div class="form-item"><label>角色名称</label><input id="fName" placeholder="如 销售主管"></div>
+    <div class="form-item"><label>描述</label><input id="fDesc" placeholder="一句话职责说明"></div>
+    <h4 style="margin-top:18px">保存前预览</h4>
+    <div class="preview-card" id="previewCard"></div>
+    <div class="rel">
+      <div class="side-note">保存的永远是<b style="color:var(--accent)">最终权限集合</b>——底版只是编辑时的参照，与底版角色之后各自独立演进、互不影响。</div>
+      <div class="note-anchor" style="left:-8px;top:-4px;"><div class="note-dot">6</div><div class="note-tip"><b>⑥ 影响预览</b>：「≈ 业务 +2 −1」这种大白话摘要，给管理员保存前的最后一眼。</div></div>
+    </div>
+  </div>
+</div>
+<div class="glass ed-foot" style="margin-top:14px; justify-content: flex-end; display: flex; gap: 8px;">
+  <button class="btn-ghost" onclick="toast('取消')">取消</button>
+  <button class="btn-primary" onclick="toast('已保存（即时生效）')">保存</button>
+</div>
+
+<div id="toast"></div>
+
+<script>
+/* ── 真实 27 key 目录 ── */
+const PERMS = [
+  { key:'page.opportunities_all', name:'商机线索菜单（数据范围 = 全部销售的商机）', mod:'商机线索', act:'页面', short:'线索菜单(全量)' },
+  { key:'page.opportunities', name:'商机子页面：详情 / 报价工作台 / AI 线索 / 回收站', mod:'商机线索', act:'页面', short:'商机子页面' },
+  { key:'field.opportunity.quote_price', name:'报价金额可见（商机详情/列表）', mod:'商机线索', act:'字段可见', short:'报价金额' },
+  { key:'field.flow.bom', name:'存档区 · 方案附件可见', mod:'商机线索', act:'字段可见', short:'方案附件' },
+  { key:'field.flow.cost', name:'存档区 · 成本附件可见', mod:'商机线索', act:'字段可见', short:'成本附件' },
+  { key:'action.flow.submit.requirement', name:'发起/提交需求单', mod:'商机线索', act:'提交', short:'提交需求单' },
+  { key:'action.opportunity.result', name:'修改商机状态（进行中/已中标等）', mod:'商机线索', act:'审批·其他', short:'改商机状态' },
+  { key:'action.flow.submit.boming', name:'编辑/提交方案配置', mod:'商机线索', act:'提交', short:'提交方案' },
+  { key:'action.flow.return.boming', name:'退回方案配置', mod:'商机线索', act:'退回', short:'退回方案' },
+  { key:'action.flow.submit.costing', name:'编辑/提交成本核算', mod:'商机线索', act:'提交', short:'提交成本' },
+  { key:'action.flow.return.costing', name:'退回成本核算', mod:'商机线索', act:'退回', short:'退回成本' },
+  { key:'action.flow.approve.pricing', name:'低毛利报价审批', mod:'商机线索', act:'审批·其他', short:'低毛利审批' },
+  { key:'field.quote.price', name:'价格字段可见（整机/配件单价）', mod:'报价工作台', act:'字段可见', short:'整机/配件价格' },
+  { key:'field.quote.export_internal', name:'导出对内版（含成本/利润率）', mod:'报价工作台', act:'字段可见', short:'对内版导出' },
+  { key:'action.flow.submit.quoting', name:'发送报价单', mod:'报价工作台', act:'提交', short:'发送报价' },
+  { key:'action.flow.return.quoting', name:'退回市场报价', mod:'报价工作台', act:'退回', short:'退回报价' },
+  { key:'action.quote.unfreeze', name:'解冻已导出报价单', mod:'报价工作台', act:'审批·其他', short:'解冻报价' },
+  { key:'page.office', name:'AI 办公室菜单与页面', mod:'AI 办公室', act:'页面', short:'办公室页面' },
+  { key:'ai.office.manage', name:'AI 办公室管理 · 员工 / 团队 / Skill Studio', mod:'AI 办公室', act:'审批·其他', short:'管员工/团队' },
+  { key:'ai.office.admin', name:'AI 办公室管理 · 模型与接入 / 运行与权限', mod:'AI 办公室', act:'审批·其他', short:'管模型/接入' },
+  { key:'page.servers', name:'服务器（机型目录 / 详情 / 配置向导）', mod:'服务器', act:'页面', short:'服务器页面' },
+  { key:'page.parts', name:'配件（料号库 / KP 配件库）', mod:'配件', act:'页面', short:'配件页面' },
+  { key:'page.strategies', name:'解决方案（策略中心全部子页）', mod:'解决方案', act:'页面', short:'解决方案页' },
+  { key:'page.settings.users', name:'用户与权限', mod:'设置', act:'页面', short:'用户与权限' },
+  { key:'page.settings.excel', name:'解析规则', mod:'设置', act:'页面', short:'解析规则' },
+  { key:'page.settings.templates', name:'导出模板', mod:'设置', act:'页面', short:'导出模板' },
+  { key:'page.settings.admin', name:'服务器管理', mod:'设置', act:'页面', short:'服务器管理' },
+];
+const BASE_ROLES = {
+  blank:     { name:'空白', color:'#86909c', desc:'从零勾选，不建议', perms:[] },
+  business:  { name:'业务', color:'#1677FF', desc:'商机线索 + 服务器 + 配件', perms:['page.opportunities','page.servers','page.parts','action.flow.submit.requirement','action.opportunity.result'] },
+  te:        { name:'技术支持工程师', color:'#0ea5b7', desc:'+ 方案配置提交/退回', perms:['page.opportunities','page.servers','page.parts','field.flow.bom','action.flow.submit.boming','action.flow.return.boming'] },
+  quote:     { name:'市场报价专员', color:'#2f9d78', desc:'报价工作台（含价格）', perms:['page.opportunities','field.quote.price','field.opportunity.quote_price','field.flow.bom','field.flow.cost','action.opportunity.result','action.flow.return.quoting','action.flow.submit.quoting'] },
+  cost:      { name:'成本核算', color:'#d4a853', desc:'报价/配件价格 + 成本核算', perms:['page.opportunities','field.quote.price','field.opportunity.quote_price','field.flow.bom','field.flow.cost','action.flow.submit.costing','action.flow.return.costing'] },
+  director:  { name:'总监', color:'#7c5cf0', desc:'全量页面 + 价格 + 审批', perms:['page.opportunities_all','page.opportunities','page.servers','page.parts','page.strategies','field.quote.price','field.opportunity.quote_price','field.flow.bom','field.flow.cost','action.flow.approve.pricing'] },
+};
+const MODULES = ['商机线索','报价工作台','AI 办公室','服务器','配件','解决方案','设置'];
+const ACTIONS = ['页面','字段可见','提交','退回','审批·其他'];
+
+/* ── 状态 ── */
+let baseKey = 'business';
+let perms = new Set(BASE_ROLES[baseKey].perms);
+let view = 'list';
+
+/* ── diff 计算 ── */
+function diffVsBase(){
+  const base = new Set(BASE_ROLES[baseKey].perms);
+  const added = [...perms].filter(k=>!base.has(k));
+  const cut = [...base].filter(k=>!perms.has(k));
+  return { added, cut, kept: [...base].filter(k=>perms.has(k)) };
+}
+function permOf(key){ return PERMS.find(p=>p.key===key); }
+
+/* ── 渲染：底版卡 ── */
+function renderBase(){
+  document.getElementById('baseGrid').innerHTML = Object.entries(BASE_ROLES).map(([k,r])=>`
+    <div class="base-card ${k===baseKey?'sel':''} ${k==='blank'?'blank':''}" onclick="pickBase('${k}')">
+      <div class="nm"><span class="dot" style="background:${r.color}"></span>${r.name}</div>
+      <div class="ds">${r.desc}</div>
+      <div class="ct">${r.perms.length} 项权限</div>
+    </div>`).join('');
+}
+function pickBase(k){
+  if(k===baseKey){ document.getElementById('basePicker').style.display='none'; return; }
+  baseKey = k;
+  perms = new Set(BASE_ROLES[k].perms);   // 原型直接重置；实现时弹「保留当前调整？」
+  document.getElementById('basePicker').style.display='none';
+  renderAll();
+  toast('底版切换为「'+BASE_ROLES[k].name+'」，权限已重置为其集合');
+}
+
+/* ── 渲染：diff 条 + chips ── */
+function renderDiff(){
+  const { added, cut } = diffVsBase();
+  const b = BASE_ROLES[baseKey];
+  document.getElementById('diffBar').innerHTML = `
+    <span class="base-name"><span class="dot" style="background:${b.color}"></span>基于「${b.name}」</span>
+    <span>· 基础 <b>${b.perms.length}</b> 项</span>
+    <span style="color:var(--success)">＋${added.length} 增量</span>
+    <span style="color:var(--danger)">−${cut.length} 减项</span>
+    <span style="color:var(--text-muted)">= 当前 <b>${perms.size}</b> 项</span>
+    <span class="link" onclick="document.getElementById('basePicker').style.display='block';renderBase()">换底版 / 复制其他角色</span>`;
+  const chips = [
+    ...added.map(k=>`<span class="dchip add">＋ ${permOf(k).short}<i class="x" onclick="togglePerm('${k}')">✕</i></span>`),
+    ...cut.map(k=>`<span class="dchip cut">− ${permOf(k).short}<i class="x" onclick="togglePerm('${k}')">✕</i></span>`),
+  ];
+  document.getElementById('diffChips').innerHTML = chips.length ? chips.join('') : '<span class="dchip none">与「'+b.name+'」完全一致 —— 勾掉一项就会出现在这里</span>';
+  document.getElementById('edBadge').textContent = '基于「'+b.name+'」';
+}
+
+/* ── 渲染：列表视图（三类 × 模块，含 基础/＋增量 徽标）── */
+const CATS = [
+  { key:'page', label:'🗂 页面权限（page）' },
+  { key:'field', label:'👁 字段可见（field）' },
+  { key:'action', label:'⚡ 操作权限（action）' },
+];
+function renderList(){
+  const base = new Set(BASE_ROLES[baseKey].perms);
+  document.getElementById('listView').innerHTML = CATS.map(cat=>{
+    const items = PERMS.filter(p=>p.key.startsWith(cat.key+'.'));
+    if(!items.length) return '';
+    const groups = {};
+    items.forEach(p=>{ (groups[p.mod]=groups[p.mod]||[]).push(p); });
+    return `<div class="perm-cat-title">${cat.label}</div>` + Object.entries(groups).map(([mod,list])=>`
+      <div class="perm-group">
+        <div class="perm-group-head">${mod} <span class="cnt">（${list.length}）</span>
+          <label class="chk"><input type="checkbox" style="accent-color:var(--accent)" onchange="toast('组级全选：${mod}')" ${list.every(p=>perms.has(p.key))?'checked':''}>全选</label>
+        </div>
+        <div class="perm-items">
+          ${list.map(p=>{
+            const on = perms.has(p.key);
+            const isBase = base.has(p.key);
+            const cls = on===isBase ? '' : (on ? ' add' : ' cut');
+            const state = on && !isBase ? '<span class="tag add">＋增量</span>' : (isBase && !on ? '<span class="tag base">底版划掉</span>' : (isBase ? '<span class="tag base">基础</span>' : ''));
+            return `<label class="perm-item ${on&&!isBase?'':(isBase&&!on?'cut':'')}">
+              <input type="checkbox" ${on?'checked':''} onchange="togglePerm('${p.key}')">
+              <div><div class="label">${p.name}${state}</div><div class="key">${p.key}</div></div>
+            </label>`;
+          }).join('')}
+        </div>
+      </div>`).join('');
+  }).join('');
+}
+
+/* ── 渲染：网格视图（行=模块 × 列=动作）── */
+function renderGrid(){
+  const base = new Set(BASE_ROLES[baseKey].perms);
+  document.getElementById('gridView').innerHTML = `<table class="grid">
+    <thead><tr><th>模块 ＼ 动作</th>${ACTIONS.map(a=>`<th>${a}</th>`).join('')}</tr></thead>
+    <tbody>
+      ${MODULES.map(m=>`<tr>
+        <th>${m}</th>
+        ${ACTIONS.map(a=>{
+          const items = PERMS.filter(p=>p.mod===m && p.act===a);
+          if(!items.length) return '<td><span class="gcell-none">—</span></td>';
+          return '<td>'+items.map(p=>{
+            const on = perms.has(p.key);
+            const isBase = base.has(p.key);
+            return `<label class="gitem ${isBase&&!on?'cut':''}">
+              <input type="checkbox" ${on?'checked':''} onchange="togglePerm('${p.key}')">
+              <span class="lb">${p.short}${on&&!isBase?'<span class="tag add">＋</span>':''}</span>
+            </label>`;
+          }).join('')+'</td>';
+        }).join('')}
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+
+/* ── 渲染：侧栏预览 ── */
+function renderPreview(){
+  const { added, cut } = diffVsBase();
+  const b = BASE_ROLES[baseKey];
+  document.getElementById('previewCard').innerHTML = `
+    <div class="row"><span>权限总数</span><span class="v">${perms.size} 项</span></div>
+    <div class="row"><span>等价于</span><span class="v">${added.length||cut.length ? `「${b.name}」+${added.length} −${cut.length}` : '「'+b.name+'」'}</span></div>
+    <div class="row"><span>覆盖模块</span><span class="v">${new Set([...perms].map(k=>permOf(k).mod)).size} / ${MODULES.length}</span></div>
+    <div class="row"><span>敏感权限</span><span class="v">${[...perms].filter(k=>k.startsWith('field.')||k==='ai.office.admin').length} 项</span></div>`;
+}
+
+/* ── 交互 ── */
+function togglePerm(key){
+  perms.has(key) ? perms.delete(key) : perms.add(key);
+  renderAll();
+}
+function setView(v){
+  view = v;
+  document.getElementById('vtList').classList.toggle('active', v==='list');
+  document.getElementById('vtGrid').classList.toggle('active', v==='grid');
+  document.getElementById('listView').style.display = v==='list'?'':'none';
+  document.getElementById('gridView').style.display = v==='grid'?'':'none';
+}
+function renderAll(){
+  renderBase();
+  // 先挂载模板，再填充内容（diffBar/listView 等都在模板里）
+  document.getElementById('editorMount').innerHTML = document.getElementById('editorMain').innerHTML;
+  // 重挂会重置视图状态，这里复位
+  document.getElementById('vtList').classList.toggle('active', view==='list');
+  document.getElementById('vtGrid').classList.toggle('active', view==='grid');
+  document.getElementById('listView').style.display = view==='list'?'':'none';
+  document.getElementById('gridView').style.display = view==='grid'?'':'none';
+  renderDiff(); renderList(); renderGrid(); renderPreview();
+}
+function resetAll(){
+  baseKey = 'business';
+  perms = new Set(BASE_ROLES[baseKey].perms);
+  document.getElementById('basePicker').style.display='block';
+  renderBase();
+  toast('从「选底版」开始 —— 选一张卡片进入编辑');
+}
+function toggleNotes(){ const b=document.getElementById('notesBtn'); const on=document.body.classList.toggle('show-notes'); b.textContent='标注：'+(on?'开':'关'); b.classList.toggle('active',on); }
+function toggleTheme(){
+  const dark = document.documentElement.getAttribute('data-theme')==='light';
+  document.documentElement.setAttribute('data-theme', dark?'dark':'light');
+  document.getElementById('themeBtn').textContent = dark?'浅色':'暗色';
+}
+let toastTimer;
+function toast(msg){
+  const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastTimer); toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+renderAll();
+document.getElementById('basePicker').style.display='none';
+</script>
+</body>
+</html>

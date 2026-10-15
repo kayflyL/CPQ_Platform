@@ -7,6 +7,7 @@ from app.services import skill_chat
 from app.services import skill_tool_context
 from app.services import skill_tools_fill
 from app.services import skill_tools_misc
+from app.services.data_boundary import effective_price_ok, user_price_ok, user_price_ok_by_id
 from app.services.skill_tool_context import TOOL_CTX
 from app.services.skill_tools_fill import requirement_prompt
 from app.services.skill_tools_misc import tool_catalog_search
@@ -106,3 +107,44 @@ def test_price_ok_default_in_tool_ctx():
     models = res.get("models") or []
     if models:
         assert "price" in models[0]
+
+
+# ── 用户 RBAC 传导：effective_price_ok = 同事价权 × 发起用户价格权限 ──────
+
+def _fake_user_perm(monkeypatch, ok: bool) -> None:
+    monkeypatch.setattr("app.api.deps.user_has_permission", lambda user, key: ok)
+
+
+def test_effective_price_off_when_colleague_off(monkeypatch):
+    _fake_user_perm(monkeypatch, True)
+    assert effective_price_ok({"price_access": False}, user={"role": "admin"}) is False
+
+
+def test_effective_price_on_without_initiator(monkeypatch):
+    # 无发起人回合（定时任务/主动播报）：只由同事级 price_access 把关（既有行为）
+    assert effective_price_ok({"price_access": True}) is True
+    assert user_price_ok(None) is True
+    assert user_price_ok_by_id("") is True
+
+
+def test_effective_price_blocked_by_user_perm(monkeypatch):
+    _fake_user_perm(monkeypatch, False)
+    assert effective_price_ok({"price_access": True}, user={"role": "business"}) is False
+
+
+def test_effective_price_allowed_for_priced_user(monkeypatch):
+    _fake_user_perm(monkeypatch, True)
+    assert effective_price_ok({"price_access": True}, user={"role": "quote"}) is True
+
+
+def test_user_price_ok_by_id_missing_or_inactive_user(monkeypatch):
+    # id 在但人已不在（删除/停用）按无权处理，宁可错杀
+    class _Repo:
+        def get(self, uid):
+            return None
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr("app.repository.feed_user_repo.FeedUserRepository", lambda: _Repo())
+    assert user_price_ok_by_id("nonexistent-uid") is False

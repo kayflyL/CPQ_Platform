@@ -123,7 +123,7 @@ class _ChatTurnRuntime:
 
     def _prepare(self) -> Optional[dict]:
         """角色配置档 + 会话记忆 + Skill 画布配置（回合共同的输入）。"""
-        from app.services.data_boundary import colleague_price_ok
+        from app.services.data_boundary import effective_price_ok
         colleague = self.colleague or {}
         self.role_key = colleague.get("role_key") or "assistant"
         response_profile = colleague.get("response_profile") \
@@ -152,9 +152,9 @@ class _ChatTurnRuntime:
             self.mem = _load_mem(self.thread_id, self.role_key)
         self.mem["skill_key"] = self.skill_key
         self.ext = dict(self.mem.get("ext") or {})
-        # 价格可见性（同事级 price_access 布尔，唯一事实源）：
+        # 价格可见性（同事级 price_access × 发起用户价格权限，任一关即关）：
         # query_data 的可读表白名单由工具自管，不再有按同事的 data_boundary。
-        self.price_ok = colleague_price_ok(colleague)
+        self.price_ok = effective_price_ok(colleague, user_id=self.user_id)
         # query_data 试点门控：角色 tool_ids 显式勾选才挂（试点只开方案助手）
         self.has_query_data = isinstance(colleague.get("tool_ids"), list) \
             and "query_data" in colleague.get("tool_ids")
@@ -703,23 +703,22 @@ class _ChatTurnRuntime:
                         _payload.update({"parts_card": True, "row": str(g.get("row") or ""),
                                          "qty": g.get("qty"), "qty_max": g.get("qty_max"),
                                          "unit_label": str(g.get("unit_label") or "")})
+                    # 先落留底再广播（2026-10-15 修复）：用户秒点选项/自选下拉时，card-pick
+                    # 与 (slot,value) 匹配读的就是已持久化的 last_card——旧序「先广播后落库」
+                    # 让秒点 409「不支持自选」，前端表现为空下拉+一行小字错误。
+                    # 全量留底（含无 signal 的机型/逃生项）：had_pending_card 是点击快速路径
+                    # 的判定条件，只留 signal 会让机型卡点击掉回 LLM 决策轮（点完又问「可以吗」）。
+                    # ext 必须取引擎产物（补抽会替换 ext 对象），用本地旧对象会把引擎补好的
+                    # 信号从记忆里抹掉。
+                    if card_opts:
+                        _save_mem(self.thread_id, self.role_key,
+                                  {**self.mem, "ext": unwrap_doc(self.result_ctx.get("ext")) or self.ext,
+                                   "last_card": {"options": card_opts,
+                                                 **({"pick_meta": pick_meta} if pick_meta else {})}})
                     await self.emit_input_card(q, _payload)
                     card_emitted = True
                 except Exception:
                     logger.exception("选项卡广播失败 slot=%s", slot_key)
-            # 结构化载荷随卡持久化到会话记忆：点击轮按 (slot,value) 匹配原样直传，
-            # 服务端留底不信任客户端回传值。全量留底（含无 signal 的机型/逃生项）：
-            # had_pending_card 是点击快速路径的判定条件，只留 signal 会让机型卡点击
-            # 掉回 LLM 决策轮（点完又问「可以吗」）。ext 必须取引擎产物（补抽会替换
-            # ext 对象），用本地旧对象会把引擎补好的信号从记忆里抹掉
-            if card_opts:
-                try:
-                    _save_mem(self.thread_id, self.role_key,
-                              {**self.mem, "ext": unwrap_doc(self.result_ctx.get("ext")) or self.ext,
-                               "last_card": {"options": card_opts,
-                                             **({"pick_meta": pick_meta} if pick_meta else {})}})
-                except Exception:
-                    logger.exception("选项卡结构化载荷持久化失败")
         return card_emitted, card_opts
 
     async def _emit_gaps(self, er: dict, brain_asks: list) -> dict:

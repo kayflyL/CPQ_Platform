@@ -20,17 +20,17 @@ from app.services import llm_client
 from app.services.agent_react import run_stream_chat_loop
 from app.services.agent_tool_specs import tool_requires_approval
 from app.services.assistant_hub import assistant_hub
-from app.services.data_boundary import colleague_price_ok
+from app.services.data_boundary import effective_price_ok
 from app.services.skill_tool_context import TOOL_CTX
 from app.services.colleague_prompt import (
     _base_messages,
     _handoff_hint,
-    _resolved_skills,
     _short_term_history,
     _skill_for_tool,
     _skill_prompt,
     _style_hint,
     _user_name,
+    _workflow_offers,
     build_chat_config,
 )
 from app.services.colleague_turn_io import (
@@ -38,6 +38,7 @@ from app.services.colleague_turn_io import (
     _ensure_ai_office_opportunity,
     _persist_and_broadcast,
     _trace,
+    _workflow_suggestion_of,
 )
 from app.services.llm_client import LLMError
 from app.services.office_access import allowed_chat_role_keys
@@ -45,7 +46,6 @@ from app.services.office_events import publish_office_event
 from app.services.office_governance import office_governance
 from app.services.office_mission import record_mission
 from app.services.skill_contracts import SKILL_SESSION_ACTIVE, SKILL_SESSION_DONE
-from app.services.skill_types import is_workflow_skill
 
 logger = logging.getLogger(__name__)
 
@@ -141,14 +141,6 @@ async def _run_plain_turn(
     await _persist_and_broadcast(thread_id, colleague, final_text or "(空回复)", final_office_event=final_office_event)
 
 
-def _first_workflow_skill(colleague: Optional[dict]) -> Optional[dict]:
-    """取当前角色第一个 workflow skill 的本地绑定信息；没有返回 None。"""
-    for skill in _resolved_skills(colleague):
-        if is_workflow_skill(skill):
-            return skill
-    return None
-
-
 def _skill_phase_hint(skill_manifest: Optional[dict], phase: Optional[str]) -> str:
     """把 skill 能力描述转成同一大脑回合内的一段阶段指令。
 
@@ -204,6 +196,8 @@ async def _run_tool_turn(
     if memory_block:
         system_prompt += "\n\n" + memory_block
 
+    tool_steps: list = []  # 步骤清单：start 压栈、done 回填耗时/摘要，回合结束随消息落库
+
     async def event_sink(payload: dict) -> None:
         sub = (payload or {}).get("sub") or {}
         kind = sub.get("kind") or ""
@@ -215,19 +209,22 @@ async def _run_tool_turn(
         elif kind == "chunk" and isinstance(sub.get("delta"), str):
             await assistant_hub.broadcast(thread_id, {"type": "chunk", "delta": sub["delta"]})
         if kind == "tool":
+            if sub.get("phase") == "start":
+                tool_steps.append({"tool": str(tool or ""), "text": str(sub.get("text") or "")})
+            elif sub.get("phase") == "done" and tool_steps:
+                tool_steps[-1].update(detail=str(sub.get("detail") or ""), elapsed_ms=int(sub.get("elapsed_ms") or 0))
             if sub.get("text"):
                 await assistant_hub.broadcast(thread_id, {"type": "chat_status", "text": str(sub["text"])})
+            if sub.get("phase") in ("start", "done"):  # 思考流工具卡（detail/耗时随卡；文本细节走 chat_status）
+                await assistant_hub.broadcast(thread_id, {"type": "tool_trace", "tool": str(tool or ""), "phase": str(sub["phase"]), "detail": str(sub.get("detail") or ""), "elapsed_ms": int(sub.get("elapsed_ms") or 0)})
             # 办公事件只在工具粒度发（publish 会落库，chunk/thinking 粒度会每 token 一条）
             skill = _skill_for_tool(colleague, str(tool or ""))
             office_action = skill.get("office_action") if isinstance(skill.get("office_action"), dict) else {}
             await publish_office_event(
-                role_key,
-                str(office_action.get("status") or "working"),
+                role_key, str(office_action.get("status") or "working"),
                 str(office_action.get("activity") or sub.get("text") or "正在调用工具"),
-                tool=tool,
-                thread_id=thread_id,
-                intent=str(office_action.get("intent") or ""),
-                zone=str(office_action.get("zone") or ""),
+                tool=tool, thread_id=thread_id,
+                intent=str(office_action.get("intent") or ""), zone=str(office_action.get("zone") or ""),
             )
 
     async def governance_guard(name: str, args: dict, result: Any) -> Any:
@@ -240,13 +237,9 @@ async def _run_tool_turn(
             "status": str(office_action.get("status") or "waiting_input"),
             "activity": str(office_action.get("activity") or f"等待审批：{name}"),
             "message": str(office_action.get("message") or ""),
-            "tool": name,
-            "thread_id": thread_id,
-            "approval_required": True,
-            "priority": "user",
-            "source": "colleague_turn",
-            "draft": result,
-            "args": args,
+            "tool": name, "thread_id": thread_id,
+            "approval_required": True, "priority": "user", "source": "colleague_turn",
+            "draft": result, "args": args,
         }
         try:
             item = await office_governance.enqueue(payload)
@@ -305,14 +298,10 @@ async def _run_tool_turn(
                 "status": "waiting_approval",
                 "activity": f"申请转交 {target_role}",
                 "message": f"当前账号无权直接使用 {target_role}，AI 已生成草稿并提交审批。",
-                "tool": "downstream_handoff",
-                "thread_id": thread_id,
+                "tool": "downstream_handoff", "thread_id": thread_id,
                 "opportunity_id": opportunity_id or "",
-                "approval_required": True,
-                "priority": "user",
-                "source": "colleague_turn",
-                "draft": handoff,
-                "args": {"target_role": target_role},
+                "approval_required": True, "priority": "user", "source": "colleague_turn",
+                "draft": handoff, "args": {"target_role": target_role},
             }
             try:
                 item = await office_governance.enqueue(payload)
@@ -335,17 +324,22 @@ async def _run_tool_turn(
         )
         return
 
-    # 记忆工具恒挂：写入者=正在对话的同事（role_key 已在 TOOL_CTX），不在同事工具白名单也可用
-    tools_with_memory = list(dict.fromkeys(list(allowed_tool_ids) + ["colleague_memory"]))
+    # 记忆工具恒挂：写入者=正在对话的同事（role_key 已在 TOOL_CTX），不在同事工具白名单也可用；
+    # suggest_workflow 只挂给绑定了 workflow skill 的角色（可发起清单=合法取值域，见 colleague_prompt）
+    workflow_offers = _workflow_offers(colleague)
+    tools_with_memory = list(dict.fromkeys(
+        list(allowed_tool_ids) + ["colleague_memory"] + (["suggest_workflow"] if workflow_offers else [])))
     profile = build_chat_config(colleague).get("response_profile") or {}
     profile_temperature = profile.get("temperature")
     profile_max_tokens = profile.get("max_tokens")
     # 流式工具循环：与技能流同一台机器（覆盖语义+看门狗+逐轮 trace），
     # 正文 chunk 直推前端，工具粒度发办公事件；旁白→工具→答案全程可见。
-    # 工具上下文：价格可见性=price_access；不设时 handler 缺省分裂（query_data 过严/catalog_search 漏价）。
-    _ctx_token = TOOL_CTX.set({"role_key": role_key, "price_ok": colleague_price_ok(colleague),
+    # 工具上下文：价格可见性=price_access × 发起用户价格权限（用户 RBAC 传导，任一关即关）；
+    # 不设时 handler 缺省分裂（query_data 过严/catalog_search 漏价）。
+    _ctx_token = TOOL_CTX.set({"role_key": role_key, "price_ok": effective_price_ok(colleague, user=user),
                                "thread_id": thread_id, "opportunity_id": opportunity_id,
-                               "user_id": str((user or {}).get("user_id") or "").strip() or None})
+                               "user_id": str((user or {}).get("user_id") or "").strip() or None,
+                               "workflow_offers": workflow_offers})
     try:
         result = await run_stream_chat_loop(
             user_text,
@@ -362,6 +356,8 @@ async def _run_tool_turn(
             llm_overall_timeout=120.0,
             emit_chunk_reset=True,
         )
+        # 大脑经 suggest_workflow 留下的发起建议（多次调用取最后一次）
+        workflow_suggestion = _workflow_suggestion_of(TOOL_CTX.get())
     finally:
         TOOL_CTX.reset(_ctx_token)
     if result.get("ok") and str(result.get("answer") or "").strip():
@@ -396,7 +392,8 @@ async def _run_tool_turn(
         node_type="colleague_agent",
         role_key=role_key,
     )
-    await _persist_and_broadcast(thread_id, colleague, final_text, final_office_event=final_office_event)
+    await _persist_and_broadcast(thread_id, colleague, final_text, final_office_event=final_office_event,
+                                 tool_steps=tool_steps, workflow_suggestion=workflow_suggestion)
 
 
 # ── Skill 对话路径（两器官架构）：角色=对话脑（skill_chat），引擎=纯执行 ──────────

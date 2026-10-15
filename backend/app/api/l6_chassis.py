@@ -1,9 +1,12 @@
 """L6 机箱库 API 路由"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from typing import List, Optional
 from app.repository.l6_chassis_repo import L6ChassisRepository
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/l6-chassis", tags=["l6-chassis"])
+# 默认登录门槛；写操作收「服务器管理」页权限（基准编辑器所在域）。
+router = APIRouter(prefix="/api/l6-chassis", tags=["l6-chassis"],
+                   dependencies=[Depends(get_current_user)])
 
 
 # ========== 基准配置库 ==========
@@ -47,7 +50,7 @@ def get_base_config(config_id: int):
         repo.close()
 
 
-@router.post("/base-configs")
+@router.post("/base-configs", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_base_config(data: dict):
     """新增基准配置"""
     required = ["chassis", "chassis_series"]
@@ -63,7 +66,7 @@ def create_base_config(data: dict):
         repo.close()
 
 
-@router.put("/base-configs/{config_id}")
+@router.put("/base-configs/{config_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_base_config(config_id: int, data: dict):
     """更新基准配置"""
     repo = L6ChassisRepository()
@@ -76,7 +79,7 @@ def update_base_config(config_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/base-configs/{config_id}")
+@router.delete("/base-configs/{config_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_base_config(config_id: int):
     """删除基准配置（含组件）"""
     repo = L6ChassisRepository()
@@ -102,7 +105,7 @@ def list_base_config_parts(config_id: int):
         repo.close()
 
 
-@router.post("/base-config-parts")
+@router.post("/base-config-parts", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_base_config_part(data: dict):
     """新增组件"""
     required = ["config_id", "part_name"]
@@ -118,7 +121,7 @@ def create_base_config_part(data: dict):
         repo.close()
 
 
-@router.put("/base-config-parts/{part_id}")
+@router.put("/base-config-parts/{part_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_base_config_part(part_id: int, data: dict):
     """更新组件"""
     repo = L6ChassisRepository()
@@ -131,7 +134,7 @@ def update_base_config_part(part_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/base-config-parts/{part_id}")
+@router.delete("/base-config-parts/{part_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_base_config_part(part_id: int):
     """删除组件"""
     repo = L6ChassisRepository()
@@ -160,7 +163,7 @@ def list_front_panel_items(
         repo.close()
 
 
-@router.post("/front-panel")
+@router.post("/front-panel", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_front_panel_item(data: dict):
     """新增前面板线缆"""
     required = ["cable_type", "part_name"]
@@ -176,7 +179,7 @@ def create_front_panel_item(data: dict):
         repo.close()
 
 
-@router.put("/front-panel/{item_id}")
+@router.put("/front-panel/{item_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_front_panel_item(item_id: int, data: dict):
     """更新前面板线缆"""
     repo = L6ChassisRepository()
@@ -189,7 +192,7 @@ def update_front_panel_item(item_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/front-panel/{item_id}")
+@router.delete("/front-panel/{item_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_front_panel_item(item_id: int):
     """删除前面板线缆"""
     repo = L6ChassisRepository()
@@ -218,7 +221,7 @@ def list_rear_panel_items(
         repo.close()
 
 
-@router.post("/rear-panel")
+@router.post("/rear-panel", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_rear_panel_item(data: dict):
     """新增后面板选项"""
     required = ["option_type", "part_name"]
@@ -234,7 +237,7 @@ def create_rear_panel_item(data: dict):
         repo.close()
 
 
-@router.put("/rear-panel/{item_id}")
+@router.put("/rear-panel/{item_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_rear_panel_item(item_id: int, data: dict):
     """更新后面板选项"""
     repo = L6ChassisRepository()
@@ -247,7 +250,7 @@ def update_rear_panel_item(item_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/rear-panel/{item_id}")
+@router.delete("/rear-panel/{item_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_rear_panel_item(item_id: int):
     """删除后面板选项"""
     repo = L6ChassisRepository()
@@ -273,7 +276,7 @@ def list_psu_options(chassis_type: Optional[str] = None):
         repo.close()
 
 
-@router.post("/psu")
+@router.post("/psu", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_psu_option(data: dict):
     """新增PSU选项"""
     required = ["wattage", "part_name"]
@@ -289,7 +292,7 @@ def create_psu_option(data: dict):
         repo.close()
 
 
-@router.put("/psu/{psu_id}")
+@router.put("/psu/{psu_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_psu_option(psu_id: int, data: dict):
     """更新PSU选项"""
     repo = L6ChassisRepository()
@@ -302,7 +305,7 @@ def update_psu_option(psu_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/psu/{psu_id}")
+@router.delete("/psu/{psu_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_psu_option(psu_id: int):
     """删除PSU选项"""
     repo = L6ChassisRepository()

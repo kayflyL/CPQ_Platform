@@ -111,9 +111,13 @@ export const assistantApi = {
         .then((r) => r.data.tool),
   },
   threads: {
-    list: (opts?: { includeDeleted?: boolean }) =>
+    list: (opts?: { includeDeleted?: boolean; withMeta?: boolean; allKinds?: boolean }) =>
       http.get<{ threads: AssistantThread[] }>('/api/assistant/threads', {
-        params: { include_deleted: opts?.includeDeleted ? 1 : undefined },
+        params: {
+          include_deleted: opts?.includeDeleted ? 1 : undefined,
+          include_preview: opts?.withMeta ? 1 : undefined,
+          thread_kind: opts?.allKinds ? 'all' : undefined,
+        },
       }).then((r) => r.data.threads),
     listOffice: (
       roleKey: string,
@@ -238,6 +242,7 @@ export const assistantApi = {
       optionSlot?: string | null,
       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
       workflowKey?: string | null,
+      quote?: { name: string; text: string } | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -257,6 +262,7 @@ export const assistantApi = {
                 }))
               : null,
             workflow_key: workflowKey || null,
+            quote: quote || null,
           },
         )
         .then((r) => r.data),

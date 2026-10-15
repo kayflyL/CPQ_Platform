@@ -9,6 +9,46 @@ from app.models.base import Opportunity_SessionLocal
 from datetime import datetime
 
 
+def _stamp_price_set_at(old_items: List[dict], new_item: dict, now_iso: str) -> None:
+    """行价时点锚（就地写 new_item['price_set_at']）：与配件库最新价比新旧，决定 KP 行
+    亮「同步价格」还是「采纳库价」。规则：
+    - 只管 KP 行（category == 'Key Parts'），其余行不落锚；
+    - 旧行里找不到同件（同 config_name + 归一 catalogue/part_category）→ 视为新行，锚=now；
+    - 找得到 → base_price 没变沿用旧锚（历史改价时间不丢），变了盖 now。
+    同件多行按出现顺序一一配对（同键行通常同价，配对歧义无实际影响）。
+    """
+    if str(new_item.get("category") or "") != "Key Parts":
+        return
+    key = (
+        str(new_item.get("config_name") or ""),
+        str(new_item.get("catalogue") or "").strip().lower(),
+        str(new_item.get("part_category") or "").strip().lower(),
+    )
+    old = None
+    rest = []
+    for o in old_items:
+        if old is None and (
+            str(o.get("config_name") or ""),
+            str(o.get("catalogue") or "").strip().lower(),
+            str(o.get("part_category") or "").strip().lower(),
+        ) == key:
+            old = o
+        else:
+            rest.append(o)
+    del old_items[:]
+    old_items.extend(rest)
+
+    if old is None:
+        new_item["price_set_at"] = now_iso
+        return
+    old_price = float(old.get("base_price") or 0)
+    new_price = float(new_item.get("base_price") or 0)
+    if abs(old_price - new_price) < 1e-9:
+        new_item["price_set_at"] = old.get("price_set_at") or None
+    else:
+        new_item["price_set_at"] = now_iso
+
+
 class QuotationRepository:
     def __init__(self):
         self.db: Session = Opportunity_SessionLocal()
@@ -184,18 +224,23 @@ class QuotationRepository:
     _ITEM_CORE_COLUMNS = {
         "item_id", "quotation_id", "config_name", "category", "catalogue",
         "description", "part_category", "qty", "base_price", "final_price",
-        "profit_margin", "currency", "extra_fields", "tenant_id",
+        "profit_margin", "currency", "price_set_at", "extra_fields", "tenant_id",
     }
 
     def save_items(self, quotation_id: str, items: List[dict]) -> int:
         """Save configuration items for a quotation. Supports dynamic fields via extra_fields."""
+        # 行价时点：删除前先取旧行，diff base_price 决定 price_set_at（详见 _stamp_price_set_at）
+        old_items = [item.to_dict() for item in self.get_items(quotation_id)]
+
         # Delete existing items
         self.db.query(QuotationItem).filter(
             QuotationItem.quotation_id == quotation_id
         ).delete()
-        
+
         # Insert new items
         for item_data in items:
+            _stamp_price_set_at(old_items, item_data, datetime.now().isoformat())
+
             # Separate core and dynamic fields
             extra = {}
             core_kwargs = {}
@@ -204,7 +249,7 @@ class QuotationRepository:
                     core_kwargs[key] = value
                 else:
                     extra[key] = value
-            
+
             item = QuotationItem(
                 quotation_id=core_kwargs.get("quotation_id", quotation_id),
                 config_name=core_kwargs.get("config_name", ""),
@@ -217,6 +262,7 @@ class QuotationRepository:
                 final_price=core_kwargs.get("final_price", 0.0),
                 profit_margin=core_kwargs.get("profit_margin", 0.0),
                 currency=core_kwargs.get("currency", "RMB"),
+                price_set_at=core_kwargs.get("price_set_at", None),
                 extra_fields=json.dumps(extra, ensure_ascii=False) if extra else None,
             )
             self.db.add(item)
@@ -323,6 +369,11 @@ class QuotationRepository:
                     seen_ids.add(item_id)
                 if config_name:
                     item.config_name = config_name
+                # KP 行改价盖行价时点锚（与 save_items 的 diff 同语义；新行/原无价行首填也算改价）
+                if str(row.get("category") or "") == "Key Parts" and row.get("base_price") is not None:
+                    old_price = item.base_price
+                    if old_price is None or abs(float(row["base_price"]) - float(old_price)) > 1e-9:
+                        item.price_set_at = datetime.now().isoformat()
                 for key in (
                     "category", "catalogue", "description", "part_category",
                     "qty", "base_price", "final_price", "profit_margin", "currency",
@@ -471,6 +522,7 @@ class QuotationRepository:
                 final_price=it.final_price,
                 profit_margin=it.profit_margin,
                 currency=it.currency,
+                price_set_at=it.price_set_at,  # 价格原样克隆，行价时点锚随价走
                 extra_fields=it.extra_fields,
             ))
 

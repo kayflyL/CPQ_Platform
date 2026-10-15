@@ -201,7 +201,7 @@ async def consolidate_role(role_key: str) -> dict:
             f"1) 语义重复/可合并的条目提 merge（ids=旧条目 id 列表，content=合并后的一句话，type=分型）；\n"
             f"2) 分型错误的提 retype；\n"
             f"3) 一次性任务、会话态残留、已过时的提 retire（附 reason）。\n"
-            f"标记「置顶/手工勿动」的条目不得出现在任何 op 里。\n"
+            f"标记「置顶/手工勿动」的条目一律排除在外，不进任何 op。\n"
             f"记忆类型取值：{type_options}。\n\n{listing}\n\n"
             '只输出 JSON：{"ops": [{"op": "merge|retype|retire", ...}]}；无需整理输出 {"ops": []}。'
         )},

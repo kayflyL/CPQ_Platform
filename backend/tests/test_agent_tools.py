@@ -378,6 +378,93 @@ def test_stream_loop_llm_error_salvages_latest_prose():
     assert out["ok"] is True and out["answer"] == "旁白二"
 
 
+# ── suggest_workflow：工作流发起建议（2026-10-15 装填模式/确认卡配套） ──────────
+
+def test_suggest_workflow_handler_validates_and_stashes():
+    """合法 key → ok + 写入 TOOL_CTX.workflow_suggestion；未知 key / 空需求 → 拒绝并给 available 清单。"""
+    from app.services.skill_tool_context import TOOL_CTX
+    from app.services.agent_tool_handlers import _tool_suggest_workflow
+    token = TOOL_CTX.set({"workflow_offers": [{"key": "requirement_analysis", "name": "需求分析"}]})
+    try:
+        out = asyncio.run(_tool_suggest_workflow({
+            "workflow_key": "requirement_analysis",
+            "requirement_text": "兆芯 KH-50000 双路，14 盘",
+            "reason": "需求完整且属于本职责",
+        }))
+        assert out["ok"] is True and out["workflow_key"] == "requirement_analysis"
+        assert TOOL_CTX.get()["workflow_suggestion"]["requirement_text"].startswith("兆芯")
+        bad = asyncio.run(_tool_suggest_workflow({"workflow_key": "nope", "requirement_text": "x"}))
+        assert bad["ok"] is False and bad["available"] == ["requirement_analysis"]
+        empty = asyncio.run(_tool_suggest_workflow({"workflow_key": "requirement_analysis", "requirement_text": " "}))
+        assert empty["ok"] is False
+    finally:
+        TOOL_CTX.reset(token)
+
+
+def test_tool_turn_wires_suggest_workflow_and_persists_suggestion(monkeypatch):
+    """绑定 workflow skill 的角色：suggest_workflow 进工具清单；回合收尾建议随 _persist_and_broadcast 落库。"""
+    import app.services.colleague_turn_runners as runners
+
+    colleague = {"role_key": "support_engineer", "name": "技术支持工程师", "tool_ids": ["choose_model"]}
+    monkeypatch.setattr(runners, "_workflow_offers",
+                        lambda c: [{"key": "requirement_analysis", "name": "需求分析"}])
+    monkeypatch.setattr(runners, "_skill_prompt", lambda c: "")
+    monkeypatch.setattr(runners, "_handoff_hint", lambda c: "")
+    monkeypatch.setattr(runners, "publish_office_event", AsyncMock())
+    captured = {}
+
+    async def fake_loop(user_text, cfg, **kwargs):
+        captured["tools"] = list(kwargs.get("allowed_tool_ids") or [])
+        from app.services.agent_tool_handlers import _tool_suggest_workflow
+        from app.services.skill_tool_context import TOOL_CTX
+        assert TOOL_CTX.get().get("workflow_offers"), "回合上下文必须带可发起清单"
+        await _tool_suggest_workflow({"workflow_key": "requirement_analysis",
+                                      "requirement_text": "兆芯 KH-50000 双路", "reason": "r"})
+        return {"ok": True, "answer": "已整理需求，可一键发起"}
+
+    async def fake_persist(thread_id, c, final_text, **kwargs):
+        captured["persist_kwargs"] = kwargs
+
+    monkeypatch.setattr(runners, "run_stream_chat_loop", fake_loop)
+    monkeypatch.setattr(runners, "_persist_and_broadcast", fake_persist)
+
+    asyncio.run(runners._run_tool_turn(
+        "t1", "帮我配置一台服务器", None, [], colleague, "", ["choose_model"], None, None))
+
+    assert "suggest_workflow" in captured["tools"]
+    assert "colleague_memory" in captured["tools"]
+    sug = captured["persist_kwargs"].get("workflow_suggestion")
+    assert sug and sug["workflow_key"] == "requirement_analysis"
+
+
+def test_tool_turn_no_workflow_binding_no_suggest_tool(monkeypatch):
+    """未绑定 workflow 的角色：不挂 suggest_workflow，收尾不附建议。"""
+    import app.services.colleague_turn_runners as runners
+
+    colleague = {"role_key": "cost_analyst", "name": "成本核算", "tool_ids": ["choose_model"]}
+    monkeypatch.setattr(runners, "_workflow_offers", lambda c: [])
+    monkeypatch.setattr(runners, "_skill_prompt", lambda c: "")
+    monkeypatch.setattr(runners, "_handoff_hint", lambda c: "")
+    monkeypatch.setattr(runners, "publish_office_event", AsyncMock())
+    captured = {}
+
+    async def fake_loop(user_text, cfg, **kwargs):
+        captured["tools"] = list(kwargs.get("allowed_tool_ids") or [])
+        return {"ok": True, "answer": "好的"}
+
+    async def fake_persist(thread_id, c, final_text, **kwargs):
+        captured["persist_kwargs"] = kwargs
+
+    monkeypatch.setattr(runners, "run_stream_chat_loop", fake_loop)
+    monkeypatch.setattr(runners, "_persist_and_broadcast", fake_persist)
+
+    asyncio.run(runners._run_tool_turn(
+        "t1", "在吗", None, [], colleague, "", ["choose_model"], None, None))
+
+    assert "suggest_workflow" not in captured["tools"]
+    assert captured["persist_kwargs"].get("workflow_suggestion") is None
+
+
 if __name__ == "__main__":
     import traceback
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

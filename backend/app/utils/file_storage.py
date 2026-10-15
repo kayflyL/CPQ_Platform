@@ -196,3 +196,57 @@ class FileStorage:
             "file_size": len(file_content),
             "url": url,
         }
+
+    def save_model_doc(self, file_content: bytes, original_name: str,
+                       model_id: Optional[int] = None) -> dict:
+        """Save a model datasheet PDF to storage/model-docs/[model_id]/ — 原始名净化 + 短 uuid。
+
+        机型独占文件（不跨机型共享），照 drawing-svgs 先例按机型子目录归档，便于排查/清理；
+        model_id 为空（新建机型尚未保存）落根目录。同名重传产生新文件（uuid 区分，
+        旧文件由保存机型时的 diff GC 清理）。Returns {stored_path, filename, file_size, url}.
+        """
+        import uuid
+        from pathlib import PurePath
+
+        ext = PurePath(original_name).suffix.lower()
+        if ext != ".pdf":
+            raise FileStorageError("Unsupported format: only .pdf allowed")
+
+        stem = ''.join(c for c in PurePath(original_name).stem if c.isalnum() or c in '-_')[:40] or 'doc'
+        stored_name = f"{stem}_{uuid.uuid4().hex[:8]}.pdf"
+
+        parts = ["model-docs"]
+        if model_id is not None:
+            parts.append(str(model_id))
+        parts.append(stored_name)
+        doc_dir = self._safe_join(*parts[:-1])
+        doc_dir.mkdir(parents=True, exist_ok=True)
+        stored_path = doc_dir / stored_name
+
+        with open(stored_path, "wb") as f:
+            f.write(file_content)
+
+        rel = "/".join(parts)
+        url = f"/api/server-catalog/model-docs/{model_id}/{stored_name}" if model_id is not None \
+            else f"/api/server-catalog/model-docs/{stored_name}"
+        return {
+            "stored_path": rel,
+            "filename": stored_name,
+            "file_size": len(file_content),
+            "url": url,
+        }
+
+    def delete_model_doc(self, rel_path: str) -> bool:
+        """按相对路径删除 model-docs 下的文件（仅本地上传池；防路径穿越）。
+
+        rel_path 来自站点 URL（/api/server-catalog/model-docs/ 之后的部分，可含机型子目录）。
+        Returns 是否真的删除了文件。
+        """
+        parts = [p for p in rel_path.replace("\\", "/").split("/") if p and p not in ("..", ".")]
+        if not parts or not parts[-1].lower().endswith(".pdf"):
+            return False
+        p = self._safe_join("model-docs", *parts)
+        if p.is_file():
+            p.unlink()
+            return True
+        return False

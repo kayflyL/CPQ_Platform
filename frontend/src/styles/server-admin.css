@@ -1,0 +1,40 @@
+/* ========================================
+   CPQ Platform - 服务器管理后台视觉配方（/servers/admin 六 tab 共用）
+   表格质感（透明表头 / 横向 hairline / 冷蓝 hover）与次级分段控件。
+   顶部玻璃分段 Tab 条仅 ServerAdminPage 一处使用，样式留在该组件 scoped。
+   ======================================== */
+
+/* 表格质感 —— a-table 挂 class="sa-table"，叠在 antd-overrides 之上 */
+.sa-table .ant-table { background: transparent; }
+.sa-table .ant-table-thead > tr > th {
+  background: transparent;
+  color: var(--cpq-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--cpq-border-primary);
+}
+.sa-table .ant-table-tbody > tr > td {
+  background: transparent;
+  border-bottom: 1px solid var(--cpq-border-primary);
+}
+.sa-table .ant-table-tbody > tr:last-child > td { border-bottom: none; }
+.sa-table .ant-table-tbody > tr:hover > td { background: var(--cpq-overlay-a4); }
+.sa-table .ant-table-cell { padding: 10px 12px; }
+
+/* 次级分段控件（图纸筛选 / 料号库卡片-列表切换） */
+.seg2 { display: inline-flex; gap: 2px; padding: 3px; background: var(--cpq-overlay-a4); border-radius: var(--cpq-radius-sm); }
+.seg2-item {
+  padding: 4px 14px; border-radius: 6px; font-size: 12.5px; cursor: pointer;
+  color: var(--cpq-text-secondary); transition: all 0.15s; user-select: none; white-space: nowrap;
+}
+.seg2-item:hover { color: var(--cpq-accent-primary); }
+.seg2-item.active {
+  background: var(--cpq-bg-card); color: var(--cpq-accent-primary); font-weight: 600;
+  box-shadow: 0 1px 4px var(--cpq-shadow-color-soft);
+}
+
+/* 手机兜底：本页多台大宽度 modal（BOM 模板 1180 / 导入 860 / 系列 960）。
+   Modal portal 挂 body，scoped 够不到，只能放全局；max-width 对 inline width 自然收敛。 */
+@media (max-width: 768px) {
+  .ant-modal { max-width: calc(100vw - 24px); }
+}

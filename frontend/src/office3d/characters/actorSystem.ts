@@ -44,6 +44,10 @@ type Actor = {
   halfDepth: number
   modelScale: number
   seatY: number
+  /** 模型实测头顶高度（弹性锚定：名牌/气泡/状态球 Y 全部由此推导） */
+  headY: number
+  labelY: number
+  bubbleY: number
   forward: THREE.Vector3
   right: THREE.Vector3
   homeZoneId: string
@@ -278,6 +282,7 @@ function createCharacter(colleague: any, position: THREE.Vector3) {
     mixer: null, idleAction: null, walkAction: null, sitAction: null,
     halfDepth: 0.18, modelScale: 1, seatY: 0,
     armL, armR, legL, legR,
+    headY: 1.42,
   }
 }
 function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, template: CharacterAsset) {
@@ -289,6 +294,54 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
 
   model.scale.setScalar(scale)
   model.rotation.y = template.frontRotation
+
+  // 二次校正：precise 实测（逐顶点世界坐标，含蒙皮）归一到 targetHeight，钳制防退化；
+  // 不可用非 precise 包围盒——蒙皮 GLB 的普通包围盒是绑定位姿的塌缩值（曾差出 142 倍）。
+  // 整段容错：VRM 碰撞体节点会在 updateWorldMatrix 里抛错，实测失败回退默认高度。
+  try {
+    const scaled = new THREE.Box3().setFromObject(model, true)
+    const realHeight = scaled.max.y - scaled.min.y
+    if (realHeight > 0.05) {
+      const fix = THREE.MathUtils.clamp(targetHeight / realHeight, 0.1, 10)
+      if (Math.abs(fix - 1) > 0.02) model.scale.multiplyScalar(fix)
+    }
+  } catch (e) {
+    console.warn('[actorSystem] 模型归一化实测失败:', e)
+  }
+
+  const mixer = new THREE.AnimationMixer(model)
+  const idleClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'idle') || null
+  const walkClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'walk') || null
+  const sitClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'sit') || null
+  const idleAction = idleClip ? mixer.clipAction(idleClip) : null
+  let walkAction: THREE.AnimationAction | null = null
+  if (walkClip) {
+    const groundedTracks = walkClip.tracks.filter((track) => {
+      const trackName = track.name || ''
+      const targetNode = trackName.split('.')[0]
+      const isPosition = trackName.includes('.position')
+      return !(targetNode === 'root' && isPosition)
+    })
+    const groundedClip = new THREE.AnimationClip(`${walkClip.name}-grounded`, walkClip.duration, groundedTracks)
+    walkAction = mixer.clipAction(groundedClip)
+  }
+  const sitAction = sitClip ? mixer.clipAction(sitClip) : null
+
+  // headY 必须在骨骼摆出真实姿态后测：AI 生成模型的绑定位姿顶点云塌缩且悬空
+  // （data-analyst.glb 绑定位姿曾测出 201，状态球/名牌悬空一个身位），
+  // 播 idle 后的包围盒才是可见身体的真实头顶。钳制 [0.9, 2.0] 只拦退化值
+  // （正常模型 idle 后 ≤1.45；data-analyst 骨架自带 0.41 悬空，实测 1.81 属合法高头顶）。
+  let headY = targetHeight
+  try {
+    if (idleAction) {
+      idleAction.play()
+      mixer.update(0.5)
+    }
+    const box = new THREE.Box3().setFromObject(model, true)
+    headY = THREE.MathUtils.clamp(box.max.y, 0.9, 2.0)
+  } catch (e) {
+    console.warn('[actorSystem] 模型头顶实测失败，回退默认高度:', e)
+  }
 
   model.traverse((child: THREE.Object3D) => {
     child.userData.roleKey = colleague.role_key
@@ -319,27 +372,8 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
 
   const indicatorMat = new THREE.MeshBasicMaterial({ color: rt.statusColorHex('idle'), transparent: true, opacity: 0.9 })
   const indicator = new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), indicatorMat)
-  indicator.position.y = 1.62
+  indicator.position.y = headY + 0.16
   group.add(indicator)
-
-  const mixer = new THREE.AnimationMixer(model)
-  const idleClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'idle') || null
-  const walkClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'walk') || null
-  const sitClip = template.animations.find((clip) => (clip.name || '').toLowerCase() === 'sit') || null
-  const idleAction = idleClip ? mixer.clipAction(idleClip) : null
-  let walkAction: THREE.AnimationAction | null = null
-  if (walkClip) {
-    const groundedTracks = walkClip.tracks.filter((track) => {
-      const trackName = track.name || ''
-      const targetNode = trackName.split('.')[0]
-      const isPosition = trackName.includes('.position')
-      return !(targetNode === 'root' && isPosition)
-    })
-    const groundedClip = new THREE.AnimationClip(`${walkClip.name}-grounded`, walkClip.duration, groundedTracks)
-    walkAction = mixer.clipAction(groundedClip)
-  }
-  const sitAction = sitClip ? mixer.clipAction(sitClip) : null
-  idleAction?.play()
 
   group.position.copy(position)
   group.userData.roleKey = colleague.role_key
@@ -352,6 +386,7 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
     mixer, idleAction, walkAction, sitAction,
     halfDepth: (template.depth * scale) / 2, modelScale: scale, seatY: 0,
     armL: null, armR: null, legL: null, legR: null,
+    headY,
   }
 }
 
@@ -401,21 +436,28 @@ function rebuildActors() {
     const characterHome = deskPosition.clone().addScaledVector(forward, DESK_IDLE_DISTANCE)
     const claimed = claimedAssets.get(colleague.role_key) || null
     const template = claimed || (pool.length ? pool[index % pool.length] : null)
-    const character = template
-      ? createCharacterFromTemplate(colleague, characterHome, template)
-      : createCharacter(colleague, characterHome)
+    // 单同事容错：一个模型炸掉只降级该同事（程序小人），绝不拖死整批角色。
+    let character
+    try {
+      character = template
+        ? createCharacterFromTemplate(colleague, characterHome, template)
+        : createCharacter(colleague, characterHome)
+    } catch (e) {
+      console.error(`[actorSystem] 同事 ${colleague.role_key} 模型创建失败，降级程序小人:`, e)
+      character = createCharacter(colleague, characterHome)
+    }
 
     const group = new THREE.Group()
     group.name = `ai-colleague-${colleague.role_key}`
     group.userData.roleKey = colleague.role_key
     group.add(desk.group)
 
-    const bubble = makeBubbleSprite()
+    const bubble = makeBubbleSprite(character.headY + 0.1)
     bubble.sprite.userData.roleKey = colleague.role_key
     character.group.add(bubble.sprite)
     group.add(character.group)
 
-    const label = makeLabelSprite(colleague.name || colleague.role_key, colleague.color || '#1677ff')
+    const label = makeLabelSprite(colleague.name || colleague.role_key, colleague.color || '#1677ff', character.headY + 0.42)
     label.sprite.userData.roleKey = colleague.role_key
     character.group.add(label.sprite)
 
@@ -452,6 +494,9 @@ function rebuildActors() {
       walking: false,
       mixer: character.mixer,
       idleAction: character.idleAction,
+      headY: character.headY,
+      labelY: character.headY + 0.42,
+      bubbleY: character.headY + 0.1,
       walkAction: character.walkAction,
       sitAction: character.sitAction,
       halfDepth: character.halfDepth,
@@ -535,7 +580,8 @@ function updateActorStatus(actor: Actor, event?: OfficeColleagueStatus) {
   }
 }
 
-/** 头顶信息三层策略：事件气泡闪现 6s 淡出；等待输入/异常持续显示；悬停角色常显。状态信标浮动脉冲。 */
+/** 头顶信息三层策略：事件气泡闪现 6s 淡出；等待输入/异常持续显示；悬停角色常显。
+ * 状态信标的位置/缩放由 tick 的弹性锚定与状态动画驱动，此处不碰。 */
 function updateOverheads(now: number) {
   const hoverKey = rt.hoveredRoleKey()
   for (const actor of actorMap.values()) {
@@ -545,13 +591,6 @@ function updateOverheads(now: number) {
     actor.bubbleOpacity = next
     actor.bubble.material.opacity = next
     actor.bubble.visible = next > 0.02
-    // 状态信标：悬浮呼吸;等待输入脉冲放大,提示需要人介入
-    actor.indicator.position.y = 1.62 + Math.sin(now / 320) * 0.02
-    if (actor.status === 'waiting_input') {
-      actor.indicator.scale.setScalar(1 + 0.25 * Math.sin(now / 140))
-    } else {
-      actor.indicator.scale.setScalar(1)
-    }
   }
 }
 

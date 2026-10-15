@@ -5,7 +5,7 @@ Listing is a query; author/uploader names are resolved in bulk per result set.
 """
 from typing import Optional, List
 from sqlalchemy.orm import Session
-from sqlalchemy import select
+from sqlalchemy import select, update
 import uuid
 
 from app.models.feed_message import FeedMessage
@@ -114,6 +114,7 @@ class FeedRepository:
         version_group: Optional[str] = None,
         category: Optional[str] = None,
         flow_card_id: Optional[int] = None,
+        requirement_version: Optional[int] = None,
     ) -> dict:
         att = FeedAttachment(
             attachment_id=uuid.uuid4().hex,
@@ -130,6 +131,7 @@ class FeedRepository:
             version_group=version_group or uuid.uuid4().hex,
             category=category,
             flow_card_id=flow_card_id,
+            requirement_version=requirement_version,
             created_at=now_iso(),
         )
         self.session.add(att)
@@ -142,6 +144,25 @@ class FeedRepository:
             select(FeedAttachment).where(FeedAttachment.attachment_id == attachment_id)
         ).scalar_one_or_none()
         return a.to_dict() if a else None
+
+    def unbind_requirement_version(self, opportunity_id: str, version: int) -> int:
+        """需求草稿删除时解绑其附件（requirement_version→NULL）。
+
+        版本号按 max+1 分配、草稿删除后会被复用，不解绑会挂到未来同名草稿上；
+        文件本身保留在 lead_requirement 归档，只散件化。返回解绑条数。
+        """
+        res = self.session.execute(
+            update(FeedAttachment)
+            .where(
+                FeedAttachment.opportunity_id == opportunity_id,
+                FeedAttachment.category == "lead_requirement",
+                FeedAttachment.requirement_version == version,
+                FeedAttachment.deleted_at.is_(None),
+            )
+            .values(requirement_version=None)
+        )
+        self.session.commit()
+        return res.rowcount or 0
 
     def list_attachments(self, opportunity_id: str) -> List[dict]:
         rows = self.session.execute(

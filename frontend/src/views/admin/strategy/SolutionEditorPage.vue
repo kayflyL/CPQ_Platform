@@ -2,19 +2,38 @@
 import { ref, reactive, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
+import { MdEditor } from 'md-editor-v3'
+import type { ToolbarNames } from 'md-editor-v3'
+import 'md-editor-v3/lib/style.css'
 import { solutionApi, type SolutionScene } from '@/api/solutions'
 import { catalogApi } from '@/api/serverConfig'
-import MarkdownContent from './MarkdownContent.vue'
+import { useThemeStore } from '@/store/theme'
 
 const route = useRoute()
 const router = useRouter()
+const themeStore = useThemeStore()
 const key = route.params.key as string | undefined
 const isEdit = !!key
 const saving = ref(false)
 const loading = ref(false)
-const previewing = ref(false)
 const featDraft = ref('')
 const sceneOptions = ref<SolutionScene[]>([])
+
+// Markdown 编辑器：工具栏含插图（走方案图片上传接口），粘贴/选择图片自动上传
+const editorToolbars: ToolbarNames[] = [
+  'bold', 'italic', 'strikeThrough', 'title', '-',
+  'quote', 'unorderedList', 'orderedList', 'table', 'code', '-',
+  'image', 'link', '-', 'preview',
+]
+async function onUploadImg(files: File[], callback: (urls: string[]) => void) {
+  try {
+    const urls: string[] = []
+    for (const f of files) urls.push((await solutionApi.uploadImage(f)).url)
+    callback(urls)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '图片上传失败')
+  }
+}
 
 const labelOf = (k: string) => sceneOptions.value.find(c => c.key === k)?.label || ''
 
@@ -47,7 +66,6 @@ function addFeature() {
   if (featDraft.value.trim()) { form.features.push(featDraft.value.trim()); featDraft.value = '' }
 }
 function removeFeature(i: number) { form.features.splice(i, 1) }
-function togglePreview() { previewing.value = !previewing.value }
 
 onMounted(async () => {
   loading.value = true
@@ -113,7 +131,6 @@ async function save() {
       <span class="ed-bread">{{ isEdit ? '编辑解决方案' : '新建解决方案' }}</span>
       <div class="ed-actions">
         <a-button @click="cancel">取消</a-button>
-        <a-button @click="togglePreview">{{ previewing ? '编辑' : '预览' }}</a-button>
         <a-button type="primary" :loading="saving" @click="save">保存</a-button>
       </div>
     </div>
@@ -129,7 +146,7 @@ async function save() {
                 <a-select-option v-for="c in sceneOptions" :key="c.key" :value="c.key">{{ c.label }}</a-select-option>
               </a-select>
             </a-form-item>
-            <a-form-item label="方案标识 key"><a-input v-model:value="form.key" :disabled="isEdit" placeholder="如 ai-infer" /></a-form-item>
+            <a-form-item label="方案标识 key"><a-input v-model:value="form.key" :disabled="isEdit" placeholder="如 kb-qa" /></a-form-item>
             <a-form-item label="标题"><a-input v-model:value="form.title" placeholder="如 AI 推理一体机" /></a-form-item>
           </a-form>
           <a-form layout="vertical" class="ed-fields">
@@ -149,18 +166,21 @@ async function save() {
         </div>
       </section>
 
-      <!-- 2. 中部正文区：Markdown 正文 -->
+      <!-- 2. 中部正文区：Markdown 编辑器（工具栏 + 插图上传 + 预览） -->
       <section class="ed-card ed-body">
         <div class="ed-sub">
           <h4 class="ed-sec">正文（Markdown）</h4>
-          <a-textarea
-            v-if="!previewing"
-            v-model:value="form.content_md"
-            class="ed-md-input"
-            :rows="16"
-            placeholder="## 这个负载需要什么&#10;&#10;**要点**：…&#10;&#10;## 配置思路&#10;&#10;- …"
+          <MdEditor
+            v-model="form.content_md"
+            class="ed-editor"
+            :theme="themeStore.isDark ? 'dark' : 'light'"
+            preview-theme="github"
+            code-theme="github"
+            :toolbars="editorToolbars"
+            :footers="[]"
+            placeholder="## 这个负载需要什么&#10;&#10;**要点**：…"
+            @on-upload-img="onUploadImg"
           />
-          <div v-else class="ed-md-preview"><MarkdownContent :source="form.content_md" /></div>
         </div>
       </section>
 
@@ -207,8 +227,7 @@ async function save() {
 .ed-tag a { margin-left: 6px; color: var(--cpq-text-muted); cursor: pointer; }
 .ed-body { display: flex; flex-direction: column; gap: 22px; }
 .ed-sub + .ed-sub { border-top: 1px solid var(--cpq-glass-border); padding-top: 22px; }
-.ed-md-input { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; line-height: 1.7; }
-.ed-md-preview { border: 1px dashed var(--cpq-glass-border-strong); border-radius: 10px; padding: 16px; min-height: 300px; max-height: 720px; overflow: auto; background: var(--cpq-overlay-w3); }
+.ed-editor { height: 560px; --md-bk-color: var(--cpq-overlay-w3); }
 .ed-plat { display: grid; grid-template-columns: 1.3fr 1fr 1.5fr auto; gap: 8px; align-items: center; margin-bottom: 8px; }
 @media (max-width: 800px) { .ed-plat { grid-template-columns: 1fr; } }
 </style>

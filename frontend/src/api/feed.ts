@@ -31,6 +31,8 @@ export interface FeedAttachment {
   category?: string
   quotation_id?: string
   flow_card_id?: number | null
+  /** 需求单版本绑定（线索登记附件随单留档）；null=未归版散件（降级合并显示） */
+  requirement_version?: number | null
   version: number
   version_group: string
   created_at: string
@@ -83,13 +85,14 @@ export const feedApi = {
   attachments: {
     list: (oppId: string) =>
       http.get<{ attachments: FeedAttachment[] }>(`/api/feed/${oppId}/attachments`).then((r) => r.data.attachments),
-    upload: (oppId: string, file: File, opts?: { category?: string; quotation_id?: string; kind?: string; flow_card_id?: number | null }) => {
+    upload: (oppId: string, file: File, opts?: { category?: string; quotation_id?: string; kind?: string; flow_card_id?: number | null; requirement_version?: number | null }) => {
       const fd = new FormData()
       fd.append('file', file)
       if (opts?.category) fd.append('category', opts.category)
       if (opts?.quotation_id) fd.append('quotation_id', opts.quotation_id)
       if (opts?.kind) fd.append('kind', opts.kind)
       if (opts?.flow_card_id) fd.append('flow_card_id', String(opts.flow_card_id))
+      if (opts?.requirement_version != null) fd.append('requirement_version', String(opts.requirement_version))
       return http
         .post<{ attachment: FeedAttachment }>(`/api/feed/${oppId}/attachments`, fd, {
           headers: { 'Content-Type': 'multipart/form-data' },

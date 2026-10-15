@@ -637,7 +637,12 @@ async def chat_with_tools(
                 thinking=config.get("thinking"),
             )
         except anthropic_channel.AnthropicChannelError as e:
-            raise LLMNativeToolsUnsupported(str(e)) from e
+            # 只有报错形状像「tools 被拒」才降级 Unsupported；限流/5xx/断流等瞬态错误必须
+            # 如实收口成 LLMError——盲降级曾把 relay 瞬态错误静默吞成「不支持工具」，
+            # 上层无声丢整轮且零 trace（2026-10-15 需求分析「本步执行失败」实测根因）。
+            if _is_native_tools_unsupported(e):
+                raise LLMNativeToolsUnsupported(str(e)) from e
+            raise LLMError(str(e)) from e
     client = _client(config["base_url"], config["api_key"], timeout=timeout)
     request_tools = _strictify_tools(tools) if caps.get("supports_strict_tools") else tools
     try:
@@ -1458,9 +1463,8 @@ async def stream_agent_chat(
             # 必须收口成 LLMError，让上层按「可重试 / 可如实失败」处理。
             raise LLMError(str(e)) from e
         except anthropic_channel.AnthropicChannelError as e:
-            # 带 tools 的失败可能只是「上游不认 tools」→ 收口成 Unsupported 让上层
-            # 降级文本循环；纯文本调用没有降级余地，必须如实报错。
-            if use_tools:
+            # 同 chat_with_tools：形状像 tools 拒绝才降级，瞬态错误如实 LLMError（留 trace）
+            if use_tools and _is_native_tools_unsupported(e):
                 raise LLMNativeToolsUnsupported(str(e)) from e
             raise LLMError(str(e)) from e
 

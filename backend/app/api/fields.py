@@ -1,8 +1,10 @@
 """Unified field API - centralized field definitions"""
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from ..services.unified_field_service import UnifiedFieldService
+from app.api.deps import get_current_user
 
-router = APIRouter(prefix="/api/fields", tags=["fields"])
+router = APIRouter(prefix="/api/fields", tags=["fields"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("/scope/{scope}")

@@ -1,8 +1,13 @@
-"""Seed rules.solutions with the baseline 6 solutions (idempotent by key).
+"""Seed rules.solutions with baseline solutions (idempotent by key).
 
 适配平台 platforms 绑定机型目录真实机型（l6.server_models）：model_id + /servers/models/:id 链接，
-规格文案取自机型规格表，绝不写目录里不存在的型号（存量假数据由 scripts/fix_solution_platforms.py 修复）。
+规格文案取自机型规格表，绝不写目录里不存在的型号。
+
+2026-10：AI 场景两条占位方案（ai-infer / ai-train）下线，替换为场景化方案 kb-qa
+（企业知识库问答，正文唯一来源 = docs/解决方案-企业知识库问答.md，避免两处维护）。
 """
+import os
+
 from app.repository.solution_repo import SolutionRepository
 
 SCENES = [
@@ -18,56 +23,33 @@ _P_ZS220 = {"name": "ZS220 V2", "spec": "2U 双路 · 兆芯 KH-50000 信创 · 
 _P_ESA240 = {"name": "ESA240 V3", "spec": "4U 双路 · AMD 9004/9005 · 最高 8× 双宽 GPU 直连（10× 交换）", "model_id": 16, "link": "/servers/models/16"}
 _P_ZSA240 = {"name": "ZSA240 V2", "spec": "4U 双路 · 兆芯 KH-50000 · 适配国产 GPU（天数智芯/沐曦）", "model_id": 17, "link": "/servers/models/17"}
 
+
+def _load_kb_qa_md() -> str:
+    """方案正文唯一来源：仓库内 docs 文档（H1 与顶部元信息块之后的部分）。文件缺失时兜底，不阻塞启动。"""
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "..", "docs", "解决方案-企业知识库问答.md")
+    try:
+        with open(os.path.abspath(path), "r", encoding="utf-8") as f:
+            text = f.read()
+    except OSError:
+        return "（正文缺失：docs/解决方案-企业知识库问答.md 未找到，请恢复该文件后重启）"
+    sep = "\n---\n"
+    idx = text.find(sep)
+    return text[idx + len(sep):].lstrip() if idx >= 0 else text
+
+
+KB_QA_SEED = {
+    "key": "kb-qa", "scene_key": "ai", "scene": "AI·加速计算",
+    "title": "企业知识库问答（RAG）私有化部署",
+    "sub": "数据不出内网，从需求单到配置单",
+    "features": ["32B 级本地推理", "双卡起步 · 可扩 8 卡", "数据不出内网", "半天 ~ 一天交付"],
+    "intro": "员工用自然语言查企业文档，答案从本地知识库生成、数据不出内网：从需求单出发定模型、算显存、配机头，落到 ESA240 V3 双卡配置与半天级交付。",
+    "content_md": _load_kb_qa_md(),
+    "platforms": [_P_ESA240, _P_ZSA240, _P_ES220],
+}
+
 _SEED = [
+    KB_QA_SEED,
     {
-        "key": "ai-infer", "scene_key": "ai", "scene": "AI·加速计算",
-        "title": "AI 推理一体机", "sub": "把模型装进显存，再谈吞吐",
-        "features": ["双路供电", "IPMI", "液冷预留"],
-        "intro": "推理服务器的瓶颈是显存与带宽：模型越大、量化越浅，需要的显存和带宽越高。CPU 负责预处理与调度，GPU 承担推理。",
-        "content_md": """## 这个负载需要什么
-
-**显存优先**：显存 ≥ 模型体积；推理吞吐靠卡间带宽，型号/代数优先于核心数。
-
-**大内存加载**：内存承载权重复制与 KV cache，ECC 保证 7×24 稳定。
-
-**冗余与运维**：双电源 + UPS、IPMI 带外管理；高负载考虑液冷/专业机房。
-
-## 配置思路
-
-- 单卡 4090 适合 35B 以下 INT4 推理；两卡以上做并发吞吐扩展，卡间 NVLink/PCIe 带宽决定收益。
-- 主板要确认 PCIe 插槽 x16/x8 与间距；功率预留 30%，冗余 N+N。
-
-## 选型要点
-
-- 显存是第一瓶颈，先定模型与量化档位，再反推显卡数量与代数。
-- 内存按 `模型权重 + KV cache` 估算，ECC 是 7×24 的底线。
-- 高负载优先机架式 + 专业机房，避开办公室风冷。""",
-        "platforms": [_P_ESA240, _P_ZSA240, _P_ES220],
-    },
-    {
-        "key": "ai-train", "scene_key": "ai", "scene": "AI·加速计算",
-        "title": "大模型微调工作站", "sub": "显存翻倍，参数才能跑起来",
-        "features": ["A100/RTX PRO", "512G 内存"],
-        "intro": "微调比纯推理更吃显存：全参微调需要把梯度与优化器状态一起放进显存，LoRA 可显著降低门槛。",
-        "content_md": """## 这个负载需要什么
-
-**96G 显存起步**：70B 全量需多卡 A100/RTX PRO 6000；LoRA/QP 可下探。
-
-**高速存储**：NVMe 缓存数据集与检查点；SSD 瓶颈会拖慢每轮 epoch。
-
-**专业散热**：4 卡以上建议液冷或 AIDC 机房；避开办公室风冷。
-
-## 配置思路
-
-- 显存决定能训多大的模型；内存决定加载速度；CPU 负责数据预处理与分布式协调。
-- 多卡并行以 PCIe/NVLink 带宽聚合，需 ≥2000W 冗余电源与双路散热。
-
-## 选型要点
-
-- 全参微调显存需求约为推理的数倍，优先大显存单卡或 NVLink 多卡。
-- 检查点写盘频繁，NVMe 的持续写吞吐比随机读更关键。""",
-        "platforms": [_P_ESA240, _P_ZSA240],
-    },    {
         "key": "virt-hci", "scene_key": "virt", "scene": "虚拟化·数据库",
         "title": "虚拟化超融合", "sub": "核数与内存决定能装多少台虚拟机",
         "features": ["ECC 全通道", "RAID10"],

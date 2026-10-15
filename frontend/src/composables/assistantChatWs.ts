@@ -23,6 +23,16 @@ export interface PauseFacts {
   resumable: boolean
 }
 
+/** 思考流工具卡（cumora ToolCard 式）：同事回合里每次工具调用的 start/done 事实 */
+export interface ToolTrace {
+  tool: string
+  phase: 'start' | 'done'
+  text: string
+  /** done 时随卡的结果事实摘要（如「返回 12 条记录」）与耗时 */
+  detail?: string
+  elapsedMs?: number
+}
+
 export function pauseFactsOf(payload: unknown): PauseFacts | null {
   const p = (payload || null) as Record<string, any> | null
   if (!p || typeof p !== 'object') return null
@@ -53,6 +63,8 @@ export interface AssistantChatWsState {
   taskPhase: '' | 'running' | 'paused' | 'done'
   /** 中断点事实（P5-B2）：原样来自后端 pause 载荷，UI 只按事实显示，不加工 */
   taskPause: PauseFacts | null
+  /** 思考流工具卡：仅回合进行中有意义，终态清空（终稿消息落地后卡片即退场） */
+  toolTraces: ToolTrace[]
 }
 
 /** 新消息发送时收起已完成的任务胶囊（running/paused 保留——任务还在进行） */
@@ -115,6 +127,7 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
   state.statusText = ''
   state.streamingText = ''
   state.queuedCount = 0
+  state.toolTraces = []
   if (state.taskPhase === 'running') state.taskPhase = 'done'
 }
 
@@ -315,6 +328,23 @@ export function handleAssistantChatWsEvent(
     case 'chat_status':
       state.statusText = data.text || ''
       return true
+    case 'tool_trace': {
+      // 工具活动卡：同一工具 start→done 原地翻状态，不堆叠；列表封顶 6 张
+      const toolName = String(data.tool || '')
+      const phase = data.phase === 'done' ? 'done' : 'start'
+      const detail = String(data.detail || '')
+      const elapsedMs = Number(data.elapsed_ms || 0)
+      const pending = [...state.toolTraces].reverse().find((t) => t.tool === toolName && t.phase === 'start')
+      if (pending) {
+        pending.phase = 'done'
+        pending.detail = detail
+        pending.elapsedMs = elapsedMs
+      } else {
+        state.toolTraces.push({ tool: toolName, phase, text: String(data.text || ''), detail, elapsedMs })
+      }
+      if (state.toolTraces.length > 6) state.toolTraces.splice(0, state.toolTraces.length - 6)
+      return true
+    }
     case 'queue_state':
       // 排队可见化：被扣住的消息不能看起来和空闲一样（2026-09-13 P0-③）
       state.queuedCount = Math.max(0, Number(data.depth) || 0)
@@ -337,6 +367,7 @@ export function handleAssistantChatWsEvent(
       state.running = false
       pushMessage(state, data.message)
       state.streamingText = ''
+      state.toolTraces = []
       return true
     case 'error':
       state.waiting = false
@@ -344,6 +375,7 @@ export function handleAssistantChatWsEvent(
       state.error = data.message || '回复异常'
       state.streamingText = ''
       state.running = false
+      state.toolTraces = []
       return true
     default:
       return false

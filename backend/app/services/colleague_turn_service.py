@@ -20,6 +20,7 @@ from typing import Callable, Optional
 from app.services.assistant_hub import assistant_hub
 from app.services.colleague_prompt import (
     _effective_tool_ids,
+    _first_workflow_skill,
     _group_channel_note,
     _memory_block,
     _resolved_skills,
@@ -44,7 +45,6 @@ from app.services.colleague_turn_io import (
 )
 from app.services.colleague_turn_runners import (
     _broadcast_chat_progress,
-    _first_workflow_skill,
     _run_plain_turn,
     _run_skill_chat,
     _skill_write_mode,

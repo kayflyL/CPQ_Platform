@@ -39,6 +39,8 @@ export interface Item {
   match_status?: string
   db_price?: number | null
   db_currency?: string | null
+  db_price_date?: string | null  // 库最新价的日期（YYYY-MM-DD），refreshKpDbPrices 实时补；行价方向判定用
+  price_set_at?: string | null   // 行价时点锚（后端 save_items diff 落库；工作台改价时前端同步盖 now）
   pn?: string  // KP 新建模式：料号库 pn（PartPicker 选中）；走 quotation_items.extra_fields 往返
   history?: any[]
   _histActiveKeys?: string[]
@@ -124,7 +126,12 @@ export const useQuoteStore = defineStore('quote', () => {
 
   // 乐观锁基线：编辑加载时的报价单 updated_at，保存成功后刷新
   const quotationUpdatedAt = ref('')
-  
+
+  // 行价方向判定的时间锚：exported_at 在解冻后被清空 → 回落 created_at；
+  // 行级 price_set_at 优先于单据级（见 Workspace.rowPriceAnchor）
+  const quotationExportedAt = ref('')
+  const quotationCreatedAt = ref('')
+
   // 每个配置的数量（报价单维度）
   const configQuantities = ref<Record<string, number>>({})
   
@@ -673,7 +680,7 @@ export const useQuoteStore = defineStore('quote', () => {
 
   return {
     opportunityInfo, configs, configQuantities, configSelectedParts, taxRate, exchangeRate,
-    quotationUpdatedAt,
+    quotationUpdatedAt, quotationExportedAt, quotationCreatedAt,
     l6Total, kpTotal, grandTotal,
     loadData, updateItem,
     setWarrantyRateL6, setWarrantyRateKP,

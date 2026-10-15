@@ -190,7 +190,8 @@ export async function resolvedWorkbookToXlsx(wb: ResolvedWorkbook): Promise<Blob
     for (const [k, w] of Object.entries(sh.colWidths)) {
       ws.getColumn(Number(k) + 1).width = w / 8.66
     }
-    // 隐藏列（敏感列掩蔽）：导出文件中保持隐藏
+    // 模板作者手工隐藏的列（快照 columnData.hd）：导出文件中保持隐藏
+    // （敏感价格列不走这里——后端填充时已整列物理删除，快照里根本不存在）
     for (const col of sh.hiddenCols || []) {
       ws.getColumn(col + 1).hidden = true
     }

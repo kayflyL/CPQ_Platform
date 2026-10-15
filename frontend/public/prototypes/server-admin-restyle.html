@@ -1,0 +1,776 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务器管理 · 视觉升级原型（仅样式，结构与功能不动）</title>
+<style>
+/* ===== Design Tokens（摘自 frontend/src/styles/tokens.css）===== */
+:root {
+  --accent: #1677FF; --accent-light: #4096ff;
+  --accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 20px;
+  --ease: cubic-bezier(.16, 1, .3, 1);
+  --cyan: #36CFCF;
+}
+:root[data-theme="light"] {
+  --bg-card: #ffffff;
+  --text-primary: #1d2129; --text-secondary: #4e5969; --text-muted: #86909c; --text-disabled: #c9cdd4;
+  --border-primary: rgba(22, 119, 255, 0.10); --border-light: rgba(22, 119, 255, 0.16);
+  --glass-bg: rgba(255, 255, 255, 0.55); --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-border-strong: rgba(22, 119, 255, 0.45); --glass-highlight: rgba(255, 255, 255, 1);
+  --shadow-soft: rgba(22, 119, 255, 0.08); --shadow-strong: rgba(22, 119, 255, 0.14);
+  --row-hover: rgba(22, 119, 255, 0.04); --input-bg: #ffffff;
+  --lc-new: #1677ff; --lc-new-bg: rgba(22, 119, 255, 0.10);
+  --lc-active: #2f9d78; --lc-active-bg: rgba(82, 201, 160, 0.14);
+  --lc-eol: #d48806; --lc-eol-bg: rgba(250, 173, 20, 0.14);
+  --danger: #e5484d;
+  --bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+}
+:root[data-theme="dark"] {
+  --bg-card: #1e1e1e;
+  --text-primary: #E8ECEF; --text-secondary: #9BA1AA; --text-muted: #6E7582; --text-disabled: #3D424D;
+  --border-primary: rgba(255, 255, 255, 0.10); --border-light: rgba(255, 255, 255, 0.15);
+  --glass-bg: rgba(255, 255, 255, 0.06); --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-border-strong: rgba(22, 119, 255, 0.40); --glass-highlight: rgba(255, 255, 255, 0.18);
+  --shadow-soft: rgba(0, 0, 0, 0.30); --shadow-strong: rgba(0, 0, 0, 0.50);
+  --row-hover: rgba(255, 255, 255, 0.05); --input-bg: #2a2a2a;
+  --lc-new: #4096ff; --lc-new-bg: rgba(22, 119, 255, 0.18);
+  --lc-active: #52C9A0; --lc-active-bg: rgba(82, 201, 160, 0.18);
+  --lc-eol: #F4D28A; --lc-eol-bg: rgba(250, 173, 20, 0.18);
+  --danger: #FF6B6B;
+  --bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-size: 14px; color: var(--text-primary); background: var(--bg-gradient) fixed;
+  min-height: 100vh; padding: 24px 32px 80px;
+  transition: background 0.3s var(--ease), color 0.3s var(--ease);
+}
+
+/* ===== 原型工具条（脚手架，非设计内容）===== */
+.proto-head { display: flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+.proto-head h1 { font-size: 18px; font-weight: 700; }
+.proto-sub { color: var(--text-muted); font-size: 12px; }
+.proto-tools { margin-left: auto; display: flex; gap: 8px; }
+.proto-btn {
+  border: 1px solid var(--glass-border); background: var(--glass-bg); color: var(--text-secondary);
+  border-radius: var(--radius-sm); padding: 5px 12px; font-size: 12px; cursor: pointer;
+  backdrop-filter: blur(10px); transition: all 0.2s var(--ease);
+}
+.proto-btn:hover { border-color: var(--accent); color: var(--accent); }
+.proto-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ===== 页面骨架：1280 容器 ===== */
+.page-inner { max-width: 1280px; margin: 0 auto; }
+
+/* ===== Left nav rail ===== */
+.admin-layout { display: flex; gap: 22px; align-items: flex-start; }
+.admin-tabs { width: 180px; flex-shrink: 0; position: sticky; top: 16px; }
+.rail-title { font-size: 11px; font-weight: 600; letter-spacing: 0.5px; color: var(--text-muted); padding: 0 12px; margin-bottom: 8px; }
+.admin-tab {
+  display: block; width: 100%; text-align: left; padding: 9px 12px; margin-bottom: 2px;
+  border-radius: 8px; border: none; background: transparent; cursor: pointer; user-select: none;
+  font-size: 13.5px; font-weight: 500; color: var(--text-secondary);
+  transition: color 0.15s, background 0.15s;
+}
+.admin-tab:hover { color: var(--accent); background: var(--row-hover); }
+.admin-tab.active { color: var(--accent); font-weight: 600; background: rgba(22, 119, 255, 0.08); }
+
+/* ===== 玻璃面板 ===== */
+.panel {
+  background: none; border: none; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none;
+  border-radius: 0; padding: 0; margin-bottom: 30px;
+}
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 18px 20px 14px; }
+.panel-head h2 { font-size: 17px; font-weight: 700; line-height: 1.3; }
+.panel-head .hint { font-size: 12px; color: var(--text-muted); margin-top: 3px; font-weight: 400; }
+.panel-body { padding: 0 20px 20px; }
+.panel-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ===== 控件规格：统一高度 32px / 8px 栅格 ===== */
+.select, .search-box, .text-input {
+  height: 32px; border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  background: var(--input-bg); font-size: 13px; color: var(--text-primary);
+  display: inline-flex; align-items: center; gap: 8px; padding: 0 10px;
+}
+.select { cursor: pointer; color: var(--text-secondary); justify-content: space-between; min-width: 130px; }
+.select::after { content: '⌄'; color: var(--text-muted); font-size: 12px; }
+.search-box { width: 200px; color: var(--text-muted); }
+.search-box input { border: none; outline: none; background: transparent; flex: 1; font-size: 13px; color: var(--text-primary); }
+.text-input { width: 320px; }
+.text-input input { border: none; outline: none; background: transparent; flex: 1; font-size: 13px; color: var(--text-primary); }
+.btn-primary {
+  height: 32px; padding: 0 16px; border: none; border-radius: var(--radius-sm); cursor: pointer;
+  background: var(--accent-gradient); color: #fff; font-size: 13px; font-weight: 600;
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.30); transition: all 0.2s var(--ease);
+}
+.btn-primary:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(22, 119, 255, 0.40); }
+.btn-ghost {
+  height: 32px; padding: 0 14px; border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  background: var(--input-bg); color: var(--text-secondary); font-size: 13px; cursor: pointer; transition: all 0.2s var(--ease);
+}
+.btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+.link-btn { border: none; background: none; color: var(--accent); font-size: 13px; cursor: pointer; padding: 4px 6px; border-radius: 6px; }
+.link-btn:hover { background: var(--row-hover); }
+.link-btn.danger { color: var(--danger); }
+
+/* ===== 次级分段筛选（图纸配置 / 料号库视图切换）===== */
+.seg2 { display: inline-flex; gap: 2px; padding: 3px; background: var(--row-hover); border-radius: var(--radius-sm); }
+.seg2-item { padding: 5px 14px; border-radius: 6px; font-size: 12.5px; cursor: pointer; color: var(--text-secondary); transition: all 0.15s; user-select: none; }
+.seg2-item.active { background: var(--bg-card); color: var(--accent); font-weight: 600; box-shadow: 0 1px 4px var(--shadow-soft); }
+
+/* ===== 表格 ===== */
+table { width: 100%; border-collapse: collapse; }
+thead th {
+  text-align: left; font-size: 12px; font-weight: 600; color: var(--text-muted);
+  padding: 9px 12px; border-bottom: 1px solid var(--border-primary); white-space: nowrap;
+}
+thead th:first-child, tbody td:first-child { padding-left: 4px; }
+tbody td { padding: 11px 12px; border-bottom: 1px solid var(--border-primary); font-size: 13px; vertical-align: middle; }
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:hover td { background: var(--row-hover); }
+.tnum { font-variant-numeric: tabular-nums; }
+.price { font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+.cell-sub { font-size: 11px; color: var(--text-muted); margin-top: 1px; }
+
+/* ===== 徽标 / chip ===== */
+.chip {
+  display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px;
+  font-size: 12px; white-space: nowrap; border: 1px solid transparent;
+}
+.chip.blue  { color: var(--lc-new); background: var(--lc-new-bg); }
+.chip.green { color: var(--lc-active); background: var(--lc-active-bg); }
+.chip.amber { color: var(--lc-eol); background: var(--lc-eol-bg); }
+.chip.gray  { color: var(--text-muted); background: var(--row-hover); border-color: var(--border-primary); }
+
+/* ===== 卡片通用：圆角 16 + hover 蓝边上浮 + inset 白高光 ===== */
+.card {
+  background: var(--glass-bg); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--glass-border); border-radius: var(--radius-lg);
+  box-shadow: 0 6px 18px var(--shadow-soft), inset 0 1px 0 var(--glass-highlight);
+  transition: all 0.2s var(--ease);
+}
+.card:hover {
+  border-color: var(--glass-border-strong); transform: translateY(-2px);
+  box-shadow: 0 14px 32px var(--shadow-strong), inset 0 1px 0 var(--glass-highlight);
+}
+.grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 16px; }
+
+/* ===== 机型卡 ===== */
+.mc-thumb {
+  position: relative; height: 118px; border-radius: 14px 14px 0 0; overflow: hidden;
+  background:
+    repeating-linear-gradient(180deg, transparent 0 10px, rgba(22,119,255,0.10) 10px 12px),
+    linear-gradient(145deg, #dbe7f7, #c3d6ef);
+}
+:root[data-theme="dark"] .mc-thumb {
+  background:
+    repeating-linear-gradient(180deg, transparent 0 10px, rgba(22,119,255,0.14) 10px 12px),
+    linear-gradient(145deg, #1c2433, #141a26);
+}
+.mc-thumb .lc-chip { position: absolute; top: 10px; left: 10px; }
+.mc-thumb .mc-dis { position: absolute; top: 10px; left: 64px; }
+.mc-body { padding: 12px 14px 10px; }
+.mc-name { font-size: 14.5px; font-weight: 700; }
+.mc-meta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); margin-top: 5px; }
+.mc-meta i { font-style: normal; color: var(--text-muted); margin-right: 3px; }
+.mc-base { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+.mc-foot { display: flex; justify-content: flex-end; gap: 2px; border-top: 1px solid var(--border-primary); padding: 6px 10px; }
+
+/* ===== 系列卡（横向）===== */
+.series-row { display: flex; align-items: center; gap: 16px; padding: 14px 16px; }
+.series-row + .series-row { margin-top: 12px; }
+.sr-thumb {
+  width: 120px; height: 76px; border-radius: var(--radius-md); flex-shrink: 0;
+  background: linear-gradient(145deg, #dbe7f7, #c3d6ef); position: relative;
+  display: flex; align-items: center; justify-content: center;
+}
+:root[data-theme="dark"] .sr-thumb { background: linear-gradient(145deg, #1c2433, #141a26); }
+.sr-thumb .g3d { font-size: 11px; letter-spacing: 2px; color: var(--text-muted); border: 1px dashed var(--glass-border); border-radius: 6px; padding: 4px 10px; }
+.sr-name { font-size: 15px; font-weight: 700; }
+.sr-desc { font-size: 12.5px; color: var(--text-secondary); margin-top: 4px; }
+.sr-main { flex: 1; min-width: 0; }
+.sr-side { display: flex; align-items: center; gap: 10px; }
+
+/* ===== 料号库布局 ===== */
+.parts-layout { display: grid; grid-template-columns: 188px 1fr; }
+.pl-side { border-right: 1px solid var(--border-primary); padding: 4px 12px 16px 4px; }
+.pl-cat { padding: 7px 12px; border-radius: var(--radius-sm); font-size: 13px; color: var(--text-secondary); cursor: pointer; transition: all 0.15s; }
+.pl-cat:hover { color: var(--accent); }
+.pl-cat.active { color: var(--accent); background: var(--row-hover); font-weight: 600; }
+.pl-sub { padding: 5px 12px 5px 24px; border-radius: var(--radius-sm); font-size: 12.5px; color: var(--text-muted); cursor: pointer; }
+.pl-sub:hover { color: var(--accent); }
+.pl-sub.active { color: var(--accent); font-weight: 600; }
+.pl-main { padding: 14px 0 18px 18px; min-width: 0; }
+.pl-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.pl-toolbar .spacer { flex: 1; }
+
+/* ===== 料号卡 ===== */
+.pt-body { padding: 12px 14px; }
+.pt-pn { font-size: 11px; color: var(--text-muted); letter-spacing: 0.4px; font-variant-numeric: tabular-nums; }
+.pt-name { font-size: 13.5px; font-weight: 600; margin-top: 3px; }
+.pt-spec { font-size: 12px; color: var(--text-secondary); margin-top: 5px; line-height: 1.5; height: 36px; overflow: hidden; }
+.pt-foot { display: flex; align-items: center; justify-content: space-between; padding: 8px 14px; border-top: 1px solid var(--border-primary); }
+
+/* ===== 图纸卡 ===== */
+.sdp-tip { font-size: 12.5px; color: var(--text-muted); line-height: 1.6; max-width: 760px; }
+.sdp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(252px, 1fr)); gap: 16px; }
+.sdp-thumb {
+  position: relative; height: 140px; border-radius: 14px 14px 0 0; overflow: hidden;
+  background:
+    repeating-linear-gradient(90deg, transparent 0 46px, var(--border-primary) 46px 48px),
+    repeating-linear-gradient(180deg, transparent 0 22px, var(--border-primary) 22px 23px),
+    var(--row-hover);
+  display: flex; align-items: center; justify-content: center;
+}
+.sdp-thumb .svg-tag { font-size: 12px; letter-spacing: 2px; color: var(--text-disabled); border: 1px dashed var(--glass-border); border-radius: var(--radius-sm); padding: 6px 16px; }
+.sdp-status { position: absolute; top: 10px; left: 10px; }
+
+/* ===== 门户设置 ===== */
+.form-row { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.form-label { font-size: 12.5px; color: var(--text-muted); width: 72px; flex-shrink: 0; }
+.banner-strip { display: flex; gap: 14px; flex-wrap: wrap; margin: 4px 0 16px; }
+.bn-item { width: 208px; }
+.bn-thumb {
+  height: 96px; border-radius: var(--radius-md); overflow: hidden; position: relative;
+  background: linear-gradient(140deg, #16324f, #0b1526 70%), radial-gradient(ellipse 60% 50% at 70% 30%, rgba(91,143,249,0.35), transparent);
+}
+:root[data-theme="dark"] .bn-thumb { background: linear-gradient(140deg, #101c2e, #070c14 70%), radial-gradient(ellipse 60% 50% at 70% 30%, rgba(91,143,249,0.25), transparent); }
+.bn-thumb .bn-ops { position: absolute; right: 6px; top: 6px; display: flex; gap: 4px; }
+.bn-ops button {
+  width: 24px; height: 24px; border: none; border-radius: 6px; cursor: pointer; font-size: 12px;
+  background: rgba(0, 0, 0, 0.35); color: #fff; backdrop-filter: blur(4px);
+}
+.bn-ops button:hover { background: rgba(22, 119, 255, 0.75); }
+.bn-sub { margin-top: 8px; }
+.bn-sub input {
+  width: 100%; height: 30px; border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  background: var(--input-bg); font-size: 12.5px; color: var(--text-primary); padding: 0 10px; outline: none;
+}
+.lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+.lib-item { position: relative; height: 78px; border-radius: var(--radius-md); overflow: hidden; cursor: pointer; border: 1px solid var(--glass-border); transition: all 0.2s var(--ease); }
+.lib-item:hover { border-color: var(--glass-border-strong); transform: translateY(-2px); }
+.lib-item .in-banner {
+  position: absolute; left: 6px; bottom: 6px; font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+  background: var(--lc-active-bg); color: var(--lc-active);
+}
+.lib-item.add { display: flex; align-items: center; justify-content: center; color: var(--text-muted); font-size: 13px; border-style: dashed; background: transparent; }
+
+/* ===== 空态 / 其他 ===== */
+.tabpane { display: none; }
+.tabpane.show { display: block; }
+.proto-note { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
+</style>
+</head>
+<body>
+
+<!-- 原型工具条 -->
+<div class="proto-head page-inner">
+  <h1>服务器管理 · 视觉升级原型</h1>
+  <span class="proto-sub">仅改视觉样式：Tab 条玻璃分段 / 1280 版心 / 面板头排版 / 表格与卡片质感统一 · 结构、功能、数据零改动</span>
+  <div class="proto-tools">
+    <button class="proto-btn active" id="th-light" onclick="setTheme('light')">浅色</button>
+    <button class="proto-btn" id="th-dark" onclick="setTheme('dark')">暗色</button>
+  </div>
+</div>
+
+<div class="page-inner">
+  <!-- Tab 条：玻璃分段控件 -->
+  <div class="admin-layout">
+  <aside class="admin-tabs" id="tabs">
+    <div class="rail-title">服务器管理</div>
+    <div class="admin-tab active" data-tab="models">机型管理</div>
+    <div class="admin-tab" data-tab="series">产品系列</div>
+    <div class="admin-tab" data-tab="base">基准配置</div>
+    <div class="admin-tab" data-tab="parts">料号库</div>
+    <div class="admin-tab" data-tab="drawing">图纸配置</div>
+    <div class="admin-tab" data-tab="portal">门户设置</div>
+  </div>
+
+  </aside>
+  <main class="admin-content">
+  <!-- ============ Tab 1 机型管理 ============ -->
+  <div class="tabpane show" id="pane-models">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>机型管理</h2>
+        <div class="panel-actions">
+          <div class="select">全部类型</div>
+          <div class="search-box">🔍<input placeholder="搜机型名"></div>
+          <button class="btn-primary">＋ 新建机型</button>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="grid-cards">
+          <!-- 机型卡 ×8 -->
+          <div class="card">
+            <div class="mc-thumb">
+              <span class="chip green lc-chip">在售</span>
+            </div>
+            <div class="mc-body">
+              <div class="mc-name">OR-4280-G6</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>24</span><span><i>系列</i>Orion</span></div>
+              <div class="mc-base">基准配置：OR4280-24盘-双路基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip blue lc-chip">新品</span></div>
+            <div class="mc-body">
+              <div class="mc-name">OR-4326-G7</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>12</span><span><i>系列</i>Orion</span></div>
+              <div class="mc-base">基准配置：OR4326-12盘-双路基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip green lc-chip">在售</span></div>
+            <div class="mc-body">
+              <div class="mc-name">PL-2250</div>
+              <div class="mc-meta"><span><i>形态</i>4U</span><span><i>盘位</i>36</span><span><i>系列</i>Polaris</span></div>
+              <div class="mc-base">基准配置：PL2250-36盘-兆芯基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip amber lc-chip">即将停产</span></div>
+            <div class="mc-body">
+              <div class="mc-name">IN-1248</div>
+              <div class="mc-meta"><span><i>形态</i>1U</span><span><i>盘位</i>8</span><span><i>系列</i>Intel</span></div>
+              <div class="mc-base">基准配置：IN1248-8盘-单路基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb">
+              <span class="chip green lc-chip">在售</span>
+              <span class="chip gray mc-dis">已下架</span>
+            </div>
+            <div class="mc-body">
+              <div class="mc-name">WS-D640</div>
+              <div class="mc-meta"><span><i>形态</i>塔式</span><span><i>盘位</i>8</span><span><i>系列</i>工作站</span></div>
+              <div class="mc-base">基准配置：WS-D640-图形工作站基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip gray lc-chip">停产</span></div>
+            <div class="mc-body">
+              <div class="mc-name">OR-4180-G5</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>12</span><span><i>系列</i>Orion</span></div>
+              <div class="mc-base">基准配置：OR4180-12盘-双路基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip green lc-chip">在售</span></div>
+            <div class="mc-body">
+              <div class="mc-name">PL-2261</div>
+              <div class="mc-meta"><span><i>形态</i>4U</span><span><i>盘位</i>24</span><span><i>系列</i>Polaris</span></div>
+              <div class="mc-base">基准配置：PL2261-24盘-存储型基准</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="mc-thumb"><span class="chip blue lc-chip">新品</span></div>
+            <div class="mc-body">
+              <div class="mc-name">IN-2249</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>16</span><span><i>系列</i>Intel</span></div>
+              <div class="mc-base">未关联基准配置</div>
+            </div>
+            <div class="mc-foot">
+              <button class="link-btn">编辑</button>
+              <button class="link-btn danger">删除</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Tab 2 产品系列 ============ -->
+  <div class="tabpane" id="pane-series">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>产品系列</h2>
+        <div class="panel-actions"><button class="btn-primary">＋ 新建系列</button></div>
+      </div>
+      <div class="panel-body">
+        <div class="card series-row">
+          <div class="sr-thumb"><span class="g3d">GLB</span></div>
+          <div class="sr-main">
+            <div class="sr-name">Orion</div>
+            <div class="sr-desc">高密度双路机架系列，面向通用计算与虚拟化场景</div>
+          </div>
+          <div class="sr-side">
+            <span class="chip green">已配 3D 展示</span>
+            <button class="btn-ghost">编辑</button>
+          </div>
+        </div>
+        <div class="card series-row">
+          <div class="sr-thumb"><span class="g3d">GLB</span></div>
+          <div class="sr-main">
+            <div class="sr-name">Polaris</div>
+            <div class="sr-desc">兆芯平台系列，面向国产化替代场景</div>
+          </div>
+          <div class="sr-side">
+            <span class="chip green">已配 3D 展示</span>
+            <button class="btn-ghost">编辑</button>
+          </div>
+        </div>
+        <div class="card series-row">
+          <div class="sr-thumb"><span class="g3d">GLB</span></div>
+          <div class="sr-main">
+            <div class="sr-name">Intel</div>
+            <div class="sr-desc">英特尔平台通用系列，入门到中端全覆盖</div>
+          </div>
+          <div class="sr-side">
+            <span class="chip gray">未配置展示</span>
+            <button class="btn-ghost">编辑</button>
+          </div>
+        </div>
+        <div class="card series-row">
+          <div class="sr-thumb"><span class="g3d">GLB</span></div>
+          <div class="sr-main">
+            <div class="sr-name">工作站</div>
+            <div class="sr-desc">图形工作站系列，面向设计与渲染场景</div>
+          </div>
+          <div class="sr-side">
+            <span class="chip green">已配 3D 展示</span>
+            <button class="btn-ghost">编辑</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Tab 3 基准配置（表格 + BOM 模板两块面板）============ -->
+  <div class="tabpane" id="pane-base">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>基准配置</h2>
+        <div class="panel-actions"><button class="btn-primary">＋ 新建基准配置（挑件组装）</button></div>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>基准名称</th><th>系列</th><th>类型</th><th>形态</th><th>盘位</th><th>料件数</th><th>合计</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>OR4280-24盘-双路基准</td><td>Orion</td><td>机架式</td><td>2U</td><td class="tnum">24</td><td class="tnum">18</td><td class="price">¥86,420.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>OR4326-12盘-双路基准</td><td>Orion</td><td>机架式</td><td>2U</td><td class="tnum">12</td><td class="tnum">16</td><td class="price">¥72,180.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>PL2250-36盘-兆芯基准</td><td>Polaris</td><td>机架式</td><td>4U</td><td class="tnum">36</td><td class="tnum">21</td><td class="price">¥98,760.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>IN1248-8盘-单路基准</td><td>Intel</td><td>机架式</td><td>1U</td><td class="tnum">8</td><td class="tnum">13</td><td class="price">¥38,940.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>WS-D640-图形工作站基准</td><td>工作站</td><td>塔式</td><td>塔式</td><td class="tnum">8</td><td class="tnum">15</td><td class="price">¥54,300.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>PL2261-24盘-存储型基准</td><td>Polaris</td><td>机架式</td><td>4U</td><td class="tnum">24</td><td class="tnum">19</td><td class="price">¥91,250.00</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <h2>BOM 模板</h2>
+        <div class="panel-actions"><button class="btn-primary">＋ 新建模板</button></div>
+      </div>
+      <div class="panel-body">
+        <table>
+          <thead>
+            <tr><th>模板名称</th><th>行数</th><th>关联基准配置</th><th>操作</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>2U 双路标准模板<div class="cell-sub">CPU ×2 · 内存 · 24盘位 · 电源 ×2 · 风扇 …</div></td><td class="tnum">14</td><td>OR4280 / OR4326 等 3 个</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>4U 存储模板<div class="cell-sub">CPU ×2 · 36盘位 · RAID · 电源 ×2 …</div></td><td class="tnum">16</td><td>PL2250 / PL2261 等 2 个</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+            <tr><td>1U 单路精简模板<div class="cell-sub">CPU ×1 · 8盘位 · 电源 ×1 …</div></td><td class="tnum">11</td><td>IN1248</td><td><button class="link-btn">编辑</button><button class="link-btn danger">删除</button></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Tab 4 料号库 ============ -->
+  <div class="tabpane" id="pane-parts">
+    <div class="panel">
+      <div class="parts-layout">
+        <div class="pl-side">
+          <div class="pl-cat active">全部</div>
+          <div class="pl-cat">散热</div>
+          <div class="pl-cat">电源</div>
+          <div class="pl-cat">存储</div>
+          <div class="pl-cat">网络</div>
+          <div class="pl-cat">线缆</div>
+          <div class="pl-cat">结构件</div>
+          <div class="pl-cat" style="margin-top:6px; font-size:12px; color:var(--text-muted);">＋ 新增大类</div>
+        </div>
+        <div class="pl-main">
+          <div class="pl-toolbar">
+            <div class="seg2" id="ptview">
+              <div class="seg2-item active" data-v="card">卡片</div>
+              <div class="seg2-item" data-v="list">列表</div>
+            </div>
+            <div class="select">排序：默认</div>
+            <div class="spacer"></div>
+            <div class="search-box">🔍<input placeholder="搜料号 / 名称 / 规格"></div>
+            <button class="btn-ghost">⬆ 导入</button>
+            <button class="btn-ghost">⬇ 导出</button>
+            <button class="btn-primary">＋ 新增料号</button>
+          </div>
+
+          <!-- 卡片视图 -->
+          <div class="grid-cards" id="pt-cards">
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">6056-FAN-HS</div>
+              <div class="pt-name">6056高性能热插拔风扇</div>
+              <div class="pt-spec">双转子 · PWM 调速 · 8038 规格 · 适合 2U/4U 前后部散热</div>
+            </div><div class="pt-foot"><span class="chip gray">散热</span><span class="price tnum">¥185.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">PSU-800W-PLP</div>
+              <div class="pt-name">800W 铂金热插拔电源</div>
+              <div class="pt-spec">80PLUS Platinum · 1+1 冗余 · PMBus</div>
+            </div><div class="pt-foot"><span class="chip gray">电源</span><span class="price tnum">¥1,680.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">PSU-1300W-PLP</div>
+              <div class="pt-name">1300W 铂金热插拔电源</div>
+              <div class="pt-spec">80PLUS Platinum · 1+1 冗余 · GPU 机型配</div>
+            </div><div class="pt-foot"><span class="chip gray">电源</span><span class="price tnum">¥2,460.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">RAID-9361-8I</div>
+              <div class="pt-name">9361-8i RAID 卡</div>
+              <div class="pt-spec">SAS 12Gb/s · 1GB 缓存 · 8 内部端口</div>
+            </div><div class="pt-foot"><span class="chip gray">存储</span><span class="price tnum">¥4,150.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">HDD-8T-SATA-7K</div>
+              <div class="pt-name">8TB SATA 企业盘</div>
+              <div class="pt-spec">3.5" · 7200RPM · CMR · 512E</div>
+            </div><div class="pt-foot"><span class="chip gray">存储</span><span class="price tnum">¥1,290.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">SSD-960G-NVME-U2</div>
+              <div class="pt-name">960GB NVMe U.2 SSD</div>
+              <div class="pt-spec">PCIe 4.0 x4 · 三维闪存 · 1.3 DWPD</div>
+            </div><div class="pt-foot"><span class="chip gray">存储</span><span class="price tnum">¥1,050.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">NIC-X710-DA4</div>
+              <div class="pt-name">万兆四口网卡 X710-DA4</div>
+              <div class="pt-spec">PCIe 3.0 x8 · 4×SFP+ · OCP 兼容</div>
+            </div><div class="pt-foot"><span class="chip gray">网络</span><span class="price tnum">¥1,890.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">CBL-SATA-8P</div>
+              <div class="pt-name">SATA 线缆组（8盘）</div>
+              <div class="pt-spec">MiniSAS HD 转 8×SATA · 带 RAID 卡前缀</div>
+            </div><div class="pt-foot"><span class="chip gray">线缆</span><span class="price tnum">¥120.00</span></div></div>
+            <div class="card"><div class="pt-body">
+              <div class="pt-pn">RAIL-2U-TOOL</div>
+              <div class="pt-name">2U 免工具导轨</div>
+              <div class="pt-spec">方孔/圆孔机柜通用 · 承重 35kg</div>
+            </div><div class="pt-foot"><span class="chip gray">结构件</span><span class="price tnum">¥360.00</span></div></div>
+          </div>
+
+          <!-- 列表视图 -->
+          <div id="pt-list" style="display:none;">
+            <table>
+              <thead><tr><th>料号</th><th>名称</th><th>类别</th><th>规格摘要</th><th style="text-align:right;">单价</th></tr></thead>
+              <tbody>
+                <tr><td class="tnum" style="color:var(--text-muted);">6056-FAN-HS</td><td>6056高性能热插拔风扇</td><td><span class="chip gray">散热</span></td><td style="color:var(--text-secondary);">双转子 · PWM · 8038</td><td style="text-align:right;"><span class="price">¥185.00</span></td></tr>
+                <tr><td class="tnum" style="color:var(--text-muted);">PSU-800W-PLP</td><td>800W 铂金热插拔电源</td><td><span class="chip gray">电源</span></td><td style="color:var(--text-secondary);">Platinum · 1+1 冗余</td><td style="text-align:right;"><span class="price">¥1,680.00</span></td></tr>
+                <tr><td class="tnum" style="color:var(--text-muted);">PSU-1300W-PLP</td><td>1300W 铂金热插拔电源</td><td><span class="chip gray">电源</span></td><td style="color:var(--text-secondary);">Platinum · GPU 机型配</td><td style="text-align:right;"><span class="price">¥2,460.00</span></td></tr>
+                <tr><td class="tnum" style="color:var(--text-muted);">RAID-9361-8I</td><td>9361-8i RAID 卡</td><td><span class="chip gray">存储</span></td><td style="color:var(--text-secondary);">SAS 12Gb · 1GB 缓存</td><td style="text-align:right;"><span class="price">¥4,150.00</span></td></tr>
+                <tr><td class="tnum" style="color:var(--text-muted);">HDD-8T-SATA-7K</td><td>8TB SATA 企业盘</td><td><span class="chip gray">存储</span></td><td style="color:var(--text-secondary);">3.5" · 7200RPM · CMR</td><td style="text-align:right;"><span class="price">¥1,290.00</span></td></tr>
+                <tr><td class="tnum" style="color:var(--text-muted);">NIC-X710-DA4</td><td>万兆四口网卡 X710-DA4</td><td><span class="chip gray">网络</span></td><td style="color:var(--text-secondary);">PCIe 3.0 x8 · 4×SFP+</td><td style="text-align:right;"><span class="price">¥1,890.00</span></td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Tab 5 图纸配置 ============ -->
+  <div class="tabpane" id="pane-drawing">
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <h2>图纸配置</h2>
+          <div class="hint">上传机型 SVG 图纸并圈出区域（盘位 / CPU·内存 / 风扇 / 电源 / IO…），选型配置页点击区域可查看相关规则。点卡片进入对应机型的图纸编辑器。</div>
+        </div>
+        <div class="panel-actions">
+          <div class="seg2" id="sdpf">
+            <div class="seg2-item active" data-f="all">全部</div>
+            <div class="seg2-item" data-f="ok">已上传</div>
+            <div class="seg2-item" data-f="no">未上传</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel-body">
+        <div class="sdp-grid">
+          <div class="card sdp-item" data-st="ok">
+            <div class="sdp-thumb"><span class="chip green sdp-status">已上传图纸</span></div>
+            <div class="mc-body">
+              <div class="mc-name">OR-4280-G6</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>24</span><span><i>系列</i>Orion</span></div>
+            </div>
+          </div>
+          <div class="card sdp-item" data-st="ok">
+            <div class="sdp-thumb"><span class="chip green sdp-status">已上传图纸</span></div>
+            <div class="mc-body">
+              <div class="mc-name">OR-4326-G7</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>12</span><span><i>系列</i>Orion</span></div>
+            </div>
+          </div>
+          <div class="card sdp-item" data-st="ok">
+            <div class="sdp-thumb"><span class="chip green sdp-status">已上传图纸</span></div>
+            <div class="mc-body">
+              <div class="mc-name">PL-2250</div>
+              <div class="mc-meta"><span><i>形态</i>4U</span><span><i>盘位</i>36</span><span><i>系列</i>Polaris</span></div>
+            </div>
+          </div>
+          <div class="card sdp-item" data-st="no">
+            <div class="sdp-thumb"><span class="chip gray sdp-status">未上传</span><span class="svg-tag">SVG</span></div>
+            <div class="mc-body">
+              <div class="mc-name">IN-1248</div>
+              <div class="mc-meta"><span><i>形态</i>1U</span><span><i>盘位</i>8</span><span><i>系列</i>Intel</span></div>
+            </div>
+          </div>
+          <div class="card sdp-item" data-st="ok">
+            <div class="sdp-thumb"><span class="chip green sdp-status">已上传图纸</span></div>
+            <div class="mc-body">
+              <div class="mc-name">WS-D640</div>
+              <div class="mc-meta"><span><i>形态</i>塔式</span><span><i>盘位</i>8</span><span><i>系列</i>工作站</span></div>
+            </div>
+          </div>
+          <div class="card sdp-item" data-st="no">
+            <div class="sdp-thumb"><span class="chip gray sdp-status">未上传</span><span class="svg-tag">SVG</span></div>
+            <div class="mc-body">
+              <div class="mc-name">IN-2249</div>
+              <div class="mc-meta"><span><i>形态</i>2U</span><span><i>盘位</i>16</span><span><i>系列</i>Intel</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Tab 6 门户设置 ============ -->
+  <div class="tabpane" id="pane-portal">
+    <div class="panel">
+      <div class="panel-head">
+        <h2>门户设置</h2>
+        <div class="panel-actions"><button class="btn-primary">保存</button></div>
+      </div>
+      <div class="panel-body">
+        <div class="form-row">
+          <span class="form-label">标题</span>
+          <div class="text-input"><input value="配置一台服务器"></div>
+          <span class="proto-note">留空 = 门户回落内置默认标题</span>
+        </div>
+        <div class="form-row" style="align-items:flex-start;">
+          <span class="form-label" style="padding-top:6px;">轮播图</span>
+          <div class="banner-strip">
+            <div class="bn-item">
+              <div class="bn-thumb">
+                <div class="bn-ops"><button title="复制链接">⧉</button><button title="前移">←</button><button title="后移">→</button><button title="移出">✕</button></div>
+              </div>
+              <div class="bn-sub"><input placeholder="副标题（随图展示，可留空）"></div>
+            </div>
+            <div class="bn-item">
+              <div class="bn-thumb" style="background:linear-gradient(140deg,#1f4d7a,#0e2138 70%);">
+                <div class="bn-ops"><button>⧉</button><button>←</button><button>→</button><button>✕</button></div>
+              </div>
+              <div class="bn-sub"><input placeholder="副标题（随图展示，可留空）"></div>
+            </div>
+            <div class="bn-item">
+              <div class="bn-thumb" style="background:linear-gradient(140deg,#3a2f6b,#140f2b 70%);">
+                <div class="bn-ops"><button>⧉</button><button>←</button><button>→</button><button>✕</button></div>
+              </div>
+              <div class="bn-sub"><input placeholder="副标题（随图展示，可留空）"></div>
+            </div>
+          </div>
+        </div>
+        <div class="form-row">
+          <span class="form-label">按链接添加</span>
+          <div class="text-input" style="width:420px;"><input placeholder="粘贴本站 /api/... 或外部 http 图直链"></div>
+          <button class="btn-ghost">添加</button>
+        </div>
+        <div class="form-row" style="align-items:flex-start; margin-bottom:0;">
+          <span class="form-label" style="padding-top:4px;">已上传图库</span>
+          <div style="flex:1;">
+            <div class="lib-grid">
+              <div class="lib-item" style="background:linear-gradient(140deg,#16324f,#0b1526 70%);"><span class="in-banner">已在轮播</span></div>
+              <div class="lib-item" style="background:linear-gradient(140deg,#1f4d7a,#0e2138 70%);"><span class="in-banner">已在轮播</span></div>
+              <div class="lib-item" style="background:linear-gradient(140deg,#3a2f6b,#140f2b 70%);"><span class="in-banner">已在轮播</span></div>
+              <div class="lib-item" style="background:linear-gradient(140deg,#2a5a46,#0d1f18 70%);"></div>
+              <div class="lib-item" style="background:linear-gradient(140deg,#6b4a2f,#23160c 70%);"></div>
+              <div class="lib-item add">＋ 从图库添加</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+</div>
+
+<script>
+/* Tab 切换 */
+const tabs = document.getElementById('tabs');
+tabs.addEventListener('click', (e) => {
+  const t = e.target.closest('.admin-tab'); if (!t) return;
+  tabs.querySelectorAll('.admin-tab').forEach(x => x.classList.toggle('active', x === t));
+  document.querySelectorAll('.tabpane').forEach(p => p.classList.remove('show'));
+  document.getElementById('pane-' + t.dataset.tab).classList.add('show');
+});
+/* 明暗主题 */
+function setTheme(t) {
+  document.documentElement.dataset.theme = t;
+  document.getElementById('th-light').classList.toggle('active', t === 'light');
+  document.getElementById('th-dark').classList.toggle('active', t === 'dark');
+}
+/* 图纸筛选 */
+const sdpf = document.getElementById('sdpf');
+sdpf.addEventListener('click', (e) => {
+  const it = e.target.closest('.seg2-item'); if (!it) return;
+  sdpf.querySelectorAll('.seg2-item').forEach(x => x.classList.toggle('active', x === it));
+  const f = it.dataset.f;
+  document.querySelectorAll('.sdp-item').forEach(c => {
+    c.style.display = (f === 'all' || c.dataset.st === f) ? '' : 'none';
+  });
+});
+/* 料号库卡片/列表切换 */
+const ptv = document.getElementById('ptview');
+ptv.addEventListener('click', (e) => {
+  const it = e.target.closest('.seg2-item'); if (!it) return;
+  ptv.querySelectorAll('.seg2-item').forEach(x => x.classList.toggle('active', x === it));
+  document.getElementById('pt-cards').style.display = it.dataset.v === 'card' ? '' : 'none';
+  document.getElementById('pt-list').style.display = it.dataset.v === 'list' ? '' : 'none';
+});
+</script>
+</body>
+</html>

@@ -154,7 +154,14 @@ def build_plan(baseline: dict, kp_parts: list[dict], psu_wattage: Optional[str] 
     try:
         from app.services.plan_rule_apply import apply_plan_selection_rules
         signal_plan = {"chassis_signals": chassis_signals}
-        apply_plan_selection_rules(signal_plan, matched_kp, baseline)
+        # 能力字段以 DB 基准配置行为权威补齐（baseline 来自候选层，可能缺 gpu_slots/bays/psu_bays），
+        # 让「GPU/盘/电源 超上限」类规则在 AI 方案链路同样触发
+        rule_baseline = dict(baseline)
+        for k in ("max_cpu", "max_dimm", "gpu_slots", "psu_bays", "bays"):
+            if full.get(k) is not None:
+                rule_baseline[k] = full[k]
+        rule_baseline["psu_qty"] = int(psu_qty) if psu_qty is not None else int(full.get("psu_bays") or 0)
+        apply_plan_selection_rules(signal_plan, matched_kp, rule_baseline)
         chassis_signals = signal_plan.get("chassis_signals") or chassis_signals
         selection_alerts = signal_plan.get("selection_alerts") or []
     except Exception:

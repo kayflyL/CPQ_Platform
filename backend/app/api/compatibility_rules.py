@@ -4,10 +4,13 @@ type: require(必配) / exclude(互斥) / derive(派生) / filter(过滤) / reco
 status: draft / testing / active / archived（只有 active 被执行器引用）
 body: {when:{all/any:[{field,op,value}]}, then:{action,...}, desc}
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from app.repository.compatibility_rule_repo import CompatibilityRuleRepository
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/compatibility-rules", tags=["compatibility-rules"])
+# 默认登录门槛；规则 CRUD 收「解决方案」页权限（选型配置所在域）。
+router = APIRouter(prefix="/api/compatibility-rules", tags=["compatibility-rules"],
+                   dependencies=[Depends(get_current_user)])
 
 _VALID_STATUS = {"draft", "testing", "active", "archived"}
 _VALID_TYPE = {"require", "exclude", "derive", "filter", "recommend"}
@@ -51,7 +54,7 @@ def get_knowledge_bindings():
                        for g in KNOWLEDGE_GROUPS]}
 
 
-@router.put("/knowledge/bindings")
+@router.put("/knowledge/bindings", dependencies=[Depends(require_perms("page.strategies"))])
 def put_knowledge_bindings(data: dict):
     """写单节点绑定：{node_key, groups, rule_ids}（组绑定 ∪ 单条勾选）；
     两者皆空 = 该节点解绑。其他节点绑定不动。"""
@@ -78,7 +81,7 @@ def get_rule(rule_id: int):
         repo.close()
 
 
-@router.post("/")
+@router.post("/", dependencies=[Depends(require_perms("page.strategies"))])
 def create_rule(data: dict):
     for k in ("type", "name"):
         if not data.get(k):
@@ -92,7 +95,7 @@ def create_rule(data: dict):
         repo.close()
 
 
-@router.put("/{rule_id}")
+@router.put("/{rule_id}", dependencies=[Depends(require_perms("page.strategies"))])
 def update_rule(rule_id: int, data: dict):
     repo = CompatibilityRuleRepository()
     try:
@@ -104,7 +107,7 @@ def update_rule(rule_id: int, data: dict):
         repo.close()
 
 
-@router.post("/{rule_id}/status")
+@router.post("/{rule_id}/status", dependencies=[Depends(require_perms("page.strategies"))])
 def set_status(rule_id: int, data: dict):
     status = data.get("status")
     if status not in _VALID_STATUS:
@@ -119,7 +122,7 @@ def set_status(rule_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/{rule_id}")
+@router.delete("/{rule_id}", dependencies=[Depends(require_perms("page.strategies"))])
 def delete_rule(rule_id: int):
     repo = CompatibilityRuleRepository()
     try:

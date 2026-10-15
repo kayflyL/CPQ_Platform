@@ -161,8 +161,15 @@ def main() -> int:
     filled2 = fill_snapshot(snap, binds, data, cfg, masked_fields=masked, region_fields=region)
     cs2 = next(s for s in filled2["sheets"].values() if s.get("_config_name"))
     print("== 客户版 ==")
-    hd = {int(k) for k, v in cs2.get("columnData", {}).items() if v.get("hd") == 1}
-    check("G/H/I 整列隐藏", hd == {6, 7, 8}, f"hd={sorted(hd)}")
+    # 整列物理删除（非 hd 隐藏）：G/H/I 连表头带列宽从文件中消失，防解除隐藏泄密
+    hdr_del = [cell(cs2, 4, i) for i in range(4, 9)]
+    check("G/H/I 列已删除", hdr_del == ["Unit Price", "Total Price", None, None, None], f"@4={hdr_del}")
+    cd2 = cs2.get("columnData") or {}
+    check("G/H/I 列宽无残留+无hd", all(str(i) not in cd2 for i in (6, 7, 8))
+          and not any(v.get("hd") for v in cd2.values()),
+          f"columnData keys={sorted(cd2.keys(), key=int)}")
+    check("columnCount 收敛-3", cs2.get("columnCount") == (cs.get("columnCount") or 0) - 3,
+          f"{cs2.get('columnCount')} vs {cs.get('columnCount')}")
     hdr_rows = {4, kp_hdr_row}
     blank_ok = all(cell(cs2, r, c) in (None, "")
                    for r in range(l6_start, kp_end + 1) for c in (4, 5) if r not in hdr_rows)
@@ -171,6 +178,28 @@ def main() -> int:
     # 头部信息静态绑定无 sens_group，客户版不得随 cost 列陪葬
     hdr_vals2 = [cell(cs2, r, 5) for r in range(3)]
     check("头部信息客户版恒显", all(v not in (None, "") for v in hdr_vals2), f"F={hdr_vals2}")
+    # 封面：综合利润率列整列删除，五列明细表与标题合并区原样
+    cover2 = filled2["sheets"]["sheet-1"]
+    cover_hdr = [cell(cover2, 4, i) for i in range(6)]
+    check("封面 G 列已删除", cover_hdr == ["序号", "型号", "描述", "含税单价", "数量", "含税总价"]
+          and all(cell(cover2, r, 6) is None for r in range(5)),
+          f"@4={cover_hdr} G0-4={[cell(cover2, r, 6) for r in range(5)]}")
+    check("封面标题合并区完好", any(m.get("startRow") == 0 and m.get("startColumn") == 0
+                                    and m.get("endColumn") == 5 for m in (cover2.get("mergeData") or [])),
+          f"merges={cover2.get('mergeData')}")
+
+    # ── 客户版·空数据（回归：无配置数据时敏感列同样摘除——此前掩蔽被整体跳过，表头漏出）──
+    empty_data = {k: [] for k in data}
+    masked3, region3 = build_masks([])
+    filled3 = fill_snapshot(snap, binds, empty_data, cfg, masked_fields=masked3, region_fields=region3)
+    cover3 = filled3["sheets"]["sheet-1"]
+    cs3 = filled3["sheets"]["sheet-2"]
+    print("== 客户版·空数据 ==")
+    check("空数据·封面G列删除", cell(cover3, 4, 5) == "含税总价" and cell(cover3, 4, 6) is None,
+          f"F5={cell(cover3, 4, 5)} G5={cell(cover3, 4, 6)}")
+    check("空数据·配置页G/H/I删除", cell(cs3, 4, 5) == "Total Price"
+          and all(cell(cs3, 4, i) is None for i in (6, 7, 8)),
+          f"F5={cell(cs3, 4, 5)} G/H/I@4={[cell(cs3, 4, i) for i in (6, 7, 8)]}")
 
     print("\n" + ("✅ 全部通过" if ok else "❌ 存在失败项"))
     return 0 if ok else 1

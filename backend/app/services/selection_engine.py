@@ -341,11 +341,14 @@ def plan_rule_context(kp_parts: list, baseline: Optional[dict] = None) -> dict:
         for k in ("series", "model", "form"):
             if baseline.get(k):
                 config[k] = baseline[k]
-        # 机型能力约束（基准配置页可配）：CPU 颗数上限 / 内存条数上限，供「超上限」校验规则寻址
+        # 机型能力约束（基准配置页可配）：供「超上限」校验规则寻址（与前端 ConfigWizard/Workspace 注入同源同语义）
         if baseline.get("max_cpu"):
             config["max_cpu"] = int(baseline["max_cpu"])
         if baseline.get("max_dimm"):
             config["max_dimm"] = int(baseline["max_dimm"])
+        for k in ("gpu_slots", "psu_bays", "bays", "psu_qty"):
+            if baseline.get(k):
+                config[k] = int(baseline[k])
     return {"kp": kp, "config": config, "opportunity": {}}
 
 

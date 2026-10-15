@@ -11,6 +11,7 @@
             v-for="name in Object.keys(store.configs)"
             :key="name"
             class="cfg-pill"
+            :data-cfg="name"
             :class="{ active: activeCfg === name }"
             @click="activeCfg = name"
             @dblclick="startRename(name as string)"
@@ -256,7 +257,10 @@
                                 {{ item.match_status }}
                               </span>
                               <div class="ops-btns">
-                                <a-button v-if="kpSyncable(item)" size="small" type="primary" ghost @click="openSyncModal(item)">
+                                <a-button v-if="kpActionOf(item) === 'adopt'" size="small" type="primary" ghost @click="openAdoptModal(item)">
+                                  采纳库价
+                                </a-button>
+                                <a-button v-else-if="kpActionOf(item) !== 'none'" size="small" type="primary" ghost @click="openSyncModal(item)">
                                   {{ isNewPart(item) ? '入库新配件' : '同步价格' }}
                                 </a-button>
                                 <a-button size="small" type="link" class="hist-btn" @click="openKpHistory(item)">
@@ -280,6 +284,7 @@
                     :cat="cat"
                     :step-num="i + 2"
                     :lines="kpLinesForCat(cfg, cat)"
+                    :max-qty="maxQtyFor(cfg, cat)"
                     :picker-items="pickerCatalog[cat] || []"
                     :price-of="priceOf"
                     :removable="!CORE_KP_CATS.includes(cat)"
@@ -520,8 +525,22 @@
         </div>
       </template>
 
+      <!-- 空态：直接访问无报价数据时给出引导（新建配置可独立开始） -->
+      <div v-if="!Object.keys(store.configs).length" class="ws-empty glass">
+        <b>尚无报价配置</b>
+        <p>从商机详情进入可带出商机数据；也可以直接新建一个配置开始报价。</p>
+        <button type="button" class="primary-btn" @click="addConfig">＋ 新建配置</button>
+      </div>
+
       <!-- 底部垫高 -->
       <div style="height: 80px;"></div>
+    </div>
+
+    <!-- 外发审批锁定条（desktop）：pending 期间禁改价/禁导出/禁发送；手机端在「定价与利润」抽屉里有同款 -->
+    <div v-if="!isMobile && outboundLockText" class="outbound-lock glass">
+      <span class="ol-pill">审批中</span>
+      <span>{{ outboundLockText }}</span>
+      <span class="ol-hash">内容指纹 {{ outboundState?.content_hash }}</span>
     </div>
 
     <!-- 底部悬浮操作栏（手机端动作移入摘要条与右抽屉） -->
@@ -687,9 +706,22 @@
             </a-select-opt-group>
           </a-select>
           <a-button block style="margin-top: 8px" :disabled="!priceVisible" :loading="previewLoading" @click="handlePreview">预览</a-button>
+          <div v-if="outboundLockText" class="outbound-lock" style="margin-top: 8px;">
+            <span class="ol-pill">审批中</span>
+            <span>已等待 {{ Math.max(1, Math.round(outboundState?.waited_hours || 0)) }} 小时 · 责任人 {{ outboundState?.approval?.assigned_name || '全体审批人' }}</span>
+          </div>
         </div>
       </div>
     </a-drawer>
+
+    <!-- 外发审批发起弹窗（公共组件，发送闸复用同一弹窗） -->
+    <OutboundApprovalModal
+      v-model:open="approvalModalOpen"
+      :opportunity-id="store.opportunityInfo?.opportunity_id || ''"
+      :quotation-id="store.opportunityInfo?.quotation_id || (route.query.quotationId as string) || ''"
+      :quotation-label="`${store.opportunityInfo?.model_name || ''} · ${store.opportunityInfo?.quotation_id || ''}`"
+      @submitted="loadOutboundState"
+    />
 
     <!-- 手机端底部 sticky 摘要条：BOM 入口 / 含税总价+毛利 / 保存 -->
     <div v-if="isMobile" class="sumbar">
@@ -714,7 +746,7 @@
       :width="'95vw'"
       :ok-text="previewType === 'spec' ? '打印为 PDF' : '下载 Excel'"
       cancel-text="关闭"
-      :confirm-loading="previewType === 'spec' ? false : exportDownloading"
+      :confirm-loading="previewType === 'spec' ? specPrinting : exportDownloading"
       @ok="handleModalOk"
       :destroyOnClose="true"
       style="top: 20px"
@@ -854,6 +886,14 @@
             <span v-else class="price-hidden">***</span>
           </span>
         </div>
+        <div v-if="dbPriceOf(syncTarget) != null" class="sync-row">
+          <span class="sync-label">库当前最新</span>
+          <span class="sync-val">
+            {{ currencySymbol(syncTarget.db_currency) }}{{ settingsStore.formatNumber(Number(syncTarget.db_price) || 0) }}
+            <span class="sync-db-date">@{{ syncTarget.db_price_date || '?' }}</span>
+            <a-button size="small" type="link" class="adopt-link" @click="adoptFromSyncModal">改用库价</a-button>
+          </span>
+        </div>
         <div class="sync-row sync-note">
           <span class="sync-label">备注</span>
           <a-textarea
@@ -868,6 +908,44 @@
           配件库无此型号，确认后将<strong>创建一条新配件记录</strong>并写入其首条价格历史。如需补全 brand / 规格，可在管理面「配件管理」编辑该新件。
         </div>
         <div class="sync-hint" v-else>确认后将把以上价格与备注写入配件库该型号的价格历史。</div>
+      </div>
+    </a-modal>
+
+    <!-- KP 采纳库价弹窗（库→行，方向与同步相反；旧单解冻后行价过时时引导用） -->
+    <a-modal
+      v-model:open="adoptVisible"
+      title="采纳配件库最新价"
+      :width="460"
+      ok-text="采纳"
+      cancel-text="取消"
+      @ok="confirmAdopt"
+    >
+      <div v-if="adoptTarget" class="sync-modal">
+        <div class="sync-row">
+          <span class="sync-label">型号</span>
+          <span class="sync-val">{{ adoptTarget.catalogue }}</span>
+        </div>
+        <div class="sync-row">
+          <span class="sync-label">行当前价</span>
+          <span class="sync-val">
+            <template v-if="priceVisible">{{ currencySymbol(adoptTarget.currency) }}{{ settingsStore.formatNumber(Number(adoptTarget.base_price) || 0) }}</template>
+            <span v-else class="price-hidden">***</span>
+          </span>
+        </div>
+        <div class="sync-row">
+          <span class="sync-label">库最新价</span>
+          <span class="sync-val">
+            <template v-if="priceVisible">
+              {{ currencySymbol(adoptTarget.db_currency) }}{{ settingsStore.formatNumber(Number(adoptTarget.db_price) || 0) }}
+              <span class="sync-db-date">@{{ adoptTarget.db_price_date || '?' }}</span>
+            </template>
+            <span v-else class="price-hidden">***</span>
+          </span>
+        </div>
+        <div v-if="adoptOthers.length && priceVisible" class="sync-row">
+          <a-checkbox v-model:checked="adoptIncludeOthers">一并采纳同型号其他 {{ adoptOthers.length }} 行</a-checkbox>
+        </div>
+        <div class="sync-hint">采纳会把库最新价折算为本行币种回填原始单价并重算，<strong>不会写配件库</strong>。</div>
       </div>
     </a-modal>
 
@@ -933,7 +1011,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onBeforeUnmount, computed, h, nextTick, defineAsyncComponent } from 'vue'
+import { ref, reactive, onMounted, onBeforeUnmount, computed, h, nextTick, watch, defineAsyncComponent } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useQuoteStore, type ConfigData, type Item } from '@/store/quote'
 import { usePricingRulesStore } from '@/stores/pricingRules'
@@ -957,8 +1035,12 @@ import { partsApi } from '@/api/serverConfig'
 import { syncKpPrice, getKpHistory, updateKpPriceHistory, normalizeKpCategory } from '@/api/quote'
 import { quotationApi } from '@/api'
 import { downloadBlob } from '@/utils/download'
-import { calcUnitCost, computeKpMatch, isNewPart, kpSyncable, matchClass, rmbToBasePrice, safeServerModelFilename } from '@/utils/quoteCommon'
+import { buildPrintTitle, exportSpecPdf } from '@/utils/printExport'
+import { calcUnitCost, computeKpMatch, currencySymbol, dbPriceOf, isNewPart, kpPriceAction, matchClass, rmbToBasePrice, safeServerModelFilename } from '@/utils/quoteCommon'
 import { feedApi } from '@/api/feed'
+import { portalApi } from '@/api/portal'
+import type { OutboundApprovalState } from '@/api/portal'
+import OutboundApprovalModal from '@/components/quotation/OutboundApprovalModal.vue'
 import { fromPartMaster } from '@/composables/usePartAdapter'
 import type { PickerItem } from '@/types/picker'
 import type { GpuArch } from '@/composables/useServerConfig'
@@ -981,6 +1063,12 @@ const route = useRoute()
 const router = useRouter()
 const activeCfg = ref('CFG1')
 const leftCollapsed = ref(false)
+// 配置页多时 pill 条横向滚动：切换/新增后把激活页签滚回可视区，否则末尾新页签藏在滚动区外
+watch(activeCfg, async (name) => {
+  await nextTick()
+  document.querySelector(`.cfg-pill[data-cfg="${CSS.escape(name)}"]`)
+    ?.scrollIntoView({ inline: 'nearest', block: 'nearest' })
+})
 
 // 导出模板相关（Excel + 规格书两套，选择器合并；value 编码 'excel:5' / 'spec:3' 消歧 id 重叠）
 const templates = ref<any[]>([])
@@ -1116,7 +1204,8 @@ async function saveHistEdit() {
         if ((it.catalogue || '') !== model) continue
         it.db_price = latest ? Number(latest.price) : null
         it.db_currency = latest ? (latest.currency || 'RMB') : null
-        computeKpMatch(it)
+        it.db_price_date = latest ? (latest.date || '') : ''
+        refreshKpMatch(it)
       }
     }
     histEditingId.value = null
@@ -1285,11 +1374,58 @@ const handlePreview = async () => {
 
 // 模态框确认按钮：Excel → 下载 xlsx，规格书 → 打印为 PDF
 function handleModalOk() {
-  if (previewType.value === 'spec') handlePrintSpec()
+  void gatedExport(previewType.value === 'spec' ? 'spec' : 'excel')
+}
+
+// ── 报价外发审批闸（客户版导出/规格书 PDF 前置；对内版豁免）──
+// 批准 = 对内容指纹的外发许可；改价失配自动失效重批。无许可 → 弹审批发起窗。
+const outboundState = ref<OutboundApprovalState | null>(null)
+const approvalModalOpen = ref(false)
+
+async function loadOutboundState() {
+  const oid = store.opportunityInfo?.opportunity_id
+  const qid = store.opportunityInfo?.quotation_id || (route.query.quotationId as string)
+  if (!oid || !qid) return
+  try {
+    outboundState.value = await portalApi.outboundApprovalStatus(oid, qid)
+  } catch { /* 状态拉取失败不阻塞导出面板，闸以后端冻结端点为准 */ }
+}
+onMounted(loadOutboundState)
+
+const outboundLockText = computed(() => {
+  const st = outboundState.value
+  if (!st || st.state !== 'pending' || st.bypass) return ''
+  const assignee = st.approval?.assigned_name || '全体审批人（先到先批）'
+  return `外发审批中 · 已等待 ${Math.max(1, Math.round(st.waited_hours))} 小时 · 责任人 ${assignee} —— 期间禁改价/禁导出/禁发送`
+})
+
+async function gatedExport(kind: 'excel' | 'spec') {
+  if (kind === 'excel' && isInternalVersion.value) {
+    runExport(kind)
+    return
+  }
+  await loadOutboundState()
+  const st = outboundState.value
+  if (st?.state === 'approved' || st?.bypass) {
+    runExport(kind)
+    return
+  }
+  if (st?.state === 'pending') {
+    previewVisible.value = false
+    message.info(outboundLockText.value || '外发审批进行中，批准后即可导出')
+    return
+  }
+  // 未获许可（未发起/被驳回/批准后改价失效）：收起预览，弹审批发起窗
+  previewVisible.value = false
+  approvalModalOpen.value = true
+}
+
+function runExport(kind: 'excel' | 'spec') {
+  if (kind === 'spec') handlePrintSpec()
   else handleDownloadExport()
 }
 
-// 规格书打印：Teleport overlay + window.print，复用 SpecSheet 的 @media print 规则（同 SpecTemplateEditor）
+// 规格书打印：优先服务端 Playwright 直出 PDF（文件名确定），后端不可用回退浏览器打印对话框（同 SpecTemplateEditor）
 async function handlePrintSpec() {
   if (!specPreviewConfigs.value.length) {
     message.warning('暂无可打印的配置数据')
@@ -1298,19 +1434,26 @@ async function handlePrintSpec() {
   printMode.value = true
   await nextTick()
   fitPagesForPrint()
-  const prevTitle = document.title
-  document.title = buildPrintTitle()
-  window.addEventListener('afterprint', () => {
-    document.title = prevTitle
-    printMode.value = false
-  }, { once: true })
-  window.print()
-}
-
-function buildPrintTitle() {
-  const b = specPreviewTemplate.value?.branding
-  const date = new Date().toLocaleDateString('zh-CN')
-  return [b?.doc_title || '规格书', b?.company_name, date].filter((s) => s && s.trim()).join('-')
+  const title = buildPrintTitle(specPreviewTemplate.value?.branding)
+  specPrinting.value = true
+  try {
+    await exportSpecPdf(title)
+    message.success(`已导出 ${title}.pdf`)
+    previewVisible.value = false
+  } catch {
+    // 后端渲染不可用时回退浏览器打印对话框（「另存为 PDF」用 document.title 当文件名）
+    const prevTitle = document.title
+    document.title = title
+    window.addEventListener('afterprint', () => {
+      document.title = prevTitle
+      printMode.value = false
+    }, { once: true })
+    window.print()
+    return
+  } finally {
+    specPrinting.value = false
+  }
+  printMode.value = false
 }
 
 // 打印前按 A4 可打印区缩放每个配置页，保证「一配置一页」、末尾不溢出
@@ -1339,6 +1482,7 @@ function fitPagesForPrint() {
 // 预览弹窗内「下载 Excel」：从 live Univer 实例读已解析样式 → exceljs 写出（WYSIWYG）
 const previewSheetRef = ref<any>(null)
 const exportDownloading = ref(false)
+const specPrinting = ref(false)
 async function handleDownloadExport() {
   const wb = previewSheetRef.value?.getResolvedWorkbook?.()
   if (!wb || !wb.sheets.length) {
@@ -1389,6 +1533,23 @@ function modelInfoOf(cfg: ConfigData) {
     bays: bc?.bays ?? cached?.bays ?? null,
     base_config_name: bc?.name || cached?.name || '',
   }
+}
+
+// 基准配置能力档案（机型目录 list 附带 base_config）：KP 卡数量上限 + 规则上下文共用
+function baseConfigOf(cfg: ConfigData): any {
+  const model = serverModels.value.find((m) => m.id === cfg.server_model_id)
+    || serverModels.value.find((m) => m.name === cfg.server_model)
+  return (model as any)?.base_config || {}
+}
+// KP 卡数量上限（同 ConfigWizard.maxQtyFor）：CPU→max_cpu / Memory→max_dimm / GPU→gpu_slots / HDD-SSD→bays；未配置 → 不限
+const CAP_MAX_FIELD: Record<string, 'max_cpu' | 'max_dimm' | 'gpu_slots' | 'bays'> = {
+  CPU: 'max_cpu', Memory: 'max_dimm', GPU: 'gpu_slots', 'HDD/SSD': 'bays',
+}
+function maxQtyFor(cfg: ConfigData, cat: string): number | undefined {
+  const f = CAP_MAX_FIELD[cat]
+  if (!f) return undefined
+  const v = Number(baseConfigOf(cfg)?.[f])
+  return Number.isFinite(v) && v > 0 ? v : undefined
 }
 
 // 组装成本快照：逐配置 getConfigTotals + 机箱分段 + 财务常量，跨配置汇总
@@ -1788,6 +1949,11 @@ function kpSummaryFor(cfg: ConfigData) {
 }
 
 const handleSave = async () => {
+  // 外发审批 pending 期间报价单锁定（后端 items 端点同闸）；免审批权限者不受限
+  if (outboundState.value?.state === 'pending' && !outboundState.value?.bypass) {
+    message.warning('外发审批进行中，报价单已锁定（禁改价）；批准后再修改')
+    return
+  }
   // 机箱按 4 部段（基准/前面板/后面板/电源）判 0；KP 等非机箱配件仍逐条列。
   // 机箱成本真实来源是 4 步选配的 l6_custom_price，cfg.items 里的 L6/整机 行（Excel 原版）不作为逐条判据。
   const blocks: { cfg: string; zeroSections: string[]; l6Coarse: number; kpParts: string[] }[] = []
@@ -1938,6 +2104,7 @@ function buildRuleContext(cfg: ConfigData) {
     if (kind && driveQty[kind] != null) driveQty[kind] += Number(it.qty) || 0
   }
   const drive_kinds = (Object.keys(driveQty) as string[]).filter(k => driveQty[k] > 0)
+  const cap = baseConfigOf(cfg)
   return {
     kp,
     config: {
@@ -1947,6 +2114,14 @@ function buildRuleContext(cfg: ConfigData) {
       sas_qty: driveQty.SAS,
       nvme_qty: driveQty.NVMe,
       drive_kinds,
+      // 机型能力档案注入：让「CPU/内存/GPU/盘/电源 超上限」类规则在工作台同样触发（此前缺失 → 规则静默不命中）
+      max_cpu: cap.max_cpu,
+      max_dimm: cap.max_dimm,
+      max_tdp: cap.max_tdp,
+      gpu_slots: cap.gpu_slots,
+      psu_bays: cap.psu_bays,
+      bays: cap.bays,
+      psu_qty: Number((cfg as any).bom_context?.psu_qty || 0),
     },
     opportunity: {},
   }
@@ -2002,9 +2177,30 @@ const onHistoryExpand = async (item: Item, keys: string[]) => {
   }
 }
 
+// ── KP 行价方向判定 ──
+// 行价锚点：行级 price_set_at（改过价的行自带）→ 单据 exported_at（解冻后为空）→ created_at。
+// 会话内改价（手填/同步/采纳）直接盖 price_set_at=now，保存时后端按同一 diff 规则复核落库。
+function rowPriceAnchor(item: Item): string {
+  return item.price_set_at || store.quotationExportedAt || store.quotationCreatedAt || ''
+}
+function refreshKpMatch(item: Item) {
+  computeKpMatch(item, rowPriceAnchor(item))
+}
+function kpActionOf(item: Item) {
+  return kpPriceAction(item, rowPriceAnchor(item))
+}
+// 本地时间 ISO（无时区后缀），与后端 datetime.now().isoformat() 同格式——
+// 行价锚点要与库价日期、单据 created_at 同一时区口径比新旧，用 UTC 会差一天
+function nowIso() {
+  const d = new Date()
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
 // 加载报价单后：并行刷新所有 KP 行的配件库最新价（db_price）。
 // db_price 原本是上传 enrich 的冻结快照，配件库后续更新或持久化往返（丢成空串）都会让它失真；
 // 实时按 spec 拉一次历史取首条最新价覆盖，同步按钮的显隐才与「配件库当前最新价」一致。
+// db_price_date 一并记下（库最新价的日期），行价方向判定（同步 or 采纳）靠它和行锚点比新旧。
 async function refreshKpDbPrices() {
   const tasks: Promise<void>[] = []
   for (const cfg of Object.values(store.configs)) {
@@ -2019,7 +2215,8 @@ async function refreshKpDbPrices() {
           const n = latest ? Number(latest.price) : null
           item.db_price = (n == null || !Number.isFinite(n)) ? null : n
           item.db_currency = latest ? (latest.currency || 'RMB') : null
-          computeKpMatch(item)
+          item.db_price_date = latest ? (latest.date || '') : ''
+          refreshKpMatch(item)
         } catch { /* 单条失败保留原 db_price，不阻塞其他行 */ }
       })())
     }
@@ -2033,10 +2230,12 @@ function kpExcelRows(cfg: any) {
 }
 
 // 手工补/改行原始单价：输入口径=工作台统一的 RMB 含税价（所见即所改），USD 行反解回原币种 base_price；
-// 补价后 match_status 重算（❌ 缺失 → 🆕 新部件，同步按钮随之可用）
+// 补价后 match_status 重算（❌ 缺失 → 🆕 新部件，同步按钮随之可用）。
+// 改价即盖行价锚点=now：本会话内方向判定立即视为「行价新」，保存时后端同规则复核落库。
 function onKpRawPriceInput(item: Item, v: any) {
   item.base_price = rmbToBasePrice(v, item.currency, store.exchangeRate, store.taxRate)
-  computeKpMatch(item)
+  item.price_set_at = nowIso()
+  refreshKpMatch(item)
   store.recalculateAll()
 }
 
@@ -2084,6 +2283,7 @@ async function confirmSync() {
   const currency = syncCurrency.value === 'USD' ? 'USD' : 'RMB'
   item.base_price = price
   item.currency = currency
+  item.price_set_at = nowIso()  // 同步即改价：行价锚点=now（保存时后端同规则复核落库）
   store.recalculateAll()
   syncLoading.value = true
   try {
@@ -2096,12 +2296,15 @@ async function confirmSync() {
     })
     const syncedPrice = Number(item.base_price)
     const syncedCurrency = item.currency || 'RMB'
+    const today = nowIso().slice(0, 10)
     item.db_price = syncedPrice
     item.db_currency = syncedCurrency
+    item.db_price_date = today
     item.match_status = `✅ 已同步 [${item.base_price}]`
     // 同一型号在其它配置页/行的 db_price 仍是页面加载时的旧库价快照；
     // 同步后库里最新价已变，需一并刷新它们的「库参考价」（只改 db_price，不动其它行的报价，
-    // 不是跨配置联动改价），否则 CFG2 同型号仍会按旧库价误提示"同步价格"。
+    // 不是跨配置联动改价）。刷新后这些行按各自锚点重判方向：锚点早于今天 → 自然转亮
+    // 「采纳库价」，与同步弹窗的「改用库价」同一条闭环路径。
     for (const cfg of Object.values(store.configs)) {
       for (const it of cfg.items) {
         if (it === item) continue
@@ -2109,7 +2312,8 @@ async function confirmSync() {
         if ((it.catalogue || '') !== model) continue
         it.db_price = syncedPrice
         it.db_currency = syncedCurrency
-        computeKpMatch(it)
+        it.db_price_date = today
+        refreshKpMatch(it)
       }
     }
     if (item._histLoaded) {
@@ -2122,6 +2326,64 @@ async function confirmSync() {
   } finally {
     syncLoading.value = false
   }
+}
+
+// ── 采纳库价（库→行，方向与同步相反）：库价折成统一 RMB 含税成本后反解回本行币种回填 ──
+
+// 采纳库价弹窗；同单同型号、同判为「库价新」的旧行可勾选一并采纳
+const adoptVisible = ref(false)
+const adoptTarget = ref<Item | null>(null)
+const adoptOthers = ref<Item[]>([])
+const adoptIncludeOthers = ref(false)
+
+function openAdoptModal(item: Item) {
+  if (dbPriceOf(item) == null) { message.warning('配件库无此型号价格，无法采纳'); return }
+  adoptTarget.value = item
+  adoptIncludeOthers.value = false
+  const others: Item[] = []
+  for (const cfg of Object.values(store.configs)) {
+    for (const it of cfg.items) {
+      if (it === item) continue
+      if (it.category !== 'Key Parts') continue
+      if ((it.catalogue || '') !== item.catalogue) continue
+      if (kpActionOf(it) !== 'adopt') continue
+      others.push(it)
+    }
+  }
+  adoptOthers.value = others
+  adoptVisible.value = true
+}
+
+function adoptLibraryPrice(item: Item) {
+  const db = dbPriceOf(item)
+  if (db == null) return
+  const rmb = calcUnitCost(db, item.db_currency, store.exchangeRate, store.taxRate)
+  item.base_price = rmbToBasePrice(rmb, item.currency, store.exchangeRate, store.taxRate)
+  item.price_set_at = nowIso()  // 采纳即改价：行价锚点=now
+  refreshKpMatch(item)
+}
+
+async function confirmAdopt() {
+  const item = adoptTarget.value
+  if (!item) return
+  adoptLibraryPrice(item)
+  const batch = adoptIncludeOthers.value ? adoptOthers.value : []
+  for (const it of batch) adoptLibraryPrice(it)
+  store.recalculateAll()
+  adoptVisible.value = false
+  message.success(batch.length ? `已采纳库价（含同型号 ${batch.length} 行）` : '已采纳库价')
+  await store.saveProject()
+}
+
+// 同步弹窗里的逃生门：误入同步时一键改为「采纳库价」（库价回填本行，不写配件库）
+function adoptFromSyncModal() {
+  const item = syncTarget.value
+  if (!item) return
+  syncVisible.value = false
+  adoptLibraryPrice(item)
+  store.recalculateAll()
+  message.success('已改用库价回填本行')
+  void store.saveProject()
 }
 
 onMounted(async () => {
@@ -2139,6 +2401,9 @@ onMounted(async () => {
     store.configs = {}
     store.configQuantities = {}
     store.configSelectedParts = {}
+    store.quotationUpdatedAt = ''
+    store.quotationExportedAt = ''
+    store.quotationCreatedAt = ''
     store.opportunityInfo = {
       opportunity_id: opportunityId || '',
       sales_person: '',
@@ -2306,6 +2571,9 @@ onMounted(async () => {
       const isExcelQuote = !!quotation.file_path || entryFrom.value === 'upload'
       store.loadData({ configs, project_info: opportunityInfo, config_quantities: configQuantities, config_l6_picks: quotation.config_l6_picks, is_excel_quote: isExcelQuote })
       store.quotationUpdatedAt = (quotation as any).updated_at || ''
+      // 行价方向判定的时间锚：exported_at 解冻后被清空 → 回落 created_at
+      store.quotationExportedAt = (quotation as any).exported_at || ''
+      store.quotationCreatedAt = (quotation as any).created_at || ''
       activeCfg.value = Object.keys(store.configs)[0] || 'CFG1'
       // edit 模式补拉商机 platform_type/chassis_form（兼容性 filter 规则依赖；报价单可能未存该字段）
       if (opportunityId && !store.opportunityInfo.platform_type) {
@@ -2402,6 +2670,11 @@ onMounted(async () => {
 .cfg-pills {
   display: flex;
   gap: 8px;
+  /* 放得下时占自然宽度,放不下收缩为横向滚动——挤压 pill 会让中文逐字换行成竖排 */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
   background: var(--cpq-overlay-w6);
   border: 1px solid var(--cpq-overlay-w6);
   border-radius: 12px;
@@ -2419,6 +2692,8 @@ onMounted(async () => {
   color: var(--cpq-text-secondary);
   font-size: 13px;
   font-weight: 500;
+  flex: none;
+  white-space: nowrap;
 }
 
 .cfg-pill:hover {
@@ -3118,6 +3393,9 @@ table.kp-table th:nth-child(7) { width: 20%; }
   color: var(--cpq-accent-primary);
   font-weight: 600;
 }
+/* 库当前最新价：日期弱化、改用库价为次要动作链接 */
+.sync-db-date { font-size: 12px; color: var(--cpq-text-muted); margin-left: 4px; }
+.adopt-link { font-size: 12px; padding: 0 4px; }
 
 .sync-note :deep(.ant-input) {
   background: var(--cpq-overlay-b30) !important;
@@ -3658,15 +3936,55 @@ table.kp-table th:nth-child(7) { width: 20%; }
   background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-size: 12.5px; font-weight: 700; }
 .sum-cta:disabled { opacity: .6; }
 
+/* 空态：直接访问无报价数据 */
+.ws-empty {
+  margin: 24px auto;
+  max-width: 420px;
+  padding: 28px 26px;
+  text-align: center;
+  border-radius: 16px;
+}
+.ws-empty b { font-size: 15px; color: var(--cpq-text-primary); }
+.ws-empty p { margin: 10px 0 16px; font-size: 12.5px; line-height: 1.7; color: var(--cpq-text-muted); }
+
 @media (max-width: 768px) {
   .workspace-page { padding-bottom: calc(76px + var(--cpq-tabbar-inset, 0px)); }
   .content-inner { padding: 12px 12px 8px; }
   .cfg-bar { flex-wrap: nowrap; overflow-x: auto; gap: 8px; }
-  .cfg-pills { flex: 1; flex-wrap: nowrap; overflow-x: auto; min-width: 0; }
+  .cfg-pills { flex: 1; }
   .cfg-relation { flex: none; margin-left: 0; }
   .cfg-relation-label { display: none; }
   .three-col-layout { display: block; }
   .col-middle { max-width: none; width: 100%; }
+}
+
+/* ── 报价外发审批：锁定条 + 发起弹窗 ── */
+.outbound-lock {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 8px;
+  max-width: 1600px;
+  padding: 6px 14px;
+  border: 1px dashed var(--cpq-notif-amber-bg, rgba(250, 173, 20, 0.18));
+  background: var(--cpq-warn-surface, rgba(250, 173, 20, 0.10));
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--cpq-text-secondary);
+}
+.outbound-lock .ol-pill {
+  flex-shrink: 0;
+  padding: 1px 10px;
+  border-radius: 999px;
+  background: var(--cpq-notif-amber-bg, rgba(250, 173, 20, 0.18));
+  color: var(--cpq-notif-amber, #F4D28A);
+  font-weight: 600;
+}
+.outbound-lock .ol-hash {
+  margin-left: auto;
+  font-family: Consolas, monospace;
+  font-size: 11px;
+  color: var(--cpq-text-muted);
 }
 </style>
 

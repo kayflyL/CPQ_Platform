@@ -12,6 +12,8 @@ from app.repository.quotation_repo import QuotationRepository
 from app.repository.opportunity_repo import OpportunityRepository
 from app.repository.feed_repo import FeedRepository
 from app.repository.flow_card_repo import FlowCardRepository
+from app.repository.pricing_approval_repo import PricingApprovalRepository
+from app.services.quote_outbound_gate import ensure_outbound_approved, BYPASS_PERMISSION
 
 router = APIRouter(prefix="/api/quotations", tags=["quotations"])
 
@@ -263,12 +265,17 @@ def export_quotation(quotation_id: str, req: CostSnapshotRequest,
                      admin: dict = Depends(require_perms("field.quote.price")),
                      _user: dict = Depends(require_quotation_access)):
     """Freeze a draft quotation into an exported one: stamp exported_at and persist the
-    cost snapshot captured client-side. Idempotent — re-exporting just refreshes the snapshot."""
+    cost snapshot captured client-side. Idempotent — re-exporting just refreshes the snapshot.
+
+    外发审批闸（三口一闸之一）：客户版导出冻结须持有效许可（approved 且内容指纹一致）。
+    对内版留底前端不调本端点（不冻结），天然豁免。
+    """
     repo = QuotationRepository()
     try:
         quotation = repo.get_by_id(quotation_id)
         if not quotation:
             raise HTTPException(status_code=404, detail="Quotation not found")
+        ensure_outbound_approved(quotation, admin)
         updated = repo.mark_exported(quotation_id, req.cost_snapshot, datetime.now().isoformat())
         return {"quotation": updated.to_dict()}
     finally:
@@ -352,6 +359,16 @@ def get_quotation_items(quotation_id: str, user: dict = Depends(require_quotatio
 def save_quotation_items(quotation_id: str, data: dict,
                          _user: dict = Depends(require_quotation_access)):
     """Save configuration items + config_quantities + config_descriptions + config_server_models + config_warranty_info for a quotation."""
+    # 外发审批 pending 期间报价单锁定：禁改价（改了也会令许可 hash 失配，前置拦截给出明确提示）；
+    # 持免审批权限者不受限
+    approval_repo = PricingApprovalRepository()
+    try:
+        latest = approval_repo.latest_for_quotation(quotation_id) or {}
+        if latest.get("status") == "pending" and not user_has_permission(_user, BYPASS_PERMISSION):
+            raise HTTPException(status_code=409,
+                                detail="该报价单外发审批进行中，已锁定（禁改价/禁导出）；请等待审批结果或联系总监处理")
+    finally:
+        approval_repo.close()
     repo = QuotationRepository()
     try:
         # Support both new payload format (dict with items/config_quantities) and legacy (list of items)

@@ -2,7 +2,9 @@
 /** 机型产品详情页（配置面展示）— 看介绍/规格 → 点「配置这台」进配置向导。纯展示，无管理入口。 */
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { message } from 'ant-design-vue'
 import { catalogApi, type ServerModel, type ModelScenario } from '@/api/serverConfig'
+import { downloadOfficeFile } from '@/utils/fileDownload'
 import CapabilityShowcase from '@/components/server-config/CapabilityShowcase.vue'
 import { useSeriesStore } from '@/stores/series'
 import { STAGE_THEMES, type StageThemeKey } from '@/constants/stageThemes'
@@ -33,6 +35,13 @@ const capList = computed(() => pc.value?.capabilities || [])
 const scnList = computed<ModelScenario[]>(() =>
   (pc.value?.scenarios || []).map(s => (typeof s === 'string' ? { name: s } : s))
 )
+
+// 机型资料 PDF（product_content.docs）：铭牌卡「下载资料」入口；走带鉴权 blob 下载（裸直链 AUTH_ENABLED 下 401）
+const docs = computed(() => pc.value?.docs || [])
+async function downloadDoc(d: { name?: string; url: string }) {
+  try { await downloadOfficeFile(d.url, d.name || '资料.pdf') }
+  catch { message.error('下载失败，请稍后重试') }
+}
 const hasContent = computed(() => {
   const c = pc.value
   return !!(c && (c.tagline || c.overview || c.highlights?.length || c.features?.length
@@ -181,6 +190,15 @@ onBeforeUnmount(() => {
             </div>
             <div class="hero-actions">
               <a-button type="primary" size="large" @click="configure">配置这台服务器 →</a-button>
+              <a-dropdown v-if="docs.length > 1" placement="bottomRight">
+                <a-button size="large" class="doc-btn">下载资料 ▾</a-button>
+                <template #overlay>
+                  <a-menu @click="({ key }: any) => downloadDoc(docs[Number(key)])">
+                    <a-menu-item v-for="(d, i) in docs" :key="i">{{ d.name }}</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+              <a-button v-else-if="docs.length === 1" size="large" class="doc-btn" @click="downloadDoc(docs[0])">下载资料</a-button>
             </div>
           </section>
 
@@ -507,6 +525,10 @@ onBeforeUnmount(() => {
 .meta-specs i { font-size: 10.5px; font-style: normal; color: var(--muted); font-family: var(--font-mono); letter-spacing: 0.12em; }
 .meta-specs b { font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: #e8f3ff; }
 .hero-actions { display: flex; gap: 10px; }
+.doc-btn {
+  background: transparent; border: 1px solid var(--line-strong); color: var(--text);
+}
+.doc-btn:hover { border-color: var(--primary); color: var(--primary-bright); }
 
 .lc-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; }
 .lc-active { color: #1f9d6b; background: rgba(125, 215, 170, .18); border-color: rgba(125, 215, 170, .45); }

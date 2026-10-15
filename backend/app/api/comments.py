@@ -1,13 +1,15 @@
 """
 评论 API 端点
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from app.repository.comment_repo import comment_repo
+from app.api.deps import get_current_user
 
 
-router = APIRouter(prefix="/api/comments", tags=["comments"])
+router = APIRouter(prefix="/api/comments", tags=["comments"],
+                   dependencies=[Depends(get_current_user)])
 
 
 class CommentCreate(BaseModel):

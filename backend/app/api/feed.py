@@ -24,7 +24,7 @@ import json
 
 from app.api.deps import (
     get_current_user as current_user, ensure_opportunity_access, resolve_ws_user,
-    field_visible,
+    field_visible, require_admin,
 )
 from app.repository.feed_repo import FeedRepository
 from app.repository.feed_user_repo import FeedUserRepository
@@ -76,7 +76,7 @@ def _ensure_category_visible(user: dict, category: Optional[str]) -> None:
 
 # ── users (lightweight identity) ──
 
-@router.get("/users")
+@router.get("/users", dependencies=[Depends(require_admin)])
 def list_users():
     repo = FeedUserRepository()
     try:
@@ -90,7 +90,7 @@ class EnsureUserBody(BaseModel):
     email: Optional[str] = None
 
 
-@router.post("/users")
+@router.post("/users", dependencies=[Depends(require_admin)])
 def ensure_user(body: EnsureUserBody):
     """Get-or-create a user by display name. Returns the user (id persisted client-side)."""
     repo = FeedUserRepository()
@@ -210,6 +210,7 @@ async def upload_attachment(
     quotation_id: Optional[str] = Form(default=None),
     kind: Optional[str] = Form(default=None),
     flow_card_id: Optional[int] = Form(default=None),
+    requirement_version: Optional[int] = Form(default=None),
     user: dict = Depends(current_user),
 ):
     """Upload a single file straight to the file index (no message).
@@ -217,6 +218,7 @@ async def upload_attachment(
     Optional category (requirement/technical/sent_quote) drives the archive
     view; kind overrides the default 'upload' (e.g. 'export' for archived
     quotations). Sent-quote archives also emit a system activity message.
+    requirement_version 钉住线索登记附件所属的需求单版本（草稿未落库时为空=未归版）。
     """
     ensure_opportunity_access(opportunity_id, user)
     repo = FeedRepository()
@@ -229,6 +231,7 @@ async def upload_attachment(
             quotation_id=quotation_id,
             category=category,
             flow_card_id=flow_card_id,
+            requirement_version=requirement_version,
             user=user,
         )
         if category == "sent_quote":
@@ -309,6 +312,7 @@ async def add_attachment_version(
             version_group=existing["version_group"],
             original_name_override=existing["original_filename"],
             category=existing.get("category"),
+            requirement_version=existing.get("requirement_version"),
         )
         return {"attachment": att}
     finally:
@@ -377,6 +381,7 @@ async def _save_upload(
     original_name_override: Optional[str] = None,
     category: Optional[str] = None,
     flow_card_id: Optional[int] = None,
+    requirement_version: Optional[int] = None,
     user: Optional[dict] = None,
 ) -> dict:
     if user is not None:
@@ -422,6 +427,7 @@ async def _save_upload(
         version_group=version_group,
         category=category,
         flow_card_id=flow_card_id,
+        requirement_version=requirement_version,
     )
 
 

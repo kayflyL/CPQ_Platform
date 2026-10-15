@@ -84,6 +84,12 @@ def clear_read(user: dict = Depends(get_current_user)):
         repo.close()
 
 
+@router.get("/api/notifications/online")
+def online_roster(user: dict = Depends(get_current_user)):
+    """全员在线名册（在线/离线标记 + 角色名），供顶栏在线胶囊首屏兜底。"""
+    return {"users": notification_hub.build_roster()}
+
+
 @router.websocket("/api/notifications/ws")
 async def notifications_ws(ws: WebSocket, token: str = ""):
     user = resolve_ws_user(token)
@@ -93,7 +99,9 @@ async def notifications_ws(ws: WebSocket, token: str = ""):
     await ws.accept()
     notification_hub.bind_loop(asyncio.get_running_loop())
     uid = user.get("user_id") or ""
-    notification_hub.connect(uid, ws)
+    first = notification_hub.connect(uid, ws,
+                                     name=user.get("name") or "",
+                                     role=user.get("role") or "")
     repo = NotificationRepository()
     try:
         await ws.send_text(json.dumps({
@@ -104,6 +112,9 @@ async def notifications_ws(ws: WebSocket, token: str = ""):
         pass
     finally:
         repo.close()
+    if first:
+        # 上线/离线才广播，多标签页开合不扰民
+        await notification_hub.broadcast_presence()
     try:
         while True:
             # 客户端消息仅作心跳占位
@@ -111,4 +122,6 @@ async def notifications_ws(ws: WebSocket, token: str = ""):
     except WebSocketDisconnect:
         pass
     finally:
-        notification_hub.disconnect(uid, ws)
+        offline = notification_hub.disconnect(uid, ws)
+        if offline:
+            await notification_hub.broadcast_presence()

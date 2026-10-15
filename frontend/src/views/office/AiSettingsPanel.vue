@@ -1387,8 +1387,6 @@ onMounted(loadAccessRoles)
 }
 .thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px 10px; }
-.thread-msg.role-user { border-left: 3px solid var(--cpq-accent-primary); }
-.thread-msg.role-assistant { border-left: 3px solid var(--cpq-color-success); }
 .thread-msg-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--cpq-text-muted); }
 .thread-msg-content { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); }
 .dispatch-rule {

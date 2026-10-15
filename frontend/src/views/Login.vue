@@ -16,6 +16,8 @@
       </a-form>
       <div class="login-tip">首次使用请用引导管理员账号登录，登录后可在「用户与权限」修改密码。</div>
     </div>
+    <!-- 手机浏览器打开登录页时引导安装为桌面 App -->
+    <MobileInstallHint />
   </div>
 </template>
 
@@ -24,6 +26,7 @@ import { reactive, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useAuthStore } from '@/store/auth'
+import MobileInstallHint from '@/components/MobileInstallHint.vue'
 
 const router = useRouter()
 const route = useRoute()

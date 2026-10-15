@@ -108,8 +108,8 @@ const cardClass = computed(() => ({
   flex-direction: column;
   gap: 8px;
   padding: 16px;
-  border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 14px;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   box-shadow: var(--cpq-glass-card-shadow);
@@ -118,8 +118,8 @@ const cardClass = computed(() => ({
 .model-card.is-clickable {
   cursor: pointer;
 }
-.model-card.is-clickable:hover {
-  border-color: var(--cpq-overlay-a30);
+.model-card:not(.is-dark):hover {
+  border-color: var(--cpq-glass-border-strong);
   transform: translateY(-2px);
   box-shadow: var(--cpq-glass-card-shadow-hover);
 }
@@ -142,10 +142,10 @@ const cardClass = computed(() => ({
 
 .m-thumb {
   height: 92px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   overflow: hidden;
-  background: var(--cpq-overlay-b20);
-  border: 1px solid var(--cpq-overlay-w10);
+  background: var(--cpq-overlay-a5);
+  border: 1px solid var(--cpq-glass-border);
   display: flex;
   align-items: center;
   justify-content: center;

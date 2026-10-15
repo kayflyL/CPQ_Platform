@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>宣传录制舞台 · AI 办公室四态分镜</title>
+<style>
+html, body { height: 100%; margin: 0; overflow: hidden; }
+body { background: #08090B; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  display: flex; flex-direction: column; color: #E8ECEF; }
+.brand { flex: none; display: flex; align-items: center; gap: 12px; padding: 10px 20px 6px; }
+.brand b { font-size: 14px; font-weight: 700; letter-spacing: 2px; color: #1677FF; }
+.brand span { font-size: 12px; color: #6E7582; }
+.brand .hint { margin-left: auto; font-size: 11.5px; color: #6E7582; }
+.scenetab { font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 99px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.15); color: #9BA1AA; }
+.scenetab:hover { color: #1677FF; border-color: rgba(22,119,255,.4); }
+.main { flex: 1; min-height: 0; display: grid; grid-template-columns: 300px 1fr; gap: 18px; padding: 2px 20px 12px; }
+.rail { display: flex; flex-direction: column; justify-content: center; gap: 34px; min-height: 0; }
+.sc { position: relative; padding: 4px 2px 14px; cursor: pointer; opacity: .3; transition: opacity .5s cubic-bezier(.16,1,.3,1); }
+.sc b { display: block; font-size: 17px; font-weight: 700; color: #E8ECEF; margin-bottom: 5px; }
+.sc .bar { position: absolute; left: 2px; right: 100%; bottom: 0; height: 2px; border-radius: 2px; background: #1677FF; }
+.sc.on { opacity: 1; }
+.sc.on b { color: #1677FF; }
+.stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.11); box-shadow: 0 24px 70px rgba(0,0,0,.5); background: #F2F6FC; }
+.scaler { position: absolute; top: 0; left: 0; transform-origin: top left; }
+.frame { position: absolute; top: 0; left: 0; width: 1600px; height: 1000px; border: 0; display: none; }
+.frame.on { display: block; }
+.overlay { position: absolute; inset: 0; z-index: 300; pointer-events: none; opacity: 0; transition: opacity .5s; }
+.overlay.show { opacity: 1; }
+.lens { position: absolute; border-radius: 16px;
+  box-shadow: 0 0 0 9999px rgba(3,6,14,.5), inset 0 0 0 1px rgba(122,167,255,.35), 0 0 26px rgba(122,167,255,.3); }
+.cursor { position: absolute; z-index: 400; pointer-events: none; opacity: 0;
+  transition: opacity .4s, left .9s cubic-bezier(.16,1,.3,1), top .9s cubic-bezier(.16,1,.3,1); }
+.cursor .ring { position: absolute; left: -9px; top: -9px; width: 36px; height: 36px; border-radius: 50%;
+  border: 2px solid rgba(122, 167, 255, .9); opacity: 0; transform: scale(.4); }
+.cursor.click .ring { animation: cring .5s cubic-bezier(.16,1,.3,1); }
+@keyframes cring { 0% { opacity: .95; transform: scale(.35); } 100% { opacity: 0; transform: scale(1.15); } }
+.cursor svg { display: block; width: 21px; height: 21px; filter: drop-shadow(0 2px 6px rgba(0,0,0,.45)); }
+.ctrl { position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); display: flex; gap: 8px; z-index: 500; transition: opacity .6s; }
+.ctrl.fade { opacity: .1; }
+.ctrl button { border: 1px solid rgba(255,255,255,.15); background: rgba(255,255,255,.08); color: #9BA1AA;
+  border-radius: 99px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+.ed { position: fixed; right: 14px; top: 52px; width: 264px; z-index: 900; background: #101217;
+  border: 1px solid rgba(122,167,255,.35); border-radius: 12px; padding: 12px 14px; color: #E8ECEF;
+  font-size: 12px; box-shadow: 0 16px 50px rgba(0,0,0,.5); display: none; }
+.ed.open { display: block; }
+.ed h4 { margin: 0 0 8px; font-size: 13px; color: #1677FF; }
+.ed .row { display: flex; gap: 6px; margin-bottom: 7px; align-items: center; }
+.ed .row label { width: 44px; flex: none; color: #9BA1AA; font-size: 11px; }
+.ed .row input { flex: 1; min-width: 0; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14);
+  border-radius: 6px; color: #E8ECEF; padding: 4px 7px; font-size: 11.5px; }
+.ed .btns { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.ed .btns button { background: rgba(22,119,255,.14); color: #4096ff; border: 1px solid rgba(22,119,255,.35);
+  border-radius: 7px; padding: 4px 10px; font-size: 11.5px; cursor: pointer; }
+.ed textarea { width: 100%; height: 110px; margin-top: 8px; background: rgba(255,255,255,.05);
+  border: 1px solid rgba(255,255,255,.14); border-radius: 8px; color: #E8ECEF; font-size: 11px; padding: 6px; }
+body.editing .sc b { outline: 1px dashed rgba(22,119,255,.45); cursor: text; padding: 0 4px; }
+body.editing .sc b:focus { outline: 2px solid #1677FF; }
+.dur { display: none; position: absolute; right: 4px; top: -4px; font-size: 10px; color: #9BA1AA;
+  background: rgba(255,255,255,.08); border-radius: 5px; padding: 1px 6px; cursor: ew-resize; user-select: none; }
+body.editing .dur { display: block; }
+.wp { position: absolute; z-index: 420; width: 22px; height: 22px; border-radius: 50%;
+  background: rgba(22,119,255,.92); color: #fff; font-size: 10px; display: grid; place-items: center;
+  cursor: move; pointer-events: auto; box-shadow: 0 2px 8px rgba(0,0,0,.4); border: 2px solid #fff; }
+</style>
+</head>
+<body>
+
+<div class="brand">
+  <b>霄擎算力 · CPQ Platform</b>
+  <span>AI 办公室 · 实机快照分镜</span>
+  <span class="hint">空格播放/暂停 · R 重播 · E 调参编辑 · 四个真实状态硬切分镜</span>
+  <span class="scenetab" onclick="location.href='portal-stage.html'">工作台首页</span>
+</div>
+
+<div class="main">
+  <div class="rail">
+    <div class="sc" data-step="0"><b>办公区全景，真实运转</b><div class="bar"></div></div>
+    <div class="sc" data-step="1"><b>Manage Teams，一站管理</b><div class="bar"></div></div>
+    <div class="sc" data-step="2"><b>工作流列表，需求分析在列</b><div class="bar"></div></div>
+    <div class="sc" data-step="3"><b>节点画布，整个流程看得见</b><div class="bar"></div></div>
+  </div>
+  <div class="stage">
+    <div class="scaler" id="scaler">
+      <iframe class="frame" src="ai-office.html"></iframe>
+      <iframe class="frame" src="mt-team.html"></iframe>
+      <iframe class="frame" src="wf-grid.html"></iframe>
+      <iframe class="frame" src="wf-canvas.html"></iframe>
+      <div class="overlay" id="veil"><div class="lens" id="lens"></div></div>
+      <div class="cursor" id="cursor"><span class="ring"></span><svg viewBox="0 0 24 24"><path d="M5 3l13.5 8.2-5.8 1.3 3 6.8-2.7 1.2-3-6.9L5 18z" fill="#fff" stroke="#1c2430" stroke-width="1.2" stroke-linejoin="round"/></svg></div>
+    </div>
+  </div>
+</div>
+
+<div class="ed" id="ed">
+  <h4>分镜调参 · 第 <span id="edStep">0</span> 幕</h4>
+  <div class="row"><label>镜头目标</label><input id="edSel" /></div>
+  <div class="row"><label>标题</label><input id="edTitle" /></div>
+  <div class="row"><label>时长 ms</label><input id="edMs" /></div>
+  <div class="row"><label>框 x/y</label><input id="edX" /><input id="edY" /></div>
+  <div class="row"><label>框 w/h</label><input id="edW" /><input id="edH" /></div>
+  <div class="btns">
+    <button onclick="edApply()">应用本幕</button>
+    <button onclick="edExport()">导出 JSON</button>
+    <button onclick="edReset()">清覆盖</button>
+    <button onclick="document.getElementById('ed').classList.remove('open')">关闭</button>
+  </div>
+  <textarea id="edJson" placeholder="导出的 STEPS JSON 出现在这里"></textarea>
+</div>
+
+<div class="ctrl" id="ctrl">
+  <button id="playBtn">⏸ 暂停</button>
+  <button onclick="restart()">⟳ 重播</button>
+</div>
+
+<script>
+/* ═══ 分镜定义：f=帧 sel=镜头目标 title/ms=标题与时长 cur=光标路标 seq=确定性子时间轴 ═══ */
+var STEPS = [
+  { f: 0, sel: '.map-toolbar',   title: '办公区全景，真实运转',     ms: 7000,
+    cur: [{ t: 300, s: '.map-title' }, { t: 2400, s: '.legend-dot' }, { t: 4600, s: '.edit-space-btn', click: true }] },
+  { f: 1, sel: '.tm-flow-wrap',  title: 'Manage Teams，一站管理',  ms: 8000,
+    cur: [{ t: 300, s: '.tm-center' }, { t: 2400, s: '.tm-right' }, { t: 5200, s: '.tm-canvas-hint' }] },
+  { f: 2, sel: '.aom-skill-grid', title: '工作流列表，需求分析在列', ms: 7000,
+    cur: [{ t: 300, s: '.aom-hint' }, { t: 2400, s: '.cc-card', click: true }] },
+  { f: 3, sel: '.rf-flow-wrap',  title: '节点画布，整个流程看得见', ms: 21000,
+    cur: [{ t: 300, s: '.rf-legend' }, { t: 2400, s: '.left-panel .lp-title' }],
+    seq: [
+      { t: 600,  run: function(){ edgeFlow(0); setRun(0, 'run'); } },
+      { t: 1600, run: function(){ setRun(0, 'done'); edgeFlow(1); setRun(1, 'run'); } },
+      { t: 3000, run: function(){ setRun(1, 'done', '槽位 12 项 · 预算 80 万 · 双路偏好'); addRp('需求解析完成：12 项槽位，预算 80 万。'); edgeFlow(2); setRun(2, 'run'); } },
+      { t: 4400, run: function(){ setRun(2, 'done', '机型匹配 34 条 · 双路最优'); addRp('机型匹配完成：Orion 4U 双路。'); edgeFlow(3); setRun(3, 'run'); } },
+      { t: 5800, run: function(){ setRun(3, 'done', '额度满足 · 无缺口'); edgeFlow(4); setRun(4, 'run'); } },
+      { t: 7200, run: function(){ setRun(4, 'done', 'BOM 47 项 · 双冗余电源'); addRp('BOM 组装完成：47 项配件。'); } },
+      { t: 9000, run: function(){ sweepCanvas(); } },
+      { t: 10400, run: function(){ setRun(5, 'done', '报价单已生成 · 已发送客户'); addRp('报价单已生成并发送客户。'); } }
+    ] }
+];
+
+var S = 1, stW = 0, stH = 0;
+var frames = [], curDoc = null, cur = -1, timer = null, playing = false, editing = false, stepTimers = [];
+var lens = document.getElementById('lens');
+var veil = document.getElementById('veil');
+var cursor = document.getElementById('cursor');
+var scaler = document.getElementById('scaler');
+var OV = {};
+try { OV = JSON.parse(localStorage.getItem('film-ov-v1') || '{}'); } catch (e) { OV = {}; }
+function saveOV() { try { localStorage.setItem('film-ov-v1', JSON.stringify(OV)); } catch (e) {} }
+
+function fit() {
+  var st = document.querySelector('.stage');
+  stW = st.clientWidth; stH = st.clientHeight;
+  var aw = stW - 4, ah = stH - 4;
+  if (aw <= 0 || ah <= 0) return;
+  S = Math.max(0.1, Math.min(aw / 1600, ah / 1000, 1.15));
+  scaler.style.width = Math.round(1600 * S) + 'px';
+  scaler.style.height = Math.round(1000 * S) + 'px';
+  scaler.style.transformOrigin = 'top left';
+  scaler.style.transform = 'scale(' + S + ')';
+}
+window.addEventListener('resize', fit);
+
+function showFrame(fi) {
+  frames.forEach(function (f, i) { f.classList.toggle('on', i === fi); });
+  curDoc = frames[fi].contentDocument;
+}
+function q(sel) { return curDoc ? curDoc.querySelector(sel) : null; }
+function rectInStage(el) {
+  var r = el.getBoundingClientRect();
+  var fr = frames[cur].getBoundingClientRect();
+  return { l: fr.left + r.left * S, t: fr.top + r.top * S, w: r.width * S, h: r.height * S };
+}
+
+function showLensFor(sel) {
+  var ov = OV[cur] || {};
+  if (ov.box) {
+    lens.style.left = ov.box.x + 'px'; lens.style.top = ov.box.y + 'px';
+    lens.style.width = ov.box.w + 'px'; lens.style.height = ov.box.h + 'px';
+    veil.classList.add('show'); return;
+  }
+  var el = q(sel);
+  if (!el || !el.offsetWidth) { veil.classList.remove('show'); return; }
+  var p = rectInStage(el), pad = 12;
+  lens.style.left = (p.l - pad) + 'px';
+  lens.style.top = (p.t - pad) + 'px';
+  lens.style.width = (p.w + pad * 2) + 'px';
+  lens.style.height = (p.h + pad * 2) + 'px';
+  veil.classList.add('show');
+}
+function effMs(i) { var ov = OV[i] || {}; return ov.ms || (STEPS[i] ? STEPS[i].ms : 5000); }
+function effCur(i) {
+  var ov = OV[i] || {};
+  if (ov.cur) return ov.cur;
+  return (STEPS[i] && STEPS[i].cur || []).map(function (w) {
+    return { t: w.t, s: w.s, dx: w.dx || 0, dy: w.dy || 0, click: !!w.click };
+  });
+}
+
+function runTrack(st) {
+  var track = effCur(cur);
+  if (!track.length) { cursor.style.opacity = 0; return; }
+  cursor.style.opacity = 1;
+  track.forEach(function (wp, wi) {
+    stepTimers.push(setTimeout(function () {
+      var x, y, el = null;
+      if (wp.x !== undefined) { x = wp.x; y = wp.y; }
+      else { el = q(wp.s); if (!el) return; var p = rectInStage(el);
+             x = p.l + p.w / 2 + (wp.dx || 0); y = p.t + p.h / 2 + (wp.dy || 0); }
+      var dx = x - (parseFloat(cursor.style.left) || 0), dy = y - (parseFloat(cursor.style.top) || 0);
+      cursor.style.transitionDuration = Math.max(420, Math.min(1050, Math.sqrt(dx * dx + dy * dy) * 0.9)) + 'ms';
+      cursor.style.left = x + 'px'; cursor.style.top = y + 'px';
+      if (wp.click) {
+        setTimeout(function () {
+          cursor.classList.add('click');
+          if (el) el.classList.add('demo-pulse');
+          setTimeout(function () { cursor.classList.remove('click'); el.classList.remove('demo-pulse'); }, 900);
+        }, 320);
+      }
+    }, wp.t));
+  });
+}
+
+/* ═══ 确定性注入器：需求分析试运行（真实节点 + 虚构时序）═══ */
+function wfNodes() { var f = frames[3]; return f && f.contentDocument ? f.contentDocument.querySelectorAll('.rf-node-vf') : []; }
+function typeInto(el, text, cps, done) {
+  el.textContent = '';
+  var i = 0;
+  var iv = setInterval(function () {
+    i++;
+    el.textContent = text.slice(0, i);
+    if (i >= text.length) { clearInterval(iv); if (done) done(); }
+  }, 1000 / cps);
+  stepTimers.push(iv);
+}
+function setRun(i, state, out) {
+  var n = wfNodes()[i];
+  if (!n) return;
+  n.classList.toggle('rf-node--running', state === 'run');
+  n.classList.toggle('rf-node--done', state === 'done');
+  if (state === 'done' && out) {
+    var io = n.querySelector('.rf-io-block');
+    if (!io) {
+      io = n.ownerDocument.createElement('div');
+      io.className = 'rf-io-block rf-io-out';
+      io.innerHTML = '<div class="rf-io-title">→ 产出 · 下游交接</div><div class="rf-summary-text"></div>';
+      n.appendChild(io);
+    }
+    typeInto(io.querySelector('.rf-summary-text'), out, 44);
+  }
+}
+function edgeFlow(i) {
+  var p = frames[3] && frames[3].contentDocument ? frames[3].contentDocument.querySelectorAll('.rf-flow-wrap svg path')[i] : null;
+  if (!p) return;
+  p.style.strokeDasharray = '7 7';
+  p.style.animation = 'dfmove .55s linear 4';
+  setTimeout(function () { p.style.strokeDasharray = ''; p.style.animation = ''; }, 2300);
+}
+function sweepCanvas() {
+  var wrap = frames[3] && frames[3].contentDocument ? frames[3].contentDocument.querySelector('.rf-flow-wrap') : null;
+  if (!wrap) return;
+  var d = wrap.ownerDocument.createElement('div');
+  d.style.cssText = 'position:absolute;top:0;bottom:0;width:120px;z-index:20;pointer-events:none;' +
+    'background:linear-gradient(90deg,transparent,rgba(122,167,255,.28),transparent);left:-140px;' +
+    'transition:left 1.4s cubic-bezier(.4,0,.2,1)';
+  wrap.appendChild(d);
+  requestAnimationFrame(function () { d.style.left = '100%'; });
+  setTimeout(function () { d.remove(); }, 1700);
+}
+function addRp(text) {
+  var f = frames[3], head = f && f.contentDocument ? f.contentDocument.querySelector('.right-panel .rp-head') : null;
+  if (!head) return;
+  var row = head.ownerDocument.createElement('div');
+  row.className = 'am-row role-assistant';
+  row.style.cssText = 'padding:6px 10px';
+  row.innerHTML = '<div class="am-avatar sq" style="background:linear-gradient(135deg,#1677FF,#4096ff)">方<i class="am-presence"></i></div>' +
+    '<div class="am-content"><div class="am-metarow"><span class="am-author">方案助手</span>' +
+    '<span class="am-aichip">AI 员工</span></div><div class="am-bubble" style="font-size:12px">' + text + '</div></div>';
+  head.parentElement.insertBefore(row, head.nextSibling);
+}
+
+/* ═══ 可视化调参：光标路标点 / 时长拖拽 / 标题行内改 ═══ */
+function renderWPs() {
+  document.querySelectorAll('.wp').forEach(function (m) { m.remove(); });
+  if (!editing || cur < 0) return;
+  effCur(cur).forEach(function (w, i) {
+    var el = q(w.s), x, y;
+    if (w.x !== undefined) { x = w.x; y = w.y; }
+    else { if (!el) return; var p = rectInStage(el);
+           x = p.l + p.w / 2 + (w.dx || 0); y = p.t + p.h / 2 + (w.dy || 0); }
+    var m = document.createElement('div');
+    m.className = 'wp' + (w.click ? ' clickwp' : '');
+    m.textContent = i + 1;
+    m.style.left = (x - 11) + 'px'; m.style.top = (y - 11) + 'px';
+    m.dataset.i = i;
+    scaler.appendChild(m);
+  });
+}
+(function () {   /* 路标点拖拽 */
+  var drag = null;
+  document.addEventListener('pointerdown', function (e) {
+    if (!editing || !e.target.classList.contains('wp')) return;
+    drag = { i: +e.target.dataset.i, sx: e.clientX, sy: e.clientY, el: e.target };
+    try { e.target.setPointerCapture(e.pointerId); } catch (err) {}
+    e.preventDefault();
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    var so = scaler.getBoundingClientRect();
+    var x = e.clientX - so.left + 11, y = e.clientY - so.top + 11;
+    drag.el.style.left = (x - 11) + 'px'; drag.el.style.top = (y - 11) + 'px';
+    var list = effCur(cur); var w = list[drag.i]; if (!w) return;
+    w.x = x; w.y = y;
+    if (!OV[cur]) OV[cur] = {}; OV[cur].cur = list; saveOV();
+  });
+  document.addEventListener('pointerup', function () { drag = null; });
+})();
+(function () {   /* 时长拖拽 chip */
+  document.addEventListener('pointerdown', function (e) {
+    if (!editing || !e.target.classList.contains('dur')) return;
+    var sc = e.target.closest('.sc'); if (!sc) return;
+    var i = +sc.dataset.step;
+    var sx = e.clientX, ms0 = effMs(i);
+    var mv = function (ev) {
+      var nv = Math.max(1500, Math.min(30000, ms0 + Math.round((ev.clientX - sx) / 4) * 100));
+      OV[i] = OV[i] || {}; OV[i].ms = nv;
+      e.target.textContent = '⏱ ' + (nv / 1000).toFixed(1) + 's';
+    };
+    var up = function () {
+      document.removeEventListener('pointermove', mv); document.removeEventListener('pointerup', up);
+      saveOV(); showStep(i);
+    };
+    document.addEventListener('pointermove', mv); document.addEventListener('pointerup', up);
+    e.preventDefault();
+  });
+})();
+
+function pause() {
+  playing = false;
+  clearTimeout(timer); stepTimers.forEach(clearTimeout);
+  document.getElementById('playBtn').textContent = '▶ 播放';
+}
+function toggleEdit() {   /* 进编辑=自动暂停；退出保持暂停，空格/播放继续 */
+  editing = !editing;
+  if (editing && playing) pause();
+  document.body.classList.toggle('editing', editing);
+  document.querySelectorAll('.sc').forEach(function (sc) {
+    var i = +sc.dataset.step;
+    var chip = sc.querySelector('.dur');
+    if (!chip) { chip = document.createElement('span'); chip.className = 'dur'; sc.appendChild(chip); }
+    chip.textContent = '⏱ ' + (effMs(i) / 1000).toFixed(1) + 's';
+    var b = sc.querySelector('b');
+    if (b) { b.contentEditable = editing ? 'true' : 'false'; if (editing) b.focus(); }
+  });
+  renderWPs();
+  document.getElementById('ed').classList.toggle('open', editing);
+}
+function togglePlay() {
+  if (editing) toggleEdit();
+  if (playing) { playing = false; clearTimeout(timer); stepTimers.forEach(clearTimeout);
+    document.getElementById('playBtn').textContent = '▶ 播放'; }
+  else { playing = true;
+    document.getElementById('playBtn').textContent = '⏸ 暂停';
+    timer = setTimeout(function () { showStep(cur + 1); }, 1800); }
+}
+function restart() { showStep(0); }
+
+function showStep(i) {
+  clearAll();
+  fit();
+  cur = i % STEPS.length;
+  var st = STEPS[cur];
+  var ov = OV[cur] || {};
+  showFrame(st.f);
+  setTimeout(function () {
+    showLensFor(st.sel);
+    runTrack(st);
+    renderWPs();
+  }, 250);
+  var ms = effMs(cur);
+  var cards = document.querySelectorAll('.sc');
+  for (var j = 0; j < cards.length; j++) {
+    var on = +cards[j].dataset.step === cur;
+    cards[j].classList.toggle('on', on);
+    var bar = cards[j].querySelector('.bar');
+    bar.style.transition = 'none'; bar.style.right = '100%';
+    if (on) {
+      void bar.offsetWidth;
+      bar.style.transition = 'right ' + ms + 'ms linear';
+      bar.style.right = '0%';
+    }
+  }
+  timer = setTimeout(function () { showStep(cur + 1); }, ms);
+}
+function clearAll() { clearTimeout(timer); stepTimers.forEach(clearTimeout); stepTimers = []; }
+function restart() { showStep(0); }
+function edApply() {
+  OV[cur] = OV[cur] || {};
+  OV[cur].sel = document.getElementById('edSel').value;
+  OV[cur].title = document.getElementById('edTitle').value;
+  OV[cur].ms = +document.getElementById('edMs').value || STEPS[cur].ms;
+  var x = +document.getElementById('edX').value, y = +document.getElementById('edY').value;
+  var w = +document.getElementById('edW').value, hh = +document.getElementById('edH').value;
+  if (w && hh) OV[cur].box = { x: x, y: y, w: w, h: hh };
+  saveOV(); showStep(cur);
+}
+function edReset() { delete OV[cur]; saveOV(); showStep(cur); }
+function edExport() {
+  var out = STEPS.map(function (st, i) {
+    var ov = OV[i] || {};
+    return { f: st.f, sel: ov.sel || st.sel, title: ov.title || st.title, ms: ov.ms || st.ms,
+             box: ov.box || null, cur: ov.cur || st.cur };
+  });
+  var j = JSON.stringify(out, null, 1);
+  document.getElementById('edJson').value = j;
+  try { navigator.clipboard.writeText(j); } catch (e) {}
+}
+function paintTitles() {
+  document.querySelectorAll('.sc b').forEach(function (b, i) {
+    var ov = OV[i] || {};
+    b.textContent = ov.title || (STEPS[i] ? STEPS[i].title : '') || '';
+  });
+}
+
+document.addEventListener('keydown', function (e) {
+  var t = e.target && e.target.tagName;
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.key === 'r' || e.key === 'R') restart();
+  if ((e.key === 'e' || e.key === 'E') && t !== 'INPUT' && t !== 'TEXTAREA') toggleEdit();
+});
+var idleT = null, ctrl = document.getElementById('ctrl');
+function wake() { ctrl.classList.remove('fade'); clearTimeout(idleT); idleT = setTimeout(function(){ ctrl.classList.add('fade'); }, 2500); }
+document.addEventListener('mousemove', wake);
+
+window.addEventListener('load', function () {
+  frames = Array.from(document.querySelectorAll('.frame'));
+  var demoSt = document.createElement('style');
+  demoSt.textContent = '.demo-pulse { animation: dpulse 1.1s cubic-bezier(.16,1,.3,1) 2; }' +
+    '@keyframes dpulse { 0%,100% { box-shadow: 0 0 0 0 rgba(22,119,255,0); } 50% { box-shadow: 0 0 0 6px rgba(22,119,255,.35); } }';
+  frames.forEach(function (f) {
+    var inject = function () { try { f.contentDocument.head.appendChild(demoSt.cloneNode(true)); } catch (e) {} };
+    if (f.contentDocument && f.contentDocument.readyState !== 'loading') inject();
+    else f.addEventListener('load', inject);
+  });
+  var cursorEl = document.getElementById('cursor');
+  cursorEl.style.left = '1255px'; cursorEl.style.top = '690px';
+  paintTitles(); fit(); wake();
+  playing = true;
+  document.getElementById('playBtn').textContent = '⏸ 暂停';
+  setTimeout(function () { showStep(0); }, 1500);
+});
+</script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { message, Modal } from 'ant-design-vue'
 import { confirmWithReason } from './confirmWithReason'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import CostSheetEditor from '@/components/opportunity/CostSheetEditor.vue'
+import ShareDialog from '@/components/opportunity/ShareDialog.vue'
 import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
 import { portalApi, type BomScheme, type CostSheet, type FlowCard, type PortalBoard, type PortalSheetConfig } from '@/api/portal'
@@ -23,6 +24,14 @@ const emit = defineEmits<{
 }>()
 
 const oppId = computed(() => props.board.opportunity?.opportunity_id || '')
+
+// ── 产出物分享（成本表行操作） ──
+const shareOpen = ref(false)
+const shareTarget = ref<CostSheet | null>(null)
+function openShare(sheet: CostSheet) {
+  shareTarget.value = sheet
+  shareOpen.value = true
+}
 const sheets = computed(() => props.board.cost_sheets || [])
 const bomSchemes = computed(() => props.board.bom_schemes || [])
 const editable = computed(() => !props.readonly)
@@ -468,6 +477,9 @@ function returnSheet(sheet: CostSheet) {
             <span class="rt-link muted">对应报价单已删除</span>
             <span class="rt-link danger" @click.stop="deleteSheet(sheet)">删除成本表</span>
           </div>
+          <div class="rt-actions">
+            <span class="rt-link" @click.stop="openShare(sheet)">分享</span>
+          </div>
         </td>
       </tr>
 
@@ -513,17 +525,19 @@ function returnSheet(sheet: CostSheet) {
       @confirm="confirmPicker()"
       @cancel="cancelPicker()"
     />
+    <ShareDialog
+      v-model:open="shareOpen"
+      :opportunity-id="oppId"
+      source-type="cost"
+      :source-id="shareTarget?.id ?? ''"
+      :title="shareTarget?.name || ''"
+      default-view="cost"
+    />
   </div>
 </template>
 
 <style scoped>
 .cost-workbench {
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
 }
 .cw-grid {

@@ -22,6 +22,7 @@ import asyncio
 import html as _html
 import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 from . import chart_assets
@@ -39,13 +40,15 @@ body {
   color: #1F2329; background: #fff; font-size: 11.5px; line-height: 1.7;
 }
 .rpt-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
-  padding-bottom: 14px; border-bottom: 1.5px solid #1668C0; margin-bottom: 20px; }
+  padding-bottom: 14px; border-bottom: 1.5px solid var(--rpt-accent, #1668C0); margin-bottom: 20px; }
+.rpt-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.rpt-logo { width: 46px; height: 46px; object-fit: contain; border-radius: 6px; background: #fff; }
 .rpt-brand-name { font-size: 16px; font-weight: 700; color: #1F2329; }
 .rpt-brand-tag { font-size: 10.5px; color: #6B7280; margin-top: 3px; }
 .rpt-doc { text-align: right; }
-.rpt-doc-period { font-size: 12px; font-weight: 700; color: #1668C0; }
+.rpt-doc-period { font-size: 12px; font-weight: 700; color: var(--rpt-accent, #1668C0); }
 .rpt-doc-meta { font-size: 10.5px; color: #6B7280; margin-top: 4px; }
-.rpt-title-block { padding: 2px 0 2px 14px; border-left: 4px solid #1668C0; margin-bottom: 22px; }
+.rpt-title-block { padding: 2px 0 2px 14px; border-left: 4px solid var(--rpt-accent, #1668C0); margin-bottom: 22px; }
 h1.rpt-title { font-size: 24px; font-weight: 700; color: #111418; line-height: 1.25; }
 .rpt-sub { font-size: 12px; color: #6B7280; margin-top: 6px; }
 """
@@ -54,16 +57,26 @@ h1.rpt-title { font-size: 24px; font-weight: 700; color: #111418; line-height: 1
 _THEME_HOUSE_SEC = """
 .rpt-body { display: grid; grid-template-columns: repeat(12, 1fr); column-gap: 16px; align-items: start; }
 .blk-sec { grid-column: span var(--span, 12); min-width: 0; margin-bottom: 22px; break-inside: avoid; }
-.blk-title { font-size: 12px; font-weight: 700; letter-spacing: .6px; color: #1668C0;
+.blk-title { font-size: 12px; font-weight: 700; letter-spacing: .6px; color: var(--rpt-accent, #1668C0);
   border-bottom: 1px solid #E5E7EB; padding-bottom: 6px; margin-bottom: 12px; }
 .sec-no { font-size: 10.5px; font-weight: 700; color: #9CA3AF; margin-right: 8px; }
 .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .kpi-cell { background: #F7F8FA; border: 1px solid #E5E7EB; border-radius: 8px; padding: 12px 14px 10px; }
 .kpi-label { font-size: 10px; color: #6B7280; margin-bottom: 5px; }
-.kpi-value { font-size: 22px; font-weight: 700; color: #1668C0; font-variant-numeric: tabular-nums; }
+.kpi-value { font-size: 22px; font-weight: 700; color: var(--rpt-accent, #1668C0); font-variant-numeric: tabular-nums; }
 .kpi-unit { font-size: 10.5px; color: #6B7280; font-weight: 400; margin-left: 3px; }
 .chart-box { padding: 0; }
 .chart-box .ch { width: 100%; }
+.rpt-callout { border: 1px solid #DBEAFE; background: #F5F9FF; border-radius: 8px; padding: 12px 14px;
+  display: flex; gap: 10px; align-items: flex-start; break-inside: avoid; }
+.rpt-callout.co-green { border-color: #D3EEDD; background: #F4FBF6; }
+.rpt-callout.co-amber { border-color: #F3E3C0; background: #FDF9F0; }
+.rpt-callout .co-ico { font-size: 13px; line-height: 1.5; }
+.rpt-callout .co-title { font-size: 11px; font-weight: 700; color: #1F2329; margin-bottom: 3px; }
+.rpt-callout .co-body { font-size: 10.5px; color: #374151; line-height: 1.65; }
+.rpt-callout .co-body .md p:last-child { margin-bottom: 0; }
+.rpt-divider { border: 0; border-top: 1px solid #E5E7EB; margin: 4px 0; }
+.rpt-img { max-width: 100%; border-radius: 6px; }
 """
 
 
@@ -103,6 +116,8 @@ body { padding: 14mm 18mm 16mm; }
 .blk-sec { cursor: pointer; }
 .blk-sec:hover { background: #F8FAFC; }
 .blk-sec.atc-sel { outline: 2px dashed #2563EB; outline-offset: 5px; }
+.atc-slot-hint { border: 1px dashed #CBD5E1; border-radius: 6px; padding: 14px 16px;
+  color: #94A3B8; font-size: 11px; background: #FAFBFC; }
 .atc-pageline {
   position: absolute; left: 0; right: 0; border-top: 1px dashed #94A3B8;
   font-size: 7.5px; color: #94A3B8; text-align: right; padding-top: 2px;
@@ -224,7 +239,7 @@ def _default_payload(payload: Optional[dict], template_name: str = "") -> dict:
 
 
 def _effective_head_texts(blocks: list, meta: dict) -> dict:
-    """抬头生效文案：title 区块钉的 title/subtitle/brand_name/brand_tag 覆盖 meta，留空回落
+    """抬头生效文案：title 区块钉的 title/subtitle/brand_name/brand_tag/logo_url 覆盖 meta，留空回落
     （报告名默认归文档卡，模板显式填写才覆盖——正文标题与 PDF 页眉共用本函数保持一致）。"""
     tb = next((b for b in (blocks or []) if isinstance(b, dict) and b.get("type") == "title"), {})
     return {
@@ -232,7 +247,38 @@ def _effective_head_texts(blocks: list, meta: dict) -> dict:
         "subtitle": str(tb.get("subtitle") or "") or str(meta.get("subtitle", "")),
         "brand_name": str(tb.get("brand_name") or "") or "CPQ PLATFORM",
         "brand_tag": str(tb.get("brand_tag") or "") or str(meta.get("generated_by", "")),
+        "logo_url": str(tb.get("logo_url") or ""),
     }
+
+
+# 抬头 Logo 目录（与 vendor echarts 同根 backend/app/static；上传端点见 artifact_templates.py）
+_LOGO_DIR = Path(__file__).resolve().parent.parent / "static" / "artifact_logos"
+_LOGO_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".svg": "image/svg+xml"}
+
+
+def _logo_data_uri(url: str) -> str:
+    """模板钉的 logo URL（/api/artifact-templates/logo/x.png）→ data URI 内嵌。
+
+    预览 iframe（srcdoc 相对路径由父文档 base 解析）与 Playwright set_content（无
+    base href）都吃 data URI，一份 HTML 两处通用；也容忍规格书目录 /static/spec_logos/
+    的既有 URL。读盘失败返回空串（渲染跳过 img，不挡报告）。
+    """
+    u = (url or "").strip()
+    m = re.match(r"^/api/artifact-templates/logo/([A-Za-z0-9][A-Za-z0-9_.-]{0,80})$", u)
+    if m:
+        path = _LOGO_DIR / m.group(1)
+    else:
+        m2 = re.match(r"^/static/spec_logos/([A-Za-z0-9][A-Za-z0-9_.-]{0,80})$", u)
+        if not m2:
+            return ""
+        path = _LOGO_DIR.parent.parent.parent / "static" / "spec_logos" / m2.group(1)
+    if not path.is_file():
+        return ""
+    mime = _LOGO_MIME.get(path.suffix.lower())
+    if not mime:
+        return ""
+    import base64
+    return f"data:{mime};base64,{base64.b64encode(path.read_bytes()).decode('ascii')}"
 
 
 # payload 行/字段表的列标签（镜像 compose 节点「方案配置表」列契约的既有事实，未覆盖的键显示原键名）
@@ -269,17 +315,31 @@ def render_report_html(
 ) -> str:
     """blocks+payload → 完整 HTML 文档。iframe 预览传 echarts_url（相对 /api 由父文档 base 解析）；
     PDF 传 echarts_inline_js（磁盘 echarts.min.js 全文内联）。interactive=True 仅编辑器预览用
-    （区块可点选+分页参考线），PDF 恒 False。asset_params=运行时资产参数覆盖（如报告数据范围
-    推出的 days），按 schema clamp 后不认该参数的资产自动忽略，编辑器预览不传。"""
+    （区块可点选+分页参考线），PDF 恒 False。asset_params=运行时资产参数补缺（如报告数据范围
+    推出的 days）：只填区块未显式指定的参数——区块显式 params 优先（章节固定窗口，如半年
+    图表写 days=183 不被报告数据范围顶掉），留空才跟随报告数据范围；按 schema clamp 后不认
+    该参数的资产自动忽略，编辑器预览不传。"""
     if asset_params:
-        blocks = [
-            ({**b, "params": {**(b.get("params") or {}), **asset_params}}
-             if b.get("type") in ("kpi", "chart", "table") else b)
-            for b in (blocks or [])
-        ]
+        merged: list = []
+        for b in (blocks or []):
+            if b.get("type") in ("kpi", "chart", "table"):
+                params = dict(b.get("params") or {})
+                for k, v in asset_params.items():
+                    params.setdefault(k, v)
+                b = {**b, "params": params}
+            merged.append(b)
+        blocks = merged
     p = _default_payload(payload, template_name)
     meta = p["meta"]
     spec = _THEME_SPECS.get(theme) or _THEME_SPECS["house"]
+    css = spec["css"]
+    # 品牌色（title 块 accent 字段，#RGB/#RRGGBB）：house 主题主色走 CSS 变量，这里单点注入
+    for _b in blocks or []:
+        if isinstance(_b, dict) and _b.get("type") == "title" and _b.get("accent"):
+            cand = str(_b["accent"]).strip()
+            if re.fullmatch(r"#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})", cand):
+                css = f":root {{ --rpt-accent: {cand}; }}\n" + css
+            break
     body: list[str] = []
     charts: list[dict] = []
     sec_no = 0
@@ -303,18 +363,20 @@ def render_report_html(
             span = 12
         return f'<section class="blk-sec" style="--span:{span}"{mark}>'
 
-    # 抬头（镜像 SpecSheet .ss-header：左品牌 / 右文档信息，蓝线收底）+ 标题块（左 4px 蓝杠）
-    # title 区块可钉固定文案（title/subtitle/brand_name/brand_tag），留空回落 meta——报告名默认归文档卡
+    # 抬头（镜像 SpecSheet .ss-header：左品牌（logo+名）/ 右文档信息，蓝线收底）+ 标题块（左 4px 蓝杠）
+    # title 区块可钉固定文案（title/subtitle/brand_name/brand_tag/logo_url），留空回落 meta——报告名默认归文档卡
     head_txt = _effective_head_texts(blocks, meta)
     eff_title, eff_sub = head_txt["title"], head_txt["subtitle"]
     brand_name, brand_tag = head_txt["brand_name"], head_txt["brand_tag"]
     period = str(meta.get("period_label", "")).replace("统计区间：", "").strip()
     period_html = f'<div class="rpt-doc-period">统计区间　{_esc(period)}</div>' if period else ""
     sub_html = f'<div class="rpt-sub">{_esc(eff_sub)}</div>' if eff_sub else ""
+    logo_uri = _logo_data_uri(head_txt.get("logo_url", ""))
+    logo_img = f'<img class="rpt-logo" src="{logo_uri}" alt="logo"/>' if logo_uri else ""
     head_html = (
         '<div class="rpt-head">'
-        f'<div><div class="rpt-brand-name">{_esc(brand_name)}</div>'
-        f'<div class="rpt-brand-tag">{_esc(brand_tag)}</div></div>'
+        f'<div class="rpt-brand">{logo_img}<div><div class="rpt-brand-name">{_esc(brand_name)}</div>'
+        f'<div class="rpt-brand-tag">{_esc(brand_tag)}</div></div></div>'
         f'<div class="rpt-doc">{period_html}'
         f'<div class="rpt-doc-meta">生成时间 {_esc(meta.get("generated_at", ""))}</div></div></div>'
         f'<div class="rpt-title-block"><h1 class="rpt-title">{_esc(eff_title)}</h1>{sub_html}</div>'
@@ -333,8 +395,36 @@ def render_report_html(
             else:
                 text = str(p.get("answer") or "")
             if not text.strip():
+                # 编辑器预览：payload 空槽位画占位框（模板骨架与章节编号可见）；
+                # PDF 恒隐藏（漏节不占位不报错）。模板=固定形状，运行时只往槽里填数。
+                if interactive and src == "payload":
+                    hint = _esc(f"运行时由 AI 按「{blk.get('title') or blk.get('key') or ''}」章节填入")
+                    body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<div class="atc-slot-hint">{hint}</div></section>')
                 continue
             body.append(f'{sec_open(idx, blk)}{sec_title(blk)}{_markdown_to_html(text)}</section>')
+        elif t == "heading":
+            # 独立小节题块：只出编号标题（占 sec_no 序列，与文本块 title 同一编号流）
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}</section>')
+        elif t == "callout":
+            text = str(blk.get("text") or "")
+            tone = {"green": "co-green", "amber": "co-amber"}.get(str(blk.get("tone") or "blue"), "")
+            ico = {"green": "✅", "amber": "⚠️"}.get(str(blk.get("tone") or "blue"), "💡")
+            title_html = f'<div class="co-title">{_esc(blk.get("co_title"))}</div>' if blk.get("co_title") else ""
+            body_html = _markdown_to_html(text) if text.strip() else ""
+            if not title_html and not body_html:
+                continue
+            body.append(
+                f'{sec_open(idx, blk)}{sec_title(blk)}'
+                f'<div class="rpt-callout {tone}"><span class="co-ico">{ico}</span>'
+                f'<div>{title_html}<div class="co-body">{body_html}</div></div></div></section>'
+            )
+        elif t == "divider":
+            body.append(f'{sec_open(idx, blk)}<hr class="rpt-divider"/></section>')
+        elif t == "image":
+            src = _esc(str(blk.get("src") or ""))
+            if not src:
+                continue
+            body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<img class="rpt-img" src="{src}" alt=""/></section>')
         elif t == "kpi":
             data = chart_assets.resolve_asset_data(blk.get("asset") or "", blk.get("params")) or {"items": []}
             items = [i for i in data.get("items", []) if isinstance(i, dict)]
@@ -410,8 +500,10 @@ def render_report_html(
             if not data:
                 continue
             cols = "".join(f"<th>{_esc(c)}</th>" for c in data.get("columns", []))
+            # 行取值列序由资产显式声明（keys）；缺省回落 top_opps 的列契约（历史行为）
+            row_keys = data.get("keys") or ("customer", "platform", "sales", "result", "created")
             rows = "".join(
-                "<tr>" + "".join(f"<td>{_esc(r.get(k, ''))}</td>" for k in ("customer", "platform", "sales", "result", "created")) + "</tr>"
+                "<tr>" + "".join(f"<td>{_esc(str(_fmt_cell(r.get(k))))}</td>" for k in row_keys) + "</tr>"
                 for r in data.get("rows", [])
             )
             body.append(f'{sec_open(idx, blk)}{sec_title(blk)}<table class="rpt-table"><thead><tr>{cols}</tr></thead><tbody>{rows}</tbody></table></section>')
@@ -428,7 +520,6 @@ def render_report_html(
         echarts_tag = f'<script src="{_esc(echarts_url)}"></script>'
     else:
         echarts_tag = ""
-    css = spec["css"]
     if interactive:
         css += _INTERACTIVE_CSS
     extra_js_tag = f"<script>{_INTERACTIVE_JS}</script>" if interactive else ""
@@ -491,6 +582,28 @@ def _pdf_sync(html: str, header_tpl: str, footer_tpl: str) -> bytes:
             )
         finally:
             browser.close()
+
+
+def _print_pdf_sync(html: str) -> bytes:
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch()
+        try:
+            page = browser.new_page(viewport={"width": 794, "height": 1123})
+            page.set_content(html, wait_until="load")
+            # 版式（A4 + 14mm 页边距 + @media print 规则）全由文档自身的 @page 决定，
+            # 与浏览器打印对话框走同一套 CSS，prefer_css_page_size 让 @page 生效
+            return page.pdf(print_background=True, prefer_css_page_size=True)
+        finally:
+            browser.close()
+
+
+async def render_print_pdf(html: str) -> bytes:
+    """前端渲染好的打印态 HTML（已含完整样式、脚本已剥离）→ PDF。
+    与 render_report_pdf 的差别：不取数、不注图表脚本、无页眉页脚。
+    playwright 缺失抛 RuntimeError，由调用方决定回退。"""
+    async with _PDF_SEMAPHORE:
+        return await asyncio.to_thread(_print_pdf_sync, html)
 
 
 async def render_report_pdf(

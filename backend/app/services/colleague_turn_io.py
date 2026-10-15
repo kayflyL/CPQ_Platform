@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any, Callable, Optional
 
@@ -22,8 +23,16 @@ async def _persist_and_broadcast(
     final_text: str,
     *,
     final_office_event: Optional[dict] = None,
+    tool_steps: Optional[list] = None,
+    workflow_suggestion: Optional[dict] = None,
 ) -> None:
     role_key = (colleague or {}).get("role_key") or "assistant"
+    data_payload: dict = {}
+    if tool_steps:
+        data_payload["tool_steps"] = tool_steps
+    if workflow_suggestion:
+        # 工作流发起建议卡（suggest_workflow 产物）：随消息落库+广播，前端渲染一键发起卡
+        data_payload["workflow_suggestion"] = workflow_suggestion
     repo = AssistantRepository()
     try:
         asst = repo.add_message(
@@ -31,6 +40,8 @@ async def _persist_and_broadcast(
             role="assistant",
             content=final_text,
             colleague_role_key=(colleague or {}).get("role_key"),
+            # 步骤清单（工具/耗时/结果摘要）随消息落库：前端在历史消息里常驻渲染，不再回合结束即清
+            data=(json.dumps(data_payload, ensure_ascii=False, default=str) if data_payload else None),
         )
     except Exception:
         logger.exception("colleague reply persistence failed")
@@ -80,6 +91,12 @@ def _add_assistant_message(
         return None
     finally:
         repo.close()
+
+
+def _workflow_suggestion_of(ctx: dict) -> Optional[dict]:
+    """回合上下文里大脑经 suggest_workflow 留下的发起建议（无则 None）。"""
+    sug = ctx.get("workflow_suggestion") if isinstance(ctx, dict) else None
+    return dict(sug) if isinstance(sug, dict) else None
 
 
 async def _trace(trace_sink: Optional[Callable[..., None]], **kwargs: Any) -> None:

@@ -1,13 +1,16 @@
 """料号库 API（parts_master 统一 L6+KP 料号）"""
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi import UploadFile, File
 from fastapi.responses import StreamingResponse
 from typing import Optional
 import pandas as pd
 import io
 from app.repository.parts_master_repo import PartsMasterRepository
+from app.api.deps import get_current_user, require_perms
 
-router = APIRouter(prefix="/api/parts", tags=["parts"])
+# 默认登录门槛；分类树/料号写操作收「配件」页权限。
+router = APIRouter(prefix="/api/parts", tags=["parts"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("")
@@ -55,7 +58,7 @@ def list_taxonomy(kind: str = "major"):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-@router.post("/taxonomy")
+@router.post("/taxonomy", dependencies=[Depends(require_perms("page.parts"))])
 def add_taxonomy(body: dict):
     """新增分类。body: {kind:'major', name}。"""
     try:
@@ -63,7 +66,7 @@ def add_taxonomy(body: dict):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-@router.put("/taxonomy/rename")
+@router.put("/taxonomy/rename", dependencies=[Depends(require_perms("page.parts"))])
 def rename_taxonomy(body: dict):
     """重命名分类（批量传播到所有用了它的料号）。body: {kind, old_name, new_name}。"""
     try:
@@ -73,7 +76,7 @@ def rename_taxonomy(body: dict):
     except ValueError as e:
         raise HTTPException(400, str(e))
 
-@router.delete("/taxonomy")
+@router.delete("/taxonomy", dependencies=[Depends(require_perms("page.parts"))])
 def delete_taxonomy(kind: str, name: str):
     """删除分类。被料号使用时拒绝（先把它们迁到别的分类）。"""
     try:
@@ -163,7 +166,7 @@ def download_import_template():
     )
 
 
-@router.post("/import")
+@router.post("/import", dependencies=[Depends(require_perms("page.parts"))])
 async def import_parts(file: UploadFile = File(...), dry_run: bool = True):
     """批量导入料号。dry_run=True 只预览不写入。返回 {preview, summary}。"""
     repo = PartsMasterRepository()
@@ -258,7 +261,7 @@ def get_part(pn: str):
     return p
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_perms("page.parts"))])
 def create_part(data: dict):
     try:
         return {"pn": PartsMasterRepository().insert(data)}
@@ -266,13 +269,13 @@ def create_part(data: dict):
         raise HTTPException(400, str(e))
 
 
-@router.put("/{pn}")
+@router.put("/{pn}", dependencies=[Depends(require_perms("page.parts"))])
 def update_part(pn: str, updates: dict):
     PartsMasterRepository().update(pn, updates)
     return {"ok": True}
 
 
-@router.delete("/{pn}")
+@router.delete("/{pn}", dependencies=[Depends(require_perms("page.parts"))])
 def delete_part(pn: str):
     PartsMasterRepository().delete(pn)
     return {"ok": True}

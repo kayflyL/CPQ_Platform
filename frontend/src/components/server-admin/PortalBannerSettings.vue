@@ -118,7 +118,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="panel glass">
+  <div class="portal-banner-settings">
     <div class="lib-head">
       <h3>门户设置</h3>
       <span class="hint">服务器页（/servers）banner 的文案与轮播图</span>
@@ -199,9 +199,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.panel { padding: 16px; margin-bottom: 16px; }
 .lib-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.lib-head h3 { margin: 0; font-size: 15px; }
+.lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 .hint { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 
 .banner-form { max-width: 640px; }
@@ -209,8 +208,8 @@ onMounted(() => {
 .upload-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
 .upload-btn {
   width: 132px; height: 74px;
-  border: 1px dashed var(--cpq-overlay-w25, rgba(255, 255, 255, 0.25));
-  border-radius: 10px;
+  border: 1px dashed var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-md);
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 2px; cursor: pointer;
   color: var(--cpq-text-secondary, #9BA1AA);
@@ -226,9 +225,9 @@ onMounted(() => {
 .banner-thumb {
   position: relative;
   width: 132px; height: 74px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   overflow: hidden;
-  border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.1));
+  border: 1px solid var(--cpq-glass-border);
 }
 .banner-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .main-tag {
@@ -237,16 +236,18 @@ onMounted(() => {
   color: #fff; background: rgba(22, 119, 255, 0.85);
 }
 .thumb-ops {
-  position: absolute; inset: auto 0 0 0;
-  display: flex;
-  background: rgba(0, 0, 0, 0.55);
+  position: absolute; top: 4px; right: 4px;
+  display: flex; gap: 4px;
 }
 .thumb-ops button {
-  flex: 1;
-  border: none; background: transparent;
-  color: rgba(255, 255, 255, 0.85);
-  font-size: 12px; line-height: 22px;
+  width: 22px; height: 22px;
+  border: none; border-radius: 50%;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 11px; line-height: 1;
   cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  backdrop-filter: blur(4px);
 }
 .thumb-ops button:hover:not(:disabled) { background: rgba(255, 255, 255, 0.18); color: #fff; }
 .thumb-ops button:disabled { opacity: .35; cursor: default; }
@@ -267,7 +268,7 @@ onMounted(() => {
   cursor: pointer;
   transition: border-color .2s, transform .2s;
 }
-.lib-thumb:hover { border-color: var(--cpq-accent-primary, #1677FF); transform: translateY(-1px); }
+.lib-thumb:hover { border-color: var(--cpq-glass-border-strong); transform: translateY(-1px); }
 .lib-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .lib-copy {
   position: absolute; top: 3px; right: 3px;

@@ -1,9 +1,11 @@
 """后面板配置 API — 按机型系列返回槽位选项"""
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from app.repository.rear_io_repo import RearIORepository
 from app.repository.psu_options_repo import PsuOptionsRepository
+from app.api.deps import get_current_user
 
-router = APIRouter(prefix="/api/rear-io", tags=["rear-io"])
+router = APIRouter(prefix="/api/rear-io", tags=["rear-io"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("/options")

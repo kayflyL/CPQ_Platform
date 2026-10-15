@@ -11,6 +11,7 @@ import { useAuthStore } from '@/store/auth'
 import { fmtTime, formatDate as formatQuoteDate, money } from '@/utils/quoteCommon'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
+import OutboundApprovalModal from '@/components/quotation/OutboundApprovalModal.vue'
 
 const props = withDefaults(defineProps<{
   board: PortalBoard
@@ -143,6 +144,7 @@ function cardFor(type: FlowCard['entities'][number]['entity_type'], entityId: st
 function onQuoteMore(key: string, q: Quotation) {
   if (key === 'send') { openSend(q); return }
   if (key === 'view') { openQuotation(q); return }
+  if (key === 'share') { shareTarget.value = q; shareOpen.value = true; return }
   if (key === 'unfreeze') { emit('unfreeze-quotation', q); return }
   if (key === 'primary') { emit('set-primary', q); return }
   if (key === 'rename') { emit('rename-quotation', q); return }
@@ -152,8 +154,8 @@ function quoteState(q: Quotation): string {
   if (q.submitted_at) return '报价单已出'
   if (q.exported_at) {
     const ap = latestApprovalFor(q.quotation_id)
-    if (ap?.status === 'pending') return '低毛利审批中'
-    if (ap?.status === 'rejected') return '审批被驳回'
+    if (ap?.status === 'pending') return '外发审批中'
+    if (ap?.status === 'rejected') return '外发审批被驳回'
     return '已导出'
   }
   return '草稿'
@@ -206,8 +208,8 @@ async function decidePricing(a: PricingApproval, decision: 'approve' | 'reject')
 }
 function rejectPricing(a: PricingApproval) {
   confirmWithReason({
-    title: `驳回低毛利审批（${a.opportunity_id}）？`,
-    hint: `当前毛利率 ${Number(a.margin_pct).toFixed(2)}%，红线 ${a.threshold}%。`,
+    title: `驳回外发审批（${a.opportunity_id}）？`,
+    hint: `当前毛利率 ${Number(a.margin_pct).toFixed(2)}%${a.trigger_reason === 'low_margin' ? `，红线 ${a.threshold}%。` : '。'}`,
     okText: '驳回',
     placeholder: '请填写驳回意见（必填），让报价员知道如何调整',
     async onOk(reason: string) {
@@ -217,6 +219,63 @@ function rejectPricing(a: PricingApproval) {
     },
   })
 }
+
+// ── 转交（责任人/管理员把审批单转给其他总监，内容指纹不变） ──
+const transferFor = ref<PricingApproval | null>(null)
+const transferTarget = ref('')
+const transferReason = ref('')
+const transferSaving = ref(false)
+const approverOptions = ref<Array<{ label: string; value: string }>>([])
+async function openTransfer(a: PricingApproval) {
+  transferFor.value = a
+  transferTarget.value = ''
+  transferReason.value = ''
+  if (!approverOptions.value.length) {
+    try {
+      const res = await portalApi.pricingApprovalApprovers()
+      approverOptions.value = (res.approvers || [])
+        .filter((x) => x.user_id)
+        .map((x) => ({ label: x.name, value: x.name }))
+    } catch { /* 拉不到候选时保留空选，提交时后端兜底校验 */ }
+  }
+}
+async function submitTransfer() {
+  if (!transferFor.value) return
+  if (!transferTarget.value) {
+    message.warning('请选择转交目标总监')
+    return
+  }
+  transferSaving.value = true
+  try {
+    await portalApi.reassignPricingApproval(opportunityId.value, transferFor.value.id, {
+      to_name: transferTarget.value,
+      reason: transferReason.value.trim() || undefined,
+    })
+    message.success('已转交')
+    transferFor.value = null
+    await loadPricingApprovals()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '转交失败')
+  } finally {
+    transferSaving.value = false
+  }
+}
+function waitedText(a: PricingApproval): string {
+  const ms = Date.now() - new Date(a.created_at).getTime()
+  if (!isFinite(ms) || ms < 0) return ''
+  const hours = ms / 3600000
+  return hours < 1 ? `${Math.max(1, Math.round(ms / 60000))} 分钟`
+    : hours < 48 ? `${Math.floor(hours)} 小时` : `${Math.floor(hours / 24)} 天`
+}
+
+// ── 发送撞外发审批闸 → 原地弹发起窗（公共组件） ──
+const gateModalOpen = ref(false)
+const gateModalQuotation = ref<Quotation | null>(null)
+
+// ── 产出物分享（报价单行菜单） ──
+import ShareDialog from '@/components/opportunity/ShareDialog.vue'
+const shareOpen = ref(false)
+const shareTarget = ref<Quotation | null>(null)
 const sendAttachments = computed(() =>
   (props.attachments || []).filter(
     (a) => a.category === 'sent_quote' && a.quotation_id === sendTarget.value?.quotation_id && a.kind === 'export',
@@ -248,9 +307,12 @@ async function submitSend() {
   } catch (e: any) {
     const detail: string = e?.response?.data?.detail || '发送失败'
     if (e?.response?.status === 409) {
-      // 低毛利审批门：审批单已建，刷新徽标并收起发送弹窗
-      message.warning(detail)
+      // 外发审批闸：无有效许可 → 直接弹发起窗（与导出口同一公共弹窗），不再让用户自己去工作台找入口
+      const target = sendTarget.value
+      message.info(detail)
       sendTarget.value = null
+      gateModalQuotation.value = target
+      gateModalOpen.value = true
       loadPricingApprovals()
     } else {
       message.error(detail)
@@ -324,6 +386,7 @@ function openConfigDetail(cfg: CostConfig) {
           <div v-for="sheet in worktableSheetViews" :key="sheet.sheet_id" class="qw-sheet-block">
             <div class="qw-sheet-head">
               <span class="qw-sheet-title">{{ sheet.sheet_name }}</span>
+              <div class="qw-sheet-actions">
               <a-button
                 v-if="sheet.quotation_deleted"
                 size="small"
@@ -348,6 +411,7 @@ function openConfigDetail(cfg: CostConfig) {
                 退回成本表
               </a-button>
               <span v-if="sheet.quotation_deleted" class="qw-delete-link" @click="emit('delete-cost-sheet', sheet.sheet_id)">删除成本表</span>
+              </div>
             </div>
             <table v-if="sheet.cost_configs.length" class="qw-cost-table">
               <thead>
@@ -434,13 +498,15 @@ function openConfigDetail(cfg: CostConfig) {
         <div v-if="canApprovePricing && pendingApprovals.length" class="qw-approval-bar">
           <div class="qw-approval-info">
             <AuditOutlined class="qw-approval-icon" />
-            <span class="qw-approval-title">待我审批的低毛利报价</span>
+            <span class="qw-approval-title">报价外发审批</span>
             <span class="qw-approval-count">{{ pendingApprovals.length }} 单</span>
           </div>
           <div class="qw-approval-list">
             <div v-for="a in pendingApprovals" :key="a.id" class="qw-approval-item">
               <span class="qw-approval-quotation" :title="a.quotation_id">{{ a.quotation_id }}</span>
-              <span class="qw-approval-margin">毛利率 {{ Number(a.margin_pct).toFixed(2) }}% &lt; 红线 {{ a.threshold }}%</span>
+              <span class="qw-approval-margin">毛利率 {{ Number(a.margin_pct).toFixed(2) }}%<template v-if="a.trigger_reason === 'low_margin'"> &lt; 红线 {{ a.threshold }}%</template></span>
+              <span class="qw-approval-assignee">责任人 {{ a.assigned_name || '全体审批人（先到先批）' }} · 已等待 {{ waitedText(a) }}</span>
+              <a-button size="small" @click="openTransfer(a)">转交</a-button>
               <a-button
                 size="small"
                 type="primary"
@@ -456,6 +522,48 @@ function openConfigDetail(cfg: CostConfig) {
             </div>
           </div>
         </div>
+
+        <!-- 转交审批弹窗：选目标总监 + 理由（转交链留痕，内容指纹不变） -->
+        <a-modal
+          :open="!!transferFor"
+          title="转交审批"
+          :width="`min(420px, 92vw)`"
+          @cancel="transferFor = null"
+        >
+          <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 8px;">
+            <div class="qw-transfer-hint">将审批单 #{{ transferFor?.id }}（{{ transferFor?.quotation_id }}）转交给其他总监，内容指纹不变；转交记录全程留痕。</div>
+            <a-select
+              v-model:value="transferTarget"
+              :options="approverOptions"
+              placeholder="选择目标总监"
+              style="width: 100%"
+            />
+            <a-input v-model:value="transferReason" placeholder="转交理由（可选）" />
+          </div>
+          <template #footer>
+            <a-button @click="transferFor = null">取消</a-button>
+            <a-button type="primary" :loading="transferSaving" @click="submitTransfer">确认转交</a-button>
+          </template>
+        </a-modal>
+
+        <!-- 发送撞外发审批闸：原地发起审批（与工作台导出口同一公共弹窗） -->
+        <OutboundApprovalModal
+          v-model:open="gateModalOpen"
+          :opportunity-id="opportunityId"
+          :quotation-id="gateModalQuotation?.quotation_id || ''"
+          :quotation-label="gateModalQuotation?.quotation_name || gateModalQuotation?.quotation_id || ''"
+          @submitted="loadPricingApprovals"
+        />
+
+        <!-- 产出物分享（网盘式链接） -->
+        <ShareDialog
+          v-model:open="shareOpen"
+          :opportunity-id="opportunityId"
+          source-type="quote"
+          :source-id="shareTarget?.quotation_id || ''"
+          :title="shareTarget?.quotation_name || shareTarget?.quotation_id || ''"
+          default-view="customer"
+        />
 
         <RecordTable
           title="报价单"
@@ -501,6 +609,7 @@ function openConfigDetail(cfg: CostConfig) {
                     <a-menu @click="({ key }: { key: string }) => onQuoteMore(key, q)">
                       <a-menu-item v-if="canSubmitQuote && q.exported_at && !q.submitted_at" key="send">发送</a-menu-item>
                       <a-menu-item key="view">{{ q.submitted_at ? '查看已发送' : (q.exported_at ? '查看成本' : '编辑') }}</a-menu-item>
+                      <a-menu-item key="share">分享</a-menu-item>
                       <a-menu-item v-if="canUnfreezeQuote && q.exported_at && !q.submitted_at" key="unfreeze">解冻并编辑</a-menu-item>
                       <a-menu-item key="primary">{{ q.is_primary ? '取消主推' : '设为主推' }}</a-menu-item>
                       <a-menu-item key="rename">重命名</a-menu-item>
@@ -731,6 +840,10 @@ function openConfigDetail(cfg: CostConfig) {
   padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border);
   background: var(--cpq-overlay-w4);
 }
+/* 操作钮成组右聚：space-between 下散放会一个居中一个靠右，与其他卡头规范不符 */
+.qw-sheet-actions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
 .qw-delete-link {
   color: var(--cpq-color-danger, #ff4d4f); font-size: 12px; cursor: pointer; white-space: nowrap;
 }
@@ -775,11 +888,25 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-approval-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;          /* 手机端：单号/毛利/责任人换行不挤出屏 */
+  gap: 6px 10px;
   padding: 7px 10px;
   border-radius: 8px;
   background: var(--cpq-bg-card);
   border: 1px solid var(--cpq-border-secondary);
+}
+.qw-approval-assignee {
+  flex-basis: 100%;         /* 责任人/等待信息独占一行（窄屏不与按钮抢位） */
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+}
+.qw-approval-item :deep(.ant-btn) {
+  flex-shrink: 0;
+}
+.qw-approval-assignee {
+  flex-basis: 100%;         /* 责任人/等待信息独占一行（窄屏不与按钮抢位） */
+  font-size: 11px;
+  color: var(--cpq-text-muted);
 }
 .qw-approval-quotation {
   font-size: 12.5px;
@@ -794,6 +921,11 @@ function openConfigDetail(cfg: CostConfig) {
   flex: 1;
   font-size: 12px;
   color: var(--cpq-text-secondary);
+}
+.qw-transfer-hint {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--cpq-text-muted);
 }
 .qw-empty { padding: 26px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
 .qw-list { display: flex; flex-direction: column; }

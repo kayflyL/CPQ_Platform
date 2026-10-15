@@ -38,7 +38,39 @@ _BRANDING_LOGO_URL = "/api/system-config/branding/logo"
 
 _LLM_CONFIG_KEY = "llm_config"
 
+_WECOM_CONFIG_KEY = "notify.wecom"
+
 _MASK_TOKEN = "****"
+
+
+def _mask_wecom_value(value: Any) -> Any:
+    """notify.wecom 的 value 掩码出站：secret / webhook_url(内含 key)永不回明文。"""
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError):
+            return value
+    if not isinstance(value, dict):
+        return value
+    out = dict(value)
+    for field in ("secret", "webhook_url"):
+        stored = str(out.get(field) or "")
+        out[field] = (_MASK_TOKEN + stored[-4:]) if stored else ""
+    out["secret_configured"] = bool(out.get("secret"))
+    return out
+
+
+def _write_only_wecom_secret(repo: SystemConfigRepository, value: dict) -> dict:
+    """secret/webhook_url 是 write-only：客户端回传掩码=未修改，保留库内原值；显式空串才清除。"""
+    out = dict(value)
+    out.pop("secret_configured", None)  # 出站辅助标志，不入库
+    stored = repo.get_value(_WECOM_CONFIG_KEY, {})
+    stored = stored if isinstance(stored, dict) else {}
+    for field in ("secret", "webhook_url"):
+        incoming = str(out.get(field) or "")
+        if _MASK_TOKEN in incoming:
+            out[field] = str(stored.get(field) or "")
+    return out
 
 
 def _mask_value(value: Any) -> Any:
@@ -59,11 +91,17 @@ def _mask_value(value: Any) -> Any:
 
 def _mask_row(key: Any, row: Any) -> Any:
     """整行出站掩码（GET / 与 GET /{key} 的行字典，value 在 'value' 键里）。"""
-    if key != _LLM_CONFIG_KEY or not isinstance(row, dict):
+    if not isinstance(row, dict):
         return row
-    masked = dict(row)
-    masked["value"] = _mask_value(masked.get("value"))
-    return masked
+    if key == _LLM_CONFIG_KEY:
+        masked = dict(row)
+        masked["value"] = _mask_value(masked.get("value"))
+        return masked
+    if key == _WECOM_CONFIG_KEY:
+        masked = dict(row)
+        masked["value"] = _mask_wecom_value(masked.get("value"))
+        return masked
+    return row
 
 
 def _write_only_api_key(repo: SystemConfigRepository, value: dict) -> dict:
@@ -112,7 +150,7 @@ def list_configs(user: dict = Depends(get_current_user)):
 
 
 
-@router.get("/requirement_slots_spec")
+@router.get("/requirement_slots_spec", dependencies=[Depends(get_current_user)])
 def get_requirement_slots_spec():
     """返回线索登记表完整字段契约 = 基本信息(requirement_slots 配置) + 部件(KP 大类动态合成)。
 
@@ -176,6 +214,10 @@ def get_config_value(key: str, default: Any = None, user: dict = Depends(get_cur
 
             value = _mask_value(value)
 
+        elif key == _WECOM_CONFIG_KEY:
+
+            value = _mask_wecom_value(value)
+
         return {"key": key, "value": value}
 
     finally:
@@ -205,6 +247,10 @@ def set_config(key: str, data: dict, admin: dict = Depends(require_admin)):
         if key == _LLM_CONFIG_KEY and isinstance(value, dict):
 
             value = _write_only_api_key(repo, value)
+
+        if key == _WECOM_CONFIG_KEY and isinstance(value, dict):
+
+            value = _write_only_wecom_secret(repo, value)
 
         type = data.get("type", "string")
 
@@ -359,6 +405,23 @@ def llm_probe_history(admin: dict = Depends(require_admin)):
     """实测模型清单：全部探测留档（含失败记录与历史端点），只读事实。"""
 
     return llm_client.list_probe_history()
+
+
+
+class WecomTestBody(BaseModel):
+
+    touser: Optional[str] = None
+
+
+@router.post("/notify.wecom/test")
+
+def test_wecom(body: WecomTestBody, admin: dict = Depends(require_admin)):
+
+    """直发一条企微测试消息（touser 空=@all 可见范围），返回真实 errcode/errmsg。"""
+
+    from app.services import wecom_client
+
+    return wecom_client.send_text(body.touser or "@all", "CPQ 平台企微通知链路测试 ✅")
 
 
 

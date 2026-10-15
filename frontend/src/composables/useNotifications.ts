@@ -6,7 +6,7 @@
  */
 import { ref } from 'vue'
 import { notificationsApi } from '@/api/notifications'
-import type { AppNotification } from '@/api/notifications'
+import type { AppNotification, PresenceUser } from '@/api/notifications'
 import { AUTH_TOKEN_KEY } from '@/api/auth'
 
 const unreadCount = ref(0)
@@ -14,6 +14,7 @@ const unreadByType = ref<Record<string, number>>({})
 const connected = ref(false)
 const latest = ref<AppNotification | null>(null)
 const notifications = ref<AppNotification[]>([])
+const onlineUsers = ref<PresenceUser[]>([])
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let backoff = 1000
@@ -35,7 +36,19 @@ async function refreshUnread() {
   }
 }
 
+async function refreshOnline() {
+  try {
+    onlineUsers.value = await notificationsApi.onlineRoster()
+  } catch {
+    /* 未登录/后端不可达时静默 */
+  }
+}
+
 function handleEvent(data: any) {
+  if (data?.type === 'presence' && Array.isArray(data.users)) {
+    onlineUsers.value = data.users
+    return
+  }
   if (data?.type === 'unread_count') {
     unreadCount.value = Number(data.count) || 0
     refreshUnread()
@@ -77,6 +90,7 @@ function connect() {
     connected.value = true
     backoff = 1000
     refreshUnread()
+    refreshOnline()
   }
   ws.onmessage = (ev) => {
     try {
@@ -162,8 +176,10 @@ export function useNotifications() {
     connected,
     latest,
     notifications,
+    onlineUsers,
     start,
     stopAll,
+    refreshOnline,
     loadNotifications,
     markRead,
     markAllRead,

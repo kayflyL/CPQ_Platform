@@ -12,8 +12,10 @@ const PET_DOCK_KEY = 'cpq:assistant-pet-dock'
 
 export const FAB_EDGE_MARGIN = 8
 export const FAB_DRAG_THRESHOLD = 4
-export const PANEL_WIDTH = 680
-export const PANEL_MAX_HEIGHT = 680
+/** 触屏专用拖拽阈值：手指点按天然带 5~15px 滚动，沿用 4px 会把点按误判成拖拽并吞掉 click（手机点桌宠开不了面板的根因） */
+export const FAB_DRAG_THRESHOLD_TOUCH = 12
+export const PANEL_WIDTH = 860
+export const PANEL_MAX_HEIGHT = 720
 export const PANEL_GAP = 12
 
 /** 桌宠尺寸三档（默认中档 200）。 */
@@ -194,6 +196,7 @@ export function useAssistantFab() {
     dockEdge,
     FAB_EDGE_MARGIN,
     FAB_DRAG_THRESHOLD,
+    FAB_DRAG_THRESHOLD_TOUCH,
     PANEL_WIDTH,
     PANEL_MAX_HEIGHT,
     PANEL_GAP,

@@ -402,7 +402,7 @@ onMounted(load)
 </script>
 
 <template>
-  <div class="parts-library panel">
+  <div class="parts-library">
     <div class="lib-head">
       <div class="lib-head-left">
         <button class="sidebar-toggle" @click="toggleSidebar" title="折叠/展开分类导航">
@@ -411,27 +411,27 @@ onMounted(load)
         </button>
         <h3>料号库 <span class="lib-count">{{ total }} 项</span></h3>
       </div>
-      <a-space>
-        <a-input-search v-model:value="search" placeholder="搜料号/名称" style="width:180px" size="small" allowClear @search="onSearch" />
-        <a-select v-model:value="sortBy" style="width:120px" size="small" placeholder="排序" allowClear @change="onSortChange">
+      <a-space wrap>
+        <a-input-search v-model:value="search" placeholder="搜料号/名称" style="width:180px" allowClear @search="onSearch" />
+        <a-select v-model:value="sortBy" style="width:120px" placeholder="排序" allowClear @change="onSortChange">
           <a-select-option value="name-asc">名称 A→Z</a-select-option>
           <a-select-option value="name-desc">名称 Z→A</a-select-option>
           <a-select-option value="unit_price-asc">价格 低→高</a-select-option>
           <a-select-option value="unit_price-desc">价格 高→低</a-select-option>
         </a-select>
-        <a-radio-group v-model:value="viewMode" size="small" button-style="solid">
-          <a-radio-button value="card">卡片</a-radio-button>
-          <a-radio-button value="list">列表</a-radio-button>
-        </a-radio-group>
-        <a-button size="small" @click="openImportModal">
+        <div class="seg2">
+          <div :class="['seg2-item', { active: viewMode === 'card' }]" @click="viewMode = 'card'">卡片</div>
+          <div :class="['seg2-item', { active: viewMode === 'list' }]" @click="viewMode = 'list'">列表</div>
+        </div>
+        <a-button @click="openImportModal">
           <template #icon><UploadOutlined /></template>
           导入
         </a-button>
-        <a-button size="small" @click="exportParts">
+        <a-button @click="exportParts">
           <template #icon><DownloadOutlined /></template>
           导出
         </a-button>
-        <a-button type="primary" size="small" @click="openNew">+ 新增料号</a-button>
+        <a-button type="primary" @click="openNew">+ 新增料号</a-button>
       </a-space>
     </div>
     <div class="lib-body">
@@ -489,9 +489,9 @@ onMounted(load)
           </div>
         </div>
         <template v-else>
-          <a-table :data-source="parts" :columns="tableColumns" row-key="pn" size="small"
+          <a-table class="sa-table" :data-source="parts" :columns="tableColumns" row-key="pn" :scroll="{ x: 640 }"
                    :pagination="{ current: pagination.current, pageSize: pagination.pageSize, total, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t:number) => `共 ${t} 项` }"
-                   class="parts-table" @change="(pag: any) => { pagination.current = pag.current; pagination.pageSize = pag.pageSize; load() }">
+                   @change="(pag: any) => { pagination.current = pag.current; pagination.pageSize = pag.pageSize; load() }">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'pn'"><span class="tbl-pn">{{ record.pn }}</span></template>
               <template v-else-if="column.key === 'category'"><span class="tbl-cat">{{ record.category }}</span></template>
@@ -622,16 +622,15 @@ onMounted(load)
 </template>
 
 <style scoped>
-.panel { padding: 16px; margin-bottom: 16px; }
 .lib-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
 .lib-head-left { display: flex; align-items: center; gap: 8px; }
-.sidebar-toggle { width: 32px; height: 32px; border: 1px solid var(--cpq-overlay-w15); background: transparent; color: var(--cpq-text-secondary); border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
+.sidebar-toggle { width: 32px; height: 32px; border: 1px solid var(--cpq-glass-border); background: transparent; color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s; }
 .sidebar-toggle:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary); }
-.lib-head h3 { margin: 0; font-size: 15px; }
+.lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
 .lib-count { font-size: 12px; font-weight: 400; color: var(--cpq-text-muted, #6E7582); margin-left: 6px; }
 .lib-body { display: grid; grid-template-columns: 160px 1fr; gap: 14px; transition: grid-template-columns .2s; }
 .lib-body:has(.cat-nav.collapsed) { grid-template-columns: 0px 1fr; }
-.cat-nav { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - 130px); padding-right: 2px; transition: width .2s, opacity .2s; }
+.cat-nav { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - var(--cpq-sticky-top, 60px) - 24px); position: sticky; top: calc(var(--cpq-sticky-top, 60px) + 12px); align-self: start; padding-right: 2px; transition: width .2s, opacity .2s; }
 .cat-nav::-webkit-scrollbar { width: 5px; }
 .cat-nav::-webkit-scrollbar-thumb { background: var(--cpq-overlay-w15); border-radius: 3px; }
 .cat-nav.collapsed { width: 0; opacity: 0; max-height: none; }
@@ -659,13 +658,9 @@ onMounted(load)
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .card-pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .grid-empty { color: var(--cpq-text-muted, #6E7582); text-align: center; padding: 40px; font-size: 13px; }
-.parts-table :deep(.ant-table) { background: transparent; }
-.parts-table :deep(.ant-table-thead > tr > th) { background: var(--cpq-overlay-w8); font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); }
-.parts-table :deep(.ant-table-tbody > tr > td) { font-size: 13px; }
-.parts-table :deep(.ant-table-tbody > tr:hover > td) { background: var(--cpq-overlay-w6); }
 .tbl-pn { font-family: monospace; font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 .tbl-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: 4px; }
-.part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s; border-radius: 0; }
+.part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .2s; }
 .part-card:hover { transform: translateY(-2px); }
 .pc-del { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 12px; cursor: pointer; border-radius: 4px; opacity: 0; transition: all .15s; }
 .part-card:hover .pc-del { opacity: 1; }
@@ -679,7 +674,7 @@ onMounted(load)
 .pc-price { font-size: 13px; font-weight: 700; color: var(--cpq-accent-primary, #1677FF); }
 .specs-editor { display: flex; flex-direction: column; gap: 6px; }
 .spec-row { display: flex; gap: 6px; align-items: center; }
-.section-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #e6e6e6); margin: 4px 0 8px; padding-left: 8px; border-left: 3px solid var(--cpq-accent, #1668dc); }
+.section-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #e6e6e6); margin: 4px 0 8px; }
 .section-hint { font-size: 11px; font-weight: 400; color: var(--cpq-text-secondary, rgba(255,255,255,.45)); }
 .field-hint { font-size: 11px; color: var(--cpq-text-muted, #6E7582); margin-top: 2px; }
 /* 导入弹窗样式 */
@@ -694,7 +689,7 @@ onMounted(load)
 /* 响应式适配 */
 @media (max-width: 768px) {
   .lib-body { grid-template-columns: 1fr; }
-  .cat-nav { position: fixed; left: 0; top: 0; bottom: 0; width: 200px; background: var(--cpq-bg); z-index: 100; box-shadow: 2px 0 12px rgba(0,0,0,.3); transform: translateX(-100%); transition: transform .2s; }
+  .cat-nav { position: fixed; left: 0; top: 0; bottom: 0; width: 200px; background: var(--cpq-glass-3-bg); backdrop-filter: blur(var(--cpq-glass-blur-3)); -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)); z-index: 100; box-shadow: 2px 0 12px var(--cpq-shadow-color-strong); transform: translateX(-100%); transition: transform .2s; }
   .cat-nav:not(.collapsed) { transform: translateX(0); }
   .cat-nav.collapsed { transform: translateX(-100%); }
   .card-grid { grid-template-columns: 1fr; }

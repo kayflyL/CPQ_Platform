@@ -8,13 +8,16 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 
 from app.repository.bom_case_repo import BomCaseRepository
+from app.api.deps import get_current_user, require_perms
 
 logger = logging.getLogger(__name__)
-router = APIRouter(prefix="/api/bom-cases", tags=["bom-cases"])
+# 默认登录门槛；案例写操作收「解决方案」页权限（选型配置·BOM案例库所在域）。
+router = APIRouter(prefix="/api/bom-cases", tags=["bom-cases"],
+                   dependencies=[Depends(get_current_user)])
 
 
 @router.get("")
@@ -56,7 +59,7 @@ def get_case(case_key: str):
         repo.close()
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_perms("page.strategies"))])
 def create_case(data: dict):
     repo = BomCaseRepository()
     try:
@@ -70,7 +73,7 @@ def create_case(data: dict):
         repo.close()
 
 
-@router.put("/{case_key}")
+@router.put("/{case_key}", dependencies=[Depends(require_perms("page.strategies"))])
 def update_case(case_key: str, data: dict):
     repo = BomCaseRepository()
     try:
@@ -85,7 +88,7 @@ def update_case(case_key: str, data: dict):
         repo.close()
 
 
-@router.delete("/{case_key}")
+@router.delete("/{case_key}", dependencies=[Depends(require_perms("page.strategies"))])
 def delete_case(case_key: str):
     repo = BomCaseRepository()
     try:

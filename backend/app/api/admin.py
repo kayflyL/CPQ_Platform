@@ -4,15 +4,18 @@ import json
 logger = logging.getLogger(__name__)
 from datetime import datetime
 import io
-from fastapi import APIRouter, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import StreamingResponse
 from app.repository.kp_repo import KPRepository
 from app.repository.l6_repo import L6Repository
 from app.services.kp_import_export import ExportService, TemplateService, ImportService
+from app.api.deps import get_current_user, require_perms
 
+# 默认登录门槛（SPA 无匿名面）；写操作再按归属页面收 page.* 权限。
 router = APIRouter(
     prefix="/api/admin",
-    tags=["admin"]
+    tags=["admin"],
+    dependencies=[Depends(get_current_user)],
 )
 
 # ================== Metadata Fields API ==================
@@ -48,7 +51,7 @@ def list_kp_by_category(category: str, search: str = ""):
         repo.close()
 
 
-@router.post("/kp/rename")
+@router.post("/kp/rename", dependencies=[Depends(require_perms("page.parts"))])
 def rename_kp_model(data: dict):
     old_model = data.get("old_model")
     new_model = data.get("new_model")
@@ -65,7 +68,7 @@ def rename_kp_model(data: dict):
         repo.close()
 
 
-@router.post("/kp/update-note")
+@router.post("/kp/update-note", dependencies=[Depends(require_perms("page.parts"))])
 def update_kp_note(data: dict):
     model = data.get("model")
     note = data.get("note", "")
@@ -96,7 +99,7 @@ def list_kp(page: int = 1, page_size: int = 20, search: str = "", category: str 
         repo.close()
 
 
-@router.post("/kp/update")
+@router.post("/kp/update", dependencies=[Depends(require_perms("page.parts"))])
 def update_kp_price(data: dict):
     part_name = data.get("model") or data.get("part_name")
     price = data.get("price")
@@ -169,7 +172,7 @@ def export_parts(category_id: int = None):
         repo.close()
 
 
-@router.post("/kp/parts/import")
+@router.post("/kp/parts/import", dependencies=[Depends(require_perms("page.parts"))])
 async def import_parts(file: UploadFile = File(...), dry_run: bool = Query(False)):
     """批量导入 KP 配件。dry_run=true 返回逐行预览(新增/更新/冲突);false 正式写入。"""
     content = await file.read()
@@ -266,7 +269,7 @@ def get_part(part_id: int):
         repo.close()
 
 
-@router.post("/kp/parts")
+@router.post("/kp/parts", dependencies=[Depends(require_perms("page.parts"))])
 def create_part(data: dict):
     """创建配件"""
     if not data.get("name"):
@@ -280,7 +283,7 @@ def create_part(data: dict):
         repo.close()
 
 
-@router.put("/kp/parts/{part_id}")
+@router.put("/kp/parts/{part_id}", dependencies=[Depends(require_perms("page.parts"))])
 def update_part(part_id: int, data: dict):
     """更新配件"""
     repo = KPRepository()
@@ -295,7 +298,7 @@ def update_part(part_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/kp/parts/{part_id}")
+@router.delete("/kp/parts/{part_id}", dependencies=[Depends(require_perms("page.parts"))])
 def delete_part(part_id: int):
     """删除配件"""
     repo = KPRepository()
@@ -319,7 +322,7 @@ def list_all_categories():
         repo.close()
 
 
-@router.post("/kp/categories")
+@router.post("/kp/categories", dependencies=[Depends(require_perms("page.parts"))])
 def create_category(data: dict):
     """创建分类"""
     if not data.get("name"):
@@ -333,7 +336,7 @@ def create_category(data: dict):
         repo.close()
 
 
-@router.put("/kp/categories/{cat_id}")
+@router.put("/kp/categories/{cat_id}", dependencies=[Depends(require_perms("page.parts"))])
 def update_category(cat_id: int, data: dict):
     """更新分类"""
     repo = KPRepository()
@@ -346,7 +349,7 @@ def update_category(cat_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/kp/categories/{cat_id}")
+@router.delete("/kp/categories/{cat_id}", dependencies=[Depends(require_perms("page.parts"))])
 def delete_category(cat_id: int):
     """删除分类"""
     repo = KPRepository()
@@ -375,7 +378,7 @@ def get_part_prices(part_id: int):
         repo.close()
 
 
-@router.post("/kp/parts/{part_id}/prices")
+@router.post("/kp/parts/{part_id}/prices", dependencies=[Depends(require_perms("page.parts"))])
 def add_price(part_id: int, data: dict):
     """添加价格记录"""
     if data.get("price") is None:
@@ -394,7 +397,7 @@ def add_price(part_id: int, data: dict):
         repo.close()
 
 
-@router.put("/kp/prices/{price_id}")
+@router.put("/kp/prices/{price_id}", dependencies=[Depends(require_perms("page.parts"))])
 def update_price(price_id: int, data: dict):
     """更新价格记录"""
     repo = KPRepository()
@@ -413,7 +416,7 @@ def update_price(price_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/kp/prices/{price_id}")
+@router.delete("/kp/prices/{price_id}", dependencies=[Depends(require_perms("page.parts"))])
 def delete_price(price_id: int):
     """删除价格记录"""
     repo = KPRepository()
@@ -437,7 +440,7 @@ def get_related_parts(part_id: int):
         repo.close()
 
 
-@router.post("/kp/parts/{part_id}/related")
+@router.post("/kp/parts/{part_id}/related", dependencies=[Depends(require_perms("page.parts"))])
 def add_related_part(part_id: int, data: dict):
     """添加关联配件"""
     if not data.get("target_part_id"):
@@ -449,7 +452,7 @@ def add_related_part(part_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/kp/related/{relation_id}")
+@router.delete("/kp/related/{relation_id}", dependencies=[Depends(require_perms("page.parts"))])
 def remove_related_part(relation_id: int):
     """删除关联"""
     repo = KPRepository()
@@ -476,7 +479,7 @@ def list_l6(page: int = 1, page_size: int = 20, search: str = ""):
         repo.close()
 
 
-@router.post("/l6/update")
+@router.post("/l6/update", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_l6(data: dict):
     record_id = data.get("id")
     if not record_id:
@@ -513,7 +516,7 @@ def list_l6_grouped(search: str = ""):
         repo.close()
 
 
-@router.post("/l6/create")
+@router.post("/l6/create", dependencies=[Depends(require_perms("page.settings.admin"))])
 def create_l6(data: dict):
     """新增L6记录"""
     required_fields = ["chassis", "model", "price"]
@@ -552,7 +555,7 @@ def create_l6(data: dict):
         repo.close()
 
 
-@router.delete("/l6/{record_id}")
+@router.delete("/l6/{record_id}", dependencies=[Depends(require_perms("page.settings.admin"))])
 def delete_l6(record_id: int):
     """删除L6记录"""
     repo = L6Repository()
@@ -580,7 +583,7 @@ def get_l6_history(record_id: int, limit: int = 50):
         repo.close()
 
 
-@router.put("/l6/sort-order")
+@router.put("/l6/sort-order", dependencies=[Depends(require_perms("page.settings.admin"))])
 def update_l6_sort_order(data: dict):
     """批量更新L6记录排序顺序"""
     items = data.get("items", [])
@@ -647,7 +650,7 @@ def list_business_fields():
         repo.close()
 
 
-@router.post("/business-fields")
+@router.post("/business-fields", dependencies=[Depends(require_perms("page.settings.templates"))])
 def create_business_field(data: dict, operator: str = "system"):
     """新增业务字段"""
     required = ["key", "label", "category", "source"]
@@ -665,7 +668,7 @@ def create_business_field(data: dict, operator: str = "system"):
         repo.close()
 
 
-@router.put("/business-fields/{field_key}")
+@router.put("/business-fields/{field_key}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def update_business_field(field_key: str, data: dict, operator: str = "system"):
     """更新业务字段（静态字段 → business_fields；动态字段 → dynamic_source_fields）"""
     # 动态字段 key 格式：source_key.field_key
@@ -704,7 +707,7 @@ def update_business_field(field_key: str, data: dict, operator: str = "system"):
         repo.close()
 
 
-@router.delete("/business-fields/{field_key}")
+@router.delete("/business-fields/{field_key}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def delete_business_field(field_key: str, operator: str = "system"):
     """删除业务字段（静态字段 → business_fields；动态字段 → dynamic_source_fields）"""
     # 动态字段 key 格式：source_key.field_key
@@ -744,7 +747,7 @@ def export_business_fields(keys: str = None):
         repo.close()
 
 
-@router.post("/business-fields-import")
+@router.post("/business-fields-import", dependencies=[Depends(require_perms("page.settings.templates"))])
 def import_business_fields(data: dict, operator: str = "system"):
     """导入字段定义"""
     fields_list = data.get("fields", [])

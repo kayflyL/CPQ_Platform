@@ -30,6 +30,21 @@ _TOOL_CONTEXT_COMPRESS_TO = 300
 _TOOL_CONTEXT_VICTIM_MIN = 400
 
 
+def _tool_result_detail(result: Any) -> str:
+    """工具结果的一句话事实摘要（确定性，不发明）：列表报条数、字典报键数、字符串报字数。"""
+    try:
+        if isinstance(result, list):
+            return f"返回 {len(result)} 条记录"
+        if isinstance(result, dict):
+            if isinstance(result.get("rows"), list):
+                return f"返回 {len(result['rows'])} 行"
+            return f"返回 {len(result)} 个字段"
+        s = str(result or "")
+        return f"{len(s)} 字" if s else ""
+    except Exception:
+        return ""
+
+
 def _cap_tool_context(messages: list) -> None:
     """把步内已累积的工具消息总量压回上限内：从最老的开始压缩（最近的保持完整）。"""
     while True:
@@ -104,14 +119,17 @@ async def _run_native_tool_loop(
     except (TypeError, ValueError):
         max_iter = 5
 
-    async def _emit(kind: str, text: str = "", tool: Optional[str] = None) -> None:
+    async def _emit(kind: str, text: str = "", tool: Optional[str] = None,
+                    phase: Optional[str] = None, detail: str = "",
+                    elapsed_ms: Optional[int] = None) -> None:
         if not event_sink:
             return
         try:
             await event_sink({
                 "type": "step_progress",
                 "step": "react",
-                "sub": {"kind": kind, "text": text, "tool": tool},
+                "sub": {"kind": kind, "text": text, "tool": tool, "phase": phase,
+                        "detail": detail, "elapsed_ms": elapsed_ms},
             })
         except Exception:
             pass
@@ -137,7 +155,8 @@ async def _run_native_tool_loop(
                         base["error"] = f"repeat_tool:{name}"[:300]
                         await _emit("tool", f"工具 {name} 连续重复调用达上限，中止本步（模型在原地打转）")
                         return base
-                    await _emit("tool", f"正在调用工具 {name}", name)
+                    await _emit("tool", f"正在调用工具 {name}", name, phase="start")
+                    _t0 = time.perf_counter()
                     result = await registry.execute(name, args)
                     if tool_guard is not None:
                         result = await tool_guard(name, args, result)
@@ -146,7 +165,9 @@ async def _run_native_tool_loop(
                             json.dumps(result, ensure_ascii=False, default=str)
                     except Exception:
                         result_str = str(result)
-                    await _emit("tool", f"工具 {name} 已完成", name)
+                    await _emit("tool", f"工具 {name} 已完成", name, phase="done",
+                                detail=_tool_result_detail(result),
+                                elapsed_ms=int((time.perf_counter() - _t0) * 1000))
                     base["tool_calls_log"].append({"name": name, "args": args, "result": result})
                     messages.append({
                         "role": "tool",
@@ -369,7 +390,8 @@ async def _run_native_stream_chat_loop(
                     base["error"] = f"repeat_tool:{name}"[:300]
                     await _emit("tool", text=f"{name} 连续重复调用达上限，止损收口")
                     return base
-                await _emit("tool", text=f"正在调用 {name}…", tool=name)
+                await _emit("tool", text=f"正在调用 {name}…", tool=name, phase="start")
+                _t0 = time.perf_counter()
                 try:
                     result = await registry.execute(name, args)
                     if tool_guard is not None:
@@ -382,7 +404,9 @@ async def _run_native_stream_chat_loop(
                     result_str = str(result)
                 if len(result_str) > 1500:
                     result_str = result_str[:1500] + "…(截断)"
-                await _emit("tool", text=f"{name} 完成", tool=name)
+                await _emit("tool", text=f"{name} 完成", tool=name, phase="done",
+                            detail=_tool_result_detail(result),
+                            elapsed_ms=int((time.perf_counter() - _t0) * 1000))
                 base["tool_calls_log"].append({"name": name, "args": args, "result": result})
                 messages.append({"role": "tool", "tool_call_id": tc.get("id") or "", "content": result_str})
             _cap_tool_context(messages)

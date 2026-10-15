@@ -34,6 +34,8 @@ const props = withDefaults(defineProps<{
   /** 报价工作台只显示人民币：USD 件按汇率+税折算成 RMB，RMB 件原值（已含税） */
   exchangeRate?: number
   taxRate?: number
+  /** 类别数量上限（基准配置能力档案：CPU→max_cpu / Memory→max_dimm / GPU→gpu_slots / HDD-SSD→bays）。undefined=不限 */
+  maxQty?: number
 }>(), {
   exchangeRate: 7,
   taxRate: 0.13,
@@ -73,6 +75,14 @@ function onPick(i: number, pn: any) {
   }
   emit('set-line', i, patch)
 }
+
+/** 上限夹紧：maxQty 未配置 → 只夹非负；已配置 → 该行可设上限 = maxQty − 同类别其他行已占数量（上限按类别总数算，多行分摊） */
+function clampQty(i: number, desired: number): number {
+  const v = Math.max(0, Math.floor(Number(desired) || 0))
+  if (props.maxQty == null) return v
+  const others = props.lines.reduce((s, l, j) => (j === i ? s : s + (Number(l.qty) || 0)), 0)
+  return Math.min(v, Math.max(0, props.maxQty - others))
+}
 </script>
 
 <template>
@@ -103,9 +113,9 @@ function onPick(i: number, pn: any) {
           <PartPicker class="kp-picker" :items="pickerItems" :model-value="l.pn" size="small" placeholder="(请选择)"
             @update:model-value="(pn:any)=>onPick(i, pn)" />
           <div class="sc-step">
-            <button @click="emit('set-line', i, { qty: Math.max(0, l.qty - 1) })">−</button>
-            <input :value="l.qty" @change="(e:any)=>emit('set-line', i, { qty: parseInt(e.target.value) || 0 })" />
-            <button @click="emit('set-line', i, { qty: l.qty + 1 })">+</button>
+            <button @click="emit('set-line', i, { qty: clampQty(i, l.qty - 1) })">−</button>
+            <input :value="l.qty" @change="(e:any)=>emit('set-line', i, { qty: clampQty(i, parseInt(e.target.value) || 0) })" />
+            <button :disabled="clampQty(i, l.qty + 1) <= l.qty" @click="emit('set-line', i, { qty: clampQty(i, l.qty + 1) })">+</button>
           </div>
           <span v-if="priceVisible" class="sc-kp-price">¥{{ lineCost(l).toLocaleString() }}</span>
           <button class="sc-del" @click="emit('del-line', i)" title="删除该行">✕</button>
@@ -119,9 +129,9 @@ function onPick(i: number, pn: any) {
             <PartPicker class="qm-picker" :items="pickerItems" :model-value="l.pn" size="small" placeholder="(请选择)"
               @update:model-value="(pn:any)=>onPick(i, pn)" />
             <div class="sc-step">
-              <button @click="emit('set-line', i, { qty: Math.max(0, l.qty - 1) })">−</button>
-              <input :value="l.qty" @change="(e:any)=>emit('set-line', i, { qty: parseInt(e.target.value) || 0 })" />
-              <button @click="emit('set-line', i, { qty: l.qty + 1 })">+</button>
+              <button @click="emit('set-line', i, { qty: clampQty(i, l.qty - 1) })">−</button>
+              <input :value="l.qty" @change="(e:any)=>emit('set-line', i, { qty: clampQty(i, parseInt(e.target.value) || 0) })" />
+              <button :disabled="clampQty(i, l.qty + 1) <= l.qty" @click="emit('set-line', i, { qty: clampQty(i, l.qty + 1) })">+</button>
             </div>
             <button class="sc-del" @click="emit('del-line', i)" title="删除该行">✕</button>
           </div>

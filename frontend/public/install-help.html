@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>CPQ · 安装到手机桌面</title>
+  <style>
+    /* 独立静态页,不进 SPA;间距用 4/8/12/16/24/32 栅格,浅色玻璃风与主站一致 */
+    :root {
+      --bg: #F2F6FC; --card: rgba(255, 255, 255, 0.72); --line: rgba(22, 119, 255, 0.10);
+      --text: #1d2129; --text-2: #4e5969; --text-3: #86909c; --accent: #1677FF;
+      --ok: #52C9A0;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background:
+        radial-gradient(ellipse 90% 50% at 15% 0%, rgba(22, 119, 255, 0.06), transparent 60%),
+        radial-gradient(ellipse 80% 45% at 90% 100%, rgba(168, 85, 247, 0.05), transparent 60%),
+        var(--bg);
+      color: var(--text);
+      font: 15px/1.6 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      min-height: 100vh;
+      padding: 24px 16px calc(32px + env(safe-area-inset-bottom, 0px));
+    }
+    .wrap { max-width: 560px; margin: 0 auto; }
+    .logo { width: 40px; height: 40px; margin-bottom: 12px; }
+    h1 { font-size: 22px; font-weight: 600; margin: 0 0 4px; letter-spacing: 0.2px; }
+    .sub { color: var(--text-3); font-size: 13px; margin: 0 0 24px; }
+    .card {
+      background: var(--card); border: 1px solid var(--line); border-radius: 16px;
+      padding: 16px; margin-bottom: 16px;
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
+    }
+    .card.is-off { opacity: 0.45; }
+    .card h2 { font-size: 16px; font-weight: 600; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+    .tag {
+      font-size: 11px; font-weight: 500; color: var(--accent); background: rgba(22, 119, 255, 0.08);
+      border-radius: 999px; padding: 2px 8px;
+    }
+    .tag.alt { color: var(--text-3); background: rgba(29, 33, 41, 0.05); }
+    ol { margin: 0; padding: 0; list-style: none; counter-reset: step; }
+    ol li { counter-increment: step; position: relative; padding-left: 30px; margin-bottom: 12px; color: var(--text-2); }
+    ol li:last-child { margin-bottom: 0; }
+    ol li::before {
+      content: counter(step);
+      position: absolute; left: 0; top: 2px;
+      width: 20px; height: 20px; border-radius: 50%;
+      background: rgba(22, 119, 255, 0.08); color: var(--accent);
+      font-size: 12px; font-weight: 600; display: flex; align-items: center; justify-content: center;
+    }
+    b { color: var(--text); font-weight: 600; }
+    .btn {
+      display: inline-block; margin-top: 4px; padding: 10px 20px; border-radius: 12px;
+      background: var(--accent); color: #fff; font-weight: 600; font-size: 15px;
+      text-decoration: none; border: none;
+    }
+    .btn:active { opacity: 0.85; }
+    .ghost {
+      display: inline-block; margin-top: 4px; padding: 10px 16px; border-radius: 12px;
+      background: rgba(255, 255, 255, 0.7); color: var(--accent); font-weight: 500; font-size: 14px;
+      text-decoration: none; border: 1px solid var(--line);
+    }
+    .note { font-size: 12px; color: var(--text-3); margin-top: 12px; line-height: 1.7; }
+    .warn {
+      font-size: 12px; color: #b4322f; background: rgba(255, 107, 107, 0.10);
+      border-radius: 10px; padding: 8px 12px; margin: 0 0 12px; line-height: 1.7;
+    }
+    .ok-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 2px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <img class="logo" src="/favicon.svg" alt="" />
+    <h1>把 CPQ 装到手机桌面</h1>
+    <p class="sub">一次性安装,之后点桌面图标直接进,全屏无浏览器栏 —— 与正常 App 一样</p>
+
+    <div class="card" id="android-card">
+      <h2>安卓<span class="tag">Chrome / Edge</span><span class="tag alt">需先装 CA 证书</span></h2>
+      <p class="warn">看到「无法安装此应用」?说明你还在 5173 或证书没装——HTTP 站点永远装不了,必须走完下面步骤从 5443 进。</p>
+      <ol>
+        <li><b>下载证书文件</b><br /><a class="btn" href="/cpq-ca.crt" download>① 下载 CA 证书</a></li>
+        <li><b>安装证书</b>:手机「设置」搜索「安装证书」→ 选 <b>CA 证书</b> → 选中刚下载的 <b>cpq-ca.crt</b> → 确认(可能要求锁屏密码)</li>
+        <li><b>彻底退出 Chrome 再重新打开</b>(后台划掉重开,必做)</li>
+        <li>Chrome 打开 <b>https://10.32.39.132:5443</b> → 右上角 <b>⋮</b> → <b>「安装应用」</b>或「添加到主屏幕」→ 安装</li>
+        <li>桌面出现 CPQ 图标,点开即全屏 App。网址里的安全提示在装完证书后消失</li>
+      </ol>
+      <p class="note">必须用 Chrome 或 Edge;微信/QQ 内置浏览器装不了 —— 从微信收到链接时,先右上角「在浏览器打开」。</p>
+    </div>
+
+    <div class="card" id="ios-card">
+      <h2>iPhone / iPad<span class="tag alt">Safari</span></h2>
+      <ol>
+        <li>用 <b>Safari</b> 打开 <b>http://10.32.39.132:5173</b>(不用装证书)</li>
+        <li>点底部中央<b>分享按钮</b>(方框加向上箭头)→ 往下滑点<b>「添加到主屏幕」</b> → 添加</li>
+        <li>桌面出现 CPQ 图标,点开即全屏 App</li>
+      </ol>
+      <p class="note"><span class="ok-dot"></span>从微信收到链接:先点右上角「…」→ 选择「在 Safari 中打开」,再从第 1 步做起。</p>
+    </div>
+
+    <div class="card">
+      <h2>装好之后</h2>
+      <ol>
+        <li>日常从<b>桌面图标</b>进,不再需要记任何网址和端口</li>
+        <li>App 的登录状态和浏览器是分开的,<b>装好后第一次要重新登录</b>,之后长期保持</li>
+        <li>页面更新都发生在服务器端,重新打开 App 即是最新版,无需在手机上更新任何东西</li>
+      </ol>
+      <p class="note">打不开 5443?说明证书流程还没就绪,可先用浏览器访问 http://10.32.39.132:5173 ,不影响使用。</p>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var ua = navigator.userAgent;
+      var isAndroid = /android/i.test(ua);
+      var isIOS = /iphone|ipad|ipod/i.test(ua);
+      var and = document.getElementById('android-card');
+      var ios = document.getElementById('ios-card');
+      if (isAndroid) { ios.classList.add('is-off'); }
+      else if (isIOS) { and.classList.add('is-off'); }
+    })();
+  </script>
+</body>
+</html>

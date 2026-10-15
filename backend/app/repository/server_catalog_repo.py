@@ -183,6 +183,15 @@ class ServerCatalogRepository:
         with l6_engine.connect() as c:
             return c.execute(text(q), {"u": url, "pat": f"%{url}%"}).scalar() or 0
 
+    def count_doc_references(self, url: str) -> int:
+        """资料 URL 全库引用计数（product_content.docs）；资料文件删除前的安全检查。
+
+        url 含短 uuid 后缀，LIKE 匹配天然无假阳性；>0 说明还有机型在用，不能删。
+        """
+        q = "SELECT count(*) FROM l6.server_models WHERE product_content::text LIKE :pat"
+        with l6_engine.connect() as c:
+            return c.execute(text(q), {"pat": f"%{url}%"}).scalar() or 0
+
     def get_model(self, model_id: int) -> Optional[dict]:
         q = """
             SELECT m.*, bc.form AS bc_form, bc.bays AS bc_bays,

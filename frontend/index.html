@@ -3,7 +3,16 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- PWA：添加到主屏幕后以独立窗口全屏运行（无浏览器地址栏/工具栏） -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <meta name="theme-color" content="#F2F6FC" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="CPQ" />
+    <!-- viewport-fit=cover：独立模式下页面延伸到刘海/状态栏下方，配合布局壳的 safe-area-inset 让位 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <title>CPQ Platform</title>
     <script>
       // 首屏前同步确定主题：读取用户已保存的选择，否则跟随系统，兜底浅色。

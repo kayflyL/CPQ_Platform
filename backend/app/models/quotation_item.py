@@ -27,6 +27,9 @@ class QuotationItem(Base):
     profit_margin: Mapped[Optional[float]] = mapped_column(Float, default=None)
     # 行级货币（RMB / USD / ...）；决定 final_price 是否走汇率+税。历史用 is_usd_cpu 布尔（已废弃，迁移时回填到本列）
     currency: Mapped[str] = mapped_column(String(10), default="RMB")
+    # 行价时点锚：base_price 最近一次被人为改动（手填/同步/采纳）的时间（ISO 文本）。
+    # 与配件库最新价日期比新旧，决定 KP 行亮「同步价格」还是「采纳库价」；NULL=从未单独改价，回落单据时间。
+    price_set_at: Mapped[Optional[str]] = mapped_column(String, default=None)
 
     # 动态扩展字段（JSON 存储）
     extra_fields: Mapped[Optional[str]] = mapped_column(Text, default=None)
@@ -56,6 +59,7 @@ class QuotationItem(Base):
             "final_price": self.final_price or 0.0,
             "profit_margin": self.profit_margin or 0.0,
             "currency": self.currency or "RMB",
+            "price_set_at": self.price_set_at or None,
         }
 
         # 展开 extra_fields 到顶层

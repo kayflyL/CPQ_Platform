@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """gpu_sizing 确定性计算服务 —— AI 推理配置器计算内核（P1）。
-公式 = docs/原型/gpu_sizing_reference.py（逐格复刻用户 Excel v10，速查表锚点已校验：
+公式 = backend/scripts/gpu_sizing_reference.py（逐格复刻用户 Excel v10，速查表锚点已校验：
   Qwen2.5-7B@8bit vLLM 128G卡×1 → KV@4K=0.109375G / 总占用=6.628633G / 有效=125.5G）。
 两个科学修正随公式生效：
   ① 并发乘进 KV（KV_total = 每token × ctx × 并发）；

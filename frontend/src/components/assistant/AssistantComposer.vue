@@ -82,6 +82,8 @@
         <slot name="actions" />
       </div>
     </div>
+    <!-- 操作暗示行（原型 composer-hint）：房间/群聊传 hint 才显示 -->
+    <div v-if="hint" class="ac-hint">{{ hint }}</div>
     <!-- 排队可见化：回合执行中再发的消息被串行扣住，这里给出可数凭据（queue_state 事件驱动） -->
     <div v-if="queued > 0" class="ac-queue">
       <span class="ac-queue-dot"></span>
@@ -112,6 +114,8 @@ const props = withDefaults(defineProps<{
   showSkills?: boolean
   /** 排队中消息数（>0 时显示排队徽标）：宿主把 queue_state 事件的深度传进来 */
   queued?: number
+  /** 底部提示语（群聊/房间传「@ = 指定该同事接话 · Enter 发送 · 悬停消息可引用」这类操作暗示） */
+  hint?: string
   /** 上下文水位（{ ratio }），传入则显示水位条 */
   contextUsage?: { ratio?: number } | null
 }>(), {
@@ -124,6 +128,7 @@ const props = withDefaults(defineProps<{
   skills: () => [],
   showSkills: false,
   queued: 0,
+  hint: '',
   contextUsage: null,
 })
 
@@ -414,6 +419,16 @@ defineExpose({ focus })
 }
 
 /* 排队徽标：蓝点呼吸 + 一行说明（queued prop 驱动） */
+/* 操作暗示行：右对齐小字，与发送钮同侧 */
+.ac-hint {
+  padding: 2px 4px 0;
+  font-size: 11px;
+  color: var(--cpq-text-muted, #86909c);
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .ac-queue {
   display: flex;
   align-items: center;

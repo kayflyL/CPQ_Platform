@@ -91,7 +91,7 @@ class AssistantRepository:
         self,
         created_by: str,
         limit: int = 50,
-        thread_kind: str = "assistant",
+        thread_kind: Optional[str] = "assistant",
         colleague_role_key: Optional[str] = None,
         include_deleted: bool = False,
         with_meta: bool = False,
@@ -99,8 +99,9 @@ class AssistantRepository:
     ) -> List[dict]:
         conditions = [
             AssistantThread.created_by == created_by,
-            AssistantThread.thread_kind == thread_kind,
         ]
+        if thread_kind:
+            conditions.append(AssistantThread.thread_kind == thread_kind)
         if not include_deleted:
             conditions.append(AssistantThread.deleted_at.is_(None))
         if not include_preview:

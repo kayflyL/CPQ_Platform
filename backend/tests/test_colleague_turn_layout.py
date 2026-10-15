@@ -23,13 +23,14 @@ OWNERS = {
         "_style_hint", "_skill_prompt", "_workflow_hint", "_handoff_hint",
         "_memory_policy", "_short_term_history", "_skill_for_tool", "_memory_block",
         "_user_name", "_base_messages",
+        "_first_workflow_skill", "_workflow_offers",
     ],
     "colleague_turn_io": [
         "_persist_and_broadcast", "_add_assistant_message", "_trace",
-        "_ensure_ai_office_opportunity",
+        "_ensure_ai_office_opportunity", "_workflow_suggestion_of",
     ],
     "colleague_turn_runners": [
-        "_broadcast_chat_progress", "_run_plain_turn", "_first_workflow_skill",
+        "_broadcast_chat_progress", "_run_plain_turn",
         "_skill_phase_hint", "_run_tool_turn", "_skill_chat_memory_active",
         "_run_skill_chat", "_skill_write_mode",
     ],

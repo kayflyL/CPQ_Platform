@@ -14,7 +14,7 @@ import { ref, computed, onUnmounted } from 'vue'
 import { message as antMessage } from 'ant-design-vue'
 import { assistantApi } from '@/api/assistant'
 import { resetTaskUI, clearThinking, applyTaskState } from '@/composables/assistantChatWs'
-import type { NodeTrace, PauseFacts } from '@/composables/assistantChatWs'
+import type { NodeTrace, PauseFacts, ToolTrace } from '@/composables/assistantChatWs'
 import type { AssistantThread, AssistantMessage } from '@/api/assistant'
 import { createChatRuntime, productionRuntime } from '@/composables/chatRuntime'
 import type { ChatRuntime, ChatSession, ChatChannelKind, ChatContextUsage } from '@/composables/chatRuntime'
@@ -31,6 +31,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const colleagues = ref<any[]>([])
   const activeRoleKey = ref<string | null>(initialRoleKey)
   const pendingDispatch = ref<{ colleague: any; content: string; contextSummary?: string } | null>(null)
+  // 工作流装填态（2026-10-15）：「+」选中工作流不再发占位消息，下一条发送以 workflow_launcher 携需求原文直进引擎
+  const armedWorkflow = ref<{ key: string; name: string; roleKey?: string | null } | null>(null)
 
   const activeSession = computed<ChatSession | null>(() =>
     activeChannelKey.value ? runtime.get(activeChannelKey.value) : null,
@@ -46,6 +48,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   function activate(kind: ChatChannelKind, roleKey?: string | null): ChatSession {
     const s = runtime.session(kind, roleKey, entryPoint)
     if (activeChannelKey.value !== s.id) {
+      // 换会话即卸下装填态：装填属于当前对话的 composer，不跟随指针漂移到别的线程
+      armedWorkflow.value = null
       const old = activeChannelKey.value ? runtime.get(activeChannelKey.value) : null
       if (old) runtime.unpin(old)
       activeChannelKey.value = s.id
@@ -85,6 +89,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const taskTitle = computed(() => activeSession.value?.taskTitle ?? '')
   const taskPhase = computed<'' | 'running' | 'paused' | 'done'>(() => activeSession.value?.taskPhase ?? '')
   const taskPause = computed<PauseFacts | null>(() => activeSession.value?.taskPause ?? null)
+  const toolTraces = computed<ToolTrace[]>(() => activeSession.value?.toolTraces ?? [])
   const contextUsage = computed<ChatContextUsage | null>(() => activeSession.value?.contextUsage ?? null)
 
   async function loadColleagues() {
@@ -237,7 +242,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
 
   async function postSend(content: string, contextSummary?: string, roleKey?: string, optionSlot?: string | null,
                           cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
-                          entryPointOverride?: string, workflowKey?: string | null) {
+                          entryPointOverride?: string, workflowKey?: string | null,
+                          quote?: { name: string; text: string } | null) {
     const s = activeSession.value
     if (!s?.threadId) return
     resetTaskUI(s)
@@ -258,6 +264,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         optionSlot || null,
         cardSelections || null,
         workflowKey || null,
+        quote || null,
       )
       s.messages.push(res.user_message)
       if (res.thread) {
@@ -270,9 +277,11 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
       s.streamingText = ''
       s.running = false
       antMessage.error('发送失败')
+      return false
     } finally {
       s.sending = false
     }
+    return true
   }
 
   async function stop() {
@@ -283,27 +292,47 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
 
   async function send(content: string, contextSummary?: string, optionSlot?: string | null,
                       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
-                      workflowKey?: string | null) {
+                      workflowKey?: string | null,
+                      quote?: { name: string; text: string } | null) {
     const text = content.trim()
     if (!text) return
     if (!currentThreadId.value) {
       const t = await newThread()
       if (!t) return
     }
+    // 装填态消费：这条发送就是工作流首回合，需求原文随 workflow_launcher 直进引擎（不落占位消息）
+    const armed = armedWorkflow.value
+    if (armed) {
+      armedWorkflow.value = null
+      await postSend(text, contextSummary, armed.roleKey || activeRoleKey.value || undefined, optionSlot || null,
+                     cardSelections || null, 'workflow_launcher', armed.key, quote || null)
+      return
+    }
     await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null,
-                   cardSelections || null, undefined, workflowKey || null)
+                   cardSelections || null, undefined, workflowKey || null, quote || null)
   }
 
-  /** 方案助手「+」显式发起某工作流：直接进入 ACTIVE，不再走 IDLE→PROPOSING。 */
-  async function launchWorkflow(workflowKey: string, displayName?: string) {
+  /** 「+」装填模式：选中工作流不发包；输入框进入待输入态，下一条发送即工作流首回合。 */
+  function armWorkflow(workflowKey: string, displayName?: string, roleKey?: string | null) {
     const key = (workflowKey || '').trim()
     if (!key) return
+    armedWorkflow.value = { key, name: (displayName || key).trim(), roleKey: roleKey || null }
+  }
+
+  function cancelArmedWorkflow() {
+    armedWorkflow.value = null
+  }
+
+  /** 工作流确认卡一键发起：需求原文随 workflow_launcher 入口直进引擎（force_submit，首回合即真需求）。 */
+  async function launchWorkflowNow(workflowKey: string, requirementText: string, roleKey?: string | null) {
+    const key = (workflowKey || '').trim()
+    const text = (requirementText || '').trim()
+    if (!key || !text) return
     if (!currentThreadId.value) {
       const t = await newThread()
       if (!t) return
     }
-    const label = (displayName || key).trim()
-    await postSend(`请开始【${label}】工作流。`, undefined, activeRoleKey.value || undefined,
+    await postSend(text, undefined, roleKey || activeRoleKey.value || undefined,
       null, null, 'workflow_launcher', key)
   }
 
@@ -392,8 +421,9 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   return {
     threads, currentThreadId, currentThread, messages, loading, sending, running,
     streamingText, thinkingText, waitingAI, statusText, queuedCount, nodeTraces, taskTitle, taskPhase, taskPause,
+    toolTraces,
     contextUsage, loadThreads, selectThread, newThread, send,
-    launchWorkflow,
+    armedWorkflow, armWorkflow, cancelArmedWorkflow, launchWorkflowNow,
     confirmDispatch, cancelDispatch, removeThread, colleagues, activeRoleKey, switchRole,
     connectWs, disconnectWs, createPreviewThread, destroyPreview, resetPreview, stop,
   }

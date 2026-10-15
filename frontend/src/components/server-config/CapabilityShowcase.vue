@@ -5,7 +5,7 @@
  *  插画 = icon key → 参数化 SVG 场景（展示层常量：重复结构做密度，SMIL 脉冲/闪烁/旋转做活性，
  *  prefers-reduced-motion 下全部静止）。自动轮播 4.5s，悬停暂停，点击直达。
  *  主题色沿用详情页根节点 stageVars 挂的 --sun-color / --sun-bright / --sun-glow 级联。
- *  原型：docs/原型/机型详情-产品能力点选介绍-原型v4.html */
+ *  原型：docs/prototypes/机型详情-产品能力点选介绍-原型v4.html */
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { ModelCapability } from '@/api/serverConfig'
 import { capIconSvg } from '@/constants/capIcons'

@@ -127,14 +127,61 @@ def _fetch_dist(days: int = 56) -> dict:
     return {"items": items, "total": sum(c["value"] for c in items)}
 
 
-# KPI 指标原子目录：kpi 区块 blk.metrics 按 key 挑选/改名/排序；取数一次全量算（都是廉价计数）
+def _fetch_platform_monthly(days: int = 183) -> dict:
+    """逐月×平台新增商机数矩阵（口径同 dist 的 slot map 平台计数）。
+
+    月份升序；平台列按累计量降序（Orion 领先时排第一列）；末列=当月合计。
+    rows 为 dict 列表 + columns/keys 显式声明列序，渲染器按 keys 取值。
+    """
+    from ..repository.opp_caliber_repo import current_slot_map
+    start_str, end_str = _trend_range(days)
+    month_expr = func.substr(Opportunity.created_at, 1, 7)
+    session = Opportunity_SessionLocal()
+    try:
+        rows = (
+            session.query(month_expr.label("m"), Opportunity.opportunity_id)
+            .filter(
+                *_ACTIVE_CONDS,
+                Opportunity.created_at >= start_str,
+                Opportunity.created_at < end_str,
+            )
+            .all()
+        )
+        ids = [r.opportunity_id for r in rows]
+        slot_map = current_slot_map(session, ids) if ids else {}
+    finally:
+        session.close()
+    grid: dict = {}
+    for r in rows:
+        plat = (slot_map.get(r.opportunity_id, {}).get("platform_type") or "").strip()
+        plat = plat if plat else "未分类"
+        month = grid.setdefault(r.m or "未知", {})
+        month[plat] = month.get(plat, 0) + 1
+    totals: dict = {}
+    for month in grid.values():
+        for p, v in month.items():
+            totals[p] = totals.get(p, 0) + v
+    platforms = [p for p, _ in sorted(totals.items(), key=lambda kv: -kv[1])]
+    rows_out = []
+    for m in sorted(grid.keys()):
+        row = {"month": m}
+        for p in platforms:
+            row[p] = grid[m].get(p, 0)
+        row["total"] = sum(grid[m].values())
+        rows_out.append(row)
+    return {
+        "columns": ["月份", *platforms, "合计"],
+        "keys": ["month", *platforms, "total"],
+        "rows": rows_out,
+    }
+
+
+# KPI 指标原子：全部跟随报告数据范围（窗口内口径）——2026-10-03 定调：
+# "总商机数/总配置数" = 窗口内总数（不再有全量口径，杜绝同词异口径）；
+# 原"周期新增×2"与窗口化后的总量完全重复，退场。
 _KPI_METRIC_CATALOG = [
-    {"key": "total", "label": "累计商机", "unit": "条"},
-    {"key": "new_week", "label": "近 7 天新增", "unit": "条"},
-    {"key": "new_month", "label": "近 30 天新增", "unit": "条"},
-    {"key": "won", "label": "累计赢单", "unit": "条"},
-    {"key": "win_rate", "label": "赢单率", "unit": "%"},
-    {"key": "open", "label": "进行中", "unit": "条"},
+    {"key": "total_opps", "label": "总商机数", "unit": "条"},
+    {"key": "total_configs", "label": "总配置数", "unit": "份"},
 ]
 
 
@@ -142,38 +189,20 @@ def kpi_metric_catalog() -> list:
     return [dict(m) for m in _KPI_METRIC_CATALOG]
 
 
-def _fetch_kpi() -> dict:
+def _fetch_kpi(days: int = 30) -> dict:
+    """KPI 两原子，全部窗口内口径（窗口=运行时数据范围推入的 days；
+    配置数=每商机当前版本 config_count，同 opp_caliber 口径）。"""
+    from ..repository.opp_caliber_repo import current_config_subquery
+    start_str, end_str = _trend_range(days)
     session = Opportunity_SessionLocal()
     try:
-        base = list(_ACTIVE_CONDS)
-        total = session.query(func.count(Opportunity.opportunity_id)).filter(*base).scalar() or 0
-        week_start = (date.today() - timedelta(days=7)).isoformat()
-        month_start = (date.today() - timedelta(days=30)).isoformat()
-        new_week = (
-            session.query(func.count(Opportunity.opportunity_id))
-            .filter(*base, Opportunity.created_at >= week_start)
-            .scalar() or 0
-        )
-        new_month = (
-            session.query(func.count(Opportunity.opportunity_id))
-            .filter(*base, Opportunity.created_at >= month_start)
-            .scalar() or 0
-        )
-        won = (
-            session.query(func.count(Opportunity.opportunity_id))
-            .filter(*base, Opportunity.result == "won")
-            .scalar() or 0
-        )
-        open_cnt = (
-            session.query(func.count(Opportunity.opportunity_id))
-            .filter(*base, Opportunity.result == "pending")
-            .scalar() or 0
-        )
+        win = list(_ACTIVE_CONDS) + [Opportunity.created_at >= start_str, Opportunity.created_at < end_str]
+        opps = session.query(func.count(Opportunity.opportunity_id)).filter(*win).scalar() or 0
+        cfg_subq = current_config_subquery(session, win)
+        cfgs = session.query(func.sum(cfg_subq.c.cc)).filter(cfg_subq.c.rn == 1).scalar() or 0
     finally:
         session.close()
-    rate = round(won / total * 100, 1) if total else 0.0
-    vals = {"total": int(total), "new_week": int(new_week), "new_month": int(new_month),
-            "won": int(won), "win_rate": rate, "open": int(open_cnt)}
+    vals = {"total_opps": int(opps), "total_configs": int(cfgs)}
     return {"items": [
         {"key": m["key"], "label": m["label"], "value": vals[m["key"]], "unit": m["unit"]}
         for m in _KPI_METRIC_CATALOG
@@ -621,8 +650,8 @@ _ASSET_DEFS: dict = {
         "name": "商机关键指标",
         "kind": "kpi",
         "source_page": "商机线索页",
-        "desc": "指标原子目录：累计商机 / 近7天 / 近30天 / 累计赢单 / 赢单率 / 进行中（区块内勾选组合）",
-        "params": [],
+        "desc": "指标原子：总商机数 / 总配置数（窗口内口径，跟随报告数据范围）",
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 30, "min": 1, "max": 730, "step": 1, "unit": "天"}],
         "metrics": kpi_metric_catalog(),
         "fetch": _fetch_kpi,
     },
@@ -632,7 +661,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "近 8 周按天新增柱状 + 分平台折线（Orion/Polaris/Intel…）",
-        "params": [{"key": "days", "label": "统计天数", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
         "fetch": _fetch_trend,
         "option": _build_trend_option,
     },
@@ -642,9 +671,18 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "平台占比环形图，中心显示总商机数",
-        "params": [{"key": "days", "label": "统计天数", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
         "fetch": _fetch_dist,
         "option": _build_dist_option,
+    },
+    "cockpit.platform_monthly": {
+        "id": "cockpit.platform_monthly",
+        "name": "月度×平台明细表",
+        "kind": "table",
+        "source_page": "商机线索页",
+        "desc": "逐月各平台新增商机数矩阵（月份 / Orion / Polaris / … / 合计），半年趋势章节用",
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 183, "min": 30, "max": 730, "step": 1, "unit": "天"}],
+        "fetch": _fetch_platform_monthly,
     },
     "cockpit.top_opps": {
         "id": "cockpit.top_opps",
@@ -661,7 +699,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "周期内报价单按机型(PN)出现次数的矩形树图，主力 Top8+其他",
-        "params": [{"key": "days", "label": "统计天数", "default": 56, "min": 7, "max": 365, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 365, "step": 1, "unit": "天"}],
         "fetch": _fetch_model_trend,
         "option": _build_model_trend_option,
     },
@@ -671,7 +709,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "商机按机箱形态占比的玫瑰图（多值拆分计数）",
-        "params": [{"key": "days", "label": "统计天数", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
         "fetch": _fetch_chassis_dist,
         "option": _build_chassis_dist_option,
     },

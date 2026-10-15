@@ -37,7 +37,11 @@ def _sanitize_for_json(obj):
         return obj
     return obj
 
-router = APIRouter(prefix="/api/univer-templates", tags=["univer-templates"])
+from app.api.deps import get_current_user, require_perms  # noqa: E402
+
+# 默认登录门槛；模板写操作收「导出模板」页权限。
+router = APIRouter(prefix="/api/univer-templates", tags=["univer-templates"],
+                   dependencies=[Depends(get_current_user)])
 
 repo = UniverTemplateRepo()
 
@@ -84,13 +88,13 @@ def get_template(template_id: int):
     return template
 
 
-@router.post("")
+@router.post("", dependencies=[Depends(require_perms("page.settings.templates"))])
 def create_template(data: TemplateCreate):
     """创建模板"""
     return repo.create(data.model_dump())
 
 
-@router.put("/{template_id}")
+@router.put("/{template_id}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def update_template(template_id: int, data: TemplateUpdate):
     """更新模板"""
     update_data = {k: v for k, v in data.model_dump().items() if v is not None}
@@ -100,7 +104,7 @@ def update_template(template_id: int, data: TemplateUpdate):
     return result
 
 
-@router.delete("/{template_id}")
+@router.delete("/{template_id}", dependencies=[Depends(require_perms("page.settings.templates"))])
 def delete_template(template_id: int):
     """删除模板"""
     if not repo.delete(template_id):
@@ -108,7 +112,7 @@ def delete_template(template_id: int):
     return {"message": "Deleted"}
 
 
-@router.post("/{template_id}/set-default")
+@router.post("/{template_id}/set-default", dependencies=[Depends(require_perms("page.settings.templates"))])
 def set_default(template_id: int):
     """设为默认模板"""
     if not repo.set_default(template_id):
@@ -118,7 +122,7 @@ def set_default(template_id: int):
 
 # ── 上传 Excel ──
 
-@router.post("/upload")
+@router.post("/upload", dependencies=[Depends(require_perms("page.settings.templates"))])
 async def upload_excel(file: UploadFile = File(...)):
     """
     上传 Excel 文件 → 转为 Univer workbook_snapshot 格式
@@ -150,7 +154,7 @@ def _resolve_masked_fields(user: Optional[dict], requested: Optional[List[str]])
 
     sell 无权限要求；cost/margin 需 field.quote.export_internal（服务端强校验，
     前端开关只是交互层）。
-    掩蔽分档：sell→blank（明细清空、列保留，总计行恒显）；cost/margin→hide（整列隐藏）。
+    掩蔽分档：sell→blank（明细清空、列保留，总计行恒显）；cost/margin→hide（整列物理删除，文件里不存在该列）。
     返回 (有效分组, {source_key: {field_key: mode}}, {source_key: set(field_key)} scope=region)。
     """
     allowed = {"sell"}
@@ -200,7 +204,7 @@ def preview_template(
         bindings = request.bindings if request.bindings is not None else template["bindings"]
         sheet_config = template.get("sheet_config", {})
 
-        # 2. 按权限解析敏感分组：sell=明细清空列保留（总计恒显）；cost/margin=整列隐藏
+        # 2. 按权限解析敏感分组：sell=明细清空列保留（总计恒显）；cost/margin=整列物理删除
         effective_reveal, masked_fields, region_fields = _resolve_masked_fields(user, request.reveal)
 
         # 3. 加载数据（传入 bindings 以支持 selectedParts）

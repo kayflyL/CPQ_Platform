@@ -159,6 +159,7 @@ class UpdateUserBody(BaseModel):
     is_active: Optional[bool] = None
     password: Optional[str] = None
     name: Optional[str] = None
+    wecom_userid: Optional[str] = None
 
 
 @router.put("/api/admin/users/{user_id}")
@@ -181,6 +182,63 @@ def update_user(user_id: str, body: UpdateUserBody, admin: dict = Depends(requir
                 repo.update_name(user_id, body.name.strip())
             except ValueError as exc:
                 raise HTTPException(status_code=409, detail=str(exc))
+        if body.wecom_userid is not None:
+            repo.update_wecom(user_id, body.wecom_userid)
         return {"success": True}
     finally:
         repo.close()
+
+
+# ── 用户删除（先转接功能性引用，再删号）──
+
+@router.get("/api/admin/users/{user_id}/references")
+def user_references(user_id: str, admin: dict = Depends(require_admin)):
+    """删除确认弹窗数据：功能性引用（必须转接）与历史留痕（保留原文）。"""
+    from app.services.user_transfer_service import count_references
+    repo = FeedUserRepository()
+    try:
+        target = repo.get(user_id)
+    finally:
+        repo.close()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    return {"user": target, "references": count_references(user_id)}
+
+
+class DeleteUserBody(BaseModel):
+    transfer_to: Optional[str] = None
+
+
+@router.delete("/api/admin/users/{user_id}")
+def delete_user(user_id: str, body: DeleteUserBody, admin: dict = Depends(require_admin)):
+    from app.services.user_transfer_service import count_references, delete_user_with_transfer
+    repo = FeedUserRepository()
+    try:
+        target = repo.get(user_id)
+    finally:
+        repo.close()
+    if not target:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if (target.get("role") or "") == "admin":
+        raise HTTPException(status_code=403, detail="admin 角色账号不可删除")
+    if user_id == (admin.get("user_id") or ""):
+        raise HTTPException(status_code=400, detail="不能删除当前登录的自己")
+    refs = count_references(user_id)
+    functional_total = sum(refs.get("functional", {}).values())
+    transfer_to = (body.transfer_to or "").strip() or None
+    if functional_total > 0 and not transfer_to:
+        raise HTTPException(status_code=409, detail={
+            "message": "该账号仍有商机归属/流程指派/通知/记忆引用，需先选择转接人",
+            "references": refs})
+    if transfer_to:
+        if transfer_to == user_id:
+            raise HTTPException(status_code=400, detail="转接人不能是被删用户自己")
+        repo = FeedUserRepository()
+        try:
+            to_user = repo.get(transfer_to)
+        finally:
+            repo.close()
+        if not to_user or not to_user.get("is_active", True):
+            raise HTTPException(status_code=400, detail="转接人不存在或已停用")
+    transferred = delete_user_with_transfer(user_id, transfer_to)
+    return {"success": True, "transferred": transferred}

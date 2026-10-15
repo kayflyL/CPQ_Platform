@@ -42,7 +42,7 @@ export interface RuleContext {
   /** 按 category 聚合的 KP 配件：qty=数量合计，items=原始行（含 enrich 的 spec/pn），spec=该类典型规格 */
   kp: Record<string, { qty: number; items: any[]; spec: Record<string, any> }>
   config: { series?: string; model?: string; form?: string; sata_qty?: number; sas_qty?: number; nvme_qty?: number; drive_kinds?: string[];
-    max_cpu?: number; max_dimm?: number; max_tdp?: number | null; gpu_slots?: number; psu_bays?: number }
+    max_cpu?: number; max_dimm?: number; max_tdp?: number | null; gpu_slots?: number; psu_bays?: number; bays?: number; psu_qty?: number }
   opportunity: { platform_type?: string }
 }
 

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1160" height="700" viewBox="0 0 1160 700" font-family="'PingFang SC','Microsoft YaHei','Segoe UI',sans-serif">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#8a94a6"/>
+    </marker>
+  </defs>
+  <rect x="0" y="0" width="1160" height="700" fill="#ffffff"/>
+  <text x="580" y="38" text-anchor="middle" font-size="21" font-weight="700" fill="#1f2328">企业知识库问答（RAG）私有化部署 · 方案架构</text>
+
+  <!-- 1. 员工 -->
+  <rect x="380" y="60" width="400" height="60" rx="12" fill="#f5f8ff" stroke="#1677ff" stroke-width="1.5"/>
+  <text x="580" y="86" text-anchor="middle" font-size="16" font-weight="700" fill="#1f2328">企业员工 · 内网浏览器</text>
+  <text x="580" y="107" text-anchor="middle" font-size="12.5" fill="#57606a">200 人 · 按部门权限 · 峰值 20 路并发</text>
+  <line x1="580" y1="120" x2="580" y2="152" stroke="#8a94a6" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="600" y="142" font-size="12" fill="#57606a">自然语言提问 / 流式回答</text>
+
+  <!-- 2. 门户 -->
+  <rect x="280" y="156" width="600" height="76" rx="12" fill="#f5f8ff" stroke="#1677ff" stroke-width="1.5"/>
+  <text x="580" y="184" text-anchor="middle" font-size="16" font-weight="700" fill="#1f2328">知识库门户 · RAGFlow / Dify</text>
+  <text x="580" y="206" text-anchor="middle" font-size="12.5" fill="#57606a">问答界面 · 文档解析导入 · 部门权限 · 对话日志与审计</text>
+  <line x1="580" y1="232" x2="580" y2="262" stroke="#8a94a6" stroke-width="1.5" marker-end="url(#ar)"/>
+
+  <!-- 3. RAG 编排 -->
+  <rect x="280" y="266" width="600" height="56" rx="12" fill="#f5f8ff" stroke="#1677ff" stroke-width="1.5"/>
+  <text x="580" y="300" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">RAG 应用编排：检索召回 → Rerank 精排 → LLM 生成</text>
+
+  <!-- 箭头到两大服务 -->
+  <line x1="430" y1="322" x2="360" y2="366" stroke="#8a94a6" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="330" y="350" font-size="12" fill="#57606a">检索 / 精排</text>
+  <line x1="730" y1="322" x2="800" y2="366" stroke="#8a94a6" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="800" y="350" font-size="12" fill="#57606a">生成请求</text>
+
+  <!-- 硬件底座 -->
+  <rect x="120" y="370" width="920" height="212" rx="14" fill="#fbfcfe" stroke="#1677ff" stroke-width="2" stroke-dasharray="7 5"/>
+  <text x="580" y="398" text-anchor="middle" font-size="15.5" font-weight="700" fill="#1677ff">推理服务器 · ESA240 V3（4U 双路 AMD 9004/9005）</text>
+  <text x="580" y="418" text-anchor="middle" font-size="12.5" fill="#57606a">2× 48G 推理卡 · 256G DDR5 通道插满 · 2× 1.92T NVMe 镜像 · N+N 电源 · IPMI 带外管理</text>
+
+  <!-- 左：向量库 -->
+  <rect x="150" y="432" width="400" height="130" rx="12" fill="#ffffff" stroke="#c9d4e4" stroke-width="1.5"/>
+  <text x="350" y="460" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">Milvus 向量库</text>
+  <text x="350" y="484" text-anchor="middle" font-size="12.5" fill="#57606a">50 万段文档向量（百万段级余量）</text>
+  <text x="350" y="516" text-anchor="middle" font-size="13" fill="#1f2328">BGE-M3 向量化 · bge-reranker 精排</text>
+  <text x="350" y="538" text-anchor="middle" font-size="12" fill="#57606a">运行于 CPU / 内存侧</text>
+
+  <!-- 右：LLM 推理 -->
+  <rect x="610" y="432" width="400" height="130" rx="12" fill="#ffffff" stroke="#c9d4e4" stroke-width="1.5"/>
+  <text x="810" y="460" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">vLLM 推理服务</text>
+  <text x="810" y="484" text-anchor="middle" font-size="12.5" fill="#57606a">continuous batching · INT4 量化</text>
+  <text x="810" y="516" text-anchor="middle" font-size="13" fill="#1f2328">Qwen3-32B / GLM-4-32B / Gemma 3 27B</text>
+  <text x="810" y="538" text-anchor="middle" font-size="12" fill="#57606a">运行于 GPU（2× 48G 推理卡）</text>
+
+  <!-- 企业数据 -->
+  <line x1="810" y1="582" x2="810" y2="612" stroke="#8a94a6" stroke-width="0"/>
+  <rect x="280" y="606" width="600" height="62" rx="12" fill="#f6f8fa" stroke="#c9d4e4" stroke-width="1.5"/>
+  <text x="580" y="632" text-anchor="middle" font-size="15" font-weight="700" fill="#1f2328">企业数据（全部留在内网）</text>
+  <text x="580" y="654" text-anchor="middle" font-size="12.5" fill="#57606a">制度 · 产品手册 · 工艺文件 · 合同模板 —— 首批约 50 万段</text>
+  <line x1="470" y1="606" x2="350" y2="566" stroke="#8a94a6" stroke-width="1.5" marker-end="url(#ar)"/>
+  <text x="330" y="596" text-anchor="end" font-size="12" fill="#57606a">批量导入（上线一次性，GPU 向量化）</text>
+
+  <text x="1030" y="668" text-anchor="end" font-size="12" fill="#8a94a6">模型与数据全部本地部署 · 数据不出内网</text>
+</svg>

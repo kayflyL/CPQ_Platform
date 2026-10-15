@@ -5,7 +5,7 @@
         <h1>{{ pageTitle }}</h1>
         <p>{{ pageDesc }}</p>
       </div>
-      <button v-if="view === 'business'" class="primary-btn" @click="createOpen = true">+ 新建商机</button>
+      <button v-if="canCreate" class="primary-btn" @click="createOpen = true">+ 新建商机</button>
     </div>
 
     <div class="stats" v-if="view !== 'dispatch'">
@@ -37,9 +37,9 @@
         />
       </div>
     </div>
-    <!-- 技术 / 成本 / 报价任务队列：node 过滤的商机卡片，同一张表 -->
+    <!-- 技术 / 成本 / 报价：单一「我经手的商机」列表（任一节点经手/fae 归属，流程节点列标注环节） -->
     <div v-else-if="isTaskView" class="card">
-      <div class="card-head"><h3>{{ taskTableTitle }}</h3><small>当前节点：{{ nodeLabel(node || '') }} · 点击客户名进入商机详情</small><div class="card-tools"><input v-model="search" class="tool-input" placeholder="搜索客户 / 业务 / 商机号" @input="onSearch" /></div></div>
+      <div class="card-head"><h3>{{ taskCardTitle }}</h3><small>{{ taskCardSub }}</small><div class="card-tools"><input v-model="search" class="tool-input" placeholder="搜索客户 / 业务 / 商机号" @input="onSearch" /></div></div>
       <div class="card-body table-body">
         <OpportunityTable
           :rows="cards"
@@ -47,7 +47,6 @@
           :pagination="pagination"
           :status-editable="statusEditable"
           show-flow-node
-          :sortable="false"
           row-menu
           menu-mode="task"
           :from-tag="fromTag"
@@ -61,7 +60,7 @@
 
     <!-- 任务调度页：统计条+人员×节点看板+转交记录，无主清单收在弹窗；面板自管数据 -->
     <PortalDispatchPanel v-else-if="view === 'dispatch'" />
-    <CreateOpportunityModal v-model:open="createOpen" from="portal-business" />
+    <CreateOpportunityModal v-model:open="createOpen" :from="fromTag" @created="loadCards" />
 
     <a-modal
       v-model:open="renameOpen"
@@ -115,13 +114,21 @@ const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const view = computed<ViewKey>(() => (route.params.view as ViewKey) || 'business')
+// 非法 view 参数兜底为 business——防止 pageMeta[view] 取值抛错、渲染崩溃带崩整个 SPA（2026-10-12 调度台磁贴事故）
+const VALID_VIEWS: ViewKey[] = ['business', 'te', 'cost', 'quote', 'dispatch']
+const view = computed<ViewKey>(() => {
+  const v = (route.params.view || '') as ViewKey
+  return VALID_VIEWS.includes(v) ? v : 'business'
+})
 const node = computed(() => ({ business: '', te: 'boming', cost: 'costing', quote: 'quoting', dispatch: '' }[view.value] || ''))
 const isAdmin = computed(() => auth.user?.role === 'admin' || auth.can('page.opportunities_all'))
+// 新建商机按钮：权限键门控（action.opportunity.create）——持键角色（业务/技术支持/总监/管理员）各视图都可见
+const canCreate = computed(() => auth.can('action.opportunity.create'))
 const isTaskView = computed(() => view.value === 'te' || view.value === 'cost' || view.value === 'quote')
 const canResult = computed(() => auth.can('action.opportunity.result'))
-// 商机状态列：业务/报价员（且持有权限键）可改，技术/成本只读
-const statusEditable = computed(() => (view.value === 'business' || view.value === 'quote') && canResult.value)
+// 商机状态列：权限键说了算（action.opportunity.result，角色管理里配）——视图不再额外设限，
+// 技术支持勾了该键即可改，成本/总监没配则依旧只读
+const statusEditable = canResult
 const fromTag = computed(() => (({ business: 'portal-business', te: 'portal-te', cost: 'portal-cost', quote: 'portal-quote' } as Record<ViewKey, string>)[view.value]) || '')
 
 const pageMeta: Record<ViewKey, { title: string; desc: string; short: string }> = {
@@ -133,7 +140,9 @@ const pageMeta: Record<ViewKey, { title: string; desc: string; short: string }> 
 }
 const pageTitle = computed(() => pageMeta[view.value].title)
 const pageDesc = computed(() => pageMeta[view.value].desc)
-const taskTableTitle = computed(() => (({ te: '需求任务队列', cost: '成本任务队列', quote: '报价任务队列' } as Record<string, string>)[view.value]) || '任务队列')
+// 单一列表：直接展示「我经手的商机」（任一节点经手 / fae 归属，含历史），流程节点列标注环节——无视角切换
+const taskCardTitle = '我经手的商机'
+const taskCardSub = '任一节点经手 / FAE 归属我的商机 · 流程节点列标注当前环节 · 点击客户名进入详情'
 
 const nodeLabelMap: Record<string, string> = { requirement: '需求单', assign: '指派', boming: '方案配置', costing: '成本核算', quoting: '报价单', done: '已定稿' }
 function nodeLabel(key: string) { return nodeLabelMap[key] || key || '—' }
@@ -162,14 +171,17 @@ const pagination = computed(() => ({
 async function loadCards() {
   cardsLoading.value = true
   try {
-    // search 两模式同口径（客户/业务/商机ID）；business 走 SQL，node 模式后端内存过滤
+    // search 两模式同口径（客户/业务/商机ID）；business 走 SQL，节点工作台单一「我经手的」列表（后端内存过滤）
     const params: Record<string, any> = { page: page.value, page_size: pageSize.value, search: search.value.trim() || undefined }
     if (view.value === 'business') {
       params.sort_by = sortBy.value
       params.sort_order = sortOrder.value
     } else {
+      // 节点工作台=我经手的全集（待我处理只是其中环节=自己节点的行），node 仅供统计条口径
+      params.mode = 'involved'
       params.node = node.value
-      params.scope = isAdmin.value ? 'all' : 'mine'
+      params.sort_by = sortBy.value
+      params.sort_order = sortOrder.value
     }
     const res = await portalApi.oppCards(params)
     cards.value = res.cards || []
@@ -188,8 +200,8 @@ function onTableChange(pag: any, _filters: any, sorter: any) {
     pageSize.value = pag.pageSize
     userPickedPageSize.value = true
   }
-  // 节点任务模式后端按流程更新时间倒序，忽略排序参数（排序箭头已关）
-  if (view.value === 'business' && sorter?.order) {
+  // 排序全视图生效：business 走 SQL，节点工作台走 involved 接口的 sort 参数（与线索页同一套语义）
+  if (sorter?.order) {
     sortBy.value = sorter.field === 'created_at' ? 'created_at' : 'updated_at'
     sortOrder.value = sorter.order === 'ascend' ? 'asc' : 'desc'
   }
@@ -216,21 +228,23 @@ const createOpen = ref(false)
 const stats = computed(() => {
   if (view.value === 'business') {
     const s = oppSummary.value || {}
+    // 与节点页同构：待办存量 → 在途 → 成果 → 全集，互不重合（全集收尾，不当前导伞卡）
     return [
-      { label: '全部商机', value: s.total ?? 0, hint: '' },
-      { label: '待我处理', value: s.returned ?? 0, hint: '需求待修改' },
-      { label: '流转中', value: s.in_progress ?? 0, hint: 'BOM / 核价 / 报价' },
+      { label: '待办事项', value: s.returned ?? 0, hint: '需求退回待修改' },
+      { label: '流转中', value: s.in_progress ?? 0, hint: '配置 / 核价 / 报价环节' },
       { label: '已定稿', value: s.done ?? 0, hint: '正式报价可见' },
+      { label: '全部商机', value: s.total ?? 0, hint: '我创建 / 归属我的全集' },
     ]
   }
   if (isTaskView.value) {
     const s = oppSummary.value || {}
-    const firstLabel = view.value === 'te' ? '待配 BOM' : view.value === 'cost' ? '待核价' : '待报价'
     return [
-      { label: firstLabel, value: s.mine ?? 0, hint: isAdmin.value ? '分派给我' : '' },
-      { label: '今日处理中', value: s.today ?? 0, hint: '' },
-      { label: '队列总数', value: s.total ?? 0, hint: '' },
-      { label: '任务范围', value: isAdmin.value ? '全部' : '仅我的', hint: '管理员可看全部' },
+      // 四卡互不重合：存量 → 今日成果 → 累计配置 → 经手全集（全个人口径）
+      { label: '待办事项', value: s.mine ?? 0, hint: isAdmin.value ? '分派给我' : '我名下待处理' },
+      { label: '今日完成', value: s.done_today ?? 0, hint: '今日送走到下一环节' },
+      // 与商机线索页「总商机数/总配置数」同词汇的个人口径
+      { label: '配置数', value: s.configs ?? 0, hint: '我经手商机的配置份数' },
+      { label: '经手商机', value: s.total ?? 0, hint: '含历史经手 / FAE 归属' },
     ]
   }
   return []

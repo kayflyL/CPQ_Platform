@@ -14,6 +14,7 @@ import ChassisCard from '@/components/server-config/ChassisCard.vue'
 import KpCategoryCard from '@/components/server-config/KpCategoryCard.vue'
 import PerfRadarChart from '@/components/server-config/PerfRadarChart.vue'
 import SpecSheet from '@/components/server-config/SpecSheet.vue'
+import { buildPrintTitle, exportSpecPdf } from '@/utils/printExport'
 import { computePerformanceScores, type PerfRawInput, type PerfScoreConfig } from '@/utils/performanceScore'
 import ServerAnatomyMap from '@/components/selection-map/ServerAnatomyMap.vue'
 import { ServerAnatomyViewer } from '@/components/server-visualization'
@@ -338,8 +339,9 @@ function buildRuleContext(): RuleContext {
   // 盘类型分别供给，供「每8盘→线缆」类 derive 规则；与 L6ChassisConfig 使用同一 kpSummary.drivesByKind
   const drivesByKind = kpSummary.value.drivesByKind || {}
   const drive_kinds = (Object.keys(drivesByKind) as string[]).filter(k => (drivesByKind as Record<string, number>)[k] > 0)
-  // 注入机型能力档案（base_config 可配）：让「CPU 颗数 / 内存条数 / TDP 超上限」类规则在选型页真实触发
-  // （手册：CPU 双路上限、内存 1 路 12 / 2 路 24 DIMM；未配置的能力字段 → undefined，规则自动不触发）
+  // 注入机型能力档案（base_config 可配）：让「CPU/内存/GPU/盘/电源 超上限」类规则真实触发；
+  // 同一批能力字段也接到 KP 卡数量控件上硬夹紧（maxQtyFor），双通道 = 规则告警 + 控件封顶
+  // （未配置的能力字段 → undefined，规则自动不触发、控件不夹紧）
   const cap = props.model?.base_config || {}
   return {
     kp,
@@ -356,11 +358,25 @@ function buildRuleContext(): RuleContext {
       max_tdp: cap.max_tdp,
       gpu_slots: cap.gpu_slots,
       psu_bays: cap.psu_bays,
+      bays: cap.bays,
+      psu_qty: psuQty.value,
     },
     opportunity: {},
   }
 }
 const selectionActions = computed(() => selectionRulesStore.evaluateRules(buildRuleContext()))
+
+// ---- KP 卡数量上限（A：控件级夹紧，与后面板槽位 cap 同思路；C：规则侧告警兜底）----
+// CPU→max_cpu / Memory→max_dimm / GPU→gpu_slots / HDD-SSD→bays；未配置 → 不限（NIC 等无能力字段的类别不受限）
+const CAP_MAX_FIELD: Record<string, 'max_cpu' | 'max_dimm' | 'gpu_slots' | 'bays'> = {
+  CPU: 'max_cpu', Memory: 'max_dimm', GPU: 'gpu_slots', 'HDD/SSD': 'bays',
+}
+const maxQtyFor = (cat: string): number | undefined => {
+  const f = CAP_MAX_FIELD[cat]
+  if (!f) return undefined
+  const v = Number((props.model?.base_config as any)?.[f])
+  return Number.isFinite(v) && v > 0 ? v : undefined
+}
 
 
 
@@ -583,6 +599,7 @@ function onL6Apply(payload: any) { l6Apply.value = payload }
 
 const saving = ref(false)
 const specVisible = ref(false)
+const specPrinting = ref(false)
 const specTemplate = ref<{branding: any, display_options: any} | null>(null)
 
 // serverconfig 只生成无价格规格书；报价工作台的价格展示自行控制
@@ -610,7 +627,18 @@ async function loadSpecTemplate() {
 async function printSpec() {
   specVisible.value = true
   await nextTick()
-  window.print()
+  const title = buildPrintTitle(specTemplate.value?.branding)
+  specPrinting.value = true
+  try {
+    // 服务端 Playwright 直出 PDF（文件名确定）；后端不可用回退浏览器打印对话框
+    await exportSpecPdf(title)
+    message.success(`已导出 ${title}.pdf`)
+    specVisible.value = false
+  } catch {
+    window.print()
+  } finally {
+    specPrinting.value = false
+  }
 }
 // 阻断级兼容性冲突（互斥/缺必配）确认：可强存，仅校验不锁死（保留手改优先 [[derive-must-have-manual-fallback]]）
 function confirmBlocking(blocking: { desc: string }[]): Promise<boolean> {
@@ -736,6 +764,7 @@ onBeforeUnmount(() => {
           :cat="cat"
           :step-num="i + 2"
           :lines="kpLinesByCat[cat] || []"
+          :max-qty="maxQtyFor(cat)"
           :picker-items="pickerCatalog[cat] || []"
           :price-of="priceOf"
           :removable="!CORE_CATS.includes(cat)"
@@ -998,7 +1027,7 @@ onBeforeUnmount(() => {
         </div>
         <!-- 工具栏：贴规格书右侧边缘，sticky 随滚动停靠 -->
         <div class="spec-sheet-toolbar ss-no-print">
-          <button class="ss-tool-btn primary" @click="printSpec">打印 / 导出 PDF</button>
+          <button class="ss-tool-btn primary" :disabled="specPrinting" @click="printSpec">{{ specPrinting ? '导出中…' : '打印 / 导出 PDF' }}</button>
           <button class="ss-tool-btn" @click="specVisible = false">关闭</button>
         </div>
       </div>

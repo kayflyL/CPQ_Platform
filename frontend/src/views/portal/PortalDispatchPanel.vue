@@ -12,6 +12,55 @@
       <div class="stat"><small>规则覆盖</small><b>{{ stats.ruleCount }}</b><span class="hint">/ {{ stats.ruleTotal }} 格（业务×节点）</span></div>
     </div>
 
+    <!-- 报价外发审批队列：客户版导出/平台内发送/规格书 PDF 出门前须总监批准 -->
+    <div class="card">
+      <div class="card-head">
+        <h3>报价外发审批</h3>
+        <small>等待越久越醒目 · 催办只提醒不改责任归属 · 系统永不自动批/拒</small>
+      </div>
+      <div class="card-body">
+        <div class="queue-scroll">
+          <table class="queue-table">
+          <thead>
+            <tr>
+              <th>客户 / 商机</th><th>报价单</th><th>提交人</th><th>责任总监</th>
+              <th>已等待</th><th>毛利率</th><th>状态</th><th style="text-align: right">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="a in approvalQueue" :key="a.id">
+              <td><a class="q-link" @click="goQuote(a)">{{ a.customer_name || a.opportunity_id }}</a></td>
+              <td>{{ a.quotation_id }}</td>
+              <td>{{ a.requested_by || '—' }}</td>
+              <td>{{ a.assigned_name || '全体审批人' }}</td>
+              <td :class="{ 'q-hot': a.status === 'pending' && (a.escalated_at || (a.waited_hours || 0) >= 24) }">
+                {{ a.status === 'pending' ? waitedTextOf(a) : '—' }}
+              </td>
+              <td>{{ Number(a.margin_pct).toFixed(2) }}%</td>
+              <td>
+                <span class="q-pill" :class="a.status">
+                  {{ a.status === 'pending' ? (a.escalated_at ? '已超时提醒' : '待审批') : a.status === 'approved' ? '已批准' : '已驳回' }}
+                </span>
+              </td>
+              <td style="text-align: right">
+                <button
+                  v-if="a.status === 'pending'"
+                  type="button"
+                  class="mini-btn"
+                  :disabled="remindingId === a.id"
+                  @click="remindOne(a)"
+                >{{ remindingId === a.id ? '催办中…' : '催办' }}</button>
+              </td>
+            </tr>
+            <tr v-if="!approvalQueue.length && !queueLoading">
+              <td colspan="8" class="q-empty">暂无审批单——报价单要出门（导出/发送）需要总监批准时才会出现在这里</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>
+
     <!-- 人 × 节点看板：在办负载与默认承接规则合并成同一视图 -->
     <div class="card">
       <div class="card-head">
@@ -33,12 +82,25 @@
                   <span class="hc-avatar" :class="{ ghost: h.ghost }">{{ h.name.slice(0, 1) }}</span>
                   <span class="hc-name" :title="h.name">{{ h.name }}</span>
                   <span class="hc-count" :class="{ zero: !h.count }">在办 {{ h.count }}</span>
+                  <button type="button" class="hc-remove" title="移除该处理人：在办任务转无主，默认规则一并删除" @click="askRemove(col.key, h)">移除</button>
                 </div>
                 <div class="hc-rules">
-                  <span v-for="biz in h.businesses" :key="biz.uid" class="biz-chip" :title="`默认承接：${biz.name}`">
-                    {{ biz.name }}
+                  <!-- 业务多时折叠：只显示前 CHIP_VISIBLE 个，余量收进「+N 项」弹层，不撑卡片 -->
+                  <span v-for="biz in h.businesses.slice(0, chipVisible)" :key="biz.uid" class="biz-chip" :class="{ fb: biz.uid === '*' }" :title="biz.uid === '*' ? '兜底：承接全部业务（含未来新增）' : `默认承接：${biz.name}`">
+                    {{ biz.uid === '*' ? '全部业务' : biz.name }}
                     <i class="biz-x" @click.stop="removeRule(col.key, biz.uid)">×</i>
                   </span>
+                  <a-popover v-if="h.businesses.length > chipVisible" placement="top" trigger="click">
+                    <span class="biz-chip biz-more">+{{ h.businesses.length - chipVisible }} 项</span>
+                    <template #content>
+                      <div class="pop-biz">
+                        <span v-for="biz in h.businesses" :key="biz.uid" class="biz-chip" :class="{ fb: biz.uid === '*' }" :title="biz.uid === '*' ? '兜底：承接全部业务（含未来新增）' : `默认承接：${biz.name}`">
+                          {{ biz.uid === '*' ? '全部业务' : biz.name }}
+                          <i class="biz-x" @click.stop="removeRule(col.key, biz.uid)">×</i>
+                        </span>
+                      </div>
+                    </template>
+                  </a-popover>
                   <button v-if="adding && adding.node === col.key && adding.handler === h.name" type="button" class="chip-add active">添加中…</button>
                   <button v-else type="button" class="chip-add" title="为该处理人添加默认承接业务" @click="startAdd(col.key, h.name)">＋</button>
                 </div>
@@ -64,12 +126,18 @@
                 placeholder="选择默认承接的业务"
                 size="small"
                 style="width: 100%"
-                :open="false"
                 show-search
                 :max-tag-count="3"
+                :disabled="addAll"
               />
+              <div class="add-form-row">
+                <label class="add-form-all">
+                  <input v-model="addAll" type="checkbox" /> 承接全部业务（兜底，含未来新增）
+                </label>
+                <button type="button" class="mini-btn" :disabled="addAll" @click="selectAllBiz(col.key)">全选未分配</button>
+              </div>
               <div class="add-form-ops">
-                <button type="button" class="mini-btn primary" :disabled="addSaving || !(addBizPick.length && (adding.handler || addHandlerPick))" @click="saveAdd(col.key)">保存</button>
+                <button type="button" class="mini-btn primary" :disabled="addSaving || !((addAll || addBizPick.length) && (adding.handler || addHandlerPick))" @click="saveAdd(col.key)">保存</button>
                 <button type="button" class="mini-btn" @click="cancelAdd">取消</button>
               </div>
             </div>
@@ -160,7 +228,7 @@
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import { portalApi, type PortalDispatchData } from '@/api/portal'
 
 const router = useRouter()
@@ -186,6 +254,50 @@ const transferColumns = [
   { title: '操作人', key: 'actor' },
 ]
 
+// ── 报价外发审批队列（pending 在前；积压全员可见，催办仅提交人/管理员走后端门禁） ──
+interface ApprovalQueueItem {
+  id: number
+  opportunity_id: string
+  quotation_id: string
+  customer_name?: string
+  requested_by: string
+  assigned_name?: string
+  status: 'pending' | 'approved' | 'rejected'
+  margin_pct: number
+  created_at: string
+  waited_hours?: number
+  escalated_at?: string
+}
+const approvalQueue = ref<ApprovalQueueItem[]>([])
+const queueLoading = ref(false)
+const remindingId = ref(0)
+async function loadApprovalQueue() {
+  queueLoading.value = true
+  try {
+    const res = await portalApi.pricingApprovalQueue()
+    approvalQueue.value = res.approvals || []
+  } catch { /* 队列端点 admin 限定，非管理端静默 */ }
+  finally { queueLoading.value = false }
+}
+function waitedTextOf(a: ApprovalQueueItem): string {
+  const h = a.waited_hours
+  if (h == null) return '—'
+  return h < 1 ? `${Math.max(1, Math.round(h * 60))} 分钟` : h < 48 ? `${Math.floor(h)} 小时` : `${Math.floor(h / 24)} 天`
+}
+async function remindOne(a: ApprovalQueueItem) {
+  remindingId.value = a.id
+  try {
+    await portalApi.remindPricingApproval(a.opportunity_id, a.id)
+    message.success('已催办（通知责任总监）')
+    await loadApprovalQueue()
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '催办失败')
+  } finally { remindingId.value = 0 }
+}
+function goQuote(a: ApprovalQueueItem) {
+  router.push(`/opportunities/${a.opportunity_id}`)
+}
+
 // ── 统计条 ──
 const stats = computed(() => {
   const stuck = dispatchData.value.stuck.length
@@ -195,7 +307,7 @@ const stats = computed(() => {
   const todayTransfers = dispatchData.value.transfers.filter(t => (t.time || '').startsWith(today)).length
   return {
     stuck, active, todayTransfers,
-    ruleCount: dispatchData.value.rules.length,
+    ruleCount: dispatchData.value.rules.filter(r => r.business_user_id !== '*').length,
     ruleTotal: dispatchData.value.businesses.length * 3,
   }
 })
@@ -222,7 +334,11 @@ const rosterCols = computed(() => dispatchData.value.nodes.map(n => {
       count: workload.get(name) || 0,
       // legacy 自由填写值（姓名，手机号）匹配不到候选账号 → 幽灵处理人标记
       ghost: !(optionsMap.value[n.key] || []).includes(name),
-      businesses: (byHandler.get(name) || []).map(uid => ({ uid, name: bizNameMap.value[uid] || uid })),
+      businesses: (byHandler.get(name) || []).map(uid => ({
+        uid,
+        // business_user_id='*' 的兜底规则渲染为「全部业务」特殊芯片
+        name: uid === '*' ? '全部业务' : (bizNameMap.value[uid] || uid),
+      })),
     }))
     .sort((a, b) => b.count - a.count || b.businesses.length - a.businesses.length)
   return {
@@ -236,6 +352,7 @@ const rosterCols = computed(() => dispatchData.value.nodes.map(n => {
 const adding = ref<null | { node: string; handler: string }>(null)
 const addHandlerPick = ref('')
 const addBizPick = ref<string[]>([])
+const addAll = ref(false)  // 勾选=节点兜底规则（business_user_id='*'），承接全部业务含未来新增
 const addSaving = ref(false)
 function handlerOptions(nodeKey: string) {
   return assigneesFor(nodeKey).map(name => ({ label: name, value: name }))
@@ -247,22 +364,35 @@ function bizOptions(nodeKey: string) {
     .filter(b => !covered.has(b.user_id))
     .map(b => ({ label: b.name, value: b.user_id }))
 }
+// 批量勾选：一键把该节点所有未分配业务填进多选框（与兜底勾选互补——兜底含未来，全选只含当前）
+function selectAllBiz(nodeKey: string) {
+  addBizPick.value = bizOptions(nodeKey).map(o => String(o.value))
+}
+// 处理人卡芯片折叠阈值：超出收进「+N 项」弹层
+const chipVisible = 5
 function startAdd(nodeKey: string, handler: string) {
   adding.value = { node: nodeKey, handler }
   addHandlerPick.value = ''
   addBizPick.value = []
+  addAll.value = false
 }
 function cancelAdd() { adding.value = null }
 async function saveAdd(nodeKey: string) {
   if (!adding.value) return
   const handler = adding.value.handler || addHandlerPick.value
-  if (!handler || !addBizPick.value.length) return
+  if (!handler || (!addAll.value && !addBizPick.value.length)) return
   addSaving.value = true
   try {
-    for (const uid of addBizPick.value) {
-      await portalApi.saveAssignmentRule({ business_user_id: uid, node_key: nodeKey, assignee_name: handler })
+    if (addAll.value) {
+      // 兜底规则：business_user_id='*'——没配专属规则的业务全归他，含未来新增的业务账号
+      await portalApi.saveAssignmentRule({ business_user_id: '*', node_key: nodeKey, assignee_name: handler })
+      message.success(`已设全部业务兜底 → ${handler}`)
+    } else {
+      for (const uid of addBizPick.value) {
+        await portalApi.saveAssignmentRule({ business_user_id: uid, node_key: nodeKey, assignee_name: handler })
+      }
+      message.success(`已设 ${addBizPick.value.length} 条默认规则 → ${handler}`)
     }
-    message.success(`已设 ${addBizPick.value.length} 条默认规则 → ${handler}`)
     cancelAdd()
     await load()
   } catch (e: any) {
@@ -279,6 +409,25 @@ async function removeRule(nodeKey: string, businessUserId: string) {
   } catch (e: any) {
     message.error('删除规则失败：' + (e?.message || e))
   }
+}
+// 卡级移除：在办任务转无主 + 默认规则一并删除（无主清单/一键补齐负责后续再分配）
+function askRemove(nodeKey: string, h: HandlerCard) {
+  Modal.confirm({
+    title: `移除处理人「${h.name}」？`,
+    content: `该节点名下 ${h.count} 条在办任务将转为无主（可在无主清单重新指派或一键按规则补齐），${h.businesses.length} 条默认承接规则一并删除。`,
+    okText: '移除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      try {
+        const res = await portalApi.removeHandler({ node_key: nodeKey, handler: h.name })
+        message.success(`已移除 ${h.name}：${res.cleared} 条任务转无主，${res.rules_removed} 条规则删除`)
+        await load()
+      } catch (e: any) {
+        message.error('移除失败：' + (e?.response?.data?.detail || e?.message || e))
+      }
+    },
+  })
 }
 
 // ── 无主任务抽屉 ──
@@ -348,7 +497,10 @@ async function load() {
 }
 
 watch(stuckOpen, (open) => { if (!open) drawerNode.value = '' })
-onMounted(load)
+onMounted(() => {
+  void load()
+  void loadApprovalQueue()
+})
 </script>
 
 <style scoped>
@@ -401,6 +553,13 @@ onMounted(load)
 .hc-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .hc-count { margin-left: auto; flex: none; font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-radius: 999px; padding: 2px 9px; font-weight: 600; }
 .hc-count.zero { color: var(--cpq-text-muted); background: var(--cpq-overlay-w8); }
+/* 卡级「移除」：常驻弱文本，悬停转危险色 */
+.hc-remove {
+  flex: none; border: 0; background: transparent; padding: 2px 5px; font-size: 11px;
+  color: var(--cpq-text-muted); cursor: pointer; border-radius: var(--cpq-radius-sm);
+  transition: color var(--cpq-dur-1) var(--cpq-ease-smooth);
+}
+.hc-remove:hover { color: var(--cpq-accent-danger); }
 .hc-rules { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
 .biz-chip {
   display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 999px;
@@ -409,6 +568,12 @@ onMounted(load)
 }
 .biz-chip .biz-x { font-style: normal; cursor: pointer; color: var(--cpq-text-muted); font-size: 12px; line-height: 1; padding: 0 3px; border-radius: 50%; }
 .biz-chip .biz-x:hover { color: var(--cpq-accent-danger); }
+/* 兜底规则芯片：虚线边框区分「全部业务」与单业务 */
+.biz-chip.fb { border-style: dashed; border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); background: transparent; }
+/* 「+N 项」折叠芯片 + 弹层全量列表 */
+.biz-chip.biz-more { cursor: pointer; color: var(--cpq-accent-primary); background: transparent; border: 1px dashed var(--cpq-glass-border-strong); }
+.pop-biz { display: flex; flex-wrap: wrap; gap: 6px; max-width: 320px; max-height: 240px; overflow: auto; }
+.add-form-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chip-add {
   border: 1px dashed var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-muted);
   border-radius: 999px; padding: 2px 10px; font-size: 11.5px; cursor: pointer;
@@ -421,6 +586,7 @@ onMounted(load)
 /* 列级添加表单 + 尾卡（虚线＋，全站新增入口范式） */
 .add-form { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; border: 1px solid var(--cpq-glass-border-strong); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); }
 .add-form-handler { font-size: 12.5px; font-weight: 600; color: var(--cpq-accent-primary); }
+.add-form-all { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; user-select: none; }
 .add-form-ops { display: flex; gap: 8px; }
 .tail-add {
   border: 1px dashed var(--cpq-glass-border); background: transparent; color: var(--cpq-text-muted);
@@ -468,4 +634,23 @@ onMounted(load)
   .roster-grid { grid-template-columns: 1fr; }
   .stuck-grid { grid-template-columns: 1fr; }
 }
+
+/* ── 报价外发审批队列 ── */
+.queue-scroll { overflow-x: auto; }   /* 手机端窄屏横向滚动兜底，列不挤压 */
+.queue-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.queue-table th {
+  text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600;
+  color: var(--cpq-text-secondary); background: var(--cpq-bg-tertiary);
+  border-bottom: 1px solid var(--cpq-border-primary); white-space: nowrap;
+}
+.queue-table td { padding: 9px 10px; border-bottom: 1px solid var(--cpq-border-secondary); color: var(--cpq-text-primary); }
+.queue-table tbody tr:hover td { background: var(--cpq-overlay-w3); }
+.q-link { color: var(--cpq-text-primary); font-weight: 600; cursor: pointer; text-decoration: none; }
+.q-link:hover { color: var(--cpq-accent-primary); }
+.q-hot { color: var(--cpq-accent-danger); font-weight: 700; }
+.q-pill { padding: 2px 10px; border-radius: 999px; font-size: 11px; white-space: nowrap; }
+.q-pill.pending { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
+.q-pill.approved { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
+.q-pill.rejected { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }
+.q-empty { text-align: center; color: var(--cpq-text-muted); padding: 22px 10px !important; }
 </style>

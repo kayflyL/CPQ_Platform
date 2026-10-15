@@ -57,6 +57,7 @@
           :status-text="chatState?.statusText"
           :thinking="chatState?.thinkingText"
           :thinking-active="officeThinkingActive"
+          :traces="chatState?.toolTraces || []"
         />
         <div v-if="chatState?.error" class="chat-error">{{ chatState.error }}</div>
       </div>

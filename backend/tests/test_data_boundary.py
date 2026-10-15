@@ -5,7 +5,6 @@
 query_data 表白名单 = 工具自有配置；物理校验先于执行。
 """
 from app.services.data_boundary import (
-    _DEFAULT_QUERY_TABLES,
     colleague_price_ok,
     execute_read,
     normalize_colleague,
@@ -35,7 +34,9 @@ def test_tool_boundary_masks_price_unless_allowed():
 
 def test_query_tables_allow_has_default_business_tables():
     tables = tool_boundary(True)["tables_allow"]
-    assert set(_DEFAULT_QUERY_TABLES) <= set(tables)
+    # opportunities 域基础表一律改道 ai_read 视图（AI 线索隔离，2026-10-11）；l6 域保持基础表
+    assert "ai_read.opportunities" in tables and "ai_read.quotations" in tables
+    assert "l6.server_types" in tables and "l6.base_configs" in tables
 
 
 def test_normalize_colleague_strips_retired_keys_keeps_bool():
@@ -238,5 +239,43 @@ def test_query_tables_allow_hard_excludes_when_unset(monkeypatch):
 
     monkeypatch.setattr(system_config_repo, "SystemConfigRepository", _FakeRepo)
     tables = query_tables_allow()
-    assert set(_DEFAULT_QUERY_TABLES) <= set(tables)
+    # 缺省表按 _AI_VIEW_MAP 改道后进白名单（基础表名本身不再出现）
+    assert "ai_read.opportunities" in tables and "ai_read.quotation_items" in tables
+    assert "l6.server_types" in tables
     assert not any(str(t).rsplit(".", 1)[-1].lower() == "system_config" for t in tables)
+
+
+# ── AI 线索隔离（2026-10-11）：opportunities 域白名单一律改道 ai_read 视图 ──
+
+def test_query_tables_allow_maps_opportunities_domain_to_ai_views():
+    """五个 opportunities 域基础表全部以视图形式进白名单，基础表名不出现。"""
+    tables = tool_boundary(True)["tables_allow"]
+    for v in ("ai_read.opportunities", "ai_read.opportunity_requirements",
+              "ai_read.opportunity_bom_schemes", "ai_read.quotations",
+              "ai_read.quotation_items"):
+        assert v in tables
+    for base in ("opportunities.opportunities", "opportunities.opportunity_requirements",
+                 "opportunities.opportunity_bom_schemes", "opportunities.quotations",
+                 "opportunities.quotation_items"):
+        assert base not in tables
+
+
+def test_base_opportunity_tables_rejected_view_and_bare_name_allowed():
+    b = tool_boundary(True)
+    # 视图直查放行
+    assert validate_read_sql("SELECT opportunity_id, status FROM ai_read.opportunities", b)["ok"]
+    # 基础表直接拒（白名单里已被视图顶掉）
+    assert not validate_read_sql("SELECT opportunity_id FROM opportunities.opportunities", b)["ok"]
+    # 裸表名唯一后缀匹配 → 执行前资格化到视图
+    assert validate_read_sql("SELECT status FROM opportunities WHERE status = 'active'", b)["ok"]
+    assert validate_read_sql("SELECT total_price FROM quotations", b)["ok"]
+
+
+def test_opportunity_domain_base_table_cannot_reenter_via_override():
+    """手配 query_data_tables_allow 写基础表也强制改道视图（配置打不穿口径）。"""
+    from app.services.data_boundary import _map_ai_views
+    mapped = _map_ai_views(["opportunities.opportunities", "kp.kp_records",
+                            "opportunities.quotations"])
+    assert "ai_read.opportunities" in mapped and "ai_read.quotations" in mapped
+    assert "kp.kp_records" in mapped, "非 opportunities 域表不受改道影响"
+    assert "opportunities.opportunities" not in mapped

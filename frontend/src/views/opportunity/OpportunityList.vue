@@ -54,7 +54,7 @@
         <a-tooltip v-if="!isMobile" title="回收站">
           <button class="icon-btn" @click="goToRecycleBin"><RestOutlined /></button>
         </a-tooltip>
-        <button class="create-btn" @click="showCreateModal = true"><PlusOutlined /> 新建商机</button>
+        <button v-if="canCreate" class="create-btn" @click="showCreateModal = true"><PlusOutlined /> 新建商机</button>
       </div>
     </header>
 
@@ -274,6 +274,8 @@ defineOptions({ name: 'OpportunityList' })
 const router = useRouter()
 const auth = useAuthStore()
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
+// 新建商机按钮与后端创建接口同键门控（业务/总监/管理员持有 action.opportunity.create）
+const canCreate = computed(() => auth.can('action.opportunity.create'))
 // 商机状态（进行中/已中标…）可改性：后端 update_meta 对 result 键同权限门控
 const canEditResult = computed(() => auth.can('action.opportunity.result'))
 // 全平台系列权威源（l6.server_types（设置-服务器管理-产品系列））：筛选下拉读这里，不再硬编码 Orion/Polaris

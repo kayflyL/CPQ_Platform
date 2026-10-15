@@ -7,6 +7,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { loadVrmCharacter } from './vrmLoader.ts'
 import { bakeProceduralClipsIfMissing } from './glbSkeleton.ts'
+import { measurePrecise } from './measureBox.ts'
 
 export interface CharacterAsset {
   scene: THREE.Group
@@ -61,17 +62,19 @@ export function createCharacterAssetStore(load: (url: string) => Promise<Charact
   }
 }
 
+/** 模型世界尺寸（precise=逐顶点世界坐标，含 SkinnedMesh 蒙皮——
+ * 蒙皮 GLB 的普通包围盒是绑定位姿的塌缩值，会差出百倍，必须用 precise）。
+ * 定义在 measureBox.ts，此处转发导出。 */
+
 /** 解析单个 GLB 并获得包围盒尺寸（缓存的是加载结果，克隆时再复制场景树）。 */
 export async function loadGltfCharacter(url: string): Promise<CharacterAsset> {
   const gltf = await new GLTFLoader().loadAsync(url)
-  const box = new THREE.Box3().setFromObject(gltf.scene)
-  const size = new THREE.Vector3()
-  box.getSize(size)
+  const { height, depth } = measurePrecise(gltf.scene)
   return {
     scene: gltf.scene,
     animations: gltf.animations || [],
-    height: size.y || 2.5,
-    depth: size.z || 0.45,
+    height: height || 2.5,
+    depth: depth || 0.45,
     frontRotation: 0,
   }
 }

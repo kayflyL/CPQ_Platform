@@ -63,6 +63,42 @@ class FeedUserRepository:
         ).all()
         return {uid: (name or "匿名") for uid, name in rows}
 
+    def wecom_map(self, user_ids: List[str]) -> dict:
+        """Bulk resolve user_id -> 企微 userid（只返回已配置外推的用户）。"""
+        ids = [i for i in set(user_ids) if i]
+        if not ids:
+            return {}
+        rows = self.session.execute(
+            select(FeedUser.user_id, FeedUser.wecom_userid).where(
+                FeedUser.user_id.in_(ids),
+                FeedUser.wecom_userid.is_not(None),
+                FeedUser.wecom_userid != "",
+            )
+        ).all()
+        return {uid: wid for uid, wid in rows if wid}
+
+    def update_wecom(self, user_id: str, wecom_userid: Optional[str]) -> bool:
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.wecom_userid = (wecom_userid or "").strip() or None
+        self.session.commit()
+        return True
+
+    def update_last_login(self, user_id: str) -> bool:
+        """登录成功时刷新最近活跃时间（用户管理「最近活跃」列数据源）。失败不阻断登录。"""
+        from app.services.storage_adapter import now_iso
+        u = self.session.execute(
+            select(FeedUser).where(FeedUser.user_id == user_id)
+        ).scalar_one_or_none()
+        if not u:
+            return False
+        u.last_login_at = now_iso()
+        self.session.commit()
+        return True
+
     def get_by_name(self, name: str) -> Optional[dict]:
         """Look up a single user by display name (exact match, no password_hash)."""
         name = (name or "").strip()

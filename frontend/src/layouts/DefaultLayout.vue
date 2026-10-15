@@ -45,6 +45,7 @@
         <span class="action-pill-wrap">
           <NotificationBell />
         </span>
+        <OnlinePill />
         <a-dropdown v-if="auth.user" placement="bottomRight">
           <button type="button" class="action-pill user-pill">
             <UserOutlined />
@@ -93,6 +94,9 @@
         <span class="mtab-label">更多</span>
       </button>
     </nav>
+
+    <!-- 移动端安装提示:登录后壳内入口;登录页另有独立挂载 -->
+    <MobileInstallHint bottom-offset="calc(var(--cpq-tabbar-inset, 58px) + 12px)" />
 
     <!-- 移动端「更多」底部面板：收纳第 5+ 项、次级页、设置组与用户卡 -->
     <Transition name="msheet">
@@ -188,8 +192,10 @@ import { useAuthStore } from '@/store/auth'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import NotificationBell from '@/components/notifications/NotificationBell.vue'
+import OnlinePill from '@/components/notifications/OnlinePill.vue'
 import { usePetModelStore } from '@/store/petModel'
 import { useAssistantShell } from '@/composables/useAssistantShell'
+import MobileInstallHint from '@/components/MobileInstallHint.vue'
 
 // KeepAlive 缓存名单：顶级菜单页，避免切换时反复卸载/重挂载、重新初始化场景与拉数据
 const keepAliveNames = [
@@ -372,6 +378,9 @@ onBeforeUnmount(() => {
   left: 0;
   right: 0;
   z-index: 200;
+  /* iOS 独立模式(添加到主屏幕)下状态栏浮在页面上，顶带整体下移让出刘海；
+     浏览器/安卓独立模式该值为 0，零影响 */
+  padding-top: env(safe-area-inset-top, 0px);
   border-bottom: 1px solid transparent;
   background: transparent;
   transition:
@@ -584,10 +593,10 @@ onBeforeUnmount(() => {
   min-height: 0;
   overflow-y: auto;
   position: relative;
-  /* 顶栏让位（通栏顶带 56px + 呼吸）：页面内容起始位 + 页内吸顶元素统一吸到顶带下方（抽屉/弹窗内未定义该变量，自动回退）
+  /* 顶栏让位（通栏顶带 56px + 呼吸 + 刘海安全区）：页面内容起始位 + 页内吸顶元素统一吸到顶带下方（抽屉/弹窗内未定义该变量，自动回退）
      让位由 .scroll-clearance 占位元素提供，sticky 偏移因此按视口绝对值起算；满高页用 calc(100% - var(--cpq-header-clearance)) 取整屏 */
-  --cpq-sticky-top: 60px;
-  --cpq-header-clearance: 72px;
+  --cpq-sticky-top: calc(60px + env(safe-area-inset-top, 0px));
+  --cpq-header-clearance: calc(72px + env(safe-area-inset-top, 0px));
   background: var(--cpq-bg-gradient);
   background-attachment: fixed;
 }
@@ -924,8 +933,8 @@ onBeforeUnmount(() => {
   .logo-text { font-size: 16px; }
   .logo-sub { font-size: 8px; }
   .main-scroll {
-    --cpq-sticky-top: 56px;
-    --cpq-header-clearance: 64px;
+    --cpq-sticky-top: calc(56px + env(safe-area-inset-top, 0px));
+    --cpq-header-clearance: calc(64px + env(safe-area-inset-top, 0px));
   }
 }
 </style>

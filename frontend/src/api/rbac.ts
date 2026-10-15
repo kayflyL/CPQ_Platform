@@ -22,6 +22,8 @@ export interface RoleItem {
 
 export interface AdminUser extends AuthUser {
   role_name?: string
+  wecom_userid?: string
+  last_login_at?: string
 }
 
 const RESP = <T>(p: Promise<{ data: T }>) => p.then(r => r.data)
@@ -45,7 +47,15 @@ export const rbacApi = {
     list: () => RESP<{ users: AdminUser[] }>(axios.get('/api/admin/users')).then(r => r.users),
     create: (data: { name: string; password: string; role: string; email?: string }) =>
       RESP<{ user: AdminUser }>(axios.post('/api/admin/users', data)).then(r => r.user),
-    update: (userId: string, data: { role?: string; is_active?: boolean; password?: string; name?: string }) =>
+    update: (userId: string, data: { role?: string; is_active?: boolean; password?: string; name?: string; wecom_userid?: string }) =>
       RESP<{ success: boolean }>(axios.put(`/api/admin/users/${encodeURIComponent(userId)}`, data)).then(r => r.success),
+    references: (userId: string) =>
+      RESP<{ user: AdminUser; references: { functional: Record<string, number>; historical: Record<string, number> } }>(
+        axios.get(`/api/admin/users/${encodeURIComponent(userId)}/references`)
+      ),
+    remove: (userId: string, transferTo?: string) =>
+      RESP<{ success: boolean; transferred: Record<string, number> }>(
+        axios.delete(`/api/admin/users/${encodeURIComponent(userId)}`, { data: { transfer_to: transferTo || null } })
+      ),
   },
 }

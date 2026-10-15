@@ -77,6 +77,18 @@ export const catalogApi = {
   createModel: (data: Partial<ServerModel>) => RESP<{ id: number }>(axios.post('/api/server-catalog/models', data)),
   updateModel: (id: number, data: Partial<ServerModel>) => RESP<{ ok: boolean }>(axios.put(`/api/server-catalog/models/${id}`, data)),
   deleteModel: (id: number) => RESP<{ ok: boolean }>(axios.delete(`/api/server-catalog/models/${id}`)),
+  /** 上传机型资料 PDF（返回 {name,url,size}，前端存入 product_content.docs 随机型保存落库；
+   *  modelId 缺省=新建机型未保存，文件落 model-docs 根目录） */
+  uploadModelDoc: (file: File, modelId?: number) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    return RESP<{ name: string; url: string; size: number }>(
+      axios.post('/api/server-catalog/models/docs', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+        params: { model_id: modelId },
+      })
+    )
+  },
   // 门户 banner 配置（system_config 存储；标题/副标题空=门户用内置默认文案）
   getPortalBanner: () => RESP<PortalBanner>(axios.get('/api/server-catalog/portal-banner')),
   savePortalBanner: (data: PortalBanner) => RESP<PortalBanner>(axios.put('/api/server-catalog/portal-banner', data)),
@@ -241,6 +253,8 @@ export interface ModelScenario {
   fit?: string              // 为什么适配（一句话）
   image?: string            // 配图 URL（后台上传）
 }
+/** 机型资料 PDF（详情页铭牌卡「下载资料」入口；url 为站内直链，存 product_content.docs） */
+export interface ModelDoc { name: string; url: string; size?: number }
 /** 机型的产品化包装内容（结构化分块，JSONB 透传存 server_models.product_content）。 */
 export interface ModelProductContent {
   tagline?: string                                // 一句话定位（铭牌副标题，15 字左右）
@@ -252,6 +266,7 @@ export interface ModelProductContent {
   specs?: { key: string; value: string }[]        // 完整技术规格（详情页沉底折叠，保序）
   scenarios?: (ModelScenario | string)[]          // 场景适配（照片卡；string=旧版标签，展示时按 {name} 兼容）
   features?: { icon?: string; text: string }[]    // 旧版核心特性（只读兼容：无 highlights 时按亮点行降级展示）
+  docs?: ModelDoc[]                               // 机型资料 PDF 列表（后台上传，随机型保存落库；文件由保存时 diff GC 清理）
 }
 export interface ServerModel {
   id: number

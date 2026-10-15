@@ -18,6 +18,14 @@ export interface AppNotification {
   created_at: string
 }
 
+export interface PresenceUser {
+  user_id: string
+  name: string
+  role_key: string
+  role_name: string
+  online: boolean
+}
+
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 30000 })
 http.interceptors.request.use((config) => {
   const token = localStorage.getItem(AUTH_TOKEN_KEY)
@@ -51,6 +59,10 @@ export const notificationsApi = {
   async remove(notificationId: string): Promise<number> {
     const { data } = await http.delete(`/api/notifications/${encodeURIComponent(notificationId)}`)
     return data?.count ?? 0
+  },
+  async onlineRoster(): Promise<PresenceUser[]> {
+    const { data } = await http.get('/api/notifications/online')
+    return data?.users ?? []
   },
   async clearRead(): Promise<number> {
     const { data } = await http.post('/api/notifications/clear-read')

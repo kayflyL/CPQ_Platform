@@ -5,6 +5,7 @@ import { confirmWithReason } from './confirmWithReason'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
 import RequirementForm from '@/components/flow/RequirementForm.vue'
+import ShareDialog from '@/components/opportunity/ShareDialog.vue'
 import { portalApi, type BomScheme, type FlowCard, type PortalBoard, type PortalSheetConfig, type RequirementSlots } from '@/api/portal'
 import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
@@ -20,6 +21,14 @@ const emit = defineEmits<{
 }>()
 
 const oppId = computed(() => props.board.opportunity?.opportunity_id || '')
+
+// ── 产出物分享（方案行操作） ──
+const shareOpen = ref(false)
+const shareTarget = ref<BomScheme | null>(null)
+function openShare(scheme: BomScheme) {
+  shareTarget.value = scheme
+  shareOpen.value = true
+}
 const schemes = computed(() => props.board.bom_schemes || [])
 const editable = computed(() => !props.readonly)
 const requirements = computed(() => props.board.requirements || [])
@@ -408,6 +417,9 @@ function requestWithdrawScheme(scheme: BomScheme) {
             <span class="rt-link" @click.stop="openScheme(scheme)">查看归档</span>
             <span class="rt-link danger" @click.stop="deleteScheme(scheme)">删除归档</span>
           </div>
+          <div class="rt-actions">
+            <span class="rt-link" @click.stop="openShare(scheme)">分享</span>
+          </div>
         </td>
       </tr>
 
@@ -463,17 +475,19 @@ function requestWithdrawScheme(scheme: BomScheme) {
       @confirm="confirmPicker()"
       @cancel="cancelPicker()"
     />
+    <ShareDialog
+      v-model:open="shareOpen"
+      :opportunity-id="oppId"
+      source-type="scheme"
+      :source-id="shareTarget?.id ?? ''"
+      :title="shareTarget?.name || ''"
+      default-view="scheme"
+    />
   </div>
 </template>
 
 <style scoped>
 .bom-workbench {
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
 }
 .bw-grid {
