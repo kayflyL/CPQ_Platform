@@ -240,14 +240,14 @@ function goOpp(n: AppNotification) {
 .nc-toggle {
   display: flex;
   background: var(--cpq-bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 2px;
 }
 .nc-toggle-btn {
   height: 28px;
   padding: 0 14px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: none;
   font-size: 12.5px;
   color: var(--cpq-text-secondary);
@@ -265,7 +265,7 @@ function goOpp(n: AppNotification) {
   gap: 6px;
   height: 30px;
   padding: 0 12px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-border-secondary);
   background: var(--cpq-bg-card);
   font-size: 12.5px;
@@ -280,7 +280,7 @@ function goOpp(n: AppNotification) {
 .nc-chip-dot {
   width: 8px;
   height: 8px;
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
 }
 .nc-chip-count {
   font-size: 11px;
@@ -317,7 +317,7 @@ function goOpp(n: AppNotification) {
   gap: 12px;
   align-items: flex-start;
   padding: 12px 14px;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-card);
   border: 1px solid var(--cpq-border-secondary);
   margin-bottom: 8px;
@@ -331,7 +331,7 @@ function goOpp(n: AppNotification) {
 .nc-icon {
   width: 34px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -365,7 +365,7 @@ function goOpp(n: AppNotification) {
   font-size: 10.5px;
   font-weight: 500;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-bg-tertiary);
   color: var(--cpq-text-muted);
 }

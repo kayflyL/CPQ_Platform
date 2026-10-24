@@ -132,7 +132,7 @@ onUnmounted(() => clearInterval(timer))
   align-items: flex-start;
   background: var(--cpq-glass-1-bg, var(--cpq-overlay-w5, rgba(255, 255, 255, 0.4)));
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.3));
-  border-radius: 11px;
+  border-radius: var(--cpq-radius-md);
   padding: 7px 11px;
 }
 .oel-time {

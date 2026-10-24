@@ -14,7 +14,7 @@ import '@vue-flow/core/dist/theme-default.css'
 import '@vue-flow/controls/dist/style.css'
 import '@vue-flow/minimap/dist/style.css'
 import { message } from 'ant-design-vue'
-import { UndoOutlined, RedoOutlined } from '@ant-design/icons-vue'
+import { UndoOutlined, RedoOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { reasoningFlowApi, type ReasoningFlow as RFlow } from '@/api/reasoningFlow'
 import ReasoningNodeVf from './ReasoningNodeVf.vue'
 import ReasoningNodeDrawer from './ReasoningNodeDrawer.vue'
@@ -25,6 +25,10 @@ import { REASONING_CFG_TYPES, reasoningNodeKind, nodeArchetype } from '@/utils/r
 
 const props = defineProps<{ skill?: any }>()
 const skillKey = computed(() => String(props.skill?.workflow_key || props.skill?.key || '').trim())
+
+// ── 左右栏折叠（与报价工作台同款边缘把手；收起后画布占满，试运行对话保活不丢）──
+const leftCollapsed = ref(false)
+const rightCollapsed = ref(false)
 
 // ── 左栏：大脑视角单框（浏览=实际说明书；编辑=使用说明全文，保存即 AI 下一回合读到）──
 const manualRules = ref('')
@@ -131,22 +135,28 @@ const { onConnect, onNodeDragStop, onNodeClick, onEdgeClick, getSelectedNodes, g
 // 试运行输入默认清空（历史曾预填演示需求，2026-08-05 移除：避免误以为是系统内置需求）
 const reqText = ref('')
 provide('studioReqText', reqText)
-/** 把对话 node_trace 的执行状态/产出写回画布 nodes（按 node id 精确匹配，id=null 清全部） */
+/** 把对话 node_trace 的执行状态/产出写回画布 nodes（按 node id 精确匹配，id=null 清全部）。
+ *  键存在即覆盖（含 null=明确清除）——此前 ?? 兜底让旧产物永远删不掉，
+ *  上一次运行的芯片残影就一直挂在节点上（2026-10-22 用户实测"说了好多遍不改"的实底）。 */
 function applyNodeState(id: string | null, state: any) {
-  nodes.value = nodes.value.map((n) => (id === null || n.id === id
-    ? {
-        ...n,
-        data: {
-          ...n.data,
-          execState: id === null ? null : state.execState,
-          badge: id === null ? undefined : state.badge,
-          input: id === null ? undefined : (state.input ?? n.data?.input),
-          output: id === null ? undefined : (state.output ?? n.data?.output),
-          summary: id === null ? undefined : (state.summary ?? n.data?.summary),
-          artifact: id === null ? undefined : (state.artifact ?? n.data?.artifact),
-        },
-      }
-    : n))
+  nodes.value = nodes.value.map((n) => {
+    if (id !== null && n.id !== id) return n
+    const d = n.data || {}
+    const pick = (k: string, old: any) =>
+      state[k] !== undefined ? state[k] : (id === null ? undefined : old)
+    return {
+      ...n,
+      data: {
+        ...d,
+        execState: id === null ? null : state.execState,
+        badge: id === null ? undefined : state.badge,
+        input: pick('input', d.input),
+        output: pick('output', d.output),
+        summary: pick('summary', d.summary),
+        artifact: pick('artifact', d.artifact),
+      },
+    }
+  })
 }
 
   // ── 画布运行状态：由内嵌 AssistantPanel 的对话 node_trace 驱动（不再走 test-run WS）──
@@ -176,7 +186,8 @@ function applyNodeState(id: string | null, state: any) {
     for (const t of traces) {
       if (!t?.step) continue
       applyNodeState(t.step, {
-        execState: t.status === 'running' ? 'running' : (t.status === 'done' ? 'done' : null),
+        execState: t.status === 'running' ? 'running'
+          : (t.status === 'done' ? 'done' : (t.status === 'skipped' ? 'skipped' : null)),
         badge: typeof t.duration_ms === 'number' ? `${(t.duration_ms / 1000).toFixed(1)}s` : undefined,
         input: t.input,
         output: t.output,
@@ -370,10 +381,11 @@ async function load() {
       target: e.target,
       sourceHandle: e.source_handle ?? null,
       targetHandle: e.target_handle ?? null,
-      label: e.label ?? undefined,
+      label: e.guard?.flag ? `${e.guard.flag}=${e.guard.equals}` : (e.label ?? undefined),
       type: 'smoothstep',
       animated: e.animated !== false,
       class: routeClass(e),
+      data: { guard: e.guard ?? null },
     }))
   } catch (e: any) {
     message.error(e.response?.data?.detail || '加载失败')
@@ -419,6 +431,7 @@ async function persistGraph() {
       target_handle: e.targetHandle ?? null,
       label: e.label ?? null,
       animated: e.animated !== false,
+      guard: e.data?.guard ?? null,
     })),
   }
   try {
@@ -535,6 +548,23 @@ onEdgeClick(({ edge }) => {
   debouncePersist()
   message.success('已删除连线')
 })
+/** 抽屉里编辑出边守卫（分支一等公民）：条件上边，画布 label 同步显示 lane=cost 形态 */
+function onSetGuard(edgeId: string, guard: { flag: string; equals: string } | null) {
+  const hit = edges.value.find(e => e.id === edgeId) as any
+  if (!hit) return
+  recordHistory()
+  hit.data = { ...(hit.data || {}), guard: guard && guard.flag ? { flag: String(guard.flag).trim(), equals: guard.equals } : null }
+  hit.label = hit.data.guard ? `${hit.data.guard.flag}=${hit.data.guard.equals}` : undefined
+  debouncePersist()
+  message.success(hit.data.guard ? '分流条件已保存' : '已清除分流条件（该边总是走）')
+}
+/** 抽屉展示：当前节点的出边（源=抽屉节点） */
+const drawerOutgoingEdges = computed(() => {
+  if (!drawerNodeKey.value) return []
+  return (edges.value as any[])
+    .filter(e => e.source === drawerNodeKey.value)
+    .map(e => ({ id: e.id, target: e.target, guard: e.data?.guard ?? null }))
+})
 function onRemove(nodeKey: string) {
   recordHistory()
   nodes.value = nodes.value.filter(n => n.id !== nodeKey)
@@ -568,9 +598,19 @@ function onSaved() { load() }
     </div>
 
     <div class="main-content">
-      <!-- 左栏：使用说明——单框单内容（浏览/编辑同一份文本），随会话自动下发大脑 -->
-      <aside class="left-panel">
-        <div class="lp-block lp-grow">
+      <!-- 左栏：使用说明——单框单内容（浏览/编辑同一份文本），随会话自动下发大脑；边缘把手可折叠 -->
+      <aside class="left-panel" :class="{ collapsed: leftCollapsed }">
+        <button
+          class="edge-handle is-left"
+          :title="leftCollapsed ? '展开使用说明' : '收起使用说明'"
+          @click="leftCollapsed = !leftCollapsed"
+        >
+          <span class="eh-icon">
+            <LeftOutlined v-if="!leftCollapsed" />
+            <RightOutlined v-else />
+          </span>
+        </button>
+        <div v-show="!leftCollapsed" class="lp-block lp-grow lp-scroll">
           <div class="lp-head">
             <span class="lp-title">使用说明<span class="lp-readonly-tag">{{ manualEditing ? '编辑中' : '已生效' }}</span></span>
             <span class="lp-actions">
@@ -625,26 +665,38 @@ function onSaved() { load() }
         </a-spin>
       </main>
 
-      <!-- 右栏：复用真实 AI 角色对话（内嵌·预览·默认支持工程师） -->
-      <aside class="right-panel">
-        <div class="rp-head">
-          <span class="rp-title">试运行</span>
-          <a-button size="small" :disabled="running" @click="onResetTest">重置测试</a-button>
+      <!-- 右栏：复用真实 AI 角色对话（内嵌·预览·默认支持工程师）；边缘把手可折叠，收起后对话保活不丢 -->
+      <aside class="right-panel" :class="{ collapsed: rightCollapsed }">
+        <button
+          class="edge-handle is-right"
+          :title="rightCollapsed ? '展开试运行' : '收起试运行'"
+          @click="rightCollapsed = !rightCollapsed"
+        >
+          <span class="eh-icon">
+            <RightOutlined v-if="!rightCollapsed" />
+            <LeftOutlined v-else />
+          </span>
+        </button>
+        <div v-show="!rightCollapsed" class="rp-body">
+          <div class="rp-head">
+            <span class="rp-title">试运行</span>
+            <a-button size="small" :disabled="running" @click="onResetTest">重置测试</a-button>
+          </div>
+          <AssistantPanel
+            ref="assistantRef"
+            embedded
+            preview
+            entry-point="skill_studio_preview"
+            initial-role-key="support_engineer"
+            :workflow-key="skillKey"
+            :open="true"
+          />
         </div>
-        <AssistantPanel
-          ref="assistantRef"
-          embedded
-          preview
-          entry-point="skill_studio_preview"
-          initial-role-key="support_engineer"
-          :workflow-key="skillKey"
-          :open="true"
-        />
       </aside>
 
     </div>
 
-    <ReasoningNodeDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" :document-target="documentTarget" @saved="onSaved" @remove="onRemove" />
+    <ReasoningNodeDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" :document-target="documentTarget" :outgoing-edges="drawerOutgoingEdges" @set-guard="onSetGuard" @saved="onSaved" @remove="onRemove" />
 
     <NodeArtifactModal :bom-scheme="bomScheme" />
 
@@ -660,23 +712,43 @@ function onSaved() { load() }
 .rf-actions { display: flex; align-items: center; gap: 10px; }
 .rf-version {
   font-size: 11px; color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-w8); padding: 1px 8px; border-radius: 8px;
+  background: var(--cpq-overlay-w8); padding: 1px 8px; border-radius: var(--cpq-radius-sm);
   font-variant-numeric: tabular-nums;
 }
 
 /* ── 两栏主区（中画布 + 右试运行）── */
-.main-content { flex: 1; display: flex; overflow: hidden; min-height: 0; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md, 12px); background: var(--cpq-overlay-w3, transparent); }
-.left-panel { width: 300px; flex-shrink: 0; display: flex; flex-direction: column; gap: 10px; padding: 10px; overflow-y: auto; border-right: 1px solid var(--cpq-glass-border); background: var(--cpq-overlay-w3, transparent); }
+.main-content { flex: 1; display: flex; overflow: hidden; min-height: 0; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w3, transparent); }
+.left-panel { position: relative; width: 300px; flex-shrink: 0; display: flex; flex-direction: column; overflow: visible; border-right: 1px solid var(--cpq-glass-border); background: var(--cpq-overlay-w3, transparent); transition: width .25s ease; }
+.left-panel.collapsed { width: 28px; }
+/* 滚动区内移（面板本体 overflow:visible 让折叠把手外伸不被裁剪） */
+.lp-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 10px; }
+/* ── 面板折叠把手：与报价工作台 left-collapse-btn 同款视觉 ── */
+.edge-handle {
+  position: absolute; top: calc(50% - 28px); z-index: 6;
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 56px; padding: 0;
+  border: 1.5px solid var(--cpq-border-primary);
+  background: var(--cpq-bg-elevated);
+  box-shadow: 0 3px 12px var(--cpq-overlay-a20);
+  color: var(--cpq-text-secondary);
+  cursor: pointer; transition: all .2s;
+}
+.edge-handle:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.edge-handle .eh-icon { display: inline-flex; font-size: 13px; }
+.edge-handle.is-left { right: -11px; border-radius: var(--cpq-radius-md) 0 0 var(--cpq-radius-md); }
+.edge-handle.is-right { left: -11px; border-radius: 0 var(--cpq-radius-md) var(--cpq-radius-md) 0; }
+.left-panel.collapsed .edge-handle.is-left { right: 0; border-radius: 0 var(--cpq-radius-md) var(--cpq-radius-md) 0; }
+.right-panel.collapsed .edge-handle.is-right { left: 0; border-radius: var(--cpq-radius-md) 0 0 var(--cpq-radius-md); }
 .lp-block { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .lp-grow { flex: 1; }
 .lp-head { display: flex; align-items: center; justify-content: space-between; }
 .lp-title { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); }
 .lp-actions { display: inline-flex; gap: 6px; }
-.lp-readonly-tag { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 10px; font-weight: 500; border: 1px solid var(--cpq-glass-border); border-radius: 999px; color: var(--cpq-text-secondary); }
+.lp-readonly-tag { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 10px; font-weight: 500; border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-full); color: var(--cpq-text-secondary); }
 .lp-rules { font-size: 12px; line-height: 1.6; resize: vertical; }
 .lp-editing { width: 100%; font-family: inherit; }
 .lp-hint { font-size: 11px; opacity: 0.6; line-height: 1.5; color: var(--cpq-text-secondary); }
-.lp-preview { flex: 1; overflow: auto; margin: 0; padding: 8px; font-size: 11px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--cpq-glass-border); border-radius: 8px; background: var(--cpq-overlay-w3, transparent); color: var(--cpq-text-secondary); font-family: inherit; }
+.lp-preview { flex: 1; overflow: auto; margin: 0; padding: 8px; font-size: 11px; line-height: 1.7; white-space: pre-wrap; word-break: break-all; border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w3, transparent); color: var(--cpq-text-secondary); font-family: inherit; }
 .center-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
 .center-panel :deep(.ant-spin-nested-loading) { flex: 1; display: flex; }
 .center-panel :deep(.ant-spin-container) { flex: 1; display: flex; }
@@ -719,12 +791,15 @@ function onSaved() { load() }
 }
 .center-panel :deep(.vue-flow__controls-button:hover) { background: var(--cpq-overlay-a8); }
 .center-panel :deep(.vue-flow__controls-button svg) { fill: var(--cpq-text-primary); }
-.right-panel { width: 380px; position: relative; background: var(--cpq-overlay-w4); border-left: 1px solid var(--cpq-overlay-w10); display: flex; flex-direction: column; overflow: hidden; border-radius: 0 var(--cpq-radius-md, 12px) var(--cpq-radius-md, 12px) 0; }
+.right-panel { width: 380px; position: relative; background: var(--cpq-overlay-w4); border-left: 1px solid var(--cpq-overlay-w10); display: flex; flex-direction: column; overflow: visible; border-radius: 0 var(--cpq-radius-md) var(--cpq-radius-md) 0; transition: width .25s ease; }
+.right-panel.collapsed { width: 28px; }
+/* 内容容器接手 overflow:hidden（含圆角裁剪），面板本体让位给外伸把手 */
+.rp-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; border-radius: 0 var(--cpq-radius-md) var(--cpq-radius-md) 0; }
 .rp-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; border-bottom: 1px solid var(--cpq-overlay-w8); flex-shrink: 0; }
 .rp-title { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary); letter-spacing: 1px; }
-.rf-tr-slots { border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-md, 10px); overflow: hidden; }
+.rf-tr-slots { border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-md); overflow: hidden; }
 .rf-tr-slots-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; font-size: 12px; font-weight: 600; color: var(--cpq-text-primary); border-bottom: 1px solid var(--cpq-glass-border); }
-.rf-tr-slots-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
+.rf-tr-slots-badge { font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
 .rf-tr-slots :deep(.req-form) { padding: 10px; }
 
 /* ── 右栏试运行 ── */
@@ -732,11 +807,11 @@ function onSaved() { load() }
 .rf-tr-generic { justify-content: center; }
 .rf-tr-input { display: flex; flex-direction: column; gap: 8px; }
 .rf-tr-input-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.rf-tr-textarea { border-radius: var(--cpq-radius-sm, 8px); }
+.rf-tr-textarea { border-radius: var(--cpq-radius-sm); }
 .rf-tr-hint { font-size: 11px; color: var(--cpq-text-muted); }
 .rf-tr-opts { justify-content: space-between; }
 .rf-tr-ask {
-  margin: 8px 0 0; padding: 10px 12px; border-radius: var(--cpq-radius-sm, 8px);
+  margin: 8px 0 0; padding: 10px 12px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-glass-bg, rgba(255,255,255,0.6));
   border: 1px solid var(--cpq-accent-info, #3b82f6);
 }
@@ -752,7 +827,7 @@ function onSaved() { load() }
 }
 
 /* ── 专家分析（问题清单）── */
-.rf-tr-issues { margin-top: 6px; padding: 8px 10px; border-radius: 8px; background: var(--cpq-overlay-w6, rgba(120,90,255,.06)); border: 1px solid var(--cpq-overlay-w10, rgba(120,90,255,.18)); }
+.rf-tr-issues { margin-top: 6px; padding: 8px 10px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w6, rgba(120,90,255,.06)); border: 1px solid var(--cpq-overlay-w10, rgba(120,90,255,.18)); }
 .rf-tr-issues-title { font-size: 12px; font-weight: 600; color: var(--cpq-accent-primary, #7c6cff); margin-bottom: 6px; }
 .rf-tr-issue { padding: 5px 0; border-top: 1px dashed var(--cpq-overlay-w10, rgba(0,0,0,.08)); }
 .rf-tr-issue:first-of-type { border-top: none; }
@@ -760,11 +835,11 @@ function onSaved() { load() }
 .rf-tr-issue-ev { font-size: 12px; color: var(--cpq-text-muted, #8a919f); margin-top: 2px; }
 .rf-tr-issue-sg { font-size: 12px; color: var(--cpq-color-success, #3f9e5f); margin-top: 2px; }
 
-.rf-tr-plan { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 8px; background: var(--cpq-bg-elevated, #f6f8fa); border-radius: 8px; font-size: 12px; color: var(--cpq-text-secondary, #888); }
+.rf-tr-plan { display: flex; align-items: center; gap: 8px; padding: 8px 12px; margin-bottom: 8px; background: var(--cpq-bg-elevated, #f6f8fa); border-radius: var(--cpq-radius-sm); font-size: 12px; color: var(--cpq-text-secondary, #888); }
 .rf-tr-steps { display: flex; flex-direction: column; gap: 6px; }
 .rf-tr-step {
   display: flex; gap: 10px; padding: 8px 10px;
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w6);
   border: 1px solid var(--cpq-overlay-w10);
   transition: border-color var(--cpq-transition-fast);
@@ -797,10 +872,10 @@ function onSaved() { load() }
   display: flex; flex-direction: column; gap: 4px;
 }
 /* 变量流转 IO 展示（输入←上游 / 输出→下游） */
-.rf-tr-io { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; padding: 5px 8px; background: var(--cpq-overlay-w4); border-radius: 6px; }
+.rf-tr-io { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; padding: 5px 8px; background: var(--cpq-overlay-w4); border-radius: var(--cpq-radius-sm); }
 .rf-tr-io-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }
 .rf-tr-io-tag { font-size: 10px; font-weight: 600; color: var(--cpq-text-muted); flex-shrink: 0; }
-.rf-tr-io-var { font-size: 10px; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; word-break: break-all; }
+.rf-tr-io-var { font-size: 10px; padding: 1px 5px; border-radius: var(--cpq-radius-xs); font-family: ui-monospace, monospace; word-break: break-all; }
 .rf-tr-io-var.in { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
 .rf-tr-io-var.out { background: rgba(82, 201, 160, 0.15); color: var(--cpq-color-success); }
 .rf-tr-io-var small { font-family: inherit; opacity: 0.7; font-size: 9px; }
@@ -823,24 +898,24 @@ function onSaved() { load() }
 }
 
 .rf-tr-artifact { margin-top: 8px; }
-.rf-tr-trace-hint { font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); padding: 6px 10px; border-radius: 6px; }
+.rf-tr-trace-hint { font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); padding: 6px 10px; border-radius: var(--cpq-radius-sm); }
 .rf-tr-empty { font-size: 12px; color: var(--cpq-text-muted); text-align: center; padding: 12px 0; margin: 0; }
 
 /* ── 产出物仪表盘（右栏瘦身后）── */
 .rf-artifacts { flex: 1; overflow-y: auto; padding: 12px 14px; display: flex; flex-direction: column; gap: 12px; }
-.rf-art-card { background: var(--cpq-bg-card, #ffffff); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: var(--cpq-radius-md, 10px); overflow: hidden; }
+.rf-art-card { background: var(--cpq-bg-card, #ffffff); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: var(--cpq-radius-md); overflow: hidden; }
 .rf-art-slots { border-color: rgba(79,140,255,.5); }
 .rf-art-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px 8px; font-size: 13px; }
 .rf-art-name { font-weight: 600; color: var(--cpq-text-primary); }
-.rf-art-badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 999px; }
+.rf-art-badge { margin-left: auto; font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: var(--cpq-radius-full); }
 .rf-art-badge.fill { background: rgba(79,140,255,.16); color: #4f8cff; }
 .rf-art-badge.done { background: rgba(63,191,143,.16); color: #3fbf8f; }
 .rf-art-badge.idle { background: rgba(128,128,128,.14); color: var(--cpq-text-muted); }
 .rf-art-card--idle { border-style: dashed; border-color: rgba(128,128,128,.28); }
 .rf-art-prog { padding: 0 12px 10px; }
 .rf-art-prog-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--cpq-text-secondary); }
-.rf-art-bar { height: 5px; border-radius: 3px; background: rgba(128,128,128,.18); margin-top: 6px; overflow: hidden; }
-.rf-art-bar i { display: block; height: 100%; border-radius: 3px; background: #4f8cff; transition: width .3s; }
+.rf-art-bar { height: 5px; border-radius: var(--cpq-radius-xs); background: rgba(128,128,128,.18); margin-top: 6px; overflow: hidden; }
+.rf-art-bar i { display: block; height: 100%; border-radius: var(--cpq-radius-xs); background: #4f8cff; transition: width .3s; }
 .rf-art-fields { max-height: 210px; overflow-y: auto; border-top: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.12)); padding: 6px 12px 10px; scroll-behavior: smooth; }
 .rf-art-fields--idle { opacity: .62; }
 .rf-art-fields-hint { margin: 0 0 4px; font-size: 11px; color: var(--cpq-text-muted); }
@@ -861,13 +936,13 @@ function onSaved() { load() }
 .rf-art-follow-car { animation: rfFollow 1.2s ease-in-out infinite; }
 @keyframes rfFollow { 0%,100% { transform: translateY(0); } 50% { transform: translateY(2px); } }
 .rf-art-bom-chips { display: flex; gap: 6px; flex-wrap: wrap; padding: 0 12px 10px; font-size: 11px; color: var(--cpq-text-secondary); }
-.rf-art-bom-chips span { background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.12)); padding: 2px 7px; border-radius: 6px; }
+.rf-art-bom-chips span { background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.12)); padding: 2px 7px; border-radius: var(--cpq-radius-sm); }
 .rf-art-bom-chips .rf-art-chip-idle { color: var(--cpq-text-muted); border-style: dashed; }
 .rf-art-foot { padding: 10px 12px; display: flex; align-items: center; justify-content: space-between; border-top: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.12)); }
 .rf-art-dim { font-size: 11px; color: var(--cpq-text-muted); }
 .rf-art-view { font-size: 12px; color: var(--cpq-accent-primary); cursor: pointer; }
 .rf-art-view.is-disabled { color: var(--cpq-text-muted); cursor: default; opacity: .6; }
-.rf-art-warn { margin: 0; padding: 7px 11px; font-size: 11px; line-height: 1.5; color: #d97706; background: rgba(217,119,6,.1); border-radius: 8px; }
+.rf-art-warn { margin: 0; padding: 7px 11px; font-size: 11px; line-height: 1.5; color: #d97706; background: rgba(217,119,6,.1); border-radius: var(--cpq-radius-sm); }
 .rf-tr-slots-badge.done { background: var(--cpq-overlay-success15); color: var(--cpq-color-success, #52C9A0); }
 
 /* ── 右栏「对话」面板（真实用户 ↔ AI 角色）── */
@@ -877,20 +952,20 @@ function onSaved() { load() }
 .rf-chat-empty p { margin: 0; font-size: 12px; line-height: 1.7; }
 .rf-msg { display: flex; gap: 8px; align-items: flex-start; }
 .rf-msg--user { flex-direction: row-reverse; }
-.rf-msg-avatar { flex: 0 0 30px; width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-overlay-w10); color: var(--cpq-text-secondary); }
+.rf-msg-avatar { flex: 0 0 30px; width: 30px; height: 30px; border-radius: var(--cpq-radius-sm); display: grid; place-items: center; font-size: 11px; font-weight: 600; background: var(--cpq-overlay-w6); border: 1px solid var(--cpq-overlay-w10); color: var(--cpq-text-secondary); }
 .rf-msg--user .rf-msg-avatar { background: rgba(79,140,255,.18); color: #4f8cff; border-color: rgba(79,140,255,.4); }
 .rf-msg--ai .rf-msg-avatar { background: rgba(168,85,247,.18); color: #a855f7; border-color: rgba(168,85,247,.4); }
-.rf-msg-bubble { max-width: 78%; background: var(--cpq-bg-card, #ffffff); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: 12px; padding: 8px 11px; font-size: 13px; color: var(--cpq-text-primary); }
+.rf-msg-bubble { max-width: 78%; background: var(--cpq-bg-card, #ffffff); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: var(--cpq-radius-md); padding: 8px 11px; font-size: 13px; color: var(--cpq-text-primary); }
 .rf-msg--user .rf-msg-bubble { background: rgba(79,140,255,.14); border-color: rgba(79,140,255,.3); }
 .rf-msg-bubble--art { padding: 6px; }
 .rf-chat-q { color: #a855f7; font-weight: 600; }
 .rf-chat-opts { display: flex; gap: 6px; margin-top: 7px; flex-wrap: wrap; }
-.rf-chat-opts span { font-size: 11px; color: var(--cpq-text-secondary); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.16)); border-radius: 14px; padding: 2px 9px; cursor: pointer; background: var(--cpq-overlay-w4); }
+.rf-chat-opts span { font-size: 11px; color: var(--cpq-text-secondary); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.16)); border-radius: var(--cpq-radius-lg); padding: 2px 9px; cursor: pointer; background: var(--cpq-overlay-w4); }
 .rf-chat-opts span:hover { color: #4f8cff; border-color: rgba(79,140,255,.5); }
 .rf-chat-input { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid var(--cpq-overlay-w10); }
-.rf-chat-input input { flex: 1; min-width: 0; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: 10px; color: var(--cpq-text-primary); font-size: 13px; padding: 7px 11px; outline: none; }
+.rf-chat-input input { flex: 1; min-width: 0; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.14)); border-radius: var(--cpq-radius-md); color: var(--cpq-text-primary); font-size: 13px; padding: 7px 11px; outline: none; }
 .rf-chat-input input:focus { border-color: rgba(79,140,255,.5); }
-.rf-chat-input button { flex: 0 0 auto; background: #4f8cff; color: #fff; border: none; border-radius: 10px; font-size: 12px; font-weight: 600; padding: 0 14px; cursor: pointer; }
+.rf-chat-input button { flex: 0 0 auto; background: #4f8cff; color: #fff; border: none; border-radius: var(--cpq-radius-md); font-size: 12px; font-weight: 600; padding: 0 14px; cursor: pointer; }
 .rf-chat-input button:disabled { background: var(--cpq-overlay-w6); color: var(--cpq-text-muted); cursor: not-allowed; }
 .rf-chat-note { padding: 8px 14px; border-top: 1px solid var(--cpq-overlay-w10); font-size: 11px; color: var(--cpq-text-muted); text-align: center; }
 

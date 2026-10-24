@@ -593,7 +593,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   gap: 4px;
   min-width: 96px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--sheet-line-strong);
   background: var(--sheet-panel);
   color: var(--cpq-text-secondary);
@@ -634,7 +634,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   border: 1px dashed var(--cpq-accent-primary);
   color: var(--cpq-accent-primary);
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -654,7 +654,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   margin-bottom: 14px;
   padding: 12px;
   border: 1px solid var(--sheet-line-strong);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-panel);
   box-shadow: var(--sheet-shadow);
 }
@@ -681,7 +681,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   overflow-x: auto;
   width: 100%;
   border: 1px solid var(--sheet-line-strong);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-surface);
   box-shadow: var(--sheet-shadow);
 }
@@ -876,6 +876,25 @@ defineExpose({ saveDraft, submit, getConfigs })
   }
   .fs-grid-desc {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 全屏编辑：配置信息单列排，输入框不再互相挤压 */
+  .fs-config-grid {
+    grid-template-columns: 1fr;
+  }
+  /* 明细网格保持可编辑表格形态，放不下横向滑动（分组列已 sticky 左吸） */
+  .sheet-table {
+    min-width: 620px;
+  }
+  /* 触屏无 hover：行删除按钮常显 */
+  .sheet-row-del {
+    opacity: 1;
+  }
+  /* 分组列取消左吸：横滑时会盖住相邻列首字符，视觉像丢数据 */
+  .sheet-group {
+    position: static;
   }
 }
 </style>

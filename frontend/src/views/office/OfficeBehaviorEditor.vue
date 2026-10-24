@@ -64,7 +64,7 @@
                 @pointerdown="onSegDown($event, vs, lane)"
               >
                 <span class="h hl" />
-                <span class="t">{{ statusIcon(vs.seg.status) }} {{ segTitle(vs) }}</span>
+                <span class="t">{{ segTitle(vs) }}</span>
                 <span class="tm">{{ vs.seg.start }}–{{ vs.seg.end }}<template v-if="!vs.shared"> · 个人</template></span>
                 <span class="h hr" />
               </div>
@@ -75,7 +75,7 @@
         <div class="legend">
           <em v-for="(m, key) in STATUS_UI" :key="key" :class="m.cls">{{ m.label }}</em>
         </div>
-        <div class="prio-note">⚖ 优先级：<b>任务派单随时打断作息</b>（看板任务 &gt; 日程段 &gt; 空闲）；日程段为任务提供语境（谁 / 在哪 / 刚做什么），任务结束回到当时所在段</div>
+        <div class="prio-note">优先级：<b>任务派单随时打断作息</b>（看板任务 &gt; 日程段 &gt; 空闲）；日程段为任务提供语境（谁 / 在哪 / 刚做什么），任务结束回到当时所在段</div>
       </div>
 
       <!-- 选中段编辑器 -->
@@ -121,61 +121,93 @@
       <div v-else class="seg-editor se-empty">点选一个色块进行编辑；「＋ 新增」会把个人段排进一天末尾的空档</div>
     </div>
 
-    <!-- ── 智能层 ────────────────────────────── -->
-    <div class="be-section">
+    <!-- ── 智能层（Win11 设置卡范式：卡片分组 + 行内控件；层级只有 页面→卡片→行，无边框补丁） ── -->
+    <div class="be-section be-section--plain">
         <div class="be-section-title">智能层 <span class="be-tag-note">LLM 只产日程与措辞 · 执行走确定性时钟</span></div>
+        <div class="set-cards">
+          <div class="set-card">
+            <div class="set-head">
+              <a-switch v-model:checked="brain.enabled" size="small" />
+              <div class="set-head-text">
+                <span class="set-name">会议智能</span>
+                <span class="set-desc">协作后生成摘要 / 任务分配 / 结论</span>
+              </div>
+            </div>
+            <div class="set-row"><span class="set-label">生成摘要</span><a-switch v-model:checked="brain.generate_summary" size="small" /></div>
+            <div class="set-row"><span class="set-label">任务分配</span><a-switch v-model:checked="brain.generate_assignments" size="small" /></div>
+            <div class="set-row"><span class="set-label">生成结论</span><a-switch v-model:checked="brain.generate_conclusion" size="small" /></div>
+          </div>
 
-        <div class="smart-row">
-          <a-switch v-model:checked="brain.enabled" size="small" />
-          <span class="name">会议智能</span>
-          <span class="desc">协作后生成摘要 / 任务分配 / 结论</span>
-          <a-switch v-model:checked="brain.generate_summary" size="small">
-            <template #checkedChildren>摘要</template>
-          </a-switch>
-          <a-switch v-model:checked="brain.generate_assignments" size="small">
-            <template #checkedChildren>分配</template>
-          </a-switch>
-          <a-switch v-model:checked="brain.generate_conclusion" size="small">
-            <template #checkedChildren>结论</template>
-          </a-switch>
-        </div>
-        <div class="smart-row">
-          <span class="name">会议模型</span>
-          <span class="desc">留空使用默认模型</span>
-          <a-input v-model:value="brainModelProxy" size="small" class="se-mid" placeholder="默认模型" />
-          重试
-          <a-input-number v-model:value="brain.max_attempts" :min="1" :max="3" size="small" class="gb-num" />
-        </div>
-        <div class="smart-row">
-          <a-switch v-model:checked="life.interaction_enabled" size="small" />
-          <span class="name">同事互动</span>
-          <span class="desc">段内低频找人碰一下</span>
-          冷却
-          <a-input-number v-model:value="life.interaction_cooldown_seconds" :min="60" :max="86400" size="small" class="gb-num" /> 秒
-        </div>
-        <div class="smart-row">
-          <span class="name">协作联动</span>
-          <span class="desc">同一线索 ≥ N 人在线 → 自动移步会议室</span>
-        </div>
-        <div class="smart-sub" v-for="(rule, i) in collabRules" :key="i">
-          <span class="se-plan">同线索</span>
-          ≥ <a-input-number v-model:value="rule.min_members" :min="2" size="small" class="gb-num" /> 人
-          <a-select v-model:value="rule.zone" :options="zoneOptions" size="small" class="se-mid" />
-          冷却 <a-input-number v-model:value="rule.cooldown_seconds" :min="30" size="small" class="gb-num" /> 秒
-          <a-button size="small" danger type="text" @click="collabRules.splice(i, 1)">删</a-button>
-        </div>
-        <a-button size="small" class="se-add" @click="addCollabRule">＋ 添加协作规则</a-button>
+          <div class="set-card">
+            <div class="set-head">
+              <div class="set-head-text">
+                <span class="set-name">会议模型</span>
+                <span class="set-desc">留空使用默认模型</span>
+              </div>
+            </div>
+            <div class="set-row">
+              <span class="set-label">模型 ID</span>
+              <a-input v-model:value="brainModelProxy" size="small" class="set-input" placeholder="默认模型" />
+            </div>
+            <div class="set-row">
+              <span class="set-label">失败重试</span>
+              <span class="set-inline"><a-input-number v-model:value="brain.max_attempts" :min="1" :max="3" size="small" class="set-num" /><span class="set-unit">次</span></span>
+            </div>
+          </div>
 
-        <div class="smart-row mission-row">
-          <a-switch v-model:checked="mission.enabled" size="small" />
-          <span class="name">任务引擎</span>
-          <span class="desc">派单驱动同事执行（优先级高于作息）</span>
-        </div>
-        <div class="smart-sub">
-          责任人
-          <a-select v-model:value="missionOwnerProxy" :options="colleagueOptions" size="small" class="se-mid" />
-          最多步数 <a-input-number v-model:value="mission.max_steps" :min="1" :max="30" size="small" class="gb-num" />
-          最多轮次 <a-input-number v-model:value="mission.max_iterations" :min="1" :max="10" size="small" class="gb-num" />
+          <div class="set-card">
+            <div class="set-head">
+              <a-switch v-model:checked="life.interaction_enabled" size="small" />
+              <div class="set-head-text">
+                <span class="set-name">同事互动</span>
+                <span class="set-desc">段内低频找人碰一下</span>
+              </div>
+            </div>
+            <div class="set-row">
+              <span class="set-label">互动冷却</span>
+              <span class="set-inline"><a-input-number v-model:value="life.interaction_cooldown_seconds" :min="60" :max="86400" size="small" class="set-num" /><span class="set-unit">秒</span></span>
+            </div>
+          </div>
+
+          <div class="set-card set-card--wide">
+            <div class="set-head">
+              <div class="set-head-text">
+                <span class="set-name">协作联动</span>
+                <span class="set-desc">同一线索 ≥ N 人在线 → 自动移步会议室</span>
+              </div>
+            </div>
+            <div class="set-rule" v-for="(rule, i) in collabRules" :key="i">
+              <div class="set-rule-fields">
+                <span class="set-inline"><span class="set-unit">同线索 ≥</span><a-input-number v-model:value="rule.min_members" :min="2" size="small" class="set-num" /><span class="set-unit">人</span></span>
+                <a-select v-model:value="rule.zone" :options="zoneOptions" size="small" class="set-select" />
+                <span class="set-inline"><span class="set-unit">冷却</span><a-input-number v-model:value="rule.cooldown_seconds" :min="30" size="small" class="set-num" /><span class="set-unit">秒</span></span>
+              </div>
+              <a-button class="set-rule-del" size="small" danger type="text" @click="collabRules.splice(i, 1)">删除</a-button>
+            </div>
+            <div class="set-add"><a-button size="small" @click="addCollabRule">＋ 添加协作规则</a-button></div>
+          </div>
+
+          <div class="set-card">
+            <div class="set-head">
+              <a-switch v-model:checked="mission.enabled" size="small" />
+              <div class="set-head-text">
+                <span class="set-name">任务引擎</span>
+                <span class="set-desc">派单驱动同事执行（优先级高于作息）</span>
+              </div>
+            </div>
+            <div class="set-row">
+              <span class="set-label">责任人</span>
+              <a-select v-model:value="missionOwnerProxy" :options="colleagueOptions" size="small" class="set-select" />
+            </div>
+            <div class="set-row">
+              <span class="set-label">最多步数</span>
+              <span class="set-inline"><a-input-number v-model:value="mission.max_steps" :min="1" :max="30" size="small" class="set-num" /><span class="set-unit">步</span></span>
+            </div>
+            <div class="set-row">
+              <span class="set-label">最多轮次</span>
+              <span class="set-inline"><a-input-number v-model:value="mission.max_iterations" :min="1" :max="10" size="small" class="set-num" /><span class="set-unit">轮</span></span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -250,15 +282,15 @@ const TIMEZONES = [
 
 const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日']
 
-const STATUS_UI: Record<string, { cls: string; label: string; icon: string }> = {
-  meeting: { cls: 'cat-meeting', label: '会议', icon: '🤝' },
-  working: { cls: 'cat-work', label: '工作', icon: '💻' },
-  idle: { cls: 'cat-rest', label: '休息', icon: '🍚' },
-  waiting_input: { cls: 'cat-tea', label: '等候', icon: '☕' },
-  thinking: { cls: 'cat-think', label: '思考', icon: '💭' },
-  done: { cls: 'cat-done', label: '完成', icon: '✅' },
-  public: { cls: 'cat-out', label: '公共', icon: '🚶' },
-  error: { cls: 'cat-err', label: '异常', icon: '⚠️' },
+const STATUS_UI: Record<string, { cls: string; label: string }> = {
+  meeting: { cls: 'cat-meeting', label: '会议' },
+  working: { cls: 'cat-work', label: '工作' },
+  idle: { cls: 'cat-rest', label: '休息' },
+  waiting_input: { cls: 'cat-tea', label: '等候' },
+  thinking: { cls: 'cat-think', label: '思考' },
+  done: { cls: 'cat-done', label: '完成' },
+  public: { cls: 'cat-out', label: '公共' },
+  error: { cls: 'cat-err', label: '异常' },
 }
 
 const DAY_START = 540 // 09:00
@@ -495,10 +527,6 @@ function widthOf(seg: PlanSegment): string {
 
 function statusClass(status?: string): string {
   return STATUS_UI[status || '']?.cls || 'cat-out'
-}
-
-function statusIcon(status?: string): string {
-  return STATUS_UI[status || '']?.icon || '🚶'
 }
 
 function zoneLabel(zoneId?: string): string {
@@ -806,7 +834,7 @@ defineExpose({ save })
   backdrop-filter: blur(var(--be-blur));
   -webkit-backdrop-filter: blur(var(--be-blur));
   border: 1px solid var(--be-border);
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   box-shadow: var(--be-shadow);
   padding: 9px 16px;
   font-size: 12.5px;
@@ -818,32 +846,34 @@ defineExpose({ save })
 .gb-tz { width: 150px; }
 .gb-slider { width: 110px; margin: 0 4px; }
 .gb-sep { width: 1px; height: 18px; background: var(--be-border); }
-.gb-hint { font-size: 11px; color: var(--be-warn-fg); background: var(--be-warn-bg); border: 1px solid var(--be-warn-border); padding: 1px 8px; border-radius: 999px; }
+.gb-hint { font-size: 11px; color: var(--be-warn-fg); background: var(--be-warn-bg); border: 1px solid var(--be-warn-border); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
 
 /* ── 区块（单层玻璃卡：blur 只在这一层） ── */
 .be-section {
   border: 1px solid var(--be-border);
-  border-radius: 20px;
+  border-radius: var(--cpq-radius-xl);
   padding: 14px 16px;
   background: var(--be-glass);
   backdrop-filter: blur(var(--be-blur));
   -webkit-backdrop-filter: blur(var(--be-blur));
   box-shadow: var(--be-shadow), inset 0 1px 0 var(--be-highlight);
 }
+/* 纯容器变体：智能层用（内容自带 set-card 卡片，再包玻璃卡就是卡中卡） */
+.be-section--plain { border: none; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; padding: 0; }
 .be-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .be-title { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--be-ink); }
-.be-sub { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: 999px; }
-.be-tag-note { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: 999px; }
+.be-sub { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
+.be-tag-note { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
 .be-section-title { margin-bottom: 10px; color: var(--be-ink2); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ── 泳道时间轴 ── */
 .tl-wrap { display: flex; flex-direction: column; }
 .swim { display: flex; flex-direction: column; }
 .swim-row { display: flex; align-items: stretch; gap: 10px; padding: 2px 0; }
-.swim-row.active .swim-track { background: var(--cpq-overlay-w5, rgba(22, 119, 255, 0.04)); border-radius: 10px; }
+.swim-row.active .swim-track { background: var(--cpq-overlay-w5, rgba(22, 119, 255, 0.04)); border-radius: var(--cpq-radius-md); }
 .swim-label {
   width: 116px; flex: none; display: flex; align-items: center; gap: 7px; padding: 4px 8px;
-  border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--cpq-radius-sm); background: none; cursor: pointer;
   font-size: 12px; color: var(--be-ink2); text-align: left; font-family: inherit; overflow: hidden;
 }
 .swim-label i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
@@ -858,7 +888,7 @@ defineExpose({ save })
 .swim-track .seg .tm { font-size: 9px; line-height: 1.3; text-overflow: ellipsis; }
 
 .seg {
-  position: absolute; top: 6px; bottom: 6px; border-radius: 9px; padding: 5px 8px; overflow: hidden;
+  position: absolute; top: 6px; bottom: 6px; border-radius: var(--cpq-radius-sm); padding: 5px 8px; overflow: hidden;
   cursor: pointer; transition: box-shadow 0.15s; display: flex; flex-direction: column; justify-content: center; gap: 1px;
   box-shadow: inset 0 1px 0 var(--be-highlight); touch-action: none; user-select: none;
 }
@@ -867,11 +897,10 @@ defineExpose({ save })
 .seg .t { font-size: 11.5px; font-weight: 600; white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
 .seg .tm { font-size: 9.5px; opacity: 0.78; font-family: ui-monospace, Consolas, monospace; white-space: nowrap; }
 .seg.mini .t, .seg.mini .tm { display: none; }
-.seg.mini::after { content: '☕'; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 13px; }
 .seg .h { position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 2; }
 .seg .h.hl { left: 0; }
 .seg .h.hr { right: 0; }
-.seg .h::after { content: ''; position: absolute; top: 50%; transform: translateY(-50%); width: 3px; height: 16px; border-radius: 2px; background: var(--be-highlight); opacity: 0; transition: 0.15s; }
+.seg .h::after { content: ''; position: absolute; top: 50%; transform: translateY(-50%); width: 3px; height: 16px; border-radius: var(--cpq-radius-xs); background: var(--be-highlight); opacity: 0; transition: 0.15s; }
 .seg:hover .h::after { opacity: 1; }
 .seg .h.hl::after { left: 2px; }
 .seg .h.hr::after { right: 2px; }
@@ -885,19 +914,19 @@ defineExpose({ save })
 .cat-out { background: var(--seg-out-bg); color: var(--seg-out-fg); }
 .cat-err { background: var(--seg-err-bg); color: var(--seg-err-fg); }
 
-.nowline { position: absolute; top: -8px; bottom: -4px; width: 2px; background: var(--be-danger); border-radius: 2px; pointer-events: none; z-index: 3; }
+.nowline { position: absolute; top: -8px; bottom: -4px; width: 2px; background: var(--be-danger); border-radius: var(--cpq-radius-xs); pointer-events: none; z-index: 3; }
 .nowline span { position: absolute; top: -14px; left: -14px; font-size: 9.5px; color: var(--be-danger); white-space: nowrap; }
 
 .add-tail {
   position: absolute; top: 8px; bottom: 8px; border: 1.5px dashed var(--be-border);
-  border-radius: 9px; display: flex; align-items: center; justify-content: center; color: var(--be-ink3);
+  border-radius: var(--cpq-radius-sm); display: flex; align-items: center; justify-content: center; color: var(--be-ink3);
   font-size: 12px; cursor: pointer; transition: 0.15s; background: var(--cpq-overlay-w5, rgba(255, 255, 255, 0.25));
 }
 .add-tail:hover { color: var(--be-blue); border-color: var(--be-border-strong); background: rgba(22, 119, 255, 0.05); }
 
 .legend { display: flex; gap: 12px; font-size: 11px; color: var(--be-ink3); margin-top: 8px; flex-wrap: wrap; }
 .legend em { font-style: normal; display: flex; align-items: center; gap: 5px; }
-.legend em::before { content: ''; width: 9px; height: 9px; border-radius: 3px; background: currentColor; opacity: 0.4; }
+.legend em::before { content: ''; width: 9px; height: 9px; border-radius: var(--cpq-radius-xs); background: currentColor; opacity: 0.4; }
 .prio-note { margin-top: 7px; font-size: 11px; color: var(--be-ink2); }
 .prio-note b { color: var(--be-danger); font-weight: 600; }
 
@@ -915,25 +944,66 @@ defineExpose({ save })
 .se-wide { width: 300px; }
 .se-mid { width: 130px; }
 .se-time { width: 76px; font-family: ui-monospace, Consolas, monospace; }
-.del-seg { font-size: 11.5px; color: var(--be-danger); background: none; border: 1px solid rgba(255, 107, 107, 0.35); border-radius: 8px; padding: 3px 12px; cursor: pointer; }
+.del-seg { font-size: 11.5px; color: var(--be-danger); background: none; border: 1px solid rgba(255, 107, 107, 0.35); border-radius: var(--cpq-radius-sm); padding: 3px 12px; cursor: pointer; }
 .del-seg:hover { background: rgba(255, 107, 107, 0.08); }
 .se-weekdays { margin-top: 10px; display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--be-ink2); flex-wrap: wrap; }
-.wd { font-size: 11px; padding: 2px 8px; border-radius: 7px; color: var(--be-ink3); cursor: pointer; border: 1px solid transparent; background: none; }
+.wd { font-size: 11px; padding: 2px 8px; border-radius: var(--cpq-radius-sm); color: var(--be-ink3); cursor: pointer; border: 1px solid transparent; background: none; }
 .wd.on { color: var(--be-blue); background: rgba(22, 119, 255, 0.1); font-weight: 600; }
 
-/* ── 智能层 ── */
-.smart-row { display: flex; align-items: center; gap: 8px; padding: 8px 2px; border-bottom: 1px dashed var(--be-border); font-size: 12.5px; flex-wrap: wrap; }
-.smart-row .name { font-weight: 600; min-width: 64px; color: var(--be-ink); }
-.smart-row .desc { color: var(--be-ink3); font-size: 11.5px; flex: 1; min-width: 140px; }
-.smart-sub { display: flex; align-items: center; gap: 8px; padding: 5px 2px 5px 30px; font-size: 12px; color: var(--be-ink2); flex-wrap: wrap; }
-.mission-row { border-top: 1px dashed var(--be-border); margin-top: 6px; }
-.se-add { margin-top: 4px; }
-
-/* ── 折叠外观层 ── */
-.be-collapse { background: var(--be-glass-weak); border: 1px solid var(--be-border); border-radius: 16px; padding: 0 12px; }
+/* ── 智能层 ── set-* 样式已抽全局 styles/settings.css（ColleagueAccessPanel 共用），此处只剩容器变体 */
+.be-collapse { background: var(--be-glass-weak); border: 1px solid var(--be-border); border-radius: var(--cpq-radius-lg); padding: 0 12px; }
 .be-status-row { display: grid; grid-template-columns: 110px minmax(110px, 1fr) 46px 100px 76px 120px; gap: 8px; align-items: center; margin-bottom: 8px; }
 .be-zone-row { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
 .be-status-key { color: var(--be-ink2); font-family: ui-monospace, monospace; font-size: 12px; }
 .be-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--be-ink3); }
 .be-opacity-input, .be-animation-input, .be-zone-input, .be-label-input { width: 100%; }
+
+/* ═══ 手机端（≤860）：桌面单行布局在窄屏全部散架，逐区重排 ═══ */
+@media (max-width: 860px){
+/* 全局条：紧凑折行 */
+.be-global { gap: 8px 12px; padding: 12px; }
+.gb-item { font-size: 12px; }
+.gb-num { width: 64px; }
+.gb-tz { width: 128px; }
+.gb-slider { width: 96px; }
+
+/* 一日作息时间轴：同事标签收窄把宽度还给轨道；刻度只留 09/14/19 三档；
+   段内文字隐藏（20px 宽的格子塞文字只会竖排成乱码）——色块条仍可读（颜色=状态、位置=时段），
+   点选后的编辑表单承担全部信息 */
+.swim-row { gap: 8px; }
+.swim-label { width: 64px; padding: 4px 5px; }
+.swim-label .swim-name { font-size: 11px; }
+.swim-axis span { display: none; }
+.swim-axis span:nth-child(1), .swim-axis span:nth-child(6), .swim-axis span:nth-child(11) { display: block; }
+.swim-track { height: 38px; }
+.swim-track .seg { padding: 2px 4px; }
+.swim-track .seg .t, .swim-track .seg .tm { display: none; }
+.nowline span { display: none; }
+
+/* 段编辑器：控件改两列网格，活动文案独占整行 */
+.se-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.fld { min-width: 0; }
+.fld:has(.se-wide) { grid-column: 1 / -1; }
+.se-wide, .se-mid, .se-time { width: 100%; }
+.del-seg { justify-self: start; }
+
+/* 状态样式行：固定 6 列 grid（最小 602px）必撑破窄屏，改 flex 流自然折两行 */
+.be-status-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.be-status-key { flex: 0 0 76px; }
+.be-label-input { flex: 1 1 110px; min-width: 0; }
+.tm-color-input { flex: 0 0 40px; width: 40px; height: 28px; }
+.be-check { flex: 1 1 auto; }
+.be-opacity-input { width: 64px; flex: none; }
+.be-animation-input { flex: 1 1 110px; min-width: 0; }
+.be-zone-row { grid-template-columns: 120px 1fr; }
+
+.be-collapse { padding: 0 10px; }
+
+/* 卡头纵排：标题不再被说明 pill 挤成竖折（be-sub 在 be-title 内部，title 本身也要纵排）；
+   「＋新增」窄钮只留加号 */
+.be-card-head { flex-direction: column; align-items: flex-start; gap: 6px; }
+.be-title { flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; }
+.add-tail { font-size: 0; }
+.add-tail::after { content: '＋'; font-size: 14px; }
+}
 </style>

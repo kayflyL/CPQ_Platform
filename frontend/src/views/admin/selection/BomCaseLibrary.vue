@@ -438,17 +438,17 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
 .bc-cats { width: 170px; flex-shrink: 0; position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 12px); display: flex; flex-direction: column; gap: 14px; }
 .bc-cat-group { display: flex; flex-direction: column; gap: 2px; }
 .bc-cat-title { font-size: 12px; font-weight: 700; color: var(--cpq-text-muted); margin-bottom: 4px; }
-.bc-cat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary); transition: background .15s; }
+.bc-cat-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary); transition: background .15s; }
 .bc-cat-row:hover { background: var(--cpq-overlay-b8); }
 .bc-cat-row.active { background: var(--cpq-color-primary-soft, rgba(64,128,255,.14)); color: var(--cpq-accent-primary); font-weight: 600; }
 .bc-cat-row em { font-style: normal; font-size: 11px; color: var(--cpq-text-disabled); }
 .bc-cat-row.active em { color: var(--cpq-accent-primary); }
 .bc-main { flex: 1; min-width: 0; }
-.bc-toolbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; }
+.bc-toolbar { display: flex; gap: 10px; align-items: center; padding: 12px 16px; border-radius: var(--cpq-radius-md); margin-bottom: 16px; }
 .bc-search { width: 240px; }
 .bc-tags { min-width: 220px; }
 .bc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 14px; }
-.bc-card { padding: 16px; border-radius: 12px; display: flex; flex-direction: column; gap: 8px; }
+.bc-card { padding: 16px; border-radius: var(--cpq-radius-md); display: flex; flex-direction: column; gap: 8px; }
 .bc-card.is-clickable { cursor: pointer; transition: border-color .2s; }
 .bc-card.is-clickable:hover { border-color: var(--cpq-accent-primary); }
 .bc-card-top { display: flex; justify-content: space-between; align-items: baseline; }
@@ -462,7 +462,7 @@ onMounted(async () => { await loadCategories(); await loadL6Refs(); await load()
 .bc-actions { display: flex; gap: 8px; }
 .bc-act { background: none; border: none; color: var(--cpq-accent-primary); cursor: pointer; font-size: 12px; }
 .bc-act-danger { color: var(--cpq-color-danger); }
-.bc-empty { padding: 40px; text-align: center; color: var(--cpq-text-muted); border-radius: 12px; }
+.bc-empty { padding: 40px; text-align: center; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-md); }
 .bc-form { display: flex; flex-direction: column; gap: 16px; }
 .bc-field { display: flex; flex-direction: column; gap: 6px; }
 .bc-field > label { font-size: 13px; font-weight: 600; color: var(--cpq-text-secondary); }

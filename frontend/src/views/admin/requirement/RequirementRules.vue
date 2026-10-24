@@ -419,7 +419,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-bar {
   position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 12px); z-index: 5;
   display: flex; align-items: center; gap: 12px;
-  padding: 10px 20px; border-radius: 12px;
+  padding: 10px 20px; border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-glass-border);
   box-shadow: var(--cpq-glass-card-shadow);
 }
@@ -432,7 +432,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rrw-body { margin-top: 16px; }
 .rr-err {
   padding: 8px 14px; font-size: 12.5px; color: var(--cpq-accent-danger);
-  border: 1px dashed rgba(255, 107, 107, .45); border-radius: 12px;
+  border: 1px dashed rgba(255, 107, 107, .45); border-radius: var(--cpq-radius-md);
   background: rgba(255, 107, 107, .08);
 }
 .rr { display: flex; flex-direction: column; gap: 14px; }
@@ -442,7 +442,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-sub em { font-style: normal; color: var(--cpq-accent-primary); }
 .rr-scope {
   padding: 8px 14px; font-size: 12.5px; color: var(--cpq-text-secondary);
-  border: 1px dashed rgba(22, 119, 255, .30); border-radius: 12px;
+  border: 1px dashed rgba(22, 119, 255, .30); border-radius: var(--cpq-radius-md);
   background: rgba(22, 119, 255, .06);
 }
 
@@ -451,7 +451,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-sec-title { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
 .rr-sec-count {
   font-size: 11.5px; color: var(--cpq-text-muted); padding: 0 8px;
-  border-radius: 8px; background: var(--cpq-overlay-w6);
+  border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w6);
 }
 .rr-sec-desc { font-size: 12px; color: var(--cpq-text-muted); }
 
@@ -459,7 +459,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-tile {
   position: relative; padding: 12px 14px; display: flex; flex-direction: column; gap: 6px;
   cursor: pointer; text-align: left; border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px; background: var(--cpq-glass-card-bg);
+  border-radius: var(--cpq-radius-lg); background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
   box-shadow: var(--cpq-glass-card-shadow);
@@ -489,7 +489,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-t-evi::before { content: '依据：'; color: var(--cpq-text-muted); }
 .rr-t-state {
   flex: none; font-size: 10.5px; line-height: 1; padding: 3px 7px;
-  border-radius: 8px; color: var(--cpq-color-warning);
+  border-radius: var(--cpq-radius-sm); color: var(--cpq-color-warning);
   background: rgba(250, 173, 20, .14);
 }
 .rr-t-foot {
@@ -502,7 +502,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-t-foot :deep(.ant-btn-dangerous:hover) { color: var(--cpq-accent-danger) !important; }
 
 .rr-add {
-  border: 1px dashed var(--cpq-glass-border); border-radius: 14px; min-height: 74px;
+  border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg); min-height: 74px;
   display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted);
   font-size: 12.5px; cursor: pointer; background: transparent; transition: .18s;
 }
@@ -510,7 +510,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 
 .rr-none {
   margin-top: 10px; padding: 14px; text-align: center; font-size: 12.5px;
-  color: var(--cpq-text-muted); border: 1px dashed var(--cpq-glass-border); border-radius: 14px;
+  color: var(--cpq-text-muted); border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-lg);
 }
 
 .rr-m-body { display: flex; flex-direction: column; gap: 13px; padding-top: 4px; }
@@ -527,7 +527,7 @@ const platformOpts = computed(() => (series.values.length ? series.values : ['Or
 .rr-additem {
   margin-top: 9px; border: 1px dashed var(--cpq-glass-border); background: transparent;
   color: var(--cpq-text-secondary); font-size: 12px; padding: 5px 10px;
-  border-radius: 8px; cursor: pointer; width: 100%; transition: .18s;
+  border-radius: var(--cpq-radius-sm); cursor: pointer; width: 100%; transition: .18s;
 }
 .rr-additem:hover { border-color: var(--cpq-glass-border-strong); color: var(--cpq-accent-primary); }
 .rr-tip { font-size: 11px; color: var(--cpq-text-muted); }

@@ -3,7 +3,7 @@
     <header class="aom-header">
       <div class="aom-heading">
         <h2>AI 办公室管理</h2>
-        <span class="aom-subtitle">员工、团队、空间、工作流、产出物、模型与运行治理</span>
+        <span class="aom-subtitle">同事、团队、空间、工作流、产出物、模型与运行治理</span>
       </div>
       <nav class="aom-nav">
         <button
@@ -26,7 +26,7 @@
     <div class="aom-body" :class="{ 'aom-body--editor': activeNav === 'workflow' && editingSkill }">
       <template v-if="activeNav === 'employee'">
         <a-tabs v-model:activeKey="employeeTab" class="aom-inner-tabs">
-          <a-tab-pane key="profile" tab="员工配置">
+          <a-tab-pane key="profile" tab="同事配置">
             <EmployeeManager
               ref="employeeManagerRef"
               :colleagues="colleagues"
@@ -95,6 +95,7 @@
                         <template #overlay>
                           <a-menu @click="(info: any) => onSkillMenu(info.key, skill)">
                             <a-menu-item key="policy">调用策略</a-menu-item>
+                            <a-menu-item v-if="skill.type === 'workflow'" key="launch-form">编辑启动表单</a-menu-item>
                             <a-menu-item key="edit">编辑</a-menu-item>
                             <a-menu-divider />
                             <a-menu-item key="delete" danger>删除</a-menu-item>
@@ -141,6 +142,14 @@
         @close="policySkill = null"
         @saved="onPolicySaved"
       />
+
+    <LaunchFormEditor
+      :open="launchFormEditor.open"
+      :skill-key="launchFormEditor.skillKey"
+      :name="launchFormEditor.name"
+      @close="launchFormEditor.open = false"
+      @saved="onLaunchFormSaved"
+    />
     </div>
 
   </div>
@@ -151,6 +160,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { MoreOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
+import LaunchFormEditor from '@/components/office/LaunchFormEditor.vue'
 import { useAuthStore } from '@/store/auth'
 import TeamManager from './TeamManager.vue'
 import EmployeeManager from './EmployeeManager.vue'
@@ -186,7 +196,7 @@ const canAdmin = computed(() => auth.can('ai.office.admin'))
 const navItems = computed<Array<{ key: NavKey; label: string }>>(() => {
   const items: Array<{ key: NavKey; label: string }> = []
   if (canManage.value) {
-    items.push({ key: 'employee', label: '员工' })
+    items.push({ key: 'employee', label: '同事' })
     items.push({ key: 'team', label: '团队' })
     items.push({ key: 'workflow', label: '工作流' })
     items.push({ key: 'artifacts', label: '产出物' })
@@ -197,7 +207,7 @@ const navItems = computed<Array<{ key: NavKey; label: string }>>(() => {
   }
   return items
 })
-// 只授 ai.office.admin 的账号左栏没有「员工」：默认页落到第一个可用项，避免空白面板
+// 只授 ai.office.admin 的账号左栏没有「同事」：默认页落到第一个可用项，避免空白面板
 const activeNav = ref<NavKey>('employee')
 watch(navItems, (items) => {
   if (items.length && !items.some((i) => i.key === activeNav.value)) {
@@ -232,14 +242,25 @@ function openSkill(skill: any) {
 
 function onSkillMenu(key: string | number, skill: any) {
   if (key === 'policy') openPolicy(skill)
+  else if (key === 'launch-form') openLaunchFormEditor(skill)
   else if (key === 'edit') openSkill(skill)
   else if (key === 'delete') removeSkill(skill)
+}
+
+/* ── 启动表单编辑器（配置者可视化编辑 graph.launch_form）── */
+const launchFormEditor = ref<{ open: boolean; skillKey: string; name: string }>(
+  { open: false, skillKey: '', name: '' })
+function openLaunchFormEditor(skill: any) {
+  launchFormEditor.value = { open: true, skillKey: String(skill.key || ''), name: String(skill.name || skill.key || '') }
+}
+async function onLaunchFormSaved() {
+  await loadSkills()
 }
 
 function removeSkill(skill: any) {
   Modal.confirm({
     title: `删除工作流“${skill.name || skill.key}”？`,
-    content: '删除后将从工作流目录移除，并解除员工侧对它的绑定。',
+    content: '删除后将从工作流目录移除，并解除同事侧对它的绑定。',
     okText: '删除', okType: 'danger', cancelText: '取消',
     onOk: async () => {
       try {
@@ -329,7 +350,7 @@ onMounted(loadSkills)
   background: transparent;
   color: var(--cpq-text-secondary);
   padding: 8px 12px;
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   cursor: pointer;
   font-size: 13px;
 }
@@ -349,6 +370,25 @@ onMounted(loadSkills)
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* 手机端（≤768）：头部换行——标题+动作一行，主导航整行落第二行横向滚动。
+   桌面那根不换行 flex 会把导航挤成几十像素的横滚条（视觉消失），六区入口在手机上不可达 */
+@media (max-width: 768px) {
+  .aom-header {
+    flex-wrap: wrap;
+    gap: var(--cpq-space-3);
+    row-gap: var(--cpq-space-2);
+    padding: 10px 12px;
+  }
+  .aom-heading { flex: 1 1 auto; min-width: 0; }
+  .aom-subtitle { display: none; } /* 与导航信息重复，且是换行丑源 */
+  .aom-actions { order: 2; }
+  .aom-nav { order: 3; flex: 1 1 100%; }
+
+  /* 行为配置等内容超宽（时间轴/表格），粗滚动条在窄屏很扎眼，隐藏（滑动仍可用） */
+  .aom-body { scrollbar-width: none; }
+  .aom-body::-webkit-scrollbar { display: none; }
 }
 
 .aom-body {
@@ -433,7 +473,7 @@ onMounted(loadSkills)
   justify-content: center;
   width: 26px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-secondary, rgba(255, 255, 255, 0.65));
   opacity: 0.55;
   transition: opacity 0.15s ease;

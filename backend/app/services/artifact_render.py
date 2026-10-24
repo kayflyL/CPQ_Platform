@@ -231,7 +231,7 @@ def _default_payload(payload: Optional[dict], template_name: str = "") -> dict:
     meta = dict(p.get("meta") or {})
     meta.setdefault("title", template_name or "业务报告")
     meta.setdefault("subtitle", "")
-    meta.setdefault("period_label", f"统计区间：近 8 周（截至 {datetime.now().strftime('%Y-%m-%d')}）")
+    meta.setdefault("period_label", f"统计区间：全部数据（截至 {datetime.now().strftime('%Y-%m-%d')}）")
     meta.setdefault("generated_by", "AI 办公室")
     meta.setdefault("generated_at", datetime.now().strftime("%Y-%m-%d %H:%M"))
     p["meta"] = meta

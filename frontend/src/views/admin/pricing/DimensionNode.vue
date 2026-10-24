@@ -35,7 +35,7 @@ const kind = computed(() => props.data?.kind || 'dim')
 <style scoped>
 .dim-node {
   min-width: 168px; max-width: 200px; text-align: left;
-  padding: 8px 12px; border-radius: var(--cpq-radius-md, 12px);
+  padding: 8px 12px; border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w8, rgba(255, 255, 255, .72));
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .1));
   box-shadow: 0 1px 4px rgba(0, 0, 0, .05);
@@ -45,7 +45,7 @@ const kind = computed(() => props.data?.kind || 'dim')
 .dim-node:hover { border-color: var(--accent); box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 .dn-head { display: flex; align-items: center; gap: 6px; }
-.dn-sign { flex: none; width: 18px; height: 18px; border-radius: 6px; color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.dn-sign { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .dn-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
 .dn-edit { margin-left: auto; font-size: 12px; color: var(--cpq-text-muted); opacity: .6; }
 .dn-summary {
@@ -56,7 +56,7 @@ const kind = computed(() => props.data?.kind || 'dim')
 /* input/output 节点：胶囊形 */
 .kind-input, .kind-output {
   min-width: 120px; display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 999px; padding: 8px 16px;
+  border-radius: var(--cpq-radius-full); padding: 8px 16px;
   background: color-mix(in srgb, var(--accent) 14%, var(--cpq-overlay-w8, rgba(255, 255, 255, .85)));
   border-color: var(--accent);
 }

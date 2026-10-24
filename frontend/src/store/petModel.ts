@@ -37,7 +37,7 @@ export function isPetModelKey(key?: string | null): boolean {
 }
 
 /**
- * 桌宠形象状态：形象按「AI 同事角色」统一，由员工页在同事身份上维护 pet_model。
+ * 桌宠形象状态：形象按「AI 同事角色」统一，由同事页在同事身份上维护 pet_model。
  * 这里只作为「当前活跃角色的形象」通道：聊天面板把当前角色 + 该角色 pet_model 写进来，
  * 悬浮宠物据此渲染；无角色时落到默认兜底形象。
  */

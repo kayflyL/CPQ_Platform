@@ -15,11 +15,15 @@
       <div class="am-content">
         <div v-if="showAuthor || authorTime" class="am-metarow">
           <span v-if="showAuthor && author.name" class="am-author">{{ author.name }}</span>
-          <span v-if="showAuthor && author.name" class="am-aichip">AI 员工</span>
+          <span v-if="showAuthor && author.name" class="am-aichip">AI 同事</span>
           <span v-if="authorTime" class="am-time">{{ authorTime }}</span>
         </div>
+      <ArtifactCard
+        v-if="isArtifact"
+        :card="artifactData"
+      />
       <AskCard
-        v-if="isAskCard"
+        v-else-if="isAskCard"
         :message="message"
         :thread-id="threadId"
         :pick-role="pickRole"
@@ -28,11 +32,24 @@
         @select-option="onSelectOption"
         @submit-selections="onSubmitSelections"
       />
+      <InputFormCard
+        v-else-if="isFormCard"
+        :message="message"
+        :option-interactive="optionInteractive"
+        @submit-form="onSubmitForm"
+      />
+      <HumanQueryCard
+        v-else-if="isHumanQuery"
+        :message="message"
+        :option-interactive="optionInteractive"
+        :thread-id="threadId"
+        @answer="(p: Record<string, any>) => emit('answer-query', p)"
+      />
       <div v-else class="am-bubble am-bubble--live">
-          <div v-if="quoteInfo" class="am-quote-card">
-            <span class="am-q-n">{{ quoteInfo.name || '消息' }}</span>
-            <span class="am-q-t">{{ quoteInfo.text }}</span>
-          </div>
+        <div v-if="quoteInfo" class="am-quote-card">
+          <span class="am-q-n">{{ quoteInfo.name || '消息' }}</span>
+          <span class="am-q-t">{{ quoteInfo.text }}</span>
+        </div>
           <div v-if="thinking || thinkingActive" class="am-think" :class="{ 'am-think--live': thinkingActive }">
             <button type="button" class="am-think-head" @click="thinkOpen = !thinkOpen">
               <span class="am-think-ico">💡</span>
@@ -93,6 +110,9 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch, onBeforeUnmount } from 'vue'
 import AskCard from '@/components/assistant/AskCard.vue'
+import InputFormCard from '@/components/assistant/InputFormCard.vue'
+import HumanQueryCard from '@/components/assistant/HumanQueryCard.vue'
+import ArtifactCard from '@/components/assistant/ArtifactCard.vue'
 import type { ToolTrace } from '@/composables/assistantChatWs'
 import { fmtChatTime } from '@/utils/chatTime'
 
@@ -155,6 +175,8 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'select-option', value: string, slot?: string): void
   (e: 'submit-selections', selections: Array<{ slot: string; value: string; label: string; qty?: number }>): void
+  (e: 'submit-form', text: string): void
+  (e: 'answer-query', payload: Record<string, any>): void
   (e: 'reply', q: { name: string; text: string }): void
   (e: 'persona', ev: MouseEvent): void
 }>()
@@ -249,7 +271,18 @@ function avatarInitial(name?: string): string {
   return Array.from(text)[0] || 'AI'
 }
 
+const isArtifact = computed(() => props.message?.kind === 'artifact' && !!props.message?.data)
+const artifactData = computed<Record<string, any>>(() => {
+  if (!isArtifact.value) return {}
+  try {
+    return JSON.parse(props.message?.data || '{}') || {}
+  } catch {
+    return {}
+  }
+})
 const isAskCard = computed(() => props.message?.kind === 'input_options' && !!props.message?.data)
+const isFormCard = computed(() => props.message?.kind === 'input_form' && !!props.message?.data)
+const isHumanQuery = computed(() => props.message?.kind === 'query' && !!props.message?.data)
 
 function onSelectOption(value: string, slot?: string) {
   emit('select-option', value, slot)
@@ -257,6 +290,10 @@ function onSelectOption(value: string, slot?: string) {
 
 function onSubmitSelections(selections: Array<{ slot: string; value: string; label: string; qty?: number }>) {
   emit('submit-selections', selections)
+}
+
+function onSubmitForm(text: string) {
+  emit('submit-form', text)
 }
 </script>
 
@@ -316,7 +353,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   max-width: 100%;
   padding: 4px 8px;
   margin-bottom: 4px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   font-size: 12px;
 }
@@ -429,7 +466,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   font-size: 10px;
   font-weight: 600;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   line-height: 16px;
   color: var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-overlay-a10, rgba(22, 119, 255, 0.1));
@@ -471,7 +508,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   width: 100%;
   min-width: 260px;
   margin: 0 0 6px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4, rgba(255,255,255,.05));
   border: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.12));
   font-size: 12px;
@@ -516,7 +553,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   height: 13px;
   margin-left: 2px;
   vertical-align: -2px;
-  border-radius: 1px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-accent-primary, #1677ff);
   animation: am-blink 1s steps(2, start) infinite;
 }
@@ -530,7 +567,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
   min-width: 260px;
   margin-bottom: 5px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4, rgba(255,255,255,.05));
   border: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.12));
   font-size: 12px;
@@ -561,7 +598,7 @@ function onSubmitSelections(selections: Array<{ slot: string; value: string; lab
 .am-bubble {
   max-width: 82%;
   padding: 10px 14px;
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   font-size: 13px;
   line-height: 1.7;
   word-break: break-word;

@@ -203,7 +203,9 @@ def test_ensure_permission_catalog_realigns_and_keeps_custom(monkeypatch):
     # 死键回收 + 新 key 补齐
     assert "page.portal" not in by_key
     assert "page.settings.ai" not in by_key
-    assert "field.parts.price" not in by_key
+    # field.parts.price 曾因从未接线被回收；2026-10-16 复活并由 KP/料号全链路接线
+    assert by_key["field.parts.price"]["module"] == "配件"
+    assert by_key["action.parts.price.manage"]["module"] == "配件"
     assert by_key["page.office"]["name"] == "AI 办公室菜单与页面"
     # 子页层级分组（商机线索 · 商机详情 / 报价工作台）
     assert by_key["field.flow.bom"]["module"] == "商机线索 · 商机详情"

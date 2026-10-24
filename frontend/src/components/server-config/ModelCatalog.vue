@@ -541,7 +541,7 @@ onBeforeUnmount(() => markHeroDark(false))
   color: rgba(255, 255, 255, 0.78);
   background: rgba(255, 255, 255, 0.08);
   border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   cursor: pointer;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);

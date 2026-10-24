@@ -1,0 +1,468 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="dark">
+<title>霄擎算力 CPQ · 系统演示</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='13' fill='%231677FF'/></svg>">
+<style>
+:root{
+  --stage:#0E57BF; --ink-hi:#F4F8FD; --ink-mid:#D9E8FA; --ink-lo:#A9C6E8;
+  --glow:#1677FF; --glow-hi:#4096FF;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden}
+body{
+  background:radial-gradient(130% 100% at 40% 32%,#1F7AE2 0%,#0E57BF 56%,#083F92 100%);
+  font-family:-apple-system,'MiSans','HarmonyOS Sans SC','PingFang SC','Segoe UI',Roboto,'Microsoft YaHei',sans-serif;
+  color:var(--ink-hi);
+}
+/* ── 环境光：亮蓝影棚，角部压深 navy ── */
+.ambient{position:fixed;inset:0;pointer-events:none;z-index:0;background:
+  radial-gradient(1000px 700px at 38% 30%, rgba(255,255,255,.10), transparent 62%),
+  radial-gradient(125% 105% at 50% 44%, transparent 55%, rgba(3,20,52,.55));}
+/* 浮尘：极轻，只做景深提示 */
+.particles{position:fixed;inset:0;overflow:hidden;pointer-events:none;z-index:1}
+.particles i{position:absolute;bottom:-24px;left:var(--l);width:var(--s);height:var(--s);border-radius:50%;
+  background:rgba(214,236,255,.85);filter:blur(1.1px);opacity:0;animation:pfloat var(--d) linear var(--dl) infinite}
+@keyframes pfloat{0%{transform:translateY(0);opacity:0}10%{opacity:var(--o)}82%{opacity:var(--o)}100%{transform:translateY(-94vh);opacity:0}}
+
+main{position:relative;z-index:2;display:flex;align-items:center;width:100%;height:100vh}
+/* ── 左侧文案 ── */
+.left{flex:1;min-width:0;padding-left:7vw;animation:fadeup .8s .35s cubic-bezier(.2,.7,.3,1) both}
+.left h1{font-size:clamp(44px,4.8vw,72px);font-weight:800;letter-spacing:.05em;color:var(--ink-hi)}
+.left .sub{margin-top:16px;font-size:clamp(15px,1.2vw,18px);font-weight:500;letter-spacing:.03em;color:var(--ink-mid)}
+.left .feat{margin-top:12px;font-size:13.5px;letter-spacing:.09em;color:var(--ink-lo)}
+@keyframes fadeup{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+
+/* ── 舞台与缩放 ── */
+.viewport{position:relative;flex:0 0 auto;width:min(46vw,780px);height:100%}
+#scale{position:absolute;left:0;top:0;width:448px;height:908px;transform-origin:0 0}
+.stage{position:relative;width:100%;height:100%;perspective:1900px;animation:rise 1.15s cubic-bezier(.16,.84,.28,1) both}
+@keyframes rise{from{opacity:0;transform:translateY(54px) scale(.93)}to{opacity:1;transform:none}}
+#tilt{position:absolute;inset:0;transform-style:preserve-3d}
+#float{position:absolute;inset:0;transform-style:preserve-3d;animation:floaty 7.5s ease-in-out infinite}
+@keyframes floaty{0%,100%{transform:translateY(0)}50%{transform:translateY(-13px)}}
+/* 背光：机身后的浅蓝光晕（亮蓝背景上的柔光） */
+.p-glow{position:absolute;inset:-80px;transform:translateZ(-80px);border-radius:80px;
+  background:radial-gradient(closest-side,rgba(150,200,255,.5),rgba(90,150,230,.16) 56%,transparent 76%);
+  filter:blur(46px);animation:breathe 7.5s ease-in-out infinite}
+@keyframes breathe{0%,100%{opacity:.55}50%{opacity:.9}}
+/* 地面接触阴影 */
+.contact{position:absolute;left:50%;bottom:-70px;width:68%;height:46px;transform:translateX(-50%);
+  background:radial-gradient(closest-side,rgba(0,0,0,.65),transparent 72%);filter:blur(14px);
+  animation:cshadow 7.5s ease-in-out infinite}
+@keyframes cshadow{0%,100%{transform:translateX(-50%) scaleX(1);opacity:.9}50%{transform:translateX(-50%) scaleX(.93);opacity:.72}}
+
+/* ── 机身：四条金属侧边 + 前后面 ── */
+.edge{position:absolute;background:linear-gradient(90deg,#565C5E,#C9CDCF 28%,#7C8284 55%,#3F4446 82%,#8F9597)}
+.e-l{width:20px;height:calc(100% - 128px);top:64px;left:-10px;transform:rotateY(90deg)}
+.e-r{width:20px;height:calc(100% - 128px);top:64px;right:-10px;transform:rotateY(90deg)}
+.e-t,.e-b{background:linear-gradient(180deg,#4A5052,#B9BDBF 40%,#5A6062 70%,#33383A)}
+.e-t{height:20px;width:calc(100% - 136px);left:68px;top:-10px;transform:rotateX(90deg)}
+.e-b{height:20px;width:calc(100% - 136px);left:68px;bottom:-10px;transform:rotateX(90deg)}
+/* 侧边实体按键（随侧边一起出现） */
+.e-l::before,.e-l::after{content:'';position:absolute;right:-1px;width:3px;height:46px;border-radius:2px;background:#D9DDDE;box-shadow:0 0 3px rgba(0,0,0,.4)}
+.e-l::before{top:170px}.e-l::after{top:232px}
+.e-r::before{content:'';position:absolute;left:-1px;width:3px;height:74px;border-radius:2px;background:#D9DDDE;top:196px}
+
+.face{position:absolute;inset:0;border-radius:58px;backface-visibility:hidden;-webkit-backface-visibility:hidden}
+/* 前面：钛金属边框一圈 */
+.front{transform:translateZ(10px);
+  background:linear-gradient(105deg,#83898B,#D8DCDC 16%,#9BA1A3 33%,#6F7577 52%,#C4C9CA 71%,#7C8284 87%,#A9AFB1);
+  box-shadow:0 34px 90px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.30)}
+.bezel{position:absolute;inset:6px;border-radius:52px;background:#050606;
+  box-shadow:inset 0 0 2px rgba(255,255,255,.20), inset 0 0 0 1px rgba(0,0,0,.6)}
+.screen{position:absolute;inset:8px;border-radius:45px;overflow:hidden;background:#000;transform:translateZ(0)}
+.screen iframe{position:absolute;inset:0;width:100%;height:100%;border:none;background:#F2F6FC}
+
+/* 背面：暗夜蓝玻璃 + 影像模组 */
+.back{transform:translateZ(-10px) rotateY(180deg);
+  background:linear-gradient(160deg,#1B233080,#13192600),linear-gradient(160deg,#1B2330,#131922 46%,#0D1017);
+  box-shadow:inset 0 0 0 1px rgba(255,255,255,.07)}
+.back::after{content:'';position:absolute;inset:0;border-radius:58px;
+  background:radial-gradient(120% 90% at 82% 6%,rgba(64,150,255,.12),transparent 55%)}
+.back .cam{position:absolute;top:26px;left:26px;width:104px;height:104px;border-radius:28px;
+  background:linear-gradient(150deg,#181F2A,#0B0E14);box-shadow:inset 0 1px 0 rgba(255,255,255,.07),0 12px 26px rgba(0,0,0,.5)}
+.back .cam i{position:absolute;width:34px;height:34px;border-radius:50%;
+  background:radial-gradient(circle at 34% 32%,#3E4B60,#10131A 62%);box-shadow:inset 0 0 0 3px rgba(255,255,255,.05),inset 0 0 0 6px rgba(0,0,0,.55)}
+.back .cam i:nth-child(1){top:12px;left:12px}
+.back .cam i:nth-child(2){top:12px;right:12px}
+.back .cam i:nth-child(3){bottom:12px;left:35px}
+.back .mark{position:absolute;bottom:36px;width:100%;text-align:center;font-size:12px;font-weight:600;
+  letter-spacing:.4em;padding-left:.4em;color:rgba(235,242,250,.32)}
+
+/* ── 屏幕 HUD：状态栏 / 挖孔 / 小白条 / 玻璃反光 ── */
+.statusbar{position:absolute;top:0;left:0;right:0;height:34px;z-index:40;padding:0 26px;
+  display:flex;align-items:center;justify-content:space-between;
+  font-size:14.5px;font-weight:650;letter-spacing:.01em;color:#1D2129;
+  background:linear-gradient(rgba(242,246,252,.38),rgba(242,246,252,.10));
+  -webkit-backdrop-filter:blur(9px) saturate(1.3);backdrop-filter:blur(9px) saturate(1.3);
+  -webkit-mask-image:linear-gradient(#000 60%,transparent);mask-image:linear-gradient(#000 60%,transparent)}
+.statusbar .icons{display:flex;align-items:center;gap:6px}
+body[data-app="dark"] .statusbar{color:#E8ECEF;background:linear-gradient(rgba(8,9,11,.38),rgba(8,9,11,.12))}
+.punch{position:absolute;top:11px;left:50%;transform:translateX(-50%);width:11px;height:11px;border-radius:50%;
+  background:#000;z-index:45;box-shadow:0 0 0 2px rgba(0,0,0,.92),0 0 0 3px rgba(255,255,255,.06),inset 0 0 3px 1px rgba(90,120,150,.85)}
+.punch::after{content:'';position:absolute;top:2px;left:2.5px;width:3px;height:3px;border-radius:50%;background:rgba(140,170,200,.5)}
+.homebar{position:absolute;bottom:7px;left:50%;transform:translateX(-50%);width:108px;height:4.5px;border-radius:4px;
+  background:rgba(29,33,41,.42);z-index:40}
+body[data-app="dark"] .homebar{background:rgba(232,236,239,.5)}
+.glare{position:absolute;inset:-20%;z-index:46;pointer-events:none;mix-blend-mode:screen;transform:translateX(-135%);
+  background:linear-gradient(112deg,transparent 42%,rgba(255,255,255,.05) 47%,rgba(255,255,255,.13) 50%,rgba(255,255,255,.05) 53%,transparent 58%);
+  animation:sweep 12s ease-in-out 1.4s infinite}
+@keyframes sweep{0%,72%{transform:translateX(-135%)}88%,100%{transform:translateX(135%)}}
+
+/* ── 笔记本形态：屏幕盖 + 绕铰链 -78° 的键盘底座 ── */
+.device{position:absolute;inset:0;transition:opacity .5s ease,transform .5s ease}
+.device.off{opacity:0;pointer-events:none;transform:translateY(30px) scale(.95)}
+body[data-device="lap"] .viewport{width:min(64vw,1180px)}
+#lapTilt{position:absolute;inset:0;transform-style:preserve-3d}
+.lap-float{position:absolute;inset:0;transform-style:preserve-3d;animation:floaty 8.5s ease-in-out infinite}
+.lap-glow{position:absolute;inset:-60px;transform:translateZ(-80px);border-radius:120px;
+  background:radial-gradient(closest-side,rgba(150,200,255,.45),rgba(90,150,230,.15) 56%,transparent 76%);
+  filter:blur(54px);animation:breathe 7.5s ease-in-out infinite}
+.lap-lid{position:absolute;left:28px;top:0;width:1304px;height:824px;border-radius:18px;
+  background:linear-gradient(105deg,#7E8486,#CFD3D4 16%,#949A9C 34%,#676D6F 52%,#BCC1C2 72%,#75797B 87%,#A2A8AA);
+  box-shadow:0 30px 80px rgba(0,0,0,.5),inset 0 0 0 1px rgba(255,255,255,.28);
+  transform:rotateX(-2deg);transform-origin:bottom center}
+.lap-screen{position:absolute;inset:12px;border-radius:10px;background:#06080B;overflow:hidden;
+  box-shadow:inset 0 0 0 1px rgba(0,0,0,.8),inset 0 0 3px rgba(255,255,255,.06)}
+.lap-screen iframe{position:absolute;inset:0;width:100%;height:100%;border:none;background:#0A0C10}
+.lap-cam{position:absolute;top:4px;left:50%;transform:translateX(-50%);width:5px;height:5px;border-radius:50%;
+  background:#000;box-shadow:inset 0 0 1px 1px rgba(90,120,150,.8),0 0 0 1.5px rgba(255,255,255,.05)}
+.lap-hinge{position:absolute;left:40px;right:40px;bottom:-9px;height:14px;border-radius:8px;
+  background:linear-gradient(180deg,#3A4042,#181B1D)}
+.lap-base{position:absolute;left:0;top:824px;width:1360px;height:620px;transform-origin:top center;
+  transform:rotateX(-68deg);border-radius:12px 12px 20px 20px;
+  background:linear-gradient(180deg,#A6ACAE,#8A9092 34%,#666C6E 72%,#4A5052);
+  box-shadow:inset 0 2px 3px rgba(255,255,255,.35),inset 0 -10px 22px rgba(0,0,0,.38)}
+.lap-keys{position:absolute;left:110px;right:110px;top:26px;height:340px;border-radius:10px;
+  background-color:#14181C;
+  background-image:
+    repeating-linear-gradient(90deg,transparent 0 84px,rgba(255,255,255,.055) 84px 88px),
+    repeating-linear-gradient(0deg,transparent 0 44px,rgba(255,255,255,.055) 44px 48px);
+  box-shadow:inset 0 2px 10px rgba(0,0,0,.55),inset 0 -1px 4px rgba(0,0,0,.4)}
+.lap-pad{position:absolute;left:50%;top:398px;transform:translateX(-50%);width:360px;height:150px;border-radius:14px;
+  background:linear-gradient(180deg,#878D8F,#767A7C);box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.22),inset 0 2px 8px rgba(0,0,0,.25)}
+.lap-edge{position:absolute;left:0;right:0;bottom:0;height:16px;transform-origin:top center;transform:rotateX(68deg);
+  background:linear-gradient(180deg,#3A4042,#1A1D1F 70%,#101214);border-radius:0 0 14px 14px;
+  box-shadow:0 6px 16px rgba(0,0,0,.45)}
+.lap-edge::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:130px;height:7px;
+  border-radius:0 0 12px 12px;background:radial-gradient(60% 100% at 50% 0,#0C0E10,#26292B)}
+.lap-contact{position:absolute;left:50%;bottom:24px;width:72%;height:52px;transform:translateX(-50%);
+  background:radial-gradient(closest-side,rgba(0,0,0,.62),transparent 72%);filter:blur(16px);
+  animation:cshadow 8.5s ease-in-out infinite}
+
+/* ── 玻璃控制条与提示（liquid glass）── */
+.bar{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:60;display:flex;align-items:center;gap:2px;padding:7px;
+  border-radius:999px;background:rgba(6,32,80,.36);border:1px solid rgba(255,255,255,.22);
+  -webkit-backdrop-filter:blur(18px) saturate(1.5);backdrop-filter:blur(18px) saturate(1.5);
+  box-shadow:0 14px 44px rgba(3,20,52,.45);transition:opacity .45s}
+.bar button{appearance:none;border:0;background:transparent;color:#D6E5F8;font:500 13px/1 inherit;
+  font-family:inherit;padding:10px 14px;border-radius:999px;cursor:pointer;display:flex;align-items:center;gap:7px;transition:.18s;white-space:nowrap}
+.bar button:hover{background:rgba(255,255,255,.14);color:#fff}
+.bar button:focus-visible{outline:2px solid #fff;outline-offset:2px}
+.bar button::before{content:'';width:6px;height:6px;border-radius:50%;background:transparent;transition:.18s;flex:none}
+.bar button.on{background:#1677FF;color:#fff}
+.bar button.on::before{background:#fff;box-shadow:0 0 8px rgba(255,255,255,.8)}
+.bar .sep{width:1px;height:20px;background:rgba(255,255,255,.25);margin:0 6px;flex:none}
+.chip{position:fixed;right:26px;bottom:34px;z-index:60;padding:10px 15px;border-radius:999px;font-size:12px;letter-spacing:.02em;
+  color:#C6DCF5;background:rgba(6,32,80,.34);border:1px solid rgba(255,255,255,.18);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);transition:opacity .8s}
+.chip.faded{opacity:0;pointer-events:none}
+/* 沉浸模式（H）：文案收起、手机自动居中；控制条沉底隐藏，鼠标移到屏幕底部唤出 */
+.left,.bar,.chip{transition:opacity .45s}
+.left{transition:opacity .45s,flex .55s cubic-bezier(.2,.7,.3,1),padding .55s cubic-bezier(.2,.7,.3,1)}
+.viewport{transition:width .55s cubic-bezier(.2,.7,.3,1)}
+body.zen .left{opacity:0;pointer-events:none;flex:0 0 0px;padding:0;overflow:hidden}
+body.zen .viewport{width:100%}
+body.zen .chip{opacity:0;pointer-events:none}
+body.zen .bar{opacity:0;pointer-events:none}
+body.zen .bar.hov{opacity:1;pointer-events:auto}
+/* 正面锁定（S）：钉住正面、停浮动，方便在屏内操作 */
+body.locked #float,body.locked .contact{animation-play-state:paused}
+/* 左侧文案：点击可编辑 */
+.left [contenteditable]{cursor:text}
+.left [contenteditable]:hover{text-decoration:underline dotted rgba(240,243,246,.35);text-underline-offset:8px}
+.left [contenteditable]:focus{outline:none;text-decoration:none;opacity:.8}
+
+@media (max-width:900px){
+  main{flex-direction:column}
+  .left{padding:44px 22px 0;text-align:center;width:100%}
+  .left h1{font-size:clamp(38px,9vw,52px)}
+  .viewport{width:100%;flex:1;min-height:0}
+  .chip{display:none}
+}
+@media (prefers-reduced-motion:reduce){
+  #float,.glare,.particles i,.p-glow,.contact{animation:none}
+  .stage{animation-duration:.01s}
+}
+</style>
+</head>
+<body data-app="light" data-device="phone">
+<div class="ambient"></div>
+<div class="particles">
+  <i style="--l:8%;--s:4px;--d:26s;--dl:0s;--o:.16"></i>
+  <i style="--l:16%;--s:3px;--d:34s;--dl:6s;--o:.12"></i>
+  <i style="--l:24%;--s:5px;--d:30s;--dl:14s;--o:.10"></i>
+  <i style="--l:38%;--s:3px;--d:38s;--dl:3s;--o:.14"></i>
+  <i style="--l:52%;--s:4px;--d:28s;--dl:18s;--o:.10"></i>
+  <i style="--l:63%;--s:3px;--d:36s;--dl:9s;--o:.13"></i>
+  <i style="--l:74%;--s:5px;--d:32s;--dl:22s;--o:.09"></i>
+  <i style="--l:84%;--s:3px;--d:40s;--dl:12s;--o:.12"></i>
+  <i style="--l:92%;--s:4px;--d:29s;--dl:26s;--o:.10"></i>
+  <i style="--l:70%;--s:3px;--d:33s;--dl:30s;--o:.11"></i>
+</div>
+
+<main>
+  <section class="left">
+    <h1>霄擎算力</h1>
+    <p class="sub">CPQ 服务器配置报价平台 · 手机端</p>
+    <p class="feat">门户 · 商机 · 报价策略 · AI 办公室</p>
+  </section>
+  <section class="viewport" id="viewport">
+    <div id="scale">
+      <div class="stage">
+        <div class="device" id="devPhone">
+        <div id="tilt">
+          <div id="float">
+            <div class="p-glow"></div>
+            <div class="edge e-l"></div><div class="edge e-r"></div>
+            <div class="edge e-t"></div><div class="edge e-b"></div>
+            <div class="face back">
+              <div class="cam"><i></i><i></i><i></i></div>
+              <div class="mark">霄擎算力</div>
+            </div>
+            <div class="face front">
+              <div class="bezel">
+                <div class="screen" id="screen">
+                  <iframe id="app" src="/" title="应用画面" allow="fullscreen; autoplay; clipboard-read; clipboard-write; camera; microphone; display-capture" sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"></iframe>
+                  <div class="statusbar">
+                    <span id="clock">9:41</span>
+                    <span class="icons">
+                      <svg width="18" height="12" viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7.5" width="3" height="4.5" rx="1"/><rect x="5" y="5" width="3" height="7" rx="1"/><rect x="10" y="2.5" width="3" height="9.5" rx="1"/><rect x="15" y="0" width="3" height="12" rx="1" opacity=".4"/></svg>
+                      <svg width="16" height="12" viewBox="0 0 16 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M1.5 4.5a10.5 10.5 0 0 1 13 0"/><path d="M4.2 7.4a6.5 6.5 0 0 1 7.6 0"/><circle cx="8" cy="10.2" r="1.4" fill="currentColor" stroke="none"/></svg>
+                      <svg width="25" height="12" viewBox="0 0 25 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="3.5" stroke="currentColor" opacity=".45"/><rect x="2" y="2" width="15" height="8" rx="2" fill="currentColor"/><path d="M23.5 4v4c1-.3 1.5-1 1.5-2s-.5-1.7-1.5-2z" fill="currentColor" opacity=".45"/></svg>
+                    </span>
+                  </div>
+                  <div class="punch"></div>
+                  <div class="homebar"></div>
+                  <div class="glare"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="contact"></div>
+        </div>
+        <div class="device off" id="devLap">
+          <div id="lapTilt">
+            <div class="lap-float">
+              <div class="lap-glow"></div>
+              <div class="lap-base">
+                <div class="lap-keys"></div>
+                <div class="lap-pad"></div>
+                <div class="lap-edge"></div>
+              </div>
+              <div class="lap-lid">
+                <div class="lap-screen" id="lapScreen">
+                  <iframe id="lap" src="about:blank" title="桌面画面" allow="fullscreen; autoplay; clipboard-read; clipboard-write; camera; microphone; display-capture" sandbox="allow-same-origin allow-scripts allow-forms allow-downloads"></iframe>
+                  <div class="lap-cam"></div>
+                  <div class="glare"></div>
+                </div>
+                <div class="lap-hinge"></div>
+              </div>
+            </div>
+          </div>
+          <div class="lap-contact"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<div class="bar" id="bar">
+  <button id="seg-phone" class="on">手机</button>
+  <button id="seg-lap">笔记本</button>
+  <span class="sep"></span>
+  <button id="b-lock">正面锁定</button>
+  <button id="b-spin">环绕旋转</button>
+  <span class="sep"></span>
+  <button id="b-fs">全屏</button>
+</div>
+<div class="chip" id="chip">H 沉浸 · S 正面锁定 · A 环绕 · D 切换设备 · F 全屏 · 点左侧文字可编辑</div>
+
+<script>
+'use strict';
+const $=id=>document.getElementById(id);
+const tiltEl=$('tilt'),scaleEl=$('scale'),viewportEl=$('viewport'),screenEl=$('screen'),
+      appFrame=$('app'),chipEl=$('chip'),lapTiltEl=$('lapTilt'),lapScreenEl=$('lapScreen');
+let device='phone',lapBooted=false,lapDoc=null,lapWin=null;
+const RM=matchMedia('(prefers-reduced-motion: reduce)').matches;
+const clamp=(v,a,b)=>Math.min(b,Math.max(a,v));
+
+/* ── 缩放适配（随设备切换外形尺寸；显式居中，窄视口下 margin:auto 会过约束失效）── */
+function fit(){
+  const lap=device==='lap';
+  const W=lap?1360:448,H=lap?1128:908,PW=lap?1520:560,PH=lap?1250:1030;
+  scaleEl.style.width=W+'px';scaleEl.style.height=H+'px';
+  const vw=viewportEl.clientWidth,vh=viewportEl.clientHeight;
+  const s=Math.min(vw/PW,vh/PH,lap?.8:1.08);
+  const tx=Math.max(0,(vw-W*s)/2),ty=Math.max(0,(vh-H*s)/2);
+  scaleEl.style.transform=`translate(${tx.toFixed(1)}px,${ty.toFixed(1)}px) scale(${s})`;
+}
+addEventListener('resize',fit);fit();
+new ResizeObserver(fit).observe(viewportEl);
+requestAnimationFrame(fit);
+
+/* ── 姿态：鼠标跟随 / 静置漂移 / 环绕展示 ── */
+let curX=10,curY=-26,tX=0,tY=0,lastMove=-1e9,spin=false;
+function aim(cx,cy){
+  const r=(device==='phone'?screenEl:lapScreenEl).getBoundingClientRect();
+  const nx=((cx-r.left)/r.width)*2-1,ny=((cy-r.top)/r.height)*2-1;
+  tX=clamp(-ny*8,-9,9);tY=clamp(nx*15,-18,18);lastMove=performance.now();
+}
+addEventListener('mousemove',e=>aim(e.clientX,e.clientY));
+function loop(t){
+  const s=t/1000;
+  if(lockFace){tX=0;tY=0;}
+  else if(spin){tX=3+Math.sin(s*.42)*2.2;tY=Math.sin(s*.30)*24;}
+  else if(t-lastMove>2600){tX=RM?0:1.8+Math.sin(s*.23)*1.6;tY=RM?0:Math.sin(s*.17)*3.4;}
+  curX+=(tX-curX)*.055;curY+=(tY-curY)*.055;
+  tiltEl.style.transform=`rotateX(${curX.toFixed(3)}deg) rotateY(${curY.toFixed(3)}deg)`;
+  lapTiltEl.style.transform=`rotateX(${(curX*.45).toFixed(3)}deg) rotateY(${(curY*.55).toFixed(3)}deg)`;
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/* ── 时钟 + 主题同步 + 刘海注入 ── */
+let appWin=null,appDoc=null;
+/* 伪造手机 safe-area：应用本就按 env(safe-area-inset-top) 设计（iframe 里恒为 0），
+   等值覆盖其变量即让顶栏/内容/sticky 整体下移 34px，状态栏不再压住应用顶栏 */
+const INSET_CSS='.site-header.site-header{padding-top:34px!important}'+
+  '.main-scroll.main-scroll{--cpq-sticky-top:calc(56px + 34px)!important;--cpq-header-clearance:calc(64px + 34px)!important}';
+function applyInset(){
+  if(!appDoc)return;
+  try{
+    if(!appDoc.getElementById('demo-inset')){
+      const st=appDoc.createElement('style');
+      st.id='demo-inset';st.textContent=INSET_CSS;
+      appDoc.head.appendChild(st);
+    }
+  }catch(e){}
+}
+function tick(){
+  applyInset();
+  const d=new Date();$('clock').textContent=d.getHours()+':'+String(d.getMinutes()).padStart(2,'0');
+  try{
+    const th=appDoc.documentElement.dataset.theme;
+    document.body.dataset.app=th==='dark'?'dark':'light';
+  }catch(e){}
+}
+setInterval(tick,1000);tick();
+
+/* ── 控件：正面锁定 / 环绕旋转 / 全屏 ── */
+let lockFace=false;
+function setLock(on){
+  lockFace=on;
+  $('b-lock').classList.toggle('on',on);
+  document.body.classList.toggle('locked',on);
+  if(on)setSpin(false);
+}
+function setSpin(on){
+  if(on&&lockFace){
+    lockFace=false;$('b-lock').classList.remove('on');document.body.classList.remove('locked');
+  }
+  spin=on;$('b-spin').classList.toggle('on',on);
+}
+$('b-lock').addEventListener('click',()=>setLock(!lockFace));
+$('b-spin').addEventListener('click',()=>setSpin(!spin));
+$('b-fs').addEventListener('click',toggleFs);
+function toggleFs(){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen().catch(()=>{});}
+
+/* ── 设备切换：手机 ⇄ 笔记本（各自 iframe，登录态同源共享）── */
+function switchDevice(dev){
+  if(device===dev)return;
+  device=dev;
+  document.body.dataset.device=dev;
+  $('seg-phone').classList.toggle('on',dev==='phone');
+  $('seg-lap').classList.toggle('on',dev==='lap');
+  $('devPhone').classList.toggle('off',dev!=='phone');
+  $('devLap').classList.toggle('off',dev!=='lap');
+  if(dev==='lap'&&!lapBooted){lapBooted=true;$('lap').src='/';}
+  fit();
+}
+$('seg-phone').addEventListener('click',()=>switchDevice('phone'));
+$('seg-lap').addEventListener('click',()=>switchDevice('lap'));
+$('lap').addEventListener('load',()=>{
+  try{lapDoc=$('lap').contentDocument;}catch(e){lapDoc=null;}
+  lapWin=$('lap').contentWindow||null;
+  if(lapWin&&lapWin.location.pathname==='/'){
+    try{
+      lapWin.addEventListener('mousemove',e=>{
+        const r=$('lap').getBoundingClientRect();aim(r.left+e.clientX,r.top+e.clientY);
+      });
+    }catch(e){}
+  }
+});
+
+/* ── 就绪：预置浅色主题（Soft Glassmorphism 是招牌视觉），转发鼠标/触控 ── */
+addEventListener('keydown',e=>{
+  if(e.target&&e.target.isContentEditable)return;
+  const k=e.key.toLowerCase();
+  if(k==='h'){const z=document.body.classList.toggle('zen');if(!z)unZen();}
+  else if(k==='a')setSpin(!spin);
+  else if(k==='s')setLock(!lockFace);
+  else if(k==='d')switchDevice(device==='phone'?'lap':'phone');
+  else if(k==='f')toggleFs();
+});
+let chipTimer=setTimeout(()=>$('chip').classList.add('faded'),9000);
+function unZen(){
+  $('chip').classList.remove('faded');
+  clearTimeout(chipTimer);chipTimer=setTimeout(()=>$('chip').classList.add('faded'),9000);
+}
+/* 沉浸模式下控制条沉底：鼠标移到屏幕底部唤出，移开即隐 */
+addEventListener('mousemove',e=>{
+  if(document.body.classList.contains('zen'))
+    document.querySelector('.bar').classList.toggle('hov',e.clientY>innerHeight-96);
+});
+try{if(!localStorage.getItem('cpq-theme'))localStorage.setItem('cpq-theme','light');}catch(e){}
+/* ── 左侧文案可编辑：点即改，Esc 或点空白处完成，存 localStorage ── */
+const COPY_KEY='demo-copy';
+const copyEls=[...document.querySelectorAll('.left h1,.left .sub,.left .feat')];
+try{
+  const saved=JSON.parse(localStorage.getItem(COPY_KEY)||'null');
+  if(saved)copyEls.forEach(el=>{const k=el.className||'h1';if(typeof saved[k]==='string')el.textContent=saved[k];});
+}catch(e){}
+copyEls.forEach(el=>{
+  el.contentEditable='plaintext-only';
+  if(el.contentEditable!=='plaintext-only')el.contentEditable='true';
+  el.spellcheck=false;el.title='点击编辑文案';
+  el.addEventListener('input',()=>{
+    const data={};copyEls.forEach(x=>data[x.className||'h1']=x.textContent);
+    try{localStorage.setItem(COPY_KEY,JSON.stringify(data));}catch(e){}
+  });
+  el.addEventListener('keydown',ev=>{if(ev.key==='Escape')el.blur();});
+});
+/* 新标签页外链改为屏内打开：录制时不会跳出镜头 */
+function keepLinksInPhone(){
+  const patch=d=>{try{d.querySelectorAll('a[target="_blank"]').forEach(a=>{a.target='_self';});}catch(e){}};
+  if(appDoc)patch(appDoc);
+  if(lapDoc)patch(lapDoc);
+}
+setInterval(keepLinksInPhone,2000);
+appFrame.addEventListener('load',()=>{
+  try{appDoc=appFrame.contentDocument;}catch(e){appDoc=null;}
+  appWin=appFrame.contentWindow||null;
+  applyInset();
+  if(!appWin)return;
+  try{
+    appWin.addEventListener('mousemove',e=>{
+      const r=appFrame.getBoundingClientRect();aim(r.left+e.clientX,r.top+e.clientY);
+    });
+  }catch(e){}
+});
+</script>
+</body>
+</html>

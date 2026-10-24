@@ -9,18 +9,34 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def test_skill_steps_view_single_source():
-    """步骤清单单源：pipeline_start 与角色提议话术共用，画布 label/description 覆盖生效。"""
+    """步骤清单单源：顺序=画布拓扑、label=画布标签>节点配置label>键名。
+
+    无 flow 一律返回空——禁止回退需求分析固定节点表（2026-10-22 趋势分析步骤条
+    张冠李戴根因：兜底把需求分析的节点名套在任意 skill 上）。
+    """
     from app.services.skill_plan_runtime import skill_steps_view
-    cfg = {"model_reason": {"label": "机型锁定", "description": "按需求从在售目录中选定机型骨架"}}
-    steps = skill_steps_view(cfg)
-    assert [s["step"] for s in steps] == [
-        "input", "agent_fill", "model_reason", "kp_reason", "compose", "output"]
+    assert skill_steps_view({}) == []
+    assert skill_steps_view({"model_reason": {"label": "机型锁定"}}) == []
+    flow = {
+        "graph": {
+            "nodes": [
+                {"id": "input", "label": "需求接收"},
+                {"id": "model_reason", "label": "机型锁定"},
+                {"id": "kp_reason", "label": ""},
+            ],
+            "edges": [
+                {"source": "input", "target": "model_reason"},
+                {"source": "model_reason", "target": "kp_reason"},
+            ],
+        },
+    }
+    cfg = {"model_reason": {"description": "按需求从在售目录中选定机型骨架"}}
+    steps = skill_steps_view(cfg, flow=flow)
+    assert [s["step"] for s in steps] == ["input", "model_reason", "kp_reason"]
     mr = next(s for s in steps if s["step"] == "model_reason")
     assert mr["label"] == "机型锁定" and mr["description"] == "按需求从在售目录中选定机型骨架"
-    assert "description" not in next(s for s in steps if s["step"] == "kp_reason")
-    # 客户可见里程碑：跳过对话里自然发生的 input/agent_fill
-    uf = skill_steps_view(cfg, user_facing_only=True)
-    assert [s["step"] for s in uf] == ["model_reason", "kp_reason", "compose", "output"]
+    # 画布空标签回退节点配置，再回退键名
+    assert next(s for s in steps if s["step"] == "kp_reason")["label"] == "kp_reason"
 
 
 def test_requirement_prompt_consent_contract():

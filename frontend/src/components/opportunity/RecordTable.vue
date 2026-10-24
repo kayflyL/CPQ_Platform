@@ -87,45 +87,19 @@ withDefaults(defineProps<{
 }
 .rt-align-center { text-align: center; }
 .rt-align-right { text-align: right; }
-.rt-strong { font-weight: 400; color: var(--cpq-text-primary); }
-.rt-sub { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: 12px; }
-.rt-dim { color: var(--cpq-text-muted); font-size: 12px; }
-.rt-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid;
-  border-radius: 999px;
-  padding: 2px 8px;
-  font-size: 11px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.rt-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.rt-badge.rt-badge-current { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); }
-.rt-badge.rt-badge-draft { color: #b45309; border-color: #f59e0b; background: rgba(245,158,11,.10); }
-.rt-badge.rt-badge-done,
-.rt-badge.rt-badge-exported,
-.rt-badge.rt-badge-released { color: #166534; border-color: #22c55e; background: rgba(34,197,94,.10); }
-.rt-badge.rt-badge-pending { color: #7c3aed; border-color: #8b5cf6; background: rgba(139,92,246,.10); }
-.rt-badge.rt-badge-approving { color: #b91c1c; border-color: #ef4444; background: rgba(239,68,68,.10); }
-.rt-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
-.rt-link { color: var(--cpq-accent-primary); cursor: pointer; font-size: 12px; }
-.rt-link:hover { opacity: .8; }
-.rt-link.danger { color: #ef4444; }
-.rt-link.muted { color: var(--cpq-text-muted); }
 .rt-empty {
   padding: 22px 14px;
   text-align: center;
   color: var(--cpq-text-muted);
   font-size: 12px;
 }
+/* 行内内容全部来自调用方插槽（带调用方 scope），必须走 :deep 才命中 */
 :deep(.rt-badge) {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   border: 1px solid;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 2px 8px;
   font-size: 11px;
   font-weight: 700;
@@ -147,4 +121,51 @@ withDefaults(defineProps<{
 :deep(.rt-strong) { font-weight: 400; color: var(--cpq-text-primary); }
 :deep(.rt-sub) { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: 12px; }
 :deep(.rt-dim) { color: var(--cpq-text-muted); font-size: 12px; }
+
+/* ── 手机端：表格 → 卡片列表。每行一张卡，td 靠 data-label 显示字段名 ── */
+@media (max-width: 768px) {
+  .rt-scroll {
+    overflow-x: visible;
+    padding: 2px 2px 12px;
+  }
+  .rt-table,
+  .rt-table tbody {
+    display: block;
+    width: 100%;
+  }
+  .rt-table thead {
+    display: none;
+  }
+  .rt-table :deep(tbody tr) {
+    display: block;
+    margin: 0 0 10px;
+    padding: 2px 12px;
+    border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--cpq-radius-md);
+    background: var(--cpq-overlay-w2, transparent);
+  }
+  .rt-table :deep(tbody tr:last-child) {
+    margin-bottom: 0;
+  }
+  .rt-table :deep(tbody td) {
+    display: block;
+    border: 0;
+    border-bottom: 1px dashed var(--cpq-overlay-w8);
+    padding: 8px 0;
+  }
+  .rt-table :deep(tbody td:last-child) {
+    border-bottom: 0;
+    padding-bottom: 10px;
+  }
+  .rt-table :deep(tbody td[data-label])::before {
+    content: attr(data-label);
+    display: block;
+    margin-bottom: 3px;
+    font-size: 11px;
+    color: var(--cpq-text-muted);
+  }
+  .rt-table :deep(.rt-actions) {
+    justify-content: flex-start;
+  }
+}
 </style>

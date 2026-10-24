@@ -110,7 +110,7 @@ onBeforeUnmount(() => { destroy() })
   height: 100%;
   min-height: 220px;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
 }
 .l2d-preview-box.empty {
   display: flex;

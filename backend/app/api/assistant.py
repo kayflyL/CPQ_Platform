@@ -9,10 +9,11 @@ endpoint (/ws/{thread_id}) via assistant_hub. If the call fails, the real error
 import asyncio
 import logging
 import json
-from typing import Optional, Union
+import os
+from typing import Any, Optional, Union
 
 from fastapi import (
-    APIRouter, HTTPException, Depends, Query, WebSocket, WebSocketDisconnect,
+    APIRouter, HTTPException, Depends, Query, UploadFile, File, WebSocket, WebSocketDisconnect,
 )
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -20,6 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from app.api.deps import get_current_user as current_user, require_admin, require_perms, resolve_ws_user, user_has_permission
 from app.core.config import get_settings
 from app.repository.assistant_repo import AssistantRepository
+from app.repository.feed_repo import FeedRepository
 from app.services import llm_client
 from app.services.assistant_hub import assistant_hub
 from app.services.office_events import publish_office_event
@@ -32,10 +34,18 @@ from app.services.ai_colleague_service import (
     resolve_assistant_message_target_async,
     resolve_chat_target,
 )
+from app.services.storage_adapter import build_object_id, get_storage
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/assistant", tags=["assistant"])
+
+# 聊天附件上传守卫（与 feed 上传同标准）
+_ALLOWED_CHAT_EXTS = {
+    ".xlsx", ".xls", ".csv", ".pdf", ".docx", ".doc",
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".txt", ".zip",
+}
+_MAX_CHAT_UPLOAD = 50 * 1024 * 1024  # 50 MB
 
 
 def _user_can_chat_with_role(user: dict, role_key: Optional[str]) -> bool:
@@ -133,6 +143,16 @@ class PostMessageBody(BaseModel):
     card_selections: Optional[list[CardSelectionBody]] = None  # 表单模式：一次提交多组缺口选择
     workflow_key: Optional[str] = None  # 方案助手「+」显式唤醒的工作流 key（直接 ACTIVE）
     quote: Optional[dict] = None  # 引用回复快照 {name, text}：随用户消息存 data JSON，原样展示
+    attachment_ids: Optional[list[str]] = None  # 聊天附件（会话暂存附件，本人所有）：随消息绑定+引用
+
+
+class PostAnswerBody(BaseModel):
+    """问答协议：结构化回答（点选/填表提交）。query_id 路由，不走文本匹配。"""
+    query_id: str
+    selections: Optional[list[str]] = None
+    values: Optional[dict[str, Any]] = None
+    note: Optional[str] = None
+    role_key: Optional[str] = None
 
 
 class DispatchPreviewBody(BaseModel):
@@ -283,7 +303,7 @@ def create_thread(body: CreateThreadBody, user: dict = Depends(current_user)):
     if opening_role_key and not _user_can_chat_with_role(user, opening_role_key):
         raise HTTPException(status_code=403, detail="无权与该 AI 角色聊天")
     if body.thread_kind == "office_colleague" and not opening_role_key:
-        raise HTTPException(status_code=400, detail="员工会话必须指定 role_key")
+        raise HTTPException(status_code=400, detail="同事会话必须指定 role_key")
 
     repo = AssistantRepository()
     try:
@@ -296,7 +316,7 @@ def create_thread(body: CreateThreadBody, user: dict = Depends(current_user)):
             colleague_role_key=opening_role_key,
             entry_point=body.entry_point,
         )
-        # 开场白唯一出处 = 员工配置（Manage Teams · 员工 · 开场白）；未点名同事即方案助手本人。
+        # 开场白唯一出处 = 员工配置（Manage Teams · 同事 · 开场白）；未点名同事即方案助手本人。
         opening_role_key = opening_role_key or "assistant"
         opening = str((get_colleague(opening_role_key) or {}).get("opening_message") or "").strip()
         if opening:
@@ -366,7 +386,8 @@ def list_messages(thread_id: str, limit: int = 50, user: dict = Depends(current_
         # 空窗后前端骨架已丢——这里按引擎状态（steps_done/engine_pause）重建下发。
         from app.services.skill_memory import task_state_for_thread
         task_state = task_state_for_thread(
-            thread_id, str(thread.get("colleague_role_key") or "assistant"), turn_active=t_active)
+            thread_id, str(thread.get("colleague_role_key") or "assistant"), turn_active=t_active,
+            user=user)
         return {
             "messages": msgs,
             "turn_active": t_active,
@@ -473,6 +494,11 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
     立即返回 user_message;LLM token 流通过 /ws/{thread_id} 推送(chunk → done)。
     首条用户消息自动作为会话标题。LLM 失败时回退占位回复。
     """
+    # 用户消息序号 +1（确认闸的用户 seen 依赖：确认消费要求 stage 之后出现过
+    # 新的用户消息，防大脑同一回合自问自答吃掉确认）
+    from app.services.agent_write_confirm import note_user_message
+    note_user_message(thread_id)
+
     requested_role_key = (body.role_key or "").strip() or None
     if requested_role_key and not _user_can_chat_with_role(user, requested_role_key):
         raise HTTPException(status_code=403, detail="无权与该 AI 角色聊天")
@@ -507,11 +533,43 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
             q_text = str(body.quote.get("text") or "").strip().replace("\n", " ")[:120]
             if q_text:
                 quote = {"name": q_name, "text": q_text}
+        # 聊天附件：校验归属（本人+未删+未随其他消息发送）后绑定到本条消息；
+        # 摘要进消息 data（前端渲染文件行）+ turn_text（大脑看见文件与 attachment_id）
+        attachments = []
+        if body.attachment_ids:
+            feed_repo = FeedRepository()
+            try:
+                for aid in body.attachment_ids[:5]:
+                    att = feed_repo.get_attachment(str(aid))
+                    if not att or att.get("uploader_user_id") != user["user_id"] or att.get("deleted_at"):
+                        raise HTTPException(status_code=404, detail=f"附件不存在或不属于当前用户: {aid}")
+                    if att.get("message_id"):
+                        raise HTTPException(status_code=409,
+                                            detail=f"附件已随其他消息发送: {att.get('original_filename')}")
+                    attachments.append({
+                        "attachment_id": att["attachment_id"],
+                        "name": att.get("original_filename") or "",
+                        "size": att.get("file_size") or 0,
+                    })
+            finally:
+                feed_repo.close()
+        msg_data: dict = {}
+        if quote:
+            msg_data["quote"] = quote
+        if attachments:
+            msg_data["attachments"] = attachments
         user_msg = repo.add_message(
             thread_id=thread_id, role="user", content=body.content,
             opportunity_id=body.opportunity_id, quotation_id=body.quotation_id,
-            data=json.dumps({"quote": quote}, ensure_ascii=False) if quote else None,
+            data=(json.dumps(msg_data, ensure_ascii=False) if msg_data else None),
         )
+        if attachments:
+            feed_repo = FeedRepository()
+            try:
+                for item in attachments:
+                    feed_repo.bind_attachment(item["attachment_id"], message_id=user_msg["message_id"])
+            finally:
+                feed_repo.close()
         if dispatch_target is not None:
             # 转接可见化：用户消息之后落一条转接标记（leader 名义），专家随后的回复带自己的头像身份
             name = str(dispatch_target.get("name") or dispatch_target.get("role_key") or "")
@@ -536,6 +594,9 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
     turn_text = body.content
     if quote:
         turn_text = f"{body.content}\n[引用 {quote['name'] or '消息'}：{quote['text']}]"
+    if attachments:
+        listing = "、".join(f"{a['name']} (attachment_id={a['attachment_id']})" for a in attachments)
+        turn_text = f"{turn_text}\n[附件: {listing}]"
 
     asyncio.create_task(_run_office_turn(
         thread_id, turn_text, body.context_summary, history, colleague,
@@ -549,6 +610,126 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
         channel_kind=None if str(thread.get("colleague_role_key") or "").strip() else "group",
     ))
     return {"user_message": user_msg, "thread": thread, "colleague": colleague}
+
+
+@router.post("/threads/{thread_id}/answers")
+async def post_answer(thread_id: str, body: PostAnswerBody, user: dict = Depends(current_user)):
+    """问答协议的结构化回答入口：按 query_id 路由（结构化回流，不走文本匹配）。
+
+    落一条用户展示消息（「问题」答案，重放可见）→ 记 HumanAnswer（协议状态在库）
+    → 派发回合（同消息链路）。consent 型回答由轮壳直达执行；choice/form 回答
+    作为事实注入大脑。文本"确认/取消"兜底仍走 messages 端点（匹配范围被开放
+    问询收窄）。"""
+    from app.services import human_query as hq
+    from app.services.agent_write_confirm import note_user_message
+    note_user_message(thread_id)
+
+    open_q = hq.open_query_of(thread_id)
+    if not open_q or open_q.get("query_id") != body.query_id:
+        raise HTTPException(status_code=409, detail="问题不存在或已关闭：以当前对话下方的卡片为准")
+
+    try:
+        result = hq.answer_query(
+            thread_id, query_id=body.query_id,
+            selections=body.selections, values=body.values,
+            note=str(body.note or ""), answered_by=user["user_id"])
+    except hq.ContractError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    query, answer = result["query"], result["answer"]
+
+    answer_text = hq.render_answer_text(query, answer)
+    repo = AssistantRepository()
+    try:
+        thread = _thread_for_user(repo, thread_id, user)
+        history = repo.list_messages(thread_id)
+        user_msg = repo.add_message(
+            thread_id=thread_id, role="user", content=answer_text,
+            kind="answer", data=json.dumps(answer, ensure_ascii=False, default=str),
+            colleague_role_key=str(query.get("role_key") or "") or None,
+        )
+        if not thread.get("title") or thread["title"] == "新会话":
+            snippet = answer_text.strip().replace("\n", " ")[:24]
+            if snippet:
+                repo.update_thread_title(thread_id, snippet)
+    finally:
+        repo.close()
+    await assistant_hub.broadcast(thread_id, {"type": "user_message", "message": user_msg})
+
+    colleague = None
+    bound_role = str((thread or {}).get("colleague_role_key") or "").strip() or str(body.role_key or "").strip()
+    if bound_role:
+        colleague, _dispatch = await resolve_chat_target(bound_role, answer_text, None)
+
+    asyncio.create_task(_run_office_turn(
+        thread_id, answer_text, None, history, colleague,
+        user_id=user["user_id"],
+        user=user,
+        opportunity_id=(thread or {}).get("opportunity_id"),
+        entry_point=(thread or {}).get("entry_point"),
+        workflow_key=None,
+        channel_kind=None if bound_role else "group",
+    ))
+    return {"user_message": user_msg, "query": query}
+
+
+@router.post("/threads/{thread_id}/attachments")
+async def upload_thread_attachment(thread_id: str, file: UploadFile = File(...),
+                                   user: dict = Depends(current_user)):
+    """聊天框附件上传：落会话暂存（opportunity_id=NULL），不进任何商机档案。
+
+    发送消息时随 attachment_ids 绑定到消息并引用给大脑；导入/归档动作落商机时
+    改绑+移桶（原件留档）。配额：每人 50 个 / 500MB；14 天过期（上传时懒清理）。"""
+    repo = AssistantRepository()
+    try:
+        _thread_for_user(repo, thread_id, user)
+    finally:
+        repo.close()
+    filename = file.filename or "file"
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in _ALLOWED_CHAT_EXTS:
+        raise HTTPException(status_code=400,
+                            detail=f"不支持的文件类型 {ext or '(无扩展名)'}")
+    content = await file.read()
+    if len(content) > _MAX_CHAT_UPLOAD:
+        raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
+
+    feed_repo = FeedRepository()
+    storage = get_storage()
+    staged_key = None
+    try:
+        # 本人过期暂存懒清理：软删行，盘文件尽力删（TTL 技术态，无后台任务）
+        for key in feed_repo.purge_expired_staged(user["user_id"]):
+            try:
+                storage.delete(key)
+            except Exception:
+                pass
+        quota = feed_repo.staged_quota(user["user_id"])
+        if quota["count"] >= quota["max_count"]:
+            raise HTTPException(status_code=409,
+                                detail=f"暂存附件已达上限 {quota['max_count']} 个：先发送或等过期清理")
+        if quota["total_size"] + len(content) > quota["max_total_size"]:
+            raise HTTPException(status_code=409, detail="暂存附件总大小超限（500MB）：先发送或等过期清理")
+        staged_key = storage.save_scoped(
+            f"threads/{thread_id}", build_object_id(filename), content, ext)
+        att = feed_repo.add_attachment(
+            opportunity_id=None,
+            uploader_user_id=user["user_id"],
+            original_filename=filename,
+            storage_key=staged_key,
+            file_size=len(content),
+            mime_type=file.content_type,
+            kind="upload",
+        )
+        return {"attachment": att, "quota": feed_repo.staged_quota(user["user_id"])}
+    except HTTPException:
+        if staged_key:
+            try:
+                storage.delete(staged_key)
+            except Exception:
+                pass
+        raise
+    finally:
+        feed_repo.close()
 
 
 @router.post("/threads/{thread_id}/stop")
@@ -892,6 +1073,51 @@ def cleanup_trace(body: dict, admin: dict = Depends(require_perms("ai.office.adm
     finally:
         repo.close()
     return {"deleted": deleted}
+
+
+@router.get("/admin/staged-attachments")
+def admin_staged_attachments(admin: dict = Depends(require_perms("ai.office.admin"))):
+    """暂存附件池（全部用户、opportunity_id=NULL、未删）：会话记录管理页清理入口。
+    已随消息发送的行也在列（发送不改暂存口径，只有 TTL 或在此清理才释放）。"""
+    repo = FeedRepository()
+    try:
+        rows = repo.list_all_staged()
+    finally:
+        repo.close()
+    user_ids = sorted({str(r.get("uploader_user_id") or "") for r in rows if r.get("uploader_user_id")})
+    name_map: dict = {}
+    if user_ids:
+        from app.repository.feed_user_repo import FeedUserRepository
+        user_repo = FeedUserRepository()
+        try:
+            name_map = user_repo.name_map(user_ids)
+        finally:
+            user_repo.close()
+    for r in rows:
+        uid = str(r.get("uploader_user_id") or "")
+        r["uploader_name"] = name_map.get(uid, uid)
+    return {"attachments": rows,
+            "total_size": sum(r.get("file_size") or 0 for r in rows)}
+
+
+@router.post("/admin/staged-attachments/delete")
+def admin_staged_attachments_delete(body: dict, admin: dict = Depends(require_perms("ai.office.admin"))):
+    """批量清理暂存附件：软删行 + 尽力删盘文件（不可恢复）。"""
+    ids = (body or {}).get("attachment_ids") or []
+    if not isinstance(ids, list) or not ids:
+        raise HTTPException(status_code=400, detail="attachment_ids 需为非空数组")
+    repo = FeedRepository()
+    try:
+        storage_keys = repo.soft_delete_attachments([str(a) for a in ids][:200])
+    finally:
+        repo.close()
+    storage = get_storage()
+    for key in storage_keys:
+        try:
+            storage.delete(key)
+        except Exception:
+            pass
+    return {"deleted": len(storage_keys)}
 
 # ── WS: subscribe to a thread's LLM token stream ──
 

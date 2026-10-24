@@ -7,9 +7,13 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy import text
 from typing import List, Optional
 from app.models.base import kp_engine
-from app.api.deps import get_current_user, require_admin
+from app.api.deps import get_current_user, require_admin, field_visible
+from app.utils.price_mask import mask_part_price_fields
 
 # 默认登录门槛；搜索别名配置无页面入口，仅管理员。
+# 价格：unit_price 等库价字段按 field.parts.price 遮罩——配置向导/方案编辑的
+# 选件下拉对技术/业务角色只出规格不出价；引擎/derive 走仓储层不经此处，不受影响。
+_PRICE_VIEW = "field.parts.price"
 router = APIRouter(prefix="/api/kp", tags=["kp"],
                    dependencies=[Depends(get_current_user)])
 
@@ -45,7 +49,8 @@ def list_spec_keys():
 
 @router.get("/parts")
 def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
-               series: Optional[str] = Query(None, description="机型系列，按 applicable.series 过滤")):
+               series: Optional[str] = Query(None, description="机型系列，按 applicable.series 过滤"),
+               user: dict = Depends(get_current_user)):
     """返回 KP 配件列表，可按 category_id / series 筛选。
 
     series 过滤语义：applicable 为 null 或无 series 键 = 全系列通用（返回）；
@@ -93,15 +98,17 @@ def list_parts(category_id: Optional[int] = Query(None, description="分类ID"),
     
     with kp_engine.connect() as c:
         rows = c.execute(text(q), params).mappings().all()
-    
+
     out = []
     for r in rows:
         out.append(dict(r))
+    if not field_visible(user, _PRICE_VIEW):
+        out = mask_part_price_fields(out)
     return out
 
 
 @router.get("/parts/by-pn/{pn}")
-def get_part_by_pn(pn: str):
+def get_part_by_pn(pn: str, user: dict = Depends(get_current_user)):
     """按料号查单个 KP（供 derive 用）"""
     q = """
         SELECT
@@ -134,7 +141,10 @@ def get_part_by_pn(pn: str):
         row = c.execute(text(q), {"pn": pn}).mappings().first()
     if not row:
         return None
-    return dict(row)
+    d = dict(row)
+    if not field_visible(user, _PRICE_VIEW):
+        d = mask_part_price_fields(d)
+    return d
 
 
 # ── 检索别名（kp.kp_search_aliases；part_lexicon 词法引擎的口语词→库内词形映射） ──

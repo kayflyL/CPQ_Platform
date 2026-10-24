@@ -131,7 +131,7 @@ const cardClass = computed(() => ({
   font-size: 11px;
   font-weight: 600;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid transparent;
 }
 .pub-chip { right: auto; left: 12px; }

@@ -31,7 +31,7 @@ const router = useRouter()
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-glass-border);
   margin-bottom: 16px;
   position: sticky;

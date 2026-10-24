@@ -148,7 +148,7 @@ function toggle(name: string) {
 .nrb-card {
   padding: 14px 15px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-2-bg);
   box-shadow: var(--cpq-shadow-sm);
 }
@@ -170,7 +170,7 @@ function toggle(name: string) {
   min-height: 58px;
   padding: 9px 11px;
   border: 1px dashed var(--cpq-border-primary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   color: var(--cpq-text-secondary);
   font-size: 12.5px;

@@ -2,6 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "fae-dashboard",
+      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8896",
+        "--directory",
+        "D:/报价/FAE业务需求进度结果/清洗输出"
+      ],
+      "port": 8896
+    },
+    {
       "name": "backend",
       "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
       "runtimeArgs": [

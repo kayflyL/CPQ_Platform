@@ -274,4 +274,11 @@ onMounted(async () => {
   text-align: right;
   white-space: nowrap;
 }
+
+@media (max-width: 768px) {
+  /* 分组列取消左吸：窄屏横滑时 sticky 列会盖住相邻列首字符（CPU→PU），自带底色看起来像色块盖住数据 */
+  .sheet-group {
+    position: static;
+  }
+}
 </style>

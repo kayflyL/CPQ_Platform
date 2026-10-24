@@ -396,7 +396,7 @@ async function handleDeleteSpec(tpl: any) {
   position: relative;
   padding: 24px;
   border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 18px;
+  border-radius: var(--cpq-radius-xl);
   cursor: pointer;
   transition: all .3s cubic-bezier(.16,1,.3,1);
   background: var(--cpq-glass-card-bg);
@@ -459,7 +459,7 @@ async function handleDeleteSpec(tpl: any) {
   min-height: 200px;
   cursor: pointer;
   border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 18px;
+  border-radius: var(--cpq-radius-xl);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   box-shadow: var(--cpq-glass-card-shadow);

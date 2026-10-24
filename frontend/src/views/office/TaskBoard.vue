@@ -264,7 +264,7 @@
         {{ [artifactBomPlan.series, artifactBomPlan.form, artifactBomPlan.bays != null ? `${artifactBomPlan.bays}盘位` : ''].filter(Boolean).join(' · ') }}
       </div>
       <a-spin :spinning="artifactBomLoading" tip="转 BOM 模板格式…">
-        <BomTable v-if="artifactBomCfg" :cfg="artifactBomCfg" />
+        <BomTable v-if="artifactBomCfg" :cfg="artifactBomCfg" :hide-cost="!auth.can('field.quote.price')" />
       </a-spin>
     </a-modal>
 
@@ -280,7 +280,7 @@
       <div class="tc-modal-form">
         <label class="tc-field">
           <span>任务目标</span>
-          <a-textarea v-model:value="createForm.prompt" :auto-size="{ minRows: 3, maxRows: 7 }" placeholder="描述需要 AI 员工完成的工作" />
+          <a-textarea v-model:value="createForm.prompt" :auto-size="{ minRows: 3, maxRows: 7 }" placeholder="描述需要 AI 同事完成的工作" />
         </label>
         <label class="tc-field">
           <span>负责人</span>
@@ -317,8 +317,10 @@ import { officeApi, type BehaviorConfig, type OfficeDeliverable, type OfficeMiss
 import { downloadOfficeFile } from '@/utils/fileDownload'
 import type { Plan } from '@/api/reasoning'
 import { buildPlanCfg, type PlanLiveCfg } from '@/composables/usePlanBom'
+import { useAuthStore } from '@/store/auth'
 
 const router = useRouter()
+const auth = useAuthStore()
 
 type ViewKey = 'timeline' | 'calendar' | 'deliverables'
 interface TimelineRow {
@@ -868,14 +870,14 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   gap: 4px;
   padding: 4px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-secondary);
   width: max-content;
 }
 
 .tc-nav-btn {
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   padding: 7px 14px;
   color: var(--cpq-text-secondary);
   background: transparent;
@@ -910,7 +912,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   display: inline-flex;
   align-items: center;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   color: var(--status-color, var(--cpq-text-muted));
   background: color-mix(in srgb, var(--status-color, var(--cpq-text-muted)) 14%, transparent);
   font-size: 10px;
@@ -964,7 +966,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-card);
 }
 
@@ -1060,7 +1062,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   height: 28px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 32%, transparent);
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   padding: 0 8px;
   color: var(--status-color, var(--cpq-text-secondary));
   background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 18%, var(--cpq-bg-card));
@@ -1078,7 +1080,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   min-height: 0;
   overflow: auto;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-card);
 }
 
@@ -1125,7 +1127,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   margin-bottom: 4px;
   overflow: hidden;
   border: 0;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   padding: 3px 6px;
   color: var(--status-color, var(--cpq-text-secondary));
   background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 16%, var(--cpq-bg-card));
@@ -1241,7 +1243,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 .td-report {
   padding: 10px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-secondary);
 }
 

@@ -74,7 +74,7 @@ function onAct() {
   padding: 11px 12px 10px;
   min-width: 0;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-1-bg);
   box-shadow: var(--cpq-shadow-sm);
   transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
@@ -93,7 +93,7 @@ function onAct() {
 .rc-mono {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; flex-shrink: 0;
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 13px; font-weight: 700;
 }
 .rc-mono--group { background: rgba(22, 119, 255, 0.16); color: #6ea8ff; }
@@ -122,7 +122,7 @@ function onAct() {
 .rc-mounted { font-size: 11.5px; color: var(--cpq-accent-primary, #6ea8ff); }
 .rc-act {
   padding: 1px 10px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-border-primary);
   background: transparent;
   font-size: 11.5px;

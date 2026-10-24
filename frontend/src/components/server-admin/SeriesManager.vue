@@ -333,14 +333,14 @@ onMounted(load)
 .glb-tag {
   font-size: 11px; letter-spacing: 2px; padding: 4px 10px;
   color: var(--cpq-text-secondary);
-  border: 1px dashed var(--cpq-glass-border); border-radius: 6px;
+  border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-sm);
 }
 .glb-tag.glb-empty { color: var(--cpq-text-disabled); }
 .sr-main { flex: 1; min-width: 0; }
 .sr-name { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
 .sr-desc { font-size: 12.5px; color: var(--cpq-text-secondary); margin-top: 4px; }
 .sr-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.chip3d { font-size: 12px; padding: 3px 10px; border-radius: 999px; white-space: nowrap; }
+.chip3d { font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-full); white-space: nowrap; }
 .chip3d.on { color: var(--cpq-color-success); background: var(--cpq-overlay-success15); }
 .chip3d.off { color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); }
 @media (max-width: 768px) {
@@ -385,7 +385,7 @@ onMounted(load)
 .render-preview {
   position: absolute;
   inset: 0;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   overflow: hidden;
   background: var(--cpq-overlay-b20);
   border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.08));
@@ -399,7 +399,7 @@ onMounted(load)
   width: 260px;
   max-height: calc(100% - 24px);
   overflow-y: auto;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w85, rgba(255, 255, 255, 0.85));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);

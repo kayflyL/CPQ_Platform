@@ -537,7 +537,7 @@ onMounted(() => {
 .roster-total { font-size: 11.5px; color: var(--cpq-text-muted); }
 .roster-stuck {
   margin-left: auto; border: 1px solid var(--cpq-notif-red-bg); background: var(--cpq-notif-red-bg);
-  color: var(--cpq-accent-danger); border-radius: 999px; padding: 2px 10px; font-size: 11.5px; font-weight: 600;
+  color: var(--cpq-accent-danger); border-radius: var(--cpq-radius-full); padding: 2px 10px; font-size: 11.5px; font-weight: 600;
   cursor: pointer; transition: filter var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .roster-stuck:hover { filter: brightness(0.96); }
@@ -551,7 +551,7 @@ onMounted(() => {
 }
 .hc-avatar.ghost { background: var(--cpq-warn-surface); color: var(--cpq-notif-amber); }
 .hc-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.hc-count { margin-left: auto; flex: none; font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-radius: 999px; padding: 2px 9px; font-weight: 600; }
+.hc-count { margin-left: auto; flex: none; font-size: 11px; color: var(--cpq-accent-primary); background: var(--cpq-overlay-a10); border-radius: var(--cpq-radius-full); padding: 2px 9px; font-weight: 600; }
 .hc-count.zero { color: var(--cpq-text-muted); background: var(--cpq-overlay-w8); }
 /* 卡级「移除」：常驻弱文本，悬停转危险色 */
 .hc-remove {
@@ -562,7 +562,7 @@ onMounted(() => {
 .hc-remove:hover { color: var(--cpq-accent-danger); }
 .hc-rules { display: flex; flex-wrap: wrap; gap: 6px; min-height: 22px; }
 .biz-chip {
-  display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px 2px 9px; border-radius: var(--cpq-radius-full);
   font-size: 11.5px; color: var(--cpq-text-primary); background: var(--cpq-overlay-w8); border: 1px solid var(--cpq-overlay-w10);
   max-width: 100%; overflow: hidden;
 }
@@ -576,7 +576,7 @@ onMounted(() => {
 .add-form-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .chip-add {
   border: 1px dashed var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-muted);
-  border-radius: 999px; padding: 2px 10px; font-size: 11.5px; cursor: pointer;
+  border-radius: var(--cpq-radius-full); padding: 2px 10px; font-size: 11.5px; cursor: pointer;
   transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), color var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .chip-add:hover, .chip-add.active { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
@@ -624,7 +624,7 @@ onMounted(() => {
 .sr-days { margin-left: auto; flex: none; font-size: 11px; color: var(--cpq-text-secondary); white-space: nowrap; }
 .sr-days.hot { color: var(--cpq-accent-danger); font-weight: 700; }
 .sc-meta { display: flex; align-items: center; gap: 8px; margin: 7px 0; min-width: 0; }
-.pill { padding: 2px 8px; border-radius: 999px; background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); font-size: 11.5px; white-space: nowrap; }
+.pill { padding: 2px 8px; border-radius: var(--cpq-radius-full); background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); font-size: 11.5px; white-space: nowrap; }
 .sc-suggest { font-size: 11px; color: var(--cpq-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .sc-ops { display: flex; gap: 8px; }
 .sc-ops select { flex: 1; min-width: 0; padding: 5px 8px; border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-glass-border-strong); background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); font-size: 12.5px; }
@@ -648,7 +648,7 @@ onMounted(() => {
 .q-link { color: var(--cpq-text-primary); font-weight: 600; cursor: pointer; text-decoration: none; }
 .q-link:hover { color: var(--cpq-accent-primary); }
 .q-hot { color: var(--cpq-accent-danger); font-weight: 700; }
-.q-pill { padding: 2px 10px; border-radius: 999px; font-size: 11px; white-space: nowrap; }
+.q-pill { padding: 2px 10px; border-radius: var(--cpq-radius-full); font-size: 11px; white-space: nowrap; }
 .q-pill.pending { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
 .q-pill.approved { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
 .q-pill.rejected { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }

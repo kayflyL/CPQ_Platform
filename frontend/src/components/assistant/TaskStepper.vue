@@ -43,6 +43,15 @@ const doneCount = computed(() => displaySteps.value.filter((s) => s.status === '
 const totalCount = computed(() => displaySteps.value.length)
 const currentStep = computed(() => displaySteps.value.find((s) => s.status === 'running'))
 const state = computed(() => props.phase || (currentStep.value ? 'running' : 'done'))
+// 计数口径（2026-10-18）：running 时显示「当前步序号」（与右侧步骤名同口径——做第 2 步
+// 就显示 2/3，不再用已完成数 1/3 造成"总是慢一步"的观感）；paused/done 冻结为已完成数。
+const displayCount = computed(() => {
+  if (state.value === 'running' && currentStep.value) {
+    const i = displaySteps.value.indexOf(currentStep.value)
+    if (i >= 0) return i + 1
+  }
+  return doneCount.value
+})
 
 /** 原因码 → 界面文案（UI 层本地映射，不复制后端任何话术；未登记的码回退到 kind） */
 const REASON_LABEL: Record<string, string> = {
@@ -126,7 +135,7 @@ function fmtElapsed(ms: number) {
         <span v-else class="ts-check">✓</span>
       </span>
       <span class="ts-title">{{ title || '配置任务' }}</span>
-      <span class="ts-count">{{ doneCount }}/{{ totalCount }}</span>
+      <span class="ts-count">{{ displayCount }}/{{ totalCount }}</span>
       <span v-if="elapsedMs > 0" class="ts-elapsed">{{ fmtElapsed(elapsedMs) }}</span>
       <span class="ts-headline">{{ headline }}</span>
       <span class="ts-caret" :class="{ 'is-open': open }">▾</span>
@@ -162,7 +171,7 @@ function fmtElapsed(ms: number) {
   gap: 8px;
   max-width: 100%;
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
   background: var(--cpq-overlay-w06, rgba(255, 255, 255, .06));
   backdrop-filter: blur(8px);
@@ -185,14 +194,14 @@ function fmtElapsed(ms: number) {
 .ts-pause {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
   background: currentColor;
 }
 .ts-check { color: #16a34a; }
 .ts-title { color: var(--cpq-text-primary, inherit); font-weight: 600; white-space: nowrap; }
 .ts-count {
   padding: 0 6px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w10, rgba(255, 255, 255, .1));
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -223,7 +232,7 @@ function fmtElapsed(ms: number) {
   max-height: 260px;
   overflow-y: auto;
   padding: 8px;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
   background: var(--cpq-overlay-w10, rgba(22, 26, 32, .92));
   backdrop-filter: blur(12px);
@@ -235,13 +244,16 @@ function fmtElapsed(ms: number) {
   align-items: center;
   gap: 8px;
   padding: 5px 8px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 12px;
   color: var(--cpq-text-secondary, #a6adb4);
 }
 .ts-step-icon { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
 .ts-step--done { color: #4ade80; }
 .ts-step--done .ts-step-icon { background: currentColor; border-color: currentColor; }
+.ts-step--skipped { color: #9ca3af; opacity: .72; }
+.ts-step--skipped .ts-step-icon { border-style: dashed; }
+.ts-step--skipped .ts-step-label { text-decoration: line-through; text-decoration-color: #9ca3af88; }
 .ts-step--running { color: var(--cpq-accent-primary, #1677ff); }
 .ts-step--running .ts-step-icon { animation: ts-pulse 1s ease-in-out infinite; }
 .ts-step--running .ts-step-label { font-weight: 600; }

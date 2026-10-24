@@ -156,7 +156,7 @@ function fmt(n: number | null | undefined) {
   color: var(--cpq-accent-warning, #faad14);
   background: var(--cpq-overlay-w6);
   border: 1px solid var(--cpq-overlay-w15, var(--cpq-overlay-w10));
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
 }
 .pc-warn.info {
   color: var(--cpq-accent-info, #3b82f6);

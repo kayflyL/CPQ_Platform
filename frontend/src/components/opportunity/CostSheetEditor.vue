@@ -315,7 +315,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   gap: 4px;
   min-width: 96px;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--sheet-line-strong);
   background: var(--sheet-panel);
   color: var(--cpq-text-secondary);
@@ -340,7 +340,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   margin-bottom: 14px;
   padding: 12px;
   border: 1px solid var(--sheet-line-strong);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-panel);
   box-shadow: var(--sheet-shadow);
 }
@@ -367,7 +367,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   overflow-x: auto;
   width: 100%;
   border: 1px solid var(--sheet-line-strong);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-surface);
   box-shadow: var(--sheet-shadow);
 }
@@ -603,7 +603,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   width: 100%;
   padding: 7px 8px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-secondary);
   text-align: left;
   cursor: pointer;
@@ -674,7 +674,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   width: 100%;
   margin-top: 4px;
   padding: 12px 16px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-panel);
   border: 1px solid var(--sheet-line-strong);
   box-shadow: var(--sheet-shadow);
@@ -704,6 +704,19 @@ defineExpose({ saveDraft, submit, getConfigs })
   }
   .fs-grid-desc {
     grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 768px) {
+  /* 明细网格窄屏横向滑动；分组列取消左吸（sticky 会盖住相邻列首字符，视觉像色块盖数据） */
+  .sheet-table {
+    min-width: 620px;
+  }
+  .sheet-group {
+    position: static;
+  }
+  .sheet-row-del {
+    opacity: 1;
   }
 }
 </style>

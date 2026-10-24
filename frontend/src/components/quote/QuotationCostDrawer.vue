@@ -315,7 +315,7 @@ function close() {
   background: var(--cpq-glass-bg, rgba(255,255,255,0.6));
   backdrop-filter: blur(12px);
   border: 1px solid var(--cpq-glass-border, rgba(255,255,255,0.5));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   box-shadow: 0 1px 3px var(--cpq-shadow-color, rgba(0,0,0,0.06));
 }
 

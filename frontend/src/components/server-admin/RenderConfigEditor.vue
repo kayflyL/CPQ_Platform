@@ -149,7 +149,7 @@ const toneMappingOptions = [
 
 .config-group {
   border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 12px;
 }
 

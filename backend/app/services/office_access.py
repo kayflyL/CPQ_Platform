@@ -118,6 +118,10 @@ def _room_access_role_keys(user: Optional[dict], config: Dict[str, Any], policy:
 
 def allowed_office_role_keys(user: Optional[dict]) -> Optional[List[str]]:
     """Return allowed role_keys, or None when the user can see all roles."""
+    # AUTH 灰度关闭 = 匿名全放行(与页面 can() 同语义),名册/聊天/可见性统一走这里
+    import os
+    if os.getenv("AUTH_ENABLED", "true").lower() != "true":
+        return None
     if not user:
         return []
     if (user.get("role") or "") == "admin":

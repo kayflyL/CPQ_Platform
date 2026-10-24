@@ -186,7 +186,7 @@ def _handoff_hint(colleague: Optional[dict]) -> str:
     """私聊转接建议提示（2026-08-30 定调：系统转接只发生在团队群；私聊由角色口头提议）。
 
     名册=DB 业务数据（colleague_roster_digest，与转接判官共用单源）；转接不在这里下规则——
-    该怎么转由各员工自身的提示词（Manage Teams · 员工）承担。
+    该怎么转由各员工自身的提示词（Manage Teams · 同事）承担。
     """
     from app.services.ai_colleague_service import colleague_roster_digest
     self_key = str((colleague or {}).get("role_key") or "").strip()

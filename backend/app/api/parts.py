@@ -6,9 +6,15 @@ from typing import Optional
 import pandas as pd
 import io
 from app.repository.parts_master_repo import PartsMasterRepository
-from app.api.deps import get_current_user, require_perms
+from app.api.deps import get_current_user, require_perms, field_visible
+from app.utils.price_mask import mask_part_price_fields
 
 # 默认登录门槛；分类树/料号写操作收「配件」页权限。
+# 价格双键同 admin.py：field.parts.price 看库价（无键遮罩 unit_price），
+# action.parts.price.manage 写价（含导入/导出单价列）。
+_PRICE_VIEW = "field.parts.price"
+_PRICE_MANAGE = "action.parts.price.manage"
+
 router = APIRouter(prefix="/api/parts", tags=["parts"],
                    dependencies=[Depends(get_current_user)])
 
@@ -23,6 +29,7 @@ def list_parts(
     page_size: int = 50,
     sort_by: Optional[str] = None,   # name / unit_price
     sort_order: Optional[str] = None, # asc / desc
+    user: dict = Depends(get_current_user),
 ):
     """分页查询料号列表。page 从 1 开始。"""
     repo = PartsMasterRepository()
@@ -32,10 +39,13 @@ def list_parts(
             p for p in all_parts
             if chassis in (p.get("specs") or {}).get("chassis", [])
         ]
-    # 排序
-    if sort_by in ("name", "unit_price"):
+    price_ok = field_visible(user, _PRICE_VIEW)
+    # 排序（无价角色禁价格排序——顺序本身也是价格信息）
+    if sort_by in ("name", "unit_price") and (price_ok or sort_by == "name"):
         reverse = sort_order == "desc"
         all_parts.sort(key=lambda p: (p.get(sort_by) or "" if sort_by == "name" else p.get(sort_by) or 0), reverse=reverse)
+    if not price_ok:
+        all_parts = mask_part_price_fields(all_parts)
     total = len(all_parts)
     start = (page - 1) * page_size
     end = start + page_size
@@ -102,7 +112,7 @@ def get_spec_values(category: str, spec_key: str):
     return {"values": PartsMasterRepository().spec_values(category, spec_key)}
 
 
-@router.get("/export")
+@router.get("/export", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def export_parts():
     """导出料号库为 Excel。"""
     repo = PartsMasterRepository()
@@ -166,7 +176,7 @@ def download_import_template():
     )
 
 
-@router.post("/import", dependencies=[Depends(require_perms("page.parts"))])
+@router.post("/import", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 async def import_parts(file: UploadFile = File(...), dry_run: bool = True):
     """批量导入料号。dry_run=True 只预览不写入。返回 {preview, summary}。"""
     repo = PartsMasterRepository()
@@ -254,15 +264,19 @@ async def import_parts(file: UploadFile = File(...), dry_run: bool = True):
 
 
 @router.get("/{pn}")
-def get_part(pn: str):
+def get_part(pn: str, user: dict = Depends(get_current_user)):
     p = PartsMasterRepository().get(pn)
     if not p:
         raise HTTPException(404, "料号不存在")
+    if not field_visible(user, _PRICE_VIEW):
+        p = mask_part_price_fields(p)
     return p
 
 
 @router.post("", dependencies=[Depends(require_perms("page.parts"))])
-def create_part(data: dict):
+def create_part(data: dict, user: dict = Depends(get_current_user)):
+    if not field_visible(user, _PRICE_MANAGE):
+        data.pop("unit_price", None)  # 无维护键的调用方只录档案不带价
     try:
         return {"pn": PartsMasterRepository().insert(data)}
     except ValueError as e:
@@ -270,7 +284,9 @@ def create_part(data: dict):
 
 
 @router.put("/{pn}", dependencies=[Depends(require_perms("page.parts"))])
-def update_part(pn: str, updates: dict):
+def update_part(pn: str, updates: dict, user: dict = Depends(get_current_user)):
+    if not field_visible(user, _PRICE_MANAGE):
+        updates.pop("unit_price", None)
     PartsMasterRepository().update(pn, updates)
     return {"ok": True}
 

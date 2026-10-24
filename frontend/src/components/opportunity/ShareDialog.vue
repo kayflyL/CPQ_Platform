@@ -13,6 +13,8 @@ import { fetchAuthedBlob } from '@/utils/fileDownload'
 import { downloadBlob } from '@/utils/download'
 import UniverSheet from '@/components/UniverSheet.vue'
 import OutboundApprovalModal from '@/components/quotation/OutboundApprovalModal.vue'
+import { MODAL_BODY_MAX_HEIGHT_WITH_FOOTER } from '@/constants/modalPresets'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
 
 const props = withDefaults(defineProps<{
   open: boolean
@@ -187,10 +189,13 @@ function retryAfterApproval() {
 </script>
 
 <template>
-  <a-modal
+  <ResponsiveModal
     :open="open"
     :title="`分享 · ${title || sourceType}`"
-    :width="`min(960px, 96vw)`"
+    tier="sheet"
+    centered
+    wrap-class-name="portal-sheet-modal"
+    :body-style="{ maxHeight: MODAL_BODY_MAX_HEIGHT_WITH_FOOTER, overflowY: 'auto' }"
     @cancel="emit('update:open', false)"
   >
     <div class="sd-body">
@@ -275,14 +280,14 @@ function retryAfterApproval() {
       :quotation-label="title"
       @submitted="retryAfterApproval"
     />
-  </a-modal>
+  </ResponsiveModal>
 </template>
 
 <style scoped>
 .sd-body { display: flex; flex-direction: column; gap: 12px; padding-top: 4px; }
 .sd-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12.5px; }
 .sd-row .k { width: 44px; flex-shrink: 0; color: var(--cpq-text-muted); }
-.seg { display: inline-flex; border: 1px solid var(--cpq-border-light, rgba(255,255,255,0.15)); border-radius: 8px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--cpq-border-light, rgba(255,255,255,0.15)); border-radius: var(--cpq-radius-sm); overflow: hidden; }
 .seg span { padding: 3px 12px; cursor: pointer; color: var(--cpq-text-secondary); }
 .seg span.on { background: var(--cpq-overlay-a10, rgba(22,119,255,0.10)); color: var(--cpq-accent-primary-light, #4096ff); font-weight: 600; }
 .seg span.off { color: var(--cpq-text-muted); cursor: not-allowed; }
@@ -290,12 +295,12 @@ function retryAfterApproval() {
   height: 56vh;
   min-height: 420px;
   border: 1px solid var(--cpq-border-primary, rgba(255,255,255,0.10));
-  border-radius: 10px; overflow: hidden; position: relative; background: #fff;
+  border-radius: var(--cpq-radius-md); overflow: hidden; position: relative; background: #fff;
 }
 .sd-univer { height: 100%; }
 .sd-spin { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); }
 .sd-view-warn {
-  padding: 2px 10px; border-radius: 999px; font-size: 11px;
+  padding: 2px 10px; border-radius: var(--cpq-radius-full); font-size: 11px;
   background: var(--cpq-notif-amber-bg, rgba(250, 173, 20, 0.18));
   color: var(--cpq-notif-amber, #F4D28A); white-space: nowrap;
 }
@@ -303,7 +308,7 @@ function retryAfterApproval() {
   display: flex; align-items: center; gap: 8px;
   background: var(--cpq-overlay-a8, rgba(22,119,255,0.08));
   border: 1px solid var(--cpq-overlay-a20, rgba(22,119,255,0.20));
-  border-radius: 8px; padding: 6px 10px;
+  border-radius: var(--cpq-radius-sm); padding: 6px 10px;
 }
 .sd-link .url {
   flex: 1; min-width: 0; font-family: Consolas, monospace; font-size: 11.5px;

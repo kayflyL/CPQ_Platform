@@ -353,6 +353,9 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
       />
     </section>
 
+    <!-- 需求原文与配置之间的扩展插槽：商机详情页用于嵌需求附件条 -->
+    <slot name="after-req-text" />
+
     <section class="rf-sec">
       <div class="rf-config-head">
         <h4 class="rf-sec-title">配置<span class="rf-hint">每个配置独立机型/类型/数量/维保年限/部件清单</span></h4>
@@ -528,6 +531,10 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   font-weight: 400;
   color: var(--cpq-text-muted);
 }
+/* 需求原文多行框：antd 默认内边距 4px 11px，首行文字几乎贴着框顶（深色底下尤显），统一放宽 */
+.req-form :deep(textarea.ant-input) {
+  padding: 8px 12px;
+}
 .rf-config-head {
   display: flex;
   align-items: center;
@@ -547,7 +554,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   border: 1px dashed var(--cpq-accent-primary);
   color: var(--cpq-accent-primary);
   background: transparent;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 4px 10px;
   font-size: 12px;
   cursor: pointer;
@@ -570,7 +577,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   align-items: center;
   gap: 6px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-bg-secondary);
   color: var(--cpq-text-secondary);
   padding: 5px 12px;
@@ -626,7 +633,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   overflow-x: auto;
   width: 100%;
   border: 1px solid var(--sheet-line-strong);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--sheet-surface);
   box-shadow: var(--sheet-shadow);
 }
@@ -708,5 +715,26 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   display: flex;
   gap: 8px;
   margin-top: 10px;
+}
+
+@media (max-width: 768px) {
+  /* 全屏弹窗内：配置头（标题+关系切换+加配置）允许换行，字段单列 */
+  .rf-config-head {
+    flex-wrap: wrap;
+  }
+  .rf-config-head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .rf-config-head-actions .ant-radio-button-wrapper {
+    white-space: nowrap;
+  }
+  .rf-config-grid {
+    grid-template-columns: 1fr;
+  }
+  /* 部件清单网格横向滑动（分组列 sticky 左吸） */
+  .sheet-table {
+    min-width: 620px;
+  }
 }
 </style>

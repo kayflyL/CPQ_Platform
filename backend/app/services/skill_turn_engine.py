@@ -207,6 +207,8 @@ class _SkillTurnRuntime:
         self._stuck: dict = {"hint": ""}
         self._brain_steps: list = []
         self._drift_reported: set = set()
+        # 数据范围跟随（mode=auto 专用）：回合开始解析一次，契约/终检/渲染共用同一窗口
+        self._data_range_override: dict | None = None
 
     def _prepare(self) -> None:
         """引擎容器装配 + 跨轮状态恢复 + 工具上下文注入 + 大脑上下文三件套。"""
@@ -233,6 +235,9 @@ class _SkillTurnRuntime:
             "thread_id": self.thread_id,
             "node_state": _node_state,
             "steps_done": set(_resume_steps or _mem_steps),
+            # mode=auto 跟随用户输入的数据范围（None=未表达，维持按数据实际边界）；
+            # 终检 _data_answer_gate 与 document_target 渲染同吃这一份
+            "data_range_override": self._data_range_override,
             # 工作记忆跨轮承接：上一回合的工具轨迹本回合仍要可见（截 3 条，与 _note 同一窗口）。
             # 不承接的话 engine 每轮重建 → mem.brain_notes 只剩「本回合」一条，检索轨迹每轮归零。
             "brain_notes": list(self.mem.get("brain_notes") or [])[-3:],
@@ -276,7 +281,7 @@ class _SkillTurnRuntime:
 
         # 大脑上下文三件套（无转译层）：persona + 公开协议 + 节点结构化清单（system）；
         # 客户任务规则原文 + 登记表 + 工作记忆（user 尾）。没有任何代码加工的业务文本。
-        steps = steps_payload(flow)
+        steps = steps_payload(flow, data_range=self._data_range_override)
         manual_rules = ""
         for nd in (flow.get("graph") or {}).get("nodes") or []:
             if isinstance(nd, dict) and nd.get("manual_rules"):
@@ -447,7 +452,7 @@ class _SkillTurnRuntime:
             return
         try:
             from app.services.skill_plan_runtime import skill_steps_view, _trace
-            # 顺序与执行序同源：传 flow → 画布 graph 拓扑序（无 graph 老流回退 PHASE_TABLE）
+            # 顺序与执行序同源：画布 graph 拓扑序（无 flow/graph 返回空，不回退需求分析节点表）
             steps_meta = skill_steps_view(self.flow_configs, flow=self.flow)
             flow_title = str((self.flow or {}).get("name") or (self.flow or {}).get("title") or "配置任务")
             await self.event_sink({"type": "pipeline_start", "title": flow_title, "steps": steps_meta})
@@ -880,6 +885,11 @@ class _SkillTurnRuntime:
                 if _doc_art is not None:
                     break
             _render = (out_cfg.get("render") if isinstance(out_cfg.get("render"), dict) else None)
+            # mode=auto 跟随用户输入：窗口回填进文档卡再组装——封面 period_label 与
+            # 图表 days 本就从 data_range 确定性计算，回填后自动跟随（渲染侧零改动）
+            _ovr = engine.get("data_range_override")
+            if isinstance(_ovr, dict) and isinstance(_doc_art, dict):
+                _doc_art = {**_doc_art, "data_range": _ovr}
             if _render is not None:
                 _shell = {"kind": "document",
                           "name": str(out_cfg.get("name") or (_doc_art or {}).get("name") or "输出文档")}
@@ -900,7 +910,12 @@ class _SkillTurnRuntime:
                                                                             flow=self.flow)
                                     if s.get("step") == "output"), "output")
                     # 交付节点同样按插头打包产物（bom_scheme）：画布上「输出」节点下也要有输出物
-                    _out_payload = _node_done_payload(engine, "output", out_lab, "")
+                    _op = engine.get("output_payload") if isinstance(engine.get("output_payload"), dict) else {}
+                    _ans = str(_op.get("answer") or "").strip()
+                    # data_answer 交付口零产物契约（设计如此，finalize_output 注释）：摘要从交付
+                    # 回执取事实，别落进 done_summary 的「本节点未注册产物」裸兜底（同 input 先例）
+                    _out_payload = _node_done_payload(engine, "output", out_lab,
+                                                      (f"已交付 · {len(_ans)} 字" if _ans else ""))
                     _out_payload["thread_id"] = self.thread_id
                     await self.event_sink(_out_payload)
                 except Exception:
@@ -943,6 +958,13 @@ class _SkillTurnRuntime:
 
     async def run(self) -> dict:
         """回合主干：装配 → 预置画布 → 逐步推进（每步自动 begin/校验/闸门）→ 终检交付。"""
+        # 数据范围跟随先于装配：契约（steps_payload）在 _prepare 里就要吃这个窗口
+        if self._data_range_override is None:
+            try:
+                from app.services.data_range_follow import extract_report_data_range
+                self._data_range_override = await extract_report_data_range(self.flow, self.full_text)
+            except Exception:
+                logger.exception("数据范围跟随解析失败（按配置/auto 口径继续）")
         self._prepare()
         await self._emit_pipeline_start()
         engine = self.engine

@@ -8,6 +8,7 @@ run_ai_skill_plan 读 active flow 的 config 驱动执行；DB 异常或无 acti
 """
 from typing import Optional
 from sqlalchemy import Integer, String, Text, Boolean
+from sqlalchemy import JSON as SA_JSON
 from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
@@ -23,6 +24,9 @@ class ReasoningFlow(Base):
     version: Mapped[int] = mapped_column(Integer, default=1)
     status: Mapped[str] = mapped_column(String(20), default="draft", index=True)  # draft/active
     graph: Mapped[str] = mapped_column(Text, nullable=False)  # JSON {nodes:[{key,label}], edges:[{from,to}]}
+    # 启动表单 schema（独立列）：画布保存物理碰不到它——graph 是多写者文档，
+    # 寄存其中会被不认识该键的写者剥掉（两度实测）。读取以本列为准。
+    launch_form: Mapped[Optional[dict]] = mapped_column(SA_JSON, default=None)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
     description: Mapped[Optional[str]] = mapped_column(Text, default=None)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -36,6 +40,7 @@ class ReasoningFlow(Base):
             "id": self.id, "name": self.name, "skill_key": self.skill_key, "version": self.version,
             "status": self.status,
             "graph": json.loads(self.graph) if self.graph else {"nodes": [], "edges": []},
+            "launch_form": self.launch_form,
             "is_active": self.is_active, "description": self.description,
             "created_at": self.created_at, "updated_at": self.updated_at,
             "created_by": self.created_by, "updated_by": self.updated_by,

@@ -152,7 +152,7 @@ const kpRows = computed(() => {
   color: var(--cpq-accent-primary, #1677FF);
   background: var(--cpq-overlay-a8);
   border: 1px solid var(--cpq-overlay-a20);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
 }
 .bom-section {
   background: transparent;
@@ -187,7 +187,7 @@ const kpRows = computed(() => {
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a10);
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .bom-table {

@@ -79,7 +79,7 @@ watch(adminTab, () => {
 .rail-brand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .18em; color: var(--cpq-text-muted); padding: 0 10px 16px; }
 .rail-item {
   display: flex; align-items: center; width: 100%; padding: 8px 10px; margin-bottom: 2px;
-  border: none; border-radius: 8px; background: none; color: var(--cpq-text-secondary);
+  border: none; border-radius: var(--cpq-radius-sm); background: none; color: var(--cpq-text-secondary);
   font-size: 13.5px; text-align: left; cursor: pointer;
   transition: background 0.15s, color 0.15s;
 }

@@ -1,5 +1,13 @@
 <template>
-  <a-modal :open="open" :title="title" :footer="null" :width="420" @cancel="emit('cancel')">
+  <a-modal
+    :open="open"
+    :title="title"
+    :footer="null"
+    centered
+    :width="MODAL_WIDTH.action"
+    wrap-class-name="portal-sheet-modal"
+    @cancel="emit('cancel')"
+  >
     <a-select :value="value" placeholder="请选择处理人" style="width: 100%" @change="emit('update:value', $event)">
       <a-select-option v-for="name in options" :key="name" :value="name">{{ name }}</a-select-option>
     </a-select>
@@ -12,6 +20,8 @@
 </template>
 
 <script setup lang="ts">
+import { MODAL_WIDTH } from '@/constants/modalPresets'
+
 defineProps<{ open: boolean; title: string; options: string[]; value: string }>()
 const emit = defineEmits<{ (e: 'confirm'): void; (e: 'cancel'): void; (e: 'update:value', v: string): void }>()
 </script>

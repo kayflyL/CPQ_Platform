@@ -145,20 +145,20 @@ async function submit() {
   font-family: Consolas, monospace;
   font-size: 12px;
   background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.06));
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 1px 6px;
 }
 .oam-warn {
   background: var(--cpq-warn-surface, rgba(250, 173, 20, 0.10));
   border: 1px solid var(--cpq-warn-border, rgba(250, 173, 20, 0.30));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 8px 12px;
   color: var(--cpq-notif-amber, #F4D28A);
   line-height: 1.6;
 }
 .oam-ok {
   background: var(--cpq-notif-green-bg, rgba(82, 201, 160, 0.18));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 8px 12px;
   color: var(--cpq-notif-green, #52C9A0);
   line-height: 1.6;
@@ -166,7 +166,7 @@ async function submit() {
 .oam-route {
   background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.08));
   border: 1px solid var(--cpq-overlay-a20, rgba(22, 119, 255, 0.20));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 8px 12px;
   line-height: 1.6;
 }

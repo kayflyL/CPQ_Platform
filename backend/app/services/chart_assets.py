@@ -326,9 +326,15 @@ def _fetch_chassis_dist(days: int = 56) -> dict:
     return {"items": items, "total": sum(c["value"] for c in items)}
 
 
-def _fetch_sales_rank(top_n: int = 5) -> dict:
-    """业务排行（横条）：按销售商机数 Top N + 其他人聚合（口径=驾驶舱 sales_rank）。"""
+def _fetch_sales_rank(top_n: int = 5, days: int | None = None) -> dict:
+    """业务排行（横条）：按销售商机数 Top N + 其他人聚合（口径=驾驶舱 sales_rank）。
+
+    days 留空 = 全时段（驾驶舱页口径不变）；报告模板跟随报告数据范围时由运行时注入 days。
+    """
     from sqlalchemy import case
+    conds = list(_ACTIVE_CONDS)
+    if days:
+        conds.append(Opportunity.created_at >= (date.today() - timedelta(days=int(days))).isoformat())
     session = Opportunity_SessionLocal()
     try:
         rows = (
@@ -337,7 +343,7 @@ def _fetch_sales_rank(top_n: int = 5) -> dict:
                 func.count(Opportunity.opportunity_id).label("cnt"),
                 func.sum(case((Opportunity.result == "won", 1), else_=0)).label("won"),
             )
-            .filter(*_ACTIVE_CONDS)
+            .filter(*conds)
             .group_by(Opportunity.sales_person)
             .order_by(func.count(Opportunity.opportunity_id).desc())
             .all()
@@ -661,7 +667,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "近 8 周按天新增柱状 + 分平台折线（Orion/Polaris/Intel…）",
-        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 366, "step": 1, "unit": "天"}],
         "fetch": _fetch_trend,
         "option": _build_trend_option,
     },
@@ -671,7 +677,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "平台占比环形图，中心显示总商机数",
-        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 366, "step": 1, "unit": "天"}],
         "fetch": _fetch_dist,
         "option": _build_dist_option,
     },
@@ -709,7 +715,7 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "商机按机箱形态占比的玫瑰图（多值拆分计数）",
-        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 180, "step": 1, "unit": "天"}],
+        "params": [{"key": "days", "label": "统计天数（留空=跟随报告数据范围）", "default": 56, "min": 7, "max": 366, "step": 1, "unit": "天"}],
         "fetch": _fetch_chassis_dist,
         "option": _build_chassis_dist_option,
     },
@@ -719,7 +725,8 @@ _ASSET_DEFS: dict = {
         "kind": "chart",
         "source_page": "商机线索页",
         "desc": "按销售的商机数 Top5 横条 + 其他人聚合",
-        "params": [{"key": "top_n", "label": "上榜人数", "default": 5, "min": 1, "max": 15, "step": 1, "unit": "人"}],
+        "params": [{"key": "top_n", "label": "上榜人数", "default": 5, "min": 1, "max": 15, "step": 1, "unit": "人"},
+                   {"key": "days", "label": "统计天数（留空=全时段）", "min": 7, "max": 366, "step": 1, "unit": "天"}],
         "fetch": _fetch_sales_rank,
         "option": _build_sales_rank_option,
     },

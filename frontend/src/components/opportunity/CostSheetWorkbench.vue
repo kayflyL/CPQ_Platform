@@ -12,6 +12,8 @@ import { kpPartsApi, baseConfigApi, type KpPart, type BaseConfigCost } from '@/a
 import { systemConfigApi } from '@/api/systemConfig'
 import { calcUnitCost } from '@/utils/quoteCommon'
 import { matchKpPart } from '@/utils/partNameMatch'
+import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
 
 const props = defineProps<{
   board: PortalBoard
@@ -432,10 +434,10 @@ function returnSheet(sheet: CostSheet) {
           <span class="rt-strong">待核价 · {{ bom.name }}</span>
           <span class="rt-sub">来自方案配置</span>
         </td>
-        <td class="rt-dim">BOM-{{ bom.id }}</td>
-        <td><span class="rt-badge rt-badge-current">待核价</span></td>
-        <td>{{ bom.configs?.length || 0 }} 个配置页签</td>
-        <td class="rt-dim">{{ bom.created_by || '—' }} · {{ (bom.updated_at || bom.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-dim" data-label="编号">BOM-{{ bom.id }}</td>
+        <td data-label="状态"><span class="rt-badge rt-badge-current">待核价</span></td>
+        <td data-label="配置">{{ bom.configs?.length || 0 }} 个配置页签</td>
+        <td class="rt-dim" data-label="创建人 / 时间">{{ bom.created_by || '—' }} · {{ (bom.updated_at || bom.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable" class="rt-actions">
             <span class="rt-link" @click.stop="openCostForBom(bom)">
@@ -451,14 +453,14 @@ function returnSheet(sheet: CostSheet) {
         @click="openSheet(sheet)"
       >
         <td><span class="rt-strong">{{ sheet.name }}</span></td>
-        <td class="rt-dim">COST-{{ sheet.id }}</td>
-        <td>
+        <td class="rt-dim" data-label="编号">COST-{{ sheet.id }}</td>
+        <td data-label="状态">
           <span class="rt-badge"
             :class="sheet.status === 'current' ? 'rt-badge-current' : sheet.status === 'draft' ? 'rt-badge-draft' : 'rt-badge-done'"
           >{{ statusLabel(sheet.status) }}</span>
         </td>
-        <td>{{ sheetMeta(sheet) }}</td>
-        <td class="rt-dim">{{ sheet.created_by || '—' }} · {{ (sheet.updated_at || sheet.created_at || '').slice(5, 16) }}</td>
+        <td data-label="配置 / 台数 / 成本">{{ sheetMeta(sheet) }}</td>
+        <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.updated_at || sheet.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable && sheet.status === 'draft'" class="rt-actions">
             <span class="rt-link" @click.stop="openSheet(sheet)">继续编辑</span>
@@ -485,14 +487,14 @@ function returnSheet(sheet: CostSheet) {
 
     </RecordTable>
 
-    <a-modal
+    <ResponsiveModal
       v-model:open="editorOpen"
       :title="editorReadonly ? '查看成本表' : '编辑成本表'"
-      width="min(1000px, 96vw)"
+      tier="sheet"
+      centered
       wrap-class-name="portal-sheet-modal"
       :footer="null"
-      :body-style="{ padding: '14px', maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', overflowX: 'hidden' }"
-      @cancel="editorOpen = false"
+      :body-style="{ padding: '14px', maxHeight: MODAL_BODY_MAX_HEIGHT, overflowY: 'auto', overflowX: 'hidden' }"
     >
       <div class="cost-editor">
         <div class="cost-name">
@@ -516,7 +518,7 @@ function returnSheet(sheet: CostSheet) {
           <a-button v-if="editorSheetStatus === 'draft'" type="primary" :loading="saving" :disabled="refreshingPrices" @click="submitSheet">提交成本表</a-button>
         </div>
       </div>
-    </a-modal>
+    </ResponsiveModal>
     <AssigneePickerModal
       v-model:value="pickerChosen"
       :open="pickerOpen"
@@ -540,59 +542,8 @@ function returnSheet(sheet: CostSheet) {
 .cost-workbench {
   overflow: hidden;
 }
-.cw-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  padding: 12px 14px;
-}
-.cw-summary {
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-}
-.cw-muted {
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-}
-.cw-footer-link {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--cpq-accent-primary);
-  cursor: pointer;
-}
 .cw-footer-link.danger {
   color: var(--cpq-color-danger, #ff4d4f);
-}
-.row-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-glass-border);
-  color: var(--cpq-text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.row-meta-item b {
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.row-meta-item.muted {
-  color: var(--cpq-text-muted);
-  background: transparent;
-  border: none;
-  padding: 0 2px;
-}
-.cw-empty {
-  grid-column: 1 / -1;
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--cpq-text-muted);
-  font-size: 13px;
-  border: 1px dashed var(--cpq-glass-border);
-  border-radius: 12px;
 }
 .cost-editor {
   display: flex;
@@ -602,12 +553,19 @@ function returnSheet(sheet: CostSheet) {
 .cost-name {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
   color: var(--cpq-text-secondary);
 }
+.cost-name > span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .cost-name .ant-input {
-  max-width: 300px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 420px;
 }
 .cost-actions {
   display: flex;

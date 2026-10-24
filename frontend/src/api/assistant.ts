@@ -60,7 +60,7 @@ export interface AssistantContext {
 /** AI 工具目录条目（注册表 agent_tool_specs + 人类展示层 agent_tool_display + DB 覆盖 agent_tool_text） */
 export interface AssistantToolInfo {
   name: string
-  category: 'selection' | 'data' | 'cost' | 'quote'
+  category: 'workflow' | 'business' | 'data' | 'self'
   /** 中文名（人类层） */
   display_name?: string
   /** 一句话（人类层） */
@@ -191,6 +191,18 @@ export const assistantApi = {
     /** LLM 调用痕迹清理：只保留最近 keepDays 天 */
     cleanupTrace: (keepDays: number) =>
       http.post('/api/assistant/admin/cleanup/trace', { keep_days: keepDays }),
+    /** AI 设置·暂存附件池（全部用户，含已随消息发送的行——发送不释放暂存坑） */
+    stagedList: () =>
+      http
+        .get<{ attachments: any[]; total_size: number }>('/api/assistant/admin/staged-attachments')
+        .then((r) => r.data),
+    /** 批量清理暂存附件（软删行 + 删盘文件，不可恢复） */
+    stagedDelete: (attachmentIds: string[]) =>
+      http
+        .post<{ deleted: number }>('/api/assistant/admin/staged-attachments/delete', {
+          attachment_ids: attachmentIds,
+        })
+        .then((r) => r.data.deleted),
     /** AI 同事审计/绩效面板（方案助手 LLM 与工具调用 trace） */
     audit: () =>
       http
@@ -243,6 +255,7 @@ export const assistantApi = {
       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
       workflowKey?: string | null,
       quote?: { name: string; text: string } | null,
+      attachmentIds?: string[] | null,
     ) =>
       http
         .post<{ user_message: AssistantMessage; thread: AssistantThread; colleague?: any }>(
@@ -263,9 +276,40 @@ export const assistantApi = {
               : null,
             workflow_key: workflowKey || null,
             quote: quote || null,
+            attachment_ids: attachmentIds && attachmentIds.length ? attachmentIds : null,
           },
         )
         .then((r) => r.data),
+    /** 问答协议：结构化回答按 query_id 回流（点选/填表），不走文本匹配 */
+    answers: {
+      create: (
+        id: string,
+        body: { query_id: string; selections?: string[]; values?: Record<string, string>; note?: string },
+      ) =>
+        http
+          .post<{ user_message: AssistantMessage; query: Record<string, any> }>(
+            `/api/assistant/threads/${id}/answers`,
+            {
+              query_id: body.query_id,
+              selections: body.selections || null,
+              values: body.values || null,
+              note: body.note || null,
+            },
+          )
+          .then((r) => r.data),
+    },
+    /** 聊天附件上传：落会话暂存（不进商机档案），发送时随 attachment_ids 引用 */
+    uploadAttachment: (id: string, file: File) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      return http
+        .post<{ attachment: { attachment_id: string; original_filename: string; file_size: number }; quota: { count: number; max_count: number; total_size: number; max_total_size: number } }>(
+          `/api/assistant/threads/${id}/attachments`,
+          fd,
+          { headers: { 'Content-Type': 'multipart/form-data' } },
+        )
+        .then((r) => r.data)
+    },
     stop: (id: string) =>
       http.post<{ status: string }>(`/api/assistant/threads/${encodeURIComponent(id)}/stop`).then((r) => r.data),
     /** 配件库自选候选：服务端按留底卡 pick_meta 生成并登记，选项与发卡同格式（含 slot/value/label） */

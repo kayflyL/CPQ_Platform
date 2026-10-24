@@ -9,7 +9,7 @@
       <a-radio-group v-model:value="editorTab" button-style="solid" size="small" class="tm-editor-tabs">
         <a-radio-button value="team">团队</a-radio-button>
         <a-radio-button value="behavior">行为</a-radio-button>
-        <a-radio-button value="character">员工</a-radio-button>
+        <a-radio-button value="character">同事</a-radio-button>
       </a-radio-group>
 
       <div class="tm-actions">
@@ -132,7 +132,7 @@
           <a-collapse-panel key="dispatch" header="智能转接">
             <div class="tm-access-card">
               <div class="tm-access-help">
-                转接判断由 AI 完成：依据每位员工名册里的职责描述与技能（员工页可编辑），自动把专业问题转给合适的同事；
+                转接判断由 AI 完成：依据每位同事名册里的职责描述与技能（同事页可编辑），自动把专业问题转给合适的同事；
                 用户点名某位同事时也会直接转给 TA，没有合适人选时由总助自己回复。
                 这里不是门户的“任务调度”，不会直接改变人类任务负责人。
               </div>
@@ -140,7 +140,7 @@
                 <span>启用智能转接</span>
                 <a-switch v-model:checked="dispatchEnabled" size="small" />
               </div>
-              <label class="tm-label">可被转派的员工</label>
+              <label class="tm-label">可被转派的同事</label>
               <div v-for="c in managedColleagues" :key="`dp-${c.role_key}`" class="tm-dispatch-rule-head">
                 <span class="tm-dispatch-name">{{ c.name || c.role_key }}</span>
                 <a-switch
@@ -271,7 +271,7 @@ const colleagueOptions = computed(() =>
 )
 const headerSaveText = computed(() => {
   if (editorTab.value === 'behavior') return '保存行为'
-  if (editorTab.value === 'character') return '保存员工'
+  if (editorTab.value === 'character') return '保存同事'
   return '保存团队'
 })
 const leadName = computed(() => {
@@ -601,7 +601,7 @@ async function handleHeaderSave() {
     } else if (editorTab.value === 'character') {
       const editor = employeeEditorRef.value
       if (!editor || typeof editor.save !== 'function') {
-        message.error('员工编辑器保存功能未就绪')
+        message.error('同事编辑器保存功能未就绪')
         return
       }
       await editor.save()
@@ -797,7 +797,7 @@ defineExpose({ save: handleHeaderSave })
   height: 36px;
   padding: 2px 6px;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-elevated, rgba(255,255,255,0.03));
   cursor: pointer;
 }
@@ -833,7 +833,7 @@ defineExpose({ save: handleHeaderSave })
   z-index: 5;
   pointer-events: none;
   padding: 6px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 11px;
   color: var(--cpq-text-muted);
   background: color-mix(in srgb, var(--cpq-bg-elevated, #101722) 82%, transparent);
@@ -847,7 +847,7 @@ defineExpose({ save: handleHeaderSave })
   gap: 10px;
   padding: 12px;
   border: 1px solid;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-bg-elevated, rgba(255,255,255,0.03));
   margin-bottom: 14px;
 }
@@ -855,7 +855,7 @@ defineExpose({ save: handleHeaderSave })
 .tm-team-color {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   flex-shrink: 0;
   box-shadow: 0 0 16px color-mix(in srgb, currentColor 45%, transparent);
 }
@@ -885,7 +885,7 @@ defineExpose({ save: handleHeaderSave })
 .tm-team-count {
   flex-shrink: 0;
   padding: 4px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 10px;
   font-weight: 800;
   color: var(--cpq-text-secondary);
@@ -929,7 +929,7 @@ defineExpose({ save: handleHeaderSave })
   align-items: center;
   gap: 8px;
   padding: 8px 9px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   font-size: 12px;
 }
 
@@ -988,7 +988,7 @@ defineExpose({ save: handleHeaderSave })
   gap: 8px;
   padding: 8px 9px;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   cursor: pointer;
   transition: border-color .18s ease, background .18s ease;
 }
@@ -1043,7 +1043,7 @@ defineExpose({ save: handleHeaderSave })
 .tm-access-collapse {
   margin-top: 14px;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
 }
 
@@ -1090,7 +1090,7 @@ defineExpose({ save: handleHeaderSave })
 }
 .tm-access-card {
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   padding: 10px;
   background: var(--cpq-bg-elevated, rgba(255,255,255,0.03));
 }
@@ -1113,7 +1113,7 @@ defineExpose({ save: handleHeaderSave })
 .tm-access-help {
   padding: 9px 10px;
   border: 1px dashed var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w3, rgba(255,255,255,0.03));
   color: var(--cpq-text-secondary);
   font-size: 12px;

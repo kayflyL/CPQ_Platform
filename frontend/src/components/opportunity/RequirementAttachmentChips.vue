@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * 需求附件徽标条（需求单弹窗内嵌，宿主=OpportunityProcessBoard 需求单 modal）。
+ * 需求附件徽标条（通过 RequirementForm 的 after-req-text 插槽嵌在需求原文与配置之间，宿主=OpportunityProcessBoard 需求单 modal）。
  * 上传/预览/删除随单完成，附件钉到需求单版本（requirement_version），提交后随版本快照留档。
  *
  * 过滤：category=lead_requirement 且（requirement_version=当前版本 或 NULL=未归版散件，降级合并显示）。
@@ -152,8 +152,7 @@ defineExpose({ uploadFiles })
 
 <style scoped>
 .rac {
-  margin-bottom: var(--cpq-space-5, 24px);
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   padding: var(--cpq-space-3, 12px) var(--cpq-space-4, 16px);
   border: 1px dashed transparent;
   transition: border-color 0.2s, background 0.2s;
@@ -186,7 +185,7 @@ defineExpose({ uploadFiles })
   gap: 6px;
   max-width: min(240px, 62vw);
   padding: 3px var(--cpq-space-2, 8px);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.04));
   border: 1px solid var(--cpq-border-light, rgba(255, 255, 255, 0.15));
   cursor: pointer;
@@ -206,7 +205,7 @@ defineExpose({ uploadFiles })
   justify-content: center;
   font-size: 8px;
   font-weight: 700;
-  border-radius: var(--cpq-space-1, 4px);
+  border-radius: var(--cpq-radius-xs);
 }
 .rac-badge.xls { background: var(--cpq-notif-green-bg, rgba(82, 201, 160, 0.18)); color: var(--cpq-notif-green, #52C9A0); }
 .rac-badge.pdf { background: var(--cpq-notif-red-bg, rgba(255, 107, 107, 0.16)); color: var(--cpq-notif-red, #FF6B6B); }

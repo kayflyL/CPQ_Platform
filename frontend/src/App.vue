@@ -31,6 +31,8 @@ const darkToken = {
   colorBorder: 'var(--cpq-overlay-w10)',
   colorBgSpotlight: '#171a21',
   colorTextLightSolid: '#E8ECEF',
+  // 控件圆角与 tokens.css --cpq-radius-sm 对齐（antd 派生 LG/XL 会略高于此，容器类已被 glass 工具类接管）
+  borderRadius: 4,
 }
 
 const lightToken = {
@@ -47,6 +49,7 @@ const lightToken = {
   colorBgSpotlight: '#ffffff',
   // 主色实心面上的文字须用白(与 --cpq-accent-on-primary 对齐)；曾误对齐 colorTextBase 导致浅色下主按钮/实心 tab 蓝底深字
   colorTextLightSolid: '#ffffff',
+  borderRadius: 4,
 }
 
 const themeConfig = computed(() => ({

@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PBR vs 三渲二 风格对比（临时验证页）</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0f16;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+    #stage { position: fixed; inset: 0; }
+    #stage canvas { display: block; }
+    .tag {
+      position: fixed;
+      top: 14px;
+      z-index: 10;
+      padding: 6px 12px;
+      border-radius: 6px;
+      background: rgba(8, 12, 20, 0.62);
+      color: #fff;
+      font-size: 13px;
+      line-height: 1.5;
+      letter-spacing: 0.02em;
+      pointer-events: none;
+      user-select: none;
+    }
+    #tag-pbr { left: 14px; }
+    #tag-toon { right: 14px; }
+    #ctrl {
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      gap: 8px;
+    }
+    #ctrl button {
+      pointer-events: auto;
+      cursor: pointer;
+      padding: 5px 14px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 6px;
+      background: rgba(8, 12, 20, 0.62);
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+    }
+    #ctrl button:hover { background: rgba(32, 42, 62, 0.78); }
+    #footnote {
+      position: fixed;
+      bottom: 10px;
+      left: 0;
+      right: 0;
+      z-index: 10;
+      text-align: center;
+      color: rgba(255, 255, 255, 0.55);
+      font-size: 12px;
+      pointer-events: none;
+      user-select: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="stage"></div>
+  <div id="tag-pbr" class="tag">PBR（现状）</div>
+  <div id="tag-toon" class="tag">三渲二（试验）</div>
+  <div id="ctrl">
+    <button id="btn-outline" type="button">描边 开</button>
+    <button id="btn-toonlight" type="button">三渲二专用光 开</button>
+    <button id="btn-rotate" type="button">暂停旋转</button>
+  </div>
+  <div id="footnote">左 PBR 右三渲二，拖动旋转同步对比；「三渲二专用光」只作用于右半（压环境光抬主光，色阶更可读）</div>
+  <script type="module" src="/src/styleTest.ts"></script>
+</body>
+</html>

@@ -125,7 +125,7 @@ function getCellTooltip(row: number, col: number): string {
   overflow: auto;
   max-height: 500px;
   border: 1px solid var(--cpq-border);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   background-color: #fff;
 }
 
@@ -183,7 +183,7 @@ function getCellTooltip(row: number, col: number): string {
   margin-top: 12px;
   padding: 8px;
   background: var(--cpq-bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .legend-item {
@@ -197,7 +197,7 @@ function getCellTooltip(row: number, col: number): string {
   display: inline-block;
   width: 16px;
   height: 16px;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .legend-color.keyword {

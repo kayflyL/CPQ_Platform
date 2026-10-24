@@ -1076,7 +1076,7 @@ defineExpose({
 .sae-toolbar > * { flex-shrink: 0; }
 .sae-toolbar :deep(.ant-space-item) { flex-shrink: 0; }
 .sae-hint { color: var(--cpq-text-secondary); font-size: 12px; white-space: nowrap; flex-shrink: 0; }
-.sae-canvas { position: relative; flex: 1; min-height: 360px; border-radius: 12px; overflow: hidden;
+.sae-canvas { position: relative; flex: 1; min-height: 360px; border-radius: var(--cpq-radius-md); overflow: hidden;
   background: rgba(0, 0, 0, 0.12); border: 1px solid var(--cpq-glass-border); }
 .sae-canvas canvas { touch-action: none; }
 .sae-nosvg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
@@ -1086,7 +1086,7 @@ defineExpose({
 .sae-svg-layer.layer-active { pointer-events: auto; z-index: 3; }
 .sae-svg-layer.layer-active :deep(svg) { cursor: default; }
 .sae-selection { position: absolute; z-index: 4; pointer-events: none; }
-.sae-sel-box { position: absolute; inset: 0; border: 1.5px dashed #52c41a; background: rgba(82, 196, 26, 0.07); border-radius: 2px; }
+.sae-sel-box { position: absolute; inset: 0; border: 1.5px dashed #52c41a; background: rgba(82, 196, 26, 0.07); border-radius: var(--cpq-radius-xs); }
 .sae-hp { position: absolute; width: 9px; height: 9px; background: #fff; border: 1.5px solid #52c41a; pointer-events: auto; z-index: 1; }
 .sae-hp[data-handle="nw"] { top: -5px; left: -5px; cursor: nwse-resize; }
 .sae-hp[data-handle="n"] { top: -5px; left: 50%; margin-left: -4.5px; cursor: ns-resize; }

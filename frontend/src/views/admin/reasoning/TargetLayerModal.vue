@@ -1,10 +1,12 @@
 <script setup lang="ts">
-/** 目标层弹窗 v5：左字段契约 · 右真实预览（TargetTwoPane 公共双栏）。
+/** 目标层弹窗 v6：左字段契约 · 右真实预览（TargetTwoPane 公共双栏）。
  * 目标层 = 节点输出给下游的字段契约 + 该契约的可视化实例：
  *  - form（agent_fill）：左 = 登记策略（字段只读 · AI 反问开关 · 候选来源 + KP 大类），右 = 需求登记表预览
  *    （RequirementForm 商机详情页同款组件，schema 同源）。字段/中文名/顺序权威 = requirement_sheet_form。
  *  - table（机型选配等）：左 = 输出字段契约（存节点配置 target.artifacts[].fields，经 save-target 持久化），
  *    右 = 该节点输出物实时预览（机箱下拉 → L6 配置表真实求值）。
+ *  - record/form·事务管道（交付链 identify/place/margin）：字段级契约行编辑（key/label/必填=反问/hint），
+ *    ask=true 的字段缺失时运行时反问——反问点是契约缺口，配置者改开关即生效（与 agent_fill 同代设计）。
  * 统一大脑：每个节点的执行者都是 AI 角色（节点 prompt 驱动），「必填」是所有节点字段的策略位。 */
 import { computed, nextTick, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
@@ -23,7 +25,7 @@ const emit = defineEmits<{ 'update:open': [boolean]; 'save-target': [any[]] }>()
 
 interface FieldRow { key: string; label: string; control: string; level: string; candidate_source: string }
 interface KpRow { name: string; required: boolean }
-const KIND_LABELS: Record<string, string> = { form: '表单', document: '文档', media: '媒体', table: '表格', sheet_section: '配置表切片' }
+const KIND_LABELS: Record<string, string> = { form: '表单', document: '文档', media: '媒体', table: '表格', sheet_section: '配置表切片', record: '记录' }
 const targetArtifacts = computed(() => props.artifact ? [props.artifact] : [])
 const loading = ref(false)
 const saving = ref(false)
@@ -300,8 +302,56 @@ function onSelectModel(name: string) {
   loadPreview(name)
 }
 
+// ── record / 事务管道字段契约（交付链 identify/place/margin）：行编辑 key/label/ask/hint ──
+// 与 table 分支同存 target.artifacts[0].fields，持久化同一条 save-target 通道；
+// ask=true = 运行时缺口检测反问该字段（内核 format_step_contract 消费同一份）。
+interface TxFieldRow { key: string; label: string; ask: boolean; hint: string }
+const txFieldRows = ref<TxFieldRow[]>([])
+const txSaving = ref(false)
+const isTxFieldKind = computed(() => ['record', 'form'].includes(String(props.artifact?.kind || ''))
+  && String(props.artifact?.schema_ref || '') !== 'requirement_slots')
+
+function seedTxFields() {
+  const existing = ((props.artifact as any)?.fields || []) as any[]
+  txFieldRows.value = existing
+    .filter((f) => f && typeof f === 'object')
+    .map((f) => ({ key: String(f.key || ''), label: String(f.label || f.key || ''), ask: !!f.ask, hint: String(f.hint || '') }))
+}
+
+function addTxField() {
+  txFieldRows.value.push({ key: '', label: '新字段', ask: false, hint: '' })
+}
+function removeTxField(i: number) {
+  txFieldRows.value.splice(i, 1)
+}
+function moveTxField(i: number, d: -1 | 1) {
+  const j = i + d
+  if (j < 0 || j >= txFieldRows.value.length) return
+  const arr = txFieldRows.value
+  ;[arr[i], arr[j]] = [arr[j], arr[i]]
+}
+
+function saveTxFields() {
+  const rows = txFieldRows.value
+  const keys = new Set<string>()
+  for (const r of rows) {
+    const k = r.key.trim()
+    if (!k || !r.label.trim()) { message.warning('每个字段都需要 key 和显示名'); return }
+    if (keys.has(k)) { message.warning(`字段 key 重复：${k}`); return }
+    keys.add(k)
+  }
+  if (!props.nodeKey) { message.info('未挂接节点，仅预览'); return }
+  txSaving.value = true
+  try {
+    emit('save-target', [{ ...(props.artifact as any), fields: rows.map((r) => ({
+      key: r.key.trim(), label: r.label.trim(), ask: r.ask, ...(r.hint.trim() ? { hint: r.hint.trim() } : {}),
+    })) }])
+  } finally {
+    txSaving.value = false
+  }
+}
+
 // ── document 分支：报告结构契约（章节可增删排序），大脑按此逐节产出 markdown ─────────
-// 章节行编辑借 BOM 模板编辑器（BomTemplateManager）的设计：拖拽手柄 + grid 表行 + 表头，拖动换行。
 import draggable from 'vuedraggable'
 interface DocSection { key: string; title: string; requires: string }
 const docName = ref('')
@@ -311,7 +361,7 @@ let docSeq = 0
 
 const CN_NUM = '一二三四五六七八九十'
 const DOC_RANGE_OPTIONS = [
-  { value: 'auto', label: '自动（按数据实际边界）' },
+  { value: 'auto', label: '自动（跟随用户输入，未指定按数据边界）' },
   { value: 'last_30', label: '近30天' },
   { value: 'last_90', label: '近90天' },
   { value: 'half_year', label: '近半年' },
@@ -384,6 +434,7 @@ function saveDocument() {
 
 watch(() => props.open, async (v) => {
   if (!v) return
+  if (props.artifact?.kind === 'form' && isTxFieldKind.value) { seedTxFields(); return }
   if (props.artifact?.kind === 'form') { await load(); await seedFormPreview(); return }
   if (props.artifact?.kind === 'document') { seedDocument(); return }
   if (props.artifact?.kind === 'table') {
@@ -394,7 +445,9 @@ watch(() => props.open, async (v) => {
       await loadMachines()
       if (machines.value.length) onSelectModel(machines.value[0])
     }
+    return
   }
+  if (isTxFieldKind.value) { seedTxFields(); return }
 })
 defineExpose({ load })
 </script>
@@ -411,8 +464,35 @@ defineExpose({ load })
         <span class="tlm-auth">统一大脑：AI 角色按各节点提示执行——「必填」是每个输出字段的策略位</span>
       </div>
 
+      <!-- record / 事务管道字段契约：key/显示名/必填(=反问)/填写指引 行编辑（与内核同一份 schema） -->
+      <div v-if="isTxFieldKind" class="tlm-tx">
+        <div class="tlm-tx-pane">
+          <h4 class="tl-sec-title">字段契约 · 本步开工前要齐的字段</h4>
+          <p class="tl-dim tl-note">必填=该字段缺失时 AI 必须反问补齐（开工前缺口检查），全齐直接办；关=AI 可从案台/对话自行推断。改动保存后下一轮生效，开工单反问与表单提示同源。</p>
+          <div class="tx-thead">
+            <span></span><span>#</span><span>字段 key</span><span>显示名</span><span>必填(反问)</span><span>填写指引（提示词内下发）</span><span></span>
+          </div>
+          <div v-for="(f, i) in txFieldRows" :key="i" class="tx-tr">
+            <span class="tx-ops">
+              <button class="tx-mv" title="上移" :disabled="i === 0" @click="moveTxField(i, -1)">↑</button>
+              <button class="tx-mv" title="下移" :disabled="i === txFieldRows.length - 1" @click="moveTxField(i, 1)">↓</button>
+            </span>
+            <span class="tx-idx">{{ i + 1 }}</span>
+            <input v-model="f.key" class="tx-in" placeholder="如 customer_name">
+            <input v-model="f.label" class="tx-in" placeholder="如 客户名称">
+            <label class="tx-chk"><input v-model="f.ask" type="checkbox">反问</label>
+            <input v-model="f.hint" class="tx-in tx-hint" placeholder="给 AI 的填写口径（可选）">
+            <button class="tx-del" title="删除字段" @click="removeTxField(i)">✕</button>
+          </div>
+          <div class="tx-add" @click="addTxField">＋ 添加字段</div>
+          <div class="tlm-foot tlm-foot-left">
+            <a-button type="primary" size="small" :loading="txSaving" :disabled="!nodeKey" @click="saveTxFields">保存字段契约</a-button>
+          </div>
+        </div>
+      </div>
+
       <!-- form：左=登记策略字段契约，右=需求登记表真实预览 -->
-      <TargetTwoPane v-if="artifact?.kind === 'form'"
+      <TargetTwoPane v-else-if="artifact?.kind === 'form'"
                      :fields="fillFields"
                      left-title="登记策略 · 输出字段"
                      left-hint="字段/顺序权威 = 商机详情页表单定义，此处只配策略"
@@ -549,6 +629,30 @@ defineExpose({ load })
 </template>
 
 <style scoped>
+.tlm-tx { display: flex; flex-direction: column; }
+.tx-thead, .tx-tr { display: grid; grid-template-columns: 48px 26px minmax(110px, .8fr) minmax(100px, .7fr) 72px minmax(180px, 1.4fr) 32px;
+  gap: 6px; align-items: center; padding: 6px 8px; }
+.tx-thead { font-size: 11px; font-weight: 600; color: var(--cpq-text-muted);
+  border-bottom: 1px solid var(--cpq-overlay-w10, rgba(128,128,128,.18)); }
+.tx-tr:hover { background: var(--cpq-overlay-w06, rgba(128,128,128,.06)); border-radius: var(--cpq-radius-sm); }
+.tx-idx { font-size: 12px; color: var(--cpq-text-muted); text-align: center; }
+.tx-in { border: 1px solid var(--cpq-glass-border, rgba(128,128,128,.2)); border-radius: var(--cpq-radius-sm);
+  padding: 3px 8px; font-size: 12px; font-family: inherit; color: var(--cpq-text-primary);
+  background: var(--cpq-bg-elevated, transparent); outline: none; width: 100%; }
+.tx-in:focus { border-color: var(--cpq-accent-primary, #1677ff); }
+.tx-hint { font-size: 11px; }
+.tx-chk { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--cpq-text-secondary); white-space: nowrap; }
+.tx-ops { display: inline-flex; gap: 2px; }
+.tx-mv { border: none; background: transparent; cursor: pointer; font-size: 11px; color: var(--cpq-text-muted);
+  width: 20px; height: 18px; padding: 0; border-radius: var(--cpq-radius-xs); }
+.tx-mv:hover { color: var(--cpq-accent-primary, #1677ff); }
+.tx-mv:disabled { opacity: .3; cursor: default; }
+.tx-del { border: none; background: transparent; cursor: pointer; font-size: 12px; color: var(--cpq-text-muted);
+  width: 24px; height: 20px; padding: 0; border-radius: var(--cpq-radius-xs); }
+.tx-del:hover { color: var(--cpq-accent-danger, #ff6b6b); }
+.tx-add { border: 1px dashed var(--cpq-overlay-w20, rgba(128,128,128,.35)); border-radius: var(--cpq-radius-sm);
+  padding: 7px; text-align: center; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; margin: 8px 0; }
+.tx-add:hover { color: var(--cpq-accent-primary, #1677ff); border-color: var(--cpq-accent-primary, #1677ff); }
 .tlm-meta { display: flex; gap: 6px; margin-bottom: 12px; align-items: center; }
 .tlm-auth { font-size: 11px; color: var(--cpq-text-muted); }
 .tl-sec { margin-bottom: 14px; }
@@ -576,16 +680,16 @@ defineExpose({ load })
   border-bottom: 1px solid var(--cpq-overlay-w10, rgba(128,128,128,.18)); }
 .tl-thead span, .tl-idx { align-self: center; }
 .tl-tbody { display: flex; flex-direction: column; }
-.tl-tr:hover { background: var(--cpq-overlay-w06, rgba(128,128,128,.06)); border-radius: 8px; }
+.tl-tr:hover { background: var(--cpq-overlay-w06, rgba(128,128,128,.06)); border-radius: var(--cpq-radius-sm); }
 .tl-tr .ant-input, .tl-tr .ant-input:focus, .tl-tr textarea.ant-input { align-self: stretch; }
 .tl-idx { font-size: 12px; color: var(--cpq-text-muted); text-align: center; }
 .tl-drag { cursor: grab; display: inline-block; width: 100%; text-align: center; color: var(--cpq-text-muted);
-  font-size: 13px; line-height: 1; padding-top: 8px; border-radius: 4px; }
+  font-size: 13px; line-height: 1; padding-top: 8px; border-radius: var(--cpq-radius-xs); }
 .tl-drag:hover { color: var(--cpq-accent, #3b82f6); }
-.tlm-doc-add { border: 1px dashed var(--cpq-overlay-w20, rgba(128,128,128,.35)); border-radius: 8px;
+.tlm-doc-add { border: 1px dashed var(--cpq-overlay-w20, rgba(128,128,128,.35)); border-radius: var(--cpq-radius-sm);
   padding: 8px; text-align: center; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; margin: 10px 0; }
 .tlm-doc-add:hover { color: var(--cpq-accent, #3b82f6); }
 .tlm-doc-outline { margin: 0; padding-left: 20px; font-size: 12px; }
 .tlm-doc-outline li { margin-bottom: 6px; }
-.tl-preview-form { border: 1px solid var(--cpq-overlay-w06, rgba(255,255,255,.06)); border-radius: 8px; padding: 4px 12px; }
+.tl-preview-form { border: 1px solid var(--cpq-overlay-w06, rgba(255,255,255,.06)); border-radius: var(--cpq-radius-sm); padding: 4px 12px; }
 </style>

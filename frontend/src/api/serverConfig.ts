@@ -253,8 +253,18 @@ export interface ModelScenario {
   fit?: string              // 为什么适配（一句话）
   image?: string            // 配图 URL（后台上传）
 }
-/** 机型资料 PDF（详情页铭牌卡「下载资料」入口；url 为站内直链，存 product_content.docs） */
-export interface ModelDoc { name: string; url: string; size?: number }
+/** 机型资料 PDF（详情页铭牌卡「下载资料」+「产品资料」区块；url 为站内直链，存 product_content.docs） */
+export interface ModelDoc { name: string; url: string; size?: number; type?: string }
+/** 资料类型（存 docs[].type 随机型落 JSONB；旧数据无 type，展示时按「其他」兜底） */
+export const MODEL_DOC_TYPES = ['规格书', '彩页', '用户手册', '其他'] as const
+/** 按文件名猜资料类型：上传时给默认值，编辑页下拉可改 */
+export function guessDocType(name?: string): string {
+  const s = (name || '').toLowerCase()
+  if (/规格|datasheet|spec/.test(s)) return '规格书'
+  if (/手册|指南|说明书|manual|guide/.test(s)) return '用户手册'
+  if (/彩页|宣传|brochure|leaflet/.test(s)) return '彩页'
+  return '其他'
+}
 /** 机型的产品化包装内容（结构化分块，JSONB 透传存 server_models.product_content）。 */
 export interface ModelProductContent {
   tagline?: string                                // 一句话定位（铭牌副标题，15 字左右）

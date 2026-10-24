@@ -4,7 +4,7 @@
  * 左栏：可点击流程时间线；中栏：每个节点一张工作卡；右栏：审批人/审批状态。
  * 需求单提交后进入 BOM 节点；BOM/成本/报价完成后由 board 接口自动带出到对应卡片。
  */
-import { ref, reactive, computed, onMounted, onBeforeUnmount, nextTick, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, onMounted, nextTick, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import axios from 'axios'
 import {
@@ -20,25 +20,28 @@ import {
 import dayjs from 'dayjs'
 import { portalApi } from '@/api/portal'
 import { projectApi } from '@/api'
+import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
 import type { FlowCard, PortalBoard, RequirementVersion, RequirementSlots } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import type { ProcessNodeDef } from '@/types/flow'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
-// 弹窗为按需打开，懒加载避免进入详情页首屏就拉取该组件
-const AssigneePickerModal = defineAsyncComponent(() => import('@/components/opportunity/AssigneePickerModal.vue'))
+import { lazyWithRetry } from '@/composables/lazyWithRetry'
+// 弹窗/重组件按需打开，懒加载避免进详情页首屏就拉取；带失败重试（dev 热编译窗口 chunk 失败不再白板）
+const AssigneePickerModal = lazyWithRetry(() => import('@/components/opportunity/AssigneePickerModal.vue'))
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
+import { useIsMobile } from '@/composables/useIsMobile'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
 import { useAuthStore } from '@/store/auth'
 
-const RequirementForm = defineAsyncComponent(() => import('@/components/flow/RequirementForm.vue'))
-const RequirementAttachmentChips = defineAsyncComponent(() => import('@/components/opportunity/RequirementAttachmentChips.vue'))
-const ArchiveSection = defineAsyncComponent(() => import('@/components/opportunity/ArchiveSection.vue'))
-const AttachmentUploadButton = defineAsyncComponent(() => import('@/components/opportunity/AttachmentUploadButton.vue'))
-const BomSchemeWorkbench = defineAsyncComponent(() => import('@/components/opportunity/BomSchemeWorkbench.vue'))
-const CostSheetWorkbench = defineAsyncComponent(() => import('@/components/opportunity/CostSheetWorkbench.vue'))
-const QuoteWorkbench = defineAsyncComponent(() => import('@/components/opportunity/QuoteWorkbench.vue'))
-const ApprovalFlowPanel = defineAsyncComponent(() => import('@/components/opportunity/ApprovalFlowPanel.vue'))
-const OpportunityProcessRail = defineAsyncComponent(() => import('@/components/opportunity/OpportunityProcessRail.vue'))
+const RequirementForm = lazyWithRetry(() => import('@/components/flow/RequirementForm.vue'))
+const RequirementAttachmentChips = lazyWithRetry(() => import('@/components/opportunity/RequirementAttachmentChips.vue'))
+const ArchiveSection = lazyWithRetry(() => import('@/components/opportunity/ArchiveSection.vue'))
+const BomSchemeWorkbench = lazyWithRetry(() => import('@/components/opportunity/BomSchemeWorkbench.vue'))
+const CostSheetWorkbench = lazyWithRetry(() => import('@/components/opportunity/CostSheetWorkbench.vue'))
+const QuoteWorkbench = lazyWithRetry(() => import('@/components/opportunity/QuoteWorkbench.vue'))
+const ApprovalFlowPanel = lazyWithRetry(() => import('@/components/opportunity/ApprovalFlowPanel.vue'))
+const OpportunityProcessRail = lazyWithRetry(() => import('@/components/opportunity/OpportunityProcessRail.vue'))
 
 interface RequirementFormExpose {
   toSlots(): RequirementSlots
@@ -60,6 +63,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'new-quotation'): void
   (e: 'upload-cost-sheet'): void
+  (e: 'upload-bom-scheme'): void
   (e: 'view-quotation', quotation: Quotation): void
   (e: 'unfreeze-quotation', quotation: Quotation): void
   (e: 'set-primary', quotation: Quotation): void
@@ -86,7 +90,7 @@ const {
 
 const PROCESS_NODES = [
   { key: 'requirement', label: '业务', title: '线索登记', subtitle: '填写需求单并提交' },
-  { key: 'boming', label: '技术支持', title: '方案配置', subtitle: '上传Excel/附件' },
+  { key: 'boming', label: '技术支持', title: '方案配置', subtitle: '上传Excel方案表' },
   { key: 'costing', label: '成本核算', title: '成本核算', subtitle: '核价后生成' },
   { key: 'quoting', label: '市场报价', title: '报价单', subtitle: '报价定稿' },
 ] as const
@@ -134,8 +138,7 @@ const railCollapsed = ref(readRailCollapsed())
 
 // ── 手机端（≤768）：三栏 → 双抽屉。左抽屉=流程轨道（切节点导航），右抽屉=协作与动态，
 //     工作台独占全屏；桌面三栏不受影响 ──
-const isMobile = ref(false)
-let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
+const isMobile = useIsMobile()
 const openDrawer = ref<null | 'rail' | 'dyn'>(null)
 const railDrawerOpen = computed({
   get: () => openDrawer.value === 'rail',
@@ -174,14 +177,7 @@ async function loadDynUnread() {
 watch(openDrawer, (v) => { if (v === 'dyn') loadDynUnread() })
 
 onMounted(() => {
-  isMobile.value = window.matchMedia('(max-width: 768px)').matches
-  const mq = window.matchMedia('(max-width: 768px)')
-  _mqListener = (e) => { isMobile.value = e.matches }
-  mq.addEventListener('change', _mqListener)
   loadDynUnread()
-})
-onBeforeUnmount(() => {
-  if (_mqListener) window.matchMedia('(max-width: 768px)').removeEventListener('change', _mqListener)
 })
 function toggleRail() {
   railCollapsed.value = !railCollapsed.value
@@ -202,7 +198,14 @@ watch(activeNode, (node) => {
   applyCardDefaults(node)
 })
 const detailOpen = ref(false)
-const detailKey = ref<string>('')
+// 弹窗标题带版本号：全屏页只有顶部一个标题，内容卡头不再重复显示
+const reqModalTitle = computed(() => {
+  if (editing.value || !selectedRequirement.value) return '需求单'
+  return `需求单 v${selectedRequirement.value.version}`
+})
+// 编辑中或有可继续编辑的草稿时才渲染 footer，避免全屏态出现一条空的底栏
+const reqFooterShow = computed(() =>
+  editing.value || !!(draftReq.value && selectedRequirement.value && draftReq.value.version !== selectedRequirement.value.version))
 const board = ref<PortalBoard | null>(null)
 const reqText = ref('')
 const formRef = ref<RequirementFormExpose | null>(null)
@@ -641,7 +644,6 @@ function scrollToSubstep(key: string, index: number) {
 function startEditDraft() {
   editing.value = true
   activeRequirementVersion.value = null
-  detailKey.value = 'requirement'
   detailOpen.value = true
   reqText.value = displayReqText(draftReq.value?.requirement_text)
   setRequirementSlots(draftReq.value?.slots || {})
@@ -650,7 +652,6 @@ function startEditDraft() {
 function startNewDraft() {
   editing.value = true
   activeRequirementVersion.value = null
-  detailKey.value = 'requirement'
   detailOpen.value = true
   reqText.value = displayReqText(null)
   setRequirementSlots({})
@@ -819,28 +820,12 @@ const quotePriceVisible = computed(() => props.quotePriceVisible ?? false)
 const quoteSelectMode = computed(() => props.quoteSelectMode ?? false)
 const quoteSelectedIds = computed(() => new Set(props.quoteSelectedIds || []))
 
-const detailModalWidth = computed(() =>
-  ['boming', 'costing', 'quoting'].includes(detailKey.value) ? 'min(1480px, 98vw)' : 'min(1200px, 96vw)',
-)
-
-const detailTitle = computed(() => {
-  if (detailKey.value === 'requirement') return '需求单'
-  const node = (PROCESS_NODES as readonly { key: string; label: string; title?: string }[]).find(
-    (item) => item.key === detailKey.value,
-  )
-  return node?.title ? `${node.title}工作台` : node?.label || '详情'
-})
 function openRequirementDetail(version: number) {
   const req = requirements.value.find((item) => item.version === version)
   if (!req) return
   if (req.status === 'draft') startEditDraft()
   else showRequirement(version)
-  detailKey.value = 'requirement'
   detailOpen.value = true
-}
-
-function closeDetail() {
-  detailOpen.value = false
 }
 
 async function convertCosting(quotationId: string) {
@@ -1048,12 +1033,12 @@ defineExpose({ reload: loadBoard })
                   <span class="rt-strong">需求单 v{{ currentReq.version }}</span>
                   <span class="rt-sub">线索登记</span>
                 </td>
-                <td><span class="rt-badge rt-badge-current">{{ requirementCardStatus(currentReq) }}</span></td>
-                <td>{{ currentReq.slots?.server_model || '—' }}</td>
-                <td>{{ currentReq.slots?.platform_type || '—' }}</td>
-                <td>{{ currentReq.slots?.purchase_qty ? `${currentReq.slots.purchase_qty} 台` : '—' }}</td>
-                <td>{{ currentReq.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
+                <td data-label="状态"><span class="rt-badge rt-badge-current">{{ requirementCardStatus(currentReq) }}</span></td>
+                <td data-label="服务器型号">{{ currentReq.slots?.server_model || '—' }}</td>
+                <td data-label="平台类型">{{ currentReq.slots?.platform_type || '—' }}</td>
+                <td data-label="数量">{{ currentReq.slots?.purchase_qty ? `${currentReq.slots.purchase_qty} 台` : '—' }}</td>
+                <td data-label="维保年限">{{ currentReq.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim" data-label="创建人 / 时间">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span
@@ -1073,12 +1058,12 @@ defineExpose({ reload: loadBoard })
                   <span class="rt-strong">需求草稿 v{{ draftReq.version }}</span>
                   <span class="rt-sub">未提交</span>
                 </td>
-                <td><span class="rt-badge rt-badge-draft">草稿</span></td>
-                <td>{{ draftReq.slots?.server_model || '—' }}</td>
-                <td>{{ draftReq.slots?.platform_type || '—' }}</td>
-                <td>{{ draftReq.slots?.purchase_qty ? `${draftReq.slots.purchase_qty} 台` : '—' }}</td>
-                <td>{{ draftReq.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
+                <td data-label="状态"><span class="rt-badge rt-badge-draft">草稿</span></td>
+                <td data-label="服务器型号">{{ draftReq.slots?.server_model || '—' }}</td>
+                <td data-label="平台类型">{{ draftReq.slots?.platform_type || '—' }}</td>
+                <td data-label="数量">{{ draftReq.slots?.purchase_qty ? `${draftReq.slots.purchase_qty} 台` : '—' }}</td>
+                <td data-label="维保年限">{{ draftReq.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim" data-label="创建人 / 时间">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span class="rt-link danger" @click.stop="deleteDraft(draftReq.version)">
@@ -1097,12 +1082,12 @@ defineExpose({ reload: loadBoard })
                   <span class="rt-strong">需求单 v{{ req.version }}</span>
                   <span class="rt-sub">REQ-{{ req.version }}</span>
                 </td>
-                <td><span class="rt-badge rt-badge-done">{{ requirementCardStatus(req) }}</span></td>
-                <td>{{ req.slots?.server_model || '—' }}</td>
-                <td>{{ req.slots?.platform_type || '—' }}</td>
-                <td>{{ req.slots?.purchase_qty ? `${req.slots.purchase_qty} 台` : '—' }}</td>
-                <td>{{ req.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+                <td data-label="状态"><span class="rt-badge rt-badge-done">{{ requirementCardStatus(req) }}</span></td>
+                <td data-label="服务器型号">{{ req.slots?.server_model || '—' }}</td>
+                <td data-label="平台类型">{{ req.slots?.platform_type || '—' }}</td>
+                <td data-label="数量">{{ req.slots?.purchase_qty ? `${req.slots.purchase_qty} 台` : '—' }}</td>
+                <td data-label="维保年限">{{ req.slots?.warranty_years || '—' }}</td>
+                <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span
@@ -1135,8 +1120,8 @@ defineExpose({ reload: loadBoard })
               </div>
             </div>
             <div class="card-shell-actions" @click.stop>
-              <AttachmentUploadButton :opportunity-id="oppId" category="technical" label="上传附件" />
               <a-button size="small" @click="openArchiveFromNode({ categories: ['technical'], title: '方案附件' })">方案附件</a-button>
+              <a-button v-if="canWriteBom" type="primary" size="small" @click="emit('upload-bom-scheme')">上传方案表</a-button>
               <a-button v-if="canWriteBom" type="primary" size="small" @click="bomWorkbenchRef?.openNew()">新建方案</a-button>
               <button class="card-chevron" :class="{ collapsed: !cardOpen.boming }" type="button" @click.stop="toggleCard('boming')">
                 <UpOutlined />
@@ -1306,17 +1291,16 @@ defineExpose({ reload: loadBoard })
       <a-button size="small" @click="loadBoard">重试</a-button>
     </section>
 
-    <a-modal
-      :open="detailOpen"
-      :title="detailTitle"
-      :width="detailModalWidth"
+    <ResponsiveModal
+      v-model:open="detailOpen"
+      :title="reqModalTitle"
+      tier="sheet"
+      centered
       wrap-class-name="portal-sheet-modal"
-      :footer="null"
-      :body-style="{ padding: '16px', maxHeight: 'calc(100vh - 180px)', overflow: 'auto' }"
-      @cancel="closeDetail"
+      :footer="reqFooterShow ? undefined : null"
+      :body-style="{ padding: '14px', maxHeight: MODAL_BODY_MAX_HEIGHT, overflowY: 'auto', overflowX: 'hidden' }"
     >
       <div class="drawer-body" @paste="onRequirementPaste">
-                                <template v-if="detailKey === 'requirement'">
           <section class="node-card glass">
             <div class="node-head">
               <span class="node-num">1</span>
@@ -1330,19 +1314,17 @@ defineExpose({ reload: loadBoard })
             <div class="node-body">
               <div v-if="editing">
                 <p class="node-edit-tip">编辑中的需求为草稿，提交后生成新版本快照并进入 BOM 环节。</p>
-                <RequirementForm ref="formRef" v-model:req-text="reqText" />
-                <RequirementAttachmentChips
-                  ref="reqAttRef"
-                  :opportunity-id="oppId"
-                  :version="draftReq?.version ?? null"
-                  :attachments="attachments || []"
-                  @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
-                />
-                <div class="node-actions">
-                  <a-button @click="cancelEdit">取消</a-button>
-                  <a-button :loading="draftSaving" @click="saveDraft">保存草稿</a-button>
-                  <a-button type="primary" :loading="submitting" @click="submitDraft">提交发起</a-button>
-                </div>
+                <RequirementForm ref="formRef" v-model:req-text="reqText">
+                  <template #after-req-text>
+                    <RequirementAttachmentChips
+                      ref="reqAttRef"
+                      :opportunity-id="oppId"
+                      :version="draftReq?.version ?? null"
+                      :attachments="attachments || []"
+                      @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
+                    />
+                  </template>
+                </RequirementForm>
               </div>
 
               <div v-else-if="selectedRequirement">
@@ -1355,17 +1337,17 @@ defineExpose({ reload: loadBoard })
                   ref="formRef"
                   v-model:req-text="reqText"
                   :readonly="true"
-                />
-                <RequirementAttachmentChips
-                  :opportunity-id="oppId"
-                  :version="selectedRequirement.version"
-                  :attachments="attachments || []"
-                  :readonly="true"
-                  @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
-                />
-                <div v-if="draftReq && draftReq.version !== selectedRequirement.version" class="node-actions">
-                  <a-button @click="startEditDraft">继续编辑草稿</a-button>
-                </div>
+                >
+                  <template #after-req-text>
+                    <RequirementAttachmentChips
+                      :opportunity-id="oppId"
+                      :version="selectedRequirement.version"
+                      :attachments="attachments || []"
+                      :readonly="true"
+                      @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
+                    />
+                  </template>
+                </RequirementForm>
               </div>
 
               <div v-else>
@@ -1375,22 +1357,35 @@ defineExpose({ reload: loadBoard })
               </div>
             </div>
           </section>
-        </template>
 
       </div>
-    </a-modal>
+      <template #footer>
+        <!-- 手机全屏时该条由 .cpq-fs-modal 固定在底部（安全区避让），桌面为常规 footer；按钮不再埋在内容流里 -->
+        <div class="req-modal-actions">
+          <template v-if="editing">
+            <a-button @click="cancelEdit">取消</a-button>
+            <a-button :loading="draftSaving" @click="saveDraft">保存草稿</a-button>
+            <a-button type="primary" :loading="submitting" @click="submitDraft">提交发起</a-button>
+          </template>
+          <template v-else-if="selectedRequirement && draftReq && draftReq.version !== selectedRequirement.version">
+            <a-button block @click="startEditDraft">继续编辑草稿</a-button>
+          </template>
+        </div>
+      </template>
+    </ResponsiveModal>
 
     <div v-if="editing" class="bod-sticky-bar">
       <a-button type="primary" size="large" :loading="submitting" block @click="submitDraft">提交需求单</a-button>
     </div>
 
-    <a-modal
+    <ResponsiveModal
       v-model:open="archiveOpen"
       :title="archiveTitle"
-      width="min(1100px, 96vw)"
+      tier="sheet"
+      centered
+      wrap-class-name="portal-sheet-modal"
       :footer="null"
-      :body-style="{ padding: '12px', maxHeight: 'calc(100vh - 140px)', overflow: 'auto' }"
-      @cancel="archiveOpen = false"
+      :body-style="{ padding: '14px', maxHeight: MODAL_BODY_MAX_HEIGHT, overflowY: 'auto', overflowX: 'hidden' }"
     >
       <ArchiveSection
         :opportunity-id="oppId"
@@ -1399,7 +1394,7 @@ defineExpose({ reload: loadBoard })
         @preview="(a: FeedAttachment) => emit('preview-attachment', a)"
         @delete="(a: FeedAttachment) => emit('delete-attachment', a)"
       />
-    </a-modal>
+    </ResponsiveModal>
     <AssigneePickerModal
       v-model:value="pickerChosen"
       :open="pickerOpen"
@@ -1419,13 +1414,6 @@ defineExpose({ reload: loadBoard })
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.bod-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 20px 0;
 }
 
 .board-body {
@@ -1467,7 +1455,7 @@ defineExpose({ reload: loadBoard })
   padding: 0;
   border: 1px solid var(--cpq-glass-border);
   border-left: 0;
-  border-radius: 0 var(--cpq-radius-sm, 8px) var(--cpq-radius-sm, 8px) 0;
+  border-radius: 0 var(--cpq-radius-sm) var(--cpq-radius-sm) 0;
   background: var(--cpq-bg-card);
   color: var(--cpq-text-muted);
   font-size: 12px;
@@ -1521,13 +1509,6 @@ defineExpose({ reload: loadBoard })
   height: 100%;
 }
 
-.board-workbench {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 0 20px 20px;
-}
-
 .process-workbench {
   display: flex;
   flex-direction: column;
@@ -1556,7 +1537,7 @@ defineExpose({ reload: loadBoard })
 }
 .requirement-workbench {
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -1577,6 +1558,8 @@ defineExpose({ reload: loadBoard })
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .rw-head-title {
   display: flex;
@@ -1591,25 +1574,13 @@ defineExpose({ reload: loadBoard })
   margin: 0;
   color: var(--cpq-text-primary);
   font-size: 14px;
-}
-.rw-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  padding: 12px 14px;
-}
-.rw-empty {
-  grid-column: 1 / -1;
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--cpq-text-muted);
-  font-size: 13px;
-  border: 1px dashed var(--cpq-glass-border);
-  border-radius: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .timeline {
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -1623,53 +1594,6 @@ defineExpose({ reload: loadBoard })
   font-weight: 700;
   font-size: 14px;
   color: var(--cpq-text-primary);
-}
-.board-workbench-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 2px 0;
-  color: var(--cpq-text-secondary);
-  font-size: 13px;
-}
-.bod-stage-wrap {
-  flex: 1;
-  min-width: 0;
-  padding: 0;
-}
-.board-canvas {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(248px, 1fr));
-  gap: 14px;
-  align-items: start;
-  padding: 14px 20px 24px;
-  min-width: 0;
-  overflow-x: auto;
-}
-
-.summary-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-}
-.summary-row b {
-  flex-shrink: 0;
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.summary-row span {
-  min-width: 0;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.summary-row.muted {
-  color: var(--cpq-text-muted);
-  font-size: 11px;
 }
 
 .opp-info-panel {
@@ -1699,6 +1623,8 @@ defineExpose({ reload: loadBoard })
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .opp-info-title {
   display: flex;
@@ -1716,7 +1642,7 @@ defineExpose({ reload: loadBoard })
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
   color: #fff;
   font-size: 18px;
@@ -1792,7 +1718,7 @@ defineExpose({ reload: loadBoard })
   align-items: center;
   justify-content: center;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
   font-size: 12px;
@@ -1828,6 +1754,9 @@ defineExpose({ reload: loadBoard })
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--cpq-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .opp-info-title h4 {
   margin: 3px 0 0;
@@ -1837,14 +1766,6 @@ defineExpose({ reload: loadBoard })
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
-}
-.opp-info-status {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 999px;
-  padding: 2px 9px;
 }
 .opp-info-grid {
   display: grid;
@@ -1875,75 +1796,6 @@ defineExpose({ reload: loadBoard })
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-.req-info-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 5px 10px;
-}
-.req-info-grid .summary-cell {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-}
-.req-info-grid .summary-cell b {
-  flex-shrink: 0;
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.req-info-grid .summary-cell span {
-  min-width: 0;
-  text-align: right;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.row-meta {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.row-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-glass-border);
-  color: var(--cpq-text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.row-meta-item b {
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.row-meta-item.muted {
-  color: var(--cpq-text-muted);
-  background: transparent;
-  border: none;
-  padding: 0 2px;
-}
-.draft-delete-link {
-  font-size: 12px;
-  color: #ff4d4f;
-  cursor: pointer;
-}
-.draft-delete-link:hover {
-  text-decoration: underline;
-}
-.requirement-return-link {
-  font-size: 12px;
-  color: var(--cpq-color-warning, #faad14);
-  cursor: pointer;
-}
-.requirement-return-link:hover {
-  text-decoration: underline;
 }
 
 .drawer-body {
@@ -2005,7 +1857,7 @@ defineExpose({ reload: loadBoard })
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-a15);
   color: var(--cpq-accent-primary);
   font-size: 12px;
@@ -2030,7 +1882,7 @@ defineExpose({ reload: loadBoard })
   font-size: 11px;
   color: var(--cpq-text-secondary);
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 0 5px;
 }
 .node-state {
@@ -2038,7 +1890,7 @@ defineExpose({ reload: loadBoard })
   font-size: 11px;
   color: var(--cpq-text-muted);
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 1px 8px;
   white-space: nowrap;
 }
@@ -2061,20 +1913,10 @@ defineExpose({ reload: loadBoard })
   padding-bottom: 10px;
   border-bottom: 1px solid var(--cpq-glass-border);
 }
-.req-version-tag {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
 .req-snapshot-meta {
   margin-left: auto;
   font-size: 12px;
   color: var(--cpq-text-muted);
-}
-
-.basic-body {
-  display: flex;
-  flex-direction: column;
 }
 .basic-form-grid,
 .basic-view-grid {
@@ -2082,64 +1924,8 @@ defineExpose({ reload: loadBoard })
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px 14px;
 }
-.basic-view-grid {
-  gap: 8px 20px;
-  margin: 0;
-}
-.basic-view-grid dt {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.basic-view-grid dd {
-  margin: 0;
-  font-size: 13px;
-  color: var(--cpq-text-primary);
-}
 .basic-form-grid :deep(.ant-form-item) {
   margin-bottom: 0;
-}
-
-.bom-table {
-  margin-top: 0;
-}
-.cost-kpis {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-}
-.cost-kpi {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 12px;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-md);
-  background: var(--cpq-overlay-w4);
-}
-.cost-kpi span {
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-}
-.cost-kpi strong {
-  font-size: 17px;
-  color: var(--cpq-text-primary);
-}
-.cost-kpi.accent strong {
-  color: var(--cpq-accent-primary);
-}
-
-.bod-card {
-  border-radius: var(--cpq-radius-lg);
-  border: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  padding: 14px;
-}
-.bod-card-title {
-  margin: 0 0 12px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
 }
 
 .bod-sticky-bar {
@@ -2149,9 +1935,6 @@ defineExpose({ reload: loadBoard })
 @media (max-width: 1080px) {
   .bod-page {
     overflow-y: auto;
-  }
-  .board-canvas {
-    grid-template-columns: repeat(2, minmax(248px, 1fr));
   }
   .basic-form-grid,
   .basic-view-grid {
@@ -2172,8 +1955,6 @@ defineExpose({ reload: loadBoard })
   }
   .board-rail {
     width: 100%;
-  }
-  .board-rail {
     overflow: visible;
   }
   .board-body :deep(.ant-spin-nested-loading),
@@ -2198,41 +1979,102 @@ defineExpose({ reload: loadBoard })
   .bod-page {
     padding-bottom: calc(72px + var(--cpq-tabbar-inset, 0px));
   }
-  .bod-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-    padding: 10px 12px 0;
-  }
-  .board-canvas {
-    display: block;
-    padding: 12px;
-  }
   /* 三栏 → 双抽屉：rail / aside 移入抽屉，工作台独占全屏 */
   .board-rail,
   .board-aside,
   .rail-toggle {
     display: none !important;
   }
+  /* 统一卡片沟槽：所有工作卡（商机信息/需求单/方案/成本/报价）同一 12px 页边距，
+     不再各卡片自带 margin 造成一大一小 */
+  .board-body {
+    padding: 12px 12px 16px;
+  }
   .opp-info-panel {
-    margin: 12px 12px 0;
-    padding: 14px;
+    margin: 0;
+  }
+  /* ── 卡头统一紧凑双行（方案A，全节点一致：商机信息/需求单/方案配置/成本核算）──
+     行1 = 小logo + 标题（可收缩省略，防逐字竖排）；
+     行2 = 状态徽章 + 操作小按钮（11px 字/24px 高，flex 均分一行铺满，永不换行遮挡）+ 折叠钮。
+     标题 flex-basis 100% 独占首行，其余项必然落到第二行——任何屏宽行为一致 */
+  .opp-info-head,
+  .rw-head,
+  .card-shell-head {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+  .opp-info-title,
+  .rw-head-title,
+  .card-shell-title {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .rw-head-title div {
+    min-width: 0;
+  }
+  .opp-info-eyebrow {
+    white-space: nowrap;
+  }
+  .opp-info-title-text h4,
+  .card-shell-title h3 {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 小 logo：40px 紫渐变大块 → 26px 小方；折叠钮 30 → 26 */
+  .rich-icon-badge {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    border-radius: 8px;
+    box-shadow: none;
+  }
+  .card-chevron {
+    width: 26px;
+    height: 26px;
+  }
+  .opp-info-tools,
+  .rw-head-actions,
+  .card-shell-actions {
+    display: contents;
+  }
+  .opp-info-tools .rich-status-check,
+  .rw-head-actions .rich-status-check {
+    order: 2;
+  }
+  .opp-info-tools .ant-btn,
+  .rw-head-actions .ant-btn,
+  .card-shell-actions .ant-btn {
+    order: 3;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 24px;
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .opp-info-tools .card-chevron,
+  .rw-head-actions .card-chevron,
+  .card-shell-actions .card-chevron {
+    order: 4;
   }
   .opp-info-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .basic-form-grid,
-  .basic-view-grid,
-  .cost-kpis {
+  .basic-form-grid {
     grid-template-columns: 1fr;
   }
   .node-actions {
     flex-wrap: wrap;
   }
+  /* 吸底提交条：fixed 到全局底栏上方（≤768 滚动宿主换了层，sticky 吸不住会沉底与底栏重叠） */
   .bod-sticky-bar {
     display: block;
-    position: sticky;
+    position: fixed;
+    left: 0;
+    right: 0;
     bottom: var(--cpq-tabbar-inset, 0px);
-    z-index: 10;
+    z-index: 90;
     padding: 10px 12px calc(10px + env(safe-area-inset-bottom));
     background: var(--cpq-glass-card-bg);
     backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -2252,24 +2094,32 @@ defineExpose({ reload: loadBoard })
   padding: 7px 9px;
   background: var(--cpq-glass-card-bg, var(--cpq-overlay-w5));
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 13px;
+  border-radius: var(--cpq-radius-md);
   box-shadow: 0 6px 18px var(--cpq-shadow-color, rgba(31, 42, 61, 0.06));
 }
 .sb-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--cpq-text-secondary);
-  border: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-glass-2-bg, transparent);
-  border-radius: 9px;
-  padding: 5px 9px;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  /* 流程/动态是本页两把钥匙（左/右抽屉入口），按主操作 ghost 样式突出：
+     主题色描边+主题色字+淡主题色底，视觉权重压过左上角返回箭头，引导用户点这里而不是退出 */
+  color: var(--cpq-accent-primary);
+  border: 1px solid var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a10);
+  border-radius: var(--cpq-radius-sm);
+  padding: 9px 14px;
+  min-height: 38px;
   flex: none;
   cursor: pointer;
+  transition: transform 0.12s ease, background 0.15s ease;
   -webkit-tap-highlight-color: transparent;
+}
+.sb-btn:active {
+  transform: scale(0.96);
+  background: var(--cpq-overlay-a15);
 }
 .sb-badge {
   position: absolute;
@@ -2277,7 +2127,7 @@ defineExpose({ reload: loadBoard })
   right: -6px;
   min-width: 15px;
   height: 15px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-danger);
   color: #fff;
   font-size: 9px;
@@ -2361,7 +2211,7 @@ defineExpose({ reload: loadBoard })
   font-size: 10px;
   color: var(--cpq-text-secondary);
   background: var(--cpq-overlay-w6);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 2px 8px;
   white-space: nowrap;
 }
@@ -2369,7 +2219,7 @@ defineExpose({ reload: loadBoard })
 .pd-x {
   width: 29px;
   height: 29px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-overlay-w10);
   background: var(--cpq-overlay-w5);
   color: var(--cpq-text-secondary);
@@ -2386,278 +2236,12 @@ defineExpose({ reload: loadBoard })
   overscroll-behavior: contain;
   padding: 0 6px 12px;
 }
-.bom-config-list {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.bom-config-body {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.bom-subsection {
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-md);
-  background: var(--cpq-overlay-w3);
-  overflow: hidden;
-}
-.bom-subsection-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w5);
-}
-.bom-subsection-head h4 {
-  margin: 0;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
-.bom-subsection-head span {
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-}
-.bom-subsection-empty {
-  padding: 14px 12px;
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.bom-detail-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
-}
-.bom-detail-table th,
-.bom-detail-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--cpq-overlay-w5);
-  text-align: left;
-  color: var(--cpq-text-primary);
-}
-.bom-detail-table th {
-  background: var(--cpq-overlay-w4);
-  color: var(--cpq-text-muted);
-  font-weight: 600;
-}
-.bom-detail-table td:last-child {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-}
 
 @media (max-width: 768px) {
-  :deep(.ant-modal) {
-    max-width: 100vw;
-    margin: 0;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  :deep(.ant-modal-content) {
-    border-radius: 0;
-  }
+  /* 手机端弹窗全屏化统一由 components/common/ResponsiveModal.vue + antd-overrides.css
+     的 .cpq-fs-modal 处理（antd 弹窗 teleport 到 body，这里 scoped 够不到） */
 }
 
-.bom-config-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 8px 0 14px;
-  padding: 10px 12px;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-md);
-  background: var(--cpq-overlay-w4);
-}
-.bom-config-head div {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  min-width: 0;
-}
-.bom-config-head strong {
-  font-size: 14px;
-  color: var(--cpq-text-primary);
-}
-.bom-config-head span {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.bom-config-qty {
-  flex-shrink: 0;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
-.cost-kpis.single {
-  margin: 4px 0 14px;
-}
-
-.quote-stage-actions {
-  display: flex;
-  gap: 8px;
-}
-.quote-stage-actions .ant-btn {
-  flex: 1;
-}
-.quote-stage-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0 12px;
-}
-.quote-stage-head h4 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-}
-.quote-stage-head p {
-  margin: 2px 0 0;
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.quote-stage-head-actions {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-}
-.quote-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.quote-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 12px;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-md);
-  cursor: pointer;
-  transition: border-color 0.15s ease, background 0.15s ease;
-}
-.quote-row:hover {
-  border-color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-w3);
-}
-.quote-row.selecting {
-  cursor: pointer;
-}
-.quote-check {
-  display: inline-flex;
-  align-items: center;
-}
-.quote-state-badge {
-  flex-shrink: 0;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 11px;
-  line-height: 18px;
-  white-space: nowrap;
-}
-.quote-state-badge.draft {
-  color: #d48806;
-  border: 1px solid #d48806;
-}
-.quote-state-badge.exported {
-  color: var(--cpq-color-success, #52c41a);
-  border: 1px solid var(--cpq-color-success, #52c41a);
-}
-.quote-name {
-  min-width: 140px;
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.quote-price,
-.quote-margin {
-  flex-shrink: 0;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--cpq-text-primary);
-}
-.quote-margin {
-  color: var(--cpq-text-muted);
-}
-.quote-meta {
-  flex-shrink: 0;
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-  white-space: nowrap;
-}
-.quote-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  gap: 2px;
-}
-.quote-stage-batch {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.quote-stage-empty {
-  padding: 14px 12px;
-  border: 1px dashed var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-md);
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.stage-list {
-  gap: 6px;
-}
-.stage-row {
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: 10px;
-}
-.stage-row .quote-name {
-  min-width: 0;
-  width: 100%;
-}
-.stage-row .quote-price {
-  margin-left: auto;
-}
-.stage-row .quote-meta {
-  display: none;
-}
-.stage-row .quote-actions {
-  width: 100%;
-  justify-content: flex-end;
-  flex-wrap: wrap;
-}
-@media (max-width: 768px) {
-  .quote-stage-head {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .quote-stage-head-actions {
-    justify-content: flex-start;
-    width: 100%;
-  }
-  .quote-row {
-    flex-wrap: wrap;
-  }
-  .quote-name {
-    min-width: 0;
-    width: 100%;
-  }
-  .quote-meta {
-    display: none;
-  }
-  .quote-actions {
-    width: 100%;
-    justify-content: flex-end;
-    flex-wrap: wrap;
-  }
-}
 </style>
 
 <style>
@@ -2668,7 +2252,7 @@ defineExpose({ reload: loadBoard })
   backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
   overflow: hidden;
 }
-.opp-detail-drawer .ant-drawer-left .ant-drawer-content { border-radius: 0 18px 18px 0; }
-.opp-detail-drawer .ant-drawer-right .ant-drawer-content { border-radius: 18px 0 0 18px; }
+.opp-detail-drawer .ant-drawer-left .ant-drawer-content { border-radius: 0 var(--cpq-radius-xl) var(--cpq-radius-xl) 0; }
+.opp-detail-drawer .ant-drawer-right .ant-drawer-content { border-radius: var(--cpq-radius-xl) 0 0 var(--cpq-radius-xl); }
 .opp-detail-drawer .ant-drawer-header { display: none; }
 </style>

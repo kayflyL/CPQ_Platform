@@ -12,6 +12,8 @@ import { fmtTime, formatDate as formatQuoteDate, money } from '@/utils/quoteComm
 import RecordTable from '@/components/opportunity/RecordTable.vue'
 import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
 import OutboundApprovalModal from '@/components/quotation/OutboundApprovalModal.vue'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
+import { MODAL_WIDTH } from '@/constants/modalPresets'
 
 const props = withDefaults(defineProps<{
   board: PortalBoard
@@ -24,6 +26,14 @@ const props = withDefaults(defineProps<{
   /** 两个面板的折叠状态由 board 统一管理（按节点待办规则给默认值） */
   upstreamOpen?: boolean
   quoteOpen?: boolean
+  /** 弹出层（下拉菜单等）挂载容器：宿主是高层级弹窗（如聊天产物卡）时必须传入，
+   *  否则菜单 teleport body 的默认层级被宿主弹窗压住，开了也看不见。 */
+  popupContainer?: (triggerNode: HTMLElement) => HTMLElement
+  /** 宿主弹窗层级：本组件内嵌的全部模态（分享/外发审批/转交/发送/配置明细）
+   *  统一接这个 z-index——组件原生于低层级页面时缺省即可（antd 默认 1000）；
+   *  被产物卡（z-2000）承载时不传的话内嵌弹窗全部被压住（2026-10-22 实测：
+   *  更多→分享的窗口开了看不见）。与 popup-container 同构：一个 prop 修一类。 */
+  hostZIndex?: number
 }>(), {
   quotePriceVisible: false,
   quoteSelectMode: false,
@@ -527,7 +537,10 @@ function openConfigDetail(cfg: CostConfig) {
         <a-modal
           :open="!!transferFor"
           title="转交审批"
-          :width="`min(420px, 92vw)`"
+          centered
+          :width="MODAL_WIDTH.action"
+          wrap-class-name="portal-sheet-modal"
+          :z-index="hostZIndex"
           @cancel="transferFor = null"
         >
           <div style="display: flex; flex-direction: column; gap: 10px; padding-top: 8px;">
@@ -552,6 +565,7 @@ function openConfigDetail(cfg: CostConfig) {
           :opportunity-id="opportunityId"
           :quotation-id="gateModalQuotation?.quotation_id || ''"
           :quotation-label="gateModalQuotation?.quotation_name || gateModalQuotation?.quotation_id || ''"
+          :z-index="hostZIndex"
           @submitted="loadPricingApprovals"
         />
 
@@ -563,6 +577,7 @@ function openConfigDetail(cfg: CostConfig) {
           :source-id="shareTarget?.quotation_id || ''"
           :title="shareTarget?.quotation_name || shareTarget?.quotation_id || ''"
           default-view="customer"
+          :z-index="hostZIndex"
         />
 
         <RecordTable
@@ -589,12 +604,12 @@ function openConfigDetail(cfg: CostConfig) {
               <span class="rt-strong rt-q-title" :title="q.quotation_name || '未命名报价单'">{{ q.quotation_name || '未命名报价单' }}</span>
               <span v-if="q.is_primary" class="rt-sub">当前为主推报价单</span>
             </td>
-            <td class="rt-dim"><span class="rt-q-id" :title="q.quotation_id">{{ q.quotation_id }}</span></td>
-            <td><span class="rt-badge" :class="`rt-badge-${quoteStateClass(q)}`">{{ quoteState(q) }}</span></td>
-            <td class="rt-num">{{ quotePriceVisible ? money(q.total_price) : '***' }}</td>
-            <td class="rt-num">{{ quotePriceVisible ? Number(q.profit_margin || 0).toFixed(2) + '%' : '***' }}</td>
-            <td class="rt-num">{{ q.config_count || 0 }} 配置</td>
-            <td class="rt-dim">{{ formatQuoteDate(q.created_at) }}</td>
+            <td class="rt-dim" data-label="单号"><span class="rt-q-id" :title="q.quotation_id">{{ q.quotation_id }}</span></td>
+            <td data-label="状态"><span class="rt-badge" :class="`rt-badge-${quoteStateClass(q)}`">{{ quoteState(q) }}</span></td>
+            <td class="rt-num" data-label="总价">{{ quotePriceVisible ? money(q.total_price) : '***' }}</td>
+            <td class="rt-num" data-label="利润率">{{ quotePriceVisible ? Number(q.profit_margin || 0).toFixed(2) + '%' : '***' }}</td>
+            <td class="rt-num" data-label="配置">{{ q.config_count || 0 }} 配置</td>
+            <td class="rt-dim" data-label="创建日期">{{ formatQuoteDate(q.created_at) }}</td>
             <td>
               <div class="rt-actions">
                 <a-checkbox
@@ -603,7 +618,7 @@ function openConfigDetail(cfg: CostConfig) {
                   @click.stop
                   @change="emit('toggle-quote-select', q.quotation_id)"
                 />
-                <a-dropdown v-if="!quoteSelectMode" @click.stop>
+                <a-dropdown v-if="!quoteSelectMode" :get-popup-container="popupContainer || undefined" @click.stop>
                   <a-button size="small" type="link" class="qw-more">更多<DownOutlined /></a-button>
                   <template #overlay>
                     <a-menu @click="({ key }: { key: string }) => onQuoteMore(key, q)">
@@ -630,7 +645,10 @@ function openConfigDetail(cfg: CostConfig) {
       :open="!!sendTarget"
       :title="`发送报价单 · ${sendTarget?.quotation_name || ''}`"
       :footer="null"
-      :width="560"
+      centered
+      :width="MODAL_WIDTH.action"
+      wrap-class-name="portal-sheet-modal"
+      :z-index="hostZIndex"
       @cancel="sendTarget = null"
     >
       <div class="qw-send-modal">
@@ -654,11 +672,14 @@ function openConfigDetail(cfg: CostConfig) {
       </div>
     </a-modal>
 
-    <a-modal
+    <ResponsiveModal
       :open="!!configDetail"
       :title="`配置明细 · ${configDetail?.name || ''}`"
+      tier="viewer"
       :footer="null"
-      :width="760"
+      centered
+      wrap-class-name="portal-sheet-modal"
+      :z-index="hostZIndex"
       @cancel="configDetail = null"
     >
       <div v-if="configDetail" class="qw-detail">
@@ -703,7 +724,7 @@ function openConfigDetail(cfg: CostConfig) {
         </table>
         <div v-else class="panel-empty">暂无 KP</div>
       </div>
-    </a-modal>
+    </ResponsiveModal>
   </div>
 </template>
 
@@ -724,7 +745,7 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .panel {
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   box-shadow: var(--cpq-glass-card-shadow);
   overflow: hidden;
@@ -756,18 +777,25 @@ function openConfigDetail(cfg: CostConfig) {
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--cpq-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .card-shell-title h3 {
   margin: 3px 0 0;
   font-size: 15px;
   font-weight: 600;
   color: var(--cpq-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .qw-shell-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .rich-icon-badge {
   width: 40px;
@@ -776,7 +804,7 @@ function openConfigDetail(cfg: CostConfig) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: linear-gradient(135deg, rgba(99, 102, 241, 0.92), rgba(139, 92, 246, 0.88));
   color: #fff;
   font-size: 18px;
@@ -790,7 +818,7 @@ function openConfigDetail(cfg: CostConfig) {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
   font-size: 12px;
@@ -816,7 +844,6 @@ function openConfigDetail(cfg: CostConfig) {
   min-height: 0;
   overflow: hidden;
 }
-.qw-snapshot-body { padding: 12px 13px; }
 .qw-summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -827,7 +854,7 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-summary > div {
   min-width: 0;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   padding: 8px 9px;
   background: var(--cpq-overlay-w4);
 }
@@ -859,13 +886,13 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-config-row:hover { background: var(--cpq-overlay-w4); }
 .qw-total-row td { background: var(--cpq-overlay-w4); color: var(--cpq-text-secondary); font-weight: 600; }
 .panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
-.qw-actions { display: flex; align-items: center; gap: 6px; }
+.qw-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .qw-batch { padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border); }
 
 .qw-approval-bar {
   margin: 0 0 12px;
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-warn-surface);
   border: 1px solid var(--cpq-warn-border);
 }
@@ -880,7 +907,7 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-approval-count {
   font-size: 11.5px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-notif-amber-bg);
   color: var(--cpq-notif-amber);
 }
@@ -891,7 +918,7 @@ function openConfigDetail(cfg: CostConfig) {
   flex-wrap: wrap;          /* 手机端：单号/毛利/责任人换行不挤出屏 */
   gap: 6px 10px;
   padding: 7px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-card);
   border: 1px solid var(--cpq-border-secondary);
 }
@@ -902,11 +929,6 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .qw-approval-item :deep(.ant-btn) {
   flex-shrink: 0;
-}
-.qw-approval-assignee {
-  flex-basis: 100%;         /* 责任人/等待信息独占一行（窄屏不与按钮抢位） */
-  font-size: 11px;
-  color: var(--cpq-text-muted);
 }
 .qw-approval-quotation {
   font-size: 12.5px;
@@ -927,84 +949,12 @@ function openConfigDetail(cfg: CostConfig) {
   line-height: 1.6;
   color: var(--cpq-text-muted);
 }
-.qw-empty { padding: 26px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
-.qw-list { display: flex; flex-direction: column; }
-.qw-doc-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  gap: 12px;
-  padding: 12px;
-}
-.row-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-glass-border);
-  color: var(--cpq-text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.row-meta-item b {
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.row-meta-item.muted {
-  color: var(--cpq-text-muted);
-  background: transparent;
-  border: none;
-  padding: 0 2px;
-}
-.quote-doc-meta {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 8px 12px;
-}
-.quote-doc-meta > div {
-  min-width: 0;
-  padding-bottom: 8px;
-  border-bottom: 1px dashed var(--cpq-glass-border);
-}
-.quote-doc-meta small {
-  display: block;
-  color: var(--cpq-text-muted);
-  font-size: 10px;
-  margin-bottom: 3px;
-}
-.quote-doc-meta b {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--cpq-text-primary);
-  font-size: 12px;
-}
-.qw-row-actions { display: flex; align-items: center; flex-wrap: wrap; justify-content: flex-end; gap: 2px; }
 .qw-send { color: #2563eb; font-weight: 600; }
 .qw-send-modal { display: flex; flex-direction: column; gap: 14px; }
 .qw-send-tip { margin: 0; color: var(--cpq-text-muted); font-size: 13px; line-height: 1.6; }
 .qw-send-field { display: flex; flex-direction: column; gap: 7px; }
 .qw-send-field label { color: var(--cpq-text-primary); font-size: 12px; font-weight: 600; }
 .qw-send-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.qw-timeline {
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
-  overflow: hidden;
-}
-.qw-timeline .tl-head {
-  padding: 11px 14px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--cpq-text-primary);
-}
 .qw-detail-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -1013,7 +963,7 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .qw-detail-grid > div {
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   padding: 8px 9px;
   background: var(--cpq-overlay-w4);
 }
@@ -1028,8 +978,81 @@ function openConfigDetail(cfg: CostConfig) {
 .rt-num { text-align: right; }
 .rt-q-title, .rt-q-id { display: block; word-break: break-word; white-space: normal; min-width: 0; }
 
+@media (max-width: 768px) {
+  /* ── 卡头统一紧凑双行（方案A）──
+     行1 = 小logo + 标题（可收缩省略，防逐字竖排）；行2 = 操作小按钮一行均分 + 折叠钮。
+     标题 flex-basis 100% 独占首行，其余项必然换行——任何屏宽行为一致。
+     上传报价是 AttachmentUploadButton 壳（span.attachment-upload-btn），
+     order/分宽落直接子项，壳转 flex 内层按钮撑满。
+     无按钮渲染的卡头（如上游成本摘要）不强制标题独占一行（:has 兜底，标题与折叠钮同行） */
+  .card-shell-head {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+  }
+  .card-shell-title {
+    order: 1;
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+  .card-shell-head:not(:has(.ant-btn)) .card-shell-title {
+    flex: 1 1 auto;
+  }
+  .rich-icon-badge {
+    width: 26px;
+    height: 26px;
+    font-size: 13px;
+    border-radius: 8px;
+    box-shadow: none;
+  }
+  .card-chevron {
+    width: 26px;
+    height: 26px;
+  }
+  .qw-shell-actions,
+  .qw-actions {
+    display: contents;
+  }
+  .qw-shell-actions .card-chevron,
+  .qw-actions .card-chevron {
+    order: 4;
+    flex: 0 0 auto;
+  }
+  .qw-shell-actions > *,
+  .qw-actions > * {
+    order: 3;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 24px;
+  }
+  .qw-shell-actions .ant-btn {
+    padding: 0 8px;
+    font-size: 11px;
+  }
+  .qw-actions > .attachment-upload-btn {
+    display: flex;
+  }
+  .qw-actions > .attachment-upload-btn .ant-btn {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  /* 长单号不再逐字竖排：溢出省略，全量见详情 */
+  .rt-q-id {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* 成本摘要小表放不下时横向滑动，不再压扁每列 */
+  .qw-sheet-block,
+  .card-collapse-inner {
+    overflow-x: auto;
+  }
+  .qw-cost-table {
+    width: calc(100% - 26px);
+    min-width: 460px;
+  }
+}
+
 @media (max-width: 900px) {
   .qw-body { grid-template-columns: 1fr; }
-  .qw-row-actions { width: 100%; justify-content: flex-start; }
 }
 </style>

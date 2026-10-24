@@ -135,7 +135,7 @@ const emit = defineEmits<{
 
 <style scoped>
 .cre-edit-grid { display: grid; grid-template-columns: 1fr; gap: 16px; height: min(620px, 66vh); }
-.cre-edit-form { padding: 18px 22px; border-radius: 12px; overflow-y: auto; }
+.cre-edit-form { padding: 18px 22px; border-radius: var(--cpq-radius-md); overflow-y: auto; }
 .cre-edit-foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 .cre-cond-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; flex-wrap: wrap; }
 

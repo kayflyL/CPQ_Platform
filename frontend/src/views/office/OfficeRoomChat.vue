@@ -350,7 +350,7 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
 .rh-main { flex: 1; min-width: 0; }
 .rh-title { font-size: 13.5px; font-weight: 700; display: flex; align-items: center; gap: 6px; }
 .rh-chip {
-  font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 600; padding: 1px 7px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-accent-primary, #1677ff);
   background: color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 18%, transparent);
@@ -378,7 +378,7 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
   gap: 8px;
   margin: 0 10px 4px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   border-left: 2px solid var(--cpq-accent-primary, #1677ff);
   font-size: 12px;
@@ -393,7 +393,7 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
 /* 房头动作：历史 / 新建 / 全屏 */
 .rh-actions { display: flex; align-items: center; gap: 4px; margin-left: 8px; flex-shrink: 0; }
 .rh-btn {
-  width: 24px; height: 24px; padding: 0; border-radius: 6px;
+  width: 24px; height: 24px; padding: 0; border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-border-light, rgba(22, 119, 255, 0.16));
   background: transparent; color: var(--cpq-text-muted, #86909c);
   font-size: 13px; line-height: 1; cursor: pointer; transition: all 0.15s;
@@ -417,7 +417,7 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
 .rhi-list { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; }
 .rhi-item {
   display: block; width: 100%; text-align: left; padding: 7px 9px; margin-bottom: 2px;
-  border: 1px solid transparent; border-radius: 8px; background: transparent; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--cpq-radius-sm); background: transparent; cursor: pointer;
 }
 .rhi-item:hover { background: var(--cpq-overlay-w5, rgba(255, 255, 255, 0.05)); }
 .rhi-item.active {
@@ -433,7 +433,7 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
   font-size: 11px; color: var(--cpq-text-muted, #86909c);
 }
 .rhi-archived {
-  font-size: 10px; padding: 0 5px; border-radius: 999px;
+  font-size: 10px; padding: 0 5px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-text-muted, #86909c);
   border: 1px solid var(--cpq-border-light, rgba(22, 119, 255, 0.16));
 }

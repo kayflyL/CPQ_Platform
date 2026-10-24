@@ -4,7 +4,7 @@
  *  → 「哪些卡合适」卡砖网格(批量试算,点砖调张数/看适配机型)。
  *  显存剖面 = 纯需求侧:每芯 100G 通用刻度,权重先填、KV 后填,不绑定任何卡型;
  *  卡型推荐只出现在 B 区卡砖。全部数字来自 /api/gpu-sizing,前端零硬编码。 */
-import { ref, computed, onMounted, watch, onErrorCaptured } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, onErrorCaptured } from 'vue'
 import { gpuSizingApi, type Catalog, type EvalRow, type EvalResult } from '@/api/gpuSizing'
 
 const cat = ref<Catalog | null>(null)
@@ -25,6 +25,19 @@ onErrorCaptured(e => {
 const openId = ref<number | null>(null)
 const overN = ref<Record<number, number>>({})
 const brandTab = ref<'all' | 'nv' | 'domestic'>('all')
+
+// ── 手机端（≤768）：六步表单与卡砖结果都收底部抽屉，主屏只留显存剖面（2026-10-15 用户拍板）──
+const sheetOpen = ref(false)
+const cardsOpen = ref(false)
+const modelName = computed(() => allModels.value.find(m => m.id === modelId.value)?.name || '未选模型')
+const sceneName = computed(() => cat.value?.scenes.find(s => s.id === sceneId.value)?.name || '')
+// fixed 抽屉必须挂 body：.aic 的 backdrop-filter 会成为 fixed 后代的包含块（抽屉曾贴到卡片底部=页面最底）
+const isMobileNarrow = ref(window.matchMedia('(max-width: 768px)').matches)
+let mobileMql: MediaQueryList | null = null
+function onMobileMqlChange(e: MediaQueryListEvent) { isMobileNarrow.value = e.matches }
+function toggleCond() { sheetOpen.value = !sheetOpen.value; if (sheetOpen.value) cardsOpen.value = false }
+function openCards() { cardsOpen.value = true; sheetOpen.value = false }
+function closeSheets() { sheetOpen.value = false; cardsOpen.value = false }
 
 const VENDOR_LABEL: Record<string, string> = {
   NVIDIA: 'NVIDIA', AMD: 'AMD', Intel: 'Intel', 影驰: 'NVIDIA',
@@ -156,7 +169,16 @@ const fwOh = computed(() => {
   const o = evalRes.value?.params.overhead
   return o == null ? '' : ' +' + Number(o).toFixed(1)
 })
-onMounted(load)
+onMounted(() => {
+  mobileMql = window.matchMedia('(max-width: 768px)')
+  mobileMql.addEventListener('change', onMobileMqlChange)
+  load()
+})
+
+onBeforeUnmount(() => {
+  mobileMql?.removeEventListener('change', onMobileMqlChange)
+  mobileMql = null
+})
 </script>
 
 <template>
@@ -170,8 +192,20 @@ onMounted(load)
     <div v-if="fatal" class="warn">{{ fatal }}</div>
     <div v-if="err" class="warn">{{ err }}</div>
 
+    <!-- 手机端：已选条件摘要 + 双入口操作行（桌面端 CSS 隐藏） -->
+    <div class="cond-sum">{{ modelName }}<i>{{ bits }}bit · {{ framework }} · ×{{ conc }}{{ sceneName ? ' · ' + sceneName : '' }}</i></div>
+    <div class="m-acts">
+      <button class="m-act" type="button" @click="toggleCond">调整参数</button>
+      <button class="m-act on" type="button" @click="openCards">哪些卡合适 · {{ rowsView.fit.length }} 款</button>
+    </div>
+    <Teleport to="body">
+      <div class="sheet-mask" :class="{ on: sheetOpen || cardsOpen }" @click="closeSheets"></div>
+    </Teleport>
+
     <div class="aic-cols">
-    <aside class="col-l">
+    <Teleport to="body" :disabled="!isMobileNarrow">
+    <aside class="col-l" :class="{ open: sheetOpen }">
+      <div class="sheet-head"><b>选型条件</b><button type="button" @click="sheetOpen = false">完成</button></div>
     <div class="step">
       <div class="sk"><b>品牌商</b><span>{{ vendors.length }} 家</span></div>
       <div class="seg">
@@ -222,6 +256,7 @@ onMounted(load)
     </div>
 
     </aside>
+    </Teleport>
     <section class="col-m">
     <div class="mark"><b>显存剖面</b><em></em></div>
     <div class="hero" v-if="evalRes?.need">
@@ -254,7 +289,9 @@ onMounted(load)
     </div>
     <div v-else-if="loading || !err" class="hero-load">需求计算中 —</div>
     </section>
-    <section class="col-r">
+    <Teleport to="body" :disabled="!isMobileNarrow">
+    <section class="col-r" :class="{ open: cardsOpen }">
+      <div class="sheet-head"><b>哪些卡合适 · {{ rowsView.fit.length }} 款</b><button type="button" @click="closeSheets">完成</button></div>
     <div class="mark"><b>哪些卡合适</b><em></em></div>
     <div class="rk-tools">
       <span class="rk-sub">共 {{ rowsView.fit.length }} 款 · 点卡片调张数试算、看适配机型</span>
@@ -329,6 +366,7 @@ onMounted(load)
       MoE 按总参数偏保守，MLA 按压缩潜变量修正；带宽缺失显示「估速不可用」；适配机型读配件「适配机型」字段，未维护的卡提示去配件管理填写。</p>
     </div>
     </section>
+    </Teleport>
     </div>
   </div>
 </template>
@@ -436,7 +474,7 @@ onMounted(load)
 .coreidx { display: flex; gap: 8px; }
 .coreidx i { flex: 1; max-width: 36px; text-align: center; font-size: 10px; color: var(--t3); font-style: normal; }
 .legend { display: flex; gap: 16px; flex-wrap: wrap; font-size: 11px; color: var(--t3); }
-.legend s { text-decoration: none; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: -1px; border-radius: 2px; }
+.legend s { text-decoration: none; display: inline-block; width: 8px; height: 8px; margin-right: 6px; vertical-align: -1px; border-radius: var(--cpq-radius-xs); }
 .legend .lw { background: var(--cpq-accent-primary); }
 .legend .lk { background: var(--cpq-accent-primary-light); }
 
@@ -446,7 +484,7 @@ onMounted(load)
 .tpnote { font-size: 11.5px; color: var(--soft);
   border: 1px solid var(--cpq-warn-border); background: var(--cpq-warn-surface); border-radius: var(--cpq-radius-sm); padding: 3px 10px; }
 .fchips { display: flex; gap: 7px; margin-left: auto; }
-.fchip { font-size: 11.5px; color: var(--t3); padding: 3px 11px; border-radius: 999px; cursor: pointer;
+.fchip { font-size: 11.5px; color: var(--t3); padding: 3px 11px; border-radius: var(--cpq-radius-full); cursor: pointer;
   border: 1px solid var(--line); background: transparent; transition: color .18s var(--ease), border-color .18s var(--ease); }
 .fchip:hover { color: var(--t1); }
 .fchip.on { color: var(--ice); border-color: var(--cpq-glass-border-strong); }
@@ -459,12 +497,12 @@ onMounted(load)
 .t-head { display: flex; align-items: center; gap: 10px; }
 .rk { font-size: 11px; color: var(--t3); min-width: 20px; font-variant-numeric: tabular-nums; }
 .star { font-size: 10.5px; color: var(--ice); border: 1px solid var(--cpq-overlay-a30);
-  background: var(--cpq-overlay-a10); padding: 1px 7px; border-radius: 4px; white-space: nowrap; }
+  background: var(--cpq-overlay-a10); padding: 1px 7px; border-radius: var(--cpq-radius-xs); white-space: nowrap; }
 .cname { flex: 1; min-width: 0; }
 .cname b { display: block; font-size: 12.5px; font-weight: 600; color: var(--inkHi);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .cname span { font-size: 10.5px; color: var(--t3); }
-.fbar { height: 4px; display: flex; background: var(--fbarBg); margin-top: 9px; overflow: hidden; border-radius: 2px; }
+.fbar { height: 4px; display: flex; background: var(--fbarBg); margin-top: 9px; overflow: hidden; border-radius: var(--cpq-radius-xs); }
 .fbar .w { background: var(--cpq-accent-primary); transition: width .5s var(--ease); }
 .fbar .k { background: var(--cpq-accent-primary-light); opacity: .9; transition: width .5s var(--ease); }
 .ftxt { display: block; font-size: 10.5px; color: var(--t3); margin-top: 5px;
@@ -480,13 +518,13 @@ onMounted(load)
 .detail { max-height: 0; overflow: hidden; transition: max-height .3s var(--ease); }
 .tile.open .detail { max-height: 230px; }
 .d-row { display: flex; align-items: center; gap: 12px; border-top: 1px solid var(--line); margin-top: 11px; padding-top: 11px; }
-.d-tag { font-size: 11px; padding: 2px 10px; border-radius: 999px; border: 1px solid; }
+.d-tag { font-size: 11px; padding: 2px 10px; border-radius: var(--cpq-radius-full); border: 1px solid; }
 .d-tag.ok { color: var(--ok); border-color: var(--cpq-overlay-success15); background: var(--cpq-overlay-success15); }
 .d-tag.bad { color: var(--bad); border-color: var(--cpq-overlay-danger15); background: var(--cpq-overlay-danger10); }
 .d-tag.soft { color: var(--soft); border-color: var(--cpq-overlay-warn30); background: var(--cpq-overlay-warn30); }
 .d-lab { font-size: 11px; color: var(--t3); }
 .stepc { display: flex; align-items: center; gap: 10px; margin-left: auto; }
-.stepc button { width: 25px; height: 25px; border-radius: 6px; font-size: 14px; color: var(--t2);
+.stepc button { width: 25px; height: 25px; border-radius: var(--cpq-radius-sm); font-size: 14px; color: var(--t2);
   border: 1px solid var(--line); background: transparent; cursor: pointer;
   transition: color .15s var(--ease), border-color .15s var(--ease); }
 .stepc button:hover { color: var(--ice); border-color: var(--cpq-glass-border-strong); }
@@ -496,7 +534,7 @@ onMounted(load)
   margin-top: 10px; padding-top: 10px; font-size: 12px; }
 .appl .l { color: var(--t3); }
 .chip { color: var(--ice); border: 1px solid var(--cpq-overlay-a30); background: var(--cpq-overlay-a10);
-  padding: 2px 9px; border-radius: 5px; }
+  padding: 2px 9px; border-radius: var(--cpq-radius-xs); }
 .none { color: var(--t3); font-style: normal; }
 .warn { margin-top: 14px; padding: 10px 13px; border-radius: var(--cpq-radius-sm); font-size: 12px;
   background: var(--cpq-warn-surface); color: var(--soft); border: 1px solid var(--cpq-warn-border); }
@@ -520,5 +558,79 @@ details.more summary::-webkit-details-marker { display: none; }
   .rbody { overflow-y: visible; }
   .hero { grid-template-columns: 1fr; gap: 20px; }
   .corebox { width: 100%; }
+}
+
+/* —— 手机端（≤768）：六步表单收底部抽屉，主屏 = 显存剖面 + 卡砖结果（桌面三栏不受影响） —— */
+.sheet-mask, .sheet-head, .cond-sum, .m-acts { display: none; }
+@media (max-width: 768px) {
+  .cond-sum { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; min-width: 0;
+    font-size: 12.5px; font-weight: 600; color: var(--inkHi); white-space: nowrap; overflow: hidden; }
+  .cond-sum i { font-style: normal; font-weight: 400; font-size: 11px; color: var(--t3);
+    overflow: hidden; text-overflow: ellipsis; }
+  .m-acts { display: flex; gap: 8px; margin: 0 0 2px; }
+  .m-act { flex: 1; display: flex; align-items: center; justify-content: center; height: 36px;
+    padding: 0 8px; font-size: 12.5px; font-weight: 600; white-space: nowrap;
+    border: 1px solid var(--line); border-radius: var(--cpq-radius-sm);
+    background: var(--cpq-overlay-w6); color: var(--t1); cursor: pointer; }
+  .m-act:active { filter: brightness(1.1); }
+  .m-act.on { border-color: var(--cpq-glass-border-strong); background: var(--cpq-bg-selected); color: var(--ice); }
+  .sheet-mask { display: block; position: fixed; inset: 0; z-index: 290;
+    /* b40 而非 b85：页面在遮罩后仍可辨（b85 是全屏弹层档，暗色下会糊成一片空洞） */
+    background: var(--cpq-overlay-b40); opacity: 0; pointer-events: none;
+    transition: opacity .25s var(--ease); }
+  .sheet-mask.on { opacity: 1; pointer-events: auto; }
+  .col-l {
+    position: fixed; left: 12px; right: 12px; bottom: calc(10px + var(--cpq-tabbar-h, 58px)); top: auto;
+    z-index: 300; max-height: 72vh; max-height: 72dvh;
+    background: var(--cpq-glass-3-bg-solid);
+    border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-shadow-lg);
+    padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; min-height: 0;
+    transform: translateY(calc(100% + 24px)); visibility: hidden;
+    transition: transform .3s var(--ease), visibility .3s;
+  }
+  .col-l.open { transform: none; visibility: visible; }
+  .sheet-head { display: flex; align-items: center; justify-content: space-between;
+    position: sticky; top: 0; z-index: 2;
+    margin: 0 -16px 6px; padding: 13px 16px 11px;
+    border-radius: var(--cpq-radius-lg) var(--cpq-radius-lg) 0 0;
+    background: var(--cpq-glass-3-bg-solid);
+    border-bottom: 1px solid var(--line); }
+  .sheet-head b { font-size: 13.5px; font-weight: 600; color: var(--inkHi); }
+  .sheet-head button { padding: 4px 14px; font-size: 12px; font-weight: 600;
+    color: #fff; background: var(--ice); border: none; border-radius: var(--cpq-radius-sm); cursor: pointer; }
+  .sheet-head button:active { filter: brightness(1.1); }
+  /* 整页紧凑化：一屏放完剖面 */
+  .aic { padding: 14px 12px 16px; }
+  .trow h1 { font-size: 16px; }
+  .hsub { display: none; }
+  .mark { margin: 14px 0 8px; }
+  .hero { gap: 10px; }
+  .giga { font-size: 22px; }
+  .verdict { margin-top: 4px; }
+  .brk { margin-top: 8px; max-width: none; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 8px; }
+  .brk .r, .brk .r:first-child { border: none; padding: 6px 9px;
+    background: var(--cpq-overlay-w6); border-radius: var(--cpq-radius-sm);
+    display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+  .brk .r i { font-size: 10.5px; }
+  .corebox { height: 110px; }
+  .step { margin-top: 12px; }
+  .col-r {
+    position: fixed; left: 12px; right: 12px; bottom: calc(10px + var(--cpq-tabbar-h, 58px)); top: auto;
+    z-index: 300; max-height: 74vh; max-height: 74dvh;
+    background: var(--cpq-glass-3-bg-solid);
+    border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-shadow-lg);
+    padding: 0 16px calc(12px + env(safe-area-inset-bottom, 0px));
+    overflow-y: auto; min-height: 0;
+    transform: translateY(calc(100% + 24px)); visibility: hidden;
+    transition: transform .3s var(--ease), visibility .3s;
+  }
+  .col-r.open { transform: none; visibility: visible; }
+  .col-r .mark { display: none; }
+  .rbody { overflow-y: auto; }
 }
 </style>

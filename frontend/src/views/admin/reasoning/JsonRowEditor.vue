@@ -79,7 +79,7 @@ function removeRow(idx: number) {
 .jr-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 2px; }
 .jr-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 8px; border-radius: var(--cpq-radius-sm, 8px);
+  padding: 8px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3, transparent);
   border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.11));
 }

@@ -57,7 +57,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: 6px;
   align-items: center;
   padding: 6px 8px;
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3, transparent);
   border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.11));
 }
@@ -67,7 +67,7 @@ function onKeydown(e: KeyboardEvent) {
   gap: 2px;
   font-size: 12px;
   padding: 1px 4px 1px 8px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w8, rgba(22, 119, 255, 0.08));
   color: var(--cpq-accent-primary, #1677ff);
 }

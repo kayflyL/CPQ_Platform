@@ -103,25 +103,32 @@ def require_perms(*keys: str):
     return checker
 
 
+# 价格字段键族：机密级，fail-closed——AUTH_ENABLED=false 灰度期也不对匿名/无授权者开放
+# （2026-10-17 用户定调「被授权的账户可以看，其他都看不了」；含报价价/商机报价金额/配件库价）。
+_PRICE_FAILCLOSED_KEYS = {"field.quote.price", "field.opportunity.quote_price", "field.parts.price"}
+
+
 def field_visible(user: Optional[dict], key: str) -> bool:
-    """字段级权限判断：AUTH_ENABLED=false（灰度）恒可见；否则需角色含 key。"""
+    """字段级权限判断：AUTH_ENABLED=false（灰度）恒可见；否则需角色含 key。
+    例外：价格键族 fail-closed，灰度期一律要求显式授权。"""
     from app.core.config import get_settings
     if not get_settings().AUTH_ENABLED:
-        return True
+        return key not in _PRICE_FAILCLOSED_KEYS
     if not user:
         return False
     return key in _user_permissions(user)
 
 
 def user_has_permission(user: Optional[dict], key: str) -> bool:
-    """权限判断（配置驱动）：AUTH_ENABLED=false 灰度期恒放行；否则按角色权限目录判断。"""
+    """权限判断（配置驱动）：AUTH_ENABLED=false 灰度期恒放行；否则按角色权限目录判断。
+    例外：价格键族 fail-closed（同 field_visible）——灰度期无授权即无价格。"""
     if not key:
         return True
     if not user:
         return False
     from app.core.config import get_settings
     if not get_settings().AUTH_ENABLED:
-        return True
+        return key not in _PRICE_FAILCLOSED_KEYS
     return key in _user_permissions(user)
 
 

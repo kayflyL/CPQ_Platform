@@ -169,6 +169,11 @@ def _relay_wecom(user_ids: List[str], type: str, title: str, body: str = "") -> 
             at = " ".join(f"@{nm}" for nm in name_list)
             group = title.replace("你有新任务：", f"{at} 有新任务：", 1) if at else title
             group = f"{group}\n{body}" if body else group
+        elif type == "comment_mention":
+            # 「张三 在商机「XX」的评论中@了你」→ 群播报 @被提人 + 标题 + 正文节选
+            at = " ".join(f"@{nm}" for nm in name_list)
+            group = f"{at} {title}" if at else title
+            group = f"{group}\n{body}" if body else group
         else:
             group = f"{content}\n（通知：{names}）" if names else content
         if mentioned:

@@ -486,7 +486,7 @@ onBeforeUnmount(() => {
   right: 0;
   bottom: 6px;
   height: 2px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-primary);
   transform: scaleX(0);
   transform-origin: center;
@@ -499,7 +499,7 @@ onBeforeUnmount(() => {
 .nav-link:focus-visible {
   outline: 2px solid var(--cpq-accent-primary);
   outline-offset: 2px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
 }
 
 .nav-caret { font-size: 9px; display: inline-flex; opacity: 0.7; }
@@ -671,7 +671,7 @@ onBeforeUnmount(() => {
   justify-content: center;
   width: 46px;
   height: 27px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 17px;
   transition: background-color var(--cpq-dur-1) var(--cpq-ease-smooth), color var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
@@ -706,7 +706,7 @@ onBeforeUnmount(() => {
 
 .more-sheet {
   width: 100%;
-  border-radius: 22px 22px 0 0;
+  border-radius: var(--cpq-radius-xl) var(--cpq-radius-xl) 0 0;
   border-top: 1px solid var(--cpq-glass-highlight, var(--cpq-glass-border));
   background: var(--cpq-glass-3-bg);
   -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
@@ -720,7 +720,7 @@ onBeforeUnmount(() => {
 .ms-grip {
   width: 42px;
   height: 4.5px;
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-overlay-a20);
   margin: 2px auto 14px;
 }
@@ -758,7 +758,7 @@ onBeforeUnmount(() => {
   position: relative;
   width: 40px;
   height: 40px;
-  border-radius: 13px;
+  border-radius: var(--cpq-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -782,7 +782,7 @@ onBeforeUnmount(() => {
   font-weight: 800;
   line-height: 1;
   padding: 2px 5px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-primary);
   color: var(--cpq-accent-on-primary);
   box-shadow: 0 0 0 2px var(--cpq-bg-primary);
@@ -823,7 +823,7 @@ onBeforeUnmount(() => {
 .ms-link-ic {
   width: 26px;
   height: 26px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -840,7 +840,7 @@ onBeforeUnmount(() => {
   gap: 10px;
   margin-top: 14px;
   padding: 10px 12px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-overlay-w5);
 }
 
@@ -959,7 +959,7 @@ onBeforeUnmount(() => {
   padding: 6px;
   display: flex;
   flex-direction: column;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-3-bg);
   -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
   backdrop-filter: blur(var(--cpq-glass-blur-3)) saturate(1.35);
@@ -969,7 +969,7 @@ onBeforeUnmount(() => {
 
 .cpq-settings-dd-link {
   padding: 9px 12px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   font-size: 13px;
   font-weight: 500;
   color: var(--cpq-text-secondary);

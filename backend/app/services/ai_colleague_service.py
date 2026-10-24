@@ -226,7 +226,7 @@ async def resolve_assistant_message_target_async(
         return None
     import json as _json
     from app.services import llm_client
-    # 判官用的就是总助自己的提示词（Manage Teams · 员工 · 方案助手）；JSON 契约由 _DISPATCH_SCHEMA 结构化传入。
+    # 判官用的就是总助自己的提示词（Manage Teams · 同事 · 方案助手）；JSON 契约由 _DISPATCH_SCHEMA 结构化传入。
     lead = next((c for c in (config.get("colleagues") or [])
                  if c.get("role_key") == "assistant"), None) or {}
     system_prompt = str(lead.get("system_prompt") or "").strip()

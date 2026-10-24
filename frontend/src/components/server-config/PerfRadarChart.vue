@@ -104,7 +104,7 @@ watch(chartColors, render)
   color: var(--cpq-text-secondary, #9BA1AA);
   background: var(--cpq-overlay-b20);
   border: 1px solid var(--cpq-overlay-w10);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
 }
 .chip b { font-size: 12px; font-weight: 800; color: var(--cpq-accent-primary, #1677ff); }
 .chip.miss b { color: var(--cpq-text-muted, #6E7582); font-weight: 400; }

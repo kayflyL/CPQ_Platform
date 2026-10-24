@@ -211,7 +211,7 @@ onMounted(fetchData)
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a8);
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
 }
 
 /* 批量操作栏 */
@@ -223,7 +223,7 @@ onMounted(fetchData)
   margin-bottom: 16px;
   background: var(--cpq-overlay-danger10);
   border: 1px solid var(--cpq-overlay-danger15);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   animation: fadeInUp 0.3s var(--cpq-ease-out-expo) backwards;
 }
 

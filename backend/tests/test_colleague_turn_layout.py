@@ -34,6 +34,9 @@ OWNERS = {
         "_skill_phase_hint", "_run_tool_turn", "_skill_chat_memory_active",
         "_run_skill_chat", "_skill_write_mode",
     ],
+    "transaction_turn": [
+        "_run_transaction_turn", "dispatch_flow_turn",
+    ],
     "colleague_turn_service": [
         "_drain_thread_queue", "_clear_thread_queue", "run_colleague_turn",
     ],

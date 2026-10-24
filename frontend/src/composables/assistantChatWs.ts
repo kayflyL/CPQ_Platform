@@ -137,15 +137,21 @@ export function adoptTurnEnd(state: AssistantChatWsState) {
  * 下发 task_state（引擎 steps_done + 步骤视图），按它重建。与 pipeline_start /
  * node_trace 事件同形状，展示层零加工。ts 为 null 时不动现有状态。
  */
-export function applyTaskState(state: AssistantChatWsState, ts: { title?: string; steps?: Array<{ key?: string; step?: string; label?: string }>; done?: string[]; phase?: string; pause?: PauseFacts | Record<string, any> | null } | null | undefined) {
+export function applyTaskState(state: AssistantChatWsState, ts: { title?: string; steps?: Array<{ key?: string; step?: string; label?: string }>; done?: string[]; statuses?: Record<string, string>; phase?: string; pause?: PauseFacts | Record<string, any> | null } | null | undefined) {
   const steps = Array.isArray(ts?.steps) ? ts!.steps : []
   if (!steps.length) return
   const doneSet = new Set((ts!.done || []).map((k) => String(k)))
-  state.nodeTraces = steps.map((s) => ({
-    step: String(s.key || s.step || ''),
-    label: String(s.label || s.key || s.step || ''),
-    status: doneSet.has(String(s.key || s.step || '')) ? 'done' : 'pending',
-  }))
+  const statuses = ts!.statuses && typeof ts!.statuses === 'object' ? ts!.statuses : null
+  state.nodeTraces = steps.map((s) => {
+    const key = String(s.key || s.step || '')
+    // statuses=后端节点状态权威载荷（含 skipped）；缺席时退回旧 done/pending 二值口径
+    const status = statuses ? String(statuses[key] || 'pending') : (doneSet.has(key) ? 'done' : 'pending')
+    return {
+      step: key,
+      label: String(s.label || s.key || s.step || ''),
+      status: status as NodeTrace['status'],
+    }
+  })
   state.taskTitle = String(ts!.title || '配置任务')
   state.taskPause = (ts!.pause && typeof ts!.pause === 'object' ? ts!.pause : null) as PauseFacts | null
   state.taskPhase = ts!.phase === 'paused' ? 'paused' : 'running'
@@ -308,11 +314,11 @@ export function handleAssistantChatWsEvent(
       return true
     case 'pipeline_waiting':
       // 问问题/弹卡时任务仍视为进行中（Claude Code 式：有问才停，但任务未结束）。
+      // 2026-10-22 改：phase='paused'——带 pause 事实＝在等人的事实，胶囊显示
+      // 「中断在 xx · 等待你」，不再无限计时假跑（用户实测"卡在第 6 步"的实底）。
       state.waiting = false
-      state.taskPhase = 'running'
+      state.taskPhase = 'paused'
       state.taskPause = pauseFactsOf(data.pause)
-      // running=false 让卡片可点（两处 optionInteractive 均以 !running 判定）；
-      // taskPhase='running' 让胶囊仍显示「执行中」而非「已暂停」。
       state.running = false
       state.streamingText = ''
       return true

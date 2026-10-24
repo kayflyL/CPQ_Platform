@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * AI 角色访问权限面板（『员工 → 访问权限』页签，页面级配置对全部同事生效）。
+ * AI 角色访问权限面板（『同事 → 访问权限』页签，页面级配置对全部同事生效）。
  * 1) 价格可见性：按 AI 角色开关（价格机密，默认关闭）；关闭后该角色的对话与产物不出现价格。
  * 2) 角色访问控制：团队隔离 + 角色→AI角色规则 + 未匹配默认 + 用户例外。
  */
@@ -107,175 +107,150 @@ onMounted(load)
 <template>
   <div class="cap-root">
     <div class="cap-head">
-      <div>
-        <div class="cap-title">AI 角色访问权限</div>
-        <div class="cap-help">控制每个 AI 角色能否查看价格，以及哪些账号可以使用各 AI 角色。</div>
+      <div class="cap-head-text">
+        <span class="cap-title">AI 角色访问权限</span>
+        <span class="cap-desc">控制每个 AI 角色能否查看价格，以及哪些账号可以使用各 AI 角色。</span>
       </div>
       <a-button type="primary" size="small" :loading="saving" @click="save">保存权限</a-button>
     </div>
 
-    <div class="cap-section">价格可见性（价格机密，默认关闭）</div>
-    <div class="cap-price-grid">
-      <div v-for="c in colleagues" :key="c.role_key" class="cap-price-row">
-        <a-switch v-model:checked="priceMap[c.role_key]" size="small" />
-        <span class="cap-price-name" :class="{ 'is-off': !priceMap[c.role_key] }">{{ c.name || c.role_key }}</span>
-        <span class="cap-price-hint">{{ priceMap[c.role_key] ? '对话中可查看价格' : '全程隐藏价格' }}</span>
+    <div class="set-cards">
+      <!-- 价格可见性：每同事一行开关 -->
+      <div class="set-card">
+        <div class="set-head">
+          <div class="set-head-text">
+            <span class="set-name">价格可见性</span>
+            <span class="set-desc">价格机密，默认关闭；关闭后该角色的对话与产物不出现价格。</span>
+          </div>
+        </div>
+        <div v-for="c in colleagues" :key="c.role_key" class="set-row">
+          <span class="set-label" :class="{ 'is-off': !priceMap[c.role_key] }">{{ c.name || c.role_key }}</span>
+          <span class="set-inline">
+            <span class="set-unit">{{ priceMap[c.role_key] ? '对话中可查看价格' : '全程隐藏价格' }}</span>
+            <a-switch v-model:checked="priceMap[c.role_key]" size="small" />
+          </span>
+        </div>
       </div>
-    </div>
 
-    <a-divider class="cap-divider" />
-
-    <div class="cap-line">
-      <span>启用团队隔离</span>
-      <a-switch v-model:checked="policyEnabled" size="small" />
-    </div>
-    <div class="cap-help">
-      开启后，只有下面映射到的 AI 角色会出现在对应用户的门户、浮动窗和 AI 办公室中；关闭后所有人可访问全部 AI 角色。
-    </div>
-
-    <label class="cap-label">角色 → AI 角色</label>
-    <div v-for="(row, index) in roleRows" :key="`role-${index}`" class="cap-row">
-      <a-select
-        v-model:value="row.role_key"
-        size="small"
-        :options="roleOptions"
-        placeholder="选择系统角色"
-        show-search
-      />
-      <a-select
-        v-model:value="row.colleague_keys"
-        mode="multiple"
-        size="small"
-        class="cap-keys"
-        :options="colleagueOptions"
-        placeholder="选择 AI 角色"
-        allow-clear
-      />
-      <a-button type="text" size="small" danger @click="roleRows.splice(index, 1)">删除</a-button>
-    </div>
-    <a-button block size="small" type="dashed" @click="roleRows.push({ role_key: '', colleague_keys: [] })">
-      新增角色规则
-    </a-button>
-
-    <label class="cap-label">未匹配角色默认</label>
-    <a-select
-      v-model:value="defaultKeys"
-      mode="multiple"
-      size="small"
-      style="width: 100%"
-      :options="colleagueOptions"
-      placeholder="未匹配到角色规则时可访问的 AI 角色"
-      allow-clear
-    />
-
-    <a-collapse ghost class="cap-user-exceptions">
-      <a-collapse-panel key="user" header="用户例外（高级，按需覆盖）">
-        <div v-for="(row, index) in userRows" :key="`user-${index}`" class="cap-row">
+      <!-- 团队隔离：卡头开关 + 规则卡内行 + 添加钮 + 未匹配默认 -->
+      <div class="set-card set-card--wide">
+        <div class="set-head">
+          <a-switch v-model:checked="policyEnabled" size="small" />
+          <div class="set-head-text">
+            <span class="set-name">启用团队隔离</span>
+            <span class="set-desc">开启后，只有下面映射到的 AI 角色会出现在对应用户的门户、浮动窗和 AI 办公室中；关闭后所有人可访问全部 AI 角色。</span>
+          </div>
+        </div>
+        <div class="set-rule" v-for="(row, index) in roleRows" :key="`role-${index}`">
+          <div class="set-rule-fields">
+            <a-select
+              v-model:value="row.role_key"
+              size="small"
+              :options="roleOptions"
+              placeholder="选择系统角色"
+              show-search
+              class="set-select"
+            />
+            <a-select
+              v-model:value="row.colleague_keys"
+              mode="multiple"
+              size="small"
+              class="set-select set-select--grow"
+              :options="colleagueOptions"
+              placeholder="选择 AI 角色"
+              allow-clear
+            />
+          </div>
+          <a-button class="set-rule-del" size="small" danger type="text" @click="roleRows.splice(index, 1)">删除</a-button>
+        </div>
+        <div class="set-add">
+          <a-button block size="small" type="dashed" @click="roleRows.push({ role_key: '', colleague_keys: [] })">新增角色规则</a-button>
+        </div>
+        <div class="set-row">
+          <span class="set-label">未匹配角色默认</span>
           <a-select
-            v-model:value="row.user_key"
-            size="small"
-            class="cap-user"
-            :options="userOptions"
-            show-search
-            option-filter-prop="label"
-            placeholder="选择用户"
-          />
-          <a-select
-            v-model:value="row.colleague_keys"
+            v-model:value="defaultKeys"
             mode="multiple"
             size="small"
-            class="cap-keys"
             :options="colleagueOptions"
-            placeholder="选择 AI 角色"
+            placeholder="未匹配到角色规则时可访问的 AI 角色"
             allow-clear
+            class="set-select set-select--grow"
           />
-          <a-button type="text" size="small" danger @click="userRows.splice(index, 1)">删除</a-button>
         </div>
-        <a-button block size="small" type="dashed" @click="userRows.push({ user_key: '', colleague_keys: [] })">
-          新增用户例外
-        </a-button>
-      </a-collapse-panel>
-    </a-collapse>
+      </div>
+
+      <!-- 用户例外：低频高级配置，折叠 -->
+      <div class="set-card set-card--wide">
+        <a-collapse ghost class="cap-user-exceptions">
+          <a-collapse-panel key="user" header="用户例外（高级，按需覆盖）">
+            <div class="set-rule" v-for="(row, index) in userRows" :key="`user-${index}`">
+              <div class="set-rule-fields">
+                <a-select
+                  v-model:value="row.user_key"
+                  size="small"
+                  class="set-select"
+                  :options="userOptions"
+                  show-search
+                  option-filter-prop="label"
+                  placeholder="选择用户"
+                />
+                <a-select
+                  v-model:value="row.colleague_keys"
+                  mode="multiple"
+                  size="small"
+                  class="set-select set-select--grow"
+                  :options="colleagueOptions"
+                  placeholder="选择 AI 角色"
+                  allow-clear
+                />
+              </div>
+              <a-button class="set-rule-del" size="small" danger type="text" @click="userRows.splice(index, 1)">删除</a-button>
+            </div>
+            <div class="set-add">
+              <a-button block size="small" type="dashed" @click="userRows.push({ user_key: '', colleague_keys: [] })">新增用户例外</a-button>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
+      </div>
+    </div>
   </div>
 </template>
 
 <style scoped>
+/* 外层透明容器：卡片是唯一玻璃层（set-card 样式在全局 styles/settings.css，规范 §5 设置类界面） */
 .cap-root {
-  border: 1px solid var(--cpq-border-secondary, rgba(255, 255, 255, 0.1));
-  border-radius: 14px;
-  padding: 16px;
-  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.04));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 .cap-head {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
+}
+.cap-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 .cap-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
-.cap-help {
+.cap-desc {
   font-size: 12px;
   color: var(--cpq-text-muted);
-  margin: 4px 0 8px;
-}
-.cap-section {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  margin: 8px 0;
-}
-.cap-price-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px 16px;
-}
-.cap-price-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cap-price-name {
-  font-size: 13px;
-  color: var(--cpq-text-primary);
-}
-.cap-price-name.is-off {
-  color: var(--cpq-text-muted);
-}
-.cap-price-hint {
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-}
-.cap-divider {
-  margin: 14px 0;
-}
-.cap-line {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--cpq-text-primary);
-}
-.cap-label {
-  display: block;
-  font-size: 12px;
-  color: var(--cpq-text-muted);
-  margin: 12px 0 6px;
-}
-.cap-row {
-  display: grid;
-  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr) auto;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-.cap-keys {
-  min-width: 0;
 }
 .cap-user-exceptions {
-  margin-top: 10px;
+  margin-top: 0;
+}
+.cap-user-exceptions :deep(.ant-collapse-header) {
+  padding: 10px 0;
+  color: var(--cpq-text-secondary);
+  font-size: 12.5px;
 }
 </style>

@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.api.deps import get_current_user, require_perms, resolve_ws_user
 from app.core.config import get_settings
 from app.repository.feed_user_repo import FeedUserRepository
+from app.repository.reasoning_flow_repo import ReasoningFlowRepository, compute_tool_usage
 from app.repository.role_repo import RoleRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.repository.skill_catalog_repo import SkillCatalogRepository
@@ -1131,6 +1132,7 @@ def _normalize_skill(payload: dict) -> dict:
 @router.get("/skills")
 def list_skills(user: dict = Depends(get_current_user)):
     repo = SkillCatalogRepository()
+    flow_repo = ReasoningFlowRepository()
     try:
         skills = []
         for skill in repo.list():
@@ -1141,9 +1143,33 @@ def list_skills(user: dict = Depends(get_current_user)):
             skill["runnable"] = bool(runtime)
             skill["runtime_name"] = (runtime or {}).get("name")
             skill["input_hint"] = (runtime or {}).get("input_hint")
+            # 工作流型别（推理管道/事务管道）随列表下发：来源=active flow 的 entity_binding，
+            # 无流或缺省按 sandbox（推理型）——目录徽标与运行时分发同源，不再另立字段
+            key = str(skill.get("skill_key") or skill.get("key") or "")
+            try:
+                flow = flow_repo.get_active_flow(key)
+                skill["entity_binding"] = str(
+                    ((flow or {}).get("graph") or {}).get("entity_binding") or "sandbox")
+                skill["launch_form"] = (flow or {}).get("launch_form") or None
+            except Exception:
+                flow = None
+                skill["entity_binding"] = "sandbox"
+                skill["launch_form"] = None
+            # 生效工具数 = 目录级授权 ∪ 节点级生效集（与运行时同一合成口径，compute_tool_usage
+            # 单快照即单流）：两种登记风格的卡片显示同一语义的数字
+            try:
+                usage = compute_tool_usage([{
+                    "skill_key": key,
+                    "graph": (flow or {}).get("graph") or {},
+                    "node_deltas": (flow or {}).get("node_configs") or {},
+                }]) if key else {}
+                skill["tool_count"] = len(set(skill.get("tool_ids") or []) | set(usage or {}))
+            except Exception:
+                skill["tool_count"] = len(skill.get("tool_ids") or [])
             skills.append(skill)
         return {"skills": skills}
     finally:
+        flow_repo.close()
         repo.close()
 
 
@@ -1188,7 +1214,6 @@ def delete_skill(skill_key: str, manager: dict = Depends(require_ai_office_manag
         skill_repo.close()
 
     try:
-        from app.repository.reasoning_flow_repo import ReasoningFlowRepository
         rf_repo = ReasoningFlowRepository()
         try:
             rf_repo.deactivate_skill_flows(skill_key, operator=(manager or {}).get("username") or "system")
@@ -1214,7 +1239,7 @@ def _load_skill_catalog_map() -> dict:
 def _reclassify_skill_bindings(colleague: dict, catalog: dict) -> dict:
     """workflow 类型的 key 只住 workflows 数组、skill 类型只住 skills（存量错位归位）。
 
-    员工页两个下拉按 type 分列选项，错位数组里的 key 匹配不到选项 → 前端显示裸
+    同事页两个下拉按 type 分列选项，错位数组里的 key 匹配不到选项 → 前端显示裸
     key（如 requirement_analysis 出现在 Skill 栏）。目录外的 key 保持原位（可能是
     尚未入库的自定义项，不丢数据）；同 key 出现在两个数组只留一份。
     """

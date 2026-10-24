@@ -353,11 +353,62 @@ def ensure_ai_read_views():
         "JOIN opportunities.quotations qt ON qt.quotation_id = qi.quotation_id "
         "JOIN opportunities.opportunities o ON o.opportunity_id = qt.opportunity_id "
         "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        # ── 业务现场（2026-10-16）：流程/成本表/附件/审批，query_data 按需自查的视野 ──
+        "CREATE OR REPLACE VIEW ai_read.opportunity_flows AS "
+        "SELECT f.* FROM opportunities.opportunity_flows f "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = f.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        "CREATE OR REPLACE VIEW ai_read.opportunity_flow_nodes AS "
+        "SELECT n.* FROM opportunities.opportunity_flow_nodes n "
+        "JOIN opportunities.opportunity_flows f ON f.flow_id = n.flow_id "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = f.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        # 成本表只暴露元数据：configs 是 JSON、内含价格，query_data 的列级脱敏
+        # （按列名命中）管不住 JSON 内部——配置细节走 import_cost_sheet（有 price_ok 门）
+        "CREATE OR REPLACE VIEW ai_read.opportunity_cost_sheets AS "
+        "SELECT c.id, c.opportunity_id, c.bom_scheme_id, c.name, c.status, "
+        "c.quotation_id, c.created_by, c.created_at, c.updated_at "
+        "FROM opportunities.opportunity_cost_sheets c "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = c.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
+        # 暂存附件（opportunity_id IS NULL）经 INNER JOIN 天然排除：私人暂存不进 AI 读面
+        "CREATE OR REPLACE VIEW ai_read.opportunity_attachments AS "
+        "SELECT a.attachment_id, a.opportunity_id, a.message_id, a.uploader_user_id, "
+        "a.original_filename, a.file_size, a.mime_type, a.kind, a.category, "
+        "a.quotation_id, a.flow_card_id, a.requirement_version, a.version, "
+        "a.created_at, a.deleted_at "
+        "FROM opportunities.opportunity_attachments a "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = a.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted') AND a.deleted_at IS NULL",
+        # margin_pct/threshold 列名命中价格脱敏正则，运行时对无价格权限者整列剔除
+        "CREATE OR REPLACE VIEW ai_read.opportunity_pricing_approvals AS "
+        "SELECT p.* FROM opportunities.opportunity_pricing_approvals p "
+        "JOIN opportunities.opportunities o ON o.opportunity_id = p.opportunity_id "
+        "WHERE o.status NOT IN ('ai_office', 'deleted')",
     ]
     with opp_engine.begin() as c:
         c.execute(text("CREATE SCHEMA IF NOT EXISTS ai_read"))
         for s in stmts:
             c.execute(text(s))
+
+
+def ensure_feed_attachment_staging():
+    """聊天暂存附件（2026-10-16）：opportunity_attachments.opportunity_id 可空——
+    NULL=会话暂存（聊天框直传、未挂商机），业务动作（导入/归档）落商机时改绑。
+    幂等 DDL：新库由 ORM create_all 直接可空；旧库这里 DROP NOT NULL。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.begin() as c:
+        nullable = c.execute(text(
+            "SELECT is_nullable FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='opportunity_attachments' "
+            "AND column_name='opportunity_id'"
+        )).scalar()
+        if nullable == "NO":
+            c.execute(text(
+                "ALTER TABLE opportunities.opportunity_attachments "
+                "ALTER COLUMN opportunity_id DROP NOT NULL"
+            ))
 
 
 def drop_pet_settings_column():
@@ -542,10 +593,12 @@ _DEFAULT_PERMISSIONS = [
     {"key": "action.quote.export_bypass_approval", "name": "报价外发免审批（跳过总监审批闸）", "group": "action", "module": "商机线索 · 报价工作台"},
     # AI 办公室：菜单 + 管理面（Manage Teams 打开的「AI 办公室管理」左栏两段）
     {"key": "page.office", "name": "AI 办公室菜单与页面", "group": "page", "module": "AI 办公室"},
-    {"key": "ai.office.manage", "name": "AI 办公室管理 · 员工 / 团队 / Skill Studio", "group": "action", "module": "AI 办公室"},
+    {"key": "ai.office.manage", "name": "AI 办公室管理 · 同事 / 团队 / Skill Studio", "group": "action", "module": "AI 办公室"},
     {"key": "ai.office.admin", "name": "AI 办公室管理 · 模型与接入 / 运行与权限", "group": "action", "module": "AI 办公室"},
     {"key": "page.servers", "name": "服务器（机型目录 / 详情 / 配置向导）", "group": "page", "module": "服务器"},
     {"key": "page.parts", "name": "配件", "group": "page", "module": "配件"},
+    {"key": "field.parts.price", "name": "配件价格可见（库价/价格历史）", "group": "field", "module": "配件"},
+    {"key": "action.parts.price.manage", "name": "配件价格维护（录价/改价/价格导入导出）", "group": "action", "module": "配件"},
     {"key": "page.strategies", "name": "解决方案（策略中心全部子页）", "group": "page", "module": "解决方案"},
     {"key": "page.settings.users", "name": "用户与权限", "group": "page", "module": "设置"},
     {"key": "page.settings.excel", "name": "解析规则", "group": "page", "module": "设置"},
@@ -554,8 +607,9 @@ _DEFAULT_PERMISSIONS = [
 ]
 
 # 死键回收：工作台恒开无门控（page.portal）、AI 设置已并入 AI 办公室 Manage Teams
-# （page.settings.ai 由 ai.office.manage 管）、配件页价格遮罩从未接线（field.parts.price）。
-_REMOVED_PERMISSION_KEYS = {"field.server.price", "page.portal", "page.settings.ai", "field.parts.price"}
+# （page.settings.ai 由 ai.office.manage 管）。field.parts.price 曾因从未接线被回收，
+# 现复活并由 KP/料号全链路接线（见 admin.py/parts.py/kp_config.py/bom_cases.py）。
+_REMOVED_PERMISSION_KEYS = {"field.server.price", "page.portal", "page.settings.ai"}
 
 
 def ensure_permission_catalog():
@@ -1266,14 +1320,6 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ BOM案例库 init failed: {e}")
 
-    # Ensure comments table exists (raw SQL table on public schema, no ORM model)
-    try:
-        from app.repository.comment_repo import ensure_comments_table
-        ensure_comments_table()
-        print("✅ Comments table ensured")
-    except Exception as e:
-        print(f"⚠️ Comments table init failed: {e}")
-
     # 需求分析：CPU/GPU 型号家族词表自动补齐（从 kp 库件名抽取新型号，只加不删）
     try:
         from app.services.model_family_sync import sync_model_family_words
@@ -1352,6 +1398,12 @@ def init_rules_db():
         print("✅ AI read views ensured (ai_read.* excludes ai_office/deleted)")
     except Exception as e:
         print(f"⚠️ AI read views migrate failed: {e}")
+    # 聊天暂存附件：opportunity_attachments.opportunity_id 可空
+    try:
+        ensure_feed_attachment_staging()
+        print("✅ feed attachment staging ensured (opportunity_id nullable)")
+    except Exception as e:
+        print(f"⚠️ feed attachment staging migrate failed: {e}")
     # 报价单发送状态：submitted_at/submitted_by/submitted_attachment_id + 旧 done 数据回退
     try:
         ensure_quotation_submission_columns()

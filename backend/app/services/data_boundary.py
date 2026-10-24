@@ -3,7 +3,7 @@
 
 宪法（2026-09-13 起，工具即权限）：
 - 能力面 = 同事的 tool_ids（绑定 Skill 自动并入其工具）；
-- 价格可见性 = 同事级 price_access 布尔（唯一事实源，员工页权限面板直改）；
+- 价格可见性 = 同事级 price_access 布尔（唯一事实源，同事页权限面板直改）；
 - query_data 可读表 = 工具自有白名单（system_config.query_data_tables_allow），
   与同事无关——挂上这个工具的人共用同一份业务表白名单；
 - 本模块不再存「按同事编辑的 data_boundary」：边界字典只是 query_data 执行期
@@ -52,6 +52,13 @@ _AI_VIEW_MAP = {
     "opportunities.opportunity_bom_schemes": "ai_read.opportunity_bom_schemes",
     "opportunities.quotations": "ai_read.quotations",
     "opportunities.quotation_items": "ai_read.quotation_items",
+    # 业务现场（2026-10-16）：流程/成本表/附件/审批。成本表视图只有元数据列
+    # （configs JSON 内价格躲过列级脱敏）；附件视图不含暂存行（NULL 商机被 JOIN 排除）
+    "opportunities.opportunity_flows": "ai_read.opportunity_flows",
+    "opportunities.opportunity_flow_nodes": "ai_read.opportunity_flow_nodes",
+    "opportunities.opportunity_cost_sheets": "ai_read.opportunity_cost_sheets",
+    "opportunities.opportunity_attachments": "ai_read.opportunity_attachments",
+    "opportunities.opportunity_pricing_approvals": "ai_read.opportunity_pricing_approvals",
 }
 
 
@@ -131,7 +138,7 @@ def colleague_price_ok(colleague: Any) -> bool:
 
 
 # 用户侧价格权限 key：与报价工作台价格字段同源（deps.user_has_permission 语义：
-# AUTH_ENABLED=false 灰度恒真；admin=目录全量天然通过）。
+# 价格键族 fail-closed——灰度期也无授权即无价；admin=目录全量天然通过）。
 USER_PRICE_PERM_KEY = "field.quote.price"
 
 

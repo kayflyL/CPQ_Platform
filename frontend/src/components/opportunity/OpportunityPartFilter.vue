@@ -150,7 +150,7 @@ function clearAll() {
 <style scoped>
 .pf-trigger {
   display: inline-flex; align-items: center; gap: 6px;
-  padding: 5px 12px; border-radius: var(--cpq-radius-sm, 8px);
+  padding: 5px 12px; border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
   background: var(--cpq-glass-2-bg, rgba(255, 255, 255, 0.72));
   color: var(--cpq-text-secondary); font-size: 12px; font-family: inherit; cursor: pointer;
@@ -172,12 +172,12 @@ function clearAll() {
 .pf-kw {
   flex: 1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-height: 28px;
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
-  border-radius: var(--cpq-radius-sm, 8px); padding: 2px 6px; background: var(--cpq-glass-2-bg, rgba(255, 255, 255, 0.85));
+  border-radius: var(--cpq-radius-sm); padding: 2px 6px; background: var(--cpq-glass-2-bg, rgba(255, 255, 255, 0.85));
 }
 .pf-tag {
   display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--cpq-text-primary);
   background: rgba(22, 119, 255, 0.08); border: 1px solid rgba(22, 119, 255, 0.25);
-  border-radius: 6px; padding: 0 4px 0 7px;
+  border-radius: var(--cpq-radius-sm); padding: 0 4px 0 7px;
 }
 .pf-tag i { font-style: normal; font-size: 10px; color: var(--cpq-text-muted); cursor: pointer; }
 .pf-tag i:hover { color: var(--cpq-accent-danger); }
@@ -186,7 +186,7 @@ function clearAll() {
 .pf-qty.empty { opacity: 0.45; }
 .pf-del {
   border: 0; background: transparent; color: var(--cpq-text-muted); cursor: pointer;
-  font-size: 12px; padding: 2px 4px; border-radius: 6px; flex: none;
+  font-size: 12px; padding: 2px 4px; border-radius: var(--cpq-radius-sm); flex: none;
 }
 .pf-del:hover { color: var(--cpq-accent-danger); background: rgba(255, 107, 107, 0.1); }
 .pf-add {
@@ -201,7 +201,7 @@ function clearAll() {
 .pf-note { flex: 1; font-size: 11px; color: var(--cpq-text-muted); line-height: 1.5; }
 .pf-note b { color: var(--cpq-text-secondary); }
 .pf-btn {
-  font-family: inherit; font-size: 12px; border-radius: var(--cpq-radius-sm, 8px); padding: 4px 14px;
+  font-family: inherit; font-size: 12px; border-radius: var(--cpq-radius-sm); padding: 4px 14px;
   cursor: pointer; border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
   background: transparent; color: var(--cpq-text-secondary); transition: all 0.15s ease; flex: none;
 }

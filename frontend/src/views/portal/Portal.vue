@@ -1,7 +1,7 @@
 <script setup lang="ts">
 /**
  * 工作台 (/portal) —— 三层结构（原型 docs/prototypes/工作台-主入口强化原型.html v2）：
- * ① 信号波纹 banner：时段问候 + 概括角标（今日待办 / 经手商机|在办商机 / 今日新增，真实口径 todo-summary）；
+ * ① 信号波纹 banner：时段问候（hero 角标数字已移除：与「我的工作台」卡/流程条数字重复，2026-10-21）；
  * ② CPQ 业务流程条：五节点全局计数纯展示（不再承担入口职责）+ 右栏「我的工作台」入口卡 =
  *    全页唯一主 CTA（角色铭牌 + 个人统计与子页统计条同口径 + 主按钮；数据源=子页同款接口）；
  * ③ 常用功能：方案助手磁贴（聊天权限门控）置首，其余按 perm 过滤——
@@ -12,7 +12,7 @@ import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { useAssistantShell } from '@/composables/useAssistantShell'
-import { portalApi, type TodoSummaryItem } from '@/api/portal'
+import { portalApi } from '@/api/portal'
 
 const router = useRouter()
 const auth = useAuthStore()
@@ -23,14 +23,6 @@ const userName = computed(() => auth.user?.name || '')
 const hello = computed(() => {
   const h = new Date().getHours()
   return h < 6 ? '夜深了' : h < 12 ? '上午好' : h < 18 ? '下午好' : '晚上好'
-})
-function statOf(key: string): number | null {
-  const hit = todos.value.find((t) => t.key === key && t.level !== 'dim')
-  return hit ? hit.count : null
-}
-const todoTotal = computed(() => {
-  if (!todos.value.length) return null
-  return todos.value.filter((t) => t.level !== 'dim').reduce((s, t) => s + t.count, 0)
 })
 const stages = computed<Record<string, number>>(() => ({
   requirement: 0, assign: 0, boming: 0, costing: 0, quoting: 0, ...(stagesRaw.value || {}),
@@ -117,20 +109,18 @@ function openAct(a: Act) {
   else if (a.to) router.push(a.to)
 }
 
-// ── 待处理事项（角色口径 items → hero 角标；全局 stages → 流程条） ──
-const todos = ref<TodoSummaryItem[]>([])
+// ── 全局 stages → 流程条（todo-summary 的 items 角标已移除：与「我的工作台」卡/流程条数字重复，2026-10-21） ──
 const stagesRaw = ref<Record<string, number> | null>(null)
-async function loadTodos() {
+async function loadStages() {
   try {
     const res = await portalApi.todoSummary()
-    todos.value = res.items || []
     stagesRaw.value = res.stages || null
   } catch {
-    todos.value = []
+    stagesRaw.value = null
   }
 }
 
-onMounted(() => { loadTodos(); loadRail() })
+onMounted(() => { loadStages(); loadRail() })
 
 // ── 待办格图标（20×20 线稿）──
 const G = (inner: string) =>
@@ -170,13 +160,6 @@ function glyph(name: string): string {
         </div>
         <h1>{{ hello }}，{{ userName }}</h1>
         <div class="sub">欢迎使用霄擎算力 CPQ 平台，助您高效完成从需求到报价的全流程。</div>
-        <div class="today">
-          <span v-if="todoTotal !== null" class="tchip hot">今日待办 <b class="num">{{ todoTotal }}</b></span>
-          <!-- 第 2 枚角标：admin 看全局在办；其余角色看自己的「经手商机」（todo-summary items.involved，口径含历史） -->
-          <span v-if="!myRole || myRole === 'admin'" class="tchip">在办商机 <b class="num">{{ stages.running }}</b></span>
-          <span v-else-if="statOf('involved') !== null" class="tchip">经手商机 <b class="num">{{ statOf('involved') }}</b></span>
-          <span v-if="statOf('opp_today') !== null" class="tchip">今日新增 <b class="num">{{ statOf('opp_today') }}</b></span>
-        </div>
       </section>
     <main class="portal-main">
 
@@ -197,7 +180,12 @@ function glyph(name: string): string {
         <div v-if="railRole" class="mycard">
           <div class="h"><span class="chip" v-html="glyph('chip')"></span>我的工作台</div>
           <div class="roleline">{{ railRole.role }} · {{ railRole.stage }}</div>
-          <div v-for="(s, i) in railStats" :key="s.k" class="mrow"><span>{{ s.k }}</span><b class="num" :class="{ hot: i === 0 }">{{ s.v }}</b></div>
+          <div class="mrows">
+            <div v-for="(s, i) in railStats" :key="s.k" class="mrow">
+              <b class="num" :class="{ hot: i === 0 }">{{ s.v }}</b>
+              <span>{{ s.k }}</span>
+            </div>
+          </div>
           <button type="button" class="mine-go" @click="router.push(railRole.to)">进入{{ railRole.ws }} →</button>
         </div>
       </section>
@@ -229,16 +217,16 @@ background:radial-gradient(ellipse at 74% 130%,var(--sc-bg2),var(--sc-bg1) 72%)}
 .hero::after{content:'';position:absolute;left:0;right:0;bottom:0;height:90px;
 background:linear-gradient(to bottom,transparent,var(--sc-fade));pointer-events:none}
 .rings{position:absolute;right:6%;top:50%;transform:translateY(-50%);width:320px;height:320px}
-.rings i{position:absolute;left:50%;top:50%;border:1px solid var(--sc-ring);border-radius:50%;transform:translate(-50%,-50%)}
+.rings i{position:absolute;left:50%;top:50%;border:1px solid var(--sc-ring);border-radius: 50%;transform:translate(-50%,-50%)}
 .rings i:nth-child(1){width:90px;height:90px}
 .rings i:nth-child(2){width:160px;height:160px;border-color:var(--sc-ring-dim)}
 .rings i:nth-child(3){width:230px;height:230px;border-color:var(--sc-ring-dim)}
 .rings i:nth-child(4){width:300px;height:300px;border-color:var(--sc-ring-faint)}
-.sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,var(--sc-sweep),transparent 75deg);animation:spin 7s linear infinite;filter:blur(3px)}
+.sweep{position:absolute;inset:0;border-radius: 50%;background:conic-gradient(from 0deg,var(--sc-sweep),transparent 75deg);animation:spin 7s linear infinite;filter:blur(3px)}
 @keyframes spin{to{transform:rotate(360deg)}}
-.rings::after{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius:50%;background:var(--sc-core);box-shadow:0 0 14px var(--sc-core-glow);transform:translate(-50%,-50%);animation:core 2.4s ease-in-out infinite}
+.rings::after{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius: 50%;background:var(--sc-core);box-shadow:0 0 14px var(--sc-core-glow);transform:translate(-50%,-50%);animation:core 2.4s ease-in-out infinite}
 @keyframes core{0%,100%{opacity:.5}50%{opacity:1}}
-.blip{position:absolute;width:6px;height:6px;border-radius:50%;background:var(--sc-blip);box-shadow:0 0 10px var(--sc-blip-glow);animation:blip 3s infinite}
+.blip{position:absolute;width:6px;height:6px;border-radius: 50%;background:var(--sc-blip);box-shadow:0 0 10px var(--sc-blip-glow);animation:blip 3s infinite}
 .blip.b2{animation-delay:1.2s;background:var(--sc-blip2);box-shadow:0 0 10px var(--sc-blip2-glow)}
 .blip.b3{animation-delay:2s}
 @keyframes blip{0%,100%{opacity:.2}50%{opacity:1}}
@@ -246,47 +234,44 @@ background:linear-gradient(to bottom,transparent,var(--sc-fade));pointer-events:
 .hero > :not(.rings){position:relative;z-index:2}
 .hero h1{font-size:23px;font-weight:650;letter-spacing:-.02em;color:var(--sc-t1)}
 .hero .sub{margin-top:6px;font-size:13px;color:var(--sc-t2)}
-.today{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
-.tchip{display:flex;align-items:center;gap:7px;font-size:12.5px;color:var(--sc-chiptx);background:var(--sc-chipbg);
-border:1px solid var(--sc-chipbd);border-radius:99px;padding:6px 13px}
-.tchip b{color:var(--sc-core);font-weight:600}
-.tchip.hot b{color:#f4756f}
-.tchip:hover{border-color:rgba(122,167,255,.45)}
 .slogan{position:absolute;right:28px;top:24px;text-align:right;font-size:13px;color:var(--sc-slog);letter-spacing:2px}
 
-.chip{width:36px;height:36px;border-radius:10px;background:rgba(59,130,246,.14);color:var(--cpq-accent-primary,#1677ff);display:grid;place-items:center;flex:none}
+.chip{width:36px;height:36px;border-radius: var(--cpq-radius-md);background:rgba(59,130,246,.14);color:var(--cpq-accent-primary,#1677ff);display:grid;place-items:center;flex:none}
 .chip svg{width:18px;height:18px}
 
 /* ═══ 流程条（纯展示）+ 右栏「我的工作台」入口卡 ═══ */
-.flowrow{display:grid;grid-template-columns:1fr 284px;gap:14px;margin-bottom:18px}
-.flowrow.solo{grid-template-columns:1fr}
-.flow{border:1px solid var(--gb);border-radius:14px;background:var(--card);backdrop-filter:blur(12px);
+/* 轨道用 minmax(0,1fr)：手机端 fnodes 横滑后内容宽会把 1fr 的自动最小尺寸撑破，整页横向溢出（2026-10-21） */
+.flowrow{display:grid;grid-template-columns:minmax(0,1fr) 284px;gap:14px;margin-bottom:18px}
+.flowrow.solo{grid-template-columns:minmax(0,1fr)}
+.flow{border:1px solid var(--gb);border-radius: var(--cpq-radius-lg);background:var(--card);backdrop-filter:blur(12px);
 box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:18px 22px;display:flex;flex-direction:column}
 .flow .h{font-size:14px;font-weight:600}
 .flow .h span{margin-left:10px;font-size:12px;color:var(--cpq-text-muted,#8b94a8);font-weight:400}
 .fnodes{flex:1;display:flex;align-items:center;gap:6px;margin-top:8px}
 .fnode{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
-.fico{width:42px;height:42px;border-radius:50%;background:rgba(59,130,246,.12);color:var(--cpq-accent-primary,#1677ff);display:grid;place-items:center;flex:none;border:1px solid rgba(122,167,255,.25)}
+.fico{width:42px;height:42px;border-radius: 50%;background:rgba(59,130,246,.12);color:var(--cpq-accent-primary,#1677ff);display:grid;place-items:center;flex:none;border:1px solid rgba(122,167,255,.25)}
 .fico svg{width:19px;height:19px}
 .fnode .n{font-size:13.5px;font-weight:600;color:var(--cpq-text-primary)}
 .fnode .c{font-size:12px;color:var(--cpq-text-muted,#8b94a8);margin-top:2px}
 .fnode .c b{color:var(--cpq-accent-primary,#1677ff);font-weight:600}
 .farrow{color:var(--cpq-text-muted,#8b94a8);flex:none}
 /* 我的入口卡：accent 渐变描边，全页唯一主 CTA */
-.mycard{position:relative;border:1px solid rgba(122,167,255,.5);border-radius:14px;
+.mycard{position:relative;border:1px solid rgba(122,167,255,.5);border-radius: var(--cpq-radius-lg);
 background:linear-gradient(155deg,rgba(59,130,246,.20),rgba(59,130,246,.05) 55%),var(--card);
 box-shadow:0 10px 30px rgba(59,130,246,.16),inset 0 1px 0 0 rgba(255,255,255,.1);
 padding:16px 18px;display:flex;flex-direction:column}
 .mycard .h{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600;color:var(--cpq-text-primary)}
-.mycard .h .chip{width:32px;height:32px;border-radius:9px;background:rgba(59,130,246,.28);color:#cfe0ff}
+.mycard .h .chip{width:32px;height:32px;border-radius: var(--cpq-radius-sm);background:rgba(59,130,246,.28);color:#cfe0ff}
 .mycard .h .chip svg{width:16px;height:16px}
 .roleline{font-size:11.5px;color:var(--cpq-text-muted,#8b94a8);margin-top:8px}
-.mrow{display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:12px;color:var(--cpq-text-muted,#8b94a8)}
+/* 统计行：桌面行式（label 左数字右，row-reverse 因 DOM 数字在前）；手机端媒体查询改三列格 */
+.mrow{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:12px;color:var(--cpq-text-muted,#8b94a8)}
 .mrow b{font-size:17px;font-weight:600;color:var(--cpq-text-primary)}
 .mrow b.hot{color:#f4756f}
+.mycard .mrows{margin-bottom:var(--cpq-space-3)} /* CTA 吸底 auto 在卡片=内容高时坍缩为0，这里保底间隙 */
 .mine-go{margin-top:auto;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
 font-size:12.5px;font-weight:600;color:#fff;background:linear-gradient(135deg,#3b82f6,#5b8ff9);
-border:0;border-radius:9px;padding:9px 0;box-shadow:0 4px 12px rgba(22,119,255,.32);cursor:pointer}
+border:0;border-radius: var(--cpq-radius-sm);padding:9px 0;box-shadow:0 4px 12px rgba(22,119,255,.32);cursor:pointer}
 .mine-go:hover{filter:brightness(1.08)}
 /* 方案助手磁贴：AI 渐变识别 */
 .act.ai{border-color:rgba(122,167,255,.35);background:linear-gradient(140deg,rgba(59,130,246,.14),rgba(14,165,233,.04) 60%),var(--card)}
@@ -296,7 +281,7 @@ border:0;border-radius:9px;padding:9px 0;box-shadow:0 4px 12px rgba(22,119,255,.
 .sec-h span{font-size:12px;color:var(--cpq-text-muted,#8b94a8);font-weight:400}
 .sec-h .more{margin-left:auto;font-size:12px;color:var(--cpq-accent-primary,#1677ff);font-weight:400}
 .acts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-.act{display:flex;align-items:center;gap:12px;border:1px solid var(--gb);border-radius:12px;background:var(--card);
+.act{display:flex;align-items:center;gap:12px;border:1px solid var(--gb);border-radius: var(--cpq-radius-md);background:var(--card);
 backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:14px 16px}
 .act:hover{background:rgba(255,255,255,.07);border-color:rgba(122,167,255,.4)}
 .act .chip{width:38px;height:38px}
@@ -308,20 +293,20 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 /* ═══ 手机端（≤768）：须置于全部基础规则之后，否则被同特异性后写规则覆盖 ═══ */
 @media (max-width:768px){
 .portal-main{padding:14px 14px calc(var(--cpq-tabbar-h,58px) + 20px)}
-.flowrow{grid-template-columns:1fr}
+.flowrow{grid-template-columns:minmax(0,1fr)}
 .hero{margin:calc(-1 * var(--cpq-header-clearance,0px)) 0 14px;padding:calc(var(--cpq-header-clearance,0px) + 20px) 16px 20px;min-height:0}
 .hero h1{font-size:20px}
 .slogan{display:none}
-.rings{width:190px;height:190px;right:-56px;top:40%;opacity:.8}
-/* 流程条：两列网格，图标+文字水平行；禁 flex-basis 坍缩与逐字竖排 */
-.fnodes{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin-top:14px}
-.fnode{flex:none;min-width:0;gap:10px}
+/* 手机 hero 变矮后波纹只剩孤立信号点，干脆去掉，留纯净渐变 */
+.rings{display:none}
+/* 流程条：与 PC 同构单行，窄屏放不下整行横滑；箭头保留；隐藏原生滚动条（右缘截断即可暗示可滑） */
+.fnodes{overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.fnodes::-webkit-scrollbar{display:none}
+.fnode{flex:none;gap:10px}
 .fico{width:36px;height:36px}
 .fico svg{width:16px;height:16px}
-.fnode .n{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fnode .c{font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.fnode .c b{display:block}
-.farrow{display:none}
+.fnode .n{font-size:12.5px;white-space:nowrap}
+.fnode .c{font-size:11px;white-space:nowrap}
 /* 常用功能：两列；描述允许换行不再单行截断 */
 .acts{grid-template-columns:1fr 1fr;gap:8px}
 .act{padding:11px 12px;gap:10px}
@@ -330,6 +315,11 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 .act .ax b{font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .act .ax i{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .act .chev{display:none}
+/* 我的入口卡统计：三列格（数字上 label 下），避免全宽下两端对齐把 label 与数字扯开 */
+.mrows{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.mrow{flex-direction:column;align-items:center;gap:3px;margin-top:0;text-align:center}
+.mrow b{font-size:18px}
+.mrow span{font-size:11px}
 }
 
 </style>
@@ -338,11 +328,9 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 .portal{--sc-bg1:#04070f;--sc-bg2:#0a1e3d;--sc-ring:rgba(122,167,255,.15);--sc-ring-dim:rgba(122,167,255,.09);
 --sc-ring-faint:rgba(122,167,255,.05);--sc-sweep:rgba(122,167,255,.17);--sc-core:#8fb5ff;--sc-core-glow:rgba(122,167,255,.9);
 --sc-blip:#7aa7ff;--sc-blip-glow:rgba(122,167,255,.9);--sc-blip2:#4fd6a5;--sc-blip2-glow:rgba(79,214,165,.9);
---sc-t1:#fff;--sc-t2:rgba(226,234,248,.75);--sc-chiptx:rgba(233,240,252,.85);--sc-chipbg:rgba(255,255,255,.06);
---sc-chipbd:rgba(255,255,255,.16);--sc-slog:rgba(205,216,238,.55)}
+--sc-t1:#fff;--sc-t2:rgba(226,234,248,.75);--sc-slog:rgba(205,216,238,.55)}
 html[data-theme='light'] .portal{--sc-bg1:#f4f8ff;--sc-bg2:#d8e8fd;--sc-ring:rgba(59,130,246,.18);--sc-ring-dim:rgba(59,130,246,.10);
 --sc-ring-faint:rgba(59,130,246,.05);--sc-sweep:rgba(59,130,246,.10);--sc-core:#2f6fe4;--sc-core-glow:rgba(59,130,246,.55);
 --sc-blip:#2f6fe4;--sc-blip-glow:rgba(59,130,246,.5);--sc-blip2:#149d82;--sc-blip2-glow:rgba(20,157,130,.5);
---sc-t1:var(--cpq-text-primary,#1a2333);--sc-t2:var(--cpq-text-secondary,#48546e);--sc-chiptx:#33415c;
---sc-chipbg:rgba(255,255,255,.65);--sc-chipbd:rgba(59,130,246,.25);--sc-slog:rgba(90,118,168,.75)}
+--sc-t1:var(--cpq-text-primary,#1a2333);--sc-t2:var(--cpq-text-secondary,#48546e);--sc-slog:rgba(90,118,168,.75)}
 </style>

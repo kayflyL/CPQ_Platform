@@ -18,7 +18,6 @@ from typing import Any, Callable, Optional
 
 from app.services import llm_client
 from app.services.agent_react import run_stream_chat_loop
-from app.services.agent_tool_specs import tool_requires_approval
 from app.services.assistant_hub import assistant_hub
 from app.services.data_boundary import effective_price_ok
 from app.services.skill_tool_context import TOOL_CTX
@@ -228,55 +227,10 @@ async def _run_tool_turn(
             )
 
     async def governance_guard(name: str, args: dict, result: Any) -> Any:
-        if not tool_requires_approval(name):
-            return result
-        skill = _skill_for_tool(colleague, name)
-        office_action = skill.get("office_action") if isinstance(skill.get("office_action"), dict) else {}
-        payload = {
-            "role_key": role_key,
-            "status": str(office_action.get("status") or "waiting_input"),
-            "activity": str(office_action.get("activity") or f"等待审批：{name}"),
-            "message": str(office_action.get("message") or ""),
-            "tool": name, "thread_id": thread_id,
-            "approval_required": True, "priority": "user", "source": "colleague_turn",
-            "draft": result, "args": args,
-        }
-        try:
-            item = await office_governance.enqueue(payload)
-            item_id = item.get("id")
-        except Exception:
-            logger.exception("governance enqueue failed for %s", name)
-            item_id = None
-        approval_text = f"AI 已生成 {name} 草稿并提交审批。审批通过后才会写入业务数据。"
-        approval_msg = _add_assistant_message(
-            thread_id,
-            colleague,
-            approval_text,
-            kind="approval_required",
-            data=json.dumps({
-                "governance_id": item_id,
-                "tool": name,
-                "draft": result,
-            }, ensure_ascii=False, default=str),
-        )
-        # 审批中断与技能暂停用同一份载荷（P5-B3）：形状=工厂，只有事实与原因码，不再手搓第二套。
-        from app.services.skill_plan_runtime import pause_payload
-        pause = pause_payload(kind="approval",
-                              pending=[{"governance_id": item_id, "tool": name}],
-                              steps_done=[])
-        await assistant_hub.broadcast(thread_id, {
-            "type": "approval_required",
-            "governance_id": item_id,
-            "tool": name,
-            "message": approval_msg,
-            "pause": pause,
-        })
-        return {
-            "status": "pending_approval",
-            "governance_id": item_id,
-            "message": "系统已生成草稿并进入审批队列，未经用户确认不会写入业务数据。",
-            "draft": result,
-        }
+        # 工具级审批死机制已移除（2026-10-16）：写工具的确认在工具内部两阶段完成
+        # （agent_write_confirm），先执行后拦截的 approval_required 分支没有执行回路，
+        # 留着会让人误以为有保护。下游转接审批（downstream_guard）不受影响。
+        return result
 
     async def downstream_guard(handoff: dict) -> Optional[dict]:
         """输出交接若指向无权限的下游 AI 角色，转成审批项，不直接调用该角色。"""
@@ -339,6 +293,7 @@ async def _run_tool_turn(
     _ctx_token = TOOL_CTX.set({"role_key": role_key, "price_ok": effective_price_ok(colleague, user=user),
                                "thread_id": thread_id, "opportunity_id": opportunity_id,
                                "user_id": str((user or {}).get("user_id") or "").strip() or None,
+                               "user": user if isinstance(user, dict) else None,
                                "workflow_offers": workflow_offers})
     try:
         result = await run_stream_chat_loop(
@@ -463,7 +418,12 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
             await raw_broadcast(payload)
 
     if not opportunity_id:
-        opportunity_id = _ensure_ai_office_opportunity(thread_id, user, user_text)
+        # 会话实体绑定策略(graph.entity_binding,缺省 sandbox):sandbox=隐藏 ai-* 载体
+        # (需求分析范式);real_bound=不建载体,交付链的建档确认节点绑定真实商机;
+        # none=不挂商机。载体轮换只属于 sandbox 范式,不给其他工作流强加。
+        from app.services.skill_registry import entity_binding_of
+        if entity_binding_of(skill_manifest) == "sandbox":
+            opportunity_id = _ensure_ai_office_opportunity(thread_id, user, user_text)
 
     await publish_office_event(role_key, "working", "接收新任务", message=user_text or "", thread_id=thread_id)
 

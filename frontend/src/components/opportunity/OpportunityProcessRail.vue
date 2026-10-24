@@ -166,7 +166,7 @@ function stagePercentOf(key: string) {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-lg, 14px);
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -204,13 +204,13 @@ function stagePercentOf(key: string) {
 .rail-progress-track {
   height: 6px;
   margin-top: 9px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w10);
   overflow: hidden;
 }
 .rail-progress-fill {
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: linear-gradient(90deg, var(--cpq-accent-primary), #8b5cf6);
   transition: width 0.35s ease;
 }
@@ -232,7 +232,7 @@ function stagePercentOf(key: string) {
   overflow-y: auto;
 }
 .rail-step {
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   margin-bottom: 4px;
 }
 .rail-step-head {
@@ -242,7 +242,7 @@ function stagePercentOf(key: string) {
   width: 100%;
   padding: 10px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   color: var(--cpq-text-muted);
   text-align: left;
@@ -264,7 +264,7 @@ function stagePercentOf(key: string) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w10);
   font-size: 11px;
   font-weight: 700;
@@ -329,14 +329,14 @@ function stagePercentOf(key: string) {
   flex: 1;
   min-width: 0;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w10);
   overflow: hidden;
 }
 .rail-stage-track i {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-primary);
   transition: width 0.35s ease;
 }
@@ -354,7 +354,7 @@ function stagePercentOf(key: string) {
   width: 100%;
   padding: 5px 8px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: var(--cpq-text-secondary);
   font-size: 12px;
@@ -370,7 +370,7 @@ function stagePercentOf(key: string) {
   width: 5px;
   height: 5px;
   flex-shrink: 0;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-accent-primary);
 }
 .rail-substep-check {
@@ -439,7 +439,7 @@ function stagePercentOf(key: string) {
   align-items: center;
   justify-content: center;
   border: 1px solid transparent;
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w6);
   color: var(--cpq-text-muted);
   font-size: 12px;

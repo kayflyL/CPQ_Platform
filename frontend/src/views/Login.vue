@@ -69,7 +69,7 @@ async function submit() {
 .login-card {
   width: min(360px, calc(100vw - 32px));
   padding: 32px 28px 24px;
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
 }
 .brand {
   text-align: center;

@@ -26,10 +26,14 @@ export const useAuthStore = defineStore('auth', () => {
 
   const isAuthenticated = computed(() => !authEnabled.value || !!user.value)
 
-  /** 是否有某权限（menu/route/字段级 UI 统一入口）。灰度关闭时全放行。 */
+  /** 价格字段键族（与后端 deps._PRICE_FAILCLOSED_KEYS 同源）：机密级 fail-closed，
+   *  灰度期也不对无授权者开放——否则灰度下价格列/按钮照常渲染而数据被剥，体验割裂。 */
+  const PRICE_FAILCLOSED_KEYS = ['field.quote.price', 'field.opportunity.quote_price', 'field.parts.price']
+
+  /** 是否有某权限（menu/route/字段级 UI 统一入口）。灰度关闭时全放行；价格键族例外恒按授权判断。 */
   function can(key: string): boolean {
-    if (!authEnabled.value) return true
     if (!key) return true
+    if (!authEnabled.value) return !PRICE_FAILCLOSED_KEYS.includes(key)
     return permissions.value.includes(key)
   }
 

@@ -56,7 +56,12 @@
             </div>
           </template>
           <template v-else-if="column.key === 'role'">
-            <span class="badge role-badge" :class="`role-${record.role || 'member'}`">
+            <span
+              class="badge role-badge role-link"
+              :class="`role-${record.role || 'member'}`"
+              title="查看该角色的权限"
+              @click.stop="openRoleOf(record)"
+            >
               <span class="dot" :style="{ background: roleColor(record.role) }"></span>{{ record.role_name || record.role || '未分配' }}
             </span>
           </template>
@@ -112,6 +117,10 @@
             <div class="role-desc">{{ record.description || '—' }}</div>
           </template>
           <template v-else-if="column.key === 'members'">
+            <span class="member-stack">
+              <span v-for="u in (usersByRole[record.role_key] || []).slice(0, 4)" :key="u.user_id" class="m-ava" :style="{ background: avatarBg(u.name) }">{{ u.name.slice(0, 1) }}</span>
+              <span v-if="(usersByRole[record.role_key]?.length || 0) > 4" class="m-more">+{{ (usersByRole[record.role_key] || []).length - 4 }}</span>
+            </span>
             <span class="link-num" @click.stop="openRoleMembers(record)">{{ memberCount(record.role_key) }} 人</span>
           </template>
           <template v-else-if="column.key === 'permissions'">
@@ -284,7 +293,7 @@
                 </div>
               </div>
 
-              <!-- ② 调增量 -->
+              <!-- ② 调增量：三带层（页面 → 字段 → 操作），域只做层内分组 -->
               <template v-else>
                 <div class="rel">
                   <div class="steps" v-if="!editingRoleKey">
@@ -294,92 +303,86 @@
                   </div>
                   <div class="diff-bar">
                     <span class="base-name"><span class="dot" :style="{ background: baseChoice?.color }"></span>基于「{{ baseChoice?.name }}」</span>
-                    <span class="muted">· 基础 {{ baseChoice?.perms.length || 0 }} 项</span>
-                    <span class="d-add">＋{{ diff.added.length }} 增量</span>
-                    <span class="d-cut">−{{ diff.cut.length }} 减项</span>
-                    <span class="muted">= 当前 <b>{{ roleForm.permissions.length }}</b> 项</span>
-                    <span class="link" @click="awaitingBase = true">换底版 / 复制其他角色</span>
-                  </div>
-                  <div class="diff-chips">
-                    <span v-for="p in diff.added" :key="p.key" class="dchip add">＋ {{ shortOf(p) }}<i class="x" @click="togglePerm(p.key, false)">✕</i></span>
-                    <span v-for="p in diff.cut" :key="p.key" class="dchip cut">− {{ shortOf(p) }}<i class="x" @click="togglePerm(p.key, true)">✕</i></span>
-                    <span v-if="!diff.added.length && !diff.cut.length" class="dchip none">与「{{ baseChoice?.name }}」完全一致 —— 勾掉一项就会出现在这里</span>
-                  </div>
-                  <div class="note-anchor-stub" style="display:none"></div>
-
-                  <div class="view-toggle">
-                    <div class="vt" :class="{ active: editorView === 'list' }" @click="editorView = 'list'">列表视图</div>
-                    <div class="vt" :class="{ active: editorView === 'grid' }" @click="editorView = 'grid'">网格视图（模块 × 动作）</div>
+                    <span class="muted">· 当前 <b>{{ roleForm.permissions.length }}</b> 项</span>
+                    <span class="d-add">＋{{ diff.added.length }}</span>
+                    <span class="d-cut">−{{ diff.cut.length }}</span>
+                    <span class="diff-inline">
+                      <span v-for="p in diff.added" :key="'a' + p.key" class="add">＋{{ shortOf(p) }}</span>
+                      <span v-for="p in diff.cut" :key="'c' + p.key" class="cut">{{ shortOf(p) }}</span>
+                      <span v-if="!diff.added.length && !diff.cut.length" class="muted">与底版一致</span>
+                    </span>
+                    <span class="link" @click="awaitingBase = true">换底版</span>
                   </div>
 
-                  <!-- 列表视图 -->
-                  <div v-show="editorView === 'list'">
-                    <a-input v-model:value="permSearch" allow-clear size="small" placeholder="搜索权限名称或 key…" style="margin-bottom: 12px" />
-                    <div v-for="cat in permCats" :key="cat.key" class="perm-cat">
-                      <div class="perm-cat-title">{{ cat.icon }} {{ cat.label }}</div>
-                      <div v-for="g in catGroups(cat.key)" :key="g.group" class="perm-group">
-                        <div class="perm-group-head">
-                          {{ g.label }} <span class="cnt">（{{ g.items.length }}）</span>
-                          <label class="chk">
-                            <input
-                              type="checkbox"
-                              :checked="isGroupAllChecked(g.items)"
-                              :indeterminate.prop="isGroupIndeterminate(g.items)"
-                              @change="(e: any) => toggleGroup(g.items, e.target.checked)"
-                            />全选
-                          </label>
-                        </div>
-                        <div class="perm-items">
-                          <label v-for="p in g.items" :key="p.key" class="perm-item" :class="{ cut: isBasePerm(p.key) && !roleForm.permissions.includes(p.key) }">
-                            <input
-                              type="checkbox"
-                              :checked="roleForm.permissions.includes(p.key)"
-                              @change="(e: any) => togglePerm(p.key, e.target.checked)"
-                            />
-                            <div>
-                              <div class="label">
-                                {{ p.name }}
-                                <span v-if="isBasePerm(p.key) && roleForm.permissions.includes(p.key)" class="tag base">基础</span>
-                                <span v-else-if="!isBasePerm(p.key) && roleForm.permissions.includes(p.key)" class="tag add">＋增量</span>
-                                <span v-else-if="isBasePerm(p.key)" class="tag base">底版划掉</span>
-                              </div>
-                              <div class="key">{{ p.key }}</div>
-                            </div>
-                          </label>
-                        </div>
+                  <a-input v-model:value="permSearch" allow-clear size="small" placeholder="搜索权限名称或 key…" style="margin-bottom: 12px" />
+
+                  <!-- 一带 · 页面权限：一个域一张磁贴，关了 = 导航不出现 -->
+                  <div class="band-title">页面权限<span class="band-sub">能进哪里</span></div>
+                  <div class="page-wall">
+                    <div v-for="d in domainTiles" :key="d.module" class="ptile" :class="{ off: !d.anyChecked }">
+                      <div class="ptile-head">
+                        <span class="tdot" :style="{ background: d.color }"></span>
+                        <span class="ptile-name">{{ d.module }}</span>
+                        <label v-if="d.pageKeys.length === 1" class="sw lg" @click.stop>
+                          <input type="checkbox" :checked="hasPerm(d.pageKeys[0].key)" @change="(e: any) => onToggle(d.pageKeys[0].key, e.target.checked)" /><i></i>
+                        </label>
                       </div>
-                      <div v-if="!catGroups(cat.key).length" class="perm-empty">无匹配权限</div>
+                      <div v-for="p in (d.pageKeys.length > 1 ? d.pageKeys : [])" :key="p.key" class="pg-line">
+                        <span class="pg-label">{{ shortOf(p) }}</span>
+                        <label class="sw" @click.stop>
+                          <input type="checkbox" :checked="hasPerm(p.key)" @change="(e: any) => onToggle(p.key, e.target.checked)" /><i></i>
+                        </label>
+                      </div>
+                      <div class="ptile-sub">{{ d.sub }}</div>
                     </div>
                   </div>
+                  <div v-if="!domainTiles.length" class="perm-empty">无匹配权限</div>
 
-                  <!-- 网格视图 -->
-                  <div v-show="editorView === 'grid'" class="grid-wrap">
-                    <table class="grid">
-                      <thead><tr><th>模块 ＼ 动作</th><th v-for="a in ACT_ORDER" :key="a">{{ a }}</th></tr></thead>
-                      <tbody>
-                        <tr v-for="row in gridRows" :key="row.mod">
-                          <th>{{ row.mod }}</th>
-                          <td v-for="(cell, ci) in row.cells" :key="ci">
-                            <template v-if="cell.length">
-                              <label v-for="p in cell" :key="p.key" class="gitem" :class="{ cut: isBasePerm(p.key) && !roleForm.permissions.includes(p.key) }">
-                                <input
-                                  type="checkbox"
-                                  :checked="roleForm.permissions.includes(p.key)"
-                                  @change="(e: any) => togglePerm(p.key, e.target.checked)"
-                                />
-                                <span class="lb">
-                                  {{ shortOf(p) }}<span v-if="!isBasePerm(p.key) && roleForm.permissions.includes(p.key)" class="tag add">＋</span>
-                                </span>
-                              </label>
-                            </template>
-                            <span v-else class="gcell-none">—</span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
+                  <!-- 二带 · 字段可见：全系统 6 键，机密键勾开需确认 -->
+                  <div class="band-title">字段可见<span class="band-sub">能看什么</span></div>
+                  <div class="field-list">
+                    <div v-for="p in fieldRows" :key="p.key" class="frow" :class="{ off: !hasPerm(p.key) }">
+                      <span class="fdom">{{ fieldDom(p) }}</span>
+                      <div class="fmain">
+                        <div class="fnm">{{ FIELD_DESC[p.key]?.nm || shortOf(p) }}<span v-if="CONFIDENTIAL_KEYS.has(p.key)" class="lock">机密</span></div>
+                        <div class="fdesc">{{ FIELD_DESC[p.key]?.desc || p.name }}</div>
+                      </div>
+                      <label class="sw" @click.stop>
+                        <input type="checkbox" :checked="hasPerm(p.key)" @change="(e: any) => onToggle(p.key, e.target.checked)" /><i></i>
+                      </label>
+                    </div>
+                    <div v-if="!fieldRows.length" class="perm-empty">无匹配权限</div>
                   </div>
+
+                  <!-- 三带 · 操作权限：按域折叠，默认每域一行 -->
+                  <div class="band-title">操作权限<span class="band-sub">能做什么</span></div>
+                  <div v-for="g in actionGroups" :key="g.module" class="ogroup" :class="{ open: openGroups[g.module] }">
+                    <div class="og-head" @click="toggleGroupOpen(g.module)">
+                      <span class="og-arrow">▶</span>
+                      <span class="og-title">{{ g.label }}</span>
+                      <span class="og-stat">已开 <b>{{ groupCheckedCount(g.items) }}</b> / {{ g.items.length }}</span>
+                      <label class="sw og-quick" @click.stop>
+                        <input
+                          type="checkbox"
+                          :checked="isGroupAllChecked(g.items)"
+                          :indeterminate.prop="isGroupIndeterminate(g.items)"
+                          @change="(e: any) => onToggleGroup(g, e.target.checked)"
+                        /><i></i>
+                      </label>
+                    </div>
+                    <div class="og-body">
+                      <div v-for="p in g.items" :key="p.key" class="arow" :class="{ offrow: !hasPerm(p.key), 'is-add': !isBasePerm(p.key) && hasPerm(p.key), 'is-cut': isBasePerm(p.key) && !hasPerm(p.key) }">
+                        <span class="anm">{{ shortOf(p) }}</span>
+                        <span class="akey">{{ p.key }}</span>
+                        <label class="sw" @click.stop>
+                          <input type="checkbox" :checked="hasPerm(p.key)" @change="(e: any) => onToggle(p.key, e.target.checked)" /><i></i>
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div v-if="!actionGroups.length" class="perm-empty">无匹配权限</div>
                 </div>
-                </template>
+              </template>
               </template>
             </div>
 
@@ -412,6 +415,7 @@
 
       <template #footer>
         <a-space style="display: flex; justify-content: flex-end">
+          <span v-if="editingRoleKey && memberCount(editingRoleKey)" class="save-hint">保存后 · {{ memberCount(editingRoleKey) }} 名成员需刷新页面生效</span>
           <a-button @click="roleDrawer = false">取消</a-button>
           <a-button type="primary" :loading="roleSaving" @click="saveRole">保存</a-button>
         </a-space>
@@ -559,14 +563,7 @@ function avatarBg(name: string): string {
   return `linear-gradient(135deg, hsl(${h}, 70%, 55%), hsl(${(h + 40) % 360}, 70%, 45%))`
 }
 
-// ── 权限目录：三类语义分组（page/field/action）× 模块二级 ──
-const PERM_CATS = [
-  { key: 'page', label: '页面权限（page）', icon: '🗂' },
-  { key: 'field', label: '字段可见（field）', icon: '👁' },
-  { key: 'action', label: '操作权限（action）', icon: '⚡' },
-] as const
-const permCats = PERM_CATS
-
+// ── 权限目录：三带层（一带 page / 二带 field / 三带 action），域只做层内分组 ──
 const MODULE_ORDER = ['商机线索', '商机线索 · 商机详情', '商机线索 · 报价工作台', 'AI 办公室', '服务器', '配件', '解决方案', '设置']
 
 function moduleOf(p: PermissionItem): string {
@@ -593,32 +590,142 @@ function moduleOf(p: PermissionItem): string {
   return '未分组'
 }
 
-function catGroups(catKey: string): { group: string; label: string; items: PermissionItem[] }[] {
+function hasPerm(key: string): boolean {
+  return roleForm.value.permissions.includes(key)
+}
+
+// 机密键（价格 fail-closed 三字段键 + 价格维护操作键）：勾开需二次确认并写明影响人数
+const CONFIDENTIAL_KEYS = new Set(['field.quote.price', 'field.opportunity.quote_price', 'field.parts.price', 'action.parts.price.manage'])
+
+function onToggle(key: string, checked: boolean) {
+  if (checked && CONFIDENTIAL_KEYS.has(key)) {
+    const members = editingRoleKey.value ? memberCount(editingRoleKey.value) : 0
+    Modal.confirm({
+      title: '开放机密权限？',
+      content: members
+        ? `将向「${roleForm.value.name}」的 ${members} 名成员开放「${SHORT_LABELS[key] || key}」。价格类权限默认关闭，确认开放？`
+        : `将向「${roleForm.value.name || '新角色'}」开放「${SHORT_LABELS[key] || key}」（保存后对加入的成员生效）。确认？`,
+      okText: '确认开放',
+      cancelText: '取消',
+      onOk: () => togglePerm(key, true),
+    })
+    return
+  }
+  togglePerm(key, checked)
+}
+
+function onToggleGroup(g: { items: PermissionItem[] }, checked: boolean) {
+  const confidential = g.items.filter(p => checked && CONFIDENTIAL_KEYS.has(p.key) && !hasPerm(p.key))
+  if (confidential.length) {
+    const members = editingRoleKey.value ? memberCount(editingRoleKey.value) : 0
+    Modal.confirm({
+      title: '开放机密权限？',
+      content: `该组包含机密键：${confidential.map(p => SHORT_LABELS[p.key] || p.key).join('、')}${members ? `，将向 ${members} 名成员开放` : ''}。确认？`,
+      okText: '确认开放',
+      cancelText: '取消',
+      onOk: () => toggleGroup(g.items, checked),
+    })
+    return
+  }
+  toggleGroup(g.items, checked)
+}
+
+// 一带数据：域磁贴（page.* 按域聚合，域色圆点沿用应用既有语言）
+const DOMAIN_COLORS: Record<string, string> = {
+  '商机线索': '#2f6bff', 'AI 办公室': '#8b93ff', '服务器': '#5bc8d8',
+  '配件': '#f5b942', '解决方案': '#f4756f', '设置': '#6f8bab',
+}
+const DOMAIN_SUBS: Record<string, string> = {
+  '商机线索': '菜单未开 = 只看自己的商机',
+  '服务器': '机型目录 / 详情 / 配置向导',
+  '配件': '价格键见字段带与操作带',
+  'AI 办公室': '管理面两段在操作带',
+  '解决方案': '策略中心 / 选型配置 / BOM 案例',
+  '设置': '四个子页面独立开关',
+}
+const domainTiles = computed(() => {
   const keyword = permSearch.value.trim().toLowerCase()
   const hit = (p: PermissionItem) =>
     !keyword || p.name.toLowerCase().includes(keyword) || p.key.toLowerCase().includes(keyword)
-  const groups: { group: string; label: string; items: PermissionItem[] }[] = []
-  const used = new Set<string>()
-  for (const module of MODULE_ORDER) {
-    const items = catalog.value.filter(p => {
-      if (p.group !== catKey) return false
-      const moduleName = p.module || moduleOf(p)
-      if (moduleName !== module) return false
-      return hit(p)
-    })
-    if (items.length) {
-      groups.push({ group: module, label: module, items })
-      used.add(module)
-    }
+  const map = new Map<string, PermissionItem[]>()
+  for (const p of catalog.value) {
+    if (p.group !== 'page') continue
+    if (!hit(p)) continue
+    const m = p.module || moduleOf(p)
+    if (!map.has(m)) map.set(m, [])
+    map.get(m)!.push(p)
   }
-  const others = catalog.value.filter(p => {
-    if (p.group !== catKey) return false
-    const moduleName = p.module || moduleOf(p)
-    if (used.has(moduleName)) return false
-    return hit(p)
-  })
-  if (others.length) groups.push({ group: '未分组', label: '未分组', items: others })
-  return groups
+  const out: { module: string; color: string; sub: string; pageKeys: PermissionItem[]; anyChecked: boolean }[] = []
+  for (const m of MODULE_ORDER) {
+    const pageKeys = map.get(m)
+    if (!pageKeys?.length) continue
+    out.push({
+      module: m,
+      color: DOMAIN_COLORS[m] || 'var(--cpq-text-muted, #86909c)',
+      sub: DOMAIN_SUBS[m] || '',
+      pageKeys,
+      anyChecked: pageKeys.some(p => hasPerm(p.key)),
+    })
+  }
+  return out
+})
+
+// 二带数据：字段键（全系统 6 个）清单行
+const FIELD_DESC: Record<string, { nm: string; desc: string }> = {
+  'field.opportunity.quote_price': { nm: '报价金额', desc: '商机列表/详情的报价单价格' },
+  'field.flow.bom': { nm: '方案附件', desc: '商机存档区 · 方案类附件' },
+  'field.flow.cost': { nm: '成本附件', desc: '商机存档区 · 成本类附件' },
+  'field.quote.price': { nm: '整机/配件价格', desc: '报价工作台价格列与导出' },
+  'field.quote.export_internal': { nm: '导出对内版', desc: '含成本/利润率的导出版本' },
+  'field.parts.price': { nm: '配件库价', desc: '配件页价格列 / 价格历史 / 选件价' },
+}
+function fieldDom(p: PermissionItem): string {
+  if (p.key.startsWith('field.quote')) return '报价工作台'
+  return (p.module || moduleOf(p)).split(' · ')[0]
+}
+const fieldRows = computed(() => {
+  const keyword = permSearch.value.trim().toLowerCase()
+  return catalog.value
+    .filter(p => p.group === 'field')
+    .filter(p => !keyword || p.name.toLowerCase().includes(keyword) || p.key.toLowerCase().includes(keyword))
+})
+
+// 三带数据：操作键按域折叠组（组头开关 = 整组批量）
+const ACTION_GROUP_LABELS: Record<string, string> = {
+  '商机线索': '商机线索 · 流程操作',
+  'AI 办公室': 'AI 办公室管理',
+  '配件': '配件价格维护',
+}
+const actionGroups = computed(() => {
+  const keyword = permSearch.value.trim().toLowerCase()
+  const hit = (p: PermissionItem) =>
+    !keyword || p.name.toLowerCase().includes(keyword) || p.key.toLowerCase().includes(keyword)
+  const map = new Map<string, PermissionItem[]>()
+  for (const p of catalog.value) {
+    if (p.group !== 'action') continue
+    if (!hit(p)) continue
+    const m = (p.module || moduleOf(p)).split(' · ')[0]
+    if (!map.has(m)) map.set(m, [])
+    map.get(m)!.push(p)
+  }
+  const out: { module: string; label: string; items: PermissionItem[] }[] = []
+  for (const m of MODULE_ORDER) {
+    const items = map.get(m)
+    if (items?.length) out.push({ module: m, label: ACTION_GROUP_LABELS[m] || m, items })
+  }
+  for (const [m, items] of map) {
+    if (!out.some(o => o.module === m)) out.push({ module: m, label: ACTION_GROUP_LABELS[m] || m, items })
+  }
+  return out
+})
+const openGroups = ref<Record<string, boolean>>({})
+function toggleGroupOpen(module: string) {
+  openGroups.value[module] = !openGroups.value[module]
+}
+function resetOpenGroups() {
+  openGroups.value = {}
+  const first = actionGroups.value[0]
+  if (first) openGroups.value[first.module] = true
 }
 
 const coveredModules = computed(() => {
@@ -682,10 +789,9 @@ async function loadRoles() {
   }
 }
 
-// ── 底版（基础档）+ Diff + 网格视图 ──
+// ── 底版（基础档）+ Diff ──
 const awaitingBase = ref(false)
 const baseKey = ref('blank')
-const editorView = ref<'list' | 'grid'>('list')
 
 const baseChoices = computed(() => [
   { key: 'blank', name: '空白', color: 'var(--cpq-text-muted, #86909c)', desc: '从零勾选，不建议', perms: [] as string[] },
@@ -742,30 +848,6 @@ function pickBase(key: string) {
 
 const formReady = computed(() => !!(roleForm.value.role_key.trim() && roleForm.value.name.trim()))
 
-// 网格视图：行=模块 × 列=动作
-const ACT_ORDER = ['页面', '字段可见', '提交', '退回', '审批·其他']
-function actOf(p: PermissionItem): string {
-  if (p.group === 'page') return '页面'
-  if (p.group === 'field') return '字段可见'
-  if (p.key.startsWith('action.flow.submit.')) return '提交'
-  if (p.key.startsWith('action.flow.return.')) return '退回'
-  return '审批·其他'
-}
-const gridRows = computed(() => {
-  const rows: { mod: string; cells: PermissionItem[][] }[] = []
-  const seen = new Set<string>()
-  const push = (mod: string) => {
-    if (seen.has(mod)) return
-    seen.add(mod)
-    const items = catalog.value.filter(p => (p.module || moduleOf(p)) === mod)
-    if (!items.length) return
-    rows.push({ mod, cells: ACT_ORDER.map(a => items.filter(p => actOf(p) === a)) })
-  }
-  MODULE_ORDER.forEach(push)
-  catalog.value.forEach(p => push(p.module || moduleOf(p)))
-  return rows
-})
-
 const SHORT_LABELS: Record<string, string> = {
   'page.opportunities_all': '线索菜单(全量)',
   'page.opportunities': '商机子页面',
@@ -785,7 +867,7 @@ const SHORT_LABELS: Record<string, string> = {
   'action.flow.return.quoting': '退回报价',
   'action.quote.unfreeze': '解冻报价',
   'page.office': '办公室页面',
-  'ai.office.manage': '管员工/团队',
+  'ai.office.manage': '管同事/团队',
   'ai.office.admin': '管模型/接入',
   'page.servers': '服务器页面',
   'page.parts': '配件页面',
@@ -809,7 +891,7 @@ const previewStats = computed(() => {
   return {
     total: roleForm.value.permissions.length,
     equiv,
-    modules: `${coveredModules.value.length} / ${gridRows.value.length}`,
+    modules: `${coveredModules.value.length} 个域`,
     sensitive,
   }
 })
@@ -820,7 +902,7 @@ function openCreateRole() {
   baseKey.value = 'blank'
   awaitingBase.value = true
   roleTab.value = 'perms'
-  editorView.value = 'list'
+  resetOpenGroups()
   roleDrawer.value = true
 }
 
@@ -835,7 +917,7 @@ function copyRole(role: RoleItem) {
   baseKey.value = isBuiltin(role.role_key) ? role.role_key : autoBaseFor(role.permissions)
   awaitingBase.value = false
   roleTab.value = 'perms'
-  editorView.value = 'list'
+  resetOpenGroups()
   roleDrawer.value = true
 }
 
@@ -850,6 +932,7 @@ function openEditRole(role: RoleItem) {
   baseKey.value = autoBaseFor(role.permissions)
   awaitingBase.value = false
   roleTab.value = 'perms'
+  resetOpenGroups()
   roleDrawer.value = true
 }
 
@@ -900,7 +983,8 @@ async function saveRole() {
         description: f.description,
         permissions: f.permissions,
       })
-      message.success('角色已更新')
+      const members = memberCount(editingRoleKey.value)
+      message.success(members ? `角色已更新 · ${members} 名成员刷新页面后生效` : '角色已更新')
     } else {
       await rbacApi.roles.create({ role_key: f.role_key.trim(), name: f.name.trim(), description: f.description, permissions: f.permissions })
       message.success('角色已创建')
@@ -917,6 +1001,28 @@ async function saveRole() {
 // ── 用户 ──
 const users = ref<AdminUser[]>([])
 const usersLoading = ref(false)
+
+/** 角色键 → 成员列表（角色表成员列头像堆叠用）。 */
+const usersByRole = computed(() => {
+  const m: Record<string, AdminUser[]> = {}
+  for (const u of users.value) {
+    const k = u.role || 'member'
+    if (!m[k]) m[k] = []
+    m[k].push(u)
+  }
+  return m
+})
+
+/** 用户表角色徽章点击 → 直达该角色的权限编辑。 */
+function openRoleOf(u: AdminUser) {
+  const role = roles.value.find(r => r.role_key === (u.role || 'member'))
+  if (!role) {
+    message.info('该用户未分配角色或角色已删除')
+    return
+  }
+  openEditRole(role)
+}
+
 const userModal = ref(false)
 const userSaving = ref(false)
 const userForm = ref<{ name: string; password: string; role: string; email?: string; wecom_userid?: string }>({
@@ -1226,9 +1332,9 @@ onMounted(async () => {
 .urm-sub { font-size: 12px; color: var(--cpq-text-muted, #86909c); }
 
 /* 页级 tab（玻璃分段） */
-.page-tabs { display: inline-flex; gap: 4px; padding: 5px; border-radius: var(--cpq-radius-md, 12px); margin-bottom: 14px; }
+.page-tabs { display: inline-flex; gap: 4px; padding: 5px; border-radius: var(--cpq-radius-md); margin-bottom: 14px; }
 .page-tab {
-  padding: 7px 18px; border-radius: var(--cpq-radius-sm, 8px); cursor: pointer; font-weight: 600;
+  padding: 7px 18px; border-radius: var(--cpq-radius-sm); cursor: pointer; font-weight: 600;
   color: var(--cpq-text-secondary, #4e5969); font-size: 13px; border: 1px solid transparent;
   transition: all var(--cpq-dur-1, 160ms) var(--cpq-ease-out-expo, ease);
   user-select: none;
@@ -1243,9 +1349,9 @@ onMounted(async () => {
 .toolbar { display: flex; align-items: center; gap: 12px; padding: 14px 16px 10px; flex-wrap: wrap; }
 .toolbar .spacer { flex: 1; }
 .hint-text { font-size: 13px; color: var(--cpq-text-muted, #86909c); }
-.seg { display: flex; background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); border-radius: var(--cpq-radius-sm, 8px); padding: 3px; gap: 2px; }
+.seg { display: flex; background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); border-radius: var(--cpq-radius-sm); padding: 3px; gap: 2px; }
 .seg-item {
-  padding: 4px 14px; border-radius: 6px; font-size: 13px; cursor: pointer; color: var(--cpq-text-secondary, #4e5969);
+  padding: 4px 14px; border-radius: var(--cpq-radius-sm); font-size: 13px; cursor: pointer; color: var(--cpq-text-secondary, #4e5969);
   transition: all var(--cpq-dur-1, 160ms) var(--cpq-ease-out-expo, ease); user-select: none;
 }
 .seg-item.active {
@@ -1254,7 +1360,7 @@ onMounted(async () => {
 }
 .search-box {
   flex: 0 1 260px; display: flex; align-items: center; gap: 8px; padding: 6px 12px;
-  border: 1px solid var(--cpq-border-light, rgba(22,119,255,.16)); border-radius: var(--cpq-radius-sm, 8px);
+  border: 1px solid var(--cpq-border-light, rgba(22,119,255,.16)); border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-input, #fff);
 }
 .search-box input { border: none; outline: none; background: transparent; flex: 1; color: var(--cpq-text-primary, #1d2129); font-size: 13px; }
@@ -1274,7 +1380,7 @@ onMounted(async () => {
 
 /* 徽标 */
 .badge {
-  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: var(--cpq-radius-full);
   font-size: 12px; white-space: nowrap; border: 1px solid transparent; line-height: 18px;
 }
 .badge .dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
@@ -1286,7 +1392,7 @@ onMounted(async () => {
 
 /* ⋯ 按钮 */
 .op-btn {
-  width: 28px; height: 28px; border-radius: 6px; border: none; background: transparent;
+  width: 28px; height: 28px; border-radius: var(--cpq-radius-sm); border: none; background: transparent;
   color: var(--cpq-text-muted, #86909c); font-size: 16px; cursor: pointer; line-height: 1;
 }
 .op-btn:hover { background: var(--cpq-overlay-a8, rgba(22,119,255,.08)); color: var(--cpq-accent-primary, #1677ff); }
@@ -1309,13 +1415,13 @@ onMounted(async () => {
 .kv dd { margin: 0; color: var(--cpq-text-primary, #1d2129); }
 .role-hint { font-size: 12px; color: var(--cpq-text-muted, #86909c); margin-top: 6px; }
 .admin-note {
-  padding: 10px 14px; border-radius: var(--cpq-radius-sm, 8px); background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
+  padding: 10px 14px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
   border: 1px dashed var(--cpq-border-light, rgba(22,119,255,.16)); font-size: 13px; color: var(--cpq-text-secondary, #4e5969);
 }
 
 /* Danger Zone */
 .danger-zone {
-  margin-top: 20px; border: 1px solid var(--cpq-accent-danger, #e5484d); border-radius: var(--cpq-radius-md, 12px);
+  margin-top: 20px; border: 1px solid var(--cpq-accent-danger, #e5484d); border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-danger10, rgba(255,107,107,.10)); padding: 14px 16px;
 }
 .danger-zone h4 { color: var(--cpq-accent-danger, #e5484d); font-size: 13px; margin: 0 0 4px; }
@@ -1329,33 +1435,7 @@ onMounted(async () => {
 }
 .drawer-tab.active { color: var(--cpq-accent-primary, #1677ff); border-bottom-color: var(--cpq-accent-primary, #1677ff); font-weight: 600; }
 
-/* 权限编辑器 */
-.perm-summary {
-  display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 14px;
-  border-radius: var(--cpq-radius-sm, 8px); background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
-  border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); font-size: 13px;
-  color: var(--cpq-accent-primary, #1677ff); font-weight: 600;
-}
-.perm-summary .muted { color: var(--cpq-text-muted, #86909c); font-weight: 400; }
-.perm-cat { margin-bottom: 6px; }
-.perm-cat-title { font-size: 12px; font-weight: 700; color: var(--cpq-text-muted, #86909c); margin: 12px 0 8px; letter-spacing: 0.5px; }
-.perm-group { border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); border-radius: var(--cpq-radius-md, 12px); margin-bottom: 10px; overflow: hidden; }
-.perm-group-head {
-  display: flex; align-items: center; gap: 10px; padding: 9px 14px; font-size: 13px; font-weight: 600;
-  background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
-}
-.perm-group-head .cnt { color: var(--cpq-text-muted, #86909c); font-weight: 400; font-size: 12px; }
-.perm-group-head .chk {
-  margin-left: auto; display: flex; align-items: center; gap: 5px; font-size: 12px;
-  color: var(--cpq-text-muted, #86909c); font-weight: 400; cursor: pointer;
-}
-.perm-group-head .chk input { accent-color: var(--cpq-accent-primary, #1677ff); }
-.perm-items { padding: 4px 14px 10px; }
-.perm-item { display: flex; align-items: flex-start; gap: 10px; padding: 6px 4px; cursor: pointer; border-radius: 6px; }
-.perm-item:hover { background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); }
-.perm-item input { margin-top: 3px; accent-color: var(--cpq-accent-primary, #1677ff); }
-.perm-item .label { font-size: 13px; }
-.perm-item .key { font-size: 11px; color: var(--cpq-text-disabled, #c9cdd4); font-family: ui-monospace, Consolas, monospace; margin-top: 1px; }
+/* 权限编辑器（三带层） */
 .perm-empty { text-align: center; color: var(--cpq-text-muted, #86909c); font-size: 12px; padding: 12px 0; }
 
 /* 成员行 */
@@ -1381,7 +1461,7 @@ onMounted(async () => {
 .steps { display: flex; gap: 8px; margin-bottom: 12px; }
 .step {
   display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cpq-text-muted, #86909c);
-  padding: 4px 12px; border-radius: 999px; border: 1px dashed var(--cpq-border-light, rgba(22,119,255,.16));
+  padding: 4px 12px; border-radius: var(--cpq-radius-full); border: 1px dashed var(--cpq-border-light, rgba(22,119,255,.16));
 }
 .step .n {
   width: 16px; height: 16px; border-radius: 50%; background: var(--cpq-overlay-a8, rgba(22,119,255,.08));
@@ -1396,7 +1476,7 @@ onMounted(async () => {
 .base-title { font-size: 13px; font-weight: 700; color: var(--cpq-text-muted, #86909c); letter-spacing: 0.5px; margin-bottom: 10px; }
 .base-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
 .base-card {
-  border: 1px solid var(--cpq-border-light, rgba(22,119,255,.16)); border-radius: var(--cpq-radius-md, 12px);
+  border: 1px solid var(--cpq-border-light, rgba(22,119,255,.16)); border-radius: var(--cpq-radius-md);
   padding: 11px 13px; cursor: pointer; background: var(--cpq-bg-input, #fff);
   transition: all var(--cpq-dur-1, 160ms) var(--cpq-ease-out-expo, ease);
 }
@@ -1410,7 +1490,7 @@ onMounted(async () => {
 /* Diff 条 + chips */
 .diff-bar {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 9px 14px; margin-bottom: 8px;
-  border-radius: var(--cpq-radius-sm, 8px); background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
+  border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
   border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); font-size: 13px;
 }
 .diff-bar b { color: var(--cpq-accent-primary, #1677ff); }
@@ -1421,47 +1501,112 @@ onMounted(async () => {
 .diff-bar .d-cut { color: var(--cpq-accent-danger, #e5484d); font-weight: 600; }
 .diff-bar .link { color: var(--cpq-accent-primary, #1677ff); cursor: pointer; font-size: 12px; margin-left: auto; }
 .diff-bar .link:hover { text-decoration: underline; }
-.diff-chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; min-height: 24px; }
-.dchip {
-  display: inline-flex; align-items: center; gap: 6px; padding: 2px 10px; border-radius: 999px;
-  font-size: 12px; user-select: none;
+/* ── 三带层（页面 → 字段 → 操作） ── */
+.diff-inline { display: inline-flex; gap: 8px; flex-wrap: wrap; }
+.diff-inline .add { color: var(--cpq-color-success, #52C9A0); }
+.diff-inline .cut { color: var(--cpq-text-muted, #86909c); text-decoration: line-through; }
+.save-hint { font-size: 12px; color: var(--cpq-text-muted, #86909c); margin-right: auto; }
+.save-hint b { color: var(--cpq-text-secondary, #4e5969); }
+
+.band-title { font-size: 13px; font-weight: 700; color: var(--cpq-text-secondary, #4e5969); margin: 16px 0 10px; }
+.band-title:first-of-type { margin-top: 4px; }
+.band-sub { font-weight: 400; color: var(--cpq-text-muted, #86909c); margin-left: 8px; }
+
+/* 一带：页面磁贴 */
+.page-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.ptile {
+  background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
+  border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1));
+  border-radius: var(--cpq-radius-lg); padding: 12px 14px;
+  transition: border-color var(--cpq-dur-1, 160ms) var(--cpq-ease-out-expo, ease), opacity var(--cpq-dur-1, 160ms) ease;
 }
-.dchip.add { color: var(--cpq-color-success, #52C9A0); background: var(--cpq-overlay-success15, rgba(82,201,160,.15)); }
-.dchip.cut { color: var(--cpq-accent-danger, #e5484d); background: var(--cpq-overlay-danger10, rgba(255,107,107,.10)); }
-.dchip.cut .lb, .dchip.cut { text-decoration: line-through; }
-.dchip .x { cursor: pointer; opacity: 0.7; font-style: normal; }
-.dchip .x:hover { opacity: 1; }
-.dchip.none { color: var(--cpq-text-muted, #86909c); background: transparent; border: 1px dashed var(--cpq-border-light, rgba(22,119,255,.16)); }
+.ptile:hover { border-color: var(--cpq-accent-primary, #1677ff); }
+.ptile.off { opacity: .55; }
+.ptile-head { display: flex; align-items: center; gap: 8px; }
+.ptile-head .tdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.ptile-name { font-size: 14px; font-weight: 600; }
+.ptile-head .sw { margin-left: auto; }
+.pg-line { display: flex; align-items: center; gap: 8px; padding: 5px 0 0; }
+.pg-line .pg-label { font-size: 12px; color: var(--cpq-text-secondary, #4e5969); }
+.ptile-sub { font-size: 11px; color: var(--cpq-text-muted, #86909c); margin-top: 8px; }
 
-/* 视图切换 */
-.view-toggle { display: flex; gap: 2px; background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); border-radius: var(--cpq-radius-sm, 8px); padding: 3px; margin-bottom: 12px; width: fit-content; }
-.vt { padding: 4px 14px; border-radius: 6px; font-size: 12px; cursor: pointer; color: var(--cpq-text-muted, #86909c); user-select: none; }
-.vt.active { background: var(--cpq-bg-card, #fff); color: var(--cpq-accent-primary, #1677ff); font-weight: 600; box-shadow: 0 1px 4px var(--cpq-shadow-color-soft, rgba(22,119,255,.08)); }
+/* 开关（胶囊） */
+.sw { flex: none; }
+.sw input { display: none; }
+.sw i {
+  display: inline-block; width: 34px; height: 20px; border-radius: var(--cpq-radius-full);
+  background: var(--cpq-overlay-w15, rgba(255,255,255,.15));
+  position: relative; transition: background var(--cpq-dur-1, 160ms) ease; vertical-align: middle; cursor: pointer;
+}
+.sw i::after {
+  content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--cpq-text-disabled, #c9cdd4); transition: all var(--cpq-dur-1, 160ms) ease;
+}
+.sw input:checked + i { background: var(--cpq-overlay-a15, rgba(22,119,255,.15)); }
+.sw input:checked + i::after { left: 16px; background: var(--cpq-accent-primary, #1677ff); }
+.sw.lg i { width: 42px; height: 23px; }
+.sw.lg i::after { width: 19px; height: 19px; }
+.sw.lg input:checked + i::after { left: 21px; }
 
-/* 权限状态徽标 */
-.tag { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
-.tag.base { color: var(--cpq-text-muted, #86909c); background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); }
-.tag.add { color: var(--cpq-color-success, #52C9A0); background: var(--cpq-overlay-success15, rgba(82,201,160,.15)); }
-.perm-item.cut .label { text-decoration: line-through; color: var(--cpq-text-muted, #86909c); }
+/* 二带：字段清单 */
+.field-list { border-top: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); }
+.frow {
+  display: flex; align-items: center; gap: 12px; padding: 10px 4px;
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(22,119,255,.06));
+}
+.frow.off { opacity: .55; }
+.frow .fdom { flex: none; width: 88px; font-size: 12px; color: var(--cpq-text-muted, #86909c); }
+.frow .fmain { min-width: 0; flex: 1; }
+.frow .fnm { font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.frow .fdesc { font-size: 12px; color: var(--cpq-text-muted, #86909c); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lock {
+  flex: none; font-size: 11px; color: var(--cpq-accent-warning, #F4D28A);
+  border: 1px solid var(--cpq-warn-border, rgba(250,173,20,.3)); border-radius: var(--cpq-radius-full); padding: 0 8px; line-height: 18px;
+}
 
-/* 网格视图 */
-.grid-wrap { overflow-x: auto; border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); border-radius: var(--cpq-radius-md, 12px); }
-table.grid { border-collapse: collapse; width: 100%; }
-table.grid th, table.grid td { border-bottom: 1px solid var(--cpq-border-secondary, rgba(22,119,255,.06)); border-right: 1px solid var(--cpq-border-secondary, rgba(22,119,255,.06)); padding: 7px 10px; font-size: 12px; text-align: left; vertical-align: top; }
-table.grid thead th { background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); color: var(--cpq-text-muted, #86909c); font-weight: 700; white-space: nowrap; }
-table.grid tbody th { background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); font-weight: 600; white-space: nowrap; color: var(--cpq-text-secondary, #4e5969); }
-table.grid tr:last-child td, table.grid tr:last-child th { border-bottom: none; }
-table.grid td:last-child, table.grid th:last-child { border-right: none; }
-.gitem { display: flex; align-items: flex-start; gap: 6px; padding: 2px 0; }
-.gitem input { margin-top: 2px; accent-color: var(--cpq-accent-primary, #1677ff); }
-.gitem .lb { font-size: 12px; line-height: 1.4; }
-.gitem.cut .lb { text-decoration: line-through; color: var(--cpq-text-muted, #86909c); }
-.gcell-none { color: var(--cpq-text-disabled, #c9cdd4); font-size: 11px; }
+/* 三带：操作折叠组 */
+.ogroup { border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); border-radius: var(--cpq-radius-lg); overflow: hidden; }
+.ogroup + .ogroup { margin-top: 10px; }
+.og-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 14px; cursor: pointer;
+  background: var(--cpq-overlay-a4, rgba(22,119,255,.04));
+}
+.og-head:hover { background: var(--cpq-overlay-a8, rgba(22,119,255,.08)); }
+.og-arrow { color: var(--cpq-text-muted, #86909c); font-size: 11px; transition: transform var(--cpq-dur-1, 160ms) ease; }
+.ogroup.open .og-arrow { transform: rotate(90deg); }
+.og-title { font-size: 13px; font-weight: 600; }
+.og-stat { font-size: 12px; color: var(--cpq-text-muted, #86909c); }
+.og-stat b { color: var(--cpq-accent-primary, #1677ff); font-weight: 600; }
+.og-head .og-quick { margin-left: auto; }
+.og-body { display: none; border-top: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); }
+.ogroup.open .og-body { display: block; }
+.arow {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px;
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(22,119,255,.06));
+}
+.arow:last-child { border-bottom: none; }
+.arow .anm { font-size: 13px; }
+.arow .akey { margin-left: auto; font-size: 11px; color: var(--cpq-text-disabled, #c9cdd4); font-family: ui-monospace, Consolas, monospace; }
+.arow.offrow .anm { color: var(--cpq-text-muted, #86909c); }
+.arow.is-add .anm { color: var(--cpq-color-success, #52C9A0); }
+.arow.is-cut .anm { text-decoration: line-through; opacity: .7; }
+
+/* 角色成员头像堆叠 */
+.member-stack { display: inline-flex; align-items: center; margin-right: 8px; }
+.m-ava {
+  width: 22px; height: 22px; border-radius: 50%; font-size: 11px; color: #fff;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 2px solid var(--cpq-bg-primary, #fff); margin-left: -6px;
+}
+.m-ava:first-child { margin-left: 0; }
+.m-more { font-size: 11px; color: var(--cpq-text-muted, #86909c); margin-left: 4px; }
+.role-link { cursor: pointer; }
+.role-link:hover { border-color: var(--cpq-accent-primary, #1677ff); color: var(--cpq-accent-primary, #1677ff); }
 
 /* 侧栏 */
 .form-item { margin-bottom: 10px; }
 .form-item label { display: block; font-size: 12px; color: var(--cpq-text-muted, #86909c); margin-bottom: 5px; }
-.preview-card { border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); border-radius: var(--cpq-radius-md, 12px); padding: 10px 14px; background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); }
+.preview-card { border: 1px solid var(--cpq-border-primary, rgba(22,119,255,.1)); border-radius: var(--cpq-radius-md); padding: 10px 14px; background: var(--cpq-overlay-a4, rgba(22,119,255,.04)); }
 .preview-card .row { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; }
 .preview-card .row .v { font-weight: 700; color: var(--cpq-accent-primary, #1677ff); }
 .side-note { font-size: 11px; color: var(--cpq-text-muted, #86909c); line-height: 1.7; margin-top: 12px; }

@@ -19,24 +19,23 @@
 
       <div class="office-actions">
         <span class="connection-pill" :class="{ online: connected }">
-          <i></i>{{ connected ? 'LIVE' : 'OFFLINE' }}
+          <i></i><span class="connection-pill-text">{{ connected ? 'LIVE' : 'OFFLINE' }}</span>
         </span>
-        <!-- 手机端任务入口提到顶栏：拇指区只留头像行，场景不再为按钮留空带，也不会被底栏遮挡 -->
-        <button v-if="isMobile" type="button" class="of-taskbtn" @click="tasksOpen = true">
-          <UnorderedListOutlined />任务
-          <span v-if="runningMissionCount" class="of-taskn">{{ runningMissionCount }}</span>
-        </button>
-        <a-button v-if="canOpenOfficeManagement && !isMobile" type="primary" @click="manageOpen = true">
+        <!-- 主按钮双端统一 Manage Teams；手机端任务看板收进右侧「更多」菜单（红点=有运行中任务） -->
+        <a-button v-if="canOpenOfficeManagement" type="primary" @click="manageOpen = true">
           <template #icon><SettingOutlined /></template>
           Manage Teams
         </a-button>
         <a-button v-if="!isMobile" @click="governanceOpen = true">日志审批</a-button>
         <a-dropdown v-if="isMobile" :trigger="['click']" placement="bottomRight">
-          <button type="button" class="of-more"><EllipsisOutlined /></button>
+          <button type="button" class="of-more">
+            <EllipsisOutlined />
+            <i v-if="runningMissionCount" class="of-more-dot"></i>
+          </button>
           <template #overlay>
             <a-menu @click="onMobileMoreMenu">
-              <a-menu-item v-if="canOpenOfficeManagement" key="manage"><SettingOutlined /> Manage Teams</a-menu-item>
-              <a-menu-item key="gov">日志审批</a-menu-item>
+              <a-menu-item key="tasks"><UnorderedListOutlined /> 任务看板</a-menu-item>
+              <a-menu-item key="gov"><AuditOutlined /> 日志审批</a-menu-item>
             </a-menu>
           </template>
         </a-dropdown>
@@ -330,7 +329,7 @@
 import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined } from '@ant-design/icons-vue'
+import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
@@ -448,6 +447,11 @@ const isMobile = ref(false)
 let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
 const tasksOpen = ref(false)
 const chatLayerOpen = ref(false)
+/* 管理面三个全屏层任一打开时给 body 挂标记（z900 全屏层会被悬浮横幅 z2100 / AI 悬浮球 z1550 压住），
+   悬浮件据此让位——与同事档案弹层的 em-editor-modal-open 同一机制 */
+watch([manageOpen, governanceOpen, tasksOpen], ([m, g, t]) => {
+  document.body.classList.toggle('office-fullscreen-open', m || g || t)
+})
 // 点 3D 显示器带入的任务板聚焦：{ missionId }=直开详情；{ roleKey }=按同事名过滤
 const missionFocus = ref<{ missionId?: string; roleKey?: string } | null>(null)
 const runningMissionCount = computed(
@@ -459,7 +463,7 @@ function openChatMobile(roleKey: string) {
   chatLayerOpen.value = true
 }
 function onMobileMoreMenu({ key }: { key: string | number }) {
-  if (key === 'manage' && canOpenOfficeManagement.value) manageOpen.value = true
+  if (key === 'tasks') tasksOpen.value = true
   else if (key === 'gov') governanceOpen.value = true
 }
 function avatarDotColor(c: any) {
@@ -711,7 +715,7 @@ onDeactivated(() => {
   height: 36px;
   padding: 0 12px;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   color: var(--cpq-text-primary);
   background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
   cursor: pointer;
@@ -757,7 +761,7 @@ onDeactivated(() => {
   gap: 7px;
   height: 28px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   font-weight: 800;
   letter-spacing: 0.08em;
@@ -809,7 +813,7 @@ onDeactivated(() => {
 }
 
 .office-sidebar::-webkit-scrollbar-thumb {
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w10, rgba(255,255,255,0.12));
 }
 
@@ -821,7 +825,7 @@ onDeactivated(() => {
 .sidebar-section {
   padding: 14px;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -851,7 +855,7 @@ onDeactivated(() => {
 
 .sidebar-empty {
   padding: 16px 10px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   font-size: 12px;
   color: var(--cpq-text-muted);
   text-align: center;
@@ -863,7 +867,7 @@ onDeactivated(() => {
   align-items: flex-start;
   gap: 8px;
   padding: 9px 10px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   cursor: pointer;
   border: 1px solid transparent;
   transition: background 0.16s ease, border-color 0.16s ease;
@@ -909,7 +913,7 @@ onDeactivated(() => {
   gap: 2px;
   padding: 7px 6px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-muted);
   background: var(--cpq-overlay-w4);
   cursor: pointer;
@@ -935,7 +939,7 @@ onDeactivated(() => {
   align-items: center;
   gap: 10px;
   padding: 9px;
-  border-radius: 11px;
+  border-radius: var(--cpq-radius-md);
   cursor: pointer;
   border: 1px solid transparent;
   transition: background 0.16s ease, border-color 0.16s ease;
@@ -955,7 +959,7 @@ onDeactivated(() => {
   width: 30px;
   height: 30px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   box-shadow: inset 0 0 0 1px var(--cpq-overlay-w8);
 }
 
@@ -991,7 +995,7 @@ onDeactivated(() => {
   height: 20px;
   padding: 0 7px;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 10px;
   font-weight: 700;
   line-height: 1;
@@ -1100,7 +1104,7 @@ onDeactivated(() => {
   gap: 6px;
   min-width: 0;
   padding: 4px 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
   white-space: nowrap;
 }
@@ -1124,7 +1128,7 @@ onDeactivated(() => {
   width: min(1180px, calc(100vw - 48px));
   height: min(780px, calc(100vh - 48px));
   border: 1px solid color-mix(in srgb, var(--cpq-border-secondary, rgba(255,255,255,0.10)) 92%, transparent);
-  border-radius: 24px;
+  border-radius: var(--cpq-radius-xl);
   background:
     linear-gradient(145deg, color-mix(in srgb, var(--cpq-bg-elevated, rgba(255,255,255,0.04)) 72%, transparent), transparent 45%),
     color-mix(in srgb, var(--cpq-bg-primary, #0b1020) 78%, transparent);
@@ -1156,7 +1160,7 @@ onDeactivated(() => {
   height: 22px;
   padding: 0 9px;
   border: 1px solid currentColor;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
@@ -1191,7 +1195,7 @@ onDeactivated(() => {
 .inspector-tab {
   flex: 1;
   padding: 7px 0;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid transparent;
   background: transparent;
   color: var(--cpq-text-secondary);
@@ -1217,7 +1221,7 @@ onDeactivated(() => {
 .inspector-avatar {
   width: 48px;
   height: 48px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1263,7 +1267,7 @@ onDeactivated(() => {
 .inspector-section {
   padding: 12px;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(var(--cpq-glass-card-blur));
   -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
@@ -1319,7 +1323,7 @@ onDeactivated(() => {
   height: 100%;
   min-height: 0;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.10));
-  border-radius: 18px;
+  border-radius: var(--cpq-radius-xl);
   background: var(--cpq-bg-primary);
   box-shadow: 0 30px 80px rgba(0,0,0,0.35);
   overflow: hidden;
@@ -1348,9 +1352,10 @@ onDeactivated(() => {
 
 /* ============ 手机端（≤860）：3D 全屏 + 头像行 + 聊天层 + 任务抽屉 ============ */
 .of-more {
+  position: relative;
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
   background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
   color: var(--cpq-text-secondary);
@@ -1361,41 +1366,15 @@ onDeactivated(() => {
   cursor: pointer;
 }
 
-/* 手机端顶栏任务入口（原在底部头像行旁，挪顶栏后不再被遮挡） */
-.of-taskbtn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 10px;
-  border: none;
-  background: var(--cpq-accent-primary);
-  color: var(--cpq-accent-on-primary);
-  font-size: 12px;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 4px 12px var(--cpq-overlay-a40);
-}
-
-.of-taskbtn .anticon { font-size: 12px; }
-
-.of-taskn {
+/* 更多按钮红点：有运行中任务时提示去菜单里开任务看板（原任务按钮徽标的轻量替身） */
+.of-more-dot {
   position: absolute;
-  top: -6px;
-  right: -6px;
-  min-width: 16px;
-  height: 16px;
-  border-radius: 999px;
+  top: -3px;
+  right: -3px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   background: var(--cpq-accent-warning, #faad14);
-  color: #1c1408;
-  font-size: 9px;
-  font-weight: 800;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
 }
 
 .m-stage {
@@ -1416,7 +1395,7 @@ onDeactivated(() => {
   flex-direction: column;
   gap: 4px;
   padding: 7px 10px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-3-bg, var(--cpq-overlay-w5));
   -webkit-backdrop-filter: blur(10px);
   backdrop-filter: blur(10px);
@@ -1589,7 +1568,7 @@ onDeactivated(() => {
   padding: 6px 10px 0;
 }
 
-.pd-x { width: 29px; height: 29px; border-radius: 10px; border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+.pd-x { width: 29px; height: 29px; border-radius: var(--cpq-radius-md); border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
   background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px;
   display: inline-flex; align-items: center; justify-content: center; flex: none; }
 
@@ -1650,6 +1629,14 @@ onDeactivated(() => {
 
 @media (max-width: 860px) {
   .office-toolbar { padding: 0 12px; gap: 8px; }
+
+  /* 顶栏四元素（团队切换/LIVE/Manage Teams/更多）在 360px 级窄屏放不下，"更多"会被挤出屏——
+     LIVE 只留状态圆点（颜色即在线/离线语义），Manage Teams 收紧内边距，团队名截断收窄 */
+  .room-picker-name { max-width: 96px; }
+  .connection-pill { padding: 0 7px; }
+  .connection-pill-text { display: none; }
+  .office-actions { gap: 8px; }
+  .office-actions :deep(.ant-btn) { padding: 0 8px; font-size: 12px; }
 
   .manager-backdrop { padding: 0; }
 

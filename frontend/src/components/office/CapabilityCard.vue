@@ -9,12 +9,17 @@
         <strong>{{ skill.name || skill.key }}</strong>
         <a-tag v-if="bound" color="green">已绑定</a-tag>
         <a-tag v-if="skill.runnable" color="blue">可试运行</a-tag>
+        <a-tag v-if="skill.type === 'workflow'" :color="skill.entity_binding === 'real_bound' ? 'geekblue' : 'cyan'">
+          {{ skill.entity_binding === 'real_bound' ? '事务型' : '推理型' }}
+        </a-tag>
       </div>
       <slot name="actions"><span class="cc-arrow">›</span></slot>
     </header>
     <p class="cc-desc">{{ skill.description || '暂无说明' }}</p>
     <div class="cc-tags">
-      <a-tag v-for="tool in skill.tool_ids || []" :key="tool" color="purple">{{ tool }}</a-tag>
+      <span v-if="skill.tool_count" class="cc-tools-count">
+        {{ skill.tool_count }} 个工具
+      </span>
     </div>
     <footer class="cc-foot">
       <span v-if="skill.runtime_name">{{ skill.runtime_name }}</span>
@@ -38,7 +43,7 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
   gap: 8px;
   padding: 12px 14px;
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.1));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w5, rgba(255, 255, 255, 0.05));
   cursor: pointer;
   transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
@@ -93,6 +98,11 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
   flex-wrap: wrap;
   gap: 4px;
   min-height: 22px;
+}
+.cc-tools-count {
+  font-size: 11px;
+  color: var(--cpq-text-muted);
+  align-self: end;
 }
 .cc-foot {
   display: flex;

@@ -24,7 +24,7 @@
 /* 次级分段控件（图纸筛选 / 料号库卡片-列表切换） */
 .seg2 { display: inline-flex; gap: 2px; padding: 3px; background: var(--cpq-overlay-a4); border-radius: var(--cpq-radius-sm); }
 .seg2-item {
-  padding: 4px 14px; border-radius: 6px; font-size: 12.5px; cursor: pointer;
+  padding: 4px 14px; border-radius: var(--cpq-radius-sm); font-size: 12.5px; cursor: pointer;
   color: var(--cpq-text-secondary); transition: all 0.15s; user-select: none; white-space: nowrap;
 }
 .seg2-item:hover { color: var(--cpq-accent-primary); }

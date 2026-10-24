@@ -9,6 +9,7 @@ import { projectApi } from '@/api'
 import { systemConfigApi } from '@/api/systemConfig'
 import { RESULT_OPTIONS, resultLabel } from '@/constants/opportunityResult'
 import { useAuthStore } from '@/store/auth'
+import { MODAL_WIDTH } from '@/constants/modalPresets'
 
 interface LossReason { key: string; label: string; enabled: boolean }
 
@@ -134,7 +135,9 @@ async function saveDict() {
   <a-modal
     :open="open"
     :title="`将商机状态改为「${targetLabel}」`"
-    :width="'min(460px, 92vw)'"
+    centered
+    :width="MODAL_WIDTH.action"
+    wrap-class-name="portal-sheet-modal"
     :mask-closable="false"
     ok-text="确认变更"
     cancel-text="取消"

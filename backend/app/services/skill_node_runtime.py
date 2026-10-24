@@ -93,6 +93,22 @@ def _apply_payload_map(payload_map: dict, ctx: dict) -> dict:
 _CN_NUM = "一二三四五六七八九十"
 
 
+def _strip_bold_leftovers(text: str) -> str:
+    """剥掉章节槽文本里的加粗标记残留（2026-10-22 实测渲染出裸 **）。
+
+    大脑爱把章节标题写成「一、周数据（10.09 ~ 10.15）**」——加粗只包了标题行，
+    拆段后行尾的失衡「**」和只装星号的行会泄进正文槽。只清两种残留：
+    整行只有 * / 空白的行，以及 ** 计数为奇数（失衡）的行尾 **；正常加粗不动。
+    """
+    lines = str(text or "").splitlines()
+    kept = [ln for ln in lines if (not ln.strip()) or (set(ln.strip()) - {"*"})]
+    if kept:
+        first = kept[0]
+        if first.count("**") % 2 == 1 and first.rstrip().endswith("**"):
+            kept = [first.rstrip()[:-2].rstrip(), *kept[1:]]
+    return "\n".join(kept).strip()
+
+
 def split_answer_sections(answer: str, sections: list[dict]) -> dict:
     """AI 整段 answer 按目标层章节契约头「一、{title}」确定性拆段 → {section_key: 文本}。
 
@@ -127,6 +143,7 @@ def split_answer_sections(answer: str, sections: list[dict]) -> dict:
         cend = marks[j + 1][0] if j + 1 < len(marks) else len(answer)
         text = str(answer[cstart:cend] or "").strip()
         text = _re.sub(r"^[\s:：.。;；]+", "", text).strip()
+        text = _strip_bold_leftovers(text)
         if text:
             out[key] = text
     return out

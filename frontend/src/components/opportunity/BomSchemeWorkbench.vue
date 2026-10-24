@@ -9,6 +9,9 @@ import ShareDialog from '@/components/opportunity/ShareDialog.vue'
 import { portalApi, type BomScheme, type FlowCard, type PortalBoard, type PortalSheetConfig, type RequirementSlots } from '@/api/portal'
 import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
 import { useDownstreamAssignee, ASSIGNEE_REQUIRED_DETAIL } from '@/composables/useDownstreamAssignee'
+import { useIsMobile } from '@/composables/useIsMobile'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
+import { MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
 
 const props = defineProps<{
   board: PortalBoard
@@ -91,6 +94,9 @@ function editorFlowCardId() {
 }
 
 const editorOpen = ref(false)
+// 手机全屏编辑时，上游需求单默认折叠（先编辑，需求原文点开再看）；桌面保持展开
+const isMobile = useIsMobile()
+const reqRefOpen = ref(true)
 // 弹窗打开时灌入 current 需求单快照（左侧只读参考）
 watch(editorOpen, (open) => {
   if (!open) return
@@ -158,6 +164,7 @@ function openNew() {
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
   editorReadonly.value = false
+  reqRefOpen.value = !isMobile.value
   // 新建方案：从当前需求单继承「组合拆分/方案备选」模式（只拷贝，不回写需求单）
   inheritRequirementRelation()
   editorOpen.value = true
@@ -174,6 +181,7 @@ function openNewForRequirement(req: { version: number }) {
   editorName.value = ''
   editorConfigs.value = [blankConfig('CFG1')]
   editorReadonly.value = false
+  reqRefOpen.value = !isMobile.value
   inheritRequirementRelation(req)
   editorOpen.value = true
 }
@@ -190,6 +198,7 @@ function openScheme(scheme: BomScheme) {
   if (editorConfigRelation.value === 'alternative' && !editorPrimaryConfig.value) {
     editorPrimaryConfig.value = editorConfigs.value[0]?.name || ''
   }
+  reqRefOpen.value = !isMobile.value
   editorOpen.value = true
 }
 
@@ -374,10 +383,10 @@ function requestWithdrawScheme(scheme: BomScheme) {
           <span class="rt-strong">需求单 v{{ req.version }}</span>
           <span class="rt-sub">来自线索登记</span>
         </td>
-        <td class="rt-dim">REQ-{{ req.version }}</td>
-        <td><span class="rt-badge rt-badge-current">待配方案</span></td>
-        <td class="rt-dim">{{ req.slots?.server_model || '—' }}</td>
-        <td class="rt-dim">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
+        <td class="rt-dim" data-label="编号">REQ-{{ req.version }}</td>
+        <td data-label="状态"><span class="rt-badge rt-badge-current">待配方案</span></td>
+        <td class="rt-dim" data-label="服务器型号">{{ req.slots?.server_model || '—' }}</td>
+        <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable" class="rt-actions">
             <span class="rt-link" @click.stop="openSchemeForRequirement(req)">
@@ -393,14 +402,14 @@ function requestWithdrawScheme(scheme: BomScheme) {
         @click="openScheme(scheme)"
       >
         <td><span class="rt-strong">{{ scheme.name }}</span></td>
-        <td class="rt-dim">BOM-{{ scheme.id }}</td>
-        <td>
+        <td class="rt-dim" data-label="编号">BOM-{{ scheme.id }}</td>
+        <td data-label="状态">
           <span class="rt-badge"
             :class="scheme.status === 'current' ? 'rt-badge-current' : scheme.status === 'draft' ? 'rt-badge-draft' : 'rt-badge-done'"
           >{{ statusLabel(scheme.status) }}</span>
         </td>
-        <td>{{ schemeMeta(scheme) }}</td>
-        <td class="rt-dim">{{ scheme.created_by || '—' }} · {{ (scheme.updated_at || scheme.created_at || '').slice(5, 16) }}</td>
+        <td data-label="配置 / 台数 / 型号">{{ schemeMeta(scheme) }}</td>
+        <td class="rt-dim" data-label="创建人 / 时间">{{ scheme.created_by || '—' }} · {{ (scheme.updated_at || scheme.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable && scheme.status === 'draft'" class="rt-actions">
             <span class="rt-link" @click.stop="openScheme(scheme)">继续编辑</span>
@@ -425,22 +434,23 @@ function requestWithdrawScheme(scheme: BomScheme) {
 
     </RecordTable>
 
-    <a-modal
+    <ResponsiveModal
       v-model:open="editorOpen"
       :title="editorReadonly ? '查看方案' : '编辑方案'"
-      width="min(1180px, calc(100vw - 24px))"
+      tier="sheet"
+      centered
       wrap-class-name="portal-sheet-modal"
       :footer="null"
-      :body-style="{ padding: '14px', maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', overflowX: 'hidden' }"
-      @cancel="editorOpen = false"
+      :body-style="{ padding: '14px', maxHeight: MODAL_BODY_MAX_HEIGHT, overflowY: 'auto', overflowX: 'hidden' }"
     >
       <div class="scheme-layout">
         <aside class="scheme-req-ref glass-light">
-          <div class="scheme-req-head">
+          <div class="scheme-req-head" role="button" @click="reqRefOpen = !reqRefOpen">
             <b>上游需求单{{ requirement ? ` v${requirement.version}` : '' }}</b>
             <span class="scheme-req-chip">只读参考</span>
+            <span class="scheme-req-caret" :class="{ collapsed: !reqRefOpen }">▾</span>
           </div>
-          <div v-if="requirement" class="scheme-req-body">
+          <div v-if="requirement" v-show="reqRefOpen" class="scheme-req-body">
             <RequirementForm ref="reqRef" v-model:req-text="reqText" :readonly="true" />
           </div>
           <div v-else class="scheme-req-empty">暂无需求单</div>
@@ -466,7 +476,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
           </div>
         </div>
       </div>
-    </a-modal>
+    </ResponsiveModal>
     <AssigneePickerModal
       v-model:value="pickerChosen"
       :open="pickerOpen"
@@ -490,59 +500,8 @@ function requestWithdrawScheme(scheme: BomScheme) {
 .bom-workbench {
   overflow: hidden;
 }
-.bw-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
-  padding: 12px 14px;
-}
-.bw-summary {
-  font-size: 12px;
-  color: var(--cpq-text-secondary);
-}
-.bw-muted {
-  font-size: 11px;
-  color: var(--cpq-text-muted);
-}
-.bw-footer-link {
-  margin-left: 8px;
-  font-size: 12px;
-  color: var(--cpq-accent-primary);
-  cursor: pointer;
-}
 .bw-footer-link.danger {
   color: var(--cpq-color-danger, #ff4d4f);
-}
-.row-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--cpq-overlay-w4);
-  border: 1px solid var(--cpq-glass-border);
-  color: var(--cpq-text-secondary);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.row-meta-item b {
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-}
-.row-meta-item.muted {
-  color: var(--cpq-text-muted);
-  background: transparent;
-  border: none;
-  padding: 0 2px;
-}
-.bw-empty {
-  grid-column: 1 / -1;
-  padding: 40px 16px;
-  text-align: center;
-  color: var(--cpq-text-muted);
-  font-size: 13px;
-  border: 1px dashed var(--cpq-glass-border);
-  border-radius: 12px;
 }
 .scheme-layout {
   display: grid;
@@ -564,16 +523,32 @@ function requestWithdrawScheme(scheme: BomScheme) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 8px;
   flex-shrink: 0;
   padding: 12px 14px;
   border-bottom: 1px solid var(--cpq-border-primary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .scheme-req-head b {
+  flex: 1;
+  min-width: 0;
   font-size: 14px;
   color: var(--cpq-text-primary);
 }
+.scheme-req-caret {
+  flex-shrink: 0;
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  display: inline-flex;
+  transition: transform 0.2s ease;
+}
+.scheme-req-caret.collapsed {
+  transform: rotate(180deg);
+}
 .scheme-req-chip {
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 5px 11px;
   background: var(--cpq-overlay-success15);
   color: var(--cpq-color-success);
@@ -602,12 +577,19 @@ function requestWithdrawScheme(scheme: BomScheme) {
 .scheme-name {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 12px;
   color: var(--cpq-text-secondary);
 }
+.scheme-name > span {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .scheme-name .ant-input {
-  max-width: 300px;
+  flex: 1 1 220px;
+  min-width: 0;
+  max-width: 420px;
 }
 .scheme-actions {
   display: flex;
@@ -618,6 +600,15 @@ function requestWithdrawScheme(scheme: BomScheme) {
 @media (max-width: 980px) {
   .scheme-layout {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 768px) {
+  /* 全屏编辑：需求参考不再限高（整体在弹窗 body 里滚），编辑器网格横向滑动 */
+  .scheme-req-ref {
+    max-height: none;
+  }
+  .scheme-req-body {
+    max-height: 42vh;
   }
 }
 </style>

@@ -298,13 +298,13 @@ function flowPillClass(r: any) {
 .dt-rel { font-size: 10.5px; color: var(--cpq-text-muted); white-space: nowrap; }
 .row-more {
   display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: 6px; cursor: pointer; font-size: 14px;
+  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 14px;
   transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .row-more:hover { background: var(--cpq-overlay-w8); color: var(--cpq-text-primary); }
 
 /* 流程节点 pill（对齐门户工作台原有样式） */
-.pill { display: inline-block; padding: 3px 9px; border-radius: 999px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-size: 12px; white-space: nowrap; }
+.pill { display: inline-block; padding: 3px 9px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-size: 12px; white-space: nowrap; }
 .pill.amber { background: rgba(217, 119, 6, .14); color: #d97706; }
 .pill.green { background: rgba(22, 163, 74, .14); color: #16a34a; }
 .pill.red { background: rgba(220, 38, 38, .12); color: #dc2626; }
@@ -314,7 +314,7 @@ function flowPillClass(r: any) {
 .hit-badge {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%; white-space: nowrap;
   font-size: 11px; color: var(--cpq-text-primary); background: rgba(22, 119, 255, .08);
-  border: 1px solid rgba(22, 119, 255, .28); border-radius: 6px; padding: 1px 8px;
+  border: 1px solid rgba(22, 119, 255, .28); border-radius: var(--cpq-radius-sm); padding: 1px 8px;
   overflow: hidden; text-overflow: ellipsis;
 }
 .hit-badge .hd { font-style: normal; font-size: 10px; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
@@ -324,14 +324,14 @@ function flowPillClass(r: any) {
 /* 批量操作浮条（从商机线索页迁入，样式口径不变） */
 .batch-float {
   position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 1000;
-  display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-radius: 999px;
+  display: flex; align-items: center; gap: 12px; padding: 10px 18px; border-radius: var(--cpq-radius-full);
   box-shadow: var(--cpq-shadow-lg, 0 8px 24px rgba(0,0,0,0.18));
 }
 .batch-count { font-size: 13px; color: var(--cpq-text-secondary); }
 .batch-count b { color: var(--cpq-accent-primary); }
 .batch-btn {
   padding: 5px 14px; border: 1px solid var(--cpq-overlay-w10); background: transparent; color: var(--cpq-text-secondary);
-  border-radius: 999px; cursor: pointer; font-size: 12.5px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
+  border-radius: var(--cpq-radius-full); cursor: pointer; font-size: 12.5px; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .batch-btn:hover { color: var(--cpq-text-primary); border-color: var(--cpq-text-secondary); }
 .batch-btn.danger { color: var(--cpq-accent-danger); border-color: var(--cpq-overlay-danger30, rgba(255,107,107,0.35)); }

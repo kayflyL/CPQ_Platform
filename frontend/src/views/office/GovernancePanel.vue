@@ -263,13 +263,13 @@ onMounted(loadItems)
   text-align: center;
   color: var(--cpq-text-muted);
   border: 1px dashed var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
 }
 
 .gov-item {
   padding: 10px;
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-elevated, rgba(255,255,255,0.03));
 }
 

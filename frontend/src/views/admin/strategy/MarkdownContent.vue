@@ -27,9 +27,9 @@ const html = computed(() => {
 .md :deep(li::marker) { color: var(--cpq-accent-primary); }
 .md :deep(strong) { color: var(--cpq-text-primary); font-weight: 700; }
 .md :deep(em) { color: var(--cpq-text-secondary); }
-.md :deep(code) { background: var(--cpq-overlay-w6); padding: 1px 6px; border-radius: 6px; font-size: 12.5px; color: var(--cpq-accent-primary); }
-.md :deep(pre) { background: var(--cpq-overlay-w8); padding: 14px; border-radius: 12px; overflow: auto; }
+.md :deep(code) { background: var(--cpq-overlay-w6); padding: 1px 6px; border-radius: var(--cpq-radius-sm); font-size: 12.5px; color: var(--cpq-accent-primary); }
+.md :deep(pre) { background: var(--cpq-overlay-w8); padding: 14px; border-radius: var(--cpq-radius-md); overflow: auto; }
 .md :deep(a) { color: var(--cpq-accent-primary); }
-.md :deep(blockquote) { border-left: 3px solid var(--cpq-accent-primary); margin: 16px 0; padding: 6px 16px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-a10); border-radius: 0 10px 10px 0; }
+.md :deep(blockquote) { border-left: 3px solid var(--cpq-accent-primary); margin: 16px 0; padding: 6px 16px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-a10); border-radius: 0 var(--cpq-radius-md) var(--cpq-radius-md) 0; }
 .md :deep(hr) { border: none; border-top: 1px solid var(--cpq-glass-border); margin: 24px 0; }
 </style>

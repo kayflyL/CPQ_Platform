@@ -12,6 +12,15 @@ from .skill_types import normalize_skill_type, is_capability_skill
 logger = logging.getLogger(__name__)
 
 
+
+
+def entity_binding_of(manifest: Optional[dict]) -> str:
+    """会话实体绑定策略:manifest 声明的 entity_binding(缺省 sandbox)。
+    sandbox=隐藏载体(需求分析范式);real_bound=绑定真实商机(交付链);none=不挂商机。"""
+    v = str((manifest or {}).get("entity_binding") or "").strip()
+    return v if v in ("sandbox", "real_bound", "none") else "sandbox"
+
+
 def resolve_skill_manifest(skill_key: str) -> Optional[dict]:
     """按 skill_key 解析 Skill manifest；目录和流程都没有时返回 None。
 
@@ -65,4 +74,8 @@ def resolve_skill_manifest(skill_key: str) -> Optional[dict]:
         "flow": flow,
         "node_configs": dict(flow.get("node_configs") or {}),
         "graph": flow.get("graph") or {"nodes": [], "edges": []},
+        # 会话实体绑定策略(graph.entity_binding 声明,缺省 sandbox=需求分析范式):
+        # sandbox=隐藏 ai-* 载体;real_bound=绑定真实商机(交付链);none=不挂商机。
+        # 读法见 skill_registry.entity_binding_of。
+        "entity_binding": (flow.get("graph") or {}).get("entity_binding") or "sandbox",
     }

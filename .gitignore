@@ -70,6 +70,8 @@ tmp/
 backend/tmp/
 backend/tmp_*.json
 *.patch
+.scratch/
+backend/.scratch/
 
 # 本地登录凭据（不入库）
 .claude/.dev-login

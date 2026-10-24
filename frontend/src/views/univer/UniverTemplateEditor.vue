@@ -1379,7 +1379,7 @@ onMounted(async () => {
   font-size: 10px;
   line-height: 1;
   padding: 2px 5px;
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   vertical-align: 1px;
 }
 .sens-badge.sens-cost,
@@ -1585,7 +1585,7 @@ onMounted(async () => {
 
 .field-group {
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   overflow: hidden;
 }
 
@@ -1688,7 +1688,7 @@ onMounted(async () => {
 
 .binding-panel::-webkit-scrollbar-thumb {
   background: var(--cpq-border-primary);
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .binding-panel::-webkit-scrollbar-thumb:hover {
@@ -1789,7 +1789,7 @@ onMounted(async () => {
   padding: 10px 14px;
   background: var(--cpq-bg-tertiary);
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   margin-bottom: 6px;
 }
 
@@ -1867,7 +1867,7 @@ onMounted(async () => {
 
 .list-content::-webkit-scrollbar-thumb {
   background: var(--cpq-border-primary);
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .list-content::-webkit-scrollbar-thumb:hover {

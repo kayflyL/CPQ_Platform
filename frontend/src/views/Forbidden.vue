@@ -25,7 +25,7 @@ const router = useRouter()
 }
 .fb-card {
   padding: 40px 48px;
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   text-align: center;
 }
 .fb-code {

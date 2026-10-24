@@ -45,6 +45,8 @@
             :pick-role="item.colleague_role_key || ''"
             @select-option="sendOption"
             @submit-selections="sendSelections"
+            @submit-form="sendFormText"
+            @answer-query="sendAnswer"
           />
         </template>
 
@@ -132,7 +134,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CloseOutlined, DeleteOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import type { AssistantContext, AssistantThread } from '@/api/assistant'
+import { assistantApi, type AssistantContext, type AssistantThread } from '@/api/assistant'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
@@ -311,6 +313,27 @@ async function sendOption(value: string, slot?: string) {
   }
 }
 
+// 会话输入卡提交：「label」=值 组装文本作为用户消息回流，AI 据此继续
+async function sendFormText(text: string) {
+  if (!text || !props.colleague?.role_key) return
+  try {
+    await send(props.colleague.role_key, text, props.contextSummary, chatContext.value, null)
+  } catch {
+    message.error(chatState.value?.error || '发送失败')
+  }
+}
+
+// 问答协议：结构化回答按 query_id 回流（POST /answers），答案由轮壳路由
+async function sendAnswer(payload: Record<string, any>) {
+  const tid = chatState.value?.threadId || ''
+  if (!tid) return
+  try {
+    await assistantApi.answers.create(tid, payload)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '回答提交失败')
+  }
+}
+
 // 逐项卡提交：一条消息带 (slot,value,qty)，用户气泡只展示可读文案（数量跟在型号后）
 async function sendSelections(selections: Array<{ slot: string; value: string; label: string; qty?: number }>) {
   if (!selections.length || !props.colleague?.role_key) return
@@ -331,7 +354,7 @@ async function sendSelections(selections: Array<{ slot: string; value: string; l
 // 表单卡的本地点选不发消息，不受影响。
 // 「已答塌行」与「回合进行中禁点」分离：running 时卡可见但禁点，不整卡消失。
 function optionAnswered(m: any): boolean {
-  if (m?.kind !== 'input_options') return false
+  if (m?.kind !== 'input_options' && m?.kind !== 'input_form') return false
   const arr = chatState.value?.messages || []
   const idx = arr.indexOf(m)
   if (idx === -1) return true
@@ -341,7 +364,7 @@ function optionAnswered(m: any): boolean {
   return false
 }
 function optionInteractive(m: any): boolean {
-  if (m?.kind !== 'input_options') return true
+  if (m?.kind !== 'input_options' && m?.kind !== 'input_form') return true
   return !optionAnswered(m) && !chatState.value?.sending && !chatState.value?.running
 }
 
@@ -357,7 +380,7 @@ onBeforeUnmount(close)
   min-height: 0;
   height: auto;
   border: 1px solid var(--cpq-glass-border, var(--cpq-border-secondary, rgba(255, 255, 255, 0.14)));
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg, var(--cpq-bg-card, rgba(255, 255, 255, 0.04)));
   box-shadow: var(--cpq-glass-card-shadow, none);
   backdrop-filter: blur(var(--cpq-glass-blur-2, 14px));
@@ -412,7 +435,7 @@ onBeforeUnmount(close)
 .chat-head-state {
   flex-shrink: 0;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   color: var(--cpq-text-muted, #9aa4b2);
   background: var(--cpq-overlay-w6, rgba(154, 164, 178, 0.12));
   font-size: 9px;
@@ -443,7 +466,7 @@ onBeforeUnmount(close)
   height: 28px;
   padding: 0 10px;
   border: 1px solid var(--cpq-border-light, rgba(255, 255, 255, 0.16));
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   color: var(--cpq-text-secondary, #c3cad5);
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.06));
   font-size: 11px;
@@ -464,7 +487,7 @@ onBeforeUnmount(close)
   height: 24px;
   flex-shrink: 0;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-muted, #9aa4b2);
   background: transparent;
   font-size: 12px;
@@ -490,13 +513,13 @@ onBeforeUnmount(close)
 
 .chat-empty,
 .chat-tool-activity { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px; }
-.chat-tool { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 8px; font-size: 12px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); }
+.chat-tool { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: var(--cpq-radius-sm); font-size: 12px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); }
 .chat-tool .anticon { color: var(--cpq-accent-primary); }
 .chat-tool.done .anticon { color: var(--cpq-accent-success, #52c41a); }
 .chat-tool-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chat-tool-status { flex-shrink: 0; font-size: 11px; color: var(--cpq-text-muted); }
 .chat-workflow-steps { display: flex; flex-direction: column; gap: 6px; padding: 6px 2px; }
-.chat-workflow-step { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 8px; font-size: 12px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); }
+.chat-workflow-step { display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: var(--cpq-radius-sm); font-size: 12px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); }
 .chat-workflow-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--cpq-text-muted); flex-shrink: 0; }
 .chat-workflow-step.is-running .chat-workflow-dot { background: var(--cpq-accent-primary); box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.15); }
 .chat-workflow-step.is-done .chat-workflow-dot { background: var(--cpq-accent-success, #52c41a); }
@@ -532,7 +555,7 @@ onBeforeUnmount(close)
   gap: 8px;
   padding: 8px;
   border: 1px solid var(--cpq-border-secondary, rgba(255, 255, 255, 0.08));
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.03));
 }
 
@@ -590,7 +613,7 @@ onBeforeUnmount(close)
   align-items: center;
   gap: 10px;
   padding: 6px 8px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
 }
 
 .chat-head:hover .chat-role-card {
@@ -600,7 +623,7 @@ onBeforeUnmount(close)
 .chat-role-avatar {
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -670,7 +693,7 @@ onBeforeUnmount(close)
   width: 34px;
   height: 34px;
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.12));
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   display: grid;
   place-items: center;
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
@@ -735,7 +758,7 @@ onBeforeUnmount(close)
   align-items: center;
   gap: 5px;
   border: 1px solid var(--cpq-accent-primary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   padding: 7px 10px;
   font-size: 12px;
   color: var(--cpq-accent-primary);
@@ -764,7 +787,7 @@ onBeforeUnmount(close)
   align-items: center;
   padding: 11px;
   border: 0;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
 }
 
@@ -805,7 +828,7 @@ onBeforeUnmount(close)
   height: 28px;
   flex-shrink: 0;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: var(--cpq-text-muted);
   cursor: pointer;

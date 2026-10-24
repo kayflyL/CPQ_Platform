@@ -677,12 +677,12 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .col-right { flex: 0 0 420px; position: sticky; top: calc(var(--cpq-sticky-top, 0px) + 16px); max-height: calc(100vh - var(--cpq-sticky-top, 0px) - 32px); overflow-y: auto; }
 
 /* —— 通用玻璃卡片（基准信息 / 备份）—— 头在卡内、体走折叠容器，卡壳零内边距 */
-.bc-card { padding: 0; border-radius: var(--cpq-radius-lg, 14px); overflow: hidden;
+.bc-card { padding: 0; border-radius: var(--cpq-radius-lg); overflow: hidden;
   background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-a15); box-shadow: var(--cpq-shadow-md); }
 .bc-card-head { display: flex; align-items: center; gap: 10px; padding: 10px 16px; }
 .bc-card-tag { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF);
-  padding: 3px 10px; border-radius: 6px; background: var(--cpq-overlay-a15); flex-shrink: 0; }
+  padding: 3px 10px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); flex-shrink: 0; }
 .info-inner { padding: 4px 16px 14px; transition: padding .25s ease; }
 .card-collapse.collapsed .info-inner { padding-top: 0; padding-bottom: 0; }
 
@@ -691,7 +691,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .card-head-toggle:hover .anatomy-title, .card-head-toggle:hover .bc-card-tag { color: var(--cpq-accent-primary, #1677FF); }
 .head-sum, .anatomy-sum { flex: 1; min-width: 0; font-size: 12px; color: var(--cpq-text-muted, #6E7582);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.card-chevron { margin-left: auto; flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: 7px;
+.card-chevron { margin-left: auto; flex-shrink: 0; width: 26px; height: 26px; border: none; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-a15); color: var(--cpq-text-muted, #6E7582); cursor: pointer;
   display: flex; align-items: center; justify-content: center; font-size: 12px;
   transition: transform .25s ease, background .2s, color .2s; }
@@ -705,12 +705,12 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .group-label-row { display: flex; align-items: center; justify-content: space-between; margin: 6px 2px -2px; }
 .group-label { font-size: 12px; font-weight: 600; letter-spacing: .5px;
   color: var(--cpq-text-muted, #6E7582); margin: 0; }
-.anatomy-card { border-radius: var(--cpq-radius-lg, 14px); overflow: hidden;
+.anatomy-card { border-radius: var(--cpq-radius-lg); overflow: hidden;
   background: var(--cpq-glass-card-bg); backdrop-filter: blur(16px);
   border: 1px solid var(--cpq-overlay-w10); }
 .anatomy-head { display: flex; align-items: center; gap: 12px; padding: 10px 16px;
   border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
-.anatomy-num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15);
+.anatomy-num { width: 26px; height: 26px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15);
   color: var(--cpq-accent-primary, #1677FF); display: flex; align-items: center; justify-content: center;
   font-size: 12px; font-weight: 600; flex-shrink: 0; }
 .anatomy-title { font-size: 14px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); flex-shrink: 0; }
@@ -727,7 +727,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .sc-section-head .sh-note { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
 .rear-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
 .slot-col { display: flex; flex-direction: column; gap: 8px; padding: 12px; min-width: 0;
-  background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 12px; }
+  background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md); }
 .slot-col-head { display: flex; align-items: center; gap: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--cpq-overlay-w8); }
 .slot-sum { display: flex; flex-direction: column; gap: 2px; padding: 0 2px; }
 .slot-sum .sum-line { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
@@ -739,13 +739,13 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .slot-cap-in { width: 42px; flex-shrink: 0; }
 .slot-cap-in :deep(input) { text-align: center; padding: 0 2px; font-size: 12px; }
 .slot-del { flex-shrink: 0; }
-.type-card { padding: 8px 9px; border: 1px solid var(--cpq-overlay-w8); border-radius: 8px;
+.type-card { padding: 8px 9px; border: 1px solid var(--cpq-overlay-w8); border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4); transition: all .2s; }
 .type-card.active { border-color: var(--cpq-overlay-a40); background: var(--cpq-overlay-a8); box-shadow: 0 0 10px var(--cpq-overlay-a8); }
 .type-card-head { display: flex; align-items: baseline; gap: 6px; margin-bottom: 5px; }
 .type-name { font-size: 12px; font-weight: 700; color: var(--cpq-text-secondary, #9BA1AA); }
 .type-card.active .type-name { color: var(--cpq-text-primary, #E8ECEF); }
-.type-bundle { font-size: 10px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a15); padding: 1px 5px; border-radius: 4px; }
+.type-bundle { font-size: 10px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a15); padding: 1px 5px; border-radius: var(--cpq-radius-xs); }
 .type-price { margin-left: auto; font-size: 11px; font-weight: 600; color: var(--cpq-accent-primary, #1677FF); }
 .type-pns { display: flex; flex-direction: column; gap: 3px; margin-bottom: 5px; }
 .pn-row { display: flex; align-items: baseline; gap: 5px; }
@@ -771,7 +771,7 @@ onMounted(async () => { await Promise.all([init(), loadOptions(), loadKpGpu()]) 
 .psu-lab-edit { font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); white-space: nowrap; }
 .psu-sel-edit { min-width: 260px; flex: 1; }
 .section-parts { display: flex; flex-direction: column; gap: 8px; }
-.capability-block { padding: 10px 12px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); border-radius: 10px; }
+.capability-block { padding: 10px 12px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w8); border-radius: var(--cpq-radius-md); }
 .cap-item { display: flex; flex-direction: column; gap: 3px; }
 .cap-lab { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 

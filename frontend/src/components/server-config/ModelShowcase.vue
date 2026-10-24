@@ -46,7 +46,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   margin-bottom: 28px;
   background: rgba(255, 255, 255, 0.02);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 20px;
+  border-radius: var(--cpq-radius-xl);
 }
 
 .showcase-grid {
@@ -71,7 +71,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   font-size: 12px;
   letter-spacing: 0.08em;
   padding: 3px 10px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   color: #36CFCF;
   background: rgba(54, 207, 207, 0.15);
   border: 1px solid rgba(54, 207, 207, 0.3);
@@ -120,7 +120,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
 .showcase-stage {
   position: relative;
   min-height: 380px;
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   overflow: hidden;
   background: linear-gradient(to bottom, #061225, #030b18);
   border: 1px solid rgba(255, 255, 255, 0.1);
@@ -144,7 +144,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   transform: translateX(-50%);
   font-size: 12px;
   padding: 4px 12px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   color: rgba(238, 243, 250, 0.72);
   background: rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(8px);

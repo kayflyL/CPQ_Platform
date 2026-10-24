@@ -232,7 +232,7 @@ onMounted(() => {
 .banner-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .main-tag {
   position: absolute; top: 4px; left: 4px;
-  font-size: 11px; padding: 1px 6px; border-radius: 999px;
+  font-size: 11px; padding: 1px 6px; border-radius: var(--cpq-radius-full);
   color: #fff; background: rgba(22, 119, 255, 0.85);
 }
 .thumb-ops {
@@ -262,7 +262,7 @@ onMounted(() => {
 .lib-thumb {
   position: relative;
   width: 104px; height: 58px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   overflow: hidden;
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.1));
   cursor: pointer;
@@ -273,7 +273,7 @@ onMounted(() => {
 .lib-copy {
   position: absolute; top: 3px; right: 3px;
   width: 20px; height: 20px;
-  border: none; border-radius: 5px;
+  border: none; border-radius: var(--cpq-radius-xs);
   background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.9);
   font-size: 11px; line-height: 1;
@@ -283,7 +283,7 @@ onMounted(() => {
 .lib-copy:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
 .lib-in-use {
   position: absolute; left: 3px; bottom: 3px;
-  font-size: 10px; padding: 1px 5px; border-radius: 999px;
+  font-size: 10px; padding: 1px 5px; border-radius: var(--cpq-radius-full);
   color: #fff; background: rgba(22, 119, 255, 0.85);
   pointer-events: none;
 }

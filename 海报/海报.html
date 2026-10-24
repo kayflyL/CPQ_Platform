@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>霄擎算力 · 宣传海报</title>
+<style>
+@font-face{font-family:'NSC';src:url('file:///C:/Windows/Fonts/Noto%20Sans%20SC%20Bold%20(TrueType).otf');font-weight:700}
+@font-face{font-family:'NSC';src:url('file:///C:/Windows/Fonts/Noto%20Sans%20SC%20Medium%20(TrueType).otf');font-weight:500}
+@font-face{font-family:'NSC';src:url('file:///C:/Windows/Fonts/Noto%20Sans%20SC%20(TrueType).otf');font-weight:400}
+@font-face{font-family:'JBM';src:url('file:///C:/Users/16891/.claude/skills/canvas-design/canvas-fonts/JetBrainsMono-Regular.ttf');font-weight:400}
+@font-face{font-family:'JBM';src:url('file:///C:/Users/16891/.claude/skills/canvas-design/canvas-fonts/JetBrainsMono-Bold.ttf');font-weight:700}
+@font-face{font-family:'BSH';src:url('file:///C:/Users/16891/.claude/skills/canvas-design/canvas-fonts/BigShoulders-Bold.ttf');font-weight:700}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:1500px;height:2000px;overflow:hidden}
+body{position:relative;
+  background:
+    radial-gradient(rgba(255,255,255,.05) 1.2px, transparent 1.35px),
+    radial-gradient(140% 92% at 32% 16%, #1F7AE2 0%, #1159C4 46%, #0A3D8F 78%, #062C6E 100%);
+  background-size:44px 44px,100% 100%;
+  font-family:'NSC',sans-serif;color:#F4F8FD;
+}
+.abs{position:absolute}
+.hair{stroke:rgba(255,255,255,.35);stroke-width:1;fill:none}
+.mono{font-family:'JBM',monospace}
+
+/* 顶部字标 */
+.wordmark{left:120px;top:92px;display:flex;align-items:baseline;gap:14px}
+.wordmark b{font-size:17px;font-weight:700;letter-spacing:.06em}
+.wordmark span{font-family:'JBM';font-size:10px;letter-spacing:.22em;color:rgba(255,255,255,.62)}
+.sampleno{right:120px;top:96px;font-family:'JBM';font-size:10px;letter-spacing:.14em;color:rgba(255,255,255,.48)}
+
+/* 标题区 */
+.headline{left:120px;top:186px}
+.headline h1{font-size:122px;line-height:1.1;font-weight:700;letter-spacing:.015em;color:#F4F8FD}
+.capsline{left:124px;top:356px;font-family:'BSH';font-size:44px;font-weight:700;letter-spacing:.3em;color:#A9CBF5}
+.cyanrule{left:120px;top:442px;width:92px;height:3px;background:#36CFCF;border-radius:2px}
+.subline{left:236px;top:428px;font-size:17px;font-weight:500;letter-spacing:.06em;color:rgba(224,238,252,.9)}
+
+/* 矩阵 */
+.dimlabel{top:494px;font-family:'JBM';font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,.45);text-align:center;width:1260px;left:144px}
+.collabels{left:144px;top:508px;width:1260px;display:flex}
+.collabels i{flex:1;text-align:center;font-style:normal;font-family:'JBM';font-size:9.5px;color:rgba(255,255,255,.42)}
+.rowlabels{left:96px;top:530px;width:38px}
+.rowlabels i{display:block;height:54px;margin-bottom:12px;line-height:54px;text-align:right;font-style:normal;font-family:'JBM';font-size:9.5px;color:rgba(255,255,255,.42)}
+#matrix{left:144px;top:530px;width:1260px;display:flex;flex-wrap:wrap;gap:12px;z-index:2}
+#matrix .cell{width:94px;height:54px;border-radius:8px;border:1px solid rgba(255,255,255,.17);position:relative}
+#matrix .cell::after{content:'';position:absolute;left:50%;top:50%;width:3px;height:3px;margin:-1.5px;border-radius:50%;background:rgba(255,255,255,.26)}
+#matrix .cell.cfg{background:rgba(255,255,255,.11);border-color:rgba(255,255,255,.34)}
+#matrix .cell.cfg::after{background:rgba(255,255,255,.55)}
+#matrix .cell.solid{background:#E9EFF7;border-color:transparent}
+#matrix .cell.solid::after{display:none}
+#matrix .cell.solid b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'JBM';font-weight:700;font-size:10.5px;letter-spacing:.08em;color:#0B1B33}
+#matrix .cell.hero{background:#36CFCF;border-color:transparent;box-shadow:0 0 46px rgba(54,207,207,.55);z-index:3}
+#matrix .cell.hero::after{display:none}
+#matrix .cell.hero b{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:'JBM';font-weight:700;font-size:11px;letter-spacing:.14em;color:#04252B}
+.ailabel{right:96px;top:420px;text-align:right}
+.ailabel em{display:block;font-style:normal;font-family:'JBM';font-size:9px;letter-spacing:.22em;color:rgba(54,207,207,.95);margin-bottom:5px}
+.ailabel b{font-size:13.5px;font-weight:500;color:#F4F8FD;letter-spacing:.04em}
+
+/* 详图卡片 */
+.callout{left:880px;top:1105px;width:500px;background:rgba(246,249,253,.97);border-radius:18px;
+  box-shadow:0 30px 80px rgba(3,20,52,.45),0 2px 0 rgba(255,255,255,.4) inset;padding:24px 26px;z-index:10}
+.callout .hd{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:14px}
+.callout .hd b{font-size:14px;font-weight:500;color:#1D2129;letter-spacing:.04em}
+.callout .hd span{font-family:'JBM';font-size:9px;letter-spacing:.14em;color:#86909C}
+.qrow{display:flex;justify-content:space-between;align-items:center;padding:9px 0;border-bottom:1px solid #EEF1F5}
+.qrow .nm{font-size:13.5px;font-weight:500;color:#1D2129}
+.qrow .spec{font-family:'JBM';font-size:10px;color:#86909C;margin-top:3px;letter-spacing:.02em}
+.qrow .qty{font-family:'JBM';font-weight:700;font-size:12.5px;color:#1677FF}
+.callout .ft{display:flex;justify-content:space-between;align-items:center;padding-top:16px}
+.callout .ft .pill{font-size:11.5px;color:#1E9E6A;background:#E8F7F0;border-radius:999px;padding:4px 12px;letter-spacing:.06em}
+.callout .ft .exp{font-family:'JBM';font-weight:700;font-size:11px;letter-spacing:.12em;color:#1677FF}
+.acircle{position:absolute;left:-13px;top:-13px;width:26px;height:26px;border-radius:50%;background:#1677FF;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-family:'JBM';font-weight:700;font-size:11px}
+
+/* 流程轴 */
+.process{left:120px;top:1568px;width:1260px;height:78px;z-index:6}
+.process .pline{position:absolute;left:0;right:0;top:9px;height:1px;background:rgba(255,255,255,.26)}
+.process .pstep{position:absolute;top:0;width:190px}
+.process .pstep i{position:absolute;left:0;top:4px;width:11px;height:11px;border-radius:50%;background:#0E57BF;border:2px solid rgba(255,255,255,.72)}
+.process .pstep em{display:block;font-style:normal;font-family:'JBM';font-size:9px;letter-spacing:.2em;color:rgba(255,255,255,.5);margin:28px 0 5px}
+.process .pstep b{font-size:13.5px;font-weight:500;color:rgba(240,246,253,.92);letter-spacing:.06em}
+.process .pstep.rt{text-align:right}
+.process .pstep.rt i{left:auto;right:0}
+
+/* 品牌区 */
+.brandrule{left:120px;top:1692px;width:1260px;height:1px;background:rgba(255,255,255,.22)}
+.brand{left:120px;top:1732px;display:flex;justify-content:space-between;align-items:flex-start;width:1260px}
+.brand h2{font-size:86px;font-weight:700;letter-spacing:.05em;line-height:1}
+.brand .right{text-align:right;padding-top:14px}
+.brand .right .s{font-size:22px;font-weight:400;color:rgba(222,236,252,.92);letter-spacing:.1em}
+.brand .right .m{font-family:'JBM';font-size:10px;letter-spacing:.2em;color:rgba(160,195,235,.75);margin-top:12px}
+.footrule{left:120px;top:1938px;width:1260px;height:1px;background:rgba(255,255,255,.18)}
+.footer{left:120px;top:1956px;width:1260px;display:flex;justify-content:space-between}
+.footer .l{font-size:10.5px;letter-spacing:.08em;color:rgba(255,255,255,.55)}
+.footer .r{font-family:'JBM';font-size:10px;letter-spacing:.12em;color:rgba(255,255,255,.45)}
+svg.overlay{position:absolute;inset:0;z-index:5;pointer-events:none}
+</style>
+</head>
+<body>
+
+<div class="abs wordmark"><b>霄擎算力</b><span>CPQ PLATFORM</span></div>
+<div class="abs sampleno">SAMPLE SHEET · CFG-2026-001</div>
+
+<div class="abs headline"><h1>从需求，到报价</h1></div>
+<div class="abs capsline">CONFIGURE — PRICE — QUOTE</div>
+<div class="abs cyanrule"></div>
+<div class="abs subline">一次配置 · 全流程闭环</div>
+
+<svg class="overlay">
+  <!-- 四角 registration 十字 -->
+  <g class="hair">
+    <path d="M56 40 V72 M40 56 H72"/>
+    <path d="M1444 40 V72 M1428 56 H1460"/>
+    <path d="M56 1928 V1960 M40 1944 H72"/>
+    <path d="M1444 1928 V1960 M1428 1944 H1460"/>
+  </g>
+  <!-- 矩阵顶部尺寸线 -->
+  <g class="hair">
+    <path d="M144 478 V492 M1404 478 V492 M144 485 H1404"/>
+  </g>
+  <!-- AI 模件引线 -->
+  <g class="hair" stroke="rgba(54,207,207,.75)">
+    <path d="M1298 530 L1338 474"/>
+    <circle cx="1251" cy="557" r="24" fill="none" stroke="rgba(54,207,207,.5)"/>
+  </g>
+  <!-- 详图引线：模件 -> 卡片 -->
+  <g class="hair">
+    <path d="M817 1019 L880 1105"/>
+    <circle cx="817" cy="1019" r="14" fill="#E9EFF7" stroke="rgba(255,255,255,.4)"/>
+  </g>
+  <text x="817" y="1023" text-anchor="middle" font-family="JBM" font-size="10" font-weight="700" fill="#0B1B33">A</text>
+  <!-- 行数尺寸线（右缘） -->
+  <g class="hair" stroke="rgba(255,255,255,.25)">
+    <path d="M1418 530 H1432 M1418 1154 H1432 M1425 530 V1154"/>
+  </g>
+  <text x="1440" y="842" font-family="JBM" font-size="9" fill="rgba(255,255,255,.4)" letter-spacing="2" transform="rotate(90 1440 842)" text-anchor="middle">10 ROWS · 2U</text>
+</svg>
+
+<div class="abs dimlabel">2U GRID — CONFIGURATION MASSIF</div>
+<div class="abs collabels"><i>A</i><i>B</i><i>C</i><i>D</i><i>E</i><i>F</i><i>G</i><i>H</i><i>J</i><i>K</i><i>L</i><i>M</i></div>
+<div class="abs rowlabels"><i>R01</i><i>R02</i><i>R03</i><i>R04</i><i>R05</i><i>R06</i><i>R07</i><i>R08</i><i>R09</i><i>R10</i></div>
+<div class="abs" id="matrix"></div>
+
+<div class="abs ailabel"><em>AI · ON DUTY</em><b>数字员工在岗</b></div>
+
+<div class="abs callout">
+  <div class="acircle">A</div>
+  <div class="hd"><b>报价明细</b><span>QUOTE · DETAIL A</span></div>
+  <div class="qrow"><div><div class="nm">机架服务器 2U</div><div class="spec">2×4310 · 512G · 4×3.84T</div></div><div class="qty">× 4</div></div>
+  <div class="qrow"><div><div class="nm">AI 计算节点</div><div class="spec">8×4090 · NVLink · 2U</div></div><div class="qty">× 2</div></div>
+  <div class="qrow"><div><div class="nm">交换机 48 口</div><div class="spec">25G · 双电源 · 1U</div></div><div class="qty">× 2</div></div>
+  <div class="qrow" style="border-bottom:none"><div><div class="nm">导轨与线缆套件</div><div class="spec">PDU · 光模组 · 池化配线</div></div><div class="qty">× 8</div></div>
+  <div class="ft"><span class="pill">已核价</span><span class="exp">EXPORT →</span></div>
+</div>
+
+<div class="abs process">
+  <i class="pline"></i>
+  <div class="pstep" style="left:0"><i></i><em>01</em><b>需求登记</b></div>
+  <div class="pstep" style="left:400px"><i></i><em>02</em><b>BOM 配置</b></div>
+  <div class="pstep" style="left:800px"><i></i><em>03</em><b>智能核价</b></div>
+  <div class="pstep rt" style="right:0"><i></i><em>04</em><b>报价导出</b></div>
+</div>
+
+<div class="abs brandrule"></div>
+<div class="abs brand">
+  <h2>霄擎算力</h2>
+  <div class="right">
+    <div class="s">让计算力更简单</div>
+    <div class="m">AI COLLEAGUES · FULL PROCESS · ONE CONFIGURATION</div>
+  </div>
+</div>
+<div class="abs footrule"></div>
+<div class="abs footer"><span class="l">霄擎算力 · CPQ PLATFORM</span><span class="r">SHEET A · 1500 × 2000 · CFG-2026-001</span></div>
+
+<script>
+// 确定性伪随机（mulberry32）：每次渲染同一版面
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;var t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rand=mulberry32(20261022);
+const codes=['2U','4U','GPU','1U','PDU','SW','8G','4T'];
+const m=document.getElementById('matrix');
+let html='';
+for(let r=0;r<10;r++){
+  const fillT=(r+1.4)/11;
+  for(let c=0;c<12;c++){
+    if(r===0&&c===10){html+='<div class="cell hero"><b>AI</b></div>';continue;}
+    const v=rand(),v2=rand(),v3=rand();
+    if(v<fillT*0.92){
+      if(v2<0.18){html+='<div class="cell solid"><b>'+codes[Math.floor(v3*codes.length)]+'</b></div>';}
+      else{html+='<div class="cell cfg"></div>';}
+    }else{html+='<div class="cell"></div>';}
+  }
+}
+m.innerHTML=html;
+</script>
+</body>
+</html>

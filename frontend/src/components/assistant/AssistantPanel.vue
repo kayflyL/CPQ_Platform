@@ -230,6 +230,8 @@
                 :self-avatar="selfIdentity"
                 @select-option="onSelectOption"
                 @submit-selections="onSubmitSelections"
+                @submit-form="onSubmitForm"
+                @answer-query="onAnswerQuery"
                 @reply="onReplyMsg"
                 @persona="(ev: MouseEvent) => openRoomPersona(colleagueForRole(m.colleague_role_key), ev)"
               />
@@ -275,12 +277,42 @@
 
         <!-- 工作流装填条：「+」选中后不发占位消息，输入需求发送即工作流首回合 -->
         <div v-if="armedWorkflow" class="ap-quote-bar">
-          <span class="ap-quote-text">▶ 待发起 <b>【{{ armedWorkflow.name }}】</b> · 输入需求，发送后开始</span>
+          <span class="ap-quote-text">▶ 待发起 <b>【{{ armedWorkflow.name }}】</b> ·
+            {{ armedWorkflow.launchForm?.fields?.length && !launchFormSkipped ? '填写开工单或直接发送' : '输入需求，发送后开始' }}</span>
           <button type="button" class="ap-quote-x" title="取消发起" @click="cancelArmedWorkflow">✕</button>
         </div>
+        <!-- 试运行预览：画布当前工作流常驻同款装填条。与正式聊天同一操作逻辑——
+             不自动弹表单，点「填写开工单」才弹；跳过表单直接打字发送同义（首条发送后条隐去） -->
+        <div v-else-if="previewLaunch && !previewLaunched" class="ap-quote-bar">
+          <span class="ap-quote-text">▶ 待发起 <b>【{{ previewLaunch.name }}】</b> · 填写开工单或直接发送</span>
+          <button type="button" class="ap-launch-btn" @click="openPreviewLaunch">填写开工单</button>
+        </div>
+
+        <!-- 启动表单：schema 来自流配置（配置者可编辑）。居中弹窗（PC 640 / 手机全屏），
+             提交=拼装结构化首条消息；关闭弹窗=自由对话（装填态保留，行为与现状一致）。
+             试运行预览：按画布当前工作流自动挂同一张开工单（previewLaunchOpen） -->
+        <a-modal
+          :open="launchModalOpen"
+          :title="'开工单 · ' + (previewLaunchOpen ? previewLaunch?.name || '' : armedWorkflow?.name || '')"
+          :width="launchModalWidth"
+          :footer="null"
+          destroy-on-close
+          :z-index="2000"
+          :wrap-class-name="'launch-modal-wrap ' + (launchModalFull ? 'launch-modal-full' : '')"
+          @cancel="closeLaunchModal"
+        >
+          <LaunchFormPanel
+            :schema="launchModalSchema"
+            :defaults="launchFormDefaults"
+            @submit="onLaunchModalSubmit"
+            @skip="closeLaunchModal"
+          />
+        </a-modal>
 
         <!-- 输入：聊天/自然进入需求分析（由 AI 角色判断调用需求分析 Skill）；群聊窗口才有 @ 点名。
-             试运行预览：单线程单角色，无点名对象，隐藏 @（2026-09-06 用户指正） -->
+             试运行预览：单线程单角色，无点名对象，隐藏 @（2026-09-06 用户指正）；
+             附件与正式聊天同机制（会话暂存 → attachment_ids 随消息引用）——交付工作流
+             试运行靠它传成本表/方案表，预览线程是真线程，上传/绑定与入口无关 -->
         <AssistantComposer
           v-model="draft"
           :placeholder="composerPlaceholder"
@@ -293,9 +325,13 @@
           :show-skills="!preview"
           :context-usage="contextUsage"
           :hint="view === 'group' && !preview ? '@ = 指定该同事接话 · Enter 发送 · 悬停消息可引用' : ''"
+          allow-attach
+          :attachments="stagedFiles"
           @send="onSend"
           @stop="onStop"
           @pick-skill="onPickSkill"
+          @files-picked="onFilesPicked"
+          @remove-attachment="onRemoveStaged"
         />
         </div>
 
@@ -628,6 +664,7 @@ function resolveColleagueSkills(colleague: any): { key: string; name: string; de
       key: String(sk.key || '').trim(),
       name: String(sk.name || sk.key || '').trim(),
       description: String(sk.description || sk.input_contract || '').trim(),
+      launchForm: (sk as any).launch_form || null,
     }))
 }
 const boundSkills = computed<any[]>(() => resolveColleagueSkills(activeColleague.value))
@@ -648,7 +685,80 @@ const groupSkills = computed<any[]>(() => {
 const composerSkills = computed<any[]>(() => (view.value === 'group' ? groupSkills.value : boundSkills.value))
 function onPickSkill(skill: any) {
   if (!skill?.key) return
-  armWorkflow(skill.key, skill.name || skill.key, skill.ownerRoleKey || activeRoleKey.value || null)
+  launchFormSkipped.value = false
+  armWorkflow(skill.key, skill.name || skill.key, skill.ownerRoleKey || activeRoleKey.value || null,
+              (skill as any).launchForm || null)
+}
+
+/* ── 启动表单提交：文件走既有聊天附件通道，参数拼装结构化首条消息 ── */
+const launchFormSkipped = ref(false)
+/** 弹窗两用：正式聊天=装填态的启动表单；试运行预览=画布当前工作流的开工单。 */
+const launchModalOpen = computed(() =>
+  previewLaunchOpen.value ||
+  (!!(armedWorkflow.value?.launchForm?.fields?.length) && !launchFormSkipped.value))
+const launchModalSchema = computed(() =>
+  previewLaunchOpen.value ? previewLaunch.value!.schema : (armedWorkflow.value?.launchForm || null))
+function closeLaunchModal() {
+  launchFormSkipped.value = true
+  previewFormRequested.value = false
+  previewLaunchSkipped.value = true
+}
+function onLaunchModalSubmit(payload: { values: Record<string, string>; files: File[] }) {
+  return previewLaunchOpen.value ? onPreviewLaunchSubmit(payload) : onLaunchFormSubmit(payload)
+}
+const launchModalWidth = computed(() => (window.innerWidth < 768 ? '100vw' : '640px'))
+const launchModalFull = computed(() => window.innerWidth < 768)
+const launchFormDefaults = computed(() => ({
+  当前用户姓名: auth.user?.name || '',
+}))
+async function onLaunchFormSubmit(payload: { values: Record<string, string>; files: File[] }) {
+  if (!armedWorkflow.value) return
+  if (payload.files.length) await onFilesPicked(payload.files)
+  if (stagedFiles.value.some((c) => c.status === 'uploading')) {
+    message.warning('附件上传中，请稍候')
+    return
+  }
+  const lines = Object.entries(payload.values).map(([label, v]) => `· ${label}：${v}`)
+  if (payload.files.length) lines.push(`· 附件：${payload.files.map((f) => f.name).join('、')}`)
+  const text = '【开工单】\n' + lines.join('\n')
+  const attachmentIds = stagedFiles.value.filter((c) => c.status === 'done' && c.attachment_id)
+    .map((c) => c.attachment_id!)
+  launchFormSkipped.value = true
+  await sendText(text, null, null, null, attachmentIds)
+}
+
+/* ── 试运行开工单：预览面板按画布当前工作流常驻「待发起」装填条（与正式聊天同款）。
+ *    同一操作逻辑：不自动弹表单，点「填写开工单」才弹（previewFormRequested）；
+ *    跳过表单直接打字 sendText 同义（首条 sendText 后 previewLaunched 隐条，重置测试恢复）。 ── */
+const previewLaunchSkipped = ref(false)
+const previewFormRequested = ref(false)
+const previewLaunched = ref(false)
+const previewLaunch = computed(() => {
+  if (!props.preview || !props.workflowKey) return null
+  const sk = skillCatalog.value.find((s: any) => String(s?.key || '') === String(props.workflowKey || ''))
+  const schema = (sk as any)?.launch_form || null
+  return schema?.fields?.length ? { schema, name: String(sk?.name || sk?.key || '') } : null
+})
+const previewLaunchOpen = computed(() =>
+  !!previewLaunch.value && previewFormRequested.value && !previewLaunchSkipped.value)
+function openPreviewLaunch() {
+  previewLaunchSkipped.value = false
+  previewFormRequested.value = true
+}
+async function onPreviewLaunchSubmit(payload: { values: Record<string, string>; files: File[] }) {
+  if (payload.files.length) await onFilesPicked(payload.files)
+  if (stagedFiles.value.some((c) => c.status === 'uploading')) {
+    message.warning('附件上传中，请稍候')
+    return
+  }
+  const lines = Object.entries(payload.values).map(([label, v]) => `· ${label}：${v}`)
+  if (payload.files.length) lines.push(`· 附件：${payload.files.map((f) => f.name).join('、')}`)
+  const attachmentIds = stagedFiles.value.filter((c) => c.status === 'done' && c.attachment_id)
+    .map((c) => c.attachment_id!)
+  previewLaunchSkipped.value = true
+  previewFormRequested.value = false
+  previewLaunched.value = true
+  await sendText('【开工单】\n' + lines.join('\n'), null, null, null, attachmentIds)
 }
 function colleagueForRole(roleKey?: string): {
   name: string
@@ -665,7 +775,7 @@ function avatarInitial(name?: string): string {
   return Array.from(text)[0] || 'AI'
 }
 function colleagueDescription(c?: any): string {
-  if (!c) return 'AI 员工'
+  if (!c) return 'AI 同事'
   if (typeof c.description === 'string' && c.description.trim()) return c.description.trim()
   const caps = Array.isArray(c.capabilities) ? c.capabilities : []
   const capText = caps
@@ -679,7 +789,7 @@ function colleagueDescription(c?: any): string {
     .filter(Boolean)
     .join('、')
   if (skillText) return skillText
-  return 'AI 员工'
+  return 'AI 同事'
 }
 function roleAvatarStyle(c?: any) {
   return { background: c?.color || 'var(--cpq-accent-primary, #1677ff)' }
@@ -794,7 +904,7 @@ function contactPreview(roleKey?: string): string {
   const t = contactThread(roleKey)
   if (t && previewOf(t)) return previewOf(t)
   const c = contacts.value.find((x) => x.role_key === roleKey)
-  return c ? colleagueDescription(c) : 'AI 员工'
+  return c ? colleagueDescription(c) : 'AI 同事'
 }
 function contactUnread(roleKey?: string): boolean {
   const t = contactThread(roleKey)
@@ -1202,13 +1312,55 @@ watch(
 watch(() => messages.value.length, () => scrollToBottom(true))
 watch(streamingText, () => scrollToBottom())
 
+// ── 聊天附件：选中即传到会话暂存，发送时随 attachment_ids 引用（✕ 仅移除 chip，
+// 暂存行等 TTL 懒清理；发送失败不回收——重发同一条消息仍可引用）──
+interface StagedChip {
+  attachment_id?: string
+  localKey: string
+  name: string
+  size: number
+  status: 'uploading' | 'done' | 'error'
+  error?: string
+}
+const stagedFiles = ref<StagedChip[]>([])
+let stagedSeq = 0
+
+async function onFilesPicked(files: File[]) {
+  for (const f of files) {
+    const chip: StagedChip = {
+      localKey: `local-${Date.now()}-${stagedSeq++}`,
+      name: f.name, size: f.size, status: 'uploading',
+    }
+    stagedFiles.value.push(chip)
+    try {
+      if (!currentThreadId.value) await chat.newThread()
+      const res = await assistantApi.threads.uploadAttachment(currentThreadId.value!, f)
+      chip.attachment_id = res.attachment.attachment_id
+      chip.status = 'done'
+    } catch (err) {
+      chip.status = 'error'
+      chip.error = (err as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+        || `上传失败（${f.name}）`
+    }
+  }
+}
+
+function onRemoveStaged(key: string) {
+  stagedFiles.value = stagedFiles.value.filter(
+    (c) => (c.attachment_id || c.localKey) !== key)
+}
+
 async function onSend() {
-  const text = draft.value
-  if (!text.trim() || sending.value || running.value) return
+  const ready = stagedFiles.value.filter((c) => c.status === 'done' && c.attachment_id)
+  if (stagedFiles.value.some((c) => c.status === 'uploading')) return
+  let text = draft.value
+  if (!text.trim() && ready.length) text = ready.map((c) => c.name).join('、')
+  if (!text.trim()) return
   draft.value = ''
+  stagedFiles.value = []
   const q = quoted.value
   quoted.value = null
-  await sendText(text, null, null, q)
+  await sendText(text, null, null, q, ready.map((c) => c.attachment_id!))
 }
 
 async function onStop() {
@@ -1218,21 +1370,44 @@ async function onStop() {
 // 供父组件（SkillStudio 输入节点「运行」）注入文本到真实 AI 对话
 async function sendText(text: string, optionSlot?: string | null,
                         cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
-                        quote?: { name: string; text: string } | null) {
+                        quote?: { name: string; text: string } | null,
+                        attachmentIds?: string[] | null) {
   const content = (text || '').trim()
   if (!content || sending.value || running.value) return
+  if (props.preview) {
+    previewLaunched.value = true
+    previewFormRequested.value = false
+  }
   if (props.embedded && props.preview && !currentThreadId.value) {
     await createPreviewThread()
   }
   const summary = await summarize()
   await send(content, summary, optionSlot || null, cardSelections || null,
-             props.workflowKey ? props.workflowKey : null, quote || null)
+             props.workflowKey ? props.workflowKey : null, quote || null,
+             attachmentIds || null)
 }
 
 // 结构化选项点击：value 作为消息内容，slot 显式传后端落槽（缺失会导致反问重复）
 function onSelectOption(value: string, slot?: string) {
   if (sending.value || running.value) return
   sendText(value, slot || null)
+}
+
+// 会话输入卡提交：组装好的「label」=值 文本作为用户消息回流，AI 据此继续
+function onSubmitForm(text: string) {
+  if (sending.value || running.value) return
+  sendText(text, null)
+}
+
+// 问答协议：结构化回答按 query_id 回流（POST /answers），答案由轮壳路由
+async function onAnswerQuery(payload: Record<string, any>) {
+  const tid = currentThreadId || ''
+  if (!tid) return
+  try {
+    await assistantApi.answers.create(tid, payload)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '回答提交失败')
+  }
 }
 
 // 逐项卡提交：一条消息带 (slot,value,qty)，用户气泡只展示可读文案（数量跟在型号后）
@@ -1264,8 +1439,12 @@ function optionInteractive(m: any): boolean {
   return !optionAnswered(m) && !sending.value && !running.value
 }
 
-/** 预览会话重置（工作流画布「重置测试」用）：purge 线程并清空聊天/轨迹/状态。 */
+/** 预览会话重置（工作流画布「重置测试」用）：purge 线程并清空聊天/轨迹/状态；
+ *  装填条恢复「待发起」（表单不自动弹，点「填写开工单」再弹）。 */
 async function resetPreview() {
+  previewFormRequested.value = false
+  previewLaunchSkipped.value = false
+  previewLaunched.value = false
   await resetChatPreview()
 }
 
@@ -1288,11 +1467,10 @@ async function onQuickAction(action: QuickAction) {
   width: min(680px, calc(100vw - 32px));
   height: min(680px, calc(100vh - 120px));
   max-height: calc(100vh - 120px);
-  background: var(--cpq-glass-3-bg, rgba(255, 255, 255, 0.92));
-  backdrop-filter: blur(var(--cpq-glass-blur-3, 16px));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3, 16px));
+  /* 纯色实底（2026-10-21 去透明度；底色走 bg-secondary 蓝黑系与全站主题一致——bg-elevated 是中性灰，暗色下发灰不搭） */
+  background: var(--cpq-bg-secondary, #ffffff);
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   box-shadow: 0 12px 40px var(--cpq-shadow-color-strong, rgba(0, 0, 0, 0.25));
   z-index: 1600;
   display: flex;
@@ -1316,14 +1494,14 @@ async function onQuickAction(action: QuickAction) {
 .ap-ctx-usage-track {
   width: 72px;
   height: 4px;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.12));
   overflow: hidden;
 }
 .ap-ctx-usage-fill {
   display: block;
   height: 100%;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-accent-primary, #1677ff);
   transition: width 0.3s ease;
 }
@@ -1397,7 +1575,7 @@ async function onQuickAction(action: QuickAction) {
   align-items: center;
   gap: 5px;
   border: 1px solid var(--cpq-accent-primary, #1677ff);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   padding: 6px 10px;
   font-size: 12px;
   color: var(--cpq-accent-primary, #1677ff);
@@ -1446,7 +1624,7 @@ async function onQuickAction(action: QuickAction) {
     max-width: 320px;
     height: 100%;
     border-left: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
-    background: var(--cpq-glass-3-bg-solid, rgba(22, 28, 40, 0.98));
+    background: var(--cpq-bg-secondary, #ffffff);
     box-shadow: -12px 0 32px rgba(0, 0, 0, 0.35);
   }
   .ap-drawer-enter-active,
@@ -1465,7 +1643,7 @@ async function onQuickAction(action: QuickAction) {
   width: 100%;
   padding: 7px 8px;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -1499,7 +1677,7 @@ async function onQuickAction(action: QuickAction) {
   font-size: 10px;
   color: var(--cpq-accent-primary, #1677ff);
   border: 1px solid var(--cpq-accent-primary, #1677ff);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   padding: 0 4px;
 }
 .ap-hist-del {
@@ -1509,7 +1687,7 @@ async function onQuickAction(action: QuickAction) {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-muted, #9aa4b2);
   font-size: 11px;
 }
@@ -1562,7 +1740,7 @@ async function onQuickAction(action: QuickAction) {
   height: 26px;
   flex: none;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: var(--cpq-text-muted, #9aa4b2);
   cursor: pointer;
@@ -1580,7 +1758,7 @@ async function onQuickAction(action: QuickAction) {
   padding: 8px 6px 8px 8px;
   width: 100%;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -1649,7 +1827,7 @@ async function onQuickAction(action: QuickAction) {
   height: 30px;
   flex: none;
   border: 1px solid var(--cpq-overlay-w8, rgba(255, 255, 255, 0.12));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
   color: var(--cpq-text-muted);
   cursor: pointer;
@@ -1694,13 +1872,6 @@ async function onQuickAction(action: QuickAction) {
   flex: none;
 }
 
-/* 手机端全屏聊天：75% 玻璃叠页面底色文字发虚，换近实底档 */
-@media (max-width: 760px) {
-  .assistant-panel {
-    background: var(--cpq-glass-3-bg-solid, rgba(255, 255, 255, 0.95));
-  }
-}
-
 /* 移动端团队抽屉：默认完全收起，展开时从左缘滑出覆盖内容 */
 .ap-mobile .ap-contacts {
   position: absolute;
@@ -1712,7 +1883,7 @@ async function onQuickAction(action: QuickAction) {
   max-width: 320px;
   height: 100%;
   padding: 12px 10px;
-  background: var(--cpq-glass-3-bg-solid, rgba(22, 28, 40, 0.98));
+  background: var(--cpq-bg-secondary, #ffffff);
   border-left: none;
   border-right: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
   box-shadow: 12px 0 32px rgba(0, 0, 0, 0.35);
@@ -1783,7 +1954,7 @@ async function onQuickAction(action: QuickAction) {
   height: 8px;
   border-right: 2px solid var(--cpq-text-muted, #9aa4b2);
   border-bottom: 2px solid var(--cpq-text-muted, #9aa4b2);
-  border-radius: 1px;
+  border-radius: var(--cpq-radius-xs);
   opacity: 0.7;
 }
 .ap-resize--e:hover,
@@ -1864,7 +2035,7 @@ async function onQuickAction(action: QuickAction) {
   gap: 8px;
   margin: 0 12px 4px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   font-size: 12px;
   color: var(--cpq-text-secondary);
@@ -1886,6 +2057,19 @@ async function onQuickAction(action: QuickAction) {
   padding: 0 2px;
 }
 .ap-quote-x:hover { color: #e5484d; }
+/* 装填条上的「填写开工单」动作（试运行预览与正式聊天同款装填条） */
+.ap-launch-btn {
+  flex: none;
+  border: 1px solid var(--cpq-text-muted);
+  background: transparent;
+  color: var(--cpq-text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.6;
+  padding: 0 8px;
+  border-radius: var(--cpq-radius-sm);
+}
+.ap-launch-btn:hover { color: var(--cpq-text-primary); border-color: var(--cpq-text-secondary); }
 /* ── 消息中心侧栏（原型 conv-list）：筛选签/分组/预览/未读/presence ── */
 .ap-contact-scroll {
   min-width: 0;
@@ -1933,7 +2117,7 @@ async function onQuickAction(action: QuickAction) {
   height: 9px;
   border-radius: 50%;
   background: #c9cdd4;
-  border: 2px solid var(--cpq-bg-card, #fff);
+  border: 2px solid var(--cpq-bg-secondary, #fff);
 }
 .ap-presence.on { background: #52c9a0; }
 /* ＋ 新建房间：内联输入（回车建，Esc 收） */
@@ -1944,7 +2128,7 @@ async function onQuickAction(action: QuickAction) {
   padding: 7px 10px;
   margin: 2px 0 6px;
   border: 1px dashed var(--cpq-border-light);
-  border-radius: var(--cpq-radius-md, 10px);
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   color: var(--cpq-text-muted);
   font-size: 12px;
@@ -1955,9 +2139,9 @@ async function onQuickAction(action: QuickAction) {
   width: 100%;
   padding: 6px 10px;
   margin: 2px 0 6px;
-  border-radius: var(--cpq-radius-md, 10px);
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-accent-primary);
-  background: var(--cpq-bg-input);
+  background: var(--cpq-glass-2-bg);
   color: var(--cpq-text-primary);
   font-size: 12px;
   outline: none;
@@ -2001,7 +2185,7 @@ async function onQuickAction(action: QuickAction) {
   font-size: 10px;
   font-weight: 600;
   padding: 1px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a10);
   border: 1px solid var(--cpq-overlay-a15);
@@ -2054,7 +2238,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   color: var(--cpq-text-muted);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2125,7 +2309,7 @@ async function onQuickAction(action: QuickAction) {
   gap: 4px;
   padding: 4px 10px;
   border: 1px solid var(--cpq-overlay-w15);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
   font-size: 12px;
@@ -2220,7 +2404,7 @@ async function onQuickAction(action: QuickAction) {
 .ap-bubble {
   max-width: 82%;
   padding: 10px 14px;
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   font-size: 13px;
   line-height: 1.7;
   word-break: break-word;
@@ -2293,7 +2477,7 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-step {
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   color: var(--cpq-text-muted);
   background: var(--cpq-overlay-w4);
@@ -2324,7 +2508,7 @@ async function onQuickAction(action: QuickAction) {
   align-items: center;
   gap: 6px;
   padding: 7px 9px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 12px;
   color: var(--cpq-text-secondary);
   background: var(--cpq-overlay-w4);
@@ -2373,16 +2557,17 @@ async function onQuickAction(action: QuickAction) {
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--cpq-border-light, #d9e2f0);
-  border-radius: 10px;
-  background: var(--cpq-bg-glass, #fff);
+  border-radius: var(--cpq-radius-md);
+  /* bg-glass 是幽灵 token（tokens.css 无定义），fallback #fff 在暗色下白卡刺眼——用一级淡玻璃走双主题 */
+  background: var(--cpq-glass-1-bg);
 }
 /* ── 工作流发起确认卡（suggest_workflow）：标题+理由+需求原文+一键发起 ── */
 .ap-wf-card {
   margin-top: var(--cpq-space-2, 8px);
   padding: var(--cpq-space-2, 8px) var(--cpq-space-3, 12px);
   border: 1px solid var(--cpq-border-light, #d9e2f0);
-  border-radius: 8px;
-  background: var(--cpq-bg-glass, #fff);
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-glass-1-bg);
   display: flex;
   flex-direction: column;
   gap: var(--cpq-space-1, 4px);
@@ -2410,7 +2595,7 @@ async function onQuickAction(action: QuickAction) {
   margin-top: var(--cpq-space-1, 4px);
   padding: 4px var(--cpq-space-3, 12px);
   border: none;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-accent-primary, #1677ff);
   color: #fff;
   font-size: 12px;
@@ -2434,7 +2619,7 @@ async function onQuickAction(action: QuickAction) {
   letter-spacing: 0.5px;
   color: #fff;
   background: #d5453c;
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 .ap-file-main {
   flex: 1;
@@ -2466,14 +2651,14 @@ async function onQuickAction(action: QuickAction) {
 .ap-file-btn {
   border: 1px solid var(--cpq-border-light, #c9d6ea);
   background: transparent;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   padding: 3px 10px;
   font-size: 12px;
   color: var(--cpq-accent-primary, #1677ff);
   cursor: pointer;
 }
 .ap-file-btn:hover {
-  background: var(--cpq-accent-primary10, rgba(22, 119, 255, 0.08));
+  background: var(--cpq-overlay-a8);
 }
 
 /* ── 文件预览（PDF iframe modal）── */
@@ -2492,9 +2677,9 @@ async function onQuickAction(action: QuickAction) {
   height: min(86vh, 760px);
   display: flex;
   flex-direction: column;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   overflow: hidden;
-  background: var(--cpq-bg-elevated, #fff);
+  background: var(--cpq-bg-secondary, #fff);
   box-shadow: 0 18px 48px rgba(15, 23, 42, 0.28);
 }
 .ap-file-preview-head {
@@ -2544,7 +2729,7 @@ async function onQuickAction(action: QuickAction) {
   padding: 6px 8px;
   background: var(--cpq-overlay-w4);
   border: 1px dashed var(--cpq-overlay-w10);
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-secondary);
 }
 .ap-reply-options {
@@ -2557,7 +2742,7 @@ async function onQuickAction(action: QuickAction) {
   margin: 0;
 }
 .ap-reply-input {
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
 }
 .ap-reply-actions {
   display: flex;
@@ -2665,7 +2850,7 @@ async function onQuickAction(action: QuickAction) {
   gap: 10px;
   padding: 6px 8px;
   border: 0;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: transparent;
   color: inherit;
   text-align: left;
@@ -2678,7 +2863,7 @@ async function onQuickAction(action: QuickAction) {
 .ap-role-avatar {
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   display: grid;
   place-items: center;
   flex-shrink: 0;
@@ -2691,7 +2876,7 @@ async function onQuickAction(action: QuickAction) {
 .ap-role-avatar.sm {
   width: 34px;
   height: 34px;
-  border-radius: 11px;
+  border-radius: var(--cpq-radius-md);
   font-size: 13px;
 }
 .ap-role-avatar img {
@@ -2743,7 +2928,7 @@ async function onQuickAction(action: QuickAction) {
   width: 34px;
   height: 34px;
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, 0.12));
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   display: grid;
   place-items: center;
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
@@ -2771,6 +2956,12 @@ async function onQuickAction(action: QuickAction) {
   opacity: 0;
   transform: translateY(20px) scale(0.96);
 }
+
+<style>
+/* 启动表单弹窗 teleport 到 body，需非 scoped：层级压过办公室聊天面板(1800)/方案助手面板(1500) */
+.launch-modal-wrap { z-index: 2000; }
+.launch-modal-full .ant-modal { max-width: 100vw; top: 0; padding-bottom: 0; }
+.launch-modal-full .ant-modal-content { border-radius: 0; min-height: 100vh; }
 </style>
 
 <style>

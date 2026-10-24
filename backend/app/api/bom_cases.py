@@ -12,24 +12,37 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import IntegrityError
 
 from app.repository.bom_case_repo import BomCaseRepository
-from app.api.deps import get_current_user, require_perms
+from app.api.deps import get_current_user, require_perms, field_visible
+from app.utils.price_mask import mask_part_price_fields
 
 logger = logging.getLogger(__name__)
 # 默认登录门槛；案例写操作收「解决方案」页权限（选型配置·BOM案例库所在域）。
+# 价格：案例的 kp_lines 最新价 / price_snapshot / bom_excel_rows 底价按 field.parts.price 遮罩。
+_PRICE_VIEW = "field.parts.price"
 router = APIRouter(prefix="/api/bom-cases", tags=["bom-cases"],
                    dependencies=[Depends(get_current_user)])
+
+
+def _mask_case(d, user):
+    if d is not None and not field_visible(user, _PRICE_VIEW):
+        return mask_part_price_fields(d)
+    return d
 
 
 @router.get("")
 def list_cases(tag: Optional[str] = None, q: Optional[str] = None,
                enabled: Optional[bool] = None, with_parts: bool = False,
                server_type: Optional[str] = None, series: Optional[str] = None,
-               model_id: Optional[int] = None):
+               model_id: Optional[int] = None,
+               user: dict = Depends(get_current_user)):
     """分类过滤：系列(server_type: AI/通用…) / 平台(series: Orion/Polaris) / 机型(model_id)。"""
     repo = BomCaseRepository()
     try:
-        return {"cases": repo.list_cases(tag=tag, q=q, enabled=enabled, with_parts=with_parts,
-                                         server_type=server_type, series=series, model_id=model_id)}
+        cases = repo.list_cases(tag=tag, q=q, enabled=enabled, with_parts=with_parts,
+                                server_type=server_type, series=series, model_id=model_id)
+        if not field_visible(user, _PRICE_VIEW):
+            cases = mask_part_price_fields(cases)
+        return {"cases": cases}
     finally:
         repo.close()
 
@@ -48,13 +61,13 @@ def l6_preview(data: dict):
 
 
 @router.get("/{case_key}")
-def get_case(case_key: str):
+def get_case(case_key: str, user: dict = Depends(get_current_user)):
     repo = BomCaseRepository()
     try:
         d = repo.get_case(case_key)
         if not d:
             raise HTTPException(404, f"未找到 BOM案例 {case_key}")
-        return d
+        return _mask_case(d, user)
     finally:
         repo.close()
 

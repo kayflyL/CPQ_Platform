@@ -123,7 +123,7 @@
 /* 标签 —— 胶囊化，去粗边去阴影 */
 #app .ant-tag {
   border: 1px solid transparent;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding-inline: 10px;
   line-height: 20px;
 }
@@ -194,7 +194,7 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   box-shadow: var(--cpq-shadow-lg);
 }
 #app .portal-sheet-modal .ant-modal-header,
@@ -358,6 +358,108 @@
   background: var(--cpq-accent-primary);
 }
 
+/* DatePicker —— 输入框与日历面板全部令牌化，跟 data-theme 走，不依赖 antd theme context。
+   antd-overrides 覆盖过 input/select/btn 后，picker 是唯一没接令牌的控件：一旦 CSS 主题与
+   antd 主题错位（长驻标签页/浏览器改色扩展），它就是唯一露出白底的控件，表现为夜间模式下
+   日历面板发白。面板挂载在 #app 内（App.vue getPopupContainer），#app 前缀可命中。 */
+#app .ant-picker {
+  background: var(--cpq-glass-2-bg);
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-sm);
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-picker-focused {
+  border-color: var(--cpq-accent-primary);
+  box-shadow: 0 0 0 2px var(--cpq-overlay-a15);
+}
+
+#app .ant-picker-input > input {
+  color: var(--cpq-text-primary);
+}
+
+#app .ant-picker-input > input::placeholder {
+  color: var(--cpq-text-disabled);
+}
+
+#app .ant-picker-suffix,
+#app .ant-picker-clear {
+  color: var(--cpq-text-secondary);
+}
+
+#app .ant-picker-clear {
+  background: var(--cpq-bg-tertiary);
+}
+
+/* 日历面板容器 —— 同 Select dropdown 浮层，但用 solid 档（0.94）：
+   0.75 的玻璃档压在亮色表格上会透得没法读（用户实测）。
+   body 前缀抬优先级压过 antd 运行时注入的同名规则（弹层挂 body/#app 都命中） */
+body .ant-picker-dropdown .ant-picker-panel-container {
+  background: var(--cpq-glass-3-bg-solid);
+  backdrop-filter: blur(var(--cpq-glass-blur-2));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-blur-2));
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: var(--cpq-shadow-md);
+}
+
+/* 手机端日历面板实底：玻璃拟态面板在手机上会漂移叠到卡片上方，0.75 透明度直接和卡片
+   内容互相透视成"幽灵日历"。≤768 改实底+实投影，桌面端玻璃观感不变 */
+@media (max-width: 768px) {
+  body .ant-picker-dropdown .ant-picker-panel-container {
+    background: var(--cpq-bg-secondary);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    box-shadow: var(--cpq-shadow-lg, 0 12px 32px rgba(0, 0, 0, 0.45));
+  }
+}
+
+/* 面板内部元素：不加 #app 前缀——部分弹层（如商机详情"创建于"）挂 body，前缀会失配 */
+.ant-picker-panel {
+  background: transparent;
+  border: none;
+}
+
+.ant-picker-header {
+  color: var(--cpq-text-primary);
+  border-bottom-color: var(--cpq-border-secondary);
+}
+
+.ant-picker-header button {
+  color: var(--cpq-text-primary);
+}
+
+.ant-picker-header button:hover {
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-w6);
+}
+
+.ant-picker-content th {
+  color: var(--cpq-text-secondary);
+}
+
+.ant-picker-cell-in-view {
+  color: var(--cpq-text-primary);
+}
+
+.ant-picker-cell:not(.ant-picker-cell-in-view),
+.ant-picker-cell-disabled {
+  color: var(--cpq-text-disabled);
+}
+
+.ant-picker-cell:not(.ant-picker-cell-disabled):hover .ant-picker-cell-inner {
+  background: var(--cpq-overlay-w8);
+}
+
+.ant-picker-cell-selected .ant-picker-cell-inner,
+.ant-picker-cell-range-start .ant-picker-cell-inner,
+.ant-picker-cell-range-end .ant-picker-cell-inner {
+  background: var(--cpq-accent-primary);
+}
+
+.ant-picker-footer {
+  border-top: 1px solid var(--cpq-border-secondary);
+}
+
 /* Drawer —— 同 Modal，glass-3 + 弱磨砂 + 白边 */
 #app .ant-drawer .ant-drawer-content-wrapper,
 #app .ant-drawer .ant-drawer-content {
@@ -407,7 +509,7 @@
 #app .ant-checkbox-inner {
   background: var(--cpq-bg-tertiary);
   border-color: var(--cpq-border-light);
-  border-radius: 5px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 #app .ant-checkbox-checked .ant-checkbox-inner {
@@ -419,16 +521,188 @@
 .period-custom-pop .ant-popover-inner {
   background: var(--cpq-bg-secondary);
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   box-shadow: 0 8px 32px var(--cpq-shadow-color, rgba(0,0,0,.12));
 }
 .period-custom-pop .ant-popover-inner-content { padding: 14px; }
 .period-custom-pop .custom-panel { width: 250px; display: flex; flex-direction: column; gap: 12px; }
 .period-custom-pop .custom-sec-title { font-size: 11px; font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: 7px; letter-spacing: .3px; }
 .period-custom-pop .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: 8px; background: transparent; color: var(--cpq-text-secondary); font-size: 12px; cursor: pointer; transition: all .2s ease; }
+.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary); font-size: 12px; cursor: pointer; transition: all .2s ease; }
 .period-custom-pop .preset-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .period-custom-pop .preset-btn.active { color: #fff; background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .period-custom-pop .preset-btn.ghost { background: transparent; color: var(--cpq-text-muted); border-color: var(--cpq-border-light); }
 .period-custom-pop .custom-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cpq-border-secondary); }
 .period-custom-pop .custom-cur { font-size: 11px; color: var(--cpq-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 全屏弹窗底部操作条（ResponsiveModal footer 槽约定类）：桌面右聚，手机端全宽等分、拇指可及 */
+#app .req-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
+
+/* 全屏弹窗打开时页面滚动条整体退场：桌面经典滚动条占一列宽，fixed 全屏弹窗盖不住它，
+   右侧会露出"滚动条列 + 遮罩页面"组成的一条缝（用户看到的贴边/色差线根因）；关闭自动恢复 */
+body.cpq-fs-modal-open,
+body.cpq-fs-modal-open .main-scroll {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+body.cpq-fs-modal-open::-webkit-scrollbar,
+body.cpq-fs-modal-open .main-scroll::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
+
+/* ── 手机全屏弹窗（ResponsiveModal ≤768 全屏态；仅 cpq-fs-modal 生效，桌面零改动） ──
+   注意必须写在全局（antd 弹窗 teleport 到 body，scoped/deep 够不到——
+   OpportunityProcessBoard 里那段旧 :deep(.ant-modal) 媒体查询因此从未生效，已删） */
+@media (max-width: 768px) {
+  /* 弹窗打开时 antd 把焦点交给弹窗容器，浏览器默认聚焦框（蓝色 outline）
+     恰好贴着屏幕边缘被裁成一条"色差线"。触屏无键盘导航，聚焦描边全是噪声，一律关掉 */
+  #app .cpq-fs-modal :focus,
+  #app .cpq-fs-modal:focus {
+    outline: none !important;
+  }
+  /* 全屏 = 四边钉死 + 弹性拉伸，全程不用 100vw/100dvh/inset——
+     100vw 含滚动条宽、dvh 老内核不认、inset 老内核不认，任何一个掉链子
+     弹窗就会按 96vw 居中渲染，两侧露出遮罩压暗的页面 + 1px 边框线（用户看到的"色差缝"） */
+  #app .cpq-fs-modal .ant-modal {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    padding: 0;
+    width: auto !important;
+    max-width: none !important;
+    height: auto !important;
+    display: flex;
+    flex-direction: column;
+  }
+  /* antd-vue 4.2 在 .ant-modal 与 .ant-modal-content 之间垫了一层无类名 div，
+     百分比高度会对着它解析成内容高（弹窗塌成一条 28px body 的根因）。
+     让这层跟随弹窗拉伸并自身变 flex，content 再作为 flex 项撑满。
+     注意 antd 还会在 modal 末尾垫一个 0×0 的 tabindex=0 焦点哨兵 div，同样命中 > *：
+     它绝不能参与伸缩（flex-grow），否则内容一被约束、空余高度全被它吃掉，
+     body 被顶到屏幕外、整页无法滚动 */
+  #app .cpq-fs-modal .ant-modal > * {
+    flex: 0 0 auto;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  #app .cpq-fs-modal .ant-modal > :first-child {
+    flex: 1 1 0;
+  }
+  #app .cpq-fs-modal .ant-modal-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex; /* header/body/footer 纵向三段的前提：body 的 flex:1 1 0 + overflow-y:auto 只有在 flex 容器里才有界（否则 body 被内容撑开、无溢出量可滚） */
+    flex-direction: column;
+    width: 100%;
+    padding: 0; /* antd 自带 20/24px 内边距必须清零，否则叠出双层大空边 */
+    border: 0 !important; /* 全屏不留 1px 边框线（居中缝隙的分界线就是它） */
+    border-radius: 0;
+  }
+  #app .cpq-fs-modal .ant-modal-header {
+    flex: none;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--cpq-border-secondary);
+  }
+  /* 调用点内联的 body-style maxHeight 在全屏态作废，滚动职责交给 flex 中段；
+     滚动条隐藏但滑动保留（硬规则 7：窄屏不留滚动条占地）。
+     手机内容沟槽统一 16px（space-4），盖过各调用点自写的 14px——全屏页只有这一层沟槽，太窄会显得字贴边 */
+  #app .cpq-fs-modal .ant-modal-body {
+    flex: 1 1 0;
+    min-height: 0;
+    max-height: none !important;
+    height: auto;
+    padding: 16px !important;
+    overflow-y: auto;
+    overflow-x: hidden !important; /* 全屏页禁横向滚动（硬规则 1）：任何子块溢出一律裁掉，不允许整页横滑 */
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  #app .cpq-fs-modal .ant-modal-body > * {
+    max-width: 100%;
+  }
+  #app .cpq-fs-modal .ant-modal-body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+  /* 弹窗内部任何元素的滚动条一律隐藏（不同内核滚动条可能挂在 body/content/包裹层任何一层） */
+  #app .cpq-fs-modal * {
+    scrollbar-width: none !important;
+  }
+  #app .cpq-fs-modal *::-webkit-scrollbar {
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+  }
+  #app .cpq-fs-modal .ant-modal-footer {
+    flex: none;
+    margin: 0;
+    padding: 10px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--cpq-border-secondary);
+    background: var(--cpq-bg-secondary);
+  }
+  .cpq-fs-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .cpq-fs-back {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--cpq-overlay-w8);
+    border-radius: var(--cpq-radius-sm);
+    background: var(--cpq-overlay-w4);
+    color: var(--cpq-text-secondary);
+    font-size: 14px;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .cpq-fs-back:hover { color: var(--cpq-text-primary); background: var(--cpq-overlay-w8); }
+  .cpq-fs-head-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--cpq-text-primary);
+  }
+  /* 内容层去卡片壳：全屏页本身就是容器，一级玻璃卡平铺满宽，不再卡中卡浪费两侧空间。
+     node-card 与 .glass 工具类一起清。注意 glass.css 的 .glass 用 !important 写死了边框/底色，
+     这里的清壳声明必须同样加 !important 才压得过，否则会残留 1px 边框零间距紧箍内容 */
+  #app .cpq-fs-modal .node-card,
+  #app .cpq-fs-modal .glass {
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+  #app .cpq-fs-modal .node-card > :not(.node-head) { padding: 0; }
+  /* 卡头降级为元信息行：去掉与页标题重复的「① 需求单」，只留说明与状态徽章 */
+  #app .cpq-fs-modal .node-head {
+    padding: 0 0 10px;
+    background: transparent;
+    border-bottom: 0;
+  }
+  #app .cpq-fs-modal .node-num { display: none; }
+  #app .cpq-fs-modal .node-title-wrap h3 { display: none; }
+  #app .cpq-fs-modal .node-title-wrap p { margin: 0; font-size: 12px; }
+  /* 二级面板（附件拖放条 .rac 等）在全屏态去自带内边距，左缘与主内容对齐（拖拽虚线框保留） */
+  #app .cpq-fs-modal .rac { padding: 4px 0 0; }
+  /* 底部操作条全宽等分 */
+  #app .cpq-fs-modal .req-modal-actions { width: 100%; }
+  #app .cpq-fs-modal .req-modal-actions .ant-btn { flex: 1 1 0; min-height: 40px; }
+}
+/* 全屏弹窗打开期间隐藏 AI 桌宠悬浮球（与 em-editor-modal-open 同一机制） */
+body.cpq-fs-modal-open .assistant-pet,
+body.cpq-fs-modal-open .pet-collapsed { display: none !important; }
+

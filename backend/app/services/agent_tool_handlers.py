@@ -171,3 +171,140 @@ async def _tool_suggest_workflow(args: dict) -> Any:
     }
     ctx["workflow_suggestion"] = suggestion
     return {"ok": True, **suggestion}
+
+
+# ── 写操作工具：方案助手/同事代办业务事务（身份=TOOL_CTX.user，高危走两阶段确认）──
+
+async def _with_consent_query(result: Any, tool: str) -> Any:
+    """写动作的授权问询（consent）：needs_confirmation 结果由调和器/本包装立一个
+    consent 型 HumanQuery（问题=待确认操作，选项=确认执行/取消，action 绑定工具）。
+
+    用户点选=结构化 HumanAnswer 按 query_id 回流；确认直达执行（transaction_turn
+    _execute_pending）。TOOL_CTX.defer_user_emission=true 时（事务工作流轮壳）此处
+    只返回不发射——问询由轮壳在**大脑答案落库之后**统一发射（先解释后问；
+    工具瞬间发射会跑到解释文本前面，2026-10-22 用户实测顺序颠倒）。
+    去重：待确认记录的 query_opened 标记（R1 投影幂等，同参重发只发一次问）。"""
+    if not isinstance(result, dict) or not result.get("needs_confirmation"):
+        return result
+
+    from app.services.skill_tool_context import TOOL_CTX
+    ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
+    thread_id = str(ctx.get("thread_id") or "")
+    if not thread_id:
+        return result
+    if ctx.get("defer_user_emission"):
+        return result
+    if not tool:
+        return result
+    from app.services.agent_write_confirm import mark_query_opened, query_opened
+    if query_opened(thread_id, tool):
+        return result
+    from app.services import human_query as hq
+    try:
+        await hq.open_query_and_announce(
+            thread_id, kind="consent",
+            title="待确认操作",
+            detail=_preview_detail(result.get("preview")),
+            options=[{"label": "确认执行", "description": "按上述内容执行"},
+                     {"label": "取消", "description": "不执行，可继续调整"}],
+            action={"tool": tool}, role_key=ctx.get("role_key"))
+        mark_query_opened(thread_id, tool)
+    except hq.ContractError:
+        pass  # 已有开放问题：调和器末扫会补发，这里不挤第二个
+    return result
+
+
+def _preview_detail(preview: Any) -> str:
+    """preview 字典 → 问题正文明细行（宽列表走大脑的文本回复，不挤进问询）。"""
+    if not isinstance(preview, dict):
+        return ""
+    return "\n".join(f"{k}：{v}" for k, v in preview.items()
+                     if not isinstance(v, (list, dict)))
+
+
+async def _tool_create_opportunity(args: dict) -> Any:
+    """create_opportunity → 建商机（与商机列表页「新建」同一路由函数，权限/归属同源）。"""
+    from app.services.skill_tools_write import tool_create_opportunity
+    return await asyncio.to_thread(tool_create_opportunity, args or {})
+
+
+async def _tool_save_requirement_draft(args: dict) -> Any:
+    """save_requirement_draft → 需求草稿落库（与门户需求草稿端点同一路由函数）。"""
+    from app.services.skill_tools_write import tool_save_requirement_draft
+    return await asyncio.to_thread(tool_save_requirement_draft, args or {})
+
+
+async def _tool_import_cost_sheet(args: dict) -> Any:
+    """import_cost_sheet → 商机附件里的成本表解析成成本核算草稿（解析/落库/流程卡与页面上传同源）。
+    落库段有两阶段确认（先看后落）：needs_confirmation 经 _with_confirm_card 落卡，
+    事务轮壳 defer 时由轮壳在答案后统一落。"""
+    from app.services.skill_tools_write import tool_import_cost_sheet
+    return await _with_consent_query(
+        await asyncio.to_thread(tool_import_cost_sheet, args or {}), tool="import_cost_sheet")
+
+
+async def _tool_submit_cost_sheet(args: dict) -> Any:
+    """submit_cost_sheet → 提交成本表并转报价草稿（提交/影子建单/推进/通知全走页面同一路由函数）。"""
+    from app.services.skill_tools_write import tool_submit_cost_sheet
+    return await _with_consent_query(
+        await asyncio.to_thread(tool_submit_cost_sheet, args or {}), tool="submit_cost_sheet")
+
+
+async def _tool_set_quote_margin(args: dict) -> Any:
+    """set_quote_margin → 报价单统一加价（价格门控 TOOL_CTX.price_ok，重算口径与工作台一致）。"""
+    from app.services.skill_tools_write import tool_set_quote_margin
+    return await _with_consent_query(
+        await asyncio.to_thread(tool_set_quote_margin, args or {}), tool="set_quote_margin")
+
+
+async def _tool_ask_user(args: dict) -> Any:
+    """ask_user → 向人提问（human-as-tool）：载荷即问题形状，系统渲染等待回答。
+    事务轮壳 defer 时问题由壳在答案后统一发射（先解释后问）。"""
+    from app.services.skill_tools_write import tool_ask_user
+    return await _with_user_query(
+        await asyncio.to_thread(tool_ask_user, args or {}))
+
+
+async def _with_user_query(result: Any) -> Any:
+    """向人提问发射（choice/form）：user_query 载荷立一个开放问题（human_query 协议）。
+    TOOL_CTX.defer_user_emission=true（事务轮壳）时只返回不发射——问题由轮壳在
+    答案落库之后统一发射（先解释后问）。每线程至多一个开放问题（协议不变量），
+    已有开放问题时把契约错误作为工具结果还给大脑转述。"""
+    if not isinstance(result, dict) or not result.get("user_query"):
+        return result
+    from app.services.skill_tool_context import TOOL_CTX
+    ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
+    thread_id = str(ctx.get("thread_id") or "")
+    if not thread_id or ctx.get("defer_user_emission"):
+        return result
+    from app.services import human_query as hq
+    try:
+        await hq.open_query_and_announce(thread_id, role_key=ctx.get("role_key"),
+                                         **result["user_query"])
+    except hq.ContractError as exc:
+        return {"ok": False, "error": str(exc)}
+    return result
+
+
+async def _tool_share_quote(args: dict) -> Any:
+    """share_quote → 生成报价单分享链接（服务端渲染 xlsx，customer 视角一律拒绝）。"""
+    from app.services.skill_tools_write import tool_share_quote
+    return await asyncio.to_thread(tool_share_quote, args or {})
+
+
+async def _tool_import_bom_scheme(args: dict) -> Any:
+    """import_bom_scheme → 方案表落位（解析结构表落方案草稿，不要求价格列）。"""
+    from app.services.skill_tools_write import tool_import_bom_scheme
+    return await asyncio.to_thread(tool_import_bom_scheme, args or {})
+
+
+async def _tool_derive_cost_from_scheme(args: dict) -> Any:
+    """derive_cost_from_scheme → 由方案表推导成本表草稿（库价填充，方案推进到成本核算）。"""
+    from app.services.skill_tools_write import tool_derive_cost_from_scheme
+    return await asyncio.to_thread(tool_derive_cost_from_scheme, args or {})
+
+
+async def _tool_set_cost_prices(args: dict) -> Any:
+    """set_cost_prices → 聊天补价回写成本草稿行（页面同源保存；缺价闸的回价通道之一）。"""
+    from app.services.skill_tools_write import tool_set_cost_prices
+    return await asyncio.to_thread(tool_set_cost_prices, args or {})

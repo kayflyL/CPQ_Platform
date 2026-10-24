@@ -62,7 +62,7 @@ function goHelp() { window.location.href = '/install-help.html' }
   align-items: center;
   gap: var(--cpq-space-2, 8px);
   padding: var(--cpq-space-2, 8px) var(--cpq-space-2, 8px) var(--cpq-space-2, 8px) var(--cpq-space-4, 16px);
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-glass-3-bg, rgba(255, 255, 255, 0.72));
   -webkit-backdrop-filter: blur(var(--cpq-glass-blur-3, 20px)) saturate(1.35);
   backdrop-filter: blur(var(--cpq-glass-blur-3, 20px)) saturate(1.35);
@@ -78,7 +78,7 @@ function goHelp() { window.location.href = '/install-help.html' }
 .install-hint-go {
   border: none;
   cursor: pointer;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 5px 14px;
   background: var(--cpq-accent-primary, #1677FF);
   color: var(--cpq-accent-on-primary, #fff);
@@ -104,5 +104,13 @@ function goHelp() { window.location.href = '/install-help.html' }
 .ih-leave-to {
   opacity: 0;
   transform: translateX(-50%) translateY(8px);
+}
+</style>
+
+<style>
+/* 编辑类全屏弹层（同事档案等 antd modal）打开时让位：横幅 z2100 会压在弹层 z1000 上 */
+body.em-editor-modal-open .install-hint,
+body.office-fullscreen-open .install-hint {
+  display: none !important;
 }
 </style>

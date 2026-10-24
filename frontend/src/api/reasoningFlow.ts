@@ -47,6 +47,10 @@ export const reasoningFlowApi = {
     RESP<{ versions: ReasoningFlow[] }>(axios.get('/api/reasoning-flow/versions', {
       params: skillKey ? { skill_key: skillKey } : undefined,
     })),
+  saveLaunchForm: (skillKey: string, schema: { fields: Array<Record<string, any>> } | null) =>
+    RESP<{ ok: boolean; launch_form: any }>(axios.put('/api/reasoning-flow/launch-form', schema || { fields: [] }, {
+      params: { skill_key: skillKey },
+    })),
   updateGraph: (graph: ReasoningGraph, skillKey?: string) =>
     RESP<ReasoningFlow>(axios.put('/api/reasoning-flow/graph', { graph }, {
       params: skillKey ? { skill_key: skillKey } : undefined,

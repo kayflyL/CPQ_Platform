@@ -30,27 +30,46 @@
             format="YYYY-MM-DD"
             value-format="YYYY-MM-DD"
             style="width: 120px"
+            :get-popup-container="createdDatePopupContainer"
             @change="onCreatedDateChange"
           />
         </span>
       </div>
       <div class="header-right" v-if="opportunity">
-        <a-button size="small" @click="showRecycleBin = true" v-if="deletedQuotations.length > 0">
-          <template #icon><DeleteOutlined /></template>
-          回收站 ({{ deletedQuotations.length }})
-        </a-button>
-        <a-popconfirm
-          title="确定要删除此商机吗？"
-          @confirm="handleDeleteProject"
-          ok-text="确定"
-          cancel-text="取消"
-          ok-type="danger"
-        >
-          <a-button danger size="small">
+        <template v-if="!isMobile">
+          <a-button size="small" @click="showRecycleBin = true" v-if="deletedQuotations.length > 0">
             <template #icon><DeleteOutlined /></template>
-            删除
+            回收站 ({{ deletedQuotations.length }})
           </a-button>
-        </a-popconfirm>
+          <a-popconfirm
+            title="确定要删除此商机吗？"
+            @confirm="handleDeleteProject"
+            ok-text="确定"
+            cancel-text="取消"
+            ok-type="danger"
+          >
+            <a-button danger size="small">
+              <template #icon><DeleteOutlined /></template>
+              删除
+            </a-button>
+          </a-popconfirm>
+        </template>
+        <!-- 手机端：回收站/删除收进「⋯」，危险操作不常驻页头 -->
+        <a-dropdown v-else placement="bottomRight">
+          <button class="header-more-btn" type="button" aria-label="更多操作">
+            <MoreOutlined />
+          </button>
+          <template #overlay>
+            <a-menu>
+              <a-menu-item v-if="deletedQuotations.length > 0" key="recycle" @click="showRecycleBin = true">
+                回收站 ({{ deletedQuotations.length }})
+              </a-menu-item>
+              <a-menu-item key="delete" danger @click="confirmDeleteProject">
+                <DeleteOutlined /> 删除商机
+              </a-menu-item>
+            </a-menu>
+          </template>
+        </a-dropdown>
       </div>
     </div>
 
@@ -87,6 +106,7 @@
       @delete-attachment="onAttachmentDelete"
       @new-quotation="createNewQuotation"
       @upload-cost-sheet="showUploadModal = true"
+      @upload-bom-scheme="showUploadSchemeModal = true"
       @view-quotation="viewQuotation"
       @unfreeze-quotation="handleUnfreeze"
       @set-primary="setAsPrimary"
@@ -211,6 +231,9 @@
     <a-modal
       v-model:open="showRenameModal"
       title="重命名报价单"
+      centered
+      :width="MODAL_WIDTH.action"
+      wrap-class-name="portal-sheet-modal"
       @ok="saveRenameQuotation"
       :confirm-loading="renameLoading"
       ok-text="保存"
@@ -237,7 +260,9 @@
       title="上传成本表"
       :footer="null"
       :destroyOnClose="true"
-      width="500px"
+      centered
+      :width="MODAL_WIDTH.action"
+      wrap-class-name="portal-sheet-modal"
     >
       <p style="color: var(--cpq-text-secondary); font-size: 13px; margin-bottom: 16px;">
         上传后先解析预览，可调整解析规则，确认无误后再生成成本表。
@@ -254,12 +279,38 @@
       </a-upload-dragger>
     </a-modal>
 
-    <!-- 解析预览：核对取值位置/调区域与列规则后再生成成本表 -->
+    <!-- 上传方案表 Modal（与成本表同一套解析机制） -->
+    <a-modal
+      v-model:open="showUploadSchemeModal"
+      title="上传方案表"
+      :footer="null"
+      :destroyOnClose="true"
+      centered
+      :width="MODAL_WIDTH.action"
+      wrap-class-name="portal-sheet-modal"
+    >
+      <p style="color: var(--cpq-text-secondary); font-size: 13px; margin-bottom: 16px;">
+        上传后先解析预览，可调整解析规则，确认无误后自动生成方案表草稿（价格列缺失不影响）。
+      </p>
+      <a-upload-dragger
+        name="file"
+        :custom-request="handleUploadSchemeToProject"
+        :show-upload-list="false"
+        accept=".xlsx"
+      >
+        <p class="ant-upload-drag-icon"><inbox-outlined /></p>
+        <p class="ant-upload-text">点击或拖拽 Excel 方案表到此区域</p>
+        <p class="ant-upload-hint">支持 .xlsx 格式（旧版 .xls 请先另存为 .xlsx）</p>
+      </a-upload-dragger>
+    </a-modal>
+
+    <!-- 解析预览：核对取值位置/调区域与列规则后再生成 -->
     <QuotationParsePreviewModal
       :open="parsePreviewOpen"
       :file="parsePreviewFile"
       :opportunity-id="opportunityId"
       :confirming="parseConfirming"
+      :kind="parseKind"
       @confirm="onParseConfirm"
       @cancel="onParseCancel"
     />
@@ -284,7 +335,7 @@ import { message, Modal } from 'ant-design-vue'
 import {
   ArrowLeftOutlined,
   DeleteOutlined, RightOutlined,
-  UndoOutlined
+  UndoOutlined, MoreOutlined
 } from '@ant-design/icons-vue'
 import { portalApi } from '@/api/portal'
 import { projectApi, quotationApi } from '@/api'
@@ -302,10 +353,15 @@ import type { Opportunity, Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { formatDate, formatPrice, marginBadgeClass as getMarginBadgeClass } from '@/utils/quoteCommon'
 import { RESULT_OPTIONS, resultLabel } from '@/constants/opportunityResult'
+import { MODAL_WIDTH } from '@/constants/modalPresets'
+import { useIsMobile } from '@/composables/useIsMobile'
 import dayjs from 'dayjs'
 
 const route = useRoute()
 const auth = useAuthStore()
+const isMobile = useIsMobile()
+/** 创建于日期面板挂 body：默认就地渲染会被 relative 卡头劫持坐标（手机端漂到左上角、被卡片盖住） */
+const createdDatePopupContainer = () => document.body
 /** 商机详情报价单价格可见性（字段级权限，配置驱动） */
 const quotePriceVisible = computed(() => auth.can('field.opportunity.quote_price'))
 const canViewAll = computed(() => auth.can('page.opportunities_all'))
@@ -505,6 +561,17 @@ const handleDeleteProject = async () => {
   } catch (err: any) {
     message.error('删除失败: ' + (err.message || err))
   }
+}
+
+// 手机端「⋯」菜单里的删除入口：弹窗确认（下拉菜单里放不下 popconfirm）
+function confirmDeleteProject() {
+  Modal.confirm({
+    title: '确定要删除此商机吗？',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: handleDeleteProject,
+  })
 }
 
 // 归档语义已并入 result（已过期）；以下两个 handler 已移除。
@@ -770,6 +837,9 @@ const saveRenameQuotation = async () => {
 
 // =================== Upload Quotation ===================
 const showUploadModal = ref(false)
+const showUploadSchemeModal = ref(false)
+// 解析预览的产物类型：cost=成本表 / scheme=方案表（同一弹窗、同一套解析）
+const parseKind = ref<'cost' | 'scheme'>('cost')
 const parsePreviewOpen = ref(false)
 const parsePreviewFile = ref<File | null>(null)
 // 生成成本表中：防重复点击导致重复创建（后端解析期间可连点）
@@ -779,36 +849,64 @@ const parseConfirming = ref(false)
 const handleUploadToProject = async (options: any) => {
   const file = options.file as File
   options.onSuccess?.() // 结束 dragger 的 uploading 态
+  parseKind.value = 'cost'
   parsePreviewFile.value = file
   parsePreviewOpen.value = true
   showUploadModal.value = false
 }
 
-// 解析预览确认：落库生成成本表草稿（防重入：生成期间按钮 loading/禁用，函数开头二次拦截）
+// 上传方案表：同一套解析预览，确认后落方案草稿并归档原件
+const handleUploadSchemeToProject = async (options: any) => {
+  const file = options.file as File
+  options.onSuccess?.()
+  parseKind.value = 'scheme'
+  parsePreviewFile.value = file
+  parsePreviewOpen.value = true
+  showUploadSchemeModal.value = false
+}
+
+// 解析预览确认：落库生成草稿（防重入：生成期间按钮 loading/禁用，函数开头二次拦截）
 // 模板由「成本核算·上传解析」使用位置绑定决定（设置页配置）；payload 只带回会话补丁——
 // 预览看到的=确认生成的
 const onParseConfirm = async (payload?: { parseOverrides?: Record<string, any> }) => {
   if (!parsePreviewFile.value || parseConfirming.value) return
   parseConfirming.value = true
-  const hide = message.loading('正在生成成本表...', 0)
+  const hide = message.loading(parseKind.value === 'scheme' ? '正在生成方案表...' : '正在生成成本表...', 0)
   try {
-    const result = await portalApi.uploadCostSheet(
-      opportunityId,
-      parsePreviewFile.value,
-      payload?.parseOverrides
-    )
-    if (result.sheet?.id) {
-      message.success('成本表已创建！')
-      parsePreviewOpen.value = false
-      parsePreviewFile.value = null
-      await loadProject()
-      await reloadBoard()
+    if (parseKind.value === 'scheme') {
+      const result = await portalApi.uploadBomScheme(
+        opportunityId,
+        parsePreviewFile.value,
+        payload?.parseOverrides
+      )
+      if (result.scheme?.id) {
+        message.success('方案表已创建！')
+        parsePreviewOpen.value = false
+        parsePreviewFile.value = null
+        await loadProject()
+        await reloadBoard()
+      } else {
+        message.error('方案表创建失败，请稍后重试')
+      }
     } else {
-      message.error('成本表创建失败，请稍后重试')
+      const result = await portalApi.uploadCostSheet(
+        opportunityId,
+        parsePreviewFile.value,
+        payload?.parseOverrides
+      )
+      if (result.sheet?.id) {
+        message.success('成本表已创建！')
+        parsePreviewOpen.value = false
+        parsePreviewFile.value = null
+        await loadProject()
+        await reloadBoard()
+      } else {
+        message.error('成本表创建失败，请稍后重试')
+      }
     }
   } catch (err: any) {
     const detail = err?.response?.data?.detail
-    message.error(detail || err?.message || '生成成本表失败')
+    message.error(detail || err?.message || (parseKind.value === 'scheme' ? '生成方案表失败' : '生成成本表失败'))
   } finally {
     hide()
     parseConfirming.value = false
@@ -879,7 +977,7 @@ onBeforeUnmount(() => {
 .back-btn {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w8);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
@@ -970,91 +1068,6 @@ onBeforeUnmount(() => {
   gap: 8px;
 }
 
-/* ── Info Card ── */
-.info-card {
-  padding: 0;
-  margin-bottom: 24px;
-  overflow: hidden;
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-}
-
-.info-status-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 20px;
-  font-size: 13px;
-  color: var(--cpq-text-muted);
-  border-bottom: 1px solid var(--cpq-overlay-w4);
-  grid-column: 1 / -1;
-}
-
-.status-meta {
-  flex-shrink: 0;
-  color: var(--cpq-text-muted);
-}
-
-.info-row {
-  display: flex;
-  align-items: center;
-  padding: 10px 20px;
-  border-bottom: 1px solid var(--cpq-overlay-w3);
-  transition: background var(--cpq-transition-fast);
-}
-
-.info-row:last-child {
-  border-bottom: none;
-}
-
-.info-row:hover {
-  background: var(--cpq-overlay-w3);
-}
-
-.info-label {
-  width: 120px;
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--cpq-text-muted);
-  text-align: right;
-  padding-right: 16px;
-}
-
-.info-value {
-  flex: 1;
-  font-size: 14px;
-  color: var(--cpq-text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-/* 信息栏内联输入：透明底融入卡片、压淡边框、聚焦才蓝边 —— 消除"网格盒子"密集感
-   保留边框（不走 :bordered=false）避免 auto-complete 塌缩（见 memory infobar-editable-input-style） */
-.info-value :deep(.ant-select-selector),
-.info-value :deep(.ant-input),
-.info-value :deep(.ant-input-number-input) {
-  background: transparent !important;
-  border-color: var(--cpq-overlay-w8) !important;
-  border-radius: var(--cpq-radius-sm) !important;
-  box-shadow: none !important;
-  color: var(--cpq-text-primary) !important;
-}
-.info-value :deep(.ant-select:hover .ant-select-selector),
-.info-value :deep(.ant-input:hover),
-.info-value :deep(.ant-input-number:hover .ant-input-number-input) {
-  border-color: var(--cpq-overlay-w15) !important;
-}
-.info-value :deep(.ant-select-focused .ant-select-selector),
-.info-value :deep(.ant-input:focus),
-.info-value :deep(.ant-input-number-focused .ant-input-number-input) {
-  border-color: var(--cpq-accent-primary) !important;
-  box-shadow: 0 0 0 2px var(--cpq-overlay-a15) !important;
-}
-.info-value :deep(.ant-select-selection-item) {
-  color: var(--cpq-text-primary) !important;
-}
-
 /* ── Batch Bar ── */
 .batch-bar {
   display: flex;
@@ -1082,43 +1095,6 @@ onBeforeUnmount(() => {
 .batch-actions {
   display: flex;
   gap: 8px;
-}
-
-/* ── Quotation Section ── */
-.quotation-section {
-  margin-bottom: 24px;
-}
-
-.section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 16px;
-}
-
-.section-header h2 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--cpq-text-primary);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.count-badge {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--cpq-text-muted);
-  background: var(--cpq-overlay-w6);
-  padding: 2px 8px;
-  border-radius: 10px;
-}
-
-.section-actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
 }
 
 /* ── Empty State ── */
@@ -1178,7 +1154,7 @@ onBeforeUnmount(() => {
 .quo-status-bar {
   width: 3px;
   align-self: stretch;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
   margin-right: 16px;
   flex-shrink: 0;
   background: transparent;
@@ -1219,17 +1195,6 @@ onBeforeUnmount(() => {
   margin-bottom: 4px;
 }
 
-.quo-primary-tag {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 1px 6px;
-  border-radius: var(--cpq-radius-sm);
-  background: var(--cpq-accent-primary);
-  color: var(--cpq-accent-on-primary);
-  letter-spacing: 0.5px;
-  flex-shrink: 0;
-}
-
 .quo-name {
   font-size: 14px;
   font-weight: 600;
@@ -1239,27 +1204,6 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* 草稿/已导出 状态标 */
-.quo-state {
-  font-size: 11px;
-  font-weight: 500;
-  padding: 1px 7px;
-  border-radius: 9px;
-  border: 1px solid;
-  white-space: nowrap;
-  flex-shrink: 0;
-}
-.quo-state--draft {
-  color: var(--cpq-color-gold, #D4A853);
-  background: rgba(212, 168, 83, 0.08);
-  border-color: rgba(212, 168, 83, 0.25);
-}
-.quo-state--exported {
-  color: var(--cpq-accent-primary, #1677FF);
-  background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.08));
-  border-color: var(--cpq-overlay-a20, rgba(22, 119, 255, 0.2));
 }
 
 .price-hidden {
@@ -1279,7 +1223,7 @@ onBeforeUnmount(() => {
   color: var(--cpq-text-muted, #6E7582);
   padding: 1px 5px;
   border: 1px solid var(--cpq-divider, rgba(0,0,0,0.08));
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -1288,10 +1232,35 @@ onBeforeUnmount(() => {
   font-size: 11px;
   font-weight: 500;
   padding: 2px 8px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+/* 以下四态由 utils/quoteCommon.marginBadgeClass() 动态返回，扫描脚本查模板字面量查不到，勿删 */
+.quo-margin-badge.badge-high {
+  color: var(--cpq-accent-primary);
+  background: var(--cpq-overlay-a8);
+  border-color: var(--cpq-overlay-a20);
+}
+
+.quo-margin-badge.badge-mid {
+  color: var(--cpq-color-gold);
+  background: rgba(212, 168, 83, 0.08);
+  border-color: rgba(212, 168, 83, 0.2);
+}
+
+.quo-margin-badge.badge-low {
+  color: var(--cpq-accent-danger);
+  background: var(--cpq-overlay-danger10);
+  border-color: var(--cpq-overlay-danger15);
+}
+
+.quo-margin-badge.badge-neutral {
+  color: var(--cpq-text-muted);
+  background: var(--cpq-overlay-w4);
+  border-color: var(--cpq-overlay-w8);
 }
 
 .quo-margin-badge.badge-high {
@@ -1335,29 +1304,6 @@ onBeforeUnmount(() => {
 
 .quotation-row:hover .quo-actions {
   opacity: 1;
-}
-
-.icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--cpq-radius-sm);
-  border: none;
-  background: transparent;
-  color: var(--cpq-text-muted);
-  font-size: 14px;
-  cursor: pointer;
-  transition: all var(--cpq-transition-fast);
-}
-.icon-btn:hover {
-  background: var(--cpq-overlay-a8);
-  color: var(--cpq-accent-primary);
-}
-.icon-btn.danger:hover {
-  color: var(--cpq-accent-danger);
-  background: var(--cpq-overlay-danger10);
 }
 
 .text-btn {
@@ -1409,16 +1355,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ── Deleted Quotations Section ── */
-.deleted-section {
-  margin-top: 32px;
-}
-
-.deleted-badge {
-  color: var(--cpq-accent-danger) !important;
-  background: var(--cpq-overlay-danger10) !important;
-}
-
 .deleted-row {
   opacity: 0.7;
 }
@@ -1455,17 +1391,10 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .sk-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-.sk-card { min-width: 0; padding: 16px; border-radius: 12px; }
+.sk-card { min-width: 0; padding: 16px; border-radius: var(--cpq-radius-md); }
 @media (max-width: 1080px) {
   .sk-board { grid-template-columns: 1fr; }
   .sk-rail, .sk-aside { display: none; }
-}
-/* ── 窄屏适配：信息卡列数收窄，避免行内输入被裁切；头部/操作区允许换行 ── */
-@media (max-width: 1100px) {
-  .info-card { grid-template-columns: 1fr 1fr; }
-}
-@media (max-width: 860px) {
-  .info-card { grid-template-columns: 1fr; }
 }
 @media (max-width: 768px) {
   .opportunity-detail-page {
@@ -1480,16 +1409,30 @@ onBeforeUnmount(() => {
     overflow: visible;
   }
   .header-right { flex-wrap: wrap; }
-  .header-left { flex-wrap: wrap; row-gap: 6px; }
-  .section-header { flex-wrap: wrap; gap: 8px; }
+  .header-left { flex-wrap: wrap; row-gap: 6px; gap: 8px; }
+  .page-header { gap: 8px; margin-bottom: 8px; position: relative; padding-right: 40px; }
+  /* ⋯ 固定右上角：header-left 换行后 header-right 仍保持在第一行右侧 */
+  .header-right { position: absolute; right: 0; top: -2px; }
+  /* 紧凑页头：标题降级到一行内，状态/日期换行排第二行 */
+  .page-header h1 { font-size: 17px; }
+  .header-result-select { width: 96px; }
+  .header-created-date { font-size: 12px; }
+  .header-created-date :deep(.ant-picker) { width: 104px !important; }
+  .header-more-btn {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--cpq-overlay-w8);
+    border-radius: var(--cpq-radius-sm);
+    background: var(--cpq-overlay-w4);
+    color: var(--cpq-text-secondary);
+    font-size: 15px;
+    cursor: pointer;
+  }
   .quo-top { flex-wrap: wrap; row-gap: 4px; }
   .batch-bar { flex-wrap: wrap; gap: 8px; }
-  .info-status-bar { flex-wrap: wrap; }
 }
-@media (max-width: 600px) {
-  .info-row { flex-direction: column; align-items: stretch; gap: 6px; }
-  .info-label { width: auto; text-align: left; padding-right: 0; }
-  .info-value { flex: none; flex-wrap: wrap; }
-}
-
 </style>

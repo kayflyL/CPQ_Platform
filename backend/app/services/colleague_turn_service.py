@@ -46,12 +46,12 @@ from app.services.colleague_turn_io import (
 from app.services.colleague_turn_runners import (
     _broadcast_chat_progress,
     _run_plain_turn,
-    _run_skill_chat,
     _skill_write_mode,
     _run_tool_turn,
     _skill_chat_memory_active,
     _skill_phase_hint,
 )
+from app.services.transaction_turn import dispatch_flow_turn
 from app.services.office_events import publish_office_event
 from app.services.skill_contracts import SKILL_SESSION_ACTIVE
 from app.services.skill_memory import flow_delivered, reset_flow_memory
@@ -148,18 +148,20 @@ async def run_colleague_turn(
 
             # 交付守卫（2026-09-13）：方案已交付（phase=DONE 或 compose 已落 steps_done）→ 归普通聊天，不再重放流程。
             _flow_delivered = (not is_preview and flow_delivered(thread_id, role_key))
-            if is_preview or (session.get("phase") == SKILL_SESSION_ACTIVE and not _flow_delivered):
+            # 显式装填(workflow_launcher)优先于续跑：用户发起新开工单=有意重开，
+            # 不得被遗留 ACTIVE 会话截进续跑分支（否则 fresh 清场永远轮不到，案台停在旧单子）
+            if is_preview or (session.get("phase") == SKILL_SESSION_ACTIVE and not _flow_delivered
+                              and (entry_point or '').strip() != 'workflow_launcher'):
                 # 预览首条消息按画布当前 skill 起会话；跨流切换的干净重开在 skill_chat._prepare 统一判定。
                 skill_key = str(workflow_key or session.get("skill_key") or "requirement_analysis")
                 manifest = resolve_skill_manifest(skill_key) or resolve_skill_manifest("requirement_analysis")
-                await _run_skill_chat(
-                    thread_id, user_text, context_summary, history, colleague, memory_block,
-                    final_office_event=final_office_event, trace_sink=trace_sink,
-                    user=user, opportunity_id=opportunity_id, option_slot=option_slot,
-                    card_selections=card_selections, force_submit=True,
-                    skill_manifest=manifest, session_phase=SKILL_SESSION_ACTIVE,
-                    write_mode=write_mode,
-                )
+                await dispatch_flow_turn(
+                    manifest, flow_key=skill_key, thread_id=thread_id, user_text=user_text,
+                    history=history, context_summary=context_summary, colleague=colleague,
+                    memory_block=memory_block, final_office_event=final_office_event,
+                    trace_sink=trace_sink, user=user, opportunity_id=opportunity_id,
+                    option_slot=option_slot, card_selections=card_selections,
+                    write_mode=write_mode, session_phase=SKILL_SESSION_ACTIVE)
             elif _skill_chat_memory_active(thread_id, role_key) and not _flow_delivered:
                 # 旧流程记忆（无 skill_session 字段）视为已启动，继续跑固定六步。
                 save_skill_session(thread_id, role_key, {
@@ -168,14 +170,13 @@ async def run_colleague_turn(
                     "entry_point": entry_point or "",
                 })
                 manifest = resolve_skill_manifest("requirement_analysis")
-                await _run_skill_chat(
-                    thread_id, user_text, context_summary, history, colleague, memory_block,
-                    final_office_event=final_office_event, trace_sink=trace_sink,
-                    user=user, opportunity_id=opportunity_id, option_slot=option_slot,
-                    card_selections=card_selections, force_submit=True,
-                    skill_manifest=manifest, session_phase=SKILL_SESSION_ACTIVE,
-                    write_mode=write_mode,
-                )
+                await dispatch_flow_turn(
+                    manifest, flow_key=skill_key, thread_id=thread_id, user_text=user_text,
+                    history=history, context_summary=context_summary, colleague=colleague,
+                    memory_block=memory_block, final_office_event=final_office_event,
+                    trace_sink=trace_sink, user=user, opportunity_id=opportunity_id,
+                    option_slot=option_slot, card_selections=card_selections,
+                    write_mode=write_mode, session_phase=SKILL_SESSION_ACTIVE)
             elif (entry_point or "").strip() == "workflow_launcher":
                 # 显式发起：用户点「+」选择某工作流 → 直接进入 ACTIVE，不再走 IDLE→PROPOSING。
                 # 首个节点负责按需反问/收集，不在此处预置任何流程内容（防幻觉）。
@@ -197,18 +198,17 @@ async def run_colleague_turn(
                     "entry_point": entry_point or "",
                 })
                 manifest = resolve_skill_manifest(skill_key) or resolve_skill_manifest("requirement_analysis")
-                await _run_skill_chat(
-                    thread_id, user_text, context_summary, history, colleague, memory_block,
-                    final_office_event=final_office_event, trace_sink=trace_sink,
-                    user=user, opportunity_id=opportunity_id, option_slot=option_slot,
-                    card_selections=card_selections, force_submit=True,
-                    skill_manifest=manifest, session_phase=SKILL_SESSION_ACTIVE,
-                    write_mode=write_mode,
-                )
+                # 显式发起=事务链干净重开：fresh 连状态槽一起清（案台每轮现算，旗标不留下一链）
+                await dispatch_flow_turn(
+                    manifest, flow_key=skill_key, fresh=True, thread_id=thread_id,
+                    user_text=user_text, history=history, context_summary=context_summary,
+                    colleague=colleague, memory_block=memory_block,
+                    final_office_event=final_office_event, trace_sink=trace_sink, user=user,
+                    opportunity_id=opportunity_id, option_slot=option_slot,
+                    card_selections=card_selections, write_mode=write_mode,
+                    session_phase=SKILL_SESSION_ACTIVE)
             else:
-                # 有工具的角色走 ReAct 工具循环（模块文档契约；2026-09-26 修复：
-                # 编排重构后此分支只剩纯文本，工具角色裸聊——提示词承诺 query_data
-                # 而运行时没挂工具，模型只能把查询演出来并编造结果）。
+                # 有工具的角色走 ReAct 工具循环（模块文档契约；2026-09-26 修复记录见 git）
                 if allowed_tool_ids:
                     await _run_tool_turn(
                         thread_id, user_text, context_summary, history, colleague, memory_block,

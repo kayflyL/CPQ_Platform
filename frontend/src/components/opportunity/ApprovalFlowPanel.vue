@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import type { FeedAttachment, FeedMessage } from '@/api/feed'
 import type { ApprovalItem, FlowCard, FlowInfo, FlowNode, PortalOpp } from '@/api/portal'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import { feedApi } from '@/api/feed'
+import { useNotifications } from '@/composables/useNotifications'
 import { downloadOfficeFile } from '@/utils/fileDownload'
 import { fmtTime } from '@/utils/quoteCommon'
 
@@ -49,6 +50,105 @@ const fileInput = ref<HTMLInputElement | null>(null)
 const opportunityIdRef = computed(() => props.opportunityId)
 const feed = useFeedSocket(opportunityIdRef)
 const { messages } = feed
+
+// ── @提及:名册取自通知中心单例(全员+在线标);权威解析在后端对照名册,此处只是输入辅助+渲染高亮 ──
+const { onlineUsers: mentionRoster, refreshOnline } = useNotifications()
+const draftWrapRef = ref<any>(null)
+const draftEl = computed<HTMLTextAreaElement | null>(() => draftWrapRef.value?.resizableTextArea?.textArea || null)
+const mentionOpen = ref(false)
+const mentionQuery = ref('')
+const mentionActive = ref(0)
+
+const mentionCandidates = computed(() => {
+  const q = mentionQuery.value.trim().toLowerCase()
+  return mentionRoster.value
+    .filter((u) => !q || u.name.toLowerCase().includes(q))
+    .slice(0, 8)
+})
+
+function syncMentionTrigger() {
+  const el = draftEl.value
+  const caret = el?.selectionStart ?? -1
+  const m = caret >= 0 ? draft.value.slice(0, caret).match(/@([^\s@]*)$/) : null
+  mentionQuery.value = m ? m[1] : ''
+  mentionActive.value = 0
+  mentionOpen.value = !!m && mentionRoster.value.length > 0
+}
+
+function applyMention(name: string) {
+  if (!name) return
+  const el = draftEl.value
+  const caret = el?.selectionStart ?? draft.value.length
+  const before = draft.value.slice(0, caret)
+  const m = before.match(/@([^\s@]*)$/)
+  const head = m ? before.slice(0, before.length - m[0].length) : before
+  const inserted = `@${name} `
+  draft.value = head + inserted + draft.value.slice(caret)
+  mentionOpen.value = false
+  void nextTick(() => {
+    if (!el) return
+    el.focus()
+    const pos = head.length + inserted.length
+    el.setSelectionRange(pos, pos)
+    syncMentionTrigger()
+  })
+}
+
+function onDraftKeydown(e: KeyboardEvent) {
+  if (!mentionOpen.value) return
+  const n = mentionCandidates.value.length
+  if (!n) return
+  if (e.key === 'ArrowDown') {
+    e.preventDefault()
+    mentionActive.value = (mentionActive.value + 1) % n
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault()
+    mentionActive.value = (mentionActive.value - 1 + n) % n
+  } else if (e.key === 'Escape') {
+    mentionOpen.value = false
+  }
+}
+
+function onDraftEnter(e: KeyboardEvent) {
+  if (mentionOpen.value && mentionCandidates.value.length) {
+    e.preventDefault()
+    applyMention(mentionCandidates.value[mentionActive.value]?.name || '')
+    return
+  }
+  if (!e.shiftKey) {
+    e.preventDefault()
+    postComment(activeNodeKey.value)
+  }
+}
+
+/** 评论渲染:正文按名册名字最长优先切段,@名字 高亮;名册外的 @ 是纯文本 */
+function mentionSegments(text: string): Array<{ t: string; m: boolean }> {
+  const names = [...new Set(mentionRoster.value.map((u) => u.name).filter(Boolean))]
+    .sort((a, b) => b.length - a.length)
+  const segs: Array<{ t: string; m: boolean }> = []
+  let buf = ''
+  let i = 0
+  while (i < text.length) {
+    if (text[i] === '@') {
+      const rest = text.slice(i + 1)
+      const hit = names.find((n) => rest.startsWith(n))
+      if (hit) {
+        if (buf) {
+          segs.push({ t: buf, m: false })
+          buf = ''
+        }
+        segs.push({ t: `@${hit}`, m: true })
+        i += 1 + hit.length
+        continue
+      }
+    }
+    buf += text[i]
+    i += 1
+  }
+  if (buf) segs.push({ t: buf, m: false })
+  return segs
+}
+
 const filter = ref<'all' | 'current' | 'comments'>('all')
 const now = ref(Date.now())
 let clockTimer: number | undefined
@@ -196,6 +296,7 @@ async function activate() {
     console.error('加载评论失败:', e)
   }
   feed.connect()
+  refreshOnline()
 }
 
 function chooseFiles() { fileInput.value?.click() }
@@ -289,7 +390,7 @@ onBeforeUnmount(() => {
         <div class="af-feed-copy">
           <b>{{ row.actor }} · {{ row.kind === 'comment' ? '评论' : row.text }}</b>
           <small><em class="af-node-chip">{{ nodeLabel(row.nodeKey) }}</em> · {{ fmtTime(row.time) }}</small>
-          <p v-if="row.kind === 'comment' && row.text">{{ row.text }}</p>
+          <p v-if="row.kind === 'comment' && row.text"><template v-for="(seg, si) in mentionSegments(row.text)" :key="si"><span v-if="seg.m" class="af-mention">{{ seg.t }}</span><template v-else>{{ seg.t }}</template></template></p>
           <div v-if="row.kind === 'comment' && row.attachments?.length" class="af-attach-list">
             <a
               v-for="att in row.attachments"
@@ -306,12 +407,32 @@ onBeforeUnmount(() => {
         <span>回复：{{ nodeLabel(activeNodeKey) }}</span>
       </div>
       <a-textarea
+        ref="draftWrapRef"
         v-model:value="draft"
-        placeholder="输入回复内容，可使用 @ 提醒处理人..."
+        placeholder="输入回复内容，@ 同事可提醒对方（站内+企微）..."
         :auto-size="{ minRows: 1, maxRows: 3 }"
         :disabled="sending"
-        @press-enter="(e: KeyboardEvent) => { if (!e.shiftKey) { e.preventDefault(); postComment(activeNodeKey) } }"
+        @input="syncMentionTrigger"
+        @keydown="onDraftKeydown"
+        @blur="mentionOpen = false"
+        @press-enter="onDraftEnter"
       />
+      <div v-if="mentionOpen && mentionCandidates.length" class="af-mention-pop">
+        <button
+          v-for="(u, i) in mentionCandidates"
+          :key="u.user_id"
+          type="button"
+          class="af-mention-item"
+          :class="{ active: i === mentionActive }"
+          @mousedown.prevent="applyMention(u.name)"
+          @mouseenter="mentionActive = i"
+        >
+          <span class="af-avatar sm">{{ avatarChar(u.name) }}</span>
+          <b>{{ u.name }}</b>
+          <small>{{ u.role_name }}</small>
+          <i v-if="u.online" class="af-online" />
+        </button>
+      </div>
       <div class="af-composer-foot">
         <div v-if="selectedFiles.length" class="af-file-chips">
           <span v-for="(f, i) in selectedFiles" :key="`${f.name}-${i}`" class="af-file-chip">
@@ -344,7 +465,7 @@ onBeforeUnmount(() => {
 }
 .af-feed::-webkit-scrollbar-thumb {
   background: var(--cpq-overlay-a20);
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
 }
 .af-feed::-webkit-scrollbar-track {
   background: transparent;
@@ -363,7 +484,7 @@ onBeforeUnmount(() => {
   gap: 5px;
   padding: 2px 7px;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3);
   color: var(--cpq-text-primary);
   font-size: 12px;
@@ -381,7 +502,7 @@ onBeforeUnmount(() => {
   padding: 11px;
   margin-bottom: 10px;
   border: 1px solid var(--cpq-accent-primary);
-  border-radius: 11px;
+  border-radius: var(--cpq-radius-md);
   background: linear-gradient(135deg, var(--cpq-overlay-a10), transparent), var(--cpq-bg-elevated);
   box-shadow: 0 10px 20px -22px rgba(0, 0, 0, 0.65);
 }
@@ -436,7 +557,7 @@ onBeforeUnmount(() => {
 .af-status {
   flex: 0 0 auto;
   padding: 3px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-a10);
   color: var(--cpq-accent-primary);
   font-size: 10px;
@@ -478,7 +599,7 @@ onBeforeUnmount(() => {
   background: transparent;
   color: var(--cpq-text-muted);
   padding: 5px 9px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   cursor: pointer;
 }
@@ -526,7 +647,7 @@ onBeforeUnmount(() => {
   display: inline-block;
   margin-right: 4px;
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-overlay-a10);
   color: var(--cpq-accent-primary);
   font-style: normal;
@@ -555,6 +676,60 @@ onBeforeUnmount(() => {
   flex: none;
   margin-top: 10px;
   display: block;
+  position: relative;
+}
+.af-mention-pop {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 4px);
+  z-index: 30;
+  max-height: 210px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-md);
+  background: var(--cpq-bg-elevated);
+  box-shadow: 0 12px 28px -18px rgba(0, 0, 0, 0.55);
+}
+.af-mention-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  padding: 6px 8px;
+  background: transparent;
+  border-radius: var(--cpq-radius-sm);
+  color: var(--cpq-text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+}
+.af-mention-item.active,
+.af-mention-item:hover {
+  background: var(--cpq-overlay-a10);
+}
+.af-mention-item b {
+  font-weight: 600;
+}
+.af-mention-item small {
+  color: var(--cpq-text-muted);
+  font-size: 11px;
+}
+.af-mention-item .af-online {
+  width: 6px;
+  height: 6px;
+  margin-left: auto;
+  border-radius: var(--cpq-radius-full);
+  background: var(--cpq-color-success);
+}
+.af-mention {
+  padding: 0 3px;
+  border-radius: var(--cpq-radius-xs);
+  background: var(--cpq-overlay-a10);
+  color: var(--cpq-accent-primary);
+  font-weight: 600;
 }
 .af-composer :deep(.ant-input) {
   background: var(--cpq-overlay-w3);

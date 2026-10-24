@@ -35,8 +35,28 @@ const props = defineProps<{
   skillKey?: string | null      // 当前编辑的 Skill key（多技能共用一个画布时按技能写配置）
   skillOutputKind?: string | null // Skill 的输出类型，作为输出节点默认 output_kind
   documentTarget?: Record<string, any> | null // 全图目标层文档卡（输出节点只读展示用，SkillStudio 注入）
+  outgoingEdges?: Array<{ id: string; target: string; guard: { flag: string; equals: string } | null }> | null
+    // 本节点的出边（分支一等公民）：守卫条件在此可视化编辑，SkillStudio 持久化
 }>()
-const emit = defineEmits<{ 'update:open': [boolean]; saved: []; remove: [string] }>()
+const emit = defineEmits<{ 'update:open': [boolean]; saved: []; remove: [string]; 'set-guard': [edgeId: string, guard: { flag: string; equals: string } | null] }>()
+
+// ── 出边守卫草稿：值变化才重建（防父级数组重建打断输入）；改动即上报持久化 ──
+const guardDraft = ref<Record<string, { flag: string; equals: string }>>({})
+const guardSig = computed(() => (props.outgoingEdges || [])
+  .map(e => `${e.id}:${e.guard?.flag || ''}=${e.guard?.equals ?? ''}`).join('|'))
+watch(guardSig, () => {
+  const next: Record<string, { flag: string; equals: string }> = {}
+  for (const e of props.outgoingEdges || []) {
+    next[e.id] = { flag: e.guard?.flag || '', equals: e.guard?.equals ?? '' }
+  }
+  guardDraft.value = next
+}, { immediate: true })
+function commitGuard(edgeId: string) {
+  const d = guardDraft.value[edgeId]
+  const flag = String(d?.flag || '').trim()
+  if (!flag) emit('set-guard', edgeId, null)
+  else emit('set-guard', edgeId, { flag, equals: String(d?.equals ?? '') })
+}
 
 const form = ref<any>({})
 
@@ -547,6 +567,29 @@ async function save() {
         </div>
       </div>
 
+      <!-- 出边分流条件（分支一等公民）：条件写在边上，运行时按图遍历走链；
+           旗标由各工具的声明旗标表（流程配置 flag_rules）写入 -->
+      <div v-if="(outgoingEdges || []).length" class="node-zone">
+        <div class="node-zone-head">
+          <span class="node-zone-index">⇥</span>
+          <span class="node-zone-title">出边分流条件</span>
+          <span class="node-zone-note">旗标=值 才走这条边；留空=总是走</span>
+        </div>
+        <div class="node-zone-body">
+          <a-form layout="vertical" class="node-config-form">
+            <a-form-item v-for="e in outgoingEdges" :key="e.id" style="margin-bottom: 8px">
+              <div style="display:flex; gap:8px; align-items:center;">
+                <span class="rf-hint" style="white-space:nowrap">→ {{ e.target }}</span>
+                <a-input v-model:value="guardDraft[e.id].flag" placeholder="旗标（如 lane）" style="width: 150px" @change="commitGuard(e.id)" />
+                <span>=</span>
+                <a-input v-model:value="guardDraft[e.id].equals" placeholder="值（如 cost）" style="width: 150px" @change="commitGuard(e.id)" />
+              </div>
+            </a-form-item>
+          </a-form>
+          <p class="rf-hint">运行时从入节点沿满足条件的边前进，到不了的节点自动置灰（skipped）。多个出边=分支；多条路径汇入同一节点=汇聚，任一路可达即会执行。</p>
+        </div>
+      </div>
+
       <div class="node-zone">
         <div class="node-zone-head node-head-toggle" @click="toggleZone('target')">
           <span class="node-zone-index">1</span>
@@ -792,7 +835,7 @@ async function save() {
 /* 输出节点 · 呈现方式四卡（原型 _prototypes/output-artifact-selector.html） */
 .out-fmt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .out-fmt {
-  position: relative; padding: 11px 13px; border-radius: 12px; cursor: pointer;
+  position: relative; padding: 11px 13px; border-radius: var(--cpq-radius-md); cursor: pointer;
   border: 1px solid var(--cpq-border-primary); background: var(--cpq-glass-1-bg);
   transition: border-color .16s, box-shadow .16s;
 }
@@ -807,12 +850,12 @@ async function save() {
 .out-fmt-desc { margin-top: 4px; font-size: 11.5px; color: var(--cpq-text-secondary); line-height: 1.55; }
 .out-fmt-badge {
   position: absolute; top: 9px; right: 9px; font-size: 10px; padding: 2px 7px;
-  border-radius: 99px; font-weight: 600;
+  border-radius: var(--cpq-radius-full); font-weight: 600;
   background: var(--cpq-accent-primary); color: #fff;
 }
 .out-fmt-badge.dim { background: var(--cpq-warning-bg, #f5efe0); color: var(--cpq-warning-text, #a08a2e); }
 .out-pdf-cfg {
-  margin-top: 10px; padding: 12px 13px; border-radius: 12px;
+  margin-top: 10px; padding: 12px 13px; border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-border-primary); background: var(--cpq-glass-2-bg);
 }
 .out-pdf-row { display: flex; align-items: center; gap: 10px; }
@@ -825,7 +868,7 @@ async function save() {
   margin: 14px 0;
   padding: 12px 14px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-2-bg);
   box-shadow: var(--cpq-shadow-sm);
 }
@@ -841,7 +884,7 @@ async function save() {
   gap: 8px;
   padding: 11px 12px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-1-bg);
 }
 .node-behavior-row { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; line-height: 1.6; }
@@ -852,7 +895,7 @@ async function save() {
   display: inline-block;
   margin-left: 6px;
   padding: 1px 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   vertical-align: middle;
 }
@@ -875,7 +918,7 @@ async function save() {
   gap: 4px;
   font-size: 12px;
   padding: 2px 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-glass-1-bg);
   color: var(--cpq-text-primary);
 }
@@ -902,7 +945,7 @@ async function save() {
 .node-zone {
   margin-bottom: 14px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-1-bg);
   overflow: hidden;
 }
@@ -926,7 +969,7 @@ async function save() {
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: rgba(22, 119, 255, 0.14);
   color: #6ea8ff;
   border: 1px solid rgba(22, 119, 255, 0.35);
@@ -945,7 +988,7 @@ async function save() {
   align-items: center;
   justify-content: center;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
   font-size: 12px;
@@ -963,7 +1006,7 @@ async function save() {
 .tl-card-list { display: flex; flex-direction: column; gap: 8px; }
 .tl-card {
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
-  border-radius: 10px; padding: 10px 12px; cursor: pointer;
+  border-radius: var(--cpq-radius-md); padding: 10px 12px; cursor: pointer;
   background: var(--cpq-overlay-w06, rgba(255, 255, 255, .04));
   transition: border-color .18s ease, transform .18s ease;
 }
@@ -988,7 +1031,7 @@ async function save() {
   display: flex; align-items: center; justify-content: center;
   min-height: 128px;
   border: 1px dashed var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: transparent;
   color: var(--cpq-text-secondary);
   font-size: 12.5px;

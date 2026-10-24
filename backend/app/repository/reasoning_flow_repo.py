@@ -4,12 +4,15 @@
 延迟 import requirement_intel_service / candidate_search 的模块常量（避免循环 import）。
 """
 import json
+import logging
 from copy import deepcopy
 from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from ..models.base import Rules_SessionLocal
+
+logger = logging.getLogger(__name__)
 from ..models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig
 
 
@@ -174,14 +177,21 @@ def _normalize_graph(g: dict) -> dict:
         if not src or not tgt:
             continue
         ee: dict = {"id": e.get("id") or f"e{i}", "source": src, "target": tgt}
-        for k in ("source_handle", "target_handle", "condition", "label", "animated"):
+        for k in ("source_handle", "target_handle", "condition", "label", "animated",
+                  "guard"):
             if k in e:
                 ee[k] = e[k]
         edges.append(ee)
     out = {"nodes": nodes, "edges": edges}
-    # flow 级字段透传（SkillStudio 左栏任务规则；画布整存不丢）
+    # flow 级字段透传（SkillStudio 左栏任务规则；会话实体绑定策略声明——sandbox/real_bound/none；
+    # 启动表单 schema——launcher 按 fields 渲染通用表单，配置者可视化编辑；
+    # 分支旗标声明表——[{"tool","set"}]，工具 ok 事实→状态旗标的声明式映射）
     if isinstance(g.get("manual_rules"), str):
         out["manual_rules"] = g["manual_rules"]
+    if isinstance(g.get("entity_binding"), str):
+        out["entity_binding"] = g["entity_binding"]
+    if isinstance(g.get("flag_rules"), list):
+        out["flag_rules"] = g["flag_rules"]
     return out
 
 
@@ -265,6 +275,21 @@ class ReasoningFlowRepository:
             out.append(d)
         return out
 
+    def set_launch_form(self, skill_key: str, schema: Optional[dict], operator: str = "system") -> Optional[dict]:
+        """写启动表单 schema（独立列，不动图、不升版本）——画布保存物理碰不到它。"""
+        f = self.session.query(ReasoningFlow).filter(or_(
+            ReasoningFlow.skill_key == skill_key,
+            ReasoningFlow.name == skill_key,
+        )).first()
+        if not f:
+            return None
+        f.launch_form = schema or None
+        f.updated_at = datetime.now().isoformat()
+        f.updated_by = operator
+        self.session.commit()
+        self.session.refresh(f)
+        return f.to_dict()
+
     def update_manual_rules(self, flow_id: int, rules: str, operator: str = "system") -> Optional[dict]:
         """更新 flow 级任务规则（graph.manual_rules）。只动这一个键，不升版本、
         不走画布归一——规则是文字微调，不该让画布版本号抖动。"""
@@ -291,7 +316,37 @@ class ReasoningFlowRepository:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
         if not f:
             return None
-        f.graph = json.dumps(_normalize_graph(graph), ensure_ascii=False)
+        incoming = _normalize_graph(graph)
+        # 流级配置键（实体绑定/启动表单）不是画布布局：老客户端（不认识这些键的代码/页面）
+        # 整图保存时会剥掉——入库图缺失而库里有值时保留现值，防静默丢失（实体绑定被剥会
+        # 静默降级回需求分析范式，启动表单被剥会让开工单弹窗消失——均已实测）。
+        try:
+            existing = json.loads(f.graph or "{}") if isinstance(f.graph, str) else (f.graph or {})
+        except (ValueError, TypeError):
+            existing = {}
+        for key in ("entity_binding",):
+            if not incoming.get(key):
+                keep = existing.get(key) if isinstance(existing, dict) else None
+                if keep:
+                    incoming[key] = keep
+                    logger.info("upsert_graph 保留 %s flow_id=%s operator=%s", key, flow_id, operator)
+        # 分支一等公民配置同样怕老客户端剥键（2026-10-22 架构修）：边守卫随边走、
+        # 旗标声明表随图走——入库图缺失而库里有值时保留现值，防静默丢失
+        if not incoming.get("flag_rules"):
+            keep_rules = existing.get("flag_rules") if isinstance(existing, dict) else None
+            if isinstance(keep_rules, list) and keep_rules:
+                incoming["flag_rules"] = keep_rules
+                logger.info("upsert_graph 保留 flag_rules flow_id=%s operator=%s", flow_id, operator)
+        if incoming.get("edges") and isinstance(existing, dict):
+            old_edges = {str(e.get("id") or ""): e for e in (existing.get("edges") or [])
+                         if isinstance(e, dict)}
+            for e in incoming["edges"]:
+                if isinstance(e, dict) and not e.get("guard"):
+                    old = old_edges.get(str(e.get("id") or ""))
+                    if isinstance(old, dict) and old.get("guard"):
+                        e["guard"] = old["guard"]
+                        logger.info("upsert_graph 保留边守卫 %s flow_id=%s", e.get("id"), flow_id)
+        f.graph = json.dumps(incoming, ensure_ascii=False)
         f.version = (f.version or 1) + 1
         f.updated_at = datetime.now().isoformat()
         f.updated_by = operator

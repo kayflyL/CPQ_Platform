@@ -9,7 +9,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import axios from 'axios'
 import {
-  catalogApi, baseConfigApi,
+  catalogApi, baseConfigApi, guessDocType, MODEL_DOC_TYPES,
   type ServerType, type ServerModel, type BaseConfig, type ModelProductContent, type ConfigContent,
   type ModelScenario,
 } from '@/api/serverConfig'
@@ -261,14 +261,18 @@ async function copyScnUrl(s: ModelScenario) {
   }
 }
 
-/** 机型资料 PDF 上传：push 进 product_content.docs，随机型保存落库（新建机型无 id 也可传，落根目录） */
+/** 资料类型下拉选项（规格书/彩页/用户手册/其他） */
+const docTypeOptions = MODEL_DOC_TYPES.map(t => ({ label: t, value: t }))
+
+/** 机型资料 PDF 上传（可多选批量）：逐份 push 进 product_content.docs，随机型保存落库
+ *  （新建机型无 id 也可传，落根目录）；类型按文件名猜默认值，列表里可改 */
 async function handleDocUpload(file: File): Promise<boolean> {
   if (!file.name.toLowerCase().endsWith('.pdf')) { message.error('仅支持 PDF 文件'); return false }
   if (file.size > 20 * 1024 * 1024) { message.error('文件过大（>20MB）'); return false }
   try {
     const resp = await catalogApi.uploadModelDoc(file, editingId.value || undefined)
     const docs = form.value.product_content.docs || (form.value.product_content.docs = [])
-    docs.push(resp)
+    docs.push({ ...resp, type: guessDocType(resp.name) })
     message.success('资料已上传，保存机型后生效')
   } catch (e: any) {
     message.error(e.response?.data?.detail || '上传失败')
@@ -325,7 +329,7 @@ async function init() {
           // 旧结构 string[] → {name} 对象；保存后不再写字符串场景
           scenarios: (Array.isArray(pc?.scenarios) ? pc!.scenarios! : [])
             .map(s => (typeof s === 'string' ? { name: s, fit: '', image: '' } : { ...s })),
-          docs: (pc?.docs || []).map(d => ({ ...d })),
+          docs: (pc?.docs || []).map(d => ({ ...d, type: d.type || guessDocType(d.name) })),
         },
       }
       modelConfigs.value = m.configs || []
@@ -478,18 +482,19 @@ onMounted(init)
             </div>
             <img v-if="form.image_url" :src="form.image_url" class="img-preview" alt="预览" />
 
-            <!-- 产品资料（PDF）：详情页铭牌卡「下载资料」入口，读 product_content.docs -->
-            <div class="sec-label">产品资料<span class="sec-hint">详情页「下载资料」入口 · 仅 PDF ≤20MB；删除后点「保存」才真正移除文件</span></div>
+            <!-- 产品资料（PDF）：详情页「下载资料」下拉 +「产品资料」区块入口，读 product_content.docs -->
+            <div class="sec-label">产品资料<span class="sec-hint">详情页「下载资料」入口 · 仅 PDF ≤20MB · 可多选批量上传，每份标类型（规格书/彩页/用户手册）；删除后点「保存」才真正移除文件</span></div>
             <div class="doc-list">
               <div v-for="(d, i) in form.product_content.docs" :key="d.url" class="doc-row">
                 <span class="doc-name" :title="d.name">{{ d.name }}</span>
+                <a-select v-model:value="d.type" class="doc-type-select" size="small" :options="docTypeOptions" />
                 <span class="doc-size">{{ d.size ? (d.size / 1024 / 1024).toFixed(1) + ' MB' : '' }}</span>
                 <a-popconfirm title="从资料列表移除？（保存后生效）" @confirm="delDoc(i)">
                   <a-button danger size="small">删除</a-button>
                 </a-popconfirm>
               </div>
-              <a-upload :before-upload="handleDocUpload" :show-upload-list="false" accept="application/pdf,.pdf">
-                <a-button>本地上传</a-button>
+              <a-upload :before-upload="handleDocUpload" :show-upload-list="false" accept="application/pdf,.pdf" multiple>
+                <a-button>本地上传（可多选）</a-button>
               </a-upload>
             </div>
 
@@ -625,7 +630,7 @@ onMounted(init)
 
 /* 关联基准配置（配置变体·卡片网格） */
 .cfg-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-.ecfg-card { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: 12px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
+.ecfg-card { display: flex; flex-direction: column; gap: 6px; padding: 14px; border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
 .ecfg-card-head { display: flex; justify-content: space-between; align-items: center; }
 .ecfg-badge { font-size: 11px; color: #1f9d6b; }
 .ecfg-name { font-size: 14px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
@@ -640,23 +645,24 @@ onMounted(init)
 
 /* 选择基准配置面板 */
 .link-cfg-list { display: flex; flex-direction: column; gap: 8px; max-height: 50vh; overflow-y: auto; }
-.link-cfg-item { padding: 12px 14px; border-radius: 10px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); cursor: pointer; transition: all .15s; }
+.link-cfg-item { padding: 12px 14px; border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); cursor: pointer; transition: all .15s; }
 .link-cfg-item:hover { border-color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10, rgba(22,119,255,.08)); }
 .link-cfg-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
 .link-cfg-spec { font-size: 12px; color: var(--cpq-text-muted, #6E7582); margin-top: 2px; }
 
 .img-row { display: flex; gap: 8px; align-items: center; }
-.img-preview { margin-top: 8px; max-height: 120px; border-radius: 6px; border: 1px solid var(--cpq-overlay-w15); }
+.img-preview { margin-top: 8px; max-height: 120px; border-radius: var(--cpq-radius-sm); border: 1px solid var(--cpq-overlay-w15); }
 .doc-list { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
-.doc-row { display: flex; gap: 8px; align-items: center; width: 100%; padding: 8px 12px; border-radius: 10px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
+.doc-row { display: flex; gap: 8px; align-items: center; width: 100%; padding: 8px 12px; border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
 .doc-name { flex: 1; min-width: 0; font-size: 13px; color: var(--cpq-text-primary, #E8ECEF); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .doc-size { font-size: 12px; color: var(--cpq-text-muted, #6E7582); white-space: nowrap; }
+.doc-type-select { width: 104px; flex: none; }
 .hl-editor-layout { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 12px; align-items: start; }
 .hl-editor-photo { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .hl-editor-photo :deep(.ant-upload-select) { display: block; width: 100%; }
 .hl-photo-drop {
   position: relative; display: block; width: 100%; aspect-ratio: 1 / 1;
-  border-radius: 12px; overflow: hidden; cursor: pointer; padding: 0;
+  border-radius: var(--cpq-radius-md); overflow: hidden; cursor: pointer; padding: 0;
   border: 1px dashed var(--cpq-overlay-w25, rgba(255, 255, 255, 0.25));
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.04));
 }
@@ -680,7 +686,7 @@ onMounted(init)
 
 /* 卡片化网格：亮点半宽两列 / 能力双列卡（镜像详情页一行两卡）/ 场景卡（图+链接+名+一句话） */
 .hl-grid { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.hl-card { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
+.hl-card { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10); }
 .hl-card-add { justify-content: center; min-height: 56px; cursor: pointer; border-style: dashed; color: var(--cpq-text-muted, #6E7582); transition: all .2s; }
 .hl-card-add:hover { border-color: var(--cpq-accent-primary, #1677FF); color: var(--cpq-accent-primary, #1677FF); }
 .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(430px, 1fr)); gap: 12px; }
@@ -689,7 +695,7 @@ onMounted(init)
 .dashed-add {
   display: flex; align-items: center; justify-content: center; gap: 6px;
   width: 100%; min-height: 44px; padding: 0 12px;
-  border-radius: 10px; border: 1px dashed var(--cpq-overlay-w30, rgba(255, 255, 255, 0.3));
+  border-radius: var(--cpq-radius-md); border: 1px dashed var(--cpq-overlay-w30, rgba(255, 255, 255, 0.3));
   background: transparent; color: var(--cpq-text-muted, #6E7582);
   font-size: 13px; cursor: pointer; transition: all .2s;
 }
@@ -698,7 +704,7 @@ onMounted(init)
 .scn-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
 .scn-card {
   display: flex; flex-direction: column; gap: 6px;
-  padding: 12px; border-radius: 12px;
+  padding: 12px; border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10);
 }
 /* antd 的 .ant-upload-select 是 inline-block，会 shrink-wrap 包不住 width:100% 的缩略图按钮——强制撑满卡宽 */
@@ -710,7 +716,7 @@ onMounted(init)
 /* 能力板块编辑卡（双列网格内，镜像详情页能力卡结构：维度名/图标/一句话/关键数字） */
 .cap-ed {
   display: flex; flex-direction: column; gap: 10px;
-  padding: 14px 16px; border-radius: 12px;
+  padding: 14px 16px; border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-overlay-w10);
 }
 .cap-ed-head { display: flex; gap: 8px; align-items: center; }
@@ -722,7 +728,7 @@ onMounted(init)
 .ico-btn {
   width: 46px; height: 38px; padding: 2px;
   display: flex; align-items: center; justify-content: center;
-  background: transparent; border: 1px solid var(--cpq-overlay-w15); border-radius: 8px;
+  background: transparent; border: 1px solid var(--cpq-overlay-w15); border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-secondary, #9BA1AA); cursor: pointer; transition: all 0.15s;
 }
 .ico-btn :deep(svg) { width: 34px; height: auto; display: block; }
@@ -732,7 +738,7 @@ onMounted(init)
 /* 场景卡：图在上（上传/更换，⧉ 复制链接）→ 图下链接输入框 → 场景名联想 + ✕ → 一句话 */
 .scn-copy {
   position: absolute; top: 3px; right: 3px;
-  width: 18px; height: 18px; border-radius: 5px;
+  width: 18px; height: 18px; border-radius: var(--cpq-radius-xs);
   background: rgba(0, 0, 0, 0.55); color: rgba(255, 255, 255, 0.9);
   font-size: 11px; line-height: 1;
   display: flex; align-items: center; justify-content: center;
@@ -742,7 +748,7 @@ onMounted(init)
 .scn-copy:hover { background: rgba(0, 0, 0, 0.8); color: #fff; }
 .scn-thumb {
   position: relative; width: 100%; height: 96px;
-  border-radius: 6px; overflow: hidden; cursor: pointer; padding: 0;
+  border-radius: var(--cpq-radius-sm); overflow: hidden; cursor: pointer; padding: 0;
   border: 1px dashed var(--cpq-overlay-w30, rgba(255, 255, 255, 0.3));
   background: var(--cpq-overlay-w4); transition: border-color 0.15s;
 }
@@ -751,7 +757,7 @@ onMounted(init)
 .scn-thumb-ph { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
 .scn-thumb .up {
   position: absolute; right: 2px; bottom: 2px;
-  font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: 4px;
+  font-size: 10px; line-height: 1; padding: 2px 4px; border-radius: var(--cpq-radius-xs);
   background: rgba(0, 0, 0, 0.55); color: #fff;
 }
 </style>

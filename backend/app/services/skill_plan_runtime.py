@@ -26,51 +26,31 @@ logger = logging.getLogger(__name__)
 
 BroadcastFn = Callable[[dict], Awaitable[None]]
 
-PHASE_TABLE = [
-    {"key": "input", "label": "需求接收"},
-    {"key": "agent_fill", "label": "需求理解填表"},
-    {"key": "model_reason", "label": "机型选型"},
-    {"key": "kp_reason", "label": "配件选型"},
-    {"key": "compose", "label": "BOM 组装"},
-    {"key": "output", "label": "产出交接"},
-]
+def skill_steps_view(flow_configs: dict, flow: Optional[dict] = None) -> list[dict]:
+    """步骤清单单源：pipeline_start 骨架与任务胶囊共用，画布改 label/description 两处同步变。
 
-# 对客户有意义的里程碑阶段（input/agent_fill 在对话里自然发生，不出现在流程预告里）
-USER_FACING_PHASES = {"model_reason", "kp_reason", "compose", "output"}
-
-
-def skill_steps_view(flow_configs: dict, user_facing_only: bool = False,
-                     flow: Optional[dict] = None) -> list[dict]:
-    """步骤清单单源：角色提议话术与 pipeline_start 骨架共用，画布改 label/description 两处同步变。
-
-    顺序真源 = 画布 graph 拓扑（传 flow 时启用，与执行序 steps_payload 同一份 _topo_order，
-    杜绝骨架与执行两套顺序）；无 flow/无 graph 的老调用回退 PHASE_TABLE 固定序。
-    label 权威 = 画布节点标签 > 节点配置 label > PHASE_TABLE 兜底 > 键名。
+    顺序真源 = 画布 graph 拓扑（与执行序 steps_payload 同一份 _topo_order，杜绝骨架与执行两套顺序）。
+    无 flow/无 graph → 返回 []：绝不回退需求分析固定节点表（2026-10-22 趋势分析步骤条张冠李戴的
+    根因——兜底把需求分析的节点名套在任意 skill 上，趋势专属节点还被静默丢弃）。
+    label 权威 = 画布节点标签 > 节点配置 label > 键名。
     """
+    if not isinstance(flow, dict) or not (flow.get("graph") or {}).get("nodes"):
+        return []
     cfg_labels: dict = {}
     if isinstance(flow_configs, dict):
         for k, c in flow_configs.items():
             if isinstance(c, dict) and str(c.get("label") or "").strip():
                 cfg_labels[str(k)] = str(c.get("label")).strip()
-    graph_labels: dict = {}
-    topo: list[str] = []
-    if isinstance(flow, dict):
-        topo = _topo_order(flow)
-        graph_labels = {str(nd.get("id") or ""): str(nd.get("label") or "")
-                        for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
-    order = topo or [ph["key"] for ph in PHASE_TABLE]
-    known = {ph["key"] for ph in PHASE_TABLE} | set(cfg_labels) | set(graph_labels)
+    graph_labels = {str(nd.get("id") or ""): str(nd.get("label") or "")
+                    for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
+    known = set(cfg_labels) | set(graph_labels)
     steps = []
-    for k in order:
+    for k in _topo_order(flow):
         if k not in known:
-            continue
-        if user_facing_only and k not in USER_FACING_PHASES:
             continue
         c = flow_configs.get(k) if isinstance(flow_configs, dict) else None
         c = c if isinstance(c, dict) else {}
-        item = {"step": k,
-                "label": graph_labels.get(k) or cfg_labels.get(k)
-                or next((ph["label"] for ph in PHASE_TABLE if ph["key"] == k), k)}
+        item = {"step": k, "label": graph_labels.get(k) or cfg_labels.get(k) or k}
         desc = str(c.get("description") or "").strip()
         if desc:
             item["description"] = desc
@@ -168,17 +148,20 @@ def _topo_order(flow: dict) -> list[str]:
     return topo
 
 
-def steps_payload(flow: dict) -> list[dict]:
+def steps_payload(flow: dict, data_range: dict | None = None) -> list[dict]:
     """节点抽屉 → 结构化步骤清单（原样数据，无文本加工；顺序=图拓扑序号）。
 
     编排权移交后大脑的任务卡就是这份清单：AI 角色直接读节点配置。
     曾有 render_skill_manual 把它转译成散文说明书——被定调为黑盒转译层删除：
-    模型读结构化清单毫无障碍，转译只会引入用户看不见的加工逻辑。"""
+    模型读结构化清单毫无障碍，转译只会引入用户看不见的加工逻辑。
+    data_range = 运行时数据范围覆盖（mode=auto 跟随用户输入，见 data_range_follow）：
+    合并进报告文档卡后再生契约，保证大脑照抄的窗口与渲染/终检是同一份。"""
     flow_configs = flow.get("node_configs") if isinstance(flow.get("node_configs"), dict) else {}
     topo = _topo_order(flow)
     node_label = {str(nd.get("id") or ""): str(nd.get("label") or "")
                   for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
     from app.services.skill_node_plugins import plugin_for
+    from app.services.skill_target_contract import with_data_range
     steps: list[dict] = []
     for key in topo:
         cfg = flow_configs.get(key) if isinstance(flow_configs.get(key), dict) else {}
@@ -187,7 +170,7 @@ def steps_payload(flow: dict) -> list[dict]:
             continue
         # 产物输出契约由该节点插件声明（默认取抽屉 target.artifacts；登记节点由目标层生成）——
         # 编排壳不再按节点 key 分支。
-        contract = plugin_for(key).artifact_contract(cfg)
+        contract = plugin_for(key).artifact_contract(with_data_range(cfg, data_range))
         steps.append({
             "step": key,
             "label": node_label.get(key) or str((cfg or {}).get("label") or key),
@@ -476,6 +459,7 @@ def _data_answer_gate(ctx: dict) -> dict:
         return {"ok": False, "hint": "分析尚未产出数据结论"}
     from app.services.skill_target_contract import _report_window
     flow_configs = ctx.get("flow_configs") if isinstance(ctx.get("flow_configs"), dict) else {}
+    doc_node = ""
     for key, cfg in flow_configs.items():
         if not isinstance(cfg, dict):
             continue
@@ -484,6 +468,7 @@ def _data_answer_gate(ctx: dict) -> dict:
         for art in (arts or []):
             if not (isinstance(art, dict) and str(art.get("kind") or "") == "document"):
                 continue
+            doc_node = str(key)
             window, label = _report_window(art)
             if not window:
                 continue  # auto/未配置起止：无硬边界可核对
@@ -494,6 +479,16 @@ def _data_answer_gate(ctx: dict) -> dict:
                         "hint": (f"报告首行数据范围与配置不符：应为「数据范围：{window}（{label}，配置指定）」，"
                                  f"当前首行「{first_line}」。请严格按配置窗口 {window} 重新查询统计并输出完整报告，"
                                  f"历史报告或其他口径的窗口一律不沿用")}
+    # mode=auto 跟随用户输入的窗口（engine["data_range_override"]）同样物理核对：
+    # 用户要的窗口大脑没照抄，和配置偏差同罪打回。
+    override = ctx.get("data_range_override")
+    if isinstance(override, dict) and str(override.get("mode") or "") == "custom":
+        window, label = _report_window({"data_range": override})
+        if window and window not in answer[:300]:
+            first_line = next((ln for ln in answer[:300].splitlines() if ln.strip()), "")[:80]
+            return {"ok": False, "reopen": doc_node or "agent",
+                    "hint": (f"报告首行数据范围与用户本次指定不符：应为「数据范围：{window}（{label}）」，"
+                             f"当前首行「{first_line}」。请严格按窗口 {window} 重新查询统计并输出完整报告")}
     return {"ok": True}
 
 

@@ -26,7 +26,7 @@ MAX_PER_ROLE = 100
 
 
 def _is_durable(row: dict) -> bool:
-    """钉死集：管理员置顶或手工录入的记忆（员工页「管理记忆」手写的即长期事实）。"""
+    """钉死集：管理员置顶或手工录入的记忆（同事页「管理记忆」手写的即长期事实）。"""
     return bool(row.get("pinned")) or str(row.get("source") or "") == "manual"
 
 

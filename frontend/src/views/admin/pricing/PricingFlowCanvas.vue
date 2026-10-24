@@ -238,7 +238,7 @@ function stepText(s: any): string {
 
 .pf-flow-wrap {
   width: 100%; height: 300px;
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w3, transparent);
   border: 1px solid var(--cpq-glass-border, rgba(0,0,0,.08));
   overflow: hidden;
@@ -255,7 +255,7 @@ function stepText(s: any): string {
 .pf-target-label { font-size: 12px; color: var(--cpq-text-muted); }
 .pf-target-val { font-size: 28px; font-weight: 700; color: var(--cpq-accent-primary, #1677ff); font-variant-numeric: tabular-nums; }
 .pf-target-val.clamped { color: var(--cpq-accent-warning, #fa8c16); }
-.pf-clamp-tag { font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--cpq-overlay-w10); color: var(--cpq-accent-warning, #fa8c16); }
+.pf-clamp-tag { font-size: 11px; padding: 1px 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-warning, #fa8c16); }
 .pf-price { font-size: 13px; color: var(--cpq-text-secondary); }
 .pf-price b { color: var(--cpq-accent-success, #52c41a); font-variant-numeric: tabular-nums; }
 
@@ -273,7 +273,7 @@ function stepText(s: any): string {
 .pf-parts-title { font-size: 12px; color: var(--cpq-text-muted); margin-bottom: 6px; }
 .pf-parts-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .pf-part-chip {
-  font-size: 12px; padding: 2px 10px; border-radius: 8px;
+  font-size: 12px; padding: 2px 10px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary);
   display: inline-flex; align-items: baseline; gap: 4px;
 }

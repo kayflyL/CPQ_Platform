@@ -13,6 +13,7 @@ from typing import Iterable, List
 
 # 历史旧名 → 现行名（只在此处维护，禁止散落双写）
 TOOL_RENAME_MAP: dict[str, str] = {
+    "ask_user_card": "ask_user",
     "select_models": "choose_model",
     "select_model": "choose_model",
     "search_kp_parts": "query_parts",

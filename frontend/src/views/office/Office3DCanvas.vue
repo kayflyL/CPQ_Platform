@@ -136,6 +136,8 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { createCharacterAssetStore, loadCharacterAsset } from '@/office3d/assets/gltfCache'
 import { envMaterial, applyShadow } from '@/office3d/environment/materials'
+import { mergeStaticGroup } from '@/office3d/environment/mergeStatic'
+import { applyToonLightRig, applyToonStyle, buildWindowShafts, toonStyleEnabled } from '@/office3d/environment/toonStyle'
 import { buildFloor, createRectangularGrid } from '@/office3d/environment/floor'
 import { createWindowedBackWall, createSideWall, buildTerrace, buildCeilingEdges, buildLighting } from '@/office3d/environment/walls'
 import { buildProps } from '@/office3d/environment/furniture'
@@ -286,7 +288,7 @@ const {
   domElement: () => renderer?.domElement || containerRef.value,
   config: () => officeConfigValue(),
   environment: () => environment,
-  rebuildEnvironment: () => buildEnvironment(),
+  rebuildEnvironment: () => buildEnvironment(false),
 })
 
 function setEnvironmentVisible(visible: boolean) {
@@ -464,6 +466,7 @@ let hoverProbeAt = 0
 const characterAssets = createCharacterAssetStore(loadCharacterAsset)
 let lastFrameTime = 0
 let renderLoopRunning = false
+let shadowRefreshAccum = 0
 
 // 路由重算的按帧去抖：仅当 actor 终点真正变化时入队，下一帧统一重算 A*。
 
@@ -736,6 +739,11 @@ watch(
       actors.rebuildActors()
       setEnvironmentVisible(true)
       setActorsVisible(true)
+      // 首次构建用真实 workspace 深度校准竖屏机位（init 时配置未到，只按默认尺寸算过）
+      if (!cameraCalibrated) {
+        cameraCalibrated = true
+        applyViewportCamera(officeWorkspace())
+      }
     } else if (statusChanged) {
       actors.applyStatuses()
     }
@@ -749,6 +757,33 @@ watch(
   { deep: true },
 )
 
+/** 按当前画幅设初始机位。竖屏窄画幅沿用桌面机位时，27° 大俯角让房间"躺"在画面下半、
+ *  上方一片黑——竖屏降低相机高度把俯角压到 ≈17° 让房间立面立起来，且视线落点按房间
+ *  实际深度取「近缘地面 → 远墙顶」垂直视角跨度的中点，任何深度配置下画面都垂直居中。
+ *  init（配置未到，用默认尺寸）与配置就绪后的首次构建各调一次，后者用真实 workspace 校准。 */
+let cameraCalibrated = false
+function applyViewportCamera(workspace: { width: number; depth: number }) {
+  if (!camera) return
+  const el = containerRef.value
+  const portrait = !!el && el.clientWidth > 0 && el.clientWidth < el.clientHeight
+  const camY = portrait ? 8.5 : 13
+  const camZ = portrait ? 26 : 24
+  let tgtY = 0.6
+  if (portrait) {
+    const nearA = Math.atan(camY / (camZ - workspace.depth / 2))
+    const farA = Math.atan((camY - 3) / (camZ + workspace.depth / 2))
+    // 公式中点只覆盖名义房间；实际家具有向前（z+）的露台/前景延伸，画面实测整体再压低
+    // 视线 ≈0.15rad（≈20% 画面高）把房间主体抬进画面中部（2026-10-21 竖屏居中校准）
+    tgtY = camY - Math.tan((nearA + farA) / 2 + 0.15) * camZ
+  }
+  camera.position.set(workspace.width * 0.28, camY, camZ)
+  camera.lookAt(workspace.width * 0.18, tgtY, 0)
+  if (controls) {
+    controls.target.set(workspace.width * 0.18, tgtY, 0)
+    controls.update()
+  }
+}
+
 function init() {
   const el = containerRef.value
   if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
@@ -757,8 +792,7 @@ function init() {
 
   const workspace = officeWorkspace()
   camera = new THREE.PerspectiveCamera(42, el.clientWidth / el.clientHeight, 0.1, 140)
-  camera.position.set(workspace.width * 0.28, 13, 24)
-  camera.lookAt(workspace.width * 0.18, 0.6, 0)
+  applyViewportCamera(workspace)
 
   renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setClearColor(0x000000, 0)
@@ -767,7 +801,10 @@ function init() {
   renderer.toneMappingExposure = 1.05
   renderer.shadowMap.enabled = true
   renderer.shadowMap.type = THREE.PCFSoftShadowMap
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  // 阴影贴图降频刷新（tick 里每 0.25s 置一次 needsUpdate）：场景静态仅角色移动，
+  // 没必要每帧重画整场阴影（省 ~470 draw call/帧）
+  renderer.shadowMap.autoUpdate = false
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
   renderer.setSize(el.clientWidth, el.clientHeight, false)
   el.appendChild(renderer.domElement)
 
@@ -781,6 +818,8 @@ function init() {
 
   controls = new OrbitControls(camera, renderer.domElement)
   controls.target.set(workspace.width * 0.18, 0.6, 0)
+  // controls 就绪后重算一次机位（applyViewportCamera 首调时 controls 还未创建）
+  applyViewportCamera(workspace)
   controls.enableDamping = true
   controls.dampingFactor = 0.08
   controls.minDistance = 6
@@ -792,6 +831,7 @@ function init() {
   // 交由 officeConfig watcher 在数据到位后只构建一次，避免入口重复建场景。
   // 若挂载时配置已就绪（例如 KeepAlive 重挂载），这里兜底直接构建。
   if (officeConfigHasContent()) {
+    cameraCalibrated = true // applyViewportCamera 已用真实 workspace 校准过
     buildEnvironment()
     characterAssets.reload(officeConfigValue().character_models || []).then(() => {
       actors.rebuildActors()
@@ -845,12 +885,12 @@ function onResize() {
   if (w === 0 || h === 0) return
   camera.aspect = w / h
   camera.updateProjectionMatrix()
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5))
   renderer.setSize(w, h, false)
   if (editing.value && !view3D.value) ensureFit()
 }
 
-function buildEnvironment() {
+function buildEnvironment(mergeStatic = true) {
   if (!scene) return
   navWorld.invalidate()
   if (environment) {
@@ -883,6 +923,24 @@ function buildEnvironment() {
   }
 
   scene.add(environment)
+  // 静态环境合并渲染（性能 R5）：千级小网格 → 按材质并成几十个大网格。
+  // 原件就地隐藏、保留作拾取代理（编辑器 hitTestAt 走 userData.edit 链，three 对
+  // 不可见对象仍做射线求交）；合并体自身 raycast 已禁用。
+  // 编辑态 rebuild 传 mergeStatic=false 跳过合并（拖拽频繁重建，合并耗时可感）；
+  // 退出编辑触发 save-config 重建时再合并。
+  if (mergeStatic) mergeStaticGroup(environment)
+  // 三渲二轻风格化（?officeStyle=pbr 一键回退）：toon 孪生材质在合并体上换引用（零额外
+  // draw call）+ 描边外壳（模块内已并成单网格）+ 专用光位（侧低位长影）+ 窗口光柱。
+  // 编辑态 rebuild（mergeStatic=false）跳过，退出编辑重建时恢复。
+  if (mergeStatic && toonStyleEnabled()) {
+    const { twinCount, outline } = applyToonStyle(environment)
+    if (outline) environment.add(outline)
+    applyToonLightRig(environment)
+    environment.add(buildWindowShafts(width, depth, wallHeight))
+    if (debugOn.value) console.info(`[office3d] toon style: ${twinCount} 材质孪生`)
+  }
+  // 阴影贴图走降频刷新（autoUpdate=false），布局重建后立刻补一帧，避免开场短暂无影
+  if (renderer) renderer.shadowMap.needsUpdate = true
 }
 
 
@@ -1423,12 +1481,12 @@ function actorAtPointer(clientX: number, clientY: number): { roleKey: string; me
   const raycaster = new THREE.Raycaster()
   raycaster.setFromCamera(pointer, camera)
 
-  const targets: THREE.Object3D[] = []
-  for (const actor of actors.actorMap.values()) {
-    targets.push(actor.group)
-  }
+  // 只打轻量拾取集合：代理胶囊 + 头顶 HUD 精灵 + 显示器膜（合计 ~几十个对象）；
+  // 蒙皮网格不再参与逐顶点射线求交。显示器膜带 userData.roleKey（挂接桌时写入），
+  // 悬停桌前屏幕也能选中对应同事，与旧「整只角色组」语义对齐。
+  const targets = [...actors.pickTargets(), ...actors.monitorTargets()]
 
-  const intersections = raycaster.intersectObjects(targets, true)
+  const intersections = raycaster.intersectObjects(targets, false)
   if (!intersections.length) return null
 
   // 气泡/名牌是 HUD 板：不参与命中判定，否则从俯视角会整片挡住桌面；
@@ -1529,6 +1587,13 @@ function tick(time: number) {
   const t = time / 1000
   const delta = lastFrameTime ? Math.min((time - lastFrameTime) / 1000, 0.1) : 0
   lastFrameTime = time
+
+  // 阴影降频：光向/环境静态（只有角色在动），每 0.25s 刷一帧阴影贴图足够
+  shadowRefreshAccum += delta
+  if (shadowRefreshAccum >= 0.25) {
+    shadowRefreshAccum = 0
+    if (renderer.shadowMap.enabled) renderer.shadowMap.needsUpdate = true
+  }
 
   if (controls && followRoleKey) {
     const followActor = actors.actorMap.get(followRoleKey)
@@ -1870,7 +1935,7 @@ function dispose() {
   padding: 3px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
 }
 
 .office-3d-tool {
@@ -1881,7 +1946,7 @@ function dispose() {
   height: 27px;
   padding: 0 8px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: #c5d6f2;
   font-size: 12px;
@@ -1953,7 +2018,7 @@ function dispose() {
   width: 210px;
   background: rgba(9, 14, 26, 0.8);
   border: 1px solid rgba(120, 170, 255, 0.16);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(10px);
   z-index: 6;
@@ -2030,7 +2095,7 @@ function dispose() {
   height: 30px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
 }
 
 .office-3d-side-search .anticon {
@@ -2058,7 +2123,7 @@ function dispose() {
   width: 100%;
   padding: 7px 8px;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: #dbe6ff;
   text-align: left;
@@ -2132,7 +2197,7 @@ function dispose() {
   padding: 10px;
   background: rgba(9, 14, 26, 0.72);
   border: 1px solid rgba(120, 170, 255, 0.18);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(8px);
   z-index: 6;
@@ -2162,7 +2227,7 @@ function dispose() {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 3px 6px;
   font-size: 12px;
 }
@@ -2178,7 +2243,7 @@ function dispose() {
   background: rgba(0, 0, 0, 0.55);
   color: #fff;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 12px;
   z-index: 5;
 }
@@ -2194,7 +2259,7 @@ function dispose() {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
   border: 1px solid rgba(255, 255, 255, 0.25);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 2px 6px;
 }
 

@@ -18,7 +18,8 @@ class FeedAttachment(Base):
     __table_args__ = {"schema": "opportunities"}
 
     attachment_id: Mapped[str] = mapped_column(String, primary_key=True)
-    opportunity_id: Mapped[str] = mapped_column(String, index=True)
+    # nullable：NULL=会话暂存（聊天框直传、未挂商机）；导入/归档动作落商机时改绑
+    opportunity_id: Mapped[Optional[str]] = mapped_column(String, index=True)
     # nullable: an attachment can float free in the file view without a message
     message_id: Mapped[Optional[str]] = mapped_column(String, default=None, index=True)
     uploader_user_id: Mapped[str] = mapped_column(String)

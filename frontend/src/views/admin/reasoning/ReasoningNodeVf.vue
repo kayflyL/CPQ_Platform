@@ -175,6 +175,7 @@ const runtimeCardVisible = computed(() => {
     'rf-node--cfg': data?.configurable,
     'rf-node--running': data?.execState === 'running',
     'rf-node--done': data?.execState === 'done',
+    'rf-node--skipped': data?.execState === 'skipped',
     'rf-node--trace': data?.trace,
     'rf-node--dim': data?.dim,
   }">
@@ -211,10 +212,10 @@ const runtimeCardVisible = computed(() => {
         {{ studioRunning ? '运行中…' : '运行' }}
       </a-button>
     </div>
-    <div v-if="runtimeOutput && !runtimeCard" class="rf-io-block rf-io-out">
+    <div v-if="(runtimeOutput || runtimeSummary) && !runtimeCard" class="rf-io-block rf-io-out">
       <div class="rf-io-title">→ 产出 · 下游交接</div>
       <div v-if="runtimeSummary" class="rf-summary-text">{{ runtimeSummary }}</div>
-      <div class="rf-io-row"><span class="rf-io-k">值</span><span class="rf-io-v">{{ fmtVal(runtimeOutput) }}</span></div>
+      <div v-if="runtimeOutput" class="rf-io-row"><span class="rf-io-k">值</span><span class="rf-io-v">{{ fmtVal(runtimeOutput) }}</span></div>
     </div>
     <div v-if="runtimeArtifact && !runtimeCard" class="rf-artifact-chip" title="点击查看结果" @click.stop="openRuntimeArtifact">{{ runtimeArtifact.title }}</div>
     <!-- 运行时字段卡：需求理解节点用「线索登记表」，其余产出节点用「字段预览」，点「查看完整」看完整内容 -->
@@ -259,13 +260,13 @@ const runtimeCardVisible = computed(() => {
 <style scoped>
 .rf-node-vf {
   width: 268px; padding: 10px 14px;
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   cursor: grab;
   position: relative;
 }
 .rf-node--cfg { border-color: var(--cpq-glass-border-strong) !important; }
 .rf-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.rf-icon { width: 26px; height: 26px; font-size: 14px; border-radius: 7px; }
+.rf-icon { width: 26px; height: 26px; font-size: 14px; border-radius: var(--cpq-radius-sm); }
 .rf-icon :deep(svg) { width: 15px; height: 15px; }
 .rf-head-main { flex: 1; min-width: 0; }
 .rf-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
@@ -278,12 +279,12 @@ const runtimeCardVisible = computed(() => {
   font-size: 11px; color: var(--cpq-text-secondary); white-space: nowrap;
 }
 .rf-cfg-tag {
-  font-size: 10px; padding: 0 6px; border-radius: 6px;
+  font-size: 10px; padding: 0 6px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary);
 }
 .rf-tag--fallback { background: rgba(250, 140, 22, 0.14); color: var(--cpq-accent-warning, #fa8c16); }
 .rf-badge {
-  font-size: 10px; padding: 0 6px; border-radius: 6px;
+  font-size: 10px; padding: 0 6px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary);
   font-weight: 600;
   flex-shrink: 0;
@@ -294,6 +295,8 @@ const runtimeCardVisible = computed(() => {
   box-shadow: 0 0 16px var(--cpq-overlay-a20);
 }
 .rf-node--done { border-color: var(--cpq-color-success) !important; }
+/* 分流跳过：本链不经过的节点——中性灰虚线，绝不能冒充"完成绿"（2026-10-22 用户实测误导） */
+.rf-node--skipped { border-color: var(--cpq-border-color, #d9d9d9) !important; border-style: dashed; opacity: 0.55; }
 /* 路径回溯：生成链节点高亮特写，其余变暗 */
 .rf-node--trace { border-color: var(--cpq-accent-primary) !important; box-shadow: 0 0 20px var(--cpq-overlay-a20); }
 .rf-node--dim { opacity: 0.3; }
@@ -303,7 +306,7 @@ const runtimeCardVisible = computed(() => {
 }
 .rf-input-edit {
   width: 100%; margin-top: 8px; padding: 7px 8px; resize: vertical;
-  border-radius: 8px; border: 1px solid rgba(22,119,255,.28);
+  border-radius: var(--cpq-radius-sm); border: 1px solid rgba(22,119,255,.28);
   background: rgba(22,119,255,.05); color: var(--cpq-text-primary);
   font-size: 12px; line-height: 1.5; box-sizing: border-box;
 }
@@ -313,25 +316,25 @@ const runtimeCardVisible = computed(() => {
 .rf-node-run .ant-checkbox-wrapper { font-size: 11px; color: var(--cpq-text-secondary); }
 .rf-node-ask-opts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .rf-node-ask-opt {
-  font-size: 11px; line-height: 1.5; padding: 2px 8px; border-radius: 999px; cursor: pointer;
+  font-size: 11px; line-height: 1.5; padding: 2px 8px; border-radius: var(--cpq-radius-full); cursor: pointer;
   color: var(--cpq-accent-warning, #fa8c16); background: rgba(250, 173, 20, 0.12);
   border: 1px solid rgba(250, 173, 20, 0.3);
 }
 .rf-node-ask-opt:hover { background: rgba(250, 173, 20, 0.2); }
 .rf-node-ask-reply { display: flex; gap: 6px; margin-top: 8px; }
 .rf-node-ask-input {
-  flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; border-radius: 8px;
+  flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; border-radius: var(--cpq-radius-sm);
   border: 1px solid rgba(250,173,20,.35); background: var(--cpq-overlay-w4);
   color: var(--cpq-text-primary); box-sizing: border-box;
 }
 .rf-node-ask-input::placeholder { color: var(--cpq-text-muted); }
 .rf-node-ask-btn {
-  flex: none; padding: 4px 10px; font-size: 11px; border-radius: 8px; cursor: pointer;
+  flex: none; padding: 4px 10px; font-size: 11px; border-radius: var(--cpq-radius-sm); cursor: pointer;
   border: 1px solid var(--cpq-accent-warning, #fa8c16); color: var(--cpq-accent-warning, #fa8c16);
   background: transparent;
 }
 .rf-node-ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.rf-io-block { margin-top: 8px; padding: 7px 8px; border-radius: 8px; background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); }
+.rf-io-block { margin-top: 8px; padding: 7px 8px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); }
 .rf-io-block.rf-io-in { border-color: rgba(22,119,255,.22); }
 .rf-io-block.rf-io-summary { border-color: rgba(250,140,22,.22); background: rgba(250,140,22,.05); }
 .rf-io-block.rf-io-out { border-color: rgba(82,201,160,.24); }
@@ -344,28 +347,28 @@ const runtimeCardVisible = computed(() => {
 .rf-io-v { color: var(--cpq-text-primary); text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rf-artifact-chip {
   margin-top: 8px; display: inline-flex; align-items: center; gap: 5px; cursor: pointer;
-  font-size: 10px; padding: 3px 8px; border-radius: 999px; color: #9ec5ff;
+  font-size: 10px; padding: 3px 8px; border-radius: var(--cpq-radius-full); color: #9ec5ff;
   background: var(--cpq-overlay-a10); border: 1px solid rgba(22,119,255,.18);
 }
 /* 需求理解节点内嵌「线索登记表」进度卡（节点内滚动） */
-.rf-node-reg { margin-top: 8px; padding: 8px 9px; border-radius: 8px; background: rgba(255,255,255,.035); border: 1px solid rgba(22,119,255,.2); }
+.rf-node-reg { margin-top: 8px; padding: 8px 9px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid rgba(22,119,255,.2); }
 .rf-node-reg .nr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .rf-node-reg .nr-name { font-size: 11px; font-weight: 600; color: var(--cpq-text-primary); }
-.rf-node-reg .nr-badge { font-size: 9px; padding: 1px 6px; border-radius: 999px; flex-shrink: 0; }
+.rf-node-reg .nr-badge { font-size: 9px; padding: 1px 6px; border-radius: var(--cpq-radius-full); flex-shrink: 0; }
 .rf-node-reg .nr-badge.done { background: var(--cpq-overlay-success15); color: var(--cpq-color-success); }
 .rf-node-reg .nr-badge.fill { background: rgba(250,173,20,.14); color: var(--cpq-accent-warning, #fa8c16); }
 .rf-node-reg .nr-badge.idle { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
 .rf-node-reg .nr-prog { margin-top: 6px; }
 .rf-node-reg .nr-cold { margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
 .rf-node-reg .nr-row { display: flex; justify-content: space-between; gap: 6px; font-size: 9px; color: var(--cpq-text-secondary); }
-.rf-node-reg .nr-bar { margin-top: 4px; height: 4px; border-radius: 999px; background: var(--cpq-overlay-w10); overflow: hidden; }
-.rf-node-reg .nr-bar i { display: block; height: 100%; border-radius: 999px; background: var(--cpq-accent-primary); transition: width .3s; }
+.rf-node-reg .nr-bar { margin-top: 4px; height: 4px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-w10); overflow: hidden; }
+.rf-node-reg .nr-bar i { display: block; height: 100%; border-radius: var(--cpq-radius-full); background: var(--cpq-accent-primary); transition: width .3s; }
 .rf-node-reg .nr-fields { margin-top: 6px; max-height: 118px; overflow-y: auto; padding-right: 2px; scrollbar-width: thin; }
 .rf-node-reg .rf-fg { margin-top: 4px; }
 .rf-node-reg .rf-fg:first-child { margin-top: 0; }
 .rf-node-reg .rf-fg-title { font-size: 9px; color: var(--cpq-text-muted); font-weight: 600; margin-bottom: 2px; }
 .rf-node-reg .rf-fld { display: flex; align-items: center; gap: 4px; font-size: 9px; line-height: 1.7; }
-.rf-node-reg .rf-fld-dot { width: 5px; height: 5px; border-radius: 999px; flex-shrink: 0; }
+.rf-node-reg .rf-fld-dot { width: 5px; height: 5px; border-radius: var(--cpq-radius-full); flex-shrink: 0; }
 .rf-node-reg .rf-fld-dot--filled { background: var(--cpq-color-success); }
 .rf-node-reg .rf-fld-dot--asked { background: var(--cpq-accent-warning, #fa8c16); }
 .rf-node-reg .rf-fld-dot--optional { background: var(--cpq-text-muted); }
@@ -387,7 +390,7 @@ const runtimeCardVisible = computed(() => {
 /* 节点图标软底色块（与 palette 共用同一套 ni-- 色调） */
 .ni-chip {
   display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: var(--cpq-radius-sm, 8px);
+  width: 30px; height: 30px; border-radius: var(--cpq-radius-sm);
   font-size: 15px; flex-shrink: 0;
 }
 .ni-chip.ni--blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }

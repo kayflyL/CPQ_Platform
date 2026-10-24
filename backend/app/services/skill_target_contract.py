@@ -21,6 +21,31 @@ logger = logging.getLogger(__name__)
 # 白盒状态键：随行透传给前端做 ⚠️ 标记，不参与列契约
 STATUS_KEYS = ("unmatched", "unmatched_reason", "spec_mismatch", "row", "part_id", "waived")
 
+# 运行时数据范围覆盖的标签（mode=auto 跟随用户输入时由 data_range_follow 写入）
+USER_RANGE_LABEL = "客户指定"
+
+
+def with_data_range(node_cfg: dict | None, data_range: dict | None) -> dict:
+    """把运行时数据范围覆盖合并进节点配置里第一个报告文档卡（浅拷贝，不改原配置）。
+
+    覆盖只认 kind=document 且带 sections 的插头（报告卡）；无卡/无覆盖原样返回。
+    消费方：steps_payload（大脑契约）与 document_target 组装（封面/图表）——
+    两侧共用本函数，保证「契约照抄的窗口」与「渲染计算的窗口」永远同一份。
+    """
+    cfg = node_cfg if isinstance(node_cfg, dict) else {}
+    if not isinstance(data_range, dict) or not data_range:
+        return cfg
+    target = cfg.get("target") if isinstance(cfg.get("target"), dict) else {}
+    arts = target.get("artifacts")
+    if not isinstance(arts, list):
+        return cfg
+    merged = list(arts)
+    for i, art in enumerate(merged):
+        if isinstance(art, dict) and str(art.get("kind") or "") == "document" and art.get("sections"):
+            merged[i] = {**art, "data_range": data_range}
+            return {**cfg, "target": {**target, "artifacts": merged}}
+    return cfg
+
 
 def target_artifacts(node_cfg: dict | None) -> list[dict]:
     """节点配置 → 输出物描述符列表。
@@ -175,7 +200,8 @@ def _report_window(art: dict) -> tuple[str, str]:
     start = end = ""
     label = "自动（按数据边界）"
     if mode == "custom" and dr.get("start") and dr.get("end"):
-        start, end, label = str(dr["start"]), str(dr["end"]), "自定义区间"
+        start, end = str(dr["start"]), str(dr["end"])
+        label = str(dr.get("label") or "").strip() or "自定义区间"
     elif mode in ("last_30", "last_90", "half_year"):
         days = {"last_30": 30, "last_90": 90, "half_year": 183}[mode]
         start, end = (today - timedelta(days=days - 1)).isoformat(), today.isoformat()
@@ -226,7 +252,8 @@ def format_document_contract(art: dict) -> str:
     name = str(art.get("name") or "数据报告")
     window, label = _report_window(art)
     if window:
-        range_line = f"首行输出「数据范围：{window}（{label}，配置指定）」，各节统计范围即此窗口"
+        suffix = label if label == USER_RANGE_LABEL else f"{label}，配置指定"
+        range_line = f"首行输出「数据范围：{window}（{suffix}）」，各节统计范围即此窗口"
     else:
         range_line = "首行输出「数据范围：YYYY.MM.DD ~ YYYY.MM.DD」（按查询到的实际数据边界）"
     parts = [f"输出物《{name}》(document 报告) 结构契约：{range_line}，随后按以下章节依序输出，不增节不删节："]

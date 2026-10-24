@@ -685,7 +685,7 @@ onMounted(() => {
 .sidebar {
   width: 240px;
   background: var(--cpq-overlay-w3);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w6);
   overflow: hidden;
   display: flex;
@@ -790,7 +790,7 @@ onMounted(() => {
 .table-wrapper {
   flex: 1;
   background: var(--cpq-overlay-w3);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w6);
   overflow: hidden;
   overflow-y: auto;

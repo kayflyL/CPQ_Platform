@@ -506,6 +506,17 @@ export const portalApi = {
         headers: { 'Content-Type': 'multipart/form-data' },
       }))
   },
+  uploadBomScheme: (oppId: string, file: File, parseOverrides?: Record<string, any>) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    if (parseOverrides && Object.keys(parseOverrides).length) {
+      fd.append('parse_overrides', JSON.stringify(parseOverrides))
+    }
+    return RESP<{ scheme: BomScheme; attachment: { attachment_id: number }; bom_schemes: BomScheme[] }>(
+      axios.post(`/api/portal/opp/${encodeURIComponent(oppId)}/bom-schemes/upload`, fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      }))
+  },
   listCards: (oppId: string) =>
     RESP<{ cards: FlowCard[] }>(axios.get(`/api/portal/opp/${encodeURIComponent(oppId)}/cards`)),
   returnCard: (oppId: string, cardId: number, comment = '') =>

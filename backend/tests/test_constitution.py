@@ -49,6 +49,12 @@ MECHANISM_FILES = [
     "data_tools.py",
     "llm_client.py",
     "ai_colleague_service.py",
+    # 2026-10-22 事务工作流家族入扫描（此前整族游离在棘轮外——确认闸的
+    # 【确认闸纪律】等指令文案在代码里攒了 6 处没人拦）。调和器收敛后基线封顶：
+    # transaction_turn 的 6 处全是壳→大脑的动态操作指令（带工具名/载荷，无法住左栏）；
+    # skill_tools_write/delivery_core 各 1 处是工具越界反馈（契约层允许）。
+    "transaction_turn.py", "transaction_engine.py", "agent_write_confirm.py",
+    "skill_tools_write.py", "delivery_app.py", "delivery_core.py", "skill_memory.py",
 ]
 
 # 「对大脑说怎么做」的祈使/流程词。事实句与工具参数契约不会命中。
@@ -72,7 +78,7 @@ PROSE_BASELINE = {
     "skill_node_state.py": 0,
     "part_row_identity.py": 0,
     "selection_engine.py": 0,
-    "agent_tool_specs.py": 0,
+    "agent_tool_specs.py": 1,  # 2026-10-19：+业务工具 spec 描述；2026-10-23 问答协议收敛后实测 1（方案表落位描述）
     "agent_react.py": 0,
     "agent_tool_handlers.py": 0,
     "colleague_turn_service.py": 0,
@@ -85,6 +91,17 @@ PROSE_BASELINE = {
     "colleague_memory_service.py": 0,
     "llm_client.py": 0,
     "ai_colleague_service.py": 0,
+    # 2026-10-22 事务家族入棘轮（实测封顶）：transaction_turn 8=壳→大脑动态操作指令
+    # （已执行/已重放/已回答/取消/确认执行回退/闸纪律——带工具名与载荷，属操作消息非规则）；
+    # 2026-10-23 问答协议收敛后 agent_tool_specs 1=方案表落位描述；skill_tools_write 1=
+    # confirm_not_from_user 越界反馈；delivery_core 1=附件缺失反馈。
+    "transaction_turn.py": 8,
+    "transaction_engine.py": 0,
+    "agent_write_confirm.py": 0,
+    "skill_tools_write.py": 1,
+    "delivery_app.py": 0,
+    "delivery_core.py": 1,
+    "skill_memory.py": 0,
 }
 
 # 已从代码搬进左栏的规则：锚点必须能在左栏文本里找到（搬走≠删掉）。

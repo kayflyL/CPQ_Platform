@@ -36,8 +36,9 @@ const scnList = computed<ModelScenario[]>(() =>
   (pc.value?.scenarios || []).map(s => (typeof s === 'string' ? { name: s } : s))
 )
 
-// 机型资料 PDF（product_content.docs）：铭牌卡「下载资料」入口；走带鉴权 blob 下载（裸直链 AUTH_ENABLED 下 401）
+// 机型资料 PDF（product_content.docs）：铭牌卡「下载资料」下拉 + 页尾「产品资料」区块；走带鉴权 blob 下载（裸直链 AUTH_ENABLED 下 401）
 const docs = computed(() => pc.value?.docs || [])
+const fmtMB = (n?: number) => (n ? (n / 1024 / 1024).toFixed(1) + ' MB' : '')
 async function downloadDoc(d: { name?: string; url: string }) {
   try { await downloadOfficeFile(d.url, d.name || '资料.pdf') }
   catch { message.error('下载失败，请稍后重试') }
@@ -45,7 +46,7 @@ async function downloadDoc(d: { name?: string; url: string }) {
 const hasContent = computed(() => {
   const c = pc.value
   return !!(c && (c.tagline || c.overview || c.highlights?.length || c.features?.length
-    || c.capabilities?.length || c.specs?.length || c.scenarios?.length))
+    || c.capabilities?.length || c.specs?.length || c.scenarios?.length || c.docs?.length))
 })
 
 // 配置变体卡片：点卡片展开看该配置的说明+规格差异（机型级 product_content 在上方固定，不随配置变）
@@ -190,15 +191,18 @@ onBeforeUnmount(() => {
             </div>
             <div class="hero-actions">
               <a-button type="primary" size="large" @click="configure">配置这台服务器 →</a-button>
-              <a-dropdown v-if="docs.length > 1" placement="bottomRight">
+              <a-dropdown v-if="docs.length" placement="bottomRight">
                 <a-button size="large" class="doc-btn">下载资料 ▾</a-button>
                 <template #overlay>
-                  <a-menu @click="({ key }: any) => downloadDoc(docs[Number(key)])">
-                    <a-menu-item v-for="(d, i) in docs" :key="i">{{ d.name }}</a-menu-item>
+                  <a-menu class="model-doc-menu" @click="({ key }: any) => downloadDoc(docs[Number(key)])">
+                    <a-menu-item v-for="(d, i) in docs" :key="i">
+                      <span class="mdoc-tag">{{ d.type || '其他' }}</span>
+                      <span class="mdoc-name" :title="d.name">{{ d.name }}</span>
+                      <span v-if="d.size" class="mdoc-size">{{ fmtMB(d.size) }}</span>
+                    </a-menu-item>
                   </a-menu>
                 </template>
               </a-dropdown>
-              <a-button v-else-if="docs.length === 1" size="large" class="doc-btn" @click="downloadDoc(docs[0])">下载资料</a-button>
             </div>
           </section>
 
@@ -274,6 +278,24 @@ onBeforeUnmount(() => {
                   <div class="cfg-cta" @click.stop="configure">用这款配置这台服务器 →</div>
                 </div>
               </div>
+            </div>
+          </section>
+
+          <!-- 产品资料（规格书/彩页/用户手册等；与铭牌「下载资料」下拉同源 product_content.docs） -->
+          <section v-if="docs.length" class="sec">
+            <div class="sec-head">
+              <div><div class="sec-kicker">Documents</div><div class="sec-title">产品资料</div></div>
+              <div class="sec-sub">共 {{ docs.length }} 份 · 点卡片下载</div>
+            </div>
+            <div class="docs-grid">
+              <button v-for="d in docs" :key="d.url" type="button" class="doc-card" @click="downloadDoc(d)">
+                <span class="doc-card-tag">{{ d.type || '其他' }}</span>
+                <span class="doc-card-name" :title="d.name">{{ d.name }}</span>
+                <span class="doc-card-meta">
+                  <span>{{ fmtMB(d.size) }}</span>
+                  <span class="doc-card-cta">下载 →</span>
+                </span>
+              </button>
             </div>
           </section>
 
@@ -503,14 +525,14 @@ onBeforeUnmount(() => {
 .hero-meta {
   display: flex; justify-content: space-between; align-items: center; gap: 28px;
   padding: 24px 30px; margin: 28px auto 0;
-  border-radius: 14px; border: 1px solid var(--line-strong);
+  border-radius: var(--cpq-radius-lg); border: 1px solid var(--line-strong);
   background: rgba(9, 10, 13, 0.8); backdrop-filter: blur(16px);
   box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.05);
   flex-wrap: wrap; position: relative; z-index: 9;
 }
 .hero-meta::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
-  border-radius: 14px 14px 0 0;
+  border-radius: var(--cpq-radius-lg) var(--cpq-radius-lg) 0 0;
   background: linear-gradient(to right, transparent 4%, var(--sun-color) 38%, var(--sun-bright) 50%, var(--sun-color) 62%, transparent 96%);
 }
 .meta-head { display: flex; flex-direction: column; gap: 7px; min-width: 0; }
@@ -530,7 +552,7 @@ onBeforeUnmount(() => {
 }
 .doc-btn:hover { border-color: var(--primary); color: var(--primary-bright); }
 
-.lc-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px; border: 1px solid transparent; }
+.lc-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent; }
 .lc-active { color: #1f9d6b; background: rgba(125, 215, 170, .18); border-color: rgba(125, 215, 170, .45); }
 .lc-new    { color: #2f7de1; background: rgba(150, 195, 250, .18); border-color: rgba(150, 195, 250, .45); }
 .lc-eol    { color: #c8861a; background: rgba(245, 200, 110, .18); border-color: rgba(245, 200, 110, .45); }
@@ -552,7 +574,7 @@ onBeforeUnmount(() => {
 /* 为什么选它：左图右文两栏（无图时退化为单栏 ruled list） */
 .hl-layout.has-image { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 24px; align-items: start; }
 .hl-photo {
-  aspect-ratio: 1 / 1; width: 100%; border-radius: 14px; overflow: hidden;
+  aspect-ratio: 1 / 1; width: 100%; border-radius: var(--cpq-radius-lg); overflow: hidden;
   border: 1px solid var(--line-soft); background: #0a0d13;
 }
 .hl-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -568,7 +590,7 @@ onBeforeUnmount(() => {
 /* 场景适配：照片卡 */
 .scn-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
 .scn-card {
-  border: 1px solid var(--line-soft); border-radius: 12px; overflow: hidden; background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line-soft); border-radius: var(--cpq-radius-md); overflow: hidden; background: rgba(255, 255, 255, 0.02);
   transition: border-color 0.2s var(--ease);
 }
 .scn-card:hover { border-color: var(--line-strong); }
@@ -587,13 +609,13 @@ onBeforeUnmount(() => {
 /* 可选配置卡 */
 .cfg-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
 .cfg-card {
-  padding: 16px 20px; cursor: pointer; border: 1px solid var(--line-soft); border-radius: 12px;
+  padding: 16px 20px; cursor: pointer; border: 1px solid var(--line-soft); border-radius: var(--cpq-radius-md);
   background: rgba(255, 255, 255, 0.02); transition: background 0.2s var(--ease), border-color 0.2s var(--ease);
 }
 .cfg-card:hover { background: rgba(255, 255, 255, 0.04); }
 .cfg-card.expanded { border-color: var(--primary); }
 .cfg-name { font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: center; color: #f2f8ff; }
-.cfg-primary { font-size: 10px; color: #1c0f07; background: var(--primary); padding: 1px 8px; border-radius: 999px; white-space: nowrap; }
+.cfg-primary { font-size: 10px; color: #1c0f07; background: var(--primary); padding: 1px 8px; border-radius: var(--cpq-radius-full); white-space: nowrap; }
 .cfg-spec { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 5px; }
 .cfg-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; color: var(--text-2); line-height: 1.7; display: flex; flex-direction: column; gap: 10px; }
 .cfg-body p { margin: 0; }
@@ -602,8 +624,27 @@ onBeforeUnmount(() => {
 .cfg-cta { margin-top: 2px; font-size: 12.5px; color: #8cbdff; font-weight: 600; cursor: pointer; }
 .cfg-cta:hover { text-decoration: underline; }
 
+/* 产品资料卡：类型徽标 + 文件名 + 大小，整卡可点下载（铭牌「下载资料」下拉同源） */
+.docs-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 14px; }
+.doc-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 9px;
+  padding: 16px 20px; text-align: left; cursor: pointer;
+  border: 1px solid var(--line-soft); border-radius: var(--cpq-radius-md);
+  background: rgba(255, 255, 255, 0.02); color: inherit; font: inherit;
+  transition: background 0.2s var(--ease), border-color 0.2s var(--ease);
+}
+.doc-card:hover { background: rgba(255, 255, 255, 0.04); border-color: var(--primary); }
+.doc-card-tag {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  color: var(--primary-bright); border: 1px solid var(--line-soft);
+  border-radius: var(--cpq-radius-full); padding: 1px 10px;
+}
+.doc-card-name { max-width: 100%; font-size: 14px; font-weight: 600; color: #f2f8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-card-meta { display: flex; align-items: center; width: 100%; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.doc-card-cta { margin-left: auto; font-family: inherit; font-weight: 600; color: #8cbdff; }
+
 /* 完整技术规格（折叠） */
-.specs { border-radius: 12px; border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.02); overflow: hidden; }
+.specs { border-radius: var(--cpq-radius-md); border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.02); overflow: hidden; }
 .spec-eyebrow {
   font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--muted); padding: 13px 24px 12px;
@@ -639,4 +680,19 @@ onBeforeUnmount(() => {
 @media (max-width: 480px) {
   .scn-grid { grid-template-columns: 1fr; }
 }
+</style>
+
+<style>
+/* 「下载资料」下拉 overlay 传送到 body 下，scoped 样式够不到：.model-doc-menu 前缀防泄漏。
+   菜单本体是 antd 浅色，徽标/字号在此配套调 */
+.model-doc-menu .mdoc-tag {
+  display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 4px;
+  font-size: 12px; font-weight: 600; line-height: 20px; vertical-align: middle;
+  color: #2f6bff; background: rgba(64, 120, 255, 0.12);
+}
+.model-doc-menu .mdoc-name {
+  display: inline-block; max-width: 300px; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+}
+.model-doc-menu .mdoc-size { margin-left: 8px; font-size: 12px; color: #999; }
 </style>

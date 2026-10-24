@@ -118,7 +118,7 @@ const approvalThreshold = computed(() =>
 <style scoped>
 .ma-card {
   border: 1px solid var(--cpq-glass-border, rgba(0,0,0,.08));
-  border-radius: var(--cpq-radius-md, 12px);
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w8, rgba(255,255,255,.72));
   padding: 12px 16px;
 }

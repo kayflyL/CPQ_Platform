@@ -13,6 +13,7 @@ import { hashRoleKey, slotForward, slotPhase, slotPosition, slotRight, slotRotat
 import { DESK_CHAIR_OFFSET, DESK_IDLE_DISTANCE, DESK_WAIT_DISTANCE, DESK_WAIT_SIDE, DESK_WORK_DISTANCE, MEETING_CHAIR_BACK_REACH, MEETING_STAND_GAP, CHAIR_SEAT_HEIGHT, CHAIR_SEAT_BACK_OFFSET, SIT_BACK_LOCAL_Z } from './metrics.ts'
 import { makeBubbleSprite, makeLabelSprite, drawBubble } from './sprites.ts'
 import { createDesk } from '../environment/furniture.ts'
+import { toonStyleEnabled, toonifyStandardMaterials } from '../environment/toonStyle.ts'
 import type { CharacterAsset } from '../assets/gltfCache.ts'
 
 type Actor = {
@@ -98,6 +99,10 @@ export function createActorSystem(rt: ActorRuntime) {
   const navWorld = rt.navWorld
   const characterAssets = rt.assets
   const actorMap = new Map<string, Actor>()
+  // 悬停/点击拾取目标（代理胶囊 + 头顶 HUD 精灵）与显示器膜（点击开任务板）。
+  // rebuildActors 全量刷新；actorAtPointer 只打这些轻量对象，不碰蒙皮网格。
+  const pickTargets: THREE.Object3D[] = []
+  const monitorTargets: THREE.Mesh[] = []
   let routeFlushRaf = 0
   const pendingRouteZones = new Map<Actor, OfficeZone | null>()
   let meetingSlotAllocationCache: Map<string, Map<string, Seat>> | null = null
@@ -277,12 +282,21 @@ function createCharacter(colleague: any, position: THREE.Vector3) {
     child.userData.roleKey = colleague.role_key
   })
 
+  // 拾取代理：隐藏圆柱体包住身体。悬停/点击射线只打它（+头顶 HUD/显示器膜），
+  // 不再递归打整只角色（蒙皮网格逐顶点求交很贵），见 actorAtPointer。
+  const proxy = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 1.5, 8), new THREE.MeshBasicMaterial())
+  proxy.position.y = 0.75
+  proxy.visible = false
+  proxy.userData.roleKey = colleague.role_key
+  group.add(proxy)
+
   return {
     group, ring, indicator, indicatorMat,
     mixer: null, idleAction: null, walkAction: null, sitAction: null,
     halfDepth: 0.18, modelScale: 1, seatY: 0,
     armL, armR, legL, legR,
     headY: 1.42,
+    proxy,
   }
 }
 function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, template: CharacterAsset) {
@@ -353,6 +367,9 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
       mesh.receiveShadow = true
     }
   })
+  // 三渲二统一：非 MToon 的标准材质换 toon 孪生（模块级按材质缓存，克隆间共享；
+  // VRM 的 MToon 材质本来就是三渲二，不动）。?officeStyle=pbr 时整体关闭。
+  if (toonStyleEnabled()) toonifyStandardMaterials(model)
   group.add(model)
 
   const ring = new THREE.Mesh(
@@ -375,6 +392,13 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
   indicator.position.y = headY + 0.16
   group.add(indicator)
 
+  // 拾取代理：包住实测头顶，尺寸随模型归一高度自适应。
+  const proxy = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, headY + 0.2, 8), new THREE.MeshBasicMaterial())
+  proxy.position.y = (headY + 0.2) / 2
+  proxy.visible = false
+  proxy.userData.roleKey = colleague.role_key
+  group.add(proxy)
+
   group.position.copy(position)
   group.userData.roleKey = colleague.role_key
   group.traverse((child) => {
@@ -387,6 +411,7 @@ function createCharacterFromTemplate(colleague: any, position: THREE.Vector3, te
     halfDepth: (template.depth * scale) / 2, modelScale: scale, seatY: 0,
     armL: null, armR: null, legL: null, legR: null,
     headY,
+    proxy,
   }
 }
 
@@ -407,6 +432,8 @@ function rebuildActors() {
     disposeActor(actor)
   }
   actorMap.clear()
+  pickTargets.length = 0
+  monitorTargets.length = 0
 
   const assignments = deskSlotAssignments()
 
@@ -429,9 +456,41 @@ function rebuildActors() {
     const deskPosition = slotPosition(slot)
     const forward = slotForward(slot)
     const right = slotRight(slot)
-    const desk = createDesk(colleague.color || '#1677ff', rt.theme())
-    desk.group.position.copy(deskPosition)
-    desk.group.rotation.y = slotRotationY(slot)
+    // 桌子已由 buildProps 按家具配置渲染（scene 里叫 furniture-${slot.id}）：
+    // 这里只挂接它的显示器材质/名牌/屏幕网格，不再重复建桌。
+    // 旧逻辑每工位两张桌同位叠放：双倍 draw call + 桌面 z-fighting 闪烁。
+    const envDesk = activeScene.getObjectByName(`furniture-${slot.id}`) as THREE.Group | null
+    let monitorMat: THREE.MeshStandardMaterial | null = null
+    const deskMonitorMeshes: THREE.Mesh[] = []
+    if (envDesk) {
+      envDesk.traverse((obj) => {
+        const mesh = obj as THREE.Mesh
+        if (!mesh.userData?.monitor) return
+        mesh.userData.roleKey = colleague.role_key
+        deskMonitorMeshes.push(mesh)
+        const mat = mesh.material as THREE.MeshStandardMaterial
+        if (mat && mat.polygonOffset) monitorMat = mat
+      })
+    }
+    let deskGroup: THREE.Group
+    let deskMonitorMat: THREE.MeshStandardMaterial
+    if (envDesk && monitorMat) {
+      deskGroup = envDesk
+      deskMonitorMat = monitorMat
+      // 名牌改染同事专属色（旧逻辑是建一张染色桌；现在桌子共用，改色即可）
+      envDesk.traverse((obj) => {
+        if (obj.userData?.nameplate) {
+          ((obj as THREE.Mesh).material as THREE.MeshStandardMaterial).color.set(colleague.color || '#1677ff')
+        }
+      })
+    } else {
+      // 容错：找不到已渲染的桌（异常配置）时退回旧路径自建一张，绝不丢角色
+      const desk = createDesk(colleague.color || '#1677ff', rt.theme())
+      desk.group.position.copy(deskPosition)
+      desk.group.rotation.y = slotRotationY(slot)
+      deskGroup = desk.group
+      deskMonitorMat = desk.monitorMat
+    }
 
     const characterHome = deskPosition.clone().addScaledVector(forward, DESK_IDLE_DISTANCE)
     const claimed = claimedAssets.get(colleague.role_key) || null
@@ -450,7 +509,8 @@ function rebuildActors() {
     const group = new THREE.Group()
     group.name = `ai-colleague-${colleague.role_key}`
     group.userData.roleKey = colleague.role_key
-    group.add(desk.group)
+    // 挂接现有桌时桌已在环境组里，只有自建兜底桌才需要加进角色组
+    if (deskGroup !== envDesk) group.add(deskGroup)
 
     const bubble = makeBubbleSprite(character.headY + 0.1)
     bubble.sprite.userData.roleKey = colleague.role_key
@@ -467,10 +527,10 @@ function rebuildActors() {
       roleKey: colleague.role_key,
       group,
       character: character.group,
-      desk: desk.group,
+      desk: deskGroup,
       indicator: character.indicator,
       indicatorMat: character.indicatorMat,
-      monitorMat: desk.monitorMat,
+      monitorMat: deskMonitorMat,
       selectionRing: character.ring,
       basePosition: deskPosition.clone(),
       phase: slotPhase(slot),
@@ -512,6 +572,9 @@ function rebuildActors() {
       homeSlot: slot,
       currentZoneId: assignment.zone.id,
     })
+
+    pickTargets.push(character.proxy, bubble.sprite, label.sprite)
+    monitorTargets.push(...deskMonitorMeshes)
   })
 
   applyStatuses()
@@ -791,6 +854,8 @@ function disposeMaterial(material: THREE.Material) {
     scheduleRouteRecompute,
     updateOverheads,
     meetingSlotForActor,
+    pickTargets: () => [...pickTargets],
+    monitorTargets: () => [...monitorTargets],
     disposeActor,
     disposeMaterial,
     cancelPendingRoutes() {

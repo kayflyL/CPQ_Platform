@@ -92,7 +92,7 @@ def flow_delivered(thread_id: str, role_key: str = "assistant") -> bool:
     return "compose" in {str(s) for s in (mem.get("steps_done") or [])}
 
 
-def task_state_for_thread(thread_id: str, role_key: str, turn_active: bool) -> Optional[dict]:
+def task_state_for_thread(thread_id: str, role_key: str, turn_active: bool, user: dict = None) -> Optional[dict]:
     """服务端任务态事实（前端任务胶囊对账用，2026-09-13）。
 
     pipeline 事件只发一次、不重放：页面刷新 / WS 重连空窗 / 中途切会话后前端骨架
@@ -113,8 +113,32 @@ def task_state_for_thread(thread_id: str, role_key: str, turn_active: bool) -> O
     skill_key = str(session.get("skill_key") or "requirement_analysis")
     manifest = (resolve_skill_manifest(skill_key)
                 or resolve_skill_manifest("requirement_analysis")) or {}
+    # 事务管道（real_bound 应用）：胶囊用交付链自己的节点与探针进度重建——
+    # 交付流 node_configs 无步骤元数据，走需求分析默认标签会张冠李戴（2026-10-18 实测）
+    from app.services.transaction_engine import resolve_app, node_states
+    app = resolve_app(skill_key)
+    if app is not None:
+        from app.services.transaction_engine import state_view
+        view = state_view(app, thread_id, role_key, user if isinstance(user, dict) else {})
+        steps, done, statuses = [], [], {}
+        for st in view["flow"]["steps"]:
+            st_key = str(st.get("key") or "")
+            states = node_states([st], view)
+            state = states.get(st_key) or "pending"
+            steps.append({"step": st_key, "label": st["label"]})
+            statuses[st_key] = state
+            if state == "done":
+                done.append(st_key)
+        return {
+            "title": str(manifest.get("name") or app.flow_key),
+            "steps": steps,
+            "done": sorted(done),
+            "statuses": statuses,
+            "phase": "running" if turn_active else "done",
+            "pause": None,
+        }
     flow_configs = manifest.get("node_configs") if isinstance(manifest.get("node_configs"), dict) else {}
-    steps = skill_steps_view(flow_configs)
+    steps = skill_steps_view(flow_configs, flow=manifest.get("flow"))
     if not steps:
         return None
     done = {str(s) for s in (mem.get("steps_done") or [])}

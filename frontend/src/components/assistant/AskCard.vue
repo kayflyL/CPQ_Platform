@@ -353,7 +353,7 @@ function onPickSelect(slot: string, value: any) {
   max-width: 82%;
   min-width: 240px;
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.12));
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w4, rgba(255,255,255,.05));
   overflow: hidden;
   display: flex;
@@ -375,7 +375,7 @@ function onPickSelect(slot: string, value: any) {
   flex: none;
   width: 18px;
   height: 18px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -453,7 +453,7 @@ function onPickSelect(slot: string, value: any) {
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 10.5px;
   line-height: 18px;
   vertical-align: middle;
@@ -469,7 +469,7 @@ function onPickSelect(slot: string, value: any) {
   display: inline-block;
   margin-left: 6px;
   padding: 0 6px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 10.5px;
   line-height: 18px;
   vertical-align: middle;
@@ -501,7 +501,7 @@ function onPickSelect(slot: string, value: any) {
 .am-q-step-btn {
   width: 22px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
   background: transparent;
   color: var(--cpq-text-primary);
@@ -522,7 +522,7 @@ function onPickSelect(slot: string, value: any) {
 .am-q-step-input {
   width: 56px;
   height: 22px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
   background: transparent;
   color: var(--cpq-text-primary);
@@ -548,7 +548,7 @@ function onPickSelect(slot: string, value: any) {
 .am-q-manual-input {
   width: 100%;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
   background: transparent;
   color: var(--cpq-text-primary);
@@ -579,7 +579,7 @@ function onPickSelect(slot: string, value: any) {
   gap: 8px;
   max-width: 100%;
   padding: 4px 10px;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
   background: var(--cpq-overlay-w06, rgba(255, 255, 255, .06));
   font-size: 12px;
@@ -619,7 +619,7 @@ function onPickSelect(slot: string, value: any) {
 .am-q-submit {
   flex: none;
   padding: 4px 14px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-accent-primary, #1677ff);
   color: #fff;
@@ -637,7 +637,7 @@ function onPickSelect(slot: string, value: any) {
   min-width: 20px;
   height: 20px;
   padding: 0 4px;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
   display: inline-flex;
   align-items: center;

@@ -19,6 +19,18 @@ export function addPlant(x: number, z: number, theme: OfficeEnvironmentTheme, pa
   return group
 }
 
+const bookMatCache = new Map<string, THREE.MeshStandardMaterial>()
+/** 书脊配色只有 6 种：共享材质（曾每本书独立材质，28 个/书架，纯浪费）。 */
+function bookMat(colorHex: number): THREE.MeshStandardMaterial {
+  const key = String(colorHex)
+  let m = bookMatCache.get(key)
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.72, metalness: 0.02 })
+    bookMatCache.set(key, m)
+  }
+  return m
+}
+
 export function addBookshelf(x: number, z: number, theme: OfficeEnvironmentTheme, rotationY: number | undefined, parent: THREE.Group | null) {
   const group = new THREE.Group()
   const frameMat = envMaterial(theme.palette?.furniture_light || '#34455f', 0.55, 0.12)
@@ -34,7 +46,7 @@ export function addBookshelf(x: number, z: number, theme: OfficeEnvironmentTheme
       const height = 0.36 + ((row * 13 + col) % 3) * 0.035
       const book = new THREE.Mesh(
         new THREE.BoxGeometry(0.12, height, 0.28),
-        new THREE.MeshStandardMaterial({ color: bookColors[(row + col) % bookColors.length], roughness: 0.72, metalness: 0.02 }),
+        bookMat(bookColors[(row + col) % bookColors.length]),
       )
       book.position.set(-0.52 + col * 0.17, 0.24 + row * 0.48 + height / 2, 0)
       group.add(book)
@@ -570,6 +582,8 @@ export function createDesk(color: string, theme: OfficeEnvironmentTheme): { grou
 
   const nameplate = new THREE.Mesh(new RoundedBoxGeometry(0.3, 0.06, 0.035, 1, 0.01), accentMat)
   nameplate.position.set(0.28, 0.765, 0.42)
+  // 标记给 actorSystem：挂接现有桌时把名牌改染同事专属色（代替旧的整桌重建）
+  nameplate.userData.nameplate = true
   group.add(nameplate)
 
   const chair = new THREE.Group()

@@ -78,23 +78,6 @@ def test_office_status_derives_from_pause_payload():
     assert (snap.get("pause") or {}).get("reason_code") == "llm_timeout"
 
 
-def test_approval_pause_uses_the_same_payload_object():
-    """P5-B3：审批中断也走同一份载荷工厂（kind=approval），不再手搓第二套中断形状。"""
-    # 2026-09-11 拆分后同事回合实现分布在 colleague_turn_* 家族；断言扫全家族，
-    # 避免「实现搬了家 → 守卫静默失效」。
-    from app.services import (colleague_prompt, colleague_turn_io,
-                              colleague_turn_runners, colleague_turn_service)
-    src = "\n".join(pathlib.Path(m.__file__).read_text(encoding="utf-8")
-                    for m in (colleague_prompt, colleague_turn_io,
-                              colleague_turn_runners, colleague_turn_service))
-    assert 'pause_payload(kind="approval"' in src, "审批中断没有走载荷工厂（两套形状回来了）"
-    p = pause_payload(kind="approval", pending=[{"governance_id": 7, "tool": "submit_approval"}],
-                      steps_done=[])
-    assert set(p) == _FACT_KEYS and p["kind"] == "approval"
-    assert p["pending"][0]["governance_id"] == 7
-    assert p["resume"]["awaiting"] == "user_input"
-
-
 def test_e2e_pause_kind_registry_stays_in_sync_with_emitters():
     """P5-C1：e2e 报告只把「登记过的 kind」当正常——登记表必须等于真实发射点。
 

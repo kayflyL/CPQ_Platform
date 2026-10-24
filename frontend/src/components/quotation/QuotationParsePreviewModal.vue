@@ -1,13 +1,26 @@
 <template>
   <a-modal
     :open="open"
-    title="解析预览 — 核对并修正后生成成本表"
-    width="94%"
+    :title="`解析预览 — 核对并修正后生成${kind === 'scheme' ? '方案表' : '成本表'}`"
+    centered
+    :width="MODAL_WIDTH.full"
+    wrap-class-name="portal-sheet-modal"
     :footer="null"
     :destroy-on-close="true"
-    :body-style="{ padding: '14px', height: '84vh', display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
+    :body-style="{ padding: '14px', height: MODAL_BODY_MAX_HEIGHT, display: 'flex', flexDirection: 'column', overflow: 'hidden' }"
     @cancel="emit('cancel')"
   >
+    <!-- 手机端降级：三栏核对/列绑定依赖大屏，明确引导去电脑端操作 -->
+    <div v-if="isMobile" class="parse-mobile-block">
+      <DesktopOutlined class="parse-mobile-icon" />
+      <p class="parse-mobile-title">解析预览请在电脑端完成</p>
+      <p class="parse-mobile-desc">
+        三栏核对、格子点选与列绑定依赖大屏和鼠标操作，手机上无法有效核对解析结果。请在电脑上打开本商机页面，重新上传并核对生成。
+      </p>
+      <a-button block @click="emit('cancel')">返回</a-button>
+    </div>
+
+    <template v-else>
     <!-- 模板信息条：用哪套规则由「设置→解析模板」的使用位置绑定决定，弹窗不选 -->
     <div class="match-bar">
       <span class="match-text">解析模板</span>
@@ -15,7 +28,7 @@
       <span v-if="parseCameBackEmpty" class="match-warn">
         当前模板没解析出任何数据——多半是绑定错了模板，到 设置 → 解析模板 里换绑
       </span>
-      <span v-else class="match-reason">在 设置 → 解析模板 中配置「成本核算 · 上传解析」用哪套规则</span>
+      <span v-else class="match-reason">在 设置 → 解析模板 中配置{{ kind === 'scheme' ? '「成本核算 · 上传解析」（方案表上传同源复用）' : '「成本核算 · 上传解析」' }}用哪套规则</span>
     </div>
 
     <!-- 补丁 chips -->
@@ -164,19 +177,24 @@
       <span class="footer-hint">修正只对本文件本次生成生效；要改一类文件的解析规则，到 设置 → 解析模板 调整。</span>
       <a-button @click="emit('cancel')">取消</a-button>
       <a-button type="primary" :loading="confirming" :disabled="confirming" @click="onConfirm">
-        确认生成成本表
+        确认生成{{ kind === 'scheme' ? '方案表' : '成本表' }}
       </a-button>
     </div>
+    </template>
   </a-modal>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons-vue'
+import { DesktopOutlined, DoubleLeftOutlined, DoubleRightOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
+import { MODAL_WIDTH, MODAL_BODY_MAX_HEIGHT } from '@/constants/modalPresets'
+import { useIsMobile } from '@/composables/useIsMobile'
 import ParseInteractiveGrid from '@/components/excel-parser/ParseInteractiveGrid.vue'
 import ParseResultPanel from '@/components/excel-parser/ParseResultPanel.vue'
 import { useExcelParser } from '@/composables/useExcelParser'
+
+const isMobile = useIsMobile()
 
 interface PatchChip {
   id: number
@@ -196,6 +214,8 @@ const props = defineProps<{
   file: File | null
   opportunityId: string
   confirming: boolean
+  /** 产物类型：cost=成本表（默认），scheme=方案表（同一套解析与模板绑定） */
+  kind?: 'cost' | 'scheme'
 }>()
 
 const emit = defineEmits<{
@@ -570,7 +590,7 @@ watch(
   gap: 8px;
   padding: 6px 10px;
   margin-bottom: 8px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   border: 1px solid var(--cpq-glass-border);
   font-size: 12px;
@@ -599,7 +619,7 @@ watch(
   flex-wrap: wrap;
   padding: 4px 10px;
   margin-bottom: 8px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: rgba(250, 173, 20, 0.08);
   border: 1px dashed rgba(250, 173, 20, 0.5);
 }
@@ -667,7 +687,7 @@ watch(
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: rgba(22, 119, 255, 0.92);
   color: #fff;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
@@ -755,7 +775,7 @@ watch(
   align-items: center;
   gap: 6px;
   padding: 3px 4px;
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   font-size: 12px;
 }
 
@@ -824,7 +844,7 @@ watch(
   align-items: center;
   justify-content: center;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3);
   color: var(--cpq-text-muted);
   cursor: pointer;
@@ -833,5 +853,32 @@ watch(
 .aside-rail:hover {
   color: var(--cpq-accent-primary);
   border-color: var(--cpq-accent-primary);
+}
+
+/* 手机端降级提示 */
+.parse-mobile-block {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 46px 20px;
+  text-align: center;
+}
+.parse-mobile-icon {
+  font-size: 42px;
+  color: var(--cpq-accent-primary);
+}
+.parse-mobile-title {
+  margin: 4px 0 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--cpq-text-primary);
+}
+.parse-mobile-desc {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--cpq-text-muted);
+  max-width: 300px;
 }
 </style>

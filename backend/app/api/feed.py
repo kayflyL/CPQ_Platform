@@ -24,7 +24,7 @@ import json
 
 from app.api.deps import (
     get_current_user as current_user, ensure_opportunity_access, resolve_ws_user,
-    field_visible, require_admin,
+    field_visible, require_admin, user_can_access_opportunity,
 )
 from app.repository.feed_repo import FeedRepository
 from app.repository.feed_user_repo import FeedUserRepository
@@ -118,6 +118,67 @@ def list_messages(opportunity_id: str, user: dict = Depends(current_user)):
         repo.close()
 
 
+def _notify_mentions(body: str, opportunity: dict, author: dict, message_id: str,
+                     node_key: Optional[str]) -> None:
+    """@提及 → 通知中心（落库+站内+企微，notify_users 管线）。
+
+    只对照真实名册解析（services/mention.py）；作者本人除外。
+    无商机查看权的被提人降级：标题脱敏、不带正文与商机跳转。
+    通知失败不阻断评论（notify_users 内建容错）。
+    """
+    if not body or "@" not in body:
+        return
+    try:
+        from app.services.mention import parse_mentions
+        from app.services.notification_hub import notify_users
+
+        user_repo = FeedUserRepository()
+        try:
+            roster = [u for u in user_repo.list_all() if u.get("is_active", True)]
+        finally:
+            user_repo.close()
+
+        name_to_ids: dict = {}
+        by_id: dict = {}
+        for u in roster:
+            name = str(u.get("name") or "").strip()
+            uid = str(u.get("user_id") or "")
+            if not name or not uid:
+                continue
+            name_to_ids.setdefault(name, []).append(uid)
+            by_id[uid] = u
+
+        author_id = str(author.get("user_id") or "")
+        mentioned = [uid for uid in parse_mentions(body, name_to_ids) if uid != author_id]
+        if not mentioned:
+            return
+
+        author_name = str(by_id.get(author_id, {}).get("name")
+                          or author.get("name") or "").strip() or "有人"
+        customer = str(opportunity.get("customer_name") or "").strip()
+        opp_id = str(opportunity.get("opportunity_id") or "")
+        excerpt = body if len(body) <= 120 else body[:120] + "…"
+        payload = {"message_id": message_id, "node_key": node_key or ""}
+
+        allowed = [uid for uid in mentioned
+                   if user_can_access_opportunity(by_id.get(uid) or {"user_id": uid}, opportunity)]
+        restricted = [uid for uid in mentioned if uid not in allowed]
+        if allowed:
+            label = f"商机「{customer}」" if customer else "一条商机"
+            notify_users(allowed, "comment_mention",
+                         title=f"{author_name} 在{label}的评论中@了你",
+                         body=excerpt, opportunity_id=opp_id,
+                         payload=payload, exclude_user_id=author_id)
+        if restricted:
+            # 无查看权：脱敏（无客户名/无正文/不跳转），只让对方知道被提了
+            notify_users(restricted, "comment_mention",
+                         title=f"{author_name} 在一条商机的评论中@了你",
+                         body="", opportunity_id="",
+                         payload=payload, exclude_user_id=author_id)
+    except Exception as exc:
+        print(f"⚠️ mention notify failed: {exc}")
+
+
 @router.post("/{opportunity_id}/messages")
 async def post_message(
     opportunity_id: str,
@@ -135,7 +196,7 @@ async def post_message(
     body_text = (body or "").strip()
     if not body_text and not files:
         raise HTTPException(status_code=400, detail="消息内容和文件不能同时为空")
-    ensure_opportunity_access(opportunity_id, user)
+    opportunity = ensure_opportunity_access(opportunity_id, user)
 
     repo = FeedRepository()
     storage = get_storage()
@@ -164,6 +225,8 @@ async def post_message(
         messages = repo.list_messages(opportunity_id)
         created = next((m for m in messages if m["message_id"] == msg["message_id"]), msg)
         await hub.broadcast(opportunity_id, {"type": "message", "message": created})
+
+        _notify_mentions(body_text, opportunity, user, msg["message_id"], clean_node_key)
         return {"message": created}
     finally:
         repo.close()

@@ -14,6 +14,42 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s - %(message)s",
 )
+import hashlib
+import os
+from logging.handlers import RotatingFileHandler
+
+# app.* 日志同时落文件：bat/cmd 窗口启动的服务排障时窗口内容不可得（2026-10-22 实锤），
+# 文件是唯一可靠的现场。5MB 轮转 ×3。
+_LOG_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "logs")
+os.makedirs(_LOG_DIR, exist_ok=True)
+_file_handler = RotatingFileHandler(
+    os.path.join(_LOG_DIR, "app.log"), maxBytes=5_000_000, backupCount=3, encoding="utf-8")
+_file_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
+logging.getLogger().addHandler(_file_handler)
+
+
+def _source_stamp(root: str) -> str:
+    """源码指纹：app/**/*.py 的 相对路径|mtime|size 哈希。import 时算一次
+    （=本进程正在运行的代码状态）；/build-stale 按请求现算磁盘状态。
+    两者不一致 = 有源码在本进程启动后变过（--reload 静默失效/僵尸进程——
+    2026-10-22 实锤 5+ 次的"改了没生效"，一键启动脚本体检用）。"""
+    h = hashlib.sha256()
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
+        for fn in sorted(files):
+            if not fn.endswith(".py"):
+                continue
+            p = os.path.join(dirpath, fn)
+            try:
+                st = os.stat(p)
+            except OSError:
+                continue
+            h.update(f"{os.path.relpath(p, root)}|{st.st_mtime_ns}|{st.st_size};".encode("utf-8", "ignore"))
+    return h.hexdigest()[:16]
+
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+BUILD_STAMP = _source_stamp(APP_DIR)
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +67,6 @@ from app.api import opportunities
 from app.api import artifact_share
 from app.api import admin
 from app.api import rules
-from app.api import comments
 from app.api import dashboard
 from app.api import quotations
 from app.api import univer_templates
@@ -102,7 +137,6 @@ app.include_router(quote.router)
 app.include_router(opportunities.router)
 app.include_router(admin.router)
 app.include_router(rules.router)
-app.include_router(comments.router)
 app.include_router(dashboard.router)
 app.include_router(quotations.router)
 app.include_router(univer_templates.router)
@@ -142,4 +176,12 @@ def root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "build": BUILD_STAMP}
+
+
+@app.get("/build-stale")
+def build_stale():
+    """运行中代码 vs 磁盘代码（一键启动脚本体检用）。stale=true = 有 .py 在本进程
+    启动后变过——当前服务的是旧代码，重启后端即可对齐。"""
+    disk = _source_stamp(APP_DIR)
+    return {"running": BUILD_STAMP, "disk": disk, "stale": disk != BUILD_STAMP}

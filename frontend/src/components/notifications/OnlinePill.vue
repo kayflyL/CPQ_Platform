@@ -84,6 +84,10 @@ const selfId = computed(() => auth.user?.user_id || '')
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 手机端隐藏：在线人数对移动用户无操作价值，给窄顶栏腾位置（2026-10-21） */
+@media (max-width: 768px) {
+  .online-pill { display: none; }
+}
 .online-panel {
   width: 264px;
   display: flex;
@@ -152,7 +156,7 @@ const selfId = computed(() => auth.user?.user_id || '')
   font-size: 10.5px;
   color: var(--cpq-accent-primary);
   border: 1px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 0 4px;
   line-height: 1.5;
 }
@@ -162,7 +166,7 @@ const selfId = computed(() => auth.user?.user_id || '')
   font-size: 11px;
   color: var(--cpq-text-secondary);
   background: var(--cpq-bg-secondary);
-  border-radius: 5px;
+  border-radius: var(--cpq-radius-xs);
   padding: 1px 7px;
 }
 </style>

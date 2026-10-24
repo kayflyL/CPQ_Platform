@@ -468,6 +468,59 @@
         </a-spin>
       </a-tab-pane>
 
+      <!-- 暂存附件（AI 设置·管理页）：全部用户暂存池清理入口——发送不释放暂存坑，
+           只有 14 天 TTL 或在此清理才释放；与「会话记录」同一运维清理场 -->
+      <a-tab-pane v-if="showThreads" key="staged" tab="暂存附件">
+        <a-spin :spinning="stagedLoading">
+          <div class="threads-wrap">
+            <div class="threads-head">
+              <div>
+                <h4 class="section-title">暂存附件</h4>
+                <div class="thread-stats">
+                  <span>共 {{ staged.length }} 个</span>
+                  <span>合计 {{ fmtSize(stagedTotalSize) }}</span>
+                </div>
+              </div>
+              <div class="threads-head-right">
+                <a-button size="small" @click="loadStaged">刷新</a-button>
+              </div>
+            </div>
+
+            <div class="threads-ops">
+              <span class="threads-ops-tip">已随消息发送的附件也在列：发送不释放暂存坑，只有过期或在此清理才释放</span>
+              <span v-if="stagedSelected.length" class="threads-ops-tip">已选 {{ stagedSelected.length }} 个</span>
+              <a-popconfirm
+                :title="`彻底删除选中的 ${stagedSelected.length} 个暂存附件（行+盘文件，不可恢复）？`"
+                @confirm="deleteStaged(stagedSelected)"
+              >
+                <a-button size="small" danger :disabled="!stagedSelected.length">批量清理</a-button>
+              </a-popconfirm>
+            </div>
+
+            <a-table
+              :data-source="staged"
+              :columns="stagedColumns"
+              size="small"
+              row-key="attachment_id"
+              :scroll="{ x: 820 }"
+              :row-selection="{ selectedRowKeys: stagedSelected, onChange: (k: any) => { stagedSelected = k } }"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'size'">{{ fmtSize(record.file_size) }}</template>
+                <template v-else-if="column.key === 'sent'">
+                  <a-tag :color="record.message_id ? 'orange' : 'default'">{{ record.message_id ? '已随消息发送' : '未发送' }}</a-tag>
+                </template>
+                <template v-else-if="column.key === 'action'">
+                  <a-popconfirm title="彻底删除该暂存附件（行+盘文件，不可恢复）？" @confirm="deleteStaged([record.attachment_id])">
+                    <a-button size="small" danger type="link">删除</a-button>
+                  </a-popconfirm>
+                </template>
+              </template>
+            </a-table>
+          </div>
+        </a-spin>
+      </a-tab-pane>
+
       <!-- 审计 / 绩效（AI 同事 LLM 与工具调用 trace） -->
       <a-tab-pane v-if="showAudit" key="audit" tab="审计 / 绩效">
         <a-spin :spinning="auditLoading">
@@ -993,6 +1046,49 @@ const trashColumns = [
   { title: '操作', key: 'action', width: 220 },
 ]
 
+// ── 暂存附件（AI 设置·管理页）：全部用户暂存池的运维清理入口 ──
+const staged = ref<any[]>([])
+const stagedLoading = ref(false)
+const stagedSelected = ref<string[]>([])
+const stagedTotalSize = computed(() => staged.value.reduce((a: number, r: any) => a + (Number(r.file_size) || 0), 0))
+function fmtSize(n: number) {
+  const v = Number(n) || 0
+  if (v >= 1024 * 1024) return (v / 1024 / 1024).toFixed(1) + ' MB'
+  if (v >= 1024) return (v / 1024).toFixed(0) + ' KB'
+  return String(v) + ' B'
+}
+const stagedColumns = [
+  { title: '上传人', dataIndex: 'uploader_name', width: 140 },
+  { title: '文件名', dataIndex: 'original_filename', width: 280 },
+  { title: '大小', key: 'size', width: 90 },
+  { title: '状态', key: 'sent', width: 130 },
+  { title: '上传时间', dataIndex: 'created_at', width: 170 },
+  { title: '操作', key: 'action', width: 90 },
+]
+async function loadStaged() {
+  stagedLoading.value = true
+  stagedSelected.value = []
+  try {
+    const d = await assistantApi.threads.stagedList()
+    staged.value = d.attachments || []
+  } catch (err) {
+    console.error('加载暂存附件失败:', err)
+    message.error('加载暂存附件失败')
+  } finally {
+    stagedLoading.value = false
+  }
+}
+async function deleteStaged(ids: string[]) {
+  try {
+    const n = await assistantApi.threads.stagedDelete(ids)
+    message.success(`已清理 ${n} 个暂存附件`)
+    await loadStaged()
+  } catch (err) {
+    console.error('清理暂存附件失败:', err)
+    message.error('清理失败')
+  }
+}
+
 function resetThreadFilters() {
   threadKindFilter.value = undefined
   roleKeyFilter.value = undefined
@@ -1113,7 +1209,7 @@ const toolsLoading = ref(false)
 const toolGroups = computed(() => {
   const byCat = new Map<string, AssistantToolInfo[]>()
   for (const t of tools.value) {
-    const key = String(t.category || 'selection')
+    const key = String(t.category || 'workflow')
     if (!byCat.has(key)) byCat.set(key, [])
     byCat.get(key)!.push(t)
   }
@@ -1142,6 +1238,7 @@ watch(activeTab, (k) => {
   if (k === 'threads') loadThreads()
   if (k === 'audit') loadAudit()
   if (k === 'access') loadAccessRoles()
+  if (k === 'staged') loadStaged()
 }, { immediate: true })  // 嵌入模式 section=threads/audit 时初始 activeTab 即目标页，无变更事件，必须 immediate 才会加载
 
 watch(publicTab, (k) => {
@@ -1360,7 +1457,7 @@ onMounted(loadAccessRoles)
 .threads-ops { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
 .threads-ops-tip { font-size: 12px; color: var(--cpq-text-muted); }
 .threads-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.thread-meta-line { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; color: var(--cpq-text-secondary); font-size: 12px; }
+.thread-meta-line { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary); font-size: 12px; }
 .thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: bottom; }
 .thread-msg-empty { color: var(--cpq-text-muted); }
 .tool-group { margin-bottom: 16px; }
@@ -1373,7 +1470,7 @@ onMounted(loadAccessRoles)
 .tool-group-count {
   margin-left: 6px;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11px;
   font-weight: 400;
   color: var(--cpq-text-secondary);
@@ -1386,7 +1483,7 @@ onMounted(loadAccessRoles)
   gap: 12px;
 }
 .thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
-.thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; padding: 8px 10px; }
+.thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); padding: 8px 10px; }
 .thread-msg-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--cpq-text-muted); }
 .thread-msg-content { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); }
 .dispatch-rule {

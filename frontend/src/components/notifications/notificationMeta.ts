@@ -7,6 +7,7 @@ import {
   ArrowRightOutlined,
   AuditOutlined,
   FileDoneOutlined,
+  MessageOutlined,
   RollbackOutlined,
   RedoOutlined,
   UserAddOutlined,
@@ -24,7 +25,7 @@ export interface NotificationTypeMeta {
 export type NotificationGroupKey = 'todo' | 'approval' | 'activity'
 
 export const NOTIFICATION_GROUPS: { key: NotificationGroupKey; label: string; types: string[] }[] = [
-  { key: 'todo', label: '待办', types: ['task_assigned', 'card_returned'] },
+  { key: 'todo', label: '待办', types: ['task_assigned', 'card_returned', 'comment_mention'] },
   {
     key: 'approval',
     label: '审批',
@@ -35,6 +36,7 @@ export const NOTIFICATION_GROUPS: { key: NotificationGroupKey; label: string; ty
 
 const META: Record<string, NotificationTypeMeta> = {
   task_assigned: { label: '任务', group: 'todo', icon: UserAddOutlined, colorClass: 'i-blue' },
+  comment_mention: { label: '提及', group: 'todo', icon: MessageOutlined, colorClass: 'i-violet' },
   stage_advanced: { label: '阶段', group: 'activity', icon: ArrowRightOutlined, colorClass: 'i-green' },
   card_returned: { label: '退回', group: 'todo', icon: RollbackOutlined, colorClass: 'i-red' },
   withdraw_requested: { label: '撤回', group: 'approval', icon: RedoOutlined, colorClass: 'i-violet' },

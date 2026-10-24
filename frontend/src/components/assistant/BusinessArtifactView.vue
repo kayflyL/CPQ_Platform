@@ -126,11 +126,11 @@ const slotRows = computed(() => {
   margin: 8px 0;
   padding: 10px 12px;
   border: 1px solid var(--cpq-border-secondary, #e5e6eb);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-bg-card, #ffffff);
 }
 .ba-head { display: flex; align-items: center; gap: 8px; }
-.ba-badge { font-size: 12px; color: var(--cpq-accent-primary, #1677ff); background: var(--cpq-overlay-a10, #e8f3ff); padding: 2px 8px; border-radius: 999px; }
+.ba-badge { font-size: 12px; color: var(--cpq-accent-primary, #1677ff); background: var(--cpq-overlay-a10, #e8f3ff); padding: 2px 8px; border-radius: var(--cpq-radius-full); }
 .ba-title { font-weight: 600; color: var(--cpq-text-primary); }
 .ba-status { margin-left: auto; font-size: 12px; color: var(--cpq-text-muted, #86909c); }
 .ba-summary { margin-top: 6px; font-size: 13px; color: var(--cpq-text-secondary, #4e5969); }

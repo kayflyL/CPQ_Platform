@@ -1,20 +1,20 @@
 {
  "metrics": {
-  "scenario": "兆芯需求-反问开-全旅程",
-  "finished": true,
+  "scenario": "lane-split-cost-e2e",
+  "finished": false,
   "turns": 4,
-  "wall_s": 183.3,
-  "turn_s_min": 22.2,
-  "turn_s_max": 89.2,
-  "cards": 3,
+  "wall_s": 121.8,
+  "turn_s_min": 20.5,
+  "turn_s_max": 39.2,
+  "cards": 0,
   "repeat_cards": 0,
   "repeat_rows": 0,
   "repeat_cats": 0,
   "auto_answers": 0,
-  "kp_rows": 8,
-  "assembled_rows": 17,
-  "last_step": "output",
-  "pause_events": 3,
+  "kp_rows": null,
+  "assembled_rows": null,
+  "last_step": "",
+  "pause_events": 4,
   "pause_kinds": [
    "brain_ask"
   ],
@@ -25,178 +25,87 @@
   "pause_kinds_unknown": [],
   "interrupted": false
  },
- "cards": [
-  {
-   "turn": 1,
-   "slot": "brain_ask",
-   "row": "",
-   "n_options": 3,
-   "sig": [
-    "brain_ask",
-    "",
-    [
-     "AI / 加速计算服务器",
-     "存储服务器",
-     "通用计算服务器"
-    ]
-   ],
-   "repeat_card": false,
-   "repeat_row": false,
-   "cat": "",
-   "repeat_cat": false
-  },
-  {
-   "turn": 2,
-   "slot": "chassis_form",
-   "row": "",
-   "n_options": 2,
-   "sig": [
-    "chassis_form",
-    "",
-    [
-     "2U",
-     "4U"
-    ]
-   ],
-   "repeat_card": false,
-   "repeat_row": false,
-   "cat": "",
-   "repeat_cat": false
-  },
-  {
-   "turn": 3,
-   "slot": "platform_type",
-   "row": "",
-   "n_options": 2,
-   "sig": [
-    "platform_type",
-    "",
-    [
-     "Orion",
-     "Polaris"
-    ]
-   ],
-   "repeat_card": false,
-   "repeat_row": false,
-   "cat": "",
-   "repeat_cat": false
-  }
- ],
+ "cards": [],
  "turns": [
   {
-   "input": "CPU：2颗兆芯50000 处理器（2.2GHz/96C）\n内存：768GB DDR5\n硬盘：2块480G SSD+1块1.92T SSD+4块6T HDD\nRaid：Raid卡（1GB缓存，支持超融合，RAID0/1/5/6和JBOD）\n网卡：4个千兆，2个万兆\n电源：双电源\n服务：3年专业支持和关键任务 (7x24)",
-   "dur": 36.542195081710815,
-   "narration": "已登记您的配置需求（含兆芯平台归置 Polaris）。还差一项：这批服务器主要用途是？已收到您的配置清单并完成登记。最后确认一下这台服务器的定位，方便锁定合适机型～",
-   "nodes": [
-    [
-     "input",
-     "需求原文 已生成"
-    ]
-   ],
-   "paused": "brain_ask 选项=[存储服务器/通用计算服务器/AI / 加速计算服务器]",
+   "input": "【开工单】· 客户名称：E2E分流验证 · 归属业务：admin · 加价率 %：31 · 附件：WBB-2026-1021-01 桃红.xlsx（成本表，走交付转报价）",
+   "dur": 20.4620144367218,
+   "narration": "收到开工单！客户「E2E分流验证」、归属 admin、加价率 31%，成本表已就位。我先把商机建起来：✅ 商机已创建：OPP-20261022042631124584（客户「E2E分流验证」，归属 admin）。\n\n接下来对附件做成本表解析预览（只识别、不落库）：解析预览完成 ✨ 这是成本表，识别结果：\n\n- **表名**：WBB-2026-1021-01 桃红.xlsx\n- **配置数**：1 个（CF1，机型 ZSA240 V2，数量 1）\n- **价格情况**：L6 标准成本识别为 0（如原表确无价格，可在产物卡内编辑补价）\n\n确认无误请在下方卡片点「确认执行」，我就落草稿并归档原件。",
+   "nodes": [],
+   "paused": "",
    "pause": [
     {
      "turn": 1,
      "kind": "brain_ask",
-     "step": "agent_fill",
-     "label": "Agent fill",
+     "step": "identify",
+     "label": "识别与商机定位",
      "reason_code": "brain_ask",
      "resumable": true,
-     "pending": [
-      "brain_ask"
-     ],
+     "pending": [],
      "steps_done": []
     }
    ],
    "finished": false
   },
   {
-   "input": "[{\"slot\": \"brain_ask\", \"value\": \"存储服务器\"}]",
-   "dur": 22.19479489326477,
-   "narration": "已收到，服务器类型登记为「存储服务器」。还差机箱形态一项：需求登记基本齐全（类型：存储服务器、平台 Polaris、数量 1、3 年维保），只差机箱形态——结合多盘存储需求我推荐 4U（盘位更充裕），请在选项卡上确认 2U 或 4U。",
-   "nodes": [
-    [
-     "input",
-     "需求原文 已生成"
-    ]
-   ],
-   "paused": "chassis_form 选项=[4U/2U]",
+   "input": "确认执行",
+   "dur": 39.16370940208435,
+   "narration": "成本表落位时遇到一个问题需要如实说明：我多次尝试执行落草稿（含确认参数），但系统始终只返回\"仅解析预览（未落草稿未归档）\"，草稿没有实际生成。\n\n当前状态：\n- ✅ 商机已绑定：E2E分流验证（OPP-20261022042631124584）\n- ✅ 表解析成功：1 个配置 CF1（ZSA240 V2，数量 1）\n- ⚠️ 成本草稿：未能落库，系统提示仅预览，未返回 sheet_id\n\n建议处理方式：可能是附件来源标记问题（该附件是会话暂存而非商机桶内原件）。你可以在产物卡或成本工作台里手动点「落草稿」，或者把附件重新上传挂在商机名下，我再执行一次导入。抱歉这一步没能直接办妥 🙏",
+   "nodes": [],
+   "paused": "",
    "pause": [
     {
      "turn": 2,
      "kind": "brain_ask",
-     "step": "agent_fill",
-     "label": "Agent fill",
+     "step": "identify",
+     "label": "识别与商机定位",
      "reason_code": "brain_ask",
      "resumable": true,
-     "pending": [
-      "chassis_form"
-     ],
+     "pending": [],
      "steps_done": []
     }
    ],
    "finished": false
   },
   {
-   "input": "2U",
-   "dur": 35.337902307510376,
-   "narration": "已按您的选择把机箱形态登记为 2U。需求登记表已齐：存储服务器、Polaris 平台、2U、数量 1、3 年 7×24 维保，配件清单含 2 颗兆芯 CPU、768GB 内存、7 块盘、Raid 卡及 4 千兆+2 万兆网卡。接下来进入机型选型，我会为您匹配 2U Polaris 平台的存储机型。机箱形态已收到，登记为 2U。另外平台类型因是推断值（兆芯归置 Polaris），需您确认一下：机箱形态已登记为 2U。最后请您在选项卡上确认一下平台类型：兆芯处理器仅适配 Polaris 平台机型，我推荐选 Polaris，确认后需求登记就收口了。",
-   "nodes": [
-    [
-     "input",
-     "需求原文 已生成"
-    ]
-   ],
-   "paused": "platform_type 选项=[Polaris 平台/Orion 平台]",
+   "input": "确认执行",
+   "dur": 37.85247230529785,
+   "narration": "执行结果如实说明：\n\n- ✅ **附件归档成功**：cost_sheet.xlsx 已挂到商机「E2E分流验证」（OPP-20261022042631124584）的线索登记/需求环节桶\n- ⚠️ **成本草稿仍未落库**：我带确认参数多次执行，系统始终只返回\"仅解析预览（未落草稿未归档）\"，未给出 sheet_id\n\n解析内容本身没问题：1 个配置 CF1（ZSA240 V2，数量 1，L6 成本为 0）。当前卡点是系统未把草稿落库——这个动作我这边无法绕过，建议你在成本工作台对已归档的这份附件手动点「生成草稿」，草稿出来后我继续陪你走加价与转报价。\n\n再次抱歉这步没能全自动办妥 🙏",
+   "nodes": [],
+   "paused": "",
    "pause": [
     {
      "turn": 3,
      "kind": "brain_ask",
-     "step": "agent_fill",
-     "label": "Agent fill",
+     "step": "identify",
+     "label": "识别与商机定位",
      "reason_code": "brain_ask",
      "resumable": true,
-     "pending": [
-      "platform_type"
-     ],
+     "pending": [],
      "steps_done": []
     }
    ],
    "finished": false
   },
   {
-   "input": "Polaris",
-   "dur": 89.21201276779175,
-   "narration": "已收到您的确认：机箱 2U、平台 Polaris，需求登记表全部收口。需求登记已全部完成 ✅\n\n- 服务器类型：存储服务器\n- 平台：Polaris（兆芯适配）\n- 机箱：2U\n- 数量：1 台，维保：3 年专业支持（7×24）\n- 配件清单：2×兆芯50000 CPU、768GB DDR5、7 块硬盘、Raid 卡、4 千兆+2 万兆网卡均已逐行登记\n\n下一步我会为您匹配 2U Polaris 平台的存储机型，请稍候。收到，2U + Polaris 已确认，需求登记表收口。机型已锁定：**ZS25V2-P**——2U 存储服务器，兆芯 Polaris 平台，12 盘位满足您 7 块盘的配置需求，高密度、成熟稳定。接下来进入配件选型，我会按您清单逐项匹配具体配件。进入配件选型，我先按行批量召回库内候选。配件方案已全部落地，8 行均匹配库内料号：\n\n- **CPU**：KH50000 96C",
-   "nodes": [
-    [
-     "input",
-     "需求原文 已生成"
-    ],
-    [
-     "agent_fill",
-     "线索登记表 · 6 项已登记"
-    ],
-    [
-     "model_reason",
-     "机箱表（L6 配置） · 机型「ZS25V2-P」 / 9 行"
-    ],
-    [
-     "kp_reason",
-     "配件表（方案配置配件部分） · 8 行"
-    ],
-    [
-     "compose",
-     "方案配置表（L6 + KP 组装结果） · 17 行 / 1 个整机配置"
-    ],
-    [
-     "output",
-     "方案配置卡 · 1 个整机配置"
-    ]
-   ],
+   "input": "确认执行",
+   "dur": 24.31891131401062,
+   "narration": "我已用商机名下最新附件（LLW2026-1015 桃红.xlsx）重试，结果如实说明：\n\n- 解析正常：6 个配置（需求1~5 ZS220 V2、需求6 ZSA240 V2，L6 成本均为 0——这类表 L6 标准成本导入为 0 是已知情况）\n- ⚠️ 但执行仍被系统限制为「仅解析预览」，草稿未落库、未归档，未返回 sheet_id\n\n我这边换附件、带商机、带确认参数都试过了，系统始终停留在预览态，这个落库动作我无法绕过。下一步：请在成本工作台对这份已解析的附件手动点「生成草稿」，草稿出来后告诉我，我继续陪你走加价率 31% 与提交转报价。",
+   "nodes": [],
    "paused": "",
-   "pause": [],
-   "finished": true
+   "pause": [
+    {
+     "turn": 4,
+     "kind": "brain_ask",
+     "step": "identify",
+     "label": "识别与商机定位",
+     "reason_code": "brain_ask",
+     "resumable": true,
+     "pending": [],
+     "steps_done": []
+    }
+   ],
+   "finished": false
   }
  ]
 }

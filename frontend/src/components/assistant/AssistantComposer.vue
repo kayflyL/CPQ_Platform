@@ -1,5 +1,34 @@
 <template>
-  <div class="ac-composer">
+  <div
+    class="ac-composer"
+    :class="{ 'ac-dragover': dragOver }"
+    @dragover.prevent="onDragOver"
+    @dragleave.prevent="dragOver = false"
+    @drop.prevent="onDrop"
+  >
+    <!-- 附件 chip 行：选中即传；状态在卡上（uploading/done/error），✕ 移除（仅未发送） -->
+    <div v-if="attachments.length" class="ac-attach-row">
+      <div
+        v-for="a in attachments"
+        :key="a.attachment_id || a.localKey"
+        class="ac-attach-chip"
+        :class="'is-' + (a.status || 'done')"
+        :title="a.error || a.name"
+      >
+        <span class="ac-attach-icon">{{ attachIcon(a.name) }}</span>
+        <span class="ac-attach-name">{{ a.name }}</span>
+        <span class="ac-attach-size">{{ sizeText(a.size) }}</span>
+        <button
+          v-if="a.status !== 'uploading'"
+          type="button"
+          class="ac-attach-x"
+          title="移除"
+          @click="$emit('remove-attachment', String(a.attachment_id || a.localKey))"
+        >
+          ✕
+        </button>
+      </div>
+    </div>
     <div class="ac-row">
       <!-- 工作流入口：私聊=当前角色绑定工作流；群聊=全员工作流并集。点击直接发起（显式 ACTIVE） -->
       <span v-if="showSkills && skillOptions.length" class="ac-skill-anchor">
@@ -29,7 +58,7 @@
           </div>
         </transition>
       </span>
-      <div class="ac-input-wrap">
+      <div class="ac-input-wrap" @paste="onPaste">
         <a-textarea
           ref="taRef"
           :value="modelValue"
@@ -61,6 +90,25 @@
         </transition>
       </div>
       <div class="ac-actions">
+        <!-- 附件入口：点选/拖拽/粘贴 → 宿主上传到会话暂存；chip 状态由宿主下发 -->
+        <button
+          v-if="allowAttach"
+          type="button"
+          class="ac-attach-btn"
+          title="添加附件"
+          :disabled="disabled"
+          @click="fileInputRef?.click()"
+        >
+          📎
+        </button>
+        <input
+          v-if="allowAttach"
+          ref="fileInputRef"
+          type="file"
+          multiple
+          class="ac-file-input"
+          @change="onPickFiles"
+        />
         <button
           v-if="members.length"
           type="button"
@@ -73,6 +121,7 @@
         </button>
         <a-button
           type="primary"
+          class="ac-send"
           :disabled="disabled || (!busy && !modelValue.trim())"
           @click="busy ? $emit('stop') : $emit('send')"
         >
@@ -82,17 +131,18 @@
         <slot name="actions" />
       </div>
     </div>
-    <!-- 操作暗示行（原型 composer-hint）：房间/群聊传 hint 才显示 -->
-    <div v-if="hint" class="ac-hint">{{ hint }}</div>
     <!-- 排队可见化：回合执行中再发的消息被串行扣住，这里给出可数凭据（queue_state 事件驱动） -->
     <div v-if="queued > 0" class="ac-queue">
       <span class="ac-queue-dot"></span>
       <span>已排队 {{ queued }} 条，当前任务完成后自动处理</span>
     </div>
-    <!-- 上下文水位：细进度条 + xx%（绿→黄→红） -->
-    <div v-if="contextUsage" class="ac-ctx" :class="'ac-ctx--' + ctxLevel">
-      <div class="ac-ctx-track"><i class="ac-ctx-fill" :style="{ width: ctxPct + '%' }"></i></div>
-      <span class="ac-ctx-num">上下文 {{ ctxPct }}%</span>
+    <!-- 底部元信息行：水位条居左弹性伸展、操作暗示居右；有谁显谁，不各占一层 -->
+    <div v-if="hint || contextUsage" class="ac-meta">
+      <div v-if="contextUsage" class="ac-ctx" :class="'ac-ctx--' + ctxLevel">
+        <div class="ac-ctx-track"><i class="ac-ctx-fill" :style="{ width: ctxPct + '%' }"></i></div>
+        <span class="ac-ctx-num">上下文 {{ ctxPct }}%</span>
+      </div>
+      <div v-if="hint" class="ac-hint">{{ hint }}</div>
     </div>
   </div>
 </template>
@@ -118,6 +168,17 @@ const props = withDefaults(defineProps<{
   hint?: string
   /** 上下文水位（{ ratio }），传入则显示水位条 */
   contextUsage?: { ratio?: number } | null
+  /** 附件入口：传入后显示 📎/拖拽/粘贴（仅方案助手聊天面板开启） */
+  allowAttach?: boolean
+  /** 附件 chip（宿主持有上传状态并下发）；attachment_id=已上传，localKey=上传中 */
+  attachments?: Array<{
+    attachment_id?: string
+    localKey?: string
+    name: string
+    size: number
+    status?: 'uploading' | 'done' | 'error'
+    error?: string
+  }>
 }>(), {
   placeholder: '输入消息…',
   disabled: false,
@@ -130,6 +191,8 @@ const props = withDefaults(defineProps<{
   queued: 0,
   hint: '',
   contextUsage: null,
+  allowAttach: false,
+  attachments: () => [],
 })
 
 const emit = defineEmits<{
@@ -137,10 +200,61 @@ const emit = defineEmits<{
   (e: 'send'): void
   (e: 'stop'): void
   (e: 'pickSkill', skill: any): void
+  (e: 'files-picked', files: File[]): void
+  (e: 'remove-attachment', key: string): void
 }>()
 
 const busy = computed(() => props.sending || props.running)
 const taRef = ref<{ focus?: (option?: any) => void } | null>(null)
+
+// ── 附件：点选/拖拽/粘贴 → 交宿主上传（状态由宿主下发到 attachments prop）──
+const fileInputRef = ref<HTMLInputElement | null>(null)
+const dragOver = ref(false)
+
+function onDragOver() {
+  if (!props.allowAttach || props.disabled) return
+  dragOver.value = true
+}
+
+function onDrop(e: DragEvent) {
+  dragOver.value = false
+  if (!props.allowAttach || props.disabled) return
+  const files = Array.from(e.dataTransfer?.files || [])
+  if (files.length) emit('files-picked', files)
+}
+
+function onPickFiles(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = Array.from(input.files || [])
+  input.value = ''
+  if (files.length) emit('files-picked', files)
+}
+
+function onPaste(e: ClipboardEvent) {
+  if (!props.allowAttach || props.disabled) return
+  const files = Array.from(e.clipboardData?.files || [])
+  if (files.length) {
+    e.preventDefault()
+    emit('files-picked', files)
+  }
+}
+
+function attachIcon(name: string): string {
+  const ext = (name.split('.').pop() || '').toLowerCase()
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp'].includes(ext)) return '🖼️'
+  if (ext === 'pdf') return 'PDF'
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'XLS'
+  if (['docx', 'doc'].includes(ext)) return 'DOC'
+  if (ext === 'zip') return 'ZIP'
+  return 'TXT'
+}
+
+function sizeText(size: number): string {
+  if (!size) return ''
+  if (size >= 1024 * 1024) return (size / 1024 / 1024).toFixed(1) + ' MB'
+  if (size >= 1024) return Math.round(size / 1024) + ' KB'
+  return size + ' B'
+}
 
 // ── @ 点名补全：文本以 "@片段" 结尾时弹出候选 ──
 const mentionQuery = ref<string | null>(null)
@@ -170,7 +284,7 @@ const skillOptions = computed<any[]>(() => {
     const key = String(s?.key ?? s?.skill_key ?? s?.name ?? '').trim()
     if (!key || seen.has(key)) continue
     seen.add(key)
-    out.push({ key, name: String(s?.name || key), description: String(s?.description || '') })
+    out.push({ key, name: String(s?.name || key), description: String(s?.description || ''), launchForm: (s as any).launchForm || null })
   }
   return out
 })
@@ -188,7 +302,7 @@ function memberDesc(m: any): string {
   if (typeof m?.description === 'string' && m.description.trim()) return m.description.trim()
   const skills = Array.isArray(m?.skills) ? m.skills : []
   const text = skills.map((s: any) => (typeof s === 'string' ? s : s?.name || '')).filter(Boolean).join('、')
-  return text || 'AI 员工'
+  return text || 'AI 同事'
 }
 
 function insertAt() {
@@ -265,7 +379,7 @@ defineExpose({ focus })
   max-width: 320px;
   max-height: 260px;
   overflow: auto;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
   background: var(--cpq-bg-elevated, #ffffff);
   box-shadow: 0 8px 24px var(--cpq-shadow-color-strong, rgba(22, 119, 255, 0.14));
@@ -285,7 +399,7 @@ defineExpose({ focus })
   width: 100%;
   padding: 7px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -326,7 +440,7 @@ defineExpose({ focus })
 .ac-at-btn {
   height: 32px;
   min-width: 32px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w8, rgba(255, 255, 255, 0.12));
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
   color: var(--cpq-text-primary, #f5f7fa);
@@ -343,6 +457,13 @@ defineExpose({ focus })
   cursor: not-allowed;
 }
 
+/* 发送钮：可用态=品牌色主按钮；空文本/占用中压成玻璃中性灰——「不可点」而非「坏了」 */
+.ac-send.ant-btn-primary:disabled {
+  background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
+  border-color: transparent;
+  color: var(--cpq-text-muted, #86909c);
+}
+
 .ac-mention-pop {
   position: absolute;
   bottom: calc(100% + 6px);
@@ -350,7 +471,7 @@ defineExpose({ focus })
   right: 0;
   max-height: 220px;
   overflow: auto;
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
   background: var(--cpq-bg-elevated, #ffffff);
   box-shadow: 0 8px 24px var(--cpq-shadow-color-strong, rgba(22, 119, 255, 0.14));
@@ -369,7 +490,7 @@ defineExpose({ focus })
   width: 100%;
   padding: 6px 8px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   cursor: pointer;
   text-align: left;
@@ -401,11 +522,10 @@ defineExpose({ focus })
   white-space: nowrap;
 }
 
-/* 手机端（≤768）：动作区换行到输入区下方整行，输入区不再被发送/展开按钮挤压 */
+/* 手机端（≤768）：布局与桌面同构（+ | 输入 | @ | 发送 全单行，IM 惯例形态）；
+   仅隐藏 hint——Enter 发送/悬停引用是桌面操作暗示，触屏不成立 */
 @media (max-width: 768px) {
-  .ac-row { flex-wrap: wrap; }
-  .ac-input-wrap { flex: 1 1 100%; }
-  .ac-actions { flex: 1 1 100%; justify-content: flex-end; }
+  .ac-hint { display: none; }
 }
 
 .ac-mention-enter-active,
@@ -418,10 +538,16 @@ defineExpose({ focus })
   transform: translateY(4px);
 }
 
-/* 排队徽标：蓝点呼吸 + 一行说明（queued prop 驱动） */
-/* 操作暗示行：右对齐小字，与发送钮同侧 */
+/* 底部元信息行：水位条居左弹性伸展、操作暗示居右，有谁显谁（不再各占一层） */
+.ac-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--cpq-space-3);
+  padding: 0 2px;
+}
+.ac-meta .ac-ctx { flex: none; }
+.ac-meta .ac-hint { flex: none; max-width: 60%; margin-left: auto; }
 .ac-hint {
-  padding: 2px 4px 0;
   font-size: 11px;
   color: var(--cpq-text-muted, #86909c);
   text-align: right;
@@ -429,6 +555,7 @@ defineExpose({ focus })
   overflow: hidden;
   text-overflow: ellipsis;
 }
+/* 排队徽标：蓝点呼吸 + 一行说明（queued prop 驱动） */
 .ac-queue {
   display: flex;
   align-items: center;
@@ -454,20 +581,19 @@ defineExpose({ focus })
 .ac-ctx {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 2px;
+  gap: var(--cpq-space-2);
 }
 .ac-ctx-track {
-  flex: 1;
+  width: 96px;
   height: 4px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
   overflow: hidden;
 }
 .ac-ctx-fill {
   display: block;
   height: 100%;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   background: #52c41a;
   transition: width 0.2s ease;
 }
@@ -490,4 +616,73 @@ defineExpose({ focus })
 .ac-composer :deep(.ant-input::placeholder) {
   color: var(--cpq-text-muted, #9aa4b2);
 }
+
+/* 拖拽悬停：边框亮起 + 背景微亮（主色，不用渐变；glass token） */
+.ac-composer.ac-dragover {
+  border-top-color: var(--cpq-accent-primary, #1677ff);
+  background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
+}
+
+/* 附件 chip 行：位于输入行上方，横向可换行 */
+.ac-attach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--cpq-space-2);
+}
+.ac-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 8px;
+  border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
+  font-size: 12px;
+}
+.ac-attach-chip.is-error { border-color: #ff4d4f; }
+.ac-attach-chip.is-uploading { opacity: 0.65; }
+.ac-attach-icon {
+  flex: none;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--cpq-text-muted, #9aa4b2);
+  min-width: 22px;
+  text-align: center;
+}
+.ac-attach-name {
+  color: var(--cpq-text-primary, #f5f7fa);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ac-attach-size {
+  flex: none;
+  color: var(--cpq-text-muted, #9aa4b2);
+}
+.ac-attach-x {
+  flex: none;
+  border: none;
+  background: transparent;
+  color: var(--cpq-text-muted, #9aa4b2);
+  cursor: pointer;
+  padding: 0 2px;
+}
+.ac-attach-x:hover { color: var(--cpq-text-primary, #f5f7fa); }
+
+/* 附件按钮：与 @ 按钮同玻璃形态 */
+.ac-attach-btn {
+  height: 32px;
+  min-width: 32px;
+  border-radius: var(--cpq-radius-sm);
+  border: 1px solid var(--cpq-overlay-w8, rgba(255, 255, 255, 0.12));
+  background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
+  font-size: 14px;
+  cursor: pointer;
+}
+.ac-attach-btn:hover {
+  border-color: var(--cpq-accent-primary, #1677ff);
+}
+.ac-attach-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.ac-file-input { display: none; }
 </style>

@@ -9,7 +9,29 @@ from fastapi.responses import StreamingResponse
 from app.repository.kp_repo import KPRepository
 from app.repository.l6_repo import L6Repository
 from app.services.kp_import_export import ExportService, TemplateService, ImportService
-from app.api.deps import get_current_user, require_perms
+from app.api.deps import get_current_user, require_perms, field_visible
+from app.utils.price_mask import mask_part_price_fields
+
+# 配件价格双键：field.parts.price 看库价（遮罩/门禁读），action.parts.price.manage 写价。
+# 只维护配件档案（名称/分类/规格）仍走 page.parts；写价端点一律 manage 键。
+_PRICE_VIEW = "field.parts.price"
+_PRICE_MANAGE = "action.parts.price.manage"
+
+# 配件编辑载荷里与价格相关的键：无 manage 键的调用方（技术/业务录规格）一律剥掉，
+# 防止他们借「编辑配件」覆写真实库价。
+_PART_PAYLOAD_PRICE_KEYS = {"initial_price", "initial_currency", "initial_price_date",
+                            "price", "unit_price", "latest_price", "price_history"}
+
+
+def _strip_price_payload(data: dict, user: dict) -> dict:
+    if field_visible(user, _PRICE_MANAGE):
+        return data
+    return {k: v for k, v in data.items() if k not in _PART_PAYLOAD_PRICE_KEYS}
+
+
+def _require_price_view(user: dict) -> None:
+    if not field_visible(user, _PRICE_VIEW):
+        raise HTTPException(status_code=403, detail="无权限查看配件价格")
 
 # 默认登录门槛（SPA 无匿名面）；写操作再按归属页面收 page.* 权限。
 router = APIRouter(
@@ -42,10 +64,12 @@ def list_kp_categories():
 
 
 @router.get("/kp/by-category")
-def list_kp_by_category(category: str, search: str = ""):
+def list_kp_by_category(category: str, search: str = "", user: dict = Depends(get_current_user)):
     repo = KPRepository()
     try:
         items = repo.get_by_category(category, search)
+        if not field_visible(user, _PRICE_VIEW):
+            items = mask_part_price_fields(items)
         return {"items": items, "total": len(items)}
     finally:
         repo.close()
@@ -86,20 +110,25 @@ def update_kp_note(data: dict):
 
 
 @router.get("/kp/list")
-def list_kp(page: int = 1, page_size: int = 20, search: str = "", category: str = "", sort_by: str = "date", sort_order: str = "desc"):
+def list_kp(page: int = 1, page_size: int = 20, search: str = "", category: str = "",
+            sort_by: str = "date", sort_order: str = "desc", user: dict = Depends(get_current_user)):
     repo = KPRepository()
     try:
+        price_ok = field_visible(user, _PRICE_VIEW)
+        if not price_ok and sort_by == "price":
+            sort_by = "date"  # 无价角色禁价格排序（顺序本身也是价格信息）
         all_items = repo.get_latest_prices(search, category, sort_by, sort_order)
+        if not price_ok:
+            all_items = mask_part_price_fields(all_items)
         total = len(all_items)
         start = (page - 1) * page_size
         end = start + page_size
-        page_items = all_items[start:end]
-        return {"items": page_items, "total": total}
+        return {"items": all_items[start:end], "total": total}
     finally:
         repo.close()
 
 
-@router.post("/kp/update", dependencies=[Depends(require_perms("page.parts"))])
+@router.post("/kp/update", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def update_kp_price(data: dict):
     part_name = data.get("model") or data.get("part_name")
     price = data.get("price")
@@ -123,7 +152,8 @@ def update_kp_price(data: dict):
 
 
 @router.get("/kp/history")
-def get_kp_history(model: str = None, part_name: str = None):
+def get_kp_history(model: str = None, part_name: str = None, user: dict = Depends(get_current_user)):
+    _require_price_view(user)
     target = model or part_name
     if not target:
         raise HTTPException(status_code=400, detail="Missing model or part_name")
@@ -156,7 +186,7 @@ def download_parts_template():
         repo.close()
 
 
-@router.get("/kp/parts/export")
+@router.get("/kp/parts/export", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def export_parts(category_id: int = None):
     """导出全部 KP 配件为 xlsx(固定字段 + 透视规格列 + 最新价格)。"""
     repo = KPRepository()
@@ -172,7 +202,7 @@ def export_parts(category_id: int = None):
         repo.close()
 
 
-@router.post("/kp/parts/import", dependencies=[Depends(require_perms("page.parts"))])
+@router.post("/kp/parts/import", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 async def import_parts(file: UploadFile = File(...), dry_run: bool = Query(False)):
     """批量导入 KP 配件。dry_run=true 返回逐行预览(新增/更新/冲突);false 正式写入。"""
     content = await file.read()
@@ -196,12 +226,23 @@ async def import_parts(file: UploadFile = File(...), dry_run: bool = Query(False
 @router.get("/kp/parts")
 def list_parts(category_id: int = None, search: str = "", page: int = 1, page_size: int = 20,
                sort_by: str = "name", sort_order: str = "asc",
-               brands: str = None, price_filter: str = None, specs: str = None):
+               brands: str = None, price_filter: str = None, specs: str = None,
+               user: dict = Depends(get_current_user)):
     """分页列出配件（支持品牌/价格记录/规格筛选）"""
     repo = KPRepository()
     try:
-        return repo.list_parts(category_id, search, page, page_size, sort_by, sort_order,
+        price_ok = field_visible(user, _PRICE_VIEW)
+        if not price_ok:
+            sort_by = "name" if sort_by == "price" else sort_by
+            price_filter = None  # 有/无报价筛选也泄露价格存在性
+        data = repo.list_parts(category_id, search, page, page_size, sort_by, sort_order,
                                brands, price_filter, specs)
+        if not price_ok and isinstance(data, dict):
+            # 只遮行数据，不碰分页信封（total）
+            for k, v in data.items():
+                if isinstance(v, list):
+                    data[k] = mask_part_price_fields(v)
+        return data
     finally:
         repo.close()
 
@@ -227,8 +268,9 @@ def list_spec_facets(category_id: int = None):
 
 
 @router.get("/kp/stats")
-def kp_stats():
+def kp_stats(user: dict = Depends(get_current_user)):
     """配件库总览统计（仪表盘：总数/本周新增/有效价格/每日新增序列/最近入库/最近调价）"""
+    _require_price_view(user)
     repo = KPRepository()
     try:
         return repo.get_stats()
@@ -237,8 +279,9 @@ def kp_stats():
 
 
 @router.get("/kp/price-movers")
-def kp_price_movers(days: int = 7, limit: int = 10):
+def kp_price_movers(days: int = 7, limit: int = 10, user: dict = Depends(get_current_user)):
     """价格异动看板：最新价 vs N 天前最近一条价的涨跌幅 TOP（涨幅/跌幅各 limit 条）"""
+    _require_price_view(user)
     repo = KPRepository()
     try:
         return repo.get_price_movers(days, limit)
@@ -247,8 +290,9 @@ def kp_price_movers(days: int = 7, limit: int = 10):
 
 
 @router.get("/kp/parts/duplicates")
-def kp_parts_duplicates():
+def kp_parts_duplicates(user: dict = Depends(get_current_user)):
     """疑似重复配件检测：oem_sku/alt_sku 精确（强信号）+ 名称 difflib 相似度（弱信号），返回重复组"""
+    _require_price_view(user)
     repo = KPRepository()
     try:
         return repo.detect_duplicates()
@@ -257,26 +301,28 @@ def kp_parts_duplicates():
 
 
 @router.get("/kp/parts/{part_id}")
-def get_part(part_id: int):
+def get_part(part_id: int, user: dict = Depends(get_current_user)):
     """获取配件详情（含规格、价格历史、兼容机型）"""
     repo = KPRepository()
     try:
         part = repo.get_part(part_id)
         if not part:
             raise HTTPException(status_code=404, detail="配件不存在")
+        if not field_visible(user, _PRICE_VIEW):
+            part = mask_part_price_fields(part)
         return part
     finally:
         repo.close()
 
 
 @router.post("/kp/parts", dependencies=[Depends(require_perms("page.parts"))])
-def create_part(data: dict):
+def create_part(data: dict, user: dict = Depends(get_current_user)):
     """创建配件"""
     if not data.get("name"):
         raise HTTPException(status_code=400, detail="配件名称不能为空")
     repo = KPRepository()
     try:
-        return repo.create_part(data)
+        return repo.create_part(_strip_price_payload(data, user))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
@@ -284,11 +330,11 @@ def create_part(data: dict):
 
 
 @router.put("/kp/parts/{part_id}", dependencies=[Depends(require_perms("page.parts"))])
-def update_part(part_id: int, data: dict):
+def update_part(part_id: int, data: dict, user: dict = Depends(get_current_user)):
     """更新配件"""
     repo = KPRepository()
     try:
-        part = repo.update_part(part_id, data)
+        part = repo.update_part(part_id, _strip_price_payload(data, user))
         if not part:
             raise HTTPException(status_code=404, detail="配件不存在")
         return part
@@ -366,8 +412,9 @@ def delete_category(cat_id: int):
 
 # ---- 价格历史 ----
 @router.get("/kp/parts/{part_id}/prices")
-def get_part_prices(part_id: int):
+def get_part_prices(part_id: int, user: dict = Depends(get_current_user)):
     """获取配件价格历史"""
+    _require_price_view(user)
     repo = KPRepository()
     try:
         part = repo.get_part(part_id)
@@ -378,7 +425,7 @@ def get_part_prices(part_id: int):
         repo.close()
 
 
-@router.post("/kp/parts/{part_id}/prices", dependencies=[Depends(require_perms("page.parts"))])
+@router.post("/kp/parts/{part_id}/prices", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def add_price(part_id: int, data: dict):
     """添加价格记录"""
     if data.get("price") is None:
@@ -397,7 +444,7 @@ def add_price(part_id: int, data: dict):
         repo.close()
 
 
-@router.put("/kp/prices/{price_id}", dependencies=[Depends(require_perms("page.parts"))])
+@router.put("/kp/prices/{price_id}", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def update_price(price_id: int, data: dict):
     """更新价格记录"""
     repo = KPRepository()
@@ -416,7 +463,7 @@ def update_price(price_id: int, data: dict):
         repo.close()
 
 
-@router.delete("/kp/prices/{price_id}", dependencies=[Depends(require_perms("page.parts"))])
+@router.delete("/kp/prices/{price_id}", dependencies=[Depends(require_perms(_PRICE_MANAGE))])
 def delete_price(price_id: int):
     """删除价格记录"""
     repo = KPRepository()
@@ -431,11 +478,14 @@ def delete_price(price_id: int):
 
 # ---- 关联配件 ----
 @router.get("/kp/parts/{part_id}/related")
-def get_related_parts(part_id: int):
+def get_related_parts(part_id: int, user: dict = Depends(get_current_user)):
     """获取关联配件"""
     repo = KPRepository()
     try:
-        return {"related": repo.list_related(part_id)}
+        related = repo.list_related(part_id)
+        if not field_visible(user, _PRICE_VIEW):
+            related = mask_part_price_fields(related)
+        return {"related": related}
     finally:
         repo.close()
 
@@ -468,7 +518,8 @@ def remove_related_part(relation_id: int):
 # ================== L6 Whole Machine APIs ==================
 
 @router.get("/l6/list")
-def list_l6(page: int = 1, page_size: int = 20, search: str = ""):
+def list_l6(page: int = 1, page_size: int = 20, search: str = "", user: dict = Depends(get_current_user)):
+    _require_price_view(user)  # L6 整机记录带 price，同属配件价格门
     repo = L6Repository()
     try:
         items, total = repo.get_all_records(search, page, page_size)
@@ -504,8 +555,9 @@ def update_l6(data: dict):
 
 
 @router.get("/l6/grouped")
-def list_l6_grouped(search: str = ""):
+def list_l6_grouped(search: str = "", user: dict = Depends(get_current_user)):
     """获取按机型聚合的L6数据"""
+    _require_price_view(user)
     repo = L6Repository()
     try:
         groups = repo.get_grouped_by_model(search)
@@ -570,8 +622,9 @@ def delete_l6(record_id: int):
 
 
 @router.get("/l6/{record_id}/history")
-def get_l6_history(record_id: int, limit: int = 50):
+def get_l6_history(record_id: int, limit: int = 50, user: dict = Depends(get_current_user)):
     """获取L6记录的价格历史"""
+    _require_price_view(user)
     repo = L6Repository()
     try:
         history = repo.get_history(record_id, limit)

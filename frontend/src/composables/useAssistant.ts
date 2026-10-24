@@ -32,7 +32,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   const activeRoleKey = ref<string | null>(initialRoleKey)
   const pendingDispatch = ref<{ colleague: any; content: string; contextSummary?: string } | null>(null)
   // 工作流装填态（2026-10-15）：「+」选中工作流不再发占位消息，下一条发送以 workflow_launcher 携需求原文直进引擎
-  const armedWorkflow = ref<{ key: string; name: string; roleKey?: string | null } | null>(null)
+  const armedWorkflow = ref<{ key: string; name: string; roleKey?: string | null; launchForm?: any } | null>(null)
 
   const activeSession = computed<ChatSession | null>(() =>
     activeChannelKey.value ? runtime.get(activeChannelKey.value) : null,
@@ -243,7 +243,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   async function postSend(content: string, contextSummary?: string, roleKey?: string, optionSlot?: string | null,
                           cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
                           entryPointOverride?: string, workflowKey?: string | null,
-                          quote?: { name: string; text: string } | null) {
+                          quote?: { name: string; text: string } | null,
+                          attachmentIds?: string[] | null) {
     const s = activeSession.value
     if (!s?.threadId) return
     resetTaskUI(s)
@@ -265,6 +266,7 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
         cardSelections || null,
         workflowKey || null,
         quote || null,
+        attachmentIds || null,
       )
       s.messages.push(res.user_message)
       if (res.thread) {
@@ -293,7 +295,8 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
   async function send(content: string, contextSummary?: string, optionSlot?: string | null,
                       cardSelections?: Array<{ slot: string; value: string; label?: string; qty?: number }> | null,
                       workflowKey?: string | null,
-                      quote?: { name: string; text: string } | null) {
+                      quote?: { name: string; text: string } | null,
+                      attachmentIds?: string[] | null) {
     const text = content.trim()
     if (!text) return
     if (!currentThreadId.value) {
@@ -305,18 +308,20 @@ export function useAssistant(defaultEntryPoint: string = 'portal', options: { pr
     if (armed) {
       armedWorkflow.value = null
       await postSend(text, contextSummary, armed.roleKey || activeRoleKey.value || undefined, optionSlot || null,
-                     cardSelections || null, 'workflow_launcher', armed.key, quote || null)
+                     cardSelections || null, 'workflow_launcher', armed.key, quote || null,
+                     attachmentIds || null)
       return
     }
     await postSend(text, contextSummary, activeRoleKey.value || undefined, optionSlot || null,
-                   cardSelections || null, undefined, workflowKey || null, quote || null)
+                   cardSelections || null, undefined, workflowKey || null, quote || null,
+                   attachmentIds || null)
   }
 
   /** 「+」装填模式：选中工作流不发包；输入框进入待输入态，下一条发送即工作流首回合。 */
-  function armWorkflow(workflowKey: string, displayName?: string, roleKey?: string | null) {
+  function armWorkflow(workflowKey: string, displayName?: string, roleKey?: string | null, launchForm?: any) {
     const key = (workflowKey || '').trim()
     if (!key) return
-    armedWorkflow.value = { key, name: (displayName || key).trim(), roleKey: roleKey || null }
+    armedWorkflow.value = { key, name: (displayName || key).trim(), roleKey: roleKey || null, launchForm: launchForm || null }
   }
 
   function cancelArmedWorkflow() {

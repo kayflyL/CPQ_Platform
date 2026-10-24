@@ -678,7 +678,7 @@ function groupByCategory(items: KpItem[]) {
 .ss-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
   padding-bottom: 16px; border-bottom: 1px solid var(--ss-accent, #1668C0); }
 .ss-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.ss-logo { width: var(--ss-logo-size, 48px); height: var(--ss-logo-size, 48px); object-fit: contain; border-radius: 6px; background: #fff; }
+.ss-logo { width: var(--ss-logo-size, 48px); height: var(--ss-logo-size, 48px); object-fit: contain; border-radius: var(--cpq-radius-sm); background: #fff; }
 .ss-company { font-size: var(--ss-font-company, 16px); font-weight: 700; color: var(--ss-text, #1F2329); }
 .ss-tagline { font-size: var(--ss-font-meta, 11px); color: var(--ss-text-secondary, #6B7280); margin-top: 2px; }
 .ss-doc { text-align: right; }
@@ -694,9 +694,9 @@ function groupByCategory(items: KpItem[]) {
 .ss-title-sub { font-size: 12px; color: var(--ss-text-secondary, #6B7280); margin-top: 6px; }
 .ss-title-right { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
 .ss-chip { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 600;
-  color: var(--ss-accent, #1668C0); background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: 999px; }
+  color: var(--ss-accent, #1668C0); background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: var(--cpq-radius-full); }
 .ss-primary-tag { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 700;
-  color: #fff; background: var(--ss-accent, #1668C0); border-radius: 999px; }
+  color: #fff; background: var(--ss-accent, #1668C0); border-radius: var(--cpq-radius-full); }
 .ss-to-business { font-size: 12px; color: #64748b; margin-left: 8px; }
 .ss-qty-badge { font-size: 12px; color: #64748b; }
 
@@ -706,14 +706,14 @@ function groupByCategory(items: KpItem[]) {
   display: flex; align-items: center; gap: 10px;
   padding: 10px 14px;
   background: #f8fafc;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   margin-bottom: 16px;
   border: 1px solid #e2e8f0;
 }
 .ss-config-index {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; background: #3b82f6; color: #fff;
-  border-radius: 6px; font-size: 12px; font-weight: 600;
+  border-radius: var(--cpq-radius-sm); font-size: 12px; font-weight: 600;
 }
 .ss-config-name { font-size: 15px; font-weight: 600; color: #1e293b; }
 .ss-config-qty { font-size: 13px; color: #64748b; margin-left: auto; }
@@ -759,13 +759,13 @@ function groupByCategory(items: KpItem[]) {
   border-bottom: none; border-top: 1px solid var(--ss-border, #E5E7EB); font-variant-numeric: tabular-nums; }
 .ss-subtotal td.ss-subtotal-price { color: var(--ss-accent, #1668C0); text-align: right; font-size: 15px; }
 .ss-empty { padding: 18px; text-align: center; font-size: 12px; color: #9CA3AF;
-  background: #F7F8FA; border: 1px dashed #D1D5DB; border-radius: 8px; }
+  background: #F7F8FA; border: 1px dashed #D1D5DB; border-radius: var(--cpq-radius-sm); }
 
 /* 结构预览占位符：{{字段}}，高亮描边提示「加载预览后填充真实数据」 */
 .ss-placeholder {
   background: rgba(22, 104, 192, 0.08);
   border: 1px dashed rgba(22, 104, 192, 0.35);
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
   padding: 0 4px;
   color: #1668C0;
   font-weight: 500;
@@ -777,7 +777,7 @@ function groupByCategory(items: KpItem[]) {
 .ss-warranty-item strong { color: var(--ss-text, #1F2329); font-weight: 600; }
 
 /* 报价条款：紧凑 2 列，给整页留出空间 */
-.ss-terms { padding: 9px 12px; background: var(--ss-table-header-bg, #F7F8FA); border: 1px solid var(--ss-border, #E5E7EB); border-radius: 6px; }
+.ss-terms { padding: 9px 12px; background: var(--ss-table-header-bg, #F7F8FA); border: 1px solid var(--ss-border, #E5E7EB); border-radius: var(--cpq-radius-sm); }
 .ss-terms-title { font-size: var(--ss-font-meta, 11px); font-weight: 700; letter-spacing: .5px; color: var(--ss-accent, #1668C0);
   text-transform: uppercase; margin-bottom: 6px; }
 .ss-terms-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 24px; }

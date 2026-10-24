@@ -70,7 +70,7 @@ def test_select_model_rejects_empty_pool():
 def test_select_model_locks_pool_member_by_name_or_id():
     """池内命中（名称忽略大小写 / id 精确）→ 返回选定结果，不回填登记表 server_model。"""
     ext = {}
-    res = _call_select({"model": "es22v3-p", "reason": "预算内最匹配"}, ext=ext)
+    res = _call_select({"model": "es220 v3", "reason": "预算内最匹配"}, ext=ext)
     assert res.get("ok") is True
     assert res["selected"]["name"] == "ES220 V3"
     assert "server_model" not in ext, "model_reason 只写自己的产物，不回填登记表"

@@ -201,14 +201,14 @@ function goAll() {
   display: flex;
   gap: 2px;
   background: var(--cpq-bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 2px;
 }
 .notif-tab {
   height: 26px;
   padding: 0 12px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: none;
   font-size: 12px;
   color: var(--cpq-text-secondary);
@@ -226,7 +226,7 @@ function goAll() {
 .notif-tab-count {
   font-size: 10.5px;
   background: var(--cpq-overlay-a10, rgba(22, 119, 255, 0.1));
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   padding: 0 6px;
 }
 .notif-mark-all {
@@ -234,7 +234,7 @@ function goAll() {
   width: 26px;
   height: 26px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--cpq-radius-sm);
   background: none;
   color: var(--cpq-accent-primary);
   font-size: 13px;
@@ -276,7 +276,7 @@ function goAll() {
 .notif-icon {
   width: 32px;
   height: 32px;
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -337,7 +337,7 @@ function goAll() {
   width: 22px;
   height: 22px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-elevated);
   color: var(--cpq-text-secondary);
   font-size: 11px;

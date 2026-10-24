@@ -8,6 +8,7 @@ import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlin
 import { partsApi, type PartMaster, type PartMajorCategory } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
 import { useSeriesStore } from '@/stores/series'
+import { useAuthStore } from '@/store/auth'
 
 const parts = ref<PartMaster[]>([])
 const total = ref(0)
@@ -38,6 +39,10 @@ const importParsing = ref(false)
 const importCommitting = ref(false)
 
 const categoryOptions = computed(() => categories.value.map(c => ({ label: c, value: c })))
+// 配件价格双键（同 Parts.vue）：单价列/价格排序随 field.parts.price 隐藏，导入导出与单价编辑随 manage 键
+const auth = useAuthStore()
+const priceVisible = computed(() => auth.can('field.parts.price'))
+const priceManage = computed(() => auth.can('action.parts.price.manage'))
 // 大类选项来自 taxonomy（用户可增改），不再写死常量
 const majorCategoryOptions = computed(() => majorCats.value.map(m => ({ label: m.major_category, value: m.major_category })))
 
@@ -64,16 +69,16 @@ function clearSpecValueCache() {
   specValueCache.value = {}
 }
 
-// 列表视图列定义（卡片/列表共享 filtered 数据与编辑弹窗）
-const tableColumns = [
+// 列表视图列定义（卡片/列表共享 filtered 数据与编辑弹窗）；无价角色不进单价列
+const tableColumns = computed(() => [
   { title: '料号 PN', dataIndex: 'pn', key: 'pn', width: 160 },
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '大类', dataIndex: 'major_category', key: 'major_category', width: 120 },
   { title: '类别', dataIndex: 'category', key: 'category', width: 110 },
   { title: '规格', key: 'summary', ellipsis: true },
-  { title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110, align: 'right' as const },
+  ...(priceVisible.value ? [{ title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110, align: 'right' as const }] : []),
   { title: '操作', key: 'op', width: 130, fixed: 'right' as const },
-]
+])
 
 // 导入预览表格列
 const importPreviewColumns = [
@@ -416,18 +421,18 @@ onMounted(load)
         <a-select v-model:value="sortBy" style="width:120px" placeholder="排序" allowClear @change="onSortChange">
           <a-select-option value="name-asc">名称 A→Z</a-select-option>
           <a-select-option value="name-desc">名称 Z→A</a-select-option>
-          <a-select-option value="unit_price-asc">价格 低→高</a-select-option>
-          <a-select-option value="unit_price-desc">价格 高→低</a-select-option>
+          <a-select-option v-if="priceVisible" value="unit_price-asc">价格 低→高</a-select-option>
+          <a-select-option v-if="priceVisible" value="unit_price-desc">价格 高→低</a-select-option>
         </a-select>
         <div class="seg2">
           <div :class="['seg2-item', { active: viewMode === 'card' }]" @click="viewMode = 'card'">卡片</div>
           <div :class="['seg2-item', { active: viewMode === 'list' }]" @click="viewMode = 'list'">列表</div>
         </div>
-        <a-button @click="openImportModal">
+        <a-button v-if="priceManage" @click="openImportModal">
           <template #icon><UploadOutlined /></template>
           导入
         </a-button>
-        <a-button @click="exportParts">
+        <a-button v-if="priceManage" @click="exportParts">
           <template #icon><DownloadOutlined /></template>
           导出
         </a-button>
@@ -484,7 +489,7 @@ onMounted(load)
             <div class="pc-spec">{{ summaryOf(p) }}</div>
             <div class="pc-bottom">
               <span class="pc-pn">{{ p.pn }}</span>
-              <span class="pc-price">{{ p.unit_price ? '¥' + p.unit_price : '—' }}</span>
+              <span v-if="priceVisible" class="pc-price">{{ p.unit_price ? '¥' + p.unit_price : '—' }}</span>
             </div>
           </div>
         </div>
@@ -542,7 +547,7 @@ onMounted(load)
                              :filter-option="(input: string, option: { value: string; label: string }) => (option.value as string).toLowerCase().includes(input.toLowerCase())"
                              placeholder="选择或输入子类" allow-clear />
           </a-form-item></a-col>
-          <a-col :span="8"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
+          <a-col v-if="priceManage" :span="8"><a-form-item label="单价"><a-input-number v-model:value="form.unit_price" style="width:100%" :precision="2" /></a-form-item></a-col>
         </a-row>
 
         <div class="section-title">扩展属性 <span class="section-hint">· 适用于槽位 / 机型 / 规格</span></div>
@@ -632,42 +637,42 @@ onMounted(load)
 .lib-body:has(.cat-nav.collapsed) { grid-template-columns: 0px 1fr; }
 .cat-nav { display: flex; flex-direction: column; gap: 2px; overflow-x: hidden; overflow-y: auto; max-height: calc(100vh - var(--cpq-sticky-top, 60px) - 24px); position: sticky; top: calc(var(--cpq-sticky-top, 60px) + 12px); align-self: start; padding-right: 2px; transition: width .2s, opacity .2s; }
 .cat-nav::-webkit-scrollbar { width: 5px; }
-.cat-nav::-webkit-scrollbar-thumb { background: var(--cpq-overlay-w15); border-radius: 3px; }
+.cat-nav::-webkit-scrollbar-thumb { background: var(--cpq-overlay-w15); border-radius: var(--cpq-radius-xs); }
 .cat-nav.collapsed { width: 0; opacity: 0; max-height: none; }
 .cat-section { display: flex; flex-direction: column; gap: 2px; }
 .cat-divider { height: 1px; background: var(--cpq-overlay-w10); margin: 8px 0; }
 .cat-section-label { display: flex; justify-content: space-between; align-items: center; font-size: 11px; font-weight: 600; color: var(--cpq-text-muted, #6E7582); padding: 4px 12px; text-transform: uppercase; letter-spacing: 0.5px; }
-.tax-add { margin-left: auto; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 15px; line-height: 1; width: 18px; height: 18px; cursor: pointer; border-radius: 4px; }
+.tax-add { margin-left: auto; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 15px; line-height: 1; width: 18px; height: 18px; cursor: pointer; border-radius: var(--cpq-radius-xs); }
 .tax-add:hover { background: var(--cpq-overlay-w15); color: var(--cpq-accent-primary, #1677FF); }
-.cat-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: 8px; cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); transition: all .15s; white-space: nowrap; }
+.cat-item { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 13px; color: var(--cpq-text-secondary, #9BA1AA); transition: all .15s; white-space: nowrap; }
 .cat-item:hover { background: var(--cpq-overlay-w5); color: var(--cpq-text-primary, #E8ECEF); }
 .cat-item.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
 .cat-count { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
 .cat-item.active .cat-count { color: var(--cpq-accent-primary, #1677FF); }
 .cat-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .cat-tools { display: inline-flex; align-items: center; gap: 1px; flex-shrink: 0; }
-.cat-tool { width: 18px; height: 18px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 11px; cursor: pointer; border-radius: 4px; opacity: 0; transition: opacity .15s, background .15s; display: inline-flex; align-items: center; justify-content: center; }
+.cat-tool { width: 18px; height: 18px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 11px; cursor: pointer; border-radius: var(--cpq-radius-xs); opacity: 0; transition: opacity .15s, background .15s; display: inline-flex; align-items: center; justify-content: center; }
 .cat-item:hover .cat-tool { opacity: 1; }
 .cat-tool:hover { background: var(--cpq-overlay-w15); color: var(--cpq-text-primary, #E8ECEF); }
 .cat-tool.cat-del:hover { background: var(--cpq-overlay-danger15); color: var(--cpq-accent-danger, #ff4d4f); }
 .card-area { min-height: 200px; }
 .subcat-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.subcat-chip { font-size: 12px; padding: 3px 10px; border-radius: 12px; cursor: pointer; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-w5); transition: all .15s; }
+.subcat-chip { font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-md); cursor: pointer; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-w5); transition: all .15s; }
 .subcat-chip:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary, #E8ECEF); }
 .subcat-chip.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .card-pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .grid-empty { color: var(--cpq-text-muted, #6E7582); text-align: center; padding: 40px; font-size: 13px; }
 .tbl-pn { font-family: monospace; font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
-.tbl-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: 4px; }
+.tbl-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: var(--cpq-radius-xs); }
 .part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .2s; }
 .part-card:hover { transform: translateY(-2px); }
-.pc-del { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 12px; cursor: pointer; border-radius: 4px; opacity: 0; transition: all .15s; }
+.pc-del { position: absolute; top: 6px; right: 6px; width: 20px; height: 20px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); font-size: 12px; cursor: pointer; border-radius: var(--cpq-radius-xs); opacity: 0; transition: all .15s; }
 .part-card:hover .pc-del { opacity: 1; }
 .pc-del:hover { background: var(--cpq-overlay-danger15); color: var(--cpq-accent-danger); }
 .pc-top { display: flex; align-items: flex-start; gap: 8px; margin-bottom: 6px; padding-right: 20px; }
 .pc-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pc-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: 4px; white-space: nowrap; }
+.pc-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: var(--cpq-radius-xs); white-space: nowrap; }
 .pc-spec { font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); line-height: 1.4; margin-bottom: 8px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 16px; }
 .pc-bottom { display: flex; justify-content: space-between; align-items: center; }
 .pc-pn { font-size: 11px; color: var(--cpq-text-muted, #6E7582); font-family: monospace; }

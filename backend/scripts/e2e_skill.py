@@ -35,9 +35,10 @@ import urllib.error
 BASE = os.environ.get("E2E_BASE", "http://127.0.0.1:8000")
 
 # 统一暂停载荷的合法 kind（真源 = pause_payload 的产出点：skill_turn_engine._emit_pause
-# 的 brain_ask/delivery_gap/stuck/final_gate/failure + colleague_turn_service 的 approval）。
+# 的 brain_ask/delivery_gap/stuck/final_gate/failure；colleague_turn 的 approval 死机制
+# 已随工具级审批移除（2026-10-16），写工具确认改走 agent_write_confirm 两阶段）。
 # 这里只做「收到的 kind 是否登记过」的事实核对，不复制任何话术。
-PAUSE_KINDS = {"brain_ask", "delivery_gap", "final_gate", "stuck", "failure", "approval"}
+PAUSE_KINDS = {"brain_ask", "delivery_gap", "final_gate", "stuck", "failure"}
 
 
 def http(method, path, payload=None, token=None, timeout=30):
@@ -48,6 +49,23 @@ def http(method, path, payload=None, token=None, timeout=30):
         req.add_header("Authorization", "Bearer " + token)
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode())
+
+
+def upload(tid: str, path: str, token: str) -> str:
+    """multipart 上传真实文件到会话暂存（与聊天框 📎 同端点），返回 attachment_id。"""
+    import uuid
+    fn = os.path.basename(path)
+    data = open(path, "rb").read()
+    boundary = uuid.uuid4().hex
+    body = (f"--{boundary}\r\nContent-Disposition: form-data; name=\"file\"; "
+            f"filename=\"cost_sheet.xlsx\"\r\n"
+            f"Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n"
+            ).encode() + data + f"\r\n--{boundary}--\r\n".encode()
+    req = urllib.request.Request(BASE + f"/api/assistant/threads/{tid}/attachments", data=body, method="POST",
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}",
+                                          "Authorization": "Bearer " + token})
+    with urllib.request.urlopen(req, timeout=60) as r:
+        return json.loads(r.read().decode())["attachment"]["attachment_id"]
 
 
 class Run:
@@ -174,7 +192,7 @@ class Run:
                 last_nodes[-1][1] = summ
         return last_nodes
 
-    async def turn(self, text=None, picks=None, max_wait=240.0):
+    async def turn(self, text=None, picks=None, max_wait=240.0, attachment_ids=None):
         self.narration = []
         self.events = []
         t0 = time.time()
@@ -182,6 +200,10 @@ class Run:
                 "role_key": SC.get("role_key", "assistant")}
         if picks is not None:
             body["card_selections"] = picks
+        if SC.get("workflow_key"):
+            body["workflow_key"] = SC["workflow_key"]
+        if attachment_ids:
+            body["attachment_ids"] = attachment_ids
         t = threading.Thread(target=lambda: http(
             "POST", f"/api/assistant/threads/{self.tid}/messages", body, self.token), daemon=True)
         t.start()
@@ -411,6 +433,13 @@ def main():
                     "entry_point": SC.get("entry_point", "skill_studio_preview")}, token)["thread"]["thread_id"]
         print(f"▶ 场景[{SC.get('name')}] thread={tid}")
 
+    # 附件（真实文件直传会话暂存，不经模型上下文）
+    attach_ids = []
+    if SC.get("attach_file"):
+        aid = upload(tid, SC["attach_file"], token)
+        attach_ids.append(aid)
+        print(f"  📎 附件已上传：{os.path.basename(SC['attach_file'])} → {aid}")
+
     runner = Run(token, tid)
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
@@ -424,17 +453,21 @@ def main():
             return None, f"{exc.__class__.__name__}: {str(exc)[:90]}"
 
     # 第一轮：主输入
-    result, err = safe_turn(text=SC.get("input"), max_wait=240.0)
+    result, err = safe_turn(text=SC.get("input"), attachment_ids=attach_ids or None, max_wait=240.0)
     if err:
         print(f"  ✖ 首轮即中断：{err}", flush=True)
     turns = 1
     answers = SC.get("answers") or {}
+    replies = list(SC.get("reply_queue") or [])  # 交付链暂停无缺口卡（approval/brain_ask）时的场景应答队列
     while result and not result["finished"] and turns < int(SC.get("max_turns", 8)):
         gaps = result.get("paused")
         if gaps is None:
             print("  （无缺口且未完成——停止）")
             break
         text, picks, auto_slots = gap_answer(gaps, answers, auto=args.auto_answer)
+        if text is None and picks is None and replies:
+            text = replies.pop(0)
+            print(f"  ▶ 场景应答[{turns + 1}]: {text}")
         if auto_slots:
             runner.auto_answers += len(auto_slots)
             print(f"  ⚙ 脚本答案未覆盖、自动兜底 {len(auto_slots)} 张卡：{'；'.join(auto_slots)}")

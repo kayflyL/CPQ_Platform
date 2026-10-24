@@ -164,9 +164,10 @@ function clampQty(i: number, desired: number): number {
 .sc-panel {
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(16px);
-  border: 1px solid var(--cpq-overlay-a15); border-radius: 0; overflow: visible;
+  border: 1px solid var(--cpq-overlay-a15); border-radius: var(--cpq-radius-md); overflow: visible;
   box-shadow: 0 22px 64px var(--cpq-shadow-color-strong), 0 0 34px var(--cpq-overlay-a4), inset 0 1px 0 var(--cpq-overlay-w15), inset 0 -18px 48px var(--cpq-shadow-color-soft);
 }
+.sc-panel:not(.kp-flat) > .sc-phead { border-radius: var(--cpq-radius-md) var(--cpq-radius-md) 0 0; }
 /* flat 模式：报价页 KP 大卡内降级为扁平分段（去玻璃避嵌套，配置页不受影响）*/
 .sc-panel.kp-flat {
   background: var(--cpq-overlay-w4);
@@ -179,33 +180,33 @@ function clampQty(i: number, desired: number): number {
 .sc-panel.kp-flat .sc-phead { background: transparent; border-bottom-color: var(--cpq-overlay-w8); }
 .sc-panel.kp-flat:hover { border-color: var(--cpq-glass-border-strong); }
 .sc-phead { display: flex; align-items: center; flex-wrap: wrap; row-gap: 8px; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--cpq-overlay-w10); background: var(--cpq-overlay-w4); }
-.sc-phead .num { width: 26px; height: 26px; border-radius: 7px; background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
+.sc-phead .num { width: 26px; height: 26px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary,#1677FF); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .sc-phead h2 { font-size: 16px; font-weight: 600; margin: 0; color: var(--cpq-text-primary, #E8ECEF); }
 .sc-phead .hint { color: var(--cpq-text-muted,#6E7582); font-size: 12px; }
 .sc-phead .amt { margin-left: auto; color: var(--cpq-accent-primary,#1677FF); font-weight: 700; font-size: 14px; }
 .sc-phead.no-price .kp-del-card { margin-left: auto; }
-.kp-del-card { margin-left: 8px; padding: 4px 10px; border: 1px solid var(--cpq-overlay-w20); border-radius: 7px;
+.kp-del-card { margin-left: 8px; padding: 4px 10px; border: 1px solid var(--cpq-overlay-w20); border-radius: var(--cpq-radius-sm);
   background: transparent; color: var(--cpq-text-muted,#6E7582); font-size: 12px; cursor: pointer; transition: all .2s; }
 .kp-del-card:hover { color: var(--cpq-accent-danger); border-color: rgba(255,107,107,.4); }
 .sc-pbody { padding: 18px 20px; }
 /* GPU 供电线行（quoteMode + GPU 卡）：蓝色调区分于普通 KP 行，表"机箱线缆"语义 */
 .gpu-cable-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 12px;
-  background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); border-radius: 10px; }
+  background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-md); }
 .gc-label { font-size: 12px; font-weight: 600; color: var(--cpq-accent-primary,#1677FF); white-space: nowrap; flex-shrink: 0; }
 .gc-picker { flex: 1; min-width: 0; }
 .gpu-cable-row .sc-step { flex-shrink: 0; }
 .sc-kp-line { display: grid; grid-template-columns: minmax(0, 1fr) 130px 100px 32px; gap: 9px; align-items: center; margin-bottom: 9px; }
 .sc-kp-line.no-price { grid-template-columns: minmax(0, 1fr) 130px 32px; }
 .kp-picker { min-width: 0; }
-.sc-step { display: flex; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; overflow: hidden; }
+.sc-step { display: flex; background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); overflow: hidden; }
 .sc-step button { width: 30px; color: var(--cpq-text-secondary,#9BA1AA); font-size: 14px; background: transparent; border: none; cursor: pointer; transition: all .2s; }
 .sc-step button:hover { color: var(--cpq-accent-primary,#1677FF); }
 .sc-step input { width: 100%; min-width: 0; text-align: center; border: none; background: transparent; color: var(--cpq-text-primary,#E8ECEF); font-size: 13px; outline: none; }
 .sc-kp-price { font-size: 12px; color: var(--cpq-text-secondary,#9BA1AA); text-align: right; }
-.sc-del { width: 30px; height: 34px; border: 1px solid var(--cpq-overlay-w10); border-radius: 8px; background: transparent; color: var(--cpq-text-muted,#6E7582); cursor: pointer; transition: all .2s; }
+.sc-del { width: 30px; height: 34px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-muted,#6E7582); cursor: pointer; transition: all .2s; }
 .sc-del:hover { color: var(--cpq-accent-danger); border-color: rgba(255,107,107,.4); }
 .sc-empty { color: var(--cpq-text-muted,#6E7582); text-align: center; padding: 14px; font-size: 13px; }
-.sc-add { margin-top: 5px; padding: 7px 14px; border: 1px dashed var(--cpq-overlay-w20); border-radius: 8px; background: transparent; color: var(--cpq-text-secondary,#9BA1AA); cursor: pointer; font-size: 13px; transition: all .2s; }
+.sc-add { margin-top: 5px; padding: 7px 14px; border: 1px dashed var(--cpq-overlay-w20); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary,#9BA1AA); cursor: pointer; font-size: 13px; transition: all .2s; }
 .sc-add:hover { border-color: var(--cpq-accent-primary,#1677FF); color: var(--cpq-accent-primary,#1677FF); background: var(--cpq-overlay-a8); }
 
 /* ---- quote 模式（报价工作台新建模式）行布局 ---- */
@@ -215,7 +216,7 @@ function clampQty(i: number, desired: number): number {
 .qm-fields {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px;
   align-items: center; margin-bottom: 12px; padding: 9px 12px;
-  background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: 10px;
+  background: var(--cpq-overlay-b20); border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-md);
 }
 .qm-field { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .qm-field label { font-size: 10px; color: var(--cpq-text-muted,#6E7582); text-transform: uppercase; letter-spacing: .5px; }

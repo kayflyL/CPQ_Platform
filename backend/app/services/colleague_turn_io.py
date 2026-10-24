@@ -17,6 +17,23 @@ from app.services.office_events import publish_office_event
 logger = logging.getLogger(__name__)
 
 
+async def _persist_artifact(thread_id: str, colleague: Optional[dict], card: dict) -> None:
+    """产物卡消息（kind='artifact'）：data 存 {artifact_type,title,summary,refs}，
+    refs 只存 id——前端查看器按 ref 拉活数据，卡片本身不携带业务数据。"""
+    repo = AssistantRepository()
+    try:
+        asst = repo.add_message(
+            thread_id=thread_id, role="assistant", content=str(card.get("summary") or ""),
+            kind="artifact", colleague_role_key=(colleague or {}).get("role_key"),
+            data=json.dumps(card, ensure_ascii=False, default=str))
+    except Exception:
+        logger.exception("artifact message persistence failed")
+        return
+    finally:
+        repo.close()
+    await assistant_hub.broadcast(thread_id, {"type": "done", "message": asst})
+
+
 async def _persist_and_broadcast(
     thread_id: str,
     colleague: Optional[dict],
@@ -39,6 +56,8 @@ async def _persist_and_broadcast(
             thread_id=thread_id,
             role="assistant",
             content=final_text,
+            # 带发起建议时 kind 同步落卡类型：前端 AssistantPanel 按 kind 分支渲染一键发起卡
+            kind=("workflow_suggestion" if workflow_suggestion else "text"),
             colleague_role_key=(colleague or {}).get("role_key"),
             # 步骤清单（工具/耗时/结果摘要）随消息落库：前端在历史消息里常驻渲染，不再回合结束即清
             data=(json.dumps(data_payload, ensure_ascii=False, default=str) if data_payload else None),

@@ -209,7 +209,7 @@ defineExpose({ colLetter })
   overflow: auto;
   max-height: 100%;
   border: 1px solid var(--cpq-border);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background-color: #fff;
 }
 
@@ -294,7 +294,7 @@ defineExpose({ colLetter })
   padding: 0 4px;
   font-size: 10px;
   line-height: 16px;
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
   background: #e6f4ff;
   color: #1677ff;
   max-width: 90px;
@@ -378,7 +378,7 @@ defineExpose({ colLetter })
   margin-top: 8px;
   padding: 6px 8px;
   background: var(--cpq-bg-secondary);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .legend-item {
@@ -392,7 +392,7 @@ defineExpose({ colLetter })
   display: inline-block;
   width: 14px;
   height: 14px;
-  border-radius: 2px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .legend-color.keyword { background: #fff3cd; }

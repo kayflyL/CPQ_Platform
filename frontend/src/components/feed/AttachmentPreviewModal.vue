@@ -1,9 +1,9 @@
 <template>
-  <a-modal
+  <ResponsiveModal
     :open="open"
     :title="attachment?.original_filename || '预览'"
+    tier="viewer"
     :footer="null"
-    width="92vw"
     wrap-class-name="att-preview-wrap"
     :destroy-on-close="true"
     @update:open="(v: boolean) => $emit('update:open', v)"
@@ -40,13 +40,14 @@
         <a-button type="primary" @click="download">下载</a-button>
       </div>
     </div>
-  </a-modal>
+  </ResponsiveModal>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch, defineAsyncComponent } from 'vue'
 import { FileOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
+import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
 // Univer 体积巨大（dev 预打包 33MB / prod chunk 10MB），只在真正预览 Excel 时才拉，
 // 避免挂进商机详情页首屏关键路径（曾导致进详情页先卡数十秒）
 const UniverSheet = defineAsyncComponent(() => import('@/components/UniverSheet.vue'))
@@ -217,7 +218,7 @@ watch(
   flex: 1;
   min-height: 0;
   border: 1px solid var(--cpq-overlay-w6, #eee);
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   overflow: hidden;
 }
 </style>

@@ -156,8 +156,9 @@ async function resetText() {
       v-model:open="detailOpen"
       :title="tool.display_name ? `${tool.display_name}（${tool.name}）` : tool.name"
       :footer="null"
-      width="920px"
+      width="min(920px, calc(100vw - 32px))"
       class="tool-detail-modal"
+      :body-style="{ maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', overflowX: 'hidden' }"
       @cancel="editing = false"
     >
       <!-- ── 查看态：双栏（左=详解+模型契约，右=参数+引用）── -->
@@ -273,7 +274,7 @@ async function resetText() {
   padding: 14px 14px 12px;
   min-height: 148px;
   border: 1px solid var(--cpq-border-primary);
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-glass-1-bg);
   box-shadow: var(--cpq-shadow-sm);
   cursor: pointer;
@@ -300,7 +301,7 @@ async function resetText() {
 .tc-mono {
   display: inline-flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; flex-shrink: 0;
-  border-radius: 9px;
+  border-radius: var(--cpq-radius-sm);
   font-size: 13px; font-weight: 700; letter-spacing: 0.5px;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
@@ -312,7 +313,7 @@ async function resetText() {
 
 .tc-cat {
   padding: 0 8px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 10.5px;
   line-height: 1.7;
   color: var(--cpq-text-secondary);
@@ -354,7 +355,7 @@ async function resetText() {
 }
 .tc-act {
   padding: 1px 10px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-border-primary);
   background: transparent;
   font-size: 11.5px;
@@ -396,7 +397,7 @@ async function resetText() {
 .td-brief {
   padding: 8px 10px;
   border-left: 3px solid var(--cpq-accent-primary, #1677ff);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-glass-2-bg);
 }
 .td-params {
@@ -413,11 +414,12 @@ async function resetText() {
 }
 .td-params th { color: var(--cpq-text-secondary); font-weight: 600; background: var(--cpq-glass-2-bg); }
 .td-p-name { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; white-space: nowrap; }
-.td-p-type, .td-p-req { white-space: nowrap; color: var(--cpq-text-muted); }
+.td-p-type, .td-p-req { color: var(--cpq-text-muted); }
+.td-params td:last-child { overflow-wrap: anywhere; }
 .td-usage { display: flex; flex-wrap: wrap; gap: 6px; }
 .td-usage-chip {
   padding: 2px 10px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11.5px;
   color: var(--cpq-text-secondary);
   background: var(--cpq-glass-1-bg);
@@ -426,7 +428,7 @@ async function resetText() {
 .td-locknote {
   margin: 12px 0 0;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px dashed var(--cpq-border-primary);
   font-size: 12px;
   color: var(--cpq-text-secondary);
@@ -437,7 +439,7 @@ async function resetText() {
 .td-edit-hint {
   margin-bottom: 12px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   border: 1px dashed var(--cpq-border-primary);
   font-size: 12px;
   line-height: 1.6;

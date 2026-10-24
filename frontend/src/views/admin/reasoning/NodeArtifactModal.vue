@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from 'vue'
 import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
+import ArtifactCard from '@/components/assistant/ArtifactCard.vue'
 import { useNodeArtifact } from '@/composables/useNodeArtifact'
 import MarkdownContent from '@/views/admin/strategy/MarkdownContent.vue'
 
@@ -8,8 +9,14 @@ import RequirementForm from '@/components/flow/RequirementForm.vue'
 const { artifact, close } = useNodeArtifact()
 const props = defineProps<{ bomScheme?: any }>()
 
+// 产物卡类：ArtifactCard 自带 z-2000 弹窗直接承载（此前嵌在本弹窗里=双层弹窗，
+// 外层只剩一个空标题壳，2026-10-22 用户实测）。本弹窗只承载其余产物类型。
+const isCard = computed(() => artifact.value?.kind === 'artifact_card')
+// 换产物时强制重建：卡片内部按 refs 懒加载且不重置，同一实例换卡不会重拉数据
+const cardKey = computed(() =>
+  JSON.stringify(artifact.value?.data?.card?.refs || {}) + '|' + (artifact.value?.data?.card?.title || ''))
 const open = computed({
-  get: () => !!artifact.value,
+  get: () => !!artifact.value && !isCard.value,
   set: (v: boolean) => { if (!v) close() },
 })
 
@@ -77,7 +84,11 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 </script>
 
 <template>
+  <!-- 产物卡类：顶层直挂 ArtifactCard（自带弹窗承载），本组件的 a-modal 只管其余产物 -->
+  <ArtifactCard v-if="isCard" :key="cardKey" :card="artifact?.data?.card" auto-open />
+
   <a-modal
+    v-else
     v-model:open="open"
     :title="artifact?.title || '节点产出物'"
     :footer="null"
@@ -160,7 +171,7 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 .artifact-hint { font-weight: 600; margin-bottom: 8px; color: var(--cpq-text-secondary); }
 :deep(.kp-row-waived td) { color: var(--cpq-text-warning, #d48806); }
 :deep(.kp-row-unmatched td) { color: var(--cpq-text-muted); font-style: italic; }
-.artifact-unmatched { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--cpq-border-color, #d9d9d9); border-radius: 6px; background: var(--cpq-bg-secondary, #fafafa); }
+.artifact-unmatched { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--cpq-border-color, #d9d9d9); border-radius: var(--cpq-radius-sm); background: var(--cpq-bg-secondary, #fafafa); }
 .artifact-unmatched-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--cpq-text-warning, #d48806); }
 .artifact-unmatched-list { margin: 0; padding: 0 0 0 16px; font-size: 12px; color: var(--cpq-text-secondary); line-height: 20px; }
 .artifact-unmatched-cat { font-weight: 600; }

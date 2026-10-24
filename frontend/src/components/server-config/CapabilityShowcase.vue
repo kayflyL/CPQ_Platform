@@ -281,11 +281,11 @@ document.addEventListener('visibilitychange', onVis)
 .item {
   position: relative; display: flex; align-items: center; gap: 14px; text-align: left;
   border: none; background: transparent; cursor: pointer; color: inherit; font-family: inherit;
-  padding: 13px 14px 13px 20px; border-radius: 10px; border: 1px solid transparent;
+  padding: 13px 14px 13px 20px; border-radius: var(--cpq-radius-md); border: 1px solid transparent;
   transition: background 0.25s var(--ease), border-color 0.25s var(--ease);
 }
 .item::before {
-  content: ''; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: 2px;
+  content: ''; position: absolute; left: 0; top: 11px; bottom: 11px; width: 3px; border-radius: var(--cpq-radius-xs);
   background: transparent; transition: 0.25s;
 }
 .item:hover { background: rgba(255, 255, 255, 0.03); }
@@ -303,7 +303,7 @@ document.addEventListener('visibilitychange', onVis)
 }
 .item.active .en { color: var(--sun-color); opacity: 0.75; }
 .item .prog {
-  position: absolute; left: 12px; right: 14px; bottom: 0; height: 2px; border-radius: 1px; width: 0;
+  position: absolute; left: 12px; right: 14px; bottom: 0; height: 2px; border-radius: var(--cpq-radius-xs); width: 0;
   background: var(--sun-color); box-shadow: 0 0 6px var(--sun-glow, rgba(91, 184, 255, 0.55)); opacity: 0;
 }
 .item.active .prog { opacity: 0.8; animation: cap-prog 4.5s linear forwards; }
@@ -311,7 +311,7 @@ document.addEventListener('visibilitychange', onVis)
 
 /* ── 右侧：内容 + 取景框 ── */
 .detail-panel {
-  flex: 1; min-width: 0; position: relative; border: 1px solid var(--line-soft); border-radius: 14px; overflow: hidden;
+  flex: 1; min-width: 0; position: relative; border: 1px solid var(--line-soft); border-radius: var(--cpq-radius-lg); overflow: hidden;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.008));
 }
 .dp-grid { display: grid; grid-template-columns: minmax(320px, 1fr) minmax(0, 1.18fr); }
@@ -321,7 +321,7 @@ document.addEventListener('visibilitychange', onVis)
   text-transform: uppercase; color: var(--sun-color); opacity: 0.85; margin-bottom: 12px;
 }
 .dp-title { font-size: 31px; font-weight: 700; color: #fff; letter-spacing: 0.03em; margin-bottom: 15px; }
-.dp-rule { width: 44px; height: 2px; border-radius: 1px; background: var(--sun-color); opacity: 0.6; margin-bottom: 20px; }
+.dp-rule { width: 44px; height: 2px; border-radius: var(--cpq-radius-xs); background: var(--sun-color); opacity: 0.6; margin-bottom: 20px; }
 .dp-desc { font-size: 14px; line-height: 1.9; color: rgba(238, 243, 250, 0.72); margin-bottom: 28px; }
 .dp-stats { display: flex; flex-wrap: wrap; row-gap: 18px; }
 .stat { padding: 2px 26px; border-left: 1px solid rgba(255, 255, 255, 0.1); }

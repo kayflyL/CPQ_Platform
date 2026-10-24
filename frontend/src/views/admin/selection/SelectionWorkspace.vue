@@ -54,7 +54,7 @@ const mode = ref<Mode>('infer')
   align-items: center;
   gap: 10px;
   padding: 10px 20px;
-  border-radius: 12px;
+  border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-glass-border);
   margin-bottom: 16px;
   position: sticky;
@@ -76,4 +76,14 @@ const mode = ref<Mode>('infer')
 .sw-toggle { margin-left: auto; }
 .sw-toggle :deep(.ant-radio-button-wrapper) { display: inline-flex; align-items: center; gap: 4px; }
 .sw-body { flex: 1; min-height: 0; }
+
+/* 手机端：面包屑一行 + 模式开关横滚一行（单行挤压曾把「选型配置」压成竖排、radio 竖叠） */
+@media (max-width: 768px) {
+  .sw { padding: 8px 12px 40px; }
+  .sw-bar { position: static; flex-wrap: wrap; gap: 8px 12px; padding: 9px 12px; }
+  .sw-title { white-space: nowrap; }
+  .sw-toggle { margin-left: 0; width: 100%; overflow-x: auto; }
+  .sw-toggle :deep(.ant-radio-group) { display: inline-flex; white-space: nowrap; }
+  .sw-toggle :deep(.ant-radio-button-wrapper) { flex-shrink: 0; }
+}
 </style>

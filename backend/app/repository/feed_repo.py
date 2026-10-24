@@ -251,6 +251,109 @@ class FeedRepository:
                     pass  # 物理删除失败不阻断业务
         return [opp_id] + attachment_ids
 
+    # ── 会话暂存附件（聊天框直传；opportunity_id IS NULL）────────────────
+    # 配额/过期是技术态不是业务事实：懒触发（上传时清本人的过期），无后台任务。
+
+    STAGED_TTL_DAYS = 14
+    STAGED_MAX_COUNT = 50
+    STAGED_MAX_TOTAL_BYTES = 500 * 1024 * 1024
+
+    def list_staged_attachments(self, uploader_user_id: str) -> List[dict]:
+        """某用户的暂存附件（opportunity_id IS NULL、未删），created_at 倒序。"""
+        rows = self.session.execute(
+            select(FeedAttachment)
+            .where(
+                FeedAttachment.opportunity_id.is_(None),
+                FeedAttachment.uploader_user_id == uploader_user_id,
+                FeedAttachment.deleted_at.is_(None),
+            )
+            .order_by(FeedAttachment.created_at.desc())
+        ).scalars().all()
+        return [a.to_dict() for a in rows]
+
+    def list_all_staged(self) -> List[dict]:
+        """全部用户的暂存附件（opportunity_id IS NULL、未删），created_at 倒序
+        （会话记录管理页的暂存清理入口）。"""
+        rows = self.session.execute(
+            select(FeedAttachment)
+            .where(
+                FeedAttachment.opportunity_id.is_(None),
+                FeedAttachment.deleted_at.is_(None),
+            )
+            .order_by(FeedAttachment.created_at.desc())
+        ).scalars().all()
+        return [a.to_dict() for a in rows]
+
+    def soft_delete_attachments(self, attachment_ids: List[str]) -> List[str]:
+        """批量软删附件行，返回实际标记的 storage_key 供调用方尽力删盘。"""
+        now = now_iso()
+        keys: List[str] = []
+        for aid in attachment_ids or []:
+            row = self.session.execute(
+                select(FeedAttachment).where(
+                    FeedAttachment.attachment_id == str(aid),
+                    FeedAttachment.deleted_at.is_(None),
+                )
+            ).scalars().first()
+            if row:
+                row.deleted_at = now
+                keys.append(row.storage_key or "")
+        self.session.commit()
+        return [k for k in keys if k]
+
+    def staged_quota(self, uploader_user_id: str) -> dict:
+        """暂存配额现状：数量/字节 + 上限。"""
+        rows = self.list_staged_attachments(uploader_user_id)
+        return {
+            "count": len(rows),
+            "total_size": sum(r.get("file_size") or 0 for r in rows),
+            "max_count": self.STAGED_MAX_COUNT,
+            "max_total_size": self.STAGED_MAX_TOTAL_BYTES,
+        }
+
+    def purge_expired_staged(self, uploader_user_id: str,
+                             ttl_days: Optional[int] = None) -> List[str]:
+        """软删本人过期暂存行，返回应删的 storage_key（盘文件由调用方尽力删）。"""
+        days = ttl_days if ttl_days is not None else self.STAGED_TTL_DAYS
+        from datetime import datetime, timedelta
+        cutoff = (datetime.now() - timedelta(days=days)).isoformat(timespec="seconds")
+        rows = self.session.execute(
+            select(FeedAttachment).where(
+                FeedAttachment.opportunity_id.is_(None),
+                FeedAttachment.uploader_user_id == uploader_user_id,
+                FeedAttachment.deleted_at.is_(None),
+                FeedAttachment.created_at < cutoff,
+            )
+        ).scalars().all()
+        keys = [a.storage_key for a in rows]
+        if rows:
+            now = now_iso()
+            for a in rows:
+                a.deleted_at = now
+            self.session.commit()
+        return keys
+
+    def bind_attachment(self, attachment_id: str, *, opportunity_id: Optional[str] = None,
+                        message_id: Optional[str] = None, category: Optional[str] = None,
+                        storage_key: Optional[str] = None) -> Optional[dict]:
+        """业务绑定（暂存→商机桶 / 消息关联 / 归类 / 换存储键）：只更新给出的字段。"""
+        a = self.session.execute(
+            select(FeedAttachment).where(FeedAttachment.attachment_id == attachment_id)
+        ).scalar_one_or_none()
+        if not a:
+            return None
+        if opportunity_id is not None:
+            a.opportunity_id = opportunity_id
+        if message_id is not None:
+            a.message_id = message_id
+        if category is not None:
+            a.category = category
+        if storage_key is not None:
+            a.storage_key = storage_key
+        self.session.commit()
+        self.session.refresh(a)
+        return a.to_dict()
+
     def update_storage_key_prefix(self, opportunity_id: str, old_prefix: str, new_prefix: str) -> int:
         """Update storage_key prefix when customer name changes.
 

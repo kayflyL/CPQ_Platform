@@ -121,12 +121,12 @@ const initial = computed(() => {
 })
 const description = computed(() => {
   const c = colleague.value
-  if (!c) return 'AI 员工'
+  if (!c) return 'AI 同事'
   if (typeof c.description === 'string' && c.description.trim()) return c.description.trim()
   const caps = Array.isArray(c.capabilities) ? c.capabilities : []
   const capText = caps.map((x: any) => (typeof x === 'string' ? x : x?.label || x?.name || '')).filter(Boolean).join('、')
   if (capText) return capText
-  return 'AI 员工'
+  return 'AI 同事'
 })
 const statusLabel = computed(() => {
   const s = String(status.value?.status || '')
@@ -153,7 +153,7 @@ const toolRest = computed(() => {
   /* 浮动面板本体 1500+（全屏态 1600），名片必须压过它，否则开了也被面板盖住（曾用 1100 被吞） */
   z-index: 2000;
   border: 1px solid var(--cpq-glass-border);
-  border-radius: 16px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-3-bg, rgba(255, 255, 255, 0.92));
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
@@ -173,16 +173,16 @@ const toolRest = computed(() => {
   font-size: 10px; font-weight: 700; letter-spacing: 1px;
   color: var(--cpq-accent-primary, #1677ff);
   border: 1px solid color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 35%, transparent);
-  padding: 0 6px; border-radius: 999px;
+  padding: 0 6px; border-radius: var(--cpq-radius-full);
 }
 .pc-role { font-size: 12px; color: var(--cpq-text-muted, #86909c); margin-top: 2px; }
 .pc-status {
-  flex-shrink: 0; font-size: 12px; padding: 3px 10px; border-radius: 999px; border: 1px solid transparent;
+  flex-shrink: 0; font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent;
 }
 .pc-bio { font-size: 12.5px; line-height: 1.7; color: var(--cpq-text-secondary); margin: 10px 0; }
 .pc-mission {
   display: flex; gap: 8px; align-items: baseline; padding: 8px 10px; margin-bottom: 10px;
-  border-radius: 10px; cursor: pointer;
+  border-radius: var(--cpq-radius-md); cursor: pointer;
   background: var(--cpq-overlay-w4, rgba(22, 119, 255, 0.04));
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
 }
@@ -191,14 +191,14 @@ const toolRest = computed(() => {
 .pc-mission-v { font-size: 12.5px; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .pc-chip {
-  font-size: 11px; padding: 2px 9px; border-radius: 999px;
+  font-size: 11px; padding: 2px 9px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-accent-primary, #1677ff);
   background: color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 11%, transparent);
 }
 .pc-chip--more { color: var(--cpq-text-muted, #86909c); background: var(--cpq-overlay-w4, rgba(22, 119, 255, 0.04)); }
 .pc-actions { display: flex; gap: 8px; }
 .pc-btn {
-  flex: 1; text-align: center; padding: 7px 0; border-radius: 8px; font-size: 12.5px;
+  flex: 1; text-align: center; padding: 7px 0; border-radius: var(--cpq-radius-sm); font-size: 12.5px;
   cursor: pointer; font-weight: 600; border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
   color: var(--cpq-text-secondary); background: transparent; transition: all 0.15s;
 }

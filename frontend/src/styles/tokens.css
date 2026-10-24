@@ -46,7 +46,7 @@
   --cpq-font-size-sm: 12px;
   --cpq-font-size-base: 14px;
   --cpq-font-size-lg: 16px;
-  /* 字阶标题档 —— 层级=字号×字重×留白，用法见 docs/设计规范.md §2 */
+  /* 字阶标题档 —— 层级=字号×字重×留白，用法见 docs/前端设计/布局与用法规范.md §2 */
   --cpq-font-size-xl: 20px;   /* 卡片/区块标题 */
   --cpq-font-size-2xl: 24px;  /* 页面标题 */
   --cpq-font-size-3xl: 30px;  /* KPI 大数字（配 .cpq-reading） */
@@ -57,7 +57,7 @@
   --cpq-line-height-heading: 1.25; /* 标题 */
 
   /* 间距 —— 封闭六档（4px 基准栅格），布局间距禁用档外值（≤4px 光学校正除外）
-     用法见 docs/设计规范.md §1：区块间 5 / 卡片间 4 / 分组 3 / 元素间 2 / 紧凑 1 */
+     用法见 docs/前端设计/布局与用法规范.md §1：区块间 5 / 卡片间 4 / 分组 3 / 元素间 2 / 紧凑 1 */
   --cpq-space-1: 4px;
   --cpq-space-2: 8px;
   --cpq-space-3: 12px;
@@ -81,11 +81,16 @@
   /* 主色渐变 —— 重点按钮/数字/图表填充 */
   --cpq-accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
 
-  /* 圆角阶梯 —— 统一大圆角，弱化尖锐棱角 */
-  --cpq-radius-sm: 8px;
-  --cpq-radius-md: 12px;
-  --cpq-radius-lg: 16px;
-  --cpq-radius-xl: 20px;
+  /* 圆角阶梯 v3 —— 利落工业感（2026-10-15 两轮收紧：v1 8/12/16/20 → v2 4/6/8/12/16 → v3 2/4/6/8/12，控件档对齐 Fluent 4/窗口 8）
+     xs=微件(徽标/tag/进度条) sm=控件(按钮/输入框,antd borderRadius 同步=4) md=卡片(标准卡/磁贴/面板,主力档)
+     lg=窗口(modal/drawer) xl=特大浮层(手机全屏抽屉) full=药丸胶囊
+     一律 var() 引用，禁止硬编码字面值 */
+   --cpq-radius-xs: 2px;
+  --cpq-radius-sm: 4px;
+  --cpq-radius-md: 6px;
+  --cpq-radius-lg: 8px;
+  --cpq-radius-xl: 12px;
+  --cpq-radius-full: 999px;
 
   /* 动效扩展 */
   --cpq-ease-spring: cubic-bezier(.34, 1.56, .64, 1);
@@ -132,13 +137,13 @@
   --cpq-border-secondary: rgba(255, 255, 255, 0.06);
   --cpq-border-light: rgba(255, 255, 255, 0.15);
 
-  /* 卡片 / 输入框背景 */
-  --cpq-bg-card: #1e1e1e;
-  --cpq-bg-elevated: #252525;
-  --cpq-bg-input: #2a2a2a;
+  /* 卡片 / 输入框背景（2026-10-22 归蓝黑阶梯：中性灰 #1e1e1e/#252525/#2a2a2a 与系统蓝黑并置发灰不搭） */
+  --cpq-bg-card: #101217;
+  --cpq-bg-elevated: #171a21;
+  --cpq-bg-input: #171a21;
   --cpq-bg-selected: rgba(22, 119, 255, 0.18);
   --cpq-bg-highlight: #fffbe6;
-  --cpq-bg-dark: #1a1a1a;
+  --cpq-bg-dark: #0d0f14;
   --cpq-border-dark: #303030;
 
   /* 文字补充 */

@@ -46,7 +46,7 @@ const sublabel = computed(() => props.data?.sublabel || '')
   gap: 12px;
   padding: 11px 14px;
   border: 2px solid var(--node-color, #1677ff);
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-bg-elevated, #101722);
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.14);
   transition: transform .18s ease, box-shadow .18s ease, opacity .18s ease;
@@ -63,7 +63,7 @@ const sublabel = computed(() => props.data?.sublabel || '')
 .flow-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 11px;
+  border-radius: var(--cpq-radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -107,7 +107,7 @@ const sublabel = computed(() => props.data?.sublabel || '')
   height: 18px;
   padding: 0 7px;
   align-items: center;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 9px;
   font-weight: 800;
   text-transform: uppercase;

@@ -2,10 +2,10 @@
   <div class="em-root">
     <div class="em-cards-head">
       <div>
-        <div class="em-title">员工</div>
+        <div class="em-title">同事</div>
         <div class="em-subtitle">管理、设置和新建 AI 同事</div>
       </div>
-      <a-button size="small" type="primary" @click="openCreate">新建员工</a-button>
+      <a-button size="small" type="primary" @click="openCreate">新建同事</a-button>
     </div>
 
     <div class="em-cards">
@@ -27,7 +27,7 @@
     >
       <template #title>
         <div class="em-modal-title">
-          <span class="em-modal-title-text">员工档案</span>
+          <span class="em-modal-title-text">同事档案</span>
           <a-button size="small" type="primary" class="em-btn-save-top" :loading="saving" @click="save">保存</a-button>
         </div>
       </template>
@@ -39,7 +39,7 @@
             <img v-if="draft.avatar_url" :src="draft.avatar_url" alt="" />
             <Live2dPreview v-else :model-key="draft.pet_model" bg-color="transparent" />
           </div>
-          <a-input v-model:value="draft.name" class="em-name-input" :bordered="false" placeholder="员工名称" />
+          <a-input v-model:value="draft.name" class="em-name-input" :bordered="false" placeholder="同事名称" />
           <div class="em-role-line"><span class="em-role-key">{{ draft.role_key }}</span></div>
           <div class="em-chips">
             <button type="button" class="em-chip" :class="{ on: draft.enabled }" @click="draft.enabled = !draft.enabled">
@@ -48,7 +48,7 @@
             <button type="button" class="em-chip" :class="{ on: draft.dispatchable }" @click="draft.dispatchable = !draft.dispatchable">
               <span class="em-chip-dot"></span>可被总助分派
             </button>
-            <a-tooltip title="在『员工 → 访问权限』页签修改">
+            <a-tooltip title="在『同事 → 访问权限』页签修改">
               <span class="em-chip is-static" :class="{ on: priceOn }">
                 <span class="em-chip-dot"></span>{{ priceOn ? '价格可见' : '价格不可见' }}
               </span>
@@ -133,11 +133,11 @@
             <div>
               <div class="em-param-head">
                 <span>模型覆盖</span>
-                <b class="em-readout">{{ draft.model_override ? '本员工专属' : '跟随全局' }}</b>
+                <b class="em-readout">{{ draft.model_override ? '本同事专属' : '跟随全局' }}</b>
                 <button v-if="draft.model_override" type="button" class="em-reset-btn" @click="draft.model_override = null">清除</button>
               </div>
               <a-input v-model:value="draft.model_override" placeholder="模型 id，留空用全局默认" allow-clear />
-              <div class="em-param-hint">仅本员工的对话走此模型</div>
+              <div class="em-param-hint">仅本同事的对话走此模型</div>
             </div>
           </div>
           <div class="em-param-note">工作流业务问答固定低温 0.2，不受以上参数影响</div>
@@ -234,11 +234,10 @@
         </a-collapse>
 
         <div class="em-actions">
-          <a-button class="em-btn-danger" danger type="text" :loading="saving" @click="confirmDelete">删除员工</a-button>
-          <a-button type="primary" class="em-btn-save" :loading="saving" @click="save">保存</a-button>
+          <a-button class="em-btn-danger" danger type="text" :loading="saving" @click="confirmDelete">删除同事</a-button>
         </div>
       </template>
-      <div v-else class="em-empty">选择左侧员工，或新建一位 AI 同事</div>
+      <div v-else class="em-empty">选择左侧同事，或新建一位 AI 同事</div>
       </div>
     </a-modal>
 
@@ -258,7 +257,7 @@
           <a-button size="small" :loading="memoryConsolidating">整理</a-button>
         </a-popconfirm>
         <a-button size="small" type="primary" @click="openMemoryCreate">新建记忆</a-button>
-        <a-popconfirm title="确定清空该员工全部长期记忆？" @confirm="clearMemories">
+        <a-popconfirm title="确定清空该同事全部长期记忆？" @confirm="clearMemories">
           <a-button size="small" danger>清空</a-button>
         </a-popconfirm>
       </div>
@@ -456,6 +455,11 @@ const draft = ref<Record<string, any> | null>(null)
 const saving = ref(false)
 const createOpen = ref(false)
 const editorOpen = ref(false)
+/* 编辑弹层是 z1000 的 antd modal，而安装横幅(z2100)/AI 悬浮球(z1550)都会压在它上面——
+   打开期间给 body 挂标记类，两个悬浮件据此让位 */
+watch(editorOpen, (v) => {
+  document.body.classList.toggle('em-editor-modal-open', v)
+})
 const createForm = ref({
   role_key: '',
   name: '',
@@ -830,7 +834,7 @@ async function clearMemories() {
   if (!draft.value?.role_key) return
   try {
     await officeApi.clearColleagueMemories(draft.value.role_key)
-    message.success('已清空该员工长期记忆')
+    message.success('已清空该同事长期记忆')
     memories.value = []
     await loadMemorySummary()
   } catch (error: any) {
@@ -969,7 +973,7 @@ async function handleCreate() {
     selectedRoleKey.value = roleKey
     emit('saved')
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || '新建员工失败')
+    message.error(error?.response?.data?.detail || '新建同事失败')
   } finally {
     saving.value = false
   }
@@ -988,7 +992,7 @@ async function save() {
     message.success(`已保存 ${draft.value.role_key}`)
     emit('saved')
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || '保存员工失败')
+    message.error(error?.response?.data?.detail || '保存同事失败')
   } finally {
     saving.value = false
   }
@@ -997,8 +1001,8 @@ async function save() {
 function confirmDelete() {
   if (!draft.value) return
   Modal.confirm({
-    title: `删除 AI 员工「${draft.value.name || draft.value.role_key}」？`,
-    content: '删除后该员工配置及关联房间分配会一并移除。',
+    title: `删除 AI 同事「${draft.value.name || draft.value.role_key}」？`,
+    content: '删除后该同事配置及关联房间分配会一并移除。',
     okText: '删除',
     okType: 'danger',
     cancelText: '取消',
@@ -1014,7 +1018,7 @@ async function deleteEmployee() {
     message.success(`已删除 ${draft.value.role_key}`)
     emit('saved')
   } catch (error: any) {
-    message.error(error?.response?.data?.detail || '删除员工失败')
+    message.error(error?.response?.data?.detail || '删除同事失败')
   } finally {
     saving.value = false
   }
@@ -1098,7 +1102,7 @@ defineExpose({ openCreate, save })
   border: none;
   background: transparent;
   padding: 1px 9px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 11.5px;
   color: var(--cpq-accent-primary);
   cursor: pointer;
@@ -1122,7 +1126,7 @@ defineExpose({ openCreate, save })
   gap: 10px;
 }
 
-/* ── 员工档案（简历风封面 + 居中分节）────────────────────────── */
+/* ── 同事档案（简历风封面 + 居中分节）────────────────────────── */
 
 .em-cover {
   display: flex;
@@ -1197,7 +1201,7 @@ defineExpose({ openCreate, save })
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a8);
   padding: 2px 12px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
 }
 
 .em-chips {
@@ -1213,7 +1217,7 @@ defineExpose({ openCreate, save })
   align-items: center;
   gap: 6px;
   padding: 3px 10px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   border: 1px solid var(--cpq-border-primary);
   background: var(--cpq-glass-1-bg, rgba(255, 255, 255, 0.04));
   color: var(--cpq-text-muted);
@@ -1322,7 +1326,7 @@ button.em-chip:hover {
 
 .em-pill {
   padding: 3px 14px;
-  border-radius: 999px;
+  border-radius: var(--cpq-radius-full);
   font-size: 13px;
   font-family: inherit;
   border: 1px solid var(--cpq-border-primary);
@@ -1347,13 +1351,13 @@ button.em-chip:hover {
 /* 滑杆：粗圆轨道（antd 默认细轨 + marks 已去掉） */
 .em-slider :deep(.ant-slider-rail) {
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-overlay-a10);
 }
 
 .em-slider :deep(.ant-slider-track) {
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--cpq-radius-xs);
   background: var(--cpq-accent-primary);
 }
 
@@ -1387,7 +1391,7 @@ button.em-chip:hover {
   background: var(--cpq-overlay-a10) !important;
   border: 1px solid rgba(22, 119, 255, 0.35) !important;
   color: var(--cpq-accent-primary) !important;
-  border-radius: 999px !important;
+  border-radius: var(--cpq-radius-full) !important;
   padding-inline: 10px !important;
   line-height: 22px !important;
   font-size: 12px;
@@ -1463,7 +1467,7 @@ button.em-chip:hover {
   height: 26px;
   padding: 0;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--cpq-radius-sm);
   background: transparent;
   cursor: pointer;
 }
@@ -1508,10 +1512,11 @@ button.em-chip:hover {
   gap: 12px;
 }
 
+/* 底部只留低频的删除入口：居中弱化，避免与顶部常驻保存形成双 CTA；
+   保存收敛到标题栏（em-btn-save-top），滚动到哪都能存 */
 .em-actions {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: center;
   padding: 20px 28px 10px;
 }
 
@@ -1521,18 +1526,6 @@ button.em-chip:hover {
 
 .em-btn-danger:hover {
   opacity: 1;
-}
-
-.em-btn-save {
-  min-width: 132px;
-  /* #app .ant-btn-primary(ID级)会碾掉渐变，按 portal-sheet 先例用 !important 夺回 */
-  background: var(--cpq-accent-gradient) !important;
-  border: none !important;
-  box-shadow: 0 6px 18px rgba(22, 119, 255, 0.30);
-}
-
-.em-btn-save:hover {
-  filter: brightness(1.08);
 }
 
 .em-empty {
@@ -1572,7 +1565,7 @@ button.em-chip:hover {
 .em-thread-message {
   padding: 10px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w3);
 }
 
@@ -1625,7 +1618,7 @@ button.em-chip:hover {
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--cpq-border-secondary);
-  border-radius: 10px;
+  border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w3);
 }
 
@@ -1685,13 +1678,15 @@ button.em-chip:hover {
 }
 
 
-/* 简历纸：实色纸面（glass-3 磨砂会透底噪）+ 宽度 min(94vw,1000px) 随窗口自适应，高度自然生长（超 92vh 内部滚动） */
+/* 简历纸：实色纸面（glass-3 磨砂会透底噪）+ 宽度 min(94vw,1000px) 随窗口自适应，高度自然生长（超 92vh 内部滚动）。
+   底色用 bg-secondary（蓝黑，与底层管理页 bg-primary 同族浅一档）：原 bg-card 是中性暖灰 #1e1e1e，
+   与全站蓝黑基调并置显杂色（用户反馈"黑/深黑/浅灰/灰蓝杂糅"） */
 :global(.em-editor-modal .ant-modal-content) {
   max-height: 92vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--cpq-bg-card) !important;
+  background: var(--cpq-bg-secondary) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border: 1px solid var(--cpq-border-primary) !important;
@@ -1702,6 +1697,30 @@ button.em-chip:hover {
   min-height: 0;
   overflow: auto;
   scrollbar-gutter: stable;
+}
+
+/* 手机端全屏化：浮层留缝会让底层列表文本从缝隙透出，也和 AI 办公室其他全屏层（任务看板）不统一 */
+@media (max-width: 860px) {
+  :global(.em-editor-modal .ant-modal) {
+    top: 0;
+    width: 100vw !important;
+    max-width: 100vw;
+    margin: 0;
+    padding-bottom: 0;
+  }
+  :global(.em-editor-modal .ant-modal-content) {
+    max-height: none;
+    height: 100dvh;
+    border: none;
+    border-radius: 0;
+  }
+  :global(.em-editor-modal .ant-modal-body) {
+    scrollbar-width: none;
+    scrollbar-gutter: auto;
+  }
+  :global(.em-editor-modal .ant-modal-body::-webkit-scrollbar) {
+    display: none;
+  }
 }
 
 /* 标题栏弱化：纸的感觉不需要粗标题，认得出来即可 */

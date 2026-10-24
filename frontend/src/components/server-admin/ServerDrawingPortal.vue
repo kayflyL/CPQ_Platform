@@ -122,7 +122,7 @@ onMounted(load)
   font-size: 13px;
   letter-spacing: 2px;
   border: 1px dashed var(--cpq-overlay-w20, rgba(255, 255, 255, 0.2));
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 6px 14px;
 }
 .sdp-status {
@@ -132,7 +132,7 @@ onMounted(load)
   font-size: 11px;
   line-height: 1;
   padding: 4px 8px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   color: #fff;
   backdrop-filter: blur(4px);
 }

@@ -1,6 +1,19 @@
 <template>
+  <!-- 手机端收起态：44px 小圆钮（默认态；点击原位展开完整桌宠，不再让 200px 形象常驻挡内容/挡导航） -->
+  <button
+    v-show="!open && isMobileNarrow && !mobileExpanded"
+    class="pet-collapsed"
+    :class="{ streaming: !!bubbleText }"
+    type="button"
+    title="方案助手"
+    @click="expandPet"
+  >
+    <span class="pet-collapsed-ic">✦</span>
+    <span v-if="bubbleText" class="pet-collapsed-dot"></span>
+  </button>
+
   <div
-    v-show="!open"
+    v-show="!open && (!isMobileNarrow || mobileExpanded)"
     ref="petRef"
     class="assistant-pet"
     :class="[{ dragging: isDragging }, dock ? `is-docked-${dock}` : '']"
@@ -15,6 +28,8 @@
     <div ref="stageRef" class="pet-stage">
       <span v-if="failed" class="fab-mark">助</span>
     </div>
+    <!-- 手机端收起回小圆钮（pointerdown.stop 防误触拖拽） -->
+    <button v-if="isMobileNarrow" class="pet-collapse-x" type="button" title="收起" @pointerdown.stop @click.stop="mobileExpanded = false">✕</button>
     <!-- 回复中流式摘录气泡：面板关着时实时显示正在生成的内容 -->
     <div v-if="bubbleText && !isDragging" class="pet-bubble" :class="{ 'from-bottom': dock === 'top' }">{{ bubbleText }}</div>
   </div>
@@ -51,7 +66,7 @@ const props = defineProps<{ open: boolean; modelKey?: string }>()
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
 const {
-  pos, petSize, dockEdge, moveClamped, refitToViewport, setFabEl, setPetSize, setDockEdge,
+  pos, petSize, dockEdge, moveClamped, refitToViewport, setFabEl, setPetSize, setDockEdge, persist,
   FAB_DRAG_THRESHOLD, FAB_DRAG_THRESHOLD_TOUCH, PET_SIZE_TIERS, PET_DOCK_SLIDE, PET_DOCK_SNAP,
 } = useAssistantFab()
 const dock = dockEdge
@@ -70,6 +85,8 @@ let startX = 0, startY = 0, originX = 0, originY = 0
 let moved = false, active = false
 /** 本次按下的指针类型：触屏点按位移天然大，拖拽判定阈值要分档（见 FAB_DRAG_THRESHOLD_TOUCH） */
 let activePointerType = ''
+/** ≤768 视口监听句柄：mount/unmount 必须操作同一实例，否则监听器移除不掉 */
+let mobileMql: MediaQueryList | null = null
 
 function clampCross(v: number, dim: number, s: number) {
   return Math.max(8, Math.min(v, dim - s - 8))
@@ -78,6 +95,21 @@ function clampCross(v: number, dim: number, s: number) {
 // 手机端底部导航避让：贴边 / 停靠 / 纵向夹取都以此为下界（拖拽自由位的夹取在 useAssistantFab.clampPos）
 function bottomInset() {
   return window.matchMedia('(max-width: 768px)').matches ? MOBILE_TABBAR_INSET : 0
+}
+
+// ── 手机端收起/展开 ──
+// ≤768 折成 44px 圆钮（默认），点击原位展开完整桌宠；桌面端不受影响
+const isMobileNarrow = ref(window.matchMedia('(max-width: 768px)').matches)
+const mobileExpanded = ref(false)
+function onMobileMqlChange(e: MediaQueryListEvent) {
+  isMobileNarrow.value = e.matches
+}
+/** 展开即重置到导航上方默认锚点：历史拖拽位/停靠态（含 docked-bottom 下滑拍在导航上的旧状态）一律清掉 */
+function expandPet() {
+  mobileExpanded.value = true
+  if (pos.value) persist(null)
+  if (dock.value) setDockEdge(null)
+  if (!widget && !failed.value) initPet()
 }
 
 const petStyle = computed(() => {
@@ -195,6 +227,8 @@ function edgeAt(cx: number, cy: number): PetDockEdge | null {
   if (cx <= PET_DOCK_SNAP) return 'left'
   if (cx >= window.innerWidth - PET_DOCK_SNAP) return 'right'
   if (cy <= PET_DOCK_SNAP) return 'top'
+  // 手机端禁底部停靠：docked-bottom 的 62% 下滑会把形象拍在底部导航上（两轮截图事故的根因）
+  if (bottomInset() > 0) return null
   if (cy >= window.innerHeight - bottomInset() - PET_DOCK_SNAP) return 'bottom'
   return null
 }
@@ -302,7 +336,8 @@ function rebuildPet() {
   const el = stageRef.value
   if (el) el.replaceChildren()
   failed.value = false
-  initPet()
+  // 手机端收起态不建画布，等 expandPet 再建
+  if (!isMobileNarrow.value || mobileExpanded.value) initPet()
 }
 
 watch(() => props.modelKey, (n, o) => {
@@ -326,7 +361,10 @@ onMounted(() => {
   window.addEventListener("resize", onResize)
   document.addEventListener("pointerdown", onDocPointerDown)
   document.addEventListener("keydown", onDocKeydown)
-  initPet()
+  mobileMql = window.matchMedia('(max-width: 768px)')
+  mobileMql.addEventListener('change', onMobileMqlChange)
+  // 手机端默认收起：Live2D 画布等展开再建（隐藏态常驻 WebGL 是白烧资源）
+  if (!isMobileNarrow.value) initPet()
 })
 
 onBeforeUnmount(() => {
@@ -334,6 +372,8 @@ onBeforeUnmount(() => {
   window.removeEventListener("resize", onResize)
   document.removeEventListener("pointerdown", onDocPointerDown)
   document.removeEventListener("keydown", onDocKeydown)
+  mobileMql?.removeEventListener('change', onMobileMqlChange)
+  mobileMql = null
   if (widget) {
     destroyWidget(widget)
   }
@@ -367,6 +407,50 @@ onBeforeUnmount(() => {
   }
 }
 
+/* 编辑类全屏弹层（同事档案等 antd modal）打开时让位：悬浮球 z1550 会压在弹层 z1000 上；
+   Manage Teams/日志审批/任务看板全屏层（office-fullscreen-open）同理 */
+body.em-editor-modal-open .assistant-pet,
+body.em-editor-modal-open .pet-collapsed,
+body.office-fullscreen-open .assistant-pet,
+body.office-fullscreen-open .pet-collapsed {
+  display: none !important;
+}
+
+/* 手机端收起态：44px 小圆钮，与完整桌宠同锚点角落（展开即原位放大） */
+.pet-collapsed {
+  position: fixed;
+  right: 14px;
+  bottom: calc(14px + 58px + env(safe-area-inset-bottom, 0px));
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--cpq-radius-full);
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(var(--cpq-glass-card-blur));
+  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+  box-shadow: var(--cpq-glass-card-shadow);
+  color: var(--cpq-accent-primary);
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0;
+  z-index: 1550;
+}
+.pet-collapsed:active { transform: scale(0.94); }
+.pet-collapsed.streaming { border-color: var(--cpq-glass-border-strong); box-shadow: var(--cpq-glass-card-shadow-glow); }
+.pet-collapsed-dot {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--cpq-accent-primary);
+  box-shadow: 0 0 8px var(--cpq-overlay-a40);
+}
+
 /* 贴边半隐：滑出约 2/3，留 1/3 身子作把手；hover 弹回 */
 .assistant-pet.is-docked-right { transform: translateX(var(--dock-slide, 62%)); }
 .assistant-pet.is-docked-left { transform: translateX(calc(-1 * var(--dock-slide, 62%))); }
@@ -382,7 +466,7 @@ onBeforeUnmount(() => {
   position: absolute;
   inset: 0;
   border: 2px dashed var(--cpq-accent-primary, #1677ff);
-  border-radius: 18px;
+  border-radius: var(--cpq-radius-xl);
   background: var(--cpq-overlay-w2, rgba(22, 119, 255, .08));
   pointer-events: none;
   z-index: 2;
@@ -417,7 +501,7 @@ onBeforeUnmount(() => {
   transform: translateX(-50%);
   max-width: 240px;
   padding: 7px 11px;
-  border-radius: 12px 12px 12px 4px;
+  border-radius: var(--cpq-radius-md) var(--cpq-radius-md) var(--cpq-radius-md) var(--cpq-radius-xs);
   background: var(--cpq-glass-card-bg, rgba(255, 255, 255, .88));
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .08));
   box-shadow: var(--cpq-glass-card-shadow, 0 8px 24px rgba(0, 0, 0, .12));
@@ -433,7 +517,7 @@ onBeforeUnmount(() => {
 .pet-bubble.from-bottom {
   bottom: auto;
   top: calc(100% - 30px);
-  border-radius: 4px 12px 12px 12px;
+  border-radius: var(--cpq-radius-xs) var(--cpq-radius-md) var(--cpq-radius-md) var(--cpq-radius-md);
 }
 
 /* 右键菜单（Teleport 到 body，fixed 直达视口） */
@@ -442,7 +526,7 @@ onBeforeUnmount(() => {
   z-index: 3000;
   min-width: 172px;
   padding: 6px;
-  border-radius: 14px;
+  border-radius: var(--cpq-radius-lg);
   background: var(--cpq-glass-card-bg, rgba(255, 255, 255, .92));
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .08));
   box-shadow: var(--cpq-glass-card-shadow, 0 12px 32px rgba(0, 0, 0, .16));
@@ -452,7 +536,7 @@ onBeforeUnmount(() => {
 .pet-menu-title { padding: 6px 10px 4px; font-size: 11px; color: var(--cpq-text-muted, #888); }
 .pet-menu-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 7px 10px; border: 0; border-radius: 9px; background: transparent;
+  padding: 7px 10px; border: 0; border-radius: var(--cpq-radius-sm); background: transparent;
   font-size: 13px; cursor: pointer; text-align: left; color: inherit;
 }
 .pet-menu-item:hover { background: var(--cpq-overlay-w2, rgba(0, 0, 0, .05)); }
@@ -467,7 +551,24 @@ onBeforeUnmount(() => {
 .pet-menu-fade-enter-active, .pet-menu-fade-leave-active { transition: opacity .15s ease, transform .15s ease; }
 .pet-menu-fade-enter-from, .pet-menu-fade-leave-to { opacity: 0; transform: scale(.96); }
 
-@media (max-width: 768px) {
-  .assistant-pet { right: 16px; bottom: 80px; }
+/* 手机端完整态的收起角标：点击回 44px 圆钮（pointerdown 已 stop，不影响拖拽） */
+.pet-collapse-x {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--cpq-radius-full);
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-card-bg);
+  backdrop-filter: blur(8px);
+  color: var(--cpq-text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+  z-index: 4;
 }
 </style>

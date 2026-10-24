@@ -102,7 +102,7 @@ function removeRow(idx: number) {
   align-items: flex-start;
   gap: 8px;
   padding: 8px;
-  border-radius: var(--cpq-radius-sm, 8px);
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3, transparent);
   border: 1px solid var(--cpq-glass-border, rgba(255, 255, 255, 0.11));
 }

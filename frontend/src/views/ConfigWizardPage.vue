@@ -85,7 +85,7 @@ onMounted(loadModel)
   font-size: 14px;
   font-weight: 500;
 }
-.sc-back { padding: 6px 14px; border: 1px solid var(--cpq-border-light,var(--cpq-overlay-w20)); border-radius: 8px; color: var(--cpq-text-secondary,#9BA1AA); background: transparent; cursor: pointer; font-size: 13px; transition: all .2s; }
+.sc-back { padding: 6px 14px; border: 1px solid var(--cpq-border-light,var(--cpq-overlay-w20)); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary,#9BA1AA); background: transparent; cursor: pointer; font-size: 13px; transition: all .2s; }
 .sc-back:hover { color: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); }
 
 .sc-empty {

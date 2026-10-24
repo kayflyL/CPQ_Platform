@@ -261,7 +261,7 @@ onMounted(async () => {
   flex-wrap: wrap;
   padding: 6px 12px;
   margin-bottom: 8px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   background: var(--cpq-glass-1-bg);
   border: 1px solid var(--cpq-glass-border);
   font-size: 12px;

@@ -610,7 +610,7 @@ function handleBack() {
 
 .config-panel {
   width: 400px;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 20px;
   overflow-y: auto;
 }
@@ -636,7 +636,7 @@ function handleBack() {
   max-width: 200px;
   max-height: 100px;
   border: 1px solid var(--cpq-border-dark);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .logo-preview-wrapper {
@@ -658,12 +658,12 @@ function handleBack() {
   font-size: 12px;
   background: var(--cpq-bg-dark);
   border: 1px dashed var(--cpq-border-dark);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
 }
 
 .preview-panel {
   flex: 1;
-  border-radius: 8px;
+  border-radius: var(--cpq-radius-sm);
   padding: 20px;
   overflow-y: auto;
 }
@@ -676,7 +676,7 @@ function handleBack() {
 
 .preview-container {
   border: 1px solid var(--cpq-border-dark);
-  border-radius: 4px;
+  border-radius: var(--cpq-radius-xs);
   padding: 20px;
   background: var(--cpq-bg-dark);
 }
@@ -707,5 +707,5 @@ function handleBack() {
 .style-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .style-label { flex: 0 0 118px; font-size: 13px; color: var(--cpq-text-secondary); }
 .style-hint { font-size: 12px; color: var(--cpq-text-muted); }
-.color-picker { width: 36px; height: 26px; padding: 0; border: 1px solid var(--cpq-border-primary); border-radius: 4px; background: none; cursor: pointer; }
+.color-picker { width: 36px; height: 26px; padding: 0; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-xs); background: none; cursor: pointer; }
 </style>

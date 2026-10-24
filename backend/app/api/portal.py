@@ -1627,6 +1627,130 @@ def delete_bom_scheme(opp_id: str, scheme_id: int,
         flow_repo.close()
 
 
+@router.post("/api/portal/opp/{opp_id}/bom-schemes/upload")
+async def upload_bom_scheme(
+    opp_id: str,
+    file: UploadFile = File(...),
+    parse_overrides: str = Form(None),
+    user: dict = Depends(get_current_user),
+):
+    """上传方案表：解析 Excel 生成方案配置草稿（价格列缺失不影响落位），原件归档方案配置桶。
+
+    解析与成本表上传同源（QuoteService + 解析模板，scope 同为 cost_sheet_upload）；
+    parse_overrides 是解析弹窗的会话补丁，保证「预览看到的=确认生成的」。
+    """
+    opp, flow = _svc(opp_id, user)
+    if not user_has_permission(user, "action.flow.submit.boming"):
+        raise HTTPException(status_code=403, detail="当前角色无权编辑方案配置")
+
+    filename = _decode_filename(file.filename or "")
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=400,
+            detail="只支持 .xlsx 文件；旧版 .xls 请先用 Excel 另存为 .xlsx 再上传",
+        )
+    content = await file.read()
+    if len(content) > 50 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="文件过大，最大允许 50MB")
+
+    service = QuoteService()
+    flow_repo = FlowRepository()
+    feed_repo = FeedRepository()
+    storage = get_storage()
+    storage_key = None
+    scheme_id = None
+    overrides = None
+    if parse_overrides:
+        try:
+            overrides = json.loads(parse_overrides)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="parse_overrides 不是合法 JSON")
+    try:
+        result = service.process_upload(content, filename,
+                                        parse_overrides=overrides)
+        if result.get("status") == "error":
+            raw = result.get("message", "") or "未知错误"
+            raise HTTPException(status_code=422, detail=f"方案表解析失败：{raw}")
+        configs = _parse_result_to_cost_configs(result.get("configs") or {})
+        if not configs:
+            raise HTTPException(status_code=422, detail="未识别到有效配置：请检查方案表格式")
+        stem = Path(filename).stem or "方案表"
+        try:
+            scheme = flow_repo.save_bom_scheme_draft(
+                opp_id, None, f"方案-{stem}", configs,
+                created_by=user.get("name") or "",
+            )
+            scheme_id = scheme["id"]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        card = _attach_entity_card(
+            opp_id,
+            "bom",
+            scheme["id"],
+            origin_node="boming",
+            current_node="boming",
+            flow_status="draft",
+            created_by=user.get("name") or "",
+            card_id=None,
+            visible_upstream=False,
+        )
+
+        ext = Path(filename).suffix.lower()
+        try:
+            storage_key = storage.save_bytes(
+                opp_id,
+                build_object_id(filename),
+                content,
+                ext,
+                customer_name=opp.get("customer_name") or "",
+                subfolder="方案配置",
+            )
+        except StorageError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        mime = (
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            if ext == ".xlsx"
+            else "application/vnd.ms-excel"
+        )
+        att = feed_repo.add_attachment(
+            opportunity_id=opp_id,
+            uploader_user_id=user["user_id"],
+            original_filename=filename,
+            storage_key=storage_key,
+            file_size=len(content),
+            mime_type=mime,
+            kind="upload",
+            quotation_id="",
+            category="technical",
+            flow_card_id=card["id"],
+        )
+        await hub.broadcast(opp_id, {"type": "attachment", "attachment": att})
+        return {
+            "scheme": scheme,
+            "attachment": att,
+            "bom_schemes": flow_repo.list_bom_schemes(opp_id),
+        }
+    except Exception:
+        if storage_key:
+            try:
+                storage.delete(storage_key)
+            except Exception:
+                pass
+        if scheme_id is not None:
+            try:
+                flow_repo.delete_bom_scheme(opp_id, scheme_id)
+                _unlink_entity_card(opp_id, "bom", scheme_id)
+            except Exception:
+                pass
+        raise
+    finally:
+        service.close()
+        flow_repo.close()
+        feed_repo.close()
+
+
 @router.get("/api/portal/opp/{opp_id}/cost-sheets")
 def list_cost_sheets(opp_id: str, user: dict = Depends(get_current_user)):
     _svc(opp_id, user)

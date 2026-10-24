@@ -259,3 +259,24 @@ def activate(flow_id: int, data: dict = None):
         return f
     finally:
         repo.close()
+
+
+@router.put("/launch-form", dependencies=[Depends(require_perms("page.strategies"))])
+def save_launch_form(data: dict, skill_key: str = Query(default=None)):
+    """保存启动表单 schema（独立列存储：画布保存物理碰不到，结构上免疫键剥离）。
+    body 即 schema {fields:[...]}；空/缺 fields = 清除（该工作流恢复自由对话）。"""
+    key = (skill_key or "").strip()
+    if not key:
+        raise HTTPException(400, "Missing skill_key")
+    schema = data.get("launch_form") if isinstance(data.get("launch_form"), dict) else (data if isinstance(data, dict) else None)
+    fields = (schema or {}).get("fields")
+    schema_to_store = schema if isinstance(fields, list) and fields else None
+    from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+    repo = ReasoningFlowRepository()
+    try:
+        out = repo.set_launch_form(key, schema_to_store, operator="launch-form-editor")
+    finally:
+        repo.close()
+    if not out:
+        raise HTTPException(404, "工作流不存在")
+    return {"ok": True, "launch_form": out.get("launch_form")}
