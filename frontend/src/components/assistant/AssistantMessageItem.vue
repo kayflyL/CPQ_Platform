@@ -43,7 +43,7 @@
         :message="message"
         :option-interactive="optionInteractive"
         :thread-id="threadId"
-        @answer="(p: Record<string, any>) => emit('answer-query', p)"
+        @answer="(p: AssistantQueryAnswer) => emit('answer-query', p)"
       />
       <div v-else class="am-bubble am-bubble--live">
         <div v-if="quoteInfo" class="am-quote-card">
@@ -115,6 +115,7 @@ import HumanQueryCard from '@/components/assistant/HumanQueryCard.vue'
 import ArtifactCard from '@/components/assistant/ArtifactCard.vue'
 import type { ToolTrace } from '@/composables/assistantChatWs'
 import { fmtChatTime } from '@/utils/chatTime'
+import type { AssistantQueryAnswer } from '@/api/assistant'
 
 const props = withDefaults(defineProps<{
   message?: {
@@ -176,7 +177,7 @@ const emit = defineEmits<{
   (e: 'select-option', value: string, slot?: string): void
   (e: 'submit-selections', selections: Array<{ slot: string; value: string; label: string; qty?: number }>): void
   (e: 'submit-form', text: string): void
-  (e: 'answer-query', payload: Record<string, any>): void
+  (e: 'answer-query', payload: AssistantQueryAnswer): void
   (e: 'reply', q: { name: string; text: string }): void
   (e: 'persona', ev: MouseEvent): void
 }>()

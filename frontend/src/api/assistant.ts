@@ -82,6 +82,14 @@ export interface ToolTextPayload {
   model_brief?: string
 }
 
+/** 问答协议回答载荷（HumanQueryCard 发卡回答与两处面板提交共用形状） */
+export interface AssistantQueryAnswer {
+  query_id: string
+  selections?: string[]
+  values?: Record<string, string>
+  note?: string
+}
+
 const http: AxiosInstance = axios.create({ baseURL: '', timeout: 60000 })
 attachAuthInterceptors(http)
 
@@ -109,6 +117,24 @@ export const assistantApi = {
       http
         .delete<{ tool: AssistantToolInfo }>(`/api/assistant/tools/${name}/text`)
         .then((r) => r.data.tool),
+  },
+  /** 问答协议：结构化回答按 query_id 回流（点选/填表），不走文本匹配 */
+  answers: {
+    create: (
+      id: string,
+      body: AssistantQueryAnswer,
+    ) =>
+      http
+        .post<{ user_message: AssistantMessage; query: Record<string, any> }>(
+          `/api/assistant/threads/${id}/answers`,
+          {
+            query_id: body.query_id,
+            selections: body.selections || null,
+            values: body.values || null,
+            note: body.note || null,
+          },
+        )
+        .then((r) => r.data),
   },
   threads: {
     list: (opts?: { includeDeleted?: boolean; withMeta?: boolean; allKinds?: boolean }) =>
@@ -280,24 +306,6 @@ export const assistantApi = {
           },
         )
         .then((r) => r.data),
-    /** 问答协议：结构化回答按 query_id 回流（点选/填表），不走文本匹配 */
-    answers: {
-      create: (
-        id: string,
-        body: { query_id: string; selections?: string[]; values?: Record<string, string>; note?: string },
-      ) =>
-        http
-          .post<{ user_message: AssistantMessage; query: Record<string, any> }>(
-            `/api/assistant/threads/${id}/answers`,
-            {
-              query_id: body.query_id,
-              selections: body.selections || null,
-              values: body.values || null,
-              note: body.note || null,
-            },
-          )
-          .then((r) => r.data),
-    },
     /** 聊天附件上传：落会话暂存（不进商机档案），发送时随 attachment_ids 引用 */
     uploadAttachment: (id: string, file: File) => {
       const fd = new FormData()

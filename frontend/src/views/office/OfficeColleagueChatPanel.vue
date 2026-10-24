@@ -134,7 +134,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { CloseOutlined, DeleteOutlined, HistoryOutlined, PlusOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { assistantApi, type AssistantContext, type AssistantThread } from '@/api/assistant'
+import { assistantApi, type AssistantContext, type AssistantQueryAnswer, type AssistantThread } from '@/api/assistant'
 import AssistantComposer from '@/components/assistant/AssistantComposer.vue'
 import AssistantMessageItem from '@/components/assistant/AssistantMessageItem.vue'
 import BusinessArtifactView from '@/components/assistant/BusinessArtifactView.vue'
@@ -317,14 +317,14 @@ async function sendOption(value: string, slot?: string) {
 async function sendFormText(text: string) {
   if (!text || !props.colleague?.role_key) return
   try {
-    await send(props.colleague.role_key, text, props.contextSummary, chatContext.value, null)
+    await send(props.colleague.role_key, text, props.contextSummary, chatContext.value, undefined)
   } catch {
     message.error(chatState.value?.error || '发送失败')
   }
 }
 
 // 问答协议：结构化回答按 query_id 回流（POST /answers），答案由轮壳路由
-async function sendAnswer(payload: Record<string, any>) {
+async function sendAnswer(payload: AssistantQueryAnswer) {
   const tid = chatState.value?.threadId || ''
   if (!tid) return
   try {

@@ -464,7 +464,7 @@ import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vu
 import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import { fmtChatTime } from '@/utils/chatTime'
 import { useAuthStore } from '@/store/auth'
-import { assistantApi, type AssistantThread } from '@/api/assistant'
+import { assistantApi, type AssistantQueryAnswer, type AssistantThread } from '@/api/assistant'
 import { officeApi } from '@/api/office'
 import { usePetModelStore } from '@/store/petModel'
 import { downloadOfficeFile, previewOfficeFileUrl } from '@/utils/fileDownload'
@@ -1400,8 +1400,8 @@ function onSubmitForm(text: string) {
 }
 
 // 问答协议：结构化回答按 query_id 回流（POST /answers），答案由轮壳路由
-async function onAnswerQuery(payload: Record<string, any>) {
-  const tid = currentThreadId || ''
+async function onAnswerQuery(payload: AssistantQueryAnswer) {
+  const tid = currentThreadId.value || ''
   if (!tid) return
   try {
     await assistantApi.answers.create(tid, payload)

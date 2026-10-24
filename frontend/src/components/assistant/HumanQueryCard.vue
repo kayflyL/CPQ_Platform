@@ -9,8 +9,8 @@
 
     <!-- consent：授权问询（确认执行/取消） -->
     <div v-if="query.kind === 'consent' && interactive" class="hq-actions">
-      <button type="button" class="hq-btn hq-cancel" @click="answer(['取消'])">取消</button>
-      <button type="button" class="hq-btn hq-primary" @click="answer(['确认执行'])">确认执行</button>
+      <button type="button" class="hq-btn hq-cancel" @click="answer({ selections: ['取消'] })">取消</button>
+      <button type="button" class="hq-btn hq-primary" @click="answer({ selections: ['确认执行'] })">确认执行</button>
     </div>
 
     <!-- choice：单选 + Other 逃生门 -->
@@ -72,7 +72,7 @@
  * 不走文本匹配。旧 input_options/input_form 消息仍由 AskCard/InputFormCard 重放。
  */
 import { computed, reactive, ref } from 'vue'
-import { assistantApi } from '@/api/assistant'
+import { assistantApi, type AssistantQueryAnswer } from '@/api/assistant'
 
 const props = withDefaults(defineProps<{
   message?: { kind?: string; data?: string; content?: string }
@@ -84,7 +84,7 @@ const props = withDefaults(defineProps<{
   threadId: '',
 })
 
-const emit = defineEmits<{ (e: 'answer', payload: Record<string, any>): void }>()
+const emit = defineEmits<{ (e: 'answer', payload: AssistantQueryAnswer): void }>()
 
 const query = computed<null | any>(() => {
   if (props.message?.kind !== 'query' || !props.message?.data) return null
@@ -111,7 +111,7 @@ const canChoice = computed(() => picked.value === '__other__'
 const canForm = computed(() =>
   (query.value?.fields || []).some((f: any) => String(values[f.key] ?? '').trim() !== ''))
 
-async function answer(answerPart: { selections?: string[]; values?: Record<string, string>; note?: string }) {
+async function answer(answerPart: Omit<AssistantQueryAnswer, 'query_id'>) {
   if (!query.value || submitted.value) return
   if (!props.threadId) return
   const payload = { query_id: query.value.query_id, ...answerPart }

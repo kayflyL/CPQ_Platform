@@ -94,7 +94,6 @@ const scheme = ref<any>(null)
 const schemeLoading = ref(false)
 const schemeEditing = ref(false)
 const schemeSaving = ref(false)
-const schemeEditorRef = ref<InstanceType<typeof SchemeEditor> | null>(null)
 
 async function loadScheme() {
   const oppId = refs.value.opportunity_id
