@@ -92,3 +92,6 @@ db_dumps/
 /tools/
 /backend/_backup_*.json
 /backend/_user_refs_report.txt
+
+# Local per-user Claude settings (do not track)
+.claude/settings.local.json
