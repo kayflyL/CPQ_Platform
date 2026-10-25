@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>配置页 · 性能六维雷达 原型</title>
+<style>
+  :root {
+    --page-bg: #f3f5f9;
+    --card-bg: rgba(255, 255, 255, 0.78);
+    --block-bg: rgba(22, 119, 255, 0.04);
+    --inner-bg: rgba(0, 0, 0, 0.035);
+    --line: rgba(15, 27, 61, 0.1);
+    --line-dash: rgba(15, 27, 61, 0.16);
+    --text: #232c3d;
+    --text-2: #5a6579;
+    --muted: #8a93a6;
+    --accent: #1677ff;
+    --radar-accent: #1677ff;
+    --radar-fill: rgba(22, 119, 255, 0.16);
+    --radar-grid: rgba(15, 27, 61, 0.1);
+    --radar-axis-label: #5a6579;
+    --warn: #faad14;
+    --shadow: 0 8px 28px rgba(31, 42, 68, 0.1);
+  }
+  [data-theme="dark"] {
+    --page-bg: #0e1420;
+    --card-bg: rgba(22, 28, 44, 0.82);
+    --block-bg: rgba(255, 255, 255, 0.03);
+    --inner-bg: rgba(0, 0, 0, 0.3);
+    --line: rgba(255, 255, 255, 0.1);
+    --line-dash: rgba(255, 255, 255, 0.16);
+    --text: #e8ecef;
+    --text-2: rgba(232, 236, 239, 0.72);
+    --muted: rgba(232, 236, 239, 0.48);
+    --accent: #4d9fff;
+    --radar-accent: #5bb8ff;
+    --radar-fill: rgba(91, 184, 255, 0.18);
+    --radar-grid: rgba(255, 255, 255, 0.1);
+    --radar-axis-label: rgba(232, 236, 239, 0.7);
+    --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--page-bg);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    color: var(--text);
+    display: flex;
+    justify-content: center;
+    padding: 28px 16px 60px;
+    transition: background .3s, color .3s;
+  }
+  .theme-toggle {
+    position: fixed; top: 16px; right: 16px; z-index: 10;
+    padding: 6px 14px; font-size: 12px; cursor: pointer;
+    border: 1px solid var(--line); border-radius: 999px;
+    background: var(--card-bg); color: var(--text-2);
+  }
+  .wrap { width: 380px; }
+
+  /* ===== 配置结果卡（照抄真实页结构） ===== */
+  .result-card {
+    background: var(--card-bg);
+    backdrop-filter: blur(16px);
+    border: 1px solid var(--line);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 16px;
+    display: flex; flex-direction: column; gap: 14px;
+  }
+  .result-head { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 12px; border-bottom: 1px solid var(--line); }
+  .result-title { font-size: 15px; font-weight: 700; }
+  .result-sub { font-size: 11px; color: var(--muted); }
+
+  .block { border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--block-bg); }
+  .block-title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; margin-bottom: 10px; }
+  .block-title .tail { margin-left: auto; font-size: 10px; font-weight: 400; color: var(--muted); }
+
+  /* 规则结果 / 电源功率（上下文，简化） */
+  .rule { display: flex; align-items: flex-start; gap: 8px; padding: 7px 9px; border-radius: 8px; border: 1px solid var(--line); background: var(--inner-bg); font-size: 12px; color: var(--text-2); margin-bottom: 6px; }
+  .rule:last-child { margin-bottom: 0; }
+  .badge { flex: none; font-size: 10px; padding: 2px 6px; border-radius: 5px; font-weight: 700; }
+  .badge.warn { background: rgba(250,173,20,.14); color: var(--warn); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--line-dash); font-size: 12px; color: var(--text-2); }
+  .row:last-child { border-bottom: 0; }
+  .row b { font-weight: 700; color: var(--text); }
+  .note { margin-top: 8px; font-size: 11px; color: var(--muted); }
+
+  /* ===== 新：性能六维雷达 ===== */
+  .radar-box { display: flex; justify-content: center; }
+  .radar-box svg { width: 100%; max-width: 320px; display: block; }
+  .radar-name { font-size: 11.5px; fill: var(--radar-axis-label); }
+  .radar-score { font-size: 11.5px; font-weight: 800; fill: var(--radar-accent); }
+  .radar-score.miss { fill: var(--muted); font-weight: 400; }
+  .radar-ring { fill: none; stroke: var(--radar-grid); stroke-width: 1; }
+  .radar-spoke { stroke: var(--radar-grid); stroke-width: 1; }
+  .radar-poly { fill: var(--radar-fill); stroke: var(--radar-accent); stroke-width: 2; stroke-linejoin: round; }
+  .radar-dot { fill: var(--radar-accent); }
+  .radar-dot.miss { fill: var(--muted); }
+
+  /* 分数明细（hover/展开假设：实现时做成 popover，原型用 details 模拟） */
+  .score-detail { margin-top: 10px; border-top: 1px dashed var(--line-dash); padding-top: 8px; }
+  .score-detail summary { font-size: 11.5px; color: var(--muted); cursor: pointer; user-select: none; list-style: none; }
+  .score-detail summary::-webkit-details-marker { display: none; }
+  .score-detail summary::before { content: "▸ "; }
+  .score-detail[open] summary::before { content: "▾ "; }
+  .score-detail summary:hover { color: var(--accent); }
+  .sd-row { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; padding: 5px 0; border-bottom: 1px dashed var(--line); color: var(--text-2); }
+  .sd-row:last-child { border-bottom: 0; }
+  .sd-row .k { flex: none; font-weight: 700; color: var(--text); }
+  .sd-row .v { text-align: right; font-family: Consolas, monospace; font-size: 10.5px; }
+  .sd-row .v.miss { color: var(--muted); font-style: italic; }
+
+  /* 原始数字卡（沿用现有 rr-metrics） */
+  .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .metric { display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; border-radius: 10px; background: var(--inner-bg); border: 1px solid var(--line); min-width: 0; }
+  .metric span { font-size: 11px; color: var(--muted); }
+  .metric b { font-size: 15px; font-weight: 800; color: var(--text); }
+
+  .save-btn { padding: 11px; border: 0; border-radius: 12px; background: var(--accent); color: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+
+  /* ===== 管理面计分表配置（示意，独立卡片） ===== */
+  .admin-card { margin-top: 24px; border: 1px dashed var(--line-dash); border-radius: 14px; padding: 14px; }
+  .admin-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+  .admin-head b { font-size: 13px; }
+  .admin-head span { font-size: 11px; color: var(--muted); }
+  pre.json {
+    background: var(--inner-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 10px 12px; font-family: Consolas, monospace; font-size: 10.5px; line-height: 1.65;
+    color: var(--text-2); overflow-x: auto; white-space: pre;
+  }
+  .admin-tip { margin-top: 8px; font-size: 11px; color: var(--muted); line-height: 1.7; }
+  .proto-notes { margin-top: 20px; font-size: 11.5px; color: var(--muted); line-height: 1.9; }
+  .proto-notes b { color: var(--text-2); }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">浅 / 深 预览</button>
+
+<div class="wrap">
+
+  <!-- ===== 配置结果卡（右栏整体观感） ===== -->
+  <div class="result-card">
+    <div class="result-head">
+      <span class="result-title">配置结果</span>
+      <span class="result-sub">实时计算 · 只读</span>
+    </div>
+
+    <!-- 规则结果（上下文，简化） -->
+    <div class="block">
+      <div class="block-title"><span>🛡</span>规则结果</div>
+      <div class="rule"><span class="badge warn">警告</span><span>GPU 总 TDP 1140W 接近散热承载上限 1200W</span></div>
+      <div class="rule"><span class="badge warn">警告</span><span>已配 GPU，建议电源 2000W 冗余档</span></div>
+    </div>
+
+    <!-- 电源功率（上下文，简化） -->
+    <div class="block">
+      <div class="block-title"><span>⚡</span>电源功率</div>
+      <div class="row"><span>CPU TDP</span><b>2 × 360W</b></div>
+      <div class="row"><span>GPU TDP</span><b>4 × 285W</b></div>
+      <div class="row"><span>整机估算负载</span><b>1980W</b></div>
+      <div class="row"><span>建议电源</span><b style="color:var(--accent);font-size:15px">2 × 2000W（2+2 冗余）</b></div>
+    </div>
+
+    <!-- ===== 新设计：性能六维雷达 ===== -->
+    <div class="block">
+      <div class="block-title"><span>📈</span>性能六维<span class="tail">锚点打分 · 相对旗舰机型</span></div>
+
+      <div class="radar-box">
+        <svg viewBox="-58 -6 372 244" role="img" aria-label="性能六维雷达图">
+          <!-- 网格环 20/40/60/80/100 -->
+          <polygon class="radar-ring" points="128,34 195.5,73 195.5,151 128,190 60.5,151 60.5,73"/>
+          <polygon class="radar-ring" points="128,53.5 178.7,82.8 178.7,141.3 128,170.5 77.3,141.3 77.3,82.8"/>
+          <polygon class="radar-ring" points="128,73 161.8,92.5 161.8,131.5 128,151 94.2,131.5 94.2,92.5"/>
+          <polygon class="radar-ring" points="128,92.5 144.9,102.3 144.9,121.8 128,131.5 111.1,121.8 111.1,102.3"/>
+          <!-- 轴线 -->
+          <line class="radar-spoke" x1="128" y1="112" x2="128" y2="34"/>
+          <line class="radar-spoke" x1="128" y1="112" x2="195.5" y2="73"/>
+          <line class="radar-spoke" x1="128" y1="112" x2="195.5" y2="151"/>
+          <line class="radar-spoke" x1="128" y1="112" x2="128" y2="190"/>
+          <line class="radar-spoke" x1="128" y1="112" x2="60.5" y2="151"/>
+          <line class="radar-spoke" x1="128" y1="112" x2="60.5" y2="73"/>
+          <!-- 分数多边形（可靠性未维护 → 顶点缩到圆心示意） -->
+          <polygon class="radar-poly" points="128,55.8 171.9,86.7 167.2,134.6 128,147.1 72.6,144 128,112"/>
+          <circle class="radar-dot" cx="128" cy="55.8" r="3"/>
+          <circle class="radar-dot" cx="171.9" cy="86.7" r="3"/>
+          <circle class="radar-dot" cx="167.2" cy="134.6" r="3"/>
+          <circle class="radar-dot" cx="128" cy="147.1" r="3"/>
+          <circle class="radar-dot" cx="72.6" cy="144" r="3"/>
+          <circle class="radar-dot miss" cx="128" cy="112" r="2.5" opacity=".5"/>
+          <!-- 轴标签：维度名 + 得分 -->
+          <text class="radar-name" x="128" y="22" text-anchor="middle">CPU 算力 <tspan class="radar-score">72</tspan></text>
+          <text class="radar-name" x="203" y="66" text-anchor="start">内存能力 <tspan class="radar-score">65</tspan></text>
+          <text class="radar-name" x="203" y="158" text-anchor="start">存储 IO <tspan class="radar-score">58</tspan></text>
+          <text class="radar-name" x="128" y="208" text-anchor="middle">网络吞吐 <tspan class="radar-score">45</tspan></text>
+          <text class="radar-name" x="53" y="158" text-anchor="end">GPU 算力 <tspan class="radar-score">82</tspan></text>
+          <text class="radar-name" x="53" y="66" text-anchor="end">系统可靠性 <tspan class="radar-score miss">未维护</tspan></text>
+        </svg>
+      </div>
+
+      <!-- 分数明细（实现时：hover 维度名出 popover；原型用折叠模拟） -->
+      <details class="score-detail">
+        <summary>打分明细（点维度名看同款 popover）</summary>
+        <div class="sd-row"><span class="k">CPU 算力 72</span><span class="v">2×64C = 128 核 · 锚点 60→128C / 100→192C</span></div>
+        <div class="sd-row"><span class="k">内存能力 65</span><span class="v">1TB · 24×4600MT/s · 容量55%+带宽45%</span></div>
+        <div class="sd-row"><span class="k">存储 IO 58</span><span class="v">24×NVMe + 4×SATA · 类型加权</span></div>
+        <div class="sd-row"><span class="k">网络吞吐 45</span><span class="v">2×25GbE + 2×100G IB = 250Gbps</span></div>
+        <div class="sd-row"><span class="k">GPU 算力 82</span><span class="v">4×285W 卡 FP16 165.2T×4 = 660.8T</span></div>
+        <div class="sd-row"><span class="k">系统可靠性 —</span><span class="v miss">MTBF / RAID specs 未维护，不编造</span></div>
+      </details>
+
+      <!-- 原始数字卡：原样保留 -->
+      <div class="metrics" style="margin-top:10px">
+        <div class="metric"><span>CPU 核心</span><b>128</b></div>
+        <div class="metric"><span>内存容量</span><b>1 TB</b></div>
+        <div class="metric"><span>存储容量</span><b>61 TB</b></div>
+        <div class="metric"><span>GPU 显存</span><b>384 GB</b></div>
+        <div class="metric"><span>高速网口</span><b>4 口 · 100G</b></div>
+        <div class="metric"><span>CPU 线程</span><b>256</b></div>
+      </div>
+    </div>
+
+    <button class="save-btn">生成 / 打印规格书</button>
+  </div>
+
+  <!-- ===== 管理面计分锚点表（示意） ===== -->
+  <div class="admin-card">
+    <div class="admin-head"><b>计分锚点表 · 存 system_config</b><span>key=performance_score_config · type=json</span></div>
+    <pre class="json">{
+  "version": 1,
+  "dims": {
+    "cpu_compute":  { "label": "CPU 算力",  "anchors": [
+      {"score": 0,   "value": 0},
+      {"score": 60,  "value": 128},
+      {"score": 100, "value": 192} ]},
+    "gpu_compute":  { "label": "GPU 算力",  "anchors": [
+      {"score": 0,   "value": 0},
+      {"score": 60,  "value": 300},
+      {"score": 100, "value": 800} ]},
+    "reliability":  { "label": "系统可靠性", "enabled": false }
+  }
+}</pre>
+    <div class="admin-tip">锚点 = 分段线性插值基准（60 分主流线 / 100 分旗舰线）。管理面系统配置页改 JSON 即生效，零发版；维度可开关，关掉的维度不进雷达。</div>
+  </div>
+
+  <div class="proto-notes">
+    <b>原型说明</b><br>
+    ① 雷达替换现「性能参数」标题区，六张原始数字卡原样保留在图下方（防「只有形状没有数」）<br>
+    ② 「系统可靠性」演示缺数据形态：顶点缩到圆心 + 灰字「未维护」——specs 没维护的维度不编造<br>
+    ③ 打分明细实现时做成 hover 维度名的 popover，展示聚合公式与锚点（可解释性给销售/售前）<br>
+    ④ 实现用 echarts radar；配色走 useChartTheme 真实色值（canvas 读不到 CSS 变量），浅深主题各一套<br>
+    ⑤ 管理面本期先挂系统配置 JSON 编辑，锚点调优跑顺后再考虑专门表单 UI
+  </div>
+</div>
+</body>
+</html>

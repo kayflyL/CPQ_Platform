@@ -1,0 +1,88 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>工作台 · 商机流水线</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0f1e;color:#e8ecf5;font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:38px 48px 80px}
+a{color:inherit;text-decoration:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1420px;margin:0 auto}
+/* 问候行 */
+.greet{display:flex;align-items:baseline;gap:14px;margin-bottom:18px}
+.greet h1{font-size:22px;font-weight:650}
+.greet span{color:#8b94a8;font-size:13px}
+.greet i{margin-left:auto;font-style:normal;color:#8b94a8;font-size:13px}
+/* 需要你 */
+.need{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:18px;padding:6px 20px;margin-bottom:20px}
+.nrow{display:flex;align-items:center;gap:13px;padding:13px 4px;border-bottom:1px solid rgba(255,255,255,.06)}
+.nrow:last-child{border-bottom:none}
+.dot{width:8px;height:8px;border-radius:50%;flex:none}
+.dot.hot{background:#f4756f;box-shadow:0 0 8px rgba(244,117,111,.8)}
+.dot.act{background:#7aa7ff}
+.dot.teal{background:#3ecfab}
+.nrow b{font-size:14px;font-weight:600}
+.nrow i{font-style:normal;font-size:13px;color:#8b94a8}
+.nrow .go{margin-left:auto;font-size:12.5px;color:#7aa7ff;border:1px solid rgba(122,167,255,.35);padding:6px 14px;border-radius:99px;flex:none}
+.nrow .go:hover{background:rgba(122,167,255,.12)}
+/* 管道看板 */
+.board-h{display:flex;align-items:baseline;gap:12px;margin:0 2px 10px}
+.board-h b{font-size:15px}
+.board-h span{font-size:12px;color:#8b94a8}
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.col{min-height:280px}
+.col-h{display:flex;align-items:center;gap:8px;padding:4px 6px 10px;font-size:13px;color:#b7c0d4}
+.col-h b{font-size:14px;color:#e8ecf5;font-weight:600}
+.col-h .c{margin-left:auto;font-size:12px;color:#8b94a8;background:rgba(255,255,255,.06);border-radius:99px;padding:2px 9px}
+.ccard{display:block;background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:12px 14px;margin-bottom:8px;transition:transform .15s,border-color .15s}
+.ccard:hover{transform:translateY(-2px);border-color:rgba(122,167,255,.5)}
+.ccard b{display:block;font-size:13px;font-weight:600;margin-bottom:3px}
+.ccard i{font-style:normal;font-size:11.5px;color:#8b94a8}
+.ccard .tm{display:flex;align-items:center;gap:6px;margin-top:9px;font-size:11.5px;color:#8b94a8}
+.legend{margin:14px 2px 0;font-size:12px;color:#8b94a8;text-align:right}
+/* 快捷入口 */
+.quick{margin-top:26px;display:flex;align-items:center;gap:10px}
+.quick span.lb{font-size:12px;color:#8b94a8;margin-right:4px}
+.quick a{font-size:13px;color:#b7c0d4;border:1px solid rgba(255,255,255,.12);border-radius:99px;padding:8px 16px}
+.quick a:hover{border-color:rgba(122,167,255,.5);color:#e8ecf5}
+.quick a.ai{color:#a9c2ff;border-color:rgba(122,167,255,.4);background:rgba(59,130,246,.1)}
+</style></head>
+<body>
+<div class="wrap">
+  <div class="greet"><h1>下午好，admin</h1><span>今天有 3 件事需要你</span><i>9月28日 周一</i></div>
+  <div class="need">
+    <a class="nrow"><span class="dot hot"></span><b>华远物流</b><i>无主待指派 · 已停留 3 天</i><span class="go">去指派 →</span></a>
+    <a class="nrow"><span class="dot hot"></span><b>启辰智造</b><i>BOM 配置被退回，等你修改</i><span class="go">去处理 →</span></a>
+    <a class="nrow"><span class="dot teal"></span><b>蓝湖数据</b><i>核价完成，报价单待提交</i><span class="go">去提交 →</span></a>
+  </div>
+  <div class="board-h"><b>商机流水线</b><span>卡片停在商机当前所处节点</span></div>
+  <div class="board">
+    <div class="col">
+      <div class="col-h"><b>需求登记</b><span class="c num">2</span></div>
+      <a class="ccard"><b>天工矿业</b><i>通用 2U · 4 台</i><span class="tm"><span class="dot act"></span>今日登记</span></a>
+      <a class="ccard"><b>中原电力</b><i>AI 推理一体机 · 1 台</i><span class="tm"><span class="dot act"></span>1 天</span></a>
+    </div>
+    <div class="col">
+      <div class="col-h"><b>指派中</b><span class="c num">1</span></div>
+      <a class="ccard"><b>华远物流</b><i>4U 推理服务器 · 2 台</i><span class="tm"><span class="dot hot"></span>无主 3 天</span></a>
+    </div>
+    <div class="col">
+      <div class="col-h"><b>BOM 配置</b><span class="c num">2</span></div>
+      <a class="ccard"><b>启辰智造</b><i>通用 2U · 8 台</i><span class="tm"><span class="dot hot"></span>退回 1 天</span></a>
+      <a class="ccard"><b>江南制造</b>AI 一体机 · 1 台</i><span class="tm"><span class="dot act"></span>今日到达</span></a>
+    </div>
+    <div class="col">
+      <div class="col-h"><b>核价</b><span class="c num">2</span></div>
+      <a class="ccard"><b>中州能源</b><i>通用 4U · 2 台</i><span class="tm"><span class="dot act"></span>2 天</span></a>
+    <div class="col">
+      <div class="col-h"><b>报价</b><span class="c num">2</span>
+      <a class="ccard"><b>蓝湖数据</b><i>AI 一体机 · 1 台</i><span class="tm"><span class="dot teal"></span>待提交</span></a>
+      <a class="ccard"><b>天启科技</b><i>4U 推理服务器 · 1 台</i><span class="tm"><span class="dot hot"></span>停留 5 天</span></a>
+    </div>
+  </div>
+  <div class="legend">红点 = 卡点(≥3 天或退回/无主) · 蓝点 = 今日到达 · 绿点 = 待你操作</div>
+  <div class="quick">
+    <span class="lb">快捷入口</span>
+    <a>任务调度</a><a>选型配置</a><a>解决方案</a><a>服务器</a><a>配件</a>
+    <a class="ai">✦ 方案助手</a>
+  </div>
+</div>
+</body></html>

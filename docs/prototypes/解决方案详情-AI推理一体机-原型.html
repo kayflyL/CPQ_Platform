@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>解决方案详情 · AI 推理一体机 原型</title>
+<style>
+  :root {
+    --bg: #f3f5f9; --card: rgba(255,255,255,.78); --inner: rgba(15,27,61,.035);
+    --line: rgba(15,27,61,.1); --dash: rgba(15,27,61,.16);
+    --t1: #232c3d; --t2: #5a6579; --t3: #8a93a6;
+    --accent: #1677ff; --accent-bg: rgba(22,119,255,.07);
+    --ok: #16a34a; --ok-bg: rgba(22,163,74,.1);
+    --soft: #d97706; --soft-bg: rgba(217,119,6,.1);
+    --bad: #dc2626; --bad-bg: rgba(220,38,38,.08);
+    --shadow: 0 8px 28px rgba(31,42,68,.1);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--t1); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 26px 18px 60px; display: flex; justify-content: center; font-size: 13px; }
+  .page { width: 860px; display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--card); backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 16px; box-shadow: var(--shadow); padding: 20px 22px; }
+  .scene-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-bg); border: 1px solid rgba(22,119,255,.2); padding: 2px 10px; border-radius: 10px; }
+  h1 { font-size: 22px; margin-top: 10px; }
+  .sub { font-size: 13px; color: var(--t2); margin-top: 4px; }
+  .feats { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .feat { font-size: 10.5px; color: var(--t3); background: var(--inner); border: 1px solid var(--line); padding: 2px 9px; border-radius: 10px; }
+  .intro { font-size: 12.5px; color: var(--t2); line-height: 1.8; margin-top: 12px; }
+
+  h3 { font-size: 14px; margin-bottom: 4px; }
+  .hint { font-size: 11.5px; color: var(--t3); margin-bottom: 12px; }
+  .inline-form { display: flex; gap: 8px; flex-wrap: wrap; }
+  select { flex: 1; min-width: 150px; padding: 8px 12px; font-size: 12.5px; color: var(--t1); background: #fff; border: 1px solid var(--line); border-radius: 9px; outline: none; }
+  .minis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 10px; }
+  .mini { padding: 9px 12px; border-radius: 10px; background: var(--inner); border: 1px solid var(--line); }
+  .mini span { font-size: 10.5px; color: var(--t3); display: block; }
+  .mini b { font-size: 15px; font-family: Consolas, monospace; }
+  .mini b em { font-style: normal; font-size: 11px; color: var(--t3); }
+  .lab { font-size: 11px; color: var(--t3); margin: 10px 0 5px; }
+  .qchips { display: flex; gap: 6px; }
+  .qchip { flex: 1; padding: 8px 0; text-align: center; font-size: 12px; border: 1px solid var(--line); border-radius: 9px; background: #fff; color: var(--t2); }
+  .qchip.on { color: var(--accent); border-color: var(--accent); background: var(--accent-bg); font-weight: 700; }
+  .cfg-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 12px; }
+  @media (max-width: 700px) { .cfg-grid { grid-template-columns: 1fr; } }
+  .rows { border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; background: var(--inner); }
+  .row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed var(--dash); font-size: 12px; color: var(--t2); }
+  .row:last-child { border-bottom: 0; }
+  .row b { font-family: Consolas, monospace; color: var(--t1); font-size: 12px; }
+  .bar { height: 6px; border-radius: 3px; background: var(--inner); overflow: hidden; display: flex; margin-top: 8px; }
+  .bar i { display: block; height: 100%; }
+  .ctx-chips { display: flex; gap: 5px; }
+  .ctx-chip { flex: 1; text-align: center; padding: 7px 0; font-size: 11px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--t3); }
+  .ctx-chip.fit { color: var(--t2); }
+  .ctx-chip.miss { opacity: .45; text-decoration: line-through; }
+  .ctx-chip.best { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+  .scene-fit { display: flex; align-items: flex-start; gap: 8px; margin-top: 10px; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--inner); font-size: 12px; color: var(--t2); }
+  .scene-fit .badge { float: none; }
+  .flow { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 11px; color: var(--t3); margin: 4px 0 12px; }
+  .flow b { color: var(--t2); font-weight: 600; }
+  .flow i { font-style: normal; opacity: .55; }
+  .concl { margin-top: 14px; border: 1.5px solid rgba(22,119,255,.35); border-radius: 14px; background: linear-gradient(180deg, rgba(22,119,255,.06), rgba(22,119,255,.015)); padding: 14px 16px; }
+  .concl-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .concl-badge { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 8px; }
+  .concl-badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .concl-sub { font-size: 11.5px; color: var(--t2); }
+  .concl-buy { font-size: 20px; font-weight: 800; color: var(--t1); }
+  .concl-buy b { color: var(--accent); }
+  .concl-buy em { font-style: normal; font-size: 12px; font-weight: 600; color: var(--t2); margin-left: 6px; }
+  .concl-why { font-size: 11.5px; color: var(--t2); background: var(--inner); border: 1px dashed var(--dash); border-radius: 9px; padding: 8px 11px; margin-top: 12px; line-height: 1.7; }
+  .minis.c4 { grid-template-columns: repeat(4, 1fr); }
+  .lab .st { color: var(--accent); font-weight: 700; margin-right: 3px; }
+  .b-bad { background: var(--bad-bg); color: var(--bad); }
+  .v-bad { color: var(--bad); font-weight: 600; }
+  .ctas { display: flex; gap: 10px; margin-top: 14px; }
+  .cta-main { flex: 1; padding: 11px; border: 0; border-radius: 11px; background: var(--accent); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }
+  .cta-sub { padding: 11px 16px; border: 1px solid var(--line); border-radius: 11px; background: #fff; color: var(--t2); font-size: 12.5px; cursor: pointer; }
+
+  .plat-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px; }
+  .plat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .plat { border: 1px solid var(--line); border-radius: 13px; padding: 14px; background: #fff; }
+  .plat b { font-size: 14px; }
+  .badge { float: right; font-size: 10px; padding: 2px 8px; border-radius: 5px; font-weight: 700; }
+  .b-ok { background: var(--ok-bg); color: var(--ok); }
+  .plat-spec { font-size: 11px; color: var(--t3); font-family: Consolas, monospace; margin-top: 8px; line-height: 1.6; }
+  .plat-verdict { font-size: 11.5px; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--dash); }
+  .v-ok { color: var(--ok); font-weight: 600; }
+  .plat-link { font-size: 11.5px; color: var(--accent); margin-top: 9px; display: inline-block; }
+  .foot { font-size: 10.5px; color: var(--t3); line-height: 1.6; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="card">
+    <span class="scene-tag">AI·加速计算</span>
+    <h1>AI 推理一体机</h1>
+    <p class="sub">把模型装进显存，再谈吞吐</p>
+    <div class="feats">
+      <span class="feat">显存优先</span><span class="feat">双路供电</span><span class="feat">液冷预留</span><span class="feat">IPMI</span>
+    </div>
+    <p class="intro">推理服务器的瓶颈是显存与带宽：模型越大、量化越浅，需要的显存和带宽越高。CPU 负责预处理与调度，GPU 承担推理。</p>
+  </div>
+
+  <div class="card">
+    <h3>🧮 算一算：你的模型要多大的机器</h3>
+    <div class="flow">怎么用：<b>① 选模型与场景</b><i>→</i><b>② 得出配置结论（买几张什么卡）</b><i>→</i><b>③ 在「适配平台」挑机型</b><i>→</i><b>④ 进入选型配置生成 BOM / 报价</b></div>
+
+    <div class="lab"><span class="st">①</span>目标模型（公司 → 模型）</div>
+    <div class="inline-form">
+      <select style="max-width:150px"><option>Qwen</option><option>DeepSeek</option><option>GLM</option></select>
+      <select><option selected>Qwen2.5-72B（dense）</option><option>Qwen3-235B-A22B（MoE）</option><option>Qwen2-VL-7B（多模态）</option></select>
+    </div>
+
+    <div class="lab"><span class="st">②</span>量化精度</div>
+    <div class="qchips">
+      <button class="qchip">4bit</button>
+      <button class="qchip on">8bit</button>
+      <button class="qchip">16bit</button>
+    </div>
+
+    <div class="lab"><span class="st">③</span>应用场景 · 并发</div>
+    <div class="inline-form">
+      <select style="max-width:280px"><option>聊天对话（8K ctx）</option><option selected>RAG 知识库（64K ctx）</option><option>长文档分析（128K ctx）</option><option>Agent 工具调用（64K ctx）</option></select>
+      <select style="max-width:130px"><option>并发 1</option><option selected>并发 4</option><option>并发 16</option></select>
+    </div>
+
+    <!-- ═══ 配置结论：配置器的最终产出 ═══ -->
+    <div class="concl">
+      <div class="concl-head">
+        <span class="concl-badge ok">✅ 可以全 GPU 跑 · 支持 32K+ 上下文</span>
+        <span class="concl-sub">Qwen2.5-72B（8bit）· RAG 知识库 64K × 并发 4</span>
+      </div>
+      <div class="concl-buy" style="margin-top:12px">结论：配 <b>4 张</b> 沐曦 C500（64G）<em>对应推荐机型 ES24V3-G4</em></div>
+      <div class="minis c4">
+        <div class="mini"><span>最低可跑</span><b>2 张<em> · 余13%</em></b></div>
+        <div class="mini"><span>推荐配置</span><b>4 张<em> · 余57%</em></b></div>
+        <div class="mini"><span>并发能力（4卡）</span><b>~40 路<em> @64K</em></b></div>
+        <div class="mini"><span>速度参考</span><b>~25 tok/s<em> /路</em></b></div>
+      </div>
+      <div class="concl-why">为什么是 4 张：2 张刚好放下（余 13%，上下文到 128K 就放不下了，见下方明细）；4 卡余 57%，并发再涨、上下文再长都有余地。预算充足可直接上 8 卡机型一步到位。</div>
+      <div class="ctas">
+        <button class="cta-main">按此结论挑机型 ↓</button>
+        <button class="cta-sub">复制配置说明</button>
+      </div>
+    </div>
+
+    <div class="lab" style="margin-top:16px"><span class="st">🔍</span>计算明细 · 按「最低可跑」2×C500（有效 123.0G）核对</div>
+
+    <div class="cfg-grid">
+      <div>
+        <div class="rows">
+          <div class="row"><span>模型权重</span><b>67.1 GB</b></div>
+          <div class="row"><span>KV-cache @ 64K（×4 并发）</span><b>40.1 GB</b></div>
+          <div class="row"><span>总占用 @ 64K</span><b>107.2 GB</b></div>
+          <div class="row"><span>总有效显存（已扣 2×2.5G 开销）</span><b>123.0 GB</b></div>
+        </div>
+        <div class="bar">
+          <i style="width:54.5%;background:var(--accent)"></i>
+          <i style="width:32.6%;background:var(--soft)"></i>
+          <i style="width:2%;background:var(--t3)"></i>
+        </div>
+      </div>
+      <div>
+        <div class="ctx-chips">
+          <div class="ctx-chip fit">4K</div>
+          <div class="ctx-chip fit">8K</div>
+          <div class="ctx-chip fit">16K</div>
+          <div class="ctx-chip fit">32K</div>
+          <div class="ctx-chip best">64K</div>
+          <div class="ctx-chip miss">128K</div>
+        </div>
+        <div class="scene-fit">
+          <span class="badge b-ok">✅ 适配</span>
+          <span>RAG 知识库：并发 4 时最大可全 GPU 上下文 ≈90K ≥ 推荐 64K；单并发可达 ≈366K · 带宽估速 ~16 tok/s（总吞吐）</span>
+        </div>
+      </div>
+    </div>
+
+  </div>
+  <div class="card">
+    <div class="plat-head"><h3>适配平台</h3><span class="hint" style="margin:0">按上面结论筛选：装得下的机型才出现，点卡片进选型配置（BOM / 报价）</span></div>
+    <div class="plat-grid">
+      <div class="plat">
+        <b>ES24V3-G4</b><span class="badge b-ok">✅ 推荐 · 正好 4 卡</span>
+        <div class="plat-spec">双路 Xeon · 4×沐曦 C500 · 256G</div>
+        <div class="plat-verdict v-ok">64K×并发4 余 57%，128K×4 也放得下</div>
+        <a class="plat-link" href="#">以此为底座进选型配置 →</a>
+      </div>
+      <div class="plat">
+        <b>ES24V3-G5</b><span class="badge b-ok">✅ 一步到位</span>
+        <div class="plat-spec">双路 Xeon · 8×沐曦 C500 · 512G</div>
+        <div class="plat-verdict v-ok">余 78%：并发 ~40 路@64K，或跑 16bit / 235B 模型</div>
+        <a class="plat-link" href="#">以此为底座进选型配置 →</a>
+      </div>
+      <div class="plat">
+        <b>ES22V3</b><span class="badge b-bad">❌ 装不下</span>
+        <div class="plat-spec">双路 Xeon · 2×RTX 4090 · 128G</div>
+        <div class="plat-verdict v-bad">总有效 43G &lt; 权重 67G；仅适合 ≤16B 小模型</div>
+        <a class="plat-link" href="#">看其它机型 →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- 正文（配置思路/选型要点）不在本原型：归属解决方案库编辑器 content_md，配置器块只承载计算产物 -->
+
+  <p class="foot">估算口径：权重 + KV-cache + 框架开销；未含 prefill 瞬时峰值与大 batch 并发，MoE 按总参数偏保守。参数置信度与数据源见智算模型库。</p>
+
+</div>
+</body>
+</html>

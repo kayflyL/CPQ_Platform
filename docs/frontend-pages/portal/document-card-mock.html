@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>商机四步文档卡片视觉稿</title>
+  <style>
+    :root {
+      --bg: #f4f7fb;
+      --panel: #ffffff;
+      --panel-2: #f8fafc;
+      --border: #e4e9f0;
+      --border-strong: #cbd5e1;
+      --text: #0f172a;
+      --text-2: #475569;
+      --text-3: #94a3b8;
+      --primary: #1677ff;
+      --shadow: 0 12px 32px rgba(15, 23, 42, .08);
+      --shadow-hover: 0 18px 44px rgba(15, 23, 42, .14);
+      --radius: 0px;
+      --font: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body.dark {
+      --bg: #0b1220;
+      --panel: #131c2e;
+      --panel-2: #17233a;
+      --border: #25334d;
+      --border-strong: #33445f;
+      --text: #e6edf7;
+      --text-2: #a8b8cc;
+      --text-3: #64748b;
+      --shadow: 0 14px 34px rgba(0, 0, 0, .25);
+      --shadow-hover: 0 20px 48px rgba(0, 0, 0, .34);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      transition: background .2s ease, color .2s ease;
+    }
+    .page {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 34px 28px 56px;
+    }
+    .topbar {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .topbar h1 {
+      margin: 0 0 8px;
+      font-size: 26px;
+      letter-spacing: .5px;
+    }
+    .topbar p {
+      margin: 0;
+      color: var(--text-2);
+      font-size: 14px;
+      line-height: 1.7;
+    }
+    .theme-btn {
+      flex-shrink: 0;
+      border: 1px solid var(--border-strong);
+      background: var(--panel);
+      color: var(--text);
+      padding: 8px 13px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-size: 13px;
+    }
+    .card-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      align-items: stretch;
+    }
+    .doc-card {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      border-radius: 0;
+      background: transparent;
+      transition: transform .2s ease;
+    }
+    .doc-card:hover {
+      transform: translateY(-3px);
+    }
+    .doc-card::before,
+    .doc-card::after {
+      content: "";
+      position: absolute;
+      left: 9px;
+      right: 9px;
+      height: 11px;
+      border: 1px solid var(--border);
+      border-radius: 0;
+      z-index: -1;
+    }
+    .doc-card::before {
+      bottom: -7px;
+      background: var(--panel-2);
+      opacity: .65;
+      transform: rotate(-.7deg);
+    }
+    .doc-card::after {
+      bottom: -4px;
+      background: var(--panel);
+      opacity: .85;
+      transform: rotate(.5deg);
+    }
+    .doc-sheet {
+      position: relative;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      min-height: 420px;
+      border: 1px solid var(--border);
+      border-radius: 0;
+      background: var(--panel);
+      box-shadow: var(--shadow);
+      transition: box-shadow .2s ease, border-color .2s ease;
+    }
+    .doc-card:hover .doc-sheet {
+      box-shadow: var(--shadow-hover);
+      border-color: var(--border-strong);
+    }
+    .doc-head {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 20px 18px 16px;
+      border-bottom: 1px solid var(--text-3);
+    }
+    .doc-title {
+      min-width: 0;
+      flex: 1;
+    }
+    .doc-title h3 {
+      margin: 0 0 4px;
+      font-size: 15px;
+      letter-spacing: .2px;
+    }
+    .doc-title p {
+      margin: 0;
+      color: var(--text-3);
+      font-size: 11.5px;
+      letter-spacing: .5px;
+    }
+    .doc-stamp {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      border: 1px solid;
+      border-radius: 999px;
+      padding: 4px 9px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .4px;
+    }
+    .doc-stamp::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: currentColor;
+    }
+    .doc-meta {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      padding: 0 18px;
+    }
+    .meta-item {
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      min-width: 0;
+    }
+    .meta-item:nth-child(even) {
+      padding-left: 12px;
+      border-left: 1px solid var(--border);
+    }
+    .meta-item small {
+      display: block;
+      color: var(--text-3);
+      font-size: 10.5px;
+      margin-bottom: 4px;
+      letter-spacing: .5px;
+    }
+    .meta-item b {
+      display: block;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: var(--text);
+      font-size: 12.5px;
+      font-weight: 600;
+    }
+    .doc-summary {
+      margin: 14px 18px;
+      padding: 11px 12px;
+      border-radius: 10px;
+      background: var(--panel-2);
+      color: var(--text-2);
+      font-size: 12.5px;
+      line-height: 1.7;
+    }
+    .doc-summary b {
+      color: var(--text);
+    }
+    .doc-footer {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: auto;
+      padding: 12px 18px;
+      border-top: 1px solid var(--border);
+      background: transparent;
+    }
+    .doc-footer button {
+      border: 1px solid var(--border);
+      background: var(--panel);
+      color: var(--text-2);
+      border-radius: 8px;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all .15s ease;
+    }
+    .doc-footer button:hover {
+      color: var(--text);
+      border-color: var(--border-strong);
+    }
+    .doc-footer button.primary {
+      color: var(--type, var(--primary));
+      border-color: color-mix(in srgb, var(--type, var(--primary)) 45%, transparent);
+      background: color-mix(in srgb, var(--type, var(--primary)) 9%, transparent);
+      font-weight: 700;
+    }
+    .doc-footer button.danger { color: #ef4444; border-color: color-mix(in srgb, #ef4444 42%, transparent); }
+    .stamp-current { color: #1677ff; border-color: #1677ff; background: rgba(22,119,255,.08); }
+    .stamp-draft { color: #b45309; border-color: #f59e0b; background: rgba(245,158,11,.09); }
+    .stamp-done { color: #16a34a; border-color: #22c55e; background: rgba(34,197,94,.09); }
+    .stamp-pending { color: #7c3aed; border-color: #8b5cf6; background: rgba(139,92,246,.09); }
+    .type-requirement { --type: #1677ff; }
+    .type-bom { --type: #06b6d4; }
+    .type-cost { --type: #f59e0b; }
+    .type-quote { --type: #10b981; }
+    @media (max-width: 1080px) {
+      .card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 640px) {
+      .card-grid { grid-template-columns: 1fr; }
+      .topbar { flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="topbar">
+      <div>
+        <h1>商机四步 · 文档卡片视觉稿</h1>
+        <p>需求单、BOM 方案单、成本核算表、报价单统一为 A4 纸张风格，保留文件图标、状态章、元数据和底部操作区。</p>
+      </div>
+      <button class="theme-btn" onclick="document.body.classList.toggle('dark')">切换浅色 / 深色</button>
+    </div>
+
+    <div class="card-grid">
+      <article class="doc-card type-requirement">
+        <div class="doc-sheet">
+        <div class="doc-head">
+          <div class="doc-title">
+            <h3>需求单 v2</h3>
+            <p>REQ-20260816-002</p>
+          </div>
+          <span class="doc-stamp stamp-current">进行中</span>
+        </div>
+        <div class="doc-meta">
+          <div class="meta-item"><small>创建人</small><b>李业务</b></div>
+          <div class="meta-item"><small>更新时间</small><b>08-16 16:20</b></div>
+          <div class="meta-item"><small>服务器型号</small><b>Orion 4U</b></div>
+          <div class="meta-item"><small>采购数量</small><b>12 台</b></div>
+        </div>
+        <div class="doc-summary">平台 <b>NVIDIA</b> · 机箱 <b>4U</b> · 场景 <b>训练服务器</b>。已提交至方案配置，技术待处理。</div>
+        <div class="doc-footer">
+          <button>查看</button>
+          <button class="primary">申请撤回</button>
+        </div>
+        </div>
+      </article>
+
+      <article class="doc-card type-bom">
+        <div class="doc-sheet">
+        <div class="doc-head">
+          <div class="doc-title">
+            <h3>方案 A · 主推方案</h3>
+            <p>BOM-20260816-01</p>
+          </div>
+          <span class="doc-stamp stamp-draft">草稿</span>
+        </div>
+        <div class="doc-meta">
+          <div class="meta-item"><small>创建人</small><b>王技术</b></div>
+          <div class="meta-item"><small>配置页签</small><b>3 个</b></div>
+          <div class="meta-item"><small>关联需求</small><b>需求单 v2</b></div>
+          <div class="meta-item"><small>更新时间</small><b>08-17 09:10</b></div>
+        </div>
+        <div class="doc-summary">含 L6 机箱配置 + KP 配件清单，BOM 模板已同步，当前为可编辑草稿。</div>
+        <div class="doc-footer">
+          <button>继续编辑</button>
+          <button class="primary">提交方案</button>
+          <button class="danger">删除草稿</button>
+        </div>
+        </div>
+      </article>
+
+      <article class="doc-card type-cost">
+        <div class="doc-sheet">
+        <div class="doc-head">
+          <div class="doc-title">
+            <h3>成本核算表 · 方案 A</h3>
+            <p>COST-20260817-01</p>
+          </div>
+          <span class="doc-stamp stamp-done">已提交</span>
+        </div>
+        <div class="doc-meta">
+          <div class="meta-item"><small>核算人</small><b>成本组</b></div>
+          <div class="meta-item"><small>整机成本</small><b>¥ 286,400</b></div>
+          <div class="meta-item"><small>关联方案</small><b>方案 A</b></div>
+          <div class="meta-item"><small>完成时间</small><b>08-17 11:40</b></div>
+        </div>
+        <div class="doc-summary">已核价并提交至报价节点，报价员可基于此成本表生成报价单。</div>
+        <div class="doc-footer">
+          <button>查看成本表</button>
+          <button class="primary">申请撤回</button>
+          <button class="danger">删除当前表</button>
+        </div>
+        </div>
+      </article>
+
+      <article class="doc-card type-quote">
+        <div class="doc-sheet">
+        <div class="doc-head">
+          <div class="doc-title">
+            <h3>CloudPrime-Orion 4U 报价单</h3>
+            <p>QUOTE-20260817-003</p>
+          </div>
+          <span class="doc-stamp stamp-pending">待发送</span>
+        </div>
+        <div class="doc-meta">
+          <div class="meta-item"><small>报价人</small><b>赵报价</b></div>
+          <div class="meta-item"><small>总价</small><b>¥ 358,000</b></div>
+          <div class="meta-item"><small>利润率</small><b>20.00%</b></div>
+          <div class="meta-item"><small>导出时间</small><b>08-17 13:05</b></div>
+        </div>
+        <div class="doc-summary">已生成 Excel 报价附件，尚未发送至审批节点；可发送指定版本并附评论。</div>
+        <div class="doc-footer">
+          <button class="primary">发送</button>
+          <button>设为主推</button>
+          <button>重命名</button>
+          <button class="danger">删除</button>
+        </div>
+        </div>
+      </article>
+    </div>
+  </main>
+</body>
+</html>

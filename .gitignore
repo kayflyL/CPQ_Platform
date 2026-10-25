@@ -76,8 +76,6 @@ backend/.scratch/
 # 本地登录凭据（不入库）
 .claude/.dev-login
 
-# docs 目录不再跟踪
-docs/
 
 # DB dump/备份产物（rules.system_config 内含密钥，严禁入库；*.sql 是迁移文件不在此列）
 *.dump
@@ -95,3 +93,9 @@ db_dumps/
 
 # Local per-user Claude settings (do not track)
 .claude/settings.local.json
+
+# docs 内视频不入库（约177MB，2026-10-26 决定）
+docs/**/*.mp4
+
+# 第三方克隆 img2threejs（上游 github.com/img2threejs），不入库
+docs/claude-memory/skills/img2threejs/

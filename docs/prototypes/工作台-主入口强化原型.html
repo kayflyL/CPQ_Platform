@@ -1,0 +1,226 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>工作台 · 主入口强化原型 v2（右栏入口卡）</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0f1e;color:#e8ecf5;font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;min-height:100vh}
+button{font-family:inherit;cursor:pointer}
+a{color:inherit;text-decoration:none;cursor:pointer}
+.num{font-variant-numeric:tabular-nums}
+:root{--acc:#3b82f6;--acc-l:#7aa7ff;--t1:#e8ecf5;--t2:#b7c0d4;--t3:#8b94a8;
+--gb:rgba(255,255,255,.1);--card:rgba(255,255,255,.045);--hot:#f4756f;--amber:#f5b942;--green:#4fd6a5}
+.main{min-width:0}
+.topbar{display:flex;align-items:center;gap:14px;padding:14px 30px;border-bottom:1px solid rgba(255,255,255,.06)}
+.topbar .sp{flex:1}
+.user{display:flex;align-items:center;gap:9px;font-size:13px;color:#b7c0d4}
+.avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#3b82f6,#7c3aed);display:grid;place-items:center;font-size:12px;font-weight:600}
+.anno-btn{display:flex;align-items:center;gap:7px;font-size:12px;color:#b7c0d4;background:rgba(255,255,255,.045);
+border:1px solid rgba(255,255,255,.12);border-radius:99px;padding:6px 14px}
+.anno-btn.on{color:#cfe0ff;border-color:rgba(122,167,255,.5);background:rgba(59,130,246,.14)}
+.content{padding:22px 30px 46px;max-width:1460px}
+/* ═══ Hero ═══ */
+.hero{position:relative;overflow:hidden;margin:0 -30px 18px;padding:34px 30px 30px;min-height:206px;
+background:radial-gradient(ellipse at 74% 130%,#0a1e3d,#04070f 72%)}
+.rings{position:absolute;right:6%;top:50%;transform:translateY(-50%);width:320px;height:320px}
+.rings i{position:absolute;left:50%;top:50%;border:1px solid rgba(122,167,255,.15);border-radius:50%;transform:translate(-50%,-50%)}
+.rings i:nth-child(1){width:90px;height:90px}
+.rings i:nth-child(2){width:160px;height:160px;border-color:rgba(122,167,255,.11)}
+.rings i:nth-child(3){width:230px;height:230px;border-color:rgba(122,167,255,.08)}
+.rings i:nth-child(4){width:300px;height:300px;border-color:rgba(122,167,255,.05)}
+.sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(122,167,255,.17),transparent 75deg);animation:spin 7s linear infinite;filter:blur(3px)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.rings::after{content:'';position:absolute;left:50%;top:50%;width:8px;height:8px;border-radius:50%;background:#8fb5ff;box-shadow:0 0 14px rgba(122,167,255,.9);transform:translate(-50%,-50%);animation:core 2.4s ease-in-out infinite}
+@keyframes core{0%,100%{opacity:.5}50%{opacity:1}}
+.blip{position:absolute;width:6px;height:6px;border-radius:50%;background:#7aa7ff;box-shadow:0 0 10px rgba(122,167,255,.9);animation:blip 3s infinite}
+.blip.b2{animation-delay:1.2s;background:#4fd6a5;box-shadow:0 0 10px rgba(79,214,165,.9)}
+@keyframes blip{0%,100%{opacity:.2}50%{opacity:1}}
+@media (prefers-reduced-motion:reduce){.sweep,.blip{animation:none !important}}
+.hero > :not(.rings){position:relative;z-index:2}
+.hero h1{font-size:23px;font-weight:650;letter-spacing:-.02em}
+.hero .sub{margin-top:6px;font-size:13px;color:#8b94a8}
+.today{display:flex;flex-wrap:wrap;gap:9px;margin-top:16px}
+.tchip{display:flex;align-items:center;gap:7px;font-size:12.5px;color:#b7c0d4;background:rgba(255,255,255,.05);
+border:1px solid rgba(255,255,255,.1);border-radius:99px;padding:6px 13px}
+.tchip b{color:#7aa7ff;font-weight:600}
+.tchip.hot b{color:#f4756f}
+.slogan{position:absolute;right:28px;top:24px;text-align:right;font-size:13px;color:#8b94a8;letter-spacing:2px}
+/* ═══ 流程条（保持一条线原布局，纯展示） ═══ */
+.flowrow{display:grid;grid-template-columns:1fr 284px;gap:14px;margin-bottom:18px}
+.flow{border:1px solid var(--gb);border-radius:14px;background:var(--card);backdrop-filter:blur(12px);
+box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:18px 22px;display:flex;flex-direction:column}
+.flow .h{font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flow .h span{font-size:12px;color:#8b94a8;font-weight:400}
+.rolebar{display:flex;align-items:center;gap:7px;margin-left:auto}
+.rolebar em{font-style:normal;font-size:11px;color:#8b94a8}
+.rchip{font-size:11.5px;color:#8b94a8;background:transparent;border:1px solid rgba(255,255,255,.14);border-radius:99px;padding:3px 11px}
+.rchip.on{color:#cfe0ff;border-color:rgba(122,167,255,.55);background:rgba(59,130,246,.16)}
+.fnodes{flex:1;display:flex;align-items:center;gap:6px;margin-top:8px}
+.fnode{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
+.fico{width:42px;height:42px;border-radius:50%;background:rgba(59,130,246,.14);color:#7aa7ff;display:grid;place-items:center;flex:none;border:1px solid rgba(122,167,255,.25)}
+.fico svg{width:19px;height:19px}
+.fnode .n{font-size:13.5px;font-weight:600;display:block}
+.fnode .c{font-size:12px;color:#8b94a8;margin-top:2px;display:block}
+.fnode .c b{color:#7aa7ff;font-weight:600}
+.farrow{color:#4a5670;flex:none}
+/* ═══ 右栏：我的工作台入口卡 ═══ */
+.mycard{position:relative;border:1px solid rgba(122,167,255,.5);border-radius:14px;
+background:linear-gradient(155deg,rgba(59,130,246,.20),rgba(59,130,246,.05) 55%),rgba(255,255,255,.045);
+box-shadow:0 10px 30px rgba(59,130,246,.16),inset 0 1px 0 0 rgba(255,255,255,.1);
+padding:16px 18px;display:flex;flex-direction:column}
+.mycard .h{display:flex;align-items:center;gap:9px;font-size:13.5px;font-weight:600}
+.mycard .h .chip{width:32px;height:32px;border-radius:9px;background:rgba(59,130,246,.28);color:#cfe0ff;display:grid;place-items:center;flex:none}
+.mycard .h .chip svg{width:16px;height:16px}
+.roleline{font-size:11.5px;color:#8b94a8;margin-top:8px}
+.mrow{display:flex;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:12px;color:#8b94a8}
+.mrow b{font-size:17px;font-weight:600;color:#e8ecf5}
+.mrow:first-of-type b{color:#f4756f}
+.mine-go{margin-top:14px;width:100%;display:flex;align-items:center;justify-content:center;gap:7px;
+font-size:12.5px;font-weight:600;color:#fff;background:linear-gradient(135deg,#3b82f6,#5b8ff9);
+border:0;border-radius:9px;padding:9px 0;box-shadow:0 4px 12px rgba(22,119,255,.32)}
+.mine-go:hover{filter:brightness(1.08)}
+/* ═══ 常用功能 ═══ */
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:2px 2px 12px;font-size:14px;font-weight:600}
+.sec-h span{font-size:12px;color:#8b94a8;font-weight:400}
+.acts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
+.act{display:flex;align-items:center;gap:12px;border:1px solid var(--gb);border-radius:12px;background:var(--card);
+backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:14px 16px}
+.act:hover{background:rgba(255,255,255,.07);border-color:rgba(122,167,255,.4)}
+.chip{width:38px;height:38px;border-radius:10px;background:rgba(59,130,246,.16);color:#7aa7ff;display:grid;place-items:center;flex:none}
+.chip svg{width:18px;height:18px}
+.act .ax{flex:1;min-width:0}
+.act .ax b{display:block;font-size:13.5px;font-weight:600}
+.act .ax i{display:block;font-style:normal;font-size:11.5px;color:#8b94a8;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .chev{color:#4a5670;flex:none}
+.act.ai{border-color:rgba(122,167,255,.35);background:linear-gradient(140deg,rgba(59,130,246,.14),rgba(14,165,233,.04) 60%),var(--card)}
+.act.ai .chip{background:rgba(59,130,246,.25);color:#cfe0ff}
+/* ═══ 标注 ═══ */
+.pin{position:absolute;width:18px;height:18px;border-radius:50%;background:#f5b942;color:#0a0f1e;font-size:11px;font-weight:700;
+display:none;place-items:center;z-index:9;box-shadow:0 0 0 2px rgba(245,185,66,.35)}
+body.anno .pin{display:grid}
+.anno-panel{display:none;position:fixed;right:22px;top:70px;width:330px;z-index:50;border:1px solid rgba(245,185,66,.4);border-radius:14px;
+background:rgba(20,26,44,.96);padding:16px 18px;font-size:12px;line-height:1.7;color:#b7c0d4}
+body.anno .anno-panel{display:block}
+.anno-panel h4{font-size:13px;color:#f5b942;margin-bottom:8px}
+.anno-panel b{color:#e8ecf5}
+.anno-panel .it{margin-bottom:8px}
+</style></head>
+<body>
+<div class="main">
+  <div class="topbar">
+    <div class="user"><span class="avatar" id="ava">卢</span><span id="who">卢中举 · 技术支持工程师</span></div>
+    <div class="sp"></div>
+    <button class="anno-btn" id="annoBtn" onclick="document.body.classList.toggle('anno');this.classList.toggle('on')">⚑ 标注</button>
+  </div>
+  <div class="content">
+    <div class="hero">
+      <div class="slogan">AI 赋能 · 让计算力更简单</div>
+      <div class="rings"><i></i><i></i><i></i><i></i>
+        <div class="sweep"></div>
+        <span class="blip" style="right:70px;top:88px"></span>
+        <span class="blip b2" style="right:150px;top:56px"></span>
+      </div>
+      <h1 id="hello">上午好，卢中举</h1>
+      <div class="sub">欢迎使用霄擎算力 CPQ 平台，助您高效完成从需求到报价的全流程。</div>
+      <div class="today">
+        <span class="tchip hot">今日待办 <b class="num">0</b></span>
+        <span class="tchip">经手商机 <b class="num">4</b></span>
+      </div>
+    </div>
+
+    <div class="flowrow">
+      <div class="flow">
+        <div class="h">CPQ 业务流程<span>数字为全公司在办口径</span>
+          <span class="rolebar"><em>角色示意</em>
+            <button class="rchip" data-r="business" onclick="setRole('business')">业务</button>
+            <button class="rchip on" data-r="te" onclick="setRole('te')">技术支持</button>
+            <button class="rchip" data-r="cost" onclick="setRole('cost')">成本</button>
+            <button class="rchip" data-r="quote" onclick="setRole('quote')">报价</button>
+            <button class="rchip" data-r="admin" onclick="setRole('admin')">管理员</button>
+          </span>
+        </div>
+        <div class="fnodes">
+          <div class="fnode"><span class="fico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 5h16v11H8l-4 4z"/><path d="M9 10.5h6"/></svg></span><span><span class="n">需求登记</span><span class="c num"><b>20</b> 进行中</span></span></div>
+          <svg class="farrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h13M13 7l5 5-5 5"/></svg>
+          <div class="fnode"><span class="fico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16z"/><path d="M12 4v4M12 16v4M4 12h4M16 12h4"/></svg></span><span><span class="n">指派</span><span class="c num"><b>0</b> 无主</span></span></div>
+          <svg class="farrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h13M13 7l5 5-5 5"/></svg>
+          <div class="fnode"><span class="fico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></svg></span><span><span class="n">BOM 配置</span><span class="c num"><b>3</b> 进行中</span></span></div>
+          <svg class="farrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h13M13 7l5 5-5 5"/></svg>
+          <div class="fnode"><span class="fico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="12" cy="12" r="7"/><path d="M9.5 10h5M9.5 14h5M12 10v8"/></svg></span><span><span class="n">核价</span><span class="c num"><b>0</b> 待核</span></span></div>
+          <svg class="farrow" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M5 12h13M13 7l5 5-5 5"/></svg>
+          <div class="fnode"><span class="fico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M6 2.5h8l4 4V21.5H6z"/><path d="M9 12h6M9 16h4"/></svg></span><span><span class="n">报价</span><span class="c num"><b>48</b> 待转</span></span></div>
+        </div>
+      </div>
+
+      <div class="mycard">
+        <span class="pin" style="top:-7px;right:-7px">1</span>
+        <div class="h"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></svg></span>我的工作台</div>
+        <div class="roleline" id="roleline">技术支持工程师 · 方案配置环节</div>
+        <div class="mrow"><span id="s1k">待办事项</span><b class="num" id="s1v">0</b></div>
+        <div class="mrow"><span id="s2k">今日完成</span><b class="num" id="s2v">0</b></div>
+        <div class="mrow"><span id="s3k">经手商机</span><b class="num" id="s3v">4</b></div>
+        <button class="mine-go" id="goBtn">进入技术支持工作台 →</button>
+      </div>
+    </div>
+
+    <div class="sec-h">常用功能<span>高频操作一步直达</span></div>
+    <div class="acts" style="position:relative">
+      <a class="act ai" style="position:relative"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/><path d="M18.5 15.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8z"/></svg></span><span class="ax"><b>方案助手</b><i>AI 硬件配置建议与报价洞察</i></span><span class="chev">›</span><span class="pin" style="top:-7px;left:-7px">2</span></a>
+      <a class="act"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="5.5" y="2.5" width="9" height="15" rx="2"/><path d="M5.5 8h9"/></svg></span><span class="ax"><b>服务器</b><i>查看服务器产品库</i></span><span class="chev">›</span></a>
+      <a class="act"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="3" y="3.5" width="18" height="17" rx="2"/><path d="M12 3.5v17M3 9.5h18"/></svg></span><span class="ax"><b>配件</b><i>查看配件与兼容性</i></span><span class="chev">›</span></a>
+      <a class="act"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></svg></span><span class="ax"><b>选型配置</b><i>机型能力与推导规则</i></span><span class="chev">›</span></a>
+      <a class="act"><span class="chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M12 3l9 5-9 5-9-5z"/><path d="M4.2 12.5L12 16.6l7.8-4.1"/></svg></span><span class="ax"><b>解决方案</b><i>行业解决方案与案例</i></span><span class="chev">›</span></a>
+      <span class="pin" style="top:-10px;left:130px">3</span>
+    </div>
+  </div>
+</div>
+
+<div class="anno-panel">
+  <h4>⚑ 设计依据（v2 · 右栏入口卡）</h4>
+  <div class="it"><b>① 右栏 = 我的工作台入口卡（全页唯一主 CTA）</b>：原方案助手位。角色铭牌 + 环节说明 + 三项个人统计（与工作台子页统计条同口径）+ 主按钮。流程条不再承担入口职责，保持一条线原布局、纯展示。</div>
+  <div class="it"><b>② 方案助手降格为常用功能磁贴</b>（首位、渐变识别）：AI 入口保留，视觉位让给个人主入口。</div>
+  <div class="it"><b>③ 我的任务磁贴移除</b>：与右栏入口卡完全同目标，留三处入口反而稀释主入口。若你希望保留可以说一声。</div>
+  <div class="it"><b>④ 角色示意切换</b>：右栏卡的铭牌/统计/按钮随角色变化（管理员的统计=调度台口径）；流程条对所有角色同一条线、同一布局。</div>
+</div>
+
+<script>
+const ROLES = {
+  business: { ava:'业', who:'文雯 · 业务', hello:'上午好，文雯', roleline:'业务 · 需求登记环节', ws:'我的商机',
+    s:['待办事项','流转中','全部商机'], v:[2, 6, 12] },
+  te:       { ava:'卢', who:'卢中举 · 技术支持工程师', hello:'上午好，卢中举', roleline:'技术支持工程师 · 方案配置环节', ws:'技术支持工作台',
+    s:['待办事项','今日完成','经手商机'], v:[0, 0, 4] },
+  cost:     { ava:'成', who:'成本 · 成本核算', hello:'上午好，成本', roleline:'成本核算 · 核价环节', ws:'成本核算工作台',
+    s:['待办事项','今日完成','经手商机'], v:[3, 1, 9] },
+  quote:    { ava:'报', who:'报价 · 市场报价专员', hello:'上午好，报价', roleline:'市场报价专员 · 报价环节', ws:'报价专员工作台',
+    s:['待办事项','今日完成','经手商机'], v:[5, 2, 11] },
+  admin:    { ava:'管', who:'admin · 管理员', hello:'上午好，admin', roleline:'管理员 · 调度指挥', ws:'任务调度台',
+    s:['无主任务','活跃任务','今日转交'], v:[10, 71, 3] },
+}
+function setRole(r){
+  document.querySelectorAll('.rchip').forEach(b => b.classList.toggle('on', b.dataset.r === r))
+  const c = ROLES[r]
+  document.getElementById('ava').textContent = c.ava
+  document.getElementById('who').textContent = c.who
+  document.getElementById('hello').textContent = c.hello
+  document.getElementById('roleline').textContent = c.roleline
+  c.s.forEach((k, i) => {
+    document.getElementById('s' + (i + 1) + 'k').textContent = k
+    document.getElementById('s' + (i + 1) + 'v').textContent = c.v[i]
+  })
+  document.getElementById('goBtn').textContent = '进入' + c.ws + ' →'
+}
+setRole('te')
+</script>
+<style>
+@media (max-width:768px){.content{padding:16px 14px}
+.acts{grid-template-columns:repeat(2,1fr)}
+.flowrow{grid-template-columns:1fr}
+.hero{margin:0 -14px 14px;padding:22px 16px 20px;min-height:0}
+.hero h1{font-size:20px}
+.slogan{display:none}
+.rings{width:200px;height:200px;right:-52px;top:42%;opacity:.85}
+.fnodes{flex-wrap:wrap;gap:10px 14px}
+.fnode{flex:1 1 44%}
+.farrow{display:none}
+.rolebar{margin-left:0;flex-wrap:wrap}
+.anno-panel{right:10px;left:10px;width:auto}}
+</style>
+</body></html>

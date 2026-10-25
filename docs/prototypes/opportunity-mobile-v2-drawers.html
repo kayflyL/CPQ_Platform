@@ -1,0 +1,505 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商机线索 · 手机版双抽屉方案 原型（2026-09-19 V2）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0d1322;
+  background-image:
+    radial-gradient(900px 500px at 15% -5%, rgba(47,107,255,.14), transparent 60%),
+    radial-gradient(800px 480px at 90% 8%, rgba(34,195,166,.08), transparent 60%),
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: auto, auto, 28px 28px, 28px 28px;
+  color: #dbe4f5;
+  padding-bottom: 80px;
+}
+.doc-head { max-width: 1460px; margin: 0 auto; padding: 44px 36px 4px; }
+.doc-head h1 { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.doc-head .updated { margin-top: 6px; font-size: 12.5px; color: #8fa0bd; }
+.doc-head .lede { margin-top: 14px; font-size: 13.5px; line-height: 1.9; color: #aebbd6; max-width: 980px; }
+.doc-head .lede b { color: #eaf1ff; }
+
+.deck { display: flex; flex-wrap: wrap; gap: 52px; justify-content: center; align-items: flex-start; padding: 38px 24px 10px; max-width: 1460px; margin: 0 auto; }
+.figure { display: flex; flex-direction: column; gap: 14px; }
+.fig-title { font-size: 15px; font-weight: 800; color: #e8eefb; letter-spacing: .5px; }
+.fig-title em { font-style: normal; color: #6ea2ff; }
+.fig-note {
+  width: 375px; font-size: 12.5px; line-height: 1.85; color: #9fb0cc;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 13px 15px;
+}
+.fig-note b { color: #d7e2f7; }
+.mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #2f6bff; color: #fff; font-size: 10.5px; font-weight: 700; margin-right: 4px; flex: none; }
+
+/* ── 手机框 ── */
+.phone {
+  position: relative; width: 375px; height: 812px; flex: none;
+  border-radius: 46px; border: 9px solid #222b3f;
+  box-shadow: 0 34px 90px rgba(0,0,0,.55), inset 0 0 0 1.5px rgba(255,255,255,.06);
+  overflow: hidden;
+  background: linear-gradient(168deg, #eef2fa 0%, #e9eef8 55%, #e4ebf6 100%);
+  color: #1e2a3d; font-size: 13px;
+}
+.statusbar { display: flex; justify-content: space-between; align-items: center; padding: 13px 24px 5px; font-size: 12px; font-weight: 700; color: #22304a; }
+.statusbar .sb-r { display: flex; gap: 5px; align-items: center; font-size: 10.5px; }
+.sig { display: inline-flex; gap: 1.5px; align-items: flex-end; }
+.sig i { width: 2.5px; background: #22304a; border-radius: 1px; display: block; }
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:6px}.sig i:nth-child(3){height:8px}.sig i:nth-child(4){height:10px}
+.batt { width: 21px; height: 10.5px; border: 1.2px solid #22304a; border-radius: 3px; position: relative; opacity: .85; }
+.batt::after { content: ""; position: absolute; inset: 1.5px; right: 5px; background: #22304a; border-radius: 1.5px; }
+.batt::before { content: ""; position: absolute; right: -3.5px; top: 2.5px; width: 2px; height: 4px; background: #22304a; border-radius: 0 1px 1px 0; }
+
+.appbar { display: flex; align-items: center; gap: 8px; padding: 7px 13px 9px; }
+.appbar h2 { font-size: 17.5px; font-weight: 800; letter-spacing: .5px; }
+.range-chip { font-size: 10.5px; color: #5b6b85; background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.95); padding: 2.5px 9px; border-radius: 999px; box-shadow: 0 2px 8px rgba(31,42,61,.05); }
+.appbar .sp { flex: 1; }
+.icon-glass { width: 31px; height: 31px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.95); color: #51617e; box-shadow: 0 2px 8px rgba(31,42,61,.05); }
+.icon-glass svg { width: 15px; height: 15px; }
+.btn-primary { display: inline-flex; align-items: center; gap: 4px; height: 31px; padding: 0 13px; border-radius: 10px;
+  background: linear-gradient(135deg, #2f6bff, #2456d6); color: #fff; font-size: 12.5px; font-weight: 600;
+  box-shadow: 0 6px 16px rgba(47,107,255,.32); }
+
+.pbody { padding: 0 12px; display: flex; flex-direction: column; gap: 11px; }
+
+/* KPI 2×2 */
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kpi { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 15px; padding: 11px 13px 10px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); display: flex; flex-direction: column; gap: 3px; }
+.kpi .l { font-size: 11px; color: #5b6b85; display: flex; align-items: center; gap: 5px; }
+.kpi .l i { width: 6px; height: 6px; border-radius: 50%; background: #2f6bff; opacity: .8; }
+.kpi .v { font-size: 23px; font-weight: 800; color: #1c2740; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi .v small { font-size: 11px; font-weight: 600; color: #2fae87; margin-left: 5px; }
+
+/* 周期 chips */
+.chips { display: flex; gap: 6px; }
+.chip { font-size: 11.5px; color: #5b6b85; padding: 5px 12px; border-radius: 999px; border: 1px solid rgba(31,42,61,.14); background: rgba(255,255,255,.55); }
+.chip.on { color: #2f6bff; border-color: rgba(47,107,255,.55); background: rgba(47,107,255,.1); font-weight: 700; }
+
+/* 入口卡（双抽屉枢纽） */
+.entry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+.entry-card { position: relative; border: 1px solid rgba(255,255,255,.95); background: rgba(255,255,255,.74);
+  border-radius: 16px; padding: 13px 13px 12px; box-shadow: 0 6px 18px rgba(31,42,61,.06);
+  display: flex; flex-direction: column; gap: 7px; text-align: left; cursor: pointer; min-height: 104px; font: inherit; color: inherit; }
+.entry-ic { width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; color: #fff;
+  background: linear-gradient(140deg, #3b78ff, #2450c8); box-shadow: 0 5px 12px rgba(36,80,200,.28); }
+.entry-ic svg { width: 17px; height: 17px; }
+.entry-ic.ic-teal { background: linear-gradient(140deg, #2fc3a4, #159c80); box-shadow: 0 5px 12px rgba(21,156,128,.28); }
+.entry-t { font-weight: 800; font-size: 13.5px; color: #1c2740; }
+.entry-d { font-size: 10.5px; color: #7c8aa5; line-height: 1.55; }
+.entry-n { position: absolute; top: 13px; right: 12px; font-size: 10.5px; color: #2f6bff; background: rgba(47,107,255,.1); padding: 2px 8px; border-radius: 999px; font-weight: 700; }
+.entry-arrow { position: absolute; right: 12px; bottom: 10px; font-size: 15px; color: #9fb0cc; }
+
+/* 趋势快览迷你条 */
+.tile { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 16px; padding: 12px 13px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); }
+.tile h3 { font-size: 12.5px; font-weight: 700; color: #44536e; display: flex; align-items: center; gap: 6px; margin-bottom: 9px; }
+.deck-line { width: 3px; height: 12px; background: #2f6bff; border-radius: 2px; }
+.mini-trend { display: flex; align-items: flex-end; gap: 5px; height: 46px; padding: 0 2px; }
+.mini-trend i { flex: 1; border-radius: 4px 4px 2px 2px; background: linear-gradient(180deg, #6f97ff, #2f6bff); opacity: .88; }
+.mini-trend i.dim { background: #d9e0ee; }
+.mini-x { display: flex; justify-content: space-between; font-size: 9.5px; color: #93a1b8; margin-top: 5px; padding: 0 2px; }
+
+/* 抽屉公共 */
+.mask { position: absolute; inset: 0; z-index: 40; background: rgba(13,20,38,.42); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px); }
+.pd-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(31,42,61,.14); margin: 8px auto 0; }
+.pd-head { display: flex; align-items: center; gap: 8px; padding: 10px 15px 8px; }
+.pd-head h3 { font-size: 15.5px; font-weight: 800; }
+.pd-head .sp { flex: 1; }
+.pd-close { width: 30px; height: 30px; border-radius: 10px; border: 1px solid rgba(31,42,61,.12); background: #fff; color: #51617e; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+
+/* 左抽屉（图表分析） */
+.ldrawer {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 94%;
+  background: rgba(252,253,255,.96);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-right: 1px solid #fff; border-radius: 0 22px 22px 0;
+  box-shadow: 28px 0 70px rgba(13,20,38,.32);
+  display: flex; flex-direction: column;
+}
+.ldw-body { flex: 1; overflow: hidden; padding: 2px 12px 10px; display: flex; flex-direction: column; gap: 9px; }
+.grid1 { display: flex; flex-direction: column; gap: 9px; }
+.pie-wrap { display: flex; align-items: center; gap: 12px; }
+.pie { width: 74px; height: 74px; border-radius: 50%; flex: none;
+  background: conic-gradient(#2f6bff 0 38%, #22c3a6 0 62%, #f5b942 0 79%, #8b93ff 0 90%, #d9e0ee 0);
+  box-shadow: inset 0 0 0 6px rgba(255,255,255,.9); position: relative; }
+.pie::after { content: ""; position: absolute; inset: 21px; border-radius: 50%; background: rgba(255,255,255,.95); }
+.legend { display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: #5b6b85; }
+.legend li { display: flex; align-items: center; gap: 6px; list-style: none; white-space: nowrap; }
+.legend i { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+.bars { display: flex; flex-direction: column; gap: 6px; }
+.bar-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: #5b6b85; }
+.bar-row .bn { width: 34px; flex: none; text-align: right; }
+.bar-track { flex: 1; height: 8px; border-radius: 4px; background: rgba(31,42,61,.06); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 4px; background: linear-gradient(90deg, #5b8bff, #2f6bff); }
+.bar-row .bv { width: 20px; font-weight: 700; color: #44536e; }
+.won-rows { display: flex; flex-direction: column; gap: 4px; font-size: 10.5px; }
+.won-r { display: flex; gap: 8px; color: #5b6b85; }
+.won-r b { color: #2c3a55; font-weight: 600; flex: 1; }
+.rate-up { color: #0d9273; font-weight: 700; }
+.trend-line { height: 56px; position: relative; }
+.trend-line svg { width: 100%; height: 100%; }
+
+/* 右抽屉（商机列表，已上线） */
+.drawer {
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 50; width: 88%;
+  background: rgba(252,253,255,.96);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-left: 1px solid #fff; border-radius: 22px 0 0 22px;
+  box-shadow: -28px 0 70px rgba(13,20,38,.32);
+  display: flex; flex-direction: column;
+}
+.dw-filters { display: flex; gap: 5px; padding: 4px 11px 9px; border-bottom: 1px solid rgba(31,42,61,.08); flex-wrap: wrap; }
+.f-search { flex: 1 1 120px; height: 28px; border-radius: 8px; border: 1px solid rgba(31,42,61,.13); background: #fff; display: flex; align-items: center; gap: 5px; padding: 0 8px; color: #93a1b8; font-size: 11px; }
+.f-select { height: 28px; border-radius: 8px; border: 1px solid rgba(31,42,61,.13); background: #fff; display: flex; align-items: center; gap: 4px; padding: 0 7px; color: #44536e; font-size: 11px; flex: none; }
+.f-select::after { content: "▾"; font-size: 9px; color: #93a1b8; }
+.dw-list { flex: 1; overflow: hidden; padding: 8px 11px 4px; }
+.tm-head { display: grid; grid-template-columns: 1.5fr .8fr .7fr .6fr; gap: 4px; font-size: 10px; color: #6a7a96; padding: 6px 8px; background: rgba(31,42,61,.045); border-radius: 8px 8px 0 0; border-bottom: 1px solid rgba(31,42,61,.08); font-weight: 600; }
+.tm-row { display: grid; grid-template-columns: 1.5fr .8fr .7fr .6fr; gap: 4px; font-size: 10.5px; padding: 8px; border-bottom: 1px solid rgba(31,42,61,.07); align-items: center; background: rgba(255,255,255,.6); }
+.tm-name { font-weight: 700; color: #1c2740; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tm-name small { display: block; font-weight: 500; color: #8b9ab5; font-size: 9px; }
+.badge { font-size: 9px; font-weight: 700; padding: 2px 7px; border-radius: 999px; display: inline-block; }
+.b-doing { background: rgba(47,107,255,.1); color: #2f6bff; }
+.b-won { background: rgba(34,195,166,.16); color: #0d9273; }
+.b-lost { background: rgba(239,68,68,.1); color: #e11d48; }
+.tm-col { color: #51617e; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.edge-hint { position: absolute; top: 0; bottom: 0; right: 0; width: 26px; background: linear-gradient(90deg, transparent, rgba(13,20,38,.10)); pointer-events: none; border-radius: 0 0 0 22px; }
+.dw-foot { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 8px 14px 20px; border-top: 1px solid rgba(31,42,61,.08); font-size: 11.5px; color: #5b6b85; }
+.pgn { width: 25px; height: 25px; border: 1px solid rgba(31,42,61,.15); border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: #fff; color: #51617e; }
+.pgn.on { border-color: rgba(47,107,255,.55); color: #2f6bff; font-weight: 700; }
+
+/* 底部导航 */
+.tabbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  height: 62px; padding: 7px 10px 9px;
+  background: rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid rgba(255,255,255,.98);
+  box-shadow: 0 -8px 28px rgba(31,42,61,.1);
+  display: grid; grid-template-columns: repeat(5, 1fr);
+}
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.5px; font-size: 10px; color: #7c8aa5; }
+.tab .ic { width: 46px; height: 27px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.tab .ic svg { width: 17px; height: 17px; }
+.tab.on { color: #2f6bff; font-weight: 700; }
+.tab.on .ic { background: rgba(47,107,255,.14); }
+.homebar { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 118px; height: 4.5px; border-radius: 3px; background: rgba(20,30,50,.28); z-index: 60; }
+
+.pet { position: absolute; right: 14px; bottom: 78px; z-index: 25; width: 42px; height: 42px; border-radius: 50%;
+  background: linear-gradient(140deg, #3b78ff, #2450c8); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 24px rgba(36,80,200,.4), inset 0 1px 0 rgba(255,255,255,.35); }
+.pet svg { width: 19px; height: 19px; }
+
+/* 规范/对比面板 */
+.spec-panel { width: 375px; display: flex; flex-direction: column; gap: 14px; }
+.spec-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 18px 16px; }
+.spec-card h4 { font-size: 13px; font-weight: 700; color: #e8eefb; margin-bottom: 12px; letter-spacing: .5px; }
+.spec-li { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.75; color: #a7b6d2; padding: 5px 0; }
+.spec-li b { color: #dfe8fa; font-weight: 700; }
+.spec-li .n { flex: none; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 12px; color: #a7b6d2; }
+.cmp th, .cmp td { border: 1px solid rgba(255,255,255,.1); padding: 7px 8px; text-align: left; line-height: 1.5; }
+.cmp th { color: #dfe8fa; font-weight: 700; background: rgba(255,255,255,.04); }
+.cmp td:first-child { color: #dfe8fa; font-weight: 600; white-space: nowrap; }
+
+/* 底部备注 */
+.notes { max-width: 1100px; margin: 26px auto 0; padding: 0 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.note-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 18px; padding: 22px 24px; }
+.note-card h3 { font-size: 15px; font-weight: 800; color: #eaf1ff; margin-bottom: 12px; letter-spacing: .5px; }
+.note-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.8; color: #a7b6d2; }
+.note-card li b { color: #e4ecfc; }
+.note-card li::before { content: "·"; color: #5b8bff; font-weight: 900; margin-right: 8px; }
+.phase { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,.08); font-size: 13px; line-height: 1.75; color: #a7b6d2; }
+.phase:last-child { border-bottom: none; }
+.tag { flex: none; font-size: 11px; font-weight: 800; color: #0d1322; background: #6ea2ff; border-radius: 7px; padding: 2px 8px; margin-top: 3px; }
+.tag.t2 { background: #55d6b5; }
+.tag.t3 { background: #f5c96b; }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>商机线索 · 手机版双抽屉方案（V2）</h1>
+  <div class="updated">&gt; 最后更新：2026-09-19 · 原型稿（仅视觉示意，非实现）</div>
+  <p class="lede">
+    思路：<b>首页收成「轻枢纽」——KPI + 周期 + 两大入口</b>；<b>左侧图表分析 → 左抽屉、商机列表 → 右抽屉</b>，
+    与桌面「左图表 / 右列表」的空间心智一一对应。右抽屉上一轮已上线（PC 同款表格，直接沿用），
+    本版新增 = 首页枢纽化 + 左抽屉。四张手机框：A 首页枢纽 / B 左抽屉 / C 右抽屉（已上线）/ D 对比与分期。
+  </p>
+</header>
+
+<div class="deck">
+<!-- ═══════════ A. 首页枢纽 ═══════════ -->
+<figure class="figure">
+  <div class="phone" id="screenA">
+    <div class="statusbar"><span>9:41</span><span class="sb-r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+    <div class="appbar">
+      <h2>商机驾驶舱</h2>
+      <span class="range-chip">本周 9.14-9.20</span>
+      <span class="sp"></span>
+      <span class="icon-glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>
+      <button class="btn-primary"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12h14"/></svg>新建</button>
+    </div>
+    <div class="pbody">
+      <div class="kpis">
+        <div class="kpi"><span class="l"><i></i>总商机数</span><span class="v">128</span></div>
+        <div class="kpi"><span class="l"><i style="background:#22c3a6"></i>总配置数</span><span class="v">356</span></div>
+        <div class="kpi"><span class="l"><i style="background:#f5b942"></i>周期新增商机</span><span class="v">12<small>↑3</small></span></div>
+        <div class="kpi"><span class="l"><i style="background:#8b93ff"></i>周期新增配置</span><span class="v">30<small>↑5</small></span></div>
+      </div>
+      <div class="chips">
+        <span class="chip on">● 本周</span><span class="chip">本月</span><span class="chip">本年</span><span class="chip">自定义 ▾</span>
+      </div>
+      <div class="entry-grid">
+        <button class="entry-card">
+          <span class="entry-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span>
+          <span class="entry-t">图表分析</span>
+          <span class="entry-d">趋势 · 分布 · 排行 · 转化，点图下钻列表</span>
+          <span class="entry-arrow">›</span>
+        </button>
+        <button class="entry-card">
+          <span class="entry-ic ic-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>
+          <span class="entry-n">169</span>
+          <span class="entry-t">商机列表</span>
+          <span class="entry-d">搜索 · 排序 · 筛选 · 批量，PC 同款表格</span>
+          <span class="entry-arrow">›</span>
+        </button>
+      </div>
+      <div class="tile">
+        <h3><span class="deck-line"></span>近 7 日趋势快览</h3>
+        <div class="mini-trend">
+          <i style="height:38%"></i><i style="height:55%" class="dim"></i><i style="height:44%"></i><i style="height:72%"></i><i style="height:60%" class="dim"></i><i style="height:86%"></i><i style="height:100%"></i>
+        </div>
+        <div class="mini-x"><span>09-14</span><span>09-17</span><span>09-20</span></div>
+      </div>
+    </div>
+    <span class="pet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.2" fill="currentColor"/><circle cx="15" cy="13" r="1.2" fill="currentColor"/><path d="M12 7V4M8 4h8"/></svg></span>
+    <nav class="tabbar">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">A · 首页枢纽 <em>（一屏收口，无需长滚动）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>KPI 2×2 + 周期切换保持页首</b>（沿用已上线实现），整页在一屏内收口，不再往下滚两三屏。<br>
+    <span class="mark">2</span><b>两大入口卡替代图表堆叠</b>：「图表分析」→ 左抽屉、「商机列表 169」→ 右抽屉；左右分工与桌面左图右表一致，入口卡带计数与能力描述。<br>
+    <span class="mark">3</span><b>趋势快览（可选）</b>：一格迷你条形图保住首页「活」感，不展开完整图表。<br>
+    <span class="mark">4</span>底栏、浮动助手沿用已上线实现；原磁贴流（结构分布 / 业务排行 / 线索转化 / 商机列表磁贴）整体移出首页。
+  </div>
+</figure>
+
+<!-- ═══════════ B. 左抽屉 · 图表分析 ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#screenA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="ldrawer">
+      <div class="pd-grip"></div>
+      <div class="pd-head">
+        <h3>图表分析</h3>
+        <span class="range-chip">本周</span>
+        <span class="sp"></span>
+        <span class="pd-close">✕</span>
+      </div>
+      <div class="ldw-body">
+        <div class="chips">
+          <span class="chip on">● 本周</span><span class="chip">本月</span><span class="chip">本年</span><span class="chip">自定义 ▾</span>
+        </div>
+        <div class="tile">
+          <h3><span class="deck-line"></span>趋势分析</h3>
+          <div class="trend-line">
+            <svg viewBox="0 0 300 56" preserveAspectRatio="none">
+              <polyline points="0,44 40,38 80,41 120,28 160,32 200,18 240,22 280,8 300,12" fill="none" stroke="#2f6bff" stroke-width="2.5" stroke-linecap="round"/>
+              <polyline points="0,50 40,48 80,45 120,46 160,40 200,41 240,34 280,30 300,28" fill="none" stroke="#22c3a6" stroke-width="2" stroke-linecap="round" opacity=".8"/>
+            </svg>
+          </div>
+        </div>
+        <div class="tile">
+          <h3><span class="deck-line"></span>结构分布（点击下钻）</h3>
+          <div class="pie-wrap">
+            <div class="pie"></div>
+            <ul class="legend">
+              <li><i style="background:#2f6bff"></i>Polaris 38</li>
+              <li><i style="background:#22c3a6"></i>Orion 24</li>
+              <li><i style="background:#f5b942"></i>Intel 15</li>
+            </ul>
+          </div>
+        </div>
+        <div class="tile">
+          <h3><span class="deck-line"></span>业务排行</h3>
+          <div class="bars">
+            <div class="bar-row"><span class="bn">王敏</span><div class="bar-track"><div class="bar-fill" style="width:88%"></div></div><span class="bv">22</span></div>
+            <div class="bar-row"><span class="bn">李强</span><div class="bar-track"><div class="bar-fill" style="width:70%"></div></div><span class="bv">17</span></div>
+            <div class="bar-row"><span class="bn">张伟</span><div class="bar-track"><div class="bar-fill" style="width:52%"></div></div><span class="bv">13</span></div>
+          </div>
+        </div>
+        <div class="tile">
+          <h3><span class="deck-line"></span>线索转化</h3>
+          <div class="won-rows">
+            <div class="won-r"><b>王敏</b><span>线索 18</span><span>成交 9</span><span class="rate-up">50%</span></div>
+            <div class="won-r"><b>李强</b><span>线索 14</span><span>成交 5</span><span class="rate-up">36%</span></div>
+          </div>
+        </div>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">B · 左抽屉 <em>（图表分析，左侧滑出）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>placement=left，宽约 94%</b>：图表第一次拿到接近整屏的画布，比原来挤在 352px 磁贴里易读得多；ECharts 走现有 autoresize，抽屉打开即渲染。<br>
+    <span class="mark">2</span><b>周期 chips 抽屉内复用</b>：与首页共用同一 period / customRange 状态，两处切换互相联动。<br>
+    <span class="mark">3</span><b>下钻联动</b>：点饼图/排行下钻后关闭抽屉回到首页，KPI 出现「已筛选」提示条，再开右抽屉即为过滤后的列表（复用现有 drill 机制）。<br>
+    <span class="mark">4</span>蒙层点击 / ✕ 收起；抽屉首次打开后才挂载 ECharts（沿用 chartsReady 懒加载）。
+  </div>
+</figure>
+
+<!-- ═══════════ C. 右抽屉 · 商机列表（已上线，沿用） ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#screenA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="drawer">
+      <div class="pd-grip"></div>
+      <div class="pd-head">
+        <h3>商机列表</h3>
+        <span class="range-chip">169 条</span>
+        <span class="sp"></span>
+        <span class="pd-close">✕</span>
+      </div>
+      <div class="dw-filters">
+        <span class="f-search"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>搜索客户 / 业务 / 商机号</span>
+        <span class="f-select">全部状态</span>
+        <span class="f-select">平台</span>
+        <span class="f-select">形态</span>
+        <span class="f-select">业务</span>
+      </div>
+      <div class="dw-list">
+        <div class="tm-head"><span>客户 / 状态</span><span>业务</span><span>平台</span><span>更新时间 ⇅</span></div>
+        <div class="tm-row">
+          <span class="tm-name">华信数据中心一期<small>1 份报价</small></span>
+          <span class="tm-col">王敏</span><span class="tm-col">Polaris</span><span class="tm-col">09-18</span>
+        </div>
+        <div class="tm-row">
+          <span class="tm-name">南方电网改造<small>3 份报价</small></span>
+          <span class="tm-col">李强</span><span class="tm-col">Orion</span><span class="tm-col">09-17</span>
+        </div>
+        <div class="tm-row">
+          <span class="tm-name">青云 AI 智算中心<small>进行中</small></span>
+          <span class="tm-col" style="display:grid;gap:3px"><span class="badge b-doing" style="justify-self:start">进行中</span></span>
+          <span class="tm-col">Polaris</span><span class="tm-col">09-17</span>
+        </div>
+        <div class="tm-row">
+          <span class="tm-name">第一人民医院机房<small>已丢标</small></span>
+          <span class="tm-col">张伟</span><span class="tm-col">Intel</span><span class="tm-col">09-15</span>
+        </div>
+        <div class="tm-row">
+          <span class="tm-name">省农商行灾备扩容<small>进行中</small></span>
+          <span class="tm-col">赵丽</span><span class="tm-col">工作站</span><span class="tm-col">09-14</span>
+        </div>
+        <div class="tm-row">
+          <span class="tm-name">地铁调度中心集群<small>已过期</small></span>
+          <span class="tm-col">李强</span><span class="tm-col">Polaris</span><span class="tm-col">09-12</span>
+        </div>
+        <div class="edge-hint"></div>
+      </div>
+      <div class="dw-foot">
+        <span class="pgn">‹</span><span class="pgn on">1</span><span class="pgn">2</span><span class="pgn">3</span><span>…</span><span class="pgn">›</span>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">C · 右抽屉 <em>（商机列表 —— 上一轮已上线，本轮沿用）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>不再改动</b>：placement=right、PC 同款 OpportunityTable（排序 / 状态内联改 / 批量回收站）、搜索 + 状态 + 平台 + 形态 + 业务筛选、点客户名进详情自动收抽屉、返回自动恢复 —— 全部保持现状。<br>
+    <span class="mark">2</span>入口从「商机列表磁贴」换成首页「商机列表」入口卡，行为不变（openListDrawer）。
+  </div>
+</figure>
+
+<!-- ═══════════ D. 对比与分期 ═══════════ -->
+<figure class="figure">
+  <div class="spec-panel">
+    <div class="spec-card">
+      <h4>现状（长页堆叠） vs 双抽屉方案</h4>
+      <table class="cmp">
+        <tr><th>维度</th><th>现状 V1</th><th>双抽屉 V2</th></tr>
+        <tr><td>首页高度</td><td>KPI + 周期 + 全部图表磁贴堆叠，滚动两三屏</td><td>一屏收口（KPI + 周期 + 两入口 + 快览）</td></tr>
+        <tr><td>到列表</td><td>滚到中段点磁贴</td><td>首屏入口卡直达（已上线交互不变）</td></tr>
+        <tr><td>图表画布</td><td>352px 磁贴挤在一列</td><td>94% 宽抽屉，接近整屏</td></tr>
+        <tr><td>空间心智</td><td>桌面左右分栏 → 手机上下长列，错位</td><td>左图 / 右表与桌面一一对应</td></tr>
+        <tr><td>查看图表成本</td><td>直接滚（但埋在下方）</td><td>多一步点开（用快览磁贴补偿）</td></tr>
+      </table>
+    </div>
+    <div class="spec-card">
+      <h4>交互流（全部复用现有状态）</h4>
+      <div class="spec-li"><span class="n">1.</span><span>首页入口卡「图表分析」→ 左抽屉；周期 chips 与首页同源联动。</span></div>
+      <div class="spec-li"><span class="n">2.</span><span>图内下钻 → 收左抽屉回首页，KPI 上方出现「已筛选」提示条（drill 机制现成）。</span></div>
+      <div class="spec-li"><span class="n">3.</span><span>首页入口卡「商机列表」→ 右抽屉（现有实现），打开即带 drill 过滤。</span></div>
+      <div class="spec-li"><span class="n">4.</span><span>返回恢复扩展：LIST_STATE 记录开的是哪个抽屉（charts_drawer / list_drawer），详情返回原样恢复。</span></div>
+    </div>
+    <div class="spec-card">
+      <h4>落地注意</h4>
+      <div class="spec-li"><span class="n">·</span><span>OpportunityCharts 挪进抽屉后 isMobile 磁贴布局保留（抽屉宽 ≈ 屏宽）；ECharts 懒挂载改由「抽屉首开」触发。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>抽屉宽 94% 为图表让位；右抽屉维持 92% 不动，两抽屉不同时开（互斥状态）。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>桌面零改动：全部在 ≤768 分支内。</span></div>
+    </div>
+  </div>
+  <div class="fig-title">D · 方案对比与分期</div>
+  <div class="fig-note">结论：V2 不是推翻 V1 —— 右抽屉 / KPI 置顶 / 底栏全部保留，只把「首页长页」收成「枢纽 + 左抽屉」。</div>
+</figure>
+</div>
+
+<section class="notes">
+  <div class="note-card">
+    <h3>信息架构变化</h3>
+    <ul>
+      <li><b>首页（枢纽）</b>：顶栏 + KPI 2×2 + 周期 chips + 双入口卡（图表分析 / 商机列表·计数）+ 趋势快览（可选）。一屏收口，拇指可达。</li>
+      <li><b>左抽屉（图表分析）</b>：placement=left、宽 94%、全高；周期 chips（与首页同源）+ 趋势 / 结构分布 / 业务排行 / 线索转化；ECharts 懒挂载改由抽屉首开触发。</li>
+      <li><b>右抽屉（商机列表）</b>：上一轮已上线，原样沿用（PC 同款表格 + 全量筛选 + 跳详情收抽屉/返回恢复）。</li>
+      <li><b>退役</b>：首页图表磁贴流与「商机列表」磁贴（入口卡替代）；列表磁贴的 open-list-drawer 事件改由入口卡触发。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>分期落地</h3>
+    <div class="phase"><span class="tag">P1</span><span><b>首页枢纽化</b>： OpportunityCharts 与磁贴移出手机端首页流；新增双入口卡 + 快览磁贴；左抽屉容器 + OpportunityCharts 挂入（isMobile 磁贴布局保留）。</span></div>
+    <div class="phase"><span class="tag t2">P2</span><span><b>联动收尾</b>： 抽屉内周期 chips 与首页同源；下钻 → 收左抽屉 + KPI 已筛选提示（drill 机制现成）；LIST_STATE 增加 charts_drawer 恢复；两抽屉互斥。</span></div>
+    <div class="phase"><span class="tag t3">P3</span><span><b>打磨（可选）</b>： 边缘滑动手势开抽屉；快览磁贴点击直接开左抽屉并定位趋势图。</span></div>
+  </div>
+  <div class="note-card">
+    <h3>代价与取舍（我的看法）</h3>
+    <ul>
+      <li><b>多一步点击</b>：看完整图表要从「直接滚」变成「点开左抽屉」——用首页快览磁贴补偿日常扫一眼的需求，重分析场景进抽屉反而更舒展。</li>
+      <li><b>ECharts 在抽屉里初始化</b>：首次打开有一次渲染成本，沿用 chartsReady 懒加载 + autoresize 可控；抽屉关闭不销毁，二次打开即时。</li>
+      <li><b>两抽屉不同时开</b>：共享一个 openDrawer: null | 'charts' | 'list' 状态，蒙层天然互斥。</li>
+      <li><b>收获</b>：手机版与桌面共享同一套「左图右表」心智；首页从最长页变成最短页之一。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>与已上线实现的关系</h3>
+    <ul>
+      <li><b>保留</b>：KPI 2×2 置顶、右抽屉（表格/筛选/排序/批量/返回恢复）、底部导航、更多面板、桌宠避让、桌面布局 —— 全部不动。</li>
+      <li><b>改动面</b>：仅 OpportunityList.vue 手机分支的首页部分 + 新增左抽屉容器；OpportunityTable / OpportunityCharts 组件本体零改动。</li>
+      <li><b>文档</b>：cockpit.md 手机模式章节随实施同步更新。</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+document.querySelectorAll('[data-clone-from]').forEach(function (el) {
+  var src = document.querySelector(el.getAttribute('data-clone-from'));
+  if (src) el.innerHTML = src.innerHTML;
+});
+</script>
+</body>
+</html>

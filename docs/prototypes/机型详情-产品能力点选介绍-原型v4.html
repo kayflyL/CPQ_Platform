@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机型详情 · 产品能力点选介绍 — 原型 v4</title>
+<!-- 最后更新：2026-09-28
+  v4：按用户两点反馈重做——①左栏只留 logo(维度图标)+标题(维度名)；②右侧=内容+图排版（调研 saaspo/
+  screenhance 等特性展示范式后）：统一取景框（点阵底+主题辉光+角标）内放「硬件特写插画」，
+  每维度一张参数化 SVG 场景（重复结构做密度，SMIL 脉冲/闪烁/旋转做活性）。
+  文字/数字仍全部来自现有 product_content.capabilities，编辑器零改动。数据：ES220 V3 真实数据。 -->
+<style>
+:root{
+  --sun-color:#5BB8FF; --sun-bright:#D6EBFF; --glow:rgba(91,184,255,0.55);
+  --band-bg:linear-gradient(to bottom,#02050f 0%,#0a1c38 55%,#030814 100%);
+  --page-bg:linear-gradient(to bottom,#02050f 0%,#071226 45%,#030814 100%);
+  --line-soft:rgba(255,255,255,0.08);
+  --mono:'JetBrains Mono','SF Mono','Cascadia Mono',Consolas,monospace;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --cycle:4.5s;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page-bg);color:#eef3fa;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;min-height:100vh;transition:background .5s}
+
+/* ── 原型工具条（非页面内容） ── */
+.chrome{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;border-bottom:1px solid rgba(255,255,255,.06)}
+.chrome .ttl{font-size:12.5px;color:rgba(255,255,255,.5)}
+.chrome .ttl b{color:rgba(255,255,255,.8);font-weight:600}
+.pills{display:flex;gap:8px}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;border:1px solid rgba(255,255,255,.13);background:transparent;color:rgba(255,255,255,.55);cursor:pointer;font-size:12px;transition:.2s}
+.pill .dot{width:9px;height:9px;border-radius:50%}
+.pill.on{border-color:var(--sun-color);color:#fff}
+
+/* ── 产品能力带（对应详情页 .band-dark） ── */
+.band-dark{margin-top:44px;padding:52px 0 60px;position:relative;color:#fff;
+  background-image:linear-gradient(to bottom,rgba(0,0,0,.42),rgba(0,0,0,.58)),var(--band-bg)}
+.band-dark::before{content:'';position:absolute;top:0;left:-8%;right:-8%;height:0;
+  background:linear-gradient(to right,transparent 0%,var(--sun-color) 22%,var(--sun-bright) 50%,var(--sun-color) 78%,transparent 100%);
+  background-size:100% 1.5px;background-repeat:no-repeat;
+  box-shadow:0 0 18px var(--sun-color),0 4px 46px var(--glow)}
+.page-inner{max-width:1180px;margin:0 auto;padding:0 28px}
+.sec-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px}
+.sec-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--sun-color);opacity:.85;margin-bottom:8px}
+.sec-title{font-size:23px;font-weight:700;color:#fff;letter-spacing:.02em}
+.hint{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:rgba(255,255,255,.32)}
+
+.cap-wrap{display:flex;gap:26px;align-items:stretch}
+
+/* ── 左栏：logo + 标题 ── */
+.rail{width:238px;flex:none;display:flex;flex-direction:column;gap:6px}
+.item{position:relative;display:flex;align-items:center;gap:14px;text-align:left;border:none;background:transparent;cursor:pointer;
+  padding:13px 14px 13px 20px;border-radius:10px;border:1px solid transparent;color:inherit;font-family:inherit;
+  transition:background .25s var(--ease),border-color .25s}
+.item::before{content:'';position:absolute;left:0;top:11px;bottom:11px;width:3px;border-radius:2px;background:transparent;transition:.25s}
+.item:hover{background:rgba(255,255,255,.03)}
+.item.active{background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.07)}
+.item.active::before{background:var(--sun-color);box-shadow:0 0 8px var(--glow)}
+.item .ico{width:42px;flex:none;color:rgba(255,255,255,.42);transition:.25s}
+.item .ico svg{display:block;width:100%;height:auto}
+.item.active .ico{color:rgba(255,255,255,.92)}
+.item .tt{display:flex;flex-direction:column;gap:3px}
+.item .nm{font-size:15.5px;font-weight:700;color:rgba(245,250,255,.55);transition:.25s;line-height:1.2}
+.item.active .nm{color:#fff}
+.item .en{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:rgba(255,255,255,.28);transition:.25s}
+.item.active .en{color:var(--sun-color);opacity:.75}
+.item .prog{position:absolute;left:12px;right:14px;bottom:0;height:2px;border-radius:1px;width:0;background:var(--sun-color);box-shadow:0 0 6px var(--glow);opacity:0}
+.item.active .prog{opacity:.8;animation:prog var(--cycle) linear forwards}
+@keyframes prog{from{width:0}to{width:100%}}
+
+/* ── 右侧：内容 + 取景框硬件插画 ── */
+.detail-panel{flex:1;min-width:0;position:relative;border:1px solid var(--line-soft);border-radius:14px;overflow:hidden;
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008))}
+.dp-grid{display:grid;grid-template-columns:minmax(320px,1fr) minmax(0,1.18fr)}
+.dp-copy{align-self:center;padding:44px 38px 44px 46px}
+.dp-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--sun-color);opacity:.85;margin-bottom:12px}
+.dp-title{font-size:31px;font-weight:700;color:#fff;letter-spacing:.03em;margin-bottom:15px}
+.dp-rule{width:44px;height:2px;border-radius:1px;background:var(--sun-color);opacity:.6;margin-bottom:20px}
+.dp-desc{font-size:14px;line-height:1.9;color:rgba(238,243,250,.72);margin-bottom:28px}
+.dp-stats{display:flex;flex-wrap:wrap;row-gap:18px}
+.stat{padding:2px 26px;border-left:1px solid rgba(255,255,255,.1)}
+.stat:first-child{padding-left:0;border-left:none}
+.stat .v{font-family:var(--mono);font-size:28px;font-weight:600;color:#fff}
+.stat .l{font-size:10.5px;color:rgba(255,255,255,.42);letter-spacing:.1em;margin-top:6px}
+@keyframes dpIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.dp-copy.anim{animation:dpIn .5s var(--ease) both}
+
+/* 取景框舞台：点阵 + 主题辉光 + 暗角，场景 SVG 置于其上 */
+.dp-stage{position:relative;border-left:1px solid var(--line-soft);min-height:430px;overflow:hidden;
+  background:
+    radial-gradient(rgba(255,255,255,.055) 1px,transparent 1px) 0 0/22px 22px,
+    linear-gradient(180deg,rgba(255,255,255,.015),rgba(255,255,255,0))}
+.dp-stage::before{content:'';position:absolute;left:50%;top:56%;width:130%;aspect-ratio:1.15;transform:translate(-50%,-50%);
+  background:radial-gradient(closest-side,var(--glow),transparent 72%);opacity:.5;pointer-events:none}
+.dp-stage::after{content:'';position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(115% 100% at 50% 45%,transparent 58%,rgba(0,0,0,.38))}
+.dp-stage svg{position:relative;display:block;width:100%;height:auto;z-index:1}
+.st-tick{fill:none;stroke:var(--sun-color);stroke-width:2;opacity:.55}
+.st-tag{font-family:var(--mono);font-size:9.5px;fill:rgba(255,255,255,.38);letter-spacing:.18em}
+@keyframes scIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+#scene.anim{animation:scIn .5s var(--ease) both}
+
+/* 场景内通用 */
+.sc-a{fill:var(--sun-color)}
+.sc-pulse{fill:var(--sun-bright)}
+
+@media (prefers-reduced-motion:reduce){
+  .item .prog,.sc-pulse,.blink,.rotg{display:none}
+  .dp-copy.anim,#scene.anim{animation:none}
+}
+/* 手机：上下堆叠 */
+@media (max-width:880px){
+  .cap-wrap{flex-direction:column;gap:14px}
+  .rail{width:100%;flex-direction:row;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .item{min-width:172px;flex:none}
+  .dp-grid{grid-template-columns:1fr}
+  .dp-copy{padding:32px 26px 24px}
+  .dp-stage{border-left:none;border-top:1px solid var(--line-soft);min-height:0}
+  .stat{padding:2px 18px}
+  .band-dark{margin-top:24px;padding:36px 0 44px}
+}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <div class="ttl"><b>原型 v4</b> · 左栏 logo+标题 → 右侧内容 + 取景框硬件特写插画（v1~v3 留档同目录）</div>
+  <div class="pills" id="pills"></div>
+</div>
+
+<section class="band-dark">
+  <div class="page-inner">
+    <div class="sec-head">
+      <div>
+        <div class="sec-kicker">Capabilities</div>
+        <div class="sec-title">产品能力</div>
+      </div>
+      <div class="hint">自动轮播 · 悬停暂停 · 点击切换</div>
+    </div>
+
+    <div class="cap-wrap" id="wrap">
+      <div class="rail" id="rail"></div>
+
+      <div class="detail-panel">
+        <div class="dp-grid">
+          <div class="dp-copy" id="dpCopy"></div>
+          <div class="dp-stage">
+            <svg viewBox="0 0 460 430" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path class="st-tick" d="M10 30 V10 H30 M430 10 H450 V30 M450 400 V420 H430 M30 420 H10 V400"/>
+              <g id="scene"></g>
+              <text class="st-tag" id="stTag" x="446" y="412" text-anchor="end"></text>
+            </svg>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ── 数据 = 现有 product_content.capabilities（ES220 V3 真实数据），结构零改动 ── */
+const DIMS = [
+  { name:'算力', en:'Compute', icon:'chip',
+    desc:'双路 AMD Genoa/Turin 高主频多核，虚拟化与数据库负载从容承载',
+    metrics:[ {v:'2 路', l:'高性能处理器'}, {v:'500W', l:'单 CPU TDP'} ] },
+  { name:'扩展性', en:'Scalability', icon:'slots',
+    desc:'8 条 PCIe Gen5 x16 按需插卡，投资随业务爬坡，不为未来提前买单',
+    metrics:[ {v:'8×', l:'Gen5 x16 插槽'}, {v:'2×', l:'OCP 3.0 扩展位'} ] },
+  { name:'网络能力', en:'Network', icon:'net',
+    desc:'双 OCP 3.0 Gen5 x16 高速网卡扩展位，集群南北向流量从容扩容',
+    metrics:[ {v:'2×', l:'OCP 3.0 插槽'}, {v:'Gen5 x16', l:'专用带宽'} ] },
+  { name:'存储', en:'Storage', icon:'drive',
+    desc:'前置 25 盘 2.5" + 后置 4 盘三模混插，冷热数据一机分层',
+    metrics:[ {v:'29 盘', l:'最大盘位'}, {v:'12 盘', l:'3.5" 三模'}, {v:'2× M.2', l:'内置系统盘'} ] },
+  { name:'管理', en:'Management', icon:'term',
+    desc:'AST2600 带外管理 + TPM 2.0，固件批量下发，运维不用逐台进机房',
+    metrics:[ {v:'AST2600', l:'带外管理芯片'}, {v:'TPM 2.0', l:'安全模块'} ] },
+  { name:'可靠与运维', en:'Reliability', icon:'fan',
+    desc:'1+1 冗余电源 + 6 风墙全程热插拔，7×24 稳定在线',
+    metrics:[ {v:'1+1', l:'电源冗余'}, {v:'2000W', l:'单电源最高'}, {v:'6×', l:'热插拔风扇'} ] },
+]
+
+/* 发丝线小图标（左栏 logo 用；capIcons.ts 同源） */
+const ICONS = {
+  chip:'<rect x="12" y="8" width="28" height="24" rx="2" stroke="currentColor" stroke-width="1.5"/><rect x="19" y="15" width="14" height="10" rx="1" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/><path d="M18 8V3M24 8V3M30 8V3M34 8V3M18 32v-5M24 32v-5M30 32v-5M34 32v-5M12 14H7M12 20H7M12 26H7M40 14h5M40 20h5M40 26h5" stroke="currentColor" stroke-width="1.5"/>',
+  slots:'<rect x="4" y="5" width="36" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="16" width="36" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="27" width="36" height="8" rx="1" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5" stroke-dasharray="4 3"/><path d="M44 27v10M39 32h10" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  net:'<rect x="4" y="9" width="11" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="22" width="11" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M15 13.5h24m0 0-4-4m4 4-4 4M15 26.5h31m0 0-4-4m4 4-4 4" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  drive:'<rect x="10" y="5" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="16" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="27" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><circle cx="37" cy="9.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/><circle cx="37" cy="20.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/><circle cx="37" cy="31.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/>',
+  term:'<rect x="5" y="6" width="42" height="28" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 14h42" stroke="currentColor" stroke-width="1.5"/><path d="M11 20l5 4-5 4" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/><path d="M20 28h14" stroke="currentColor" stroke-width="1.5"/>',
+  fan:'<circle cx="18" cy="20" r="13" stroke="currentColor" stroke-width="1.5"/><path d="M18 20c0-5 3-8 8-8M18 20c5 0 8 3 8 8M18 20c0 5-3 8-8 8M18 20c-5 0-8-3-8-8" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="20" r="2.2" fill="var(--sun-color, #5BB8FF)"/><rect x="36" y="12" width="11" height="16" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M38.5 16h6M38.5 20h6" stroke="currentColor" stroke-width="1.2"/>',
+  shield:'<path d="M26 4l16 6v10c0 9-6.5 14.5-16 17-9.5-2.5-16-8-16-17V10l16-6z" stroke="currentColor" stroke-width="1.5"/><path d="M19 21l5 5 10-11" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  rack:'<rect x="10" y="4" width="32" height="32" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M10 14.7h32M10 25.4h32" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="8" width="12" height="2.5" fill="var(--sun-color, #5BB8FF)"/><circle cx="36" cy="9" r="1.4" fill="currentColor"/><circle cx="36" cy="20" r="1.4" fill="currentColor"/><circle cx="36" cy="30" r="1.4" fill="currentColor"/>',
+  mesh:'<rect x="5" y="5" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="30" y="5" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="24" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="30" y="24" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 16v8M38.5 16v8" stroke="currentColor" stroke-width="1.2"/><path d="M22 10.5h8M22 29.5h8" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+}
+
+/* ═══ 硬件特写插画（参数化场景，统一 viewBox 460×430 取景） ═══
+   主结构 stroke rgba(255,255,255,.4)，次级 .18-.25，accent 用 --sun-color。 */
+const W = 'rgba(255,255,255,', K = 'var(--sun-color, #5BB8FF)'
+const pad = (x, y) => `<circle cx="${x}" cy="${y}" r="2.5" fill="${W}.3)"/>`
+const pulse = (path, dur, begin) => `<circle class="sc-pulse" r="2.4"><animateMotion dur="${dur}"${begin ? ` begin="${begin}"` : ''} repeatCount="indefinite" path="${path}"/></circle>`
+const blink = (x, y, r, dur, begin) => `<circle cx="${x}" cy="${y}" r="${r}" fill="${K}" class="blink"><animate attributeName="opacity" values="1;.15;1" dur="${dur}"${begin ? ` begin="${begin}"` : ''} repeatCount="indefinite"/></circle>`
+
+const SCENES = {
+  /* 算力：CPU 封装顶视 — 基板+角孔+晶格阵列+辐射走线 */
+  chip() {
+    let cores = ''
+    const acc = new Set(['1-1', '4-2', '5-4', '2-3'])
+    for (let c = 0; c < 7; c++) for (let r = 0; r < 5; r++) {
+      const x = 163 + c * 20, y = 143 + r * 27
+      cores += acc.has(`${c}-${r}`)
+        ? `<rect x="${x}" y="${y}" width="16" height="21" rx="2" fill="${K}" opacity=".88"/>`
+        : `<rect x="${x}" y="${y}" width="16" height="21" rx="2" fill="none" stroke="${W}.22)" stroke-width="1"/>`
+    }
+    const traces = [
+      ['M120,150 H70 V70 H30', '30,70'], ['M340,150 H398', '398,150'], ['M230,100 V46', '230,46'],
+      ['M120,270 H64', '64,270'], ['M340,270 H396 V330', '396,330'], ['M230,320 V374', '230,374'],
+    ]
+    return `
+      <rect x="120" y="100" width="220" height="220" rx="8" fill="none" stroke="${W}.4)" stroke-width="1.5"/>
+      ${[[136,116],[324,116],[136,304],[324,304]].map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="5" fill="none" stroke="${W}.3)" stroke-width="1.5"/>`).join('')}
+      <rect x="155" y="135" width="150" height="150" fill="none" stroke="${W}.55)" stroke-width="1.5"/>
+      ${cores}
+      ${traces.map(t => `<path d="${t[0]}" fill="none" stroke="${W}.18)" stroke-width="1.5"/>${pad(t[1].split(',')[0], t[1].split(',')[1])}`).join('')}
+      ${pulse('M120,150 H70 V70 H30', '3.6s')}
+      ${pulse('M340,270 H396 V330', '4.4s', '-2s')}
+    `
+  },
+  /* 扩展性：PCIe 插卡侧视 — 槽列+插卡+金手指+防呆缺口 */
+  slots() {
+    const slotY = [112, 174, 236, 298, 360], cards = [0, 2, 3]
+    let s = ''
+    slotY.forEach((y, i) => {
+      s += `<rect x="90" y="${y}" width="24" height="16" rx="2" fill="none" stroke="${W}.4)" stroke-width="1.5"/>
+            <rect x="128" y="${y}" width="242" height="16" rx="2" fill="none" stroke="${W}.4)" stroke-width="1.5"/>`
+      if (!cards.includes(i)) s += `<path d="M100,${y + 8} H360" stroke="${W}.15)" stroke-width="1" stroke-dasharray="3 6" fill="none"/>`
+    })
+    cards.forEach((i, k) => {
+      const y = slotY[i], accent = k === 1
+      let contacts = ''
+      for (let c = 0; c < 13; c++) contacts += `<path d="M${138 + c * 16},${y - 2} v8" stroke="${W}.3)" stroke-width="1.5"/>`
+      s += `<rect x="104" y="${y - 48}" width="262" height="46" rx="4" fill="none" stroke="${accent ? K : W}.5)" stroke-width="1.5"${accent ? ' opacity=".85"' : ''}/>
+            <rect x="122" y="${y - 36}" width="30" height="18" rx="2" fill="none" stroke="${accent ? K : W}.45)" stroke-width="1.5"${accent ? ' opacity=".9"' : ''}/>
+            <rect x="160" y="${y - 32}" width="16" height="10" rx="1" fill="none" stroke="${W}.3)" stroke-width="1.2"/>
+            <rect x="184" y="${y - 32}" width="16" height="10" rx="1" fill="none" stroke="${W}.3)" stroke-width="1.2"/>
+            ${contacts}`
+      if (accent) s += blink(340, y - 25, 2.5, '2.2s')
+    })
+    return s
+  },
+  /* 网络能力：网口阵列 + 出线流 */
+  net() {
+    let ports = ''
+    for (let k = 0; k < 4; k++) {
+      const x = 64 + k * 76
+      ports += `<rect x="${x}" y="96" width="52" height="36" rx="4" fill="none" stroke="${W}.4)" stroke-width="1.5"/>
+        <rect x="${x + 14}" y="107" width="24" height="13" rx="1" fill="none" stroke="${W}.32)" stroke-width="1.2"/>
+        <circle cx="${x + 43}" cy="103" r="2" fill="${W}.35)"/>
+        ${blink(x + 43, 110, 2, (2 + k * .5) + 's')}
+        <path d="M${x},114 C${x - 24},114 ${x - 30},${100 + k * 16} 12,${92 + k * 18}" fill="none" stroke="${W}.16)" stroke-width="1.5"/>`
+    }
+    let ocps = ''
+    for (let k = 0; k < 2; k++) {
+      const x = 96 + k * 140
+      ocps += `<rect x="${x}" y="212" width="112" height="30" rx="4" fill="none" stroke="${W}.45)" stroke-width="1.5"/>
+        <path d="M${x + 12},227 H${x + 100}" stroke="${W}.25)" stroke-width="1.2"/>
+        <rect x="${x + 88}" y="218" width="14" height="18" rx="2" fill="none" stroke="${K}" stroke-width="1.5" opacity=".8"/>`
+    }
+    return `${ports}${ocps}
+      <path d="M320,227 H446" fill="none" stroke="${W}.2)" stroke-width="1.5"/>
+      <path d="M208,260 C260,300 320,330 446,338" fill="none" stroke="${W}.14)" stroke-width="1.5" stroke-dasharray="6 6"/>
+      ${pulse('M320,227 H446', '3.2s')}
+      ${pulse('M208,260 C260,300 320,330 446,338', '4.6s', '-2.4s')}
+    `
+  },
+  /* 存储：25 盘位阵列 — 盘格+指示灯+拉出手感 */
+  drive() {
+    let bays = ''
+    const acc = new Set(['1-1', '3-2']), pulled = '4-0'
+    for (let c = 0; c < 5; c++) for (let r = 0; r < 5; r++) {
+      const key = `${c}-${r}`, x = 76 + c * 64, y = 108 + r * 46
+      const tf = key === pulled ? ' transform="translate(16,-8)"' : ''
+      const led = acc.has(key) ? blink(x + 46, y + 19, 2, acc.has(key) && key === '1-1' ? '1.8s' : '2.6s')
+        : `<circle cx="${x + 46}" cy="${y + 19}" r="2" fill="${W}.35)"/>`
+      bays += `<g${tf}>
+        <rect x="${x}" y="${y}" width="56" height="38" rx="3" fill="none" stroke="${W}.28)" stroke-width="1.5"/>
+        <path d="M${x + 10},${y + 11} V${y + 27}" stroke="${W}.35)" stroke-width="1.5"/>
+        <path d="M${x + 18},${y + 12} H${x + 38}" stroke="${W}.16)" stroke-width="1.2"/>
+        ${led}</g>`
+      if (key === pulled) bays += `<rect x="${x}" y="${y}" width="56" height="38" rx="3" fill="none" stroke="${W}.15)" stroke-width="1" stroke-dasharray="3 5"/>`
+    }
+    return `<rect x="64" y="96" width="332" height="248" rx="6" fill="none" stroke="${W}.22)" stroke-width="1"/>
+      ${bays}
+      <path d="M64,372 H396" stroke="${W}.16)" stroke-width="1" stroke-dasharray="2 6" fill="none"/>
+      <circle class="sc-pulse" r="2.2"><animateMotion dur="5s" repeatCount="indefinite" path="M64,372 H396"/></circle>
+    `
+  },
+  /* 管理：带外终端 — 窗口+状态行+光标+心跳线 */
+  term() {
+    const widths = [150, 110, 170, 80, 130, 60]
+    let rows = ''
+    widths.forEach((w, i) => {
+      rows += `<rect x="112" y="${150 + i * 23}" width="${w}" height="8" rx="4" fill="${i === 1 ? K : W}.2)"${i === 1 ? ' opacity=".85"' : ''}/>`
+    })
+    return `
+      <rect x="92" y="104" width="276" height="190" rx="8" fill="none" stroke="${W}.45)" stroke-width="1.5"/>
+      <path d="M92,132 H368" stroke="${W}.25)" stroke-width="1"/>
+      <circle cx="108" cy="118" r="3.5" fill="${W}.3)"/><circle cx="124" cy="118" r="3.5" fill="${W}.3)"/><circle cx="140" cy="118" r="3.5" fill="${W}.3)"/>
+      ${rows}
+      <rect x="112" y="290" width="9" height="14" fill="${K}" class="blink"><animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/></rect>
+      <path d="M92,356 h56 l10,-18 l10,34 l9,-26 h44 l8,-12 h139" fill="none" stroke="${W}.3)" stroke-width="1.5"/>
+      ${pulse('M92,356 h56 l10,-18 l10,34 l9,-26 h44 l8,-12 h139', '3.4s')}
+      ${blink(352, 118, 2.5, '2.8s')}
+    `
+  },
+  /* 可靠与运维：双风扇墙 + 冗余电源 */
+  fan() {
+    const centers = [[140, 150, 11], [252, 150, 14], [140, 268, 12.5], [252, 268, 10.5]]
+    let fans = ''
+    centers.forEach(([cx, cy, dur]) => {
+      let blades = ''
+      for (let k = 0; k < 4; k++) {
+        blades += `<path d="M${cx},${cy - 7} C${cx + 3},${cy - 16} ${cx + 10},${cy - 19} ${cx + 16},${cy - 16}" transform="rotate(${k * 90} ${cx} ${cy})" fill="none" stroke="${W}.4)" stroke-width="1.5"/>`
+      }
+      fans += `<circle cx="${cx}" cy="${cy}" r="44" fill="none" stroke="${W}.4)" stroke-width="1.5"/>
+        <g class="rotg"><animateTransform attributeName="transform" type="rotate" from="0 ${cx} ${cy}" to="360 ${cx} ${cy}" dur="${dur}s" repeatCount="indefinite"/>${blades}</g>
+        <circle cx="${cx}" cy="${cy}" r="5" fill="${W}.4)"/>
+        ${blink(cx + 30, cy - 30, 2, '3s')}`
+    })
+    return `
+      <rect x="92" y="102" width="212" height="212" rx="8" fill="none" stroke="${W}.22)" stroke-width="1"/>
+      ${fans}
+      <path d="M304,208 C324,208 322,190 340,190" fill="none" stroke="${W}.2)" stroke-width="1.5" stroke-dasharray="5 5"/>
+      <rect x="340" y="140" width="78" height="130" rx="8" fill="none" stroke="${W}.45)" stroke-width="1.5"/>
+      <circle cx="379" cy="184" r="24" fill="none" stroke="${W}.35)" stroke-width="1.5"/>
+      <g class="rotg"><animateTransform attributeName="transform" type="rotate" from="0 379 184" to="360 379 184" dur="9s" repeatCount="indefinite"/>
+        <path d="M379,177 C381,170 385,167 390,169 M379,191 C381,198 385,201 390,199 M372,180 C367,178 364,174 366,169 M372,190 C367,192 364,196 366,201" fill="none" stroke="${W}.35)" stroke-width="1.5"/></g>
+      ${blink(356, 156, 2.5, '2s')}
+      <path d="M340,244 H418" stroke="${W}.25)" stroke-width="1.2"/>
+      <path d="M104,356 q12,-16 24,0 t24,0 t24,0 t24,0 t24,0 t24,0 t24,0 t24,0" fill="none" stroke="${W}.18)" stroke-width="1.5"/>
+      ${pulse('M104,356 q12,-16 24,0 t24,0 t24,0 t24,0 t24,0 t24,0 t24,0 t24,0', '5.2s')}
+    `
+  },
+}
+
+/* ── 左栏：logo + 标题 ── */
+const rail = document.getElementById('rail')
+DIMS.forEach((d, i) => {
+  const b = document.createElement('button')
+  b.className = 'item'
+  b.innerHTML = `<span class="ico"><svg viewBox="0 0 52 40" fill="none" xmlns="http://www.w3.org/2000/svg">${ICONS[d.icon] || ICONS.chip}</svg></span>
+    <span class="tt"><span class="nm">${d.name}</span><span class="en">${d.en}</span></span><span class="prog"></span>`
+  b.addEventListener('click', () => { select(i); startCycle() })
+  rail.appendChild(b)
+})
+
+/* ── 右侧：内容 + 场景（文字全部来自 capabilities 字段） ── */
+const dpCopy = document.getElementById('dpCopy')
+const scene = document.getElementById('scene')
+const stTag = document.getElementById('stTag')
+let cur = -1
+function select(i) {
+  if (i === cur) { restartProg(); return }
+  cur = i
+  document.querySelectorAll('.item').forEach((el, j) => {
+    el.classList.toggle('active', j === i)
+    if (j === i) { el.classList.remove('active'); void el.offsetWidth; el.classList.add('active') } // 重启进度条
+  })
+  const d = DIMS[i]
+  dpCopy.innerHTML = `
+    <div class="dp-kicker">${d.en || ''}</div>
+    <h3 class="dp-title">${d.name}</h3>
+    <div class="dp-rule"></div>
+    <p class="dp-desc">${d.desc || ''}</p>
+    ${d.metrics?.length ? `<div class="dp-stats">${d.metrics.map(m =>
+      `<div class="stat"><div class="v">${m.v}</div><div class="l">${m.l}</div></div>`).join('')}</div>` : ''}`
+  dpCopy.classList.remove('anim'); void dpCopy.offsetWidth; dpCopy.classList.add('anim')
+
+  scene.innerHTML = (SCENES[d.icon] || SCENES.chip)()
+  scene.classList.remove('anim'); void scene.getBoundingClientRect(); scene.classList.add('anim')
+  stTag.textContent = `${(d.en || '').toUpperCase()} · ${String(i + 1).padStart(2, '0')}/${String(DIMS.length).padStart(2, '0')}`
+}
+function restartProg() {
+  const el = document.querySelectorAll('.item')[cur]
+  if (!el) return
+  el.classList.remove('active'); void el.offsetWidth; el.classList.add('active')
+}
+
+/* ── 自动轮播（悬停暂停）── */
+const CYCLE = 4500
+let timer = null
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+function stopCycle() { if (timer) { clearInterval(timer); timer = null } }
+function startCycle() {
+  stopCycle()
+  if (reduced) return
+  timer = setInterval(() => select((cur + 1) % DIMS.length), CYCLE)
+}
+const wrap = document.getElementById('wrap')
+wrap.addEventListener('mouseenter', stopCycle)
+wrap.addEventListener('mouseleave', startCycle)
+document.addEventListener('visibilitychange', () => document.hidden ? stopCycle() : startCycle())
+
+/* ── 场景主题（stageThemes.ts 同源）── */
+const THEMES = {
+  wine:   { label:'酒红', sun:'#FF7A4D', sunBright:'#FFE0C0', glow:'rgba(255,122,77,0.55)',
+            band:'linear-gradient(to bottom,#160710 0%,#2d0b1a 55%,#1a0509 100%)',
+            page:'linear-gradient(to bottom,#0d0308 0%,#1c0912 45%,#0f040a 100%)' },
+  ocean:  { label:'深蓝', sun:'#5BB8FF', sunBright:'#D6EBFF', glow:'rgba(91,184,255,0.55)',
+            band:'linear-gradient(to bottom,#02050f 0%,#0a1c38 55%,#030814 100%)',
+            page:'linear-gradient(to bottom,#02050f 0%,#071226 45%,#030814 100%)' },
+  carbon: { label:'纯黑', sun:'#E8E8E8', sunBright:'#FFFFFF', glow:'rgba(232,232,232,0.45)',
+            band:'linear-gradient(to bottom,#0a0a0a 0%,#232323 55%,#050505 100%)',
+            page:'linear-gradient(to bottom,#060606 0%,#161616 45%,#050505 100%)' },
+  violet: { label:'暗紫', sun:'#B07AFF', sunBright:'#E8D0FF', glow:'rgba(176,122,255,0.55)',
+            band:'linear-gradient(to bottom,#080114 0%,#20103f 55%,#0a0218 100%)',
+            page:'linear-gradient(to bottom,#070113 0%,#180b30 45%,#0a0218 100%)' },
+}
+const pills = document.getElementById('pills')
+Object.entries(THEMES).forEach(([k, t]) => {
+  const p = document.createElement('button')
+  p.className = 'pill'; p.dataset.k = k
+  p.innerHTML = `<span class="dot" style="background:${t.sun}"></span>${t.label}`
+  p.addEventListener('click', () => setTheme(k))
+  pills.appendChild(p)
+})
+function setTheme(k) {
+  const t = THEMES[k], s = document.documentElement.style
+  s.setProperty('--sun-color', t.sun); s.setProperty('--sun-bright', t.sunBright)
+  s.setProperty('--glow', t.glow); s.setProperty('--band-bg', t.band); s.setProperty('--page-bg', t.page)
+  pills.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.k === k))
+}
+
+/* ── 启动 ── */
+setTheme('ocean')
+select(0)
+startCycle()
+</script>
+</body>
+</html>

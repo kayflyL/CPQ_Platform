@@ -1,0 +1,286 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>工作台 · 拟真拼贴原型</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0f1e;color:#e8ecf5;font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:38px 48px 90px}
+button{font-family:inherit}
+.num{font-variant-numeric:tabular-nums}
+.wrap{max-width:1400px;margin:0 auto}
+.head{display:flex;align-items:flex-start;gap:16px;margin-bottom:26px}
+.head h1{font-size:24px;font-weight:650;letter-spacing:-.02em}
+.head p{margin-top:6px;font-size:13px;color:#8b94a8}
+.pill{margin-left:auto;display:flex;align-items:center;gap:8px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.045);color:#b7c0d4;border-radius:8px;padding:8px 16px;font-size:13px;cursor:pointer}
+.pill b{color:#7aa7ff;font-weight:400}
+.sec{margin-bottom:30px}
+.sec-t{margin:0 0 12px;font-family:ui-monospace,Consolas,monospace;font-size:12px;font-weight:500;color:#8b94a8;letter-spacing:2px}
+.sec-t::before{content:'// ';color:#7aa7ff}
+.doors{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:14px}
+.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:14px}
+.tile{position:relative;border:1px solid rgba(255,255,255,.1);border-radius:16px;
+background:rgba(255,255,255,.045);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);
+overflow:hidden;cursor:pointer;text-align:left;padding:0;min-width:0;
+transition:background .15s,border-color .15s}
+.tile:hover{background:rgba(255,255,255,.07);border-color:rgba(122,167,255,.4)}
+.tile:hover .d-ic{color:#7aa7ff}
+.door{min-height:158px;padding:20px 22px}
+.door-head{display:flex;align-items:center;gap:10px}
+.door-head strong{font-size:16px;font-weight:650}
+.d-desc{display:block;margin-top:7px;font-style:normal;font-size:12.5px;color:#8b94a8;max-width:44%}
+.d-num{position:absolute;top:16px;right:20px;font-size:32px;font-weight:300;line-height:1;color:#b7c0d4;transition:color .15s}
+.door:hover .d-num{color:#7aa7ff}
+.d-ic{display:flex;color:#8b94a8;transition:color .15s}
+.d-ic svg{width:20px;height:20px}
+/* 图形区：渐变光晕 + 淡点阵，mock 元素浮在上方 */
+.door-art{position:absolute;right:12px;bottom:10px;width:56%;height:80%;pointer-events:none;
+background:radial-gradient(90% 90% at 70% 30%,rgba(59,130,246,.1),transparent 65%)}
+.mods .tile{display:flex;flex-direction:column;min-height:252px;padding:0}
+.mod-art{position:relative;height:138px;flex:none;border-bottom:1px solid rgba(255,255,255,.06);
+background:radial-gradient(100% 100% at 50% 0%,rgba(59,130,246,.1),transparent 68%),
+radial-gradient(rgba(255,255,255,.05) 1px,transparent 1.5px);background-size:auto,13px 13px}
+.mod-body{padding:14px 18px 18px}
+.mod-body strong{font-size:15px;font-weight:650}
+.mod-body i{display:block;margin-top:5px;font-style:normal;font-size:12.5px;color:#8b94a8}
+/* ═══ 拟真 mock 元素（拼贴积木）═══ */
+.mk{position:absolute;background:rgba(23,28,44,.92);border:1px solid rgba(255,255,255,.13);border-radius:9px;
+box-shadow:0 6px 18px rgba(0,0,0,.4),inset 0 1px 0 rgba(255,255,255,.06)}
+.mk .t{font-size:11px;font-weight:600;color:#dfe5f2;white-space:nowrap}
+.mk .s{font-size:10px;color:#8b94a8;white-space:nowrap}
+.rowline{display:flex;align-items:center;justify-content:space-between}
+.mk .pill{display:inline-block;font-size:9.5px;line-height:1;padding:3px 7px;border-radius:99px}
+.p-blue{background:rgba(59,130,246,.2);color:#8fb5ff}
+.p-red{background:rgba(244,117,111,.18);color:#f49a95}
+.p-green{background:rgba(34,197,140,.16);color:#4fd6a5}
+.p-gray{background:rgba(255,255,255,.1);color:#a7b0c2}
+.dot{display:inline-block;width:6px;height:6px;border-radius:50%}
+.bar{border-radius:3px;background:linear-gradient(180deg,#60a5fa,#3b82f6)}
+.bar.dim{background:rgba(255,255,255,.14)}
+/* ═══ 动效 ═══ */
+@keyframes k-lit{0%,100%{opacity:0}10%,32%{opacity:1}44%{opacity:0}}
+.a-lit{animation:k-lit 3.6s infinite}
+@keyframes k-blink{0%,100%{opacity:.2}50%{opacity:1}}
+.a-blink{animation:k-blink 1.6s infinite}
+@keyframes k-fly{0%,12%{transform:translate(0,0);opacity:1}48%,60%{transform:translate(64px,-6px);opacity:1}86%,100%{transform:translate(64px,-6px);opacity:0}}
+.a-fly{animation:k-fly 3.8s ease-in-out infinite}
+@keyframes k-rowhl{0%,18%{transform:translateY(0)}32%,43%{transform:translateY(25px)}57%,68%{transform:translateY(50px)}82%,94%{transform:translateY(0)}100%{transform:translateY(0)}}
+.a-rowhl{animation:k-rowhl 5.6s ease-in-out infinite}
+@keyframes k-pulse{0%,100%{opacity:.4}50%{opacity:1}}
+.a-pulse{animation:k-pulse 2.2s ease-in-out infinite}
+@keyframes k-trace{to{stroke-dashoffset:-20}}
+.a-trace{stroke-dasharray:5 5;animation:k-trace 1.8s linear infinite}
+@keyframes k-take{0%,18%{transform:translateY(0);opacity:1}36%,58%{transform:translateY(-14px);opacity:0}78%,100%{transform:translateY(0);opacity:1}}
+.a-take{animation:k-take 4.6s ease-in-out infinite}
+@keyframes k-write{0%{transform:scaleX(0)}16%,82%{transform:scaleX(1)}100%{transform:scaleX(0)}}
+.a-write{transform-box:fill-box;transform-origin:0 50%;animation:k-write 4.4s ease-in-out infinite}
+@media (prefers-reduced-motion:reduce){*{animation:none !important}}
+</style></head>
+<body>
+<div class="wrap">
+<div class="head"><div><h1>工作台</h1><p>下午好，有 4 类事项等你处理</p></div><button class="pill"><b>✦</b>方案助手</button></div>
+
+<section class="sec">
+<h3 class="sec-t">你的工作台</h3>
+<div class="doors">
+
+<button class="tile door">
+  <span class="door-head"><span class="d-ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="6.5"/><path d="M10 6.5v3.5l2.5 2.5"/></svg></span><strong>我的商机</strong></span>
+  <i class="d-desc">发起与跟踪自己名下的商机</i>
+  <span class="d-num num">64</span>
+  <span class="door-art">
+    <div class="mk" style="left:0;top:6px;width:124px">
+      <div class="t">蓝湖数据</div>
+      <div class="s">AI 一体机 · 2 台 <span class="pill p-blue">在办</span></div>
+    </div>
+    <div class="mk" style="left:32px;top:44px;width:124px">
+      <div class="t">华远物流</div>
+      <div class="s">4U 推理服务器 <span class="pill p-red">待指派</span></div>
+    </div>
+    <div class="mk" style="left:64px;top:82px;width:124px">
+      <div class="t">天工矿业</div>
+      <div class="s">通用 2U · 4 台 <span class="pill p-green">报价中</span></div>
+    </div>
+  </span>
+</button>
+
+<button class="tile door">
+  <span class="door-head"><span class="d-ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 2.5h7l3 3v12H5z"/><path d="M8 9.5h4M8 12.5h4"/></svg></span><strong>需求任务</strong></span>
+  <i class="d-desc">待登记需求与 BOM 配置任务</i>
+  <span class="d-num num">3</span>
+  <span class="door-art">
+    <div class="mk" style="left:4px;top:6px;width:150px">
+      <div class="t">华远物流 · 4U 推理服务器</div>
+      <div class="s">BOM 配置 · 等你 3 天</div>
+    </div>
+    <div class="mk" style="left:18px;top:52px;width:136px">
+      <div class="t">启辰智造 · 通用 2U</div>
+      <div class="s">需求登记 <span class="pill p-red">退回</span></div>
+    </div>
+    <span class="pill p-blue" style="position:absolute;right:6px;top:92px" >+1 今日</span>
+  </span>
+</button>
+
+<button class="tile door">
+  <span class="door-head"><span class="d-ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="10" cy="10" r="6.5"/><path d="M8 7.5h4M10 7.5V13M8.5 12h3"/></svg></span><strong>成本核算</strong></span>
+  <i class="d-desc">待核价任务与成本底稿</i>
+  <span class="d-num num">12</span>
+  <span class="door-art">
+    <div class="mk" style="left:6px;top:8px;width:104px;padding:9px 12px">
+      <div class="s">本月已核成本</div>
+      <div class="t num" style="font-size:17px">¥128,400</div>
+      <div class="s">较上月 <span style="color:#4fd6a5">▼ 3.2%</span></div>
+    </div>
+    <div class="mk" style="left:118px;top:52px;width:64px;padding:8px 10px">
+      <div class="s">待核价</div>
+      <div class="t num" style="font-size:15px;color:#8fb5ff">12 单</div>
+    </div>
+  </span>
+</button>
+
+<button class="tile door">
+  <span class="door-head"><span class="d-ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M5 2.5h7l3 3v12H5z"/><path d="M7.5 12.5l2 2 3.5-3.5"/></svg></span><strong>我的报价</strong></span>
+  <i class="d-desc">待转报价任务与报价工作台</i>
+  <span class="d-num num">43</span>
+  <span class="door-art">
+    <div class="mk" style="left:6px;top:6px;width:138px">
+      <div class="t">Q20251103-01</div>
+      <div class="s">L6 主机 ×2 … ¥96,800</div>
+      <div style="margin-top:5px;border-top:1px solid rgba(255,255,255,.1);padding-top:5px" class="s">合计 <b style="color:#8fb5ff">¥107,360</b> <span class="pill p-green">待提交</span></div>
+    </div>
+    <div class="mk" style="left:104px;top:70px;width:78px">
+      <div class="s">蓝湖数据</div>
+      <div class="t num">¥9,880</div>
+    </div>
+  </span>
+</button>
+
+<button class="tile door">
+  <span class="door-head"><span class="d-ic"><svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><rect x="3" y="3.5" width="14" height="13" rx="1.5"/><path d="M7.5 3.5v13M12.5 3.5v8"/></svg></span><strong>任务调度</strong></span>
+  <i class="d-desc">无主指派与各节点负载</i>
+  <span class="d-num num">10</span>
+  <span class="door-art">
+    <div class="mk" style="left:2px;top:8px;width:52px;height:64px"><div class="s" style="margin:5px 6px 0">配置</div></div>
+    <div class="mk" style="left:62px;top:8px;width:52px;height:64px"><div class="s" style="margin:5px 6px 0">核价</div></div>
+    <div class="mk" style="left:122px;top:8px;width:52px;height:64px;border-color:#3b82f6"><div class="s" style="margin:5px 6px 0">报价</div>
+      <div class="pill p-blue" style="margin:6px">蓝湖</div>
+    </div>
+    <div class="mk a-fly" style="left:10px;top:30px;width:44px;height:20px;border-color:#3b82f6;display:flex;align-items:center;justify-content:center"><span class="pill p-blue">华远</span></div>
+  </span>
+</button>
+
+</div>
+</section>
+<!-- MODS -->
+</div>
+</body></html>
+<section class="sec">
+<h3 class="sec-t">功能板块</h3>
+<div class="mods">
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:14px;top:16px;width:150px">
+      <div class="t">Q20251103-01 · 蓝湖数据</div>
+      <div class="s">L6 主机 ×2 … ¥96,800</div>
+      <div class="s">配件 ×8 … ¥10,560</div>
+      <div style="margin-top:5px;border-top:1px solid rgba(255,255,255,.1);padding-top:5px" class="s">合计 <b style="color:#8fb5ff">¥107,360</b></div>
+    </div>
+    <span class="pill p-blue" style="position:absolute;left:186px;top:24px">导出</span>
+    <span class="pill p-gray" style="position:absolute;left:186px;top:52px">打印</span>
+    <span class="pill p-gray" style="position:absolute;left:186px;top:80px">预览</span>
+  </span>
+  <span class="mod-body"><strong>报价工作台</strong><i>整单报价与导出</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:12px;top:12px;width:216px;height:96px">
+      <div style="padding:7px 10px 0" class="t">商机线索</div>
+      <div class="rowline" style="padding:6px 10px 0"><span class="t">华远物流</span><span class="pill p-red">待指派</span></div>
+      <div class="rowline" style="padding:6px 10px 0"><span class="t">蓝湖数据</span><span class="pill p-blue">核价中</span></div>
+      <div class="rowline" style="padding:6px 10px 0"><span class="t">天工矿业</span><span class="pill p-green">报价中</span></div>
+    </div>
+    <span class="a-rowhl" style="position:absolute;left:13px;top:33px;width:214px;height:22px;background:rgba(59,130,246,.12);border-radius:5px"></span>
+  </span>
+  <span class="mod-body"><strong>商机线索</strong><i>全公司商机池总览</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:22px;top:18px;width:196px;height:44px;display:flex;align-items:center;gap:7px;padding:0 12px">
+      <span class="dot a-blink" style="background:#4fd6a5"></span>
+      <span class="mk-in" style="flex:1;height:16px;border-radius:4px;background:rgba(255,255,255,.08)"></span>
+      <span class="mk-in" style="width:34px;height:16px;border-radius:4px;background:rgba(59,130,246,.25)"></span>
+      <span class="dot" style="background:#f5b942"></span>
+    </div>
+    <div class="mk" style="left:22px;top:70px;width:196px;height:44px;display:flex;align-items:center;gap:7px;padding:0 12px;opacity:.75">
+      <span class="dot" style="background:#4fd6a5"></span>
+      <span class="mk-in" style="flex:1;height:16px;border-radius:4px;background:rgba(255,255,255,.08)"></span>
+      <span class="mk-in" style="width:34px;height:16px;border-radius:4px;background:rgba(255,255,255,.1)"></span>
+      <span class="dot" style="background:#8b94a8"></span>
+    </div>
+    <div class="s" style="position:absolute;left:24px;top:118px">L6 系列 · 在售 15 机型</div>
+  </span>
+  <span class="mod-body"><strong>服务器</strong><i>机型目录与选型匹配</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:12px;top:16px;width:66px;height:58px;padding:8px">
+      <div class="s">CPU</div><div class="t num" style="margin-top:3px">32</div>
+    </div>
+    <div class="mk" style="left:88px;top:16px;width:66px;height:58px;padding:8px">
+      <div class="s">内存</div><div class="t num" style="margin-top:3px">256G</div>
+    </div>
+    <div class="mk" style="left:164px;top:16px;width:66px;height:58px;padding:8px">
+      <div class="s">硬盘</div><div class="t num" style="margin-top:3px">×24</div>
+    </div>
+    <div class="mk a-take" style="left:88px;top:86px;width:66px;height:40px;border-color:#3b82f6;padding:7px 9px">
+      <div class="s">网卡 万兆 ×2 <span class="pill p-blue">出库</span></div>
+    </div>
+  </span>
+  <span class="mod-body"><strong>配件</strong><i>料号库与价格洞察</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:14px;top:20px;width:212px;padding:9px 12px">
+      <div class="s">CPU 兆芯 KH-30000</div>
+      <div class="t" style="margin-top:2px">→ 平台 Polaris</div>
+    </div>
+    <div class="mk" style="left:26px;top:82px;width:186px;padding:8px 12px;opacity:.8">
+      <div class="s">内存速率 4800MT/s <span class="pill p-gray">推导规则</span></div>
+    </div>
+  </span>
+  <span class="mod-body"><strong>选型配置</strong><i>机型能力与推导规则</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:10px;top:30px;width:56px;height:34px;display:flex;align-items:center;justify-content:center"><span class="s">登记</span></div>
+    <div class="mk" style="left:92px;top:12px;width:56px;height:34px;display:flex;align-items:center;justify-content:center"><span class="s">配置</span></div>
+    <div class="mk" style="left:92px;top:80px;width:56px;height:34px;display:flex;align-items:center;justify-content:center"><span class="s">核价</span></div>
+    <div class="mk a-pulse" style="left:174px;top:46px;width:56px;height:34px;display:flex;align-items:center;justify-content:center;border-color:#3b82f6"><span class="s" style="color:#8fb5ff">报价</span></div>
+    <svg style="position:absolute;inset:0" width="240" height="138" fill="none" stroke="rgba(255,255,255,.25)">
+      <path class="a-trace" d="M66 47L92 29M66 47L92 97M148 29l26 34M148 97l26-51" />
+    </svg>
+  </span>
+  <span class="mod-body"><strong>解决方案</strong><i>方案库与推理流编排</i></span>
+</button>
+
+<button class="tile mod">
+  <span class="mod-art">
+    <div class="mk" style="left:14px;top:22px;width:172px;padding:9px 12px">
+      <div class="s">蓝湖数据的报价核完了吗？</div>
+    </div>
+    <div class="mk" style="left:34px;top:72px;width:150px;padding:9px 12px;border-color:#3b82f6">
+      <div class="s">核完了，合计 ¥107,360，等你提交</div>
+    </div>
+    <span class="dot a-blink" style="position:absolute;left:196px;top:32px;background:#8fb5ff"></span>
+  </span>
+  <span class="mod-body"><strong>AI 办公室</strong><i>3D 办公室与 AI 同事</i></span>
+</button>
+
+</div>
+</section>
+</div>
+</body></html>

@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>成本表新建/编辑模式渲染稿</title>
+<style>
+:root{
+  --bg:#0d1424;--panel:#111a2c;--panel-2:#162238;--head:#10192b;
+  --line:#253349;--line-strong:#30405c;--text:#eef3fb;--secondary:#c7d1e4;
+  --muted:#8d9bb5;--accent:#5b8cff;--accent-soft:rgba(91,140,255,.16);
+  --group-bg:rgba(91,140,255,.07);--blank:rgba(255,255,255,.016);
+  --input-bg:rgba(255,255,255,.02);--input-line:rgba(255,255,255,.12);
+  --page-glow:rgba(47,110,255,.14);--danger:#ff6b6b;
+}
+[data-theme=light]{
+  --bg:#f3f6fb;--panel:#ffffff;--panel-2:#fbfdff;--head:#f5f8fd;
+  --line:#e5ecf6;--line-strong:#dbe5f2;--text:#17233c;--secondary:#42506b;
+  --muted:#7c89a3;--accent:#2f6bff;--accent-soft:rgba(47,107,255,.10);
+  --group-bg:rgba(47,107,255,.045);--blank:rgba(15,23,42,.012);
+  --input-bg:rgba(15,23,42,.015);--input-line:rgba(15,23,42,.10);
+  --page-glow:rgba(47,107,255,.06);--danger:#e5484d;
+}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;color:var(--text);font-family:"Segoe UI","Microsoft YaHei",sans-serif;background:radial-gradient(circle at 18% 12%, var(--page-glow), transparent 30%), var(--bg);display:flex;align-items:flex-start;justify-content:center;padding:28px 16px}
+.modal{width:min(1000px,96vw);border:1px solid var(--line-strong);border-radius:14px;background:linear-gradient(180deg,var(--panel-2),var(--panel));box-shadow:0 24px 70px rgba(0,0,0,.24);overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal-title{font-size:16px;font-weight:650;margin:0}
+.tabs{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.tab{min-width:76px;text-align:center;padding:6px 12px;border-radius:8px;border:1px solid var(--line-strong);background:var(--panel);color:var(--secondary);font-size:12px;cursor:pointer}
+.tab.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tab.add{color:var(--muted);border-style:dashed}
+.modal-body{padding:20px}
+.info-strip{display:grid;grid-template-columns:110px 180px minmax(240px,1fr) 82px;gap:16px;align-items:end;padding:14px 16px;margin-bottom:16px;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.info-item{display:flex;flex-direction:column;gap:5px;min-width:0}
+.info-item label{font-size:11px;color:var(--muted);font-weight:500}
+.info-item input{width:100%;height:30px;padding:0 10px;border:1px solid var(--input-line);border-radius:6px;background:var(--input-bg);color:var(--text);font-size:12px;outline:none}
+.info-item input:focus{border-color:var(--accent)}
+.info-item .suffix{position:relative}
+.info-item .suffix::after{content:'▾';position:absolute;right:9px;top:7px;color:var(--muted);font-size:10px}
+.info-item .info-static{font-size:12px;font-weight:600;color:var(--text);line-height:1.5;padding:6px 0}
+.info-item.qty{text-align:right}
+.info-item.qty input{text-align:right}
+.sheet-scroll{overflow-x:auto;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:12px}
+th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;padding:0;height:40px}
+th:last-child,td:last-child{border-right:0}
+thead th{height:36px;padding:0 10px;background:var(--head);color:var(--secondary);font-size:11px;font-weight:650;white-space:nowrap;border-bottom:1px solid var(--line-strong)}
+td{padding:7px 10px;color:var(--text)}
+tbody tr:last-child td{border-bottom:0}
+.c-group{width:76px;background:var(--group-bg);text-align:center;font-size:11px;font-weight:650;color:var(--accent);vertical-align:middle}
+.c-cat{width:150px}
+.c-desc{width:auto}
+.c-qty{width:80px}
+.c-cost{width:120px}
+.c-total{width:120px}
+.c-note{width:150px}
+.cell-num{text-align:right;font-variant-numeric:tabular-nums}
+.cell-muted{color:var(--muted)}
+.blank{background:var(--blank)}
+.cell-input{width:100%;height:30px;padding:0 8px;border:0;border-radius:6px;background:transparent;color:var(--text);font-size:12px;outline:none}
+.cell-input:focus{background:var(--accent-soft);box-shadow:inset 0 0 0 1px var(--accent)}
+.cell-select{width:100%;height:30px;border:0;border-radius:6px;background:transparent;color:var(--text);font-size:12px;outline:none}
+.cell-num-input{text-align:right}
+.derived{color:var(--muted)}
+.grip{display:inline-block;color:var(--muted);font-size:13px;margin-left:4px;vertical-align:-1px}
+.row-del{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:5px;color:var(--muted);font-size:14px;margin-left:6px;opacity:.5;vertical-align:middle}
+.row-del:hover{color:var(--danger);opacity:1}
+.add-links{display:flex;gap:16px;margin-top:8px;font-size:12px}
+.add-link{color:var(--accent);cursor:pointer}
+.add-link:hover{text-decoration:underline}
+.cost-summary{display:flex;justify-content:flex-end;align-items:center;gap:22px;margin-top:14px;padding:12px 16px;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+.summary-item{display:flex;align-items:baseline;gap:8px;font-size:12px;color:var(--secondary)}
+.summary-item strong{font-size:14px;color:var(--text)}
+.summary-item.total strong{color:var(--accent)}
+.footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px}
+.btn{height:34px;padding:0 18px;border-radius:8px;border:1px solid var(--line-strong);background:var(--panel);color:var(--secondary);font-size:12px;cursor:pointer}
+.btn.primary{border-color:var(--accent);background:var(--accent);color:#fff}
+</style>
+</head>
+<body>
+<div class="modal">
+  <div class="modal-head">
+    <h2 class="modal-title">成本核算 · CFG1</h2>
+    <div class="tabs">
+      <div class="tab active">CFG1</div>
+      <div class="tab">CFG2</div>
+      <div class="tab add">+ 配置</div>
+    </div>
+  </div>
+  <div class="modal-body">
+    <div class="info-strip">
+      <div class="info-item">
+        <label>配置名</label>
+        <input value="CFG1" />
+      </div>
+      <div class="info-item">
+        <label>机型型号</label>
+        <div class="suffix"><input value="ZS22V2-P" /></div>
+      </div>
+      <div class="info-item">
+        <label>描述</label>
+        <input value="1*2U KH50000，支持2颗KH-50000系列处理器，单颗最高96核" />
+      </div>
+      <div class="info-item qty">
+        <label>数量</label>
+        <input value="2" class="cell-num-input" />
+      </div>
+    </div>
+
+    <div class="sheet-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="c-group">分组</th>
+            <th class="c-cat">Catalogue</th>
+            <th class="c-desc">Configuration Description</th>
+            <th class="c-qty cell-num">Quantity</th>
+            <th class="c-cost cell-num">Unit Cost</th>
+            <th class="c-total cell-num">Total Cost</th>
+            <th class="c-note">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="c-group" rowspan="3">L6 <span class="grip">⠿</span></td>
+            <td><input class="cell-input" value="Backplane" /></td>
+            <td><input class="cell-input" value="12*3.5 SATA/SAS/NVME" /></td>
+            <td><input class="cell-input cell-num-input" value="1" /></td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank"><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td><input class="cell-input" value="Switch" /></td>
+            <td><input class="cell-input" value="8*GPU+5*X16+4NVME" /></td>
+            <td><input class="cell-input cell-num-input" value="1" /></td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank"><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td><input class="cell-input" value="Heatsink" /><span class="row-del">×</span></td>
+            <td><input class="cell-input" value="2U heatsink TDP≤450W" /></td>
+            <td><input class="cell-input cell-num-input" value="2" /></td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank cell-num cell-muted">—</td>
+            <td class="blank"><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td class="c-group" rowspan="4">KP <span class="grip">⠿</span></td>
+            <td><input class="cell-input" value="CPU" /></td>
+            <td><input class="cell-input" value="KH-50000 64C" /></td>
+            <td><input class="cell-input cell-num-input" value="2" /></td>
+            <td><input class="cell-input cell-num-input" value="32000" /></td>
+            <td class="derived cell-num">¥64,000</td>
+            <td><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td><input class="cell-input" value="Memory" /></td>
+            <td><input class="cell-input" value="64G 5600 DDR5 RDIMM" /></td>
+            <td><input class="cell-input cell-num-input" value="24" /></td>
+            <td><input class="cell-input cell-num-input" value="1200" /></td>
+            <td class="derived cell-num">¥28,800</td>
+            <td><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td><input class="cell-input" value="HDD/SSD" /></td>
+            <td><input class="cell-input" value="960G SATA SSD" /></td>
+            <td><input class="cell-input cell-num-input" value="2" /></td>
+            <td><input class="cell-input cell-num-input" value="850" /></td>
+            <td class="derived cell-num">¥1,700</td>
+            <td><input class="cell-input" placeholder="备注" /></td>
+          </tr>
+          <tr>
+            <td><input class="cell-input" value="GPU card" /><span class="row-del">×</span></td>
+            <td><input class="cell-input" value="智凯100Duo" /></td>
+            <td><input class="cell-input cell-num-input" value="4" /></td>
+            <td><input class="cell-input cell-num-input" value="28000" /></td>
+            <td class="derived cell-num">¥112,000</td>
+            <td><input class="cell-input" value="建议优先采购" /></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="add-links">
+      <span class="add-link">+ 添加 L6 行</span>
+      <span class="add-link">+ 添加 KP 行</span>
+    </div>
+
+    <div class="cost-summary">
+      <div class="summary-item"><span>L6成本合计</span><strong>¥0.00</strong></div>
+      <div class="summary-item"><span>KP成本合计</span><strong>¥211,300.00</strong></div>
+      <div class="summary-item total"><span>整机成本合计</span><strong>¥211,300.00</strong></div>
+    </div>
+
+    <div class="footer">
+      <button class="btn">保存成本表</button>
+      <button class="btn primary">提交成本核算</button>
+    </div>
+  </div>
+</div>
+<script>
+  const hash = location.hash || '#dark';
+  document.documentElement.dataset.theme = hash.slice(1) || 'dark';
+</script>
+</body>
+</html>

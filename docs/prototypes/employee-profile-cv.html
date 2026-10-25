@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="zh" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>员工档案 · 简历风原型（CPQ 设计规范版）</title>
+<style>
+  /* ══ CPQ 设计 token（节选自 frontend/src/styles/tokens.css，与实装同源）══ */
+  :root {
+    --cpq-accent-primary: #1677FF;
+    --cpq-overlay-a5: rgba(22, 119, 255, 0.05);
+    --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+    --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+    --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+    --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+    --cpq-overlay-a30: rgba(22, 119, 255, 0.30);
+    --cpq-glass-border-strong: rgba(22, 119, 255, 0.45);
+    --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --cpq-radius-md: 12px;
+    --cpq-radius-lg: 16px;
+  }
+  :root[data-theme='light'] {
+    color-scheme: light;
+    --cpq-bg-primary: #F2F6FC;
+    --cpq-text-primary: #1d2129;
+    --cpq-text-secondary: #4e5969;
+    --cpq-text-muted: #86909c;
+    --cpq-border-primary: rgba(22, 119, 255, 0.10);
+    --cpq-border-secondary: rgba(22, 119, 255, 0.06);
+    --cpq-bg-card: #ffffff;
+    --cpq-shadow-color-strong: rgba(22, 119, 255, 0.14);
+    --cpq-bg-gradient: radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+      radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 9, 0.0), transparent 60%),
+      linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  }
+  :root[data-theme='dark'] {
+    color-scheme: dark;
+    --cpq-bg-primary: #08090B;
+    --cpq-text-primary: #E8ECEF;
+    --cpq-text-secondary: #9BA1AA;
+    --cpq-text-muted: #6E7582;
+    --cpq-border-primary: rgba(255, 255, 255, 0.10);
+    --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+    --cpq-bg-card: #1e1e1e;
+    --cpq-shadow-color-strong: rgba(0, 0, 0, 0.50);
+    --cpq-bg-gradient: radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+      linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 44px 20px 80px;
+    background: var(--cpq-bg-gradient), var(--cpq-bg-primary);
+    background-attachment: fixed;
+    font-family: var(--cpq-font-family);
+    display: grid;
+    place-items: start center;
+    color: var(--cpq-text-primary);
+    transition: background 0.3s;
+  }
+
+  /* ── 原型工具条 ─────────────────────────────────────────── */
+  .proto-badge {
+    position: fixed; left: 16px; top: 14px; z-index: 10;
+    background: rgba(0,0,0,.35); color: #cfe3de;
+    font-size: 12px; padding: 4px 10px; border-radius: 5px;
+  }
+  .theme-btn {
+    position: fixed; right: 16px; top: 14px; z-index: 10;
+    background: rgba(0,0,0,.35); color: #cfe3de;
+    font-size: 12px; padding: 5px 12px; border-radius: 5px;
+    border: none; cursor: pointer; font-family: inherit;
+  }
+
+  /* ══ 纸张：白玻璃卡片（glass-card 配方）══════════════════ */
+  .sheet {
+    width: min(100%, 760px);
+    background: var(--cpq-bg-card);
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: 0 24px 70px var(--cpq-shadow-color-strong);
+    overflow: hidden;
+  }
+
+  /* ══ 封面：头像环 + 错位阴影大名 + 点号副题 + 状态chips + 引述 + 填空 ══ */
+  .cover {
+    display: flex; flex-direction: column; align-items: center;
+    padding: 34px 32px 18px;
+    background: var(--cpq-overlay-a5);
+    border-bottom: 1px solid var(--cpq-border-primary);
+  }
+  .ring {
+    width: 148px; height: 148px; border-radius: 50%;
+    border: 4px solid var(--cpq-overlay-a15);
+    background: var(--cpq-overlay-a8);
+    display: grid; place-items: center;
+    font-size: 68px; overflow: hidden;
+  }
+  .ring small { font-size: 11px; color: var(--cpq-text-muted); margin-top: 6px; }
+
+  .name-input {
+    display: block; width: min(320px, 92%);
+    margin-top: 18px; padding: 2px 6px;
+    border: none; border-bottom: 2px dashed transparent;
+    background: transparent; text-align: center;
+    font-family: inherit; font-size: 28px; font-weight: 800;
+    color: var(--cpq-text-primary);
+    text-shadow: 1px 2px 0 var(--cpq-overlay-a30), 3px 5px 0 var(--cpq-overlay-a10);
+    transition: .2s;
+  }
+  .name-input:hover, .name-input:focus { border-bottom-color: var(--cpq-overlay-a20); outline: none; }
+
+  .role-line { margin: 12px 0 0; }
+  .role-key {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: 1px;
+    color: var(--cpq-accent-primary);
+    background: var(--cpq-overlay-a8);
+    padding: 2px 12px; border-radius: 999px;
+  }
+
+  .chips { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--cpq-border-primary);
+    background: transparent;
+    color: var(--cpq-text-muted);
+    font-size: 12px; cursor: pointer; user-select: none;
+    font-family: inherit; transition: .2s;
+  }
+  .chip.on {
+    color: var(--cpq-text-primary);
+    border-color: rgba(22, 119, 255, 0.4);
+    background: var(--cpq-overlay-a10);
+  }
+  .chip-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; opacity: .5; }
+  .chip.on .chip-dot { background: #52C9A0; opacity: 1; }
+
+  .quote {
+    margin-top: 16px; width: min(480px, 100%);
+    border: none; border-bottom: 1px dashed var(--cpq-overlay-a20);
+    background: transparent; resize: none;
+    text-align: center; font-family: inherit;
+    font-size: 13px; font-style: italic;
+    color: var(--cpq-text-secondary); line-height: 1.8;
+    padding: 6px 4px;
+  }
+  .quote:focus { outline: none; border-bottom-color: var(--cpq-glass-border-strong); }
+
+  /* 填空行 */
+  .blank {
+    display: flex; align-items: center; gap: 14px;
+    width: min(420px, 100%);
+    padding: 7px 2px;
+    border-bottom: 1px solid var(--cpq-border-primary);
+    transition: .15s;
+  }
+  .blank:focus-within { border-bottom-color: var(--cpq-glass-border-strong); }
+  .blank > span { min-width: 64px; text-align: right; font-size: 12.5px; color: var(--cpq-text-muted); flex: none; }
+  .blank input[type=text] { flex: 1; border: none; background: transparent; font-family: inherit; font-size: 14px; color: var(--cpq-text-primary); padding: 2px 0; min-width: 0; }
+  .blank input:focus { outline: none; }
+  .blank select {
+    flex: 1; border: none; background: transparent; font-family: inherit;
+    font-size: 14px; color: var(--cpq-text-primary); padding: 2px 0; min-width: 0;
+  }
+  .color-well { width: 40px; height: 26px; padding: 0; border: none; border-radius: 6px; background: transparent; cursor: pointer; }
+
+  /* ══ 分节：居中标题（轻阴影）══════════════════════════════ */
+  section { padding: 24px 32px 8px; }
+  .sec-title {
+    margin: 0; text-align: center;
+    font-size: 17px; font-weight: 800; color: var(--cpq-text-primary);
+    text-shadow: 1px 2px 0 var(--cpq-overlay-a15);
+  }
+  .sec-sub { margin: 4px 0 16px; text-align: center; font-size: 12px; color: var(--cpq-text-muted); }
+
+  .field-label { font-size: 12px; color: var(--cpq-text-muted); margin: 12px 0 4px; display: block; }
+  .ruled {
+    width: 100%; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md);
+    resize: vertical; font-family: inherit; font-size: 14px; line-height: 26px;
+    color: var(--cpq-text-primary); background: transparent; padding: 8px 12px;
+    min-height: 96px;
+  }
+  .ruled:focus { outline: none; border-color: rgba(22, 119, 255, 0.45); }
+
+  .style-chips { display: flex; gap: 8px; }
+  .style-chip {
+    padding: 3px 12px; border-radius: 999px; font-size: 13px; font-family: inherit;
+    border: 1px solid var(--cpq-border-primary); background: transparent;
+    color: var(--cpq-text-muted); cursor: pointer; transition: .2s;
+  }
+  .style-chip.on {
+    color: var(--cpq-accent-primary);
+    border-color: rgba(22, 119, 255, 0.4);
+    background: var(--cpq-overlay-a10);
+  }
+
+  .param-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 28px; padding: 14px 0 4px; }
+  .param label { font-size: 12.5px; color: var(--cpq-text-muted); display: flex; justify-content: space-between; }
+  .param label b { color: var(--cpq-accent-primary); font-weight: 600; }
+  .param input[type=range] { width: 100%; accent-color: var(--cpq-accent-primary); margin-top: 6px; }
+  .param .hint { font-size: 12px; color: var(--cpq-text-muted); margin-top: 2px; }
+  @media (max-width: 560px) {
+    .param-grid { grid-template-columns: 1fr; }
+    .ring { width: 116px; height: 116px; }
+    .cover { padding-top: 26px; }
+  }
+
+  /* 能力标签云（三档透明度）*/
+  .tag-panel { margin: 10px 0; text-align: center; }
+  .tag {
+    display: inline-block; border-radius: 999px; padding: 3px 12px; margin: 0 4px 6px 0;
+    font-size: 12.5px;
+    color: var(--cpq-accent-primary);
+    border: 1px solid rgba(22, 119, 255, 0.35);
+    background: var(--cpq-overlay-a8);
+  }
+  .tag.dim1 { opacity: .72; }
+  .tag.dim2 { opacity: .45; }
+  .tag-legend { text-align: center; font-size: 12px; color: var(--cpq-text-muted); margin-top: 10px; }
+
+  /* 记忆 */
+  .mem-row { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px solid var(--cpq-border-secondary); font-size: 14px; }
+  .mem-row:last-of-type { border-bottom: none; }
+  .mem-row .grow { flex: 1; }
+  .switch { width: 38px; height: 21px; border-radius: 11px; background: var(--cpq-border-primary); position: relative; cursor: pointer; transition: .2s; flex: none; }
+  .switch::after { content: ""; position: absolute; top: 2.5px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: .2s; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
+  .switch.on { background: var(--cpq-accent-primary); }
+  .switch.on::after { left: 19px; }
+  .mem-links { display: flex; gap: 18px; padding: 12px 2px 0; }
+  .mem-links a { color: var(--cpq-accent-primary); font-size: 13.5px; text-decoration: none; }
+
+  /* 高级折叠 */
+  details.advanced { margin: 10px 32px 0; border-top: 1px solid var(--cpq-border-secondary); padding: 14px 0; }
+  details.advanced summary { cursor: pointer; color: var(--cpq-text-muted); font-size: 13px; list-style: none; text-align: center; font-weight: 700; }
+  details.advanced summary::-webkit-details-marker { display: none; }
+  details.advanced summary::before { content: "▸ "; color: var(--cpq-accent-primary); }
+  details.advanced[open] summary::before { content: "▾ "; }
+  details.advanced .blank { margin: 14px auto 0; }
+
+  /* 动作 */
+  .actions { display: flex; justify-content: center; align-items: center; gap: 28px; padding: 24px 32px 36px; }
+  .btn-danger { background: none; border: none; color: #FF6B6B; font-size: 13.5px; cursor: pointer; font-family: inherit; opacity: .75; }
+  .btn-danger:hover { opacity: 1; text-decoration: underline; }
+  .btn-save {
+    background: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+    color: #fff; border: none; border-radius: 8px;
+    font-family: inherit; font-size: 15px; padding: 9px 44px; cursor: pointer;
+    letter-spacing: 6px; text-indent: 6px; transition: .3s;
+    box-shadow: 0 6px 18px rgba(22, 119, 255, 0.30);
+  }
+  .btn-save:hover { filter: brightness(1.08); }
+
+  @media (max-width: 560px) {
+    section { padding: 20px 18px 6px; }
+    details.advanced { margin: 10px 18px 0; }
+  }
+</style>
+</head>
+<body>
+
+<div class="proto-badge">原型 · 羡辙简历版式 × CPQ 设计 token · 与实装同源</div>
+<button class="theme-btn" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='light'?'dark':'light'">🌙 浅/深切换</button>
+
+<div class="sheet">
+
+  <!-- ══ 封面 ══ -->
+  <header class="cover">
+    <div class="ring">👧<small>Live2D 预览</small></div>
+    <input class="name-input" value="方案助手" aria-label="员工名称">
+    <div class="role-line"><span class="role-key">assistant</span></div>
+    <div class="chips">
+      <button class="chip on"><span class="chip-dot"></span>在职</button>
+      <button class="chip"><span class="chip-dot"></span>可被总助分派</button>
+      <button class="chip on" style="cursor:default" title="在『AI 角色访问权限』面板修改"><span class="chip-dot"></span>价格可见</button>
+    </div>
+    <textarea class="quote" rows="2">我是 CPQ 平台的方案助手，可以帮你查询业务数据、分析趋势，并转接需求分析、成本核算或报价同事。</textarea>
+    <div class="blank"><span>主题色</span><input type="color" class="color-well" value="#1677ff"></div>
+    <div class="blank"><span>形象</span><select><option>Koharu 红发少女</option><option>Sakura 樱花少女</option></select></div>
+    <div class="blank"><span>头像 URL</span><input type="text" placeholder="https://…，留空显示形象"></div>
+  </header>
+
+  <!-- ══ 人格与指令 ══ -->
+  <section>
+    <h3 class="sec-title">人格与指令</h3>
+    <p class="sec-sub">这位同事的大脑——提示词决定ta是谁，风格决定ta怎么说话</p>
+    <span class="field-label">System Prompt / 人格</span>
+    <textarea class="ruled" rows="4">你是 CPQ 平台的方案助手，性格专业而热情。你熟悉全部在售机型与配置推导逻辑，负责理解客户需求、协调同事、给出整机方案建议。</textarea>
+    <span class="field-label">回复风格</span>
+    <div class="style-chips">
+      <button class="style-chip on">简洁</button>
+      <button class="style-chip">详细</button>
+      <button class="style-chip">自定义</button>
+    </div>
+    <div class="param-grid">
+      <div class="param">
+        <label>温度 <b>0.7 · 适中</b></label>
+        <input type="range" min="0" max="1.5" step="0.1" value="0.7">
+        <div class="hint">跟随全局（0.7 / 8000）</div>
+      </div>
+      <div class="param">
+        <label>推理档位</label>
+        <div class="style-chips" style="margin-top:4px">
+          <button class="style-chip on">跟随全局</button>
+          <button class="style-chip">低（快）</button>
+          <button class="style-chip">中</button>
+          <button class="style-chip">高（深）</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ 能力 ══ -->
+  <section>
+    <h3 class="sec-title">能力</h3>
+    <p class="sec-sub">绑定 Skill 自动并入其工具；query_data 可读表 = 工具自有白名单</p>
+    <div class="tag-panel">
+      <span class="tag">Skill · 需求分析</span>
+      <span class="tag dim1">工作流 · 报价生成</span>
+    </div>
+    <div class="tag-panel">
+      <span class="tag">query_data</span>
+      <span class="tag">catalog_search</span>
+      <span class="tag dim2">bom_generate</span>
+      <span class="tag dim2">web_search</span>
+    </div>
+    <p class="tag-legend">Skill ─ 工作流 ─ 工具　（三档透明度 = 已启用 / 可选 / 未启用）</p>
+  </section>
+
+  <!-- ══ 记忆 ══ -->
+  <section>
+    <h3 class="sec-title">记忆</h3>
+    <p class="sec-sub">结构化长期记忆，上限 100 条——每轮对话后自动归并，注入后续对话</p>
+    <div class="mem-row"><div class="switch on"></div><div class="grow">启用长期记忆</div><span class="tag">画像 ×3</span><span class="tag dim1">偏好 ×7</span><span class="tag dim1">事实 ×12</span><span class="tag dim2">指引 ×2</span></div>
+    <div class="mem-row"><div class="switch on"></div><div class="grow">对话后自动学习</div></div>
+    <div class="mem-links">
+      <a href="#">管理记忆 →</a>
+      <a href="#">会话管理 →</a>
+    </div>
+  </section>
+
+  <!-- ══ 高级 ══ -->
+  <details class="advanced">
+    <summary>3D 办公室行为</summary>
+    <div class="blank"><span>漫游开关</span><input type="text" value="开启（工位间随机走动）"></div>
+    <div class="blank"><span>空闲秒数</span><input type="text" value="30"></div>
+  </details>
+
+  <!-- ══ 动作 ══ -->
+  <div class="actions">
+    <button class="btn-danger">删除员工</button>
+    <button class="btn-save">保存</button>
+  </div>
+
+</div>
+
+<script>
+  document.querySelectorAll('.chip:not([style]), .style-chip, .switch').forEach(c =>
+    c.addEventListener('click', () => {
+      if (c.parentElement.classList.contains('style-chips'))
+        c.parentElement.querySelectorAll('.style-chip').forEach(x => x.classList.remove('on'));
+      c.classList.toggle('on');
+    }));
+</script>
+</body>
+</html>

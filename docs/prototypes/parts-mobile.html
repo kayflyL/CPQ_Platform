@@ -1,0 +1,470 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>配件管理页 · 手机版两级磁贴方案 原型 V2（2026-09-19）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0d1322;
+  background-image:
+    radial-gradient(900px 500px at 15% -5%, rgba(47,107,255,.14), transparent 60%),
+    radial-gradient(800px 480px at 90% 8%, rgba(34,195,166,.08), transparent 60%),
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: auto, auto, 28px 28px, 28px 28px;
+  color: #dbe4f5;
+  padding-bottom: 80px;
+}
+.doc-head { max-width: 1460px; margin: 0 auto; padding: 44px 36px 4px; }
+.doc-head h1 { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.doc-head .updated { margin-top: 6px; font-size: 12.5px; color: #8fa0bd; }
+.doc-head .lede { margin-top: 14px; font-size: 13.5px; line-height: 1.9; color: #aebbd6; max-width: 1020px; }
+.doc-head .lede b { color: #eaf1ff; }
+.deck { display: flex; flex-wrap: wrap; gap: 52px; justify-content: center; align-items: flex-start; padding: 38px 24px 10px; max-width: 1460px; margin: 0 auto; }
+.figure { display: flex; flex-direction: column; gap: 14px; }
+.fig-title { font-size: 15px; font-weight: 800; color: #e8eefb; letter-spacing: .5px; }
+.fig-title em { font-style: normal; color: #6ea2ff; }
+.fig-note {
+  width: 375px; font-size: 12.5px; line-height: 1.85; color: #9fb0cc;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 13px 15px;
+}
+.fig-note b { color: #d7e2f7; }
+.mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #2f6bff; color: #fff; font-size: 10.5px; font-weight: 700; margin-right: 4px; flex: none; }
+
+.phone {
+  position: relative; width: 375px; height: 812px; flex: none;
+  border-radius: 46px; border: 9px solid #222b3f;
+  box-shadow: 0 34px 90px rgba(0,0,0,.55), inset 0 0 0 1.5px rgba(255,255,255,.06);
+  overflow: hidden;
+  background: linear-gradient(168deg, #eef2fa 0%, #e9eef8 55%, #e4ebf6 100%);
+  color: #1e2a3d; font-size: 13px;
+}
+.statusbar { display: flex; justify-content: space-between; align-items: center; padding: 13px 24px 5px; font-size: 12px; font-weight: 700; color: #22304a; }
+.statusbar .sb-r { display: flex; gap: 5px; align-items: center; font-size: 10.5px; }
+.sig { display: inline-flex; gap: 1.5px; align-items: flex-end; }
+.sig i { width: 2.5px; background: #22304a; border-radius: 1px; display: block; }
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:6px}.sig i:nth-child(3){height:8px}.sig i:nth-child(4){height:10px}
+.batt { width: 21px; height: 10.5px; border: 1.2px solid #22304a; border-radius: 3px; position: relative; opacity: .85; }
+.batt::after { content: ""; position: absolute; inset: 1.5px; right: 5px; background: #22304a; border-radius: 1.5px; }
+.batt::before { content: ""; position: absolute; right: -3.5px; top: 2.5px; width: 2px; height: 4px; background: #22304a; border-radius: 0 1px 1px 0; }
+
+/* ── 首页（磁贴驾驶舱） ── */
+.h-head { display: flex; align-items: center; gap: 8px; padding: 6px 13px 4px; }
+.h-head h2 { font-size: 17px; font-weight: 800; letter-spacing: .3px; }
+.h-head .sp { flex: 1; }
+.icon-glass { width: 30px; height: 30px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.95); color: #51617e; }
+.h-sub { padding: 0 13px 9px; font-size: 10.5px; color: #7c8aa5; }
+
+/* 大搜索框 */
+.search-hero { margin: 0 12px 10px; height: 44px; border-radius: 13px; background: #fff;
+  border: 1px solid rgba(31,42,61,.13); box-shadow: 0 6px 18px rgba(31,42,61,.07);
+  display: flex; align-items: center; gap: 8px; padding: 0 12px; }
+.search-hero svg { width: 16px; height: 16px; color: #93a1b8; flex: none; }
+.search-hero .ph { font-size: 12.5px; color: #93a1b8; }
+.search-hero .cam { margin-left: auto; width: 26px; height: 26px; border-radius: 8px; background: rgba(47,107,255,.08);
+  color: #2f6bff; display: inline-flex; align-items: center; justify-content: center; font-size: 12px; }
+
+.pbody { padding: 0 12px; display: flex; flex-direction: column; gap: 11px; }
+.sec-label { font-size: 11px; font-weight: 800; color: #44536e; display: flex; align-items: center; gap: 6px; letter-spacing: .04em; }
+.sec-label .deck-line { width: 3px; height: 11px; background: #2f6bff; border-radius: 2px; }
+.sec-label .more { margin-left: auto; font-size: 9.5px; color: #93a1b8; font-weight: 500; }
+
+/* 统计磁贴 2×2 */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 14px; padding: 10px 12px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); }
+.stat .l { font-size: 10px; color: #7c8aa5; }
+.stat .v { font-size: 19px; font-weight: 800; color: #1c2740; line-height: 1.25; }
+.stat .v small { font-size: 10px; color: #8b9ab5; font-weight: 600; margin-left: 3px; }
+.stat .f { font-size: 9px; color: #93a1b8; margin-top: 1px; }
+.stat.spark { position: relative; overflow: hidden; }
+.stat.spark svg { position: absolute; right: 8px; bottom: 8px; width: 74px; height: 26px; }
+.stat.click { cursor: pointer; }
+.stat.click .f { color: #2f6bff; font-weight: 700; }
+
+/* 分类磁贴 2 列网格 */
+.catgrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ctile { position: relative; border: 1px solid rgba(255,255,255,.95); background: rgba(255,255,255,.74);
+  border-radius: 14px; padding: 10px 12px 9px; box-shadow: 0 6px 18px rgba(31,42,61,.06);
+  display: flex; flex-direction: column; gap: 2px; text-align: left; cursor: pointer; font: inherit; color: inherit; }
+.ctile .cn { font-size: 11px; font-weight: 700; color: #5b6b85; display: flex; align-items: center; gap: 5px; }
+.ctile .cn i { width: 7px; height: 7px; border-radius: 50%; background: var(--tc, #2f6bff); flex: none; }
+.ctile .cv { font-size: 21px; font-weight: 800; color: #1c2740; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.ctile .cv small { font-size: 10px; color: #8b9ab5; font-weight: 600; margin-left: 4px; }
+.ctile .ck { font-size: 9px; color: #93a1b8; }
+.ctile .arr { position: absolute; right: 11px; top: 50%; transform: translateY(-50%); color: #c3ccdc; font-size: 14px; }
+.add-tile { border: 1.5px dashed rgba(31,42,61,.2); background: rgba(255,255,255,.4); border-radius: 14px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  font-size: 11px; color: #7c8aa5; cursor: pointer; min-height: 74px; }
+.add-tile b { font-size: 16px; color: #51617e; }
+
+/* ── 二级：分类列表页 ── */
+.l-head { display: flex; align-items: center; gap: 8px; padding: 6px 12px 8px; }
+.l-back { width: 29px; height: 29px; border-radius: 9px; border: 1px solid rgba(255,255,255,.95); background: rgba(255,255,255,.72);
+  display: inline-flex; align-items: center; justify-content: center; color: #51617e; font-size: 14px; flex: none; }
+.l-tt { flex: 1; min-width: 0; }
+.l-tt h2 { font-size: 15.5px; font-weight: 800; }
+.l-tt .s { font-size: 10px; color: #7c8aa5; }
+.l-search { margin: 0 12px 8px; height: 34px; border-radius: 11px; background: #fff; border: 1px solid rgba(31,42,61,.12);
+  display: flex; align-items: center; gap: 7px; padding: 0 10px; font-size: 11.5px; color: #93a1b8; }
+.l-search svg { width: 13px; height: 13px; flex: none; }
+.filterbar { display: flex; align-items: center; gap: 6px; padding: 0 12px 9px; }
+.fbtn { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 700; color: #2f6bff;
+  border: 1px solid rgba(47,107,255,.45); background: rgba(47,107,255,.07); border-radius: 999px; padding: 6px 13px; }
+.fbtn .n { background: #2f6bff; color: #fff; font-size: 9px; border-radius: 999px; min-width: 15px; height: 15px; display: inline-flex; align-items: center; justify-content: center; padding: 0 4px; }
+.ftag { display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; color: #5b6b85; border: 1px solid rgba(31,42,61,.13); background: rgba(255,255,255,.7); border-radius: 999px; padding: 5px 10px; }
+.ftag .x { color: #93a1b8; }
+
+.pcard { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 15px; padding: 12px 13px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); position: relative; }
+.pcard .cat-tag { display: inline-block; font-size: 9px; font-weight: 700; color: #2f6bff; background: rgba(47,107,255,.09);
+  border-radius: 6px; padding: 2px 7px; }
+.pcard .edit { position: absolute; top: 10px; right: 11px; width: 26px; height: 26px; border-radius: 8px; border: 1px solid rgba(31,42,61,.1);
+  background: #fff; color: #51617e; display: inline-flex; align-items: center; justify-content: center; font-size: 11px; }
+.pcard .nm { font-size: 13.5px; font-weight: 800; color: #1c2740; margin-top: 6px; }
+.pcard .sku { font-size: 9.5px; color: #8b9ab5; margin-top: 2px; }
+.pcard .sku b { color: #51617e; font-weight: 600; }
+.prow { display: flex; align-items: baseline; gap: 8px; margin-top: 7px; }
+.prow .pv { font-size: 15px; font-weight: 800; color: #1c2740; }
+.prow .pv.none { font-size: 11px; color: #93a1b8; font-weight: 600; }
+.prow .pd { font-size: 9px; color: #93a1b8; }
+.pmeta { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.pmeta .btag { font-size: 9.5px; color: #5b6b85; border: 1px solid rgba(31,42,61,.12); border-radius: 6px; padding: 1.5px 7px; background: rgba(255,255,255,.7); }
+.led { display: inline-flex; align-items: center; gap: 4px; font-size: 9.5px; color: #0d9273; }
+.led i { width: 6px; height: 6px; border-radius: 50%; background: #2fae87; box-shadow: 0 0 5px rgba(47,174,135,.7); }
+.pgn-row { display: flex; align-items: center; justify-content: center; gap: 9px; padding: 2px 0 4px; font-size: 11.5px; color: #5b6b85; }
+.pgn { width: 27px; height: 27px; border: 1px solid rgba(31,42,61,.15); border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: #fff; color: #51617e; }
+.pgn.on { border-color: rgba(47,107,255,.55); color: #2f6bff; font-weight: 700; }
+
+/* 左抽屉 · 筛选 */
+.mask { position: absolute; inset: 0; z-index: 40; background: rgba(13,20,38,.42); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px); }
+.fdrawer {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 84%;
+  background: rgba(252,253,255,.97);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-right: 1px solid #fff; border-radius: 0 22px 22px 0;
+  box-shadow: 28px 0 70px rgba(13,20,38,.32);
+  display: flex; flex-direction: column;
+}
+.fdw-head { display: flex; align-items: center; gap: 8px; padding: 15px 15px 10px; }
+.fdw-head h3 { font-size: 15.5px; font-weight: 800; }
+.fdw-head .sp { flex: 1; }
+.fdw-head .clr { font-size: 11.5px; color: #93a1b8; background: none; border: none; cursor: pointer; }
+.fdw-head .pd-close { width: 29px; height: 29px; border-radius: 10px; border: 1px solid rgba(31,42,61,.12); background: #fff; color: #51617e; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.fdw-body { flex: 1; overflow: hidden; padding: 2px 13px 10px; display: flex; flex-direction: column; gap: 9px; }
+.fgrp { background: rgba(255,255,255,.7); border: 1px solid rgba(255,255,255,.95); border-radius: 13px; padding: 10px 12px; }
+.fgrp h4 { font-size: 11.5px; font-weight: 800; color: #44536e; display: flex; align-items: center; margin-bottom: 7px; }
+.fgrp h4 .n { margin-left: auto; font-size: 9.5px; color: #8b9ab5; font-weight: 600; }
+.fl { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 11.5px; color: #44536e; border-bottom: 1px dashed rgba(31,42,61,.07); }
+.fl:last-child { border-bottom: none; }
+.fl .radio { width: 14px; height: 14px; border-radius: 50%; border: 1.6px solid #b9c4d8; flex: none; }
+.fl.on .radio { border-color: #2f6bff; background: radial-gradient(circle, #2f6bff 40%, #fff 46%); }
+.fl.on { color: #2f6bff; font-weight: 700; }
+.fl .cnt { margin-left: auto; font-size: 9.5px; color: #93a1b8; }
+.fmore { font-size: 10.5px; color: #2f6bff; background: none; border: none; padding: 6px 0 0; cursor: pointer; }
+.fdw-foot { flex: none; display: flex; gap: 8px; padding: 10px 13px calc(12px + env(safe-area-inset-bottom)); border-top: 1px solid rgba(31,42,61,.08); }
+.ff-btn { flex: 1; height: 36px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; font-size: 12.5px; font-weight: 700; }
+.ff-btn.ghost { border: 1px solid rgba(31,42,61,.14); color: #5b6b85; background: #fff; }
+.ff-btn.pri { background: linear-gradient(135deg, #2f6bff, #2456d6); color: #fff; box-shadow: 0 5px 14px rgba(47,107,255,.3); }
+
+.tabbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  height: 62px; padding: 7px 10px 9px;
+  background: rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid rgba(255,255,255,.98);
+  display: grid; grid-template-columns: repeat(5, 1fr);
+}
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.5px; font-size: 10px; color: #7c8aa5; }
+.tab .ic { width: 46px; height: 27px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.tab .ic svg { width: 17px; height: 17px; }
+.tab.on { color: #2f6bff; font-weight: 700; }
+.tab.on .ic { background: rgba(47,107,255,.14); }
+.homebar { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 118px; height: 4.5px; border-radius: 3px; background: rgba(20,30,50,.28); z-index: 60; }
+
+.spec-panel { width: 375px; display: flex; flex-direction: column; gap: 14px; }
+.spec-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 18px 16px; }
+.spec-card h4 { font-size: 13px; font-weight: 700; color: #e8eefb; margin-bottom: 12px; letter-spacing: .5px; }
+.spec-li { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.75; color: #a7b6d2; padding: 5px 0; }
+.spec-li b { color: #dfe8fa; font-weight: 700; }
+.spec-li .n { flex: none; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 12px; color: #a7b6d2; }
+.cmp th, .cmp td { border: 1px solid rgba(255,255,255,.1); padding: 7px 8px; text-align: left; line-height: 1.5; }
+.cmp th { color: #dfe8fa; font-weight: 700; background: rgba(255,255,255,.04); }
+.cmp td:first-child { color: #dfe8fa; font-weight: 600; white-space: nowrap; }
+.notes { max-width: 1100px; margin: 26px auto 0; padding: 0 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.note-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 18px; padding: 22px 24px; }
+.note-card h3 { font-size: 15px; font-weight: 800; color: #eaf1ff; margin-bottom: 12px; letter-spacing: .5px; }
+.note-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.8; color: #a7b6d2; }
+.note-card li b { color: #e4ecfc; }
+.note-card li::before { content: "·"; color: #5b8bff; font-weight: 900; margin-right: 8px; }
+.phase { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,.08); font-size: 13px; line-height: 1.75; color: #a7b6d2; }
+.phase:last-child { border-bottom: none; }
+.tag { flex: none; font-size: 11px; font-weight: 800; color: #0d1322; background: #6ea2ff; border-radius: 7px; padding: 2px 8px; margin-top: 3px; }
+.tag.t2 { background: #55d6b5; }
+.tag.t3 { background: #f5c96b; }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>配件管理页 · 手机版两级磁贴方案（V2）</h1>
+  <div class="updated">&gt; 最后更新：2026-09-19 · 原型稿 V2（按定调重画：首页磁贴化 + 搜索置顶 + 二级分类列表）</div>
+  <p class="lede">
+    信息架构改为<b>两级驾驶舱</b>：<b>首页 = 磁贴</b>（大搜索框置顶 + 统计磁贴 2×2 + 分类磁贴网格，具体配件不再出现在首页）；
+    <b>点分类磁贴 → 二级列表页</b>（该分类的筛选 + 卡流 + 分页，筛选侧栏仍在左抽屉）。搜索进首页且搜全库，
+    搜完落「全部 + 关键词」列表。桌面版零改动，两级切换为组件内视图（手机端专属）。
+    四张手机框：A 首页磁贴 / B 二级分类列表 / C 左抽屉·筛选 / D 对比与分期。
+  </p>
+</header>
+
+<div class="deck">
+<!-- ═══════════ A. 首页 · 磁贴驾驶舱 ═══════════ -->
+<figure class="figure">
+  <div class="phone" id="ptA">
+    <div class="statusbar"><span>9:41</span><span class="sb-r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+    <div class="h-head">
+      <h2>配件管理</h2>
+      <span class="sp"></span>
+      <span class="icon-glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>
+    </div>
+    <div class="h-sub">共 128 个配件 · 12 个分类</div>
+    <div class="search-hero">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      <span class="ph">搜索配件名称 / SKU / 品牌…</span>
+      <span class="cam">搜全库</span>
+    </div>
+    <div class="pbody">
+      <div class="sec-label"><span class="deck-line"></span>库内概览</div>
+      <div class="stats">
+        <div class="stat spark">
+          <div class="l">配件总数</div><div class="v">128</div><div class="f">近 30 天走势</div>
+          <svg viewBox="0 0 74 26"><polyline points="0,20 12,17 24,19 36,12 48,14 60,8 74,4" fill="none" stroke="#2f6bff" stroke-width="2"/></svg>
+        </div>
+        <div class="stat"><div class="l">本周新增</div><div class="v">6</div><div class="f">最近 7 天新入库</div></div>
+        <div class="stat"><div class="l">有效价格配件</div><div class="v">96</div><div class="f">近两日内有报价</div></div>
+        <div class="stat click"><div class="l">疑似重复</div><div class="v">3<small>组</small></div><div class="f">5 件待核实 →</div></div>
+      </div>
+      <div class="sec-label"><span class="deck-line"></span>分类磁贴<span class="more">点击进入该分类</span></div>
+      <div class="catgrid">
+        <button class="ctile" style="--tc:#2f6bff"><span class="cn"><i></i>CPU</span><span class="cv">23<small>件</small></span><span class="ck">处理器</span><span class="arr">›</span></button>
+        <button class="ctile" style="--tc:#22c3a6"><span class="cn"><i></i>内存</span><span class="cv">18<small>件</small></span><span class="ck">Memory</span><span class="arr">›</span></button>
+        <button class="ctile" style="--tc:#f5b942"><span class="cn"><i></i>硬盘</span><span class="cv">32<small>件</small></span><span class="ck">HDD / SSD</span><span class="arr">›</span></button>
+        <button class="ctile" style="--tc:#8b93ff"><span class="cn"><i></i>GPU</span><span class="cv">14<small>件</small></span><span class="ck">加速卡</span><span class="arr">›</span></button>
+        <button class="ctile" style="--tc:#f4756f"><span class="cn"><i></i>网卡</span><span class="cv">9<small>件</small></span><span class="ck">NIC</span><span class="arr">›</span></button>
+        <button class="ctile" style="--tc:#6f8bab"><span class="cn"><i></i>电源</span><span class="cv">7<small>件</small></span><span class="ck">PSU</span><span class="arr">›</span></button>
+        <button class="add-tile"><b>＋</b>管理 / 新增分类</button>
+        <button class="ctile" style="--tc:#b08bf0"><span class="cn"><i></i>其余 6 类</span><span class="cv">25<small>件</small></span><span class="ck">线缆 · 结构件 等</span><span class="arr">›</span></button>
+      </div>
+    </div>
+    <nav class="tabbar">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">A · 首页 <em>（磁贴驾驶舱：搜索置顶 + 统计 + 分类网格）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>大搜索框置顶</b>：最高频场景第一眼第一触点，全库搜索（名称/SKU/品牌），输入即落「全部 + 关键词」列表视图。<br>
+    <span class="mark">2</span><b>统计磁贴 2×2</b>：沿用现有 4 项统计（总数+sparkline / 本周新增 / 有效价格 / 疑似重复点击进入）。<br>
+    <span class="mark">3</span><b>分类磁贴 2 列网格</b>：每贴 = 彩点 + 分类名（label 行）+ 数量主字 + 说明小字——层级全靠字号字重透明度，无色条装饰；彩点仅作分类识别（与 KPI 卡点标同语法，固定调色板轮换）。前 6 大类常驻，其余归入「其余 N 类」贴，网格尾卡 = 管理/新增分类（对齐尾卡范式）。<br>
+    <span class="mark">4</span><b>具体配件不再出现在首页</b>：首页只回答「库里有啥、去哪找」，配件清单在二级——两级各司其职。<br>
+    <span class="mark">5</span>新建配件「＋」保留页头。
+  </div>
+</figure>
+
+<!-- ═══════════ B. 二级 · 分类列表页 ═══════════ -->
+<figure class="figure">
+  <div class="phone" id="ptB">
+    <div class="statusbar"><span>9:41</span><span class="sb-r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+    <div class="l-head">
+      <span class="l-back">‹</span>
+      <div class="l-tt"><h2>内存</h2><div class="s">18 件 · Memory</div></div>
+      <span class="icon-glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg></span>
+    </div>
+    <div class="l-search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      在「内存」内搜索…
+    </div>
+    <div class="filterbar">
+      <span class="fbtn">筛选<span class="n">2</span></span>
+      <span class="ftag">Brand: 兆芯 <span class="x">✕</span></span>
+      <span class="ftag">容量: 32G <span class="x">✕</span></span>
+    </div>
+    <div class="pbody">
+      <div class="pcard">
+        <span class="cat-tag">内存</span><span class="edit">✎</span>
+        <div class="nm">32G DDR5 ECC 5600 RDIMM</div>
+        <div class="sku">SKU <b>KH-MEM-32G-5600</b> · 点击复制</div>
+        <div class="prow"><span class="pv">¥ 1,860</span><span class="pd">2026-09-18</span></div>
+        <div class="pmeta"><span class="btag">兆芯</span><span class="led"><i></i>全新</span></div>
+      </div>
+      <div class="pcard">
+        <span class="cat-tag">内存</span><span class="edit">✎</span>
+        <div class="nm">64G DDR5 ECC 5600 RDIMM</div>
+        <div class="sku">SKU <b>KH-MEM-64G-5600</b> · 点击复制</div>
+        <div class="prow"><span class="pv">¥ 3,720</span><span class="pd">2026-09-16</span></div>
+        <div class="pmeta"><span class="btag">兆芯</span><span class="led"><i></i>全新</span></div>
+      </div>
+      <div class="pcard">
+        <span class="cat-tag">内存</span><span class="edit">✎</span>
+        <div class="nm">16G DDR4 3200 ECC</div>
+        <div class="sku">SKU <b>GEN-MEM-16G-3200</b> · 点击复制</div>
+        <div class="prow"><span class="pv none">暂无报价</span></div>
+        <div class="pmeta"><span class="btag">海光</span><span class="led"><i></i>全新</span></div>
+      </div>
+      <div class="pgn-row"><span class="pgn">‹</span><span class="pgn on">1</span><span class="pgn">2</span><span class="pgn">3</span><span>…</span><span class="pgn">›</span></div>
+    </div>
+    <nav class="tabbar">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">B · 二级列表页 <em>（点「内存」磁贴进入）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>顶栏返回 = 回磁贴首页</b>（组件内视图切换，手机端专属；桌面版仍是单页三栏，不加路由）。<br>
+    <span class="mark">2</span><b>二级内搜索</b>：范围限定当前分类；首页大搜索框则是全库——两个入口两种粒度。<br>
+    <span class="mark">3</span><b>筛选行 + 卡流</b>：筛选徽标 + 已选 chips 平铺（单个可撤）；配件卡沿用现有 model-card 字段与点击行为（详情/编辑弹窗现状不变）。<br>
+    <span class="mark">4</span>统计不重复出现：库级概览留在首页，二级只看清单。<br>
+    <span class="mark">5</span>表格视图手机端隐藏不变（卡片即唯一视图）。
+  </div>
+</figure>
+
+<!-- ═══════════ C. 左抽屉 · 筛选（二级页内） ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#ptB" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="fdrawer">
+      <div class="fdw-head">
+        <h3>筛选 · 内存</h3>
+        <span class="sp"></span>
+        <button class="clr">清空</button>
+        <span class="pd-close">✕</span>
+      </div>
+      <div class="fdw-body">
+        <div class="fgrp">
+          <h4>Brand<span class="n">6 个品牌</span></h4>
+          <div class="fl on"><span class="radio"></span>兆芯<span class="cnt">8</span></div>
+          <div class="fl"><span class="radio"></span>海光<span class="cnt">5</span></div>
+          <div class="fl"><span class="radio"></span>Intel<span class="cnt">12</span></div>
+          <div class="fl"><span class="radio"></span>AMD<span class="cnt">9</span></div>
+          <button class="fmore">展开更多 ▼</button>
+        </div>
+        <div class="fgrp">
+          <h4>容量<span class="n">5 档</span></h4>
+          <div class="fl on"><span class="radio"></span>32G<span class="cnt">6</span></div>
+          <div class="fl"><span class="radio"></span>64G<span class="cnt">4</span></div>
+          <div class="fl"><span class="radio"></span>128G<span class="cnt">3</span></div>
+        </div>
+        <div class="fgrp">
+          <h4>接口<span class="n">4 类</span></h4>
+          <div class="fl"><span class="radio"></span>DDR5<span class="cnt">9</span></div>
+          <div class="fl"><span class="radio"></span>DDR4<span class="cnt">7</span></div>
+        </div>
+      </div>
+      <div class="fdw-foot">
+        <span class="ff-btn ghost">清空全部</span>
+        <span class="ff-btn pri">查看 6 个结果</span>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">C · 左抽屉 <em>（筛选，在二级页内打开）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>筛选侧栏整体平移</b>：Brand + 规格维度 facets 与计数同源 computed，即点即筛逻辑零改动，只换容器。<br>
+    <span class="mark">2</span>抽屉标题带当前分类（「筛选 · 内存」），与二级页上下文一致；底部「查看 N 个结果」= 收抽屉，不是额外应用步骤。<br>
+    <span class="mark">3</span>已选态双向同步：抽屉内高亮 ↔ 主屏 chips ✕ 单撤；「清空全部」= clearAllFilters 现成函数。<br>
+    <span class="mark">4</span>首页磁贴不做筛选——筛选只属于二级列表上下文，保持首页极简。
+  </div>
+</figure>
+
+<!-- ═══════════ D. 对比与分期 ═══════════ -->
+<figure class="figure">
+  <div class="spec-panel">
+    <div class="spec-card">
+      <h4>V1 单页方案（已否） vs V2 两级磁贴方案</h4>
+      <table class="cmp">
+        <tr><th>维度</th><th>V1 单页（已否）</th><th>V2 两级磁贴</th></tr>
+        <tr><td>首页形态</td><td>分类 chips + 统计 + 卡流混一页</td><td>磁贴驾驶舱：搜索 + 统计 + 分类网格，无具体配件</td></tr>
+        <tr><td>查找方式</td><td>chips 切分类（上下文扁平）</td><td>磁贴点击进二级，层级与桌面「选中分类」一致</td></tr>
+        <tr><td>搜索</td><td>挤在分类行里</td><td>首页大搜索框置顶（全库）+ 二级内搜索（分类内）</td></tr>
+        <tr><td>返回模型</td><td>无层级， chips 平铺</td><td>二级顶栏 ‹ 返回首页，符合手机返回习惯</td></tr>
+        <tr><td>分类管理</td><td>头部 ⚙ 小钮</td><td>磁贴网格尾卡「＋管理/新增分类」</td></tr>
+      </table>
+    </div>
+    <div class="spec-card">
+      <h4>交互流</h4>
+      <div class="spec-li"><span class="n">1.</span><span>首页搜索 → 输入即切「全部 + 关键词」列表（复用现有搜索防抖逻辑）。</span></div>
+      <div class="spec-li"><span class="n">2.</span><span>点分类磁贴 → 二级列表（该分类 facets + 卡流 + 分页，现有状态全复用）。</span></div>
+      <div class="spec-li"><span class="n">3.</span><span>二级「筛选 ⦚N」→ 左抽屉即点即筛；chips 单撤；‹ 返回首页。</span></div>
+      <div class="spec-li"><span class="n">4.</span><span>疑似重复磁贴 → 重复组管理（openDuplicates 现成）；磁贴尾卡 → 分类管理弹窗（categoryManageVisible 现成）。</span></div>
+    </div>
+    <div class="spec-card">
+      <h4>落地注意</h4>
+      <div class="spec-li"><span class="n">·</span><span>两级 = 组件内视图状态（mobileView: 'home' | 'category'），不新增路由；isMobile && mobileView 驱动渲染分支，桌面单页三栏零改动。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>分类磁贴 = categories（含 count）直接渲染；彩点为固定调色板轮换（仅识别点缀），层级靠字号字重，不加色条/圆点列表符。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>抽屉外壳 .opp-parts-drawer 主题 token 玻璃（全局 style 块）；磁贴色为语义色 literal（canvas 语境同款取色），不接 CSS 变量。</span></div>
+    </div>
+  </div>
+  <div class="fig-title">D · 方案对比与分期</div>
+  <div class="fig-note">首页回答「库里有啥、去哪找」（磁贴），二级回答「这个类里有什么」（列表）——两级各司其职。</div>
+</figure>
+</div>
+
+<section class="notes">
+  <div class="note-card">
+    <h3>V2 相对 V1 的变化（按定调）</h3>
+    <ul>
+      <li><b>首页磁贴化</b>：分类从 chips 变磁贴网格（彩点 + 名称 + 数量主字，层级靠字号字重），模仿商机线索页驾驶舱；具体配件卡片移出首页。</li>
+      <li><b>搜索置顶</b>：大搜索框第一触点、全库范围；二级内另有分类内搜索。</li>
+      <li><b>两级导航</b>：首页 → 分类列表，返回键回首页；替代 V1 的 chips 平铺扁平结构。</li>
+      <li><b>保留</b>：筛选左抽屉、已选 chips、统计磁贴、表格视图隐藏、桌面零改动。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>分期落地</h3>
+    <div class="phase"><span class="tag">P1</span><span><b>两级容器（≤768px）</b>：mobileView 状态 + 首页磁贴（搜索框/统计 2×2/分类网格/尾卡）+ 二级列表页（返回/搜索/筛选行/卡流/分页）+ 筛选左抽屉；桌面零改动。</span></div>
+    <div class="phase"><span class="tag t2">P2</span><span><b>联动细节</b>：磁贴按压反馈；「其余 N 类」贴展开为全分类清单；二级返回时保留筛选与页码状态。</span></div>
+    <div class="phase"><span class="tag t3">P3</span><span><b>打磨（可选）</b>：搜索历史/热门分类快捷词；磁贴长按快捷（编辑分类）；卡流无限滚动。</span></div>
+  </div>
+  <div class="note-card">
+    <h3>代价与取舍</h3>
+    <ul>
+      <li><b>进清单多一步</b>：首页→磁贴→列表两级——换来首页轻、搜索直达、层级清晰；高频「全库搜」场景一步直达补平。</li>
+      <li><b>统计与清单分离</b>：库级概览只在首页——二级专注清单，不重复渲染。</li>
+      <li><b>组件内视图 vs 真路由</b>：选组件内状态（不新增路由）——桌面仍是单页，避免为手机端拆双路由的工程量；代价是浏览器返回键不回首页（页内返回键承担，P2 可监听 popstate 补齐）。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>与全站手机版语言的一致性</h3>
+    <ul>
+      <li><b>首页磁贴</b>：与商机线索页驾驶舱磁贴同一语言（统计 + 实体网格 + 色条识别）。</li>
+      <li><b>二级列表</b>：筛选左抽屉 + 已选 chips + 卡流，同电商范式。</li>
+      <li><b>五页一套心智</b>：线索页 / 详情页 / 配置向导 / 报价工作台 / 配件页——按页面类型取用「工作台双抽屉」或「列表两级」两种范式。</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+document.querySelectorAll('[data-clone-from]').forEach(function (el) {
+  var src = document.querySelector(el.getAttribute('data-clone-from'));
+  if (src) el.innerHTML = src.innerHTML;
+});
+</script>
+</body>
+</html>

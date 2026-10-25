@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>交付工作流 · SkillStudio 画布原型(成本表/方案表 → 报价单)</title>
+<!-- 原型 = 规格书:界面形态对齐现有工作流画布(SkillStudio 三栏:使用说明/画布/试运行)。
+     实现 = docs/交付工作流方案.md。值来源 = tokens.css;本页内联同值兜底,单文件打开不裸奔。 -->
+<style>
+  /* token 兜底(仓库内打开时 tokens.css 以真实值覆盖) */
+  :root {
+    --cpq-bg-primary: #F2F6FC; --cpq-bg-elevated: #ffffff;
+    --cpq-glass-card-bg: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72));
+    --cpq-glass-card-shadow: 0 10px 30px rgba(22,119,255,0.10);
+    --cpq-text-primary: #1d2129; --cpq-text-secondary: #4e5969; --cpq-text-muted: #86909c;
+    --cpq-accent-primary: #1677FF; --cpq-accent-on-primary: #fff; --cpq-accent-success: #22c55e; --cpq-accent-warning: #fa8c16;
+    --cpq-border-primary: rgba(22,119,255,0.10); --cpq-border-light: rgba(22,119,255,0.16);
+    --cpq-overlay-w4: rgba(22,119,255,0.04); --cpq-overlay-w6: rgba(22,119,255,0.08); --cpq-overlay-w10: rgba(22,119,255,0.10);
+    --cpq-radius-sm: 4px; --cpq-radius-md: 6px; --cpq-radius-lg: 8px; --cpq-radius-full: 999px;
+    --cpq-space-1: 4px; --cpq-space-2: 8px; --cpq-space-3: 12px; --cpq-space-4: 16px; --cpq-space-5: 24px;
+    --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    --cpq-font-size-xs: 11px; --cpq-font-size-sm: 12px; --cpq-font-size-base: 14px; --cpq-font-size-xl: 20px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: var(--cpq-font-family); font-size: var(--cpq-font-size-base); color: var(--cpq-text-primary); background: var(--cpq-bg-primary); }
+  .rf-canvas { height: 100vh; display: flex; flex-direction: column; }
+
+  /* ── 顶栏 ── */
+  .rf-toolbar { display: flex; align-items: center; justify-content: space-between; padding: var(--cpq-space-2) var(--cpq-space-4); border-bottom: 1px solid var(--cpq-border-primary); background: var(--cpq-bg-elevated); }
+  .rf-tip { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
+  .rf-actions { display: flex; gap: var(--cpq-space-2); align-items: center; }
+  .rf-btn { border: 1px solid var(--cpq-border-light); background: var(--cpq-bg-elevated); color: var(--cpq-text-primary); border-radius: var(--cpq-radius-sm); padding: 3px 10px; font-size: var(--cpq-font-size-sm); cursor: pointer; font-family: inherit; }
+  .rf-version { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+  .rf-badge { font-size: 10px; padding: 0 6px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary); font-weight: 600; }
+
+  /* ── 三栏 ── */
+  .main-content { flex: 1; display: grid; grid-template-columns: 240px 1fr 340px; min-height: 0; }
+  .left-panel { border-right: 1px solid var(--cpq-border-primary); padding: var(--cpq-space-3); overflow-y: auto; background: var(--cpq-bg-elevated); }
+  .lp-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--cpq-space-2); }
+  .lp-title { font-weight: 600; font-size: var(--cpq-font-size-sm); }
+  .lp-readonly-tag { margin-left: 6px; font-size: 10px; color: var(--cpq-text-muted); border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); padding: 0 5px; }
+  .lp-preview { font-size: var(--cpq-font-size-xs); line-height: 1.7; color: var(--cpq-text-secondary); white-space: pre-wrap; margin: 0; font-family: inherit; }
+  .lp-hint { margin-top: var(--cpq-space-2); font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+
+  .center-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
+  .rf-legend { display: flex; gap: var(--cpq-space-4); padding: var(--cpq-space-2) var(--cpq-space-3); font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); }
+  .rf-leg-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--cpq-accent-primary); margin-right: 4px; }
+  .rf-flow-wrap { flex: 1; overflow: auto; position: relative;
+    background-image: radial-gradient(rgba(127,127,127,0.16) 1px, transparent 1px); background-size: 20px 20px; }
+  .flow-inner { position: relative; width: 1240px; height: 620px; }
+
+  /* ── vue-flow 风格节点卡(对齐 ReasoningNodeVf:268px 玻璃卡,左右 Handle)── */
+  .rf-node-vf { position: absolute; width: 190px; padding: 9px 12px; border-radius: var(--cpq-radius-md);
+    background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-border-primary);
+    box-shadow: var(--cpq-glass-card-shadow); cursor: pointer; transition: box-shadow .2s ease, border-color .2s ease, opacity .2s ease; }
+  .rf-head { display: flex; align-items: center; gap: 7px; }
+  .rf-icon { width: 24px; height: 24px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w6); display: flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+  .rf-label { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rf-type { font-size: 10px; color: var(--cpq-text-secondary); }
+  .rf-desc { font-size: 11px; color: var(--cpq-text-secondary); margin-top: 5px; line-height: 1.45;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .rf-node-vf--running { border-color: var(--cpq-accent-primary) !important; box-shadow: 0 0 16px rgba(22,119,255,0.35); }
+  .rf-node-vf--done { border-color: var(--cpq-accent-success) !important; }
+  .rf-handle { position: absolute; left: -5px; top: 50%; transform: translateY(-50%); width: 9px; height: 9px; border-radius: 50%; background: var(--cpq-bg-elevated); border: 2px solid var(--cpq-accent-primary); }
+  .rf-handle--out { left: auto; right: -5px; }
+  .rf-handle-label { position: absolute; right: -26px; font-size: 10px; color: var(--cpq-text-muted); }
+
+  /* 登记表字段(线索登记回填节点内嵌,对齐 agent_fill 的线索登记表卡) */
+  .rf-fields { margin-top: 7px; display: flex; flex-direction: column; gap: 3px; max-height: 96px; overflow: hidden; }
+  .rf-fld { display: flex; align-items: center; gap: 5px; font-size: 10px; }
+  .rf-fld-dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--cpq-text-muted); }
+  .rf-fld-dot--filled { background: var(--cpq-accent-success); }
+  .rf-fld-dot--asked { background: var(--cpq-accent-warning); }
+  .rf-fld-lb { color: var(--cpq-text-secondary); }
+  .rf-fld-v { color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rf-fld-st { margin-left: auto; color: var(--cpq-text-muted); }
+  .rf-fld-st--asked { color: var(--cpq-accent-warning); }
+  .rf-fld-st--filled { color: var(--cpq-accent-success); }
+  .rf-tag-auto { font-size: 9px; padding: 0 4px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary); margin-left: auto; }
+
+  /* ── 右栏:试运行(内嵌真实 AI 对话)── */
+  .right-panel { border-left: 1px solid var(--cpq-border-primary); background: var(--cpq-bg-elevated); display: flex; flex-direction: column; min-height: 0; }
+  .rp-head { display: flex; align-items: center; justify-content: space-between; padding: var(--cpq-space-2) var(--cpq-space-3); border-bottom: 1px solid var(--cpq-border-primary); }
+  .rp-title { font-weight: 600; font-size: var(--cpq-font-size-sm); }
+  .rp-chat { flex: 1; overflow-y: auto; padding: var(--cpq-space-3); display: flex; flex-direction: column; gap: var(--cpq-space-2); }
+  .rp-chat .bubble { max-width: 94%; padding: var(--cpq-space-2) var(--cpq-space-3); border-radius: var(--cpq-radius-md); font-size: var(--cpq-font-size-sm); }
+  .rp-chat .bubble.user { align-self: flex-end; background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); }
+  .rp-chat .bubble.ai { align-self: flex-start; background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-border-light); }
+  .rp-chat .bubble.ai .tag { display: block; font-size: 10px; color: var(--cpq-text-muted); margin-bottom: 2px; }
+  .rp-card { align-self: stretch; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); background: var(--cpq-bg-primary); overflow: hidden; }
+  .rp-card .rp-card-head { padding: 4px var(--cpq-space-2); font-size: 10px; color: var(--cpq-text-muted); background: var(--cpq-overlay-w4); }
+  .rp-card .rp-card-body { padding: var(--cpq-space-2); font-size: var(--cpq-font-size-xs); }
+  .rp-card table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-xs); }
+  .rp-card td { padding: 2px 4px; border-bottom: 1px dashed var(--cpq-border-light); }
+  .rp-card td:first-child { color: var(--cpq-text-secondary); }
+  .rp-card .opts { display: flex; flex-wrap: wrap; gap: 4px; padding: var(--cpq-space-1) var(--cpq-space-2) var(--cpq-space-2); }
+  .rp-card .opts button { border: 1px solid var(--cpq-accent-primary); color: var(--cpq-accent-primary); background: transparent; border-radius: var(--cpq-radius-sm); font-size: var(--cpq-font-size-xs); padding: 2px 8px; cursor: pointer; font-family: inherit; }
+  .rp-card .opts button:hover { background: var(--cpq-accent-primary); color: #fff; }
+  .rp-card.answered { opacity: .55; }
+  .rp-card .answered-mark { padding: 0 var(--cpq-space-2) var(--cpq-space-1); font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); }
+
+  /* ── 节点抽屉(对齐 ReasoningNodeDrawer:点节点右侧滑出)── */
+  .drawer-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.25); z-index: 40; }
+  .drawer { display: none; position: fixed; top: 0; right: 0; bottom: 0; width: 360px; background: var(--cpq-bg-elevated); border-left: 1px solid var(--cpq-border-primary); z-index: 41; padding: var(--cpq-space-4); overflow-y: auto; box-shadow: -12px 0 30px rgba(0,0,0,0.12); }
+  .drawer.open, .drawer-mask.open { display: block; }
+  .drawer h3 { margin: 0 0 var(--cpq-space-1); font-size: var(--cpq-font-size-base); }
+  .drawer .d-kind { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); margin-bottom: var(--cpq-space-3); }
+  .d-sec { margin-bottom: var(--cpq-space-3); }
+  .d-sec h4 { margin: 0 0 var(--cpq-space-1); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
+  .d-sec .d-body { font-size: var(--cpq-font-size-xs); line-height: 1.6; color: var(--cpq-text-primary); background: var(--cpq-overlay-w4); border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2); white-space: pre-wrap; }
+  .drawer .d-close { position: absolute; top: 10px; right: 12px; border: none; background: transparent; font-size: 16px; cursor: pointer; color: var(--cpq-text-muted); }
+</style>
+</head>
+<body>
+<div class="rf-canvas">
+  <div class="rf-toolbar">
+    <span class="rf-tip">交付工作流 · 成本表/方案表 → 报价单 · <span class="rf-badge">画布连线(点边删线)· 单击节点开配置 · 右栏试运行验证</span></span>
+    <div class="rf-actions">
+      <button class="rf-btn">撤销</button>
+      <button class="rf-btn">重做</button>
+      <span class="rf-version">v1 · draft</span>
+    </div>
+  </div>
+
+  <div class="main-content">
+    <!-- 左栏:使用说明(随会话自动下发大脑) -->
+    <aside class="left-panel">
+      <div class="lp-head">
+        <span class="lp-title">使用说明<span class="lp-readonly-tag">已生效</span></span>
+        <button class="rf-btn">编辑</button>
+      </div>
+      <pre class="lp-preview">本工作流把用户给的工件(成本表/方案表)办成报价单。
+
+先看后落:工件先解析,把识别结果用文件自己的话讲给用户;
+能推断的(客户名/机型)带推断值确认,不空手问。
+必填不漏:线索登记按槽位契约自动回填(标来源),缺口逐个反问;
+用户说不用填的记「用户已知悉」。
+写动作必确认:落草稿/提交/加价/出件,预览原样字段后经确认卡执行;
+客户名等关键字段逐字展示,以用户最新说法为准。
+每个节点的事实以工具返回为准;查不到就如实说明。</pre>
+      <div class="lp-hint">此规则随每轮会话自动下发大脑;节点抽屉改的工具/契约无需在这里重复维护。</div>
+    </aside>
+
+    <!-- 中栏:画布(试运行时节点逐步高亮 running/done) -->
+    <main class="center-panel">
+      <div class="rf-legend">
+        <span><i class="rf-leg-dot"></i>智能体/工具节点<span style="color:var(--cpq-text-muted)"> · 蓝边发光=运行中,绿边=完成</span></span>
+        <span><i class="rf-leg-dot" style="background:var(--cpq-accent-warning)"></i>分流(condition):真=成本表 / 假=方案表</span>
+      </div>
+      <div class="rf-flow-wrap"><div class="flow-inner" id="flowInner"></div></div>
+    </main>
+
+    <!-- 右栏:试运行(内嵌真实 AI 对话) -->
+    <aside class="right-panel">
+      <div class="rp-head">
+        <span class="rp-title">试运行<span style="font-size:10px;color:var(--cpq-text-muted)">(内嵌·预览·支持工程师)</span></span>
+        <button class="rf-btn" onclick="resetRun()">重置测试</button>
+      </div>
+      <div class="rp-chat" id="chat"></div>
+      <div style="padding: var(--cpq-space-2); border-top: 1px solid var(--cpq-border-primary);">
+        <button class="rf-btn" id="nextBtn" style="width:100%;" onclick="nextStep()">下一步(模拟用户/大脑推进)</button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- 节点配置抽屉 -->
+  <div class="drawer-mask" id="drawerMask" onclick="closeDrawer()"></div>
+  <div class="drawer" id="drawer">
+    <button class="d-close" onclick="closeDrawer()">✕</button>
+    <div id="drawerBody"></div>
+  </div>
+</div>
+
+<script>
+/* 输出物/产物槽(对齐节点抽屉既有体系:output_kind 交接轴 + 落库型/文件型 + 查看方式) */
+const OUT = {
+  n0:  { kind: 'intake_summary(解析摘要)', type: '运行时对象', view: '节点卡「查看完整」弹窗,不落库', hand: 'N1 商机定位' },
+  n1:  { kind: 'opportunity', type: '落库型', view: '业务页面查看,不另出文件', hand: 'N2 线索登记回填' },
+  n2:  { kind: 'requirement_draft', type: '落库型(原生)', view: '需求单页面查看', hand: 'N3 落位' },
+  n3c: { kind: 'cost_sheet + bom_scheme(current 最小方案)', type: '落库型', view: '成本核算节点查看', hand: 'N4 提交推进' },
+  n3p: { kind: 'bom_scheme_draft', type: '落库型(原生)', view: 'BOM 方案节点查看', hand: '成本(库价/等成本表)→ N4' },
+  n4:  { kind: 'quotation(成本口径草稿)', type: '落库型', view: '报价工作台查看', hand: 'N5 加价' },
+  n5:  { kind: 'quotation(更新)+ 改前改后对比报告', type: '落库更新 + 运行时对象', view: '报价工作台 + 查看完整', hand: 'N6 出件' },
+  n6:  { kind: 'artifact-share(报价单 xlsx + 免登录链接)', type: '文件型(产物模板/分享)', view: '免登录下载 + 商机附件桶归档', hand: '交付完成(customer 视角走外发审批闸)' },
+};
+
+/* ── 节点配置(=ReasoningNodeDrawer 抽屉里的内容,全部摊开)── */
+const NODES = {
+  n0: { x: 16, y: 260, icon: '📥', label: '接收识别', type: 'input · 判定节点',
+    tool: 'parse_preview()(三道闸:意图>类型>试解析)',
+    input: '聊天附件(会话暂存)+用户话', output: '工件类型 + 解析摘要',
+    pause: '识别失败/类型不明 → 反问卡',
+    prompt: '用户给文件时先用解析工具看内容,把识别结果用文件自己的话讲给用户。\n工件判定:表格含成本列→成本表(真);含配置/L6行→方案表(假);判不了→反问。' },
+  n1: { x: 190, y: 260, icon: '🏢', label: '商机定位 / 建档', type: 'agent · 工具节点',
+    tool: 'resolve_target(customer_name) → 查 / create()',
+    input: '客户名(从文件名/对话推断,带推断值确认)+归属业务', output: 'opportunity_id',
+    pause: '客户名确认卡;缺归属业务 → 反问卡',
+    prompt: '客户名以用户最新说法为准,逐字使用;预览原样展示将要落库的客户名与归属业务,用户点头才创建。' },
+  n2: { x: 364, y: 260, icon: '📋', label: '线索登记回填', type: 'agent_fill · 登记表',
+    tool: 'parse_meta → requirement_slots 回填 + save_requirement_draft()',
+    input: '解析摘要 + 槽位契约', output: '需求草稿(slots,含来源标记)',
+    pause: '契约缺口(维保年限/平台类型)→ 反问卡',
+    prompt: '能从表格自动回填的槽位直接落,标来源「表格解析」;缺口逐个反问,一次一卡;用户说不用填的记「用户已知悉」。',
+    fields: [
+      { label: '机型', value: 'ZS22EV1-Z', status: 'filled', auto: '表格解析' },
+      { label: '机箱形态', value: '2U', status: 'filled', auto: '表格解析' },
+      { label: '数量', value: '1台×3配置', status: 'filled', auto: '表格解析' },
+      { label: '维保年限', status: 'asked' },
+    ] },
+  cond: { x: 538, y: 268, icon: '🔀', label: '工件分流', type: 'condition · 真=成本表 / 假=方案表',
+    tool: 'intake 分流表(数据驱动,新工件加一行)',
+    input: '工件类型', output: '成本表→上出口 | 方案表→下出口',
+    pause: '—',
+    prompt: '成本表(真):落成本核算,最小方案由成本行生成;方案表(假):落BOM方案,成本由库价推导或等成本表。' },
+  n3c: { x: 712, y: 130, icon: '💰', label: '成本落位 + 最小方案', type: 'tool · 成本表分支',
+    tool: 'cost_draft() + 原件归档 + bom_scheme(current)',
+    input: '解析 configs + opportunity_id', output: '成本草稿 + 最小 current 方案 + 归档附件',
+    pause: '落草稿前确认卡(摘要+归档说明)',
+    prompt: '落位即归档:原件进「成本核算」桶;同名草稿原地更新不重复建版本;最小方案满足提交前置,不靠权限绕过。' },
+  n3p: { x: 712, y: 420, icon: '🧩', label: 'BOM 落位 + 库价成本', type: 'tool · 方案表分支',
+    tool: 'bom_scheme_draft() + 成本由 KP 库最新价推导',
+    input: '方案 configs + opportunity_id', output: 'BOM 方案草稿(current) + 推导成本',
+    pause: '落位前确认卡',
+    prompt: '方案表里的配置行转方案 configs;成本缺口的处理(等成本表/库价推导)由用户在反问卡选择。' },
+  n4: { x: 886, y: 268, icon: '🚀', label: '提交推进', type: 'tool · 确认卡',
+    tool: 'submit_cost_sheet() + convert_to_quotation()',
+    input: 'sheet_id + 用户确认', output: 'quotation_id + 流程推进 + 通知',
+    pause: '确认卡(预览:表名/配置数/将发生的事/通知对象)',
+    prompt: '预览原样转述(含通知对象);用户明确同意才执行;执行后同步库内状态复述。' },
+  n5: { x: 1010, y: 268, icon: '📈', label: '加价', type: 'tool · 确认卡',
+    tool: 'set_quote_margin()(工作台同口径重算)',
+    input: '口径(加价率/利润率,反问)+ margin_pct', output: '重算后的报价单(改前改后对比)',
+    pause: '口径反问卡 + 预览确认卡',
+    prompt: '口径由用户定:加价率(成本基准)与利润率(售价基准)数字不同,可换算并列差异;预览确认才写库。' },
+  n6: { x: 1134, y: 268, icon: '📤', label: '出件', type: 'tool · 确认卡',
+    tool: 'share_quote(view)(服务端渲染 xlsx)',
+    input: 'quotation_id + 视角(反问)', output: '免登录分享链接 + 归档附件',
+    pause: '视角反问卡(internal/scheme;customer 永远走外发审批闸)',
+    prompt: '默认 internal;客户视角=外发,必须走审批闸,助手不代办。' },
+};
+/* 边(vue-flow 贝塞尔):from → to,标签 */
+const EDGES = [
+  ['n0', 'n1', ''], ['n1', 'n2', ''], ['n2', 'cond', ''],
+  ['cond', 'n3c', '真 · 成本表'], ['cond', 'n3p', '假 · 方案表'],
+  ['n3c', 'n4', ''], ['n3p', 'n4', ''], ['n4', 'n5', ''], ['n5', 'n6', ''],
+];
+
+/* ── 画布渲染 ── */
+const W = 168, H = 58;
+function drawCanvas() {
+  const inner = document.getElementById('flowInner');
+  let svg = `<svg width="100%" height="100%" style="position:absolute;inset:0;pointer-events:none;">`;
+  for (const [a, b, label] of EDGES) {
+    const A = NODES[a], B = NODES[b];
+    const x1 = A.x + W, y1 = A.y + H / 2, x2 = B.x, y2 = B.y + H / 2;
+    const mx = Math.max(40, (x2 - x1) / 2);
+    svg += `<path d="M ${x1} ${y1} C ${x1 + mx} ${y1}, ${x2 - mx} ${y2}, ${x2} ${y2}" fill="none" stroke="rgba(22,119,255,0.35)" stroke-width="1.5" id="edge-${a}-${b}"/>`;
+    if (label) svg += `<text x="${(x1 + x2) / 2 - 14}" y="${(y1 + y2) / 2 - 6}" font-size="10" fill="#86909c">${label}</text>`;
+  }
+  svg += '</svg>';
+  inner.innerHTML = svg;
+  for (const [key, n] of Object.entries(NODES)) {
+    const el = document.createElement('div');
+    el.className = 'rf-node-vf'; el.id = 'node-' + key;
+    el.style.left = n.x + 'px'; el.style.top = n.y + 'px';
+    let fields = '';
+    if (n.fields) {
+      fields = '<div class="rf-fields">' + n.fields.map(f =>
+        `<div class="rf-fld"><span class="rf-fld-dot--${f.status} rf-fld-dot" style="background:${f.status === 'asked' ? 'var(--cpq-accent-warning)' : 'var(--cpq-accent-success)'}"></span>` +
+        `<span class="rf-fld-lb">${f.label}</span><span class="rf-fld-v">${f.value || ''}</span>` +
+        (f.auto ? `<span class="rf-tag-auto">${f.auto}</span>` : (f.status === 'asked' ? '<span class="rf-fld-st--asked rf-fld-st">缺·反问</span>' : '')) +
+        `</div>`).join('') + '</div>';
+    }
+    el.innerHTML = `<div class="rf-head"><div class="rf-icon">${n.icon}</div><div><div class="rf-label">${n.label}</div><div class="rf-type">${n.type}</div></div></div>` +
+      `<div class="rf-desc">${n.tool}</div>` + fields +
+      `<div class="rf-handle"></div><div class="rf-handle rf-handle--out"></div>`;
+    el.onclick = () => openDrawer(key);
+    inner.appendChild(el);
+  }
+}
+
+/* ── 试运行脚本(右栏对话 ↔ 画布节点高亮同步)── */
+const STEPS = [
+  { node: 'n0', user: '📎 这是成本表,帮我看看', ai: '看了一下:识别到 <b>3 个配置</b>(CFG1/CFG2/CFG3,机型 <b>ZS22EV1-Z</b>,各 1 台、4 行配件,整机成本未填)。<br>工件类型:<b>成本表</b> → 走「成本落位」分支。' },
+  { node: 'n1', user: '客户是王瑞,新建一个商机挂进去', card: { head: '反问卡 · 商机定位/建档', table: [['客户名(推断)', '<b>王瑞</b>(来源:文件路径)'], ['归属业务', '<b>Frank</b>(来源:对话)']], opts: ['确认,按这个建'] }, ai: '✅ 商机已建:<b>OPP-20261017…</b>(客户:王瑞,归属 Frank)' },
+  { node: 'n2', user: '好', card: { head: '反问卡 · 线索登记回填', table: [['机型', 'ZS22EV1-Z ✓(表格解析)'], ['机箱形态', '2U ✓(表格解析)'], ['数量', '1台×3配置 ✓(表格解析)'], ['维保年限', '❓ 缺·反问']], opts: ['维保 3 年', '维保 5 年', '不填,已知悉'] }, ai: '✅ 线索登记已回填:自动 3 项(标来源)+ 你补 1 项。' },
+  { node: 'n3c', user: '继续', card: { head: '确认卡 · 成本落位+最小方案', table: [['成本草稿', '3 个配置(同名原地更新)'], ['原件归档', '成本核算桶'], ['最小方案', '由成本行自动生成(满足提交前置)']], opts: ['确认落位'] }, ai: '✅ 成本草稿落「成本核算」节点,最小 current 方案已生成——非管理员也能走通提交前置。' },
+  { node: 'n4', user: '提交,转报价', card: { head: '确认卡 · 提交推进', table: [['成本表', '成本-Lena…(3 个配置)'], ['将发生', '生成成本口径报价草稿 · 推进「报价单」节点 · 通知 Frank']], opts: ['确认执行', '取消'] }, ai: '✅ 报价草稿 <b>QUO-20261017…</b> 已生成,流程推进到「报价单」节点。' },
+  { node: 'n5', user: '利率加15个点', card: { head: '反问卡 · 加价口径', table: [['口径A', '加价率 15%(成本基准)→ 28,640.75'], ['口径B', '利润率 15%(售价基准)→ 加价 17.65%']], opts: ['口径A:加价率15%', '口径B:利润率15%'] }, ai: '✅ 按工作台口径重算:<b>24,905 → 28,640.75</b>(12 行更新)。' },
+  { node: 'n6', user: '给我一张报价单', card: { head: '确认卡 · 出件', table: [['视角', 'internal(默认)——customer 视角走外发审批闸'], ['有效期', '7 天,免登录,可撤销']], opts: ['生成内部链接'] }, ai: '✅ 报价单出好了:<b>/api/share/…</b>(已归档商机附件)。交付完成 🎉' },
+];
+let stepIdx = 0;
+const state = {};
+
+function setNode(key, cls) {
+  const el = document.getElementById('node-' + key);
+  if (!el) return;
+  el.classList.remove('running', 'done');
+  if (cls) el.classList.add(cls);
+}
+
+async function nextStep() {
+  if (stepIdx >= STEPS.length) return;
+  const st = STEPS[stepIdx];
+  const chat = document.getElementById('chat');
+  say_user(st.user);
+  setNode(st.node, 'running');
+  await sleep(420);
+  if (st.card) emit_card(st.card);
+  await sleep(420);
+  say_ai(st.node, st.ai);
+  setNode(st.node, 'done');
+  stepIdx++;
+  if (stepIdx >= STEPS.length) {
+    document.getElementById('nextBtn').textContent = '交付完成 ✓';
+    document.getElementById('nextBtn').disabled = true;
+  }
+}
+
+function say_user(t) {
+  const el = document.createElement('div');
+  el.className = 'bubble user'; el.textContent = t;
+  document.getElementById('chat').appendChild(el);
+  document.getElementById('chat').scrollTop = 1e6;
+}
+function say_ai(node, html) {
+  const el = document.createElement('div');
+  el.className = 'bubble ai';
+  el.innerHTML = `<span class="tag">⚙ ${NODES[node].label} · ${NODES[node].tool.split('(')[0]}</span>${html}`;
+  document.getElementById('chat').appendChild(el);
+  document.getElementById('chat').scrollTop = 1e6;
+}
+function emit_card(c) {
+  const el = document.createElement('div');
+  el.className = 'rp-card';
+  el.innerHTML = `<div class="rp-card-head">${c.head} · 确认卡/反问卡</div><div class="rp-card-body"><table>${(c.table || []).map(r => `<tr><td>${r[0]}</td><td>${r[1]}</td></tr>`).join('')}</table></div>` +
+    `<div class="opts">${(c.opts || []).map(o => `<button onclick="answer(this,'${o}')">${o}</button>`).join('')}</div>`;
+  document.getElementById('chat').appendChild(el);
+  document.getElementById('chat').scrollTop = 1e6;
+}
+function answer(btn, label) {
+  const card = btn.closest('.rp-card');
+  card.classList.add('answered');
+  const a = document.createElement('div');
+  a.className = 'answered-mark';
+  a.textContent = '✓ 已选:' + label;
+  card.appendChild(a);
+  btn.parentElement.querySelectorAll('button').forEach(b => b.disabled = true);
+}
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function resetRun() {
+  stepIdx = 0;
+  Object.keys(NODES).forEach(k => setNode(k, null));
+  document.getElementById('chat').innerHTML = '';
+  const b = document.getElementById('nextBtn');
+  b.disabled = false; b.textContent = '下一步(模拟用户/大脑推进)';
+}
+
+/* ── 节点抽屉 ── */
+function openDrawer(key) {
+  const n = NODES[key];
+  const o = OUT[key] || {};
+  document.getElementById('drawerBody').innerHTML =
+    `<h3>${n.icon} ${n.label}</h3><div class="d-kind">${n.type}</div>
+     <div class="d-sec"><h4>调用(工具/核心函数)</h4><div class="d-body">${n.tool}</div></div>
+     <div class="d-sec"><h4>输入 → 输出</h4><div class="d-body">${n.input}\n→\n${n.output}</div></div>
+     <div class="d-sec"><h4>输出物 / 产物槽</h4><div class="d-body">output_kind:${o.kind || '—'}\n类型:${o.type || '—'}\n查看方式:${o.view || '—'}\n交接去向:${o.hand || '—'}</div></div>
+     <div class="d-sec"><h4>暂停条件</h4><div class="d-body">${n.pause}</div></div>
+     <div class="d-sec"><h4>节点提示词(画布抽屉同款,无隐藏提示词)</h4><div class="d-body">${n.prompt}</div></div>`;
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawerMask').classList.add('open');
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawerMask').classList.remove('open');
+}
+
+drawCanvas();
+</script>
+</body>
+</html>

@@ -1,0 +1,922 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>商机线索页重构 · 高保真原型</title>
+<style>
+/* ===== Glass Console 真实 token（复制自 frontend/src/styles/tokens.css）===== */
+:root {
+  --cpq-accent-primary: #1677FF;
+  --cpq-accent-primary-light: #4096ff;
+  --cpq-accent-danger: #FF6B6B;
+  --cpq-accent-on-primary: #ffffff;
+  --cpq-color-success: #52C9A0;
+  --cpq-color-warning: #faad14;
+  --cpq-color-purple: #a855f7;
+  --cpq-color-orange: #fa8c16;
+  --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+  --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+  --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+  --cpq-overlay-danger10: rgba(255, 107, 107, 0.10);
+  --cpq-overlay-success15: rgba(82, 201, 160, 0.15);
+  --cpq-overlay-warn30: rgba(244, 210, 138, 0.30);
+  --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --cpq-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  --cpq-radius-sm: 8px; --cpq-radius-md: 12px; --cpq-radius-lg: 16px; --cpq-radius-xl: 20px;
+  --cpq-accent-gradient: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --cpq-bg-primary: #08090B; --cpq-bg-secondary: #101217;
+  --cpq-text-primary: #E8ECEF; --cpq-text-secondary: #9BA1AA; --cpq-text-muted: #6E7582;
+  --cpq-border-primary: rgba(255,255,255,.10); --cpq-border-secondary: rgba(255,255,255,.06);
+  --cpq-bg-card: #1e1e1e; --cpq-bg-elevated: #252525; --cpq-bg-input: #2a2a2a;
+  --cpq-bg-selected: rgba(22,119,255,.18);
+  --cpq-shadow-color-soft: rgba(0,0,0,.30); --cpq-shadow-color-strong: rgba(0,0,0,.50);
+  --cpq-overlay-w3: rgba(255,255,255,.03); --cpq-overlay-w6: rgba(255,255,255,.06); --cpq-overlay-w15: rgba(255,255,255,.15);
+  --cpq-overlay-b20: rgba(0,0,0,.20); --cpq-overlay-b85: rgba(8,9,11,.85);
+  --cpq-bg-gradient: radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22,119,255,.10), transparent 60%), radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114,46,209,.08), transparent 60%), linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+  --cpq-glass-1-bg: rgba(255,255,255,.06); --cpq-glass-2-bg: rgba(255,255,255,.09);
+  --cpq-glass-border: rgba(255,255,255,.11); --cpq-glass-border-strong: rgba(22,119,255,.40);
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --cpq-bg-primary: #F2F6FC; --cpq-bg-secondary: #F0F4FA;
+  --cpq-text-primary: #1d2129; --cpq-text-secondary: #4e5969; --cpq-text-muted: #86909c;
+  --cpq-border-primary: rgba(22,119,255,.10); --cpq-border-secondary: rgba(22,119,255,.06);
+  --cpq-bg-card: #ffffff; --cpq-bg-elevated: #ffffff; --cpq-bg-input: #ffffff;
+  --cpq-bg-selected: rgba(22,119,255,.10);
+  --cpq-shadow-color-soft: rgba(22,119,255,.08); --cpq-shadow-color-strong: rgba(22,119,255,.14);
+  --cpq-overlay-w3: rgba(255,255,255,.24); --cpq-overlay-w6: rgba(255,255,255,.42); --cpq-overlay-w15: rgba(255,255,255,.62);
+  --cpq-overlay-b20: rgba(255,255,255,.44); --cpq-overlay-b85: rgba(0,0,0,.45);
+  --cpq-bg-gradient: radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22,119,255,.16), transparent 55%), radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91,143,249,.12), transparent 60%), linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  --cpq-glass-1-bg: rgba(255,255,255,.40); --cpq-glass-2-bg: rgba(255,255,255,.55);
+  --cpq-glass-border: rgba(120,144,176,.38); --cpq-glass-border-strong: rgba(22,119,255,.45);
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: var(--cpq-font-family); font-size: 14px;
+  background: var(--cpq-bg-gradient); background-attachment: fixed;
+  color: var(--cpq-text-primary); min-height: 100vh;
+  transition: background .3s;
+}
+a { color: var(--cpq-accent-primary); text-decoration: none; cursor: pointer; }
+a:hover { text-decoration: underline; }
+
+/* ===== 原型标注条 ===== */
+.mock-bar {
+  position: sticky; top: 0; z-index: 100;
+  display: flex; align-items: center; gap: 16px;
+  padding: 8px 20px; font-size: 12px;
+  background: var(--cpq-overlay-b85); backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--cpq-border-primary);
+}
+.mock-bar .tag { color: var(--cpq-accent-primary); font-weight: 700; }
+.mock-bar .hint { color: var(--cpq-text-muted); }
+.mock-bar .spacer { flex: 1; }
+.mock-btn {
+  border: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-1-bg);
+  color: var(--cpq-text-primary); padding: 4px 12px; border-radius: 999px;
+  cursor: pointer; font-size: 12px; backdrop-filter: blur(10px);
+  transition: all .2s var(--cpq-ease-out-expo);
+}
+.mock-btn:hover { border-color: var(--cpq-glass-border-strong); }
+.mock-btn.active { background: var(--cpq-accent-gradient); color: #fff; border-color: transparent; }
+
+/* ===== 页面框架 ===== */
+.page { max-width: 1280px; margin: 0 auto; padding: 24px 24px 120px; }
+
+/* ===== 页头 ===== */
+.page-head {
+  display: flex; align-items: center; gap: 14px; margin-bottom: 14px;
+}
+.page-title { font-size: 20px; font-weight: 700; letter-spacing: .5px; }
+.page-title .sub {
+  font-size: 12px; font-weight: 400; color: var(--cpq-text-muted); margin-left: 10px;
+}
+.head-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+
+.icon-btn {
+  display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+  border: 1px solid var(--cpq-glass-border); border-radius: 10px;
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(14px);
+  color: var(--cpq-text-secondary); font-size: 13px; cursor: pointer;
+  box-shadow: 0 4px 16px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  transition: all .2s var(--cpq-ease-out-expo);
+}
+.icon-btn:hover { color: var(--cpq-text-primary); border-color: var(--cpq-glass-border-strong); transform: translateY(-1px); }
+.icon-btn svg { width: 15px; height: 15px; }
+.icon-btn.primary {
+  background: var(--cpq-accent-gradient); color: var(--cpq-accent-on-primary);
+  border: none; font-weight: 600; padding: 0 16px;
+  box-shadow: 0 6px 20px var(--cpq-overlay-a20);
+}
+.icon-btn.primary:hover { transform: translateY(-1px); box-shadow: 0 8px 26px var(--cpq-overlay-a20); }
+
+/* ===== 筛选行 ===== */
+.filter-row {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 14px;
+}
+.search-box {
+  flex: 1; display: flex; align-items: center; gap: 8px; height: 34px; padding: 0 14px;
+  background: var(--cpq-bg-input); border: 1px solid var(--cpq-border-primary);
+  border-radius: 10px; transition: border .2s;
+}
+.search-box:focus-within { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 3px var(--cpq-overlay-a8); }
+.search-box svg { width: 14px; height: 14px; color: var(--cpq-text-muted); flex-shrink: 0; }
+.search-box input { flex: 1; border: none; outline: none; background: transparent; color: var(--cpq-text-primary); font-size: 13px; }
+.filter-select {
+  display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px;
+  background: var(--cpq-bg-input); border: 1px solid var(--cpq-border-primary);
+  border-radius: 10px; font-size: 13px; color: var(--cpq-text-secondary); cursor: pointer;
+  white-space: nowrap;
+}
+.filter-select:hover { border-color: var(--cpq-accent-primary-light); }
+.filter-select.has-value { color: var(--cpq-accent-primary); border-color: var(--cpq-glass-border-strong); background: var(--cpq-bg-selected); }
+.filter-select .caret { color: var(--cpq-text-muted); font-size: 10px; }
+
+/* ===== KPI 折叠条 ===== */
+.kpi-strip {
+  display: flex; align-items: center; gap: 18px; height: 46px; padding: 0 18px;
+  border-radius: var(--cpq-radius-lg); margin-bottom: 14px;
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(14px);
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: 0 4px 16px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+  cursor: pointer; user-select: none;
+  transition: all .25s var(--cpq-ease-out-expo);
+}
+.kpi-strip:hover { border-color: var(--cpq-glass-border-strong); }
+.kpi-chip { display: flex; align-items: baseline; gap: 7px; font-size: 13px; }
+.kpi-chip .label { color: var(--cpq-text-muted); }
+.kpi-chip .val { font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; }
+.kpi-chip .val.blue { color: var(--cpq-accent-primary); }
+.kpi-chip .val.green { color: var(--cpq-color-success); }
+.kpi-chip .val.orange { color: var(--cpq-color-orange); }
+.kpi-strip .divider { width: 1px; height: 18px; background: var(--cpq-border-primary); }
+.kpi-strip .toggle { margin-left: auto; display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cpq-text-muted); }
+.kpi-strip .toggle .arr { transition: transform .25s var(--cpq-ease-out-expo); display: inline-block; }
+.kpi-strip.open .toggle .arr { transform: rotate(180deg); }
+
+/* ===== 图表展开区 ===== */
+.charts-zone {
+  max-height: 0; overflow: hidden; opacity: 0;
+  transition: max-height .45s var(--cpq-ease-out-expo), opacity .3s, margin .3s;
+}
+.charts-zone.open { max-height: 460px; opacity: 1; margin-bottom: 14px; }
+.charts-inner { display: flex; flex-direction: column; gap: 10px; }
+.period-row { display: flex; gap: 6px; align-items: center; }
+.period-row .note { margin-left: 8px; font-size: 11px; color: var(--cpq-text-muted); }
+.period-btn {
+  height: 28px; padding: 0 14px; border-radius: 999px; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-1-bg);
+  color: var(--cpq-text-secondary); backdrop-filter: blur(10px);
+}
+.period-btn.active { background: var(--cpq-bg-selected); color: var(--cpq-accent-primary); border-color: var(--cpq-glass-border-strong); font-weight: 600; }
+/* 图表横滑轨道：统一卡片尺寸，单排，左右滑动 */
+.rail-wrap { position: relative; }
+.chart-rail {
+  display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding: 2px 2px 8px; scrollbar-width: none; scroll-behavior: smooth;
+}
+.chart-rail::-webkit-scrollbar { display: none; }
+.chart-card {
+  flex: 0 0 370px; height: 258px; scroll-snap-align: start;
+  display: flex; flex-direction: column; padding: 14px 16px;
+  border-radius: var(--cpq-radius-lg);
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(14px);
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: 0 4px 16px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+}
+.chart-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; flex: none; }
+.chart-head .ct { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
+.chart-head .sub { font-size: 11px; color: var(--cpq-text-muted); margin-left: 8px; font-weight: 400; }
+.mini-seg { display: inline-flex; background: var(--cpq-overlay-a8); border-radius: 999px; padding: 2px; }
+.mini-seg i { font-style: normal; font-size: 11px; padding: 2px 10px; border-radius: 999px; color: var(--cpq-text-muted); cursor: pointer; }
+.mini-seg i.on { background: var(--cpq-bg-elevated); color: var(--cpq-accent-primary); font-weight: 600; box-shadow: 0 1px 4px var(--cpq-shadow-color-soft); }
+.chart-body { flex: 1; min-height: 0; display: flex; align-items: stretch; }
+.rail-arrow {
+  position: absolute; top: 45%; transform: translateY(-50%); z-index: 5;
+  width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-2-bg); backdrop-filter: blur(10px); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--cpq-text-secondary); font-size: 13px;
+  box-shadow: 0 4px 14px var(--cpq-shadow-color-soft);
+  transition: all .2s;
+}
+.rail-arrow:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-glass-border-strong); }
+.rail-arrow.left { left: -8px; }
+.rail-arrow.right { right: -8px; }
+.edge-fade { position: absolute; top: 0; bottom: 8px; width: 36px; pointer-events: none; z-index: 4; }
+.edge-fade.right { right: 0; background: linear-gradient(to left, var(--cpq-bg-primary), transparent); }
+/* 图表占位绘制 */
+.hbar { display: flex; align-items: center; gap: 8px; height: 22px; }
+.hbar .lb { width: 34px; font-size: 11px; color: var(--cpq-text-secondary); text-align: right; flex: none; }
+.hbar .tk { flex: 1; height: 10px; border-radius: 5px; background: var(--cpq-overlay-a8); overflow: hidden; }
+.hbar .tk i { display: block; height: 100%; border-radius: 5px; background: var(--cpq-accent-gradient); }
+.hbar .vl { width: 26px; font-size: 11px; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; flex: none; }
+.funnel { display: flex; flex-direction: column; gap: 7px; align-items: center; justify-content: center; flex: 1; }
+.funnel .step { height: 24px; border-radius: 6px; background: var(--cpq-accent-gradient); opacity: .9; display: flex; align-items: center; justify-content: center; color: #fff; font-size: 11px; font-weight: 600; }
+.donut-legend { display: flex; flex-direction: column; gap: 7px; justify-content: center; margin-left: 14px; }
+.donut-legend .li { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--cpq-text-secondary); }
+.donut-legend .li i { width: 9px; height: 9px; border-radius: 3px; flex: none; }
+.donut-legend .li b { color: var(--cpq-text-primary); margin-left: auto; padding-left: 16px; }
+
+/* ===== 表格 ===== */
+.table-card {
+  border-radius: var(--cpq-radius-lg); overflow: hidden;
+  background: var(--cpq-glass-card-bg); backdrop-filter: blur(14px);
+  border: 1px solid var(--cpq-glass-border);
+  box-shadow: 0 4px 16px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+}
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+thead th {
+  text-align: left; padding: 11px 14px; font-size: 12px; font-weight: 600;
+  color: var(--cpq-text-muted); border-bottom: 1px solid var(--cpq-border-primary);
+  background: var(--cpq-overlay-w3); white-space: nowrap;
+}
+thead th.sortable { cursor: pointer; }
+thead th.sortable:hover { color: var(--cpq-text-primary); }
+thead th .sort-ind { font-size: 10px; margin-left: 3px; color: var(--cpq-accent-primary); }
+tbody td { padding: 12px 14px; border-bottom: 1px solid var(--cpq-border-secondary); vertical-align: middle; }
+tbody tr { transition: background .15s; }
+tbody tr:hover { background: var(--cpq-overlay-a8); }
+tbody tr.selected { background: var(--cpq-bg-selected); }
+tbody tr:last-child td { border-bottom: none; }
+.opp-name { font-weight: 600; font-size: 13.5px; }
+.name-row { display: flex; align-items: center; gap: 8px; }
+.opp-meta { font-size: 12px; color: var(--cpq-text-muted); margin-top: 3px; }
+.time-cell { font-size: 12.5px; color: var(--cpq-text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.time-cell .rel { display: block; font-size: 11px; color: var(--cpq-text-muted); }
+.time-cell.updated { color: var(--cpq-text-primary); }
+
+/* 状态 tag 可下拉 */
+.status-tag {
+  display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 9px;
+  border-radius: 999px; font-size: 11.5px; cursor: pointer; user-select: none;
+  border: 1px solid transparent;
+}
+.status-tag .dot { width: 6px; height: 6px; border-radius: 50%; }
+.status-tag .caret { font-size: 9px; opacity: .6; }
+.st-pending { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
+.st-pending .dot { background: var(--cpq-accent-primary); }
+.st-won { background: var(--cpq-overlay-success15); color: #2ea77f; }
+.st-won .dot { background: var(--cpq-color-success); }
+.st-lost { background: var(--cpq-overlay-danger10); color: #e05656; }
+.st-lost .dot { background: var(--cpq-accent-danger); }
+.st-expired { background: var(--cpq-overlay-warn30); color: #b8860b; }
+.st-expired .dot { background: var(--cpq-color-warning); }
+
+/* checkbox */
+.cbx {
+  width: 15px; height: 15px; border-radius: 4px; cursor: pointer;
+  border: 1.5px solid var(--cpq-text-muted); display: inline-block; position: relative;
+  background: var(--cpq-bg-input); vertical-align: middle; transition: all .15s;
+}
+.cbx.checked { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.cbx.checked::after {
+  content: ''; position: absolute; left: 4.5px; top: 1.5px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
+.cbx.indeterminate { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.cbx.indeterminate::after {
+  content: ''; position: absolute; left: 3px; top: 6px; width: 7px; height: 2px; background: #fff;
+}
+
+/* 行尾 ⋯ */
+.row-menu-btn {
+  width: 28px; height: 28px; border-radius: 8px; border: none; cursor: pointer;
+  background: transparent; color: var(--cpq-text-muted); font-size: 16px; font-weight: 700;
+  letter-spacing: 1px; transition: all .15s;
+}
+.row-menu-btn:hover { background: var(--cpq-overlay-a10); color: var(--cpq-text-primary); }
+
+/* 下拉菜单（通用） */
+.dd {
+  position: absolute; z-index: 60; min-width: 150px; padding: 5px;
+  background: var(--cpq-bg-elevated); border: 1px solid var(--cpq-border-primary);
+  border-radius: 12px; box-shadow: 0 12px 32px var(--cpq-shadow-color-strong);
+  display: none; animation: ddIn .18s var(--cpq-ease-out-expo);
+}
+@keyframes ddIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
+.dd.show { display: block; }
+.dd-item {
+  display: flex; align-items: center; gap: 9px; padding: 8px 11px; border-radius: 8px;
+  font-size: 13px; color: var(--cpq-text-primary); cursor: pointer; white-space: nowrap;
+}
+.dd-item:hover { background: var(--cpq-overlay-a8); }
+.dd-item.danger { color: var(--cpq-accent-danger); }
+.dd-item.danger:hover { background: var(--cpq-overlay-danger10); }
+.dd-item .dot { width: 7px; height: 7px; border-radius: 50%; }
+.dd-item .check-mark { margin-left: auto; color: var(--cpq-accent-primary); font-weight: 700; font-size: 12px; }
+.dd-sep { height: 1px; background: var(--cpq-border-secondary); margin: 4px 8px; }
+
+/* ===== 浮动批量条 ===== */
+.batch-float {
+  position: fixed; left: 50%; bottom: 26px; transform: translate(-50%, 90px);
+  display: flex; align-items: center; gap: 14px; padding: 10px 18px;
+  border-radius: 999px; z-index: 80;
+  background: var(--cpq-glass-2-bg); backdrop-filter: blur(20px);
+  border: 1px solid var(--cpq-glass-border-strong);
+  box-shadow: 0 16px 40px var(--cpq-shadow-color-strong), 0 0 24px var(--cpq-overlay-a20);
+  opacity: 0; transition: all .3s var(--cpq-ease-spring, cubic-bezier(.34,1.56,.64,1));
+  pointer-events: none;
+}
+.batch-float.show { transform: translate(-50%, 0); opacity: 1; pointer-events: auto; }
+.batch-float .cnt { font-size: 13px; font-weight: 600; }
+.batch-float .cnt b { color: var(--cpq-accent-primary); font-size: 15px; }
+.batch-float button {
+  height: 32px; padding: 0 16px; border-radius: 999px; border: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 600;
+}
+.batch-float .bf-danger { background: var(--cpq-accent-danger); color: #fff; }
+.batch-float .bf-danger:hover { filter: brightness(1.08); }
+.batch-float .bf-ghost { background: transparent; color: var(--cpq-text-secondary); border: 1px solid var(--cpq-border-primary); }
+.batch-float .bf-ghost:hover { color: var(--cpq-text-primary); }
+
+/* ===== Modal ===== */
+.modal-mask {
+  position: fixed; inset: 0; z-index: 200; background: var(--cpq-overlay-b85);
+  backdrop-filter: blur(4px); display: none; align-items: center; justify-content: center;
+}
+.modal-mask.show { display: flex; animation: fadeIn .2s; }
+@keyframes fadeIn { from { opacity: 0; } }
+.modal {
+  width: 420px; border-radius: var(--cpq-radius-xl); padding: 24px;
+  background: var(--cpq-bg-elevated); border: 1px solid var(--cpq-border-primary);
+  box-shadow: 0 24px 64px rgba(0,0,0,.35);
+  animation: modalIn .25s var(--cpq-ease-out-expo);
+}
+@keyframes modalIn { from { opacity: 0; transform: translateY(14px) scale(.97); } }
+.modal h3 { font-size: 16px; margin-bottom: 6px; }
+.modal .desc { font-size: 12.5px; color: var(--cpq-text-muted); margin-bottom: 16px; line-height: 1.6; }
+.modal label { display: block; font-size: 12px; color: var(--cpq-text-secondary); margin: 12px 0 6px; }
+.modal input {
+  width: 100%; height: 36px; padding: 0 12px; border-radius: 10px;
+  border: 1px solid var(--cpq-border-primary); background: var(--cpq-bg-input);
+  color: var(--cpq-text-primary); font-size: 13px; outline: none;
+}
+.modal input:focus { border-color: var(--cpq-accent-primary); box-shadow: 0 0 0 3px var(--cpq-overlay-a8); }
+.modal .foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.btn-ghost, .btn-solid {
+  height: 34px; padding: 0 18px; border-radius: 10px; font-size: 13px; cursor: pointer;
+  font-weight: 500; border: 1px solid var(--cpq-border-primary); background: transparent;
+  color: var(--cpq-text-secondary);
+}
+.btn-solid { background: var(--cpq-accent-gradient); color: #fff; border: none; font-weight: 600; }
+.btn-solid:hover { filter: brightness(1.06); }
+
+/* ===== AI 线索页 ===== */
+#page-ai { display: none; }
+.ai-empty-note {
+  display: flex; align-items: center; gap: 10px; padding: 14px 18px; margin-bottom: 14px;
+  border-radius: var(--cpq-radius-md); font-size: 12.5px; color: var(--cpq-text-secondary);
+  background: var(--cpq-overlay-a8); border: 1px dashed var(--cpq-glass-border-strong);
+}
+.badge {
+  display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 10px;
+  border-radius: 999px; font-size: 11.5px; font-weight: 600;
+}
+.badge.chatting { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); }
+.badge.chatting .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cpq-accent-primary); animation: pulse 1.6s infinite; }
+.badge.plan { background: var(--cpq-overlay-success15); color: #2ea77f; }
+.badge.plan .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cpq-color-success); }
+.badge.stale { background: var(--cpq-overlay-warn30); color: #b8860b; }
+.badge.stale .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--cpq-color-warning); }
+@keyframes pulse { 50% { opacity: .35; } }
+.ai-summary { max-width: 340px; }
+.ai-summary .req { font-weight: 600; font-size: 13px; line-height: 1.45; }
+.ai-summary .src { font-size: 11.5px; color: var(--cpq-text-muted); margin-top: 3px; }
+.src-chip {
+  display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 10.5px;
+  background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); margin-right: 5px;
+}
+.col-num { color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
+.thead-tools { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--cpq-border-primary); }
+.thead-tools .left { font-size: 13px; color: var(--cpq-text-secondary); }
+.thead-tools .left b { color: var(--cpq-text-primary); }
+</style>
+</head>
+<body>
+
+<!-- 原型标注条 -->
+<div class="mock-bar">
+  <span class="tag">商机线索页重构 · 高保真原型</span>
+  <span class="hint">可交互：勾选行看浮动批量条 / 点 KPI 条展开图表（单排横滑，保留全部现有 echarts，卡内为占位示意）/ 状态 tag 与 ⋯ 菜单可点 / 右上切换页面与主题</span>
+  <span class="spacer"></span>
+  <button class="mock-btn active" id="tab-opp" onclick="switchPage('opp')">商机线索页</button>
+  <button class="mock-btn" id="tab-ai" onclick="switchPage('ai')">AI 线索页</button>
+  <button class="mock-btn" onclick="toggleTheme()">切换主题</button>
+</div>
+
+<!-- ══════════════ 页面一：商机线索 ══════════════ -->
+<div class="page" id="page-opp">
+
+  <div class="page-head">
+    <div class="page-title">商机线索<span class="sub">共 12 个商机</span></div>
+    <div class="head-actions">
+      <button class="icon-btn" title="统计图表">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3v18h18M7 14l4-4 3 3 5-6"/></svg>
+        图表
+      </button>
+      <button class="icon-btn" title="AI 办公室对话产生的线索" onclick="switchPage('ai')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><path d="M12 7V4M8 4h8M9 12h.01M15 12h.01M9 16h6"/></svg>
+        AI 线索
+      </button>
+      <button class="icon-btn" title="回收站">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6"/></svg>
+      </button>
+      <button class="icon-btn primary">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 5v14M5 12h14"/></svg>
+        新建商机
+      </button>
+    </div>
+  </div>
+
+  <div class="filter-row">
+    <div class="search-box">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+      <input placeholder="搜索客户 / 业务 / 备注…">
+    </div>
+    <div class="filter-select has-value">状态 · 进行中 <span class="caret">▾</span></div>
+    <div class="filter-select">平台类型 <span class="caret">▾</span></div>
+    <div class="filter-select">机箱形态 <span class="caret">▾</span></div>
+    <div class="filter-select">业务 <span class="caret">▾</span></div>
+    <div class="filter-select" title="重置筛选" style="padding:0 11px;">↺</div>
+  </div>
+
+  <!-- KPI 折叠条（默认收起）-->
+  <div class="kpi-strip" id="kpiStrip" onclick="toggleCharts()">
+    <div class="kpi-chip"><span class="label">商机</span><span class="val">12</span></div>
+    <div class="divider"></div>
+    <div class="kpi-chip"><span class="label">进行中</span><span class="val blue">8</span></div>
+    <div class="kpi-chip"><span class="label">已中标</span><span class="val green">2</span></div>
+    <div class="kpi-chip"><span class="label">已丢标</span><span class="val">1</span></div>
+    <div class="kpi-chip"><span class="label">本月新增</span><span class="val">3</span></div>
+    <div class="toggle">展开图表与数据区间 <span class="arr">▾</span></div>
+  </div>
+
+  <!-- 图表区（展开后）：保留全部现有 echarts，统一卡片尺寸单排横滑 -->
+  <div class="charts-zone" id="chartsZone">
+    <div class="charts-inner">
+      <div class="period-row">
+        <button class="period-btn">本周</button>
+        <button class="period-btn active">本月</button>
+        <button class="period-btn">本季</button>
+        <button class="period-btn">今年</button>
+        <button class="period-btn">自定义 ▾</button>
+        <span class="note">图表与现有页面一致，仅收纳为可折叠 · 左右滑动查看全部 4 张</span>
+      </div>
+      <div class="rail-wrap">
+        <button class="rail-arrow left" onclick="railScroll(-1)">‹</button>
+        <div class="chart-rail" id="chartRail">
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <span class="ct">趋势分析</span>
+              <span class="mini-seg"><i class="on">商机</i><i>机型</i></span>
+            </div>
+            <div class="chart-body">
+              <svg viewBox="0 0 330 160" preserveAspectRatio="none" style="width:100%;height:100%">
+                <line x1="0" y1="130" x2="330" y2="130" stroke="rgba(128,140,160,.25)" stroke-width="1"/>
+                <line x1="0" y1="90" x2="330" y2="90" stroke="rgba(128,140,160,.12)" stroke-width="1"/>
+                <line x1="0" y1="50" x2="330" y2="50" stroke="rgba(128,140,160,.12)" stroke-width="1"/>
+                <path d="M0,118 C40,110 60,80 100,84 S160,100 200,78 S260,40 330,52 L330,160 L0,160 Z" fill="rgba(22,119,255,.12)"/>
+                <path d="M0,118 C40,110 60,80 100,84 S160,100 200,78 S260,40 330,52" fill="none" stroke="#1677FF" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M0,132 C50,126 70,116 110,112 S180,96 220,92 S280,74 330,68" fill="none" stroke="#52C9A0" stroke-width="2" stroke-dasharray="5 4" stroke-linecap="round"/>
+              </svg>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <span class="ct">结构分布</span>
+              <span class="mini-seg"><i class="on">平台</i><i>机箱</i></span>
+            </div>
+            <div class="chart-body">
+              <svg viewBox="0 0 130 130" style="width:130px;height:130px;flex:none;align-self:center">
+                <circle cx="65" cy="65" r="52" fill="none" stroke="rgba(128,140,160,.15)" stroke-width="16"/>
+                <circle cx="65" cy="65" r="52" fill="none" stroke="#1677FF" stroke-width="16"
+                        stroke-dasharray="137 327" stroke-dashoffset="0" transform="rotate(-90 65 65)"/>
+                <circle cx="65" cy="65" r="52" fill="none" stroke="#52C9A0" stroke-width="16"
+                        stroke-dasharray="82 327" stroke-dashoffset="-137" transform="rotate(-90 65 65)"/>
+                <circle cx="65" cy="65" r="52" fill="none" stroke="#a855f7" stroke-width="16"
+                        stroke-dasharray="66 327" stroke-dashoffset="-219" transform="rotate(-90 65 65)"/>
+                <circle cx="65" cy="65" r="52" fill="none" stroke="#F4D28A" stroke-width="16"
+                        stroke-dasharray="42 327" stroke-dashoffset="-285" transform="rotate(-90 65 65)"/>
+                <text x="65" y="62" text-anchor="middle" font-size="20" font-weight="700" fill="currentColor">12</text>
+                <text x="65" y="78" text-anchor="middle" font-size="9" fill="#86909c">商机</text>
+              </svg>
+              <div class="donut-legend" style="flex:1">
+                <div class="li"><i style="background:#1677FF"></i>Orion<b>42%</b></div>
+                <div class="li"><i style="background:#52C9A0"></i>Intel<b>25%</b></div>
+                <div class="li"><i style="background:#a855f7"></i>Polaris<b>20%</b></div>
+                <div class="li"><i style="background:#F4D28A"></i>工作站<b>13%</b></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <span class="ct">业务排行</span>
+              <span class="sub">仅全量可见角色</span>
+            </div>
+            <div class="chart-body" style="flex-direction:column;justify-content:center;gap:11px">
+              <div class="hbar"><span class="lb">张伟</span><span class="tk"><i style="width:92%"></i></span><span class="vl">5</span></div>
+              <div class="hbar"><span class="lb">李娜</span><span class="tk"><i style="width:70%"></i></span><span class="vl">4</span></div>
+              <div class="hbar"><span class="lb">王强</span><span class="tk"><i style="width:52%"></i></span><span class="vl">3</span></div>
+              <div class="hbar"><span class="lb">陈晨</span><span class="tk"><i style="width:35%"></i></span><span class="vl">2</span></div>
+              <div class="hbar"><span class="lb">周敏</span><span class="tk"><i style="width:18%"></i></span><span class="vl">1</span></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-head">
+              <span class="ct">线索转化</span>
+            </div>
+            <div class="funnel">
+              <div class="step" style="width:100%">线索 24</div>
+              <div class="step" style="width:78%;opacity:.8">商机 12</div>
+              <div class="step" style="width:58%;opacity:.7">出方案 7</div>
+              <div class="step" style="width:40%;opacity:.6">报价 4</div>
+              <div class="step" style="width:26%;background:linear-gradient(135deg,#52C9A0,#3da581)">中标 2</div>
+            </div>
+          </div>
+
+        </div>
+        <button class="rail-arrow right" onclick="railScroll(1)">›</button>
+        <div class="edge-fade right"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 主表格 -->
+  <div class="table-card">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px"><span class="cbx" id="checkAll" onclick="toggleAll(event)"></span></th>
+          <th>客户 / 状态</th>
+          <th style="width:84px">业务</th>
+          <th style="width:112px">平台 · 形态</th>
+          <th class="sortable" style="width:76px">数量</th>
+          <th style="width:68px">配置</th>
+          <th class="sortable" style="width:108px">创建时间</th>
+          <th class="sortable" style="width:108px">更新时间 <span class="sort-ind">▼</span></th>
+          <th style="width:44px"></th>
+        </tr>
+      </thead>
+      <tbody id="oppBody">
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td>
+            <div class="name-row">
+              <a class="opp-name">华东智造二期扩容</a>
+              <span class="status-tag st-pending" onclick="showMenu(event, 'stmenu-1', 'left')"><span class="dot"></span>进行中<span class="caret">▾</span></span>
+            </div>
+            <div class="opp-meta">虚拟化平台 · 预算 40-50 万</div>
+            <div class="dd" id="stmenu-1">
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-primary)"></span>进行中<span class="check-mark">✓</span></div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-success)"></span>已中标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-danger)"></span>已丢标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-warning)"></span>已过期</div>
+            </div>
+          </td>
+          <td class="time-cell">张伟</td>
+          <td class="time-cell">Orion · 2U</td>
+          <td class="time-cell updated">50 台</td>
+          <td class="time-cell">3 套</td>
+          <td class="time-cell">08-12 10:24<span class="rel">2 周前</span></td>
+          <td class="time-cell updated">08-28 16:41<span class="rel">1 小时前</span></td>
+          <td>
+            <button class="row-menu-btn" onclick="showMenu(event, 'menu-1')">⋯</button>
+            <div class="dd" id="menu-1">
+              <div class="dd-item">打开详情</div>
+              <div class="dd-item" onclick="openRename('华东智造二期扩容')">重命名</div>
+              <div class="dd-sep"></div>
+              <div class="dd-item danger">移至回收站</div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td>
+            <div class="name-row">
+              <a class="opp-name">西部证券核心交易系统</a>
+              <span class="status-tag st-pending" onclick="showMenu(event, 'stmenu-2', 'left')"><span class="dot"></span>进行中<span class="caret">▾</span></span>
+            </div>
+            <div class="opp-meta">数据库 · 双路高可靠</div>
+            <div class="dd" id="stmenu-2">
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-primary)"></span>进行中<span class="check-mark">✓</span></div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-success)"></span>已中标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-danger)"></span>已丢标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-warning)"></span>已过期</div>
+            </div>
+          </td>
+          <td class="time-cell">李娜</td>
+          <td class="time-cell">Intel · 2U</td>
+          <td class="time-cell updated">8 台</td>
+          <td class="time-cell">2 套</td>
+          <td class="time-cell">08-20 14:03<span class="rel">9 天前</span></td>
+          <td class="time-cell updated">08-27 11:20<span class="rel">2 天前</span></td>
+          <td>
+            <button class="row-menu-btn" onclick="showMenu(event, 'menu-2')">⋯</button>
+            <div class="dd" id="menu-2">
+              <div class="dd-item">打开详情</div>
+              <div class="dd-item" onclick="openRename('西部证券核心交易系统')">重命名</div>
+              <div class="dd-sep"></div>
+              <div class="dd-item danger">移至回收站</div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td>
+            <div class="name-row">
+              <a class="opp-name">南岭 gpu 训练集群</a>
+              <span class="status-tag st-won" onclick="showMenu(event, 'stmenu-3', 'left')"><span class="dot"></span>已中标<span class="caret">▾</span></span>
+            </div>
+            <div class="opp-meta">AI 训练 · 4 卡起步</div>
+            <div class="dd" id="stmenu-3">
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-primary)"></span>进行中</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-success)"></span>已中标<span class="check-mark">✓</span></div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-danger)"></span>已丢标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-warning)"></span>已过期</div>
+            </div>
+          </td>
+          <td class="time-cell">王强</td>
+          <td class="time-cell">Polaris · 4U</td>
+          <td class="time-cell updated">4 台</td>
+          <td class="time-cell">1 套</td>
+          <td class="time-cell">08-08 09:15<span class="rel">3 周前</span></td>
+          <td class="time-cell updated">08-25 17:02<span class="rel">4 天前</span></td>
+          <td>
+            <button class="row-menu-btn" onclick="showMenu(event, 'menu-3')">⋯</button>
+            <div class="dd" id="menu-3">
+              <div class="dd-item">打开详情</div>
+              <div class="dd-item" onclick="openRename('南岭 gpu 训练集群')">重命名</div>
+              <div class="dd-sep"></div>
+              <div class="dd-item danger">移至回收站</div>
+            </div>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td>
+            <div class="name-row">
+              <a class="opp-name">北方医院 PACS 影像存储</a>
+              <span class="status-tag st-lost" onclick="showMenu(event, 'stmenu-4', 'left')"><span class="dot"></span>已丢标<span class="caret">▾</span></span>
+            </div>
+            <div class="opp-meta">冷数据存储 · 大容量</div>
+            <div class="dd" id="stmenu-4">
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-primary)"></span>进行中</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-success)"></span>已中标</div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-accent-danger)"></span>已丢标<span class="check-mark">✓</span></div>
+              <div class="dd-item"><span class="dot" style="background:var(--cpq-color-warning)"></span>已过期</div>
+            </div>
+          </td>
+          <td class="time-cell">张伟</td>
+          <td class="time-cell">Intel · 4.5U</td>
+          <td class="time-cell updated">12 台</td>
+          <td class="time-cell">2 套</td>
+          <td class="time-cell">07-30 16:48<span class="rel">1 个月前</span></td>
+          <td class="time-cell updated">08-22 10:33<span class="rel">7 天前</span></td>
+          <td>
+            <button class="row-menu-btn" onclick="showMenu(event, 'menu-4')">⋯</button>
+            <div class="dd" id="menu-4">
+              <div class="dd-item">打开详情</div>
+              <div class="dd-item" onclick="openRename('北方医院 PACS 影像存储')">重命名</div>
+              <div class="dd-sep"></div>
+              <div class="dd-item danger">移至回收站</div>
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+</div>
+
+<!-- ══════════════ 页面二：AI 线索 ══════════════ -->
+<div class="page" id="page-ai">
+
+  <div class="page-head">
+    <div class="page-title">AI 线索<span class="sub">AI 办公室对话自动登记 · 转正后进入商机列表</span></div>
+    <div class="head-actions">
+      <button class="icon-btn" onclick="switchPage('opp')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5m6-7l-7 7 7 7"/></svg>
+        返回商机
+      </button>
+      <button class="icon-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a1 1 0 011-1h6a1 1 0 011 1v2m2 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6"/></svg>
+        清理无效线索
+      </button>
+    </div>
+  </div>
+
+  <div class="ai-empty-note">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1677FF" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16.5v.01"/></svg>
+    这些商机由 AI 对话自动创建，不会出现在商机列表里；「转正」后成为正式商机（可指定客户名与业务归属）。
+  </div>
+
+  <div class="table-card">
+    <div class="thead-tools">
+      <span class="left">共 <b>4</b> 条 AI 线索</span>
+      <span style="flex:1"></span>
+      <span class="filter-select" style="height:28px;font-size:12px">进度 <span class="caret">▾</span></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th style="width:36px"><span class="cbx" onclick="event.stopPropagation()"></span></th>
+          <th>需求摘要 / 来源</th>
+          <th style="width:110px">进度</th>
+          <th style="width:70px">消息</th>
+          <th style="width:110px">最近活动</th>
+          <th style="width:150px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td class="ai-summary">
+            <div class="req">2U 机架式双路服务器做虚拟化，256G 内存，4 块 2.4T SAS…</div>
+            <div class="src"><span class="src-chip">方案助手</span><span class="src-chip">技术支持</span>admin · 今天</div>
+          </td>
+          <td><span class="badge chatting"><span class="dot"></span>对话中</span></td>
+          <td class="col-num">7</td>
+          <td class="time-cell updated">22:24<span class="rel">3 小时前</span></td>
+          <td style="text-align:right">
+            <button class="icon-btn" style="height:28px;font-size:12px" onclick="openPromote()">转正</button>
+            <button class="icon-btn" style="height:28px;font-size:12px">查看对话</button>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td class="ai-summary">
+            <div class="req">客户要一台 4U AI 训练服务器，4 张 GPU 卡，预算 60 万</div>
+            <div class="src"><span class="src-chip">方案助手</span>admin · 昨天</div>
+          </td>
+          <td><span class="badge plan"><span class="dot"></span>已出方案</span></td>
+          <td class="col-num">12</td>
+          <td class="time-cell updated">08-28 19:50<span class="rel">昨天</span></td>
+          <td style="text-align:right">
+            <button class="icon-btn" style="height:28px;font-size:12px" onclick="openPromote()">转正</button>
+            <button class="icon-btn" style="height:28px;font-size:12px">查看对话</button>
+          </td>
+        </tr>
+        <tr>
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td class="ai-summary">
+            <div class="req">帮我配一台数据库服务器，要双路，内存大一点</div>
+            <div class="src"><span class="src-chip">方案助手</span>admin · 08-27</div>
+          </td>
+          <td><span class="badge plan"><span class="dot"></span>已出方案</span></td>
+          <td class="col-num">9</td>
+          <td class="time-cell">08-27 15:12<span class="rel">2 天前</span></td>
+          <td style="text-align:right">
+            <button class="icon-btn" style="height:28px;font-size:12px" onclick="openPromote()">转正</button>
+            <button class="icon-btn" style="height:28px;font-size:12px">查看对话</button>
+          </td>
+        </tr>
+        <tr style="opacity:.55">
+          <td><span class="cbx" onclick="toggleRow(this, event)"></span></td>
+          <td class="ai-summary">
+            <div class="req">你好，在吗？</div>
+            <div class="src"><span class="src-chip">方案助手</span>评测 · 08-29</div>
+          </td>
+          <td><span class="badge stale"><span class="dot"></span>无登记</span></td>
+          <td class="col-num">1</td>
+          <td class="time-cell">08-29 22:32<span class="rel">今天</span></td>
+          <td style="text-align:right">
+            <button class="icon-btn" style="height:28px;font-size:12px">查看对话</button>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- 浮动批量条 -->
+<div class="batch-float" id="batchFloat">
+  <span class="cnt">已选 <b id="selCount">0</b> 项</span>
+  <button class="bf-danger">移至回收站</button>
+  <button class="bf-ghost" onclick="clearSelection()">取消</button>
+</div>
+
+<!-- 重命名 Modal -->
+<div class="modal-mask" id="renameModal">
+  <div class="modal">
+    <h3>重命名商机</h3>
+    <div class="desc">存储文件夹会随商机名自动同步改名。</div>
+    <label>商机名</label>
+    <input id="renameInput" value="华东智造二期扩容">
+    <div class="foot">
+      <button class="btn-ghost" onclick="closeModal('renameModal')">取消</button>
+      <button class="btn-solid" onclick="closeModal('renameModal')">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 转正 Modal -->
+<div class="modal-mask" id="promoteModal">
+  <div class="modal">
+    <h3>转正为正式商机</h3>
+    <div class="desc">转正后将出现在商机列表，需求登记与 BOM 方案随行携带。请补齐客户信息：</div>
+    <label>客户名 <span style="color:var(--cpq-accent-danger)">*</span></label>
+    <input placeholder="例：华东智能制造有限公司" value="华东智造">
+    <label>业务归属</label>
+    <input placeholder="默认当前用户" value="admin">
+    <div class="foot">
+      <button class="btn-ghost" onclick="closeModal('promoteModal')">取消</button>
+      <button class="btn-solid" onclick="closeModal('promoteModal')">确认转正</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* 主题 */
+function toggleTheme() {
+  const r = document.documentElement;
+  r.dataset.theme = r.dataset.theme === 'dark' ? 'light' : 'dark';
+}
+/* 页面切换 */
+function switchPage(p) {
+  document.getElementById('page-opp').style.display = p === 'opp' ? '' : 'none';
+  document.getElementById('page-ai').style.display = p === 'ai' ? '' : 'none';
+  document.getElementById('tab-opp').classList.toggle('active', p === 'opp');
+  document.getElementById('tab-ai').classList.toggle('active', p === 'ai');
+  clearSelection();
+  closeAllMenus();
+}
+/* KPI 图表折叠 */
+function toggleCharts() {
+  document.getElementById('kpiStrip').classList.toggle('open');
+  document.getElementById('chartsZone').classList.toggle('open');
+}
+/* 图表轨道横滑 */
+function railScroll(dir) {
+  document.getElementById('chartRail').scrollBy({ left: dir * 382, behavior: 'smooth' });
+}
+/* 下拉菜单 */
+function showMenu(ev, id, anchor) {
+  ev.stopPropagation();
+  const dd = document.getElementById(id);
+  document.body.appendChild(dd); /* 逃出 table-card 的 overflow:hidden 剪裁 */
+  const btn = ev.currentTarget;
+  const r = btn.getBoundingClientRect();
+  closeAllMenus();
+  dd.style.top = (r.bottom + 6 + window.scrollY) + 'px';
+  dd.style.left = anchor === 'left'
+    ? (r.left + window.scrollX) + 'px'
+    : (r.right - 160 + window.scrollX) + 'px';
+  dd.classList.add('show');
+}
+function closeAllMenus() { document.querySelectorAll('.dd.show').forEach(d => d.classList.remove('show')); }
+document.addEventListener('click', () => { closeAllMenus(); });
+/* 勾选 */
+function refreshFloat() {
+  const checkedTotal = document.querySelectorAll('#page-opp .cbx.checked, #page-ai .cbx.checked').length;
+  document.getElementById('selCount').textContent = checkedTotal;
+  document.getElementById('batchFloat').classList.toggle('show', checkedTotal > 0);
+  const oppChecked = document.querySelectorAll('#page-opp tbody .cbx.checked').length;
+  document.getElementById('checkAll').className = 'cbx' +
+    (oppChecked > 0 && oppChecked < 4 ? ' indeterminate' : oppChecked >= 4 ? ' checked' : '');
+}
+function toggleRow(el, ev) {
+  ev.stopPropagation();
+  el.classList.toggle('checked');
+  el.closest('tr').classList.toggle('selected', el.classList.contains('checked'));
+  refreshFloat();
+}
+function toggleAll(ev) {
+  ev.stopPropagation();
+  const all = document.getElementById('checkAll');
+  const target = !all.classList.contains('checked');
+  document.querySelectorAll('#page-opp tbody .cbx').forEach(c => {
+    c.classList.toggle('checked', target);
+    c.closest('tr').classList.toggle('selected', target);
+  });
+  refreshFloat();
+}
+function clearSelection() {
+  document.querySelectorAll('.cbx.checked, .cbx.indeterminate').forEach(c => c.classList.remove('checked', 'indeterminate'));
+  document.querySelectorAll('tr.selected').forEach(t => t.classList.remove('selected'));
+  refreshFloat();
+}
+refreshFloat();
+/* Modal */
+function openRename(name) {
+  document.getElementById('renameInput').value = name;
+  document.getElementById('renameModal').classList.add('show');
+}
+function openPromote() { document.getElementById('promoteModal').classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+document.querySelectorAll('.modal-mask').forEach(m => m.addEventListener('click', e => {
+  if (e.target === m) m.classList.remove('show');
+}));
+</script>
+</body>
+</html>

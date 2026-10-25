@@ -1,0 +1,784 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI办公室 · 产出物模板中心 原型</title>
+<style>
+:root{
+  --blue:#1677FF; --ink:#22304a; --ink2:#5a6b85; --ink3:#93a3ba;
+  --glass:rgba(255,255,255,.55); --glass2:rgba(255,255,255,.42);
+  --gb:rgba(120,144,176,.38); --gb-strong:rgba(22,119,255,.5);
+  --shadow:0 8px 28px rgba(22,119,255,.08);
+  --mint:#52C9A0; --coral:#FF6B6B; --purple:#9254DE; --amber:#FA8C16; --cyan:#13C2C2;
+  --r-md:12px; --r-lg:16px; --r-xl:20px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:"Segoe UI","Microsoft YaHei",-apple-system,"PingFang SC",sans-serif;
+  color:var(--ink); font-size:14px; line-height:1.5;
+  background:linear-gradient(160deg,#d9e8fd 0%,#e8f1fd 30%,#f7faff 65%,#ecf4ff 100%) fixed;
+  padding:22px clamp(14px,3vw,36px) 30px;
+}
+/* ---------- 顶栏 ---------- */
+.top{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.top h1{font-size:21px;font-weight:700;letter-spacing:.5px}
+.top h1 .ver{font-size:11px;font-weight:600;color:var(--blue);background:rgba(22,119,255,.1);border:1px solid rgba(22,119,255,.25);padding:2px 8px;border-radius:999px;vertical-align:3px;margin-left:8px}
+.top p{color:var(--ink2);font-size:12.5px;margin-top:3px}
+.actions{display:flex;gap:8px}
+.btn{border:1px solid var(--gb);background:rgba(255,255,255,.6);backdrop-filter:blur(10px);color:var(--ink);border-radius:10px;padding:7px 16px;font-size:13px;cursor:pointer;transition:.18s;font-family:inherit}
+.btn:hover{border-color:var(--gb-strong);color:var(--blue)}
+.btn.primary{background:linear-gradient(135deg,#1677FF,#3d8bff);border-color:transparent;color:#fff;box-shadow:0 4px 14px rgba(22,119,255,.3)}
+.btn.primary:hover{color:#fff;filter:brightness(1.06)}
+.btn.tiny{padding:3px 10px;font-size:12px;border-radius:8px}
+/* ---------- 玻璃卡 ---------- */
+.card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--gb);border-radius:var(--r-xl);box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.85);padding:16px 18px}
+.card h2{font-size:14.5px;font-weight:700;display:flex;align-items:center;gap:8px}
+.card h2 .sub{font-size:11px;font-weight:500;color:var(--ink3);background:rgba(120,144,176,.12);padding:1px 8px;border-radius:999px}
+/* ---------- 视图切换 ---------- */
+.view{display:none}
+.view.on{display:block;animation:rise .25s ease both}
+@keyframes rise{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+/* ---------- 机制声明条 ---------- */
+.mech{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:var(--glass2);backdrop-filter:blur(10px);border:1px solid var(--gb);border-radius:var(--r-lg);padding:9px 16px;margin-bottom:14px;font-size:12.5px;color:var(--ink2)}
+.mech b{color:var(--ink);font-weight:600}
+.mech .src{margin-left:auto;display:flex;gap:5px}
+.mech .src span{font-size:10.5px;color:var(--ink3);background:rgba(120,144,176,.12);padding:1px 8px;border-radius:999px}
+/* ---------- 筛选 chips ---------- */
+.filters{display:flex;gap:6px;margin-bottom:14px;align-items:center}
+.chip{font-size:12px;padding:4px 14px;border-radius:999px;border:1px solid transparent;color:var(--ink2);cursor:pointer;background:rgba(255,255,255,.45);transition:.15s;font-family:inherit}
+.chip:hover{border-color:var(--gb)}
+.chip.on{color:var(--blue);border-color:rgba(22,119,255,.4);background:rgba(22,119,255,.09);font-weight:600}
+.filters .count{font-size:11px;color:var(--ink3);margin-left:6px}
+/* ---------- 模板卡网格 ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(252px,1fr));gap:14px}
+.tpl-card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--gb);border-radius:var(--r-lg);box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.85);padding:12px;cursor:pointer;transition:.18s;position:relative;display:flex;flex-direction:column;gap:9px}
+.tpl-card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(22,119,255,.16);border-color:var(--gb-strong)}
+.tpl-card.hidden{display:none}
+.thumb{height:132px;border-radius:12px;border:1px solid rgba(120,144,176,.25);background:#fff;overflow:hidden;position:relative;flex:none}
+.tpl-name{font-size:14px;font-weight:700;display:flex;align-items:center;gap:8px}
+.fmt{font-size:10px;font-weight:700;padding:1px 8px;border-radius:6px;letter-spacing:.5px;flex:none}
+.fmt.pdf{color:#c0392b;background:rgba(255,107,107,.13)}
+.fmt.xlsx{color:#1d8f68;background:rgba(82,201,160,.16)}
+.fmt.pptx{color:#c26e0a;background:rgba(250,140,22,.14)}
+.tpl-meta{font-size:11.5px;color:var(--ink3);display:flex;flex-wrap:wrap;gap:4px 10px}
+.tpl-meta .bound{color:#1250b8}
+.tpl-meta .unbound{color:var(--ink3)}
+.tpl-ops{display:flex;gap:6px;margin-top:auto;opacity:0;transition:.15s}
+.tpl-card:hover .tpl-ops{opacity:1}
+.op{font-size:11px;padding:2px 10px;border-radius:7px;border:1px solid var(--gb);background:rgba(255,255,255,.55);cursor:pointer;color:var(--ink2);font-family:inherit}
+.op:hover{color:var(--blue);border-color:var(--gb-strong)}
+/* 缩略图内部 mock —— 纸页 */
+.mini-page{position:absolute;inset:10px 34px 10px 12px;background:#fff;border:1px solid rgba(120,144,176,.3);border-radius:4px;padding:10px 9px;display:flex;flex-direction:column;gap:5px;box-shadow:0 2px 6px rgba(34,48,74,.08)}
+.mini-page .bar{height:5px;border-radius:2px;background:rgba(34,48,74,.72)}
+.mini-page .bar.title{height:8px;width:64%;background:rgba(34,48,74,.85)}
+.mini-page .bar.l1{width:92%}.mini-page .bar.l2{width:85%}.mini-page .bar.l3{width:60%}
+.mini-page .chart-row{display:flex;gap:7px;margin-top:3px}
+.mini-page .donut{width:34px;height:34px;flex:none;border-radius:50%;background:conic-gradient(#1677FF 0 130deg,#52C9A0 130deg 215deg,#9254DE 215deg 290deg,#FA8C16 290deg 360deg);position:relative}
+.mini-page .donut::after{content:"";position:absolute;inset:10px;background:#fff;border-radius:50%}
+.mini-page .spark{flex:1;position:relative}
+.mini-page .spark svg{position:absolute;inset:0;width:100%;height:100%}
+.mini-page .tbl{display:grid;grid-template-columns:2fr 1fr 1fr;gap:3px;margin-top:2px}
+.mini-page .tbl i{height:5px;border-radius:2px;background:rgba(120,144,176,.3)}
+.mini-page .tbl i:nth-child(3n+1){background:rgba(34,48,74,.25)}
+/* 缩略图内部 mock —— 表格 */
+.mini-sheet{position:absolute;inset:10px 12px;background:#fff;border:1px solid rgba(120,144,176,.3);border-radius:4px;overflow:hidden;box-shadow:0 2px 6px rgba(34,48,74,.08);display:grid;grid-template-columns:14px 1fr 1fr .8fr;grid-auto-rows:11px;font-size:0}
+.mini-sheet b{background:rgba(120,144,176,.16);border-right:1px solid rgba(120,144,176,.22);border-bottom:1px solid rgba(120,144,176,.22)}
+.mini-sheet i{border-right:1px solid rgba(120,144,176,.16);border-bottom:1px solid rgba(120,144,176,.16)}
+.mini-sheet i.hdr{background:rgba(22,119,255,.1)}
+.mini-sheet i.hl{background:rgba(250,140,22,.14)}
+/* 缩略图内部 mock —— 幻灯片 */
+.mini-deck{position:absolute;inset:14px 26px 14px 14px;background:#fff;border:1px solid rgba(120,144,176,.3);border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:6px;box-shadow:0 2px 6px rgba(34,48,74,.08)}
+.mini-deck .bar{height:6px;border-radius:2px;background:rgba(34,48,74,.7)}
+.mini-deck .bar.title{height:9px;width:58%;background:rgba(34,48,74,.85)}
+.mini-deck .cols{display:flex;gap:6px;flex:1;margin-top:2px}
+.mini-deck .col{flex:1;border-radius:4px;background:rgba(22,119,255,.08);border:1px solid rgba(22,119,255,.18);display:flex;flex-direction:column;gap:4px;padding:5px}
+.mini-deck .col i{height:4px;border-radius:2px;background:rgba(22,119,255,.25)}
+/* 尾卡 */
+.add-tpl{border:1.5px dashed var(--gb);border-radius:var(--r-lg);background:rgba(255,255,255,.25);min-height:238px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:var(--ink3);font-size:13px;cursor:pointer;transition:.15s}
+.add-tpl:hover{color:var(--blue);border-color:var(--gb-strong);background:rgba(22,119,255,.05)}
+.add-tpl .plus{font-size:26px;font-weight:300;line-height:1}
+/* ---------- 编辑器 ---------- */
+.ed-top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:var(--glass2);backdrop-filter:blur(10px);border:1px solid var(--gb);border-radius:var(--r-lg);padding:9px 16px;margin-bottom:14px;font-size:12.5px;color:var(--ink2)}
+.ed-top .back{font-size:13px;color:var(--blue);background:none;border:none;cursor:pointer;font-family:inherit;padding:3px 8px;border-radius:8px}
+.ed-top .back:hover{background:rgba(22,119,255,.08)}
+.ed-top .name{font-size:15px;font-weight:700;color:var(--ink)}
+.ed-top .bound-wf{color:#1250b8}
+.ed-top .spacer{margin-left:auto}
+.ed-body{display:grid;gap:14px}
+.ed-pdf{grid-template-columns:250px 1fr 268px}
+.ed-two{grid-template-columns:1fr 1.35fr}
+@media(max-width:1180px){.ed-pdf{grid-template-columns:1fr 1fr}.ed-pdf .pane-r{grid-column:1/-1}}
+@media(max-width:860px){.ed-pdf,.ed-two{grid-template-columns:1fr}}
+.pane{min-width:0}
+.pane h3{font-size:12px;font-weight:600;color:var(--ink2);display:flex;align-items:center;gap:8px;margin-bottom:10px}
+.pane h3 .sub{font-size:10.5px;color:var(--ink3);font-weight:500}
+/* 区块列表 */
+.blocks{display:flex;flex-direction:column;gap:5px}
+.blk{display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.5);border:1px solid rgba(120,144,176,.28);border-radius:10px;padding:7px 9px;cursor:pointer;transition:.15s;font-size:12.5px}
+.blk:hover{border-color:var(--gb-strong)}
+.blk.sel{border-color:var(--gb-strong);background:rgba(255,255,255,.85);box-shadow:0 0 0 2px rgba(22,119,255,.12)}
+.blk .drag{color:var(--ink3);cursor:grab;font-size:11px;letter-spacing:-1px;flex:none}
+.blk .ico{width:22px;height:22px;flex:none;border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.ico.t-title{background:rgba(34,48,74,.1);color:#22304a}
+.ico.t-text{background:rgba(120,144,176,.14);color:#54677f}
+.ico.t-kpi{background:rgba(82,201,160,.16);color:#1d8f68}
+.ico.t-chart{background:rgba(22,119,255,.1);color:#1250b8}
+.ico.t-table{background:rgba(250,140,22,.14);color:#c26e0a}
+.blk .nm{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600}
+.blk .ph{font-size:10px;font-family:ui-monospace,Consolas,monospace;color:var(--ink3);background:rgba(120,144,176,.12);padding:1px 6px;border-radius:6px;flex:none}
+.blk .req{width:6px;height:6px;border-radius:50%;background:var(--coral);flex:none}
+.blk .req.off{background:rgba(120,144,176,.35)}
+.add-blk{border:1.5px dashed var(--gb);border-radius:10px;text-align:center;padding:7px;color:var(--ink3);font-size:12px;cursor:pointer;transition:.15s;background:none;font-family:inherit}
+.add-blk:hover{color:var(--blue);border-color:var(--gb-strong)}
+/* 预览 */
+.preview{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--gb);border-radius:var(--r-xl);box-shadow:var(--shadow),inset 0 1px 0 rgba(255,255,255,.85);padding:14px;display:flex;flex-direction:column;gap:10px;min-height:640px}
+.pv-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11.5px;color:var(--ink2)}
+.pv-bar .seg{display:flex;border:1px solid var(--gb);border-radius:999px;overflow:hidden}
+.pv-bar .seg button{border:none;background:rgba(255,255,255,.5);padding:3px 12px;font-size:11.5px;cursor:pointer;color:var(--ink2);font-family:inherit}
+.pv-bar .seg button.on{background:rgba(22,119,255,.12);color:var(--blue);font-weight:600}
+.pv-bar .note{margin-left:auto;font-size:10.5px;color:var(--ink3)}
+.paper-wrap{flex:1;overflow:auto;background:rgba(120,144,176,.1);border-radius:12px;border:1px solid rgba(120,144,176,.2);padding:16px;display:flex;justify-content:center}
+.paper{width:560px;flex:none;background:#fff;border-radius:6px;box-shadow:0 6px 24px rgba(34,48,74,.14);padding:44px 48px 36px;font-size:12.5px;color:#2b3a55;display:flex;flex-direction:column;gap:14px}
+.paper .p-kicker{font-size:10px;letter-spacing:2px;color:#93a3ba;text-transform:uppercase}
+.paper h1{font-size:22px;font-weight:700;color:#1a2740;letter-spacing:.5px}
+.paper .p-meta{font-size:10.5px;color:#93a3ba;display:flex;gap:14px;border-bottom:2px solid #1a2740;padding-bottom:12px}
+.paper h4{font-size:14px;font-weight:700;color:#1a2740;display:flex;align-items:center;gap:7px;margin-top:6px}
+.paper h4::before{content:"";width:4px;height:14px;border-radius:2px;background:#1677FF}
+.paper .p-abs{line-height:1.85;text-align:justify;color:#3a4a68}
+.paper .p-abs .hl{background:rgba(250,140,22,.16);border-bottom:1px dashed rgba(250,140,22,.6);padding:0 2px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:9px}
+.kpi{border:1px solid rgba(120,144,176,.28);border-radius:9px;padding:9px 10px;background:rgba(22,119,255,.02)}
+.kpi .k{font-size:10px;color:#93a3ba}
+.kpi .v{font-size:19px;font-weight:700;color:#1a2740;margin-top:2px;font-variant-numeric:tabular-nums}
+.kpi .d{font-size:10px;font-weight:600}
+.kpi .d.up{color:#1d8f68}.kpi .d.down{color:#c0392b}
+.chart-box{border:1px solid rgba(120,144,176,.24);border-radius:10px;padding:10px 12px 6px}
+.chart-box .cb-t{font-size:11px;font-weight:600;color:#3a4a68;display:flex;justify-content:space-between}
+.chart-box .cb-t span{font-weight:400;color:#93a3ba;font-size:10px}
+.ch{height:190px;width:100%}
+.ch.fallback{display:flex;align-items:center;justify-content:center;color:#93a3ba;font-size:11px;background:repeating-linear-gradient(45deg,rgba(120,144,176,.06) 0 8px,transparent 8px 16px);border-radius:8px}
+.paper table{width:100%;border-collapse:collapse;font-size:11px}
+.paper thead th{text-align:left;font-weight:600;color:#54677f;background:rgba(120,144,176,.1);padding:6px 8px;border-bottom:1px solid rgba(120,144,176,.3)}
+.paper tbody td{padding:6px 8px;border-bottom:1px solid rgba(120,144,176,.16);font-variant-numeric:tabular-nums}
+.paper tbody tr .cust{font-weight:600;color:#1a2740}
+.paper tbody .st{font-size:9.5px;padding:1px 7px;border-radius:999px}
+.paper .p-foot{font-size:9.5px;color:#b8c4d6;display:flex;justify-content:space-between;border-top:1px solid rgba(120,144,176,.2);padding-top:8px;margin-top:4px}
+/* 属性面板 */
+.props{display:flex;flex-direction:column;gap:12px}
+.prop-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.fld{display:flex;flex-direction:column;gap:4px}
+.fld label{font-size:10.5px;color:var(--ink3)}
+.fld .fake,.fld input[type=text]{background:rgba(255,255,255,.7);border:1px solid var(--gb);border-radius:9px;padding:5px 10px;font-size:12.5px;color:var(--ink);display:flex;justify-content:space-between;gap:8px;cursor:pointer;width:100%;font-family:inherit}
+.fld .fake:hover,.fld input[type=text]:hover{border-color:var(--gb-strong)}
+.fld .fake::after{content:"▾";color:var(--ink3);font-size:10px}
+.fld input[type=text]{cursor:text}
+.fld .full{grid-column:1/-1}
+/* 数据契约 */
+.contract{display:flex;flex-direction:column;gap:6px}
+.ct-row{display:flex;align-items:center;gap:7px;background:rgba(255,255,255,.5);border:1px solid rgba(120,144,176,.25);border-radius:9px;padding:5px 9px;font-size:11.5px}
+.ct-row code{font-family:ui-monospace,Consolas,monospace;color:#1250b8;background:rgba(22,119,255,.07);padding:1px 6px;border-radius:5px;font-size:11px}
+.ct-row .who{margin-left:auto;font-size:9.5px;padding:1px 8px;border-radius:999px;white-space:nowrap}
+.who.ai{color:#237804;background:rgba(82,201,160,.15)}
+.who.tool{color:#1250b8;background:rgba(22,119,255,.1)}
+.who.sys{color:#54677f;background:rgba(120,144,176,.14)}
+.contract .ct-note{font-size:10.5px;color:var(--ink3);line-height:1.7}
+/* 渲染配方 */
+.recipe{background:rgba(22,119,255,.05);border:1px dashed rgba(22,119,255,.3);border-radius:10px;padding:9px 12px;font-size:11.5px;color:var(--ink2);line-height:1.8}
+.recipe code{font-family:ui-monospace,Consolas,monospace;color:#1250b8;background:rgba(255,255,255,.7);padding:1px 5px;border-radius:5px;font-size:10.5px}
+/* 运行时管线 */
+.pipe{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;margin-top:14px}
+.pipe .step{flex:1;min-width:170px;background:var(--glass2);border:1px solid var(--gb);border-radius:12px;padding:9px 13px;font-size:11.5px;color:var(--ink2);position:relative;display:flex;flex-direction:column;gap:2px}
+.pipe .step b{font-size:12px;color:var(--ink);font-weight:600}
+.pipe .step .n{position:absolute;top:-8px;left:10px;font-size:9.5px;font-weight:700;color:#fff;background:var(--blue);border-radius:999px;padding:0 7px}
+.pipe .arrow{display:flex;align-items:center;padding:0 7px;color:var(--ink3);font-size:15px}
+.pipe .step.mech-step{border-color:rgba(82,201,160,.45);background:rgba(82,201,160,.06)}
+.pipe .step.mech-step .n{background:#3ab58a}
+/* Excel 编辑器 */
+.file-card{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,.55);border:1px solid var(--gb);border-radius:12px;padding:12px 14px}
+.file-card .fic{width:44px;height:44px;flex:none;border-radius:10px;background:rgba(82,201,160,.14);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#1d8f68;letter-spacing:.5px}
+.file-card .fi{flex:1;min-width:0}
+.file-card .fn{font-size:13px;font-weight:600}
+.file-card .fm{font-size:11px;color:var(--ink3)}
+.sheet-preview{background:#fff;border:1px solid rgba(120,144,176,.3);border-radius:10px;overflow:hidden;font-size:11px}
+.sheet-preview table{width:100%;border-collapse:collapse}
+.sheet-preview th{background:rgba(82,201,160,.13);font-weight:600;padding:6px 10px;border:1px solid rgba(120,144,176,.22);text-align:left;color:#1d8f68;font-size:10.5px}
+.sheet-preview td{padding:5px 10px;border:1px solid rgba(120,144,176,.18);font-variant-numeric:tabular-nums}
+.sheet-preview td.ph{color:#c26e0a;font-family:ui-monospace,Consolas,monospace;font-size:10.5px;background:rgba(250,140,22,.06)}
+.sheet-preview td.calc{background:rgba(22,119,255,.04);font-weight:600}
+.route-note{font-size:11.5px;color:var(--ink2);line-height:1.8;margin-top:10px}
+.route-note code{font-family:ui-monospace,Consolas,monospace;color:#1250b8;background:rgba(22,119,255,.07);padding:1px 5px;border-radius:5px;font-size:10.5px}
+/* PPT 编辑器 */
+.masters{display:flex;flex-direction:column;gap:6px}
+.master{display:flex;gap:10px;align-items:center;background:rgba(255,255,255,.5);border:1px solid rgba(120,144,176,.28);border-radius:10px;padding:7px 9px;cursor:pointer;transition:.15s}
+.master:hover{border-color:var(--gb-strong)}
+.master.sel{border-color:var(--gb-strong);background:rgba(255,255,255,.85);box-shadow:0 0 0 2px rgba(22,119,255,.12)}
+.master .mthumb{width:56px;height:34px;flex:none;background:#fff;border:1px solid rgba(120,144,176,.3);border-radius:4px;position:relative;box-shadow:0 1px 4px rgba(34,48,74,.1)}
+.master .mn{flex:1;font-size:12.5px;font-weight:600}
+.master .ms{font-size:10.5px;color:var(--ink3)}
+.slide{width:100%;aspect-ratio:16/9;background:#fff;border-radius:8px;box-shadow:0 6px 24px rgba(34,48,74,.14);padding:34px 40px;display:flex;flex-direction:column;gap:14px}
+.slide .s-kicker{font-size:10px;letter-spacing:3px;color:#1677FF;font-weight:600}
+.slide h2{font-size:24px;font-weight:800;color:#1a2740}
+.slide .s-lead{font-size:12.5px;color:#5a6b85;line-height:1.7}
+.slide .s-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:14px;flex:1}
+.slide .s-block{border:1px solid rgba(120,144,176,.25);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.slide .s-block .bt{font-size:11px;font-weight:700;color:#1250b8}
+.slide .s-block .bar{height:6px;border-radius:3px;background:rgba(34,48,74,.12)}
+.slide .s-block .bar.w1{width:88%}.slide .s-block .bar.w2{width:70%}.slide .s-block .bar.w3{width:80%}
+.slide .s-slots{display:flex;gap:6px;margin-top:auto}
+.slot-pill{font-size:10px;font-family:ui-monospace,Consolas,monospace;color:#c26e0a;background:rgba(250,140,22,.09);border:1px dashed rgba(250,140,22,.4);padding:2px 9px;border-radius:999px}
+/* 左栏标签页（Canva 式素材面板） */
+.pane-tabs{display:flex;gap:4px;margin-bottom:10px;border-bottom:1px solid rgba(120,144,176,.25)}
+.ptab{border:none;background:none;font-size:12.5px;color:var(--ink2);cursor:pointer;padding:5px 12px;border-radius:8px 8px 0 0;font-family:inherit;position:relative}
+.ptab:hover{color:var(--blue)}
+.ptab.on{color:var(--blue);font-weight:700}
+.ptab.on::after{content:"";position:absolute;left:8px;right:8px;bottom:-1px;height:2px;background:var(--blue);border-radius:2px}
+.ptab-body{display:none}
+.ptab-body.on{display:block;animation:rise .2s ease both}
+.lib-hint{font-size:10.5px;color:var(--ink3);line-height:1.7;margin-bottom:10px}
+.lib-hint b{color:#1250b8}
+.lib-group{font-size:10.5px;font-weight:700;color:var(--ink3);letter-spacing:1px;margin:12px 0 6px}
+.assets{display:flex;flex-direction:column;gap:6px}
+.asset{display:flex;gap:9px;align-items:center;background:rgba(255,255,255,.5);border:1px solid rgba(120,144,176,.28);border-radius:10px;padding:6px 8px;transition:.15s}
+.asset:hover{border-color:var(--gb-strong);background:rgba(255,255,255,.8)}
+.asset .athumb{width:46px;height:30px;flex:none;border-radius:6px;border:1px solid rgba(120,144,176,.25);background:#fff;overflow:hidden}
+.asset .athumb svg{width:100%;height:100%}
+.asset .ai{flex:1;min-width:0}
+.asset .an{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.asset .at{font-size:10px;color:var(--ink3)}
+.asset .use{font-size:11px;padding:3px 10px;border-radius:7px;border:1px solid rgba(22,119,255,.4);background:rgba(22,119,255,.07);color:var(--blue);cursor:pointer;flex:none;font-family:inherit}
+.asset .use:hover{background:rgba(22,119,255,.14)}
+/* 引用徽标 */
+.refb{font-size:9px;font-weight:600;color:#1250b8;background:rgba(22,119,255,.1);border:1px solid rgba(22,119,255,.25);padding:0 5px;border-radius:5px;margin-left:6px;vertical-align:1px}
+/* 预览选中同步（Figma 式） */
+.paper [data-blk]{cursor:pointer;border-radius:6px;transition:box-shadow .12s}
+.paper [data-blk]:hover{box-shadow:0 0 0 2px rgba(22,119,255,.25)}
+.paper [data-blk].sec-sel{box-shadow:0 0 0 2px rgba(22,119,255,.55)}
+.cb-ref{font-size:9px;font-style:normal;color:#1250b8;background:rgba(22,119,255,.1);border:1px solid rgba(22,119,255,.3);border-radius:999px;padding:0 7px;margin-left:6px}
+/* 区块类型弹层（Notion slash 菜单） */
+.type-pop{position:absolute;bottom:52px;left:16px;background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border:1px solid var(--gb);border-radius:12px;box-shadow:0 10px 30px rgba(34,48,74,.18);padding:6px;display:none;z-index:20;min-width:186px}
+.type-pop.show{display:block}
+.type-pop button{display:flex;align-items:center;gap:8px;width:100%;border:none;background:none;padding:6px 9px;border-radius:8px;font-size:12.5px;cursor:pointer;color:var(--ink);font-family:inherit;text-align:left}
+.type-pop button:hover{background:rgba(22,119,255,.08)}
+/* toast / credits */
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:rgba(34,48,74,.92);color:#fff;font-size:12.5px;padding:9px 18px;border-radius:12px;opacity:0;transition:.3s;pointer-events:none;z-index:99}
+.toast.show{opacity:1;transform:translateX(-50%)}
+.credits{margin-top:14px;text-align:center;font-size:10.5px;color:var(--ink3)}
+</style>
+</head>
+<body>
+
+<!-- ============================== 视图一：模板库 ============================== -->
+<section class="view on" id="view-lib">
+  <header class="top">
+    <div>
+      <h1>产出物 <span class="ver">模板中心 · 原型稿</span></h1>
+      <p>模板 = 产出格式契约：工作流输出节点引用模板 —— AI 只填内容，模板管形状，渲染走确定性管线</p>
+    </div>
+    <div class="actions">
+      <button class="btn primary" onclick="openEditor('pdf')">＋ 新建模板</button>
+    </div>
+  </header>
+
+  <div class="mech">
+    <b>定位</b>：过程（工作流）· 能力（工具目录）· <b>结果形状（产出物）</b> 三足鼎立
+    <span class="src"><span>渲染架构借鉴 jsreport / carbone / PPTAgent</span><span>编辑交互借鉴 Notion 区块 · Figma 三栏同步 · Canva 素材库</span></span>
+  </div>
+
+  <div class="filters">
+    <button class="chip on" data-f="all" onclick="setFilter(this)">全部 <b>4</b></button>
+    <button class="chip" data-f="pdf" onclick="setFilter(this)">PDF <b>2</b></button>
+    <button class="chip" data-f="xlsx" onclick="setFilter(this)">Excel <b>1</b></button>
+    <button class="chip" data-f="pptx" onclick="setFilter(this)">PPT <b>1</b></button>
+  </div>
+
+  <div class="grid">
+    <div class="tpl-card" data-f="pdf" onclick="openEditor('pdf')">
+      <div class="thumb">
+        <div class="mini-page">
+          <div class="bar title"></div>
+          <div class="bar l1"></div><div class="bar l2"></div>
+          <div class="chart-row"><div class="donut"></div><div class="spark"><svg viewBox="0 0 100 34" preserveAspectRatio="none"><polyline points="2,26 16,20 30,24 44,14 58,17 72,9 86,12 98,4" fill="none" stroke="#1677FF" stroke-width="2.4" stroke-linecap="round"/></svg></div></div>
+          <div class="tbl"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+        </div>
+      </div>
+      <div class="tpl-name">趋势分析报告 <span class="fmt pdf">PDF</span></div>
+      <div class="tpl-meta">
+        <span class="bound">已绑定 · 趋势分析</span><span>v3</span><span>7 区块 · 2 图表</span>
+      </div>
+      <div class="tpl-ops"><button class="op" onclick="event.stopPropagation();openEditor('pdf')">编辑</button><button class="op" onclick="event.stopPropagation();toast('已打开示例数据预览（同编辑器中栏）')">预览</button></div>
+    </div>
+
+    <div class="tpl-card" data-f="pdf" onclick="toast('需求分析纪要：同样走 HTML 模板编辑器（原型只详列趋势一份）')">
+      <div class="thumb">
+        <div class="mini-page">
+          <div class="bar title"></div>
+          <div class="bar l1"></div><div class="bar l3"></div><div class="bar l2"></div><div class="bar l1"></div><div class="bar l3"></div>
+        </div>
+      </div>
+      <div class="tpl-name">需求分析纪要 <span class="fmt pdf">PDF</span></div>
+      <div class="tpl-meta">
+        <span class="bound">已绑定 · 需求分析</span><span>v1</span><span>5 区块</span>
+      </div>
+      <div class="tpl-ops"><button class="op" onclick="event.stopPropagation();toast('同趋势分析编辑器结构，略')">编辑</button></div>
+    </div>
+
+    <div class="tpl-card" data-f="xlsx" onclick="openEditor('xlsx')">
+      <div class="thumb">
+        <div class="mini-sheet">
+          <b></b><b></b><b></b><b></b>
+          <i></i><i class="hdr"></i><i class="hdr"></i><i class="hdr"></i>
+          <i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i>
+          <i></i><i class="hl"></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i class="hl"></i>
+        </div>
+      </div>
+      <div class="tpl-name">报价成本表 <span class="fmt xlsx">XLSX</span></div>
+      <div class="tpl-meta">
+        <span class="unbound">未绑定</span><span>模板文件 cost-sheet-v2.xlsx</span>
+      </div>
+      <div class="tpl-ops"><button class="op" onclick="event.stopPropagation();openEditor('xlsx')">编辑</button></div>
+    </div>
+
+    <div class="tpl-card" data-f="pptx" onclick="openEditor('pptx')">
+      <div class="thumb">
+        <div class="mini-deck">
+          <div class="bar title"></div>
+          <div class="bar" style="width:75%"></div>
+          <div class="cols">
+            <div class="col"><i></i><i style="width:70%"></i><i style="width:85%"></i></div>
+            <div class="col"><i></i><i style="width:78%"></i></div>
+          </div>
+        </div>
+      </div>
+      <div class="tpl-name">方案汇报 <span class="fmt pptx">PPTX</span></div>
+      <div class="tpl-meta">
+        <span class="unbound">未绑定</span><span>母版 6 版式</span>
+      </div>
+      <div class="tpl-ops"><button class="op" onclick="event.stopPropagation();openEditor('pptx')">编辑</button></div>
+    </div>
+
+    <button class="add-tpl" onclick="openEditor('pdf')">
+      <span class="plus">＋</span>
+      新建模板
+    </button>
+  </div>
+
+  <div class="pipe" style="margin-top:18px">
+    <div class="step"><span class="n">1</span><b>输出节点选模板</b>工作流画布里 artifacts 插槽从「内联配格式」改为引用模板</div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="n">2</span><b>AI 按契约填内容</b>大脑只产 JSON（摘要/结论/文案），不碰排版</div>
+    <div class="arrow">→</div>
+    <div class="step mech-step"><span class="n">3</span><b>确定性渲染</b>PDF=HTML→无头打印；Excel/PPT=文件模板填占位符</div>
+    <div class="arrow">→</div>
+    <div class="step"><span class="n">4</span><b>产物落库</b>storage/office/reports + 会话文件卡 + 任务看板</div>
+  </div>
+</section>
+
+<!-- ============================== 视图二：PDF 模板编辑器（HTML 模板路线） ============================== -->
+<section class="view" id="view-pdf">
+  <div class="ed-top">
+    <button class="back" onclick="backLib()">← 返回模板库</button>
+    <span class="name">趋势分析报告</span>
+    <span class="fmt pdf">PDF</span>
+    <span>路线：<b style="color:var(--ink)">HTML 模板自绘</b>（jsreport 模式）</span>
+    <span>版本 <b style="color:var(--ink)">v3</b></span>
+    <span class="bound-wf">已绑定 · 趋势分析 输出节点</span>
+    <span class="spacer"></span>
+    <button class="btn tiny" onclick="toast('已保存为新版本 v4（原型演示）')">另存为新版本</button>
+    <button class="btn tiny primary" onclick="toast('已保存（原型演示）')">保存</button>
+  </div>
+
+  <div class="ed-body ed-pdf">
+    <!-- 左：结构 / 图表资产（Canva 式素材面板） -->
+    <div class="card pane" style="position:relative">
+      <div class="pane-tabs">
+        <button class="ptab on" onclick="setPaneTab(this,'pt-struct')">结构</button>
+        <button class="ptab" onclick="setPaneTab(this,'pt-assets')">图表资产</button>
+      </div>
+      <div class="ptab-body on" id="pt-struct">
+        <div class="blocks">
+          <div class="blk" data-name="封面页头" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-title">T</span><span class="nm">封面页头</span><span class="ph">{period_label}</span><span class="req"></span></div>
+          <div class="blk" data-name="摘要" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-text">¶</span><span class="nm">摘要</span><span class="ph">{summary}</span><span class="req"></span></div>
+          <div class="blk" data-name="商机总览" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-kpi">KPI</span><span class="nm">商机总览</span><span class="ph">{kpi.*}</span><span class="req off"></span></div>
+          <div class="blk" data-name="平台分布" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-chart">◫</span><span class="nm">平台分布<span class="refb">引用</span></span><span class="ph">{chart:dist}</span><span class="req off"></span></div>
+          <div class="blk sel" data-name="趋势走势" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-chart">◺</span><span class="nm">趋势走势<span class="refb">引用</span></span><span class="ph">{chart:trend}</span><span class="req off"></span></div>
+          <div class="blk" data-name="重点商机" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-table">▦</span><span class="nm">重点商机</span><span class="ph">{top_opps}</span><span class="req off"></span></div>
+          <div class="blk" data-name="风险与建议" onclick="selBlk(this)"><span class="drag">⠿</span><span class="ico t-text">¶</span><span class="nm">风险与建议</span><span class="ph">{risks}</span><span class="req"></span></div>
+        </div>
+        <button class="add-blk" style="margin-top:6px" onclick="togglePop(event)">＋ 添加区块</button>
+        <div class="type-pop" id="type-pop">
+          <button onclick="addBlock('文本')">¶ 文本段</button>
+          <button onclick="addBlock('KPI 指标组')">KPI 指标组</button>
+          <button onclick="addBlock('数据表格')">▦ 数据表格</button>
+          <button onclick="addBlock('图表（从资产库引用）')">◫ 图表（资产库引用）</button>
+        </div>
+        <p style="font-size:10.5px;color:var(--ink3);margin-top:10px;line-height:1.7">
+          红点 = 必填区块（数据缺失时输出节点拦截反问，而非渲染空章）——即趋势工作流现有的七节契约升级为模板实体
+        </p>
+      </div>
+      <div class="ptab-body" id="pt-assets">
+        <p class="lib-hint">引用系统已有图表：数据查询与 option 和来源页<b>同一份</b>——驾驶舱改样式改指标，报告下次渲染自动跟；报告端仅以报告尺寸重渲，不复制配置。</p>
+        <div class="lib-group">商机线索页</div>
+        <div class="assets">
+          <div class="asset">
+            <div class="athumb"><svg viewBox="0 0 46 30"><rect x="4" y="14" width="5" height="12" rx="1" fill="rgba(22,119,255,.55)"/><rect x="12" y="9" width="5" height="17" rx="1" fill="rgba(22,119,255,.55)"/><rect x="20" y="16" width="5" height="10" rx="1" fill="rgba(22,119,255,.55)"/><rect x="28" y="6" width="5" height="20" rx="1" fill="rgba(22,119,255,.55)"/><polyline points="4,12 14,8 24,11 34,5 43,7" fill="none" stroke="#9254DE" stroke-width="1.6"/></svg></div>
+            <div class="ai"><div class="an">趋势分析</div><div class="at">柱(总量)×折线(平台) · 本模板已引用</div></div>
+            <button class="use" disabled style="opacity:.45;cursor:default">已引用</button>
+          </div>
+          <div class="asset">
+            <div class="athumb"><svg viewBox="0 0 46 30"><circle cx="23" cy="15" r="10" fill="none" stroke="#1677FF" stroke-width="6" stroke-dasharray="44 63"/><circle cx="23" cy="15" r="10" fill="none" stroke="#52C9A0" stroke-width="6" stroke-dasharray="30 95" stroke-dashoffset="-44"/><circle cx="23" cy="15" r="4.5" fill="#fff" stroke="#9254DE" stroke-width="3"/></svg></div>
+            <div class="ai"><div class="an">结构分布</div><div class="at">环形/树图双视图 · 本模板已引用</div></div>
+            <button class="use" disabled style="opacity:.45;cursor:default">已引用</button>
+          </div>
+          <div class="asset">
+            <div class="athumb"><svg viewBox="0 0 46 30"><rect x="4" y="4" width="30" height="5" rx="2.5" fill="rgba(22,119,255,.5)"/><rect x="4" y="12" width="22" height="5" rx="2.5" fill="rgba(22,119,255,.5)"/><rect x="4" y="20" width="26" height="5" rx="2.5" fill="rgba(22,119,255,.5)"/></svg></div>
+            <div class="ai"><div class="an">业务排行</div><div class="at">横向渐变条 · Top N</div></div>
+            <button class="use" onclick="useAsset(this,'业务排行')">引用</button>
+          </div>
+          <div class="asset">
+            <div class="athumb"><svg viewBox="0 0 46 30"><rect x="8" y="11" width="14" height="9" fill="rgba(22,119,255,.25)" stroke="#1677FF" stroke-width="1.2"/><line x1="15" y1="8" x2="15" y2="23" stroke="#1677FF" stroke-width="1.2"/><circle cx="28" cy="14" r="1.5" fill="#9254DE"/><circle cx="32" cy="18" r="1.5" fill="#9254DE"/><circle cx="37" cy="11" r="1.5" fill="#9254DE"/><circle cx="40" cy="20" r="1.5" fill="#9254DE"/></svg></div>
+            <div class="ai"><div class="an">利润分布</div><div class="at">箱线+散点（机型利润率）</div></div>
+            <button class="use" onclick="useAsset(this,'利润分布')">引用</button>
+          </div>
+        </div>
+        <div class="lib-group">服务器配置页</div>
+        <div class="assets">
+          <div class="asset">
+            <div class="athumb"><svg viewBox="0 0 46 30"><polygon points="23,3 38,12 33,27 13,27 8,12" fill="rgba(22,119,255,.08)" stroke="#1677FF" stroke-width="1.2"/><polygon points="23,8 32,14 29,23 17,23 14,14" fill="rgba(82,201,160,.2)" stroke="#52C9A0" stroke-width="1"/></svg></div>
+            <div class="ai"><div class="an">性能六维雷达</div><div class="at">选型对比 · PerfRadar</div></div>
+            <button class="use" onclick="useAsset(this,'性能六维雷达')">引用</button>
+          </div>
+        </div>
+        <button class="add-blk" style="margin-top:10px" onclick="toast('自建图表：仅本报告使用的私有图表定义，不进资产库（原型演示）')">＋ 自建图表（仅本报告）</button>
+      </div>
+    </div>
+
+    <!-- 中：预览 -->
+    <div class="preview">
+      <div class="pv-bar">
+        <div class="seg">
+          <button class="on" onclick="setPv(this,true)">示例数据</button>
+          <button onclick="setPv(this,false)">上次运行数据</button>
+        </div>
+        <span class="note" id="pv-note">示例数据由模板自带，编辑结构即时重渲 · 点击预览区块可在左栏定位</span>
+      </div>
+      <div class="paper-wrap">
+        <div class="paper" id="paper">
+          <div data-blk="封面页头">
+            <div class="p-kicker">CPQ PLATFORM · TREND REPORT</div>
+            <h1>趋势分析报告</h1>
+            <div class="p-meta"><span>周期：2026-09-20 ~ 09-26</span><span>数据范围：本周新增商机</span><span>生成：趋势分析工作流</span></div>
+          </div>
+          <div data-blk="摘要">
+            <h4>摘要</h4>
+            <div class="p-abs">
+              本周新增商机 <span class="hl">{summary}…AI 按契约填充的结论文案，橙色高亮标记该区域为大脑职责区</span>，整体结构上 Intel 平台需求保持稳健，国产化替代项目进入放量期，建议销售侧跟进华东区两家重点客户。
+            </div>
+          </div>
+          <div data-blk="商机总览">
+            <h4>商机总览</h4>
+            <div class="kpis">
+              <div class="kpi"><div class="k">新增商机</div><div class="v">23</div><div class="d up">▲ 15%</div></div>
+              <div class="kpi"><div class="k">进入方案</div><div class="v">9</div><div class="d up">▲ 2</div></div>
+              <div class="kpi"><div class="k">预计金额</div><div class="v">¥486万</div><div class="d up">▲ 8%</div></div>
+              <div class="kpi"><div class="k">赢单</div><div class="v">4</div><div class="d down">▼ 1</div></div>
+            </div>
+          </div>
+          <div class="chart-box" data-blk="平台分布">
+            <div class="cb-t">平台分布 <span><em class="cb-ref">引用 · 线索页 · 结构分布</em></span></div>
+            <div class="ch" id="ch-donut"></div>
+          </div>
+          <div class="chart-box" data-blk="趋势走势">
+            <div class="cb-t">趋势走势 <span><em class="cb-ref">引用 · 线索页 · 趋势分析</em></span></div>
+            <div class="ch" id="ch-line"></div>
+          </div>
+          <div data-blk="重点商机">
+            <h4>重点商机</h4>
+            <table>
+              <thead><tr><th>客户</th><th>平台</th><th>阶段</th><th>金额</th></tr></thead>
+              <tbody>
+                <tr><td class="cust">华东证券</td><td>Polaris（兆芯）</td><td><span class="st" style="color:#1250b8;background:rgba(22,119,255,.1)">方案配置</span></td><td>¥120万</td></tr>
+                <tr><td class="cust">西南政务云</td><td>Orion（AMD）</td><td><span class="st" style="color:#6b2bb5;background:rgba(146,84,222,.12)">成本核算</span></td><td>¥86万</td></tr>
+                <tr><td class="cust">华南高校</td><td>Intel</td><td><span class="st" style="color:#c26e0a;background:rgba(250,140,22,.13)">线索登记</span></td><td>¥45万</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div data-blk="风险与建议">
+            <h4>风险与建议</h4>
+            <div class="p-abs"><span class="hl">{risks}…AI 填充区</span>：华东区两家重点客户方案确认窗口临近，建议本周内跟进；西南政务云预算流程或延至下季度，需提前锁定配置。</div>
+          </div>
+          <div class="p-foot"><span>趋势分析工作流 · 确定性渲染产物</span><span>第 1 / 2 页</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 右：属性 + 契约 -->
+    <div class="card pane pane-r">
+      <h3>区块属性 <span class="sub">趋势走势 · 引用资产</span></h3>
+      <div class="props">
+        <div class="prop-grid">
+          <div class="fld full"><label>引用图表资产</label><div class="fake">商机线索页 · 趋势分析</div></div>
+          <div class="fld"><label>数据契约</label><div class="fake">{chart:trend}</div></div>
+          <div class="fld"><label>尺寸策略</label><div class="fake">报告宽度自适应</div></div>
+          <div class="fld full"><label>标题覆盖（可选）</label><input type="text" value="趋势走势"></div>
+        </div>
+        <div class="recipe" style="margin-top:2px">
+          <b style="color:#1250b8">同源机制</b>：图表 option 与数据查询复用线索页同一份（<code>useChartTheme</code> 主题 / <code>PLAT_COLOR</code> 平台配色）——线索页改样式改指标，报告下次渲染自动跟；报告端仅以报告尺寸重渲，不复制配置。
+        </div>
+        <div>
+          <h3 style="margin-top:4px">数据契约 <span class="sub">输出节点据此向 AI 要数</span></h3>
+          <div class="contract">
+            <div class="ct-row"><code>{summary}</code>结论文案<span class="who ai">AI 填充</span></div>
+            <div class="ct-row"><code>{kpi.new_count}</code>新增商机数<span class="who tool">工具取数</span></div>
+            <div class="ct-row"><code>{chart:dist}</code>结构分布图 · 引用<span class="who tool">工具取数</span></div>
+            <div class="ct-row"><code>{chart:trend}</code>趋势分析图 · 引用<span class="who tool">工具取数</span></div>
+            <div class="ct-row"><code>{top_opps[]}</code>重点商机行<span class="who tool">工具取数</span></div>
+            <div class="ct-row"><code>{risks}</code>风险建议<span class="who ai">AI 填充</span></div>
+            <div class="ct-row"><code>{period_label}</code>报告周期<span class="who sys">系统变量</span></div>
+            <p class="ct-note">绿色=AI 填充（大脑职责）、蓝色=工具取数（query_cpq_data）、灰色=系统变量；图表引用行走资产查询，不重复定义。契约即插头——改字段，输出节点的提示与校验同步变。</p>
+          </div>
+        </div>
+        <div>
+          <h3>渲染配方</h3>
+          <div class="recipe">
+            <code>HTML 模板 → Playwright 无头打印 → PDF</code><br>
+            图表用 echarts SSR 直接进页面（真实值，非 CSS 变量）；字体链复用 <code>report_pdf.py</code>；产物落 <code>storage/office/reports/</code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 视图三：Excel 模板编辑器（文件模板路线） ============================== -->
+<section class="view" id="view-xlsx">
+  <div class="ed-top">
+    <button class="back" onclick="backLib()">← 返回模板库</button>
+    <span class="name">报价成本表</span>
+    <span class="fmt xlsx">XLSX</span>
+    <span>路线：<b style="color:var(--ink)">文件模板 + 占位符</b>（carbone 模式）</span>
+    <span class="bound-wf" style="color:var(--ink3)">未绑定工作流</span>
+    <span class="spacer"></span>
+    <button class="btn tiny primary" onclick="toast('已保存（原型演示）')">保存</button>
+  </div>
+
+  <div class="ed-body ed-two">
+    <div class="card pane">
+      <h3>模板文件</h3>
+      <div class="file-card">
+        <div class="fic">XLSX</div>
+        <div class="fi">
+          <div class="fn">cost-sheet-v2.xlsx</div>
+          <div class="fm">3 工作表 · 18 占位符 · 上传于 09-24</div>
+        </div>
+        <button class="btn tiny" onclick="toast('替换模板文件（原型演示）')">替换</button>
+        <button class="btn tiny" onclick="toast('下载模板文件（原型演示）')">下载</button>
+      </div>
+      <div style="margin-top:14px">
+        <h3>占位符 <span class="sub">在 Excel 单元格里写 {tag}，渲染时替换</span></h3>
+        <div class="contract">
+          <div class="ct-row"><code>{quotation_id}</code>报价单号<span class="who sys">系统变量</span></div>
+          <div class="ct-row"><code>{customer_name}</code>客户名称<span class="who tool">工具取数</span></div>
+          <div class="ct-row"><code>{items[]}</code>行项循环<span class="who tool">工具取数</span></div>
+          <div class="ct-row"><code>{total_price}</code>总价（公式列）<span class="who tool">工具取数</span></div>
+          <div class="ct-row"><code>{cost_note}</code>成本备注<span class="who ai">AI 填充</span></div>
+        </div>
+      </div>
+      <p class="route-note">
+        Excel / PPT 不自绘画布：模板就是一份<b>真实 Office 文件</b>，样式、公式、母版全部由熟悉 Excel 的人直接在 Office 里做；渲染=确定性占位符填充（carbone 已验证该路线，JSON 进、文件出）。
+      </p>
+    </div>
+
+    <div class="preview">
+      <div class="pv-bar">
+        <div class="seg">
+          <button class="on" onclick="setPv(this,true)">占位符视图</button>
+          <button onclick="setPv(this,false);toast('渲染预览：占位符替换为示例数据（原型演示）')">渲染预览</button>
+        </div>
+        <span class="note">橙色单元格 = 占位符位置</span>
+      </div>
+      <div class="paper-wrap" style="display:block;overflow:auto">
+        <div class="sheet-preview">
+          <table>
+            <tr><th style="width:26%">A</th><th style="width:44%">B</th><th>C</th><th>D</th></tr>
+            <tr><td class="ph">{quotation_id}</td><td class="ph">{customer_name}</td><td>2026-09-26</td><td></td></tr>
+            <tr><th>料号</th><th>描述</th><th>数量</th><th>单价</th></tr>
+            <tr><td class="ph">{items[].pn}</td><td class="ph">{items[].desc}</td><td class="ph">{items[].qty}</td><td class="ph">{items[].price}</td></tr>
+            <tr><td style="color:#b8c4d6">…（行循环）</td><td></td><td></td><td></td></tr>
+            <tr><td></td><td style="text-align:right;font-weight:600">合计</td><td class="calc">{total_price}</td><td></td></tr>
+            <tr><td></td><td>成本备注</td><td class="ph" colspan="2">{cost_note}</td></tr>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================== 视图四：PPT 模板编辑器（母版路线） ============================== -->
+<section class="view" id="view-pptx">
+  <div class="ed-top">
+    <button class="back" onclick="backLib()">← 返回模板库</button>
+    <span class="name">方案汇报</span>
+    <span class="fmt pptx">PPTX</span>
+    <span>路线：<b style="color:var(--ink)">母版版式 + AI 填空</b>（PPTAgent 模式）</span>
+    <span class="bound-wf" style="color:var(--ink3)">未绑定工作流</span>
+    <span class="spacer"></span>
+    <button class="btn tiny primary" onclick="toast('已保存（原型演示）')">保存</button>
+  </div>
+
+  <div class="ed-body ed-two">
+    <div class="card pane">
+      <h3>母版版式 <span class="sub">点击查看插槽</span></h3>
+      <div class="masters">
+        <div class="master" onclick="selMaster(this)"><div class="mthumb" style="padding:8px 6px"><div style="height:5px;width:60%;background:rgba(34,48,74,.7);border-radius:2px"></div></div><div><div class="mn">封面</div><div class="ms">标题 / 副题 / 日期</div></div></div>
+        <div class="master sel" onclick="selMaster(this)"><div class="mthumb" style="padding:5px 5px;display:flex;gap:3px"><div style="flex:1;border:1px solid rgba(22,119,255,.3);border-radius:2px"></div><div style="flex:1;border:1px solid rgba(22,119,255,.3);border-radius:2px"></div></div><div><div class="mn">双栏内容</div><div class="ms">标题 / 左栏 / 右栏 / 图表</div></div></div>
+        <div class="master" onclick="selMaster(this)"><div class="mthumb" style="padding:12px 6px 4px"><div style="height:4px;width:40%;background:rgba(34,48,74,.4);border-radius:2px;margin-bottom:3px"></div><div style="height:12px;background:rgba(22,119,255,.12);border-radius:2px"></div></div><div><div class="mn">图表页</div><div class="ms">标题 / 整幅图表 / 注解</div></div></div>
+        <div class="master" onclick="selMaster(this)"><div class="mthumb" style="padding:8px 6px;display:flex;flex-direction:column;gap:3px"><div style="height:4px;width:80%;background:rgba(34,48,74,.3);border-radius:2px"></div><div style="height:4px;width:70%;background:rgba(34,48,74,.3);border-radius:2px"></div><div style="height:4px;width:75%;background:rgba(34,48,74,.3);border-radius:2px"></div></div><div><div class="mn">要点页</div><div class="ms">标题 / 3~5 要点</div></div></div>
+      </div>
+      <p style="font-size:10.5px;color:var(--ink3);margin-top:12px;line-height:1.7">
+        版式与视觉全部锁在母版（PPTAgent 结论：LLM 从零排版必然崩坏）；AI 只对插槽产内容 + 从母版库中选版式。母版文件本身仍是普通 .pptx，设计师用 PowerPoint 维护。
+      </p>
+    </div>
+
+    <div class="preview">
+      <div class="pv-bar">
+        <div class="seg">
+          <button class="on" onclick="setPv(this,true)">版式预览</button>
+          <button onclick="setPv(this,false);toast('填空预览：插槽替换为示例内容（原型演示）')">填空预览</button>
+        </div>
+        <span class="note">16:9 · 双栏内容版式</span>
+      </div>
+      <div class="paper-wrap">
+        <div class="slide">
+          <div class="s-kicker">SOLUTION BRIEF · 双栏内容版式</div>
+          <h2>{slide_title}</h2>
+          <div class="s-lead">{slide_lead} — 版式、字号、留白全部由母版锁定，本行为插槽示意</div>
+          <div class="s-grid">
+            <div class="s-block">
+              <div class="bt">左栏 · 文本插槽</div>
+              <div class="bar w1"></div><div class="bar w2"></div><div class="bar w3"></div><div class="bar w2"></div>
+            </div>
+            <div class="s-block">
+              <div class="bt">右栏 · 图表插槽</div>
+              <svg viewBox="0 0 100 60" preserveAspectRatio="none" style="flex:1;width:100%">
+                <rect x="8" y="30" width="10" height="30" rx="2" fill="rgba(22,119,255,.55)"/>
+                <rect x="26" y="20" width="10" height="40" rx="2" fill="rgba(22,119,255,.55)"/>
+                <rect x="44" y="36" width="10" height="24" rx="2" fill="rgba(22,119,255,.55)"/>
+                <rect x="62" y="12" width="10" height="48" rx="2" fill="rgba(22,119,255,.55)"/>
+                <rect x="80" y="24" width="10" height="36" rx="2" fill="rgba(22,119,255,.55)"/>
+              </svg>
+            </div>
+          </div>
+          <div class="s-slots">
+            <span class="slot-pill">{slide_title}</span>
+            <span class="slot-pill">{slide_lead}</span>
+            <span class="slot-pill">{left_body}</span>
+            <span class="slot-pill">{chart_spec}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="credits">产出物模板中心 · 原型稿 2026-09-26 r2 —— 渲染架构参考 jsreport / carbone / PPTAgent；编辑交互参考 Notion（区块+类型菜单）/ Figma（三栏+点选同步）/ Canva（素材库标签页）；图表资产与商机线索页同源（useChartTheme / PLAT_COLOR）</div>
+<div class="toast" id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+/* ---------- 视图切换 ---------- */
+function show(id){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
+  document.getElementById(id).classList.add('on');
+  window.scrollTo({top:0});
+  if(id==='view-pdf') setTimeout(renderCharts,30);
+}
+function backLib(){show('view-lib')}
+function openEditor(kind){show('view-'+kind)}
+
+/* ---------- 筛选 ---------- */
+function setFilter(btn){
+  document.querySelectorAll('.chip').forEach(c=>c.classList.remove('on'));
+  btn.classList.add('on');
+  const f=btn.dataset.f;
+  document.querySelectorAll('.tpl-card').forEach(c=>c.classList.toggle('hidden',f!=='all'&&c.dataset.f!==f));
+}
+
+/* ---------- 选中态（Figma 式双向同步） ---------- */
+function selBlk(el){
+  el.parentElement.querySelectorAll('.blk').forEach(b=>b.classList.remove('sel'));
+  el.classList.add('sel');
+  document.querySelectorAll('#paper [data-blk]').forEach(s=>s.classList.toggle('sec-sel',s.dataset.blk===el.dataset.name));
+}
+document.getElementById('paper').addEventListener('click',e=>{
+  const sec=e.target.closest('[data-blk]');if(!sec)return;
+  document.querySelectorAll('#paper [data-blk]').forEach(s=>s.classList.remove('sec-sel'));
+  sec.classList.add('sec-sel');
+  const blk=document.querySelector('.blk[data-name="'+sec.dataset.blk+'"]');
+  if(blk)blk.scrollIntoView({block:'nearest',behavior:'smooth'});
+});
+function selMaster(el){el.parentElement.querySelectorAll('.master').forEach(m=>m.classList.remove('sel'));el.classList.add('sel')}
+function setPv(btn,sample){
+  btn.parentElement.querySelectorAll('button').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+}
+/* ---------- 左栏标签页 / 弹层 / 资产引用 ---------- */
+function setPaneTab(btn,id){
+  btn.parentElement.querySelectorAll('.ptab').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  btn.closest('.card').querySelectorAll('.ptab-body').forEach(b=>b.classList.toggle('on',b.id===id));
+}
+function togglePop(e){e.stopPropagation();document.getElementById('type-pop').classList.toggle('show')}
+document.addEventListener('click',()=>{const p=document.getElementById('type-pop');if(p)p.classList.remove('show')});
+function addBlock(t){toast('已添加「'+t+'」区块（原型演示）')}
+function useAsset(btn,name){toast('已把「'+name+'」插入章节结构（原型演示）')}
+
+/* ---------- toast ---------- */
+let tt;
+function toast(msg){
+  const t=document.getElementById('toast');
+  t.textContent=msg;t.classList.add('show');
+  clearTimeout(tt);tt=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+/* ---------- 图表（真实 echarts，CDN 失败降级提示） ---------- */
+const COLORS=['#1677FF','#52C9A0','#9254DE','#FA8C16','#13C2C2'];
+function renderCharts(){
+  if(!window.echarts){
+    ['ch-donut','ch-line'].forEach(id=>{const d=document.getElementById(id);if(d){d.className='ch fallback';d.textContent='echarts CDN 未加载 —— 实际实现走 SSR 真实渲染'}});
+    return;
+  }
+  const donut=echarts.init(document.getElementById('ch-donut'));
+  donut.setOption({
+    color:COLORS,
+    tooltip:{trigger:'item'},
+    title:{text:'23',subtext:'本周新增',left:'center',top:'30%',textStyle:{fontSize:20,fontWeight:700,color:'#1a2740'},subtextStyle:{fontSize:9,color:'#93a3ba'}},
+    legend:{bottom:0,type:'scroll',itemWidth:8,itemHeight:8,textStyle:{fontSize:9,color:'#5a6b85'}},
+    series:[{type:'pie',radius:['46%','68%'],center:['50%','42%'],
+      label:{fontSize:10,color:'#5a6b85'},
+      data:[{name:'Intel',value:9},{name:'Polaris 兆芯',value:7},{name:'Orion AMD',value:5},{name:'未定',value:2}]}]
+  });
+  const line=echarts.init(document.getElementById('ch-line'));
+  line.setOption({
+    color:COLORS,
+    grid:{left:34,right:12,top:26,bottom:22},
+    tooltip:{trigger:'axis'},
+    legend:{top:0,right:0,itemWidth:10,itemHeight:6,textStyle:{fontSize:10,color:'#5a6b85'}},
+    xAxis:{type:'category',data:['W33','W34','W35','W36','W37','W38','W39','W40'],axisLabel:{fontSize:9,color:'#93a3ba'}},
+    yAxis:{type:'value',axisLabel:{fontSize:9,color:'#93a3ba'},splitLine:{lineStyle:{color:'rgba(120,144,176,.15)'}}},
+    series:[
+      {name:'商机总量',type:'bar',barWidth:'42%',itemStyle:{borderRadius:[3,3,0,0],color:{type:'linear',x:0,y:0,x2:0,y2:1,colorStops:[{offset:0,color:'rgba(22,119,255,.78)'},{offset:1,color:'rgba(22,119,255,.22)'}]}},data:[46,51,49,57,53,62,60,68]},
+      {name:'Intel',type:'line',smooth:true,symbolSize:4,showSymbol:false,data:[28,30,29,34,31,36,35,39]},
+      {name:'Polaris',type:'line',smooth:true,symbolSize:4,showSymbol:false,data:[9,11,10,13,12,14,14,17]},
+      {name:'Orion',type:'line',smooth:true,symbolSize:4,showSymbol:false,data:[6,7,7,8,8,9,8,10]}
+    ]
+  });
+  window.addEventListener('resize',()=>{donut.resize();line.resize()});
+}
+</script>
+</body>
+</html>

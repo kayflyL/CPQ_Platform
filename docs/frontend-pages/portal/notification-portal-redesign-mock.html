@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>通知中心 & 门户布局 · 重构原型</title>
+<style>
+/* ===== 设计变量（对齐 styles/tokens.css light 主题）===== */
+:root{
+  --cpq-accent-primary:#1677FF;
+  --cpq-accent-primary-light:#4096ff;
+  --cpq-color-success:#52C9A0;
+  --cpq-color-warning:#faad14;
+  --cpq-color-danger:#FF6B6B;
+  --cpq-text-primary:#1d2129;
+  --cpq-text-secondary:#4e5969;
+  --cpq-text-muted:#86909c;
+  --cpq-text-quaternary:#a9aeb8;
+  --cpq-bg-primary:#F2F6FC;
+  --cpq-bg-secondary:#F0F4FA;
+  --cpq-bg-tertiary:#E8EEF6;
+  --cpq-bg-card:#ffffff;
+  --cpq-border-primary:rgba(22,119,255,.10);
+  --cpq-border-base:#e5e9f0;
+  --cpq-radius-sm:8px; --cpq-radius-md:12px; --cpq-radius-lg:16px; --cpq-radius-xl:20px;
+  --cpq-overlay-w3:rgba(255,255,255,.24);
+  --cpq-overlay-w5:rgba(255,255,255,.36);
+  --cpq-overlay-w6:rgba(255,255,255,.42);
+  --cpq-overlay-w10:rgba(255,255,255,.54);
+  --cpq-overlay-w15:rgba(255,255,255,.62);
+  --cpq-overlay-w20:rgba(255,255,255,.70);
+  --cpq-overlay-b20:rgba(255,255,255,.44);
+  --cpq-overlay-a4:rgba(22,119,255,.04);
+  --cpq-overlay-a8:rgba(22,119,255,.08);
+  --cpq-overlay-a10:rgba(22,119,255,.10);
+  --cpq-overlay-a20:rgba(22,119,255,.20);
+  --cpq-shadow-sm:0 2px 8px rgba(22,119,255,.06);
+  --cpq-shadow-md:0 4px 16px rgba(22,119,255,.08);
+  --cpq-shadow-lg:0 8px 24px rgba(22,119,255,.10);
+  --cpq-dur-1:160ms; --cpq-dur-2:280ms;
+  --cpq-ease-smooth:cubic-bezier(.4,0,.2,1);
+  /* 通知类型马卡龙色 */
+  --mac-blue:#1677FF;   --mac-blue-bg:rgba(22,119,255,.10);
+  --mac-green:#2f9d78;  --mac-green-bg:rgba(82,201,160,.14);
+  --mac-red:#e5484d;    --mac-red-bg:rgba(255,107,107,.12);
+  --mac-amber:#d48806;  --mac-amber-bg:rgba(250,173,20,.14);
+  --mac-violet:#7c5cf0; --mac-violet-bg:rgba(140,113,255,.12);
+  --mac-cyan:#0ea5b7;   --mac-cyan-bg:rgba(49,196,214,.13);
+}
+*{box-sizing:border-box;}
+html,body{height:100%;}
+body{
+  margin:0;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+  font-size:14px;color:var(--cpq-text-primary);
+  background:linear-gradient(160deg,#eaf3ff 0%,#f2f6fc 42%,#e9f1fb 100%);
+  -webkit-font-smoothing:antialiased;
+}
+.glass{
+  background:linear-gradient(135deg,var(--cpq-overlay-w6) 0%,var(--cpq-overlay-w3) 40%,var(--cpq-overlay-b20) 100%);
+  backdrop-filter:blur(10px);
+  border:1px solid var(--cpq-overlay-w15);
+  border-radius:var(--cpq-radius-xl);
+  box-shadow:var(--cpq-shadow-md),inset 0 1px 0 var(--cpq-overlay-w15);
+}
+/* ===== 原型说明条 ===== */
+.tipbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin:12px 20px 0;padding:8px 14px;border-radius:var(--cpq-radius-md);
+  background:var(--cpq-overlay-a8);border:1px dashed var(--cpq-overlay-a20);
+  color:var(--cpq-text-secondary);font-size:12px;
+}
+.tipbar b{color:var(--cpq-accent-primary);}
+/* ===== 页面头部 ===== */
+.topbar{
+  display:flex;align-items:center;gap:10px;
+  margin:12px 20px 0;padding:10px 16px;border-radius:var(--cpq-radius-lg);
+  background:var(--cpq-overlay-w10);border:1px solid var(--cpq-overlay-w15);
+}
+.topbar h1{font-size:16px;margin:0;font-weight:600;}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;border-radius:999px;
+  font-size:12px;background:var(--cpq-overlay-a10);color:var(--cpq-accent-primary);border:1px solid var(--cpq-overlay-a20);}
+.chip .dot{width:6px;height:6px;border-radius:50%;background:var(--cpq-accent-primary);}
+.topbar .spacer{flex:1;}
+.topbar .meta{font-size:12px;color:var(--cpq-text-muted);}
+/* ===== 分节 ===== */
+.sec{margin:26px 20px 0;}
+.sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:10px;}
+.sec-head .no{font-size:12px;font-weight:700;color:#fff;background:var(--cpq-accent-primary);
+  border-radius:6px;padding:2px 8px;letter-spacing:.5px;}
+.sec-head h2{margin:0;font-size:15px;font-weight:700;}
+.sec-head .sub{font-size:12px;color:var(--cpq-text-muted);}
+.decided{color:#2f9d78;background:rgba(82,201,160,.14) !important;border-color:rgba(82,201,160,.3) !important;}
+.decided .dot{background:#2f9d78 !important;}
+/* ===== 画布（模拟屏幕）===== */
+.stage{
+  position:relative;border-radius:var(--cpq-radius-xl);overflow:hidden;
+  background:linear-gradient(160deg,#eaf3ff 0%,#f2f6fc 46%,#e9f1fb 100%);
+  border:1px solid var(--cpq-overlay-w15);box-shadow:var(--cpq-shadow-md);
+}
+.stage-bar{display:flex;align-items:center;gap:8px;padding:7px 14px;font-size:11.5px;color:var(--cpq-text-muted);
+  background:var(--cpq-overlay-w10);border-bottom:1px solid var(--cpq-border-base);}
+.stage-bar .addr{background:#fff;border:1px solid var(--cpq-border-base);border-radius:999px;
+  padding:1px 12px;color:var(--cpq-text-secondary);font-size:11px;}
+.stage-bar .tag{margin-left:auto;}
+/* ===== 门户空闲态 ===== */
+.portal{display:flex;flex-direction:column;align-items:center;justify-content:center;
+  min-height:460px;padding:28px 20px 34px;}
+.pcol{width:100%;max-width:660px;display:flex;flex-direction:column;align-items:center;}
+.pl-avatar{width:52px;height:52px;border-radius:50%;background:linear-gradient(135deg,#1677FF,#4096ff);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-size:20px;font-weight:600;
+  box-shadow:0 6px 16px var(--cpq-overlay-a20);}
+.pl-title{font-size:24px;font-weight:700;margin:14px 0 4px;}
+.pl-sub{font-size:13px;color:var(--cpq-text-muted);margin:0 0 22px;}
+.composer{width:100%;display:flex;align-items:center;gap:10px;padding:8px 8px 8px 16px;
+  background:#fff;border:1px solid var(--cpq-overlay-a20);border-radius:var(--cpq-radius-lg);
+  box-shadow:var(--cpq-shadow-md);}
+.composer .ph{flex:1;color:var(--cpq-text-quaternary);font-size:13.5px;}
+.composer .btn-ghost{display:inline-flex;align-items:center;gap:5px;height:32px;padding:0 12px;
+  font-size:13px;color:var(--cpq-text-secondary);background:var(--cpq-overlay-w5);
+  border:1px solid var(--cpq-border-base);border-radius:8px;}
+.composer .btn-send{width:32px;height:32px;border-radius:8px;background:var(--cpq-accent-primary);
+  color:#fff;display:flex;align-items:center;justify-content:center;}
+.entries{width:100%;margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(186px,1fr));gap:10px;}
+.entry{padding:13px 14px;border-radius:var(--cpq-radius-md);text-align:left;cursor:pointer;
+  background:var(--cpq-overlay-w6);border:1px solid var(--cpq-overlay-w15);
+  transition:all var(--cpq-dur-1) var(--cpq-ease-smooth);}
+.entry:hover{background:#fff;border-color:var(--cpq-overlay-a20);box-shadow:var(--cpq-shadow-sm);}
+.entry b{display:block;font-size:13.5px;font-weight:600;}
+.entry span{display:block;font-size:11.5px;color:var(--cpq-text-muted);margin-top:3px;}
+/* 方案B：摘要条 */
+.sumstrip{width:100%;margin-top:22px;display:flex;align-items:center;justify-content:center;gap:8px;}
+.sum-pill{display:inline-flex;align-items:center;gap:7px;height:34px;padding:0 14px;border-radius:999px;
+  font-size:12.5px;color:var(--cpq-text-secondary);cursor:pointer;
+  background:var(--cpq-overlay-w6);border:1px solid var(--cpq-overlay-w15);}
+.sum-pill:hover{background:#fff;box-shadow:var(--cpq-shadow-sm);}
+.sum-pill .n{font-size:15px;font-weight:700;color:var(--cpq-accent-primary);}
+.sum-pill.warn .n{color:var(--mac-amber);}
+.sum-pill .arr{color:var(--cpq-text-quaternary);font-size:11px;}
+.sum-strip-note{margin-top:10px;font-size:11px;color:var(--cpq-text-quaternary);}
+/* 方案A：去向注记 + 工作台概要条 */
+.annotate{display:flex;gap:14px;align-items:stretch;}
+.annotate .stage{flex:1;min-width:0;}
+.sidecard{width:264px;flex:0 0 auto;padding:14px 16px;border-radius:var(--cpq-radius-lg);
+  background:var(--cpq-overlay-w10);border:1px dashed var(--cpq-overlay-a20);font-size:12px;color:var(--cpq-text-secondary);}
+.sidecard h4{margin:0 0 8px;font-size:12.5px;color:var(--cpq-text-primary);}
+.sidecard ul{margin:0;padding-left:16px;line-height:1.9;}
+.sidecard b.k{color:var(--cpq-accent-primary);}
+.wbstrip{margin:12px 16px 16px;padding:10px 14px;border-radius:var(--cpq-radius-md);
+  background:#fff;border:1px solid var(--cpq-border-base);box-shadow:var(--cpq-shadow-sm);
+  display:flex;align-items:center;gap:14px;font-size:12.5px;}
+.wbstrip b{font-size:13px;}
+.wbstrip .seg{display:inline-flex;align-items:center;gap:6px;color:var(--cpq-text-secondary);}
+.wbstrip .seg .n{font-weight:700;color:var(--cpq-accent-primary);}
+.wbstrip .link{margin-left:auto;color:var(--cpq-accent-primary);cursor:pointer;}
+.wbstrip .label{font-size:10.5px;color:#fff;background:var(--cpq-accent-primary);border-radius:5px;padding:1px 7px;}
+/* ===== 通知条目通用 ===== */
+.n-icon{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}
+.n-icon svg{width:17px;height:17px;}
+.i-blue{background:var(--mac-blue-bg);color:var(--mac-blue);}
+.i-green{background:var(--mac-green-bg);color:var(--mac-green);}
+.i-red{background:var(--mac-red-bg);color:var(--mac-red);}
+.i-amber{background:var(--mac-amber-bg);color:var(--mac-amber);}
+.i-violet{background:var(--mac-violet-bg);color:var(--mac-violet);}
+.i-cyan{background:var(--mac-cyan-bg);color:var(--mac-cyan);}
+.n-title{font-size:13px;font-weight:600;line-height:1.35;}
+.n-body{font-size:12px;color:var(--cpq-text-secondary);margin-top:2px;line-height:1.5;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;}
+.n-time{font-size:11px;color:var(--cpq-text-muted);}
+.unread-dot{width:7px;height:7px;border-radius:50%;background:var(--cpq-accent-primary);flex:0 0 auto;}
+/* ===== C · 铃铛富 popover ===== */
+.tbmock{position:relative;height:52px;display:flex;align-items:center;gap:18px;padding:0 18px;
+  background:#fff;border-bottom:1px solid var(--cpq-border-base);}
+.tbmock .logo{font-weight:700;font-size:14px;color:var(--cpq-accent-primary);}
+.tbmock .menu{display:flex;gap:16px;font-size:13px;color:var(--cpq-text-secondary);}
+.tbmock .menu .on{color:var(--cpq-accent-primary);font-weight:600;}
+.tbmock .right{margin-left:auto;display:flex;align-items:center;gap:14px;}
+.tb-bell{position:relative;width:34px;height:34px;border-radius:8px;display:flex;align-items:center;justify-content:center;
+  color:var(--cpq-text-secondary);background:var(--cpq-overlay-a8);border:1px solid var(--cpq-overlay-a20);}
+.tb-bell .badge{position:absolute;top:-5px;right:-5px;min-width:16px;height:16px;border-radius:999px;
+  background:var(--cpq-color-danger);color:#fff;font-size:10px;font-weight:700;
+  display:flex;align-items:center;justify-content:center;padding:0 4px;border:2px solid #fff;}
+.tb-avatar{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#7c5cf0,#1677FF);
+  color:#fff;font-size:12px;display:flex;align-items:center;justify-content:center;}
+.popover{position:absolute;top:58px;right:20px;width:372px;border-radius:var(--cpq-radius-lg);
+  background:#fff;border:1px solid var(--cpq-border-base);box-shadow:0 12px 32px rgba(22,119,255,.16);overflow:hidden;}
+.pop-head{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--cpq-border-base);}
+.pop-head b{font-size:14px;}
+.pop-tabs{display:flex;gap:2px;margin-left:6px;background:var(--cpq-bg-secondary);border-radius:8px;padding:2px;}
+.pop-tab{height:26px;padding:0 12px;border-radius:7px;font-size:12px;color:var(--cpq-text-secondary);
+  display:flex;align-items:center;gap:5px;}
+.pop-tab.on{background:#fff;color:var(--cpq-accent-primary);font-weight:600;box-shadow:var(--cpq-shadow-sm);}
+.pop-tab .c{font-size:10.5px;background:var(--cpq-overlay-a10);border-radius:999px;padding:0 6px;}
+.pop-mark{margin-left:auto;display:flex;align-items:center;gap:5px;font-size:12px;color:var(--cpq-accent-primary);
+  cursor:pointer;}
+.pop-list{max-height:328px;overflow-y:auto;}
+.pop-item{position:relative;display:flex;gap:11px;padding:11px 14px;border-bottom:1px solid var(--cpq-bg-secondary);
+  cursor:pointer;transition:background var(--cpq-dur-1);}
+.pop-item:hover{background:var(--cpq-overlay-a4);}
+.pop-item .main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.pop-item .r{display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:0 0 auto;}
+.pop-item .acts{display:flex;gap:4px;opacity:0;transition:opacity var(--cpq-dur-1);}
+.pop-item:hover .acts{opacity:1;}
+.act-btn{width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  background:#fff;border:1px solid var(--cpq-border-base);color:var(--cpq-text-secondary);}
+.act-btn.del{color:var(--mac-red);}
+.pop-foot{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;
+  border-top:1px solid var(--cpq-border-base);background:var(--cpq-overlay-w6);}
+.btn{height:30px;padding:0 14px;border-radius:8px;font-size:12.5px;display:inline-flex;align-items:center;gap:5px;cursor:pointer;}
+.btn-ghost2{background:#fff;border:1px solid var(--cpq-border-base);color:var(--cpq-text-secondary);}
+.btn-primary{background:var(--cpq-accent-primary);border:1px solid var(--cpq-accent-primary);color:#fff;}
+/* ===== D · 通知中心全量页 ===== */
+.ncpage{padding:20px 22px 22px;}
+.nc-head{display:flex;align-items:baseline;gap:12px;margin-bottom:14px;}
+.nc-head h3{margin:0;font-size:18px;font-weight:700;}
+.nc-head .sub{font-size:12.5px;color:var(--cpq-text-muted);}
+.nc-head .ops{margin-left:auto;display:flex;gap:8px;}
+.nc-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:14px;}
+.f-toggle{display:flex;background:var(--cpq-bg-secondary);border-radius:8px;padding:2px;}
+.f-toggle span{height:28px;padding:0 14px;border-radius:7px;font-size:12.5px;color:var(--cpq-text-secondary);
+  display:flex;align-items:center;}
+.f-toggle span.on{background:#fff;color:var(--cpq-accent-primary);font-weight:600;box-shadow:var(--cpq-shadow-sm);}
+.f-chip{display:inline-flex;align-items:center;gap:6px;height:30px;padding:0 12px;border-radius:999px;
+  font-size:12.5px;color:var(--cpq-text-secondary);background:var(--cpq-overlay-w6);
+  border:1px solid var(--cpq-overlay-w15);cursor:pointer;}
+.f-chip.on{background:#fff;color:var(--cpq-accent-primary);border-color:var(--cpq-overlay-a20);font-weight:600;}
+.f-chip .sw{width:8px;height:8px;border-radius:3px;}
+.f-chip .c{font-size:11px;color:var(--cpq-text-muted);}
+.nc-group{margin-bottom:6px;}
+.nc-group > .g-label{font-size:12px;color:var(--cpq-text-muted);font-weight:600;padding:8px 4px 6px;}
+.nc-row{display:flex;gap:12px;align-items:flex-start;padding:12px 14px;border-radius:var(--cpq-radius-md);
+  background:#fff;border:1px solid var(--cpq-border-base);margin-bottom:8px;}
+.nc-row:hover{border-color:var(--cpq-overlay-a20);box-shadow:var(--cpq-shadow-sm);}
+.nc-row .r{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:6px;flex:0 0 auto;}
+.nc-row .go{font-size:11.5px;color:var(--cpq-accent-primary);}
+.nc-pager{display:flex;justify-content:flex-end;align-items:center;gap:6px;margin-top:6px;}
+.pg{min-width:28px;height:28px;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-size:12.5px;color:var(--cpq-text-secondary);background:#fff;border:1px solid var(--cpq-border-base);}
+.pg.on{color:#fff;background:var(--cpq-accent-primary);border-color:var(--cpq-accent-primary);font-weight:600;}
+/* ===== E · 图例与对照 ===== */
+.duo{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+.panel{padding:16px 18px;border-radius:var(--cpq-radius-lg);background:#fff;
+  border:1px solid var(--cpq-border-base);box-shadow:var(--cpq-shadow-sm);}
+.panel h4{margin:0 0 12px;font-size:13.5px;}
+.lgd{display:grid;grid-template-columns:1fr 1fr;gap:9px 18px;}
+.lgd-row{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--cpq-text-secondary);}
+.lgd-row .n-icon{width:28px;height:28px;border-radius:8px;}
+.lgd-row .n-icon svg{width:14px;height:14px;}
+.lgd-row b{color:var(--cpq-text-primary);font-weight:600;}
+table.cmp{width:100%;border-collapse:collapse;font-size:12.5px;}
+table.cmp th,table.cmp td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--cpq-bg-secondary);}
+table.cmp th{color:var(--cpq-text-muted);font-weight:600;font-size:12px;}
+table.cmp td:first-child{color:var(--cpq-text-secondary);}
+table.cmp .to{color:var(--cpq-accent-primary);font-weight:600;}
+.foot-note{margin:22px 20px 30px;padding:10px 14px;border-radius:var(--cpq-radius-md);
+  background:var(--cpq-overlay-w6);border:1px solid var(--cpq-overlay-w15);
+  font-size:12px;color:var(--cpq-text-secondary);}
+.foot-note b{color:var(--cpq-accent-primary);}
+@media (max-width:1080px){.annotate{flex-direction:column;}.sidecard{width:auto;}.duo{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>通知中心 &amp; 门户布局 · 重构原型</h1>
+  <span class="chip"><span class="dot"></span>Glass Console</span>
+  <span class="chip">2026-09-15</span>
+  <span class="chip decided"><span class="dot"></span>③ ④ 已拍板</span>
+  <span class="spacer"></span>
+  <span class="meta">① ② 待选 · 均假设 admin 登录</span>
+</div>
+
+<div class="tipbar">
+  <b>阅读指引</b>：①② 是门户布局的两个备选（五张角色板块的去留）；③④ 是已拍板的「富 popover + 独立全量页」通知中心设计；
+  ⑤ 类型色标与信息去向对照。原型为静态示意，交互动效（hover 操作、tab 切换）在实现版本补全。
+</div>
+
+<!-- ============ ① 方案 A ============ -->
+<div class="sec">
+  <div class="sec-head">
+    <span class="no">A</span>
+    <h2>方案 A · 门户回归纯 AI 壳</h2>
+    <span class="sub">五张角色板块全部移除，门户只剩欢迎语 + 输入框 + 快捷磁贴；角色信息各回各家</span>
+  </div>
+  <div class="annotate">
+    <div class="stage">
+      <div class="stage-bar"><span class="addr">/portal</span><span>空闲态</span><span class="tag">板块已全部移除</span></div>
+      <div class="portal">
+        <div class="pcol">
+          <div class="pl-avatar">方</div>
+          <h1 class="pl-title">你好，需要我帮你做什么？</h1>
+          <p class="pl-sub">方案助手 · 你的 AI 工作搭档</p>
+          <div class="composer">
+            <span class="ph">配台 Orion 2U 50 台，内存 256G… / 查我的商机 / 帮我核价</span>
+            <span class="btn-ghost">⤢ 展开</span>
+            <span class="btn-send">➤</span>
+          </div>
+          <div class="entries">
+            <div class="entry"><b>我的商机</b><span>业务发起、跟踪自己创建的商机</span></div>
+            <div class="entry"><b>需求任务</b><span>技术支持查看待配 BOM 需求</span></div>
+            <div class="entry"><b>成本任务</b><span>成本核算查看待核价任务</span></div>
+            <div class="entry"><b>报价任务</b><span>报价专员查看待转报价任务</span></div>
+            <div class="entry"><b>任务调度</b><span>管理员配置/转交处理人</span></div>
+          </div>
+        </div>
+      </div>
+      <!-- 板块去向示意：工作台首页顶部概要条 -->
+      <div class="stage-bar" style="margin-top:8px;"><span class="addr">/portal/workstation/te</span><span>「我的任务」板块的去处 → 工作台首屏概要条</span></div>
+      <div class="wbstrip">
+        <span class="label">示意</span>
+        <b>需求任务</b>
+        <span class="seg">待办 <span class="n">4</span></span>
+        <span class="seg">方案配置 <span class="n">2</span></span>
+        <span class="seg">被退回 <span class="n">1</span></span>
+        <span class="link">进入列表 →</span>
+      </div>
+    </div>
+    <div class="sidecard">
+      <h4>五张板块的去向</h4>
+      <ul>
+        <li><b class="k">最近通知</b> → 顶栏铃铛（③）+ 通知中心页（④）</li>
+        <li><b class="k">我的任务</b> → 各角色工作台首屏概要条（左下示意）</li>
+        <li><b class="k">我的商机</b> → 「我的商机」磁贴本身就是入口</li>
+        <li><b class="k">待我审批</b> → 通知中心「毛利审批」筛选 + 审批通知直达</li>
+        <li><b class="k">商机阶段分布</b> → 商机驾驶舱图表（本就是统计页）</li>
+      </ul>
+      <h4 style="margin-top:12px;">特点</h4>
+      <ul>
+        <li>门户最干净，AI 输入区绝对主角</li>
+        <li>信息不丢，只是各归其位</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ② 方案 B ============ -->
+<div class="sec">
+  <div class="sec-head">
+    <span class="no">B</span>
+    <h2>方案 B · 门户留一行摘要条</h2>
+    <span class="sub">磁贴上方压一条 34px 高的数字胶囊行：待办 / 待审批 / 未读，点击直达；门户仍以 AI 输入区为主角</span>
+  </div>
+  <div class="stage">
+    <div class="stage-bar"><span class="addr">/portal</span><span>空闲态</span><span class="tag">仅一行摘要，无卡片</span></div>
+    <div class="portal">
+      <div class="pcol">
+        <div class="pl-avatar">方</div>
+        <h1 class="pl-title">你好，需要我帮你做什么？</h1>
+        <p class="pl-sub">方案助手 · 你的 AI 工作搭档</p>
+        <div class="composer">
+          <span class="ph">配台 Orion 2U 50 台，内存 256G… / 查我的商机 / 帮我核价</span>
+          <span class="btn-ghost">⤢ 展开</span>
+          <span class="btn-send">➤</span>
+        </div>
+        <div class="sumstrip">
+          <span class="sum-pill"><span>待办任务</span><span class="n">4</span><span class="arr">›</span></span>
+          <span class="sum-pill warn"><span>待我审批</span><span class="n">2</span><span class="arr">›</span></span>
+          <span class="sum-pill"><span>未读通知</span><span class="n">6</span><span class="arr">›</span></span>
+        </div>
+        <div class="sum-strip-note">胶囊按角色显示：business 只见「我的商机 + 未读」，te/cost/quote 见「待办 + 未读」，director/admin 见「待审批 + 未读」</div>
+        <div class="entries">
+          <div class="entry"><b>我的商机</b><span>业务发起、跟踪自己创建的商机</span></div>
+          <div class="entry"><b>需求任务</b><span>技术支持查看待配 BOM 需求</span></div>
+          <div class="entry"><b>成本任务</b><span>成本核算查看待核价任务</span></div>
+          <div class="entry"><b>报价任务</b><span>报价专员查看待转报价任务</span></div>
+          <div class="entry"><b>任务调度</b><span>管理员配置/转交处理人</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ③ 铃铛富 popover ============ -->
+<div class="sec">
+  <div class="sec-head">
+    <span class="no">③</span>
+    <h2>铃铛 · 富 Popover（已拍板）</h2>
+    <span class="sub">372px 面板：未读/全部 tab · 类型图标 · 未读圆点 · 相对时间 · hover 单条操作 · 底部清空已读 + 查看全部（vben + Novu 模式）</span>
+  </div>
+  <div class="stage">
+    <div class="stage-bar"><span class="addr">任意页面顶栏</span><span class="tag">悬停/点击铃铛弹出</span></div>
+    <div class="tbmock">
+      <span class="logo">CPQ</span>
+      <span class="menu"><span class="on">商机线索</span><span>服务器</span><span>配件</span><span>策略中心</span><span>设置</span></span>
+      <span class="right">
+        <span class="tb-bell">
+          <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="badge">6</span>
+        </span>
+        <span class="tb-avatar">总</span>
+      </span>
+      <!-- popover -->
+      <div class="popover">
+        <div class="pop-head">
+          <b>通知</b>
+          <span class="pop-tabs">
+            <span class="pop-tab on">未读 <span class="c">6</span></span>
+            <span class="pop-tab">全部</span>
+          </span>
+          <span class="pop-mark">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7z"/></svg>
+            全部已读
+          </span>
+        </div>
+        <div class="pop-list">
+          <!-- 悬停态示意：第 1 条展示 hover 操作 -->
+          <div class="pop-item" style="background:var(--cpq-overlay-a4);">
+            <span class="n-icon i-blue">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6"/><path d="m16 11 2 2 4-4"/></svg>
+            </span>
+            <span class="main">
+              <span class="n-title">新任务待处理 · 方案配置</span>
+              <span class="n-body">客户华为 · Orion 2U 50 台 已推到方案配置，指派给你</span>
+            </span>
+            <span class="r">
+              <span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">刚刚</span></span>
+              <span class="acts">
+                <span class="act-btn" title="标已读"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6 9 17l-5-5"/></svg></span>
+                <span class="act-btn del" title="删除"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg></span>
+              </span>
+            </span>
+          </div>
+          <div class="pop-item">
+            <span class="n-icon i-amber">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg>
+            </span>
+            <span class="main">
+              <span class="n-title">低毛利报价待审批</span>
+              <span class="n-body">QT-20260915-003 综合毛利率 4.2%，低于审批红线 7%，等待裁决</span>
+            </span>
+            <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">5 分钟前</span></span></span>
+          </div>
+          <div class="pop-item">
+            <span class="n-icon i-red">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg>
+            </span>
+            <span class="main">
+              <span class="n-title">方案被退回 · 需求配置</span>
+              <span class="n-body">客户中兴 · Polaris 4U 10 台｜退回原因：预算超限，请换国产 GPU 方案</span>
+            </span>
+            <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">32 分钟前</span></span></span>
+          </div>
+          <div class="pop-item" style="opacity:.72;">
+            <span class="n-icon i-green">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>
+            </span>
+            <span class="main">
+              <span class="n-title">商机进入成本核算</span>
+              <span class="n-body">客户浪潮 · Orion 2U 50 台 方案已定稿，等待成本核算</span>
+            </span>
+            <span class="r"><span class="n-time">昨天 14:32</span></span>
+          </div>
+          <div class="pop-item" style="opacity:.72;">
+            <span class="n-icon i-cyan">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>
+            </span>
+            <span class="main">
+              <span class="n-title">报价单已发送</span>
+              <span class="n-body">QT-20260912-018 已定稿并发送客户，流程完成</span>
+            </span>
+            <span class="r"><span class="n-time">昨天 09:11</span></span>
+          </div>
+        </div>
+        <div class="pop-foot">
+          <span class="btn btn-ghost2">清空已读</span>
+          <span class="btn btn-primary">查看全部</span>
+        </div>
+      </div>
+    </div>
+    <div style="height:56px;"></div>
+  </div>
+</div>
+
+<!-- ============ ④ 通知中心全量页 ============ -->
+<div class="sec">
+  <div class="sec-head">
+    <span class="no">④</span>
+    <h2>/notifications · 通知中心全量页（已拍板）</h2>
+    <span class="sub">popover「查看全部」落地页：未读/全部 + 类型筛选 · 按天分组 · 分页 · 批量已读</span>
+  </div>
+  <div class="stage">
+    <div class="stage-bar"><span class="addr">/notifications</span><span class="tag">独立路由</span></div>
+    <div class="ncpage">
+      <div class="nc-head">
+        <h3>通知中心</h3>
+        <span class="sub">共 46 条 · 6 条未读</span>
+        <span class="ops">
+          <span class="btn btn-ghost2">清空已读</span>
+          <span class="btn btn-primary">全部标为已读</span>
+        </span>
+      </div>
+      <div class="nc-filters">
+        <span class="f-toggle"><span>全部</span><span class="on">未读</span></span>
+        <span class="f-chip on"><span class="sw" style="background:var(--mac-blue)"></span>任务<span class="c">2</span></span>
+        <span class="f-chip on"><span class="sw" style="background:var(--mac-amber)"></span>毛利审批<span class="c">1</span></span>
+        <span class="f-chip on"><span class="sw" style="background:var(--mac-red)"></span>退回<span class="c">1</span></span>
+        <span class="f-chip"><span class="sw" style="background:var(--mac-green)"></span>阶段推进</span>
+        <span class="f-chip"><span class="sw" style="background:var(--mac-violet)"></span>撤回</span>
+        <span class="f-chip"><span class="sw" style="background:var(--mac-cyan)"></span>报价</span>
+      </div>
+
+      <div class="nc-group">
+        <div class="g-label">今天</div>
+        <div class="nc-row">
+          <span class="n-icon i-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6"/><path d="m16 11 2 2 4-4"/></svg></span>
+          <span class="main"><span class="n-title">新任务待处理 · 方案配置</span><span class="n-body">客户华为 · Orion 2U 50 台 已推到方案配置，指派给你</span></span>
+          <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">刚刚</span></span><span class="go">进入商机 ›</span></span>
+        </div>
+        <div class="nc-row">
+          <span class="n-icon i-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span>
+          <span class="main"><span class="n-title">低毛利报价待审批</span><span class="n-body">QT-20260915-003 综合毛利率 4.2%，低于审批红线 7%，等待裁决</span></span>
+          <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">5 分钟前</span></span><span class="go">去审批 ›</span></span>
+        </div>
+        <div class="nc-row">
+          <span class="n-icon i-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg></span>
+          <span class="main"><span class="n-title">方案被退回 · 需求配置</span><span class="n-body">客户中兴 · Polaris 4U 10 台｜退回原因：预算超限，请换国产 GPU 方案</span></span>
+          <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">32 分钟前</span></span><span class="go">进入商机 ›</span></span>
+        </div>
+      </div>
+
+      <div class="nc-group">
+        <div class="g-label">昨天</div>
+        <div class="nc-row">
+          <span class="n-icon i-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span>
+          <span class="main"><span class="n-title">商机进入成本核算</span><span class="n-body">客户浪潮 · Orion 2U 50 台 方案已定稿，等待成本核算</span></span>
+          <span class="r"><span style="display:flex;align-items:center;gap:6px;"><span class="unread-dot"></span><span class="n-time">14:32</span></span><span class="go">进入商机 ›</span></span>
+        </div>
+        <div class="nc-row" style="opacity:.72;">
+          <span class="n-icon i-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg></span>
+          <span class="main"><span class="n-title">撤回申请已同意</span><span class="n-body">客户曙光 · Orion 1U 20 台 成本表已撤回，可重新编辑</span></span>
+          <span class="r"><span class="n-time">11:47</span><span class="go">进入商机 ›</span></span>
+        </div>
+        <div class="nc-row" style="opacity:.72;">
+          <span class="n-icon i-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span>
+          <span class="main"><span class="n-title">报价单已发送</span><span class="n-body">QT-20260912-018 已定稿并发送客户，流程完成</span></span>
+          <span class="r"><span class="n-time">09:11</span><span class="go">进入商机 ›</span></span>
+        </div>
+      </div>
+
+      <div class="nc-pager">
+        <span class="pg">‹</span><span class="pg on">1</span><span class="pg">2</span><span class="pg">3</span><span class="pg">›</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ ⑤ 图例 + 对照 ============ -->
+<div class="sec">
+  <div class="sec-head">
+    <span class="no">⑤</span>
+    <h2>类型色标 · 信息去向对照</h2>
+  </div>
+  <div class="duo">
+    <div class="panel">
+      <h4>七类事件 → 图标色标（马卡龙语义色，popover 与全量页统一）</h4>
+      <div class="lgd">
+        <span class="lgd-row"><span class="n-icon i-blue"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="7" r="4"/><path d="M2 21v-2a4 4 0 0 1 4-4h6"/><path d="m16 11 2 2 4-4"/></svg></span><span><b>任务指派</b> task_assigned</span></span>
+        <span class="lgd-row"><span class="n-icon i-green"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></span><span><b>阶段推进</b> stage_advanced</span></span>
+        <span class="lgd-row"><span class="n-icon i-red"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5"/><path d="m12 19-7-7 7-7"/></svg></span><span><b>卡退回</b> card_returned</span></span>
+        <span class="lgd-row"><span class="n-icon i-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-9-9"/><path d="M21 3v6h-6"/></svg></span><span><b>撤回</b> withdraw_*</span></span>
+        <span class="lgd-row"><span class="n-icon i-cyan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg></span><span><b>报价定稿</b> quote_submitted</span></span>
+        <span class="lgd-row"><span class="n-icon i-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/></svg></span><span><b>毛利审批</b> pricing_approval_*</span></span>
+      </div>
+    </div>
+    <div class="panel">
+      <h4>现在 → 之后（信息架构对照）</h4>
+      <table class="cmp">
+        <tr><th>现在</th><th>之后</th></tr>
+        <tr><td>铃铛裸列表 + 全部已读文字链</td><td class="to">富 popover：tab 筛选 + 单条操作 + 相对时间（③）</td></tr>
+        <tr><td>无全量视图</td><td class="to">/notifications 全量页：分组 + 筛选 + 分页（④）</td></tr>
+        <tr><td>门户五张角色卡</td><td class="to">方案 A 移除 / 方案 B 一行摘要条（①②）</td></tr>
+        <tr><td>通知点击只跳商机详情</td><td class="to">按类型深链：审批 → 审批裁决、退回 → 对应工作台</td></tr>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="foot-note">
+  <b>待拍板</b>：① 方案 A 还是 ② 方案 B？拍板后按 ③④⑤ 实施（通知中心部分两个方案通用，不受①②影响）。
+  后端需配套：单条删除 / 清空已读两个端点 + 通知列表 unread_only 已支持；深链路由按类型映射。
+</div>
+
+</body>
+</html>

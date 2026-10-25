@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>需求分析工作流 · 全链路架构</title>
+<style>
+  :root {
+    --bg: #08090B;
+    --bg3: #171a21;
+    --text: #E8ECEF;
+    --text2: #9BA1AA;
+    --muted: #6E7582;
+    --border: rgba(255,255,255,0.10);
+    --border2: rgba(255,255,255,0.06);
+    --primary: #1677FF;
+    --primary-light: #4096ff;
+    --cyan: #36CFCF;
+    --success: #52C9A0;
+    --warning: #F4D28A;
+    --danger: #FF6B6B;
+    --glass: rgba(255,255,255,0.06);
+    --glass2: rgba(255,255,255,0.09);
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
+    --r-md: 6px; --r-lg: 8px; --r-xl: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    font-size: 14px;
+    line-height: 1.55;
+    padding: var(--s6) var(--s5);
+    max-width: 1440px;
+    margin: 0 auto;
+  }
+  .page-title { font-size: 24px; font-weight: 700; letter-spacing: 0.5px; }
+  .page-sub { color: var(--text2); margin: var(--s2) 0 var(--s4); font-size: 13px; }
+  .page-sub b { color: var(--primary-light); font-weight: 600; }
+  code { font-family: Consolas, monospace; font-size: 11px; background: rgba(22,119,255,0.12); color: var(--primary-light); border-radius: 4px; padding: 0 5px; }
+
+  .motto {
+    display: flex; flex-wrap: wrap; gap: var(--s2) var(--s5);
+    border: 1px solid var(--border); border-radius: var(--r-lg);
+    background: var(--glass); padding: var(--s2) var(--s4);
+    font-size: 13px; margin-bottom: var(--s5);
+  }
+  .motto b { font-weight: 650; }
+  .motto .m1 b { color: var(--primary-light); }
+  .motto .m2 b { color: var(--success); }
+  .motto .m3 b { color: var(--warning); }
+  .motto .m4 b { color: var(--cyan); }
+
+  /* ── 泳道×时间轴 ── */
+  .flow {
+    display: grid;
+    grid-template-columns: 120px repeat(5, 1fr);
+    gap: 8px;
+    align-items: stretch;
+  }
+  .lane-label {
+    display: flex; flex-direction: column; justify-content: center; gap: 2px;
+    font-size: 12.5px; font-weight: 650;
+  }
+  .lane-label small { color: var(--muted); font-weight: 400; font-size: 11px; }
+  .lane-label .tag {
+    align-self: flex-start;
+    font-size: 11px; letter-spacing: 1px;
+    border-radius: 999px; padding: 1px 9px; border: 1px solid var(--border);
+  }
+  .tag.site   { color: var(--text2); }
+  .tag.brain  { color: var(--primary-light); border-color: rgba(22,119,255,0.4); }
+  .tag.engine { color: var(--success); border-color: rgba(82,201,160,0.4); }
+  .tag.base   { color: var(--warning); border-color: rgba(244,210,138,0.4); }
+  .tag.data   { color: var(--muted); }
+
+  .phase {
+    background: var(--glass2);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s2) var(--s3);
+    display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap;
+  }
+  .phase .pk { font-family: Consolas, monospace; font-size: 11px; color: var(--muted); }
+  .phase .pl { font-size: 13.5px; font-weight: 650; }
+  .phase .pn { font-size: 11px; color: var(--text2); }
+  .phase.gateway { border-color: rgba(82,201,160,0.45); }
+  .phase.gateway .pl { color: var(--success); }
+
+  .cell {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: var(--r-lg);
+    padding: var(--s2) var(--s3);
+    font-size: 11.8px; color: var(--text2);
+  }
+  .cell .step {
+    display: inline-block; min-width: 17px; text-align: center;
+    font-size: 10.5px; font-weight: 700; color: var(--text);
+    border: 1px solid var(--border); border-radius: 999px;
+    margin-right: 5px; padding: 0 4px; vertical-align: 1px;
+  }
+  .cell.brain-cell  .step { color: var(--primary-light); border-color: rgba(22,119,255,0.45); }
+  .cell.engine-cell .step { color: var(--success); border-color: rgba(82,201,160,0.45); }
+  .cell.base-cell   .step { color: var(--warning); border-color: rgba(244,210,138,0.45); }
+  .cell b { color: var(--text); font-weight: 650; }
+  .cell .hint {
+    display: block; margin-top: var(--s1); font-size: 11px; color: var(--danger);
+    border-top: 1px dashed rgba(255,107,107,0.35); padding-top: var(--s1);
+  }
+  .cell.base-hit { border-color: rgba(244,210,138,0.4); background: rgba(244,210,138,0.05); }
+  .cell .base-tag {
+    font-size: 10px; color: var(--warning); border: 1px solid rgba(244,210,138,0.45);
+    border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap;
+  }
+  .cell.same { display: flex; align-items: center; color: var(--muted); font-size: 11px; }
+  .cell.na { display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 11px; background: transparent; border-style: dashed; }
+
+  /* ── 执行者小标 ── */
+  .who {
+    display: inline-block; font-size: 10px; color: var(--text2);
+    border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 5px; margin-right: 4px; vertical-align: 1px; white-space: nowrap;
+  }
+
+  /* ── 架构实体区 ── */
+  .arch { margin-top: var(--s5); }
+  .arch h3 { font-size: 14px; font-weight: 650; margin-bottom: var(--s2); }
+  .arch .grid { margin-bottom: var(--s2); }
+  .card .at {
+    display: inline-block; margin-top: 4px; font-size: 10.5px; color: var(--muted);
+    border: 1px dashed var(--border); border-radius: 999px; padding: 0 7px;
+  }
+  .egroup { font-size: 11.5px; color: var(--muted); letter-spacing: 1px; margin: var(--s3) 0 var(--s1); }
+  .edge { display: flex; align-items: center; margin: var(--s1) 0; }
+  .e-box {
+    font-size: 12px; font-weight: 650; color: var(--text);
+    border: 1px solid var(--border); border-radius: var(--r-md);
+    padding: 3px 12px; white-space: nowrap; background: var(--bg3);
+  }
+  .e-box.b-brain  { color: var(--primary-light); border-color: rgba(22,119,255,0.4); }
+  .e-box.b-tool   { color: var(--cyan); border-color: rgba(54,207,207,0.4); }
+  .e-box.b-engine { color: var(--success); border-color: rgba(82,201,160,0.4); }
+  .e-box.b-base   { color: var(--warning); border-color: rgba(244,210,138,0.4); }
+  .e-box.b-data   { color: var(--muted); }
+  .e-box.b-ok     { color: var(--success); border-color: rgba(82,201,160,0.45); background: rgba(82,201,160,0.08); }
+  .e-line { flex: 1; position: relative; border-top: 1px dashed var(--border); margin: 0 10px; min-width: 40px; }
+  .e-line span {
+    position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+    background: var(--bg); padding: 0 8px; font-size: 11px; color: var(--text2); white-space: nowrap;
+  }
+
+  .col-arrow { text-align: center; color: var(--muted); font-size: 14px; padding: 0; align-self: center; }
+
+  /* ── 底座出场时刻条 ── */
+  .base-timeline { margin-top: var(--s5); }
+  .base-timeline h3 { font-size: 14px; font-weight: 650; margin-bottom: var(--s2); }
+  .base-timeline h3 span { color: var(--warning); }
+  .bt-row { display: flex; flex-wrap: wrap; gap: var(--s2); }
+  .bt {
+    border: 1px dashed rgba(244,210,138,0.45); border-radius: var(--r-md);
+    padding: var(--s1) var(--s3); font-size: 12px; color: var(--text2);
+  }
+  .bt b { color: var(--warning); font-weight: 650; }
+
+  .out-band {
+    margin-top: var(--s5);
+    text-align: center;
+    border: 1px solid rgba(82,201,160,0.45);
+    border-radius: var(--r-lg);
+    padding: var(--s3);
+    color: var(--success); font-weight: 650;
+    background: rgba(82,201,160,0.08);
+  }
+  .out-band small { display: block; color: var(--text2); font-weight: 400; margin-top: 2px; }
+
+  .legend { display: flex; gap: var(--s5); flex-wrap: wrap; margin-top: var(--s4); font-size: 12px; color: var(--text2); }
+  .legend .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  @media (max-width: 1100px) {
+    .flow { grid-template-columns: 100px repeat(5, 1fr); gap: 6px; }
+    .cell { font-size: 11px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="page-title">需求分析工作流 · 全链路架构</div>
+<div class="page-sub">横轴 = 从需求输入到方案输出的时间 · 纵轴 = 四条泳道 · 格内 <b>①②③</b> = 执行顺序 · <b style="color:var(--warning)">金框格</b> = 确定性底座出场的时刻 · <b>〔〕小标</b> = 实际执行的架构实体 · 时间轴下方 = <b>实体清单与接线图</b></div>
+
+<div class="motto">
+  <span class="m1"><b>判断在大脑</b>——LLM 只提议</span>
+  <span class="m2"><b>把关在引擎</b>——编排壳不决策，只做预处理/校验/终检</span>
+  <span class="m3"><b>算数在底座</b>——池、价、核对永远引擎算</span>
+  <span class="m4"><b>事实在库里</b>——落地必经工具回库，库是唯一权威</span>
+</div>
+
+<!-- ══ 泳道×时间轴 ══ -->
+<div class="flow">
+
+  <!-- 表头行 -->
+  <div class="lane-label" style="justify-content:center"><small>角色 ▸ 时间 ▾</small></div>
+  <div class="phase"><span class="pk">P0</span><span class="pl">发起</span><span class="pn">dispatch</span></div>
+  <div class="phase"><span class="pk">P1</span><span class="pl">需求登记表</span><span class="pn">agent_fill</span></div>
+  <div class="phase"><span class="pk">P2</span><span class="pl">机型选型</span><span class="pn">model_reason</span></div>
+  <div class="phase"><span class="pk">P3</span><span class="pl">配件选型</span><span class="pn">kp_reason</span></div>
+  <div class="phase gateway"><span class="pk">P4</span><span class="pl">组装 + 终检</span><span class="pn">compose → output</span></div>
+
+  <!-- 现场 -->
+  <div class="lane-label"><span class="tag site">现场</span><small>用户 / 聊天面</small></div>
+  <div class="cell">① 用户从任一聊天面（AI办公室 / DM / 浮动助手 / 团队群）发出<b>需求原文</b>；或「+」装填模式直接起流</div>
+  <div class="cell">缺口时收到 <code>ask_user</code> 反问卡，一次问齐后答复；<b>推断值弹确认卡</b>由用户拍板</div>
+  <div class="cell">缺料时收到反问卡，用户拍板：<b>absent（放弃）/ waived（知悉无料保持原需求）</b></div>
+  <div class="cell">—</div>
+  <div class="cell">—</div>
+
+  <!-- 大脑 -->
+  <div class="lane-label"><span class="tag brain">大脑 LLM</span><small>只提议 · 不落地</small></div>
+  <div class="cell na">未上场</div>
+  <div class="cell brain-cell">② 原生 FC 循环（带全现场 + 本节点工具白名单）：<code>fill_requirement</code> 抽取填表 → 有缺口 <code>ask_user</code> 反问 → 推断值必弹确认卡</div>
+  <div class="cell brain-cell">② 带全现场在<b>候选池内</b>挑机型：<code>select_model</code> 只出提议，id/名称精确命中才认</div>
+  <div class="cell brain-cell">② 逐行配齐登记表要的件：<code>query_parts</code> 检索 → <code>select_parts</code> 提议 → <code>apply_kp_picks</code> 落地；缺料 <code>ask_user</code></div>
+  <div class="cell brain-cell">此节点<b>大脑不下场</b>——组装是纯确定性管道；只在闸门打回时被唤回补做</div>
+
+  <!-- 引擎 -->
+  <div class="lane-label"><span class="tag engine">引擎·编排壳</span><small>skill_chat + skill_plan_runtime</small></div>
+  <div class="cell engine-cell"><span class="who">壳</span>② <code>dispatch_flow_turn</code> 按 <code>entity_binding=sandbox</code> 进需求分析机器；从 reasoning_flow 读<b>节点链 + 每节点工具白名单 + 目标层契约</b>（DB 权威）</div>
+  <div class="cell engine-cell"><span class="who">壳→插件</span>① <code>prepare_step</code>：挂载登记表 schema（slot_contract：看到的表=要填的表=下游读的表）＋ 注入本节点绑定的需求规则<span class="hint">③ validate_step_end：查登记表产物在不在；失败 → hint 回喂大脑重做，不标 done</span></div>
+  <div class="cell engine-cell"><span class="who">壳→插件</span>① <code>prepare_step</code>：把候选池挂进上下文<span class="hint">③ validate_step_end：机型锁定了没有；失败回喂（同左微循环）</span></div>
+  <div class="cell engine-cell"><span class="who">壳→插件</span>① <code>prepare_step</code>：挂载登记行清单（要配哪些件）<span class="hint">③ validate_step_end：逐行核对落地状态；失败回喂（同左微循环）</span></div>
+  <div class="cell engine-cell"><span class="who">壳</span>③ <code>run_compose</code> 确定性组装 BOM → <code>final_gate</code> 终检 → 全过才到 <b>output 网关</b>落草稿</div>
+
+  <!-- 底座 -->
+  <div class="lane-label"><span class="tag base">确定性底座</span><small>池 / 价 / 白名单 / 核对</small></div>
+  <div class="cell na">未上场</div>
+  <div class="cell"><span class="who">工具落地层</span>②′ <b>确定性键归一</b>：LLM 的产出规范化后才写入 ext——LLM 说什么不算数，归一后的才入库</div>
+  <div class="cell base-hit"><span class="step">②′</span><span class="who">插件</span>候选池 = 登记表信号 × 在售目录，<b>引擎确定性算出</b><span class="base-tag">底座上场</span><br><span class="step">②″</span><span class="who">工具内</span>池外选择一律拒绝 <code>not_in_pool</code> 并回吐候选清单——<b>白名单是底座算的</b></div>
+  <div class="cell base-hit"><span class="step">②′</span><span class="who">工具内</span>价格 / 规格 / 料号<b>全部来自 KP 库真实返回</b>，AI 零通道<span class="base-tag">底座上场</span><br>未命中<b>白盒 unmatched 点名</b>，绝不静默回退固定规则造数</div>
+  <div class="cell base-hit"><span class="step">④</span><span class="who">引擎</span><b>final_gate 三道闸</b>（全确定性）<span class="base-tag">底座压轴</span><br>闸1 机型未锁定 → 拦截<br>闸2 unmatched&gt;0 → 点名未落地行，组装挡住<br>闸3 登记行 vs 落地行核对 → 丢行拦截；终局只许 <b>locked / absent / waived</b> 三种</div>
+
+  <!-- 数据 -->
+  <div class="lane-label"><span class="tag data">数据层</span><small>单一权威源</small></div>
+  <div class="cell">读 <code>reasoning_flow</code>（节点契约 / 白名单 / 目标层）</div>
+  <div class="cell">写 <code>reasoning_state.ext</code> 登记表（状态在库，案台每轮从真实状态现算，不信任叙事）</div>
+  <div class="cell">读<b>在售机型目录</b>（候选池的事实源）｜写机型锁定</div>
+  <div class="cell">读 <b>KP 配件库</b>（价格唯一来源）｜写配件落地行</div>
+  <div class="cell">写 <b>BOM 方案草稿</b> → 商机详情页「方案配置」节点</div>
+
+</div>
+
+<!-- ══ 架构实体清单 ══ -->
+<div class="arch">
+  <h3>架构实体 —— 登场的远不止引擎 / 工具 / 节点</h3>
+  <div class="grid g4">
+    <div class="card"><div class="ct">现场入口</div><div class="cd"><code>dispatch_flow_turn</code> 按 <code>entity_binding</code> 分流两台机器：sandbox→需求分析 / real_bound→事务内核<br><span class="at">出场 P0</span></div></div>
+    <div class="card"><div class="ct" style="color:var(--primary-light)">大脑 LLM</div><div class="cd">原生 Function Calling 回合；只提议不落地，带全现场 + 本节点白名单<br><span class="at">出场 P1–P3 ②</span></div></div>
+    <div class="card"><div class="ct" style="color:var(--success)">引擎·编排壳</div><div class="cd"><code>skill_chat</code> 回合机 + <code>skill_plan_runtime</code>：prepare_step / validate_step_end / final_gate / run_compose——<b>壳不认识任何节点</b><br><span class="at">出场 全程 ①③④</span></div></div>
+    <div class="card"><div class="ct">节点插件</div><div class="cd"><code>skill_node_plugins</code>：DefaultNodePlugin → _FillNode / _ModelNode / _KpNode / _ComposeNode。每节点专属行为，插槽 prepare / validate / bridge_ctx / wire_result / delivery_gap / stuck_gap / artifact_contract；<b>新增节点 = 注册插件，壳零改动</b><br><span class="at">出场 引擎格的实际执行者</span></div></div>
+    <div class="card"><div class="ct" style="color:var(--cyan)">工具（白名单）</div><div class="cd">按节点下发：fill_requirement · choose_model · query_parts · select_parts · apply_kp_picks · ask_user · catalog_search · query_data。<b>AI 唯一写通道，确定性规则埋在落地口</b><br><span class="at">出场 大脑格里的 code 名</span></div></div>
+    <div class="card"><div class="ct">TOOL_CTX 桥</div><div class="cd"><code>skill_tool_context</code>（ContextVar）：插件 bridge_ctx 把候选池 / 行清单 / ext / save 下发给工具；任务态与身份同取于此<br><span class="at">出场 隐形管道</span></div></div>
+    <div class="card"><div class="ct">DB wiring 接线契约</div><div class="cd">reasoning_node_default 种子的 wiring 段：wire_result 读它把工具结果接进引擎产物——池内再核验 → lock_handler 落锁 → 进度写回方案草稿；<b>换工具 / 落锁器 = 改 DB 一处</b><br><span class="at">出场 收口瞬间</span></div></div>
+    <div class="card"><div class="ct" style="color:var(--warning)">底座件（共享确定性件）</div><div class="cd">slot_contract（登记表 schema / 键归一 / 必填闸 / 前提闸）· part_selector（检索+落地，unmatched 白盒）· 候选池构建 · capabilities 语义补全——被工具与插件复用<br><span class="at">出场 P1–P4 金框格</span></div></div>
+    <div class="card"><div class="ct">目标层契约</div><div class="cd"><code>skill_target_contract</code> ← 画布 target.artifacts：每节点产物契约文本（artifact_contract）注入大脑<br><span class="at">出场 随 prepare 下发</span></div></div>
+    <div class="card"><div class="ct" style="color:var(--muted)">数据层</div><div class="cd">reasoning_state（ext + 节点私有态）· KP 库 · 在售目录 · 需求规则页 · reasoning_flow——单一权威源，状态在库案台现算<br><span class="at">出场 时间轴底行</span></div></div>
+  </div>
+</div>
+
+<!-- ══ 实体接线图 ══ -->
+<div class="arch">
+  <h3>实体怎么连 —— 四条回路 + 一条配置权威</h3>
+
+  <div class="egroup">A · 决策回路（大脑 ⇄ 工具）</div>
+  <div class="edge"><span class="e-box b-brain">大脑</span><span class="e-line"><span>原生 Function Calling · 只能调本节点白名单内的</span></span><span class="e-box b-tool">工具</span></div>
+  <div class="edge"><span class="e-box b-tool">工具</span><span class="e-line"><span>结果 / hint / not_in_pool 拒绝（快反馈，大脑当场改）</span></span><span class="e-box b-brain">大脑</span></div>
+
+  <div class="egroup">B · 编排回路（壳 ⇄ 插件）</div>
+  <div class="edge"><span class="e-box b-engine">编排壳</span><span class="e-line"><span>plugin_for(key)：步前调 prepare · 步末调 validate（壳零节点知识）</span></span><span class="e-box">节点插件</span></div>
+  <div class="edge"><span class="e-box">节点插件</span><span class="e-line"><span>delivery_gap / stuck_gap 出路卡（候选卡 / 自选卡结构化交客户）</span></span><span class="e-box">现场客户</span></div>
+
+  <div class="egroup">C · 接线回路（工具结果 → 引擎产物）</div>
+  <div class="edge"><span class="e-box">节点插件</span><span class="e-line"><span>bridge_ctx：候选池 / 行清单 / ext / save</span></span><span class="e-box">TOOL_CTX 桥</span><span class="e-line"><span>下发</span></span><span class="e-box b-tool">工具</span></div>
+  <div class="edge"><span class="e-box b-tool">工具</span><span class="e-line"><span>结果</span></span><span class="e-box">wire_result</span><span class="e-line"><span>读 DB wiring · 池内再核验 → lock_handler 落锁</span></span><span class="e-box b-engine">引擎产物</span></div>
+
+  <div class="egroup">D · 终审回路（AI 不在场）</div>
+  <div class="edge"><span class="e-box b-engine">编排壳</span><span class="e-line"><span>final_gate 三道闸 · run_compose 确定性组装</span></span><span class="e-box b-ok">BOM 草稿落库</span></div>
+
+  <div class="egroup">E · 配置权威（画布可配 · DB 权威）</div>
+  <div class="edge"><span class="e-box b-data">reasoning_flow DB</span><span class="e-line"><span>节点链 · 每节点工具白名单 · wiring · 目标层契约</span></span><span class="e-box b-engine">编排壳 + 节点插件</span></div>
+
+  <div class="egroup">F · 底座复用（谁在调底座件）</div>
+  <div class="edge"><span class="e-box b-tool">工具</span><span class="e-line"><span>调用</span></span><span class="e-box b-base">底座件</span><span class="e-line"><span>同样被插件调用（如 slot_contract 校验、候选池构建）</span></span><span class="e-box">节点插件</span></div>
+</div>
+
+<!-- ══ 底座出场时刻总结 ══ -->
+<div class="base-timeline">
+  <h3>确定性底座的 5 个出场时刻<span>——每一次都是 AI 零通道</span></h3>
+  <div class="bt-row">
+    <span class="bt"><b>P1·落地</b> 键归一：LLM 产出规范化后才入库</span>
+    <span class="bt"><b>P2·预处理</b> 候选池构建：取值域由引擎给定</span>
+    <span class="bt"><b>P2·工具</b> 池外拒绝 not_in_pool：白名单硬闸</span>
+    <span class="bt"><b>P3·工具</b> 价格规格库回填 + unmatched 白盒点名</span>
+    <span class="bt"><b>P4·终检</b> 三道闸 final_gate + 确定性组装 run_compose</span>
+  </div>
+</div>
+
+<div class="out-band">产出：BOM 方案草稿 → 落商机详情页「方案配置」节点<small>下游交付转报价（事务内核 real_bound）接棒——同一哲学的两台机器</small></div>
+
+<div class="legend">
+  <span><span class="dot" style="background:var(--primary-light)"></span>大脑（提议）</span>
+  <span><span class="dot" style="background:var(--cyan)"></span>工具（AI 必经落地点）</span>
+  <span><span class="dot" style="background:var(--success)"></span>编排壳（把关）</span>
+  <span><span class="dot" style="background:#E8ECEF"></span>节点插件（节点专属行为）</span>
+  <span><span class="dot" style="background:var(--warning)"></span>底座（算数）</span>
+  <span><span class="dot" style="background:var(--danger)"></span>失败回喂 / 硬拦截</span>
+  <span><span class="dot" style="background:var(--muted)"></span>数据（事实）</span>
+</div>
+
+</body>
+</html>

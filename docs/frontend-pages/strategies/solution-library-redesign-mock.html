@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>解决方案库 · 重设计原型 v5（光标倾斜 + 双主题）</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: rgba(255,255,255,.03);
+    --panel-strong: rgba(255,255,255,.055);
+    --border: rgba(255,255,255,.08);
+    --text: #e8edf5;
+    --text-2: #9aa7ba;
+    --text-3: #5d6b80;
+    --accent: #3B82F6;
+    --grid-line: rgba(255,255,255,.018);
+    --hover-bg: rgba(255,255,255,.055);
+    --hover-ring: rgba(255,255,255,.3);
+    --ink: #ffffff;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  body.light {
+    --bg: #f5f7fa;
+    --panel: rgba(255,255,255,.78);
+    --panel-strong: rgba(255,255,255,.92);
+    --border: rgba(31,35,40,.1);
+    --text: #1f2328;
+    --text-2: #57606a;
+    --text-3: #8b949e;
+    --grid-line: rgba(31,35,40,.03);
+    --hover-bg: rgba(255,255,255,.95);
+    --hover-ring: rgba(31,35,40,.35);
+    --ink: #000000;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: 14px; min-height: 100vh;
+    background-image: linear-gradient(var(--grid-line) 1px, transparent 1px), linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+  .shell { display: flex; min-height: 100vh; max-width: 1440px; margin: 0 auto; }
+
+  .side { width: 224px; flex-shrink: 0; padding: 22px 14px; border-right: 1px solid var(--border); position: sticky; top: 0; height: 100vh; overflow: auto; }
+  .side-brand { font-family: var(--mono); font-size: 11px; letter-spacing: .18em; color: var(--text-3); padding: 0 10px 18px; }
+  .side-cap { font-size: 11px; color: var(--text-3); letter-spacing: .1em; padding: 0 10px; margin: 4px 0 8px; }
+  .tree-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 2px; border: none; border-radius: 8px; background: none; color: var(--text-2); font-size: 13.5px; text-align: left; cursor: pointer; transition: background .15s, color .15s; }
+  .tree-item:hover { background: var(--panel-strong); color: var(--text); }
+  .tree-item.on { background: color-mix(in srgb, var(--sc, #3B82F6) 12%, transparent); color: var(--text); }
+  .tree-item.on .dot { background: var(--sc, var(--accent)); box-shadow: 0 0 8px var(--sc, var(--accent)); }
+  .tree-item .dot { width: 7px; height: 7px; border-radius: 2px; background: var(--text-3); flex-shrink: 0; }
+  .tree-item .n { margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+  .side-sep { border: none; border-top: 1px solid var(--border); margin: 16px 10px; }
+  .wf-item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; margin-bottom: 2px; border: none; border-radius: 8px; background: none; color: var(--text-2); font-size: 13px; text-align: left; cursor: pointer; transition: background .15s, color .15s; }
+  .wf-item:hover { background: var(--panel-strong); color: var(--text); }
+  .wf-item .ic { font-family: var(--mono); font-size: 11px; color: var(--text-3); }
+
+  .main { flex: 1; min-width: 0; padding: 22px 30px 80px; }
+  .main-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; }
+  .main-title { font-size: 17px; font-weight: 700; }
+  .head-right { display: flex; gap: 10px; align-items: center; }
+  .search { width: 210px; height: 34px; padding: 0 12px; font-size: 13px; color: var(--text); background: var(--panel-strong); border: 1px solid var(--border); border-radius: 9px; outline: none; transition: border-color .15s; }
+  .search::placeholder { color: var(--text-3); }
+  .search:focus { border-color: var(--accent); }
+  .btn-ghost, .btn-new { height: 34px; padding: 0 14px; font-size: 13px; border-radius: 9px; cursor: pointer; transition: all .15s; }
+  .btn-ghost { color: var(--text-2); background: var(--panel-strong); border: 1px solid var(--border); }
+  .btn-ghost:hover { color: var(--text); border-color: var(--border-strong, rgba(255,255,255,.16)); }
+  body.light .btn-ghost:hover { border-color: rgba(31,35,40,.22); }
+  .btn-new { color: #fff; background: var(--accent); border: none; font-weight: 600; }
+  .btn-new:hover { filter: brightness(1.12); }
+
+  /* ── 场景横幅 ── */
+  .hero {
+    position: relative; overflow: hidden; border-radius: 16px;
+    border: 1px solid color-mix(in srgb, var(--h) 38%, var(--border));
+    background:
+      radial-gradient(90% 160% at 88% 10%, color-mix(in srgb, var(--h) 20%, transparent), transparent 62%),
+      radial-gradient(60% 120% at 4% 108%, color-mix(in srgb, var(--h) 9%, transparent), transparent 55%),
+      var(--panel);
+    padding: 32px 36px 30px; margin-bottom: 24px;
+    transition: border-color .3s, background .3s;
+  }
+  body.light .hero { background: radial-gradient(90% 160% at 88% 10%, color-mix(in srgb, var(--h) 14%, transparent), transparent 62%), var(--panel); }
+  .hero::after {
+    content: ''; position: absolute; inset: 0; pointer-events: none;
+    background-image: linear-gradient(color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px);
+    background-size: 34px 34px; mask-image: linear-gradient(100deg, transparent 42%, #000 100%);
+  }
+  .hero-kicker { font-family: var(--mono); font-size: 11px; letter-spacing: .16em; color: color-mix(in srgb, var(--h) 78%, var(--text)); margin-bottom: 12px; }
+  .hero-title { font-size: 27px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 10px; }
+  .hero-desc { font-size: 13.5px; color: var(--text-2); line-height: 1.75; max-width: 560px; margin-bottom: 20px; }
+  .hero-cta {
+    display: inline-flex; align-items: center; gap: 9px;
+    height: 40px; padding: 0 20px; border-radius: 20px; border: none; cursor: pointer;
+    font-size: 13.5px; font-weight: 700; color: #fff;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--h) 88%, #fff), var(--h));
+    box-shadow: 0 8px 24px -10px color-mix(in srgb, var(--h) 80%, transparent);
+    transition: transform .2s, filter .2s;
+  }
+  .hero-cta:hover { transform: translateY(-1px); filter: brightness(1.08); }
+  .hero-cta .sp { font-size: 15px; }
+  .hero-note { font-size: 11.5px; color: var(--text-3); margin-left: 14px; }
+
+  /* ── 方案卡：Vercel 式 hover——100ms 颜色过渡，状态驱动，零变换 ──
+     口径来自 vercel.com/templates 实测 CSS：
+     hover = text→gray-1000 + bg→gray-alpha-100 + shadow 0 0 0 1px gray-alpha-500，全页仅 100/200ms 两档 */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(258px, 1fr)); gap: 14px; }
+  .card {
+    display: flex; flex-direction: column; gap: 8px; padding: 18px 18px 20px; cursor: pointer;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    transition: color .1s, background-color .1s, border-color .1s, box-shadow .1s;
+    animation: rise .4s cubic-bezier(.16,1,.3,1) backwards;
+    animation-delay: calc(var(--i) * 40ms);
+  }
+  .card:hover {
+    background: var(--hover-bg);
+    border-color: var(--hover-ring);
+    box-shadow: 0 0 0 1px var(--hover-ring);
+  }
+  .card:hover .card-title { color: var(--ink); }
+  .card:hover .card-sub { color: var(--text); }
+  @keyframes rise { from { opacity: 0; transform: translateY(8px); } }
+
+  .plate-row { display: flex; align-items: center; gap: 8px; }
+  .card-title { font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--text); transition: color .1s; }
+  .card-sub { font-size: 12.5px; color: var(--text-2); line-height: 1.65; transition: color .1s; }
+  .ar { position: absolute; right: 16px; bottom: 16px; color: var(--text-3); font-size: 14px; transition: color .1s; }
+  .card:hover .ar { color: var(--ink); }
+
+  .plate { font-family: var(--mono); font-size: 10.5px; letter-spacing: .04em; color: var(--h); background: color-mix(in srgb, var(--h) 13%, transparent); border: 1px solid color-mix(in srgb, var(--h) 45%, transparent); padding: 2px 9px; border-radius: 4px; }
+  .empty { color: var(--text-3); text-align: center; padding: 40px 0; font-size: 13px; }
+  @media (prefers-reduced-motion: reduce) { .card { animation: none !important; } }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="side-brand">CPQ · 策略中心</div>
+    <div class="side-cap">方案场景</div>
+    <button class="tree-item on" data-sc="all" onclick="f(this)"><span class="dot"></span>全部方案<span class="n">5</span></button>
+    <button class="tree-item" data-sc="ai" style="--sc:#3B82F6" onclick="f(this)"><span class="dot"></span>AI·加速计算<span class="n">1</span></button>
+    <button class="tree-item" data-sc="virt" style="--sc:#8B5CF6" onclick="f(this)"><span class="dot"></span>虚拟化·数据库<span class="n">2</span></button>
+    <button class="tree-item" data-sc="store" style="--sc:#14B8A6" onclick="f(this)"><span class="dot"></span>海量存储<span class="n">1</span></button>
+    <button class="tree-item" data-sc="sim" style="--sc:#F59E0B" onclick="f(this)"><span class="dot"></span>工业仿真<span class="n">1</span></button>
+    <hr class="side-sep">
+    <div class="side-cap">工作流</div>
+    <button class="wf-item"><span class="ic">01</span>需求分析</button>
+    <button class="wf-item"><span class="ic">02</span>选型配置</button>
+    <button class="wf-item"><span class="ic">03</span>报价策略</button>
+  </aside>
+
+  <main class="main">
+    <div class="main-head">
+      <div class="main-title">解决方案库</div>
+      <div class="head-right">
+        <button class="btn-ghost" id="themeBtn" onclick="toggleTheme()">☀ 浅色模式</button>
+        <input class="search" id="q" placeholder="搜索方案、场景或关键词" oninput="render()">
+        <button class="btn-new">＋ 新建方案</button>
+      </div>
+    </div>
+
+    <div class="hero" id="hero" style="--h:#3B82F6">
+      <div class="hero-kicker" id="hk">SOLUTION LIBRARY</div>
+      <div class="hero-title" id="ht">解决方案库</div>
+      <div class="hero-desc" id="hd">按场景沉淀可复用的服务器方案——每个场景都是从客户需求单到配置单、再到报价的完整路径。不确定客户需求落在哪？让方案助手帮你定位。</div>
+      <button class="hero-cta" title="落地版：唤起方案助手，AI 根据客户需求推荐场景方案"><span class="sp">✦</span>方案助手咨询</button>
+      <span class="hero-note">说出客户需求，AI 推荐匹配的场景方案</span>
+    </div>
+
+    <div class="grid" id="g"></div>
+    <div class="empty" id="empty" style="display:none"></div>
+  </main>
+</div>
+
+<script>
+const SCENES = {
+  all: { label:'全部方案', hue:'#3B82F6', kick:'SOLUTION LIBRARY',
+    title:'解决方案库',
+    desc:'按场景沉淀可复用的服务器方案——每个场景都是从客户需求单到配置单、再到报价的完整路径。不确定客户需求落在哪？让方案助手帮你定位。' },
+  ai: { label:'AI·加速计算', hue:'#3B82F6', kick:'AI · ACCELERATED COMPUTING',
+    title:'AI·加速计算',
+    desc:'推理、微调与信创算力：从模型显存估算到卡数配比的完整选型路径，覆盖知识库问答、生产级推理与国产化部署。' },
+  virt: { label:'虚拟化·数据库', hue:'#8B5CF6', kick:'VIRTUALIZATION · DATABASE',
+    title:'虚拟化·数据库',
+    desc:'内存通道、RAID 层级与高可用：承载核心业务系统的稳定底座，虚拟化密度与数据库延迟的硬件账都在这里。' },
+  store: { label:'海量存储', hue:'#14B8A6', kick:'STORAGE',
+    title:'海量存储',
+    desc:'盘位数量、冗余等级与冷热分层：让冷数据存得起、热数据跑得动。' },
+  sim: { label:'工业仿真', hue:'#F59E0B', kick:'SIMULATION',
+    title:'工业仿真',
+    desc:'多核浮点与超大内存：CAE 求解速度的硬件账，从 AVX2 指令集到内存通道布局。' },
+}
+const SOLS = [
+  { sc:'ai', t:'企业知识库问答（RAG）私有化部署', sub:'数据不出内网，从需求单到配置单' },
+  { sc:'virt', t:'虚拟化超融合', sub:'核数与内存决定能装多少台虚拟机' },
+  { sc:'virt', t:'数据库高可用', sub:'延迟取决于内存命中率' },
+  { sc:'store', t:'冷热分层 NAS', sub:'盘位与冗余优先，CPU 是配角' },
+  { sc:'sim', t:'CAE/结构仿真', sub:'浮点与超大内存，多核并行为王' },
+]
+let scene = 'all', q = ''
+
+function render() {
+  const g = document.getElementById('g')
+  const list = SOLS.filter(s => (scene === 'all' || s.sc === scene) && (!q || (s.t + SCENES[s.sc].label + s.sub).toLowerCase().includes(q)))
+  g.innerHTML = list.map((s, i) => {
+    const hue = SCENES[s.sc].hue
+    return `<div class="card" style="--h:${hue};--i:${i}">
+      <div class="topline"></div>
+      <div class="plate-row"><span class="plate">${SCENES[s.sc].label}</span></div>
+      <div class="card-title">${s.t}</div>
+      <div class="card-sub">${s.sub}</div>
+      <span class="ar">→</span>
+    </div>`
+  }).join('')
+  document.getElementById('empty').style.display = list.length ? 'none' : 'block'
+  document.getElementById('empty').textContent = q ? `没有匹配「${q}」的方案` : '该场景暂无方案'
+  const S = SCENES[scene]
+  const hero = document.getElementById('hero')
+  hero.style.setProperty('--h', S.hue)
+  document.getElementById('hk').textContent = S.kick
+  document.getElementById('ht').textContent = S.title
+  document.getElementById('hd').textContent = S.desc
+}
+
+function f(el) {
+  document.querySelectorAll('.tree-item').forEach(b => b.classList.remove('on'))
+  el.classList.add('on'); scene = el.dataset.sc; render()
+}
+function toggleTheme() {
+  const light = document.body.classList.toggle('light')
+  document.getElementById('themeBtn').textContent = light ? '☾ 深色模式' : '☀ 浅色模式'
+}
+document.getElementById('q').addEventListener('input', e => { q = e.target.value.trim().toLowerCase(); render() })
+render()
+</script>
+</body>
+</html>

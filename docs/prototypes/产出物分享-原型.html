@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="updated" content="2026-10-15">
+<title>原型 · 产出物分享（网盘式链接 + 视角化模板导出 + 公共组件）</title>
+<style>
+  :root {
+    --cpq-accent-primary: #1677FF;
+    --cpq-accent-primary-light: #4096ff;
+    --cpq-accent-danger: #FF6B6B;
+    --cpq-notif-amber: #F4D28A;
+    --cpq-notif-amber-bg: rgba(250, 173, 20, 0.18);
+    --cpq-notif-green: #52C9A0;
+    --cpq-notif-green-bg: rgba(82, 201, 160, 0.18);
+    --cpq-notif-red: #FF6B6B;
+    --cpq-notif-red-bg: rgba(255, 107, 107, 0.16);
+    --cpq-bg-secondary: #101217;
+    --cpq-bg-tertiary: #171a21;
+    --cpq-bg-input: #2a2a2a;
+    --cpq-text-primary: #E8ECEF;
+    --cpq-text-secondary: #9BA1AA;
+    --cpq-text-muted: #6E7582;
+    --cpq-border-primary: rgba(255, 255, 255, 0.10);
+    --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+    --cpq-border-light: rgba(255, 255, 255, 0.15);
+    --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
+    --cpq-overlay-w4: rgba(255, 255, 255, 0.04);
+    --cpq-overlay-w6: rgba(255, 255, 255, 0.06);
+    --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+    --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+    --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+    --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+    --cpq-overlay-b40: rgba(0, 0, 0, 0.40);
+    --cpq-radius-sm: 8px;
+    --cpq-radius-md: 12px;
+    --cpq-radius-lg: 16px;
+    --cpq-space-1: 4px;
+    --cpq-space-2: 8px;
+    --cpq-space-3: 12px;
+    --cpq-space-4: 16px;
+    --cpq-space-5: 24px;
+    --cpq-space-6: 32px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: 12px; color: var(--cpq-text-primary);
+    background:
+      radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+      linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+    min-height: 100vh; padding: var(--cpq-space-4) var(--cpq-space-4) var(--cpq-space-6);
+  }
+  .demo-bar {
+    max-width: 1240px; margin: 0 auto var(--cpq-space-4);
+    display: flex; align-items: center; gap: var(--cpq-space-4); flex-wrap: wrap;
+    background: var(--cpq-overlay-w4); border: 1px dashed rgba(22, 119, 255, 0.45);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-2) var(--cpq-space-4);
+  }
+  .demo-title { font-size: 13px; font-weight: 600; }
+  .demo-ctl { display: inline-flex; align-items: center; gap: var(--cpq-space-2); cursor: pointer; user-select: none; color: var(--cpq-text-secondary); }
+  .demo-ctl input { accent-color: var(--cpq-accent-primary); }
+  .demo-ctl.on { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .demo-note { color: var(--cpq-text-muted); }
+  .anno {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+    background: var(--cpq-accent-primary); color: #fff; font-size: 10px; font-weight: 600; font-style: normal;
+  }
+  .anno.gray { background: var(--cpq-text-muted); }
+  .legend {
+    max-width: 1240px; margin: var(--cpq-space-4) auto 0;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--cpq-space-2) var(--cpq-space-5);
+    background: var(--cpq-overlay-w3); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3) var(--cpq-space-4);
+    color: var(--cpq-text-secondary); line-height: 1.7;
+  }
+  .legend .li { display: flex; gap: var(--cpq-space-2); align-items: flex-start; }
+  .legend .anno { margin-top: 3px; }
+  .stage { max-width: 1240px; margin: 0 auto; }
+  .scene { display: none; }
+  body[data-scene="a"] .scene-a,
+  body[data-scene="b"] .scene-b,
+  body[data-scene="c"] .scene-c { display: block; }
+  .scene-label { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 var(--cpq-space-2) var(--cpq-space-1); }
+  .btn { border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-4); font-size: 12px; cursor: pointer; border: 1px solid var(--cpq-border-light); background: transparent; color: var(--cpq-text-primary); }
+  .btn.primary { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; }
+  .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .pill { display: inline-flex; align-items: center; padding: 1px 10px; border-radius: 999px; font-size: 11px; }
+  .pill.blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); }
+  .pill.amber { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
+  .pill.red { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }
+  .pill.green { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
+  .muted { color: var(--cpq-text-muted); }
+
+  /* ═══ 场景A：ShareDialog ═══ */
+  .share-wrap { display: flex; gap: var(--cpq-space-5); align-items: flex-start; }
+  .entry-panel {
+    width: 320px; flex-shrink: 0;
+    background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); padding: var(--cpq-space-4);
+  }
+  .entry-panel h4 { font-size: 13px; font-weight: 600; margin-bottom: var(--cpq-space-3); }
+  .menu {
+    background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-md); box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    width: 150px; overflow: hidden;
+  }
+  .menu div { padding: var(--cpq-space-2) var(--cpq-space-4); font-size: 13px; color: var(--cpq-text-primary); }
+  .menu div:hover { background: var(--cpq-overlay-w4); }
+  .menu div.new { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .menu div.danger { color: var(--cpq-accent-danger); }
+  .modal-mask { flex: 1; background: var(--cpq-overlay-b40); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-4); display: flex; justify-content: center; align-items: flex-start; }
+  .share-modal {
+    width: 560px; max-width: 100%;
+    background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: 0 16px 48px rgba(0,0,0,0.6); overflow: hidden;
+  }
+  .sm-head { padding: var(--cpq-space-3) var(--cpq-space-4); border-bottom: 1px solid var(--cpq-border-secondary); font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; align-items: center; }
+  .sm-body { padding: var(--cpq-space-4); display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+  .sm-row { display: flex; align-items: center; gap: var(--cpq-space-3); font-size: 12.5px; }
+  .sm-row .k { width: 56px; flex-shrink: 0; color: var(--cpq-text-muted); }
+  .seg { display: inline-flex; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); overflow: hidden; }
+  .seg span { padding: var(--cpq-space-1) var(--cpq-space-3); color: var(--cpq-text-secondary); cursor: default; }
+  .seg span.on { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); }
+  .seg span.off { color: var(--cpq-text-muted); text-decoration: line-through; cursor: not-allowed; background: transparent; }
+  .tpl-select { flex: 1; height: 30px; display: flex; align-items: center; justify-content: space-between; background: var(--cpq-bg-input); border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); padding: 0 var(--cpq-space-3); }
+  .preview-box {
+    height: 200px; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md);
+    background: #fff; color: #333; overflow: hidden; position: relative;
+  }
+  .preview-box table { width: 100%; border-collapse: collapse; font-size: 11px; }
+  .preview-box th, .preview-box td { border: 1px solid #e5e5e5; padding: 3px 8px; text-align: left; white-space: nowrap; }
+  .preview-box th { background: #f5f6f8; font-weight: 600; }
+  .pv-tag { position: absolute; right: 10px; top: 10px; }
+  .pv-tag .pill { box-shadow: 0 2px 8px rgba(0,0,0,0.25); }
+  .opt-row { display: flex; align-items: center; gap: var(--cpq-space-3); }
+  .opt-row select { flex: 1; height: 30px; background: var(--cpq-bg-input); color: var(--cpq-text-primary); border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); padding: 0 var(--cpq-space-2); }
+  .link-result {
+    display: flex; align-items: center; gap: var(--cpq-space-2);
+    background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+  }
+  .link-result .url { flex: 1; font-family: Consolas, monospace; font-size: 11.5px; color: var(--cpq-accent-primary-light); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sm-foot { display: flex; justify-content: space-between; align-items: center; padding: var(--cpq-space-3) var(--cpq-space-4); border-top: 1px solid var(--cpq-border-secondary); }
+  .pwd-in { width: 90px; height: 30px; background: var(--cpq-bg-input); color: var(--cpq-text-primary); border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); padding: 0 var(--cpq-space-2); }
+
+  /* ═══ 场景B：链接落地页 ═══ */
+  .landing {
+    max-width: 480px; margin: 0 auto;
+    background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    padding: var(--cpq-space-5); display: flex; flex-direction: column; gap: var(--cpq-space-3);
+  }
+  .landing h3 { font-size: 15px; font-weight: 600; display: flex; align-items: center; gap: var(--cpq-space-2); }
+  .file-card {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    background: var(--cpq-bg-tertiary); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3);
+  }
+  .file-ico {
+    width: 34px; height: 34px; border-radius: var(--cpq-radius-sm); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); font-size: 9px; font-weight: 700;
+  }
+  .meta-line { font-size: 11.5px; color: var(--cpq-text-muted); line-height: 1.7; }
+
+  /* ═══ 场景C：入口分布 ═══ */
+  .entries { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--cpq-space-4); }
+  .ent-card { background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-4); }
+  .ent-card h5 { font-size: 13px; font-weight: 600; margin-bottom: var(--cpq-space-2); display: flex; align-items: center; gap: 6px; }
+  .ent-line { display: flex; align-items: center; gap: var(--cpq-space-2); padding: var(--cpq-space-2) 0; border-bottom: 1px dashed var(--cpq-border-secondary); font-size: 12px; }
+  .ent-line:last-child { border-bottom: 0; }
+  .ent-acts { margin-left: auto; display: inline-flex; gap: 6px; flex-shrink: 0; }
+  .mini { padding: 1px 8px; border-radius: 6px; border: 1px solid var(--cpq-border-light); color: var(--cpq-text-secondary); font-size: 11px; }
+  .mini.share { color: var(--cpq-accent-primary-light); border-color: var(--cpq-overlay-a20); }
+</style>
+</head>
+<body data-scene="a">
+
+  <div class="demo-bar">
+    <span class="demo-title">产出物分享 · 原型</span>
+    <label class="demo-ctl on"><input type="radio" name="sc" checked onchange="setScene('a')"> ① 分享弹窗（公共组件）</label>
+    <label class="demo-ctl"><input type="radio" name="sc" onchange="setScene('b')"> ② 链接落地页（接收方）</label>
+    <label class="demo-ctl"><input type="radio" name="sc" onchange="setScene('c')"> ③ 入口分布（四个节点）</label>
+    <span class="demo-note">定调：视角=同一模板的信息维度；客户（报价）视角一期不开放；链接可过期/可撤销/带提取码</span>
+  </div>
+
+  <div class="stage">
+
+    <!-- ═══ 场景A：ShareDialog ═══ -->
+    <div class="scene scene-a">
+      <p class="scene-label">报价单行「更多」菜单点「分享」（方案 / 成本表 / 需求单同款入口，弹同一个组件）。</p>
+      <div class="share-wrap">
+        <div class="entry-panel">
+          <h4>报价单 · 行菜单</h4>
+          <div class="menu">
+            <div>编辑</div>
+            <div>设为主推</div>
+            <div class="new">分享<i class="anno" style="margin-left:6px;">1</i></div>
+            <div>重命名</div>
+            <div class="danger">删除</div>
+          </div>
+          <p class="muted" style="margin-top: var(--cpq-space-3); line-height: 1.7;">方案卡、成本表行、需求单版本行的操作区同样出现「分享」——四个节点共用同一个弹窗组件<i class="anno" style="margin-left:6px;">2</i></p>
+        </div>
+        <div class="modal-mask">
+          <div class="share-modal">
+            <div class="sm-head">
+              <span>分享 · 报价-兆芯勋-Lena-1014</span>
+              <span class="muted">✕</span>
+            </div>
+            <div class="sm-body">
+              <div class="sm-row">
+                <span class="k">视角</span>
+                <div class="seg">
+                  <span>方案</span><span>成本</span><span class="on">内部</span><span class="off">报价（客户）</span>
+                </div>
+                <span class="pill amber" style="margin-left: 4px;">客户视角一期不开放<i class="anno gray" style="margin-left:4px;">3</i></span>
+              </div>
+              <div class="sm-row">
+                <span class="k">模板</span>
+                <div class="tpl-select"><span>报价导出 · 默认模板（内部视角）</span><span class="muted">▾</span></div>
+              </div>
+              <div class="preview-box">
+                <table>
+                  <thead><tr><th>Catalogue</th><th>Description</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr></thead>
+                  <tbody>
+                    <tr><td>CPU</td><td>Xeon 6542Y</td><td>2</td><td>—</td><td>—</td></tr>
+                    <tr><td>Memory</td><td>64G DDR5 RDIMM</td><td>8</td><td>—</td><td>—</td></tr>
+                    <tr><td>整机</td><td>R760xa 机箱（4 步选配）</td><td>1</td><td>—</td><td>—</td></tr>
+                  </tbody>
+                </table>
+                <span class="pv-tag"><span class="pill blue">预览 · 内部视角（成本列留位清值）</span></span>
+              </div>
+              <div class="opt-row">
+                <span class="k" style="width:56px; color: var(--cpq-text-muted);">有效期</span>
+                <select><option>7 天</option><option>1 天</option><option>30 天</option></select>
+                <span class="muted">提取码</span>
+                <input class="pwd-in" value="可选" />
+              </div>
+              <div class="link-result">
+                <span class="url">https://cpq.local/api/share/x7Kd9mQp2v…</span>
+                <button class="btn" style="padding: 2px 10px;">⧉ 复制</button>
+                <button class="btn" style="padding: 2px 10px;">撤销</button>
+              </div>
+              <div class="muted" style="line-height: 1.7;">生成即归档到商机附件桶（可追溯）；每次下载记审计；撤销立即失效。</div>
+            </div>
+            <div class="sm-foot">
+              <span class="muted">下载与链接下载是同一份服务端文件</span>
+              <button class="btn primary">下载 Excel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 场景B：链接落地页 ═══ -->
+    <div class="scene scene-b">
+      <p class="scene-label">接收方打开链接：免登录（token 即凭证），带提取码时先验码；每次下载记审计。</p>
+      <div class="landing">
+        <h3>📎 分享文件 <span class="pill green">有效期内</span></h3>
+        <div class="file-card">
+          <span class="file-ico">XLSX</span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-weight: 600;">兆芯勋-Brain-1014_方案表.xlsx</div>
+            <div class="meta-line">来自 CPQ 平台 · kayfly 分享于 10-15 · 剩余 6 天</div>
+          </div>
+        </div>
+        <div class="sm-row">
+          <span class="k" style="color: var(--cpq-text-muted); width: 56px;">提取码</span>
+          <input class="pwd-in" style="width: 140px;" value="••••" />
+        </div>
+        <button class="btn primary" style="width: 100%;">下载文件</button>
+        <div class="meta-line">链接由 kayfly 通过 CPQ 平台生成 · 撤销/过期后自动失效 · 下载行为有审计记录</div>
+      </div>
+    </div>
+
+    <!-- ═══ 场景C：入口分布 ═══ -->
+    <div class="scene scene-c">
+      <p class="scene-label">四个节点的产出物统一挂「分享」；下载文件自动归档到对应附件桶。</p>
+      <div class="entries">
+        <div class="ent-card">
+          <h5>需求单 <span class="pill blue">版本行操作</span></h5>
+          <div class="ent-line"><span>需求单 v3 · 超融合 3 节点</span><span class="ent-acts"><span class="mini share">分享</span><span class="mini">下载</span></span></div>
+          <div class="ent-line"><span class="muted">视角默认「内部」；附件区已随版本留档，分享的是表单 Excel</span></div>
+        </div>
+        <div class="ent-card">
+          <h5>方案配置 <span class="pill blue">方案卡操作</span></h5>
+          <div class="ent-line"><span>R760xa 超融合方案</span><span class="ent-acts"><span class="mini share">分享</span><span class="mini">下载</span></span></div>
+          <div class="ent-line"><span class="muted">默认视角「方案」（无价格列）——给技术/业务间传阅</span></div>
+        </div>
+        <div class="ent-card">
+          <h5>成本核算 <span class="pill blue">成本表行操作</span></h5>
+          <div class="ent-line"><span>成本表 CS-1014 · 2 配置</span><span class="ent-acts"><span class="mini share">分享</span><span class="mini">下载</span></span></div>
+          <div class="ent-line"><span class="muted">默认视角「成本」（只显成本价）；上传的源 Excel 照旧走附件</span></div>
+        </div>
+        <div class="ent-card">
+          <h5>报价单 <span class="pill blue">行「更多」菜单</span></h5>
+          <div class="ent-line"><span>草稿 / 已导出 / 已发送</span><span class="ent-acts"><span class="mini share">分享</span><span class="mini">下载</span></span></div>
+          <div class="ent-line"><span class="muted">默认视角「内部」；报价（客户）视角分享一期锁定——等价外发，二期挂审批闸</span></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <div class="li"><i class="anno">1</i><div>行菜单/卡片操作统一加「分享 + 下载」：转发不再依赖聊天——网盘式，弹窗里直接出链接。</div></div>
+    <div class="li"><i class="anno">2</i><div>ShareDialog 公共组件：四节点传（节点类型 + 产出物 id）即可复用；预览复用从报价导出抽出的 TemplatePreviewModal，一份预览三处用（报价导出 / 节点分享 / 以后任何模板渲染）。</div></div>
+    <div class="li"><i class="anno">3</i><div>视角 = 同一模板的信息维度（reveal 机制现成）：方案=无价格列，成本=只显成本价，内部=留位清值，报价（客户）=完整售价。<b>客户视角一期锁定</b>——它等效外发，二期开放时创建链接须过外发审批闸（ensure_outbound_approved）。</div></div>
+    <div class="li"><i class="anno gray">4</i><div>链接基建（新建）：share_tokens 表（随机 token / 过期 / 可选提取码 / 可撤销 / 下载计数）+ 免登录下载端点（token 即凭证）+ 每次下载记审计；生成即归档商机附件桶。</div></div>
+    <div class="li"><i class="anno gray">5</i><div>服务端出 xlsx（新增 snapshot→xlsx 写出器，openpyxl，首版=数值+基本列宽）：链接下载的是落盘文件，不再依赖前端浏览器生成。</div></div>
+    <div class="li"><i class="anno gray">6</i><div>权限：打开分享窗=商机可见+节点角色；成本/报价视角照旧被 field.quote.export_internal 服务端剥除——分享不构成越权通道。</div></div>
+  </div>
+
+  <script>
+    function setScene(key) {
+      document.body.dataset.scene = key
+      document.querySelectorAll('.demo-ctl').forEach(l => l.classList.remove('on'))
+      event.target.closest('.demo-ctl').classList.add('on')
+    }
+  </script>
+</body>
+</html>

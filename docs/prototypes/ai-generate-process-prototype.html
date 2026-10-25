@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI 生成模板 · 过程可见 原型</title>
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  AI 生成模板「过程可见」交互原型（2026-10-03）
+  语义（已定调）：AI 逐章读契约【内容要求】，智能调用资产注册表满足要求；
+  每个生成的图表/KPI 必须可追溯（标注"为满足第 N 章〔要求摘要〕"）；
+  契约没提的口径不出现。生成不再是黑盒：六步流水线，每步中间产物上屏。
+
+  正式实现说明（本原型用 canned 数据演示动画，真实数据来源）：
+    step1 契约读取      ← GET /api/artifact-templates/contracts
+    step2 内容要求解析  ← LLM 逐章读 requires，抽"数据需求"标签
+    step3 资产匹配      ← LLM 从资产注册表为需求选实现（需求→资产+出处）
+    step4 骨架编排      ← LLM 组 blocks（章节槽+版式块，span/顺序）
+    step5 校验与出处    ← 确定性：章节覆盖/资产存在/出处标注表
+    step6 进画布        ← replaceAll（可撤销）
+    后端一次调用返回 trace（六步的结构化产物），前端按步揭晓动画。
+  ─────────────────────────────────────────────────────────────────────────────
+-->
+<style>
+:root{
+  --bg:#14171d; --panel:rgba(255,255,255,.045); --panel2:rgba(255,255,255,.07);
+  --line:rgba(255,255,255,.1); --ink:#e7ebf2; --ink2:#9aa4b2; --ink3:#6b7686;
+  --brand:#4f8ef7; --brand2:#7db0ff; --ok:#4fc78d; --warn:#e0b055; --violet:#8b7ff6;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:radial-gradient(1200px 600px at 70% -10%, rgba(79,142,247,.12), transparent),
+     var(--bg); color:var(--ink); font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+     min-height:100vh; display:grid; place-items:center; padding:28px}
+.wrap{width:960px; max-width:96vw}
+.gx{background:var(--panel); border:1px solid var(--line); border-radius:16px}
+.head{display:flex; align-items:center; gap:12px; padding:16px 20px 4px}
+.head h1{font-size:16px; font-weight:800}
+.head .sub{font-size:12px; color:var(--ink2); margin-top:3px}
+.head .sig{margin-left:auto; font-size:11px; color:var(--ink3); border:1px solid var(--line); border-radius:999px; padding:3px 10px}
+.stage{display:grid; grid-template-columns:252px 1fr; gap:14px; padding:14px 20px 18px}
+
+/* ── 左：步骤轨道 ── */
+.rail{display:flex; flex-direction:column; gap:8px}
+.step{display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border-radius:12px;
+  border:1px solid var(--line); background:rgba(255,255,255,.02); opacity:.38; transition:all .25s}
+.step.on{opacity:1; border-color:rgba(79,142,247,.55); background:rgba(79,142,247,.08)}
+.step.done{opacity:1}
+.step .no{width:24px; height:24px; border-radius:50%; flex-shrink:0; display:grid; place-items:center;
+  font-size:11px; font-weight:800; background:rgba(255,255,255,.08); color:var(--ink2)}
+.step.on .no{background:var(--brand); color:#fff}
+.step.done .no{background:var(--ok); color:#fff}
+.step .t{font-size:13px; font-weight:700}
+.step .d{font-size:11px; color:var(--ink3); margin-top:2px; line-height:1.5}
+.step .spin{display:none; width:12px; height:12px; margin-left:auto; margin-top:4px;
+  border:2px solid rgba(255,255,255,.15); border-top-color:var(--brand); border-radius:50%;
+  animation:sp .7s linear infinite}
+.step.on.live .spin{display:block}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── 右：过程产物流 ── */
+.feed{min-height:430px; max-height:520px; overflow:auto; padding-right:6px}
+.card{border:1px solid var(--line); background:rgba(255,255,255,.03); border-radius:13px;
+  padding:13px 15px; margin-bottom:11px; animation:pop .3s ease}
+@keyframes pop{from{opacity:0; transform:translateY(7px)} to{opacity:1}}
+.card .ct{display:flex; align-items:center; gap:8px; font-size:12px; font-weight:800;
+  color:var(--brand2); letter-spacing:.06em; margin-bottom:9px}
+.card .ct .tag{font-size:10px; font-weight:700; color:var(--ink3); border:1px solid var(--line);
+  border-radius:999px; padding:1px 8px; letter-spacing:0}
+.chips{display:flex; flex-wrap:wrap; gap:7px}
+.chip{font-size:11.5px; background:rgba(255,255,255,.05); border:1px solid var(--line);
+  border-radius:999px; padding:4px 11px; color:var(--ink)}
+.chip b{color:var(--brand2)}
+.chip.range{color:var(--ok); border-color:rgba(79,199,141,.3)}
+.row{display:flex; align-items:flex-start; gap:9px; padding:7px 9px; border-radius:9px; margin-bottom:5px;
+  background:rgba(255,255,255,.025); border:1px solid rgba(255,255,255,.05); font-size:12.5px}
+.row .who{flex-shrink:0; font-size:11px; color:var(--brand2); font-weight:700; width:118px}
+.row .need{color:var(--ink2); line-height:1.55}
+.row .arrow{color:var(--ink3); flex-shrink:0}
+.row .asset{color:var(--ok); font-weight:700; flex-shrink:0}
+.row .kind{font-size:10px; border:1px solid rgba(79,199,141,.35); color:var(--ok);
+  border-radius:5px; padding:0 5px; margin-left:5px}
+.map{display:grid; grid-template-columns:150px 20px 1fr; gap:8px; align-items:center;
+  padding:8px 10px; border-radius:9px; margin-bottom:5px; font-size:12.5px;
+  background:rgba(255,255,255,.025); border:1px solid rgba(255,255,255,.05)}
+.map .a{color:var(--brand2); font-weight:700}
+.map .m{color:var(--ink3); text-align:center}
+.map .b{color:var(--ok)}
+.map .src{grid-column:1/-1; font-size:11px; color:var(--ink3); padding-left:2px; line-height:1.5}
+.map .src::before{content:"出处 "; color:var(--warn); font-weight:700}
+.blkseq{display:flex; flex-wrap:wrap; gap:6px}
+.seq{font-size:11px; border:1px solid var(--line); background:rgba(255,255,255,.04);
+  border-radius:7px; padding:4px 9px; color:var(--ink)}
+.seq.data{border-color:rgba(79,199,141,.4); color:var(--ok)}
+.seq i{font-style:normal; color:var(--ink3); margin-left:4px}
+.vrow{display:flex; gap:8px; align-items:flex-start; font-size:12.5px; padding:5px 2px}
+.vrow .vk{flex-shrink:0; font-weight:700}
+.vrow.ok .vk{color:var(--ok)}
+.vrow .vv{color:var(--ink2); line-height:1.55}
+.vrow .vv b{color:var(--ink)}
+.fin{display:flex; align-items:center; gap:10px; background:rgba(79,199,141,.07);
+  border:1px solid rgba(79,199,141,.3); border-radius:12px; padding:12px 15px; font-size:13px}
+.fin b{color:var(--ok)}
+.foot{display:flex; justify-content:flex-end; gap:9px; padding:0 20px 16px}
+.btn{height:34px; padding:0 16px; border-radius:9px; font-size:13px; cursor:pointer;
+  border:1px solid var(--line); background:transparent; color:var(--ink2)}
+.btn.pri{background:linear-gradient(135deg,#4f8ef7,#6fa4ff); border:none; color:#fff; font-weight:700}
+.btn.pri:disabled{opacity:.35; cursor:not-allowed}
+.note{font-size:11px; color:var(--ink3); line-height:1.6; padding:0 20px 12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head gx" style="border-radius:16px 16px 0 0">
+    <div>
+      <h1>✦ AI 生成模板 · 商机趋势分析报告</h1>
+      <div class="sub">依据 = 目标层契约全文（含每章内容要求）；资产注册表 = 可调用的图表货架；每个图表可追溯出处</div>
+    </div>
+    <span class="sig">过程可见 · 非黑盒</span>
+  </div>
+  <div class="gx" style="border-top:none; border-radius:0 0 16px 16px">
+    <div class="stage">
+      <div class="rail" id="rail"></div>
+      <div class="feed" id="feed"></div>
+    </div>
+    <div class="note">每一步的中间产物都上屏：契约给了什么 → 每章要求解析成什么数据需求 → 货架上挑了哪个资产（含出处）→ 排成什么骨架 → 校验结果。正式实现由后端一次生成调用返回六步 trace，前端按步揭晓。</div>
+    <div class="foot">
+      <button class="btn" id="btnReplay">重播</button>
+      <button class="btn pri" id="btnApply" disabled>骨架进画布</button>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ═══ 契约原文（= 目标层截图内容，正式版从 /contracts 拉取） ═══ */
+const CONTRACT = {
+  name: "商机趋势分析报告", range: "近30天",
+  sections: [
+    { title: "周数据", key: "weekly",
+      requires: "本周（标注日期区间）新增商机数、新增配置数、平台分布、机箱分布（新增口径）" },
+    { title: "月数据", key: "monthly",
+      requires: "本月新增商机与配置（部分月标注截至日期）；对比上月完整月" },
+    { title: "半年度商机趋势", key: "half_year",
+      requires: "累计商机与累计配置；逐月表（月份 / 各平台新增商机数——Orion、Polaris 等逐月列全 / 合计 / 环比变化）；结尾趋势方向一段" },
+    { title: "平台格局", key: "platform",
+      requires: "各平台商机数与占比（本期数据范围口径），点出格局变化" },
+    { title: "机箱形态", key: "chassis",
+      requires: "近半年各机箱形态数量与占比表" },
+    { title: "半年业务 TOP3", key: "top_sales",
+      requires: "销售人员商机数排行" },
+    { title: "关键洞察", key: "insights",
+      requires: "3-5 条：增长信号/风险信号/结构变化/值得跟进；归因标「(推测/待核实)」" },
+  ],
+};
+/* ═══ 资产货架（正式版从资产注册表拉取） ═══ */
+const SHELF = [
+  { id: "cockpit.kpi",        kind: "KPI",  name: "商机关键指标",   atoms: "新增商机数 / 新增配置数" },
+  { id: "cockpit.trend",      kind: "图表", name: "新增商机趋势" },
+  { id: "cockpit.dist",       kind: "图表", name: "平台结构分布" },
+  { id: "cockpit.platform_monthly", kind: "表格", name: "月度×平台明细表" },
+  { id: "cockpit.chassis_dist", kind: "图表", name: "机箱形态分布" },
+  { id: "cockpit.sales_rank", kind: "图表", name: "业务排行" },
+];
+
+/* ═══ 六步 trace（正式版由后端 /generate 返回同构 JSON） ═══ */
+const STEPS = [
+  { key: "contract", no: 1, t: "读取契约", d: "目标层文档卡 · 全文进上下文",
+    feed: () => `
+      <div class="card"><div class="ct">契约内容 <span class="tag">目标层文档卡 · 原文</span></div>
+        <div class="chips">
+          <span class="chip">报告名 <b>${CONTRACT.name}</b></span>
+          <span class="chip range">数据范围：${CONTRACT.range}</span>
+          <span class="chip">${CONTRACT.sections.length} 个章节</span>
+        </div>
+        <div style="margin-top:9px">${CONTRACT.sections.map((s, i) =>
+          `<div class="row"><span class="who">${["一","二","三","四","五","六","七"][i]}、${s.title}</span><span class="need">${s.requires}</span></div>`).join("")}
+        </div>
+      </div>` },
+  { key: "requires", no: 2, t: "逐章解析内容要求", d: "每章要求 → 数据需求标签",
+    feed: () => `
+      <div class="card"><div class="ct">数据需求抽取 <span class="tag">逐章 · 依据=内容要求原文</span></div>
+        ${[
+          ["周数据", ["新增商机数", "新增配置数", "平台分布", "机箱分布"]],
+          ["月数据", ["本月新增对比", "上月完整月对照"]],
+          ["半年度商机趋势", ["累计商机/配置", "逐月×平台表", "趋势方向段"]],
+          ["平台格局", ["各平台数量", "占比", "格局变化"]],
+          ["机箱形态", ["数量与占比表"]],
+          ["半年业务 TOP3", ["销售排行"]],
+          ["关键洞察", ["3-5 条信号"]],
+        ].map(([ch, tags]) => `<div class="row"><span class="who">${ch}</span><span class="need">${tags.map(t => `<span class="chip" style="padding:2px 9px;margin:1px 3px 1px 0">${t}</span>`).join("")}</span></div>`).join("")}
+      </div>` },
+  { key: "match", no: 3, t: "匹配资产货架", d: "需求 → 注册表现成视图；无货可配的黄灯提示",
+    feed: () => `
+      <div class="card"><div class="ct">需求 × 资产 <span class="tag">货架=资产注册表 · 每条带出处</span></div>
+        ${[
+          ["周数据 · 新增商机数/配置数", "cockpit.kpi", "KPI", "匹配 ch1〔新增商机数、新增配置数〕"],
+          ["周数据 · 平台分布/机箱分布", "（AI 正文承载）", "", "正文段落即可，无需图表——契约要求为分布叙述"],
+          ["月数据 · 上月完整月对照", "（AI 正文承载）", "", "对比叙述类，正文承载"],
+          ["半年度 · 逐月×平台表", "cockpit.platform_monthly", "表格", "匹配 ch3〔逐月表（月份/各平台新增商机数…）〕"],
+          ["平台格局 · 数量与占比", "cockpit.dist", "图表", "匹配 ch4〔各平台商机数与占比〕"],
+          ["机箱形态 · 数量与占比", "cockpit.chassis_dist", "图表", "匹配 ch5〔数量与占比表〕→ 以玫瑰图呈现占比"],
+          ["半年业务 TOP3 · 销售排行", "cockpit.sales_rank", "图表", "匹配 ch6〔销售人员商机数排行〕"],
+        ].map(([need, asset, kind, src]) => `
+          <div class="map"><span class="a">${need}</span><span class="m">→</span>
+            <span class="b">${asset}${kind ? ` <span class="kind">${kind}</span>` : ""}</span>
+            <span class="src">${src}</span></div>`).join("")}
+        <div class="row" style="margin-top:6px"><span class="need" style="color:var(--warn)">货架外需求 0 项 · 未匹配需求 0 项 ✓</span></div>
+      </div>` },
+  { key: "compose", no: 4, t: "编排骨架", d: "章节槽 + 匹配到的数据块 + 版式块",
+    feed: () => {
+      const seq = [
+        ["title", "报告抬头", 0], ["kpi", "KPI · ch1 新增口径", 1],
+        ["chart", "趋势图 · ch3", 1], ["text", "槽：周数据", 0],
+        ["text", "槽：月数据", 0], ["text", "槽：半年度", 0],
+        ["table", "月度表 · ch3 逐月", 1], ["chart", "环形 · ch4", 1],
+        ["text", "槽：平台格局", 0], ["chart", "玫瑰 · ch5", 1],
+        ["text", "槽：TOP3", 0], ["chart", "排行 · ch6", 1],
+        ["text", "槽：关键洞察", 0],
+      ];
+      return `<div class="card"><div class="ct">区块序列 <span class="tag">章节槽照契约顺序 · 绿=数据块（含出处）</span></div>
+        <div class="blkseq">${seq.map(([t, n, data]) =>
+          `<span class="seq ${data ? "data" : ""}">${t}<i>${n}</i></span>`).join("")}</div>
+        <div style="margin-top:9px" class="note" >章节顺序 100% 照契约；数据块全部来自上一步的匹配结果；版式块（抬头）唯一。</div></div>`;
+    } },
+  { key: "validate", no: 5, t: "校验与出处标注", d: "确定性检查：覆盖 / 资产存在 / 无契约外口径",
+    feed: () => `
+      <div class="card"><div class="ct">确定性校验 <span class="tag">LLM 只提议 · 规则裁决</span></div>
+        <div class="vrow ok"><span class="vk">章节覆盖</span><span class="vv"><b>7 / 7</b> · key 逐字对齐契约</span></div>
+        <div class="vrow ok"><span class="vk">资产存在</span><span class="vv">引用的 6 个资产全部在注册表且 kind 匹配</span></div>
+        <div class="vrow ok"><span class="vk">无契约外口径</span><span class="vv">未出现契约未要求的数据块（如全量累计卡）</span></div>
+        <div class="vrow ok"><span class="vk">出处标注</span><span class="vv">6 个数据块均已标注「为满足第 N 章〔要求摘要〕」，进画布可见角标</span></div>
+      </div>` },
+  { key: "done", no: 6, t: "骨架就绪", d: "进画布 · 可撤销 · 不自动保存",
+    feed: () => `
+      <div class="fin">✓ 骨架就绪：<b>14 区块</b> · 7 章节槽全覆盖 · 6 个数据块带出处 · Ctrl+Z 可退回 · 图表/KPI 可继续从组件库增删</div>` },
+];
+
+/* ═══ 播放器 ═══ */
+const rail = document.getElementById("rail"), feed = document.getElementById("feed");
+rail.innerHTML = STEPS.map((s, i) =>
+  `<div class="step" id="st${i}"><span class="no">${s.no}</span><span><div class="t">${s.t}</div><div class="d">${s.d}</div></span><span class="spin"></span></div>`).join("");
+
+function play() {
+  feed.innerHTML = ""; document.getElementById("btnApply").disabled = true;
+  const steps = [...rail.children];
+  steps.forEach(s => s.classList.remove("on", "done", "live"));
+  let i = 0;
+  const tick = () => {
+    if (i > 0) steps[i - 1].classList.replace("on", "done"), steps[i-1].classList.add("done"), steps[i-1].classList.remove("on");
+    if (i >= STEPS.length) {
+      feed.insertAdjacentHTML("beforeend", STEPS[STEPS.length - 1].feed());
+      document.getElementById("btnApply").disabled = false;
+      return;
+    }
+    steps[i].classList.add("on", "live");
+    feed.insertAdjacentHTML("beforeend", STEPS[i].feed());
+    feed.scrollTop = feed.scrollHeight;
+    i++;
+    setTimeout(tick, 950);
+  };
+  tick();
+}
+document.getElementById("btnReplay").addEventListener("click", play);
+document.getElementById("btnApply").addEventListener("click", () => alert("骨架进画布（正式实现 = replaceAll，可撤销）"));
+play();
+</script>
+</body>
+</html>

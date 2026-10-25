@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>工作流启动表单 + 产物卡 · 原型（通用底座，字段用户可编辑）</title>
+<!-- 原型 = 规格书。机制:①launch_form=工作流可声明的通用表单 schema,配置者可视化增删改字段,
+     launcher 按 schema 渲染,提交=拼装结构化首条消息(快车道非闸门,不填直接说话照旧);
+     ②产物卡=kind='artifact' 消息,refs 存 id 不存数据,前端查看器注册表 VIEWERS[artifact_type],
+     拉活数据+权限在拉取时生效。值来源=tokens.css;本页内联同值兜底,单文件打开不裸奔。 -->
+<style>
+  :root {
+    --cpq-bg-primary: #F2F6FC; --cpq-bg-elevated: #ffffff;
+    --cpq-glass-card-bg: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72));
+    --cpq-glass-card-shadow: 0 10px 30px rgba(22,119,255,0.10);
+    --cpq-text-primary: #1d2129; --cpq-text-secondary: #4e5969; --cpq-text-muted: #86909c;
+    --cpq-accent-primary: #1677FF; --cpq-accent-success: #22c55e; --cpq-accent-warning: #fa8c16;
+    --cpq-border-primary: rgba(22,119,255,0.10); --cpq-border-light: rgba(22,119,255,0.16);
+    --cpq-overlay-w4: rgba(22,119,255,0.04); --cpq-overlay-w6: rgba(22,119,255,0.08); --cpq-overlay-w10: rgba(22,119,255,0.10);
+    --cpq-radius-sm: 4px; --cpq-radius-md: 6px; --cpq-radius-lg: 8px; --cpq-radius-xl: 12px; --cpq-radius-full: 999px;
+    --cpq-space-1: 4px; --cpq-space-2: 8px; --cpq-space-3: 12px; --cpq-space-4: 16px; --cpq-space-5: 24px;
+    --cpq-font-size-xs: 11px; --cpq-font-size-sm: 12px; --cpq-font-size-base: 14px; --cpq-font-size-xl: 20px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: var(--cpq-font-size-base); color: var(--cpq-text-primary); background: var(--cpq-bg-primary); }
+  .app { height: 100vh; display: flex; flex-direction: column; }
+
+  /* 顶栏 + 页签 */
+  .topbar { display: flex; align-items: center; gap: var(--cpq-space-4); padding: var(--cpq-space-2) var(--cpq-space-4);
+    border-bottom: 1px solid var(--cpq-border-primary); background: var(--cpq-bg-elevated); }
+  .topbar h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  .tabs { display: flex; gap: var(--cpq-space-1); }
+  .tab { border: none; background: transparent; padding: 6px 12px; border-radius: var(--cpq-radius-full);
+    font-size: 13px; color: var(--cpq-text-secondary); cursor: pointer; font-family: inherit; }
+  .tab.on { background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary); font-weight: 600; }
+  .pane { display: none; flex: 1; min-height: 0; overflow: auto; padding: var(--cpq-space-4) var(--cpq-space-5); }
+  .pane.on { display: block; }
+  .anno { font-size: 12px; color: var(--cpq-text-muted); line-height: 1.7; margin: var(--cpq-space-2) 0 var(--cpq-space-4); }
+  .anno b { color: var(--cpq-text-secondary); }
+
+  /* ── Tab A 启动表单(用户视角):composer + 表单面板 ── */
+  .chat-mock { max-width: 720px; margin: 0 auto; }
+  .chat-msg { display: flex; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-3); }
+  .chat-msg .bubble { background: var(--cpq-bg-elevated); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); padding: var(--cpq-space-2) var(--cpq-space-3); font-size: 13px;
+    line-height: 1.6; box-shadow: var(--cpq-glass-card-shadow); max-width: 82%; white-space: pre-wrap; }
+  .chat-msg.user { justify-content: flex-end; }
+  .chat-msg.user .bubble { background: var(--cpq-overlay-w6); }
+  .composer { display: flex; align-items: center; gap: var(--cpq-space-2); background: var(--cpq-bg-elevated);
+    border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-xl); padding: var(--cpq-space-2) var(--cpq-space-3);
+    box-shadow: var(--cpq-glass-card-shadow); }
+  .plus-btn { width: 30px; height: 30px; border-radius: var(--cpq-radius-full); border: 1px solid var(--cpq-border-light);
+    background: var(--cpq-overlay-w4); color: var(--cpq-accent-primary); font-size: 17px; cursor: pointer; flex: none; }
+  .composer input { flex: 1; border: none; outline: none; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); background: transparent; }
+  .send-btn { border: none; background: var(--cpq-accent-primary); color: #fff; border-radius: var(--cpq-radius-md);
+    padding: 5px 14px; font-size: 13px; cursor: pointer; font-family: inherit; }
+  .wf-pill { display: inline-flex; align-items: center; gap: 6px; background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary);
+    border-radius: var(--cpq-radius-full); padding: 3px 10px; font-size: 12px; font-weight: 600; margin-bottom: var(--cpq-space-2); }
+  .wf-pill .x { cursor: pointer; opacity: .6; }
+
+  .launch-form { background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: var(--cpq-glass-card-shadow); padding: var(--cpq-space-4);
+    margin: var(--cpq-space-3) 0; max-width: 640px; }
+  .lf-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--cpq-space-3); }
+  .lf-title b { font-size: 14px; }
+  .lf-skip { font-size: 12px; color: var(--cpq-text-muted); cursor: pointer; }
+  .lf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-3) var(--cpq-space-4); }
+  .lf-field { display: flex; flex-direction: column; gap: 4px; }
+  .lf-field.full { grid-column: 1 / -1; }
+  .lf-field label { font-size: 12px; color: var(--cpq-text-secondary); }
+  .lf-field label .req { color: #e5534b; margin-left: 2px; }
+  .lf-field input[type=text], .lf-field input[type=number], .lf-field select, .lf-field textarea {
+    border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-md); padding: 6px 10px;
+    font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); background: var(--cpq-bg-elevated); outline: none; }
+  .lf-field input:focus, .lf-field select:focus, .lf-field textarea:focus { border-color: var(--cpq-accent-primary); }
+  .lf-file { border: 1.5px dashed var(--cpq-border-light); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3);
+    text-align: center; font-size: 12px; color: var(--cpq-text-muted); cursor: pointer; }
+  .lf-file.has { border-style: solid; color: var(--cpq-accent-success); background: rgba(34,197,94,0.06); }
+  .lf-actions { display: flex; justify-content: flex-end; gap: var(--cpq-space-2); margin-top: var(--cpq-space-3); }
+  .lf-msg-preview { margin-top: var(--cpq-space-3); background: var(--cpq-overlay-w4); border: 1px dashed var(--cpq-border-light);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-2) var(--cpq-space-3); font-size: 12px;
+    color: var(--cpq-text-secondary); white-space: pre-wrap; line-height: 1.7; }
+
+  /* ── Tab B 表单编辑器(配置者视角) ── */
+  .editor-wrap { display: grid; grid-template-columns: 1fr 360px; gap: var(--cpq-space-4); max-width: 1180px; margin: 0 auto; }
+  .panel { background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: var(--cpq-glass-card-shadow); padding: var(--cpq-space-4); }
+  .panel h3 { margin: 0 0 var(--cpq-space-3); font-size: 14px; }
+  .field-row { display: grid; grid-template-columns: 22px 1fr 110px 90px 70px 34px; gap: var(--cpq-space-2);
+    align-items: center; padding: var(--cpq-space-2); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-md); margin-bottom: var(--cpq-space-2); background: var(--cpq-bg-elevated); }
+  .field-row .drag { cursor: grab; color: var(--cpq-text-muted); text-align: center; font-size: 14px; }
+  .field-row input[type=text], .field-row select { border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm);
+    padding: 4px 8px; font-size: 12px; font-family: inherit; width: 100%; color: var(--cpq-text-primary); background: var(--cpq-bg-elevated); }
+  .field-row .chk { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--cpq-text-secondary); }
+  .field-row .del { border: none; background: transparent; color: var(--cpq-text-muted); cursor: pointer; font-size: 14px; }
+  .field-row .del:hover { color: #e5534b; }
+  .type-badge { font-size: 10px; padding: 1px 6px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-primary); font-weight: 600; }
+  .add-row { display: flex; gap: var(--cpq-space-2); flex-wrap: wrap; margin-top: var(--cpq-space-3); }
+  .add-chip { border: 1px dashed var(--cpq-border-light); background: transparent; border-radius: var(--cpq-radius-full);
+    padding: 4px 12px; font-size: 12px; color: var(--cpq-text-secondary); cursor: pointer; font-family: inherit; }
+  .add-chip:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+  .json-block { background: #0d1117; color: #a5d6ff; font-family: Consolas, monospace; font-size: 11px;
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3); line-height: 1.6; white-space: pre; overflow-x: auto; }
+
+  /* ── Tab C/D 产物卡 ── */
+  .artifact-card { background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: var(--cpq-glass-card-shadow); max-width: 660px; overflow: hidden; }
+  .ac-head { display: flex; align-items: center; gap: var(--cpq-space-2); padding: var(--cpq-space-2) var(--cpq-space-3);
+    cursor: pointer; }
+  .ac-icon { width: 28px; height: 28px; border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w10);
+    display: flex; align-items: center; justify-content: center; font-size: 14px; flex: none; }
+  .ac-title { font-weight: 600; font-size: 13px; }
+  .ac-sub { font-size: 11px; color: var(--cpq-text-muted); }
+  .ac-caret { margin-left: auto; color: var(--cpq-text-muted); font-size: 12px; }
+  .ac-body { border-top: 1px solid var(--cpq-border-primary); padding: var(--cpq-space-3); display: none; }
+  .artifact-card.open .ac-body { display: block; }
+  .cfg-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .cfg-table th, .cfg-table td { border: 1px solid var(--cpq-border-primary); padding: 6px 9px; text-align: left; }
+  .cfg-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-secondary); font-weight: 600; }
+  .cfg-table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .ac-foot { display: flex; justify-content: flex-end; gap: var(--cpq-space-2); margin-top: var(--cpq-space-3); }
+  .btn { border: 1px solid var(--cpq-border-light); background: var(--cpq-bg-elevated); border-radius: var(--cpq-radius-md);
+    padding: 5px 14px; font-size: 12px; cursor: pointer; font-family: inherit; color: var(--cpq-text-primary); }
+  .btn.primary { background: var(--cpq-accent-primary); color: #fff; border-color: var(--cpq-accent-primary); }
+
+  .qt-toolbar { display: flex; align-items: center; gap: var(--cpq-space-4); padding: var(--cpq-space-2) var(--cpq-space-3);
+    background: var(--cpq-overlay-w4); border-radius: var(--cpq-radius-md); margin-bottom: var(--cpq-space-3); flex-wrap: wrap; }
+  .qt-toolbar .grp { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--cpq-text-secondary); }
+  .switch { position: relative; width: 30px; height: 16px; background: var(--cpq-overlay-w10); border-radius: var(--cpq-radius-full);
+    cursor: pointer; transition: background .15s; flex: none; }
+  .switch::after { content: ''; position: absolute; width: 12px; height: 12px; border-radius: 50%; background: #fff;
+    top: 2px; left: 2px; transition: left .15s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
+  .switch.on { background: var(--cpq-accent-primary); }
+  .switch.on::after { left: 16px; }
+  .qt-table td.hide-col, .qt-table th.hide-col { display: none; }
+  .total-row td { font-weight: 600; background: var(--cpq-overlay-w4); }
+  .deep-link { font-size: 12px; color: var(--cpq-accent-primary); cursor: pointer; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <h1>工作流启动表单 + 产物卡 · 原型</h1>
+    <div class="tabs">
+      <button class="tab on" data-pane="p-a" onclick="go('p-a')">① 启动表单 · 用户视角</button>
+      <button class="tab" data-pane="p-b" onclick="go('p-b')">② 表单编辑器 · 配置者视角</button>
+      <button class="tab" data-pane="p-c" onclick="go('p-c')">③ 产物卡 · 成本表解析</button>
+      <button class="tab" data-pane="p-d" onclick="go('p-d')">④ 产物卡 · 报价单预览</button>
+      <button class="tab" data-pane="p-e" onclick="go('p-e')">⑤ 机制说明</button>
+    </div>
+  </div>
+
+  <!-- ═══ Tab A 启动表单 ═══ -->
+  <div class="pane on" id="p-a">
+    <p class="anno"><b>用户视角：</b>「+」选中工作流后，按该工作流的 launch_form schema 渲染表单（底座通用，字段由配置者在②中编辑）。
+      提交 = 拼装下方灰色预览的结构化首条消息发出；<b>表单是快车道不是闸门</b>——点"跳过，直接对话"则一切照旧，大脑缺参照旧追问。</p>
+    <div class="chat-mock">
+      <div class="wf-pill">⚙ 交付转报价（表→报价单）<span class="x">✕</span></div>
+      <div class="launch-form">
+        <div class="lf-title"><b>开工单</b><span class="lf-skip" onclick="alert('跳过表单：直接进入自由对话，大脑按缺参追问（现状行为）')">跳过，直接对话 →</span></div>
+        <div class="lf-grid">
+          <div class="lf-field full">
+            <label>成本表 / 方案表<span class="req">*</span></label>
+            <div class="lf-file has">📄 Lena-2026-1014 桃红.xlsx（点击或拖入更换 · 复用聊天附件通道,落线程暂存）</div>
+          </div>
+          <div class="lf-field">
+            <label>客户名称<span class="req">*</span></label>
+            <input type="text" value="奇瑞科技" oninput="refreshPreview()">
+          </div>
+          <div class="lf-field">
+            <label>归属业务<span class="req">*</span></label>
+            <input type="text" value="王瑞" oninput="refreshPreview()">
+          </div>
+          <div class="lf-field">
+            <label>加价率 %（选填）</label>
+            <input type="number" value="15" oninput="refreshPreview()">
+          </div>
+          <div class="lf-field">
+            <label>出件视角（选填）</label>
+            <select onchange="refreshPreview()">
+              <option value="">办完再问我</option>
+              <option selected>scheme（方案视角）</option>
+              <option>internal（内部视角）</option>
+            </select>
+          </div>
+        </div>
+        <div class="lf-actions">
+          <button class="btn" onclick="refreshPreview()">预览开工消息</button>
+          <button class="btn primary" onclick="sendLaunch()">开始办理 →</button>
+        </div>
+        <div class="lf-msg-preview" id="msgPreview"></div>
+      </div>
+      <div class="composer">
+        <button class="plus-btn">＋</button>
+        <input placeholder="或者直接描述，例如：这是成本表，客户奇瑞科技，归属王瑞，加价15%…">
+        <button class="send-btn">发送</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Tab B 表单编辑器 ═══ -->
+  <div class="pane" id="p-b">
+    <p class="anno"><b>配置者视角：</b>入口 = 工作流管理卡片 ⋮ 菜单「编辑启动表单」（与节点画布/左栏规则同级的管理面）。
+      字段<b>用户可自己增删改排序，label/默认值/必填都是自由编辑项</b>（"客户名称/归属业务"只是当前默认文案，改了即生效），底座只提供 5 种通用类型；右侧实时预览渲染效果 + 落库的 schema JSON（存流配置 graph.launch_form）。</p>
+    <div class="editor-wrap">
+      <div class="panel">
+        <h3>交付转报价 · 启动表单字段 <span class="type-badge" id="fieldCount"></span></h3>
+        <div id="fieldList"></div>
+        <div class="add-row">
+          <span style="font-size:12px;color:var(--cpq-text-muted);align-self:center;">添加字段：</span>
+          <button class="add-chip" onclick="addField('text')">＋ 文本</button>
+          <button class="add-chip" onclick="addField('number')">＋ 数字</button>
+          <button class="add-chip" onclick="addField('select')">＋ 下拉</button>
+          <button class="add-chip" onclick="addField('file')">＋ 文件</button>
+          <button class="add-chip" onclick="addField('textarea')">＋ 多行文本</button>
+        </div>
+      </div>
+      <div class="panel">
+        <h3>实时预览（launcher 渲染效果）</h3>
+        <div class="launch-form" style="margin:0;" id="editorPreview"></div>
+        <h3 style="margin-top:var(--cpq-space-4)">落库 schema（graph.launch_form）</h3>
+        <div class="json-block" id="schemaJson"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Tab C 成本表解析产物卡 ═══ -->
+  <div class="pane" id="p-c">
+    <p class="anno"><b>聊天流内：</b>解析完成 → 发产物卡（持久消息，可回看）。展开视图 = 现成 <b>CostSheetEditor（readonly）</b> 的配置表，与人工成本核算页所见一致。卡片 refs 只存 id（attachment_id / opportunity_id / sheet_id），
+      点开时按 ref 拉活数据——权限在拉取时生效，卡片本身不携带数据。底部动作接确认闸：确认无误即继续推进。</p>
+    <div class="chat-mock">
+      <div class="chat-msg user"><div class="bubble">客户是奇瑞科技，归属王瑞，加价15%，办成报价单
+📄 Lena-2026-1014 桃红.xlsx</div></div>
+      <div class="chat-msg"><div class="bubble">收到，成本表解析完成 ✅ 结果在下面的卡片里，点开核对：</div></div>
+      <div class="chat-msg"><div class="artifact-card" id="card-c">
+        <div class="ac-head" onclick="toggleCard('card-c')">
+          <div class="ac-icon">📊</div>
+          <div><div class="ac-title">成本表解析结果</div>
+            <div class="ac-sub">Lena-2026-1014 桃红.xlsx · 2 个配置 · 已落草稿（sheet_id 331）</div></div>
+          <span class="ac-caret">▾</span>
+        </div>
+        <div class="ac-body">
+          <table class="cfg-table">
+            <tr><th>配置</th><th>机型</th><th class="num">数量</th><th class="num">关键件行数</th><th class="num">L6 成本</th></tr>
+            <tr><td>CFG1</td><td>ZS22V2-P</td><td class="num">1</td><td class="num">8</td><td class="num">¥0（表内未带）</td></tr>
+            <tr><td>CFG2</td><td>ZS22V2-P</td><td class="num">1</td><td class="num">8</td><td class="num">¥0（表内未带）</td></tr>
+          </table>
+          <p class="anno" style="margin:var(--cpq-space-2) 0 0;">⚠ L6 成本为 0：表内未携带整机成本，报价前建议在成本核算环节补录。</p>
+          <p class="anno" style="margin:var(--cpq-space-2) 0 0;"><b>解析错了有两条修正路径</b>：行级错了（数量/价格）→「直接调整」
+            切编辑模式，改完保存走人工编辑同一接口；解析规则错了（列映射/漏行）→ 改行没用，走「带参重导」
+            （parse_overrides + sheet_id 原地重导，现成机制）。</p>
+          <div class="ac-foot">
+            <button class="btn" onclick="alert('切换 CostSheetEditor 非只读模式：行内编辑数量/价格，保存走人工编辑同一接口')">✏️ 直接调整（编辑模式）</button>
+            <button class="btn" onclick="alert('parse_overrides + sheet_id 原地重导（现成机制）：修正列映射等解析规则问题')">带参重导</button>
+            <button class="btn primary">确认无误，继续推进 →</button>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- ═══ Tab D 报价单产物卡 ═══ -->
+  <div class="pane" id="p-d">
+    <p class="anno"><b>报价预览卡：</b>报价单生成/加价后发出。<b>查看器=薄容器:按 refs 拉数(与商机详情页同款接口)+渲染现成生产组件 QuoteWorkbench,不写任何新表格</b>；
+      左侧开关切列显隐——关掉「成本单价」「利润率」即是客户视角效果（数据权限仍由 price_mask 在接口层生效，前端开关只管显示）。
+      只读预览 + 「去工作台」深链负责编辑。</p>
+    <div class="chat-mock">
+      <div class="chat-msg"><div class="artifact-card open" id="card-d">
+        <div class="ac-head" onclick="toggleCard('card-d')">
+          <div class="ac-icon">🧾</div>
+          <div><div class="ac-title">报价单 · 报价-奇瑞科技-Lena-v1</div>
+            <div class="ac-sub">QUO-20261018161402093990 · v1 · 已加价 12%</div></div>
+          <span class="ac-caret">▾</span>
+        </div>
+        <div class="ac-body">
+          <div class="qt-toolbar">
+            <span style="font-size:12px;font-weight:600;color:var(--cpq-text-secondary);">显示列</span>
+            <span class="grp"><span class="switch on" onclick="flip(this,'col-cost','t-d')"></span>成本单价（=QuoteWorkbench 的 quotePriceVisible prop）</span>
+            <span class="grp"><span class="switch on" onclick="flip(this,'col-margin','t-d')"></span>利润率</span>
+            <span class="grp"><span class="switch on" onclick="flip(this,'col-final','t-d')"></span>最终单价</span>
+            <span class="deep-link" style="margin-left:auto;">去工作台编辑 →</span>
+          </div>
+          <table class="cfg-table qt-table" id="t-d">
+            <tr><th>配置</th><th>类别</th><th>目录 / 描述</th><th class="num">数量</th>
+              <th class="num col-cost">成本单价</th><th class="num col-margin">利润率</th><th class="num col-final">最终单价</th></tr>
+            <tr><td>CFG1</td><td>Key Parts</td><td>KH50000 96C（CPU）</td><td class="num">2</td>
+              <td class="num col-cost">13,842.50</td><td class="num col-margin">12%</td><td class="num col-final">15,503.60</td></tr>
+            <tr><td>CFG1</td><td>Key Parts</td><td>64G DDR5 内存</td><td class="num">12</td>
+              <td class="num col-cost">1,450.00</td><td class="num col-margin">12%</td><td class="num col-final">1,624.00</td></tr>
+            <tr><td>CFG1</td><td>L6 整机</td><td>ZS22V2-P 整机（客户自备价）</td><td class="num">1</td>
+              <td class="num col-cost">318,000.00</td><td class="num col-margin">12%</td><td class="num col-final">356,160.00</td></tr>
+            <tr><td>CFG1</td><td>Warranty</td><td>三年质保</td><td class="num">1</td>
+              <td class="num col-cost">5,200.00</td><td class="num col-margin">—</td><td class="num col-final">5,200.00</td></tr>
+            <tr class="total-row"><td colspan="3">CFG1 合计（单台）</td><td class="num">16</td>
+              <td class="num col-cost">362,270.00</td><td class="num col-margin">12%</td><td class="num col-final">405,742.40</td></tr>
+          </table>
+          <div class="ac-foot">
+            <button class="btn" onclick="alert('走现有视角化导出服务（scheme/internal/cost），文件同时归档商机附件')">下载 xlsx</button>
+            <button class="btn primary">生成分享链接 →</button>
+          </div>
+        </div>
+      </div></div>
+    </div>
+  </div>
+
+  <!-- ═══ Tab E 机制说明 ═══ -->
+  <div class="pane" id="p-e">
+    <div style="max-width:860px;margin:0 auto;">
+      <p class="anno"><b>共用底座的两条契约</b>（实现规格，细节以本文为准并入 docs/交付工作流方案.md）：</p>
+      <div class="panel" style="margin-bottom:var(--cpq-space-4);">
+        <h3>① launch_form —— 声明式启动表单（配置者可编辑）</h3>
+        <p class="anno">schema 存流配置 <b>graph.launch_form</b>（SkillStudio 左栏旁新增「启动表单」编辑器，即②页签）。
+          launcher「+」选中工作流 → 有 schema 渲染表单，无 schema 保持自由文本（机制按声明降级，零硬编码）。
+          提交 = 拼装结构化首条消息走现有装填链；不填表单直接说话，行为与现状完全一致。</p>
+        <div class="json-block">"launch_form": {
+  "fields": [
+    {"key": "attachment", "type": "file",   "label": "成本表 / 方案表", "required": true},
+    {"key": "customer",   "type": "text",   "label": "客户名称", "required": true},
+    {"key": "sales",      "type": "text",   "label": "归属业务", "required": true, "default": "{当前用户姓名}"},
+    {"key": "margin",     "type": "number", "label": "加价率 %"},
+    {"key": "view",       "type": "select", "label": "出件视角", "options": ["scheme", "internal"]}
+  ]
+}</div>
+      </div>
+      <div class="panel">
+        <h3>② artifact —— 产物卡注册表（查看器=现成生产组件的薄容器）</h3>
+        <p class="anno">消息 <b>kind='artifact'</b>，data={artifact_type, title, summary, refs}。refs 只存 id，
+          查看器按 ref 拉数后渲染<b>现成生产组件</b>——与人工操作所见完全一致，不写新表格：
+          <b>cost_sheet_parse → &lt;CostSheetEditor :configs readonly&gt;</b>（组件自带只读模式）；
+          <b>quotation → &lt;QuoteWorkbench :quotations :quotePriceVisible&gt;</b>（价格列显隐=组件现成 prop，面板折叠也有现成 props）。
+          权限在拉取时由 price_mask 体系生效。事务轮壳的 fact_guard 已零侵入拿到工具真实返回，
+          <b>应用声明「工具成功 → 发哪张卡」</b>（与 flags_from_facts 同模式）；前端 VIEWERS[artifact_type] 只做数据装配。</p>
+        <div class="json-block">// 交付应用声明（配置）
+"artifact_rules": [
+  {"on": "import_cost_sheet.ok", "card": "cost_sheet_parse", "refs": ["opportunity_id", "sheet_id"]},
+  {"on": "submit_cost_sheet.ok", "card": "quotation",        "refs": ["opportunity_id", "quotation_id"]},
+  {"on": "set_quote_margin.ok",  "card": "quotation",        "refs": ["opportunity_id", "quotation_id"]},
+  {"on": "share_quote.ok",       "card": "share_link",       "refs": ["share_path"]}
+]
+// 前端注册表
+const VIEWERS = { cost_sheet_parse: ParseViewer, quotation: QuoteViewer, share_link: LinkViewer }
+
+// 修正路径(解析错了):行级错=卡片切编辑模式(CostSheetEditor 非只读,保存走人工同接口);
+// 规则错=parse_overrides + sheet_id 原地重导(现成)。下载=现有视角化导出服务。
+// 出件形态=分享链接(免登录token/可过期/可撤销)+文件归档商机附件;customer 视角永远走外发人审闸。</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── 页签 ── */
+function go(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('on', t.dataset.pane === id));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('on', p.id === id));
+}
+function toggleCard(id) { document.getElementById(id).classList.toggle('open'); }
+
+/* ── Tab A 消息拼装预览 ── */
+function refreshPreview() {
+  const f = document.querySelectorAll('#p-a .launch-form input, #p-a .launch-form select');
+  const file = 'Lena-2026-1014 桃红.xlsx', cust = f[1].value || '（待问）', sales = f[2].value || '（待问）';
+  const margin = f[3].value, view = f[4].value;
+  let msg = '【开工单】\n· 成本表：' + file + '\n· 客户名称：' + cust + '\n· 归属业务：' + sales;
+  if (margin) msg += '\n· 加价率：' + margin + '%';
+  if (view) msg += '\n· 出件视角：' + view.split('（')[0];
+  document.getElementById('msgPreview').textContent = msg + '\n\n（提交即按此发送；大脑一次拿齐，不再逐项追问）';
+}
+refreshPreview();
+function sendLaunch() { refreshPreview(); alert('按预览消息装填 workflow 并发送（entry_point=workflow_launcher + fresh 重开，走现有链路）'); }
+
+/* ── Tab B 表单编辑器 ── */
+const TYPES = { text: '文本', number: '数字', select: '下拉', file: '文件', textarea: '多行文本' };
+let fields = [
+  { key: 'attachment', type: 'file',   label: '成本表 / 方案表', required: true },
+  { key: 'customer',   type: 'text',   label: '客户名称', required: true },
+  { key: 'sales',      type: 'text',   label: '归属业务', required: true, default: '{当前用户姓名}' },
+  { key: 'margin',     type: 'number', label: '加价率 %' },
+  { key: 'view',       type: 'select', label: '出件视角', options: 'scheme / internal' },
+];
+function renderEditor() {
+  const box = document.getElementById('fieldList'); box.innerHTML = '';
+  fields.forEach((f, i) => {
+    const row = document.createElement('div'); row.className = 'field-row';
+    row.innerHTML = '<span class="drag" title="上下移">' + '⋮⋮' + '</span>' +
+      '<input type="text" value="' + f.label + '" oninput="fields[' + i + '].label=this.value;renderPreview()">' +
+      '<select onchange="fields[' + i + '].type=this.value;renderAll()">' +
+      Object.keys(TYPES).map(t => '<option ' + (f.type === t ? 'selected' : '') + ' value="' + t + '">' + TYPES[t] + '</option>').join('') + '</select>' +
+      '<span class="chk"><input type="checkbox" ' + (f.required ? 'checked' : '') +
+      ' onchange="fields[' + i + '].required=this.checked;renderPreview()">必填</span>' +
+      '<input type="text" placeholder="默认值" value="' + (f.default || '') + '" oninput="fields[' + i + '].default=this.value;renderPreview()">' +
+      '<button class="del" title="删除字段" onclick="fields.splice(' + i + ',1);renderAll()">✕</button>';
+    box.appendChild(row);
+  });
+  document.getElementById('fieldCount').textContent = fields.length + ' 个字段';
+  renderPreview(); renderJson();
+}
+function renderPreview() {
+  const pv = document.getElementById('editorPreview');
+  pv.innerHTML = '<div class="lf-title"><b>开工单</b></div><div class="lf-grid">' + fields.map(f => {
+    const lbl = f.label + (f.required ? '<span class="req">*</span>' : '');
+    let ctl = '<input type="text" placeholder="' + (f.default || '') + '">';
+    if (f.type === 'number') ctl = '<input type="number">';
+    if (f.type === 'select') ctl = '<select><option>' + (f.options || '选项 A / 选项 B') + '</option></select>';
+    if (f.type === 'file') ctl = '<div class="lf-file">点击或拖入文件</div>';
+    if (f.type === 'textarea') ctl = '<textarea rows="2"></textarea>';
+    return '<div class="lf-field' + (f.type === 'file' || f.type === 'textarea' ? ' full' : '') + '"><label>' + lbl + '</label>' + ctl + '</div>';
+  }).join('') + '</div>';
+}
+function renderJson() {
+  document.getElementById('schemaJson').textContent = '"launch_form": ' + JSON.stringify(
+    { fields: fields.map(f => { const o = { key: f.key, type: f.type, label: f.label };
+      if (f.required) o.required = true; if (f.default) o.default = f.default; if (f.options) o.options = f.options.split('/').map(x => x.trim());
+      return o; }) }, null, 2);
+}
+function renderAll() { renderEditor(); }
+function addField(type) {
+  fields.push({ key: 'field_' + (fields.length + 1), type, label: '新字段', required: false });
+  renderAll();
+}
+renderEditor();
+
+/* ── Tab D 列显隐 ── */
+function flip(sw, colClass, tableId) {
+  sw.classList.toggle('on');
+  const on = sw.classList.contains('on');
+  document.querySelectorAll('#' + tableId + ' .' + colClass).forEach(c => c.classList.toggle('hide-col', !on));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>统一大表渲染稿</title>
+<style>
+:root{
+  --bg:#0d1424;
+  --panel:#111a2c;
+  --panel-2:#162238;
+  --head:#10192b;
+  --line:#253349;
+  --line-strong:#30405c;
+  --text:#eef3fb;
+  --secondary:#c7d1e4;
+  --muted:#8d9bb5;
+  --accent:#5b8cff;
+  --accent-soft:rgba(91,140,255,.16);
+  --group-bg:rgba(91,140,255,.07);
+  --blank:rgba(255,255,255,.016);
+  --page-glow:rgba(47,110,255,.14);
+}
+[data-theme=light]{
+  --bg:#f3f6fb;
+  --panel:#ffffff;
+  --panel-2:#fbfdff;
+  --head:#f5f8fd;
+  --line:#e5ecf6;
+  --line-strong:#dbe5f2;
+  --text:#17233c;
+  --secondary:#42506b;
+  --muted:#7c89a3;
+  --accent:#2f6bff;
+  --accent-soft:rgba(47,107,255,.10);
+  --group-bg:rgba(47,107,255,.045);
+  --blank:rgba(15,23,42,.012);
+  --page-glow:rgba(47,107,255,.06);
+}
+*{box-sizing:border-box}
+body{
+  margin:0;min-height:100vh;color:var(--text);
+  font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+  background:radial-gradient(circle at 18% 12%, var(--page-glow), transparent 30%), var(--bg);
+  display:flex;align-items:flex-start;justify-content:center;padding:28px 16px;
+}
+.modal{width:min(1120px,96vw);border:1px solid var(--line-strong);border-radius:14px;background:linear-gradient(180deg,var(--panel-2),var(--panel));box-shadow:0 24px 70px rgba(0,0,0,.24);overflow:hidden}
+.modal-head{display:flex;align-items:center;gap:16px;padding:16px 20px;border-bottom:1px solid var(--line)}
+.modal-title{font-size:16px;font-weight:650;margin:0}
+.tabs{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.tab{min-width:76px;text-align:center;padding:6px 12px;border-radius:8px;border:1px solid var(--line-strong);background:var(--panel);color:var(--secondary);font-size:12px;cursor:pointer}
+.tab.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tab.add{color:var(--muted);border-style:dashed}
+.modal-body{padding:20px}
+.sheet-scroll{overflow-x:auto;border:1px solid var(--line-strong);border-radius:10px;background:var(--panel);box-shadow:0 10px 30px rgba(0,0,0,.08)}
+table{width:auto;border-collapse:collapse;table-layout:fixed;font-size:12px}
+th,td{border-right:1px solid var(--line);border-bottom:1px solid var(--line);text-align:left;vertical-align:middle;padding:0;height:40px}
+th:last-child,td:last-child{border-right:0}
+thead th{height:36px;padding:0 10px;background:var(--head);color:var(--secondary);font-size:11px;font-weight:650;white-space:nowrap;border-bottom:1px solid var(--line-strong)}
+td{padding:8px 10px;color:var(--text)}
+tbody tr:last-child td{border-bottom:0}
+.c-group{width:76px;background:var(--group-bg);text-align:center;font-size:11px;font-weight:650;color:var(--accent)}
+.c-config{width:92px}
+.c-model{width:150px}
+.c-cat{width:140px}
+.c-desc{width:238px}
+.c-qty{width:64px}
+.c-cost{width:100px}
+.c-total{width:100px}
+.c-note{width:120px}
+.cell-num{text-align:right;font-variant-numeric:tabular-nums}
+.cell-muted{color:var(--muted)}
+.cell-wrap{white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+.blank{background:var(--blank);color:var(--muted)}
+.summary-cell{height:44px;padding:0 14px;text-align:right;color:var(--secondary);border-bottom:0}
+.summary-cell strong{color:var(--text);font-size:14px}
+.summary-cell .total{color:var(--accent)}
+.sep{display:inline-block;width:1px;height:16px;background:var(--line-strong);margin:0 10px;vertical-align:-3px}
+.badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600}
+body.scheme .c-cost,body.scheme .c-total,body.scheme .c-note,body.scheme .summary-row{display:none}
+</style>
+</head>
+<body>
+<div class="modal">
+  <div class="modal-head">
+    <h2 class="modal-title" id="title">查看成本表 · 统一大表渲染稿</h2>
+    <div class="tabs">
+      <div class="tab active">CFG1</div>
+      <div class="tab">CFG2</div>
+      <div class="tab add">+ 新建方案</div>
+    </div>
+  </div>
+  <div class="modal-body">
+    <div class="sheet-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th class="c-group">分组</th>
+            <th class="c-config">配置名</th>
+            <th class="c-model">机型型号</th>
+            <th class="c-cat">Catalogue</th>
+            <th class="c-desc">Configuration Description</th>
+            <th class="c-qty cell-num">Quantity</th>
+            <th class="c-cost cell-num">Unit Cost</th>
+            <th class="c-total cell-num">Total Cost</th>
+            <th class="c-note">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="c-group">基本信息</td>
+            <td>CFG1</td>
+            <td>ZS22V2-P</td>
+            <td class="cell-muted">—</td>
+            <td class="cell-wrap">1*2U KH50000，支持2颗KH-50000系列处理器，单颗最高96核，热设计功耗450W，支持24通道DDR5内存，速率达4800MT/s</td>
+            <td class="cell-num">2 台</td>
+            <td class="c-cost blank cell-num"></td>
+            <td class="c-total blank cell-num"></td>
+            <td class="c-note blank cell-muted">—</td>
+          </tr>
+          <tr>
+            <td class="c-group" rowspan="6">L6</td>
+            <td class="blank"></td>
+            <td class="blank"></td>
+            <td>Backplane</td>
+            <td class="cell-wrap">12*3.5 SATA/SAS/NVME</td>
+            <td class="cell-num">1</td>
+            <td class="c-cost blank cell-num"></td>
+            <td class="c-total blank cell-num"></td>
+            <td class="c-note blank"></td>
+          </tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>Switch</td><td class="cell-wrap">8*GPU+5*X16+4NVME</td><td class="cell-num">1</td><td class="c-cost blank cell-num"></td><td class="c-total blank cell-num"></td><td class="c-note blank"></td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>Raid slot</td><td class="cell-wrap">X8</td><td class="cell-num">1</td><td class="c-cost blank cell-num"></td><td class="c-total blank cell-num"></td><td class="c-note blank"></td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>Heatsink</td><td class="cell-wrap">2U heatsink TDP≤450W</td><td class="cell-num">2</td><td class="c-cost blank cell-num"></td><td class="c-total blank cell-num"></td><td class="c-note blank"></td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>Power Supply Requirement</td><td class="cell-wrap">2000W</td><td class="cell-num">4</td><td class="c-cost blank cell-num"></td><td class="c-total blank cell-num"></td><td class="c-note blank"></td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>GPU Power cord</td><td class="cell-wrap">智凯100Duo电源线</td><td class="cell-num">8</td><td class="c-cost blank cell-num"></td><td class="c-total blank cell-num"></td><td class="c-note blank"></td></tr>
+          <tr>
+            <td class="c-group" rowspan="5">KP</td>
+            <td class="blank"></td>
+            <td class="blank"></td>
+            <td>CPU</td>
+            <td>KH-50000 64C</td>
+            <td class="cell-num">2</td>
+            <td class="c-cost cell-num">¥32,000</td>
+            <td class="c-total cell-num">¥64,000</td>
+            <td class="c-note cell-muted">—</td>
+          </tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>Memory</td><td>64G 5600 DDR5 RDIMM</td><td class="cell-num">24</td><td class="c-cost cell-num">¥1,200</td><td class="c-total cell-num">¥28,800</td><td class="c-note cell-muted">—</td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>HDD/SSD</td><td>960G SATA SSD</td><td class="cell-num">2</td><td class="c-cost cell-num">¥850</td><td class="c-total cell-num">¥1,700</td><td class="c-note cell-muted">—</td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>HDD/SSD</td><td>8T SATA HDD</td><td class="cell-num">4</td><td class="c-cost cell-num">¥1,200</td><td class="c-total cell-num">¥4,800</td><td class="c-note cell-muted">—</td></tr>
+          <tr><td class="blank"></td><td class="blank"></td><td>GPU card</td><td>智凯100Duo</td><td class="cell-num">4</td><td class="c-cost cell-num">¥28,000</td><td class="c-total cell-num">¥112,000</td><td class="c-note"><span class="badge">建议优先采购</span></td></tr>
+          <tr class="summary-row">
+            <td colspan="9" class="summary-cell">
+              <span>配置成本合计</span><strong>¥211,300</strong>
+              <span class="sep"></span>
+              <span>全部配置总成本</span><strong class="total">¥211,300</strong>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<script>
+  const hash = location.hash || '#cost-dark';
+  const parts = hash.slice(1).split('-');
+  const mode = parts[0] || 'cost';
+  const theme = parts[1] || 'dark';
+  document.documentElement.dataset.theme = theme;
+  document.body.classList.add(mode === 'scheme' ? 'scheme' : 'cost');
+  document.getElementById('title').textContent = mode === 'scheme' ? '查看方案 · 统一大表渲染稿' : '查看成本表 · 统一大表渲染稿';
+</script>
+</body>
+</html>

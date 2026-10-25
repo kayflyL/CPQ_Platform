@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="updated" content="2026-10-13">
+<title>原型 · 需求单内嵌附件区（上传/预览随单，版本绑定，只读留档）</title>
+<style>
+  /* ── tokens.css 暗色主题逐值搬运（仅取本页所需） ── */
+  :root {
+    --cpq-accent-primary: #1677FF;
+    --cpq-accent-primary-light: #4096ff;
+    --cpq-accent-danger: #FF6B6B;
+    --cpq-color-success: #52C9A0;
+    --cpq-color-warning: #faad14;
+    --cpq-bg-primary: #08090B;
+    --cpq-bg-secondary: #101217;
+    --cpq-bg-tertiary: #171a21;
+    --cpq-text-primary: #E8ECEF;
+    --cpq-text-secondary: #9BA1AA;
+    --cpq-text-muted: #6E7582;
+    --cpq-border-primary: rgba(255, 255, 255, 0.10);
+    --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+    --cpq-border-light: rgba(255, 255, 255, 0.15);
+    --cpq-bg-input: #2a2a2a;
+    --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
+    --cpq-overlay-w4: rgba(255, 255, 255, 0.04);
+    --cpq-overlay-w6: rgba(255, 255, 255, 0.06);
+    --cpq-overlay-w8: rgba(255, 255, 255, 0.08);
+    --cpq-overlay-w10: rgba(255, 255, 255, 0.10);
+    --cpq-overlay-w15: rgba(255, 255, 255, 0.15);
+    --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+    --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+    --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+    --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+    --cpq-overlay-b20: rgba(0, 0, 0, 0.20);
+    --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+    --cpq-glass-border: rgba(255, 255, 255, 0.11);
+    --cpq-glass-blur-2: 16px;
+    --cpq-notif-green: #52C9A0;
+    --cpq-notif-green-bg: rgba(82, 201, 160, 0.18);
+    --cpq-notif-red: #FF6B6B;
+    --cpq-notif-red-bg: rgba(255, 107, 107, 0.16);
+    --cpq-notif-amber: #F4D28A;
+    --cpq-notif-amber-bg: rgba(250, 173, 20, 0.18);
+    --cpq-shadow-md: 0 4px 16px rgba(0, 0, 0, 0.50);
+    --cpq-shadow-lg: 0 8px 32px rgba(0, 0, 0, 0.60);
+    --cpq-radius-sm: 8px;
+    --cpq-radius-md: 12px;
+    --cpq-radius-lg: 16px;
+    --cpq-font-size-sm: 12px;
+    --cpq-font-size-base: 14px;
+    --cpq-space-1: 4px;
+    --cpq-space-2: 8px;
+    --cpq-space-3: 12px;
+    --cpq-space-4: 16px;
+    --cpq-space-5: 24px;
+    --cpq-space-6: 32px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: var(--cpq-font-size-sm);
+    color: var(--cpq-text-primary);
+    background:
+      radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+      linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+    min-height: 100vh;
+    padding: var(--cpq-space-4) var(--cpq-space-4) var(--cpq-space-6);
+  }
+
+  /* ── 原型演示控件（非产品 UI） ── */
+  .demo-bar {
+    max-width: 1240px; margin: 0 auto var(--cpq-space-4);
+    display: flex; align-items: center; gap: var(--cpq-space-4); flex-wrap: wrap;
+    background: var(--cpq-overlay-w4); backdrop-filter: blur(var(--cpq-glass-blur-2));
+    border: 1px dashed rgba(22, 119, 255, 0.45); border-radius: var(--cpq-radius-md);
+    padding: var(--cpq-space-2) var(--cpq-space-4);
+  }
+  .demo-bar b { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .demo-title { font-size: 13px; font-weight: 600; }
+  .demo-ctl { display: inline-flex; align-items: center; gap: var(--cpq-space-2); cursor: pointer; user-select: none; color: var(--cpq-text-secondary); }
+  .demo-ctl input { accent-color: var(--cpq-accent-primary); }
+  .demo-note { color: var(--cpq-text-muted); }
+
+  .legend {
+    max-width: 1240px; margin: var(--cpq-space-4) auto 0;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--cpq-space-2) var(--cpq-space-5);
+    background: var(--cpq-overlay-w3); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3) var(--cpq-space-4);
+    color: var(--cpq-text-secondary); line-height: 1.7;
+  }
+  .legend .li { display: flex; gap: var(--cpq-space-2); align-items: flex-start; }
+  .legend .li p { color: var(--cpq-text-muted); }
+
+  /* 标注序号徽标（小圆点语言，非色条） */
+  .anno {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+    background: var(--cpq-accent-primary); color: #fff;
+    font-size: 10px; font-weight: 600; font-style: normal;
+  }
+  .legend .anno { margin-top: 3px; }
+
+  /* ── 弹窗骨架：复刻 portal-sheet-modal + node-card glass ── */
+  .stage { max-width: 1240px; margin: 0 auto; }
+  .modal {
+    max-width: 1200px; margin: 0 auto;
+    background: var(--cpq-bg-secondary);
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-shadow-lg);
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: var(--cpq-space-3) var(--cpq-space-4);
+    border-bottom: 1px solid var(--cpq-border-secondary);
+  }
+  .modal-head .t { font-size: var(--cpq-font-size-base); font-weight: 600; }
+  .modal-head .x { color: var(--cpq-text-muted); font-size: 14px; cursor: default; }
+  .modal-body { padding: var(--cpq-space-4); max-height: 78vh; overflow-y: auto; }
+
+  .node-card {
+    background: var(--cpq-glass-card-bg);
+    backdrop-filter: blur(var(--cpq-glass-blur-2));
+    border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--cpq-radius-md);
+    padding: var(--cpq-space-4) var(--cpq-space-5);
+  }
+  .node-head { display: flex; align-items: center; gap: var(--cpq-space-3); }
+  .node-num {
+    width: 26px; height: 26px; border-radius: 50%; flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary-light);
+    border: 1px solid var(--cpq-overlay-a20); font-weight: 600;
+  }
+  .node-title-wrap { flex: 1; }
+  .node-title-wrap h3 { font-size: 16px; font-weight: 600; }
+  .node-title-wrap .node-ver { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .node-title-wrap p { color: var(--cpq-text-muted); margin-top: 2px; }
+  .node-state { font-size: var(--cpq-font-size-sm); padding: 2px 12px; border-radius: 999px; }
+  .node-state.draft { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); border: 1px solid var(--cpq-overlay-a20); }
+  .node-state.done { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
+  .node-edit-tip { color: var(--cpq-text-muted); margin: var(--cpq-space-3) 0; }
+
+  /* ── 表单分区（复刻 rf-sec 语言） ── */
+  .rf-sec { margin-bottom: var(--cpq-space-5); }
+  .rf-sec-title { display: flex; align-items: center; gap: var(--cpq-space-2); font-size: 13px; font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: var(--cpq-space-2); }
+  .rf-hint { font-size: 11px; font-weight: 400; color: var(--cpq-text-muted); }
+  textarea.rf-req {
+    width: 100%; min-height: 168px; resize: vertical;
+    background: var(--cpq-bg-input); color: var(--cpq-text-primary);
+    border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm);
+    padding: var(--cpq-space-2) var(--cpq-space-3);
+    font: inherit; line-height: 1.7; outline: none;
+  }
+  textarea.rf-req:focus { border-color: var(--cpq-accent-primary); }
+  [data-mode="readonly"] textarea.rf-req { color: var(--cpq-text-secondary); cursor: default; }
+
+  /* ── 新增：需求附件区 ── */
+  .att-upload {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    border: 1px dashed rgba(22, 119, 255, 0.45); border-radius: var(--cpq-radius-md);
+    background: var(--cpq-overlay-a8);
+    padding: var(--cpq-space-3) var(--cpq-space-4);
+    margin-bottom: var(--cpq-space-2); cursor: pointer;
+    transition: all 0.2s;
+  }
+  .att-upload:hover { background: var(--cpq-overlay-a10); border-color: var(--cpq-accent-primary); }
+  .att-upload .plus {
+    width: 30px; height: 30px; border-radius: var(--cpq-radius-sm); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary-light); font-size: 16px;
+  }
+  .att-upload .up-main { color: var(--cpq-text-primary); }
+  .att-upload .up-main b { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .att-upload .up-sub { color: var(--cpq-text-muted); margin-top: 2px; }
+  .att-count { margin-left: auto; color: var(--cpq-text-muted); flex-shrink: 0; }
+
+  .att-list { display: flex; flex-direction: column; gap: var(--cpq-space-1); }
+  .att-row {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+  }
+  .att-row:hover { background: var(--cpq-overlay-w6); }
+  .att-ico {
+    width: 30px; height: 30px; border-radius: var(--cpq-radius-sm); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: 700; letter-spacing: 0.02em;
+  }
+  .att-ico.xls { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
+  .att-ico.pdf { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }
+  .att-ico.img { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); }
+  .att-name { color: var(--cpq-text-primary); word-break: break-all; }
+  .att-name:hover { color: var(--cpq-accent-primary-light); cursor: pointer; }
+  .att-meta { color: var(--cpq-text-muted); margin-top: 1px; }
+  .att-main { flex: 1; min-width: 0; }
+  .att-acts { display: inline-flex; gap: var(--cpq-space-2); flex-shrink: 0; }
+  .att-btn {
+    border: 1px solid var(--cpq-border-light); background: transparent; color: var(--cpq-text-secondary);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-1) var(--cpq-space-2);
+    font-size: var(--cpq-font-size-sm); cursor: pointer;
+  }
+  .att-btn:hover { color: var(--cpq-accent-primary-light); border-color: var(--cpq-accent-primary); }
+  .att-btn.danger:hover { color: var(--cpq-accent-danger); border-color: var(--cpq-accent-danger); }
+  .att-thumb {
+    width: 30px; height: 30px; border-radius: var(--cpq-radius-sm); flex-shrink: 0;
+    background: linear-gradient(135deg, #2b3a55 0%, #1b2334 100%);
+    display: inline-flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: 12px;
+  }
+
+  /* ── 形态A：紧凑徽标（推荐默认） ── */
+  .chip-strip { display: flex; flex-wrap: wrap; gap: var(--cpq-space-2); align-items: center; }
+  .att-chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: var(--cpq-space-1) var(--cpq-space-2) var(--cpq-space-1) var(--cpq-space-2);
+    border-radius: 999px; max-width: 230px;
+    background: var(--cpq-overlay-w4); border: 1px solid var(--cpq-border-light);
+    cursor: pointer; transition: all 0.15s;
+  }
+  .att-chip:hover { border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-w6); }
+  .att-chip .att-ico { width: 18px; height: 18px; border-radius: var(--cpq-space-1); font-size: 8px; }
+  .att-chip .att-thumb { width: 18px; height: 18px; font-size: 10px; border-radius: var(--cpq-space-1); }
+  .chip-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-primary); }
+  .chip-x { color: var(--cpq-text-muted); font-size: 11px; padding: 0 1px; }
+  .chip-x:hover { color: var(--cpq-accent-danger); }
+  .att-chip.add {
+    border-style: dashed; background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary-light);
+    padding: var(--cpq-space-1) var(--cpq-space-3); font-weight: 600;
+  }
+  .att-chip.add:hover { background: var(--cpq-overlay-a10); }
+
+  /* ── 形态B：可折叠列表（备选） ── */
+  .fold-head { display: flex; align-items: center; gap: var(--cpq-space-2); cursor: pointer; user-select: none; }
+  .fold-head .rf-sec-title { margin-bottom: 0; }
+  .fold-head .chev { color: var(--cpq-text-muted); transition: transform 0.2s; display: inline-block; }
+  .fold-head.open .chev { transform: rotate(180deg); }
+  .fold-body { margin-top: var(--cpq-space-2); }
+  .fold-body.closed { display: none; }
+  [data-att="chips"] .att-fold-mode { display: none; }
+  [data-att="fold"] .att-chips-mode { display: none; }
+
+  /* ── 配置区（复刻，示意收拢） ── */
+  .rf-config-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--cpq-space-2); }
+  .rf-config-head .rf-sec-title { margin-bottom: 0; }
+  .seg { display: inline-flex; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); overflow: hidden; }
+  .seg span { padding: var(--cpq-space-1) var(--cpq-space-3); color: var(--cpq-text-secondary); cursor: default; }
+  .seg span.on { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); }
+  .btn-ghost { border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-primary); padding: var(--cpq-space-1) var(--cpq-space-3); font-size: var(--cpq-font-size-sm); }
+  .cfg-tab {
+    display: inline-flex; align-items: center; gap: var(--cpq-space-2);
+    border: 1px solid var(--cpq-overlay-a20); border-radius: 999px; padding: var(--cpq-space-1) var(--cpq-space-3);
+    background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); margin-bottom: var(--cpq-space-3);
+  }
+  .cfg-tab .x { color: var(--cpq-text-muted); }
+  .cfg-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--cpq-space-3) var(--cpq-space-4); margin-bottom: var(--cpq-space-4); }
+  .cfg-field label { display: block; color: var(--cpq-text-muted); margin-bottom: var(--cpq-space-1); }
+  .cfg-input {
+    height: 34px; display: flex; align-items: center;
+    background: var(--cpq-bg-input); border: 1px solid var(--cpq-border-light);
+    border-radius: var(--cpq-radius-sm); padding: 0 var(--cpq-space-3); color: var(--cpq-text-primary);
+  }
+  .cfg-input.dim { color: var(--cpq-text-muted); }
+
+  .kp-table { width: 100%; border-collapse: collapse; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); overflow: hidden; }
+  .kp-wrap { border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-md); overflow: hidden; }
+  .kp-table th {
+    text-align: left; font-size: 11px; font-weight: 600; color: var(--cpq-text-secondary);
+    background: var(--cpq-bg-tertiary); padding: var(--cpq-space-2) var(--cpq-space-3);
+    border-bottom: 1px solid var(--cpq-border-primary); border-right: 1px solid var(--cpq-border-secondary);
+  }
+  .kp-table td { padding: 0; border-bottom: 1px solid var(--cpq-border-secondary); border-right: 1px solid var(--cpq-border-secondary); }
+  .kp-table tr:last-child td { border-bottom: 0; }
+  .kp-table td.c { padding: var(--cpq-space-2) var(--cpq-space-3); color: var(--cpq-text-primary); }
+  .kp-table td .cell-in { height: 36px; display: flex; align-items: center; padding: 0 var(--cpq-space-2); color: var(--cpq-text-primary); }
+  .kp-table td .cell-in.dim { color: var(--cpq-text-disabled); }
+  .w-g { width: 76px; text-align: center; } .w-cat { width: 150px; } .w-q { width: 80px; text-align: right; } .w-n { width: 150px; }
+
+  .node-actions { display: flex; justify-content: flex-end; gap: var(--cpq-space-2); margin-top: var(--cpq-space-4); }
+  .btn { border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-4); font-size: var(--cpq-font-size-sm); cursor: pointer; border: 1px solid var(--cpq-border-light); background: transparent; color: var(--cpq-text-primary); }
+  .btn.primary { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; }
+
+  .snapshot-bar { display: flex; align-items: center; gap: var(--cpq-space-2); color: var(--cpq-text-muted); margin-bottom: var(--cpq-space-3); }
+  .ro-strip {
+    display: flex; align-items: center; gap: var(--cpq-space-2);
+    background: var(--cpq-overlay-w3); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+    color: var(--cpq-text-muted); margin-top: var(--cpq-space-3);
+  }
+
+  /* ── 工作台卡头 before / after ── */
+  .board-compare { max-width: 1200px; margin: var(--cpq-space-4) auto 0; display: flex; flex-direction: column; gap: var(--cpq-space-2); }
+  .bc-tag { width: 56px; flex-shrink: 0; align-self: center; text-align: center; color: var(--cpq-text-muted); font-size: 11px; }
+  .board-head {
+    flex: 1; display: flex; align-items: center; gap: var(--cpq-space-3);
+    background: var(--cpq-glass-card-bg); border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3) var(--cpq-space-4);
+  }
+  .rich-icon-badge {
+    width: 34px; height: 34px; border-radius: var(--cpq-radius-sm); flex-shrink: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--cpq-overlay-a10); border: 1px solid var(--cpq-overlay-a20); color: var(--cpq-accent-primary-light); font-size: 15px;
+  }
+  .bh-title .eyebrow { display: block; font-size: 11px; color: var(--cpq-text-muted); }
+  .bh-title h4 { font-size: var(--cpq-font-size-base); font-weight: 600; }
+  .bh-actions { margin-left: auto; display: inline-flex; align-items: center; gap: var(--cpq-space-2); }
+  .chevron { color: var(--cpq-text-muted); }
+  .removed-btn {
+    position: relative; border: 1px dashed var(--cpq-border-light); border-radius: var(--cpq-radius-sm);
+    color: var(--cpq-text-muted); padding: var(--cpq-space-1) var(--cpq-space-3); background: transparent;
+  }
+  .removed-btn::after { content: ''; position: absolute; left: 6px; right: 6px; top: 50%; height: 1px; background: var(--cpq-accent-danger); opacity: 0.7; }
+  .removed-tag { font-size: 10px; color: var(--cpq-accent-danger); align-self: center; }
+
+  /* ── 模式切换：编辑（草稿） / 只读（已提交） ── */
+  [data-mode="edit"] .ro-only { display: none !important; }
+  [data-mode="readonly"] .edit-only { display: none !important; }
+</style>
+</head>
+<body data-mode="edit" data-att="chips">
+
+  <div class="demo-bar">
+    <span class="demo-title">需求单 · 内嵌附件区 原型</span>
+    <label class="demo-ctl"><input type="radio" name="mode" checked onchange="document.body.dataset.mode='edit'"> 编辑态（草稿）</label>
+    <label class="demo-ctl"><input type="radio" name="mode" onchange="document.body.dataset.mode='readonly'"> 只读态（已提交版本）</label>
+    <span style="width:1px; height:16px; background: var(--cpq-border-light);"></span>
+    <span class="demo-note">附件区形态：</span>
+    <label class="demo-ctl"><input type="radio" name="att" checked onchange="document.body.dataset.att='chips'"> 紧凑徽标（推荐）</label>
+    <label class="demo-ctl"><input type="radio" name="att" onchange="document.body.dataset.att='fold'"> 可折叠列表</label>
+    <span class="demo-note">定调：附件<b>只做登记留档与人工查阅</b>，不进 AI 需求理解链路；附件与需求单版本绑定，提交后随版本快照留档</span>
+  </div>
+
+  <div class="stage">
+    <div class="modal">
+      <div class="modal-head">
+        <span class="t">需求单</span>
+        <span class="x">✕</span>
+      </div>
+      <div class="modal-body">
+        <div class="node-card">
+          <div class="node-head">
+            <span class="node-num">1</span>
+            <div class="node-title-wrap">
+              <h3>需求单 <span class="node-ver">v3</span></h3>
+              <p>当前需求、草稿与历史版本</p>
+            </div>
+            <span class="node-state draft edit-only">草稿</span>
+            <span class="node-state done ro-only">已发起</span>
+          </div>
+          <div class="node-body">
+            <p class="node-edit-tip edit-only">编辑中的需求为草稿，提交后生成新版本快照并进入 BOM 环节。</p>
+            <div class="snapshot-bar ro-only"><span>kayfly · 10-13 14:32</span></div>
+
+            <!-- 需求原文：autoSize 自适应 -->
+            <section class="rf-sec">
+              <h4 class="rf-sec-title">需求原文 <span class="rf-hint">客户原话，保留自由文本（后端仅辅助交叉校验）</span><i class="anno">1</i></h4>
+              <textarea class="rf-req" readonly>客户做超融合项目，整体需求如下：
+1. 3 节点超融合集群，每节点 2 路 CPU / 256G 内存；
+2. 缓存盘每节点 4 块 4TB NVMe U.2，容量盘 8 块 8TB SATA；
+3. 双电源 2000W 冗余供电，维保 3 年上门；
+4. 10G 电口 ×4 + 25G SFP28 ×2，需与现有华为 CE 交换机对接；
+5. 预算 45 万以内，本月内到货。
+
+具体配置明细见附件《客户需求清单.xlsx》，机房环境照片和招标技术要求也一并附上，有问题随时沟通。—— 王工 · 华信云创</textarea>
+            </section>
+
+            <!-- 新增：需求附件区（形态A 紧凑徽标 / 形态B 可折叠列表，demo 条切换） -->
+            <section class="rf-sec">
+              <!-- 形态A：紧凑徽标（推荐） -->
+              <div class="att-chips-mode">
+                <h4 class="rf-sec-title">需求附件 <span class="rf-hint">xlsx / pdf / 图片 · 点徽标预览</span><i class="anno">2</i></h4>
+                <div class="chip-strip">
+                  <span class="att-chip" title="客户需求清单.xlsx · 86 KB · kayfly · 10-13 14:20">
+                    <i class="att-ico xls">XLSX</i><span class="chip-name">客户需求清单.xlsx</span><span class="chip-x edit-only">✕</span>
+                  </span>
+                  <span class="att-chip" title="招标技术要求.pdf · 2.4 MB · kayfly · 10-13 14:22">
+                    <i class="att-ico pdf">PDF</i><span class="chip-name">招标技术要求.pdf</span><span class="chip-x edit-only">✕</span>
+                  </span>
+                  <span class="att-chip" title="机房环境照片.jpg · 1.1 MB · 粘贴上传 · 10-13 14:25">
+                    <i class="att-thumb">🖼</i><span class="chip-name">机房环境照片.jpg</span><span class="chip-x edit-only">✕</span>
+                  </span>
+                  <span class="att-chip add edit-only" title="点击上传 / 拖拽文件到此处 / Ctrl+V 粘贴截图">＋ 上传</span>
+                  <span class="rf-hint edit-only" style="align-self:center;"><i class="anno">3</i> 拖拽到本区，或在原文里 Ctrl+V 粘贴截图</span>
+                </div>
+                <div class="ro-strip ro-only"><i class="anno" style="background:var(--cpq-text-muted)">5</i> 已提交版本附件只读：点徽标预览，不可再上传或删除。</div>
+              </div>
+
+              <!-- 形态B：可折叠列表（备选） -->
+              <div class="att-fold-mode">
+                <div class="fold-head" onclick="toggleFold(this)">
+                  <h4 class="rf-sec-title">需求附件（3）</h4>
+                  <span class="rf-hint">随本版需求单留档，提交后随版本快照归档</span>
+                  <i class="anno">2</i>
+                  <span class="chev">˅</span>
+                </div>
+                <div class="fold-body closed">
+                  <div class="att-upload edit-only">
+                    <span class="plus">＋</span>
+                    <div>
+                      <div class="up-main"><b>点击上传</b>，或拖拽文件到此处</div>
+                      <div class="up-sub">xlsx / xls / pdf / doc / docx / png / jpg · 聊天里的截图可直接 <b>Ctrl+V 粘贴</b>上传<i class="anno">3</i></div>
+                    </div>
+                    <span class="att-count">已附 3 件</span>
+                  </div>
+                  <div class="att-list">
+                    <div class="att-row">
+                      <span class="att-ico xls">XLSX</span>
+                      <div class="att-main">
+                        <div class="att-name">客户需求清单.xlsx</div>
+                        <div class="att-meta">86 KB · kayfly · 10-13 14:20</div>
+                      </div>
+                      <div class="att-acts">
+                        <button class="att-btn">预览</button>
+                        <button class="att-btn danger edit-only">删除</button>
+                      </div>
+                    </div>
+                    <div class="att-row">
+                      <span class="att-ico pdf">PDF</span>
+                      <div class="att-main">
+                        <div class="att-name">招标技术要求.pdf</div>
+                        <div class="att-meta">2.4 MB · kayfly · 10-13 14:22</div>
+                      </div>
+                      <div class="att-acts">
+                        <button class="att-btn">预览</button>
+                        <button class="att-btn danger edit-only">删除</button>
+                      </div>
+                    </div>
+                    <div class="att-row">
+                      <span class="att-thumb">🖼</span>
+                      <div class="att-main">
+                        <div class="att-name">机房环境照片.jpg</div>
+                        <div class="att-meta">1.1 MB · 粘贴上传 · 10-13 14:25</div>
+                      </div>
+                      <div class="att-acts">
+                        <button class="att-btn">预览</button>
+                        <button class="att-btn danger edit-only">删除</button>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="ro-strip ro-only"><i class="anno" style="background:var(--cpq-text-muted)">5</i> 已提交版本附件只读：可预览留存文件，不可再上传或删除。</div>
+                </div>
+              </div>
+            </section>
+
+            <!-- 配置区：复刻现状，示意收拢 -->
+            <section class="rf-sec">
+              <div class="rf-config-head">
+                <h4 class="rf-sec-title">配置 <span class="rf-hint">每个配置独立机型/类型/数量/维保年限/部件清单</span></h4>
+                <div style="display:flex; gap: var(--cpq-space-2); align-items: center;">
+                  <div class="seg"><span class="on">组合拆分</span><span>方案备选</span></div>
+                  <button class="btn-ghost edit-only">＋ 配置</button>
+                </div>
+              </div>
+              <div class="cfg-tab"><span>R760xa</span><span class="x">✕</span></div>
+              <div class="cfg-grid">
+                <div class="cfg-field"><label>机型型号</label><div class="cfg-input">R760xa</div></div>
+                <div class="cfg-field"><label>服务器类型</label><div class="cfg-input">通用计算服务器</div></div>
+                <div class="cfg-field"><label>平台类型</label><div class="cfg-input">Orion</div></div>
+                <div class="cfg-field"><label>机箱形态</label><div class="cfg-input">2U</div></div>
+                <div class="cfg-field"><label>数量</label><div class="cfg-input">3</div></div>
+                <div class="cfg-field"><label>维保年限</label><div class="cfg-input">3 年</div></div>
+              </div>
+              <h5 class="rf-sec-title" style="font-size: var(--cpq-font-size-sm);">部件清单 <span class="rf-hint">按 Catalogue 分类登记客户需求，可直接选择或输入配件</span></h5>
+              <div class="kp-wrap">
+                <table class="kp-table">
+                  <thead>
+                    <tr><th class="w-g">分组</th><th class="w-cat">Catalogue</th><th>Configuration Description</th><th class="w-q">Quantity</th><th class="w-n">Note</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr><td class="c w-g">KP</td><td class="c w-cat">CPU</td><td><div class="cell-in">Xeon 6542Y ×2 / 节点</div></td><td class="c w-q" style="text-align:right">6</td><td><div class="cell-in dim">备注</div></td></tr>
+                    <tr><td class="c w-g">KP</td><td class="c w-cat">Memory</td><td><div class="cell-in">64G DDR5 RDIMM ×8 / 节点</div></td><td class="c w-q" style="text-align:right">24</td><td><div class="cell-in dim">备注</div></td></tr>
+                  </tbody>
+                </table>
+              </div>
+              <div style="margin-top: var(--cpq-space-2);" class="edit-only"><button class="btn-ghost">＋ 添加 KP 行</button></div>
+            </section>
+
+            <div class="node-actions edit-only">
+              <button class="btn">取消</button>
+              <button class="btn">保存草稿</button>
+              <button class="btn primary">提交发起</button>
+            </div>
+            <div class="node-actions ro-only">
+              <button class="btn">关闭</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 工作台卡头：上传入口移除对比 -->
+    <div class="board-compare">
+      <div style="display:flex; gap: var(--cpq-space-3);">
+        <span class="bc-tag">调整前</span>
+        <div class="board-head" style="opacity: 0.75;">
+          <span class="rich-icon-badge">▦</span>
+          <div class="bh-title"><span class="eyebrow">线索登记</span><h4>需求单工作台</h4></div>
+          <div class="bh-actions">
+            <span class="removed-btn">上传附件</span>
+            <span class="removed-tag">移除<i class="anno" style="background: var(--cpq-accent-danger); margin-left: 4px;">4</i></span>
+            <button class="btn-ghost">我的附件</button>
+            <button class="btn-ghost">新建需求</button>
+            <span class="chevron">˄</span>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex; gap: var(--cpq-space-3);">
+        <span class="bc-tag">调整后</span>
+        <div class="board-head">
+          <span class="rich-icon-badge">▦</span>
+          <div class="bh-title"><span class="eyebrow">线索登记</span><h4>需求单工作台</h4></div>
+          <div class="bh-actions">
+            <button class="btn-ghost">我的附件</button>
+            <button class="btn primary" style="padding: var(--cpq-space-1) var(--cpq-space-3);">新建需求</button>
+            <span class="chevron">˄</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <div class="li"><i class="anno">1</i><div>需求原文 autoSize：随内容长高（约 16 行封顶后框内滚动），长文不再压在 3 行小框里拖滚动条，也不把下方配置区顶出屏。</div></div>
+    <div class="li"><i class="anno">2</i><div>需求附件区内嵌进需求单弹窗，附件绑定当前需求单版本，提交后随版本快照留档；历史版本详情各自带当时的附件清单。默认形态=紧凑徽标：文件名常显可扫（纯 hover 藏文件名在触屏无出口，完整名/大小/上传人只放 tooltip），点徽标=预览、✕=移除；备选形态=可折叠列表，demo 条可切换对比。</div></div>
+    <div class="li"><i class="anno">3</i><div>贴图直传：客户在聊天里发的截图，Ctrl+V 粘贴进需求原文即自动上传为附件（正文不内嵌图，保持纯文本）。</div></div>
+    <div class="li"><i class="anno">4</i><div>工作台卡头「上传附件」按钮移除，只留「我的附件」作跨版本归档查阅入口。</div></div>
+    <div class="li"><i class="anno">5</i><div>只读态（已提交版本）：附件可预览、不可上传删除；草稿删除附件仅从草稿摘除，不动已归档版本。</div></div>
+    <div class="li"><i class="anno" style="background: var(--cpq-text-muted)">·</i><div>预览复用现有 AttachmentPreviewModal（图片内联 / PDF / Excel 在线查看），不新建轮子。附件不进 AI 需求理解（本期定调）。</div></div>
+  </div>
+
+  <script>
+    function toggleFold(head) {
+      head.classList.toggle('open')
+      head.parentElement.querySelector('.fold-body').classList.toggle('closed')
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>方案/成本表统一表格化渲染稿</title>
+<style>
+:root{
+  --bg:#0d1424;
+  --panel:#111a2c;
+  --panel-2:#162238;
+  --head:#10192b;
+  --line:#253349;
+  --line-strong:#30405c;
+  --text:#eef3fb;
+  --secondary:#c7d1e4;
+  --muted:#8d9bb5;
+  --accent:#5b8cff;
+  --accent-soft:rgba(91,140,255,.16);
+  --positive:#42d392;
+  --page-glow:rgba(47,110,255,.14);
+}
+[data-theme=light]{
+  --bg:#f3f6fb;
+  --panel:#ffffff;
+  --panel-2:#fbfdff;
+  --head:#f5f8fd;
+  --line:#e5ecf6;
+  --line-strong:#dbe5f2;
+  --text:#17233c;
+  --secondary:#42506b;
+  --muted:#7c89a3;
+  --accent:#2f6bff;
+  --accent-soft:rgba(47,107,255,.10);
+  --positive:#12a06b;
+  --page-glow:rgba(47,107,255,.06);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; min-height:100vh; background:
+    radial-gradient(circle at 18% 12%, var(--page-glow), transparent 30%),
+    var(--bg);
+  font-family:"Segoe UI","Microsoft YaHei",sans-serif;
+  color:var(--text);
+  display:flex; align-items:flex-start; justify-content:center;
+  padding:28px 16px;
+}
+.modal{
+  width:min(1080px, 96vw);
+  border:1px solid var(--line-strong);
+  border-radius:14px;
+  background:linear-gradient(180deg, var(--panel-2), var(--panel));
+  box-shadow:0 24px 70px rgba(0,0,0,.24);
+  overflow:hidden;
+}
+.modal-head{
+  display:flex; align-items:center; gap:16px;
+  padding:16px 20px; border-bottom:1px solid var(--line);
+}
+.modal-title{font-size:16px;font-weight:650;margin:0}
+.tabs{display:flex;align-items:center;gap:8px;margin-left:auto;flex-wrap:wrap}
+.tab{
+  min-width:76px;text-align:center;padding:6px 12px;border-radius:8px;
+  border:1px solid var(--line-strong);background:var(--panel);color:var(--secondary);
+  font-size:12px;cursor:pointer;
+}
+.tab.active{border-color:var(--accent);color:var(--accent);background:var(--accent-soft)}
+.tab.add{color:var(--muted);border-style:dashed}
+.modal-body{padding:20px}
+.sheet{
+  width:fit-content;max-width:100%;
+  border:1px solid var(--line-strong);border-radius:10px;
+  background:var(--panel);overflow:hidden;
+  box-shadow:0 10px 30px rgba(0,0,0,.08);
+}
+.sheet+.sheet{margin-top:14px}
+table{border-collapse:collapse;width:auto;table-layout:fixed;font-size:12px}
+th,td{
+  border-right:1px solid var(--line);border-bottom:1px solid var(--line);
+  text-align:left;vertical-align:middle;padding:0;
+}
+th:last-child,td:last-child{border-right:0}
+thead th{
+  height:34px;padding:0 10px;background:var(--head);color:var(--secondary);
+  font-size:11px;font-weight:650;white-space:nowrap;
+  border-bottom:1px solid var(--line-strong);
+}
+tbody tr:last-child td{border-bottom:0}
+td{height:40px;padding:8px 10px;color:var(--text)}
+.cell-num{text-align:right;font-variant-numeric:tabular-nums}
+.cell-muted{color:var(--muted)}
+.cell-wrap{white-space:normal;overflow-wrap:anywhere;line-height:1.5}
+th.c-num,td.c-num{text-align:right}
+.c-idx{width:42px;text-align:center;color:var(--muted);font-size:11px}
+.c-name{width:110px}
+.c-model{width:180px}
+.c-desc{width:320px}
+.c-qty{width:78px}
+.c-cat{width:160px}
+.c-desc2{width:280px}
+.c-cost{width:120px}
+.c-note{width:160px}
+.c-cost2{width:130px}
+.section-label{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:18px 0 8px;font-size:13px;font-weight:650;
+}
+.section-label small{font-weight:400;color:var(--muted);font-size:11px}
+.summary{
+  margin-top:14px;display:flex;justify-content:flex-end;align-items:center;gap:10px;
+  font-size:13px;color:var(--secondary);
+}
+.summary strong{color:var(--text);font-size:15px}
+.summary .total{color:var(--accent)}
+.divider{width:1px;height:18px;background:var(--line-strong)}
+.badge{
+  display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:6px;
+  background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:600;
+}
+body.scheme .c-cost, body.scheme .c-cost2, body.scheme .c-note{display:none}
+body.scheme .summary{display:none}
+
+@media (max-width:640px){
+  body{padding:0}
+  .modal{width:100%;border-radius:0;border-left:0;border-right:0}
+  .modal-head{flex-direction:column;align-items:flex-start;padding:14px}
+  .tabs{margin-left:0}
+  .modal-body{padding:12px}
+  .sheet{width:100%;border-radius:10px}
+  .sheet table,.sheet thead,.sheet tbody,.sheet tr,.sheet th,.sheet td{display:block;width:100%}
+  .sheet thead{display:none}
+  .sheet tbody tr{border:1px solid var(--line);border-radius:10px;background:var(--panel);margin-bottom:10px;overflow:hidden}
+  .sheet tbody td{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;height:auto;padding:8px 10px;border-right:0;border-bottom:1px solid var(--line);text-align:right}
+  .sheet tbody tr td:last-child{border-bottom:0}
+  .sheet tbody td::before{content:attr(data-label);flex-shrink:0;color:var(--muted);font-size:11px;white-space:nowrap;text-align:left}
+  .cell-wrap{text-align:left}
+  .summary{flex-direction:column;align-items:flex-end;gap:6px;margin-top:12px}
+  .divider{display:none}
+}
+</style>
+</head>
+<body>
+<div class="modal">
+  <div class="modal-head">
+    <h2 class="modal-title" id="title">查看方案 · 表格化渲染稿</h2>
+    <div class="tabs">
+      <div class="tab active">CFG1</div>
+      <div class="tab">CFG2</div>
+      <div class="tab add">+ 新建方案</div>
+    </div>
+  </div>
+  <div class="modal-body">
+    <table class="sheet" id="configTable">
+      <thead><tr>
+        <th class="c-name">配置名</th>
+        <th class="c-model">机型型号</th>
+        <th class="c-desc">描述</th>
+        <th class="c-qty c-num">数量</th>
+      </tr></thead>
+      <tbody><tr>
+        <td>CFG1</td>
+        <td>ZS22V2-P</td>
+        <td class="cell-wrap">1*2U KH50000，支持2颗KH-50000系列处理器，单颗最高96核，热设计功耗450W，支持24通道DDR5内存，速率达4800MT/s</td>
+        <td class="c-num">2 台</td>
+      </tr></tbody>
+    </table>
+
+    <div class="section-label"><span>L6</span><small>6 项</small></div>
+    <table class="sheet" id="l6Table">
+      <thead><tr>
+        <th class="c-idx">#</th>
+        <th class="c-cat">Catalogue</th>
+        <th class="c-desc2">Configuration Description</th>
+        <th class="c-qty c-num">Quantity</th>
+      </tr></thead>
+      <tbody>
+        <tr><td class="c-idx">1</td><td>Backplane</td><td class="cell-wrap">12*3.5 SATA/SAS/NVME</td><td class="c-num">1</td></tr>
+        <tr><td class="c-idx">2</td><td>Switch</td><td class="cell-wrap">8*GPU+5*X16+4NVME</td><td class="c-num">1</td></tr>
+        <tr><td class="c-idx">3</td><td>Raid slot</td><td class="cell-wrap">X8</td><td class="c-num">1</td></tr>
+        <tr><td class="c-idx">4</td><td>Heatsink</td><td class="cell-wrap">2U heatsink TDP≤450W</td><td class="c-num">2</td></tr>
+        <tr><td class="c-idx">5</td><td>Power Supply Requirement</td><td class="cell-wrap">2000W</td><td class="c-num">4</td></tr>
+        <tr><td class="c-idx">6</td><td>GPU Power cord</td><td class="cell-wrap">智凯100Duo电源线</td><td class="c-num">8</td></tr>
+      </tbody>
+    </table>
+
+    <div class="section-label"><span>KP</span><small>5 项</small></div>
+    <table class="sheet" id="kpTable">
+      <thead><tr>
+        <th class="c-idx">#</th>
+        <th class="c-cat">Catalogue</th>
+        <th class="c-desc2">Configuration Description</th>
+        <th class="c-qty c-num">Quantity</th>
+        <th class="c-cost c-num">Unit Cost</th>
+        <th class="c-cost2 c-num">Total Cost</th>
+        <th class="c-note">Note</th>
+      </tr></thead>
+      <tbody>
+        <tr><td class="c-idx">1</td><td>CPU</td><td>KH-50000 64C</td><td class="c-num">2</td><td class="c-num">¥32,000</td><td class="c-num">¥64,000</td><td>—</td></tr>
+        <tr><td class="c-idx">2</td><td>Memory</td><td>64G 5600 DDR5 RDIMM</td><td class="c-num">24</td><td class="c-num">¥1,200</td><td class="c-num">¥28,800</td><td>—</td></tr>
+        <tr><td class="c-idx">3</td><td>HDD/SSD</td><td>960G SATA SSD</td><td class="c-num">2</td><td class="c-num">¥850</td><td class="c-num">¥1,700</td><td>—</td></tr>
+        <tr><td class="c-idx">4</td><td>HDD/SSD</td><td>8T SATA HDD</td><td class="c-num">4</td><td class="c-num">¥1,200</td><td class="c-num">¥4,800</td><td>—</td></tr>
+        <tr><td class="c-idx">5</td><td>GPU card</td><td>智凯100Duo</td><td class="c-num">4</td><td class="c-num">¥28,000</td><td class="c-num">¥112,000</td><td><span class="badge">建议优先采购</span></td></tr>
+      </tbody>
+    </table>
+
+    <div class="summary" id="summary">
+      <span>配置成本合计</span><strong>¥211,300</strong>
+      <span class="divider"></span>
+      <span>全部配置总成本</span><strong class="total">¥211,300</strong>
+    </div>
+  </div>
+</div>
+<script>
+  const hash = location.hash || '#scheme-dark';
+  const parts = hash.slice(1).split('-');
+  const mode = parts[0] || 'scheme';
+  const theme = parts[1] || 'dark';
+  document.documentElement.dataset.theme = theme;
+  const isCost = mode === 'cost';
+  document.body.classList.add(isCost ? 'cost' : 'scheme');
+  document.getElementById('title').textContent = isCost ? '查看成本表 · 表格化渲染稿' : '查看方案 · 表格化渲染稿';
+
+  document.querySelectorAll('table').forEach((table) => {
+    const labels = Array.from(table.querySelectorAll('thead th')).map((th) => th.textContent.trim());
+    table.querySelectorAll('tbody tr').forEach((tr) => {
+      Array.from(tr.children).forEach((td, i) => td.setAttribute('data-label', labels[i] || ''));
+    });
+  });
+</script>
+</body>
+</html>
