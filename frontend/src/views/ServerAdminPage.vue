@@ -4,6 +4,7 @@
  *  配件适配 tab 已移除（2026-08-03）：specs.chassis 声明未被任何装配逻辑消费，纯参考视图 → 删除。 */
 import { ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { UnorderedListOutlined, MenuFoldOutlined } from '@ant-design/icons-vue'
 import SeriesManager from '@/components/server-admin/SeriesManager.vue'
 import PartsLibrary from '@/components/server-admin/PartsLibrary.vue'
 import BaseConfigBuilder from '@/components/server-admin/BaseConfigBuilder.vue'
@@ -34,18 +35,36 @@ watch(() => [route.query.tab, route.query.refresh], ([tab, refresh]) => {
 }, { immediate: true })
 
 const adminLayout = ref<HTMLElement | null>(null)
-/** 切区滚动归顶 —— v-show 七区共用滚动容器，不归顶会残留上一区滚动深度（短区被钳位、回切跳回深处） */
-watch(adminTab, () => {
+/** 切区滚动归顶 —— v-show 七区共用滚动容器，不归顶会残留上一区滚动深度（短区被钳位、回切跳回深处）。
+ *  页面导航可折叠：料号库双栏信息密（库内大类栏+子类条），进入时自动收起导航让位、离开恢复；
+ *  在料号库里手动展开/收起后以手动态为准（离开时不再压回自动态）。 */
+const railCollapsed = ref(false)
+const railStateBeforeParts = ref(false)
+function toggleRail() {
+  railCollapsed.value = !railCollapsed.value
+  if (adminTab.value === 'parts') railStateBeforeParts.value = !railCollapsed.value
+}
+watch(adminTab, (tab) => {
   const sc = adminLayout.value?.closest('.main-scroll') as HTMLElement | null
   sc?.scrollTo({ top: 0 })
-})
+  if (tab === 'parts') {
+    railStateBeforeParts.value = railCollapsed.value
+    railCollapsed.value = true
+  } else {
+    railCollapsed.value = railStateBeforeParts.value
+  }
+}, { immediate: true })
 </script>
 
 <template>
   <div class="server-admin-page">
     <div class="page-inner">
       <div class="admin-layout" ref="adminLayout">
-        <aside class="admin-rail">
+        <aside :class="['admin-rail', { collapsed: railCollapsed }]">
+          <button type="button" class="rail-fold" :title="railCollapsed ? '展开导航' : '收起导航'" @click="toggleRail">
+            <UnorderedListOutlined v-if="railCollapsed" />
+            <MenuFoldOutlined v-else />
+          </button>
           <div class="rail-brand">CPQ · 服务器管理</div>
           <button v-for="t in TABS" :key="t.key" type="button" class="rail-item" :class="{ active: adminTab === t.key }" @click="adminTab = t.key">{{ t.label }}</button>
         </aside>
@@ -75,6 +94,21 @@ watch(adminTab, () => {
   max-height: calc(100vh - var(--cpq-sticky-top, 0px));
   overflow: auto;
   align-self: flex-start;
+  transition: width .2s;
+}
+.rail-fold {
+  display: flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-bottom: 10px;
+  border: 1px solid var(--cpq-glass-border); background: transparent;
+  color: var(--cpq-text-secondary); border-radius: var(--cpq-radius-sm); cursor: pointer;
+  transition: all .15s;
+}
+.rail-fold:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
+/* 桌面端收起=细条只留按钮；手机端导航是顶部长条，折叠不生效 */
+@media (min-width: 769px) {
+  .admin-rail.collapsed { width: 50px; padding: 14px 10px; }
+  .admin-rail.collapsed .rail-fold { margin: 0 auto; }
+  .admin-rail.collapsed .rail-brand, .admin-rail.collapsed .rail-item { display: none; }
 }
 .rail-brand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .18em; color: var(--cpq-text-muted); padding: 0 10px 16px; }
 .rail-item {
@@ -99,6 +133,7 @@ watch(adminTab, () => {
     margin-bottom: 14px; padding: 0 0 8px;
   }
   .rail-brand { display: none; }
+  .rail-fold { display: none; }
   .rail-item { white-space: nowrap; flex: 1 0 auto; margin-bottom: 0; }
 }
 </style>

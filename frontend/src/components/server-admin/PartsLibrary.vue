@@ -4,7 +4,7 @@
  *  STEP(section) 已于 2026-08-09 退役：报价/配置流取料改按 major_category。 */
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined } from '@ant-design/icons-vue'
+import { UnorderedListOutlined, MenuFoldOutlined, UploadOutlined, DownloadOutlined, InboxOutlined, DownOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { partsApi, type PartMaster, type PartMajorCategory } from '@/api/serverConfig'
 import { specSummary, attrType, attrOptions, attrSchema, ATTR_KEY_OPTIONS, SUGGESTED_KEYS_BY_CATEGORY } from '@/constants/partSpecFields'
 import { useSeriesStore } from '@/stores/series'
@@ -69,15 +69,15 @@ function clearSpecValueCache() {
   specValueCache.value = {}
 }
 
-// 列表视图列定义（卡片/列表共享 filtered 数据与编辑弹窗）；无价角色不进单价列
+// 列表视图列定义（卡片/列表共享 filtered 数据与编辑弹窗）；无价角色不进单价列。
+// 名称=第一主角列（同配件页 Parts.vue 表格），PN 次之；大类走左栏导航筛选，不进表
 const tableColumns = computed(() => [
-  { title: '料号 PN', dataIndex: 'pn', key: 'pn', width: 160 },
-  { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
-  { title: '大类', dataIndex: 'major_category', key: 'major_category', width: 120 },
-  { title: '类别', dataIndex: 'category', key: 'category', width: 110 },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 240, ellipsis: true },
+  { title: '料号 PN', dataIndex: 'pn', key: 'pn', width: 150, ellipsis: true },
+  { title: '类别', dataIndex: 'category', key: 'category', width: 100 },
   { title: '规格', key: 'summary', ellipsis: true },
-  ...(priceVisible.value ? [{ title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 110, align: 'right' as const }] : []),
-  { title: '操作', key: 'op', width: 130, fixed: 'right' as const },
+  ...(priceVisible.value ? [{ title: '单价', dataIndex: 'unit_price', key: 'unit_price', width: 96, align: 'right' as const }] : []),
+  { title: '操作', key: 'op', width: 120, fixed: 'right' as const },
 ])
 
 // 导入预览表格列
@@ -397,11 +397,13 @@ function onPageChange(page: number, pageSize: number) {
   load()
 }
 
-// 响应式侧栏折叠
+// 分类层级折叠：页面导航（ServerAdminPage）进料号库时自动收起；库内大类侧栏与子类 chips
+// 默认都展开（进入后天然看的就是这两层），各自可收起，chips 收起时保留当前选中项作状态指示
 const sidebarCollapsed = ref(false)
 function toggleSidebar() {
   sidebarCollapsed.value = !sidebarCollapsed.value
 }
+const subcatsCollapsed = ref(false)
 
 onMounted(load)
 </script>
@@ -469,11 +471,19 @@ onMounted(load)
         </div>
       </aside>
       <div class="card-area">
-        <div v-if="currentMajorCats.length" class="subcat-bar">
-          <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'; onCat2Change()">全部子类</div>
-          <div v-for="c in currentMajorCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c; onCat2Change()">
-            {{ c }}
-          </div>
+        <div v-if="currentMajorCats.length" :class="['subcat-bar', { collapsed: subcatsCollapsed }]">
+          <button class="subcat-toggle" :title="subcatsCollapsed ? '展开子类' : '收起子类'" @click="subcatsCollapsed = !subcatsCollapsed">
+            <DownOutlined v-if="!subcatsCollapsed" class="subcat-caret" />
+            <RightOutlined v-else class="subcat-caret" />
+            <span>子类</span>
+          </button>
+          <template v-if="!subcatsCollapsed">
+            <div :class="['subcat-chip', { active: cat2 === 'all' }]" @click="cat2 = 'all'; onCat2Change()">全部子类</div>
+            <div v-for="c in currentMajorCats" :key="c" :class="['subcat-chip', { active: cat2 === c }]" @click="cat2 = c; onCat2Change()">
+              {{ c }}
+            </div>
+          </template>
+          <div v-else-if="cat2 !== 'all'" class="subcat-chip active">{{ cat2 }}</div>
         </div>
         <div v-if="loading" class="grid-empty">加载中…</div>
         <div v-else-if="!parts.length" class="grid-empty">无匹配料号，点击右上「+ 新增料号」添加</div>
@@ -494,11 +504,12 @@ onMounted(load)
           </div>
         </div>
         <template v-else>
-          <a-table class="sa-table" :data-source="parts" :columns="tableColumns" row-key="pn" :scroll="{ x: 640 }"
+          <a-table class="sa-table" :data-source="parts" :columns="tableColumns" row-key="pn" :scroll="{ x: 880 }"
                    :pagination="{ current: pagination.current, pageSize: pagination.pageSize, total, showSizeChanger: true, pageSizeOptions: ['20', '50', '100'], showTotal: (t:number) => `共 ${t} 项` }"
                    @change="(pag: any) => { pagination.current = pag.current; pagination.pageSize = pag.pageSize; load() }">
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'pn'"><span class="tbl-pn">{{ record.pn }}</span></template>
+              <template v-if="column.key === 'name'"><span class="tbl-name">{{ record.name }}</span></template>
+              <template v-else-if="column.key === 'pn'"><span class="tbl-pn">{{ record.pn }}</span></template>
               <template v-else-if="column.key === 'category'"><span class="tbl-cat">{{ record.category }}</span></template>
               <template v-else-if="column.key === 'summary'">{{ summaryOf(record) }}</template>
               <template v-else-if="column.key === 'unit_price'">{{ record.unit_price ? '¥' + record.unit_price : '—' }}</template>
@@ -656,13 +667,17 @@ onMounted(load)
 .cat-tool:hover { background: var(--cpq-overlay-w15); color: var(--cpq-text-primary, #E8ECEF); }
 .cat-tool.cat-del:hover { background: var(--cpq-overlay-danger15); color: var(--cpq-accent-danger, #ff4d4f); }
 .card-area { min-height: 200px; }
-.subcat-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.subcat-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 12px; }
+.subcat-toggle { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 3px 8px; border: none; background: transparent; color: var(--cpq-text-muted, #6E7582); cursor: pointer; border-radius: var(--cpq-radius-sm); transition: all .15s; }
+.subcat-toggle:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary, #E8ECEF); }
+.subcat-caret { font-size: 10px; }
 .subcat-chip { font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-md); cursor: pointer; color: var(--cpq-text-secondary, #9BA1AA); background: var(--cpq-overlay-w5); transition: all .15s; }
 .subcat-chip:hover { background: var(--cpq-overlay-w10); color: var(--cpq-text-primary, #E8ECEF); }
 .subcat-chip.active { background: var(--cpq-overlay-a15); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; }
 .card-pagination { margin-top: 16px; display: flex; justify-content: flex-end; }
 .grid-empty { color: var(--cpq-text-muted, #6E7582); text-align: center; padding: 40px; font-size: 13px; }
+.tbl-name { font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
 .tbl-pn { font-family: monospace; font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
 .tbl-cat { font-size: 11px; color: var(--cpq-accent-primary, #1677FF); background: var(--cpq-overlay-a10); padding: 1px 6px; border-radius: var(--cpq-radius-xs); }
 .part-card { position: relative; padding: 12px 14px; cursor: pointer; transition: transform .2s, box-shadow .2s, border-color .2s; }
