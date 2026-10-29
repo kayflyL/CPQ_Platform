@@ -3,6 +3,9 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import type { FeedAttachment, FeedMessage } from '@/api/feed'
 import type { ApprovalItem, FlowCard, FlowInfo, FlowNode, PortalOpp } from '@/api/portal'
+import { portalApi } from '@/api/portal'
+import { useAuthStore } from '@/store/auth'
+import AssigneePickerModal from '@/components/opportunity/AssigneePickerModal.vue'
 import { useFeedSocket } from '@/composables/useFeedSocket'
 import { feedApi } from '@/api/feed'
 import { useNotifications } from '@/composables/useNotifications'
@@ -27,6 +30,8 @@ const props = defineProps<{
   flow?: FlowInfo | null
   opportunity?: PortalOpp['opportunity'] | null
 }>()
+
+const emit = defineEmits<{ (e: 'changed'): void }>()
 
 const NODE_DEFS = [
   { key: 'requirement', title: '线索登记', label: '业务' },
@@ -215,6 +220,45 @@ const stayText = computed(() => {
   return durationText(start?.created_at)
 })
 
+// ── 改派：action.flow.reassign 持键可见（键在权限目录可配，不硬编码角色）；
+// 需求登记环节处理人=业务归属（owner），接口本就不支持改派，入口只在三个执行环节露出 ──
+const auth = useAuthStore()
+const REASSIGNABLE_NODES = ['boming', 'costing', 'quoting']
+const canReassign = computed(() =>
+  auth.can('action.flow.reassign') && REASSIGNABLE_NODES.includes(props.currentNode))
+const reassignOpen = ref(false)
+const reassignChosen = ref('')
+const reassignOptions = ref<string[]>([])
+const reassignSaving = ref(false)
+async function openReassign() {
+  reassignChosen.value = ''
+  reassignOptions.value = []
+  reassignOpen.value = true
+  try {
+    const opts = await portalApi.assignOptions()
+    reassignOptions.value = opts.assignees?.[props.currentNode] || []
+  } catch {
+    reassignOptions.value = []
+  }
+}
+async function confirmReassign() {
+  if (reassignSaving.value || !reassignChosen.value) return
+  reassignSaving.value = true
+  try {
+    await portalApi.transfer(props.opportunityId, {
+      node_key: props.currentNode,
+      assignee_name: reassignChosen.value,
+    })
+    message.success(`已改派给 ${reassignChosen.value}`)
+    reassignOpen.value = false
+    emit('changed')
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '改派失败')
+  } finally {
+    reassignSaving.value = false
+  }
+}
+
 type FeedRow =
   | { id: string; kind: 'event'; nodeKey: string; actor: string; time: string; text: string; createdAt: number }
   | { id: string; kind: 'comment'; nodeKey: string; actor: string; time: string; text: string; createdAt: number; attachments: FeedMessage['attachments'] }
@@ -363,6 +407,7 @@ onBeforeUnmount(() => {
           <small>{{ currentNodeDef.label }} · {{ currentStateLabel }}</small>
         </div>
         <span class="af-status" :class="{ done: currentApproval?.state === 'done' }">{{ currentStateLabel }}</span>
+        <button v-if="canReassign" type="button" class="af-reassign" title="改派本环节处理人" @click="openReassign">改派</button>
       </div>
 
       <div class="af-metrics">
@@ -448,6 +493,14 @@ onBeforeUnmount(() => {
         </div>
       </div>
     </section>
+    <AssigneePickerModal
+      v-model:value="reassignChosen"
+      :open="reassignOpen"
+      :title="`改派${currentNodeDef.title}处理人`"
+      :options="reassignOptions"
+      @confirm="confirmReassign()"
+      @cancel="reassignOpen = false"
+    />
   </div>
 </template>
 
@@ -487,13 +540,13 @@ onBeforeUnmount(() => {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w3);
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .af-file-remove {
   border: 0;
   background: transparent;
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1;
   cursor: pointer;
 }
@@ -521,7 +574,7 @@ onBeforeUnmount(() => {
   background: var(--cpq-accent-primary);
   color: #fff;
   font-weight: 700;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .af-avatar.sm {
   width: 22px;
@@ -538,13 +591,13 @@ onBeforeUnmount(() => {
 }
 .af-eyebrow {
   display: block;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .af-current-copy b {
   display: block;
   margin-top: 2px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
@@ -567,6 +620,21 @@ onBeforeUnmount(() => {
   background: var(--cpq-overlay-success15);
   color: var(--cpq-color-success);
 }
+.af-reassign {
+  flex: 0 0 auto;
+  padding: 2px 9px;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-w4);
+  color: var(--cpq-text-secondary);
+  font-size: 10px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.af-reassign:hover {
+  border-color: var(--cpq-accent-primary);
+  color: var(--cpq-accent-primary);
+}
 .af-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -578,13 +646,13 @@ onBeforeUnmount(() => {
 }
 .af-metrics span {
   display: block;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .af-metrics b {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-primary);
   white-space: nowrap;
 }
@@ -600,7 +668,7 @@ onBeforeUnmount(() => {
   color: var(--cpq-text-muted);
   padding: 5px 9px;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   cursor: pointer;
 }
 .af-tabs button.active {
@@ -616,7 +684,7 @@ onBeforeUnmount(() => {
 }
 .af-empty {
   padding: 14px 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .af-feed-item {
@@ -654,7 +722,7 @@ onBeforeUnmount(() => {
 }
 .af-feed-copy p {
   margin: 5px 0 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
   line-height: 1.5;
 }
@@ -666,7 +734,7 @@ onBeforeUnmount(() => {
 }
 .af-attach-list a {
   color: #2563eb;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-decoration: none;
 }
 .af-attach-list a:hover {
@@ -702,7 +770,7 @@ onBeforeUnmount(() => {
   background: transparent;
   border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   text-align: left;
 }
@@ -715,7 +783,7 @@ onBeforeUnmount(() => {
 }
 .af-mention-item small {
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .af-mention-item .af-online {
   width: 6px;
@@ -735,7 +803,7 @@ onBeforeUnmount(() => {
   background: var(--cpq-overlay-w3);
   border-color: var(--cpq-glass-border);
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
 }
 .af-composer-head {

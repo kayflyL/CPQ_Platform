@@ -16,8 +16,7 @@ const FE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const SRC = path.join(FE, 'src')
 const LEDGER = path.join(FE, 'style-legacy.json')
 
-// 在途工作（并行会话），合入后移除本行并重扫清单
-const GATE_SKIP = new Set(['components/opportunity/OpportunityProcessBoard.vue'])
+const GATE_SKIP = new Set([])
 const CSS_DIR = path.join(SRC, 'styles')
 const CSS_SKIP = new Set(['tokens.css']) // tokens.css 是值源本身
 

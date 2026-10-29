@@ -368,6 +368,13 @@ function openConfigDetail(cfg: CostConfig) {
           </div>
           <div class="qw-shell-actions" @click.stop>
             <a-button
+              v-if="!worktableSheetViews.length && worktableQuotationId && !convertedQuotation && cardFor('quote', worktableQuotationId)?.current_node === 'quoting'"
+              size="small"
+              @click="returnQuoteToCost(worktableQuotationId, '当前成本表')"
+            >
+              退回成本表
+            </a-button>
+            <a-button
               v-if="canSubmitQuote && !worktableSheetViews.length && worktableQuotationId"
               size="small"
               type="primary"
@@ -375,13 +382,6 @@ function openConfigDetail(cfg: CostConfig) {
               @click="emit('convert-cost-to-quotation', worktableQuotationId)"
             >
               {{ convertedQuotation ? '已生成报价草稿' : '转为报价草稿' }}
-            </a-button>
-            <a-button
-              v-if="!worktableSheetViews.length && worktableQuotationId && !convertedQuotation && cardFor('quote', worktableQuotationId)?.current_node === 'quoting'"
-              size="small"
-              @click="returnQuoteToCost(worktableQuotationId, '当前成本表')"
-            >
-              退回成本表
             </a-button>
             <button class="card-chevron" :class="{ collapsed: !upstreamOpen }" type="button" @click.stop="upstreamOpen = !upstreamOpen">
               <UpOutlined />
@@ -398,6 +398,13 @@ function openConfigDetail(cfg: CostConfig) {
               <span class="qw-sheet-title">{{ sheet.sheet_name }}</span>
               <div class="qw-sheet-actions">
               <a-button
+                v-if="!sheet.converted && cardFor('quote', sheet.quotation_id)?.current_node === 'quoting'"
+                size="small"
+                @click="returnQuoteToCost(sheet.quotation_id, sheet.sheet_name)"
+              >
+                退回成本表
+              </a-button>
+              <a-button
                 v-if="sheet.quotation_deleted"
                 size="small"
                 disabled
@@ -412,13 +419,6 @@ function openConfigDetail(cfg: CostConfig) {
                 @click="emit('convert-cost-to-quotation', sheet.quotation_id)"
               >
                 {{ sheet.quotation_exported ? '已正式报价' : (sheet.converted ? '已生成报价草稿' : '转为报价草稿') }}
-              </a-button>
-              <a-button
-                v-if="!sheet.converted && cardFor('quote', sheet.quotation_id)?.current_node === 'quoting'"
-                size="small"
-                @click="returnQuoteToCost(sheet.quotation_id, sheet.sheet_name)"
-              >
-                退回成本表
               </a-button>
               <span v-if="sheet.quotation_deleted" class="qw-delete-link" @click="emit('delete-cost-sheet', sheet.sheet_id)">删除成本表</span>
               </div>
@@ -774,7 +774,7 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .card-shell-eyebrow {
   display: block;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   letter-spacing: 0.08em;
   color: var(--cpq-text-muted);
   white-space: nowrap;
@@ -821,7 +821,7 @@ function openConfigDetail(cfg: CostConfig) {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
 }
@@ -859,7 +859,7 @@ function openConfigDetail(cfg: CostConfig) {
   background: var(--cpq-overlay-w4);
 }
 .qw-summary small { display: block; color: var(--cpq-text-muted); font-size: 10px; margin-bottom: 3px; }
-.qw-summary b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-primary); font-size: 12px; }
+.qw-summary b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); }
 .qw-sheet-block { border-bottom: 1px solid var(--cpq-glass-border); }
 .qw-sheet-block:last-child { border-bottom: none; }
 .qw-sheet-head {
@@ -872,20 +872,20 @@ function openConfigDetail(cfg: CostConfig) {
   display: flex; align-items: center; gap: 8px; flex-shrink: 0;
 }
 .qw-delete-link {
-  color: var(--cpq-color-danger, #ff4d4f); font-size: 12px; cursor: pointer; white-space: nowrap;
+  color: var(--cpq-color-danger, #ff4d4f); font-size: var(--cpq-font-size-sm); cursor: pointer; white-space: nowrap;
 }
 .qw-delete-link:hover { text-decoration: underline; }
 .qw-sheet-title {
   font-size: 13px; font-weight: 600; color: var(--cpq-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.qw-cost-table { width: calc(100% - 26px); margin: 12px 13px; border-collapse: collapse; font-size: 12px; }
+.qw-cost-table { width: calc(100% - 26px); margin: 12px 13px; border-collapse: collapse; font-size: var(--cpq-font-size-sm); }
 .qw-cost-table th, .qw-cost-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
 .qw-cost-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
 .qw-config-row { cursor: pointer; }
 .qw-config-row:hover { background: var(--cpq-overlay-w4); }
 .qw-total-row td { background: var(--cpq-overlay-w4); color: var(--cpq-text-secondary); font-weight: 600; }
-.panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: 12px; }
+.panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 .qw-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .qw-batch { padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border); }
 
@@ -924,7 +924,7 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .qw-approval-assignee {
   flex-basis: 100%;         /* 责任人/等待信息独占一行（窄屏不与按钮抢位） */
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .qw-approval-item :deep(.ant-btn) {
@@ -941,11 +941,11 @@ function openConfigDetail(cfg: CostConfig) {
 }
 .qw-approval-margin {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .qw-transfer-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.6;
   color: var(--cpq-text-muted);
 }
@@ -953,7 +953,7 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-send-modal { display: flex; flex-direction: column; gap: 14px; }
 .qw-send-tip { margin: 0; color: var(--cpq-text-muted); font-size: 13px; line-height: 1.6; }
 .qw-send-field { display: flex; flex-direction: column; gap: 7px; }
-.qw-send-field label { color: var(--cpq-text-primary); font-size: 12px; font-weight: 600; }
+.qw-send-field label { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); font-weight: 600; }
 .qw-send-actions { display: flex; justify-content: flex-end; gap: 8px; }
 .qw-detail-grid {
   display: grid;
@@ -968,10 +968,10 @@ function openConfigDetail(cfg: CostConfig) {
   background: var(--cpq-overlay-w4);
 }
 .qw-detail-grid small { display: block; color: var(--cpq-text-muted); font-size: 10px; margin-bottom: 3px; }
-.qw-detail-grid b { color: var(--cpq-text-primary); font-size: 12px; }
-.qw-detail-desc { margin: 0 0 12px; color: var(--cpq-text-secondary); font-size: 12px; line-height: 1.6; }
+.qw-detail-grid b { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); }
+.qw-detail-desc { margin: 0 0 12px; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); line-height: 1.6; }
 .qw-detail h4 { margin: 12px 0 6px; color: var(--cpq-text-primary); font-size: 13px; }
-.qw-detail-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.qw-detail-table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-sm); }
 .qw-detail-table th, .qw-detail-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
 .qw-detail-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
 
@@ -1026,7 +1026,7 @@ function openConfigDetail(cfg: CostConfig) {
   }
   .qw-shell-actions .ant-btn {
     padding: 0 8px;
-    font-size: 11px;
+    font-size: var(--cpq-font-size-xs);
   }
   .qw-actions > .attachment-upload-btn {
     display: flex;

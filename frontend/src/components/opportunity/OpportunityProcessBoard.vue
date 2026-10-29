@@ -792,6 +792,7 @@ async function submitDraft() {
     try {
       const res = await doSubmit(assigneeName)
       message.success(`需求单 v${res.requirement.version} 已提交，流程进入 BOM 环节`)
+      detailOpen.value = false
       editing.value = false
       basicEditing.value = false
       activeRequirementVersion.value = null
@@ -1224,6 +1225,7 @@ defineExpose({ reload: loadBoard })
             :approvals="board?.approvals || []"
             :flow="board?.flow || null"
             :opportunity="board?.opportunity || null"
+            @changed="loadBoard"
           />
         </section>
       </aside>
@@ -1281,6 +1283,7 @@ defineExpose({ reload: loadBoard })
             :approvals="board?.approvals || []"
             :flow="board?.flow || null"
             :opportunity="board?.opportunity || null"
+            @changed="loadBoard"
           />
         </div>
       </a-drawer>

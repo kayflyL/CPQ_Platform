@@ -584,6 +584,7 @@ _DEFAULT_PERMISSIONS = [
     {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.costing", "name": "编辑/提交成本核算", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.return.costing", "name": "退回成本核算", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.flow.reassign", "name": "改派流程处理人（任意环节指派/转交）", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.approve.pricing", "name": "报价外发审批（裁决外发许可）", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "field.quote.price", "name": "价格字段可见（整机/配件单价）", "group": "field", "module": "商机线索 · 报价工作台"},
     {"key": "field.quote.export_internal", "name": "导出对内版（含成本/利润率）", "group": "field", "module": "商机线索 · 报价工作台"},

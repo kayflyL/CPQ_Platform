@@ -3045,7 +3045,8 @@ class PortalAssignBody(BaseModel):
 
 
 def _can_assign_portal_task(user: dict, flow: dict, node_key: str) -> bool:
-    if _portal_is_admin(user):
+    # 改派权=可配置键（用户与权限页可授予任意角色），admin/全量页持有着兜底
+    if _portal_is_admin(user) or user_has_permission(user, "action.flow.reassign"):
         return True
     if (flow.get("current_node") or "") != node_key:
         return False
