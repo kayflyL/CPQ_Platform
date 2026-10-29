@@ -1,0 +1,232 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>AI办公室管理 · Skill Studio · 需求分析</title><style>
+:root{--bg:#101217;--bg2:#161a21;--panel:rgba(255,255,255,.04);--panel2:rgba(255,255,255,.06);--edge:rgba(255,255,255,.10);--edge2:rgba(255,255,255,.15);--txt:#E8ECEF;--muted:#6E7582;--blue:#1677FF;--blue2:#4096ff;--gold:#F4D28A;--green:#52C9A0;--purple:#a855f7;--orange:#fa8c16;--cyan:#36CFCF;--r:12px;}
+*{box-sizing:border-box}html,body{margin:0;height:100%}body{background:var(--bg);color:var(--txt);font:13px/1.5 -apple-system,'Segoe UI',Roboto,'Microsoft YaHei',sans-serif;overflow:hidden}
+.app{display:flex;flex-direction:column;height:100vh}
+.topbar{display:flex;align-items:center;gap:18px;height:48px;padding:0 16px;border-bottom:1px solid var(--edge);flex:none}
+.brand{display:flex;align-items:center;gap:8px;font-weight:600;font-size:14px;white-space:nowrap}
+.brand .logo{width:20px;height:20px;border-radius:5px;background:linear-gradient(135deg,var(--blue),var(--purple))}
+.tabs{display:flex;gap:2px;flex:1;align-items:center}
+.tab{display:flex;align-items:center;gap:6px;padding:6px 12px;font-size:13px;color:var(--muted);border-radius:8px;white-space:nowrap}
+.tab .ic{font-size:14px}
+.tab.on{color:var(--txt);background:var(--panel2);box-shadow:inset 0 -2px 0 var(--blue)}
+.tab.on .ic{color:var(--blue)}
+.close{color:var(--muted);font-size:13px;padding:5px 12px;border:1px solid var(--edge);border-radius:8px;cursor:pointer;white-space:nowrap}.subbar{display:flex;align-items:center;gap:10px;height:44px;padding:0 16px;border-bottom:1px solid var(--edge);flex:none}
+.subbar .back{display:flex;align-items:center;gap:6px;color:var(--blue);font-size:13px;cursor:pointer;white-space:nowrap}
+.subbar h1{font-size:16px;font-weight:600;margin:0;white-space:nowrap}
+.rf-canvas{flex:1;display:flex;flex-direction:column;gap:8px;min-height:0;padding:10px 12px 12px}
+.rf-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none}
+.rf-tip{color:var(--muted);font-size:12px}
+.rf-actions{display:flex;align-items:center;gap:10px}
+.btn{display:flex;align-items:center;gap:5px;padding:4px 10px;font-size:12px;color:var(--txt);background:var(--panel);border:1px solid var(--edge);border-radius:8px;cursor:pointer}
+.btn:disabled{color:var(--muted);cursor:default}
+.rf-version{font-size:12px;color:var(--muted)}
+.main-content{flex:1;display:flex;min-height:0;gap:10px}
+.left-panel{width:240px;flex:0 0 240px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+.panel-title{display:flex;align-items:center;gap:7px;padding:12px 14px 6px;font-size:13px;font-weight:600}
+.panel-title .anticon{color:var(--blue)}
+.palette-search{background:var(--bg2);border:1px solid var(--edge);border-radius:8px;color:var(--muted);font-size:12px;padding:6px 10px;margin:4px 12px 8px}
+.node-palette{padding:0 8px 10px;overflow:auto}
+.node-group{margin-bottom:6px}
+.node-group-name{font-size:11px;color:var(--muted);padding:6px 6px 3px;cursor:pointer}
+.node-item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:8px;border:1px solid transparent;border-left:2px solid transparent;cursor:grab}
+.node-item:hover{background:rgba(22,119,255,.05);border-left-color:var(--blue)}
+.ni-chip{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;font-size:14px;flex:0 0 26px}
+.ni--gray{background:rgba(255,255,255,.08);color:#8b94a7}
+.ni--blue{background:rgba(22,119,255,.10);color:var(--blue)}
+.ni--purple{background:rgba(168,85,247,.12);color:var(--purple)}
+.ni--green{background:rgba(82,201,160,.15);color:var(--green)}
+.ni--orange{background:rgba(250,140,22,.12);color:var(--orange)}
+.ni--cyan{background:rgba(54,207,207,.15);color:var(--cyan)}
+.node-item-body{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.node-item-title{font-size:13px;font-weight:600;line-height:1.4}
+.node-item-desc{font-size:11px;color:var(--muted);line-height:1.45}
+.node-item-count{font-size:11px;color:var(--blue);background:rgba(22,119,255,.10);border-radius:9px;padding:1px 7px}
+.rf-legend{display:flex;gap:18px;padding:6px 2px 8px;font-size:11px;color:var(--muted)}
+.rf-leg-item{display:flex;align-items:center;gap:6px}
+.rf-leg-dot{width:9px;height:9px;border-radius:50%;display:inline-block}
+.rf-edge--ai{background:var(--blue)}
+.rf-edge--local{background:var(--gold)}
+.rf-edge--shared{background:var(--muted)}
+.center-panel{flex:1;display:flex;flex-direction:column;min-width:0;background:var(--bg);border:1px solid var(--edge);border-radius:var(--r);overflow:hidden}
+.canvas-frame{flex:1;position:relative;overflow:auto;background:radial-gradient(rgba(127,127,127,.18) 1px,transparent 1px);background-size:20px 20px}
+.node-card{position:absolute;width:196px;background:var(--bg2);border:1px solid var(--edge);border-left:2px solid var(--blue);border-radius:10px;padding:9px 11px;box-shadow:0 2px 8px rgba(0,0,0,.25)}
+.node-card.rule{border-left-color:var(--green)}
+.node-card.assemble{border-left-color:var(--green)}
+.node-card.output{border-left-color:var(--muted)}
+.nc-head{display:flex;align-items:center;gap:7px}
+.nc-ic{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:13px;flex:0 0 22px}
+.nc-name{font-size:13px;font-weight:600;line-height:1.3;flex:1}
+.nc-kind{font-size:10px;color:var(--muted);border:1px solid var(--edge);border-radius:6px;padding:1px 6px;white-space:nowrap}
+.nc-desc{font-size:11px;color:var(--muted);line-height:1.45;margin-top:6px}
+.nc-src{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+.nc-src span{font-size:10px;color:var(--blue2);background:rgba(22,119,255,.08);border-radius:6px;padding:1px 6px}
+.nc-src.rule span{color:var(--green);background:rgba(82,201,160,.10)}
+.nc-src.gray span{color:var(--muted);background:var(--panel)}
+.edge-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.edge-svg line{stroke-width:1.6;stroke-dasharray:5 4}
+.edge-svg .e-ai{stroke:var(--blue)}
+.edge-svg .e-rule{stroke:var(--gold)}
+.edge-svg .e-shared{stroke:var(--muted)}
+.flow-tools{position:absolute;left:10px;bottom:10px;display:flex;gap:4px;background:var(--panel);border:1px solid var(--edge);border-radius:8px;padding:3px}
+.ft{width:26px;height:24px;display:grid;place-items:center;color:var(--muted);border-radius:6px;cursor:pointer;font-size:13px}
+.ft:hover{background:var(--panel2);color:var(--txt)}
+.right-panel{width:380px;flex:0 0 380px;background:var(--panel);border:1px solid var(--edge);border-radius:var(--r);display:flex;flex-direction:column;overflow:hidden}
+.apx-head{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--edge)}
+.av{width:30px;height:30px;border-radius:8px;background:var(--blue);color:#fff;display:grid;place-items:center;font-size:13px;font-weight:600;flex:0 0 30px}
+.role-name{font-size:13px;font-weight:600}
+.role-name .dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:5px}
+.role-sub{font-size:11px;color:var(--muted);margin-top:1px}
+.apx-badge{margin-left:auto;font-size:10px;color:var(--muted);border:1px solid var(--edge);border-radius:6px;padding:2px 7px;white-space:nowrap}
+.apx-msgs{flex:1;overflow:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.apx-msg{display:flex;gap:8px}
+.apx-msg .av{width:24px;height:24px;font-size:11px;flex:0 0 24px;background:var(--muted)}
+.apx-msg--user .av{background:var(--blue)}
+.apx-bub{max-width:82%;font-size:12px;line-height:1.5;border-radius:10px;padding:8px 10px;background:var(--bg2);border:1px solid var(--edge)}
+.apx-msg--user .apx-bub{background:rgba(22,119,255,.10);border-color:rgba(22,119,255,.25)}
+.apx-quick{display:flex;gap:6px;flex-wrap:wrap;padding-left:32px}
+.apx-quick span{font-size:11px;color:var(--blue2);border:1px solid rgba(22,119,255,.25);border-radius:14px;padding:3px 10px;cursor:pointer}
+.apx-card{padding:10px 12px;border:1px solid var(--edge);border-radius:10px;background:var(--panel)}
+.lyric{margin-top:8px;background:var(--bg);border:1px solid var(--edge);border-radius:10px;padding:8px 10px}
+.lyric-head{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:600}
+.lyric-head .badge-live{margin-left:auto;font-size:10px;color:var(--green);background:rgba(82,201,160,.12);border-radius:6px;padding:1px 6px}
+.lyric-prog{margin:7px 0 6px}
+.lyric-prog .row{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:4px}
+.lyric-prog .row b{color:var(--txt)}
+.bar{height:6px;border-radius:4px;background:var(--bg2);overflow:hidden}
+.bar i{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--cyan));border-radius:4px}
+.lyric-list{max-height:150px;overflow:auto;font-size:11px}
+.lyric-list::-webkit-scrollbar{width:0;height:0}
+.line{display:flex;align-items:center;gap:6px;padding:3px 0;color:var(--muted)}
+.line .dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px}
+.dot--fill{background:var(--green)}
+.dot--ask{background:var(--orange)}
+.dot--opt{background:var(--muted)}
+.line--fill .st--fill{color:var(--green)}
+.line--ask .st--ask{color:var(--orange)}
+.line--live{color:var(--txt);background:rgba(22,119,255,.08);border-radius:6px;padding:4px 6px}
+.lyric-foot{display:flex;align-items:center;gap:8px;margin-top:7px;font-size:10px;color:var(--muted)}
+.lyric-follow .car{color:var(--blue)}
+.view{margin-left:auto;color:var(--blue2);cursor:pointer;text-decoration:none}
+.apx-card.sep{border-top:none;border-radius:0;border-left:none;border-right:none;border-bottom:1px solid var(--edge);padding:10px 14px;background:var(--panel)}
+.apx-comp{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--edge)}
+.apx-comp input{flex:1;background:var(--bg2);border:1px solid var(--edge);border-radius:8px;color:var(--txt);font-size:12px;padding:8px 10px}
+.apx-comp .send{background:var(--blue);color:#fff;border:none;border-radius:8px;padding:0 16px;font-size:12px;cursor:pointer}
+.apx-note{padding:0 0 10px;text-align:center;font-size:10px;color:var(--muted)}
+</style>
+</head><body><div class="app">
+<div class="topbar">
+  <div class="brand"><span class="logo"></span>AI 办公室管理</div>
+  <div class="tabs">
+    <span class="tab"><span class="ic">👤</span>员工</span>
+    <span class="tab"><span class="ic">👥</span>团队</span>
+    <span class="tab"><span class="ic">🗂</span>空间</span>
+    <span class="tab on"><span class="ic">⚡</span>Skill Studio</span>
+    <span class="tab"><span class="ic">🔌</span>模型与接入</span>
+    <span class="tab"><span class="ic">🔐</span>运行与权限</span>
+  </div>
+  <span class="close">关闭</span>
+</div>
+<div class="subbar"><span class="back">← 返回 Skill Studio</span><h1>需求分析</h1></div>
+<div class="rf-canvas">
+<div class="rf-toolbar">
+  <span class="rf-tip">左侧拖/点添加节点 · 画布连线（点边删线）· 单击节点开配置 · 右栏试运行验证</span>
+  <span class="rf-actions">
+    <span class="btn">↩ 撤销</span><span class="btn">↪ 重做</span>
+    <span class="rf-version">v1 · active</span>
+  </span>
+</div>
+<div class="main-content">
+<aside class="left-panel">
+  <div class="panel-title"><span class="anticon">🔩</span>节点</div>
+  <div class="palette-search">搜索节点（名称/类型/职能）</div>
+  <div class="node-palette">
+    <details class="node-group" open><summary class="node-group-name">输入输出节点</summary>
+      <div class="node-item"><span class="ni-chip ni--gray">📥</span><span class="node-item-body"><span class="node-item-title">输入节点</span><span class="node-item-desc">接收用户输入并注入技能上下文</span></span><span class="node-item-count">1</span></div>
+      <div class="node-item"><span class="ni-chip ni--green">📤</span><span class="node-item-body"><span class="node-item-title">输出节点</span><span class="node-item-desc">生成最终输出</span></span><span class="node-item-count">1</span></div>
+    </details>
+    <details class="node-group" open><summary class="node-group-name">智能体节点</summary>
+      <div class="node-item"><span class="ni-chip ni--blue">🛠</span><span class="node-item-body"><span class="node-item-title">智能体节点</span><span class="node-item-desc">由 LLM 决策并调用工具完成一个子任务</span></span><span class="node-item-count">1</span></div>
+    </details>
+  </div>
+</aside>
+<main class="center-panel">
+<div class="rf-legend">
+  <span class="rf-leg-item"><i class="rf-leg-dot rf-edge--ai"></i>智能体节点<span style="color:var(--muted)">LLM 决策 / 工具调用</span></span>
+  <span class="rf-leg-item"><i class="rf-leg-dot rf-edge--local"></i>规则节点<span style="color:var(--muted)">确定性校验 / 兜底</span></span>
+  <span class="rf-leg-item"><i class="rf-leg-dot rf-edge--shared"></i>输出节点<span style="color:var(--muted)">组装 / 最终产出</span></span>
+</div>
+<div class="canvas-frame"><div class="world">
+  <svg class="edge-svg" viewBox="0 0 760 420">
+    <line x1="226" y1="98" x2="266" y2="98" class="e-ai"/>
+    <line x1="462" y1="98" x2="502" y2="98" class="e-ai"/>
+    <line x1="600" y1="146" x2="600" y2="300" class="e-rule"/>
+    <line x1="502" y1="348" x2="462" y2="348" class="e-rule"/>
+    <line x1="266" y1="348" x2="226" y2="348" class="e-shared"/>
+  </svg>
+  <div class="node-card" style="left:30px;top:50px">
+    <div class="nc-head"><span class="nc-ic ni--gray">📥</span><span class="nc-name">输入节点</span><span class="nc-kind">input</span></div>
+    <div class="nc-desc">接收用户输入并注入技能上下文</div>
+    <div style="display:flex;gap:6px;margin-top:8px;align-items:center"><span style="flex:1;font-size:11px;color:var(--muted);background:var(--bg);border:1px solid var(--edge);border-radius:6px;padding:3px 8px">输入需求…</span><span style="font-size:11px;color:#fff;background:var(--blue);border-radius:6px;padding:3px 11px;cursor:pointer">运行</span></div>
+  </div>
+  <div class="node-card" style="left:266px;top:50px">
+    <div class="nc-head"><span class="nc-ic ni--blue">🛠</span><span class="nc-name">智能对话填表 Agent</span><span class="nc-kind">agent</span></div>
+    <div class="nc-desc">会对话、会查目录/KP，理解+反问合并，边答边填线索登记表</div>
+    <div class="nc-src"><span>工具目录</span><span>数据来源</span></div>
+    <div class="lyric">
+      <div class="lyric-head"><span class="name">线索登记表</span><span class="badge-live">实时</span><span class="lyric-toggle" style="margin-left:6px;color:var(--muted);cursor:pointer" onclick="toggleLyric(this)">▾ 收起</span></div>
+      <div class="lyric-prog"><div class="row"><span><b>9 / 13</b> 已填</span><span>本批 +2</span></div><div class="bar"><i style="width:69%"></i></div></div>
+      <div class="lyric-list ly" style="max-height:86px"><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">服务器类型 · 已填</span></div><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">平台/系列 · 已填</span></div><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">形态 · 已填</span></div><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">数量 · 已填</span></div><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">CPU · 已填</span></div><div class="line line--fill"><span class="dot dot--fill"></span><span class="st">内存 · 已填</span></div><div class="line line--live"><span class="dot dot--ask"></span><span class="st">机型 · 正在问</span></div><div class="line"><span class="dot dot--ask"></span><span class="st">存储 · 待问</span></div><div class="line"><span class="dot dot--ask"></span><span class="st">GPU · 待问</span></div></div>
+      <div class="lyric-foot"><span class="lyric-follow"><span class="car">▾</span>已跟随至「机型」</span><a class="view" href="#" onclick="showTable()">查看全表 →</a></div>
+    </div>
+  </div>
+  <div class="node-card rule" style="left:502px;top:50px">
+    <div class="nc-head"><span class="nc-ic ni--green">🛡</span><span class="nc-name">机型选型</span><span class="nc-kind">model_reason</span></div>
+    <div class="nc-desc">按规则校验/匹配平台系列与形态</div>
+    <div class="nc-src rule"><span>在售机型</span><span>规则目录</span></div>
+  </div>
+<style>.world{position:relative;width:760px;height:460px;margin:12px}</style>
+  <div class="node-card rule" style="left:502px;top:300px">
+    <div class="nc-head"><span class="nc-ic ni--green">🧩</span><span class="nc-name">配件选型</span><span class="nc-kind">kp_reason</span></div>
+    <div class="nc-desc">按规则校验/匹配 CPU·内存·盘·GPU·网卡·RAID</div>
+    <div class="nc-src rule"><span>配件库</span><span>规格规则</span></div>
+  </div>
+  <div class="node-card assemble" style="left:266px;top:300px">
+    <div class="nc-head"><span class="nc-ic ni--green">🧱</span><span class="nc-name">BOM 组装</span><span class="nc-kind">compose</span></div>
+    <div class="nc-desc">把上游结果组装成结构化整机 BOM</div>
+    <div class="nc-src rule"><span>模板</span><span>数据来源</span></div>
+  </div>
+  <div class="node-card output" style="left:30px;top:300px">
+    <div class="nc-head"><span class="nc-ic ni--green">📤</span><span class="nc-name">输出节点</span><span class="nc-kind">output</span></div>
+    <div class="nc-desc">生成最终输出 · 预览不落库</div>
+    <div class="nc-src gray"><span>输出模板</span></div>
+  </div>
+</div>
+<div class="flow-tools"><span class="ft" title="放大">＋</span><span class="ft" title="缩小">−</span><span class="ft" title="抓手">✋</span><span class="ft" title="适配">⤢</span></div>
+</div>
+</main>
+<aside class="right-panel">
+<div class="apx-head"><span class="av">技</span><div><div class="role-name"><span class="dot"></span>技术支持工程师</div><div class="role-sub">requirement_analysis</div></div><span class="apx-badge">测试预览 · 不留存</span></div>
+<div class="apx-msgs">
+  <div class="apx-msg apx-msg--user"><span class="av">你</span><div class="apx-bub">我要 8 台 2U 国产服务器，跑数据库。</div></div>
+  <div class="apx-msg apx-msg--ai"><span class="av">AI</span><div class="apx-bub">正在理解你的需求，先帮你确认几个关键点……</div></div>
+  <div class="apx-quick"><span>Polaris</span><span>Orion</span><span>Intel</span><span>暂不明确</span></div>
+  <div class="apx-msg apx-msg--user"><span class="av">你</span><div class="apx-bub">Polaris</div></div>
+  <div class="apx-msg apx-msg--ai"><span class="av">AI</span><div class="apx-bub">好的，已为你整理出候选机型，并生成 BOM 方案表：</div></div>
+  <div class="apx-card"><div class="apx-meta" style="font-size:12px;font-weight:600;margin-bottom:4px">BOM 方案表 <span style="float:right;color:var(--green);font-size:11px;font-weight:400">已生成</span></div><div style="font-size:11px;color:var(--muted)">AI 方案 · 1 个配置页签 · 通用计算 · 2U</div><a class="view" href="#" style="margin-top:6px;display:inline-block">查看详情 →</a></div>
+</div>
+<div class="apx-comp"><input value="输入需求，点击发送"/><button class="send">发送</button></div>
+<div class="apx-note">测试内容不留存 · 刷新 / 关闭页面即清空</div>
+</aside>
+</div>
+</div>
+</div>
+<script>
+window.toggleLyric=function(elm){var l=elm.closest('.lyric')?elm.closest('.lyric').querySelector('.ly'):null;if(!l)return;var v=l.style.display==='none';l.style.display=v?'':'none';elm.textContent=v?'▾ 收起':'▸ 展开';};
+window.showTable=function(){var m=document.getElementById('rt-mask'),p=document.getElementById('rt-panel');if(m)m.style.display='block';if(p)p.style.display='block';};
+window.hideTable=function(){var m=document.getElementById('rt-mask'),p=document.getElementById('rt-panel');if(m)m.style.display='none';if(p)p.style.display='none';};
+document.querySelectorAll('.lyric-list').forEach(function(list){var live=list.querySelector('.line--live');if(!live)return;list.scrollTop=Math.max(0,live.offsetTop-(list.clientHeight-live.offsetHeight)/2);});
+</script>
+
+<div id="rt-mask" onclick="hideTable()" style="position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:50"></div>
+<div id="rt-panel" style="position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:340px;max-height:72vh;overflow:auto;background:#161a21;border:1px solid rgba(255,255,255,.10);border-radius:12px;padding:14px 16px;display:none;z-index:51;color:var(--txt);box-shadow:0 20px 60px rgba(0,0,0,.5)"><div style="display:flex;align-items:center;gap:8px;margin-bottom:10px"><b style="font-size:13px">线索登记表</b><span style="color:#52C9A0;font-size:11px">9 / 13 已填</span><span style="margin-left:auto;cursor:pointer;color:var(--muted)" onclick="hideTable()">✕ 关闭</span></div><div style="font-size:12px;display:flex;flex-direction:column;gap:3px"><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">服务器类型</span><span style="color:var(--txt)">AI/加速计算服务器</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">平台/系列</span><span style="color:var(--txt)">Orion</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">形态</span><span style="color:var(--txt)">2U</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">数量</span><span style="color:var(--txt)">8</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">预算</span><span style="color:var(--txt)">—</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">CPU</span><span style="color:var(--txt)">EPYC 9654×2</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#52C9A0"></span><span style="flex:1;color:var(--muted)">内存</span><span style="color:var(--txt)">512G DDR5</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#fa8c16"></span><span style="flex:1;color:var(--muted)">机型</span><span style="color:var(--muted)">正在问</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#fa8c16"></span><span style="flex:1;color:var(--muted)">存储</span><span style="color:var(--muted)">待确认</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#fa8c16"></span><span style="flex:1;color:var(--muted)">GPU</span><span style="color:var(--muted)">待确认</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#fa8c16"></span><span style="flex:1;color:var(--muted)">网卡</span><span style="color:var(--muted)">待确认</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#fa8c16"></span><span style="flex:1;color:var(--muted)">RAID</span><span style="color:var(--muted)">待确认</span></div><div style="display:flex;align-items:center;gap:7px;padding:2px 0"><span style="width:7px;height:7px;border-radius:50%;background:#6E7582"></span><span style="flex:1;color:var(--muted)">保修年限</span><span style="color:var(--muted)">可选</span></div></div></div>
+</body></html>

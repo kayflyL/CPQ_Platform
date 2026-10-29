@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>配置页 · 大模型部署适配卡 原型</title>
+<style>
+  :root {
+    --page-bg: #f3f5f9;
+    --card-bg: rgba(255, 255, 255, 0.78);
+    --block-bg: rgba(22, 119, 255, 0.04);
+    --inner-bg: rgba(0, 0, 0, 0.035);
+    --line: rgba(15, 27, 61, 0.1);
+    --line-dash: rgba(15, 27, 61, 0.16);
+    --text: #232c3d;
+    --text-2: #5a6579;
+    --muted: #8a93a6;
+    --accent: #1677ff;
+    --ok: #16a34a;      --ok-bg: rgba(22,163,74,.1);
+    --soft: #d97706;    --soft-bg: rgba(217,119,6,.1);
+    --bad: #dc2626;     --bad-bg: rgba(220,38,38,.1);
+    --shadow: 0 8px 28px rgba(31, 42, 68, 0.1);
+  }
+  [data-theme="dark"] {
+    --page-bg: #0e1420;
+    --card-bg: rgba(22, 28, 44, 0.82);
+    --block-bg: rgba(255, 255, 255, 0.03);
+    --inner-bg: rgba(0, 0, 0, 0.3);
+    --line: rgba(255, 255, 255, 0.1);
+    --line-dash: rgba(255, 255, 255, 0.16);
+    --text: #e8ecef;
+    --text-2: rgba(232, 236, 239, 0.72);
+    --muted: rgba(232, 236, 239, 0.48);
+    --accent: #4d9fff;
+    --ok: #34d399;      --ok-bg: rgba(52,211,153,.12);
+    --soft: #fbbf24;    --soft-bg: rgba(251,191,36,.12);
+    --bad: #f87171;     --bad-bg: rgba(248,113,113,.12);
+    --shadow: 0 14px 40px rgba(0, 0, 0, 0.45);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--page-bg); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: var(--text); display: flex; justify-content: center; padding: 28px 16px 60px; transition: background .3s, color .3s; }
+  .theme-toggle { position: fixed; top: 16px; right: 16px; z-index: 10; padding: 6px 14px; font-size: 12px; cursor: pointer; border: 1px solid var(--line); border-radius: 999px; background: var(--card-bg); color: var(--text-2); }
+  .wrap { width: 380px; display: flex; flex-direction: column; gap: 14px; }
+  .ctx-note { font-size: 11px; color: var(--muted); text-align: center; padding: 4px 0 0; }
+
+  /* ===== 上下文占位：性能雷达 / 电源 / 规则（示意位置用） ===== */
+  .ctx-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px dashed var(--line-dash); border-radius: 18px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; opacity: .55; }
+  .ctx-card b { font-size: 13px; }
+  .ctx-card span { font-size: 11px; color: var(--muted); margin-left: auto; }
+
+  /* ===== 主卡（与配置结果卡同构） ===== */
+  .result-card { background: var(--card-bg); backdrop-filter: blur(16px); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .result-head { display: flex; align-items: baseline; justify-content: space-between; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .result-title { font-size: 15px; font-weight: 700; }
+  .result-sub { font-size: 10.5px; color: var(--muted); }
+
+  /* GPU 现状行：直接读向导 GPU 选件，联动高亮 */
+  .gpu-now { display: flex; align-items: center; gap: 8px; padding: 9px 11px; border-radius: 10px; background: var(--block-bg); border: 1px solid var(--line); font-size: 12px; }
+  .gpu-now b { font-size: 13px; }
+  .gpu-now .mem { margin-left: auto; font-family: Consolas, monospace; font-size: 12px; color: var(--accent); font-weight: 700; }
+  .gpu-now .link { font-size: 11px; color: var(--accent); cursor: pointer; }
+
+  .field-row { display: flex; gap: 8px; }
+  .sel { flex: 1; appearance: none; padding: 7px 26px 7px 10px; font-size: 12px; color: var(--text); background: var(--inner-bg); border: 1px solid var(--line); border-radius: 9px; cursor: pointer; outline: none; }
+  .label { font-size: 11px; color: var(--muted); margin-bottom: -6px; }
+  .chips { display: flex; gap: 6px; }
+  .chip { flex: 1; text-align: center; padding: 6px 0; font-size: 12px; border-radius: 9px; border: 1px solid var(--line); background: var(--inner-bg); color: var(--text-2); cursor: pointer; transition: all .15s; }
+  .chip.on { color: var(--accent); border-color: var(--accent); background: rgba(22,119,255,.08); font-weight: 700; }
+  [data-theme="dark"] .chip.on { background: rgba(77,159,255,.12); }
+
+  /* 门禁横幅：四态 */
+  .gate { border-radius: 12px; padding: 11px 13px; font-size: 13px; font-weight: 700; line-height: 1.5; }
+  .gate small { display: block; font-size: 11px; font-weight: 400; opacity: .8; margin-top: 2px; }
+  .gate.ok   { background: var(--ok-bg);   color: var(--ok); }
+  .gate.soft { background: var(--soft-bg); color: var(--soft); }
+  .gate.bad  { background: var(--bad-bg);  color: var(--bad); }
+
+  /* 显存分解 */
+  .rows { border: 1px solid var(--line); border-radius: 10px; padding: 4px 12px; background: var(--inner-bg); }
+  .row { display: flex; justify-content: space-between; align-items: baseline; padding: 6px 0; border-bottom: 1px dashed var(--line-dash); font-size: 12px; color: var(--text-2); }
+  .row:last-child { border-bottom: 0; }
+  .row b { font-weight: 700; color: var(--text); font-family: Consolas, monospace; font-size: 12px; }
+  .row.sum { font-weight: 700; color: var(--text); }
+  .bar { height: 6px; border-radius: 3px; background: var(--inner-bg); overflow: hidden; display: flex; margin-top: 2px; }
+  .bar i { display: block; height: 100%; }
+
+  /* 上下文档位 */
+  .ctx-chips { display: flex; gap: 5px; }
+  .ctx-chip { flex: 1; text-align: center; padding: 6px 0; font-size: 11px; border-radius: 8px; border: 1px solid var(--line); background: var(--inner-bg); color: var(--muted); }
+  .ctx-chip.fit { color: var(--text-2); }
+  .ctx-chip.best { color: #fff; background: var(--accent); border-color: var(--accent); font-weight: 700; }
+  [data-theme="dark"] .ctx-chip.best { color: #0b1220; }
+
+  .scene-fit { display: flex; align-items: flex-start; gap: 8px; padding: 8px 11px; border-radius: 10px; border: 1px solid var(--line); background: var(--inner-bg); font-size: 12px; color: var(--text-2); }
+  .scene-fit .badge { flex: none; font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.soft { background: var(--soft-bg); color: var(--soft); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .foot { font-size: 10.5px; color: var(--muted); line-height: 1.6; }
+</style>
+</head>
+<body>
+<button class="theme-toggle" onclick="const h=document.documentElement;h.dataset.theme=h.dataset.theme==='dark'?'light':'dark'">亮/暗切换</button>
+<div class="wrap">
+
+  <div class="ctx-note">↓ 位置示意：配置向导右栏，「性能六维雷达」之下、电源/规则之上</div>
+  <div class="ctx-card">📊 <b>性能六维雷达</b><span>既有区块（不动）</span></div>
+
+  <!-- ══════════ 新卡：大模型部署适配 ══════════ -->
+  <div class="result-card">
+    <div class="result-head">
+      <div class="result-title">🧠 大模型部署适配</div>
+      <div class="result-sub">实时 · 随 GPU 选件联动</div>
+    </div>
+
+    <!-- GPU 现状：读向导已选 GPU 卡型×卡数，改卡自动重算 -->
+    <div class="gpu-now">
+      🔹 <b>沐曦 C600 × 8</b>
+      <span class="link">改卡</span>
+      <span class="mem">有效 141.5G/卡</span>
+    </div>
+
+    <div class="label">目标模型（公司 → 模型 两级）</div>
+    <div class="field-row">
+      <select class="sel" id="vendor" onchange="calc()">
+        <option>Qwen</option><option>DeepSeek</option><option>GLM</option><option>Llama</option>
+      </select>
+      <select class="sel" id="model" onchange="calc()">
+        <option value="7">Qwen2.5-7B</option>
+        <option value="70" selected>Qwen2.5-72B</option>
+        <option value="235">Qwen3-235B-A22B (MoE)</option>
+      </select>
+    </div>
+
+    <div class="label">量化精度</div>
+    <div class="chips" id="quantBits">
+      <button class="chip" data-b="4">4bit</button>
+      <button class="chip on" data-b="8">8bit</button>
+      <button class="chip" data-b="16">16bit</button>
+    </div>
+
+    <div class="label">应用场景</div>
+    <select class="sel" id="scene" onchange="calc()">
+      <option value="8192" data-name="聊天对话">聊天对话（8K ctx）</option>
+      <option value="65536" data-name="RAG知识库" selected>RAG 知识库（64K ctx）</option>
+      <option value="131072" data-name="长文档分析">长文档分析（128K ctx）</option>
+    </select>
+
+    <div class="gate ok" id="gate">✅ 可以全 GPU 跑 — 支持 32K+ 上下文<small id="gateSub">最大可全 GPU 上下文 512K · 显存余量充足</small></div>
+
+    <div class="rows">
+      <div class="row"><span>模型权重</span><b id="wWeight">67.1 GB</b></div>
+      <div class="row"><span>KV-cache @ 64K</span><b id="wKv">10.0 GB</b></div>
+      <div class="row"><span>框架 + 系统预留</span><b id="wOver">11.0 GB</b></div>
+      <div class="row sum"><span>总占用 / 总有效显存</span><b id="wSum">77.1 / 1132.0 GB</b></div>
+    </div>
+    <div class="bar" id="bar"></div>
+
+    <div class="label">可全 GPU 运行的上下文档位</div>
+    <div class="ctx-chips" id="ctxChips"></div>
+
+    <div class="scene-fit" id="sceneFit">
+      <span class="badge ok" id="fitBadge">✅ 适配</span>
+      <span id="fitText">RAG知识库：最大上下文 512K ≥ 推荐 64K，速度达标（显存带宽内）</span>
+    </div>
+
+    <div class="foot">估算口径：权重 + KV-cache + 框架开销；未含 prefill 瞬时峰值与大 batch 并发（见帮助）。MoE 按总参数，偏保守。数值可手改。</div>
+  </div>
+
+  <div class="ctx-card">⚡ <b>电源功率</b><span>既有区块（不动）</span></div>
+  <div class="ctx-card">📏 <b>选型规则评估</b><span>既有区块（不动）</span></div>
+  <div class="ctx-note">价格合计 / 生成规格书 ↓（不动）</div>
+</div>
+
+<script>
+// 演示数据：单卡有效显存(GB)。真实现读 KP 料号 spec + 后端 /api/gpu-sizing
+const CARD_MEM = 141.5, CARD_OVERHEAD = 1.5 + 1.0; // 系统预留 + 框架开销(vLLM)
+const KV_PER_TOKEN_PER_BILLION = 2 * (8 * 8192 / 64) * 80 / 8 / 1e9 * 1024 * 1024 * 1024; // GQA 近似示意
+let quantBits = 8;
+document.querySelectorAll('#quantBits .chip').forEach(c => c.onclick = () => {
+  document.querySelectorAll('#quantBits .chip').forEach(x => x.classList.remove('on'));
+  c.classList.add('on'); quantBits = +c.dataset.b; calc();
+});
+
+function calc() {
+  const params = +document.getElementById('model').value;
+  const sceneSel = document.getElementById('scene');
+  const needCtx = +sceneSel.value, sceneName = sceneSel.selectedOptions[0].dataset.name;
+  // 权重：参数量 × bit / 8（系数略）
+  const weight = params * 1e9 * quantBits / 8 / 1024**3;
+  // KV：每 token 开销 ≈ 参数量的比例示意（真实现走 GQA 公式）
+  const kvPerTok = 2 * (8 * 8192 / 64) * 80 * quantBits / 8 / 1024**3;
+  const totalCards = 8, effTotal = (CARD_MEM - CARD_OVERHEAD) * totalCards;
+  const kvAtNeed = kvPerTok * needCtx;
+  const minNeed = weight + kvAtNeed + 0;
+  const maxCtx = Math.max(0, Math.floor((effTotal - weight) / kvPerTok / 1024) * 1024);
+
+  const el = id => document.getElementById(id);
+  el('wWeight').textContent = weight.toFixed(1) + ' GB';
+  el('wKv').textContent = 'KV @ ' + (needCtx/1024) + 'K = ' + kvAtNeed.toFixed(1) + ' GB';
+  el('wOver').textContent = (CARD_OVERHEAD * totalCards).toFixed(1) + ' GB';
+  el('wSum').textContent = minNeed.toFixed(1) + ' / ' + effTotal.toFixed(1) + ' GB';
+
+  const ratio = Math.min(1, minNeed / effTotal);
+  el('bar').innerHTML = `<i style="width:${(weight/effTotal*100).toFixed(1)}%;background:var(--accent)"></i>` +
+    `<i style="width:${(kvAtNeed/effTotal*100).toFixed(1)}%;background:var(--soft)"></i>` +
+    `<i style="width:${(Math.min(1,CARD_OVERHEAD*totalCards/effTotal)*100).toFixed(1)}%;background:var(--muted)"></i>`;
+
+  // 四档门禁
+  const gate = el('gate');
+  gate.className = 'gate';
+  if (minNeed > effTotal) {
+    const needCards = Math.ceil((weight + 4096*kvPerTok + CARD_OVERHEAD) / (CARD_MEM - CARD_OVERHEAD));
+    gate.classList.add('bad');
+    gate.innerHTML = `❌ 跑不起来 — 最小占用超总有效显存<small>至少需 ${needCards} 张沐曦 C500，或降量化 / 换更小模型</small>`;
+  } else if (maxCtx < 4096) {
+    gate.classList.add('soft');
+    gate.innerHTML = `⚠️ 勉强能跑 — 最大上下文不足 4K，体验极差<small>建议降量化或增加卡数</small>`;
+  } else if (maxCtx >= 32768) {
+    gate.classList.add('ok');
+    gate.innerHTML = `✅ 可以全 GPU 跑 — 支持 32K+ 上下文<small>最大可全 GPU 上下文 ${Math.min(512,(maxCtx/1024)|0)}K${maxCtx>=512*1024?'+':''} · 显存余量充足</small>`;
+  } else {
+    gate.classList.add('soft');
+    gate.innerHTML = `⚠️ 可以跑但需降上下文 — 32K 会 offload<small>最大可全 GPU 上下文 ${Math.min(512,(maxCtx/1024)|0)}K${maxCtx>=512*1024?'+':''}，建议用更低档位</small>`;
+  }
+
+  // 上下文档位
+  const tiers = [4, 8, 16, 32, 64, 128];
+  el('ctxChips').innerHTML = tiers.map(t => {
+    const need = kvPerTok * t * 1024 + weight;
+    const cls = need > effTotal ? '' : (t*1024 === maxCtx || (need <= effTotal && t === Math.max(4, Math.floor(maxCtx/1024/32)*32)) ? 'best' : 'fit');
+    return `<div class="ctx-chip ${cls}">${t}K</div>`;
+  }).join('');
+
+  // 场景适配
+  const fit = el('sceneFit'), fb = el('fitBadge');
+  fit.style.display = minNeed > effTotal ? 'none' : 'flex';
+  if (maxCtx >= needCtx) {
+    fb.className = 'badge ok'; fb.textContent = '✅ 适配';
+    el('fitText').textContent = `${sceneName}：最大上下文 ${(maxCtx/1024)|0}K ≥ 推荐 ${needCtx/1024}K，速度达标（显存带宽内）`;
+  } else {
+    fb.className = 'badge soft'; fb.textContent = '⚠️ 上下文不足';
+    el('fitText').textContent = `最大上下文 ${Math.min(512,(maxCtx/1024)|0)}K${maxCtx>=512*1024?'+':''} < ${sceneName}推荐 ${needCtx/1024}K，建议降场景档位或增加显存`;
+  }
+}
+calc();
+</script>
+</body>
+</html>

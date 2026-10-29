@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>产出物模板编辑器 2B 原型 v2 · craft.js 蓝图</title>
+<!--
+  ─────────────────────────────────────────────────────────────────────────────
+  产出物模板编辑器 2B 路线原型 v2（2026-10-03）
+  原型=规格书：本文件是 UI 交互 + 内核契约的双重规格，落地时不许自砍范围。
+
+  v2 按 craft.js.org 演示重做（v1 被用户批"被现有内容限制发挥"）：
+  · 画布 = 成品级报告页（真实文案/渐变图表/涨幅角标/callout），不是骨架占位
+  · 画布操作：hover 出组件标签、选中蓝框+块内右上角浮动工具条、整块可拖拽、
+    右缘拖拽改宽度（吸附 12 列）、标题双击画布上直接改字
+  · 右栏 = 单面板分区滚动（craft.js 式）：未选中→页面主题设置；选中→
+    绑定/内容/版式/样式连续分区；图层常驻底部。无 tab 切换。
+
+  蓝图来源 craft.js.org（Editor / Frame / Canvas / UserComponent）：
+  Kernel.resolver / nodes / actions / query.serialize 与 v1 相同。
+  v3 依 craft.js 源码精读修正（examples/landing + packages/core/events）：
+  · hover/选中共用一条指示条=组件名+操作钮（RenderNode.tsx 模式），贴块左上沿、
+    随悬停移动；选中描边=节点加 class（component-selected 同款）
+  · 拖拽幽灵=块 DOM 克隆 setDragImage（createShadow.ts 同款）
+  · 拖放指示线带 0.18s ease-in 过渡（RenderEditorIndicator transition 同款）
+  · 画布文字=contenteditable 500ms 防抖连续写回（Text/index.tsx 同款）
+  · 右栏分区=可折叠+收起态实时摘要（ToolbarSection Accordion+summary 同款）
+  · 全部左侧竖向彩色装饰条移除（用户铁律：AI 味设计禁用）
+  下游管线：数据槽组件 → echarts SSR → paged.js 分页 → Playwright PDF
+  ─────────────────────────────────────────────────────────────────────────────
+-->
+<style>
+:root{
+  --bg: linear-gradient(160deg,#edf1f8 0%,#f6f8fb 60%,#eef1f7 100%);
+  --glass: rgba(255,255,255,.72);
+  --glass-strong: rgba(255,255,255,.92);
+  --glass-border: rgba(255,255,255,.75);
+  --line: rgba(28,35,48,.08);
+  --ink: #1c2330; --ink-2: #5c6675; --ink-3: #98a1b1;
+  --brand: #1668C0; --brand-deep: #0f56a3; --brand-soft: rgba(22,104,192,.10);
+  --ok: #2f9e63; --warn: #d08700; --danger: #d64550; --violet: #6d5ef0;
+  --r-lg: 16px;
+  --shadow-panel: 0 12px 32px rgba(31,45,70,.10), 0 2px 8px rgba(31,45,70,.06);
+  --shadow-pop: 0 14px 40px rgba(31,45,70,.20), 0 3px 10px rgba(31,45,70,.12);
+}
+*{box-sizing:border-box; margin:0; padding:0}
+html,body{height:100%}
+body{font-family:"PingFang SC","Microsoft YaHei",system-ui,-apple-system,"Segoe UI",sans-serif;
+  color:var(--ink); background:var(--bg); overflow:hidden; font-size:14px}
+button{font:inherit; color:inherit; background:none; border:none; cursor:pointer}
+input,select,textarea{font:inherit; color:var(--ink)}
+::-webkit-scrollbar{width:9px;height:9px}
+::-webkit-scrollbar-thumb{background:rgba(28,35,48,.16);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+.glass{background:var(--glass); backdrop-filter:blur(14px) saturate(1.25); -webkit-backdrop-filter:blur(14px) saturate(1.25);
+  border:1px solid var(--glass-border); box-shadow:var(--shadow-panel)}
+
+/* ───────── 顶栏 ───────── */
+.topbar{height:54px; display:flex; align-items:center; gap:10px; padding:0 14px;
+  border-left:none;border-right:none;border-top:none; position:relative; z-index:40}
+.tb-back{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;color:var(--ink-2)}
+.tb-back:hover{background:rgba(28,35,48,.06)}
+.tb-title{display:flex;align-items:baseline;gap:8px;min-width:0}
+.tb-title input{font-weight:700;font-size:15px;border:1px solid transparent;background:transparent;border-radius:8px;padding:4px 8px;width:190px}
+.tb-title input:hover{border-color:var(--line)}
+.tb-title input:focus{outline:none;border-color:var(--brand);background:#fff}
+.tb-ver{font-size:12px;color:var(--ink-3);white-space:nowrap}
+.tb-chip{font-size:12px;color:var(--ink-2);background:rgba(28,35,48,.05);border:1px solid var(--line);border-radius:999px;padding:3px 10px;white-space:nowrap}
+.tb-spacer{flex:1}
+.btn{display:inline-flex;align-items:center;gap:6px;height:32px;padding:0 12px;border-radius:9px;
+  border:1px solid var(--line);background:var(--glass-strong);color:var(--ink);font-size:13px;white-space:nowrap;transition:all .15s}
+.btn:hover{border-color:rgba(22,104,192,.4);color:var(--brand-deep)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.primary{background:linear-gradient(135deg,var(--brand),#2a7ad2);border-color:transparent;color:#fff;box-shadow:0 4px 12px rgba(22,104,192,.28)}
+.btn.primary:hover{filter:brightness(1.06);color:#fff}
+.btn.ai{background:linear-gradient(135deg,var(--violet),#8b5cf6);border-color:transparent;color:#fff;box-shadow:0 4px 12px rgba(109,94,240,.28)}
+.btn.ai:hover{filter:brightness(1.06);color:#fff}
+.btn.icon{width:32px;padding:0;justify-content:center}
+.btn.icon:disabled{color:var(--ink-3)}
+
+/* ───────── 三栏 ───────── */
+.main{display:flex; height:calc(100% - 54px); gap:12px; padding:12px}
+.palette{width:200px; border-radius:var(--r-lg); display:flex; flex-direction:column; overflow:hidden}
+.canvas-wrap{flex:1; min-width:0; position:relative; border-radius:var(--r-lg); overflow:auto;
+  background:
+    radial-gradient(rgba(28,35,48,.05) 1px, transparent 1px) 0 0/22px 22px,
+    linear-gradient(180deg,rgba(255,255,255,.55),rgba(255,255,255,.2));
+  border:1px solid var(--glass-border); box-shadow:var(--shadow-panel) inset}
+.panel{width:308px; border-radius:var(--r-lg); display:flex; flex-direction:column; overflow:hidden}
+
+/* ───────── 左栏 组件库 ───────── */
+.pal-head{padding:14px 16px 8px; font-size:12px; letter-spacing:.12em; color:var(--ink-3); font-weight:700}
+.pal-list{padding:4px 10px 12px; overflow:auto; flex:1}
+.pal-group{margin:9px 0 4px; font-size:12px; color:var(--ink-2); font-weight:700; padding-left:6px}
+.pal-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:10px;cursor:grab;
+  border:1px solid transparent; transition:all .13s; user-select:none; margin-bottom:2px}
+.pal-item:hover{background:#fff;border-color:rgba(22,104,192,.25);box-shadow:0 3px 10px rgba(31,45,70,.08)}
+.pal-item:active{cursor:grabbing}
+.pal-ico{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:13px;
+  background:var(--brand-soft);color:var(--brand);flex-shrink:0;font-weight:700}
+.pal-item.slot .pal-ico{background:rgba(47,158,99,.10);color:var(--ok)}
+.pal-item.deco .pal-ico{background:rgba(208,135,0,.10);color:var(--warn)}
+.pal-name{font-size:13px;font-weight:600}
+.pal-sub{font-size:11px;color:var(--ink-3);margin-top:1px}
+.pal-tip{margin:auto 14px 14px;padding:10px 12px;border-radius:10px;background:var(--brand-soft);
+  color:var(--brand-deep);font-size:12px;line-height:1.65}
+
+/* ───────── 画布 A4 ───────── */
+.paper-outer{padding:32px 0 60px; display:flex; flex-direction:column; align-items:center}
+.paper{width:794px; min-height:1123px; background:#fff; border-radius:4px;
+  box-shadow:0 18px 50px rgba(31,45,70,.16), 0 2px 8px rgba(31,45,70,.08);
+  padding:56px 60px 64px; position:relative; --pb:var(--brand)}
+.paper-guide{position:absolute; left:24px; right:24px; border-top:1.5px dashed rgba(22,104,192,.35);
+  display:flex; align-items:center; justify-content:center; pointer-events:none; z-index:5}
+.paper-guide span{background:#fff; border:1px solid rgba(22,104,192,.3); color:var(--brand-deep); font-size:11px;
+  border-radius:999px; padding:2px 12px; transform:translateY(-50%)}
+.paper-pageno{position:absolute; bottom:18px; right:28px; font-size:10px; color:var(--ink-3); letter-spacing:.1em}
+.brandline{display:flex; justify-content:space-between; align-items:baseline;
+  border-bottom:2px solid var(--pb); padding-bottom:10px; margin-bottom:22px}
+.brandline .b{font-weight:800; letter-spacing:.28em; color:var(--pb); font-size:13px}
+.brandline .t{font-size:12px; color:var(--ink-3)}
+
+.blocks{display:flex; flex-wrap:wrap; gap:14px; position:relative; min-height:110px}
+
+/* ── 区块：hover / 选中 覆盖层（craft.js 式） ── */
+.blk{position:relative; border-radius:6px; outline:1.5px solid transparent; outline-offset:1px;
+  transition:width .16s ease, outline-color .1s}
+.blk:hover{outline-color:rgba(22,104,192,.42)}
+.blk.sel{outline-color:var(--brand)}
+.ins-line{position:absolute; left:0; right:0; height:0; z-index:30; pointer-events:none; display:none;
+  border-top:3px solid var(--brand); filter:drop-shadow(0 0 6px rgba(22,104,192,.55));
+  transition:top .18s ease-in}
+.ins-line::before{content:""; position:absolute; left:-6px; top:-7.5px; width:12px; height:12px;
+  border-radius:50%; background:var(--brand); box-shadow:0 0 0 5px var(--brand-soft)}
+
+/* ── 选中块右上角浮动工具条（贴块内沿） ── */
+.blk-tools{position:absolute; z-index:60; display:none; align-items:center; gap:1px;
+  background:var(--brand); color:#fff; border-radius:8px; padding:3px 4px; box-shadow:var(--shadow-pop); font-size:12px}
+.blk-tools .nm{font-size:11px; font-weight:700; padding:3px 8px; max-width:180px; white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis; border-right:1px solid rgba(255,255,255,.28); margin-right:2px}
+.blk-tools .grip{cursor:grab; padding:3px 6px; border-radius:6px; color:#cfe2f7}
+.blk-tools .grip:active{cursor:grabbing}
+.blk-tools button{color:#eaf2fc; padding:3px 7px; border-radius:6px; font-size:12px}
+.blk-tools button:hover{background:rgba(255,255,255,.18)}
+.blk-tools button.del:hover{background:rgba(214,69,80,.9)}
+/* 右缘宽度手柄 */
+.rz{position:absolute; z-index:55; top:50%; margin-top:-16px; width:10px; height:32px; display:none;
+  align-items:center; justify-content:center; cursor:ew-resize; color:#fff}
+.rz::before{content:""; width:4.5px; height:26px; border-radius:4px; background:var(--brand);
+  box-shadow:0 0 0 3px rgba(22,104,192,.22)}
+body.resizing *{cursor:ew-resize !important; user-select:none !important}
+
+/* ───────── 报表内容（成品级渲染） ───────── */
+.hero{padding:2px 0 4px}
+.hero h1{font-size:31px; font-weight:900; letter-spacing:.02em; color:var(--ink)}
+.hero .accent{display:inline-block; width:64px; height:5px; border-radius:3px; background:linear-gradient(90deg,var(--pb),#5f93d1); margin:10px 0 10px}
+.hero .meta{display:flex; gap:8px; flex-wrap:wrap}
+.hero .meta span{font-size:11.5px; color:var(--ink-2); background:#f3f6fb; border:1px solid rgba(28,35,48,.07);
+  border-radius:999px; padding:3px 11px}
+.sec-title{display:flex; align-items:baseline; gap:10px; padding:4px 0 2px}
+.sec-title .no{font-size:12px; font-weight:800; color:var(--pb); letter-spacing:.06em}
+.sec-title .tt{font-size:17.5px; font-weight:800; color:var(--ink)}
+.sec-title .rule{flex:1; border-top:1px solid rgba(22,104,192,.25); transform:translateY(-4px)}
+.rpt-text p{font-size:13.5px; line-height:1.95; color:#3a4350; text-align:justify; margin-bottom:6px}
+.rpt-text p:last-child{margin-bottom:0}
+.slot-chip{position:absolute; top:-9px; right:8px; z-index:8; font-size:10px; line-height:1;
+  color:var(--ok); background:rgba(47,158,99,.10); border:1px solid rgba(47,158,99,.3);
+  border-radius:999px; padding:3px 8px; opacity:.75; transition:opacity .12s; pointer-events:none}
+.blk:hover .slot-chip,.blk.sel .slot-chip{opacity:1}
+.kpi-row{display:flex; gap:12px; flex-wrap:wrap}
+.kpi-card{flex:1; min-width:118px; background:linear-gradient(180deg,#f8fafd,#f2f6fb); border:1px solid rgba(28,35,48,.06);
+  border-radius:13px; padding:14px 16px 12px; position:relative; overflow:hidden}
+.kpi-card .k{font-size:11.5px; color:var(--ink-2); display:flex; align-items:center; gap:6px}
+.kpi-card .k i{width:6px; height:6px; border-radius:50%; background:var(--pb); opacity:.7; flex-shrink:0}
+.kpi-card .vrow{display:flex; align-items:baseline; gap:7px; margin-top:4px}
+.kpi-card .v{font-size:25px; font-weight:800; color:#123c6e; font-variant-numeric:tabular-nums}
+.kpi-card .u{font-size:11px; color:var(--ink-3)}
+.kpi-card .delta{position:absolute; right:12px; top:12px; font-size:10.5px; font-weight:700;
+  border-radius:999px; padding:2px 7px}
+.kpi-card .delta.up{color:#1c7c47; background:rgba(47,158,99,.12)}
+.kpi-card .delta.down{color:#b34a53; background:rgba(214,69,80,.10)}
+.rpt-chart{border:1px solid rgba(28,35,48,.07); border-radius:13px; background:linear-gradient(180deg,#fdfefe,#fafcfe);
+  position:relative; overflow:hidden}
+.rpt-chart .cap{position:absolute; left:12px; top:10px; font-size:12px; font-weight:700; color:#414b5c; z-index:2}
+.rpt-chart .legend{position:absolute; right:12px; top:11px; display:flex; gap:9px; z-index:2}
+.rpt-chart .legend i{display:inline-flex; align-items:center; gap:4px; font-size:10px; color:var(--ink-3); font-style:normal}
+.rpt-chart .legend i::before{content:""; width:8px; height:8px; border-radius:3px; background:var(--lc,#1668C0)}
+.rpt-chart svg{display:block; width:100%; height:100%}
+.rpt-table{width:100%; border-collapse:collapse; font-size:12.5px; border-radius:11px; overflow:hidden;
+  border:1px solid rgba(28,35,48,.09)}
+.rpt-table th{background:#F7F8FA; color:#414b5c; font-weight:700; padding:8px 12px; text-align:left; border-bottom:1px solid rgba(28,35,48,.09)}
+.rpt-table td{padding:7px 12px; border-bottom:1px solid rgba(28,35,48,.05); color:#38414f; font-variant-numeric:tabular-nums}
+.rpt-table tbody tr:nth-child(even) td{background:#fbfcfe}
+.rpt-table tr.sum td{font-weight:800; color:#123c6e; background:#f4f8fd; border-top:1.5px solid rgba(22,104,192,.25)}
+.callout{border-radius:12px; padding:13px 16px; display:flex; gap:11px; align-items:flex-start;
+  background:var(--cb,rgba(22,104,192,.06)); border:1px solid var(--cbb,rgba(22,104,192,.18))}
+.callout .ci{font-size:16px; line-height:1.3}
+.callout .ct{font-size:13px; font-weight:800; color:var(--ink); margin-bottom:3px}
+.callout .cd{font-size:12.5px; line-height:1.75; color:#3a4350}
+.rpt-literal{font-size:11.5px; color:var(--ink-2); background:#f7f9fc; border:1px solid rgba(28,35,48,.06);
+  border-radius:10px; padding:10px 14px; line-height:1.7}
+.rpt-image{border:1.5px dashed rgba(28,35,48,.22); border-radius:12px; background:#f6f8fb; display:grid;
+  place-items:center; color:var(--ink-3); font-size:12px; min-height:90px}
+.rpt-divider{border:none; border-top:1px solid rgba(28,35,48,.14); margin:6px 0}
+[contenteditable="true"]{outline:none; border-radius:4px; box-shadow:0 0 0 2px rgba(22,104,192,.28); background:rgba(22,104,192,.04); cursor:text}
+
+/* ───────── 右栏 单面板（craft.js 式分区） ───────── */
+.panel-head{display:flex; align-items:center; gap:9px; padding:13px 16px 11px; border-bottom:1px solid var(--line)}
+.panel-head .pi{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:13px;
+  background:var(--brand-soft);color:var(--brand);font-weight:700}
+.panel-head .pt{flex:1;min-width:0}
+.panel-head .pt .a{font-size:13.5px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.panel-head .pt .b{font-size:11px; color:var(--ink-3)}
+.panel-body{flex:1; overflow:auto; padding:6px 16px 20px}
+.sec{margin-bottom:2px; border-bottom:1px solid var(--line); padding:9px 0 11px}
+.sec:last-child{border-bottom:none}
+.sec>h5{display:flex; align-items:center; gap:7px; font-size:11px; color:var(--brand-deep); letter-spacing:.14em;
+  font-weight:800; margin-bottom:10px; cursor:pointer; user-select:none}
+.sec>h5 .chev{font-size:9px; transition:transform .15s; color:var(--ink-3)}
+.sec.closed>h5 .chev{transform:rotate(-90deg)}
+.sec>h5 .sum{margin-left:auto; font-size:11px; font-weight:600; letter-spacing:0; color:var(--ink-3);
+  max-width:62%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.sec.closed>.sec-body{display:none}
+.row{display:flex; align-items:center; gap:8px; margin-bottom:9px}
+.row label{width:58px; font-size:12.5px; color:var(--ink-2); flex-shrink:0}
+.row .ctl{flex:1; min-width:0}
+.inp,.sel,.txa{width:100%; border:1px solid var(--line); border-radius:8px; padding:6px 9px; font-size:13px; background:#fff}
+.inp:focus,.sel:focus,.txa:focus{outline:none; border-color:var(--brand); box-shadow:0 0 0 3px var(--brand-soft)}
+.txa{resize:vertical; min-height:58px}
+.seg{display:flex; background:rgba(28,35,48,.05); border-radius:8px; padding:2px; gap:2px}
+.seg button{flex:1; padding:5px 4px; border-radius:6px; font-size:12px; color:var(--ink-2)}
+.seg button.on{background:#fff; color:var(--brand-deep); box-shadow:0 1px 4px rgba(31,45,70,.12); font-weight:700}
+.swatches{display:flex; gap:6px}
+.sw{width:22px; height:22px; border-radius:7px; border:2px solid transparent; cursor:pointer}
+.sw.on{border-color:var(--ink)}
+.chk{display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--ink-2); margin-bottom:6px; cursor:pointer}
+.chk input{accent-color:var(--brand)}
+.range-wrap{display:flex; align-items:center; gap:8px}
+.range-wrap input[type=range]{flex:1; accent-color:var(--brand)}
+.range-wrap .rv{font-size:11.5px; color:var(--ink-3); width:30px; text-align:right}
+.note{font-size:11.5px; color:var(--ink-3); background:rgba(28,35,48,.04); border-radius:8px; padding:8px 10px; line-height:1.6}
+.note b{color:var(--ink-2)}
+.hint-empty{color:var(--ink-3); font-size:12.5px; text-align:center; padding:26px 10px 14px; line-height:1.8}
+
+/* 图层（面板底部常驻折叠区） */
+details.layers{border-top:1px solid var(--line); padding:10px 0 4px}
+details.layers>summary{list-style:none; display:flex; align-items:center; gap:7px; cursor:pointer;
+  font-size:11px; color:var(--brand-deep); letter-spacing:.14em; font-weight:800; padding:4px 16px 8px}
+details.layers>summary::-webkit-details-marker{display:none}
+details.layers>summary::before{content:""; width:14px; height:4px; border-radius:2px; background:var(--brand); opacity:.75}
+details.layers>summary .cnt{margin-left:auto; font-size:10.5px; color:var(--ink-3); letter-spacing:0}
+.layerlist{padding:0 10px 10px; max-height:220px; overflow:auto}
+.layer{display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:9px; cursor:pointer;
+  border:1px solid transparent; margin-bottom:2px}
+.layer:hover{background:#fff}
+.layer.on{background:#fff; border-color:rgba(22,104,192,.35); box-shadow:0 2px 8px rgba(31,45,70,.08)}
+.layer .li{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font-size:11px;flex-shrink:0;background:var(--brand-soft);color:var(--brand);font-weight:700}
+.layer.slot .li{background:rgba(47,158,99,.10);color:var(--ok)}
+.layer .ln{flex:1; min-width:0}
+.layer .ln .a{font-size:12px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.layer .ln .b{font-size:10.5px; color:var(--ink-3); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.layer .sp{font-size:10px; color:var(--ink-3)}
+
+/* ───────── 抽屉 / 弹窗 / toast ───────── */
+.overlay{position:fixed; inset:0; background:rgba(23,32,48,.36); backdrop-filter:blur(3px); z-index:90; display:none}
+.overlay.show{display:block}
+.drawer{position:fixed; top:0; right:-400px; width:380px; height:100%; z-index:95; transition:right .28s cubic-bezier(.2,.8,.25,1);
+  display:flex; flex-direction:column; border-radius:0}
+.drawer.show{right:0}
+.drawer-head{display:flex; align-items:center; justify-content:space-between; padding:16px 18px 10px}
+.drawer-head h4{font-size:15px}
+.drawer-body{flex:1; overflow:auto; padding:6px 18px 20px}
+.preset-card{border:1px solid var(--line); border-radius:14px; overflow:hidden; margin-bottom:14px; cursor:pointer;
+  background:#fff; transition:all .15s}
+.preset-card:hover{border-color:rgba(22,104,192,.45); box-shadow:0 8px 24px rgba(31,45,70,.14); transform:translateY(-1px)}
+.preset-thumb{height:112px; background:linear-gradient(180deg,#fdfefe,#f3f6fa); padding:12px 16px; position:relative}
+.preset-meta{padding:10px 14px 12px}
+.preset-meta .n{font-weight:700; font-size:13.5px}
+.preset-meta .d{font-size:11.5px; color:var(--ink-3); margin-top:3px; line-height:1.5}
+.preset-tag{position:absolute; top:10px; right:10px; font-size:10.5px; background:var(--brand); color:#fff;
+  border-radius:999px; padding:2px 9px}
+.modal{position:fixed; inset:0; z-index:96; display:none; place-items:center}
+.modal.show{display:grid}
+.modal-card{width:470px; max-width:92vw; border-radius:18px; padding:20px 22px; max-height:84vh; overflow:auto}
+.modal-card h4{font-size:15px; margin-bottom:4px}
+.modal-card .sub{font-size:12.5px; color:var(--ink-2); margin-bottom:14px}
+.ai-step{display:flex; gap:10px; padding:9px 0; align-items:flex-start; opacity:.28; transition:opacity .3s}
+.ai-step.on{opacity:1}
+.ai-step .dot{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;flex-shrink:0;
+  background:rgba(28,35,48,.07); color:var(--ink-2); font-weight:700; margin-top:1px}
+.ai-step.on .dot{background:var(--brand); color:#fff}
+.ai-step.done .dot{background:var(--ok); color:#fff}
+.ai-step .tx .t{font-size:13px; font-weight:600}
+.ai-step .tx .d{font-size:11.5px; color:var(--ink-3); margin-top:2px; line-height:1.5}
+.modal-json{background:#10151f; color:#c6e3ff; font-family:ui-monospace,Consolas,monospace; font-size:11px;
+  border-radius:12px; padding:12px 14px; overflow:auto; max-height:300px; line-height:1.55; white-space:pre}
+.modal-foot{display:flex; justify-content:flex-end; gap:8px; margin-top:16px}
+#toasts{position:fixed; left:50%; bottom:26px; transform:translateX(-50%); z-index:120; display:flex;
+  flex-direction:column; gap:8px; align-items:center}
+.toast{background:var(--ink); color:#fff; font-size:13px; border-radius:10px; padding:9px 16px;
+  box-shadow:var(--shadow-pop); animation:tin .22s ease}
+@keyframes tin{from{opacity:0; transform:translateY(8px)} to{opacity:1}}
+</style>
+</head>
+<body>
+
+<!-- ═══════════ 顶栏 ═══════════ -->
+<header class="topbar glass">
+  <button class="tb-back" title="返回模板库">←</button>
+  <div class="tb-title">
+    <input id="tplName" value="商机趋势报告模板">
+    <span class="tb-ver">v3 · weekly_opportunity_report</span>
+  </div>
+  <span class="tb-chip" id="pageChip">A4 · 1 页</span>
+  <span class="tb-chip" id="blkChip">0 区块</span>
+  <div class="tb-spacer"></div>
+  <button class="btn" id="btnPreset">▦ 预设模板库</button>
+  <button class="btn ai" id="btnAI">✦ AI 生成</button>
+  <span class="tb-sep" style="width:1px;height:20px;background:var(--line)"></span>
+  <button class="btn icon" id="btnUndo" title="撤销 (Ctrl+Z)" disabled>↶</button>
+  <button class="btn icon" id="btnRedo" title="重做 (Ctrl+Y)" disabled>↷</button>
+  <button class="btn" id="btnJson">{ } 序列化</button>
+  <button class="btn primary" id="btnSave">保存</button>
+</header>
+
+<div class="main">
+  <!-- ═══════════ 左栏 · 组件库 ═══════════ -->
+  <aside class="palette glass">
+    <div class="pal-head">组 件 库</div>
+    <div class="pal-list" id="palList"></div>
+    <div class="pal-tip">拖到画布任意位置插入。<br>绿色 = <b>数据槽</b>（渲染时由工作流产出填充，画布上显示示例内容）</div>
+  </aside>
+
+  <!-- ═══════════ 中央 · A4 画布 ═══════════ -->
+  <section class="canvas-wrap" id="canvasArea">
+    <div class="paper-outer">
+      <div class="paper" id="paper">
+        <div class="brandline"><span class="b" id="brandText">霄擎 XIAOQING</span><span class="t" id="brandMeta">AI 办公室 · 工作流输出</span></div>
+        <div class="blocks" id="blocks"></div>
+        <div class="ins-line" id="insLine"></div>
+      </div>
+    </div>
+    <!-- 选中/悬停指示条与宽度手柄：必须住画布容器内（absolute 相对画布定位） -->
+    <div class="blk-tools" id="blkTools">
+      <span class="nm" id="toolName"></span>
+      <span class="grip" title="拖拽排序（整块也可直接拖）" draggable="true" id="toolGrip">⠿</span>
+      <button id="toolSpan" title="切换宽度（或拖右缘手柄）">整行</button>
+      <button id="toolDup" title="复制 (Ctrl+D)">⧉</button>
+      <button id="toolUp" title="上移">↑</button>
+      <button id="toolDown" title="下移">↓</button>
+      <button class="del" id="toolDel" title="删除 (Del)">✕</button>
+    </div>
+    <div class="rz" id="rzHandle" title="拖拽调整宽度（吸附 12 列栅格）"></div>
+  </section>
+
+  <!-- ═══════════ 右栏 · 单面板（分区滚动，无 tab） ═══════════ -->
+  <aside class="panel glass">
+    <div class="panel-head" id="panelHead"></div>
+    <div class="panel-body" id="panelBody"></div>
+    <details class="layers" id="layersBox" open>
+      <summary>图 层 <span class="cnt" id="layerCnt"></span></summary>
+      <div class="layerlist" id="layerList"></div>
+    </details>
+  </aside>
+</div>
+
+<!-- 预设库抽屉 -->
+<div class="overlay" id="ovl"></div>
+<aside class="drawer glass" id="drawer">
+  <div class="drawer-head"><h4>预设模板库</h4><button class="tb-back" id="drawerX">✕</button></div>
+  <div class="drawer-body" id="presetBody"></div>
+</aside>
+
+<div class="modal" id="aiModal">
+  <div class="modal-card glass">
+    <h4>✦ AI 生成模板骨架</h4>
+    <div class="sub">按 workflow 目标层契约生成 · 运行时渲染链路保持零 AI</div>
+    <div id="aiSteps"></div>
+    <div class="modal-foot">
+      <button class="btn" id="aiCancel">取消</button>
+      <button class="btn ai" id="aiGo">开始生成</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="jsonModal">
+  <div class="modal-card glass">
+    <h4>Kernel.query.serialize()</h4>
+    <div class="sub">存库即此 JSON（blocks + version+1）；AI 生成与编辑器共用同一 schema</div>
+    <div class="modal-json" id="jsonOut"></div>
+    <div class="modal-foot"><button class="btn primary" id="jsonClose">关闭</button></div>
+  </div>
+</div>
+
+<div id="toasts"></div>
+
+<script>
+"use strict";
+/* ════════════════════════════════════════════════════════════════
+   〇、契约 / 资产 mock（正式版来自 rules.reasoning_node_config + 注册表）
+   ════════════════════════════════════════════════════════════════ */
+const CONTRACT = {
+  workflow: "trend_analysis", docName: "商机趋势分析报告", dataRange: "近 30 天（last_30）",
+  sections: [
+    { key: "weekly",    title: "周数据" },       { key: "monthly",   title: "月数据" },
+    { key: "half_year", title: "半年度商机趋势" }, { key: "platform",  title: "平台格局" },
+    { key: "chassis",   title: "机箱形态" },      { key: "top_sales", title: "半年业务 TOP3" },
+    { key: "insights",  title: "关键洞察" },
+  ],
+};
+const ASSETS = [
+  { id: "cockpit.kpi",              kind: "kpi",   name: "商机关键指标" },
+  { id: "cockpit.trend",            kind: "chart", name: "新增商机趋势" },
+  { id: "cockpit.dist",             kind: "chart", name: "平台结构分布" },
+  { id: "cockpit.model_trend",      kind: "chart", name: "机型趋势（树图）" },
+  { id: "cockpit.chassis_dist",     kind: "chart", name: "机箱结构（玫瑰图）" },
+  { id: "cockpit.sales_rank",       kind: "chart", name: "业务排行" },
+  { id: "cockpit.platform_monthly", kind: "table", name: "月度×平台明细表" },
+];
+const KPI_CATALOG = [
+  { key: "total_opps",    label: "总商机数",     unit: "条", mock: "316",   delta: null },
+  { key: "total_configs", label: "总配置数",     unit: "份", mock: "1,024", delta: null },
+  { key: "new_opps",      label: "周期新增商机", unit: "条", mock: "18",    delta: "↑ 28.6%" },
+  { key: "new_configs",   label: "周期新增配置", unit: "份", mock: "27",    delta: "↑ 12.5%" },
+];
+const SAMPLE_PROSE = {
+  weekly:    "本周新增商机 18 条，环比上升 28.6%，为近八周最高单周水平。其中 Orion 平台贡献 9 条，Polaris 7 条，Intel 平台 2 条。新增配置 27 份，集中在 4U 与 2U 两种形态。",
+  monthly:   "本月累计新增商机 61 条，环比增长 14.2%。周度节奏上，第 2 周为低谷（9 条），月末两周连续回升。GPU 密集型配置占比升至 34%，主要来自推理一体机需求。",
+  half_year: "拉长到半年窗口，商机总量呈稳步爬升态势：从 4 月的 79 条增至 9 月的 96 条，累计增幅 21.5%。Orion 平台占比稳定在 45%~52% 区间，是绝对主力；Polaris 在 7 月后增速明显加快。",
+  platform:  "平台格局上，Orion 以 45% 的半年占比居首，Polaris 38% 次之且与 Orion 的差距持续收窄；Intel 平台占 12%，主要服务于存量客户替换需求；工作站仅 5%，但单商机配置数最高。",
+  chassis:   "机箱形态方面，4U 机型以 47% 的占比保持第一，2U 占 39% 且在密度敏感场景中增长最快；5U 与工作站形态合计 14%。4.5U 与 8U 为少量定制需求。",
+  top_sales: "半年维度看，王晓明以 38 条新增商机居销售榜首，李芸（31 条）、张伟（27 条）分列二三位。前三名合计贡献了 46% 的新增商机，头部集中度较上一周期提升 5 个百分点。",
+  insights:  "综合来看，需求侧的三个信号值得注意：其一，推理一体机相关需求连续三个月上升，建议提前备货 GPU 密集型基准配置；其二，Polaris 平台增速显著，可与产品侧确认下一代机型的排期；其三，头部销售集中度提高，可考虑将标准化方案包下沉给中腰部销售复制。",
+};
+
+/* ════════════════════════════════════════════════════════════════
+   一、Kernel —— craft.js 蓝图（resolver / nodes / actions / query）
+   ════════════════════════════════════════════════════════════════ */
+let seq = 100;
+const uid = () => "n" + (seq++);
+const Kernel = {
+  nodes: [], selection: null, history: [], future: [], freshId: null,
+  resolver: {},   // 类型注册表（正式版=Vue3 useNode 组件）
+  def(type) { return this.resolver[type]; },
+  find(id)  { return this.nodes.find(n => n.id === id) || null; },
+  index(id) { return this.nodes.findIndex(n => n.id === id); },
+  create(type, patch = {}) {
+    const d = this.def(type);
+    return Object.assign({ id: uid(), type, span: d.span || 12, props: {}, style: {} },
+      JSON.parse(JSON.stringify(d.defaults || {})), patch);
+  },
+  actions: {
+    insert(type, index) { const n = Kernel.create(type); Kernel.nodes.splice(index ?? Kernel.nodes.length, 0, n);
+      Kernel.freshId = n.id; Kernel.select(n.id); Kernel.commit(); },
+    move(id, to) { const from = Kernel.index(id); if (from < 0 || to < 0 || from === to) return;
+      const [n] = Kernel.nodes.splice(from, 1); Kernel.nodes.splice(to, 0, n); Kernel.commit(); },
+    remove(id) { Kernel.nodes = Kernel.nodes.filter(n => n.id !== id);
+      if (Kernel.selection === id) Kernel.select(null, true); Kernel.commit(); },
+    duplicate(id) { const i = Kernel.index(id); if (i < 0) return;
+      const c = JSON.parse(JSON.stringify(Kernel.nodes[i])); c.id = uid();
+      Kernel.nodes.splice(i + 1, 0, c); Kernel.freshId = c.id; Kernel.select(c.id); Kernel.commit(); },
+    moveRel(id, dir) { const i = Kernel.index(id), j = i + dir;
+      if (i < 0 || j < 0 || j >= Kernel.nodes.length) return;
+      [Kernel.nodes[i], Kernel.nodes[j]] = [Kernel.nodes[j], Kernel.nodes[i]]; Kernel.commit(); },
+    setProp(id, k, v)   { const n = Kernel.find(id); if (!n) return; n.props[k] = v; Kernel.light(); },
+    setAsset(id, a)     { const n = Kernel.find(id); if (!n) return; n.asset = a; Kernel.light(); },
+    setDays(id, mode, v){ const n = Kernel.find(id); if (!n) return; n.params = n.params || {};
+      n.params.days = mode === "follow" ? null : (v || 30); Kernel.light(); },
+    setSpan(id, s)      { const n = Kernel.find(id); if (!n) return; n.span = s; Kernel.commit(); },
+    setStyle(id, k, v)  { const n = Kernel.find(id); if (!n) return;
+      if (v === "" || v == null) delete n.style[k]; else n.style[k] = v; Kernel.light(); },
+    setText(id, t)      { const n = Kernel.find(id); if (!n) return; n.text = t; Kernel.light(); },
+  },
+  select(id, skipRender) { Kernel.selection = id; if (!skipRender) { renderBlocks(); renderPanel(); } },
+  query: { serialize() { return JSON.stringify({ blocks: Kernel.nodes }, null, 1); } },
+  commit() { this.history.push(JSON.stringify(this.nodes)); if (this.history.length > 60) this.history.shift();
+    this.future = []; this.paint(); updateHistoryBtns(); },
+  light()  { this.paint(); },
+  paint()  { renderBlocks(); renderLayerList(); updateMeta(); placeTools(); },
+  undo() { if (!this.history.length) return; this.future.push(JSON.stringify(this.nodes));
+    this.nodes = JSON.parse(this.history.pop()); Kernel.select(null, true); this.paint(); renderPanel(); updateHistoryBtns(); },
+  redo() { if (!this.future.length) return; this.history.push(JSON.stringify(this.nodes));
+    this.nodes = JSON.parse(this.future.pop()); Kernel.select(null, true); this.paint(); renderPanel(); updateHistoryBtns(); },
+};
+
+/* ════════════════════════════════════════════════════════════════
+   二、渲染器（UserComponent：成品级内容）
+   ════════════════════════════════════════════════════════════════ */
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const secTitle = k => (CONTRACT.sections.find(s => s.key === k) || {}).title || k;
+const assetName = id => (ASSETS.find(a => a.id === id) || {}).name || id || "未选资产";
+const daysText = n => (n.params && n.params.days) ? `固定 ${n.params.days} 天` : "跟随数据范围";
+
+function chartSVG(kind) {
+  const gid = "g" + Math.random().toString(36).slice(2, 7);
+  const defs = `<defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="#1668C0" stop-opacity=".30"/><stop offset="1" stop-color="#1668C0" stop-opacity=".02"/></linearGradient></defs>`;
+  if (kind === "dist" || kind === "chassis_dist") {
+    return `<svg viewBox="0 0 320 150">${defs}
+      <circle cx="160" cy="78" r="52" fill="none" stroke="#dfe8f4" stroke-width="22"/>
+      <circle cx="160" cy="78" r="52" fill="none" stroke="#1668C0" stroke-width="22" stroke-dasharray="147 327" transform="rotate(-90 160 78)" stroke-linecap="round"/>
+      <circle cx="160" cy="78" r="52" fill="none" stroke="#5fa16f" stroke-width="22" stroke-dasharray="124 327" stroke-dashoffset="-151" transform="rotate(-90 160 78)" stroke-linecap="round"/>
+      <circle cx="160" cy="78" r="52" fill="none" stroke="#d0a23c" stroke-width="22" stroke-dasharray="39 327" stroke-dashoffset="-279" transform="rotate(-90 160 78)" stroke-linecap="round"/>
+      <text x="160" y="74" text-anchor="middle" font-size="20" font-weight="800" fill="#123c6e">135</text>
+      <text x="160" y="92" text-anchor="middle" font-size="10" fill="#98a1b1">有平台标注</text></svg>`;
+  }
+  if (kind === "sales_rank") {
+    const rows = [["王晓明", 38, "#1668C0"], ["李芸", 31, "#3f83d6"], ["张伟", 27, "#6ea3e0"], ["其他 11 人", 62, "#c9d8ec"]];
+    return `<svg viewBox="0 0 320 150">${rows.map((r, i) =>
+      `<text x="8" y="${26 + i * 32}" font-size="11" fill="#5c6675">${r[0]}</text>
+       <rect x="72" y="${16 + i * 32}" width="${r[1] * 3.4}" height="15" rx="7.5" fill="${r[2]}"/>
+       <text x="${78 + r[1] * 3.4}" y="${28 + i * 32}" font-size="10.5" font-weight="700" fill="#414b5c">${r[1]}</text>`).join("")}</svg>`;
+  }
+  const bars = [42, 35, 46, 30, 38, 52, 61, 55, 68, 74, 82, 96];
+  const line = bars.map((v, i) => `${18 + i * 24},${132 - v * 0.95}`).join(" ");
+  return `<svg viewBox="0 0 320 150">${defs}
+    ${bars.map((v, i) => `<rect x="${10 + i * 24}" y="${132 - v * 0.95}" width="13" height="${v * 0.95}" rx="4" fill="#c9d8ec" opacity=".6"/>`).join("")}
+    <polyline points="${line}" fill="none" stroke="#1668C0" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <polygon points="18,132 ${line} 294,132" fill="url(#${gid})" stroke="none"/>
+    ${bars.map((v, i) => i % 3 === 0 ? `<circle cx="${18 + i * 24}" cy="${132 - v * 0.95}" r="3" fill="#1668C0"/>` : "").join("")}</svg>`;
+}
+
+const RENDER = {
+  heading(n) {
+    if (n.props.level === "big") {
+      return `<div class="rpt hero"><h1 data-edit>${esc(n.text)}</h1><span class="accent"></span>
+        <div class="meta"><span>📊 数据范围 · 2026.09.03 ~ 2026.10.02</span><span>⚙ 近 30 天（契约指定）</span><span>🗂 trend_analysis</span></div></div>`;
+    }
+    const no = n.props.no || "";
+    return `<div class="rpt"><div class="sec-title"><span class="no">${esc(no)}</span><span class="tt" data-edit>${esc(n.text)}</span><span class="rule"></span></div></div>`;
+  },
+  text(n) {
+    const k = n.props.key;
+    if (!k) return `<div class="rpt" style="position:relative"><span class="slot-chip">未绑定</span>
+      <div style="border:1.5px dashed rgba(208,135,0,.5); border-radius:11px; padding:20px 18px; text-align:center;
+      color:var(--warn); font-size:12.5px; background:rgba(208,135,0,.04)">章节文本槽 · 在右侧「绑定」选择章节键<br>渲染时填入 AI 答复对应章节</div></div>`;
+    return `<div class="rpt" style="position:relative"><span class="slot-chip">payload.${esc(k)}</span>
+      <div class="rpt-text"><p>${esc(SAMPLE_PROSE[k] || "（示例内容）渲染时此段 = AI 答复的「" + secTitle(k) + "」章节。")}</p></div></div>`;
+  },
+  literal(n) { return `<div class="rpt rpt-literal" data-edit>${esc(n.text)}</div>`; },
+  kpi(n) {
+    const ms = (n.metrics && n.metrics.length ? n.metrics : KPI_CATALOG.map(m => m.key));
+    const cards = KPI_CATALOG.filter(m => ms.includes(m.key)).map(m =>
+      `<div class="kpi-card"><div class="k"><i></i>${esc(m.label)}</div>
+       ${m.delta ? `<span class="delta up">${m.delta}</span>` : ""}
+       <div class="vrow"><span class="v">${m.mock}</span><span class="u">${m.unit}</span></div></div>`).join("");
+    return `<div class="rpt" style="position:relative"><span class="slot-chip">{kpi:${esc(n.asset)}} · ${esc(daysText(n))}</span><div class="kpi-row">${cards}</div></div>`;
+  },
+  chart(n) {
+    const kind = (n.asset || "").split(".")[1] || "trend";
+    const h = n.style.chartH || 210;
+    const legend = kind === "trend" ? `<span class="legend" style="--lc:#1668C0"><i>新增</i><i style="--lc:#c9d8ec">配置</i></span>` : "";
+    return `<div class="rpt" style="position:relative"><span class="slot-chip">{chart:${esc(n.asset)} · ${esc(daysText(n))}}</span>
+      <div class="rpt-chart" style="height:${h}px"><span class="cap">${esc(assetName(n.asset))}</span>${legend}${chartSVG(kind)}</div></div>`;
+  },
+  table(n) {
+    const rows = [["2026.04", "23", "17", "2", "42"], ["2026.05", "21", "15", "3", "39"], ["2026.06", "26", "19", "1", "46"],
+                  ["2026.07", "24", "21", "2", "47"], ["合计", "96", "68", "8", "172"]]
+      .map((r, i) => `<tr class="${i === 4 ? "sum" : ""}">${r.map(c => `<td>${c}</td>`).join("")}</tr>`).join("");
+    return `<div class="rpt" style="position:relative"><span class="slot-chip">{table:${esc(n.asset)} · ${esc(daysText(n))}</span>
+      <table class="rpt-table"><thead><tr><th>月份</th><th>Orion</th><th>Polaris</th><th>Intel</th><th>合计</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  },
+  callout(n) {
+    const tones = {
+      blue:  { bg: "rgba(22,104,192,.06)",  bb: "rgba(22,104,192,.20)",  i: "var(--brand)" },
+      green: { bg: "rgba(47,158,99,.07)",   bb: "rgba(47,158,99,.22)",   i: "#2f9e63" },
+      amber: { bg: "rgba(208,135,0,.06)",   bb: "rgba(208,135,0,.22)",   i: "#d08700" },
+    };
+    const t = tones[n.props.tone || "blue"];
+    return `<div class="rpt"><div class="callout" style="--cb:${t.bg};--cbb:${t.bb};--cbi:${t.i}">
+      <span class="ci">${{ blue: "💡", green: "✅", amber: "⚠️" }[n.props.tone || "blue"]}</span>
+      <span><div class="ct" data-edit>${esc(n.props.title || "提示")}</div><div class="cd">${esc(n.text)}</div></span></div></div>`;
+  },
+  image()  { return `<div class="rpt"><div class="rpt-image">🖼 图片槽 · 资产管理器选图（正式版接上传）</div></div>`; },
+  divider(){ return `<div class="rpt"><hr class="rpt-divider"></div>`; },
+};
+
+/* ════════════════════════════════════════════════════════════════
+   三、组件注册表 + 预设
+   ════════════════════════════════════════════════════════════════ */
+Kernel.resolver = {
+  heading: { label: "标题",     sub: "大标题 / 小节题",       ico: "T",  group: "基础",   defaults: { text: "小节标题", props: { level: "sec", no: "01" } } },
+  callout: { label: "提示卡",   sub: "洞察 / 口径 / 风险",    ico: "❝",  group: "基础",   defaults: { text: "示例：GPU 密集型需求连续三月上升。", props: { tone: "blue", title: "洞察" } } },
+  literal: { label: "固定文案", sub: "口径说明等静态文字",    ico: "✎",  group: "基础",   defaults: { text: "口径说明：本文数据范围由报告配置指定，图表与文字同源。" } },
+  text:    { label: "章节文本槽", sub: "AI 答复按契约章节填入", ico: "¶", group: "数据槽", slot: true, defaults: { props: { key: "" } } },
+  kpi:     { label: "KPI 指标槽", sub: "指标原子勾选组合",     ico: "◧",  group: "数据槽", slot: true, defaults: { asset: "cockpit.kpi", metrics: ["total_opps", "total_configs", "new_opps", "new_configs"], params: { days: null } } },
+  chart:   { label: "图表槽",   sub: "引用资产注册表",        ico: "▲",  group: "数据槽", slot: true, defaults: { asset: "cockpit.trend", params: { days: null } } },
+  table:   { label: "表格槽",   sub: "引用资产注册表",        ico: "▦",  group: "数据槽", slot: true, defaults: { asset: "cockpit.platform_monthly", params: { days: null } } },
+  image:   { label: "图片",     sub: "资产管理器",            ico: "🖼", group: "媒体",   deco: true, defaults: {} },
+  divider: { label: "分割线",   sub: "版式",                  ico: "—",  group: "版式",   deco: true, defaults: {} },
+};
+
+function presetStandard() {
+  const S = CONTRACT.sections.map(s => s.key);
+  return [
+    Kernel.create("heading", { span: 12, text: "商机趋势分析报告", props: { level: "big" } }),
+    Kernel.create("kpi",     { span: 12 }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.trend" }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.dist" }),
+    Kernel.create("text",    { span: 12, props: { key: S[0] } }),
+    Kernel.create("text",    { span: 12, props: { key: S[1] } }),
+    Kernel.create("heading", { span: 12, text: "半年度商机趋势", props: { level: "sec", no: "03" } }),
+    Kernel.create("text",    { span: 12, props: { key: S[2] } }),
+    Kernel.create("table",   { span: 12, asset: "cockpit.platform_monthly", params: { days: 183 } }),
+    Kernel.create("heading", { span: 12, text: "平台格局", props: { level: "sec", no: "04" } }),
+    Kernel.create("text",    { span: 12, props: { key: S[3] } }),
+    Kernel.create("heading", { span: 12, text: "机箱形态", props: { level: "sec", no: "05" } }),
+    Kernel.create("text",    { span: 12, props: { key: S[4] } }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.chassis_dist", params: { days: 183 } }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.sales_rank" }),
+    Kernel.create("text",    { span: 12, props: { key: S[5] } }),
+    Kernel.create("callout", { span: 12, props: { tone: "blue", title: "关键洞察" }, text: SAMPLE_PROSE.insights }),
+  ];
+}
+function presetWeekly() {
+  return [
+    Kernel.create("heading", { span: 12, text: "本周商机速览", props: { level: "big" } }),
+    Kernel.create("kpi",     { span: 12, metrics: ["new_opps", "new_configs"] }),
+    Kernel.create("text",    { span: 12, props: { key: "weekly" } }),
+    Kernel.create("chart",   { span: 12, asset: "cockpit.trend" }),
+    Kernel.create("callout", { span: 12, props: { tone: "amber", title: "注意" }, text: "GPU 密集型需求已连续三周上升，建议提前核对推理一体机基准配置库存。" }),
+  ];
+}
+function presetCockpit() {
+  return [
+    Kernel.create("heading", { span: 12, text: "商机数据驾驶舱", props: { level: "big" } }),
+    Kernel.create("kpi",     { span: 12 }),
+    Kernel.create("chart",   { span: 12, asset: "cockpit.model_trend" }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.chassis_dist" }),
+    Kernel.create("chart",   { span: 6, asset: "cockpit.sales_rank" }),
+    Kernel.create("table",   { span: 12, asset: "cockpit.platform_monthly" }),
+    Kernel.create("text",    { span: 12, props: { key: "insights" } }),
+  ];
+}
+function thumbStd()  { return `<div class="preset-thumb"><span class="preset-tag">17 区块</span>
+  <div style="height:8px;width:46%;background:#1668C0;border-radius:4px;opacity:.85"></div>
+  <div style="display:flex;gap:6px;margin-top:9px">${'<div style="flex:1;height:26px;background:#eef3fa;border-radius:6px"></div>'.repeat(4)}</div>
+  <div style="display:flex;gap:6px;margin-top:7px"><div style="flex:1;height:36px;background:#dfe8f4;border-radius:6px"></div><div style="flex:1;height:36px;background:#dfe8f4;border-radius:6px"></div></div>
+  <div style="height:5px;width:84%;background:#e6ebf2;border-radius:3px;margin-top:9px"></div>
+  <div style="height:5px;width:62%;background:#e6ebf2;border-radius:3px;margin-top:5px"></div></div>`; }
+function thumbWk()   { return `<div class="preset-thumb"><span class="preset-tag" style="background:#2f9e63">5 区块</span>
+  <div style="height:8px;width:38%;background:#1668C0;border-radius:4px;opacity:.85"></div>
+  <div style="display:flex;gap:6px;margin-top:9px"><div style="flex:1;height:30px;background:#eef3fa;border-radius:6px"></div><div style="flex:1;height:30px;background:#eef3fa;border-radius:6px"></div></div>
+  <div style="height:38px;background:#dfe8f4;border-radius:6px;margin-top:7px"></div></div>`; }
+function thumbPit()  { return `<div class="preset-thumb"><span class="preset-tag" style="background:#6d5ef0">7 区块</span>
+  <div style="height:8px;width:52%;background:#1668C0;border-radius:4px;opacity:.85"></div>
+  <div style="display:flex;gap:6px;margin-top:9px">${'<div style="flex:1;height:24px;background:#eef3fa;border-radius:6px"></div>'.repeat(4)}</div>
+  <div style="height:42px;background:#dfe8f4;border-radius:6px;margin-top:8px"></div>
+  <div style="display:flex;gap:6px;margin-top:6px"><div style="flex:1;height:24px;background:#dfe8f4;border-radius:6px"></div><div style="flex:1;height:24px;background:#dfe8f4;border-radius:6px"></div></div></div>`; }
+const PRESETS = [
+  { name: "house · 标准趋势报告", tag: "当前", desc: "17 区块 · 七章契约对齐 · 小节题+编号 · 半年表 + 玫瑰/排行并排 + 洞察卡", build: presetStandard, thumb: thumbStd() },
+  { name: "极简周报", tag: "轻量", desc: "5 区块 · KPI 双卡 + 周数据 + 趋势图 + 注意卡", build: presetWeekly, thumb: thumbWk() },
+  { name: "图表驾驶舱", tag: "重图", desc: "7 区块 · 树图整行 + 玫瑰/排行半行 + 明细表", build: presetCockpit, thumb: thumbPit() },
+];
+
+/* ════════════════════════════════════════════════════════════════
+   四、DOM 渲染
+   ════════════════════════════════════════════════════════════════ */
+const $ = s => document.querySelector(s);
+const blocksEl = $("#blocks");
+
+function renderPalette() {
+  const groups = {};
+  Object.entries(Kernel.resolver).forEach(([type, d]) => { (groups[d.group] ||= []).push({ type, ...d }); });
+  $("#palList").innerHTML = Object.entries(groups).map(([g, items]) =>
+    `<div class="pal-group">${g}</div>` + items.map(d => `
+      <div class="pal-item ${d.slot ? "slot" : (d.deco ? "deco" : "")}" draggable="true" data-type="${d.type}">
+        <span class="pal-ico">${d.ico}</span><span><div class="pal-name">${d.label}</div><div class="pal-sub">${d.sub}</div></span>
+      </div>`).join("")).join("");
+  $("#palList").querySelectorAll(".pal-item").forEach(el => {
+    el.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", "new:" + el.dataset.type); e.dataTransfer.effectAllowed = "copy"; });
+    el.addEventListener("click", () => Kernel.actions.insert(el.dataset.type));
+  });
+}
+
+function nodeLabel(n) {
+  const d = Kernel.def(n.type);
+  if (n.type === "text") return n.props.key ? `章节槽 · ${secTitle(n.props.key)}` : "章节槽 · 未绑定";
+  if (n.asset) return `${d.label} · ${assetName(n.asset)}`;
+  return d.label;
+}
+function spanW(n) { return n.span === 12 ? "100%" : `calc(${n.span}/12*100% - 7px)`; }
+function styleAttr(n) {
+  const s = n.style, out = [];
+  if (s.fontSize) out.push(`font-size:${s.fontSize}px`);
+  if (s.lineHeight) out.push(`line-height:${s.lineHeight}`);
+  if (s.color) out.push(`color:${s.color}`);
+  if (s.textAlign) out.push(`text-align:${s.textAlign}`);
+  if (s.card) out.push("background:#fbfcfe;border:1px solid rgba(28,35,48,.07);border-radius:" + (s.radius || 12) + "px;padding:14px 16px;box-shadow:0 2px 10px rgba(31,45,70,.05)");
+  return out.join(";");
+}
+
+function renderBlocks() {
+  blocksEl.innerHTML = Kernel.nodes.map(n => {
+    const body = (RENDER[n.type] || (() => "?"))(n);
+    const st = styleAttr(n);
+    return `<div class="blk ${Kernel.selection === n.id ? "sel" : ""} ${Kernel.freshId === n.id ? "fresh" : ""}" data-id="${n.id}"
+      draggable="true" data-label="${esc(nodeLabel(n))}"
+      style="width:${spanW(n)};${st ? ";" + st : ""}">${body}</div>`;
+  }).join("");
+  Kernel.freshId = null;
+  blocksEl.querySelectorAll(".blk").forEach(el => {
+    el.addEventListener("click", e => { e.stopPropagation(); if (!draggedJustNow) Kernel.select(el.dataset.id); });
+    el.addEventListener("dragstart", e => {
+      if (e.target.closest("[data-edit]")) { e.preventDefault(); return; }   // 内联编辑中不拖
+      e.dataTransfer.setData("text/plain", "move:" + el.dataset.id); e.dataTransfer.effectAllowed = "move";
+      dragSrcId = el.dataset.id;
+      const ghost = el.cloneNode(true);   // craft.js createShadow：拖拽幽灵=块克隆
+      ghost.style.position = "absolute"; ghost.style.left = "-9999px"; ghost.style.top = "-9999px";
+      ghost.style.width = el.offsetWidth + "px";
+      document.body.appendChild(ghost);
+      e.dataTransfer.setDragImage(ghost, 24, 24);
+      setTimeout(() => ghost.remove(), 0);
+    });
+    el.addEventListener("dragend", () => { setTimeout(() => { draggedJustNow = false; }, 30); });
+  });
+  blocksEl.querySelectorAll("[data-edit]").forEach(el => {
+    el.setAttribute("contenteditable", "true");
+    let deb = null;
+    el.addEventListener("input", () => {           // craft.js Text：500ms 防抖连续写回
+      const id = el.closest(".blk").dataset.id;
+      clearTimeout(deb);
+      deb = setTimeout(() => {
+        const n = Kernel.find(id);
+        if (n && n.text !== el.innerText.trim()) { n.text = el.innerText.trim(); Kernel.light(); }
+      }, 500);
+    });
+    el.addEventListener("blur", () => {
+      clearTimeout(deb);
+      const id = el.closest(".blk").dataset.id;
+      const n = Kernel.find(id);
+      if (n && n.text !== el.innerText.trim()) { n.text = el.innerText.trim(); Kernel.commit(); }
+    });
+    el.addEventListener("keydown", e => { if (e.key === "Escape") el.blur(); if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); el.blur(); } });
+  });
+  updateMeta(); placeTools();
+}
+let dragSrcId = null, draggedJustNow = false, hoverId = null;
+
+function updateMeta() {
+  $("#blkChip").textContent = Kernel.nodes.length + " 区块";
+  const pages = Math.max(1, Math.ceil(blocksEl.scrollHeight / 1123));
+  $("#pageChip").textContent = `A4 · ${pages} 页`;
+  const paper = $("#paper");
+  paper.querySelectorAll(".paper-guide,.paper-pageno").forEach(e => e.remove());
+  const top = blocksEl.getBoundingClientRect().top - paper.getBoundingClientRect().top;
+  for (let i = 1; i < pages; i++) {
+    const g = document.createElement("div");
+    g.className = "paper-guide"; g.style.top = (top + i * 1123 - 32) + "px";
+    g.innerHTML = `<span>— 第 ${i} 页止 · ${i} / ${pages} —</span>`;
+    paper.appendChild(g);
+  }
+  const pn = document.createElement("div");
+  pn.className = "paper-pageno"; pn.textContent = `XIAOQING · ${pages} 页`;
+  paper.appendChild(pn);
+}
+
+function placeTools() {
+  const t = $("#blkTools"), rz = $("#rzHandle");
+  const id = hoverId || Kernel.selection;
+  const n = id && Kernel.find(id);
+  if (!n) { t.style.display = "none"; rz.style.display = "none"; return; }
+  const el = blocksEl.querySelector(`[data-id="${n.id}"]`);
+  if (!el) { t.style.display = "none"; rz.style.display = "none"; return; }
+  const wrap = $("#canvasArea").getBoundingClientRect(), r = el.getBoundingClientRect();
+  const sx = $("#canvasArea").scrollLeft, sy = $("#canvasArea").scrollTop;
+  t.style.display = "flex";
+  t.style.top = Math.max(2, r.top - wrap.top + sy - 25) + "px";
+  t.style.left = Math.max(2, r.left - wrap.left + sx) + "px";
+  $("#toolName").textContent = nodeLabel(n);
+  $("#toolSpan").textContent = { 12: "整行", 8: "2/3", 6: "半行", 4: "1/3" }[n.span] || "整行";
+  if (Kernel.selection === n.id) {
+    rz.style.display = "flex";
+    rz.style.left = (r.right - wrap.left + sx - 5) + "px";
+    rz.style.top = (r.top - wrap.top + sy + r.height / 2 - 16) + "px";
+  } else rz.style.display = "none";
+}
+
+/* ── 右栏：单面板分区（craft.js 式） ── */
+function secHTML(title, inner, summary) {
+  return `<div class="sec"><h5><span class="chev">▾</span>${title}<span class="sum">${summary || ""}</span></h5><div class="sec-body">${inner}</div></div>`;
+}
+function segRow(label, act, cur, opts) {
+  return `<div class="row"><label>${label}</label><div class="ctl seg" data-act="${act}">
+    ${opts.map(([v, t]) => `<button class="${cur === v ? "on" : ""}" data-v="${v}">${t}</button>`).join("")}</div></div>`;
+}
+const SPAN_OPTS = [[12, "整行"], [8, "2/3"], [6, "半行"], [4, "1/3"]];
+
+function renderPanel() {
+  const n = Kernel.selection && Kernel.find(Kernel.selection);
+  const head = $("#panelHead"), body = $("#panelBody");
+  if (!n) {
+    head.innerHTML = `<span class="pi">▤</span><span class="pt"><div class="a">页面设置</div><div class="b">未选中区块 · 模板级样式</div></span>`;
+    body.innerHTML =
+      secHTML("主题", `
+        <div class="row"><label>品牌色</label><div class="ctl swatches" data-page="accent">
+          ${[["#1668C0", "品牌蓝"], ["#0e8a80", "青"], ["#6d5ef0", "紫"], ["#2f9e63", "绿"]].map(([v, t]) =>
+            `<span class="sw ${($("#paper").style.getPropertyValue("--pb") || "#1668C0") === v ? "on" : ""}" title="${t}" data-v="${v}" style="background:${v}"></span>`).join("")}
+        </div></div>
+        <div class="row"><label>抬头</label><div class="ctl"><input class="inp" data-page="brandText" value="${esc($("#brandText").textContent)}"></div></div>
+        <div class="row"><label>眉注</label><div class="ctl"><input class="inp" data-page="brandMeta" value="${esc($("#brandMeta").textContent)}"></div></div>
+        <div class="note">正式版此处为模板级主题 token（字体/表头/卡片样式），house 为默认可重置。</div>`) +
+      secHTML("数据范围", `
+        <div class="row"><label>范围</label><div class="ctl"><select class="sel"><option>近 30 天（当前契约）</option><option>近 90 天</option><option>近半年</option><option>自定义</option></select></div></div>
+        <div class="note">画布上「跟随数据范围」的图表/表格渲染时取此处窗口；固定 N 天的区块不受影响。</div>`);
+    body.querySelectorAll(".sw").forEach(w => w.addEventListener("click", () => {
+      $("#paper").style.setProperty("--pb", w.dataset.v); renderPanel();
+    }));
+    body.querySelectorAll("[data-page]").forEach(el => el.addEventListener("input", () => {
+      if (el.dataset.page === "brandText") $("#brandText").textContent = el.value;
+      if (el.dataset.page === "brandMeta") $("#brandMeta").textContent = el.value;
+    }));
+    body.querySelectorAll(".sec>h5").forEach(h => h.addEventListener("click", () => h.parentElement.classList.toggle("closed")));
+    return;
+  }
+  const d = Kernel.def(n.type);
+  head.innerHTML = `<span class="pi">${d.ico}</span><span class="pt"><div class="a">${esc(nodeLabel(n))}</div>
+    <div class="b">${esc(d.sub)} · ${n.span === 12 ? "整行" : "跨 " + n.span + " 列"}</div></span>`;
+  let html = "";
+  html += secHTML("版式", segRow("宽度", "span", n.span, SPAN_OPTS), { 12: "整行", 8: "2/3", 6: "半行", 4: "1/3" }[n.span]);
+  if (n.type === "heading") {
+    html += secHTML("内容", segRow("层级", "level", n.props.level || "sec", [["sec", "小节题"], ["big", "大标题"]]) +
+      `<div class="row"><label>文本</label><div class="ctl"><input class="inp" data-act="text" value="${esc(n.text)}"></div></div>` +
+      (n.props.level !== "big" ? `<div class="row"><label>编号</label><div class="ctl"><input class="inp" data-act="no" value="${esc(n.props.no || "")}" placeholder="01"></div></div>` : "") +
+      `<div class="note">画布上可直接双击/单击文字改字（inline editing）。</div>`, n.props.level === "big" ? "大标题" : "小节题" + (n.props.no ? " · " + n.props.no : ""));
+  }
+  if (n.type === "text") {
+    html += secHTML("绑定", `
+      <div class="row"><label>章节键</label><div class="ctl"><select class="sel" data-act="bindKey">
+        <option value="">（未绑定）</option>
+        ${CONTRACT.sections.map(s => `<option value="${s.key}" ${n.props.key === s.key ? "selected" : ""}>${esc(s.title)}（${s.key}）</option>`).join("")}
+      </select></div></div>
+      <div class="note">章节键来自 workflow 契约（<b>${esc(CONTRACT.docName)}</b>）。画布上的文字为示例内容，渲染时 = AI 答复对应章节；对账不匹配在输出节点黄灯。</div>`, n.props.key ? esc(secTitle(n.props.key)) : "未绑定");
+  }
+  if (n.type === "literal") html += secHTML("内容", `<div class="row"><label>文案</label><div class="ctl"><textarea class="txa" data-act="text">${esc(n.text)}</textarea></div></div>`, (n.text || "").slice(0, 10));
+  if (n.type === "callout") html += secHTML("内容", `
+      <div class="row"><label>色调</label><div class="ctl seg" data-act="tone">
+        ${[["blue", "蓝"], ["green", "绿"], ["amber", "琥珀"]].map(([v, t]) => `<button class="${(n.props.tone || "blue") === v ? "on" : ""}" data-v="${v}">${t}</button>`).join("")}</div></div>
+      <div class="row"><label>标题</label><div class="ctl"><input class="inp" data-act="title" value="${esc(n.props.title || "")}"></div></div>
+      <div class="row"><label>正文</label><div class="ctl"><textarea class="txa" data-act="text">${esc(n.text)}</textarea></div></div>`, { blue: "蓝", green: "绿", amber: "琥珀" }[n.props.tone || "blue"]);
+  if (n.type === "kpi") html += secHTML("指标构成", KPI_CATALOG.map(m =>
+    `<label class="chk"><input type="checkbox" data-act="metric" data-v="${m.key}" ${(n.metrics || []).includes(m.key) ? "checked" : ""}> ${m.label}（${m.key}）</label>`).join(""), (n.metrics || []).length + " 项");
+  if ((n.type === "chart" || n.type === "table")) html += secHTML("资产", `
+      <div class="row"><label>资产</label><div class="ctl"><select class="sel" data-act="asset">
+        ${ASSETS.filter(a => a.kind === (n.type === "table" ? "table" : "chart")).map(a =>
+          `<option value="${a.id}" ${n.asset === a.id ? "selected" : ""}>${esc(a.name)}</option>`).join("")}
+      </select></div></div>`, esc(assetName(n.asset)));
+  if (n.type === "kpi" || n.type === "chart" || n.type === "table") {
+    html += secHTML("统计窗口", `
+      <div class="seg" data-act="daysMode">
+        <button class="${!n.params?.days ? "on" : ""}" data-v="follow">跟随数据范围</button>
+        <button class="${n.params?.days ? "on" : ""}" data-v="fixed">固定 N 天</button></div>
+      ${n.params?.days
+        ? `<div class="row" style="margin-top:9px"><label>天数</label><div class="ctl"><input class="inp" type="number" min="1" max="730" data-act="daysVal" value="${n.params.days}"></div></div>
+           <div class="note" style="margin-top:8px">固定窗口不受报告数据范围影响（如半年章节 183 天）。</div>`
+        : `<div class="note" style="margin-top:9px">渲染时由文档卡「数据范围」（${esc(CONTRACT.dataRange)}）推入 days。</div>`}`, esc(daysText(n)));
+  }
+  html += secHTML("样式", `
+    <div class="row"><label>字号</label><div class="ctl range-wrap"><input type="range" min="11" max="30" data-s="fontSize" value="${n.style.fontSize || 14}"><span class="rv">${n.style.fontSize || 14}</span></div></div>
+    <div class="row"><label>行高</label><div class="ctl range-wrap"><input type="range" min="12" max="24" data-s="lineHeight" value="${Math.round((n.style.lineHeight || 1.9) * 10)}"><span class="rv">${(n.style.lineHeight || 1.9).toFixed(1)}</span></div></div>
+    <div class="row"><label>颜色</label><div class="ctl swatches" data-swatch>
+      ${[["", "默认"], ["#1668C0", "品牌蓝"], ["#38414f", "墨灰"], ["#2f9e63", "绿"], ["#d64550", "红"]].map(([v, t]) =>
+        `<span class="sw ${((n.style.color || "") === v) ? "on" : ""}" title="${t}" data-v="${v}" style="background:${v || "#eef1f6"}"></span>`).join("")}</div></div>
+    <div class="row"><label>对齐</label><div class="ctl seg" data-act="align">
+      ${["left", "center", "right"].map(a => `<button class="${(n.style.textAlign || "left") === a ? "on" : ""}" data-v="${a}">${{ left: "左", center: "中", right: "右" }[a]}</button>`).join("")}</div></div>
+    <label class="chk"><input type="checkbox" data-act="card" ${n.style.card ? "checked" : ""}> 显示为卡片（底/边/阴影）</label>`, (n.style.fontSize || 14) + "px · " + (n.style.card ? "卡片" : "默认"));
+  body.innerHTML = html;
+  wirePanel(body, n);
+}
+
+function wirePanel(body, n) {
+  body.querySelectorAll(".sec>h5").forEach(h => h.addEventListener("click", () => h.parentElement.classList.toggle("closed")));
+  body.querySelectorAll(".seg[data-act]").forEach(seg => seg.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    const act = seg.dataset.act, v = isNaN(+b.dataset.v) ? b.dataset.v : +b.dataset.v;
+    if (act === "span") Kernel.actions.setSpan(n.id, v);
+    else if (act === "level") { n.props.level = v; Kernel.light(); renderPanel(); }
+    else if (act === "tone") { n.props.tone = v; Kernel.light(); renderPanel(); }
+    else if (act === "align") Kernel.actions.setStyle(n.id, "textAlign", v);
+    else if (act === "daysMode") { Kernel.actions.setDays(n.id, v, v === "follow" ? null : (n.params?.days || 30)); renderPanel(); }
+  })));
+  body.querySelectorAll("[data-act='text'],[data-act='title'],[data-act='no']").forEach(el => {
+    el.addEventListener("input", () => {
+      if (el.dataset.act === "text") { n.text = el.value; Kernel.light(); }
+      if (el.dataset.act === "title") { n.props.title = el.value; Kernel.light(); }
+      if (el.dataset.act === "no") { n.props.no = el.value; Kernel.light(); }
+      renderBlocks();
+    });
+  });
+  const bindKey = body.querySelector("[data-act='bindKey']");
+  if (bindKey) bindKey.addEventListener("change", () => { Kernel.actions.setProp(n.id, "key", bindKey.value); renderPanel(); });
+  const asset = body.querySelector("[data-act='asset']");
+  if (asset) asset.addEventListener("change", () => { Kernel.actions.setAsset(n.id, asset.value); renderPanel(); });
+  const daysVal = body.querySelector("[data-act='daysVal']");
+  if (daysVal) daysVal.addEventListener("input", () => Kernel.actions.setDays(n.id, "fixed", +daysVal.value));
+  body.querySelectorAll("[data-act='metric']").forEach(c => c.addEventListener("change", () => {
+    const set = new Set(n.metrics || []); c.checked ? set.add(c.dataset.v) : set.delete(c.dataset.v);
+    n.metrics = [...set]; Kernel.light();
+  }));
+  const card = body.querySelector("[data-act='card']");
+  if (card) card.addEventListener("change", () => Kernel.actions.setStyle(n.id, "card", card.checked));
+  body.querySelectorAll("input[type=range][data-s]").forEach(r => r.addEventListener("input", () => {
+    let v = +r.value; if (r.dataset.s === "lineHeight") v = v / 10;
+    r.parentElement.querySelector(".rv").textContent = r.dataset.s === "lineHeight" ? v.toFixed(1) : v;
+    Kernel.actions.setStyle(n.id, r.dataset.s, v);
+  }));
+  body.querySelectorAll("[data-swatch] .sw").forEach(w => w.addEventListener("click", () => {
+    Kernel.actions.setStyle(n.id, "color", w.dataset.v || ""); renderPanel();
+  }));
+}
+
+/* ── 图层（面板底部） ── */
+function renderLayerList() {
+  const box = $("#layerList");
+  $("#layerCnt").textContent = Kernel.nodes.length + " 区块";
+  box.innerHTML = Kernel.nodes.length ? Kernel.nodes.map(n => {
+    const d = Kernel.def(n.type);
+    return `<div class="layer ${d.slot ? "slot" : ""} ${Kernel.selection === n.id ? "on" : ""}" data-id="${n.id}">
+      <span class="li">${d.ico}</span>
+      <span class="ln"><div class="a">${esc(d.label)}</div><div class="b">${esc(nodeLabel(n))}</div></span>
+      <span class="sp">${{ 12: "整行", 8: "2/3", 6: "半行", 4: "1/3" }[n.span]}</span></div>`;
+  }).join("") : `<div class="hint-empty">画布为空 · 从左侧拖入组件</div>`;
+  box.querySelectorAll(".layer").forEach(el => el.addEventListener("click", () => { Kernel.select(el.dataset.id); placeTools(); }));
+}
+
+/* ════════════════════════════════════════════════════════════════
+   五、画布拖放（整块可拖 + palette 插入 + 指示线） / 右缘改宽
+   ════════════════════════════════════════════════════════════════ */
+let dragCtx = null;
+function insertionIndex(clientY) {
+  const els = [...blocksEl.querySelectorAll(".blk")];
+  for (let i = 0; i < els.length; i++) {
+    const r = els[i].getBoundingClientRect();
+    if (clientY < r.top + r.height / 2) return i;
+  }
+  return els.length;
+}
+function showInsLine(idx) {
+  const els = blocksEl.querySelectorAll(".blk"), line = $("#insLine");
+  const cRect = blocksEl.getBoundingClientRect();
+  let y;
+  if (!els.length) y = 8;
+  else if (idx >= els.length) { const r = els[els.length - 1].getBoundingClientRect(); y = r.bottom - cRect.top + 7; }
+  else { const r = els[idx].getBoundingClientRect(); y = r.top - cRect.top - 7; }
+  line.style.display = "block"; line.style.top = y + "px";
+}
+$("#canvasArea").addEventListener("dragover", e => {
+  if (!e.dataTransfer.types.includes("text/plain")) return;
+  e.preventDefault();
+  dragCtx = { idx: insertionIndex(e.clientY) };
+  showInsLine(dragCtx.idx);
+});
+$("#canvasArea").addEventListener("dragleave", e => { if (e.target.id === "canvasArea" || e.target.id === "paper") $("#insLine").style.display = "none"; });
+$("#canvasArea").addEventListener("drop", e => {
+  e.preventDefault(); $("#insLine").style.display = "none";
+  const data = e.dataTransfer.getData("text/plain"); if (!dragCtx) return;
+  const idx = dragCtx.idx; dragCtx = null; draggedJustNow = true; setTimeout(() => draggedJustNow = false, 80);
+  if (data.startsWith("new:")) Kernel.actions.insert(data.slice(4), idx);
+  else if (data.startsWith("move:")) {
+    const id = data.slice(5), from = Kernel.index(id);
+    let to = idx; if (from > -1 && from < idx) to = idx - 1;
+    if (from !== to && to > -1) Kernel.actions.move(id, to);
+  }
+});
+$("#toolGrip").addEventListener("dragstart", e => {
+  if (!Kernel.selection) { e.preventDefault(); return; }
+  e.dataTransfer.setData("text/plain", "move:" + Kernel.selection); e.dataTransfer.effectAllowed = "move";
+});
+
+/* 右缘拖拽改宽（吸附 12 列） */
+$("#rzHandle").addEventListener("mousedown", e => {
+  e.preventDefault();
+  const n = Kernel.find(Kernel.selection); if (!n) return;
+  document.body.classList.add("resizing");
+  const blocksRect = blocksEl.getBoundingClientRect();
+  const onMove = ev => {
+    const frac = (ev.clientX - blocksRect.left) / blocksRect.width * 12;
+    const span = [4, 6, 8, 12].reduce((a, b) => Math.abs(b - frac) < Math.abs(a - frac) ? b : a);
+    if (span !== n.span) { n.span = span; Kernel.light(); }
+  };
+  const onUp = () => { document.body.classList.remove("resizing");
+    document.removeEventListener("mousemove", onMove); document.removeEventListener("mouseup", onUp); Kernel.commit(); };
+  document.addEventListener("mousemove", onMove); document.addEventListener("mouseup", onUp);
+});
+
+/* 浮动工具条：操作作用于悬停块（无悬停=选中块），craft.js RenderNode 同款 */
+const withActive = fn => {
+  const id = hoverId || Kernel.selection; if (!id) return;
+  if (id !== Kernel.selection) Kernel.select(id);
+  fn(id);
+};
+$("#toolSpan").addEventListener("click", () => withActive(id => {
+  const n = Kernel.find(id); if (!n) return;
+  Kernel.actions.setSpan(id, SPAN_CYCLE[(SPAN_CYCLE.indexOf(n.span) + 1) % 4]);
+}));
+$("#toolDup").addEventListener("click",  () => withActive(id => Kernel.actions.duplicate(id)));
+$("#toolUp").addEventListener("click",   () => withActive(id => Kernel.actions.moveRel(id, -1)));
+$("#toolDown").addEventListener("click", () => withActive(id => Kernel.actions.moveRel(id, 1)));
+$("#toolDel").addEventListener("click",  () => withActive(id => Kernel.actions.remove(id)));
+
+/* hover 跟随：指示条随悬停块移动（RenderNode isHover||isActive 同款） */
+blocksEl.addEventListener("mouseover", e => {
+  const b = e.target.closest(".blk");
+  if (b && b.dataset.id !== hoverId) { hoverId = b.dataset.id; placeTools(); }
+});
+blocksEl.addEventListener("mouseleave", () => { hoverId = null; placeTools(); });
+
+$("#canvasArea").addEventListener("scroll", placeTools);
+window.addEventListener("resize", placeTools);
+document.addEventListener("click", e => {
+  if (!e.target.closest(".blk") && !e.target.closest("#blkTools") && !e.target.closest("#rzHandle") &&
+      !e.target.closest(".panel") && !e.target.closest(".layer"))
+    Kernel.select(null);
+});
+document.addEventListener("keydown", e => {
+  const inInput = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName) || document.activeElement.isContentEditable;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? Kernel.redo() : Kernel.undo(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); Kernel.redo(); }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "d") { e.preventDefault(); Kernel.selection && Kernel.actions.duplicate(Kernel.selection); }
+  if (!inInput && (e.key === "Delete" || e.key === "Backspace") && Kernel.selection) Kernel.actions.remove(Kernel.selection);
+  if (e.key === "Escape") Kernel.select(null);
+});
+
+/* ════════════════════════════════════════════════════════════════
+   六、顶栏 / 抽屉 / AI 生成
+   ════════════════════════════════════════════════════════════════ */
+function updateHistoryBtns() {
+  $("#btnUndo").disabled = !Kernel.history.length;
+  $("#btnRedo").disabled = !Kernel.future.length;
+}
+$("#btnUndo").addEventListener("click", () => Kernel.undo());
+$("#btnRedo").addEventListener("click", () => Kernel.redo());
+$("#btnJson").addEventListener("click", () => { $("#jsonOut").textContent = Kernel.query.serialize(); $("#jsonModal").classList.add("show"); });
+$("#jsonClose").addEventListener("click", () => $("#jsonModal").classList.remove("show"));
+$("#btnSave").addEventListener("click", () => toast(`已保存 · ${Kernel.nodes.length} 区块 · version+1（原型演示，未写库）`));
+const toast = msg => { const t = document.createElement("div"); t.className = "toast"; t.textContent = msg;
+  $("#toasts").appendChild(t); setTimeout(() => t.remove(), 2600); };
+
+function renderPresets() {
+  $("#presetBody").innerHTML = PRESETS.map((p, i) => `
+    <div class="preset-card" data-i="${i}">${p.thumb}
+      <div class="preset-meta"><div class="n">${esc(p.name)}</div><div class="d">${esc(p.desc)}</div></div></div>`).join("");
+  $("#presetBody").querySelectorAll(".preset-card").forEach(c => c.addEventListener("click", () => {
+    Kernel.nodes = PRESETS[+c.dataset.i].build(); Kernel.history = []; Kernel.future = [];
+    Kernel.select(null, true); Kernel.commit(); renderPanel(); closeDrawer();
+    toast("已载入预设 · " + PRESETS[+c.dataset.i].name);
+  }));
+}
+const openDrawer  = () => { $("#drawer").classList.add("show"); $("#ovl").classList.add("show"); };
+const closeDrawer = () => { $("#drawer").classList.remove("show"); $("#ovl").classList.remove("show"); };
+$("#btnPreset").addEventListener("click", openDrawer);
+$("#drawerX").addEventListener("click", closeDrawer);
+$("#ovl").addEventListener("click", closeDrawer);
+
+const AI_STEPS = [
+  { t: "读取 workflow 目标层契约", d: `trend_analysis · ${CONTRACT.docName} · 7 章节 · 数据范围 ${CONTRACT.dataRange}` },
+  { t: "对齐资产注册表", d: "cockpit.kpi / trend / dist / platform_monthly / chassis_dist / sales_rank" },
+  { t: "生成模板骨架", d: "抬头 + KPI + 概览双图 + 小节题编号 + 七章节槽 + 半年表 + 洞察卡" },
+  { t: "确定性校验", d: "schema 通过 · 槽位↔契约对账 7/7 · 固定窗口仅半年章节（183 天）" },
+];
+$("#btnAI").addEventListener("click", () => {
+  $("#aiSteps").innerHTML = AI_STEPS.map((s, i) =>
+    `<div class="ai-step" id="st${i}"><span class="dot">${i + 1}</span><span class="tx"><div class="t">${s.t}</div><div class="d">${s.d}</div></span></div>`).join("");
+  $("#aiGo").disabled = false; $("#aiGo").textContent = "开始生成";
+  $("#aiModal").classList.add("show");
+});
+$("#aiCancel").addEventListener("click", () => $("#aiModal").classList.remove("show"));
+$("#aiGo").addEventListener("click", () => {
+  $("#aiGo").disabled = true;
+  const steps = [...$("#aiSteps").children];
+  steps.forEach(s => s.classList.remove("on", "done"));
+  let i = 0;
+  const tick = () => {
+    if (i > 0) steps[i - 1].classList.add("done");
+    if (i >= steps.length) {
+      Kernel.nodes = presetStandard(); Kernel.history = []; Kernel.future = [];
+      Kernel.select(null, true); Kernel.commit(); renderPanel();
+      $("#aiGo").textContent = "生成完成 ✓"; $("#aiModal").classList.remove("show");
+      toast("AI 已生成 17 区块骨架 · 可继续人工调整"); return;
+    }
+    steps[i].classList.add("on"); i++;
+    setTimeout(tick, 620);
+  };
+  tick();
+});
+
+/* ════════════════════════════════════════════════════════════════
+   七、启动
+   ════════════════════════════════════════════════════════════════ */
+renderPalette();
+renderPresets();
+Kernel.nodes = presetStandard();
+Kernel.commit();
+renderPanel();
+Kernel.history = []; updateHistoryBtns();
+</script>
+</body>
+</html>

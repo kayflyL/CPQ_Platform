@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="updated" content="2026-10-15">
+<title>原型 · 报价外发审批（三口一闸 · 总监路由 · 等待与催办）</title>
+<style>
+  /* ── tokens.css 暗色主题逐值搬运（仅取本页所需） ── */
+  :root {
+    --cpq-accent-primary: #1677FF;
+    --cpq-accent-primary-light: #4096ff;
+    --cpq-accent-danger: #FF6B6B;
+    --cpq-color-success: #52C9A0;
+    --cpq-color-warning: #faad14;
+    --cpq-notif-amber: #F4D28A;
+    --cpq-notif-amber-bg: rgba(250, 173, 20, 0.18);
+    --cpq-warn-surface: rgba(250, 173, 20, 0.10);
+    --cpq-warn-border: rgba(250, 173, 20, 0.30);
+    --cpq-notif-green: #52C9A0;
+    --cpq-notif-green-bg: rgba(82, 201, 160, 0.18);
+    --cpq-notif-red: #FF6B6B;
+    --cpq-notif-red-bg: rgba(255, 107, 107, 0.16);
+    --cpq-bg-primary: #08090B;
+    --cpq-bg-secondary: #101217;
+    --cpq-bg-tertiary: #171a21;
+    --cpq-bg-input: #2a2a2a;
+    --cpq-text-primary: #E8ECEF;
+    --cpq-text-secondary: #9BA1AA;
+    --cpq-text-muted: #6E7582;
+    --cpq-border-primary: rgba(255, 255, 255, 0.10);
+    --cpq-border-secondary: rgba(255, 255, 255, 0.06);
+    --cpq-border-light: rgba(255, 255, 255, 0.15);
+    --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
+    --cpq-overlay-w4: rgba(255, 255, 255, 0.04);
+    --cpq-overlay-w6: rgba(255, 255, 255, 0.06);
+    --cpq-overlay-w8: rgba(255, 255, 255, 0.08);
+    --cpq-overlay-a8: rgba(22, 119, 255, 0.08);
+    --cpq-overlay-a10: rgba(22, 119, 255, 0.10);
+    --cpq-overlay-a15: rgba(22, 119, 255, 0.15);
+    --cpq-overlay-a20: rgba(22, 119, 255, 0.20);
+    --cpq-overlay-b40: rgba(0, 0, 0, 0.40);
+    --cpq-glass-border: rgba(255, 255, 255, 0.11);
+    --cpq-radius-sm: 8px;
+    --cpq-radius-md: 12px;
+    --cpq-radius-lg: 16px;
+    --cpq-space-1: 4px;
+    --cpq-space-2: 8px;
+    --cpq-space-3: 12px;
+    --cpq-space-4: 16px;
+    --cpq-space-5: 24px;
+    --cpq-space-6: 32px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    font-size: var(--cpq-font-size-sm, 12px);
+    color: var(--cpq-text-primary);
+    background:
+      radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+      radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+      linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+    min-height: 100vh;
+    padding: var(--cpq-space-4) var(--cpq-space-4) var(--cpq-space-6);
+  }
+
+  /* ── 原型演示控件（非产品 UI） ── */
+  .demo-bar {
+    max-width: 1240px; margin: 0 auto var(--cpq-space-4);
+    display: flex; align-items: center; gap: var(--cpq-space-4); flex-wrap: wrap;
+    background: var(--cpq-overlay-w4); backdrop-filter: blur(16px);
+    border: 1px dashed rgba(22, 119, 255, 0.45); border-radius: var(--cpq-radius-md);
+    padding: var(--cpq-space-2) var(--cpq-space-4);
+  }
+  .demo-title { font-size: 13px; font-weight: 600; }
+  .demo-ctl { display: inline-flex; align-items: center; gap: var(--cpq-space-2); cursor: pointer; user-select: none; color: var(--cpq-text-secondary); }
+  .demo-ctl input { accent-color: var(--cpq-accent-primary); }
+  .demo-ctl.on { color: var(--cpq-accent-primary-light); font-weight: 600; }
+  .demo-note { color: var(--cpq-text-muted); }
+
+  .legend {
+    max-width: 1240px; margin: var(--cpq-space-4) auto 0;
+    display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--cpq-space-2) var(--cpq-space-5);
+    background: var(--cpq-overlay-w3); border: 1px solid var(--cpq-border-secondary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3) var(--cpq-space-4);
+    color: var(--cpq-text-secondary); line-height: 1.7;
+  }
+  .legend .li { display: flex; gap: var(--cpq-space-2); align-items: flex-start; }
+  .legend .anno { margin-top: 3px; }
+  .anno {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 16px; height: 16px; border-radius: 50%; flex-shrink: 0;
+    background: var(--cpq-accent-primary); color: #fff;
+    font-size: 10px; font-weight: 600; font-style: normal;
+  }
+  .anno.gray { background: var(--cpq-text-muted); }
+
+  .stage { max-width: 1240px; margin: 0 auto; }
+  /* 场景切换 */
+  .scene { display: none; }
+  body[data-scene="a"] .scene-a,
+  body[data-scene="b"] .scene-b,
+  body[data-scene="c"] .scene-c,
+  body[data-scene="d"] .scene-d { display: block; }
+  .scene-label { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 var(--cpq-space-2) var(--cpq-space-1); }
+
+  .panel {
+    background: var(--cpq-bg-secondary);
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.60);
+    padding: var(--cpq-space-5);
+  }
+  .panel-title { font-size: 14px; font-weight: 600; margin-bottom: var(--cpq-space-3); }
+
+  /* 通用小件 */
+  .btn { border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-4); font-size: 12px; cursor: pointer; border: 1px solid var(--cpq-border-light); background: transparent; color: var(--cpq-text-primary); }
+  .btn.primary { background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; }
+  .btn.danger { background: transparent; border-color: var(--cpq-accent-danger); color: var(--cpq-accent-danger); }
+  .btn[disabled] { opacity: 0.45; cursor: not-allowed; }
+  .pill { display: inline-flex; align-items: center; gap: 4px; padding: 1px 10px; border-radius: 999px; font-size: 11px; }
+  .pill.blue { background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light); }
+  .pill.green { background: var(--cpq-notif-green-bg); color: var(--cpq-notif-green); }
+  .pill.red { background: var(--cpq-notif-red-bg); color: var(--cpq-notif-red); }
+  .pill.amber { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
+  .muted { color: var(--cpq-text-muted); }
+  .danger-text { color: var(--cpq-accent-danger); font-weight: 600; }
+
+  /* ═══ 场景A：工作台导出被闸 ═══ */
+  .exp-wrap { display: flex; gap: var(--cpq-space-5); align-items: flex-start; }
+  .exp-panel {
+    width: 300px; flex-shrink: 0;
+    background: var(--cpq-bg-tertiary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-4);
+  }
+  .exp-title { font-size: 13px; font-weight: 600; margin-bottom: var(--cpq-space-3); }
+  .exp-opt { border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3); margin-bottom: var(--cpq-space-2); }
+  .exp-opt.sel { border-color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
+  .exp-opt b { font-size: 13px; }
+  .exp-opt .d { color: var(--cpq-text-muted); margin-top: 3px; line-height: 1.6; }
+  .modal-mask { flex: 1; background: var(--cpq-overlay-b40); border-radius: var(--cpq-radius-md); padding: var(--cpq-space-4); display: flex; align-items: flex-start; justify-content: center; }
+  .modal {
+    width: 460px; max-width: 100%;
+    background: var(--cpq-bg-secondary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg); box-shadow: 0 16px 48px rgba(0,0,0,0.6);
+    overflow: hidden;
+  }
+  .modal-head { padding: var(--cpq-space-3) var(--cpq-space-4); border-bottom: 1px solid var(--cpq-border-secondary); font-size: 14px; font-weight: 600; display: flex; justify-content: space-between; }
+  .modal-body { padding: var(--cpq-space-4); display: flex; flex-direction: column; gap: var(--cpq-space-3); }
+  .sum-grid { display: grid; grid-template-columns: auto 1fr; gap: var(--cpq-space-1) var(--cpq-space-4); font-size: 12.5px; }
+  .sum-grid .k { color: var(--cpq-text-muted); }
+  .warn-strip {
+    background: var(--cpq-warn-surface); border: 1px solid var(--cpq-warn-border);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+    color: var(--cpq-notif-amber); line-height: 1.6;
+  }
+  .route-strip {
+    background: var(--cpq-overlay-a8); border: 1px solid var(--cpq-overlay-a20);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+    line-height: 1.6;
+  }
+  .modal-foot { display: flex; justify-content: flex-end; gap: var(--cpq-space-2); padding: var(--cpq-space-3) var(--cpq-space-4); border-top: 1px solid var(--cpq-border-secondary); }
+  .lock-strip {
+    margin-top: var(--cpq-space-4);
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    background: var(--cpq-overlay-w3); border: 1px dashed var(--cpq-border-light);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3) var(--cpq-space-4);
+    color: var(--cpq-text-secondary); line-height: 1.6;
+  }
+
+  /* ═══ 场景B：总监审批卡 ═══ */
+  .appr-card { max-width: 560px; margin: 0 auto; }
+  .appr-head { display: flex; align-items: center; gap: var(--cpq-space-3); margin-bottom: var(--cpq-space-4); }
+  .appr-head h3 { font-size: 15px; font-weight: 600; }
+  .appr-sec { border-top: 1px solid var(--cpq-border-secondary); padding: var(--cpq-space-3) 0; }
+  .appr-sec .t { font-size: 11px; color: var(--cpq-text-muted); margin-bottom: var(--cpq-space-2); letter-spacing: 0.04em; }
+  .timeline { display: flex; flex-direction: column; gap: var(--cpq-space-1); font-size: 12px; color: var(--cpq-text-secondary); }
+  .timeline .dot { color: var(--cpq-accent-primary-light); margin-right: 6px; }
+  .op-row { display: flex; gap: var(--cpq-space-2); margin-top: var(--cpq-space-4); }
+  textarea.op-comment {
+    width: 100%; min-height: 56px; resize: vertical;
+    background: var(--cpq-bg-input); color: var(--cpq-text-primary);
+    border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm);
+    padding: var(--cpq-space-2) var(--cpq-space-3); font: inherit; outline: none;
+  }
+  .hash-chip { font-family: Consolas, monospace; font-size: 11px; color: var(--cpq-text-secondary); background: var(--cpq-overlay-w6); border-radius: 4px; padding: 1px 6px; }
+
+  /* ═══ 场景C：调度面板审批列 ═══ */
+  .board { display: flex; gap: var(--cpq-space-3); align-items: flex-start; }
+  .bcol { flex: 1; min-width: 0; }
+  .bcol.dim { opacity: 0.45; }
+  .bcol-head { font-size: 12px; font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: var(--cpq-space-2); display: flex; align-items: center; gap: 6px; }
+  .bcol.new .bcol-head { color: var(--cpq-accent-primary-light); }
+  .hcard {
+    background: var(--cpq-bg-tertiary); border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-md); padding: var(--cpq-space-3); margin-bottom: var(--cpq-space-2);
+  }
+  .bcol.new .hcard { border-color: var(--cpq-overlay-a20); }
+  .hc-name { font-weight: 600; font-size: 12.5px; margin-bottom: var(--cpq-space-1); }
+  .biz-chip {
+    display: inline-block; margin: 2px 4px 0 0; padding: 1px 8px; border-radius: 999px;
+    font-size: 10.5px; background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary-light);
+  }
+  .biz-chip.fb { background: var(--cpq-notif-amber-bg); color: var(--cpq-notif-amber); }
+  .chip-add {
+    display: inline-block; margin-top: 6px; padding: 1px 10px; border-radius: 999px;
+    border: 1px dashed var(--cpq-border-light); color: var(--cpq-text-muted); font-size: 11px; cursor: pointer;
+  }
+  .fallback-row { font-size: 11px; color: var(--cpq-text-muted); line-height: 1.7; }
+
+  /* ═══ 场景D：待审批队列 ═══ */
+  table.queue { width: 100%; border-collapse: collapse; }
+  table.queue th {
+    text-align: left; font-size: 11px; color: var(--cpq-text-secondary); font-weight: 600;
+    padding: var(--cpq-space-2) var(--cpq-space-3); background: var(--cpq-bg-tertiary);
+    border-bottom: 1px solid var(--cpq-border-primary); white-space: nowrap;
+  }
+  table.queue td { padding: var(--cpq-space-3); border-bottom: 1px solid var(--cpq-border-secondary); font-size: 12.5px; vertical-align: middle; }
+  table.queue tr:hover td { background: var(--cpq-overlay-w3); }
+  .wait { font-weight: 600; }
+  .wait.hot { color: var(--cpq-notif-amber); }
+  .wait.calm { color: var(--cpq-text-secondary); font-weight: 400; }
+</style>
+</head>
+<body data-scene="a">
+
+  <div class="demo-bar">
+    <span class="demo-title">报价外发审批 · 原型</span>
+    <label class="demo-ctl on"><input type="radio" name="sc" checked onchange="setScene('a','this')"> ① 工作台 · 导出被闸</label>
+    <label class="demo-ctl"><input type="radio" name="sc" onchange="setScene('b')"> ② 总监 · 审批卡</label>
+    <label class="demo-ctl"><input type="radio" name="sc" onchange="setScene('c')"> ③ 调度 · 审批列</label>
+    <label class="demo-ctl"><input type="radio" name="sc" onchange="setScene('d')"> ④ 调度 · 待审批队列</label>
+    <span class="demo-note">定调：三口一闸（客户版下载 / 平台内发送 / 规格书 PDF），批的是内容，改价重批</span>
+  </div>
+
+  <div class="stage">
+
+    <!-- ═══ 场景A：报价工作台 · 导出触发审批 ═══ -->
+    <div class="scene scene-a">
+      <p class="scene-label">报价工作台 → 点「导出 Excel」后。低于红线时多一条琥珀警示行；达标单同样要批，只是没有警示行。</p>
+      <div class="exp-wrap">
+        <div class="exp-panel">
+          <div class="exp-title">预览与导出</div>
+          <div class="exp-opt sel">
+            <b>客户版 · 含明细价</b>
+            <div class="d">含明细行售价；导出后冻结报价单</div>
+          </div>
+          <div class="exp-opt">
+            <b>客户版</b>
+            <div class="d">不含敏感列；导出后冻结报价单</div>
+          </div>
+          <div class="exp-opt">
+            <b>对内版 🔒</b>
+            <div class="d">含成本/利润率，内部留底 · 不触发审批</div>
+          </div>
+          <button class="btn" style="width:100%" disabled>预览</button>
+          <button class="btn primary" style="width:100%; margin-top: var(--cpq-space-2);">导出 Excel → 触发审批<i class="anno" style="margin-left:6px;">1</i></button>
+        </div>
+        <div class="modal-mask">
+          <div class="modal">
+            <div class="modal-head"><span>导出需总监审批</span><span class="muted">✕</span></div>
+            <div class="modal-body">
+              <div class="sum-grid">
+                <span class="k">报价单</span><span>CloudPrime-R760xa · 华信云创 · v3</span>
+                <span class="k">含税总价</span><span>¥ 864,000（2 套配置）</span>
+                <span class="k">综合毛利率</span><span><b class="danger-text">18.2%</b><span class="muted">　审批红线 25%</span></span>
+                <span class="k">内容指纹</span><span><span class="hash-chip">a3f2…c9</span><i class="anno gray" style="margin-left:6px;">2</i> 批后改动价格将自动失效重批</span>
+              </div>
+              <div class="warn-strip">⚠ 综合毛利率 18.2% 低于审批红线 25%——批准后才能导出，导出即冻结。</div>
+              <div class="route-strip">将指派 → <b>张总监</b><span class="muted">（业务线「超融合/智算」· 调度面板规则）</span><i class="anno" style="margin-left:6px;">3</i></div>
+              <textarea class="op-comment" placeholder="审批说明（可选，总监可见）">客户压价 3 个点，工期紧，希望走批量价。</textarea>
+            </div>
+            <div class="modal-foot">
+              <button class="btn">取消</button>
+              <button class="btn primary">提交审批</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="lock-strip">
+        <span class="pill amber">审批中</span>
+        <span>2026-10-15 14:32 提交 · 已等待 6 小时<i class="anno gray" style="margin:0 6px;">4</i>——期间报价单锁定：禁改价、禁再导出、禁发送。</span>
+      </div>
+    </div>
+
+    <!-- ═══ 场景B：总监审批卡 ═══ -->
+    <div class="scene scene-b">
+      <p class="scene-label">总监视角：通知点进来 / 商机详情琥珀裁决条点开，同一张审批卡。批准=签发该内容的外发许可。</p>
+      <div class="panel appr-card">
+        <div class="appr-head">
+          <h3>报价外发审批 <span class="muted">#12</span></h3>
+          <span class="pill amber">待审批 · 已等待 6 小时</span>
+          <span style="margin-left:auto;" class="muted">kayfly → 你</span>
+        </div>
+
+        <div class="appr-sec">
+          <div class="t">报价摘要</div>
+          <div class="sum-grid">
+            <span class="k">客户 / 商机</span><span>华信云创 · 超融合集群 3 节点</span>
+            <span class="k">报价单</span><span>v3 · 2 套配置 · 含税总价 ¥ 864,000</span>
+            <span class="k">综合毛利率</span><span><b class="danger-text">18.2%</b><span class="muted">　低于审批红线 25%</span></span>
+            <span class="k">提交说明</span><span class="muted">客户压价 3 个点，工期紧，希望走批量价。</span>
+          </div>
+        </div>
+
+        <div class="appr-sec">
+          <div class="t">外发许可范围<i class="anno" style="margin-left:6px;">2</i></div>
+          <div class="sum-grid">
+            <span class="k">内容指纹</span><span><span class="hash-chip">a3f2…c9</span>　<span class="muted">批后改价 → 自动失效重批</span></span>
+            <span class="k">解锁出口</span><span>客户版下载（冻结）· 平台内发送 · 规格书 PDF</span>
+          </div>
+        </div>
+
+        <div class="appr-sec">
+          <div class="t">流转痕迹<i class="anno" style="margin-left:6px;">5</i></div>
+          <div class="timeline">
+            <div><span class="dot">●</span>10-15 14:32　kayfly 发起导出，触发审批（业务线：超融合/智算）</div>
+            <div><span class="dot">●</span>10-15 14:32　按调度规则指派 → 张总监</div>
+            <div><span class="dot">●</span>10-15 20:30　超时提醒已推（等待超 6 小时）</div>
+          </div>
+        </div>
+
+        <div class="appr-sec">
+          <div class="t">审批意见（驳回必填）</div>
+          <textarea class="op-comment" placeholder="批准可留意见；驳回必须写明原因，退回提交人"></textarea>
+        </div>
+
+        <div class="op-row">
+          <button class="btn">转交给…<i class="anno" style="margin-left:6px;">6</i></button>
+          <button class="btn danger">驳回</button>
+          <button class="btn primary" style="margin-left:auto;">批准并解锁外发</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 场景C：调度面板 · 报价审批列 ═══ -->
+    <div class="scene scene-c">
+      <p class="scene-label">工作台 · 任务调度面板：新增「报价审批」列，机制与其余列完全相同（处理人 + 默认承接业务 + 兜底）。其余四列为示意，维持现状。</p>
+      <div class="board">
+        <div class="bcol dim"><div class="bcol-head">需求</div><div class="hcard"><div class="hc-name">业务组</div><span class="biz-chip">全部业务</span></div></div>
+        <div class="bcol dim"><div class="bcol-head">方案</div><div class="hcard"><div class="hc-name">王工</div><span class="biz-chip">超融合</span><span class="biz-chip">通用</span></div></div>
+        <div class="bcol dim"><div class="bcol-head">成本</div><div class="hcard"><div class="hc-name">刘成本</div><span class="biz-chip">全部业务</span></div></div>
+        <div class="bcol dim"><div class="bcol-head">报价</div><div class="hcard"><div class="hc-name">kayfly</div><span class="biz-chip">超融合</span><span class="biz-chip">存储</span></div></div>
+        <div class="bcol new">
+          <div class="bcol-head">报价审批<i class="anno">3</i><span class="pill blue" style="margin-left:4px;">新增</span></div>
+          <div class="hcard">
+            <div class="hc-name">张总监</div>
+            <span class="biz-chip">超融合</span><span class="biz-chip">智算</span>
+            <div><span class="chip-add">＋ 加业务</span></div>
+          </div>
+          <div class="hcard">
+            <div class="hc-name">李总监</div>
+            <span class="biz-chip">通用计算</span><span class="biz-chip">存储</span>
+            <div><span class="chip-add">＋ 加业务</span></div>
+          </div>
+          <div class="hcard">
+            <div class="hc-name">王总监</div>
+            <span class="biz-chip fb">＊ 兜底<i class="anno gray" style="margin-left:4px;">7</i></span>
+          </div>
+          <div class="fallback-row">规则都没命中 → 全体持「审批」权限者可见可批（先到先批），永不卡死。</div>
+          <div><span class="chip-add">＋ 添加审批人</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ 场景D：调度页 · 待审批队列 ═══ -->
+    <div class="scene scene-d">
+      <p class="scene-label">工作台 · 调度页「待审批」队列卡：积压全员可见，操作仅责任总监与 admin 可用。</p>
+      <div class="panel" style="padding: var(--cpq-space-2) var(--cpq-space-2);">
+        <table class="queue">
+          <thead>
+            <tr><th>客户 / 商机</th><th>报价单</th><th>提交人</th><th>责任总监</th><th>已等待<i class="anno" style="margin-left:6px;">4</i></th><th>状态</th><th style="text-align:right;">操作</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>华信云创 · 超融合集群</td><td>v3</td><td>kayfly</td><td>张总监</td>
+              <td><span class="wait calm">6 小时</span></td>
+              <td><span class="pill amber">待审批</span></td>
+              <td style="text-align:right;"><button class="btn" style="padding:2px 12px;">催办</button>　<button class="btn" style="padding:2px 12px;">查看</button></td>
+            </tr>
+            <tr>
+              <td>蓝湖数据 · 冷存储扩容</td><td>v1</td><td>leo</td><td>李总监</td>
+              <td><span class="wait hot">2 天</span></td>
+              <td><span class="pill red">已超时提醒</span></td>
+              <td style="text-align:right;"><button class="btn" style="padding:2px 12px;">催办</button>　<button class="btn" style="padding:2px 12px;">查看</button></td>
+            </tr>
+            <tr>
+              <td>启明教育 · 一体机采购</td><td>v2</td><td>kayfly</td><td>张总监 <span class="muted">（李总监转交）</span></td>
+              <td><span class="wait calm">—</span></td>
+              <td><span class="pill green">已批准</span></td>
+              <td style="text-align:right;"><button class="btn primary" style="padding:2px 12px;">下载客户版</button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="lock-strip" style="margin-top: var(--cpq-space-3);">
+        <span class="pill blue">催办</span>
+        <span>提交人一键催办，催办理由仅责任总监可见；催办只提醒、不改责任归属；系统超时只升级提醒，永不自动批 / 自动拒。</span>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <div class="li"><i class="anno">1</i><div>三口一闸：客户版下载（冻结）、平台内发送、规格书 PDF 走同一道审批闸；对内版下载豁免（内部留底）。低于红线多一条警示行，达标单同样需批。</div></div>
+    <div class="li"><i class="anno">2</i><div>批的是内容：审批通过绑定内容指纹，之后任何人改价，许可自动失效重批——批 A 价发 B 价不可能发生。审批期间报价单锁定（禁改价/导出/发送）。</div></div>
+    <div class="li"><i class="anno">3</i><div>总监路由 = 调度面板新列，按业务线指派唯一总监，与其余节点同一套配置机制；总监加人 = 面板加卡，零开发。</div></div>
+    <div class="li"><i class="anno">4</i><div>等待可见：发起时/审批卡/队列均显示已等待时长；超 N 小时（可配，默认 24h）推超时提醒。催办理由仅责任总监可见。</div></div>
+    <div class="li"><i class="anno">5</i><div>全程留痕：发起 → 指派依据 → 超时提醒 → 批/驳/转交，链路完整可审计。</div></div>
+    <div class="li"><i class="anno">6</i><div>转交：责任总监可转给其他总监（带理由，记录在案），admin 可强制改派；转交不改内容指纹。</div></div>
+    <div class="li"><i class="anno">7</i><div>兜底与降级：规则没命中 → ＊兜底总监；连兜底都没配 → 全员可见先到先批，永不卡死。</div></div>
+  </div>
+
+  <script>
+    function setScene(key) {
+      document.body.dataset.scene = key
+      document.querySelectorAll('.demo-ctl').forEach(l => l.classList.remove('on'))
+      event.target.closest('.demo-ctl').classList.add('on')
+    }
+  </script>
+</body>
+</html>

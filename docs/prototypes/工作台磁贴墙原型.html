@@ -1,0 +1,867 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>工作台 · 磁贴墙原型（按角色 + 待处理事项）</title>
+<style>
+  /* ───────── 主题变量（日 / 夜） ───────── */
+  :root, html[data-theme="light"] {
+    --bg: #eef1f7;
+    --bg-wash-1: rgba(47, 107, 255, .07);
+    --bg-wash-2: rgba(34, 195, 166, .06);
+    --text-1: #1f2430;
+    --text-2: #67718a;
+    --card-bg: rgba(255, 255, 255, .58);
+    --card-border: rgba(31, 41, 55, .12);
+    --card-border-strong: rgba(47, 107, 255, .45);
+    --card-shadow: 0 10px 34px rgba(31, 41, 55, .08);
+    --card-shadow-hover: 0 18px 48px rgba(31, 41, 55, .14);
+    --scrim: linear-gradient(to top, rgba(255, 255, 255, .94) 0%, rgba(255, 255, 255, .55) 26%, rgba(255, 255, 255, 0) 58%);
+    /* 插画线稿：日间用墨色阶（借鉴 CapabilityShowcase 白色阶的暗色用法） */
+    --a1: rgba(31, 41, 55, .48);
+    --a2: rgba(31, 41, 55, .28);
+    --a3: rgba(31, 41, 55, .15);
+    --af: rgba(31, 41, 55, .045);
+    --accent: #2f6bff;
+    --panel-bg: rgba(250, 251, 254, .92);
+    --bubble-ai: rgba(31, 41, 55, .05);
+    --bubble-user: rgba(47, 107, 255, .10);
+  }
+  html[data-theme="dark"] {
+    --bg: #0c111e;
+    --bg-wash-1: rgba(47, 107, 255, .12);
+    --bg-wash-2: rgba(34, 195, 166, .08);
+    --text-1: #e8ecf6;
+    --text-2: #93a0b8;
+    --card-bg: rgba(255, 255, 255, .045);
+    --card-border: rgba(255, 255, 255, .12);
+    --card-border-strong: rgba(90, 140, 255, .55);
+    --card-shadow: 0 12px 36px rgba(0, 0, 0, .38);
+    --card-shadow-hover: 0 20px 52px rgba(0, 0, 0, .5);
+    --scrim: linear-gradient(to top, rgba(5, 9, 18, .92) 0%, rgba(5, 9, 18, .5) 28%, rgba(5, 9, 18, 0) 60%);
+    /* CapabilityShowcase 同款白色阶 */
+    --a1: rgba(255, 255, 255, .42);
+    --a2: rgba(255, 255, 255, .26);
+    --a3: rgba(255, 255, 255, .14);
+    --af: rgba(255, 255, 255, .05);
+    --accent: #5bb8ff;
+    --panel-bg: rgba(18, 24, 38, .94);
+    --bubble-ai: rgba(255, 255, 255, .06);
+    --bubble-user: rgba(77, 130, 255, .14);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background:
+      radial-gradient(900px 480px at 12% -8%, var(--bg-wash-1), transparent 62%),
+      radial-gradient(820px 460px at 96% 4%, var(--bg-wash-2), transparent 60%),
+      var(--bg);
+    color: var(--text-1);
+    transition: background .3s ease, color .3s ease;
+  }
+  button { font-family: inherit; cursor: pointer; }
+
+  /* ───────── 模拟顶栏（实际页面沿用现有 DefaultLayout 顶栏） ───────── */
+  .mock-topbar {
+    height: 56px;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 24px;
+    border-bottom: 1px solid var(--card-border);
+    background: var(--card-bg);
+    backdrop-filter: blur(14px);
+    position: sticky; top: 0; z-index: 50;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; }
+  .brand-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+  .top-right { display: flex; align-items: center; gap: 16px; }
+  .hello { font-size: 13px; color: var(--text-2); }
+  .theme-toggle {
+    display: inline-flex; align-items: center; gap: 6px;
+    height: 32px; padding: 0 14px; font-size: 13px;
+    color: var(--text-1);
+    background: var(--card-bg);
+    border: 1px solid var(--card-border); border-radius: 999px;
+    transition: border-color .2s;
+  }
+  .theme-toggle:hover { border-color: var(--card-border-strong); }
+
+  /* ───────── 角色切换（原型示意控件，住顶栏；实装按账号角色自动出卡） ───────── */
+  .seg { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+  .seg button {
+    height: 28px; padding: 0 13px; font-size: 13px;
+    color: var(--text-2); background: var(--card-bg);
+    border: 1px solid var(--card-border); border-radius: 999px;
+    transition: all .15s;
+  }
+  .seg button:hover { color: var(--text-1); border-color: var(--card-border-strong); }
+  .seg button.on {
+    color: #fff; background: var(--accent); border-color: var(--accent);
+    box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 35%, transparent);
+  }
+
+  /* ───────── 磁贴墙 ───────── */
+  .wall-wrap {
+    height: calc(100vh - 56px);
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 14px 26px 10px;
+  }
+  .tile-wall {
+    flex: 1; min-height: 340px;
+    display: grid; gap: 14px;
+    grid-template-columns: 1.3fr 1fr 1fr 1fr;
+    grid-template-rows: 56fr 44fr;
+    grid-template-areas:
+      "todo hero hero hero"
+      "ai   b1   b2   b3";
+  }
+  .t-todo { grid-area: todo; }
+  .t-hero { grid-area: hero; }
+  .t-ai { grid-area: ai; }
+  .t-b1 { grid-area: b1; }
+  .t-b2 { grid-area: b2; }
+  .t-b3 { grid-area: b3; }
+
+  .tile {
+    position: relative; overflow: hidden;
+    border: 1px solid var(--card-border);
+    border-radius: 18px;
+    background: var(--card-bg);
+    backdrop-filter: blur(18px);
+    box-shadow: var(--card-shadow);
+    transition: transform .22s cubic-bezier(.16, 1, .3, 1), border-color .22s, box-shadow .22s;
+    animation: rise .5s cubic-bezier(.16, 1, .3, 1) both;
+  }
+  .tile:nth-child(2) { animation-delay: .05s; }
+  .tile:nth-child(3) { animation-delay: .10s; }
+  .tile:nth-child(4) { animation-delay: .15s; }
+  .tile:nth-child(5) { animation-delay: .20s; }
+  .tile:nth-child(6) { animation-delay: .25s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .tile { animation: none; } }
+
+  .tile:hover {
+    transform: translateY(-3px);
+    border-color: var(--card-border-strong);
+    box-shadow: var(--card-shadow-hover);
+  }
+  .tile:hover .art { transform: scale(1.03); }
+
+  .art {
+    position: absolute; right: -3%; bottom: 2%;
+    width: 72%; height: auto;
+    transition: transform .35s cubic-bezier(.16, 1, .3, 1);
+    pointer-events: none;
+  }
+  .glow {
+    position: absolute; inset: 0; pointer-events: none;
+    background: radial-gradient(360px 220px at 82% 22%, var(--glow, transparent), transparent 70%);
+    opacity: .55;
+  }
+  .scrim { position: absolute; inset: 0; pointer-events: none; background: var(--scrim); }
+  .tile-label { position: absolute; left: 20px; bottom: 14px; right: 20px; z-index: 3; }
+  .tile-label h3 {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 19px; font-weight: 700; letter-spacing: .5px;
+  }
+  .tile-label p { margin-top: 3px; font-size: 12px; color: var(--text-2); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--dot, var(--accent)); flex: none; }
+
+  .t-hero .tile-label h3 { font-size: 28px; }
+  .t-hero .tile-label p { font-size: 13px; margin-top: 5px; }
+  .t-hero .art { width: 54%; right: 2%; bottom: 10%; }
+  .t-ai .art { width: 66%; right: 6%; bottom: 8%; }
+  .t-ai .tile-label h3 { font-size: 22px; }
+
+  /* 方案助手磁贴：强调描边 + 呼吸微光 */
+  .t-ai { border-color: color-mix(in srgb, var(--accent) 38%, transparent); }
+  .t-ai:hover { border-color: var(--accent); }
+  .t-ai .halo {
+    position: absolute; inset: -40%; pointer-events: none;
+    background: conic-gradient(from 0deg, transparent 0 70%, color-mix(in srgb, var(--accent) 14%, transparent) 82%, transparent 94%);
+    animation: spin 9s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .t-ai .halo { animation: none; } }
+
+  /* ───────── 待处理事项卡（左上格，与磁贴同框） ───────── */
+  .t-todo { display: flex; flex-direction: column; padding: 14px 16px 10px; }
+  .todo-head { display: flex; align-items: baseline; gap: 10px; flex: none; }
+  .todo-head b { font-size: 16px; font-weight: 700; }
+  .todo-all {
+    margin-left: auto; border: none; background: none;
+    font-size: 12px; color: var(--accent);
+  }
+  .todo-all:hover { text-decoration: underline; }
+  .todo-grid {
+    flex: 1; min-height: 0; overflow: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+    align-content: center; justify-items: center;
+    gap: 6px 4px;
+  }
+  .todo-cell {
+    width: 100%;
+    display: flex; flex-direction: column; align-items: center; gap: 7px;
+    padding: 8px 6px 9px; border: none; background: none; border-radius: 12px;
+    transition: background .15s;
+  }
+  .todo-cell:hover { background: var(--bubble-ai); }
+  .tc-ring {
+    position: relative;
+    width: 46px; height: 46px; border-radius: 50%;
+    border: 1.5px solid var(--a2);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2);
+    transition: all .15s;
+  }
+  .todo-cell:hover .tc-ring { border-color: var(--accent); color: var(--accent); }
+  .tc-ring svg { width: 22px; height: 22px; }
+  .tc-badge {
+    position: absolute; top: -5px; right: -10px;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 999px;
+    background: var(--b, var(--accent)); color: #fff;
+    font-size: 10px; font-weight: 700; line-height: 1;
+    display: flex; align-items: center; justify-content: center;
+    border: 2px solid var(--bg);
+  }
+  .tc-label { font-size: 12px; color: var(--text-2); }
+  .todo-cell:hover .tc-label { color: var(--text-1); }
+
+  .proto-note { font-size: 12px; color: var(--text-2); text-align: center; }
+
+  /* ───────── 浮动助手 FAB ───────── */
+  .fab {
+    position: fixed; right: 26px; bottom: 26px; z-index: 800;
+    width: 56px; height: 56px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    background: linear-gradient(145deg, var(--accent), color-mix(in srgb, var(--accent) 62%, #8b93ff));
+    border: 1px solid rgba(255, 255, 255, .35);
+    box-shadow: 0 12px 30px color-mix(in srgb, var(--accent) 45%, transparent);
+    transition: transform .2s, box-shadow .2s;
+  }
+  .fab:hover { transform: scale(1.06); }
+  .fab.active { box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 22%, transparent), 0 12px 30px color-mix(in srgb, var(--accent) 45%, transparent); }
+
+  /* ───────── 助手面板（浮动 ⇄ 全屏 同一容器两形态） ───────── */
+  .ap {
+    position: fixed; z-index: 900;
+    right: 24px; bottom: 96px;
+    width: min(420px, calc(100vw - 32px));
+    height: min(600px, calc(100vh - 150px));
+    display: flex; flex-direction: column; overflow: hidden;
+    border-radius: 16px;
+    border: 1px solid var(--card-border);
+    background: var(--panel-bg);
+    backdrop-filter: blur(22px);
+    box-shadow: 0 24px 70px rgba(10, 16, 30, .30);
+    opacity: 0; visibility: hidden; transform: translateY(10px) scale(.97);
+    transition: all .26s cubic-bezier(.16, 1, .3, 1);
+  }
+  .ap.open { opacity: 1; visibility: visible; transform: none; }
+  .ap.fullscreen { left: 0; top: 0; right: 0; bottom: 0; width: 100vw; height: 100vh; border-radius: 0; }
+
+  .ap-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--card-border);
+    flex: none;
+  }
+  .ap-avatar {
+    width: 34px; height: 34px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 15px;
+    background: linear-gradient(145deg, var(--accent), #8b93ff);
+  }
+  .ap-name { font-size: 14px; font-weight: 700; }
+  .ap-status { font-size: 11px; color: var(--text-2); display: flex; align-items: center; gap: 4px; }
+  .ap-status i { width: 6px; height: 6px; border-radius: 50%; background: #22c3a6; }
+  .fs-chip {
+    display: none; margin-left: 8px;
+    font-size: 11px; color: var(--text-2);
+    border: 1px dashed var(--card-border); border-radius: 999px; padding: 2px 8px;
+  }
+  .ap.fullscreen .fs-chip { display: inline-block; }
+  .ap-head .sp { flex: 1; }
+  .icon-btn {
+    width: 30px; height: 30px; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-2); background: transparent; border: none;
+    transition: all .15s;
+  }
+  .icon-btn:hover { color: var(--accent); background: var(--bubble-user); }
+
+  .ap-body { flex: 1; display: flex; min-height: 0; }
+  .ap-contacts {
+    width: 0; overflow: hidden; flex: none;
+    border-right: 1px solid var(--card-border);
+    transition: width .26s cubic-bezier(.16, 1, .3, 1);
+  }
+  .ap.fullscreen .ap-contacts { width: 188px; }
+  .ap-contacts .c-title { font-size: 11px; color: var(--text-2); padding: 12px 14px 6px; white-space: nowrap; }
+  .c-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 14px; font-size: 12px; color: var(--text-2); white-space: nowrap;
+  }
+  .c-item.on { color: var(--text-1); background: var(--bubble-user); }
+  .c-ava {
+    width: 22px; height: 22px; border-radius: 50%; flex: none;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; color: #fff; background: var(--c-c, #8b93ff);
+  }
+
+  .ap-msgs { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px; }
+  .msg { max-width: 82%; font-size: 13px; line-height: 1.6; border-radius: 12px; padding: 9px 12px; }
+  .msg.ai { align-self: flex-start; background: var(--bubble-ai); border-top-left-radius: 4px; }
+  .msg.user { align-self: flex-end; background: var(--bubble-user); border-top-right-radius: 4px; }
+  .ap.fullscreen .ap-msgs { padding: 22px max(24px, calc(50% - 340px)); }
+  .artifact {
+    align-self: flex-start; max-width: 88%;
+    border: 1px solid var(--card-border); border-radius: 12px;
+    padding: 10px 12px; font-size: 12px; color: var(--text-2);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .artifact b { color: var(--text-1); font-size: 13px; display: block; margin-bottom: 2px; }
+  .artifact .mini-btn {
+    border: 1px solid var(--card-border-strong); color: var(--accent);
+    background: transparent; border-radius: 8px; font-size: 12px; padding: 4px 10px;
+  }
+
+  .ap-foot { flex: none; padding: 12px 14px; border-top: 1px solid var(--card-border); }
+  .composer {
+    display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--card-border); border-radius: 12px;
+    padding: 8px 10px; background: var(--card-bg);
+  }
+  .ap.fullscreen .composer { max-width: 680px; margin: 0 auto; }
+  .composer span { flex: 1; font-size: 13px; color: var(--text-2); }
+  .send-btn {
+    width: 30px; height: 30px; border-radius: 9px; border: none;
+    color: #fff; background: var(--accent);
+    display: flex; align-items: center; justify-content: center;
+  }
+
+  .ic-expand { display: block; }
+  .ic-compress { display: none; }
+  .ap.fullscreen .ic-expand { display: none; }
+  .ap.fullscreen .ic-compress { display: block; }
+
+  /* ───────── 手机端（示意） ───────── */
+  @media (max-width: 768px) {
+    .wall-wrap { height: auto; padding: 12px; }
+    .tile-wall {
+      min-height: 0;
+      grid-template-columns: 1fr 1fr;
+      grid-template-rows: 190px 200px 170px 150px 150px;
+      grid-template-areas:
+        "todo  todo"
+        "hero  hero"
+        "ai    ai"
+        "b1    b2"
+        "b3    b3";
+    }
+    .t-hero .tile-label h3 { font-size: 22px; }
+    .hello { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="mock-topbar">
+  <div class="brand"><span class="brand-dot"></span>CPQ 方案平台</div>
+  <div class="top-right">
+    <div class="seg" id="roleSeg"></div>
+    <span class="hello" id="hello">欢迎回来，业务销售</span>
+    <button class="theme-toggle" id="themeToggle">🌙 夜间模式</button>
+  </div>
+</header>
+
+<main class="wall-wrap">
+  <section class="tile-wall" id="wall"></section>
+
+  <p class="proto-note">左列 = 行动（待办 · AI），右侧 = 目的地（主战场 hero + 入口磁贴） · 长尾入口走左侧导航菜单 · 右上角切角色/日·夜 · 点右下角助手体验 浮动 ⇄ 全屏</p>
+</main>
+
+<!-- 浮动助手 FAB -->
+<button class="fab" id="fab" title="方案助手">
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M12 2 L14.2 9.8 L22 12 L14.2 14.2 L12 22 L9.8 14.2 L2 12 L9.8 9.8 Z"/>
+  </svg>
+</button>
+
+<!-- 助手面板：浮动 ⇄ 全屏（同一容器两形态） -->
+<div class="ap" id="panel">
+  <div class="ap-head">
+    <div class="ap-avatar">方</div>
+    <div>
+      <div class="ap-name">方案助手</div>
+      <div class="ap-status"><i></i>在线</div>
+    </div>
+    <span class="fs-chip">全屏模式 · Esc 退出</span>
+    <span class="sp"></span>
+    <button class="icon-btn" id="btnExpand" title="全屏 / 还原">
+      <svg class="ic-expand" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+      </svg>
+      <svg class="ic-compress" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
+      </svg>
+    </button>
+    <button class="icon-btn" id="btnClose" title="关闭">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <path d="M18 6 6 18M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+  <div class="ap-body">
+    <div class="ap-contacts">
+      <div class="c-title">AI 同事</div>
+      <div class="c-item on"><span class="c-ava" style="--c:#2f6bff">方</span>方案助手</div>
+      <div class="c-item"><span class="c-ava" style="--c:#22c3a6">技</span>技术支持工程师</div>
+      <div class="c-item"><span class="c-ava" style="--c:#f5b942">成</span>成本核算专员</div>
+      <div class="c-item"><span class="c-ava" style="--c:#f4756f">报</span>报价专员</div>
+    </div>
+    <div class="ap-msgs">
+      <div class="msg user">配台 Orion 2U，50 台，内存 256G</div>
+      <div class="msg ai">好的，已按需求推导选型：Orion 2U 机型 × 50，内存 8 × 32G，电源与线缆按满配出具，正在生成整机方案…</div>
+      <div class="artifact">
+        <span>📦<b>整机方案 v1</b>已生成，含 BOM 明细</span>
+        <button class="mini-btn">预览</button>
+      </div>
+      <div class="msg ai">可以直接在对话里继续调整，比如「换成 Polaris 机型」或「内存改 512G」。</div>
+    </div>
+  </div>
+  <div class="ap-foot">
+    <div class="composer">
+      <span>试试：配台 2U 服务器 / 查我的商机…</span>
+      <button class="send-btn" title="发送">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M3 11 21 3l-8 18-2.5-7.5Z"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+  /* ═════════ 磁贴插画：参数化 SVG 场景（技法移植自机型详情 CapabilityShowcase） ═════════
+     重复结构做密度，主结构 --a1 / 次级 --a2 / 点缀 --a3 / 洗底 --af，accent 用 --accent；
+     SMIL 脉冲/闪烁做活性，prefers-reduced-motion 下全部静止。 */
+  const RM = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  const LN = 'fill="none" stroke-linecap="round" stroke-linejoin="round"'
+  const pad = (x, y, r = 2) => `<circle cx="${x}" cy="${y}" r="${r}" fill="var(--a2)"/>`
+  const pulse = (path, dur, begin) => RM ? '' :
+    `<circle r="2.3" fill="var(--accent)"><animateMotion dur="${dur}"${begin ? ` begin="${begin}"` : ''} repeatCount="indefinite" path="${path}"/></circle>`
+  const blink = (x, y, r, dur, begin) => RM
+    ? `<circle cx="${x}" cy="${y}" r="${r}" fill="var(--accent)"/>`
+    : `<circle cx="${x}" cy="${y}" r="${r}" fill="var(--accent)"><animate attributeName="opacity" values="1;.15;1" dur="${dur}"${begin ? ` begin="${begin}"` : ''} repeatCount="indefinite"/></circle>`
+
+  const SCENES = {
+    /* 商机：流程轨道 — 站点卡列 + 轨道节点 + 分支 + 行进脉冲 */
+    flow() {
+      let cards = '', nodes = ''
+      const xs = [34, 118, 202, 286]
+      xs.forEach((x, i) => {
+        const acc = i === 2
+        cards += `<g>
+          <rect x="${x}" y="58" width="76" height="48" rx="7" ${LN} stroke="var(--a${acc ? 1 : 1})" stroke-width="1.4" fill="var(--af)"/>
+          <line x1="${x + 10}" y1="74" x2="${x + 56}" y2="74" stroke="var(--a2)" stroke-width="1.2"/>
+          <line x1="${x + 10}" y1="88" x2="${x + (i % 2 ? 40 : 48)}" y2="88" stroke="var(--a3)" stroke-width="1.2"/>
+          ${acc ? blink(x + 64, 70, 2.5, '2.2s') : pad(x + 64, 70, 2.2)}
+        </g>`
+        nodes += `<circle cx="${x + 38}" cy="126" r="4.5" fill="var(--af)" stroke="var(--a1)" stroke-width="1.4"/>`
+      })
+      let grid = ''
+      for (let gx = 0; gx < 10; gx++) for (let gy = 0; gy < 3; gy++)
+        grid += `<circle cx="${26 + gx * 39}" cy="${14 + gy * 24}" r="1" fill="var(--a3)"/>`
+      return `<svg class="art" viewBox="0 0 420 170" ${LN} stroke-width="1.4">${grid}
+        <path d="M18,126 H396" stroke="var(--a1)" stroke-width="1.5"/>
+        ${cards}${nodes}
+        <path d="M240,126 C240,152 258,152 274,152 H328" stroke="var(--a3)" stroke-width="1.2" stroke-dasharray="3 5"/>
+        <rect x="328" y="142" width="54" height="20" rx="5" stroke="var(--a2)" stroke-width="1.2"/>
+        <path d="M380,118 l15,8 -15,8" stroke="var(--accent)" stroke-width="2.5"/>
+        ${pulse('M18,126 H396', '5.5s')}</svg>`
+    },
+    /* 选型配置：CPU 封装顶视 — 基板 + 角孔 + 晶格阵列 + 辐射走线（CapabilityShowcase chip 缩比版） */
+    chip() {
+      let cores = ''
+      const acc = new Set(['1-1', '3-2'])
+      for (let c = 0; c < 5; c++) for (let r = 0; r < 4; r++) {
+        const x = 57 + c * 17, y = 35 + r * 20
+        cores += acc.has(`${c}-${r}`)
+          ? `<rect x="${x}" y="${y}" width="13" height="16" rx="1.5" fill="var(--accent)" opacity=".85"/>`
+          : `<rect x="${x}" y="${y}" width="13" height="16" rx="1.5" fill="none" stroke="var(--a2)" stroke-width="1.1"/>`
+      }
+      const traces = [['M40,55 H16 V10', 16, 10], ['M160,40 H186', 186, 40], ['M100,130 V146', 100, 146], ['M40,95 H20', 20, 95]]
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="40" y="18" width="120" height="112" rx="7" stroke="var(--a1)" stroke-width="1.4"/>
+        ${[[52, 30], [148, 30], [52, 118], [148, 118]].map(p => `<circle cx="${p[0]}" cy="${p[1]}" r="3.2" stroke="var(--a2)" stroke-width="1.2"/>`).join('')}
+        <rect x="53" y="31" width="94" height="86" stroke="var(--a1)" stroke-width="1.2"/>
+        ${cores}
+        ${traces.map(t => `<path d="${t[0]}" stroke="var(--a3)" stroke-width="1.2"/>${pad(t[1], t[2], 1.8)}`).join('')}
+        ${pulse('M160,40 H186', '3.6s')}${pulse('M100,130 V146', '4.4s', '-2s')}</svg>`
+    },
+    /* 方案助手：星芒 + 双轨道 + 轨道节点 + 对话气泡 */
+    sparkle() {
+      return `<svg class="art" viewBox="0 0 200 240" ${LN} stroke-width="1.3">
+        <circle cx="100" cy="96" r="56" stroke="var(--a2)" stroke-width="1.3"/>
+        <circle cx="100" cy="96" r="84" stroke="var(--a3)" stroke-width="1.2" stroke-dasharray="4 8"/>
+        <path d="M100 60 L108 88 L136 96 L108 104 L100 132 L92 104 L64 96 L92 88 Z" fill="var(--accent)" opacity=".92"/>
+        <circle cx="168" cy="58" r="3" fill="var(--af)" stroke="var(--a2)" stroke-width="1.2"/>
+        <circle cx="34" cy="118" r="3" fill="var(--af)" stroke="var(--a2)" stroke-width="1.2"/>
+        ${blink(120, 176, 3, '2.6s')}
+        <rect x="54" y="176" width="92" height="30" rx="9" stroke="var(--a1)" stroke-width="1.3" fill="var(--af)"/>
+        <path d="M74,206 l-6,11 13,-3" stroke="var(--a1)" stroke-width="1.3"/>
+        <circle cx="80" cy="191" r="2.4" fill="var(--a2)"/><circle cx="100" cy="191" r="2.4" fill="var(--a2)"/><circle cx="120" cy="191" r="2.4" fill="var(--a2)"/>
+        ${pulse('M100,12 a84,84 0 1,1 -0.01,0', '7s')}</svg>`
+    },
+    /* 报价：双联单据 — 行项 + 汇总行 + 印章 */
+    doc() {
+      let rows = ''
+      const ws = [54, 44, 58, 38, 50]
+      ws.forEach((w, i) => {
+        rows += `<line x1="74" y1="${46 + i * 13}" x2="${74 + w}" y2="${46 + i * 13}" stroke="var(--a${i % 2 ? 3 : 2})" stroke-width="1.2"/>
+          <rect x="${142 - (i % 2 ? 10 : 14)}" y="${42 + i * 13}" width="${i % 2 ? 10 : 14}" height="6" rx="1.5" stroke="var(--a3)" stroke-width="1"/>`
+      })
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="46" y="26" width="88" height="108" rx="6" stroke="var(--a3)" stroke-width="1.2" fill="var(--af)"/>
+        <rect x="62" y="14" width="92" height="120" rx="7" stroke="var(--a1)" stroke-width="1.4" fill="var(--af)"/>
+        <line x1="74" y1="30" x2="120" y2="30" stroke="var(--a2)" stroke-width="1.4"/>
+        ${rows}
+        <rect x="74" y="112" width="52" height="13" rx="3" fill="var(--accent)" opacity=".22"/>
+        <line x1="78" y1="118.5" x2="112" y2="118.5" stroke="var(--accent)" stroke-width="1.4"/>
+        <circle cx="138" cy="116" r="13" stroke="var(--accent)" stroke-width="1.4" opacity=".85"/>
+        <text x="138" y="121" text-anchor="middle" font-size="12" font-weight="700" fill="var(--accent)" stroke="none">¥</text>
+        ${pulse('M62,140 H154', '4s')}</svg>`
+    },
+    /* 策略中心：推导网络 — 节点图 + 虚实边 + 行进脉冲 */
+    dag() {
+      const N = [[30, 30], [85, 20], [150, 34], [55, 80], [120, 72], [170, 86], [40, 124], [105, 118], [160, 128]]
+      const E = [[0, 3], [1, 4], [2, 5], [3, 4], [4, 5], [3, 6], [4, 7], [5, 8], [6, 7], [7, 8]]
+      const edges = E.map(([a, b], i) => {
+        const [x1, y1] = N[a], [x2, y2] = N[b]
+        const hot = i === 4 || i === 7
+        return `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--a${hot ? 2 : 3})" stroke-width="${hot ? 1.3 : 1.1}"${hot ? '' : ' stroke-dasharray="3 4"'}/>
+          ${hot ? pulse(`M${x1},${y1} L${x2},${y2}`, i === 4 ? '3.2s' : '4.1s', i === 7 ? '-1.6s' : '') : ''}`
+      }).join('')
+      const nodes = N.map((p, i) => i === 4
+        ? blink(p[0], p[1], 7, '2.8s')
+        : `<circle cx="${p[0]}" cy="${p[1]}" r="6" fill="var(--af)" stroke="var(--a2)" stroke-width="1.3"/>`).join('')
+      return `<svg class="art" viewBox="0 0 200 150" ${LN}>${edges}${nodes}</svg>`
+    },
+    /* AI 办公室：透视地板 + 工位（屏 / 人）+ 地面光流 */
+    office() {
+      const desks = [[30, 78], [82, 62], [136, 80]]
+      let g = ''
+      desks.forEach(([x, y], i) => {
+        const acc = i === 1
+        g += `<rect x="${x}" y="${y}" width="44" height="8" rx="2.5" fill="var(--af)" stroke="var(--a1)" stroke-width="1.3"/>
+          <rect x="${x + 8}" y="${y - 17}" width="22" height="15" rx="2" fill="var(--af)" stroke="var(--a2)" stroke-width="1.1"/>
+          ${blink(x + 27, y - 14, 1.6, (2 + i * .6) + 's')}
+          <circle cx="${x + 52}" cy="${y - 12}" r="5" fill="var(--af)" stroke="var(--${acc ? 'accent' : 'a1'})" stroke-width="1.4"/>
+          <rect x="${x + 44}" y="${y - 5}" width="17" height="22" rx="6" fill="var(--af)" stroke="var(--${acc ? 'accent' : 'a1'})" stroke-width="1.4"/>`
+      })
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <line x1="6" y1="134" x2="76" y2="102" stroke="var(--a3)"/>
+        <line x1="196" y1="132" x2="128" y2="100" stroke="var(--a3)"/>
+        <line x1="26" y1="114" x2="176" y2="114" stroke="var(--a3)" stroke-dasharray="4 6"/>
+        ${g}
+        <path d="M22,138 C70,148 130,148 178,134" stroke="var(--a3)" stroke-width="1.2"/>
+        ${pulse('M22,138 C70,148 130,148 178,134', '5.2s')}</svg>`
+    },
+    /* 机型目录：机架正视 — 盘位阵 + 网口 + 冗余电源 + 把手 */
+    tower() {
+      let bays = ''
+      const acc = new Set(['0-0', '2-1'])
+      for (let c = 0; c < 4; c++) for (let r = 0; r < 2; r++) {
+        const x = 70 + c * 16, y = 30 + r * 13
+        bays += `<rect x="${x}" y="${y}" width="13" height="9" rx="1.5" fill="none" stroke="var(--a2)" stroke-width="1"/>
+          ${acc.has(`${c}-${r}`) ? blink(x + 10, y + 4.5, 1.2, (1.8 + (c + r) * .4) + 's') : `<circle cx="${x + 10}" cy="${y + 4.5}" r="1.1" fill="var(--a3)"/>`}`
+      }
+      let ports = ''
+      for (let k = 0; k < 3; k++) {
+        const x = 72 + k * 20
+        ports += `<rect x="${x}" y="82" width="14" height="10" rx="1.5" fill="none" stroke="var(--a2)" stroke-width="1"/>
+          ${k === 1 ? blink(x + 11, 85, 1.3, '2s') : `<circle cx="${x + 11}" cy="85" r="1.2" fill="var(--a3)"/>`}`
+      }
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="62" y="12" width="80" height="126" rx="9" fill="var(--af)" stroke="var(--a1)" stroke-width="1.4"/>
+        <line x1="74" y1="21" x2="130" y2="21" stroke="var(--a2)" stroke-width="1.2"/>
+        ${bays}
+        <rect x="70" y="62" width="62" height="11" rx="2" fill="none" stroke="var(--a2)" stroke-width="1"/>
+        <circle cx="100" cy="67.5" r="3.2" fill="none" stroke="var(--a3)" stroke-width="1"/>
+        ${ports}
+        <circle cx="84" cy="112" r="9.5" fill="none" stroke="var(--a2)" stroke-width="1.2"/>
+        <circle cx="118" cy="112" r="9.5" fill="none" stroke="var(--a2)" stroke-width="1.2"/>
+        <path d="M84,106 v12 M78,112 h12" stroke="var(--a3)" stroke-width="1"/>
+        <path d="M118,106 v12 M112,112 h12" stroke="var(--a3)" stroke-width="1"/>
+        ${blink(140, 106, 2, '2.4s')}
+        <path d="M72,132 h10 M88,132 h10 M104,132 h10 M120,132 h10" stroke="var(--a3)" stroke-width="1.2"/></svg>`
+    },
+    /* 料号库：货架 — 料箱阵列 + 标签 + 出库位 */
+    bins() {
+      let binsG = ''
+      for (let c = 0; c < 3; c++) for (let r = 0; r < 2; r++) {
+        const x = 34 + c * 48, y = 30 + r * 46
+        const acc = c === 2 && r === 0
+        const pulled = c === 0 && r === 1
+        binsG += `<g${pulled ? ' transform="translate(4,-4)"' : ''}>
+          <rect x="${x}" y="${y}" width="42" height="38" rx="4" fill="var(--af)" stroke="var(--${acc ? 'accent' : 'a2'})" stroke-width="${acc ? 1.5 : 1.2}"${pulled ? ' stroke-dasharray="3 4"' : ''}/>
+          <rect x="${x + 6}" y="${y + 9}" width="10" height="8" rx="1" fill="none" stroke="var(--a3)" stroke-width="1"/>
+          <rect x="${x + 20}" y="${y + 9}" width="10" height="8" rx="1" fill="none" stroke="var(--a3)" stroke-width="1"/>
+          <line x1="${x + 6}" y1="${y + 28}" x2="${x + 30}" y2="${y + 28}" stroke="var(--a3)" stroke-width="1"/>
+          ${acc ? blink(x + 36, y + 6, 2, '2.2s') : ''}</g>`
+      }
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="26" y="20" width="148" height="104" rx="6" fill="none" stroke="var(--a1)" stroke-width="1.4"/>
+        ${binsG}
+        <path d="M26,134 H174" stroke="var(--a2)" stroke-width="1.2"/>
+        ${pulse('M26,134 H174', '4.6s')}</svg>`
+    },
+    /* 需求/报价任务：任务单 — 勾选项 + 进度条 */
+    checklist() {
+      let rows = ''
+      const ws = [46, 38, 50, 34, 44]
+      for (let i = 0; i < 5; i++) {
+        const y = 38 + i * 15, done = i === 0 || i === 3
+        rows += done
+          ? `<rect x="68" y="${y - 5}" width="8" height="8" rx="1.5" fill="var(--accent)" opacity=".8"/>
+             <path d="M69.5,${y - 1} l2.4,2.6 4,-5" stroke="#fff" stroke-width="1.4"/>
+             <line x1="84" y1="${y - 1}" x2="${84 + ws[i]}" y2="${y - 1}" stroke="var(--a3)" stroke-width="1.2"/>`
+          : `<rect x="68" y="${y - 5}" width="8" height="8" rx="1.5" fill="none" stroke="var(--a2)" stroke-width="1.1"/>
+             <line x1="84" y1="${y - 1}" x2="${84 + ws[i]}" y2="${y - 1}" stroke="var(--a${i % 2 ? 3 : 2})" stroke-width="1.2"/>`
+      }
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="56" y="14" width="90" height="122" rx="9" fill="var(--af)" stroke="var(--a1)" stroke-width="1.4"/>
+        <rect x="86" y="8" width="30" height="12" rx="4" fill="var(--af)" stroke="var(--a2)" stroke-width="1.2"/>
+        ${rows}
+        ${blink(120, 100, 2, '2.4s')}
+        <line x1="146" y1="30" x2="146" y2="118" stroke="var(--a3)" stroke-width="1" stroke-dasharray="2 5"/>
+        <rect x="68" y="120" width="56" height="6" rx="3" fill="none" stroke="var(--a2)" stroke-width="1"/>
+        <rect x="68" y="120" width="38" height="6" rx="3" fill="var(--accent)" opacity=".5"/>
+        ${pulse('M56,22 V128', '4.8s')}</svg>`
+    },
+    /* 成本任务：核算器 + 币堆 */
+    coins() {
+      let keys = ''
+      for (let c = 0; c < 3; c++) for (let r = 0; r < 4; r++) {
+        const x = 66 + c * 20, y = 52 + r * 18
+        const eq = c === 2 && r === 3
+        keys += `<rect x="${x}" y="${y}" width="16" height="14" rx="3" fill="${eq ? 'var(--accent)' : 'none'}" opacity="${eq ? .8 : 1}" stroke="var(--${eq ? 'accent' : 'a2'})" stroke-width="1.1"/>`
+      }
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <rect x="58" y="14" width="78" height="122" rx="9" fill="var(--af)" stroke="var(--a1)" stroke-width="1.4"/>
+        <rect x="66" y="24" width="62" height="20" rx="3" fill="none" stroke="var(--a2)" stroke-width="1.1"/>
+        <line x1="72" y1="38" x2="112" y2="38" stroke="var(--accent)" stroke-width="1.6"/>
+        ${blink(122, 32, 1.6, '1.6s')}
+        ${keys}
+        <ellipse cx="160" cy="118" rx="20" ry="7" fill="var(--af)" stroke="var(--a2)" stroke-width="1.1"/>
+        <ellipse cx="160" cy="106" rx="20" ry="7" fill="var(--af)" stroke="var(--a2)" stroke-width="1.1"/>
+        <ellipse cx="160" cy="94" rx="20" ry="7" fill="var(--af)" stroke="var(--accent)" stroke-width="1.3" opacity=".9"/>
+        <text x="160" y="70" text-anchor="middle" font-size="15" font-weight="700" fill="var(--accent)" stroke="none">¥</text>
+        ${pulse('M144,62 C156,80 158,96 150,110', '4.2s')}</svg>`
+    },
+    /* 任务调度：看板三列 — 卡片流 + 列间流转 */
+    kanban() {
+      const cols = [[22, [0, 1]], [84, [0, 1, 2]], [146, [0]]]
+      let g = ''
+      cols.forEach(([x, rows], ci) => {
+        g += `<rect x="${x}" y="14" width="56" height="124" rx="6" fill="var(--af)" stroke="var(--a1)" stroke-width="1.3"/>
+          <line x1="${x + 8}" y1="28" x2="${x + 34}" y2="28" stroke="var(--a2)" stroke-width="1.3"/>`
+        rows.forEach((r, ri) => {
+          const y = 36 + ri * 26
+          const acc = ci === 1 && ri === 1
+          g += `<g>
+            <rect x="${x + 6}" y="${y}" width="44" height="19" rx="3.5" fill="var(--af)" stroke="var(--${acc ? 'accent' : 'a2'})" stroke-width="${acc ? 1.4 : 1.1}"/>
+            <line x1="${x + 11}" y1="${y + 7}" x2="${x + 38}" y2="${y + 7}" stroke="var(--a3)" stroke-width="1"/>
+            ${acc ? blink(x + 43, y + 5.5, 1.8, '2.2s') : ''}</g>`
+        })
+      })
+      return `<svg class="art" viewBox="0 0 220 150" ${LN} stroke-width="1.3">
+        ${g}
+        <path d="M78,70 l7,5 -7,5 M140,70 l7,5 -7,5" stroke="var(--a2)" stroke-width="1.3"/>
+        <rect x="152" y="62" width="44" height="19" rx="3.5" fill="none" stroke="var(--a3)" stroke-width="1.1" stroke-dasharray="3 4"/>
+        ${pulse('M22,146 H202', '5s')}</svg>`
+    },
+    /* 通知动态：铃 + 声波 + 事件流 */
+    bell() {
+      let rows = ''
+      const ws = [52, 74, 42]
+      for (let i = 0; i < 3; i++) {
+        const y = 104 + i * 14
+        const acc = i === 1
+        rows += `${acc ? blink(40, y, 2.5, '2.4s') : pad(40, y, 2.2)}
+          <line x1="50" y1="${y}" x2="${50 + ws[i]}" y2="${y}" stroke="var(--a${acc ? 2 : 3})" stroke-width="1.2"/>
+          <rect x="150" y="${y - 3.5}" width="20" height="7" rx="2" fill="none" stroke="var(--a3)" stroke-width="1"/>`
+      }
+      return `<svg class="art" viewBox="0 0 200 150" ${LN} stroke-width="1.3">
+        <path d="M86 32 c-19 0 -29 14 -29 33 v19 l-10 15 h78 l-10 -15 v-19 c0 -19 -10 -33 -29 -33 Z" fill="var(--af)" stroke="var(--a1)" stroke-width="1.4"/>
+        <path d="M76,112 a10,10 0 0 0 20,0" fill="var(--af)" stroke="var(--a2)" stroke-width="1.2"/>
+        <path d="M48,42 c-5,7 -5,15 0,22 M124,42 c5,7 5,15 0,22" stroke="var(--a3)" stroke-width="1.2"/>
+        ${blink(110, 40, 3, '2s')}
+        ${rows}
+        ${pulse('M46,44 C36,20 136,20 126,44', '4.4s')}</svg>`
+    },
+  }
+
+  /* ───────── 磁贴定义（dot=马卡龙识别点，glow=卡面微光） ───────── */
+  const TILES = {
+    business:  { art: 'flow',      dot: '#2f6bff', glow: 'rgba(47,107,255,.20)',  title: '我的商机',   desc: '业务发起、跟踪自己创建的商机' },
+    oppAll:    { art: 'flow',      dot: '#2f6bff', glow: 'rgba(47,107,255,.20)',  title: '商机全景',   desc: '全部商机 · 流程看板与进度跟踪' },
+    teTask:    { art: 'checklist', dot: '#22c3a6', glow: 'rgba(34,195,166,.15)',  title: '需求任务',   desc: '待配 BOM 需求 · 推理生成整机方案' },
+    costTask:  { art: 'coins',     dot: '#f5b942', glow: 'rgba(245,185,66,.15)',  title: '成本任务',   desc: '待核价任务 · 成本核算与比价' },
+    quoteTask: { art: 'checklist', dot: '#f4756f', glow: 'rgba(244,117,111,.14)', title: '报价任务',   desc: '待转报价任务 · 一键生成报价单' },
+    dispatch:  { art: 'kanban',    dot: '#8b93ff', glow: 'rgba(139,147,255,.16)', title: '任务调度',   desc: '配置 / 转交处理人 · 全局看板' },
+    selection: { art: 'chip',      dot: '#22c3a6', glow: 'rgba(34,195,166,.16)',  title: '选型配置',   desc: '机型选型 · BOM 推理 · 兼容校验' },
+    quote:     { art: 'doc',       dot: '#f5b942', glow: 'rgba(245,185,66,.14)',  title: '报价工作台', desc: '核价 · 利润率 · 一键导出' },
+    strategy:  { art: 'dag',       dot: '#f4756f', glow: 'rgba(244,117,111,.13)', title: '策略中心',   desc: '定价策略 · 硬规则 · 平台推导' },
+    office:    { art: 'office',    dot: '#8b93ff', glow: 'rgba(139,147,255,.15)', title: 'AI 办公室',  desc: '3D 智能办公室 · AI 同事协作' },
+    catalog:   { art: 'tower',     dot: '#2f6bff', glow: 'rgba(47,107,255,.14)',  title: '机型目录',   desc: '服务器产品 · 机型详情与能力档案' },
+    parts:     { art: 'bins',      dot: '#22c3a6', glow: 'rgba(34,195,166,.13)',  title: '料号库',     desc: '配件料号 · 规格与价格' },
+    feed:      { art: 'bell',      dot: '#f5b942', glow: 'rgba(245,185,66,.12)',  title: '通知动态',   desc: '商机进展 · 协作消息' },
+  }
+
+  /* ───────── 角色视图：[主位HERO, 底1, 底2, 底3]；左上格=待办卡、左下竖长位=方案助手 ───────── */
+  const ROLES = {
+    business: { label: '业务销售', slots: ['business', 'quote', 'catalog', 'office'] },
+    te:       { label: '技术支持', slots: ['teTask', 'selection', 'catalog', 'office'] },
+    cost:     { label: '成本核算', slots: ['costTask', 'quote', 'parts', 'office'] },
+    quote:    { label: '报价专员', slots: ['quoteTask', 'quote', 'catalog', 'office'] },
+    admin:    { label: '管理员',   slots: ['oppAll', 'dispatch', 'strategy', 'office'] },
+  }
+
+  /* ───────── 待处理事项（分类图标网格，示意数据；实装=各角色工作台待办分类统计） ─────────
+     level: hot=超时/阻塞/无主（红，保持稀缺） · act=进行中待办（accent） · dim=中性统计/0（灰） */
+  const BADGE = { hot: '#ef5b5b', act: 'var(--accent)', dim: '#9aa3b5' }
+  const I = (inner) => `<svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`
+  const ICONS = {
+    follow: I('<circle cx="9" cy="10" r="5.5"/><circle cx="9" cy="10" r="1.6" fill="currentColor" stroke="none"/><path d="M13.5,6.5 L17,3 M17,3 h-3 M17,3 v3"/>'),
+    chip: I('<rect x="5" y="5" width="10" height="10" rx="2"/><rect x="8" y="8" width="4" height="4"/><path d="M8,5 V2.5 M12,5 V2.5 M8,15 v2.5 M12,15 v2.5 M5,8 H2.5 M5,12 H2.5 M15,8 h2.5 M15,12 h2.5"/>'),
+    doc: I('<rect x="4.5" y="3" width="11" height="14" rx="2"/><path d="M7.5,7.5 h5 M7.5,10.5 h5 M7.5,13.5 h3"/>'),
+    doccheck: I('<rect x="4.1" y="3" width="11" height="14" rx="2"/><path d="M6.8,10 l2.2,2.2 L13.6,7.6"/>'),
+    warn: I('<path d="M10,3.2 L17.4,16.5 H2.6 Z"/><path d="M10,8 v3.6 M10,14.4 v.1"/>'),
+    clock: I('<circle cx="10" cy="10" r="7"/><path d="M10,6 v4.5 l3,2"/>'),
+    board: I('<rect x="2.5" y="4" width="4.5" height="12" rx="1"/><rect x="8" y="4" width="4.5" height="8" rx="1"/><rect x="13.5" y="4" width="4" height="10" rx="1"/>'),
+    coin: I('<circle cx="10" cy="10" r="7"/><path d="M7.5,6.5 L10,10 l2.5,-3.5 M10,10 v4 M8,11.5 h4 M8,13.5 h4"/>'),
+    audit: I('<path d="M10,2.5 l6,2.2 v4.5 c0,4.2 -2.6,6.9 -6,8.3 c-3.4,-1.4 -6,-4.1 -6,-8.3 V4.7 Z"/><path d="M7.2,10 l2,2 3.6,-3.8"/>'),
+    box: I('<rect x="3.5" y="6" width="13" height="10" rx="1.5"/><path d="M3.5,9.5 h13 M8,6 V4 h4 v2"/>'),
+  }
+  const TODOS = {
+    business: [
+      { icon: 'follow', label: '待跟进商机', n: 5, level: 'act' },
+      { icon: 'chip', label: '配置中', n: 3, level: 'act' },
+      { icon: 'doc', label: '待报价', n: 2, level: 'act' },
+      { icon: 'doccheck', label: '待客户确认', n: 1, level: 'act' },
+      { icon: 'warn', label: '超期未动', n: 1, level: 'hot' },
+    ],
+    te: [
+      { icon: 'chip', label: '待配置 BOM', n: 2, level: 'act' },
+      { icon: 'doccheck', label: '待人工复核', n: 1, level: 'act' },
+      { icon: 'clock', label: '超期任务', n: 0, level: 'dim' },
+      { icon: 'box', label: '缺料待补', n: 1, level: 'act' },
+      { icon: 'follow', label: '今日新增', n: 4, level: 'dim' },
+    ],
+    cost: [
+      { icon: 'coin', label: '待核价', n: 2, level: 'act' },
+      { icon: 'warn', label: '低于警戒线', n: 1, level: 'hot' },
+      { icon: 'doc', label: '缺价待补', n: 3, level: 'act' },
+      { icon: 'doccheck', label: '今日已核', n: 12, level: 'dim' },
+    ],
+    quote: [
+      { icon: 'doc', label: '待转报价', n: 1, level: 'act' },
+      { icon: 'doccheck', label: '待回签', n: 2, level: 'act' },
+      { icon: 'clock', label: '超期未动', n: 0, level: 'dim' },
+      { icon: 'follow', label: '今日新增', n: 3, level: 'dim' },
+    ],
+    admin: [
+      { icon: 'board', label: '无主待指派', n: 2, level: 'hot' },
+      { icon: 'clock', label: '超期任务', n: 1, level: 'hot' },
+      { icon: 'audit', label: '规则待复审', n: 2, level: 'act' },
+      { icon: 'coin', label: '待抽核价单', n: 1, level: 'act' },
+      { icon: 'follow', label: '今日新增商机', n: 6, level: 'dim' },
+    ],
+  }
+
+  const AI_TILE = { art: 'sparkle', dot: '#8b93ff', glow: 'rgba(139,147,255,.20)', title: '方案助手', desc: '随时唤起 · 支持全屏对话' }
+
+  const wall = document.getElementById('wall')
+  const roleSeg = document.getElementById('roleSeg')
+  const hello = document.getElementById('hello')
+
+  function tileHtml(cls, t, isAi = false) {
+    return `<article class="tile ${cls}${isAi ? ' t-ai' : ''}" style="--dot:${t.dot};--glow:${t.glow}">
+      ${isAi ? '<div class="halo"></div>' : ''}
+      <div class="glow"></div>
+      ${SCENES[t.art]()}
+      <div class="scrim"></div>
+      <div class="tile-label"><h3><i class="dot"></i>${t.title}</h3><p>${t.desc}</p></div>
+    </article>`
+  }
+
+  function todoHtml(key) {
+    const cats = TODOS[key] || []
+    return `<article class="tile t-todo">
+      <div class="todo-head"><b>待处理事项</b><button class="todo-all">查看全部 →</button></div>
+      <div class="todo-grid">${cats.map((d) => `
+        <button class="todo-cell">
+          <span class="tc-ring" style="--b:${BADGE[d.level]}">
+            ${ICONS[d.icon] || ''}
+            <span class="tc-badge">${d.n}</span>
+          </span>
+          <span class="tc-label">${d.label}</span>
+        </button>`).join('')}</div>
+    </article>`
+  }
+
+  function renderRole(key) {
+    const r = ROLES[key]
+    wall.innerHTML =
+      todoHtml(key) +
+      tileHtml('t-hero', TILES[r.slots[0]]) +
+      tileHtml('t-ai-slot', AI_TILE, true) +
+      tileHtml('t-b1', TILES[r.slots[1]]) +
+      tileHtml('t-b2', TILES[r.slots[2]]) +
+      tileHtml('t-b3', TILES[r.slots[3]])
+    hello.textContent = `欢迎回来，${r.label}`
+    roleSeg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.role === key))
+  }
+
+  Object.entries(ROLES).forEach(([key, r]) => {
+    const b = document.createElement('button')
+    b.textContent = r.label
+    b.dataset.role = key
+    b.addEventListener('click', () => renderRole(key))
+    roleSeg.appendChild(b)
+  })
+  renderRole('business')
+
+  /* ───────── 主题切换 ───────── */
+  const html = document.documentElement
+  const themeToggle = document.getElementById('themeToggle')
+  themeToggle.addEventListener('click', () => {
+    const dark = html.getAttribute('data-theme') === 'dark'
+    html.setAttribute('data-theme', dark ? 'light' : 'dark')
+    themeToggle.textContent = dark ? '🌙 夜间模式' : '☀️ 日间模式'
+  })
+
+  /* ───────── 助手：浮动 ⇄ 全屏 ───────── */
+  const fab = document.getElementById('fab')
+  const panel = document.getElementById('panel')
+  function openPanel() { panel.classList.add('open'); fab.classList.add('active') }
+  function closePanel() { panel.classList.remove('open', 'fullscreen'); fab.classList.remove('active') }
+
+  wall.addEventListener('click', (e) => { if (e.target.closest('.t-ai-slot')) openPanel() })
+  fab.addEventListener('click', () => { panel.classList.contains('open') ? closePanel() : openPanel() })
+  document.getElementById('btnExpand').addEventListener('click', () => panel.classList.toggle('fullscreen'))
+  document.getElementById('btnClose').addEventListener('click', () => {
+    if (panel.classList.contains('fullscreen')) panel.classList.remove('fullscreen')
+    else closePanel()
+  })
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panel.classList.contains('fullscreen')) panel.classList.remove('fullscreen')
+  })
+</script>
+</body>
+</html>

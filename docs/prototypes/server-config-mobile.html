@@ -1,0 +1,481 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>服务器配置页 · 手机版优化方案 原型（2026-09-19）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0d1322;
+  background-image:
+    radial-gradient(900px 500px at 15% -5%, rgba(47,107,255,.14), transparent 60%),
+    radial-gradient(800px 480px at 90% 8%, rgba(34,195,166,.08), transparent 60%),
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: auto, auto, 28px 28px, 28px 28px;
+  color: #dbe4f5;
+  padding-bottom: 80px;
+}
+.doc-head { max-width: 1460px; margin: 0 auto; padding: 44px 36px 4px; }
+.doc-head h1 { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.doc-head .updated { margin-top: 6px; font-size: 12.5px; color: #8fa0bd; }
+.doc-head .lede { margin-top: 14px; font-size: 13.5px; line-height: 1.9; color: #aebbd6; max-width: 1000px; }
+.doc-head .lede b { color: #eaf1ff; }
+.deck { display: flex; flex-wrap: wrap; gap: 52px; justify-content: center; align-items: flex-start; padding: 38px 24px 10px; max-width: 1460px; margin: 0 auto; }
+.figure { display: flex; flex-direction: column; gap: 14px; }
+.fig-title { font-size: 15px; font-weight: 800; color: #e8eefb; letter-spacing: .5px; }
+.fig-title em { font-style: normal; color: #6ea2ff; }
+.fig-note {
+  width: 375px; font-size: 12.5px; line-height: 1.85; color: #9fb0cc;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 13px 15px;
+}
+.fig-note b { color: #d7e2f7; }
+.mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #2f6bff; color: #fff; font-size: 10.5px; font-weight: 700; margin-right: 4px; flex: none; }
+
+/* ── 手机框（本页固定暗色链路，框内画暗色） ── */
+.phone {
+  position: relative; width: 375px; height: 812px; flex: none;
+  border-radius: 46px; border: 9px solid #222b3f;
+  box-shadow: 0 34px 90px rgba(0,0,0,.55), inset 0 0 0 1.5px rgba(255,255,255,.06);
+  overflow: hidden;
+  background: linear-gradient(168deg, #101725 0%, #0e1522 55%, #0c1220 100%);
+  color: #e8eef6; font-size: 13px;
+}
+.statusbar { display: flex; justify-content: space-between; align-items: center; padding: 13px 24px 5px; font-size: 12px; font-weight: 700; color: #dfe7f2; }
+.statusbar .sb-r { display: flex; gap: 5px; align-items: center; font-size: 10.5px; }
+.sig { display: inline-flex; gap: 1.5px; align-items: flex-end; }
+.sig i { width: 2.5px; background: #dfe7f2; border-radius: 1px; display: block; }
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:6px}.sig i:nth-child(3){height:8px}.sig i:nth-child(4){height:10px}
+.batt { width: 21px; height: 10.5px; border: 1.2px solid #dfe7f2; border-radius: 3px; position: relative; opacity: .85; }
+.batt::after { content: ""; position: absolute; inset: 1.5px; right: 5px; background: #dfe7f2; border-radius: 1.5px; }
+.batt::before { content: ""; position: absolute; right: -3.5px; top: 2.5px; width: 2px; height: 4px; background: #dfe7f2; border-radius: 0 1px 1px 0; }
+
+/* 面包屑 + banner */
+.crumb { display: flex; align-items: center; gap: 8px; padding: 6px 13px 4px; font-size: 11px; color: #8b9ab5; }
+.crumb .back { color: #c6d2e4; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); border-radius: 8px; padding: 3px 10px; }
+.banner { display: flex; align-items: baseline; gap: 10px; padding: 4px 13px 10px; }
+.banner .bn { font-size: 18px; font-weight: 800; color: #f2f6fc; letter-spacing: .3px; }
+.banner .bs { font-size: 11px; color: #8b9ab5; }
+
+.pbody { padding: 0 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* 配置卡 */
+.cfg-card { position: relative; background: rgba(255,255,255,.055); border: 1px solid rgba(255,255,255,.12); border-radius: 15px;
+  box-shadow: 0 8px 22px rgba(0,0,0,.25); overflow: hidden; }
+.cc-head { display: flex; align-items: center; gap: 9px; padding: 11px 13px; }
+.cc-num { width: 24px; height: 24px; border-radius: 8px; background: rgba(47,107,255,.16); color: #6f9bff;
+  display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex: none; }
+.cc-tt { flex: 1; min-width: 0; }
+.cc-tt h4 { font-size: 13.5px; font-weight: 800; color: #eef3fa; }
+.cc-tt .s { font-size: 10px; color: #8b9ab5; margin-top: 1px; }
+.cc-state { font-size: 10px; font-weight: 700; padding: 2.5px 9px; border-radius: 999px; flex: none; }
+.ok { background: rgba(47,174,135,.16); color: #46c99a; }
+.dim { background: rgba(255,255,255,.07); color: #93a1b8; }
+.cfg-btn { flex: none; font-size: 11px; font-weight: 700; color: #fff; background: linear-gradient(135deg, #3b78ff, #2450c8);
+  border-radius: 9px; padding: 5px 12px; box-shadow: 0 4px 12px rgba(36,80,200,.35); }
+.cc-body { padding: 0 13px 11px; display: flex; flex-direction: column; gap: 6px; }
+.cl { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 10px;
+  background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); font-size: 11.5px; color: #c9d4e4; }
+.cl b { color: #eef3fa; font-weight: 700; }
+.cl .spec { color: #8b9ab5; font-size: 10.5px; }
+.cl .qty { margin-left: auto; flex: none; display: inline-flex; align-items: center; gap: 7px; font-size: 11px; color: #c9d4e4; }
+.cl .qty i { font-style: normal; width: 20px; height: 20px; border: 1px solid rgba(255,255,255,.14); border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center; color: #93a1b8; font-size: 11px; }
+.cl .qty b { min-width: 18px; text-align: center; }
+.add-card { border: 1.5px dashed rgba(255,255,255,.18); border-radius: 15px; padding: 13px; text-align: center;
+  font-size: 12px; color: #93a1b8; background: rgba(255,255,255,.02); }
+
+/* 底部 sticky 摘要条 */
+.sumbar { position: absolute; left: 0; right: 0; bottom: 62px; z-index: 28;
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
+  background: rgba(16,24,38,.9); -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3);
+  border-top: 1px solid rgba(255,255,255,.12); }
+.sum-metric { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; padding-left: 4px; }
+.sum-metric .v { font-size: 14.5px; font-weight: 800; color: #eef3fa; white-space: nowrap; }
+.sum-metric .v em { font-style: normal; color: #ffb84d; }
+.sum-metric .l { font-size: 9px; color: #8b9ab5; }
+.sum-ic { width: 38px; height: 38px; border-radius: 12px; flex: none; display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.12); color: #c9d4e4; position: relative; }
+.sum-ic svg { width: 17px; height: 17px; }
+.sum-ic .n { position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; border-radius: 999px; background: #ffb84d;
+  color: #1c1408; font-size: 9px; font-weight: 800; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+.sum-cta { flex: none; height: 38px; padding: 0 14px; border-radius: 12px; border: none; cursor: pointer;
+  background: linear-gradient(135deg, #3b78ff, #2450c8); color: #fff; font-size: 12px; font-weight: 700;
+  display: inline-flex; align-items: center; gap: 5px; box-shadow: 0 6px 16px rgba(36,80,200,.4); }
+.sum-cta::after { content: "›"; font-size: 13px; opacity: .85; }
+
+/* 抽屉公共 */
+.mask { position: absolute; inset: 0; z-index: 40; background: rgba(4,8,16,.55); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px); }
+.pd-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,.18); margin: 8px auto 0; }
+.pd-head { display: flex; align-items: center; gap: 8px; padding: 9px 15px 8px; }
+.pd-head h3 { font-size: 15px; font-weight: 800; color: #eef3fa; }
+.pd-head .sp { flex: 1; }
+.pd-chip { font-size: 10px; color: #aebbd6; background: rgba(255,255,255,.08); border-radius: 999px; padding: 2px 9px; }
+.pd-close { width: 29px; height: 29px; border-radius: 10px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.06); color: #c9d4e4; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.view-tabs { display: inline-flex; border: 1px solid rgba(255,255,255,.14); border-radius: 9px; overflow: hidden; }
+.view-tabs span { font-size: 10.5px; padding: 4px 11px; color: #93a1b8; }
+.view-tabs span.on { background: rgba(47,107,255,.2); color: #8ab0ff; font-weight: 700; }
+
+/* 左抽屉 · 服务器图纸 */
+.ldrawer {
+  position: absolute; top: 0; bottom: 0; left: 0; z-index: 50; width: 94%;
+  background: rgba(15,22,36,.97);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-right: 1px solid rgba(255,255,255,.1); border-radius: 0 22px 22px 0;
+  box-shadow: 28px 0 70px rgba(4,8,16,.5);
+  display: flex; flex-direction: column;
+}
+.dr-body { flex: 1; overflow: hidden; padding: 4px 13px 12px; display: flex; flex-direction: column; gap: 9px; }
+.drawing { flex: 1; border-radius: 14px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.09);
+  display: flex; align-items: center; justify-content: center; padding: 12px; min-height: 0; position: relative; }
+.drawing svg { width: 100%; height: auto; max-height: 100%; }
+.dr-count { position: absolute; padding: 3px 8px; border-radius: 8px; background: rgba(47,107,255,.18); border: 1px solid rgba(47,107,255,.4);
+  color: #8ab0ff; font-size: 9.5px; font-weight: 700; }
+.dr-note { font-size: 10.5px; color: #8b9ab5; line-height: 1.6; text-align: center; }
+
+/* 右抽屉 · 配置结果 */
+.drawer {
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 50; width: 88%;
+  background: rgba(15,22,36,.97);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(255,255,255,.1); border-radius: 22px 0 0 22px;
+  box-shadow: -28px 0 70px rgba(4,8,16,.5);
+  display: flex; flex-direction: column;
+}
+.rr-body { flex: 1; overflow: hidden; padding: 4px 13px 12px; display: flex; flex-direction: column; gap: 10px; }
+.rr-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.1); border-radius: 13px; padding: 11px 12px; }
+.rr-t { font-size: 12px; font-weight: 800; color: #dfe8f5; margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.rr-t .tail { margin-left: auto; font-size: 9.5px; color: #8b9ab5; font-weight: 500; }
+.rule { display: flex; align-items: center; gap: 7px; padding: 6px 8px; border-radius: 8px; font-size: 10.5px; margin-bottom: 5px; }
+.rule:last-child { margin-bottom: 0; }
+.rule .b { flex: none; font-size: 9px; font-weight: 800; padding: 2px 7px; border-radius: 6px; }
+.rule.warn { background: rgba(255,184,77,.1); color: #ffcf8a; }
+.rule.warn .b { background: rgba(255,184,77,.2); color: #ffb84d; }
+.rule.info { background: rgba(47,107,255,.1); color: #8ab0ff; }
+.rule.info .b { background: rgba(47,107,255,.2); color: #8ab0ff; }
+.pw-row { display: flex; justify-content: space-between; font-size: 11px; color: #aebbd6; padding: 4px 0; }
+.pw-row b { color: #eef3fa; font-weight: 700; }
+.pw-row.em b { color: #6f9bff; font-size: 12.5px; }
+.radar-mock { display: flex; align-items: center; gap: 12px; }
+.hex { width: 92px; height: 92px; flex: none; }
+.rmetrics { display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px; flex: 1; }
+.rm { display: flex; justify-content: space-between; font-size: 10.5px; color: #aebbd6; border-bottom: 1px dashed rgba(255,255,255,.08); padding: 3px 0; }
+.rm b { color: #eef3fa; }
+.save-btn { height: 40px; border-radius: 12px; border: none; background: linear-gradient(135deg, #3b78ff, #2450c8);
+  color: #fff; font-size: 13px; font-weight: 800; box-shadow: 0 8px 20px rgba(36,80,200,.4); }
+
+/* 底部导航 */
+.tabbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  height: 62px; padding: 7px 10px 9px;
+  background: rgba(18,26,42,.9);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid rgba(255,255,255,.1);
+  display: grid; grid-template-columns: repeat(5, 1fr);
+}
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.5px; font-size: 10px; color: #7c8aa5; }
+.tab .ic { width: 46px; height: 27px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.tab .ic svg { width: 17px; height: 17px; }
+.tab.on { color: #6f9bff; font-weight: 700; }
+.tab.on .ic { background: rgba(47,107,255,.16); }
+.homebar { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 118px; height: 4.5px; border-radius: 3px; background: rgba(255,255,255,.28); z-index: 60; }
+
+/* 对比/说明 */
+.spec-panel { width: 375px; display: flex; flex-direction: column; gap: 14px; }
+.spec-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 18px 16px; }
+.spec-card h4 { font-size: 13px; font-weight: 700; color: #e8eefb; margin-bottom: 12px; letter-spacing: .5px; }
+.spec-li { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.75; color: #a7b6d2; padding: 5px 0; }
+.spec-li b { color: #dfe8fa; font-weight: 700; }
+.spec-li .n { flex: none; }
+.cmp { width: 100%; border-collapse: collapse; font-size: 12px; color: #a7b6d2; }
+.cmp th, .cmp td { border: 1px solid rgba(255,255,255,.1); padding: 7px 8px; text-align: left; line-height: 1.5; }
+.cmp th { color: #dfe8fa; font-weight: 700; background: rgba(255,255,255,.04); }
+.cmp td:first-child { color: #dfe8fa; font-weight: 600; white-space: nowrap; }
+.notes { max-width: 1100px; margin: 26px auto 0; padding: 0 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.note-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 18px; padding: 22px 24px; }
+.note-card h3 { font-size: 15px; font-weight: 800; color: #eaf1ff; margin-bottom: 12px; letter-spacing: .5px; }
+.note-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.8; color: #a7b6d2; }
+.note-card li b { color: #e4ecfc; }
+.note-card li::before { content: "·"; color: #5b8bff; font-weight: 900; margin-right: 8px; }
+.phase { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,.08); font-size: 13px; line-height: 1.75; color: #a7b6d2; }
+.phase:last-child { border-bottom: none; }
+.tag { flex: none; font-size: 11px; font-weight: 800; color: #0d1322; background: #6ea2ff; border-radius: 7px; padding: 2px 8px; margin-top: 3px; }
+.tag.t2 { background: #55d6b5; }
+.tag.t3 { background: #f5c96b; }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>服务器配置页 · 手机版优化方案</h1>
+  <div class="updated">&gt; 最后更新：2026-09-19 · 原型稿（仅视觉示意，非实现；页面为固定暗色链路，原型按暗色画）</div>
+  <p class="lede">
+    桌面三栏 = <b>左：配置卡输入流（机箱 + KP 卡）/ 中：服务器图纸解剖图 / 右：配置结果（规则 · 电源 · 性能）</b>。
+    手机现状是「图纸占顶 → 配置卡 → 结果沉底」，要滚过大图才能配、配完看不到反馈。
+    方案延续全站语言：<b>主屏 = 配置卡流（输入主场）；左抽屉 = 服务器图纸；右抽屉 = 配置结果；底部 sticky 摘要条</b>常驻电源/规则/性能关键值。
+    四张手机框：A 主屏 / B 左抽屉·图纸 / C 右抽屉·配置结果 / D 对比与分期。
+  </p>
+</header>
+
+<div class="deck">
+<!-- ═══════════ A. 主屏：配置卡流 ═══════════ -->
+<figure class="figure">
+  <div class="phone" id="scA">
+    <div class="statusbar"><span>9:41</span><span class="sb-r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+    <div class="crumb"><span class="back">← 返回</span><span>/ 机型目录</span></div>
+    <div class="banner"><span class="bn">Polaris P1022</span><span class="bs">2U · 8 盘位 · 双路国产</span></div>
+    <div class="pbody">
+      <div class="cfg-card">
+        <div class="cc-head">
+          <span class="cc-num">1</span>
+          <div class="cc-tt"><h4>机箱</h4><div class="s">2U · P1022 · 8 盘位</div></div>
+          <span class="cc-state ok">基准已配置</span>
+          <span class="cfg-btn">细配</span>
+        </div>
+      </div>
+      <div class="cfg-card">
+        <div class="cc-head">
+          <span class="cc-num">2</span>
+          <div class="cc-tt"><h4>CPU</h4><div class="s">核心部件 · 不可移除</div></div>
+          <span class="cc-state ok">2 颗</span>
+        </div>
+        <div class="cc-body">
+          <div class="cl"><b>兆芯 KH-3000</b><span class="spec">16 核 · 2.6GHz</span><span class="qty"><i>−</i><b>2</b><i>＋</i></span></div>
+        </div>
+      </div>
+      <div class="cfg-card">
+        <div class="cc-head">
+          <span class="cc-num">3</span>
+          <div class="cc-tt"><h4>内存</h4><div class="s">32G DDR5 ECC</div></div>
+          <span class="cc-state ok">8 条</span>
+        </div>
+        <div class="cc-body">
+          <div class="cl"><b>32G DDR5 ECC 5600</b><span class="spec">RDIMM</span><span class="qty"><i>−</i><b>8</b><i>＋</i></span></div>
+        </div>
+      </div>
+      <div class="cfg-card">
+        <div class="cc-head">
+          <span class="cc-num">4</span>
+          <div class="cc-tt"><h4>硬盘</h4><div class="s">SATA / NVMe 混配</div></div>
+          <span class="cc-state dim">未配置</span>
+        </div>
+      </div>
+      <div class="add-card">＋ 新增配置卡片（GPU / 网卡 / 电源 …）</div>
+    </div>
+    <div class="sumbar">
+      <span class="sum-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="2"/><path d="M9 9h6M9 13h4"/></svg><span class="n">2</span></span>
+      <div class="sum-metric"><span class="v">850W <em>· 冗余</em></span><span class="l">建议电源 · 整机负载 612W</span></div>
+      <span class="sum-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12l9-9 9 9M5 10v10h14V10"/></svg></span>
+      <button class="sum-cta">配置结果</button>
+    </div>
+    <nav class="tabbar">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">A · 主屏 <em>（配置卡流 = 输入主场）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>图纸不再占顶</b>：现状手机端图纸 min-height 440px 挡在最前面；改为收进左抽屉，进来第一屏就是配置卡，直接开配。<br>
+    <span class="mark">2</span><b>配置卡 = 主内容</b>：机箱卡（细配弹 4 步 L6 弹窗）+ KP 类别卡（行内 ±数量 / 换型号）+ 虚线新增卡，全部沿用现有组件，只换手机容器。<br>
+    <span class="mark">3</span><b>底部 sticky 摘要条</b>（新）：⚡建议电源 + ⚠规则命中数（黄点）+ 📐图纸入口 + 「配置结果 ›」——右栏的关键反馈从沉底变成常驻拇指区，改配置即时看到功率变化。<br>
+    <span class="mark">4</span>原顶部 sc-steps 步骤条退役：配置卡自带序号 ①②③…，本身就是步骤流。
+  </div>
+</figure>
+
+<!-- ═══════════ B. 左抽屉 · 服务器图纸 ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#scA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="ldrawer">
+      <div class="pd-grip"></div>
+      <div class="pd-head">
+        <h3>服务器图纸</h3>
+        <span class="view-tabs"><span class="on">前视图</span><span>后视图</span></span>
+        <span class="sp"></span>
+        <span class="pd-close">✕</span>
+      </div>
+      <div class="dr-body">
+        <div class="drawing">
+          <svg viewBox="0 0 320 120">
+            <rect x="10" y="30" width="300" height="60" rx="6" fill="rgba(255,255,255,.05)" stroke="rgba(255,255,255,.25)" stroke-width="1.5"/>
+            <g>
+              <rect x="22" y="42" width="24" height="14" rx="2" fill="rgba(47,107,255,.35)" stroke="rgba(138,176,255,.7)"/>
+              <rect x="50" y="42" width="24" height="14" rx="2" fill="rgba(47,107,255,.35)" stroke="rgba(138,176,255,.7)"/>
+              <rect x="78" y="42" width="24" height="14" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <rect x="106" y="42" width="24" height="14" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <rect x="134" y="42" width="24" height="14" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <rect x="162" y="42" width="24" height="14" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <rect x="190" y="42" width="24" height="14" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <rect x="218" y="42" width="24" height="14" rx="2" fill="rgba(47,174,135,.3)" stroke="rgba(70,201,154,.7)"/>
+            </g>
+            <g>
+              <rect x="22" y="62" width="90" height="16" rx="2" fill="rgba(47,107,255,.14)" stroke="rgba(138,176,255,.45)"/>
+              <text x="67" y="73" text-anchor="middle" font-size="8" fill="#8ab0ff">CPU0 · 兆芯 ×1</text>
+              <rect x="120" y="62" width="90" height="16" rx="2" fill="rgba(47,107,255,.14)" stroke="rgba(138,176,255,.45)"/>
+              <text x="165" y="73" text-anchor="middle" font-size="8" fill="#8ab0ff">CPU1 · 兆芯 ×1</text>
+              <rect x="218" y="62" width="80" height="16" rx="2" fill="rgba(255,255,255,.06)" stroke="rgba(255,255,255,.25)"/>
+              <text x="258" y="73" text-anchor="middle" font-size="8" fill="#93a1b8">内存 ×8</text>
+            </g>
+            <text x="34" y="104" font-size="8" fill="#8ab0ff">盘位 2/8</text>
+            <text x="230" y="104" font-size="8" fill="#46c99a">NVMe 1</text>
+          </svg>
+          <span class="dr-count" style="top:14px;left:14px">机箱 2U · 8 盘位</span>
+          <span class="dr-count" style="bottom:14px;right:14px">随左栏实时联动</span>
+        </div>
+        <div class="dr-note">解剖图区块数量随配置卡实时变化 · 有上传图纸时优先显示上传图纸（现逻辑不变）</div>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">B · 左抽屉 <em>（服务器图纸，按需查看）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>图纸是「核对」不是「输入」</b>：解剖图的价值是配完后核对位置与数量——按需开抽屉比常驻占屏更合理；宽度 94% 保证横向图纸可读。<br>
+    <span class="mark">2</span><b>前/后视图切换与实时计数联动</b>沿用现有 ServerAnatomyMap / ServerAnatomyViewer（含上传图纸优先逻辑），组件零改动。<br>
+    <span class="mark">3</span>入口在摘要条 📐 图标（也在右抽屉「完整结果」内可跳）。
+  </div>
+</figure>
+
+<!-- ═══════════ C. 右抽屉 · 配置结果 ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#scA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="drawer">
+      <div class="pd-grip"></div>
+      <div class="pd-head">
+        <h3>配置结果</h3>
+        <span class="pd-chip">实时计算 · 只读</span>
+        <span class="sp"></span>
+        <span class="pd-close">✕</span>
+      </div>
+      <div class="rr-body">
+        <div class="rr-card">
+          <div class="rr-t">🛡 规则结果</div>
+          <div class="rule warn"><span class="b">追加</span><span>双路 CPU 已配 · 建议内存 ≥ 8 条以喂满 64 通道</span></div>
+          <div class="rule warn"><span class="b">提示</span><span>硬盘未配置 · 8 盘位空置</span></div>
+          <div class="rule info"><span class="b">命中</span><span>兆芯平台 → 强制 Polaris 系机箱（已满足）</span></div>
+        </div>
+        <div class="rr-card">
+          <div class="rr-t">⚡ 电源功率</div>
+          <div class="pw-row"><span>CPU TDP</span><b>2 × 125W</b></div>
+          <div class="pw-row"><span>GPU TDP</span><b>未维护</b></div>
+          <div class="pw-row"><span>整机估算负载</span><b>612W</b></div>
+          <div class="pw-row"><span>建议冗余系数</span><b>1.39</b></div>
+          <div class="pw-row em"><span>建议电源</span><b>850W 冗余</b></div>
+        </div>
+        <div class="rr-card">
+          <div class="rr-t">📈 性能参数<span class="tail">六维锚点打分 · 相对旗舰线</span></div>
+          <div class="radar-mock">
+            <svg class="hex" viewBox="0 0 100 100">
+              <polygon points="50,8 88,30 88,70 50,92 12,70 12,30" fill="none" stroke="rgba(255,255,255,.15)"/>
+              <polygon points="50,22 76,37 76,63 50,78 24,63 24,37" fill="none" stroke="rgba(255,255,255,.1)"/>
+              <polygon points="50,14 82,32 70,72 50,86 30,66 20,34" fill="rgba(47,107,255,.22)" stroke="#6f9bff" stroke-width="1.5"/>
+            </svg>
+            <div class="rmetrics">
+              <span class="rm"><span>CPU 核心</span><b>32C</b></span>
+              <span class="rm"><span>CPU 线程</span><b>64T</b></span>
+              <span class="rm"><span>内存容量</span><b>256G</b></span>
+              <span class="rm"><span>存储容量</span><b>—</b></span>
+              <span class="rm"><span>GPU 显存</span><b>—</b></span>
+              <span class="rm"><span>高速网口</span><b>—</b></span>
+            </div>
+          </div>
+        </div>
+        <button class="save-btn">生成 / 打印规格书</button>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">C · 右抽屉 <em>（配置结果，右侧滑出）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>右栏整体平移</b>：规则结果 / 电源功率 / 性能参数（雷达 + 六维指标）/ 生成规格书按钮，全部沿用现有 markup 移入抽屉，逻辑零改动。<br>
+    <span class="mark">2</span><b>实时计算不变</b>：抽屉开着的状态下改配置（关抽屉回去改）→ 重开即最新值；摘要条上的电源值与本抽屉同源同刷。<br>
+    <span class="mark">3</span>「生成规格书」进抽屉而非摘要条：低频大动作，避免拇指区误触。
+  </div>
+</figure>
+
+<!-- ═══════════ D. 对比与分期 ═══════════ -->
+<figure class="figure">
+  <div class="spec-panel">
+    <div class="spec-card">
+      <h4>现状（图纸占顶长页） vs 双抽屉方案</h4>
+      <table class="cmp">
+        <tr><th>维度</th><th>现状</th><th>双抽屉</th></tr>
+        <tr><td>首屏</td><td>440px 图纸挡在最前，滚一屏才能开始配</td><td>直接是配置卡流，进来就能配</td></tr>
+        <tr><td>配置反馈</td><td>结果（电源/规则）沉在页尾</td><td>摘要条常驻拇指区，改即所见</td></tr>
+        <tr><td>图纸</td><td>常驻占屏</td><td>按需开左抽屉，94% 宽横图可读</td></tr>
+        <tr><td>完整结果/规格书</td><td>滚到页尾找</td><td>右抽屉一步直达</td></tr>
+        <tr><td>步骤指示</td><td>顶部横滚步骤条，点了只是滚动</td><td>卡片自带序号，sc-steps 退役</td></tr>
+      </table>
+    </div>
+    <div class="spec-card">
+      <h4>交互流（全部复用现有状态）</h4>
+      <div class="spec-li"><span class="n">1.</span><span>主屏配卡（±数量/换型号/细配 L6 弹窗）→ 摘要条电源值即时刷新（同源 powerSummary）。</span></div>
+      <div class="spec-li"><span class="n">2.</span><span>📐 图纸 → 左抽屉核对位置数量；前/后视图切换沿用。</span></div>
+      <div class="spec-li"><span class="n">3.</span><span>「配置结果 ›」→ 右抽屉看规则/功率/性能；生成规格书走现有 Teleport 打印 overlay（手机可打印）。</span></div>
+      <div class="spec-li"><span class="n">4.</span><span>两抽屉互斥（openDrawer 单状态）；机箱「细配」L6 弹窗优先级最高，开弹窗自动收抽屉。</span></div>
+    </div>
+    <div class="spec-card">
+      <h4>落地注意</h4>
+      <div class="spec-li"><span class="n">·</span><span>改动集中在 ConfigWizard.vue 手机分支（≤960 断点改 ≤768 或沿用，实施时定）：sc-col-map 移入左抽屉、sc-col-right 移入右抽屉、新增摘要条；桌面三栏零改动。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>固定暗色链路：抽屉/摘要条配色走本页现有暗色 token，不接主题开关（与详情页/目录页一致）。</span></div>
+      <div class="spec-li"><span class="n">·</span><span>ChassisCard / KpCategoryCard / ServerAnatomyMap 组件本体零改动；摘要条数据全部取自现有 computed（powerSummary / selectionActions / perfDims）。</span></div>
+    </div>
+  </div>
+  <div class="fig-title">D · 方案对比与分期</div>
+  <div class="fig-note">与线索页/详情页同一套语言：中间 = 主操作，左右 = 按需旁路，底部 sticky 条 = 关键反馈常驻。</div>
+</figure>
+</div>
+
+<section class="notes">
+  <div class="note-card">
+    <h3>现状诊断</h3>
+    <ul>
+      <li><b>图纸占顶</b>：≤960 断点下 grid-areas 把 map 排第一位，图纸 min-height 440px 挡在首屏——但配置操作不需要先看图。</li>
+      <li><b>结果沉底</b>：电源/规则/性能排在配置卡之后，改一颗 CPU 要滚到页尾才知道功率够不够。</li>
+      <li><b>步骤条弱化</b>：sc-steps 横向滚动，点击只是 scrollIntoView，长页里定位价值低。</li>
+      <li><b>桌面无恙</b>：三栏各司其职（输入/可视化/输出），只有手机端需要重排。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>分期落地</h3>
+    <div class="phase"><span class="tag">P1</span><span><b>容器重构（≤768px）</b>：图纸 → 左抽屉、配置结果 → 右抽屉、新增底部 sticky 摘要条（⚡电源 + ⚠规则数 + 📐入口 + 完整结果）；配置卡流保持现状；桌面三栏零改动。</span></div>
+    <div class="phase"><span class="tag t2">P2</span><span><b>联动细节</b>：摘要条规则红点区分 severity（冲突红/追加黄）；L6 细配弹窗与抽屉互斥；摘要条电源值变化微动画。</span></div>
+    <div class="phase"><span class="tag t3">P3</span><span><b>打磨（可选）</b>：抽屉内图纸双指缩放；规格书 overlay 手机端排版专项；配卡完成度进度环（x/N 类别已配）。</span></div>
+  </div>
+  <div class="note-card">
+    <h3>代价与取舍</h3>
+    <ul>
+      <li><b>看图多一步</b>：边配边盯图的工作流会多开抽屉——但摘要条常驻 + 抽屉不销毁（二次打开即时），且「配完核对」场景一次开抽屉就够。</li>
+      <li><b>完整结果多一步</b>：规则/功率全量收进抽屉——摘要条已把最高频的「建议电源 + 命中数」常驻，日常不需要开。</li>
+      <li><b>收获</b>：首屏从「看图」变成「动手」，配置反馈从页尾搬到拇指区；与线索页/详情页形成全站统一的手机版三段式。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>与全站手机版语言的一致性</h3>
+    <ul>
+      <li><b>线索页</b>：中间驾驶舱 + 右抽屉列表 + 底栏。</li>
+      <li><b>详情页</b>：中间工作台 + 左抽屉流程轨道 + 右抽屉动态 + sticky 动作条。</li>
+      <li><b>本页</b>：中间配置卡 + 左抽屉图纸 + 右抽屉结果 + sticky 摘要条 —— 三页同构，用户学会一次就会用所有页。</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+document.querySelectorAll('[data-clone-from]').forEach(function (el) {
+  var src = document.querySelector(el.getAttribute('data-clone-from'));
+  if (src) el.innerHTML = src.innerHTML;
+});
+</script>
+</body>
+</html>

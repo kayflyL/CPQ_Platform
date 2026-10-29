@@ -1,0 +1,135 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>工作台 Banner · 六种效果对比</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0f1e;color:#e8ecf5;font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:36px 44px 80px}
+:root{--gb:rgba(255,255,255,.1)}
+.demo{max-width:1400px;margin:0 auto 40px}
+.lab{display:flex;align-items:baseline;gap:12px;margin:0 2px 12px;font-family:ui-monospace,Consolas,monospace;font-size:13px;font-weight:600;letter-spacing:1px}
+.lab span{font-family:"Segoe UI",system-ui,sans-serif;font-size:12px;color:#8b94a8;font-weight:400;letter-spacing:0}
+.bn{position:relative;height:200px;border-radius:14px;overflow:hidden;border:1px solid var(--gb);background:#05080f}
+.bx{position:absolute;left:36px;top:50%;transform:translateY(-50%);z-index:3}
+.bx h1{font-size:24px;font-weight:650;letter-spacing:-.02em}
+.bx .sub{margin-top:6px;font-size:13px;color:#8b94a8}
+.bx .today{display:flex;gap:9px;margin-top:14px}
+.tc{font-size:12px;color:#b7c0d4;background:rgba(8,14,28,.55);border:1px solid rgba(255,255,255,.14);border-radius:99px;padding:5px 12px;backdrop-filter:blur(6px)}
+.tc b{color:#7aa7ff;font-weight:600}
+.tc.hot b{color:#f4756f}
+@media (prefers-reduced-motion:reduce){*{animation:none !important}}
+/* ── A 银河·擎天（现版）── */
+.bn-a{background:linear-gradient(to bottom,#020610,#050f1f 30%,#0a1e3d 64%,#0e2c55)}
+.bn-a::before{content:'';position:absolute;left:0;right:0;bottom:0;height:72%;background:radial-gradient(ellipse 62% 100% at 46% 100%,rgba(91,184,255,.32),transparent 62%)}
+.bn-a::after{content:'';position:absolute;left:44%;bottom:-92px;width:430px;height:172px;transform:translateX(-50%);border-radius:50%;
+background:radial-gradient(ellipse at center,#d6ebff 0%,rgba(91,184,255,.75) 36%,transparent 70%);opacity:.5;filter:blur(14px)}
+.bn-a .wm{position:absolute;right:24px;top:-10px;font-size:92px;font-weight:900;letter-spacing:-.03em;color:#fff;opacity:.05;white-space:nowrap}
+/* ── B 极光幕 ── */
+.bn-b{background:linear-gradient(180deg,#04070f,#081020)}
+.aur{position:absolute;inset:-45% -12%;background:conic-gradient(from 200deg at 30% 62%,transparent 0deg,rgba(34,197,140,.22) 42deg,rgba(59,130,246,.24) 92deg,rgba(139,147,255,.18) 142deg,transparent 195deg);
+filter:blur(30px);animation:drift 16s ease-in-out infinite alternate}
+.aur.a2{background:conic-gradient(from 150deg at 72% 38%,transparent 0deg,rgba(59,130,246,.18) 62deg,rgba(34,197,140,.14) 122deg,transparent 175deg);
+filter:blur(42px);animation:drift 23s ease-in-out infinite alternate-reverse}
+@keyframes drift{from{transform:translateX(-4%) rotate(-3deg)}to{transform:translateX(4%) rotate(3deg)}}
+/* ── C 信号波纹 ── */
+.bn-c{background:radial-gradient(ellipse at 74% 130%,#0a1e3d,#04070f 72%)}
+.rings{position:absolute;right:6%;top:50%;transform:translateY(-50%);width:320px;height:320px}
+.rings i{position:absolute;left:50%;top:50%;border:1px solid rgba(122,167,255,.15);border-radius:50%;transform:translate(-50%,-50%)}
+.rings i:nth-child(1){width:90px;height:90px}
+.rings i:nth-child(2){width:160px;height:160px;border-color:rgba(122,167,255,.11)}
+.rings i:nth-child(3){width:230px;height:230px;border-color:rgba(122,167,255,.08)}
+.rings i:nth-child(4){width:300px;height:300px;border-color:rgba(122,167,255,.05)}
+.sweep{position:absolute;inset:0;border-radius:50%;background:conic-gradient(from 0deg,rgba(122,167,255,.25),transparent 75deg);animation:spin 7s linear infinite;filter:blur(2px)}
+@keyframes spin{to{transform:rotate(360deg)}}
+.blip{position:absolute;width:6px;height:6px;border-radius:50%;background:#7aa7ff;box-shadow:0 0 10px rgba(122,167,255,.9);animation:blip 3s infinite}
+.blip.b2{animation-delay:1.2s;background:#4fd6a5;box-shadow:0 0 10px rgba(79,214,165,.9)}
+.blip.b3{animation-delay:2s}
+@keyframes blip{0%,100%{opacity:.2}50%{opacity:1}}
+/* ── D 透视网格 ── */
+.bn-d{background:linear-gradient(180deg,#04070f,#071228)}
+.bn-d svg{position:absolute;inset:0;width:100%;height:100%}
+.bn-d::after{content:'';position:absolute;left:0;right:0;bottom:0;height:60%;background:radial-gradient(ellipse 60% 100% at 50% 100%,rgba(91,184,255,.22),transparent 62%)}
+</style></head>
+<style>
+/* ── E 数据粒子波 ── */
+.bn-e{background:linear-gradient(180deg,#05070f,#081020)}
+.bn-e svg{position:absolute;inset:0;width:100%;height:100%}
+/* ── F 光束穿插 ── */
+.bn-f{background:linear-gradient(115deg,#04070f 42%,#0a1e3d 78%,#071228)}
+.beam{position:absolute;left:-12%;width:140%;height:86px;background:linear-gradient(90deg,transparent,rgba(122,167,255,.18),transparent);filter:blur(20px);transform:rotate(-7deg)}
+.beam.b1{top:66px}
+.beam.b2{top:118px;height:52px;opacity:.85}
+.beam.b3{top:22px;height:46px;opacity:.7}
+.bline{position:absolute;left:-12%;width:140%;height:1px;background:linear-gradient(90deg,transparent,rgba(207,224,255,.55),transparent);transform:rotate(-7deg)}
+.bline.l1{top:64px}
+.bline.l2{top:116px;opacity:.7}
+/* ═══ 页面骨架 ═══ */
+.demo{margin-bottom:44px}
+</style>
+</head>
+<body>
+<div class="demo">
+<div class="lab">A · 银河擎天<span>现版：深蓝天空 + 地平线日轮 + 大水印（服务器目录页同款配方）</span></div>
+<div class="bn bn-a"><div class="wm">COMPUTING</div>
+  <div class="bx"><h1>晚上好，admin</h1><div class="sub">欢迎使用霄擎算力 CPQ 平台</div>
+  <div class="today"><span class="tc hot">今日待办 <b>38</b></span><span class="tc">在办商机 <b>36</b></span></div></div>
+</div>
+</div>
+<div class="demo">
+<div class="lab">B · 极光幕<span>流动光带缓慢漂移，冷调呼吸感</span></div>
+<div class="bn bn-b">
+  <div class="aur"></div><div class="aur a2"></div>
+  <div class="bx"><h1>晚上好，admin</h1><div class="sub">欢迎使用霄擎算力 CPQ 平台</div>
+  <div class="today"><span class="tc hot">今日待办 <b>38</b></span><span class="tc">在办商机 <b>36</b></span></div></div>
+</div>
+</div>
+<div class="demo">
+<div class="lab">C · 信号波纹<span>雷达同心环 + 旋转扫描 + 信号点闪烁</span></div>
+<div class="bn bn-c">
+  <div class="rings"><i></i><i></i><i></i><i></i>
+    <div class="sweep"></div>
+    <span class="blip" style="right:70px;top:88px"></span>
+    <span class="blip b2" style="right:150px;top:56px"></span>
+    <span class="blip b3" style="right:40px;top:30px"></span>
+  </div>
+  <div class="bx"><h1>晚上好，admin</h1><div class="sub">欢迎使用霄擎算力 CPQ 平台</div>
+  <div class="today"><span class="tc hot">今日待办 <b>38</b></span><span class="tc">在办商机 <b>36</b></span></div></div>
+</div>
+</div>
+<div class="demo">
+<div class="lab">D · 透视网格<span>地平线网格向消失点收束，星空点缀</span></div>
+<div class="bn bn-d">
+  <svg viewBox="0 0 1200 200" preserveAspectRatio="xMidYMid slice">
+    <g stroke="rgba(122,167,255,.10)">
+      <path d="M600 -40 L0 200M600 -40 L100 200M600 -40 L200 200M600 -40 L300 200M600 -40 L400 200M600 -40 L500 200M600 -40 L600 200M600 -40 L700 200M600 -40 L800 200M600 -40 L900 200M600 -40 L1000 200M600 -40 L1100 200M600 -40 L1200 200"/>
+      <path d="M0 92h1200M0 112h1200M0 138h1200M0 168h1200M0 200h1200"/>
+    </g>
+    <g fill="#cfe0ff">
+      <circle cx="120" cy="30" r="1.2"/><circle cx="330" cy="52" r="1"/><circle cx="520" cy="24" r="1.4"/><circle cx="760" cy="44" r="1"/><circle cx="980" cy="30" r="1.2"/><circle cx="1120" cy="60" r="1"/>
+    </g>
+    <ellipse cx="600" cy="200" rx="560" ry="60" fill="rgba(91,184,255,.20)"/>
+  </svg>
+  <div class="bx"><h1>晚上好，admin</h1><div class="sub">欢迎使用霄擎算力 CPQ 平台</div>
+  <div class="today"><span class="tc hot">今日待办 <b>38</b></span><span class="tc">在办商机 <b>36</b></span></div></div>
+</div>
+</div>
+<div class="demo">
+<div class="lab">E · 数据粒子波<span>点阵沿正弦波起伏，数据海洋隐喻（AI 数据感）</span></div>
+<div class="bn bn-e">
+  <svg viewBox="0 0 1200 200" preserveAspectRatio="xMidYMid slice" fill="none">
+    <path d="M0 150 C 150 96 300 178 450 130 S 750 82 900 130 S 1150 172 1200 138" stroke="rgba(122,167,255,.34)" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 16"/>
+    <path d="M0 164 C 150 116 300 192 450 146 S 750 100 900 146 S 1150 184 1200 152" stroke="rgba(122,167,255,.22)" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 16"/>
+    <path d="M0 178 C 150 136 300 206 450 162 S 750 118 900 162 S 1150 196 1200 166" stroke="rgba(122,167,255,.13)" stroke-linecap="round" stroke-width="4" stroke-dasharray="0 16"/>
+    <path d="M0 192 C 150 156 300 220 450 178 S 750 136 900 178 S 1150 208 1200 180" stroke="rgba(122,167,255,.07)" stroke-width="4" stroke-linecap="round" stroke-dasharray="0 16"/>
+    <path d="M0 150 C 150 96 300 178 450 130 S 750 82 900 130 S 1150 172 1200 138" stroke="#7aa7ff" stroke-width="2" fill="none" opacity=".8"/>
+  </svg>
+</div>
+</div>
+<div class="demo">
+<div class="lab">F · 光束穿插<span>斜向光束穿插 + 高光边线（Stripe 式英雄区）</span></div>
+<div class="bn bn-f">
+  <div class="beam b3"></div><div class="beam b1"></div><div class="beam b2"></div>
+  <div class="bline l1"></div><div class="bline l2"></div>
+  <div class="bx"><h1>晚上好，admin</h1><div class="sub">欢迎使用霄擎算力 CPQ 平台</div>
+  <div class="today"><span class="tc hot">今日待办 <b>38</b></span><span class="tc">在办商机 <b>36</b></span></div></div>
+</div>
+</div>
+</body></html>

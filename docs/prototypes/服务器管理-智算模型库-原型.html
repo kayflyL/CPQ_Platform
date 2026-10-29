@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>服务器管理 · 智算模型库 原型</title>
+<style>
+  :root {
+    --bg: #f3f5f9; --card: #fff; --inner: rgba(15,27,61,.035);
+    --line: rgba(15,27,61,.1); --dash: rgba(15,27,61,.16);
+    --t1: #232c3d; --t2: #5a6579; --t3: #8a93a6;
+    --accent: #1677ff; --accent-bg: rgba(22,119,255,.07);
+    --ok: #16a34a; --ok-bg: rgba(22,163,74,.1);
+    --soft: #d97706; --soft-bg: rgba(217,119,6,.1);
+    --bad: #dc2626; --bad-bg: rgba(220,38,38,.08);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--t1); font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; padding: 26px 20px 60px; display: flex; justify-content: center; font-size: 13px; }
+  .page { width: 960px; display: flex; flex-direction: column; gap: 16px; }
+  .tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--line); }
+  .tab { padding: 9px 18px; font-size: 13px; color: var(--t2); border: 1px solid transparent; border-bottom: 0; border-radius: 10px 10px 0 0; }
+  .tab.on { background: var(--card); border-color: var(--line); color: var(--t1); font-weight: 700; margin-bottom: -1px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; box-shadow: 0 6px 22px rgba(31,42,68,.07); padding: 18px 20px; }
+  .c-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .c-head b { font-size: 14.5px; }
+  .c-head span { font-size: 11.5px; color: var(--t3); }
+  .c-actions { margin-left: auto; display: flex; gap: 8px; }
+  .btn { padding: 6px 14px; font-size: 12px; border-radius: 8px; border: 1px solid var(--line); background: #fff; color: var(--t2); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  th { text-align: left; font-size: 11px; color: var(--t3); font-weight: 600; padding: 7px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 8px 10px; border-bottom: 1px dashed var(--dash); color: var(--t2); }
+  tr:last-child td { border-bottom: 0; }
+  td b { color: var(--t1); font-weight: 600; }
+  td.num { font-family: Consolas, monospace; color: var(--t1); }
+  td.op { text-align: right; white-space: nowrap; }
+  .conf { font-size: 10px; padding: 2px 7px; border-radius: 5px; font-weight: 700; }
+  .c-hi { background: var(--ok-bg); color: var(--ok); }
+  .c-mid { background: var(--soft-bg); color: var(--soft); }
+  .c-lo { background: var(--bad-bg); color: var(--bad); }
+  .edit { font-size: 11.5px; color: var(--accent); cursor: pointer; }
+  .note { padding: 10px 14px; border: 1px dashed var(--dash); border-radius: 11px; font-size: 11.5px; color: var(--t2); line-height: 1.7; background: var(--inner); }
+  .note b { color: var(--t1); }
+  .foot { font-size: 10.5px; color: var(--t3); }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="tabs">
+    <span class="tab">料号库</span><span class="tab">基准配置</span><span class="tab">机型管理</span><span class="tab on">智算模型库</span>
+  </div>
+  <div class="note">
+    GPU 卡型(显存/互联/TDP)在 <b>料号库 ▸ GPU 类</b> 的 spec 维度维护;本 tab 只管「软」参考库:模型 / 框架 / 场景参数。
+    配置页右栏适配卡与机型目录抽屉的显存计算,数据都从这里取。
+  </div>
+  <div class="card">
+    <div class="c-head">
+      <b>大模型库</b><span>60 个模型 · 门禁计算与推荐的数据源</span>
+      <div class="c-actions"><button class="btn">从 Excel 导入</button><button class="btn primary">+ 新增模型</button></div>
+    </div>
+    <table>
+      <tr><th>公司</th><th>模型名</th><th>参数量</th><th>注意力</th><th>kv_heads</th><th>置信度</th><th>备注</th><th></th></tr>
+      <tr><td>Qwen</td><td><b>Qwen2.5-72B</b></td><td class="num">72B</td><td>GQA</td><td class="num">8</td><td><span class="conf c-hi">高 ✓</span></td><td>纯文本</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td>Qwen</td><td><b>Qwen3-235B-A22B</b></td><td class="num">235B</td><td>GQA</td><td class="num">8</td><td><span class="conf c-hi">高 ✓</span></td><td>MoE，按总参数偏保守</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td>DeepSeek</td><td><b>DeepSeek-V3</b></td><td class="num">671B</td><td>MLA</td><td class="num">1</td><td><span class="conf c-hi">高 ✓</span></td><td>MLA：实际 KV 远小于 MHA 估算</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td>GLM</td><td><b>GLM-4.5</b></td><td class="num">355B</td><td>GQA</td><td class="num">8</td><td><span class="conf c-mid">中</span></td><td>架构参数为参考值</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td>Kimi</td><td><b>Kimi-K2</b></td><td class="num">1.04T</td><td>GQA</td><td class="num">8</td><td><span class="conf c-lo">低 ⚠️</span></td><td>超大 MoE，需实测</td><td class="op"><span class="edit">编辑</span></td></tr>
+    </table>
+    <div style="margin-top:12px"><span class="foot">… 共 60 条 · 支持按公司/置信度筛选 · 置信度：高=按官方 config 录入 / 中=参考值 / 低=待核实</span></div>
+  </div>
+  <div class="card">
+    <div class="c-head">
+      <b>推理框架库</b><span>5 个框架 · 决定有效显存口径(单卡/总显存)与量化系数</span>
+      <div class="c-actions"><button class="btn">+ 新增框架</button></div>
+    </div>
+    <table>
+      <tr><th>框架</th><th>多卡张量并行</th><th>CPU offload</th><th>每卡开销</th><th>4bit 系数</th><th></th></tr>
+      <tr><td><b>vLLM</b></td><td>✅ 支持</td><td>⚠️ 有限</td><td class="num">1.0 GB</td><td class="num">1.05 (AWQ)</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>SGLang</b></td><td>✅ 支持</td><td>⚠️ 有限</td><td class="num">0.8 GB</td><td class="num">1.05 (AWQ)</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>ollama</b></td><td>❌ 不支持</td><td>✅ 原生</td><td class="num">0.3 GB</td><td class="num">1.125 (Q4_K_M)</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>TensorRT-LLM</b></td><td>✅ 支持</td><td>❌ 不支持</td><td class="num">0.8 GB</td><td class="num">1.05</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>llama.cpp</b></td><td>❌ 不支持</td><td>✅ 原生</td><td class="num">0.2 GB</td><td class="num">1.125 (Q4_K_M)</td><td class="op"><span class="edit">编辑</span></td></tr>
+    </table>
+  </div>
+  <div class="card">
+    <div class="c-head">
+      <b>场景参数表</b><span>7 个场景 · 决定推荐上下文/最低速度/是否需多模态</span>
+      <div class="c-actions"><button class="btn">+ 新增场景</button></div>
+    </div>
+    <table>
+      <tr><th>场景</th><th>推荐上下文</th><th>最低速度</th><th>需多模态</th><th>典型负载</th><th></th></tr>
+      <tr><td><b>聊天对话</b></td><td class="num">8K</td><td class="num">10 tok/s</td><td>否</td><td>日常问答、客服</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>代码生成</b></td><td class="num">32K</td><td class="num">5 tok/s</td><td>否</td><td>补全、编程助手</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>长文档分析</b></td><td class="num">128K</td><td class="num">2 tok/s</td><td>否</td><td>合同/论文/报告</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>RAG 知识库</b></td><td class="num">64K</td><td class="num">5 tok/s</td><td>否</td><td>企业知识库问答</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>Agent 工具调用</b></td><td class="num">64K</td><td class="num">5 tok/s</td><td>否</td><td>多步推理、工具链</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>批量离线处理</b></td><td class="num">128K</td><td class="num">1 tok/s</td><td>否</td><td>离线抽取、批量生成</td><td class="op"><span class="edit">编辑</span></td></tr>
+      <tr><td><b>多模态图文</b></td><td class="num">32K</td><td class="num">5 tok/s</td><td>是</td><td>图文理解、视觉问答</td><td class="op"><span class="edit">编辑</span></td></tr>
+    </table>
+  </div>
+
+  <div class="note">
+    <b>数据边界(沿用 Excel v10 的口径说明)：</b>门禁=权重+KV-cache+框架开销；未含 prefill 瞬时峰值与大 batch 并发；MoE 按总参数偏保守。
+    GPU 卡型参数置信度同模型库；「会过期的参数」(具体 tok/s、版本号)与「不会过期的方法」(显存预算公式)分开维护。
+  </div>
+</div>
+</body>
+</html>

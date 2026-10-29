@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>权限三带层 · 原型 · CPQ Platform</title>
+<!-- 用户与权限 · 角色权限编辑器样张 v2（2026-10-17 用户反馈改版）。
+     v1 教训：域优先把三层塞进磁贴 → 字密、层级糊。v2 定调：层优先三带——
+     第一带 页面权限（进哪里，磁贴+大开关）→ 第二带 字段可见（看什么，卡片行）
+     → 第三带 操作权限（能做什么，按域折叠）。域只做层内分组，不再承载层级。 -->
+<style id="cpq-tokens">
+/* token 真值拷贝自 frontend/src/styles/tokens.css（2026-10-16 版，权威源仍是 tokens.css）。零外部依赖。 */
+:root {
+  --cpq-accent-primary: #1677FF;
+  --cpq-accent-on-primary: #ffffff;
+  --cpq-color-success: #52C9A0;
+  --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --cpq-font-size-sm: 12px;
+  --cpq-font-size-base: 14px;
+  --cpq-font-size-lg: 16px;
+  --cpq-font-size-xl: 20px;
+  --cpq-font-size-2xl: 24px;
+  --cpq-font-weight-medium: 500;
+  --cpq-font-weight-semibold: 600;
+  --cpq-font-weight-regular: 400;
+  --cpq-line-height-body: 1.6;
+  --cpq-line-height-heading: 1.25;
+  --cpq-space-1: 4px; --cpq-space-2: 8px; --cpq-space-3: 12px;
+  --cpq-space-4: 16px; --cpq-space-5: 24px; --cpq-space-6: 32px;
+  --cpq-radius-sm: 4px; --cpq-radius-md: 6px; --cpq-radius-lg: 8px; --cpq-radius-xl: 12px; --cpq-radius-full: 999px;
+  --cpq-ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  --cpq-transition-fast: 0.2s var(--cpq-ease-out-expo);
+  --cpq-glass-card-blur: 14px;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --cpq-bg-primary: #08090B;
+  --cpq-text-primary: #E8ECEF;
+  --cpq-text-secondary: #9BA1AA;
+  --cpq-text-muted: #6E7582;
+  --cpq-text-disabled: #3D424D;
+  --cpq-border-primary: rgba(255, 255, 255, 0.10);
+  --cpq-border-light: rgba(255, 255, 255, 0.15);
+  --cpq-overlay-w3: rgba(255, 255, 255, 0.03);
+  --cpq-overlay-w5: rgba(255, 255, 255, 0.05);
+  --cpq-overlay-w6: rgba(255, 255, 255, 0.06);
+  --cpq-overlay-w15: rgba(255, 255, 255, 0.15);
+  --cpq-overlay-b20: rgba(0, 0, 0, 0.20);
+  --cpq-shadow-color-soft: rgba(0, 0, 0, 0.30);
+  --cpq-shadow-color-strong: rgba(0, 0, 0, 0.50);
+  --cpq-bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  --cpq-glass-card-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+}
+:root[data-theme='light'] {
+  color-scheme: light;
+  --cpq-bg-primary: #F2F6FC;
+  --cpq-text-primary: #1d2129;
+  --cpq-text-secondary: #4e5969;
+  --cpq-text-muted: #86909c;
+  --cpq-text-disabled: #c9cdd4;
+  --cpq-border-primary: rgba(22, 119, 255, 0.10);
+  --cpq-border-light: rgba(22, 119, 255, 0.16);
+  --cpq-overlay-w3: rgba(255, 255, 255, 0.24);
+  --cpq-overlay-w5: rgba(255, 255, 255, 0.36);
+  --cpq-overlay-w6: rgba(255, 255, 255, 0.42);
+  --cpq-overlay-w15: rgba(255, 255, 255, 0.62);
+  --cpq-overlay-b20: rgba(255, 255, 255, 0.44);
+  --cpq-shadow-color-soft: rgba(22, 119, 255, 0.08);
+  --cpq-shadow-color-strong: rgba(22, 119, 255, 0.14);
+  --cpq-bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  --cpq-glass-card-bg: linear-gradient(135deg, var(--cpq-overlay-w6) 0%, var(--cpq-overlay-w3) 40%, var(--cpq-overlay-b20) 100%);
+  --cpq-glass-card-shadow: 0 10px 30px var(--cpq-shadow-color-soft), inset 0 1px 0 var(--cpq-overlay-w15);
+}
+</style>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--cpq-font-family);
+    font-size: var(--cpq-font-size-base);
+    line-height: var(--cpq-line-height-body);
+    color: var(--cpq-text-primary);
+    background-color: var(--cpq-bg-primary);
+    background-image: var(--cpq-bg-gradient);
+    background-attachment: fixed;
+    padding: var(--cpq-space-6) var(--cpq-space-5);
+  }
+  .wrap { max-width: 1240px; margin: 0 auto; }
+  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--cpq-space-4); margin-bottom: var(--cpq-space-6); }
+  h1 { font-size: var(--cpq-font-size-2xl); font-weight: var(--cpq-font-weight-semibold); line-height: var(--cpq-line-height-heading); margin: 0 0 var(--cpq-space-1); }
+  .sub { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
+  .theme-btn {
+    border: 1px solid var(--cpq-border-light); background: var(--cpq-overlay-w5); color: var(--cpq-text-primary);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-4);
+    font-size: var(--cpq-font-size-sm); cursor: pointer; transition: all var(--cpq-transition-fast);
+  }
+  .theme-btn:hover { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+
+  section { margin-bottom: var(--cpq-space-6); }
+  .sec-head { display: flex; align-items: baseline; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-1); }
+  .sec-no { font-size: var(--cpq-font-size-sm); color: var(--cpq-accent-primary); font-weight: var(--cpq-font-weight-semibold); letter-spacing: .08em; }
+  h2 { font-size: var(--cpq-font-size-xl); font-weight: var(--cpq-font-weight-semibold); margin: 0; line-height: var(--cpq-line-height-heading); }
+  .sec-desc { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); margin: 0 0 var(--cpq-space-4); }
+  section > h2 { margin-bottom: var(--cpq-space-1); }
+  .panel {
+    background: var(--cpq-glass-card-bg);
+    backdrop-filter: blur(var(--cpq-glass-card-blur));
+    -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-xl);
+    box-shadow: var(--cpq-glass-card-shadow);
+    padding: var(--cpq-space-5);
+  }
+  .note-line { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); margin: var(--cpq-space-3) 0 0; }
+  .chip-note { display: inline-block; background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); font-size: var(--cpq-font-size-sm); padding: 0 var(--cpq-space-2); border-radius: var(--cpq-radius-full); line-height: 20px; white-space: nowrap; }
+
+  /* ── 角色上下文条（一行化：底版+增量+保存语义全收一行） ── */
+  .ctx-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--cpq-space-2) var(--cpq-space-4); margin-bottom: var(--cpq-space-5); }
+  .ctx-role { display: flex; align-items: center; gap: var(--cpq-space-2); font-size: var(--cpq-font-size-lg); font-weight: var(--cpq-font-weight-semibold); }
+  .ctx-role .dot { width: 8px; height: 8px; border-radius: var(--cpq-radius-full); flex: none; }
+  .ctx-base { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
+  .ctx-base b { color: var(--cpq-text-primary); font-weight: var(--cpq-font-weight-medium); }
+  .ctx-delta { display: inline-flex; gap: var(--cpq-space-3); font-size: var(--cpq-font-size-sm); }
+  .d-add { color: var(--cpq-color-success); font-weight: var(--cpq-font-weight-medium); }
+  .d-cut { color: var(--cpq-text-muted); }
+  .ctx-save { margin-left: auto; display: flex; align-items: center; gap: var(--cpq-space-3); }
+  .btn-pri {
+    background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary); border: none; cursor: pointer;
+    font-size: var(--cpq-font-size-sm); font-weight: var(--cpq-font-weight-medium);
+    padding: var(--cpq-space-2) var(--cpq-space-4); border-radius: var(--cpq-radius-sm);
+  }
+  .save-hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+  .save-hint b { color: var(--cpq-text-secondary); font-weight: var(--cpq-font-weight-medium); }
+  .diff-inline { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
+  .diff-inline .add { color: var(--cpq-color-success); }
+  .diff-inline .cut { color: var(--cpq-text-muted); text-decoration: line-through; }
+
+  /* ── 开关 ── */
+  .sw { flex: none; }
+  .sw input { display: none; }
+  .sw i {
+    display: inline-block; width: 34px; height: 20px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-w15);
+    position: relative; transition: background var(--cpq-transition-fast); vertical-align: middle; cursor: pointer;
+  }
+  .sw i::after {
+    content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: var(--cpq-radius-full);
+    background: var(--cpq-text-secondary); transition: all var(--cpq-transition-fast);
+  }
+  .sw input:checked + i { background: color-mix(in srgb, var(--cpq-accent-primary) 35%, transparent); }
+  .sw input:checked + i::after { left: 16px; background: var(--cpq-accent-primary); }
+  .sw.lg i { width: 44px; height: 24px; }
+  .sw.lg i::after { width: 20px; height: 20px; }
+  .sw.lg input:checked + i::after { left: 22px; }
+
+  /* ════ 第一带：页面权限 ════ */
+  .page-wall { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: var(--cpq-space-4); }
+  .ptile {
+    background: var(--cpq-glass-card-bg);
+    backdrop-filter: blur(var(--cpq-glass-card-blur));
+    -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-glass-card-shadow);
+    padding: var(--cpq-space-4);
+    transition: border-color var(--cpq-transition-fast), transform var(--cpq-transition-fast), opacity var(--cpq-transition-fast);
+  }
+  .ptile:hover { border-color: var(--cpq-accent-primary); }
+  .ptile.off { opacity: .55; }
+  .ptile-head { display: flex; align-items: center; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-3); }
+  .ptile-head .tdot { width: 8px; height: 8px; border-radius: var(--cpq-radius-full); flex: none; }
+  .ptile-name { font-size: var(--cpq-font-size-lg); font-weight: var(--cpq-font-weight-semibold); }
+  .ptile-head .sw { margin-left: auto; }
+  .pg-line { display: flex; align-items: center; gap: var(--cpq-space-2); padding: var(--cpq-space-1) 0; }
+  .pg-line .pg-label { font-size: var(--cpq-font-size-sm); }
+  .pg-line .pg-sub { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-left: auto; }
+  .ptile-sub { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-top: var(--cpq-space-2); }
+
+  /* ════ 第二带：字段可见（清单式，不做卡片墙） ════ */
+  .field-list { border-top: 1px solid var(--cpq-border-primary); }
+  .frow {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    padding: var(--cpq-space-3) var(--cpq-space-2);
+    border-bottom: 1px solid var(--cpq-border-light);
+  }
+  .frow .fmain { min-width: 0; }
+  .frow .fnm { font-size: var(--cpq-font-size-base); font-weight: var(--cpq-font-weight-medium); display: flex; align-items: center; gap: var(--cpq-space-2); }
+  .frow .fdesc { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .frow .fdom { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); flex: none; width: 96px; }
+  .frow .sw { margin-left: auto; }
+  .frow.off { opacity: .55; }
+  .lock { color: #E8A33D; border: 1px solid color-mix(in srgb, #E8A33D 45%, transparent); font-size: var(--cpq-font-size-sm); border-radius: var(--cpq-radius-full); padding: 0 var(--cpq-space-2); line-height: 18px; flex: none; }
+  .confirm-strip {
+    margin-top: var(--cpq-space-3); font-size: var(--cpq-font-size-sm); color: #E8A33D;
+    background: color-mix(in srgb, #E8A33D 8%, transparent); border: 1px solid color-mix(in srgb, #E8A33D 30%, transparent);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-3);
+  }
+
+  /* ════ 第三带：操作权限（按域折叠） ════ */
+  .ogroup { border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-lg); overflow: hidden; }
+  .ogroup + .ogroup { margin-top: var(--cpq-space-3); }
+  .og-head {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    padding: var(--cpq-space-3) var(--cpq-space-4); cursor: pointer; background: var(--cpq-overlay-w3);
+  }
+  .og-head:hover { background: var(--cpq-overlay-w5); }
+  .og-arrow { color: var(--cpq-text-muted); transition: transform var(--cpq-transition-fast); font-size: var(--cpq-font-size-sm); }
+  .ogroup.open .og-arrow { transform: rotate(90deg); }
+  .og-title { font-size: var(--cpq-font-size-base); font-weight: var(--cpq-font-weight-medium); }
+  .og-stat { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+  .og-stat b { color: var(--cpq-accent-primary); font-weight: var(--cpq-font-weight-medium); }
+  .og-head .og-quick { margin-left: auto; }
+  .og-body { display: none; border-top: 1px solid var(--cpq-border-primary); }
+  .ogroup.open .og-body { display: block; }
+  .arow {
+    display: flex; align-items: center; gap: var(--cpq-space-3);
+    padding: var(--cpq-space-2) var(--cpq-space-4);
+  }
+  .arow + .arow { border-top: 1px solid var(--cpq-border-light); }
+  .arow .anm { font-size: var(--cpq-font-size-sm); }
+  .arow .akey { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-left: auto; }
+  .arow.offrow .anm { color: var(--cpq-text-muted); }
+  .arow.is-add .anm { color: var(--cpq-color-success); }
+  .arow.is-cut .anm { text-decoration: line-through; opacity: .7; }
+
+  /* ════ 角色对比 ════ */
+  .cmp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-4); }
+  @media (max-width: 900px) { .cmp-grid { grid-template-columns: 1fr; } .detail-grid { grid-template-columns: 1fr; } }
+  .cmp-col h4 { margin: 0 0 var(--cpq-space-2); font-size: var(--cpq-font-size-base); font-weight: var(--cpq-font-weight-semibold); display: flex; align-items: center; gap: var(--cpq-space-2); }
+  .cmp-col h4 .dot { width: 8px; height: 8px; border-radius: var(--cpq-radius-full); }
+  .cmp-lines { font-size: var(--cpq-font-size-sm); line-height: 2; }
+  .cmp-lines .on { color: var(--cpq-text-primary); }
+  .cmp-lines .dif { color: var(--cpq-color-success); font-weight: var(--cpq-font-weight-medium); }
+  .cmp-lines .mis { color: var(--cpq-text-disabled); }
+  .cmp-lines .cutm { color: var(--cpq-text-muted); text-decoration: line-through; }
+  .cmp-verdict { margin-top: var(--cpq-space-3); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); border-top: 1px solid var(--cpq-border-light); padding-top: var(--cpq-space-3); }
+  .cmp-verdict b { color: var(--cpq-text-primary); }
+
+  .anno { display: flex; flex-direction: column; gap: var(--cpq-space-2); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
+  .anno .a-row { display: flex; gap: var(--cpq-space-2); }
+  .anno .a-no { flex: none; color: var(--cpq-accent-primary); font-weight: var(--cpq-font-weight-semibold); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1>用户与权限 · 三带层</h1>
+      <div class="sub">页面、字段、操作三层分带，域只做层内分组，不再承载层级</div>
+    </div>
+    <button class="theme-btn" onclick="toggleTheme()">浅色 / 深色</button>
+  </div>
+
+  <!-- 角色上下文：一行 -->
+  <div class="ctx-bar">
+    <div class="ctx-role"><span class="dot" style="background:#22c3a6"></span>技术支持工程师 <span class="ctx-base">内置 · <b>2</b> 名成员</span></div>
+    <div class="ctx-base">基于「<b>业务</b>」</div>
+    <div class="ctx-delta"><span class="d-add">＋3</span><span class="d-cut">−1</span><span class="ctx-base">当前 <b>7</b> 项</span></div>
+    <span class="diff-inline"><span class="add">＋方案附件 · 提交方案 · 退回方案</span>　<span class="cut">新建商机</span></span>
+    <div class="ctx-save">
+      <span class="save-hint">保存后 · <b>2</b> 名成员需刷新生效</span>
+      <button class="btn-pri">保存</button>
+    </div>
+  </div>
+
+  <!-- ════ 第一带：页面权限 ════ -->
+  <section>
+    <h2>第一带 · 页面权限（进哪里）</h2>
+    <p class="sec-desc">一个域一张磁贴，一个开关管一个页面。关了 = 导航不出现、路由进不去。</p>
+    <div class="page-wall">
+
+      <div class="ptile">
+        <div class="ptile-head"><span class="tdot" style="background:#2f6bff"></span><span class="ptile-name">商机线索</span><label class="sw lg" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+        <div class="pg-line"><span class="pg-label">详情 / 报价 / 回收站</span><label class="sw" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+        <div class="ptile-sub">菜单全量数据范围未开 = 只看自己的商机</div>
+      </div>
+
+      <div class="ptile">
+        <div class="ptile-head"><span class="tdot" style="background:#f5b942"></span><span class="ptile-name">配件</span><label class="sw lg" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+        <div class="ptile-sub">无价格键 = 查型号模式</div>
+      </div>
+
+      <div class="ptile">
+        <div class="ptile-head"><span class="tdot" style="background:#5bc8d8"></span><span class="ptile-name">服务器</span><label class="sw lg" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+        <div class="ptile-sub">机型目录 / 详情 / 配置向导</div>
+      </div>
+
+      <div class="ptile off">
+        <div class="ptile-head"><span class="tdot" style="background:#8b93ff"></span><span class="ptile-name">AI 办公室</span><label class="sw lg" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        <div class="ptile-sub">含管理面两段（见三带）</div>
+      </div>
+
+      <div class="ptile off">
+        <div class="ptile-head"><span class="tdot" style="background:#f4756f"></span><span class="ptile-name">解决方案</span><label class="sw lg" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        <div class="ptile-sub">策略中心 / 选型配置 / BOM 案例</div>
+      </div>
+
+      <div class="ptile off">
+        <div class="ptile-head"><span class="tdot" style="background:#6f8bab"></span><span class="ptile-name">设置</span><label class="sw lg" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        <div class="ptile-sub">用户权限 / 解析规则 / 导出模板 / 服务器管理，四项独立开关</div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ════ 第二带：字段可见 ════ -->
+  <section>
+    <h2>第二带 · 字段可见（看什么）</h2>
+    <p class="sec-desc">全系统仅 6 个字段键。带「机密」徽的键，勾开需二次确认并写明影响人数。</p>
+    <div class="field-list">
+
+      <div class="frow off"><span class="fdom">商机线索</span><div class="fmain"><div class="fnm">报价金额 <span class="lock">机密</span></div><div class="fdesc">商机列表/详情的报价单价格</div></div><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+
+      <div class="frow"><span class="fdom">商机线索</span><div class="fmain"><div class="fnm">方案附件</div><div class="fdesc">商机存档区 · 方案类附件</div></div><label class="sw" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+
+      <div class="frow off"><span class="fdom">商机线索</span><div class="fmain"><div class="fnm">成本附件</div><div class="fdesc">商机存档区 · 成本类附件</div></div><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+
+      <div class="frow off"><span class="fdom">报价工作台</span><div class="fmain"><div class="fnm">整机/配件价格 <span class="lock">机密</span></div><div class="fdesc">报价工作台价格列与导出</div></div><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+
+      <div class="frow off"><span class="fdom">配件</span><div class="fmain"><div class="fnm">配件库价 <span class="lock">机密</span></div><div class="fdesc">配件页价格列 / 价格历史 / 选件价</div></div><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+
+      <div class="frow off"><span class="fdom">报价工作台</span><div class="fmain"><div class="fnm">导出对内版</div><div class="fdesc">含成本/利润率的导出版本</div></div><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+
+    </div>
+    <div class="confirm-strip">勾开「机密」键时确认：「将向该角色 2 名成员开放配件库全部价格，确认？」——上次价格事故级按键，值得一道闸。</div>
+  </section>
+
+  <!-- ════ 第三带：操作权限 ════ -->
+  <section>
+    <h2>第三带 · 操作权限（能做什么）</h2>
+    <p class="sec-desc">按域折叠，默认每域一行。14 个操作键 11 个在商机流程里，收起后不占屏。</p>
+
+      <div class="ogroup open">
+        <div class="og-head" onclick="this.parentNode.classList.toggle('open')">
+          <span class="og-arrow">▶</span><span class="og-title">商机线索</span>
+          <span class="og-stat">已开 <b>3</b> / 9</span>
+          <label class="sw og-quick" onclick="stop(event)"><input type="checkbox" :checked><i></i></label>
+        </div>
+        <div class="og-body">
+          <div class="arow offrow"><span class="anm">发起/提交需求单</span><span class="akey">action.flow.submit.requirement</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow offrow"><span class="anm">新建商机</span><span class="akey">action.opportunity.create（底版划掉）</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow"><span class="anm">修改商机状态</span><span class="akey">action.opportunity.result</span><label class="sw" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+          <div class="arow is-add"><span class="anm">编辑/提交方案配置 ＋增量</span><span class="akey">action.flow.submit.boming</span><label class="sw" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+          <div class="arow is-add"><span class="anm">退回方案配置 ＋增量</span><span class="akey">action.flow.return.boming</span><label class="sw" onclick="stop(event)"><input type="checkbox" checked><i></i></label></div>
+          <div class="arow offrow"><span class="anm">编辑/提交成本核算</span><span class="akey">action.flow.submit.costing</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow offrow"><span class="anm">退回成本核算</span><span class="akey">action.flow.return.costing</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow offrow"><span class="anm">报价外发审批</span><span class="akey">action.flow.approve.pricing</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow offrow"><span class="anm">发送报价单 / 退回市场报价 / 解冻 / 免审批</span><span class="akey">4 项报价操作</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        </div>
+      </div>
+
+      <div class="ogroup">
+        <div class="og-head" onclick="this.parentNode.classList.toggle('open')">
+          <span class="og-arrow">▶</span><span class="og-title">AI 办公室管理</span>
+          <span class="og-stat">已开 <b>0</b> / 2</span>
+          <label class="sw og-quick" onclick="stop(event)"><input type="checkbox"><i></i></label>
+        </div>
+        <div class="og-body">
+          <div class="arow offrow"><span class="anm">同事 / 团队 / Skill Studio</span><span class="akey">ai.office.manage</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+          <div class="arow offrow"><span class="anm">模型与接入 / 运行与权限</span><span class="akey">ai.office.admin</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        </div>
+      </div>
+
+      <div class="ogroup">
+        <div class="og-head" onclick="this.parentNode.classList.toggle('open')">
+          <span class="og-arrow">▶</span><span class="og-title">配件价格维护</span>
+          <span class="og-stat">已开 <b>0</b> / 1</span>
+          <span class="lock">机密</span>
+          <label class="sw og-quick" onclick="stop(event)"><input type="checkbox"><i></i></label>
+        </div>
+        <div class="og-body">
+          <div class="arow offrow"><span class="anm">录价 / 改价 / 价格导入导出</span><span class="akey">action.parts.price.manage</span><label class="sw" onclick="stop(event)"><input type="checkbox"><i></i></label></div>
+        </div>
+      </div>
+
+    <p class="note-line">▲ 组头右侧开关 = 整组批量开关；「＋增量」「底版划掉」标记只在相对底版的差异处出现。</p>
+  </section>
+
+  <!-- ════ 角色对比（拍板项） ════ -->
+  <section>
+    <h2>角色对比（拍板项 · 可二期）</h2>
+    <div class="panel">
+      <div class="cmp-grid">
+        <div class="cmp-col">
+          <h4><span class="dot" style="background:#2f6bff"></span>业务（6 项）</h4>
+          <div class="cmp-lines">
+            <div class="on">✓ 商机子页面 · 服务器 · 配件页</div>
+            <div class="on">✓ 发起/提交需求单 · 修改商机状态</div>
+            <div class="dif">✓ 新建商机 <span class="sub">← 技术没有</span></div>
+            <div class="mis">✗ 方案附件 · 提交/退回方案</div>
+          </div>
+        </div>
+        <div class="cmp-col">
+          <h4><span class="dot" style="background:#22c3a6"></span>技术支持工程师（7 项）</h4>
+          <div class="cmp-lines">
+            <div class="on">✓ 商机子页面 · 服务器 · 配件页</div>
+            <div class="on">✓ 修改商机状态</div>
+            <div class="dif">✓ 方案附件 · 提交/退回方案 <span class="sub">← 业务没有</span></div>
+            <div class="cutm">✗ 新建商机</div>
+          </div>
+        </div>
+      </div>
+      <div class="cmp-verdict">结论：<b>技术 = 业务 ＋ 方案配置三操作 ＋ 方案存档区 − 新建商机</b></div>
+    </div>
+  </section>
+
+  <!-- 设计标注 -->
+  <section>
+    <h2>设计标注（v3，确认后即为规格）</h2>
+    <div class="panel">
+      <div class="anno">
+        <div class="a-row"><span class="a-no">01</span><span><b>层优先三带</b>（本版核心修正）：一带页面磁贴只放开关不放细节；二带字段键全系统仅 6 个天然一屏；三带操作按域折叠、默认收起。v1 的「域磁贴内嵌全部芯片」废弃——那是字密的根因。</span></div>
+        <div class="a-row"><span class="a-no">02</span><span>密度对策：一带每贴 ≤3 行；二带每卡 2 行；三带收起时每域 1 行。全页首屏无小字块。</span></div>
+        <div class="a-row"><span class="a-no">03</span><span>保留：底版+增量（压成上下文条一行）、已授权成员 Tab、⋯菜单、详情抽屉、危险区。<b>列表视图与网格视图都删除</b>——三带层取代两者，不留并列模式。</span></div>
+        <div class="a-row"><span class="a-no">04</span><span>机密键（价格三键）：「机密」徽 + 勾开二次确认（含影响人数）；后端 deps 与前端 store 的 fail-closed 语义不受本改版影响。</span></div>
+        <div class="a-row"><span class="a-no">05</span><span>生效语义：「保存后 · N 名成员需刷新生效」替代「即时生效」。</span></div>
+        <div class="a-row"><span class="a-no">06</span><span>视觉：tokens 全量引用；无左侧彩条；域色只做 8px 圆点；磁贴 hover 浮 2px；开关=圆角胶囊（组件化后进 UI 库）。</span></div>
+        <div class="a-row"><span class="a-no">07</span><span>两 Tab 打通：角色卡显示成员头像；用户表角色列点击直达该角色（随实现一并做）。</span></div>
+        <div class="a-row"><span class="a-no">08</span><span>反 AI 味清单自查（impeccable.style/slop 59 条）：标题去破折号；卡片边框与投影二选一（玻璃卡留投影、清单行只有分隔线）；三带去外层嵌套卡；字段带改清单不做卡片墙；去悬浮位移动效；域色圆点保留（应用既有语言）。</span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function toggleTheme() {
+  const el = document.documentElement
+  el.setAttribute('data-theme', el.getAttribute('data-theme') === 'dark' ? 'light' : 'dark')
+}
+function stop(e) { e.stopPropagation() }
+</script>
+</body>
+</html>

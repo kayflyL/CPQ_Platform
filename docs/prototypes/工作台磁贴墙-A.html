@@ -1,0 +1,125 @@
+<!DOCTYPE html><html lang="zh"><head><meta charset="utf-8">
+<title>工作台 · 数据即设计</title>
+<style>
+*{box-sizing:border-box;margin:0}
+body{background:#0a0f1e;color:#e8ecf5;font-family:"Segoe UI",system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;padding:40px 48px 90px}
+.dir{max-width:1400px;margin:0 auto 80px}
+.dir-label{display:flex;align-items:baseline;gap:14px;margin:0 0 16px}
+.dir-label h2{font-size:20px}
+.dir-label span{color:#8b94a8;font-size:13px}
+.wall{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}
+.card{background:rgba(255,255,255,.045);border:1px solid rgba(255,255,255,.1);border-radius:20px;position:relative;overflow:hidden}
+svg{display:block}
+.num{font-variant-numeric:tabular-nums}
+
+/* ═══ 方向 A · 数据即设计 ═══ */
+.wa-todo{grid-column:span 4;padding:20px 20px 8px;display:flex;flex-direction:column}
+.wa-todo-head{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px}
+.wa-todo-head strong{font-size:16px}
+.wa-todo-head span{color:#8b94a8;font-size:12px}
+.wa-row{display:flex;align-items:center;gap:14px;padding:13px 8px;border-bottom:1px solid rgba(255,255,255,.06);text-decoration:none;color:inherit;border-radius:12px;cursor:pointer}
+.wa-row:hover{background:rgba(255,255,255,.045)}
+.wa-row:last-of-type{border-bottom:none}
+.wa-ic{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;flex:none}
+.wa-ic.hot{background:rgba(244,117,111,.14);color:#f4756f}
+.wa-ic.act{background:rgba(59,130,246,.16);color:#7aa7ff}
+.wa-ic.dim{background:rgba(255,255,255,.06);color:#8b94a8}
+.wa-rt b{display:block;font-size:14px;font-weight:600}
+.wa-rt i{font-style:normal;font-size:12px;color:#8b94a8}
+.wa-row em{margin-left:auto;font-style:normal;font-size:30px;font-weight:700}
+.wa-row em.hot{color:#f4756f}
+.wa-row em.act{color:#cfe0ff}
+.wa-row em.dim{color:#8b94a8;font-size:24px}
+.wa-foot{margin-top:auto;padding:14px 8px 10px;color:#7aa7ff;font-size:13px;text-align:right;cursor:pointer}
+.wa-hero{grid-column:span 8;padding:24px 28px;display:flex;flex-direction:column}
+.wa-hero-head{display:flex;align-items:baseline;gap:12px}
+.wa-hero-head strong{font-size:19px}
+.wa-hero-head i{font-style:normal;font-size:12px;color:#8b94a8}
+.wa-hero-head a{margin-left:auto;color:#7aa7ff;font-size:13px;text-decoration:none;cursor:pointer}
+.wa-stats{display:flex;gap:44px;padding:20px 2px 18px;border-bottom:1px solid rgba(255,255,255,.07)}
+.wa-stat b{display:block;font-size:36px;font-weight:700;line-height:1.1}
+.wa-stat span{font-size:12px;color:#8b94a8}
+.wa-stat.hot b{color:#f4756f}
+.wa-stat.dim b{color:#8b94a8;font-size:28px;padding-top:6px}
+.wa-line{display:flex;align-items:center;gap:12px;padding:12px 6px;border-bottom:1px solid rgba(255,255,255,.05);cursor:pointer}
+.wa-line:hover{background:rgba(255,255,255,.035)}
+.wa-line b{font-size:14px;font-weight:500}
+.wa-line .pill{font-size:11px;padding:3px 10px;border-radius:99px}
+.pill.hot{background:rgba(244,117,111,.14);color:#f4756f}
+.pill.act{background:rgba(59,130,246,.16);color:#7aa7ff}
+.pill.teal{background:rgba(34,195,166,.14);color:#3ecfab}
+.wa-line i{margin-left:auto;font-style:normal;font-size:12px;color:#8b94a8}
+.wa-t{grid-column:span 3;min-height:212px;padding:20px;display:flex;flex-direction:column;cursor:pointer}
+.wa-t:hover{border-color:rgba(122,167,255,.45);transform:translateY(-3px)}
+.wa-t .top{display:flex;align-items:flex-start}
+.wa-chip{width:42px;height:42px;border-radius:12px;display:grid;place-items:center}
+.wa-kpi{margin-left:auto;text-align:right}
+.wa-kpi b{display:block;font-size:26px;font-weight:700;line-height:1.1}
+.wa-kpi span{font-size:11px;color:#8b94a8}
+.wa-t .btm{margin-top:auto}
+.wa-t .btm b{display:block;font-size:16px;font-weight:600}
+.wa-t .btm i{font-style:normal;font-size:12px;color:#8b94a8}
+.wash-teal{background:radial-gradient(95% 75% at 88% 0%,rgba(34,195,166,.13),transparent 55%)}
+.wash-blue{background:radial-gradient(95% 75% at 88% 0%,rgba(59,130,246,.15),transparent 55%)}
+.wash-violet{background:radial-gradient(95% 75% at 88% 0%,rgba(139,147,255,.14),transparent 55%)}
+.chip-teal{background:rgba(34,195,166,.15);color:#3ecfab}
+.chip-blue{background:rgba(59,130,246,.17);color:#7aa7ff}
+.chip-violet{background:rgba(139,147,255,.17);color:#a3aaff}
+.wa-ai{grid-column:span 3;min-height:212px;padding:20px;display:flex;flex-direction:column;cursor:pointer}
+.wa-ai{background:linear-gradient(150deg,rgba(59,130,246,.18),rgba(14,165,233,.06) 60%);border-color:rgba(122,167,255,.4)}
+.wa-ai .hd b{display:block;font-size:16px;font-weight:600}
+.wa-ai .hd i{font-style:normal;font-size:12px;color:#8b94a8}
+.wa-input{margin-top:16px;display:flex;align-items:center;gap:9px;padding:12px 13px;border-radius:12px;border:1px solid rgba(122,167,255,.4);background:rgba(59,130,246,.09);color:#a9c2ff;font-size:13px}
+.wa-input svg{flex:none;color:#7aa7ff}
+.wa-input u{margin-left:auto;text-decoration:none;color:#7aa7ff}
+.wa-chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+.wa-chips s{text-decoration:none;font-size:12px;color:#b7c0d4;border:1px solid rgba(255,255,255,.12);padding:6px 11px;border-radius:99px}
+.wa-chips s:hover{border-color:rgba(122,167,255,.5);color:#cfe0ff}
+.wa-stat .sp{display:flex;align-items:flex-end;gap:12px;margin-top:8px}
+.wa-stat .dl{font-size:12px;font-weight:600}
+.wa-stat .dl.up{color:#f4756f}
+.wa-stat .dl.dn{color:#3ecfab}
+</style></head><body>
+
+<!-- ═══════════ 方向 A · 数据即设计 ═══════════ -->
+<section class="dir">
+<div class="dir-label"><h2>工作台 · 数据即设计</h2><span>待办归集 → KPI 进度 → 最近商机，数据做主角</span></div>
+<div class="wall">
+  <div class="card wa-todo">
+    <div class="wa-todo-head"><strong>待处理事项</strong><span>9月28日 周一</span></div>
+    <a class="wa-row"><span class="wa-ic hot"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4 21 19H3z"/><path d="M12 10v4M12 16.6v.1"/></svg></span><span class="wa-rt"><b>无主待指派</b><i>等待指派处理人 · 去调度</i></span><em class="hot num">10</em></a>
+    <a class="wa-row"><span class="wa-ic act"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="4" width="7" height="7" rx="1.5"/><rect x="4" y="13" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/></svg></span><span class="wa-rt"><b>在办任务</b><i>全流程进行中</i></span><em class="act num">36</em></a>
+    <a class="wa-row"><span class="wa-ic dim"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span><span class="wa-rt"><b>今日新增商机</b><i>较昨日 -2</i></span><em class="dim num">1</em></a>
+    <a class="wa-foot">前往任务调度 →</a>
+  </div>
+  <div class="card wa-hero">
+    <div class="wa-hero-head"><strong>商机线索</strong><i>全公司商机池总览</i><a>查看全部 →</a></div>
+    <div class="wa-stats">
+      <div class="wa-stat"><b class="num">36</b><span>在办</span><span class="sp"><svg width="72" height="26" viewBox="0 0 72 26"><polyline points="0,18 12,15 24,17 36,10 48,12 60,7 72,9" fill="none" stroke="#7aa7ff" stroke-width="1.8" stroke-linecap="round"/></svg><span class="dl dn">▼ 2</span></span></div>
+      <div class="wa-stat hot"><b class="num">10</b><span>无主待指派</span><span class="sp"><svg width="72" height="26" viewBox="0 0 72 26"><polyline points="0,20 12,16 24,18 36,12 48,15 60,6 72,4" fill="none" stroke="#f4756f" stroke-width="1.8" stroke-linecap="round"/></svg><span class="dl up">▲ 3</span></span></div>
+      <div class="wa-stat dim"><b class="num">1</b><span>今日新增</span></div>
+    </div>
+    <a class="wa-line"><b>华远物流 · 4U 推理服务器</b><span class="pill hot">待指派</span><i>停留 3 天</i></a>
+    <a class="wa-line"><b>蓝湖数据 · AI 推理一体机</b><span class="pill act">核价中</span><i>今日到达</i></a>
+    <a class="wa-line"><b>启辰智造 · 通用 2U 服务器</b><span class="pill teal">报价中</span><i>停留 2 天</i></a>
+  </div>
+  <div class="card wa-ai">
+    <div class="hd"><b>方案助手</b><i>对话登记需求 · 支持全屏</i></div>
+    <div class="wa-input"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/></svg>让 AI 帮你登记需求…<u>⏎</u></div>
+    <div class="wa-chips"><s>帮华远物流出报价</s><s>本周商机趋势</s></div>
+  </div>
+  <div class="card wa-t wash-teal">
+    <div class="top"><span class="wa-chip chip-teal"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="4" y="4" width="16" height="16" rx="2.5"/><path d="M9.5 4v16M15 4v9"/></svg></span><span class="wa-kpi"><b class="num">10</b><span>无主待指派</span></span></div>
+    <div class="btm"><b>任务调度</b><i>配置 / 转交各节点处理人</i></div>
+  </div>
+  <div class="card wa-t wash-blue">
+    <div class="top"><span class="wa-chip chip-blue"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="7" y="7" width="10" height="10" rx="2"/><path d="M10 7V4M14 7V4M10 20v-3M14 20v-3M7 10H4M7 14H4M20 10h-3M20 14h-3"/></svg></span><span class="wa-kpi"><b class="num">15</b><span>机型底座</span></span></div>
+    <div class="btm"><b>选型配置</b><i>机型能力与推导规则</i></div>
+  </div>
+  <div class="card wa-t wash-violet">
+    <div class="top"><span class="wa-chip chip-violet"><svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3.5" width="6" height="5" rx="1.2"/><rect x="14" y="9.5" width="6" height="5" rx="1.2"/><rect x="4" y="15.5" width="6" height="5" rx="1.2"/><path d="M10 6h4v6M10 18h4v-6"/></svg></span><span class="wa-kpi"><b class="num">9</b><span>推理流</span></span></div>
+    <div class="btm"><b>解决方案</b><i>方案库与推理流编排</i></div>
+  </div>
+</div>
+</section>
+</body></html>

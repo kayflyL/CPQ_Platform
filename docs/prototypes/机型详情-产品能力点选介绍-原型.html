@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>机型详情 · 产品能力点选介绍 — 原型 v2</title>
+<!-- 最后更新：2026-09-28
+  v2：按用户反馈去掉 n8n 节点流程画布（对所有机型是同一张装饰图，不带机型差异），
+  只保留 n8n 的「左侧点选卡片 → 右侧显示对应介绍」交互骨架。
+  右侧 = 纯介绍面板：维度大标题 + 一句话介绍 + metrics 大数字 + icon 字段驱动的发丝线水印。
+  全部文字/数字来自现有 product_content.capabilities（name/name_en/desc/metrics/icon），
+  ModelEditorPage 编辑器零改动，无任何画死的介绍文字。
+  数据源：l6.server_models id=6 (ES220 V3) 真实 capabilities。v1（节点画布）保留在同目录可对比。 -->
+<style>
+:root{
+  --sun-color:#5BB8FF; --sun-bright:#D6EBFF; --glow:rgba(91,184,255,0.55);
+  --band-bg:linear-gradient(to bottom,#02050f 0%,#0a1c38 55%,#030814 100%);
+  --page-bg:linear-gradient(to bottom,#02050f 0%,#071226 45%,#030814 100%);
+  --line-soft:rgba(255,255,255,0.08);
+  --mono:'JetBrains Mono','SF Mono','Cascadia Mono',Consolas,monospace;
+  --ease:cubic-bezier(.4,0,.2,1);
+  --cycle:4.5s;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--page-bg);color:#eef3fa;font-family:-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;min-height:100vh;transition:background .5s}
+
+/* ── 原型工具条（非页面内容） ── */
+.chrome{display:flex;justify-content:space-between;align-items:center;padding:16px 28px;border-bottom:1px solid rgba(255,255,255,.06)}
+.chrome .ttl{font-size:12.5px;color:rgba(255,255,255,.5)}
+.chrome .ttl b{color:rgba(255,255,255,.8);font-weight:600}
+.pills{display:flex;gap:8px}
+.pill{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border-radius:999px;border:1px solid rgba(255,255,255,.13);background:transparent;color:rgba(255,255,255,.55);cursor:pointer;font-size:12px;transition:.2s}
+.pill .dot{width:9px;height:9px;border-radius:50%}
+.pill.on{border-color:var(--sun-color);color:#fff}
+
+/* ── 产品能力带（对应详情页 .band-dark） ── */
+.band-dark{margin-top:44px;padding:52px 0 60px;position:relative;color:#fff;
+  background-image:linear-gradient(to bottom,rgba(0,0,0,.42),rgba(0,0,0,.58)),var(--band-bg)}
+.band-dark::before{content:'';position:absolute;top:0;left:-8%;right:-8%;height:0;
+  background:linear-gradient(to right,transparent 0%,var(--sun-color) 22%,var(--sun-bright) 50%,var(--sun-color) 78%,transparent 100%);
+  background-size:100% 1.5px;background-repeat:no-repeat;
+  box-shadow:0 0 18px var(--sun-color),0 4px 46px var(--glow)}
+.page-inner{max-width:1180px;margin:0 auto;padding:0 28px}
+.sec-head{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:28px}
+.sec-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--sun-color);opacity:.85;margin-bottom:8px}
+.sec-title{font-size:23px;font-weight:700;color:#fff;letter-spacing:.02em}
+.hint{font-family:var(--mono);font-size:10px;letter-spacing:.16em;color:rgba(255,255,255,.32)}
+
+.cap-wrap{display:flex;gap:26px;align-items:stretch}
+
+/* ── 左栏：维度点选卡片 ── */
+.rail{width:302px;flex:none;display:flex;flex-direction:column;gap:6px}
+.item{position:relative;text-align:left;border:none;background:transparent;cursor:pointer;
+  padding:13px 16px 15px 22px;border-radius:10px;border:1px solid transparent;color:inherit;font-family:inherit;
+  transition:background .25s var(--ease),border-color .25s}
+.item::before{content:'';position:absolute;left:0;top:12px;bottom:12px;width:3px;border-radius:2px;background:transparent;transition:.25s}
+.item:hover{background:rgba(255,255,255,.03)}
+.item.active{background:rgba(255,255,255,.055);border-color:rgba(255,255,255,.07)}
+.item.active::before{background:var(--sun-color);box-shadow:0 0 8px var(--glow)}
+.item .row{display:flex;align-items:baseline;gap:9px;margin-bottom:5px}
+.item .nm{font-size:15.5px;font-weight:700;color:rgba(245,250,255,.55);transition:.25s}
+.item.active .nm{color:#fff}
+.item .en{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:rgba(255,255,255,.3)}
+.item.active .en{color:var(--sun-color);opacity:.75}
+.item .desc{font-size:12.3px;line-height:1.58;color:rgba(238,243,250,.4);transition:.25s;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.item.active .desc{color:rgba(238,243,250,.68)}
+.item .prog{position:absolute;left:12px;right:14px;bottom:0;height:2px;border-radius:1px;width:0;background:var(--sun-color);box-shadow:0 0 6px var(--glow);opacity:0}
+.item.active .prog{opacity:.8;animation:prog var(--cycle) linear forwards}
+@keyframes prog{from{width:0}to{width:100%}}
+
+/* ── 右侧：介绍面板（点谁介绍谁） ── */
+.detail-panel{flex:1;min-width:0;position:relative;border:1px solid var(--line-soft);border-radius:14px;overflow:hidden;
+  background:
+    radial-gradient(rgba(255,255,255,.05) 1px,transparent 1px) 0 0/24px 24px,
+    linear-gradient(180deg,rgba(255,255,255,.03),rgba(255,255,255,.008))}
+.dp-inner{position:relative;z-index:1;padding:46px 210px 42px 50px}
+.dp-kicker{font-family:var(--mono);font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--sun-color);opacity:.85;margin-bottom:12px}
+.dp-title{font-size:34px;font-weight:700;color:#fff;letter-spacing:.03em;margin-bottom:16px}
+.dp-rule{width:44px;height:2px;border-radius:1px;background:var(--sun-color);opacity:.6;margin-bottom:22px}
+.dp-desc{font-size:14.5px;line-height:1.95;color:rgba(238,243,250,.72);max-width:640px;margin-bottom:36px}
+.dp-stats{display:flex;flex-wrap:wrap;row-gap:20px}
+.stat{padding:2px 36px;border-left:1px solid rgba(255,255,255,.1)}
+.stat:first-child{padding-left:0;border-left:none}
+.stat .v{font-family:var(--mono);font-size:30px;font-weight:600;color:#fff}
+.stat .l{font-size:11px;color:rgba(255,255,255,.42);letter-spacing:.1em;margin-top:7px}
+/* 图标水印：维度自带 icon 字段驱动（capIcons 同源线稿，accent 部分吃主题色） */
+.dp-mark{position:absolute;right:-24px;bottom:-12px;width:380px;opacity:.13;color:#fff;z-index:0;pointer-events:none}
+.dp-mark svg{width:100%;height:auto}
+.dp-index{position:absolute;left:26px;bottom:16px;font-family:var(--mono);font-size:10px;letter-spacing:.24em;color:rgba(255,255,255,.28);z-index:1}
+@keyframes dpIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.dp-inner.anim{animation:dpIn .5s var(--ease) both}
+.dp-mark.anim{animation:dpIn .6s var(--ease) both}
+
+@media (prefers-reduced-motion:reduce){
+  .item .prog{display:none}
+  .dp-inner.anim,.dp-mark.anim{animation:none}
+}
+/* 手机：左栏变横滑条，面板居下 */
+@media (max-width:880px){
+  .cap-wrap{flex-direction:column;gap:14px}
+  .rail{width:100%;flex-direction:row;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+  .rail::-webkit-scrollbar{display:none}
+  .item{min-width:236px;flex:none}
+  .dp-inner{padding:32px 26px}
+  .dp-mark{width:240px;right:-30px;bottom:-20px;opacity:.09}
+  .stat{padding:2px 22px}
+  .band-dark{margin-top:24px;padding:36px 0 44px}
+}
+</style>
+</head>
+<body>
+
+<div class="chrome">
+  <div class="ttl"><b>原型 v2</b> · 左侧点选维度 → 右侧介绍面板（v1 节点画布方案已弃，同目录留档对比）</div>
+  <div class="pills" id="pills"></div>
+</div>
+
+<section class="band-dark">
+  <div class="page-inner">
+    <div class="sec-head">
+      <div>
+        <div class="sec-kicker">Capabilities</div>
+        <div class="sec-title">产品能力</div>
+      </div>
+      <div class="hint">自动轮播 · 悬停暂停 · 点击切换</div>
+    </div>
+
+    <div class="cap-wrap" id="wrap">
+      <div class="rail" id="rail"></div>
+
+      <div class="detail-panel">
+        <div class="dp-inner" id="dpInner"></div>
+        <div class="dp-mark" id="dpMark"></div>
+        <div class="dp-index" id="dpIndex"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ── 数据 = 现有 product_content.capabilities（ES220 V3 真实数据），结构零改动 ── */
+const DIMS = [
+  { name:'算力', en:'Compute', icon:'chip',
+    desc:'双路 AMD Genoa/Turin 高主频多核，虚拟化与数据库负载从容承载',
+    metrics:[ {v:'2 路', l:'高性能处理器'}, {v:'500W', l:'单 CPU TDP'} ] },
+  { name:'扩展性', en:'Scalability', icon:'slots',
+    desc:'8 条 PCIe Gen5 x16 按需插卡，投资随业务爬坡，不为未来提前买单',
+    metrics:[ {v:'8×', l:'Gen5 x16 插槽'}, {v:'2×', l:'OCP 3.0 扩展位'} ] },
+  { name:'网络能力', en:'Network', icon:'net',
+    desc:'双 OCP 3.0 Gen5 x16 高速网卡扩展位，集群南北向流量从容扩容',
+    metrics:[ {v:'2×', l:'OCP 3.0 插槽'}, {v:'Gen5 x16', l:'专用带宽'} ] },
+  { name:'存储', en:'Storage', icon:'drive',
+    desc:'前置 25 盘 2.5" + 后置 4 盘三模混插，冷热数据一机分层',
+    metrics:[ {v:'29 盘', l:'最大盘位'}, {v:'12 盘', l:'3.5" 三模'}, {v:'2× M.2', l:'内置系统盘'} ] },
+  { name:'管理', en:'Management', icon:'term',
+    desc:'AST2600 带外管理 + TPM 2.0，固件批量下发，运维不用逐台进机房',
+    metrics:[ {v:'AST2600', l:'带外管理芯片'}, {v:'TPM 2.0', l:'安全模块'} ] },
+  { name:'可靠与运维', en:'Reliability', icon:'fan',
+    desc:'1+1 冗余电源 + 6 风墙全程热插拔，7×24 稳定在线',
+    metrics:[ {v:'1+1', l:'电源冗余'}, {v:'2000W', l:'单电源最高'}, {v:'6×', l:'热插拔风扇'} ] },
+]
+
+/* 发丝线图标（capIcons.ts 同源；dimd/psu 为补充，accent 元素用 --sun-color） */
+const ICONS = {
+  chip:'<rect x="12" y="8" width="28" height="24" rx="2" stroke="currentColor" stroke-width="1.5"/><rect x="19" y="15" width="14" height="10" rx="1" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/><path d="M18 8V3M24 8V3M30 8V3M34 8V3M18 32v-5M24 32v-5M30 32v-5M34 32v-5M12 14H7M12 20H7M12 26H7M40 14h5M40 20h5M40 26h5" stroke="currentColor" stroke-width="1.5"/>',
+  slots:'<rect x="4" y="5" width="36" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="16" width="36" height="8" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="27" width="36" height="8" rx="1" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5" stroke-dasharray="4 3"/><path d="M44 27v10M39 32h10" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  net:'<rect x="4" y="9" width="11" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="4" y="22" width="11" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M15 13.5h24m0 0-4-4m4 4-4 4M15 26.5h31m0 0-4-4m4 4-4 4" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  drive:'<rect x="10" y="5" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="16" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="10" y="27" width="32" height="9" rx="1" stroke="currentColor" stroke-width="1.5"/><circle cx="37" cy="9.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/><circle cx="37" cy="20.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/><circle cx="37" cy="31.5" r="1.6" fill="var(--sun-color, #5BB8FF)"/>',
+  term:'<rect x="5" y="6" width="42" height="28" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 14h42" stroke="currentColor" stroke-width="1.5"/><path d="M11 20l5 4-5 4" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/><path d="M20 28h14" stroke="currentColor" stroke-width="1.5"/>',
+  fan:'<circle cx="18" cy="20" r="13" stroke="currentColor" stroke-width="1.5"/><path d="M18 20c0-5 3-8 8-8M18 20c5 0 8 3 8 8M18 20c0 5-3 8-8 8M18 20c-5 0-8-3-8-8" stroke="currentColor" stroke-width="1.5"/><circle cx="18" cy="20" r="2.2" fill="var(--sun-color, #5BB8FF)"/><rect x="36" y="12" width="11" height="16" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M38.5 16h6M38.5 20h6" stroke="currentColor" stroke-width="1.2"/>',
+  shield:'<path d="M26 4l16 6v10c0 9-6.5 14.5-16 17-9.5-2.5-16-8-16-17V10l16-6z" stroke="currentColor" stroke-width="1.5"/><path d="M19 21l5 5 10-11" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+  rack:'<rect x="10" y="4" width="32" height="32" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M10 14.7h32M10 25.4h32" stroke="currentColor" stroke-width="1.5"/><rect x="16" y="8" width="12" height="2.5" fill="var(--sun-color, #5BB8FF)"/><circle cx="36" cy="9" r="1.4" fill="currentColor"/><circle cx="36" cy="20" r="1.4" fill="currentColor"/><circle cx="36" cy="30" r="1.4" fill="currentColor"/>',
+  mesh:'<rect x="5" y="5" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="30" y="5" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="5" y="24" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><rect x="30" y="24" width="17" height="11" rx="1" stroke="currentColor" stroke-width="1.5"/><path d="M13.5 16v8M38.5 16v8" stroke="currentColor" stroke-width="1.2"/><path d="M22 10.5h8M22 29.5h8" stroke="var(--sun-color, #5BB8FF)" stroke-width="1.5"/>',
+}
+function iconSvg(key) {
+  const body = ICONS[key] || ICONS.chip
+  return `<svg viewBox="0 0 52 40" fill="none" xmlns="http://www.w3.org/2000/svg">${body}</svg>`
+}
+
+/* ── 左栏 ── */
+const rail = document.getElementById('rail')
+DIMS.forEach((d, i) => {
+  const b = document.createElement('button')
+  b.className = 'item'
+  b.innerHTML = `<div class="row"><span class="nm">${d.name}</span><span class="en">${d.en}</span></div><div class="desc">${d.desc}</div><span class="prog"></span>`
+  b.addEventListener('click', () => { select(i); startCycle() })
+  rail.appendChild(b)
+})
+
+/* ── 右侧介绍面板：全部内容来自 capabilities 字段，无画死文案 ── */
+const dpInner = document.getElementById('dpInner')
+const dpMark = document.getElementById('dpMark')
+const dpIndex = document.getElementById('dpIndex')
+let cur = -1
+function select(i) {
+  if (i === cur) { restartProg(); return }
+  cur = i
+  document.querySelectorAll('.item').forEach((el, j) => {
+    el.classList.toggle('active', j === i)
+    if (j === i) { el.classList.remove('active'); void el.offsetWidth; el.classList.add('active') } // 重启进度条
+  })
+  const d = DIMS[i]
+  dpInner.innerHTML = `
+    <div class="dp-kicker">${d.en || ''}</div>
+    <h3 class="dp-title">${d.name}</h3>
+    <div class="dp-rule"></div>
+    <p class="dp-desc">${d.desc || ''}</p>
+    ${d.metrics?.length ? `<div class="dp-stats">${d.metrics.map(m =>
+      `<div class="stat"><div class="v">${m.v}</div><div class="l">${m.l}</div></div>`).join('')}</div>` : ''}`
+  dpMark.innerHTML = iconSvg(d.icon)
+  dpIndex.textContent = `${String(i + 1).padStart(2, '0')} / ${String(DIMS.length).padStart(2, '0')}`
+  dpInner.classList.remove('anim'); void dpInner.offsetWidth; dpInner.classList.add('anim')
+  dpMark.classList.remove('anim'); void dpMark.offsetWidth; dpMark.classList.add('anim')
+}
+function restartProg() {
+  const el = document.querySelectorAll('.item')[cur]
+  if (!el) return
+  el.classList.remove('active'); void el.offsetWidth; el.classList.add('active')
+}
+
+/* ── 自动轮播（悬停暂停）── */
+const CYCLE = 4500
+let timer = null
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches
+function stopCycle() { if (timer) { clearInterval(timer); timer = null } }
+function startCycle() {
+  stopCycle()
+  if (reduced) return
+  timer = setInterval(() => select((cur + 1) % DIMS.length), CYCLE)
+}
+const wrap = document.getElementById('wrap')
+wrap.addEventListener('mouseenter', stopCycle)
+wrap.addEventListener('mouseleave', startCycle)
+document.addEventListener('visibilitychange', () => document.hidden ? stopCycle() : startCycle())
+
+/* ── 场景主题（stageThemes.ts 同源）── */
+const THEMES = {
+  wine:   { label:'酒红', sun:'#FF7A4D', sunBright:'#FFE0C0', glow:'rgba(255,122,77,0.55)',
+            band:'linear-gradient(to bottom,#160710 0%,#2d0b1a 55%,#1a0509 100%)',
+            page:'linear-gradient(to bottom,#0d0308 0%,#1c0912 45%,#0f040a 100%)' },
+  ocean:  { label:'深蓝', sun:'#5BB8FF', sunBright:'#D6EBFF', glow:'rgba(91,184,255,0.55)',
+            band:'linear-gradient(to bottom,#02050f 0%,#0a1c38 55%,#030814 100%)',
+            page:'linear-gradient(to bottom,#02050f 0%,#071226 45%,#030814 100%)' },
+  carbon: { label:'纯黑', sun:'#E8E8E8', sunBright:'#FFFFFF', glow:'rgba(232,232,232,0.45)',
+            band:'linear-gradient(to bottom,#0a0a0a 0%,#232323 55%,#050505 100%)',
+            page:'linear-gradient(to bottom,#060606 0%,#161616 45%,#050505 100%)' },
+  violet: { label:'暗紫', sun:'#B07AFF', sunBright:'#E8D0FF', glow:'rgba(176,122,255,0.55)',
+            band:'linear-gradient(to bottom,#080114 0%,#20103f 55%,#0a0218 100%)',
+            page:'linear-gradient(to bottom,#070113 0%,#180b30 45%,#0a0218 100%)' },
+}
+const pills = document.getElementById('pills')
+Object.entries(THEMES).forEach(([k, t]) => {
+  const p = document.createElement('button')
+  p.className = 'pill'; p.dataset.k = k
+  p.innerHTML = `<span class="dot" style="background:${t.sun}"></span>${t.label}`
+  p.addEventListener('click', () => setTheme(k))
+  pills.appendChild(p)
+})
+function setTheme(k) {
+  const t = THEMES[k], s = document.documentElement.style
+  s.setProperty('--sun-color', t.sun); s.setProperty('--sun-bright', t.sunBright)
+  s.setProperty('--glow', t.glow); s.setProperty('--band-bg', t.band); s.setProperty('--page-bg', t.page)
+  pills.querySelectorAll('.pill').forEach(p => p.classList.toggle('on', p.dataset.k === k))
+}
+
+/* ── 启动 ── */
+setTheme('ocean')
+select(0)
+startCycle()
+</script>
+</body>
+</html>

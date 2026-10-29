@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>布局与用法规范 · CPQ Platform</title>
+<!-- 权威顺序：值的唯一来源 = tokens.css（本页全部 var() 引用，改值此处自动跟随）；
+     用法与理由 = docs/前端设计/布局与用法规范.md；本页 = 可视对照样张。 -->
+<link rel="stylesheet" href="../../frontend/src/styles/tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: var(--cpq-font-family);
+    font-size: var(--cpq-font-size-base);
+    line-height: var(--cpq-line-height-body);
+    color: var(--cpq-text-primary);
+    background-color: var(--cpq-bg-primary);
+    background-image: var(--cpq-bg-gradient);
+    background-attachment: fixed;
+    padding: var(--cpq-space-6) var(--cpq-space-5);
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; }
+
+  /* ── 页头 ── */
+  .topbar { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--cpq-space-4); margin-bottom: var(--cpq-space-6); }
+  h1 { font-size: var(--cpq-font-size-2xl); font-weight: var(--cpq-font-weight-semibold); line-height: var(--cpq-line-height-heading); margin: 0 0 var(--cpq-space-1); }
+  .sub { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
+  .en { letter-spacing: .18em; text-transform: uppercase; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); margin-top: var(--cpq-space-1); }
+  .theme-btn {
+    border: 1px solid var(--cpq-border-light); background: var(--cpq-overlay-w5); color: var(--cpq-text-primary);
+    border-radius: var(--cpq-radius-sm); padding: var(--cpq-space-2) var(--cpq-space-4);
+    font-size: var(--cpq-font-size-sm); cursor: pointer; transition: all var(--cpq-transition-fast);
+  }
+  .theme-btn:hover { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); }
+
+  /* ── 分区 ── */
+  section { margin-bottom: var(--cpq-space-6); }
+  .sec-head { display: flex; align-items: baseline; gap: var(--cpq-space-2); margin-bottom: var(--cpq-space-4); }
+  .sec-no { font-size: var(--cpq-font-size-sm); color: var(--cpq-accent-primary); font-weight: var(--cpq-font-weight-semibold); letter-spacing: .08em; }
+  h2 { font-size: var(--cpq-font-size-xl); font-weight: var(--cpq-font-weight-semibold); margin: 0; line-height: var(--cpq-line-height-heading); }
+  .sec-desc { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); margin: 0 0 var(--cpq-space-4); }
+
+  .panel {
+    background: var(--cpq-glass-card-bg);
+    backdrop-filter: blur(var(--cpq-glass-card-blur));
+    -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+    border: 1px solid var(--cpq-border-primary);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-glass-card-shadow);
+    padding: var(--cpq-space-4);
+  }
+
+  /* ── 标注芯片（对标参考规范的测量标注）── */
+  .chip {
+    display: inline-block; background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary);
+    font-size: var(--cpq-font-size-sm); font-weight: var(--cpq-font-weight-medium);
+    padding: 0 var(--cpq-space-2); border-radius: 999px; line-height: 20px; white-space: nowrap;
+  }
+
+  /* ── §1 间距标尺 ── */
+  .ruler-row { display: flex; align-items: center; gap: var(--cpq-space-4); padding: var(--cpq-space-1) 0; }
+  .ruler-name { width: 150px; flex: none; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); font-feature-settings: var(--cpq-num-feature); }
+  .ruler-bar { height: 12px; border-radius: 3px; background: var(--cpq-accent-gradient); }
+  .ruler-use { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-left: var(--cpq-space-2); }
+
+  /* ── §1 骨架标注图 ── */
+  .diagrams { display: flex; gap: var(--cpq-space-4); flex-wrap: wrap; }
+  .diagram { flex: 1 1 380px; }
+  .diagram-title { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); margin-bottom: var(--cpq-space-2); }
+  .frame { position: relative; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-md); background: var(--cpq-overlay-w3); padding: var(--cpq-space-5); }
+  .frame-nav { height: 28px; border-radius: 6px; background: var(--cpq-overlay-w8); margin-bottom: var(--cpq-space-5); }
+  .frame-cols { display: flex; gap: var(--cpq-space-4); }
+  .frame-side { width: 96px; flex: none; border-radius: 6px; background: var(--cpq-overlay-w6); min-height: 150px; }
+  .frame-main { flex: 1; display: flex; flex-direction: column; gap: var(--cpq-space-4); }
+  .frame-card { flex: 1; border-radius: 6px; background: var(--cpq-overlay-w10); border: 1px solid var(--cpq-border-primary); min-height: 68px; }
+  .frame .chip { position: absolute; }
+  .frame > .chip.t { top: 26px; left: 50%; transform: translateX(-50%); }
+  .frame > .chip.b { bottom: 26px; left: 50%; transform: translateX(-50%); }
+  .frame-cols { position: relative; }
+  .frame-cols > .chip.gap { position: absolute; left: 96px; top: 50%; transform: translate(-50%, -50%); }
+
+  /* ── §2 字阶样张 ── */
+  .type-row { display: flex; align-items: baseline; gap: var(--cpq-space-4); padding: var(--cpq-space-3) 0; border-bottom: 1px solid var(--cpq-border-secondary); }
+  .type-row:last-child { border-bottom: none; }
+  .type-sample { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .type-meta { flex: none; text-align: right; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); font-feature-settings: var(--cpq-num-feature); }
+  .type-meta b { color: var(--cpq-text-secondary); font-weight: var(--cpq-font-weight-medium); }
+
+  /* ── §3 卡片节奏样张 ── */
+  .rhythm-card {
+    max-width: 460px;
+    background: var(--cpq-glass-card-bg);
+    backdrop-filter: blur(var(--cpq-glass-card-blur));
+    -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
+    border: 1px solid var(--cpq-border-light);
+    border-radius: var(--cpq-radius-lg);
+    box-shadow: var(--cpq-glass-card-shadow);
+    padding: var(--cpq-space-4);
+  }
+  .rhythm-title { display: flex; align-items: center; gap: var(--cpq-space-2); font-size: var(--cpq-font-size-lg); font-weight: var(--cpq-font-weight-medium); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cpq-accent-primary); flex: none; }
+  .rhythm-body { margin-top: var(--cpq-space-3); display: flex; flex-direction: column; gap: var(--cpq-space-2); color: var(--cpq-text-secondary); }
+  .rhythm-foot { margin-top: var(--cpq-space-3); display: flex; gap: var(--cpq-space-2); }
+  .rhythm-note { margin-top: var(--cpq-space-3); font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+
+  /* ── §4 Do / Don't ── */
+  .dd { display: flex; gap: var(--cpq-space-4); flex-wrap: wrap; }
+  .dd-card { flex: 1 1 320px; position: relative; border-radius: var(--cpq-radius-lg); padding: var(--cpq-space-4); border: 1px solid var(--cpq-border-light); background: var(--cpq-overlay-w4); }
+  .dd-card.bad { border-color: var(--cpq-notif-red-bg); }
+  .dd-badge { position: absolute; top: calc(var(--cpq-space-3) * -1); right: var(--cpq-space-3); }
+  .dd-badge.ok { background: var(--cpq-notif-green); }
+  .dd-badge.no { background: var(--cpq-notif-red); }
+  .dd-title { display: flex; align-items: center; gap: var(--cpq-space-2); font-weight: var(--cpq-font-weight-semibold); }
+  .dd-strip { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--cpq-accent-danger); border-radius: var(--cpq-radius-lg) 0 0 var(--cpq-radius-lg); }
+  .dd-body { margin-top: var(--cpq-space-2); color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
+  .dd-card.bad .dd-body { text-decoration: line-through; text-decoration-color: var(--cpq-accent-danger); text-decoration-thickness: 1px; }
+
+  /* ── §5 语义色 ── */
+  .swatches { display: flex; gap: var(--cpq-space-4); flex-wrap: wrap; }
+  .swatch { flex: 1 1 200px; display: flex; align-items: flex-start; gap: var(--cpq-space-2); }
+  .swatch .dot { margin-top: 6px; width: 10px; height: 10px; }
+  .swatch-name { font-weight: var(--cpq-font-weight-medium); }
+  .swatch-use { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+
+  /* ── §6 按钮四态 ── */
+  .states { display: flex; gap: var(--cpq-space-5); flex-wrap: wrap; align-items: flex-end; }
+  .state { display: flex; flex-direction: column; gap: var(--cpq-space-2); align-items: center; }
+  .state-label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+  .btn {
+    border: 1px solid transparent; border-radius: var(--cpq-radius-sm); cursor: pointer;
+    padding: var(--cpq-space-2) var(--cpq-space-4); font-size: var(--cpq-font-size-base);
+    font-family: inherit; transition: all var(--cpq-transition-fast);
+    background: var(--cpq-accent-primary); color: var(--cpq-accent-on-primary);
+  }
+  .btn.hover { background: var(--cpq-accent-primary-light); box-shadow: 0 0 14px var(--cpq-overlay-a30); transform: translateY(-1px); }
+  .btn.active { filter: brightness(.9); transform: translateY(0); }
+  .btn.disabled { opacity: .45; cursor: not-allowed; }
+
+  footer { margin-top: var(--cpq-space-6); color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); display: flex; justify-content: space-between; gap: var(--cpq-space-4); flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="topbar">
+    <div>
+      <h1>CPQ Platform 设计规范</h1>
+      <div class="en">Design Spec · Glass Console</div>
+    </div>
+    <button class="theme-btn" onclick="toggleTheme()">切换深浅主题</button>
+  </header>
+
+  <p class="sub">值的唯一来源 = <b>tokens.css</b>（本页全部 var() 引用，改值自动跟随） · 用法与理由 = <b>docs/前端设计/布局与用法规范.md</b> · 本页 = 可视对照样张</p>
+
+  <!-- ═══ §1 间距 ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§1</span><h2>间距 —— 六档封闭，4px 栅格</h2></div>
+    <p class="sec-desc">布局间距禁用档外值；≤4px 光学校正可例外。节奏感来自封闭尺度。</p>
+
+    <div class="panel">
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-1 · 4px</span><span class="ruler-bar" style="width: var(--cpq-space-1)"></span><span class="ruler-use">紧凑：图标↔文字、badge 内距</span></div>
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-2 · 8px</span><span class="ruler-bar" style="width: var(--cpq-space-2)"></span><span class="ruler-use">元素间：控件与标签、按钮组</span></div>
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-3 · 12px</span><span class="ruler-bar" style="width: var(--cpq-space-3)"></span><span class="ruler-use">分组间：卡片内 padding 下限、表单行距</span></div>
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-4 · 16px</span><span class="ruler-bar" style="width: var(--cpq-space-4)"></span><span class="ruler-use">卡片间：卡片之间、栅格 gutter</span></div>
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-5 · 24px</span><span class="ruler-bar" style="width: var(--cpq-space-5)"></span><span class="ruler-use">区块间：页面边距、区块分隔</span></div>
+      <div class="ruler-row"><span class="ruler-name">--cpq-space-6 · 32px</span><span class="ruler-bar" style="width: var(--cpq-space-6)"></span><span class="ruler-use">大区分隔：页面级章节（少用）</span></div>
+    </div>
+
+    <div class="diagrams" style="margin-top: var(--cpq-space-4)">
+      <div class="diagram">
+        <div class="diagram-title">页面骨架 —— 页面边距 24 · 卡片间 16</div>
+        <div class="frame">
+          <span class="chip t">24px</span>
+          <div class="frame-nav"></div>
+  <span class="chip b">24px</span>
+          <div class="frame-cols">
+            <span class="chip gap">16px</span>
+            <div class="frame-side"></div>
+            <div class="frame-main">
+              <div class="frame-card"></div>
+              <div class="frame-card"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="diagram">
+        <div class="diagram-title">卡片内部 —— 内边距 16 · 标题→内容 12 · 行距 8</div>
+        <div class="frame" style="padding: var(--cpq-space-4)">
+          <div class="rhythm-card" style="max-width: none">
+            <div class="rhythm-title"><span class="dot"></span>卡片标题</div>
+            <div class="rhythm-body"><span>内容行——与标题间隔 12px（--cpq-space-3）</span><span>内容行——行距 8px（--cpq-space-2）</span></div>
+            <div class="rhythm-foot"><span class="chip">12px</span><span class="chip">8px</span></div>
+            <div class="rhythm-note">内边距 16px（--cpq-space-4）</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ §2 字阶 ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§2</span><h2>字阶 —— 层级 = 字号 × 字重 × 留白</h2></div>
+    <p class="sec-desc">不靠彩条与阴影做层级；12px 是下限。数字一律等宽（tabular）。</p>
+    <div class="panel">
+      <div class="type-row">
+        <span class="type-sample" style="font-size: var(--cpq-font-size-3xl); font-weight: var(--cpq-font-weight-semibold); font-feature-settings: var(--cpq-num-feature)">1,024.768</span>
+        <span class="type-meta"><b>--cpq-font-size-3xl · 30px · 600</b><br>KPI 大数字，配 .cpq-reading</span>
+      </div>
+      <div class="type-row">
+        <span class="type-sample" style="font-size: var(--cpq-font-size-2xl); font-weight: var(--cpq-font-weight-semibold)">页面标题</span>
+        <span class="type-meta"><b>--cpq-font-size-2xl · 24px · 600</b><br>一页一档主标题</span>
+      </div>
+      <div class="type-row">
+        <span class="type-sample" style="font-size: var(--cpq-font-size-xl); font-weight: var(--cpq-font-weight-semibold)">区块 / 卡片标题</span>
+        <span class="type-meta"><b>--cpq-font-size-xl · 20px · 600</b><br>卡片标题</span>
+      </div>
+      <div class="type-row">
+        <span class="type-sample" style="font-size: var(--cpq-font-size-lg); font-weight: var(--cpq-font-weight-medium)">小节标题与强调正文</span>
+        <span class="type-meta"><b>--cpq-font-size-lg · 16px · 500</b><br>小节标题 / 强调正文</span>
+      </div>
+      <div class="type-row">
+        <span class="type-sample">正文默认——层级靠字号、字重与留白组合，不靠装饰。</span>
+        <span class="type-meta"><b>--cpq-font-size-base · 14px · 400</b><br>正文</span>
+      </div>
+      <div class="type-row">
+        <span class="type-sample" style="font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted)">辅助文字、说明、表格紧凑列</span>
+        <span class="type-meta"><b>--cpq-font-size-sm · 12px · 400</b><br>辅助（12px 下限）</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ §3 卡片节奏 ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§3</span><h2>卡片节奏 —— 定死一次，不再逐页发明</h2></div>
+    <p class="sec-desc">内边距 16 · 标题→内容 12 · 行距 8 · 卡片间 16 · 区块间 24。</p>
+    <div class="panel">
+      <div style="display:flex; gap: var(--cpq-space-4); flex-wrap: wrap; align-items: flex-start;">
+        <div class="rhythm-card">
+          <div class="rhythm-title"><span class="dot"></span>推理方案 A · 标准双路</div>
+          <div class="rhythm-body">
+            <span>2× EPYC 主体 + 8× 32G RDIMM，配万兆×2 与 4× 2.5" NVMe。</span>
+            <span>悬停上浮 -2px，边框转主色——utilities.css 现行交互。</span>
+          </div>
+          <div class="rhythm-foot">
+            <button class="btn" style="padding: 4px 12px; font-size: var(--cpq-font-size-sm)">查看 BOM</button>
+            <button class="btn" style="padding: 4px 12px; font-size: var(--cpq-font-size-sm); background: transparent; color: var(--cpq-accent-primary); border-color: var(--cpq-border-light)">转草稿</button>
+            <span style="align-self:center; margin-left:auto" class="chip">16 / 12 / 8</span>
+          </div>
+          <div class="rhythm-note">本卡即样张：全部尺寸走 --cpq-space-* 与玻璃配方 token。</div>
+        </div>
+        <div style="flex:1; min-width: 260px; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); display:flex; flex-direction:column; gap: var(--cpq-space-2)">
+          <span>· 标题行：小圆点 + 16px medium，不用彩条与大色块。</span>
+          <span>· 内容区：行距 8px，正文色 --cpq-text-secondary。</span>
+          <span>· 操作区：按钮组 8px，次要按钮描边玻璃。</span>
+          <span>· 多卡并排时卡片间 16px，区块间 24px。</span>
+        </div>
+    </div>
+    </div>
+  </section>
+
+  <!-- ═══ §4 Do / Don't ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§4</span><h2>Do / Don't —— 左侧彩条是首号违例</h2></div>
+    <p class="sec-desc">层级靠字号字重留白，彩色只做小圆点/小徽标。</p>
+    <div class="dd">
+      <div class="dd-card bad">
+        <span class="dd-strip"></span>
+        <span class="chip dd-badge no">❌ 违例</span>
+        <div class="dd-title">左侧彩条卡</div>
+        <div class="dd-body">用 border-left 彩条与色块撑层级——AI 味，铁律明令禁止。</div>
+      </div>
+      <div class="dd-card">
+        <span class="chip dd-badge ok">✅ 正解</span>
+        <div class="dd-title"><span class="dot"></span>小圆点 + 字重层级</div>
+        <div class="dd-body">同样的信息，靠 20px semibold 标题、次级正文色与小圆点点缀建立层级。</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ §5 语义色 ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§5</span><h2>语义色 —— 马卡龙对，一律 token</h2></div>
+    <p class="sec-desc">蓝=主操作/链接 · 绿=成功/在线 · 琥珀=警示不阻断 · 红=危险/失败。</p>
+    <div class="panel">
+      <div class="swatches">
+        <div class="swatch"><span class="dot" style="background: var(--cpq-color-info)"></span><div><div class="swatch-name">蓝</div><div class="swatch-use">主操作 / 链接 / 选中</div></div></div>
+        <div class="swatch"><span class="dot" style="background: var(--cpq-color-success)"></span><div><div class="swatch-name">绿</div><div class="swatch-use">成功 / 在线</div></div></div>
+        <div class="swatch"><span class="dot" style="background: var(--cpq-color-warning)"></span><div><div class="swatch-name">琥珀</div><div class="swatch-use">警示（不阻断，手改优先）</div></div></div>
+        <div class="swatch"><span class="dot" style="background: var(--cpq-accent-danger)"></span><div><div class="swatch-name">红</div><div class="swatch-use">危险 / 失败</div></div></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═══ §6 按钮四态 ═══ -->
+  <section>
+    <div class="sec-head"><span class="sec-no">§6</span><h2>按钮四态 —— antd 为基，玻璃微光为签名</h2></div>
+    <p class="sec-desc">对齐参考规范的 state matrix 做法：状态属于规范的一部分，不是事后补。</p>
+    <div class="panel">
+      <div class="states">
+        <div class="state"><button class="btn">主操作</button><span class="state-label">default</span></div>
+        <div class="state"><button class="btn hover">主操作</button><span class="state-label">hover · 上浮 1px + 微光</span></div>
+        <div class="state"><button class="btn active">主操作</button><span class="state-label">active · 压暗</span></div>
+        <div class="state"><button class="btn disabled">主操作</button><span class="state-label">disabled · 45% 透明</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span>最后更新 2026-10-08 · 改值只改 tokens.css 一处，本页自动跟随</span>
+    <span>用法与理由：docs/前端设计/布局与用法规范.md</span>
+  </footer>
+
+</div>
+<script>
+  function toggleTheme() {
+    const el = document.documentElement;
+    el.dataset.theme = el.dataset.theme === 'dark' ? 'light' : 'dark';
+  }
+</script>
+</body>
+</html>

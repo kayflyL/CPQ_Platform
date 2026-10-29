@@ -1,0 +1,518 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>商机线索 · 手机模式重设计原型（2026-09-19）</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-font-smoothing: antialiased; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #0d1322;
+  background-image:
+    radial-gradient(900px 500px at 15% -5%, rgba(47,107,255,.14), transparent 60%),
+    radial-gradient(800px 480px at 90% 8%, rgba(34,195,166,.08), transparent 60%),
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: auto, auto, 28px 28px, 28px 28px;
+  color: #dbe4f5;
+  padding-bottom: 80px;
+}
+.doc-head { max-width: 1460px; margin: 0 auto; padding: 44px 36px 4px; }
+.doc-head h1 { font-size: 24px; font-weight: 800; letter-spacing: 1px; }
+.doc-head .updated { margin-top: 6px; font-size: 12.5px; color: #8fa0bd; }
+.doc-head .lede { margin-top: 14px; font-size: 13.5px; line-height: 1.9; color: #aebbd6; max-width: 980px; }
+.doc-head .lede b { color: #eaf1ff; }
+
+.deck { display: flex; flex-wrap: wrap; gap: 52px; justify-content: center; align-items: flex-start; padding: 38px 24px 10px; max-width: 1460px; margin: 0 auto; }
+.figure { display: flex; flex-direction: column; gap: 14px; }
+.fig-title { font-size: 15px; font-weight: 800; color: #e8eefb; letter-spacing: .5px; }
+.fig-title em { font-style: normal; color: #6ea2ff; }
+.fig-note {
+  width: 375px; font-size: 12.5px; line-height: 1.85; color: #9fb0cc;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09);
+  border-radius: 14px; padding: 13px 15px;
+}
+.fig-note b { color: #d7e2f7; }
+.mark { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%;
+  background: #2f6bff; color: #fff; font-size: 10.5px; font-weight: 700; margin-right: 4px; flex: none; }
+
+/* ── 手机框 ── */
+.phone {
+  position: relative; width: 375px; height: 812px; flex: none;
+  border-radius: 46px; border: 9px solid #222b3f;
+  box-shadow: 0 34px 90px rgba(0,0,0,.55), inset 0 0 0 1.5px rgba(255,255,255,.06);
+  overflow: hidden;
+  background: linear-gradient(168deg, #eef2fa 0%, #e9eef8 55%, #e4ebf6 100%);
+  color: #1e2a3d; font-size: 13px;
+}
+.statusbar { display: flex; justify-content: space-between; align-items: center; padding: 13px 24px 5px; font-size: 12px; font-weight: 700; color: #22304a; }
+.statusbar .sb-r { display: flex; gap: 5px; align-items: center; font-size: 10.5px; }
+.sig { display: inline-flex; gap: 1.5px; align-items: flex-end; }
+.sig i { width: 2.5px; background: #22304a; border-radius: 1px; display: block; }
+.sig i:nth-child(1){height:4px}.sig i:nth-child(2){height:6px}.sig i:nth-child(3){height:8px}.sig i:nth-child(4){height:10px}
+.batt { width: 21px; height: 10.5px; border: 1.2px solid #22304a; border-radius: 3px; position: relative; opacity: .85; }
+.batt::after { content: ""; position: absolute; inset: 1.5px; right: 5px; background: #22304a; border-radius: 1.5px; }
+.batt::before { content: ""; position: absolute; right: -3.5px; top: 2.5px; width: 2px; height: 4px; background: #22304a; border-radius: 0 1px 1px 0; }
+
+.appbar { display: flex; align-items: center; gap: 8px; padding: 7px 13px 9px; }
+.appbar h2 { font-size: 17.5px; font-weight: 800; letter-spacing: .5px; }
+.range-chip { font-size: 10.5px; color: #5b6b85; background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.95); padding: 2.5px 9px; border-radius: 999px; box-shadow: 0 2px 8px rgba(31,42,61,.05); }
+.appbar .sp { flex: 1; }
+.icon-glass { width: 31px; height: 31px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.72); border: 1px solid rgba(255,255,255,.95); color: #51617e; box-shadow: 0 2px 8px rgba(31,42,61,.05); }
+.icon-glass svg { width: 15px; height: 15px; }
+.btn-primary { display: inline-flex; align-items: center; gap: 4px; height: 31px; padding: 0 13px; border-radius: 10px;
+  background: linear-gradient(135deg, #2f6bff, #2456d6); color: #fff; font-size: 12.5px; font-weight: 600;
+  box-shadow: 0 6px 16px rgba(47,107,255,.32); }
+
+.pbody { padding: 0 12px; display: flex; flex-direction: column; gap: 10px; }
+
+/* KPI 2×2 */
+.kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kpi { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 15px; padding: 11px 13px 10px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); display: flex; flex-direction: column; gap: 3px; }
+.kpi .l { font-size: 11px; color: #5b6b85; display: flex; align-items: center; gap: 5px; }
+.kpi .l i { width: 6px; height: 6px; border-radius: 50%; background: #2f6bff; opacity: .8; }
+.kpi .v { font-size: 23px; font-weight: 800; color: #1c2740; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.kpi .v small { font-size: 11px; font-weight: 600; color: #2fae87; margin-left: 5px; }
+
+/* 周期 chips */
+.chips { display: flex; gap: 6px; }
+.chip { font-size: 11.5px; color: #5b6b85; padding: 5px 12px; border-radius: 999px; border: 1px solid rgba(31,42,61,.14); background: rgba(255,255,255,.55); }
+.chip.on { color: #2f6bff; border-color: rgba(47,107,255,.55); background: rgba(47,107,255,.1); font-weight: 700; }
+
+/* 图表磁贴 */
+.tile { background: rgba(255,255,255,.74); border: 1px solid rgba(255,255,255,.95); border-radius: 16px; padding: 12px 13px;
+  box-shadow: 0 6px 18px rgba(31,42,61,.06); }
+.tile h3 { font-size: 12.5px; font-weight: 700; color: #44536e; display: flex; align-items: center; gap: 6px; margin-bottom: 9px; }
+.deck-line { width: 3px; height: 12px; background: #2f6bff; border-radius: 2px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; align-items: stretch; }
+
+.pie-wrap { display: flex; align-items: center; gap: 12px; }
+.pie { width: 86px; height: 86px; border-radius: 50%; flex: none;
+  background: conic-gradient(#2f6bff 0 38%, #22c3a6 0 62%, #f5b942 0 79%, #8b93ff 0 90%, #d9e0ee 0);
+  box-shadow: inset 0 0 0 6px rgba(255,255,255,.9); position: relative; }
+.pie::after { content: ""; position: absolute; inset: 24px; border-radius: 50%; background: rgba(255,255,255,.95); }
+.legend { display: flex; flex-direction: column; gap: 6px; font-size: 10.5px; color: #5b6b85; min-width: 0; }
+.legend li { display: flex; align-items: center; gap: 6px; list-style: none; white-space: nowrap; }
+.legend i { width: 8px; height: 8px; border-radius: 3px; flex: none; }
+
+/* 商机列表磁贴（点击 → 抽屉） */
+.listtile { width: 100%; text-align: left; font: inherit; border: 1px solid rgba(255,255,255,.95); background: rgba(255,255,255,.74);
+  border-radius: 16px; padding: 12px 13px; box-shadow: 0 6px 18px rgba(31,42,61,.06); cursor: pointer; position: relative; }
+.listtile h3 { font-size: 12.5px; font-weight: 700; color: #44536e; display: flex; align-items: center; gap: 6px; }
+.lt-count { margin-left: auto; font-size: 11px; color: #2f6bff; background: rgba(47,107,255,.1); padding: 1px 8px; border-radius: 999px; font-weight: 700; }
+.lt-arrow { position: absolute; right: 13px; bottom: 12px; font-size: 15px; color: #9fb0cc; }
+.lt-row { display: flex; justify-content: space-between; gap: 8px; padding: 6.5px 0; border-bottom: 1px dashed rgba(31,42,61,.09); font-size: 11.5px; }
+.lt-row:last-of-type { border-bottom: none; }
+.lt-name { color: #2c3a55; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lt-plat { color: #8b9ab5; flex: none; }
+
+/* 排行 / 转化占位 */
+.bars { display: flex; flex-direction: column; gap: 7px; }
+.bar-row { display: flex; align-items: center; gap: 8px; font-size: 10.5px; color: #5b6b85; }
+.bar-row .bn { width: 34px; flex: none; text-align: right; }
+.bar-track { flex: 1; height: 9px; border-radius: 5px; background: rgba(31,42,61,.06); overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 5px; background: linear-gradient(90deg, #5b8bff, #2f6bff); }
+.bar-row .bv { width: 20px; font-weight: 700; color: #44536e; }
+.won-rows { display: flex; flex-direction: column; gap: 5px; font-size: 11px; }
+.won-r { display: flex; gap: 8px; color: #5b6b85; }
+.won-r b { color: #2c3a55; font-weight: 600; flex: 1; }
+.rate-up { color: #0d9273; font-weight: 700; }
+
+/* 底部导航 */
+.tabbar {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 30;
+  height: 62px; padding: 7px 10px 9px;
+  background: rgba(255,255,255,.86);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4); backdrop-filter: blur(16px) saturate(1.4);
+  border-top: 1px solid rgba(255,255,255,.98);
+  box-shadow: 0 -8px 28px rgba(31,42,61,.1);
+  display: grid; grid-template-columns: repeat(5, 1fr);
+}
+.tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2.5px; font-size: 10px; color: #7c8aa5; }
+.tab .ic { width: 46px; height: 27px; border-radius: 999px; display: flex; align-items: center; justify-content: center; }
+.tab .ic svg { width: 17px; height: 17px; }
+.tab.on { color: #2f6bff; font-weight: 700; }
+.tab.on .ic { background: rgba(47,107,255,.14); }
+.homebar { position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); width: 118px; height: 4.5px; border-radius: 3px; background: rgba(20,30,50,.28); z-index: 60; }
+
+/* 浮动助手（新锚点：底栏上方） */
+.pet { position: absolute; right: 14px; bottom: 78px; z-index: 25; width: 46px; height: 46px; border-radius: 50%;
+  background: linear-gradient(140deg, #3b78ff, #2450c8); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 10px 24px rgba(36,80,200,.4), inset 0 1px 0 rgba(255,255,255,.35); }
+.pet svg { width: 21px; height: 21px; }
+
+/* 抽屉（商机列表） */
+.mask { position: absolute; inset: 0; z-index: 40; background: rgba(13,20,38,.42); -webkit-backdrop-filter: blur(1.5px); backdrop-filter: blur(1.5px); }
+.drawer {
+  position: absolute; top: 0; bottom: 0; right: 0; z-index: 50; width: 88%;
+  background: rgba(252,253,255,.96);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-left: 1px solid rgba(255,255,255,1); border-radius: 22px 0 0 22px;
+  box-shadow: -28px 0 70px rgba(13,20,38,.32);
+  display: flex; flex-direction: column;
+}
+.dw-head { display: flex; align-items: center; gap: 8px; padding: 16px 15px 10px; }
+.dw-head h3 { font-size: 15.5px; font-weight: 800; }
+.dw-head .cnt { font-size: 11px; color: #2f6bff; background: rgba(47,107,255,.1); padding: 2px 9px; border-radius: 999px; font-weight: 700; }
+.dw-head .sp { flex: 1; }
+.dw-close { width: 30px; height: 30px; border-radius: 10px; border: 1px solid rgba(31,42,61,.12); background: #fff; color: #51617e; display: flex; align-items: center; justify-content: center; font-size: 13px; }
+.dw-grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(31,42,61,.14); margin: 2px auto 0; }
+.dw-filters { display: flex; gap: 6px; padding: 8px 13px 10px; border-bottom: 1px solid rgba(31,42,61,.08); }
+.f-search { flex: 1; height: 30px; border-radius: 9px; border: 1px solid rgba(31,42,61,.13); background: #fff; display: flex; align-items: center; gap: 5px; padding: 0 9px; color: #93a1b8; font-size: 11.5px; }
+.f-select { height: 30px; border-radius: 9px; border: 1px solid rgba(31,42,61,.13); background: #fff; display: flex; align-items: center; gap: 4px; padding: 0 8px; color: #44536e; font-size: 11.5px; flex: none; }
+.f-select::after { content: "▾"; font-size: 9px; color: #93a1b8; }
+.dw-list { flex: 1; overflow: hidden; padding: 10px 12px 4px; display: flex; flex-direction: column; gap: 8px; }
+.opp-card { background: rgba(255,255,255,.92); border: 1px solid rgba(255,255,255,1); border-radius: 14px; padding: 10px 12px 9px;
+  box-shadow: 0 4px 14px rgba(31,42,61,.06); display: flex; flex-direction: column; gap: 5.5px; }
+.oc-top { display: flex; align-items: center; gap: 8px; }
+.oc-name { font-weight: 700; font-size: 13.5px; color: #1c2740; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { font-size: 10px; font-weight: 700; padding: 2.5px 9px; border-radius: 999px; flex: none; }
+.b-doing { background: rgba(47,107,255,.1); color: #2f6bff; }
+.b-won { background: rgba(34,195,166,.16); color: #0d9273; }
+.b-lost { background: rgba(239,68,68,.1); color: #e11d48; }
+.b-exp { background: rgba(31,42,61,.07); color: #7c8aa5; }
+.oc-meta { display: flex; gap: 7px; font-size: 10.5px; color: #7c8aa5; flex-wrap: wrap; }
+.oc-meta .dot::before { content: "·"; margin-right: 7px; color: #c3ccdc; }
+.dw-foot { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 9px 14px 24px; border-top: 1px solid rgba(31,42,61,.08); font-size: 12px; color: #5b6b85; }
+.pgn { width: 27px; height: 27px; border: 1px solid rgba(31,42,61,.15); border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; background: #fff; color: #51617e; }
+.pgn.on { border-color: rgba(47,107,255,.55); color: #2f6bff; font-weight: 700; }
+
+/* 更多 sheet */
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 62px; z-index: 50;
+  background: rgba(252,253,255,.97);
+  -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px);
+  border-radius: 24px 24px 0 0; border-top: 1px solid #fff;
+  box-shadow: 0 -24px 60px rgba(13,20,38,.3);
+  padding: 10px 16px 18px;
+}
+.sheet-grip { width: 42px; height: 4.5px; border-radius: 3px; background: rgba(31,42,61,.16); margin: 0 auto 14px; }
+.sheet h4 { font-size: 13px; color: #7c8aa5; font-weight: 600; margin-bottom: 10px; letter-spacing: .5px; }
+.sheet-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px 8px; }
+.sg-item { display: flex; flex-direction: column; align-items: center; gap: 6px; font-size: 10.5px; color: #44536e; padding: 4px 2px; }
+.sg-ic { width: 40px; height: 40px; border-radius: 13px; display: flex; align-items: center; justify-content: center; color: #fff; }
+.sg-ic svg { width: 18px; height: 18px; }
+.ic-teal { background: linear-gradient(140deg, #2fc3a4, #159c80); }
+.ic-violet { background: linear-gradient(140deg, #8b93ff, #6a6fe0); }
+.ic-amber { background: linear-gradient(140deg, #f6b73f, #e0962a); }
+.ic-rose { background: linear-gradient(140deg, #f4756f, #d94f57); }
+.ic-steel { background: linear-gradient(140deg, #6f8bab, #4f6b8b); }
+.sheet-sec { margin-top: 14px; border-top: 1px solid rgba(31,42,61,.07); padding-top: 12px; }
+.sheet-links { display: flex; flex-direction: column; }
+.sl { display: flex; align-items: center; gap: 9px; padding: 9px 4px; font-size: 13px; color: #2c3a55; border-bottom: 1px dashed rgba(31,42,61,.07); }
+.sl:last-child { border-bottom: none; }
+.sl .sl-ic { width: 26px; height: 26px; border-radius: 8px; background: rgba(47,107,255,.09); color: #2f6bff; display: inline-flex; align-items: center; justify-content: center; }
+.sl .sl-ic svg { width: 13px; height: 13px; }
+.sl .arr { margin-left: auto; color: #c3ccdc; font-size: 12px; }
+.user-card { display: flex; align-items: center; gap: 10px; margin-top: 6px; padding: 10px 12px; border-radius: 14px; background: rgba(238,242,250,.9); }
+.avatar { width: 34px; height: 34px; border-radius: 50%; background: linear-gradient(140deg, #3b78ff, #2450c8); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; }
+.user-card .un { font-size: 13px; font-weight: 700; color: #1c2740; }
+.user-card .ur { font-size: 10.5px; color: #7c8aa5; }
+.logout { margin-left: auto; font-size: 12px; color: #e11d48; border: 1px solid rgba(225,29,72,.25); border-radius: 9px; padding: 5px 11px; background: #fff; }
+
+/* 规范标注面板 */
+.spec-panel { width: 375px; display: flex; flex-direction: column; gap: 14px; }
+.spec-card { background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.1); border-radius: 16px; padding: 18px 16px; }
+.spec-card h4 { font-size: 13px; font-weight: 700; color: #e8eefb; margin-bottom: 12px; letter-spacing: .5px; }
+.spec-tabbar-demo { background: rgba(255,255,255,.9); border-radius: 14px; padding: 8px 8px 10px; display: grid; grid-template-columns: repeat(5, 1fr); color: #7c8aa5; }
+.spec-li { display: flex; gap: 9px; font-size: 12.5px; line-height: 1.75; color: #a7b6d2; padding: 5px 0; }
+.spec-li b { color: #dfe8fa; font-weight: 700; }
+.spec-li .n { flex: none; }
+.dim-note { margin-top: 10px; font-size: 11.5px; color: #7e8fab; text-align: center; }
+
+/* 备注/分期 */
+.notes { max-width: 1100px; margin: 26px auto 0; padding: 0 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.note-card { background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.09); border-radius: 18px; padding: 22px 24px; }
+.note-card h3 { font-size: 15px; font-weight: 800; color: #eaf1ff; margin-bottom: 12px; letter-spacing: .5px; }
+.note-card ul { list-style: none; display: flex; flex-direction: column; gap: 8px; font-size: 13px; line-height: 1.8; color: #a7b6d2; }
+.note-card li b { color: #e4ecfc; }
+.note-card li::before { content: "·"; color: #5b8bff; font-weight: 900; margin-right: 8px; }
+.note-card a { color: #6ea2ff; text-decoration: none; }
+.phase { display: flex; gap: 10px; align-items: flex-start; padding: 9px 0; border-bottom: 1px dashed rgba(255,255,255,.08); font-size: 13px; line-height: 1.75; color: #a7b6d2; }
+.phase:last-child { border-bottom: none; }
+.tag { flex: none; font-size: 11px; font-weight: 800; color: #0d1322; background: #6ea2ff; border-radius: 7px; padding: 2px 8px; margin-top: 3px; }
+.tag.t2 { background: #55d6b5; }
+.tag.t3 { background: #f5c96b; }
+.src { font-size: 11.5px; color: #7e8fab; line-height: 1.9; }
+.src a { color: #6ea2ff; }
+</style>
+</head>
+<body>
+
+<header class="doc-head">
+  <h1>商机线索 · 手机模式重设计</h1>
+  <div class="updated">&gt; 最后更新：2026-09-19 · 原型稿（仅视觉示意，非实现）</div>
+  <p class="lede">
+    本稿回应三件事：<b>① KPI 卡（总商机数 / 总配置数…）手机端沉底 → 移到页首</b>；
+    <b>② 「商机列表」磁贴点击 → 右侧滑出完整列表抽屉，可收起</b>；<b>③ 全局新增移动端底部导航栏</b>（替代现有汉堡全屏菜单）。
+    四张手机框从左到右：新首页 / 列表抽屉 / 「更多」面板 / 底栏规范标注。
+  </p>
+</header>
+
+<div class="deck">
+<!-- ═══════════ A. 新版首页 ═══════════ -->
+<figure class="figure">
+  <div class="phone" id="screenA">
+    <div class="statusbar"><span>9:41</span><span class="sb-r"><span class="sig"><i></i><i></i><i></i><i></i></span><span class="batt"></span></span></div>
+    <div class="appbar">
+      <h2>商机驾驶舱</h2>
+      <span class="range-chip">本周 9.14-9.20</span>
+      <span class="sp"></span>
+      <span class="icon-glass"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9M10.3 21a2 2 0 003.4 0"/></svg></span>
+      <button class="btn-primary"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 5v14M5 12h14"/></svg>新建</button>
+    </div>
+    <div class="pbody">
+      <div class="kpis">
+        <div class="kpi"><span class="l"><i></i>总商机数</span><span class="v">128</span></div>
+        <div class="kpi"><span class="l"><i style="background:#22c3a6"></i>总配置数</span><span class="v">356</span></div>
+        <div class="kpi"><span class="l"><i style="background:#f5b942"></i>周期新增商机</span><span class="v">12<small>↑3</small></span></div>
+        <div class="kpi"><span class="l"><i style="background:#8b93ff"></i>周期新增配置</span><span class="v">30<small>↑5</small></span></div>
+      </div>
+      <div class="chips">
+        <span class="chip on">● 本周</span><span class="chip">本月</span><span class="chip">本年</span><span class="chip">自定义 ▾</span>
+      </div>
+      <div class="grid2">
+        <div class="tile">
+          <h3><span class="deck-line"></span>平台分布</h3>
+          <div class="pie-wrap">
+            <div class="pie"></div>
+            <ul class="legend">
+              <li><i style="background:#2f6bff"></i>Polaris 38</li>
+              <li><i style="background:#22c3a6"></i>Orion 24</li>
+              <li><i style="background:#f5b942"></i>Intel 15</li>
+              <li><i style="background:#8b93ff"></i>工作站 10</li>
+            </ul>
+          </div>
+        </div>
+        <button class="listtile">
+          <h3><span class="deck-line"></span>商机列表 <span class="lt-count">128</span></h3>
+          <div class="lt-row"><span class="lt-name">华信数据中心</span><span class="lt-plat">Polaris</span></div>
+          <div class="lt-row"><span class="lt-name">南方电网改造</span><span class="lt-plat">Orion</span></div>
+          <div class="lt-row"><span class="lt-name">青云AI智算中心</span><span class="lt-plat">Polaris</span></div>
+          <div class="lt-row"><span class="lt-name">第一人民医院</span><span class="lt-plat">Intel</span></div>
+          <span class="lt-arrow">›</span>
+        </button>
+      </div>
+      <div class="tile">
+        <h3><span class="deck-line"></span>业务排行</h3>
+        <div class="bars">
+          <div class="bar-row"><span class="bn">王敏</span><div class="bar-track"><div class="bar-fill" style="width:88%"></div></div><span class="bv">22</span></div>
+          <div class="bar-row"><span class="bn">李强</span><div class="bar-track"><div class="bar-fill" style="width:70%"></div></div><span class="bv">17</span></div>
+          <div class="bar-row"><span class="bn">张伟</span><div class="bar-track"><div class="bar-fill" style="width:52%"></div></div><span class="bv">13</span></div>
+          <div class="bar-row"><span class="bn">赵丽</span><div class="bar-track"><div class="bar-fill" style="width:38%"></div></div><span class="bv">9</span></div>
+        </div>
+      </div>
+      <div class="tile">
+        <h3><span class="deck-line"></span>线索转化</h3>
+        <div class="won-rows">
+          <div class="won-r"><b>王敏</b><span>线索 18</span><span>成交 9</span><span class="rate-up">50%</span></div>
+          <div class="won-r"><b>李强</b><span>线索 14</span><span>成交 5</span><span class="rate-up">36%</span></div>
+        </div>
+      </div>
+    </div>
+    <span class="pet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="7" width="16" height="12" rx="3"/><circle cx="9" cy="13" r="1.2" fill="currentColor"/><circle cx="15" cy="13" r="1.2" fill="currentColor"/><path d="M12 7V4M8 4h8"/></svg></span>
+    <nav class="tabbar">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">A · 驾驶舱首页 <em>（KPI 置顶 + 纯看板）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>KPI 2×2 移到页首</b>：手机端在图表区上方单独渲染 KPI 条（数据同源 summary.kpi），原来排在图表后面的内联 KPI 在手机端隐藏，桌面布局零改动。<br>
+    <span class="mark">2</span><b>页面变成纯驾驶舱</b>：KPI → 周期切换 → 图表磁贴，手机端不再内联宽表（宽表移入抽屉，见 B），「筛选行 + 表格」不再把页面撑出两三屏。<br>
+    <span class="mark">3</span><b>顶栏瘦身</b>：图表栏开关（手机端无意义）与回收站收进「更多」；AI 线索保留图标入口；「新建商机」保留页内主按钮（底栏只放导航不放动作，见 D）。<br>
+    <span class="mark">4</span><b>底部导航常驻</b> + 浮动助手宠物锚点从屏幕右下角上移到底栏上方（bottom: 78px 示意），互不遮挡。
+  </div>
+</figure>
+
+<!-- ═══════════ B. 商机列表抽屉 ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#screenA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <aside class="drawer">
+      <div class="dw-grip"></div>
+      <div class="dw-head">
+        <h3>商机列表</h3><span class="cnt">128 条</span><span class="sp"></span>
+        <span class="dw-close">✕</span>
+      </div>
+      <div class="dw-filters">
+        <span class="f-search"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>搜索客户 / 业务 / 商机号</span>
+        <span class="f-select">全部状态</span>
+        <span class="f-select">平台</span>
+      </div>
+      <div class="dw-list">
+        <div class="opp-card">
+          <div class="oc-top"><span class="oc-name">华信数据中心一期</span><span class="badge b-doing">进行中</span></div>
+          <div class="oc-meta"><span>OPP-2026-0192</span><span class="dot">Polaris · 4U</span><span class="dot">王敏</span><span class="dot">09-18 更新</span></div>
+        </div>
+        <div class="opp-card">
+          <div class="oc-top"><span class="oc-name">南方电网改造项目</span><span class="badge b-won">已中标</span></div>
+          <div class="oc-meta"><span>OPP-2026-0188</span><span class="dot">Orion · 2U</span><span class="dot">李强</span><span class="dot">09-17 更新</span></div>
+        </div>
+        <div class="opp-card">
+          <div class="oc-top"><span class="oc-name">青云 AI 智算中心</span><span class="badge b-doing">进行中</span></div>
+          <div class="oc-meta"><span>OPP-2026-0185</span><span class="dot">Polaris · 5U</span><span class="dot">王敏</span><span class="dot">09-17 更新</span></div>
+        </div>
+        <div class="opp-card">
+          <div class="oc-top"><span class="oc-name">第一人民医院机房</span><span class="badge b-lost">已丢标</span></div>
+          <div class="oc-meta"><span>OPP-2026-0179</span><span class="dot">Intel · 2U</span><span class="dot">张伟</span><span class="dot">09-15 更新</span></div>
+        </div>
+        <div class="opp-card">
+          <div class="oc-top"><span class="oc-name">省农商行灾备扩容</span><span class="badge b-doing">进行中</span></div>
+          <div class="oc-meta"><span>OPP-2026-0176</span><span class="dot">工作站</span><span class="dot">赵丽</span><span class="dot">09-14 更新</span></div>
+        </div>
+        <div class="opp-card" style="opacity:.55">
+          <div class="oc-top"><span class="oc-name">地铁调度中心集群</span><span class="badge b-exp">已过期</span></div>
+          <div class="oc-meta"><span>OPP-2026-0171</span><span class="dot">Polaris · 8U</span><span class="dot">李强</span><span class="dot">09-12 更新</span></div>
+        </div>
+      </div>
+      <div class="dw-foot">
+        <span class="pgn">‹</span><span class="pgn on">1</span><span class="pgn">2</span><span class="pgn">3</span><span>…</span><span class="pgn">›</span>
+      </div>
+    </aside>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">B · 商机列表抽屉 <em>（右滑出 / 可收起）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>入口</b>：首页「商机列表」磁贴点击 → a-drawer（placement=right，宽约 88~92%）全高滑出；蒙层点击 / ✕ 关闭，收起后回到驾驶舱原位。<br>
+    <span class="mark">2</span><b>卡式行替代宽表</b>：客户名 + 状态徽标一行，第二行 商机号 / 平台·形态 / 业务 / 更新时间 —— 375px 宽度下比横向滚动的 antd 表格可读得多；数据与桌面表格同源（同一 loadTable / 分页 / 筛选状态）。<br>
+    <span class="mark">3</span><b>粘性筛选行</b>：搜索 + 状态 + 平台（形态收进更多筛选），滚动列表时筛选行固定；筛选条件与首页图表联动（点图表 drill 后打开抽屉即为已筛选状态）。<br>
+    <span class="mark">4</span><b>分页吸底</b> + iOS 安全区留白；从详情页返回时抽屉开合状态可随 LIST_STATE 恢复。
+  </div>
+</figure>
+
+<!-- ═══════════ C. 「更多」面板 ═══════════ -->
+<figure class="figure">
+  <div class="phone">
+    <div data-clone-from="#screenA" style="position:absolute;inset:0"></div>
+    <div class="mask"></div>
+    <div class="sheet">
+      <div class="sheet-grip"></div>
+      <h4>全部页面</h4>
+      <div class="sheet-grid">
+        <span class="sg-item"><span class="sg-ic ic-teal"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="5" width="16" height="14" rx="2.5"/><path d="M9 9h6M9 13h4"/></svg></span>配件</span>
+        <span class="sg-item"><span class="sg-ic ic-violet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3zM12 12l8-4.5M12 12v9M12 12L4 7.5"/></svg></span>解决方案</span>
+        <span class="sg-item"><span class="sg-ic ic-amber"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg></span>AI 线索</span>
+        <span class="sg-item"><span class="sg-ic ic-rose"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 7h14M9 7V5h6v2M7 7l1 13h8l1-13"/></svg></span>回收站</span>
+      </div>
+      <div class="sheet-sec">
+        <h4>设置</h4>
+        <div class="sheet-links">
+          <span class="sl"><span class="sl-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 5-6 8-6s6.5 2 8 6"/></svg></span>用户与权限<span class="arr">›</span></span>
+          <span class="sl"><span class="sl-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 6h16M4 12h16M4 18h10"/></svg></span>解析规则<span class="arr">›</span></span>
+          <span class="sl"><span class="sl-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M7 3h8l4 4v14H7V3zM13 3v6h6"/></svg></span>导出模板<span class="arr">›</span></span>
+          <span class="sl"><span class="sl-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></svg></span>服务器管理<span class="arr">›</span></span>
+        </div>
+        <div class="user-card">
+          <span class="avatar">王</span>
+          <span><div class="un">王小敏</div><div class="ur">销售 · 工作台权限组</div></span>
+          <span class="logout">退出登录</span>
+        </div>
+      </div>
+    </div>
+    <nav class="tabbar" style="z-index:55">
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6M9.5 13h.01M14.5 13h.01"/></svg></span>AI 办公室</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+      <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/><path d="M8 7.5h.01M8 16.5h.01"/></svg></span>服务器</span>
+      <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+    </nav>
+    <div class="homebar"></div>
+  </div>
+  <div class="fig-title">C · 「更多」底部面板 <em>（收纳第 5+ 项与设置）</em></div>
+  <div class="fig-note">
+    <span class="mark">1</span><b>底栏只放 4 个高频页 + 「更多」</b>：按现有导航 RBAC 过滤后取前 4（工作台 / AI 办公室 / 商机线索 / 服务器），配件、解决方案与设置组收进「更多」sheet —— 符合「3~5 个目标、不滚动」的规范。<br>
+    <span class="mark">2</span><b>汉堡菜单退役</b>：现左上角全屏浮层菜单由底栏 + sheet 接管，左上角还给页面标题；sheet 覆盖在底栏上方（「更多」tab 高亮），下拉关闭。<br>
+    <span class="mark">3</span><b>用户卡随行</b>：当前用户 + 角色 + 退出登录进 sheet 底部，手机端不用再挤顶栏。
+  </div>
+</figure>
+
+<!-- ═══════════ D. 底栏规范标注 ═══════════ -->
+<figure class="figure">
+  <div class="spec-panel">
+    <div class="spec-card">
+      <h4>底部导航栏 · 结构标注（放大 1.6×）</h4>
+      <div class="spec-tabbar-demo">
+        <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/></svg></span>工作台</span>
+        <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 8V5M9 5h6"/></svg></span>AI 办公室</span>
+        <span class="tab on"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="7" width="18" height="13" rx="2.5"/><path d="M9 7V5.5A1.5 1.5 0 0110.5 4h3A1.5 1.5 0 0115 5.5V7M3 12.5h18"/></svg></span>商机线索</span>
+        <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="7" rx="2"/><rect x="4" y="13" width="16" height="7" rx="2"/></svg></span>服务器</span>
+        <span class="tab"><span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><circle cx="5" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>更多</span>
+      </div>
+      <div class="dim-note">栏高 56px（iOS≈49pt / MD≈56dp）+ env(safe-area-inset-bottom) 适配 iPhone Home 指示条 · 图标触达区 ≥44px</div>
+    </div>
+    <div class="spec-card">
+      <h4>设计规范要点（调研结论）</h4>
+      <div class="spec-li"><span class="n">1.</span><span><b>3~5 个目标</b>，图标 + 文字标签，标签常显 —— 超 5 个进「更多」。</span></div>
+      <div class="spec-li"><span class="n">2.</span><span><b>只放导航不放动作</b>：「新建商机」不做 tab，保留页内主按钮 / 后续可做 FAB。</span></div>
+      <div class="spec-li"><span class="n">3.</span><span><b>常驻可见、永不滚动</b>：所有页面保持底栏在位（Apple HIG / Material 共识）。</span></div>
+      <div class="spec-li"><span class="n">4.</span><span><b>激活态用药丸高亮</b>（MD3 Navigation Bar 模式）：本项目落法 = 玻璃白底 + 蓝色 tint 药丸 + 蓝字，对齐全站 Glass 语言。</span></div>
+      <div class="spec-li"><span class="n">5.</span><span><b>拇指热区</b>：底栏天然落在单手可达区，替代现有左上角汉堡（高位难够）。</span></div>
+    </div>
+    <div class="spec-card">
+      <h4>落地注意（全局层）</h4>
+      <div class="spec-li"><span class="n">·</span><span><b>让位机制对齐顶部 scroll-clearance 模式</b>：布局层加底部占位（底栏高 + 安全区），页面不再各自写 padding-bottom 硬编码。</span></div>
+      <div class="spec-li"><span class="n">·</span><span><b>浮动助手宠物避让</b>：右下角锚点改为底栏上方，拖拽停靠边界同步收紧。</span></div>
+      <div class="spec-li"><span class="n">·</span><span><b>RBAC 随动</b>：底栏项直接复用 DefaultLayout topItems 的权限过滤，无权限不占槽。</span></div>
+    </div>
+  </div>
+  <div class="fig-title">D · 底部导航规范标注 <em>（全局组件，非本页私有）</em></div>
+  <div class="fig-note">底栏是 DefaultLayout 级改动：全站手机页统一获得（门户工作台 / AI 办公室 / 服务器 / 配件…），不只商机线索页。</div>
+</figure>
+</div>
+
+<section class="notes">
+  <div class="note-card">
+    <h3>问题诊断（现状）</h3>
+    <ul>
+      <li><b>KPI 沉底根因</b>：OpportunityList.vue 的 DOM 顺序是 图表区(.charts-panel) 在前、表格区(.table-side，内含 KPI 条) 在后；手机端 .main-split 变纵向排列后，KPI 卡被整体推到图表之后 —— 不是 KPI「掉下去」，是它天生住在右栏里。</li>
+      <li><b>列表埋两屏深</b>：手机端「商机列表」磁贴目前是 scrollIntoView 平滑滚到下方表格，宽表 + 筛选行被图表磁贴压在第二三屏。</li>
+      <li><b>导航高位难够</b>：手机端导航 = 左上角汉堡 → 全屏浮层；单手持机时拇指够不着，也看不到自己在哪。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>分期落地</h3>
+    <div class="phase"><span class="tag">P1</span><span><b>本页两改（仅手机分支，桌面零改动）</b>：① 手机端图表区上方渲染 KPI 2×2（v-if isMobile，数据同 summary.kpi），原 .table-side 里的 KPI 条手机端隐藏；② 列表磁贴 → a-drawer 右滑出完整列表（卡式行 + 粘性筛选 + 分页吸底），手机端内联表格下线。</span></div>
+    <div class="phase"><span class="tag t2">P2</span><span><b>全局底栏（DefaultLayout）</b>：5 槽 = topItems 权限过滤后前 4 + 更多；更多 = 底部 sheet（剩余页 + 设置组 + 用户卡）；汉堡与全屏浮层退役；布局层加底部占位（底栏高 + safe-area），对齐顶部 scroll-clearance 让位模式。</span></div>
+    <div class="phase"><span class="tag t3">P3</span><span><b>打磨（可选）</b>：抽屉右滑手势关闭；列表行左滑快捷操作（改状态/重命名）；新建商机 FAB 化；底栏滚动时微缩动画。</span></div>
+  </div>
+  <div class="note-card">
+    <h3>风险与兼容</h3>
+    <ul>
+      <li><b>共用组件不动</b>：OpportunityTable 被门户工作台四子页复用，抽屉方案只换商机线索页手机端的容器与行样式，组件本身不改（或抽屉 P1 先复用 OpportunityTable + 横向滚动，卡式行 P3 再换）。</li>
+      <li><b>状态恢复</b>：列表筛选/页码已走 sessionStorage(LIST_STATE)，抽屉开合态加一个字段即可随详情页返回恢复。</li>
+      <li><b>主题与暗色</b>：原型为浅色示意；实现走 --cpq-* 玻璃 token，跟随现有明暗主题，不引入新色值硬编码。</li>
+      <li><b>登录页/原型页</b>：底栏只在 DefaultLayout 内渲染，登录页不受影响。</li>
+    </ul>
+  </div>
+  <div class="note-card">
+    <h3>底栏调研来源</h3>
+    <ul class="src">
+      <li>Material Design — Bottom navigation（3~5 目标、图标+标签）：<a href="https://m2.material.io/components/bottom-navigation">m2.material.io/components/bottom-navigation</a></li>
+      <li>Apple HIG — Tab bars（导航非动作、保持可见）：<a href="https://developer.apple.com/design/human-interface-guidelines/tab-bars">developer.apple.com/design/human-interface-guidelines/tab-bars</a></li>
+      <li>Smashing Magazine — The Golden Rules Of Bottom Navigation Design（≤5 项、禁滚动）</li>
+      <li>babich.biz — Bottom Tab Bar Design Best Practices（栏内不放动作按钮）</li>
+      <li>uxmisfit — When Bottom Navigation Fails（常驻可见；iOS≈49pt / MD≈56dp）</li>
+      <li>MD3 Navigation Bar（药丸激活指示）：m3.material.io</li>
+    </ul>
+  </div>
+</section>
+
+<script>
+document.querySelectorAll('[data-clone-from]').forEach(function (el) {
+  var src = document.querySelector(el.getAttribute('data-clone-from'));
+  if (src) el.innerHTML = src.innerHTML;
+});
+</script>
+</body>
+</html>

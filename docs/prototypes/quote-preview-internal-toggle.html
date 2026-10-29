@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="updated" content="2026-09-15">
+<title>原型 v2 · 报价单预览-导出选项（左右分栏·封面/配置页）</title>
+<style>
+  :root {
+    --cpq-accent-primary: #1677FF;
+    --cpq-glass-border: rgba(120,144,176,0.38);
+    --cpq-glass-border-strong: rgba(22,119,255,0.55);
+    --cpq-text-primary: #24304A;
+    --cpq-text-secondary: #5A6B8C;
+    --cpq-text-muted: #8C99B5;
+    --shadow-soft: 0 8px 28px rgba(22,119,255,0.10);
+    --shadow-strong: 0 16px 48px rgba(22,119,255,0.14);
+    --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px;
+    --uv-grid: #E2E8F2; --uv-head: #F3F6FB; --uv-head-txt: #7B8AA6;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: linear-gradient(135deg, #EAF2FC 0%, #F2F6FC 45%, #E7EFF9 100%);
+    min-height: 100vh; padding: 18px; color: var(--cpq-text-primary);
+    font-size: 13px;
+  }
+
+  /* ── 原型演示控件（非产品 UI）── */
+  .demo-bar {
+    max-width: 1520px; margin: 0 auto 14px;
+    display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+    background: rgba(255,255,255,0.55); backdrop-filter: blur(10px);
+    border: 1px dashed rgba(22,119,255,0.45); border-radius: var(--radius-md);
+    padding: 10px 16px; font-size: 12px; color: var(--cpq-text-secondary);
+  }
+  .demo-bar b { color: var(--cpq-accent-primary); font-weight: 600; }
+  .demo-ctl { display: flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .demo-ctl input { accent-color: var(--cpq-accent-primary); }
+
+  /* ── 弹窗骨架 ── */
+  .modal {
+    max-width: 1520px; width: 96vw; height: calc(100vh - 110px); min-height: 580px;
+    margin: 0 auto; display: flex; flex-direction: column;
+    background: rgba(255,255,255,0.72); backdrop-filter: blur(16px);
+    border: 1px solid var(--cpq-glass-border);
+    border-radius: var(--radius-lg); box-shadow: var(--shadow-strong);
+    overflow: hidden;
+  }
+  .modal-head {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 20px; border-bottom: 1px solid var(--cpq-glass-border);
+    background: rgba(255,255,255,0.5);
+  }
+  .modal-head h2 { font-size: 16px; font-weight: 600; }
+  .modal-head .tpl { font-size: 12px; color: var(--cpq-text-muted); margin-left: 12px; font-weight: 400; }
+  .close-x {
+    width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: var(--radius-sm); cursor: pointer; color: var(--cpq-text-secondary);
+    border: 1px solid transparent; font-size: 15px;
+  }
+  .close-x:hover { border-color: var(--cpq-glass-border-strong); color: var(--cpq-accent-primary); }
+
+  .modal-body { flex: 1; display: flex; min-height: 0; }
+
+  /* ── 左栏：导出选项 ── */
+  .side-panel {
+    width: 256px; flex-shrink: 0; display: flex; flex-direction: column;
+    border-right: 1px solid var(--cpq-glass-border);
+    background: rgba(255,255,255,0.42); padding: 16px 14px; gap: 4px;
+    overflow-y: auto;
+  }
+  .side-title { font-size: 12px; font-weight: 600; letter-spacing: .06em; color: var(--cpq-text-muted); margin-bottom: 10px; }
+  .side-sub { font-size: 11px; color: var(--cpq-text-muted); margin: 12px 0 6px; }
+  .ckpt {
+    display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius-md);
+    border: 1px solid transparent; cursor: pointer; user-select: none;
+    transition: all .15s ease; align-items: flex-start;
+  }
+  .ckpt:hover { background: rgba(255,255,255,0.7); border-color: var(--cpq-glass-border); }
+  .ckpt input { margin-top: 2px; width: 15px; height: 15px; accent-color: var(--cpq-accent-primary); cursor: pointer; flex-shrink: 0; }
+  .ckpt-label { font-weight: 600; font-size: 13px; }
+  .ckpt-desc { font-size: 11px; color: var(--cpq-text-muted); margin-top: 3px; line-height: 1.55; }
+  .badge-tag {
+    display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px;
+    background: rgba(22,119,255,0.10); color: var(--cpq-accent-primary); margin-left: 6px; vertical-align: 1px;
+  }
+  .lock-tag { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: rgba(250,173,20,0.14); color: #C7851B; margin-left: 6px; vertical-align: 1px; }
+
+  .side-divider { height: 1px; background: var(--cpq-glass-border); margin: 14px 0; }
+  .ver-block { background: rgba(255,255,255,0.6); border: 1px solid var(--cpq-glass-border); border-radius: var(--radius-md); padding: 12px; }
+  .ver-tag {
+    display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600;
+    padding: 3px 10px; border-radius: 999px; margin-bottom: 8px;
+  }
+  .ver-tag.customer { background: rgba(82,201,160,0.14); color: #2FA98A; }
+  .ver-tag.internal { background: rgba(250,173,20,0.16); color: #C7851B; }
+  .ver-row { font-size: 11px; color: var(--cpq-text-secondary); line-height: 1.7; word-break: break-all; }
+  .ver-row b { color: var(--cpq-text-primary); font-weight: 600; }
+  .perm-note { margin-top: auto; padding-top: 14px; font-size: 10.5px; color: var(--cpq-text-muted); line-height: 1.6; }
+  .perm-note .lock { color: #C7851B; }
+
+  /* ── 右栏：Univer 仿真 ── */
+  .preview-area { flex: 1; min-width: 0; display: flex; flex-direction: column; background: #FBFCFE; }
+
+  .uv-toolbar {
+    height: 36px; display: flex; align-items: center; gap: 2px; padding: 0 12px;
+    border-bottom: 1px solid var(--uv-grid); background: #fff; color: var(--uv-head-txt); font-size: 12px;
+  }
+  .uv-toolbar .tbtn { padding: 4px 9px; border-radius: 5px; cursor: default; }
+  .uv-toolbar .tbtn:hover { background: #F0F4FA; color: var(--cpq-text-secondary); }
+  .uv-toolbar .sep { width: 1px; height: 16px; background: var(--uv-grid); margin: 0 6px; }
+
+  .uv-fx {
+    height: 30px; display: flex; align-items: center; border-bottom: 1px solid var(--uv-grid);
+    background: #fff; font-size: 12px; color: var(--cpq-text-secondary);
+  }
+  .uv-fx .cellref { width: 76px; text-align: center; border-right: 1px solid var(--uv-grid); align-self: stretch; display: flex; align-items: center; justify-content: center; color: var(--uv-head-txt); }
+  .uv-fx .fx { width: 34px; text-align: center; border-right: 1px solid var(--uv-grid); align-self: stretch; display: flex; align-items: center; justify-content: center; color: var(--uv-head-txt); font-style: italic; }
+  .uv-fx .val { padding: 0 12px; font-variant-numeric: tabular-nums; }
+
+  .uv-canvas { flex: 1; overflow: auto; background: #FBFCFE; }
+
+  /* 底部页签条 */
+  .uv-bottom {
+    height: 32px; display: flex; align-items: center; border-top: 1px solid var(--uv-grid);
+    background: #fff; padding: 0 8px; gap: 2px; font-size: 12px;
+  }
+  .uv-tab { padding: 5px 14px; cursor: pointer; color: var(--cpq-text-secondary); border-radius: 5px 5px 0 0; position: relative; }
+  .uv-tab:hover { background: #F0F4FA; }
+  .uv-tab.active { color: var(--cpq-accent-primary); font-weight: 600; }
+  .uv-tab.active::after { content: ''; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--cpq-accent-primary); border-radius: 2px; }
+  .uv-addtab { color: var(--uv-head-txt); padding: 4px 8px; }
+  .uv-zoom { margin-left: auto; color: var(--uv-head-txt); padding-right: 10px; }
+
+  /* ── 表格（Univer 网格：列标 + 行号）── */
+  .sheet-wrap { padding: 22px 26px 30px; }
+  table.grid { border-collapse: collapse; font-size: 12.5px; background: #fff; table-layout: auto; width: 100%; }
+  .uv-letters th, .uv-num {
+    background: var(--uv-head); color: var(--uv-head-txt); font-weight: 500; font-size: 11px;
+    border: 1px solid var(--uv-grid); text-align: center; padding: 3px 6px; min-width: 30px;
+  }
+  table.grid th.h {
+    background: #F7FAFF; color: var(--cpq-text-secondary); font-weight: 600;
+    border: 1px solid var(--uv-grid); padding: 7px 10px; white-space: nowrap; text-align: left;
+  }
+  table.grid td { border: 1px solid var(--uv-grid); padding: 6px 10px; font-variant-numeric: tabular-nums; background: #fff; }
+  table.grid td.num, table.grid th.h.num { text-align: right; white-space: nowrap; }
+  table.grid td.cat { color: var(--cpq-text-secondary); }
+  table.grid tr.total td { background: #F6F9FE; font-weight: 700; }
+  table.grid tr.total td.uv-num { font-weight: 500; }
+  td.profit-cell { color: #2FA98A; font-weight: 600; }
+  td.sell-cell { color: var(--cpq-accent-primary); font-weight: 600; }
+  .hidden-col { display: none; }
+  .sheet-title { text-align: center; font-size: 16px; font-weight: 700; letter-spacing: .1em; margin-bottom: 4px; padding: 4px; }
+  .sheet-meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--cpq-text-muted); margin-bottom: 10px; padding: 0 2px; }
+
+  .summary-strip { margin-top: 18px; display: flex; gap: 12px; flex-wrap: wrap; }
+  .sum-card { flex: 1; min-width: 148px; background: #fff; border: 1px solid var(--uv-grid); border-radius: var(--radius-md); padding: 10px 14px; }
+  .sum-card small { display: block; font-size: 10.5px; color: var(--cpq-text-muted); margin-bottom: 4px; letter-spacing: .04em; }
+  .sum-card b { font-size: 16px; font-variant-numeric: tabular-nums; }
+  .sum-card.accent b { color: var(--cpq-accent-primary); }
+  .sum-card.green b { color: #2FA98A; }
+
+  /* ── 封面 sheet ── */
+  .cover { padding: 40px 56px; max-width: 900px; margin: 0 auto; }
+  .cover-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 44px; }
+  .cover-logo { width: 40px; height: 40px; border-radius: 9px; background: linear-gradient(135deg,#1677FF,#69B4FF); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px; letter-spacing: .02em; }
+  .cover-brand span { font-weight: 700; font-size: 15px; letter-spacing: .04em; }
+  .cover h1 { text-align: center; font-size: 30px; letter-spacing: .5em; text-indent: .5em; color: #1C2A47; margin: 26px 0 6px; }
+  .cover .cover-sub { text-align: center; color: var(--cpq-text-muted); font-size: 12px; letter-spacing: .2em; margin-bottom: 42px; }
+  .cover table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  .cover td { padding: 11px 14px; border: 1px solid var(--uv-grid); }
+  .cover td.k { width: 130px; color: var(--cpq-text-secondary); background: #F7FAFF; }
+  .cover .grand { margin-top: 34px; display: flex; align-items: baseline; justify-content: flex-end; gap: 16px; }
+  .cover .grand small { color: var(--cpq-text-secondary); font-size: 13px; }
+  .cover .grand b { font-size: 30px; color: var(--cpq-accent-primary); font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+  .cover .note { margin-top: 30px; font-size: 11px; color: var(--cpq-text-muted); line-height: 1.8; }
+
+  /* 规格书模式 */
+  .spec-sheet { background: #fff; border: 1px solid var(--uv-grid); border-radius: var(--radius-md); padding: 30px 36px; max-width: 740px; margin: 22px auto; }
+  .spec-sheet h3 { text-align: center; font-size: 18px; letter-spacing: .24em; margin-bottom: 4px; }
+  .spec-sheet .sub { text-align: center; font-size: 11px; color: var(--cpq-text-muted); margin-bottom: 18px; }
+  .spec-row { display: flex; justify-content: space-between; padding: 8px 2px; border-bottom: 1px dashed var(--uv-grid); font-size: 13px; }
+  .spec-row span:first-child { color: var(--cpq-text-secondary); }
+  .spec-row b { font-variant-numeric: tabular-nums; }
+  .spec-row.hl b { color: var(--cpq-accent-primary); font-size: 15px; }
+
+  /* 底栏 */
+  .modal-foot {
+    display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+    padding: 13px 20px; border-top: 1px solid var(--cpq-glass-border);
+    background: rgba(255,255,255,0.5);
+  }
+  .file-hint { margin-right: auto; font-size: 11px; color: var(--cpq-text-muted); word-break: break-all; }
+  .file-hint b { color: var(--cpq-text-secondary); }
+  .btn {
+    padding: 7px 18px; border-radius: var(--radius-sm); font-size: 13px; cursor: pointer;
+    border: 1px solid var(--cpq-glass-border); background: rgba(255,255,255,0.8); color: var(--cpq-text-secondary);
+  }
+  .btn:hover { border-color: var(--cpq-glass-border-strong); color: var(--cpq-accent-primary); }
+  .btn.pri {
+    background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); color: #fff; font-weight: 600;
+    box-shadow: 0 4px 14px rgba(22,119,255,0.28);
+  }
+  .btn.pri:hover { filter: brightness(1.06); }
+  .btn.pri .vbadge { font-size: 10px; padding: 1px 6px; border-radius: 4px; margin-left: 7px; background: rgba(255,255,255,0.22); vertical-align: 1px; }
+</style>
+</head>
+<body>
+
+<div class="demo-bar">
+  <span><b>原型 v2</b>·报价单预览-导出选项</span>
+  <label class="demo-ctl"><input type="checkbox" id="demoPerm" checked> 有「导出对内数据」权限（关掉=左栏仅剩明细销售价）</label>
+  <label class="demo-ctl"><input type="radio" name="mode" id="modeExcel" checked> Excel 模板</label>
+  <label class="demo-ctl"><input type="radio" name="mode" id="modeSpec"> 规格书模板</label>
+</div>
+
+<div class="modal">
+  <div class="modal-head">
+    <div><h2 style="display:inline">报价单预览</h2><span class="tpl" id="tplName">模板：标准报价单（Excel · 封面 + 配置页）</span></div>
+    <span class="close-x">✕</span>
+  </div>
+
+  <div class="modal-body">
+    <!-- 左栏 -->
+    <aside class="side-panel">
+      <div class="side-title">导出选项</div>
+
+      <label class="ckpt">
+        <input type="checkbox" id="ckSell">
+        <span>
+          <span class="ckpt-label">明细销售价</span>
+          <div class="ckpt-desc">配置页明细表新增「销售价」列（逐配件，含税加点后单价）＋合计行</div>
+        </span>
+      </label>
+
+      <div class="side-sub">以下为对内数据（需权限）</div>
+
+      <label class="ckpt" id="rowCost">
+        <input type="checkbox" id="ckCost">
+        <span>
+          <span class="ckpt-label">成本价 <span class="lock-tag">对内</span></span>
+          <div class="ckpt-desc">明细表新增「成本价」列（汇率/税率换算后），L6 整机按单台一口价</div>
+        </span>
+      </label>
+
+      <label class="ckpt" id="rowProfit">
+        <input type="checkbox" id="ckProfit">
+        <span>
+          <span class="ckpt-label">利润率 <span class="lock-tag">对内</span></span>
+          <div class="ckpt-desc">明细逐行「利润率%」列（(销售−成本)/成本）＋合计行综合利润率＋汇总卡</div>
+        </span>
+      </label>
+
+      <div class="side-divider"></div>
+
+      <div class="ver-block">
+        <span class="ver-tag customer" id="verTag">客户版</span>
+        <div class="ver-row">文件名：<b id="verFile">CloudPrime-R5300-OPP2026…_报价单.xlsx</b></div>
+        <div class="ver-row" id="verSemantics">导出后冻结报价单 + 归档至「报价附件」</div>
+      </div>
+
+      <div class="perm-note">
+        <span class="lock">🔒</span> 成本价/利润由权限点 <b>field.quote.export_internal</b> 控制（默认仅管理员，可授权给角色）；后端对 reveal 参数二次鉴权，无权限强制清空。封面/汇总里的模板既定内容（报价总额等）不受开关影响。
+      </div>
+    </aside>
+
+    <!-- 右栏：Univer 仿真 -->
+    <section class="preview-area">
+      <div class="uv-toolbar">
+        <span class="tbtn">↩</span><span class="tbtn">↪</span><span class="tbtn">油漆</span>
+        <span class="sep"></span>
+        <span class="tbtn">Aa</span><span class="tbtn"><b>B</b></span><span class="tbtn"><i>I</i></span><span class="tbtn">⚙ 格式</span>
+        <span class="sep"></span>
+        <span class="tbtn">≡ 左</span><span class="tbtn">≡ 中</span><span class="tbtn">≡ 右</span>
+      </div>
+      <div class="uv-fx"><span class="cellref" id="fxRef">F10</span><span class="fx">fx</span><span class="val" id="fxVal">=SUM(E2:E9)</span></div>
+
+      <div class="uv-canvas" id="excelPane">
+        <!-- ── Sheet1 封面 ── -->
+        <div class="cover" id="sheetCover">
+          <div class="cover-brand"><div class="cover-logo">CP</div><span>CLOUDPRIME · 云启计算</span></div>
+          <h1>报价单</h1>
+          <div class="cover-sub">QUOTATION · 服务器整机与配件</div>
+          <table>
+            <tr><td class="k">客户名称</td><td>XX 证券股份有限公司</td><td class="k">商机编号</td><td>OPP2026-0913</td></tr>
+            <tr><td class="k">报价日期</td><td>2026-09-15</td><td class="k">有效期至</td><td>2026-10-15</td></tr>
+            <tr><td class="k">方案配置</td><td>CFG1（主推）· 2 台整机 + 8 卡 GPU 扩展</td><td class="k">销售</td><td>王明</td></tr>
+          </table>
+          <div class="grand"><small>报价总额（含税）</small><b>¥ 427,912.00</b></div>
+          <div class="note">本报价含 17% 增值税；交货周期以合同为准；整机含 3 年原厂质保。<br>明细详见「配置页_CFG1」工作表。</div>
+        </div>
+
+        <!-- ── Sheet2 配置页 ── -->
+        <div class="sheet-wrap" id="sheetCfg" style="display:none">
+          <div class="sheet-title">配置明细 · CFG1</div>
+          <div class="sheet-meta">
+            <span>整机：CloudPrime R5300（4U 双路）× 2</span><span>含税价（RMB）</span>
+          </div>
+          <table class="grid">
+            <thead>
+              <tr class="uv-letters">
+                <th></th><th>A</th><th>B</th><th>C</th>
+                <th class="col-cost">D</th><th class="col-sell">E</th><th class="col-profit">F</th>
+              </tr>
+              <tr>
+                <th class="uv-letters" style="border:none;background:transparent"></th>
+                <th class="h" style="width:86px">类别</th>
+                <th class="h">型号 / 名称</th>
+                <th class="h num" style="width:52px">数量</th>
+                <th class="h num col-cost" style="width:104px">成本价</th>
+                <th class="h num col-sell" style="width:104px">销售价</th>
+                <th class="h num col-profit" style="width:100px">利润率</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td class="uv-num">2</td>
+                <td class="cat">整机 L6</td><td>CloudPrime R5300 · 基准配置（一口价）</td><td class="num">2</td>
+                <td class="num col-cost">46,200.00</td>
+                <td class="num col-sell sell-cell">55,440.00</td>
+                <td class="num col-profit profit-cell">20.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">3</td>
+                <td class="cat">GPU</td><td>GPU 加速卡 X400 80G</td><td class="num">8</td>
+                <td class="num col-cost">21,500.00</td>
+                <td class="num col-sell sell-cell">26,015.00</td>
+                <td class="num col-profit profit-cell">21.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">4</td>
+                <td class="cat">CPU</td><td>处理器 7390（32C 64T）</td><td class="num">2</td>
+                <td class="num col-cost">8,900.00</td>
+                <td class="num col-sell sell-cell">10,680.00</td>
+                <td class="num col-profit profit-cell">20.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">5</td>
+                <td class="cat">内存</td><td>DDR5 RDIMM 64G 5600</td><td class="num">16</td>
+                <td class="num col-cost">1,850.00</td>
+                <td class="num col-sell sell-cell">2,220.00</td>
+                <td class="num col-profit profit-cell">20.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">6</td>
+                <td class="cat">硬盘</td><td>NVMe SSD 3.84T 企业级</td><td class="num">8</td>
+                <td class="num col-cost">3,120.00</td>
+                <td class="num col-sell sell-cell">3,744.00</td>
+                <td class="num col-profit profit-cell">20.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">7</td>
+                <td class="cat">网卡</td><td>400G QSFP-DD 双口</td><td class="num">4</td>
+                <td class="num col-cost">4,600.00</td>
+                <td class="num col-sell sell-cell">5,520.00</td>
+                <td class="num col-profit profit-cell">20.0%</td>
+              </tr>
+              <tr>
+                <td class="uv-num">8</td>
+                <td class="cat" colspan="2">维保 / 增值服务（3 年原厂）</td><td class="num">—</td>
+                <td class="num col-cost">含</td>
+                <td class="num col-sell sell-cell">含</td>
+                <td class="num col-profit profit-cell">—</td>
+              </tr>
+              <tr class="total">
+                <td class="uv-num">9</td>
+                <td colspan="2">合计（成本 / 销售 = 单价 × 数量；利润率为综合值）</td><td class="num">40</td>
+                <td class="num col-cost">355,160.00</td>
+                <td class="num col-sell sell-cell">427,912.00</td>
+                <td class="num col-profit profit-cell">20.5%</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <div class="summary-strip">
+            <div class="sum-card" id="sumCost"><small>成本合计</small><b>¥ 355,160.00</b></div>
+            <div class="sum-card accent" id="sumSell"><small>销售合计</small><b>¥ 427,912.00</b></div>
+            <div class="sum-card accent" id="sumTotal"><small>报价总额（=封面）</small><b>¥ 427,912.00</b></div>
+            <div class="sum-card green" id="sumMargin"><small>利润率</small><b>20.5%</b></div>
+          </div>
+        </div>
+
+        <!-- 规格书模式 -->
+        <div id="specPane" style="display:none">
+          <div class="spec-sheet">
+            <h3>技术规格书</h3>
+            <div class="sub">CloudPrime R5300 · CFG1 · 2026-09</div>
+            <div class="spec-row"><span>整机型号</span><b>CloudPrime R5300</b></div>
+            <div class="spec-row"><span>处理器</span><b>7390 × 2</b></div>
+            <div class="spec-row"><span>内存</span><b>DDR5 64G × 16</b></div>
+            <div class="spec-row"><span>加速卡</span><b>X400 80G × 8</b></div>
+            <div class="spec-row"><span>数量</span><b>2 台</b></div>
+            <div class="spec-row" id="specSellRow"><span>单台销售价</span><b>¥ 213,956.00</b></div>
+            <div class="spec-row hl"><span>总价（=封面）</span><b>¥ 427,912.00</b></div>
+            <div class="spec-row" id="specMarginRow"><span>利润率（对内）</span><b>20.5%</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="uv-bottom" id="uvBottom">
+        <span class="uv-tab active" data-sheet="cover">封面</span>
+        <span class="uv-tab" data-sheet="cfg">配置页_CFG1</span>
+        <span class="uv-tab" data-sheet="cfg2">＋</span>
+        <span class="uv-zoom">100% ▾　工作表 2/3</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="modal-foot">
+    <span class="file-hint">将下载：<b id="footFile">CloudPrime-R5300-OPP2026…_报价单.xlsx</b></span>
+    <button class="btn">关闭</button>
+    <button class="btn pri" id="dlBtn">下载 Excel</button>
+  </div>
+</div>
+
+<script>
+  const $ = id => document.getElementById(id)
+  const cks = { cost: $('ckCost'), sell: $('ckSell'), profit: $('ckProfit') }
+
+  // sheet 页签切换
+  document.querySelectorAll('.uv-tab[data-sheet]').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.uv-tab[data-sheet]').forEach(t => t.classList.remove('active'))
+      tab.classList.add('active')
+      const s = tab.dataset.sheet
+      $('sheetCover').style.display = s === 'cover' ? '' : 'none'
+      $('sheetCfg').style.display = s === 'cfg' ? '' : 'none'
+      $('fxRef').textContent = s === 'cover' ? 'C9' : 'F10'
+      $('fxVal').textContent = s === 'cover' ? '427912' : '=SUM(E2:E9)'
+    })
+  })
+
+  function apply() {
+    const internal = cks.cost.checked || cks.profit.checked
+    // 明细列显隐
+    for (const [key, cls] of [['cost', 'col-cost'], ['sell', 'col-sell'], ['profit', 'col-profit']]) {
+      document.querySelectorAll('.' + cls).forEach(el => el.classList.toggle('hidden-col', !cks[key].checked))
+    }
+    // 汇总卡
+    $('sumCost').style.display = cks.cost.checked ? '' : 'none'
+    $('sumSell').style.display = cks.sell.checked ? '' : 'none'
+    $('sumMargin').style.display = cks.profit.checked ? '' : 'none'
+    // 规格书行
+    $('specSellRow').style.display = cks.sell.checked ? '' : 'none'
+    $('specMarginRow').style.display = cks.profit.checked ? '' : 'none'
+    // 版本态
+    const tag = $('verTag'), sem = $('verSemantics'), file = $('footFile'), verFile = $('verFile'), btn = $('dlBtn')
+    if (internal) {
+      tag.textContent = '对内版'
+      tag.className = 'ver-tag internal'
+      const on = [cks.cost.checked && '成本', cks.profit.checked && '利润率'].filter(Boolean).join('·')
+      sem.textContent = `已开启：${on}${cks.sell.checked ? '·明细销售价' : ''} —— 不冻结草稿，归档至「内部附件」`
+      const f = 'CloudPrime-R5300-OPP2026…_报价单_对内版.xlsx'
+      verFile.textContent = f; file.textContent = f
+      btn.innerHTML = '下载 Excel<span class="vbadge">对内版</span>'
+    } else {
+      tag.textContent = cks.sell.checked ? '客户版 · 含明细价' : '客户版'
+      tag.className = 'ver-tag customer'
+      sem.textContent = '导出后冻结报价单 + 归档至「报价附件」'
+      const f = 'CloudPrime-R5300-OPP2026…_报价单.xlsx'
+      verFile.textContent = f; file.textContent = f
+      btn.textContent = '下载 Excel'
+    }
+  }
+
+  Object.values(cks).forEach(c => c.addEventListener('change', apply))
+  $('demoPerm').addEventListener('change', e => {
+    const has = e.target.checked
+    $('rowCost').style.display = has ? '' : 'none'
+    $('rowProfit').style.display = has ? '' : 'none'
+    if (!has) { cks.cost.checked = false; cks.profit.checked = false }
+    apply()
+  })
+  $('modeExcel').addEventListener('change', () => {
+    $('excelPane').style.display = ''; $('specPane').style.display = 'none'; $('uvBottom').style.display = ''
+    $('tplName').textContent = '模板：标准报价单（Excel · 封面 + 配置页）'
+  })
+  $('modeSpec').addEventListener('change', () => {
+    $('excelPane').style.display = 'none'; $('specPane').style.display = ''; $('uvBottom').style.display = 'none'
+    $('tplName').textContent = '模板：标准规格书（规格书）'
+  })
+  apply()
+</script>
+</body>
+</html>

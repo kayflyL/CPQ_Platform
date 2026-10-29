@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CPQ Platform · System Blueprint</title>
+<style>
+:root{
+  --bg:#0a101c;--panel:#0e1a29;--panel2:#10233a;--line:#1e3a56;--line2:#2a4a6e;
+  --teal:#2dd4bf;--tealD:#0d9488;--amber:#fbbf24;--red:#f87171;--blue:#38bdf8;--green:#4ade80;
+  --text:#cbd5e1;--text2:#94a3b8;--muted:#5b6b82;--title:#e2e8f0;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,"Microsoft YaHei",sans-serif;font-size:13px;line-height:1.5}
+.wrap{max-width:1320px;margin:0 auto;padding:22px 26px 46px}
+.card{background:linear-gradient(180deg,#0f1c2e,#0b1522);border:1px solid var(--line);border-radius:14px}
+.hd{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;padding:20px 24px;border-bottom:1px solid var(--line)}
+.hd .brand{display:flex;align-items:center;gap:12px}
+.hd .logo{width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,var(--teal),var(--blue));color:#04222b;font-weight:800;display:flex;align-items:center;justify-content:center;font-size:16px}
+.hd h1{margin:0;color:var(--title);font-size:23px;letter-spacing:.3px}
+.hd .sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.hd .meta{text-align:right;color:var(--muted);font-size:12px}
+.hd .meta b{color:var(--teal);font-weight:700}
+.layer{display:flex;gap:12px;margin-top:14px}
+.rail{width:120px;flex:none;display:flex;flex-direction:column;justify-content:center;gap:3px;padding:0 2px}
+.rail .num{font-size:22px;font-weight:800;color:var(--blue)}
+.rail .lname{font-size:15px;font-weight:700;color:var(--title)}
+.rail .lsub{font-size:10.5px;color:var(--muted);letter-spacing:1.2px;text-transform:uppercase}
+.band{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px}
+.band .bandhead{display:flex;justify-content:space-between;align-items:center;margin:2px 2px 10px;font-size:12px;color:var(--muted)}
+.band .bandhead .t{color:var(--text2);font-weight:600}
+.grid{display:grid;gap:10px}
+.g4{grid-template-columns:repeat(4,1fr)}
+.g5{grid-template-columns:repeat(5,1fr)}
+.plate{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;padding:10px 11px 9px;position:relative}
+.plate .ph{display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:5px}
+.plate .nm{font-weight:700;color:var(--title);font-size:12.5px}
+.plate .tag{font-size:10px;padding:1px 6px;border-radius:20px;background:#0b2236;color:var(--blue);border:1px solid #1e4a70;white-space:nowrap}
+.plate .tag.amber{color:var(--amber);border-color:#6b5320;background:#241c07}
+.plate .tag.green{color:var(--green);border-color:#14532d;background:#052e16}
+.plate .tag.teal{color:var(--teal);border-color:#134e4a;background:#042f2e}
+.plate .ds{color:var(--text2);font-size:11.3px}
+.plate .pt{color:var(--muted);font-size:10.3px;margin-top:5px}
+.plate .pt code{color:var(--teal);background:rgba(20,184,166,.08);padding:0 4px;border-radius:4px}
+.plate.flag::after{content:"⚠";position:absolute;top:8px;right:9px;color:var(--amber);font-size:12px}
+.lg{display:flex;flex-wrap:wrap;gap:22px;align-items:center;margin-top:16px;padding:12px 16px;border-top:1px solid var(--line);color:var(--text2);font-size:12px}
+.lg .it{display:flex;align-items:center;gap:7px}
+.sw{width:20px;height:12px;border-radius:3px;display:inline-block}
+.sw.data{background:var(--teal)}.sw.dep{background:var(--blue)}.sw.red{background:var(--red)}.sw.green{background:var(--green)}
+.note{margin-top:12px;padding:11px 16px;border-left:3px solid var(--amber);background:rgba(251,191,36,.05);color:var(--text2);font-size:12px;border-radius:0 8px 8px 0}
+.note b{color:var(--amber)}
+.arrow{color:var(--blue);font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <div class="hd">
+      <div class="brand">
+        <div class="logo">CPQ</div>
+        <div>
+          <h1>CPQ Platform · System Blueprint</h1>
+          <div class="sub">服务器选型配置 · 统一报价 · 规则治理 · AI 协同</div>
+        </div>
+      </div>
+      <div class="meta"><b>ARCHITECTURE V1</b> · 2026-08-22<br>5 LAYERS / 业务域引擎</div>
+    </div>
+    <!-- 01 前端层 -->
+    <div class="layer">
+      <div class="rail"><div class="num">01</div><div class="lname">前端层</div><div class="lsub">EXPERIENCE</div></div>
+      <div class="band">
+        <div class="bandhead"><span class="t">Vue 3 + TypeScript + Vite SPA</span><span class="ports">HTTP :5173</span></div>
+        <div class="grid g5">
+          <div class="plate"><div class="ph"><span class="nm">门户 / 工作台</span><span class="tag teal">Portal</span></div><div class="ds">商机卡片 · 流程状态 · AI 入口页</div><div class="pt"><code>/portal</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">商机线索</span><span class="tag">Opportunity</span></div><div class="ds">商机列表 / 详情 / 驾驶舱 / 回收站</div><div class="pt"><code>/opportunities</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">报价工作台</span><span class="tag teal">Quote</span></div><div class="ds">需求单 → BOM 配置 → 报价演算</div><div class="pt"><code>/workspace</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">服务器 / 机型</span><span class="tag">Server</span></div><div class="ds">机型目录 · 基准配置 · 配置向导</div><div class="pt"><code>/servers/*</code></div></div>
+          <div class="plate flag"><div class="ph"><span class="nm">管理 / 设置</span><span class="tag amber">Admin</span></div><div class="ds">规则 · 定价 · 需求分析 · AI 设置</div><div class="pt"><code>/admin · /settings</code></div></div>
+          <div class="plate flag"><div class="ph"><span class="nm">AI 办公室 / 方案助手</span><span class="tag amber">AI</span></div><div class="ds">AI 同事 · 方案助手 · 数据工具 · 聊天</div><div class="pt"><code>/office · /assistant</code></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- 02 平台入口层 -->
+    <div class="layer">
+      <div class="rail"><div class="num">02</div><div class="lname">平台入口层</div><div class="lsub">ENTRY</div></div>
+      <div class="band">
+        <div class="bandhead"><span class="t">FastAPI 统一 API 网关</span><span class="ports">HTTP :8000 <span class="arrow">←</span> /api 代理</span></div>
+        <div class="grid g4">
+          <div class="plate"><div class="ph"><span class="nm">统一 API 入口</span><span class="tag teal">30+ 路由</span></div><div class="ds">REST 路由按业务域注册，集中挂在 main.py</div><div class="pt"><code>/api/*</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">认证 / RBAC 权限</span><span class="tag green">JWT</span></div><div class="ds">JWT 登录闭环 + 页面级 Perm + 字段级权限</div><div class="pt"><code>auth · roles</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">AI 会话网关</span><span class="tag">Assistant</span></div><div class="ds">方案助手 · AI 同事 · 工具注册表 · 办公时钟</div><div class="pt"><code>assistant · office</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">跨域 / 异常治理</span><span class="tag">Middleware</span></div><div class="ds">CORS · BusinessError / 校验 / 兜底异常处理器</div><div class="pt"><code>core/*</code></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- 03 共享编排层 -->
+    <div class="layer">
+      <div class="rail"><div class="num">03</div><div class="lname">共享编排层</div><div class="lsub">ORCHESTRATION</div></div>
+      <div class="band">
+        <div class="bandhead"><span class="t">backend/app/services · 共享能力编排</span><span class="ports">规则 / 权限 / 流程统一治理</span></div>
+        <div class="grid g5">
+          <div class="plate"><div class="ph"><span class="nm">权限 / 治理</span><span class="tag">P0</span></div><div class="ds">页面级 Perm · 字段级权限 · 办公访问治理</div><div class="pt"><code>office_access · office_governance</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">路由调度 / 编排</span><span class="tag teal">Flow</span></div><div class="ds">多 RAG 推理编排 · 节点执行 · 快照/上下文</div><div class="pt"><code>reasoning_orchestrator · snapshot_converter</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">规则目录 / 工具注册表</span><span class="tag">Registry</span></div><div class="ds">LLM 工具唯一注册表 · 需求规则目录 · 技能路由</div><div class="pt"><code>agent_tools · skill_registry · requirement_rule_catalog</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">AI 协同 / 办公</span><span class="tag amber">Agent</span></div><div class="ds">AI 大脑 · 记忆 · 意图 · 任务 · 事件 · 时钟</div><div class="pt"><code>office_brain · office_memory · office_mission</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">领域服务适配</span><span class="tag">Adapter</span></div><div class="ds">报价 · 选型 · 字段统一 · 模板 · 案例供给</div><div class="pt"><code>quote_service · unified_field_service · case_provider</code></div></div>
+        </div>
+      </div>
+    </div>
+    <!-- 04 业务引擎层 -->
+    <div class="layer">
+      <div class="rail"><div class="num">04</div><div class="lname">业务引擎层</div><div class="lsub">DOMAIN ENGINES</div></div>
+      <div class="band">
+        <div class="bandhead"><span class="t">需求分析 → 选型配置 → 报价策略 · 三链路</span><span class="ports">backend/app/engine + services</span></div>
+        <div class="grid g5">
+          <div class="plate"><div class="ph"><span class="nm">需求分析</span><span class="tag teal">AI</span></div><div class="ds">需求画像 / 智能体 · 清晰度评估 · LLM 抽取</div><div class="pt"><code>requirement_intel · clarity_evaluator</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">选型配置</span><span class="tag">Rule</span></div><div class="ds">互斥 / 依赖 / 派生硬规则 · BOM 案例库</div><div class="pt"><code>selection_engine · bom_compare</code></div></div>
+          <div class="plate flag"><div class="ph"><span class="nm">报价策略</span><span class="tag amber">8 维引擎</span></div><div class="ds">加法定价 · 分档红线 · 分项毛利 · 海外固定费</div><div class="pt"><code>pricing_engine</code></div></div>
+          <div class="plate flag"><div class="ph"><span class="nm">BOM / 模板 / Excel</span><span class="tag amber">Parse</span></div><div class="ds">模板填充 · 基准配置评估 · Excel 解析 · KP 导入导出</div><div class="pt"><code>excel_parser · template_filler</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">AI 同事</span><span class="tag teal">Agent</span></div><div class="ds">ReAct / 理解 · 能力执行 · 技能路由 · 方案助手</div><div class="pt"><code>agent_react · capability_executor</code></div></div>
+        </div>
+        <div class="note" style="margin-top:10px"><b>治理点</b> · 报价/选型逻辑 FE/BE 双源并存：前端 <code>stores/pricingEngine.ts</code>、<code>stores/selectionEngine.ts</code>、<code>utils/bomRuleEngine.ts</code>（含单测）与后端引擎待明确<b>唯一真源</b>。</div>
+      </div>
+    </div>
+    <!-- 05 数据层 -->
+    <div class="layer">
+      <div class="rail"><div class="num">05</div><div class="lname">数据层</div><div class="lsub">STORAGE</div></div>
+      <div class="band">
+        <div class="bandhead"><span class="t">PostgreSQL 主库 + 文件产物 + 外部模型</span><span class="ports">模块自有数据</span></div>
+        <div class="grid g5">
+          <div class="plate"><div class="ph"><span class="nm">主数据库</span><span class="tag green">PostgreSQL</span></div><div class="ds">数据库 cpq_platform · migrations 管表 · 业务域数据归属</div><div class="pt"><code>models · repository · migrations</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">文件 / 图纸</span><span class="tag">Storage</span></div><div class="ds">品牌图 · 机型图 · 解剖 SVG · 商机附件</div><div class="pt"><code>storage/{branding, model-images, drawing-svgs, opportunities}</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">模板 / 静态</span><span class="tag">Assets</span></div><div class="ds">报表模板 · 前端构建产物 · 静态资源</div><div class="pt"><code>static · templates · dist</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">外部 LLM</span><span class="tag teal">OpenAI-compatible</span></div><div class="ds">DashScope/中转站 · 调用追踪 · 提示词模板</div><div class="pt"><code>llm_client · llm_trace</code></div></div>
+          <div class="plate"><div class="ph"><span class="nm">配置 / 密钥</span><span class="tag">.env</span></div><div class="ds">DATABASE_URL · JWT · LLM · CORS · AUTH 开关</div><div class="pt"><code>core/config.py</code></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="lg">
+      <span class="it"><span class="sw data"></span> 数据流 / 调用</span>
+      <span class="it"><span class="sw dep"></span> 依赖</span>
+      <span class="it"><span class="sw red"></span> 禁止跨界访问</span>
+      <span class="it"><span class="sw green"></span> 模块自有数据</span>
+      <span class="it">上方 ⚠ = 治理点 / 待归一</span>
+    </div>
+    <div class="note" style="border-left-color:var(--teal);background:rgba(45,212,191,.04)"><b>维护约定</b> · 本图为系统架构<b>唯一事实源</b>，由 Codex 随代码变更持续维护；实际分层以 <code>backend/app/*</code>、<code>frontend/src/*</code>、<code>backend/migrations/*</code> 为准。</div>
+  </div>
+</div>
+</body>
+</html>
