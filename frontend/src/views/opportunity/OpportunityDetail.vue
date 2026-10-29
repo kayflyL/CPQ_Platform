@@ -22,7 +22,7 @@
         <a-tooltip v-if="lossReasonTip" :title="lossReasonTip">
           <a-tag class="header-loss-tag" color="error">{{ lossReasonLabel }}</a-tag>
         </a-tooltip>
-        <span v-if="opportunity && canViewAll" class="header-created-date">
+        <span v-if="opportunity && canEditCreatedAt" class="header-created-date">
           创建于
           <a-date-picker
             :value="createdDateValue"
@@ -364,7 +364,6 @@ const isMobile = useIsMobile()
 const createdDatePopupContainer = () => document.body
 /** 商机详情报价单价格可见性（字段级权限，配置驱动） */
 const quotePriceVisible = computed(() => auth.can('field.opportunity.quote_price'))
-const canViewAll = computed(() => auth.can('page.opportunities_all'))
 const router = useRouter()
 const opportunityId = route.params.opportunityId as string
 const opportunityIdRef = computed(() => opportunityId)
@@ -578,6 +577,7 @@ function confirmDeleteProject() {
 
 const resultOptions = RESULT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))
 const canEditResult = computed(() => auth.can('action.opportunity.result'))
+const canEditCreatedAt = computed(() => auth.can('action.opportunity.edit_created_at'))
 
 // 状态变更：下拉只负责选中目标，实际变更走 ResultChangeModal（必填一句话，丢标必选原因）
 interface LossReason { key: string; label: string; enabled: boolean }
@@ -618,7 +618,7 @@ const lossReasonTip = computed(() => {
   return parts.join(' · ')
 })
 
-// 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker，仅管理员可见）
+// 创建日期的可编辑绑定（dayjs 格式用于 a-date-picker；可见性=action.opportunity.edit_created_at 持有者，admin 自动持有）
 const createdDateValue = computed(() => {
   const dateStr = opportunity.value?.created_at
   if (!dateStr) return null

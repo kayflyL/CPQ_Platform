@@ -580,6 +580,7 @@ _DEFAULT_PERMISSIONS = [
     {"key": "action.flow.submit.requirement", "name": "发起/提交需求单", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.opportunity.create", "name": "新建商机", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.opportunity.result", "name": "修改商机状态（进行中/已中标等）", "group": "action", "module": "商机线索 · 商机详情"},
+    {"key": "action.opportunity.edit_created_at", "name": "修改商机创建日期", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.boming", "name": "编辑/提交方案配置", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.return.boming", "name": "退回方案配置", "group": "action", "module": "商机线索 · 商机详情"},
     {"key": "action.flow.submit.costing", "name": "编辑/提交成本核算", "group": "action", "module": "商机线索 · 商机详情"},

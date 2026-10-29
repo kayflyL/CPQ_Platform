@@ -475,8 +475,11 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
 
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
+        # 创建日期=独立权限键（2026-10-29 收口，对齐 action.opportunity.result 模式）：
+        # 曾挂 page.opportunities_all，键扩散到成本/总监后人人可改
+        if "created_at" in updates and not user_has_permission(user, "action.opportunity.edit_created_at"):
             updates.pop("created_at", None)
-        elif "sales_person" in updates:
+        if "sales_person" in updates and user_has_permission(user, "page.opportunities_all"):
             target = next(
                 (u for u in _active_business_accounts() if u["name"] == str(updates.get("sales_person") or "").strip()),
                 None,
@@ -706,7 +709,8 @@ def update_opportunity_meta(opportunity_id: str, updates: dict,
     try:
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
-            updates.pop("created_at", None)
+        if "created_at" in updates and not user_has_permission(user, "action.opportunity.edit_created_at"):
+            raise HTTPException(status_code=403, detail="无权修改商机创建日期")
         if "result" in updates and not user_has_permission(user, "action.opportunity.result"):
             raise HTTPException(status_code=403, detail="无权修改商机状态")
         repo.update_meta(opportunity_id, updates)
