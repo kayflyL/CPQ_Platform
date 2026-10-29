@@ -17,6 +17,7 @@
 备份/清单落 D:\\CPQ_Archive\\backfill_costing_<时间戳>\\（仓库外，见 CLAUDE.md 备份规矩）。
 """
 import json
+import os
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -25,7 +26,11 @@ from sqlalchemy import text
 
 from app.models.base import engine
 
-ARCHIVE_ROOT = Path(r"D:\CPQ_Archive")
+# 备份/清单落仓库外：Windows 开发机走 D:\\CPQ_Archive，服务器跑本脚本时用 CPQ_ARCHIVE_ROOT 覆盖
+if sys.platform.startswith("win"):
+    ARCHIVE_ROOT = Path(os.environ.get("CPQ_ARCHIVE_ROOT", r"D:\CPQ_Archive"))
+else:
+    ARCHIVE_ROOT = Path(os.environ.get("CPQ_ARCHIVE_ROOT", Path.home() / "cpq_archive"))
 TARGET_NAME = "冯桃红"
 
 
