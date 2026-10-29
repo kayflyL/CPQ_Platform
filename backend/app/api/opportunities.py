@@ -476,9 +476,10 @@ def update_opportunity(opportunity_id: str, req: UpdateOpportunityRequest,
         if not user_has_permission(user, "page.opportunities_all"):
             updates.pop("owner_user_id", None)
         # 创建日期=独立权限键（2026-10-29 收口，对齐 action.opportunity.result 模式）：
-        # 曾挂 page.opportunities_all，键扩散到成本/总监后人人可改
+        # 曾挂 page.opportunities_all，键扩散到成本/总监后人人可改；显式 403 而非静默丢弃——
+        # 静默会让旧前端包的乐观更新+成功提示变成假象（库里没写，界面却显示已改）
         if "created_at" in updates and not user_has_permission(user, "action.opportunity.edit_created_at"):
-            updates.pop("created_at", None)
+            raise HTTPException(status_code=403, detail="无权修改商机创建日期")
         if "sales_person" in updates and user_has_permission(user, "page.opportunities_all"):
             target = next(
                 (u for u in _active_business_accounts() if u["name"] == str(updates.get("sales_person") or "").strip()),
