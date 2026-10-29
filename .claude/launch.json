@@ -40,18 +40,6 @@
       "autoPort": true
     },
     {
-      "name": "docs-mock",
-      "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
-      "runtimeArgs": [
-        "-m",
-        "http.server",
-        "8899",
-        "--directory",
-        "D:/CPQ_Platform_V1/docs/frontend-pages"
-      ],
-      "port": 8899
-    },
-    {
       "name": "prototype",
       "runtimeExecutable": "D:/CPQ_Platform_V1/backend/.venv/Scripts/python.exe",
       "runtimeArgs": [

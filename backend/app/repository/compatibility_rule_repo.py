@@ -2,7 +2,7 @@
 
 声明式 WHEN→THEN 规则，type: require/exclude/derive/filter/recommend。
 规则本体住 rules.compatibility_rules（DB 唯一来源，无代码种子）；
-body schema 与寻址约定见 docs/frontend-pages/strategies/strategies.md 与 selection_engine 模块注释。
+body schema 与寻址约定见 selection_engine 模块注释。
 """
 import json
 from datetime import datetime
