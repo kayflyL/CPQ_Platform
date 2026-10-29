@@ -185,12 +185,16 @@ class FlowCardRepository:
                 row = self.session.query(OpportunityCostSheet).filter(OpportunityCostSheet.id == cost_id).first()
                 if row:
                     row.status = "archived"
+                    # 解除报价链接：否则已转报价的成本表退回后仍命中报价节点
+                    # 上游列表口径（有 quotation_id 且非 draft），永远挂在报价节点
+                    row.quotation_id = None
                     row.updated_at = _now()
         elif from_node == "quoting":
             for cost_id in cost_ids:
                 row = self.session.query(OpportunityCostSheet).filter(OpportunityCostSheet.id == cost_id).first()
                 if row:
                     row.status = "draft"
+                    row.quotation_id = None
                     row.updated_at = _now()
 
         self.session.commit()
