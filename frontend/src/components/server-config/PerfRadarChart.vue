@@ -100,16 +100,16 @@ watch(chartColors, render)
 .radar-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px; font-size: 11px; cursor: default;
+  padding: 3px 9px; font-size: var(--cpq-font-size-xs); cursor: default;
   color: var(--cpq-text-secondary, #9BA1AA);
   background: var(--cpq-overlay-b20);
   border: 1px solid var(--cpq-overlay-w10);
   border-radius: var(--cpq-radius-full);
 }
-.chip b { font-size: 12px; font-weight: 800; color: var(--cpq-accent-primary, #1677ff); }
+.chip b { font-size: var(--cpq-font-size-sm); font-weight: 800; color: var(--cpq-accent-primary, #1677ff); }
 .chip.miss b { color: var(--cpq-text-muted, #6E7582); font-weight: 400; }
 
-.chip-pop { max-width: 240px; font-size: 12px; line-height: 1.7; }
+.chip-pop { max-width: 240px; font-size: var(--cpq-font-size-sm); line-height: 1.7; }
 .chip-pop-raw { font-weight: 700; margin-bottom: 2px; }
-.chip-pop-detail { color: var(--cpq-text-secondary, #9BA1AA); font-size: 11px; }
+.chip-pop-detail { color: var(--cpq-text-secondary, #9BA1AA); font-size: var(--cpq-font-size-xs); }
 </style>

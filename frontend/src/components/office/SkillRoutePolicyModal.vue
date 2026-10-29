@@ -99,11 +99,11 @@ function close() {
 }
 .srp-hint {
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.6;
 }
 .srp-foot {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 </style>

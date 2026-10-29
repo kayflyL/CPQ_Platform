@@ -129,7 +129,7 @@ onMounted(load)
   position: absolute;
   top: 8px;
   left: 8px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   line-height: 1;
   padding: 4px 8px;
   border-radius: var(--cpq-radius-sm);
@@ -140,6 +140,6 @@ onMounted(load)
 .sdp-status.no { background: rgba(255, 255, 255, 0.22); }
 .sdp-name { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
 .sdp-specs { display: flex; gap: 10px; flex-wrap: wrap; }
-.sdp-specs span { font-size: 12px; color: var(--cpq-text-secondary); }
+.sdp-specs span { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .sdp-specs i { font-style: normal; color: var(--cpq-text-muted); margin-right: 3px; }
 </style>

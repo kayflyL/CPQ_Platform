@@ -526,14 +526,14 @@ body .ant-picker-dropdown .ant-picker-panel-container {
 }
 .period-custom-pop .ant-popover-inner-content { padding: 14px; }
 .period-custom-pop .custom-panel { width: 250px; display: flex; flex-direction: column; gap: 12px; }
-.period-custom-pop .custom-sec-title { font-size: 11px; font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: 7px; letter-spacing: .3px; }
+.period-custom-pop .custom-sec-title { font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-text-secondary); margin-bottom: 7px; letter-spacing: .3px; }
 .period-custom-pop .preset-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary); font-size: 12px; cursor: pointer; transition: all .2s ease; }
+.period-custom-pop .preset-btn { padding: 5px 0; border: 1px solid var(--cpq-border-light); border-radius: var(--cpq-radius-sm); background: transparent; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); cursor: pointer; transition: all .2s ease; }
 .period-custom-pop .preset-btn:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .period-custom-pop .preset-btn.active { color: #fff; background: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .period-custom-pop .preset-btn.ghost { background: transparent; color: var(--cpq-text-muted); border-color: var(--cpq-border-light); }
 .period-custom-pop .custom-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 10px; border-top: 1px solid var(--cpq-border-secondary); }
-.period-custom-pop .custom-cur { font-size: 11px; color: var(--cpq-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.period-custom-pop .custom-cur { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* 全屏弹窗底部操作条（ResponsiveModal footer 槽约定类）：桌面右聚，手机端全宽等分、拇指可及 */
 #app .req-modal-actions { display: flex; justify-content: flex-end; gap: 8px; }
@@ -659,7 +659,7 @@ body.cpq-fs-modal-open .main-scroll::-webkit-scrollbar {
     border-radius: var(--cpq-radius-sm);
     background: var(--cpq-overlay-w4);
     color: var(--cpq-text-secondary);
-    font-size: 14px;
+    font-size: var(--cpq-font-size-base);
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
   }
@@ -670,7 +670,7 @@ body.cpq-fs-modal-open .main-scroll::-webkit-scrollbar {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    font-size: 16px;
+    font-size: var(--cpq-font-size-lg);
     font-weight: 600;
     color: var(--cpq-text-primary);
   }
@@ -695,7 +695,7 @@ body.cpq-fs-modal-open .main-scroll::-webkit-scrollbar {
   }
   #app .cpq-fs-modal .node-num { display: none; }
   #app .cpq-fs-modal .node-title-wrap h3 { display: none; }
-  #app .cpq-fs-modal .node-title-wrap p { margin: 0; font-size: 12px; }
+  #app .cpq-fs-modal .node-title-wrap p { margin: 0; font-size: var(--cpq-font-size-sm); }
   /* 二级面板（附件拖放条 .rac 等）在全屏态去自带内边距，左缘与主内容对齐（拖拽虚线框保留） */
   #app .cpq-fs-modal .rac { padding: 4px 0 0; }
   /* 底部操作条全宽等分 */

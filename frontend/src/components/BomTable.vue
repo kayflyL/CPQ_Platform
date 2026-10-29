@@ -147,7 +147,7 @@ const kpRows = computed(() => {
 .excel-ref-badge {
   margin: 0 12px 8px;
   padding: 4px 8px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 500;
   color: var(--cpq-accent-primary, #1677FF);
   background: var(--cpq-overlay-a8);
@@ -171,11 +171,11 @@ const kpRows = computed(() => {
 }
 
 .bom-section-icon {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .bom-section-title {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
@@ -194,7 +194,7 @@ const kpRows = computed(() => {
   width: 100%;
   table-layout: fixed;
   border-collapse: collapse;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 
 .bom-table thead {

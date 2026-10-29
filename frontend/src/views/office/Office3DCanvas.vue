@@ -1912,7 +1912,7 @@ function dispose() {
   padding: 7px 12px;
   background: linear-gradient(180deg, rgba(13, 20, 36, 0.96), rgba(13, 20, 36, 0.78));
   border-bottom: 1px solid rgba(120, 170, 255, 0.16);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 6px 20px var(--cpq-shadow-color-soft);
   backdrop-filter: blur(10px);
   z-index: 7;
 }
@@ -1920,7 +1920,7 @@ function dispose() {
 .office-3d-topbar-sep {
   width: 1px;
   align-self: stretch;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--cpq-overlay-w10);
   margin: 0 4px;
 }
 
@@ -1933,8 +1933,8 @@ function dispose() {
   align-items: center;
   gap: 2px;
   padding: 3px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--cpq-overlay-w5);
+  border: 1px solid var(--cpq-overlay-w8);
   border-radius: var(--cpq-radius-sm);
 }
 
@@ -1949,7 +1949,7 @@ function dispose() {
   border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: #c5d6f2;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
@@ -2004,7 +2004,7 @@ function dispose() {
   min-width: 44px;
   text-align: center;
   color: #c5d6f2;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-variant-numeric: tabular-nums;
 }
 
@@ -2029,7 +2029,7 @@ function dispose() {
   display: flex;
   gap: 2px;
   padding: 8px 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--cpq-overlay-w6);
 }
 
 .office-3d-side-tab {
@@ -2069,7 +2069,7 @@ function dispose() {
   align-items: center;
   gap: 6px;
   color: #7f9bd0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
@@ -2078,7 +2078,7 @@ function dispose() {
 
 .office-3d-side-section--group {
   margin-top: 6px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  border-top: 1px solid var(--cpq-overlay-w5);
 }
 
 .office-3d-side-section--group .anticon {
@@ -2093,14 +2093,14 @@ function dispose() {
   margin: 0 2px 8px;
   padding: 0 8px;
   height: 30px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--cpq-overlay-w6);
+  border: 1px solid var(--cpq-overlay-w10);
   border-radius: var(--cpq-radius-sm);
 }
 
 .office-3d-side-search .anticon {
   color: #7f9bd0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 
 .office-3d-side-search input {
@@ -2108,7 +2108,7 @@ function dispose() {
   border: none;
   background: transparent;
   color: #fff;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   outline: none;
 }
 
@@ -2132,7 +2132,7 @@ function dispose() {
 }
 
 .office-3d-side-row > .anticon {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   color: #8aa0c8;
   width: 18px;
   text-align: center;
@@ -2180,7 +2180,7 @@ function dispose() {
 }
 
 .office-3d-side-row-main i {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: #7f93ba;
   font-style: normal;
 }
@@ -2210,7 +2210,7 @@ function dispose() {
 
 .office-3d-props-title {
   color: #a2c8ff;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
 }
 
@@ -2218,7 +2218,7 @@ function dispose() {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .office-3d-props input {
@@ -2229,7 +2229,7 @@ function dispose() {
   border: 1px solid rgba(255, 255, 255, 0.25);
   border-radius: var(--cpq-radius-xs);
   padding: 3px 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .office-3d-inspector {
@@ -2244,7 +2244,7 @@ function dispose() {
   color: #fff;
   padding: 8px 12px;
   border-radius: var(--cpq-radius-sm);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   z-index: 5;
 }
 

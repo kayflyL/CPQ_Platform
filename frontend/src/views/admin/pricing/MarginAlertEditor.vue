@@ -123,12 +123,12 @@ const approvalThreshold = computed(() =>
   padding: 12px 16px;
 }
 .ma-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.ma-title { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--cpq-text-primary); }
-.ma-icon { font-size: 16px; }
+.ma-title { display: flex; align-items: center; gap: 8px; font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--cpq-text-primary); }
+.ma-icon { font-size: var(--cpq-font-size-lg); }
 .ma-tag { margin-left: 4px; }
 .ma-body { margin-top: 8px; }
-.ma-line { font-size: 12px; color: var(--cpq-text-secondary); line-height: 1.7; }
+.ma-line { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); line-height: 1.7; }
 .ma-label { display: inline-block; width: 40px; color: var(--cpq-text-muted); }
-.ma-hint { font-size: 11px; color: var(--cpq-text-muted); margin: 8px 0 0; }
-.ma-form-hint { margin-left: 12px; font-size: 12px; color: var(--cpq-text-muted); }
+.ma-hint { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); margin: 8px 0 0; }
+.ma-form-hint { margin-left: 12px; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 </style>

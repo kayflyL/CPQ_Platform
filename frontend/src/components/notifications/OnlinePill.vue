@@ -52,7 +52,7 @@ const selfId = computed(() => auth.user?.user_id || '')
   border: 1px solid var(--cpq-border-secondary);
   background: var(--cpq-overlay-w5);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -104,10 +104,10 @@ const selfId = computed(() => auth.user?.user_id || '')
 .online-title {
   font-weight: 600;
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 .online-sub {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .online-list {
@@ -119,7 +119,7 @@ const selfId = computed(() => auth.user?.user_id || '')
   padding: 24px 0;
   text-align: center;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .online-item {
   display: flex;
@@ -163,7 +163,7 @@ const selfId = computed(() => auth.user?.user_id || '')
 .online-item-role {
   margin-left: auto;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-secondary);
   background: var(--cpq-bg-secondary);
   border-radius: var(--cpq-radius-xs);

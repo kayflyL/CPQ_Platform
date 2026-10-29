@@ -315,17 +315,17 @@ if (props.autoOpen) drawerOpen.value = true
 .ac-head:hover { background: var(--cpq-overlay-w4, rgba(22,119,255,0.04)); }
 .ac-icon { width: 28px; height: 28px; border-radius: var(--cpq-radius-md, 6px);
   background: var(--cpq-overlay-w10, rgba(22,119,255,0.10)); display: flex;
-  align-items: center; justify-content: center; font-size: 14px; flex: none; }
+  align-items: center; justify-content: center; font-size: var(--cpq-font-size-base); flex: none; }
 .ac-meta { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
 .ac-title { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary, #1d2129); }
-.ac-sub { font-size: 11px; color: var(--cpq-text-muted, #86909c); }
-.ac-view { margin-left: auto; font-size: 11px; color: var(--cpq-accent-primary, #1677FF); flex: none; }
-.ac-loading { font-size: 12px; color: var(--cpq-text-muted, #86909c); padding: var(--cpq-space-2, 8px) 0; }
+.ac-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #86909c); }
+.ac-view { margin-left: auto; font-size: var(--cpq-font-size-xs); color: var(--cpq-accent-primary, #1677FF); flex: none; }
+.ac-loading { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c); padding: var(--cpq-space-2, 8px) 0; }
 .ac-toolbar { display: flex; align-items: center; gap: var(--cpq-space-4, 16px); margin-bottom: var(--cpq-space-3, 12px); }
-.deep-link { font-size: 12px; color: var(--cpq-accent-primary, #1677FF); cursor: pointer; margin-left: auto; }
+.deep-link { font-size: var(--cpq-font-size-sm); color: var(--cpq-accent-primary, #1677FF); cursor: pointer; margin-left: auto; }
 .ac-foot { display: flex; justify-content: flex-end; gap: var(--cpq-space-2, 8px); margin-top: var(--cpq-space-3, 12px); }
 .share-row { display: flex; align-items: center; gap: var(--cpq-space-2, 8px); flex-wrap: wrap; }
-.share-path { font-family: Consolas, monospace; font-size: 12px; background: var(--cpq-overlay-w6, rgba(22,119,255,0.08));
+.share-path { font-family: Consolas, monospace; font-size: var(--cpq-font-size-sm); background: var(--cpq-overlay-w6, rgba(22,119,255,0.08));
   border-radius: var(--cpq-radius-sm, 4px); padding: 3px 8px; word-break: break-all; }
 
 <style>

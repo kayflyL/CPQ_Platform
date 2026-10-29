@@ -343,12 +343,12 @@ function formatTime(iso: string) {
 }
 .section-header h3 {
   margin: 0;
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
 .section-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .archive-cols {
@@ -383,17 +383,17 @@ function formatTime(iso: string) {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--cpq-overlay-w6);
 }
-.col-icon { font-size: 14px; }
+.col-icon { font-size: var(--cpq-font-size-base); }
 .col-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); flex: 1; }
 .col-count {
-  font-size: 11px; color: var(--cpq-text-muted);
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted);
   background: var(--cpq-overlay-w6); padding: 1px 7px; border-radius: var(--cpq-radius-md);
 }
 .col-upload {
   width: 22px; height: 22px; border-radius: var(--cpq-radius-sm); border: none;
   background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary);
   cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .col-upload:hover { background: var(--cpq-overlay-a20); }
 .col-body { flex: 1; position: relative; }
@@ -414,7 +414,7 @@ function formatTime(iso: string) {
 .file-ic { font-size: 18px; flex-shrink: 0; }
 .file-main { flex: 1; min-width: 0; cursor: pointer; }
 .file-name {
-  font-size: 12px; font-weight: 500; color: var(--cpq-text-primary);
+  font-size: var(--cpq-font-size-sm); font-weight: 500; color: var(--cpq-text-primary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -426,7 +426,7 @@ function formatTime(iso: string) {
 .file-act {
   width: 22px; height: 22px; border-radius: var(--cpq-radius-xs); border: none;
   background: transparent; color: var(--cpq-text-muted); cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm);
   opacity: 0; transition: all var(--cpq-transition-fast);
 }
 .archive-file:hover .file-act { opacity: 1; }
@@ -461,7 +461,7 @@ function formatTime(iso: string) {
   background: transparent;
   color: var(--cpq-text-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   transition: all var(--cpq-transition-fast);
 }
 .view-toggle button.on { background: var(--cpq-accent-primary); color: #fff; }

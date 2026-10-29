@@ -237,12 +237,12 @@ onMounted(load)
   min-width: 0;
 }
 .cap-title {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
 .cap-desc {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .cap-user-exceptions {

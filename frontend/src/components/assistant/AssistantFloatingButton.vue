@@ -490,7 +490,7 @@ body.office-fullscreen-open .pet-collapsed {
 .fab-mark {
   position: absolute; inset: 0; margin: auto; width: 52px; height: 52px; border-radius: 50%;
   display: flex; align-items: center; justify-content: center;
-  background: var(--cpq-accent-primary); color: #fff; font-size: 20px; font-weight: 700;
+  background: var(--cpq-accent-primary); color: #fff; font-size: var(--cpq-font-size-xl); font-weight: 700;
 }
 
 /* 头顶气泡：回复中流式摘录 */
@@ -506,7 +506,7 @@ body.office-fullscreen-open .pet-collapsed {
   border: 1px solid var(--cpq-glass-border, rgba(0, 0, 0, .08));
   box-shadow: var(--cpq-glass-card-shadow, 0 8px 24px rgba(0, 0, 0, .12));
   backdrop-filter: blur(10px);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
   white-space: nowrap;
   overflow: hidden;
@@ -533,7 +533,7 @@ body.office-fullscreen-open .pet-collapsed {
   backdrop-filter: blur(14px);
   user-select: none;
 }
-.pet-menu-title { padding: 6px 10px 4px; font-size: 11px; color: var(--cpq-text-muted, #888); }
+.pet-menu-title { padding: 6px 10px 4px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #888); }
 .pet-menu-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 7px 10px; border: 0; border-radius: var(--cpq-radius-sm); background: transparent;
@@ -541,10 +541,10 @@ body.office-fullscreen-open .pet-collapsed {
 }
 .pet-menu-item:hover { background: var(--cpq-overlay-w2, rgba(0, 0, 0, .05)); }
 .pet-menu-item.active { color: var(--cpq-accent-primary, #1677ff); font-weight: 600; }
-.pet-menu-px { margin-left: auto; font-size: 11px; opacity: .55; font-variant-numeric: tabular-nums; }
-.pet-menu-check { font-size: 12px; }
+.pet-menu-px { margin-left: auto; font-size: var(--cpq-font-size-xs); opacity: .55; font-variant-numeric: tabular-nums; }
+.pet-menu-check { font-size: var(--cpq-font-size-sm); }
 .pet-menu-hint {
-  padding: 6px 10px 4px; font-size: 11px; opacity: .55;
+  padding: 6px 10px 4px; font-size: var(--cpq-font-size-xs); opacity: .55;
   border-top: 1px solid var(--cpq-border-secondary, rgba(0, 0, 0, .06));
   margin-top: 4px;
 }
@@ -566,7 +566,7 @@ body.office-fullscreen-open .pet-collapsed {
   background: var(--cpq-glass-card-bg);
   backdrop-filter: blur(8px);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   padding: 0;
   z-index: 4;

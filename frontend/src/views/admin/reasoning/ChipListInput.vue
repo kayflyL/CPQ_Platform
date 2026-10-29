@@ -65,7 +65,7 @@ function onKeydown(e: KeyboardEvent) {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 1px 4px 1px 8px;
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w8, rgba(22, 119, 255, 0.08));
@@ -76,7 +76,7 @@ function onKeydown(e: KeyboardEvent) {
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 18px;
   width: 16px;
   color: var(--cpq-text-muted);
@@ -89,7 +89,7 @@ function onKeydown(e: KeyboardEvent) {
   border: none;
   outline: none;
   background: transparent;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-primary);
 }
 .chip-box::placeholder { color: var(--cpq-text-muted); }

@@ -593,7 +593,7 @@ watch(
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   border: 1px solid var(--cpq-glass-border);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   flex-wrap: wrap;
 }
 
@@ -625,17 +625,17 @@ watch(
 }
 
 .patch-strip-label {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: #d48806;
   font-weight: 600;
 }
 
 .patch-chip {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .patch-clear {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   cursor: pointer;
 }
@@ -695,7 +695,7 @@ watch(
 }
 
 .sel-count {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
 }
 
@@ -723,14 +723,14 @@ watch(
 }
 
 .dossier-text {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-light);
   word-break: break-all;
 }
 
 .dossier-pos {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   margin: 2px 0 8px;
 }
@@ -740,7 +740,7 @@ watch(
   gap: 8px;
   align-items: flex-start;
   margin-bottom: 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .dossier-k {
@@ -764,7 +764,7 @@ watch(
 }
 
 .mapping-region {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-muted);
   margin-bottom: 4px;
@@ -776,7 +776,7 @@ watch(
   gap: 6px;
   padding: 3px 4px;
   border-radius: var(--cpq-radius-xs);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .mapping-row:hover {
@@ -822,7 +822,7 @@ watch(
 
 .footer-hint {
   margin-right: auto;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 
@@ -870,7 +870,7 @@ watch(
 }
 .parse-mobile-title {
   margin: 4px 0 0;
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }

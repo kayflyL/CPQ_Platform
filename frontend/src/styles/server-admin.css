@@ -9,7 +9,7 @@
 .sa-table .ant-table-thead > tr > th {
   background: transparent;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   border-bottom: 1px solid var(--cpq-border-primary);
 }

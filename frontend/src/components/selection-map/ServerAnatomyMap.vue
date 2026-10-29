@@ -255,18 +255,18 @@ function sliceDecor(items: DecItem[], cls: string, count: number | undefined): D
 }
 .sam-region.hl .sam-name { fill: #d1fae5; }
 .sam-region.empty .sam-region-bg {
-  fill: rgba(255, 255, 255, 0.03);
-  stroke: rgba(255, 255, 255, 0.08);
+  fill: var(--cpq-overlay-w3);
+  stroke: var(--cpq-overlay-w8);
   stroke-dasharray: 6 5;
 }
-.sam-norule-bg { fill: rgba(0, 0, 0, 0.18); stroke: rgba(255, 255, 255, 0.06); stroke-dasharray: 4 4; }
-.sam-dec-label { fill: rgba(255, 255, 255, 0.55); font-size: 11px; pointer-events: none; }
+.sam-norule-bg { fill: rgba(0, 0, 0, 0.18); stroke: var(--cpq-overlay-w6); stroke-dasharray: 4 4; }
+.sam-dec-label { fill: rgba(255, 255, 255, 0.55); font-size: var(--cpq-font-size-xs); pointer-events: none; }
 .sam-name { fill: var(--cpq-text-primary); font-size: 15px; font-weight: 600; pointer-events: none; }
 .sam-region.empty .sam-name { fill: var(--cpq-text-disabled); }
 .sam-region.on .sam-name { fill: #fff; }
 .dec-bay, .dec-cpu, .dec-dimm, .dec-gpu, .dec-fan, .dec-psu, .dec-slot, .dec-ocp {
   fill: rgba(255, 255, 255, 0.13);
-  stroke: rgba(255, 255, 255, 0.1);
+  stroke: var(--cpq-overlay-w10);
   stroke-width: 1;
   pointer-events: none;
 }
@@ -281,9 +281,9 @@ function sliceDecor(items: DecItem[], cls: string, count: number | undefined): D
   stroke: rgba(255, 255, 255, 0.35);
   stroke-width: 1;
 }
-.sam-badge text { fill: #fff; font-size: 12px; font-weight: 700; }
+.sam-badge text { fill: #fff; font-size: var(--cpq-font-size-sm); font-weight: 700; }
 .sam-badge.zero { opacity: 0.55; }
-.sam-badge.zero circle { fill: var(--cpq-bg-tertiary); stroke: rgba(255, 255, 255, 0.2); }
+.sam-badge.zero circle { fill: var(--cpq-bg-tertiary); stroke: var(--cpq-overlay-w20); }
 .sam-badge.zero text { fill: var(--cpq-text-disabled); }
 .sam-region.dragOver .sam-region-bg { stroke: #38bdf8; stroke-width: 2.5; filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.8)); }
 

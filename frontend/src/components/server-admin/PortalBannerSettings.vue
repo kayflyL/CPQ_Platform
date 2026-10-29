@@ -201,7 +201,7 @@ onMounted(() => {
 <style scoped>
 .lib-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .lib-head h3 { margin: 0; font-size: 17px; font-weight: 700; }
-.hint { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
+.hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #6E7582); }
 
 .banner-form { max-width: 640px; }
 
@@ -217,8 +217,8 @@ onMounted(() => {
 }
 .upload-btn:hover { border-color: var(--cpq-accent-primary, #1677FF); color: var(--cpq-accent-primary, #1677FF); }
 .upload-btn.is-busy { opacity: .6; cursor: default; }
-.up-plus { font-size: 20px; line-height: 1; }
-.up-text { font-size: 12px; }
+.up-plus { font-size: var(--cpq-font-size-xl); line-height: 1; }
+.up-text { font-size: var(--cpq-font-size-sm); }
 
 .thumb-cell { display: flex; flex-direction: column; gap: 4px; width: 132px; }
 
@@ -232,7 +232,7 @@ onMounted(() => {
 .banner-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .main-tag {
   position: absolute; top: 4px; left: 4px;
-  font-size: 11px; padding: 1px 6px; border-radius: var(--cpq-radius-full);
+  font-size: var(--cpq-font-size-xs); padding: 1px 6px; border-radius: var(--cpq-radius-full);
   color: #fff; background: rgba(22, 119, 255, 0.85);
 }
 .thumb-ops {
@@ -244,7 +244,7 @@ onMounted(() => {
   border: none; border-radius: 50%;
   background: rgba(0, 0, 0, 0.45);
   color: rgba(255, 255, 255, 0.9);
-  font-size: 11px; line-height: 1;
+  font-size: var(--cpq-font-size-xs); line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   backdrop-filter: blur(4px);
@@ -257,7 +257,7 @@ onMounted(() => {
 .add-url-row { margin-top: 12px; max-width: 640px; }
 
 .lib-sec { margin-top: 12px; }
-.lib-title { font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); margin-bottom: 8px; }
+.lib-title { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #9BA1AA); margin-bottom: 8px; }
 .lib-grid { display: flex; flex-wrap: wrap; gap: 8px; max-width: 640px; }
 .lib-thumb {
   position: relative;
@@ -276,7 +276,7 @@ onMounted(() => {
   border: none; border-radius: var(--cpq-radius-xs);
   background: rgba(0, 0, 0, 0.55);
   color: rgba(255, 255, 255, 0.9);
-  font-size: 11px; line-height: 1;
+  font-size: var(--cpq-font-size-xs); line-height: 1;
   cursor: pointer;
   display: flex; align-items: center; justify-content: center;
 }

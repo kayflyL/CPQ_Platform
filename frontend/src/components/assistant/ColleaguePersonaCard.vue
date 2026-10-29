@@ -175,9 +175,9 @@ const toolRest = computed(() => {
   border: 1px solid color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 35%, transparent);
   padding: 0 6px; border-radius: var(--cpq-radius-full);
 }
-.pc-role { font-size: 12px; color: var(--cpq-text-muted, #86909c); margin-top: 2px; }
+.pc-role { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c); margin-top: 2px; }
 .pc-status {
-  flex-shrink: 0; font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent;
+  flex-shrink: 0; font-size: var(--cpq-font-size-sm); padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent;
 }
 .pc-bio { font-size: 12.5px; line-height: 1.7; color: var(--cpq-text-secondary); margin: 10px 0; }
 .pc-mission {
@@ -187,11 +187,11 @@ const toolRest = computed(() => {
   border: 1px solid var(--cpq-glass-border, rgba(120, 144, 176, 0.38));
 }
 .pc-mission:hover { border-color: var(--cpq-glass-border-strong, rgba(22, 119, 255, 0.45)); }
-.pc-mission-k { flex-shrink: 0; font-size: 11px; color: var(--cpq-text-muted, #86909c); }
+.pc-mission-k { flex-shrink: 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #86909c); }
 .pc-mission-v { font-size: 12.5px; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pc-tools { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
 .pc-chip {
-  font-size: 11px; padding: 2px 9px; border-radius: var(--cpq-radius-full);
+  font-size: var(--cpq-font-size-xs); padding: 2px 9px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-accent-primary, #1677ff);
   background: color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 11%, transparent);
 }

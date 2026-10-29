@@ -439,25 +439,25 @@ const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.val
 .won-list::-webkit-scrollbar-track { background: transparent; }
 .won-row { display: grid; grid-template-columns: 20px 1fr 34px 34px 46px; align-items: center; gap: 8px; padding: 6px 2px; flex: 1 1 0; min-height: 16px; border-bottom: 1px solid var(--cpq-overlay-w4); }
 .won-row:last-child { border-bottom: none; }
-.won-head { flex: 0 0 auto; min-height: 0; font-size: 11px; color: var(--cpq-text-muted); font-weight: 500; border-bottom-color: var(--cpq-overlay-w8); }
+.won-head { flex: 0 0 auto; min-height: 0; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); font-weight: 500; border-bottom-color: var(--cpq-overlay-w8); }
 .won-clickable { cursor: pointer; transition: background var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .won-clickable:hover { background: var(--cpq-overlay-a8); }
 .won-expand-hint { color: var(--cpq-accent-primary); font-size: 10px; }
-.won-rank { font-size: 11px; font-weight: 700; color: var(--cpq-accent-primary); text-align: center; font-variant-numeric: tabular-nums; }
+.won-rank { font-size: var(--cpq-font-size-xs); font-weight: 700; color: var(--cpq-accent-primary); text-align: center; font-variant-numeric: tabular-nums; }
 .won-name { font-size: 12.5px; color: var(--cpq-text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .won-num { font-size: 12.5px; color: var(--cpq-text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .won-won { color: #52C9A0; font-weight: 600; }
-.won-rate-head { font-size: 11px; color: var(--cpq-text-muted); text-align: right; }
+.won-rate-head { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); text-align: right; }
 .won-rate { font-size: 12.5px; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
 .won-others .won-name, .won-others .won-num { color: var(--cpq-text-muted); }
 .deck-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex: none; }
 .deck-title { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); letter-spacing: 0.5px; }
 .deck-line { flex: 1; height: 1px; background: linear-gradient(90deg, var(--cpq-overlay-a15), transparent); }
-.rank-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: 11px; cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
+.rank-toggle { display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border: 1px solid var(--cpq-overlay-a20); border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a8); color: var(--cpq-accent-primary); font-size: var(--cpq-font-size-xs); cursor: pointer; transition: all var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .rank-toggle:hover { background: var(--cpq-overlay-a15); border-color: var(--cpq-accent-primary); }
 .chart-inner { flex: 1 1 0; width: 100%; min-width: 0; min-height: 120px; }
 .chart-inner-pie { cursor: pointer; }
-.chart-empty { flex: 1 1 0; display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: 12px; }
+.chart-empty { flex: 1 1 0; display: flex; align-items: center; justify-content: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 .rank-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .rank-body-scroll { overflow-y: auto; }
 .rank-body-scroll::-webkit-scrollbar { width: 6px; }
@@ -498,7 +498,7 @@ const currentDistOpt = computed(() => distView.value === 'platform' ? pieOpt.val
   .list-tile-preview { display: flex; flex-direction: column; gap: 5px; min-height: 0; overflow: hidden; }
   .lt-item { display: flex; align-items: baseline; gap: 6px; line-height: 1.3; }
   .lt-name { flex: 1 1 0; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
-  .lt-plat { flex: none; font-size: 11px; color: var(--cpq-text-secondary); opacity: 0.6; }
-  .lt-empty { font-size: 12px; color: var(--cpq-text-muted); font-style: italic; }
+  .lt-plat { flex: none; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); opacity: 0.6; }
+  .lt-empty { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); font-style: italic; }
 }
 </style>

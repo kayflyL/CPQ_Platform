@@ -379,7 +379,7 @@ function onPickSelect(slot: string, value: any) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   color: var(--cpq-accent-primary, #1677ff);
   border: 1px solid var(--cpq-accent-primary, #1677ff);
@@ -395,7 +395,7 @@ function onPickSelect(slot: string, value: any) {
 }
 .am-q-group-label {
   padding: 8px 12px 4px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #8c8c8c);
   display: flex;
   align-items: center;
@@ -405,7 +405,7 @@ function onPickSelect(slot: string, value: any) {
 .am-q-pick-select {
   flex: none;
   width: 200px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .am-q-pick-err {
   padding: 4px 12px 0;
@@ -493,7 +493,7 @@ function onPickSelect(slot: string, value: any) {
   padding: 8px 12px;
   border-top: 1px solid var(--cpq-overlay-w6, rgba(255,255,255,.08));
   background: var(--cpq-overlay-w2, rgba(255,255,255,.02));
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .am-q-stepper-label {
   color: var(--cpq-text-muted, #8c8c8c);
@@ -526,7 +526,7 @@ function onPickSelect(slot: string, value: any) {
   border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.14));
   background: transparent;
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-align: center;
   -moz-appearance: textfield;
 }
@@ -582,7 +582,7 @@ function onPickSelect(slot: string, value: any) {
   border-radius: var(--cpq-radius-md);
   border: 1px solid var(--cpq-overlay-w10, rgba(255, 255, 255, .12));
   background: var(--cpq-overlay-w06, rgba(255, 255, 255, .06));
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 18px;
   color: var(--cpq-text-secondary, #a6adb4);
 }
@@ -623,7 +623,7 @@ function onPickSelect(slot: string, value: any) {
   border: 1px solid var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-accent-primary, #1677ff);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: opacity .15s ease;
@@ -642,7 +642,7 @@ function onPickSelect(slot: string, value: any) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   color: var(--cpq-text-secondary, #a6adb4);
 }
@@ -663,7 +663,7 @@ function onPickSelect(slot: string, value: any) {
   word-break: break-word;
 }
 .am-q-desc {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.4;
   color: var(--cpq-text-muted, #8c8c8c);
   word-break: break-word;

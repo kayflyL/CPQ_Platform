@@ -69,7 +69,7 @@
   color: var(--cpq-text-primary);
 }
 .page-head-sub {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   margin-top: 2px;
 }

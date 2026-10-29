@@ -187,7 +187,7 @@ function enter(to: string) { router.push(to) }
 /* 左：目录树 */
 .side { width: 216px; flex-shrink: 0; padding: 14px 12px; border-right: 1px solid var(--cpq-glass-border); height: 100%; overflow: auto; }
 .side-brand { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10.5px; letter-spacing: .18em; color: var(--cpq-text-muted); padding: 0 10px 16px; }
-.side-cap { font-size: 11px; color: var(--cpq-text-muted); letter-spacing: .1em; padding: 0 10px; margin: 4px 0 8px; }
+.side-cap { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); letter-spacing: .1em; padding: 0 10px; margin: 4px 0 8px; }
 .tree-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
   padding: 8px 10px; margin-bottom: 2px; border: none; border-radius: var(--cpq-radius-sm);
@@ -198,7 +198,7 @@ function enter(to: string) { router.push(to) }
 .tree-item.on { background: color-mix(in srgb, var(--sc, var(--cpq-accent-primary)) 12%, transparent); color: var(--cpq-text-primary); }
 .tree-item.on .dot { background: var(--sc, var(--cpq-accent-primary)); box-shadow: 0 0 8px var(--sc, var(--cpq-accent-primary)); }
 .tree-item .dot { width: 7px; height: 7px; border-radius: var(--cpq-radius-xs); background: var(--cpq-text-muted); flex-shrink: 0; }
-.tree-item .n { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--cpq-text-muted); }
+.tree-item .n { margin-left: auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .side-sep { border: none; border-top: 1px solid var(--cpq-glass-border); margin: 14px 10px; }
 .wf-item {
   display: flex; align-items: center; gap: 8px; width: 100%;
@@ -207,7 +207,7 @@ function enter(to: string) { router.push(to) }
   transition: background .15s, color .15s;
 }
 .wf-item:hover { background: var(--cpq-overlay-w6); color: var(--cpq-text-primary); }
-.wf-item .ic { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; color: var(--cpq-text-muted); }
+.wf-item .ic { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
 /* 右：内容区 */
 .main { flex: 1; min-width: 0; padding: 0 4px 60px 26px; overflow-y: auto; }
@@ -252,7 +252,7 @@ function enter(to: string) { router.push(to) }
   background-image: linear-gradient(color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--h) 7%, transparent) 1px, transparent 1px);
   background-size: 34px 34px; mask-image: linear-gradient(100deg, transparent 42%, #000 100%);
 }
-.hero-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .16em; color: color-mix(in srgb, var(--h) 78%, var(--cpq-text-primary)); margin-bottom: 12px; }
+.hero-kicker { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--cpq-font-size-xs); letter-spacing: .16em; color: color-mix(in srgb, var(--h) 78%, var(--cpq-text-primary)); margin-bottom: 12px; }
 .hero-title { font-size: 25px; font-weight: 800; letter-spacing: -.5px; color: var(--cpq-text-primary); margin-bottom: 10px; }
 .hero-desc { font-size: 13.5px; color: var(--cpq-text-secondary); line-height: 1.75; max-width: 560px; margin-bottom: 20px; }
 .hero-actions { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
@@ -297,7 +297,7 @@ function enter(to: string) { router.push(to) }
 }
 .card-title { font-size: 15.5px; font-weight: 600; line-height: 1.45; color: var(--cpq-text-primary); transition: color .1s; }
 .card-sub { font-size: 12.5px; color: var(--cpq-text-secondary); line-height: 1.65; transition: color .1s; }
-.ar { position: absolute; right: 16px; bottom: 16px; color: var(--cpq-text-muted); font-size: 14px; transition: color .1s; }
+.ar { position: absolute; right: 16px; bottom: 16px; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-base); transition: color .1s; }
 
 .sol-empty { color: var(--cpq-text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 @media (prefers-reduced-motion: reduce) { .sol-card { animation: none !important; } }

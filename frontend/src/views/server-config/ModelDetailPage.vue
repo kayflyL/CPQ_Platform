@@ -552,7 +552,7 @@ onBeforeUnmount(() => {
 }
 .doc-btn:hover { border-color: var(--primary); color: var(--primary-bright); }
 
-.lc-chip { font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent; }
+.lc-chip { font-size: var(--cpq-font-size-sm); font-weight: 600; padding: 3px 10px; border-radius: var(--cpq-radius-full); border: 1px solid transparent; }
 .lc-active { color: #1f9d6b; background: rgba(125, 215, 170, .18); border-color: rgba(125, 215, 170, .45); }
 .lc-new    { color: #2f7de1; background: rgba(150, 195, 250, .18); border-color: rgba(150, 195, 250, .45); }
 .lc-eol    { color: #c8861a; background: rgba(245, 200, 110, .18); border-color: rgba(245, 200, 110, .45); }
@@ -563,10 +563,10 @@ onBeforeUnmount(() => {
 .sec-last { padding-bottom: 8px; }
 .sec-head { display: flex; align-items: flex-end; gap: 16px; margin-bottom: 20px; flex-wrap: wrap; }
 .sec-kicker {
-  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
+  font-family: var(--font-mono); font-size: var(--cpq-font-size-xs); font-weight: 600;
   letter-spacing: 0.22em; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;
 }
-.sec-title { font-size: 24px; font-weight: 700; letter-spacing: 0.01em; line-height: 1.15; color: #f2f8ff; }
+.sec-title { font-size: var(--cpq-font-size-2xl); font-weight: 700; letter-spacing: 0.01em; line-height: 1.15; color: #f2f8ff; }
 .sec-sub { font-size: 12.5px; color: var(--muted); margin-left: auto; padding-bottom: 3px; }
 
 .overview-text { font-size: 15px; line-height: 1.9; color: var(--text-2); margin: 0; white-space: pre-wrap; }
@@ -603,7 +603,7 @@ onBeforeUnmount(() => {
 .scn-card:hover .scn-photo img { transform: scale(1.045); filter: saturate(1) brightness(0.96); }
 .scn-body { padding: 13px 16px 15px; border-top: 1px solid var(--line-soft); }
 .scn-card > .scn-body:first-child { border-top: none; }   /* 无图卡：正文顶到卡边 */
-.scn-name { font-size: 14px; font-weight: 700; color: #f2f8ff; margin-bottom: 5px; }
+.scn-name { font-size: var(--cpq-font-size-base); font-weight: 700; color: #f2f8ff; margin-bottom: 5px; }
 .scn-fit { font-size: 12.5px; color: var(--text-2); line-height: 1.65; }
 
 /* 可选配置卡 */
@@ -614,9 +614,9 @@ onBeforeUnmount(() => {
 }
 .cfg-card:hover { background: rgba(255, 255, 255, 0.04); }
 .cfg-card.expanded { border-color: var(--primary); }
-.cfg-name { font-size: 14px; font-weight: 700; display: flex; gap: 8px; align-items: center; color: #f2f8ff; }
+.cfg-name { font-size: var(--cpq-font-size-base); font-weight: 700; display: flex; gap: 8px; align-items: center; color: #f2f8ff; }
 .cfg-primary { font-size: 10px; color: #1c0f07; background: var(--primary); padding: 1px 8px; border-radius: var(--cpq-radius-full); white-space: nowrap; }
-.cfg-spec { font-family: var(--font-mono); font-size: 12px; color: var(--muted); margin-top: 5px; }
+.cfg-spec { font-family: var(--font-mono); font-size: var(--cpq-font-size-sm); color: var(--muted); margin-top: 5px; }
 .cfg-body { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line-soft); font-size: 12.5px; color: var(--text-2); line-height: 1.7; display: flex; flex-direction: column; gap: 10px; }
 .cfg-body p { margin: 0; }
 .cfg-body b { color: #e8f3ff; margin-right: 10px; }
@@ -635,18 +635,18 @@ onBeforeUnmount(() => {
 }
 .doc-card:hover { background: rgba(255, 255, 255, 0.04); border-color: var(--primary); }
 .doc-card-tag {
-  font-size: 11px; font-weight: 600; letter-spacing: 0.08em;
+  font-size: var(--cpq-font-size-xs); font-weight: 600; letter-spacing: 0.08em;
   color: var(--primary-bright); border: 1px solid var(--line-soft);
   border-radius: var(--cpq-radius-full); padding: 1px 10px;
 }
-.doc-card-name { max-width: 100%; font-size: 14px; font-weight: 600; color: #f2f8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doc-card-meta { display: flex; align-items: center; width: 100%; font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.doc-card-name { max-width: 100%; font-size: var(--cpq-font-size-base); font-weight: 600; color: #f2f8ff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-card-meta { display: flex; align-items: center; width: 100%; font-family: var(--font-mono); font-size: var(--cpq-font-size-sm); color: var(--muted); }
 .doc-card-cta { margin-left: auto; font-family: inherit; font-weight: 600; color: #8cbdff; }
 
 /* 完整技术规格（折叠） */
 .specs { border-radius: var(--cpq-radius-md); border: 1px solid var(--line-soft); background: rgba(255, 255, 255, 0.02); overflow: hidden; }
 .spec-eyebrow {
-  font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  font-family: var(--font-mono); font-size: var(--cpq-font-size-xs); letter-spacing: 0.14em; text-transform: uppercase;
   color: var(--muted); padding: 13px 24px 12px;
 }
 .specs summary {
@@ -656,12 +656,12 @@ onBeforeUnmount(() => {
 .specs summary::-webkit-details-marker { display: none; }
 .specs summary .chev { transition: transform 0.2s; color: var(--muted); font-size: 13px; margin-left: auto; }
 .specs[open] summary .chev { transform: rotate(180deg); }
-.specs summary .hint { font-size: 12px; color: var(--muted); font-weight: 400; }
+.specs summary .hint { font-size: var(--cpq-font-size-sm); color: var(--muted); font-weight: 400; }
 .spec-row { display: flex; border-top: 1px solid var(--line-soft); }
 .spec-k { flex: 0 0 200px; padding: 11px 16px 11px 24px; font-size: 12.5px; color: var(--muted); }
 .spec-v { flex: 1; padding: 11px 24px 11px 16px; font-size: 13.5px; font-weight: 500; color: var(--text); font-variant-numeric: tabular-nums; white-space: pre-wrap; }
 
-.note-empty { padding: 56px 0; text-align: center; color: var(--muted); font-size: 14px; }
+.note-empty { padding: 56px 0; text-align: center; color: var(--muted); font-size: var(--cpq-font-size-base); }
 
 @media (max-width: 760px) {
   .hero-scene { min-height: calc(520px + var(--cpq-header-clearance, 0px)); }
@@ -687,12 +687,12 @@ onBeforeUnmount(() => {
    菜单本体是 antd 浅色，徽标/字号在此配套调 */
 .model-doc-menu .mdoc-tag {
   display: inline-block; margin-right: 8px; padding: 0 8px; border-radius: 4px;
-  font-size: 12px; font-weight: 600; line-height: 20px; vertical-align: middle;
+  font-size: var(--cpq-font-size-sm); font-weight: 600; line-height: 20px; vertical-align: middle;
   color: #2f6bff; background: rgba(64, 120, 255, 0.12);
 }
 .model-doc-menu .mdoc-name {
   display: inline-block; max-width: 300px; overflow: hidden;
   text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
 }
-.model-doc-menu .mdoc-size { margin-left: 8px; font-size: 12px; color: #999; }
+.model-doc-menu .mdoc-size { margin-left: 8px; font-size: var(--cpq-font-size-sm); color: #999; }
 </style>

@@ -76,7 +76,7 @@ function removeRow(idx: number) {
 
 <style scoped>
 .jr-editor { display: flex; flex-direction: column; gap: 8px; }
-.jr-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 2px; }
+.jr-hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin: 0 0 2px; }
 .jr-row {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   padding: 8px; border-radius: var(--cpq-radius-sm);

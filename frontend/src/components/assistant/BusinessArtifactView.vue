@@ -130,16 +130,16 @@ const slotRows = computed(() => {
   background: var(--cpq-bg-card, #ffffff);
 }
 .ba-head { display: flex; align-items: center; gap: 8px; }
-.ba-badge { font-size: 12px; color: var(--cpq-accent-primary, #1677ff); background: var(--cpq-overlay-a10, #e8f3ff); padding: 2px 8px; border-radius: var(--cpq-radius-full); }
+.ba-badge { font-size: var(--cpq-font-size-sm); color: var(--cpq-accent-primary, #1677ff); background: var(--cpq-overlay-a10, #e8f3ff); padding: 2px 8px; border-radius: var(--cpq-radius-full); }
 .ba-title { font-weight: 600; color: var(--cpq-text-primary); }
-.ba-status { margin-left: auto; font-size: 12px; color: var(--cpq-text-muted, #86909c); }
+.ba-status { margin-left: auto; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c); }
 .ba-summary { margin-top: 6px; font-size: 13px; color: var(--cpq-text-secondary, #4e5969); }
 .ba-actions { margin-top: 6px; }
 .ba-body { margin-top: 8px; }
 .ba-scheme-editor { min-height: 220px; }
-.ba-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 6px; }
+.ba-table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-sm); margin-top: 6px; }
 .ba-table th, .ba-table td { border: 1px solid var(--cpq-border-secondary, #f0f0f0); padding: 4px 8px; text-align: left; color: var(--cpq-text-primary); }
 .ba-table th { background: var(--cpq-bg-tertiary, #fafafa); }
 .ba-requirement-text { white-space: pre-wrap; margin-bottom: 10px; color: var(--cpq-text-primary); }
-.ba-raw { white-space: pre-wrap; font-size: 12px; color: var(--cpq-text-secondary); }
+.ba-raw { white-space: pre-wrap; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 </style>

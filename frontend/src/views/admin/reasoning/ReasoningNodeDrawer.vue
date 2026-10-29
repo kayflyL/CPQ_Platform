@@ -846,7 +846,7 @@ async function save() {
 }
 .out-fmt.dis { opacity: .5; cursor: not-allowed; }
 .out-fmt-name { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary); display: flex; align-items: center; gap: 6px; }
-.out-fmt-name .ico { font-size: 14px; }
+.out-fmt-name .ico { font-size: var(--cpq-font-size-base); }
 .out-fmt-desc { margin-top: 4px; font-size: 11.5px; color: var(--cpq-text-secondary); line-height: 1.55; }
 .out-fmt-badge {
   position: absolute; top: 9px; right: 9px; font-size: 10px; padding: 2px 7px;
@@ -896,7 +896,7 @@ async function save() {
   margin-left: 6px;
   padding: 1px 8px;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   vertical-align: middle;
 }
 .node-behavior-chip { background: rgba(22, 119, 255, 0.14); color: #6ea8ff; }
@@ -907,7 +907,7 @@ async function save() {
 .node-io-contract { display: flex; flex-direction: column; gap: 8px; }
 .node-io-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .node-io-tag {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-secondary);
   margin-right: 2px;
@@ -916,7 +916,7 @@ async function save() {
   display: inline-flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 2px 7px;
   border-radius: var(--cpq-radius-full);
   background: var(--cpq-glass-1-bg);
@@ -925,9 +925,9 @@ async function save() {
 .node-io-var small { font-size: 10px; color: var(--cpq-text-muted); }
 .node-io-var.in { border: 1px solid #d6e4ff; }
 .node-io-var.out { border: 1px solid #d9f0e4; }
-.node-io-empty { font-size: 12px; color: var(--cpq-text-muted); }
-.rf-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 4px 0 0; }
-.l6-target-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 2px 0 10px; }
+.node-io-empty { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
+.rf-hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin: 4px 0 0; }
+.l6-target-table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-sm); margin: 2px 0 10px; }
 .l6-target-table th, .l6-target-table td { border: 1px solid var(--cpq-border-primary); padding: 6px 8px; text-align: left; }
 .l6-target-table th { background: var(--cpq-glass-2-bg); font-weight: 600; color: var(--cpq-text-secondary); }
 .l6-target-table td { color: var(--cpq-text-primary); }
@@ -935,12 +935,12 @@ async function save() {
 .rf-output-list { margin: 4px 0 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--cpq-text-primary); line-height: 1.6; }
 .rc-check-list { display: flex; flex-direction: column; gap: 8px; padding-top: 2px; }
 .rf-wl-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
-.rf-json { font-family: ui-monospace, monospace; font-size: 12px; }
+.rf-json { font-family: ui-monospace, monospace; font-size: var(--cpq-font-size-sm); }
 .rf-sec { font-size: 13px; margin-top: 8px; }
 .rf-checks { display: flex; flex-wrap: wrap; gap: 12px 16px; padding: 4px 0; }
 .rf-rec-models { display: flex; flex-direction: column; gap: 8px; width: 100%; }
 .rf-rec-row { display: flex; align-items: center; gap: 10px; }
-.rf-rec-label { min-width: 150px; font-size: 12px; color: var(--cpq-text-secondary); }
+.rf-rec-label { min-width: 150px; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 
 .node-zone {
   margin-bottom: 14px;
@@ -973,11 +973,11 @@ async function save() {
   background: rgba(22, 119, 255, 0.14);
   color: #6ea8ff;
   border: 1px solid rgba(22, 119, 255, 0.35);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
 }
 .node-zone-title { font-size: 13px; font-weight: 700; color: var(--cpq-text-primary); }
-.node-zone-note { margin-left: auto; font-size: 11px; color: var(--cpq-text-muted); }
+.node-zone-note { margin-left: auto; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .node-zone-body { padding: 13px 14px; }
 .node-head-toggle { cursor: pointer; }
 .node-chevron {
@@ -991,7 +991,7 @@ async function save() {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   transition: transform 0.2s ease, background 0.15s ease, color 0.15s ease;
 }
@@ -1013,14 +1013,14 @@ async function save() {
 .tl-card:hover { border-color: var(--cpq-accent-primary, #1677ff); transform: translateY(-1px); }
 .tl-card--add {
   border-style: dashed; color: var(--cpq-text-secondary, #a6adb4);
-  text-align: center; font-size: 12px; padding: 8px;
+  text-align: center; font-size: var(--cpq-font-size-sm); padding: 8px;
   background: transparent; cursor: pointer;
 }
 .tl-card--add:hover { color: var(--cpq-accent-primary, #1677ff); transform: none; }
 .tl-card-head { display: flex; align-items: center; gap: 8px; }
 .tl-card-name { font-weight: 600; color: var(--cpq-text-primary); font-size: 13px; }
-.tl-card-kind { margin-left: auto; font-size: 11px; color: var(--cpq-text-secondary); }
-.tl-card-meta { display: flex; gap: 10px; margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
+.tl-card-kind { margin-left: auto; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); }
+.tl-card-meta { display: flex; gap: 10px; margin-top: 6px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 /* 规则层：已选卡网格 + 虚线尾卡（卡片本体在 RuleCard，语法对齐 ToolCard） */
 .kb-grid {
   display: grid;

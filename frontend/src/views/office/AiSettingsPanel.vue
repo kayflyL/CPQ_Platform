@@ -1288,7 +1288,7 @@ onMounted(loadAccessRoles)
 }
 
 .probe-url {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   opacity: 0.7;
   word-break: break-all;
 }
@@ -1303,7 +1303,7 @@ onMounted(loadAccessRoles)
 
 .page-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--cpq-font-size-xl);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
@@ -1335,12 +1335,12 @@ onMounted(loadAccessRoles)
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
 }
 .colleague-meta { flex: 1; min-width: 0; }
-.colleague-name { font-weight: 600; font-size: 14px; color: var(--cpq-text-primary); }
-.colleague-role { font-size: 12px; color: var(--cpq-text-muted); }
+.colleague-name { font-weight: 600; font-size: var(--cpq-font-size-base); color: var(--cpq-text-primary); }
+.colleague-role { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .colleague-detail { flex: 1; min-width: 0; }
 
 .form-section {
@@ -1352,7 +1352,7 @@ onMounted(loadAccessRoles)
 
 .section-title {
   margin: 0 0 12px;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
   display: flex;
@@ -1361,7 +1361,7 @@ onMounted(loadAccessRoles)
 }
 
 .section-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 400;
   color: var(--cpq-text-muted);
 }
@@ -1411,17 +1411,17 @@ onMounted(loadAccessRoles)
   background: var(--cpq-bg-container, transparent);
 }
 .audit-kpi span {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .audit-kpi strong {
-  font-size: 24px;
+  font-size: var(--cpq-font-size-2xl);
   line-height: 1;
   color: var(--cpq-text-primary);
 }
 
 .form-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 
@@ -1438,7 +1438,7 @@ onMounted(loadAccessRoles)
 }
 
 .test-result {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.4;
 }
 
@@ -1455,9 +1455,9 @@ onMounted(loadAccessRoles)
 .threads-head-right { display: flex; align-items: center; gap: 10px; }
 .thread-stats { display: flex; align-items: center; gap: 16px; color: var(--cpq-text-secondary); font-size: 13px; margin-top: 6px; }
 .threads-ops { display: flex; align-items: center; gap: 10px; margin: 8px 0; }
-.threads-ops-tip { font-size: 12px; color: var(--cpq-text-muted); }
+.threads-ops-tip { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .threads-filters { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 8px 0; }
-.thread-meta-line { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary); font-size: 12px; }
+.thread-meta-line { display: flex; flex-wrap: wrap; gap: 10px; padding: 8px 10px; margin-bottom: 10px; border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
 .thread-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; display: inline-block; vertical-align: bottom; }
 .thread-msg-empty { color: var(--cpq-text-muted); }
 .tool-group { margin-bottom: 16px; }
@@ -1471,7 +1471,7 @@ onMounted(loadAccessRoles)
   margin-left: 6px;
   padding: 0 7px;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 400;
   color: var(--cpq-text-secondary);
   background: var(--cpq-glass-1-bg);
@@ -1484,7 +1484,7 @@ onMounted(loadAccessRoles)
 }
 .thread-msgs { max-height: 60vh; overflow: auto; display: flex; flex-direction: column; gap: 8px; }
 .thread-msg { border: 1px solid var(--cpq-overlay-w10); border-radius: var(--cpq-radius-sm); padding: 8px 10px; }
-.thread-msg-head { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--cpq-text-muted); }
+.thread-msg-head { display: flex; justify-content: space-between; gap: 8px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .thread-msg-content { margin: 4px 0 0; white-space: pre-wrap; word-break: break-word; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary); }
 .dispatch-rule {
   display: flex;

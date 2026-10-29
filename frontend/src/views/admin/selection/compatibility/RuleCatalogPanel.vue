@@ -102,7 +102,7 @@ function ruleContent(r: CompatibilityRule): string {
 .cre-hud-cards .cre-group { margin-bottom: 12px; }
 .cre-cats { display: flex; flex-wrap: wrap; gap: 8px; }
 .cre-cat { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: var(--cpq-radius-full); cursor: pointer; border: 1px solid var(--cpq-glass-border); background: var(--cpq-glass-2-bg); color: var(--cpq-text-secondary); font-size: 12.5px; transition: border-color var(--cpq-dur-1) var(--cpq-ease-smooth), background var(--cpq-dur-1) var(--cpq-ease-smooth), color var(--cpq-dur-1) var(--cpq-ease-smooth); }
-.cre-cat em { font-style: normal; font-size: 11px; padding: 0 6px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a8); color: var(--cpq-text-muted); }
+.cre-cat em { font-style: normal; font-size: var(--cpq-font-size-xs); padding: 0 6px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a8); color: var(--cpq-text-muted); }
 .cre-cat:hover { border-color: var(--cpq-glass-border-strong); color: var(--cpq-text-primary); }
 .cre-cat.on { border-color: var(--cpq-accent-primary); color: var(--cpq-accent-primary); background: var(--cpq-overlay-a8); }
 .cre-cat.on em { background: var(--cpq-accent-primary); color: #fff; }
@@ -110,7 +110,7 @@ function ruleContent(r: CompatibilityRule): string {
 .cre-group-head { display: flex; align-items: center; gap: 8px; margin: 2px 0 8px; }
 .cre-group-bar { width: 3px; height: 14px; border-radius: var(--cpq-radius-xs); flex: none; background: var(--cpq-text-disabled); }
 .cre-group-name { font-weight: 600; font-size: 13px; color: var(--cpq-text-primary); }
-.cre-group-count { font-size: 11px; color: var(--cpq-text-muted); padding: 0 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a10, rgba(0,0,0,.06)); }
+.cre-group-count { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); padding: 0 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a10, rgba(0,0,0,.06)); }
 .cre-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(310px, 1fr)); gap: 12px; }
 .cre-card { position: relative; padding: 8px 10px; display: flex; flex-direction: column; gap: 5px; cursor: pointer; transition: transform var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .cre-card:hover { transform: translateY(-1px); }

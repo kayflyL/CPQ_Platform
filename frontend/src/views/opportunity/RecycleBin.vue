@@ -264,7 +264,7 @@ onMounted(fetchData)
   .header-actions { flex-wrap: wrap; gap: 8px; }
   .header-actions h2 { font-size: 17px; }
   .header-actions .ant-space { flex-wrap: wrap; }
-  .header-actions .ant-space-item button { padding: 0 10px; font-size: 12px; }
+  .header-actions .ant-space-item button { padding: 0 10px; font-size: var(--cpq-font-size-sm); }
   .batch-bar { flex-wrap: wrap; gap: 8px; padding: 10px 12px; }
   .batch-actions { flex-wrap: wrap; }
 }

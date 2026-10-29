@@ -76,7 +76,7 @@ async function submit() {
   margin-bottom: 24px;
 }
 .logo-text {
-  font-size: 30px;
+  font-size: var(--cpq-font-size-3xl);
   font-weight: 700;
   color: var(--cpq-accent-primary, #1677ff);
   letter-spacing: 3px;
@@ -84,13 +84,13 @@ async function submit() {
 }
 .logo-sub {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #9ba1aa);
   letter-spacing: 1px;
 }
 .login-tip {
   margin-top: 16px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted, #6e7582);
   text-align: center;
   line-height: 1.6;

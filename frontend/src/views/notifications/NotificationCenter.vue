@@ -216,7 +216,7 @@ function goOpp(n: AppNotification) {
 }
 .nc-title {
   margin: 0;
-  font-size: 20px;
+  font-size: var(--cpq-font-size-xl);
   font-weight: 700;
   color: var(--cpq-text-primary);
 }
@@ -283,7 +283,7 @@ function goOpp(n: AppNotification) {
   border-radius: var(--cpq-radius-xs);
 }
 .nc-chip-count {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .dot-todo { background: var(--cpq-notif-blue); }
@@ -307,7 +307,7 @@ function goOpp(n: AppNotification) {
   margin-bottom: 8px;
 }
 .nc-group-label {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   font-weight: 600;
   padding: 8px 4px 6px;

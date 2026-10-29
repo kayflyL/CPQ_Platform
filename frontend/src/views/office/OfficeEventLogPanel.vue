@@ -114,7 +114,7 @@ onUnmounted(() => clearInterval(timer))
   flex-wrap: wrap;
 }
 .oel-live {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-notif-green, #2f9d78);
   margin-right: auto;
 }
@@ -144,9 +144,9 @@ onUnmounted(() => clearInterval(timer))
 }
 .oel-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; margin-top: 6px; }
 .oel-body { flex: 1; min-width: 0; }
-.oel-who { font-size: 12px; font-weight: 600; margin-right: 6px; color: var(--cpq-text-primary); }
+.oel-who { font-size: var(--cpq-font-size-sm); font-weight: 600; margin-right: 6px; color: var(--cpq-text-primary); }
 .oel-what { font-size: 11.5px; color: var(--cpq-text-secondary); }
 .oel-say { display: block; font-size: 11.5px; color: var(--cpq-text-muted); font-style: italic; }
 .oel-tag { margin-right: 0; flex: none; }
-.oel-empty { text-align: center; color: var(--cpq-text-muted); font-size: 12px; padding: 18px 0; }
+.oel-empty { text-align: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); padding: 18px 0; }
 </style>

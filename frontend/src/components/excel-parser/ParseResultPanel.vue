@@ -109,7 +109,7 @@ function regionLabel(regionKey: string): string {
 
 .source-info {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 

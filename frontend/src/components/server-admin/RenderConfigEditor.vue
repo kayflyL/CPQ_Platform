@@ -191,7 +191,7 @@ const toneMappingOptions = [
 }
 
 .field-hint {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #6E7582);
   font-style: italic;
 }

@@ -762,7 +762,7 @@ onDeactivated(() => {
   height: 28px;
   padding: 0 10px;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--cpq-text-muted);
@@ -848,7 +848,7 @@ onDeactivated(() => {
 
 .sidebar-section-desc {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   line-height: 1.35;
   color: var(--cpq-text-muted);
 }
@@ -856,7 +856,7 @@ onDeactivated(() => {
 .sidebar-empty {
   padding: 16px 10px;
   border-radius: var(--cpq-radius-md);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   text-align: center;
   background: var(--cpq-overlay-w4, rgba(255,255,255,0.04));
@@ -887,7 +887,7 @@ onDeactivated(() => {
 }
 
 .sidebar-mission-prompt {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.35;
   color: var(--cpq-text-secondary);
   white-space: nowrap;
@@ -972,7 +972,7 @@ onDeactivated(() => {
 }
 
 .sidebar-colleague-name {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   color: var(--cpq-text-primary);
   white-space: nowrap;
@@ -1033,7 +1033,7 @@ onDeactivated(() => {
   gap: 12px;
   padding: 0 18px;
   border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.04));
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1062,7 +1062,7 @@ onDeactivated(() => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 
 .mission-command-bar {
@@ -1087,7 +1087,7 @@ onDeactivated(() => {
   align-items: center;
   gap: 8px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-secondary);
 }
 
@@ -1161,7 +1161,7 @@ onDeactivated(() => {
   padding: 0 9px;
   border: 1px solid currentColor;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
@@ -1226,7 +1226,7 @@ onDeactivated(() => {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 20px;
+  font-size: var(--cpq-font-size-xl);
   font-weight: 800;
   overflow: hidden;
   flex-shrink: 0;
@@ -1244,14 +1244,14 @@ onDeactivated(() => {
 }
 
 .inspector-name {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 700;
   color: var(--cpq-text-primary);
 }
 
 .inspector-role {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   font-family: ui-monospace, monospace;
 }
@@ -1517,7 +1517,7 @@ onDeactivated(() => {
   border: 2px solid var(--cpq-glass-card-bg, #fff);
 }
 
-.m-people-empty { font-size: 11px; color: var(--cpq-text-muted); }
+.m-people-empty { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
 /* 全屏聊天层 */
 .m-chatlayer {
@@ -1636,7 +1636,7 @@ onDeactivated(() => {
   .connection-pill { padding: 0 7px; }
   .connection-pill-text { display: none; }
   .office-actions { gap: 8px; }
-  .office-actions :deep(.ant-btn) { padding: 0 8px; font-size: 12px; }
+  .office-actions :deep(.ant-btn) { padding: 0 8px; font-size: var(--cpq-font-size-sm); }
 
   .manager-backdrop { padding: 0; }
 

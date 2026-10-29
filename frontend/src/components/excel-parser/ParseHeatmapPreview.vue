@@ -131,7 +131,7 @@ function getCellTooltip(row: number, col: number): string {
 
 .heatmap-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   width: 100%;
 }
 
@@ -190,7 +190,7 @@ function getCellTooltip(row: number, col: number): string {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .legend-color {

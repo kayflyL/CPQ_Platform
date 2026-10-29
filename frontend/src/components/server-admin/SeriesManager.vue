@@ -331,7 +331,7 @@ onMounted(load)
   border: 1px solid var(--cpq-glass-border);
 }
 .glb-tag {
-  font-size: 11px; letter-spacing: 2px; padding: 4px 10px;
+  font-size: var(--cpq-font-size-xs); letter-spacing: 2px; padding: 4px 10px;
   color: var(--cpq-text-secondary);
   border: 1px dashed var(--cpq-glass-border); border-radius: var(--cpq-radius-sm);
 }
@@ -340,7 +340,7 @@ onMounted(load)
 .sr-name { font-size: 15px; font-weight: 700; color: var(--cpq-text-primary); }
 .sr-desc { font-size: 12.5px; color: var(--cpq-text-secondary); margin-top: 4px; }
 .sr-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-.chip3d { font-size: 12px; padding: 3px 10px; border-radius: var(--cpq-radius-full); white-space: nowrap; }
+.chip3d { font-size: var(--cpq-font-size-sm); padding: 3px 10px; border-radius: var(--cpq-radius-full); white-space: nowrap; }
 .chip3d.on { color: var(--cpq-color-success); background: var(--cpq-overlay-success15); }
 .chip3d.off { color: var(--cpq-text-muted); background: var(--cpq-overlay-w5); border: 1px solid var(--cpq-glass-border); }
 @media (max-width: 768px) {
@@ -356,7 +356,7 @@ onMounted(load)
   flex: 1;
 }
 .field-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted, #6E7582);
   margin-top: 4px;
 }
@@ -450,6 +450,6 @@ onMounted(load)
   height: 100%;
   min-height: 300px;
   color: var(--cpq-text-muted, #6E7582);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 </style>

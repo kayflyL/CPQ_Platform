@@ -266,17 +266,17 @@ const runtimeCardVisible = computed(() => {
 }
 .rf-node--cfg { border-color: var(--cpq-glass-border-strong) !important; }
 .rf-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.rf-icon { width: 26px; height: 26px; font-size: 14px; border-radius: var(--cpq-radius-sm); }
+.rf-icon { width: 26px; height: 26px; font-size: var(--cpq-font-size-base); border-radius: var(--cpq-radius-sm); }
 .rf-icon :deep(svg) { width: 15px; height: 15px; }
 .rf-head-main { flex: 1; min-width: 0; }
 .rf-title-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 .rf-label {
-  font-weight: 600; color: var(--cpq-text-primary); font-size: 14px;
+  font-weight: 600; color: var(--cpq-text-primary); font-size: var(--cpq-font-size-base);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .rf-meta-row { display: flex; align-items: center; gap: 5px; margin-top: 4px; min-width: 0; }
 .rf-type {
-  font-size: 11px; color: var(--cpq-text-secondary); white-space: nowrap;
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); white-space: nowrap;
 }
 .rf-cfg-tag {
   font-size: 10px; padding: 0 6px; border-radius: var(--cpq-radius-sm);
@@ -301,47 +301,47 @@ const runtimeCardVisible = computed(() => {
 .rf-node--trace { border-color: var(--cpq-accent-primary) !important; box-shadow: 0 0 20px var(--cpq-overlay-a20); }
 .rf-node--dim { opacity: 0.3; }
 .rf-desc {
-  font-size: 12px; color: var(--cpq-text-secondary); margin-top: 7px; line-height: 1.45;
+  font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); margin-top: 7px; line-height: 1.45;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .rf-input-edit {
   width: 100%; margin-top: 8px; padding: 7px 8px; resize: vertical;
   border-radius: var(--cpq-radius-sm); border: 1px solid rgba(22,119,255,.28);
-  background: rgba(22,119,255,.05); color: var(--cpq-text-primary);
-  font-size: 12px; line-height: 1.5; box-sizing: border-box;
+  background: var(--cpq-overlay-a5); color: var(--cpq-text-primary);
+  font-size: var(--cpq-font-size-sm); line-height: 1.5; box-sizing: border-box;
 }
 .rf-input-edit::placeholder { color: var(--cpq-text-muted); }
 .rf-input-edit:focus { outline: none; border-color: var(--cpq-accent-primary, #1677FF); }
 .rf-node-run { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; }
-.rf-node-run .ant-checkbox-wrapper { font-size: 11px; color: var(--cpq-text-secondary); }
+.rf-node-run .ant-checkbox-wrapper { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-secondary); }
 .rf-node-ask-opts { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px; }
 .rf-node-ask-opt {
-  font-size: 11px; line-height: 1.5; padding: 2px 8px; border-radius: var(--cpq-radius-full); cursor: pointer;
+  font-size: var(--cpq-font-size-xs); line-height: 1.5; padding: 2px 8px; border-radius: var(--cpq-radius-full); cursor: pointer;
   color: var(--cpq-accent-warning, #fa8c16); background: rgba(250, 173, 20, 0.12);
   border: 1px solid rgba(250, 173, 20, 0.3);
 }
 .rf-node-ask-opt:hover { background: rgba(250, 173, 20, 0.2); }
 .rf-node-ask-reply { display: flex; gap: 6px; margin-top: 8px; }
 .rf-node-ask-input {
-  flex: 1; min-width: 0; padding: 5px 8px; font-size: 11px; border-radius: var(--cpq-radius-sm);
+  flex: 1; min-width: 0; padding: 5px 8px; font-size: var(--cpq-font-size-xs); border-radius: var(--cpq-radius-sm);
   border: 1px solid rgba(250,173,20,.35); background: var(--cpq-overlay-w4);
   color: var(--cpq-text-primary); box-sizing: border-box;
 }
 .rf-node-ask-input::placeholder { color: var(--cpq-text-muted); }
 .rf-node-ask-btn {
-  flex: none; padding: 4px 10px; font-size: 11px; border-radius: var(--cpq-radius-sm); cursor: pointer;
+  flex: none; padding: 4px 10px; font-size: var(--cpq-font-size-xs); border-radius: var(--cpq-radius-sm); cursor: pointer;
   border: 1px solid var(--cpq-accent-warning, #fa8c16); color: var(--cpq-accent-warning, #fa8c16);
   background: transparent;
 }
 .rf-node-ask-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-.rf-io-block { margin-top: 8px; padding: 7px 8px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid rgba(255,255,255,.06); }
+.rf-io-block { margin-top: 8px; padding: 7px 8px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid var(--cpq-overlay-w6); }
 .rf-io-block.rf-io-in { border-color: rgba(22,119,255,.22); }
 .rf-io-block.rf-io-summary { border-color: rgba(250,140,22,.22); background: rgba(250,140,22,.05); }
 .rf-io-block.rf-io-out { border-color: rgba(82,201,160,.24); }
 .rf-io-block.rf-ask { border-color: rgba(250,173,20,.28); background: rgba(250,173,20,.06); }
 .rf-io-title { font-size: 10px; color: var(--cpq-text-muted); margin-bottom: 4px; font-weight: 600; }
-.rf-summary-text { font-size: 11px; color: var(--cpq-text-primary); line-height: 1.5; }
-.rf-ask-text { font-size: 11px; color: var(--cpq-accent-warning, #fa8c16); line-height: 1.5; }
+.rf-summary-text { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-primary); line-height: 1.5; }
+.rf-ask-text { font-size: var(--cpq-font-size-xs); color: var(--cpq-accent-warning, #fa8c16); line-height: 1.5; }
 .rf-io-row { display: flex; justify-content: space-between; gap: 6px; font-size: 10px; margin-top: 3px; }
 .rf-io-k { color: var(--cpq-text-secondary); flex: none; }
 .rf-io-v { color: var(--cpq-text-primary); text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -351,15 +351,15 @@ const runtimeCardVisible = computed(() => {
   background: var(--cpq-overlay-a10); border: 1px solid rgba(22,119,255,.18);
 }
 /* 需求理解节点内嵌「线索登记表」进度卡（节点内滚动） */
-.rf-node-reg { margin-top: 8px; padding: 8px 9px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid rgba(22,119,255,.2); }
+.rf-node-reg { margin-top: 8px; padding: 8px 9px; border-radius: var(--cpq-radius-sm); background: rgba(255,255,255,.035); border: 1px solid var(--cpq-overlay-a20); }
 .rf-node-reg .nr-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-.rf-node-reg .nr-name { font-size: 11px; font-weight: 600; color: var(--cpq-text-primary); }
+.rf-node-reg .nr-name { font-size: var(--cpq-font-size-xs); font-weight: 600; color: var(--cpq-text-primary); }
 .rf-node-reg .nr-badge { font-size: 9px; padding: 1px 6px; border-radius: var(--cpq-radius-full); flex-shrink: 0; }
 .rf-node-reg .nr-badge.done { background: var(--cpq-overlay-success15); color: var(--cpq-color-success); }
 .rf-node-reg .nr-badge.fill { background: rgba(250,173,20,.14); color: var(--cpq-accent-warning, #fa8c16); }
 .rf-node-reg .nr-badge.idle { background: var(--cpq-overlay-w8); color: var(--cpq-text-muted); }
 .rf-node-reg .nr-prog { margin-top: 6px; }
-.rf-node-reg .nr-cold { margin-top: 6px; font-size: 11px; color: var(--cpq-text-muted); }
+.rf-node-reg .nr-cold { margin-top: 6px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .rf-node-reg .nr-row { display: flex; justify-content: space-between; gap: 6px; font-size: 9px; color: var(--cpq-text-secondary); }
 .rf-node-reg .nr-bar { margin-top: 4px; height: 4px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-w10); overflow: hidden; }
 .rf-node-reg .nr-bar i { display: block; height: 100%; border-radius: var(--cpq-radius-full); background: var(--cpq-accent-primary); transition: width .3s; }

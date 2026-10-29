@@ -264,7 +264,7 @@ onMounted(async () => {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-glass-1-bg);
   border: 1px solid var(--cpq-glass-border);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .scope-label {
@@ -309,7 +309,7 @@ onMounted(async () => {
 
 .tpl-tag {
   margin-left: 2px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   line-height: 16px;
   padding: 0 4px;
 }
@@ -382,7 +382,7 @@ onMounted(async () => {
 }
 
 .trace-detail {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   margin-top: 2px;
 }

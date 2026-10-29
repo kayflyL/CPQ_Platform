@@ -101,15 +101,15 @@ function onAct() {
   background: var(--cpq-glass-2-bg); color: var(--cpq-text-secondary);
   border: 1px solid var(--cpq-border-primary);
 }
-.rc-state { font-size: 11px; color: var(--cpq-text-muted); }
+.rc-state { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .rc-title {
   font-size: 13px; font-weight: 700; color: var(--cpq-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.rc-meta { font-size: 11px; color: var(--cpq-text-muted); }
+.rc-meta { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .rc-summary {
   flex: 1;
-  font-size: 12px; line-height: 1.55; color: var(--cpq-text-secondary);
+  font-size: var(--cpq-font-size-sm); line-height: 1.55; color: var(--cpq-text-secondary);
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -135,7 +135,7 @@ function onAct() {
   border-color: var(--cpq-accent-primary, #1677ff);
   color: var(--cpq-accent-primary, #1677ff);
 }
-.rc-act--mount:hover { background: rgba(22, 119, 255, 0.10); }
+.rc-act--mount:hover { background: var(--cpq-overlay-a10); }
 .rc-act--remove:hover { border-color: #ff7875; color: #ff7875; }
 .rc-act:disabled { cursor: not-allowed; opacity: .6; }
 </style>

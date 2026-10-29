@@ -192,7 +192,7 @@ function stagePercentOf(key: string) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .rail-progress-head strong {
@@ -216,7 +216,7 @@ function stagePercentOf(key: string) {
 }
 .rail-progress-label {
   margin: 8px 0 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -266,7 +266,7 @@ function stagePercentOf(key: string) {
   justify-content: center;
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w10);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
@@ -286,7 +286,7 @@ function stagePercentOf(key: string) {
 .rail-step-copy span {
   display: block;
   margin-top: 2px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -357,7 +357,7 @@ function stagePercentOf(key: string) {
   border-radius: var(--cpq-radius-sm);
   background: transparent;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-align: left;
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease;
@@ -378,7 +378,7 @@ function stagePercentOf(key: string) {
   display: inline-flex;
   align-items: center;
   color: var(--cpq-color-success);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 /* 底部信息区 */
@@ -392,7 +392,7 @@ function stagePercentOf(key: string) {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .rail-foot-row + .rail-foot-row {
@@ -442,7 +442,7 @@ function stagePercentOf(key: string) {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w6);
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   cursor: pointer;

@@ -108,7 +108,7 @@ const priceVisible = computed(() => !props.perm || auth.can(props.perm))
   font-size: 13px;
 }
 .pt-readonly {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-secondary, #9BA1AA);
   font-variant-numeric: tabular-nums;
@@ -122,7 +122,7 @@ const priceVisible = computed(() => !props.perm || auth.can(props.perm))
 }
 .pt-arrow {
   color: var(--cpq-text-muted, #6E7582);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 28px;
   padding-bottom: 2px;
 }
@@ -137,7 +137,7 @@ const priceVisible = computed(() => !props.perm || auth.can(props.perm))
   color: var(--cpq-text-muted, #6E7582);
 }
 .pt-masked {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   letter-spacing: 2px;
 }

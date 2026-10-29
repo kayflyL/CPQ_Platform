@@ -621,13 +621,13 @@ function handleBack() {
 
 .config-section h4 {
   margin: 0 0 12px 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
 }
 
 .config-hint {
   margin: -4px 0 12px 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-tertiary, #9CA3AF);
   line-height: 1.5;
 }
@@ -655,7 +655,7 @@ function handleBack() {
   padding: 16px;
   text-align: center;
   color: var(--cpq-text-tertiary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   background: var(--cpq-bg-dark);
   border: 1px dashed var(--cpq-border-dark);
   border-radius: var(--cpq-radius-xs);
@@ -670,7 +670,7 @@ function handleBack() {
 
 .preview-panel h4 {
   margin: 0 0 16px 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
 }
 
@@ -706,6 +706,6 @@ function handleBack() {
 }
 .style-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .style-label { flex: 0 0 118px; font-size: 13px; color: var(--cpq-text-secondary); }
-.style-hint { font-size: 12px; color: var(--cpq-text-muted); }
+.style-hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .color-picker { width: 36px; height: 26px; padding: 0; border: 1px solid var(--cpq-border-primary); border-radius: var(--cpq-radius-xs); background: none; cursor: pointer; }
 </style>

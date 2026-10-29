@@ -117,7 +117,7 @@ onBeforeUnmount(() => markHeroDark(false))
 .back-btn {
   /* 固定暗色页脱离主题体系：!important 压过 antd 按钮文字 token（同详情页 .scene-back） */
   color: rgba(238, 243, 250, 0.72) !important;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   padding: 4px 8px;
 }
 .back-btn:hover {
@@ -125,7 +125,7 @@ onBeforeUnmount(() => markHeroDark(false))
 }
 .current-type {
   color: #f2f8ff;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 500;
 }
 .models-page :deep(.ant-divider-vertical) {
@@ -140,7 +140,7 @@ onBeforeUnmount(() => markHeroDark(false))
 }
 .page-desc {
   color: rgba(238, 243, 250, 0.72);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   margin-bottom: 28px;
 }
 
@@ -153,7 +153,7 @@ onBeforeUnmount(() => markHeroDark(false))
   color: rgba(238, 243, 250, 0.52);
   text-align: center;
   padding: 60px 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 @media (max-width: 640px) {
   .page-inner { padding: 0 12px; }

@@ -215,10 +215,10 @@ async function removeScene(r: SceneRow) {
 <style scoped>
 .lca { display: flex; flex-direction: column; }
 .lca-title { font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); margin: 0 0 4px; }
-.lca-sub { font-size: 12px; color: var(--cpq-text-muted); margin: 0 0 10px; }
+.lca-sub { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin: 0 0 10px; }
 .lca-tabs :deep(.ant-tabs-tab) { font-size: 13px; }
 .lca-chead { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
-.lca-count { font-size: 12px; color: var(--cpq-text-muted); }
+.lca-count { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .lca-ok { color: #16a34a; font-weight: 600; }
 .lca-mid { color: #d97706; }
 .lca-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; }

@@ -234,7 +234,7 @@ function stepText(s: any): string {
 <style scoped>
 .pf-canvas { display: flex; flex-direction: column; gap: 10px; }
 .pf-toolbar { padding: 0 2px; }
-.pf-tip { font-size: 12px; color: var(--cpq-text-muted); }
+.pf-tip { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 
 .pf-flow-wrap {
   width: 100%; height: 300px;
@@ -252,33 +252,33 @@ function stepText(s: any): string {
 
 .pf-result-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .pf-target { display: flex; align-items: baseline; gap: 8px; }
-.pf-target-label { font-size: 12px; color: var(--cpq-text-muted); }
+.pf-target-label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .pf-target-val { font-size: 28px; font-weight: 700; color: var(--cpq-accent-primary, #1677ff); font-variant-numeric: tabular-nums; }
 .pf-target-val.clamped { color: var(--cpq-accent-warning, #fa8c16); }
-.pf-clamp-tag { font-size: 11px; padding: 1px 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-warning, #fa8c16); }
+.pf-clamp-tag { font-size: var(--cpq-font-size-xs); padding: 1px 7px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-w10); color: var(--cpq-accent-warning, #fa8c16); }
 .pf-price { font-size: 13px; color: var(--cpq-text-secondary); }
 .pf-price b { color: var(--cpq-accent-success, #52c41a); font-variant-numeric: tabular-nums; }
 
 .pf-breakdown { display: flex; flex-direction: column; gap: 3px; }
-.pf-step { display: grid; grid-template-columns: 92px 1fr 56px; align-items: center; gap: 8px; font-size: 12px; padding: 3px 0; border-bottom: 1px dashed var(--cpq-glass-border, rgba(0,0,0,.06)); }
+.pf-step { display: grid; grid-template-columns: 92px 1fr 56px; align-items: center; gap: 8px; font-size: var(--cpq-font-size-sm); padding: 3px 0; border-bottom: 1px dashed var(--cpq-glass-border, rgba(0,0,0,.06)); }
 .pf-step.skipped { opacity: .5; }
 .pf-step-label { color: var(--cpq-text-secondary); }
 .pf-step-op { color: var(--cpq-text-primary); font-family: ui-monospace, monospace; }
 .pf-step-sub { text-align: right; font-weight: 600; color: var(--cpq-accent-primary, #1677ff); font-variant-numeric: tabular-nums; }
-.pf-step-note { grid-column: 2 / 4; font-size: 11px; color: var(--cpq-text-muted); }
-.pf-fee-note { font-size: 11px; color: var(--cpq-text-muted); }
+.pf-step-note { grid-column: 2 / 4; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.pf-fee-note { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
 /* 分项建议毛利 */
 .pf-parts { margin-top: 10px; }
-.pf-parts-title { font-size: 12px; color: var(--cpq-text-muted); margin-bottom: 6px; }
+.pf-parts-title { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-bottom: 6px; }
 .pf-parts-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .pf-part-chip {
-  font-size: 12px; padding: 2px 10px; border-radius: var(--cpq-radius-sm);
+  font-size: var(--cpq-font-size-sm); padding: 2px 10px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w6); color: var(--cpq-text-secondary);
   display: inline-flex; align-items: baseline; gap: 4px;
 }
 .pf-part-chip b { color: var(--cpq-accent-primary, #1677ff); font-variant-numeric: tabular-nums; }
-.pf-part-chip i { font-style: normal; font-size: 11px; color: var(--cpq-text-muted); }
+.pf-part-chip i { font-style: normal; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .pf-part-default { border: 1px dashed var(--cpq-glass-border); }
-.pf-parts-empty { font-size: 12px; color: var(--cpq-text-muted); }
+.pf-parts-empty { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 </style>

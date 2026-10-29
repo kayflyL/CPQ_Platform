@@ -111,18 +111,18 @@ function fmt(n: number | null | undefined) {
 }
 .pc-name {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
   word-break: break-word;
   overflow-wrap: anywhere;
 }
 .pc-series {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-accent-primary);
 }
 .pc-cost {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 700;
   color: var(--cpq-accent-primary);
   flex-shrink: 0;
@@ -130,12 +130,12 @@ function fmt(n: number | null | undefined) {
 }
 .pc-meta {
   margin: 6px 0 10px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .pc-points {
   margin: 6px 0 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .pc-actions {
@@ -152,7 +152,7 @@ function fmt(n: number | null | undefined) {
   gap: 6px;
   margin: 6px 0 0;
   padding: 5px 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-accent-warning, #faad14);
   background: var(--cpq-overlay-w6);
   border: 1px solid var(--cpq-overlay-w15, var(--cpq-overlay-w10));

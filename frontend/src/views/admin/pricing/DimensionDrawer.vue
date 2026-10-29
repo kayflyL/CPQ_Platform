@@ -266,7 +266,7 @@ async function save() {
 </template>
 
 <style scoped>
-.pd-hint { font-size: 12px; color: var(--cpq-text-muted); margin: 4px 0 12px; }
+.pd-hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin: 4px 0 12px; }
 .pd-sec { font-size: 13px; margin-top: 8px; }
 .pd-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
 .pd-row-key { width: 150px; font-size: 13px; color: var(--cpq-text-primary); flex: none; }

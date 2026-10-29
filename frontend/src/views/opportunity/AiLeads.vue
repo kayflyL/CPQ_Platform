@@ -319,7 +319,7 @@ onMounted(() => {
 .page-head { display: flex; align-items: center; gap: 14px; padding: 12px 18px; border-radius: var(--cpq-radius-lg); }
 .page-title { display: flex; flex-direction: column; gap: 1px; flex: none; }
 .page-title h1 { margin: 0; font-size: 18px; font-weight: 700; color: var(--cpq-text-primary); letter-spacing: 1px; }
-.page-sub { font-size: 11px; color: var(--cpq-text-muted); letter-spacing: 0.5px; }
+.page-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); letter-spacing: 0.5px; }
 .search-input { flex: 1 1 1px; min-width: 160px; max-width: 460px; height: 34px; border-radius: var(--cpq-radius-sm); }
 .head-icons { display: flex; align-items: center; gap: 8px; margin-left: auto; flex: none; }
 .icon-btn {
@@ -344,14 +344,14 @@ onMounted(() => {
 
 .cell-lead { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .lead-text { font-size: 13px; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 420px; }
-.lead-owner { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--cpq-text-muted); }
+.lead-owner { display: inline-flex; align-items: center; gap: 5px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .stale-tag { font-size: 10px; line-height: 14px; padding: 0 4px; margin-left: 4px; color: var(--cpq-text-muted); }
-.role-chip { font-size: 12px; color: var(--cpq-text-secondary); }
+.role-chip { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .cell-num { font-size: 12.5px; color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
-.cell-date { font-size: 12px; color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
+.cell-date { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; }
 .row-more {
   display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 14px;
+  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: var(--cpq-font-size-base);
   transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .row-more:hover { background: var(--cpq-overlay-w8); color: var(--cpq-text-primary); }
@@ -388,7 +388,7 @@ onMounted(() => {
 .msg-row { display: flex; flex-direction: column; gap: 4px; max-width: 88%; }
 .msg-row.mine { align-self: flex-end; align-items: flex-end; }
 .msg-row.ai { align-self: flex-start; align-items: flex-start; }
-.msg-head { display: flex; align-items: baseline; gap: 8px; font-size: 11px; color: var(--cpq-text-muted); }
+.msg-head { display: flex; align-items: baseline; gap: 8px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .msg-author { font-weight: 600; color: var(--cpq-text-secondary); }
 .msg-body {
   padding: 8px 12px; border-radius: var(--cpq-radius-md); font-size: 12.5px; line-height: 1.65;
@@ -399,7 +399,7 @@ onMounted(() => {
 
 /* Table dark overrides */
 .ai-leads-page :deep(.ant-table-wrapper .ant-table) { background: transparent; color: var(--cpq-text-primary); }
-.ai-leads-page :deep(.ant-table-thead > tr > th) { background: var(--cpq-overlay-w4) !important; color: var(--cpq-text-secondary) !important; font-size: 12px; font-weight: 500; border-bottom: 1px solid var(--cpq-overlay-w6) !important; white-space: nowrap; }
+.ai-leads-page :deep(.ant-table-thead > tr > th) { background: var(--cpq-overlay-w4) !important; color: var(--cpq-text-secondary) !important; font-size: var(--cpq-font-size-sm); font-weight: 500; border-bottom: 1px solid var(--cpq-overlay-w6) !important; white-space: nowrap; }
 .ai-leads-page :deep(.ant-table-tbody > tr > td) { border-bottom: 1px solid var(--cpq-overlay-w4) !important; color: var(--cpq-text-primary); }
 .ai-leads-page :deep(.ant-table-tbody > tr:hover > td) { background: var(--cpq-overlay-a5) !important; }
 .ai-leads-page :deep(.ant-table-cell) { padding: 9px 12px; }

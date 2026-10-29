@@ -189,7 +189,7 @@ onMounted(async () => {
   background: var(--sheet-head);
   color: var(--cpq-accent-primary);
   text-align: center;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 650;
   vertical-align: middle;
   border-bottom: 0;
@@ -217,7 +217,7 @@ onMounted(async () => {
   min-height: 36px;
   cursor: grab;
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   user-select: none;
 }
 .sheet-drag:active {

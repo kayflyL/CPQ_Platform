@@ -415,8 +415,8 @@ onBeforeUnmount(() => {
     --cpq-text-secondary: rgba(255, 255, 255, 0.72);
     --cpq-text-primary: #ffffff;
     --cpq-border-secondary: rgba(255, 255, 255, 0.22);
-    --cpq-overlay-w3: rgba(255, 255, 255, 0.08);
-    --cpq-overlay-w5: rgba(255, 255, 255, 0.08);
+    --cpq-overlay-w3: var(--cpq-overlay-w8);
+    --cpq-overlay-w5: var(--cpq-overlay-w8);
     --cpq-glass-border-strong: rgba(255, 255, 255, 0.45);
   }
   /* 银河页滚动后：深空色底带续接白字（浅色主题 glass-3 是白玻璃，白字压不住）；
@@ -435,7 +435,7 @@ onBeforeUnmount(() => {
 }
 
 .logo-text {
-  font-size: 20px;
+  font-size: var(--cpq-font-size-xl);
   font-weight: 700;
   color: var(--cpq-accent-primary);
   letter-spacing: 3px;
@@ -466,7 +466,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 4px;
   padding: 14px 2px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   letter-spacing: 0.02em;
   color: var(--cpq-text-secondary);
@@ -523,7 +523,7 @@ onBeforeUnmount(() => {
   border: 1px solid var(--cpq-border-secondary);
   background: var(--cpq-overlay-w5);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition:
@@ -726,7 +726,7 @@ onBeforeUnmount(() => {
 }
 
 .ms-sec-label {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   letter-spacing: 0.1em;
   color: var(--cpq-text-muted);
@@ -810,7 +810,7 @@ onBeforeUnmount(() => {
   border: none;
   border-bottom: 1px dashed var(--cpq-overlay-w6);
   background: transparent;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
@@ -859,7 +859,7 @@ onBeforeUnmount(() => {
 }
 
 .ms-user-name {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 700;
   color: var(--cpq-text-primary);
   overflow: hidden;
@@ -930,7 +930,7 @@ onBeforeUnmount(() => {
     padding: 4px 12px;
   }
 
-  .logo-text { font-size: 16px; }
+  .logo-text { font-size: var(--cpq-font-size-lg); }
   .logo-sub { font-size: 8px; }
   .main-scroll {
     --cpq-sticky-top: calc(56px + env(safe-area-inset-top, 0px));

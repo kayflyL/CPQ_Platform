@@ -474,7 +474,7 @@ onBeforeUnmount(() => {
   background: transparent;
 }
 .or-name {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 700;
   color: var(--cpq-text-primary);
   margin: 0;

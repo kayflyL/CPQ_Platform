@@ -512,7 +512,7 @@ onBeforeUnmount(() => markHeroDark(false))
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  filter: drop-shadow(0 2px 14px rgba(0, 0, 0, 0.4));
+  filter: drop-shadow(0 2px 14px var(--cpq-overlay-b40));
 }
 /* 标题随轮播切换：淡入淡出 + 轻微上下错位，与 ~1.15s 车驶入节奏错开成短促一档 */
 .sub-swap-enter-active, .sub-swap-leave-active { transition: opacity 0.3s ease, transform 0.3s ease; }
@@ -539,8 +539,8 @@ onBeforeUnmount(() => markHeroDark(false))
   padding: 7px 18px;
   font-size: 13px;
   color: rgba(255, 255, 255, 0.78);
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: var(--cpq-overlay-w8);
+  border: 1px solid var(--cpq-overlay-w20);
   border-radius: var(--cpq-radius-full);
   cursor: pointer;
   backdrop-filter: blur(8px);
@@ -550,7 +550,7 @@ onBeforeUnmount(() => markHeroDark(false))
 }
 .cap-btn i {
   font-style: normal;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   opacity: 0.6;
 }
 .cap-btn:hover {
@@ -573,7 +573,7 @@ onBeforeUnmount(() => markHeroDark(false))
   margin: 0 0 16px;
 }
 .sc-sec-title { font-size: 17px; font-weight: 600; color: #f2f8ff; }
-.sc-sec-count { font-size: 12px; color: rgba(238, 243, 250, 0.52); }
+.sc-sec-count { font-size: var(--cpq-font-size-sm); color: rgba(238, 243, 250, 0.52); }
 .sc-models { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 20px; }
 
 @media (max-width: 640px) {
@@ -582,7 +582,7 @@ onBeforeUnmount(() => markHeroDark(false))
   .slide-img, .slide-ref-img { max-height: 120px; }
   /* 类型胶囊：小屏改单行等宽，不再竖叠盖住 banner 主体 */
   .scene-capsule { left: 12px; right: 12px; transform: none; padding: 0; gap: 6px; }
-  .cap-btn { flex: 1 1 0; padding: 6px 6px; font-size: 11px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cap-btn { flex: 1 1 0; padding: 6px 6px; font-size: var(--cpq-font-size-xs); text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cap-btn i { font-style: normal; }
   /* 机型货架两列 */
   .sc-models { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }

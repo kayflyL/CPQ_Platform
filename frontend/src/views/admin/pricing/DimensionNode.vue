@@ -45,11 +45,11 @@ const kind = computed(() => props.data?.kind || 'dim')
 .dim-node:hover { border-color: var(--accent); box-shadow: 0 2px 10px color-mix(in srgb, var(--accent) 25%, transparent); }
 
 .dn-head { display: flex; align-items: center; gap: 6px; }
-.dn-sign { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm); color: #fff; font-size: 11px; font-weight: 700; display: flex; align-items: center; justify-content: center; }
+.dn-sign { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm); color: #fff; font-size: var(--cpq-font-size-xs); font-weight: 700; display: flex; align-items: center; justify-content: center; }
 .dn-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
-.dn-edit { margin-left: auto; font-size: 12px; color: var(--cpq-text-muted); opacity: .6; }
+.dn-edit { margin-left: auto; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); opacity: .6; }
 .dn-summary {
-  margin-top: 5px; font-size: 11px; line-height: 1.5; color: var(--cpq-text-secondary);
+  margin-top: 5px; font-size: var(--cpq-font-size-xs); line-height: 1.5; color: var(--cpq-text-secondary);
   font-family: ui-monospace, monospace; word-break: break-all;
 }
 
@@ -60,6 +60,6 @@ const kind = computed(() => props.data?.kind || 'dim')
   background: color-mix(in srgb, var(--accent) 14%, var(--cpq-overlay-w8, rgba(255, 255, 255, .85)));
   border-color: var(--accent);
 }
-.dn-io { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
+.dn-io { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--accent); white-space: nowrap; display: flex; align-items: center; gap: 4px; }
 .kind-output .dn-io { font-size: 13px; }
 </style>

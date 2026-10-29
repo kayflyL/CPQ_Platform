@@ -75,7 +75,7 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
 }
 .cc-title strong {
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 .cc-arrow {
   color: var(--cpq-text-muted);
@@ -86,7 +86,7 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
   margin: 0;
   min-height: 32px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -100,7 +100,7 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
   min-height: 22px;
 }
 .cc-tools-count {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   align-self: end;
 }
@@ -109,6 +109,6 @@ defineEmits<{ (e: 'detail', skill: any): void }>()
   justify-content: space-between;
   gap: 8px;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 </style>

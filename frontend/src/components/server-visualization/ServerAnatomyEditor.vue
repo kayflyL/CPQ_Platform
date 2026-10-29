@@ -1075,7 +1075,7 @@ defineExpose({
 .sae-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; }
 .sae-toolbar > * { flex-shrink: 0; }
 .sae-toolbar :deep(.ant-space-item) { flex-shrink: 0; }
-.sae-hint { color: var(--cpq-text-secondary); font-size: 12px; white-space: nowrap; flex-shrink: 0; }
+.sae-hint { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); white-space: nowrap; flex-shrink: 0; }
 .sae-canvas { position: relative; flex: 1; min-height: 360px; border-radius: var(--cpq-radius-md); overflow: hidden;
   background: rgba(0, 0, 0, 0.12); border: 1px solid var(--cpq-glass-border); }
 .sae-canvas canvas { touch-action: none; }
@@ -1097,7 +1097,7 @@ defineExpose({
 .sae-hp[data-handle="sw"] { bottom: -5px; left: -5px; cursor: nesw-resize; }
 .sae-hp[data-handle="w"] { top: 50%; left: -5px; margin-top: -4.5px; cursor: ew-resize; }
 .sae-rot { position: absolute; top: -30px; left: 50%; margin-left: -11px; width: 22px; height: 22px;
-  border-radius: 50%; background: #52c41a; color: #fff; font-size: 12px; line-height: 22px; text-align: center;
+  border-radius: 50%; background: #52c41a; color: #fff; font-size: var(--cpq-font-size-sm); line-height: 22px; text-align: center;
   pointer-events: auto; cursor: grab; z-index: 1; user-select: none; }
 .sae-selection::before { content: ''; position: absolute; top: -24px; left: 50%; width: 1px; height: 24px; background: #52c41a; }
 </style>

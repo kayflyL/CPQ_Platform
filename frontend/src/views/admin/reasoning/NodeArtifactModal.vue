@@ -165,7 +165,7 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 .artifact-empty { color: var(--cpq-text-muted); font-size: 13px; padding: 12px 0; }
 .artifact-doc { max-height: calc(100vh - 240px); overflow-y: auto; padding: 4px 8px; }
 .artifact-scheme { min-height: 220px; }
-.artifact-raw { white-space: pre-wrap; font-size: 12px; color: var(--cpq-text-secondary); }
+.artifact-raw { white-space: pre-wrap; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .missing-title { font-weight: 600; margin-bottom: 8px; }
 .plans-count { font-weight: 600; margin-bottom: 8px; }
 .artifact-hint { font-weight: 600; margin-bottom: 8px; color: var(--cpq-text-secondary); }
@@ -173,7 +173,7 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 :deep(.kp-row-unmatched td) { color: var(--cpq-text-muted); font-style: italic; }
 .artifact-unmatched { margin-top: 10px; padding: 8px 12px; border: 1px dashed var(--cpq-border-color, #d9d9d9); border-radius: var(--cpq-radius-sm); background: var(--cpq-bg-secondary, #fafafa); }
 .artifact-unmatched-title { font-weight: 600; font-size: 13px; margin-bottom: 6px; color: var(--cpq-text-warning, #d48806); }
-.artifact-unmatched-list { margin: 0; padding: 0 0 0 16px; font-size: 12px; color: var(--cpq-text-secondary); line-height: 20px; }
+.artifact-unmatched-list { margin: 0; padding: 0 0 0 16px; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); line-height: 20px; }
 .artifact-unmatched-cat { font-weight: 600; }
 .artifact-unmatched-desc { color: var(--cpq-text-muted); }
 .artifact-unmatched-qty { margin-left: 6px; color: var(--cpq-text-muted); }

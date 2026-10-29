@@ -622,11 +622,11 @@ defineExpose({ saveDraft, submit, getConfigs })
   gap: 10px;
 }
 .fs-relation .ant-radio-button-wrapper {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 0 12px;
 }
 .fs-relation-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .fs-primary-btn {
@@ -636,7 +636,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   background: transparent;
   border-radius: var(--cpq-radius-sm);
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -670,11 +670,11 @@ defineExpose({ saveDraft, submit, getConfigs })
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .fs-desc-text {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .sheet-scroll {
@@ -689,7 +689,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .sheet-table th,
 .sheet-table td {
@@ -713,7 +713,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   padding: 6px 8px;
   color: var(--cpq-text-secondary);
   background: var(--sheet-head);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   white-space: nowrap;
   border-bottom: 1px solid var(--sheet-line-strong);
@@ -742,7 +742,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   background: var(--sheet-head);
   color: var(--cpq-accent-primary);
   text-align: center;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 650;
   vertical-align: middle;
   border-bottom: 0;
@@ -754,7 +754,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   display: flex;
   gap: 16px;
   margin-top: 8px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .sheet-cell {
   height: 36px;
@@ -775,7 +775,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   min-height: 36px;
   cursor: grab;
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   user-select: none;
 }
 .sheet-drag:active {

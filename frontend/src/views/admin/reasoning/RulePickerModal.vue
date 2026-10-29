@@ -76,7 +76,7 @@ watch(() => props.open, (v) => { if (v) load() })
 </template>
 
 <style scoped>
-.rpm-sub { margin: 0 0 12px; font-size: 12px; color: var(--cpq-text-secondary); }
+.rpm-sub { margin: 0 0 12px; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); }
 .rpm-section { margin-bottom: 14px; }
 .rpm-group { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; min-width: 0; }
 .rpm-name { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); white-space: nowrap; }
@@ -91,7 +91,7 @@ watch(() => props.open, (v) => { if (v) load() })
   grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
   gap: 8px;
 }
-.rpm-empty { font-size: 12px; color: var(--cpq-text-muted); padding: 12px 0; }
+.rpm-empty { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); padding: 12px 0; }
 .rpm-empty--inline { grid-column: 1 / -1; padding: 2px 6px; }
 .rpm-foot { display: flex; justify-content: flex-end; margin-top: 8px; }
 </style>

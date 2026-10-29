@@ -236,7 +236,7 @@ onMounted(loadItems)
 .gov-header p {
   margin: 4px 0 0;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .gov-toolbar {
@@ -255,7 +255,7 @@ onMounted(loadItems)
   align-items: center;
   gap: 8px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .gov-empty {
@@ -309,13 +309,13 @@ onMounted(loadItems)
 .gov-time {
   margin-left: auto;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-variant-numeric: tabular-nums;
 }
 
 .gov-line {
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
   word-break: break-word;
 }

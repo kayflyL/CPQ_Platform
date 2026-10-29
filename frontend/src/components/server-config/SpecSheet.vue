@@ -691,14 +691,14 @@ function groupByCategory(items: KpItem[]) {
 .ss-title-block--inline .ss-title-left { display: flex; align-items: center; gap: 10px; }
 .ss-title-block--inline .ss-title-right { margin-top: 0; }
 .ss-title-name { font-size: var(--ss-font-title, 24px); font-weight: 700; color: #111418; line-height: 1.2; }
-.ss-title-sub { font-size: 12px; color: var(--ss-text-secondary, #6B7280); margin-top: 6px; }
+.ss-title-sub { font-size: var(--cpq-font-size-sm); color: var(--ss-text-secondary, #6B7280); margin-top: 6px; }
 .ss-title-right { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
-.ss-chip { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 600;
+.ss-chip { display: inline-block; padding: 2px 10px; font-size: var(--cpq-font-size-xs); font-weight: 600;
   color: var(--ss-accent, #1668C0); background: #EAF2FB; border: 1px solid #BCD6F5; border-radius: var(--cpq-radius-full); }
-.ss-primary-tag { display: inline-block; padding: 2px 10px; font-size: 11px; font-weight: 700;
+.ss-primary-tag { display: inline-block; padding: 2px 10px; font-size: var(--cpq-font-size-xs); font-weight: 700;
   color: #fff; background: var(--ss-accent, #1668C0); border-radius: var(--cpq-radius-full); }
-.ss-to-business { font-size: 12px; color: #64748b; margin-left: 8px; }
-.ss-qty-badge { font-size: 12px; color: #64748b; }
+.ss-to-business { font-size: var(--cpq-font-size-sm); color: #64748b; margin-left: 8px; }
+.ss-qty-badge { font-size: var(--cpq-font-size-sm); color: #64748b; }
 
 /* 配置块标题 - 简约卡片风格 */
 .ss-config-block { margin-bottom: 20px; }
@@ -713,7 +713,7 @@ function groupByCategory(items: KpItem[]) {
 .ss-config-index {
   display: inline-flex; align-items: center; justify-content: center;
   width: 22px; height: 22px; background: #3b82f6; color: #fff;
-  border-radius: var(--cpq-radius-sm); font-size: 12px; font-weight: 600;
+  border-radius: var(--cpq-radius-sm); font-size: var(--cpq-font-size-sm); font-weight: 600;
 }
 .ss-config-name { font-size: 15px; font-weight: 600; color: #1e293b; }
 .ss-config-qty { font-size: 13px; color: #64748b; margin-left: auto; }
@@ -722,7 +722,7 @@ function groupByCategory(items: KpItem[]) {
 .ss-config-subtotal { display: flex; justify-content: space-between; align-items: center;
   padding: 12px 16px; border-top: 1px solid var(--ss-border, #E5E7EB); margin-top: 12px;
   font-weight: 600; color: #111418; }
-.ss-config-subtotal span:last-child { font-size: 16px; color: var(--ss-accent, #1668C0); font-weight: 700; }
+.ss-config-subtotal span:last-child { font-size: var(--cpq-font-size-lg); color: var(--ss-accent, #1668C0); font-weight: 700; }
 
 /* 段落标题 */
 .ss-section { display: flex; flex-direction: column; gap: 8px; }
@@ -740,7 +740,7 @@ function groupByCategory(items: KpItem[]) {
 
 /* KP BOM 表 */
 .ss-table { width: 100%; border-collapse: collapse; font-size: var(--ss-font-table-body, 13px); }
-.ss-table thead th { padding: 8px 10px; text-align: left; font-weight: 700; font-size: 11px;
+.ss-table thead th { padding: 8px 10px; text-align: left; font-weight: 700; font-size: var(--cpq-font-size-xs);
   text-transform: uppercase; letter-spacing: .4px; color: var(--ss-text-secondary, #6B7280);
   background: var(--ss-table-header-bg, #F7F8FA); border-bottom: 1px solid var(--ss-border, #E5E7EB); }
 .ss-table tbody td { padding: 6px 10px; border-bottom: 1px solid #EEF0F3; color: var(--ss-text, #1F2329); line-height: 1.38; }
@@ -758,7 +758,7 @@ function groupByCategory(items: KpItem[]) {
 .ss-subtotal td { padding: 11px 10px; font-weight: 700; color: #111418;
   border-bottom: none; border-top: 1px solid var(--ss-border, #E5E7EB); font-variant-numeric: tabular-nums; }
 .ss-subtotal td.ss-subtotal-price { color: var(--ss-accent, #1668C0); text-align: right; font-size: 15px; }
-.ss-empty { padding: 18px; text-align: center; font-size: 12px; color: #9CA3AF;
+.ss-empty { padding: 18px; text-align: center; font-size: var(--cpq-font-size-sm); color: #9CA3AF;
   background: #F7F8FA; border: 1px dashed #D1D5DB; border-radius: var(--cpq-radius-sm); }
 
 /* 结构预览占位符：{{字段}}，高亮描边提示「加载预览后填充真实数据」 */
@@ -773,7 +773,7 @@ function groupByCategory(items: KpItem[]) {
 
 
 /* 维保条款：小字紧凑 */
-.ss-warranty-item { font-size: 12px; color: var(--ss-term-text, #4B5563); line-height: 1.5; }
+.ss-warranty-item { font-size: var(--cpq-font-size-sm); color: var(--ss-term-text, #4B5563); line-height: 1.5; }
 .ss-warranty-item strong { color: var(--ss-text, #1F2329); font-weight: 600; }
 
 /* 报价条款：紧凑 2 列，给整页留出空间 */
@@ -790,11 +790,11 @@ function groupByCategory(items: KpItem[]) {
   padding: 13px 16px; border-top: 1px solid var(--ss-border, #E5E7EB); }
 .ss-grand-label { font-size: 13px; font-weight: 600; color: var(--ss-text, #1F2329); }
 .ss-grand-val { font-size: var(--ss-font-grand-total, 22px); font-weight: 700; color: var(--ss-accent, #1668C0); font-variant-numeric: tabular-nums; }
-.ss-grand-qty { font-size: 14px; font-weight: 600; color: var(--ss-text-secondary, #6B7280); }
+.ss-grand-qty { font-size: var(--cpq-font-size-base); font-weight: 600; color: var(--ss-text-secondary, #6B7280); }
 
 /* 页脚 */
 .ss-footer { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; border-top: 1px solid var(--ss-border, #E5E7EB); }
-.ss-check { font-size: 12px; font-weight: 600; color: var(--ss-accent, #1668C0); }
+.ss-check { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--ss-accent, #1668C0); }
 .ss-contact { display: flex; flex-wrap: wrap; gap: 14px; font-size: var(--ss-font-meta, 11px); color: var(--ss-text-secondary, #6B7280); }
 .ss-footnote { font-size: var(--ss-font-meta, 11px); color: #9CA3AF; }
 </style>

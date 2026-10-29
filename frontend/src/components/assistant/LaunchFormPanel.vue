@@ -128,16 +128,16 @@ function onSubmit() {
 .lf-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--cpq-space-3, 12px) var(--cpq-space-4, 16px); }
 .lf-field { display: flex; flex-direction: column; gap: 4px; }
 .lf-field.full { grid-column: 1 / -1; }
-.lf-field label { font-size: 12px; color: var(--cpq-text-secondary, #4e5969); }
+.lf-field label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #4e5969); }
 .req { color: #e5534b; margin-left: 2px; }
-.lf-miss { font-size: 11px; color: #e5534b; }
+.lf-miss { font-size: var(--cpq-font-size-xs); color: #e5534b; }
 .lf-field input[type=text], .lf-field input[type=number], .lf-field select, .lf-field textarea {
   border: 1px solid var(--cpq-border-light, rgba(22,119,255,0.16)); border-radius: var(--cpq-radius-md, 6px);
   padding: 6px 10px; font-size: 13px; font-family: inherit; color: var(--cpq-text-primary, #1d2129);
   background: var(--cpq-bg-elevated, #fff); outline: none; }
 .lf-field input:focus, .lf-field select:focus, .lf-field textarea:focus { border-color: var(--cpq-accent-primary, #1677FF); }
 .lf-file { border: 1.5px dashed var(--cpq-border-light, rgba(22,119,255,0.16)); border-radius: var(--cpq-radius-md, 6px);
-  padding: var(--cpq-space-3, 12px); text-align: center; font-size: 12px; color: var(--cpq-text-muted, #86909c);
+  padding: var(--cpq-space-3, 12px); text-align: center; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c);
   cursor: pointer; }
 .lf-file.over { border-color: var(--cpq-accent-primary, #1677FF); color: var(--cpq-accent-primary, #1677FF); }
 .lf-file.has { border-style: solid; color: var(--cpq-accent-success, #22c55e); background: rgba(34,197,94,0.06); }

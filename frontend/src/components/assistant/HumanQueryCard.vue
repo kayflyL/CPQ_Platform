@@ -160,7 +160,7 @@ function submitForm() {
   border-bottom: 1px solid var(--cpq-overlay-w8, rgba(255,255,255,.10));
   background: var(--cpq-overlay-a6, rgba(22,119,255,.06)); }
 .hq-badge { flex: none; width: 18px; height: 18px; border-radius: var(--cpq-radius-sm);
-  display: inline-flex; align-items: center; justify-content: center; font-size: 12px;
+  display: inline-flex; align-items: center; justify-content: center; font-size: var(--cpq-font-size-sm);
   color: var(--cpq-accent-primary, #1677ff); border: 1px solid var(--cpq-accent-primary, #1677ff); }
 .hq-title { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); }
 .hq-detail { margin: 10px 12px 0; padding: 8px 10px; font-family: inherit; font-size: 12.5px;
@@ -192,11 +192,11 @@ function submitForm() {
 .hq-other:focus { border-color: var(--cpq-accent-primary, #1677ff); }
 .hq-fields { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
 .hq-field { display: flex; flex-direction: column; gap: 4px; }
-.hq-field-label { font-size: 12px; color: var(--cpq-text-secondary, #a6adb4); }
+.hq-field-label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #a6adb4); }
 .hq-input { height: 32px; padding: 0 10px; font-size: 13px; border-radius: var(--cpq-radius-sm);
   border: 1px solid var(--cpq-overlay-w14, rgba(255,255,255,.22));
   background: var(--cpq-overlay-w6, rgba(255,255,255,.08)); color: var(--cpq-text-primary);
   outline: none; }
 .hq-input:focus { border-color: var(--cpq-accent-primary, #1677ff); }
-.hq-done { padding: 10px 12px; font-size: 12px; font-weight: 600; color: #16a34a; }
+.hq-done { padding: 10px 12px; font-size: var(--cpq-font-size-sm); font-weight: 600; color: #16a34a; }
 </style>

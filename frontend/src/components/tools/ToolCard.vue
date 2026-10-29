@@ -323,20 +323,20 @@ async function resetText() {
 
 .tc-title { display: flex; align-items: baseline; gap: 6px; }
 .tc-display {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 700;
   color: var(--cpq-text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .tc-name {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   word-break: break-all;
 }
 .tc-summary {
   flex: 1;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.55;
   color: var(--cpq-text-secondary);
   display: -webkit-box;
@@ -368,10 +368,10 @@ async function resetText() {
   border-color: var(--cpq-accent-primary, #1677ff);
   color: var(--cpq-accent-primary, #1677ff);
 }
-.tc-act--mount:hover { background: rgba(22, 119, 255, 0.10); }
+.tc-act--mount:hover { background: var(--cpq-overlay-a10); }
 .tc-act--remove:hover { border-color: #ff7875; color: #ff7875; }
 .tc-locknote, .tc-meta {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -392,7 +392,7 @@ async function resetText() {
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
-.td-sec-note { margin-left: 8px; font-size: 11px; font-weight: 400; color: var(--cpq-text-muted); }
+.td-sec-note { margin-left: 8px; font-size: var(--cpq-font-size-xs); font-weight: 400; color: var(--cpq-text-muted); }
 .td-desc { margin: 0; font-size: 12.5px; line-height: 1.7; color: var(--cpq-text-secondary); white-space: pre-wrap; }
 .td-brief {
   padding: 8px 10px;
@@ -403,7 +403,7 @@ async function resetText() {
 .td-params {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .td-params th, .td-params td {
   padding: 5px 8px;
@@ -430,7 +430,7 @@ async function resetText() {
   padding: 8px 10px;
   border-radius: var(--cpq-radius-sm);
   border: 1px dashed var(--cpq-border-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .td-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
@@ -441,10 +441,10 @@ async function resetText() {
   padding: 8px 10px;
   border-radius: var(--cpq-radius-sm);
   border: 1px dashed var(--cpq-border-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.6;
   color: var(--cpq-text-secondary);
 }
 .td-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
-.td-field label { font-size: 12px; color: var(--cpq-text-primary); }
+.td-field label { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-primary); }
 </style>

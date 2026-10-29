@@ -111,7 +111,7 @@ watch([loading, error], ([newLoading, newError]) => {
 .preview-hint {
   text-align: center;
   padding: 8px 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted, #6E7582);
   background: var(--cpq-overlay-b40, rgba(0, 0, 0, 0.4));
   backdrop-filter: blur(8px);

@@ -20,5 +20,6 @@
 ## 前端设计规范(硬性)
 - 布局间距只用 --cpq-space-*(4/8/12/16/24/32),标题只用字阶 token(--cpq-font-size-xl/2xl/3xl);≤4px 光学校正可写字面量
 - 权威顺序:tokens.css=值的唯一来源 → docs/前端设计/视觉风格指南.md=材质层(颜色/玻璃/投影/动效) → docs/前端设计/布局与用法规范.md=用法与理由(间距/字阶/布局/组件决策) → docs/prototypes/布局与用法规范.html=可视对照;改前端页面前先看
-- 存量不专项清洗:改哪页迁哪页;共享面(BomTable/磁贴墙/布局壳)优先迁
+- 存量不专项清洗:改哪页迁哪页;共享面(BomTable/磁贴墙/布局壳)优先迁;字号/色值存量未迁值见 frontend/style-legacy.json 遗留清单
+- 视觉值门禁已入构建:scripts/style-gate.mjs(build 首步+npm run lint:style)拦清单外裸字号/裸色值,新增视觉值先进 tokens.css;清单重扫 node scripts/style-gate.mjs --write-ledger
 - 设置类界面(配置/管理页参数区)必须用「设置卡」范式:卡片分组+行内控件(label 左控件右),层级 页面→卡片→行,禁止字段级描边块与玻璃嵌套;网格 minmax 下限必须 min(420px,100%) 防窄屏溢出;全屏层打开挂 body 类让悬浮件让位。规格与参考实现见 docs/前端设计/布局与用法规范.md §5「设置类界面」

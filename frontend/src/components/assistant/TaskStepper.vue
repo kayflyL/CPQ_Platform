@@ -176,13 +176,13 @@ function fmtElapsed(ms: number) {
   background: var(--cpq-overlay-w06, rgba(255, 255, 255, .06));
   backdrop-filter: blur(8px);
   color: var(--cpq-text-secondary, #a6adb4);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 18px;
   cursor: pointer;
   transition: border-color .2s ease, color .2s ease;
 }
 .ts-pill:hover { border-color: var(--cpq-accent-primary, #1677ff); }
-.ts-icon { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; font-size: 11px; }
+.ts-icon { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; font-size: var(--cpq-font-size-xs); }
 .ts-spin {
   width: 10px;
   height: 10px;
@@ -245,7 +245,7 @@ function fmtElapsed(ms: number) {
   gap: 8px;
   padding: 5px 8px;
   border-radius: var(--cpq-radius-sm);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #a6adb4);
 }
 .ts-step-icon { width: 8px; height: 8px; border-radius: 50%; border: 1.5px solid currentColor; flex: none; }
@@ -264,12 +264,12 @@ function fmtElapsed(ms: number) {
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: .7;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .ts-step-dur {
   margin-left: auto;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   opacity: .8;
 }
 

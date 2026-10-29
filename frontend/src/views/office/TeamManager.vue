@@ -770,7 +770,7 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-panel-title {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 800;
   letter-spacing: .1em;
   text-transform: uppercase;
@@ -788,7 +788,7 @@ defineExpose({ save: handleHeaderSave })
   display: block;
   margin-bottom: 0;
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 
@@ -834,7 +834,7 @@ defineExpose({ save: handleHeaderSave })
   pointer-events: none;
   padding: 6px 10px;
   border-radius: var(--cpq-radius-sm);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   background: color-mix(in srgb, var(--cpq-bg-elevated, #101722) 82%, transparent);
   border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
@@ -866,14 +866,14 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-team-name {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 700;
   color: var(--cpq-text-primary);
 }
 
 .tm-team-desc {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   line-height: 1.4;
   color: var(--cpq-text-secondary);
   display: -webkit-box;
@@ -902,7 +902,7 @@ defineExpose({ save: handleHeaderSave })
 
 .tm-lead-label {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   color: var(--cpq-text-secondary);
 }
@@ -913,7 +913,7 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-lead-value {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-primary);
 }
 
@@ -930,7 +930,7 @@ defineExpose({ save: handleHeaderSave })
   gap: 8px;
   padding: 8px 9px;
   border-radius: var(--cpq-radius-md);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tm-member-dot {
@@ -956,7 +956,7 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-team-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
   color: var(--cpq-text-muted);
 }
@@ -1011,7 +1011,7 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-room-name {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   color: var(--cpq-text-primary);
 }
@@ -1023,7 +1023,7 @@ defineExpose({ save: handleHeaderSave })
 }
 
 .tm-room-edit {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 
@@ -1049,7 +1049,7 @@ defineExpose({ save: handleHeaderSave })
 
 .tm-access-collapse :deep(.ant-collapse-header) {
   padding: 10px 12px !important;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   color: var(--cpq-text-primary);
 }
@@ -1107,7 +1107,7 @@ defineExpose({ save: handleHeaderSave })
   justify-content: space-between;
   gap: 8px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tm-access-help {
@@ -1116,7 +1116,7 @@ defineExpose({ save: handleHeaderSave })
   border-radius: var(--cpq-radius-md);
   background: var(--cpq-overlay-w3, rgba(255,255,255,0.03));
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.5;
 }
 

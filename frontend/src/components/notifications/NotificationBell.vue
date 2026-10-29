@@ -159,7 +159,7 @@ function goAll() {
 <style scoped>
 .bell-btn {
   color: var(--cpq-text-secondary) !important;
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   display: inline-flex;
   align-items: center;
 }
@@ -195,7 +195,7 @@ function goAll() {
 .notif-title {
   font-weight: 600;
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 .notif-tabs {
   display: flex;
@@ -210,7 +210,7 @@ function goAll() {
   border: 0;
   border-radius: var(--cpq-radius-sm);
   background: none;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
   display: inline-flex;
   align-items: center;
@@ -255,7 +255,7 @@ function goAll() {
   padding: 32px 0;
   text-align: center;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .notif-item {
   display: flex;
@@ -280,7 +280,7 @@ function goAll() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   flex-shrink: 0;
 }
 .notif-icon.i-blue { background: var(--cpq-notif-blue-bg); color: var(--cpq-notif-blue); }
@@ -299,7 +299,7 @@ function goAll() {
   line-height: 1.4;
 }
 .notif-item-body {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
   opacity: 0.75;
   margin-top: 2px;
@@ -317,7 +317,7 @@ function goAll() {
   flex-shrink: 0;
 }
 .notif-item-time {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .notif-unread-dot {
@@ -340,7 +340,7 @@ function goAll() {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-bg-elevated);
   color: var(--cpq-text-secondary);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   cursor: pointer;
   display: inline-flex;
   align-items: center;

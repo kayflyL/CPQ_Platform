@@ -1054,11 +1054,11 @@ defineExpose({ openCreate, save })
 }
 
 .em-title {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
 }
 
 .em-subtitle {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 
@@ -1083,7 +1083,7 @@ defineExpose({ openCreate, save })
 
 .em-param-head > span {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   flex: none;
 }
 
@@ -1094,7 +1094,7 @@ defineExpose({ openCreate, save })
 .em-param-hint {
   margin-top: 4px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 /* 「恢复跟随全局/清除」：正规小按钮，不再嵌在提示文字里当链接 */
@@ -1115,7 +1115,7 @@ defineExpose({ openCreate, save })
 
 .em-param-note {
   margin-top: 14px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   opacity: 0.85;
 }
@@ -1196,7 +1196,7 @@ defineExpose({ openCreate, save })
 .em-role-key {
   display: inline-block;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   letter-spacing: 1px;
   color: var(--cpq-accent-primary);
   background: var(--cpq-overlay-a8);
@@ -1221,7 +1221,7 @@ defineExpose({ openCreate, save })
   border: 1px solid var(--cpq-border-primary);
   background: var(--cpq-glass-1-bg, rgba(255, 255, 255, 0.04));
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.6;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -1246,8 +1246,8 @@ button.em-chip:hover {
 
 .em-chip.on {
   color: var(--cpq-text-primary);
-  border-color: rgba(22, 119, 255, 0.4);
-  background: rgba(22, 119, 255, 0.1);
+  border-color: var(--cpq-overlay-a40);
+  background: var(--cpq-overlay-a10);
 }
 
 .em-chip.on .em-chip-dot {
@@ -1300,7 +1300,7 @@ button.em-chip:hover {
 .em-blank-input :deep(input.ant-input) {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   padding-left: 0;
   background: transparent !important;
   border: none !important;
@@ -1343,7 +1343,7 @@ button.em-chip:hover {
 
 .em-pill.on {
   color: var(--cpq-accent-primary);
-  border-color: rgba(22, 119, 255, 0.4);
+  border-color: var(--cpq-overlay-a40);
   background: var(--cpq-overlay-a10);
   font-weight: 600;
 }
@@ -1394,7 +1394,7 @@ button.em-chip:hover {
   border-radius: var(--cpq-radius-full) !important;
   padding-inline: 10px !important;
   line-height: 22px !important;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .em-cloud :deep(.ant-select-selection-item-remove) {
@@ -1415,7 +1415,7 @@ button.em-chip:hover {
 }
 
 .em-mem-label {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
 }
 
@@ -1458,7 +1458,7 @@ button.em-chip:hover {
 .em-sec-sub {
   margin: -6px 0 2px;
   text-align: center;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 
@@ -1485,7 +1485,7 @@ button.em-chip:hover {
   flex-direction: column;
   gap: 6px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .em-zone-row {
@@ -1501,7 +1501,7 @@ button.em-chip:hover {
 
 .em-advanced :deep(.ant-collapse-header) {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 700;
   padding-left: 0;
 }
@@ -1578,14 +1578,14 @@ button.em-chip:hover {
 
 .em-msg-role {
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   text-transform: uppercase;
 }
 
 .em-mem-scope-note {
   margin: 0 0 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--ant-color-text-tertiary, rgba(0, 0, 0, 0.45));
 }
 
@@ -1658,7 +1658,7 @@ button.em-chip:hover {
   gap: 10px;
   margin-top: 4px;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 
 .em-memory-actions {
@@ -1670,7 +1670,7 @@ button.em-chip:hover {
 
 .em-memory-star {
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 
 .em-memory-star.on {
@@ -1731,7 +1731,7 @@ button.em-chip:hover {
 }
 
 :global(.em-editor-modal .ant-modal-title) {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 500;
   letter-spacing: 4px;
   color: var(--cpq-text-muted);
@@ -1748,7 +1748,7 @@ button.em-chip:hover {
 }
 
 .em-modal-title-text {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 500;
   letter-spacing: 4px;
   color: var(--cpq-text-muted);

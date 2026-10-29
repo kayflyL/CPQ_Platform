@@ -53,7 +53,7 @@ withDefaults(defineProps<{
   padding: 12px 13px 10px;
 }
 .rt-title {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
@@ -64,7 +64,7 @@ withDefaults(defineProps<{
 .rt-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .rt-table th,
 .rt-table :deep(td) {
@@ -91,7 +91,7 @@ withDefaults(defineProps<{
   padding: 22px 14px;
   text-align: center;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 /* 行内内容全部来自调用方插槽（带调用方 scope），必须走 :deep 才命中 */
 :deep(.rt-badge) {
@@ -101,7 +101,7 @@ withDefaults(defineProps<{
   border: 1px solid;
   border-radius: var(--cpq-radius-full);
   padding: 2px 8px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
 }
@@ -114,13 +114,13 @@ withDefaults(defineProps<{
 :deep(.rt-badge.rt-badge-pending) { color: #7c3aed; border-color: #8b5cf6; background: rgba(139,92,246,.10); }
 :deep(.rt-badge.rt-badge-approving) { color: #b91c1c; border-color: #ef4444; background: rgba(239,68,68,.10); }
 :deep(.rt-actions) { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 6px; }
-:deep(.rt-link) { color: var(--cpq-accent-primary); cursor: pointer; font-size: 12px; white-space: nowrap; }
+:deep(.rt-link) { color: var(--cpq-accent-primary); cursor: pointer; font-size: var(--cpq-font-size-sm); white-space: nowrap; }
 :deep(.rt-link:hover) { opacity: .8; }
 :deep(.rt-link.danger) { color: #ef4444; }
 :deep(.rt-link.muted) { color: var(--cpq-text-muted); }
 :deep(.rt-strong) { font-weight: 400; color: var(--cpq-text-primary); }
-:deep(.rt-sub) { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: 12px; }
-:deep(.rt-dim) { color: var(--cpq-text-muted); font-size: 12px; }
+:deep(.rt-sub) { display: block; margin-top: 3px; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
+:deep(.rt-dim) { color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 
 /* ── 手机端：表格 → 卡片列表。每行一张卡，td 靠 data-label 显示字段名 ── */
 @media (max-width: 768px) {
@@ -161,7 +161,7 @@ withDefaults(defineProps<{
     content: attr(data-label);
     display: block;
     margin-bottom: 3px;
-    font-size: 11px;
+    font-size: var(--cpq-font-size-xs);
     color: var(--cpq-text-muted);
   }
   .rt-table :deep(.rt-actions) {

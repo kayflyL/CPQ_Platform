@@ -851,7 +851,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 .tc-heading p {
   margin: 0;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-actions {
@@ -895,7 +895,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 .tc-empty {
   padding: 22px 8px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-align: center;
 }
 
@@ -905,7 +905,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   align-items: center;
   gap: 8px;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 
 .tc-status {
@@ -938,14 +938,14 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 
 .tc-section-title {
   color: var(--cpq-text-primary);
-  font-size: 20px;
+  font-size: var(--cpq-font-size-xl);
   font-weight: 800;
 }
 
 .tc-section-sub {
   margin-top: 4px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-section-nav {
@@ -992,7 +992,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   padding: 12px 14px;
   border-right: 1px solid var(--cpq-border-primary);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 800;
 }
 
@@ -1000,7 +1000,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   padding: 9px 0 7px;
   border-right: 1px solid var(--cpq-border-primary);
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   text-align: center;
 }
 
@@ -1008,7 +1008,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   display: block;
   margin-bottom: 2px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-gantt-day.today {
@@ -1037,12 +1037,12 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   border-right: 1px solid var(--cpq-border-primary);
   background: var(--cpq-bg-card);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-gantt-label b {
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-gantt-label small {
@@ -1066,7 +1066,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   padding: 0 8px;
   color: var(--status-color, var(--cpq-text-secondary));
   background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 18%, var(--cpq-bg-card));
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -1090,7 +1090,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   border-bottom: 1px solid var(--cpq-border-primary);
   background: var(--cpq-bg-secondary);
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 800;
   text-align: center;
 }
@@ -1114,7 +1114,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 .tc-cal-day-num {
   margin-bottom: 5px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-cal-cell.today .tc-cal-day-num b {
@@ -1131,7 +1131,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   padding: 3px 6px;
   color: var(--status-color, var(--cpq-text-secondary));
   background: color-mix(in srgb, var(--status-color, var(--cpq-accent-primary)) 16%, var(--cpq-bg-card));
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 700;
   text-align: left;
   text-overflow: ellipsis;
@@ -1144,7 +1144,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   align-items: center;
   gap: 6px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-dv-summary b {
@@ -1164,7 +1164,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   border-bottom: 1px solid var(--cpq-border-primary);
   color: var(--cpq-text-primary);
   background: transparent;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-align: left;
   cursor: pointer;
 }
@@ -1179,7 +1179,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   z-index: 1;
   background: var(--cpq-bg-secondary);
   color: var(--cpq-text-secondary);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 800;
   cursor: default;
 }
@@ -1206,7 +1206,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   display: block;
   overflow: hidden;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1219,14 +1219,14 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 
 .td-label {
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 800;
   letter-spacing: 0.08em;
 }
 
 .td-value {
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1.55;
 }
 
@@ -1256,7 +1256,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 
 .td-report-content {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   white-space: pre-wrap;
 }
 
@@ -1283,13 +1283,13 @@ async function executeAction(action: () => Promise<any>, successText: string) {
 
 .td-step-result {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .td-empty {
   padding: 22px 8px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   text-align: center;
 }
 
@@ -1304,7 +1304,7 @@ async function executeAction(action: () => Promise<any>, successText: string) {
   flex-direction: column;
   gap: 6px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .tc-modal-actions {

@@ -17,10 +17,10 @@ const html = computed(() => {
 </template>
 
 <style scoped>
-.md { color: var(--cpq-text-primary); font-size: 14px; line-height: 1.9; }
+.md { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-base); line-height: 1.9; }
 .md :deep(h1) { font-size: 22px; font-weight: 800; letter-spacing: -.4px; margin: 26px 0 14px; }
-.md :deep(h2) { font-size: 20px; font-weight: 800; letter-spacing: -.4px; margin: 30px 0 14px; color: var(--cpq-text-primary); }
-.md :deep(h3) { font-size: 16px; font-weight: 700; margin: 20px 0 10px; }
+.md :deep(h2) { font-size: var(--cpq-font-size-xl); font-weight: 800; letter-spacing: -.4px; margin: 30px 0 14px; color: var(--cpq-text-primary); }
+.md :deep(h3) { font-size: var(--cpq-font-size-lg); font-weight: 700; margin: 20px 0 10px; }
 .md :deep(p) { color: var(--cpq-text-secondary); margin: 0 0 14px; }
 .md :deep(ul), .md :deep(ol) { margin: 0 0 16px; padding-left: 22px; }
 .md :deep(li) { color: var(--cpq-text-secondary); margin: 7px 0; }

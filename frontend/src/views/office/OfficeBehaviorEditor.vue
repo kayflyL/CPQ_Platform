@@ -769,9 +769,9 @@ defineExpose({ save })
   --seg-think-bg: rgba(19, 194, 194, 0.15);   --seg-think-fg: #0e8f8f;
   --seg-done-bg: rgba(82, 201, 160, 0.26);    --seg-done-fg: #1d7a58;
   --seg-out-bg: rgba(120, 144, 176, 0.18);    --seg-out-fg: #54677f;
-  --seg-err-bg: rgba(255, 107, 107, 0.15);    --seg-err-fg: #c0392b;
+  --seg-err-bg: var(--cpq-overlay-danger15);    --seg-err-fg: #c0392b;
   /* 日志徽标 */
-  --bd-sched-fg: #1250b8; --bd-sched-bg: rgba(22, 119, 255, 0.10);
+  --bd-sched-fg: #1250b8; --bd-sched-bg: var(--cpq-overlay-a10);
   --bd-task-fg: #c0392b;  --bd-task-bg: rgba(255, 107, 107, 0.14);
   --bd-llm-fg: #237804;   --bd-llm-bg: rgba(82, 201, 160, 0.16);
   --bd-idle-fg: #0e8f8f;  --bd-idle-bg: rgba(19, 194, 194, 0.12);
@@ -789,7 +789,7 @@ defineExpose({ save })
 }
 
 [data-theme='dark'] .behavior-editor {
-  --be-highlight: rgba(255, 255, 255, 0.10);
+  --be-highlight: var(--cpq-overlay-w10);
   --seg-meeting-bg: rgba(146, 84, 222, 0.22); --seg-meeting-fg: #c9a8ff;
   --seg-work-bg: rgba(77, 137, 255, 0.20);    --seg-work-fg: #8ab4ff;
   --seg-rest-bg: rgba(82, 201, 160, 0.16);    --seg-rest-fg: #7fe0c0;
@@ -822,7 +822,7 @@ defineExpose({ save })
   gap: 16px;
 }
 .be-toolbar h3 { margin: 0; font-size: 18px; color: var(--be-ink); }
-.be-toolbar p { margin: 4px 0 0; color: var(--be-ink3); font-size: 12px; }
+.be-toolbar p { margin: 4px 0 0; color: var(--be-ink3); font-size: var(--cpq-font-size-sm); }
 
 /* ── 全局条 ── */
 .be-global {
@@ -846,7 +846,7 @@ defineExpose({ save })
 .gb-tz { width: 150px; }
 .gb-slider { width: 110px; margin: 0 4px; }
 .gb-sep { width: 1px; height: 18px; background: var(--be-border); }
-.gb-hint { font-size: 11px; color: var(--be-warn-fg); background: var(--be-warn-bg); border: 1px solid var(--be-warn-border); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
+.gb-hint { font-size: var(--cpq-font-size-xs); color: var(--be-warn-fg); background: var(--be-warn-bg); border: 1px solid var(--be-warn-border); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
 
 /* ── 区块（单层玻璃卡：blur 只在这一层） ── */
 .be-section {
@@ -862,8 +862,8 @@ defineExpose({ save })
 .be-section--plain { border: none; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; box-shadow: none; padding: 0; }
 .be-card-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
 .be-title { font-size: 14.5px; font-weight: 700; display: flex; align-items: center; gap: 8px; color: var(--be-ink); }
-.be-sub { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
-.be-tag-note { font-size: 11px; font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
+.be-sub { font-size: var(--cpq-font-size-xs); font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
+.be-tag-note { font-size: var(--cpq-font-size-xs); font-weight: 500; color: var(--be-ink3); background: var(--cpq-overlay-w10, rgba(120, 144, 176, 0.12)); padding: 1px 8px; border-radius: var(--cpq-radius-full); }
 .be-section-title { margin-bottom: 10px; color: var(--be-ink2); font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ── 泳道时间轴 ── */
@@ -874,7 +874,7 @@ defineExpose({ save })
 .swim-label {
   width: 116px; flex: none; display: flex; align-items: center; gap: 7px; padding: 4px 8px;
   border: 1px solid transparent; border-radius: var(--cpq-radius-sm); background: none; cursor: pointer;
-  font-size: 12px; color: var(--be-ink2); text-align: left; font-family: inherit; overflow: hidden;
+  font-size: var(--cpq-font-size-sm); color: var(--be-ink2); text-align: left; font-family: inherit; overflow: hidden;
 }
 .swim-label i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .swim-label .swim-name { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
@@ -884,7 +884,7 @@ defineExpose({ save })
 .swim-axis { position: relative; flex: 1; height: 16px; line-height: 16px; font-size: 10.5px; color: var(--be-ink3); font-family: ui-monospace, Consolas, monospace; }
 .swim-axis span { position: absolute; transform: translateX(-50%); }
 .swim-track .seg { top: 3px; bottom: 3px; padding: 3px 10px; gap: 0; }
-.swim-track .seg .t { font-size: 11px; line-height: 1.35; }
+.swim-track .seg .t { font-size: var(--cpq-font-size-xs); line-height: 1.35; }
 .swim-track .seg .tm { font-size: 9px; line-height: 1.3; text-overflow: ellipsis; }
 
 .seg {
@@ -920,23 +920,23 @@ defineExpose({ save })
 .add-tail {
   position: absolute; top: 8px; bottom: 8px; border: 1.5px dashed var(--be-border);
   border-radius: var(--cpq-radius-sm); display: flex; align-items: center; justify-content: center; color: var(--be-ink3);
-  font-size: 12px; cursor: pointer; transition: 0.15s; background: var(--cpq-overlay-w5, rgba(255, 255, 255, 0.25));
+  font-size: var(--cpq-font-size-sm); cursor: pointer; transition: 0.15s; background: var(--cpq-overlay-w5, rgba(255, 255, 255, 0.25));
 }
-.add-tail:hover { color: var(--be-blue); border-color: var(--be-border-strong); background: rgba(22, 119, 255, 0.05); }
+.add-tail:hover { color: var(--be-blue); border-color: var(--be-border-strong); background: var(--cpq-overlay-a5); }
 
-.legend { display: flex; gap: 12px; font-size: 11px; color: var(--be-ink3); margin-top: 8px; flex-wrap: wrap; }
+.legend { display: flex; gap: 12px; font-size: var(--cpq-font-size-xs); color: var(--be-ink3); margin-top: 8px; flex-wrap: wrap; }
 .legend em { font-style: normal; display: flex; align-items: center; gap: 5px; }
 .legend em::before { content: ''; width: 9px; height: 9px; border-radius: var(--cpq-radius-xs); background: currentColor; opacity: 0.4; }
-.prio-note { margin-top: 7px; font-size: 11px; color: var(--be-ink2); }
+.prio-note { margin-top: 7px; font-size: var(--cpq-font-size-xs); color: var(--be-ink2); }
 .prio-note b { color: var(--be-danger); font-weight: 600; }
 
 /* ── 段编辑器 ── */
 .seg-editor { margin-top: 14px; border-top: 1px dashed var(--be-border); padding-top: 12px; }
-.se-empty { color: var(--be-ink3); font-size: 12px; }
-.se-title { font-size: 12px; color: var(--be-ink2); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.se-empty { color: var(--be-ink3); font-size: var(--cpq-font-size-sm); }
+.se-title { font-size: var(--cpq-font-size-sm); color: var(--be-ink2); margin-bottom: 10px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .se-title b { color: var(--be-ink); }
 .se-tag { margin-right: 0; }
-.se-plan { font-size: 11px; color: var(--be-ink3); }
+.se-plan { font-size: var(--cpq-font-size-xs); color: var(--be-ink3); }
 .se-plan-hint { font-size: 10.5px; color: var(--be-ink3); margin-left: 8px; }
 .se-grid { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-end; }
 .fld { display: flex; flex-direction: column; gap: 4px; }
@@ -947,22 +947,22 @@ defineExpose({ save })
 .del-seg { font-size: 11.5px; color: var(--be-danger); background: none; border: 1px solid rgba(255, 107, 107, 0.35); border-radius: var(--cpq-radius-sm); padding: 3px 12px; cursor: pointer; }
 .del-seg:hover { background: rgba(255, 107, 107, 0.08); }
 .se-weekdays { margin-top: 10px; display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--be-ink2); flex-wrap: wrap; }
-.wd { font-size: 11px; padding: 2px 8px; border-radius: var(--cpq-radius-sm); color: var(--be-ink3); cursor: pointer; border: 1px solid transparent; background: none; }
-.wd.on { color: var(--be-blue); background: rgba(22, 119, 255, 0.1); font-weight: 600; }
+.wd { font-size: var(--cpq-font-size-xs); padding: 2px 8px; border-radius: var(--cpq-radius-sm); color: var(--be-ink3); cursor: pointer; border: 1px solid transparent; background: none; }
+.wd.on { color: var(--be-blue); background: var(--cpq-overlay-a10); font-weight: 600; }
 
 /* ── 智能层 ── set-* 样式已抽全局 styles/settings.css（ColleagueAccessPanel 共用），此处只剩容器变体 */
 .be-collapse { background: var(--be-glass-weak); border: 1px solid var(--be-border); border-radius: var(--cpq-radius-lg); padding: 0 12px; }
 .be-status-row { display: grid; grid-template-columns: 110px minmax(110px, 1fr) 46px 100px 76px 120px; gap: 8px; align-items: center; margin-bottom: 8px; }
 .be-zone-row { display: grid; grid-template-columns: 150px 1fr; gap: 8px; align-items: center; margin-bottom: 8px; }
-.be-status-key { color: var(--be-ink2); font-family: ui-monospace, monospace; font-size: 12px; }
-.be-check { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--be-ink3); }
+.be-status-key { color: var(--be-ink2); font-family: ui-monospace, monospace; font-size: var(--cpq-font-size-sm); }
+.be-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--cpq-font-size-xs); color: var(--be-ink3); }
 .be-opacity-input, .be-animation-input, .be-zone-input, .be-label-input { width: 100%; }
 
 /* ═══ 手机端（≤860）：桌面单行布局在窄屏全部散架，逐区重排 ═══ */
 @media (max-width: 860px){
 /* 全局条：紧凑折行 */
 .be-global { gap: 8px 12px; padding: 12px; }
-.gb-item { font-size: 12px; }
+.gb-item { font-size: var(--cpq-font-size-sm); }
 .gb-num { width: 64px; }
 .gb-tz { width: 128px; }
 .gb-slider { width: 96px; }
@@ -972,7 +972,7 @@ defineExpose({ save })
    点选后的编辑表单承担全部信息 */
 .swim-row { gap: 8px; }
 .swim-label { width: 64px; padding: 4px 5px; }
-.swim-label .swim-name { font-size: 11px; }
+.swim-label .swim-name { font-size: var(--cpq-font-size-xs); }
 .swim-axis span { display: none; }
 .swim-axis span:nth-child(1), .swim-axis span:nth-child(6), .swim-axis span:nth-child(11) { display: block; }
 .swim-track { height: 38px; }
@@ -1004,6 +1004,6 @@ defineExpose({ save })
 .be-card-head { flex-direction: column; align-items: flex-start; gap: 6px; }
 .be-title { flex-direction: column; align-items: flex-start; gap: 4px; width: 100%; }
 .add-tail { font-size: 0; }
-.add-tail::after { content: '＋'; font-size: 14px; }
+.add-tail::after { content: '＋'; font-size: var(--cpq-font-size-base); }
 }
 </style>

@@ -204,7 +204,7 @@ async function saveDict() {
 }
 .rcm-label {
   margin-bottom: var(--cpq-space-2);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #888);
   }
 .rcm-transition {

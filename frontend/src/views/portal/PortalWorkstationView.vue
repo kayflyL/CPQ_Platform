@@ -432,18 +432,18 @@ watch(view, () => {
 }
 .hero { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-bottom: 18px; flex-wrap: wrap; }
 .hero h1 { margin: 0 0 6px; font-size: 26px; letter-spacing: -.5px; }
-.hero p { margin: 0; color: var(--cpq-text-secondary); font-size: 14px; }
+.hero p { margin: 0; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-base); }
 .primary-btn { border: 0; border-radius: var(--cpq-radius-md); padding: 10px 14px; cursor: pointer; font-weight: 700; font-size: 13px; color: white; background: linear-gradient(135deg, var(--cpq-accent-primary), #7c5cfc); box-shadow: 0 8px 20px var(--cpq-overlay-a20); }
 .primary-btn:disabled { opacity: .55; cursor: not-allowed; }
 .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 18px; }
 .stat { padding: 14px; border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-lg); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur, 16px)); }
-.stat small { display: block; color: var(--cpq-text-secondary); font-size: 12px; margin-bottom: 7px; }
-.stat b { font-size: 24px; }
-.stat .hint { font-size: 12px; color: var(--cpq-text-muted); margin-left: 6px; font-weight: 500; }
+.stat small { display: block; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); margin-bottom: 7px; }
+.stat b { font-size: var(--cpq-font-size-2xl); }
+.stat .hint { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); margin-left: 6px; font-weight: 500; }
 .card { border: 1px solid var(--cpq-glass-border); border-radius: var(--cpq-radius-xl); background: var(--cpq-glass-card-bg); backdrop-filter: blur(var(--cpq-glass-card-blur, 18px)); box-shadow: var(--cpq-glass-card-shadow); margin-bottom: 16px; overflow: hidden; }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--cpq-overlay-w8); }
-.card-head h3 { margin: 0; font-size: 16px; }
-.card-head small { color: var(--cpq-text-secondary); font-size: 12px; }
+.card-head h3 { margin: 0; font-size: var(--cpq-font-size-lg); }
+.card-head small { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
 .card-tools { display: flex; align-items: center; gap: 8px; }
 .tool-input {
   height: 30px; width: 220px; padding: 0 10px; font-size: 12.5px; outline: none;
@@ -465,7 +465,7 @@ watch(view, () => {
 @media (max-width: 768px) {
   .workstation { padding: 12px 12px 24px; }
   .hero { align-items: flex-start; gap: 10px; margin-bottom: 12px; }
-  .hero h1 { font-size: 20px; margin-bottom: 2px; }
+  .hero h1 { font-size: var(--cpq-font-size-xl); margin-bottom: 2px; }
   .hero p { font-size: 12.5px; }
   .primary-btn { padding: 9px 13px; font-size: 12.5px; }
   .stats { gap: 8px; margin-bottom: 12px; }

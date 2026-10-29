@@ -985,7 +985,7 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   transition: all var(--cpq-transition-fast);
 }
 
@@ -1105,7 +1105,7 @@ onBeforeUnmount(() => {
 
 .empty-state p {
   margin: 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-muted);
 }
 
@@ -1196,7 +1196,7 @@ onBeforeUnmount(() => {
 }
 
 .quo-name {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
   flex: 1;
@@ -1211,7 +1211,7 @@ onBeforeUnmount(() => {
   letter-spacing: 1px;
 }
 .quo-price {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   font-weight: 600;
   color: var(--cpq-accent-primary);
   flex-shrink: 0;
@@ -1229,7 +1229,7 @@ onBeforeUnmount(() => {
 }
 
 .quo-margin-badge {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 500;
   padding: 2px 8px;
   border-radius: var(--cpq-radius-md);
@@ -1312,7 +1312,7 @@ onBeforeUnmount(() => {
   border: none;
   background: transparent;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
@@ -1333,7 +1333,7 @@ onBeforeUnmount(() => {
 /* ── Quotation Arrow ── */
 .quo-arrow {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   transition: all var(--cpq-transition-fast);
   flex-shrink: 0;
 }
@@ -1416,7 +1416,7 @@ onBeforeUnmount(() => {
   /* 紧凑页头：标题降级到一行内，状态/日期换行排第二行 */
   .page-header h1 { font-size: 17px; }
   .header-result-select { width: 96px; }
-  .header-created-date { font-size: 12px; }
+  .header-created-date { font-size: var(--cpq-font-size-sm); }
   .header-created-date :deep(.ant-picker) { width: 104px !important; }
   .header-more-btn {
     width: 32px;

@@ -117,7 +117,7 @@ function submit() {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-accent-primary, #1677ff);
   border: 1px solid var(--cpq-accent-primary, #1677ff);
 }
@@ -185,7 +185,7 @@ function submit() {
   border: 1px solid var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-accent-primary, #1677ff);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   cursor: pointer;
   transition: opacity .15s ease;
@@ -196,7 +196,7 @@ function submit() {
 }
 .if-done {
   flex: none;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: #16a34a;
   font-weight: 600;
 }
@@ -205,7 +205,7 @@ function submit() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-primary, inherit);
   font-weight: 600;
 }

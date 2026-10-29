@@ -245,14 +245,14 @@ background:linear-gradient(to bottom,transparent,var(--sc-fade));pointer-events:
 .flowrow.solo{grid-template-columns:minmax(0,1fr)}
 .flow{border:1px solid var(--gb);border-radius: var(--cpq-radius-lg);background:var(--card);backdrop-filter:blur(12px);
 box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:18px 22px;display:flex;flex-direction:column}
-.flow .h{font-size:14px;font-weight:600}
-.flow .h span{margin-left:10px;font-size:12px;color:var(--cpq-text-muted,#8b94a8);font-weight:400}
+.flow .h{font-size:var(--cpq-font-size-base);font-weight:600}
+.flow .h span{margin-left:10px;font-size:var(--cpq-font-size-sm);color:var(--cpq-text-muted,#8b94a8);font-weight:400}
 .fnodes{flex:1;display:flex;align-items:center;gap:6px;margin-top:8px}
 .fnode{flex:1;display:flex;align-items:center;gap:12px;min-width:0}
 .fico{width:42px;height:42px;border-radius: 50%;background:rgba(59,130,246,.12);color:var(--cpq-accent-primary,#1677ff);display:grid;place-items:center;flex:none;border:1px solid rgba(122,167,255,.25)}
 .fico svg{width:19px;height:19px}
 .fnode .n{font-size:13.5px;font-weight:600;color:var(--cpq-text-primary)}
-.fnode .c{font-size:12px;color:var(--cpq-text-muted,#8b94a8);margin-top:2px}
+.fnode .c{font-size:var(--cpq-font-size-sm);color:var(--cpq-text-muted,#8b94a8);margin-top:2px}
 .fnode .c b{color:var(--cpq-accent-primary,#1677ff);font-weight:600}
 .farrow{color:var(--cpq-text-muted,#8b94a8);flex:none}
 /* 我的入口卡：accent 渐变描边，全页唯一主 CTA */
@@ -265,7 +265,7 @@ padding:16px 18px;display:flex;flex-direction:column}
 .mycard .h .chip svg{width:16px;height:16px}
 .roleline{font-size:11.5px;color:var(--cpq-text-muted,#8b94a8);margin-top:8px}
 /* 统计行：桌面行式（label 左数字右，row-reverse 因 DOM 数字在前）；手机端媒体查询改三列格 */
-.mrow{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:12px;color:var(--cpq-text-muted,#8b94a8)}
+.mrow{display:flex;flex-direction:row-reverse;justify-content:space-between;align-items:baseline;margin-top:9px;font-size:var(--cpq-font-size-sm);color:var(--cpq-text-muted,#8b94a8)}
 .mrow b{font-size:17px;font-weight:600;color:var(--cpq-text-primary)}
 .mrow b.hot{color:#f4756f}
 .mycard .mrows{margin-bottom:var(--cpq-space-3)} /* CTA 吸底 auto 在卡片=内容高时坍缩为0，这里保底间隙 */
@@ -277,9 +277,9 @@ border:0;border-radius: var(--cpq-radius-sm);padding:9px 0;box-shadow:0 4px 12px
 .act.ai{border-color:rgba(122,167,255,.35);background:linear-gradient(140deg,rgba(59,130,246,.14),rgba(14,165,233,.04) 60%),var(--card)}
 .act.ai .chip{background:rgba(59,130,246,.25);color:#cfe0ff}
 
-.sec-h{display:flex;align-items:baseline;gap:10px;margin:2px 2px 12px;font-size:14px;font-weight:600}
-.sec-h span{font-size:12px;color:var(--cpq-text-muted,#8b94a8);font-weight:400}
-.sec-h .more{margin-left:auto;font-size:12px;color:var(--cpq-accent-primary,#1677ff);font-weight:400}
+.sec-h{display:flex;align-items:baseline;gap:10px;margin:2px 2px 12px;font-size:var(--cpq-font-size-base);font-weight:600}
+.sec-h span{font-size:var(--cpq-font-size-sm);color:var(--cpq-text-muted,#8b94a8);font-weight:400}
+.sec-h .more{margin-left:auto;font-size:var(--cpq-font-size-sm);color:var(--cpq-accent-primary,#1677ff);font-weight:400}
 .acts{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
 .act{display:flex;align-items:center;gap:12px;border:1px solid var(--gb);border-radius: var(--cpq-radius-md);background:var(--card);
 backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padding:14px 16px}
@@ -295,7 +295,7 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 .portal-main{padding:14px 14px calc(var(--cpq-tabbar-h,58px) + 20px)}
 .flowrow{grid-template-columns:minmax(0,1fr)}
 .hero{margin:calc(-1 * var(--cpq-header-clearance,0px)) 0 14px;padding:calc(var(--cpq-header-clearance,0px) + 20px) 16px 20px;min-height:0}
-.hero h1{font-size:20px}
+.hero h1{font-size:var(--cpq-font-size-xl)}
 .slogan{display:none}
 /* 手机 hero 变矮后波纹只剩孤立信号点，干脆去掉，留纯净渐变 */
 .rings{display:none}
@@ -306,7 +306,7 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 .fico{width:36px;height:36px}
 .fico svg{width:16px;height:16px}
 .fnode .n{font-size:12.5px;white-space:nowrap}
-.fnode .c{font-size:11px;white-space:nowrap}
+.fnode .c{font-size:var(--cpq-font-size-xs);white-space:nowrap}
 /* 常用功能：两列；描述允许换行不再单行截断 */
 .acts{grid-template-columns:1fr 1fr;gap:8px}
 .act{padding:11px 12px;gap:10px}
@@ -319,7 +319,7 @@ backdrop-filter:blur(12px);box-shadow:inset 0 1px 0 0 rgba(255,255,255,.07);padd
 .mrows{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
 .mrow{flex-direction:column;align-items:center;gap:3px;margin-top:0;text-align:center}
 .mrow b{font-size:18px}
-.mrow span{font-size:11px}
+.mrow span{font-size:var(--cpq-font-size-xs)}
 }
 
 </style>

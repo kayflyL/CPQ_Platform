@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc -b && vite build",
+    "build": "node scripts/style-gate.mjs && vue-tsc -b && vite build",
+    "lint:style": "node scripts/style-gate.mjs",
     "preview": "vite preview",
     "test": "node --test"
   },

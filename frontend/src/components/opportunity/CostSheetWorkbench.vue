@@ -555,7 +555,7 @@ function returnSheet(sheet: CostSheet) {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .cost-name > span {

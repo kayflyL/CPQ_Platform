@@ -253,16 +253,16 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 }
 .ca-hero { border-color: var(--cpq-glass-border-strong, rgba(22,119,255,.45)); }
 .ca-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-.ca-tag { font-size: 12px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF);
+.ca-tag { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary, #E8ECEF);
   padding: 2px 9px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); }
-.ca-sub { font-size: 11px; color: var(--cpq-text-muted, #6E7582); }
+.ca-sub { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #6E7582); }
 .num { font-variant-numeric: tabular-nums lining-nums; letter-spacing: .2px; }
 .mono { font-family: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace; font-size: 10px; }
 
 /* 卡1 */
 .ca-total-line { display: flex; align-items: baseline; gap: 8px; }
 .ca-cur { font-size: 15px; color: var(--cpq-text-secondary, #9BA1AA); font-weight: 600; }
-.ca-total { font-size: 30px; font-weight: 750; line-height: 1.15;
+.ca-total { font-size: var(--cpq-font-size-3xl); font-weight: 750; line-height: 1.15;
   background: var(--cpq-accent-gradient); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .ca-badge { font-size: 10px; font-weight: 700; padding: 1px 7px; border-radius: var(--cpq-radius-xs); transform: translateY(-3px); }
 .ca-badge.warn { color: #ad6800; background: var(--cpq-warn30, rgba(244,210,138,.3)); border: 1px solid rgba(250,173,20,.45); }
@@ -275,7 +275,7 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 .ca-submetrics { display: flex; gap: 8px; margin-top: 11px; }
 .ca-subm { flex: 1; background: var(--cpq-overlay-w4, rgba(255,255,255,.06)); border: 1px solid var(--cpq-overlay-w10, rgba(255,255,255,.08)); border-radius: var(--cpq-radius-sm); padding: 6px 9px; }
 .ca-subm .lab { font-size: 10.5px; color: var(--cpq-text-muted, #6E7582); }
-.ca-subm .val { font-size: 14px; font-weight: 650; color: var(--cpq-text-primary, #E8ECEF); margin-top: 1px; }
+.ca-subm .val { font-size: var(--cpq-font-size-base); font-weight: 650; color: var(--cpq-text-primary, #E8ECEF); margin-top: 1px; }
 .ca-miss { display: flex; align-items: center; gap: 7px; margin-top: 10px; padding: 6px 10px; border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-danger10, rgba(250,173,20,.12)); border: 1px dashed rgba(250,173,20,.45); font-size: 11.5px; color: var(--cpq-text-secondary, #9BA1AA); }
 .ca-miss b { color: #ad6800; }
@@ -286,11 +286,11 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 .grp-no { width: 17px; height: 17px; border-radius: var(--cpq-radius-xs); background: var(--cpq-overlay-a12, var(--cpq-overlay-a15));
   color: var(--cpq-accent-primary, #1677FF); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 650; }
 .grp-no.ghost { background: transparent; border: 1px solid var(--cpq-overlay-w15, rgba(255,255,255,.12)); color: var(--cpq-text-muted, #6E7582); }
-.grp-name { font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.grp-name { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #9BA1AA); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .grp-miss { font-size: 9.5px; color: #ad6800; background: var(--cpq-overlay-warn30, rgba(244,210,138,.3)); padding: 0 4px; border-radius: var(--cpq-radius-xs); margin-left: 4px; }
 .grp-track { height: 8px; background: var(--cpq-overlay-w10, rgba(255,255,255,.1)); border-radius: var(--cpq-radius-xs); overflow: hidden; }
 .grp-bar { height: 100%; border-radius: var(--cpq-radius-xs); background: var(--cpq-accent-gradient); transform-origin: left; animation: ca-grow .5s var(--cpq-ease-out-expo, ease-out) both; }
-.grp-amt { font-size: 12px; font-weight: 650; text-align: right; color: var(--cpq-text-primary, #E8ECEF); }
+.grp-amt { font-size: var(--cpq-font-size-sm); font-weight: 650; text-align: right; color: var(--cpq-text-primary, #E8ECEF); }
 .grp-pct { font-size: 10.5px; color: var(--cpq-text-muted, #6E7582); text-align: right; }
 .ca-grp.kp { opacity: .55; }
 .ca-grp.kp .grp-amt { font-size: 10px; color: var(--cpq-text-muted, #6E7582); font-weight: 400; }
@@ -299,10 +299,10 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 
 /* 卡3 */
 .ca-top { display: grid; grid-template-columns: 18px 1fr 64px; gap: 0 8px; align-items: center; padding: 4.5px 0; border-bottom: 1px dashed var(--cpq-overlay-w10, rgba(255,255,255,.08)); }
-.top-rank { font-size: 11px; font-weight: 700; color: var(--cpq-text-muted, #6E7582); }
+.top-rank { font-size: var(--cpq-font-size-xs); font-weight: 700; color: var(--cpq-text-muted, #6E7582); }
 .top-rank.lead { color: var(--cpq-accent-primary, #1677FF); }
 .top-what { min-width: 0; }
-.top-name { font-size: 12px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.top-name { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .top-meta { font-size: 10px; color: var(--cpq-text-muted, #6E7582); display: flex; gap: 6px; align-items: baseline; }
 .top-meta .qty { color: var(--cpq-text-secondary, #9BA1AA); }
 .top-nums { text-align: right; }
@@ -313,7 +313,7 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 .miss-divider { display: flex; align-items: center; gap: 8px; margin: 8px 0 3px; font-size: 10px; color: #ad6800; }
 .miss-divider::before, .miss-divider::after { content: ''; flex: 1; border-top: 1px dashed rgba(250,173,20,.4); }
 .ca-top.miss .top-name { color: var(--cpq-text-muted, #6E7582); font-weight: 500; }
-.miss-amt { font-size: 11px; color: #ad6800; font-weight: 600; }
+.miss-amt { font-size: var(--cpq-font-size-xs); color: #ad6800; font-weight: 600; }
 
 /* 卡4 */
 .ca-cmp-group + .ca-cmp-group { margin-top: 10px; }
@@ -322,13 +322,13 @@ const money = (n: number) => '¥' + Math.round(n).toLocaleString('zh-CN')
 .cmp-row { position: relative; display: grid; grid-template-columns: 1fr 66px; gap: 0 8px; align-items: center; padding: 2.5px 6px; border-radius: var(--cpq-radius-sm); border: 1px solid transparent; }
 .cmp-row:hover { background: var(--cpq-overlay-w4, rgba(255,255,255,.05)); }
 .cmp-bar { position: absolute; left: 0; top: 2px; bottom: 2px; border-radius: var(--cpq-radius-sm); background: var(--cpq-overlay-a15); z-index: 0; }
-.cmp-name { position: relative; z-index: 1; font-size: 12px; color: var(--cpq-text-secondary, #9BA1AA); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.cmp-amt { position: relative; z-index: 1; font-size: 12px; font-weight: 650; text-align: right; color: var(--cpq-text-secondary, #9BA1AA); }
+.cmp-name { position: relative; z-index: 1; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary, #9BA1AA); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cmp-amt { position: relative; z-index: 1; font-size: var(--cpq-font-size-sm); font-weight: 650; text-align: right; color: var(--cpq-text-secondary, #9BA1AA); }
 .cmp-row.cur { border-color: var(--cpq-glass-border-strong, rgba(22,119,255,.45)); background: var(--cpq-overlay-a8); }
 .cmp-row.cur .cmp-name { color: var(--cpq-accent-primary, #1677FF); font-weight: 650; }
 .cmp-row.cur .cmp-amt { color: var(--cpq-accent-primary, #1677FF); }
 .chip-cur { font-size: 9px; font-weight: 700; color: #fff; background: var(--cpq-accent-gradient); padding: 0 5px; border-radius: var(--cpq-radius-xs); margin-left: 5px; }
-.ca-empty { font-size: 12px; color: var(--cpq-text-muted, #6E7582); }
+.ca-empty { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #6E7582); }
 
 @media (prefers-reduced-motion: reduce) { .grp-bar { animation: none; } }
 </style>

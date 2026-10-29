@@ -211,7 +211,7 @@ watch(
   padding: 8px 4px;
 }
 .excel-hint {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .excel-canvas {

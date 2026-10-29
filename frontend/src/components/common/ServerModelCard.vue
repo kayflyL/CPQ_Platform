@@ -128,7 +128,7 @@ const cardClass = computed(() => ({
   position: absolute;
   top: 12px;
   right: 12px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   padding: 2px 8px;
   border-radius: var(--cpq-radius-full);
@@ -168,7 +168,7 @@ const cardClass = computed(() => ({
   color: var(--cpq-text-primary, #E8ECEF);
 }
 .m-type {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #9BA1AA);
 }
 .m-tagline {
@@ -195,14 +195,14 @@ const cardClass = computed(() => ({
   color: var(--cpq-text-primary, #E8ECEF);
 }
 .m-specs i {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 400;
   font-style: normal;
   color: var(--cpq-text-muted, #6E7582);
 }
 
 .m-bc {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #9BA1AA);
 }
 .m-bc-empty {

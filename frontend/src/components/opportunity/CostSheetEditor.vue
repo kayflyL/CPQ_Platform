@@ -356,11 +356,11 @@ defineExpose({ saveDraft, submit, getConfigs })
   flex-direction: column;
   gap: 4px;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .fs-desc-text {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .sheet-scroll {
@@ -376,7 +376,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   min-width: 900px;
   border-collapse: collapse;
   table-layout: auto;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .sheet-table th,
 .sheet-table td {
@@ -400,7 +400,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   padding: 6px 8px;
   color: var(--cpq-text-secondary);
   background: var(--sheet-head);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   white-space: nowrap;
   border-bottom: 1px solid var(--sheet-line-strong);
@@ -441,7 +441,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   background: var(--sheet-head);
   color: var(--cpq-accent-primary);
   text-align: center;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 650;
   vertical-align: middle;
   border-bottom: 0;
@@ -472,7 +472,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   min-height: 36px;
   cursor: grab;
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   user-select: none;
 }
 .sheet-drag:active {
@@ -557,22 +557,22 @@ defineExpose({ saveDraft, submit, getConfigs })
 .match-tag {
   flex-shrink: 0;
   margin: 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .match-name {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .match-date {
   flex-shrink: 0;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .match-hint {
   color: var(--cpq-accent-warning, #d46b08);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   white-space: nowrap;
 }
 .match-miss {
@@ -589,7 +589,7 @@ defineExpose({ saveDraft, submit, getConfigs })
 .match-candidates-title {
   margin-bottom: 8px;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .match-candidate-list {
   display: flex;
@@ -615,20 +615,20 @@ defineExpose({ saveDraft, submit, getConfigs })
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .match-candidate-meta {
   color: var(--cpq-text-secondary);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .match-candidate-date {
   grid-column: 1 / -1;
   color: var(--cpq-text-muted);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .match-candidates-empty {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .sheet-plain {
@@ -678,7 +678,7 @@ defineExpose({ saveDraft, submit, getConfigs })
   background: var(--sheet-panel);
   border: 1px solid var(--sheet-line-strong);
   box-shadow: var(--sheet-shadow);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .fs-cost-item {
@@ -688,7 +688,7 @@ defineExpose({ saveDraft, submit, getConfigs })
 }
 .fs-cost-item strong {
   color: var(--cpq-text-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-variant-numeric: tabular-nums;
 }
 .fs-cost-item-main strong {

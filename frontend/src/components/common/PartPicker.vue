@@ -116,11 +116,11 @@ function onChange(value: any, option: any) {
 .pp-dropdown .pp-opt { padding: 4px 2px; line-height: 1.4; }
 .pp-dropdown .pp-opt-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .pp-dropdown .pp-opt-name { font-size: 13px; color: var(--cpq-text-primary, #E8ECEF); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pp-dropdown .pp-opt-price { font-size: 12px; color: var(--cpq-accent-primary, #1677FF); font-weight: 600; white-space: nowrap; }
-.pp-dropdown .pp-opt-sub { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: 11px; }
+.pp-dropdown .pp-opt-price { font-size: var(--cpq-font-size-sm); color: var(--cpq-accent-primary, #1677FF); font-weight: 600; white-space: nowrap; }
+.pp-dropdown .pp-opt-sub { display: flex; gap: 8px; align-items: center; margin-top: 2px; font-size: var(--cpq-font-size-xs); }
 .pp-dropdown .pp-opt-meta { color: var(--cpq-text-secondary, #9BA1AA); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pp-dropdown .pp-opt-date { color: var(--cpq-text-muted, #6E7582); margin-left: auto; white-space: nowrap; }
-.pp-dropdown .pp-empty { color: var(--cpq-text-muted, #6E7582); font-size: 12px; }
+.pp-dropdown .pp-empty { color: var(--cpq-text-muted, #6E7582); font-size: var(--cpq-font-size-sm); }
 /* 选中项背景被 antd-overrides 置为 --cpq-accent-primary（蓝），价格/型号同为蓝/灰会高对比丢失，
    统一切换为浅色文字保证选中态可读（active 非选中态背景为中性浅色，维持原蓝价）。 */
 .pp-dropdown .ant-select-item-option-selected .pp-opt-price,

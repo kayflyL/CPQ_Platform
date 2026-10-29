@@ -82,7 +82,7 @@ const {
 .cre { display: flex; flex-direction: column; gap: 12px; }
 .cre-main { display: flex; flex-direction: column; gap: 12px; }
 .cre-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-.cre-hint { color: var(--cpq-text-secondary); font-size: 12px; }
+.cre-hint { color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); }
 
 .cre-hud {
   display: block;

@@ -45,7 +45,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   padding: 28px;
   margin-bottom: 28px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cpq-overlay-w10);
   border-radius: var(--cpq-radius-xl);
 }
 
@@ -68,13 +68,13 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
 }
 .intro-eyebrow {
   display: inline-block;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   letter-spacing: 0.08em;
   padding: 3px 10px;
   border-radius: var(--cpq-radius-sm);
   color: #36CFCF;
-  background: rgba(54, 207, 207, 0.15);
-  border: 1px solid rgba(54, 207, 207, 0.3);
+  background: var(--cpq-overlay-cyan15);
+  border: 1px solid var(--cpq-overlay-cyan30);
   margin-bottom: 14px;
 }
 .intro-title {
@@ -84,7 +84,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   margin: 0 0 10px;
 }
 .intro-desc {
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1.7;
   color: rgba(238, 243, 250, 0.72);
   margin: 0 0 18px;
@@ -123,7 +123,7 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   border-radius: var(--cpq-radius-lg);
   overflow: hidden;
   background: linear-gradient(to bottom, #061225, #030b18);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cpq-overlay-w10);
 }
 .stage-canvas {
   position: absolute;
@@ -142,13 +142,13 @@ const { loading, error } = useServerModel3D(stageRef, renderOptions)
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 4px 12px;
   border-radius: var(--cpq-radius-full);
   color: rgba(238, 243, 250, 0.72);
-  background: rgba(0, 0, 0, 0.4);
+  background: var(--cpq-overlay-b40);
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--cpq-overlay-w10);
   pointer-events: none;
   white-space: nowrap;
 }

@@ -82,7 +82,7 @@ onMounted(loadModel)
 }
 .current-model {
   color: var(--cpq-text-primary, #E8ECEF);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 500;
 }
 .sc-back { padding: 6px 14px; border: 1px solid var(--cpq-border-light,var(--cpq-overlay-w20)); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary,#9BA1AA); background: transparent; cursor: pointer; font-size: 13px; transition: all .2s; }
@@ -92,7 +92,7 @@ onMounted(loadModel)
   color: var(--cpq-text-muted,#6E7582);
   text-align: center;
   padding: 60px 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 
 @media (max-width: 960px) {

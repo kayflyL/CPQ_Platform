@@ -527,7 +527,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 }
 .rf-hint {
   margin-left: 8px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 400;
   color: var(--cpq-text-muted);
 }
@@ -547,7 +547,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   gap: 8px;
 }
 .rf-config-head-actions .ant-radio-button-wrapper {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 0 12px;
 }
 .rf-primary-btn {
@@ -556,7 +556,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   background: transparent;
   border-radius: var(--cpq-radius-sm);
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   margin: 0 0 12px;
   transition: all 0.2s;
@@ -581,7 +581,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   background: var(--cpq-bg-secondary);
   color: var(--cpq-text-secondary);
   padding: 5px 12px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   transition: all 0.15s ease;
 }
@@ -592,7 +592,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 }
 .rf-config-tab-close {
   color: var(--cpq-text-muted);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1;
 }
 .rf-config-tab-close:hover {
@@ -610,7 +610,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   gap: 4px;
 }
 .rf-field > label {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
 }
 .rf-number-unit {
@@ -621,11 +621,11 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
 .rf-unit {
   flex-shrink: 0;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .rf-kp-title {
   margin: 0 0 8px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-secondary);
 }
@@ -641,7 +641,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .sheet-table thead th {
   position: sticky;
@@ -651,7 +651,7 @@ defineExpose({ toSlots, fromSlots, hasAnyPart })
   padding: 6px 8px;
   color: var(--cpq-text-secondary);
   background: var(--sheet-head);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   white-space: nowrap;
   border-right: 1px solid var(--sheet-line);

@@ -534,13 +534,13 @@ function requestWithdrawScheme(scheme: BomScheme) {
 .scheme-req-head b {
   flex: 1;
   min-width: 0;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
 }
 .scheme-req-caret {
   flex-shrink: 0;
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   display: inline-flex;
   transition: transform 0.2s ease;
 }
@@ -552,7 +552,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
   padding: 5px 11px;
   background: var(--cpq-overlay-success15);
   color: var(--cpq-color-success);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
 }
 .scheme-req-body {
@@ -579,7 +579,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .scheme-name > span {

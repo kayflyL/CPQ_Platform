@@ -143,7 +143,7 @@ async function submit() {
 .oam-muted { color: var(--cpq-text-muted); }
 .oam-hash {
   font-family: Consolas, monospace;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   background: var(--cpq-overlay-w6, rgba(255, 255, 255, 0.06));
   border-radius: var(--cpq-radius-xs);
   padding: 1px 6px;

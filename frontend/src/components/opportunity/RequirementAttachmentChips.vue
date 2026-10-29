@@ -169,7 +169,7 @@ defineExpose({ uploadFiles })
 }
 .rac-hint {
   margin-left: var(--cpq-space-2, 8px);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 400;
   color: var(--cpq-text-muted, #6e7582);
 }
@@ -220,7 +220,7 @@ defineExpose({ uploadFiles })
 .rac-x {
   flex-shrink: 0;
   color: var(--cpq-text-muted, #6e7582);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   padding: 0 2px;
 }
 .rac-x:hover { color: var(--cpq-accent-danger, #ff6b6b); }

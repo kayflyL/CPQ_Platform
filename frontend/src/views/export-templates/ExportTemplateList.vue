@@ -375,7 +375,7 @@ async function handleDeleteSpec(tpl: any) {
 
 .page-header h2 {
   margin: 0 0 8px 0;
-  font-size: 24px;
+  font-size: var(--cpq-font-size-2xl);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
@@ -383,7 +383,7 @@ async function handleDeleteSpec(tpl: any) {
 .subtitle {
   margin: 0;
   color: var(--cpq-text-secondary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 
 .template-grid {
@@ -435,7 +435,7 @@ async function handleDeleteSpec(tpl: any) {
 .info-row {
   display: flex;
   margin-bottom: 8px;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
 }
 
@@ -483,7 +483,7 @@ async function handleDeleteSpec(tpl: any) {
 }
 
 .add-text {
-  font-size: 16px;
+  font-size: var(--cpq-font-size-lg);
   color: var(--cpq-accent-primary);
 }
 </style>

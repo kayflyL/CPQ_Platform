@@ -1468,7 +1468,7 @@ onMounted(async () => {
   justify-content: space-between;
   padding: 14px 16px;
   font-weight: 600;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   color: var(--cpq-text-primary);
   border-bottom: 1px solid var(--cpq-border-secondary);
   background: var(--cpq-overlay-w3);
@@ -1491,7 +1491,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1644,7 +1644,7 @@ onMounted(async () => {
 
 .check-icon {
   color: var(--cpq-accent-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .dynamic-source-panel {
@@ -1660,7 +1660,7 @@ onMounted(async () => {
 }
 
 .mapping-header {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 500;
   color: var(--cpq-text-secondary);
   margin-bottom: 4px;
@@ -1716,7 +1716,7 @@ onMounted(async () => {
   font-family: 'Courier New', monospace;
   font-weight: 600;
   color: var(--cpq-accent-primary);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 
 .binding-form {
@@ -1732,7 +1732,7 @@ onMounted(async () => {
 }
 
 .form-item label {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 
@@ -1808,7 +1808,7 @@ onMounted(async () => {
 }
 
 .binding-field {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 

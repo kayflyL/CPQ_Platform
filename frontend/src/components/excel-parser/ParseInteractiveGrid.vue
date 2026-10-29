@@ -215,7 +215,7 @@ defineExpose({ colLetter })
 
 .igrid-table {
   border-collapse: collapse;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .igrid-table th,
@@ -244,7 +244,7 @@ defineExpose({ colLetter })
   min-width: 34px;
   user-select: none;
   cursor: pointer;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 
 .igrid-table thead .gutter-head {
@@ -358,7 +358,7 @@ defineExpose({ colLetter })
 
 .pick-hint {
   margin-top: 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: #d48806;
   display: flex;
   align-items: center;
@@ -385,7 +385,7 @@ defineExpose({ colLetter })
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .legend-color {

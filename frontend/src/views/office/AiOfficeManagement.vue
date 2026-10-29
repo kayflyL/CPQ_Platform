@@ -332,7 +332,7 @@ onMounted(loadSkills)
   display: block;
   margin-top: 2px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .aom-nav {
@@ -457,7 +457,7 @@ onMounted(loadSkills)
   display: block;
   margin-top: 4px;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 
 .aom-skill-grid {

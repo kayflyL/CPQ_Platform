@@ -1506,7 +1506,7 @@ async function onQuickAction(action: QuickAction) {
   transition: width 0.3s ease;
 }
 .ap-ctx-usage-num {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #9aa4b2);
 }
 .ap-ctx-usage--warn .ap-ctx-usage-fill { background: #faad14; }
@@ -1546,7 +1546,7 @@ async function onQuickAction(action: QuickAction) {
   border-bottom: 1px solid var(--cpq-overlay-w6, rgba(255, 255, 255, 0.1));
 }
 .ap-history-title {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-muted, #9aa4b2);
   white-space: nowrap;
@@ -1563,7 +1563,7 @@ async function onQuickAction(action: QuickAction) {
   flex: none;
   border: none;
   background: transparent;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #9aa4b2);
   cursor: pointer;
   padding: 0;
@@ -1577,7 +1577,7 @@ async function onQuickAction(action: QuickAction) {
   border: 1px solid var(--cpq-accent-primary, #1677ff);
   border-radius: var(--cpq-radius-md);
   padding: 6px 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-accent-primary, #1677ff);
   background: var(--cpq-overlay-a8, rgba(22, 119, 255, 0.10));
   cursor: pointer;
@@ -1669,7 +1669,7 @@ async function onQuickAction(action: QuickAction) {
   white-space: nowrap;
 }
 .ap-hist-meta {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted, #9aa4b2);
 }
 .ap-hist-badge {
@@ -1689,14 +1689,14 @@ async function onQuickAction(action: QuickAction) {
   justify-content: center;
   border-radius: var(--cpq-radius-sm);
   color: var(--cpq-text-muted, #9aa4b2);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
 }
 .ap-hist-del:hover {
   background: rgba(255, 77, 79, 0.15);
   color: #ff4d4f;
 }
 .ap-hist-empty {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted, #9aa4b2);
   padding: 10px 8px;
 }
@@ -1727,7 +1727,7 @@ async function onQuickAction(action: QuickAction) {
 .ap-contacts-title {
   flex: 1;
   min-width: 0;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   color: var(--cpq-text-muted, #9aa4b2);
   padding: 0;
@@ -1744,7 +1744,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   color: var(--cpq-text-muted, #9aa4b2);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1;
 }
 .ap-contacts-close:hover {
@@ -2037,7 +2037,7 @@ async function onQuickAction(action: QuickAction) {
   padding: 4px 10px;
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
 }
 .ap-quote-text {
@@ -2053,7 +2053,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   color: var(--cpq-text-muted);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 0 2px;
 }
 .ap-quote-x:hover { color: #e5484d; }
@@ -2064,7 +2064,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   color: var(--cpq-text-secondary);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.6;
   padding: 0 8px;
   border-radius: var(--cpq-radius-sm);
@@ -2075,7 +2075,7 @@ async function onQuickAction(action: QuickAction) {
   min-width: 0;
 }
 .ap-cgroup {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   font-weight: 600;
   letter-spacing: 1px;
@@ -2088,12 +2088,12 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-contact-time {
   flex: none;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-disabled);
 }
 .ap-contact-preview {
   display: block;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted);
   margin-top: 2px;
   white-space: nowrap;
@@ -2131,7 +2131,7 @@ async function onQuickAction(action: QuickAction) {
   border-radius: var(--cpq-radius-md);
   background: transparent;
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
 }
 .ap-room-add:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
@@ -2143,7 +2143,7 @@ async function onQuickAction(action: QuickAction) {
   border: 1px solid var(--cpq-accent-primary);
   background: var(--cpq-glass-2-bg);
   color: var(--cpq-text-primary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   outline: none;
 }
 /* ── 聊天头身份区（原型 chat-head）── */
@@ -2164,7 +2164,7 @@ async function onQuickAction(action: QuickAction) {
   align-items: center;
   justify-content: center;
   color: #fff;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 700;
   background: var(--cpq-accent-primary);
 }
@@ -2191,7 +2191,7 @@ async function onQuickAction(action: QuickAction) {
   border: 1px solid var(--cpq-overlay-a15);
 }
 .ap-head-sub {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   margin-top: 1px;
   white-space: nowrap;
@@ -2202,12 +2202,12 @@ async function onQuickAction(action: QuickAction) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   color: var(--cpq-text-primary);
 }
 .ap-ctx {
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-secondary);
   display: flex;
   align-items: center;
@@ -2242,7 +2242,7 @@ async function onQuickAction(action: QuickAction) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   flex-shrink: 0;
 }
 .ap-close:hover {
@@ -2280,7 +2280,7 @@ async function onQuickAction(action: QuickAction) {
 }
 .thread-opt-del {
   color: var(--cpq-text-muted);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   padding: 2px;
   flex-shrink: 0;
   cursor: pointer;
@@ -2312,7 +2312,7 @@ async function onQuickAction(action: QuickAction) {
   border-radius: var(--cpq-radius-full);
   background: var(--cpq-overlay-w4);
   color: var(--cpq-text-secondary);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   cursor: pointer;
   transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
@@ -2342,7 +2342,7 @@ async function onQuickAction(action: QuickAction) {
   background: var(--cpq-border, rgba(15, 23, 42, 0.08));
 }
 .ap-handoff-text {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-muted, rgba(15, 23, 42, 0.45));
   white-space: nowrap;
   overflow: hidden;
@@ -2376,7 +2376,7 @@ async function onQuickAction(action: QuickAction) {
   flex-shrink: 0;
   overflow: hidden;
   color: #fff;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   font-weight: 600;
   line-height: 1;
 }
@@ -2389,7 +2389,7 @@ async function onQuickAction(action: QuickAction) {
   object-fit: cover;
 }
 .ap-author {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   line-height: 1.2;
   color: var(--cpq-text-muted);
   margin-bottom: 4px;
@@ -2478,7 +2478,7 @@ async function onQuickAction(action: QuickAction) {
 .ap-step {
   padding: 2px 8px;
   border-radius: var(--cpq-radius-full);
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   background: var(--cpq-overlay-w4);
   border: 1px solid var(--cpq-overlay-w8);
@@ -2509,7 +2509,7 @@ async function onQuickAction(action: QuickAction) {
   gap: 6px;
   padding: 7px 9px;
   border-radius: var(--cpq-radius-sm);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
   background: var(--cpq-overlay-w4);
   border: 1px solid var(--cpq-overlay-w8);
@@ -2529,7 +2529,7 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-tool-status {
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
 }
 .ap-plan-card {
@@ -2579,11 +2579,11 @@ async function onQuickAction(action: QuickAction) {
   color: var(--cpq-text-primary, #1f2329);
 }
 .ap-wf-reason {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #646a73);
 }
 .ap-wf-req {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #646a73);
   white-space: pre-wrap;
   word-break: break-word;
@@ -2598,7 +2598,7 @@ async function onQuickAction(action: QuickAction) {
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-accent-primary, #1677ff);
   color: #fff;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   font-weight: 600;
   cursor: pointer;
 }
@@ -2614,7 +2614,7 @@ async function onQuickAction(action: QuickAction) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   font-weight: 600;
   letter-spacing: 0.5px;
   color: #fff;
@@ -2653,7 +2653,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   border-radius: var(--cpq-radius-sm);
   padding: 3px 10px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-accent-primary, #1677ff);
   cursor: pointer;
 }
@@ -2698,7 +2698,7 @@ async function onQuickAction(action: QuickAction) {
   background: transparent;
   cursor: pointer;
   color: var(--cpq-text-muted, #8a94a6);
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
   line-height: 1;
 }
 .ap-file-preview-frame {
@@ -2786,7 +2786,7 @@ async function onQuickAction(action: QuickAction) {
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
 }
 .ap-confirm-label { font-weight: 600; color: var(--cpq-text-primary); }
 .ap-confirm-tag { margin-inline-end: 0 !important; }
@@ -2803,7 +2803,7 @@ async function onQuickAction(action: QuickAction) {
 
 /* ── 网页端增强：BOM 弹窗 ── */
 .ap-bom-modal-summary {
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
   padding-bottom: 10px;
   border-bottom: 1px solid var(--cpq-overlay-w8);
@@ -2910,7 +2910,7 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-role-desc {
   margin-top: 4px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -2918,7 +2918,7 @@ async function onQuickAction(action: QuickAction) {
 }
 .ap-role-ctx {
   margin-top: 3px;
-  font-size: 11px;
+  font-size: var(--cpq-font-size-xs);
   color: var(--cpq-text-secondary);
   white-space: nowrap;
   overflow: hidden;
@@ -2934,7 +2934,7 @@ async function onQuickAction(action: QuickAction) {
   background: var(--cpq-overlay-w4, rgba(255, 255, 255, 0.08));
   color: var(--cpq-text-muted);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--cpq-font-size-base);
 }
 .ap-icon-btn:hover {
   border-color: var(--cpq-accent-primary);

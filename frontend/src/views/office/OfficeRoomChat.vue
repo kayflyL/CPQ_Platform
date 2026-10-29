@@ -361,15 +361,15 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
   width: 26px; height: 26px; border-radius: 50%; margin-left: -6px; padding: 0;
   border: 2px solid var(--cpq-bg-card, #fff); cursor: pointer; overflow: hidden;
   display: flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 11px; font-weight: 600; opacity: 0.55; transition: opacity 0.15s;
+  color: #fff; font-size: var(--cpq-font-size-xs); font-weight: 600; opacity: 0.55; transition: opacity 0.15s;
 }
 .rh-av:first-child { margin-left: 0; }
 .rh-av--on { opacity: 1; }
 .rh-av img { width: 100%; height: 100%; object-fit: cover; }
-.rh-more { font-size: 11px; color: var(--cpq-text-muted, #86909c); margin-left: 6px; }
+.rh-more { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #86909c); margin-left: 6px; }
 .room-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 10px; display: flex; flex-direction: column; gap: 12px; }
-.room-hint { text-align: center; font-size: 12px; color: var(--cpq-text-muted, #86909c); }
-.room-error { font-size: 12px; color: #e5484d; }
+.room-hint { text-align: center; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c); }
+.room-error { font-size: var(--cpq-font-size-sm); color: #e5484d; }
 /* 引用回复条（composer 上方，原型 composer-quote 同款） */
 .room-quote-bar {
   flex: none;
@@ -381,13 +381,13 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
   border-radius: var(--cpq-radius-sm);
   background: var(--cpq-overlay-w4);
   border-left: 2px solid var(--cpq-accent-primary, #1677ff);
-  font-size: 12px;
+  font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary, #4e5969);
 }
 .rq-text { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rq-x {
   flex: none; border: none; background: transparent;
-  color: var(--cpq-text-muted, #86909c); cursor: pointer; font-size: 12px; padding: 0 2px;
+  color: var(--cpq-text-muted, #86909c); cursor: pointer; font-size: var(--cpq-font-size-sm); padding: 0 2px;
 }
 .rq-x:hover { color: #e5484d; }
 /* 房头动作：历史 / 新建 / 全屏 */
@@ -430,14 +430,14 @@ watch(() => s.value?.streamingText, () => scrollToBottom())
 }
 .rhi-meta {
   display: flex; gap: 6px; align-items: center; margin-top: 2px;
-  font-size: 11px; color: var(--cpq-text-muted, #86909c);
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted, #86909c);
 }
 .rhi-archived {
   font-size: 10px; padding: 0 5px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-text-muted, #86909c);
   border: 1px solid var(--cpq-border-light, rgba(22, 119, 255, 0.16));
 }
-.rhi-empty { text-align: center; font-size: 12px; color: var(--cpq-text-muted, #86909c); padding: 18px 0; }
+.rhi-empty { text-align: center; font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted, #86909c); padding: 18px 0; }
 /* 全屏态：Teleport 到 body 的固定层（房间内 backdrop-filter 祖先会吞 fixed，必须出逃） */
 .room-chat--fs {
   position: fixed; inset: 0; z-index: 1200; height: 100vh;

@@ -285,26 +285,26 @@ function flowPillClass(r: any) {
 .name-row { display: flex; align-items: center; gap: 10px; min-width: 0; flex-wrap: wrap; }
 .opp-name { color: var(--cpq-text-primary); font-size: 13.5px; font-weight: 500; cursor: pointer; text-decoration: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .opp-name:hover { color: var(--cpq-accent-primary); }
-.opp-meta { font-size: 11px; color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
+.opp-meta { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 380px; }
 .opp-status-pick { cursor: pointer; user-select: none; margin-right: 0 !important; transition: filter var(--cpq-dur-1) var(--cpq-ease-smooth); }
 .opp-status-pick:hover { filter: brightness(1.06); }
 .opp-caret { font-size: 9px; margin-left: 3px; opacity: 0.7; }
 .cell-plat { font-size: 12.5px; color: var(--cpq-text-primary); white-space: nowrap; }
 .cell-num { display: inline-flex; align-items: baseline; gap: 3px; }
 .cell-num b { font-size: 13px; font-weight: 600; color: var(--cpq-text-primary); font-variant-numeric: tabular-nums; }
-.cell-num i { font-style: normal; font-size: 11px; color: var(--cpq-text-muted); }
+.cell-num i { font-style: normal; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 .cell-dt { display: flex; flex-direction: column; gap: 1px; }
-.dt-main { font-size: 12px; color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dt-main { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dt-rel { font-size: 10.5px; color: var(--cpq-text-muted); white-space: nowrap; }
 .row-more {
   display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px;
-  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: 14px;
+  border: none; background: transparent; color: var(--cpq-text-muted); border-radius: var(--cpq-radius-sm); cursor: pointer; font-size: var(--cpq-font-size-base);
   transition: all var(--cpq-dur-1) var(--cpq-ease-smooth);
 }
 .row-more:hover { background: var(--cpq-overlay-w8); color: var(--cpq-text-primary); }
 
 /* 流程节点 pill（对齐门户工作台原有样式） */
-.pill { display: inline-block; padding: 3px 9px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-size: 12px; white-space: nowrap; }
+.pill { display: inline-block; padding: 3px 9px; border-radius: var(--cpq-radius-full); background: var(--cpq-overlay-a10); color: var(--cpq-accent-primary); font-size: var(--cpq-font-size-sm); white-space: nowrap; }
 .pill.amber { background: rgba(217, 119, 6, .14); color: #d97706; }
 .pill.green { background: rgba(22, 163, 74, .14); color: #16a34a; }
 .pill.red { background: rgba(220, 38, 38, .12); color: #dc2626; }
@@ -313,13 +313,13 @@ function flowPillClass(r: any) {
 .hits { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
 .hit-badge {
   display: inline-flex; align-items: center; gap: 6px; max-width: 100%; white-space: nowrap;
-  font-size: 11px; color: var(--cpq-text-primary); background: rgba(22, 119, 255, .08);
+  font-size: var(--cpq-font-size-xs); color: var(--cpq-text-primary); background: var(--cpq-overlay-a8);
   border: 1px solid rgba(22, 119, 255, .28); border-radius: var(--cpq-radius-sm); padding: 1px 8px;
   overflow: hidden; text-overflow: ellipsis;
 }
 .hit-badge .hd { font-style: normal; font-size: 10px; color: var(--cpq-text-muted); font-variant-numeric: tabular-nums; }
 .hit-badge .hc { font-style: normal; color: var(--cpq-accent-primary); font-weight: 600; max-width: 90px; overflow: hidden; text-overflow: ellipsis; }
-.hits-empty { font-size: 11px; color: var(--cpq-text-muted); }
+.hits-empty { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
 /* 批量操作浮条（从商机线索页迁入，样式口径不变） */
 .batch-float {

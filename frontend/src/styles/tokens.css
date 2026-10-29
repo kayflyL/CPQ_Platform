@@ -43,6 +43,7 @@
 
   /* 字体 */
   --cpq-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --cpq-font-size-xs: 11px;   /* 辅助/meta 小字（374处存量归一，2026-10-29 字号归档新增档） */
   --cpq-font-size-sm: 12px;
   --cpq-font-size-base: 14px;
   --cpq-font-size-lg: 16px;
