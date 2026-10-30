@@ -68,6 +68,18 @@ def _step_done_payload(step_key: str, label: str, completed: bool, duration_ms: 
             "thread_id": thread_id}
 
 
+def direct_write_finish(tool0: str, contract: dict, args: dict, result: dict, ctx: dict) -> dict:
+    """确认卡直达执行的写收尾（P4 尾巴补点，2026-10-31）：用户点「确认执行」后
+    _execute_pending 直调 handler、不经 registry.execute——写后回读与审计落账原来
+    恰好漏掉这条路径（最需要留痕的写反而无账）。这里复用 registry.write_finish
+    同一份收尾（回读不符=error 事实降级→走「执行未成功」话术如实告知），与大脑
+    通路一字不差。非写/失败结果原样返回。"""
+    if not (isinstance(result, dict) and result.get("ok") and (contract or {}).get("effects") == "write"):
+        return result
+    from app.services.agent_tool_registry import write_finish
+    return write_finish(tool0, contract or {}, args or {}, result, ctx or {})
+
+
 def _fact_bits(fact: dict) -> str:
     """单条工具事实 → 节点输出摘要一行。工具结果自带 note（人话事实，C1）直接用，
     再补一个业务标识；拼不出内容回退「<tool> 完成」。供画布节点卡实时显示输出物。"""
@@ -279,6 +291,11 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
             TOOL_CTX.reset(token)
         if not isinstance(result, dict):
             return None
+        # 写语义直达执行与大脑通路同一份收尾：写后回读 + 审计落账（回读不符 →
+        # ok 被降级为 False，下面自然走「执行未成功」话术如实告知，不撒谎）
+        result = direct_write_finish(tool0, spec.get("contract") or {}, sargs, result,
+                                     {"thread_id": thread_id, "role_key": role_key,
+                                      "user_id": str((user or {}).get("user_id") or "").strip() or None})
         facts.append({"tool": tool0, "result": result})
         payload = _json.dumps(result, ensure_ascii=False, default=str)
         if result.get("ok"):

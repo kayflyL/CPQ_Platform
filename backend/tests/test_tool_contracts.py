@@ -111,3 +111,51 @@ def test_registry_readback_mismatch_blocks(monkeypatch):
                                {"ok": True, "quotation_id": "q9"}, {"thread_id": "t"})
     assert out["ok"] is False
     assert out["error"] == "readback_mismatch"
+
+
+# ── 确认卡直达执行路径（transaction_turn._execute_pending）同一份收尾 ─────────
+
+
+def test_direct_write_finish_audits(monkeypatch):
+    """直达执行成功 → 与 registry 写路径同一份回读+审计（此前这条路径恰好无账）。"""
+    captured = {}
+    monkeypatch.setattr("app.services.agent_audit.audit_write", lambda **kw: captured.update(kw))
+    monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
+    monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
+                        lambda *a, **k: {"ok": True, "quotation_id": "q1",
+                                         "quotation_name": "报价单A", "version": 5})
+    from app.services.transaction_turn import direct_write_finish
+    contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
+                "verify": "skill_tools_write.verify_set_quote_margin"}
+    out = direct_write_finish("set_quote_margin", contract, {"quotation_id": "q1", "margin": 0.2},
+                              {"ok": True, "quotation_id": "q1"}, {"thread_id": "t_direct", "user_id": "u1"})
+    assert out["ok"] is True
+    assert captured.get("tool") == "set_quote_margin"
+    assert captured.get("thread_id") == "t_direct"
+    assert "readback" in captured and captured.get("result_ok") is True
+
+
+def test_direct_write_finish_readback_mismatch_degrades(monkeypatch):
+    """直达执行回读不符 → ok 降级 False（话术走「执行未成功」如实告知）。"""
+    monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
+    monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
+                        lambda *a, **k: {"ok": False, "message": "报价单没了"})
+    from app.services.transaction_turn import direct_write_finish
+    contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
+                "verify": "skill_tools_write.verify_set_quote_margin"}
+    out = direct_write_finish("set_quote_margin", contract, {"quotation_id": "q9"},
+                              {"ok": True, "quotation_id": "q9"}, {"thread_id": "t"})
+    assert out["ok"] is False
+    assert out["error"] == "readback_mismatch"
+
+
+def test_direct_write_finish_passthrough_non_write():
+    """读契约/失败结果原样返回——不回读不审计不降级。"""
+    from app.services.transaction_turn import direct_write_finish
+    read_c = {"effects": "read", "confirm_policy": "none"}
+    r1 = {"ok": True, "rows": [1]}
+    assert direct_write_finish("query_x", read_c, {}, r1, {"thread_id": "t"}) is r1
+    fail = {"ok": False, "error": "boom"}
+    assert direct_write_finish("set_quote_margin",
+                               {"effects": "write", "confirm_policy": "stage+consent"},
+                               {}, fail, {"thread_id": "t"}) is fail
