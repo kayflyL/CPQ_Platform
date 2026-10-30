@@ -1,8 +1,11 @@
 # -*- coding: utf-8 -*-
 """agent_tool_handlers —— 工具 handler 适配层。只做参数适配 + 结果 digest，业务实现来自 domain services。"""
 import asyncio
+import logging
 from typing import Any, Dict, List, Optional
 from app.services.agent_tool_registry import _truncate
+
+logger = logging.getLogger(__name__)
 
 # ── 工具 handler：把现有确定性函数包成 agent 工具（结果压成 digest） ──────
 
@@ -119,9 +122,29 @@ async def _tool_inspect_parts(args: dict) -> Any:
 
 
 async def _tool_select_parts(args: dict) -> Any:
-    """【需求分析流程工具】select_parts → 把大脑点名的料号按「类目+料号名」回库核对后锁定（核对不上就拒）。"""
+    """【需求分析流程工具】select_parts → 把大脑点名的料号按「类目+料号名」回库核对后锁定（核对不上就拒）。
+
+    决策闸（P1.5）：结果带 decision_required 时 = 闸拦下了无用户信号的自填并已占住
+    问答协议槽（sync open_query）——这里异步补落展示副本+广播（前端弹 choice 卡）。
+    """
     from app.services.skill_tools_select import tool_select_parts
-    return await asyncio.to_thread(tool_select_parts, args or {})
+    result = await asyncio.to_thread(tool_select_parts, args or {})
+    dr = result.get("decision_required") if isinstance(result, dict) else None
+    if dr and dr.get("query_id") and not dr.get("pending"):
+        # pending=卡此前已广播过（重试撞闸），不重复发卡；card=本次闸新开问询，补广播
+        try:
+            from app.services.human_query import announce_query
+            from app.services.skill_tool_context import TOOL_CTX
+            ctx = TOOL_CTX.get() or {}
+            entry = {"query_id": dr["query_id"], "kind": "choice",
+                     "question": {"title": dr.get("question") or "请选择",
+                                  "hint": "点选一款即可继续；没有合适的可选其他并说明", "detail": ""},
+                     "options": dr.get("options") or None,
+                     "role_key": ctx.get("role_key")}
+            await announce_query(str(ctx.get("thread_id") or ""), entry)
+        except Exception:
+            logger.exception("决策闸问询卡广播失败（协议槽已占，用户仍可经暂停面板作答）")
+    return result
 
 
 async def _tool_ask_user(args: dict) -> Any:
