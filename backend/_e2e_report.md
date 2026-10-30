@@ -1,17 +1,17 @@
-# E2E 报告 · lane-split-cost-e2e
+# E2E 报告 · 演练流试运行验证
 
-- 时间：2026-10-22 04:28:25
-- 角色：assistant
-- 结果：⛔ 未完成，共 4 轮
+- 时间：2026-10-31 02:56:22
+- 角色：support_engineer
+- 结果：✅ 完成，共 1 轮
 
 ## 指标
 
-- scenario：lane-split-cost-e2e
-- finished：False
-- turns：4
-- wall_s：121.8
-- turn_s_min：20.5
-- turn_s_max：39.2
+- scenario：演练流试运行验证
+- finished：True
+- turns：1
+- wall_s：22.6
+- turn_s_min：22.6
+- turn_s_max：22.6
 - cards：0
 - repeat_cards：0
 - repeat_rows：0
@@ -19,60 +19,38 @@
 - auto_answers：0
 - kp_rows：None
 - assembled_rows：None
-- last_step：
-- pause_events：4
-- pause_kinds：['brain_ask']
-- pause_reason_codes：['brain_ask']
+- last_step：output
+- pause_events：0
+- pause_kinds：[]
+- pause_reason_codes：[]
 - pause_facts_incomplete：0
 - pause_kinds_unknown：[]
 - interrupted：False
 
 ## 暂停 / 断点
 
-- 轮 1：kind=brain_ask reason=brain_ask step=identify label=识别与商机定位 resumable=True pending=— steps_done=—
-- 轮 2：kind=brain_ask reason=brain_ask step=identify label=识别与商机定位 resumable=True pending=— steps_done=—
-- 轮 3：kind=brain_ask reason=brain_ask step=identify label=识别与商机定位 resumable=True pending=— steps_done=—
-- 轮 4：kind=brain_ask reason=brain_ask step=identify label=识别与商机定位 resumable=True pending=— steps_done=—
+- （本次没有中断点：全程未触发 pause 广播）
 
-## 轮次 1（20.5s）
-- 输入：【开工单】· 客户名称：E2E分流验证 · 归属业务：admin · 加价率 %：31 · 附件：WBB-2026-1021-01 桃红.xlsx（成本表，走交付转报价）
-- 旁白：收到开工单！客户「E2E分流验证」、归属 admin、加价率 31%，成本表已就位。我先把商机建起来：✅ 商机已创建：OPP-20261022042631124584（客户「E2E分流验证」，归属 admin）。
+## 轮次 1（22.6s）
+- 输入：帮我分析一下当前商机的平台分布情况
+- 旁白：数据范围：2025.01.01 ~ 2025.06.30（status 排除 ai_office/deleted；平台口径与商机线索页一致）
 
-接下来对附件做成本表解析预览（只识别、不落库）：解析预览完成 ✨ 这是成本表，识别结果：
+一、窗口内平台分布
 
-- **表名**：WBB-2026-1021-01 桃红.xlsx
-- **配置数**：1 个（CF1，机型 ZSA240 V2，数量 1）
-- **价格情况**：L6 标准成本识别为 0（如原表确无价格，可在产物卡内编辑补价）
+按累计口径（数据范围整体），平台分布查询结果为空，未能取到各平台商机数与占比数据。
 
-确认无误请在下方卡片点「确认执行」，我就落草稿并归档原件。
+可用的平台维度数字如下：
 
-## 轮次 2（39.2s）
-- 输入：确认执行
-- 旁白：成本表落位时遇到一个问题需要如实说明：我多次尝试执行落草稿（含确认参数），但系统始终只返回"仅解析预览（未落草稿未归档）"，草稿没有实际生成。
+| 口径 | Polaris | Orion | 合计 |
+|---|---|---|---|
+| 本周新增商机 | 8 | 3 | 11 |
+| 本月新增商机 | 29 | 9 | 38 |
 
-当前状态：
-- ✅ 商机已绑定：E2E分流验证（OPP-20261022042631124584）
-- ✅ 表解析成功：1 个配置 CF1（ZSA240 V2，数量 1）
-- ⚠️ 成本草稿：未能落库，系统提示仅预览，未返回 sheet_id
+从新增口径看：本周 Polaris 占比约 72.7%、Orion 约 27.3%；本月 Polaris 占比约 76.3%、Orion 约 23.6%，Polaris 持续占主导（占比为基于工具返回数字的计算值）。
 
-建议处理方式：可能是附件来源标记问题（该附件是会话暂存而非商机桶内原件）。你可以在产物卡或成本工作台里手动点「落草稿」，或者把附件重新上传挂在商机名下，我再执行一次导入。抱歉这一步没能直接办妥 🙏
+二、其他说明
 
-## 轮次 3（37.9s）
-- 输入：确认执行
-- 旁白：执行结果如实说明：
-
-- ✅ **附件归档成功**：cost_sheet.xlsx 已挂到商机「E2E分流验证」（OPP-20261022042631124584）的线索登记/需求环节桶
-- ⚠️ **成本草稿仍未落库**：我带确认参数多次执行，系统始终只返回"仅解析预览（未落草稿未归档）"，未给出 sheet_id
-
-解析内容本身没问题：1 个配置 CF1（ZSA240 V2，数量 1，L6 成本为 0）。当前卡点是系统未把草稿落库——这个动作我这边无法绕过，建议你在成本工作台对已归档的这份附件手动点「生成草稿」，草稿出来后我继续陪你走加价与转报价。
-
-再次抱歉这步没能全自动办妥 🙏
-
-## 轮次 4（24.3s）
-- 输入：确认执行
-- 旁白：我已用商机名下最新附件（LLW2026-1015 桃红.xlsx）重试，结果如实说明：
-
-- 解析正常：6 个配置（需求1~5 ZS220 V2、需求6 ZSA240 V2，L6 成本均为 0——这类表 L6 标准成本导入为 0 是已知情况）
-- ⚠️ 但执行仍被系统限制为「仅解析预览」，草稿未落库、未归档，未返回 sheet_id
-
-我这边换附件、带商机、带确认参数都试过了，系统始终停留在预览态，这个落库动作我无法绕过。下一步：请在成本工作台对这份已解析的附件手动点「生成草稿」，草稿出来后告诉我，我继续陪你走加价率 31% 与提交转报价。
+- 窗口累计 KPI：累计商机 224、累计配置 542；但逐月序列与累计平台分布未返回
+- 引擎 input：需求原文 17 字
+- 引擎 agent：商机趋势分析报告 · 527 字
+- 引擎 output：已交付 · 527 字

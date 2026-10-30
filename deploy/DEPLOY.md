@@ -120,3 +120,30 @@ bash ~/cpq/make_certs.sh          # 自签 CA + 服务器证书(10.32.39.132),�
 
 - **单 worker 是硬约束**：聊天运行时/通知中心是进程内单例。并发不够先垂直升配；要多 worker 必须先把进程内状态外置。
 - 一键启动.bat / start_backend.bat 是开发机专用，与服务器无关。
+
+## 数据通道与环境纪律（2026-10-30 切库丢交付流事故后立）
+
+本地（开发）与线上各自持有自己的库。数据分三类，三条通道，**永不混用**：
+
+| 类 | 例子 | 权威 | 通道 |
+|---|---|---|---|
+| 结构（表/列/索引） | 新功能的列 | 本地开发时 | **boot 自愈**：startup.py 加 `ensure_*` 接进启动序列——改 model 加列，同一提交必须带 ensure（code review 必查项），线上重启自动跟上 |
+| 种子/配置（工作流定义、权限目录、字典） | 交付流的图+节点配置 | **git（backend/seeds/）** | `scripts/export_flow.py <key>` 导出进 git；缺流的环境 `scripts/import_flow.py seeds/flows/<key>.json` 灌入（空缺才灌，不覆盖用户改动） |
+| 业务事实（商机/报价/配件/评论） | 线上每天新增的商机 | **线上（唯一权威）** | 只在线上产生；本地要真实数据感 = **单向拉进本地**（白名单表+按业务键 upsert）；线上修数走 `backfill_*` 脚本（进 git、幂等） |
+
+### 拉业务数据的六守则
+
+1. **白名单表**：脚本显式声明允许写的表；绝不同步 `rules.reasoning_flow` / `rules.skill_catalog` / `rules.reasoning_node_config`（工作流是图纸，不在业务同步范围）。
+2. **按业务键 upsert**（料号/客户+单号）；绝不做"新数据里没有的行就删掉"；下架打标不物理删。
+3. **三禁区**：`TRUNCATE`（尤其 CASCADE）/ `DROP` / 整 schema dump-restore——同步脚本里不许出现。
+4. **字段口径显式化**：哪些列以新数据为准、哪些保留本地人工改动，写进脚本注释（覆盖人工输入必须显式声明——2026-10-22 既有规矩）。
+5. **显式 id 插入后必跑序列校准**（切库撞键教训）。
+6. **同步前后跑守卫**：`python backend/scripts/sync_guard.py before --tables <表>` → 同步 → `after`——行数变少自动报警 + 流点名自检。同步前备份自动落 `.scratch/sync_guard_<时间戳>/`。
+
+### 流点名（任何切库/拉库/换环境后必看）
+
+- 服务启动时自动跑（启动日志找 `✅ 流点名自检` 或 `⚠️ 缺流`）；
+- 手动：`python backend/scripts/sync_guard.py after --tables <表>`（末尾带点名）；
+- 服务器上核对：`sudo -u postgres psql -d cpq_platform -c "SELECT id,skill_key,version,is_active FROM rules.reasoning_flow ORDER BY id"`——对着代码注册的 flow_key 逐个点名。
+
+> 事故备忘：2026-10-24 切库合并漏带交付流三表数据行，10-30 靠 `CPQ_Archive/local_backup_20261023.dump` 考古回迁。根因=合并没按表清单对账 + 种子未进 git。本节即该事故的制度化产出。
