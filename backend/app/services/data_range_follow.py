@@ -77,7 +77,9 @@ def parse_range_reply(reply: Any, today: Optional[date] = None) -> Optional[dict
     return {"mode": "custom", "start": start, "end": end, "label": USER_RANGE_LABEL}
 
 
-_EXTRACT_PROMPT = (
+# 宪法 C1 契约类（非提示词）：输出 JSON 形状 + 确定性换算/越界规则，与下方
+# parse_range_reply 是同一份契约的两面（格式改这里必须同步改解析），故同住代码。
+_RANGE_EXTRACT_CONTRACT = (
     "从下面的用户消息里抽取这次报告要统计的时间窗口（数据范围）。只输出 JSON："
     '{{"start":"YYYY-MM-DD","end":"YYYY-MM-DD"}}；消息没有指定时间窗口就输出 '
     '{{"start":null,"end":null}}。今天是 {today}。换算规则：'
@@ -103,7 +105,7 @@ async def extract_report_data_range(flow: dict, text: str,
     today = today or date.today()
     try:
         reply = await llm_client.chat_json(
-            [{"role": "system", "content": _EXTRACT_PROMPT.format(today=today.isoformat())},
+            [{"role": "system", "content": _RANGE_EXTRACT_CONTRACT.format(today=today.isoformat())},
              {"role": "user", "content": str(text)[:1500]}],
             timeout=30, max_attempts=1, max_tokens=200, temperature=0)
     except Exception:

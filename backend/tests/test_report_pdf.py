@@ -78,7 +78,11 @@ def test_finalize_output_renders_pdf_artifact(monkeypatch, tmp_path):
     async def sink(ev: dict) -> None:
         events.append(ev)
 
-    ctx = {"agent_result": {"answer": MD}, "assembled": {"answer": MD}}
+    # 新契约（2026-10 起）：呈现配置由 skill_turn_engine 组装进 ctx.document_target，
+    # render.enabled 须显式 True——节点 config 的 artifacts[] 只声明产物槽不再携带渲染开关。
+    ctx = {"agent_result": {"answer": MD}, "assembled": {"answer": MD},
+           "document_target": {"name": "商机趋势分析报告",
+                               "render": {"enabled": True, "format": "pdf"}}}
     config = {
         "output_kind": "data_answer",
         "artifacts": [{"kind": "document", "format": "pdf", "title": "商机趋势分析报告"}],
