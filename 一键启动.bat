@@ -21,6 +21,7 @@ if %errorlevel% neq 0 (
 )
 echo.
 
+set FLOW_VALIDATION_MODE=enforce
 REM 清理残留后端（防重复启动实例：停掉旧 uvicorn 进程 + 占用 8000 的进程）
 echo [0.5/3] 清理残留后端进程...
 powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter 'Name=''python.exe''' | Where-Object { $_.CommandLine -match 'uvicorn|spawn_main' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }; Start-Sleep -Milliseconds 500; Get-NetTCPConnection -LocalPort 8000 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique | ForEach-Object { Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }; exit 0"

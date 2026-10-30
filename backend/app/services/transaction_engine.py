@@ -54,6 +54,12 @@ def resolve_app(flow_key: str) -> Optional[TransactionApp]:
     return _APPS.get(str(flow_key or "").strip())
 
 
+def registered_flow_keys() -> list:
+    """已注册事务应用清单（boot 流点名自检用；触发惰性注册保证清单完整）。"""
+    resolve_app("")
+    return list(_APPS)
+
+
 # ── 状态槽（线程 reasoning_state，按应用+角色分槽）────────────────────────
 
 

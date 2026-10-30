@@ -11,6 +11,8 @@ if exist "%HERMES_PY%" set "PYTHON_CMD=%HERMES_PY%"
 if defined PYTHON_CMD goto :got_python
 where python >nul 2>&1 && set "PYTHON_CMD=python"
 :got_python
+set FLOW_VALIDATION_MODE=enforce
+REM 流发布闸硬模式：漏声明契约的流保存被 400 拦截（docs/引擎ABI-v0.md 节点契约）
 if not defined PYTHON_CMD (
     echo Error: Python not found. Please ensure Python is installed and in PATH.
     pause

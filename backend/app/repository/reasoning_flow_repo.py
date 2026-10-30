@@ -312,6 +312,55 @@ class ReasoningFlowRepository:
         self.session.refresh(f)
         return f.to_dict()
 
+    def create_from_template(self, template_key: str, new_key: str, name: str,
+                             operator: str = "system") -> Optional[dict]:
+        """画布"从模板新建"（P2 脚手架的运行时版）：复制模板 active 流 → 新流。
+
+        graph 深拷贝并清模板业务规则（manual_rules——那是旧域的行为纪律，不属于新流，
+        配置者画布左栏重写），节点配置深拷贝（产物槽/决策点/白名单声明随模板——
+        新流从合规骨架起步），launch_form 沿用，目录最小条目按 key 补缺
+        （ORM 默认值占位非空列，业务内容不继承旧域）。
+        幂等防护：new_key 已有 active 流 或 模板不存在 → None（调用方转 4xx）。
+        """
+        tpl = self.get_active_flow(template_key)
+        if not tpl:
+            return None
+        dup = self.session.query(ReasoningFlow).filter(
+            ReasoningFlow.skill_key == new_key,
+            ReasoningFlow.is_active == True,  # noqa: E712
+        ).first()
+        if dup:
+            return None
+        graph = deepcopy(tpl.get("graph") or {})
+        if isinstance(graph, dict):
+            graph["manual_rules"] = ""
+        now = datetime.now().isoformat()
+        f = ReasoningFlow(name=name, skill_key=new_key, version=1,
+                          status=tpl.get("status") or "active",
+                          graph=json.dumps(graph, ensure_ascii=False),
+                          launch_form=deepcopy(tpl.get("launch_form")),
+                          is_active=True, description=f"（从 {template_key} 模板新建，待填描述）",
+                          created_by=operator, updated_by=operator)
+        self.session.add(f)
+        self.session.commit()
+        self.session.refresh(f)
+        for node_key, cfg in (tpl.get("node_configs") or {}).items():
+            self.session.add(ReasoningNodeConfig(
+                flow_id=f.id, node_key=node_key,
+                config=json.dumps(cfg, ensure_ascii=False) if not isinstance(cfg, str) else cfg,
+                version=1, updated_by=operator))
+        from ..models.skill import SkillCatalog
+        cat_exists = self.session.query(SkillCatalog).filter(
+            SkillCatalog.key == new_key, SkillCatalog.is_deleted == False).first()  # noqa: E712
+        if not cat_exists:
+            self.session.add(SkillCatalog(
+                key=new_key, name=name, type="workflow", workflow_key=new_key,
+                description=f"（从 {template_key} 模板新建，待填描述）",
+                created_by=operator, updated_by=operator))
+        self.session.commit()
+        self.session.refresh(f)
+        return f.to_dict()
+
     def upsert_graph(self, flow_id: int, graph: dict, operator: str = "system") -> Optional[dict]:
         f = self.session.query(ReasoningFlow).filter(ReasoningFlow.id == flow_id).first()
         if not f:

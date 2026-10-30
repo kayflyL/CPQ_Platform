@@ -9,8 +9,23 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
 from app.api.deps import get_current_user, require_perms
+from app.services import flow_validation
 
 logger = logging.getLogger(__name__)
+
+
+def _gate_flow_issues(issues: list, context: str) -> None:
+    """发布闸：enforce 模式下 error 级条款 400 拦截保存；report 模式只记日志。
+    报错信息即教学——条款码 + 节点 + 人话修法（ABI 节点契约的执法面）。"""
+    errs = [i for i in issues if i.get("severity") == "error"]
+    if errs and flow_validation.is_enforce():
+        raise HTTPException(400, "流声明校验未通过（FLOW_VALIDATION_MODE=enforce）："
+                            + "；".join(f"[{i['code']}] {i.get('node') or '流级'}：{i['message']}"
+                                        for i in errs))
+    if issues:
+        logger.warning("流声明校验(%s) %s：%s", flow_validation.mode(), context,
+                       "；".join(f"[{i['severity']}/{i['code']}] {i.get('node') or '流级'}：{i['message']}"
+                                 for i in issues))
 # 默认登录门槛；画布/规则写操作收「解决方案」页权限（策略中心所在域）。
 router = APIRouter(prefix="/api/reasoning-flow", tags=["reasoning-flow"],
                    dependencies=[Depends(get_current_user)])
@@ -212,6 +227,12 @@ def update_graph(data: dict, skill_key: Optional[str] = Query(default=None)):
             existing = f.get("graph") if isinstance(f.get("graph"), dict) else {}
             if isinstance(existing.get("manual_rules"), str):
                 graph["manual_rules"] = existing["manual_rules"]
+        rules = str(graph.get("manual_rules")
+                    or (f.get("graph").get("manual_rules")
+                        if isinstance(f.get("graph"), dict) else "") or "")
+        _gate_flow_issues(flow_validation.validate_flow(
+            graph, f.get("node_configs") or {}, rules, str(f.get("skill_key") or "")),
+            f"graph flow_id={f['id']}")
         return repo.upsert_graph(f["id"], graph, operator=data.get("operator", "system"))
     finally:
         repo.close()
@@ -244,7 +265,58 @@ def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(defa
         _wiring_errs = wiring_contract_errors(node_key, config)
         if _wiring_errs:
             raise HTTPException(400, "wiring 契约校验失败：" + "；".join(_wiring_errs))
+        _g = f.get("graph") if isinstance(f.get("graph"), dict) else {}
+        _node_type = next((str(nd.get("type") or "") for nd in (_g.get("nodes") or [])
+                           if isinstance(nd, dict) and str(nd.get("id") or "") == node_key), "")
+        _gate_flow_issues(flow_validation.validate_node(
+            node_key, _node_type, config,
+            flow_validation.runtime_of(str(f.get("skill_key") or ""))), f"node {node_key}")
         return repo.upsert_node_config(f["id"], node_key, config, operator=data.get("operator", "system"))
+    finally:
+        repo.close()
+
+
+@router.get("/output-kinds")
+def list_output_kinds():
+    """输出物种类唯一注册表（ABI kind 分册）：前端抽屉/分发器同源拉取，不再前端硬编码。"""
+    from app.services.output_kinds import list_output_kinds as _kinds
+    return {"kinds": _kinds()}
+
+
+@router.get("/validation-report", dependencies=[Depends(require_perms("page.strategies"))])
+def validation_report(skill_key: Optional[str] = Query(default=None)):
+    """流声明完备性报告（report/enforce 均可在线跑，验收与排查用；只读不改）。"""
+    repo = ReasoningFlowRepository()
+    try:
+        f = _flow_for_skill(repo, skill_key)
+        if not f:
+            raise HTTPException(404, "No active reasoning flow")
+        g = f.get("graph") if isinstance(f.get("graph"), dict) else {}
+        issues = flow_validation.validate_flow(g, f.get("node_configs") or {},
+                                               str(g.get("manual_rules") or ""),
+                                               str(f.get("skill_key") or ""))
+        return {"flow_id": f.get("id"), "name": f.get("name"), "skill_key": f.get("skill_key"),
+                "mode": flow_validation.mode(), "issues": issues}
+    finally:
+        repo.close()
+
+
+@router.post("/create-from-template", dependencies=[Depends(require_perms("page.strategies"))])
+def create_from_template(data: dict):
+    """画布"从模板新建"向导：复制模板 active 流 → 新流（P2 脚手架的运行时版）。
+    幂等防护：new_key 已有 active 流 → 409；模板不存在 → 404。"""
+    tpl = str(data.get("template_key") or "").strip()
+    new_key = str(data.get("new_key") or "").strip()
+    name = str(data.get("name") or "").strip()
+    operator = str(data.get("operator") or "system")
+    if not (tpl and new_key and name):
+        raise HTTPException(400, "template_key / new_key / name 必填")
+    repo = ReasoningFlowRepository()
+    try:
+        f = repo.create_from_template(tpl, new_key, name, operator=operator)
+        if f is None:
+            raise HTTPException(409, "新 key 已有 active 流，或模板不存在")
+        return f
     finally:
         repo.close()
 

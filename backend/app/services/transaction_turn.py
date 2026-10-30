@@ -41,6 +41,32 @@ from app.services import transaction_engine as te
 
 logger = logging.getLogger(__name__)
 
+# ── 事件契约构造器（载荷形状的唯一出处，tests/test_event_contracts.py 快照锁定）──
+# 画布/任务条只认这些键；加删键 = 先改 docs/引擎ABI-v0.md + 同步快照测试 + 前端。
+
+
+def _pipeline_start_payload(title: str, fallback_label: str, steps: list, thread_id: str) -> dict:
+    return {"type": "pipeline_start", "title": str(title or "").strip() or str(fallback_label or ""),
+            "steps": [{"key": s["key"], "label": s["label"]} for s in steps],
+            "thread_id": thread_id}
+
+
+def _step_running_payload(step_key: str, label: str, thread_id: str) -> dict:
+    return {"type": "node_trace", "step": step_key, "label": label,
+            "status": "running", "summary": "", "thread_id": thread_id}
+
+
+def _step_done_payload(step_key: str, label: str, completed: bool, duration_ms: int,
+                       summary: str, card0: Optional[dict], thread_id: str) -> dict:
+    return {"type": "node_trace", "step": step_key, "label": label,
+            "status": "done" if completed else "running",
+            "duration_ms": int(duration_ms),
+            "output": summary or None, "summary": summary,
+            "input": None,
+            "artifact": ({"kind": "artifact_card", "title": card0.get("title") or "",
+                          "data": {"card": card0}} if card0 else None),
+            "thread_id": thread_id}
+
 
 def _fact_bits(fact: dict) -> str:
     """单条工具事实 → 节点输出摘要一行。工具结果自带 note（人话事实，C1）直接用，
@@ -203,10 +229,8 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         logger.exception("案台初始进度计算失败 flow=%s", app.flow_key)
         view0 = {}
         states0 = {}
-    await assistant_hub.broadcast(thread_id, {
-        "type": "pipeline_start", "title": str(title or "").strip() or app.label,
-        "steps": [{"key": s["key"], "label": s["label"]} for s in steps_all],
-        "thread_id": thread_id})
+    await assistant_hub.broadcast(thread_id, _pipeline_start_payload(
+        title, app.label, steps_all, thread_id))
     emitted_done = {k for k, st in states0.items() if st != "pending"}
     for ev in te.state_events(steps_all, view0, thread_id, notes=_node_notes(view0)):
         await assistant_hub.broadcast(thread_id, ev)
@@ -353,9 +377,8 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
             tool_steps_box["cur"] = []
             facts: list = []
             step_t0 = time.perf_counter()
-            await assistant_hub.broadcast(thread_id, {
-                "type": "node_trace", "step": step["key"], "label": step["label"],
-                "status": "running", "summary": "", "thread_id": thread_id})
+            await assistant_hub.broadcast(thread_id, _step_running_payload(
+                step["key"], step["label"], thread_id))
 
             async def fact_guard(name: str, args: dict, result: Any) -> Any:
                 # 工具真实返回的零侵入采集点：内核据此经应用旗标表回写（判断仍在大脑/工具内）。
@@ -475,15 +498,10 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
                 str(new_view.get("step_key") or "") != str(view.get("step_key") or "")
             step_summary = "；".join(x for x in (_fact_bits(f) for f in facts) if x)
             card0 = built_cards[0] if built_cards else None
-            await assistant_hub.broadcast(thread_id, {
-                "type": "node_trace", "step": step["key"], "label": step["label"],
-                "status": "done" if completed else "running",
-                "duration_ms": int((time.perf_counter() - step_t0) * 1000),
-                "output": step_summary or None, "summary": step_summary,
-                "input": None,
-                "artifact": ({"kind": "artifact_card", "title": card0.get("title") or "",
-                              "data": {"card": card0}} if card0 else None),
-                "thread_id": thread_id})
+            await assistant_hub.broadcast(thread_id, _step_done_payload(
+                step["key"], step["label"], completed,
+                int((time.perf_counter() - step_t0) * 1000),
+                step_summary, card0, thread_id))
             if completed:
                 emitted_done.add(step["key"])
                 if step_summary:
