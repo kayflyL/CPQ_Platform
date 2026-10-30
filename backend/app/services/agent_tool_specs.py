@@ -707,6 +707,47 @@ def trace_note(call: dict) -> Optional[dict]:
     return note
 
 
+# ── 工具契约（P3 上安全带，命名对齐 MCP 注解）：写语义工具逐个声明 ──────────
+# confirm_policy ∈ none（现状无卡：用户输入即信号/低影响幂等）| stage+consent（预览+确认卡）
+# 缺省（未登记）= effects:read + stage+consent——保守默认对齐 MCP"未声明按最坏假设"。
+# verify = 写后回读函数（"模块.函数"，registry 惰性解析；回读不符=error 事实）。
+_TOOL_CONTRACTS: dict = {
+    "fill_requirement": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                         "destructive_hint": False, "target_entity": "requirement_slots"},
+    "choose_model": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                     "destructive_hint": False, "target_entity": "server_model"},
+    "select_parts": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                     "destructive_hint": False, "target_entity": "kp_rows"},
+    "create_opportunity": {"effects": "write", "confirm_policy": "none", "idempotent_hint": False,
+                           "destructive_hint": False, "target_entity": "opportunity"},
+    "save_requirement_draft": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                               "destructive_hint": False, "target_entity": "requirement_draft"},
+    "import_cost_sheet": {"effects": "write", "confirm_policy": "stage+consent", "idempotent_hint": True,
+                          "destructive_hint": False, "target_entity": "cost_sheet"},
+    "submit_cost_sheet": {"effects": "write", "confirm_policy": "stage+consent", "idempotent_hint": False,
+                          "destructive_hint": False, "target_entity": "quotation"},
+    "set_quote_margin": {"effects": "write", "confirm_policy": "stage+consent", "idempotent_hint": True,
+                         "destructive_hint": False, "target_entity": "quotation",
+                         "verify": "skill_tools_write.verify_set_quote_margin"},
+    "set_cost_prices": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                        "destructive_hint": False, "target_entity": "cost_prices"},
+    "share_quote": {"effects": "write", "confirm_policy": "none", "idempotent_hint": False,
+                    "destructive_hint": False, "target_entity": "share_link",
+                    "note": "customer 视角外发走独立人审闸（商机详情页发起审批，AI 不代办）"},
+    "import_bom_scheme": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                          "destructive_hint": False, "target_entity": "bom_scheme"},
+    "derive_cost_from_scheme": {"effects": "write", "confirm_policy": "none", "idempotent_hint": True,
+                                "destructive_hint": False, "target_entity": "cost_sheet"},
+    "colleague_memory": {"effects": "write", "confirm_policy": "none", "idempotent_hint": False,
+                         "destructive_hint": False, "target_entity": "colleague_memory"},
+}
+for _n, _c in _TOOL_CONTRACTS.items():
+    if _n in _TOOL_SPECS:
+        _TOOL_SPECS[_n]["contract"] = _c
+for _s in _TOOL_SPECS.values():
+    _s.setdefault("contract", {"effects": "read", "confirm_policy": "none"})
+
+
 def tool_catalog() -> List[dict]:
     """全量工具目录（无 handler），供前端「AI 工具」目录页与节点抽屉渲染。
 
@@ -727,6 +768,7 @@ def tool_catalog() -> List[dict]:
             "description": defaults["description"],
             "parameters": _spec_parameters(spec),
             "default_enabled": bool(spec.get("default_enabled", True)),
+            "contract": spec.get("contract") or {"effects": "read", "confirm_policy": "none"},
             "custom": [],
         }
         row = overrides.get(name) or {}
@@ -787,5 +829,6 @@ def build_tool_registry(config: dict, allowed_tool_ids: list = None) -> ToolRegi
             tables = query_tables_allow()
             if tables:
                 brief += "可读表（仅这些）：" + "、".join(tables) + "。"
-        reg.register(name, spec["description"], _spec_parameters(spec), handler, summary=brief)
+        reg.register(name, spec["description"], _spec_parameters(spec), handler, summary=brief,
+                     contract=spec.get("contract") or {})
     return reg

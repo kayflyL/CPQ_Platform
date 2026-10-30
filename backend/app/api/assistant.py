@@ -1060,6 +1060,27 @@ def admin_audit(admin: dict = Depends(require_perms("ai.office.admin"))):
     return assistant_metrics(limit=100)
 
 
+@router.get("/admin/write-audit")
+def admin_write_audit(admin: dict = Depends(require_perms("ai.office.admin")),
+                      thread_id: str = "", limit: int = 100):
+    """AI 写操作审计账本（P4）：每行 = 一次 AI 写语义工具的成功执行
+    （哪个同事代理、代哪个用户、什么工具、改了哪个实体、回读结果）。
+    数据源 = rules.agent_audit_log（registry 写路径统一落账）。"""
+    from sqlalchemy import text as _text
+    from app.models.base import engine
+    lim = max(1, min(500, int(limit or 100)))
+    sql = ("SELECT id, created_at, thread_id, agent_role_key, user_id, tool, args_digest, "
+           "result_ok, target_entity, entity_id, readback FROM rules.agent_audit_log")
+    params: dict = {"lim": lim}
+    if thread_id.strip():
+        sql += " WHERE thread_id = :tid"
+        params["tid"] = thread_id.strip()
+    sql += " ORDER BY id DESC LIMIT :lim"
+    with engine.connect() as c:
+        rows = [dict(r._mapping) for r in c.execute(_text(sql), params).fetchall()]
+    return {"rows": rows, "count": len(rows)}
+
+
 @router.post("/admin/cleanup/trace")
 def cleanup_trace(body: dict, admin: dict = Depends(require_perms("ai.office.admin"))):
     """LLM 调用痕迹清理：只保留最近 keep_days 天（<=0 全清）。"""

@@ -12,6 +12,7 @@ from app.models.feed_attachment import FeedAttachment
 from app.models.reasoning_flow import ReasoningFlow, ReasoningNodeConfig  # 推理流可视化配置（注册 metadata 供 create_all 建表）
 from app.models.skill_config import ReasoningNodeDefault  # 推理节点默认契约（注册 metadata 供 create_all 建表）
 from app.models.skill import SkillCatalog  # Skill 元数据独立表（注册 metadata 供 create_all 建表）
+from app.models.agent_audit import AgentAuditLog  # AI 写操作审计账本（注册 metadata 供 create_all 建表，P4）
 from app.models.llm_trace import LLMTrace  # LLM 调用审计 trace（P3 指标）（注册 metadata 供 create_all 建表）
 from app.models.compatibility_rule import CompatibilityRule  # 兼容性规则引擎（注册 metadata 供 create_all 建表）
 from app.models.office_event import OfficeEvent  # AI 办公室事件审计（注册 metadata 供 create_all 建表）
@@ -59,6 +60,72 @@ def ensure_parts_master_columns():
     if "major_category" not in cols:
         with l6_engine.begin() as c:
             c.execute(text("ALTER TABLE l6.parts_master ADD COLUMN major_category TEXT"))
+
+
+def ensure_quotation_created_by():
+    """报价单创建人（幂等迁移，boot 时自愈）：opportunities.quotations 加 created_by（TEXT，创建者姓名）。
+    报价单列表「创建人 / 时间」列展示；存量行为 NULL，前端回落 '—'。
+    创建链路打点见 quotation_repo.create；手工对齐见 migrations/add_created_by_to_quotations.sql。"""
+    from app.models.base import opp_engine
+    from sqlalchemy import text
+    with opp_engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='opportunities' AND table_name='quotations'"
+        ))}
+    if "created_by" not in cols:
+        with opp_engine.begin() as c:
+            c.execute(text("ALTER TABLE opportunities.quotations ADD COLUMN created_by TEXT"))
+
+
+def ensure_reasoning_flow_launch_form():
+    """启动表单独立列（幂等迁移，boot 时自愈）：rules.reasoning_flow 加 launch_form（JSONB）。
+    10-24 从 graph JSON 内迁出到专属列（画布/规则/脚本多写者剥键问题，头注见
+    migrations/add_reasoning_flow_launch_form.sql）；本机库曾因缺列致 reasoning_flow
+    全表查询炸、需求分析画布加载失败、交付流从工作流列表消失（2026-10-30 实锤）。
+    迁移含一次性数据搬运：graph 内已有 launch_form 的搬到列（读取以列为准）。"""
+    from app.models.base import engine
+    from sqlalchemy import text
+    with engine.connect() as c:
+        cols = {r[0] for r in c.execute(text(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema='rules' AND table_name='reasoning_flow'"
+        ))}
+    if "launch_form" not in cols:
+        with engine.begin() as c:
+            c.execute(text("ALTER TABLE rules.reasoning_flow ADD COLUMN IF NOT EXISTS launch_form JSONB"))
+            c.execute(text(
+                "UPDATE rules.reasoning_flow SET launch_form = (graph::jsonb) -> 'launch_form' "
+                "WHERE (graph::jsonb) ? 'launch_form' "
+                "AND (graph::jsonb) -> 'launch_form' IS NOT NULL AND launch_form IS NULL"))
+
+
+def check_registered_flows_present():
+    """流点名自检（boot 时只读报警，不写库）：代码侧注册的 flow_key 逐个对库里 active 行点名。
+
+    两道点名：①事务内核注册表（TransactionApp）；②skill_catalog 的 workflow 条目——
+    缺 active 流 = 该功能在库上不可用。背景：2026-10-24 切库合并漏带交付流数据行，
+    直到 10-30 用户重启后界面缺卡才发现。防再丢：任何切库/拉库/换环境，服务一启动就喊缺。
+    补数通道：python scripts/import_flow.py backend/seeds/flows/<flow_key>.json（种子在 git）。
+    """
+    from app.models.base import engine
+    from sqlalchemy import text
+    from app.services.transaction_engine import registered_flow_keys
+    keys = list(registered_flow_keys())
+    with engine.connect() as c:
+        active = {str(r[0]) for r in c.execute(
+            text("SELECT skill_key FROM rules.reasoning_flow WHERE is_active")).fetchall()}
+        cat_keys = {str(r[0]) for r in c.execute(text(
+            "SELECT workflow_key FROM rules.skill_catalog "
+            "WHERE type='workflow' AND COALESCE(is_deleted, false) = false AND workflow_key IS NOT NULL"
+        )).fetchall()}
+    missing = [k for k in dict.fromkeys(keys + sorted(cat_keys)) if k not in active]
+    if missing:
+        print(f"⚠️⚠️⚠️ 流点名自检：{len(missing)} 条已注册/已登记的流在库里没有 active 行，功能不可用！")
+        for k in missing:
+            print(f"⚠️ 缺流：{k} —— 补数：python scripts/import_flow.py backend/seeds/flows/{k}.json")
+    else:
+        print(f"✅ 流点名自检：{len(active)} 条 active 流，注册表与目录全部在库")
 
 
 def ensure_base_config_linkage_columns():
@@ -1337,6 +1404,26 @@ def init_rules_db():
         print("✅ Parts master columns ensured (spec_text/description)")
     except Exception as e:
         print(f"⚠️ Parts master migrate failed: {e}")
+
+    # 报价单创建人列（创建链路打点见 quotation_repo.create 的 created_by 参数）
+    try:
+        ensure_quotation_created_by()
+        print("✅ Quotation created_by column ensured")
+    except Exception as e:
+        print(f"⚠️ Quotation created_by migrate failed: {e}")
+
+    # 启动表单独立列（launch_form 从 graph 迁出；缺列曾致 reasoning_flow 全表查询炸）
+    try:
+        ensure_reasoning_flow_launch_form()
+        print("✅ Reasoning flow launch_form column ensured")
+    except Exception as e:
+        print(f"⚠️ Reasoning flow launch_form migrate failed: {e}")
+
+    # 流点名自检（切库漏带数据行的防线：一启动就喊缺）
+    try:
+        check_registered_flows_present()
+    except Exception as e:
+        print(f"⚠️ 流点名自检失败（不影响启动）: {e}")
 
     # 机型↔基准配置 一对多：base_configs 加 model_id + config_content，回填归属
     try:

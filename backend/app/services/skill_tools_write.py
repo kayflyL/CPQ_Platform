@@ -55,10 +55,14 @@ def _confirm_gate(args: dict, tool: str, preview: dict):
         大脑重放参数漂移不进落库值）；调用方必须用 staged 的字段执行；
         stage 后无新用户消息 → (错误卡, None)：确认必须来自用户在预览之后真实说过的话，
         防大脑同回合自问自答吃掉确认（2026-10-22 实锤）；
-        无 pending/过期 → (错误, None)，错误带 staged_args 供自纠。"""
-    from app.services.agent_write_confirm import resolve_confirmed, stage, staged_args
+        无 pending/过期 → (错误, None)，错误带 staged_args 供自纠。
+        确认分级（P3）：confirm_policy=none 的工具（幂等白名单，声明见 agent_tool_specs
+        _TOOL_CONTRACTS）不落待确认不弹卡——参数原样执行（用户输入即信号的类目）。"""
+    from app.services.agent_write_confirm import confirm_policy_for, resolve_confirmed, stage, staged_args
     thread_id = str(_ctx().get("thread_id") or "")
     if not args.get("confirm"):
+        if confirm_policy_for(tool) == "none":
+            return None, {k: v for k, v in (args or {}).items() if k != "confirm"}
         stage(thread_id, tool, args, preview)
         return {"needs_confirmation": True, "preview": preview}, None
     ok, staged, note = resolve_confirmed(thread_id, tool, args)
@@ -680,3 +684,22 @@ def tool_ask_user(args: dict) -> dict:
                            "options": options, "fields": fields},
             "await_user": True,
             "note": f"问题已就绪：{title}（等用户回答）"}
+
+
+# ── 写后回读（P3 上安全带）：契约 verify 指向本函数（registry 惰性解析调用）──────
+
+def verify_set_quote_margin(args: dict, result: dict) -> tuple:
+    """set_quote_margin 写后回读：按 quotation_id 回读报价单存在性与版本，事实附进结果。
+
+    v1 断言=实体仍在且可读（深度金额对比——逐行 margin 重算对账——列逐工具迁移项，
+    随第 4 步后续迭代加深）。回读不符 → registry 把结果降级为 error 事实，案台不算成功。"""
+    user = _require_user()
+    if not user:
+        return False, {"reason": "回读时无法确定操作身份"}
+    q = dcore.margin_resolve_quotation(
+        user, opportunity_id=str(args.get("opportunity_id") or ""),
+        quotation_id=str(args.get("quotation_id") or result.get("quotation_id") or ""))
+    if not q.get("ok"):
+        return False, {"reason": "回读报价单失败", "detail": str(q.get("message") or q.get("error") or "")}
+    return True, {"quotation_id": q.get("quotation_id"), "quotation_name": q.get("quotation_name"),
+                  "version": q.get("version"), "saved_items_count": len(result.get("saved_items") or [])}
