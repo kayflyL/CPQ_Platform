@@ -71,7 +71,8 @@ class QuotationRepository:
         )
 
     def create(self, opportunity_id: str, file_path: Optional[str] = None,
-               quotation_date: str = None, quotation_name: str = None) -> Quotation:
+               quotation_date: str = None, quotation_name: str = None,
+               created_by: str = "") -> Quotation:
         """Create a new quotation for an opportunity"""
         # Get max version for this opportunity
         latest = self.db.query(Quotation).filter(
@@ -110,6 +111,7 @@ class QuotationRepository:
             profit_margin=0.0,
             created_at=datetime.now().isoformat(),
             updated_at=datetime.now().isoformat(),
+            created_by=created_by,
             status="active"
         )
         

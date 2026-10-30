@@ -104,6 +104,7 @@ async def upload_to_opportunity(
             quotation = quo_repo.create(
                 opportunity_id=opportunity_id,
                 file_path=storage_key,
+                created_by=user.get("name") or "",
             )
 
             # Persist parsed items (save_items deletes existing first, so save all at once)

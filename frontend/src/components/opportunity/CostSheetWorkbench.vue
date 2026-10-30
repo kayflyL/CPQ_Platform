@@ -414,15 +414,14 @@ function returnSheet(sheet: CostSheet) {
 <template>
   <div class="cost-workbench">
     <RecordTable
-      title="成本表"
       :empty="!sheets.length && !pendingBomSchemes.length"
       empty-text="尚无成本表；请先在方案配置节点提交一个 BOM 方案。"
       :columns="[
+        { label: '创建人 / 时间', width: '180px' },
         { label: '成本表', width: '220px' },
         { label: '单号', width: '110px' },
         { label: '状态', width: '110px' },
         { label: '配置 / 台数 / 成本' },
-        { label: '创建人 / 时间', width: '180px' },
         { label: '操作', width: '230px', align: 'right' },
       ]"
     >
@@ -430,6 +429,7 @@ function returnSheet(sheet: CostSheet) {
         v-for="bom in pendingBomSchemes"
         :key="`pending-bom-${bom.id}`"
       >
+        <td class="rt-dim" data-label="创建人 / 时间">{{ bom.created_by || '—' }} · {{ (bom.created_at || '').slice(5, 16) }}</td>
         <td>
           <span class="rt-strong">待核价 · {{ bom.name }}</span>
           <span class="rt-sub">来自方案配置</span>
@@ -437,7 +437,6 @@ function returnSheet(sheet: CostSheet) {
         <td class="rt-dim" data-label="编号">BOM-{{ bom.id }}</td>
         <td data-label="状态"><span class="rt-badge rt-badge-current">待核价</span></td>
         <td data-label="配置">{{ bom.configs?.length || 0 }} 个配置页签</td>
-        <td class="rt-dim" data-label="创建人 / 时间">{{ bom.created_by || '—' }} · {{ (bom.updated_at || bom.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable" class="rt-actions">
             <span class="rt-link" @click.stop="openCostForBom(bom)">
@@ -452,6 +451,7 @@ function returnSheet(sheet: CostSheet) {
         :key="sheet.id"
         @click="openSheet(sheet)"
       >
+        <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.created_at || '').slice(5, 16) }}</td>
         <td><span class="rt-strong">{{ sheet.name }}</span></td>
         <td class="rt-dim" data-label="编号">COST-{{ sheet.id }}</td>
         <td data-label="状态">
@@ -460,7 +460,6 @@ function returnSheet(sheet: CostSheet) {
           >{{ statusLabel(sheet.status) }}</span>
         </td>
         <td data-label="配置 / 台数 / 成本">{{ sheetMeta(sheet) }}</td>
-        <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.updated_at || sheet.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable && sheet.status === 'draft'" class="rt-actions">
             <span class="rt-link" @click.stop="openSheet(sheet)">继续编辑</span>

@@ -907,10 +907,11 @@ def get_portal_board(opp_id: str, user: dict = Depends(get_current_user)):
         worktable_cost_sheets.append({
             "sheet_id": sheet.get("id"),
             "sheet_name": sheet.get("name") or "",
-            "status": sheet.get("status"),
             "quotation_id": sheet.get("quotation_id"),
             "quotation_exported": bool(sheet.get("quotation_exported")),
             "quotation_deleted": bool(sheet.get("quotation_deleted")),
+            "created_by": sheet.get("created_by") or "",
+            "created_at": sheet.get("created_at") or "",
             "bom_configs": [
                 _sheet_config_to_bom_config(c) for c in bom_source if isinstance(c, dict)
             ],
@@ -1327,7 +1328,8 @@ def reject_withdraw_portal_card(opp_id: str, card_id: int, body: CardApproveBody
 
 
 def _sync_sheet_to_quotation(opp: dict, quotation_id: Optional[str],
-                             configs: List[dict], sheet_name: str = "") -> str:
+                             configs: List[dict], sheet_name: str = "",
+                             created_by: str = "") -> str:
     """把成本工作底表同步到 opportunities.quotations（回写 L6 整机成本与 KP 成本价）。
 
     sheet_name（成本表名）用于在新建报价单时生成可区分的名称，避免多张成本表
@@ -2068,7 +2070,8 @@ def save_cost_sheet_draft(opp_id: str, body: CostSheetDraftBody,
             )
         if linked_quotation_id:
             _sync_sheet_to_quotation(
-                opp, linked_quotation_id, body.configs, body.name
+                opp, linked_quotation_id, body.configs, body.name,
+                created_by=user.get("name") or ""
             )
         return {"sheet": sheet, "cost_sheets": flow_repo.list_cost_sheets(opp_id)}
     except ValueError as exc:
@@ -2109,7 +2112,8 @@ def submit_cost_sheet(opp_id: str, sheet_id: int,
             if not raw_quote or raw_quote.status != "active" or raw_quote.exported_at:
                 reuse_quotation_id = None
         quotation_id = _sync_sheet_to_quotation(
-            opp, reuse_quotation_id, sheet.get("configs") or [], sheet.get("name") or ""
+            opp, reuse_quotation_id, sheet.get("configs") or [], sheet.get("name") or "",
+            created_by=user.get("name") or ""
         )
         submitted = flow_repo.submit_cost_sheet(
             opp_id, sheet_id, quotation_id, user.get("name") or ""

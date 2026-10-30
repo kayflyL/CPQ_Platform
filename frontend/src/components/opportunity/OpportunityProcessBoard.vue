@@ -1012,17 +1012,16 @@ defineExpose({ reload: loadBoard })
             <div class="card-collapse" :class="{ collapsed: !cardOpen.requirement }">
               <div class="card-collapse-inner">
               <RecordTable
-                title="需求单"
                 :empty="!currentReq && !draftReq && !archivedRequirementCards.length"
                 empty-text="尚无需求单，点击“新建需求”开始填写。"
                 :columns="[
+                  { label: '创建人 / 时间', width: '180px' },
                   { label: '版本', width: '150px' },
                   { label: '状态', width: '120px' },
                   { label: '服务器型号' },
                   { label: '平台类型' },
                   { label: '数量', width: '90px' },
                   { label: '维保年限', width: '100px' },
-                  { label: '创建人 / 时间', width: '180px' },
                   { label: '操作', width: '130px', align: 'right' },
                 ]"
               >
@@ -1030,6 +1029,7 @@ defineExpose({ reload: loadBoard })
                 v-if="currentReq"
                 @click="openRequirementDetail(currentReq.version)"
               >
+                <td class="rt-dim" data-label="创建人 / 时间">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <span class="rt-strong">需求单 v{{ currentReq.version }}</span>
                   <span class="rt-sub">线索登记</span>
@@ -1039,7 +1039,6 @@ defineExpose({ reload: loadBoard })
                 <td data-label="平台类型">{{ currentReq.slots?.platform_type || '—' }}</td>
                 <td data-label="数量">{{ currentReq.slots?.purchase_qty ? `${currentReq.slots.purchase_qty} 台` : '—' }}</td>
                 <td data-label="维保年限">{{ currentReq.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim" data-label="创建人 / 时间">{{ currentReq.created_by || '—' }} · {{ (currentReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span
@@ -1055,6 +1054,7 @@ defineExpose({ reload: loadBoard })
                 v-if="draftReq && draftReq.version !== currentReq?.version"
                 @click="openRequirementDetail(draftReq.version)"
               >
+                <td class="rt-dim" data-label="创建人 / 时间">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <span class="rt-strong">需求草稿 v{{ draftReq.version }}</span>
                   <span class="rt-sub">未提交</span>
@@ -1064,7 +1064,6 @@ defineExpose({ reload: loadBoard })
                 <td data-label="平台类型">{{ draftReq.slots?.platform_type || '—' }}</td>
                 <td data-label="数量">{{ draftReq.slots?.purchase_qty ? `${draftReq.slots.purchase_qty} 台` : '—' }}</td>
                 <td data-label="维保年限">{{ draftReq.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim" data-label="创建人 / 时间">{{ draftReq.created_by || '—' }} · {{ (draftReq.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span class="rt-link danger" @click.stop="deleteDraft(draftReq.version)">
@@ -1079,6 +1078,7 @@ defineExpose({ reload: loadBoard })
                 :key="req.version"
                 @click="openRequirementDetail(req.version)"
               >
+                <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <span class="rt-strong">需求单 v{{ req.version }}</span>
                   <span class="rt-sub">REQ-{{ req.version }}</span>
@@ -1088,7 +1088,6 @@ defineExpose({ reload: loadBoard })
                 <td data-label="平台类型">{{ req.slots?.platform_type || '—' }}</td>
                 <td data-label="数量">{{ req.slots?.purchase_qty ? `${req.slots.purchase_qty} 台` : '—' }}</td>
                 <td data-label="维保年限">{{ req.slots?.warranty_years || '—' }}</td>
-                <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
                 <td>
                   <div class="rt-actions">
                     <span

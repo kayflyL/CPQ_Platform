@@ -20,6 +20,8 @@ class Quotation(Base):
     config_count: Mapped[Optional[int]] = mapped_column(Integer, default=1)
     created_at: Mapped[Optional[str]] = mapped_column(String, default=None)
     updated_at: Mapped[Optional[str]] = mapped_column(String, default=None)
+    # 创建人姓名（与 flow_cards.created_by 同口径存姓名）；存量行为 NULL，前端回落 '—'
+    created_by: Mapped[Optional[str]] = mapped_column(String, default=None)
     status: Mapped[Optional[str]] = mapped_column(String, default="active")
     # 草稿/已导出状态机：NULL = 草稿（可进工作台编辑）；非空 = 已导出冻结（值=导出时间戳，点列表只看 Excel+成本快照）
     exported_at: Mapped[Optional[str]] = mapped_column(String, default=None)
@@ -82,6 +84,7 @@ class Quotation(Base):
             "config_count": self.config_count or 1,
             "created_at": self.created_at or "",
             "updated_at": self.updated_at or "",
+            "created_by": self.created_by or "",
             "status": self.status or "active",
             "exported_at": self.exported_at or None,
             "submitted_at": self.submitted_at or None,

@@ -108,6 +108,7 @@
       @upload-cost-sheet="showUploadModal = true"
       @upload-bom-scheme="showUploadSchemeModal = true"
       @view-quotation="viewQuotation"
+      @reparse-quotation="handleReparse"
       @unfreeze-quotation="handleUnfreeze"
       @set-primary="setAsPrimary"
       @rename-quotation="startRenameQuotation"
@@ -315,16 +316,8 @@
       @cancel="onParseCancel"
     />
 
-    <!-- 已导出报价单：成本快照抽屉 -->
-    <QuotationCostDrawer
-      v-model:open="costDrawerOpen"
-      :quotation="costDrawerQuotation"
-      :excel-loading="excelLoading"
-      :reparse-loading="reparseLoading"
-      @view-excel="handleViewExcel"
-      @reparse="handleReparse"
-      @unfreeze="handleUnfreeze()"
-    />
+    <!-- 已导出报价单：成本快照详情弹窗（手机全屏自适应；动作在行「更多」菜单） -->
+    <QuotationDetailModal v-model:open="quoteDetailOpen" :quotation="quoteDetailQuotation" />
   </div>
 </template>
 
@@ -339,10 +332,8 @@ import {
 } from '@ant-design/icons-vue'
 import { portalApi } from '@/api/portal'
 import { projectApi, quotationApi } from '@/api'
-import { feedApi } from '@/api/feed'
-import { downloadOfficeFile } from '@/utils/fileDownload'
 import { useAuthStore } from '@/store/auth'
-import QuotationCostDrawer from '@/components/quote/QuotationCostDrawer.vue'
+import QuotationDetailModal from '@/components/quote/QuotationDetailModal.vue'
 import QuotationParsePreviewModal from '@/components/quotation/QuotationParsePreviewModal.vue'
 import OpportunityProcessBoard from '@/components/opportunity/OpportunityProcessBoard.vue'
 import AttachmentPreviewModal from '@/components/feed/AttachmentPreviewModal.vue'
@@ -649,27 +640,19 @@ const createNewQuotation = () => {
   router.push(`/workspace?opportunityId=${opportunityId}&mode=create&from=opportunities`)
 }
 
-// 成本快照抽屉
-const costDrawerOpen = ref(false)
-const costDrawerQuotation = ref<any>(null)
-const excelLoading = ref(false)
+// 报价单详情弹窗（已导出快照只读查看；解冻/复制为草稿在行「更多」菜单）
+const quoteDetailOpen = ref(false)
+const quoteDetailQuotation = ref<any>(null)
 const reparseLoading = ref(false)
-
-// 找该报价单在 feed 里归档的 sent_quote 导出件
-const findExportAttachment = (quotationId: string) => {
-  return (feedAttachments.value || []).find(
-    a => a.category === 'sent_quote' && a.quotation_id === quotationId && a.kind === 'export'
-  )
-}
 
 const viewQuotation = async (quotation: Quotation) => {
   if (quotation.exported_at) {
-    // 已导出 → 开抽屉看成本快照（拉全量含 cost_snapshot）
-    costDrawerQuotation.value = quotation
-    costDrawerOpen.value = true
+    // 已导出 → 开详情弹窗看成本快照（拉全量含 cost_snapshot）
+    quoteDetailQuotation.value = quotation
+    quoteDetailOpen.value = true
     try {
       const full = await quotationApi.getById(quotation.quotation_id)
-      costDrawerQuotation.value = full
+      quoteDetailQuotation.value = full
     } catch (e) {
       // 保留列表数据兜底
     }
@@ -679,30 +662,15 @@ const viewQuotation = async (quotation: Quotation) => {
   router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quotation.quotation_id}&mode=edit&from=opportunities`)
 }
 
-const handleViewExcel = async () => {
-  const quo = costDrawerQuotation.value
-  if (!quo) return
-  const att = findExportAttachment(quo.quotation_id)
-  if (!att) {
-    message.warning('未找到已导出的 Excel 归档')
-    return
-  }
-  // 下载端点需鉴权，window.open 直链 401 → 走带 Authorization 的 blob 下载
-  try {
-    await downloadOfficeFile(feedApi.attachments.downloadUrl(att.attachment_id), att.original_filename)
-  } catch {
-    message.error('下载失败')
-  }
-}
-
-const handleReparse = async () => {  const quo = costDrawerQuotation.value
+const handleReparse = async (quotation: Quotation) => {
+  const quo: any = quotation
   if (!quo) return
   reparseLoading.value = true
   try {
     // 克隆源的 DB items + 配置字段成新报价单（不解析导出件）
     const result = await quotationApi.reparse(quo.quotation_id)
     message.success('已复制为新报价单，正在打开')
-    costDrawerOpen.value = false
+    quoteDetailOpen.value = false
     await loadProject()
     router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${result.quotation_id}&mode=edit&from=opportunities`)
   } catch (e: any) {
@@ -713,8 +681,8 @@ const handleReparse = async () => {  const quo = costDrawerQuotation.value
 }
 
 // 解冻已导出报价单并直接进工作台编辑（需 action.quote.unfreeze 权限，后端二次校验）
-const handleUnfreeze = async (quotation?: Quotation) => {
-  const quo: any = quotation || costDrawerQuotation.value
+const handleUnfreeze = async (quotation: Quotation) => {
+  const quo: any = quotation
   if (!quo) return
   Modal.confirm({
     title: `解冻「${quo.quotation_name || '未命名报价单'}」？`,
@@ -725,7 +693,7 @@ const handleUnfreeze = async (quotation?: Quotation) => {
       try {
         await quotationApi.unfreeze(quo.quotation_id)
         message.success('已解冻，正在打开工作台')
-        costDrawerOpen.value = false
+        quoteDetailOpen.value = false
         await loadProject()
         router.push(`/workspace?opportunityId=${opportunityId}&quotationId=${quo.quotation_id}&mode=edit&from=opportunities`)
       } catch (e: any) {

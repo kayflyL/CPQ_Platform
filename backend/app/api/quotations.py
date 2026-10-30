@@ -176,7 +176,8 @@ def create_quotation(req: QuotationCreate, user: dict = Depends(get_current_user
             req.opportunity_id,
             req.file_path,
             quotation_date=req.quotation_date,
-            quotation_name=req.quotation_name
+            quotation_name=req.quotation_name,
+            created_by=user.get("name") or ""
         )
         return {"quotation_id": quotation.quotation_id, "quotation": quotation.to_dict()}
     finally:
@@ -321,7 +322,7 @@ def reparse_quotation(quotation_id: str, _user: dict = Depends(require_quotation
         if not source.exported_at:
             raise HTTPException(status_code=400, detail="该报价单为草稿，请直接编辑")
 
-        new_quotation = repo.create(source.opportunity_id)
+        new_quotation = repo.create(source.opportunity_id, created_by=_user.get("name") or "")
         repo.copy_quotation_state(quotation_id, new_quotation.quotation_id)
         return {"quotation_id": new_quotation.quotation_id}
     finally:

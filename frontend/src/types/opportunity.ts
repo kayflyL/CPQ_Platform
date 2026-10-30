@@ -44,6 +44,8 @@ export interface Quotation {
 
   created_at: string
   updated_at: string
+  // 创建人姓名（后端 quotation.created_by；存量行为空，展示回落 '—'）
+  created_by?: string
   status: string
   // 草稿/已导出状态机：NULL=草稿(可进工作台)；非空=已导出冻结(时间戳，点列表只看 Excel+成本)
   exported_at?: string | null

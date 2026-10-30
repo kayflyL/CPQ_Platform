@@ -363,15 +363,14 @@ function requestWithdrawScheme(scheme: BomScheme) {
 <template>
   <div class="bom-workbench">
     <RecordTable
-      title="方案"
       :empty="!schemes.length && !pendingRequirements.length"
       empty-text="尚无方案，点击“新建方案”开始配置。"
       :columns="[
+        { label: '创建人 / 时间', width: '180px' },
         { label: '方案', width: '200px' },
         { label: '编号', width: '120px' },
         { label: '状态', width: '120px' },
         { label: '配置 / 台数 / 型号' },
-        { label: '创建人 / 时间', width: '180px' },
         { label: '操作', width: '200px', align: 'right' },
       ]"
     >
@@ -379,6 +378,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
         v-for="req in pendingRequirements"
         :key="`pending-req-${req.version}`"
       >
+        <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
         <td>
           <span class="rt-strong">需求单 v{{ req.version }}</span>
           <span class="rt-sub">来自线索登记</span>
@@ -386,7 +386,6 @@ function requestWithdrawScheme(scheme: BomScheme) {
         <td class="rt-dim" data-label="编号">REQ-{{ req.version }}</td>
         <td data-label="状态"><span class="rt-badge rt-badge-current">待配方案</span></td>
         <td class="rt-dim" data-label="服务器型号">{{ req.slots?.server_model || '—' }}</td>
-        <td class="rt-dim" data-label="创建人 / 时间">{{ req.created_by || '—' }} · {{ (req.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable" class="rt-actions">
             <span class="rt-link" @click.stop="openSchemeForRequirement(req)">
@@ -401,6 +400,7 @@ function requestWithdrawScheme(scheme: BomScheme) {
         :key="scheme.id"
         @click="openScheme(scheme)"
       >
+        <td class="rt-dim" data-label="创建人 / 时间">{{ scheme.created_by || '—' }} · {{ (scheme.created_at || '').slice(5, 16) }}</td>
         <td><span class="rt-strong">{{ scheme.name }}</span></td>
         <td class="rt-dim" data-label="编号">BOM-{{ scheme.id }}</td>
         <td data-label="状态">
@@ -409,7 +409,6 @@ function requestWithdrawScheme(scheme: BomScheme) {
           >{{ statusLabel(scheme.status) }}</span>
         </td>
         <td data-label="配置 / 台数 / 型号">{{ schemeMeta(scheme) }}</td>
-        <td class="rt-dim" data-label="创建人 / 时间">{{ scheme.created_by || '—' }} · {{ (scheme.updated_at || scheme.created_at || '').slice(5, 16) }}</td>
         <td>
           <div v-if="editable && scheme.status === 'draft'" class="rt-actions">
             <span class="rt-link" @click.stop="openScheme(scheme)">继续编辑</span>

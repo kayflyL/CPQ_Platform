@@ -192,10 +192,11 @@ export interface PortalSheetConfig {
 export interface WorktableCostSheet {
   sheet_id: number
   sheet_name: string
-  status: string
   quotation_id: string
   quotation_exported: boolean
   quotation_deleted?: boolean
+  created_by?: string
+  created_at?: string
   bom_configs: BomConfig[]
   cost_configs: CostConfig[]
 }

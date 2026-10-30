@@ -1588,8 +1588,14 @@ function buildCostSnapshot(): Record<string, any> {
         margin: marginRaw,
       })
     }
-    // 机型信息一并冻结：抽屉只读复核不依赖机型目录（目录后改不影响已冻结单）
-    cfgSnap[name] = { qty, totals: t, kp_items: kpItems, ...modelInfoOf(cfg) }
+    // L6 行级明细（只读展示用）：成本口径是配置级汇总（totals.l6Cost），行级不带单价
+    const l6Items: { name: string; description: string; qty: number }[] = []
+    for (const it of (cfg.items || [])) {
+      if (it.category !== 'L6' && it.category !== '整机') continue
+      l6Items.push({ name: it.catalogue || '', description: it.description || '', qty: Number(it.qty || 1) })
+    }
+    // 机型信息一并冻结：只读复核不依赖机型目录（目录后改不影响已冻结单）
+    cfgSnap[name] = { qty, totals: t, kp_items: kpItems, l6_items: l6Items, ...modelInfoOf(cfg) }
     if (isAlternative.value) {
       if (name === primaryConfig.value) {
         projSum.totalCost += (t.totalCost || 0) * demandQty.value

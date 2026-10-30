@@ -3,13 +3,14 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { confirmWithReason } from './confirmWithReason'
 import { AuditOutlined, CalculatorOutlined, DownOutlined, FileDoneOutlined, UpOutlined } from '@ant-design/icons-vue'
-import type { BomConfig, CostConfig, FlowCard, PortalBoard, PricingApproval, QuoteContext } from '@/api/portal'
+import type { CostConfig, FlowCard, PortalBoard, PricingApproval, QuoteContext } from '@/api/portal'
 import type { Quotation } from '@/types/opportunity'
 import type { FeedAttachment } from '@/api/feed'
 import { portalApi } from '@/api/portal'
 import { useAuthStore } from '@/store/auth'
-import { fmtTime, formatDate as formatQuoteDate, money } from '@/utils/quoteCommon'
+import { fmtTime, money } from '@/utils/quoteCommon'
 import RecordTable from '@/components/opportunity/RecordTable.vue'
+import GroupedConfigDetail from '@/components/opportunity/GroupedConfigDetail.vue'
 import AttachmentUploadButton from '@/components/opportunity/AttachmentUploadButton.vue'
 import OutboundApprovalModal from '@/components/quotation/OutboundApprovalModal.vue'
 import ResponsiveModal from '@/components/common/ResponsiveModal.vue'
@@ -46,6 +47,7 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   (e: 'new-quotation'): void
   (e: 'view-quotation', quotation: Quotation): void
+  (e: 'reparse-quotation', quotation: Quotation): void
   (e: 'unfreeze-quotation', quotation: Quotation): void
   (e: 'set-primary', quotation: Quotation): void
   (e: 'rename-quotation', quotation: Quotation): void
@@ -84,10 +86,11 @@ interface WorktableSheetView {
   quotation_deleted: boolean
   converted: boolean
   canConvert: boolean
+  created_by: string
+  created_at: string
   configNames: string
   totalQty: number
   totalCost: number | null
-  bom_configs: BomConfig[]
   cost_configs: CostConfig[]
 }
 const worktableCostSheets = computed(() => props.quoteContext?.worktable_cost_sheets || [])
@@ -110,15 +113,86 @@ const worktableSheetViews = computed<WorktableSheetView[]>(() =>
       quotation_deleted: s.quotation_deleted === true,
       converted,
       canConvert: !!s.quotation_id && cost.length > 0 && !converted && s.quotation_deleted !== true,
+      created_by: s.created_by || '',
+      created_at: s.created_at || '',
       configNames: bom.map((c) => c.name).filter(Boolean).join(' / ') || '—',
       totalQty: bom.reduce((sum, cfg) => sum + Number(cfg.qty || 0), 0),
       totalCost,
-      bom_configs: bom,
       cost_configs: cost,
     }
   }),
 )
-const configDetail = ref<CostConfig | null>(null)
+const sheetDetail = ref<{ name: string; configs: CostConfig[] } | null>(null)
+function openSheetDetail(name: string, configs: CostConfig[]) {
+  sheetDetail.value = { name, configs }
+}
+// 成本表明细 → 通用配置明细组件的归一化映射（成本视角：单价/小计/备注，无售价利润率）
+const sheetDetailConfigs = computed(() => {
+  if (!sheetDetail.value) return []
+  return (sheetDetail.value.configs || []).map((cfg) => {
+    const t = cfg.totals || {}
+    const l6 = cfg.l6_items || []
+    const kp = cfg.kp_items || []
+    const rows: { group: string; groupSpan?: number; catalogue: string; description: string; qty: string; cells: [string, string, string] }[] = []
+    if (l6.length) {
+      l6.forEach((it: any, i: number) => rows.push({
+        group: 'L6',
+        groupSpan: i === 0 ? l6.length : undefined,
+        catalogue: it.catalogue || '—',
+        description: it.description || '',
+        qty: String(it.qty ?? '—'),
+        cells: ['—', '—', '—'],
+      }))
+    } else {
+      rows.push({ group: 'L6', groupSpan: 1, catalogue: '机箱 (L6) 汇总', description: '—', qty: '—', cells: [money(t.l6Cost), '—', '—'] })
+    }
+    kp.forEach((it: any, i: number) => rows.push({
+      group: 'KP',
+      groupSpan: i === 0 ? kp.length : undefined,
+      catalogue: it.cat || it.part_category || '—',
+      description: it.name || it.catalogue || '',
+      qty: String(it.qty ?? '—'),
+      cells: [money(it.cost), money(Number(it.cost || 0) * Number(it.qty || 0)), it.note || '—'],
+    }))
+    return {
+      key: String(cfg.name),
+      tab: cfg.name,
+      summary: [
+        { label: '配置名', value: cfg.name },
+        ...(cfg.server_model ? [{ label: '机型型号', value: cfg.server_model }] : []),
+        { label: '描述', value: cfg.description || '—', wide: true },
+        { label: '数量', value: `${cfg.qty || 0} 台` },
+      ],
+      metricHeaders: ['单价', '小计', '备注'] as [string, string, string],
+      rows,
+      totals: [
+        { label: 'L6 成本合计', value: money(t.l6Cost) },
+        { label: 'KP 成本合计', value: money(t.kpCost) },
+        { label: '整机成本合计', value: money(t.totalCost) },
+      ],
+    }
+  })
+})
+function sheetState(sheet: WorktableSheetView): string {
+  if (sheet.quotation_deleted) return '报价单已删'
+  if (sheet.quotation_exported) return '已正式报价'
+  if (sheet.converted) return '已生成报价草稿'
+  return '待转报价'
+}
+function sheetBadgeClass(sheet: WorktableSheetView): string {
+  if (sheet.quotation_deleted || sheet.converted) return 'rt-badge-draft'
+  if (sheet.quotation_exported) return 'rt-badge-exported'
+  return 'rt-badge-current'
+}
+const costTableColumns: { label: string; width?: string; align?: 'left' | 'right' | 'center' }[] = [
+  { label: '创建人 / 时间', width: '180px' },
+  { label: '成本表', width: '190px' },
+  { label: '配置' },
+  { label: '台数', width: '70px', align: 'right' },
+  { label: '整机成本', width: '110px', align: 'right' },
+  { label: '状态', width: '120px' },
+  { label: '操作', width: '200px', align: 'right' },
+]
 const costTotals = computed(() => {
   const snap = props.quoteContext?.cost_snapshot?.totals
   if (snap) return { totalCost: snap.totalCost || 0 }
@@ -156,6 +230,7 @@ function onQuoteMore(key: string, q: Quotation) {
   if (key === 'view') { openQuotation(q); return }
   if (key === 'share') { shareTarget.value = q; shareOpen.value = true; return }
   if (key === 'unfreeze') { emit('unfreeze-quotation', q); return }
+  if (key === 'reparse') { emit('reparse-quotation', q); return }
   if (key === 'primary') { emit('set-primary', q); return }
   if (key === 'rename') { emit('rename-quotation', q); return }
   if (key === 'delete') { emit('delete-quotation', q.quotation_id); return }
@@ -349,9 +424,6 @@ function returnQuoteToCost(quotationId: string, label: string) {
     },
   })
 }
-function openConfigDetail(cfg: CostConfig) {
-  configDetail.value = cfg
-}
 </script>
 
 <template>
@@ -367,22 +439,6 @@ function openConfigDetail(cfg: CostConfig) {
             </div>
           </div>
           <div class="qw-shell-actions" @click.stop>
-            <a-button
-              v-if="!worktableSheetViews.length && worktableQuotationId && !convertedQuotation && cardFor('quote', worktableQuotationId)?.current_node === 'quoting'"
-              size="small"
-              @click="returnQuoteToCost(worktableQuotationId, '当前成本表')"
-            >
-              退回成本表
-            </a-button>
-            <a-button
-              v-if="canSubmitQuote && !worktableSheetViews.length && worktableQuotationId"
-              size="small"
-              type="primary"
-              :disabled="!canConvert"
-              @click="emit('convert-cost-to-quotation', worktableQuotationId)"
-            >
-              {{ convertedQuotation ? '已生成报价草稿' : '转为报价草稿' }}
-            </a-button>
             <button class="card-chevron" :class="{ collapsed: !upstreamOpen }" type="button" @click.stop="upstreamOpen = !upstreamOpen">
               <UpOutlined />
             </button>
@@ -391,83 +447,78 @@ function openConfigDetail(cfg: CostConfig) {
         <div class="card-collapse" :class="{ collapsed: !upstreamOpen }">
           <div class="card-collapse-inner">
 
-        <!-- 多张已提交成本表：每张独立渲染，逐张可转正式报价 -->
-        <template v-if="worktableSheetViews.length">
-          <div v-for="sheet in worktableSheetViews" :key="sheet.sheet_id" class="qw-sheet-block">
-            <div class="qw-sheet-head">
-              <span class="qw-sheet-title">{{ sheet.sheet_name }}</span>
-              <div class="qw-sheet-actions">
-              <a-button
-                v-if="!sheet.converted && cardFor('quote', sheet.quotation_id)?.current_node === 'quoting'"
-                size="small"
-                @click="returnQuoteToCost(sheet.quotation_id, sheet.sheet_name)"
-              >
-                退回成本表
-              </a-button>
-              <a-button
-                v-if="sheet.quotation_deleted"
-                size="small"
-                disabled
-              >
-                报价单已删
-              </a-button>
-              <a-button
-                v-else-if="canSubmitQuote"
-                size="small"
-                type="primary"
-                :disabled="!sheet.canConvert"
-                @click="emit('convert-cost-to-quotation', sheet.quotation_id)"
-              >
-                {{ sheet.quotation_exported ? '已正式报价' : (sheet.converted ? '已生成报价草稿' : '转为报价草稿') }}
-              </a-button>
-              <span v-if="sheet.quotation_deleted" class="qw-delete-link" @click="emit('delete-cost-sheet', sheet.sheet_id)">删除成本表</span>
+        <!-- 已提交成本表逐张一行：名称/配置/台数/整机成本/状态进表，与报价单列表同形 -->
+        <RecordTable
+          v-if="worktableSheetViews.length"
+          :empty="!worktableSheetViews.length"
+          empty-text="成本核算尚未完成，暂无可用于报价的成本表。"
+          :columns="costTableColumns"
+        >
+          <tr
+            v-for="sheet in worktableSheetViews"
+            :key="sheet.sheet_id"
+            @click="openSheetDetail(sheet.sheet_name, sheet.cost_configs)"
+          >
+            <td class="rt-dim" data-label="创建人 / 时间">{{ sheet.created_by || '—' }} · {{ (sheet.created_at || '').slice(5, 16) }}</td>
+            <td><span class="rt-strong" :title="sheet.sheet_name">{{ sheet.sheet_name }}</span></td>
+            <td class="rt-dim" data-label="配置">{{ sheet.configNames }}</td>
+            <td class="rt-num" data-label="台数">{{ sheet.totalQty }}</td>
+            <td class="rt-num" data-label="整机成本">{{ sheet.totalCost != null ? money(sheet.totalCost) : '—' }}</td>
+            <td data-label="状态"><span class="rt-badge" :class="sheetBadgeClass(sheet)">{{ sheetState(sheet) }}</span></td>
+            <td>
+              <div class="rt-actions">
+                <span class="rt-link" @click.stop="openSheetDetail(sheet.sheet_name, sheet.cost_configs)">查看明细</span>
+                <span
+                  v-if="canSubmitQuote && !sheet.converted && !sheet.quotation_exported && !sheet.quotation_deleted"
+                  class="rt-link"
+                  :class="{ muted: !sheet.canConvert }"
+                  @click.stop="sheet.canConvert && emit('convert-cost-to-quotation', sheet.quotation_id)"
+                >转为报价草稿</span>
+                <span
+                  v-if="!sheet.converted && cardFor('quote', sheet.quotation_id)?.current_node === 'quoting'"
+                  class="rt-link"
+                  @click.stop="returnQuoteToCost(sheet.quotation_id, sheet.sheet_name)"
+                >退回成本表</span>
+                <span v-if="sheet.quotation_deleted" class="rt-link danger" @click.stop="emit('delete-cost-sheet', sheet.sheet_id)">删除成本表</span>
               </div>
-            </div>
-            <table v-if="sheet.cost_configs.length" class="qw-cost-table">
-              <thead>
-                <tr><th>Config</th><th>Quantity</th><th>Total Cost</th><th>Details</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="cfg in sheet.cost_configs" :key="cfg.name" class="qw-config-row" @click="openConfigDetail(cfg)">
-                  <td>{{ cfg.name }}</td>
-                  <td>{{ cfg.qty }}</td>
-                  <td>{{ money(cfg.totals?.totalCost) }}</td>
-                  <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
-                </tr>
-              </tbody>
-              <tfoot v-if="sheet.cost_configs.length > 1">
-                <tr class="qw-total-row">
-                  <td colspan="2">合计 {{ sheet.totalQty }} 台</td>
-                  <td>{{ sheet.totalCost != null ? money(sheet.totalCost) : '—' }}</td>
-                  <td></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </template>
+            </td>
+          </tr>
+        </RecordTable>
 
-        <!-- 旧版兜底：无 worktable 成本表时展示单一当前成本摘要 -->
-        <template v-else>
-          <div class="qw-summary">
-            <div><small>配置</small><b>{{ bomConfigs.map((c) => c.name).join(' / ') || '—' }}</b></div>
-            <div><small>总台数</small><b>{{ totalQty }}</b></div>
-            <div><small>整机成本</small><b>{{ costTotals ? money(costTotals.totalCost) : '—' }}</b></div>
-          </div>
-          <table v-if="costConfigs.length" class="qw-cost-table">
-            <thead>
-              <tr><th>Config</th><th>Quantity</th><th>Total Cost</th><th>Details</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="cfg in costConfigs" :key="cfg.name" class="qw-config-row" @click="openConfigDetail(cfg)">
-                <td>{{ cfg.name }}</td>
-                <td>{{ cfg.qty }}</td>
-                <td>{{ money(cfg.totals?.totalCost) }}</td>
-                <td><a-button size="small" type="link" @click.stop="openConfigDetail(cfg)">查看明细</a-button></td>
-              </tr>
-            </tbody>
-          </table>
-          <div v-else class="panel-empty">成本核算尚未完成，暂无可用于报价的成本表。</div>
-        </template>
+        <!-- 旧版兜底：无 worktable 成本表时，worktable 快照同样收敛为单行成本表 -->
+        <RecordTable
+          v-else
+          :empty="!costConfigs.length && !worktableQuotationId"
+          empty-text="成本核算尚未完成，暂无可用于报价的成本表。"
+          :columns="costTableColumns"
+        >
+          <tr v-if="costConfigs.length || worktableQuotationId" @click="costConfigs.length && openSheetDetail('当前成本表', costConfigs)">
+            <td class="rt-dim" data-label="创建人 / 时间">—</td>
+            <td><span class="rt-strong">当前成本表</span></td>
+            <td class="rt-dim" data-label="配置">{{ bomConfigs.map((c) => c.name).filter(Boolean).join(' / ') || '—' }}</td>
+            <td class="rt-num" data-label="台数">{{ totalQty }}</td>
+            <td class="rt-num" data-label="整机成本">{{ costTotals ? money(costTotals.totalCost) : '—' }}</td>
+            <td data-label="状态">
+              <span class="rt-badge" :class="convertedQuotation ? 'rt-badge-draft' : 'rt-badge-current'">{{ convertedQuotation ? '已生成报价草稿' : '待转报价' }}</span>
+            </td>
+            <td>
+              <div class="rt-actions">
+                <span v-if="costConfigs.length" class="rt-link" @click.stop="openSheetDetail('当前成本表', costConfigs)">查看明细</span>
+                <span
+                  v-if="canSubmitQuote && worktableQuotationId && !convertedQuotation"
+                  class="rt-link"
+                  :class="{ muted: !canConvert }"
+                  @click.stop="worktableQuotationId && canConvert && emit('convert-cost-to-quotation', worktableQuotationId)"
+                >转为报价草稿</span>
+                <span
+                  v-if="worktableQuotationId && !convertedQuotation && cardFor('quote', worktableQuotationId)?.current_node === 'quoting'"
+                  class="rt-link"
+                  @click.stop="returnQuoteToCost(worktableQuotationId, '当前成本表')"
+                >退回成本表</span>
+              </div>
+            </td>
+          </tr>
+        </RecordTable>
           </div>
         </div>
       </section>
@@ -581,17 +632,16 @@ function openConfigDetail(cfg: CostConfig) {
         />
 
         <RecordTable
-          title="报价单"
           :empty="!visibleQuotations.length"
           empty-text="暂无报价单，请上传或新增报价。"
           :columns="[
+            { label: '创建人 / 时间', width: '180px' },
             { label: '报价单', width: '240px' },
             { label: '单号', width: '160px' },
             { label: '状态', width: '110px' },
             { label: '总价', width: '110px', align: 'right' },
             { label: '利润率', width: '90px', align: 'right' },
             { label: '配置', width: '80px', align: 'right' },
-            { label: '创建日期', width: '120px' },
             { label: '操作', width: '90px', align: 'right' },
           ]"
         >
@@ -600,6 +650,7 @@ function openConfigDetail(cfg: CostConfig) {
             :key="q.quotation_id"
             @click="quoteSelectMode ? emit('toggle-quote-select', q.quotation_id) : openQuotation(q)"
           >
+            <td class="rt-dim" data-label="创建人 / 时间">{{ q.created_by || '—' }} · {{ (q.created_at || '').slice(5, 16) }}</td>
             <td>
               <span class="rt-strong rt-q-title" :title="q.quotation_name || '未命名报价单'">{{ q.quotation_name || '未命名报价单' }}</span>
               <span v-if="q.is_primary" class="rt-sub">当前为主推报价单</span>
@@ -609,7 +660,6 @@ function openConfigDetail(cfg: CostConfig) {
             <td class="rt-num" data-label="总价">{{ quotePriceVisible ? money(q.total_price) : '***' }}</td>
             <td class="rt-num" data-label="利润率">{{ quotePriceVisible ? Number(q.profit_margin || 0).toFixed(2) + '%' : '***' }}</td>
             <td class="rt-num" data-label="配置">{{ q.config_count || 0 }} 配置</td>
-            <td class="rt-dim" data-label="创建日期">{{ formatQuoteDate(q.created_at) }}</td>
             <td>
               <div class="rt-actions">
                 <a-checkbox
@@ -626,6 +676,7 @@ function openConfigDetail(cfg: CostConfig) {
                       <a-menu-item key="view">{{ q.submitted_at ? '查看已发送' : (q.exported_at ? '查看成本' : '编辑') }}</a-menu-item>
                       <a-menu-item key="share">分享</a-menu-item>
                       <a-menu-item v-if="canUnfreezeQuote && q.exported_at && !q.submitted_at" key="unfreeze">解冻并编辑</a-menu-item>
+                      <a-menu-item v-if="q.exported_at" key="reparse">复制为草稿</a-menu-item>
                       <a-menu-item key="primary">{{ q.is_primary ? '取消主推' : '设为主推' }}</a-menu-item>
                       <a-menu-item key="rename">重命名</a-menu-item>
                       <a-menu-item key="delete" danger>删除</a-menu-item>
@@ -673,57 +724,17 @@ function openConfigDetail(cfg: CostConfig) {
     </a-modal>
 
     <ResponsiveModal
-      :open="!!configDetail"
-      :title="`配置明细 · ${configDetail?.name || ''}`"
+      :open="!!sheetDetail"
+      :title="`成本表明细 · ${sheetDetail?.name || ''}`"
       tier="viewer"
       :footer="null"
       centered
       wrap-class-name="portal-sheet-modal"
       :z-index="hostZIndex"
-      @cancel="configDetail = null"
+      @cancel="sheetDetail = null"
     >
-      <div v-if="configDetail" class="qw-detail">
-        <div class="qw-detail-grid">
-          <div><small>Config</small><b>{{ configDetail.name }}</b></div>
-          <div><small>Quantity</small><b>{{ configDetail.qty }}</b></div>
-          <div><small>L6 Cost</small><b>{{ money(configDetail.totals?.l6Cost) }}</b></div>
-          <div><small>Total Cost</small><b>{{ money(configDetail.totals?.totalCost) }}</b></div>
-        </div>
-        <p class="qw-detail-desc">{{ configDetail.description || '暂无描述' }}</p>
-
-        <h4>L6</h4>
-        <table v-if="configDetail.l6_items?.length" class="qw-detail-table">
-          <thead>
-            <tr><th>Catalogue</th><th>Configuration Description</th><th>Quantity</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, idx) in configDetail.l6_items" :key="idx">
-              <td>{{ row.catalogue || '—' }}</td>
-              <td>{{ row.description || '—' }}</td>
-              <td>{{ row.qty }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="panel-empty">暂无 L6</div>
-
-        <h4>KP</h4>
-        <table v-if="configDetail.kp_items?.length" class="qw-detail-table">
-          <thead>
-            <tr><th>Catalogue</th><th>Configuration Description</th><th>Quantity</th><th>Unit Cost</th><th>Total Cost</th><th>Note</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="(row, idx) in configDetail.kp_items" :key="idx">
-              <td>{{ row.cat || row.part_category || '—' }}</td>
-              <td>{{ row.name || row.catalogue || '—' }}</td>
-              <td>{{ row.qty }}</td>
-              <td>{{ money(row.cost) }}</td>
-              <td>{{ money(Number(row.cost || 0) * Number(row.qty || 0)) }}</td>
-              <td>{{ row.note || '—' }}</td>
-            </tr>
-          </tbody>
-        </table>
-        <div v-else class="panel-empty">暂无 KP</div>
-      </div>
+      <GroupedConfigDetail v-if="sheetDetail && sheetDetailConfigs.length" :configs="sheetDetailConfigs" />
+      <div v-else-if="sheetDetail" class="panel-empty">该成本表暂无配置明细。</div>
     </ResponsiveModal>
   </div>
 </template>
@@ -844,47 +855,6 @@ function openConfigDetail(cfg: CostConfig) {
   min-height: 0;
   overflow: hidden;
 }
-.qw-summary {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  padding: 12px 13px;
-  border-bottom: 1px solid var(--cpq-glass-border);
-}
-.qw-summary > div {
-  min-width: 0;
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-sm);
-  padding: 8px 9px;
-  background: var(--cpq-overlay-w4);
-}
-.qw-summary small { display: block; color: var(--cpq-text-muted); font-size: 10px; margin-bottom: 3px; }
-.qw-summary b { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); }
-.qw-sheet-block { border-bottom: 1px solid var(--cpq-glass-border); }
-.qw-sheet-block:last-child { border-bottom: none; }
-.qw-sheet-head {
-  display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border);
-  background: var(--cpq-overlay-w4);
-}
-/* 操作钮成组右聚：space-between 下散放会一个居中一个靠右，与其他卡头规范不符 */
-.qw-sheet-actions {
-  display: flex; align-items: center; gap: 8px; flex-shrink: 0;
-}
-.qw-delete-link {
-  color: var(--cpq-color-danger, #ff4d4f); font-size: var(--cpq-font-size-sm); cursor: pointer; white-space: nowrap;
-}
-.qw-delete-link:hover { text-decoration: underline; }
-.qw-sheet-title {
-  font-size: 13px; font-weight: 600; color: var(--cpq-text-primary);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.qw-cost-table { width: calc(100% - 26px); margin: 12px 13px; border-collapse: collapse; font-size: var(--cpq-font-size-sm); }
-.qw-cost-table th, .qw-cost-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
-.qw-cost-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
-.qw-config-row { cursor: pointer; }
-.qw-config-row:hover { background: var(--cpq-overlay-w4); }
-.qw-total-row td { background: var(--cpq-overlay-w4); color: var(--cpq-text-secondary); font-weight: 600; }
 .panel-empty { padding: 22px 13px; text-align: center; color: var(--cpq-text-muted); font-size: var(--cpq-font-size-sm); }
 .qw-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .qw-batch { padding: 10px 13px; border-bottom: 1px solid var(--cpq-glass-border); }
@@ -955,25 +925,6 @@ function openConfigDetail(cfg: CostConfig) {
 .qw-send-field { display: flex; flex-direction: column; gap: 7px; }
 .qw-send-field label { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); font-weight: 600; }
 .qw-send-actions { display: flex; justify-content: flex-end; gap: 8px; }
-.qw-detail-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
-  margin-bottom: 10px;
-}
-.qw-detail-grid > div {
-  border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-sm);
-  padding: 8px 9px;
-  background: var(--cpq-overlay-w4);
-}
-.qw-detail-grid small { display: block; color: var(--cpq-text-muted); font-size: 10px; margin-bottom: 3px; }
-.qw-detail-grid b { color: var(--cpq-text-primary); font-size: var(--cpq-font-size-sm); }
-.qw-detail-desc { margin: 0 0 12px; color: var(--cpq-text-secondary); font-size: var(--cpq-font-size-sm); line-height: 1.6; }
-.qw-detail h4 { margin: 12px 0 6px; color: var(--cpq-text-primary); font-size: 13px; }
-.qw-detail-table { width: 100%; border-collapse: collapse; font-size: var(--cpq-font-size-sm); }
-.qw-detail-table th, .qw-detail-table td { border: 1px solid var(--cpq-glass-border); padding: 7px 8px; text-align: left; }
-.qw-detail-table th { background: var(--cpq-overlay-w4); color: var(--cpq-text-muted); font-weight: 600; }
 
 .rt-num { text-align: right; }
 .rt-q-title, .rt-q-id { display: block; word-break: break-word; white-space: normal; min-width: 0; }
@@ -1041,14 +992,8 @@ function openConfigDetail(cfg: CostConfig) {
     overflow: hidden;
     text-overflow: ellipsis;
   }
-  /* 成本摘要小表放不下时横向滑动，不再压扁每列 */
-  .qw-sheet-block,
   .card-collapse-inner {
     overflow-x: auto;
-  }
-  .qw-cost-table {
-    width: calc(100% - 26px);
-    min-width: 460px;
   }
 }
 
