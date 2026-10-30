@@ -7,6 +7,16 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜) — 第 5 步"画边界"开工：引擎边界声明+import 方向守卫（report 模式）+六层地图
+
+- **背景**：v3 路线图第 5 步（服务终局标准 S2"代码里画得出引擎与业务的边界线"）。源自知乎 Agent 框架分层复盘的启发吸收：分层词汇入 ABI、执行调度显式缓做（案台可重入兜底，重估触发=第二真宿主并发/长任务频繁被重启打断）。
+- **变更**：① `app/core/engine_boundary.py` 引擎边界声明（唯一出处）：**严格区** 14 模块（loop=agent_tool_registry/agent_tool_display/llm_client/llm_trace/anthropic_channel；state=turn_breaker/skill_registry；harness=agent_audit/skill_contracts/skill_types/skill_tool_context/tool_names/reasoning_node_contract/workflow_ask）——import 方向已干净，受法律全程保护；**融合区** 24 模块（确属引擎机制但与宿主域有已知 import 融合：transaction_engine 仅 1 条边、skill 运行时家族深度融合、决策闸候选检索耦合 part_search 等），每条带层标签+融合点+解耦方向。② `tests/test_engine_boundary.py` 守卫三法：L1 严格区现行法（api 反向依赖/宿主摸取=红，无模式之分）；L2 升区棘轮（融合区 import 全落严格区→必须升区，清单不许烂）；L3 融合区工作清单（report 模式打印解耦工作清单，`ENGINE_BOUNDARY_MODE=enforce` 后带边即红——解耦完成前不开）。③ ABI 分册五"分层地图"（六层对照+三问选型）；方案 v3 增补"执行调度缓做"边界外决定。
+- **验证**：守卫 8 用例全过（声明结构/层词汇合法/严格区方向/升区棘轮/合成源码自测/report+enforce 双模）；闭包计算如实定档——首版 hand-划的严格区被守卫自己抓出 2 条漏网边（transaction_engine→agent_write_confirm、skill_node_state→skill_node_plugins），如实移入融合区并写明升区条件（守卫第一天就抓住了自己 Declared 清单的不准确，机制有效性自证）。
+- **涉及面**：`backend/app/core/engine_boundary.py 新`、`backend/tests/test_engine_boundary.py 新`、`docs/引擎ABI-v0 分册五`、`docs/AI办公室引擎化方案 v3 增补`。
+- 💡 **定论**：① 现状量化：引擎机制与宿主的融合集中在 **skill 运行时家族**（图推进/回合编排/节点运行时/记忆/契约族全部带宿主边）——解耦主线=宿主供给回调化（候选检索/portal 适配/产物 builder 注册化），与 P8 工具声明面同一方向；② 全后端唯一 api 反向依赖=data_boundary→app.api.deps（权限判定待下沉）；③ 严格区/融合区两档=边界法律的渐进式落地：法律先罩住已干净的，解耦一个升一个，升区记录即 S2 进度条。
+
+
+
 ## [未发布] - 2026-10-31(夜) — v3 战略复盘路线图定稿 + 第 4 步尾巴④直达路径审计补点 + 两个历史失败清零（全量回归首次全绿）
 
 - **背景**：战略复盘把终局翻译成四条可证伪标准（S1 新域只写声明/S2 代码画得出引擎边界/S3 AI 触达全部写面/S4 假宿主能跑），照镜子：S2 不成立（引擎与 CPQ 互 import 无方向）、S3≈6%（业务写端点约 216 个 vs AI 契约工具 13 个）。用户拍板：剩余路线图重排五步（安全带收尾→画边界→养考官→工具声明面 P8→APP#2 合同/订单审批流）。主方案 §6 v3 + 工程版头部 + 记忆已同步。

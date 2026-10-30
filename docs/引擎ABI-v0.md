@@ -121,3 +121,24 @@ condition；需求分析白盒：agent_fill / model_reason / kp_reason / compose
 
 宿主接入步骤（新系统七步清单的工程版）：跑脚手架（第 2 步交付）→ 填声明（I1）→
 过发布校验器 → 试运行冒烟 → 上线。
+
+---
+
+## 分册五：分层地图（引擎六层对照，2026-10-31）
+
+> 缘起：知乎 Agent 框架分层复盘（Loop/Harness/Server/调度六层）对照——我们全栈自研，
+> 每层都自拥；本文给各层一个名字，画边界（第 5 步）的模块清单按此标层，守卫按层分律。
+
+| 层 | 我们的对应物 | 代表模块 |
+|---|---|---|
+| Agent Loop（大脑循环） | 模型↔工具循环 + 确认闸消费 | `agent_react`、`agent_tool_registry` |
+| 状态运行时 | 步骤指针+案台+状态槽；暂停可恢复 | `transaction_engine`、`transaction_turn`、`skill_plan_runtime`、`skill_node_runtime` |
+| Harness（机制层） | 闸族/问答协议/决策闸/产物槽/事件协议/发布校验 | `human_query`、`skill_decision_gate`、`flow_validation`、`skill_node_artifacts`、`output_kinds` |
+| Agent Server | 线程/回合/广播/审批端点 | `api/assistant.py`、`assistant_hub` |
+| 执行调度 | **显式缓做**（案台可重入兜底；重估触发：第二真宿主并发 / 长任务频繁被重启打断） | —— |
+| 宿主 APP | 业务函数+声明（TransactionApp/节点配置/工具清单） | `delivery_app`、`skill_phases`、`skill_tools_*` |
+
+看任何新框架/方案先问三个问题：①它解决哪一层？②它会替我拥有哪些状态和协议？
+③某默认设计不合身时，我能不能只换掉这一层？（第③问 = L2 stub 宿主测试。）
+执法载体：`tests/test_engine_boundary.py`（import 方向守卫，`ENGINE_BOUNDARY_MODE`
+report/enforce，先 report 后 enforce——同 `FLOW_VALIDATION_MODE` 模式）。
