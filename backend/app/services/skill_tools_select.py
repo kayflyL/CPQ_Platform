@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 from app.services.skill_memory import _kp_status_rows, _slots_view
+from app.services.skill_decision_gate import declared_decisions, part_lock_verdict
 from app.services.skill_node_state import KP_CONFIG, KP_PICKS, KP_RECOMMEND, kp_state
 from app.services.skill_tool_context import TOOL_CTX
 from typing import Optional
@@ -43,7 +44,10 @@ def tool_select_parts(args: dict) -> dict:
     st = kp_state(engine)
     kp_picks = dict(st.get(KP_PICKS) or {})
     results = []
+    decision_payloads: list = []
     declared = False
+    _flow_cfgs = engine.get("flow_configs") if isinstance(engine.get("flow_configs"), dict) else None
+    decisions = declared_decisions(_flow_cfgs)
 
     rows_by_key = {str(r.get("row_key") or ""): r for r in rows_list}
     rows_by_id = {str(r.get("row_id") or ""): r for r in rows_list if r.get("row_id")}
@@ -231,7 +235,17 @@ def tool_select_parts(args: dict) -> dict:
         #   - 客户未写明（specified=False，仅用途/类目名）→ AI 代为选料，记入推荐并
         #     反问客户选哪颗（推荐作默认项），不许静默锁一个 AI 拍的料（2026-09-09 定调）。
         customer_specified = bool(row_info.get("specified"))
-        if (not customer_specified) or substitute:
+        # 决策闸（P1.5）：声明类目 + 库内多候选 + 用户没拍板 → 不锁定，发 choice 卡停轮。
+        # AI 的 pick 记推荐默认项（2026-09-09 语义）；用户点选后复调时 user_signal_for 命中放行。
+        gate = None
+        if customer_specified and not substitute:
+            gate = part_lock_verdict(
+                thread_id=str(ctx.get("thread_id") or ""),
+                decisions=decisions,
+                category=cat_name, spec=str(row_info.get("description") or ""),
+                pick_name=name or pid, series=str(ctx.get("kp_series") or ""),
+                price_ok=bool(ctx.get("price_ok")))
+        if (not customer_specified) or substitute or (gate and gate.get("verdict") in ("card", "refuse")):
             _rec = dict(st.get(KP_RECOMMEND) or {})
             _rec_entry = {**pick_entry_identity(row_info),
                           "part_id": str(hit.get("part_id") or ""),
@@ -243,8 +257,18 @@ def tool_select_parts(args: dict) -> dict:
                 _rec_entry["qty"] = qty
             _upsert_pick(_rec, store_key, _rec_entry)
             st[KP_RECOMMEND] = _rec
-            results.append({"row": row_key, "row_id": rid or row_key, "ok": True, "recommended": {
-                "part_id": str(hit.get("part_id") or ""), "name": str(hit.get("name") or "")}})
+            res = {"row": row_key, "row_id": rid or row_key, "ok": True, "recommended": {
+                "part_id": str(hit.get("part_id") or ""), "name": str(hit.get("name") or "")}}
+            if gate and gate.get("verdict") in ("card", "refuse"):
+                g = gate
+                ge = g.get("entry") or {}
+                res["decision_required"] = {
+                    "slot": g.get("slot"), "query_id": ge.get("query_id"),
+                    "question": (ge.get("question") or {}).get("title") or g.get("question") or "",
+                    "options": ge.get("options") or g.get("options") or [],
+                    "picked_default": name or pid, "pending": g.get("verdict") == "refuse"}
+                decision_payloads.append(g)
+            results.append(res)
             continue
         pick_entry = {
             **pick_entry_identity(row_info),
@@ -280,5 +304,6 @@ def tool_select_parts(args: dict) -> dict:
     return {"ok": bool(ok_rows) and len(ok_rows) == len(results),
             "results": results,
             "message": msg,
+            "decision_required": decision_payloads[0] if decision_payloads else None,
             "current": _slots_view(ext),
             "rows": _kp_status_rows()}

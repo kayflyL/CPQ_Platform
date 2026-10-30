@@ -105,9 +105,11 @@ def validate_payload(title: str, options: Any, fields: Any) -> tuple[Optional[st
 
 def open_query(thread_id: str, *, kind: str, title: str, hint: str = "", detail: str = "",
                options: Optional[list] = None, fields: Optional[list] = None,
-               action: Optional[dict] = None, role_key: Optional[str] = None) -> dict:
+               action: Optional[dict] = None, role_key: Optional[str] = None,
+               meta: Optional[dict] = None) -> dict:
     """立一个开放问题。每线程至多一个——已有开放问题时抛 ContractError（不变量，
-    调用方把错误转述给大脑/发起者，绝不排队第二个问题）。"""
+    调用方把错误转述给大脑/发起者，绝不排队第二个问题）。
+    meta：协议外挂数据（如决策闸的 {"slot": ...}——用户信号按它归档查询），不进卡面。"""
     bucket = _load(thread_id)
     if bucket["open"]:
         qid, old = next(iter(bucket["open"].items()))
@@ -121,6 +123,7 @@ def open_query(thread_id: str, *, kind: str, title: str, hint: str = "", detail:
         "options": options or None, "fields": fields or None,
         "action": action or None,
         "role_key": role_key,
+        "meta": meta or None,
         "opened_at": time.time(), "expires_at": time.time() + _TTL_SECONDS,
     }
     bucket["open"][qid] = entry
@@ -151,8 +154,23 @@ def answer_query(thread_id: str, *, query_id: str, selections: Optional[list] = 
               "answered_at": time.time()}
     bucket["answer"] = answer
     bucket["open"].pop(str(query_id or ""), None)
+    # 答案归档（上限 20 条）：决策闸的用户信号按 meta.slot 在这里查——AI 自填不产生记录
+    hist = [h for h in (bucket.get("answered") or []) if isinstance(h, dict)]
+    hist.append({"query_id": answer["query_id"], "meta": entry.get("meta"),
+                 "selections": answer["selections"], "values": answer["values"],
+                 "note": answer["note"], "answered_at": answer["answered_at"]})
+    bucket["answered"] = hist[-20:]
     _save(thread_id, bucket)
     return {"query": entry, "answer": answer}
+
+
+def user_signal_for(thread_id: str, slot: str) -> Optional[dict]:
+    """决策闸的用户信号：该 slot 上是否存在**已被用户回答**的问询（answer_query 只由
+    /answers 端点调用=永远来自用户；AI 自填不产生记录）。命中返回最近一次归档，无=None。"""
+    bucket = _load(thread_id)
+    hits = [h for h in (bucket.get("answered") or [])
+            if isinstance(h, dict) and str((h.get("meta") or {}).get("slot") or "") == str(slot or "")]
+    return hits[-1] if hits else None
 
 
 def take_answer(thread_id: str) -> Optional[dict]:
@@ -205,11 +223,25 @@ def close_stale(thread_id: str) -> None:
 async def open_query_and_announce(thread_id: str, *, kind: str, title: str, hint: str = "",
                                   detail: str = "", options: Optional[list] = None,
                                   fields: Optional[list] = None, action: Optional[dict] = None,
-                                  role_key: Optional[str] = None) -> dict:
+                                  role_key: Optional[str] = None,
+                                  meta: Optional[dict] = None) -> dict:
     """立开放问题 + 落展示副本（消息流，重放可见）+ 广播。纯文本回退正文一并生成
     （介质无关：无 JS 渲染器时问题仍是完整可读可答的）。"""
     entry = open_query(thread_id, kind=kind, title=title, hint=hint, detail=detail,
-                       options=options, fields=fields, action=action, role_key=role_key)
+                       options=options, fields=fields, action=action, role_key=role_key,
+                       meta=meta)
+    return await announce_query(thread_id, entry)
+
+
+async def announce_query(thread_id: str, entry: dict) -> dict:
+    """已开的问题补落展示副本（消息流 kind="query"，重放可见）+ 广播——供"同步占协议槽、
+    异步补发卡"的发起者（决策闸：sync 工具 open_query，async handler 补广播）复用。"""
+    q = entry.get("question") or {}
+    title = str(q.get("title") or "").strip()
+    detail = str(q.get("detail") or "")
+    options = entry.get("options")
+    hint = str(q.get("hint") or "")
+    role_key = entry.get("role_key")
     lines = [str(title or "").strip()]
     if detail:
         lines.append(str(detail))

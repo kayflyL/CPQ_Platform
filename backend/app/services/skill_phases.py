@@ -383,6 +383,18 @@ async def phase_kp_reason(ctx: dict, cfg: dict, broadcast: BroadcastFn) -> None:
     # 行身份盖章（P3-1）：登记行/声明行已在_placeholder 铸造；此处只给仍缺身份的行
     # （历史通路留下的真实料号行等）按来源补，幂等、不按文本猜。
     parts = stamp_row_identity(parts, kind="row")
+    # 决策闸（P1.5）：声明类目的行——由描述"精确匹配"落地的（KP_PICKS 里无用户 pick）
+    # → 降级为未匹配白盒（剥 AI 自选的料号名），行走行卡反问等用户拍板；用户点选经
+    # kp_manual_pick/批量晋升写入 KP_PICKS 后自然放行。（2026-10-30 GPU 事故闸：
+    # 大脑把料号名写进行描述即"精确匹配"自答落定——本闸封死。）声明读流配置，不写死类目。
+    try:
+        from app.services.skill_decision_gate import declared_decisions, decision_demote_parts
+        _fc = ctx.get("flow_configs") if isinstance(ctx.get("flow_configs"), dict) else {}
+        _dec = declared_decisions(_fc)
+        if _dec:
+            parts = decision_demote_parts(parts, _dec, picks=_picks)
+    except Exception:
+        logger.exception("决策闸降级失败（fail-open 放行）", exc_info=True)
     mid = baseline.get("server_model_id") or baseline.get("id")
     ctx["kp_parts"] = parts
     if mid is not None:

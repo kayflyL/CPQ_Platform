@@ -287,7 +287,7 @@ class _ChatTurnRuntime:
         state = {"submit": False}
         TOOL_CTX.set({"ext": ext, "user_text": self.user_text, "save": save, "price_ok": self.price_ok,
                       "role_key": self.role_key, "event_sink": self.event_sink,
-                      "user_id": self.user_id,
+                      "user_id": self.user_id, "thread_id": self.thread_id,
                       # fill_requirement 是需求分析流程工具：普通对话回合恒不可用（登记回合内由 brain 置 True）
                       "task_active": False})
 
