@@ -51,6 +51,10 @@ export const reasoningFlowApi = {
     RESP<{ ok: boolean; launch_form: any }>(axios.put('/api/reasoning-flow/launch-form', schema || { fields: [] }, {
       params: { skill_key: skillKey },
     })),
+  // 输出物种类唯一注册表（ABI kind 分册，后端 output_kinds.py）：抽屉选项不再前端硬编码
+  outputKinds: () =>
+    RESP<{ kinds: Record<string, { label: string }> }>(axios.get('/api/reasoning-flow/output-kinds'))
+      .then(r => r?.kinds || {}),
   updateGraph: (graph: ReasoningGraph, skillKey?: string) =>
     RESP<ReasoningFlow>(axios.put('/api/reasoning-flow/graph', { graph }, {
       params: skillKey ? { skill_key: skillKey } : undefined,
@@ -61,6 +65,10 @@ export const reasoningFlowApi = {
     })),
   activate: (flowId: number) =>
     RESP<ReasoningFlow>(axios.post(`/api/reasoning-flow/versions/${flowId}/activate`, {})),
+  // 从模板新建工作流（P2 向导）：复制模板 active 流 → 新流（幂等：key 重复 409）
+  createFromTemplate: (templateKey: string, newKey: string, name: string) =>
+    RESP<ReasoningFlow>(axios.post('/api/reasoning-flow/create-from-template',
+      { template_key: templateKey, new_key: newKey, name })),
   getManual: (skillKey?: string) =>
     RESP<{ rules: string; manual: string; version: number }>(axios.get('/api/reasoning-flow/manual', {
       params: { skill_key: skillKey || 'requirement_analysis' },

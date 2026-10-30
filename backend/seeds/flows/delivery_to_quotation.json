@@ -1,0 +1,650 @@
+{
+  "seed_version": 1,
+  "flow_key": "delivery_to_quotation",
+  "exported_at": "2026-10-31T02:36:50",
+  "flow": {
+    "id": 127,
+    "name": "delivery_to_quotation",
+    "skill_key": "delivery_to_quotation",
+    "version": 164,
+    "status": "active",
+    "graph": "{\"nodes\": [{\"id\": \"input\", \"type\": \"input\", \"label\": \"接收文件\", \"position\": {\"x\": -400, \"y\": 256}, \"runtime\": \"input\"}, {\"id\": \"identify\", \"type\": \"agent\", \"label\": \"识别与商机定位\", \"position\": {\"x\": -32, \"y\": 240}, \"runtime\": \"agent\"}, {\"id\": \"place_bom\", \"type\": \"agent\", \"label\": \"方案落位（方案表→方案配置）\", \"position\": {\"x\": 304, \"y\": 128}, \"runtime\": \"agent\"}, {\"id\": \"place\", \"type\": \"agent\", \"label\": \"成本落位（成本表→成本核算）\", \"position\": {\"x\": 480, \"y\": 368}, \"runtime\": \"agent\"}, {\"id\": \"derive_cost\", \"type\": \"agent\", \"label\": \"库价推导（方案表→成本表）\", \"position\": {\"x\": 672, \"y\": 128}, \"runtime\": \"agent\"}, {\"id\": \"submit\", \"type\": \"agent\", \"label\": \"提交转报价\", \"position\": {\"x\": 1072, \"y\": 224}, \"runtime\": \"agent\"}, {\"id\": \"margin\", \"type\": \"agent\", \"label\": \"加价\", \"position\": {\"x\": 1424, \"y\": 208}, \"runtime\": \"agent\"}, {\"id\": \"output\", \"type\": \"output\", \"label\": \"交付确认\", \"position\": {\"x\": 1776, \"y\": 256}, \"runtime\": \"output\"}], \"edges\": [{\"id\": \"e0\", \"source\": \"input\", \"target\": \"identify\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e1\", \"source\": \"identify\", \"target\": \"place_bom\", \"source_handle\": null, \"target_handle\": null, \"label\": \"lane=scheme\", \"animated\": true, \"guard\": {\"flag\": \"lane\", \"equals\": \"scheme\"}}, {\"id\": \"e2\", \"source\": \"identify\", \"target\": \"place\", \"source_handle\": null, \"target_handle\": null, \"label\": \"lane=cost\", \"animated\": true, \"guard\": {\"flag\": \"lane\", \"equals\": \"cost\"}}, {\"id\": \"e3\", \"source\": \"place_bom\", \"target\": \"derive_cost\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e4\", \"source\": \"place\", \"target\": \"submit\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e5\", \"source\": \"derive_cost\", \"target\": \"submit\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e6\", \"source\": \"submit\", \"target\": \"margin\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e7\", \"source\": \"margin\", \"target\": \"output\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}], \"manual_rules\": \"你替用户把成本表/方案表办成报价单。每步办完＝系统自动弹产物卡＋你一句话陈述事实（办了什么、单号多少）；全链禁止「需要我帮你…吗／要不要我…」式反问，下一步建议只用陈述句。\\n\\n【分流判定（识别步）】识别步做三件事：建商机（create_opportunity）、判类型、做解析预览——调 import_cost_sheet（结构解析两表通用，零落库；价格列为空或无价格口径＝方案表，有成本/价格口径＝成本表），把预览识别结果原样转述给用户（表名/配置数）。识别步完成条件＝商机已建且分流已判，没调解析工具指针不会前进。拿不准就解析预览转述，让用户确认走哪条。识别步不落任何草稿（工具在识别步强制只预览）。\\n\\n【落位（分两节点，指针自动跳）】分流判定后指针走对应链：方案表→方案落位（import_bom_scheme 直接落，方案表没有价格是正常的，绝不提示补价）；成本表→成本落位（import_cost_sheet 首调=解析预览+确认卡，先看后落：你把识别结果一句话转述，确认卡由系统自动弹出，等用户点「确认执行」后带同一参数加 confirm=true 重调才落草稿；用户没回应前不要重出预览、不要重调工具）。不适用链的节点系统自动跳过，不用你管。\\n\\n【确认】成本落位与提交转报价都要确认卡（卡由系统自动弹出；你不要手写确认卡文本，只说一句请在下方卡片确认）。用户点卡或回复确认后带同一参数加 confirm=true 重调即可——执行参数以预览为准。确认卡弹出后即停下等用户点选。加价率在开工单里填过的＝已确认口径，直接执行不再确认；对话中新给的口径先预览确认再执行。建档（create_opportunity）不再反问：参数齐了当场建。\\n\\n【产物卡】落草稿/转报价/加价完成后系统自动发产物卡（在陈述之后），你不复述卡内明细、不代查代核，分享与导出由用户在产物卡内自己点（分享/导出按钮）。\\n\\n【缺价】案台显示成本表缺价 N 行＝成本落位/库价推导节点过不去的闸：停下列出缺价行（哪些配置哪些件），让用户直接报价或自己在产物卡里补；用户报了价用 set_cost_prices 逐行回写（config_name+catalogue 定位），补齐后流程自动继续。绝不带缺价提交，绝不自拟价格。\\n\\n【参数】客户名以用户最新说法逐字为准，文件名只作推断参考；缺归属业务先问；商机已绑定不再重复确认。加价率只用用户给出的数字，不得自拟。\\n\\n【解析】如实转述行数与价格情况——原表没有的价格就是空，不得编造；成本表无价格时提示可在产物卡内编辑补价（方案表无价格是正常，不提示）。\\n\\n【兜底】工具返回错误原样告诉用户并建议修正，不编造结果。\\n\\n【缺价补价】缺价=调用 ask_user 出 input_fields 补价卡：L6 整价按配置要一个数\\n（fields 一项 {key: 配置名, label: \\\"×××的 L6 整机价\\\", type: number}），KP 缺价按行\\n（label 带配置名与料号）。用户提交后用 set_cost_prices 回写（L6 传 {config_name, l6_price}；\\nKP 传 {config_name, catalogue, base_price}）。L6 是整机一口价（l6_cost），8 行只是明细展示，\\n绝不要求用户逐行报 L6 价。绝不带缺价提交，绝不自拟价格。\\n\\n【重导纪律】用户表示已在产物卡/页面补价 = 只查案台事实，禁止重导重解析；重导必须带已有\\nsheet_id 原地更新；重导会覆盖人工补价时须用户明说重置（reset=true）才可。\\n\\n【确认卡就绪】案台显示有待确认操作＝确认卡已由系统发出（在对话下方），不要再次请求确认、不要重复陈述预览内容；等用户点卡或回复，用户口头同意才带 confirm 执行。\", \"entity_binding\": \"real_bound\", \"flag_rules\": [{\"tool\": \"import_cost_sheet\", \"set\": {\"lane\": \"cost\"}}, {\"tool\": \"import_bom_scheme\", \"set\": {\"lane\": \"scheme\", \"scheme\": {\"bom_scheme_id\": \"$result.bom_scheme_id\", \"name\": \"$result.scheme_name\"}}}, {\"tool\": \"derive_cost_from_scheme\", \"set\": {\"lane\": \"scheme\", \"derived\": {\"sheet_id\": \"$result.sheet_id\"}}}, {\"tool\": \"set_quote_margin\", \"set\": {\"margin\": {\"pct\": \"$result.margin_pct\", \"quotation_id\": \"$result.quotation_id\"}}}, {\"tool\": \"share_quote\", \"set\": {\"share\": {\"share_path\": \"$result.share_path\", \"quotation_id\": \"$result.quotation_id\"}}}]}",
+    "launch_form": {
+      "fields": [
+        {
+          "key": "attachment",
+          "type": "file",
+          "label": "成本表 / 方案表",
+          "required": true
+        },
+        {
+          "key": "customer",
+          "type": "text",
+          "label": "客户名称",
+          "required": true
+        },
+        {
+          "key": "sales",
+          "type": "text",
+          "label": "归属业务",
+          "default": "{当前用户姓名}",
+          "required": true
+        },
+        {
+          "key": "margin",
+          "type": "number",
+          "label": "加价率 %"
+        }
+      ]
+    },
+    "is_active": true,
+    "description": "用户给定成本表或方案表，自动完成：商机定位/建档 → 线索登记回填 → 落位 → 提交转报价 → 加价 → 出件分享。先看后落：解析预览先行，商机等关键参数与用户确认。",
+    "created_by": "seed",
+    "updated_by": "ask_rename_20261023"
+  },
+  "node_configs": [
+    {
+      "node_key": "submit",
+      "config": {
+        "enabled_tools": [
+          "submit_cost_sheet"
+        ],
+        "completion": {
+          "slot": "quotation"
+        },
+        "gated": true,
+        "target": {
+          "artifact": {
+            "kind": "record",
+            "name": "报价单（草稿）",
+            "slot": "quotation",
+            "view": "quoting",
+            "schema_ref": "quotation",
+            "fields": [
+              {
+                "key": "quotation_id",
+                "label": "报价单号"
+              },
+              {
+                "key": "status",
+                "label": "状态"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "record",
+              "name": "报价单（草稿）",
+              "slot": "quotation",
+              "view": "quoting",
+              "schema_ref": "quotation",
+              "fields": [
+                {
+                  "key": "quotation_id",
+                  "label": "报价单号"
+                },
+                {
+                  "key": "status",
+                  "label": "状态"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "quotation_id"
+      }
+    },
+    {
+      "node_key": "margin",
+      "config": {
+        "enabled_tools": [
+          "set_quote_margin"
+        ],
+        "completion": {
+          "flag": "margin"
+        },
+        "gated": true,
+        "target": {
+          "artifact": {
+            "kind": "form",
+            "name": "报价单价格",
+            "slot": "quotation",
+            "view": "quoting",
+            "schema_ref": "quotation",
+            "fields": [
+              {
+                "key": "margin_pct",
+                "label": "加价率 %",
+                "ask": true,
+                "hint": "只能用用户给出的数字，用户没说就问，不得自拟默认值"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "form",
+              "name": "报价单价格",
+              "slot": "quotation",
+              "view": "quoting",
+              "schema_ref": "quotation",
+              "fields": [
+                {
+                  "key": "margin_pct",
+                  "label": "加价率 %",
+                  "ask": true,
+                  "hint": "只能用用户给出的数字，用户没说就问，不得自拟默认值"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "quotation_id + margin_pct"
+      }
+    },
+    {
+      "node_key": "input",
+      "config": {}
+    },
+    {
+      "node_key": "derive_cost",
+      "config": {
+        "enabled_tools": [
+          "derive_cost_from_scheme",
+          "query_data",
+          "set_cost_prices",
+          "ask_user"
+        ],
+        "completion": {
+          "slot": "sheet.price_ready"
+        },
+        "target": {
+          "artifact": {
+            "kind": "table",
+            "name": "成本表（由方案表推导，库价填充）",
+            "slot": "sheet",
+            "view": "costing",
+            "schema_ref": "cost_sheet",
+            "columns": [
+              {
+                "key": "group",
+                "label": "分组",
+                "from": "category"
+              },
+              {
+                "key": "catalogue",
+                "label": "Catalogue",
+                "from": "catalogue"
+              },
+              {
+                "key": "description",
+                "label": "Description",
+                "from": "description"
+              },
+              {
+                "key": "match",
+                "label": "配件匹配",
+                "visible": false
+              },
+              {
+                "key": "qty",
+                "label": "Quantity",
+                "from": "qty"
+              },
+              {
+                "key": "unit_cost",
+                "label": "Unit Cost",
+                "from": "base_price"
+              },
+              {
+                "key": "total_cost",
+                "label": "Total Cost",
+                "from": "total_cost"
+              },
+              {
+                "key": "note",
+                "label": "Note",
+                "from": "note"
+              }
+            ],
+            "fields": [
+              {
+                "key": "l6_price",
+                "label": "L6 价格",
+                "ask": true,
+                "hint": "L6 行价格为空＝缺价：停下向用户要价（聊天报价→set_cost_prices 回写；或让用户在成本表产物卡编辑模式自补），补齐才继续"
+              },
+              {
+                "key": "kp_price",
+                "label": "KP 价格",
+                "ask": true,
+                "hint": "关键配件行价格为空＝缺价：同样停下问价，补齐才继续"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "成本表（由方案表推导，库价填充）",
+              "slot": "sheet",
+              "view": "costing",
+              "schema_ref": "cost_sheet",
+              "columns": [
+                {
+                  "key": "group",
+                  "label": "分组",
+                  "from": "category"
+                },
+                {
+                  "key": "catalogue",
+                  "label": "Catalogue",
+                  "from": "catalogue"
+                },
+                {
+                  "key": "description",
+                  "label": "Description",
+                  "from": "description"
+                },
+                {
+                  "key": "match",
+                  "label": "配件匹配",
+                  "visible": false
+                },
+                {
+                  "key": "qty",
+                  "label": "Quantity",
+                  "from": "qty"
+                },
+                {
+                  "key": "unit_cost",
+                  "label": "Unit Cost",
+                  "from": "base_price"
+                },
+                {
+                  "key": "total_cost",
+                  "label": "Total Cost",
+                  "from": "total_cost"
+                },
+                {
+                  "key": "note",
+                  "label": "Note",
+                  "from": "note"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "sheet_id"
+      }
+    },
+    {
+      "node_key": "output",
+      "config": {
+        "enabled_tools": [],
+        "completion": {
+          "slot": "quotation"
+        },
+        "target": {
+          "artifact": {
+            "kind": "document",
+            "name": "分享链接",
+            "slot": "share",
+            "view": "share_page",
+            "schema_ref": "artifact_share",
+            "output_kind": "share_link",
+            "presentation": "link_card",
+            "fields": [
+              {
+                "key": "view",
+                "label": "分享视角",
+                "ask": false,
+                "hint": "不问用户；默认 internal 视角。仅当用户明说发客户时说明走外发审批闸。"
+              },
+              {
+                "key": "expiry_days",
+                "label": "有效期（天）",
+                "ask": false,
+                "hint": "缺省 7 天，上限 30"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "document",
+              "name": "分享链接",
+              "slot": "share",
+              "view": "share_page",
+              "schema_ref": "artifact_share",
+              "output_kind": "share_link",
+              "presentation": "link_card",
+              "fields": [
+                {
+                  "key": "view",
+                  "label": "分享视角",
+                  "ask": true,
+                  "hint": "scheme（方案视角）或 internal（内部视角）"
+                },
+                {
+                  "key": "expiry_days",
+                  "label": "有效期（天）",
+                  "ask": false,
+                  "hint": "缺省 7 天，上限 30"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "share_path"
+      }
+    },
+    {
+      "node_key": "place",
+      "config": {
+        "enabled_tools": [
+          "import_cost_sheet",
+          "query_data",
+          "set_cost_prices",
+          "ask_user"
+        ],
+        "completion": {
+          "slot": "sheet.price_ready"
+        },
+        "target": {
+          "artifact": {
+            "kind": "table",
+            "name": "成本表（成本核算）",
+            "slot": "sheet",
+            "view": "costing",
+            "schema_ref": "cost_sheet",
+            "columns": [
+              {
+                "key": "group",
+                "label": "分组",
+                "from": "category"
+              },
+              {
+                "key": "catalogue",
+                "label": "Catalogue",
+                "from": "catalogue"
+              },
+              {
+                "key": "description",
+                "label": "Description",
+                "from": "description"
+              },
+              {
+                "key": "match",
+                "label": "配件匹配",
+                "visible": false
+              },
+              {
+                "key": "qty",
+                "label": "Quantity",
+                "from": "qty"
+              },
+              {
+                "key": "unit_cost",
+                "label": "Unit Cost",
+                "from": "base_price"
+              },
+              {
+                "key": "total_cost",
+                "label": "Total Cost",
+                "from": "total_cost"
+              },
+              {
+                "key": "note",
+                "label": "Note",
+                "from": "note"
+              }
+            ],
+            "fields": [
+              {
+                "key": "l6_price",
+                "label": "L6 价格",
+                "ask": true,
+                "hint": "L6 行价格为空＝缺价：停下向用户要价（聊天报价→set_cost_prices 回写；或让用户在成本表产物卡编辑模式自补），补齐才继续"
+              },
+              {
+                "key": "kp_price",
+                "label": "KP 价格",
+                "ask": true,
+                "hint": "关键配件行价格为空＝缺价：同样停下问价，补齐才继续"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "成本表（成本核算）",
+              "slot": "sheet",
+              "view": "costing",
+              "schema_ref": "cost_sheet",
+              "columns": [
+                {
+                  "key": "group",
+                  "label": "分组",
+                  "from": "category"
+                },
+                {
+                  "key": "catalogue",
+                  "label": "Catalogue",
+                  "from": "catalogue"
+                },
+                {
+                  "key": "description",
+                  "label": "Description",
+                  "from": "description"
+                },
+                {
+                  "key": "match",
+                  "label": "配件匹配",
+                  "visible": false
+                },
+                {
+                  "key": "qty",
+                  "label": "Quantity",
+                  "from": "qty"
+                },
+                {
+                  "key": "unit_cost",
+                  "label": "Unit Cost",
+                  "from": "base_price"
+                },
+                {
+                  "key": "total_cost",
+                  "label": "Total Cost",
+                  "from": "total_cost"
+                },
+                {
+                  "key": "note",
+                  "label": "Note",
+                  "from": "note"
+                }
+              ],
+              "fields": [
+                {
+                  "key": "l6_price",
+                  "label": "L6 价格",
+                  "ask": true,
+                  "hint": "L6 按整机一口价（一个配置一个数，写入 l6_cost）；明细行只是展示，不逐行要价"
+                },
+                {
+                  "key": "kp_price",
+                  "label": "KP 价格",
+                  "ask": true,
+                  "hint": "关键配件行价格为空＝缺价：同样停下问价，补齐才继续"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "sheet_id + 成本摘要",
+        "skip_note": "本链为方案表链，不经过成本落位"
+      }
+    },
+    {
+      "node_key": "identify",
+      "config": {
+        "enabled_tools": [
+          "create_opportunity",
+          "query_data",
+          "import_cost_sheet",
+          "import_bom_scheme"
+        ],
+        "completion": {
+          "all_of": [
+            "opp",
+            "flags.lane"
+          ]
+        },
+        "target": {
+          "artifact": {
+            "kind": "record",
+            "name": "商机",
+            "slot": "opp",
+            "view": "detail_head",
+            "schema_ref": "opportunity",
+            "fields": [
+              {
+                "key": "customer_name",
+                "label": "客户名称",
+                "ask": false,
+                "hint": "开工单启动表单已收集这些字段，直接使用；仅当对话完全缺失时按左栏规则补问，且不为此出预览要确认"
+              },
+              {
+                "key": "sales_person",
+                "label": "归属业务",
+                "ask": false,
+                "hint": "开工单启动表单已收集这些字段，直接使用；仅当对话完全缺失时按左栏规则补问，且不为此出预览要确认"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "record",
+              "name": "商机",
+              "slot": "opp",
+              "view": "detail_head",
+              "schema_ref": "opportunity",
+              "fields": [
+                {
+                  "key": "customer_name",
+                  "label": "客户名称",
+                  "ask": true,
+                  "hint": "客户明确说出的名称，逐字使用"
+                },
+                {
+                  "key": "sales_person",
+                  "label": "归属业务",
+                  "ask": true,
+                  "hint": "business 角色可默认自己；其他角色缺时问用户"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "opportunity_id + customer_name"
+      }
+    },
+    {
+      "node_key": "place_bom",
+      "config": {
+        "enabled_tools": [
+          "import_bom_scheme",
+          "query_data"
+        ],
+        "completion": {
+          "any_of": [
+            "scheme"
+          ]
+        },
+        "target": {
+          "artifact": {
+            "kind": "table",
+            "name": "方案表（方案配置）",
+            "slot": "scheme",
+            "view": "boming",
+            "schema_ref": "bom_scheme",
+            "columns": [
+              {
+                "key": "group",
+                "label": "分组",
+                "from": "category"
+              },
+              {
+                "key": "catalogue",
+                "label": "Catalogue",
+                "from": "catalogue"
+              },
+              {
+                "key": "description",
+                "label": "Configuration Description",
+                "from": "description"
+              },
+              {
+                "key": "qty",
+                "label": "Quantity",
+                "from": "qty"
+              },
+              {
+                "key": "note",
+                "label": "Note",
+                "from": "note"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "方案表（方案配置）",
+              "slot": "scheme",
+              "view": "boming",
+              "schema_ref": "bom_scheme",
+              "columns": [
+                {
+                  "key": "group",
+                  "label": "分组",
+                  "from": "category"
+                },
+                {
+                  "key": "catalogue",
+                  "label": "Catalogue",
+                  "from": "catalogue"
+                },
+                {
+                  "key": "description",
+                  "label": "Configuration Description",
+                  "from": "description"
+                },
+                {
+                  "key": "qty",
+                  "label": "Quantity",
+                  "from": "qty"
+                },
+                {
+                  "key": "note",
+                  "label": "Note",
+                  "from": "note"
+                }
+              ]
+            }
+          ]
+        },
+        "output_artifact": "bom_scheme_id + 配置摘要",
+        "skip_note": "本链为成本表链，不经过方案落位"
+      }
+    }
+  ],
+  "catalog": {
+    "key": "delivery_to_quotation",
+    "name": "交付转报价（表→报价单）",
+    "type": "workflow",
+    "workflow_key": "delivery_to_quotation",
+    "description": "用户给定成本表或方案表，自动完成：商机定位/建档 → 线索登记回填 → 落位 → 提交转报价 → 加价 → 出件分享。先看后落：解析预览先行，商机等关键参数与用户确认。",
+    "prompt": "",
+    "tool_ids": "[\"import_cost_sheet\", \"create_opportunity\", \"save_requirement_draft\", \"submit_cost_sheet\", \"set_quote_margin\", \"share_quote\", \"query_data\"]",
+    "input_contract": "成本表/方案表 Excel（聊天附件或商机附件），或一句话需求",
+    "output_contract": "商机 + 线索登记草稿 + 成本草稿/BOM方案 + 报价单 + 分享链接",
+    "output_kind": "quotation"
+  }
+}

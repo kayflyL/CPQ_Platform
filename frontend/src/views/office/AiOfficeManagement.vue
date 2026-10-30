@@ -82,6 +82,7 @@
               <div>
                 <span class="aom-hint">任务流：可见多步编排，用户通过“+”或模型建议显式发起；点击进入节点画布。</span>
               </div>
+              <a-button size="small" @click="openTplWizard">+ 从模板新建</a-button>
             </div>
             <a-spin :spinning="skillsLoading">
               <div class="aom-skill-grid">
@@ -143,6 +144,23 @@
         @saved="onPolicySaved"
       />
 
+    <a-modal v-model:open="tplWizard.open" title="从模板新建工作流" :confirm-loading="tplWizard.submitting"
+             ok-text="创建并进画布" cancel-text="取消" @ok="submitTplWizard">
+      <a-form layout="vertical" style="margin-top:12px">
+        <a-form-item label="模板" required>
+          <a-select v-model:value="tplWizard.templateKey" style="width:100%"
+                    :options="workflowSkills.map((s: any) => ({ value: s.key, label: s.name || s.key }))" />
+        </a-form-item>
+        <a-form-item label="新流 key（小写字母开头）" required>
+          <a-input v-model:value="tplWizard.newKey" placeholder="如 after_sale_flow" />
+        </a-form-item>
+        <a-form-item label="显示名" required>
+          <a-input v-model:value="tplWizard.name" placeholder="如 售后服务单处理" />
+        </a-form-item>
+      </a-form>
+      <p class="aom-hint">创建后直接进入画布逐节点填空（目标层/规则/决策点/产物声明随模板继承），发布闸把关。</p>
+    </a-modal>
+
     <LaunchFormEditor
       :open="launchFormEditor.open"
       :skill-key="launchFormEditor.skillKey"
@@ -160,6 +178,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { MoreOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
+import { reasoningFlowApi } from '@/api/reasoningFlow'
 import LaunchFormEditor from '@/components/office/LaunchFormEditor.vue'
 import { useAuthStore } from '@/store/auth'
 import TeamManager from './TeamManager.vue'
@@ -255,6 +274,31 @@ function openLaunchFormEditor(skill: any) {
 }
 async function onLaunchFormSaved() {
   await loadSkills()
+}
+
+/* ── 从模板新建（P2 向导：复制模板流 → 新流，画布填空）── */
+const tplWizard = ref<{ open: boolean; templateKey: string; newKey: string; name: string; submitting: boolean }>(
+  { open: false, templateKey: '', newKey: '', name: '', submitting: false })
+function openTplWizard() {
+  tplWizard.value = { open: true,
+                      templateKey: String(workflowSkills.value[0]?.key || ''),
+                      newKey: '', name: '', submitting: false }
+}
+async function submitTplWizard() {
+  const w = tplWizard.value
+  if (!w.templateKey || !w.newKey.trim() || !w.name.trim() || w.submitting) return
+  w.submitting = true
+  try {
+    const created = await reasoningFlowApi.createFromTemplate(w.templateKey, w.newKey.trim(), w.name.trim())
+    w.open = false
+    await loadSkills()
+    openSkill({ key: created.skill_key, name: created.name })   // 直接进画布填空
+    message.success(`已创建「${created.name}」，画布上逐节点填空后保存`)
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '创建失败（key 重复或模板不存在）')
+  } finally {
+    w.submitting = false
+  }
 }
 
 function removeSkill(skill: any) {

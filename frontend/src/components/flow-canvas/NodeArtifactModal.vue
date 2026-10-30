@@ -4,8 +4,9 @@ import SchemeEditor from '@/components/opportunity/SchemeEditor.vue'
 import ArtifactCard from '@/components/assistant/ArtifactCard.vue'
 import { useNodeArtifact } from '@/composables/useNodeArtifact'
 import MarkdownContent from '@/views/admin/strategy/MarkdownContent.vue'
-
 import RequirementForm from '@/components/flow/RequirementForm.vue'
+import { shapeOf } from './artifactShapes'
+
 const { artifact, close } = useNodeArtifact()
 const props = defineProps<{ bomScheme?: any }>()
 
@@ -46,41 +47,55 @@ watch([artifact, reqRef], async ([a]) => {
 }, { immediate: true })
 
 const artifactData = computed(() => artifact.value?.data)
-const docMarkdown = computed(() => {
-  const md = artifactData.value?.markdown
-  return typeof md === 'string' && md.trim() ? md : ''
+const kind = computed(() => artifact.value?.kind || '')
+// ── 形状分派（P2 产物契约域化·前端半）：kind → shape 见 artifactShapes.ts。
+// 新域产物 = 后端 builder 产出形状契约 + 登记映射，本组件零改。──
+const shape = computed(() => shapeOf(kind.value))
+// document：markdown 优先，纯文本（requirement_text 的 data.text）兜底
+const docContent = computed(() => {
+  const d = artifactData.value || {}
+  const md = typeof d.markdown === 'string' && d.markdown.trim() ? d.markdown : ''
+  if (md) return md
+  return typeof d.text === 'string' && d.text.trim() ? d.text : ''
 })
-// 机箱表 = 基础机箱 L6（该机型 BOM 模板求值，与方案配置页 L6 部分同源同形状）
-// 列由目标层定义驱动（artifact.data.columns），无定义时回退默认列
-const l6Cols = computed(() => {
+// table：通用表格（rows/columns 由产物自带），列缺省按 kind 回退，行按 waived/unmatched 染色
+const tableRows = computed(() => Array.isArray(artifactData.value?.rows) ? artifactData.value.rows : [])
+const tableCols = computed(() => {
   const cols = Array.isArray(artifactData.value?.columns) ? artifactData.value.columns : []
   const ant = cols.map((c: any) => ({ title: c.label || c.key, dataIndex: c.key, key: c.key }))
-  return ant.length ? ant : [
+  if (ant.length) return ant
+  if (kind.value === 'kp_table') return kpCols
+  return [
     { title: '配置件', dataIndex: 'catalogue', key: 'catalogue' },
     { title: '说明', dataIndex: 'description', key: 'description' },
     { title: '数量', dataIndex: 'qty', key: 'qty', width: 64 },
   ]
 })
-const kpTableCols = computed(() => {
-  const cols = Array.isArray(artifactData.value?.columns) ? artifactData.value.columns : []
-  const ant = cols.map((c: any) => ({ title: c.label || c.key, dataIndex: c.key, key: c.key }))
-  return ant.length ? ant : kpCols
+const rowClass = (record: any) => (record.waived ? 'kp-row-waived' : (record.unmatched ? 'kp-row-unmatched' : ''))
+// kind 特有的提示行（表头上方的结构化事实）：l6=锁定机型/理由；kp=落地统计/豁免行
+const tableHints = computed(() => {
+  const d = artifactData.value || {}
+  if (kind.value === 'kp_table') {
+    const hints: string[] = []
+    const s = d.summary
+    if (s) hints.push(`KP 落地 ${s.kp_count ?? 0} 项，未命中 ${s.unmatched_count ?? 0} 项，规格偏差 ${s.spec_mismatch_count ?? 0} 项`)
+    const w = Array.isArray(d.unmatched) ? [] : (kpRows.value.filter((r: any) => r.waived))
+    if (w.length) hints.push(`其中 ${w.length} 行库内无料（客户已知悉、按原需求留白）：${w.map((r: any) => r.catalogue).join('、')}`)
+    return hints
+  }
+  const hints: string[] = []
+  if (d.chosen) hints.push(`锁定机型：${d.chosen}`)
+  if (d.reason) hints.push(`推荐理由：${d.reason}`)
+  if (d.note) hints.push(String(d.note))
+  return hints
 })
+const kpRows = computed(() => Array.isArray(artifactData.value?.rows) ? artifactData.value.rows : [])
+const unmatchedRows = computed(() => Array.isArray(artifactData.value?.unmatched) ? artifactData.value.unmatched : [])
 const kpCols = [
   { title: 'Catalogue', dataIndex: 'part_category', key: 'part_category', width: 120 },
   { title: 'Configuration Description', dataIndex: 'catalogue', key: 'catalogue' },
   { title: 'Quantity', dataIndex: 'qty', key: 'qty', width: 90 },
 ]
-const kpRows = computed(() => {
-  const rows = Array.isArray(artifactData.value?.rows) ? artifactData.value.rows : []
-  return rows
-})
-const unmatchedRows = computed(() => {
-  const list = Array.isArray(artifactData.value?.unmatched) ? artifactData.value.unmatched : []
-  return list
-})
-// 白盒第三结局：库内无料、客户已知悉并保持原需求的行（保留在表里 + 标注，不当已落地料号）
-const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
 </script>
 
 <template>
@@ -96,6 +111,7 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
     :z-index="1800"
     :body-style="{ padding: '14px', maxHeight: 'calc(100vh - 180px)', overflowY: 'auto', overflowX: 'hidden' }"
   >
+    <!-- scheme：BOM 方案（props 注入实体，未生成时提示重跑） -->
     <template v-if="artifact?.kind === 'bom_scheme'">
       <div v-if="bomScheme" class="artifact-scheme">
         <SchemeEditor :configs="bomSchemeConfigs" readonly :show-toolbar="false" />
@@ -103,40 +119,30 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
       <div v-else class="artifact-empty">BOM 方案尚未生成完整实体，请重新试运行。</div>
     </template>
 
+    <!-- form：线索登记表 -->
     <template v-else-if="artifact?.kind === 'requirement_slots'">
       <RequirementForm v-if="artifact" ref="reqRef" v-model:req-text="requirementText" readonly />
     </template>
 
+    <!-- 待补充字段 -->
     <template v-else-if="artifact?.kind === 'requirement_missing'">
       <div class="missing-title">待补充字段</div>
       <a-tag v-for="(f, i) in artifactData?.missing_fields || []" :key="i" style="margin-right:8px">{{ f }}</a-tag>
     </template>
 
-    <template v-else-if="artifact?.kind === 'parts_proposal'">
-      <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
-    </template>
-
-    <template v-else-if="artifact?.kind === 'plans'">
-      <div class="plans-count">共 {{ artifactData?.plans_count ?? 0 }} 个方案</div>
-      <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
-    </template>
-
-    <template v-else-if="artifact?.kind === 'l6_chassis'">
-      <div v-if="artifactData?.chosen" class="artifact-hint">锁定机型：{{ artifactData.chosen }}</div>
-      <div v-if="artifactData?.reason" class="artifact-hint">推荐理由：{{ artifactData.reason }}</div>
-      <div v-if="artifactData?.note" class="artifact-hint">{{ artifactData.note }}</div>
-      <a-table v-if="Array.isArray(artifactData?.rows) && artifactData.rows.length" :data-source="artifactData.rows" :columns="l6Cols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" />
-      <div v-else class="artifact-empty">暂无机箱表数据。</div>
-    </template>
-
-    <template v-else-if="artifact?.kind === 'kp_table'">
-      <div v-if="artifactData?.summary" class="artifact-hint">KP 落地 {{ artifactData.summary.kp_count ?? 0 }} 项，未命中 {{ artifactData.summary.unmatched_count ?? 0 }} 项，规格偏差 {{ artifactData.summary.spec_mismatch_count ?? 0 }} 项</div>
-      <a-table v-if="kpRows.length" :data-source="kpRows" :columns="kpTableCols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" :row-class-name="(record: any) => (record.waived ? 'kp-row-waived' : (record.unmatched ? 'kp-row-unmatched' : ''))" />
-      <div v-if="waivedRows.length" class="artifact-hint">
-        其中 {{ waivedRows.length }} 行库内无料（客户已知悉、按原需求留白）：{{ waivedRows.map((r: any) => r.catalogue).join('、') }}
+    <!-- document：markdown / 纯文本（requirement_text、data_report、document…） -->
+    <template v-else-if="shape === 'document'">
+      <div v-if="docContent" class="artifact-doc">
+        <MarkdownContent :source="docContent" />
       </div>
-      <div v-else class="artifact-empty">暂无明显配件数据。</div>
-      <div v-if="unmatchedRows.length" class="artifact-unmatched">
+      <div v-else class="artifact-empty">本节点尚未产出报告内容。</div>
+    </template>
+
+    <!-- table：通用表格（rows/columns 产物自带；kind 特有提示行保留） -->
+    <template v-else-if="shape === 'table'">
+      <div v-for="(h, i) in tableHints" :key="i" class="artifact-hint">{{ h }}</div>
+      <a-table v-if="tableRows.length" :data-source="tableRows" :columns="tableCols" size="small" :row-key="(_: any, i: number) => i" :pagination="false" :row-class-name="rowClass" />
+      <div v-if="kind === 'kp_table' && unmatchedRows.length" class="artifact-unmatched">
         <div class="artifact-unmatched-title">未匹配 / 待确认（未能从配件库锁定真实料号，不作 KP 配置表行）</div>
         <ul class="artifact-unmatched-list">
           <li v-for="(u, i) in unmatchedRows" :key="i">
@@ -146,13 +152,13 @@ const waivedRows = computed(() => kpRows.value.filter((r: any) => r.waived))
           </li>
         </ul>
       </div>
+      <div v-if="!tableRows.length" class="artifact-empty">暂无数据。</div>
     </template>
 
-    <template v-else-if="artifact?.kind === 'document'">
-      <div v-if="docMarkdown" class="artifact-doc">
-        <MarkdownContent :source="docMarkdown" />
-      </div>
-      <div v-else class="artifact-empty">本节点尚未产出报告内容。</div>
+    <!-- raw：plans/parts_proposal/未登记 kind 原样 JSON（白盒不装懂） -->
+    <template v-else-if="artifact?.kind === 'plans'">
+      <div class="plans-count">共 {{ artifactData?.plans_count ?? 0 }} 个方案</div>
+      <pre class="artifact-raw">{{ JSON.stringify(artifactData, null, 2) }}</pre>
     </template>
 
     <template v-else>

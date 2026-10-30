@@ -2,7 +2,7 @@
 /** 能力节点配置抽屉 —— 按通用节点类型渲染参数表单。
  *  通用类型：agent / output；需求分析能力节点（agent_fill/model_reason/kp_reason/compose）按类型白盒展示可编辑参数。
  *  runtime 仅用于兼容当前需求分析能力图，不再暴露业务专属硬编码表单。 */
-import { ref, computed, watch, reactive } from 'vue'
+import { ref, computed, watch, reactive, onMounted } from 'vue'
 import { UpOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { reasoningFlowApi, type ReasoningNodeKey } from '@/api/reasoningFlow'
@@ -16,13 +16,22 @@ import TargetLayerModal from './TargetLayerModal.vue'
 import axios from 'axios'
 import { REASONING_CFG_TYPES, nodeArchetype } from '@/utils/reasoningNodeMeta'
 
-const OUTPUT_KIND_OPTIONS = [
+// 输出类型选项：唯一出处 = 后端 output_kinds 注册表（ABI），挂载时拉取；
+// 拉取失败回退内置清单（离线/老后端兜底，不阻塞抽屉渲染）
+const OUTPUT_KIND_OPTIONS = ref([
   { value: 'bom_scheme_draft', label: 'BOM 方案草稿' },
   { value: 'requirement_draft', label: '需求单草稿' },
   { value: 'plans', label: '方案 / BOM' },
   { value: 'data_answer', label: '数据结论' },
   { value: 'generic', label: '通用 JSON' },
-]
+])
+onMounted(async () => {
+  try {
+    const kinds = await reasoningFlowApi.outputKinds()
+    const opts = Object.entries(kinds).map(([value, meta]) => ({ value, label: meta?.label || value }))
+    if (opts.length) OUTPUT_KIND_OPTIONS.value = opts
+  } catch { /* 回退内置清单 */ }
+})
 const CONFIGURABLE = REASONING_CFG_TYPES
 
 const props = defineProps<{

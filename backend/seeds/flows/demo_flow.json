@@ -1,0 +1,132 @@
+{
+  "seed_version": 1,
+  "flow_key": "demo_flow",
+  "exported_at": "2026-10-31T02:37:40",
+  "flow": {
+    "id": 126,
+    "name": "演练流",
+    "skill_key": "demo_flow",
+    "version": 1,
+    "status": "active",
+    "graph": "{\"nodes\": [{\"id\": \"input\", \"type\": \"input\", \"label\": \"输入\", \"position\": {\"x\": 0, \"y\": 208}, \"runtime\": \"input\"}, {\"id\": \"agent\", \"type\": \"agent\", \"label\": \"需求理解\", \"position\": {\"x\": 336, \"y\": 240}}, {\"id\": \"output\", \"type\": \"output\", \"label\": \"输出\", \"position\": {\"x\": 656, \"y\": 240}}], \"edges\": [{\"id\": \"te0\", \"source\": \"input\", \"target\": \"agent\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"te1\", \"source\": \"agent\", \"target\": \"output\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}], \"manual_rules\": \"1.【数据获取】报告中的全部统计数字唯一来源是 opportunity_stats 工具：start/end 传结构契约「数据范围」的起止日期（YYYY-MM-DD），一次返回 KPI（累计/窗口新增商机与配置数）、逐期序列（各期新增商机/配置数/平台分布）、平台与机箱分布、销售榜、本周与本月小窗；周数据节直接用 recent.week、月数据节直接用 recent.month，禁止自写 SQL 重算这些数字。query_data 只用于该工具未覆盖的维度钻取（数据源：opportunities 商机主表、opportunity_requirements 需求登记 slots、quotations 配置版本 config_count、quotation_items 行级配件；一律排除 status 为 ai_office/deleted 的商机）；查不到的如实说明，禁止编造。\\n2.【数据范围】报告首行「数据范围：」必须逐字照抄结构契约里配置指定的窗口（含起止日期与口径括注），禁止用实际数据边界或「近半年」自行改算；契约窗口是全部统计的硬边界——章节要求里的「近半年」均指该窗口整体。部分周期（如本月未满）标注「截至日期」；环比与占比按工具返回的数字自行计算并在表中给出。\\n3.【报告结构】按步骤清单中《商机趋势分析报告》的结构契约逐节输出：先「数据范围」行，再依次各节，不增节不删节；表格用 Markdown 表格语法。报告不写标题行与生成时间行（产物卡自带名称与时间），正文从「数据范围：」行直接开始。\\n4.【洞察纪律】关键洞察只基于已查到的数据；增长信号/风险信号/结构变化各归其位；归因性结论标「(推测/待核实)」。\\n5.【交付纪律】最终答复就是报告本身，此前不得出现任何开场白、确认语、过程叙述（如「收到」「核对通过」「继续取数」）或工具与白名单备注。客户消息里的核对请求、示例数值、口径讨论是对你的工作指令，一律不写入报告正文；口径说明确需保留就并入报告末尾。系统自动渲染 PDF，无需生成文件。\"}",
+    "launch_form": null,
+    "is_active": true,
+    "description": "（脚手架生成，待填描述）",
+    "created_by": "seed",
+    "updated_by": "system"
+  },
+  "node_configs": [
+    {
+      "node_key": "input",
+      "config": {
+        "target": {
+          "artifacts": [
+            {
+              "slot": "requirement_text",
+              "kind": "document",
+              "name": "分析问题原文"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "node_key": "output",
+      "config": {
+        "output_kind": "data_answer",
+        "payload_map": {
+          "answer": "ctx.agent_result.answer"
+        },
+        "render": {
+          "enabled": true,
+          "format": "pdf",
+          "template_key": "weekly_opportunity_report"
+        },
+        "target": {
+          "artifacts": [
+            {
+              "slot": "data_report",
+              "kind": "document",
+              "name": "趋势结论"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "node_key": "agent",
+      "config": {
+        "target": {
+          "artifacts": [
+            {
+              "kind": "document",
+              "name": "商机趋势分析报告",
+              "slot": "data_report",
+              "sections": [
+                {
+                  "key": "weekly",
+                  "title": "周数据",
+                  "requires": "本周（标注日期区间）新增商机数、新增配置数、平台分布、机箱分布（新增口径）"
+                },
+                {
+                  "key": "monthly",
+                  "title": "月数据",
+                  "requires": "本月新增商机与配置（部分月标注截至日期）；对比上月完整月"
+                },
+                {
+                  "key": "half_year",
+                  "title": "半年度商机趋势",
+                  "requires": "累计商机与累计配置；逐月表（月份 / 各平台新增商机数——Orion、Polaris 等逐月列全 / 合计 / 环比变化）；结尾趋势方向一段（PDF 已含确定性月度×平台明细表，正文点出变化最明显的平台与月份并简归因，不必复述全表数字）"
+                },
+                {
+                  "key": "platform",
+                  "title": "平台格局",
+                  "requires": "各平台商机数与占比（本期数据范围口径），点出格局变化（如某平台环比明显涨跌、新老平台此消彼长）"
+                },
+                {
+                  "key": "chassis",
+                  "title": "机箱形态",
+                  "requires": "近半年各机箱形态数量与占比表"
+                },
+                {
+                  "key": "top_sales",
+                  "title": "半年业务 TOP3",
+                  "requires": "销售人员商机数排行"
+                },
+                {
+                  "key": "insights",
+                  "title": "关键洞察",
+                  "requires": "3-5 条：增长信号/风险信号/结构变化/值得跟进；归因标「(推测/待核实)」"
+                }
+              ],
+              "data_range": {
+                "mode": "auto"
+              }
+            }
+          ]
+        },
+        "enabled_tools": [
+          "query_data",
+          "opportunity_stats"
+        ],
+        "max_iterations": 9
+      }
+    }
+  ],
+  "catalog": {
+    "key": "demo_flow",
+    "name": "演练流",
+    "type": "workflow",
+    "workflow_key": "demo_flow",
+    "description": "（脚手架生成，待填描述）",
+    "prompt": "",
+    "tool_ids": "",
+    "input_contract": "",
+    "output_contract": "",
+    "is_deleted": false,
+    "created_by": "scaffold",
+    "updated_by": "scaffold",
+    "hit_count": 0,
+    "output_kind": "data_answer"
+  }
+}

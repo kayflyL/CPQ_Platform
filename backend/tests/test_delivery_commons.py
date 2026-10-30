@@ -1,50 +1,13 @@
 # -*- coding: utf-8 -*-
-"""公共件单测：槽位回填器（确定性回填/缺口/兜底）+ 节点反问原语（留底/匹配/过期）。
+"""公共件单测：节点反问原语（留底/匹配/过期）。槽位回填器 slots_backfill 已按
+2026-10-30 决定删除（建后零接线，历史见 git），本文件只留仍存活的部分。
 全 mock 不触库；pytest 或 `python -X utf8 tests/test_delivery_commons.py` 自跑。"""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import slots_backfill as sb  # noqa: E402
 from app.services import workflow_ask as wa  # noqa: E402
-
-SPEC = [
-    {"key": "server_model", "label": "机型"},
-    {"key": "chassis_form", "label": "机箱形态"},
-    {"key": "purchase_qty", "label": "数量", "default_value": 1},
-    {"key": "warranty_years", "label": "维保年限"},
-]
-
-
-# ── 槽位回填器 ───────────────────────────────────────────────────────────
-
-
-def test_backfill_fills_and_reports_missing():
-    out = sb.backfill({"server_model": "ZS22EV1-Z", "chassis_form": "2U"},
-                      source="表格解析", spec=SPEC)
-    assert out["ok"] is True
-    assert out["filled"]["server_model"] == {"value": "ZS22EV1-Z", "source": "表格解析"}
-    # 数量走契约默认兜底
-    assert out["filled"]["purchase_qty"]["value"] == 1
-    assert out["filled"]["purchase_qty"]["source"] == "默认兜底"
-    assert out["missing"] == ["warranty_years"]
-    assert out["draft_slots"]["server_model"] == "ZS22EV1-Z"
-    assert out["draft_slots"]["purchase_qty"] == 1
-
-
-def test_backfill_ignores_keys_outside_contract():
-    out = sb.backfill({"server_model": "X", "customer_mood": "好"}, spec=SPEC)
-    assert out["ignored"] == {"customer_mood": "好"}
-    assert "customer_mood" not in out["draft_slots"]
-
-
-def test_backfill_question_for_first_gap():
-    out = sb.backfill({"server_model": "X"}, spec=SPEC)
-    q = sb.question_for(out["missing"])
-    assert q and q["key"] == "chassis_form"
-    assert sb.question_for([]) is None
-
 
 # ── 节点反问原语 ─────────────────────────────────────────────────────────
 

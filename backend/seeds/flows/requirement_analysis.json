@@ -1,0 +1,144 @@
+{
+  "seed_version": 1,
+  "flow_key": "requirement_analysis",
+  "exported_at": "2026-10-31T02:36:50",
+  "flow": {
+    "id": 125,
+    "name": "需求分析",
+    "skill_key": "requirement_analysis",
+    "version": 1284,
+    "status": "active",
+    "graph": "{\"nodes\": [{\"id\": \"input\", \"type\": \"input\", \"label\": \"输入\", \"position\": {\"x\": -240, \"y\": 320}, \"runtime\": \"input\"}, {\"id\": \"agent_fill\", \"type\": \"agent\", \"label\": \"线索登记\", \"position\": {\"x\": 96, \"y\": 352}, \"runtime\": \"agent_fill\"}, {\"id\": \"model_reason\", \"type\": \"agent\", \"label\": \"机型选型\", \"position\": {\"x\": 432, \"y\": 352}, \"runtime\": \"model_reason\"}, {\"id\": \"kp_reason\", \"type\": \"agent\", \"label\": \"配件选型\", \"position\": {\"x\": 800, \"y\": 336}, \"runtime\": \"kp_reason\"}, {\"id\": \"compose\", \"type\": \"assemble\", \"label\": \"方案组装\", \"position\": {\"x\": 1168, \"y\": 336}, \"runtime\": \"compose\"}, {\"id\": \"output\", \"type\": \"output\", \"label\": \"输出·BOM方案草稿\", \"position\": {\"x\": 1552, \"y\": 336}}], \"edges\": [{\"id\": \"e1\", \"source\": \"input\", \"target\": \"agent_fill\", \"source_handle\": null, \"target_handle\": null, \"label\": \"\", \"animated\": true, \"guard\": null}, {\"id\": \"e2\", \"source\": \"agent_fill\", \"target\": \"model_reason\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e3\", \"source\": \"model_reason\", \"target\": \"kp_reason\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e4\", \"source\": \"kp_reason\", \"target\": \"compose\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}, {\"id\": \"e5\", \"source\": \"compose\", \"target\": \"output\", \"source_handle\": null, \"target_handle\": null, \"label\": null, \"animated\": true, \"guard\": null}], \"manual_rules\": \"1.【场景】类型只取目录类型名（catalog_search）或客户点名；配件能力≠场景，禁自创。\\n2.【复述与提交】先复述请确认；登记由引擎按原文填，禁提前登记。要方案→复述后即提交；渐齐→提议问是否开始、确认后提交；任务中→回答即继续直接提交，禁重新提议/空轮。改口→复述新理解请确认；闲聊一两句拉回。\\n3.【工具纪律】说到做到：说了查/提交当轮必须真调；未过校验→照反馈修正参数后重试，不原样重试；引擎按 steps 顺序硬校验，前置没过本步无法收口推进。问推荐先查再答：机型 kind=models，配件 kind=parts。\\n4.【无料与替代】每行必须落地：库无规格→转告+近替代征确认；确无→「改平台／换料／保持原需求」三选一；绝不静默丢弃、不编替代。\\n5.【提问纪律】缺口以顾问口吻用一两句自然中文确认第一个缺口，一次只问一个、一回合一卡；推荐必须逐字取选项 label，没把握留空；系统内部代号不得出现在对客户的话里；只依据客户真实表达；客户刚点选→先用一句话自然确认收到再转下问。\\n6.【登记步】先 fill_requirement（kp_rows）；型号/数量/规格按客户原话登记不改写不丢、容量带单位，改写须先经客户确认；没提留空，不自行匹配型号；已登记不重推、既填又追问；缺口优先确认「服务器类型」；补充/改口并入原行，确属不同规格才开第二行。\\n7.【选型步】机型 choose_model 池内取值，决断不了交客户。配件原文定覆盖，多盘组/GPU 组逐行列出：检索用库内词，每行一次、rows= 批量，不全类目浏览；零命中换词重查，禁止断言库里没有。specified=true 直接锁，未锁立即 ask_user。整套推荐（客户没点名直接配）：query_parts 查齐→同回合逐行 new_row=true 带料号名铸推荐→ask_user 整体卡（首项 pick_all、desc 列类目料号数量，其余替代档）；点后下回合汇报推进禁再发卡；客户要自己挑→逐行 ask_user 带 row 发选件卡（候选系统自动补）；一轮一版。选项带库内候选 pick；不配/自备 absent；同名料号多命中回候选。\\n8.【前提与委托】前提字段系推断必须先出卡确认才能进配件选型；其余目录字段可依据上下文推断并说明依据。客户原话明示全权委托→fill_requirement 申报 delegation=full，前提由你定并复述依据，类型/平台写进整体卡 desc 首行，点「全部按推荐落定」一并确认；只认原话。\\n9.【说话纪律】对客户只说已完成确认与待决策问题；内部推理/工具细节不外泄；汇报按大类分组不超三句；每步一句进展。\\n10.【价格】推荐带理由，不知道去查；price_access=false 时回复不出现任何价格数字，问价→联系成本核算或方案助手。\\n11.【收尾汇报纪律】先确认已完成登记，再报机型理由、配件落地、方案；只引用给定事实、数值逐字取事实；未匹配不得说成已落地；两三句。\"}",
+    "launch_form": null,
+    "is_active": true,
+    "description": "真实业务四步对齐：input→agent_fill→model_reason→kp_reason→compose→output",
+    "created_by": "upgrade-v11",
+    "updated_by": "system"
+  },
+  "node_configs": [
+    {
+      "node_key": "input",
+      "config": {
+        "target": {
+          "artifacts": [
+            {
+              "slot": "requirement_text",
+              "kind": "document",
+              "name": "需求原文"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "node_key": "agent_fill",
+      "config": {
+        "target": {
+          "artifacts": [
+            {
+              "kind": "form",
+              "name": "线索登记表",
+              "slot": "requirement_slots",
+              "view": "requirement_sheet",
+              "rows_from": "requirement_slots",
+              "schema_ref": "requirement_slots"
+            }
+          ]
+        },
+        "enabled_tools": [
+          "fill_requirement",
+          "catalog_search",
+          "ask_user"
+        ],
+        "decisions": [
+          {
+            "slot": "gpu",
+            "match_category": "GPU",
+            "question": "GPU 在库有多款满足规格的候选，选哪款？",
+            "min_candidates": 2,
+            "allow_other": true
+          }
+        ]
+      }
+    },
+    {
+      "node_key": "model_reason",
+      "config": {
+        "target": {
+          "kind": "sheet_section",
+          "note": "方案配置表对应部分",
+          "view": "plan_l6",
+          "artifacts": [
+            {
+              "kind": "table",
+              "name": "机箱表（L6 配置）",
+              "note": "方案配置表 L6 部分 · 来源：该机型 BOM 模板求值（基础机箱）",
+              "slot": "l6_chassis",
+              "view": "plan_l6",
+              "columns": [
+                {
+                  "key": "catalogue",
+                  "from": "name",
+                  "label": "配置件",
+                  "visible": true,
+                  "fallback": "request_spec|category"
+                },
+                {
+                  "key": "description",
+                  "from": "description",
+                  "label": "说明",
+                  "visible": true,
+                  "fallback": ""
+                },
+                {
+                  "key": "qty",
+                  "from": "qty",
+                  "label": "数量",
+                  "visible": true,
+                  "fallback": "1"
+                }
+              ],
+              "rows_from": "template_eval",
+              "schema_ref": "plan_config"
+            }
+          ],
+          "schema_ref": "plan_config"
+        }
+      }
+    },
+    {
+      "node_key": "kp_reason",
+      "config": {}
+    },
+    {
+      "node_key": "compose",
+      "config": {}
+    },
+    {
+      "node_key": "output",
+      "config": {
+        "target": {
+          "artifacts": [
+            {
+              "slot": "bom_scheme",
+              "kind": "document",
+              "name": "方案配置卡"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "catalog": {
+    "key": "requirement_analysis",
+    "name": "需求分析",
+    "type": "workflow",
+    "workflow_key": "requirement_analysis",
+    "description": "从自然语言中澄清服务器配置需求，必要时反问而不是直接进入选型。",
+    "prompt": "先确认用户要解决什么业务问题，再提取服务器类型、形态、系列、数量、预算等关键信息；信息不足时一次只问一个最关键问题。",
+    "tool_ids": "[]",
+    "input_contract": "自然语言服务器配置需求",
+    "output_contract": "需求摘要 + 候选方案 + BOM + 待确认项",
+    "output_kind": "plans"
+  }
+}

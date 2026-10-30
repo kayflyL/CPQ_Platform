@@ -17,8 +17,8 @@ import { message } from 'ant-design-vue'
 import { UndoOutlined, RedoOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons-vue'
 import { reasoningFlowApi, type ReasoningFlow as RFlow } from '@/api/reasoningFlow'
 import ReasoningNodeVf from './ReasoningNodeVf.vue'
-import ReasoningNodeDrawer from './ReasoningNodeDrawer.vue'
-import NodeArtifactModal from './NodeArtifactModal.vue'
+import NodeConfigDrawer from '@/components/flow-canvas/NodeConfigDrawer.vue'
+import NodeArtifactModal from '@/components/flow-canvas/NodeArtifactModal.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
 import { systemConfigApi } from '@/api/systemConfig'
 import { REASONING_CFG_TYPES, reasoningNodeKind, nodeArchetype } from '@/utils/reasoningNodeMeta'
@@ -696,7 +696,7 @@ function onSaved() { load() }
 
     </div>
 
-    <ReasoningNodeDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" :document-target="documentTarget" :outgoing-edges="drawerOutgoingEdges" @set-guard="onSetGuard" @saved="onSaved" @remove="onRemove" />
+    <NodeConfigDrawer v-model:open="drawerOpen" :node-key="drawerNodeKey" :node-type="drawerNodeType" :node-runtime="drawerNodeRuntime" :node-label="drawerNodeLabel" :initial-config="drawerConfig" :skill-key="skillKey" :skill-output-kind="outputKind" :document-target="documentTarget" :outgoing-edges="drawerOutgoingEdges" @set-guard="onSetGuard" @saved="onSaved" @remove="onRemove" />
 
     <NodeArtifactModal :bom-scheme="bomScheme" />
 
