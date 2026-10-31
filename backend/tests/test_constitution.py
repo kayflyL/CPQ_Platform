@@ -78,7 +78,7 @@ PROSE_BASELINE = {
     "skill_node_state.py": 0,
     "part_row_identity.py": 0,
     "selection_engine.py": 0,
-    "agent_tool_specs.py": 1,  # 2026-10-19：+业务工具 spec 描述；2026-10-23 问答协议收敛后实测 1（方案表落位描述）
+    "agent_tool_specs.py": 0,  # 2026-10-31：报价交付 7 工具描述随声明面迁 tool_manifests（实测 0，棘轮咬住进度）
     "agent_react.py": 0,
     "agent_tool_handlers.py": 0,
     "colleague_turn_service.py": 0,

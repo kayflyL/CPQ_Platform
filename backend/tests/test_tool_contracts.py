@@ -159,3 +159,36 @@ def test_direct_write_finish_passthrough_non_write():
     assert direct_write_finish("set_quote_margin",
                                {"effects": "write", "confirm_policy": "stage+consent"},
                                {}, fail, {"thread_id": "t"}) is fail
+
+
+# ── ⑦ 工具声明面：域清单守卫（tool_manifests/）──────────────────────────────
+
+
+def test_manifest_tools_unique_and_handlers_resolve():
+    """清单三律：跨域不重名、点串 handler 可解析、契约字段完备合法。
+    （第 7 步：域声明住宿主侧 tool_manifests/，引擎只合并消费。）"""
+    import importlib
+
+    from app.services.agent_tool_specs import _MANIFEST_MODULES
+    seen = {}
+    for mod_name in _MANIFEST_MODULES:
+        tools = getattr(importlib.import_module(mod_name), "TOOLS") or {}
+        for name, spec in tools.items():
+            assert name not in seen, f"{name} 跨域重复声明"
+            seen[name] = mod_name
+            handler = spec.get("handler")
+            assert isinstance(handler, str) and "." in handler, f"{name} handler 须点串引用"
+            mod, fn = handler.rsplit(".", 1)
+            assert callable(getattr(importlib.import_module(mod), fn)), f"{name} handler 解析失败"
+            c = spec.get("contract") or {}
+            for f in ("effects", "confirm_policy", "idempotent_hint", "destructive_hint",
+                      "target_entity"):
+                assert f in c, f"{name} 缺契约字段 {f}"
+
+
+def test_manifest_contract_tools_counted_in_snapshot():
+    """清单里的写工具必须仍在 13 件契约快照内（契约经清单并入，不许漏数）。"""
+    from app.services.agent_tool_specs import _MANIFEST_TOOLS
+    write_tools = {n for n, s in _MANIFEST_TOOLS.items()
+                   if (s.get("contract") or {}).get("effects") == "write"}
+    assert write_tools <= set(_TOOL_CONTRACTS), f"清单写工具缺契约登记：{write_tools - set(_TOOL_CONTRACTS)}"

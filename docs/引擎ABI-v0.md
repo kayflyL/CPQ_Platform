@@ -109,6 +109,15 @@ condition；需求分析白盒：agent_fill / model_reason / kp_reason / compose
 > 保守默认哲学（对齐 MCP）：**没声明确认策略的写工具按最高档处理**——升级字段落地时，
 > 缺省 = `stage+consent`，绝不满世界假设工具无害。
 
+### 工具声明面（第 7 步，2026-10-31 起）
+
+声明住宿主侧 `app/services/tool_manifests/<域>.py`（每域一个 `TOOLS` 字典），引擎
+（agent_tool_specs）只做合并消费——"域接入=填清单"。条目格式 = 现 spec 形状
+（summary/description/parameters/default_enabled/artifact_card…）+ 契约内联
+（effects/confirm_policy/verify…）+ **handler 用点串引用**（清单零 import，注册时惰性解析）。
+新域挂清单：在 `_MANIFEST_MODULES` 加一行；跨域重名=装载即报错。首批样本：报价交付域
+7 写工具（delivery_quotation.py）；其余域渐进迁移。
+
 ---
 
 ## 分册四：宿主接口（业务系统接入引擎的声明面）

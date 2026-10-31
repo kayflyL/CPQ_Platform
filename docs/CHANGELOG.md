@@ -7,6 +7,16 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续七) — 第 6 步关单 + 第 7 步"工具声明面"开工：域清单机制落地，报价交付域 7 写工具迁入首样本
+
+- **⑥ 关单**：交付事务流轮级考题**评估后不开**——transaction_turn 大闭包离线驱动成本高，内核层已被 world 夹具考透、流定义层有 EXAM-5、交付行为有真机验收；边际值不抵成本。"改规则先考"纪律已写入考卷头部与方案 v3。
+- **⑦ 变更**：① 新包 `app/services/tool_manifests/`（宿主侧域工具清单，每域一个 `TOOLS` 字典）；② **报价交付域 7 写工具整体迁入** `delivery_quotation.py` 首样本（import_cost_sheet/submit_cost_sheet/set_quote_margin/set_cost_prices/share_quote/derive_cost_from_scheme/import_bom_scheme）——条目 = 操作+契约（effects/confirm_policy/verify 内联）+产物卡+参数 schema；③ **handler 改点串引用**（清单零 import，build_tool_registry 注册时惰性解析——与 parameters_factory 同款式）；④ 引擎侧 `_MANIFEST_MODULES` 显式挂清单+装载（跨域重名=装载即报错）、契约经清单并入 `_TOOL_CONTRACTS`（13 件快照不变）；⑤ ABI 工具契约分册补"工具声明面"节。
+- **验证**：手术脚本用 ast 条目跨度整体搬迁（描述文本含花括号，手数括号不可靠；脚本三次迭代自教训：剥键前缀/剥外壳花括号/写前 ast 自检）；工具族 35 用例全过（含新增清单三律守卫：跨域不重名/点串可解析/契约字段完备）；全量回归见后。
+- **涉及面**：`app/services/agent_tool_specs.py`、`app/services/tool_manifests/ 新`、`docs/引擎ABI-v0`、`tests/test_tool_contracts.py`。
+- 💡 **定论**：① 声明面格式沿用现 spec 形状"只搬不改"——工具目录/文本覆盖/注册链全部零感知，前端零改；② 清单零 import + 点串 handler = 声明与实现的最后解耦，域接工具从此是"加一条+挂一行"；③ 手术类重构的脚本防呆三件套：ast 定位跨度、写前 ast 自检、逐条替换计数断言（n_sub != 1 即停）。
+
+
+
 ## [未发布] - 2026-10-31(深夜续六) — 第 6 步考卷 v2：事件协议符合性+步指针基线，两题逼出三处契约漂移当场修复
 
 - **考卷新增**：EXAM-6 事件协议运行时符合性（真流一回合 sink 全收集——type ∈ 契约词表、画布类事件带 thread_id、pipeline_start 带步骤骨架）；EXAM-7 步指针序列基线（晋级式：锁定没齐 kp_reason 不标/锁定齐标 done——agent_fill 的目录在位+客户拍板闸属域语义由 EXAM-1 与真机覆盖，本卷考引擎指针机制）。
