@@ -350,6 +350,13 @@
       </Transition>
 
     </Teleport>
+
+    <!-- 浮动 AI 同事（办公室常驻层）：拆独立门面前由 CPQ 布局壳代挂，门面独立后归位办公室本体。
+         全屏层（Manage Teams 等）挂 body 类时照旧让位（AssistantFloatingButton 自带该 CSS） -->
+    <template v-if="auth.chatRolesAllowed && auth.isAuthenticated">
+      <AssistantFloatingButton v-model:open="assistantOpen" :model-key="petModel.activePetModel" />
+      <AssistantPanel v-model:open="assistantOpen" />
+    </template>
   </div>
 </template>
 
@@ -372,6 +379,9 @@ import OfficeColleagueChatPanel from './OfficeColleagueChatPanel.vue'
 import OfficeRoomChat from './OfficeRoomChat.vue'
 import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
 import TaskBoard from './TaskBoard.vue'
+import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
+import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
+import { usePetModelStore } from '@/store/petModel'
 
 defineOptions({ name: 'AiOfficeView' })
 
@@ -401,6 +411,8 @@ const missionError = ref('')
 let missionPollTimer: ReturnType<typeof setInterval> | null = null
 
 const auth = useAuthStore()
+const petModel = usePetModelStore()
+const assistantOpen = ref(false)
 // 办公室档案（v4 第 2 步）：切换=切业务系统档案；展示面按档案过滤，编辑面拿全量
 const { offices, currentKey, current: currentOffice, setOffices, switchOffice, inOffice } = useOfficeProfile()
 const canManageOffice = computed(() => auth.can('ai.office.manage'))
