@@ -5,8 +5,6 @@
         v-if="colleague"
         class="ohc"
         :style="posStyle"
-        @mouseenter="emit('keep')"
-        @mouseleave="emit('leave')"
       >
         <div class="ohc-head">
           <div class="ohc-av" :style="{ background: color }">
@@ -52,7 +50,7 @@ const props = defineProps<{
   y: number
 }>()
 
-const emit = defineEmits<{ (e: 'chat'): void; (e: 'profile', ev: MouseEvent): void; (e: 'keep'): void; (e: 'leave'): void }>()
+const emit = defineEmits<{ (e: 'chat'): void; (e: 'profile', ev: MouseEvent): void }>()
 
 const CARD_W = 300
 const CARD_H = 232

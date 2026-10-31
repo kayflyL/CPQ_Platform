@@ -1460,7 +1460,7 @@ async function resetPreview() {
   await resetChatPreview()
 }
 
-defineExpose({ sendText, nodeTraces, busy, resetPreview })
+defineExpose({ sendText, nodeTraces, busy, resetPreview, openDm, openGroup })
 
 // 快捷指令：prompt 可为函数（动态读配置，如趋势分析）；context 缺省走通用 provider 摘要
 async function onQuickAction(action: QuickAction) {

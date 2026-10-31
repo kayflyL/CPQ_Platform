@@ -183,11 +183,10 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  select: [roleKey: string]
+  /** 点选同事：roleKey + 点击屏幕坐标（视图层据此钉出 [档案][聊天] 卡） */
+  select: [roleKey: string, x: number, y: number]
   'open-mission': [roleKey: string]
   'save-config': [config: OfficeConfig]
-  /** 悬停同事（头顶悬停卡用）：roleKey + 指针屏幕坐标；null = 悬停离开 */
-  'hover-role': [hit: { roleKey: string; x: number; y: number } | null]
 }>()
 
 
@@ -1515,7 +1514,6 @@ function onPointerDown(event: PointerEvent) {
 function onPointerMove(event: PointerEvent) {
   if (editing.value) {
     if (!view3D.value) editPointerMove(event)
-    if (hoveredRoleKey.value) emit('hover-role', null)
     hoveredRoleKey.value = null
     return
   }
@@ -1534,7 +1532,6 @@ function onPointerMove(event: PointerEvent) {
   hoverProbeAt = now
   const hit = actorAtPointer(event.clientX, event.clientY)
   hoveredRoleKey.value = hit ? hit.roleKey : null
-  emit('hover-role', hit ? { roleKey: hit.roleKey, x: event.clientX, y: event.clientY } : null)
 }
 
 function onPointerUp(event: PointerEvent) {
@@ -1578,7 +1575,7 @@ function pickActor(clientX: number, clientY: number) {
   const hit = actorAtPointer(clientX, clientY)
   if (!hit) return
   followRoleKey = hit.roleKey
-  emit('select', hit.roleKey)
+  emit('select', hit.roleKey, clientX, clientY)
   if (hit.mesh.userData?.monitor) emit('open-mission', hit.roleKey)
 }
 

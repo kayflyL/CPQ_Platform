@@ -97,7 +97,6 @@
           @select="selectColleague"
           @open-mission="onOpenMission"
           @save-config="onSaveOfficeConfig"
-          @hover-role="onCanvasHover"
         />
         <OfficeHoverCard
           :colleague="hoverColleague"
@@ -108,8 +107,6 @@
           :y="hoverCard?.y || 0"
           @chat="hoverChat"
           @profile="hoverProfile"
-          @keep="keepHoverCard"
-          @leave="scheduleHoverHide"
         />
         <div v-if="!roomColleagues.length" class="office-empty-state">
           暂无 AI 同事，请在 Manage Teams 中添加或切换团队。
@@ -255,53 +252,6 @@
       </Transition>
     </template>
 
-    <!-- 桌面聊天弹窗（唯一聊天窗）：同事私聊 / 房间群聊两模式；手机端走底部抽屉 -->
-    <Teleport to="body">
-      <Transition name="office-fade">
-        <div v-if="chatPopup" class="chat-pop">
-          <div class="chat-pop-head">
-            <template v-if="chatPopup.mode === 'colleague' && selectedColleague">
-              <span class="chat-pop-av" :style="{ background: deskColor(selectedColleague) }">
-                <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
-                <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
-              </span>
-              <div class="chat-pop-tt">
-                <div class="chat-pop-n">{{ selectedColleague.name || selectedColleague.role_key }}</div>
-                <div class="chat-pop-s"><i :style="{ background: avatarDotColor(selectedColleague) }"></i>{{ statusText(selectedStatus.status) }}<template v-if="selectedStatus.activity"> · {{ selectedStatus.activity }}</template></div>
-              </div>
-            </template>
-            <template v-else>
-              <span class="chat-pop-av">群</span>
-              <div class="chat-pop-tt">
-                <div class="chat-pop-n">团队群聊</div>
-                <div class="chat-pop-s">{{ roomColleagues.length }} 位成员</div>
-              </div>
-            </template>
-            <button class="chat-pop-x" type="button" title="收起" @click="closeChat">✕</button>
-          </div>
-          <div class="chat-pop-body">
-            <OfficeRoomChat
-              v-if="chatPopup.mode === 'room'"
-              :colleagues="roomColleagues"
-              :context="officeChatContext"
-              :context-summary="officeContextSummary"
-              :status-meta="statusMetaEntries"
-              :status-map="statusMap"
-              @open-dm="onRoomOpenDm"
-              @persona="onRoomPersona"
-            />
-            <OfficeColleagueChatPanel
-              v-else-if="selectedColleague"
-              :colleague="selectedColleague"
-              :context="officeChatContext"
-              :context-summary="officeContextSummary"
-              default-expanded
-            />
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
     <Teleport to="body">
       <Transition name="office-fade">
         <div v-if="manageOpen" class="manager-backdrop manager-backdrop--full" @click.self="manageOpen = false">
@@ -359,29 +309,25 @@
          全屏层（Manage Teams 等）挂 body 类时照旧让位（AssistantFloatingButton 自带该 CSS） -->
     <template v-if="auth.chatRolesAllowed && auth.isAuthenticated">
       <AssistantFloatingButton v-model:open="assistantOpen" :model-key="petModel.activePetModel" />
-      <AssistantPanel v-model:open="assistantOpen" />
+      <AssistantPanel ref="assistantPanelRef" v-model:open="assistantOpen" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
 import { SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
 import { normalizeOfficeConfig } from '@/composables/officeLayout'
 import { useOfficeProfile } from '@/composables/officeProfile'
-import { useAssistantContext } from '@/composables/assistantContext'
 import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import AiOfficeManagement from './AiOfficeManagement.vue'
 import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
 import OfficeHoverCard from './OfficeHoverCard.vue'
-import OfficeColleagueChatPanel from './OfficeColleagueChatPanel.vue'
-import OfficeRoomChat from './OfficeRoomChat.vue'
 import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
 import TaskBoard from './TaskBoard.vue'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
@@ -423,13 +369,6 @@ const { currentKey, setOffices, switchOffice, inOffice } = useOfficeProfile()
 const canManageOffice = computed(() => auth.can('ai.office.manage'))
 // 管理面任一段可见即可打开（只授 ai.office.admin 的账号也要能进「模型与接入/运行与权限」）
 const canOpenOfficeManagement = computed(() => auth.can('ai.office.manage') || auth.can('ai.office.admin'))
-const route = useRoute()
-const { summarize: summarizeAssistantContext } = useAssistantContext()
-const officeContextSummary = ref('')
-const officeChatContext = computed<AssistantContext>(() => ({
-  opportunityId: (route.query.opportunityId as string) || null,
-  quotationId: (route.query.quotationId as string) || null,
-}))
 
 // ── 同事名片浮层（悬停卡/名册/房间均可唤起）──
 const personaRef = ref<InstanceType<typeof ColleaguePersonaCard> | null>(null)
@@ -445,10 +384,6 @@ function missionOf(roleKey?: string | null) {
 
 function openPersonaCard(colleague: any, ev: MouseEvent) {
   personaRef.value?.openFor(colleague, statusFor(colleague?.role_key), missionOf(colleague?.role_key), ev.currentTarget as HTMLElement)
-}
-
-function onRoomPersona(colleague: any, ev: MouseEvent) {
-  openPersonaCard(colleague, ev)
 }
 
 function onRoomOpenDm(roleKey?: string) {
@@ -477,12 +412,6 @@ const roomColleagues = computed(() => {
   const allowed = new Set(roleKeys)
   return colleagues.value.filter((colleague) => allowed.has(colleague.role_key))
 })
-const selectedColleague = computed(() =>
-  roomColleagues.value.find((c) => c.role_key === selectedRoleKey.value) || null,
-)
-const selectedStatus = computed(() =>
-  selectedRoleKey.value ? statusFor(selectedRoleKey.value) : emptyStatus,
-)
 
 watch(
   roomColleagues,
@@ -561,30 +490,19 @@ function statusText(status: string): string {
   return behaviorStatusMeta(status).label || status || '空闲'
 }
 
-function selectColleague(roleKey: string) {
+function selectColleague(roleKey: string, x?: number, y?: number) {
   selectedRoleKey.value = roleKey
-  // 桌面：3D 点同事 = 打开聊天弹窗（唯一聊天窗）；手机走底部抽屉
-  if (!isMobile.value) openChat(roleKey)
-}
-
-// ── 悬停卡（对齐 workstation-teacher hcard 契约：悬停现/移开延迟隐/卡上保持）──
-// 定位锁定：同一同事悬停期间卡不跟鼠标跳（否则按钮永远点不到）；换目标才重定位。
-const hoverCard = ref<{ roleKey: string; x: number; y: number; pinned?: boolean } | null>(null)
-let hoverHideTimer: ReturnType<typeof setTimeout> | null = null
-function onCanvasHover(hit: { roleKey: string; x: number; y: number } | null) {
-  if (!hit) { scheduleHoverHide(); return }
-  if (hoverHideTimer) clearTimeout(hoverHideTimer)
-  if (!hoverCard.value || hoverCard.value.roleKey !== hit.roleKey) {
-    hoverCard.value = hit
+  // 桌面：3D 点同事 = 钉出 [档案][聊天] 卡（悬停不再显示）；手机 = 直接开统一聊天窗
+  if (isMobile.value) {
+    openChat(roleKey)
+  } else {
+    hoverCard.value = { roleKey, x: x || window.innerWidth / 2, y: y || window.innerHeight / 2, pinned: true }
   }
 }
-function scheduleHoverHide() {
-  if (hoverHideTimer) clearTimeout(hoverHideTimer)
-  hoverHideTimer = setTimeout(() => { hoverCard.value = null }, 260)
-}
-function keepHoverCard() {
-  if (hoverHideTimer) clearTimeout(hoverHideTimer)
-}
+
+// ── 同事卡（对齐 workstation-teacher hcard 契约）：点击才出现（3D 点同事/右栏名册），
+//    钉住显示；点卡外关闭；[聊天][档案] 双动作。悬停不显示。──
+const hoverCard = ref<{ roleKey: string; x: number; y: number; pinned?: boolean } | null>(null)
 const hoverColleague = computed(() =>
   hoverCard.value ? colleagues.value.find((c) => c.role_key === hoverCard.value!.roleKey) || null : null)
 const hoverStatus = computed(() =>
@@ -600,13 +518,12 @@ const hoverStats = computed(() => {
   }
 })
 
-// 名册点同事 = 与 3D 悬停同一张卡（钉住，点卡外关闭），不直接开聊天窗
+// 名册点同事 = 同一张卡（钉住，点卡外关闭），不直接开聊天窗
 function showRailCard(colleague: any, ev: MouseEvent) {
-  if (hoverHideTimer) clearTimeout(hoverHideTimer)
   hoverCard.value = { roleKey: colleague.role_key, x: ev.clientX, y: ev.clientY, pinned: true }
 }
 function onDocClickClose(e: MouseEvent) {
-  if (!hoverCard.value?.pinned) return
+  if (!hoverCard.value) return
   const t = e.target as HTMLElement
   if (t.closest('.ohc') || t.closest('.rail-item')) return
   hoverCard.value = null
@@ -622,16 +539,15 @@ function hoverProfile(ev: MouseEvent) {
   if (c) openPersonaCard(c, ev)
 }
 
-// ── 桌面聊天弹窗（唯一聊天窗）：同事私聊 / 房间群聊 ──
-const chatPopup = ref<null | { mode: 'colleague' | 'room' }>(null)
-function closeChat() { chatPopup.value = null }
-function openChat(roleKeyOrMode: string) {
-  if (roleKeyOrMode === 'room') {
-    chatPopup.value = { mode: 'room' }
-    return
+// ── 统一聊天窗 = 浮动 AI 角色的消息中心面板（AssistantPanel，全端一套；切换=回桌面）──
+const assistantPanelRef = ref<InstanceType<typeof AssistantPanel> | null>(null)
+function openChat(target: string) {
+  assistantOpen.value = true
+  if (target === 'room') {
+    assistantPanelRef.value?.openGroup()
+  } else {
+    assistantPanelRef.value?.openDm({ role_key: target })
   }
-  selectedRoleKey.value = roleKeyOrMode
-  chatPopup.value = { mode: 'colleague' }
 }
 
 // ── 右栏「今日」：状态分布（同事 × 实时状态）──
@@ -753,30 +669,11 @@ async function onTeamSaved() {
   await loadConfig()
 }
 
-async function refreshOfficeContext() {
-  try {
-    const parts: string[] = []
-    const providerSummary = await summarizeAssistantContext()
-    if (providerSummary) parts.push(providerSummary)
-    if (route.query.opportunityId) parts.push(`当前商机：${route.query.opportunityId}`)
-    if (route.query.quotationId) parts.push(`当前报价单：${route.query.quotationId}`)
-    officeContextSummary.value = parts.join('\n\n')
-  } catch {
-    officeContextSummary.value = ''
-  }
-}
-
-watch(
-  () => [route.query.opportunityId, route.query.quotationId],
-  () => refreshOfficeContext(),
-)
-
 onMounted(() => {
   connect()
   loadConfig()
   loadMissions()
   startMissionPolling()
-  refreshOfficeContext()
 })
 
 onBeforeUnmount(() => {
@@ -797,7 +694,6 @@ onActivated(() => {
   loadConfig()
   loadMissions()
   startMissionPolling()
-  refreshOfficeContext()
 })
 onDeactivated(() => {
   disconnect()
@@ -1389,49 +1285,6 @@ onDeactivated(() => {
 .rail-chat:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 .rail-chat--block { width: 100%; height: 30px; margin-top: var(--cpq-space-2); }
 
-/* ── 桌面聊天弹窗（唯一聊天窗；手机走底部抽屉） ── */
-.chat-pop {
-  position: fixed;
-  top: 24px; right: 24px; bottom: 24px;
-  width: min(420px, calc(100vw - 48px));
-  z-index: 930;
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--cpq-radius-xl);
-  background: var(--cpq-glass-3-bg-solid, rgba(18, 24, 38, 0.94));
-  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
-  border: 1px solid var(--cpq-glass-border);
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
-  overflow: hidden;
-}
-.chat-pop-head {
-  display: flex;
-  align-items: center;
-  gap: var(--cpq-space-3);
-  padding: var(--cpq-space-3) var(--cpq-space-4);
-  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  flex-shrink: 0;
-}
-.chat-pop-av {
-  width: 34px; height: 34px; flex: none; border-radius: 50%;
-  display: grid; place-items: center; overflow: hidden;
-  color: var(--cpq-accent-on-primary); font-weight: 700; font-size: var(--cpq-font-size-sm);
-}
-.chat-pop-av img { width: 100%; height: 100%; object-fit: cover; }
-.chat-pop-tt { min-width: 0; flex: 1; }
-.chat-pop-n { font-size: var(--cpq-font-size-base); font-weight: 700; color: var(--cpq-text-primary); }
-.chat-pop-s { display: inline-flex; align-items: center; gap: 4px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
-.chat-pop-s i { width: 6px; height: 6px; border-radius: 50%; }
-.chat-pop-x {
-  flex: none;
-  width: 26px; height: 26px; border-radius: var(--cpq-radius-full);
-  color: var(--cpq-text-muted);
-  background: var(--cpq-glass-2-bg); border: 1px solid var(--cpq-glass-border);
-  transition: all var(--cpq-dur-1) var(--cpq-ease-out-expo);
-}
-.chat-pop-x:hover { color: var(--cpq-text-primary); border-color: var(--cpq-glass-border-strong, rgba(22,119,255,.4)); }
-.chat-pop-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-
 /* Manage Teams full-screen overlay */
 .manager-backdrop {
   position: fixed;
@@ -1662,7 +1515,7 @@ onDeactivated(() => {
 
 .m-people-empty { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
-/* 手机聊天窗与桌面共用 .chat-pop 浮动面板（全端一套），不再有底部抽屉层 */
+/* 聊天窗全端统一为消息中心面板（AssistantPanel 浮层） */
 
 .m-chatup-enter-active,
 .m-chatup-leave-active { transition: transform 0.3s var(--cpq-ease-smooth, ease), opacity 0.3s var(--cpq-ease-smooth, ease); }
