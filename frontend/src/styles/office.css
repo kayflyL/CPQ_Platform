@@ -1,0 +1,18 @@
+/* 办公室门面专属底：CPQ 的签名背景由 DefaultLayout 画，独立门面在此自画
+   （html 挂渐变、body::before 挂极淡网格纹理，三个视图共用）。 */
+html {
+  background: var(--cpq-bg-gradient) fixed;
+}
+body {
+  background: transparent;
+}
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: -1;
+  background:
+    repeating-linear-gradient(0deg, var(--cpq-grid-line) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, var(--cpq-grid-line) 0 1px, transparent 1px 48px);
+}

@@ -10,6 +10,7 @@ import './styles/glass.css'
 import './styles/antd-overrides.css'
 import './styles/utilities.css'
 import './styles/settings.css'
+import './styles/office.css'
 import App from './App.vue'
 import OfficeRouter from './office-router'
 // 全局 axios 拦截器显式挂载（CPQ 门面由 api/index.ts 代挂；办公室入口导入图

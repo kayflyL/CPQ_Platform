@@ -8,8 +8,8 @@
       <div class="os-hero">
         <div class="os-icon">C</div>
         <div class="os-hero-main">
-          <div class="os-title">CPQ 系统</div>
-          <div class="os-desc">商机 · 报价 · 交付全流程 · 接入于 2026-10</div>
+          <div class="os-title">{{ appName }}</div>
+          <div class="os-desc">{{ appDesc || '商机 · 报价 · 交付全流程' }} · 接入于 2026-10</div>
         </div>
         <button class="os-open" @click="openSystem">打开系统 ↗</button>
       </div>
@@ -22,11 +22,14 @@
         <div class="os-card">
           <div class="os-card-head">
             <div class="os-card-title">系统信息</div>
-            <div class="os-card-desc">该应用在办公室的接入档案（只读；接入信息由接入向导维护）。</div>
+            <div class="os-card-desc">展示于桌面磁贴；修改后保存即可生效。</div>
           </div>
+          <div class="os-row"><span class="os-label">系统名称</span><a-input v-model:value="appName" class="os-input" :maxlength="24" placeholder="CPQ 系统" /></div>
+          <div class="os-row os-row--top"><span class="os-label">描述</span><a-input v-model:value="appDesc" class="os-input" :maxlength="80" placeholder="一句话介绍这个系统" /></div>
           <div class="os-row"><span class="os-label">系统地址</span><span class="os-unit os-num">http://localhost:5173</span></div>
           <div class="os-row"><span class="os-label">接入方式</span><span class="os-unit">独立门面 · 新标签打开</span></div>
           <div class="os-row"><span class="os-label">接入时间</span><span class="os-unit os-num">2026-10</span></div>
+          <div class="os-actions"><button class="os-save" :disabled="savingMeta" @click="saveAppMeta">{{ savingMeta ? '保存中…' : '保存' }}</button></div>
         </div>
       </div>
     </div>
@@ -36,23 +39,49 @@
 <script setup lang="ts">
 /* CPQ 系统设置页（/office/app/cpq/settings）：
    卡一 = AI 角色访问权限（ColleagueAccessPanel 原样迁入，真相源搬家不复制）；
-   卡二 = 系统信息接入档案（只读）。 */
+   卡二 = 系统信息（可编辑：名称/描述写回办公室档案 offices 配置，桌面磁贴读它）。 */
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import OfficeTopBar from './OfficeTopBar.vue'
 import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
-import { officeApi } from '@/api/office'
+import { officeApi, type OfficeProfile } from '@/api/office'
 
 const router = useRouter()
 const colleagues = ref<any[]>([])
+const offices = ref<OfficeProfile[]>([])
+const appName = ref('CPQ 系统')
+const appDesc = ref('')
+const savingMeta = ref(false)
 
 function openSystem() { window.open('/', '_blank') }
+
+async function saveAppMeta() {
+  savingMeta.value = true
+  try {
+    const next = offices.value.map((o) => o.key === 'cpq'
+      ? { ...o, name: appName.value.trim() || 'CPQ 系统', description: appDesc.value.trim() }
+      : o)
+    const res = await officeApi.updateOffices({ offices: next })
+    offices.value = Array.isArray(res.offices) ? res.offices : next
+    message.success('已保存，桌面磁贴已更新')
+  } catch (e: any) {
+    message.error(e?.response?.data?.detail || '保存失败')
+  } finally {
+    savingMeta.value = false
+  }
+}
 
 onMounted(async () => {
   try {
     const cfg = await officeApi.teamConfig()
     colleagues.value = Array.isArray(cfg.colleagues) ? cfg.colleagues : []
+    offices.value = Array.isArray(cfg.offices) ? cfg.offices : []
+    const cpq = offices.value.find((o) => o.key === 'cpq')
+    if (cpq) {
+      appName.value = cpq.name || 'CPQ 系统'
+      appDesc.value = cpq.description || ''
+    }
   } catch (e: any) {
     message.error(e?.response?.data?.detail || '办公室数据加载失败，请重新登录后再试')
   }
@@ -110,4 +139,17 @@ onMounted(async () => {
 .os-label { font-size: var(--cpq-font-size-base); color: var(--cpq-text-primary); }
 .os-unit { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-muted); }
 .os-num { font-variant-numeric: tabular lining; font-feature-settings: 'tnum' 1, 'lnum' 1; }
+.os-row--top { align-items: flex-start; }
+.os-row--top .os-label { padding-top: 6px; }
+.os-input { width: 280px; max-width: 60%; }
+.os-actions { display: flex; justify-content: flex-end; padding-top: var(--cpq-space-3); }
+.os-save {
+  height: 30px; padding: 0 var(--cpq-space-4); border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-accent-gradient); color: var(--cpq-accent-on-primary);
+  font-size: var(--cpq-font-size-sm); font-weight: 600;
+  box-shadow: 0 3px 10px var(--cpq-shadow-color-soft);
+  transition: transform var(--cpq-dur-1) var(--cpq-ease-spring);
+}
+.os-save:hover { transform: translateY(-1px); }
+.os-save:disabled { opacity: .6; transform: none; }
 </style>
