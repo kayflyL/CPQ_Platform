@@ -107,6 +107,9 @@
           <div class="ap-header-spacer"></div>
           <!-- 手机端动作组：右竖条(ap-right)在手机全屏下破坏对称,动作收进顶栏;桌面保持竖条 -->
           <div v-if="isMobile && !props.preview" class="ap-header-actions" @mousedown.stop>
+            <button class="ap-icon-btn" type="button" title="进入 AI 办公室" @click="goOffice">
+              <BankOutlined />
+            </button>
             <button
               class="ap-icon-btn"
               type="button"
@@ -342,6 +345,10 @@
 
         <!-- 右栏：新增对话 / 会话记录 / 收起（扣子式窄条，随视口伸缩）；手机端不渲染（动作在顶栏） -->
         <aside v-if="showRightBar && !isMobile" class="ap-right" @mousedown.stop>
+          <!-- 进入 AI 办公室：形式独立后 CPQ 侧的显性回口（办公室门面 /office/，新标签打开） -->
+          <button class="ap-icon-btn" type="button" title="进入 AI 办公室" @click="goOffice">
+            <BankOutlined />
+          </button>
           <!-- 全屏 ⇄ 浮动切换：仅桌面浮动面板出现；Esc 退出 -->
           <button
             v-if="canToggleFullscreen"
@@ -450,7 +457,7 @@ import { ref, reactive, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   PlusOutlined, CloseOutlined, HistoryOutlined, MenuFoldOutlined, MenuUnfoldOutlined,
-  FullscreenOutlined, FullscreenExitOutlined,
+  FullscreenOutlined, FullscreenExitOutlined, BankOutlined,
 } from '@ant-design/icons-vue'
 import { useAssistant } from '@/composables/useAssistant'
 import { useAssistantContext, type QuickAction } from '@/composables/assistantContext'
@@ -1011,6 +1018,11 @@ async function startNewConversation() {
 // ── 会话记录（含归档）：切换 / 恢复换位 / 删除 ──
 const historyOpen = ref(false)
 const historyItems = ref<AssistantThread[]>([])
+
+// 办公室常驻层入口：新标签打开独立门面 /office/（形式独立后 CPQ 侧的显性回口）
+function goOffice() {
+  window.open('/office/', '_blank')
+}
 
 async function toggleHistory() {
   historyOpen.value = !historyOpen.value
