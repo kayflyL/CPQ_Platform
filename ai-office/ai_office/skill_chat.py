@@ -14,6 +14,8 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 import json
 import logging
@@ -24,9 +26,10 @@ from ai_office.skill_memory import _load_mem, _save_mem
 from ai_office.skill_node_state import KP_NODE, KP_PICKS, NODE_STATE_KEY, fill_node, freeze_snapshot, mark_doc_frozen, node_state, unwrap_doc
 from ai_office.skill_signals import _apply_registration_signal, _brain_ask_manual_signal, _manual_model_signal, _match_card_signal, _signal_with_qty
 from ai_office.skill_tool_context import TOOL_CTX
-from app.services.skill_tools_fill import requirement_prompt
+requirement_prompt = hp.fn_port("skill_tools_fill.requirement_prompt")
 from ai_office.skill_turn_engine import _merged_narration, run_skill_agent_turn
-from app.services.slot_contract import canonical_key, slot_label
+canonical_key = hp.fn_port("slot_contract.canonical_key")
+slot_label = hp.fn_port("slot_contract.slot_label")
 from typing import Any, Callable, Optional
 
 
@@ -225,7 +228,7 @@ class _ChatTurnRuntime:
                     if want_qty:
                         signal = _signal_with_qty(
                             signal, want_qty, (mem.get("last_card") or {}).get("pick_meta") or {})
-                    from app.services.slot_contract import apply_structured_slots
+                    apply_structured_slots = hp.fn_port("slot_contract.apply_structured_slots")
                     _notes = apply_structured_slots(ext, signal, value, kp_state=node_state(mem, KP_NODE))
                     # 信号里的登记表字段（server_type/platform_type/…）走登记通道落值——
                     # 结构化通道只认部件槽，两条通道共用一套字段契约。
@@ -234,8 +237,7 @@ class _ChatTurnRuntime:
                             and any(str(n).startswith("客户整单确认推荐") for n in _notes):
                         # 整单委托的确认收敛点：整体卡 desc 声明过类型/平台，点击=客户看见了
                         # 并确认——目录字段快照进 confirmed_slots（改值即失效重求证）
-                        from app.services.slot_contract import (confirm_registration_on_bulk_click,
-                                                                slot_label)
+                        confirm_registration_on_bulk_click = hp.fn_port("slot_contract.confirm_registration_on_bulk_click")
                         for _k in confirm_registration_on_bulk_click(ext):
                             _notes.append(f"{slot_label(_k)}已随整体确认")
                     _lbl = canonical_key(selected) + (f"×{want_qty}" if want_qty else "")
@@ -249,7 +251,7 @@ class _ChatTurnRuntime:
                     # 不进 click_labels（不触发点选快速路——答案需要大脑理解而非确定性续跑）。
                     ask_answers.append(value)
                 else:
-                    from app.services.capabilities import _apply_extracted_slots
+                    _apply_extracted_slots = hp.fn_port("capabilities._apply_extracted_slots")
                     _apply_extracted_slots(ext, {selected: value}, allow_overwrite=True,
                                            picks=node_state(mem, KP_NODE).get(KP_PICKS))
                     click_labels.append(f"{canonical_key(selected)}={value}")
@@ -365,7 +367,7 @@ class _ChatTurnRuntime:
             user_text = (user_text + "\n" + self.click_note).strip()
 
         # 场景证据用累计文本判断：登记表草稿 + 本句
-        from app.services.portal_flow_adapter import build_requirement_text
+        build_requirement_text = hp.fn_port("portal_flow_adapter.build_requirement_text")
         full_text = build_requirement_text(self.opportunity_id, user_text) if self.opportunity_id else user_text
         # 冻结守卫（_freeze_requirement）按「机型名是否出现在需求文本」剥臆造机型；
         # 多轮对话里机型是早前轮次点选/口述的，本句（如"256G内存"）不会含机型名，
@@ -483,7 +485,7 @@ class _ChatTurnRuntime:
             # 2026-09-13 A1 实测整段死循环）——这里只做行身份解析后转交，不再自带第二套。
             _row_cat = ""
             if row_key:
-                from app.services.part_selector import row_ref_meta
+                row_ref_meta = hp.fn_port("part_selector.row_ref_meta")
                 from ai_office.skill_node_state import KP_ROW_IDS, kp_state
                 _row_cat = str((row_ref_meta(row_key, (self.result_ctx or {}).get("kp_parts"),
                                             kp_state(self.result_ctx or {}).get(KP_ROW_IDS))
@@ -551,7 +553,7 @@ class _ChatTurnRuntime:
 
     def _fix_kp_mode(self, g: dict, q: str) -> str:
         """kp_mode 缺口补机器可点选项（话术里没提到选项时），问句原样返回。"""
-        from app.services.skill_phases import KP_MODE_OPTIONS
+        KP_MODE_OPTIONS = hp.port("skill_phases.KP_MODE_OPTIONS")
         if g.get("slot") == "kp_mode" and not any(o in q for o in KP_MODE_OPTIONS):
             g["options"] = list(KP_MODE_OPTIONS)
             return q + "\n选项：" + " / ".join(KP_MODE_OPTIONS)

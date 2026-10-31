@@ -24,6 +24,10 @@ from datetime import datetime
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
+# 引擎端口接线（融合区预解后引擎取宿主能力全走 host_ports）
+from app.services.engine_wiring import wire_engine
+wire_engine()
+
 from app.models.kp import KPPart, KPPartSpec, KPPriceHistory, KPPartCompat, KPPartRelated
 from app.repository.kp_repo import KPRepository
 

@@ -11,6 +11,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # 根级 ai_office 引擎包（2026-11-01 目录拆分）：ai-office 容器目录也要在 path 上
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "ai-office"))
 
+# 引擎端口总接线（与 startup 同一组合根）：融合区预解后引擎取宿主能力全走 host_ports。
+# 必须在 conftest 模块级接线——部分测试文件在收集期（模块顶层）就调引擎，fixture 来不及。
+from app.services.engine_wiring import wire_engine  # noqa: E402
+wire_engine()
+
 
 @pytest.fixture(autouse=True)
 def _no_llm_trace_writes(monkeypatch):

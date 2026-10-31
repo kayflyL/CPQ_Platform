@@ -6,13 +6,15 @@ existing assistant or reasoning pipelines.
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 import time
 from typing import Any, Optional
 
-from app.services.office_governance import office_governance
-from app.services.office_hub import office_hub
-from app.services.office_memory import office_memory
+office_governance = hp.module_port("office_governance")
+office_hub = hp.module_port("office_hub")
+office_memory = hp.module_port("office_memory")
 
 
 def _now() -> float:

@@ -6,12 +6,14 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import json
 import logging
 from typing import Any, Callable, Optional
 
 from app.repository.assistant_repo import AssistantRepository
-from app.services.assistant_hub import assistant_hub
+assistant_hub = hp.module_port("assistant_hub")
 from ai_office.office_events import publish_office_event
 
 logger = logging.getLogger(__name__)

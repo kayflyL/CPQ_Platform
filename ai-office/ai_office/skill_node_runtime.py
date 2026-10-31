@@ -6,10 +6,12 @@
 AI 角色主循环里完成，这里只承接决策结果并做确定性校验/落库。
 """
 import asyncio
+
+from ai_office import host_ports as hp
 import logging
 from typing import Any, Awaitable, Callable
 
-from app.services.plan_builder import build_plan
+build_plan = hp.fn_port("plan_builder.build_plan")
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,8 @@ def build_plans(ctx: dict, config: dict) -> list:
     唯一组装口径：compose 步（异步 compose_plans）与「中途把进度写回方案配置草稿」
     （portal_flow_adapter.save_scheme_progress_from_ctx）共用本函数，不各写一套。
     """
-    from app.services.capabilities import _compose_config, _get_nested
+    _compose_config = hp.fn_port("capabilities._compose_config")
+    _get_nested = hp.fn_port("capabilities._get_nested")
     cfg = _compose_config(config)
     baselines = ctx.get("baselines") or []
     kp_by_model = ctx.get("kp_by_model") or {}
@@ -175,7 +178,8 @@ async def _render_file_artifacts(ctx: dict, answer: str, payload_fields: dict | 
         rendered = await _render_by_template(template_key, title, answer, fields, doc)
     if rendered is None and has_text:
         try:
-            from app.services.report_pdf import render_markdown_report_pdf, report_meta_now
+            render_markdown_report_pdf = hp.fn_port("report_pdf.render_markdown_report_pdf")
+            report_meta_now = hp.fn_port("report_pdf.report_meta_now")
 
             rendered = await asyncio.to_thread(
                 render_markdown_report_pdf, title, answer, meta=report_meta_now())
@@ -187,8 +191,8 @@ async def _render_file_artifacts(ctx: dict, answer: str, payload_fields: dict | 
         if rendered is None:
             return files
     try:
-        from app.services.report_pdf import save_office_report
-        from app.services.storage_adapter import build_object_id
+        save_office_report = hp.fn_port("report_pdf.save_office_report")
+        build_object_id = hp.fn_port("storage_adapter.build_object_id")
 
         object_id = build_object_id(f"{title}.pdf")
         url = save_office_report(object_id, rendered)
@@ -220,7 +224,7 @@ async def _render_by_template(template_key: str, title: str, answer: str,
     """
     try:
         from app.repository.artifact_template_repo import ArtifactTemplateRepo
-        from app.services.artifact_render import render_report_pdf
+        render_report_pdf = hp.fn_port("artifact_render.render_report_pdf")
         from ai_office.skill_target_contract import _report_window, range_days
 
         repo = ArtifactTemplateRepo()
@@ -261,7 +265,7 @@ async def _render_structured_default(title: str, payload_fields: dict) -> bytes 
     """结构化输出（无 answer 文本）的默认排版：按 payload 值形状自动组 blocks——
     dict → 字段表区块，list[dict] → 明细表区块，交给产出物渲染管线出 PDF。"""
     try:
-        from app.services.artifact_render import render_report_pdf
+        render_report_pdf = hp.fn_port("artifact_render.render_report_pdf")
 
         blocks: list = [{"type": "title"}]
         for key, val in payload_fields.items():
@@ -293,7 +297,7 @@ async def finalize_output(ctx: dict, config: dict, broadcast: BroadcastFn) -> di
     if output_kind == "requirement_draft":
         entity_type = "requirement"
         try:
-            from app.services.portal_flow_adapter import persist_requirement_from_ctx
+            persist_requirement_from_ctx = hp.fn_port("portal_flow_adapter.persist_requirement_from_ctx")
             entity = persist_requirement_from_ctx(ctx, str(ctx.get("operator_name") or ""))
         except Exception:
             logger.exception("输出节点持久化需求草稿失败 opportunity=%s", ctx.get("opportunity_id"))
@@ -302,7 +306,8 @@ async def finalize_output(ctx: dict, config: dict, broadcast: BroadcastFn) -> di
     elif output_kind == "bom_scheme_draft":
         entity_type = "bom_scheme"
         try:
-            from app.services.portal_flow_adapter import persist_requirement_and_bom_from_ctx, build_preview_bom_scheme
+            persist_requirement_and_bom_from_ctx = hp.fn_port("portal_flow_adapter.persist_requirement_and_bom_from_ctx")
+            build_preview_bom_scheme = hp.fn_port("portal_flow_adapter.build_preview_bom_scheme")
             entity = persist_requirement_and_bom_from_ctx(ctx, str(ctx.get("operator_name") or ""), config)
             if not entity:
                 # 会话/无商机模式不落库，但兜底输出可读 BOM 预览（含 configs），保证画布与聊天可点开。

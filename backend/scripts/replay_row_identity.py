@@ -26,6 +26,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
+# 引擎端口接线（融合区预解后引擎取宿主能力全走 host_ports）
+from app.services.engine_wiring import wire_engine
+wire_engine()
+
 import psycopg2
 from psycopg2.extras import DictCursor
 

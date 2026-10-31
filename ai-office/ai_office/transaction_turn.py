@@ -18,13 +18,15 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 import logging
 import time
 from typing import Any, Optional
 
 from ai_office.agent_react import run_stream_chat_loop
-from app.services.assistant_hub import assistant_hub
+assistant_hub = hp.module_port("assistant_hub")
 from ai_office.colleague_prompt import (
     _effective_tool_ids,
     _handoff_hint,
@@ -128,7 +130,7 @@ def _tool_spec_card(tool: str):
         return _SPEC_CARD_CACHE[tool]
     card = None
     try:
-        from app.services.agent_tool_specs import _TOOL_SPECS
+        _TOOL_SPECS = hp.port("agent_tool_specs._TOOL_SPECS")
         card = (_TOOL_SPECS.get(str(tool or "")) or {}).get("artifact_card")
     except Exception:
         logger.exception("tool spec card lookup failed tool=%s", tool)
@@ -267,7 +269,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         本步白名单/执行异常）→ 回退大脑带 confirm 重调通路。"""
         import json as _json
 
-        from app.services import agent_tool_specs
+        agent_tool_specs = hp.module_port("agent_tool_specs")
         from ai_office.agent_write_confirm import staged_args as _sargs
         spec = (agent_tool_specs._TOOL_SPECS or {}).get(tool0) or {}
         handler = spec.get("handler")
@@ -348,7 +350,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         推进，大脑对推进零感知、拿着旧结果承诺一张永远没人发的卡。"""
         import json as _json
 
-        from app.services import agent_tool_specs
+        agent_tool_specs = hp.module_port("agent_tool_specs")
         from ai_office.agent_write_confirm import deferred_calls as _d_calls, pop_deferred as _pop_d
         step_new = view_new.get("step") or {}
         tools_now = set(step_new.get("tools") or [])

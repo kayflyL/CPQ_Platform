@@ -19,6 +19,10 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
+# 引擎端口接线（融合区预解后引擎取宿主能力全走 host_ports）
+from app.services.engine_wiring import wire_engine
+wire_engine()
+
 from app.models.base import Rules_SessionLocal
 from app.models.reasoning_flow import ReasoningNodeConfig
 from app.models.skill_config import ReasoningNodeDefault

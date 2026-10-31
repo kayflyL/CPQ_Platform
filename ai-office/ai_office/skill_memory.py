@@ -5,6 +5,8 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import logging
 import json
 from typing import Optional
@@ -159,7 +161,7 @@ def _slots_view(ext: dict) -> dict:
     与引擎 normalize 产出的 artifact 同构，让角色「看到的表 = 要填的表 = 下游读的表」。
     旧 ext 信号键名（cpu/…）不再作为写契约暴露给角色。
     """
-    from app.services.portal_flow_adapter import requirement_slots_from_ext
+    requirement_slots_from_ext = hp.fn_port("portal_flow_adapter.requirement_slots_from_ext")
     view = dict(requirement_slots_from_ext(ext or {}))
     kp_mode = (ext or {}).get("kp_mode")
     if kp_mode not in (None, "", [], {}):
@@ -193,7 +195,7 @@ def _kp_status_rows() -> list:
     picks = st.get(KP_PICKS) if isinstance(st.get(KP_PICKS), dict) else {}
     recs = st.get(KP_RECOMMEND) if isinstance(st.get(KP_RECOMMEND), dict) else {}
     out = []
-    from app.services.part_selector import pick_for_row
+    pick_for_row = hp.fn_port("part_selector.pick_for_row")
     for r in rows_ctx:
         rk = str(r.get("row_key") or "")
         # 工作记忆只回传紧凑状态（row_id/类目/结局），不再重复整段 description/qty——
@@ -260,7 +262,7 @@ def _brain_note_summary(node_key: str, result: dict) -> str:
     通用渲染：记忆层不认识任何工具名——每条记录由 agent_tool_specs.trace_note 从
     调用实参/结果里抽事实。新增工具零改动即可被记录。
     """
-    from app.services.agent_tool_specs import trace_note
+    trace_note = hp.fn_port("agent_tool_specs.trace_note")
     notes = [n for n in (trace_note(c) for c in ((result or {}).get("tool_calls_log") or [])) if n]
     payload: dict = {"step": str(node_key or ""), "tool_calls": notes}
     answer = str((result or {}).get("answer") or "").strip()

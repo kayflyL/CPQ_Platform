@@ -21,6 +21,7 @@ L4 基线快照：融合区现有宿主边已拍快照——**新增边=红**（
 
 宿主可以自由 import 引擎（ai_office.*）——方向只能是宿主→引擎，反向才违法。
 """
+import ast
 
 # 层词汇：loop(大脑循环) / state(状态运行时) / harness(机制层) / server(服务层)
 STRICT_MODULES = {
@@ -52,66 +53,51 @@ STRICT_MODULES = {
     "data_boundary": "harness",         # 数据边界（user_price_ok 改引 access_kernel 后升区）
     "skill_node_artifacts": "harness",  # 产物注册表机制（v4 第 1 步：CPQ builder 迁宿主 cpq_artifact_builders 自注册后升区）
     "flow_validation": "harness",       # 流校验器（E3 改查 builder_kinds，上游升区后链式升区 2026-10-31）
+    "host_ports": "harness",            # 宿主端口注册表（融合区预解的引擎侧唯一取用面，2026-11-01）
+    # ── 2026-11-01 融合区预解：45 条宿主边全部改经 host_ports 端口（engine_wiring 接线），
+    #    整族升严格区。融合区自此清零——S2 的引擎/宿主分界线在 import 层完整成立。──
+    "transaction_turn": "state",        # 事务回合壳（hub 广播/工具目录经端口）
+    "colleague_prompt": "state",        # 提示词组装（同事配置/记忆块经端口）
+    "colleague_turn_io": "state",       # 回合落库广播（hub 经端口）
+    "colleague_turn_runners": "state",  # 同事回合族（hub/权限/治理/任务经端口）
+    "skill_chat": "state",              # skill 聊天轮壳（登记契约/选型/阶段经端口）
+    "skill_plan_runtime": "state",      # 图推进（能力声明/登记适配经端口）
+    "skill_turn_engine": "state",       # 回合编排（需求知识/数据范围/选型经端口）
+    "skill_step_runtime": "state",      # 步骤运行时
+    "skill_node_runtime": "state",      # 节点运行时（方案构建/报告渲染/持久化经端口）
+    "skill_memory": "state",            # 记忆（登记适配/选型/工具注记经端口）
+    "skill_signals": "harness",         # 信号（登记契约/能力回填/选型信号经端口）
+    "skill_node_plugins": "harness",    # 插件接线层（阶段族/选型/登记契约经端口）
+    "office_events": "server",          # 事件总线（治理/状态hub/记忆经端口）
+    "skill_config_bootstrap": "state",  # 启动引导（能力声明经端口）
 }
 
-FUSED_MODULES = {
-    # 每条：层 + 已知融合点与解耦方向（解耦完→升严格区）。
-    # 2026-10-31 首批升区：transaction_engine / skill_node_state / agent_write_confirm /
-    # data_boundary（+ 新 access_kernel 入区）。二批：human_query / skill_decision_gate。
-    # 三批：agent_react（loop 层清零宿主边）。四批（v4 第 1 步）：
-    # skill_node_artifacts / flow_validation（builder 迁宿主注册，2026-10-31 升区）。
-    # 2026-11-01 全体随目录拆分迁入 ai-office 树，宿主边按基线快照冻结。
-    "transaction_turn": ("state", "轮壳耦合工具目录/assistant_hub/skill_memory——解耦：现场经注入"),
-    "colleague_prompt": ("state", "提示词组装耦合 ai_colleague_service——解耦：配置经注入"),
-    "colleague_turn_io": ("state", "落库广播耦合 assistant_hub——解耦：io 端口注入"),
-    "colleague_turn_runners": ("state", "plain 轮壳耦合 hub/office_access/office_governance/office_mission/skill_chat——解耦：依赖注入"),
-    "skill_chat": ("state", "skill 聊天轮壳耦合宿主阶段族——解耦：同上"),
-    "skill_plan_runtime": ("state", "图推进耦合 portal_flow_adapter/capability_spec/插件——解耦：宿主供给回调"),
-    "skill_turn_engine": ("state", "回合编排耦合 data_range_follow/part_selector/requirement_knowledge——解耦：宿主供给回调"),
-    "skill_step_runtime": ("state", "步骤运行时耦合宿主阶段族——解耦：同上"),
-    "skill_node_runtime": ("state", "节点运行时耦合 plan_builder/report_pdf/bom_template_eval——解耦：产物渲染经注册"),
-    "skill_memory": ("state", "记忆耦合 part_selector/portal_flow_adapter——解耦：摘要器回调注入"),
-    "skill_signals": ("harness", "信号耦合 part_selector/skill_phases——解耦：信号源回调"),
-    "skill_node_plugins": ("harness", "插件接线层 import 宿主阶段族——解耦：宿主启动时注册，内核只留接口"),
-    "office_events": ("server", "事件总线耦合 office_governance/hub/memory——解耦：订阅端口注入"),
-    "skill_config_bootstrap": ("state", "启动引导耦合 capability_spec——解耦：种子数据经配置"),
-}
+# FUSED_MODULES 清零留档（2026-11-01）：45 条宿主边全部经 host_ports 端口改接，
+# 引擎树对 app.services/** 的 import 归零（仅余 COMPOSITION_ROOTS 两处惰性自举）。
+# 本机制保留给未来：引擎新文件若确需宿主边，先进融合区拍基线，解耦后升区。
+FUSED_MODULES: dict = {}
 
-# 融合区宿主边基线（v4 第 1 步快照锁，2026-10-31；2026-11-01 随目录拆分迁移，值不变）：
-# 等待拉动期间清单只许变小不许变大。解掉的边=提醒把基线一并删掉并考虑升区；
-# 模块升区时，从 FUSED_MODULES 和本基线同时拿掉。宿主边 = app.services/app.api 全部。
-FUSED_EDGE_BASELINE: dict = {
-    "transaction_turn": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.assistant_hub"]},
-    "colleague_prompt": {"api": [], "host": ["app.services.ai_colleague_service"]},
-    "colleague_turn_io": {"api": [], "host": ["app.services.assistant_hub"]},
-    "colleague_turn_runners": {"api": [], "host": ["app.services.assistant_hub", "app.services.office_access",
-                                                   "app.services.office_governance", "app.services.office_mission"]},
-    "skill_chat": {"api": [], "host": ["app.services.capabilities", "app.services.part_selector",
-                                       "app.services.portal_flow_adapter", "app.services.skill_phases",
-                                       "app.services.skill_tools_fill", "app.services.slot_contract"]},
-    "skill_plan_runtime": {"api": [], "host": ["app.services.capability_spec", "app.services.portal_flow_adapter",
-                                               "app.services.slot_contract"]},
-    "skill_turn_engine": {"api": [], "host": ["app.services.data_range_follow", "app.services.part_selector",
-                                              "app.services.portal_flow_adapter", "app.services.requirement_knowledge"]},
-    "skill_node_runtime": {"api": [], "host": ["app.services.artifact_render", "app.services.capabilities",
-                                               "app.services.plan_builder", "app.services.portal_flow_adapter",
-                                               "app.services.report_pdf", "app.services.storage_adapter"]},
-    "skill_memory": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.part_selector",
-                                         "app.services.portal_flow_adapter"]},
-    "skill_signals": {"api": [], "host": ["app.services.capabilities", "app.services.part_selector",
-                                          "app.services.skill_phases", "app.services.slot_contract"]},
-    "skill_node_plugins": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.capabilities",
-                                               "app.services.data_tools", "app.services.part_selector",
-                                               "app.services.portal_flow_adapter", "app.services.skill_phases",
-                                               "app.services.slot_contract"]},
-    "office_events": {"api": [], "host": ["app.services.office_governance", "app.services.office_hub",
-                                          "app.services.office_memory"]},
-    "skill_config_bootstrap": {"api": [], "host": ["app.services.capability_spec"]},
-}
+# 融合区宿主边基线：2026-11-01 融合区预解，45 条边（含修复计数盲区后补录的
+# colleague_prompt→colleague_memory_service 1 条）全部改经 host_ports 端口
+# （engine_wiring 接线），基线随融合区清零而清零。留档分账：transaction_turn 2 /
+# colleague_prompt 2 / colleague_turn_io 1 / colleague_turn_runners 4 / skill_chat 6 /
+# skill_plan_runtime 3 / skill_turn_engine 4 / skill_node_runtime 6 / skill_memory 3 /
+# skill_signals 4 / skill_node_plugins 7 / office_events 3 / skill_config_bootstrap 1。
+# 机制保留给未来引擎新文件。
+FUSED_EDGE_BASELINE: dict = {}
 
 # 冻结内核：引擎允许 import 的宿主侧基建（数据库/配置层）。进程拆分时此清单
 # 逐条变成「宿主提供的存储接口」——今天它就是那道接口的雏形，只许收缩不许膨胀。
 KERNEL_PACKAGES = ("app.core", "app.models", "app.repository")
+
+# 组合根惰性白名单（只许收缩）：引擎内允许的宿主 import——缺位时引擎自举注册宿主
+# 实现的组合根（transaction_engine 装第一个应用；skill_node_artifacts 装 CPQ builder
+# 注册器）。常规接线走宿主侧 engine_wiring；此处的惰性 import 只是兜底，每条都是
+# 可测量「离独立启动的距离」的欠账。
+COMPOSITION_ROOTS = {
+    "transaction_engine": "app.services.delivery_app",
+    "skill_node_artifacts": "app.services.cpq_artifact_builders",
+}
 
 
 def boundary_mode() -> str:
@@ -122,8 +108,10 @@ def boundary_mode() -> str:
 
 
 def all_imports(source: str) -> set:
-    """源码里全部顶层 import（ast 解析，注释/字符串不误报）：app.* 与 ai_office.*。"""
-    import ast
+    """源码里全部顶层 import（ast 解析，注释/字符串不误报）：app.* 与 ai_office.*。
+    `from app.services import x` 名单形态展开成 app.services.x——2026-11-01 修复：
+    裸包名形态此前只记 app.services，逃过宿主边计数（colleague_prompt 的
+    colleague_memory_service 边就是这么漏进基线的）。"""
     out = set()
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Import):
@@ -132,6 +120,9 @@ def all_imports(source: str) -> set:
         elif isinstance(node, ast.ImportFrom) and node.module:
             if node.module.startswith("app.") or node.module.startswith("ai_office"):
                 out.add(node.module)
+                if node.module in ("app", "app.services", "ai_office", "app.api"):
+                    out.update(f"{node.module}.{a.name}" for a in node.names
+                               if a.name and a.name != "*")
     return out
 
 
@@ -141,11 +132,14 @@ def _imports_under(source: str, prefix: str) -> set:
 
 def strict_violations(module: str, source: str) -> dict:
     """严格区违规：{"api": [...], "host": [...]}。内核（app.core/models/repository）
-    允许不计；宿主 = app.services/** 全部（引擎已迁出该树，任何 services import 都是宿主边）。"""
+    允许不计；宿主 = app.services/** 全部（引擎已迁出该树，任何 services import 都是宿主边）。
+    例外=组合根惰性白名单（COMPOSITION_ROOTS，只许收缩）。"""
     imports = all_imports(source)
+    exempt = COMPOSITION_ROOTS.get(module)
+    host = sorted(i for i in imports if i.startswith("app.services.") and i != exempt)
     return {
         "api": sorted(i for i in imports if i.startswith("app.api")),
-        "host": sorted(i for i in imports if i.startswith("app.services.")),
+        "host": host,
     }
 
 

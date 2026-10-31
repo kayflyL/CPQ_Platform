@@ -9,6 +9,8 @@
 只补缺失行，不覆盖已有行；运行后业务代码一律只读这张表，绝不回退到本模块常量。
 """
 from __future__ import annotations
+
+from ai_office import host_ports as hp
 import json
 from datetime import datetime
 
@@ -92,7 +94,7 @@ NODE_PLUGS: dict = {
 
 def tools_for_node(node_key: str) -> list:
     """节点默认工具集：唯一真源 = capability_spec（节点能力声明），此处不另写清单。"""
-    from app.services.capability_spec import default_tools
+    default_tools = hp.fn_port("capability_spec.default_tools")
     try:
         return list(default_tools(str(node_key or "").strip()))
     except KeyError:

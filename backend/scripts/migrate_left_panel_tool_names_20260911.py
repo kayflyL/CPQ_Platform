@@ -25,6 +25,10 @@ from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
+# 引擎端口接线（融合区预解后引擎取宿主能力全走 host_ports）
+from app.services.engine_wiring import wire_engine
+wire_engine()
+
 import sqlalchemy as sa
 
 from ai_office.tool_names import normalize_tool_ids

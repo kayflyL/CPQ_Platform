@@ -5,8 +5,10 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import logging
-from app.services.slot_contract import slot_spec
+slot_spec = hp.fn_port("slot_contract.slot_spec")
 from typing import Optional
 
 
@@ -38,7 +40,7 @@ def _signal_with_qty(signal: dict, qty: int, pick_meta: dict) -> dict:
             # 盘位/CPU 路）；类目无物理边界（网卡/RAID）或机型未登记能力退宽上限 999。
             cap = 0
             try:
-                from app.services.skill_phases import baseline_qty_cap
+                baseline_qty_cap = hp.fn_port("skill_phases.baseline_qty_cap")
                 cap = baseline_qty_cap(str(meta.get("category") or ""), meta)
             except Exception:
                 cap = 0
@@ -68,7 +70,7 @@ def _apply_registration_signal(ext: dict, signal: dict, picks: Optional[dict] = 
     if not isinstance(ext, dict) or not isinstance(signal, dict):
         return False
     try:
-        from app.services.slot_contract import slot_spec
+        slot_spec = hp.fn_port("slot_contract.slot_spec")
         keys = {str(s.get("key") or "") for s in slot_spec() if str(s.get("src_type") or "") != "kp"}
     except Exception:
         logger.exception("登记表字段契约读取失败")
@@ -77,7 +79,7 @@ def _apply_registration_signal(ext: dict, signal: dict, picks: Optional[dict] = 
            if k in keys and v is not None and str(v).strip() != ""}
     if not sub:
         return False
-    from app.services.capabilities import _apply_extracted_slots
+    _apply_extracted_slots = hp.fn_port("capabilities._apply_extracted_slots")
     return _apply_extracted_slots(ext, sub, allow_overwrite=True, picks=picks)
 
 
@@ -107,7 +109,7 @@ def _manual_model_signal(mem: dict, slot: str, text: str) -> Optional[dict]:
     meta = (mem.get("last_card") or {}).get("pick_meta") or {}
     if not isinstance(meta, dict) or not meta:
         return None
-    from app.services.part_selector import manual_signal_for_text
+    manual_signal_for_text = hp.fn_port("part_selector.manual_signal_for_text")
     try:
         return manual_signal_for_text(slot, text, str(meta.get("server_type_name") or ""),
                                        baseline=meta)

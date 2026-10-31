@@ -13,12 +13,14 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import logging
 import time
 import asyncio
 from typing import Any, Awaitable, Callable, Optional
 
-from app.services.capability_spec import mechanism_tools_map
+mechanism_tools_map = hp.fn_port("capability_spec.mechanism_tools_map")
 from ai_office.skill_node_runtime import compose_plans, finalize_output
 from ai_office.skill_node_state import KP_ABSENT, kp_state, waived_categories
 
@@ -259,7 +261,8 @@ def ask_option_signal(row_key: str, o: dict, ask_slot: str = "", category: str =
     slot = str(o.get("slot") or ask_slot or "").strip()
     val = str(o.get("value") or "").strip()
     if slot and val:
-        from app.services.slot_contract import canonical_key, slot_spec
+        canonical_key = hp.fn_port("slot_contract.canonical_key")
+        slot_spec = hp.fn_port("slot_contract.slot_spec")
         try:
             # 只认**线索登记表字段**（非部件槽）：点选确认的是登记字段，不是部件行。
             keys = {str(s.get("key") or "") for s in slot_spec()
@@ -289,8 +292,8 @@ async def _emit_requirement_fill(ctx: dict, broadcast: BroadcastFn, label: str, 
     基本信息逐字段亮起，随后部件逐件累加，最后一条保留原「线索登记表已更新」终态，
     供画布节点徽标/摘要收口。缺口路径同样先推送已填字段，再交 gap 转述。
     """
-    from app.services.portal_flow_adapter import requirement_slots_from_ext
-    from app.services.slot_contract import slot_label
+    requirement_slots_from_ext = hp.fn_port("portal_flow_adapter.requirement_slots_from_ext")
+    slot_label = hp.fn_port("slot_contract.slot_label")
     slots = requirement_slots_from_ext(dict(ctx.get("ext") or {}))
     basic_order = ("server_type", "platform_type", "chassis_form", "server_model",
                    "purchase_qty", "warranty_years")

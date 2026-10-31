@@ -10,6 +10,8 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 import json
 import logging
@@ -18,7 +20,7 @@ from typing import Any, Callable, Optional
 
 from ai_office import llm_client
 from ai_office.agent_react import run_stream_chat_loop
-from app.services.assistant_hub import assistant_hub
+assistant_hub = hp.module_port("assistant_hub")
 from ai_office.data_boundary import effective_price_ok
 from ai_office.skill_tool_context import TOOL_CTX
 from ai_office.colleague_prompt import (
@@ -40,10 +42,10 @@ from ai_office.colleague_turn_io import (
     _workflow_suggestion_of,
 )
 from ai_office.llm_client import LLMError
-from app.services.office_access import allowed_chat_role_keys
+allowed_chat_role_keys = hp.fn_port("office_access.allowed_chat_role_keys")
 from ai_office.office_events import publish_office_event
-from app.services.office_governance import office_governance
-from app.services.office_mission import record_mission
+office_governance = hp.module_port("office_governance")
+record_mission = hp.fn_port("office_mission.record_mission")
 from ai_office.skill_contracts import SKILL_SESSION_ACTIVE, SKILL_SESSION_DONE
 
 logger = logging.getLogger(__name__)

@@ -17,6 +17,8 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import logging
 from typing import Optional
 
@@ -65,7 +67,7 @@ def wiring_contract_errors(node_key: str, cfg: dict) -> list:
     w = cfg.get("wiring") if isinstance(cfg, dict) else None
     if not isinstance(w, dict) or not w:
         return errors
-    from app.services.agent_tool_specs import registered_tool_ids
+    registered_tool_ids = hp.fn_port("agent_tool_specs.registered_tool_ids")
     from ai_office.skill_plan_runtime import effective_node_tools
     tool = str(w.get("result_tool") or "").strip()
     if tool:
@@ -84,14 +86,14 @@ def wiring_contract_errors(node_key: str, cfg: dict) -> list:
 
 def _row_meta(engine: dict, row_ref: str) -> dict:
     """行引用（row_id / origin / 行键）→ 行身份；解析不到返回 {}（绝不猜文本）。"""
-    from app.services.part_selector import row_ref_meta
+    row_ref_meta = hp.fn_port("part_selector.row_ref_meta")
     from ai_office.skill_node_state import KP_ROW_IDS, kp_state
     return row_ref_meta(row_ref, engine.get("kp_parts"), kp_state(engine).get(KP_ROW_IDS))
 
 
 def _row_part(engine: dict, meta: dict) -> dict:
     """按身份取回行清单里的那一行（行清单是身份的权威表）。"""
-    from app.services.part_selector import kp_row_id
+    kp_row_id = hp.fn_port("part_selector.kp_row_id")
     if not isinstance(meta, dict) or not meta.get("row_id"):
         return {}
     for p in (engine.get("kp_parts") or []):
@@ -255,13 +257,13 @@ class _FillNode(DefaultNodePlugin):
         if not isinstance(ext, dict):
             return
         try:
-            from app.services.capabilities import _enrich_agent_semantic
+            _enrich_agent_semantic = hp.fn_port("capabilities._enrich_agent_semantic")
             _enrich_agent_semantic(ext, (engine.get("flow_configs") or {}).get(self.key),
                                    str(engine.get("requirement_text") or ""))
         except Exception:
             logger.exception("登记表语义后处理失败")
         try:
-            from app.services.portal_flow_adapter import persist_requirement_from_ctx
+            persist_requirement_from_ctx = hp.fn_port("portal_flow_adapter.persist_requirement_from_ctx")
             persist_requirement_from_ctx(engine, str(engine.get("operator_name") or ""))
         except Exception:
             logger.exception("写回需求草稿失败 opp=%s", engine.get("opportunity_id"))
@@ -269,8 +271,10 @@ class _FillNode(DefaultNodePlugin):
     async def validate(self, ctx: dict) -> dict:
         ext = ctx.get("ext") or {}
         try:
-            from app.services.slot_contract import _missing_critical, slot_label, slot_spec
-            from app.services.capabilities import _slot_now_filled
+            _missing_critical = hp.fn_port("slot_contract._missing_critical")
+            slot_label = hp.fn_port("slot_contract.slot_label")
+            slot_spec = hp.fn_port("slot_contract.slot_spec")
+            _slot_now_filled = hp.fn_port("capabilities._slot_now_filled")
             missing = [m for m in _missing_critical(ext) if not _slot_now_filled(ext, m)]
         except Exception:
             logger.exception("agent_fill end 校验回读失败")
@@ -298,7 +302,7 @@ class _FillNode(DefaultNodePlugin):
         # 目录前提闸门：决定「库里有没有料」的字段（配件适用性按系列过滤）必须先经客户拍板。
         # 客户完全没提时你先推断一个没问题，但**不能带着推断值进配件选配**——推断错会让下游
         # 每一行都无料可锁。引擎只提供事实（哪些值不在客户确认记录里），怎么说由大脑组织。
-        from app.services.slot_contract import unconfirmed_premise_fields
+        unconfirmed_premise_fields = hp.fn_port("slot_contract.unconfirmed_premise_fields")
         gaps = unconfirmed_premise_fields(ext)
         if gaps:
             detail = "、".join(f"{g['label']}={g['value']}" for g in gaps)
@@ -319,7 +323,7 @@ class _ModelNode(DefaultNodePlugin):
 
     async def prepare(self, ctx: dict, cfg: dict, broadcast=None) -> dict:
         key = self.key
-        from app.services.skill_phases import prepare_model_step
+        prepare_model_step = hp.fn_port("skill_phases.prepare_model_step")
         info = prepare_model_step(ctx)
         if info.get("invalid_scene"):
             return {"ok": False, "hint": "登记的类型不在在售目录且系列/形态不全"}
@@ -347,7 +351,7 @@ class _ModelNode(DefaultNodePlugin):
             or str((engine.get("ext") or {}).get("server_model") or "").strip()
         if locked:
             return None
-        from app.services.skill_phases import model_gap
+        model_gap = hp.fn_port("skill_phases.model_gap")
         return model_gap(pool, include_price=bool(engine.get("price_access", True)))
 
     async def validate(self, ctx: dict) -> dict:
@@ -366,7 +370,7 @@ class _KpNode(DefaultNodePlugin):
 
     async def prepare(self, ctx: dict, cfg: dict, broadcast=None) -> dict:
         key = self.key
-        from app.services.skill_phases import phase_kp_reason
+        phase_kp_reason = hp.fn_port("skill_phases.phase_kp_reason")
         await phase_kp_reason(ctx, cfg, broadcast)
         summary = dict(ctx.get("kp_summary") or {})
         hint = (f"配件行已就绪：已落地 {summary.get('kp_count')} 行、待选型 "
@@ -382,8 +386,11 @@ class _KpNode(DefaultNodePlugin):
     def bridge_ctx(self, engine: dict, ctx: dict) -> None:
         ctx["kp_series"] = str(((engine.get("_locked_baseline") or {}).get("series")) or "")
         ctx["kp_baseline_caps"] = self._baseline_caps(engine)
-        from app.services.part_selector import (kp_row_key, kp_row_id, kp_registered_specified,
-                                               pick_for_row, pick_is_stale)
+        kp_row_key = hp.fn_port("part_selector.kp_row_key")
+        kp_row_id = hp.fn_port("part_selector.kp_row_id")
+        kp_registered_specified = hp.fn_port("part_selector.kp_registered_specified")
+        pick_for_row = hp.fn_port("part_selector.pick_for_row")
+        pick_is_stale = hp.fn_port("part_selector.pick_is_stale")
         from ai_office.skill_node_state import (KP_ROW_IDS, KP_PICKS, KP_RECOMMEND, kp_state,
                                            row_answer_text, waived_row_keys)
         _st = kp_state(engine)
@@ -466,7 +473,7 @@ class _KpNode(DefaultNodePlugin):
                         "description": str(_r.get("description") or "")}
         if _ids:
             _st[KP_ROW_IDS] = _ids
-        from app.services.skill_phases import kp_required_categories
+        kp_required_categories = hp.fn_port("skill_phases.kp_required_categories")
         _kc = (engine.get("flow_configs") or {}).get("kp_reason")
         _kc = _kc if isinstance(_kc, dict) else {}
         ctx["kp_required_cats"] = kp_required_categories(_kc)
@@ -482,7 +489,7 @@ class _KpNode(DefaultNodePlugin):
         """行卡数量 (qty, qty_max)：默认量 = 行申报量；上限 = 锁定机型该类目的物理边界
         （GPU 位/内存槽/盘位/CPU 路），机型未登记或类目无边界（网卡/RAID）退宽上限 24。
         上限永远 ≥ 申报量——客户登记的数量不能被上限挤掉，只能往上加到物理边界。"""
-        from app.services.skill_phases import baseline_qty_cap
+        baseline_qty_cap = hp.fn_port("skill_phases.baseline_qty_cap")
         qty = max(1, int(row_qty or 1))
         cap = baseline_qty_cap(category, engine.get("_locked_baseline") or {})
         return qty, (max(cap, qty) if cap > 0 else max(qty, 24))
@@ -512,7 +519,7 @@ class _KpNode(DefaultNodePlugin):
         if not cat:
             return []
         desc = str(meta.get("description") or "").strip() or cat
-        from app.services.data_tools import part_recall
+        part_recall = hp.fn_port("data_tools.part_recall")
         q = part_recall(cat, desc=desc, series=_series_of(engine), limit=8,
                         price_ok=bool(engine.get("price_access")))
         qty, qty_max = self._qty_bounds(engine, cat, qty)
@@ -546,10 +553,10 @@ class _KpNode(DefaultNodePlugin):
         cat = str(meta.get("category") or "").strip()
         if not cat:
             return []
-        from app.services.part_selector import kp_registered_specified
+        kp_registered_specified = hp.fn_port("part_selector.kp_registered_specified")
         if not kp_registered_specified(engine.get("ext"), cat):
             return []
-        from app.services.data_tools import lookup_parts_by_name
+        lookup_parts_by_name = hp.fn_port("data_tools.lookup_parts_by_name")
         desc = str(meta.get("description") or "").strip() or cat
         lk = lookup_parts_by_name(cat, desc, series=_series_of(engine),
                                   price_ok=bool(engine.get("price_access")))
@@ -633,7 +640,7 @@ class _KpNode(DefaultNodePlugin):
                     if isinstance(p, dict) and p.get("unmatched")), None)
         if row is None:
             return None
-        from app.services.part_selector import kp_row_key
+        kp_row_key = hp.fn_port("part_selector.kp_row_key")
         cat = str(row.get("category") or "").strip()
         if not cat:
             return None
@@ -670,7 +677,7 @@ class _KpNode(DefaultNodePlugin):
         # B3：配件段一落定就把当前进度原地写回该商机的方案配置草稿（L6 + KP 段）；
         # 写模式非 draft（试运行/无商机）时持久化层直接不写，仍只出预览。
         try:
-            from app.services.portal_flow_adapter import save_scheme_progress_from_ctx
+            save_scheme_progress_from_ctx = hp.fn_port("portal_flow_adapter.save_scheme_progress_from_ctx")
             save_scheme_progress_from_ctx(ctx, str(ctx.get("operator_name") or ""))
         except Exception:
             logger.exception("写方案配置草稿失败 opp=%s", ctx.get("opportunity_id"))
@@ -782,7 +789,7 @@ def first_stuck_gap(engine: dict) -> Optional[dict]:
 
 async def refresh_kp_state(ctx: dict) -> None:
     """重跑 kp 占位/落地装配（确定性、幂等）。"""
-    from app.services.skill_phases import phase_kp_reason
+    phase_kp_reason = hp.fn_port("skill_phases.phase_kp_reason")
     flow_configs = ctx.get("flow_configs") or {}
     cfg = flow_configs.get("kp_reason") if isinstance(flow_configs.get("kp_reason"), dict) else {}
     await phase_kp_reason(ctx, cfg, None)

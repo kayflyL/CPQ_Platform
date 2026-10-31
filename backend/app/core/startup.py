@@ -1577,6 +1577,13 @@ def init_rules_db():
         pass
 
     # ── 引擎宿主接线（第 5 步画边界，2026-10-31）：机制只认回调、宿主启动时供给 ──
+    # ⓪ 端口总接线（2026-11-01 融合区预解）：引擎 45 条宿主边全部改经 host_ports，
+    #    这里一次性注册（幂等；失败即启动失败——端口缺线等于引擎残废，不静默）
+    try:
+        from app.services.engine_wiring import wire_engine
+        wire_engine()
+    except Exception as e:
+        print(f"⚠️ engine port wiring failed: {e}")
     # ① 问答协议广播器：协议只管协议槽+落库展示副本，实时推送由宿主 hub 供给
     try:
         from ai_office import human_query as _hq

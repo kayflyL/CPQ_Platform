@@ -15,6 +15,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
+# 引擎端口接线（融合区预解后引擎取宿主能力全走 host_ports）
+from app.services.engine_wiring import wire_engine
+wire_engine()
+
 from ai_office import llm_client
 
 # 模拟 skill 真实体量的 system（左栏规则 2555 + steps 1219 + 节点使命 1200 ≈ 5K 字）

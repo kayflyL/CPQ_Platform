@@ -10,12 +10,14 @@
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 from typing import Optional
 
 from app.repository.skill_catalog_repo import SkillCatalogRepository
 from app.repository.system_config_repo import SystemConfigRepository
-from app.services.ai_colleague_service import colleague_tool_ids
+colleague_tool_ids = hp.fn_port("ai_colleague_service.colleague_tool_ids")
 from ai_office.skill_types import is_capability_skill, is_workflow_skill
 
 
@@ -188,7 +190,7 @@ def _handoff_hint(colleague: Optional[dict]) -> str:
     名册=DB 业务数据（colleague_roster_digest，与转接判官共用单源）；转接不在这里下规则——
     该怎么转由各员工自身的提示词（Manage Teams · 同事）承担。
     """
-    from app.services.ai_colleague_service import colleague_roster_digest
+    colleague_roster_digest = hp.fn_port("ai_colleague_service.colleague_roster_digest")
     self_key = str((colleague or {}).get("role_key") or "").strip()
     lines = []
     for c in colleague_roster_digest():
@@ -248,7 +250,7 @@ async def _memory_block(colleague: Optional[dict], user_text: str,
         limit = 6
     role_key = (colleague or {}).get("role_key") or "assistant"
     user_id = str((user or {}).get("user_id") or "").strip() or None
-    from app.services import colleague_memory_service
+    colleague_memory_service = hp.module_port("colleague_memory_service")
     return await asyncio.to_thread(
         colleague_memory_service.memory_block, role_key, limit, user_text, user_id)
 
@@ -264,7 +266,7 @@ def _group_channel_note(user: Optional[dict]) -> str:
     AI 同事成员=在册启用全员（含总助自己，与 dispatchable 无关——
     名册 digest 是「可转派名册」会漏掉组长，不能拿来数人头）。
     """
-    from app.services.ai_colleague_service import get_ai_colleagues
+    get_ai_colleagues = hp.fn_port("ai_colleague_service.get_ai_colleagues")
     try:
         count = len(get_ai_colleagues(include_disabled=False)) or 1
     except Exception:

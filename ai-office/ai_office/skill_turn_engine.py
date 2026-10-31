@@ -6,6 +6,8 @@ run_skill_agent_turn 拆成 _SkillTurnRuntime（方法即回合阶段），对�
 """
 from __future__ import annotations
 
+from ai_office import host_ports as hp
+
 import asyncio
 import logging
 import json
@@ -246,7 +248,7 @@ class _SkillTurnRuntime:
         # 播种回本轮工作副本 ext；写模式非 draft（试运行/无商机）或库里还没有草稿时不动。
         if self.write_mode == "draft" and str(self.opportunity_id or "").strip():
             try:
-                from app.services.portal_flow_adapter import seed_ext_from_requirement_draft
+                seed_ext_from_requirement_draft = hp.fn_port("portal_flow_adapter.seed_ext_from_requirement_draft")
                 seed_ext_from_requirement_draft(self.ext, str(self.opportunity_id).strip())
             except Exception:
                 logger.exception("读取需求草稿播种 ext 失败 opp=%s", self.opportunity_id)
@@ -340,7 +342,7 @@ class _SkillTurnRuntime:
         _row_cat = ""
         if row:
             # 行卡按行身份绑行（P3-3）：类目由身份解析，不再从 row 文本里切竖线
-            from app.services.part_selector import row_ref_meta
+            row_ref_meta = hp.fn_port("part_selector.row_ref_meta")
             from ai_office.skill_node_state import KP_ROW_IDS, kp_state
             _row_cat = str((row_ref_meta(row, self.engine.get("kp_parts"),
                                         kp_state(self.engine).get(KP_ROW_IDS))
@@ -492,7 +494,7 @@ class _SkillTurnRuntime:
             cache = self._knowledge_cache = {}
         if step_key not in cache:
             try:
-                from app.services.requirement_knowledge import knowledge_for_node
+                knowledge_for_node = hp.fn_port("requirement_knowledge.knowledge_for_node")
                 cache[step_key] = knowledge_for_node(step_key)
             except Exception:
                 logger.exception("知识块注入失败（降级：不带知识继续）step=%s", step_key)
@@ -965,7 +967,7 @@ class _SkillTurnRuntime:
         # 数据范围跟随先于装配：契约（steps_payload）在 _prepare 里就要吃这个窗口
         if self._data_range_override is None:
             try:
-                from app.services.data_range_follow import extract_report_data_range
+                extract_report_data_range = hp.fn_port("data_range_follow.extract_report_data_range")
                 self._data_range_override = await extract_report_data_range(self.flow, self.full_text)
             except Exception:
                 logger.exception("数据范围跟随解析失败（按配置/auto 口径继续）")
