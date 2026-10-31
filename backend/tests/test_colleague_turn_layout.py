@@ -66,7 +66,7 @@ REEXPORTS = [
 def _mod(name):
     # 2026-11-01 目录拆分：回合族一半住引擎树（ai_office），薄壳仍住宿主树
     from ai_office import engine_boundary as _eb
-    _moved = set(_eb.STRICT_MODULES) | set(_eb.FUSED_MODULES)
+    _moved = set(_eb.STRICT_MODULES)
     return importlib.import_module(("ai_office." if name in _moved
                                     else "app.services.") + name)
 

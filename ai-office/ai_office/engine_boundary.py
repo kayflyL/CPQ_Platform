@@ -5,19 +5,18 @@
 **位置自声明**：新文件落在哪棵树，法律就按哪套管，不需要登记（声明清单最大的
 盲区=新写的引擎逻辑落进没声明的文件，守卫看不见它；目录拆分后此盲区关闭）。
 
-三层词汇（ABI 分册五：loop/state/harness/server/host）：
+两层词汇（ABI 分册五：loop/state/harness/server/host）：
   KERNEL 冻结内核   app.core / app.models / app.repository——数据库与配置基建，
                     引擎宿主共用（13 个引擎模块在用）。进程拆分时它变成
                     「宿主向引擎提供的存储接口」，是第一优先收口点。
-  STRICT 严格区     import 方向已干净的引擎模块：①不得 import app.api/**；
-                    ②不得 import app.services/**（宿主）；③内核允许。违者测试红，
-                    无 report/enforce 之分。
-  FUSED  融合区     确属引擎机制、但还带着宿主边（app.services 业务 import）的模块。
-                    report 模式（默认）打印边=解耦工作清单；enforce 后带边即红。
-                    解耦完→升严格区（升区棘轮守卫自动点名）。
+  STRICT 严格区     引擎模块（=引擎树全部）：①不得 import app.api/**；
+                    ②不得 import app.services/**（宿主）；③内核允许。违者测试红。
 
-L4 基线快照：融合区现有宿主边已拍快照——**新增边=红**（谁往引擎里新增宿主依赖，
-测试当场拦），解掉的边=提醒删基线并升区。等待拉动的窗口期清单只许变小不许变大。
+引擎取宿主能力的唯一合法通道 = host_ports 端口（宿主 engine_wiring 接线）。
+曾经的融合区（FUSED）过渡机制已于 2026-11-01 退役：45 条宿主边全部改经端口、
+融合区清零后脚手架拆除（迁移史与 45 边分账见 docs/引擎独立欠账台账.md）。
+引擎新文件带宿主边 = 当场违规，没有自助申报通道——真遇到端口解不开的边，
+那是架构决策，停下拍板，不是改配置。
 
 宿主可以自由 import 引擎（ai_office.*）——方向只能是宿主→引擎，反向才违法。
 """
@@ -72,30 +71,9 @@ STRICT_MODULES = {
     "skill_config_bootstrap": "state",  # 启动引导（能力声明经端口）
 }
 
-# FUSED_MODULES 清零留档（2026-11-01）：45 条宿主边全部经 host_ports 端口改接，
-# 引擎树对 app.services/** 的 import 归零（仅余 COMPOSITION_ROOTS 两处惰性自举）。
-# 本机制保留给未来：引擎新文件若确需宿主边，先进融合区拍基线，解耦后升区。
-FUSED_MODULES: dict = {}
-
-# 融合区宿主边基线：2026-11-01 融合区预解，45 条边（含修复计数盲区后补录的
-# colleague_prompt→colleague_memory_service 1 条）全部改经 host_ports 端口
-# （engine_wiring 接线），基线随融合区清零而清零。留档分账：transaction_turn 2 /
-# colleague_prompt 2 / colleague_turn_io 1 / colleague_turn_runners 4 / skill_chat 6 /
-# skill_plan_runtime 3 / skill_turn_engine 4 / skill_node_runtime 6 / skill_memory 3 /
-# skill_signals 4 / skill_node_plugins 7 / office_events 3 / skill_config_bootstrap 1。
-# 机制保留给未来引擎新文件。
-FUSED_EDGE_BASELINE: dict = {}
-
 # 冻结内核：引擎允许 import 的宿主侧基建（数据库/配置层）。进程拆分时此清单
 # 逐条变成「宿主提供的存储接口」——今天它就是那道接口的雏形，只许收缩不许膨胀。
 KERNEL_PACKAGES = ("app.core", "app.models", "app.repository")
-
-
-def boundary_mode() -> str:
-    """report（默认，融合区边只打印作工作清单）/ enforce（融合区带宿主边=红）。
-    严格区违规两种模式都红——严格区=现行法，没有宽容档。"""
-    import os
-    return (os.environ.get("ENGINE_BOUNDARY_MODE") or "report").strip().lower()
 
 
 def all_imports(source: str) -> set:
@@ -115,10 +93,6 @@ def all_imports(source: str) -> set:
                     out.update(f"{node.module}.{a.name}" for a in node.names
                                if a.name and a.name != "*")
     return out
-
-
-def _imports_under(source: str, prefix: str) -> set:
-    return sorted(i for i in all_imports(source) if i.startswith(prefix))
 
 
 def strict_violations(module: str, source: str) -> dict:
@@ -143,24 +117,3 @@ def kernel_imports(module: str, source: str) -> dict:
         if hits:
             out[pkg] = hits
     return out
-
-
-def fused_edges(module: str, source: str) -> dict:
-    """融合区现状边：对宿主（app.services/** + app.api/**）的全部 import。"""
-    imports = all_imports(source)
-    return {
-        "api": sorted(i for i in imports if i.startswith("app.api")),
-        "host": sorted(i for i in imports if i.startswith("app.services.")),
-    }
-
-
-def baseline_new_edges(module: str, source: str) -> dict:
-    """快照锁执法：融合区模块当前边超出基线的部分（=新增边，红）。基线没有的模块=无锁。"""
-    base = FUSED_EDGE_BASELINE.get(module)
-    if base is None:
-        return {"api": [], "host": []}
-    cur = fused_edges(module, source)
-    return {
-        "api": sorted(set(cur["api"]) - set(base.get("api") or [])),
-        "host": sorted(set(cur["host"]) - set(base.get("host") or [])),
-    }

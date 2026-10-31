@@ -55,7 +55,7 @@ PART_LINE_BUDGET = 700
 def test_each_split_module_owns_its_names():
     """拆出的名字必须住在归属模块里（改名搬家要同步这里的归属表）。"""
     from ai_office import engine_boundary as _eb
-    _moved = set(_eb.STRICT_MODULES) | set(_eb.FUSED_MODULES)
+    _moved = set(_eb.STRICT_MODULES)
     missing = []
     for mod_name, names in OWNERS.items():
         mod = importlib.import_module(("ai_office." if mod_name in _moved
