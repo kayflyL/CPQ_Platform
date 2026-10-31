@@ -15,11 +15,13 @@
 
 | 事件 | 发起方 | 语义 |
 |---|---|---|
-| `pipeline_start` | 事务轮壳 | 一次开工单的骨架广播：标题 + 步骤清单，画布据此建骨架 |
+| `pipeline_start` | 事务轮壳 / skill 轮壳 | 一次开工单的骨架广播：标题 + 步骤清单，画布据此建骨架 |
 | `node_trace` | 两台运行时 | 节点级状态与产物（running/done/skipped），画布亮灯与输出物展示 |
+| `step_progress` | 两台运行时 | 大脑过程状态（thinking/chunk/tool 词汇，任务条/看板消费）——2026-10-31 考卷发现漏登记后补入 |
 | `pipeline_paused` | 推理引擎 | 推理管道暂停（反问/等确认） |
 | `pipeline_waiting` | 推理引擎 | 等待用户输入的暂停事实 |
 | `pipeline_done` | 推理引擎 | 全链完成 |
+| `handoff_ready` | skill 运行时 | 终检交付载荷（交付物/文件清单，聊天流收口卡） |
 | `error` | 两台运行时 | 出错事实 |
 
 ### 载荷键集（快照锁定，键集变更=破坏契约）
@@ -31,6 +33,7 @@
 | `transaction_turn._step_done_payload` | `{type, step, label, status, duration_ms, output, summary, input, artifact, thread_id}` | 无产物卡时 artifact=null |
 | `transaction_engine.state_events` | `{type, step, label, status, summary, thread_id}` | 状态语义只在引擎算一次，壳只搬运 |
 | `skill_node_artifacts.node_payload` | `{type, step, label, status, input, output, summary, artifact} ` | skill 运行时节点产物广播 |
+| `skill_step_runtime._step_progress_payload` | `{type, step, sub{kind, text}}` | 大脑过程状态（skill 侧 tool 型；2026-10-31 提取+快照锁定） |
 | `skill_plan_runtime`（node_trace 组装处） | `{type, step, label, status, …}` | 惰性演进：下一步抽取为具名构造器后入快照 |
 
 `artifact` 引用形状（两台运行时通用）：`{kind, title, data}`；`kind=artifact_card` 时

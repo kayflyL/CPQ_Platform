@@ -63,3 +63,12 @@ def test_skill_node_payload_shape():
     assert p["type"] == "node_trace"
     assert p["status"] == "done"
     assert "本节点未注册产物" in p["summary"]  # 白盒不装懂：无插头如实说空
+
+
+def test_skill_step_progress_payload_shape():
+    """step_progress（大脑过程状态）——2026-10-31 考卷发现 ABI 漏登记后补入分册一并提取构造器。"""
+    from app.services.skill_step_runtime import _step_progress_payload
+    p = _step_progress_payload("react", "重试中")
+    assert set(p) == {"type", "step", "sub"}
+    assert p["type"] == "step_progress" and p["step"] == "react"
+    assert p["sub"] == {"kind": "tool", "text": "重试中"}

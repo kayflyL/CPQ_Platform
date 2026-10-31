@@ -82,12 +82,18 @@ async def _emit_step_trace(ctx: dict, key: str, status: str, summary: str,
         logger.exception("step trace emit failed")
 
 
+def _step_progress_payload(step: str, text: str) -> dict:
+    """大脑过程状态事件（唯一构造出处，tests/test_event_contracts.py 快照锁定；
+    sub.kind 词汇 thinking/chunk/tool 归 agent_react，此处 skill 侧只有 tool 型）。"""
+    return {"type": "step_progress", "step": str(step or ""),
+            "sub": {"kind": "tool", "text": str(text or "")}}
+
+
 async def _emit_brain_status(sink, text: str) -> None:
     """大脑回合过程状态（重试中/预算到点）：只走事件流给前端看板，kind=tool 不进旁白落库。"""
     if not sink:
         return
     try:
-        await sink({"type": "step_progress", "step": "react",
-                    "sub": {"kind": "tool", "text": text}})
+        await sink(_step_progress_payload("react", text))
     except Exception:
         pass

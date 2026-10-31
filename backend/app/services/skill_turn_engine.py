@@ -455,7 +455,8 @@ class _SkillTurnRuntime:
             # 顺序与执行序同源：画布 graph 拓扑序（无 flow/graph 返回空，不回退需求分析节点表）
             steps_meta = skill_steps_view(self.flow_configs, flow=self.flow)
             flow_title = str((self.flow or {}).get("name") or (self.flow or {}).get("title") or "配置任务")
-            await self.event_sink({"type": "pipeline_start", "title": flow_title, "steps": steps_meta})
+            await self.event_sink({"type": "pipeline_start", "title": flow_title,
+                                   "steps": steps_meta, "thread_id": self.thread_id})
             input_step = next((s for s in steps_meta if s.get("step") == "input"), None)
             if input_step:
                 lab = str(input_step.get("label") or "需求接收")
@@ -466,6 +467,7 @@ class _SkillTurnRuntime:
                 _in_payload = _node_done_payload(self.engine, "input", lab, _in_summary)
                 _in_payload["input"] = self.full_text
                 _in_payload["duration_ms"] = 0
+                _in_payload["thread_id"] = self.thread_id
                 await self.event_sink(_in_payload)
                 # 跨回合恢复进度：pipeline_start 会把前端步骤重置为 pending，
                 # 之前回合已完成的步骤（steps_done）在此重新广播 done，避免进度倒退回第一步。
@@ -476,7 +478,9 @@ class _SkillTurnRuntime:
                         continue
                     _lab = str(s.get("label") or _k)
                     # 摘要留空 → 由该节点产物生成（恢复进度时也不虚报）
-                    await self.event_sink(_node_done_payload(self.engine, _k, _lab, ""))
+                    _done_payload = _node_done_payload(self.engine, _k, _lab, "")
+                    _done_payload["thread_id"] = self.thread_id
+                    await self.event_sink(_done_payload)
         except Exception:
             logger.exception("pipeline_start emit failed thread=%s", self.thread_id)
 
@@ -995,6 +999,19 @@ async def run_skill_agent_turn(*, thread_id: str, role_key: str, persona: str,
     工具面撤下）。返回 engine_ctx，契约与旧 run_skill_plan_core
     兼容（engine_result/awaiting_input/engine_gaps/business_entity/kp_summary/
     narration/brain_notes）——下游渲染与落库链路原样复用。"""
+
+    # thread_id 中央戳记（第 6 步考卷 EXAM-6 逼出的收口）：画布类事件的会话归属是
+    # 轮壳职责，不该散在各构造器里——缺键的载荷在此统一补，已有键不覆盖。
+    if event_sink is not None:
+        _raw_sink = event_sink
+
+        async def _stamped_sink(payload):
+            if isinstance(payload, dict) and not payload.get("thread_id"):
+                payload["thread_id"] = thread_id
+            await _raw_sink(payload)
+
+        event_sink = _stamped_sink
+
     return await _SkillTurnRuntime(
         thread_id=thread_id, role_key=role_key, persona=persona, full_text=full_text,
         history=history, ext=ext, mem=mem, flow=flow, event_sink=event_sink,

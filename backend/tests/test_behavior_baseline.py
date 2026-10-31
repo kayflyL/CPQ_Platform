@@ -214,3 +214,95 @@ def test_exam5_delivery_flow_definition_baseline():
                               graph.get("manual_rules") or "", flow_key="delivery_to_quotation")
     assert not [i for i in issues if i.get("severity") == "error"], "交付流定义必须零 error"
     assert str(graph.get("manual_rules") or "").strip(), "交付流左栏规则（大脑纪律）不得为空"
+
+
+# ── EXAM-6 事件协议运行时符合性（真流·假大脑·sink 全收集）──────────────────────
+# 2026-10-31 写此题时逮到三处契约漂移并当场修复：skill pipeline_start 缺 thread_id、
+# 完成类 node_trace 两处发射缺 thread_id、step_progress/handoff_ready 未入 ABI 分册一。
+
+_CONTRACT_TYPES = {"pipeline_start", "node_trace", "step_progress", "pipeline_waiting",
+                   "pipeline_paused", "pipeline_done", "handoff_ready", "error"}
+
+
+def test_exam6_event_protocol_runtime_conformance():
+    """跑一回合真流，sink 收到的每个载荷：type 在契约词表内；画布类事件带 thread_id。"""
+    import asyncio
+    from unittest.mock import patch
+    from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+    from app.services import skill_turn_engine
+    flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
+    assert flow
+    events: list = []
+
+    async def sink(payload):
+        events.append(payload)
+
+    async def fake_loop(msg, **kwargs):
+        return {"answer": "好的", "tool_calls_log": []}
+
+    async def scenario():
+        with patch.object(skill_turn_engine, "run_stream_chat_loop", fake_loop):
+            return await skill_turn_engine.run_skill_agent_turn(
+                thread_id="t_exam6", role_key="tech", persona="测试人设",
+                full_text="需要一台服务器", history=[], ext={}, mem={}, flow=flow,
+                event_sink=sink, price_ok=True, opportunity_id="o_exam6")
+
+    asyncio.run(scenario())
+    assert events, "一回合至少要广播事件"
+    bad_types = sorted({str(e.get("type")) for e in events} - _CONTRACT_TYPES)
+    assert not bad_types, f"广播了契约词表外的事件类型：{bad_types}"
+    no_thread = [e.get("type") for e in events
+                 if e.get("type") in ("pipeline_start", "node_trace")
+                 and e.get("thread_id") != "t_exam6"]
+    assert not no_thread, f"画布类事件缺 thread_id：{no_thread}"
+    starts = [e for e in events if e.get("type") == "pipeline_start"]
+    assert starts and starts[0].get("steps"), "pipeline_start 必须带步骤骨架"
+
+
+# ── EXAM-7 步指针序列基线（随完成度单调推进，产物说了算）───────────────────────
+
+
+def test_exam7_step_pointer_progression():
+    """步指针单调推进（产物说了算）：前步 done 预置、考下一指针——
+    登记与选型未齐 → kp_reason 不标；锁定齐（picks+基线）→ kp_reason 标 done。
+    （agent_fill 的完成判定含目录在位+客户拍板闸，属域语义，由 EXAM-1/冒烟卷与真机覆盖；
+    本卷考的是引擎指针推进这条机制事实。）"""
+    import asyncio
+    from unittest.mock import patch
+    from app.repository.reasoning_flow_repo import ReasoningFlowRepository
+    from app.services import skill_turn_engine
+    flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
+    assert flow
+
+    async def sink(payload):
+        pass
+
+    async def fake_loop(msg, **kwargs):
+        return {"answer": "好的", "tool_calls_log": []}
+
+    def _run(mem, ext):
+        async def scenario():
+            with patch.object(skill_turn_engine, "run_stream_chat_loop", fake_loop):
+                return await skill_turn_engine.run_skill_agent_turn(
+                    thread_id="t_exam7", role_key="tech", persona="测试人设",
+                    full_text="继续", history=[], ext=ext, mem=mem, flow=flow,
+                    event_sink=sink, price_ok=True, opportunity_id="o_exam7")
+        return asyncio.run(scenario())
+
+    base_ext = {"server_type": "通用计算服务器", "platform_type": "Polaris", "chassis_form": "2U",
+                "purchase_qty": 1, "warranty_years": 3}
+    # 档 1：前步已过、但选型没锁定 → kp_reason 不标（空转不得收工）
+    mem2 = {"ext": dict(base_ext), "steps_done": ["agent_fill", "model_reason"]}
+    eng2 = _run(mem2, dict(base_ext))
+    assert "kp_reason" not in (eng2.get("steps_done") or set()), "没有锁定不得标 kp_reason"
+    # 档 2：同一状态 + 行锁定台账 + 机型基线 → kp_reason 标 done
+    ext3 = dict(base_ext)
+    ext3["kp_rows"] = [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]
+    mem3 = {"ext": dict(ext3), "steps_done": ["agent_fill", "model_reason"],
+            "node_state": {"kp_reason": {"picks": {"CPU|2颗兆芯50000": {
+                "name": "兆芯 KH50000 96C", "part_id": "1",
+                "price": 100.0, "currency": "RMB"}}}},
+            "locked_baseline": {"name": "ZS220 V2", "series": "Polaris", "form": "2U",
+                                "server_model_id": 1}}
+    eng3 = _run(mem3, ext3)
+    assert "kp_reason" in (eng3.get("steps_done") or set()), "锁定齐必须标 kp_reason"

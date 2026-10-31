@@ -7,6 +7,16 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续六) — 第 6 步考卷 v2：事件协议符合性+步指针基线，两题逼出三处契约漂移当场修复
+
+- **考卷新增**：EXAM-6 事件协议运行时符合性（真流一回合 sink 全收集——type ∈ 契约词表、画布类事件带 thread_id、pipeline_start 带步骤骨架）；EXAM-7 步指针序列基线（晋级式：锁定没齐 kp_reason 不标/锁定齐标 done——agent_fill 的目录在位+客户拍板闸属域语义由 EXAM-1 与真机覆盖，本卷考引擎指针机制）。
+- **考卷逼出的三处契约漂移（当场修复）**：① skill 路径 `pipeline_start` 缺 thread_id（ABI 规定有）；② 完成类 node_trace 两条发射路径缺 thread_id；③ `step_progress`/`handoff_ready` 两个真实事件类型未入 ABI 分册一。修复：thread_id 改为**轮壳中央戳记**（run_skill_agent_turn 入口包 _stamped_sink，缺键统一补、已有键不覆盖——会话归属是轮壳职责不散在构造器里）；step_progress 提取具名构造器 `_step_progress_payload`（skill_step_runtime）+快照锁定；ABI 分册一补两行。
+- **验证**：考卷 10 题+事件契约 7 用例全过；全量回归见后。
+- **涉及面**：`app/services/{skill_turn_engine 中央戳记,skill_step_runtime 构造器}`、`docs/引擎ABI-v0 分册一`、`tests/{test_behavior_baseline.py,test_event_contracts.py}`。
+- 💡 **定论**：① 考卷的价值实证：两道新题写出来的过程就抓了三处快照测试没覆盖的契约漂移——**考卷考的是运行时真行为，快照锁的是构造器**，两层都要有；② thread_id 戳记收口到轮壳=会话归属一处定，构造器保持纯形状（快照不破）；③ 域闸（目录在位+客户拍板）不进机制考卷——考卷考机制事实，域语义由域考题（EXAM-1）与真机覆盖。
+
+
+
 ## [未发布] - 2026-10-31(深夜续五) — 第 5 步关单 + 第 6 步"养考官"开卷：行为基线考卷 v1（8 题）
 
 - **⑤ 关单**：重启验证通过——`rules.agent_audit_log` 建出（新代码加载证据）、四条在用流（交付 v164/需求分析 v1284/趋势 v72/演练 v1）离线校验全绿。**关单形态=法律以严格区 23 模块为法域常开**；融合区 16 模块记账挂给第 8 步真实需求拉动（"全清才关单"自我修正，理由：硬核已净、无第二 APP 用法验证回调形状、自家定律"考官就位前不做大拆焊"）。
