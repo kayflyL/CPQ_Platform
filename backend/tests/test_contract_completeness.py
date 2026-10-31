@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-from app.services.transaction_engine import load_flow_rules
+from ai_office.transaction_engine import load_flow_rules
 
 REQUIRED_KINDS = {"document", "form", "table", "record"}
 REQUIRED_TARGET_KEYS = {"kind", "name", "slot", "view"}
@@ -46,7 +46,7 @@ def test_workflow_node_contracts_complete(skill_key):
 def test_all_transaction_workflows_have_completion_declarations():
     """事务引擎驱动的工作流（real_bound）：每个挂工具的节点必须有 completion 声明。
     需求分析等推理管道工作流不走事务引擎，不在校验范围内。"""
-    from app.services.transaction_engine import resolve_app
+    from ai_office.transaction_engine import resolve_app
     repo = ReasoningFlowRepository()
     try:
         rows = repo.session.execute(
@@ -58,7 +58,7 @@ def test_all_transaction_workflows_have_completion_declarations():
     finally:
         repo.close()
     for key in skill_keys:
-        from app.services.transaction_engine import resolve_app as _ra
+        from ai_office.transaction_engine import resolve_app as _ra
         if _ra(key) is None:
             continue  # 非事务引擎工作流，跳过
         rules = load_flow_rules(key)

@@ -22,9 +22,9 @@ from app.api.deps import get_current_user as current_user, require_admin, requir
 from app.core.config import get_settings
 from app.repository.assistant_repo import AssistantRepository
 from app.repository.feed_repo import FeedRepository
-from app.services import llm_client
+from ai_office import llm_client
 from app.services.assistant_hub import assistant_hub
-from app.services.office_events import publish_office_event
+from ai_office.office_events import publish_office_event
 from app.services.agent_tool_specs import tool_catalog
 from app.services.office_access import allowed_chat_role_keys
 from app.services.colleague_turn_service import run_colleague_turn
@@ -384,7 +384,7 @@ def list_messages(thread_id: str, limit: int = 50, user: dict = Depends(current_
         t_active = turn_active(thread_id)
         # 任务胶囊对账事实（2026-09-13）：pipeline 事件只发一次不重放，页面刷新/WS 重连
         # 空窗后前端骨架已丢——这里按引擎状态（steps_done/engine_pause）重建下发。
-        from app.services.skill_memory import task_state_for_thread
+        from ai_office.skill_memory import task_state_for_thread
         task_state = task_state_for_thread(
             thread_id, str(thread.get("colleague_role_key") or "assistant"), turn_active=t_active,
             user=user)
@@ -496,7 +496,7 @@ async def post_message(thread_id: str, body: PostMessageBody, user: dict = Depen
     """
     # 用户消息序号 +1（确认闸的用户 seen 依赖：确认消费要求 stage 之后出现过
     # 新的用户消息，防大脑同一回合自问自答吃掉确认）
-    from app.services.agent_write_confirm import note_user_message
+    from ai_office.agent_write_confirm import note_user_message
     note_user_message(thread_id)
 
     requested_role_key = (body.role_key or "").strip() or None
@@ -620,8 +620,8 @@ async def post_answer(thread_id: str, body: PostAnswerBody, user: dict = Depends
     → 派发回合（同消息链路）。consent 型回答由轮壳直达执行；choice/form 回答
     作为事实注入大脑。文本"确认/取消"兜底仍走 messages 端点（匹配范围被开放
     问询收窄）。"""
-    from app.services import human_query as hq
-    from app.services.agent_write_confirm import note_user_message
+    from ai_office import human_query as hq
+    from ai_office.agent_write_confirm import note_user_message
     note_user_message(thread_id)
 
     open_q = hq.open_query_of(thread_id)
@@ -777,9 +777,9 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     """配件库自选候选：按当前留底卡的 pick_meta 生成与发卡同格式的选项（含 signal），
     并登记进 last_card.options——后续点击仍走 (slot,value) 服务端留底匹配，
     客户端回传不携带 signal，服务端留底原则不破。"""
-    from app.services.skill_memory import _load_mem, _save_mem
+    from ai_office.skill_memory import _load_mem, _save_mem
     from app.services.part_selector import manual_pick_options
-    from app.services.data_boundary import effective_price_ok
+    from ai_office.data_boundary import effective_price_ok
     from app.services.ai_colleague_service import get_colleague
 
     repo = AssistantRepository()
@@ -798,9 +798,9 @@ def card_pick(thread_id: str, slot: str = Query(..., min_length=1),
     # （注册表解析，放宽 limit），选项带 kp_manual_pick 信号（价格服务端留底，
     # 客户端不携带）；登记进 last_card 供后续 (slot,value) 留底匹配。
     if meta.get("row"):
-        from app.services.skill_memory import _load_mem as _lm, _save_mem as _sm  # noqa: F401
+        from ai_office.skill_memory import _load_mem as _lm, _save_mem as _sm  # noqa: F401
         from app.services.part_selector import resolve_kp_pools
-        from app.services.data_boundary import effective_price_ok
+        from ai_office.data_boundary import effective_price_ok
         from app.services.ai_colleague_service import get_colleague
         binding = {}
         try:
@@ -882,7 +882,7 @@ def _record_assistant_tool_trace(tool_name: str, status: str, duration_ms: int, 
                                  role_key: Optional[str] = None) -> None:
     """把方案助手/AI 同事的工具调用写入 rules.llm_trace（审计数据源），失败不阻塞主流程。"""
     try:
-        from app.services.llm_trace import record_llm_trace
+        from ai_office.llm_trace import record_llm_trace
         record_llm_trace(
             node_type=node_type or f"assistant_tool:{tool_name}",
             opportunity_id=thread_id or "",
@@ -1056,7 +1056,7 @@ def cleanup_empty_threads(admin: dict = Depends(require_perms("ai.office.admin")
 @router.get("/admin/audit")
 def admin_audit(admin: dict = Depends(require_perms("ai.office.admin"))):
     """AI 同事审计/绩效面板：方案助手 LLM 调用 + 工具调用 trace 指标。"""
-    from app.services.llm_trace import assistant_metrics
+    from ai_office.llm_trace import assistant_metrics
     return assistant_metrics(limit=100)
 
 

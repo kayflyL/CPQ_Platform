@@ -187,7 +187,7 @@ def format_requirement_slots_contract(art: dict) -> str:
     经 register_formatter 自注册进内核注册表。）
     """
     import logging as _logging
-    from app.services.skill_target_contract import format_generic_contract
+    from ai_office.skill_target_contract import format_generic_contract
 
     logger = _logging.getLogger(__name__)
     spec: list = []
@@ -232,5 +232,5 @@ def format_requirement_slots_contract(art: dict) -> str:
 
 # 域解释器自注册进引擎插头机制（画边界解耦：机制只认注册表，域 formatter 住宿主；
 # 本模块被任意路径 import 即完成注册，startup 另显式触碰一次保底）
-from app.services.skill_target_contract import register_formatter as _register_formatter  # noqa: E402
+from ai_office.skill_target_contract import register_formatter as _register_formatter  # noqa: E402
 _register_formatter("requirement_slots", format_requirement_slots_contract)

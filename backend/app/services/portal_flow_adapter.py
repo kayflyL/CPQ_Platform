@@ -366,7 +366,7 @@ def save_scheme_progress_from_ctx(ctx: dict, operator: str = "",
     if not _can_persist_draft(ctx):
         return None
     try:
-        from app.services.skill_node_runtime import build_plans
+        from ai_office.skill_node_runtime import build_plans
         cfg = (ctx.get("flow_configs") or {}).get("compose")
         plans = build_plans(ctx, cfg if isinstance(cfg, dict) else {})
         slots = _requirement_snapshot_slots(ctx)

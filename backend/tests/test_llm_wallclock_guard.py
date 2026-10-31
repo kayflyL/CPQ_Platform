@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import anthropic_channel, llm_client, skill_turn_engine  # noqa: E402
+from ai_office import anthropic_channel, llm_client, skill_turn_engine # noqa: E402
 
 
 def _cfg(**kw) -> dict:
@@ -255,8 +255,8 @@ def test_brain_attempt_without_answer_still_feeds_rejection_back():
 def test_orphan_step_marks_visible_failure_instead_of_dead_card():
     """大脑整轮零产出 → 失败终态：不静默留 last_step，也不弹零选项死卡。"""
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services.skill_plan_runtime import engine_result_of
-    from app.services.skill_chat import _failure_reply
+    from ai_office.skill_plan_runtime import engine_result_of
+    from ai_office.skill_chat import _failure_reply
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow, "需求分析 active flow 未播种"
     events: list = []
@@ -300,7 +300,7 @@ def test_brain_dead_is_pure_fact_judgement():
 
 def test_abort_step_sets_structured_failure():
     """失败载荷只带结构化事实（节点 + 原因码 + 标签），不含话术模板。"""
-    from app.services.skill_chat import _failure_reply
+    from ai_office.skill_chat import _failure_reply
     rt = skill_turn_engine._SkillTurnRuntime(
         thread_id="t_abort", role_key="tech", persona="p", full_text="f",
         history=[], ext={}, mem={}, flow={})

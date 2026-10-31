@@ -3,12 +3,12 @@
 
 定调：价格机密，AI 角色默认无价权；关闭角色的全部工具/提示词/引擎产物不得出现价格。
 """
-from app.services import skill_chat
-from app.services import skill_tool_context
+from ai_office import skill_chat
+from ai_office import skill_tool_context
 from app.services import skill_tools_fill
 from app.services import skill_tools_misc
-from app.services.data_boundary import effective_price_ok, user_price_ok, user_price_ok_by_id
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.data_boundary import effective_price_ok, user_price_ok, user_price_ok_by_id
+from ai_office.skill_tool_context import TOOL_CTX
 from app.services.skill_tools_fill import requirement_prompt
 from app.services.skill_tools_misc import tool_catalog_search
 from app.services.skill_phases import catalog_models_option_data, model_option_desc

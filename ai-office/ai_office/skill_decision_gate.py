@@ -107,7 +107,7 @@ def part_lock_verdict(*, thread_id: str, decisions: list, category: str, spec: s
     if not d:
         return {"verdict": "allow"}
     try:
-        from app.services.human_query import user_signal_for, open_query_of
+        from ai_office.human_query import user_signal_for, open_query_of
         slot = str(d.get("slot") or category).strip()
         min_c = int(d.get("min_candidates") or 2)
         if user_signal_for(thread_id, slot):
@@ -139,7 +139,7 @@ def part_lock_verdict(*, thread_id: str, decisions: list, category: str, spec: s
         candidates.sort(key=lambda x: 0 if x.get("recommended") else 1)
         if len(candidates) < min_c:
             return {"verdict": "allow", "slot": slot}
-        from app.services.human_query import open_query
+        from ai_office.human_query import open_query
         entry = open_query(thread_id, kind="choice",
                            title=str(d.get("question") or f"{category} 在库有多款候选，选哪款？"),
                            hint="点选一款即可继续；没有合适的可选其他并说明",

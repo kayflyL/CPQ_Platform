@@ -4,10 +4,10 @@
 2026-09-09：_node_done_payload 对 model_reason 由 kind=model_choice（裸 JSON）改为
 kind=l6_chassis（chosen/reason + BOM 模板求值出的 rows），对齐目标层抽屉预览 /l6-preview。
 """
-from app.services import skill_step_runtime
+from ai_office import skill_step_runtime
 from unittest.mock import patch
 
-from app.services.skill_step_runtime import _node_done_payload
+from ai_office.skill_step_runtime import _node_done_payload
 from app.services.cpq_artifact_builders import locked_l6_rows as _locked_l6_rows
 
 

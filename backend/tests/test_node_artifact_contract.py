@@ -16,10 +16,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import skill_node_artifacts as art_mod
-from app.services.skill_node_artifacts import (
+from ai_office import skill_node_artifacts as art_mod
+from ai_office.skill_node_artifacts import (
     BUILDERS, node_payload, resolve_kind)
-from app.services.skill_target_contract import validate_artifact
+from ai_office.skill_target_contract import validate_artifact
 
 
 def _drawer() -> dict:
@@ -103,7 +103,7 @@ def test_legacy_output_artifact_binds_only_when_it_names_a_slot():
 
 def test_legacy_string_target_is_not_a_plug():
     """交付节点历史配置的 target 是产物引用字符串，不是插头字典——不得抛错。"""
-    from app.services.skill_target_contract import first_artifact, target_artifacts
+    from ai_office.skill_target_contract import first_artifact, target_artifacts
     cfg = {"output_kind": "bom_scheme_draft", "target": "bom_scheme",
            "payload_map": {"plans": "ctx.plans"}}
     assert target_artifacts(cfg) == []
@@ -116,7 +116,7 @@ def test_a_string_target_cannot_clobber_the_drawer_plug():
     产物槽是插头（target.artifacts）。一旦被字符串覆盖，resolve_kind 就找不到槽 →
     节点下产物凭空消失（画布上「只有登记节点还有输出物」那类事故的根因）。
     """
-    from app.services import reasoning_node_contract as contract
+    from ai_office import reasoning_node_contract as contract
     for key in ("input", "agent_fill", "model_reason", "kp_reason", "compose", "output"):
         cfg = contract.effective_config(key, {"target": "bom_scheme"})
         assert isinstance(cfg.get("target"), dict), f"{key} 的产物槽被字符串 target 冲掉"
@@ -226,7 +226,7 @@ def test_fill_contract_comes_from_target_layer_not_node_special_case():
 
 def test_fill_contract_follows_target_layer_config():
     """换目标层名称 → 契约标题跟着变（证明契约真的由插头生成，不是节点硬编码）。"""
-    from app.services.skill_node_plugins import fill_contract_brief
+    from ai_office.skill_node_plugins import fill_contract_brief
     cfg = {"target": {"artifacts": [{"slot": "requirement_slots", "name": "MY_TABLE"}]}}
     assert "MY_TABLE" in fill_contract_brief(cfg)
 
@@ -270,7 +270,7 @@ def test_drawer_column_contract_resolves_on_raw_rows():
     列契约（from/fallback）指向的是**行数据字段**；取值链断掉 = 渲染出空列，
     这里判红，不等到画布上才发现。
     """
-    from app.services.skill_target_contract import first_artifact
+    from ai_office.skill_target_contract import first_artifact
     cfgs = _drawer()
     for key in ("kp_reason", "compose"):
         art = first_artifact(cfgs.get(key) or {})

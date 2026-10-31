@@ -12,9 +12,9 @@ from __future__ import annotations
 import re
 
 from app.services.part_selector import pick_for_row, pick_is_stale
-from app.services.skill_memory import _kp_status_rows
-from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_memory import _kp_status_rows
+from ai_office.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
+from ai_office.skill_tool_context import TOOL_CTX
 
 
 def _brief_specs(specs, n: int = 6) -> dict:

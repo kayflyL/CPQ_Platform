@@ -7,10 +7,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from app.services.agent_tool_registry import ToolRegistry
-from app.services import agent_write_confirm as awc
+from ai_office.agent_tool_registry import ToolRegistry
+from ai_office import agent_write_confirm as awc
 from app.services import skill_tools_write as stw
-from app.services import skill_decision_gate as _  # noqa: F401  确保家族模块可导入
+from ai_office import skill_decision_gate as _ # noqa: F401  确保家族模块可导入
 from app.services.agent_tool_specs import _TOOL_CONTRACTS, _TOOL_SPECS, confirm_policy_for
 
 LEGAL_POLICY = {"none", "stage", "stage+consent"}
@@ -61,7 +61,7 @@ def _confirm_memory(monkeypatch):
 
 
 def test_confirm_gate_none_policy_skips_card(monkeypatch):
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     monkeypatch.setattr(stw, "_ctx", lambda: {"thread_id": "t_none"})
     gate, staged = stw._confirm_gate({"rows": [{"a": 1}]},
                                      "fill_requirement", {"登记": "x"})
@@ -70,7 +70,7 @@ def test_confirm_gate_none_policy_skips_card(monkeypatch):
 
 
 def test_confirm_gate_stage_family_still_cards(monkeypatch):
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     monkeypatch.setattr(stw, "_ctx", lambda: {"thread_id": "t_stage"})
     gate, staged = stw._confirm_gate({"sheet_id": "s1"}, "submit_cost_sheet", {"预览": "x"})
     assert gate is not None and gate.get("needs_confirmation") is True
@@ -82,12 +82,12 @@ def test_confirm_gate_stage_family_still_cards(monkeypatch):
 
 def test_registry_audit_and_readback(monkeypatch):
     captured = {}
-    monkeypatch.setattr("app.services.agent_audit.audit_write", lambda **kw: captured.update(kw))
+    monkeypatch.setattr("ai_office.agent_audit.audit_write", lambda **kw: captured.update(kw))
     monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
     monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
                         lambda *a, **k: {"ok": True, "quotation_id": "q1",
                                          "quotation_name": "报价单A", "version": 3})
-    from app.services import agent_tool_registry as reg_mod
+    from ai_office import agent_tool_registry as reg_mod
     contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
                 "verify": "skill_tools_write.verify_set_quote_margin"}
     result = {"ok": True, "quotation_id": "q1", "saved_items": [{"x": 1}]}
@@ -104,7 +104,7 @@ def test_registry_readback_mismatch_blocks(monkeypatch):
     monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
     monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
                         lambda *a, **k: {"ok": False, "message": "报价单没了"})
-    from app.services import agent_tool_registry as reg_mod
+    from ai_office import agent_tool_registry as reg_mod
     contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
                 "verify": "skill_tools_write.verify_set_quote_margin"}
     out = reg_mod.write_finish("fake_write_tool2", contract, {"quotation_id": "q9"},
@@ -119,12 +119,12 @@ def test_registry_readback_mismatch_blocks(monkeypatch):
 def test_direct_write_finish_audits(monkeypatch):
     """直达执行成功 → 与 registry 写路径同一份回读+审计（此前这条路径恰好无账）。"""
     captured = {}
-    monkeypatch.setattr("app.services.agent_audit.audit_write", lambda **kw: captured.update(kw))
+    monkeypatch.setattr("ai_office.agent_audit.audit_write", lambda **kw: captured.update(kw))
     monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
     monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
                         lambda *a, **k: {"ok": True, "quotation_id": "q1",
                                          "quotation_name": "报价单A", "version": 5})
-    from app.services.transaction_turn import direct_write_finish
+    from ai_office.transaction_turn import direct_write_finish
     contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
                 "verify": "skill_tools_write.verify_set_quote_margin"}
     out = direct_write_finish("set_quote_margin", contract, {"quotation_id": "q1", "margin": 0.2},
@@ -140,7 +140,7 @@ def test_direct_write_finish_readback_mismatch_degrades(monkeypatch):
     monkeypatch.setattr("app.services.skill_tools_write._require_user", lambda: {"user_id": "u1"})
     monkeypatch.setattr("app.services.delivery_core.margin_resolve_quotation",
                         lambda *a, **k: {"ok": False, "message": "报价单没了"})
-    from app.services.transaction_turn import direct_write_finish
+    from ai_office.transaction_turn import direct_write_finish
     contract = {"effects": "write", "confirm_policy": "none", "target_entity": "quotation",
                 "verify": "skill_tools_write.verify_set_quote_margin"}
     out = direct_write_finish("set_quote_margin", contract, {"quotation_id": "q9"},
@@ -151,7 +151,7 @@ def test_direct_write_finish_readback_mismatch_degrades(monkeypatch):
 
 def test_direct_write_finish_passthrough_non_write():
     """读契约/失败结果原样返回——不回读不审计不降级。"""
-    from app.services.transaction_turn import direct_write_finish
+    from ai_office.transaction_turn import direct_write_finish
     read_c = {"effects": "read", "confirm_policy": "none"}
     r1 = {"ok": True, "rows": [1]}
     assert direct_write_finish("query_x", read_c, {}, r1, {"thread_id": "t"}) is r1

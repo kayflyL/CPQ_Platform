@@ -33,6 +33,14 @@ BACKEND = pathlib.Path(__file__).resolve().parents[1]
 APP = BACKEND / "app"
 SERVICES = APP / "services"
 TESTS = BACKEND / "tests"
+# 引擎树（2026-11-01 目录拆分）：机制文件一半住这里，棘轮扫描范围跟着扩展
+ENGINE = BACKEND.parent / "ai-office" / "ai_office"
+
+
+def _mechanism_path(name: str) -> pathlib.Path:
+    """机制文件定位：宿主树在先，引擎树兜底（搬过家的都两处找）。"""
+    p = SERVICES / name
+    return p if p.exists() else ENGINE / name
 
 # ── 扫描范围：喂给大脑/客户的话术只可能从这些文件出来（机制层） ──────────────
 MECHANISM_FILES = [
@@ -235,7 +243,7 @@ def _left_panel_text() -> str:
     """配置层文本 = 生效流程（任务规则/节点规则）+ 节点默认契约 + 节点覆盖配置
     + 员工提示词（system_config.ai_colleagues：每个角色的 system_prompt，Manage Teams · 员工可改）。"""
     from app.models.base import Rules_SessionLocal
-    from app.services.reasoning_node_contract import node_defaults
+    from ai_office.reasoning_node_contract import node_defaults
     chunks = [json.dumps(node_defaults(), ensure_ascii=False)]
     s = Rules_SessionLocal()
     try:
@@ -274,13 +282,14 @@ def test_no_code_side_fallback_prompts():
 
     允许留在代码里的中文只有两类：事实（状态词/字段名/原因码）与契约（参数必填/越界/输出格式）。
     这里只咬「提示词形状」的常量名 + 已被删除的旧符号不许复活。
-    扫描范围是 app/**（含 api/）——`api/assistant.py:_DEFAULT_OPENING` 就是漏在 services/ 之外的教训。
+    扫描范围是 app/** 与 ai-office/**（含 api/）——`api/assistant.py:_DEFAULT_OPENING`
+    是漏在 services/ 之外的教训；引擎迁去根目录后扫描范围跟着走。
     """
     banned_names = ("DEFAULT_SYSTEM_PROMPT", "_DISPATCH_SYSTEM_PROMPT", "_EXTRACT_SYSTEM",
                     "AGENT_SYSTEM_PROMPT", "NATIVE_TOOL_SYSTEM_HINT", "_DEFAULT_CHAT_SYSTEM_PROMPT",
                     "_DEFAULT_OPENING")
     hits = []
-    for p in sorted(APP.rglob("*.py")):
+    for p in sorted(list(APP.rglob("*.py")) + list(ENGINE.rglob("*.py"))):
         if "__pycache__" in p.parts:
             continue
         src = p.read_text(encoding="utf-8")
@@ -310,7 +319,7 @@ def test_mechanism_prose_only_shrinks():
     actual = {}
     detail = {}
     for name in MECHANISM_FILES:
-        p = SERVICES / name
+        p = _mechanism_path(name)
         assert p.exists(), f"机制文件消失：{name}（改名请同步 MECHANISM_FILES）"
         hits = scan_prose(p)
         actual[name] = len(hits)
@@ -340,7 +349,7 @@ def test_migrated_rules_have_a_left_panel_anchor():
 
 def test_left_panel_uses_current_tool_names():
     """左栏/配置层不许出现已改名或已退役的工具名（大脑被指去调不存在的工具）。"""
-    from app.services.tool_names import RETIRED_TOOL_IDS, TOOL_RENAME_MAP
+    from ai_office.tool_names import RETIRED_TOOL_IDS, TOOL_RENAME_MAP
     bad = sorted(set(TOOL_RENAME_MAP) | set(RETIRED_TOOL_IDS))
     pat = re.compile(r"(?<![A-Za-z0-9_])(" + "|".join(re.escape(b) for b in bad) + r")(?![A-Za-z0-9_])")
     found = sorted({m.group(1) for m in pat.finditer(_left_panel_text())})

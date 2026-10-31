@@ -9,11 +9,11 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services.skill_node_artifacts import node_payload
+from ai_office.skill_node_artifacts import node_payload
 
 
 def test_pipeline_start_payload_shape():
-    from app.services.transaction_turn import _pipeline_start_payload
+    from ai_office.transaction_turn import _pipeline_start_payload
     p = _pipeline_start_payload("标题", "交付流",
                                 [{"key": "n0", "label": "接收"}, {"key": "n1", "label": "落位"}], "t1")
     assert p["type"] == "pipeline_start"
@@ -23,12 +23,12 @@ def test_pipeline_start_payload_shape():
 
 
 def test_pipeline_start_title_falls_back_to_flow_label():
-    from app.services.transaction_turn import _pipeline_start_payload
+    from ai_office.transaction_turn import _pipeline_start_payload
     assert _pipeline_start_payload("  ", "交付流", [], "t")["title"] == "交付流"
 
 
 def test_step_running_payload_shape():
-    from app.services.transaction_turn import _step_running_payload
+    from ai_office.transaction_turn import _step_running_payload
     p = _step_running_payload("n1", "落位", "t1")
     assert set(p) == {"type", "step", "label", "status", "summary", "thread_id"}
     assert p["status"] == "running"
@@ -36,7 +36,7 @@ def test_step_running_payload_shape():
 
 
 def test_step_done_payload_shape():
-    from app.services.transaction_turn import _step_done_payload
+    from ai_office.transaction_turn import _step_done_payload
     p = _step_done_payload("n1", "落位", True, 1234, "submit_cost_sheet：完成", {"title": "卡"}, "t1")
     assert set(p) == {"type", "step", "label", "status", "duration_ms",
                       "output", "summary", "input", "artifact", "thread_id"}
@@ -51,7 +51,7 @@ def test_step_done_payload_shape():
 
 def test_state_events_shape():
     """状态语义只在引擎算一次（te.state_events），壳只搬运——载荷键集同样入快照。"""
-    from app.services import transaction_engine as te
+    from ai_office import transaction_engine as te
     steps = [{"key": "n1", "label": "落位", "skip_note": ""}]
     evs = te.state_events(steps, {}, "t1")  # 空案台 → 全 pending → 无事件
     assert evs == []
@@ -67,7 +67,7 @@ def test_skill_node_payload_shape():
 
 def test_skill_step_progress_payload_shape():
     """step_progress（大脑过程状态）——2026-10-31 考卷发现 ABI 漏登记后补入分册一并提取构造器。"""
-    from app.services.skill_step_runtime import _step_progress_payload
+    from ai_office.skill_step_runtime import _step_progress_payload
     p = _step_progress_payload("react", "重试中")
     assert set(p) == {"type", "step", "sub"}
     assert p["type"] == "step_progress" and p["step"] == "react"

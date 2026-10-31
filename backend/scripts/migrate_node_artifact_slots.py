@@ -17,11 +17,12 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
 from app.models.base import Rules_SessionLocal
 from app.models.reasoning_flow import ReasoningNodeConfig
 from app.models.skill_config import ReasoningNodeDefault
-from app.services.skill_config_bootstrap import plug_with_slot
+from ai_office.skill_config_bootstrap import plug_with_slot
 
 # 产物槽针脚方言唯一来源 = 节点默认契约（skill_config_bootstrap.NODE_PLUGS）
 

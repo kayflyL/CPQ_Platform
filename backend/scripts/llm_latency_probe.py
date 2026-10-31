@@ -13,8 +13,9 @@ import os
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
-from app.services import llm_client
+from ai_office import llm_client
 
 # 模拟 skill 真实体量的 system（左栏规则 2555 + steps 1219 + 节点使命 1200 ≈ 5K 字）
 PREFIX = ("你是 AI 同事「技术支持工程师」，正在执行「需求分析」任务。\n\n任务规则（配置者编写，全程遵守）：\n"

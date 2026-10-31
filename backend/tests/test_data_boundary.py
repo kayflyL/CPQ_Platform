@@ -4,7 +4,7 @@
 宪法断言：能力面 = tool_ids；价格可见性 = 同事级 price_access 布尔（默认关）；
 query_data 表白名单 = 工具自有配置；物理校验先于执行。
 """
-from app.services.data_boundary import (
+from ai_office.data_boundary import (
     colleague_price_ok,
     execute_read,
     normalize_colleague,
@@ -210,7 +210,7 @@ def test_execute_read_wraps_db_errors_as_result():
 def test_query_tables_allow_hard_excludes_system_config(monkeypatch):
     """system_config 是配置权威源（含 llm_config 密钥）：缺省与手配白名单都不得交给 AI。"""
     from app.repository import system_config_repo
-    from app.services.data_boundary import query_tables_allow
+    from ai_office.data_boundary import query_tables_allow
 
     class _FakeRepo:
         def get_value(self, key, default=None):
@@ -228,7 +228,7 @@ def test_query_tables_allow_hard_excludes_system_config(monkeypatch):
 def test_query_tables_allow_hard_excludes_when_unset(monkeypatch):
     """配置键为空回落缺省表时同样过硬排除（缺省本就不含，防将来误加）。"""
     from app.repository import system_config_repo
-    from app.services.data_boundary import query_tables_allow
+    from ai_office.data_boundary import query_tables_allow
 
     class _FakeRepo:
         def get_value(self, key, default=None):
@@ -273,7 +273,7 @@ def test_base_opportunity_tables_rejected_view_and_bare_name_allowed():
 
 def test_opportunity_domain_base_table_cannot_reenter_via_override():
     """手配 query_data_tables_allow 写基础表也强制改道视图（配置打不穿口径）。"""
-    from app.services.data_boundary import _map_ai_views
+    from ai_office.data_boundary import _map_ai_views
     mapped = _map_ai_views(["opportunities.opportunities", "kp.kp_records",
                             "opportunities.quotations"])
     assert "ai_read.opportunities" in mapped and "ai_read.quotations" in mapped

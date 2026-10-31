@@ -7,8 +7,8 @@
 """
 import pytest
 
-from app.services import skill_turn_engine
-from app.services.skill_plan_runtime import pause_payload
+from ai_office import skill_turn_engine
+from ai_office.skill_plan_runtime import pause_payload
 
 
 def _runtime(mem: dict):

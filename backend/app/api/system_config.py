@@ -18,7 +18,7 @@ from app.core.config import get_settings
 
 from app.repository.system_config_repo import SystemConfigRepository
 
-from app.services import llm_client
+from ai_office import llm_client
 
 from app.utils.file_storage import FileStorage
 

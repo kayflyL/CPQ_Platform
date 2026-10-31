@@ -15,7 +15,7 @@ from app.api.deps import get_current_user, require_admin, resolve_ws_user
 from app.core.config import get_settings
 from app.repository.office_event_repo import OfficeEventRepository
 from app.services.office_access import allowed_office_role_keys
-from app.services.office_events import publish_office_event
+from ai_office.office_events import publish_office_event
 from app.services.office_governance import office_governance
 from app.services.office_hub import office_hub
 from app.services.office_memory import office_memory

@@ -67,7 +67,7 @@ def _engine(row_spec="NVIDIA B200 192G 两张", qty=2, category="GPU", registere
 
 def test_stuck_gap_offers_grounded_candidates_plus_keep_original():
     """客户点名型号库内无料 → 卡上既有库内候选（能落地），也有「保持原需求」（能收口）。"""
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
     gap = plugin_for("kp_reason").stuck_gap(_engine())
     assert gap and gap["reason_code"] == "kp_pick" and gap["parts_card"] is True
     assert gap["row"] == ROW_ID
@@ -78,7 +78,7 @@ def test_stuck_gap_offers_grounded_candidates_plus_keep_original():
 
 def test_stuck_gap_options_are_interpreted_by_the_single_signal_exit():
     """选项信号只能来自唯一出口：点料 → kp_manual_pick；保持原需求 → kp_waived。"""
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
     gap = plugin_for("kp_reason").stuck_gap(_engine())
     by_label = {o["label"]: o for o in gap["options"]}
     pick = by_label["NVIDIA H100 80G"]["signal"]["kp_manual_pick"]
@@ -89,7 +89,7 @@ def test_stuck_gap_options_are_interpreted_by_the_single_signal_exit():
 
 def test_stuck_gap_never_invents_a_keep_original_escape_for_ai_chosen_rows():
     """客户没点名、等 AI 推荐的行不补「保持原需求」——否则等于给待选型行开逃生口。"""
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
     gap = plugin_for("kp_reason").stuck_gap(_engine(row_spec="GPU", registered=False))
     labels = [o["label"] for o in gap["options"]]
     assert labels and ROW_KEEP_ORIGINAL_LABEL not in labels
@@ -97,20 +97,20 @@ def test_stuck_gap_never_invents_a_keep_original_escape_for_ai_chosen_rows():
 
 def test_stuck_gap_is_silent_when_the_library_has_nothing_to_offer():
     """库内该类目召不回候选、行又不是客户点名 → 不产卡：宁缺毋滥，不把整库端上来。"""
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     assert plugin_for("kp_reason").stuck_gap(_engine(category="FPGA", registered=False)) is None
 
 
 def test_stuck_gap_keeps_the_escape_when_the_category_has_no_candidate():
     """库内召不回候选、但该行是客户点名的 → 唯一出路「保持原需求」必须还在。"""
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, plugin_for
     gap = plugin_for("kp_reason").stuck_gap(_engine(category="FPGA"))
     assert [o["label"] for o in gap["options"]] == [ROW_KEEP_ORIGINAL_LABEL]
     assert gap["options"][0]["signal"] == {"kp_waived": [ROW_ID]}
 
 
 def test_stuck_gap_is_silent_when_every_row_landed():
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     eng = _engine()
     eng["kp_parts"][0]["unmatched"] = False
     assert plugin_for("kp_reason").stuck_gap(eng) is None
@@ -118,7 +118,7 @@ def test_stuck_gap_is_silent_when_every_row_landed():
 
 def test_first_stuck_gap_finds_the_socket_through_the_registry():
     """编排壳不认识节点名：靠注册表把所有插座的 stuck_gap 问一遍。"""
-    from app.services.skill_node_plugins import first_stuck_gap
+    from ai_office.skill_node_plugins import first_stuck_gap
     gap = first_stuck_gap(_engine())
     assert gap and gap["slot"] == "kp_row" and gap["options"]
     assert first_stuck_gap({"kp_parts": []}) is None
@@ -126,7 +126,7 @@ def test_first_stuck_gap_finds_the_socket_through_the_registry():
 
 def test_ask_option_signal_never_writes_a_field_that_is_not_on_the_form():
     """兜底 slot（brain_ask）只是客户的一句口答，不许被当成字段信号写进登记表。"""
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_plan_runtime import ask_option_signal
     assert ask_option_signal("", {"label": "通用计算服务器"}, "brain_ask") == {}
     # 真正的登记表字段照旧直传（客户点选 = 把该字段登记为确认值）
     sig = ask_option_signal("", {"slot": "server_type", "value": "通用计算服务器", "label": "通用计算服务器"})
@@ -138,8 +138,8 @@ def test_row_card_for_a_row_id_ref_resolves_the_category_by_identity():
     P3-3 回归靶心（实测探针）：卡片改绑 row_id 后，旧实现仍按「类目|描述」切竖线取类目，
     结果候选为空、豁免无路、absent 甚至把 `True` 写进登记表。类目只能由身份解析。
     """
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, _KpNode
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, _KpNode
+    from ai_office.skill_plan_runtime import ask_option_signal
     eng = _engine()
     opts = _KpNode().extra_ask_options(eng, {"row": ROW_ID, "options": []}, ROW_ID)
     labels = [o["label"] for o in opts]
@@ -163,7 +163,7 @@ def test_unstamped_rows_still_bind_by_the_row_list_identity():
     否则同一行在清单里叫 A、在卡上叫 B，点击落键就落到别的行上去了。
     """
     from app.services.part_selector import kp_row_id
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     eng = _engine()
     for k in ("origin", "row_id", "rev"):
         eng["kp_parts"][0].pop(k, None)
@@ -178,7 +178,7 @@ def test_unstamped_rows_still_bind_by_the_row_list_identity():
 
 def test_stuck_gap_qty_max_follows_baseline_capability():
     """GPU 行 + 机型登记 4 个 GPU 位 → 卡上限=4（不是拍脑袋 24）；未登记能力才退 24。"""
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     eng = _engine()
     eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 4}
     gap = plugin_for("kp_reason").stuck_gap(eng)
@@ -192,7 +192,7 @@ def test_stuck_gap_qty_max_follows_baseline_capability():
 
 def test_qty_cap_never_squeezes_the_registered_quantity():
     """申报量 > 机型物理边界（GPU 位 2、行申报 4）→ 上限抬到申报量：客户登记的量不能被挤掉。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     qty, qty_max = _KpNode()._qty_bounds({"_locked_baseline": {"gpu_slots": 2}}, "GPU", 4)
     assert (qty, qty_max) == (4, 4)
 
@@ -200,7 +200,7 @@ def test_qty_cap_never_squeezes_the_registered_quantity():
 def test_enrich_ask_gap_tops_up_qty_for_brain_options():
     """大脑行卡选项常只带型号不带数量 → 插座对全卡选项结构性补 qty/qty_max；
     大脑显式给的推荐数量不覆盖（setdefault）。这是「能选料不能调数量」实测靶心。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     eng = _engine()
     eng["_locked_baseline"] = {"series": "Orion", "gpu_slots": 3}
     gap = {"slot": "brain_ask", "reason_code": "brain_ask", "options": [
@@ -217,7 +217,7 @@ def test_enrich_ask_gap_tops_up_qty_for_brain_options():
 
 def test_manual_pick_click_qty_clamped_by_category_capability():
     """行卡自选点击的数量收口：GPU 类目按 gpu_slots clamp；无物理边界的类目（NIC）宽上限。"""
-    from app.services.skill_signals import _signal_with_qty
+    from ai_office.skill_signals import _signal_with_qty
     sig = {"kp_manual_pick": {"row": ROW_ID, "part_id": "250", "name": "NVIDIA H100 80G"}}
     meta = {"category": "GPU", "gpu_slots": 4}
     assert _signal_with_qty(sig, 6, meta)["kp_manual_pick"]["qty"] == 4

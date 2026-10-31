@@ -13,7 +13,7 @@ import time
 from typing import Any, Dict, List, Optional
 
 from app.api.ai_colleagues import _DEFAULT_BEHAVIOR_PROFILE
-from app.services import llm_client
+from ai_office import llm_client
 from app.services.office_memory import office_memory
 
 logger = logging.getLogger(__name__)

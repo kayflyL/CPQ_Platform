@@ -5,10 +5,10 @@
 """
 from __future__ import annotations
 
-from app.services.skill_memory import _kp_status_rows, _slots_view
-from app.services.skill_decision_gate import declared_decisions, part_lock_verdict
-from app.services.skill_node_state import KP_CONFIG, KP_PICKS, KP_RECOMMEND, kp_state
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_memory import _kp_status_rows, _slots_view
+from ai_office.skill_decision_gate import declared_decisions, part_lock_verdict
+from ai_office.skill_node_state import KP_CONFIG, KP_PICKS, KP_RECOMMEND, kp_state
+from ai_office.skill_tool_context import TOOL_CTX
 from typing import Optional
 
 
@@ -312,7 +312,7 @@ def tool_select_parts(args: dict) -> dict:
 def wire_decision_gate() -> None:
     """宿主接线（startup 调，第 5 步画边界解耦）：给决策闸供给配件库候选检索与
     用户 pick 新鲜度判定——闸机制只认回调、不 import 配件域，配件域知识留在宿主侧。"""
-    from app.services import skill_decision_gate
+    from ai_office import skill_decision_gate
     from app.services.part_search import hybrid_search
     from app.services.part_selector import pick_for_row, pick_is_stale
 

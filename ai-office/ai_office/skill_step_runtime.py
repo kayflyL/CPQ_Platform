@@ -7,9 +7,9 @@
 from __future__ import annotations
 
 import logging
-from app.services.skill_node_artifacts import node_payload as _node_payload
-from app.services.skill_node_state import FrozenDocView, fill_node, unwrap_doc
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_node_artifacts import node_payload as _node_payload
+from ai_office.skill_node_state import FrozenDocView, fill_node, unwrap_doc
+from ai_office.skill_tool_context import TOOL_CTX
 from typing import Optional
 
 
@@ -22,7 +22,7 @@ async def _engine_begin_step(args: dict) -> dict:
     key = str((args or {}).get("step") or "").strip()
     if key not in (engine.get("flow_configs") or {}):
         return {"ok": False, "error": "unknown_step", "hint": f"步骤 {key} 不在本任务说明书中"}
-    from app.services.skill_plan_runtime import prepare_step
+    from ai_office.skill_plan_runtime import prepare_step
     res = await prepare_step(engine, key, ctx.get("event_sink"))
     if res.get("ok"):
         engine["current_step"] = key
@@ -37,7 +37,7 @@ async def _engine_begin_step(args: dict) -> dict:
             engine["ext"] = raw
         ctx["ext"] = engine["ext"]
         # 该步干活所需上下文由节点插件桥接进 TOOL_CTX（工具从那里读）；编排壳不认识节点名。
-        from app.services.skill_node_plugins import plugin_for
+        from ai_office.skill_node_plugins import plugin_for
         plugin_for(key).bridge_ctx(engine, ctx)
     return res
 

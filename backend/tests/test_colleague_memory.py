@@ -310,7 +310,7 @@ def test_tool_view_rejects_other_users_private(monkeypatch):
 # ── 整理层：consolidate_role ────────────────────────────────────────────────
 
 def _patch_env(monkeypatch, repo, chat_json):
-    import app.services.llm_client as llm_client
+    import ai_office.llm_client as llm_client
     import app.services.ai_colleague_service as acs
     monkeypatch.setattr(svc, "ColleagueMemoryRepository", lambda: repo)
     monkeypatch.setattr(acs, "get_colleague", lambda rk: {"system_prompt": "测试同事"})

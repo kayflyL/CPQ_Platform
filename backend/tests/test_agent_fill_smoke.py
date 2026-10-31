@@ -8,10 +8,10 @@ fill_requirement 任务期工具（大脑在 agent_fill 节点回合里调用）
 import os
 import sys
 from unittest.mock import patch
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 from app.services import skill_tools_fill
 from app.services import skill_tools_misc
-from app.services import skill_turn_engine
+from ai_office import skill_turn_engine
 
 # 独立运行（python -X utf8 tests/test_agent_fill_smoke.py）时把 backend 根加进 sys.path；
 # pytest 走 conftest.py，不依赖这行。
@@ -24,7 +24,7 @@ def test_capability_spec_validate_ok():
 
 
 def _call_fill(args: dict, *, task_active: bool, ext: dict | None = None) -> dict:
-    from app.services import skill_chat
+    from ai_office import skill_chat
     saved = {}
     skill_tool_context.TOOL_CTX.set({
         "ext": dict(ext or {}), "task_active": task_active,
@@ -147,7 +147,7 @@ def test_brain_attempts_wallclock_budget_caps_attempts():
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import patch
-    from app.services import skill_chat
+    from ai_office import skill_chat
 
     loop_calls: list = []
     statuses: list = []
@@ -190,7 +190,7 @@ def test_agent_fill_ai_picks_catalog_value_and_ask_user_beats_system_card():
     系统不再发目录缺口卡：只要 AI 已登记 ask_user 提问，engine_gaps 必须是
     brain_ask（AI 自己的选项卡），而不是 target_incomplete（系统目录卡）。"""
     import asyncio
-    from app.services import skill_chat
+    from ai_office import skill_chat
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow, "需求分析 active flow 未播种"
@@ -235,9 +235,9 @@ def test_ask_user_slot_binds_catalog_confirmation_then_applies():
     这是「先问后填、别既填又追问」的机制底座：卡带 slot，点击后不再需要大脑重读答案重填。
     """
     import asyncio
-    from app.services import skill_chat
+    from ai_office import skill_chat
     from app.services.capabilities import _apply_extracted_slots
-    from app.services.skill_plan_runtime import validate_step_end
+    from ai_office.skill_plan_runtime import validate_step_end
 
     skill_tool_context.TOOL_CTX.set({"task_active": True, "ext": {}, "brain_asks": []})
     res = skill_tools_misc.tool_ask_user({

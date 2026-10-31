@@ -8,7 +8,7 @@
 """
 import pytest
 
-from app.services import transaction_engine as te
+from ai_office import transaction_engine as te
 
 FLOW_KEY = "stub.contract_approval"
 

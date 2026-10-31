@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, Optional
 
-from app.services.skill_node_state import KP_CONFIG, KP_PICKS, kp_state, waived_row_keys
+from ai_office.skill_node_state import KP_CONFIG, KP_PICKS, kp_state, waived_row_keys
 from app.services.slot_contract import canonical_get
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ def kp_required_categories(cfg: dict) -> list:
     有配置则只认配置勾选的类目。
     """
     try:
-        from app.services.skill_target_contract import target_artifacts
+        from ai_office.skill_target_contract import target_artifacts
         arts = target_artifacts(cfg)
         fields = ((arts[0] if arts else {}) or {}).get("fields") or []
         cats: list[str] = []
@@ -388,7 +388,7 @@ async def phase_kp_reason(ctx: dict, cfg: dict, broadcast: BroadcastFn) -> None:
     # kp_manual_pick/批量晋升写入 KP_PICKS 后自然放行。（2026-10-30 GPU 事故闸：
     # 大脑把料号名写进行描述即"精确匹配"自答落定——本闸封死。）声明读流配置，不写死类目。
     try:
-        from app.services.skill_decision_gate import declared_decisions, decision_demote_parts
+        from ai_office.skill_decision_gate import declared_decisions, decision_demote_parts
         _fc = ctx.get("flow_configs") if isinstance(ctx.get("flow_configs"), dict) else {}
         _dec = declared_decisions(_fc)
         if _dec:

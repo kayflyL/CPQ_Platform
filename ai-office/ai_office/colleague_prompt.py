@@ -16,7 +16,7 @@ from typing import Optional
 from app.repository.skill_catalog_repo import SkillCatalogRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.services.ai_colleague_service import colleague_tool_ids
-from app.services.skill_types import is_capability_skill, is_workflow_skill
+from ai_office.skill_types import is_capability_skill, is_workflow_skill
 
 
 def _skill_library() -> dict:

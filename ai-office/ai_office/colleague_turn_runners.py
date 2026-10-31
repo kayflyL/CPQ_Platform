@@ -16,12 +16,12 @@ import logging
 import time
 from typing import Any, Callable, Optional
 
-from app.services import llm_client
-from app.services.agent_react import run_stream_chat_loop
+from ai_office import llm_client
+from ai_office.agent_react import run_stream_chat_loop
 from app.services.assistant_hub import assistant_hub
-from app.services.data_boundary import effective_price_ok
-from app.services.skill_tool_context import TOOL_CTX
-from app.services.colleague_prompt import (
+from ai_office.data_boundary import effective_price_ok
+from ai_office.skill_tool_context import TOOL_CTX
+from ai_office.colleague_prompt import (
     _base_messages,
     _handoff_hint,
     _short_term_history,
@@ -32,19 +32,19 @@ from app.services.colleague_prompt import (
     _workflow_offers,
     build_chat_config,
 )
-from app.services.colleague_turn_io import (
+from ai_office.colleague_turn_io import (
     _add_assistant_message,
     _ensure_ai_office_opportunity,
     _persist_and_broadcast,
     _trace,
     _workflow_suggestion_of,
 )
-from app.services.llm_client import LLMError
+from ai_office.llm_client import LLMError
 from app.services.office_access import allowed_chat_role_keys
-from app.services.office_events import publish_office_event
+from ai_office.office_events import publish_office_event
 from app.services.office_governance import office_governance
 from app.services.office_mission import record_mission
-from app.services.skill_contracts import SKILL_SESSION_ACTIVE, SKILL_SESSION_DONE
+from ai_office.skill_contracts import SKILL_SESSION_ACTIVE, SKILL_SESSION_DONE
 
 logger = logging.getLogger(__name__)
 
@@ -354,7 +354,7 @@ async def _run_tool_turn(
 # ── Skill 对话路径（两器官架构）：角色=对话脑（skill_chat），引擎=纯执行 ──────────
 
 def _skill_chat_memory_active(thread_id: str, role_key: str) -> bool:
-    from app.services.skill_memory import _load_mem, SKILL_SESSION_KEY
+    from ai_office.skill_memory import _load_mem, SKILL_SESSION_KEY
     mem = _load_mem(thread_id, role_key)
     # 只认「无 skill_session 字段」的存量记忆（分支注释的本意）：有会话记录的线程按
     # 会话相位分派（ACTIVE→续跑分支 / DONE→launcher 或普通聊天），不能再落回固定
@@ -372,8 +372,8 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
 ) -> None:
     """绑定工作流 Skill 的 AI 角色：普通聊天阶段不读 Skill 节点内容；
     force_submit=True 表示已确认/试运行/续跑，直接进入固定六步引擎，不再由模型决定是否提交。"""
-    from app.services.skill_chat import handle_skill_chat_turn
-    from app.services.skill_memory import load_skill_session, save_skill_session
+    from ai_office.skill_chat import handle_skill_chat_turn
+    from ai_office.skill_memory import load_skill_session, save_skill_session
 
     role_key = (colleague or {}).get("role_key") or "assistant"
     started = time.perf_counter()
@@ -421,7 +421,7 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
         # 会话实体绑定策略(graph.entity_binding,缺省 sandbox):sandbox=隐藏 ai-* 载体
         # (需求分析范式);real_bound=不建载体,交付链的建档确认节点绑定真实商机;
         # none=不挂商机。载体轮换只属于 sandbox 范式,不给其他工作流强加。
-        from app.services.skill_registry import entity_binding_of
+        from ai_office.skill_registry import entity_binding_of
         if entity_binding_of(skill_manifest) == "sandbox":
             opportunity_id = _ensure_ai_office_opportunity(thread_id, user, user_text)
 
@@ -514,7 +514,7 @@ async def _run_skill_chat(thread_id, user_text, context_summary, history, collea
             data = await llm_client.chat_json(_fr_msgs, timeout=30, max_attempts=1,
                 # 收尾=事实串讲（接地任务）：低推理档够了，员工 profile 显式配置可覆盖
                 reasoning_effort=(build_chat_config(colleague).get("response_profile") or {}).get("reasoning_effort") or "low")
-            from app.services.llm_trace import record_llm_trace
+            from ai_office.llm_trace import record_llm_trace
             record_llm_trace(node_type="skill_final", opportunity_id=thread_id, role_key=role_key,
                              duration_ms=int((time.perf_counter() - _fr_t0) * 1000),
                              prompt_chars=sum(len(str(m.get("content") or "")) for m in _fr_msgs),

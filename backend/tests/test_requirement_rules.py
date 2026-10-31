@@ -172,7 +172,7 @@ async def _noop(ctx, cfg, broadcast=None):
 
 def test_kp_prepare_no_longer_tables_baseline():
     """基线不再摆桌进 hint（知识进 brain 系统提示）；hint 只报行清单事实。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     with patch("app.services.skill_phases.phase_kp_reason", _noop):
         res = asyncio.run(_KpNode().prepare(
             {"ext": _ext(server_type="AI训练"), "requirement_text": "GPU 服务器"}, {}))
@@ -182,7 +182,7 @@ def test_kp_prepare_no_longer_tables_baseline():
 
 
 def test_kp_prepare_hint_reports_row_summary():
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     with patch("app.services.skill_phases.phase_kp_reason", _noop):
         res = asyncio.run(_KpNode().prepare(
             {"ext": _ext(), "kp_summary": {"kp_count": 3, "unmatched_count": 1}}, {}))

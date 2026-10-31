@@ -18,7 +18,7 @@ import logging
 from typing import Callable, Optional
 
 from app.services.assistant_hub import assistant_hub
-from app.services.colleague_prompt import (
+from ai_office.colleague_prompt import (
     _effective_tool_ids,
     _first_workflow_skill,
     _group_channel_note,
@@ -37,13 +37,13 @@ from app.services.colleague_prompt import (
     _user_name,
     _workflow_hint,
 )
-from app.services.colleague_turn_io import (
+from ai_office.colleague_turn_io import (
     _add_assistant_message,
     _ensure_ai_office_opportunity,
     _persist_and_broadcast,
     _trace,
 )
-from app.services.colleague_turn_runners import (
+from ai_office.colleague_turn_runners import (
     _broadcast_chat_progress,
     _run_plain_turn,
     _skill_write_mode,
@@ -51,12 +51,12 @@ from app.services.colleague_turn_runners import (
     _skill_chat_memory_active,
     _skill_phase_hint,
 )
-from app.services.transaction_turn import dispatch_flow_turn
-from app.services.office_events import publish_office_event
-from app.services.skill_contracts import SKILL_SESSION_ACTIVE
-from app.services.skill_memory import flow_delivered, reset_flow_memory
-from app.services.skill_registry import resolve_skill_manifest
-from app.services.skill_types import is_workflow_skill
+from ai_office.transaction_turn import dispatch_flow_turn
+from ai_office.office_events import publish_office_event
+from ai_office.skill_contracts import SKILL_SESSION_ACTIVE
+from ai_office.skill_memory import flow_delivered, reset_flow_memory
+from ai_office.skill_registry import resolve_skill_manifest
+from ai_office.skill_types import is_workflow_skill
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ async def run_colleague_turn(
             await publish_office_event(role_key, "thinking", "正在思考回复", thread_id=thread_id)
             memory_block = await _memory_block(colleague, user_text, user)
             allowed_tool_ids = _effective_tool_ids(colleague)
-            from app.services.skill_memory import load_skill_session, save_skill_session
+            from ai_office.skill_memory import load_skill_session, save_skill_session
             session = load_skill_session(thread_id, role_key)
             is_preview = (entry_point or "").strip() == "skill_studio_preview"
             # B1：写模式由入口显式决定（试运行不落库 / 带商机落草稿 / 都没有不落库）；续跑沿用线程记的入口。

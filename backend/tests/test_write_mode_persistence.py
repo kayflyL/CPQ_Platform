@@ -14,9 +14,9 @@ import contextvars
 import inspect
 
 from app.services import portal_flow_adapter as adapter
-from app.services import skill_node_runtime
-from app.services import skill_turn_engine
-from app.services.colleague_turn_runners import PREVIEW_ENTRY_POINTS, _skill_write_mode
+from ai_office import skill_node_runtime
+from ai_office import skill_turn_engine
+from ai_office.colleague_turn_runners import PREVIEW_ENTRY_POINTS, _skill_write_mode
 from app.services.portal_flow_adapter import (
     _can_persist_draft, _write_mode, seed_ext_from_requirement_draft)
 
@@ -122,7 +122,7 @@ def test_seed_ext_from_requirement_draft_round_trip(monkeypatch):
 
 def test_fill_node_wire_result_writes_draft_back(monkeypatch):
     """B2 挂钩点：登记节点每轮收尾就写回草稿；ext 不是 dict 时安全空转。"""
-    from app.services import skill_node_plugins as plugins
+    from ai_office import skill_node_plugins as plugins
     hits: list = []
     monkeypatch.setattr(adapter, "persist_requirement_from_ctx",
                         lambda engine, operator="": hits.append((engine.get("opportunity_id"), operator)))
@@ -197,8 +197,8 @@ def test_delivery_submits_the_same_draft_in_place(monkeypatch):
 
 def test_write_mode_flows_through_the_turn_stack(monkeypatch):
     """write_mode 从入口一路传到引擎 ctx；只有 draft 才从草稿播种 ext。"""
-    from app.services import skill_chat
-    from app.services.colleague_turn_runners import _run_skill_chat
+    from ai_office import skill_chat
+    from ai_office.colleague_turn_runners import _run_skill_chat
     for fn in (skill_turn_engine.run_skill_agent_turn, skill_chat.handle_skill_chat_turn,
                _run_skill_chat):
         assert "write_mode" in inspect.signature(fn).parameters, fn

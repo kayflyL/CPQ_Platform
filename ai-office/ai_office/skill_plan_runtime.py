@@ -19,8 +19,8 @@ import asyncio
 from typing import Any, Awaitable, Callable, Optional
 
 from app.services.capability_spec import mechanism_tools_map
-from app.services.skill_node_runtime import compose_plans, finalize_output
-from app.services.skill_node_state import KP_ABSENT, kp_state, waived_categories
+from ai_office.skill_node_runtime import compose_plans, finalize_output
+from ai_office.skill_node_state import KP_ABSENT, kp_state, waived_categories
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +105,7 @@ def node_tool_drift(node_key: str, node_cfg: dict) -> list[str]:
     补回动作在 effective_node_tools；本函数把「缺了什么」单独暴露，
     供编排壳发 node_trace（配置漂移要让人在试运行里看见，不能只进日志）。
     """
-    from app.services.tool_names import normalize_tool_ids
+    from ai_office.tool_names import normalize_tool_ids
     cfg = node_cfg if isinstance(node_cfg, dict) else {}
     bound = set(normalize_tool_ids(cfg.get("enabled_tools") or []))
     return [m for m in (MECHANISM_TOOLS.get(node_key) or []) if m not in bound]
@@ -113,7 +113,7 @@ def node_tool_drift(node_key: str, node_cfg: dict) -> list[str]:
 
 def effective_node_tools(node_key: str, node_cfg: dict) -> list:
     """节点实际可用工具 = DB enabled_tools ∪ 机制保底（单一口径，渲染器与执行器共用）。"""
-    from app.services.tool_names import normalize_tool_ids
+    from ai_office.tool_names import normalize_tool_ids
     cfg = node_cfg if isinstance(node_cfg, dict) else {}
     bound = normalize_tool_ids(cfg.get("enabled_tools") or [])
     missing = node_tool_drift(node_key, cfg)
@@ -160,8 +160,8 @@ def steps_payload(flow: dict, data_range: dict | None = None) -> list[dict]:
     topo = _topo_order(flow)
     node_label = {str(nd.get("id") or ""): str(nd.get("label") or "")
                   for nd in (flow.get("graph") or {}).get("nodes") or [] if isinstance(nd, dict)}
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_target_contract import with_data_range
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_target_contract import with_data_range
     steps: list[dict] = []
     for key in topo:
         cfg = flow_configs.get(key) if isinstance(flow_configs.get(key), dict) else {}
@@ -194,7 +194,7 @@ def _artifact_field_ask(node_cfg: dict, field_key: str) -> bool:
     （引擎弹机型选项卡/保持占位行）；缺省/未配置 → 大脑可从候选池自行选定。
     """
     try:
-        from app.services.skill_target_contract import target_artifacts
+        from ai_office.skill_target_contract import target_artifacts
         arts = target_artifacts(node_cfg)
         art = (arts[0] if arts else {}) or {}
         for coll in (art.get("contract", {}).get("columns") if isinstance(art.get("contract"), dict) else None,
@@ -391,7 +391,7 @@ async def prepare_step(ctx: dict, key: str, broadcast: BroadcastFn = None) -> di
 
     编排壳不认识任何节点——新增节点 = 注册一个插件（换插头），本函数零改动。
     """
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     flow_configs = ctx.get("flow_configs") or {}
     cfg = flow_configs.get(key) if isinstance(flow_configs.get(key), dict) else {}
     return await plugin_for(key).prepare(ctx, cfg, broadcast)
@@ -403,13 +403,13 @@ async def validate_step_end(ctx: dict, key: str) -> dict:
     校验失败 = 该步没干完：引擎回喂 hint 逼大脑补做（调工具或 ask_user），不标 done，
     绝不把机制文案直接抛给客户。
     """
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     return await plugin_for(key).validate(ctx)
 
 
 async def _refresh_kp_state(ctx: dict) -> None:
     """（兼容别名）刷新 kp 占位/落地行表；实现已迁到节点插件注册表。"""
-    from app.services.skill_node_plugins import refresh_kp_state
+    from ai_office.skill_node_plugins import refresh_kp_state
     await refresh_kp_state(ctx)
 
 
@@ -457,7 +457,7 @@ def _data_answer_gate(ctx: dict) -> dict:
     answer = str(((ctx.get("agent_result") or {}).get("answer")) or "").strip()
     if not answer:
         return {"ok": False, "hint": "分析尚未产出数据结论"}
-    from app.services.skill_target_contract import _report_window
+    from ai_office.skill_target_contract import _report_window
     flow_configs = ctx.get("flow_configs") if isinstance(ctx.get("flow_configs"), dict) else {}
     doc_node = ""
     for key, cfg in flow_configs.items():

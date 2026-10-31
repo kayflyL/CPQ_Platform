@@ -15,7 +15,8 @@ Search 的对照实验指出：这种 repeated broad search 既费 token 又降�
 import os
 import sys
 
-from app.services import data_tools, skill_tool_context, skill_tools_open
+from app.services import data_tools, skill_tools_open
+from ai_office import skill_tool_context
 from app.services import part_recall as part_recall_module
 from app.services import part_selector
 
@@ -250,7 +251,7 @@ def test_open_row_is_read_only(monkeypatch):
 def test_inspect_parts_registered_but_not_mechanism_tool():
     """统一只读钻取工具：注册表里在，机制保底表里不在（关掉不影响三件套闭环）。"""
     from app.services.agent_tool_specs import build_tool_registry, registered_tool_ids
-    from app.services.skill_plan_runtime import MECHANISM_TOOLS
+    from ai_office.skill_plan_runtime import MECHANISM_TOOLS
     ids = registered_tool_ids()
     assert "inspect_parts" in ids
     reg = build_tool_registry({"enabled_tools": ["query_parts", "inspect_parts"]})
@@ -267,7 +268,7 @@ def test_capability_spec_declares_the_inspect_tool():
 def test_navigate_and_grep_actions_are_behind_the_same_tool():
     """category（navigate）/ grep 已收敛进同一个 inspect_parts，不再各自占注册表。"""
     from app.services.agent_tool_specs import build_tool_registry, registered_tool_ids
-    from app.services.skill_plan_runtime import MECHANISM_TOOLS
+    from ai_office.skill_plan_runtime import MECHANISM_TOOLS
     ids = registered_tool_ids()
     assert "open_category" not in ids and "grep_parts" not in ids
     assert "inspect_parts" in ids
@@ -279,7 +280,7 @@ def test_navigate_and_grep_actions_are_behind_the_same_tool():
 def test_brain_note_summary_is_generic_and_records_drill_facts():
     """跨轮工作记录 = 通用渲染：引擎不认工具名，但实参/结果事实要原样带上。"""
     import json
-    from app.services.skill_memory import _brain_note_summary
+    from ai_office.skill_memory import _brain_note_summary
     txt = _brain_note_summary("kp_reason", {"tool_calls_log": [
         {"name": "open_category", "args": {"category": "NIC"},
          "result": {"ok": True, "parts_in_library": 71, "spec_field_count": 3}},
@@ -303,10 +304,9 @@ def test_brain_note_summary_is_generic_and_records_drill_facts():
 def test_memory_layer_knows_no_tool_names():
     """合规守卫：记忆/编排层不得内置工具清单——工具知识只住在工具契约里。"""
     from pathlib import Path
-    root = Path(__file__).resolve().parent.parent
-    for rel in ("app/services/skill_memory.py", "app/services/skill_turn_engine.py",
-                "app/services/skill_step_runtime.py"):
-        src = (root / rel).read_text(encoding="utf-8")
+    engine = Path(__file__).resolve().parent.parent.parent / "ai-office" / "ai_office"
+    for rel in ("skill_memory.py", "skill_turn_engine.py", "skill_step_runtime.py"):
+        src = (engine / rel).read_text(encoding="utf-8")
         for name in ("query_parts", "select_parts", "open_part", "open_row",
                      "open_category", "grep_parts", "choose_model", "fill_requirement"):
             assert name not in src, f"{rel} 出现工具名 {name}"
@@ -314,7 +314,7 @@ def test_memory_layer_knows_no_tool_names():
 
 def test_engine_carries_brain_notes_across_turns():
     """工作记忆跨轮承接：上一回合的工具轨迹本回合要可见，否则检索轨迹每轮归零（窗口 3 条）。"""
-    from app.services.skill_turn_engine import _SkillTurnRuntime
+    from ai_office.skill_turn_engine import _SkillTurnRuntime
     rt = _SkillTurnRuntime(thread_id="t", role_key="r", persona="p", full_text="x", history=[],
                            ext={}, mem={"brain_notes": ["旧1", "旧2", "旧3", "旧4"]},
                            flow={"node_configs": {}, "graph": {"nodes": [], "manual_rules": ""}})

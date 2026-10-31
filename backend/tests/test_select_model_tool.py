@@ -11,9 +11,9 @@ model_selection）、目标层「AI 反问」策略消费与大脑回合收敛�
 """
 import os
 import sys
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 from app.services import skill_tools_model
-from app.services import skill_turn_engine
+from ai_office import skill_turn_engine
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -44,7 +44,7 @@ def _wire_engine() -> dict:
 
 
 def _call_select(args: dict, *, task_active: bool = True, pool=None, ext=None) -> dict:
-    from app.services import skill_chat
+    from ai_office import skill_chat
     saved = {}
     skill_tool_context.TOOL_CTX.set({
         "ext": ext if ext is not None else {}, "task_active": task_active,
@@ -98,7 +98,7 @@ def test_select_model_requires_args():
 
 def test_model_field_ask_policy_from_target_layer():
     """目标层「AI 反问」开关：server_model.ask=true → 大脑不代选（弹卡交客户）；缺省 False。"""
-    from app.services.skill_plan_runtime import _model_field_ask
+    from ai_office.skill_plan_runtime import _model_field_ask
     assert _model_field_ask({}) is False
     on = {"target": {"artifacts": [{"fields": [
         {"key": "server_model", "label": "服务器型号", "ask": True}]}]}}
@@ -115,12 +115,12 @@ def _run(coro):
 
 def _wire(result: dict, engine: dict) -> None:
     """把一轮大脑结果交节点插件接线（产品路径：run_skill_agent_turn 的 settle 就是这么调的）。"""
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     plugin_for("model_reason").wire_result(engine, result)
 
 
 def _choose(name: str, reason: str = "r") -> dict:
-    from app.services import skill_chat
+    from ai_office import skill_chat
     skill_tool_context.TOOL_CTX.set({"ext": {}, "task_active": True, "model_pool": _POOL,
                              "save": lambda: None})
     return skill_tools_model.tool_select_model({"model": name, "reason": reason})
@@ -152,7 +152,7 @@ def test_model_wire_result_ignores_declined_and_out_of_pool():
 
 def test_model_wire_result_never_writes_registration_ext():
     """阶段函数 dict(ext) 复制重赋也不丢选定：落锁只看引擎产物，不依赖 ext 对象身份。"""
-    from app.services import skill_chat
+    from ai_office import skill_chat
     stale = {"server_type": "通用计算服务器"}
     engine = _wire_engine()
     engine["ext"] = dict(stale)
@@ -191,7 +191,7 @@ def test_model_wire_unregistered_lock_handler_visible_not_crash():
 def test_brain_attempts_retries_rejected_tool_then_settles_last_round():
     """工具被拒 → 真实返回喂回重试（≤3 次）；末轮不再因被拒而跳过收口校验。"""
     from unittest.mock import patch
-    from app.services import skill_chat
+    from ai_office import skill_chat
 
     calls = {"n": 0}
     settled = {"n": 0}

@@ -19,13 +19,13 @@ import app.repository.flow_repo as flow_repo_mod  # noqa: E402
 import app.repository.opportunity_repo as opportunity_repo_mod  # noqa: E402
 import app.repository.reasoning_flow_repo as reasoning_flow_repo_mod  # noqa: E402
 import pytest  # noqa: E402
-from app.services import agent_write_confirm as wc  # noqa: E402
+from ai_office import agent_write_confirm as wc # noqa: E402
 from app.services import delivery_core as dcore  # noqa: E402
-from app.services import transaction_engine as te  # noqa: E402
+from ai_office import transaction_engine as te # noqa: E402
 from app.services import delivery_app as dapp  # noqa: E402
-import app.services.transaction_turn as tt  # noqa: E402
-import app.services.colleague_turn_runners as runners  # noqa: E402
-from app.services.skill_tool_context import TOOL_CTX  # noqa: E402
+import ai_office.transaction_turn as tt  # noqa: E402
+import ai_office.colleague_turn_runners as runners  # noqa: E402
+from ai_office.skill_tool_context import TOOL_CTX  # noqa: E402
 
 USER = {"user_id": "u1", "name": "管理员", "role": "admin"}
 
@@ -437,7 +437,7 @@ def test_desk_complete_boundary(world):
 
     arm.AssistantRepository = _StateRepo
     try:
-        from app.services.transaction_engine import apply_facts
+        from ai_office.transaction_engine import apply_facts
         apply_facts(dapp.APP, "t1", "assistant", [
             {"tool": "set_quote_margin", "result": {"ok": True, "margin_pct": 15, "quotation_id": "Q1"}},
             {"tool": "share_quote", "result": {"ok": True, "share_path": "/s/xyz"}},
@@ -586,7 +586,7 @@ def _patch_turn_env(monkeypatch, world, stub, captures):
         return None
     monkeypatch.setattr(tt, "publish_office_event", _pub)
 
-    import app.services.skill_memory as sm
+    import ai_office.skill_memory as sm
     monkeypatch.setattr(sm, "load_skill_session", lambda t, r: dict(captures["session"]))
     def _save(t, r, s):
         captures["session"].clear()
@@ -835,8 +835,8 @@ def test_turn_replays_deferred_gate_call_on_step_advance(world, monkeypatch):
     import json as _json
     from unittest.mock import patch
     from app.services import agent_tool_specs as ats
-    import app.services.colleague_turn_io as cio
-    import app.services.human_query as hq
+    import ai_office.colleague_turn_io as cio
+    import ai_office.human_query as hq
     wc._STORAGE = "memory"
     wc._MEM.clear()
     hq._STORAGE = "db"  # 走 world 假仓库（reasoning_state 读写全被 fixture 接管）

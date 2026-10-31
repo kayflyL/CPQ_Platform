@@ -5,8 +5,8 @@
 """
 from __future__ import annotations
 
-from app.services.skill_memory import _slots_view
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_memory import _slots_view
+from ai_office.skill_tool_context import TOOL_CTX
 
 
 def tool_select_model(args: dict) -> dict:

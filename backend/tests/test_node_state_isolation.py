@@ -17,9 +17,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 from app.services import skill_tools_select
-from app.services.skill_node_state import (
+from ai_office.skill_node_state import (
     KP_ABSENT, KP_PICKS, NODE_STATE_KEY, kp_state, node_state)
 
 
@@ -52,7 +52,7 @@ def test_state_survives_mem_round_trip():
 
 def test_select_parts_never_writes_shared_ext(monkeypatch):
     from app.services import data_tools
-    from app.services import skill_chat
+    from ai_office import skill_chat
 
     def _by_name(category, name, *, series="", price_ok=True, _repo=None):
         rows = [{"part_id": "101", "name": "兆芯 KH-50000 32核", "category": "CPU",

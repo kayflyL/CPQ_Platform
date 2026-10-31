@@ -8,12 +8,12 @@ import asyncio
 import os
 import sys
 from unittest.mock import patch
-from app.services import skill_tool_context
-from app.services import skill_turn_engine
+from ai_office import skill_tool_context
+from ai_office import skill_turn_engine
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 def test_freeze_flags_downstream_write_and_ignores_owner():
     """属主节点落定后打快照；下游节点改写登记表 → 判红并点名差异字段。"""
-    from app.services.skill_node_state import doc_freeze_violation, mark_doc_frozen
+    from ai_office.skill_node_state import doc_freeze_violation, mark_doc_frozen
     engine: dict = {}
     ext = {"server_type": "通用计算服务器", "purchase_qty": 1}
     # 还没落定：谈不上冻结
@@ -35,7 +35,7 @@ def test_freeze_flags_downstream_write_and_ignores_owner():
     assert doc_freeze_violation(engine, "kp_reason", ext) == ""
 def test_row_answer_does_not_break_row_key_or_pick():
     """客户对某行的补充回答只进本节点分区，行键取自登记原文 → 已锁定选型不失效。"""
-    from app.services.skill_node_state import KP_PICKS, KP_ROW_ANSWERS, add_row_answer, row_answer_text
+    from ai_office.skill_node_state import KP_PICKS, KP_ROW_ANSWERS, add_row_answer, row_answer_text
     from app.services.slot_contract import apply_structured_slots
     ext = {"kp_rows": [{"part_category": "CPU", "description": "2颗兆芯50000", "qty": 2}]}
     kp_st = {KP_PICKS: {"CPU|2颗兆芯50000": {"name": "兆芯 KH50000 96C"}}}
@@ -48,8 +48,8 @@ def test_row_answer_does_not_break_row_key_or_pick():
     assert row_answer_text({"node_state": {"kp_reason": kp_st}}, "CPU|2颗兆芯50000") == "2.2GHz 96C"
 def test_empty_registration_is_not_marked_done_and_hint_is_fed_back():
     """必填闸门：空表不许标 done（历史「空表也标完成 → 线程砖死」），引擎校验失败回喂大脑补做。"""
-    from app.services import skill_chat
-    from app.services import skill_step_runtime
+    from ai_office import skill_chat
+    from ai_office import skill_step_runtime
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow
@@ -76,7 +76,7 @@ def test_rejected_tool_call_does_not_skip_step_validation():
     2026-09-16 收紧：有正文不再回喂重试到上限（趋势分析三份连体报告事故——探索型
     失败调用是常态，一律重开会把已完成的产物整个丢弃重生成），校验始终执行。
     """
-    from app.services import skill_chat
+    from ai_office import skill_chat
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow
@@ -108,7 +108,7 @@ def test_rejected_tool_call_does_not_skip_step_validation():
         "产物齐了就该标 done，不能因一次工具被拒而跳过校验"
 def test_done_summary_comes_from_artifact_not_node_name():
     """节点完成摘要由产物生成：产物空就说空，不许按节点名硬编码文案（历史：agent_fill 报「配件选型完成」）。"""
-    from app.services.skill_node_artifacts import done_summary
+    from ai_office.skill_node_artifacts import done_summary
     empty = done_summary({}, "agent_fill", {"kind": "requirement_slots", "title": "线索登记表", "data": {}})
     assert "已完成" not in empty and "产物为空" in empty
     filled = done_summary({}, "agent_fill", {"kind": "requirement_slots", "title": "线索登记表",
@@ -124,7 +124,7 @@ def test_done_summary_comes_from_artifact_not_node_name():
     assert "未注册产物" in done_summary({}, "whatever", None)
 def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
     """主循环不再有节点专属文案：指令来自左栏任务规则；行清单带客户补充回答。"""
-    from app.services import skill_chat
+    from ai_office import skill_chat
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow, "需求分析 active flow 未播种"
@@ -174,7 +174,7 @@ def test_kp_turn_prompt_is_drawer_driven_and_rows_carry_answers():
 def test_frozen_doc_view_blocks_every_write_path():
     """下游拿到的登记表视图：读随意，写（=、setdefault、update、pop、clear）一律当场报错。"""
     import pytest
-    from app.services.skill_node_state import DocWriteForbidden, FrozenDocView, unwrap_doc
+    from ai_office.skill_node_state import DocWriteForbidden, FrozenDocView, unwrap_doc
     raw = {"server_type": "通用计算服务器", "purchase_qty": 1}
     view = FrozenDocView(raw, "kp_reason")
     assert view["server_type"] == "通用计算服务器"
@@ -191,8 +191,8 @@ def test_frozen_doc_view_blocks_every_write_path():
     assert raw == {"server_type": "通用计算服务器", "purchase_qty": 1}, "底层文档一字未改"
 def test_downstream_node_turn_gets_readonly_registration_doc():
     """非属主节点回合：工具上下文里是只读视图，写登记表当场失败，底表不变。"""
-    from app.services import skill_chat
-    from app.services.skill_node_state import DocWriteForbidden, FrozenDocView
+    from ai_office import skill_chat
+    from ai_office.skill_node_state import DocWriteForbidden, FrozenDocView
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow
@@ -227,7 +227,7 @@ def test_downstream_node_turn_gets_readonly_registration_doc():
 def test_frozen_snapshot_moves_across_turns_and_ignores_the_customers_own_click():
     """快照跨轮搬运（引擎内存对象每轮重建，只能从记忆搬）：跨轮回填必须照样判红；
     客户自己点选登记字段 = 客户改**自己的**表，重打点后不再判红。"""
-    from app.services.skill_node_state import doc_freeze_violation, freeze_snapshot, mark_doc_frozen
+    from ai_office.skill_node_state import doc_freeze_violation, freeze_snapshot, mark_doc_frozen
     turn1: dict = {}
     ext = {"server_type": "通用计算服务器", "kp_rows": []}
     mark_doc_frozen(turn1, "agent_fill", ext)

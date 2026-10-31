@@ -32,7 +32,7 @@ def _product_slots() -> set:
     global _PRODUCT_REGISTRY
     if _PRODUCT_REGISTRY is None:
         try:
-            from app.services.skill_node_artifacts import builder_kinds
+            from ai_office.skill_node_artifacts import builder_kinds
             _PRODUCT_REGISTRY = builder_kinds()
         except Exception:
             _PRODUCT_REGISTRY = set()
@@ -54,7 +54,7 @@ def runtime_of(flow_key: str) -> str:
     if not str(flow_key or "").strip():
         return "skill"
     try:
-        from app.services.transaction_engine import resolve_app
+        from ai_office.transaction_engine import resolve_app
         return "transaction" if resolve_app(str(flow_key)) is not None else "skill"
     except Exception:
         return "skill"
@@ -81,7 +81,7 @@ def validate_node(node_key: str, node_type: str, config: dict, runtime: str = "s
     if node_type not in WORKER_TYPES:
         return issues
     if runtime == "skill":
-        from app.services.skill_target_contract import target_artifacts
+        from ai_office.skill_target_contract import target_artifacts
         arts = target_artifacts(cfg)
         if not arts:
             issues.append(_issue("W1", "warning",
@@ -103,7 +103,7 @@ def validate_node(node_key: str, node_type: str, config: dict, runtime: str = "s
     # 趋势域化实证：声明即有产出（requirement_text/data_report 现成 builder）。
     # 仅 skill 运行时；warning 级——需求分析 input/output 走引擎内建通道，补显式声明后可升 error。
     if runtime == "skill" and node_type in ("input", "output"):
-        from app.services.skill_target_contract import target_artifacts as _ta
+        from ai_office.skill_target_contract import target_artifacts as _ta
         if not _ta(cfg):
             issues.append(_issue("W4", "warning",
                                  "输入/输出节点未声明产物（target.artifacts）——"

@@ -12,7 +12,7 @@ import importlib
 import inspect
 import pathlib
 
-from app.services import skill_chat, skill_turn_engine
+from ai_office import skill_chat, skill_turn_engine
 
 OWNERS = {
     "skill_tool_context": ["TOOL_CTX"],
@@ -54,9 +54,12 @@ PART_LINE_BUDGET = 700
 
 def test_each_split_module_owns_its_names():
     """拆出的名字必须住在归属模块里（改名搬家要同步这里的归属表）。"""
+    from ai_office import engine_boundary as _eb
+    _moved = set(_eb.STRICT_MODULES) | set(_eb.FUSED_MODULES)
     missing = []
     for mod_name, names in OWNERS.items():
-        mod = importlib.import_module("app.services." + mod_name)
+        mod = importlib.import_module(("ai_office." if mod_name in _moved
+                                       else "app.services.") + mod_name)
         missing += [f"{mod_name}::{n}" for n in names if not hasattr(mod, n)]
     assert not missing, "拆出的名字不在归属模块里：" + repr(missing)
 

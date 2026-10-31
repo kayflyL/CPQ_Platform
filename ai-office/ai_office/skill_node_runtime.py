@@ -221,7 +221,7 @@ async def _render_by_template(template_key: str, title: str, answer: str,
     try:
         from app.repository.artifact_template_repo import ArtifactTemplateRepo
         from app.services.artifact_render import render_report_pdf
-        from app.services.skill_target_contract import _report_window, range_days
+        from ai_office.skill_target_contract import _report_window, range_days
 
         repo = ArtifactTemplateRepo()
         try:

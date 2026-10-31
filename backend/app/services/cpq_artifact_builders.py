@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import logging
 
-from app.services.skill_node_artifacts import (
+from ai_office.skill_node_artifacts import (
     register_builder,
     register_live_emitter,
 )
-from app.services.skill_target_contract import (
+from ai_office.skill_target_contract import (
     first_artifact,
     shape_table_rows,
     unresolved_columns,
@@ -200,7 +200,7 @@ def _data_report(engine: dict, art: dict) -> tuple:
 async def _live_requirement_slots(engine: dict, event_sink, label: str,
                                   started: float, text: str = "") -> None:
     """线索登记表的实时发射器：先按必填闸门口径刷新缺口，再逐项亮已登记内容。"""
-    from app.services.skill_plan_runtime import _emit_requirement_fill
+    from ai_office.skill_plan_runtime import _emit_requirement_fill
     from app.services.slot_contract import _missing_critical
     from app.services.capabilities import _slot_now_filled
     ext_now = engine.get("ext") or {}

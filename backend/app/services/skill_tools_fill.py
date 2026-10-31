@@ -7,9 +7,9 @@ from __future__ import annotations
 
 import logging
 import json
-from app.services.skill_memory import _kp_node_state, _slots_view
-from app.services.skill_node_state import KP_ABSENT, KP_PICKS
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_memory import _kp_node_state, _slots_view
+from ai_office.skill_node_state import KP_ABSENT, KP_PICKS
+from ai_office.skill_tool_context import TOOL_CTX
 from app.services.slot_contract import canonical_key, catalog_field_keys, slot_label, slot_spec
 from typing import Optional
 
@@ -279,5 +279,5 @@ def fill_tool_parameters() -> dict:
 
 def _fill_contract_brief() -> str:
     """（兼容别名）登记契约简报；实现已迁到节点插件注册表。"""
-    from app.services.skill_node_plugins import fill_contract_brief
+    from ai_office.skill_node_plugins import fill_contract_brief
     return fill_contract_brief()

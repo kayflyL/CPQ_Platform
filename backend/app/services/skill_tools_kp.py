@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import re
 
-from app.services.skill_memory import _kp_status_rows
-from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_memory import _kp_status_rows
+from ai_office.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
+from ai_office.skill_tool_context import TOOL_CTX
 
 def _zero_reason(cat: str, q: dict) -> str:
     """行召回零命中时的接地提示：把该类目真实 specs 字段交给模型，引导它改数值/型号词或 spec_filter，而非全类目浏览。

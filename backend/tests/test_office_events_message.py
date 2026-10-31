@@ -1,7 +1,7 @@
 """办公室事件发布：用户消息原文不出会话线程（多用户看板是全局房间，2026-09-28 拍板截断 40 字）。"""
 import asyncio
 
-from app.services import office_events as oe
+from ai_office import office_events as oe
 
 
 def _captured(monkeypatch):

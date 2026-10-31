@@ -17,9 +17,9 @@ from typing import Any, Dict, List, Optional
 
 from app.repository.system_config_repo import SystemConfigRepository
 from app.services import ai_colleague_service
-from app.services import llm_client
-from app.services.agent_react import run_react_loop
-from app.services.office_events import publish_office_event
+from ai_office import llm_client
+from ai_office.agent_react import run_react_loop
+from ai_office.office_events import publish_office_event
 
 logger = logging.getLogger(__name__)
 

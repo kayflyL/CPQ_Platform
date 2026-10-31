@@ -17,7 +17,7 @@ from app.repository.reasoning_flow_repo import ReasoningFlowRepository, compute_
 from app.repository.role_repo import RoleRepository
 from app.repository.system_config_repo import SystemConfigRepository
 from app.repository.skill_catalog_repo import SkillCatalogRepository
-from app.services.data_boundary import normalize_colleague
+from ai_office.data_boundary import normalize_colleague
 from app.services.office_access import allowed_chat_role_keys
 
 router = APIRouter(prefix="/api/ai-colleagues", tags=["ai-colleagues"])

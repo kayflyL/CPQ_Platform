@@ -5,7 +5,7 @@
 流程内=原选配模式行为不变（rows 批量、行清单状态回传、limit 上限 20）。
 hybrid_search 打桩，不碰库。
 """
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_tool_context import TOOL_CTX
 from app.services.skill_tools_kp import tool_query_parts
 
 

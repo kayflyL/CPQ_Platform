@@ -96,8 +96,8 @@ def test_pick_placeholder_and_apply_preserve_identity():
 # ── 6. 行清单发布带铸造 id，且台账跨轮不换 id、只更新 rev ────────────────
 
 def test_bridge_ctx_publishes_minted_row_id_and_ledger():
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_node_state import KP_ROW_IDS, kp_state
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_node_state import KP_ROW_IDS, kp_state
     reg = [{"part_category": "HDD/SSD", "description": "系统盘 480G SSD", "qty": 2}]
     engine = {"ext": {"kp_rows": reg}, "kp_parts": requirement_rows_to_parts(reg),
               "flow_configs": {}, "node_state": {}}
@@ -192,8 +192,8 @@ def test_waived_matches_row_id_and_origin_keys():
 
 def test_bridge_ctx_shows_stale_pick_as_pending():
     from app.services.part_selector import row_content_rev
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_node_state import KP_PICKS, kp_state
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_node_state import KP_PICKS, kp_state
     part = _row("Memory", "内存 512G DDR5", "kp-ffff6666", "reg:Memory")
     engine = {"ext": {"kp_rows": [{"part_category": "Memory", "description": "内存 512G DDR5"}]},
               "kp_parts": [part], "flow_configs": {}, "node_state": {}}
@@ -228,7 +228,8 @@ def _stub_name_lookup(rows: list):
 
 
 def _select(args, *, engine=None, ext=None, rows=None, library=None):
-    from app.services import data_tools, skill_tool_context, skill_tools_select
+    from app.services import data_tools, skill_tools_select
+    from ai_office import skill_tool_context
     engine = {} if engine is None else engine
     skill_tool_context.TOOL_CTX.set({
         "ext": ext if ext is not None else {}, "task_active": True, "engine": engine,
@@ -300,8 +301,8 @@ def test_row_list_publishes_one_entry_per_identity_for_combo_parts():
     实测线程 4a8cbfd2：NIC「4个千兆网口」被组合选成 3 颗料（网卡+两口+光模块），
     修复前权威行清单里同一个 row_id 出现 3 次，AI 没法引用。
     """
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_node_state import KP_PICKS, kp_state
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_node_state import KP_PICKS, kp_state
     base = _row("NIC", "4个千兆网口", "kp-e13506ee", "reg:NIC#1")
     a = {**base, "unmatched": False, "name": "千兆四口（OCP）", "qty": 1}
     b = {**base, "unmatched": False, "name": "1G I350 4port", "qty": 1}

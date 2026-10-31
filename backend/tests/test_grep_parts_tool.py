@@ -7,7 +7,8 @@ Mistral agentic search 的 grep 类比：拿一个词看它出现在哪，再顺
 import os
 import sys
 
-from app.services import part_selector, skill_tool_context, skill_tools_open
+from app.services import part_selector, skill_tools_open
+from ai_office import skill_tool_context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

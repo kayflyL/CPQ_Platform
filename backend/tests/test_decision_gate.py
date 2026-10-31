@@ -7,9 +7,9 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import pytest
 
-from app.services import flow_validation as fv
-from app.services import human_query as hq
-from app.services import skill_decision_gate as dg
+from ai_office import flow_validation as fv
+from ai_office import human_query as hq
+from ai_office import skill_decision_gate as dg
 
 DEC = [{"slot": "gpu", "match_category": "GPU",
         "question": "GPU 在库有多款候选，选哪款？", "min_candidates": 2}]

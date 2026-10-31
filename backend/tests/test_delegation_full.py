@@ -5,7 +5,7 @@
 fill_requirement 申报 → premise 闸门放行（大脑代定前提字段）→
 整体卡点击连带确认目录字段（机型除外，机型走 choose_model 确认）。
 """
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 
 
 def _ext_with_catalog(confirmed=None):

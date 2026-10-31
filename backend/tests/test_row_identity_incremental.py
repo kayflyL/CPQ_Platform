@@ -15,7 +15,7 @@
 import asyncio
 import re
 
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 
 _ROWS = [
     {"row_id": "kp-1", "row_key": "HDD/SSD|系统盘 2块480G SSD", "category": "HDD/SSD",
@@ -123,8 +123,8 @@ def test_ask_user_without_row_list_stays_back_compatible():
 # ── 4. 已了结行随行清单下发 ──────────────────────────────────────────────
 
 def test_bridge_ctx_publishes_settled_rows_with_status():
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_node_state import kp_state, KP_PICKS
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_node_state import kp_state, KP_PICKS
     engine = {
         "ext": {"kp_rows": [{"part_category": "HDD/SSD", "description": "系统盘", "qty": 2}]},
         "kp_parts": [

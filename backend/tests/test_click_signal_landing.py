@@ -35,7 +35,7 @@ def _seed():
 
 def test_clicked_card_signal_lands_in_the_node_partition():
     """行卡点击 → 信号按 (slot,value) 命中留底卡 → 落进 kp_reason 私有状态（不再静默丢）。"""
-    from app.services import skill_chat
+    from ai_office import skill_chat
     store = _seed()
 
     async def fake_loop(msg, **kwargs):

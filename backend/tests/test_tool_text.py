@@ -11,7 +11,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.services import agent_tool_specs as ats
-from app.services.agent_tool_display import TOOL_DISPLAY
+from ai_office.agent_tool_display import TOOL_DISPLAY
 from app.services.constitution_lint import find_prose_markers
 
 

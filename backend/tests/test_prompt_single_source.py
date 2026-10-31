@@ -13,8 +13,8 @@
 import pathlib
 import re
 
-from app.services import skill_config_bootstrap
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office import skill_config_bootstrap
+from ai_office.skill_tool_context import TOOL_CTX
 
 BACKEND = pathlib.Path(skill_config_bootstrap.__file__).resolve().parents[2]
 APP = BACKEND / "app"
@@ -34,7 +34,7 @@ def test_no_injected_protocol_constants_in_code():
         src = p.read_text(encoding="utf-8")
         hits += [f"{p.name}::{m.group(0).strip()}" for m in pat.finditer(src)]
     assert not hits, "代码里又出现协议常量（提示词唯一出处是左栏）：" + repr(hits)
-    from app.services import skill_plan_runtime
+    from ai_office import skill_plan_runtime
     assert not hasattr(skill_plan_runtime, "AGENT_PROTOCOL")
 
 
@@ -47,8 +47,8 @@ def test_db_seed_contract_carries_structure_only():
 
 def test_node_prose_layers_are_purged():
     """指令唯一出处=左栏：节点层不再有 description/goal prose，node_mission 不许复活。"""
-    from app.services import skill_step_runtime
-    from app.services.reasoning_node_contract import node_defaults
+    from ai_office import skill_step_runtime
+    from ai_office.reasoning_node_contract import node_defaults
     assert not hasattr(skill_step_runtime, "node_mission"), \
         "node_mission 复活（指令第二套：节点层 prose 注入）"
     leaked = {k: sorted(key for key in cfg if key in _PROMPT_KEYS)
@@ -75,7 +75,7 @@ def test_no_reverse_writer_pushes_prompt_text_into_db():
 
 def test_live_system_prompt_is_built_from_db_text():
     """活证明：编排壳交给大脑的 system prompt 里，指令逐字来自左栏 manual_rules，无节点层第二套。"""
-    from app.services import skill_turn_engine
+    from ai_office import skill_turn_engine
     rt = skill_turn_engine._SkillTurnRuntime(
         thread_id="t_prompt", role_key="tech", persona="你是测试同事", full_text="需要一台服务器",
         history=[], ext={}, mem={}, flow={})

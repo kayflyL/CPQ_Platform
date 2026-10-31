@@ -8,6 +8,8 @@ from unittest.mock import MagicMock
 
 # Add backend to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+# 根级 ai_office 引擎包（2026-11-01 目录拆分）：ai-office 容器目录也要在 path 上
+sys.path.insert(0, str(Path(__file__).parent.parent.parent / "ai-office"))
 
 
 @pytest.fixture(autouse=True)
@@ -17,14 +19,14 @@ def _no_llm_trace_writes(monkeypatch):
     agent_react 逐轮留痕（_record_round）是横切副作用，mock LLM 的循环同样触发；
     不隔离的话每次跑套件都会把 fake_tool 噪音写进真实 trace 数据（2026-09-12 实锤）。
     """
-    monkeypatch.setattr("app.services.llm_trace.record_llm_trace", lambda **fields: None)
+    monkeypatch.setattr("ai_office.llm_trace.record_llm_trace", lambda **fields: None)
 
 
 @pytest.fixture(autouse=True)
 def _wire_agent_react_registry_builder():
     """测试组合根（第 5 步画边界解耦）：agent_react 的工具目录构建器由宿主注入，
     生产在 startup 接线、测试在这里接真实现。个别用例经 patch _REGISTRY_BUILDER 覆写。"""
-    from app.services import agent_react
+    from ai_office import agent_react
     from app.services.agent_tool_specs import build_tool_registry
     agent_react.set_registry_builder(build_tool_registry)
     # 域契约解释器注册保底（与 startup ④ 对称）：requirement_slots import 即自注册

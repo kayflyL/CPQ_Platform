@@ -10,9 +10,9 @@ import json
 from typing import Optional
 
 from app.repository.assistant_repo import AssistantRepository
-from app.services.skill_contracts import SKILL_SESSION_ACTIVE
-from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_contracts import SKILL_SESSION_ACTIVE
+from ai_office.skill_node_state import KP_PICKS, KP_RECOMMEND, kp_state
+from ai_office.skill_tool_context import TOOL_CTX
 
 
 logger = logging.getLogger(__name__)
@@ -108,17 +108,17 @@ def task_state_for_thread(thread_id: str, role_key: str, turn_active: bool, user
     pause = mem.get("engine_pause") if isinstance(mem.get("engine_pause"), dict) else None
     if not turn_active and not pause:
         return None
-    from app.services.skill_registry import resolve_skill_manifest
-    from app.services.skill_plan_runtime import skill_steps_view
+    from ai_office.skill_registry import resolve_skill_manifest
+    from ai_office.skill_plan_runtime import skill_steps_view
     skill_key = str(session.get("skill_key") or "requirement_analysis")
     manifest = (resolve_skill_manifest(skill_key)
                 or resolve_skill_manifest("requirement_analysis")) or {}
     # 事务管道（real_bound 应用）：胶囊用交付链自己的节点与探针进度重建——
     # 交付流 node_configs 无步骤元数据，走需求分析默认标签会张冠李戴（2026-10-18 实测）
-    from app.services.transaction_engine import resolve_app, node_states
+    from ai_office.transaction_engine import resolve_app, node_states
     app = resolve_app(skill_key)
     if app is not None:
-        from app.services.transaction_engine import state_view
+        from ai_office.transaction_engine import state_view
         view = state_view(app, thread_id, role_key, user if isinstance(user, dict) else {})
         steps, done, statuses = [], [], {}
         for st in view["flow"]["steps"]:
@@ -240,7 +240,7 @@ def kp_required_categories(node_cfg: dict) -> list:
     全局开关（key='kp_parts' 的 ask）在 skill_plan_runtime 的 kp gate 消费（不进大脑）。
     """
     cfg = node_cfg if isinstance(node_cfg, dict) else {}
-    from app.services.skill_target_contract import target_artifacts
+    from ai_office.skill_target_contract import target_artifacts
     arts = target_artifacts(cfg)
     fields = ((arts[0] if arts else {}) or {}).get("fields") or []
     out = []

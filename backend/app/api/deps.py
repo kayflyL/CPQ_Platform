@@ -75,7 +75,7 @@ def require_admin(user: dict = Depends(get_current_user)) -> dict:
 
 # 权限谓词下沉 services/access_kernel（第 5 步画边界解耦：服务层不再 import api 层）；
 # 此处 re-export 保持既有 `from app.api.deps import user_has_permission` 引用不变。
-from app.services.access_kernel import (  # noqa: E402,F401  权限谓词唯一实现处
+from ai_office.access_kernel import (  # noqa: E402,F401  权限谓词唯一实现处
     PRICE_FAILCLOSED_KEYS as _PRICE_FAILCLOSED_KEYS,
     field_visible,
     user_has_permission,

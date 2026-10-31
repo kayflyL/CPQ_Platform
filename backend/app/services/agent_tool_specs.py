@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """agent_tool_specs —— 工具元数据 + registry 构建。声明 schema，不含业务实现。"""
 from typing import List, Optional
-from app.services.agent_tool_registry import ToolRegistry
+from ai_office.agent_tool_registry import ToolRegistry
 from app.services.agent_tool_handlers import (
     _search_cases_handler, _tool_ask_user)
 
@@ -113,7 +113,7 @@ ALL_TOOL_NAMES = list(_TOOL_SPECS.keys())
 
 def _default_tool_text(name: str, spec: dict) -> dict:
     """某工具的四字段默认文本（= agent_tool_text 的种子值）。"""
-    from app.services.agent_tool_display import default_display
+    from ai_office.agent_tool_display import default_display
     d = default_display(name)
     return {
         "display_name": d["display_name"],
@@ -334,7 +334,7 @@ def build_tool_registry(config: dict, allowed_tool_ids: list = None) -> ToolRegi
         if name == "query_data":
             # schemas() 只暴露 summary——白名单必须挂进 brief 模型才看得见；
             # 模型看不到清单会裸写表名/猜表名，白名单外一律报错。
-            from app.services.data_boundary import query_tables_allow
+            from ai_office.data_boundary import query_tables_allow
             tables = query_tables_allow()
             if tables:
                 brief += "可读表（仅这些）：" + "、".join(tables) + "。"

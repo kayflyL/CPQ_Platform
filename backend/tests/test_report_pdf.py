@@ -71,7 +71,7 @@ def _tmp_storage(monkeypatch, tmp_path):
 
 def test_finalize_output_renders_pdf_artifact(monkeypatch, tmp_path):
     _tmp_storage(monkeypatch, tmp_path)
-    from app.services.skill_node_runtime import finalize_output
+    from ai_office.skill_node_runtime import finalize_output
 
     events: list[dict] = []
 
@@ -107,7 +107,7 @@ def test_finalize_output_renders_pdf_artifact(monkeypatch, tmp_path):
 
 def test_finalize_output_without_artifacts(monkeypatch, tmp_path):
     _tmp_storage(monkeypatch, tmp_path)
-    from app.services.skill_node_runtime import finalize_output
+    from ai_office.skill_node_runtime import finalize_output
 
     events: list[dict] = []
 

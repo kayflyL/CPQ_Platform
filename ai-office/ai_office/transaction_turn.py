@@ -23,21 +23,21 @@ import logging
 import time
 from typing import Any, Optional
 
-from app.services.agent_react import run_stream_chat_loop
+from ai_office.agent_react import run_stream_chat_loop
 from app.services.assistant_hub import assistant_hub
-from app.services.colleague_prompt import (
+from ai_office.colleague_prompt import (
     _effective_tool_ids,
     _handoff_hint,
     _short_term_history,
     _style_hint,
     build_chat_config,
 )
-from app.services.colleague_turn_io import _persist_and_broadcast, _persist_artifact, _trace
-from app.services.data_boundary import effective_price_ok
-from app.services.office_events import publish_office_event
-from app.services.skill_contracts import SKILL_SESSION_DONE
-from app.services.skill_tool_context import TOOL_CTX
-from app.services import transaction_engine as te
+from ai_office.colleague_turn_io import _persist_and_broadcast, _persist_artifact, _trace
+from ai_office.data_boundary import effective_price_ok
+from ai_office.office_events import publish_office_event
+from ai_office.skill_contracts import SKILL_SESSION_DONE
+from ai_office.skill_tool_context import TOOL_CTX
+from ai_office import transaction_engine as te
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def direct_write_finish(tool0: str, contract: dict, args: dict, result: dict, ct
     通路一字不差。非写/失败结果原样返回。"""
     if not (isinstance(result, dict) and result.get("ok") and (contract or {}).get("effects") == "write"):
         return result
-    from app.services.agent_tool_registry import write_finish
+    from ai_office.agent_tool_registry import write_finish
     return write_finish(tool0, contract or {}, args or {}, result, ctx or {})
 
 
@@ -170,7 +170,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         # 流配置缺失：降级普通工具聊天（fail-open 到能力，不给用户死白屏）
         await publish_office_event(role_key, "thinking", "工作流配置缺失，切换普通对话",
                                    thread_id=thread_id)
-        from app.services.colleague_turn_runners import _run_tool_turn  # 懒导入防环
+        from ai_office.colleague_turn_runners import _run_tool_turn  # 懒导入防环
         await _run_tool_turn(
             thread_id, user_text, context_summary, history, colleague, memory_block,
             _effective_tool_ids(colleague),
@@ -182,7 +182,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
     # 会话落 ACTIVE：续跑回合即使客户端不带 workflow_key 也分发回本流
     # （此前只有 complete 时落 DONE——中途续跑一律回退 requirement_analysis，2026-10-22 实锤）
     try:
-        from app.services.skill_memory import load_skill_session, save_skill_session, SKILL_SESSION_ACTIVE
+        from ai_office.skill_memory import load_skill_session, save_skill_session, SKILL_SESSION_ACTIVE
         _sess0 = load_skill_session(thread_id, role_key)
         if _sess0.get("phase") != SKILL_SESSION_ACTIVE or _sess0.get("skill_key") != app.flow_key:
             save_skill_session(thread_id, role_key, {
@@ -268,7 +268,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         import json as _json
 
         from app.services import agent_tool_specs
-        from app.services.agent_write_confirm import staged_args as _sargs
+        from ai_office.agent_write_confirm import staged_args as _sargs
         spec = (agent_tool_specs._TOOL_SPECS or {}).get(tool0) or {}
         handler = spec.get("handler")
         sargs = _sargs(thread_id, tool0)
@@ -310,7 +310,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
     gate_fallback = {"hit": False}  # R3(b)：强制重调后闸步仍无记录 → 回合末发机械话术
     pending_directives: list = []
     # 问答协议：取走本回合的结构化回答（取出即清；答案自带问题上下文）
-    from app.services import human_query as _hq
+    from ai_office import human_query as _hq
     pending_answer = _hq.take_answer(thread_id)
 
     async def _emit_ready_queries(view_now: dict) -> int:
@@ -318,9 +318,9 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         HumanQuery（问答协议）。存在性由 query_opened 标记幂等保证（R1：一份记录
         至多一次问询），发射时机由调用方控制——必须在本轮答案之后（R4 闸口）。
         吸收原「facts 循环落卡」与「回合末兜底网」两个散点。"""
-        from app.services import human_query as hq
-        from app.services.agent_write_confirm import pending_previews as _pp
-        from app.services.agent_write_confirm import query_opened as _qo, mark_query_opened as _mqo
+        from ai_office import human_query as hq
+        from ai_office.agent_write_confirm import pending_previews as _pp
+        from ai_office.agent_write_confirm import query_opened as _qo, mark_query_opened as _mqo
         n = 0
         for _t, _pv in (_pp(thread_id) or {}).items():
             if isinstance(_pv, dict) and _pv and not _qo(thread_id, _t):
@@ -349,7 +349,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
         import json as _json
 
         from app.services import agent_tool_specs
-        from app.services.agent_write_confirm import deferred_calls as _d_calls, pop_deferred as _pop_d
+        from ai_office.agent_write_confirm import deferred_calls as _d_calls, pop_deferred as _pop_d
         step_new = view_new.get("step") or {}
         tools_now = set(step_new.get("tools") or [])
         pend_now = set((view_new.get("pending") or {}).keys())
@@ -442,7 +442,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
                           or _ans_text in ("确认执行", "确认", "取消")):
                 _tool0 = sorted(_pend)[0]
                 if _cancel_clicked or _ans_text == "取消":
-                    from app.services.agent_write_confirm import discard as _discard
+                    from ai_office.agent_write_confirm import discard as _discard
                     _discard(thread_id, _tool0)
                     pending_answer = None
                     turn_msg += (f"\n\n【取消确认】用户在授权问询上点了「取消」，{_tool0} 的待确认记录"
@@ -451,7 +451,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
                     pending_answer = None
                     _directive = await _execute_pending(_tool0, step, facts)
                     if _directive is None:
-                        from app.services.agent_write_confirm import staged_args as _staged_args
+                        from ai_office.agent_write_confirm import staged_args as _staged_args
                         import json as _json
                         _sargs = _staged_args(thread_id, _tool0) or {}
                         turn_msg += (f"\n\n【确认执行】用户已在授权问询上点「确认执行」。待执行工具：{_tool0}，"
@@ -486,7 +486,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
                 TOOL_CTX.reset(_ctx_token)
             te.apply_facts(app, thread_id, role_key, facts)
             # R3a 记账：写工具因步进纪律自降级（deferred_by_step 声明）→ 入推迟账本
-            from app.services.agent_write_confirm import defer_call as _defer_call
+            from ai_office.agent_write_confirm import defer_call as _defer_call
             for fact in facts:
                 fr = fact.get("result")
                 if isinstance(fr, dict) and fr.get("deferred_by_step"):
@@ -543,7 +543,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
                 fr = fact.get("result")
                 if isinstance(fr, dict) and fr.get("user_query"):
                     # 问答协议：ask_user 的问题在答案落库后统一发射（先解释后问）
-                    from app.services import human_query as hq
+                    from ai_office import human_query as hq
                     try:
                         await hq.open_query_and_announce(
                             thread_id, role_key=(colleague or {}).get("role_key"),
@@ -610,7 +610,7 @@ async def _run_transaction_turn(app, thread_id, user_text, context_summary, hist
             thread_id, colleague,
             "这一步的确认操作没有生成成功（处理环节出了点问题）。请重新发一条消息，我会立即补上。")
     if final_view.get("complete"):
-        from app.services.skill_memory import load_skill_session, save_skill_session
+        from ai_office.skill_memory import load_skill_session, save_skill_session
         session = load_skill_session(thread_id, role_key)
         session.update({"phase": SKILL_SESSION_DONE,
                         "skill_key": app.flow_key,
@@ -653,14 +653,14 @@ async def dispatch_flow_turn(manifest, *, flow_key: str, thread_id, user_text,
     """按流形态分发回合：real_bound 且已安装应用 → 事务内核（干净重开可清状态槽）；
     real_bound 但未安装 → 降级普通工具聊天（绝不进需求分析机器）；其余 → 需求分析引擎。
     两台运行时、一套内核服务，互不掺旁路。"""
-    from app.services.skill_registry import entity_binding_of
+    from ai_office.skill_registry import entity_binding_of
 
     if entity_binding_of(manifest) == "real_bound":
         app = te.resolve_app(flow_key)
         if app is None:
             logger.error("事务工作流未安装执行器 flow=%s thread=%s（降级普通工具聊天）",
                          flow_key, thread_id)
-            from app.services.colleague_turn_runners import _run_tool_turn  # 懒导入防环
+            from ai_office.colleague_turn_runners import _run_tool_turn  # 懒导入防环
             await publish_office_event((colleague or {}).get("role_key") or "assistant",
                                        "thinking", "工作流执行器缺失，切换普通对话",
                                        thread_id=thread_id)
@@ -690,7 +690,7 @@ async def dispatch_flow_turn(manifest, *, flow_key: str, thread_id, user_text,
             title=str(mf.get("name") or getattr(manifest, "name", "") or app.label),
         )
         return
-    from app.services.colleague_turn_runners import _run_skill_chat  # 懒导入防环
+    from ai_office.colleague_turn_runners import _run_skill_chat  # 懒导入防环
     await _run_skill_chat(
         thread_id, user_text, context_summary, history, colleague, memory_block,
         final_office_event=final_office_event, trace_sink=trace_sink,

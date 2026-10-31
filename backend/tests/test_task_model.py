@@ -14,7 +14,7 @@ def test_skill_steps_view_single_source():
     无 flow 一律返回空——禁止回退需求分析固定节点表（2026-10-22 趋势分析步骤条
     张冠李戴根因：兜底把需求分析的节点名套在任意 skill 上）。
     """
-    from app.services.skill_plan_runtime import skill_steps_view
+    from ai_office.skill_plan_runtime import skill_steps_view
     assert skill_steps_view({}) == []
     assert skill_steps_view({"model_reason": {"label": "机型锁定"}}) == []
     flow = {

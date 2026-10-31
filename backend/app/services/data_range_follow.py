@@ -73,7 +73,7 @@ def parse_range_reply(reply: Any, today: Optional[date] = None) -> Optional[dict
         end = tomorrow
     if start > end:
         return None
-    from app.services.skill_target_contract import USER_RANGE_LABEL
+    from ai_office.skill_target_contract import USER_RANGE_LABEL
     return {"mode": "custom", "start": start, "end": end, "label": USER_RANGE_LABEL}
 
 
@@ -100,7 +100,7 @@ async def extract_report_data_range(flow: dict, text: str,
     """
     if not follow_wants(flow, text):
         return None
-    from app.services import llm_client
+    from ai_office import llm_client
 
     today = today or date.today()
     try:

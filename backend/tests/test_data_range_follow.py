@@ -10,8 +10,8 @@ import asyncio
 from app.services import data_range_follow as drf
 from app.services.data_range_follow import (
     extract_report_data_range, follow_wants, parse_range_reply)
-from app.services.skill_node_runtime import split_answer_sections
-from app.services.skill_target_contract import (
+from ai_office.skill_node_runtime import split_answer_sections
+from ai_office.skill_target_contract import (
     USER_RANGE_LABEL, _report_window, format_document_contract, with_data_range)
 
 import datetime as _dt
@@ -89,7 +89,7 @@ def test_extract_skips_llm_when_not_following(monkeypatch):
         called.append(1)
         return {"start": None, "end": None}
 
-    import app.services.llm_client as lc
+    import ai_office.llm_client as lc
     monkeypatch.setattr(lc, "chat_json", fake_chat_json)
     assert asyncio.run(extract_report_data_range(_flow({"mode": "half_year"}), "从年初到现在", TODAY)) is None
     assert asyncio.run(extract_report_data_range(_flow(), "  ", TODAY)) is None
@@ -100,7 +100,7 @@ def test_extract_follows_user_window(monkeypatch):
     async def fake_chat_json(*a, **kw):
         return {"start": "2026-01-01", "end": "2026-10-22"}
 
-    import app.services.llm_client as lc
+    import ai_office.llm_client as lc
     monkeypatch.setattr(lc, "chat_json", fake_chat_json)
     got = asyncio.run(extract_report_data_range(_flow(), "给我从年初到现在的商机趋势分析报告", TODAY))
     assert got == OVERRIDE
@@ -110,7 +110,7 @@ def test_extract_falls_back_on_llm_failure(monkeypatch):
     async def fake_chat_json(*a, **kw):
         raise RuntimeError("llm down")
 
-    import app.services.llm_client as lc
+    import ai_office.llm_client as lc
     monkeypatch.setattr(lc, "chat_json", fake_chat_json)
     assert asyncio.run(extract_report_data_range(_flow(), "从年初到现在", TODAY)) is None
 
@@ -156,7 +156,7 @@ def test_document_contract_carries_user_window():
 
 
 def test_steps_payload_rewrites_contract_line():
-    from app.services.skill_plan_runtime import steps_payload
+    from ai_office.skill_plan_runtime import steps_payload
     flow = _flow()
     steps_auto = steps_payload(flow)
     assert "实际数据边界" in steps_auto[0]["artifact"]
@@ -167,7 +167,7 @@ def test_steps_payload_rewrites_contract_line():
 # ── 终检：覆盖窗口物理核对（用户要的窗口大脑没照抄 → 打回） ──
 
 def test_data_answer_gate_checks_override_window():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     ok_ctx = {"agent_result": {"answer": "数据范围：2026.01.01 ~ 2026.10.22（客户指定）\n\n一、周数据"},
               "flow_configs": _flow()["node_configs"], "data_range_override": OVERRIDE}
     assert _data_answer_gate(ok_ctx)["ok"] is True
@@ -178,7 +178,7 @@ def test_data_answer_gate_checks_override_window():
 
 
 def test_data_answer_gate_without_override_still_skips_auto():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     ctx = {"agent_result": {"answer": "数据范围：2026.03.06 ~ 2026.10.21（按实际数据边界）"},
            "flow_configs": _flow()["node_configs"]}
     assert _data_answer_gate(ctx)["ok"] is True
@@ -239,8 +239,8 @@ def _report_flow() -> dict:
 
 
 def test_engine_run_backfills_override_end_to_end(monkeypatch):
-    import app.services.llm_client as lc
-    import app.services.skill_turn_engine as ste
+    import ai_office.llm_client as lc
+    import ai_office.skill_turn_engine as ste
 
     async def fake_chat_json(*a, **kw):
         return {"start": "2026-01-01", "end": "2026-10-22"}

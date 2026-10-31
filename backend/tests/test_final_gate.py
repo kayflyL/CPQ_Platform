@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def _ctx_with(reg_rows, landed_cats, model="ZS220 V2"):
-    from app.services.skill_plan_runtime import final_gate  # noqa: F401
+    from ai_office.skill_plan_runtime import final_gate  # noqa: F401
     kp_parts = [{"category": c, "name": "真实料号", "qty": 1} for c in landed_cats]
     summary = {"kp_count": len(kp_parts),
                "unmatched_count": 0, "spec_mismatch_count": 0}
@@ -27,7 +27,7 @@ def _ctx_with(reg_rows, landed_cats, model="ZS220 V2"):
 
 def test_final_gate_blocks_missing_category():
     """登记了 1.92T SSD 行但没有任何落地行 → 终检拦截，原因点名缺失大类。"""
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     ctx = _ctx_with(
         [{"part_category": "CPU", "description": "兆芯50000", "qty": 2},
          {"part_category": "HDD/SSD", "description": "1.92T SSD", "qty": 1}],
@@ -39,7 +39,7 @@ def test_final_gate_blocks_missing_category():
 
 def test_final_gate_blocks_without_model():
     """机型未锁定 → 不能交付。"""
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     ctx = _ctx_with([{"part_category": "CPU", "description": "x", "qty": 1}],
                     landed_cats=["CPU"], model="")
     ctx["_locked_baseline"] = {}
@@ -51,7 +51,7 @@ def test_final_gate_blocks_without_model():
 
 def test_final_gate_passes_when_all_landed():
     """登记大类全部落地 → 放行。"""
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     ctx = _ctx_with(
         [{"part_category": "CPU", "description": "兆芯50000", "qty": 2},
          {"part_category": "Memory", "description": "768GB DDR5", "qty": 1}],
@@ -62,7 +62,7 @@ def test_final_gate_passes_when_all_landed():
 
 def test_final_gate_honours_absent_categories():
     """客户明确放弃的大类（kp_reason.absent，如本机不配 GPU）不算缺失。"""
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     ctx = _ctx_with(
         [{"part_category": "CPU", "description": "x", "qty": 1},
          {"part_category": "GPU", "description": "GPU", "qty": 1}],

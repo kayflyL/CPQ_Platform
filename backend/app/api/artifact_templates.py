@@ -336,7 +336,7 @@ async def generate_template(body: GenerateIn, manager: dict = Depends(require_ai
     contract = _find_contract(body.flow_key, body.doc_name)
     if not contract:
         raise HTTPException(status_code=404, detail="未找到该工作流的文档卡契约")
-    from app.services import llm_client
+    from ai_office import llm_client
 
     assets = chart_assets.list_assets()
     shelf = "\n".join(f"- {a['id']}（{a['kind']}，{a['name']}）" for a in assets)

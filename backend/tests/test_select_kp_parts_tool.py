@@ -12,11 +12,11 @@ import os
 import sys
 import pytest
 
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 from app.services import skill_tools_kp
 from app.services import skill_tools_misc
 from app.services import skill_tools_select
-from app.services import skill_turn_engine
+from ai_office import skill_turn_engine
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -87,7 +87,7 @@ def _recs(engine: dict) -> dict:
 
 def _call_select(args: dict, *, task_active: bool = True, ext=None, saved=None,
                  rows=None, required_cats=None, engine=None, caps=None) -> dict:
-    from app.services import skill_chat
+    from ai_office import skill_chat
     # ext/engine 都不复制：工具必须原地写引擎共享的同一对象（副本会丢落表，同 fill 的实测坑）
     if saved is None:
         saved = {}
@@ -253,13 +253,13 @@ def test_select_kp_parts_non_ask_still_locks():
 
 def test_kp_field_ask_policy_from_target_layer():
     """目标层「AI 反问」开关：kp_parts.ask=true → 大脑不代选（占位行交客户）；缺省 False。"""
-    from app.services.skill_plan_runtime import _artifact_field_ask
+    from ai_office.skill_plan_runtime import _artifact_field_ask
     assert _artifact_field_ask({}, "kp_parts") is False
     on = {"target": {"artifacts": [{"fields": [
         {"key": "kp_parts", "label": "配件表", "ask": True}]}]}}
     assert _artifact_field_ask(on, "kp_parts") is True
     # 旧消费方不受泛化影响
-    from app.services.skill_plan_runtime import _model_field_ask
+    from ai_office.skill_plan_runtime import _model_field_ask
     model_on = {"target": {"artifacts": [{"fields": [
         {"key": "server_model", "label": "服务器型号", "ask": True}]}]}}
     assert _model_field_ask(model_on) is True
@@ -309,7 +309,7 @@ def test_kp_pick_lands_in_node_state_not_shared_ext():
 def test_brain_attempts_retries_rejected_rows_then_settles():
     """行被池校验拒绝 → 真实返回喂回重试（≤3 次），失败的行不落定；末轮照样收口。"""
     from unittest.mock import patch
-    from app.services import skill_chat
+    from ai_office import skill_chat
 
     calls = {"n": 0}
 
@@ -335,7 +335,7 @@ def test_brain_attempts_retries_rejected_rows_then_settles():
 # ── 2026-09-05 大脑提问卡（ask_user）+ 已锁定行上下文 ─────────────────────
 
 def _call_ask(args: dict, *, task_active: bool = True, asks=None) -> dict:
-    from app.services import skill_chat
+    from ai_office import skill_chat
     if asks is None:
         asks = []
     skill_tool_context.TOOL_CTX.set({"ext": {}, "task_active": task_active, "brain_asks": asks})
@@ -377,8 +377,8 @@ def test_kp_bridge_ctx_publishes_rows_with_answers_only():
 
     已锁定行不再下发；库内编码（part_id）不进提示词——防幻觉靠事实清单，不靠转译。
     """
-    from app.services.skill_node_plugins import plugin_for
-    from app.services.skill_node_state import add_row_answer
+    from ai_office.skill_node_plugins import plugin_for
+    from ai_office.skill_node_state import add_row_answer
     engine = {
         "ext": {"kp_rows": [{"part_category": "CPU", "description": "兆芯 50000 32核 处理器", "qty": 2}]},
         "kp_parts": [
@@ -405,7 +405,7 @@ def test_kp_row_merge_signal_records_answer_without_touching_frozen_doc():
     行键取自登记原文 → 补一句话不会让该行已锁定的选型失配作废（旧实现改描述=改键=丢选型）。
     """
     from app.services.slot_contract import apply_structured_slots
-    from app.services.skill_node_state import KP_PICKS, KP_ROW_ANSWERS
+    from ai_office.skill_node_state import KP_PICKS, KP_ROW_ANSWERS
     ext = {"kp_rows": [{"part_category": "HDD/SSD", "description": "1.92T", "qty": 1}]}
     kp_st = {KP_PICKS: {"HDD/SSD|1.92T": {"name": "旧选件", "price": 1}}}
     notes = apply_structured_slots(
@@ -426,7 +426,8 @@ def test_kp_row_merge_signal_records_answer_without_touching_frozen_doc():
 
 def test_search_kp_parts_offset_and_response_format(monkeypatch):
     """检索工具分页 + concise/detailed：offset 跳过、truncated/next_offset、concise 裁剪规格。"""
-    from app.services import data_tools, skill_chat, part_search
+    from app.services import data_tools, part_search
+    from ai_office import skill_chat
     full = [{"part_id": str(i), "name": f"CPU-{i}", "price": float(i), "currency": "RMB",
              "specs": {f"k{j}": f"v{j}" for j in range(12)}} for i in range(1, 6)]
     def fake_hybrid(category, *, text="", spec_filters=None, series="", limit=8,
@@ -463,7 +464,8 @@ def test_search_kp_parts_offset_and_response_format(monkeypatch):
 def test_search_kp_parts_row_batch(monkeypatch):
     """rows 批量按行召回：一次覆盖多行，每行用自己的类目+行描述去库召回候选，
     返回紧凑批量视图；未变更的单类目检索路径不受影响。"""
-    from app.services import data_tools, skill_chat, part_search
+    from app.services import data_tools, part_search
+    from ai_office import skill_chat
     by_cat = {
         "CPU": [{"part_id": "101", "name": "兆芯 KH-50000 96C", "price": 9000.0,
                  "currency": "RMB", "specs": {"core": "96C", "ghz": "2.2"}}],

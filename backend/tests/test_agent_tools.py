@@ -16,7 +16,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # ── ToolRegistry ──────────────────────────────────────────────────────
 
 def test_tool_registry_register_schemas_execute():
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
     async def h(args): return {"got": args}
     reg.register("foo", "foo tool", {"type": "object", "properties": {"x": {"type": "string"}}}, h)
@@ -31,7 +31,7 @@ def test_tool_registry_register_schemas_execute():
 
 def test_tool_registry_schemas_uses_summary():
     """OpenAI 契约：schemas() 的 function.description 应取简短 summary，而非冗长 description。"""
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
     async def h(args): return {}
     reg.register("foo", "这是一段非常长的完整描述……供前端/人查看，不应喂给模型", {"type": "object", "properties": {}}, h,
@@ -106,16 +106,16 @@ def _native_final(answer):
 
 def test_react_final_no_tools():
     """原生 function calling：无工具调用，LLM 直接给文本 → 返回 answer。"""
-    from app.services import agent_react
-    with patch("app.services.llm_client.chat_with_tools", AsyncMock(return_value=_native_final("ok"))):
+    from ai_office import agent_react
+    with patch("ai_office.llm_client.chat_with_tools", AsyncMock(return_value=_native_final("ok"))):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "ok" and out["iterations"] == 1
 
 
 def test_react_calls_tool_then_final():
     """LLM 先 native tool_call → 执行（fake 工具）→ 喂回 → 再最终文本。"""
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
     seen = []
     async def fake_h(args):
@@ -123,8 +123,8 @@ def test_react_calls_tool_then_final():
         return {"count": 1, "candidates": [{"name": "X"}]}
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": 1}), _native_final("done")]
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "done"
     assert seen == [{"k": 1}]
@@ -133,23 +133,23 @@ def test_react_calls_tool_then_final():
 
 def test_react_llm_error_degrades():
     """LLM 抛 LLMError → ok=False（上层降级），不抛。"""
-    from app.services import agent_react, llm_client
-    with patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMError("boom"))):
+    from ai_office import agent_react, llm_client
+    with patch("ai_office.llm_client.chat_with_tools", AsyncMock(side_effect=llm_client.LLMError("boom"))):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": []}, max_iterations=3))
     assert out["ok"] is False and out["answer"] == ""
 
 
 def test_react_max_iterations_cap():
     """LLM 一直发 tool_call → 超 max_iterations → ok=False（截断）。"""
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
     async def fake_h(args):
         return {"ok": True}
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": i}, call_id=f"call_{i}") for i in range(1, 6)]
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=2))
     assert out["ok"] is False and out["iterations"] == 2
 
@@ -159,7 +159,7 @@ def test_stream_agent_chat_parses_tool_calls():
     import asyncio
     from types import SimpleNamespace
     from unittest.mock import AsyncMock, patch
-    from app.services import llm_client
+    from ai_office import llm_client
 
     def _chunk(finish=None, content=None, tc=None):
         delta = SimpleNamespace(reasoning_content=None, content=content, tool_calls=tc)
@@ -196,8 +196,8 @@ def test_run_stream_chat_loop_prefers_native_then_final():
     """原生流式 function calling：tool_calls 执行后喂回，再给 final 文本。"""
     import asyncio
     from unittest.mock import patch
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
 
     reg = ToolRegistry()
     seen = []
@@ -217,8 +217,8 @@ def test_run_stream_chat_loop_prefers_native_then_final():
         for item in r:
             yield item
 
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.stream_agent_chat", _ag):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.stream_agent_chat", _ag):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
 
@@ -231,7 +231,7 @@ def test_run_stream_chat_loop_prefers_native_then_final():
 def test_strictify_tools_only_when_required_complete():
     """_strictify_tools 仅在所有 object 字段都必填时加 additionalProperties:false + strict:true；
     存在可选字段则原样返回，避免我们的可选参数 schema 反打挂原生通道。"""
-    from app.services.llm_client import _strictify_tools
+    from ai_office.llm_client import _strictify_tools
 
     compat_tool = {"type": "function", "function": {
         "name": "foo",
@@ -264,7 +264,7 @@ def test_strictify_tools_only_when_required_complete():
 
 def test_model_supports_strict_tools_probed():
     """实测（probe_capabilities）能把 supports_strict_tools 抬为 True（否则保持保守默认 False）。"""
-    from app.services import llm_client
+    from ai_office import llm_client
     caps = llm_client.get_model_capabilities("qwen-plus", {
         "model": "qwen-plus",
         "probe_capabilities": {"supports_strict_tools": True},
@@ -276,7 +276,7 @@ def test_model_supports_strict_tools_probed():
 
 def test_tool_registry_execute_timeout():
     """工具执行超时按失败返回模型可见错误（对标 OpenAI error_as_result），不抛异常。"""
-    from app.services.agent_tool_registry import ToolRegistry, _TOOL_CALL_TIMEOUT
+    from ai_office.agent_tool_registry import ToolRegistry, _TOOL_CALL_TIMEOUT
     from unittest.mock import patch
     reg = ToolRegistry()
     async def slow_handle(args):
@@ -284,7 +284,7 @@ def test_tool_registry_execute_timeout():
         await asyncio.sleep(0.2)
         return {"ok": True}
     reg.register("slow", "slow", {"type": "object", "properties": {}}, slow_handle)
-    with patch("app.services.agent_tool_registry._TOOL_CALL_TIMEOUT", 0.01):
+    with patch("ai_office.agent_tool_registry._TOOL_CALL_TIMEOUT", 0.01):
         out = asyncio.run(reg.execute("slow", {}))
     assert "error" in out and "超时" in out["error"]
 
@@ -292,7 +292,7 @@ def test_tool_registry_execute_timeout():
 def test_cap_tool_context_terminates_and_shrinks():
     """工具上下文压缩必须收敛：压缩后长度(≈312)低于 victim 门槛(400)，
     否则同一条消息被反复压缩到同样长度 → 死循环卡死事件循环（2026-09-12 py-spy 实测）。"""
-    from app.services.agent_react import _cap_tool_context, _TOOL_CONTEXT_CAP_CHARS
+    from ai_office.agent_react import _cap_tool_context, _TOOL_CONTEXT_CAP_CHARS
     msgs = [{"role": "tool", "content": "x" * 450} for _ in range(60)]  # 27000 字 > 20000 上限
     _cap_tool_context(msgs)  # 旧实现（COMPRESS_TO=400=门槛）在此永久死循环
     total = sum(len(m["content"]) for m in msgs)
@@ -325,8 +325,8 @@ def test_stream_loop_intermediate_prose_superseded():
     曾把「核对通过：…」旁白粘进最终报告。"""
     import asyncio
     from unittest.mock import patch
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
 
     reg = ToolRegistry()
     async def fake_h(args):
@@ -339,8 +339,8 @@ def test_stream_loop_intermediate_prose_superseded():
                                                 "arguments": {}, "arguments_raw": "{}"}]}],
         [{"type": "content", "delta": "数据范围：2026.01.01 ~ 2026.09.16\n\n## 一、周数据"}],
     ]
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.stream_agent_chat", _stream_rounds(rounds)):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
 
@@ -353,8 +353,8 @@ def test_stream_loop_llm_error_salvages_latest_prose():
     """LLM 断流兜底取最近一轮非空正文（旁白），不是历史旁白的拼接。"""
     import asyncio
     from unittest.mock import patch
-    from app.services import agent_react, llm_client
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react, llm_client
+    from ai_office.agent_tool_registry import ToolRegistry
 
     reg = ToolRegistry()
     async def fake_h(args):
@@ -370,8 +370,8 @@ def test_stream_loop_llm_error_salvages_latest_prose():
                                                 "arguments": {}, "arguments_raw": "{}"}]}],
         llm_client.LLMError("conn reset"),
     ]
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.stream_agent_chat", _stream_rounds(rounds)):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
 
@@ -382,7 +382,7 @@ def test_stream_loop_llm_error_salvages_latest_prose():
 
 def test_suggest_workflow_handler_validates_and_stashes():
     """合法 key → ok + 写入 TOOL_CTX.workflow_suggestion；未知 key / 空需求 → 拒绝并给 available 清单。"""
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     from app.services.agent_tool_handlers import _tool_suggest_workflow
     token = TOOL_CTX.set({"workflow_offers": [{"key": "requirement_analysis", "name": "需求分析"}]})
     try:
@@ -403,7 +403,7 @@ def test_suggest_workflow_handler_validates_and_stashes():
 
 def test_tool_turn_wires_suggest_workflow_and_persists_suggestion(monkeypatch):
     """绑定 workflow skill 的角色：suggest_workflow 进工具清单；回合收尾建议随 _persist_and_broadcast 落库。"""
-    import app.services.colleague_turn_runners as runners
+    import ai_office.colleague_turn_runners as runners
 
     colleague = {"role_key": "support_engineer", "name": "技术支持工程师", "tool_ids": ["choose_model"]}
     monkeypatch.setattr(runners, "_workflow_offers",
@@ -416,7 +416,7 @@ def test_tool_turn_wires_suggest_workflow_and_persists_suggestion(monkeypatch):
     async def fake_loop(user_text, cfg, **kwargs):
         captured["tools"] = list(kwargs.get("allowed_tool_ids") or [])
         from app.services.agent_tool_handlers import _tool_suggest_workflow
-        from app.services.skill_tool_context import TOOL_CTX
+        from ai_office.skill_tool_context import TOOL_CTX
         assert TOOL_CTX.get().get("workflow_offers"), "回合上下文必须带可发起清单"
         await _tool_suggest_workflow({"workflow_key": "requirement_analysis",
                                       "requirement_text": "兆芯 KH-50000 双路", "reason": "r"})
@@ -439,7 +439,7 @@ def test_tool_turn_wires_suggest_workflow_and_persists_suggestion(monkeypatch):
 
 def test_tool_turn_no_workflow_binding_no_suggest_tool(monkeypatch):
     """未绑定 workflow 的角色：不挂 suggest_workflow，收尾不附建议。"""
-    import app.services.colleague_turn_runners as runners
+    import ai_office.colleague_turn_runners as runners
 
     colleague = {"role_key": "cost_analyst", "name": "成本核算", "tool_ids": ["choose_model"]}
     monkeypatch.setattr(runners, "_workflow_offers", lambda c: [])

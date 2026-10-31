@@ -13,7 +13,7 @@ import asyncio
 
 
 def test_tool_trace_broadcast_contract(monkeypatch):
-    from app.services import colleague_turn_runners as runners
+    from ai_office import colleague_turn_runners as runners
 
     broadcasts = []
 

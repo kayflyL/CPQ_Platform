@@ -18,7 +18,7 @@ ANSWER = "SSD 价格 9 月环比涨 3%，建议关注 1.92T 企业级"
 
 
 def test_delivery_gate_data_answer_two_states():
-    from app.services.skill_plan_runtime import delivery_gate
+    from ai_office.skill_plan_runtime import delivery_gate
     gate = delivery_gate({"agent_result": {"answer": ANSWER}}, "data_answer")
     assert gate["ok"] is True
     gate = delivery_gate({"agent_result": {"answer": "   "}}, "data_answer")
@@ -29,7 +29,7 @@ def test_delivery_gate_data_answer_two_states():
 
 
 def test_delivery_gate_unregistered_kind_falls_back_to_final_gate():
-    from app.services.skill_plan_runtime import delivery_gate, final_gate
+    from ai_office.skill_plan_runtime import delivery_gate, final_gate
     ctx = {"ext": {}, "_locked_baseline": {}}  # 无机型锁
     assert delivery_gate(ctx, "")["ok"] is False
     assert delivery_gate(ctx, "bom_scheme_draft")["ok"] is False
@@ -65,7 +65,7 @@ def _trend_flow() -> dict:
 
 def test_trend_engine_offline_e2e(monkeypatch):
     """trend 形状流 + 假大脑（零 LLM/零 DB）：过 data_answer 终检 → 交付带结论。"""
-    import app.services.skill_turn_engine as ste
+    import ai_office.skill_turn_engine as ste
 
     async def fake_brain(user_msg, *, loop_kwargs, settle, emit_status=None,
                          findings_out=None, **kw):
@@ -96,7 +96,7 @@ def test_trend_engine_offline_e2e(monkeypatch):
 def test_requirement_engine_still_gated_without_model(monkeypatch):
     """回归护栏：requirement 形状流（output_kind=bom_scheme_draft 缺省 seed）无机型锁
     → 仍被 final_gate 拦截成 gaps，data_answer 分派不串到需求分析路径。"""
-    import app.services.skill_turn_engine as ste
+    import ai_office.skill_turn_engine as ste
 
     async def fake_brain(user_msg, *, loop_kwargs, settle, emit_status=None,
                          findings_out=None, **kw):
@@ -138,7 +138,7 @@ def test_requirement_engine_still_gated_without_model(monkeypatch):
 def test_document_node_history_drops_stale_reports(monkeypatch):
     """document 产物节点的输入卫生：历史里「报告形状」的 assistant 消息（数据范围：指纹）
     在组上下文时确定性剔除——锚定复读的毒源在入口移除，出口闸门只作保险丝（2026-09-16）。"""
-    import app.services.skill_turn_engine as ste
+    import ai_office.skill_turn_engine as ste
 
     captured = {}
 
@@ -179,7 +179,7 @@ def test_document_node_history_drops_stale_reports(monkeypatch):
 
 def test_nondocument_node_keeps_history_verbatim(monkeypatch):
     """无 document 产物的步骤历史原样进循环：输入卫生只归 document 产物节点，需求分析路径零接触。"""
-    import app.services.skill_turn_engine as ste
+    import ai_office.skill_turn_engine as ste
 
     captured = {}
 

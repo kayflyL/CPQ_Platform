@@ -420,7 +420,7 @@ async def stream_chat(
     """
     config = _get_llm_config()
     if _is_anthropic_upstream(config):
-        from app.services import anthropic_channel
+        from ai_office import anthropic_channel
         has_content = False
         stop_reason: Optional[str] = None
         try:
@@ -541,7 +541,7 @@ async def chat_json(
         use_json_mode = (not use_anthropic) and bool(profile.get("supports_json_mode")) and attempt == 1
         try:
             if use_anthropic:
-                from app.services import anthropic_channel
+                from ai_office import anthropic_channel
                 result = await anthropic_channel.chat(
                     messages,
                     tools=None,
@@ -622,7 +622,7 @@ async def chat_with_tools(
     if not caps.get("supports_native_tools"):
         raise LLMNativeToolsUnsupported(f"模型 {config.get('model')} 的能力档案禁用了原生工具调用")
     if str(config.get("upstream_format") or "openai").lower() == "anthropic":
-        from app.services import anthropic_channel
+        from ai_office import anthropic_channel
         anthropic_messages = list(messages or [])
         try:
             return await anthropic_channel.chat(
@@ -1144,7 +1144,7 @@ def _probe_anthropic(config: dict) -> dict:
     """
     import requests
 
-    from app.services.anthropic_channel import _wrapped_error, messages_base
+    from ai_office.anthropic_channel import _wrapped_error, messages_base
 
     url = messages_base(config.get("base_url")) + "/messages"
     headers = {
@@ -1274,7 +1274,7 @@ def _test_connection_anthropic(config: dict) -> dict:
     """Anthropic Messages 协议的连接实测：POST {base}/v1/messages（同步小请求）。"""
     import requests
 
-    from app.services.anthropic_channel import _wrapped_error, messages_base
+    from ai_office.anthropic_channel import _wrapped_error, messages_base
 
     url = messages_base(config.get("base_url")) + "/messages"
     headers = {
@@ -1334,7 +1334,7 @@ def _list_models_raw(url: str, headers: dict) -> tuple:
 
 def _list_models_anthropic(config: dict) -> list:
     """Anthropic Messages 协议的模型列表：GET {base}/v1/models（x-api-key 头）。"""
-    from app.services.anthropic_channel import messages_base
+    from ai_office.anthropic_channel import messages_base
 
     url = messages_base(config.get("base_url")) + "/models"
     ids, status, snippet = _list_models_raw(url, {
@@ -1429,7 +1429,7 @@ async def stream_agent_chat(
         # Anthropic Messages 端点：带不带 tools 都必须走 anthropic_channel——纯文本
         # 若走 OpenAI SDK 会打 {base}/chat/completions，z.ai 这类端点回 200 包 404
         # → SDK 静默吐空流 → 上层「(空回复)」（2026-09-14 实测根因）。
-        from app.services import anthropic_channel
+        from ai_office import anthropic_channel
         saw_content = saw_tools = False
         stop_reason: Optional[str] = None
         try:

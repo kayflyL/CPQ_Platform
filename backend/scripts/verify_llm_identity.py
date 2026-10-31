@@ -12,14 +12,16 @@ Usage:
   python verify_llm_identity.py [--base-url URL] [--api-key KEY] [--model NAME]
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
 from openai import OpenAI
 
-from app.services.llm_client import _get_llm_config
+from ai_office.llm_client import _get_llm_config
 
 AIME_PROBLEM = (
     "Patrick started walking at a constant speed along a straight road from his school to the park. "

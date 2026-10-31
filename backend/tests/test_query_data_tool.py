@@ -9,7 +9,7 @@ import pytest
 
 from app.services.skill_tools_fill import requirement_prompt
 from app.services.skill_tools_misc import tool_query_data
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 
 
 def _ctx(price_ok=True, role="assistant"):
@@ -27,7 +27,7 @@ ALLOW = {"mode": "allow_read", "schemas": [], "tables_allow": ["opportunities.op
 
 def test_query_data_boundary_masks_price_without_access(monkeypatch):
     """price_ok=False → 边界带 price 脱敏域（工具自建边界，不看同事 data_boundary）。"""
-    from app.services import data_boundary
+    from ai_office import data_boundary
     seen = {}
 
     def fake_execute_read(sql, boundary, *, limit=50, **kw):
@@ -46,7 +46,7 @@ def test_query_data_boundary_masks_price_without_access(monkeypatch):
 
 def test_query_data_no_context_fails_closed_on_price(monkeypatch):
     """引擎路径空上下文：表照常走工具白名单，价格按最严口径脱敏。"""
-    from app.services import data_boundary
+    from ai_office import data_boundary
     seen = {}
 
     def fake_execute_read(sql, boundary, *, limit=50, **kw):
@@ -73,7 +73,7 @@ def test_query_data_missing_sql():
 
 
 def test_query_data_whitelisted_table_executes(monkeypatch):
-    from app.services import data_boundary
+    from ai_office import data_boundary
     calls = []
 
     def fake_execute_read(sql, boundary, *, limit=50, **kw):
@@ -93,7 +93,7 @@ def test_query_data_whitelisted_table_executes(monkeypatch):
 
 
 def test_query_data_bad_limit_falls_back():
-    from app.services import data_boundary
+    from ai_office import data_boundary
     seen = {}
 
     def fake_execute_read(sql, boundary, *, limit=50, **kw):

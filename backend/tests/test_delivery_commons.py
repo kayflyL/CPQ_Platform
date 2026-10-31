@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import workflow_ask as wa  # noqa: E402
+from ai_office import workflow_ask as wa # noqa: E402
 
 # ── 节点反问原语 ─────────────────────────────────────────────────────────
 

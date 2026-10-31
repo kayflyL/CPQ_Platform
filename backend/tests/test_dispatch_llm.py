@@ -32,7 +32,7 @@ def _install(monkeypatch, result=None, error=None, calls=None):
         if error:
             raise error
         return result
-    import app.services.llm_client as llm
+    import ai_office.llm_client as llm
     monkeypatch.setattr(llm, "chat_json", fake_chat_json)
 
 
@@ -113,7 +113,7 @@ def test_find_mentioned_colleague(monkeypatch):
 def test_handle_skill_chat_turn_smoke(monkeypatch):
     """对话脑入口冒烟：曾因 role_key 先用后赋值在第一行就 UnboundLocalError（全链路无覆盖未被发现）。"""
     import asyncio
-    import app.services.skill_chat as sc
+    import ai_office.skill_chat as sc
 
     async def fake_loop(*args, **kwargs):
         return {"ok": True, "answer": "好的，收到"}
@@ -191,7 +191,7 @@ def test_capability_follows_skill_binding(monkeypatch):
     解绑即失去能力（回落普通对话）——不许出现「某角色天生会配置」的代码定制。
     """
     from app.services import colleague_turn_service as turns
-    from app.services import colleague_prompt
+    from ai_office import colleague_prompt
     monkeypatch.setattr(
         colleague_prompt, "_skill_library",
         lambda: {"requirement_analysis": {

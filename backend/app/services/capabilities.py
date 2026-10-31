@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def _compose_config(config: Optional[dict]) -> dict:
     """归一化 compose 节点配置；配件来源与电源覆盖策略不再写死。"""
     cfg = dict(config or {})
-    from app.services import reasoning_node_contract
+    from ai_office import reasoning_node_contract
     defaults = reasoning_node_contract.node_defaults().get("compose", {})
     for key, value in defaults.items():
         cfg.setdefault(key, value)

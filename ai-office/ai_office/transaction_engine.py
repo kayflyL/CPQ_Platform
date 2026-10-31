@@ -173,7 +173,7 @@ def format_step_contract(step: dict) -> str:
         lines.append("本步是确认闸：执行前出确认卡，用户确认后才落库。")
     for tool in (step or {}).get("tools") or []:
         try:
-            from app.services.agent_tool_display import TOOL_DISPLAY
+            from ai_office.agent_tool_display import TOOL_DISPLAY
             d = TOOL_DISPLAY.get(tool)
             if d and d.get("one_liner"):
                 lines.append(f"· {tool}：{d['one_liner']}")
@@ -396,7 +396,7 @@ def state_view(app: TransactionApp, thread_id: str, role_key: str, user: dict) -
         view.update(app.context_fn(thread_id, user if isinstance(user, dict) else {}))
     except Exception:
         logger.exception("案台域事实读取失败 flow=%s", app.flow_key)
-    from app.services.agent_write_confirm import pending_tools
+    from ai_office.agent_write_confirm import pending_tools
     view["pending"] = pending_tools(thread_id)
     step, complete = None, False
     steps = view["flow"]["steps"]

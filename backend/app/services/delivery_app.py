@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 
-from app.services.transaction_engine import TransactionApp, register
+from ai_office.transaction_engine import TransactionApp, register
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +52,7 @@ def _thread_opportunity(thread_id: str) -> dict:
 def _price_field_strategy() -> dict:
     """目标层的价格字段策略（字段 key=l6_price/kp_price，ask=true 的列参与缺价闸）。
     未配置＝空表＝不拦（兼容老流配置；价格必填完全由画布字段策略驱动）。"""
-    from app.services.transaction_engine import load_flow_rules
+    from ai_office.transaction_engine import load_flow_rules
     try:
         rules = load_flow_rules(FLOW_KEY)
     except Exception:

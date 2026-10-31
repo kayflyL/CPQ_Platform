@@ -49,7 +49,7 @@ def _fake_part_library(monkeypatch):
 
 def test_waived_option_signal_binds_the_row_key():
     """行卡上的 waived 选项 → kp_waived 行键信号（不带 pick、不带 absent）。"""
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_plan_runtime import ask_option_signal
     sig = ask_option_signal("GPU|NVIDIA 4090", {"label": "保持原需求（库里没有）", "waived": True})
     assert sig == {"kp_waived": ["GPU|NVIDIA 4090"]}
 
@@ -80,7 +80,7 @@ def test_waived_state_is_per_row_and_survives_a_different_row_in_same_category()
 
 def test_waived_state_round_trips_through_the_structured_slot_channel():
     """点击通路（apply_structured_slots + kp_state）落进本节点私有状态，跨轮可读。"""
-    from app.services.skill_node_state import KP_NODE, waived_row_keys
+    from ai_office.skill_node_state import KP_NODE, waived_row_keys
     from app.services.slot_contract import apply_structured_slots
     kp_st: dict = {}
     ext: dict = {}
@@ -92,7 +92,7 @@ def test_waived_state_round_trips_through_the_structured_slot_channel():
 
 def test_waived_is_not_absent_and_does_not_silently_drop_the_category():
     """waived 走的是「行保留」这条路：类目级 absent 列表必须保持干净（两者语义不同）。"""
-    from app.services.skill_node_state import KP_ABSENT, KP_NODE
+    from ai_office.skill_node_state import KP_ABSENT, KP_NODE
     from app.services.slot_contract import apply_structured_slots
     kp_st: dict = {}
     apply_structured_slots({}, {"kp_waived": ["GPU|NVIDIA 4090"]}, "", kp_state=kp_st)
@@ -110,7 +110,7 @@ def test_kp_table_artifact_marks_waived_rows_white_box():
 
 def test_done_summary_says_how_many_rows_are_waived():
     """完成摘要从产物生成：出现豁免行就如实说出来，不报「全部落地」。"""
-    from app.services.skill_node_artifacts import done_summary
+    from ai_office.skill_node_artifacts import done_summary
     art = {"kind": "kp_table", "title": "配件表",
            "data": {"rows": [{"part_category": "CPU", "waived": False},
                              {"part_category": "GPU", "waived": True}]}}
@@ -143,7 +143,7 @@ def test_phase_kp_reason_keeps_a_waived_row_out_of_the_landed_count():
     gpu = next(p for p in ctx["kp_parts"] if p["category"] == "GPU")
     assert gpu["waived"] is True and gpu["unmatched"] is False
     assert gpu["request_spec"] == "NVIDIA H100 80G", "客户原话规格要留在行上"
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     assert final_gate(ctx, composing=True)["ok"] is True
 
 
@@ -160,7 +160,7 @@ def test_phase_kp_reason_still_blocks_a_row_that_is_neither_landed_nor_waived():
            "_locked_baseline": {"name": "ZS220 V2", "series": "Polaris"}}
     asyncio.run(phase_kp_reason(ctx, {}, None))
     assert ctx["kp_summary"]["unmatched_count"] == 1
-    from app.services.skill_plan_runtime import final_gate
+    from ai_office.skill_plan_runtime import final_gate
     gate = final_gate(ctx, composing=True)
     assert gate["ok"] is False and "GPU" in gate["hint"]
     assert "waived" in gate["hint"], "拦截文案要给出「保持原需求」这条出路"
@@ -178,8 +178,8 @@ def _named_row_engine(category="GPU", desc="NVIDIA B200 192G", row_id=None):
 def test_row_card_for_a_customer_named_row_always_offers_keep_original():
     """插座兜底：客户点名登记的行（且该类目**大脑查过**），行卡**必然**带
     「保持原需求」出路（需求明确但库内无料 = 必须让客户在「换料 / 改前提 / 就这样」里选）。"""
-    from app.services.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, _KpNode
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_node_plugins import ROW_KEEP_ORIGINAL_LABEL, _KpNode
+    from ai_office.skill_plan_runtime import ask_option_signal
     row = ROW_ID
     opts = _KpNode().extra_ask_options(_named_row_engine(), {"row": row, "options": []}, row)
     assert len(opts) == 1 and opts[0]["waived"] is True
@@ -190,7 +190,7 @@ def test_row_card_for_a_customer_named_row_always_offers_keep_original():
 
 def test_row_card_backstop_stays_silent_when_the_named_model_is_in_the_library():
     """客户点名的型号库里真有 → 不补「保持原需求」：有料可换就不给「留白」这条逃生路。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     row = "kp-nic0001"
     engine = _named_row_engine(category="NIC", desc="X710 万兆双口", row_id=row)
     opts = _KpNode().extra_ask_options(engine, {"row": row, "options": []}, row)
@@ -200,7 +200,7 @@ def test_row_card_backstop_stays_silent_when_the_named_model_is_in_the_library()
 def test_row_card_backstop_stays_silent_for_rows_the_customer_did_not_specify():
     """客户没点名、等 AI 推荐的行不补这条出路：否则等于给待推荐的行
     开一条绕过选型的逃生口（用户定调：模糊需求要给推荐，不是留白）。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     # 登记行里只写了类目名（= 客户没点名具体规格，等 AI 推荐）
     engine = {"ext": {"kp_rows": [{"part_category": "Memory", "description": "memory"}]},
               "kp_parts": [{"category": "Memory", "request_spec": "memory", "qty": 1,
@@ -211,7 +211,7 @@ def test_row_card_backstop_stays_silent_for_rows_the_customer_did_not_specify():
 
 def test_row_card_backstop_does_not_duplicate_the_brains_own_waived_option():
     """大脑自己给了保持原需求 → 不再补第二条（选项唯一）。"""
-    from app.services.skill_node_plugins import _KpNode
+    from ai_office.skill_node_plugins import _KpNode
     row = ROW_ID
     ask = {"row": row, "options": [{"label": "保持原需求", "waived": True}]}
     assert _KpNode().extra_ask_options(_named_row_engine(), ask, row) == []
@@ -220,8 +220,8 @@ def test_row_card_backstop_does_not_duplicate_the_brains_own_waived_option():
 def test_row_card_backstop_supplies_candidates_when_the_brain_sent_no_usable_option():
     """大脑只丢了个问题、选项一条都不带信号 → 插座补上库内候选（客户有得点），
     而不是弹一张点了没反应的零选项卡。候选当场回库按行描述召回。"""
-    from app.services.skill_node_plugins import _KpNode
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_node_plugins import _KpNode
+    from ai_office.skill_plan_runtime import ask_option_signal
     engine = {
         "ext": {"kp_rows": [{"part_category": "NIC", "description": "2个万兆网口"}]},
         "kp_parts": [{"category": "NIC", "request_spec": "2个万兆网口", "qty": 2,
@@ -246,7 +246,7 @@ def test_waived_categories_resolve_a_row_id_through_the_identity_ledger():
     回归靶心：旧实现多留了一行提前 return，直接把 row_id 当类目返回 → 终检认不出该类目
     已了结，客户明明点了「保持原需求」却仍被拦下。旧式行键（类目|描述）照旧切第一段。
     """
-    from app.services.skill_node_state import KP_NODE, waived_categories
+    from ai_office.skill_node_state import KP_NODE, waived_categories
     st = {"node_state": {KP_NODE: {
         "waived": ["kp-gpu0001"],
         "row_ids": {"reg:GPU": {"row_id": "kp-gpu0001", "category": "GPU",

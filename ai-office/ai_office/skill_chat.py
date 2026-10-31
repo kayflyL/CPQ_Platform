@@ -19,13 +19,13 @@ import json
 import logging
 import time
 
-from app.services.agent_react import run_stream_chat_loop
-from app.services.skill_memory import _load_mem, _save_mem
-from app.services.skill_node_state import KP_NODE, KP_PICKS, NODE_STATE_KEY, fill_node, freeze_snapshot, mark_doc_frozen, node_state, unwrap_doc
-from app.services.skill_signals import _apply_registration_signal, _brain_ask_manual_signal, _manual_model_signal, _match_card_signal, _signal_with_qty
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.agent_react import run_stream_chat_loop
+from ai_office.skill_memory import _load_mem, _save_mem
+from ai_office.skill_node_state import KP_NODE, KP_PICKS, NODE_STATE_KEY, fill_node, freeze_snapshot, mark_doc_frozen, node_state, unwrap_doc
+from ai_office.skill_signals import _apply_registration_signal, _brain_ask_manual_signal, _manual_model_signal, _match_card_signal, _signal_with_qty
+from ai_office.skill_tool_context import TOOL_CTX
 from app.services.skill_tools_fill import requirement_prompt
-from app.services.skill_turn_engine import _merged_narration, run_skill_agent_turn
+from ai_office.skill_turn_engine import _merged_narration, run_skill_agent_turn
 from app.services.slot_contract import canonical_key, slot_label
 from typing import Any, Callable, Optional
 
@@ -123,7 +123,7 @@ class _ChatTurnRuntime:
 
     def _prepare(self) -> Optional[dict]:
         """角色配置档 + 会话记忆 + Skill 画布配置（回合共同的输入）。"""
-        from app.services.data_boundary import effective_price_ok
+        from ai_office.data_boundary import effective_price_ok
         colleague = self.colleague or {}
         self.role_key = colleague.get("role_key") or "assistant"
         response_profile = colleague.get("response_profile") \
@@ -145,7 +145,7 @@ class _ChatTurnRuntime:
         if _mem_skill and _mem_skill != self.skill_key:
             logger.info("skill flow memory switch %s -> %s：重置流程记忆 thread=%s",
                         _mem_skill, self.skill_key, self.thread_id)
-            from app.services.skill_memory import SKILL_SESSION_KEY
+            from ai_office.skill_memory import SKILL_SESSION_KEY
             _kept_session = self.mem.get(SKILL_SESSION_KEY)
             _save_mem(self.thread_id, self.role_key,
                       {SKILL_SESSION_KEY: _kept_session} if isinstance(_kept_session, dict) else {})
@@ -316,7 +316,7 @@ class _ChatTurnRuntime:
                         self.thread_id, bool(self.force_submit), len(self.click_labels))
         else:
             # 聊天兜底（无提交工具）：仅保留对话回复，不再作为「确认轮」进入引擎。
-            from app.services.llm_trace import reset_trace_ctx, set_trace_ctx
+            from ai_office.llm_trace import reset_trace_ctx, set_trace_ctx
             _tk = set_trace_ctx(node_type="skill_propose", opportunity_id=self.thread_id, role_key=self.role_key)
             try:
                 result = await run_stream_chat_loop(
@@ -406,7 +406,7 @@ class _ChatTurnRuntime:
         # 回合级放弃式超时（2026-09-06 语义保留）：relay 黑洞挂死时到点 cancel 不等待回收，
         # 宁可弃任务转入征询暂停，不可无限静默。P0-② 换 TurnBreaker 看护：900s 硬上限语义
         # 不变，中途加 steering/constrained 观察（observe-only，误报率验证后再武装）。
-        from app.services.turn_breaker import TurnBreaker
+        from ai_office.turn_breaker import TurnBreaker
         breaker = TurnBreaker(thread_id=self.thread_id)
         agent_kwargs["event_sink"] = breaker.wrap_sink(self.event_sink)
         _plan_task = asyncio.ensure_future(run_skill_agent_turn(**agent_kwargs))
@@ -415,7 +415,7 @@ class _ChatTurnRuntime:
             _plan_task.cancel()
             logger.error("需求分析回合被看护中止 reason=%s 观察记录=%s（relay 黑洞或死循环），放弃回合任务并转入缺配暂停",
                          _why, breaker.observations)
-            from app.services.skill_plan_runtime import pause_payload
+            from ai_office.skill_plan_runtime import pause_payload
             result_ctx = {
                 "ext": ext,
                 "engine_pause": pause_payload(
@@ -484,11 +484,11 @@ class _ChatTurnRuntime:
             _row_cat = ""
             if row_key:
                 from app.services.part_selector import row_ref_meta
-                from app.services.skill_node_state import KP_ROW_IDS, kp_state
+                from ai_office.skill_node_state import KP_ROW_IDS, kp_state
                 _row_cat = str((row_ref_meta(row_key, (self.result_ctx or {}).get("kp_parts"),
                                             kp_state(self.result_ctx or {}).get(KP_ROW_IDS))
                                 or {}).get("category") or "")
-            from app.services.skill_plan_runtime import ask_option_signal
+            from ai_office.skill_plan_runtime import ask_option_signal
             sig = ask_option_signal(row_key, o, ask_slot, category=_row_cat)
             if sig:
                 entry["signal"] = sig
@@ -581,7 +581,7 @@ class _ChatTurnRuntime:
                 ack_rule = "客户刚在选项卡上点选确认了：" + "、".join(self.click_labels)
             # 话术纪律（顾问口吻/label 文案/判断依据/一次一问）住在左栏「使用说明」，
             # 这里只摆事实 + JSON 契约——代码不再自带第二套提示词。
-            from app.services.skill_step_runtime import manual_rules_block
+            from ai_office.skill_step_runtime import manual_rules_block
             gap_prompt = ("（系统消息）配置引擎返回第一个缺口数据：\n"
                           "<<ACK_RULE>>\n<<GAP_DATA>>\n"
                           "只输出 JSON：{\"reply\":\"你要发给客户的那句话\","
@@ -598,8 +598,8 @@ class _ChatTurnRuntime:
                             .replace("<<GAP_DATA>>", json.dumps(gaps[0], ensure_ascii=False)))},
             ]
             try:
-                from app.services import llm_client
-                from app.services.llm_trace import record_llm_trace
+                from ai_office import llm_client
+                from ai_office.llm_trace import record_llm_trace
                 ask = None
                 # 失败可见 + 重试一次：话术调用挂了就退化成干巴巴数据句（2026-09-06 实测），
                 # 不许静默吞——失败必须落 trace，且重试一次再降级
@@ -762,7 +762,7 @@ class _ChatTurnRuntime:
 
     async def run(self) -> Optional[dict]:
         """对话回合主干：装配 → 点选落槽 → 对话/直进引擎 → done / gaps 分派。"""
-        from app.services.skill_plan_runtime import engine_result_of
+        from ai_office.skill_plan_runtime import engine_result_of
         _early = self._prepare()
         if _early is not None:
             return _early

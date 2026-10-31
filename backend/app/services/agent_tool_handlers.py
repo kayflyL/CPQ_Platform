@@ -3,7 +3,7 @@
 import asyncio
 import logging
 from typing import Any, Dict, List, Optional
-from app.services.agent_tool_registry import _truncate
+from ai_office.agent_tool_registry import _truncate
 
 logger = logging.getLogger(__name__)
 
@@ -133,8 +133,8 @@ async def _tool_select_parts(args: dict) -> Any:
     if dr and dr.get("query_id") and not dr.get("pending"):
         # pending=卡此前已广播过（重试撞闸），不重复发卡；card=本次闸新开问询，补广播
         try:
-            from app.services.human_query import announce_query
-            from app.services.skill_tool_context import TOOL_CTX
+            from ai_office.human_query import announce_query
+            from ai_office.skill_tool_context import TOOL_CTX
             ctx = TOOL_CTX.get() or {}
             entry = {"query_id": dr["query_id"], "kind": "choice",
                      "question": {"title": dr.get("question") or "请选择",
@@ -175,7 +175,7 @@ async def _tool_suggest_workflow(args: dict) -> Any:
     可发起清单由回合层摆进 TOOL_CTX（workflow_offers，来自该角色的 workflow skill 绑定）；
     建议写回 TOOL_CTX（workflow_suggestion），由 colleague_turn_runners 在回合收尾随消息落库。
     """
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
     offers = ctx.get("workflow_offers") if isinstance(ctx.get("workflow_offers"), list) else []
     key = str((args or {}).get("workflow_key") or "").strip()
@@ -210,7 +210,7 @@ async def _with_consent_query(result: Any, tool: str) -> Any:
     if not isinstance(result, dict) or not result.get("needs_confirmation"):
         return result
 
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
     thread_id = str(ctx.get("thread_id") or "")
     if not thread_id:
@@ -219,10 +219,10 @@ async def _with_consent_query(result: Any, tool: str) -> Any:
         return result
     if not tool:
         return result
-    from app.services.agent_write_confirm import mark_query_opened, query_opened
+    from ai_office.agent_write_confirm import mark_query_opened, query_opened
     if query_opened(thread_id, tool):
         return result
-    from app.services import human_query as hq
+    from ai_office import human_query as hq
     try:
         await hq.open_query_and_announce(
             thread_id, kind="consent",
@@ -295,12 +295,12 @@ async def _with_user_query(result: Any) -> Any:
     已有开放问题时把契约错误作为工具结果还给大脑转述。"""
     if not isinstance(result, dict) or not result.get("user_query"):
         return result
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
     thread_id = str(ctx.get("thread_id") or "")
     if not thread_id or ctx.get("defer_user_emission"):
         return result
-    from app.services import human_query as hq
+    from ai_office import human_query as hq
     try:
         await hq.open_query_and_announce(thread_id, role_key=ctx.get("role_key"),
                                          **result["user_query"])

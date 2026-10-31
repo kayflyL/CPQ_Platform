@@ -9,7 +9,7 @@ slot_spec / slot_label / _missing_critical 是全链路字段契约的唯一来�
 import logging
 from typing import Any, Optional
 
-from app.services.skill_node_state import (KP_ABSENT, KP_NODE, KP_PICKS, KP_RECOMMEND, KP_ROW_IDS,
+from ai_office.skill_node_state import (KP_ABSENT, KP_NODE, KP_PICKS, KP_RECOMMEND, KP_ROW_IDS,
                                            add_row_answer, add_waived_rows)
 
 

@@ -9,7 +9,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from app.repository.reasoning_flow_repo import ReasoningFlowRepository
 from app.api.deps import get_current_user, require_perms
-from app.services import flow_validation
+from ai_office import flow_validation
 
 logger = logging.getLogger(__name__)
 
@@ -257,11 +257,11 @@ def update_node(node_key: str, data: dict, skill_key: Optional[str] = Query(defa
             if repo.update_node_label(f["id"], node_key, label.strip(), operator=data.get("operator", "system")) is None:
                 raise HTTPException(404, f"Node not found in active graph: {node_key}")
         if str(f.get("skill_key") or f.get("name") or "") == "requirement_analysis":
-            from app.services import reasoning_node_contract
+            from ai_office import reasoning_node_contract
             config = reasoning_node_contract.override_only(node_key, config)
         # 三道闸之保存期（方案五）：wiring 引用不在注册表/工具集 → 400 白盒错误，
         # 把断口掐在配置保存时（不是聊到一半才发现落锁不发生）。
-        from app.services.skill_node_plugins import wiring_contract_errors
+        from ai_office.skill_node_plugins import wiring_contract_errors
         _wiring_errs = wiring_contract_errors(node_key, config)
         if _wiring_errs:
             raise HTTPException(400, "wiring 契约校验失败：" + "；".join(_wiring_errs))

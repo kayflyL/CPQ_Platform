@@ -18,7 +18,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from app.api.ai_colleagues import _read_config
 from app.repository.system_config_repo import SystemConfigRepository
 from app.services.office_brain import generate_autonomous_action, generate_meeting_output
-from app.services.office_events import publish_office_event
+from ai_office.office_events import publish_office_event
 from app.services.office_hub import office_hub
 
 logger = logging.getLogger(__name__)

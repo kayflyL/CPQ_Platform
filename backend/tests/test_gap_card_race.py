@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import skill_chat  # noqa: E402
+from ai_office import skill_chat # noqa: E402
 
 
 def _fake_self(card_emitted_sink):

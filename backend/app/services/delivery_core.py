@@ -117,7 +117,7 @@ def resolve_opportunity(user: dict, *, opportunity_id: str = "",
         repo.close()
     if hit:
         try:
-            from app.services.skill_tool_context import TOOL_CTX
+            from ai_office.skill_tool_context import TOOL_CTX
             ctx = TOOL_CTX.get() if isinstance(TOOL_CTX.get(), dict) else {}
             tid = str(ctx.get("thread_id") or "")
             if tid:

@@ -10,12 +10,12 @@ import asyncio
 import logging
 import json
 import time
-from app.services.agent_react import run_stream_chat_loop
-from app.services.skill_memory import _brain_note_summary, _slots_view
-from app.services.skill_node_state import DOC_SNAPSHOT_KEY, NODE_STATE_KEY, doc_freeze_violation, freeze_snapshot, mark_doc_frozen
-from app.services.skill_plan_runtime import effective_node_tools, steps_payload
-from app.services.skill_step_runtime import _emit_brain_status, _emit_step_trace, _engine_begin_step, _node_done_payload, manual_rules_block
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.agent_react import run_stream_chat_loop
+from ai_office.skill_memory import _brain_note_summary, _slots_view
+from ai_office.skill_node_state import DOC_SNAPSHOT_KEY, NODE_STATE_KEY, doc_freeze_violation, freeze_snapshot, mark_doc_frozen
+from ai_office.skill_plan_runtime import effective_node_tools, steps_payload
+from ai_office.skill_step_runtime import _emit_brain_status, _emit_step_trace, _engine_begin_step, _node_done_payload, manual_rules_block
+from ai_office.skill_tool_context import TOOL_CTX
 from typing import Optional
 
 
@@ -292,7 +292,7 @@ class _SkillTurnRuntime:
 
         # 大脑节点与旁白键来自节点插件注册表（编排壳不认识任何节点名）。
         # 函数体内 import：插件注册表参与模块环（skill_node_plugins ↔ 本模块）——延后到调用时解析。
-        from app.services.skill_node_plugins import (
+        from ai_office.skill_node_plugins import (
             first_delivery_gap, first_stuck_gap, narration_key_of, plugin_for)
         self.plugin_for = plugin_for
         self.first_delivery_gap = first_delivery_gap
@@ -341,7 +341,7 @@ class _SkillTurnRuntime:
         if row:
             # 行卡按行身份绑行（P3-3）：类目由身份解析，不再从 row 文本里切竖线
             from app.services.part_selector import row_ref_meta
-            from app.services.skill_node_state import KP_ROW_IDS, kp_state
+            from ai_office.skill_node_state import KP_ROW_IDS, kp_state
             _row_cat = str((row_ref_meta(row, self.engine.get("kp_parts"),
                                         kp_state(self.engine).get(KP_ROW_IDS))
                             or {}).get("category") or "")
@@ -378,7 +378,7 @@ class _SkillTurnRuntime:
                 if isinstance(v, int) and v > 0:
                     opt[k] = v
             # 点击信号统一解释（行卡三结局 / 字段确认），见 skill_plan_runtime.ask_option_signal
-            from app.services.skill_plan_runtime import ask_option_signal
+            from ai_office.skill_plan_runtime import ask_option_signal
             sig = ask_option_signal(row, o, str(a.get("slot") or ""), category=_row_cat)
             if sig:
                 opt["signal"] = sig
@@ -426,7 +426,7 @@ class _SkillTurnRuntime:
         下游（办公室事件 / 恢复入口 / UI）只读这一份对象，不再从 reasoning_state +
         治理队列 + 广播里各拼一半。载荷里只有事实与原因码，没有任何话术。
         """
-        from app.services.skill_plan_runtime import pause_payload
+        from ai_office.skill_plan_runtime import pause_payload
         engine = self.engine
         step_key = str(step or engine.get("current_step")
                        or self._cur_step.get("key") or "")
@@ -451,7 +451,7 @@ class _SkillTurnRuntime:
         if self.event_sink is None:
             return
         try:
-            from app.services.skill_plan_runtime import skill_steps_view, _trace
+            from ai_office.skill_plan_runtime import skill_steps_view, _trace
             # 顺序与执行序同源：画布 graph 拓扑序（无 flow/graph 返回空，不回退需求分析节点表）
             steps_meta = skill_steps_view(self.flow_configs, flow=self.flow)
             flow_title = str((self.flow or {}).get("name") or (self.flow or {}).get("title") or "配置任务")
@@ -603,7 +603,7 @@ class _SkillTurnRuntime:
             # 节点回合内的实时产物广播由产物注册表声明（skill_node_artifacts）：
             # 哪个节点会边想边亮产物是它的插头属性，不是主循环的知识。
             try:
-                from app.services.skill_node_artifacts import emit_live_artifact
+                from ai_office.skill_node_artifacts import emit_live_artifact
                 self._fill_emitted = bool(await emit_live_artifact(
                     step_key, engine, self.event_sink,
                     self._cur_step.get("label") or step_key, self._cur_step_started, self.full_text))
@@ -642,7 +642,7 @@ class _SkillTurnRuntime:
         if _mg is not None:
             return await _pause([_mg], [])
 
-        from app.services.skill_plan_runtime import validate_step_end
+        from ai_office.skill_plan_runtime import validate_step_end
         try:
             vres = await validate_step_end(engine, step_key)
         except Exception:
@@ -743,7 +743,7 @@ class _SkillTurnRuntime:
         self._cur_step_started = time.perf_counter()
         if self.event_sink is not None:
             try:
-                from app.services.skill_plan_runtime import _trace
+                from ai_office.skill_plan_runtime import _trace
                 lab = self._cur_step.get("label") or step_key
                 await self.event_sink(_trace(step_key, lab, "running"))
             except Exception:
@@ -753,7 +753,7 @@ class _SkillTurnRuntime:
         # 这里把「DB 丢了什么」升格为 node_trace + contract_warnings——试运行面板看得见，
         # 不再只进日志。每步每回合只报一次，防多轮刷屏。
         try:
-            from app.services.skill_plan_runtime import node_tool_drift
+            from ai_office.skill_plan_runtime import node_tool_drift
             _drift = node_tool_drift(step_key, node_cfg)
         except Exception:
             logger.exception("机制工具漂移检测失败 step=%s", step_key)
@@ -765,7 +765,7 @@ class _SkillTurnRuntime:
             engine.setdefault("contract_warnings", []).append(_warn)
             if self.event_sink is not None:
                 try:
-                    from app.services.skill_plan_runtime import _trace
+                    from ai_office.skill_plan_runtime import _trace
                     await self.event_sink(_trace(step_key, self._cur_step.get("label") or step_key,
                                                  "running", summary=_warn["message"]))
                 except Exception:
@@ -848,7 +848,7 @@ class _SkillTurnRuntime:
 
     async def _deliver(self) -> dict:
         """全部 brain 节点推进完毕 → 终检 + 组装 + 交付（不合格则回落成暂停缺口卡）。"""
-        from app.services.skill_plan_runtime import delivery_gate, run_compose
+        from ai_office.skill_plan_runtime import delivery_gate, run_compose
         engine = self.engine
         self._finalize_engine()
         engine["brain_notes"] = list(engine.get("brain_notes") or [])[-3:]
@@ -900,7 +900,7 @@ class _SkillTurnRuntime:
                 engine["document_target"] = {**(_doc_art or _shell), "render": _render}
             elif _doc_art is not None:
                 engine["document_target"] = _doc_art
-            from app.services.skill_node_runtime import finalize_output
+            from ai_office.skill_node_runtime import finalize_output
             try:
                 # finalize_output 内部自写 ctx["output_kind"/"output_payload"]（真 payload）；
                 # 其返回值是 handoff 信封（payload 嵌在 .payload 里），绝不能再拿回来覆盖 ctx
@@ -909,7 +909,7 @@ class _SkillTurnRuntime:
                 logger.exception("finalize_output 失败 thread=%s", self.thread_id)
             if self.event_sink is not None:
                 try:
-                    from app.services.skill_plan_runtime import skill_steps_view
+                    from ai_office.skill_plan_runtime import skill_steps_view
                     out_lab = next((s.get("label") for s in skill_steps_view(self.flow_configs,
                                                                             flow=self.flow)
                                     if s.get("step") == "output"), "output")

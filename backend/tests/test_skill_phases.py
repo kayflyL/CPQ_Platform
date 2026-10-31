@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """引擎（两器官架构）纯逻辑回归：信号门槛 / 无发明选件 / 场景守卫 / 缺口数据协议。"""
-from app.services import skill_signals
+from ai_office import skill_signals
 from unittest.mock import patch
 
 from app.services import part_selector as ps
@@ -163,7 +163,7 @@ def test_decimal_capacity_parsing():
 
 def test_signal_with_qty_clamped_by_chassis():
     """stepper 数量参数：服务端克隆留底 signal 改数量，按机箱能力 clamp（客户端只传数字）。"""
-    from app.services.skill_signals import _signal_with_qty
+    from ai_office.skill_signals import _signal_with_qty
     meta = {"gpu_slots": 10, "max_dimm": 24, "max_cpu": 2}
     gpu = {"gpu": [{"model": "曙云C550", "qty": 10}]}
     sig = _signal_with_qty(gpu, 6, meta)

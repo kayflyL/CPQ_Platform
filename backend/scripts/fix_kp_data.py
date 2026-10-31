@@ -13,6 +13,7 @@
 - 外部件（国产 GPU/加速卡、CPU、HBA/Bridge/NVSwitch 等）默认仅 dry-run 列待补，
   加 --llm 由 LLM 生成规格；LLM 不确认的字段置空、整件无结果则标记待人工。
 """
+import os
 import sys
 import json
 import re
@@ -21,6 +22,7 @@ from pathlib import Path
 from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))  # backend/
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
 from app.models.kp import KPPart, KPPartSpec, KPPriceHistory, KPPartCompat, KPPartRelated
 from app.repository.kp_repo import KPRepository
@@ -205,7 +207,7 @@ CAT_ALLOWED_KEYS = {
 }
 
 def _llm_config():
-    from app.services.llm_client import _get_llm_config
+    from ai_office.llm_client import _get_llm_config
     cfg = _get_llm_config()
     return cfg
 

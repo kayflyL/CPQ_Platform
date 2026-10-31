@@ -18,7 +18,7 @@ def _part(**kw):
 
 
 def test_grounding_envelope_partitions_parts():
-    from app.services.skill_contracts import grounding_envelope
+    from ai_office.skill_contracts import grounding_envelope
     env = grounding_envelope([
         _part(pn="A"),
         _part(pn="", unmatched=True, unmatched_reason="库无"),
@@ -33,7 +33,7 @@ def test_grounding_envelope_partitions_parts():
 
 
 def test_validate_grounding_ok_and_failures():
-    from app.services.skill_contracts import validate_grounding
+    from ai_office.skill_contracts import validate_grounding
     assert validate_grounding({
         "matched": [_part(pn="A")],
         "unmatched": [_part(pn="", unmatched=True, unmatched_reason="库无")],

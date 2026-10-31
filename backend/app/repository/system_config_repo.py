@@ -152,7 +152,7 @@ _ENTRY_POINT_MIGRATIONS = {
 
 # 2026-08-29 步骤2 退役：query_cpq_data（坏）→ query_data（映射）；服务器浏览三件套直接剔除
 # 工具名唯一真源迁移到 services/tool_names.py，此处只引用共享版，避免散落双写。
-from ..services.tool_names import TOOL_RENAME_MAP as _TOOL_RENAME_MAP, RETIRED_TOOL_IDS as _RETIRED_TOOL_IDS
+from ai_office.tool_names import TOOL_RENAME_MAP as _TOOL_RENAME_MAP, RETIRED_TOOL_IDS as _RETIRED_TOOL_IDS
 
 
 

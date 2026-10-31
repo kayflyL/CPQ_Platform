@@ -24,7 +24,7 @@ _CATEGORY_FOLDER = dcore.CATEGORY_FOLDER
 
 
 def _ctx() -> dict:
-    from app.services.skill_tool_context import TOOL_CTX
+    from ai_office.skill_tool_context import TOOL_CTX
     ctx = TOOL_CTX.get()
     return ctx if isinstance(ctx, dict) else {}
 
@@ -42,7 +42,7 @@ def _err(message: str, **extra: Any) -> dict:
 def _consume_pending(tool: str) -> None:
     """写动作执行成功后销待确认记录；失败不销——重试直达放行，
     不再出现"失败一次就永远只出预览"的死循环（2026-10-22 实锤）。"""
-    from app.services.agent_write_confirm import consume
+    from ai_office.agent_write_confirm import consume
     consume(str(_ctx().get("thread_id") or ""), tool)
 
 
@@ -59,7 +59,7 @@ def _confirm_gate(args: dict, tool: str, preview: dict):
         确认分级（P3）：confirm_policy=none 的工具（幂等白名单，声明见 agent_tool_specs
         _TOOL_CONTRACTS）不落待确认不弹卡——参数原样执行（用户输入即信号的类目）。"""
     from app.services.agent_tool_specs import confirm_policy_for
-    from app.services.agent_write_confirm import resolve_confirmed, stage, staged_args
+    from ai_office.agent_write_confirm import resolve_confirmed, stage, staged_args
     thread_id = str(_ctx().get("thread_id") or "")
     if not args.get("confirm"):
         if confirm_policy_for(tool) == "none":
@@ -655,7 +655,7 @@ def tool_ask_user(args: dict) -> dict:
     结构化回流对话。无存证语义（写动作的授权走确认闸，不经本工具）。"""
     if not _require_user():
         return _err("无法确定操作身份，拒绝提问")
-    from app.services import human_query as hq
+    from ai_office import human_query as hq
     options_raw = args.get("options") if isinstance(args.get("options"), list) else None
     fields_raw = args.get("fields") if isinstance(args.get("fields"), list) else None
     kind, err = hq.validate_payload(args.get("title"), options_raw, fields_raw)

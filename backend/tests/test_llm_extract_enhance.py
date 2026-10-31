@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from app.services import llm_client
+from ai_office import llm_client
 from app.services.llm_extract_enhance import (
     EXTRACT_ENHANCE_SCHEMA,
     _interface_norm,
@@ -97,8 +97,8 @@ def _fake_client(responses):
 
 
 def _patch_env(mock_client, comp):
-    patch("app.services.llm_client._client", return_value=mock_client).start()
-    patch("app.services.llm_client._get_llm_config", return_value={
+    patch("ai_office.llm_client._client", return_value=mock_client).start()
+    patch("ai_office.llm_client._get_llm_config", return_value={
         "base_url": "http://x", "api_key": "k", "model": "m",
         "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True},
     }).start()
@@ -108,8 +108,8 @@ def test_chat_json_json_mode_and_schema_clean():
     comp, client = _fake_client([
         '{"cpu": {"model": "AMD EPYC 9254", "cores": "24"}, "extra": 1}',
     ])
-    with patch("app.services.llm_client._client", return_value=client), \
-         patch("app.services.llm_client._get_llm_config", return_value={
+    with patch("ai_office.llm_client._client", return_value=client), \
+         patch("ai_office.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         data = asyncio.run(llm_client.chat_json(
@@ -126,8 +126,8 @@ def test_chat_json_retries_once_then_succeeds():
         "not json {{{",                       # 第一次解析失败
         '{"form": "4U"}',                     # 第二次成功
     ])
-    with patch("app.services.llm_client._client", return_value=client), \
-         patch("app.services.llm_client._get_llm_config", return_value={
+    with patch("ai_office.llm_client._client", return_value=client), \
+         patch("ai_office.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         data = asyncio.run(llm_client.chat_json([{"role": "user", "content": "hi"}]))
@@ -139,8 +139,8 @@ def test_chat_json_raises_after_retries():
     comp, client = _fake_client([
         RuntimeError("boom"), RuntimeError("boom again"),
     ])
-    with patch("app.services.llm_client._client", return_value=client), \
-         patch("app.services.llm_client._get_llm_config", return_value={
+    with patch("ai_office.llm_client._client", return_value=client), \
+         patch("ai_office.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):
@@ -150,8 +150,8 @@ def test_chat_json_raises_after_retries():
 
 def test_chat_json_empty_content_raises():
     comp, client = _fake_client(["", ""])
-    with patch("app.services.llm_client._client", return_value=client), \
-         patch("app.services.llm_client._get_llm_config", return_value={
+    with patch("ai_office.llm_client._client", return_value=client), \
+         patch("ai_office.llm_client._get_llm_config", return_value={
              "base_url": "http://x", "api_key": "k", "model": "m",
              "system_prompt": "", "temperature": 0.2, "max_tokens": 8000, "probe_capabilities": {"supports_json_mode": True}}):
         with pytest.raises(llm_client.LLMError):

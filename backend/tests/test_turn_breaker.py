@@ -8,7 +8,7 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, patch
 
-from app.services.turn_breaker import (
+from ai_office.turn_breaker import (
     CONSTRAINED, HEALTHY, STEERING, ToolRepeatGuard, TurnBreaker,
 )
 
@@ -225,8 +225,8 @@ def _native_tool_call(name, args, call_id="call_1"):
 
 def test_react_loop_aborts_on_identical_repeat_calls():
     """同名同参连调 6 次 → 循环止损，error=repeat_tool:*（09-12 死循环家族防线）。"""
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
 
     async def fake_h(args):
@@ -234,8 +234,8 @@ def test_react_loop_aborts_on_identical_repeat_calls():
 
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": 1}, call_id=f"c{i}") for i in range(9)]
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop(
             "req", {"enabled_tools": ["fake_tool"]}, max_iterations=9))
     assert out["ok"] is False
@@ -245,8 +245,8 @@ def test_react_loop_aborts_on_identical_repeat_calls():
 
 def test_react_loop_allows_varying_repeat_calls():
     """同工具不同参数的多次调用是合法检索 → 不触发守卫。"""
-    from app.services import agent_react
-    from app.services.agent_tool_registry import ToolRegistry
+    from ai_office import agent_react
+    from ai_office.agent_tool_registry import ToolRegistry
     reg = ToolRegistry()
 
     async def fake_h(args):
@@ -255,8 +255,8 @@ def test_react_loop_allows_varying_repeat_calls():
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": i}, call_id=f"c{i}") for i in range(5)]
     responses.append({"message": {"role": "assistant", "content": "done"}, "tool_calls": []})
-    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
-            patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
+    with patch("ai_office.agent_react._REGISTRY_BUILDER", return_value=reg), \
+            patch("ai_office.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop(
             "req", {"enabled_tools": ["fake_tool"]}, max_iterations=6))
     assert out["ok"] is True and out["answer"] == "done"

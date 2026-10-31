@@ -19,10 +19,12 @@ import argparse
 import asyncio
 import collections
 import json
+import os
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
 import psycopg2
 from psycopg2.extras import DictCursor
@@ -90,7 +92,7 @@ def _dupes(parts: list) -> list:
 
 def _published_rows(state: dict, parts: list) -> list:
     """按**发布口径**取行清单（bridge_ctx 的 kp_rows_all）——这是 AI 引用的权威表。"""
-    from app.services.skill_node_plugins import plugin_for
+    from ai_office.skill_node_plugins import plugin_for
     ext = state.get("ext") if isinstance(state.get("ext"), dict) else {}
     ns = state.get("node_state") if isinstance(state.get("node_state"), dict) else {}
     engine = {"ext": dict(ext), "kp_parts": parts, "node_state": ns,

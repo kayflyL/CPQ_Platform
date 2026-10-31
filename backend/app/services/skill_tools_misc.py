@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import logging
-from app.services.skill_tool_context import TOOL_CTX
+from ai_office.skill_tool_context import TOOL_CTX
 
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,7 @@ def tool_query_data(args: dict) -> dict:
     物理校验+只读事务+超时+行数上限+列脱敏全在 execute_read；这里只做接线与审计。
     """
     ctx = TOOL_CTX.get()
-    from app.services.data_boundary import tool_boundary
+    from ai_office.data_boundary import tool_boundary
     boundary = tool_boundary(bool(ctx.get("price_ok")))
     sql = str((args or {}).get("sql") or "").strip()
     if not sql:
@@ -107,7 +107,7 @@ def tool_query_data(args: dict) -> dict:
         limit = int((args or {}).get("limit") or 50)
     except (TypeError, ValueError):
         limit = 50
-    from app.services.data_boundary import execute_read
+    from ai_office.data_boundary import execute_read
     out = execute_read(sql, boundary, limit=limit)
     logger.info("query_data role=%s ok=%s rows=%s truncated=%s sql=%s",
                 ctx.get("role_key") or "?", bool(out.get("ok")),

@@ -40,7 +40,8 @@ _GPU_LIB = {
 def _exam_env(monkeypatch):
     """考卷环境：问答协议走内存后端（不触真库）；决策闸供给者接 3 款 GPU 候选假库；
     落料回库核对走假库（名称忽略大小写与空格）。"""
-    from app.services import data_tools, human_query as hq, skill_decision_gate as dg
+    from app.services import data_tools
+    from ai_office import human_query as hq, skill_decision_gate as dg
 
     monkeypatch.setattr(hq, "_STORAGE", "memory")
     monkeypatch.setattr(hq, "_MEM", {})
@@ -76,7 +77,7 @@ _CTX_TOKEN = [None]  # 考卷夹具的 TOOL_CTX token 暂存（各题 finally �
 
 
 def _set_ctx(thread_id: str, engine: dict, ext: dict, rows: list, saved: dict):
-    from app.services import skill_tool_context
+    from ai_office import skill_tool_context
     _CTX_TOKEN[0] = skill_tool_context.TOOL_CTX.set({
         "thread_id": thread_id, "ext": ext, "task_active": True,
         "engine": engine, "kp_rows_ctx": rows, "kp_required_cats": set(),
@@ -88,10 +89,10 @@ def _set_ctx(thread_id: str, engine: dict, ext: dict, rows: list, saved: dict):
 
 
 def test_exam1_multi_candidate_cards_then_user_pick_settles():
-    from app.services import human_query as hq
-    from app.services import skill_tool_context
+    from ai_office import human_query as hq
+    from ai_office import skill_tool_context
     from app.services import skill_tools_select
-    from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND
+    from ai_office.skill_node_state import KP_PICKS, KP_RECOMMEND
 
     engine = {"flow_configs": {"kp_reason": {"decisions": DEC}}}
     ext, saved = {}, {}
@@ -130,7 +131,7 @@ def test_exam1_multi_candidate_cards_then_user_pick_settles():
 
 def test_exam1b_ctx_reset_smoke():
     """占位防呆：TOOL_CTX 必须经 token 复位（ContextVar 语义）。"""
-    from app.services import skill_tool_context
+    from ai_office import skill_tool_context
     token = skill_tool_context.TOOL_CTX.set({"ext": {}})
     skill_tool_context.TOOL_CTX.reset(token)
 
@@ -140,10 +141,10 @@ def test_exam1b_ctx_reset_smoke():
 
 def test_exam2_agent_fill_artifact_nonempty():
     from app.services import skill_tools_fill
-    from app.services.skill_node_artifacts import node_payload
+    from ai_office.skill_node_artifacts import node_payload
 
     ext, saved = {}, {}
-    from app.services import skill_tool_context
+    from ai_office import skill_tool_context
     token = skill_tool_context.TOOL_CTX.set({
         "ext": ext, "task_active": True, "save": lambda: saved.update(done=True)})
     try:
@@ -171,7 +172,7 @@ def test_exam2_agent_fill_artifact_nonempty():
                                       "delivery_to_quotation"])
 def test_exam3_drawer_three_zones_nonempty(flow_key):
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services import flow_validation as fv
+    from ai_office import flow_validation as fv
     flow = ReasoningFlowRepository().get_active_flow(flow_key)
     assert flow, f"{flow_key} 无在用流"
     graph = flow.get("graph") or {}
@@ -190,7 +191,7 @@ def test_exam3_drawer_three_zones_nonempty(flow_key):
 
 def test_exam4_trend_artifact_contracts():
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services.skill_target_contract import first_artifact, format_contract
+    from ai_office.skill_target_contract import first_artifact, format_contract
     flow = ReasoningFlowRepository().get_active_flow("trend_analysis")
     assert flow
     cfgs = flow.get("node_configs") or {}
@@ -206,7 +207,7 @@ def test_exam4_trend_artifact_contracts():
 
 def test_exam5_delivery_flow_definition_baseline():
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services import flow_validation as fv
+    from ai_office import flow_validation as fv
     flow = ReasoningFlowRepository().get_active_flow("delivery_to_quotation")
     assert flow
     graph = flow.get("graph") or {}
@@ -229,7 +230,7 @@ def test_exam6_event_protocol_runtime_conformance():
     import asyncio
     from unittest.mock import patch
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services import skill_turn_engine
+    from ai_office import skill_turn_engine
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow
     events: list = []
@@ -270,7 +271,7 @@ def test_exam7_step_pointer_progression():
     import asyncio
     from unittest.mock import patch
     from app.repository.reasoning_flow_repo import ReasoningFlowRepository
-    from app.services import skill_turn_engine
+    from ai_office import skill_turn_engine
     flow = ReasoningFlowRepository().get_active_flow("requirement_analysis")
     assert flow
 

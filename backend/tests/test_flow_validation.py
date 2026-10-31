@@ -5,7 +5,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import flow_validation as fv
+from ai_office import flow_validation as fv
 
 
 def _node(key, type_="agent", label="节点"):

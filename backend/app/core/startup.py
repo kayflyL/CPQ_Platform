@@ -110,7 +110,7 @@ def check_registered_flows_present():
     """
     from app.models.base import engine
     from sqlalchemy import text
-    from app.services.transaction_engine import registered_flow_keys
+    from ai_office.transaction_engine import registered_flow_keys
     keys = list(registered_flow_keys())
     with engine.connect() as c:
         active = {str(r[0]) for r in c.execute(
@@ -1290,7 +1290,7 @@ def init_rules_db():
         print(f"⚠️ capability_spec 自检失败: {e}")
     # 推理节点默认契约 → DB 唯一权威（空库播种；运行后只读新表，无种子/兜底）
     try:
-        from app.services.skill_config_bootstrap import (
+        from ai_office.skill_config_bootstrap import (
             ensure_node_wiring_backfill, ensure_reasoning_node_defaults)
         _nd = ensure_reasoning_node_defaults()
         if _nd:
@@ -1314,7 +1314,7 @@ def init_rules_db():
     # wiring 契约启动期告警（方案五三道闸之一）：active 流生效配置里的 wiring 引用必须在
     # 注册表/工具集里；只报白盒不改行为——断口在启动时看得见，不等聊到一半。
     try:
-        from app.services.skill_node_plugins import wiring_contract_errors
+        from ai_office.skill_node_plugins import wiring_contract_errors
         from app.repository.reasoning_flow_repo import ReasoningFlowRepository
         _repo = ReasoningFlowRepository()
         _wiring_errs = []
@@ -1579,7 +1579,7 @@ def init_rules_db():
     # ── 引擎宿主接线（第 5 步画边界，2026-10-31）：机制只认回调、宿主启动时供给 ──
     # ① 问答协议广播器：协议只管协议槽+落库展示副本，实时推送由宿主 hub 供给
     try:
-        from app.services import human_query as _hq
+        from ai_office import human_query as _hq
         from app.services.assistant_hub import assistant_hub
         _hq.set_broadcaster(assistant_hub.broadcast)
     except Exception as e:
@@ -1592,7 +1592,7 @@ def init_rules_db():
         print(f"⚠️ decision gate provider wiring failed: {e}")
     # ③ 大脑循环的工具目录构建器：loop 层不 import 声明表，组合由宿主供给
     try:
-        from app.services import agent_react
+        from ai_office import agent_react
         from app.services.agent_tool_specs import build_tool_registry
         agent_react.set_registry_builder(build_tool_registry)
     except Exception as e:

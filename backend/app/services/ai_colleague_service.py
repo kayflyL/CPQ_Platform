@@ -50,7 +50,7 @@ def _load_config() -> dict:
             repo.close()
         cfg = _as_config(value)
         _migrate_runtime_office_layout(cfg)
-        from app.services.data_boundary import normalize_colleague
+        from ai_office.data_boundary import normalize_colleague
         cfg["colleagues"] = [normalize_colleague(c) for c in cfg.get("colleagues") or [] if isinstance(c, dict)]
         return cfg
     except Exception:
@@ -225,7 +225,7 @@ async def resolve_assistant_message_target_async(
     if not roster:
         return None
     import json as _json
-    from app.services import llm_client
+    from ai_office import llm_client
     # 判官用的就是总助自己的提示词（Manage Teams · 同事 · 方案助手）；JSON 契约由 _DISPATCH_SCHEMA 结构化传入。
     lead = next((c for c in (config.get("colleagues") or [])
                  if c.get("role_key") == "assistant"), None) or {}

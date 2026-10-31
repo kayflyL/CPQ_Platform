@@ -23,10 +23,11 @@ import sys
 from _localdb import db_url  # 2026-09-14 安全加固：密码不再硬编码
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'ai-office'))  # ai_office 引擎包
 
 import sqlalchemy as sa
 
-from app.services.tool_names import normalize_tool_ids
+from ai_office.tool_names import normalize_tool_ids
 
 DRY = os.environ.get("CPQ_DRY") == "1"
 

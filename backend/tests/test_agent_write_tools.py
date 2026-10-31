@@ -16,10 +16,10 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import HTTPException  # noqa: E402
 
-from app.services import agent_write_confirm as wc  # noqa: E402
+from ai_office import agent_write_confirm as wc # noqa: E402
 from app.services import delivery_core as dcore  # noqa: E402
 from app.services import skill_tools_write as sw  # noqa: E402
-from app.services.skill_tool_context import TOOL_CTX  # noqa: E402
+from ai_office.skill_tool_context import TOOL_CTX  # noqa: E402
 
 
 def _set_ctx(**overrides):
@@ -187,7 +187,7 @@ def test_consent_query_and_ask_share_one_open_slot():
     """问答协议不变量：每线程至多一个开放问题——consent（调和器发起）与
     ask_user（大脑发起）共用同一槽位，第二问=契约错误（规则 12 的机制化）。"""
     import pytest
-    from app.services import human_query as hq
+    from ai_office import human_query as hq
 
     hq._STORAGE = "memory"
     hq._MEM.clear()
@@ -840,7 +840,7 @@ def test_persist_broadcast_stamps_workflow_suggestion_kind():
     """带发起建议时 kind 必须落 workflow_suggestion，前端按 kind 渲染一键发起卡。"""
     import asyncio
 
-    from app.services import colleague_turn_io
+    from ai_office import colleague_turn_io
 
     recorded = {}
 
@@ -855,7 +855,7 @@ def test_persist_broadcast_stamps_workflow_suggestion_kind():
     async def _noop(*args, **kwargs):
         return None
 
-    with patch("app.services.colleague_turn_io.AssistantRepository", return_value=_FakeRepo()), \
+    with patch("ai_office.colleague_turn_io.AssistantRepository", return_value=_FakeRepo()), \
          patch.object(colleague_turn_io.assistant_hub, "broadcast", side_effect=_noop), \
          patch.object(colleague_turn_io, "publish_office_event", side_effect=_noop):
         asyncio.run(colleague_turn_io._persist_and_broadcast(
@@ -876,7 +876,7 @@ def test_consent_query_emitted_and_broadcast():
     轮壳 defer 时只返回不发射（先解释后问）。"""
     import asyncio
 
-    from app.services import human_query as hq
+    from ai_office import human_query as hq
     from app.services.agent_tool_handlers import _with_consent_query
 
     hq._STORAGE = "memory"

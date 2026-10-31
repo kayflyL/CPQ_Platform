@@ -15,14 +15,14 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.services import skill_chat, skill_plan_runtime
-from app.services import skill_tool_context
+from ai_office import skill_chat, skill_plan_runtime
+from ai_office import skill_tool_context
 from app.services import skill_tools_select
-from app.services import skill_turn_engine
-from app.services.skill_node_plugins import (
+from ai_office import skill_turn_engine
+from ai_office.skill_node_plugins import (
     DefaultNodePlugin, all_plugins, brain_node_keys, first_delivery_gap, plugin_for,
     register)
-from app.services.skill_node_state import KP_PICKS, kp_state, node_state
+from ai_office.skill_node_state import KP_PICKS, kp_state, node_state
 
 WORKFLOW_NODES = ("input", "agent_fill", "model_reason", "kp_reason", "compose", "output")
 
@@ -76,7 +76,7 @@ def test_register_is_the_only_extension_point():
         assert plugin_for("_probe_node").narration_key == "probe_narration"
         assert "_probe_node" in brain_node_keys()
     finally:
-        from app.services import skill_node_plugins as np
+        from ai_office import skill_node_plugins as np
         np._PLUGINS.pop("_probe_node", None)
 
 
@@ -123,7 +123,7 @@ def test_kp_node_validate_needs_every_registered_row_landed(monkeypatch):
         {"part_id": "101", "name": "兆芯 KH-50000 32核", "category": "CPU",
          "price": 4500.0, "currency": "RMB"},
     ])
-    from app.services.skill_node_plugins import plugin_for as pf
+    from ai_office.skill_node_plugins import plugin_for as pf
     ext = {"kp_rows": [{"part_category": "CPU", "description": "兆芯 50000 32核 处理器",
                         "qty": 2}]}
     engine: dict = {"ext": ext, "node_state": {}}
@@ -178,11 +178,11 @@ def test_orchestration_shell_has_no_node_name_dispatch():
 # ── 4. 产物槽/实时发射器 = 产物槽的属性 ─────────────────────────────────────
 
 def test_live_emitters_are_keyed_by_slot_not_node_name():
-    from app.services.skill_node_artifacts import (
+    from ai_office.skill_node_artifacts import (
         BUILDERS, LIVE_EMITTERS, ensure_registered)
     ensure_registered()
     assert set(LIVE_EMITTERS) <= set(BUILDERS)
-    src = pathlib.Path(__import__("app.services.skill_node_artifacts",
+    src = pathlib.Path(__import__("ai_office.skill_node_artifacts",
                                   fromlist=["x"]).__file__).read_text(encoding="utf-8")
     assert '== "agent_fill"' not in src, "实时产物不该按节点名判断"
 
@@ -232,7 +232,7 @@ def test_wire_result_hook_signature_accepts_node_key():
 def test_wiring_lives_in_db_seed_not_code_attrs():
     """接线针脚不得回流成代码类属性：_ModelNode 类属性已退役，种子在 DB 引导模块。"""
     import pathlib
-    from app.services import skill_config_bootstrap, skill_node_plugins
+    from ai_office import skill_config_bootstrap, skill_node_plugins
     src = pathlib.Path(skill_node_plugins.__file__).read_text(encoding="utf-8")
     assert 'result_tool = "' not in src, "接线工具名不得作为代码常量存在"
     assert "lock_func_path" not in src, "DB 严禁存函数路径（handler 注册表只存代码内）"
@@ -245,7 +245,7 @@ def test_wiring_lives_in_db_seed_not_code_attrs():
 
 def test_wiring_contract_errors_catches_bad_refs():
     """三道闸共用校验：工具未注册/未绑定节点、handler 未登记 → 逐条白盒报错。"""
-    from app.services.skill_node_plugins import wiring_contract_errors
+    from ai_office.skill_node_plugins import wiring_contract_errors
     from tests.test_select_model_tool import _WIRING
     assert wiring_contract_errors("model_reason", {"wiring": dict(_WIRING)}) == []
     bad_tool = dict(_WIRING, result_tool="no_such_tool")

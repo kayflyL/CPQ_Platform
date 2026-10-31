@@ -66,7 +66,7 @@ def wiring_contract_errors(node_key: str, cfg: dict) -> list:
     if not isinstance(w, dict) or not w:
         return errors
     from app.services.agent_tool_specs import registered_tool_ids
-    from app.services.skill_plan_runtime import effective_node_tools
+    from ai_office.skill_plan_runtime import effective_node_tools
     tool = str(w.get("result_tool") or "").strip()
     if tool:
         known = set(registered_tool_ids())
@@ -85,7 +85,7 @@ def wiring_contract_errors(node_key: str, cfg: dict) -> list:
 def _row_meta(engine: dict, row_ref: str) -> dict:
     """行引用（row_id / origin / 行键）→ 行身份；解析不到返回 {}（绝不猜文本）。"""
     from app.services.part_selector import row_ref_meta
-    from app.services.skill_node_state import KP_ROW_IDS, kp_state
+    from ai_office.skill_node_state import KP_ROW_IDS, kp_state
     return row_ref_meta(row_ref, engine.get("kp_parts"), kp_state(engine).get(KP_ROW_IDS))
 
 
@@ -221,7 +221,7 @@ class DefaultNodePlugin:
 
     def artifact_contract(self, node_cfg: dict) -> str:
         """该节点产物的输出契约文本（默认取抽屉 target.artifacts 第一条；无则空串）。"""
-        from app.services.skill_target_contract import first_artifact, format_contract
+        from ai_office.skill_target_contract import first_artifact, format_contract
         return format_contract(first_artifact(node_cfg))
 
     async def validate(self, ctx: dict) -> dict:
@@ -384,7 +384,7 @@ class _KpNode(DefaultNodePlugin):
         ctx["kp_baseline_caps"] = self._baseline_caps(engine)
         from app.services.part_selector import (kp_row_key, kp_row_id, kp_registered_specified,
                                                pick_for_row, pick_is_stale)
-        from app.services.skill_node_state import (KP_ROW_IDS, KP_PICKS, KP_RECOMMEND, kp_state,
+        from ai_office.skill_node_state import (KP_ROW_IDS, KP_PICKS, KP_RECOMMEND, kp_state,
                                            row_answer_text, waived_row_keys)
         _st = kp_state(engine)
         _picks = _st.get(KP_PICKS) if isinstance(_st.get(KP_PICKS), dict) else {}
@@ -647,7 +647,7 @@ class _KpNode(DefaultNodePlugin):
                 + self._waived_options(engine, ref))
         if not opts:
             return None
-        from app.services.skill_plan_runtime import ask_option_signal
+        from ai_office.skill_plan_runtime import ask_option_signal
         for o in opts:
             sig = ask_option_signal(ref, o, "kp_row", category=cat)
             if sig:
@@ -697,7 +697,7 @@ class _ComposeNode(DefaultNodePlugin):
         await refresh_kp_state(ctx)  # 大脑提交过的选型落进行表后再判终检
         # 局部导入（同 skill_plan_runtime 风格，避开模块环）：此前漏了这行，
         # 整个函数一调用就 NameError——只是恰好没被走到，才没炸在脸上。
-        from app.services.skill_plan_runtime import final_gate
+        from ai_office.skill_plan_runtime import final_gate
         gate = final_gate(ctx, composing=True)
         if not gate.get("ok"):
             return gate
@@ -715,7 +715,7 @@ def fill_contract_brief(node_cfg: dict | None = None) -> str:
     此处自动跟随——这是 agent_fill 可复用到其他 skill 的接口要求：树干只描述形状，
     业务内容全部来自配置与数据。
     """
-    from app.services.skill_target_contract import first_artifact, format_contract
+    from ai_office.skill_target_contract import first_artifact, format_contract
     art = first_artifact(node_cfg) or {'slot': 'requirement_slots', 'name': '线索登记表'}
     return format_contract(art)
 
@@ -728,7 +728,7 @@ _PLUGINS: dict = {p.key: p for p in (_FillNode(), _ModelNode(), _KpNode(), _Comp
 for _p in _PLUGINS.values():
     _owns = str(getattr(_p, "owns_doc", "") or "").strip()
     if _owns:
-        from app.services.skill_node_state import declare_doc_owner
+        from ai_office.skill_node_state import declare_doc_owner
         declare_doc_owner(str(_p.key), _owns)
 
 _DEFAULT = DefaultNodePlugin()
@@ -740,7 +740,7 @@ def register(plugin) -> None:
         _PLUGINS[str(plugin.key)] = plugin
         _owns = str(getattr(plugin, "owns_doc", "") or "").strip()
         if _owns:
-            from app.services.skill_node_state import declare_doc_owner
+            from ai_office.skill_node_state import declare_doc_owner
             declare_doc_owner(str(plugin.key), _owns)
 
 

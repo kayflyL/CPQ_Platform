@@ -92,7 +92,7 @@ def tool_memory_action(args: dict, tool_ctx: Optional[dict] = None) -> dict:
     if isinstance(tool_ctx, dict):
         ctx = tool_ctx
     else:
-        from app.services.skill_tool_context import TOOL_CTX
+        from ai_office.skill_tool_context import TOOL_CTX
         ctx = TOOL_CTX.get() or {}
     role_key = str(ctx.get("role_key") or "").strip()
     if not role_key:
@@ -184,7 +184,7 @@ async def consolidate_role(role_key: str) -> dict:
     if not rows:
         return {"ok": True, "applied": 0, "note": "无活跃记忆"}
 
-    from app.services import llm_client
+    from ai_office import llm_client
     from app.services.ai_colleague_service import get_colleague
     system_prompt = str((get_colleague(role_key) or {}).get("system_prompt") or "").strip()
     if not system_prompt:

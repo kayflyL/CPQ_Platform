@@ -71,7 +71,7 @@ DEFAULT_GENERIC_GRAPH = {
 
 def _node_defaults_for(skill_key: Optional[str] = None) -> dict:
     """按 skill_key 取节点默认契约（DB 源：rules.reasoning_node_default，仅 DB）。"""
-    from app.services import reasoning_node_contract
+    from ai_office import reasoning_node_contract
     return reasoning_node_contract.node_defaults(skill_key or "requirement_analysis")
 
 
@@ -85,7 +85,7 @@ def _normalize_node_tool_names(cfg: dict) -> dict:
         return cfg
     raw = cfg.get("enabled_tools")
     if isinstance(raw, list):
-        from ..services.tool_names import normalize_tool_ids
+        from ai_office.tool_names import normalize_tool_ids
         cfg = dict(cfg)
         cfg["enabled_tools"] = normalize_tool_ids(raw)
     return cfg
@@ -112,7 +112,7 @@ def compute_tool_usage(flow_snapshots: list) -> dict:
     flow_snapshots 每项 = {"skill_key": str, "graph": dict, "node_deltas": {node_key: cfg}}。
     """
     from app.services.capability_spec import SPECS
-    from app.services.skill_plan_runtime import effective_node_tools
+    from ai_office.skill_plan_runtime import effective_node_tools
     usage: dict[str, set] = {}
     for snap in flow_snapshots or []:
         defaults = _node_defaults_for(snap.get("skill_key"))
@@ -486,7 +486,7 @@ class ReasoningFlowRepository:
         并用 override_only 剥掉等于默认值的字段落回增量。幂等，重复跑无副作用。
         生效值由 get_active_flow 用「默认契约 + 增量」合成。
         """
-        from app.services import reasoning_node_contract
+        from ai_office import reasoning_node_contract
         query = self.session.query(ReasoningFlow).filter(ReasoningFlow.is_active == True)
         if flow_id is not None:
             query = query.filter(ReasoningFlow.id == flow_id)
@@ -548,7 +548,7 @@ class ReasoningFlowRepository:
         覆盖两张表：reasoning_node_default（作者基准）与 reasoning_node_config（增量覆盖）。
         只改 enabled_tools，其它键不动；改完才写回并 bump version。返回改动行数。
         """
-        from app.services.tool_names import normalize_tool_ids
+        from ai_office.tool_names import normalize_tool_ids
         now = datetime.now().isoformat()
         changed = 0
 

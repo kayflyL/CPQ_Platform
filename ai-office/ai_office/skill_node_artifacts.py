@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 
-from app.services.skill_target_contract import first_artifact
+from ai_office.skill_target_contract import first_artifact
 
 logger = logging.getLogger(__name__)
 

@@ -4,9 +4,9 @@
 覆盖：document 契约格式化（章节渲染/分发）、BUILDERS data_report 产物、
 resolve_kind 认抽屉声明的 slot、done_summary 字数摘要。
 """
-from app.services.skill_node_artifacts import (
+from ai_office.skill_node_artifacts import (
     BUILDERS, done_summary, ensure_registered, resolve_kind)
-from app.services.skill_target_contract import format_contract, format_document_contract
+from ai_office.skill_target_contract import format_contract, format_document_contract
 
 ensure_registered()
 
@@ -95,7 +95,7 @@ def _gate_ctx(answer: str, data_range=None) -> dict:
 
 
 def test_data_answer_gate_window_mismatch_reopens_node():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     ctx = _gate_ctx("数据范围：2026.03.06 ~ 2026.09.15（真实商机 168 条）\n\n## 一、周数据",
                     {"mode": "custom", "start": "2026-01-01", "end": "2026-09-12"})
     g = _data_answer_gate(ctx)
@@ -104,19 +104,19 @@ def test_data_answer_gate_window_mismatch_reopens_node():
 
 
 def test_data_answer_gate_window_match_passes():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     ctx = _gate_ctx("数据范围：2026.01.01 ~ 2026.09.12（自定义区间，配置指定）\n\n## 一、周数据",
                     {"mode": "custom", "start": "2026-01-01", "end": "2026-09-12"})
     assert _data_answer_gate(ctx)["ok"] is True
 
 
 def test_data_answer_gate_auto_range_skips_window_check():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     ctx = _gate_ctx("数据范围：2026.03.06 ~ 2026.09.15（按实际数据边界）\n\n正文")
     assert _data_answer_gate(ctx)["ok"] is True
 
 
 def test_data_answer_gate_empty_answer_still_blocks():
-    from app.services.skill_plan_runtime import _data_answer_gate
+    from ai_office.skill_plan_runtime import _data_answer_gate
     g = _data_answer_gate({"agent_result": {"answer": ""}, "flow_configs": {}})
     assert not g["ok"] and g["hint"] == "分析尚未产出数据结论"

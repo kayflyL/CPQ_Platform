@@ -7,7 +7,8 @@ Mistral agentic search 的 navigate 类比：查之前先看「这个类目有�
 import os
 import sys
 
-from app.services import part_selector, skill_tool_context, skill_tools_open
+from app.services import part_selector, skill_tools_open
+from ai_office import skill_tool_context
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 

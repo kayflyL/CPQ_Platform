@@ -8,7 +8,7 @@
 import asyncio
 from types import SimpleNamespace
 
-from app.services import skill_tool_context
+from ai_office import skill_tool_context
 
 
 def _rec_entry(name, qty, row_id=""):
@@ -18,7 +18,7 @@ def _rec_entry(name, qty, row_id=""):
 
 
 def test_bulk_accept_promotes_all_recommendations_to_picks():
-    from app.services.skill_node_state import KP_PICKS, KP_RECOMMEND
+    from ai_office.skill_node_state import KP_PICKS, KP_RECOMMEND
     from app.services.slot_contract import apply_structured_slots
     kp_st = {KP_RECOMMEND: {"kp-1": _rec_entry("AMD 9354", 2, "kp-1"),
                             "kp-2": [_rec_entry("64G DDR5", 16, "kp-2")]},
@@ -33,7 +33,7 @@ def test_bulk_accept_promotes_all_recommendations_to_picks():
 
 
 def test_bulk_accept_without_recommendations_is_a_noop():
-    from app.services.skill_node_state import KP_PICKS
+    from ai_office.skill_node_state import KP_PICKS
     from app.services.slot_contract import apply_structured_slots
     kp_st = {KP_PICKS: {}}
     notes = apply_structured_slots({}, {"kp_accept_recommendations": True}, "", kp_state=kp_st)
@@ -53,7 +53,7 @@ def test_ask_user_option_persists_pick_all_flag():
 
 
 def test_ask_option_signal_binds_bulk_over_row_and_field_paths():
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_plan_runtime import ask_option_signal
     # 引擎缺口路（A1 实跑路径）：row 为空、slot=brain_ask 非登记表字段，
     # pick_all 必须仍产出批量晋升信号（否则点击永远匹配不到 signal）
     assert ask_option_signal("", {"label": "全部按推荐落定", "pick_all": True}, "brain_ask") == \
@@ -66,7 +66,7 @@ def test_ask_option_signal_binds_bulk_over_row_and_field_paths():
 
 
 def test_emit_ask_card_binds_bulk_signal_not_row_merge():
-    from app.services.skill_chat import _ChatTurnRuntime
+    from ai_office.skill_chat import _ChatTurnRuntime
     emitted = {}
 
     async def _emit(question, payload):
@@ -92,8 +92,8 @@ def test_bulk_card_gets_permanent_self_pick_entry():
     注入项无任何信号标记 → ask_option_signal 空 → 点击落 ask_answers（口头回答），
     大脑按左栏规则 7 逐行 ask_user(row=…) 发行卡，前端自选下拉+数量回归。
     """
-    from app.services.skill_node_plugins import _KpNode
-    from app.services.skill_plan_runtime import ask_option_signal
+    from ai_office.skill_node_plugins import _KpNode
+    from ai_office.skill_plan_runtime import ask_option_signal
     node = _KpNode()
     ask = {"question": "整体落定？", "options": [{"label": "全部按推荐落定", "pick_all": True}]}
     opts = node.extra_ask_options({"kp_parts": []}, ask, "")

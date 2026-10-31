@@ -60,7 +60,7 @@ class ToolRegistry:
             return {"error": f"工具 {name} 执行失败: {e}"}
         if contract.get("effects") != "write" or not isinstance(result, dict) or not result.get("ok"):
             return result
-        from app.services.skill_tool_context import TOOL_CTX
+        from ai_office.skill_tool_context import TOOL_CTX
         return write_finish(name, contract, args or {}, result, TOOL_CTX.get() or {})
 
 
@@ -79,7 +79,7 @@ def write_finish(name: str, contract: dict, args: dict, result: dict, ctx: dict)
                 return {**result, "ok": False, "error": "readback_mismatch",
                         "readback": facts, "message": f"写后回读不符：{facts}"}
     try:
-        from app.services.agent_audit import audit_write
+        from ai_office.agent_audit import audit_write
         audit_write(tool=name, thread_id=str(ctx.get("thread_id") or ""),
                     agent_role_key=str(ctx.get("role_key") or ""),
                     user_id=str(ctx.get("user_id") or ""),

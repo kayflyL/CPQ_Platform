@@ -10,8 +10,8 @@ import logging
 import time
 from typing import Any, Awaitable, Callable, Optional
 
-from app.services import llm_client
-from app.services.turn_breaker import ToolRepeatGuard
+from ai_office import llm_client
+from ai_office.turn_breaker import ToolRepeatGuard
 
 # 工具目录构建器注入口（第 5 步画边界解耦）：loop 层只认回调，工具目录构建
 # （specs+handlers 组合）由宿主供给——生产接线在 startup 组合根，测试接线在
@@ -76,7 +76,7 @@ def _record_agent_round(model, messages, round_idx, dur_ms, tool_names,
                         status: str = "ok", error: str = "") -> None:
     """非流式工具循环逐轮落 trace（node_type=agent_round）。失败只记日志不阻塞。"""
     try:
-        from app.services.llm_trace import record_llm_trace
+        from ai_office.llm_trace import record_llm_trace
         record_llm_trace(
             node_type="agent_round",
             model=str(model or ""),
@@ -268,7 +268,7 @@ async def _run_native_stream_chat_loop(
     def _record_round(round_idx: int, dur_ms: int, prose: str, tool_names: str,
                       status: str = "ok", error: str = "") -> None:
         try:
-            from app.services.llm_trace import record_llm_trace
+            from ai_office.llm_trace import record_llm_trace
             prompt_chars = sum(len(str((m or {}).get("content") or "")) for m in messages)
             record_llm_trace(
                 node_type="agent_round",

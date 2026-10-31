@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 
 from ..models.base import Rules_SessionLocal
 from ..models.skill import SkillCatalog
-from ..services.skill_types import normalize_skill_type
+from ai_office.skill_types import normalize_skill_type
 
 
 

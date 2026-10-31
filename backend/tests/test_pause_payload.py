@@ -8,10 +8,10 @@
 import asyncio
 import pathlib
 
-from app.services import skill_turn_engine
-from app.services.office_events import publish_pipeline_office_event
+from ai_office import skill_turn_engine
+from ai_office.office_events import publish_pipeline_office_event
 from app.services.office_hub import office_hub
-from app.services.skill_plan_runtime import engine_result_of, pause_payload
+from ai_office.skill_plan_runtime import engine_result_of, pause_payload
 
 _FACT_KEYS = {"kind", "step", "label", "reason_code", "pending", "resumable", "at", "resume"}
 
@@ -88,9 +88,9 @@ def test_e2e_pause_kind_registry_stays_in_sync_with_emitters():
     import json as _json
     import re
 
-    from app.services import (colleague_prompt as _cp, colleague_turn_io as _cio,
-                              colleague_turn_runners as _ctr,
-                              colleague_turn_service as _cts)
+    from app.services import colleague_turn_service as _cts
+    from ai_office import (colleague_prompt as _cp, colleague_turn_io as _cio,
+                           colleague_turn_runners as _ctr)
 
     emitted = set()
     for src in (pathlib.Path(skill_turn_engine.__file__).read_text(encoding="utf-8"),
