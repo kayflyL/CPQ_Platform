@@ -723,6 +723,14 @@ def fill_contract_brief(node_cfg: dict | None = None) -> str:
 # ── 注册表：节点 key → 插件。新增节点只在这里加一行（编排壳零改动）。────────────────────
 _PLUGINS: dict = {p.key: p for p in (_FillNode(), _ModelNode(), _KpNode(), _ComposeNode())}
 
+# 属主关系向状态机制登记（第 5 步画边界解耦：skill_node_state 不再反向 import 本接线层，
+# 依赖方向收成单向 plugins → state）。此后插件类上的 owns_doc 属性仅作文档，真源在注册表。
+for _p in _PLUGINS.values():
+    _owns = str(getattr(_p, "owns_doc", "") or "").strip()
+    if _owns:
+        from app.services.skill_node_state import declare_doc_owner
+        declare_doc_owner(str(_p.key), _owns)
+
 _DEFAULT = DefaultNodePlugin()
 
 
@@ -730,6 +738,10 @@ def register(plugin) -> None:
     """注册/覆盖一个节点插件（新增节点的唯一入口）。"""
     if str(getattr(plugin, "key", "") or "").strip():
         _PLUGINS[str(plugin.key)] = plugin
+        _owns = str(getattr(plugin, "owns_doc", "") or "").strip()
+        if _owns:
+            from app.services.skill_node_state import declare_doc_owner
+            declare_doc_owner(str(plugin.key), _owns)
 
 
 def plugin_for(node_key: str) -> DefaultNodePlugin:

@@ -58,7 +58,8 @@ def _confirm_gate(args: dict, tool: str, preview: dict):
         无 pending/过期 → (错误, None)，错误带 staged_args 供自纠。
         确认分级（P3）：confirm_policy=none 的工具（幂等白名单，声明见 agent_tool_specs
         _TOOL_CONTRACTS）不落待确认不弹卡——参数原样执行（用户输入即信号的类目）。"""
-    from app.services.agent_write_confirm import confirm_policy_for, resolve_confirmed, stage, staged_args
+    from app.services.agent_tool_specs import confirm_policy_for
+    from app.services.agent_write_confirm import resolve_confirmed, stage, staged_args
     thread_id = str(_ctx().get("thread_id") or "")
     if not args.get("confirm"):
         if confirm_policy_for(tool) == "none":

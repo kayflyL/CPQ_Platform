@@ -11,7 +11,7 @@ from app.services.agent_tool_registry import ToolRegistry
 from app.services import agent_write_confirm as awc
 from app.services import skill_tools_write as stw
 from app.services import skill_decision_gate as _  # noqa: F401  确保家族模块可导入
-from app.services.agent_tool_specs import _TOOL_CONTRACTS, _TOOL_SPECS
+from app.services.agent_tool_specs import _TOOL_CONTRACTS, _TOOL_SPECS, confirm_policy_for
 
 LEGAL_POLICY = {"none", "stage", "stage+consent"}
 
@@ -49,9 +49,9 @@ def test_unregistered_default_is_read():
 
 
 def test_confirm_policy_for_known_and_unknown():
-    assert awc.confirm_policy_for("set_quote_margin") == "stage+consent"
-    assert awc.confirm_policy_for("fill_requirement") == "none"
-    assert awc.confirm_policy_for("no_such_tool") == "stage+consent"  # 保守默认
+    assert confirm_policy_for("set_quote_margin") == "stage+consent"
+    assert confirm_policy_for("fill_requirement") == "none"
+    assert confirm_policy_for("no_such_tool") == "stage+consent"  # 保守默认
 
 
 @pytest.fixture(autouse=True)

@@ -147,7 +147,7 @@ def user_price_ok(user: Any) -> bool:
     视为放行——价格仍由同事级 price_access 单独把关。"""
     if not user:
         return True
-    from app.api.deps import user_has_permission
+    from app.services.access_kernel import user_has_permission
     return user_has_permission(user, USER_PRICE_PERM_KEY)
 
 

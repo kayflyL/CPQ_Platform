@@ -7,6 +7,16 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续) — 第 5 步画边界首批解耦：剪断三条边，严格区 14→19（全后端 api 反向依赖清零）
+
+- **背景**：边界守卫（上一条）工作清单里三条最小边先行摘除——目标"解耦一个升一个，升区记录即 S2 进度条"。
+- **变更**：① `confirm_policy_for` 归位声明表（`agent_tool_specs`）——确认策略本来就是声明数据，`agent_write_confirm` 只管存证不再反向 import 工具目录（skill_tools_write/测试同步改引用源）；② 节点属主注册反转——`skill_node_state` 新增 `_DOC_OWNERS` 注册表+`declare_doc_owner`，`skill_node_plugins` 构建插件时登记属主（依赖方向收成单向 plugins→state，owns_doc 属性降级为文档注释）；③ 权限谓词下沉 `app/services/access_kernel.py`（`_user_permissions`/`PRICE_FAILCLOSED_KEYS`/`field_visible`/`user_has_permission` 原样搬迁，语义零变更）——`app/api/deps` re-export 保持全部既有引用不变（api→服务=合法方向），`data_boundary` 改引内核，**全后端唯一"服务层 import api 层"清零**。
+- **验证**：守卫+契约+属主/持久化/决策闸/数据边界四族 88 用例全过；全量回归见后。**升区×4+入区×1**：transaction_engine、skill_node_state、agent_write_confirm、data_boundary 升入严格区（14→19），access_kernel 新入严格区——守卫闭包预检五个候选全部零边后才动声明。
+- **涉及面**：`app/services/{agent_tool_specs,agent_write_confirm,skill_tools_write,skill_node_state,skill_node_plugins,access_kernel 新,data_boundary}`、`app/api/deps.py`、`app/core/engine_boundary.py`。
+- 💡 **定论**：① 解耦的通用手法=**声明归声明、机制归机制、接线层单向注册**（属主注册/确认策略归位/权限下沉三案同一律）；② api 层的纯逻辑函数是反向依赖的常见源头——判断谓词沉到 services、deps 只留 FastAPI 依赖注入壳；③ 升区棘轮开始咬合：flow_validation 等零宿主边模块现在等的是"上游融合区先升"，链式升区将随融合区逐个解耦自然推进。
+
+
+
 ## [未发布] - 2026-10-31(深夜) — 第 5 步"画边界"开工：引擎边界声明+import 方向守卫（report 模式）+六层地图
 
 - **背景**：v3 路线图第 5 步（服务终局标准 S2"代码里画得出引擎与业务的边界线"）。源自知乎 Agent 框架分层复盘的启发吸收：分层词汇入 ABI、执行调度显式缓做（案台可重入兜底，重估触发=第二真宿主并发/长任务频繁被重启打断）。

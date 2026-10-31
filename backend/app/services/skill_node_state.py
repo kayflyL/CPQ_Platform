@@ -60,12 +60,24 @@ def kp_state(container: dict) -> dict:
     return node_state(container, KP_NODE)
 
 
+# ── 冻结文档属主注册表（第 5 步画边界解耦）：属主关系由插件方在本模块登记
+# （declare_doc_owner），本机制只读本地注册表、不 import 插件接线层——
+# 依赖方向：plugins → state（注册），反向查询走下面的纯读函数。
+
+_DOC_OWNERS: dict = {}  # node_key → 冻结文档槽名
+
+
+def declare_doc_owner(node_key: str, slot: str) -> None:
+    """插件方登记「本节点拥有某冻结文档槽」（重复登记同键覆盖）。"""
+    slot = str(slot or "").strip()
+    if str(node_key or "").strip() and slot:
+        _DOC_OWNERS[str(node_key)] = slot
+
+
 def fill_node() -> str:
-    """线索登记表的唯一写入节点（由节点插件的 owns_doc 声明推导，而非硬编码）。"""
-    from app.services.skill_node_plugins import all_plugins
-    for plugin in all_plugins():
-        if str(getattr(plugin, "owns_doc", "") or "").strip():
-            return str(plugin.key)
+    """线索登记表的唯一写入节点（由属主注册推导，而非硬编码）。"""
+    for node_key, _slot in _DOC_OWNERS.items():
+        return str(node_key)
     return "agent_fill"
 
 
@@ -76,19 +88,12 @@ def fill_state(container: dict) -> dict:
 
 def doc_owner(node_key: str) -> str:
     """某节点拥有的冻结文档槽名；非属主节点返回空串。"""
-    from app.services.skill_node_plugins import plugin_for
-    return str(getattr(plugin_for(node_key), "owns_doc", "") or "").strip()
+    return str(_DOC_OWNERS.get(str(node_key or "")) or "").strip()
 
 
 def owned_doc_slots() -> dict:
-    """全部「节点 → 冻结文档槽」的属主声明（来自节点插件）。"""
-    from app.services.skill_node_plugins import all_plugins
-    out = {}
-    for plugin in all_plugins():
-        slot = str(getattr(plugin, "owns_doc", "") or "").strip()
-        if slot:
-            out[str(plugin.key)] = slot
-    return out
+    """全部「节点 → 冻结文档槽」的属主声明（只读视图）。"""
+    return dict(_DOC_OWNERS)
 
 
 # —— KP_ROW_ANSWERS：客户对某条登记行的追问回答 ——

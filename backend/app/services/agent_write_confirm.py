@@ -38,20 +38,6 @@ _MEM: dict = {}
 # db 模式下这是落库形态（reasoning_state 里的一个 JSON 槽）。
 
 
-def confirm_policy_for(tool: str) -> str:
-    """工具确认策略（P3 确认分级）：从工具契约读声明。
-
-    ∈ none（免卡：幂等白名单，用户输入即信号）| stage（预览卡）| stage+consent（确认卡）。
-    **缺省 = stage+consent**——保守默认对齐 MCP"未声明按最坏假设"：没声明确认策略的
-    写工具一律按最高档处理，绝不因契约缺失静默免卡。"""
-    try:
-        from app.services.agent_tool_specs import _TOOL_SPECS
-        return str((_TOOL_SPECS.get(tool) or {}).get("contract", {}).get("confirm_policy")
-                   or "stage+consent")
-    except Exception:
-        return "stage+consent"
-
-
 def _sweep(bucket: dict, now: float) -> None:
     for tool in [t for t, e in (bucket.get("records") or {}).items() if e.get("expires_at", 0) <= now]:
         bucket["records"].pop(tool, None)

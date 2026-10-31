@@ -28,7 +28,9 @@ STRICT_MODULES = {
     "llm_trace": "loop",                # 调用留痕
     "anthropic_channel": "loop",        # 模型通道
     # ── state：状态运行时 ──
+    "transaction_engine": "state",      # 事务内核：步骤指针+案台（10-31 摘除 write_confirm 边后升区）
     "turn_breaker": "state",            # 回合熔断
+    "skill_node_state": "state",        # 状态槽机制（属主注册反转后升区：plugins→state 单向）
     "skill_registry": "state",          # 流/技能目录
     # ── harness：机制层 ──
     "skill_contracts": "harness",       # 契约常量（SKILL_SESSION_DONE 等）
@@ -37,14 +39,16 @@ STRICT_MODULES = {
     "tool_names": "harness",            # 工具名常量
     "reasoning_node_contract": "harness",  # 节点契约
     "workflow_ask": "harness",          # 问询机制
+    "agent_write_confirm": "harness",   # 两阶段确认存证（confirm_policy_for 归位声明表后升区）
+    "access_kernel": "harness",         # 权限谓词内核（自 deps 下沉；api 反向引用它=合法方向）
+    "data_boundary": "harness",         # 数据边界（user_price_ok 改引 access_kernel 后升区）
 }
 
 FUSED_MODULES = {
-    # 每条：层 + 已知融合点与解耦方向（解耦完→升严格区）
-    "transaction_engine": ("state", "事务内核仅一条边：import agent_write_confirm（确认落账）——该边入严格区或 write_confirm 升区后即升"),
-    "skill_node_state": ("state", "状态槽机制仅一条边：import skill_node_plugins——plugins 接线解耦后即升"),
+    # 每条：层 + 已知融合点与解耦方向（解耦完→升严格区）。
+    # 2026-10-31 首批升区：transaction_engine / skill_node_state / agent_write_confirm /
+    # data_boundary（+ 新 access_kernel 入区）——见 git 8c797e9 后续提交。
     "agent_react": ("loop", "脑循环 import agent_tool_specs 取工具目录——解耦：目录经注册/注入"),
-    "agent_write_confirm": ("harness", "查契约 import agent_tool_specs——解耦：契约随注册进 registry.contract()"),
     "human_query": ("harness", "问答协议广播耦合 assistant_hub——解耦：广播器回调注入"),
     "flow_validation": ("harness", "E3 查 BUILDERS(skill_node_artifacts)+skill_target_contract（均为融合区引擎模块，无宿主边）——上游升区后链式升区"),
     "transaction_turn": ("state", "轮壳耦合工具目录/assistant_hub/skill_memory——解耦：现场经注入"),
@@ -64,7 +68,6 @@ FUSED_MODULES = {
     "skill_node_artifacts": ("harness", "BUILDERS 注册表内建宿主 builder（bom_template_eval/capabilities/portal_flow_adapter）——解耦：builder 宿主注册化（本就是声明架构的方向）"),
     "skill_node_plugins": ("harness", "插件接线层 import 宿主阶段族——解耦：宿主启动时注册，内核只留接口"),
     "office_events": ("server", "事件总线耦合 office_governance/hub/memory——解耦：订阅端口注入"),
-    "data_boundary": ("harness", "注意：反向依赖 app.api.deps（服务层 import api 层）——解耦：权限判定下沉"),
     "skill_config_bootstrap": ("state", "启动引导耦合 capability_spec——解耦：种子数据经配置"),
 }
 

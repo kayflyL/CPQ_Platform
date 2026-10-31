@@ -748,6 +748,20 @@ for _s in _TOOL_SPECS.values():
     _s.setdefault("contract", {"effects": "read", "confirm_policy": "none"})
 
 
+def confirm_policy_for(tool: str) -> str:
+    """工具确认策略（P3 确认分级）：从工具契约读声明。住声明表（第 5 步画边界：
+    确认策略=声明数据，跟契约表同住；agent_write_confirm 只管存证不再反向依赖本表）。
+
+    ∈ none（免卡：幂等白名单，用户输入即信号）| stage（预览卡）| stage+consent（确认卡）。
+    **缺省 = stage+consent**——保守默认对齐 MCP"未声明按最坏假设"：没声明确认策略的
+    写工具一律按最高档处理，绝不因契约缺失静默免卡。"""
+    try:
+        return str((_TOOL_SPECS.get(tool) or {}).get("contract", {}).get("confirm_policy")
+                   or "stage+consent")
+    except Exception:
+        return "stage+consent"
+
+
 def tool_catalog() -> List[dict]:
     """全量工具目录（无 handler），供前端「AI 工具」目录页与节点抽屉渲染。
 
