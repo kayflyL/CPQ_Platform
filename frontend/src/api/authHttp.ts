@@ -17,7 +17,11 @@ export function attachAuthInterceptors(instance: AxiosInstance): void {
       if (status === 401 && !url.includes('/api/auth/login')) {
         localStorage.removeItem(AUTH_TOKEN_KEY)
         if (!window.location.pathname.startsWith('/login')) {
-          window.location.href = '/login'
+          // 带上当前地址，登录后原路返回（含 /office/ 独立门面）。曾为盲跳 /login：
+          // 办公室守卫与这里的跳转赛跑时 redirect 参数被冲掉，登录完回不了办公室
+          // ——「进办公室反复登录」的根因（2026-11-01）。
+          const back = encodeURIComponent(window.location.pathname + window.location.search)
+          window.location.href = `/login?redirect=${back}`
         }
       }
       return Promise.reject(error)
