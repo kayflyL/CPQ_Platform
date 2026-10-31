@@ -4,29 +4,6 @@
       <button class="ws-back" title="返回桌面" @click="goDesktop">
         <ArrowLeftOutlined />
       </button>
-      <a-dropdown :trigger="['click']">
-        <button type="button" class="room-picker">
-          <span class="room-picker-dot" :style="{ background: teamColor }"></span>
-          <span class="room-picker-name">{{ currentOffice?.name || activeRoomMeta.name || 'AI 团队' }}</span>
-          <DownOutlined />
-        </button>
-        <template #overlay>
-          <a-menu class="room-picker-menu" @click="onPickerMenuClick">
-            <a-menu-item v-for="office in offices" :key="`office:${office.key}`">
-              <span class="room-picker-dot" :style="{ background: office.key === currentKey ? teamColor : 'transparent' }"></span>
-              <span :class="{ 'rp-active': office.key === currentKey }">{{ office.name }}</span>
-              <span v-if="office.description" class="rp-desc">{{ office.description }}</span>
-            </a-menu-item>
-            <template v-if="viewRooms.length > 1">
-              <a-menu-divider />
-              <a-menu-item v-for="room in viewRooms" :key="`room:${room.id}`">
-                <span class="room-picker-dot" :style="{ background: room.color || '#1677ff' }"></span>
-                <span :class="{ 'rp-active': room.id === activeRoomId }">{{ room.name || room.id }}</span>
-              </a-menu-item>
-            </template>
-          </a-menu>
-        </template>
-      </a-dropdown>
 
       <div class="office-actions">
         <span class="connection-pill" :class="{ online: connected }">
@@ -347,7 +324,7 @@
 import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
+import { SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
@@ -396,8 +373,8 @@ let missionPollTimer: ReturnType<typeof setInterval> | null = null
 const auth = useAuthStore()
 const petModel = usePetModelStore()
 const assistantOpen = ref(false)
-// 办公室档案（v4 第 2 步）：切换=切业务系统档案；展示面按档案过滤，编辑面拿全量
-const { offices, currentKey, current: currentOffice, setOffices, switchOffice, inOffice } = useOfficeProfile()
+// 办公室档案：工作区自愈对齐 cpq 档案（工作区=cpq 应用的工作区；档案切换=回桌面，见桌面磁贴模型）
+const { currentKey, setOffices, switchOffice, inOffice } = useOfficeProfile()
 const canManageOffice = computed(() => auth.can('ai.office.manage'))
 // 管理面任一段可见即可打开（只授 ai.office.admin 的账号也要能进「模型与接入/运行与权限」）
 const canOpenOfficeManagement = computed(() => auth.can('ai.office.manage') || auth.can('ai.office.admin'))
@@ -450,14 +427,12 @@ const emptyStatus: OfficeColleagueStatus = {
 }
 
 const activeRoom = computed(() => viewRooms.value.find((room) => room.id === activeRoomId.value) || viewRooms.value[0] || null)
-const activeRoomMeta = computed(() => activeRoom.value || teamMeta.value)
 const roomColleagues = computed(() => {
   const roleKeys = activeRoom.value?.role_keys || []
   if (!roleKeys.length) return colleagues.value
   const allowed = new Set(roleKeys)
   return colleagues.value.filter((colleague) => allowed.has(colleague.role_key))
 })
-const teamColor = computed(() => activeRoomMeta.value.color || '#1677ff')
 const selectedColleague = computed(() =>
   roomColleagues.value.find((c) => c.role_key === selectedRoleKey.value) || null,
 )
@@ -570,6 +545,8 @@ async function loadConfig() {
     colleaguesAll.value = Array.isArray(data.colleagues) ? data.colleagues : []
     roomsAll.value = Array.isArray(data.rooms) ? data.rooms : []
     setOffices(data.offices)
+    // 工作区自愈：无论 localStorage 记的什么档案，工作区永远对齐 cpq（切换=回桌面）
+    if (currentKey.value !== 'cpq') switchOffice('cpq')
     if (viewRooms.value.length && !viewRooms.value.some((room) => room.id === activeRoomId.value)) {
       activeRoomId.value = viewRooms.value[0].id
     }
@@ -594,15 +571,6 @@ async function onSaveOfficeConfig(config: OfficeConfig) {
   }
 }
 
-function onPickerMenuClick({ key }: { key: string | number }) {
-  const k = String(key)
-  if (k.startsWith('office:')) {
-    switchOffice(k.slice(7))
-    activeRoomId.value = viewRooms.value[0]?.id || 'default'
-    return
-  }
-  activeRoomId.value = k.slice(5)
-}
 
 function colleagueName(roleKey?: string): string {
   if (!roleKey) return 'AI 团队'
@@ -749,57 +717,6 @@ onDeactivated(() => {
   gap: 16px;
   padding: 0 20px;
   border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-}
-
-.room-picker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 36px;
-  padding: 0 12px;
-  border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  border-radius: var(--cpq-radius-md);
-  color: var(--cpq-text-primary);
-  background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
-  cursor: pointer;
-  transition: 0.2s ease;
-}
-
-.room-picker:hover {
-  border-color: color-mix(in srgb, var(--cpq-accent-primary, #1677ff) 55%, transparent);
-  background: var(--cpq-overlay-w10, rgba(255,255,255,0.10));
-}
-
-.room-picker-dot {
-  width: 8px;
-  height: 8px;
-  flex-shrink: 0;
-  border-radius: 50%;
-}
-
-/* 办公室切换菜单（v4 第 2 步）：当前项加粗、档案描述弱化——层级靠字重/透明度，不加新色 */
-.rp-active {
-  font-weight: 700;
-}
-
-.rp-desc {
-  margin-left: 8px;
-  font-size: var(--cpq-font-size-xs);
-  opacity: 0.62;
-}
-
-.room-picker-name {
-  max-width: 200px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.room-picker :deep(.anticon) {
-  font-size: 10px;
-  color: var(--cpq-text-muted);
 }
 
 .office-actions {
@@ -1684,9 +1601,8 @@ onDeactivated(() => {
 @media (max-width: 860px) {
   .office-toolbar { padding: 0 12px; gap: 8px; }
 
-  /* 顶栏四元素（团队切换/LIVE/Manage Teams/更多）在 360px 级窄屏放不下，"更多"会被挤出屏——
-     LIVE 只留状态圆点（颜色即在线/离线语义），Manage Teams 收紧内边距，团队名截断收窄 */
-  .room-picker-name { max-width: 96px; }
+  /* 顶栏元素（回桌面/LIVE/Manage Teams/更多）在 360px 级窄屏放不下，"更多"会被挤出屏——
+     LIVE 只留状态圆点（颜色即在线/离线语义），Manage Teams 收紧内边距 */
   .connection-pill { padding: 0 7px; }
   .connection-pill-text { display: none; }
   .office-actions { gap: 8px; }
