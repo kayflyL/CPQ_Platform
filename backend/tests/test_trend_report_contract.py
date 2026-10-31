@@ -5,10 +5,8 @@
 resolve_kind 认抽屉声明的 slot、done_summary 字数摘要。
 """
 from ai_office.skill_node_artifacts import (
-    BUILDERS, done_summary, ensure_registered, resolve_kind)
+    BUILDERS, done_summary, resolve_kind)
 from ai_office.skill_target_contract import format_contract, format_document_contract
-
-ensure_registered()
 
 DOC_ART = {
     "kind": "document",
