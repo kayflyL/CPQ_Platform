@@ -234,7 +234,7 @@ def test_react_loop_aborts_on_identical_repeat_calls():
 
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": 1}, call_id=f"c{i}") for i in range(9)]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop(
             "req", {"enabled_tools": ["fake_tool"]}, max_iterations=9))
@@ -255,7 +255,7 @@ def test_react_loop_allows_varying_repeat_calls():
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": i}, call_id=f"c{i}") for i in range(5)]
     responses.append({"message": {"role": "assistant", "content": "done"}, "tool_calls": []})
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop(
             "req", {"enabled_tools": ["fake_tool"]}, max_iterations=6))

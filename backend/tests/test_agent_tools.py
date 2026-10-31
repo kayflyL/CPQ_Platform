@@ -123,7 +123,7 @@ def test_react_calls_tool_then_final():
         return {"count": 1, "candidates": [{"name": "X"}]}
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": 1}), _native_final("done")]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=3))
     assert out["ok"] is True and out["answer"] == "done"
@@ -148,7 +148,7 @@ def test_react_max_iterations_cap():
         return {"ok": True}
     reg.register("fake_tool", "fake", {"type": "object", "properties": {}}, fake_h)
     responses = [_native_tool_call("fake_tool", {"k": i}, call_id=f"call_{i}") for i in range(1, 6)]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.chat_with_tools", AsyncMock(side_effect=responses)):
         out = asyncio.run(agent_react.run_react_loop("req", {"enabled_tools": ["fake_tool"]}, max_iterations=2))
     assert out["ok"] is False and out["iterations"] == 2
@@ -217,7 +217,7 @@ def test_run_stream_chat_loop_prefers_native_then_final():
         for item in r:
             yield item
 
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.stream_agent_chat", _ag):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
@@ -339,7 +339,7 @@ def test_stream_loop_intermediate_prose_superseded():
                                                 "arguments": {}, "arguments_raw": "{}"}]}],
         [{"type": "content", "delta": "数据范围：2026.01.01 ~ 2026.09.16\n\n## 一、周数据"}],
     ]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))
@@ -370,7 +370,7 @@ def test_stream_loop_llm_error_salvages_latest_prose():
                                                 "arguments": {}, "arguments_raw": "{}"}]}],
         llm_client.LLMError("conn reset"),
     ]
-    with patch("app.services.agent_react.build_tool_registry", return_value=reg), \
+    with patch("app.services.agent_react._REGISTRY_BUILDER", return_value=reg), \
             patch("app.services.llm_client.stream_agent_chat", _stream_rounds(rounds)):
         out = asyncio.run(agent_react.run_stream_chat_loop(
             "req", {"enabled_tools": ["fake_tool"]}, system_prompt="sp", max_iterations=3))

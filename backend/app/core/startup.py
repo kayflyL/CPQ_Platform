@@ -1590,3 +1590,10 @@ def init_rules_db():
         wire_decision_gate()
     except Exception as e:
         print(f"⚠️ decision gate provider wiring failed: {e}")
+    # ③ 大脑循环的工具目录构建器：loop 层不 import 声明表，组合由宿主供给
+    try:
+        from app.services import agent_react
+        from app.services.agent_tool_specs import build_tool_registry
+        agent_react.set_registry_builder(build_tool_registry)
+    except Exception as e:
+        print(f"⚠️ agent_react registry builder wiring failed: {e}")

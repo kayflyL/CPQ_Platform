@@ -20,6 +20,17 @@ def _no_llm_trace_writes(monkeypatch):
     monkeypatch.setattr("app.services.llm_trace.record_llm_trace", lambda **fields: None)
 
 
+@pytest.fixture(autouse=True)
+def _wire_agent_react_registry_builder():
+    """测试组合根（第 5 步画边界解耦）：agent_react 的工具目录构建器由宿主注入，
+    生产在 startup 接线、测试在这里接真实现。个别用例经 patch _REGISTRY_BUILDER 覆写。"""
+    from app.services import agent_react
+    from app.services.agent_tool_specs import build_tool_registry
+    agent_react.set_registry_builder(build_tool_registry)
+    yield
+    agent_react.set_registry_builder(None)
+
+
 @pytest.fixture
 def mock_kp_repo():
     """Mock KPRepository."""

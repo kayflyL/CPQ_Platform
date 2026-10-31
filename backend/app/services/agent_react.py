@@ -11,8 +11,22 @@ import time
 from typing import Any, Awaitable, Callable, Optional
 
 from app.services import llm_client
-from app.services.agent_tool_specs import build_tool_registry
 from app.services.turn_breaker import ToolRepeatGuard
+
+# 工具目录构建器注入口（第 5 步画边界解耦）：loop 层只认回调，工具目录构建
+# （specs+handlers 组合）由宿主供给——生产接线在 startup 组合根，测试接线在
+# conftest。未接线时循环启动即报错（组合根缺失属部署事故，不静默降级）。
+_REGISTRY_BUILDER: Optional[Callable] = None
+
+
+def set_registry_builder(fn) -> None:
+    """宿主接线：fn(config, allowed_tool_ids=...) -> ToolRegistry。传 None 撤销（单测用）。"""
+    global _REGISTRY_BUILDER
+    _REGISTRY_BUILDER = fn
+
+
+def _make_registry(cfg: dict, allowed_tool_ids: Optional[list]):
+    return _REGISTRY_BUILDER(cfg, allowed_tool_ids=allowed_tool_ids)
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +110,7 @@ async def _run_native_tool_loop(
     }
     cfg = config or {}
 
-    registry = build_tool_registry(cfg, allowed_tool_ids=allowed_tool_ids)
+    registry = _make_registry(cfg, allowed_tool_ids)
     if not registry.names():
         base["answer"] = "未启用任何工具"
         return base
@@ -217,7 +231,7 @@ async def _run_native_stream_chat_loop(
     """
     base = {"ok": False, "answer": "", "tool_calls_log": [], "thinking": [], "iterations": 0}
     cfg = config or {}
-    registry = build_tool_registry(cfg, allowed_tool_ids=allowed_tool_ids)
+    registry = _make_registry(cfg, allowed_tool_ids)
     if not registry.names():
         base["answer"] = "未启用任何工具"
         return base

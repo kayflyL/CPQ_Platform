@@ -21,6 +21,7 @@
 # harness(机制层) / server(服务层) / host(宿主 APP)
 STRICT_MODULES = {
     # ── loop：大脑循环与工具执行 ──
+    "agent_react": "loop",              # 大脑循环（工具目录构建器注入口解耦后升区——loop 层零宿主边）
     "agent_tool_registry": "loop",      # 工具注册表执行器（写收尾 write_finish 唯一出口）
     "agent_tool_display": "loop",       # 工具结果 digest
     "agent_audit": "harness",           # 审计落账（fire-and-forget）
@@ -50,7 +51,7 @@ FUSED_MODULES = {
     # 每条：层 + 已知融合点与解耦方向（解耦完→升严格区）。
     # 2026-10-31 首批升区：transaction_engine / skill_node_state / agent_write_confirm /
     # data_boundary（+ 新 access_kernel 入区）——见 git 8c797e9 后续提交。
-    "agent_react": ("loop", "脑循环 import agent_tool_specs 取工具目录——解耦：目录经注册/注入"),
+    # 二批：human_query / skill_decision_gate（棘轮点名）。三批：agent_react（loop 层清零宿主边）。
     "flow_validation": ("harness", "E3 查 BUILDERS(skill_node_artifacts)+skill_target_contract（均为融合区引擎模块，无宿主边）——上游升区后链式升区"),
     "transaction_turn": ("state", "轮壳耦合工具目录/assistant_hub/skill_memory——解耦：现场经注入"),
     "colleague_prompt": ("state", "提示词组装耦合 ai_colleague_service——解耦：配置经注入"),

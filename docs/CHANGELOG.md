@@ -7,6 +7,15 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续三) — 第 5 步画边界第三批解耦：agent_react 工具目录注入，loop 层整体清零宿主边（严格区 21→22）
+
+- **变更**：`agent_react` 工具目录构建器注入口（`set_registry_builder`/`_make_registry`）——大脑循环不再 import 声明表，specs+handlers 的组合由宿主供给：生产接线 startup 组合根（第三块样板），测试接线 conftest 组合根（autouse `_wire_agent_react_registry_builder`，个别用例 patch `_REGISTRY_BUILDER` 覆写）；未接线时循环启动即报错（组合根缺失属部署事故，不静默降级）。
+- **验证**：守卫+agent 工具+同事轨迹+LLM 判分+墙钟 55 用例全过（test_agent_tools 5 处打桩目标迁移 `_REGISTRY_BUILDER`）；升区闭包预检 agent_react 零边后升区。全量回归见后。
+- **涉及面**：`app/services/agent_react.py`、`app/core/{startup.py 接线③,engine_boundary.py 升区}`、`tests/{conftest.py 组合根,test_agent_tools.py}`。
+- 💡 **定论**：**loop 层（agent_react+agent_tool_registry+llm_client/trace/channel）自此整体零宿主边**——大脑循环这层现在可以原样搬进任何宿主（L2 的一大块提前落袋）。组合根三样板定型：广播器（human_query）/候选供给者（决策闸）/目录构建器（agent_react），后续解耦全部照此办理。
+
+
+
 ## [未发布] - 2026-10-31(深夜续二) — 第 5 步画边界第二批解耦：广播器+候选供给者注入口，严格区 19→21（棘轮首次自动咬合）
 
 - **变更**：① `human_query` 广播器注入口（`set_broadcaster`）——问答协议只管协议槽+落库展示副本，"推给在线前端"由宿主接线（startup 调 `set_broadcaster(assistant_hub.broadcast)`）；未接线时协议语义完整仅少实时推送。② `skill_decision_gate` 候选供给者注入口（`set_candidate_provider(search_candidates, pick_fresh)`）——闸机制只认回调、零配件域知识；接线器 `wire_decision_gate()` 住宿主侧 skill_tools_select（配件域知识留在宿主），startup 强制接线（脱接线=闸降级+日志可见，非静默通道）。③ **升区棘轮首次自动咬合**：守卫点名 human_query 够格（此前误记在严格区）——升区；skill_decision_gate 随双边剪断升区。**严格区 19→21**（+human_query+skill_decision_gate），融合区 24→19。
