@@ -51,6 +51,11 @@
           <span class="pet-menu-px">{{ t.px }}px</span>
           <span v-if="petSize === t.px" class="pet-menu-check">✓</span>
         </button>
+        <!-- 形式独立后 CPQ 侧回办公室的唯一门路（顶栏/门户入口已撤）：办公室的常驻层=本浮动同事 -->
+        <button type="button" class="pet-menu-item pet-menu-office" @click="goOffice">
+          <span>进入 AI 办公室</span>
+          <span class="pet-menu-px">↗</span>
+        </button>
         <div class="pet-menu-hint">拖到屏幕边缘可收起 · 拖开恢复</div>
       </div>
     </transition>
@@ -277,6 +282,12 @@ function onPointerUp() {
 const menuOpen = ref(false)
 const menuPos = ref({ x: 0, y: 0 })
 const menuStyle = computed(() => ({ left: `${menuPos.value.x}px`, top: `${menuPos.value.y}px` }))
+
+// 办公室常驻层入口：新标签打开独立门面 /office/
+function goOffice() {
+  menuOpen.value = false
+  window.open('/office/', '_blank')
+}
 
 function openMenu(e: MouseEvent) {
   if (window.innerWidth <= 760) return // 移动端无右键语义

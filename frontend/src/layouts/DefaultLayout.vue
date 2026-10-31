@@ -199,7 +199,6 @@ import MobileInstallHint from '@/components/MobileInstallHint.vue'
 
 // KeepAlive 缓存名单：顶级菜单页，避免切换时反复卸载/重挂载、重新初始化场景与拉数据
 const keepAliveNames = [
-  'AiOfficeView',
   'OpportunityList',
   'ServerConfig',
   'Parts',
@@ -219,7 +218,6 @@ const topItems = computed<NavItem[]>(() => {
   const items: NavItem[] = [
     { key: '/galaxy', label: '首页' },
     { key: '/portal', label: '工作台' },
-    { key: '/ai-office', label: 'AI 办公室', perm: 'page.office' },
     { key: '/opportunities', label: '商机线索', perm: 'page.opportunities_all' },
     { key: '/servers', label: '服务器', perm: 'page.servers' },
     { key: '/parts', label: '配件', perm: 'page.parts' },

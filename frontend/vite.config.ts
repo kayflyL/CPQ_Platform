@@ -34,6 +34,12 @@ export default defineConfig({
   },
   build: {
     rollupOptions: {
+      // 双入口（2026-11-01 形式独立）：index.html = CPQ 门面，office/index.html = AI 办公室
+      // 独立门面；共享代码（样式/主题/鉴权/聊天运行时）按公共 chunk 复用，不复制
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        office: path.resolve(__dirname, 'office/index.html'),
+      },
       output: {
         manualChunks(id: string) {
           const normalized = id.replace(/\\/g, '/')

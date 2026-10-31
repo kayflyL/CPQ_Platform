@@ -44,9 +44,14 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(form.username.trim(), form.password)
-    // 根路径现在是星河首页，登录成功后直接进工作台
+    // 根路径现在是星河首页，登录成功后直接进工作台；
+    // /office/ 是 AI 办公室独立门面（CPQ router 没有该路由）→ 整页跳转
     const redirect = (route.query.redirect as string) || '/'
-    router.push(redirect)
+    if (redirect.startsWith('/office/')) {
+      window.location.href = redirect
+    } else {
+      router.push(redirect)
+    }
   } catch (e: any) {
     message.error(e?.response?.data?.detail || e?.message || '登录失败')
   } finally {

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="theme-color" content="#F2F6FC" />
+    <!-- 不带 CPQ 的 PWA manifest：办公室是独立产品，自己的安装形态后续单独立项 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>AI 办公室</title>
+    <script>
+      // 首屏前同步确定主题（与 CPQ 门面同一规则：记忆 → 跟随系统 → 浅色兜底），
+      // 避免首帧按错误主题渲染后闪烁。
+      (function () {
+        var t;
+        try {
+          t = localStorage.getItem('cpq-theme');
+        } catch (e) {
+          t = null;
+        }
+        if (t !== 'dark' && t !== 'light') {
+          t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/office-main.ts"></script>
+  </body>
+</html>

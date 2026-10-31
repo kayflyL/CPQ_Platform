@@ -208,13 +208,8 @@ const routes = [
         meta: { title: '导出模板', perm: 'page.settings.templates' }
       },
 
-      // AI 办公室（全局实时视图 + Manage Teams 画布入口）
-      {
-        path: '/ai-office',
-        name: 'AiOffice',
-        component: () => import('@/views/office/AiOfficeView.vue'),
-        meta: { title: 'AI 办公室', perm: 'page.office' }
-      },
+      // AI 办公室已迁独立门面 /office/（2026-11-01 形式独立：office.html 入口 +
+      // src/office-router.ts），CPQ 侧回办公室走浮动助手右键菜单「进入 AI 办公室」。
       // Univer 模板编辑器（Excel）
       {
         path: '/export-templates/excel/:id/edit',

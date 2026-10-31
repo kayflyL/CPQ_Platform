@@ -44,6 +44,7 @@
             <a-menu @click="onMobileMoreMenu">
               <a-menu-item key="tasks"><UnorderedListOutlined /> 任务看板</a-menu-item>
               <a-menu-item key="gov"><AuditOutlined /> 日志审批</a-menu-item>
+              <a-menu-item key="cpq"><AppstoreOutlined /> 打开 CPQ</a-menu-item>
             </a-menu>
           </template>
         </a-dropdown>
@@ -86,6 +87,25 @@
               <div class="sidebar-mission-time">{{ colleagueName(mission.owner_role_key) }} · {{ formatEventTime(mission.created_at ? new Date(mission.created_at).getTime() : undefined) }}</div>
             </div>
           </div>
+        </section>
+
+        <!-- 已安装软件（办公室桌面=OS，业务系统是装进来的软件）：CPQ 第一块磁贴，
+             新标签打开——iframe 会踩 CPQ 的吸顶/弹层/手机适配，OS 开应用=开新窗口 -->
+        <section class="sidebar-section sidebar-apps-card">
+          <div class="sidebar-section-head">
+            <div>
+              <div class="sidebar-section-title">已安装软件</div>
+              <div class="sidebar-section-desc">本办公室接入的业务系统</div>
+            </div>
+          </div>
+          <button type="button" class="app-tile" @click="openCpq">
+            <span class="app-tile-mark">C</span>
+            <span class="app-tile-copy">
+              <strong>CPQ 系统</strong>
+              <span class="app-tile-desc">商机 · 报价 · 交付全流程</span>
+            </span>
+            <span class="app-tile-open">打开 ↗</span>
+          </button>
         </section>
       </aside>
 
@@ -337,7 +357,7 @@
 import { computed, onBeforeUnmount, onMounted, onActivated, onDeactivated, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/store/auth'
-import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined } from '@ant-design/icons-vue'
+import { DownOutlined, SettingOutlined, EllipsisOutlined, UnorderedListOutlined, AuditOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
@@ -483,6 +503,11 @@ function openChatMobile(roleKey: string) {
 function onMobileMoreMenu({ key }: { key: string | number }) {
   if (key === 'tasks') tasksOpen.value = true
   else if (key === 'gov') governanceOpen.value = true
+  else if (key === 'cpq') openCpq()
+}
+// 已安装软件磁贴：新标签打开 CPQ 门面（iframe 会踩吸顶/弹层/手机适配）
+function openCpq() {
+  window.open('/', '_blank')
 }
 function avatarDotColor(c: any) {
   return behaviorStatusMeta(statusFor(c.role_key).status).color || '#9aa4b2'
@@ -896,6 +921,58 @@ onDeactivated(() => {
   color: var(--cpq-text-muted);
   text-align: center;
   background: var(--cpq-overlay-w4, rgba(255,255,255,0.04));
+}
+
+/* 已安装软件磁贴（办公室桌面=OS，业务系统是装进来的软件）：玻璃卡内软件行，点击新标签打开 */
+.app-tile {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--cpq-glass-border);
+  border-radius: var(--cpq-radius-md);
+  background: var(--cpq-overlay-w4, rgba(255,255,255,0.04));
+  cursor: pointer;
+  transition: background 0.16s ease, border-color 0.16s ease;
+  text-align: left;
+}
+
+.app-tile:hover {
+  background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
+  border-color: var(--cpq-border-secondary, rgba(255,255,255,0.08));
+}
+
+.app-tile-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--cpq-radius-sm);
+  background: var(--cpq-overlay-w6, rgba(255,255,255,0.06));
+  font-weight: 800;
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-primary);
+}
+
+.app-tile-copy {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.app-tile-copy strong {
+  font-size: var(--cpq-font-size-sm);
+  color: var(--cpq-text-primary);
+}
+
+.app-tile-desc,
+.app-tile-open {
+  font-size: var(--cpq-font-size-xs);
+  color: var(--cpq-text-muted);
 }
 
 .sidebar-mission-item {

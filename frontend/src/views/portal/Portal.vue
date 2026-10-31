@@ -39,13 +39,13 @@ const FLOW_NODES = [
 const myRole = computed(() => auth.user?.role || '')
 const ACTS = [
   { key: 'opp-all', title: '商机线索', desc: '全公司商机池与驾驶舱', to: '/opportunities', perm: 'page.opportunities_all', icon: 'board' },
+  { key: 'leads', title: '线索池', desc: '公开线索汇聚与转化分配', to: '/leads', perm: 'page.leads', icon: 'board' },
   { key: 'workspace', title: '报价工作台', desc: '整单报价与导出', to: '/workspace', perm: 'field.quote.price', icon: 'doc' },
   { key: 'servers', title: '服务器', desc: '查看服务器产品库', to: '/servers', perm: 'page.servers', icon: 'tower' },
   { key: 'parts', title: '配件', desc: '查看配件与兼容性', to: '/parts', perm: 'page.parts', icon: 'bins' },
   { key: 'selection', title: '选型配置', desc: '机型能力与推导规则', to: '/strategies/selection', perm: 'page.strategies', icon: 'chip' },
   { key: 'pricing', title: '报价策略', desc: '多维度策略计价', to: '/strategies/pricing', perm: 'field.quote.price', icon: 'coin' },
   { key: 'strategy', title: '解决方案', desc: '行业解决方案与案例', to: '/strategies', perm: 'page.strategies', icon: 'layers' },
-  { key: 'office', title: 'AI 办公室', desc: '智能助手 · 任务协同', to: '/ai-office', perm: 'page.office', icon: 'office' },
 ]
 // ── 右栏「我的工作台」入口卡（全页唯一主 CTA，原型 v2）：角色铭牌+个人统计+主按钮 ──
 // view 必须与 workstation 路由参数同源（admin 的调度台视图键是 dispatch，别拿角色键当视图键）
@@ -138,7 +138,7 @@ const GLYPHS: Record<string, string> = {
   tower: G('<rect x="5.5" y="2.5" width="9" height="15" rx="1.5"/><path d="M5.5 8h9M8 14.5h.1M11.5 14.5h.1"/>'),
   bins: G('<rect x="3" y="3.5" width="14" height="13" rx="1.5"/><path d="M10 3.5v13M3 9.5h7"/>'),
   layers: G('<path d="M10 3l7 4-7 4-7-4z"/><path d="M3.8 11.5L10 15l6.2-3.5"/>'),
-  office: G('<rect x="4" y="3.5" width="12" height="13" rx="1.5"/><path d="M7.5 7h2M11.5 7h2M7.5 10.5h2M11.5 10.5h2M9 16.5v-3h2v3"/>'),
+
   spark: G('<path d="M10 2.5l1.7 4.3 4.3 1.7-4.3 1.7L10 14.5l-1.7-4.3L4 8.5l4.3-1.7z"/><path d="M15.5 12.5l.8 2.1 2.1.9-2.1.9-.9 2.1-.9-2.1-2.1-.9 2.1-.9z"/>'),
 }
 function glyph(name: string): string {
