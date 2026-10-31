@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>中间层 · 链路与协议（界面原型 v4）</title>
+<style>
+:root{
+  --bg:#f2f4f8; --card:#fff; --line:#e3e8ef; --txt:#1c2430; --sub:#5b6779;
+  --accent:#2563eb; --accent-soft:#eaf1fe;
+  --ok:#0d8a4f; --ok-soft:#e6f5ec;
+  --warn:#b45309; --warn-soft:#fdf3e3;
+  --eng:#15223b; --mid:#7c5cd6; --mid-soft:#f0ebfd; --org:#0d8a4f; --org-soft:#e6f5ec;
+  --mute:#8a94a6; --mute-soft:#f0f2f6;
+  --sp3:12px; --sp4:16px; --sp5:24px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.55}
+.topbar{background:var(--eng);color:#fff;display:flex;align-items:center;gap:28px;padding:0 24px;height:52px}
+.topbar .logo{font-weight:700}
+.topbar nav{display:flex;gap:4px;flex:1}
+.topbar nav a{color:#c6d2e6;text-decoration:none;font-size:13.5px;padding:6px 12px;border-radius:8px}
+.topbar nav a.on{background:rgba(255,255,255,.14);color:#fff}
+.topbar .who{font-size:13px;color:#c6d2e6}
+.shell{max-width:1180px;margin:22px auto;padding:0 20px}
+.crumb{font-size:12.5px;color:var(--mute);margin-bottom:10px}
+.crumb b{color:var(--accent)}
+h1{font-size:21px;margin-bottom:4px}
+.pagedesc{color:var(--sub);font-size:13.5px;margin-bottom:18px;max-width:820px}
+.pagedesc b{color:var(--txt)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin-bottom:16px}
+.card>h2{font-size:16px;margin-bottom:4px}
+.card>.cdesc{color:var(--sub);font-size:13px;margin-bottom:14px}
+/* 归属色 */
+.who{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:600;white-space:nowrap}
+.w-eng{background:#e6ebf5;color:var(--eng)}
+.w-mid{background:var(--mid-soft);color:var(--mid)}
+.w-org{background:var(--org-soft);color:var(--org)}
+.w-new{background:var(--warn-soft);color:var(--warn)}
+/* 旅程 */
+.journey{display:flex;flex-direction:column;gap:0}
+.hop{display:grid;grid-template-columns:44px 1fr;gap:12px}
+.hop .rail{display:flex;flex-direction:column;align-items:center}
+.hop .dot{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;color:#fff;flex:none}
+.hop .bar{width:2px;flex:1;background:var(--line);min-height:18px}
+.hop .box{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px 16px;margin-bottom:14px}
+.hop:last-child .bar{display:none}
+.hop .box b{font-size:14px}
+.hop .box .say{background:var(--mute-soft);border-radius:8px;padding:6px 10px;font-size:13px;margin:8px 0}
+.hop .box .tech{font-size:12.5px;color:var(--sub);margin-top:6px}
+.hop .box .tech code{background:var(--mute-soft);padding:1px 6px;border-radius:5px}
+/* 所有权表 */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{color:var(--sub);text-align:left;padding:8px;border-bottom:1px solid var(--line);font-weight:600}
+td{padding:9px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+/* 包结构 */
+.tree{font-family:Consolas,monospace;font-size:13px;background:#fbfcfe;border:1px solid var(--line);border-radius:10px;padding:14px 18px;line-height:1.9}
+.tree .d{color:var(--mid);font-weight:600}
+.tree .c{color:var(--mute)}
+.tree .proto{background:var(--warn-soft);color:var(--warn);padding:0 6px;border-radius:5px;font-family:inherit;font-size:12px}
+.legend{display:flex;gap:14px;margin:10px 0 14px;flex-wrap:wrap;font-size:13px}
+.note{font-size:12.5px;color:var(--mute);margin-top:10px}
+.miss{background:var(--warn-soft);color:var(--warn);padding:0 6px;border-radius:5px}
+.ok{background:var(--ok-soft);color:var(--ok);padding:0 6px;border-radius:5px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="logo">CPQ 平台</span>
+  <nav><a href="#">首页</a><a href="#">工作台</a><a href="#">AI 办公室</a><a href="#">商机线索</a><a href="#">服务器</a><a href="#">配件</a><a href="#">解决方案</a><a href="#" class="on">设置</a></nav>
+  <span class="who">管理员</span>
+</div>
+
+<div class="shell">
+  <div class="crumb">设置 / <b>中间层</b> / 链路与协议（界面原型 v4 · 本页回答一个问题：AI 说一句话，CPQ 里发生了什么）</div>
+  <h1>中间层 —— AI 与 CPQ 之间的「翻译 + 插头」</h1>
+  <p class="pagedesc">AI 办公室（引擎）只懂自己的语言：工具、闸、审计。CPQ 只懂自己的语言：服务函数、表单、数据库。
+  让两边说上话的，是中间层——<b>它把 CPQ 的能力翻译成引擎协议里的工具，把引擎的规矩翻译成 CPQ 能执行的调用</b>。
+  下面用最普通的一件事，把整条链走一遍。</p>
+
+  <!-- 旅程 -->
+  <div class="card">
+    <h2>一次「查配件价格」的完整旅程</h2>
+    <div class="cdesc">销售对 AI 说：「64G 内存什么价？」——从这句话到价格出现，一共六跳，每一跳的负责人不同。</div>
+    <div class="journey">
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--eng)">1</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-eng">引擎 · AI 办公室</span> <b>听懂意图，决定用什么工具</b>
+          <div class="say">销售：「64G 内存什么价？」</div>
+          <div class="tech">引擎的工具循环翻说明书（中间层给的清单），选中工具 <code>查配件</code>；工具不在清单里 = AI 根本不知道有这个能力。</div>
+        </div></div>
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--eng)">2</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-eng">引擎 · 四道闸放行</span> <b>检查这一步的规矩</b>
+          <div class="tech">查价格是只读 → 免确认直接过；价格可见性按你的权限裁决（无授权者看不到价，fail-closed）；这一笔同时记入审计账本。</div>
+        </div></div>
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--mid)">3</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-mid">中间层 · 按声明找到"怎么查"</span> <b>说明书翻到这一页</b>
+          <div class="tech">工具清单（中间层）写着：<code>查配件</code> 的名字、参数、确认级别，以及——<b>去哪查</b>：适配器 <code>配件查询适配器</code>。声明与"怎么查"都住在中间层。</div>
+        </div></div>
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--mid)">4</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-mid">中间层 · 适配器真正出手</span> <b>把 AI 的问法翻译成 CPQ 的调用</b>
+          <div class="tech">适配器把「64G 内存」翻译成 CPQ 听得懂的调用：<code>按名称查配件（类别=内存，关键字=64G，价格权限=你的权限）</code>——这是<b>进程内函数调用</b>，调的是 CPQ 自己的检索服务；结果压缩成 AI 读得懂的摘要。</div>
+        </div></div>
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--org)">5</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-org">原网站 · CPQ 真正执行</span> <b>服务函数查库，按权限过滤</b>
+          <div class="tech">CPQ 的检索服务查配件主数据表 → 按你的角色过滤价格可见性（没授权的行连价格一起藏掉）→ 返回候选行。规则本体（哪些价格谁能看）全在 CPQ，中间层和引擎都只是转达。</div>
+        </div></div>
+      <div class="hop"><div class="rail"><div class="dot" style="background:var(--eng)">6</div><div class="bar"></div></div>
+        <div class="box"><span class="who w-eng">引擎 · 结果交还大脑</span> <b>AI 拿到摘要，用人话复述</b>
+          <div class="tech">「64G DDR5 5600，单价 1,800 元」——整个过程中引擎没查过一次库、中间层没做过一个业务决定、CPQ 不知道 AI 的存在：三层各干各的。</div>
+        </div></div>
+    </div>
+    <div class="note">写入类操作（比如改价）走同一条链，只是在第 2 跳会插一道<b>确认卡</b>：你点了才放行，放行后系统回头查库核对，并把这笔账记进审计。</div>
+  </div>
+
+  <!-- 所有权表 -->
+  <div class="card">
+    <h2>这条链上的每一环，归谁所有</h2>
+    <div class="cdesc">你说"连工具、工作流都要拆出来"——对，但要拆得准：<b>拆的是源码所有权（谁写、谁审、放哪个包），不是进程</b>。适配器代码运行时仍在引擎进程里被调用（像浏览器扩展装在浏览器里跑，不是独立软件）。</div>
+    <table>
+      <tr><th>链条环节</th><th>今天归谁</th><th>应该归谁</th><th>状态</th></tr>
+      <tr><td>工具循环 / 四道闸 / 审计 / 事件</td><td><span class="who w-eng">引擎</span></td><td><span class="who w-eng">引擎</span>（协议制定者：工具长什么样、闸怎么判、事件什么格式，都由 ABI 分册定义）</td><td><span class="ok">已到位</span></td></tr>
+      <tr><td>工具<b>声明</b>（名字/参数/确认级别）</td><td><span class="who w-mid">中间层</span></td><td><span class="who w-mid">中间层</span></td><td><span class="ok">已到位（5 域清单）</span></td></tr>
+      <tr><td>工具<b>适配器</b>（"怎么查"的翻译代码）</td><td><span class="who w-eng">引擎侧文件</span> ← 错位</td><td><span class="who w-mid">中间层</span>（与声明同住一个包）</td><td><span class="miss">待拆（G2）</span></td></tr>
+      <tr><td>工作流<b>定义</b>（步骤/目标层/规则/数据层声明）</td><td><span class="who w-eng">引擎数据库</span> ← 错位（画布改的是运行副本）</td><td><span class="who w-mid">中间层包</span>（源在 git，引擎装运行副本，双向对账）</td><td><span class="miss">待拆（G3）</span></td></tr>
+      <tr><td>工作流<b>运行时</b>（推进/校验/暂停）</td><td><span class="who w-eng">引擎</span></td><td><span class="who w-eng">引擎</span>（机制，不拆）</td><td><span class="miss">壳与内容待分层（融合区挂账）</span></td></tr>
+      <tr><td>探针（"这步办完没"的查库）</td><td><span class="who w-mid">中间层</span>（但现在是写代码）</td><td><span class="who w-mid">中间层</span>（探针 DSL：降级成填表）</td><td><span class="miss">待建（G4）</span></td></tr>
+      <tr><td>产物插座（目标层的 builder）</td><td><span class="who w-eng">引擎内建</span> ← 错位</td><td><span class="who w-mid">中间层注册</span>（宿主自注册，register_formatter 已开先例）</td><td><span class="miss">待拆（G5 刀一）</span></td></tr>
+      <tr><td>业务规则本体（选型规则/价格权限/表单定义）</td><td><span class="who w-org">CPQ</span></td><td><span class="who w-org">CPQ</span>（永远不迁）</td><td><span class="ok">已到位</span></td></tr>
+    </table>
+  </div>
+
+  <!-- 包结构 -->
+  <div class="card">
+    <h2>「按协议写好的中间层」长什么样</h2>
+    <div class="cdesc">协议已经存在（ABI：事件分册一 / 工具分册三 / 宿主接口分册四）。中间层 = 照协议写成的一个<b>可装载的包</b>；引擎装它，就像系统装一个程序包。今天缺的不是协议，是包的"插槽"自动发现（G1）。</div>
+    <div class="tree">
+app/cpq/                          <span class="c">← CPQ 的接入包（源码在 CPQ 仓库，随 CPQ 一起版本化）</span>
+├─ app.json                       <span class="c">← 包描述：名字、版本、依赖（引擎扫到它=发现插头）</span>
+├─ tools/                         <span class="c">← 功能清单 + 适配器（声明与"怎么查"同住）</span>
+│   ├─ delivery_quotation.py      <span class="c">    已迁 ✓</span>
+│   ├─ requirement.py             <span class="c">    已迁 ✓</span>
+│   └─ adapters.py                <span class="proto">G2：适配器从引擎侧搬进来</span>
+├─ flows/                         <span class="c">← 工作流源：步骤/目标层/规则/数据层声明</span>
+│   ├─ delivery_to_quotation.json <span class="proto">G3：源从引擎数据库归位到包</span>
+│   ├─ requirement_analysis.json
+│   └─ probes.py                  <span class="proto">G4：探针填表化（数据层声明）</span>
+├─ forms.py                       <span class="c">← 表单源声明（登记表 ← 商机表单配置）</span>
+├─ builders.py                    <span class="proto">G5：产物插座注册（刀一）</span>
+├─ rules.md                       <span class="c">← 左栏纪律（注入大脑的规则文本源）</span>
+└─ ledger.md                      <span class="c">← 写面台账（开了哪些写操作给人审）</span>
+    </div>
+    <div class="note">接入新网站 = AI 按同一协议起草 <span class="tree" style="display:inline;padding:0 8px">app/<新网站>/</span> 整个包 → 人工审（重点审：确认级别合不合理、写面该不该开）→ 引擎发现并装载。协议不变，变的只是包里的内容。</div>
+  </div>
+
+  <!-- 工作流三分册 -->
+  <div class="card">
+    <h2>工作流的目标层 / 规则 / 数据层——都需要中间层转吗？需要，各转各的</h2>
+    <div class="cdesc">你点名了三样东西，它们在链条上位置不同、转法也不同：</div>
+    <table>
+      <tr><th></th><th>是什么</th><th>中间层怎么转</th><th>引擎怎么用</th></tr>
+      <tr><td><b>目标层</b><br>（干完活产出什么）</td><td>每步产出的契约：登记表/选型明细/报告——长什么样、渲染成什么</td><td>包里声明产物槽 + builder + 表单源引用</td><td>分发产出、广播产物事件（画布点开的就是它）</td></tr>
+      <tr><td><b>规则</b><br>（怎么干不出格）</td><td>两类：①纪律（必填/拍板/确认级别）②领域规则（配线规则/价格权限）</td><td>①包里声明 decisions[]/左栏纪律；②只声明源引用——本体永远在 CPQ</td><td>①闸机械执行 ②调用时 CPQ 自己执行</td></tr>
+      <tr><td><b>数据层</b><br>（怎么知道办完了）</td><td>探针：查库问题（"报价单落库了吗"）</td><td>探针 DSL：填表声明"查哪张表、什么条件算过"</td><td>每步结束跑探针，AI 说了不算</td></tr>
+    </table>
+    <div class="note">共同点：<b>中间层转的是"声明"，引擎转的是"执行"，CPQ 转的是"事实"</b>。三样现在都已部分运转（目标层✓、规则①✓、数据层部分写代码），缺口标在上表。</div>
+  </div>
+</div>
+
+</body>
+</html>
