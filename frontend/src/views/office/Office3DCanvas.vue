@@ -183,8 +183,9 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  /** 点选同事：roleKey + 点击屏幕坐标（视图层据此钉出 [档案][聊天] 卡） */
+  /** 点选同事：roleKey + 点击屏幕坐标（视图层据此钉出 [档案][聊天] 卡）；点空处 = deselect（收卡） */
   select: [roleKey: string, x: number, y: number]
+  deselect: []
   'open-mission': [roleKey: string]
   'save-config': [config: OfficeConfig]
 }>()
@@ -1573,7 +1574,11 @@ function onKeyEdit(event: KeyboardEvent) {
 
 function pickActor(clientX: number, clientY: number) {
   const hit = actorAtPointer(clientX, clientY)
-  if (!hit) return
+  if (!hit) {
+    // 点空处 = 收起同事卡（select/deselect 由画布统一裁决，click 冒泡到 document 前已定）
+    emit('deselect')
+    return
+  }
   followRoleKey = hit.roleKey
   emit('select', hit.roleKey, clientX, clientY)
   if (hit.mesh.userData?.monitor) emit('open-mission', hit.roleKey)

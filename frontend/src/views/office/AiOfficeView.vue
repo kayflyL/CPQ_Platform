@@ -95,6 +95,7 @@
           :behavior-config="behaviorConfig"
           :editable="canManageOffice"
           @select="selectColleague"
+          @deselect="closeRoleCard"
           @open-mission="onOpenMission"
           @save-config="onSaveOfficeConfig"
         />
@@ -525,9 +526,11 @@ function showRailCard(colleague: any, ev: MouseEvent) {
 function onDocClickClose(e: MouseEvent) {
   if (!hoverCard.value) return
   const t = e.target as HTMLElement
-  if (t.closest('.ohc') || t.closest('.rail-item')) return
+  // canvas 的点击由 select/deselect 事件裁决（click 冒泡晚于 pointerup 开卡，不能当"点外"）
+  if (t.closest('.ohc') || t.closest('.rail-item') || t.closest('canvas')) return
   hoverCard.value = null
 }
+function closeRoleCard() { hoverCard.value = null }
 function hoverChat() {
   const c = hoverColleague.value
   hoverCard.value = null
