@@ -12,6 +12,11 @@ import './styles/utilities.css'
 import './styles/settings.css'
 import App from './App.vue'
 import OfficeRouter from './office-router'
+// 全局 axios 拦截器显式挂载（CPQ 门面由 api/index.ts 代挂；办公室入口导入图
+// 不含它——auth 客户端已自带实例，这里兜住其余裸 axios 调用：品牌抬头/通知看门狗）
+import axios from 'axios'
+import { attachAuthInterceptors } from './api/authHttp'
+attachAuthInterceptors(axios)
 import { applyTheme, detectTheme, useThemeStore } from './store/theme'
 import { useSettingsStore } from './store/settings'
 import { useAuthStore } from './store/auth'
