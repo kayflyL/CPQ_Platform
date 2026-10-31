@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AI 办公室 · 桌面原型（应用启动台 + 系统设置页）</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   AI 办公室桌面原型 —— 值全部内联自 frontend/src/styles/tokens.css
+   浅色=Soft Glassmorphism（默认），暗色=暗色原生配方；双主题可切。
+   交互：磁贴主体 → 应用工作区示意；⚙ 角标 → 系统设置页；顶栏切主题/标注。
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── tokens（两套主题，值 = tokens.css 原样） ── */
+:root {
+  --accent: #1677FF;
+  --accent-light: #4096ff;
+  --accent-grad: linear-gradient(135deg, #1677FF 0%, #5B8FF9 100%);
+  --accent-on: #ffffff;
+  --green: #52C9A0;
+  --danger: #FF6B6B;
+  --ease-out-expo: cubic-bezier(.16, 1, .3, 1);
+  --ease-spring: cubic-bezier(.34, 1.56, .64, 1);
+  --dur-1: 160ms; --dur-2: 280ms; --dur-3: 480ms;
+  --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px; --sp-6: 32px;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-base: 14px; --fs-lg: 16px;
+  --fs-xl: 20px; --fs-2xl: 24px; --fs-3xl: 30px;
+  --r-xs: 2px; --r-sm: 4px; --r-md: 6px; --r-lg: 8px; --r-xl: 12px; --r-full: 999px;
+  --num: 'tnum' 1, 'lnum' 1;
+}
+html[data-theme="light"] {
+  color-scheme: light;
+  --bg-primary: #F2F6FC;
+  --text-1: #1d2129; --text-2: #4e5969; --text-3: #86909c; --text-4: #c9cdd4;
+  --border-1: rgba(22, 119, 255, 0.10);
+  --border-2: rgba(22, 119, 255, 0.06);
+  --bg-gradient:
+    radial-gradient(ellipse 80% 60% at 12% 0%, rgba(22, 119, 255, 0.16), transparent 55%),
+    radial-gradient(ellipse 65% 55% at 95% 15%, rgba(91, 143, 249, 0.12), transparent 60%),
+    linear-gradient(180deg, #DCE9F8 0%, #E9F0FA 45%, #F2F6FC 100%);
+  --grid-line: rgba(22, 119, 255, 0.022);
+  --glass-2-bg: rgba(255, 255, 255, 0.55);
+  --glass-3-bg: rgba(255, 255, 255, 0.75);
+  --glass-border: rgba(120, 144, 176, 0.38);
+  --glass-highlight: rgba(255, 255, 255, 1);
+  --card-bg: linear-gradient(135deg, rgba(255,255,255,0.42) 0%, rgba(255,255,255,0.24) 40%, rgba(255,255,255,0.44) 100%);
+  --card-blur: 14px;
+  --card-shadow: 0 10px 30px rgba(22, 119, 255, 0.08), inset 0 1px 0 rgba(255,255,255,0.62);
+  --card-shadow-hover: 0 16px 40px rgba(22, 119, 255, 0.14), inset 0 1px 0 rgba(255,255,255,0.62);
+  --row-divider: rgba(22, 119, 255, 0.08);
+  --chip-bg: rgba(22, 119, 255, 0.08);
+  --scrim-note: rgba(255, 255, 255, 0.86);
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg-primary: #08090B;
+  --text-1: #E8ECEF; --text-2: #9BA1AA; --text-3: #6E7582; --text-4: #3D424D;
+  --border-1: rgba(255, 255, 255, 0.10);
+  --border-2: rgba(255, 255, 255, 0.06);
+  --bg-gradient:
+    radial-gradient(ellipse 70% 50% at 18% 0%, rgba(22, 119, 255, 0.10), transparent 60%),
+    radial-gradient(ellipse 60% 45% at 88% 100%, rgba(114, 46, 209, 0.08), transparent 60%),
+    linear-gradient(180deg, #0A0E1A 0%, #060810 100%);
+  --grid-line: rgba(255, 255, 255, 0.028);
+  --glass-2-bg: rgba(255, 255, 255, 0.09);
+  --glass-3-bg: rgba(18, 24, 38, 0.75);
+  --glass-border: rgba(255, 255, 255, 0.11);
+  --glass-highlight: rgba(255, 255, 255, 0.18);
+  --card-bg: rgba(255, 255, 255, 0.02);
+  --card-blur: 0px;
+  --card-shadow: none;
+  --card-shadow-hover: 0 14px 40px rgba(0, 0, 0, 0.45);
+  --row-divider: rgba(255, 255, 255, 0.06);
+  --chip-bg: rgba(22, 119, 255, 0.18);
+  --scrim-note: rgba(8, 9, 11, 0.80);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { min-height: 100%; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  background: var(--bg-gradient);
+  background-attachment: fixed;
+  color: var(--text-1);
+  transition: background var(--dur-2) var(--ease-out-expo), color var(--dur-2) var(--ease-out-expo);
+}
+/* Glass Console 网格纹理（极淡，给空旷桌面一点物质感） */
+body::before {
+  content: ""; position: fixed; inset: 0; pointer-events: none; z-index: 0;
+  background:
+    repeating-linear-gradient(0deg, var(--grid-line) 0 1px, transparent 1px 48px),
+    repeating-linear-gradient(90deg, var(--grid-line) 0 1px, transparent 1px 48px);
+}
+button { font-family: inherit; cursor: pointer; border: none; background: none; color: inherit; }
+.num { font-variant-numeric: tabular lining; font-feature-settings: 'tnum' 1, 'lnum' 1; }
+
+/* ── 顶栏（薄） ── */
+.topbar {
+  position: sticky; top: 0; z-index: 40;
+  height: 56px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 var(--sp-5);
+  background: var(--glass-2-bg);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--glass-border);
+}
+.brand { display: flex; align-items: center; gap: 10px; font-size: var(--fs-lg); font-weight: 700; letter-spacing: .5px; }
+.brand-mark {
+  width: 22px; height: 22px; border-radius: var(--r-md);
+  background: var(--accent-grad); position: relative; flex: none;
+  box-shadow: 0 2px 8px rgba(22, 119, 255, 0.35);
+}
+.brand-mark::after {
+  content: ""; position: absolute; inset: 7px; border-radius: 2px;
+  border: 2px solid rgba(255, 255, 255, .92); border-right-color: transparent;
+}
+.top-right { display: flex; align-items: center; gap: var(--sp-3); }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 var(--sp-3); border-radius: var(--r-full);
+  font-size: var(--fs-sm); color: var(--text-2);
+  background: var(--glass-2-bg); border: 1px solid var(--glass-border);
+}
+.pill .led { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 6px rgba(82, 201, 160, .65); }
+.tbtn {
+  height: 28px; padding: 0 var(--sp-3); border-radius: var(--r-full);
+  font-size: var(--fs-sm); color: var(--text-2);
+  background: var(--glass-2-bg); border: 1px solid var(--glass-border);
+  transition: border-color var(--dur-1) var(--ease-out-expo), color var(--dur-1) var(--ease-out-expo);
+}
+.tbtn:hover { color: var(--text-1); border-color: var(--accent); }
+.tbtn.on { color: var(--accent); border-color: var(--accent); }
+
+/* ── 视图切换 ── */
+.view { display: none; }
+.view.on { display: block; animation: view-in var(--dur-2) var(--ease-out-expo); }
+@keyframes view-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* ── 桌面（启动台） ── */
+.desktop { position: relative; z-index: 1; max-width: 1080px; margin: 0 auto; width: 100%; min-height: calc(100vh - 56px); display: flex; flex-direction: column; padding: var(--sp-5) var(--sp-5) 56px; box-sizing: border-box; }
+.desk-center { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.desk-head { display: flex; align-items: baseline; gap: var(--sp-3); margin: var(--sp-2) 0 var(--sp-5); }
+.desk-title { font-size: var(--fs-2xl); font-weight: 700; letter-spacing: .3px; }
+.desk-hello { font-size: var(--fs-base); color: var(--text-3); }
+.app-grid {
+  display: grid; gap: var(--sp-5);
+  grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr));
+  max-width: 560px;
+}
+
+/* 应用磁贴 —— 主体的点击目标是「进入该应用的办公室」 */
+.app-tile {
+  position: relative; text-align: left; display: flex; flex-direction: column; gap: var(--sp-4);
+  padding: var(--sp-5);
+  border-radius: var(--r-xl);
+  background: var(--card-bg);
+  backdrop-filter: blur(var(--card-blur)); -webkit-backdrop-filter: blur(var(--card-blur));
+  border: 1px solid var(--glass-border);
+  box-shadow: var(--card-shadow);
+  transition: box-shadow var(--dur-2) var(--ease-out-expo), transform var(--dur-2) var(--ease-spring), border-color var(--dur-2) var(--ease-out-expo);
+  animation: tile-in var(--dur-3) var(--ease-out-expo) backwards;
+}
+@keyframes tile-in { from { opacity: 0; transform: translateY(16px) scale(.98); } to { opacity: 1; transform: none; } }
+.app-tile:hover { transform: translateY(-4px); box-shadow: var(--card-shadow-hover); border-color: rgba(22, 119, 255, 0.35); }
+.app-tile:active { transform: translateY(-1px) scale(.995); }
+
+.tile-top { display: flex; align-items: flex-start; gap: var(--sp-4); }
+.app-icon {
+  width: 64px; height: 64px; flex: none; border-radius: var(--r-xl);
+  background: var(--accent-grad);
+  display: grid; place-items: center;
+  color: var(--accent-on); font-size: var(--fs-2xl); font-weight: 800; letter-spacing: 1px;
+  box-shadow: 0 8px 20px rgba(22, 119, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, .45);
+  transition: transform var(--dur-2) var(--ease-spring);
+  text-shadow: 0 1px 0 rgba(0, 0, 0, .12);
+}
+.app-tile:hover .app-icon { transform: scale(1.06) rotate(-2deg); }
+.tile-id { min-width: 0; display: flex; flex-direction: column; gap: var(--sp-1); padding-top: 2px; }
+.tile-name-row { display: flex; align-items: center; gap: var(--sp-2); }
+.tile-name { font-size: var(--fs-xl); font-weight: 700; }
+.tile-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 20px; padding: 0 var(--sp-2); border-radius: var(--r-full);
+  font-size: var(--fs-xs); color: var(--text-2);
+  background: var(--glass-2-bg); border: 1px solid var(--glass-border);
+}
+.tile-chip .led { width: 5px; height: 5px; border-radius: 50%; background: var(--green); box-shadow: 0 0 5px rgba(82, 201, 160, .6); }
+.tile-desc { font-size: var(--fs-base); color: var(--text-3); line-height: 1.6; }
+
+/* 在场行：同事头像簇 + 概览（数字等宽） */
+.tile-live { display: flex; align-items: center; gap: var(--sp-3); margin-top: auto; padding-top: var(--sp-2); }
+.avatars { display: flex; }
+.avatar {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: var(--fs-sm); font-weight: 600; color: #fff;
+  border: 2px solid rgba(255, 255, 255, .9);
+  margin-left: -8px;
+}
+.avatar:first-child { margin-left: 0; }
+html[data-theme="dark"] .avatar { border-color: rgba(255, 255, 255, .25); }
+.avatar.more { background: var(--glass-2-bg); color: var(--text-2); font-size: var(--fs-xs); border-style: dashed; }
+.a1 { background: linear-gradient(135deg, #1677FF, #5B8FF9); }
+.a2 { background: linear-gradient(135deg, #52C9A0, #7bd8b8); }
+.a3 { background: linear-gradient(135deg, #a855f7, #c084fc); }
+.live-text { font-size: var(--fs-sm); color: var(--text-3); }
+.live-text strong { color: var(--text-2); font-weight: 600; }
+
+/* ⚙ 角标 —— 点击进该应用的设置页（悬停浮现更清晰） */
+.tile-gear {
+  position: absolute; top: var(--sp-3); right: var(--sp-3);
+  width: 32px; height: 32px; border-radius: var(--r-full);
+  display: grid; place-items: center;
+  color: var(--text-3);
+  background: var(--glass-2-bg); border: 1px solid var(--glass-border);
+  opacity: .72;
+  transition: all var(--dur-1) var(--ease-out-expo);
+}
+.tile-gear:hover { opacity: 1; color: var(--accent); border-color: var(--accent); transform: rotate(45deg); }
+.tile-gear svg { width: 15px; height: 15px; }
+
+.tile-go {
+  align-self: flex-end;
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); font-weight: 600; color: var(--accent);
+  opacity: 0; transform: translateX(-6px);
+  transition: all var(--dur-2) var(--ease-out-expo);
+}
+.app-tile:hover .tile-go { opacity: 1; transform: none; }
+
+.desk-hint { margin-top: var(--sp-5); font-size: var(--fs-sm); color: var(--text-3); text-align: center; }
+
+/* ── 设置页（设置卡范式：页面 → 卡片 → 行，三层；禁字段描边/玻璃嵌套） ── */
+.settings { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: var(--sp-5) var(--sp-5) 80px; }
+.crumb {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: var(--fs-sm); color: var(--text-3);
+  padding: var(--sp-1) 0; margin-bottom: var(--sp-3);
+  transition: color var(--dur-1) var(--ease-out-expo);
+}
+.crumb:hover { color: var(--accent); }
+.set-hero { display: flex; align-items: center; gap: var(--sp-4); margin-bottom: var(--sp-5); }
+.set-hero .app-icon { width: 52px; height: 52px; font-size: var(--fs-xl); }
+.set-hero-main { flex: 1; min-width: 0; }
+.set-hero-title { font-size: var(--fs-2xl); font-weight: 700; }
+.set-hero-desc { margin-top: 2px; font-size: var(--fs-sm); color: var(--text-3); }
+.btn-open {
+  display: inline-flex; align-items: center; gap: 8px;
+  height: 36px; padding: 0 var(--sp-4); border-radius: var(--r-sm);
+  background: var(--accent-grad); color: var(--accent-on);
+  font-size: var(--fs-base); font-weight: 600;
+  box-shadow: 0 4px 14px rgba(22, 119, 255, 0.35), inset 0 1px 0 rgba(255, 255, 255, .35);
+  transition: transform var(--dur-1) var(--ease-spring), box-shadow var(--dur-1) var(--ease-out-expo);
+}
+.btn-open:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(22, 119, 255, 0.42), inset 0 1px 0 rgba(255, 255, 255, .35); }
+.btn-open:active { transform: none; }
+
+.set-cards { display: grid; gap: var(--sp-4); grid-template-columns: repeat(auto-fill, minmax(min(420px, 100%), 1fr)); }
+.set-card {
+  padding: var(--sp-4);
+  border-radius: var(--r-lg);
+  background: var(--glass-1-bg, var(--glass-2-bg));
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  /* 范式：无边框；层级靠底色差与行分隔线 */
+}
+html[data-theme="light"] .set-card { background: rgba(255, 255, 255, 0.40); }
+html[data-theme="dark"] .set-card { background: rgba(255, 255, 255, 0.06); }
+.set-card--wide { grid-column: 1 / -1; }
+.set-head { display: flex; align-items: flex-start; gap: var(--sp-3); margin-bottom: var(--sp-2); }
+.set-head-text { display: flex; flex-direction: column; gap: 3px; }
+.set-name { font-size: var(--fs-lg); font-weight: 700; }
+.set-desc { font-size: var(--fs-sm); color: var(--text-3); line-height: 1.55; }
+.set-row {
+  display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--row-divider);
+}
+.set-row:last-child { border-bottom: none; padding-bottom: var(--sp-1); }
+.set-label { font-size: var(--fs-base); color: var(--text-1); }
+.set-label.is-off { color: var(--text-3); }
+.set-inline { display: inline-flex; align-items: center; gap: var(--sp-3); }
+.set-unit { font-size: var(--fs-sm); color: var(--text-3); }
+.set-actions { padding-top: var(--sp-3); display: flex; justify-content: flex-end; }
+.btn-save {
+  height: 30px; padding: 0 var(--sp-4); border-radius: var(--r-sm);
+  background: var(--accent-grad); color: var(--accent-on); font-size: var(--fs-sm); font-weight: 600;
+  box-shadow: 0 3px 10px rgba(22, 119, 255, 0.30);
+  transition: transform var(--dur-1) var(--ease-spring);
+}
+.btn-save:hover { transform: translateY(-1px); }
+
+/* 团队隔离的映射行（原型静态示意） */
+.set-rule {
+  display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap;
+  padding: var(--sp-2) 0;
+}
+.rule-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 var(--sp-3); border-radius: var(--r-full);
+  font-size: var(--fs-sm); color: var(--text-1);
+  background: var(--glass-2-bg); border: 1px solid var(--glass-border);
+}
+.rule-pill .k { color: var(--text-3); font-size: var(--fs-xs); }
+.rule-arrow { color: var(--text-4); font-size: var(--fs-sm); }
+.rule-plus {
+  width: 28px; height: 28px; border-radius: 50%;
+  display: grid; place-items: center;
+  color: var(--text-3); border: 1px dashed var(--glass-border);
+  font-size: var(--fs-base);
+}
+
+/* 开关（原型内置，antd switch 同款视觉） */
+.switch { position: relative; width: 34px; height: 20px; border-radius: var(--r-full); background: var(--text-4); transition: background var(--dur-1) var(--ease-out-expo); flex: none; }
+.switch::after {
+  content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%;
+  background: #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, .25);
+  transition: transform var(--dur-1) var(--ease-out-expo);
+}
+.switch.on { background: var(--accent); }
+.switch.on::after { transform: translateX(14px); }
+
+/* ── 工作区示意（现状 3D 办公室整体迁入，原型不含） ── */
+.workspace { position: relative; z-index: 1; max-width: 880px; margin: 0 auto; padding: var(--sp-6) var(--sp-5); }
+.ws-frame {
+  min-height: 420px; border-radius: var(--r-xl);
+  border: 1px dashed var(--glass-border);
+  display: grid; place-items: center; text-align: center; padding: var(--sp-6);
+}
+.ws-emoji { font-size: 40px; margin-bottom: var(--sp-3); }
+.ws-title { font-size: var(--fs-xl); font-weight: 700; margin-bottom: var(--sp-2); }
+.ws-desc { font-size: var(--fs-base); color: var(--text-3); max-width: 460px; line-height: 1.7; }
+
+/* ── 标注层（顶栏「标注」开关） ── */
+.note { display: none; }
+body.show-notes .note { display: inline-flex; }
+.note-chip {
+  position: absolute; z-index: 5;
+  align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px; border-radius: var(--r-full);
+  background: var(--danger); color: #fff;
+  font-size: var(--fs-xs); font-weight: 700;
+  box-shadow: 0 2px 8px rgba(255, 107, 107, .45);
+  pointer-events: none;
+}
+.note-bar {
+  position: fixed; left: 50%; bottom: var(--sp-4); transform: translateX(-50%);
+  z-index: 60; max-width: min(860px, calc(100vw - 32px));
+  display: none; gap: var(--sp-4); align-items: center; flex-wrap: wrap;
+  padding: var(--sp-3) var(--sp-4); border-radius: var(--r-lg);
+  background: var(--scrim-note); backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  font-size: var(--fs-sm); color: var(--text-2); line-height: 1.6;
+}
+body.show-notes .note-bar { display: flex; }
+.note-bar b { color: var(--danger); font-weight: 700; }
+body.show-notes [data-note] { outline: 1px dashed rgba(255, 107, 107, .55); outline-offset: 4px; border-radius: var(--r-xl); }
+
+@media (max-width: 720px) {
+  .topbar { padding: 0 var(--sp-4); }
+  .desktop, .settings { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .set-hero { flex-wrap: wrap; }
+  .hello-pill { display: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── 顶栏（薄；实装时办公室门面的常驻顶栏） ── -->
+<header class="topbar">
+  <div class="brand"><span class="brand-mark"></span>AI 办公室</div>
+  <div class="top-right">
+    <span class="pill hello-pill"><span class="led"></span>1 人在线 · 6 位 AI 同事</span>
+    <button class="tbtn" id="noteToggle" onclick="toggleNotes()">标注</button>
+    <button class="tbtn" id="themeToggle" onclick="toggleTheme()">暗色</button>
+  </div>
+</header>
+
+<!-- ══════════ 视图一：桌面（应用启动台） ══════════ -->
+<main class="view on" id="view-desktop">
+  <div class="desktop">
+    <div class="desk-head">
+      <span class="desk-title">下午好</span>
+      <span class="desk-hello">选择一个应用开始工作</span>
+    </div>
+
+    <div class="desk-center">
+      <div class="app-grid">
+      <!-- CPQ 应用磁贴：主体点击 = 进入该应用的 3D 办公室；⚙ 角标 = 系统设置页 -->
+      <div class="app-tile" role="button" tabindex="0" data-note="1" onclick="go('workspace')" onkeydown="if(event.key==='Enter')go('workspace')">
+        <button class="tile-gear" data-note="2" title="CPQ 系统设置" onclick="event.stopPropagation(); go('settings')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <div class="tile-top">
+          <div class="app-icon">C</div>
+          <div class="tile-id">
+            <div class="tile-name-row">
+              <span class="tile-name">CPQ 系统</span>
+              <span class="tile-chip"><span class="led"></span>运行中</span>
+            </div>
+            <div class="tile-desc">商机 · 报价 · 交付全流程——AI 同事在此完成需求分析、方案配置与报价协作</div>
+          </div>
+        </div>
+        <div class="tile-live" data-note="3">
+          <div class="avatars">
+            <span class="avatar a1">技</span><span class="avatar a2">方</span><span class="avatar a3">数</span><span class="avatar more num">+3</span>
+          </div>
+          <span class="live-text"><strong class="num">6</strong> 位 AI 同事 · <strong class="num">2</strong> 人在工作</span>
+        </div>
+        <span class="tile-go">进入办公室 →</span>
+      </div>
+
+      <!-- 未来应用磁贴将出现在此（接入向导产出；桌面不放占位卡） -->
+      <div style="position:relative" data-note="4"></div>
+      </div>
+
+      <p class="desk-hint">接入新的业务系统后，这里会出现新的应用磁贴</p>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════ 视图二：CPQ 系统设置页 ══════════ -->
+<main class="view" id="view-settings">
+  <div class="settings">
+    <button class="crumb" onclick="go('desktop')">← 返回桌面</button>
+    <div class="set-hero">
+      <div class="app-icon">C</div>
+      <div class="set-hero-main">
+        <div class="set-hero-title">CPQ 系统</div>
+        <div class="set-hero-desc">商机 · 报价 · 交付全流程 · 接入于 2026-10</div>
+      </div>
+      <button class="btn-open" onclick="go('workspace')">打开系统 ↗</button>
+    </div>
+
+    <div class="set-cards">
+      <!-- 卡一：AI 角色访问权限（现 management『同事 → 访问权限』迁入，真相源搬家） -->
+      <div class="set-card">
+        <div class="set-head">
+          <div class="set-head-text">
+            <span class="set-name">AI 角色访问权限</span>
+            <span class="set-desc">控制每个 AI 角色能否查看价格，以及哪些账号可以使用各 AI 角色。</span>
+          </div>
+        </div>
+        <div class="set-row">
+          <span class="set-label">技术支持工程师</span>
+          <span class="set-inline"><span class="set-unit">对话中可查看价格</span><span class="switch on" onclick="this.classList.toggle('on'); this.nextElementSibling.textContent = this.classList.contains('on') ? '对话中可查看价格' : '全程隐藏价格'"></span><span class="set-unit"></span></span>
+        </div>
+        <div class="set-row">
+          <span class="set-label">方案助手</span>
+          <span class="set-inline"><span class="set-unit">对话中可查看价格</span><span class="switch on" onclick="this.classList.toggle('on'); this.nextElementSibling.textContent = this.classList.contains('on') ? '对话中可查看价格' : '全程隐藏价格'"></span><span class="set-unit"></span></span>
+        </div>
+        <div class="set-row">
+          <span class="set-label is-off">数据分析师</span>
+          <span class="set-inline"><span class="set-unit">全程隐藏价格</span><span class="switch" onclick="this.classList.toggle('on'); this.nextElementSibling.textContent = this.classList.contains('on') ? '对话中可查看价格' : '全程隐藏价格'"></span><span class="set-unit"></span></span>
+        </div>
+        <div class="set-actions"><button class="btn-save">保存权限</button></div>
+      </div>
+
+      <!-- 卡二：团队隔离 -->
+      <div class="set-card">
+        <div class="set-head">
+          <span class="switch on"></span>
+          <div class="set-head-text">
+            <span class="set-name">启用团队隔离</span>
+            <span class="set-desc">开启后，只有映射到的 AI 角色会出现在对应用户的门户、浮动窗和 AI 办公室中。</span>
+          </div>
+        </div>
+        <div class="set-rule">
+          <span class="rule-pill"><span class="k">系统角色</span>业务</span><span class="rule-arrow">→</span>
+          <span class="rule-pill">市场专员</span><span class="rule-pill">方案助手</span>
+        </div>
+        <div class="set-rule">
+          <span class="rule-pill"><span class="k">系统角色</span>技术支持</span><span class="rule-arrow">→</span>
+          <span class="rule-pill">技术支持工程师</span>
+          <button class="rule-plus" title="添加映射">＋</button>
+        </div>
+      </div>
+
+      <!-- 卡三：系统信息 -->
+      <div class="set-card set-card--wide">
+        <div class="set-head">
+          <div class="set-head-text">
+            <span class="set-name">系统信息</span>
+            <span class="set-desc">该应用在办公室的接入档案（只读；接入信息由接入向导维护）。</span>
+          </div>
+        </div>
+        <div class="set-row"><span class="set-label">系统地址</span><span class="set-unit num">http://localhost:5173</span></div>
+        <div class="set-row"><span class="set-label">接入方式</span><span class="set-unit">独立门面 · 新标签打开</span></div>
+        <div class="set-row"><span class="set-label">接入时间</span><span class="set-unit num">2026-10</span></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════ 视图三：应用工作区（示意——现状 3D 办公室整体迁入） ══════════ -->
+<main class="view" id="view-workspace">
+  <div class="workspace">
+    <button class="crumb" onclick="go('desktop')">← 返回桌面</button>
+    <div class="ws-frame">
+      <div>
+        <div class="ws-emoji">🏢</div>
+        <div class="ws-title">CPQ 应用工作区</div>
+        <div class="ws-desc">现有 3D 办公室整体迁入此层：房间、同事、Manage Teams、日志审批、任务看板原样保留——本原型不含（现状即视所得），换的是地址：/office/app/cpq。</div>
+        <p style="margin-top:16px"><button class="tbtn" onclick="go('desktop')">← 回桌面</button></p>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- ── 标注条 ── -->
+<div class="note-bar">
+  <span><b>①</b> 磁贴主体 → 进入该应用的 3D 办公室（工作区）</span>
+  <span><b>②</b> ⚙ 角标 → 该应用的设置页</span>
+  <span><b>③</b> 在场行：同事头像 + 工作概览（真实数据）</span>
+  <span><b>④</b> 未来应用磁贴位（接入向导产出，不放占位卡）</span>
+</div>
+
+<script>
+function go(v) {
+  document.querySelectorAll('.view').forEach(el => el.classList.remove('on'));
+  document.getElementById('view-' + v).classList.add('on');
+  window.scrollTo({ top: 0 });
+}
+function toggleTheme() {
+  const html = document.documentElement;
+  const dark = html.dataset.theme === 'dark';
+  html.dataset.theme = dark ? 'light' : 'dark';
+  document.getElementById('themeToggle').textContent = dark ? '暗色' : '亮色';
+}
+function toggleNotes() {
+  const on = document.body.classList.toggle('show-notes');
+  document.getElementById('noteToggle').classList.toggle('on', on);
+}
+</script>
+</body>
+</html>
