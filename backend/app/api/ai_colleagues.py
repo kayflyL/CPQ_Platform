@@ -1069,6 +1069,24 @@ def update_rooms(data: RoomUpdate, manager: dict = Depends(require_ai_office_man
         repo.close()
 
 
+class OfficesUpdate(BaseModel):
+    offices: list
+
+
+@router.put("/offices")
+def update_offices(data: OfficesUpdate, manager: dict = Depends(require_ai_office_manage)):
+    """办公室档案写入（v4 第 2 步）：新增/修改一份档案 = 接入一个业务系统的声明，
+    不碰引擎代码（路线图 v4）。写侧经 _normalize_offices 归一化，cpq 档案兜底保留。"""
+    repo = SystemConfigRepository()
+    try:
+        cfg = _read_config(repo)
+        cfg["offices"] = _normalize_offices(data.offices)
+        _write_config(repo, cfg)
+        return {"offices": cfg["offices"]}
+    finally:
+        repo.close()
+
+
 def _sync_team_graph(cfg: dict, layout: dict, edges: list, lead_role_key_override: Optional[str] = None) -> None:
     """将画布连线映射为 team_graph 并同步到同事 relations 配置。
 
