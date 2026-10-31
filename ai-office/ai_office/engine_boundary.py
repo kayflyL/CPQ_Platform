@@ -90,15 +90,6 @@ FUSED_EDGE_BASELINE: dict = {}
 # 逐条变成「宿主提供的存储接口」——今天它就是那道接口的雏形，只许收缩不许膨胀。
 KERNEL_PACKAGES = ("app.core", "app.models", "app.repository")
 
-# 组合根惰性白名单（只许收缩）：引擎内允许的宿主 import——缺位时引擎自举注册宿主
-# 实现的组合根（transaction_engine 装第一个应用；skill_node_artifacts 装 CPQ builder
-# 注册器）。常规接线走宿主侧 engine_wiring；此处的惰性 import 只是兜底，每条都是
-# 可测量「离独立启动的距离」的欠账。
-COMPOSITION_ROOTS = {
-    "transaction_engine": "app.services.delivery_app",
-    "skill_node_artifacts": "app.services.cpq_artifact_builders",
-}
-
 
 def boundary_mode() -> str:
     """report（默认，融合区边只打印作工作清单）/ enforce（融合区带宿主边=红）。
@@ -132,14 +123,14 @@ def _imports_under(source: str, prefix: str) -> set:
 
 def strict_violations(module: str, source: str) -> dict:
     """严格区违规：{"api": [...], "host": [...]}。内核（app.core/models/repository）
-    允许不计；宿主 = app.services/** 全部（引擎已迁出该树，任何 services import 都是宿主边）。
-    例外=组合根惰性白名单（COMPOSITION_ROOTS，只许收缩）。"""
+    允许不计；宿主 = app.services/** 全部（引擎已迁出该树，任何 services import 都是
+    宿主边）——无例外条款，引擎取宿主能力一律走 host_ports 端口（2026-11-01
+    组合根白名单清除：原 transaction_engine/skill_node_artifacts 两条惰性自举
+    上收宿主 engine_wiring）。"""
     imports = all_imports(source)
-    exempt = COMPOSITION_ROOTS.get(module)
-    host = sorted(i for i in imports if i.startswith("app.services.") and i != exempt)
     return {
         "api": sorted(i for i in imports if i.startswith("app.api")),
-        "host": host,
+        "host": sorted(i for i in imports if i.startswith("app.services.")),
     }
 
 

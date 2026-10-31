@@ -101,4 +101,11 @@ def wire_engine(force: bool = False) -> None:
         host_ports.register_port(port_name, _resolver(mod, path))
     if missing:
         raise RuntimeError("引擎端口接线失败（宿主缺属性，表与代码漂移）：" + repr(missing))
+    # 组合根兜底职责（2026-11-01 组合根白名单清除，原引擎内惰性自举上收至此）：
+    # 注册已装事务应用（boot 流点名自检与事务分发读注册表）+ 触发宿主产物自注册
+    # （cpq_artifact_builders import 即自注册 builder）。宿主→引擎方向合法，
+    # 引擎从此不自 import 宿主，边界法无例外条款。
+    from app.services import cpq_artifact_builders, delivery_app  # noqa: F401  import 即自注册
+    from ai_office import transaction_engine
+    transaction_engine.register(delivery_app.APP)
     _wired = True

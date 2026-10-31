@@ -1419,6 +1419,20 @@ def init_rules_db():
     except Exception as e:
         print(f"⚠️ Reasoning flow launch_form migrate failed: {e}")
 
+    # ── 引擎宿主接线：机制只认端口，宿主启动时总接线（2026-11-01 接线统一，
+    #    并含原引擎内惰性自举的「注册已装应用/触发产物自注册」职责）。
+    #    置于流点名自检之前：自检要读事务应用注册表，接线必须先行。
+    try:
+        from app.services.engine_wiring import wire_engine
+        wire_engine()
+    except Exception as e:
+        print(f"⚠️ engine port wiring failed: {e}")
+    # 域契约解释器注册保底：requirement_slots 被 import 时自注册，此处显式触碰一次
+    try:
+        import app.services.requirement_slots  # noqa: F401  触发 formatter 自注册
+    except Exception as e:
+        print(f"⚠️ requirement_slots formatter registration failed: {e}")
+
     # 流点名自检（切库漏带数据行的防线：一启动就喊缺）
     try:
         check_registered_flows_present()
@@ -1576,17 +1590,3 @@ def init_rules_db():
     except Exception:
         pass
 
-    # ── 引擎宿主接线：机制只认端口，宿主启动时总接线（2026-11-01 接线统一：
-    #    原 setter 三处注入并入端口总接线，接线只此一处）──
-    # ⓪ 端口总接线（2026-11-01 融合区预解）：引擎全部宿主能力经 host_ports，
-    #    这里一次性注册（幂等；失败即启动失败——端口缺线等于引擎残废，不静默）
-    try:
-        from app.services.engine_wiring import wire_engine
-        wire_engine()
-    except Exception as e:
-        print(f"⚠️ engine port wiring failed: {e}")
-    # 域契约解释器注册保底：requirement_slots 被 import 时自注册，此处显式触碰一次
-    try:
-        import app.services.requirement_slots  # noqa: F401  触发 formatter 自注册
-    except Exception as e:
-        print(f"⚠️ requirement_slots formatter registration failed: {e}")

@@ -47,16 +47,13 @@ def register(app: TransactionApp) -> None:
 
 
 def resolve_app(flow_key: str) -> Optional[TransactionApp]:
-    """按流 key 找已安装应用。未安装 = None（分发层降级，不进需求分析机器）。"""
-    if not _APPS:
-        from app.services import delivery_app  # 现阶段唯一已装应用；新应用 import 即注册
-        register(delivery_app.APP)
+    """按流 key 找已安装应用。未安装 = None（分发层降级，不进需求分析机器）。
+    注册由宿主组合根负责（engine_wiring 接线时 import 各应用实现模块）。"""
     return _APPS.get(str(flow_key or "").strip())
 
 
 def registered_flow_keys() -> list:
-    """已注册事务应用清单（boot 流点名自检用；触发惰性注册保证清单完整）。"""
-    resolve_app("")
+    """已注册事务应用清单（boot 流点名自检用；宿主组合根启动时注册）。"""
     return list(_APPS)
 
 

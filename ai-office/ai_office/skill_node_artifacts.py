@@ -7,7 +7,7 @@
 
 2026-10-31 路线图 v4 第 1 步「装注册插座」：本模块只剩注册表机制，CPQ 域的
 builder/实时发射器实现全部住宿主侧 `cpq_artifact_builders.py`（import 时自注册，
-本模块首次使用时惰性触发——同 transaction_engine.resolve_app 组合根先例）。
+由宿主组合根 engine_wiring 接线时 import 触发）。
 新域接产物 = 宿主另写实现文件注册自己的 builder，引擎零改动。
 
 插头两栏针脚（各司其职，不互相顶替）：
@@ -29,8 +29,6 @@ BUILDERS: dict = {}
 # 「产物槽 → 回合内实时发射器」：实时可视化（边干边亮）是产物槽的属性，不是节点名的属性
 LIVE_EMITTERS: dict = {}
 
-_ENSURED = False
-
 
 def register_builder(kind: str, fn) -> None:
     """宿主注册产物生成器（新增产物槽的唯一入口）。"""
@@ -46,26 +44,8 @@ def register_live_emitter(kind: str, fn) -> None:
         LIVE_EMITTERS[key] = fn
 
 
-def ensure_registered() -> None:
-    """宿主产物实现注册（组合根惰性触发一次，幂等）。
-
-    引擎不得顶层 import 宿主；首次取注册表时代为 import 宿主实现模块，
-    宿主被 import 时自注册（register_formatter 同款）。宿主缺位 = 注册表为空
-    = 所有节点产物为空（白盒不装懂，不装懂也不崩）。
-    """
-    global _ENSURED
-    if _ENSURED:
-        return
-    _ENSURED = True
-    try:
-        from app.services import cpq_artifact_builders  # noqa: F401  # noqa: E402
-    except Exception:
-        logger.exception("宿主产物实现注册失败（产物注册表为空，节点产物将为空）")
-
-
 def builder_kinds() -> set:
     """已注册产物槽清单（flow_validation E3 条款的注册表查询口）。"""
-    ensure_registered()
     return set(BUILDERS)
 
 
@@ -76,7 +56,6 @@ async def emit_live_artifact(node_key: str, engine: dict, event_sink, label: str
     「这一步边想边亮」是产物槽的属性（见 LIVE_EMITTERS），不是节点名的属性：主循环只问
     有没有实时产物，不认节点名。换插头（把 slot 换成别的产物槽）→ 实时行为跟着换。
     """
-    ensure_registered()
     emitter = LIVE_EMITTERS.get(resolve_kind(engine, node_key))
     if emitter is None:
         return False
@@ -91,7 +70,6 @@ def declared_slot(engine: dict, key: str) -> str:
     这个字段里，如 requirement_text / plans）；值不是产物槽（如 'ext / requirement'）
     视为未声明，不猜。
     """
-    ensure_registered()
     node_cfg = ((engine.get("flow_configs") or {}).get(key)
                 if isinstance(engine.get("flow_configs"), dict) else None)
     cfg = node_cfg if isinstance(node_cfg, dict) else {}
