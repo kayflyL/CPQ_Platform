@@ -177,10 +177,14 @@ def test_manifest_tools_unique_and_handlers_resolve():
             assert name not in seen, f"{name} 跨域重复声明"
             seen[name] = mod_name
             handler = spec.get("handler")
+            if handler is None:
+                continue  # 注入型（如 search_cases）：注册时由 build_tool_registry 闭包供给
             assert isinstance(handler, str) and "." in handler, f"{name} handler 须点串引用"
             mod, fn = handler.rsplit(".", 1)
             assert callable(getattr(importlib.import_module(mod), fn)), f"{name} handler 解析失败"
             c = spec.get("contract") or {}
+            if c.get("effects") != "write":
+                continue  # 读工具未登记契约=默认 read+免卡（保守默认哲学），不要求完备字段
             for f in ("effects", "confirm_policy", "idempotent_hint", "destructive_hint",
                       "target_entity"):
                 assert f in c, f"{name} 缺契约字段 {f}"
