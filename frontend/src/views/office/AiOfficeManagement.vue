@@ -110,7 +110,7 @@
             </a-spin>
           </a-tab-pane>
           <a-tab-pane v-if="canAdmin" key="tools" tab="工具目录">
-            <AiSettingsPanel embedded section="tools" />
+            <AiSettingsPanel embedded section="tools" :office-tool-names="officeToolNames" />
           </a-tab-pane>
         </a-tabs>
       </div>
@@ -178,6 +178,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { MoreOutlined } from '@ant-design/icons-vue'
 import { officeApi, type BehaviorConfig, type OfficeConfig } from '@/api/office'
+import { useOfficeProfile } from '@/composables/officeProfile'
 import { reasoningFlowApi } from '@/api/reasoningFlow'
 import LaunchFormEditor from '@/components/office/LaunchFormEditor.vue'
 import { useAuthStore } from '@/store/auth'
@@ -244,7 +245,11 @@ const skills = ref<any[]>([])
 const skillsLoading = ref(false)
 const editingSkill = ref<any | null>(null)
 const policySkill = ref<any | null>(null)
-const workflowSkills = computed(() => skills.value.filter((s: any) => s?.type === 'workflow'))
+// 办公室档案过滤（v4 第 2 步）：工作流/工具目录按当前办公室白名单展示（null=不限）
+const { current: currentOffice, inOffice } = useOfficeProfile()
+const officeToolNames = computed(() => currentOffice.value?.tool_names ?? null)
+const workflowSkills = computed(() =>
+  skills.value.filter((s: any) => s?.type === 'workflow' && inOffice('flow', String(s?.key || ''))))
 
 function openPolicy(skill: any) {
   policySkill.value = skill

@@ -376,6 +376,9 @@ export interface AiTeamConfig {
     color?: string
     role_keys?: string[]
   }>
+  // 办公室档案（v4 第 2 步）：一个办公室 = 一个业务系统的档案袋。
+  // 四份引用清单 null = 不限（现有全部，CPQ办公室即此态）；数组 = 白名单（可含未接入的 id）。
+  offices?: OfficeProfile[]
   layout?: {
     nodes?: any[]
     edges?: any[]
@@ -386,6 +389,16 @@ export interface AiTeamConfig {
     }
   }
   behavior?: BehaviorConfig
+}
+
+export interface OfficeProfile {
+  key: string
+  name: string
+  description?: string
+  role_keys?: string[] | null
+  room_ids?: string[] | null
+  flow_keys?: string[] | null
+  tool_names?: string[] | null
 }
 
 const http = axios.create({ baseURL: '', timeout: 60000 })

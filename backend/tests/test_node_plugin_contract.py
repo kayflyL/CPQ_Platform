@@ -178,9 +178,10 @@ def test_orchestration_shell_has_no_node_name_dispatch():
 # ── 4. 产物槽/实时发射器 = 产物槽的属性 ─────────────────────────────────────
 
 def test_live_emitters_are_keyed_by_slot_not_node_name():
-    from app.services.skill_node_artifacts import LIVE_EMITTERS
-    assert set(LIVE_EMITTERS) <= set(__import__(
-        "app.services.skill_node_artifacts", fromlist=["BUILDERS"]).BUILDERS)
+    from app.services.skill_node_artifacts import (
+        BUILDERS, LIVE_EMITTERS, ensure_registered)
+    ensure_registered()
+    assert set(LIVE_EMITTERS) <= set(BUILDERS)
     src = pathlib.Path(__import__("app.services.skill_node_artifacts",
                                   fromlist=["x"]).__file__).read_text(encoding="utf-8")
     assert '== "agent_fill"' not in src, "实时产物不该按节点名判断"

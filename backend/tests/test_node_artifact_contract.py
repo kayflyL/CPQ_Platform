@@ -283,8 +283,8 @@ def test_drawer_column_contract_resolves_on_raw_rows():
 
 def test_builtin_fallback_columns_resolve_on_raw_rows():
     """内置兜底列契约必须与上游原始行自洽（防止改了行字段名忘改契约）。"""
-    from app.services.skill_node_artifacts import (COMPOSE_FALLBACK_COLUMNS,
-                                                   KP_TABLE_FALLBACK_COLUMNS)
+    from app.services.cpq_artifact_builders import (COMPOSE_FALLBACK_COLUMNS,
+                                                    KP_TABLE_FALLBACK_COLUMNS)
     kp = _engine_for("kp_reason")
     kp_rows = _raw_rows("kp_reason", kp)
     assert kp_rows, "样本行缺失"

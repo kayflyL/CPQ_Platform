@@ -46,6 +46,8 @@ STRICT_MODULES = {
     "agent_write_confirm": "harness",   # 两阶段确认存证（confirm_policy_for 归位声明表后升区）
     "access_kernel": "harness",         # 权限谓词内核（自 deps 下沉；api 反向引用它=合法方向）
     "data_boundary": "harness",         # 数据边界（user_price_ok 改引 access_kernel 后升区）
+    "skill_node_artifacts": "harness",  # 产物注册表机制（v4 第 1 步：CPQ builder 迁宿主 cpq_artifact_builders 自注册后升区）
+    "flow_validation": "harness",       # 流校验器（E3 改查 builder_kinds，上游升区后链式升区 2026-10-31）
 }
 
 FUSED_MODULES = {
@@ -53,7 +55,7 @@ FUSED_MODULES = {
     # 2026-10-31 首批升区：transaction_engine / skill_node_state / agent_write_confirm /
     # data_boundary（+ 新 access_kernel 入区）——见 git 8c797e9 后续提交。
     # 二批：human_query / skill_decision_gate（棘轮点名）。三批：agent_react（loop 层清零宿主边）。
-    "flow_validation": ("harness", "E3 查 BUILDERS(skill_node_artifacts)——上游升区后链式升区（skill_target_contract 已于 10-31 升区）"),
+    # 四批（v4 第 1 步，2026-10-31 深夜）：skill_node_artifacts / flow_validation（builder 迁宿主注册）。
     "transaction_turn": ("state", "轮壳耦合工具目录/assistant_hub/skill_memory——解耦：现场经注入"),
     "colleague_prompt": ("state", "提示词组装耦合 ai_colleague_service——解耦：配置经注入"),
     "colleague_turn_io": ("state", "落库广播耦合 assistant_hub——解耦：io 端口注入"),
@@ -68,11 +70,55 @@ FUSED_MODULES = {
     # 需求分析域业务（哪些字段必填/委托规则），消费方也几乎全在宿主侧——宿主 import
     # 引擎（skill_node_state）方向合法，出清单。
     "skill_signals": ("harness", "信号耦合 part_selector/skill_phases——解耦：信号源回调"),
-    "skill_node_artifacts": ("harness", "BUILDERS 注册表内建宿主 builder（bom_template_eval/capabilities/portal_flow_adapter）——解耦：builder 宿主注册化（本就是声明架构的方向）"),
     "skill_node_plugins": ("harness", "插件接线层 import 宿主阶段族——解耦：宿主启动时注册，内核只留接口"),
     "office_events": ("server", "事件总线耦合 office_governance/hub/memory——解耦：订阅端口注入"),
     "skill_config_bootstrap": ("state", "启动引导耦合 capability_spec——解耦：种子数据经配置"),
 }
+
+# 融合区宿主边基线（v4 第 1 步快照锁，2026-10-31）：等待拉动期间清单只许变小不许变大——
+# 守卫比对源码实况与本基线：新增边=红（谁往引擎里新增宿主依赖，测试当场拦）；
+# 解掉的边=提醒把基线一并删掉并考虑升区。模块升区时，从 FUSED_MODULES 和本基线同时拿掉。
+# 生成方式：backend 下跑 eb.fused_edges 逐模块打印（守卫测试 test_fused_edges_within_baseline）。
+FUSED_EDGE_BASELINE: dict = {
+    "transaction_turn": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.assistant_hub"]},
+    "colleague_prompt": {"api": [], "host": ["app.services.ai_colleague_service"]},
+    "colleague_turn_io": {"api": [], "host": ["app.services.assistant_hub"]},
+    "colleague_turn_runners": {"api": [], "host": ["app.services.assistant_hub", "app.services.office_access",
+                                                   "app.services.office_governance", "app.services.office_mission"]},
+    "skill_chat": {"api": [], "host": ["app.services.capabilities", "app.services.part_selector",
+                                       "app.services.portal_flow_adapter", "app.services.skill_phases",
+                                       "app.services.skill_tools_fill", "app.services.slot_contract"]},
+    "skill_plan_runtime": {"api": [], "host": ["app.services.capability_spec", "app.services.portal_flow_adapter",
+                                               "app.services.slot_contract"]},
+    "skill_turn_engine": {"api": [], "host": ["app.services.data_range_follow", "app.services.part_selector",
+                                              "app.services.portal_flow_adapter", "app.services.requirement_knowledge"]},
+    "skill_node_runtime": {"api": [], "host": ["app.services.artifact_render", "app.services.capabilities",
+                                               "app.services.plan_builder", "app.services.portal_flow_adapter",
+                                               "app.services.report_pdf", "app.services.storage_adapter"]},
+    "skill_memory": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.part_selector",
+                                         "app.services.portal_flow_adapter"]},
+    "skill_signals": {"api": [], "host": ["app.services.capabilities", "app.services.part_selector",
+                                          "app.services.skill_phases", "app.services.slot_contract"]},
+    "skill_node_plugins": {"api": [], "host": ["app.services.agent_tool_specs", "app.services.capabilities",
+                                               "app.services.data_tools", "app.services.part_selector",
+                                               "app.services.portal_flow_adapter", "app.services.skill_phases",
+                                               "app.services.slot_contract"]},
+    "office_events": {"api": [], "host": ["app.services.office_governance", "app.services.office_hub",
+                                          "app.services.office_memory"]},
+    "skill_config_bootstrap": {"api": [], "host": ["app.services.capability_spec"]},
+}
+
+
+def baseline_new_edges(module: str, source: str) -> dict:
+    """快照锁执法：融合区模块当前边超出基线的部分（=新增边，红）。基线没有的模块=无锁。"""
+    base = FUSED_EDGE_BASELINE.get(module)
+    if base is None:
+        return {"api": [], "host": []}
+    cur = fused_edges(module, source)
+    return {
+        "api": sorted(set(cur["api"]) - set(base.get("api") or [])),
+        "host": sorted(set(cur["host"]) - set(base.get("host") or [])),
+    }
 
 
 def boundary_mode() -> str:

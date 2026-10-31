@@ -101,7 +101,7 @@ def test_waived_is_not_absent_and_does_not_silently_drop_the_category():
 
 def test_kp_table_artifact_marks_waived_rows_white_box():
     """产物白盒：豁免行带 waived 标记与文案（前端据此标注，不当已落地料号渲染）。"""
-    from app.services.skill_node_artifacts import _kp_table_row
+    from app.services.cpq_artifact_builders import _kp_table_row
     row = _kp_table_row({"category": "GPU", "request_spec": "NVIDIA 4090", "waived": True, "qty": 2})
     assert row["waived"] is True and "客户已知悉" in row["waived_note"]
     plain = _kp_table_row({"category": "CPU", "name": "KH50000", "qty": 2})

@@ -62,12 +62,56 @@ _DEFAULT_ACCESS_POLICY = {
 _DEFAULT_ROOMS = [
     {
         "id": "default",
-        "name": "全局办公室",
+        "name": "CPQ办公室",
         "description": "所有 AI 同事",
         "color": "#1677ff",
         "role_keys": [],
     }
 ]
+
+# 办公室档案（v4 第 2 步，2026-10-31）：一个办公室 = 一个业务系统的档案袋——
+# 四份引用清单（角色/房间/工作流/工具）。清单为 null = 不限（现有全部，CPQ办公室即此态）；
+# 为数组 = 白名单（可含尚未存在的 id，等接入）。新建系统办公室 = 追加一份档案 + 顶栏切换，
+# 不碰引擎代码（路线图 v4：docs/AI办公室引擎化方案.md §6 v4）。
+_DEFAULT_OFFICES = [
+    {
+        "key": "cpq",
+        "name": "CPQ办公室",
+        "description": "商机、选型、成本与报价",
+        "role_keys": None,
+        "room_ids": None,
+        "flow_keys": None,
+        "tool_names": None,
+    }
+]
+
+
+def _normalize_offices(offices: Any) -> list:
+    """offices 档案归一化：非列表回落默认；条目缺字段补默认；key 冲突保留首个。"""
+    if not isinstance(offices, list) or not offices:
+        return copy.deepcopy(_DEFAULT_OFFICES)
+    seen: set = set()
+    out: list = []
+    for item in offices:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("key") or "").strip()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        entry = {
+            "key": key,
+            "name": str(item.get("name") or key),
+            "description": str(item.get("description") or ""),
+        }
+        for field in ("role_keys", "room_ids", "flow_keys", "tool_names"):
+            val = item.get(field)
+            entry[field] = ([str(x) for x in val if str(x or "").strip()]
+                            if isinstance(val, list) else None)
+        out.append(entry)
+    if not any(e["key"] == "cpq" for e in out):
+        out.insert(0, copy.deepcopy(_DEFAULT_OFFICES[0]))
+    return out
 
 _DEFAULT_OFFICE = {
     "floor": {"width": 22, "depth": 24},
@@ -716,10 +760,22 @@ def _read_config(repo: SystemConfigRepository) -> dict:
         if not isinstance(room, dict):
             continue
         room.setdefault("id", "default")
-        room.setdefault("name", "全局办公室")
+        room.setdefault("name", "CPQ办公室")
+        # v4 第 2 步（2026-10-31）：默认房间改名「CPQ办公室」——房间名住 DB，读侧一次性迁移，
+        # 光改种子对存量库不生效。
+        if room.get("name") == "全局办公室":
+            room["name"] = "CPQ办公室"
+            config_changed = True
         room.setdefault("description", "")
         room.setdefault("color", "#1677ff")
         room.setdefault("role_keys", [])
+    if not isinstance(cfg.get("offices"), list) or not cfg.get("offices"):
+        cfg["offices"] = copy.deepcopy(_DEFAULT_OFFICES)
+        config_changed = True
+    offices_norm = _normalize_offices(cfg.get("offices"))
+    if offices_norm != cfg.get("offices"):
+        cfg["offices"] = offices_norm
+        config_changed = True
     if not isinstance(cfg.get("layout"), dict):
         cfg["layout"] = copy.deepcopy(_DEFAULT_LAYOUT)
     if not isinstance(cfg["layout"].get("office"), dict):
@@ -912,6 +968,7 @@ def list_colleagues(user: dict = Depends(get_current_user)):
             "colleagues": colleagues,
             "team_meta": cfg.get("team_meta", dict(_DEFAULT_TEAM_META)),
             "rooms": cfg.get("rooms", copy.deepcopy(_DEFAULT_ROOMS)),
+            "offices": cfg.get("offices", copy.deepcopy(_DEFAULT_OFFICES)),
             "layout": cfg.get("layout", copy.deepcopy(_DEFAULT_LAYOUT)),
             "behavior": cfg.get("behavior", copy.deepcopy(_DEFAULT_BEHAVIOR)),
         }

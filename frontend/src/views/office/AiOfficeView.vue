@@ -4,15 +4,23 @@
       <a-dropdown :trigger="['click']">
         <button type="button" class="room-picker">
           <span class="room-picker-dot" :style="{ background: teamColor }"></span>
-          <span class="room-picker-name">{{ activeRoomMeta.name || 'AI 团队' }}</span>
+          <span class="room-picker-name">{{ currentOffice?.name || activeRoomMeta.name || 'AI 团队' }}</span>
           <DownOutlined />
         </button>
         <template #overlay>
-          <a-menu class="room-picker-menu" @click="onRoomMenuClick">
-            <a-menu-item v-for="room in rooms" :key="room.id">
-              <span class="room-picker-dot" :style="{ background: room.color || '#1677ff' }"></span>
-              <span>{{ room.name || room.id }}</span>
+          <a-menu class="room-picker-menu" @click="onPickerMenuClick">
+            <a-menu-item v-for="office in offices" :key="`office:${office.key}`">
+              <span class="room-picker-dot" :style="{ background: office.key === currentKey ? teamColor : 'transparent' }"></span>
+              <span :class="{ 'rp-active': office.key === currentKey }">{{ office.name }}</span>
+              <span v-if="office.description" class="rp-desc">{{ office.description }}</span>
             </a-menu-item>
+            <template v-if="viewRooms.length > 1">
+              <a-menu-divider />
+              <a-menu-item v-for="room in viewRooms" :key="`room:${room.id}`">
+                <span class="room-picker-dot" :style="{ background: room.color || '#1677ff' }"></span>
+                <span :class="{ 'rp-active': room.id === activeRoomId }">{{ room.name || room.id }}</span>
+              </a-menu-item>
+            </template>
           </a-menu>
         </template>
       </a-dropdown>
@@ -334,6 +342,7 @@ import { message } from 'ant-design-vue'
 import type { AssistantContext } from '@/api/assistant'
 import { officeApi, type BehaviorConfig, type OfficeColleagueStatus, type OfficeConfig, type OfficeMission } from '@/api/office'
 import { normalizeOfficeConfig } from '@/composables/officeLayout'
+import { useOfficeProfile } from '@/composables/officeProfile'
 import { useAssistantContext } from '@/composables/assistantContext'
 import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import AiOfficeManagement from './AiOfficeManagement.vue'
@@ -347,8 +356,15 @@ import TaskBoard from './TaskBoard.vue'
 defineOptions({ name: 'AiOfficeView' })
 
 const teamMeta = ref<{ name?: string; description?: string; color?: string }>({})
-const colleagues = ref<any[]>([])
-const rooms = ref<any[]>([])
+// 全量清单 vs 档案过滤后的视图清单（v4 第 2 步）：展示面（3D/房间/选择器/管理面清单）按当前
+// 办公室过滤；编辑面（TeamManager 批量回存房间）拿全量，防按过滤清单回存把隐藏房间删掉。
+const colleaguesAll = ref<any[]>([])
+const roomsAll = ref<any[]>([])
+const colleagues = computed(() =>
+  colleaguesAll.value.filter((c) => inOffice('role', String(c?.role_key || ''))))
+const viewRooms = computed(() =>
+  roomsAll.value.filter((r) => inOffice('room', String(r?.id || ''))))
+const rooms = roomsAll
 const activeRoomId = ref('default')
 const layoutNodes = ref<any[]>([])
 const layoutEdges = ref<any[]>([])
@@ -365,6 +381,8 @@ const missionError = ref('')
 let missionPollTimer: ReturnType<typeof setInterval> | null = null
 
 const auth = useAuthStore()
+// 办公室档案（v4 第 2 步）：切换=切业务系统档案；展示面按档案过滤，编辑面拿全量
+const { offices, currentKey, current: currentOffice, setOffices, switchOffice, inOffice } = useOfficeProfile()
 const canManageOffice = computed(() => auth.can('ai.office.manage'))
 // 管理面任一段可见即可打开（只授 ai.office.admin 的账号也要能进「模型与接入/运行与权限」）
 const canOpenOfficeManagement = computed(() => auth.can('ai.office.manage') || auth.can('ai.office.admin'))
@@ -416,7 +434,7 @@ const emptyStatus: OfficeColleagueStatus = {
   message: '',
 }
 
-const activeRoom = computed(() => rooms.value.find((room) => room.id === activeRoomId.value) || rooms.value[0] || null)
+const activeRoom = computed(() => viewRooms.value.find((room) => room.id === activeRoomId.value) || viewRooms.value[0] || null)
 const activeRoomMeta = computed(() => activeRoom.value || teamMeta.value)
 const roomColleagues = computed(() => {
   const roleKeys = activeRoom.value?.role_keys || []
@@ -531,10 +549,11 @@ async function loadConfig() {
   try {
     const data = await officeApi.teamConfig()
     teamMeta.value = data.team_meta || {}
-    colleagues.value = Array.isArray(data.colleagues) ? data.colleagues : []
-    rooms.value = Array.isArray(data.rooms) ? data.rooms : []
-    if (rooms.value.length && !rooms.value.some((room) => room.id === activeRoomId.value)) {
-      activeRoomId.value = rooms.value[0].id
+    colleaguesAll.value = Array.isArray(data.colleagues) ? data.colleagues : []
+    roomsAll.value = Array.isArray(data.rooms) ? data.rooms : []
+    setOffices(data.offices)
+    if (viewRooms.value.length && !viewRooms.value.some((room) => room.id === activeRoomId.value)) {
+      activeRoomId.value = viewRooms.value[0].id
     }
     layoutNodes.value = Array.isArray(data.layout?.nodes) ? data.layout.nodes : []
     layoutEdges.value = Array.isArray(data.layout?.edges) ? data.layout.edges : []
@@ -542,7 +561,7 @@ async function loadConfig() {
     teamGraph.value = data.layout?.team_graph || {}
     behaviorConfig.value = data.behavior || {}
   } catch (error: any) {
-    colleagues.value = []
+    colleaguesAll.value = []
     message.error(error?.response?.data?.detail || 'AI 团队配置加载失败，请重新登录后再试')
   }
 }
@@ -557,8 +576,14 @@ async function onSaveOfficeConfig(config: OfficeConfig) {
   }
 }
 
-function onRoomMenuClick({ key }: { key: string | number }) {
-  activeRoomId.value = String(key)
+function onPickerMenuClick({ key }: { key: string | number }) {
+  const k = String(key)
+  if (k.startsWith('office:')) {
+    switchOffice(k.slice(7))
+    activeRoomId.value = viewRooms.value[0]?.id || 'default'
+    return
+  }
+  activeRoomId.value = k.slice(5)
 }
 
 function colleagueName(roleKey?: string): string {
@@ -732,6 +757,17 @@ onDeactivated(() => {
   height: 8px;
   flex-shrink: 0;
   border-radius: 50%;
+}
+
+/* 办公室切换菜单（v4 第 2 步）：当前项加粗、档案描述弱化——层级靠字重/透明度，不加新色 */
+.rp-active {
+  font-weight: 700;
+}
+
+.rp-desc {
+  margin-left: 8px;
+  font-size: var(--cpq-font-size-xs);
+  opacity: 0.62;
 }
 
 .room-picker-name {

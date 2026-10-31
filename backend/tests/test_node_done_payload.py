@@ -8,7 +8,7 @@ from app.services import skill_step_runtime
 from unittest.mock import patch
 
 from app.services.skill_step_runtime import _node_done_payload
-from app.services.skill_node_artifacts import locked_l6_rows as _locked_l6_rows
+from app.services.cpq_artifact_builders import locked_l6_rows as _locked_l6_rows
 
 
 def _drawer() -> dict:

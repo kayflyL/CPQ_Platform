@@ -28,12 +28,12 @@ _PRODUCT_REGISTRY: set | None = None
 
 
 def _product_slots() -> set:
-    """产物槽注册表（skill_node_artifacts.BUILDERS 的键）。惰性 import 防环。"""
+    """产物槽注册表（skill_node_artifacts.builder_kinds）。惰性 import 防环。"""
     global _PRODUCT_REGISTRY
     if _PRODUCT_REGISTRY is None:
         try:
-            from app.services.skill_node_artifacts import BUILDERS
-            _PRODUCT_REGISTRY = set(BUILDERS)
+            from app.services.skill_node_artifacts import builder_kinds
+            _PRODUCT_REGISTRY = builder_kinds()
         except Exception:
             _PRODUCT_REGISTRY = set()
     return _PRODUCT_REGISTRY or set()

@@ -599,6 +599,8 @@ const router = useRouter()
 const props = defineProps<{
   embedded?: boolean
   section?: 'model' | 'tools' | 'access' | 'threads' | 'audit' | 'all'
+  // 办公室档案过滤（v4 第 2 步）：null/undefined=不限；数组=只展示白名单内工具
+  officeToolNames?: string[] | null
 }>()
 
 const embedded = computed(() => props.embedded === true)
@@ -1207,8 +1209,11 @@ const tools = ref<AssistantToolInfo[]>([])
 const toolUsage = ref<Record<string, string[]>>({})
 const toolsLoading = ref(false)
 const toolGroups = computed(() => {
+  // 办公室档案过滤（v4 第 2 步）：officeToolNames null=不限；数组=白名单内才展示
+  const allowed = props.officeToolNames
+  const visible = allowed == null ? tools.value : tools.value.filter((t) => allowed.includes(t.name))
   const byCat = new Map<string, AssistantToolInfo[]>()
-  for (const t of tools.value) {
+  for (const t of visible) {
     const key = String(t.category || 'workflow')
     if (!byCat.has(key)) byCat.set(key, [])
     byCat.get(key)!.push(t)
