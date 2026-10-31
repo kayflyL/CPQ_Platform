@@ -107,7 +107,7 @@
           :x="hoverCard?.x || 0"
           :y="hoverCard?.y || 0"
           @chat="hoverChat"
-          @profile="hoverProfile"
+          @profile="hoverArchive"
         />
         <div v-if="!roomColleagues.length" class="office-empty-state">
           暂无 AI 同事，请在 Manage Teams 中添加或切换团队。
@@ -181,14 +181,6 @@
           <button class="rail-chat rail-chat--block" @click="openChat('room')">团队群聊 →</button>
         </div>
       </aside>
-
-      <ColleaguePersonaCard
-        ref="personaRef"
-        :status-meta="statusMetaEntries"
-        :lead-role-key="teamGraph?.lead_role_key || 'assistant'"
-        @dm="onRoomOpenDm"
-        @task="onPersonaTask"
-      />
     </div>
 
     <!-- =================== 手机端：3D 全屏 + 同事头像行 =================== -->
@@ -252,6 +244,16 @@
         </div>
       </Transition>
     </template>
+
+    <!-- 同事档案弹窗（独立挂载；工作区卡片 [档案] 直达，不经过 Manage Teams 全屏壳） -->
+    <EmployeeManager
+      v-if="archiveRoleKey"
+      :colleagues="colleagues"
+      :initial-role-key="archiveRoleKey"
+      modal-only
+      @close="archiveRoleKey = null"
+      @saved="loadConfig"
+    />
 
     <Teleport to="body">
       <Transition name="office-fade">
@@ -329,7 +331,7 @@ import AiOfficeManagement from './AiOfficeManagement.vue'
 import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
 import OfficeHoverCard from './OfficeHoverCard.vue'
-import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
+import EmployeeManager from './EmployeeManager.vue'
 import TaskBoard from './TaskBoard.vue'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
 import AssistantPanel from '@/components/assistant/AssistantPanel.vue'
@@ -354,6 +356,8 @@ const officeConfig = ref<OfficeConfig>({})
 const teamGraph = ref<{ lead_role_key?: string; subagent_role_keys?: string[] }>({})
 const behaviorConfig = ref<BehaviorConfig>({})
 const manageOpen = ref(false)
+// 档案直达：非空 = Manage Teams 打开后直达该同事的档案编辑弹层
+const archiveRoleKey = ref<string | null>(null)
 const governanceOpen = ref(false)
 const selectedRoleKey = ref<string | null>(null)
 const missions = ref<OfficeMission[]>([])
@@ -372,29 +376,6 @@ const canManageOffice = computed(() => auth.can('ai.office.manage'))
 const canOpenOfficeManagement = computed(() => auth.can('ai.office.manage') || auth.can('ai.office.admin'))
 
 // ── 同事名片浮层（悬停卡/名册/房间均可唤起）──
-const personaRef = ref<InstanceType<typeof ColleaguePersonaCard> | null>(null)
-
-function missionOf(roleKey?: string | null) {
-  if (!roleKey) return null
-  return (
-    missions.value.find((m) => m.owner_role_key === roleKey && (m.status === 'running' || m.status === 'queued')) ||
-    missions.value.find((m) => (m.steps || []).some((s) => s.role_key === roleKey) && (m.status === 'running' || m.status === 'queued')) ||
-    null
-  )
-}
-
-function openPersonaCard(colleague: any, ev: MouseEvent) {
-  personaRef.value?.openFor(colleague, statusFor(colleague?.role_key), missionOf(colleague?.role_key), ev.currentTarget as HTMLElement)
-}
-
-function onRoomOpenDm(roleKey?: string) {
-  if (roleKey) openChat(roleKey)
-  else openChat('room')
-}
-
-function onPersonaTask(roleKey?: string) {
-  if (roleKey) onOpenMission(roleKey)
-}
 
 const { statusMap, connected, connect, disconnect } = useOfficeSocket()
 
@@ -536,10 +517,15 @@ function hoverChat() {
   hoverCard.value = null
   if (c) openChat(c.role_key)
 }
-function hoverProfile(ev: MouseEvent) {
+function hoverArchive() {
   const c = hoverColleague.value
   hoverCard.value = null
-  if (c) openPersonaCard(c, ev)
+  if (c) openArchive(c.role_key)
+}
+// 档案 = 该同事的完整档案编辑页（独立挂载的「同事档案」弹窗，定位到人；不经过 Manage Teams 全屏壳）
+function openArchive(roleKey: string) {
+  selectedRoleKey.value = roleKey
+  archiveRoleKey.value = roleKey
 }
 
 // ── 统一聊天窗 = 浮动 AI 角色的消息中心面板（AssistantPanel，全端一套；切换=回桌面）──

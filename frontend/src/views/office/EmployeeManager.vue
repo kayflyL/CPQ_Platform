@@ -1,21 +1,23 @@
 <template>
-  <div class="em-root">
-    <div class="em-cards-head">
-      <div>
-        <div class="em-title">同事</div>
-        <div class="em-subtitle">管理、设置和新建 AI 同事</div>
+  <div :class="{ 'em-root': !modalOnly }">
+    <template v-if="!modalOnly">
+      <div class="em-cards-head">
+        <div>
+          <div class="em-title">同事</div>
+          <div class="em-subtitle">管理、设置和新建 AI 同事</div>
+        </div>
+        <a-button size="small" type="primary" @click="openCreate">新建同事</a-button>
       </div>
-      <a-button size="small" type="primary" @click="openCreate">新建同事</a-button>
-    </div>
 
-    <div class="em-cards">
-      <RippleRevealCard
-        v-for="colleague in colleagues"
-        :key="colleague.role_key"
-        :colleague="colleague"
-        @open="openEditorFor(colleague.role_key)"
-      />
-    </div>
+      <div class="em-cards">
+        <RippleRevealCard
+          v-for="colleague in colleagues"
+          :key="colleague.role_key"
+          :colleague="colleague"
+          @open="openEditorFor(colleague.role_key)"
+        />
+      </div>
+    </template>
 
 
     <a-modal
@@ -434,9 +436,11 @@ import { PET_MODEL_CATALOG } from '@/store/petModel'
 const props = defineProps<{
   colleagues: any[]
   initialRoleKey?: string | null
+  /** 弹窗独挂模式：隐藏管理清单，只渲染「同事档案」编辑弹窗（工作区卡片 [档案] 直达用） */
+  modalOnly?: boolean
 }>()
 
-const emit = defineEmits<{ (e: 'saved'): void }>()
+const emit = defineEmits<{ (e: 'saved'): void; (e: 'close'): void }>()
 
 const MEMORY_TYPE_META: Record<string, { label: string; color: string }> = {
   user_profile: { label: '用户画像', color: 'blue' },
@@ -459,7 +463,16 @@ const editorOpen = ref(false)
    打开期间给 body 挂标记类，两个悬浮件据此让位 */
 watch(editorOpen, (v) => {
   document.body.classList.toggle('em-editor-modal-open', v)
+  // 弹窗独挂模式：档案窗关闭即告知宿主卸载（工作区清 archiveRoleKey）
+  if (props.modalOnly && !v) emit('close')
 })
+
+// 弹窗独挂：以 initialRoleKey 直接打开该同事的档案编辑
+watch(
+  () => [props.modalOnly, props.initialRoleKey] as const,
+  ([mo, rk]) => { if (mo && rk) openEditorFor(rk) },
+  { immediate: true },
+)
 const createForm = ref({
   role_key: '',
   name: '',
@@ -1024,7 +1037,7 @@ async function deleteEmployee() {
   }
 }
 
-defineExpose({ openCreate, save })
+defineExpose({ openCreate, save, openEditorFor })
 </script>
 
 <style scoped>
