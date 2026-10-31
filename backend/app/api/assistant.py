@@ -10,7 +10,7 @@ import asyncio
 import logging
 import json
 import os
-from typing import Any, Optional, Union
+from typing import Any, Optional
 
 from fastapi import (
     APIRouter, HTTPException, Depends, Query, UploadFile, File, WebSocket, WebSocketDisconnect,

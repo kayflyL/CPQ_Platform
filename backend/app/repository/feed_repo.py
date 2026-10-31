@@ -365,7 +365,6 @@ class FeedRepository:
         Returns:
             Number of rows updated
         """
-        from sqlalchemy import update as sql_update
         # 获取该商机的所有附件
         attachments = self.session.execute(
             select(FeedAttachment).where(

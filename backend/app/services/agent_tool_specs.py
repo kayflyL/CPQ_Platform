@@ -3,13 +3,7 @@
 from typing import List, Optional
 from app.services.agent_tool_registry import ToolRegistry
 from app.services.agent_tool_handlers import (
-    _search_cases_handler, _tool_ask_user, _tool_catalog_search,
-    _tool_choose_model, _tool_colleague_memory, _tool_create_opportunity,
-    _tool_fill_requirement, _tool_import_cost_sheet, _tool_inspect_parts,
-    _tool_opportunity_stats, _tool_query_data, _tool_query_parts,
-    _tool_save_requirement_draft, _tool_select_parts, _tool_set_quote_margin,
-    _tool_share_quote, _tool_import_bom_scheme, _tool_derive_cost_from_scheme,
-    _tool_set_cost_prices, _tool_submit_cost_sheet, _tool_suggest_workflow)
+    _search_cases_handler, _tool_ask_user)
 
 # ── 工具元数据全集（name/description/parameters + handler）—— 画布可勾选启用 ──
 _TOOL_SPECS = {
