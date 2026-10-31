@@ -174,3 +174,63 @@ def combined_slot_spec() -> list:
         p.setdefault("order", 200 + (p.get("order") or 0))
         out.append(p)
     return out
+
+
+def format_requirement_slots_contract(art: dict) -> str:
+    """线索登记表插头（slot=requirement_slots）→ 大脑可读的**登记契约**。
+
+    契约只描述「这张表长什么样、有哪些合法值」——全部读配置与数据：
+    字段契约（system_config.requirement_slots，与商机详情页表单同源）、目录字段值域
+    （在售目录）、部件大类（KP 类目）。**填写规则/话术属于抽屉 description**（节点使命），
+    不在这里二次复述（历史事故：契约与节点说明各写一套规则，改一处漏一处）。
+    （第 5 步画边界解耦：自引擎 skill_target_contract 迁回域资产——解释器住宿主，
+    经 register_formatter 自注册进内核注册表。）
+    """
+    import logging as _logging
+    from app.services.skill_target_contract import format_generic_contract
+
+    logger = _logging.getLogger(__name__)
+    spec: list = []
+    try:
+        from app.services.slot_contract import slot_spec
+        spec = [s for s in slot_spec() if str(s.get("key") or "").strip()]
+    except Exception:
+        logger.exception("读取登记表字段契约失败")
+    kp_cats: list = []
+    try:
+        from app.services.requirement_slots import _load_kp_categories
+        kp_cats = [str(c).strip() for c in (_load_kp_categories() or []) if str(c).strip()]
+    except Exception:
+        logger.exception("读取 KP 大类失败")
+    if not spec:
+        return format_generic_contract(art)
+    basic = [f"{str(s.get('key'))}({str(s.get('label') or s.get('key'))})"
+             for s in spec if s.get("src_type") != "kp"]
+    vocab_lines: list = []
+    try:
+        from app.services.catalog_options import catalog_whitelist
+        wl = catalog_whitelist({}, {}, "")
+        for s in spec:
+            key = str(s.get("key") or "")
+            if s.get("src_type") == "kp" or s.get("candidate_source") != "catalog":
+                continue
+            dim = str(s.get("catalog_dimension") or "").strip()
+            vals = [str(v) for v in (wl.get(dim) or []) if str(v).strip()]
+            if vals:
+                vocab_lines.append(f"{key}({str(s.get('label') or key)})：{' / '.join(vals)}")
+    except Exception:
+        logger.exception("读取目录词表失败")
+    head = (f"输出物《{str(art.get('name') or '线索登记表')}(requirement_slots) 字段契约："
+            + "；".join(basic) + "。")
+    parts = [head]
+    if vocab_lines:
+        parts.append("目录字段值域（按规范值登记）：\n" + "\n".join(vocab_lines))
+    if kp_cats:
+        parts.append("部件大类（kp_rows 的 part_category 取这里的值）：" + " / ".join(kp_cats))
+    return "\n".join(parts)
+
+
+# 域解释器自注册进引擎插头机制（画边界解耦：机制只认注册表，域 formatter 住宿主；
+# 本模块被任意路径 import 即完成注册，startup 另显式触碰一次保底）
+from app.services.skill_target_contract import register_formatter as _register_formatter  # noqa: E402
+_register_formatter("requirement_slots", format_requirement_slots_contract)

@@ -27,6 +27,8 @@ def _wire_agent_react_registry_builder():
     from app.services import agent_react
     from app.services.agent_tool_specs import build_tool_registry
     agent_react.set_registry_builder(build_tool_registry)
+    # 域契约解释器注册保底（与 startup ④ 对称）：requirement_slots import 即自注册
+    import app.services.requirement_slots  # noqa: F401
     yield
     agent_react.set_registry_builder(None)
 

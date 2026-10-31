@@ -1597,3 +1597,8 @@ def init_rules_db():
         agent_react.set_registry_builder(build_tool_registry)
     except Exception as e:
         print(f"⚠️ agent_react registry builder wiring failed: {e}")
+    # ④ 域契约解释器注册保底：requirement_slots 被 import 时自注册，此处显式触碰一次
+    try:
+        import app.services.requirement_slots  # noqa: F401  触发 formatter 自注册
+    except Exception as e:
+        print(f"⚠️ requirement_slots formatter registration failed: {e}")

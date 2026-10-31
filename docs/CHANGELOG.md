@@ -7,6 +7,15 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续四) — 第 5 步画边界第四批：插头解释器机制升区+slot_contract 重分类宿主（严格区 22→23，融合区 18→16）
+
+- **变更**：① `skill_target_contract`（插头解释器机制）升严格区——唯一的域 formatter（登记表契约 `format_requirement_slots_contract`）**迁回域资产 requirement_slots**，经新注册 API `register_formatter(slot, fn)` 宿主自注册进内核注册表（机制只认注册表不认具体 slot 的铁律这下名实相符）；startup ④ 显式触碰保底、conftest 对称接线。② **slot_contract 重新归类为宿主资产**（出融合区清单）——登记表字段契约+填充判定规则（哪些字段必填/委托规则/确认口径）是需求分析域业务，消费方也几乎全在宿主侧，宿主 import 引擎（skill_node_state）方向合法；**画边界不等于把域逻辑都塞进引擎， misplaced 的要搬回去**。
+- **验证**：守卫+插头契约族+登记域族 86 用例全过（含 formatter 分发/登记契约内容断言）；过程中两处自伤均已修复——heredoc 写 `\n` 被环境展开成真实换行致 SyntaxError（86 errors，改用 Edit 写字面反斜杠）；formatter 注册时机从"内核静态"变"宿主 import 时"漏了测试进程触碰（conftest 补对称接线）。全量回归见后。
+- **涉及面**：`app/services/{skill_target_contract,requirement_slots}`、`app/core/{startup.py 接线④,engine_boundary.py}`、`tests/conftest.py`。
+- 💡 **定论**：① 画边界的三种处置：解耦升区（机制带融合）/ **重分类出清单（宿主资产误挂引擎名下）** / 保留融合区记账——slot_contract 是第一例重分类，判断依据"换宿主还要不要这模块"（登记表判定规则=不要）；② 注册式机制（解释器/BUILDERS/插件）的宿主自注册模式=宿主 import 即注册+组合根显式触碰保底，测试侧 conftest 必须对称（否则测试进程行为≠生产行为）。
+
+
+
 ## [未发布] - 2026-10-31(深夜续三) — 第 5 步画边界第三批解耦：agent_react 工具目录注入，loop 层整体清零宿主边（严格区 21→22）
 
 - **变更**：`agent_react` 工具目录构建器注入口（`set_registry_builder`/`_make_registry`）——大脑循环不再 import 声明表，specs+handlers 的组合由宿主供给：生产接线 startup 组合根（第三块样板），测试接线 conftest 组合根（autouse `_wire_agent_react_registry_builder`，个别用例 patch `_REGISTRY_BUILDER` 覆写）；未接线时循环启动即报错（组合根缺失属部署事故，不静默降级）。
