@@ -51,9 +51,8 @@
                 :class="{ active: view === 'dm' && activeRoleKey === c.role_key }"
                 @click="openDm(c)"
               >
-                <span class="ap-contact-avatar" :style="roleAvatarStyle(c)">
-                  <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
-                  <span v-else>{{ avatarInitial(c.name) }}</span>
+                <span class="ap-contact-avatar">
+                  <OfficeAvatar :colleague="c" :size="30" />
                   <i class="ap-presence" :class="{ on: isPresenceOn(c.role_key) }"></i>
                 </span>
                 <span class="ap-contact-main">

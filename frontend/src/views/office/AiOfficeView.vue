@@ -103,7 +103,6 @@
           :colleague="hoverColleague"
           :status="hoverStatus"
           :stats="hoverStats"
-          :color="hoverColor"
           :x="hoverCard?.x || 0"
           :y="hoverCard?.y || 0"
           @chat="hoverChat"
@@ -148,10 +147,7 @@
               :class="{ 'is-active': hoverCard?.roleKey === c.role_key }"
               @click="showRailCard(c, $event)"
             >
-              <span class="rail-item-av" :style="{ background: deskColor(c) }">
-                <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
-                <span v-else>{{ avatarInitial(c.name) }}</span>
-              </span>
+              <OfficeAvatar :colleague="c" :size="30" />
               <span class="rail-item-main">
                 <b>{{ c.name || c.role_key }}</b>
                 <small><i :style="{ background: avatarDotColor(c) }"></i>{{ statusText(statusFor(c.role_key).status) }}</small>
@@ -214,10 +210,7 @@
             :class="{ 'is-active': selectedRoleKey === c.role_key }"
             @click="openChat(c.role_key)"
           >
-            <span class="m-av" :style="{ background: deskColor(c) }">
-              <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
-              <span v-else>{{ avatarInitial(c.name) }}</span>
-            </span>
+            <OfficeAvatar :colleague="c" :size="34" />
             <span class="m-nm">{{ c.name || c.role_key }}</span>
             <span class="m-st" :style="{ background: avatarDotColor(c) }"></span>
           </button>
@@ -331,6 +324,7 @@ import AiOfficeManagement from './AiOfficeManagement.vue'
 import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
 import OfficeHoverCard from './OfficeHoverCard.vue'
+import OfficeAvatar from '@/components/office/OfficeAvatar.vue'
 import EmployeeManager from './EmployeeManager.vue'
 import TaskBoard from './TaskBoard.vue'
 import AssistantFloatingButton from '@/components/assistant/AssistantFloatingButton.vue'
@@ -443,15 +437,6 @@ onBeforeUnmount(() => {
   document.removeEventListener('click', onDocClickClose)
 })
 
-function avatarInitial(name?: string): string {
-  const text = (name || 'AI').trim()
-  return Array.from(text)[0] || 'AI'
-}
-
-function deskColor(colleague: any): string {
-  return colleague?.color || '#1677ff'
-}
-
 function statusFor(roleKey: string): OfficeColleagueStatus {
   return statusMap.value[roleKey] || { ...emptyStatus, role_key: roleKey }
 }
@@ -489,8 +474,6 @@ const hoverColleague = computed(() =>
   hoverCard.value ? colleagues.value.find((c) => c.role_key === hoverCard.value!.roleKey) || null : null)
 const hoverStatus = computed(() =>
   hoverCard.value ? statusFor(hoverCard.value.roleKey) : emptyStatus)
-const hoverColor = computed(() =>
-  hoverColleague.value ? deskColor(hoverColleague.value) : 'var(--cpq-accent-primary)')
 const hoverStats = computed(() => {
   const list = missions.value.filter((m) => m.owner_role_key === hoverCard.value?.roleKey)
   return {

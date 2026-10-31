@@ -7,10 +7,7 @@
         :style="posStyle"
       >
         <div class="ohc-head">
-          <div class="ohc-av" :style="{ background: color }">
-            <img v-if="colleague.avatar_url" :src="colleague.avatar_url" alt="" />
-            <span v-else>{{ initial }}</span>
-          </div>
+          <OfficeAvatar :colleague="colleague" :size="44" />
           <div class="ohc-id">
             <div class="ohc-name">{{ colleague.name || colleague.role_key }}</div>
             <div class="ohc-role">{{ colleague.role_key }}</div>
@@ -45,7 +42,6 @@ const props = defineProps<{
   colleague: any | null
   status: OfficeColleagueStatus
   stats: { active: number; done: number; total: number }
-  color: string
   x: number
   y: number
 }>()
@@ -55,11 +51,6 @@ const emit = defineEmits<{ (e: 'chat'): void; (e: 'profile', ev: MouseEvent): vo
 const CARD_W = 300
 const CARD_H = 232
 const M = 12
-
-const initial = computed(() => {
-  const text = (props.colleague?.name || 'AI').trim()
-  return Array.from(text)[0] || 'AI'
-})
 
 const statusColor = computed(() => props.status?.status === 'working' ? 'var(--cpq-color-success)'
   : props.status?.status === 'error' ? 'var(--cpq-color-danger)'

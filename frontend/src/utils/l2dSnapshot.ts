@@ -1,4 +1,4 @@
-import { petModelPath, isPetModelKey } from '@/store/petModel'
+import { petModelPath, petModelScale, isPetModelKey } from '@/store/petModel'
 
 type Lib = any
 
@@ -53,6 +53,7 @@ async function captureFrame(modelKey: string): Promise<string | null> {
   }
   let widget: any = null
   let snapCanvas: HTMLCanvasElement | null = null
+  let lastCount = 0
   const start = Date.now()
   const probe = document.createElement('canvas')
   probe.width = 64
@@ -63,7 +64,7 @@ async function captureFrame(modelKey: string): Promise<string | null> {
   try {
     const before = new Set<Element>(Array.from(document.body.children))
     widget = lib.createWidget({
-      model: { path: petModelPath(modelKey), tips: false },
+      model: { path: petModelPath(modelKey), tips: false, scale: petModelScale(modelKey) },
       position: 'bottom-right',
       size: 300,
       menus: { items: [] },
@@ -91,9 +92,12 @@ async function captureFrame(modelKey: string): Promise<string | null> {
       const data = pctx.getImageData(0, 0, 64, 64).data
       let n = 0
       for (let i = 3; i < data.length; i += 4) if (data[i] >= 200) n++
-      if (n > 50) {
-        return canvas.toDataURL('image/png')
+      // 纹理稳定判据：不透明像素量充足且与上次接近（防贴图未加载完拍出白模）
+      if (n > 300 && Math.abs(n - lastCount) < Math.max(12, n * 0.08)) {
+        await delay(200)
+        return cropBust(canvas)
       }
+      lastCount = n
       await delay(150)
     }
     return null
@@ -123,6 +127,46 @@ async function captureFrame(modelKey: string): Promise<string | null> {
       snapCanvas = null
     }
   }
+}
+
+/** 半身裁切：不透明像素包围盒 → 以宽度为基的方形（顶对齐，含头部+躯干），与档案页取景一致 */
+function cropBust(canvas: HTMLCanvasElement): string {
+  const w = canvas.width
+  const h = canvas.height
+  const buf = document.createElement('canvas')
+  buf.width = w
+  buf.height = h
+  const bctx = buf.getContext('2d')
+  if (!bctx) return canvas.toDataURL('image/png')
+  bctx.drawImage(canvas, 0, 0)
+  let minX = w, maxX = 0, minY = h, maxY = 0
+  try {
+    const img = bctx.getImageData(0, 0, w, h).data
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        if (img[(y * w + x) * 4 + 3] >= 200) {
+          if (x < minX) minX = x
+          if (x > maxX) maxX = x
+          if (y < minY) minY = y
+          if (y > maxY) maxY = y
+        }
+      }
+    }
+  } catch {
+    return canvas.toDataURL('image/png')
+  }
+  if (maxX <= minX || maxY <= minY) return canvas.toDataURL('image/png')
+  const bw = maxX - minX + 1
+  const size = Math.min(Math.round(bw * 1.15), h - minY)
+  const sx = Math.max(0, Math.min(minX + bw / 2 - size / 2, w - size))
+  const sy = Math.max(0, minY - Math.round(size * 0.06))
+  const out = document.createElement('canvas')
+  out.width = size
+  out.height = size
+  const octx = out.getContext('2d')
+  if (!octx) return canvas.toDataURL('image/png')
+  octx.drawImage(canvas, sx, sy, size, size, 0, 0, size, size)
+  return out.toDataURL('image/png')
 }
 
 export function getLive2dSnapshot(modelKey: string | null | undefined): Promise<string | null> {
