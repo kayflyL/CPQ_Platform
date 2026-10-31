@@ -3,217 +3,237 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>中间层 · AI 用 CPQ 的说明书（原型）</title>
+<title>中间层 · 设置（界面原型 v3）</title>
 <style>
 :root{
-  --bg:#f4f6f9; --card:#fff; --line:#e3e8ef; --txt:#1c2430; --sub:#5b6779;
+  --bg:#f2f4f8; --card:#fff; --line:#e3e8ef; --txt:#1c2430; --sub:#5b6779;
   --accent:#2563eb; --accent-soft:#eaf1fe;
   --ok:#0d8a4f; --ok-soft:#e6f5ec;
   --warn:#b45309; --warn-soft:#fdf3e3;
-  --bad:#c2410c; --bad-soft:#fdece4;
   --mute:#8a94a6; --mute-soft:#f0f2f6;
-  --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px; --sp6:32px;
+  --sp2:8px; --sp3:12px; --sp4:16px; --sp5:24px;
 }
 *{box-sizing:border-box;margin:0;padding:0}
-body{background:var(--bg);color:var(--txt);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:15px;line-height:1.6;padding:24px;max-width:1200px;margin:0 auto}
-.crumb{font-size:13px;color:var(--sub);margin-bottom:6px}
-h1{font-size:24px;margin-bottom:4px}
-.sub{color:var(--sub);font-size:14px;margin-bottom:16px}
-.scenario{background:linear-gradient(0deg,var(--accent-soft),var(--accent-soft));border:1px solid #cfdff9;border-radius:12px;padding:16px 20px;margin-bottom:24px}
-.scenario h2{font-size:17px;color:var(--accent);margin-bottom:6px}
-.scenario p{font-size:14px}
-.qa{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px;margin-bottom:24px}
-.qa h2{font-size:16px}
-.qa .yes{color:var(--ok);font-weight:700}
-h2.sec{font-size:19px;margin:32px 0 4px}
-p.secdesc{color:var(--sub);font-size:14px;margin-bottom:14px}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-@media(max-width:900px){.grid2{grid-template-columns:1fr}}
-.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 20px}
-.card h3{font-size:15px;margin-bottom:10px}
-.card .tag{font-size:12px;color:var(--sub);font-weight:400;margin-left:6px}
-.sidehead{font-size:13px;font-weight:700;padding:6px 12px;border-radius:8px;margin-bottom:10px;display:inline-block}
-.left .sidehead{background:var(--mute-soft);color:var(--sub)}
-.right .sidehead{background:var(--accent-soft);color:var(--accent)}
-/* 工具卡片 */
-.tools{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px}
-.tcard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.tcard b{font-size:14px}
-.tcard p{font-size:13px;color:var(--sub);margin:4px 0 8px}
-.tcard .en{font-size:11px;color:var(--mute)}
-.badge{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;margin-right:4px}
+body{background:var(--bg);color:var(--txt);font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;font-size:14px;line-height:1.55}
+/* ── 顶栏 ── */
+.topbar{background:#15223b;color:#fff;display:flex;align-items:center;gap:28px;padding:0 24px;height:52px}
+.topbar .logo{font-weight:700;letter-spacing:.5px}
+.topbar nav{display:flex;gap:4px;flex:1}
+.topbar nav a{color:#c6d2e6;text-decoration:none;font-size:13.5px;padding:6px 12px;border-radius:8px}
+.topbar nav a:hover{background:rgba(255,255,255,.08)}
+.topbar nav a.on{background:rgba(255,255,255,.14);color:#fff}
+.topbar .who{font-size:13px;color:#c6d2e6}
+/* ── 布局 ── */
+.shell{display:grid;grid-template-columns:210px 1fr;max-width:1280px;margin:20px auto;gap:20px;padding:0 20px}
+.side{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;align-self:start}
+.side .st{font-size:12px;color:var(--mute);padding:8px 12px 4px}
+.side a{display:block;padding:8px 12px;border-radius:8px;color:var(--txt);text-decoration:none;font-size:13.5px}
+.side a:hover{background:var(--mute-soft)}
+.side a.on{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.crumb{font-size:12.5px;color:var(--mute);margin-bottom:10px}
+.crumb b{color:var(--accent)}
+h1{font-size:20px;margin-bottom:4px}
+.pagedesc{color:var(--sub);font-size:13.5px;margin-bottom:16px;max-width:760px}
+/* ── 设置卡范式：卡片分组 + 行内控件（label 左 / 控件右）── */
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin-bottom:16px}
+.card>.chead{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:6px}
+.card>.chead h2{font-size:16px}
+.card>.chead .op{font-size:13px}
+.card .cdesc{color:var(--sub);font-size:13px;margin-bottom:10px}
+.statrow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.stat{background:var(--mute-soft);border-radius:10px;padding:12px 14px}
+.stat b{font-size:22px}
+.stat span{display:block;color:var(--sub);font-size:12.5px}
+/* 行 */
+.row{display:flex;align-items:center;gap:14px;padding:11px 0;border-top:1px solid var(--line)}
+.row:first-of-type{border-top:none}
+.row .info{flex:1;min-width:0}
+.row .info b{font-size:14px}
+.row .info small{display:block;color:var(--sub);font-size:12.5px}
+.row label.rlabel{font-size:13px;color:var(--sub)}
+select.ctl{padding:6px 10px;border:1px solid #cfd6e0;border-radius:8px;font-size:13px;background:#fff;color:var(--txt)}
+button.ctl{padding:6px 14px;border:1px solid #cfd6e0;border-radius:8px;font-size:13px;background:#fff;color:var(--txt);cursor:pointer}
+button.ctl.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.ctl:hover{filter:brightness(.97)}
+.badge{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;white-space:nowrap}
+.b-write{background:var(--warn-soft);color:var(--warn)}
+.b-read{background:var(--mute-soft);color:var(--sub)}
 .b-ask{background:var(--warn-soft);color:var(--warn)}
 .b-free{background:var(--ok-soft);color:var(--ok)}
-.b-read{background:var(--mute-soft);color:var(--sub)}
-/* 对照行 */
-.vs{display:grid;grid-template-columns:1fr 40px 1fr;gap:0;align-items:stretch;margin-bottom:12px}
-.vs .l,.vs .r{border:1px solid var(--line);background:var(--card);border-radius:10px;padding:12px 16px;font-size:14px}
-.vs .r{border-color:#cfdff9;background:var(--accent-soft)}
-.vs .mid{display:flex;align-items:center;justify-content:center;color:var(--mute);font-weight:700}
-.vs b{display:block;margin-bottom:2px}
-.vs small{color:var(--sub)}
-/* 表单模拟 */
-.f-field{margin-bottom:12px}
-.f-field label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
-.f-field label .req{color:var(--bad)}
-.f-field select,.f-field input{width:100%;padding:8px 10px;border:1px solid #cfd6e0;border-radius:8px;font-size:14px;background:#fff;color:var(--txt)}
-.f-table{border:1px solid #cfd6e0;border-radius:8px;overflow:hidden}
-.f-table .frow{display:grid;grid-template-columns:1.2fr 2fr .6fr;gap:0;border-bottom:1px solid var(--line);font-size:13px}
-.f-table .frow:last-child{border-bottom:none}
-.f-table .frow>div{padding:8px 10px;border-right:1px solid var(--line)}
-.f-table .frow>div:last-child{border-right:none}
-.f-table .fhead{background:var(--mute-soft);font-weight:600}
-.ai-face{background:var(--card);border:1px solid #cfdff9;border-radius:10px;padding:14px 16px;font-size:14px}
-.ai-face .j{padding:6px 0;border-bottom:1px dashed var(--line);display:flex;justify-content:space-between;gap:8px}
-.ai-face .j:last-child{border-bottom:none}
-.ai-face .j .k{color:var(--sub)}
-.miss{color:var(--bad);font-weight:600}
-/* 红绿灯 */
-.lights{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-@media(max-width:900px){.lights{grid-template-columns:1fr}}
-.light{border-radius:12px;padding:14px 16px;font-size:14px}
-.light b{display:block;font-size:15px;margin-bottom:6px}
-.light ul{margin-left:18px}
-.l-g{background:var(--ok-soft);border:1px solid #bfe3cd}
-.l-r{background:var(--bad-soft);border:1px solid #f2c8b0}
-.l-gy{background:var(--mute-soft);border:1px solid var(--line)}
-/* 欠账 */
-.owes .o{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 16px;margin-bottom:10px;font-size:14px}
-.owes .o b{color:var(--accent)}
-.owes .o small{display:block;color:var(--sub);margin-top:2px}
-.foot{color:var(--mute);font-size:12px;margin-top:28px}
-.note{font-size:13px;color:var(--sub);background:var(--mute-soft);border-radius:8px;padding:8px 12px;margin-top:12px}
+.b-verify{background:var(--ok-soft);color:var(--ok)}
+.b-pending{background:var(--mute-soft);color:var(--mute)}
+.b-ref{background:var(--accent-soft);color:var(--accent)}
+.toggle{width:38px;height:21px;border-radius:99px;background:var(--ok);position:relative;flex:none;cursor:pointer;border:none}
+.toggle.off{background:#cfd6e0}
+.toggle::after{content:"";position:absolute;width:17px;height:17px;border-radius:50%;background:#fff;top:2px;left:19px;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+.toggle.off::after{left:2px}
+/* 域折叠 */
+.domain>dt{display:flex;align-items:center;gap:10px;padding:10px 0;cursor:pointer;font-size:14px;font-weight:600}
+.domain>dt .cnt{color:var(--mute);font-weight:400;font-size:12.5px}
+.domain>dt .car{color:var(--mute);transition:transform .15s}
+.domain.open>dt .car{transform:rotate(90deg)}
+.domain>dd{margin:0 0 6px}
+.domain:not(.open)>dd{display:none}
+/* 弹窗 */
+.mask{position:fixed;inset:0;background:rgba(16,24,40,.45);display:none;align-items:center;justify-content:center;z-index:50}
+.mask.show{display:flex}
+.modal{background:#fff;border-radius:14px;width:560px;max-width:92vw;max-height:88vh;overflow:auto;padding:22px 24px;box-shadow:0 12px 40px rgba(16,24,40,.25)}
+.modal h3{font-size:16px;margin-bottom:4px}
+.modal .mdesc{color:var(--sub);font-size:13px;margin-bottom:14px}
+.modal .frow{margin-bottom:14px}
+.modal .frow label{display:block;font-size:13px;font-weight:600;margin-bottom:4px}
+.modal .frow label small{color:var(--mute);font-weight:400}
+.modal input[type=text],.modal select{width:100%;padding:8px 10px;border:1px solid #cfd6e0;border-radius:8px;font-size:14px}
+.modal .mfoot{display:flex;justify-content:flex-end;gap:10px;margin-top:6px}
+/* toast */
+#toast{position:fixed;left:50%;bottom:36px;transform:translateX(-50%);background:#15223b;color:#fff;padding:9px 18px;border-radius:99px;font-size:13px;display:none;z-index:60}
+.note{font-size:12.5px;color:var(--mute);margin-top:10px}
 </style>
 </head>
 <body>
 
-<div class="crumb">CPQ 设置页 / 中间层（原型 · 第 2 版 · 说人话重写）</div>
-<h1>中间层 —— AI 用 CPQ 的「说明书」</h1>
-<div class="sub">CPQ 的页面一个都不搬、一个都不改。中间层只回答三个问题：<b>AI 能用 CPQ 干什么？要守什么规矩？干完活去哪核对？</b></div>
-
-<div class="scenario">
-  <h2>先看一个真实场景</h2>
-  <p>客户老张发来一份《XX 学校机房项目.xlsx》，说"帮我配台服务器报个价"。<br>
-  AI 替你完成四步：<b>① 把 Excel 导入成本表 → ② 从配件库里选型 → ③ 设加价出报价单 → ④ 归档给老张</b>。<br>
-  其中 <b>① 和 ③ 会先弹确认卡问你</b>；② 遇到好几个都能用的配件时，<b>AI 不自己挑，弹选项卡让你拍板</b>。<br>
-  让这一切成真的那本"说明书"，就是中间层。<b>本页就是这本说明书的管理页原型。</b></p>
+<div class="topbar">
+  <span class="logo">CPQ 平台</span>
+  <nav>
+    <a href="#">首页</a><a href="#">工作台</a><a href="#">AI 办公室</a><a href="#">商机线索</a>
+    <a href="#">服务器</a><a href="#">配件</a><a href="#">解决方案</a>
+    <a href="#" class="on">设置</a>
+  </nav>
+  <span class="who">管理员</span>
 </div>
 
-<div class="qa">
-  <h2>常见疑问：那「解决方案页」要搬过来吗？</h2>
-  <p><span class="yes">不用搬，一个都不搬。</span>解决方案页、选型配置页、报价页……全都原地不动。
-  中间层只是在对接台上写清楚：「AI 可以用解决方案的<b>自动配规则</b>能力」「AI 想改加价必须先问你」。
-  相当于给 AI 办一张<b>CPQ 会员卡</b>：卡上写清能进哪些区、哪些区要陪同——商场（CPQ）本身一个柜台都不挪。</p>
-</div>
+<div class="shell">
+  <aside class="side">
+    <div class="st">设置</div>
+    <a href="#">用户与权限</a>
+    <a href="#">解析规则</a>
+    <a href="#">导出模板</a>
+    <a href="#">服务器管理</a>
+    <a href="#" class="on">中间层</a>
+  </aside>
 
-<h2 class="sec">一、AI 能用 CPQ 干什么（共 13 件）</h2>
-<p class="secdesc">每一件都标了要不要先问你。<b>黄标 = 先弹卡等你点头；绿标 = 直接干（低风险/本身就是你的指令）；灰标 = 只看不动。</b>这 13 件之外的事，AI 一律没有权限。</p>
-<div class="tools">
-  <div class="tcard"><b>导入成本表</b><span class="badge b-ask">要确认</span><p>客户发来的 Excel 成本明细，解析成成本草稿并归档原件</p><span class="en">import_cost_sheet</span></div>
-  <div class="tcard"><b>提交转报价</b><span class="badge b-ask">要确认</span><p>成本表确认无误后，提交生成报价单</p><span class="en">submit_cost_sheet</span></div>
-  <div class="tcard"><b>设置加价</b><span class="badge b-ask">要确认</span><p>调整报价单的加成比例（改完系统会回头核对）</p><span class="en">set_quote_margin</span></div>
-  <div class="tcard"><b>调整成本价</b><span class="badge b-free">直接干</span><p>按既定策略调整成本价（可重复执行不出错）</p><span class="en">set_cost_prices</span></div>
-  <div class="tcard"><b>外发报价</b><span class="badge b-free">直接干</span><p>生成客户视角的报价链接（外发本身另有专人审批）</p><span class="en">share_quote</span></div>
-  <div class="tcard"><b>方案推成本</b><span class="badge b-free">直接干</span><p>从 BOM 方案推导成本表</p><span class="en">derive_cost_from_scheme</span></div>
-  <div class="tcard"><b>导入 BOM 方案</b><span class="badge b-free">直接干</span><p>导入整机 BOM 方案</p><span class="en">import_bom_scheme</span></div>
-  <div class="tcard"><b>登记需求</b><span class="badge b-free">直接干</span><p>把客户说的话逐项登记进线索登记表</p><span class="en">fill_requirement</span></div>
-  <div class="tcard"><b>选机型</b><span class="badge b-free">直接干</span><p>从在售机型候选中锁定一台</p><span class="en">choose_model</span></div>
-  <div class="tcard"><b>选配件</b><span class="badge b-free">直接干</span><p>把登记的配件需求锁定为库内真实料号</p><span class="en">select_parts</span></div>
-  <div class="tcard"><b>存需求草稿</b><span class="badge b-free">直接干</span><p>确认过的需求落到商机需求单草稿</p><span class="en">save_requirement_draft</span></div>
-  <div class="tcard"><b>新建商机</b><span class="badge b-free">直接干</span><p>建商机记录（和商机页新建同一套逻辑与权限）</p><span class="en">create_opportunity</span></div>
-  <div class="tcard"><b>记同事偏好</b><span class="badge b-free">直接干</span><p>记住你在对话里让它记的事</p><span class="en">colleague_memory</span></div>
-</div>
-<div class="note">另有 6 件「只看不动」的：查配件、看配件详情、查在售目录、看商机统计、搜历史案例、查数据报表。只读的东西永远免确认。</div>
+  <main>
+    <div class="crumb">设置 / <b>中间层</b></div>
+    <h1>中间层 · AI 对接管理</h1>
+    <p class="pagedesc">这里是「CPQ 交给 AI 的说明书」：AI 能用 CPQ 的哪些功能、每件要不要先问你、干完活去哪核对。
+    业务规则本体不动——选型规则仍在策略中心，表单定义仍在商机表单配置，这里只管「AI 怎么对接它们」。</p>
 
-<h2 class="sec">二、CPQ 的规矩，AI 怎么守</h2>
-<p class="secdesc">你在 CPQ 里配置的规则，AI <b>不用背、也改不了</b>——干活时系统自动套用；违反任何一条会被当场拦下。<b>不是靠 AI 自觉，是机制。</b></p>
-
-<div class="vs">
-  <div class="l"><span class="sidehead">你在 CPQ 里看到的</span><b>选型配置页的配线规则</b>硬盘走什么线、背板什么类型、电源什么档位——存在策略中心的规则库里。</div>
-  <div class="mid">→</div>
-  <div class="r"><span class="sidehead">AI 那边的规矩</span>AI 组装方案时，系统<b>自动</b>把规则套上去——AI 不用背这些规则，也改不了其中一条。配错了系统自己会亮告警。</div>
-</div>
-<div class="vs">
-  <div class="l"><span class="sidehead">你在 CPQ 里看到的</span><b>8 槽机型最多插 8 条内存</b></div>
-  <div class="mid">→</div>
-  <div class="r"><span class="sidehead">AI 那边的规矩</span>AI 登记了 12 条内存？<b>系统当场拒绝</b>，让它改成 8 条以内。物理上限 AI 绕不过去。</div>
-</div>
-<div class="vs">
-  <div class="l"><span class="sidehead">你在 CPQ 里看到的</span><b>报价加价要谨慎设置</b></div>
-  <div class="mid">→</div>
-  <div class="r"><span class="sidehead">AI 那边的规矩</span>AI 想改加价 → <b>必须弹确认卡</b>，你点了才真的生效；改完系统还会回头查一遍库。</div>
-</div>
-<div class="vs">
-  <div class="l"><span class="sidehead">你在 CPQ 里看到的</span><b>登记表里服务器类型是必填</b></div>
-  <div class="mid">→</div>
-  <div class="r"><span class="sidehead">AI 那边的规矩</span>AI 没登记必填项就当"办完了"？<b>系统不认</b>——不算完成，自动回头找客户补问。</div>
-</div>
-<div class="vs">
-  <div class="l"><span class="sidehead">你在 CPQ 里看到的</span><b>库里 3 款 GPU 都满足要求</b></div>
-  <div class="mid">→</div>
-  <div class="r"><span class="sidehead">AI 那边的规矩</span>AI <b>不许自己挑</b>——必须弹选项卡让你拍板，你点哪款就是哪款。（这条上个月真出过事故，现在靠机制堵死了。）</div>
-</div>
-
-<h2 class="sec">三、表单：一处定义，两边长一张脸</h2>
-<p class="secdesc">左边是你在商机线索页熟悉的登记表；右边是 AI 干活时眼里的<b>同一张表</b>。定义只有一份（商机表单配置页），AI 用的只是它的镜像——所以表单怎么改，两边永远一起变。</p>
-<div class="grid2">
-  <div class="card left">
-    <span class="sidehead">你熟悉的：线索登记表</span>
-    <div class="f-field"><label>服务器类型 <span class="req">*</span></label><select><option>通用计算服务器</option><option>存储服务器</option><option>边缘服务器</option></select></div>
-    <div class="f-field"><label>平台类型 <span class="req">*</span></label><select><option>Polaris</option><option>ZS 系列</option></select></div>
-    <div class="f-field"><label>机箱形态</label><select><option>2U</option><option>4U</option><option>塔式</option></select></div>
-    <div class="f-field"><label>数量 <span class="req">*</span></label><input value="2"></div>
-    <div class="f-field"><label>配件明细</label>
-      <div class="f-table">
-        <div class="frow fhead"><div>类别</div><div>描述</div><div>数量</div></div>
-        <div class="frow"><div>CPU</div><div>2颗 兆芯50000</div><div>2</div></div>
-        <div class="frow"><div>内存</div><div>64G DDR5</div><div>4</div></div>
+    <!-- 接入总览 -->
+    <div class="card">
+      <div class="chead"><h2>接入总览</h2><span class="op"><span class="badge b-free">AI 办公室运行中</span></span></div>
+      <div class="statrow">
+        <div class="stat"><b>5</b><span>已接入业务域</span></div>
+        <div class="stat"><b>20</b><span>开放给 AI 的功能</span></div>
+        <div class="stat"><b>13</b><span>其中会写数据的（都有确认与记录）</span></div>
+        <div class="stat"><b>3</b><span>表单源（引用，不另建定义）</span></div>
       </div>
+      <div class="note">原则：未登记 = AI 摸不到。新增功能给 AI 用，就在下面清单里加一行；不加，AI 永远碰不到。</div>
     </div>
-  </div>
-  <div class="card right">
-    <span class="sidehead">AI 眼里的：同一张表</span>
-    <div class="ai-face">
-      <div class="j"><span class="k">服务器类型</span><span>通用计算服务器 ✓</span></div>
-      <div class="j"><span class="k">平台类型</span><span>Polaris ✓</span></div>
-      <div class="j"><span class="k">机箱形态</span><span class="miss">还缺 → AI 自动回头问客户</span></div>
-      <div class="j"><span class="k">数量</span><span>2 ✓</span></div>
-      <div class="j"><span class="k">内存 64G DDR5</span><span>8 槽上限 ✓ 系统核过</span></div>
-      <div class="j"><span class="k">GPU</span><span class="miss">3 款都符合 → 弹卡让你拍板</span></div>
+
+    <!-- 工具清单 -->
+    <div class="card">
+      <div class="chead"><h2>功能清单</h2><span class="op">确认级别在本行直接改，保存即生效</span></div>
+      <div class="cdesc">按业务域分组。黄标 = 要先弹卡问你；绿标 = 直接干；灰标 = 只看不动。「回读 ✓」= AI 干完会自动查库核对。</div>
+
+      <dl class="domain open">
+        <dt onclick="this.parentNode.classList.toggle('open')"><span class="car">▸</span>报价交付域 <span class="cnt">7 项 · 7 项会写数据</span></dt>
+        <dd>
+          <div class="row"><div class="info"><b>导入成本表</b><small>客户发来的 Excel 成本明细，解析成草稿并归档原件</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>弹确认卡</option><option>免确认</option><option>转人工审</option></select><span class="badge b-pending">回读待补</span><button class="toggle" title="启用"></button></div>
+          <div class="row"><div class="info"><b>提交转报价</b><small>成本表确认后提交生成报价单</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>弹确认卡</option><option>免确认</option><option>转人工审</option></select><span class="badge b-pending">回读待补</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>设置加价</b><small>调整报价加成；改完自动查库核对</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>弹确认卡</option><option>免确认</option></select><span class="badge b-verify">回读 ✓</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>调整成本价</b><small>按策略调整成本价，可重复执行</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><span class="badge b-pending">回读待补</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>外发报价</b><small>生成客户视角链接（外发另有专人审批）</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><span class="badge b-pending">回读待补</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>方案推成本</b><small>从 BOM 方案推导成本表</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><span class="badge b-pending">回读待补</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>导入 BOM 方案</b><small>导入整机 BOM 方案</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><span class="badge b-pending">回读待补</span><button class="toggle"></button></div>
+        </dd>
+      </dl>
+
+      <dl class="domain open">
+        <dt onclick="this.parentNode.classList.toggle('open')"><span class="car">▸</span>需求分析域 <span class="cnt">7 项 · 4 项会写数据</span></dt>
+        <dd>
+          <div class="row"><div class="info"><b>登记需求</b><small>把客户说的话逐项登记进线索登记表</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认（本身就是客户指令）</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>选机型</b><small>从在售候选锁定一台（多候选时自动弹卡让你拍板）</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认（决策闸兜底）</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>选配件</b><small>把配件需求锁定为库内真实料号（同上）</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认（决策闸兜底）</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>存需求草稿</b><small>确认过的需求落商机需求单草稿</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>查配件</b><small>配件库精确检索</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>看配件详情</b><small>单件完整规格 / 决策上下文钻取</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>查在售目录</b><small>目录类型与在售机型清单</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+        </dd>
+      </dl>
+
+      <dl class="domain">
+        <dt onclick="this.parentNode.classList.toggle('open')"><span class="car">▸</span>商机域（2 项） · 办公协作域（2 项） · 数据检索域（2 项）</dt>
+        <dd>
+          <div class="row"><div class="info"><b>新建商机</b><small>与商机页新建同一套逻辑与权限</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>商机统计</b><small>统计口径只读</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>记同事偏好</b><small>记住你在对话里让它记的事</small></div><span class="badge b-write">写</span><label class="rlabel">确认级别</label><select class="ctl"><option>免确认</option><option>弹确认卡</option></select><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>发起工作流确认卡</b><small>需求完整时发起启动确认</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>查数据报表</b><small>数据边界内只读查询（白名单表）</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+          <div class="row"><div class="info"><b>搜历史案例</b><small>相似历史项目检索</small></div><span class="badge b-read">只读</span><button class="toggle"></button></div>
+        </dd>
+      </dl>
     </div>
-    <p style="font-size:13px;color:var(--sub);margin-top:10px">AI 增补的只有两样：<b>哪些必填</b>、<b>哪些字段的值取自在售目录</b>。字段本身的定义（叫什么、什么类型、什么选项）只在商机表单配置页一处。</p>
+
+    <!-- 表单源 -->
+    <div class="card">
+      <div class="chead"><h2>表单源</h2><span class="op"><button class="ctl primary" onclick="showModal()">＋ 新增表单源</button></span></div>
+      <div class="cdesc">AI 干活要填的表单，定义只留在业务系统一处——这里只登记「源在哪」和「AI 的增补要求」，不复制定义。</div>
+      <div class="row"><div class="info"><b>线索登记表</b><small>源：商机线索页 · 表单配置（system_config）——两处永远同一张脸<br>AI 增补：server_type / platform_type 必问；目录字段标值域来源</small></div><span class="badge b-ref">引用</span><button class="ctl" onclick="toast('原型演示：跳转商机表单配置页')">查看源</button><button class="ctl" onclick="toast('原型演示：AI 增补设置')">增补设置</button></div>
+      <div class="row"><div class="info"><b>选型明细</b><small>源：配件大类 + 行登记原文</small></div><span class="badge b-ref">引用</span><button class="ctl" onclick="toast('原型演示：查看源')">查看源</button></div>
+      <div class="row"><div class="info"><b>趋势结论</b><small>文档型产物（报告名/章节/数据范围），无表单源</small></div><span class="badge b-ref">无源配置</span></div>
+      <div class="note">示例：接入 B 网站时，点「＋ 新增表单源」登记「客户档案表 ← B 网站表单系统」——AI 就能填 B 的表单，引擎零改动。</div>
+    </div>
+
+    <!-- 规则投影 -->
+    <div class="card">
+      <div class="chead"><h2>规则投影</h2><span class="op">规则本体不动，这里只声明 AI 怎么对接</span></div>
+      <div class="cdesc">判断标准：这条规则离开 CPQ 还成立吗？成立 → 在这里管投影；只在 CPQ 成立 → 去 CPQ 业务页改本体。</div>
+      <div class="row"><div class="info"><b>选型配置规则</b><small>本体：策略中心 DB 规则（配线/背板/电源档位）。AI 组装方案时自动套用，改规则去策略中心</small></div><span class="badge b-ref">本体在策略中心</span><button class="ctl" onclick="toast('原型演示：跳转策略中心')">去策略中心</button></div>
+      <div class="row"><div class="info"><b>报价策略</b><small>本体：报价服务（加价计算/价格权限）</small></div><span class="badge b-ask">AI 改价必弹卡</span></div>
+      <div class="row"><div class="info"><b>多候选拍板</b><small>库内多款候选时 AI 不许自选</small></div><span class="badge b-ask">决策闸 · 弹卡停轮</span></div>
+      <div class="row"><div class="info"><b>审批（未来应用）</b><small>审批层级本体待立项</small></div><span class="badge b-pending">敬请期待</span></div>
+    </div>
+
+    <!-- 写面台账 -->
+    <div class="card">
+      <div class="chead"><h2>写面台账</h2><span class="op">未登记 = AI 摸不到</span></div>
+      <div class="cdesc">CPQ 写操作约 216 处；开放给 AI 的 13 处都有确认与记录（每笔可回放）。删除类永不开放。</div>
+      <div class="row"><div class="info"><b>已开放 13 处</b><small>上面功能清单里全部「写」标项——全部过闸 + 记录在审计账本</small></div><span class="badge b-free">有账可查</span></div>
+      <div class="row"><div class="info"><b>永不开放</b><small>删除类操作、人事/权限/系统配置</small></div><span class="badge b-write">红区</span></div>
+      <div class="row"><div class="info"><b>未评估约 200 处</b><small>默认摸不到；逐域评估后登记才开放</small></div><span class="badge b-pending">默认关闭</span></div>
+    </div>
+  </main>
+</div>
+
+<!-- 新增表单源 弹窗 -->
+<div class="mask" id="mask" onclick="if(event.target===this)hideModal()">
+  <div class="modal">
+    <h3>新增表单源</h3>
+    <div class="mdesc">登记一个 AI 要填的表单：定义留在源系统，这里只记「源在哪」和「AI 增补」。</div>
+    <div class="frow"><label>表单名称 <small>（AI 看到的名字）</small></label><input type="text" placeholder="例：客户档案表"></div>
+    <div class="frow"><label>源系统</label><select><option>本系统（CPQ）</option><option>B 网站</option><option>其他（填地址）</option></select></div>
+    <div class="frow"><label>源位置 <small>（表单定义在哪：页面/配置/接口）</small></label><input type="text" placeholder="例：B 网站 /settings/forms/customer"></div>
+    <div class="frow"><label>AI 增补 <small>（必填级别、值域来源等，选填）</small></label><input type="text" placeholder="例：客户名称必问；行业字段取自 B 站字典"></div>
+    <div class="mfoot"><button class="ctl" onclick="hideModal()">取消</button><button class="ctl primary" onclick="hideModal();toast('原型演示：已登记表单源（实际产品会先过校验）')">登记</button></div>
   </div>
 </div>
-<div class="note"><b>新网站有新表单怎么办？</b>它的表单定义留在它自己的系统里，中间层只加一行「客户档案表 ← B 网站的表单配置」——AI 就能填 B 的表单了。引擎一行代码不用改。加一行声明，就像插一个插头。</div>
+<div id="toast"></div>
 
-<h2 class="sec">四、安全边界：红绿灯</h2>
-<div class="lights">
-  <div class="light l-g"><b>🟢 AI 能干（13 件）</b><ul>
-    <li>每一件都有确认或明确授权</li>
-    <li>干的每一笔都记账：谁、什么时候、改了哪行、结果对不对，可回放</li>
-    <li>写完系统会回头核对（目前加价一件有完整样板，其余逐步补）</li>
-  </ul></div>
-  <div class="light l-r"><b>🔴 AI 永远不碰</b><ul>
-    <li>删除任何业务数据</li>
-    <li>人事、权限、角色</li>
-    <li>系统配置</li>
-  </ul></div>
-  <div class="light l-gy"><b>⚪ 还没评估（默认不碰）</b><ul>
-    <li>其余约 200 个写操作</li>
-    <li>要开放就逐个评估：先确认这个功能本身靠不靠谱，再定确认级别</li>
-    <li>不评估就永远摸不到</li>
-  </ul></div>
-</div>
-
-<h2 class="sec">五、老实交代：还欠什么</h2>
-<div class="owes">
-  <div class="o"><b>1. 新表单的"插座"还没做成插上就能用</b><small>现在接一张新表单，还要动一处代码（把取数逻辑注册进去）。下一件事就做这个，做完才是真正的"插头"。</small></div>
-  <div class="o"><b>2. 配件选型的老代码和引擎还没完全分家</b><small>需求分析那套流程的老代码里，还混着直接调 CPQ 配件库的地方。第二个网站要用同类功能前要分干净（有清单记着，不会忘）。</small></div>
-  <div class="o"><b>3. 写完自动核对只有 1 个样板</b><small>加价那件已经有"写完查库核对"；其余 12 件按域逐步补上同款检查。</small></div>
-  <div class="o"><b>4. 通知提醒、多级审批这些能力还没有</b><small>真做审批类系统时先评估要不要补，不补就不接那类需求。</small></div>
-</div>
-
-<div class="foot">原型 · 2026-10-31 · 第 2 版（白话重写）· 背后的正式文档：docs/写面台账.md · docs/引擎独立欠账台账.md · 交互为静态演示</div>
-
+<script>
+document.querySelectorAll('.toggle').forEach(function(t){
+  t.addEventListener('click', function(){
+    t.classList.toggle('off');
+    toast(t.classList.contains('off') ? '原型演示：已停用（实际会立即生效）' : '原型演示：已启用');
+  });
+});
+function showModal(){ document.getElementById('mask').classList.add('show'); }
+function hideModal(){ document.getElementById('mask').classList.remove('show'); }
+var _t;
+function toast(msg){
+  var el = document.getElementById('toast');
+  el.textContent = msg; el.style.display = 'block';
+  clearTimeout(_t); _t = setTimeout(function(){ el.style.display = 'none'; }, 2200);
+}
+</script>
 </body>
 </html>
