@@ -1575,3 +1575,18 @@ def init_rules_db():
             print(f"🧹 AI Office retention: {event_removed} runtime events, {gov_removed} resolved governance items")
     except Exception:
         pass
+
+    # ── 引擎宿主接线（第 5 步画边界，2026-10-31）：机制只认回调、宿主启动时供给 ──
+    # ① 问答协议广播器：协议只管协议槽+落库展示副本，实时推送由宿主 hub 供给
+    try:
+        from app.services import human_query as _hq
+        from app.services.assistant_hub import assistant_hub
+        _hq.set_broadcaster(assistant_hub.broadcast)
+    except Exception as e:
+        print(f"⚠️ human_query broadcaster wiring failed: {e}")
+    # ② 决策闸候选供给者：闸机制不 import 配件域，候选检索/用户 pick 判定由宿主供给
+    try:
+        from app.services.skill_tools_select import wire_decision_gate
+        wire_decision_gate()
+    except Exception as e:
+        print(f"⚠️ decision gate provider wiring failed: {e}")

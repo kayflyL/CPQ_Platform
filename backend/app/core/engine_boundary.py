@@ -39,6 +39,8 @@ STRICT_MODULES = {
     "tool_names": "harness",            # 工具名常量
     "reasoning_node_contract": "harness",  # 节点契约
     "workflow_ask": "harness",          # 问询机制
+    "human_query": "harness",           # 问答协议（广播器注入口解耦后升区——协议零依赖 hub）
+    "skill_decision_gate": "harness",   # 决策闸（候选供给者回调化后升区——闸机制零配件域知识）
     "agent_write_confirm": "harness",   # 两阶段确认存证（confirm_policy_for 归位声明表后升区）
     "access_kernel": "harness",         # 权限谓词内核（自 deps 下沉；api 反向引用它=合法方向）
     "data_boundary": "harness",         # 数据边界（user_price_ok 改引 access_kernel 后升区）
@@ -49,7 +51,6 @@ FUSED_MODULES = {
     # 2026-10-31 首批升区：transaction_engine / skill_node_state / agent_write_confirm /
     # data_boundary（+ 新 access_kernel 入区）——见 git 8c797e9 后续提交。
     "agent_react": ("loop", "脑循环 import agent_tool_specs 取工具目录——解耦：目录经注册/注入"),
-    "human_query": ("harness", "问答协议广播耦合 assistant_hub——解耦：广播器回调注入"),
     "flow_validation": ("harness", "E3 查 BUILDERS(skill_node_artifacts)+skill_target_contract（均为融合区引擎模块，无宿主边）——上游升区后链式升区"),
     "transaction_turn": ("state", "轮壳耦合工具目录/assistant_hub/skill_memory——解耦：现场经注入"),
     "colleague_prompt": ("state", "提示词组装耦合 ai_colleague_service——解耦：配置经注入"),
@@ -64,7 +65,6 @@ FUSED_MODULES = {
     "skill_target_contract": ("harness", "目标契约耦合 catalog_options/requirement_slots——解耦：候选源回调"),
     "slot_contract": ("harness", "槽契约耦合 llm_extract_enhance/part_selector——解耦：抽取器回调"),
     "skill_signals": ("harness", "信号耦合 part_selector/skill_phases——解耦：信号源回调"),
-    "skill_decision_gate": ("harness", "决策闸候选检索耦合 part_search/part_selector——解耦：候选提供者回调注入（闸机制留内核）"),
     "skill_node_artifacts": ("harness", "BUILDERS 注册表内建宿主 builder（bom_template_eval/capabilities/portal_flow_adapter）——解耦：builder 宿主注册化（本就是声明架构的方向）"),
     "skill_node_plugins": ("harness", "插件接线层 import 宿主阶段族——解耦：宿主启动时注册，内核只留接口"),
     "office_events": ("server", "事件总线耦合 office_governance/hub/memory——解耦：订阅端口注入"),

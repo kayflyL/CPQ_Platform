@@ -23,13 +23,28 @@ def _memory_storage(monkeypatch):
     monkeypatch.setattr(hq, "_MEM", {})
 
 
+@pytest.fixture(autouse=True)
+def _wire_gate():
+    """闸机制只认回调（画边界解耦）：测试装假供给者，替代原先对 part_search/part_selector
+    的 monkeypatch。默认无候选+无用户 pick；需要候选的用例经 _three_gpus 覆写检索侧。"""
+    def search_candidates(category, text, series, price_ok, limit):
+        return []
+
+    def pick_fresh(picks, category, spec, row):
+        pk = (picks or {}).get(str((row or {}).get("row_id") or ""))
+        return isinstance(pk, dict)
+
+    dg.set_candidate_provider(search_candidates, pick_fresh)
+    yield
+    dg.set_candidate_provider(None, None)
+
+
 @pytest.fixture
-def _three_gpus(monkeypatch):
-    def fake_search(category, *, text="", spec_filters=None, series="", limit=6,
-                    offset=0, price_ok=True, mode="query"):
+def _three_gpus():
+    def search_candidates(category, text, series, price_ok, limit):
         assert category == "GPU"
-        return {"ok": True, "rows": list(_GPU_ROWS)}
-    monkeypatch.setattr("app.services.part_search.hybrid_search", fake_search)
+        return list(_GPU_ROWS)
+    dg.set_candidate_provider(search_candidates, lambda *a, **k: False)
 
 
 def test_card_when_multi_candidate_and_no_signal(_three_gpus):
@@ -44,9 +59,8 @@ def test_card_when_multi_candidate_and_no_signal(_three_gpus):
     assert v["entry"]["meta"] == {"slot": "gpu"}    # 用户信号按 slot 归档的锚点
 
 
-def test_allow_when_single_candidate(monkeypatch):
-    monkeypatch.setattr("app.services.part_search.hybrid_search",
-                        lambda *a, **k: {"ok": True, "rows": [{"model": "唯一款"}]})
+def test_allow_when_single_candidate():
+    dg.set_candidate_provider(lambda *a, **k: [{"model": "唯一款"}], lambda *a, **k: False)
     v = dg.part_lock_verdict(thread_id="t_single", decisions=DEC, category="GPU",
                              spec="64G", pick_name="唯一款")
     assert v["verdict"] == "allow"
@@ -62,10 +76,10 @@ def test_allow_after_user_signal(_three_gpus):
     assert v["verdict"] == "allow"
 
 
-def test_fail_open_on_search_error(monkeypatch):
+def test_fail_open_on_search_error():
     def boom(*a, **k):
         raise RuntimeError("search down")
-    monkeypatch.setattr("app.services.part_search.hybrid_search", boom)
+    dg.set_candidate_provider(boom, lambda *a, **k: False)
     v = dg.part_lock_verdict(thread_id="t_fail", decisions=DEC, category="GPU",
                              spec="64G", pick_name="x")
     assert v["verdict"] == "allow" and v.get("degraded") is True

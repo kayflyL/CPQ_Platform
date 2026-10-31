@@ -7,6 +7,15 @@
 
 ---
 
+## [未发布] - 2026-10-31(深夜续二) — 第 5 步画边界第二批解耦：广播器+候选供给者注入口，严格区 19→21（棘轮首次自动咬合）
+
+- **变更**：① `human_query` 广播器注入口（`set_broadcaster`）——问答协议只管协议槽+落库展示副本，"推给在线前端"由宿主接线（startup 调 `set_broadcaster(assistant_hub.broadcast)`）；未接线时协议语义完整仅少实时推送。② `skill_decision_gate` 候选供给者注入口（`set_candidate_provider(search_candidates, pick_fresh)`）——闸机制只认回调、零配件域知识；接线器 `wire_decision_gate()` 住宿主侧 skill_tools_select（配件域知识留在宿主），startup 强制接线（脱接线=闸降级+日志可见，非静默通道）。③ **升区棘轮首次自动咬合**：守卫点名 human_query 够格（此前误记在严格区）——升区；skill_decision_gate 随双边剪断升区。**严格区 19→21**（+human_query+skill_decision_gate），融合区 24→19。
+- **验证**：守卫 8 + 决策闸 16 + 工具契约 15 用例全过（闸测试的 part_search/part_selector 打桩整体迁移为假供给者注入——打桩方式随解耦升级）；全量回归见后。
+- **涉及面**：`app/services/{human_query,skill_decision_gate,skill_tools_select}`、`app/core/{startup.py 接线,engine_boundary.py 升区}`、`tests/test_decision_gate.py`。
+- 💡 **定论**：① startup 是**组合根**——机制只认回调、宿主启动时供给，两处注入口上线后"宿主供给回调"模式有了标准样板（广播器/候选供给者）；② 升区棘轮的价值实证：守卫自己抓出声明清单的错误（human_query 的区属记错），比人脑可靠。
+
+
+
 ## [未发布] - 2026-10-31(深夜续) — 第 5 步画边界首批解耦：剪断三条边，严格区 14→19（全后端 api 反向依赖清零）
 
 - **背景**：边界守卫（上一条）工作清单里三条最小边先行摘除——目标"解耦一个升一个，升区记录即 S2 进度条"。

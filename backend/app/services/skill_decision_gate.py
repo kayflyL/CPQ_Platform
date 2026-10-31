@@ -25,6 +25,22 @@ logger = logging.getLogger(__name__)
 
 _STOP_TOKENS = {"g", "个", "只", "条", "颗", "台", "以上", "以下", "左右"}
 
+# ── 候选/信号供给者注入口（第 5 步画边界解耦）：闸机制只认回调，不 import 配件域。
+# 宿主接线（app 启动时 set_candidate_provider）供给两件事：
+#   search_candidates(category, text, series, price_ok, limit) -> list[dict]  候选行
+#   pick_fresh(picks, category, spec, row) -> bool  该行有无"新鲜的用户 pick"
+# 未接线 = 闸降级（与既有"候选检索失败 fail-open+degraded"同一档，日志可见）——
+# 接线在 startup 强制执行，脱接线属部署事故而非静默通道。
+_SEARCH_CANDIDATES = None
+_PICK_FRESH = None
+
+
+def set_candidate_provider(search_candidates, pick_fresh) -> None:
+    """宿主接线：配件库候选检索 + 用户 pick 新鲜度判定。传 (None, None) 撤销（单测用）。"""
+    global _SEARCH_CANDIDATES, _PICK_FRESH
+    _SEARCH_CANDIDATES = search_candidates
+    _PICK_FRESH = pick_fresh
+
 
 def declared_decisions(flow_configs: dict) -> list:
     """汇总流内各节点声明的决策点（决策是流级语义，声明在写节点就近生效）。"""
@@ -52,10 +68,8 @@ def decision_demote_parts(parts: list, decisions: list, picks: dict) -> list:
     信号判定 = KP_PICKS 里有无该行身份的 pick：需求流里 KP_PICKS 只可能来自用户动作
     （kp_manual_pick 点选 reason="客户自选"/批量晋升）——大脑填表从不写 picks，
     所以"有 pick"="用户拍板过"，无循环风险。"""
-    try:
-        from app.services.part_selector import pick_for_row, pick_is_stale
-    except Exception:
-        logger.exception("决策闸降级：part_selector 导入失败（fail-open 放行）")
+    if _PICK_FRESH is None:
+        logger.warning("决策闸降级：候选供给者未接线（set_candidate_provider）——fail-open 放行")
         return parts
     for p in parts:
         if not isinstance(p, dict) or not p.get("name") or p.get("waived"):
@@ -66,9 +80,7 @@ def decision_demote_parts(parts: list, decisions: list, picks: dict) -> list:
         if not d:
             continue
         spec = str(p.get("request_spec") or "")
-        _pk = pick_for_row(picks or {}, cat, spec, row=p)
-        _pk = _pk[0] if isinstance(_pk, list) and _pk else _pk
-        if isinstance(_pk, dict) and not pick_is_stale(_pk, cat, spec):
+        if _PICK_FRESH(picks or {}, cat, spec, p):
             continue  # 有用户 pick → 放行
         slot = str(d.get("slot") or cat)
         p["decision_pending"] = slot
@@ -95,7 +107,6 @@ def part_lock_verdict(*, thread_id: str, decisions: list, category: str, spec: s
     if not d:
         return {"verdict": "allow"}
     try:
-        from app.services.part_search import hybrid_search
         from app.services.human_query import user_signal_for, open_query_of
         slot = str(d.get("slot") or category).strip()
         min_c = int(d.get("min_candidates") or 2)
@@ -111,12 +122,14 @@ def part_lock_verdict(*, thread_id: str, decisions: list, category: str, spec: s
             return {"verdict": "refuse", "slot": slot, "entry": open_q,
                     "reason": "decision_pending" if same else "other_question_open"}
         tokens = _spec_tokens(spec) or ([re.sub(r"\s+", "", str(pick_name or ""))] if pick_name else [])
+        if _SEARCH_CANDIDATES is None:
+            logger.warning("决策闸降级：候选供给者未接线（set_candidate_provider）——fail-open 放行")
+            return {"verdict": "allow", "degraded": True, "slot": slot}
         candidates: list = []
         seen: set = set()
         for tok in tokens:
-            q = hybrid_search(category, text=tok, spec_filters=[], series=series or "",
-                              limit=limit, offset=0, price_ok=price_ok, mode="query")
-            for r in (q.get("rows") or []):
+            rows = _SEARCH_CANDIDATES(category, tok, series or "", bool(price_ok), int(limit))
+            for r in (rows or []):
                 if not isinstance(r, dict):
                     continue
                 nm = str(r.get("model") or r.get("name") or "").strip()

@@ -27,6 +27,17 @@ import time
 import uuid
 from typing import Any, Optional
 
+# ── 广播器注入口（第 5 步画边界解耦）：问答协议只管协议状态+落库展示副本，
+# "推给在线前端"由宿主接线（app 启动时 set_broadcaster(assistant_hub.broadcast)）。
+# 未接线时协议语义完整（协议槽照占、展示副本照落、刷新可见），仅少实时推送。
+_BROADCASTER = None
+
+
+def set_broadcaster(fn) -> None:
+    """宿主接线：fn(thread_id, payload) -> awaitable。传 None 撤销（单测用）。"""
+    global _BROADCASTER
+    _BROADCASTER = fn
+
 logger = logging.getLogger(__name__)
 
 _SLOT = "human_query:assistant"
@@ -254,7 +265,6 @@ async def announce_query(thread_id: str, entry: dict) -> dict:
     if hint:
         lines.append(f"（{hint}）")
     from app.repository.assistant_repo import AssistantRepository
-    from app.services.assistant_hub import assistant_hub
     repo = AssistantRepository()
     try:
         msg = repo.add_message(
@@ -266,7 +276,12 @@ async def announce_query(thread_id: str, entry: dict) -> dict:
         repo.close()
     if msg:
         entry["message_id"] = msg.get("message_id")
-        await assistant_hub.broadcast(str(thread_id or ""), {"type": "done", "message": msg})
+        broadcaster = _BROADCASTER
+        if broadcaster is not None:
+            try:
+                await broadcaster(str(thread_id or ""), {"type": "done", "message": msg})
+            except Exception:
+                logger.exception("问答卡广播失败（展示副本已落库、协议槽已占，不影响作答）")
     return entry
 
 
