@@ -6,6 +6,22 @@ import path from 'path'
 
 export default defineConfig({
   plugins: [
+    {
+      // 办公室门面的 dev 兜底（生产=nginx try_files /office/ 同款规则）：
+      // /office/app/cpq 这类嵌套路径硬刷新时，spa fallback 会送回 CPQ 的 index.html——
+      // 这里把 /office/ 下无扩展名的路径改写到 office/index.html（有扩展名的静态资源放行）
+      name: 'office-entry-fallback',
+      apply: 'serve',
+      configureServer(server) {
+        server.middlewares.use((req, _res, next) => {
+          const url = (req.url || '').split('?')[0]
+          if (url === '/office' || (url.startsWith('/office/') && !path.extname(url))) {
+            req.url = '/office/index.html'
+          }
+          next()
+        })
+      },
+    },
     vue(),
     Components({
       resolvers: [AntDesignVueResolver({ importStyle: false })],

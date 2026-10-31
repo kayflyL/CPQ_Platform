@@ -43,9 +43,6 @@
               @saved="emit('saved')"
             />
           </a-tab-pane>
-          <a-tab-pane key="access" tab="访问权限">
-            <ColleagueAccessPanel :colleagues="colleagues" @saved="emit('saved')" />
-          </a-tab-pane>
         </a-tabs>
       </template>
 
@@ -185,7 +182,6 @@ import { useAuthStore } from '@/store/auth'
 import TeamManager from './TeamManager.vue'
 import EmployeeManager from './EmployeeManager.vue'
 import OfficeBehaviorEditor from './OfficeBehaviorEditor.vue'
-import ColleagueAccessPanel from './ColleagueAccessPanel.vue'
 import AiSettingsPanel from './AiSettingsPanel.vue'
 import CapabilityCard from '@/components/office/CapabilityCard.vue'
 import SkillRoutePolicyModal from '@/components/office/SkillRoutePolicyModal.vue'

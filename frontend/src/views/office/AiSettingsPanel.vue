@@ -261,7 +261,7 @@
           <div class="form-section">
             <h4 class="section-title">
               账户与权限
-              <span class="section-hint">控制哪些系统角色可以进入 AI 办公室的 Manage Teams；具体“谁能聊哪个 AI 角色”仍在 Manage Teams → 访问权限配置</span>
+              <span class="section-hint">控制哪些系统角色可以进入 AI 办公室的 Manage Teams；具体“谁能聊哪个 AI 角色”在 AI 办公室桌面 → CPQ 磁贴 ⚙ 设置页配置</span>
             </h4>
             <a-alert
               message="开启后，该角色的用户会看到 AI 办公室右上角的 Manage Teams 按钮，并可修改 AI 办公室管理配置。"
