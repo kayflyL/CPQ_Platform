@@ -27,16 +27,11 @@ import time
 import uuid
 from typing import Any, Optional
 
-# ── 广播器注入口（第 5 步画边界解耦）：问答协议只管协议状态+落库展示副本，
-# "推给在线前端"由宿主接线（app 启动时 set_broadcaster(assistant_hub.broadcast)）。
+from ai_office import host_ports as hp
+
+# ── 广播器端口（2026-11-01 接线统一）：问答协议只管协议状态+落库展示副本，
+# "推给在线前端"经 host_ports 端口 assistant_hub.broadcast 由宿主供给（engine_wiring 接线）。
 # 未接线时协议语义完整（协议槽照占、展示副本照落、刷新可见），仅少实时推送。
-_BROADCASTER = None
-
-
-def set_broadcaster(fn) -> None:
-    """宿主接线：fn(thread_id, payload) -> awaitable。传 None 撤销（单测用）。"""
-    global _BROADCASTER
-    _BROADCASTER = fn
 
 logger = logging.getLogger(__name__)
 
@@ -276,7 +271,10 @@ async def announce_query(thread_id: str, entry: dict) -> dict:
         repo.close()
     if msg:
         entry["message_id"] = msg.get("message_id")
-        broadcaster = _BROADCASTER
+        try:
+            broadcaster = hp.port("assistant_hub.broadcast")
+        except hp.PortNotWired:
+            broadcaster = None  # 未接线=少实时推送（协议槽/展示副本不受影响，见文件头）
         if broadcaster is not None:
             try:
                 await broadcaster(str(thread_id or ""), {"type": "done", "message": msg})

@@ -10,19 +10,15 @@ import logging
 import time
 from typing import Any, Awaitable, Callable, Optional
 
+from ai_office import host_ports as hp
 from ai_office import llm_client
 from ai_office.turn_breaker import ToolRepeatGuard
 
-# 工具目录构建器注入口（第 5 步画边界解耦）：loop 层只认回调，工具目录构建
-# （specs+handlers 组合）由宿主供给——生产接线在 startup 组合根，测试接线在
-# conftest。未接线时循环启动即报错（组合根缺失属部署事故，不静默降级）。
-_REGISTRY_BUILDER: Optional[Callable] = None
-
-
-def set_registry_builder(fn) -> None:
-    """宿主接线：fn(config, allowed_tool_ids=...) -> ToolRegistry。传 None 撤销（单测用）。"""
-    global _REGISTRY_BUILDER
-    _REGISTRY_BUILDER = fn
+# 工具目录构建器端口（2026-11-01 接线统一）：loop 层只认回调，工具目录构建
+# （specs+handlers 组合）经 host_ports 端口由宿主供给（engine_wiring 接线）。
+# 未接线时循环启动即报错（组合根缺失属部署事故，不静默降级）。模块名保持
+# _REGISTRY_BUILDER——测试 patch 本属性即整体覆盖端口取值，语义与注入口时代一致。
+_REGISTRY_BUILDER = hp.fn_port("agent_tool_specs.build_tool_registry")
 
 
 def _make_registry(cfg: dict, allowed_tool_ids: Optional[list]):

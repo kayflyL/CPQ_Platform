@@ -1576,35 +1576,16 @@ def init_rules_db():
     except Exception:
         pass
 
-    # ── 引擎宿主接线（第 5 步画边界，2026-10-31）：机制只认回调、宿主启动时供给 ──
-    # ⓪ 端口总接线（2026-11-01 融合区预解）：引擎 45 条宿主边全部改经 host_ports，
+    # ── 引擎宿主接线：机制只认端口，宿主启动时总接线（2026-11-01 接线统一：
+    #    原 setter 三处注入并入端口总接线，接线只此一处）──
+    # ⓪ 端口总接线（2026-11-01 融合区预解）：引擎全部宿主能力经 host_ports，
     #    这里一次性注册（幂等；失败即启动失败——端口缺线等于引擎残废，不静默）
     try:
         from app.services.engine_wiring import wire_engine
         wire_engine()
     except Exception as e:
         print(f"⚠️ engine port wiring failed: {e}")
-    # ① 问答协议广播器：协议只管协议槽+落库展示副本，实时推送由宿主 hub 供给
-    try:
-        from ai_office import human_query as _hq
-        from app.services.assistant_hub import assistant_hub
-        _hq.set_broadcaster(assistant_hub.broadcast)
-    except Exception as e:
-        print(f"⚠️ human_query broadcaster wiring failed: {e}")
-    # ② 决策闸候选供给者：闸机制不 import 配件域，候选检索/用户 pick 判定由宿主供给
-    try:
-        from app.services.skill_tools_select import wire_decision_gate
-        wire_decision_gate()
-    except Exception as e:
-        print(f"⚠️ decision gate provider wiring failed: {e}")
-    # ③ 大脑循环的工具目录构建器：loop 层不 import 声明表，组合由宿主供给
-    try:
-        from ai_office import agent_react
-        from app.services.agent_tool_specs import build_tool_registry
-        agent_react.set_registry_builder(build_tool_registry)
-    except Exception as e:
-        print(f"⚠️ agent_react registry builder wiring failed: {e}")
-    # ④ 域契约解释器注册保底：requirement_slots 被 import 时自注册，此处显式触碰一次
+    # 域契约解释器注册保底：requirement_slots 被 import 时自注册，此处显式触碰一次
     try:
         import app.services.requirement_slots  # noqa: F401  触发 formatter 自注册
     except Exception as e:

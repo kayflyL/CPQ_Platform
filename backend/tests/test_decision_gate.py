@@ -8,6 +8,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import pytest
 
 from ai_office import flow_validation as fv
+from ai_office import host_ports as hp
 from ai_office import human_query as hq
 from ai_office import skill_decision_gate as dg
 
@@ -15,6 +16,12 @@ DEC = [{"slot": "gpu", "match_category": "GPU",
         "question": "GPU 在库有多款候选，选哪款？", "min_candidates": 2}]
 
 _GPU_ROWS = [{"model": n, "specs": "64G"} for n in ("沐曦 C500", "壁仞166C", "天数智芯150S 64G")]
+
+
+def _wire_candidates(search, pick):
+    """供给者经端口注册（与 engine_wiring 同一机制）：stub 以动态解析器返回。"""
+    hp.register_port("skill_tools_select.search_candidates", lambda s=search: s)
+    hp.register_port("skill_tools_select.pick_fresh", lambda p=pick: p)
 
 
 @pytest.fixture(autouse=True)
@@ -34,9 +41,9 @@ def _wire_gate():
         pk = (picks or {}).get(str((row or {}).get("row_id") or ""))
         return isinstance(pk, dict)
 
-    dg.set_candidate_provider(search_candidates, pick_fresh)
+    _wire_candidates(search_candidates, pick_fresh)
     yield
-    dg.set_candidate_provider(None, None)
+    _wire_candidates(None, None)
 
 
 @pytest.fixture
@@ -44,7 +51,7 @@ def _three_gpus():
     def search_candidates(category, text, series, price_ok, limit):
         assert category == "GPU"
         return list(_GPU_ROWS)
-    dg.set_candidate_provider(search_candidates, lambda *a, **k: False)
+    _wire_candidates(search_candidates, lambda *a, **k: False)
 
 
 def test_card_when_multi_candidate_and_no_signal(_three_gpus):
@@ -60,7 +67,7 @@ def test_card_when_multi_candidate_and_no_signal(_three_gpus):
 
 
 def test_allow_when_single_candidate():
-    dg.set_candidate_provider(lambda *a, **k: [{"model": "唯一款"}], lambda *a, **k: False)
+    _wire_candidates(lambda *a, **k: [{"model": "唯一款"}], lambda *a, **k: False)
     v = dg.part_lock_verdict(thread_id="t_single", decisions=DEC, category="GPU",
                              spec="64G", pick_name="唯一款")
     assert v["verdict"] == "allow"
@@ -79,7 +86,7 @@ def test_allow_after_user_signal(_three_gpus):
 def test_fail_open_on_search_error():
     def boom(*a, **k):
         raise RuntimeError("search down")
-    dg.set_candidate_provider(boom, lambda *a, **k: False)
+    _wire_candidates(boom, lambda *a, **k: False)
     v = dg.part_lock_verdict(thread_id="t_fail", decisions=DEC, category="GPU",
                              spec="64G", pick_name="x")
     assert v["verdict"] == "allow" and v.get("degraded") is True

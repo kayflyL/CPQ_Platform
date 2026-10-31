@@ -50,7 +50,9 @@ MODULE_ATTRS = {
     "report_pdf": {"attrs": ["render_markdown_report_pdf", "report_meta_now", "save_office_report"]},
     "storage_adapter": {"attrs": ["build_object_id"]},
     "artifact_render": {"attrs": ["render_report_pdf"]},
-    "agent_tool_specs": {"attrs": ["_TOOL_SPECS", "trace_note", "registered_tool_ids"]},
+    "agent_tool_specs": {"attrs": ["_TOOL_SPECS", "trace_note", "registered_tool_ids",
+                                   "build_tool_registry"]},
+    "skill_tools_select": {"attrs": ["search_candidates", "pick_fresh"]},
     "data_tools": {"attrs": ["part_recall", "lookup_parts_by_name"]},
 }
 

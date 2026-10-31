@@ -11,10 +11,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # 根级 ai_office 引擎包（2026-11-01 目录拆分）：ai-office 容器目录也要在 path 上
 sys.path.insert(0, str(Path(__file__).parent.parent.parent / "ai-office"))
 
-# 引擎端口总接线（与 startup 同一组合根）：融合区预解后引擎取宿主能力全走 host_ports。
+# 引擎端口总接线（与 startup 同一组合根）：引擎取宿主能力全走 host_ports。
 # 必须在 conftest 模块级接线——部分测试文件在收集期（模块顶层）就调引擎，fixture 来不及。
 from app.services.engine_wiring import wire_engine  # noqa: E402
 wire_engine()
+
+# 域契约解释器注册保底（与 startup 对称）：requirement_slots import 即自注册
+import app.services.requirement_slots  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)
@@ -25,19 +28,6 @@ def _no_llm_trace_writes(monkeypatch):
     不隔离的话每次跑套件都会把 fake_tool 噪音写进真实 trace 数据（2026-09-12 实锤）。
     """
     monkeypatch.setattr("ai_office.llm_trace.record_llm_trace", lambda **fields: None)
-
-
-@pytest.fixture(autouse=True)
-def _wire_agent_react_registry_builder():
-    """测试组合根（第 5 步画边界解耦）：agent_react 的工具目录构建器由宿主注入，
-    生产在 startup 接线、测试在这里接真实现。个别用例经 patch _REGISTRY_BUILDER 覆写。"""
-    from ai_office import agent_react
-    from app.services.agent_tool_specs import build_tool_registry
-    agent_react.set_registry_builder(build_tool_registry)
-    # 域契约解释器注册保底（与 startup ④ 对称）：requirement_slots import 即自注册
-    import app.services.requirement_slots  # noqa: F401
-    yield
-    agent_react.set_registry_builder(None)
 
 
 @pytest.fixture

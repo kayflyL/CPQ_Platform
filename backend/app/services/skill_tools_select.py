@@ -309,21 +309,19 @@ def tool_select_parts(args: dict) -> dict:
             "rows": _kp_status_rows()}
 
 
-def wire_decision_gate() -> None:
-    """宿主接线（startup 调，第 5 步画边界解耦）：给决策闸供给配件库候选检索与
-    用户 pick 新鲜度判定——闸机制只认回调、不 import 配件域，配件域知识留在宿主侧。"""
-    from ai_office import skill_decision_gate
+def search_candidates(category, text, series, price_ok, limit):
+    """决策闸端口实现（engine_wiring 端口 skill_tools_select.search_candidates）：
+    配件库候选检索——闸机制只认回调、不 import 配件域，配件域知识留在宿主侧。"""
     from app.services.part_search import hybrid_search
+    q = hybrid_search(category, text=text, spec_filters=[], series=series or "",
+                      limit=limit, offset=0, price_ok=price_ok, mode="query")
+    return q.get("rows") or []
+
+
+def pick_fresh(picks, category, spec, row):
+    """决策闸端口实现（engine_wiring 端口 skill_tools_select.pick_fresh）：
+    该行有无"新鲜的用户 pick"（pick 过期=旧信号不算数）。"""
     from app.services.part_selector import pick_for_row, pick_is_stale
-
-    def search_candidates(category, text, series, price_ok, limit):
-        q = hybrid_search(category, text=text, spec_filters=[], series=series or "",
-                          limit=limit, offset=0, price_ok=price_ok, mode="query")
-        return q.get("rows") or []
-
-    def pick_fresh(picks, category, spec, row):
-        pk = pick_for_row(picks or {}, category, spec, row=row)
-        pk = pk[0] if isinstance(pk, list) and pk else pk
-        return isinstance(pk, dict) and not pick_is_stale(pk, category, spec)
-
-    skill_decision_gate.set_candidate_provider(search_candidates, pick_fresh)
+    pk = pick_for_row(picks or {}, category, spec, row=row)
+    pk = pk[0] if isinstance(pk, list) and pk else pk
+    return isinstance(pk, dict) and not pick_is_stale(pk, category, spec)

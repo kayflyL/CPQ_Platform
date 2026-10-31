@@ -41,7 +41,7 @@ def _exam_env(monkeypatch):
     """考卷环境：问答协议走内存后端（不触真库）；决策闸供给者接 3 款 GPU 候选假库；
     落料回库核对走假库（名称忽略大小写与空格）。"""
     from app.services import data_tools
-    from ai_office import human_query as hq, skill_decision_gate as dg
+    from ai_office import host_ports as hp, human_query as hq, skill_decision_gate as dg
 
     monkeypatch.setattr(hq, "_STORAGE", "memory")
     monkeypatch.setattr(hq, "_MEM", {})
@@ -60,7 +60,8 @@ def _exam_env(monkeypatch):
     def pick_fresh(picks, category, spec, row):
         return False  # 考卷里用户信号走协议归档（answer_query），不经 KP_PICKS 预置
 
-    dg.set_candidate_provider(search_candidates, pick_fresh)
+    hp.register_port("skill_tools_select.search_candidates", lambda: search_candidates)
+    hp.register_port("skill_tools_select.pick_fresh", lambda: pick_fresh)
 
     def _by_name(category, name, *, series="", price_ok=True, _repo=None):
         want = _re.sub(r"\s+", "", str(name or "")).lower()
@@ -70,7 +71,8 @@ def _exam_env(monkeypatch):
 
     monkeypatch.setattr(data_tools, "lookup_parts_by_name", _by_name)
     yield
-    dg.set_candidate_provider(None, None)
+    hp.register_port("skill_tools_select.search_candidates", lambda: None)
+    hp.register_port("skill_tools_select.pick_fresh", lambda: None)
 
 
 _CTX_TOKEN = [None]  # 考卷夹具的 TOOL_CTX token 暂存（各题 finally 取用复位）
