@@ -186,6 +186,8 @@ const emit = defineEmits<{
   select: [roleKey: string]
   'open-mission': [roleKey: string]
   'save-config': [config: OfficeConfig]
+  /** 悬停同事（头顶悬停卡用）：roleKey + 指针屏幕坐标；null = 悬停离开 */
+  'hover-role': [hit: { roleKey: string; x: number; y: number } | null]
 }>()
 
 
@@ -1513,6 +1515,7 @@ function onPointerDown(event: PointerEvent) {
 function onPointerMove(event: PointerEvent) {
   if (editing.value) {
     if (!view3D.value) editPointerMove(event)
+    if (hoveredRoleKey.value) emit('hover-role', null)
     hoveredRoleKey.value = null
     return
   }
@@ -1531,6 +1534,7 @@ function onPointerMove(event: PointerEvent) {
   hoverProbeAt = now
   const hit = actorAtPointer(event.clientX, event.clientY)
   hoveredRoleKey.value = hit ? hit.roleKey : null
+  emit('hover-role', hit ? { roleKey: hit.roleKey, x: event.clientX, y: event.clientY } : null)
 }
 
 function onPointerUp(event: PointerEvent) {

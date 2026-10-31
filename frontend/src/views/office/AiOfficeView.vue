@@ -1,6 +1,7 @@
 <template>
   <div class="ai-office-shell">
-    <header class="office-toolbar">
+    <!-- 手机端专用顶栏（桌面无顶栏：三栏布局，命令在右栏） -->
+    <header v-if="isMobile" class="office-toolbar">
       <button class="ws-back" title="返回桌面" @click="goDesktop">
         <ArrowLeftOutlined />
       </button>
@@ -31,46 +32,50 @@
     </header>
 
     <div v-if="!isMobile" class="office-workspace">
+      <!-- 左栏：回桌面 + 任务看板（平铺全高，无玻璃罩框） -->
       <aside class="office-sidebar">
-        <section class="sidebar-section sidebar-recent-card sidebar-mission-card">
-          <div class="sidebar-section-head">
-            <div>
-              <div class="sidebar-section-title">任务看板</div>
-              <div class="sidebar-section-desc">按状态跟踪任务与负责人</div>
-            </div>
-            <a-button type="link" size="small" @click="openMissionPanel">打开看板</a-button>
+        <button class="ws-back" title="返回桌面" @click="goDesktop">
+          <ArrowLeftOutlined /><span>桌面</span>
+        </button>
+
+        <div class="board-head">
+          <div class="board-head-text">
+            <div class="board-title">任务看板</div>
+            <div class="board-desc">按状态跟踪任务与负责人</div>
           </div>
-          <div class="mission-preview-stats">
-            <button
-              v-for="stat in missionPreviewStats"
-              :key="stat.key"
-              class="mission-preview-stat"
-              type="button"
-              @click="openMissionPanel"
-            >
-              <strong>{{ stat.value }}</strong>
-              <span>{{ stat.label }}</span>
-            </button>
-          </div>
-          <div v-if="!missions.length" class="sidebar-empty">暂无任务</div>
-          <div v-if="missionError" class="sidebar-error">{{ missionError }}</div>
-          <div
-            v-for="mission in missions.slice(0, 4)"
-            :key="mission.mission_id"
-            class="sidebar-mission-item"
+          <a-button type="link" size="small" @click="openMissionPanel">打开看板</a-button>
+        </div>
+        <div class="mission-preview-stats">
+          <button
+            v-for="stat in missionPreviewStats"
+            :key="stat.key"
+            class="mission-preview-stat"
+            type="button"
             @click="openMissionPanel"
           >
-            <span class="mission-status" :class="mission.status">{{ missionStatusLabel(mission.status) }}</span>
-            <div class="sidebar-mission-copy">
-              <div class="sidebar-mission-prompt">{{ mission.prompt }}</div>
-              <div class="sidebar-mission-time">{{ colleagueName(mission.owner_role_key) }} · {{ formatEventTime(mission.created_at ? new Date(mission.created_at).getTime() : undefined) }}</div>
-            </div>
+            <strong>{{ stat.value }}</strong>
+            <span>{{ stat.label }}</span>
+          </button>
+        </div>
+        <div v-if="!missions.length" class="sidebar-empty">暂无任务</div>
+        <div v-if="missionError" class="sidebar-error">{{ missionError }}</div>
+        <div
+          v-for="mission in missions.slice(0, 6)"
+          :key="mission.mission_id"
+          class="sidebar-mission-item"
+          @click="openMissionPanel"
+        >
+          <span class="mission-status" :class="mission.status">{{ missionStatusLabel(mission.status) }}</span>
+          <div class="sidebar-mission-copy">
+            <div class="sidebar-mission-prompt">{{ mission.prompt }}</div>
+            <div class="sidebar-mission-time">{{ colleagueName(mission.owner_role_key) }} · {{ formatEventTime(mission.created_at ? new Date(mission.created_at).getTime() : undefined) }}</div>
           </div>
-        </section>
+        </div>
       </aside>
 
+      <!-- 中栏：3D 办公区（满高；图例/编辑为画布浮动件；悬停同事 → 头顶卡） -->
       <main class="office-map-panel">
-        <div class="map-toolbar">
+        <div class="map-float">
           <div class="map-title">
             <strong>办公区</strong>
             <span>{{ roomColleagues.length }} 位 AI 同事</span>
@@ -92,73 +97,93 @@
           @select="selectColleague"
           @open-mission="onOpenMission"
           @save-config="onSaveOfficeConfig"
+          @hover-role="onCanvasHover"
+        />
+        <OfficeHoverCard
+          :colleague="hoverColleague"
+          :status="hoverStatus"
+          :stats="hoverStats"
+          :color="hoverColor"
+          :x="hoverCard?.x || 0"
+          :y="hoverCard?.y || 0"
+          @chat="hoverChat"
+          @profile="hoverProfile"
+          @keep="keepHoverCard"
+          @leave="scheduleHoverHide"
         />
         <div v-if="!roomColleagues.length" class="office-empty-state">
           暂无 AI 同事，请在 Manage Teams 中添加或切换团队。
         </div>
       </main>
 
-      <aside class="inspector-panel">
-        <div class="inspector-tabs">
-          <button
-            type="button"
-            class="inspector-tab"
-            :class="{ active: inspectorTab === 'room' }"
-            @click="inspectorTab = 'room'"
-          >团队群</button>
-          <button
-            type="button"
-            class="inspector-tab"
-            :class="{ active: inspectorTab === 'colleague' }"
-            :disabled="!selectedColleague"
-            @click="inspectorTab = 'colleague'"
-          >同事</button>
+      <!-- 右栏：办公室状态栏（命令 + 今日 + 同事名册 + 房间 + 最近动态） -->
+      <aside class="office-rail">
+        <div class="rail-cmds">
+          <span class="connection-pill" :class="{ online: connected }">
+            <i></i><span class="connection-pill-text">{{ connected ? 'LIVE' : 'OFFLINE' }}</span>
+          </span>
+          <a-button v-if="canOpenOfficeManagement" type="primary" size="small" @click="manageOpen = true">
+            <template #icon><SettingOutlined /></template>
+            Manage Teams
+          </a-button>
+          <a-button size="small" @click="governanceOpen = true">日志审批</a-button>
         </div>
 
-        <OfficeRoomChat
-          v-if="inspectorTab === 'room'"
-          :colleagues="roomColleagues"
-          :context="officeChatContext"
-          :context-summary="officeContextSummary"
-          :status-meta="statusMetaEntries"
-          :status-map="statusMap"
-          @open-dm="onRoomOpenDm"
-          @persona="onRoomPersona"
-        />
+        <div class="rail-sec">
+          <div class="rail-k">今日</div>
+          <div class="rail-big od-num">{{ workingCount }}<small>/ {{ roomColleagues.length }} 人在工作</small></div>
+          <div class="rail-bar">
+            <i v-for="seg in railStatusSegs" :key="seg.status" :style="{ background: seg.color, flex: seg.count }"></i>
+          </div>
+          <div class="rail-bar-legend">
+            <span v-for="seg in railStatusSegs" :key="seg.status"><i :style="{ background: seg.color }"></i>{{ seg.label }} {{ seg.count }}</span>
+          </div>
+        </div>
 
-        <template v-else-if="selectedColleague">
-          <div class="inspector-head">
+        <div class="rail-sec">
+          <div class="rail-k">同事名册 <span class="rail-n">{{ roomColleagues.length }}</span></div>
+          <div class="rail-list">
             <div
-              class="inspector-avatar inspector-avatar--click"
-              :style="{ background: deskColor(selectedColleague) }"
-              title="查看同事名片"
-              @click="openPersonaCard(selectedColleague, $event)"
+              v-for="c in roomColleagues"
+              :key="c.role_key"
+              class="rail-item"
+              :class="{ 'is-active': hoverCard?.roleKey === c.role_key }"
+              @click="showRailCard(c, $event)"
             >
-              <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
-              <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
+              <span class="rail-item-av" :style="{ background: deskColor(c) }">
+                <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
+                <span v-else>{{ avatarInitial(c.name) }}</span>
+              </span>
+              <span class="rail-item-main">
+                <b>{{ c.name || c.role_key }}</b>
+                <small><i :style="{ background: avatarDotColor(c) }"></i>{{ statusText(statusFor(c.role_key).status) }}</small>
+              </span>
+              <button class="rail-chat" title="聊天" @click.stop="openChat(c.role_key)">聊天</button>
             </div>
-            <div class="inspector-identity" @click="openPersonaCard(selectedColleague, $event)">
-              <div class="inspector-name inspector-name--click">{{ selectedColleague.name || selectedColleague.role_key }}</div>
-              <div class="inspector-role">{{ selectedColleague.role_key }}</div>
-            </div>
-            <span class="status-pill" :style="statusPillStyle(selectedStatus.status)">{{ statusText(selectedStatus.status) }}</span>
+            <div v-if="!roomColleagues.length" class="sidebar-empty">暂无同事</div>
           </div>
+        </div>
 
-          <div class="inspector-sections">
-            <div class="inspector-section inspector-chat-section">
-              <OfficeColleagueChatPanel
-                :colleague="selectedColleague"
-                :context="officeChatContext"
-                :context-summary="officeContextSummary"
-              />
-            </div>
+        <div class="rail-sec">
+          <div class="rail-k">房间</div>
+          <div class="rail-list">
+            <button
+              v-for="room in viewRooms"
+              :key="room.id"
+              type="button"
+              class="rail-item rail-room"
+              :class="{ 'is-active': room.id === activeRoomId }"
+              @click="activeRoomId = room.id"
+            >
+              <span class="rail-item-main"><b>{{ room.name || room.id }}</b></span>
+              <span v-if="room.id === activeRoomId" class="rail-cur">当前</span>
+            </button>
+            <div v-if="!viewRooms.length" class="sidebar-empty">暂无房间</div>
           </div>
-        </template>
-
-        <div v-else class="inspector-empty">
-          点击办公室中的 AI 同事查看详情
+          <button class="rail-chat rail-chat--block" @click="openChat('room')">团队群聊 →</button>
         </div>
       </aside>
+
       <ColleaguePersonaCard
         ref="personaRef"
         :status-meta="statusMetaEntries"
@@ -197,7 +222,7 @@
             type="button"
             class="m-pav"
             :class="{ 'is-active': selectedRoleKey === c.role_key }"
-            @click="openChatMobile(c.role_key)"
+            @click="openChat(c.role_key)"
           >
             <span class="m-av" :style="{ background: deskColor(c) }">
               <img v-if="c.avatar_url" :src="c.avatar_url" alt="" />
@@ -209,34 +234,6 @@
           <span v-if="!roomColleagues.length" class="m-people-empty">暂无同事</span>
         </div>
       </div>
-
-      <!-- 全屏聊天层：点同事从底部升起 -->
-      <Transition name="m-chatup">
-        <div v-if="chatLayerOpen && selectedColleague" class="m-chatlayer">
-          <div class="m-cl-head">
-            <span class="m-cl-av" :style="{ background: deskColor(selectedColleague) }">
-              <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
-              <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
-            </span>
-            <div class="m-cl-tt">
-              <div class="m-cl-n">{{ selectedColleague.name || selectedColleague.role_key }}</div>
-              <div class="m-cl-r">
-                <i :style="{ background: avatarDotColor(selectedColleague) }"></i>{{ statusText(selectedStatus.status) }}
-                <template v-if="selectedStatus.activity"> · {{ selectedStatus.activity }}</template>
-              </div>
-            </div>
-            <button class="pd-x" type="button" @click="chatLayerOpen = false">✕</button>
-          </div>
-          <div class="m-cl-body">
-            <OfficeColleagueChatPanel
-              :colleague="selectedColleague"
-              :context="officeChatContext"
-              :context-summary="officeContextSummary"
-              default-expanded
-            />
-          </div>
-        </div>
-      </Transition>
 
       <!-- 任务看板全屏层（TaskBoard 复用；甘特/清单 min-width 960，全屏 + 双向滚动） -->
       <Transition name="m-chatup">
@@ -257,6 +254,53 @@
         </div>
       </Transition>
     </template>
+
+    <!-- 桌面聊天弹窗（唯一聊天窗）：同事私聊 / 房间群聊两模式；手机端走底部抽屉 -->
+    <Teleport to="body">
+      <Transition name="office-fade">
+        <div v-if="chatPopup" class="chat-pop">
+          <div class="chat-pop-head">
+            <template v-if="chatPopup.mode === 'colleague' && selectedColleague">
+              <span class="chat-pop-av" :style="{ background: deskColor(selectedColleague) }">
+                <img v-if="selectedColleague.avatar_url" :src="selectedColleague.avatar_url" alt="" />
+                <span v-else>{{ avatarInitial(selectedColleague.name) }}</span>
+              </span>
+              <div class="chat-pop-tt">
+                <div class="chat-pop-n">{{ selectedColleague.name || selectedColleague.role_key }}</div>
+                <div class="chat-pop-s"><i :style="{ background: avatarDotColor(selectedColleague) }"></i>{{ statusText(selectedStatus.status) }}<template v-if="selectedStatus.activity"> · {{ selectedStatus.activity }}</template></div>
+              </div>
+            </template>
+            <template v-else>
+              <span class="chat-pop-av">群</span>
+              <div class="chat-pop-tt">
+                <div class="chat-pop-n">团队群聊</div>
+                <div class="chat-pop-s">{{ roomColleagues.length }} 位成员</div>
+              </div>
+            </template>
+            <button class="chat-pop-x" type="button" title="收起" @click="closeChat">✕</button>
+          </div>
+          <div class="chat-pop-body">
+            <OfficeRoomChat
+              v-if="chatPopup.mode === 'room'"
+              :colleagues="roomColleagues"
+              :context="officeChatContext"
+              :context-summary="officeContextSummary"
+              :status-meta="statusMetaEntries"
+              :status-map="statusMap"
+              @open-dm="onRoomOpenDm"
+              @persona="onRoomPersona"
+            />
+            <OfficeColleagueChatPanel
+              v-else-if="selectedColleague"
+              :colleague="selectedColleague"
+              :context="officeChatContext"
+              :context-summary="officeContextSummary"
+              default-expanded
+            />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <Teleport to="body">
       <Transition name="office-fade">
@@ -335,6 +379,7 @@ import { useOfficeSocket } from '@/composables/useOfficeSocket'
 import AiOfficeManagement from './AiOfficeManagement.vue'
 import GovernancePanel from './GovernancePanel.vue'
 import Office3DCanvas from './Office3DCanvas.vue'
+import OfficeHoverCard from './OfficeHoverCard.vue'
 import OfficeColleagueChatPanel from './OfficeColleagueChatPanel.vue'
 import OfficeRoomChat from './OfficeRoomChat.vue'
 import ColleaguePersonaCard from '@/components/assistant/ColleaguePersonaCard.vue'
@@ -386,8 +431,7 @@ const officeChatContext = computed<AssistantContext>(() => ({
   quotationId: (route.query.quotationId as string) || null,
 }))
 
-// ── 检查器双域：团队群（房间聊天）/ 同事（DM 检查器）+ 同事名片浮层 ──
-const inspectorTab = ref<'room' | 'colleague'>('colleague')
+// ── 同事名片浮层（悬停卡/名册/房间均可唤起）──
 const personaRef = ref<InstanceType<typeof ColleaguePersonaCard> | null>(null)
 
 function missionOf(roleKey?: string | null) {
@@ -408,8 +452,8 @@ function onRoomPersona(colleague: any, ev: MouseEvent) {
 }
 
 function onRoomOpenDm(roleKey?: string) {
-  inspectorTab.value = 'colleague'
-  if (roleKey) selectColleague(roleKey)
+  if (roleKey) openChat(roleKey)
+  else openChat('room')
 }
 
 function onPersonaTask(roleKey?: string) {
@@ -454,7 +498,6 @@ watch(
 const isMobile = ref(false)
 let _mqListener: ((e: MediaQueryListEvent) => void) | null = null
 const tasksOpen = ref(false)
-const chatLayerOpen = ref(false)
 /* 管理面三个全屏层任一打开时给 body 挂标记（z900 全屏层会被悬浮横幅 z2100 / AI 悬浮球 z1550 压住），
    悬浮件据此让位——与同事档案弹层的 em-editor-modal-open 同一机制 */
 watch([manageOpen, governanceOpen, tasksOpen], ([m, g, t]) => {
@@ -465,11 +508,7 @@ const missionFocus = ref<{ missionId?: string; roleKey?: string } | null>(null)
 const runningMissionCount = computed(
   () => missions.value.filter((m) => m.status === 'running' || m.status === 'queued').length,
 )
-// 3D 点同事与头像行殊途同归：同一 selectedRoleKey，聊天层从底部升起
-function openChatMobile(roleKey: string) {
-  selectedRoleKey.value = roleKey
-  chatLayerOpen.value = true
-}
+// 3D 点同事与头像行殊途同归：同一 selectedRoleKey，进统一聊天窗（全端一套）
 function onMobileMoreMenu({ key }: { key: string | number }) {
   if (key === 'tasks') tasksOpen.value = true
   else if (key === 'gov') governanceOpen.value = true
@@ -485,9 +524,12 @@ onMounted(() => {
   const mq = window.matchMedia('(max-width: 860px)')
   _mqListener = (e) => { isMobile.value = e.matches }
   mq.addEventListener('change', _mqListener)
+  // 名册钉住的悬停卡：点卡外任意处关闭
+  document.addEventListener('click', onDocClickClose)
 })
 onBeforeUnmount(() => {
   if (_mqListener) window.matchMedia('(max-width: 860px)').removeEventListener('change', _mqListener)
+  document.removeEventListener('click', onDocClickClose)
 })
 
 function avatarInitial(name?: string): string {
@@ -519,19 +561,92 @@ function statusText(status: string): string {
   return behaviorStatusMeta(status).label || status || '空闲'
 }
 
-function statusPillStyle(status: string) {
-  const color = behaviorStatusMeta(status).color || '#9aa4b2'
-  return {
-    color,
-    borderColor: color,
-    background: `${color}1a`,
-  }
-}
-
-
 function selectColleague(roleKey: string) {
   selectedRoleKey.value = roleKey
+  // 桌面：3D 点同事 = 打开聊天弹窗（唯一聊天窗）；手机走底部抽屉
+  if (!isMobile.value) openChat(roleKey)
 }
+
+// ── 悬停卡（对齐 workstation-teacher hcard 契约：悬停现/移开延迟隐/卡上保持）──
+// 定位锁定：同一同事悬停期间卡不跟鼠标跳（否则按钮永远点不到）；换目标才重定位。
+const hoverCard = ref<{ roleKey: string; x: number; y: number; pinned?: boolean } | null>(null)
+let hoverHideTimer: ReturnType<typeof setTimeout> | null = null
+function onCanvasHover(hit: { roleKey: string; x: number; y: number } | null) {
+  if (!hit) { scheduleHoverHide(); return }
+  if (hoverHideTimer) clearTimeout(hoverHideTimer)
+  if (!hoverCard.value || hoverCard.value.roleKey !== hit.roleKey) {
+    hoverCard.value = hit
+  }
+}
+function scheduleHoverHide() {
+  if (hoverHideTimer) clearTimeout(hoverHideTimer)
+  hoverHideTimer = setTimeout(() => { hoverCard.value = null }, 260)
+}
+function keepHoverCard() {
+  if (hoverHideTimer) clearTimeout(hoverHideTimer)
+}
+const hoverColleague = computed(() =>
+  hoverCard.value ? colleagues.value.find((c) => c.role_key === hoverCard.value!.roleKey) || null : null)
+const hoverStatus = computed(() =>
+  hoverCard.value ? statusFor(hoverCard.value.roleKey) : emptyStatus)
+const hoverColor = computed(() =>
+  hoverColleague.value ? deskColor(hoverColleague.value) : 'var(--cpq-accent-primary)')
+const hoverStats = computed(() => {
+  const list = missions.value.filter((m) => m.owner_role_key === hoverCard.value?.roleKey)
+  return {
+    active: list.filter((m) => m.status === 'running' || m.status === 'queued').length,
+    done: list.filter((m) => m.status === 'done' || m.status === 'completed').length,
+    total: list.length,
+  }
+})
+
+// 名册点同事 = 与 3D 悬停同一张卡（钉住，点卡外关闭），不直接开聊天窗
+function showRailCard(colleague: any, ev: MouseEvent) {
+  if (hoverHideTimer) clearTimeout(hoverHideTimer)
+  hoverCard.value = { roleKey: colleague.role_key, x: ev.clientX, y: ev.clientY, pinned: true }
+}
+function onDocClickClose(e: MouseEvent) {
+  if (!hoverCard.value?.pinned) return
+  const t = e.target as HTMLElement
+  if (t.closest('.ohc') || t.closest('.rail-item')) return
+  hoverCard.value = null
+}
+function hoverChat() {
+  const c = hoverColleague.value
+  hoverCard.value = null
+  if (c) openChat(c.role_key)
+}
+function hoverProfile(ev: MouseEvent) {
+  const c = hoverColleague.value
+  hoverCard.value = null
+  if (c) openPersonaCard(c, ev)
+}
+
+// ── 桌面聊天弹窗（唯一聊天窗）：同事私聊 / 房间群聊 ──
+const chatPopup = ref<null | { mode: 'colleague' | 'room' }>(null)
+function closeChat() { chatPopup.value = null }
+function openChat(roleKeyOrMode: string) {
+  if (roleKeyOrMode === 'room') {
+    chatPopup.value = { mode: 'room' }
+    return
+  }
+  selectedRoleKey.value = roleKeyOrMode
+  chatPopup.value = { mode: 'colleague' }
+}
+
+// ── 右栏「今日」：状态分布（同事 × 实时状态）──
+const workingCount = computed(() =>
+  roomColleagues.value.filter((c) => statusFor(c.role_key).status === 'working').length)
+const railStatusSegs = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const c of roomColleagues.value) {
+    const s = statusFor(c.role_key).status || 'idle'
+    counts[s] = (counts[s] || 0) + 1
+  }
+  return Object.entries(counts)
+    .map(([status, count]) => ({ status, count, label: statusText(status), color: behaviorStatusMeta(status).color || '#9aa4b2' }))
+    .sort((a, b) => b.count - a.count)
+})
 
 function formatEventTime(ts?: number): string {
   if (!ts) return '--:--:--'
@@ -757,27 +872,56 @@ onDeactivated(() => {
   box-shadow: 0 0 8px var(--cpq-color-success, #52c9a0);
 }
 
-/* Three-zone workspace: center map + right inspector */
+/* 三栏工作区（无顶栏）：左=任务看板（回桌面）｜中=3D 办公区满高｜右=办公室状态栏 */
 .office-workspace {
   flex: 1;
   min-height: 0;
-  display: flex;
+  display: grid;
+  grid-template-columns: 264px minmax(0, 1fr) 312px;
   overflow: hidden;
 }
 
 
-/* Left command / colleagues sidebar */
+/* 左栏：任务看板平铺全高（无玻璃罩框） */
 .office-sidebar {
-  width: 292px;
-  flex-shrink: 0;
   min-height: 0;
   overflow-y: auto;
-  padding: 14px;
+  padding: var(--cpq-space-4);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--cpq-space-3);
   border-right: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
 }
+
+/* 看板头（标题行 + 打开看板） */
+.board-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--cpq-space-2);
+}
+.board-head-text { min-width: 0; }
+.board-title { font-size: var(--cpq-font-size-base); font-weight: 700; color: var(--cpq-text-primary); }
+.board-desc { margin-top: 2px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+
+/* 顶部回桌面（桌面左栏=全宽行；移动顶栏=紧凑图标） */
+.ws-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--cpq-space-2);
+  height: 34px;
+  padding: 0 var(--cpq-space-3);
+  border-radius: var(--cpq-radius-md);
+  color: var(--cpq-text-secondary);
+  background: var(--cpq-glass-2-bg);
+  border: 1px solid var(--cpq-glass-border);
+  font-size: var(--cpq-font-size-sm);
+  font-weight: 600;
+  transition: all var(--cpq-dur-1) var(--cpq-ease-out-expo);
+}
+.ws-back:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.office-sidebar .ws-back { width: 100%; justify-content: flex-start; }
 
 .office-sidebar::-webkit-scrollbar {
   width: 8px;
@@ -995,18 +1139,28 @@ onDeactivated(() => {
   overflow: hidden;
 }
 
-.map-toolbar {
-  height: 42px;
-  flex-shrink: 0;
+/* 画布浮动件：标题 + 图例悬在画布上沿（中栏拉到顶后不再占一行） */
+.map-float {
+  position: absolute;
+  top: var(--cpq-space-3);
+  left: var(--cpq-space-4);
+  right: var(--cpq-space-4);
+  z-index: 5;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 0 18px;
-  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.04));
+  gap: var(--cpq-space-3);
+  padding: var(--cpq-space-2) var(--cpq-space-3);
+  border-radius: var(--cpq-radius-md);
+  background: var(--cpq-glass-3-bg, rgba(18, 24, 38, 0.75));
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--cpq-glass-border);
   font-size: var(--cpq-font-size-sm);
   color: var(--cpq-text-secondary);
+  pointer-events: none;
 }
+.map-float .map-title,
+.map-float .map-legend { pointer-events: auto; }
 
 .map-title {
   display: flex;
@@ -1138,127 +1292,145 @@ onDeactivated(() => {
   white-space: nowrap;
 }
 
-/* Right inspector */
-.inspector-panel {
-  width: 420px;
-  flex-shrink: 0;
+/* ── 右栏：办公室状态栏（命令+今日+名册+房间+动态；平铺分区+发丝线） ── */
+.office-rail {
   min-height: 0;
   overflow-y: auto;
-  padding: 16px;
+  padding: var(--cpq-space-4);
   border-left: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--cpq-space-4);
 }
 
-.inspector-head {
+.rail-cmds {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--cpq-space-2);
+  flex-wrap: wrap;
 }
+.rail-cmds .connection-pill { margin-right: auto; }
 
-/* 检查器双域页签：团队群 / 同事 */
-.inspector-tabs {
-  display: flex;
-  gap: 4px;
-  padding: 8px 10px 0;
+.rail-sec {
+  padding-bottom: var(--cpq-space-4);
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
 }
-.inspector-tab {
-  flex: 1;
-  padding: 7px 0;
-  border-radius: var(--cpq-radius-md);
-  border: 1px solid transparent;
-  background: transparent;
+.rail-sec:last-child { border-bottom: 0; padding-bottom: 0; }
+
+.rail-k {
+  font-size: var(--cpq-font-size-sm);
+  font-weight: 700;
   color: var(--cpq-text-secondary);
-  font-size: 12.5px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s var(--ease, cubic-bezier(0.16, 1, 0.3, 1));
+  margin-bottom: var(--cpq-space-2);
 }
-.inspector-tab:hover:not(:disabled) { color: var(--cpq-accent-primary); }
-.inspector-tab.active {
-  color: var(--cpq-accent-primary);
-  background: var(--cpq-overlay-w4);
-  border-color: var(--cpq-glass-border);
-}
-.inspector-tab:disabled { opacity: 0.45; cursor: not-allowed; }
+.rail-n { color: var(--cpq-text-muted); font-weight: 500; }
 
-/* 头像/名字可点 → 同事名片 */
-.inspector-avatar--click,
-.inspector-name--click { cursor: pointer; }
-.inspector-avatar--click:hover { box-shadow: 0 0 0 3px var(--cpq-overlay-w6); }
-.inspector-name--click:hover { color: var(--cpq-accent-primary); }
-
-.inspector-avatar {
-  width: 48px;
-  height: 48px;
-  border-radius: var(--cpq-radius-lg);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: var(--cpq-font-size-xl);
-  font-weight: 800;
-  overflow: hidden;
-  flex-shrink: 0;
-}
-
-.inspector-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.inspector-identity {
-  min-width: 0;
-  flex: 1;
-}
-
-.inspector-name {
-  font-size: var(--cpq-font-size-lg);
+.rail-big {
+  font-size: var(--cpq-font-size-2xl);
   font-weight: 700;
   color: var(--cpq-text-primary);
+  font-variant-numeric: tabular lining;
+  line-height: 1.1;
 }
+.rail-big small { font-size: var(--cpq-font-size-xs); font-weight: 500; color: var(--cpq-text-muted); margin-left: 4px; }
 
-.inspector-role {
-  margin-top: 3px;
+.rail-bar {
+  display: flex;
+  height: 6px;
+  border-radius: var(--cpq-radius-full);
+  overflow: hidden;
+  gap: 2px;
+  margin: var(--cpq-space-2) 0 var(--cpq-space-1);
+  background: var(--cpq-overlay-w4, rgba(255,255,255,0.04));
+}
+.rail-bar i { display: block; min-width: 3px; }
+.rail-bar-legend { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+.rail-bar-legend span { display: inline-flex; align-items: center; gap: 4px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.rail-bar-legend i { width: 6px; height: 6px; border-radius: 50%; }
+
+.rail-list { display: flex; flex-direction: column; gap: 2px; }
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--cpq-space-2);
+  padding: 6px 8px;
+  border-radius: var(--cpq-radius-md);
+  border: 1px solid transparent;
+  background: none;
+  color: inherit;
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: background var(--cpq-dur-1) var(--cpq-ease-out-expo), border-color var(--cpq-dur-1) var(--cpq-ease-out-expo);
+}
+.rail-item:hover { background: var(--cpq-overlay-w4, rgba(255,255,255,0.04)); border-color: var(--cpq-border-secondary, rgba(255,255,255,0.06)); }
+.rail-item.is-active { border-color: var(--cpq-glass-border-strong, rgba(22,119,255,.4)); background: var(--cpq-overlay-w4, rgba(255,255,255,0.04)); }
+.rail-item-av {
+  width: 30px; height: 30px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; overflow: hidden;
+  color: var(--cpq-accent-on-primary); font-size: var(--cpq-font-size-sm); font-weight: 700;
+}
+.rail-item-av img { width: 100%; height: 100%; object-fit: cover; }
+.rail-item-main { min-width: 0; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.rail-item-main b { font-size: var(--cpq-font-size-sm); font-weight: 600; color: var(--cpq-text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-item-main small { display: inline-flex; align-items: center; gap: 4px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.rail-item-main small i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.rail-cur { font-size: var(--cpq-font-size-xs); color: var(--cpq-accent-primary); flex: none; }
+.rail-chat {
+  flex: none;
+  height: 24px; padding: 0 10px;
+  border-radius: var(--cpq-radius-full);
+  border: 1px solid var(--cpq-glass-border);
+  background: var(--cpq-glass-2-bg);
+  color: var(--cpq-text-secondary);
   font-size: var(--cpq-font-size-xs);
-  color: var(--cpq-text-muted);
-  font-family: ui-monospace, monospace;
+  transition: all var(--cpq-dur-1) var(--cpq-ease-out-expo);
 }
+.rail-chat:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
+.rail-chat--block { width: 100%; height: 30px; margin-top: var(--cpq-space-2); }
 
-.inspector-sections {
-  flex: 1;
-  min-height: 0;
+/* ── 桌面聊天弹窗（唯一聊天窗；手机走底部抽屉） ── */
+.chat-pop {
+  position: fixed;
+  top: 24px; right: 24px; bottom: 24px;
+  width: min(420px, calc(100vw - 48px));
+  z-index: 930;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-}
-
-.inspector-section {
-  padding: 12px;
+  border-radius: var(--cpq-radius-xl);
+  background: var(--cpq-glass-3-bg-solid, rgba(18, 24, 38, 0.94));
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
   border: 1px solid var(--cpq-glass-border);
-  border-radius: var(--cpq-radius-lg);
-  background: var(--cpq-glass-card-bg);
-  backdrop-filter: blur(var(--cpq-glass-card-blur));
-  -webkit-backdrop-filter: blur(var(--cpq-glass-card-blur));
-  box-shadow: var(--cpq-glass-card-shadow);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
 }
-.inspector-chat-section {
-  flex: 1;
-  min-height: 0;
+.chat-pop-head {
   display: flex;
-  padding: 0;
-  border: 0;
-  background: transparent;
+  align-items: center;
+  gap: var(--cpq-space-3);
+  padding: var(--cpq-space-3) var(--cpq-space-4);
+  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
+  flex-shrink: 0;
 }
-
-.inspector-empty {
-  margin: auto;
-  font-size: 13px;
+.chat-pop-av {
+  width: 34px; height: 34px; flex: none; border-radius: 50%;
+  display: grid; place-items: center; overflow: hidden;
+  color: var(--cpq-accent-on-primary); font-weight: 700; font-size: var(--cpq-font-size-sm);
+}
+.chat-pop-av img { width: 100%; height: 100%; object-fit: cover; }
+.chat-pop-tt { min-width: 0; flex: 1; }
+.chat-pop-n { font-size: var(--cpq-font-size-base); font-weight: 700; color: var(--cpq-text-primary); }
+.chat-pop-s { display: inline-flex; align-items: center; gap: 4px; font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
+.chat-pop-s i { width: 6px; height: 6px; border-radius: 50%; }
+.chat-pop-x {
+  flex: none;
+  width: 26px; height: 26px; border-radius: var(--cpq-radius-full);
   color: var(--cpq-text-muted);
-  text-align: center;
+  background: var(--cpq-glass-2-bg); border: 1px solid var(--cpq-glass-border);
+  transition: all var(--cpq-dur-1) var(--cpq-ease-out-expo);
 }
+.chat-pop-x:hover { color: var(--cpq-text-primary); border-color: var(--cpq-glass-border-strong, rgba(22,119,255,.4)); }
+.chat-pop-body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 
 /* Manage Teams full-screen overlay */
 .manager-backdrop {
@@ -1490,61 +1662,7 @@ onDeactivated(() => {
 
 .m-people-empty { font-size: var(--cpq-font-size-xs); color: var(--cpq-text-muted); }
 
-/* 全屏聊天层 */
-.m-chatlayer {
-  position: absolute;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  flex-direction: column;
-  background: var(--cpq-bg-primary);
-}
-
-.m-cl-head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  padding: 14px 15px 10px;
-  border-bottom: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  flex: none;
-}
-
-.m-cl-av {
-  width: 38px;
-  height: 38px;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
-  flex: none;
-  overflow: hidden;
-}
-
-.m-cl-av img { width: 100%; height: 100%; object-fit: cover; }
-
-.m-cl-tt { flex: 1; min-width: 0; }
-.m-cl-n { font-size: 14.5px; font-weight: 800; }
-.m-cl-r { font-size: 10px; color: var(--cpq-text-muted); display: flex; align-items: center; gap: 5px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-.m-cl-r i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-
-.m-cl-body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  padding: 6px 10px 0;
-}
-
-.pd-x { width: 29px; height: 29px; border-radius: var(--cpq-radius-md); border: 1px solid var(--cpq-border-secondary, rgba(255,255,255,0.08));
-  background: var(--cpq-overlay-w5); color: var(--cpq-text-secondary); cursor: pointer; font-size: 13px;
-  display: inline-flex; align-items: center; justify-content: center; flex: none; }
-
-.m-cl-body :deep(.colleague-chat) { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.m-cl-body :deep(.colleague-chat .chat-messages) { flex: 1; min-height: 0; }
+/* 手机聊天窗与桌面共用 .chat-pop 浮动面板（全端一套），不再有底部抽屉层 */
 
 .m-chatup-enter-active,
 .m-chatup-leave-active { transition: transform 0.3s var(--cpq-ease-smooth, ease), opacity 0.3s var(--cpq-ease-smooth, ease); }
@@ -1612,15 +1730,4 @@ onDeactivated(() => {
 
   .manager-shell { border-radius: 0; border: none; }
 }
-
-/* 返回桌面（应用启动台）：工具栏最左，与档案选择器同排 */
-.ws-back {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; flex: none;
-  border-radius: var(--cpq-radius-md);
-  color: var(--cpq-text-secondary);
-  background: var(--cpq-glass-2-bg); border: 1px solid var(--cpq-glass-border);
-  transition: all var(--cpq-dur-1) var(--cpq-ease-out-expo);
-}
-.ws-back:hover { color: var(--cpq-accent-primary); border-color: var(--cpq-accent-primary); }
 </style>
