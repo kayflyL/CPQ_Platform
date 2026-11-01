@@ -966,6 +966,7 @@ const showRightBar = computed(() => !props.preview && (props.inset || !props.emb
 const showContacts = computed(() => !props.preview && (props.inset || !props.embedded) && contacts.value.length >= 2)
 
 async function openGroup(forceNew = false) {
+  await loadThreads().catch(() => {})
   view.value = 'group'
   if (isMobile.value) contactsCollapsed.value = true
   try {
@@ -991,6 +992,8 @@ async function openGroup(forceNew = false) {
 }
 
 async function openDm(c: any) {
+  // 直达路径（工作区悬停卡/名册/3D 点击）没有别的入口先灌数据：先拉同事名单+线程列表
+  await loadThreads().catch(() => {})
   view.value = 'dm'
   if (isMobile.value) contactsCollapsed.value = true
   await switchRole(c.role_key)
