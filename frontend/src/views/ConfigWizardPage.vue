@@ -12,6 +12,11 @@ const modelId = computed(() => Number(route.params.modelId))
 const currentModel = ref<ServerModel | null>(null)
 const loading = ref(false)
 
+/** 面包屑副信息（用途/形态/盘位，空段跳过）——原 ConfigWizard banner 并入此处，机型名全页只出现一次 */
+const modelSub = computed(() =>
+  [currentModel.value?.use, currentModel.value?.base_config?.form,
+   currentModel.value?.base_config?.bays ? `${currentModel.value.base_config.bays} 盘位` : ''].filter(Boolean).join(' · '))
+
 async function loadModel() {
   loading.value = true
   try {
@@ -44,6 +49,7 @@ onMounted(loadModel)
         </button>
         <a-divider type="vertical" />
         <span class="current-model">{{ currentModel?.name || '加载中...' }}</span>
+        <span v-if="modelSub" class="model-sub">{{ modelSub }}</span>
       </div>
 
       <!-- 配置向导 -->
@@ -83,7 +89,11 @@ onMounted(loadModel)
 .current-model {
   color: var(--cpq-text-primary, #E8ECEF);
   font-size: var(--cpq-font-size-base);
-  font-weight: 500;
+  font-weight: 600;
+}
+.model-sub {
+  color: var(--cpq-text-secondary, #9BA1AA);
+  font-size: var(--cpq-font-size-sm);
 }
 .sc-back { padding: 6px 14px; border: 1px solid var(--cpq-border-light,var(--cpq-overlay-w20)); border-radius: var(--cpq-radius-sm); color: var(--cpq-text-secondary,#9BA1AA); background: transparent; cursor: pointer; font-size: 13px; transition: all .2s; }
 .sc-back:hover { color: var(--cpq-accent-primary,#1677FF); border-color: var(--cpq-accent-primary,#1677FF); }

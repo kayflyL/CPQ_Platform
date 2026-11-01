@@ -774,12 +774,7 @@ defineExpose({ getPublicSnapshot })
 
 <template>
   <div class="sc-wizard">
-    <div class="sc-banner">
-      <span class="bm-name">{{ model.name }}</span>
-      <span class="bm-sub">{{ model.use }} · {{ model.base_config?.form }} · {{ model.base_config?.bays }} 盘位</span>
-    </div>
-
-    <!-- 步骤指示器：机箱 + 各 KP 卡片（手机端退役：配置卡自带序号即步骤流） -->
+    <!-- 步骤指示器：机箱 + 各 KP 卡片（手机端退役：配置卡自带序号即步骤流；机型名/规格由宿主页面包屑承载，不再重复） -->
     <div v-if="!isMobile" class="sc-steps">
       <template v-for="(s, i) in navSteps" :key="s.target">
         <div class="sc-step" @click="scrollToPanel(s.target)"><span class="sn">{{ s.n }}</span><span class="st">{{ s.label }}</span></div>
@@ -1102,9 +1097,6 @@ defineExpose({ getPublicSnapshot })
 .sc-step .st { font-size: var(--cpq-font-size-sm); color: var(--cpq-text-secondary,#9BA1AA); transition: all .2s; }
 .sc-step:hover .st { color: var(--cpq-accent-primary,#1677FF); }
 .sc-step-line { flex: 1; height: 1px; background: var(--cpq-overlay-w10); margin: 0 8px; max-width: 60px; }
-.sc-banner { display: flex; align-items: center; gap: 14px; margin-bottom: 18px; flex-shrink: 0; }
-.bm-name { font-size: 18px; font-weight: 600; color: var(--cpq-text-primary, #E8ECEF); }
-.bm-sub { color: var(--cpq-text-secondary,#9BA1AA); font-size: 13px; }
 .sc-layout { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 400px) minmax(0, 1fr) minmax(320px, 360px); gap: 18px; }
 .sc-col-config { min-width: 0; height: 100%; max-height: 100%; display: flex; flex-direction: column; gap: 14px; overflow-y: auto; overscroll-behavior: contain; }
 .sc-col-config > .sc-panel, .sc-col-config > .add-card-wrap { flex-shrink: 0; }
@@ -1181,7 +1173,6 @@ defineExpose({ getPublicSnapshot })
 
 @media (max-width: 768px) {
   .sc-layout { display: flex; flex-direction: column; }
-  .sc-banner { margin-bottom: 10px; }
 }
 
 @media (max-width: 1199px) {
